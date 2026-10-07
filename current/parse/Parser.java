@@ -44,6 +44,7 @@ import stream.FastaReadInputStream;
 import stream.FastaStreamer;
 import stream.FastqStreamer;
 import stream.FastqWriter;
+import stream.MultiWriterPolicy;
 import stream.Read;
 import stream.ReadStreamByteWriter;
 import stream.ReadStreamWriter;
@@ -102,6 +103,7 @@ public class Parser {
 	 */
 	public static boolean parseStatic(String arg, String a, String b) {
 		if(isJavaFlag(arg)){return true;}
+		if(MultiWriterPolicy.parse(a, b)){return true;}
 
 		if(parseQuality(arg, a, b)){return true;}
 		if(parseZip(arg, a, b)){return true;}

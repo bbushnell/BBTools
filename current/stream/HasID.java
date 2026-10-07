@@ -11,7 +11,7 @@ package stream;
  */
 public interface HasID{
 
-	/** Returns unique identifier for this job, used for ordering */
+	/** Returns the ordering identifier; reusable markers can have fixed sentinel IDs. */
 	public long id();
 	
 	/** Returns true if this is a poison pill message signaling thread shutdown */
@@ -20,9 +20,25 @@ public interface HasID{
 	/** Returns true if this is the last job in the sequence */
 	public boolean last();
 
-	/** Factory: returns a new poison-pill instance of this job type carrying the given id. Serves double duty in OrderedQueueSystem: poison() puts one on the INPUT queue to shut workers down, and setFinished() puts one on the OUTPUT queue to terminate the consumer. */
+	/**
+	 * Supplies a poison marker of the implementing job type.
+	 * Allocation and ID handling belong to the concrete implementation: most create
+	 * a new marker with the requested ID, while {@link stream.bam.BgzfInputJob} reuses
+	 * a singleton with Long.MAX_VALUE and ignores the argument. Callers must use a
+	 * marker policy compatible with their consumer rather than assume a fresh instance.
+	 * Queue wrappers use poison markers for input-side and output-side termination;
+	 * this interface does not perform either operation itself.
+	 * @param id Requested marker ID, which a fixed-sentinel implementation may ignore
+	 * @return A job-type marker whose poison() returns true, possibly a shared instance
+	 */
 	public HasID makePoison(long id);
-	/** Factory: returns a new 'last' marker instance of this job type carrying the given id. Used on the OUTPUT side to mark end-of-ordered-sequence (see OrderedQueueSystem.poison). */
+	/**
+	 * Creates a new last-job marker carrying the supplied ID.
+	 * Consumers use this to mark the end of an ordered sequence; the marker itself
+	 * does not close resources or perform queue operations.
+	 * @param id Ordering ID for the new marker
+	 * @return New job-type marker whose last() returns true and whose id() returns id
+	 */
 	public HasID makeLast(long id);
 	
 }

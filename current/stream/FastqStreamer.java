@@ -29,15 +29,15 @@ public class FastqStreamer implements Streamer{
 
 	/** Legacy throughput driver that delegates reader selection to StreamerFactory.
 	 * Positional arguments select input, default workers, the legacy SIMD toggle and
-	 * vector validation. The existing ungated SIMD toggle remains separately deferred.
+	 * vector validation. A present SIMD argument requests capability-gated SIMD.
 	 * @param args Input filename followed by optional driver settings
 	 */
 	public static void main(final String[] args){
 		Timer t=new Timer();
 		String fname=args[0];
 		if(args.length>1){DEFAULT_THREADS=Integer.parseInt(args[1]);}
-		//TODO: Probable bug - STR-006: this standalone driver forces SIMD without the JVM/hardware gate used by normal launchers.
-		if(args.length>2){Shared.SIMD=true;}
+		//STR-006: Preserve the argument-presence trigger while honoring JVM/hardware capability.
+		if(args.length>2){Shared.SIMD=simd.Vector.simd256;}
 		if(args.length>3){Read.VALIDATE_VECTOR=Parse.parseBoolean(args[3]);}
 
 		FileFormat ff=FileFormat.testInput(fname, FileFormat.FASTQ, null, true, true);

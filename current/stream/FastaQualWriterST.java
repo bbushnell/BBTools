@@ -39,9 +39,17 @@ public class FastaQualWriterST implements Writer{
 	 */
 	public FastaQualWriterST(FileFormat ffFa, String qf,
 			boolean writeR1_, boolean writeR2_){
+		this(ffFa, qf, writeR1_, writeR2_, false);
+	}
+
+	/** Internal constructor selecting writer-thread-only compression when lightweight_ is true. */
+	FastaQualWriterST(FileFormat ffFa, String qf,
+			boolean writeR1_, boolean writeR2_, boolean lightweight_){
+		lightweight=lightweight_;
 		ffoutFa=ffFa;
 		//Qual file must mirror the fasta's append mode or the two files desynchronize on app=t
-		ffoutQual=FileFormat.testOutput(qf, FileFormat.QUAL, null, true, true, ffFa.append(), false);
+		ffoutQual=(lightweight ? LightweightWriterFactory.qualFormat(ffFa, qf)
+			: FileFormat.testOutput(qf, FileFormat.QUAL, null, true, true, ffFa.append(), false));
 		fnameFa=ffFa.name();
 		fnameQual=qf;
 
@@ -60,8 +68,20 @@ public class FastaQualWriterST implements Writer{
 
 		// Open output streams
 		//ff.append() must be honored: app=t previously truncated (hardcoded false; replicated via stream.sh 2026-09-05)
-		outstreamFa=ReadWrite.getOutputStream(fnameFa, ffFa.append(), true, ffFa.allowSubprocess());
-		outstreamQual=ReadWrite.getOutputStream(fnameQual, ffoutQual.append(), true, ffoutQual.allowSubprocess());
+		if(lightweight){
+			LightweightOutputStream.validate(ffoutQual);
+			outstreamFa=LightweightOutputStream.open(ffFa);
+			try{outstreamQual=LightweightOutputStream.open(ffoutQual);}
+			catch(RuntimeException|Error e){
+				try{outstreamFa.close();}catch(IOException closeError){e.addSuppressed(closeError);}
+				throw e;
+			}
+		}else{
+			//TODO: Possible bug [stream/FastaQualWriterST#004] - if opening QUAL throws after FASTA opens,
+			//the ordinary branch does not close FASTA. Exceptional-path reachability remains untested.
+			outstreamFa=ReadWrite.getOutputStream(fnameFa, ffFa.append(), true, ffFa.allowSubprocess());
+			outstreamQual=ReadWrite.getOutputStream(fnameQual, ffoutQual.append(), true, ffoutQual.allowSubprocess());
+		}
 
 		if(verbose){outstream.println("Made FastaQualWriterST for "+fnameFa);}
 	}
@@ -159,8 +179,8 @@ public class FastaQualWriterST implements Writer{
 			}
 		}
 
-		boolean b=ReadWrite.finishWriting(null, outstreamFa, fnameFa, ffoutFa.allowSubprocess());
-		boolean b2=ReadWrite.finishWriting(null, outstreamQual, fnameQual, ffoutQual.allowSubprocess());
+		boolean b=ReadWrite.finishWriting(null, outstreamFa, fnameFa, ffoutFa.allowSubprocess() && !lightweight);
+		boolean b2=ReadWrite.finishWriting(null, outstreamQual, fnameQual, ffoutQual.allowSubprocess() && !lightweight);
 
 		outstreamFa=null;
 		outstreamQual=null;
@@ -355,6 +375,8 @@ public class FastaQualWriterST implements Writer{
 	private final boolean writeR1;
 	/** Whether to format second mates selected from entries or mate links. */
 	private final boolean writeR2;
+	/** Restricts both compression streams to this writer's output thread. */
+	private final boolean lightweight;
 
 	/** Always true for this writer’s queue configuration. */
 	private final boolean ordered;

@@ -3,6 +3,7 @@ package stream;
 import java.util.HashMap;
 
 import fileIO.TextFile;
+import parse.LineParserS1;
 
 /**
  * Renames reference scaffolds in a SAM/BAM stream from a 2-column old&rarr;new TSV.
@@ -37,12 +38,16 @@ public class ScaffoldRenamer{
 	 */
 	public ScaffoldRenamer(String tsvPath){
 		map=new HashMap<String, String>();
+		final LineParserS1 lp=new LineParserS1('\t');
 		TextFile tf=new TextFile(tsvPath);
 		for(String line=tf.nextLine(); line!=null; line=tf.nextLine()){
 			if(line.length()==0 || line.charAt(0)=='#'){continue;}
-			String[] s=line.split("\t");
-			assert(s.length>=2) : "Expected 2-column 'old<tab>new' TSV, got: "+line;
-			map.put(s[0], s[1]);
+			lp.set(line);
+			int terms=lp.terms();
+			//String.split discards trailing empty fields; preserve its column-count check.
+			while(terms>0 && lp.length(terms-1)==0){terms--;}
+			assert(terms>=2) : "Expected 2-column 'old<tab>new' TSV, got: "+line;
+			map.put(lp.parseString(0), lp.parseString(1));
 		}
 		tf.close();
 		assert(!map.isEmpty()) : "No rename pairs loaded from "+tsvPath;
@@ -55,23 +60,27 @@ public class ScaffoldRenamer{
 	/**
 	 * Rewrites the first SN: field of an {@code @SQ} header line via the rename map.
 	 * Uses an @SQ prefix check and stops at the first SN: field even if it has no mapping.
-	 * A mapping hit rejoins the split fields with tabs; otherwise the original string is returned.
+	 * A mapping hit rebuilds the line without trailing empty fields, preserving the legacy
+	 * split/join result; otherwise the original string is returned.
 	 * @param line A single SAM header line; null is returned unchanged
 	 * @return Rebuilt line on a nonnull mapping hit, or the original reference otherwise
 	 */
 	public String renameHeaderLine(String line){
 		if(line==null || !line.startsWith("@SQ")){return line;}
-		String[] parts=line.split("\t");
-		for(int i=1; i<parts.length; i++){
-			if(parts[i].startsWith("SN:")){
-				String old=parts[i].substring(3);
-				String renamed=map.get(old);
-				if(renamed!=null){
-					parts[i]="SN:"+renamed;
-					return String.join("\t", parts);
-				}
-				break;
+		int tab=line.indexOf('\t');
+		while(tab>=0){
+			final int start=tab+1, next=line.indexOf('\t', start);
+			final int stop=(next<0 ? line.length() : next);
+			if(stop-start>=3 && line.startsWith("SN:", start)){
+				final String renamed=map.get(line.substring(start+3, stop));
+				if(renamed==null){return line;}
+				int end=line.length();
+				while(end>0 && line.charAt(end-1)=='\t'){end--;}
+				assert(end>=stop) : "SN: makes the field nonempty; trailing-tab trimming must retain it before appending the suffix: stop="+stop+", end="+end;
+				return new StringBuilder(line.length()).append(line, 0, start+3).append(renamed)
+						.append(line, stop, end).toString();
 			}
+			tab=next;
 		}
 		return line;
 	}

@@ -16,21 +16,27 @@ import structures.ByteBuilder;
 import structures.ListNum;
 
 /**
- * Implementation that allows multiple concurrent open streams for read distribution.
- * Manages buffered reads per output destination and automatically handles stream
- * lifecycle including creation, retirement, and resource cleanup. Optimized for
- * scenarios with many output files where memory pressure requires stream limits.
+ * Buffered named-read routing with a bounded number of open CROS destinations.
+ * Each destination retains a buffer and optional cardinality tracker after retirement.
+ * The stream limit counts destinations, not physical mate files or internal threads.
+ * Eligible buffers flush by size or memory pressure; cumulative individual-read
+ * counts below minReadsToDump remain buffered even during normal close.
+ * Destination descriptors append on reopen; overwrite deletes files on the first open.
+ * The inherited threaded flag controls outer list transfer, independently of CROS threads.
+ * Direct add(Read, String) calls require one routing owner and must not bypass a
+ * running outer transfer thread. Lists handed to CROS are replaced, not copied;
+ * retain Read payloads until downstream output has completed.
  *
  * @author Brian Bushnell
  * @date May 14, 2019
  */
-public class MultiCros3 extends BufferedMultiCros {
+public class MultiCros3 extends BufferedMultiCros{
 	
 	/**
 	 * Testing main method that demonstrates basic usage.
 	 * Creates a MultiCros3 instance and processes reads from input file,
 	 * distributing them to output files based on barcode.
-	 * @param args Command-line arguments: {input file, output pattern, names...}
+	 * @param args Positional input and output pattern; trailing names are parsed but unused
 	 */
 	public static void main(String[] args){
 		
@@ -79,15 +85,15 @@ public class MultiCros3 extends BufferedMultiCros {
 	 * Constructs a MultiCros3 with specified configuration parameters.
 	 * Initializes buffer map and stream queue for managing multiple concurrent streams.
 	 *
-	 * @param pattern1_ Primary output file pattern with % placeholder for names
+	 * @param pattern1_ Primary pattern; the first percent uses replaceFirst name substitution
 	 * @param pattern2_ Secondary output file pattern (may be null)
 	 * @param overwrite_ Whether to overwrite existing output files
-	 * @param append_ Whether to append to existing files
+	 * @param append_ Stored base option; this implementation opens destination descriptors in append mode
 	 * @param allowSubprocess_ Whether to allow subprocess spawning for compression
 	 * @param useSharedHeader_ Whether to use shared header across files
 	 * @param defaultFormat_ Default file format for outputs
-	 * @param threaded_ Whether to use threaded I/O
-	 * @param maxStreams_ Maximum number of concurrent open streams
+	 * @param threaded_ Whether the inherited list path uses an outer routing thread
+	 * @param maxStreams_ Maximum number of open destination streams, not physical files
 	 */
 	public MultiCros3(String pattern1_, String pattern2_,
 			boolean overwrite_, boolean append_, boolean allowSubprocess_, boolean useSharedHeader_, int defaultFormat_, boolean threaded_, int maxStreams_){
@@ -101,8 +107,8 @@ public class MultiCros3 extends BufferedMultiCros {
 	/*----------------        Outer Methods         ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Checks if all operations completed without errors.
-	 * @return true if no error state occurred, false otherwise */
+	/** Reads the cached error flag without checking completion or waiting.
+	 * @return true when errorState is clear */
 	@Override
 	public boolean finishedSuccessfully(){
 		return !errorState;
@@ -113,8 +119,9 @@ public class MultiCros3 extends BufferedMultiCros {
 	 * Creates a new buffer if one doesn't exist for this name.
 	 * May trigger buffer dumps if thresholds are exceeded.
 	 *
-	 * @param r The read to add
-	 * @param name The destination name/barcode for routing the read
+	 * This direct method runs on the calling routing owner; it does not enqueue work.
+	 * @param r Nonnull read root; its mate contributes to individual-read/base counts
+	 * @param name Destination name used as a replaceFirst replacement string
 	 */
 	@Override
 	public void add(Read r, String name){
@@ -128,10 +135,12 @@ public class MultiCros3 extends BufferedMultiCros {
 	}
 	
 	/**
-	 * Dumps residual reads from all buffers that didn't meet minimum dump threshold.
-	 * These are reads that were buffered but never written due to insufficient quantity.
-	 * @param rosu Output stream for residual reads (may be null)
-	 * @return Number of residual reads dumped
+	 * Disposes of below-minimum buffers after ordinary close has drained eligible ones.
+	 * All buffer list references are cleared, so this is a terminal, single-use operation.
+	 * Residual counts include mates and accumulate even when the output is null.
+	 * @param rosu Optional residual output; each submitted list uses ID zero, so the
+	 * sink must tolerate repeated IDs rather than require a dense increasing sequence
+	 * @return Cumulative residual individual-read count
 	 */
 	@Override
 	public long dumpResidual(ConcurrentReadOutputStream rosu){
@@ -139,7 +148,7 @@ public class MultiCros3 extends BufferedMultiCros {
 		//If so, dump it into the stream
 		for(Entry<String, Buffer> e : bufferMap.entrySet()){
 			Buffer b=e.getValue();
-			assert((b.readsIn<minReadsToDump) == (b.list!=null && !b.list.isEmpty()));
+			assert((b.readsIn<minReadsToDump)==(b.list!=null && !b.list.isEmpty()));
 			if(b.readsIn>0 && b.readsIn<minReadsToDump){
 				assert(b.list!=null && !b.list.isEmpty());
 				residualReads+=b.readsIn;
@@ -152,9 +161,11 @@ public class MultiCros3 extends BufferedMultiCros {
 	}
 	
 	/**
-	 * Generates a summary report of buffer statistics.
-	 * Includes residual read counts and per-buffer dump statistics.
-	 * @return ByteBuilder containing the formatted report
+	 * Reports destinations that have dumped, in first-observation order.
+	 * Rows contain name, cumulative individual reads and bases, plus optional cardinality.
+	 * A three-column residual row is included when the configured minimum is positive.
+	 * Read after routing/finalization to obtain stable totals.
+	 * @return Newly allocated report; this does not itself drain output
 	 */
 	@Override
 	public ByteBuilder report(){
@@ -175,8 +186,8 @@ public class MultiCros3 extends BufferedMultiCros {
 		return bb;
 	}
 	
-	/** Gets the set of all buffer names (keys) currently managed.
-	 * @return Set of buffer names */
+	/** Exposes all observed names, including destinations that never opened a file.
+	 * @return Live key-set view backed by bufferMap; callers must preserve routing state */
 	@Override
 	public Set<String> getKeys(){return bufferMap.keySet();}
 	
@@ -185,12 +196,12 @@ public class MultiCros3 extends BufferedMultiCros {
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Internal close method that dumps all remaining data and retires streams.
-	 * Called during shutdown to ensure all buffered reads are written.
-	 * @return Number of reads dumped during close
+	 * Dumps eligible buffers, then closes and joins all open destination streams.
+	 * Below-minimum buffers remain available for a later terminal dumpResidual call.
+	 * @return Number of root-list entries handed off by dumpAll, excluding separate mate counts
 	 */
 	@Override
-	long closeInner() {
+	long closeInner(){
 		//First dump everything
 		final long x=dumpAll();
 		//Then, retire any active streams
@@ -199,13 +210,13 @@ public class MultiCros3 extends BufferedMultiCros {
 	}
 	
 	/**
-	 * Forces all buffers to dump their contents regardless of size thresholds.
-	 * Used when memory pressure is high or during shutdown.
-	 * @return Total number of reads dumped from all buffers
+	 * Tries every buffer without bypassing the cumulative minimum-read requirement.
+	 * Used under memory pressure and during close; zero may leave ineligible data buffered.
+	 * @return Number of root-list entries handed to destination streams
 	 */
 	@Override
 	long dumpAll(){
-		if(verbose) {
+		if(verbose){
 			System.err.println("before dumpAll: bytesInFlight="+bytesInFlight+
 					", limit="+memLimitUpper+", readsInFlight="+readsInFlight);
 		}
@@ -213,7 +224,7 @@ public class MultiCros3 extends BufferedMultiCros {
 		for(Entry<String, Buffer> e : bufferMap.entrySet()){
 			dumped+=e.getValue().dump();
 		}
-		if(verbose) {
+		if(verbose){
 			System.err.println("after dumpAll: bytesInFlight="+bytesInFlight+
 					", limit="+memLimitUpper+", readsInFlight="+readsInFlight+", dumped="+dumped);
 		}
@@ -221,7 +232,8 @@ public class MultiCros3 extends BufferedMultiCros {
 	}
 	
 	/**
-	 * Closes the least-recently-used stream to free resources.
+	 * Retained older retirement path; no current in-class caller uses it.
+	 * Removes the first stream-queue entry to free resources.
 	 * Dumps any remaining buffered reads before closing the stream.
 	 * Uses either fast or traditional close based on closeFast setting.
 	 */
@@ -260,9 +272,10 @@ public class MultiCros3 extends BufferedMultiCros {
 	}
 	
 	/**
-	 * Retires the specified number of least-recently-used streams.
-	 * Efficiently closes multiple streams in batch with timing metrics.
-	 * @param count Maximum number of streams to retire
+	 * Removes up to count oldest stream-queue entries, flushes them, then closes and joins.
+	 * Recency is refreshed when a buffer requests its stream, not on every incoming read.
+	 * Close requests are issued together before joins; errors are accumulated afterward.
+	 * @param count Nonnegative maximum number of destination streams to retire
 	 */
 	private void retire(int count){
 		if(verbose){System.err.println("Enter retire("+count+"); streamQueue="+streamQueue);}
@@ -271,13 +284,13 @@ public class MultiCros3 extends BufferedMultiCros {
 		
 		ArrayList<Buffer> rlist=new ArrayList<Buffer>(count);
 		//Select the first name in the queue, which is the least-recently-used.
-		for(int i=0; i<count; i++) {
+		for(int i=0; i<count; i++){
 			String name=streamQueue.removeFirst();
 			Buffer b=bufferMap.get(name);
 			rlist.add(b);
 		}
 		time1=System.nanoTime();
-		for(Buffer b : rlist) {
+		for(Buffer b : rlist){
 			if(verbose){
 				System.err.println("retire("+b.name+"); ros="+
 						(b.currentRos!=null)+", streamQueue="+streamQueue);
@@ -288,9 +301,9 @@ public class MultiCros3 extends BufferedMultiCros {
 			b.dump(b.currentRos);
 		}
 		time2=System.nanoTime();
-		for(Buffer b : rlist) {b.currentRos.close();}
+		for(Buffer b : rlist){b.currentRos.close();}
 		time3=System.nanoTime();
-		for(Buffer b : rlist) {
+		for(Buffer b : rlist){
 			ConcurrentReadOutputStream ros=b.currentRos;
 			ros.join();
 			errorState|=(ros.errorState() || !ros.finishedSuccessfully());
@@ -308,7 +321,10 @@ public class MultiCros3 extends BufferedMultiCros {
 		retireCalls++;
 	}
 	
-	public String printRetireTime() {
+	/** Formats four retirement phase timings, normalized by at least one retired stream.
+	 * The separate retires-per-call ratio remains unguarded when there were no calls.
+	 * @return Diagnostic timings; reading this does not wait for output completion */
+	public String printRetireTime(){
 		ByteBuilder bb=new ByteBuilder();
 		float mult=0.001f/Tools.max(1, retireCount);//#001 guard: was /retireCount = Infinity when retireCount==0 (no streams retired, e.g. fewer barcodes than maxStreams). Profiling-only. Family twin of MultiCros6#001.
 		bb.append("Max Streams:\t").append(maxStreams).nl();
@@ -323,14 +339,19 @@ public class MultiCros3 extends BufferedMultiCros {
 		return bb.toString();
 	}
 
+	/** Nanoseconds spent selecting, flushing, requesting close, and joining retired streams. */
 	private long retireTime1=0;
 	private long retireTime2=0;
 	private long retireTime3=0;
 	private long retireTime4=0;
+	/** Total retired destinations and number of retirement invocations. */
 	private long retireCount=0;
 	private long retireCalls=0;
 	
-	public String printCreateTime() {
+	/** Formats creation phase timings using the existing retired-stream normalization.
+	 * The displayed total excludes phase one, which includes any retirement cost.
+	 * @return Diagnostic timing text; not a benchmark or completion barrier */
+	public String printCreateTime(){
 		ByteBuilder bb=new ByteBuilder();
 		float mult=0.001f/Tools.max(1, retireCount);//#001 guard: was /retireCount = Infinity when retireCount==0 (no streams retired, e.g. fewer barcodes than maxStreams). Profiling-only. Family twin of MultiCros6#001.
 		bb.append("Create Time 1:\t").append(createTime1*mult, 2).append(" us").nl();
@@ -342,6 +363,7 @@ public class MultiCros3 extends BufferedMultiCros {
 		return bb.toString();
 	}
 	
+	/** Accumulated creation phases; phase one includes capacity-driven retirement. */
 	private long createTime1=0;
 	private long createTime2=0;
 	private long createTime3=0;
@@ -352,8 +374,11 @@ public class MultiCros3 extends BufferedMultiCros {
 	/*----------------        Inner Classes         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Per-name retained statistics, pending roots and optional active output stream. */
 	private class Buffer implements Comparable<Buffer>{
 		
+		/** Creates append-mode descriptors and optional cardinality state, without opening output.
+		 * @param name_ Replacement string used for the first percent in each pattern */
 		Buffer(String name_){
 			name=name_;
 			timestamp=(bufferTimer++);
@@ -372,6 +397,8 @@ public class MultiCros3 extends BufferedMultiCros {
 			if(verbose){System.err.println("Made buffer for "+name);}
 		}
 		
+		/** Retains a root, updates pair-aware counters/cardinality and checks load thresholds.
+		 * @param r Nonnull root whose payload remains owned by the caller */
 		void add(Read r){
 			//Add the read
 			list.add(r);
@@ -390,6 +417,7 @@ public class MultiCros3 extends BufferedMultiCros {
 			handleLoad();
 		}
 		
+		/** Attempts local/global dumps after size thresholds; minimum-read gating still applies. */
 		private void handleLoad(){
 			//3rd term allows preemptive dumping
 			//More generally, this triggers a dump if the reads in this buffer exceed
@@ -415,12 +443,18 @@ public class MultiCros3 extends BufferedMultiCros {
 			}
 		}
 		
+		/** Flushes a nonempty eligible buffer, opening or refreshing its destination stream.
+		 * @return Root-list entries handed off, or zero for an empty/ineligible buffer */
 		long dump(){
 			if(list.isEmpty() || readsIn<minReadsToDump){return 0;}
 			ConcurrentReadOutputStream ros=getStream();
 			return dump(ros);
 		}
 		
+		/** Hands off this list and replaces it; the supplied stream owns asynchronous output.
+		 * This overload bypasses minimum-read gating and is used during retirement.
+		 * @param ros Existing destination stream
+		 * @return Root-list entries handed off, excluding separate mate counts */
 		long dump(final ConcurrentReadOutputStream ros){
 			if(verbose){System.err.println("Dumping "+name);}
 			if(list.isEmpty()){return 0;}
@@ -435,6 +469,9 @@ public class MultiCros3 extends BufferedMultiCros {
 			
 			//Manage statistics
 			bytesInFlight-=currentBytes;
+			//TODO: Probable bug - STR233: add increases readsInFlight by pairCount(), but
+			//this subtracts root-list size. Paired dumps leave an in-flight counter remainder.
+			//Keep existing units until a separate counter review; memory gating uses bytes.
 			readsInFlight-=size0;
 			readsWritten+=size0;
 			currentBytes=0;
@@ -443,6 +480,8 @@ public class MultiCros3 extends BufferedMultiCros {
 			return size0;
 		}
 		
+		/** Opens the destination if needed and moves its name to the stream queue's end.
+		 * @return Active destination output, newest in the retirement queue */
 		private ConcurrentReadOutputStream getStream(){
 			if(verbose){System.err.println("Enter getStream("+name+"); ros="+(currentRos!=null)+", +streamQueue="+streamQueue);}
 			
@@ -464,6 +503,9 @@ public class MultiCros3 extends BufferedMultiCros {
 			return currentRos;
 		}
 		
+		/** Deletes first-open outputs when overwrite is set, retires capacity, then opens append output.
+		 * Shared headers are requested only before the first dump for this name.
+		 * @return Newly started destination stream */
 		private ConcurrentReadOutputStream createStream(){
 			assert(currentRos==null) : "This should never be called if there is an existing stream.";
 			if(numDumps==0 && overwrite){
@@ -506,44 +548,63 @@ public class MultiCros3 extends BufferedMultiCros {
 			return currentRos;
 		}
 		
+		/** Attempts removal before the first append-mode open when overwrite is requested.
+		 * @param ff Output descriptor; null is ignored */
 		private void delete(FileFormat ff){
 			if(ff==null){return;}
 			assert(overwrite || !ff.exists()) : "Trying to delete file "+ff.name()+", but overwrite=f.  Please add the flag overwrite=t.";
+			//TODO: Probable bug - STR238: FileFormat.deleteIfPresent ignores File.delete's
+			//boolean result. Failed removal can leave old content for the append-mode open.
 			ff.deleteIfPresent();
 		}
 		
-		ByteBuilder appendTo(ByteBuilder bb) {
+		/** Appends this name's cumulative individual reads/bases and optional cardinality.
+		 * @param bb Destination builder
+		 * @return The supplied builder with one newline-terminated row added */
+		ByteBuilder appendTo(ByteBuilder bb){
 			bb.append(name).tab().append(readsIn).tab().append(basesIn);
 			if(trackCardinality){bb.tab().append(loglog.cardinality());}
 			return bb.nl();
 		}
 		
+		/** @return A new String containing this buffer's report row */
 		@Override
 		public String toString(){
 			return appendTo(new ByteBuilder()).toString();
 		}
 		
+		/** Compares creation/last-dump timestamps, which are expected to be distinct.
+		 * @param b Other buffer
+		 * @return Negative when older, positive otherwise */
 		@Override
-		public int compareTo(Buffer b) {
+		public int compareTo(Buffer b){
 			assert(timestamp!=b.timestamp);
 			return timestamp<b.timestamp ? -1 : 1;
 		}
 		
+		/** Destination replacement name and permanently append-mode format descriptors. */
 		private final String name;
 		private final FileFormat ff1;
 		private final FileFormat ff2;
 		
+		/** Currently open stream, or null after retirement. */
 		private ConcurrentReadOutputStream currentRos;
 		
+		/** Pending roots; handed off and replaced on dump, cleared by terminal residual handling. */
 		private ArrayList<Read> list;
 		
+		/** Cumulative individual reads and sequence bases, including mates. */
 		private long readsIn=0;
 		private long basesIn=0;
 		@SuppressWarnings("unused")
 		private long readsWritten=0;//This does not count read2!
+		/** Estimated bytes in the currently pending roots. */
 		private long currentBytes=0;
+		/** Submitted batch count, also used as the next CROS batch ID across reopenings. */
 		private long numDumps=0;
+		/** Monotonic stamp assigned at creation and after each dump. */
 		private long timestamp=-1;
+		/** Optional tracker created with the buffer; configuration must remain stable. */
 		private CardinalityTracker loglog;
 		
 	}
@@ -552,16 +613,20 @@ public class MultiCros3 extends BufferedMultiCros {
 	/*----------------             Fields           ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Source of creation and dump timestamps for retained buffers. */
 	private long bufferTimer=0;
 	
+	/** Active names in stream-request recency order; paired files share one entry. */
 	private final ArrayDeque<String> streamQueue;
 	
+	/** All observed names and retained state, in first-observation order; preserve ownership. */
 	public final LinkedHashMap<String, Buffer> bufferMap;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Static Fields        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Disabled historical fast-close option, used only by the old retirement method. */
 	private static final boolean closeFast=false;
 
 }

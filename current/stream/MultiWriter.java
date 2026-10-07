@@ -20,32 +20,31 @@ import structures.ListNum;
 import structures.SetLoc;
 
 /**
- * A modern, Writer-based successor to MultiCros6.
- * Structurally identical to MultiCros6 (timestamp-sorted LRU retirement + a size heap for
- * opportunistic dumps), but each per-name output is a lightweight single-threaded {@link Writer}
- * obtained from {@link WriterFactory} with threads=1 (ST2 writers in threaded mode: one background
- * format+write thread per open stream, so dumps stay asynchronous like MultiCros6's CROS path but
- * with far less machinery), NOT a ConcurrentReadOutputStream. The 4-phase close+join of MultiCros6's
- * retire() collapses to a single poisonAndWait() per writer (drain queue, join thread, close stream,
- * return errorState). Retirement is still essential: there can be tens of thousands of
- * output files, so only maxStreams writers are kept open at once; a retired name's file is reopened in
- * append mode on reactivation (concatenated gzip members, exactly as MultiCros6 relies on).
- * Measured on an 800k-read 48-group demux (streams=8): wall-time parity with MultiCros6,
- * byte-identical outputs across unpaired, twin-file paired, gzipped, nonthreaded, and minreads modes.
+ * Writer-based multi-destination output selected as mcrostype=7 by BufferedMultiCros.
+ * Buffers reads by name, uses a size heap for opportunistic dumps, and bounds the number
+ * of open per-name Writer instances. Retirement sorts a prefix of queue candidates by
+ * logical timestamp; it is not a global least-recently-used search.
+ * Reopened outputs use append mode, with an optional first-open deletion for overwrite.
+ * Each writer is requested from WriterFactory with threads=1. Its actual implementation
+ * and background-thread policy depend on format and available threads; paired outputs
+ * may wrap two writers. The inherited threaded flag controls the outer transfer queue,
+ * independently of those per-output writer choices.
  *
- * Registered as mcrostype=7 in BufferedMultiCros.make(). It is a BufferedMultiCros subclass for
- * backwards-compatible drop-in into NovaDemux/DemuxByName2 even though it never uses CROS.
+ * Historical implementation note: an 800k-read, 48-group demux with streams=8 was
+ * reported to match MultiCros6 wall time and produce byte-identical unpaired, twin-file,
+ * gzipped, nonthreaded and minreads outputs. This is retained prior evidence, not a
+ * benchmark of the current implementation.
  *
  * @author Brian Bushnell
  * @contributor Furina
  * @date June 25, 2026
  */
-public class MultiWriter extends BufferedMultiCros {
+public class MultiWriter extends BufferedMultiCros{
 
 	/**
-	 * For testing.<br>
-	 * args should be:
-	 * {input file, output pattern, names...}
+	 * Diagnostic driver that routes input reads by their barcode to the output pattern.
+	 * Takes input and output-pattern arguments; additional names are parsed but unused.
+	 * Uses direct single-read additions and closes both input and output after iteration.
 	 */
 	public static void main(String[] args){
 
@@ -67,6 +66,8 @@ public class MultiWriter extends BufferedMultiCros {
 		ArrayList<Read> reads=(ln!=null ? ln.list : null);
 
 		//Process all remaining lists
+		//TODO: Probable load-policy bug (STR383) - this direct-add driver omits the per-list
+		//handleLoad0 check used by batch submission; lazy outputs can retain input until final close.
 		while(reads!=null && reads.size()>0){
 
 			//Add the reads by barcode
@@ -90,7 +91,19 @@ public class MultiWriter extends BufferedMultiCros {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** @See Details in superclass constructor */
+	/**
+	 * Initializes inherited output settings, the name map, retirement queue and size heap.
+	 * Does not start this outer thread or open any per-name writer.
+	 * @param pattern1_ Primary pattern containing a percent placeholder; the parent expands # for twin files
+	 * @param pattern2_ Optional second pattern containing a percent placeholder
+	 * @param overwrite_ Whether to delete existing outputs before the first writer is created
+	 * @param append_ Stored by the parent; per-name descriptors always use append mode
+	 * @param allowSubprocess_ Whether output descriptors permit subprocesses
+	 * @param useSharedHeader_ Whether to request shared headers on the first writer for each name
+	 * @param defaultFormat_ Fallback output format
+	 * @param threaded_ Whether the inherited list-submission API uses an outer transfer thread
+	 * @param maxStreams_ Maximum number of open per-name Writer instances
+	 */
 	public MultiWriter(String pattern1_, String pattern2_,
 			boolean overwrite_, boolean append_, boolean allowSubprocess_, boolean useSharedHeader_, int defaultFormat_, boolean threaded_, int maxStreams_){
 		super(pattern1_, pattern2_, overwrite_, append_, allowSubprocess_, useSharedHeader_, defaultFormat_, threaded_, maxStreams_);
@@ -104,11 +117,17 @@ public class MultiWriter extends BufferedMultiCros {
 	/*----------------        Outer Methods         ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Returns the inverse of the accumulated error flag; this query does not wait for completion. */
 	@Override
-	public boolean finishedSuccessfully(){
-		return !errorState;
-	}
+	public boolean finishedSuccessfully(){return !errorState;}
 
+	/**
+	 * Adds a nonnull read and its mate to the named logical buffer without copying them.
+	 * Called by inherited list routing, or directly by the single owner in nonthreaded mode.
+	 * This overload updates the buffer but does not perform the list API's global load check.
+	 * @param r Submitted first read, with an optional mate
+	 * @param name Destination name used in pattern replacement
+	 */
 	@Override
 	public void add(Read r, String name){
 		Buffer b=bufferMap.get(name);
@@ -119,13 +138,14 @@ public class MultiWriter extends BufferedMultiCros {
 		b.add(r);
 	}
 
+	/** Dumps eligible buffers according to available writer slots and estimated-byte thresholds. */
 	@Override
-	void handleLoad0() {
+	void handleLoad0(){
 
 		//Dump opportunistically because there are free streams
 		final int streams=streamQueue.size();
 		final int freeStreams=maxStreams-streams;
-		if(freeStreams>0 && !heap.isEmpty()) {
+		if(freeStreams>0 && !heap.isEmpty()){
 			final float mult=((streams+3f)/(maxStreams+2f));
 			final long mll=(long)(memLimitLower*mult);
 			final int bpb=(int)(bytesPerBuffer*mult);
@@ -133,14 +153,14 @@ public class MultiWriter extends BufferedMultiCros {
 			Buffer b=heap.peek();
 			boolean dump=(b.currentBytes>=bpb && bytesInFlight>=mll);
 			dump|=(b.currentBytes>=bpb*2);
-			if(dump) {
+			if(dump){
 				heap.poll();
 				b.dump(true);
 			}
 		}
 
 		//Dump biggest buffers to free memory
-		while(bytesInFlight>=memLimitMid && !heap.isEmpty()) {
+		while(bytesInFlight>=memLimitMid && !heap.isEmpty()){
 			Buffer b=heap.poll();
 			b.dump(true);
 		}
@@ -157,6 +177,14 @@ public class MultiWriter extends BufferedMultiCros {
 		}
 	}
 
+	/**
+	 * Performs a terminal residual pass after normal output has been drained.
+	 * Buffers below minReadsToDump contribute individual-read and base totals, and their
+	 * lists are optionally handed to the caller's residual CROS with ID 0. Every buffer's
+	 * list is then set to null; this is not a repeatable flush or a preparation for more adds.
+	 * @param rosu Optional residual destination supplied by the caller
+	 * @return Accumulated residual individual-read count
+	 */
 	@Override
 	public long dumpResidual(ConcurrentReadOutputStream rosu){
 		//For each Buffer, check if it contains residual reads
@@ -164,7 +192,7 @@ public class MultiWriter extends BufferedMultiCros {
 		//not a per-name MultiWriter stream - forwarded as-is, exactly like MultiCros6.
 		for(Entry<String, Buffer> e : bufferMap.entrySet()){
 			Buffer b=e.getValue();
-			assert((b.readsIn<minReadsToDump) == (b.list!=null && !b.list.isEmpty()));
+			assert((b.readsIn<minReadsToDump)==(b.list!=null && !b.list.isEmpty()));
 			if(b.readsIn>0 && b.readsIn<minReadsToDump){
 				assert(b.list!=null && !b.list.isEmpty());
 				residualReads+=b.readsIn;
@@ -176,6 +204,11 @@ public class MultiWriter extends BufferedMultiCros {
 		return residualReads;
 	}
 
+	/**
+	 * Returns tab-separated input read/base totals for destinations that have dumped at least once.
+	 * Preserves name insertion order, optionally includes cardinality, and prepends residual
+	 * totals when minReadsToDump is positive. Totals are not a durable-write confirmation.
+	 */
 	@Override
 	public ByteBuilder report(){
 		ByteBuilder bb=new ByteBuilder(1024);
@@ -195,6 +228,7 @@ public class MultiWriter extends BufferedMultiCros {
 		return bb;
 	}
 
+	/** Returns the live key-set view of the insertion-ordered destination map. */
 	@Override
 	public Set<String> getKeys(){return bufferMap.keySet();}
 
@@ -202,8 +236,9 @@ public class MultiWriter extends BufferedMultiCros {
 	/*----------------        Inner Methods         ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Dumps eligible buffers, retires open writers and returns the number of list entries dumped. */
 	@Override
-	long closeInner() {
+	long closeInner(){
 		//First dump everything
 		final long x=dumpAll();
 		assert(heap.isEmpty());
@@ -213,14 +248,15 @@ public class MultiWriter extends BufferedMultiCros {
 		return x;
 	}
 
+	/** Empties the size heap and visits all buffers; destinations below minReadsToDump remain buffered. */
 	@Override
 	long dumpAll(){
-		if(verbose) {
+		if(verbose){
 			System.err.println("before dumpAll: bytesInFlight="+bytesInFlight+
 					", limit="+memLimitUpper+", readsInFlight="+readsInFlight);
 		}
 		long dumped=0;
-		while(!heap.isEmpty()) {
+		while(!heap.isEmpty()){
 			dumped+=heap.poll().dump(true);
 		}
 		//NOTE (not a bug - do not "simplify"): buffers that were in the heap are visited AGAIN here (they
@@ -230,14 +266,19 @@ public class MultiWriter extends BufferedMultiCros {
 		for(Entry<String, Buffer> e : bufferMap.entrySet()){
 			dumped+=e.getValue().dump(true);
 		}
-		if(verbose) {
+		if(verbose){
 			System.err.println("after dumpAll: bytesInFlight="+bytesInFlight+
 					", limit="+memLimitUpper+", readsInFlight="+readsInFlight+", dumped="+dumped);
 		}
 		return dumped;
 	}
 
-	/** Close the least-recently-used streams */
+	/**
+	 * Retires up to retCount writers from a timestamp-sorted prefix of the open-name queue.
+	 * Flushes selected buffers, returns unselected candidates to the queue, and folds each
+	 * selected writer's poisonAndWait result into errorState before dropping its reference.
+	 * @param retCount Requested number of open writers to retire
+	 */
 	private void retire(int retCount){
 		if(verbose){System.err.println("Enter retire("+retCount+"); streamQueue="+streamQueue);}
 		final long time0=System.nanoTime(), time1, time2, time3, time4;
@@ -245,8 +286,8 @@ public class MultiWriter extends BufferedMultiCros {
 		final int sortCount=Tools.min(streamQueue.size(), retCount*2+1, retCount+4);
 
 		ArrayList<Buffer> rlist=new ArrayList<Buffer>(sortCount);
-		//Select the first names in the queue, which are the least-recently-used.
-		for(int i=0; i<sortCount; i++) {
+		//Select a prefix of retirement candidates; timestamps order this subset, not the whole queue.
+		for(int i=0; i<sortCount; i++){
 			String name=streamQueue.removeFirst();
 			Buffer b=bufferMap.get(name);
 			rlist.add(b);
@@ -257,9 +298,9 @@ public class MultiWriter extends BufferedMultiCros {
 		Collections.sort(rlist, TimestampComparator.instance);
 		time1=System.nanoTime();
 		//Flush remaining buffered reads to the (still-open) writers for the retCount oldest; re-queue the rest.
-		for(int i=0; i<sortCount; i++) {
+		for(int i=0; i<sortCount; i++){
 			Buffer b=rlist.get(i);
-			if(i<retCount) {
+			if(i<retCount){
 				b.dump(b.currentWriter);
 				if(verbose){System.err.println("retire("+b.name+","+b.timestamp+")");}
 			}else{
@@ -268,10 +309,9 @@ public class MultiWriter extends BufferedMultiCros {
 			}
 		}
 		time2=System.nanoTime();
-		//Close each retiring writer. poisonAndWait() drains the writer's queue, joins its worker
-		//thread, closes the stream, and returns errorState (true=error) - so the 4-phase CROS
-		//close()+join()+fold collapses to this one call.
-		for(int i=0; i<retCount; i++) {
+		//Delegate normal finalization to each concrete writer and fold its reported error state.
+		//This replaces the separate CROS close/join/fold phases; writer implementations differ.
+		for(int i=0; i<retCount; i++){
 			Buffer b=rlist.get(i);
 			Writer w=b.currentWriter;
 			errorState|=w.poisonAndWait();
@@ -294,10 +334,10 @@ public class MultiWriter extends BufferedMultiCros {
 	 * Resizes heap if necessary to accommodate new buffer.
 	 * @param b Buffer to add to heap (must not already be in heap)
 	 */
-	private void addToHeap(Buffer b) {
+	private void addToHeap(Buffer b){
 		assert(b.loc()<0);
 		assert(b.list.size()>0);
-		if(!heap.hasRoom()) {
+		if(!heap.hasRoom()){
 			heap=heap.resizeNew(heap.CAPACITY*2+1);
 		}
 		heap.add(b);
@@ -308,8 +348,9 @@ public class MultiWriter extends BufferedMultiCros {
 	/*----------------          Profiling           ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Formats retirement profiling totals, with per-retired-writer microseconds and a guarded divisor. */
 	@Override
-	public String printRetireTime() {
+	public String printRetireTime(){
 		ByteBuilder bb=new ByteBuilder();
 		float mult=0.001f/Tools.max(1, retireCount);//guard: /retireCount = Infinity when retireCount==0 (no streams retired). Profiling-only.
 		bb.append("Max Streams:\t").append(maxStreams).nl();
@@ -323,15 +364,22 @@ public class MultiWriter extends BufferedMultiCros {
 		return bb.toString();
 	}
 
+	/** Nanoseconds spent selecting and sorting retirement candidates. */
 	private long retireTime1=0;
+	/** Nanoseconds spent submitting retiring buffers and requeuing other candidates. */
 	private long retireTime2=0;
+	/** Nanoseconds spent finalizing selected writers. */
 	private long retireTime3=0;
+	/** Retained fourth-phase timing field; the folded phase currently adds zero. */
 	private long retireTime4=0;
+	/** Total number of per-name writers retired. */
 	private long retireCount=0;
+	/** Number of retirement calls. */
 	private long retireCalls=0;
 
+	/** Formats creation profiling using retirement count as an approximate guarded normalizer. */
 	@Override
-	public String printCreateTime() {
+	public String printCreateTime(){
 		ByteBuilder bb=new ByteBuilder();
 		float mult=0.001f/Tools.max(1, retireCount);//guard: /retireCount = Infinity when retireCount==0. Profiling-only (approximate normalizer; no createCount field).
 		bb.append("Create Time 1:\t").append(createTime1*mult, 2).append(" us").nl();
@@ -343,10 +391,15 @@ public class MultiWriter extends BufferedMultiCros {
 		return bb.toString();
 	}
 
+	/** Nanoseconds spent freeing writer slots before creation. */
 	private long createTime1=0;
+	/** Retained second-phase creation timer; the folded phase currently adds zero. */
 	private long createTime2=0;
+	/** Nanoseconds spent constructing writers and resetting their batch IDs. */
 	private long createTime3=0;
+	/** Nanoseconds spent starting writers. */
 	private long createTime4=0;
+	/** Nanoseconds spent adding new writer names to the retirement queue. */
 	private long createTime5=0;
 
 	/*--------------------------------------------------------------*/
@@ -358,12 +411,13 @@ public class MultiWriter extends BufferedMultiCros {
 	 * When sufficient reads are present, it opens a Writer and dumps them to it.
 	 * If too many streams are open, it closes another stream first.
 	 */
-	private class Buffer implements SetLoc<Buffer> {
+	private class Buffer implements SetLoc<Buffer>{
 
 		/**
 		 * Constructs buffer for specified output name.
-		 * Files configured for append mode to handle retirement and recreation (the first open is
-		 * preceded by an explicit delete via the deleted flag when overwrite is set).
+		 * Replaces the first percent placeholder using String.replaceFirst and creates ordered,
+		 * append-mode descriptors. First-open overwrite deletion is deferred until writer creation.
+		 * Initializes a logical timestamp, a read list and optional cardinality tracking.
 		 * @param name_ Buffer identifier used in file pattern substitution
 		 */
 		Buffer(String name_){
@@ -413,22 +467,26 @@ public class MultiWriter extends BufferedMultiCros {
 		private void handleLoadB(){
 			final int size=list.size();
 
-			if(currentWriter!=null) {
+			if(currentWriter!=null){
 				assert(heapLoc<0);
-				if(size>=200 || currentBytes>400000) {
+				if(size>=200 || currentBytes>400000){
 					dump(false);
 				}
 				return;
 			}
-			if(heapLoc>=0) {
+			if(heapLoc>=0){
 				heap.jiggleDown(this);
-			}else if(currentBytes>=10000 && readsIn>=minReadsToDump) {
+			}else if(currentBytes>=10000 && readsIn>=minReadsToDump){
 				//Add eventually, but don't pollute the heap with tiny buffers
 				addToHeap(this);
 			}
 		}
 
-		/** Dump buffered reads, creating a stream if needed */
+		/**
+		 * Submits a nonempty eligible buffer, creating a writer if permitted.
+		 * @param force Whether writer creation may retire another output below the lower memory threshold
+		 * @return Number of submitted list entries, or zero if ineligible or no writer is available
+		 */
 		long dump(boolean force){
 			if(list.isEmpty() || readsIn<minReadsToDump){return 0;}
 			Writer ros=getStream(force);
@@ -436,14 +494,18 @@ public class MultiWriter extends BufferedMultiCros {
 		}
 
 		/**
-		 * Dump buffered reads to the writer (asynchronous handoff to its worker thread).
-		 * If the buffer is empty, nothing happens. */
+		 * Hands a nonempty list to the supplied writer with its next dense batch ID.
+		 * Replaces the submitted list, clears estimated buffered bytes and advances dump/timestamp
+		 * statistics. Whether submission formats inline or enqueues work belongs to the writer.
+		 * @param ros Destination writer
+		 * @return Number of list entries handed off, excluding separate mate counts
+		 */
 		long dump(final Writer ros){
 			if(verbose){System.err.println("Dumping "+name);}
 			if(list.isEmpty()){return 0;}
 			final long size0=list.size();
 
-			//Hand the list to the writer; its worker thread formats and writes it.
+			//Hand the list to the writer under its concrete synchronous/asynchronous submission policy.
 			//Ids must be a dense ascending sequence STARTING AT 0 for each writer instance (JobQueue
 			//firstID=0), so nextJobId resets in createStream; numDumps spans retirements and cannot be used.
 			ros.add(list, nextJobId);
@@ -454,6 +516,7 @@ public class MultiWriter extends BufferedMultiCros {
 
 			//Manage statistics
 			bytesInFlight-=currentBytes;
+			//TODO: Probable bug (STR233) - add counts individual reads via pairCount, but this subtracts only list entries.
 			readsInFlight-=size0;
 			readsWritten+=size0;
 			currentBytes=0;
@@ -462,7 +525,7 @@ public class MultiWriter extends BufferedMultiCros {
 			return size0;
 		}
 
-		/** Fetch the writer for this buffer, creating a new one if needed */
+		/** Returns an existing writer and moves its name to the queue tail, or attempts writer creation. */
 		private Writer getStream(boolean force){
 			if(verbose){System.err.println("Enter getStream("+name+"); writer="+(currentWriter!=null)+", +streamQueue="+streamQueue);}
 
@@ -483,11 +546,18 @@ public class MultiWriter extends BufferedMultiCros {
 			return currentWriter;
 		}
 
-		/** Create a ZT writer for this buffer, and stick it in the queue */
+		/**
+		 * Creates and starts a factory-selected writer, resetting its dense batch IDs to zero.
+		 * May decline creation when not forced, writer slots are full and estimated bytes are low.
+		 * Otherwise performs first-open overwrite deletion and retires writers as needed.
+		 * Shared headers are requested only before the destination's first successful handoff.
+		 * @param force Whether to permit retirement below the lower memory threshold
+		 * @return The new writer, or null when creation is deferred
+		 */
 		private Writer createStream(boolean force){
-			if(!force && streamQueue.size()>=maxStreams && bytesInFlight<memLimitLower) {return null;}
+			if(!force && streamQueue.size()>=maxStreams && bytesInFlight<memLimitLower){return null;}
 			assert(currentWriter==null) : "This should never be called if there is an existing stream.";
-			if(!deleted) {
+			if(!deleted){
 				if(numDumps==0 && overwrite){
 					//First time, an existing file must be deleted first, because the ff is set to append mode
 					if(verbose){System.err.println("Deleting "+name+" ; exists? "+ff1.exists());}
@@ -509,10 +579,10 @@ public class MultiWriter extends BufferedMultiCros {
 			time1=System.nanoTime();
 			time2=time1;
 
-			//Create a lightweight writer via the drop-in factory entry point. threads=1 selects the
-			//ST2 writers in THREADED mode (one background format+write thread per open stream), which
-			//keeps dumps asynchronous like MultiCros6's CROS path; threads=0 (synchronous ZT) was
-			//measured ~60% slower here because every dump then formats+writes on this thread.
+			//Request threads=1; the factory chooses format-specific writers and may run FASTQ/FASTA
+			//inline when Shared.threads()<4. Preserve this request and per-instance dense IDs.
+			//Historical implementation note: threads=0 synchronous output was reported about 60%
+			//slower on the original workload; this is not a current performance measurement.
 			currentWriter=WriterFactory.getStream(ff1, ff2, rswBuffers, null, useSharedHeader && numDumps==0, 1);
 			nextJobId=0;//Fresh writer, fresh JobQueue: ids restart at 0
 			time3=System.nanoTime();
@@ -536,6 +606,8 @@ public class MultiWriter extends BufferedMultiCros {
 		private void delete(FileFormat ff){
 			if(ff==null){return;}
 			assert(overwrite || !ff.exists()) : "Trying to delete file "+ff.name()+", but overwrite=f.  Please add the flag overwrite=t.";
+			//TODO: Probable bug (STR238) - deleteIfPresent ignores File.delete's result;
+			//failed removal can leave old content for append-mode output.
 			ff.deleteIfPresent();
 		}
 
@@ -544,32 +616,29 @@ public class MultiWriter extends BufferedMultiCros {
 		 * @param bb ByteBuilder to append the text
 		 * @return The modified ByteBuilder
 		 */
-		ByteBuilder appendTo(ByteBuilder bb) {
+		ByteBuilder appendTo(ByteBuilder bb){
 			bb.append(name).tab().append(readsIn).tab().append(basesIn);
 			if(trackCardinality){bb.tab().append(loglog.cardinality());}
 			return bb.nl();
 		}
 
 		@Override
-		public String toString(){
-			return appendTo(new ByteBuilder()).toString();
-		}
+		public String toString(){return appendTo(new ByteBuilder()).toString();}
 
+		/** Orders larger estimated byte counts first in the min-heap. */
 		@Override
-		public int compareTo(Buffer b) {
+		public int compareTo(Buffer b){
 			long dif=b.currentBytes-currentBytes;
 			return dif<0 ? -1 : dif>0 ? 1 : 0;
 		}
 
+		/** Stores the heap-maintained array position, or -1 when absent. */
 		@Override
-		public void setLoc(int newLoc) {
-			heapLoc=newLoc;
-		}
+		public void setLoc(int newLoc){heapLoc=newLoc;}
 
+		/** Returns the heap-maintained array position. */
 		@Override
-		public int loc() {
-			return heapLoc;
-		}
+		public int loc(){return heapLoc;}
 
 		/** Stream name, which is the variable part of the file pattern */
 		private final String name;
@@ -584,11 +653,11 @@ public class MultiWriter extends BufferedMultiCros {
 		/** Current list of buffered reads */
 		private ArrayList<Read> list;
 
-		/** Number of reads entering the buffer */
+		/** Individual reads received, including mates; used for minReadsToDump and reporting. */
 		private long readsIn=0;
-		/** Number of bases entering the buffer */
+		/** Bases received, including mate bases. */
 		private long basesIn=0;
-		/** Number of reads written to disk */
+		/** List entries handed to writers, excluding mate counts; not a durable-write count. */
 		@SuppressWarnings("unused")
 		private long readsWritten=0;//This does not count read2!
 		/** Number of bytes currently in this buffer (estimated) */
@@ -599,7 +668,7 @@ public class MultiWriter extends BufferedMultiCros {
 		private long nextJobId=0;
 		/** Whether the existing files have been checked or deleted yet */
 		private boolean deleted=false;
-		/** Time of last dump */
+		/** Logical timestamp assigned on buffer creation and each nonempty dump. */
 		private long timestamp=-1;
 		/** Location in heap; -1 means not in heap */
 		private int heapLoc=-1;
@@ -610,14 +679,16 @@ public class MultiWriter extends BufferedMultiCros {
 
 	/**
 	 * Comparator for sorting buffers by timestamp for retirement ordering.
-	 * Ensures oldest streams are retired first to maintain LRU behavior.
+	 * Orders distinct logical timestamps within the selected retirement candidate subset.
 	 */
 	private static final class TimestampComparator implements Comparator<Buffer>{
 
-		private TimestampComparator() {}
+		/** Creates the shared timestamp comparator. */
+		private TimestampComparator(){}
 
+		/** Compares distinct logical timestamps; equal timestamps violate the caller invariant. */
 		@Override
-		public final int compare(Buffer a, Buffer b) {
+		public final int compare(Buffer a, Buffer b){
 			assert(a.timestamp!=b.timestamp);
 			return a.timestamp<b.timestamp ? -1 : 1;
 		}
@@ -631,16 +702,16 @@ public class MultiWriter extends BufferedMultiCros {
 	/*----------------             Fields           ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Essentially the number of dumps.  Does not distinguish by dump size. */
+	/** Monotonic logical clock advanced for each buffer creation and nonempty dump. */
 	private long bufferTimer=0;
 
 	/** Priority heap containing buffers ordered by size for dump prioritization */
 	private HeapLoc<Buffer> heap;
 
-	/** Open stream names */
+	/** Open destination names in retirement-candidate order. */
 	private final ArrayDeque<String> streamQueue;
 
-	/** Map of names to buffers */
+	/** Insertion-ordered map retaining buffers after their writers are retired. */
 	public final LinkedHashMap<String, Buffer> bufferMap;
 
 }

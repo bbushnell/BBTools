@@ -4,10 +4,16 @@ import java.util.ArrayList;
 
 import fileIO.FileFormat;
 
-/** Verifies that abortNow() does not block when the bounded input queue is full. */
-public final class ReadStreamWriterAbortUnitTest {
+/** Assertion-based diagnostic for abortNow() with a full, unstarted one-slot writer queue.
+ * Requires -ea for the timing, error-state and termination checks; the printed PASS
+ * alone does not establish those conditions when assertions are disabled. */
+public final class ReadStreamWriterAbortUnitTest{
 
-	public static void main(String[] args) throws Exception {
+	/** Queues an empty list for /dev/null, measures abortNow(), then starts and joins the writer.
+	 * Asserts measured abort time below 1000 ms, errorState, and termination after a 2000 ms join.
+	 * Arguments are ignored. This method must be explicitly run to produce runtime evidence.
+	 * @throws Exception If setup or the declared writer/thread operations fail */
+	public static void main(String[] args) throws Exception{
 		FileFormat ff=FileFormat.testOutput("/dev/null", FileFormat.FASTQ, null, true, true, false, true);
 		ReadStreamByteWriter writer=new ReadStreamByteWriter(ff, null, true, 1, null, false);
 		writer.addList(new ArrayList<Read>(0)); //Fill the one-slot queue; no consumer is started yet.

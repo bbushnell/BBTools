@@ -1,51 +1,60 @@
 package stream;
 
 /**
- * Coordinates ordered processing with unordered worker threads,
- * accepting UNORDERED input and providing ORDERED output.
- * * This class is designed to follow a "scatter" process (like a
- * multithreaded Streamer) that produces results out-of-order.
- * It uses a JobQueue on the input to re-order the incoming
- * out-of-order jobs before distributing them to its own
- * internal worker threads, and a second JobQueue to re-order
- * their output.
- * * Producer (unordered) → JobQueueIn (orders) → Workers (unordered) → JobQueueOut (orders) → Consumer (ordered)
- * * @author Brian Bushnell
+ * Supplies input and output queues for caller-owned workers; creates no threads.
+ * Input arrival and worker completion may be out of order, but ordinary job IDs
+ * must be unique and dense from zero, remain stable while queued, and have one
+ * corresponding output per input ID. The input queue requests ordering; the output
+ * request is configurable, but the current JobQueue implementation forces ordering
+ * even when orderedOutput is false. That flag does not permit gaps in output IDs.
+ *
+ * Callers coordinate input registration before poison(), workers consume getInput()
+ * and submit addOutput(), and a consumer/owner signals setFinished(). This wrapper
+ * does not process jobs, join workers or infer completion from thread state.
+ *
+ * @author Brian Bushnell
  * @contributor Gemini/Isla
  * @date November 16, 2025
  *
  * @param <I> Input job type (must implement HasID)
  * @param <O> Output job type (must implement HasID)
  */
-public class OrderedQueueSystem2<I extends HasID, O extends HasID> {
+public class OrderedQueueSystem2<I extends HasID, O extends HasID>{
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * @param numWorkers Number of internal worker threads this queue will feed
-	 * @param orderedOutput If true, output is ordered; if false, output is unordered
-	 * @param inputPrototype Prototype for creating input poison pills
-	 * @param outputPrototype Prototype for creating output poison/last pills
+	 * Derives input capacity as numWorkers+BUFFER_PADDING and output capacity as
+	 * (BUFFER_MULT*numWorkers)/2+BUFFER_PADDING, using integer arithmetic.
+	 * No workers are created; the current static sizing values are captured by construction.
+	 * @param numWorkers Worker-count hint used only in the capacity formulas
+	 * @param orderedOutput Requested output policy; current JobQueue forces ordering regardless
+	 * @param inputPrototype_ Factory for type-compatible poison markers with queue-compatible IDs
+	 * @param outputPrototype_ Factory for type-compatible output LAST and poison markers
 	 */
 	public OrderedQueueSystem2(int numWorkers, boolean orderedOutput, I inputPrototype_, O outputPrototype_){
-		this(numWorkers+BUFFER_PADDING, (BUFFER_MULT*numWorkers)/2+BUFFER_PADDING, 
+		this(numWorkers+BUFFER_PADDING, (BUFFER_MULT*numWorkers)/2+BUFFER_PADDING,
 			numWorkers, orderedOutput, inputPrototype_, outputPrototype_);
 	}
 
 	/**
-	 * @param capacityIn Capacity of the input re-ordering queue
-	 * @param capacityOut Capacity of the output re-ordering queue
-	 * @param numWorkers Number of internal worker threads this queue will feed
-	 * @param orderedOutput If true, output is ordered; if false, output is unordered
-	 * @param inputPrototype Prototype for creating input poison pills
-	 * @param outputPrototype Prototype for creating output poison/last pills
+	 * Creates two bounded JobQueues starting at ID zero and retains marker factories.
+	 * Capacities control JobQueue backpressure rather than a hard retained-job count.
+	 * Factories are not null-checked; their markers must match the respective job type
+	 * and ordered terminal IDs when used. This constructor does not start or count workers.
+	 * @param capacityIn Input backpressure setting; JobQueue asserts it is greater than one
+	 * @param capacityOut Output backpressure setting; JobQueue asserts it is greater than one
+	 * @param numWorkers_ Unused compatibility parameter when capacities are explicit
+	 * @param orderedOutput Requested output policy; current JobQueue still forces ordering
+	 * @param inputPrototype_ Retained factory for input poison markers
+	 * @param outputPrototype_ Retained factory for output LAST and poison markers
 	 */
 	public OrderedQueueSystem2(int capacityIn, int capacityOut, int numWorkers_,
 			boolean orderedOutput, I inputPrototype_, O outputPrototype_){
 		// The input queue MUST be ordered to re-sort the incoming unordered data
-		inq=new JobQueue<I>(capacityIn, true, true, 0); 
+		inq=new JobQueue<I>(capacityIn, true, true, 0);
 		outq=new JobQueue<O>(capacityOut, orderedOutput, true, 0);
 		inputPrototype=inputPrototype_;
 		outputPrototype=outputPrototype_;
@@ -55,9 +64,13 @@ public class OrderedQueueSystem2<I extends HasID, O extends HasID> {
 	/*----------------        Producer API          ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** 
-	 * Add input job for processing.
-	 * This is thread-safe and accepts out-of-order jobs.
+	/**
+	 * Registers and enqueues a borrowed input job, blocking according to JobQueue policy.
+	 * Ordinary IDs may arrive out of order but must be globally unique and dense from zero.
+	 * This wrapper checks only the immediately preceding registration for duplicate IDs;
+	 * it does not prove global uniqueness. Complete ordinary registrations before poison().
+	 * @param job Input job; null is ignored, and LAST is rejected by an assertion
+	 * @return false for null, otherwise the input queue's add result
 	 */
 	public boolean addInput(I job){
 		if(job==null){return false;}
@@ -70,11 +83,17 @@ public class OrderedQueueSystem2<I extends HasID, O extends HasID> {
 			maxSeenId=Math.max(id, maxSeenId);
 		}
 		// JobQueue.add() is blocking and handles its own wait/interrupt.
-		//WHY out-of-order / multi-producer input is safe here (unlike OQS, whose inq is a plain ArrayBlockingQueue needing ONE producer): inq is an ORDERED JobQueue. Even if a real job is counted (maxSeenId bumped under lock) but added AFTER poison()'s pill, the pill's id=maxSeenId+1 sorts strictly LAST, so the ordered release drains it only after every real job - no orphaned job, no hang. (Depends on JobQueue's strict-sequential ordering contract; JobQueue.java's own V2 review still pending.)
+		//Historical ordering rationale: metadata is registered under this monitor before enqueue.
+		//With dense IDs, compatible marker IDs and no new ordinary registrations after poison(),
+		//already-registered jobs sort before the terminal even if their blocking adds finish later.
+		//This is a caller/queue protocol requirement, not a general concurrency or completion guarantee.
 		return inq.add(job);
 	}
 
-	/** Signal end of input - injects LAST to output and POISON to input. */
+	/** Seals the registered input range once, then requests an output LAST and input poison.
+	 * Both factories receive maxSeenId+1; the output marker is enqueued first.
+	 * Blocking enqueues occur outside this monitor. Subsequent callers return once
+	 * lastSeen is set, even while the first caller is still publishing its markers. */
 	@SuppressWarnings("unchecked")
 	public void poison(){
 		//[OQS2 deadlock FIXED 2026-06-20 (greenlit)] - the SAME latent bug found+fixed in OrderedQueueSystem
@@ -90,27 +109,27 @@ public class OrderedQueueSystem2<I extends HasID, O extends HasID> {
 		synchronized(this){
 			if(lastSeen){return;}
 			lastSeen=true;
-			finalID = maxSeenId + 1;
+			finalID=maxSeenId+1;
 		}
-		if(verbose) {System.err.println("OQS2: poison()");}
+		if(verbose){System.err.println("OQS2: poison()");}
 
 		// Add ONE lastJob for the final consumer (blocking, but OUTSIDE the lock now)
 		outq.add((O)outputPrototype.makeLast(finalID));
 
 		// Add ONE poison pill for the worker threads (blocking, outside the lock).
-		// The first worker to get it will exit its loop and re-inject it.
+		//JobQueue retains/reinserts poison and returns null to workers; this wrapper owns no worker loop.
 		inq.add((I)inputPrototype.makePoison(finalID));
 	}
 
-	/** Wait for processing to complete. */
+	/** Waits for the flag set by an external setFinished() call, not for worker joins.
+	 * Interrupted waits print a trace and continue; this wrapper does not restore the interrupt. */
 	public synchronized void waitForFinish(){
 		while(!finished){
-			try{this.wait();}
-			catch(InterruptedException e){e.printStackTrace();}
+			try{this.wait();}catch(InterruptedException e){e.printStackTrace();}
 		}
 	}
 
-	/** Convenience: poison and wait. */
+	/** Seals input with poison(), then waits for an external completion notification. */
 	public void poisonAndWait(){
 		poison();
 		waitForFinish();
@@ -120,16 +139,21 @@ public class OrderedQueueSystem2<I extends HasID, O extends HasID> {
 	/*----------------         Worker API           ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Get next input job in-order (blocks). */
+	/** Takes the next input in queue order, blocking until the queue can supply it.
+	 * @return Borrowed job, or null when JobQueue reports a terminal condition */
 	public I getInput(){
-		I job=inq.take(); // Pulls from the re-ordering input queue
-		if(verbose) {System.err.println("OQS2: getInput I "+job.id()+": "+job.poison()+", "+job.last());}
+		I job=inq.take();//Pulls from the re-ordering input queue.
+		//TODO: Probable bug - STR266: enabling verbose makes this diagnostic dereference a null terminal.
+		if(verbose){System.err.println("OQS2: getInput I "+job.id()+": "+job.poison()+", "+job.last());}
 		return job;
 	}
 
-	/** Add processed output job. */
+	/** Enqueues a borrowed processed job, blocking according to output queue policy.
+	 * Ordinary output IDs must cover the input range densely; normal final signaling
+	 * is supplied by poison(). This method does not copy or validate the payload.
+	 * @param job Nonnull processed job with a stable corresponding input ID */
 	public void addOutput(O job){
-		if(verbose) {System.err.println("OQS2: addOutput O "+job.id()+": "+job.poison()+", "+job.last());}
+		if(verbose){System.err.println("OQS2: addOutput O "+job.id()+": "+job.poison()+", "+job.last());}
 		outq.add(job);
 	}
 
@@ -137,47 +161,60 @@ public class OrderedQueueSystem2<I extends HasID, O extends HasID> {
 	/*----------------        Consumer API          ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Check if more output is coming. */
-	public boolean hasMore(){
-		return outq.hasMore();
-	}
+	/** Delegates the output queue's availability indicator; does not wait for completion.
+	 * @return Current JobQueue.hasMore() result; not a guarantee of a nonnull next take */
+	public boolean hasMore(){return outq.hasMore();}
 
-	/** Get next output job in order (blocks). */
-	public O getOutput(){
-		return outq.take();
-	}
+	/** Takes the next output using the current queue ordering policy.
+	 * @return Borrowed job, including the LAST marker itself, or null for a queue terminal
+	 * condition. Consumers must recognize LAST or accept its marker payload. */
+	public O getOutput(){return outq.take();}
 
-	/** Signal that processing is complete from the consumer side. */
+	/** Sets the completion flag, requests termination on both queues and notifies waiters.
+	 * Called by the external consumer/owner; it does not join workers or verify their results.
+	 * @param force Forwarded unchanged to each JobQueue.poison call */
 	//TODO: Possible bug - see JobQueue.poison(): force=false does not guarantee blocked threads wake
 	//if a stream has an ID gap (dead worker); error paths should pass force=true.  Also see
 	//JobQueue.hasMore(): after force=true, hasMore() stays true while take() returns null.
 	@SuppressWarnings("unchecked")
 	public synchronized void setFinished(boolean force){
-		if(verbose) {System.err.println("OQS2: setFinished()");}
+		if(verbose){System.err.println("OQS2: setFinished()");}
 		finished=true;
-		inq.poison((I)inputPrototype.makePoison(maxSeenId+1), force);  // Tell input queue to stop blocking any waiting producers
-		outq.poison((O)outputPrototype.makePoison(maxSeenId+1), force); // Tell output queue to stop blocking any waiting workers
+		inq.poison((I)inputPrototype.makePoison(maxSeenId+1), force);//Request input termination under the selected policy.
+		outq.poison((O)outputPrototype.makePoison(maxSeenId+1), force);//Request output termination under the selected policy.
 		this.notifyAll();
 	}
-	
-	public synchronized boolean finished() {return finished;}
+
+	/** @return Stored external-completion flag, not an independently measured worker status */
+	public synchronized boolean finished(){return finished;}
 
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Input queue, constructed with ordering requested and initial ID zero. */
 	private final JobQueue<I> inq;
+	/** Output queue; the current JobQueue implementation forces ordering. */
 	private final JobQueue<O> outq;
+	/** Retained input marker factory, not a queued ordinary job. */
 	private final I inputPrototype;
+	/** Retained output marker factory, used for LAST and poison signals. */
 	private final O outputPrototype;
 
+	/** Largest registered input ID, used to choose terminal IDs under this monitor. */
 	private long maxSeenId=-1;
+	/** Immediately preceding registered ID; not a set of all previously submitted IDs. */
 	private long prevID=-1;
+	/** Completion notification set by the external consumer/owner. */
 	private volatile boolean finished=false;
+	/** Whether poison() has sealed input registration; not a queue-drained indicator. */
 	private volatile boolean lastSeen=false;
+	/** Compile-time diagnostic switch; disabled for normal builds. */
 	private static final boolean verbose=false;
 
+	/** Extra capacity added by the convenience constructor; does not resize existing queues. */
 	public static int BUFFER_PADDING=4;
+	/** Output sizing multiplier applied before integer division by two; configure before construction. */
 	public static int BUFFER_MULT=3;
 
 }

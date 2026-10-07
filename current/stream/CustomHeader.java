@@ -2,6 +2,7 @@ package stream;
 
 import dna.Data;
 import dna.Gene;
+import parse.LineParserS2;
 import shared.Shared;
 import structures.ByteBuilder;
 
@@ -35,6 +36,8 @@ public class CustomHeader{
 	 * The first space terminates the body. A dot match becomes null, while a dot
 	 * reference name remains the literal string ".". Caught Exceptions disable
 	 * FASTQ.PARSE_CUSTOM globally and may leave partial fields; this is not a validator.
+	 * A local cursor checks the nine-field count before assignments; trailing empty
+	 * underscore fields are omitted from the count, matching the legacy split behavior.
 	 * @param original Nonnull SYN_ identifier without an initial FASTA/FASTQ marker
 	 * @param rnum_ Zero-based mate, 0 or 1; explicit selection needs no suffix
 	 */
@@ -61,19 +64,25 @@ public class CustomHeader{
 				}
 			}
 			
-			String[] split=line.split("_");
+			final LineParserS2 lp=new LineParserS2('_').set(line);
+			int terms=(line.isEmpty() ? 1 : 0);
+			for(int field=0; lp.hasMore(); field++){
+				if(lp.advance()>0){terms=field+1;}
+			}
 			//id_start_stop_insert_strand_bbstart_bbchrom_match_encodedRname
-			assert(split.length==9) : split.length+"\n"+line;
+			assert(terms==9) : "CustomHeader bodies require nine ordered metadata fields before assignment; found "+terms+": "+line;
+			lp.reset();
 			
-			id=Long.parseLong(split[0]);
-			start=Integer.parseInt(split[1]);
-			stop=Integer.parseInt(split[2]);
-			insert=Integer.parseInt(split[3]);
-			strand=Gene.toStrand(split[4]);
-			bbstart=Integer.parseInt(split[5]);
-			bbchrom=Integer.parseInt(split[6]);
-			match=(split[7].equals(".") ? null : split[7].getBytes());
-			rname=decodeRname(split[8]);
+			id=Long.parseLong(lp.parseString());
+			start=Integer.parseInt(lp.parseString());
+			stop=Integer.parseInt(lp.parseString());
+			insert=Integer.parseInt(lp.parseString());
+			strand=Gene.toStrand(lp.parseString());
+			bbstart=Integer.parseInt(lp.parseString());
+			bbchrom=Integer.parseInt(lp.parseString());
+			final String matchString=lp.parseString();
+			match=(matchString.equals(".") ? null : matchString.getBytes());
+			rname=decodeRname(lp.parseString());
 		}catch(Exception e){
 			FASTQ.PARSE_CUSTOM=false;
 			if(FASTQ.PARSE_CUSTOM_WARNING){

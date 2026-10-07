@@ -6,43 +6,41 @@ import java.util.PriorityQueue;
 import shared.Tools;
 
 /**
- * Thread-safe job queue with optional ordering and capacity bounds.
- * Simplifies multithreaded producer-consumer patterns by handling synchronization,
- * ordering, and backpressure automatically.
- * 
- * Supports two primary modes:
- * - Ordered: Jobs are retrieved in sequential ID order, using the heap as a reordering buffer
- * - Unordered: Jobs are retrieved as available, prioritized by ID but not strictly ordered
- * 
- * Bounded mode prevents memory issues by blocking producers when the queue reaches capacity,
- * while still allowing jobs matching nextID to be added immediately to prevent deadlocks.
- * 
- * CONTRACT: Only supports ordered streams with dense, complete IDs (firstID, firstID+1, ...,
- * no skipped IDs).  A missing ID stalls the consumer until a poison/last pill arrives.
- * Producers of sparse streams must insert empty placeholder jobs for filtered-out IDs.
- * The ordered_ constructor parameter is currently ADVISORY-ONLY (see constructor): every
- * queue runs in ordered mode, because unordered mode violated assumptions elsewhere.
- * 
+ * Priority queue using the heap monitor for queue and counter operations.
+ * Every instance currently forces ordered mode, including when ordered_ is false.
+ * Intended input has dense, complete IDs starting at firstID; readiness accepts a head
+ * ID less than or equal to nextID, and each removal increments nextID once.
+ * Job references are retained; callers must keep queued IDs and marker flags stable.
+ *
+ * Admission uses soft ticket/occupancy gating rather than a hard heap-size limit.
+ * take() returns a LAST-marked job unless it is also poison, then stops on later calls.
+ * Poison jobs map to null. Enqueuing a terminal marker does not bypass ID readiness;
+ * the explicit forced-stop flag is handled separately. poll() and hasMore() have
+ * their own documented state checks and are not interchangeable with take().
+ *
  * @author Brian Bushnell
  * @contributor Isla
  * @date October 23, 2025
- * 
- * @param <K> Job type implementing HasID for identification and ordering
+ * @param <K> Job type supplying stable identification and marker properties
  */
 //TODO: Make high-speed version with 4 heaps using id()&3 to select heap and reduce lock contention
 public class JobQueue<K extends HasID>{
 	
+	/*--------------------------------------------------------------*/
+	/*----------------        Initialization        ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Creates a bounded, ordered queue whose first expected ID is zero. */
 	public JobQueue(int capacity_){this(capacity_, true, true, 0);}
+	/** Creates a bounded queue starting at zero; ordered_ is currently advisory only. */
 	public JobQueue(int capacity_, boolean ordered_){this(capacity_, ordered_, true, 0);}
 	
-	/**
-	 * Creates a new JobQueue with specified behavior.  Suggested capacity is 3+(1.5*threads).
-	 * 
-	 * @param capacity_ Maximum number of jobs allowed in queue before blocking producers (must be >1)
-	 * @param ordered_ If true, jobs are released in strict ID order; if false, jobs released as available
-	 * @param bounded_ If true, producers block when queue reaches capacity; if false, unbounded growth
-	 * @param firstID Expected ID of the first job (typically 0)
-	 */
+	/** Creates the queue and initializes its expected-ID and admission counters.
+	 * Suggested capacity is 3+(1.5*threads); capacity is a soft window, not a heap limit.
+	 * @param capacity_ Requested window; asserted greater than one, then clamped to at least two
+	 * @param ordered_ Advisory flag; current implementation always selects ordered mode
+	 * @param bounded_ Enables admission waits when true; false skips those waits
+	 * @param firstID Initial expected ID; maxSeen starts at firstID-1 */
 	public JobQueue(int capacity_, boolean ordered_, boolean bounded_, long firstID){
 		assert(capacity_>1) : "Capacity is too small: "+capacity_;
 		capacity=Math.max(capacity_, 2);
@@ -61,19 +59,19 @@ public class JobQueue<K extends HasID>{
 		heap=new PriorityQueue<K>(Tools.mid(1, capacity, 96), new HasIDComparator<K>());
 	}
 	
-	/**
-	 * Adds a job to the queue, blocking if necessary to respect capacity bounds.
-	 * In bounded mode, blocks until id is within capacity of nextID.
-	 * The capacity bound is SOFT backpressure, not a hard limit: if the calling thread is
-	 * INTERRUPTED while waiting for capacity, it stops waiting and adds the job anyway (relaxing
-	 * the bound by at most one job per interrupted thread). Interrupts are treated as a shutdown
-	 * signal across all callers, so this never grows unbounded. (Does NOT throw; the interrupt
-	 * status is preserved for the caller.)
-	 *
-	 * @param job Job to add to the queue
-	 * @return True when the add is successful (always, once it returns).
-	 */
-	public boolean add(K job) {
+	/*--------------------------------------------------------------*/
+	/*-------------------        Methods        --------------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Retains and inserts a job, waiting according to the current admission policy.
+	 * In bounded ordered mode, waits while id-capacity exceeds nextID, heap size exceeds
+	 * quarter, and no forced stop is recorded. This permits the needed IDs through and
+	 * does not enforce a hard maximum heap size. An interrupted wait restores interrupt
+	 * status and leaves the wait loop before insertion. Unbounded mode skips admission waits.
+	 * Updates maxSeen from job.id(); notifications follow the existing readiness policy.
+	 * @param job Nonnull job whose ID and marker properties remain stable while queued
+	 * @return true after insertion */
+	public boolean add(K job){
 		final long id=job.id();
 		final long ticket=id-capacity;
 		boolean warn=verbose2;
@@ -85,27 +83,27 @@ public class JobQueue<K extends HasID>{
 			// while(bounded && heap.size()>=capacity && id>=nextID+half && id>heap.peek().id() && !poisoned){
 			
 			//New version:  Take a ticket.
-			if(!bounded) {//skip wait
-			}else if(ordered) {
+			if(!bounded){//skip wait
+			}else if(ordered){
 //				while(bounded && heap.size()>=capacity && id>=nextID+half && id>heap.peek().id() && !poisoned){
 				while(ticket>nextID && heap.size()>quarter && !poisoned){
-					if(verbose2 && warn) {
+					if(verbose2 && warn){
 						warn=false;
 						System.err.println(name+" Worker can't add "+id+": ticket "+ticket+">"+nextID);
 					}
-					try {
+					try{
 						heap.wait();
-					} catch (InterruptedException e){
+					}catch(InterruptedException e){
 						Thread.currentThread().interrupt(); // Preserve interrupt status for caller
 						break; //#001 fix: do NOT loop back into wait() with the interrupt flag re-armed - wait() then throws InterruptedException immediately every iteration -> 100% CPU busy-spin holding the heap monitor (the BgzfInputStreamMT2 clean-close race: worker parked here, interrupted by close(), poisoned still false). Stop waiting; fall through to heap.add(job). Capacity is relaxed only during this interrupted shutdown window (no data loss; interrupt status preserved for the caller).
 					}
 				}
-			}else {
+			}else{
 				while(heap.size()>=capacity && !poisoned){
-					if(verbose2) {System.err.println(name+" Worker can't add "+id+": size "+heap.size()+">="+capacity);}
-					try {
+					if(verbose2){System.err.println(name+" Worker can't add "+id+": size "+heap.size()+">="+capacity);}
+					try{
 						heap.wait();
-					} catch (InterruptedException e){
+					}catch(InterruptedException e){
 						Thread.currentThread().interrupt(); // Preserve interrupt status for caller
 						break; //#001 fix: do NOT loop back into wait() with the interrupt flag re-armed - wait() then throws InterruptedException immediately every iteration -> 100% CPU busy-spin holding the heap monitor (the BgzfInputStreamMT2 clean-close race: worker parked here, interrupted by close(), poisoned still false). Stop waiting; fall through to heap.add(job). Capacity is relaxed only during this interrupted shutdown window (no data loss; interrupt status preserved for the caller).
 					}
@@ -114,34 +112,34 @@ public class JobQueue<K extends HasID>{
 			heap.add(job);
 			maxSeen=Math.max(maxSeen, job.id());
 			if(verbose2){
-				System.err.println(name+" Worker: added job " + toString(job) +
-					" to heap (heap size now " + heap.size() + ")");
+				System.err.println(name+" Worker: added job "+toString(job)+
+					" to heap (heap size now "+heap.size()+")");
 			}
 			// Lazy notify: only wake consumer if this is the job they need or heap was empty
 			if(id==nextID || (!ordered && heap.size()==1)){
-				if(verbose2) {System.err.println(name+" Worker notify.");}
+				if(verbose2){System.err.println(name+" Worker notify.");}
 				heap.notifyAll();
 			}
 		}
 		return true;
 	}
 	
-	private final String toString(K k) {
-		if(k==null) {return "null";}
+	/** Formats an ID and marker flags for diagnostics; null becomes the literal null string. */
+	private final String toString(K k){
+		if(k==null){return "null";}
 		String s="id="+k.id();
-		if(k.poison()) {s+=" poison";}
-		if(k.last()) {s+=" last";}
+		if(k.poison()){s+=" poison";}
+		if(k.last()){s+=" last";}
 		return s;
 	}
 	
-	/**
-	 * Retrieves the next job from the queue, waiting if necessary.
-	 * In ordered mode, waits for jobs in strict sequential ID order.
-	 * In unordered mode, returns jobs as they become available.
-	 * Returns null after receiving a job marked as last().
-	 * 
-	 * @return Next job to process, or null if processing is complete
-	 */
+	/** Waits for readiness, an observed LAST job, or a forced stop under the heap monitor.
+	 * Returns a removed LAST job as data unless it is also poison; subsequent takes return
+	 * null. A removed poison job is reinserted and maps to null. Every removal advances
+	 * nextID once. A LAST job also supplies a poison marker through makePoison(id+1).
+	 * Completion uses markers/forced-stop state, not consumer interruption; retain the
+	 * documented historical interruption constraint in the implementation below.
+	 * @return Ready job, including an ordinary LAST job, or null at a terminal condition */
 	public K take(){
 		K job=null;
 		if(verbose2){System.err.println(name+" Consumer waiting for "+nextID);}
@@ -153,9 +151,9 @@ public class JobQueue<K extends HasID>{
 						System.err.println(name+" Consumer waiting for ("+nextID+"); heap.size()="+heap.size()+
 							(heap.isEmpty() ? "" : ": "+toString(heap.peek())));
 					}
-					try {
+					try{
 						heap.wait();
-					} catch (InterruptedException e){
+					}catch(InterruptedException e){
 						Thread.currentThread().interrupt(); // Preserve interrupt status
 						// Don't return null here - wait for explicit last signal
 						// CONTRACT/HAZARD (Furina 2026-06-25): this DELIBERATELY ignores interrupts and keeps waiting
@@ -172,17 +170,17 @@ public class JobQueue<K extends HasID>{
 						// violation); make it poison-driven instead, or apply the swallow-don't-re-arm variant.
 					}
 				}
-				if(lastSeen || poisoned) {return null;}
+				if(lastSeen || poisoned){return null;}
 				job=heap.poll();
 				if(verbose2){System.err.println(name+" Consumer fetched "+toString(job));}
 				assert(job.id()<=nextID || !ordered); // Defensive check for ordering
 				nextID++; // Advance to next expected ID
 				lastSeen=lastSeen || job.last(); // Check for shutdown signal
-				if(job.last()) {
-					if(verbose) {System.err.println(name+" Consumer fetched last and added poison.");}
+				if(job.last()){
+					if(verbose){System.err.println(name+" Consumer fetched last and added poison.");}
 					heap.add((K)job.makePoison(job.id()+1));
-				}else if(job.poison()) {
-					if(verbose) {System.err.println(name+" Consumer fetched and reinserted poison.");}
+				}else if(job.poison()){
+					if(verbose){System.err.println(name+" Consumer fetched and reinserted poison.");}
 					heap.add(job);
 				}
 				final int size=heap.size();
@@ -190,7 +188,7 @@ public class JobQueue<K extends HasID>{
 				// Skip notification when heap is mostly full (more jobs coming soon anyway)
 				if(size==half || size==0 || (ordered && heap.peek().id()!=nextID) || job.poison() || job.last()){
 					heap.notifyAll();
-					if(verbose2) {System.err.println(name+" Consumer notify.");}
+					if(verbose2){System.err.println(name+" Consumer notify.");}
 				}
 			}
 		}
@@ -202,11 +200,10 @@ public class JobQueue<K extends HasID>{
 		return job==null || job.poison() ? null : job;
 	}
 	
-	/**
-	 * Retrieves the next job if it is ready (in order). 
-	 * Returns null immediately if the queue is empty or the next ordered ID is missing.
-	 * Non-blocking version of take().
-	 */
+	/** Removes a ready job without waiting and applies the same removal/marker accounting.
+	 * Readiness is checked through heapReady(); this method does not first apply take's
+	 * lastSeen/forced-stop exit checks. A removed LAST job is returned unless also poison.
+	 * @return Ready job, or null when not ready or when a poison job was removed */
 	public K poll(){
 		K job=null;
 		synchronized(heap){
@@ -217,33 +214,36 @@ public class JobQueue<K extends HasID>{
 			assert(job.id()<=nextID || !ordered); 
 			nextID++; 
 			lastSeen=lastSeen || job.last();
-			if(job.last()) {
-				if(verbose) {System.err.println(name+" Consumer polled last and added poison.");}
+			if(job.last()){
+				if(verbose){System.err.println(name+" Consumer polled last and added poison.");}
 				heap.add((K)job.makePoison(job.id()+1));
-			}else if(job.poison()) {
-				if(verbose) {System.err.println(name+" Consumer polled and reinserted poison.");}
+			}else if(job.poison()){
+				if(verbose){System.err.println(name+" Consumer polled and reinserted poison.");}
 				heap.add(job);
 			}
 			final int size=heap.size();
 
 			if(size==half || size==0 || (ordered && heap.peek().id()!=nextID) || job.poison() || job.last()){
 				heap.notifyAll();
-				if(verbose2) {System.err.println(name+" Consumer notify.");}
+				if(verbose2){System.err.println(name+" Consumer notify.");}
 			}
 		}
 		return job==null || job.poison() ? null : job;
 	}
 	
-	private boolean heapReady() {
-		synchronized(heap) {
-			if(heap.isEmpty()) {return lastSeen;}
+	/** Tests head readiness under the monitor. Empty heaps report lastSeen; ordered heads
+	 * are ready when {@code id<=nextID}. The inactive unordered branch excludes terminal markers. */
+	private boolean heapReady(){
+		synchronized(heap){
+			if(heap.isEmpty()){return lastSeen;}
 			K k=heap.peek();
-			if(verbose2) {System.err.println("heapReady found "+k.id()+"; nextID="+nextID);}
-			if(k.id()<=nextID) {return true;}//Poison may be lower than expected
+			if(verbose2){System.err.println("heapReady found "+k.id()+"; nextID="+nextID);}
+			if(k.id()<=nextID){return true;}//Poison may be lower than expected
 			return !ordered && !k.last() && !k.poison();//TODO: Add a normal() function.
 		}
 	}
 	
+	/** Returns a synchronized snapshot of !lastSeen; does not inspect heap contents or forced-stop state. */
 	public boolean hasMore(){
 		//TODO: Possible bug - ignores 'poisoned'.  After a FORCED shutdown (poison(pill, force=true),
 		//e.g. writer error paths calling setFinished(true)), take() returns null forever while
@@ -256,13 +256,11 @@ public class JobQueue<K extends HasID>{
 		synchronized(heap){return !lastSeen;}
 	}
 	
-	public long nextID(){
-		synchronized(heap){return nextID;}
-	}
+	/** Returns the synchronized expected-ID counter, advanced once for each removed job. */
+	public long nextID(){synchronized(heap){return nextID;}}
 	
-	public long maxSeen(){
-		synchronized(heap){return maxSeen;}
-	}
+	/** Returns the synchronized maximum recorded by add(), initially firstID-1. */
+	public long maxSeen(){synchronized(heap){return maxSeen;}}
 	
 	//TODO: Possible bug - with force=false the pill's id (maxSeenId+1) sorts strictly LAST, so if
 	//the stream has a genuine gap (a worker died holding job k), heapReady stays false at nextID=k
@@ -271,51 +269,72 @@ public class JobQueue<K extends HasID>{
 	//force=true.  ALSO NOTE (deliberate, verified): OQS shutdown can put LAST@m+1 and POISON@m+1
 	//into the same heap - equal ids, arbitrary tie-break.  Both orders terminate correctly today
 	//(traced 2026-07-14); do not "fix" the tie without re-tracing both interleavings.
-	public void poison(K poison, boolean force) {
+	/** Inserts the supplied marker and notifies waiters without updating maxSeen.
+	 * force=true latches the forced-stop state; false does not clear an existing latch.
+	 * Ordinary marker insertion remains subject to the consumer's ID-readiness policy.
+	 * @param poison Nonnull marker asserted to report poison()==true
+	 * @param force Latch forced-stop state when true */
+	public void poison(K poison, boolean force){
 		assert(poison!=null && poison.poison()) : poison;
 		synchronized(heap){
-			if(verbose2) {System.err.println(name+" poison().");}
-			poisoned=poisoned||force;
+			if(verbose2){System.err.println(name+" poison().");}
+			poisoned=poisoned || force;
 			heap.add(poison);
 			heap.notifyAll();
 		}
 	}
 	
-	public void notifyHeap() {
-		synchronized(heap) {heap.notifyAll();}
-	}
+	/** Notifies all heap waiters without changing queue contents or readiness state. */
+	public void notifyHeap(){synchronized(heap){heap.notifyAll();}}
 
-	/** Comparator for sorting jobs */
-	private static class HasIDComparator<K extends HasID> implements Comparator<K> {
+	/*--------------------------------------------------------------*/
+	/*----------------        Inner Classes        -----------------*/
+	/*--------------------------------------------------------------*/
 
+	/** Compares job IDs only; supplies no additional tie-breaker. */
+	private static class HasIDComparator<K extends HasID> implements Comparator<K>{
+
+		/** Compares the two supplied job IDs. */
 		@Override
 		public int compare(K a, K b){return Long.compare(a.id(), b.id());}
 
 	}
 	
+	/*--------------------------------------------------------------*/
+	/*--------------------        Fields        --------------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Caller-supplied prefix used by diagnostic messages. */
 	public String name="";
 
 	/** Next expected job ID in ordered mode */
 	private long nextID;
-	/** Highest ID seen */
+	/** Highest ID recorded through add(), including its marker jobs; direct poison() insertion is excluded. */
 	private long maxSeen;
-	/** True once a job marked last() has been seen */
+	/** True after removing a job whose last() flag is set. */
 	private boolean lastSeen=false;
-	/** Threads interacting with this should shut down */
+	/** Forced-stop latch set by poison(..., true); consulted by add() and take(). */
 	private boolean poisoned=false;
 	/** Priority queue storing jobs, ordered by ID */
 	private final PriorityQueue<K> heap;
-	/** If true, jobs are released in strict ID order */
+	/** Ordered readiness selection; currently forced true by every constructor. */
 	private final boolean ordered;
-	/** If true, producers block when queue reaches capacity */
+	/** Enables soft admission waiting when true. */
 	private final boolean bounded;
-	/** Maximum jobs allowed in queue before blocking */
+	/** Window subtracted from an incoming ID to form its admission ticket. */
 	private final int capacity;
-	/** Half of capacity, used for lazy notification optimization */
+	/** (capacity+1)/2, used as a lazy-notification threshold. */
 	private final int half;
+	/** (half+1)/2; ordered admission waits require heap size greater than this threshold. */
 	private final int quarter;
-	/** Enable debug output */
+
+	/*--------------------------------------------------------------*/
+	/*------------------        Constants        -------------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Enables diagnostic output for selected terminal events. */
 	private static final boolean verbose=false;//Should be for important events like thread death
+	/** Enables detailed queue-operation diagnostics. */
 	private static final boolean verbose2=false;
 	
 }

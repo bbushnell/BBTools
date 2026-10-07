@@ -11,87 +11,108 @@ import java.util.zip.GZIPInputStream;
 import java.util.zip.Inflater;
 
 /**
- * Reads BGZF (Blocked GZIP Format) compressed data.
- * BGZF is a variant of gzip with concatenated blocks, each max 64KB uncompressed.
- * Used by BAM files for indexing support.
+ * Reads BGZF blocks through a reusable 65536-byte decompression buffer.
+ * Falls back to GZIPInputStream when the parsed header has no BGZF size subfield.
+ * Closing this reader closes its underlying input. Instances contain mutable
+ * decompression state and are intended for use by one caller at a time.
  *
  * @author Chloe
  * @date October 18, 2025
  */
-public class BgzfInputStream extends InputStream {
+public class BgzfInputStream extends InputStream{
 
-	public BgzfInputStream(InputStream in) {
-		this.in = in;
-		this.inflater = new Inflater(true); // true = nowrap mode for raw deflate
+	/*--------------------------------------------------------------*/
+	/*----------------        Initialization        ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/**
+	 * Creates a reader without consuming input bytes.
+	 * @param in Compressed input owned and closed by this reader
+	 */
+	public BgzfInputStream(InputStream in){
+		this.in=in;
+		this.inflater=new Inflater(true); // true = nowrap mode for raw deflate
+	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------           Methods            ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/**
+	 * Combines the current compressed block start and low 16 bits of the buffer position.
+	 * This value is not meaningful in plain-gzip mode and does not normalize an
+	 * exhausted block to the next block's start.
+	 * @return Encoded block offset and in-block position; initially zero
+	 */
+	//TODO: Possible bug [stream/bam/BgzfInputStream#001] - bufferPos==65536 wraps the
+	//low 16 bits to zero while retaining the same block start. A caller saving this
+	//position could mistake the exhausted block for its beginning. Earlier review
+	//proposed smaller writer blocks or normalization to the next block; the reader
+	//still has this arithmetic boundary. No index-query outcome is established here.
+	//The earlier claim that only BBTools writers can produce this size is unverified.
+	public long getVirtualOffset(){
+		return (blockCompressedStart<<16)|(bufferPos&0xFFFFL);
 	}
 
 	/**
-	 * Return the current BGZF virtual offset.
-	 * Upper 48 bits represent the compressed block offset; lower 16 bits represent the in-block position.
+	 * Returns one buffered byte, loading a block when the buffer is exhausted.
+	 * An empty BGZF block currently exposes a buffer byte; see TODO BgzfInputStream#002.
+	 * @return Unsigned byte value, or -1 when no further block is available
+	 * @throws IOException If reading or decompression fails
 	 */
-	//TODO: Possible bug [stream/bam/BgzfInputStream#001] - the 16-bit in-block uoffset `bufferPos & 0xFFFF`
-	//WRAPS to 0 when bufferPos==65536 (a full 65536-byte uncompressed block, exhausted). The voffset is NOT
-	//normalized to the next block when a block is fully consumed, so for a block <65536 it returns
-	//(thisBlock<<16)|isize - which is seek-EQUIVALENT to (nextBlock<<16)|0 (a reader at uoffset==isize
-	//advances to the next block on read), so that case is fine. But at EXACTLY 65536 the &0xFFFF collapses
-	//isize→0, yielding (thisBlock<<16)|0 = the START of this block. If a record boundary falls exactly at the
-	//end of a 65536-byte block, BamIndexWriter captures this wrapped voffset as the record's .bai chunk offset
-	//-> a query seeks to the block START and returns the wrong (earlier) record. NARROW + entirely contingent
-	//on a 65536-byte block, which only BBTools' own over-sized writer produces (spec/samtools cap at 0xff00) -
-	//see the BGZF block-size lead in leads.md. LOW/latent. Fix: cap uncompressed blocks <=0xff00 (root cause),
-	//and/or normalize the voffset to (nextBlock<<16)|0 when bufferPos==bufferLimit.
-	public long getVirtualOffset() {
-		return (blockCompressedStart << 16) | (bufferPos & 0xFFFFL);
+	//TODO: Probable bug [stream/bam/BgzfInputStream#002] - readBlock can return true
+	//with zero decompressed bytes. This one-shot refill then reads a buffer byte
+	//despite bufferLimit==0; the bulk overload instead loops past empty blocks.
+	@Override
+	public int read() throws IOException{
+		if(bufferPos>=bufferLimit){
+			if(!readBlock()){return -1;}
+		}
+		return uncompressedBuffer[bufferPos++]&0xFF;
 	}
 
+	/**
+	 * Copies up to len bytes, crossing blocks until the request is filled or input ends.
+	 * @param b Destination array
+	 * @param off First destination index
+	 * @param len Maximum bytes to copy; zero returns zero without reading input
+	 * @return Copied byte count, or -1 if input ends before any byte is copied
+	 * @throws IOException If reading or decompression fails
+	 * @throws NullPointerException If b is null
+	 * @throws IndexOutOfBoundsException If the destination range is invalid
+	 */
 	@Override
-	public int read() throws IOException {
-		if (bufferPos >= bufferLimit) {
-			if (!readBlock()) {
-				return -1;
-			}
-		}
-		return uncompressedBuffer[bufferPos++] & 0xFF;
-	}
+	public int read(byte[] b, int off, int len) throws IOException{
+		if(b==null){throw new NullPointerException();}else if(off<0 || len<0 || len>b.length-off){throw new IndexOutOfBoundsException();}else if(len==0){return 0;}
 
-	@Override
-	public int read(byte[] b, int off, int len) throws IOException {
-		if (b == null) {
-			throw new NullPointerException();
-		} else if (off < 0 || len < 0 || len > b.length - off) {
-			throw new IndexOutOfBoundsException();
-		} else if (len == 0) {
-			return 0;
-		}
-
-		int totalRead = 0;
-		while (totalRead < len) {
-			if (bufferPos >= bufferLimit) {
-				if (!readBlock()) {
-					return totalRead == 0 ? -1 : totalRead;
-				}
+		int totalRead=0;
+		while(totalRead<len){
+			if(bufferPos>=bufferLimit){
+				if(!readBlock()){return totalRead==0 ? -1 : totalRead;}
 			}
 
-			int available = bufferLimit - bufferPos;
-			int toRead = Math.min(available, len - totalRead);
-			System.arraycopy(uncompressedBuffer, bufferPos, b, off + totalRead, toRead);
-			bufferPos += toRead;
-			totalRead += toRead;
+			int available=bufferLimit-bufferPos;
+			int toRead=Math.min(available, len-totalRead);
+			System.arraycopy(uncompressedBuffer, bufferPos, b, off+totalRead, toRead);
+			bufferPos+=toRead;
+			totalRead+=toRead;
 		}
 
 		return totalRead;
 	}
 
 	/**
-	 * Read and decompress the next BGZF block.
-	 * @return true if block was read, false on EOF
-	 * @throws IOException on read error or malformed BGZF
+	 * Loads a BGZF block or a positive chunk from the plain-gzip fallback.
+	 * A BGZF block with zero decompressed bytes still returns true. Stored size
+	 * and CRC are checked against the decompressed buffer before it is exposed.
+	 * @return true after loading a block or chunk, false at the end of input
+	 * @throws IOException If input cannot be read, inflated, or fails a size or CRC check
 	 */
-	private boolean readBlock() throws IOException {
-		while (true) {
-			if (plainGzipMode) {
-				if (fillPlainGzipBuffer()) {
-					bufferPos = 0;
+	private boolean readBlock() throws IOException{
+		while(true){
+			if(plainGzipMode){
+				if(fillPlainGzipBuffer()){
+					bufferPos=0;
 					return true;
 				}
 				exitPlainGzipMode();
@@ -99,252 +120,242 @@ public class BgzfInputStream extends InputStream {
 			}
 
 			// Read gzip header (minimum 10 bytes)
-			byte[] header = new byte[10];
-			long blockStart = filePointer;
-			int bytesRead = readFully(header, 0, header.length);
-			if (bytesRead == 0) {
+			byte[] header=new byte[10];
+			long blockStart=filePointer;
+			int bytesRead=readFully(header, 0, header.length);
+			if(bytesRead==0){
 				return false; // EOF
 			}
-			if (bytesRead < header.length) {
-				throw new EOFException("Truncated BGZF block header");
-			}
-			blockCompressedStart = blockStart;
+			if(bytesRead<header.length){throw new EOFException("Truncated BGZF block header");}
+			blockCompressedStart=blockStart;
 
 			// Verify gzip signature
-			if ((header[0] & 0xFF) != 31 || (header[1] & 0xFF) != 139) {
-				throw new IOException("Not a gzip file");
-			}
+			if((header[0]&0xFF)!=31 || (header[1]&0xFF)!=139){throw new IOException("Not a gzip file");}
 
 			// Check compression method (should be 8 = DEFLATE)
-			if (header[2] != 8) {
-				throw new IOException("Unsupported compression method: " + header[2]);
-			}
+			if(header[2]!=8){throw new IOException("Unsupported compression method: "+header[2]);}
 
 			// Check flags
-			int flags = header[3] & 0xFF;
-			boolean fextra = (flags & 0x04) != 0;
+			int flags=header[3]&0xFF;
+			boolean fextra=(flags&0x04)!=0;
 
-			if (!fextra) {
+			if(!fextra){
 				enterPlainGzip(header, null, null);
 				continue;
 			}
 
 			// Read XLEN (2 bytes, little-endian)
-			byte[] xlenBytes = new byte[2];
-			if (readFully(xlenBytes, 0, 2) < 2) {
-				throw new EOFException("Truncated XLEN");
-			}
-			int xlen = ((xlenBytes[1] & 0xFF) << 8) | (xlenBytes[0] & 0xFF);
+			byte[] xlenBytes=new byte[2];
+			if(readFully(xlenBytes, 0, 2)<2){throw new EOFException("Truncated XLEN");}
+			int xlen=((xlenBytes[1]&0xFF)<<8)|(xlenBytes[0]&0xFF);
 
 			// Read extra field and find BC subfield
-			byte[] extra = new byte[xlen];
-			if (readFully(extra, 0, xlen) < xlen) {
-				throw new EOFException("Truncated extra field");
-			}
+			byte[] extra=new byte[xlen];
+			if(readFully(extra, 0, xlen)<xlen){throw new EOFException("Truncated extra field");}
 
-			int bsize = findBsizeInExtra(extra, xlen);
-			if (bsize < 0) {
+			int bsize=findBsizeInExtra(extra, xlen);
+			if(bsize<0){
 				enterPlainGzip(header, xlenBytes, extra);
 				continue;
 			}
 
 			// Calculate compressed data length
-			int alreadyRead = 10 + 2 + xlen;
-			int remaining = (bsize + 1) - alreadyRead;
+			int alreadyRead=10+2+xlen;
+			int remaining=(bsize+1)-alreadyRead;
 
-			if (remaining < 8) {
-				throw new IOException("Invalid BSIZE: " + bsize);
-			}
+			if(remaining<8){throw new IOException("Invalid BSIZE: "+bsize);}
 
-			int compressedSize = remaining - 8; // Subtract CRC32 and ISIZE
-			byte[] compressed = new byte[compressedSize];
-			if (readFully(compressed, 0, compressedSize) < compressedSize) {
-				throw new EOFException("Truncated compressed data");
-			}
+			int compressedSize=remaining-8; // Subtract CRC32 and ISIZE
+			byte[] compressed=new byte[compressedSize];
+			if(readFully(compressed, 0, compressedSize)<compressedSize){throw new EOFException("Truncated compressed data");}
 
 			// Read CRC32 and ISIZE (8 bytes total)
-			byte[] trailer = new byte[8];
-			if (readFully(trailer, 0, 8) < 8) {
-				throw new EOFException("Truncated block trailer");
-			}
+			byte[] trailer=new byte[8];
+			if(readFully(trailer, 0, 8)<8){throw new EOFException("Truncated block trailer");}
 
-			ByteBuffer bb = ByteBuffer.wrap(trailer).order(ByteOrder.LITTLE_ENDIAN);
-			long crc32 = bb.getInt() & 0xFFFFFFFFL;
-			int isize = bb.getInt();
+			ByteBuffer bb=ByteBuffer.wrap(trailer).order(ByteOrder.LITTLE_ENDIAN);
+			long crc32=bb.getInt()&0xFFFFFFFFL;
+			int isize=bb.getInt();
 
 			// Decompress
 			inflater.reset();
 			inflater.setInput(compressed);
 
-			try {
-				//Single inflate into the 65536 buffer suffices for a valid BGZF block (isize<=64KB fits). A
-				//malformed block claiming isize>65536 fills the buffer (returns 65536, finished()==false), but
-				//the isize check below catches the mismatch and crashes loud - no silent truncation.
-				bufferLimit = inflater.inflate(uncompressedBuffer);
-			} catch (DataFormatException e) {
+			try{
+				//Inflate once into the fixed-size buffer. The stored ISIZE is compared with
+				//the returned byte count below; this is not an exhaustive format validator.
+				bufferLimit=inflater.inflate(uncompressedBuffer);
+			}catch(DataFormatException e){
 				throw new IOException("Decompression failed", e);
 			}
 
-			//Two crash-loud integrity guards (BGZF correctness contract): the decompressed size MUST equal the
-			//block's stored ISIZE, and the CRC32 of the decompressed bytes MUST match the stored CRC. Either
-			//mismatch throws - a corrupt/truncated BGZF block fails LOUD here, never returns wrong bytes.
-			if (bufferLimit != isize) {
-				throw new IOException("Uncompressed size mismatch: expected " + isize + ", got " + bufferLimit);
-			}
+			//Reject a mismatch between the returned byte count and stored ISIZE.
+			//The following CRC check compares the bytes actually produced.
+			if(bufferLimit!=isize){throw new IOException("Uncompressed size mismatch: expected "+isize+", got "+bufferLimit);}
 
 			// Verify CRC32
-			CRC32 crc = new CRC32();
+			CRC32 crc=new CRC32();
 			crc.update(uncompressedBuffer, 0, bufferLimit);
-			if (crc.getValue() != crc32) {
-				throw new IOException("CRC32 mismatch");
-			}
+			if(crc.getValue()!=crc32){throw new IOException("CRC32 mismatch");}
 
-			bufferPos = 0;
+			bufferPos=0;
 			return true;
 		}
 	}
 
 	/**
-	 * Find BC subfield in gzip extra field and extract BSIZE.
+	 * Scans gzip extra subfields for a two-byte BC payload and decodes BSIZE.
 	 * @param extra Extra field bytes
-	 * @param xlen Length of extra field
-	 * @return BSIZE value, or -1 if not found
+	 * @param xlen Number of extra-field bytes to examine
+	 * @return Unsigned little-endian BSIZE, or -1 if no matching complete payload is found
 	 */
-	private int findBsizeInExtra(byte[] extra, int xlen) {
-		int pos = 0;
-		while (pos + 4 <= xlen) {
-			int si1 = extra[pos] & 0xFF;
-			int si2 = extra[pos + 1] & 0xFF;
-			int slen = ((extra[pos + 3] & 0xFF) << 8) | (extra[pos + 2] & 0xFF);
+	private int findBsizeInExtra(byte[] extra, int xlen){
+		int pos=0;
+		while(pos+4<=xlen){
+			int si1=extra[pos]&0xFF;
+			int si2=extra[pos+1]&0xFF;
+			int slen=((extra[pos+3]&0xFF)<<8)|(extra[pos+2]&0xFF);
 
-			if (si1 == 66 && si2 == 67) { // 'B' 'C'
-				if (slen == 2 && pos + 6 <= xlen) {
-					return ((extra[pos + 5] & 0xFF) << 8) | (extra[pos + 4] & 0xFF);
-				}
+			if(si1==66 && si2==67){ // 'B' 'C'
+				if(slen==2 && pos+6<=xlen){return ((extra[pos+5]&0xFF)<<8)|(extra[pos+4]&0xFF);}
 			}
 
-			pos += 4 + slen;
+			pos+=4+slen;
 		}
 		return -1;
 	}
 
 	/**
-	 * Read exactly n bytes from input stream.
-	 * @return number of bytes read (0 on immediate EOF, n on success)
-	 * @throws EOFException if EOF reached before n bytes read (but after some bytes read)
+	 * Reads until len bytes have arrived or the underlying input reaches EOF.
+	 * Advances filePointer for each byte obtained through this helper.
+	 * @param b Destination array
+	 * @param off First destination index
+	 * @param len Requested byte count
+	 * @return Number of bytes read, including a short count on partial EOF
+	 * @throws IOException If the underlying input throws while reading
 	 */
-	private int readFully(byte[] b, int off, int len) throws IOException {
-		int total = 0;
-		while (total < len) {
-			int n = in.read(b, off + total, len - total);
-			if (n < 0) {
-				return total;
-			}
-			filePointer += n;
-			total += n;
+	private int readFully(byte[] b, int off, int len) throws IOException{
+		int total=0;
+		while(total<len){
+			int n=in.read(b, off+total, len-total);
+			if(n<0){return total;}
+			filePointer+=n;
+			total+=n;
 		}
 		return total;
 	}
 
+	/**
+	 * Releases the inflater and closes the optional gzip wrapper and underlying input.
+	 * The underlying close is attempted even if closing the wrapper throws.
+	 * @throws IOException If an input close fails
+	 */
 	@Override
-	public void close() throws IOException {
+	public void close() throws IOException{
 		inflater.end();
-		try {
-			if (plainGzipStream != null) {
-				plainGzipStream.close();
-			}
-		} finally {
-			plainGzipStream = null;
+		try{
+			if(plainGzipStream!=null){plainGzipStream.close();}
+		}finally{
+			plainGzipStream=null;
 			in.close();
 		}
 	}
 
-	private final InputStream in;
-	private final Inflater inflater;
-	private final byte[] uncompressedBuffer = new byte[65536];
-	private int bufferPos = 0;
-	private int bufferLimit = 0;
-	private long filePointer = 0L;
-	private long blockCompressedStart = 0L;
-	private boolean plainGzipMode = false;
-	private GZIPInputStream plainGzipStream = null;
+	/*--------------------------------------------------------------*/
+	/*----------------       Gzip Header Replay     ----------------*/
+	/*--------------------------------------------------------------*/
 
-	//Clever (verified): a non-BGZF plain gzip (no FEXTRA, or FEXTRA without a BC subfield) is handled by
-	//replaying the ALREADY-CONSUMED header/xlen/extra bytes through a PrefixedInputStream in front of the live
-	//`in`, then handing the reconstructed stream to a stock GZIPInputStream. So the reader transparently
-	//accepts both BGZF and ordinary .gz without losing the bytes it already read to detect the format. (Note:
-	//getVirtualOffset is not meaningful in plain-gzip mode - but plain .gz isn't block-indexable anyway, and
-	//BAM is always BGZF, so BamIndexWriter never hits this path.)
-	private void enterPlainGzip(byte[] header, byte[] xlenBytes, byte[] extra) throws IOException {
-		if (plainGzipMode) {
-			return;
-		}
-		byte[] prefix = buildPrefix(header, xlenBytes, extra);
-		plainGzipStream = new GZIPInputStream(new PrefixedInputStream(prefix, in), uncompressedBuffer.length);
-		plainGzipMode = true;
-		bufferPos = 0;
-		bufferLimit = 0;
+	/**
+	 * Replays an already-consumed header before delegating to GZIPInputStream.
+	 * Headers without FEXTRA, or with no usable BC subfield, take this path.
+	 * Virtual offsets are not maintained for bytes consumed by the gzip wrapper.
+	 * Does nothing if plain-gzip mode is already active.
+	 * @param header Consumed fixed header bytes
+	 * @param xlenBytes Consumed XLEN bytes, or null when absent
+	 * @param extra Consumed extra-field bytes, or null when absent
+	 * @throws IOException If the gzip wrapper cannot read its header
+	 */
+	private void enterPlainGzip(byte[] header, byte[] xlenBytes, byte[] extra) throws IOException{
+		if(plainGzipMode){return;}
+		byte[] prefix=buildPrefix(header, xlenBytes, extra);
+		plainGzipStream=new GZIPInputStream(new PrefixedInputStream(prefix, in), uncompressedBuffer.length);
+		plainGzipMode=true;
+		bufferPos=0;
+		bufferLimit=0;
 	}
 
-	private boolean fillPlainGzipBuffer() throws IOException {
-		if (plainGzipStream == null) {
-			return false;
+	/**
+	 * Fills the shared buffer from the gzip wrapper, retrying zero-byte reads.
+	 * @return true for a positive chunk, false if no wrapper exists or input ends
+	 * @throws IOException If the gzip wrapper cannot supply decoded bytes
+	 */
+	private boolean fillPlainGzipBuffer() throws IOException{
+		if(plainGzipStream==null){return false;}
+		int n=0;
+		while(n==0){
+			n=plainGzipStream.read(uncompressedBuffer, 0, uncompressedBuffer.length);
+			if(n<0){return false;}
 		}
-		int n = 0;
-		while (n == 0) {
-			n = plainGzipStream.read(uncompressedBuffer, 0, uncompressedBuffer.length);
-			if (n < 0) {
-				return false;
-			}
-		}
-		bufferLimit = n;
+		bufferLimit=n;
 		return true;
 	}
 
-	private void exitPlainGzipMode() throws IOException {
-		if (plainGzipStream != null) {
-			plainGzipStream.close();
-		}
-		plainGzipStream = null;
-		plainGzipMode = false;
+	/**
+	 * Closes the gzip wrapper and clears its reference and mode after a successful close.
+	 * The prefix adapter leaves the underlying input open.
+	 * @throws IOException If closing the gzip wrapper fails
+	 */
+	private void exitPlainGzipMode() throws IOException{
+		if(plainGzipStream!=null){plainGzipStream.close();}
+		plainGzipStream=null;
+		plainGzipMode=false;
 	}
 
-	private byte[] buildPrefix(byte[] header, byte[] xlenBytes, byte[] extra) {
-		int prefixLen = header.length;
-		if (xlenBytes != null) {
-			prefixLen += xlenBytes.length;
-		}
-		if (extra != null) {
-			prefixLen += extra.length;
-		}
+	/**
+	 * Copies consumed header components into one array in their original order.
+	 * @param header Fixed header bytes
+	 * @param xlenBytes Optional XLEN bytes, or null
+	 * @param extra Optional extra-field bytes, or null
+	 * @return Newly allocated concatenation of the supplied components
+	 */
+	private byte[] buildPrefix(byte[] header, byte[] xlenBytes, byte[] extra){
+		int prefixLen=header.length;
+		if(xlenBytes!=null){prefixLen+=xlenBytes.length;}
+		if(extra!=null){prefixLen+=extra.length;}
 
-		byte[] prefix = new byte[prefixLen];
-		int pos = 0;
+		byte[] prefix=new byte[prefixLen];
+		int pos=0;
 		System.arraycopy(header, 0, prefix, pos, header.length);
-		pos += header.length;
-		if (xlenBytes != null) {
+		pos+=header.length;
+		if(xlenBytes!=null){
 			System.arraycopy(xlenBytes, 0, prefix, pos, xlenBytes.length);
-			pos += xlenBytes.length;
+			pos+=xlenBytes.length;
 		}
-		if (extra != null && extra.length > 0) {
-			System.arraycopy(extra, 0, prefix, pos, extra.length);
-		}
+		if(extra!=null && extra.length>0){System.arraycopy(extra, 0, prefix, pos, extra.length);}
 		return prefix;
 	}
 
-	private static final class PrefixedInputStream extends InputStream {
-		private final byte[] prefix;
-		private int position = 0;
-		private final InputStream tail;
+	/*--------------------------------------------------------------*/
+	/*----------------        Inner Classes         ----------------*/
+	/*--------------------------------------------------------------*/
 
-		PrefixedInputStream(byte[] prefix, InputStream tail) {
-			this.prefix = prefix;
-			this.tail = tail;
+	/** Replays a borrowed byte-array prefix, then reads from a borrowed input stream. */
+	private static final class PrefixedInputStream extends InputStream{
+		/**
+		 * Retains the prefix and tail without copying or consuming either.
+		 * @param prefix Header bytes to replay
+		 * @param tail Remaining compressed input
+		 */
+		PrefixedInputStream(byte[] prefix, InputStream tail){
+			this.prefix=prefix;
+			this.tail=tail;
 		}
 
 		/** Reports unread prefix and tail bytes, saturating the sum to avoid overflow.
 		 * Older GZIPInputStream implementations use available() to find concatenated members;
 		 * inherited zero can discard a buffered next-member header and cause false corruption.
+		 * @return Unread prefix length plus tail availability, capped at Integer.MAX_VALUE
+		 * @throws IOException If querying the tail fails
 		 */
 		@Override
 		public int available() throws IOException{
@@ -352,28 +363,72 @@ public class BgzfInputStream extends InputStream {
 			return (int)Math.min(Integer.MAX_VALUE, (long)(prefix.length-position)+tail.available());
 		}
 
+		/**
+		 * Returns the next unsigned prefix byte, or delegates when the prefix is exhausted.
+		 * @return Unsigned byte value or the tail's EOF result
+		 * @throws IOException If reading the tail fails
+		 */
 		@Override
-		public int read() throws IOException {
-			if (position < prefix.length) {
-				return prefix[position++] & 0xFF;
-			}
+		public int read() throws IOException{
+			if(position<prefix.length){return prefix[position++]&0xFF;}
 			return tail.read();
 		}
 
+		/**
+		 * Copies a prefix chunk or delegates the whole request to the tail.
+		 * A single call does not cross from a remaining prefix into the tail.
+		 * @param b Destination array
+		 * @param off First destination index
+		 * @param len Maximum number of bytes to copy
+		 * @return Prefix bytes copied, or the tail's read result
+		 * @throws IOException If reading the tail fails
+		 */
 		@Override
-		public int read(byte[] b, int off, int len) throws IOException {
-			if (position < prefix.length) {
-				int toCopy = Math.min(len, prefix.length - position);
+		public int read(byte[] b, int off, int len) throws IOException{
+			if(position<prefix.length){
+				int toCopy=Math.min(len, prefix.length-position);
 				System.arraycopy(prefix, position, b, off, toCopy);
-				position += toCopy;
+				position+=toCopy;
 				return toCopy;
 			}
 			return tail.read(b, off, len);
 		}
 
+		/** Does nothing; ownership of the tail stays with the outer reader. */
 		@Override
-		public void close() {
+		public void close(){
 			// Do not close the tail stream; caller manages lifecycle.
 		}
+
+		/** Header bytes replayed before reading the tail. */
+		private final byte[] prefix;
+		/** Number of prefix bytes already returned. */
+		private int position=0;
+		/** Borrowed source following the prefix; this adapter does not close it. */
+		private final InputStream tail;
 	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------            Fields            ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Owned source of compressed bytes. */
+	private final InputStream in;
+	/** Reusable raw-DEFLATE inflater for BGZF blocks. */
+	private final Inflater inflater;
+	/** Reusable storage for decoded BGZF blocks or plain-gzip chunks. */
+	private final byte[] uncompressedBuffer=new byte[65536];
+	/** Index of the next byte to return from the decoded buffer. */
+	private int bufferPos=0;
+	/** Number of decoded bytes in the buffer. */
+	private int bufferLimit=0;
+	/** Compressed bytes consumed through readFully; excludes plain-gzip wrapper reads. */
+	private long filePointer=0L;
+	/** Compressed position recorded for the most recently parsed header. */
+	private long blockCompressedStart=0L;
+	/** Whether reads are delegated to the ordinary gzip wrapper. */
+	private boolean plainGzipMode=false;
+	/** Optional gzip decoder over a replayed header and the remaining input. */
+	private GZIPInputStream plainGzipStream=null;
+
 }

@@ -15,26 +15,36 @@ import shared.Tools;
 import structures.ListNum;
 
 /**
- * Concurrent input stream for reading sequence data from multiple sources.
- * Manages dual input streams with separate threads for optimal I/O performance.
- * Supports paired-end reads, sampling, and configurable buffering strategies.
+ * Legacy buffered reader with one coordinator and one ReadThread per input source.
+ * Source threads publish raw lists; the coordinator pairs, optionally removes
+ * discarded paired entries, samples and repacks roots into output batches.
+ * Output lists contain roots, with mates linked through Read.mate. Coordinator
+ * generated counts consumed roots before sampling; readsIn counts individual
+ * linked mates too. Producer quotas apply before coordinator filtering.
+ *
+ * Configure before starting, drain batches through the empty terminal and return
+ * every consumed batch once. Normal returns replenish available buffers with new
+ * lists rather than recycling the original payload. Close after consumption to
+ * close producers and wait for managed threads. Restart requires prior completion;
+ * this class does not coordinate arbitrary concurrent configuration or reuse.
  * @author Brian Bushnell
  */
-public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream {
-	
+public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream{
+
 	/**
-	 * Test program for demonstrating stream functionality.
-	 * Creates input streams from command-line arguments and processes all reads.
+	 * Diagnostic that uses the CRIS factory, counts delivered reads/mates and prints totals.
+	 * A single input forces interleaving; supplied pairing/quality/compression settings
+	 * affect global state. Input2 may be omitted or replaced with a null placeholder.
 	 * @param args Command-line arguments: input1 [input2] [options]
 	 */
 	public static void main(String[] args){
-		
+
 		{//Preparse block for help, config files, and outstream
-			PreParser pp=new PreParser(args, new Object() { }.getClass().getEnclosingClass(), false);
+			PreParser pp=new PreParser(args, new Object(){}.getClass().getEnclosingClass(), false);
 			args=pp.args;
 			//outstream=pp.outstream;
 		}
-		
+
 		String in1=args[0];
 		String in2=(args.length<2 || args[1].equalsIgnoreCase("null") || args[1].contains("=") ? null : args[1]);
 		if(in2!=null){
@@ -44,14 +54,16 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 			FASTQ.TEST_INTERLEAVED=true;
 			FASTQ.FORCE_INTERLEAVED=true;
 		}
-		
+
 		long maxReads=-1;
-		for(int i=1; i<args.length; i++){
+		//The optional second input (including a null placeholder) was consumed above.
+		//An option containing '=' immediately after input1 must still be parsed here.
+		for(int i=(args.length>1 && !args[1].contains("=") ? 2 : 1); i<args.length; i++){
 			final String arg=args[i];
 			final String[] split=arg.split("=");
 			String a=split[0].toLowerCase();
 			String b=split.length>1 ? split[1] : null;
-			
+
 			if(Parser.parseZip(arg, a, b)){
 				//do nothing
 			}else if(Parser.parseQuality(arg, a, b)){
@@ -64,12 +76,12 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 				throw new RuntimeException("Unknown parameter "+args[i]);
 			}
 		}
-		
+
 		Parser.processQuality();
-		
+
 		assert(FastaReadInputStream.settingsOK());
 		Timer t=new Timer();
-		
+
 		ConcurrentReadInputStream cris=getReadInputStream(maxReads, false, true, in1, in2);
 		System.out.println("Fetched "+cris.getClass().getName());
 		{
@@ -87,8 +99,8 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 		}
 		boolean paired=cris.paired();
 		System.out.println("paired="+paired);
-		cris.start(); //4567
-		
+		cris.start();//4567
+
 		ListNum<Read> ln=cris.nextList();
 		ArrayList<Read> reads=(ln!=null ? ln.list : null);
 
@@ -96,12 +108,12 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 			Read r=reads.get(0);
 			assert((r.mate!=null)==paired) : paired;
 		}
-		
+
 		long readCount=0;
 		long baseCount=0;
-		
+
 		while(ln!=null && reads!=null && reads.size()>0){//ln!=null prevents a compiler potential null access warning
-			
+
 			for(Read r : reads){
 				Read r2=r.mate;
 				if(r!=null){
@@ -125,23 +137,26 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 		}
 		System.err.println("Finished reading");
 		cris.returnList(ln);
-		
+
+		//TODO: Probable diagnostic bug - close reports errors through errorState(), but
+		//this main prints its totals without querying that final status.
 		cris.close();
 		t.stop();
 
 		System.out.println("Reads:      \t"+readCount);
 		System.out.println("Bases:      \t"+baseCount);
-		System.out.println("Avg Length: \t"+Tools.format("%.2f",baseCount*1.0/readCount));
+		System.out.println("Avg Length: \t"+Tools.format("%.2f", baseCount*1.0/readCount));
 		System.out.println("Time:      \t"+t);
 	}
-	
+
 	/**
-	 * Creates a concurrent read input stream from one or two sources.
-	 * Initializes threading infrastructure and buffer queues for optimal performance.
+	 * Retains one or two sources and allocates output buffers plus four-list raw queues.
+	 * Does not start threads. Sources must be distinct; a secondary source is incompatible
+	 * with FORCE_INTERLEAVED under enabled assertions. A zero quota warns and asserts.
 	 *
 	 * @param source1 Primary input stream (required)
 	 * @param source2 Secondary input stream for paired reads (may be null)
-	 * @param maxReadsToGenerate Maximum number of reads to process
+	 * @param maxReadsToGenerate Root-entry quota per producer and coordinator; negative means unlimited
 	 */
 	public ConcurrentGenericReadInputStream(ReadInputStream source1, ReadInputStream source2, long maxReadsToGenerate){
 		super((source1==null ? "null" : source1.fname())+","+(source2==null ? "null" : source2.fname()));
@@ -161,9 +176,13 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 		if(producer1!=null){p1q=new ArrayBlockingQueue<ArrayList<Read>>(4);}
 		if(producer2!=null){p2q=new ArrayBlockingQueue<ArrayList<Read>>(4);}
 	}
-	
+
+	/** Waits for an output list while holding this instance's monitor.
+	 * Retries interrupted takes; returns null if shutdown is observed before a take.
+	 * Wraps the payload in a new ListNum with a sequential delivery ID.
+	 * @return Borrowed batch to return once after use; an empty payload signals terminal input */
 	@Override
-	public synchronized ListNum<Read> nextList() {
+	public synchronized ListNum<Read> nextList(){
 		ArrayList<Read> list=null;
 		if(verbose){System.err.println("crisG:    **************** nextList() was called; shutdown="+shutdown+", depot.full="+depot.full.size());}
 		//Note: this method is synchronized, so it holds the instance lock the whole time it blocks in take() below.
@@ -173,10 +192,10 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 				if(verbose){System.err.println("crisG:    **************** nextList() returning null; shutdown="+shutdown+", depot.full="+depot.full.size());}
 				return null;
 			}
-			try {
+			try{
 				list=depot.full.take();
 				assert(list!=null);
-			} catch (InterruptedException e) {
+			}catch(InterruptedException e){
 				// TODO Auto-generated catch block
 				e.printStackTrace();
 			}
@@ -187,7 +206,12 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 		listnum++;
 		return ln;
 	}
-	
+
+	/** Replenishes available buffers or republishes an empty terminal list.
+	 * Does not inspect/mutate the consumed payload or match its ID. Uses queue.add,
+	 * so unmatched extra returns can throw IllegalStateException when the queue is full.
+	 * @param listNumber Ignored batch identifier
+	 * @param poison Add a new empty list to full when true, otherwise to empty */
 	@Override
 	public void returnList(long listNumber, boolean poison){
 		//listNumber is unused: this impl tracks no per-list identity, so a returned list is not matched or recycled by id.
@@ -201,22 +225,24 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 			depot.empty.add(new ArrayList<Read>(BUF_LEN));
 		}
 	}
-	
+
+	/** Runs the coordinator and escalates an escaping AssertionError through KillSwitch. */
 	@Override
-	public void run() {
-		try {
+	public void run(){
+		try{
 			run0();
-		} catch (AssertionError e) {
+		}catch(AssertionError e){
 			KillSwitch.assertionKill(e);
 		}
 	}
-	
+
 	/**
-	 * Core streaming logic that coordinates producer threads and data flow.
-	 * Starts ReadThread instances for each input source and manages synchronization.
-	 * Processes reads in batches and handles shutdown sequencing.
+	 * Marks the coordinator running, starts source threads, repacks lists and publishes terminals.
+	 * The managed-thread array includes this coordinator followed by its source readers.
+	 * Normal completion clears running under its separate lock; producer closure and
+	 * thread joins remain the caller's close() responsibility. Reentry is asserted against.
 	 */
-	private void run0() {
+	private void run0(){
 //		producer.start();
 		synchronized(running){
 			assert(!running[0]) : "This cris was started by multiple threads.";
@@ -229,20 +255,20 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 		rt2=(producer2==null ? null : new ReadThread(producer2, p2q));
 		rt1.start();
 		if(rt2!=null){rt2.start();}
-		
-		threads=(rt1==null ? new Thread[] {Thread.currentThread()} :
-			rt2==null ? new Thread[] {Thread.currentThread(), rt1} :
-				new Thread[] {Thread.currentThread(), rt1, rt2});
 
-		try {
+		threads=(rt1==null ? new Thread[]{Thread.currentThread()} :
+			rt2==null ? new Thread[]{Thread.currentThread(), rt1} :
+				new Thread[]{Thread.currentThread(), rt1, rt2});
+
+		try{
 			readLists();
-		} catch (OutOfMemoryError e) {
+		}catch(OutOfMemoryError e){
 			KillSwitch.memKill(e);
 		}
 //		readSingles();
 
 		addPoison();
-		
+
 		//End thread
 
 		if(verbose){System.err.println("crisG:    cris finished addPoison.");}
@@ -252,7 +278,7 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 			depot.full.add(depot.empty.poll());
 		}
 		if(verbose){System.err.println("crisG:    cris thread syncing before shutdown.");}
-		
+
 		//Load-bearing lock choice (do NOT change to synchronized(this)): close() is synchronized on 'this' and spins in its drain loop (while threads[0].isAlive()) holding 'this' until THIS worker thread terminates. Were this terminal transition synced on 'this', the worker could never acquire it (close() holds it) -> worker never dies -> close() never releases 'this' -> permanent deadlock. The separate 'running' lock breaks the cycle (close() never touches it). Trace-verified 2026-06-18; resolves the original "something else must be syncing improperly on this" TODO.
 		synchronized(running){
 			assert(running[0]);
@@ -260,9 +286,11 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 		}
 		if(verbose){System.err.println("crisG:    cris thread terminated. Final depot size: "+depot.full.size()+", "+depot.empty.size());}
 	}
-	
-	/** Adds poison pills to signal consumer threads to terminate.
-	 * Ensures all buffers receive termination signals during shutdown. */
+
+	/** Adds an empty terminal, then polls available empty buffers to publish more terminals.
+	 * Relies on consumers returning data batches. An interrupted poll with shutdown set
+	 * stops further polling; ordinary poll timeouts retry. Does not guarantee one signal
+	 * per consumer on every shutdown path; run0 also transfers remaining available lists. */
 	private final void addPoison(){
 		//System.err.println("crisG:    Adding poison.");
 		//Add poison pills
@@ -272,9 +300,9 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 		for(int i=1; i<depot.bufferCount; i++){
 			ArrayList<Read> list=null;
 			while(list==null){
-				try {
+				try{
 					list=depot.empty.poll(1000, TimeUnit.MILLISECONDS);
-				} catch (InterruptedException e) {
+				}catch(InterruptedException e){
 					// TODO Auto-generated catch block
 //					System.err.println("crisG:    Do not be alarmed by the following error message:");
 //					e.printStackTrace();
@@ -291,23 +319,23 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 		}
 		if(verbose){System.err.println("crisG:    Added poison.");}
 	}
-	
+
 //	@Deprecated
 //	private final void readSingles(){
 //
 //		while(!shutdown && producer1.hasMore() && generated<maxReads){
 //			ArrayList<Read> list=null;
 //			while(list==null){
-//				try {
+//				try{
 //					list=depot.empty.take();
-//				} catch (InterruptedException e) {
+//				}catch(InterruptedException e){
 //					// TODO Auto-generated catch block
 //					e.printStackTrace();
 //					if(shutdown){break;}
 //				}
 //			}
 //			if(shutdown || list==null){break;}
-//			
+//
 //			long bases=0;
 //			while(list.size()<depot.bufferSize && generated<maxReads && bases<MAX_DATA){
 //				Read a=producer1.next();
@@ -341,11 +369,14 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 //			depot.full.add(list);
 //		}
 //	}
-	
+
 	/**
-	 * Main read processing loop that coordinates data from producer threads.
-	 * Manages buffer allocation, read pairing, and data flow control.
-	 * Handles sampling, quality filtering, and buffer size constraints.
+	 * Repackages source lists into root batches while retaining a cursor across output lists.
+	 * With two inputs, optional pairing and discarded-entry removal happen before
+	 * coordinator counting/sampling. ReadsIn/basesIn include consumed linked mates,
+	 * even when sampling drops the root; generated increments once per consumed root.
+	 * Output base limits count retained roots and mates. Clears raw queues on normal
+	 * exit. Quality interpretation belongs to the source readers, not this method.
 	 */
 	private final void readLists(){
 		//PIPELINE STAGE 2 (consumes the ReadThreads): pull raw chunks from p1q/p2q (filled by ReadThread.readLists), repack them into uniform output lists drawn from depot.empty, and push each filled list to depot.full for nextList(). buffer1/buffer2 are the current raw chunks; 'list' is the current output list; 'next' is the read index into buffer1 and PERSISTS across outer-loop iterations (one buffer1 can span several output lists, and one output list can draw from several buffer1's).
@@ -353,7 +384,7 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 		ArrayList<Read> buffer2=null;
 		ArrayList<Read> list=null;
 		int next=0;
-		
+
 //		System.out.println("crisG:    a");
 		if(verbose){System.err.println(getClass().getName()+" entering read lists loop.");}
 		while(buffer1!=poison && (buffer1!=null || (!shutdown && generated<maxReads))){
@@ -362,9 +393,9 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 					+", shutdown="+shutdown+", generated<maxReads="+(generated<maxReads));}
 			while(list==null){
 				if(verbose){System.err.println("crisG:    Fetching an empty list: generated="+generated+"/"+maxReads);}
-				try {
+				try{
 					list=depot.empty.take();
-				} catch (InterruptedException e) {
+				}catch(InterruptedException e){
 					// TODO Auto-generated catch block
 					e.printStackTrace();
 					if(shutdown){break;}
@@ -378,7 +409,7 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 				break;
 			}
 //			System.out.println("crisG:    d");
-			
+
 			if(verbose){System.err.println("crisG:    Entering full fetch loop.");}
 			long bases=0;
 			while(list.size()<depot.bufferSize && generated<maxReads && bases<MAX_DATA){
@@ -387,21 +418,21 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 				if(buffer1==null || next>=buffer1.size()){
 					buffer1=null;
 					while(!shutdown && buffer1==null){
-						try {
+						try{
 							buffer1=p1q.take();
-						} catch (InterruptedException e) {
+						}catch(InterruptedException e){
 							// TODO Auto-generated catch block
 							e.printStackTrace();
 						}
 					}
 //					System.out.println("crisG:    e");
-					
+
 					if(buffer1!=null && p2q!=null){
 						buffer2=null;
 						while(!shutdown && buffer2==null){
-							try {
+							try{
 								buffer2=p2q.take();
-							} catch (InterruptedException e) {
+							}catch(InterruptedException e){
 								// TODO Auto-generated catch block
 								e.printStackTrace();
 							}
@@ -422,15 +453,15 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 					if(verbose){System.err.println("crisG:    Breaking because buffer1==null: "+(buffer1==null)+" || buffer1==poison: "+(buffer1==poison)+" || shutdown: "+shutdown);}
 					break;
 				}
-				assert(buffer1.size()<=BUF_LEN); //Although this is not really necessary.
-				
+				assert(buffer1.size()<=BUF_LEN);// Although this is not really necessary.
+
 //				assert(!set2.contains(buffer1)) : buffer1.hashCode();
 //				set2.add(buffer1);
 //				System.out.println(buffer1.hashCode());
-				
+
 				if(buffer2!=null){
 //					System.out.println("crisG:    h");
-					
+
 					if(buffer2!=null && (buffer1==null || buffer2.size()!=buffer1.size()) && !ALLOW_UNEQUAL_LENGTHS){
 						System.err.println("crisG:    Error: Misaligned read streams.");
 						errorState=true;
@@ -439,7 +470,7 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 					}
 					assert(ALLOW_UNEQUAL_LENGTHS || buffer2==null || buffer2.size()==buffer1.size());
 				}
-				
+
 				//Code disabled because it does not actually seem to make anything faster.
 //				if(buffer1.size()<=(BUF_LEN-list.size()) && (buffer1.size()+generated)<maxReads && randy==null){
 //					//System.out.println("crisG:    j");
@@ -501,7 +532,6 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 					}
 //					System.out.println("crisG:    l");
 
-					
 					if(next>=buffer1.size()){
 						buffer1=null;
 						buffer2=null;
@@ -516,14 +546,14 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 //				System.out.println("crisG:    n");
 				if(verbose){System.err.println(Thread.currentThread().getName());}
 			}
-			
+
 //			System.out.println("crisG:    p");
 //			System.err.println("crisG:    Adding list to full depot.  Shutdown="+shutdown);
 			if(verbose){System.err.println("crisG:    F: Adding list("+list.size()+") to full.");}
 			depot.full.add(list);
 			list=null;
 //			System.err.println("crisG:    Added.");
-			
+
 //			System.out.println("crisG:    o");
 			if(buffer1==poison){
 				if(verbose){System.err.println("crisG:    Detected poison from buffer1.");}
@@ -535,30 +565,29 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 //			System.out.println("crisG:    q");
 		}
 //		System.out.println("crisG:    r");
-		
-		
+
 		p1q.clear();
 		if(p2q!=null){p2q.clear();}
 	}
-	
+
 	/**
-	 * Pairs reads from dual input streams into mate relationships.
-	 * Sets mate pointers and pair numbers for proper paired-end handling.
-	 * Handles unequal buffer lengths when ALLOW_UNEQUAL_LENGTHS is enabled.
+	 * Mutates aligned roots into reciprocal mates after asserting matching numeric IDs.
+	 * Optionally reverse-complements every secondary entry. With unequal lengths allowed,
+	 * primary surplus stays in place; secondary surplus moves into buffer1 with pair number zero.
 	 *
 	 * @param buffer1 Reads from first input stream
 	 * @param buffer2 Reads from second input stream
 	 */
 	private final void pair(ArrayList<Read> buffer1, ArrayList<Read> buffer2){
 		final int len1=buffer1.size(), len2=buffer2.size();
-		assert(ALLOW_UNEQUAL_LENGTHS || len1==len2) : "\nThere appear to be different numbers of reads in the paired input files." +
+		assert(ALLOW_UNEQUAL_LENGTHS || len1==len2) : "\nThere appear to be different numbers of reads in the paired input files."+
 				"\nThe pairing may have been corrupted by an upstream process.  It may be fixable by running repair.sh.";
 		final int lim=Tools.min(len1, len2);
-		
+
 		if(FASTQ.FLIP_R2){
-			for(Read r2 : buffer2) {r2.reverseComplementFast();}
+			for(Read r2 : buffer2){r2.reverseComplementFast();}
 		}
-		
+
 		for(int i=0; i<lim; i++){
 			Read a=buffer1.get(i);
 			Read b=buffer2.get(i);
@@ -574,7 +603,7 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 			b.setPairnum(1);
 			//		assert(a.pairnum()!=b.pairnum());
 		}
-		
+
 		//Tail handling is asymmetric because buffer1 IS the output list (readLists iterates buffer1, not buffer2; a buffer2 read reaches output only as someone's mate or by being added to buffer1).
 		if(len1>len2){
 			//buffer1 surplus needs no action: those reads are already in the output list with their default unpaired state (mate==null, pairnum 0).
@@ -588,14 +617,15 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 			}
 		}
 	}
-	
+
 	/**
-	 * Removes reads marked as discarded from input buffers.
-	 * Condenses arrays to maintain efficient memory usage.
+	 * Removes discarded root positions and condenses the modified lists in place.
+	 * With buffer2, removes both entries if either is discarded and assumes matching sizes.
+	 * The coordinator currently invokes this helper only on the two-source path.
 	 *
 	 * @param buffer1 Primary read buffer
 	 * @param buffer2 Secondary read buffer (may be null)
-	 * @return Number of reads removed
+	 * @return Removed positions (pairs when both buffers are supplied), not individual mates
 	 */
 	private static final int removeDiscarded(ArrayList<Read> buffer1, ArrayList<Read> buffer2){
 		int removed=0;
@@ -608,6 +638,8 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 				}
 			}
 		}else{
+			//TODO: Probable bug - unequal inputs can leave buffer1 longer than buffer2
+			//after pair(); this loop still indexes buffer2 through the primary size.
 			for(int i=0; i<buffer1.size(); i++){
 				Read a=buffer1.get(i);
 				Read b=buffer2.get(i);
@@ -624,7 +656,9 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 		}
 		return removed;
 	}
-	
+
+	/** Sets the shutdown flag. The historical #001 guard leaves the interrupt loop inactive.
+	 * Does not close sources, drain queues or join threads; close() performs those other steps. */
 	@Override
 	public synchronized void shutdown(){
 //		System.err.println("crisG:    Called shutdown.");
@@ -638,7 +672,10 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 			}
 		}
 	}
-	
+
+	/** Resets queues, producer positions and counts for reuse after prior processing has stopped.
+	 * Does not start processing, reset started/errorState, rebuild thread references or
+	 * reseed the sampling generator. Caller must ensure no old worker still owns state. */
 	@Override
 	public synchronized void restart(){
 		shutdown=false;
@@ -650,11 +687,16 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 		generated=0;
 		basesIn=0;
 		readsIn=0;
-		listnum=0; //Added Oct 9, 2014
+		listnum=0;// Added Oct 9, 2014
 		nextProgress=PROGRESS_INCR;
 		lastTime=System.nanoTime();
 	}
-	
+
+	/** Requests shutdown, closes both producers and folds their reported errors.
+	 * Drains output buffers back to the available queue until the coordinator stops,
+	 * then joins source threads, retrying interruptions. Holds this instance's monitor;
+	 * the separate running lock rationale below must be preserved. Does not drain raw
+	 * producer queues or reset error state. Historical lifecycle concerns remain separate. */
 	@Override
 	public synchronized void close(){
 		if(verbose){System.err.println("crisG:    Called shutdown for "+producer1+"; "+threads[0].getState());}
@@ -671,24 +713,24 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 				//				System.out.println("crisG:    B");
 				ArrayList<Read> list=null;
 				for(int i=0; i<1000 && list==null && threads[0].isAlive(); i++){
-					try {
+					try{
 						list=depot.full.poll(100, TimeUnit.MILLISECONDS);
-					} catch (InterruptedException e) {
+					}catch(InterruptedException e){
 						// TODO Auto-generated catch block
 						System.err.println("crisG:    Do not be alarmed by the following error message:");
 						e.printStackTrace();
 						break;
 					}
 				}
-				
+
 				while(list!=null){//Loop added to prevent race condition in add
 					list.clear();
 					boolean b;
 					try{
 						b=depot.empty.offer(list, 100, TimeUnit.MILLISECONDS);
-						if(b) {
+						if(b){
 							list=null;
-						}else {
+						}else{
 							depot.empty.clear();//Clear the queue to try again
 						}
 					}catch(InterruptedException e){
@@ -697,22 +739,22 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 					}
 				}
 			}
-			
+
 		}
-		
+
 		if(threads!=null){
 			for(int i=1; i<threads.length; i++){
 				while(threads[i]!=null && threads[i].getState()!=Thread.State.TERMINATED){
-					try {
+					try{
 						threads[i].join();
-					} catch (InterruptedException e) {
+					}catch(InterruptedException e){
 						// TODO Auto-generated catch block
 						e.printStackTrace();
 					}
 				}
 			}
 		}
-		
+
 		//This assertion should be impossible but somehow it fired.
 		//However, by the time the warning was issued, "isAlive" returned false anyway.
 //		assert(threads==null || threads.length<2 || threads[1]==null || !threads[1].isAlive()) : ((ReadThread)threads[1]).generatedLocal+", "+threads[1].isAlive()+", "+threads[1].getState();
@@ -722,16 +764,17 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 		if(verbose){System.err.println("crisG:    threads joined; errorState="+errorState);}
 	}
 
+	/** Reports pairing from current PAIR_READS plus primary pairing or a secondary source. */
 	@Override
-	public boolean paired() {
+	public boolean paired(){
 		return FASTQ.PAIR_READS && (producer1.paired() || producer2!=null);
 	}
-	
+
+	/** Returns the shared diagnostic flag. */
 	@Override
 	public boolean verbose(){return verbose;}
-	
-	/** Worker thread for reading data from a single input stream.
-	 * Operates independently to maximize I/O throughput and minimize blocking. */
+
+	/** Reads one source and publishes its lists to a bounded queue for the coordinator. */
 	private class ReadThread extends Thread{
 		/**
 		 * Creates a read thread for the specified input stream.
@@ -742,51 +785,52 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 			producer=producer_;
 			pq=pq_;
 		}
-		
+
+		/** Runs source acquisition and escalates escaping AssertionError through KillSwitch. */
 		@Override
 		public void run(){
-			try {
+			try{
 				readLists();
-			} catch (AssertionError e) {
+			}catch(AssertionError e){
 				KillSwitch.assertionKill(e);
 			}
 		}
-		
+
 		/**
-		 * Core reading loop that processes input stream data.
-		 * Reads lists of sequences and forwards them to the output queue.
-		 * Handles read count limits and graceful termination.
+		 * Acquires nonempty source lists, truncates tails to the per-source root quota and queues them.
+		 * Successful publication advances generatedLocal. Normal completion queues the shared
+		 * poison object; queue-put interruptions retry. The caught-source-error path sets
+		 * shutdown, attempts an empty-list publication, then records errorState. This is
+		 * not a general failure-completion guarantee. Does not close the source itself.
 		 */
 		private final void readLists(){
-			
+
 			ArrayList<Read> list=null;
-			
+
 			if(verbose){System.err.println(getClass().getName()+" entering read lists loop.");}
 			while(list!=null || (!shutdown && producer.hasMore() && generatedLocal<maxReads)){
 
 				if(verbose){System.err.println(getClass().getName()+" looping: buffer1==null "+(list==null)+", shutdown="+shutdown+
 						", producer.hasMore()="+producer.hasMore()+", generated<maxReads="+(generatedLocal<maxReads));}
 
-				
-				
 				if(verbose){System.err.println(getClass().getName()+" Entering full fetch loop.");}
 				while(generatedLocal<maxReads){
 //					System.out.println("crisG:    E");
 					if(verbose){System.err.println(getClass().getName()+" depot.bufferSize="+depot.bufferSize+", generated="+generatedLocal);}
 //					System.out.println("crisG:    F");
-					try {
+					try{
 						list=producer.nextList();
-					} catch (OutOfMemoryError e){
+					}catch(OutOfMemoryError e){
 						KillSwitch.memKill(e);
-					} catch (Throwable e1) {
+					}catch(Throwable e1){
 						// TODO
 //						System.err.print('*');
 						e1.printStackTrace();
 						list=null;
 						shutdown=true;
-						try {
+						try{
 							pq.put(new ArrayList<Read>(1));
-						} catch (InterruptedException e) {
+						}catch(InterruptedException e){
 							// TODO Auto-generated catch block
 							e.printStackTrace();
 						}
@@ -800,7 +844,7 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 						break;
 					}
 					assert(list.size()>0) : list.size();
-					assert(list.size()<=BUF_LEN); //Although this is not really necessary.
+					assert(list.size()<=BUF_LEN);// Although this is not really necessary.
 //					System.out.println("crisG:    I");
 					if(list.size()+generatedLocal>maxReads){
 //						System.out.println("crisG:    J");
@@ -811,7 +855,7 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 //					System.out.println("crisG:    A");
 					while(list!=null && !shutdown){
 //						System.out.println("crisG:    B");
-						try {
+						try{
 							if(verbose){System.err.println("crisG:    Trying to add list");}
 							pq.put(list); //#002 (LOW): theoretical full-queue hang here is shadowed in practice - see the misaligned-streams note in the outer readLists.
 							generatedLocal+=list.size();
@@ -819,7 +863,7 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 							if(verbose){
 								System.out.println("crisG:    Added list; pq.size() = "+pq.size());
 							}
-						} catch (InterruptedException e) {
+						}catch(InterruptedException e){
 							// TODO Auto-generated catch block
 							e.printStackTrace();
 						}
@@ -831,39 +875,37 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 
 				if(verbose){System.err.println(getClass().getName()+" Finished inner loop iteration.\n");}
 			}
-			
 
 			if(verbose){System.err.println(getClass().getName()+" attempting to poison output queue.");}
 			boolean b=true;
 			while(b){
 				//#002 (LOW): this poison-put could in theory block forever if the consumer died with pq full, but that path doesn't occur in practice - see the misaligned-streams note in the outer readLists (pair() assert under -ea; clean teardown under -da).
-				try {
+				try{
 //					pq.offer(poison, 10000, TimeUnit.SECONDS);
 					pq.put(poison); //Possible bug
 					b=false;
-				} catch (InterruptedException e) {
+				}catch(InterruptedException e){
 					// TODO Auto-generated catch block
 					e.printStackTrace();
 				}
 			}
-			
 
 			if(verbose){System.err.println(getClass().getName()+" exited read lists loop: "+(list==null)+", "+shutdown+", "+producer.hasMore()+", "+generatedLocal+", "+maxReads);}
 
 		}
-		
+
 		/** Output queue for this thread's processed read lists */
 		private final ArrayBlockingQueue<ArrayList<Read>> pq;
 		/** Input stream managed by this read thread */
 		private final ReadInputStream producer;
-		/** Number of reads generated by this specific thread */
+		/** Root entries successfully published by this source, before coordinator filtering/sampling. */
 		private long generatedLocal=0;
 	}
-	
+
 	/**
-	 * Updates read generation counter and displays progress if enabled.
-	 * Tracks timing information for performance monitoring.
-	 * @param amt Number of reads to add to counter
+	 * Adds coordinator-consumed roots and optionally emits a progress dot or elapsed seconds.
+	 * Advances the next threshold once per call when reached; sampling does not suppress progress.
+	 * @param amt Number of consumed root entries to add
 	 */
 	private void incrementGenerated(long amt){
 		generated+=amt;
@@ -882,7 +924,10 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 		}
 //		System.err.println("crisG:    generated="+generated+"\treadsIn="+readsIn);
 	}
-	
+
+	/** Configures coordinator sampling before startup; does not synchronize with processing.
+	 * @param rate Retention probability; at least one disables random sampling
+	 * @param seed Nonnegative deterministic seed, or a negative request for Shared's default RNG */
 	@Override
 	public void setSampleRate(float rate, long seed){
 		samplerate=rate;
@@ -894,57 +939,60 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 			randy=shared.Shared.random();
 		}
 	}
-	
+
+	/** Returns observed consumed bases, including linked mates, before sampling. */
 	@Override
 	public long basesIn(){return basesIn;}
+	/** Returns observed individual reads/mates consumed by the coordinator before sampling. */
 	@Override
 	public long readsIn(){return readsIn;}
-	
+
+	/** Combines this stream's recorded errors with both producers' current error reports. */
 	@Override
 	public boolean errorState(){
 		return errorState ||
 			(producer1==null ? false : producer1.errorState()) || (producer2==null ? false : producer2.errorState());}
-	/** TODO */
+	/** Error accumulator for coordinator, source acquisition and producer closure. */
 	private boolean errorState=false;
-	
-	/** Flag indicating if shutdown has been initiated */
+
+	/** Shared shutdown request; not volatile and not a thread-completion marker. */
 	private boolean shutdown=false;
-	
-	/** Array tracking running state of threads (synchronized access) */
-	private boolean[] running=new boolean[] {false};
-	
+
+	/** Coordinator reentry/exit state guarded by this array's monitor, not the instance monitor. */
+	private boolean[] running=new boolean[]{false};
+
 	/** Fraction of reads to keep during sampling (1.0 = all reads) */
 	private float samplerate=1f;
-	/** Random number generator for read sampling */
+	/** Coordinator sampling generator; null bypasses sampling, retained across restart. */
 	private shared.Random randy=null;
-	
+
 	/** Queue for buffering read lists from first producer thread */
 	private ArrayBlockingQueue<ArrayList<Read>> p1q;
 	/** Queue for buffering read lists from second producer thread */
 	private ArrayBlockingQueue<ArrayList<Read>> p2q;
-	
-	
-	@Override
-	public Object[] producers(){return producer2==null ? new Object[] {producer1} : new Object[] {producer1, producer2};}
 
-	/** Array of all threads managed by this stream */
+	/** Returns a new one/two-element array containing borrowed producer references. */
+	@Override
+	public Object[] producers(){return producer2==null ? new Object[]{producer1} : new Object[]{producer1, producer2};}
+
+	/** Coordinator at index zero, followed by source readers; populated during run0. */
 	private Thread[] threads;
-	
+
 	/** Primary input stream for reading sequence data */
 	public final ReadInputStream producer1;
 	/** Secondary input stream for paired-end reads (may be null) */
 	public final ReadInputStream producer2;
 	/** Buffer management system for coordinating producer and consumer threads */
 	private ConcurrentDepot<Read> depot;
-	
-	/** Total number of bases processed from input streams */
+
+	/** Consumed bases including mates after paired discard filtering and before sampling. */
 	private long basesIn=0;
-	/** Total number of reads processed from input streams */
+	/** Consumed individual reads/mates after paired discard filtering and before sampling. */
 	private long readsIn=0;
-	
-	/** Maximum number of reads to process before stopping */
+
+	/** Root-entry quota applied independently by each source and by the coordinator. */
 	private long maxReads;
-	/** Number of reads generated and passed to consumer */
+	/** Coordinator-consumed roots, including sampled-out entries but excluding removed discarded pairs. */
 	private long generated=0;
 	/** Sequential number assigned to each list returned to consumer */
 	private long listnum=0;
@@ -952,11 +1000,11 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 	private long nextProgress=PROGRESS_INCR;
 	/** Timestamp of last progress update in nanoseconds */
 	private long lastTime=System.nanoTime();
-	
+
 	/** Global flag enabling verbose debug output for all instances */
 	public static boolean verbose=false;
-	
+
 	/** Singleton poison pill used to signal thread termination */
 	private static final ArrayList<Read> poison=new ArrayList<Read>(0);
-	
+
 }

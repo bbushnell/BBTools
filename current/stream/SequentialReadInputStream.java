@@ -128,83 +128,84 @@ public class SequentialReadInputStream extends ReadInputStream{
 	/**
 	 * Fills one reference-local batch, skipping initial undefined bases and unsuitable
 	 * windows. Undefined candidate ends are trimmed to the first and last defined bases;
-	 * undefined bases inside that span remain. Advances recursively across references
-	 * that produce no records, optionally unloading their cached chromosome arrays.
+	 * undefined bases inside that span remain. Iterates across exhausted references until
+	 * a batch is ready, optionally unloading cached chromosome arrays as it advances.
 	 */
 	private synchronized void fillBuffer(){
 		buffer=null;
-		if(chrom>maxChrom){return;}
-		ChromosomeArray cha=Data.getChromosome(chrom);
-		next=0;
-		
-		if(position==0){
-			//[stream/SequentialReadInputStream#004] Unequal references need their own bound, including re-entry after restart.
-			maxPosition=Data.chromLengths[chrom];
-			while(position<=maxPosition && !AminoAcid.isFullyDefined((char)cha.get(position))){position++;}//Skip initial undefined bases
-		}
-		
-		ArrayList<Read> reads=new ArrayList<Read>(BUF_LEN);
-		int index=0;
-		
-		//[stream/SequentialReadInputStream#001] cap the batch at BUF_LEN. Was index<buffer.size() — but
-		//buffer is set null at the top of fillBuffer() and never reassigned before here, so buffer.size()
-		//was a GUARANTEED NPE on any non-trivial chromosome (the local 'reads' is the batch being built,
-		//sized BUF_LEN). NEEDS end-to-end validation with a real reference (synthetic-read mode) before trusting.
-		while(position<=maxPosition && index<BUF_LEN && id<maxReads){
-			int start=position;
-			int stop=Tools.min(position+readlen-1, cha.maxIndex);
-			byte[] s=cha.getBytes(start, stop);
-			
-			if(s.length<1 || !AminoAcid.isFullyDefined(s)){
-				int firstGood=-1, lastGood=-1;
-				//[stream/SequentialReadInputStream#005] Find the first-to-last defined span; retain interior undefined bases.
-				for(int i=0; i<s.length; i++){
-					if(AminoAcid.isFullyDefined(s[i])){
-						lastGood=i;
-						if(firstGood==-1){firstGood=i;}
+		while(chrom<=maxChrom){
+			ChromosomeArray cha=Data.getChromosome(chrom);
+			next=0;
+
+			if(position==0){
+				//[stream/SequentialReadInputStream#004] Unequal references need their own bound, including re-entry after restart.
+				maxPosition=Data.chromLengths[chrom];
+				while(position<=maxPosition && !AminoAcid.isFullyDefined((char)cha.get(position))){position++;}//Skip initial undefined bases
+			}
+
+			ArrayList<Read> reads=new ArrayList<Read>(BUF_LEN);
+			int index=0;
+
+			//[stream/SequentialReadInputStream#001] cap the batch at BUF_LEN. Was index<buffer.size() — but
+			//buffer is set null at the top of fillBuffer() and never reassigned before here, so buffer.size()
+			//was a GUARANTEED NPE on any non-trivial chromosome (the local 'reads' is the batch being built,
+			//sized BUF_LEN). NEEDS end-to-end validation with a real reference (synthetic-read mode) before trusting.
+			while(position<=maxPosition && index<BUF_LEN && id<maxReads){
+				int start=position;
+				int stop=Tools.min(position+readlen-1, cha.maxIndex);
+				byte[] s=cha.getBytes(start, stop);
+
+				if(s.length<1 || !AminoAcid.isFullyDefined(s)){
+					int firstGood=-1, lastGood=-1;
+					//[stream/SequentialReadInputStream#005] Find the first-to-last defined span; retain interior undefined bases.
+					for(int i=0; i<s.length; i++){
+						if(AminoAcid.isFullyDefined(s[i])){
+							lastGood=i;
+							if(firstGood==-1){firstGood=i;}
+						}
+					}
+					//TODO: Probable bug [stream/SequentialReadInputStream#006] - no defined bases gives span 1 from -1/-1; minReadlen<=1 can copy from -1. Known production callers use at least 50.
+					if(lastGood-firstGood+1>=minReadlen){
+						start=start+firstGood;
+						stop=stop-(s.length-lastGood-1);
+						s=KillSwitch.copyOfRange(s, firstGood, lastGood+1);
+						assert(s.length==lastGood-firstGood+1);
+					}else{
+						s=null;
 					}
 				}
-				//TODO: Probable bug [stream/SequentialReadInputStream#006] - no defined bases gives span 1 from -1/-1; minReadlen<=1 can copy from -1. Known production callers use at least 50.
-				if(lastGood-firstGood+1>=minReadlen){
-					start=start+firstGood;
-					stop=stop-(s.length-lastGood-1);
-					s=KillSwitch.copyOfRange(s, firstGood, lastGood+1);
-					assert(s.length==lastGood-firstGood+1);
+
+				if(s!=null){
+					Read r=new Read(s, null, id, chrom, start, stop, Shared.PLUS);
+					if(alternateStrand && (r.numericID&1)==1){r.reverseComplement();}
+					r.setSynthetic(true);
+
+					reads.add(r);
+					index++;
+					position+=(POSITION_INCREMENT-overlap);
+					id++;
 				}else{
-					s=null;
+					//Move to the next defined position
+					//ChromosomeArray.get returns N beyond maxIndex, so the first scan stops without an out-of-range array access.
+					while(AminoAcid.isFullyDefined((char)cha.get(position))){position++;}
+					while(position<=maxPosition && !AminoAcid.isFullyDefined((char)cha.get(position))){position++;}
 				}
 			}
-			
-			if(s!=null){
-				Read r=new Read(s, null, id, chrom, start, stop, Shared.PLUS);
-				if(alternateStrand && (r.numericID&1)==1){r.reverseComplement();}
-				r.setSynthetic(true);
-				
-				reads.add(r);
-				index++;
-				position+=(POSITION_INCREMENT-overlap);
-				id++;
-			}else{
-				//Move to the next defined position
-				//ChromosomeArray.get returns N beyond maxIndex, so the first scan stops without an out-of-range array access.
-				while(AminoAcid.isFullyDefined((char)cha.get(position))){position++;}
-				while(position<=maxPosition && !AminoAcid.isFullyDefined((char)cha.get(position))){position++;}
+
+			if(index==0){
+				//Resolved #007: iterate to the next reference without retaining a call frame for each skip.
+				if(UNLOAD && chrom>0){Data.unload(chrom, true);}
+				chrom++;
+				position=0;
+				buffer=null;
+				continue;
 			}
-		}
-		
-		if(index==0){
-			//TODO: Probable bug [stream/SequentialReadInputStream#007] - recursively skipping zero-output chromosomes grows the call stack with the skipped run; practical depth limits are unverified.
-			if(UNLOAD && chrom>0){Data.unload(chrom, true);}
-			chrom++;
-			position=0;
-			buffer=null;
-			fillBuffer();
+
+			generated+=index;
+
+			buffer=reads;
 			return;
 		}
-		
-		generated+=index;
-		
-		buffer=reads;
 	}
 	
 	/** Returns an identifier for this synthetic stream ("sequential").

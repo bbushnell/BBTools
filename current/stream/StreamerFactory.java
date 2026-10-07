@@ -10,12 +10,16 @@ import structures.ListNum;
 
 /**
  * Selects readers for FASTQ, FASTA with optional QUAL, SAM/BAM, GFA and SCARF.
- * Factory methods return unstarted streams; callers start, consume and close them.
+ * Factory methods return streams without calling start; constructors may already open
+ * inputs. Callers start, consume and close the returned streams.
  * The loadSharedHeader and getReads convenience methods perform the documented
  * consumption themselves. Format, requested threads and global settings determine
  * the concrete reader; a thread hint is not a total background-thread limit.
  * Two-file factories force ordering and wrap nonnull secondary inputs in PairStreamer.
- * Their inputs must satisfy that adapter's non-interleaved R1/R2 contracts.
+ * Both children must supply Read batches and satisfy its non-interleaved R1/R2
+ * contracts, including reader-side markers 0/1. SAM/BAM readers always report marker
+ * zero: with makeReads=true they can be the first child, but not the second.
+ * A single SAM/BAM reader may instead expose raw SamLines with makeReads=false.
  * Limits are forwarded unchanged: selected readers define their counting units
  * (for example, interleaved FASTQ counts pairs). Negative limits mean unlimited.
  *
@@ -250,9 +254,11 @@ public class StreamerFactory{
 
 	/**
 	 * Selects an unstarted reader from the format, thread hint and current global settings.
-	 * FASTQ uses its parallel reader only with more than eight global threads and a
-	 * hint above one. FASTA selection also considers low-memory mode, SIMD and
-	 * interleaving; a QUAL path selects the legacy quality-aware reader. Native BAM
+	 * FASTQ selects FastqStreamer only with more than eight global threads and a
+	 * hint above one, otherwise FastqScanStreamer. FASTA without QUAL also considers
+	 * low-memory mode, SIMD and interleaving. A QUAL path always selects
+	 * FastaQualStreamerZT, regardless of the thread hint; its constructor opens both
+	 * inputs and its start method does nothing. Native BAM
 	 * uses BamStreamer; remaining SAM/BAM inputs use parallel SAM parsing only with
 	 * at least four global threads and a hint above one. GFA and SCARF use their own
 	 * readers. Negative hints select format defaults; native BAM resolves its hint

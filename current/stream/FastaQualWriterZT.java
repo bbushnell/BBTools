@@ -39,6 +39,13 @@ public class FastaQualWriterZT implements Writer{
 	 */
 	public FastaQualWriterZT(FileFormat ffFa, String qf, 
 			boolean writeR1_, boolean writeR2_){
+		this(ffFa, qf, writeR1_, writeR2_, false);
+	}
+
+	/** Internal constructor selecting caller-only compression when lightweight_ is true. */
+	FastaQualWriterZT(FileFormat ffFa, String qf,
+			boolean writeR1_, boolean writeR2_, boolean lightweight_){
+		lightweight=lightweight_;
 		ffoutFa=ffFa;
 		fnameFa=ffFa.name();
 		fnameQual=qf;
@@ -50,8 +57,21 @@ public class FastaQualWriterZT implements Writer{
 		
 		// Open output streams
 		//ff.append() must be honored: app=t previously truncated (hardcoded false; replicated via stream.sh 2026-09-05)
-		outstreamFa=ReadWrite.getOutputStream(fnameFa, ffFa.append(), true, ffFa.allowSubprocess());
-		outstreamQual=ReadWrite.getOutputStream(fnameQual, ffFa.append(), true, ffFa.allowSubprocess());
+		if(lightweight){
+			final FileFormat ffQual=LightweightWriterFactory.qualFormat(ffFa, qf);
+			LightweightOutputStream.validate(ffQual);
+			outstreamFa=LightweightOutputStream.open(ffFa);
+			try{outstreamQual=LightweightOutputStream.open(ffQual);}
+			catch(RuntimeException|Error e){
+				try{outstreamFa.close();}catch(IOException closeError){e.addSuppressed(closeError);}
+				throw e;
+			}
+		}else{
+			//TODO: Possible bug [stream/FastaQualWriterZT#003] - if opening QUAL throws after FASTA opens,
+			//the ordinary branch does not close FASTA. Exceptional-path reachability remains untested.
+			outstreamFa=ReadWrite.getOutputStream(fnameFa, ffFa.append(), true, ffFa.allowSubprocess());
+			outstreamQual=ReadWrite.getOutputStream(fnameQual, ffFa.append(), true, ffFa.allowSubprocess());
+		}
 		
 		if(verbose){outstream.println("Made FastaQualWriterZT for "+fnameFa);}
 	}
@@ -225,8 +245,8 @@ public class FastaQualWriterZT implements Writer{
 	public synchronized boolean waitForFinish(){
 		if(closed){return errorState;}
 		assert(poisoned);
-		setError(ReadWrite.finishWriting(null, outstreamFa, fnameFa, ffoutFa.allowSubprocess()));
-		setError(ReadWrite.finishWriting(null, outstreamQual, fnameQual, ffoutFa.allowSubprocess()));
+		setError(ReadWrite.finishWriting(null, outstreamFa, fnameFa, ffoutFa.allowSubprocess() && !lightweight));
+		setError(ReadWrite.finishWriting(null, outstreamQual, fnameQual, ffoutFa.allowSubprocess() && !lightweight));
 		outstreamFa=null;
 		outstreamQual=null;
 		closed=true;
@@ -304,6 +324,8 @@ public class FastaQualWriterZT implements Writer{
 	private final boolean writeR1;
 	/** Whether to select pairnum-1 inputs or mates. */
 	private final boolean writeR2;
+	/** Restricts both compression streams to the submitting caller. */
+	private final boolean lightweight;
 	
 	/** Selected records formatted, including those in buffers not yet written. */
 	private long readsWritten=0;

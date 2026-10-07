@@ -10,31 +10,34 @@ import align2.MSA;
 import dna.AminoAcid;
 import dna.ChromosomeArray;
 import dna.Data;
+import parse.LineParserS2;
 import shared.Shared;
 import shared.Tools;
 import structures.ByteBuilder;
 
-
-
 /**
  * Represents an alignment site between a read and reference chromosome.
- * Stores alignment coordinates, scoring information, and optional match string.
- * Used throughout BBMap for tracking and comparing potential alignment locations.
+ * Stores inclusive chromosome-array coordinates, scores, optional gaps and match symbols.
+ * Mutators operate in place; callers own synchronization and any shared arrays.
+ * Ranking equality compares selected scores and coordinates, not every field.
+ * Match-editing methods expect expanded symbols; matchLength also accepts run counts.
  *
  * @author Brian Bushnell
  * @date June 3, 2025
  */
 public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serializable{
-	
-	/**
-	 * 
-	 */
-	private static final long serialVersionUID = -8096245242590075081L;
+
+	/** Serialization version retained for compatibility with saved objects. */
+	private static final long serialVersionUID=-8096245242590075081L;
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Initialization        ----------------*/
+	/*--------------------------------------------------------------*/
 
 	/**
 	 * Creates a basic SiteScore with alignment coordinates and initial scoring.
 	 * @param chrom_ Reference chromosome identifier
-	 * @param strand_ Alignment strand (+ or -)
+	 * @param strand_ Alignment strand code (Shared.PLUS or Shared.MINUS)
 	 * @param start_ Starting position on reference
 	 * @param stop_ Ending position on reference
 	 * @param hits_ Number of k-mer hits supporting this alignment
@@ -51,11 +54,11 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 //		assert(chrom_>=0) : this.toText()+"\nchrom_="+chrom_+", strand_="+strand_+", start_="+start_+", stop_="+stop_+", hits_="+hits_+", quickScore_="+quickScore_;
 		assert(start_<=stop_) : this.toText()+"\nchrom_="+chrom_+", strand_="+strand_+", start_="+start_+", stop_="+stop_+", hits_="+hits_+", quickScore_="+quickScore_;
 	}
-	
+
 	/**
 	 * Creates a SiteScore with additional rescue and perfect match flags.
 	 * @param chrom_ Reference chromosome identifier
-	 * @param strand_ Alignment strand (+ or -)
+	 * @param strand_ Alignment strand code (Shared.PLUS or Shared.MINUS)
 	 * @param start_ Starting position on reference
 	 * @param stop_ Ending position on reference
 	 * @param hits_ Number of k-mer hits supporting this alignment
@@ -76,44 +79,53 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 		semiperfect=perfect;
 		assert(start_<=stop_) : this.toText();
 	}
-	
+
+	/*--------------------------------------------------------------*/
+	/*----------------           Methods            ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Orders by descending score, slow, paired and quick scores, then ascending chrom/start.
+	 * Stop, strand, flags and arrays do not participate; arithmetic uses int subtraction. */
 	@Override
-	public int compareTo(SiteScore other) {
+	public int compareTo(SiteScore other){
 		int x=other.score-score;
 		if(x!=0){return x;}
-		
+
 		x=other.slowScore-slowScore;
 		if(x!=0){return x;}
-		
+
 		x=other.pairedScore-pairedScore;
 		if(x!=0){return x;}
-		
+
 		x=other.quickScore-quickScore;
 		if(x!=0){return x;}
-		
+
 		x=chrom-other.chrom;
 		if(x!=0){return x;}
-		
+
 		x=start-other.start;
 		return x;
 	}
-	
+
+	/** Tests equality under compareTo, rather than complete positional or field identity. */
 	@Override
 	public boolean equals(Object other){
 		return other instanceof SiteScore && compareTo((SiteScore)other)==0;//[SiteScore#001] guard: equals(null)/equals(non-SiteScore) must return false per the equals contract, not NPE/ClassCastException
 	}
-	
+
+	/** Rejects hashing under enabled assertions; otherwise returns Object's identity hash. */
 	@Override
-	public int hashCode() {
+	public int hashCode(){
 		assert(false) : "This class should not be hashed.";
 		return super.hashCode();
 	}
-	
+
+	/** Returns the comma-delimited representation from toText(). */
 	@Override
 	public String toString(){
 		return toText().toString();
 	}
-	
+
 //	9+2+1+9+9+1+1+4+4+4+4+gaps
 	/**
 	 * Converts SiteScore to comma-separated text representation.
@@ -144,7 +156,7 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 		sb.append(pairedScore);
 		sb.append(',');
 		sb.append(score);
-		
+
 		if(gaps!=null){
 			sb.append(',');
 			for(int i=0; i<gaps.length; i++){
@@ -152,7 +164,7 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 				sb.append(gaps[i]);
 			}
 		}
-		
+
 		if(match!=null){
 			if(gaps==null){sb.append(',');}
 			sb.append(',');
@@ -160,16 +172,16 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 			for(int i=0; i<match.length; i++){buffer[i]=(char)match[i];}
 			sb.append(buffer, 0, match.length);
 		}
-		
+
 		return sb;
 //		chrom+","+strand+","+start+","+stop+","+(rescued ? 1 : 0)+","+
 //		(perfect ? 1 : 0)+","+quickScore+","+slowScore+","+pairedScore+","+score;
 	}
-	
+
 //	9+2+1+9+9+1+1+4+4+4+4+gaps
 	/**
-	 * Converts SiteScore to binary representation using ByteBuilder.
-	 * More efficient than toText() for high-throughput operations.
+	 * Appends the same comma-delimited text fields as toText(), directly to a byte builder.
+	 * Adds no record terminator. Existing builder contents are retained.
 	 * @param sb Existing ByteBuilder to append to, or null to create new one
 	 * @return ByteBuilder containing the formatted data
 	 */
@@ -197,7 +209,7 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 		sb.append(pairedScore);
 		sb.append(',');
 		sb.append(score);
-		
+
 		if(gaps!=null){
 			sb.append(',');
 			for(int i=0; i<gaps.length; i++){
@@ -205,25 +217,28 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 				sb.append(gaps[i]);
 			}
 		}
-		
+
 		if(match!=null){
 			if(gaps==null){sb.append(',');}
 			sb.append(',');
 			sb.append(match);
 		}
-		
+
 		return sb;
 //		chrom+","+strand+","+start+","+stop+","+(rescued ? 1 : 0)+","+
 //		(perfect ? 1 : 0)+","+quickScore+","+slowScore+","+pairedScore+","+score;
 	}
-	
+
 	/**
-	 * Tests if alignment is semi-perfect (allows N bases in reference).
-	 * Semi-perfect allows up to half the bases to be N in the reference.
+	 * Checks equal-length ungapped bases against the overlapping reference-array range.
+	 * Rejects query N and mismatches except reference N, allowing at most bases.length/2
+	 * such mismatches. Positions outside the array are skipped; see the concern below.
 	 * @param bases Query sequence bases to compare
 	 * @return True if alignment meets semi-perfect criteria
 	 */
 	public boolean isSemiPerfect(byte[] bases){
+		//TODO: Probable bug - unlike setPerfect(), skipped out-of-array positions do not
+		//consume the N budget; even an empty overlap can return true. MSA.toLocalAlignment uses this result.
 		if(bases.length!=stop-start+1){return false;}
 		byte[] ref=Data.getChromosome(chrom).array;
 
@@ -245,7 +260,7 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 		for(int i=readStart; i<readStop; i++){
 			byte c=bases[i];
 			byte r=ref[start+i];
-			
+
 //			assert(Tools.isUpperCase(c) && Tools.isUpperCase(r));
 			if(c=='N'){return false;}
 			if(c!=r){
@@ -255,7 +270,7 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 		}
 		return true;
 	}
-	
+
 	/**
 	 * Tests if alignment is perfect (exact match, no N bases allowed).
 	 * Requires exact base-by-base match between read and reference.
@@ -266,7 +281,7 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 		if(bases.length!=stop-start+1 || start<0){return false;}
 		byte[] ref=Data.getChromosome(chrom).array;
 		if(stop>=ref.length){return false;}
-		
+
 		for(int i=0; i<bases.length; i++){
 			byte c=bases[i];
 			byte r=ref[start+i];
@@ -279,8 +294,7 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 		}
 		return true;
 	}
-	
-	
+
 	/**
 	 * Sets perfect flag if alignment score equals maximum possible score.
 	 * Optimized path that assumes perfect match when score is maximal.
@@ -295,11 +309,14 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 		}
 		return setPerfect(bases, false);
 	}
-	
+
 	/** Sets "perfect" and "semiperfect" flags */
 	public boolean setPerfect(byte[] bases){return setPerfect(bases, false);}
-	
-	/** Sets "perfect" and "semiperfect" flags, optionally assuming "perfect" flag is correct. */
+
+	/** Recomputes perfect/semiperfect for ungapped, reference-oriented bases.
+	 * Counts out-of-array positions and reference N toward a half-read allowance;
+	 * query N or a defined mismatch prevents semiperfect. assumePerfectCorrect enables
+	 * assertions against invalidating an existing perfect claim; it does not skip work. */
 	public boolean setPerfect(byte[] bases, boolean assumePerfectCorrect){
 		if(bases.length!=stop-start+1){
 			assert(!perfect || !assumePerfectCorrect) : perfect+", "+toString()+", "+
@@ -310,7 +327,7 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 			return perfect;
 		}
 		byte[] ref=Data.getChromosome(chrom).array;
-		
+
 		perfect=semiperfect=true;
 		int refloc=start, readloc=0, N=0, max=Tools.min(stop, ref.length-1), nlimit=bases.length/2;
 		if(start<0){
@@ -330,7 +347,7 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 			assert(Read.CHECKSITE(this, bases, 0)); //123
 			return perfect;
 		}
-		
+
 		final byte bn=(byte)'N';
 		for(; refloc<=max; refloc++, readloc++){
 			final byte c=bases[readloc];
@@ -348,13 +365,13 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 				}
 			}
 		}
-		
+
 		semiperfect=(semiperfect && (N<=nlimit));
 		perfect=(perfect && semiperfect && (N==0));
 		assert(Read.CHECKSITE(this, bases, 0)); //123
 		return perfect;
 	}
-	
+
 	/**
 	 * Tests if this SiteScore overlaps with another on same chromosome and strand.
 	 * @param ss Other SiteScore to test overlap with
@@ -384,63 +401,77 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 		assert(a1<=b1 && a2<=b2) : a1+", "+b1+", "+a2+", "+b2;
 		return a2<=b1 && b2>=a1;
 	}
-	
-	/** Returns header string for CSV output format.
-	 * @return Column headers matching toText() output format */
-	public static String header() {
+
+	/** Returns the legacy field header; its labels omit the optional gaps column.
+	 * @return Header text, not a complete schema for optional serializer fields */
+	public static String header(){
 		return "chrom,strand,start,stop,rescued,semiperfect+perfect,hits,quickScore,slowScore,pairedScore,score,match";
 	}
-	
+
 	/**
 	 * Parses a SiteScore from comma-separated text representation.
-	 * Inverse operation of toText(), handles gaps and match strings.
+	 * Reads eleven core fields, then optional tilde-separated gaps and match bytes.
+	 * Local cursors omit trailing empty fields as the legacy splits did. An empty
+	 * gap field before a match leaves gaps null. Java numeric conversions and the
+	 * default charset for match bytes are retained; an initial * is discarded.
 	 * @param s Text representation to parse
 	 * @return SiteScore object reconstructed from text
 	 */
 	public static SiteScore fromText(String s){
 //		System.err.println("Trying to make a SS from "+s);
-		String line[]=s.split(",");
-		
+		final LineParserS2 lp=new LineParserS2(',').set(s);
+		int terms=(s.isEmpty() ? 1 : 0);
+		for(int field=0; lp.hasMore(); field++){
+			if(lp.advance()>0){terms=field+1;}
+		}
+
 		SiteScore ss;
 
-		assert(line.length>=11 && line.length<=13) : "\n"+line.length+"\n"+s+"\n"+Arrays.toString(line)+"\n";
-		int chrom=Integer.parseInt(line[0].charAt(0)=='*' ? line[0].substring(1) : line[0]);//[SiteScore#002] Integer not Byte: toText/toBytes write the full int chrom; Byte.parseByte threw NumberFormatException on chrom>127 (large refs >127 2GB blocks) -> broken .bread/SAM round-trip (fromText is live via Read:1292 + SamLine:2254)
-		byte strand=Byte.parseByte(line[1]);
-		int start=Integer.parseInt(line[2]);
-		int stop=Integer.parseInt(line[3]);
-		boolean rescued=Integer.parseInt(line[4])==1;
+		assert(terms>=11 && terms<=13) : "SiteScore requires eleven core fields and optional gaps/match fields; found "+terms+": "+s;
+		lp.reset();
+		final String first=lp.parseString();
+		int chrom=Integer.parseInt(first.charAt(0)=='*' ? first.substring(1) : first);//[SiteScore#002] Integer not Byte: toText/toBytes write the full int chrom; preserve large-chromosome native/SAM round trips.
+		byte strand=Byte.parseByte(lp.parseString());
+		int start=Integer.parseInt(lp.parseString());
+		int stop=Integer.parseInt(lp.parseString());
+		boolean rescued=Integer.parseInt(lp.parseString())==1;
 //		[1, 1, 9397398, 9398220, 0, 00, 20, 8701, 9084, 0, 9084, 9397398~9397471~9398145~9398220]
-		int p=Integer.parseInt(line[5], 2);
-//		assert(false) : line[5]+"->"+p;
+		int p=Integer.parseInt(lp.parseString(), 2);
 		boolean perfect=(p&1)==1;
 		boolean semiperfect=(p&2)==2;
-		int hits=Integer.parseInt(line[6]);
-		int quickScore=Integer.parseInt(line[7]);
-		int swscore=Integer.parseInt(line[8]);
-		int pairedScore=Integer.parseInt(line[9]);
-		int score=Integer.parseInt(line[10]);
+		int hits=Integer.parseInt(lp.parseString());
+		int quickScore=Integer.parseInt(lp.parseString());
+		int swscore=Integer.parseInt(lp.parseString());
+		int pairedScore=Integer.parseInt(lp.parseString());
+		int score=Integer.parseInt(lp.parseString());
 		ss=new SiteScore(chrom, strand, start, stop, hits, quickScore, rescued, perfect);
 		ss.setScore(score);
 		ss.setSlowPairedScore(swscore, pairedScore);
 		ss.semiperfect=semiperfect;
-		
-		if(line.length>11){
-			if(line[11]!=null && line[11].length()>0){
-				String[] gstring=line[11].split("~");
-				ss.gaps=new int[gstring.length];
-				for(int i=0; i<gstring.length; i++){
-					ss.gaps[i]=Integer.parseInt(gstring[i]);
+
+		if(terms>11){
+			final String gaps=lp.parseString();
+			if(!gaps.isEmpty()){
+				final LineParserS2 gp=new LineParserS2('~').set(gaps);
+				int count=0;
+				for(int field=0; gp.hasMore(); field++){
+					if(gp.advance()>0){count=field+1;}
+				}
+				ss.gaps=new int[count];
+				gp.reset();
+				for(int i=0; i<count; i++){
+					ss.gaps[i]=Integer.parseInt(gp.parseString());
 				}
 			}
 		}
-		
-		if(line.length>12){
-			ss.match=line[12].getBytes();
+
+		if(terms>12){
+			ss.match=lp.parseString().getBytes();
 		}
-		
+
 		return ss;
 	}
-	
+
 	/**
 	 * Tests if this SiteScore matches another in genomic position.
 	 * Optionally compares gap structures for complete positional identity.
@@ -454,18 +485,21 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 			return false;
 		}
 		if(!testGaps || (gaps==null && b.gaps==null)){return true;}
-		if((gaps==null) != (b.gaps==null)){return false;}
+		if((gaps==null)!=(b.gaps==null)){return false;}
 		if(gaps.length!=b.gaps.length){return false;}
 		for(int i=0; i<gaps.length; i++){
 			if(gaps[i]!=b.gaps[i]){return false;}
 		}
 		return true;
 	}
-	
+
 	/**
-	 * Retrieves the scaffold name containing this alignment.
-	 * @param requireSingleScaffold If true, returns null if alignment spans multiple scaffolds
-	 * @return Scaffold name bytes, or null if spanning multiple scaffolds
+	 * Selects a scaffold name by midpoint lookup in loaded Data metadata.
+	 * The optional single-scaffold gate and midpoint lookup use Data's padding-aware
+	 * policy, not strict containment within scaffold bases. Metadata must remain stable
+	 * during use; the returned name array is borrowed and must not be modified.
+	 * @param requireSingleScaffold Apply Data.isSingleScaffold before selecting the name
+	 * @return Borrowed name bytes, or null when the requested single-scaffold gate rejects the span
 	 */
 	public byte[] getScaffoldName(boolean requireSingleScaffold){
 		byte[] name=null;
@@ -478,17 +512,18 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 		}
 		return name;
 	}
-	
-	/** Comparator for sorting SiteScore objects by genomic position.
-	 * Sorts by chromosome, start, stop, strand, then by scores in descending order. */
+
+	/** Orders by ascending chrom/start/stop/strand, then descending score/slow/quick.
+	 * Remaining ties prefer perfect, then non-rescued sites. Paired score is ignored. */
 	public static class PositionComparator implements Comparator<SiteScore>{
-		
+
 		/** Private constructor prevents external instantiation.
 		 * Use static PCOMP instance instead. */
 		private PositionComparator(){}
-		
+
+		/** Compares the position, ranking scores and flag tie-breakers documented above. */
 		@Override
-		public int compare(SiteScore a, SiteScore b) {
+		public int compare(SiteScore a, SiteScore b){
 			if(a.chrom!=b.chrom){return a.chrom-b.chrom;}
 			if(a.start!=b.start){return a.start-b.start;}
 			if(a.stop!=b.stop){return a.stop-b.stop;}
@@ -500,49 +535,50 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 			if(a.rescued!=b.rescued){return a.rescued ? 1 : -1;}
 			return 0;
 		}
-		
+
 		/** Sorts ArrayList of SiteScore objects by position.
 		 * @param list ArrayList to sort in-place */
 		public void sort(ArrayList<SiteScore> list){
 			if(list==null || list.size()<2){return;}
 			Shared.sort(list, this);
 		}
-		
+
 		/** Sorts array of SiteScore objects by position.
 		 * @param list Array to sort in-place */
 		public void sort(SiteScore[] list){
 			if(list==null || list.length<2){return;}
 			Arrays.sort(list, this);
 		}
-		
+
 	}
-	
-	/** Creates deep copy of this SiteScore including gaps array.
-	 * @return New SiteScore with identical data but independent arrays */
+
+	/** Copies scalar fields and clones gaps; the match array remains shared.
+	 * @return New SiteScore with an independent gaps array, if present */
 	public SiteScore copy(){
 		SiteScore ss2=this.clone();
 		if(gaps!=null){ss2.gaps=ss2.gaps.clone();}
 		return ss2;
 	}
-	
+
+	/** Shallow copy: both gaps and match arrays remain shared with the original. */
 	@Override
 	public SiteScore clone(){
-		try {
+		try{
 			return (SiteScore)super.clone();
-		} catch (CloneNotSupportedException e) {
+		}catch(CloneNotSupportedException e){
 			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
 		throw new RuntimeException();
 	}
-	
+
 	/** Tests if alignment coordinates are within reference chromosome bounds.
-	 * @return True if start >= 0 and stop <= chromosome maximum index */
+	 * @return True if start is nonnegative and stop is at most the chromosome maximum index */
 	public boolean isInBounds(){
 		ChromosomeArray cha=Data.getChromosome(chrom);
 		return (start>=0 && stop<=cha.maxIndex);
 	}
-	
+
 	/**
 	 * Tests if match string contains X or Y symbols at terminal positions.
 	 * X and Y represent uncertain alignment boundaries.
@@ -551,17 +587,17 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 	public boolean matchContainsXY(){
 		if(match==null || match.length<1){return false;}
 		final byte a=match[0], b=match[match.length-1];
-		return (a=='X' ||a=='Y' || b=='X' || b=='Y');
+		return (a=='X' || a=='Y' || b=='X' || b=='Y');
 	}
-	
+
 	/** Tests if match string contains A or B symbols at terminal positions.
 	 * @return True if first or last match character is A or B */
 	public boolean matchContainsAB(){
 		if(match==null || match.length<1){return false;}
 		final byte a=match[0], b=match[match.length-1];
-		return (a=='A' ||a=='B' || b=='A' || b=='B');
+		return (a=='A' || a=='B' || b=='A' || b=='B');
 	}
-	
+
 	/**
 	 * Tests if match string contains C symbols at terminal positions.
 	 * C represents clipped/soft-clipped alignment regions.
@@ -572,7 +608,7 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 		final byte a=match[0], b=match[match.length-1];
 		return (a=='C' || b=='C');
 	}
-	
+
 	/**
 	 * Tests if this alignment is correct relative to expected position.
 	 * Used for validation and accuracy testing.
@@ -580,115 +616,116 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 	 * @param strand_ Expected strand
 	 * @param start_ Expected start position
 	 * @param stop_ Expected stop position
-	 * @param thresh Position tolerance threshold (0 for exact match)
-	 * @return True if alignment matches expected position within threshold
+	 * @param thresh Positive tolerance for either boundary; nonpositive requires both exact
+	 * @return True for matching chrom/strand and the applicable boundary criterion
 	 */
 	public boolean isCorrect(int chrom_, byte strand_, int start_, int stop_, int thresh){
 		if(chrom_!=chrom || strand_!=strand){return false;}
 		if(thresh<=0){return start_==start && stop_==stop;}
 		return Tools.absdif(start_, start)<=thresh || Tools.absdif(stop_, stop)<=thresh;
 	}
-	
+
 	/**
 	 * Calculates padding needed on left side to handle tip indels.
-	 * @param tiplen Length of read tip to examine
-	 * @param maxIndel Maximum indel size allowed
+	 * Scans from the left through I/X/Y until D or a neutral symbol at index at least tiplen.
+	 * @param tiplen Neutral-symbol index at which scanning may stop
+	 * @param maxIndel Insertion-count threshold for requesting padding
 	 * @return Number of bases padding needed on left side
 	 */
 	public int leftPaddingNeeded(int tiplen, int maxIndel){
 		if(match==null || match.length<1){return 0;}
-		
+
 		int neutral=0, insertion=0, deletion=0, xy=0;
 		{
 			int mloc=0;
 			for(; mloc<match.length; mloc++){
 				byte c=match[mloc];
-				if(c=='I'){insertion++;}
-				else if(c=='X' || c=='Y'){xy++;}
-				else if(c=='D'){return insertion+xy;}
-				else{
+				if(c=='I'){insertion++;}else if(c=='X' || c=='Y'){xy++;}else if(c=='D'){return insertion+xy;}else{
 					neutral++;
 					if(mloc>=tiplen){break;}
 				}
 			}
 		}
-		
+
 		if(insertion>maxIndel || xy>0 || match[0]=='I'){return insertion+xy;}
 		return 0;
 	}
-	
+
 	/**
-	 * Calculates padding needed on right side to handle tip indels.
-	 * @param tiplen Length of read tip to examine
-	 * @param maxIndel Maximum indel size allowed
+	 * Calculates right padding from scanned I/X/Y symbols; D returns the current sum.
+	 * Mirrors leftPaddingNeeded, measuring the neutral-symbol boundary from the right end.
+	 * @param tiplen Distance from the last index at which a neutral symbol may stop scanning
+	 * @param maxIndel Insertion-count threshold for requesting padding
 	 * @return Number of bases padding needed on right side
 	 */
 	public int rightPaddingNeeded(int tiplen, int maxIndel){
 		if(match==null || match.length<1){return 0;}
 		final int lastIndex=match.length-1;
-		
+
 		int neutral=0, insertion=0, deletion=0, xy=0;
 		{
 			int mloc=lastIndex;
+			//Measure the stopping boundary from the right end, mirroring the left scan.
+			//Comparing mloc>=tiplen instead stops at the first neutral base in a long match.
 			for(int min=lastIndex-tiplen; mloc>=0; mloc--){
 				byte c=match[mloc];
-				if(c=='I'){insertion++;}
-				else if(c=='X' || c=='Y'){xy++;}
-				else if(c=='D'){return insertion+xy;}
-				else{
+				if(c=='I'){insertion++;}else if(c=='X' || c=='Y'){xy++;}else if(c=='D'){return insertion+xy;}else{
 					neutral++;
-					if(mloc>=tiplen){break;}
+					if(mloc<=min){break;}
 				}
 			}
 		}
-		
+
 		if(insertion>maxIndel || xy>0 || match[lastIndex]=='I'){return insertion+xy;}
 		return 0;
 	}
-	
-	/** Assumes bases are rcomped as needed */
+
+	/** Replaces terminal C symbols using the supplied reference array where in bounds.
+	 * Bases must already be oriented to the reference. Leaves out-of-bounds clips alone;
+	 * returns the number changed and does not rescore or recompute perfect flags. */
 	public int unclip(byte[] bases, byte[] rbases){
 		int unclipped=0;
 		if(match==null || match.length<1){return unclipped;}
 		assert(lengthsAgree());
-		
+
 		for(int mpos=0, bpos=0, rpos=start; mpos<match.length && rpos<rbases.length; mpos++, bpos++, rpos++){
 			if(match[mpos]!='C'){break;}
 			if(rpos>=0){
 				byte b=bases[bpos];
 				byte r=rbases[rpos];
-				
-				if(!AminoAcid.isFullyDefined(b) || !AminoAcid.isFullyDefined(r)){match[mpos]='N';}
-				else if(b==r){match[mpos]='m';}
-				else{match[mpos]='S';}
+
+				if(!AminoAcid.isFullyDefined(b) || !AminoAcid.isFullyDefined(r)){match[mpos]='N';}else if(b==r){match[mpos]='m';}else{match[mpos]='S';}
 				unclipped++;
 			}
 		}
 		assert(lengthsAgree());
-		
+
 		for(int mpos=match.length-1, bpos=bases.length-1, rpos=stop; mpos>=0 && rpos>=0; mpos--, bpos--, rpos--){
 			if(match[mpos]!='C'){break;}
 			if(rpos<rbases.length){
 				byte b=bases[bpos];
 				byte r=rbases[rpos];
-				if(b=='N' || r=='N'){match[mpos]='N';}
-				else if(b==r){match[mpos]='m';}
-				else{match[mpos]='S';}
+				//FIXED STR-369: classify undefined bases consistently with the left end and loaded-reference overload.
+				//Literal-N-only handling misclassified other ambiguity codes as exact matches or substitutions.
+				if(!AminoAcid.isFullyDefined(b) || !AminoAcid.isFullyDefined(r)){match[mpos]='N';}else if(b==r){match[mpos]='m';}else{match[mpos]='S';}
 				unclipped++;
 			}
 		}
 		assert(lengthsAgree());
-		
+
 		return unclipped;
 	}
-	
-	/** Simply replaces terminal 'I', 'X', and 'Y' with 'C' and adjusts length
-	 * TODO: Also clip out-of-bounds. */
+
+	/** Clips terminal I/X/Y and out-of-bounds N to C, removing terminal D entries.
+	 * Adjusts start/stop directly, without updating gaps, scores or perfect flags.
+	 * Stops at m/S, skips existing C, and uses rlen for the right reference boundary.
+	 * @param rlen Reference length used by the right-end scan
+	 * @return Number of newly clipped symbols, including deleted D symbols */
 	public int clipTipIndels(int rlen){
 		int clipped=0;
 		if(match==null || match.length<1){return clipped;}
 		assert(lengthsAgree());
-		
+
 		int dClipped=0;
 		for(int mpos=0, rpos=start; mpos<match.length; mpos++){
 			final byte m=match[mpos];
@@ -706,6 +743,7 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 					start--;
 				}else if(m=='D'){
 					start++;
+					rpos++;//FIXED STR-370: removed D consumes reference before the following N boundary check.
 					match[mpos]='Z';
 					dClipped++;
 				}else if(rpos>=0){
@@ -736,6 +774,7 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 					stop++;
 				}else if(m=='D'){
 					stop--;
+					rpos--;//FIXED STR-370: move past removed reference bases before classifying the preceding N.
 					match[mpos]='Z';
 					dClipped++;
 				}else if(rpos<rlen){
@@ -761,7 +800,7 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 
 		return clipped;
 	}
-	
+
 //	/** Simply replaces terminal 'I', 'X', and 'Y' with 'C' and adjusts length
 //	 * TODO: Also clip out-of-bounds. */
 //	public int clipTipIndels(int rlen){
@@ -799,7 +838,7 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 //
 //		return clipped;
 //	}
-	
+
 	/**
 	 * Clips tip indels using strand-appropriate base array.
 	 * @param bases Plus-strand bases
@@ -812,10 +851,11 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 	public boolean clipTipIndels(byte[] bases, byte[] basesM, int tiplen, int maxIndel, MSA msa){
 		return this.plus() ? clipTipIndels(bases, tiplen, maxIndel, msa) : clipTipIndels(basesM, tiplen, maxIndel, msa);
 	}
-	
+
 	/**
-	 * Clips excessive indels from read tips and rescores alignment.
-	 * Improves alignment quality by removing problematic terminal indels.
+	 * Clips either tip, then unclips against the reference and rescores if a tip changed.
+	 * Updates slow/paired scores, shifts score by the slow-score delta and recomputes
+	 * perfect flags. A replacement match array must be propagated to any owning Read.
 	 * @param bases Read sequence bases
 	 * @param tiplen Length of read tips to examine
 	 * @param maxIndel Maximum indel size threshold
@@ -847,7 +887,7 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 		if(verbose){System.err.println("After clipTipIndels:\n"+new String(match));}
 		return left | right;
 	}
-	
+
 	/**
 	 * Clips excessive indels from left tip of alignment.
 	 * @param bases Read sequence bases
@@ -858,25 +898,25 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 	public boolean clipLeftTipIndel(byte[] bases, int tiplen, int maxIndel){
 		if(match==null || match.length<maxIndel){return false;}
 		if(match[0]=='C' || match[0]=='Y' || match[0]=='X'){return false;}
-		
+
 		int neutral=0, insertion=0, deletion=0;
 		{
 			int mloc=0;
 			for(; mloc<match.length; mloc++){
 				byte c=match[mloc];
-				if(c=='I'){insertion++;}
-				else if(c=='D'){deletion++;}
-				else{
+				if(c=='I'){insertion++;}else if(c=='D'){deletion++;}else{
 					neutral++;
 					if(mloc>=tiplen){break;}
 				}
 			}
+			//TODO: Probable bug - an exhausted forward scan leaves mloc==match.length;
+			//this trailing-match loop checks only the lower bound before indexing.
 			while(mloc>=0 && match[mloc]=='m'){mloc--; neutral--;}
 		}
 		if(insertion<=maxIndel && deletion<=4*maxIndel){return false;}
 		assert(mappedLength()==matchLength() || matchContainsXY()) :
 			"start="+start+", stop="+stop+", maplen="+mappedLength()+", matchlen="+matchLength()+"\n"+new String(match)+"\n"+new String(bases)+"\n\n"+this;
-		
+
 		int sum=neutral+insertion+deletion;
 		if(deletion>0){
 			byte[] temp=new byte[match.length-deletion];
@@ -896,19 +936,19 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 			assert(i==match.length && j==temp.length) : i+", "+j+", "+match.length+", "+temp.length+"\n"+new String(match)+"\n"+new String(bases)+"\n"+this+"\n";
 			match=temp; //Be sure to percolate this to the read!
 		}
-		
+
 		sum=neutral+insertion;
 		for(int i=0; i<sum; i++){
 			match[i]='C';
 		}
-		
+
 		final int dif=(insertion-deletion);
 		incrementStart(-dif);
 		assert(mappedLength()==matchLength() || matchContainsXY());
-		
+
 		return true;
 	}
-	
+
 	/**
 	 * Clips excessive indels from right tip of alignment.
 	 * @param bases Read sequence bases
@@ -920,26 +960,26 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 		if(match==null || match.length<maxIndel){return false;}
 		final int lastIndex=match.length-1;
 		if(match[lastIndex]=='C' || match[lastIndex]=='Y' || match[lastIndex]=='X'){return false;}
-		
+
 		if(verbose){System.err.println("mappedLength="+mappedLength()+", matchLength()="+matchLength());}
-		
+
 		int neutral=0, insertion=0, deletion=0;
 		{
 			int mloc=lastIndex;
 			for(int min=lastIndex-tiplen; mloc>=0; mloc--){
 				byte c=match[mloc];
-				if(c=='I'){insertion++;}
-				else if(c=='D'){deletion++;}
-				else{
+				if(c=='I'){insertion++;}else if(c=='D'){deletion++;}else{
 					neutral++;
 					if(mloc<=min){break;}
 				}
 			}
+			//TODO: Probable bug - an exhausted reverse scan leaves mloc==-1;
+			//this trailing-match loop checks only the upper bound before indexing.
 			while(mloc<match.length && match[mloc]=='m'){mloc++; neutral--;}
 		}
 		if(insertion<=maxIndel && deletion<=4*maxIndel){return false;}
 		assert(mappedLength()==matchLength() || matchContainsXY()) : mappedLength()+", "+matchLength()+"\n"+new String(match)+"\n"+new String(bases);
-		
+
 		int sum=neutral+insertion+deletion;
 		final int limit=match.length-sum;
 		if(deletion>0){
@@ -961,25 +1001,25 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 				"\n"+new String(match)+"\n"+new String(temp)+"\n"+new String(bases)+"\n"+this+"\n";
 			match=temp; //Be sure to percolate this to the read!
 		}
-		
+
 		sum=neutral+insertion;
 		for(int i=limit; i<match.length; i++){
 			match[i]='C';
 		}
-
 
 		if(verbose){System.err.println("Final: "+new String(match));}
 		final int dif=(insertion-deletion);
 		if(verbose){System.err.println("mappedLength="+mappedLength()+", matchLength()="+matchLength()+", dif="+dif);}
 		incrementStop(dif);
 		assert(mappedLength()==matchLength() || matchContainsXY()) : mappedLength()+", "+matchLength()+", "+neutral+", "+insertion+", "+deletion+", "+dif;
-		
+
 		return true;
 	}
-	
+
 	/**
-	 * Converts clipped regions ('C') back to match/mismatch symbols.
-	 * Compares read bases against reference to determine actual alignment.
+	 * Replaces C symbols using the loaded chromosome, provided at least one end is C.
+	 * Traverses the whole expanded match, including internal C. Out-of-bounds reference
+	 * access becomes N through ChromosomeArray.get. Does not rescore or update flags.
 	 * @param bases Read sequence bases
 	 * @return True if any unclipping was performed
 	 */
@@ -998,7 +1038,7 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 		final ChromosomeArray ca=Data.getChromosome(chrom);
 		for(int rloc=start, cloc=0, mloc=0; mloc<match.length; mloc++){
 			final byte m=match[mloc];
-			
+
 			if(m=='C'){
 				final byte c=bases[cloc];
 				final byte r=ca.get(rloc);
@@ -1027,15 +1067,20 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 		assert(lengthsAgree()) : new String(bases)+"\n"+this;
 		return true;
 	}
-	
-	/** TODO: Test
-	 * Attempt to extend match/N symbols where there are X and Y symbols
-	 * */
+
+	/** Attempts to replace terminal X/Y using reference-oriented bases, clipping poor tips.
+	 * May mutate coordinates, match, scores and perfect flags even on failure. With
+	 * nullifyOnFailure, clears match after an unsuccessful attempt. No terminal X/Y
+	 * (including a null match) returns true immediately. Historical TODO: test this path.
+	 * @param bases Read bases already oriented to the reference
+	 * @param nullifyOnFailure Clear match on unsuccessful conversion
+	 * @param msa Scorer used when a match array remains
+	 * @return Whether terminal X/Y were successfully eliminated */
 	public boolean fixXY(byte[] bases, boolean nullifyOnFailure, MSA msa){
 		if(verbose && match!=null){System.err.println("Calling fixXY:\n"+new String(match));}
 		if(!matchContainsXY()){return true;}
 		if(verbose){System.err.println("lengthsAgree: "+this.lengthsAgree());}
-		
+
 		boolean disable=false;
 		if(disable){
 			if(nullifyOnFailure){
@@ -1043,20 +1088,19 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 			}
 			return false;
 		}
-		
+
 //		if(match==null || match.length<1){return false;} //Already covered
 		final ChromosomeArray ca=Data.getChromosome(chrom);
 //		final int tip=3;
 		boolean success=true;
 		final float maxSubRate=0.4f;
 		final int maxSubs=5;
-		
+
 		{//Process left side
 			if(verbose){System.err.println("Processing left side.  Success="+success+", start="+start+", stop="+stop+", match=\n"+new String(match));}
 			int mloc=0;
 			while(mloc<match.length && (match[mloc]=='X' || match[mloc]=='Y')){mloc++;}
-			if(mloc>=match.length || mloc>=bases.length){success=false;}
-			else if(mloc>0){
+			if(mloc>=match.length || mloc>=bases.length){success=false;}else if(mloc>0){
 				mloc--;//Location of last X or Y on left side
 				final int numX=mloc+1;
 				int rloc=start+mloc, cloc=mloc;
@@ -1066,8 +1110,7 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 					byte c=bases[cloc];
 					byte r=ca.get(rloc);
 					assert(m=='X' || m=='Y') : (char)m+", "+mloc+", "+(char)c+", "+(char)r+"\n"+new String(bases)+"\n"+this.toString();
-					if(r=='N' || c=='N'){match[mloc]='N';}
-					else if(c==r){match[mloc]='m';}
+					if(r=='N' || c=='N'){match[mloc]='N';}else if(c==r){match[mloc]='m';}
 //					else if(mloc<=tip){match[mloc]='S';}
 					else{
 						match[mloc]='S';
@@ -1099,7 +1142,7 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 			if(verbose){System.err.println("Finished left side.  Success="+success+", start="+start+", stop="+stop+", match=\n"+new String(match));}
 			if(verbose){System.err.println("lengthsAgree: "+this.lengthsAgree());}
 		}
-		
+
 		if(success){//Process right side
 			if(verbose){System.err.println("Processing right side.  Success="+success+", start="+start+", stop="+stop+", match=\n"+new String(match));}
 			int mloc=match.length-1;
@@ -1108,24 +1151,27 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 			if(mloc<0){
 				if(verbose){System.err.println("B: Set success to false.");}
 				success=false;
-			}
-			else if(dif>0){
+			}else if(dif>0){
 				mloc++;//Location of first X or Y on right side
 				final int numX=match.length-mloc;
 				int rloc=stop-dif+1, cloc=bases.length-dif;
 				int subs=0, firstSub=-1;
+				boolean extendRight=false;
 				if(cloc<0){
 					if(verbose){System.err.println("C: Set success to false.");}
 					success=false;
 				}else{
+					//FIXED STR-371: Y consumes no reference span; compare against the positions gained by extending stop.
+					//Reuse this span check below; preextended Y and terminal X retain their existing coordinate handling.
+					extendRight=(match[match.length-1]=='Y' && lengthsAgree());
+					if(extendRight){rloc+=numX;}
 //					final int tip2=match.length-tip;
 					while(mloc<match.length){
 						byte m=match[mloc];
 						byte c=bases[cloc];
 						byte r=ca.get(rloc);
 						assert(m=='X' || m=='Y') : (char)m+", "+mloc+", "+(char)c+", "+(char)r+"\n"+new String(bases)+"\n"+this.toString();
-						if(r=='N' || c=='N'){match[mloc]='N';}
-						else if(c==r){match[mloc]='m';}
+						if(r=='N' || c=='N'){match[mloc]='N';}else if(c==r){match[mloc]='m';}
 //						else if(mloc>=tip2){match[mloc]='S';}
 						else{
 							match[mloc]='S';
@@ -1144,7 +1190,7 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 				}
 				if(success){
 					if(verbose){System.err.println("A: Start="+start+", stop="+stop+", numX="+numX+", lengthsAgree()="+lengthsAgree());}
-					if(mappedLength()!=matchLength()){incrementStop(numX);}
+					if(extendRight || mappedLength()!=matchLength()){incrementStop(numX);}
 					if(verbose){System.err.println("B: Start="+start+", stop="+stop+", numX="+numX+", lengthsAgree()="+lengthsAgree());}
 					if(subs>maxSubs && subs>numX*maxSubRate){
 						if(verbose){System.err.println("Failed to correct alignment; clipping right side of read.");}
@@ -1165,7 +1211,7 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 			if(verbose){System.err.println("Finished right side.  Success="+success+", start="+start+", stop="+stop+", match=\n"+new String(match));}
 			if(verbose){System.err.println("lengthsAgree: "+this.lengthsAgree());}
 		}
-		
+
 		success=success && !matchContainsXY()/* && mappedLength()==matchLength()*/;
 		if(!success){
 			if(verbose){System.err.println("E: Set success to false.");}
@@ -1173,34 +1219,37 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 		}else{
 			if(verbose){System.err.println("E: Success!");}
 		}
-		
+
 		if(match!=null){
 			int oldScore=slowScore;
 			setSlowScore(msa.score(match));
 			setScore(score+(slowScore-oldScore));
 		}
 		if(verbose){System.err.println("lengthsAgree: "+this.lengthsAgree());}
-		
+
 		setPerfect(bases); //Fixes a rare bug
 		return success;
 	}
-	
-	/** Validates that match string length agrees with mapped reference length.
-	 * @return True if match length equals mapped length, or match is null */
+
+	/** Compares the match-derived span with inclusive stop-start+1.
+	 * This is a span check, not a match-array element-count or read-length check.
+	 * @return True if the spans agree, or match is null */
 	public boolean lengthsAgree(){
 		return match==null ? true : matchLength()==mappedLength();
 	}
-	
+
 	/** Calculates length of reference region covered by this alignment.
 	 * @return Number of reference bases from start to stop (inclusive) */
 	public int mappedLength(){
 		return stop-start+1;
 	}
-	
+
 	/**
-	 * Calculates effective length represented by match string.
-	 * Accounts for insertions and deletions in match string.
-	 * @return Effective alignment length from match string
+	 * Delegates the expanded or run-counted match to Read.calcMatchLength.
+	 * Counts m/S/D/C/X/N/R spans; I/Y do not contribute. Requires nonnull match
+	 * under assertions; does not independently validate the symbol alphabet.
+	 * The delegate additionally asserts against a final X run.
+	 * @return Reference span under Read's match-symbol convention
 	 */
 	public int matchLength(){
 		assert(match!=null);
@@ -1257,10 +1306,10 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 	 * @return True if alignment was rescued */
 	public boolean rescued(){return rescued;}
 	/** Returns alignment strand.
-	 * @return Strand byte (+ or -) */
+	 * @return Strand code (Shared.PLUS or Shared.MINUS) */
 	public byte strand(){return strand;}
-	
-	/** Alignment strand (+ or -) */
+
+	/** Alignment strand code (Shared.PLUS or Shared.MINUS) */
 	public final byte strand;
 	/** Whether this alignment was rescued from low-scoring candidates */
 	public boolean rescued=false;
@@ -1296,7 +1345,7 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 			assert(CHECKGAPS()) : Arrays.toString(gaps);
 		}
 	}
-	
+
 	//Seems to be no longer needed after a change to calculating Y symbols.
 	/** @deprecated No longer needed after change to Y symbol calculation */
 	@Deprecated
@@ -1316,7 +1365,7 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 ////			setLimits(start, stop+y);
 //		}
 	}
-	
+
 	/** Sets start position and updates gaps array if present.
 	 * @param a New start position */
 	public void setStart(int a){
@@ -1349,7 +1398,7 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 		}
 		return gaps[0]==start && gaps[gaps.length-1]==stop;
 	}
-	
+
 	/** Returns start position.
 	 * @return Alignment start position */
 	public int start(){return start;}
@@ -1358,7 +1407,9 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 	public int stop(){return stop;}
 	/**
 	 * Sets slow (detailed) alignment score and updates paired score accordingly.
-	 * Maintains score hierarchy where pairedScore >= slowScore.
+	 * Nonpositive x sets both scores. Positive x preserves a nonpositive paired
+	 * sentinel; otherwise preserves the old nonnegative pair bonus, or assigns x+1 when
+	 * the old slow score was nonpositive. The separate ranking score is unchanged.
 	 * @param x New slow score value
 	 */
 	public void setSlowScore(int x){
@@ -1408,16 +1459,23 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 	}
 
 	/** Stores pre-alignment base coverage percentages without enlarging each SiteScore. */
-	public void setPseudoCoverage(int left,int right){
+	public void setPseudoCoverage(int left, int right){
 		assert(left>=0 && left<=100 && right>=0 && right<=100) :
 				"BBIndex locArray half coverage must be a percentage: "+left+", "+right;
 		flags=(flags&~pseudoCoverageMasks)|((long)left<<pseudoLeftShift)|((long)right<<pseudoRightShift);
 	}
-	public void mergePseudoCoverage(int left,int right){
-		setPseudoCoverage(Tools.max(left,pseudoLeftCoverage()),Tools.max(right,pseudoRightCoverage()));
+	/** Merges each coverage percentage by maximum, preserving unrelated flag bits. */
+	public void mergePseudoCoverage(int left, int right){
+		setPseudoCoverage(Tools.max(left, pseudoLeftCoverage()), Tools.max(right, pseudoRightCoverage()));
 	}
+	/** Returns the packed left coverage value (seven bits; setters accept 0–100). */
 	public int pseudoLeftCoverage(){return (int)((flags>>pseudoLeftShift)&pseudoCoverageMask);}
+	/** Returns the packed right coverage value (seven bits; setters accept 0–100). */
 	public int pseudoRightCoverage(){return (int)((flags>>pseudoRightShift)&pseudoCoverageMask);}
+
+	/*--------------------------------------------------------------*/
+	/*----------------            Fields            ----------------*/
+	/*--------------------------------------------------------------*/
 
 	/** Starting position on reference chromosome */
 	public int start;
@@ -1435,15 +1493,18 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 	public int hits;
 	/** Reference chromosome identifier */
 	public final int chrom;
-	
-	/** Bit flags for future use (currently unused) */
+
+	/** Packed pseudo-coverage and reserved flags; ordinary booleans remain separate. */
 	public long flags; //TODO Use this instead of fields
-	
+
 	/** Positions of large gaps in alignment (null if no gaps) */
 	public int[] gaps; //Limits of large gaps
 	/** Match string showing alignment details (null for simple alignments) */
 	public byte[] match;
-	
+
+	/*--------------------------------------------------------------*/
+	/*----------------          Constants           ----------------*/
+	/*--------------------------------------------------------------*/
 
 	/** Singleton instance of position-based comparator */
 	public static final PositionComparator PCOMP=new PositionComparator();
@@ -1455,10 +1516,13 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 	public static final long perfectMask=(1L<<2);
 	/** Bit mask for semiperfect flag (currently unused) */
 	public static final long semiperfectMask=(1L<<3);
-	private static final int pseudoLeftShift=8,pseudoRightShift=15;
+	/** Starting bit of each seven-bit coverage field. */
+	private static final int pseudoLeftShift=8, pseudoRightShift=15;
+	/** Mask for one unpacked coverage value. */
 	private static final long pseudoCoverageMask=127L;
+	/** Combined mask for both packed coverage values. */
 	private static final long pseudoCoverageMasks=(pseudoCoverageMask<<pseudoLeftShift)|(pseudoCoverageMask<<pseudoRightShift);
 	/** Global flag for verbose debugging output */
 	public static boolean verbose=false;
-	
+
 }

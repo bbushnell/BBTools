@@ -34,7 +34,7 @@ public final class FileScanMT{
 	/*--------------------------------------------------------------*/
 
 	/** Scans one filename (optionally prefixed by in=) and prints time, LF count and byte count.
-	 * Optional t/threads controls scan workers; it does not update Shared's thread setting.
+	 * Option values retain embedded '='; t/threads controls scan workers, not Shared's thread setting.
 	 * Initializes global BGZF read threads before parsing options and does not restore them.
 	 * @param args Filename followed by optional scan-thread, SIMD and common/zip settings
 	 */
@@ -48,9 +48,9 @@ public final class FileScanMT{
 		BgzfSettings.READ_THREADS=Tools.mid(1, 18, Shared.threads());
 		for(int i=1; i<args.length; i++){
 			String arg=args[i];
-			String[] split=arg.split("=");
-			String a=split[0].toLowerCase();
-			String b=split.length>1 ? split[1] : null;
+			final int equals=arg.indexOf('=');
+			String a=(equals<0 ? arg : arg.substring(0, equals)).toLowerCase();
+			String b=(equals<0 || equals==arg.length()-1 ? null : arg.substring(equals+1));
 			if(b!=null && b.equalsIgnoreCase("null")){b=null;}
 			
 			if(a.equals("t") || a.equals("threads")){threads=Integer.parseInt(b);}

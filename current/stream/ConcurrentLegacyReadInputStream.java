@@ -6,18 +6,27 @@ import java.util.concurrent.TimeUnit;
 import structures.ListNum;
 
 /**
- * The "legacy" ConcurrentReadInputStream: wraps a SINGLE ReadInputStream producer and pumps it through a
- * ConcurrentDepot, terminated by a poison (empty) list. The factory routes the older .bread/sequential
- * format here (ConcurrentReadInputStream.getReadInputStream, ff1.bread() path, tagged "//TODO: Change to
- * generic"); it is also constructed directly by the mappers (align2.AbstractMapper), the var/GenerateVarlets
- * family, several pacbio tools, and RTextInputStream. readLists() has a fast bulk path and a per-read path
- * (see there). Slated for eventual replacement by ConcurrentGenericReadInputStream; its close() lifecycle is
- * thinner than the generic/collection variants - see #002.
+ * Wraps one ReadInputStream and transfers borrowed Read references through a depot.
+ * Empty output lists are terminal signals; normal list returns replenish empty
+ * buffers rather than returning the same list object. The factory uses this wrapper
+ * for bread and sequential inputs; direct mapper, variant and pacbio callers remain.
+ * Input counters include mates and are updated before sampling, while generated
+ * counts root entries. Sampling and lifecycle changes require coordinated use.
+ * This legacy implementation is intended for replacement by the generic wrapper;
+ * close only closes its source and is not a producer-thread completion barrier.
  *
  * @author Brian Bushnell
  */
-public class ConcurrentLegacyReadInputStream extends ConcurrentReadInputStream {
+public class ConcurrentLegacyReadInputStream extends ConcurrentReadInputStream{
 	
+	/*--------------------------------------------------------------*/
+	/*----------------        Initialization        ----------------*/
+	/*--------------------------------------------------------------*/
+	
+	/** Captures one source and allocates the depot without starting the wrapper thread.
+	 * @param source Nonnull source supporting batch reads
+	 * @param maxReadsToGenerate Requested root-entry limit before sampling; negative means unlimited
+	 * @throws AssertionError If a zero limit is supplied while assertions are enabled */
 	public ConcurrentLegacyReadInputStream(ReadInputStream source, long maxReadsToGenerate){
 		super(source.fname());
 		producer=source;
@@ -30,14 +39,22 @@ public class ConcurrentLegacyReadInputStream extends ConcurrentReadInputStream {
 //		if(maxReads<Long.MAX_VALUE){System.err.println("maxReads="+maxReads);}
 	}
 	
+	/*--------------------------------------------------------------*/
+	/*----------------          Submission          ----------------*/
+	/*--------------------------------------------------------------*/
+	
+	/** Takes the next ready list and assigns a monotonically increasing wrapper ID.
+	 * Interrupted waits print a trace and retry unless shutdown is observed.
+	 * @return Borrowed list, including an empty terminal list; null only after an
+	 * interrupted wait observes shutdown. Return each delivered list exactly once. */
 	@Override
-	public synchronized ListNum<Read> nextList() {
+	public synchronized ListNum<Read> nextList(){
 		ArrayList<Read> list=null;
 		while(list==null){
-			try {
+			try{
 				list=depot.full.take();
-			} catch (InterruptedException e) {
-				// TODO Auto-generated catch block
+			}catch(InterruptedException e){
+				//Report the interruption, then retry unless shutdown was requested.
 				e.printStackTrace();
 				if(shutdown){return null;}
 			}
@@ -47,6 +64,10 @@ public class ConcurrentLegacyReadInputStream extends ConcurrentReadInputStream {
 		return ln;
 	}
 	
+	/** Replenishes one depot slot or publishes another terminal signal.
+	 * This method allocates a fresh empty list; it does not match or recycle the caller's list.
+	 * @param listNumber Unused wrapper ID
+	 * @param poison Whether to add an empty terminal to full instead of an available buffer to empty */
 	@Override
 	public void returnList(long listNumber, boolean poison){
 		if(poison){
@@ -58,15 +79,16 @@ public class ConcurrentLegacyReadInputStream extends ConcurrentReadInputStream {
 		}
 	}
 	
-	/**
-	 * Runs the producer thread: fills the depot via readLists(),
-	 * adds poison lists for consumers, then returns all empty buffers
-	 * to the full queue before exiting.
-	 */
+	/*--------------------------------------------------------------*/
+	/*----------------           Producer           ----------------*/
+	/*--------------------------------------------------------------*/
+	
+	/** Records the current worker, fills output lists and publishes terminal lists on normal return.
+	 * Does not separately start the source or catch every failure from readLists(). */
 	@Override
-	public void run() {
+	public void run(){
 //		producer.start();
-		threads=new Thread[] {Thread.currentThread()};
+		threads=new Thread[]{Thread.currentThread()};
 		
 		readLists();
 		
@@ -80,6 +102,8 @@ public class ConcurrentLegacyReadInputStream extends ConcurrentReadInputStream {
 //		System.err.println(depot.full.size()+", "+depot.empty.size());
 	}
 	
+	/** Publishes an empty terminal, then transfers available depot buffers to ready output.
+	 * Uses timed polls until buffers arrive; only an interrupted poll checks shutdown. */
 	private final void addPoison(){
 		//System.err.println("Adding poison.");
 		//Add poison pills
@@ -87,10 +111,10 @@ public class ConcurrentLegacyReadInputStream extends ConcurrentReadInputStream {
 		for(int i=1; i<depot.bufferCount; i++){
 			ArrayList<Read> list=null;
 			while(list==null){
-				try {
+				try{
 					list=depot.empty.poll(1000, TimeUnit.MILLISECONDS);
-				} catch (InterruptedException e) {
-					// TODO Auto-generated catch block
+				}catch(InterruptedException e){
+					//An interrupt ends this wait only when shutdown was requested.
 //					System.err.println("Do not be alarmed by the following error message:");
 //					e.printStackTrace();
 					if(shutdown){
@@ -105,23 +129,25 @@ public class ConcurrentLegacyReadInputStream extends ConcurrentReadInputStream {
 	}
 	
 	/**
-	 * Producer mode for reading entire lists from the source stream.
-	 * More efficient when the underlying producer supports list operations.
-	 * Handles both bulk operations and individual read transfers with
-	 * sampling support when configured.
+	 * Consumes source batches through bulk-copy and individual-entry paths.
+	 * Generated counts entries examined before sampling; input counts include mates.
+	 * The per-entry path bounds retained list size and tests retained base totals;
+	 * the bulk path tests source-list capacity and generation limits before copying.
 	 */
 	private final void readLists(){
 		
 		ArrayList<Read> buffer=null;
 		ArrayList<Read> list=null;
 		int next=0;
+		//TODO: Probable bug - STR255: a retained source tail bypasses the outer maxReads check.
+		//At the limit the inner loop cannot consume it, so empty lists can be emitted repeatedly.
 		while(buffer!=null || (!shutdown && producer.hasMore() && generated<maxReads)){
 			while(list==null){
 				//System.err.println("Fetching a list: generated="+generated+"/"+maxReads);
-				try {
+				try{
 					list=depot.empty.take();
-				} catch (InterruptedException e) {
-					// TODO Auto-generated catch block
+				}catch(InterruptedException e){
+					//Report the interruption, then retry unless shutdown was requested.
 					e.printStackTrace();
 					if(shutdown){break;}
 				}
@@ -139,10 +165,12 @@ public class ConcurrentLegacyReadInputStream extends ConcurrentReadInputStream {
 					next=0;
 				}
 				if(buffer==null){break;}
-				assert(buffer.size()<=BUF_LEN); //Although this is not really necessary.
+				assert(buffer.size()<=BUF_LEN);//Although this is not really necessary.
 				
-				if(buffer.size()<=(BUF_LEN-list.size()) && (buffer.size()+generated)<maxReads && randy==null){
-					//STUDIED-PRAISE fast path: with no subsampling (randy==null) AND the whole source list fits the remaining BUF_LEN AND it won't cross maxReads, a single addAll + one batched counter update replaces the per-read loop. Correctness rests on these three guards exactly reproducing the per-read else branch's effects: no sampling=>every read kept; fits=>no overflow; under maxReads=>no over-generation. [verified against the else branch]
+				if(next==0 && buffer.size()<=(BUF_LEN-list.size()) && (buffer.size()+generated)<maxReads && randy==null){
+					//Historical bulk-path rationale: copy a fitting unsampled source batch without per-entry insertion.
+					//STR254: addAll starts at index zero, so only an untouched source batch may use it.
+					//A retained tail must resume at next through the per-entry path to avoid repeating its prefix.
 					list.addAll(buffer);
 					for(Read a : buffer){
 						readsIn++;
@@ -190,19 +218,25 @@ public class ConcurrentLegacyReadInputStream extends ConcurrentReadInputStream {
 
 	}
 	
-	private boolean shutdown=false;
+	/*--------------------------------------------------------------*/
+	/*----------------          Lifecycle           ----------------*/
+	/*--------------------------------------------------------------*/
 	
-	/** Initiates shutdown of the stream by setting shutdown flag
-	 * and interrupting the producer thread. */
+	/** Requests shutdown and interrupts the recorded worker when it is present and alive.
+	 * Does not close the source or join the worker. */
 	@Override
 	public void shutdown(){
 		shutdown=true;
-		//#001-fix [stream/ConcurrentLegacyReadInputStream#001]: guard threads!=null. threads is set in run() (~L58), so shutdown() racing in before the producer thread executes (threads still null) would NPE on threads[0]. Setting shutdown=true alone suffices in that case - run()'s loop short-circuits on !shutdown. Was: if(threads[0]!=null ...).
+		//#001-fix [stream/ConcurrentLegacyReadInputStream#001]: run() installs threads.
+		//Guard the pre-run null reference; the shutdown flag also gates initial source reads.
 		if(threads!=null && threads[0]!=null && threads[0].isAlive()){
 			threads[0].interrupt();
 		}
 	}
 	
+	/** Restarts the source and replaces the depot after prior use has become quiescent.
+	 * Resets shutdown and input/generated counters, but retains list IDs, sampling,
+	 * local error state and worker references. Does not start a new wrapper thread. */
 	@Override
 	public synchronized void restart(){
 		shutdown=false;
@@ -213,6 +247,8 @@ public class ConcurrentLegacyReadInputStream extends ConcurrentReadInputStream {
 		readsIn=0;
 	}
 	
+	/** Closes only the underlying source, without joining or interrupting the wrapper worker.
+	 * The source's boolean close result is not retained; errorState() consults its stored flag. */
 	@Override
 	public synchronized void close(){
 //		System.err.println("Closing cris: "+maxReads+", "+generated);
@@ -221,20 +257,32 @@ public class ConcurrentLegacyReadInputStream extends ConcurrentReadInputStream {
 //				if(threads[i]!=null){System.err.println(i+": "+threads[i].isAlive());}
 //			}
 //		}
-		//TODO: Possible bug [stream/ConcurrentLegacyReadInputStream#002] - close() only closes the producer; unlike the generic/collection cris it does NOT call shutdown() (no interrupt) and does NOT recycle depot buffers. On the normal path the producer self-terminates at EOF/maxReads and is already dead here, so this is fine. But on an EARLY close (consumer abandons mid-stream while the producer is parked in depot.empty.take() with the depot drained), closing the source does NOT unblock that take() - the producer thread leaks, hung forever. It is NON-daemon (parent start() does no setDaemon), so the hang would prevent JVM exit. Latent (abnormal early-abandon path); crash-loudly-relevant (a hang). Document-and-defer: a structural close()-lifecycle change in a legacy class slated for replacement ("//TODO: Change to generic" at the factory); the fix mirrors the collection variant (shutdown()+recycle), not a one-liner.
+		//TODO: Possible bug [stream/ConcurrentLegacyReadInputStream#002, STR256] - closing
+		//the source does not release a wrapper worker waiting for a depot buffer after early
+		//consumer abandonment. This method neither calls shutdown() nor replenishes buffers.
+		//A worker started from a non-daemon context may then keep the process alive.
+		//Retain the structural lifecycle follow-up separately from this documentation pass;
+		//normal completion also needs the retained-tail limit concern in STR255 considered.
 		producer.close();
 	}
 
+	/*--------------------------------------------------------------*/
+	/*----------------       Configuration/Status   ----------------*/
+	/*--------------------------------------------------------------*/
+	
 	/** Returns whether the underlying stream contains paired-end reads.
 	 * @return true if stream contains paired reads */
 	@Override
-	public boolean paired() {
-		return producer.paired();
-	}
+	public boolean paired(){return producer.paired();}
 	
+	/** @return Current global legacy-wrapper diagnostic flag */
 	@Override
 	public boolean verbose(){return verbose;}
 	
+	/** Configures sampling before processing; this method does not validate or clamp the rate.
+	 * Input/generated counters are updated before a sampled entry is retained or rejected.
+	 * @param rate Rates at least one disable sampling; lower values use a random comparison
+	 * @param seed Nonnegative seed passed to the random factory; negative selects its default factory */
 	@Override
 	public void setSampleRate(float rate, long seed){
 		samplerate=rate;
@@ -247,38 +295,54 @@ public class ConcurrentLegacyReadInputStream extends ConcurrentReadInputStream {
 		}
 	}
 	
+	/** @return Observed bases examined before sampling, including mates; not a completion wait */
 	@Override
 	public long basesIn(){return basesIn;}
+	/** @return Observed individual reads examined before sampling, including mates */
 	@Override
 	public long readsIn(){return readsIn;}
 	
-	/** Returns whether this stream or its producer is in an error state.
-	 * @return true if error state detected */
+	/** Combines currently observed stored error flags without closing or waiting.
+	 * @return true if the local flag or the source's errorState() reports an error */
 	@Override
 	public boolean errorState(){return errorState || (producer!=null && producer.errorState());}
-	/** Error state flag for this stream instance */
-	private boolean errorState=false;
-	
-	private float samplerate=1f;
-	private shared.Random randy=null;
-	
-	/** Returns array containing the underlying producer stream.
-	 * @return Array with single producer element */
+	/** @return New one-element array containing the retained source, without copying it */
 	@Override
-	public Object[] producers(){return new Object[] {producer};}
+	public Object[] producers(){return new Object[]{producer};}
 
+	/*--------------------------------------------------------------*/
+	/*----------------            Fields            ----------------*/
+	/*--------------------------------------------------------------*/
+	
+	/** Plain shutdown request flag; lifecycle callers must coordinate access. */
+	private boolean shutdown=false;
+	/** Retained local error flag; this class does not currently set it true. */
+	private boolean errorState=false;
+	/** Sampling comparison threshold, configured before processing. */
+	private float samplerate=1f;
+	/** Null when sampling is disabled; otherwise the configured random source. */
+	private shared.Random randy=null;
+	/** Worker reference installed by run(), consulted by shutdown(). */
 	private Thread[] threads;
 
+	/** Retained source; callers must coordinate any direct access with this wrapper. */
 	public final ReadInputStream producer;
+	/** Available and ready lists for the current run; replaced by restart(). */
 	private ConcurrentDepot<Read> depot;
 	
+	/** Global diagnostic flag shared by legacy-wrapper instances. */
 	public static boolean verbose=false;
 	
+	/** Pair-aware examined-base count, reset by restart(). */
 	private long basesIn=0;
+	/** Individual examined-read count, reset by restart(). */
 	private long readsIn=0;
 	
+	/** Requested root-entry limit, with negative constructor values mapped to Long.MAX_VALUE. */
 	private long maxReads;
+	/** Root entries counted before sampling, reset by restart(). */
 	private long generated=0;
+	/** Next delivered-list ID; not reset by restart(). */
 	private long listnum=0;
 	
 

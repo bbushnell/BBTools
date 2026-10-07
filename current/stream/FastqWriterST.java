@@ -94,9 +94,9 @@ public class FastqWriterST implements Writer{
 		writeReads(reads.list);
 	}
 
-	/** Converts SAM sequence, quality and name fields to unpaired Read wrappers.
-	 * Arrays are shared, not copied, and SAM mate flags are currently lost. Consequently
-	 * writeR1 selects all converted entries and writeR2 alone selects none.
+	/** Converts SAM sequence, quality and name fields to unlinked Read wrappers.
+	 * Arrays are shared, not copied. SAM pair numbers are retained for mate selection;
+	 * numeric IDs become -1 and other alignment metadata is not copied.
 	 * @param lines Optional wrapper containing a nonnull list of nonnull SAM records;
 	 * its ID is ignored
 	 */
@@ -104,11 +104,11 @@ public class FastqWriterST implements Writer{
 	public void addLines(ListNum<SamLine> lines){
 		if(lines==null){return;}
 		ArrayList<Read> reads=new ArrayList<Read>(lines.size());
-		//TODO: Probable bug [FastqWriterST#001] - this Read constructor leaves pairnum0
-		//and no mate, so writeR2-only drops every SAM entry. Retain SAM mate identity
-		//before selection; no direct Java callers found during the 2026-09-30 review.
 		for(SamLine sl : lines){
-			reads.add(new Read(sl.seq, sl.qual, sl.qname, -1, false));
+			//Fixed #001: preserve SAM mate identity before writeReads selects R1 or R2.
+			Read r=new Read(sl.seq, sl.qual, sl.qname, -1, false);
+			r.setPairnum(sl.pairnum());
+			reads.add(r);
 		}
 		writeReads(reads);
 	}

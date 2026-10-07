@@ -6,6 +6,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 
+import parse.LineParserS2;
 import shared.Shared;
 
 /**
@@ -197,48 +198,71 @@ public final class SiteScoreR implements Comparable<SiteScoreR>{
 	/** Parses the ten fields emitted by toText and restores an optional leading * marker.
 	 * A legacy eleventh field is accepted but ignored. Constructor flag normalization
 	 * applies; normalizedScore and retainVotes keep their new-object defaults.
+	 * Uses a local sequential cursor and Java numeric conversions; trailing empty
+	 * comma fields do not count toward the ten/eleven-field assertion.
 	 * @param s Nonnull comma-separated record in this format
 	 * @return New parsed site
 	 */
 	public static SiteScoreR fromText(String s){
-		String line[]=s.split(",");
-		
-		SiteScoreR ss;
+		return fromText(s, new LineParserS2(','));
+	}
 
-		assert(line.length==10 || line.length==11) : "\n"+line.length+"\n"+s+"\n"+Arrays.toString(line)+"\n";
+	/** Parses one record after resetting the caller-owned comma cursor.
+	 * @param s Nonnull comma-separated record
+	 * @param lp Local comma cursor, reused only sequentially by this caller
+	 * @return New parsed site
+	 */
+	private static SiteScoreR fromText(String s, LineParserS2 lp){
+		lp.set(s);
+		String first=lp.parseString();
 		boolean correct=false;
-		if(line[0].charAt(0)=='*'){
+		if(first.charAt(0)=='*'){
 			correct=true;
-			line[0]=line[0].substring(1);
+			first=first.substring(1);
 		}
 		//Historical fix [stream/SiteScoreR#002]: parse chrom as int to match toText;
 		//the former byte parser rejected values above127. Twin of SiteScore#002.
-		int chrom=Integer.parseInt(line[0]);
-		byte strand=Byte.parseByte(line[1]);
-		int start=Integer.parseInt(line[2]);
-		int stop=Integer.parseInt(line[3]);
-		int readlen=Integer.parseInt(line[4]);
-		long numericID=Long.parseLong(line[5]);
-		byte pairnum=Byte.parseByte(line[6]);
-		int p=Integer.parseInt(line[7], 2);
+		int chrom=Integer.parseInt(first);
+		byte strand=Byte.parseByte(lp.parseString());
+		int start=Integer.parseInt(lp.parseString());
+		int stop=Integer.parseInt(lp.parseString());
+		int readlen=Integer.parseInt(lp.parseString());
+		long numericID=Long.parseLong(lp.parseString());
+		byte pairnum=Byte.parseByte(lp.parseString());
+		int p=Integer.parseInt(lp.parseString(), 2);
 		boolean perfect=(p&1)==1;
 		boolean semiperfect=(p&2)==2;
-		int pairedScore=Integer.parseInt(line[8]);
-		int score=Integer.parseInt(line[9]);
-		ss=new SiteScoreR(chrom, strand, start, stop, readlen, numericID, pairnum, score, pairedScore, perfect, semiperfect);
+		int pairedScore=Integer.parseInt(lp.parseString());
+		int score=Integer.parseInt(lp.parseString());
+		int terms=10;
+		for(int field=10; lp.hasMore(); field++){
+			if(lp.advance()>0){terms=field+1;}
+		}
+		assert(terms==10 || terms==11) : "SiteScoreR uses ten fields and accepts one ignored legacy field; found "+terms+": "+s;
+		SiteScoreR ss=new SiteScoreR(chrom, strand, start, stop, readlen, numericID, pairnum, score, pairedScore, perfect, semiperfect);
 		ss.correct=correct;
 		
 		return ss;
 	}
 	
-	/** Parses tab-separated site records; trailing empty split fields are omitted.
+	/** Parses tab-separated site records; trailing empty tab fields are omitted.
+	 * Counts retained fields before allocating the result and reuses local cursors.
 	 * @param s Nonnull text containing records accepted by fromText
 	 * @return New array in input order
 	 */
 	public static SiteScoreR[] fromTextArray(String s){
-		String[] split=s.split("\t");
-		SiteScoreR[] out=new SiteScoreR[split.length];
-		for(int i=0; i<split.length; i++){out[i]=fromText(split[i]);}
+		assert(s!=null) : "SiteScoreR.fromTextArray requires nonnull text; each retained tab field is passed to fromText";
+		if(s.indexOf('\t')<0){return new SiteScoreR[] {fromText(s)};}
+		final LineParserS2 records=new LineParserS2('\t').set(s);
+		int terms=0;
+		for(int field=0; records.hasMore(); field++){
+			if(records.advance()>0){terms=field+1;}
+		}
+		final SiteScoreR[] out=new SiteScoreR[terms];
+		if(terms==0){return out;}
+		records.reset();
+		final LineParserS2 fields=new LineParserS2(',');
+		for(int i=0; i<terms; i++){out[i]=fromText(records.parseString(), fields);}
 		return out;
 	}
 	

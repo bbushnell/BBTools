@@ -10,37 +10,41 @@ import java.util.zip.Deflater;
 import stream.JobQueue;
 
 /**
- * Multithreaded BGZF (Blocked GZIP Format) output stream.
+ * BGZF output stream with producer-side buffering, compression workers and one writer.
+ * Construction starts the helper threads immediately. One caller owns write/flush/close
+ * operations and the accumulation buffer; this class does not serialize concurrent callers.
+ * Each submitted buffer becomes a job with an ascending ID. Workers create raw deflate
+ * payloads and footer metadata, and the writer obtains jobs in order through JobQueue.
+ * The default uncompressed block size is 65280 bytes, leaving room for BGZF framing.
  *
- * Architecture:
- * - Producer (main thread): Accumulates data into 64KB blocks, creates jobs with ascending IDs
- * - Worker thread(s): Compresses blocks in parallel
- * - Writer thread: Uses JobQueue to retrieve jobs in sequential order and write to output
- *
- * Jobs are automatically ordered by JobQueue to maintain sequential output
- * even when workers complete out of order.
+ * flush() submits buffered data and flushes the sink without awaiting queued compression
+ * or writes. The writer owns normal final EOF emission and closing of the supplied sink.
+ * close() requests a last job, joins the writer and interrupts remaining workers without
+ * joining them. See the method contracts for the existing submission and interruption
+ * behavior; historical shutdown comments below are not a general completion guarantee.
  *
  * @author Chloe
  * @contributor Isla
  * @date October 18, 2025
  */
-public class BgzfOutputStreamMT extends OutputStream {
+public class BgzfOutputStreamMT extends OutputStream{
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Create a BGZF output stream with default thread count (1) and 64KB block size. */
-	public BgzfOutputStreamMT(OutputStream out){
-		this(out, 1, 6, DEFAULT_BLOCK_SIZE); // 1 worker, compression level 6
-	}
+	/** Starts one compressor and one writer, using level 6 and 65280-byte input blocks. */
+	public BgzfOutputStreamMT(OutputStream out){this(out, 1, 6, DEFAULT_BLOCK_SIZE);}
 
-	/** Create a BGZF output stream with custom thread count and compression level. */
-	public BgzfOutputStreamMT(OutputStream out, int threads, int compressionLevel){
-		this(out, threads, compressionLevel, DEFAULT_BLOCK_SIZE);
-	}
+	/** Starts the requested compressors and one writer with 65280-byte input blocks. */
+	public BgzfOutputStreamMT(OutputStream out, int threads, int compressionLevel){this(out, threads, compressionLevel, DEFAULT_BLOCK_SIZE);}
 
-	/** Create a BGZF output stream with fully custom threading and block size. */
+	/** Allocates queues and the accumulation buffer, then starts compression and writer threads.
+	 * Queue capacity is 3+(3*threads)/2; the output JobQueue uses ordered, bounded mode.
+	 * @param out Nonnull sink retained for writing, flushing and normal final closure
+	 * @param threads Compressor count, asserted within 1 through 32; excludes the writer
+	 * @param compressionLevel Deflate level, asserted within 0 through 9
+	 * @param blockSize Input-buffer size, asserted within 1 through DEFAULT_BLOCK_SIZE */
 	public BgzfOutputStreamMT(OutputStream out, int threads, int compressionLevel, int blockSize){
 		assert(out!=null) : "Null output stream";
 		assert(threads>0 && threads<=32) : "Invalid thread count: "+threads;
@@ -70,12 +74,12 @@ public class BgzfOutputStreamMT extends OutputStream {
 	/*----------------            Methods           ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Start worker and writer threads. */
+	/** Starts the configured compressors and one writer; threads inherit the creator's daemon status. */
 	private void startThreads(){
 		assert(workers==null) : "Workers already started";
 		assert(writer==null) : "Writer already started";
 
-		// Start worker threads (NON-daemon - JVM waits for them)
+		// Start compression threads; daemon status is inherited from the creating thread.
 		workers=new Thread[workerThreads];
 		for(int i=0; i<workerThreads; i++){
 			final int threadNum=i;
@@ -85,13 +89,17 @@ public class BgzfOutputStreamMT extends OutputStream {
 			workers[i].start();
 		}
 
-		// Start writer thread (NON-daemon - JVM waits for it)
+		// Start the writer with the same inherited daemon-status policy.
 		writer=new Thread(new Runnable(){
 			public void run(){writerLoop();}
 		}, "BGZF-Writer");
 		writer.start();
 	}
 
+	/** Buffers the low eight bits, submitting a block when full.
+	 * Open state is asserted; stored worker errors are checked only when a block is submitted.
+	 * @param b Value whose low byte is appended
+	 * @throws IOException If block submission reports an error */
 	@Override
 	public void write(int b) throws IOException{
 		assert(!closed) : "Stream closed";
@@ -104,6 +112,13 @@ public class BgzfOutputStreamMT extends OutputStream {
 		assert(bufferPos<maxBlockSize) : "Buffer overflow: "+bufferPos;
 	}
 
+	/** Copies the requested range into owned buffers and submits each full block.
+	 * Null/range/open-state conditions are asserted. Checks stored worker errors even
+	 * for an empty range; completion of this call does not await output completion.
+	 * @param b Source bytes, not retained
+	 * @param off First source position
+	 * @param len Number of bytes to append
+	 * @throws IOException If a recorded worker error or submission error is observed */
 	@Override
 	public void write(byte[] b, int off, int len) throws IOException{
 		assert(b!=null) : "Null buffer";
@@ -142,7 +157,12 @@ public class BgzfOutputStreamMT extends OutputStream {
 		assert(bufferPos<=maxBlockSize) : "Buffer overflow: "+bufferPos;
 	}
 
-	/** Submit current buffer as a job for compression. */
+	/** Transfers a nonempty accumulation buffer to a job, then allocates its replacement.
+	 * Empty buffers return immediately. Ordinary jobs use blocking put; final jobs try
+	 * brief offers, then timed offers that recheck workerError. Replacement occurs only
+	 * after submission. The job retains the old array without another payload copy.
+	 * @param isLast Whether the submitted data job also marks final output
+	 * @throws IOException If a stored error or interrupted submission is observed */
 	private void flushBlock(boolean isLast) throws IOException{
 		if(bufferPos==0){
 			if(verbose){
@@ -170,11 +190,11 @@ public class BgzfOutputStreamMT extends OutputStream {
 
 		// Submit to input queue
 		if(isLast){
-			// For the last job, avoid blocking: try briefly, then signal writer directly
+			// Try brief offers first; the fallback below keeps retrying the real final block.
 			boolean enqueued=false;
 			for(int attempts=0; attempts<16 && !enqueued; attempts++){
-				if(inputQueue.offer(job)) {enqueued=true; break;}
-				try{Thread.sleep(1);}catch(InterruptedException ie){Thread.currentThread().interrupt();break;}
+				if(inputQueue.offer(job)){enqueued=true; break;}
+				try{Thread.sleep(1);}catch(InterruptedException ie){Thread.currentThread().interrupt(); break;}
 			}
 			//[stream/bam/BgzfOutputStreamMT#001] FIXED 2026-06-20 (greenlit by Brian; adversarial-Sonnet
 			//CONFIRMED HIGH before fix). OLD fallback SILENTLY DROPPED the real final block and injected an
@@ -219,10 +239,13 @@ public class BgzfOutputStreamMT extends OutputStream {
 		assert(bufferPos==0) : "Buffer position not reset";
 	}
 
-	/** Worker thread: Compress BGZF blocks. */
+	/** Compresses jobs with thread-local raw Deflater and CRC32 instances.
+	 * Publishes the deflate payload in compressed and the eight-byte CRC/ISIZE footer
+	 * in decompressed. Empty jobs are passed through without compression. Exceptions
+	 * caught by the loop are recorded in workerError; the deflater is ended on exit. */
 	private void workerLoop(){
 		Deflater deflater=new Deflater(compressionLevel, true); // true=nowrap mode
-		if(FILTERED_BGZF) {deflater.setStrategy(Deflater.FILTERED);}
+		if(FILTERED_BGZF){deflater.setStrategy(Deflater.FILTERED);}
 		CRC32 crc=new CRC32();
 
 		try{
@@ -262,7 +285,7 @@ public class BgzfOutputStreamMT extends OutputStream {
 						System.err.println("Worker: saw LAST JOB, injecting POISON");
 					}
 					for(int s=0, toSignal=Math.max(1, workerThreads-1); s<toSignal; s++){
-						if(!inputQueue.offer(BgzfJob.POISON_PILL)) {Thread.yield();}
+						if(!inputQueue.offer(BgzfJob.POISON_PILL)){Thread.yield();}
 					}
 				}
 
@@ -302,7 +325,7 @@ public class BgzfOutputStreamMT extends OutputStream {
 						int n=deflater.deflate(job.compressed, compressedSize, cap-compressedSize);
 						if(n==0){
 							// If no progress and not finished, avoid spinning forever
-							if(deflater.needsInput()) {break;}
+							if(deflater.needsInput()){break;}
 							guard++;
 							if(guard>4){break;}
 							continue;
@@ -350,7 +373,10 @@ public class BgzfOutputStreamMT extends OutputStream {
 		}
 	}
 
-	/** Writer thread: Write compressed blocks in sequential order. */
+	/** Writes each ordered job as header, deflate payload and CRC/ISIZE footer.
+	 * A last job triggers EOF emission and sink closure after its payload. A null or
+	 * poison result exits without that finalization. Caught exceptions are stored in
+	 * workerError; header/footer scratch arrays are retained by this writer. */
 	private void writerLoop(){
 		try{
 			while(true){
@@ -385,8 +411,8 @@ public class BgzfOutputStreamMT extends OutputStream {
 						assert(bsize>=27 && bsize<=65535);
 						if(writerHeader==null){writerHeader=new byte[18];}
 						System.arraycopy(GZIP_HEADER_TEMPLATE, 0, writerHeader, 0, 18);
-						writerHeader[16]=(byte)(bsize & 0xFF);
-						writerHeader[17]=(byte)((bsize>>8) & 0xFF);
+						writerHeader[16]=(byte)(bsize&0xFF);
+						writerHeader[17]=(byte)((bsize>>8)&0xFF);
 						out.write(writerHeader, 0, 18);
 						// Write compressed payload
 						out.write(job.compressed, 0, job.compressedSize);
@@ -401,7 +427,7 @@ public class BgzfOutputStreamMT extends OutputStream {
 				// If this was the last job, write EOF marker, close stream, and exit
 				//The writer terminates on the FIRST dequeued job with lastJob==true and writes the BGZF
 				//EOF marker exactly once here. Because jobQueue is ordered (heapReady only releases the
-				//min id == nextID, JobQueue.heapReady/take), in the NORMAL path the real lastJob is the
+				//min id <= nextID, JobQueue.heapReady/take), in the NORMAL path the real lastJob is the
 				//highest id and is dequeued strictly last -> EOF is correct. This same property is what
 				//makes #001's fallback dangerous: a last-marker stamped with an EARLIER id (nextID at
 				//fallback time) is dequeued early and triggers this EOF+close before later blocks ship.
@@ -428,12 +454,17 @@ public class BgzfOutputStreamMT extends OutputStream {
 		}
 	}
 
+	/** Submits buffered data and flushes the sink without waiting for queued jobs to finish.
+	 * Returns immediately when already closed.
+	 * @throws IOException If submission or flushing the underlying sink fails */
 	@Override
-	public void flush() throws IOException{
-		flush(false); // Not the last job
-	}
+	public void flush() throws IOException{flush(false);}
 
-	/** Internal flush implementation. */
+	/** Submits buffered data or attempts to enqueue an empty last marker, then flushes the sink.
+	 * The empty-last path makes at most 16 nonblocking offers; it has no blocking fallback
+	 * or explicit rejection when those offers fail. Neither path awaits writer completion.
+	 * @param isLast Whether to request final output, including an empty marker when needed
+	 * @throws IOException If data submission or the underlying flush reports an error */
 	private void flush(boolean isLast) throws IOException{
 		if(closed && !isLast){return;}
 
@@ -459,9 +490,13 @@ public class BgzfOutputStreamMT extends OutputStream {
 			// Best-effort, non-blocking enqueue of last marker
 			boolean enqueued=false;
 			for(int attempts=0; attempts<16 && !enqueued; attempts++){
-				if(inputQueue.offer(emptyJob)) {enqueued=true; break;}
-				try{Thread.sleep(1);}catch(InterruptedException ie){Thread.currentThread().interrupt();break;}
+				if(inputQueue.offer(emptyJob)){enqueued=true; break;}
+				try{Thread.sleep(1);}catch(InterruptedException ie){Thread.currentThread().interrupt(); break;}
 			}
+			//TODO: Probable bug [stream/bam/BgzfOutputStreamMT#002] - if these offers all fail,
+			//flush(true) proceeds without a last marker, while close() subsequently joins the
+			//writer that expects it. Source-only concern; separate validation and repair are
+			//deferred, not part of this documentation pass.
 		}
 
 		// Flush underlying stream
@@ -496,6 +531,12 @@ public class BgzfOutputStreamMT extends OutputStream {
 //		if(workerError!=null){throw workerError;}
 //	}
 	
+	/** Requests final output, marks closed, submits one worker poison and joins the writer.
+	 * Already-closed calls return immediately. Interrupted poison submission or joining
+	 * restores interrupt status and continues cleanup. Remaining workers are interrupted
+	 * without joining; a recorded workerError is thrown afterward. Normal sink closure
+	 * occurs in the writer, not directly here. See flush(boolean) for empty-marker limits.
+	 * @throws IOException If final submission or flushing fails, or a stored worker error is present */
 	@Override
 	public void close() throws IOException{
 		if(closed){return;} // Already closed - idempotent
@@ -507,14 +548,14 @@ public class BgzfOutputStreamMT extends OutputStream {
 
 		closed=true;
 		
-		// Send poison to ALL workers. Use put() to ensure it lands.
+		// Submit one additional poison; the worker loop also offers markers on a last job.
 //		for(int i=0; i<workerThreads; i++){
-			try {
-				inputQueue.put(BgzfJob.POISON_PILL);
-			} catch (InterruptedException e) {
-				Thread.currentThread().interrupt(); // Restore flag
-				// If main thread is interrupted, we can't do much, but we shouldn't kill workers yet
-			}
+		try{
+			inputQueue.put(BgzfJob.POISON_PILL);
+		}catch(InterruptedException e){
+			Thread.currentThread().interrupt(); // Restore flag
+			// If main thread is interrupted, we can't do much, but we shouldn't kill workers yet
+		}
 //		}
 		
 		// Wait for writer to finish writing everything
@@ -527,7 +568,7 @@ public class BgzfOutputStreamMT extends OutputStream {
 		}
 		
 		// Cleanup: Interrupt workers only if they are still alive (stuck)
-		for(Thread t : workers){ 
+		for(Thread t : workers){
 			if(t!=null && t.isAlive()){
 				t.interrupt(); 
 			}
@@ -537,7 +578,7 @@ public class BgzfOutputStreamMT extends OutputStream {
 		if(workerError!=null){throw workerError;}
 	}
 
-	/** Write BGZF EOF marker (28-byte empty block). */
+	/** Writes the fixed 28-byte empty BGZF block, then flushes the underlying stream. */
 	private void writeEOFMarker() throws IOException{
 		// Standard 28-byte EOF marker
 		byte[] eof=new byte[]{
@@ -551,19 +592,19 @@ public class BgzfOutputStreamMT extends OutputStream {
 		out.flush();
 	}
 
-	/** Write 16-bit integer in little-endian format. */
+	/** Writes the low 16 bits in little-endian order; returns the position after two bytes. */
 	private int writeInt16(byte[] buf, int pos, int val){
-		buf[pos++]=(byte)(val & 0xFF);
-		buf[pos++]=(byte)((val>>8) & 0xFF);
+		buf[pos++]=(byte)(val&0xFF);
+		buf[pos++]=(byte)((val>>8)&0xFF);
 		return pos;
 	}
 
-	/** Write 32-bit integer in little-endian format. */
+	/** Writes all 32 bits in little-endian order; returns the position after four bytes. */
 	private int writeInt32(byte[] buf, int pos, int val){
-		buf[pos++]=(byte)(val & 0xFF);
-		buf[pos++]=(byte)((val>>8) & 0xFF);
-		buf[pos++]=(byte)((val>>16) & 0xFF);
-		buf[pos++]=(byte)((val>>24) & 0xFF);
+		buf[pos++]=(byte)(val&0xFF);
+		buf[pos++]=(byte)((val>>8)&0xFF);
+		buf[pos++]=(byte)((val>>16)&0xFF);
+		buf[pos++]=(byte)((val>>24)&0xFF);
 		return pos;
 	}
 
@@ -578,15 +619,17 @@ public class BgzfOutputStreamMT extends OutputStream {
 		0, 0                 // BSIZE (patched)
 	};
 
+	/** Copies the template, patches the low 16 BSIZE bits and writes 18 bytes to dest. */
 	private static void writeHeaderWithBsize(byte[] dest, int bsize){
 		// NUMA-friendly: allocate a local header copy in the calling thread
-		final byte[] header = Arrays.copyOf(GZIP_HEADER_TEMPLATE, GZIP_HEADER_TEMPLATE.length);
-		header[16]=(byte)(bsize & 0xFF);
-		header[17]=(byte)((bsize>>8) & 0xFF);
+		final byte[] header=Arrays.copyOf(GZIP_HEADER_TEMPLATE, GZIP_HEADER_TEMPLATE.length);
+		header[16]=(byte)(bsize&0xFF);
+		header[17]=(byte)((bsize>>8)&0xFF);
 		System.arraycopy(header, 0, dest, 0, 18);
 	}
 
-	/** Validate internal state for debugging. */
+	/** Checks configured ranges, required references and accumulation-buffer bounds.
+	 * Does not inspect job payloads, thread completion, queued work or sink state. */
 	private boolean repOK(){
 		if(out==null){return false;}
 		if(workerThreads<=0 || workerThreads>32){return false;}
@@ -602,7 +645,7 @@ public class BgzfOutputStreamMT extends OutputStream {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Number of worker threads (start with 1 for correctness, then scale up) */
+	/** Number of compressor threads; excludes the separate writer. */
 	private final int workerThreads;
 	/** Compression level (0-9, default 6) */
 	private final int compressionLevel;
@@ -610,7 +653,7 @@ public class BgzfOutputStreamMT extends OutputStream {
 	private final ArrayBlockingQueue<BgzfJob> inputQueue;
 	/** Job queue maintaining sequential output order */
 	private final JobQueue<BgzfJob> jobQueue;
-	/** Maximum uncompressed block size (<=64KB) */
+	/** Configured input-block capacity, at most DEFAULT_BLOCK_SIZE. */
 	private final int maxBlockSize;
 	/** Worker threads compressing blocks */
 	private Thread[] workers;
@@ -618,27 +661,28 @@ public class BgzfOutputStreamMT extends OutputStream {
 	private Thread writer;
 	/** Next job ID to assign */
 	private long nextJobId=0;
-	/** Current accumulation buffer */
+	/** Producer-owned accumulation buffer, transferred to a job on submission. */
 	private byte[] buffer;
 	/** Position in accumulation buffer */
 	private int bufferPos=0;
-	/** Underlying output stream */
+	/** Retained sink; writer emits data/closes it, while caller-side flush also flushes it. */
 	private final OutputStream out;
-	/** Error state from worker threads */
+	/** Most recently assigned IOException from a compressor or writer; null initially. */
 	private volatile IOException workerError=null;
 	/** Per-writer small reusable header buffer (18B) */
 	private byte[] writerHeader;
 	/** Per-writer small reusable footer buffer (8B) */
 	private byte[] writerFooter;
-	/** Stream closed flag (only accessed by main thread) */
+	/** Caller-side close latch, set after final flush and before waiting for helpers. */
 	private volatile boolean closed=false;
-	/** Debug flag (enable with -Dbgzf.debug=true) */
+	/** Compile-time disabled diagnostics; the system-property expression is commented out. */
 	private static final boolean verbose=false;//Boolean.getBoolean("bgzf.debug");
-	/** Default maximum uncompressed block size (64KB) */
+	/** Default input-block capacity, 65280 bytes. */
 	//[block-size lead FIXED 2026-06-20 (greenlit)] 0xff00 (65280), NOT 65536: the BGZF spec/samtools cap the
 	//UNCOMPRESSED block here so the compressed block + 26B overhead always fits the 16-bit BSIZE field. At
 	//65536 an incompressible full block deflates to ~65556 (empirically) -> bsize>65535 -> wraps -> corrupt
 	//framing. Read buffers stay 65536 (other writers may emit up to the spec max), only WRITE size is capped.
 	public static final int DEFAULT_BLOCK_SIZE=65280;
+	/** Mutable strategy preference sampled by each compressor at startup; set before construction. */
 	public static boolean FILTERED_BGZF=false;
 }

@@ -5,6 +5,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 import fileIO.TextFile;
+import parse.LineParserS1;
 import shared.Tools;
 
 /**
@@ -60,14 +61,16 @@ public class BedReadFilter{
 		assert(mof>=0 && mof<=1) : "minoverlapfraction must be in [0,1]: "+mof;
 
 		final HashMap<String, ArrayList<int[]>> tmp=new HashMap<String, ArrayList<int[]>>();
+		final LineParserS1 lp=new LineParserS1('\t');
 		TextFile tf=new TextFile(bedPath);
 		for(String line=tf.nextLine(); line!=null; line=tf.nextLine()){
 			if(line.length()==0 || line.charAt(0)=='#' || line.startsWith("track") || line.startsWith("browser")){continue;}
-			String[] s=line.split("\t");
-			assert(s.length>=3) : "Expected >=3-column BED (scaffold start stop), got: "+line;
-			ArrayList<int[]> list=tmp.get(s[0]);
-			if(list==null){list=new ArrayList<int[]>(); tmp.put(s[0], list);}
-			list.add(new int[]{Integer.parseInt(s[1].trim()), Integer.parseInt(s[2].trim())});
+			lp.set(line);
+			assert(lp.terms()>=3) : "Expected >=3-column BED (scaffold start stop), got: "+line;
+			final String scaffold=lp.parseString(0);
+			ArrayList<int[]> list=tmp.get(scaffold);
+			if(list==null){list=new ArrayList<int[]>(); tmp.put(scaffold, list);}
+			list.add(new int[]{Integer.parseInt(lp.parseString(1).trim()), Integer.parseInt(lp.parseString(2).trim())});
 		}
 		tf.close();
 

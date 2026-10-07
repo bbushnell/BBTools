@@ -14,35 +14,36 @@ import structures.ByteBuilder;
 import structures.ListNum;
 
 /**
- * Synchronous stream implementation for cross-splitting reads into multiple output files.
- * This implementation allows only a single, synchronous open stream.
- * Buffers reads by name/barcode and writes them when sufficient data accumulates.
+ * Buffered multi-destination output that opens and completes one output batch at a time.
+ * Each eligible dump creates a ConcurrentReadOutputStream, submits its list and invokes
+ * closeStream before returning; the selected CROS may itself use writer threads.
+ * Buffers reads by name and retains small destinations until their total read count reaches
+ * minReadsToDump. Additions require threaded=false for the inherited outer routing mode.
+ * The constructor stores that argument unchanged and fixes the destination limit at one.
  *
  * @author Brian Bushnell
  * @date May 1, 2019
  */
-public class MultiCros2 extends BufferedMultiCros {
+public class MultiCros2 extends BufferedMultiCros{
 
 	/**
-	 * Testing method for MultiCros2 functionality.
-	 * Reads from input file and cross-splits reads by barcode into multiple streams.
+	 * Diagnostic driver that routes input reads by barcode and completes output after iteration.
+	 * Additional name arguments are parsed but not used for routing.
 	 * @param args Command-line arguments: [input_file] [pattern] [names...]
 	 */
 	public static void main(String[] args){
 		String in=args[0];
 		String pattern=args[1];
 		ArrayList<String> names=new ArrayList<String>();
-		for(int i=2; i<args.length; i++){
-			names.add(args[i]);
-		}
+		for(int i=2; i<args.length; i++){names.add(args[i]);}
 		MultiCros2 mcros=new MultiCros2(pattern, null, false, false, false, false, FileFormat.FASTQ, false);
-		
+
 		ConcurrentReadInputStream cris=ConcurrentReadInputStream.getReadInputStream(-1, true, false, in);
 		cris.start();
-		
+
 		ListNum<Read> ln=cris.nextList();
 		ArrayList<Read> reads=(ln!=null ? ln.list : null);
-		
+
 		while(ln!=null && reads!=null && reads.size()>0){//ln!=null prevents a compiler potential null access warning
 
 			for(Read r1 : reads){
@@ -57,51 +58,52 @@ public class MultiCros2 extends BufferedMultiCros {
 		mcros.dumpAll();
 		mcros.close();
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
 	 * Constructs a MultiCros2 with file patterns and stream settings.
-	 * Initializes with single-threaded operation and creates buffer map for tracking reads.
+	 * Creates the destination map and passes the outer threaded flag unchanged to the parent.
+	 * Supported additions require false; this constructor does not force that value or start
+	 * the outer thread. No destination output is opened until a buffer is dumped.
 	 *
 	 * @param pattern1_ Output file pattern for read 1 (% will be replaced with read name/barcode)
 	 * @param pattern2_ Output file pattern for read 2 (% will be replaced with read name/barcode)
 	 * @param overwrite_ Whether to overwrite existing output files
-	 * @param append_ Whether to append to existing output files
+	 * @param append_ Stored parent setting; destination descriptors always use append mode
 	 * @param allowSubprocess_ Whether to allow subprocess execution
 	 * @param useSharedHeader_ Whether to use shared header across files
 	 * @param defaultFormat_ Default file format for output
-	 * @param threaded_ Threading mode (forced to single-threaded in this implementation)
+	 * @param threaded_ Must be false for supported additions; stored unchanged by the parent
 	 */
 	public MultiCros2(String pattern1_, String pattern2_,
 			boolean overwrite_, boolean append_, boolean allowSubprocess_, boolean useSharedHeader_, int defaultFormat_, boolean threaded_){
 		super(pattern1_, pattern2_, overwrite_, append_, allowSubprocess_, useSharedHeader_, defaultFormat_, threaded_, 1);
 		bufferMap=new LinkedHashMap<String, Buffer>();
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Outer Methods         ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Checks if the cross-splitting operation completed without errors.
-	 * @return true if no error state was encountered, false otherwise */
+	/** Returns the inverse of the accumulated error flag; does not wait for completion. */
 	@Override
-	public boolean finishedSuccessfully(){
-		return !errorState;
-	}
-	
+	public boolean finishedSuccessfully(){return !errorState;}
+
 	/**
 	 * Adds a read to the buffer for the specified name/barcode.
 	 * Creates a new buffer if one doesn't exist for this name.
-	 * May trigger a buffer dump if thresholds are exceeded.
+	 * Requires nonthreaded outer mode. Stores the read reference and may trigger a dump;
+	 * caller-owned reads must remain stable while buffered and during output.
 	 *
 	 * @param r The read to add to the buffer
 	 * @param name The name/barcode identifying which buffer to use
 	 */
 	@Override
 	public void add(Read r, String name){
+		//TODO: Probable configuration bug (STR239) - factory/constructor accept threaded=true, but routing rejects it here.
 		assert(!threaded);
 		Buffer b=bufferMap.get(name);
 		if(b==null){
@@ -112,22 +114,24 @@ public class MultiCros2 extends BufferedMultiCros {
 		b.add(r);
 //		System.err.println("Added "+name);
 	}
-	
+
 	/**
 	 * Dumps residual reads that didn't meet the minimum threshold for file creation.
-	 * Processes all buffers containing fewer than minReadsToDump reads.
+	 * Run after eligible buffers have been drained. Adds individual-read/base totals for
+	 * below-threshold destinations and optionally hands each residual list to rosu with
+	 * ID 0. Sets every buffer list to null, so this is terminal rather than a repeatable flush.
 	 * @param rosu Output stream for residual reads, may be null
 	 * @return Number of reads dumped (currently always returns 0)
 	 */
 	@Override
 	public long dumpResidual(ConcurrentReadOutputStream rosu){
 		long dumped=0;
-		
+
 		//For each Buffer, check if it contains residual reads
 		//If so, dump it into the stream
 		for(Entry<String, Buffer> e : bufferMap.entrySet()){
 			Buffer b=e.getValue();
-			assert((b.readsIn<minReadsToDump) == (b.list!=null && !b.list.isEmpty()));
+			assert((b.readsIn<minReadsToDump)==(b.list!=null && !b.list.isEmpty()));
 			if(b.readsIn>0 && b.readsIn<minReadsToDump){
 				assert(b.list!=null && !b.list.isEmpty());
 				residualReads+=b.readsIn;
@@ -138,10 +142,12 @@ public class MultiCros2 extends BufferedMultiCros {
 		}
 		return dumped;
 	}
-	
+
 	/**
 	 * Generates a tab-separated report of read counts and bases per buffer.
-	 * Includes residual counts and only reports buffers meeting minimum thresholds.
+	 * Includes residual totals when the threshold is positive and visits destinations in
+	 * insertion order. Reports received totals for destinations meeting minReadsToDump;
+	 * this does not establish that their buffered data has already been written.
 	 * @return ByteBuilder containing formatted report with name, read count, and base count
 	 */
 	@Override
@@ -158,28 +164,27 @@ public class MultiCros2 extends BufferedMultiCros {
 		}
 		return bb;
 	}
-	
-	/** Gets the set of buffer names/barcodes currently tracked.
-	 * @return Set of string keys for all active buffers */
+
+	/** Returns the live key-set view of all tracked destinations, including currently empty buffers. */
 	@Override
 	public Set<String> getKeys(){return bufferMap.keySet();}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Inner Methods         ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Internal close method that dumps all remaining buffered reads.
-	 * @return Number of reads dumped during close operation */
+	/** Dumps eligible buffers; each nonempty dump completes its own output stream.
+	 * @return Number of list entries submitted, excluding separate mate counts */
 	@Override
-	long closeInner() {
+	long closeInner(){
 		long x=dumpAll();
 		return x;
 	}
-	
+
 	/**
-	 * Dumps all buffers regardless of their read counts.
-	 * Forces output of all accumulated reads to their respective files.
-	 * @return Total number of reads dumped across all buffers
+	 * Visits all destinations and dumps nonempty buffers whose received totals meet minReadsToDump.
+	 * Below-threshold destinations remain buffered for a later addition or residual pass.
+	 * @return Total number of submitted list entries, excluding separate mate counts
 	 */
 	@Override
 	long dumpAll(){
@@ -189,38 +194,50 @@ public class MultiCros2 extends BufferedMultiCros {
 		}
 		return dumped;
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------           Getters            ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Inner Classes         ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
 	 * Buffer holds reads destined for a specific output file.
 	 * Accumulates reads until threshold is met, then opens stream, writes reads, and closes stream.
 	 * Tracks read/base counts and manages file deletion for overwrite scenarios.
 	 */
-	private class Buffer {
-		
+	private class Buffer{
+
+		/**
+		 * Replaces the first percent placeholder in each pattern and creates append-mode descriptors.
+		 * Descriptor overwrite and ordered flags are false. Explicit first-dump deletion handles
+		 * overwrite requests; later dumps reopen the same destination for append.
+		 * @param name_ Destination name used by String.replaceFirst
+		 */
 		Buffer(String name_){
 			name=name_;
 			String s1=pattern1.replaceFirst("%", name);
 			String s2=pattern2==null ? null : pattern2.replaceFirst("%", name);
-			
-			//These are created with overwrite=false append=true because 
-			//the files will be appended to if the stream gets prematurely retired.
+
+			//These are created with overwrite=false append=true because
+			//the files are reopened for append on each later dump.
 			//Therefore, files must be explicitly deleted first.
 			//Alternative would be to create a new FileFormat each time.
 			ff1=FileFormat.testOutput(s1, defaultFormat, null, allowSubprocess, false, true, false);
 			ff2=FileFormat.testOutput(s2, defaultFormat, null, allowSubprocess, false, true, false);
-			
+
 			list=new ArrayList<Read>(readsPerBuffer);
 			if(verbose){System.err.println("Made buffer for "+name);}
 		}
-		
+
+		/**
+		 * Retains a nonnull first read and updates estimated bytes, individual-read and base totals.
+		 * Entry/byte thresholds can dump this buffer; the upper global byte limit requests dumpAll.
+		 * Minimum destination read totals still gate either dump path.
+		 * @param r First read with an optional mate
+		 */
 		void add(Read r){
 			list.add(r);
 			long size=r.countPairBytes();
@@ -230,7 +247,7 @@ public class MultiCros2 extends BufferedMultiCros {
 			basesIn+=r.pairLength();//was +=size (countPairBytes): bytes-as-bases made DemuxByName2 subtract oversized residualBases -> negative Bases Out (replicated 2026-09-05); MultiCros4 already used pairLength
 			readsInFlight+=count;
 			readsIn+=count;
-			
+
 			if(list.size()>=readsPerBuffer || currentBytes>=bytesPerBuffer){
 				if(verbose){
 					System.err.println("list.size="+list.size()+"/"+readsPerBuffer+
@@ -238,7 +255,7 @@ public class MultiCros2 extends BufferedMultiCros {
 				}
 				dump();
 			}
-			
+
 			//Too much buffered data; dump everything.
 			if(bytesInFlight>=memLimitUpper){
 				long dumped=dumpAll();
@@ -249,12 +266,13 @@ public class MultiCros2 extends BufferedMultiCros {
 				}
 			}
 		}
-		
+
 		/**
-		 * Creates output stream, writes all buffered reads, and closes stream.
-		 * Deletes existing files on first dump if overwrite mode is enabled.
-		 * Resets buffer for next batch of reads after successful write.
-		 * @return Number of reads written to output stream
+		 * Submits an eligible nonempty buffer to a fresh output stream and invokes closeStream.
+		 * Attempts first-dump overwrite deletion, uses batch ID 0, and requests shared headers
+		 * only on the first dump. Folds the close result into errorState, then replaces the list
+		 * and updates counters even if that result reported an error.
+		 * @return Number of list entries submitted, or zero for empty/below-threshold buffers
 		 */
 		long dump(){
 //			System.err.println("Dumping "+name);
@@ -264,17 +282,18 @@ public class MultiCros2 extends BufferedMultiCros {
 				delete(ff2);
 			}
 //			assert(false) : counter+", "+overwrite;
-			
+
 			final long size0=list.size();
-			
+
 			ConcurrentReadOutputStream ros=ConcurrentReadOutputStream.getStream(ff1, ff2, rswBuffers, null, useSharedHeader && numDumps==0);
 			ros.start();
 			ros.add(list, 0);
 			//Reviewed V3 (Furina, 2026-06-25): correct OR-fold (errorState |= close result); MultiCros2 is the simple synchronous single-stream base case (maxStreams=1), no retire/heap/profiling, so no MultiCros6#001 div-by-zero twin. dumpResidual's (readsIn<minReadsToDump)==(list non-empty) invariant matches the verified-correct MultiCros6 one.
 			errorState=ReadWrite.closeStream(ros) | errorState;
 //			System.err.println("Closed stream "+name);
-			
+
 			bytesInFlight-=currentBytes;
+			//TODO: Probable bug (STR233) - add counts individual reads via pairCount, but this subtracts only list entries.
 			readsInFlight-=size0;
 			readsWritten+=size0;
 			currentBytes=0;
@@ -282,37 +301,44 @@ public class MultiCros2 extends BufferedMultiCros {
 			list=new ArrayList<Read>(readsPerBuffer);
 			return size0;
 		}
-		
+
+		/** Attempts to delete an existing destination; null descriptors are ignored. */
 		private void delete(FileFormat ff){
 			if(ff==null){return;}
 			File f=new File(ff.name());
+			//TODO: Probable bug (STR238) - a false delete result is ignored, so append-mode output can retain old content.
 			if(f.exists()){f.delete();}
 		}
-		
+
 		/** Current list of buffered reads waiting to be written */
 		private ArrayList<Read> list;
-		
+
+		/** Destination name used for pattern substitution and reports. */
 		private final String name;
+		/** Append-mode descriptor for primary output. */
 		private final FileFormat ff1;
-		/** Output file format for read 2 */
+		/** Optional append-mode descriptor for mate output. */
 		private final FileFormat ff2;
+		/** Individual reads received, including mates, used for thresholds and reports. */
 		private long readsIn=0;
+		/** Bases received, including mate bases. */
 		private long basesIn=0;
-		/** Number of reads written to disk (does not count read2) */
+		/** List entries submitted to output, excluding separate mates; not a durable-write count. */
 		@SuppressWarnings("unused")
 		private long readsWritten=0;//This does not count read2!
+		/** Estimated bytes currently buffered, including mates. */
 		private long currentBytes=0;
-		
-		/** Number of dumps executed for this buffer */
+
+		/** Number of nonempty eligible dumps whose close helper returned. */
 		private long numDumps=0;
-		
+
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------             Fields           ----------------*/
 	/*--------------------------------------------------------------*/
-	
-	/** Map of names to buffers for tracking reads by barcode/name */
+
+	/** Insertion-ordered map retaining each named buffer after its output is closed. */
 	public final LinkedHashMap<String, Buffer> bufferMap;
 
 }

@@ -1,28 +1,26 @@
 package stream.bam;
 
+import java.nio.charset.StandardCharsets;
+
 import parse.LineParser1;
 import simd.Vector;
 import stream.SamLine;
 
 /**
  * Standalone diagnostic printing sequence orientation through SAM/BAM conversion.
- * Constructs one fixed FLAG=83 alignment, prints its stored sequence, and attempts
- * a round trip through the direct BAM-to-SAM text converter. The stored-sequence
- * expectation assumes SamLine.FLIP_ON_LOAD is enabled. Comparisons only print;
- * this driver is not an assertion-based automated test. Its record-framing mismatch
- * is recorded below and must be repaired before relying on round-trip diagnostics.
+ * Constructs one fixed FLAG=83 alignment and checks a round trip through the direct
+ * BAM-to-SAM text converter. Stored-sequence expectations honor SamLine.FLIP_ON_LOAD.
+ * A stored-sequence or round-trip sequence mismatch throws even without assertions.
  */
 public class TestSeqReverse{
 
-	//Test harness: round-trips a synthetic FLAG=83 read through SamLine→BAM→SAM and compares
-	//SEQ fields. All checks are print-only — no System.exit(1) on mismatch, so CI cannot detect
-	//failure automatically. main()-only.
+	//Test harness: compares stored orientation and round-trip SEQ for one fixed valid alignment.
 	/**
-	 * Prints the fixed alignment, stored sequence, and attempted round-trip comparison.
+	 * Prints and checks the fixed alignment's stored sequence and round-trip comparison.
 	 * Arguments are ignored; this method does not configure the global SAM/SIMD options.
-	 * A printed mismatch alone does not cause a failing process status.
+	 * Other SAM parse options must retain the fields needed by this fixture.
 	 * @param args Ignored command-line arguments
-	 * @throws Exception If parsing or conversion fails
+	 * @throws Exception If parsing, conversion or either sequence comparison fails
 	 */
 	public static void main(String[] args) throws Exception{
 		// Create a SamLine manually with FLAG=83 (reverse strand, paired, mate1)
@@ -64,18 +62,21 @@ public class TestSeqReverse{
 		System.out.println();
 
 		// Parse into SamLine
-		SamLine sl=new SamLine(new LineParser1('\t').set(samLine.getBytes()));
+		final LineParser1 lp=new LineParser1('\t');
+		SamLine sl=new SamLine(lp.set(samLine.getBytes(StandardCharsets.US_ASCII)));
 
 		// Check what's stored in SamLine.seq
-		String storedSeq=new String(sl.seq);
+		String storedSeq=new String(sl.seq, StandardCharsets.US_ASCII);
 		System.out.println("Sequence stored in SamLine.seq:");
 		System.out.println(storedSeq);
 
-		// Expected: should be reverse-complemented due to FLIP_ON_LOAD
+		//The parser flips this mapped reverse-strand fixture only when FLIP_ON_LOAD is enabled.
 		String expectedRC=reverseComplement(originalSeq);
-		System.out.println("Expected (reverse-complemented):");
-		System.out.println(expectedRC);
-		System.out.println("Matches stored? "+storedSeq.equals(expectedRC));
+		String expectedStored=SamLine.FLIP_ON_LOAD ? expectedRC : originalSeq;
+		System.out.println("Expected stored sequence (FLIP_ON_LOAD="+SamLine.FLIP_ON_LOAD+"):");
+		System.out.println(expectedStored);
+		System.out.println("Matches stored? "+storedSeq.equals(expectedStored));
+		if(!storedSeq.equals(expectedStored)){throw new IllegalStateException("Stored sequence does not match FLIP_ON_LOAD orientation");}
 		System.out.println();
 
 		// Convert to BAM
@@ -88,23 +89,16 @@ public class TestSeqReverse{
 
 		// Convert back to SAM
 		BamToSamConverter toSam=new BamToSamConverter(refNames);
-		//TODO: Bug [stream/bam/TestSeqReverse#001] - convertAlignment already returns a body
-		//without block_size. The decoder also expects that body; stripping four more bytes
-		//here discards refID and shifts the decoder's fields. Pass bamRecord directly in a
-		//separate behavior repair. Source-confirmed; not a runtime reproduction (STR-183).
-		// Skip first 4 bytes (block_size)
-		byte[] bamAlignment=new byte[bamRecord.length-4];
-		System.arraycopy(bamRecord, 4, bamAlignment, 0, bamAlignment.length);
-		byte[] samBytes=toSam.convertAlignment(bamAlignment);
-		String roundtripSam=new String(samBytes);
+		//Resolved #001: both converters exchange a body without block_size; retain its refID bytes.
+		byte[] samBytes=toSam.convertAlignment(bamRecord);
+		String roundtripSam=new String(samBytes, StandardCharsets.US_ASCII);
 
 		System.out.println("Roundtrip SAM line:");
 		System.out.println(roundtripSam);
 		System.out.println();
 
 		// Extract SEQ field (field 10, 0-indexed field 9)
-		String[] fields=roundtripSam.split("\t");
-		String roundtripSeq=fields[9];
+		String roundtripSeq=lp.set(samBytes).parseString(9);
 
 		System.out.println("Roundtrip SEQ field: "+roundtripSeq);
 		System.out.println("Original SEQ field: "+originalSeq);
@@ -115,9 +109,8 @@ public class TestSeqReverse{
 			System.out.println("BUG CONFIRMED: Sequences don't match!");
 			System.out.println("Roundtrip is reverse of original? "+roundtripSeq.equals(reverse(originalSeq)));
 			System.out.println("Roundtrip is RC of original? "+roundtripSeq.equals(expectedRC));
-			//TODO: Possible bug [stream/bam/TestSeqReverse#97] - mismatch prints "BUG CONFIRMED" but
-			//does not call System.exit(1); automated test runners will see exit code 0 and report PASS
-			//even when the seq-reversal bug is present.
+			//Resolved #97: diagnostic mismatch must not look like successful process completion.
+			throw new IllegalStateException("Round-trip sequence differs from the original SAM sequence");
 		}else{System.out.println("SUCCESS: Sequences match!");}
 	}
 
@@ -127,14 +120,14 @@ public class TestSeqReverse{
 
 	/**
 	 * Reverse-complements a temporary byte copy using Vector's current dispatch.
-	 * Uses the platform charset; this driver's literal input is ASCII DNA.
+	 * Uses explicit ASCII for this driver's literal DNA fixture.
 	 * @param seq Non-null DNA sequence
 	 * @return Reverse-complemented text; the input String is unchanged
 	 */
 	private static String reverseComplement(String seq){
-		byte[] bytes=seq.getBytes();
+		byte[] bytes=seq.getBytes(StandardCharsets.US_ASCII);
 		Vector.reverseComplementInPlace(bytes);
-		return new String(bytes);
+		return new String(bytes, StandardCharsets.US_ASCII);
 	}
 
 	/**

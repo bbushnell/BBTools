@@ -133,6 +133,7 @@ public class SamStreamerWrapper{
 
 	/**
 	 * Parses wrapper options, SamFilter options, then standard Parser options in argument order.
+	 * Splits at the first '=' only, retaining the complete value; absent or empty values are null.
 	 * filter=false disables only SamFilter, not a separately requested BED filter.
 	 * Enabling normalization also enables eqx; requesting a SAM version other than 1.3
 	 * enables eqx too. Later options can override these flags. Unknown options print a
@@ -155,10 +156,10 @@ public class SamStreamerWrapper{
 		for(int i=0; i<args.length; i++){
 			final String arg=args[i];
 
-			//Break arguments into their constituent parts, in the form of "a=b"
-			final String[] split=arg.split("=");
-			final String a=split[0].toLowerCase();
-			final String b=split.length>1 ? split[1] : null;
+			//STR-363: preserve literal equals signs inside option values, including filenames.
+			final int equals=arg.indexOf('=');
+			final String a=(equals<0 ? arg : arg.substring(0, equals)).toLowerCase();
+			final String b=(equals<0 || equals==arg.length()-1 ? null : arg.substring(equals+1));
 
 			if(a.equals("verbose")){
 				verbose=Parse.parseBoolean(b);

@@ -254,6 +254,12 @@ public class NovaDemux {
 				minReadsToDump=Parse.parseKMG(b);
 			}else if(a.equalsIgnoreCase("printRetireTime")){
 				printRetireTime=Parse.parseBoolean(b);
+			}else if(a.equals("multiwriter")){
+				useMultiWriter=Parse.parseBoolean(b);
+			}else if(a.equals("multiwriterfiles")){
+				multiWriterFiles=Integer.parseInt(b);
+			}else if(a.equals("multiwriterbuffer")){
+				multiWriterBuffer=Parse.parseKMG(b);
 			}else if(a.equals("outu") || a.equals("outu1")){
 				outu1=b;
 			}else if(a.equals("outu2")){
@@ -549,30 +555,33 @@ public class NovaDemux {
 		
 		//Create stream for input reads
 		final ConcurrentReadInputStream cris=makeInputStream();
+		final NovaDemuxOutput modern=useMultiWriter ? new NovaDemuxOutput(nosplit ? null : out1,
+				nosplit ? null : out2, outu1, outu2, extout, overwrite, append, useSharedHeader,
+				multiWriterFiles, multiWriterBuffer, minReadsToDump, trackCardinality) : null;
 		
 		//Create streams for output reads other than unmatched
-		final BufferedMultiCros mcros=(nosplit ? null : makeMatchedOutputStream(cris.paired()));
+		final BufferedMultiCros mcros=(modern!=null || nosplit ? null : makeMatchedOutputStream(cris.paired()));
 		
 		//Create stream for unmatched output reads
 		//TODO: Consider adding this to mcros
-		final ConcurrentReadOutputStream rosu=makeUnmatchedOutputStream();
+		final ConcurrentReadOutputStream rosu=modern==null ? makeUnmatchedOutputStream() : null;
 		
 		spikeMapper=(refPath==null || spikeLabel==null ? null : 
 			new MicroAligner2(kSpike, minSpikeIdentity, refPath));
 		if(spikeMapper!=null) {spikeMapper.skipmask=skipMask;}//Only lookup some kmers for speed
 		
 		//Streams are set up, so process the reads
-		processInner(cris, mcros, rosu);
+		processInner(cris, mcros, rosu, modern);
 		//At this point processing has finished.
 		
 		//Close streams
-		cleanup(cris, mcros, rosu);
+		cleanup(cris, mcros, rosu, modern);
 		
 		t2.stop("Writing Time:\t\t\t");
 		t2.start();
 		
 		//Report statistics to file
-		if(stats!=null){printReport(mcros);}
+		if(stats!=null){printReport(mcros, modern);}
 		
 		if(legacyPath!=null) {
 			LinkedHashMap<String, String> sampleMap=legacyWriter.loadSampleMap(sampleMapFile, 
@@ -614,6 +623,7 @@ public class NovaDemux {
 		if(printRetireTime && mcros!=null) {
 			outstream.println("\n"+mcros.printRetireTime()+mcros.printCreateTime()+"\n");
 		}
+		if(printRetireTime && modern!=null){outstream.println(modern.diagnostics());}
 		
 		//Stop the timer
 		t.stop();
@@ -688,8 +698,10 @@ public class NovaDemux {
 	 * @param cris Input stream (required).
 	 * @param mcros Matched read output stream (optional).
 	 * @param rosu Unmatched read output stream (optional).
+	 * @param modern Optional modern output integration, replacing both legacy output arguments.
 	 */
-	private void processInner(final ConcurrentReadInputStream cris, final BufferedMultiCros mcros, final ConcurrentReadOutputStream rosu) {
+	private void processInner(final ConcurrentReadInputStream cris, final BufferedMultiCros mcros,
+			final ConcurrentReadOutputStream rosu, final NovaDemuxOutput modern) {
 		
 		//Fetch the first list
 		ListNum<Read> ln=cris.nextList();
@@ -736,8 +748,10 @@ public class NovaDemux {
 				readsProcessed+=pairCount;
 				basesProcessed+=pairLen;
 			}
-			if(rosu!=null){rosu.add(nosplit ? reads : unmatched, ln.id);}//Send unmatched reads to rosu
-			if(mcros!=null){mcros.add(reads);}//Send matched reads to mcros
+			if(modern!=null){modern.add(reads, nosplit ? reads : unmatched);}else{
+				if(rosu!=null){rosu.add(nosplit ? reads : unmatched, ln.id);}//Send unmatched reads to rosu
+				if(mcros!=null){mcros.add(reads);}//Send matched reads to mcros
+			}
 			
 			//Notify the input stream that the list has been processed
 			cris.returnList(ln);
@@ -770,9 +784,15 @@ public class NovaDemux {
 	 * @param cris Input stream (required).
 	 * @param mcros Matched read output stream (optional).
 	 * @param rosu Unmatched read output stream (optional).
+	 * @param modern Optional modern output integration.
 	 */
 	private void cleanup(final ConcurrentReadInputStream cris, final BufferedMultiCros mcros, 
-			final ConcurrentReadOutputStream rosu){
+			final ConcurrentReadOutputStream rosu, final NovaDemuxOutput modern){
+		if(modern!=null){
+			errorState|=modern.close(expectedSet, symbolRemap, writeEmptyFiles);
+			readsOut-=modern.residualReads();
+			basesOut-=modern.residualBases();
+		}
 		
 		//Shut down mcros
 		if(mcros!=null){
@@ -797,6 +817,9 @@ public class NovaDemux {
 
 					String s1=out1.replaceFirst("%", key);
 					String s2=out2==null ? null : out2.replaceFirst("%", key);
+					//TODO: Probable bug - ReadWrite.writeString selects compression, not sequence format;
+					//an absent expected .bam output takes the raw stream path and lacks a BAM header.
+					//Create empty outputs through a format Writer when porting this output path.
 					ReadWrite.writeString("", s1, overwrite, false);
 					if(s2!=null) {ReadWrite.writeString("", s2, overwrite, false);}
 				}
@@ -898,8 +921,9 @@ public class NovaDemux {
 	/** 
 	 * Print statistics about demultiplexing to a file.
 	 * @param mcros Output stream, after processing is completely finished.
+	 * @param modern Optional modern output integration, after completion.
 	 */
-	void printReport(BufferedMultiCros mcros){
+	void printReport(BufferedMultiCros mcros, NovaDemuxOutput modern){
 		if(stats==null){return;}
 		
 		//Make a writer for the stats file
@@ -927,6 +951,7 @@ public class NovaDemux {
 			ByteBuilder bb=mcros.report();
 			bsw.print(bb);
 		}
+		if(modern!=null){bsw.print(modern.report());}
 		
 		//Finish writing
 		bsw.poisonAndWait();
@@ -968,6 +993,12 @@ public class NovaDemux {
 	private boolean rename=false;
 	/** Whether to send all reads to unmatched output instead of splitting */
 	private boolean nosplit=false;
+	/** Opt-in direct MultiFileWriter integration; legacy output remains the comparison default. */
+	private boolean useMultiWriter=false;
+	/** Modern physical output cap, including unmatched files. */
+	private int multiWriterFiles=50;
+	/** Estimated modern routing budget; leaf queues, trackers and producer batches are additional. */
+	private long multiWriterBuffer=64_000_000L;
 	
 	/** 
 	 * Ignore barcodes occuring fewer times than this.

@@ -28,11 +28,11 @@ import structures.LongList;
  * </ul>
  * 
  * <p>Implementation performs a single sequential pass over the BAM file,
- * building index structures on-demand for references with aligned reads.
- * Memory usage scales with number of bins and reference sequences, not 
- * total read count.
+ * building index structures on demand for references encountered in records.
+ * Memory grows with reference slots, accumulated bin chunks, and linear-index windows.
  * 
- * <p>Performance: ~10 seconds for 10M read BAM on typical hardware.
+ * <p>Historical performance estimate: about 10 seconds for a 10M-read BAM.
+ * The original estimate does not identify its hardware or workload details.
  * 
  * @author Brian Bushnell
  * @contributor Isla
@@ -42,24 +42,35 @@ public final class BamIndexWriter{
 
 	/**
 	 * Command-line entry point for indexing BAM files.
+	 * Prints caught I/O exceptions and elapsed time; does not propagate those exceptions.
 	 * 
-	 * @param args [0]=input.bam, [1]=output.bai (optional, defaults to input.bam.bai)
+	 * @param args At least one argument: input.bam, then optional output.bai
+	 * (defaults to input.bam.bai); later arguments are ignored
 	 */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		try{
-			if(args.length<2){
-				writeIndex(args[0]);
-			}else{
+			if(args.length<2){writeIndex(args[0]);}else{
 				writeIndex(args[0], args[1]);
 			}
+		//TODO: Possible bug [stream/bam/BamIndexWriter#003] - caught I/O errors are
+		//printed but main returns normally, so callers cannot rely on failure status.
 		}catch(IOException e){
 			e.printStackTrace();
 		}
 		t.stopAndPrint();
 	}
 
-	private BamIndexWriter(){} //Prevent instantiation
+	/*--------------------------------------------------------------*/
+	/*----------------        Initialization        ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Prevents construction of this static utility. */
+	private BamIndexWriter(){}
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Static Methods        ----------------*/
+	/*--------------------------------------------------------------*/
 
 	/**
 	 * Write a .bai index next to the BAM file (adds ".bai" suffix).
@@ -76,16 +87,22 @@ public final class BamIndexWriter{
 	 * 
 	 * <p>Algorithm:
 	 * <ol>
-	 * <li>Validate BAM magic and sort order (SO:coordinate required)
+	 * <li>Validate BAM magic and check the declared sort order in the first at most 100 header bytes
 	 * <li>Read reference dictionary to determine capacity hints
 	 * <li>Stream through alignments, building bin and linear indices
 	 * <li>Write completed index in BAI format
 	 * </ol>
 	 * 
+	 * Input records must already be coordinate sorted; their order is not checked here.
+	 * Placed-unmapped and zero-reference-span records occupy one base for binning and linear windows.
+	 * For nonempty text, assertions require the inspected first-line prefix to start
+	 * with @HD and contain SO:coordinate.
 	 * @param bamPath Path to coordinate-sorted BAM file
-	 * @param indexPath Path for output .bai file
-	 * @throws IOException if BAM cannot be read, is unsorted, or index cannot be written
-	 * @throws AssertionError if BAM is not coordinate-sorted (disable with -da)
+	 * @param indexPath Output .bai path; opened for replacement before input validation
+	 * @throws IOException If input cannot be read, a checked record field is invalid,
+	 * or output cannot be written
+	 * @throws AssertionError If the inspected header prefix fails the declared-sort
+	 * check and assertions are enabled
 	 */
 	public static void writeIndex(String bamPath, String indexPath) throws IOException{
 		try(FileInputStream fis=new FileInputStream(bamPath);
@@ -100,17 +117,13 @@ public final class BamIndexWriter{
 
 			//Validate BAM magic bytes
 			byte[] magic=reader.readBytes(4);
-			if(magic[0]!='B' || magic[1]!='A' || magic[2]!='M' || magic[3]!=1){
-				throw new IOException("Input is not a BAM file: "+bamPath);
-			}
+			if(magic[0]!='B' || magic[1]!='A' || magic[2]!='M' || magic[3]!=1){throw new IOException("Input is not a BAM file: "+bamPath);}
 
-			//Read start of header to validate sort order
+			//Read the header prefix to check its declared sort order
 			long lText=reader.readUint32();
-			if(lText<0 || lText>Integer.MAX_VALUE){
-				throw new IOException("Invalid BAM header length: "+lText);
-			}
+			if(lText<0 || lText>Integer.MAX_VALUE){throw new IOException("Invalid BAM header length: "+lText);}
 			if(lText>0){
-				int checkLen=(int)Math.min(lText, 100); //Only need first line
+				int checkLen=(int)Math.min(lText, 100); //Inspect at most 100 header bytes
 				byte[] headerStart=reader.readBytes(checkLen);
 
 				//Find end of first line (@HD line if present)
@@ -118,23 +131,19 @@ public final class BamIndexWriter{
 				while(newline<headerStart.length && headerStart[newline]!='\n'){newline++;}
 				String firstLine=new String(headerStart, 0, newline, java.nio.charset.StandardCharsets.US_ASCII);
 
-				//Require coordinate sorting for indexing
+				//Require the inspected prefix to declare coordinate sorting
 				assert(firstLine.startsWith("@HD") && firstLine.contains("SO:coordinate")) : 
 					"BAM file must be coordinate-sorted (SO:coordinate) for indexing: "+bamPath
 					+"\nAdd -da to override this warning.";
 
 				//Skip rest of header text
 				long remaining=lText-checkLen;
-				if(remaining>0){
-					reader.readBytes((int)remaining);
-				}
+				if(remaining>0){reader.readBytes((int)remaining);}
 			}
 
 			//Read reference dictionary
 			int nRef=reader.readInt32();
-			if(nRef<0){
-				throw new IOException("Negative reference count in BAM header");
-			}
+			if(nRef<0){throw new IOException("Negative reference count in BAM header");}
 
 			//Calculate initial bin capacity based on reference count
 			//More references = more fragmented data = smaller bins on average
@@ -147,9 +156,7 @@ public final class BamIndexWriter{
 			ReferenceIndex[] references=new ReferenceIndex[nRef];
 			for(int i=0; i<nRef; i++){
 				long lName=reader.readUint32();
-				if(lName<1 || lName>Integer.MAX_VALUE){
-					throw new IOException("Invalid reference name length: "+lName);
-				}
+				if(lName<1 || lName>Integer.MAX_VALUE){throw new IOException("Invalid reference name length: "+lName);}
 				reader.readBytes((int)lName); //Name (includes terminating NUL)
 				reader.readUint32(); //Reference length (unused here)
 				//ReferenceIndex created on-demand when first read for this reference is seen
@@ -170,16 +177,12 @@ public final class BamIndexWriter{
 					break; //Reached EOF marker block
 				}
 
-				if(blockSize<0){
-					throw new IOException("Negative BAM record block size");
-				}
+				if(blockSize<0){throw new IOException("Negative BAM record block size");}
 
 				byte[] recordData=reader.readBytes(blockSize);
 				long recordEnd=bgzf.getVirtualOffset(); //BGZF virtual offset after record
 
-				if(recordData.length<FIXED_RECORD_FIELDS){
-					throw new IOException("Corrupted BAM record: truncated fixed fields");
-				}
+				if(recordData.length<FIXED_RECORD_FIELDS){throw new IOException("Corrupted BAM record: truncated fixed fields");}
 
 				//Wrap record for efficient little-endian parsing
 				if(recordData.length>bb.array.length){
@@ -190,7 +193,7 @@ public final class BamIndexWriter{
 				}
 
 				//Parse fixed fields (32 bytes total)
-				int refID=bb.getInt(); //Reference sequence ID (-1 for unmapped)
+				int refID=bb.getInt(); //Reference sequence ID (-1 when no reference is assigned)
 				int pos=bb.getInt(); //0-based leftmost position (-1 if unavailable)
 				int lReadName=bb.get()&0xFF; //Length of QNAME including NUL
 				bb.get(); //MAPQ (unused for indexing)
@@ -207,9 +210,7 @@ public final class BamIndexWriter{
 					readsWithoutCoordinate++;
 					continue;
 				}
-				if(refID>=references.length){
-					throw new IOException("Reference id out of bounds: "+refID+" >= "+references.length);
-				}
+				if(refID>=references.length){throw new IOException("Reference id out of bounds: "+refID+" >= "+references.length);}
 
 				//Create ReferenceIndex on first read for this reference (lazy allocation)
 				ReferenceIndex ref=references[refID];
@@ -221,21 +222,15 @@ public final class BamIndexWriter{
 				ref.incrementCounts(flag); //Track mapped/unmapped counts
 
 				//Reads without valid positions don't contribute to spatial index
-				if(pos<0){
-					continue;
-				}
+				if(pos<0){continue;}
 
 				//Skip QNAME field
-				if(lReadName>bb.remaining()){
-					throw new IOException("Corrupted BAM record: read name exceeds record size");
-				}
+				if(lReadName>bb.remaining()){throw new IOException("Corrupted BAM record: read name exceeds record size");}
 				bb.skip(lReadName);
 
 				//Decode CIGAR to calculate reference span
 				int cigarBytes=nCigar*4;
-				if(cigarBytes>bb.remaining()){
-					throw new IOException("Corrupted BAM record: CIGAR exceeds record size");
-				}
+				if(cigarBytes>bb.remaining()){throw new IOException("Corrupted BAM record: CIGAR exceeds record size");}
 				int refSpan=0;
 				for(int c=0; c<nCigar; c++){
 					int cigarOp=bb.getInt(); //Encoded as (length<<4)|op
@@ -249,7 +244,8 @@ public final class BamIndexWriter{
 				//BAM (a legal placeholder - the SAM spec marks bin derivable) would otherwise get a silently
 				//WRONG .bai (every chunk in bin 0 → region queries miss reads). samtools recomputes for the
 				//same reason; refSpan is already in hand, so this is free robustness.
-				int alignmentEndExclusive=pos+Math.max(refSpan, 1);
+				//STR380: SAMv1 4.2.1 treats unmapped records as length one regardless of retained CIGAR.
+				int alignmentEndExclusive=pos+((flag&BAM_FUNMAP)==0 ? Math.max(refSpan, 1) : 1);
 				int computedBin=reg2bin(pos, alignmentEndExclusive);
 
 				//Add alignment to bin index
@@ -289,10 +285,8 @@ public final class BamIndexWriter{
 					}
 				}
 
-				//Write pseudo-bin 37450 if reference has alignments
-				if(ref.shouldEmitPseudoBin()){
-					ref.writePseudoBin(writer);
-				}
+				//Write pseudo-bin 37450 when an offset range was recorded
+				if(ref.shouldEmitPseudoBin()){ref.writePseudoBin(writer);}
 
 				//Write linear index
 				LongList linear=ref.linear;
@@ -313,8 +307,8 @@ public final class BamIndexWriter{
 	/**
 	 * Calculate reference bases consumed by a CIGAR operation.
 	 * 
-	 * @param cigarEncoded CIGAR operation encoded as (length<<4)|op
-	 * @return Number of reference bases consumed (0 for insertions, soft clips, etc.)
+	 * @param cigarEncoded CIGAR operation encoded as {@code (length<<4)|op}
+	 * @return Encoded length for M, D, N, =, or X; zero for all other operation codes
 	 */
 	private static int referenceSpanContribution(int cigarEncoded){
 		int op=cigarEncoded&0xF; //Bottom 4 bits = operation
@@ -333,22 +327,26 @@ public final class BamIndexWriter{
 
 	/**
 	 * Calculate the BAM bin for a 0-based region [beg, end).
-	 * SAMv1.pdf §5.3 reg2bin. Used to recompute the bin per record (#001) rather than trust the
-	 * stored bin field, so a bin=0 / stale-bin BAM still indexes correctly. Matches the writer's
-	 * SamToBamConverter.reg2bin exactly.
-	 * @param beg 0-based start (inclusive)
-	 * @param end 0-based end (exclusive)
-	 * @return bin number
+	 * Original algorithm attribution: SAMv1.pdf section 5.3. Recomputes the bin per
+	 * record (historical repair #001) instead of trusting its stored bin field.
+	 * Uses the same arithmetic as SamToBamConverter.reg2bin.
+	 * @param beg Inclusive start within the binning scheme
+	 * @param end Exclusive end, decremented before comparing shifted endpoints
+	 * @return First matching bin, or zero if no finer bin matches
 	 */
 	private static int reg2bin(int beg, int end){
 		--end;
-		if(beg>>14 == end>>14) return ((1<<15)-1)/7+(beg>>14);
-		if(beg>>17 == end>>17) return ((1<<12)-1)/7+(beg>>17);
-		if(beg>>20 == end>>20) return ((1<<9)-1)/7+(beg>>20);
-		if(beg>>23 == end>>23) return ((1<<6)-1)/7+(beg>>23);
-		if(beg>>26 == end>>26) return ((1<<3)-1)/7+(beg>>26);
+		if(beg>>14==end>>14){return ((1<<15)-1)/7+(beg>>14);}
+		if(beg>>17==end>>17){return ((1<<12)-1)/7+(beg>>17);}
+		if(beg>>20==end>>20){return ((1<<9)-1)/7+(beg>>20);}
+		if(beg>>23==end>>23){return ((1<<6)-1)/7+(beg>>23);}
+		if(beg>>26==end>>26){return ((1<<3)-1)/7+(beg>>26);}
 		return 0;
 	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Inner Classes         ----------------*/
+	/*--------------------------------------------------------------*/
 
 	/**
 	 * Index data for a single reference sequence.
@@ -356,6 +354,10 @@ public final class BamIndexWriter{
 	 */
 	private static final class ReferenceIndex{
 		
+		/**
+		 * Creates empty bin and linear indices with zero counts and unset offsets.
+		 * @param binCapacity Initial capacity hint for the bin map
+		 */
 		ReferenceIndex(int binCapacity){
 			this.linear=new LongList(16); //Grows as needed
 			this.bins=new IntObjectMap<BinData>(binCapacity, BinData.class); //Sized based on genome fragmentation
@@ -375,9 +377,10 @@ public final class BamIndexWriter{
 
 		/**
 		 * Add an alignment record to the bin index.
-		 * Merges adjacent or overlapping chunks within the same bin.
+		 * Merges with the most recent chunk in that bin when adjacent or overlapping.
+		 * Also expands the reference-wide minimum and maximum virtual offsets.
 		 * 
-		 * @param bin Bin number from BAM record
+		 * @param bin Recomputed bin number for the record
 		 * @param start BGZF virtual offset at start of record
 		 * @param end BGZF virtual offset after record
 		 */
@@ -396,7 +399,9 @@ public final class BamIndexWriter{
 
 		/**
 		 * Update linear index for an alignment's reference span.
-		 * Sets file offset for all 16kb windows overlapped by this alignment.
+		 * Sets only previously unset 16kb windows overlapped by this alignment.
+		 * Requires records to arrive in nondecreasing virtual-offset order.
+		 * Returns without modification for a negative start position.
 		 * 
 		 * @param pos 0-based alignment start position
 		 * @param endExclusive Alignment end position (exclusive)
@@ -407,12 +412,9 @@ public final class BamIndexWriter{
 			int linearBegin=pos>>LINEAR_INDEX_SHIFT; //Divide by 16384
 			int linearEnd=Math.max(pos, endExclusive-1)>>LINEAR_INDEX_SHIFT;
 			ensureLinearSize(linearEnd+1);
-			//Earliest-offset invariant (correct ONLY because the BAM is coordinate-sorted - enforced by the
-			//SO:coordinate assert at writeIndex L122): records arrive in non-decreasing virtual-offset order,
-			//so the FIRST record to touch window i has the smallest offset; "set only if UNSET" pins that
-			//earliest offset and ignores later (larger-offset) records overlapping the same window. This is
-			//the BAI linear-index contract (window i -> min offset of any record overlapping it). If the BAM
-			//were unsorted (only reachable via -da, which skips the assert), this silently builds a wrong index.
+			//With nondecreasing supplied offsets, the first record touching a window
+			//supplies its earliest offset. The header assertion checks the declared sort
+			//order, not record order; coordinate-sorted input remains a caller precondition.
 			for(int i=linearBegin; i<=linearEnd; i++){
 				if(linear.get(i)==UNSET_OFFSET){ //Only set if unset (want earliest offset)
 					linear.set(i, offset);
@@ -421,24 +423,24 @@ public final class BamIndexWriter{
 		}
 
 		/** @return Number of bins with recorded chunks */
-		int binCount(){
-			return bins.size();
-		}
+		int binCount(){return bins.size();}
 
-		/** @return true if this reference has at least one aligned read */
-		//TODO: Possible bug [stream/bam/BamIndexWriter#002] - gates on firstOffset (set only by addRecord,
-		//which is skipped for pos<0 reads at writeIndex L224). A ref whose reads ALL have refID>=0 but pos<0
-		//(counted via incrementCounts at L221, BEFORE the pos<0 skip) gets NO pseudo-bin -> its mapped/
-		//unmapped counts are silently dropped from the index. Narrow edge (a ref with only position-less
-		//reads; a ref with >=1 positioned read carries complete counts since incrementCounts ran for all).
-		//LOW. Fix: emit the pseudo-bin when (mappedReads+unmappedReads)>0, writing 0/0 offsets if no span.
+		/** @return true if addRecord established a nonnegative, ordered offset range */
+		//TODO: Possible bug [stream/bam/BamIndexWriter#002] - firstOffset is set only
+		//by addRecord, which is skipped for pos<0. A reference with only refID>=0,
+		//pos<0 records accumulates counts but emits no pseudo-bin. A positioned record
+		//allows all accumulated counts to be emitted. Prior review proposed testing
+		//counts instead and writing 0/0 offsets; format semantics and reader results
+		//for that change remain unverified. No repair is made here.
 		boolean shouldEmitPseudoBin(){
 			return firstOffset>=0 && lastOffset>=firstOffset;
 		}
 
 		/**
 		 * Write pseudo-bin 37450 containing summary statistics.
-		 * Format: bin_id=37450, n_chunk=2, ref_beg, ref_end, n_mapped, n_unmapped
+		 * Format: bin_id=37450, n_chunk=2, ref_beg, ref_end, n_mapped, n_unmapped.
+		 * @param writer Destination for the six metadata fields; remains open
+		 * @throws IOException If writing any field fails
 		 */
 		void writePseudoBin(BamWriterHelper writer) throws IOException{
 			writer.writeUint32(PSEUDO_BIN); //Bin 37450
@@ -449,30 +451,39 @@ public final class BamIndexWriter{
 			writer.writeUint64(unmappedReads); //Count of unmapped reads
 		}
 
-		/** Ensure linear index has at least 'size' entries */
+		/**
+		 * Appends unset sentinels until the linear index has at least size entries.
+		 * @param size Minimum desired number of windows
+		 */
 		private void ensureLinearSize(int size){
 			while(linear.size()<size){
 				linear.add(UNSET_OFFSET);
 			}
 		}
 
-		private final IntObjectMap<BinData> bins; //Map from bin number to chunk list
-		private final LongList linear; //16kb-resolution file offset array
-		private long mappedReads=0L; //Count for pseudo-bin
-		private long unmappedReads=0L; //Count for pseudo-bin
-		private long firstOffset=-1L; //Earliest record offset for pseudo-bin
-		private long lastOffset=-1L; //Latest record offset for pseudo-bin
+		/** Bin number to accumulated chunk list. */
+		private final IntObjectMap<BinData> bins;
+		/** Earliest recorded offset per 16kb window, or UNSET_OFFSET. */
+		private final LongList linear;
+		/** Records counted with BAM_FUNMAP clear, including those without a position. */
+		private long mappedReads=0L;
+		/** Records counted with BAM_FUNMAP set, including those without a position. */
+		private long unmappedReads=0L;
+		/** Minimum start passed to addRecord; negative until a chunk is recorded. */
+		private long firstOffset=-1L;
+		/** Maximum end passed to addRecord; negative until a chunk is recorded. */
+		private long lastOffset=-1L;
 	}
 
 	/**
 	 * Chunk list for a single bin.
-	 * Uses two parallel LongLists instead of ArrayList<Chunk> to reduce object overhead.
+	 * Uses two parallel LongLists instead of {@code ArrayList<Chunk>} to reduce object overhead.
 	 * Automatically merges adjacent/overlapping chunks on append.
 	 */
 	private static final class BinData{
 
 		/**
-		 * Append a new chunk, merging with the previous chunk if they overlap.
+		 * Appends a chunk, merging with the last chunk if they overlap or are adjacent.
 		 * Chunks are added in file order, so we only check the last chunk for merging.
 		 * 
 		 * @param start BGZF virtual offset at start of chunk
@@ -489,18 +500,25 @@ public final class BamIndexWriter{
 		}
 
 		/** @return Number of chunks in this bin */
-		int size(){
-			return begList.size();
-		}
+		int size(){return begList.size();}
 
-		final LongList begList=new LongList(4); //Chunk start offsets
-		final LongList endList=new LongList(4); //Chunk end offsets
+		/** Chunk start offsets, parallel to endList. */
+		final LongList begList=new LongList(4);
+		/** Chunk end offsets, parallel to begList. */
+		final LongList endList=new LongList(4);
 	}
 
-	//Constants
-	private static final int FIXED_RECORD_FIELDS=32; //Size of fixed BAM record header
-	private static final int LINEAR_INDEX_SHIFT=14; //log2(16384) for 16kb windows
-	private static final int BAM_FUNMAP=0x4; //SAM FLAG bit for unmapped
-	private static final int PSEUDO_BIN=37450; //Special bin for metadata
-	private static final long UNSET_OFFSET=-1L; //Sentinel for unset linear index entries
+	/*--------------------------------------------------------------*/
+	/*----------------          Constants           ----------------*/
+	/*--------------------------------------------------------------*/
+	/** Bytes in the fixed BAM record fields. */
+	private static final int FIXED_RECORD_FIELDS=32;
+	/** Bit shift selecting a 16384-base linear-index window. */
+	private static final int LINEAR_INDEX_SHIFT=14;
+	/** SAM flag bit identifying an unmapped record. */
+	private static final int BAM_FUNMAP=0x4;
+	/** Bin identifier used for per-reference summary metadata. */
+	private static final int PSEUDO_BIN=37450;
+	/** Sentinel for an unassigned linear-index entry. */
+	private static final long UNSET_OFFSET=-1L;
 }

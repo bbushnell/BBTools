@@ -175,6 +175,8 @@ public class RandomReadInputStream3 extends ReadInputStream{
 		buffer=null;
 		consumed=0;
 		generated=0;
+		//TODO: Probable bug in RandomReads3.fillRandomChrom: total reference length below 8192
+		//makes its total/8192 divisor zero. Small-genome reachability is unverified; generator review needed.
 		rr=new RandomReads3(1, paired);
 	}
 

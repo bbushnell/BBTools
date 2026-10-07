@@ -74,7 +74,7 @@ public class GbkReadInputStream extends ReadInputStream{
 	/**
 	 * Checks the buffered records and fills a new batch if the source is still open.
 	 * Can advance input and the generated count without handing records to the caller.
-	 * With assertions enabled, no buffered records and a closed source require prior nonempty input.
+	 * A closed source with no buffered records remains at EOF, including empty input.
 	 * @return Whether a buffered record is available
 	 */
 	@Override
@@ -82,9 +82,8 @@ public class GbkReadInputStream extends ReadInputStream{
 		if(buffer==null || next>=buffer.size()){
 			if(bf.isOpen()){
 				fillBuffer();
-			}else{
-				assert(generated>0) : "Was the file empty?";
 			}
+			//Zero generated records is normal for empty input; repeated EOF queries stay false.
 		}
 		return (buffer!=null && next<buffer.size());
 	}

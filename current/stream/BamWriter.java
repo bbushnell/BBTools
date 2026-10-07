@@ -41,8 +41,8 @@ public class BamWriter implements Writer{
 	/** Opens output and selects list entries plus attached mates during Read conversion.
 	 * @param ffout_ Nonnull output descriptor
 	 * @param threads_ Requested workers; below one uses DEFAULT_THREADS before clamping
-	 * @param header_ Optional borrowed header used only outside shared-header mode
-	 * @param useSharedHeader_ Select shared-header mode; unavailable shared data becomes empty
+	 * @param header_ Optional borrowed header used when shared data is not selected or unavailable
+	 * @param useSharedHeader_ Prefer shared input-header data before provided/generated headers
 	 */
 	public BamWriter(FileFormat ffout_, int threads_,
 		ArrayList<byte[]> header_, boolean useSharedHeader_){
@@ -55,8 +55,8 @@ public class BamWriter implements Writer{
 	 * header matching the existing reference dictionary. Does not start this writer's threads.
 	 * @param ffout_ Nonnull descriptor supplying output name, append and ordering preference
 	 * @param threads_ Requested workers; below one uses DEFAULT_THREADS
-	 * @param header_ Borrowed header list and arrays, used when shared-header mode is false
-	 * @param useSharedHeader_ Select shared-header lookup rather than provided/generated headers
+	 * @param header_ Borrowed header list and arrays, used when shared data is unavailable or not requested
+	 * @param useSharedHeader_ Request shared-header lookup before provided/generated headers
 	 * @param writeR1_ Select list-entry records during Read conversion, not a pair-bit filter
 	 * @param writeR2_ Select attached-mate records during Read conversion
 	 */
@@ -357,22 +357,19 @@ public class BamWriter implements Writer{
 		}
 	}
 	
-	/** Selects shared-header mode, otherwise a provided header, otherwise generated lines.
-	 * Shared lookup may wait; an unavailable selected header becomes an empty list.
-	 * Unlike SamWriter, this method does not fall back from a null shared result (#002).
+	/** Selects shared, then provided, then generated header lines; an empty list is accepted.
+	 * Shared lookup may wait. A null shared result falls through to the provided/generated
+	 * alternatives; an explicitly empty shared or provided list is retained.
 	 * @return Nonnull selected header list without defensive copying
 	 */
 	ArrayList<byte[]> getHeader(){
 		if(verbose){System.err.println("Fetching header: "+useSharedHeader+","+(header!=null));}
-		ArrayList<byte[]> headerLines;
-		//TODO: Probable bug #002 - a null shared header skips the provided/generated alternatives
-		//and becomes empty below, even if a supplied reference header exists. Expected fallback
-		//policy and runtime consequences need separate review.
-		if(useSharedHeader){
-			headerLines=SamReadInputStream.getSharedHeader(true);
-		}else if(header!=null){
-			headerLines=header;
-		}else{
+		ArrayList<byte[]> headerLines=null;
+		//Resolved #002: shared lookup returns null when no SAM input exists; use the same
+		//provided/generated fallback as SamWriter rather than discarding available headers.
+		if(useSharedHeader){headerLines=SamReadInputStream.getSharedHeader(true);}
+		if(headerLines==null && header!=null){headerLines=header;}
+		if(headerLines==null){
 			headerLines=SamHeader.makeHeaderList(supressHeaderSequences, 
 				ReadStreamWriter.MINCHROM, ReadStreamWriter.MAXCHROM);
 		}
@@ -656,7 +653,7 @@ public class BamWriter implements Writer{
 	final FileFormat ffout;
 	/** Conversion-worker count, excluding the output thread and compression backend resources. */
 	final int threads;
-	/** Selects shared-header mode instead of provided/generated headers. */
+	/** Prefer shared-header lookup before provided/generated fallback. */
 	final boolean useSharedHeader;
 	/** Captured all-header suppression, including append to an existing output. */
 	final boolean supressHeader;

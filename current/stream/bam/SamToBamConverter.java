@@ -38,6 +38,25 @@ public class SamToBamConverter implements Cloneable{
 		for(int i=0; i<ops.length(); i++){CIGAR_OP_LOOKUP[ops.charAt(i)]=i;}
 	}
 
+	/** BAM base codes, including reference-equals and X as N; retains the U-to-T alias. */
+	private static final byte[] BASE_CODES=makeBaseCodes(AminoAcid.baseToNumberExtended);
+	/** Complemented BAM codes with the same equals/X overrides and existing U alias. */
+	private static final byte[] COMPLEMENT_CODES=makeBaseCodes(AminoAcid.baseToComplementNumberExtended);
+
+	/**
+	 * Copies a DNA lookup and supplies BAM's equals/unknown codes (SAMv1 section4.2.3).
+	 * Other mappings, including U/u normalization, retain the supplied DNA policy.
+	 * @param source ASCII-indexed forward or complemented DNA codes, never modified
+	 * @return Private lookup with '=' encoded as zero and X/x encoded as N (15)
+	 */
+	private static byte[] makeBaseCodes(final byte[] source){
+		assert(source.length>'x') : "BAM overrides index ASCII '=', 'X' and 'x'; DNA table length="+source.length;
+		final byte[] codes=source.clone();
+		codes['=']=0;
+		codes['X']=codes['x']=15;
+		return codes;
+	}
+
 	/**
 	 * Makes a shallow copy sharing the reference map, which conversion only reads.
 	 * @return New converter instance with the same dictionary and aliases
@@ -281,8 +300,10 @@ public class SamToBamConverter implements Cloneable{
 
 	/**
 	 * Calculates the bin and operation count without changing the alignment.
-	 * Nonpositive position or null/"*" CIGAR returns bin 4680 and zero operations.
-	 * Otherwise M, D, N, =, and X contribute to the reference span.
+	 * Nonpositive position returns bin 4680 and zero operations. A null/"*" CIGAR
+	 * has zero operations and uses a one-base interval at a positive position.
+	 * M, D, N, =, and X contribute to the mapped reference span; unmapped records
+	 * and CIGARs consuming no reference use one base for binning (SAMv1 section4.2.1).
 	 * @param sl Alignment with representable position and CIGAR values
 	 * @return Packed {@code (bin<<32)|cigarOpCount}, with the count in the low 32 bits
 	 */
@@ -296,8 +317,11 @@ public class SamToBamConverter implements Cloneable{
 		//at pos<=0; valid SAM has pos>0 <=> cigar!="*"), so LOW/latent - but crash-loud would prefer
 		//catching it. Fix: count ops from the cigar string itself (decoupled from pos), or assert the
 		//pos>0 <=> cigar!="*" invariant loud. The pos>0 + cigar="*" case is consistent (both 0 ops).
-		if(sl.pos<=0 || sl.cigar==null || sl.cigar.equals("*")){
+		if(sl.pos<=0){
 			return (4680L<<32); //Unmapped, 0 ops
+		}
+		if(sl.cigar==null || sl.cigar.equals("*")){
+			return ((long)reg2bin(sl.pos-1, sl.pos)<<32);
 		}
 
 		String cigar=sl.cigar;
@@ -318,7 +342,8 @@ public class SamToBamConverter implements Cloneable{
 		}
 
 		int beg=sl.pos-1; //0-based
-		int end=beg+refLength;
+		//STR375: placed-unmapped and zero-reference alignments occupy one base for BIN only.
+		int end=beg+(sl.mapped() ? Math.max(1, refLength) : 1);
 		int bin=reg2bin(beg, end);
 
 		return ((long)bin<<32)|(cigarOpCount&0xFFFFFFFFL);
@@ -327,8 +352,9 @@ public class SamToBamConverter implements Cloneable{
 	/**
 	 * Appends two four-bit base codes per byte without a temporary sequence array.
 	 * An odd final base occupies the high nibble; the low nibble is zero.
+	 * '=' uses code zero, X/x uses N, and the existing U/u-to-T alias is retained.
 	 * @param bb Destination with capacity for (seq.length+1)/2 additional bytes
-	 * @param seq Non-null bases suitable for the AminoAcid lookup table
+	 * @param seq Non-null ASCII bases suitable for the BAM lookup table
 	 */
 	private void appendSeq(ByteBuilder bb, byte[] seq){
 		final byte[] array=bb.array;
@@ -337,14 +363,14 @@ public class SamToBamConverter implements Cloneable{
 
 		//Main loop-branchless
 		for(int i=0; i<limit; i+=2){
-			int hi=AminoAcid.baseToNumberExtended[seq[i]]&0x0F;
-			int lo=AminoAcid.baseToNumberExtended[seq[i+1]]&0x0F;
+			int hi=BASE_CODES[seq[i]]&0x0F;
+			int lo=BASE_CODES[seq[i+1]]&0x0F;
 			array[pos++]=(byte)((hi<<4)|lo);
 		}
 
 		//Handle odd length
 		if((seq.length&1)!=0){
-			int hi=AminoAcid.baseToNumberExtended[seq[limit]]&0x0F;
+			int hi=BASE_CODES[seq[limit]]&0x0F;
 			array[pos++]=(byte)(hi<<4);
 		}
 
@@ -354,8 +380,9 @@ public class SamToBamConverter implements Cloneable{
 	/**
 	 * Appends reverse-complemented four-bit base codes without modifying the input.
 	 * An odd final encoded base occupies the high nibble; the low nibble is zero.
+	 * '=' remains code zero and X/x becomes N; other complement mappings are retained.
 	 * @param bb Destination with capacity for (seq.length+1)/2 additional bytes
-	 * @param seq Non-null bases suitable for the AminoAcid complement lookup table
+	 * @param seq Non-null ASCII bases suitable for the BAM complement lookup table
 	 */
 	private void appendSeqReverseComplement(ByteBuilder bb, byte[] seq){
 		final byte[] array=bb.array;
@@ -367,14 +394,14 @@ public class SamToBamConverter implements Cloneable{
 
 		//Main loop-branchless, iterate from end
 		for(int i=start; i>=limit; i-=2){
-			int hi=AminoAcid.baseToComplementNumberExtended[seq[i]]&0x0F;
-			int lo=AminoAcid.baseToComplementNumberExtended[seq[i-1]]&0x0F;
+			int hi=COMPLEMENT_CODES[seq[i]]&0x0F;
+			int lo=COMPLEMENT_CODES[seq[i-1]]&0x0F;
 			array[pos++]=(byte)((hi<<4)|lo);
 		}
 
 		//Handle odd length (first base)
 		if(limit!=0){
-			int hi=AminoAcid.baseToComplementNumberExtended[seq[0]]&0x0F;
+			int hi=COMPLEMENT_CODES[seq[0]]&0x0F;
 			array[pos++]=(byte)(hi<<4);
 		}
 
@@ -411,7 +438,8 @@ public class SamToBamConverter implements Cloneable{
 	/**
 	 * Appends a SAM auxiliary field in TAG:TYPE:VALUE form, reserving its output space.
 	 * Supports A, i, f, Z, H, and B; scalar integers choose a compact storage width.
-	 * Numeric parsing delegates to Parse. String/hex payload characters are narrowed
+	 * Integer parsing skips an optional leading plus before Parse; floats use Java's full float parser.
+	 * String/hex payload characters are narrowed
 	 * to bytes and terminated with zero; hex syntax is not checked here.
 	 * @param bb Destination builder
 	 * @param tagStr Non-null, well-formed ASCII tag with values representable by its type
@@ -434,7 +462,9 @@ public class SamToBamConverter implements Cloneable{
 				break;
 
 			case 'i':{ //Integer-choose smallest representation
-				long intVal=Parse.parseLong(tagStr, 5, tagStr.length());
+				//STR374: SAM permits an explicit plus; Parse consumes a leading minus itself.
+				final int valueStart=(tagStr.charAt(5)=='+' ? 6 : 5);
+				long intVal=Parse.parseLong(tagStr, valueStart, tagStr.length());
 				if(intVal>=Byte.MIN_VALUE && intVal<=Byte.MAX_VALUE){
 					bb.appendU8('c');
 					bb.appendU8((int)intVal);
@@ -459,7 +489,8 @@ public class SamToBamConverter implements Cloneable{
 
 			case 'f': //Float
 				bb.appendU8('f');
-				float floatVal=Parse.parseFloat(tagStr, 5);
+				//STR373: the prefix-scanning overload discarded valid SAM exponents, even with forced Java parsing.
+				float floatVal=Float.parseFloat(tagStr.substring(5));
 				bb.appendFloatLE(floatVal);
 				break;
 
@@ -509,24 +540,25 @@ public class SamToBamConverter implements Cloneable{
 		while(i<value.length()){
 			int commaPos=value.indexOf(',', i);
 			if(commaPos<0){commaPos=value.length();}
+			final int integerStart=(value.charAt(i)=='+' ? i+1 : i);
 
 			switch(arrayType){
 				case 'c':
 				case 'C':
-					bb.appendU8(Parse.parseInt(value, i, commaPos));
+					bb.appendU8(Parse.parseInt(value, integerStart, commaPos));
 					break;
 				case 's':
 				case 'S':
-					bb.appendU16LE(Parse.parseInt(value, i, commaPos));
+					bb.appendU16LE(Parse.parseInt(value, integerStart, commaPos));
 					break;
 				case 'i':
-					bb.appendI32LE(Parse.parseInt(value, i, commaPos));
+					bb.appendI32LE(Parse.parseInt(value, integerStart, commaPos));
 					break;
 				case 'I':
-					bb.appendU32LE(Parse.parseLong(value, i, commaPos));
+					bb.appendU32LE(Parse.parseLong(value, integerStart, commaPos));
 					break;
 				case 'f':
-					bb.appendFloatLE(Parse.parseFloat(value, i, commaPos));
+					bb.appendFloatLE(Float.parseFloat(value.substring(i, commaPos)));
 					break;
 				default:
 					throw new RuntimeException("Unknown array type: "+arrayType);

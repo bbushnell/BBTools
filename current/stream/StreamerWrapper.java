@@ -132,6 +132,7 @@ public class StreamerWrapper{
 
 	/**
 	 * Parses wrapper options, standard Parser flags and the first two positional paths.
+	 * Retains the full suffix after the first '='; absent, empty and literal-null values become null.
 	 * Unknown options print a diagnostic and fail an assertion when assertions are enabled.
 	 * @param args Command line arguments
 	 * @return Parser object with standard flags processed
@@ -141,10 +142,10 @@ public class StreamerWrapper{
 		for(int i=0; i<args.length; i++){
 			final String arg=args[i];
 
-			//Break arguments into their constituent parts, in the form of "a=b"
-			final String[] split=arg.split("=");
-			final String a=split[0].toLowerCase();
-			String b=split.length>1 ? split[1] : null;
+			//STR-364: equals signs inside option values, including filenames, are literal data.
+			final int equals=arg.indexOf('=');
+			final String a=(equals<0 ? arg : arg.substring(0, equals)).toLowerCase();
+			String b=(equals<0 || equals==arg.length()-1 ? null : arg.substring(equals+1));
 			if(b!=null && b.equalsIgnoreCase("null")){b=null;}
 
 			if(a.equals("verbose")){

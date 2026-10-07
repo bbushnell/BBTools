@@ -36,7 +36,7 @@ public class FastqWriter implements Writer{
 	
 	/**
 	 * Copies sequence input through the streamer/writer factories and reports counts.
-	 * @param args Input, optional output, formatting threads, SIMD trigger and BGZF flag
+	 * @param args Input, optional output, formatting threads, presence-based SIMD request and BGZF flag
 	 */
 	public static void main(final String[] args){
 		Timer t=new Timer();
@@ -44,8 +44,8 @@ public class FastqWriter implements Writer{
 		String out=(args.length<2 || args[1].equalsIgnoreCase("null") ? null : args[1]);
 		int threads=DEFAULT_THREADS;
 		if(args.length>2){threads=Integer.parseInt(args[2]);}
-		//TODO: Probable bug - STR-006: this standalone driver forces SIMD without the JVM/hardware capability gate used by normal launchers.
-		if(args.length>3){Shared.SIMD=true;}
+		//STR-006: Preserve the argument-presence trigger while honoring JVM/hardware capability.
+		if(args.length>3){Shared.SIMD=simd.Vector.simd256;}
 		if(args.length>4){
 			ReadWrite.ALLOW_NATIVE_BGZF=ReadWrite.PREFER_NATIVE_BGZF_IN=
 				ReadWrite.PREFER_NATIVE_BGZF_OUT=Parse.parseBoolean(args[4]);
@@ -188,16 +188,19 @@ public class FastqWriter implements Writer{
 	}
 	
 	/**
-	 * Converts each SAM line into an unpaired Read and submits the original batch ID.
-	 * Sequence and quality arrays are shared; alignment fields and pairing are not
-	 * retained. These new reads use the R1 selection and have no attachment objects.
+	 * Converts each SAM line into an unlinked Read and submits the original batch ID.
+	 * Sequence and quality arrays are shared; SAM mate numbers are retained for selection.
+	 * Alignment fields, mate links and attachment objects are not retained.
 	 * @param lines Nonnull batch of nonnull SAM lines; IDs follow addReads' contract
 	 */
 	@Override
 	public void addLines(final ListNum<SamLine> lines){
 		ArrayList<Read> reads=new ArrayList<Read>(lines.size());
 		for(SamLine sl : lines){
-			reads.add(new Read(sl.seq, sl.qual, sl.qname, -1, false));
+			//STR-367: Preserve SAM mate identity before formatters select R1 or R2.
+			final Read r=new Read(sl.seq, sl.qual, sl.qname, -1, false);
+			r.setPairnum(sl.pairnum());
+			reads.add(r);
 		}
 		addReads(new ListNum<Read>(reads, lines.id));
 	}

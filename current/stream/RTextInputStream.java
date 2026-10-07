@@ -31,13 +31,13 @@ public class RTextInputStream extends ReadInputStream{
 
 	/**
 	 * Diagnostic multi-file merge printing serialized reads to stdout.
-	 * Currently supplies zero, rejected when assertions are enabled; see #002.
+	 * Uses the constructor's negative-limit convention to scan all input entries.
 	 * @param args Nonempty synchronized serialized-read filename array
 	 */
 	public static void main(String[] args){
-		//TODO: Probable bug #002 - the constructor rejects readLimit=0 with assertions enabled.
-		//This diagnostic main cannot scan ordinary input until its limit choice is corrected.
-		RTextInputStream rtis=new RTextInputStream(args, 0);
+		//Resolved #002: scan all entries using the constructor's negative/unlimited convention.
+		//Zero is a rejected limit when assertions are enabled, not an unlimited sentinel.
+		RTextInputStream rtis=new RTextInputStream(args, -1);
 		ArrayList<Read> list=rtis.nextList();
 		while(list!=null){
 			for(Read r : list){

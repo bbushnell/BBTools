@@ -1611,11 +1611,13 @@ public class Seal {
 				if(rosu!=null){rosu.add(new ArrayList<Read>(1), ln.id);}
 				
 				cris.returnList(ln);
+				//Do not consume the first retained batch; returnList is not an input pushback.
+				if(skipped>=skipreads){break;}
 				ln=cris.nextList();
 				reads=(ln!=null ? ln.list : null);
 			}
-			cris.returnList(ln);
 			if(reads==null || reads.isEmpty()){
+				cris.returnList(ln);
 				ReadWrite.closeStreams(cris, rosu, rosm);
 				ReadWrite.closeStreams(mcros);
 				outstream.println("Skipped all of the reads.");
@@ -2255,6 +2257,7 @@ public class Seal {
 								if(countArray==null){
 									countVector.size=0;
 									b=findBestMatch(r2, keySets, countVector);
+									//TODO: Probable bug - mate2 fills countList1, but its filter below reads countList2.
 									max2=condenseLoose(countVector, idList2, countList1);
 								}else{
 									idList2.size=0;
@@ -2554,6 +2557,7 @@ public class Seal {
 					throw new RuntimeException("Unknown mode "+ambigMode);
 				}
 				
+				//TODO: Probable bug - mate2's start/stop index finalList2, not the mate1 list passed here.
 				if(MAKE_GENE_SETS && stop>start+1) {addGeneSet(finalList1, start, stop, 1, lenSum);}
 				
 				for(int j=start; j<stop; j++){
@@ -3211,7 +3215,7 @@ public class Seal {
 	/** If positive, only look for kmer matches the rightmost X bases */
 	private int restrictRight;
 	
-	/** Skip this many initial input reads */
+	/** Requested initial input fragments to skip, rounded up to complete input batches. */
 	private final long skipreads;
 
 	/** Pairs go to outbad if either of them is bad, as opposed to requiring both to be bad.
@@ -3297,13 +3301,13 @@ public class Seal {
 	/** Create sets of amiguously-mapping gene targets on the fly */
 	public static boolean MAKE_GENE_SETS=false;
 	
-	/** x&clearMasks[i] will clear base i */
+	/** {@code x&clearMasks[i]} will clear base i. */
 	private static final long[] clearMasks;
 	/** x|setMasks[i][j] will set base i to j */
 	private static final long[][] setMasks;
-	/** x&leftMasks[i] will clear all bases to the right of i (exclusive) */
+	/** {@code x&leftMasks[i]} will clear all bases to the right of i (exclusive). */
 	private static final long[] leftMasks;
-	/** x&rightMasks[i] will clear all bases to the left of i (inclusive) */
+	/** {@code x&rightMasks[i]} will clear all bases to the left of i (inclusive). */
 	private static final long[] rightMasks;
 	/** x|kMasks[i] will set the bit to the left of the leftmost base */
 	private static final long[] lengthMasks;

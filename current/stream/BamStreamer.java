@@ -20,28 +20,48 @@ import structures.ListNum;
 import template.ThreadWaiter;
 
 /**
- * Multithreaded BAM file reader using OrderedQueueSystem.
- * Input thread reads BAM binary and converts to intermediate format.
- * Worker threads convert to SamLine objects.
+ * Reads BAM record bodies on one input thread and converts them on separate workers.
+ * Delivers SamLine batches or, when requested, associated Read objects. Input batches
+ * carry alignment-record positions for deterministic subsampling; mates are not linked.
+ * OrderedQueueSystem coordinates batches; its current output JobQueue forces order
+ * even when the constructor receives ordered=false.
+ *
+ * Configure before start and start once. Input and conversion threads are daemon
+ * threads; the decompression backend can add threads of its own. Normal consumers
+ * drain through the terminal result. close() signals the output queue, without
+ * joining the input thread or guaranteeing final public counters. Counters are
+ * snapshots of later worker aggregation, not progress counters updated per record.
  *
  * @author Chloe, Isla
  * @date November 10, 2025
  */
-public class BamStreamer implements Streamer {
+public class BamStreamer implements Streamer{
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Constructor. */
-	public BamStreamer(String fname_, int threads_, boolean saveHeader_, 
+	/** Resolves a BAM-default descriptor, then configures an unstarted reader.
+	 * @param fname_ Input path
+	 * @param threads_ Conversion workers; below one uses DEFAULT_THREADS before clamping
+	 * @param saveHeader_ Collect and publish input header text when true
+	 * @param ordered_ Requested output order; current queue forces ordered delivery
+	 * @param maxReads_ Alignment-record limit before sampling; negative means unlimited
+	 * @param makeReads_ Construct Read objects associated with each retained SamLine */
+	public BamStreamer(String fname_, int threads_, boolean saveHeader_,
 		boolean ordered_, long maxReads_, boolean makeReads_){
-		this(FileFormat.testInput(fname_, FileFormat.BAM, null, true, false), threads_, 
+		this(FileFormat.testInput(fname_, FileFormat.BAM, null, true, false), threads_,
 			saveHeader_, ordered_, maxReads_, makeReads_);
 	}
 
-	/** Constructor. */
-	public BamStreamer(FileFormat ffin_, int threads_, boolean saveHeader_, 
+	/** Retains input settings and creates queues without opening the BAM stream.
+	 * @param ffin_ Nonnull input descriptor; the worker expects BAM content
+	 * @param threads_ Conversion workers, clamped to 1..Shared.threads(); below one uses defaults
+	 * @param saveHeader_ Allocate header storage and publish parsed text lines when true
+	 * @param ordered_ Requested output order, currently overridden by JobQueue
+	 * @param maxReads_ Alignment-record limit before sampling; negative is unlimited, zero reads only metadata
+	 * @param makeReads_ Enable Read construction for nextList/nextReads */
+	public BamStreamer(FileFormat ffin_, int threads_, boolean saveHeader_,
 		boolean ordered_, long maxReads_, boolean makeReads_){
 		fname=ffin_.name();
 		ffin=ffin_;
@@ -50,38 +70,43 @@ public class BamStreamer implements Streamer {
 		header=(saveHeader ? new ArrayList<byte[]>() : null);
 		maxReads=(maxReads_<0 ? Long.MAX_VALUE : maxReads_);
 		makeReads=makeReads_;
-		
+
 		// Create OQS with prototypes
 		ListNum<byte[]> inputPrototype=new ListNum<byte[]>(null, 0, ListNum.PROTO);
 		ListNum<SamLine> outputPrototype=new ListNum<SamLine>(null, 0, ListNum.PROTO);
 		oqs=new OrderedQueueSystem<ListNum<byte[]>, ListNum<SamLine>>(
 			threads, ordered_, inputPrototype, outputPrototype);
-		
+
 		if(verbose){
 			outstream.println("Made BamStreamer-"+threads);
 			new Exception().printStackTrace();
 		}
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
+	/** Clears public counters and starts a fresh input/conversion thread set; call once.
+	 * Does not reset queues, header storage, converter or previous error state for reuse. */
 	@Override
 	public void start(){
 		if(verbose){outstream.println("BamStreamer.start() called.");}
-		
+
 		//Reset counters
 		readsProcessed=0;
 		basesProcessed=0;
 		bytesProcessed=0;
-		
+
 		//Spawn threads
 		spawnThreads();
-		
+
 		if(verbose){outstream.println("Started.");}
 	}
 
+	/** Signals output-queue completion; does not close the input handle or join workers.
+	 * The historical partial-teardown notes below remain separate from this operation's
+	 * actual contract. This method is not a final-counter or final-error barrier. */
 	@Override
 	public synchronized void close(){
 		//[stream/BamStreamer#002 partial fix 2026-09-05] was a no-op: abandoning the stream before EOF left
@@ -92,42 +117,61 @@ public class BamStreamer implements Streamer {
 		//stops reading early) remains future work; couples with #001.
 		oqs.setFinished(true);
 	}
-	
+
+	/** Returns the retained input name. */
 	@Override
-	public String fname() {return fname;}
-	
+	public String fname(){return fname;}
+
+	/** Delegates a non-consuming queue-availability hint; nextLines determines terminal input. */
 	@Override
-	public boolean hasMore() {return oqs.hasMore();}
-	
+	public boolean hasMore(){return oqs.hasMore();}
+
+	/** Returns false: aligned mates are not linked by this reader. */
 	@Override
 	public boolean paired(){return false;}
 
+	/** Returns the reader-level pair label zero; alignment flags retain their own mate information. */
 	@Override
 	public int pairnum(){return 0;}
-	
+
+	/** Returns the observed count of retained, converted alignment records.
+	 * Aggregation occurs after worker joins; consuming terminal input does not join that aggregation. */
 	@Override
 	public long readsProcessed(){return readsProcessed;}
-	
+
+	/** Returns observed retained sequence bases from worker aggregation, without waiting. */
 	@Override
 	public long basesProcessed(){return basesProcessed;}
-	
+
+	/** Returns observed retained BAM record-body bytes, excluding each four-byte size prefix.
+	 * Header-text bytes collected on the input thread are omitted by historical #003;
+	 * this is neither compressed-file size nor complete uncompressed BAM size. */
 	public long bytesProcessed(){return bytesProcessed;}
-	
+
+	/** Configures positional sampling before startup; not synchronized with conversion.
+	 * @param rate Retained fraction, normally 0..1; values at least one bypass sampling
+	 * @param seed Nonnegative seed, or a negative request for a newly resolved random seed */
 	@Override
 	public void setSampleRate(float rate, long seed){
 		samplerate=rate;
 		sampleSeed=Streamer.resolveSampleSeed(seed);
 	}
 
+	/** Delegates Read-batch delivery; requires construction with makeReads=true.
+	 * @return New wrapper/list of associated reads, or null on terminal input */
 	@Override
 	public ListNum<Read> nextList(){return nextReads();}
-	
+
+	/** Extracts already constructed Read references from the next SamLine batch.
+	 * Allocates a new list/wrapper with the same batch ID, without copying Read objects.
+	 * May return an empty batch after sampling. Requires makeReads, checked by assertion.
+	 * @return Read batch, or null when nextLines reports terminal input */
 	public ListNum<Read> nextReads(){
 		assert(makeReads);
 		ListNum<SamLine> lines=nextLines();
 		if(lines==null){return null;}
 		ArrayList<Read> reads=new ArrayList<Read>(lines.size());
-		if(!lines.isEmpty()) {
+		if(!lines.isEmpty()){
 			for(SamLine line : lines){
 				assert(line.obj!=null);
 				reads.add((Read)line.obj);
@@ -137,12 +181,17 @@ public class BamStreamer implements Streamer {
 		return ln;
 	}
 
+	/** Returns the next converted batch or handles the queue's terminal result.
+	 * LAST marks the queue finished; a terminal with observed errorState invokes
+	 * KillSwitch.kill. This does not join the input thread's final aggregation.
+	 * Returned SamLines/associated Reads belong to the consumer; no recycling occurs.
+	 * @return Converted batch, possibly empty after sampling, or null at terminal input */
 	@Override
 	public ListNum<SamLine> nextLines(){
 		ListNum<SamLine> list=oqs.getOutput();
 		if(verbose){
-			if(list==null) {outstream.println("Consumer got null.");}
-			else {outstream.println("Consumer got list "+list.id()+" type "+list.type);}
+			if(list==null){outstream.println("Consumer got null.");}
+			else{outstream.println("Consumer got list "+list.id()+" type "+list.type);}
 		}
 		if(list==null || list.last()){
 			if(list!=null && list.last()){
@@ -157,15 +206,17 @@ public class BamStreamer implements Streamer {
 		}
 		return list;
 	}
-	
+
+	/** Returns the observed shared error flag without joining input or conversion threads. */
 	@Override
-	public boolean errorState() {return errorState;}
+	public boolean errorState(){return errorState;}
 
 	/*--------------------------------------------------------------*/
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Spawn process threads */
+	/** Creates and starts one daemon input thread plus the configured daemon conversion workers.
+	 * The input thread retains the complete thread list for joined aggregation. */
 	void spawnThreads(){
 		final int threads=this.threads+1;
 
@@ -194,16 +245,20 @@ public class BamStreamer implements Streamer {
 	/*----------------         Inner Classes        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	private class ProcessThread extends Thread {
+	/** Input role at tid zero; other instances convert record batches with private scratch. */
+	private class ProcessThread extends Thread{
 
-		/** Constructor */
+		/** Names the thread and retains the aggregation list only for the input role.
+		 * @param tid_ Zero for input, otherwise a conversion-worker identifier
+		 * @param alpt_ Complete thread list, retained only when tid_ is zero */
 		ProcessThread(final int tid_, ArrayList<ProcessThread> alpt_){
 			tid=tid_;
 			setName("BamStreamer-"+(tid==0 ? "Input" : "Worker-"+tid));
 			alpt=(tid==0 ? alpt_ : null);
 		}
 
-		/** Called by start() */
+		/** Executes the assigned role; sets success after its method returns normally.
+		 * Input errors caught by processInputThread can coexist with success=true here. */
 		@Override
 		public void run(){
 			if(tid==0){
@@ -216,6 +271,11 @@ public class BamStreamer implements Streamer {
 			if(verbose){outstream.println("tid "+tid+" terminated.");}
 		}
 
+		/** Reads input, records caught errors, publishes terminal markers and joins workers.
+		 * ThreadWaiter skips this calling thread. Aggregation then adds only other workers'
+		 * totals to public counters and folds their success flags. Publication and joined
+		 * aggregation are separate steps; historical failure guarantees are not established
+		 * merely by reaching a consumer terminal result. */
 		void processInputThread(){
 			//[stream/BamStreamer#001] FIXED 2026-06-20 (greenlit by Brian): a corrupt/truncated/non-BAM input
 			//can no longer hang the workers+consumer. The try/finally GUARANTEES oqs.poison() runs even when
@@ -233,7 +293,7 @@ public class BamStreamer implements Streamer {
 				oqs.poison();//ALWAYS poison so workers (getInput) + consumer (getOutput) wake
 			}
 			if(verbose){outstream.println("tid "+tid+" done with processBamBytes + poisoning.");}
-			
+
 			//Wait for completion of all threads
 			boolean allSuccess=true;
 			ThreadWaiter.waitForThreadsToFinish(alpt);
@@ -246,19 +306,25 @@ public class BamStreamer implements Streamer {
 				}
 			}
 			if(verbose){outstream.println("tid "+tid+" noted all threads finished.");}
-			
+
 			if(!allSuccess){errorState=true;}
 			if(verbose){outstream.println("tid "+tid+" finished! Error="+errorState);}
 		}
 
+		/** Opens decompression, reads BAM header/dictionary and queues complete record bodies.
+		 * Saved nonempty header-text lines omit LF and are published by reference globally.
+		 * Dictionary reference names initialize the shared converter. Record quota applies
+		 * before sampling; batch thresholds are captured after header setup, with body bytes
+		 * excluding size prefixes. The alignment loop treats any caught EOFException as EOF.
+		 * Closes the input after normal completion; no finally-close path is provided here. */
 		void processBamBytes(){
 			if(verbose){outstream.println("tid "+tid+" started processBamBytes.");}
-			
+
 			long listNumber=0;
 			try{
 				final InputStream bgzf=ReadWrite.getUnbgzipStream(fname);
 				BamReader reader=new BamReader(bgzf);
-				
+
 				//Read BAM magic
 				byte[] magic=reader.readBytes(4);
 				if(!Arrays.equals(magic, new byte[]{'B', 'A', 'M', 1})){
@@ -301,7 +367,7 @@ public class BamStreamer implements Streamer {
 				for(int i=0; i<n_ref; i++){
 					long l_name=reader.readUint32();
 					refNames[i]=reader.readString((int)l_name-1);
-					reader.readUint8(); //Skip NUL
+					reader.readUint8();// Skip NUL
 					long l_ref=reader.readUint32();
 				}
 
@@ -311,12 +377,12 @@ public class BamStreamer implements Streamer {
 					BamStreamer.this.notifyAll();
 				}
 				if(verbose){outstream.println("Thread "+tid+" made converter.");}
-				
+
 				final int slimit=TARGET_LIST_SIZE, blimit=TARGET_LIST_BYTES;
 				int bytes=0;
 				ListNum<byte[]> ln=new ListNum<byte[]>(new ArrayList<byte[]>(slimit), listNumber++);
 				ln.firstRecordNum=0;
-				
+
 				//Read alignment records
 				try{
 					for(long reads=0; reads<maxReads; reads++){
@@ -334,10 +400,13 @@ public class BamStreamer implements Streamer {
 						}
 					}
 				}catch(EOFException e){
+					//TODO: Probable bug - BamReader.readFully throws EOFException for a partial
+					//record body or size field too; this catch treats those as ordinary EOF.
+					//Distinguish record-boundary EOF in a separate parser-correctness change.
 					//Normal end of file
 				}
 				if(verbose){outstream.println("Thread "+tid+" finished reading.");}
-				
+
 				if(ln.size()>0){
 					oqs.addInput(ln);
 				}
@@ -351,7 +420,12 @@ public class BamStreamer implements Streamer {
 			if(verbose){outstream.println("Thread "+tid+" finished processBamBytes.");}
 		}
 
-		/** Worker threads convert BAM records to SamLines */
+		/** Waits for the shared converter, samples queued bodies and publishes converted batches.
+		 * Sampling uses original record positions, then compacts each input list. Constructed
+		 * Read IDs start at that batch's firstRecordNum and increment over retained records,
+		 * so they do not necessarily equal original sampled positions. Each worker reuses
+		 * its own CIGAR builder; SamLine.obj and Read.samline connect the two representations.
+		 * Publishes even empty output batches and reinserts input poison for other workers. */
 		void makeReads(){
 			if(verbose){outstream.println("Thread "+tid+" waiting on converter.");}
 			synchronized(BamStreamer.this){
@@ -379,7 +453,7 @@ public class BamStreamer implements Streamer {
 			ListNum<byte[]> list=oqs.getInput();
 			while(list!=null && !list.poison()){
 				if(verbose){outstream.println("tid "+tid+" grabbed blist "+list.id());}
-				
+
 				// Apply subsampling if needed
 				//Positional sampling (Streamer.sampleKeep) by record index: thread-safe + reproducible
 				//across runs and thread counts; the shared PRNG raced across worker threads.
@@ -392,9 +466,9 @@ public class BamStreamer implements Streamer {
 							nulled++;
 						}
 					}
-					if(nulled>0) {Tools.condenseStrict(list.list);}
+					if(nulled>0){Tools.condenseStrict(list.list);}
 				}
-				
+
 				ListNum<SamLine> reads=new ListNum<SamLine>(
 					new ArrayList<SamLine>(list.size()), list.id);
 				long readID=list.firstRecordNum;
@@ -420,23 +494,25 @@ public class BamStreamer implements Streamer {
 				list=oqs.getInput();
 			}
 			if(verbose){outstream.println("tid "+tid+" done making reads.");}
-			
+
 			//Re-inject poison for other workers
-			if(list!=null) {oqs.addInput(list);}
+			if(list!=null){oqs.addInput(list);}
 		}
 
-		/** Number of reads processed by this thread */
+		/** Retained alignment records successfully converted by this worker. */
 		protected long readsProcessedT=0;
-		/** Number of bases processed by this thread */
+		/** Retained sequence bases counted by conversion workers. */
 		protected long basesProcessedT=0;
-		/** Number of bytes processed by this thread */
+		/** Record-body bytes for conversion workers; saved header-text bytes for input. */
 		protected long bytesProcessedT=0;
-		/** True only if this thread has completed successfully */
+		/** True after the assigned role returns normally, independent of shared errorState. */
 		boolean success=false;
-		/** Thread ID */
+		/** Zero for input, positive for conversion workers. */
 		final int tid;
 
+		/** Complete thread set retained by the input role; null for conversion workers. */
 		ArrayList<ProcessThread> alpt;
+		/** Worker reference to the shared dictionary-backed converter. */
 		BamToSamConverter converter;
 	}
 
@@ -446,50 +522,60 @@ public class BamStreamer implements Streamer {
 
 	/** Primary input file path */
 	public final String fname;
-	
-	/** Primary input file */
+
+	/** Retained input descriptor; the input thread opens fname through the BGZF backend. */
 	final FileFormat ffin;
-	
+
+	/** Raw-body input FIFO and ordered converted-output queue. */
 	final OrderedQueueSystem<ListNum<byte[]>, ListNum<SamLine>> oqs;
-	
+
+	/** Conversion-worker count, excluding the input and decompression threads. */
 	final int threads;
+	/** Enables collecting and publishing input header text. */
 	final boolean saveHeader;
+	/** Enables constructing Read objects alongside SamLines. */
 	final boolean makeReads;
-	
+
+	/** Collected header lines, or null; published to SamReadInputStream without copying the list. */
 	ArrayList<byte[]> header;
-	
-	/** Number of reads processed */
+
+	/** Worker-retained record count, added by input-thread aggregation after worker joins. */
 	protected long readsProcessed=0;
-	/** Number of bases processed */
+	/** Worker-retained base count, added during final aggregation. */
 	protected long basesProcessed=0;
+	/** Retained record-body byte total; input-thread header bytes are not folded in. */
 	private long bytesProcessed=0;
-	
-	/** Quit after processing this many input reads */
+
+	/** Alignment-record quota before sampling; negative constructor values become Long.MAX_VALUE. */
 	final long maxReads;
-	
+
 	/** Shared BAM to SAM converter (created by input thread) */
 	private volatile BamToSamConverter sharedConverter;
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Static Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Input batch record threshold, captured after reading the dictionary. */
 	public static int TARGET_LIST_SIZE=shared.Shared.bufferLen();
+	/** Input batch body-byte threshold, excluding four-byte record-size prefixes. */
 	public static int TARGET_LIST_BYTES=shared.Shared.bufferSize();
-	public static int DEFAULT_THREADS=6; // BAM benefits from more threads; peaks at 7 + 12 bgzip threads
-	
+	/** Default requested conversion workers, clamped by the constructor. */
+	public static int DEFAULT_THREADS=6;// Historical tuning: BAM peaks at 7 + 12 bgzip threads
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/** Print status messages to this output stream */
 	protected PrintStream outstream=System.err;
 	/** Print verbose messages */
 	public static final boolean verbose=false;
-	/** True if an error was encountered */
+	/** Shared observed error flag; queries alone do not establish final completion. */
 	public boolean errorState=false;
+	/** Pre-start sampling rate, read by conversion workers without synchronized updates. */
 	float samplerate=1f;
 	/** Seed for positional sampling (Streamer.sampleKeep); resolved from setSampleRate's seed */
 	long sampleSeed=17;
-	
+
 }

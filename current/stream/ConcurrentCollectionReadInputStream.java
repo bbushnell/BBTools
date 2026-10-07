@@ -159,8 +159,8 @@ public class ConcurrentCollectionReadInputStream extends ConcurrentReadInputStre
 	}
 
 	/** Fills batches by primary index, applying the fragment limit before sampling.
-	 * Counters include each primary and its explicit secondary or attached mate before selection. Batch data
-	 * accounting includes selected primaries and explicit secondaries, not preattached mates.
+	 * Counters include each primary and its explicit secondary or attached mate before selection.
+	 * Batch data includes both members of selected fragments; a whole fragment may cross MAX_DATA.
 	 * Two-list mate links are changed only for selected entries; source references are retained.
 	 */
 	private final void readSingles(){
@@ -200,10 +200,9 @@ public class ConcurrentCollectionReadInputStream extends ConcurrentReadInputStre
 
 						assert(a.pairnum()==0);
 						b.setPairnum(1);
-						bases+=(b.bases==null ? 0 : b.length());
 					}
-					//TODO: Probable bug #003 - batch-data budget omits preattached mates when b is null.
-					//Input counters include them; output retains them. Assess batch sizing separately.
+					//Resolved #003: one-list callers retain attached mates, so their bases belong in the batch budget too.
+					if(countedMate!=null){bases+=(countedMate.bases==null ? 0 : countedMate.length());}
 					bases+=(a.bases==null ? 0 : a.length());
 				}
 				incrementGenerated(1);

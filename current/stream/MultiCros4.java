@@ -17,18 +17,26 @@ import structures.ByteBuilder;
 import structures.ListNum;
 
 /**
- * Uses a retire queue with independent threads.
+ * Buffered named-read routing with token-limited outputs and background retirement.
+ * Construction starts up to eight retirement helpers; the inherited threaded flag
+ * separately controls the outer list-routing thread and does not start that thread.
+ * Tokens count logical destinations, including retiring streams, not physical mate files.
+ * Direct routing requires one owner; Read payloads remain borrowed by downstream output.
+ * Below-minimum buffers remain pending, and a retiring buffer skips ordinary dump attempts.
+ * After submissions stop, close waits for outstanding retirements and drains eligible
+ * pending roots before retiring the final outputs and joining helpers.
  * 
  * @author Brian Bushnell
  * @date April 5, 2024
  *
  */
-public class MultiCros4 extends BufferedMultiCros {
+public class MultiCros4 extends BufferedMultiCros{
 	
 	/** 
 	 * For testing.<br>
 	 * args should be:
 	 * {input file, output pattern, names...}
+	 * @param args Positional input and output pattern; trailing names are parsed but unused
 	 */
 	public static void main(String[] args){
 		
@@ -73,7 +81,19 @@ public class MultiCros4 extends BufferedMultiCros {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** @See Details in superclass constructor */
+	/** Creates routing state and immediately starts the retirement helpers.
+	 * Actual helpers are capped at eight; the configured allowance is
+	 * {@code max(1, (int)(maxStreams*0.25f))}, which also sizes the retirement queue
+	 * and active-stream reserve.
+	 * @param pattern1_ Primary pattern containing a percent placeholder
+	 * @param pattern2_ Optional mate pattern; the inherited constructor may expand a hash
+	 * @param overwrite_ Attempt deletion before each destination's first append-mode open
+	 * @param append_ Stored base option; destination descriptors always use append mode
+	 * @param allowSubprocess_ Output descriptor subprocess permission
+	 * @param useSharedHeader_ Request shared headers on a destination's first open
+	 * @param defaultFormat_ Fallback output format
+	 * @param threaded_ Enable inherited outer list transfer; callers must start that thread
+	 * @param maxStreams_ Positive logical-destination token budget, including retiring outputs */
 	public MultiCros4(String pattern1_, String pattern2_,
 			boolean overwrite_, boolean append_, boolean allowSubprocess_, 
 			boolean useSharedHeader_, int defaultFormat_, boolean threaded_, int maxStreams_){
@@ -83,12 +103,12 @@ public class MultiCros4 extends BufferedMultiCros {
 		bufferMap=new LinkedHashMap<String, Buffer>();
 		streamQueue=new ArrayDeque<String>(maxStreams);
 		freeTokens=new ArrayBlockingQueue<Token>(maxStreams);
-		for(int i=0; i<maxStreams; i++) {freeTokens.add(new Token(i));}
+		for(int i=0; i<maxStreams; i++){freeTokens.add(new Token(i));}
 		maxRetireThreads=Tools.max(1, (int)(maxStreams*0.25f));
 		retireQueue=new ArrayBlockingQueue<Buffer>(maxRetireThreads);
 		retireThreads=new ArrayList<RetireThread>(maxRetireThreads);
 		maxOpenStreams=Tools.max(1, maxStreams-maxRetireThreads);
-		for(int i=0; i<8 && i<maxRetireThreads; i++) {
+		for(int i=0; i<8 && i<maxRetireThreads; i++){
 			RetireThread rt=new RetireThread();
 			rt.start();
 			retireThreads.add(rt);
@@ -101,11 +121,16 @@ public class MultiCros4 extends BufferedMultiCros {
 	/*----------------        Outer Methods         ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Returns the cached error indication without waiting or checking completion.
+	 * @return true when errorState is clear */
 	@Override
 	public boolean finishedSuccessfully(){
 		return !errorState;
 	}
 	
+	/** Routes a root directly on the routing owner; does not use the outer transfer queue.
+	 * @param r Nonnull root whose mate contributes to read/base counts
+	 * @param name Name used as a replaceFirst replacement string in output patterns */
 	@Override
 	public void add(Read r, String name){
 		Buffer b=bufferMap.get(name);
@@ -117,13 +142,17 @@ public class MultiCros4 extends BufferedMultiCros {
 		b.add(r);
 	}
 	
+	/** Terminal, single-use disposal of below-minimum buffers after eligible data is drained.
+	 * Clears all list references and accumulates pair-aware residual counts even without a sink.
+	 * @param rosu Optional sink; each list uses ID zero, so repeated IDs must be supported
+	 * @return Cumulative residual individual-read count */
 	@Override
 	public long dumpResidual(ConcurrentReadOutputStream rosu){
 		//For each Buffer, check if it contains residual reads
 		//If so, dump it into the stream
 		for(Entry<String, Buffer> e : bufferMap.entrySet()){
 			Buffer b=e.getValue();
-			assert((b.readsIn<minReadsToDump) == (b.list!=null && !b.list.isEmpty()));
+			assert((b.readsIn<minReadsToDump)==(b.list!=null && !b.list.isEmpty()));
 			if(b.readsIn>0 && b.readsIn<minReadsToDump){
 				assert(b.list!=null && !b.list.isEmpty());
 				residualReads+=b.readsIn;
@@ -135,6 +164,10 @@ public class MultiCros4 extends BufferedMultiCros {
 		return residualReads;
 	}
 	
+	/** Reports dumped destinations in first-observation order without draining them.
+	 * Rows contain name, individual reads, bases and optional cardinality; a positive
+	 * minimum adds a three-column residual row. Observe after routing for stable totals.
+	 * @return Newly allocated report builder */
 	@Override
 	public ByteBuilder report(){
 		ByteBuilder bb=new ByteBuilder(1024);
@@ -154,6 +187,7 @@ public class MultiCros4 extends BufferedMultiCros {
 		return bb;
 	}
 	
+	/** @return Live key-set view of all observed names, including never-opened destinations */
 	@Override
 	public Set<String> getKeys(){return bufferMap.keySet();}
 	
@@ -161,35 +195,62 @@ public class MultiCros4 extends BufferedMultiCros {
 	/*----------------        Inner Methods         ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Drains eligible roots after submissions stop, then retires outputs and joins helpers.
+	 * Waits for earlier retirements before the final dump; below-minimum roots remain pending.
+	 * @return Root-list entries handed off by both dump passes, not mate-inclusive reads */
 	@Override
-	long closeInner() {
-		//First dump everything
-		final long x=dumpAll();
-		//Then, retire any active streams
+	long closeInner(){
+		long x=dumpAll();
 		while(!streamQueue.isEmpty()){retire(1);}
-		try {
-			for(boolean success=false; !success;) {
+		//STR244: a retiring destination may retain roots added after retirement began.
+		//Start the final pass with every destination CLOSED and no earlier retirement in flight.
+		awaitRetirements();
+		x+=dumpAll();
+		//With submissions stopped, this pass can retire only destinations already drained.
+		while(!streamQueue.isEmpty()){retire(1);}
+		try{
+			for(boolean success=false; !success;){
 				retireQueue.put(POISON_BUFFER);
 				success=true;
 			}
-		} catch (InterruptedException e) {
+		}catch(InterruptedException e){
 			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
 		waitForFinishInner();
 		return x;
 	}
+
+	/** Waits for every outstanding output retirement without terminating the helpers.
+	 * Called by the routing owner after all active names have been queued for retirement.
+	 * Holding every token establishes completion; tokens are returned before reopening output. */
+	private void awaitRetirements(){
+		assert(streamQueue.isEmpty()) : "Active outputs must be retired before waiting for their tokens";
+		final Token[] tokens=new Token[maxStreams];
+		for(int i=0; i<tokens.length; i++){
+			while(tokens[i]==null){
+				try{
+					tokens[i]=freeTokens.take();
+				}catch(InterruptedException e){
+					e.printStackTrace();
+				}
+			}
+		}
+		for(Token token : tokens){freeTokens.add(token);}
+	}
 	
-	/** Wait for this object's thread to terminate */
+	/** Joins retirement helpers, not the inherited outer routing thread.
+	 * Does not signal termination; helpers must first receive their terminal marker.
+	 * Interrupted joins are logged and retried. */
 	public final void waitForFinishInner(){
 		if(verbose){System.err.println("Waiting for finish.");}
-		for(RetireThread rt : retireThreads) {
-			synchronized(rt) {
+		for(RetireThread rt : retireThreads){
+			synchronized(rt){
 				while(rt.getState()!=Thread.State.TERMINATED){
 					if(verbose){System.err.println("Attempting join: state="+rt.getState());}
-					try {
+					try{
 						rt.join(1000);
-					} catch (InterruptedException e) {
+					}catch(InterruptedException e){
 						e.printStackTrace();
 					}
 				}
@@ -197,26 +258,30 @@ public class MultiCros4 extends BufferedMultiCros {
 		}
 	}
 	
+	/** Attempts every buffer's ordinary dump, retaining minimum-read and RETIRING checks.
+	 * @return Root-list entries handed off, excluding separate mate counts */
 	@Override
 	long dumpAll(){
-		if(verbose) {
+		if(verbose){
 			System.err.println("before dumpAll: bytesInFlight="+bytesInFlight+
 					", limit="+memLimitUpper+", readsInFlight="+readsInFlight);
-		}else {
+		}else{
 //			System.err.println("dumpAll triggered due to memory pressure.");//Also happens at the end
 		}
 		long dumped=0;
 		for(Entry<String, Buffer> e : bufferMap.entrySet()){
 			dumped+=e.getValue().dump();
 		}
-		if(verbose) {
+		if(verbose){
 			System.err.println("after dumpAll: bytesInFlight="+bytesInFlight+
 					", limit="+memLimitUpper+", readsInFlight="+readsInFlight+", dumped="+dumped);
 		}
 		return dumped;
 	}
 	
-	/** Close the least-recently-used stream */
+	/** Removes the oldest active queue entry and requests asynchronous retirement.
+	 * Existing OPEN streams return early from getStream, so access does not refresh this order.
+	 * @param retCount Required to be one by the current implementation */
 	private void retire(int retCount){
 		if(verbose){System.err.println("Enter retire(); streamQueue="+streamQueue);}
 		assert(retCount==1); //For now
@@ -235,23 +300,23 @@ public class MultiCros4 extends BufferedMultiCros {
 		b.setState(RETIRING);
 		time1=System.nanoTime();
 		
-//		if(retireThreads.size()<maxRetireThreads && retireQueue.size()>0) {
+//		if(retireThreads.size()<maxRetireThreads && retireQueue.size()>0){
 //			RetireThread rt=new RetireThread();
 //			rt.start();
 //			retireThreads.add(rt);
 //		}
 		
-		try {
-			for(boolean success=false; !success; ) {
+		try{
+			for(boolean success=false; !success;){
 				retireQueue.put(b);
 				success=true;
 			}
-		} catch (InterruptedException e) {
+		}catch(InterruptedException e){
 			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
 		time2=System.nanoTime();
-		if(verbose) {System.err.println("Added "+name+" to retire queue.");}
+		if(verbose){System.err.println("Added "+name+" to retire queue.");}
 		retireTime1+=(time1-time0);
 		retireTime2+=(time2-time1);
 //		retireTime3+=(time3-time2);
@@ -265,11 +330,11 @@ public class MultiCros4 extends BufferedMultiCros {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Generates performance report for stream retirement operations.
-	 * Shows timing statistics and retirement counts for profiling.
-	 * @return Formatted string containing retirement performance metrics
+	 * Formats retirement-request timings, normalized by at least one recorded retirement.
+	 * The retires-per-call ratio remains unguarded when no requests occurred.
+	 * @return Diagnostic text; not a completion barrier or measured benchmark conclusion
 	 */
-	public String printRetireTime() {
+	public String printRetireTime(){
 		ByteBuilder bb=new ByteBuilder();
 		float mult=0.001f/Tools.max(1, retireCount);//#001 guard: was /retireCount = Infinity when retireCount==0 (no streams retired, e.g. fewer barcodes than maxStreams). Profiling-only. Family twin of MultiCros6#001.
 		bb.append("Max Streams:\t").append(maxStreams).nl();
@@ -292,17 +357,17 @@ public class MultiCros4 extends BufferedMultiCros {
 	private long retireTime3=0;
 	/** Timing for retire phase 4: unused */
 	private long retireTime4=0;
-	/** Total number of streams retired */
+	/** Destination count recorded by retirement requests, not an independent completion count. */
 	private long retireCount=0;
 	/** Total number of retire() method calls */
 	private long retireCalls=0;
 	
 	/**
-	 * Generates performance report for stream creation operations.
-	 * Shows timing breakdown for various creation phases.
-	 * @return Formatted string containing creation performance metrics
+	 * Formats creation timings using the existing retired-stream normalization.
+	 * The displayed total excludes phase one, which includes retirement requests.
+	 * @return Diagnostic timing text; reading does not wait for output completion
 	 */
-	public String printCreateTime() {
+	public String printCreateTime(){
 		ByteBuilder bb=new ByteBuilder();
 		float mult=0.001f/Tools.max(1, retireCount);//#001 guard: was /retireCount = Infinity when retireCount==0 (no streams retired, e.g. fewer barcodes than maxStreams). Profiling-only. Family twin of MultiCros6#001.
 		bb.append("Create Time 1:\t").append(createTime1*mult, 2).append(" us").nl();
@@ -330,16 +395,16 @@ public class MultiCros4 extends BufferedMultiCros {
 	/*--------------------------------------------------------------*/
 	
 	/** 
-	 * A Buffer holds reads destined for to a specific file.
-	 * When sufficient reads are present, it opens a stream and writes them.
-	 * If too many streams are open, it closes another stream first.
+	 * Retains one destination's pending roots, cumulative statistics, stream and token.
+	 * Minimum-read eligibility and retirement state determine whether ordinary dumps proceed.
 	 */
-	private class Buffer {
+	private class Buffer{
 		
 		/**
 		 * Creates buffer for specific output file pattern.
 		 * Initializes file formats and read list for buffering.
-		 * @param name_ The name/identifier for this buffer
+		 * No output is opened here; descriptors use append mode for later reopening.
+		 * @param name_ Replacement string used for the first percent in each pattern
 		 */
 		Buffer(String name_){
 			name=name_;
@@ -361,6 +426,7 @@ public class MultiCros4 extends BufferedMultiCros {
 		/** 
 		 * Add a read to this buffer, and update all the tracking variables.
 		 * This may trigger a dump.
+		 * @param r Nonnull borrowed root; counts and cardinality include its mate
 		 */
 		void add(Read r){
 			//Add the read
@@ -389,13 +455,13 @@ public class MultiCros4 extends BufferedMultiCros {
 			//More generally, this triggers a dump if the reads in this buffer exceed
 			//the maximum allowed reads or bytes 
 			final int size=list.size();
-			if(size>=readsPerBuffer || currentBytes>=bytesPerBuffer) {
+			if(size>=readsPerBuffer || currentBytes>=bytesPerBuffer){
 				if(verbose){
 					System.err.println("list.size="+list.size()+"/"+readsPerBuffer+
 							", bytes="+currentBytes+"/"+bytesPerBuffer+", bytesInFlight="+bytesInFlight+"/"+memLimitUpper);
 				}
 				dump();
-			}else if((size>=200 || currentBytes>=400000) && state==OPEN) {
+			}else if((size>=200 || currentBytes>=400000) && state==OPEN){
 				assert(getState()==OPEN);//Synchronization should not be needed here 
 				if(verbose){
 					//					System.err.println("list.size="+list.size()+"/"+readsPerBuffer+
@@ -415,18 +481,23 @@ public class MultiCros4 extends BufferedMultiCros {
 			}
 		}
 		
-		/** Dump buffered reads, creating a stream if needed */
+		/** Dumps eligible data unless the buffer is RETIRING, opening output if needed.
+		 * @return Root-list entries handed off, or zero for empty/ineligible/retiring state */
 		long dump(){
 			if(list.isEmpty() || readsIn<minReadsToDump){return 0;}
 			final int state=getState();
-			if(state==RETIRING) {return 0;}
+			if(state==RETIRING){return 0;}
 			ConcurrentReadOutputStream ros=getStream();
 			return dump(ros);
 		}
 		
 		/** 
 		 * Dump buffered reads to the stream.
-		 * If the buffer is empty, nothing happens. */
+		 * If the buffer is empty, nothing happens. Otherwise ownership of the old list
+		 * passes downstream and a fresh list replaces it; Read payloads remain borrowed.
+		 * This overload bypasses minimum-read and retirement checks.
+		 * @param ros Existing destination stream
+		 * @return Root-list entries handed off, not individual-read count */
 		long dump(final ConcurrentReadOutputStream ros){
 			if(verbose && list.size()>400){System.err.println("Dumping "+name);}
 			if(list.isEmpty()){return 0;}
@@ -441,6 +512,8 @@ public class MultiCros4 extends BufferedMultiCros {
 			
 			//Manage statistics
 			bytesInFlight-=currentBytes;
+			//TODO: Probable bug - STR233: add increases readsInFlight by pairCount(),
+			//but this subtracts root-list size. Preserve existing units pending separate review.
 			readsInFlight-=size0;
 			readsWritten+=size0;
 			currentBytes=0;
@@ -448,11 +521,11 @@ public class MultiCros4 extends BufferedMultiCros {
 			return size0;
 		}
 		
-		/** Fetch the stream for this buffer, creating a new one if needed */
+		/** Returns an OPEN stream immediately or creates output from CLOSED state.
+		 * The early OPEN return bypasses the later queue-promotion code.
+		 * @return Active destination output */
 		private synchronized ConcurrentReadOutputStream getStream(){
-			if(state==OPEN) {return currentRos;}
-			else if(state==CLOSED) {assert(currentRos==null);}
-			else {assert(false);}
+			if(state==OPEN){return currentRos;}else if(state==CLOSED){assert(currentRos==null);}else{assert(false);}
 			if(verbose){System.err.println("Enter getStream("+name+"); ros="+(currentRos!=null)+", +streamQueue="+streamQueue);}
 			
 			if(currentRos!=null){//The stream already exists
@@ -473,7 +546,10 @@ public class MultiCros4 extends BufferedMultiCros {
 			return currentRos;
 		}
 		
-		/** Create a stream for this buffer, and stick it in the queue */
+		/** Acquires a token, starts append-mode output and appends this active name.
+		 * May request another retirement or wait for a token. Overwrite deletion and
+		 * shared-header forwarding apply only before this destination's first dump.
+		 * @return Newly started stream */
 		private synchronized ConcurrentReadOutputStream createStream(){
 			assert(state==CLOSED);
 			assert(currentRos==null) : "This should never be called if there is an existing stream.";
@@ -498,17 +574,17 @@ public class MultiCros4 extends BufferedMultiCros {
 			assert(streamQueue.size()<maxOpenStreams) : "Too many streams: "+streamQueue+", "+maxStreams;
 			assert(token==null);
 			Token t=null;
-			if(verbose) {System.err.println("Fetching token for "+name);}
-			while(t==null) {
-				try {
+			if(verbose){System.err.println("Fetching token for "+name);}
+			while(t==null){
+				try{
 					t=freeTokens.take();
-				} catch (InterruptedException e) {
+				}catch(InterruptedException e){
 					// TODO Auto-generated catch block
 					e.printStackTrace();
 				}
 			}
 			time2=System.nanoTime();
-			if(verbose) {System.err.println("Got token for "+name);}
+			if(verbose){System.err.println("Got token for "+name);}
 			giveToken(t);
 			
 			//Create a stream
@@ -532,41 +608,46 @@ public class MultiCros4 extends BufferedMultiCros {
 			return currentRos;
 		}
 		
-		/** Delete this file if it exists */
+		/** Attempts first-open removal before append-mode output.
+		 * @param ff Descriptor to remove; null is ignored */
 		private void delete(FileFormat ff){
 			if(ff==null){return;}
 			assert(overwrite || !ff.exists()) : "Trying to delete file "+ff.name()+", but overwrite=f.  Please add the flag overwrite=t.";
+			//TODO: Probable bug - STR238: FileFormat.deleteIfPresent ignores File.delete's
+			//boolean result, so an unsuccessful removal can leave old data for append output.
 			ff.deleteIfPresent();
 		}
 		
 		/** 
-		 * Format this buffer's summary as a line of text.
+		 * Appends name, cumulative individual reads/bases and optional cardinality.
 		 * @param bb ByteBuilder to append the text
 		 * @return The modified ByteBuilder
 		 */
-		ByteBuilder appendTo(ByteBuilder bb) {
+		ByteBuilder appendTo(ByteBuilder bb){
 			bb.append(name).tab().append(readsIn).tab().append(basesIn);
 			if(trackCardinality){bb.tab().append(loglog.cardinality());}
 			return bb.nl();
 		}
 		
+		/** @return The ordinary report row, or state diagnostics when verbose is enabled */
 		@Override
 		public String toString(){
-			if(verbose) {return toString2();}
+			if(verbose){return toString2();}
 			return appendTo(new ByteBuilder()).toString();
 		}
 		
-		/** Returns detailed string representation including state and stream status */
+		/** @return Name, state value and whether a stream reference is present */
 		public String toString2(){
 			return name+" "+state+" "+(currentRos!=null);
 		}
 		
 		/**
 		 * Changes buffer state with validation.
-		 * Manages state transitions between CLOSED, OPEN, and RETIRING.
+		 * Requires the CLOSED-to-OPEN-to-RETIRING-to-CLOSED cycle under assertions.
+		 * Entering CLOSED clears currentRos but does not detach or return the token.
 		 * @param newState The new state to set
 		 */
-		synchronized void setState(int newState) {
+		synchronized void setState(int newState){
 			if(verbose){
 				System.err.println("setState "+name+" "+state+" -> "+newState+"; ros="+(currentRos!=null));
 			}
@@ -577,18 +658,17 @@ public class MultiCros4 extends BufferedMultiCros {
 			assert(state!=newState);
 			assert(x==newState);
 			state=newState;
-			if(state==CLOSED) {currentRos=null;}
-			else if(state==RETIRING) {assert(list.isEmpty());}
+			if(state==CLOSED){currentRos=null;}else if(state==RETIRING){assert(list.isEmpty());}
 		}
 		
-		/** Gets current buffer state (CLOSED, OPEN, or RETIRING) */
-		synchronized int getState() {
+		/** @return Synchronized state snapshot; this does not transfer token ownership */
+		synchronized int getState(){
 			return state;
 		}
 		
 		/** Assigns token to this buffer for stream creation.
 		 * @param t The token to assign */
-		synchronized void giveToken(Token t) {
+		synchronized void giveToken(Token t){
 			assert(token==null);
 			assert(state==CLOSED);
 			assert(t!=null);
@@ -597,7 +677,7 @@ public class MultiCros4 extends BufferedMultiCros {
 		
 		/** Removes and returns this buffer's token.
 		 * @return The token that was assigned to this buffer */
-		synchronized Token takeToken() {
+		synchronized Token takeToken(){
 			assert(token!=null);
 			assert(state==CLOSED) : state;
 			Token t=token;
@@ -623,14 +703,14 @@ public class MultiCros4 extends BufferedMultiCros {
 		
 		/** Current list of buffered reads */
 		private ArrayList<Read> list;
-		/** List of buffered reads to dump */
+		/** Unused retained field; current dumping operates directly on list. */
 		private ArrayList<Read> dumpList;
 		
-		/** Number of reads entering the buffer */
+		/** Cumulative individual reads, including mates. */
 		private long readsIn=0;
-		/** Number of bases entering the buffer */
+		/** Cumulative sequence bases, including mates. */
 		private long basesIn=0;
-		/** Number of reads written to disk */
+		/** Root-list entries handed downstream, not a durable-output or mate-inclusive count. */
 		@SuppressWarnings("unused")
 		private long readsWritten=0;//This does not count read2!
 		/** Number of bytes currently in this buffer (estimated) */
@@ -642,45 +722,49 @@ public class MultiCros4 extends BufferedMultiCros {
 		
 	}
 	
-	private class RetireThread extends Thread {
+	/** Constructor-started helper that closes queued outputs and returns their tokens. */
+	private class RetireThread extends Thread{
 		
+		/** Consumes retirement requests; forwards the shared terminal marker before exiting. */
 		@Override
-		public void run() {
-			while(true) {
+		public void run(){
+			while(true){
 				Buffer b=null;
-				if(verbose) {System.err.println("Retire thread fetching buffer; retQueue="+retireQueue);}
-				while(b==null) {
-					try {
+				if(verbose){System.err.println("Retire thread fetching buffer; retQueue="+retireQueue);}
+				while(b==null){
+					try{
 						b=retireQueue.take();
-					} catch (InterruptedException e) {
+					}catch(InterruptedException e){
 						// TODO Auto-generated catch block
 						e.printStackTrace();
 					}
 				}
-				if(verbose) {System.err.println("Retire thread fetched "+b.name+"; retQueue="+retireQueue);}
-				if(b==POISON_BUFFER) {
-					for(boolean success=false; success==false;) {
-						try {
+				if(verbose){System.err.println("Retire thread fetched "+b.name+"; retQueue="+retireQueue);}
+				if(b==POISON_BUFFER){
+					for(boolean success=false; success==false;){
+						try{
 							retireQueue.put(b);
 							success=true;
-						} catch (InterruptedException e) {
+						}catch(InterruptedException e){
 							// TODO Auto-generated catch block
 							e.printStackTrace();
 						}
 					}
-					if(verbose) {System.err.println("Retire thread terminated.");}
+					if(verbose){System.err.println("Retire thread terminated.");}
 					return;
 				}
 				retire(b);
 			}
 		}
 		
-		/** Retires buffer by closing its stream and releasing its token.
+		/** Closes a stream, records its result, publishes CLOSED and returns its token.
 		 * @param b The buffer to retire */
-		void retire(Buffer b) {
-			if(verbose) {System.err.println("Retire thread retiring "+b.name+".");}
+		void retire(Buffer b){
+			if(verbose){System.err.println("Retire thread retiring "+b.name+".");}
 			
 			assert(b.currentRos!=null) : b.state+", "+b.name;
+			//TODO: Possible bug - STR246: multiple helpers update shared errorState with
+			//an unsynchronized read-modify-write; a false result can overwrite a concurrent true.
 			errorState=ReadWrite.closeStream(b.currentRos) | errorState;//Traditional synchronous close-and-wait
 			
 //			ros.close();
@@ -688,16 +772,21 @@ public class MultiCros4 extends BufferedMultiCros {
 //			errorState|=(ros.errorState() || !ros.finishedSuccessfully());
 			if(verbose){System.err.println("Exit retire("+b.name+"); ros="+(b.currentRos!=null)+
 					", streamQueue="+streamQueue);}
-			b.setState(CLOSED);//Delete the pointer to output stream
-			Token t=b.takeToken();
+			//STR245: reopening must observe CLOSED and an absent old token together.
+			final Token t;
+			synchronized(b){
+				b.setState(CLOSED);
+				t=b.takeToken();
+			}
 			freeTokens.add(t);
 
-			if(verbose) {System.err.println("Retire thread retired "+b.name+".");}
+			if(verbose){System.err.println("Retire thread retired "+b.name+".");}
 		}
 		
 	}
 	
-	private static class Token {
+	/** One logical-destination reservation held through output retirement. */
+	private static class Token{
 		/** Creates token with specified ID.
 		 * @param id_ Unique identifier for this token */
 		Token(int id_){id=id_;}
@@ -709,13 +798,13 @@ public class MultiCros4 extends BufferedMultiCros {
 	/*----------------             Fields           ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Maximum number of retire threads to use */
+	/** Configured retirement allowance/queue capacity; actual helper count is capped at eight. */
 	private final int maxRetireThreads;
 
-	/** Allow this many open streams */
+	/** Active-name queue limit, reserving part of the token budget for retiring streams. */
 	public final int maxOpenStreams;
 	
-	/** Open stream names */
+	/** Active names in creation/reopen order; OPEN access does not refresh recency. */
 	private final ArrayDeque<String> streamQueue;
 	
 	/** Tokens available for use */
@@ -724,7 +813,7 @@ public class MultiCros4 extends BufferedMultiCros {
 	/** Buffers waiting to retire */
 	private final ArrayBlockingQueue<Buffer> retireQueue;
 	
-	/** Buffers waiting to retire */
+	/** Retirement helper instances started by the constructor. */
 	private final ArrayList<RetireThread> retireThreads;
 	
 	/** Map of names to buffers */
@@ -737,9 +826,7 @@ public class MultiCros4 extends BufferedMultiCros {
 	/*----------------         Static Fields        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Buffer state constant: stream is being retired by background thread */
-	/** Buffer state constant: stream is open and active */
-	/** Buffer state constant: stream is closed */
+	/** Cyclic stream states: closed, active, then queued/ongoing retirement. */
 	private static final int CLOSED=0, OPEN=1, RETIRING=2;
 
 }

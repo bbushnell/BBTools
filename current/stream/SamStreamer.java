@@ -16,7 +16,8 @@ import template.ThreadWaiter;
  * SAM reader with one input thread and one or more parsing workers coordinated by
  * OrderedQueueSystem. ByteFile may add background threads. Construction does not
  * start reading; configure sampling before one start and consume nextLines or
- * nextReads. Shared header and ByteFile settings affect other readers in the JVM.
+ * nextReads. Shared header publication affects other readers in the JVM.
+ * Global ByteFile force flags take precedence over this reader's local BF2 preference.
  * Input limits count nonheader records before sampling; discarded records are not
  * parsed. Output batches can be empty after sampling. Ordering follows the queue
  * implementation, not a guarantee that an ordered=false request disables ordering.
@@ -301,8 +302,8 @@ public class SamStreamer implements Streamer{
 		}
 
 		/** Reads SAM lines into byte-array batches for the queue.
-		 * Sets the JVM-wide BF2 preference without restoring it; ByteFile factory
-		 * precedence still determines the backend. Nonheader records count toward
+		 * Prefers BF2 locally, honoring global force flags and backend allowances
+		 * through the ByteFile factory. Nonheader records count toward
 		 * maxReads before sampling. Batch thresholds count records and full line bytes
 		 * without newlines, and are checked after adding each record.
 		 * Requested headers publish before the first record or on normal loop exit.
@@ -312,8 +313,7 @@ public class SamStreamer implements Streamer{
 		void processBytes(){
 			if(verbose){outstream.println("tid "+tid+" started processBytes.");}
 
-			ByteFile.FORCE_MODE_BF2=true;
-			ByteFile bf=ByteFile.makeByteFile(ffin);
+			ByteFile bf=ByteFile.makeByteFileWithPreference(ffin, 2);
 
 			long listNumber=0;
 			long reads=0;

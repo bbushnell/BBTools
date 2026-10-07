@@ -22,80 +22,41 @@ import var2.Scaffold;
 
 
 /**
- * Represents a single line in a SAM (Sequence Alignment/Map) format file.
- * Provides comprehensive parsing, manipulation, and generation of SAM records
- * with support for all standard SAM fields and optional tags. Handles conversion
- * between SAM format and internal Read objects, CIGAR string processing,
- * and various alignment quality calculations.
+ * Mutable SAM alignment fields with Read conversion, CIGAR helpers and text output.
+ * Parsing and output follow process-wide flags; this is not a complete SAM validator.
+ * qual stores numeric Phred scores, with ASCII-33 conversion at text boundaries.
+ * Parsing may reverse-complement sequence and reverse qualities under FLIP_ON_LOAD;
+ * setters retain the orientation supplied by the caller. Configure name-storage and
+ * orientation policies consistently before constructing and serializing records.
+ * Copies share arrays, optional tags and auxiliary objects. Callers coordinate mutation,
+ * borrowed references and changes to global policy when records are shared.
  *
  * @author Brian Bushnell
  */
-public class SamLine implements Serializable {
-
-//	426_647_582	161	chr1	10159	0	26M9H	chr3	170711991	0	TCCCTAACCCTAACCCTAACCTAACC	IIFIIIIIIIIIIIIIIIIIICH2<>	RG:Z:20110708003021394	NH:i:3	CM:i:2	SM:i:1	CQ:Z:A9?(BB?:<A?>=>B67=:7A);.%8'%))/%*%'	CS:Z:G12002301002301002301023010200000003	XS:A:+
-
-//	1 QNAME String [!-?A-~]f1,255g Query template NAME
-//	2 FLAG Int [0,216-1] bitwise FLAG
-//	3 RNAME String \*|[!-()+-<>-~][!-~]* Reference sequence NAME
-//	4 POS Int [0,229-1] 1-based leftmost mapping POSition
-//	5 MAPQ Int [0,28-1] MAPping Quality
-//	6 CIGAR String \*|([0-9]+[MIDNSHPX=])+ CIGAR string
-//	7 RNEXT String \*|=|[!-()+-<>-~][!-~]* Ref. name of the mate/next fragment
-//	8 PNEXT Int [0,229-1] Position of the mate/next fragment
-//	9 TLEN Int [-229+1,229-1] observed Template LENgth
-//	10 SEQ String \*|[A-Za-z=.]+ fragment SEQuence
-//	11 QUAL String [!-~]+ ASCII of Phred-scaled base QUALity+33
-
-
-//	FCB062MABXX:1:1101:1177:2115#GGCTACAA	147	chr11	47765857	29	90M	=	47765579	-368	CCTCTGTGGCCCGGGTTGGAGTGCAGTGTCATGATCATGGCTCGCTGTAGCTACACCCTTCTGAGCTCAAGCAATCCTCCCACCTCTCCC	############################################################A@@><D<AAAB<=A2BD/BC<7:<4<%679	XT:A:M	NM:i:5	SM:i:29	AM:i:29	XM:i:5	XO:i:0	XG:i:0	MD:Z:7T4A15G26A30A3
-//	FCB062MABXX:1:1101:1193:2122#GGCTACAA	77	*	    0	         0	*	*	0	           0	TATATATGTGCTATGTACAGCATTGGAATTCACACCCTACACTTTCAAAAGNGAGCCCTAAATAAATGTTAGATCGGAAGAGCACACGTC	FCFCFDDDADDEDEBDAEDFEDEFFGGFGGHEEFHHHHHHEDDDEDFFEFB#CBBA@B8BGGFGEEEC>DGGGDFBGGGGHHHHH9<@##
-
+public class SamLine implements Serializable{
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Serialization version identifier */
-	private static final long serialVersionUID = -4180486051387471116L;
+	/** Creates default-valued fields with scafnum=-1; does not create a validated alignment. */
+	public SamLine(){}
 
-	/** Creates an empty SamLine instance */
-	public SamLine() {}
+	/** Shallow-copies record state, sharing arrays, optional tags and auxiliary objects.
+	 * @param sl Nonnull source; no normalization or independent copies are made */
+	public SamLine(SamLine sl){setFrom(sl);}
 
-	/** Copy constructor that creates a new SamLine from an existing one.
-	 * @param sl Source SamLine to copy */
-	public SamLine(SamLine sl){
-		setFrom(sl);
-	}
-
-	/** Copies all fields from another SamLine to this instance.
-	 * @param sl Source SamLine to copy from */
-	private void setFrom(SamLine sl){
-		qname=sl.qname;
-		flag=sl.flag;
-		rname=sl.rname;
-		rnameS=sl.rnameS;
-		pos=sl.pos;
-		mapq=sl.mapq;
-		cigar=sl.cigar;
-		rnext=sl.rnext;
-		pnext=sl.pnext;
-		tlen=sl.tlen;
-		seq=sl.seq;
-		qual=sl.qual;
-		optional=sl.optional;
-		//[stream/SamLine#004] FIXED: previously omitted mdTag/obj/scafnum (later-added-field-not-copied pattern). A copy must reproduce ALL state.
-		mdTag=sl.mdTag;
-		obj=sl.obj;
-		scafnum=sl.scafnum;
-	}
-
-	/**
-	 * Creates a SamLine from a Read object, calculating SAM fields from
-	 * alignment information. Handles paired-end reads, CIGAR generation,
-	 * and coordinate calculations.
-	 * @param r1 Primary read to convert
-	 * @param fragNum Fragment number (0 for first, 1 for second in pair)
-	 */
+	/** Builds fields from a Read using current name, alignment and optional-tag policies.
+	 * With no Data.scaffoldLocs and a retained r1.samline, asserts SET_FROM_OK and shallow-copies
+	 * that record, returning before rebuilding fields or applying fragNum. Otherwise mapped
+	 * coordinates depend on loaded Data scaffold metadata. Multi-scaffold alignments can clear
+	 * mapped/paired flags and match arrays on r1 or its mate. Sequence and numeric qualities
+	 * normally share r1's arrays; configured secondary-record suppression omits them.
+	 * Trailing-clip and out-of-bounds indel helpers scan original match arrays and expect
+	 * expanded operations in the scanned regions. Later short-match expansion is local to
+	 * CIGAR generation; optional-tag generation also receives the original Read objects.
+	 * @param r1 Nonnull read; the rebuilding path requires an identifier and compatible mapping metadata
+	 * @param fragNum Zero-based mate selector for rebuilt flags, conventionally 0 or 1 */
 	public SamLine(Read r1, int fragNum){
 
 		if(verbose){
@@ -212,6 +173,9 @@ public class SamLine implements Serializable {
 				int clip=countLeadingClip(r2.match);
 				int clippedIndels=countLeadingIndels(a2, r2.match);
 				int tclip=countTrailingClip(r2.match);
+				//TODO [STR-334]: this uses r1's scaffold length, so it can scan extra mate suffix
+				//operations on different scaffolds or when r1 is unmapped. The result affects only
+				//pos1_mate, used for sameScaf TLEN/assertions where lengths agree; no output discrepancy is established.
 				int tclippedIndels=countTrailingIndels(b2, scaflen, r2.match);
 				if(verbose){
 					System.err.println("leadingClip="+clip);
@@ -337,14 +301,14 @@ public class SamLine implements Serializable {
 //			"\nname1="+name1+"\nname2="+name2+"\nrname="+rname+"\nrnext="+rnext+"\nidx1="+idx1+"\nidx2="+idx2;
 
 		if(Data.scaffoldPrefixes){
-			 if(rname!=null && rname!=bytestar){
-				 int k=Tools.indexOf(rname, (byte)'$');
-				 rname=KillSwitch.copyOfRange(rname, k+1, rname.length);
-			 }
-			 if(rnext!=null && rnext!=bytestar){
-				 int k=Tools.indexOf(rnext, (byte)'$');
-				 rnext=KillSwitch.copyOfRange(rnext, k+1, rnext.length);
-			 }
+			if(rname!=null && rname!=bytestar){
+				int k=Tools.indexOf(rname, (byte)'$');
+				rname=KillSwitch.copyOfRange(rname, k+1, rname.length);
+			}
+			if(rnext!=null && rnext!=bytestar){
+				int k=Tools.indexOf(rnext, (byte)'$');
+				rnext=KillSwitch.copyOfRange(rnext, k+1, rnext.length);
+			}
 		}
 
 //		if(r2==null || r.stop<=r2.start){
@@ -426,8 +390,13 @@ public class SamLine implements Serializable {
 //		assert(r.pairnum()==1) : "\n"+r.toText(false)+"\n"+this+"\n"+r2;
 	}
 
-	/** Creates a SamLine using a LineParser1 for efficient parsing.
-	 * @param lp LineParser1 positioned at a SAM line */
+	/** Parses an alignment under PARSE_* selection flags, mutating the parser's field bounds.
+	 * FLAG, POS, MAPQ and SEQ are read unconditionally; selected arrays are copied from the
+	 * parser buffer and strings decoded as US-ASCII. Text QUAL is converted to numeric Phred.
+	 * Mapped reverse-strand records are flipped in place when FLIP_ON_LOAD is enabled.
+	 * The optional MD-prefix filter takes precedence over the YQ-prefix filter. Name trimming
+	 * then follows TRIM_READ_DESCRIPTION; this constructor does not completely validate SAM.
+	 * @param lp Nonnull parser containing a tab-delimited alignment, not a header line */
 	public SamLine(LineParser1 lp){
 		assert(!lp.startsWith('@')) : "Tried to make a SamLine from a header: "+lp.toString();
 
@@ -438,7 +407,7 @@ public class SamLine implements Serializable {
 			boolean isStar=lp.currentTermEquals(star);
 			if(RNAME_AS_BYTES){
 				rname=(isStar) ? null : lp.parseByteArray(2);
-			}else {
+			}else{
 				rnameS=(isStar) ? null : lp.parseString(2);
 			}
 		}
@@ -480,10 +449,10 @@ public class SamLine implements Serializable {
 			Vector.add(qual, (byte)(-33));
 		}
 
-		if(PARSE_OPTIONAL && lp.terms()>11) {
+		if(PARSE_OPTIONAL && lp.terms()>11){
 			if(PARSE_OPTIONAL_MD_ONLY){
 				optional=new ArrayList<String>(1);
-				for(int i=11, terms=lp.terms(); i<terms; i++) {
+				for(int i=11, terms=lp.terms(); i<terms; i++){
 					if(lp.termStartsWith("MD:", i)){
 						String s=lp.parseString(i);
 						optional.add(s);
@@ -491,9 +460,9 @@ public class SamLine implements Serializable {
 //						mdTag=lp.parseByteArrayFromCurrentField();//Not really needed
 					}
 				}
-			}else if(PARSE_OPTIONAL_MATEQ_ONLY) {
+			}else if(PARSE_OPTIONAL_MATEQ_ONLY){
 				optional=new ArrayList<String>(1);
-				for(int i=11, terms=lp.terms(); i<terms; i++) {
+				for(int i=11, terms=lp.terms(); i<terms; i++){
 					if(lp.termStartsWith("YQ:", i)){
 						String s=lp.parseString(i);
 						optional.add(s);
@@ -501,7 +470,7 @@ public class SamLine implements Serializable {
 				}
 			}else{
 				optional=new ArrayList<String>(lp.terms()-11);
-				for(int i=11, terms=lp.terms(); i<terms; i++) {
+				for(int i=11, terms=lp.terms(); i<terms; i++){
 					String s=lp.parseString(i);
 					optional.add(s);
 				}
@@ -511,8 +480,35 @@ public class SamLine implements Serializable {
 		trimNames();
 	}
 
-	/** Trims reference names and read names to whitespace boundaries at input time,
-	 * gated by TRIM_READ_DESCRIPTION (input-side normalization for all formats). */
+	/*--------------------------------------------------------------*/
+	/*-------------------        Methods        --------------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Copies stored scalar fields and references, including both name representations and cached metadata.
+	 * No arrays, optional-tag lists or payload objects are cloned. Requires nonnull sl. */
+	private void setFrom(SamLine sl){
+		qname=sl.qname;
+		flag=sl.flag;
+		rname=sl.rname;
+		rnameS=sl.rnameS;
+		pos=sl.pos;
+		mapq=sl.mapq;
+		cigar=sl.cigar;
+		rnext=sl.rnext;
+		pnext=sl.pnext;
+		tlen=sl.tlen;
+		seq=sl.seq;
+		qual=sl.qual;
+		optional=sl.optional;
+		//[stream/SamLine#004] FIXED: previously omitted mdTag/obj/scafnum (later-added-field-not-copied pattern). A copy must reproduce ALL state.
+		mdTag=sl.mdTag;
+		obj=sl.obj;
+		scafnum=sl.scafnum;
+	}
+
+	/** Applies input-side TRIM_READ_DESCRIPTION to QNAME and the active RNAME/RNEXT fields.
+	 * Tools allocates a prefix array when Character whitespace is found.
+	 * Name setters also canonicalize missing/equal text tokens; output TRIM_* flags are separate. */
 	public void trimNames(){
 		if(Shared.TRIM_READ_DESCRIPTION){
 			if(RNAME_AS_BYTES){
@@ -526,259 +522,9 @@ public class SamLine implements Serializable {
 		}
 	}
 
-	/**
-	 * Extracts only the FLAG field from a SAM line byte array.
-	 * @param s Byte array containing SAM line
-	 * @return FLAG value, or -1 if header line
-	 */
-	public static final int parseFlagOnly(byte[] s){
-		assert(s!=null && s.length>0) : "Blank line.";
-		if(s[0]=='@'){return -1;}
-
-		int a=0, b=0;
-
-		while(b<s.length && s[b]!='\t'){b++;}
-		assert(b>a) : "Missing field 0: "+new String(s);
-		b++;
-		a=b;
-
-		while(b<s.length && s[b]!='\t'){b++;}
-		assert(b>a) : "Missing field 1: "+new String(s);
-		int flag=Parse.parseInt(s, a, b);
-		return flag;
-	}
-
-	/**
-	 * Extracts only the QNAME field from a SAM line byte array.
-	 * @param s Byte array containing SAM line
-	 * @return QNAME string, or null if header line or missing
-	 */
-	public static final String parseNameOnly(byte[] s){
-		assert(s!=null && s.length>0) : "Blank line.";
-		if(s[0]=='@'){return null;}
-
-		int a=0, b=0;
-
-		while(b<s.length && s[b]!='\t'){b++;}
-		assert(b>a) : "Missing field 0: "+new String(s);
-		String qname=(b==a+1 && s[a]=='*' ? null : new String(s, a, b-a, StandardCharsets.US_ASCII));
-		return qname;
-	}
-
-	/*--------------------------------------------------------------*/
-	/*----------------             Cigar            ----------------*/
-	/*--------------------------------------------------------------*/
-
-	public static String toCigar(byte[] match, int start, int stop, long scafLen, byte[] bases) {
-		if(SamLine.VERSION>1.3){
-			return SamLine.toCigar14(match, start, stop, scafLen, bases);
-		}else{
-			return SamLine.toCigar13(match, start, stop, scafLen, bases);
-		}
-	}
-
-	/**
-	 * Converts a match string to SAM v1.3 CIGAR format (uses M for matches/mismatches).
-	 * @param match BBTools match string
-	 * @param readStart Start position on reference
-	 * @param readStop Stop position on reference
-	 * @param reflen Reference sequence length
-	 * @param bases Query bases for validation
-	 * @return CIGAR string in v1.3 format
-	 */
-	public static String toCigar13(byte[] match, int readStart, int readStop, long reflen, byte[] bases){
-		if(match==null || readStart==readStop){return null;}
-		ByteBuilder sb=new ByteBuilder(8);
-		int count=0;
-		char mode='=';
-		char lastMode='=';
-
-		int refloc=readStart;
-
-		int cigarlen=0; //for debugging
-		int opcount=0; //for debugging
-
-		for(int mpos=0; mpos<match.length; mpos++){
-
-			byte m=match[mpos];
-
-			boolean sfdflag=false;
-			if(SOFT_CLIP && (refloc<0 || refloc>=reflen)){
-				mode='S'; //soft-clip out-of-bounds
-				if(m!='I'){refloc++;}
-				if(m=='D'){sfdflag=true;} //Don't add soft-clip count for deletions!
-			}else if(m=='m' || m=='s' || m=='S' || m=='N' || m=='B'){//Little 's' is for a match classified as a sub to improve the affine score.
-				mode='M';
-				refloc++;
-			}else if(m=='I' || m=='X' || m=='Y'){
-				mode='I';
-			}else if(m=='D'){
-				mode='D';
-				refloc++;
-			}else if(m=='C'){
-				mode='S';
-				refloc++;
-			}else{
-				throw new RuntimeException("Invalid match string character '"+(char)m+"' = "+m+" (ascii).  " +
-						"Match string should be in long format here.");
-			}
-
-			if(mode!=lastMode){
-				if(count>0){//Prevents an initial length-0 match
-					sb.append(count);
-//					sb.append(lastMode);
-					if(lastMode=='D' && count>INTRON_LIMIT){sb.append('N');}
-					else{sb.append(lastMode);}
-					if(lastMode!='D'){cigarlen+=count;}
-					opcount+=count;
-				}
-				count=0;
-				lastMode=mode;
-			}
-
-			count++;
-			if(sfdflag){count--;}
-		}
-		sb.append(count);
-		if(mode=='D' && count>INTRON_LIMIT){sb.append('N');}
-		else{sb.append(mode);}
-		if(mode!='D'){cigarlen+=count;}
-		opcount+=count;
-
-		assert(bases==null || cigarlen==bases.length) : "\n(cigarlen = "+cigarlen+") != (bases.length = "+(bases==null ? -1 : bases.length)+")\n" +
-				"cigar = "+sb+"\nmatch = "+new String(match)+"\nbases = "+new String(bases)+"\n";
-
-		return sb.toString();
-	}
-
-	/**
-	 * Converts SAM v1.4+ CIGAR (with = and X) to v1.3 format (M only).
-	 * @param cigar14 CIGAR string in v1.4+ format
-	 * @return CIGAR string in v1.3 format
-	 */
-	public static String toCigar13(String cigar14) {
-		if(cigar14==null){return null;}
-		final int len=cigar14.length();
-
-		int current=0;
-		int mcount=0;
-		ByteBuilder sb=new ByteBuilder(len);
-
-		for(int i=0; i<len; i++){
-			char b=cigar14.charAt(i);
-			if(Tools.isDigit(b)){
-				current=(10*current)+(b-'0');
-			}else{
-				if(b=='X' || b=='=' || b=='M'){
-					mcount+=current;
-				}else{
-					if(mcount>0){
-						sb.append(mcount);
-						sb.append('M');
-						mcount=0;
-					}
-					sb.append(current);
-					sb.append(b);
-				}
-				current=0;
-			}
-		}
-		assert(current==0);
-		if(mcount>0){
-			sb.append(mcount);
-			sb.append('M');
-			mcount=0;
-		}
-		return sb.toString();
-	}
-
-
-	/**
-	 * Converts a match string to SAM v1.4+ CIGAR format (uses = and X).
-	 * @param match BBTools match string
-	 * @param readStart Start position on reference
-	 * @param readStop Stop position on reference
-	 * @param reflen Reference sequence length
-	 * @param bases Query bases for validation
-	 * @return CIGAR string in v1.4+ format
-	 */
-	public static String toCigar14(byte[] match, int readStart, int readStop, long reflen, byte[] bases){
-//		assert(false) : readStart+", "+readStop+", "+reflen;
-		if(match==null || readStart==readStop){return null;}
-		ByteBuilder sb=new ByteBuilder(8);
-		int count=0;
-		char mode='=';
-		char lastMode='=';
-
-		int refloc=readStart;
-
-		int cigarlen=0; //for debugging
-		int opcount=0; //for debugging
-
-		for(int mpos=0; mpos<match.length; mpos++){
-
-			byte m=match[mpos];
-
-			boolean sfdflag=false;
-			if(SOFT_CLIP && (refloc<0 || refloc>=reflen)){
-				mode='S'; //soft-clip out-of-bounds
-				if(m!='I'){refloc++;}
-				if(m=='D'){sfdflag=true;} //Don't add soft-clip count for deletions!
-			}else if(m=='m' || m=='s'){//Little 's' is for a match classified as a sub to improve the affine score.
-				mode='=';
-				refloc++;
-			}else if(m=='S' || m=='V'){
-				mode='X';
-				refloc++;
-			}else if(m=='I' || m=='X' || m=='Y'){
-				mode='I';
-			}else if(m=='D'){
-				mode='D';
-				refloc++;
-			}else if(m=='C'){
-				mode='S';
-				refloc++;
-			}else if(m=='N' || m=='B'){
-				mode='M';
-				refloc++;
-			}else{
-				throw new RuntimeException("Invalid match string character '"+(char)m+"' = "+m+" (ascii).  " +
-						"Match string should be in long format here.");
-			}
-
-			if(mode!=lastMode){
-				if(count>0){//Prevents an initial length-0 match
-					sb.append(count);
-					if(lastMode=='D' && count>INTRON_LIMIT){sb.append('N');}
-					else{sb.append(lastMode);}
-					if(lastMode!='D'){cigarlen+=count;}
-					opcount+=count;
-				}
-				count=0;
-				lastMode=mode;
-			}
-
-			count++;
-			if(sfdflag){count--;}
-		}
-		sb.append(count);
-		if(mode=='D' && count>INTRON_LIMIT){
-			sb.append('N');
-		}else{
-			sb.append(mode);
-		}
-		if(mode!='D'){cigarlen+=count;}
-		opcount+=count;
-
-		assert(bases==null || cigarlen==bases.length) : "\n(cigarlen = "+cigarlen+") != (bases.length = "+(bases==null ? -1 : bases.length)+")\n" +
-				"cigar = "+sb+"\nmatch = "+new String(match)+"\nbases = "+new String(bases)+"\n";
-
-		return sb.toString();
-	}
-
-	/** Tests if CIGAR string contains only match (M) and exact match (=) operations.
-	 * @return True if CIGAR has only M, =, and digits */
-	public boolean cigarContainsOnlyME() {
+	/** Tests only the character alphabet: M, = and Character digits, with nonempty input.
+	 * This does not validate alternating positive counts and operations; null/empty returns false. */
+	public boolean cigarContainsOnlyME(){
 		if(cigar==null || cigar.length()==0){return false;}
 		for(int i=0; i<cigar.length(); i++){
 			char c=cigar.charAt(i);
@@ -792,347 +538,25 @@ public class SamLine implements Serializable {
 	}
 
 	/**
-	 * Calculates reference span length from this SamLine's CIGAR string.
+	 * Returns this record's reference span plus explicitly requested clipping contributions.
 	 * @param includeSoftClip Whether to include soft-clipped bases
 	 * @param includeHardClip Whether to include hard-clipped bases
-	 * @return Reference length consumed by alignment
+	 * @return Reference count from calcCigarLength, or zero for null CIGAR
 	 */
-	public int calcCigarLength(boolean includeSoftClip, boolean includeHardClip){
-		return calcCigarLength(cigar, includeSoftClip, includeHardClip);
-	}
+	public int calcCigarLength(boolean includeSoftClip, boolean includeHardClip){return calcCigarLength(cigar, includeSoftClip, includeHardClip);}
 
 	/**
-	 * Calculates query sequence length from this SamLine's CIGAR string.
+	 * Returns this record's query count with explicitly requested clipping contributions.
 	 * @param includeSoftClip Whether to include soft-clipped bases
 	 * @param includeHardClip Whether to include hard-clipped bases
-	 * @return Query length consumed by alignment
+	 * @return Query count from calcCigarReadLength, or zero for null CIGAR
 	 */
-	public int calcCigarReadLength(boolean includeSoftClip, boolean includeHardClip){
-		return calcCigarReadLength(cigar, includeSoftClip, includeHardClip);
-	}
+	public int calcCigarReadLength(boolean includeSoftClip, boolean includeHardClip){return calcCigarReadLength(cigar, includeSoftClip, includeHardClip);}
 
-	/** Reference length of cigar string */
-	public static int calcCigarLength(String cigar, boolean includeSoftClip, boolean includeHardClip){
-		if(cigar==null){return 0;}
-		int len=0;
-		int current=0;
-		for(int i=0; i<cigar.length(); i++){
-			char c=cigar.charAt(i);
-			if(Tools.isDigit(c)){
-				current=(current*10)+(c-'0');
-			}else{
-				if(c=='M' || c=='=' || c=='X' || c=='D' || c=='N'){
-					len+=current;
-				}else if(c=='S'){
-					if(includeSoftClip){len+=current;}
-				}else if (c=='H'){
-					//In this case, the base string is the wrong length since letters were truncated.
-					//Therefore, the bases cannot be used for calling variations after mapping.
-					//Hard clipping messes up original location verification.
-					//Therefore...  len+=current would be best in practice, but for GRADING purposes, leaving it disabled is best.
-
-					if(includeHardClip){len+=current;}
-				}else if(c=='I'){
-					//do nothing
-				}else if(c=='P'){
-					throw new RuntimeException("Unhandled cigar symbol: "+c+"\n"+cigar+"\n");
-					//'P' is currently poorly defined
-				}else{
-					throw new RuntimeException("Unhandled cigar symbol: "+c+"\n"+cigar+"\n");
-				}
-				current=0;
-			}
-		}
-		return len;
-	}
-
-	/** Reference length of cigar string */
-	public static int calcCigarReadLength(String cigar, boolean includeSoftClip, boolean includeHardClip){
-		if(cigar==null){return 0;}
-		int len=0;
-		int current=0;
-		for(int i=0; i<cigar.length(); i++){
-			char c=cigar.charAt(i);
-			if(Tools.isDigit(c)){
-				current=(current*10)+(c-'0');
-			}else{
-				if(c=='M' || c=='=' || c=='X' || c=='I'){
-					len+=current;
-				}else if(c=='S'){
-					if(includeSoftClip){len+=current;}
-				}else if (c=='H'){
-					//In this case, the base string is the wrong length since letters were truncated.
-					//Therefore, the bases cannot be used for calling variations after mapping.
-					//Hard clipping messes up original location verification.
-					//Therefore...  len+=current would be best in practice, but for GRADING purposes, leaving it disabled is best.
-
-					if(includeHardClip){len+=current;}
-				}else if(c=='D' || c=='N'){
-					//do nothing
-				}else if(c=='P'){
-					throw new RuntimeException("Unhandled cigar symbol: "+c+"\n"+cigar+"\n");
-					//'P' is currently poorly defined
-				}else{
-					throw new RuntimeException("Unhandled cigar symbol: "+c+"\n"+cigar+"\n");
-				}
-				current=0;
-			}
-		}
-		return len;
-	}
-
-	/** Number of query bases in cigar string */
-	public static int calcCigarBases(String cigar, boolean includeSoftClip, boolean includeHardClip){
-		if(cigar==null){return 0;}
-		int len=0;
-		int current=0;
-		for(int i=0; i<cigar.length(); i++){
-			char c=cigar.charAt(i);
-			if(Tools.isDigit(c)){
-				current=(current*10)+(c-'0');
-			}else{
-				if(c=='M' || c=='=' || c=='X' || c=='I'){
-					len+=current;
-				}else if(c=='D' || c=='N'){
-					//do nothing
-				}else if (c=='H'){
-					if(includeHardClip){len+=current;}
-				}else if(c=='S'){
-					if(includeSoftClip){len+=current;}
-				}else if(c=='P'){
-					throw new RuntimeException("Unhandled cigar symbol: "+c+"\n"+cigar+"\n");
-					//'P' is currently poorly defined
-				}else{
-					throw new RuntimeException("Unhandled cigar symbol: "+c+"\n"+cigar+"\n");
-				}
-				current=0;
-			}
-		}
-		return len;
-	}
-
-	/** Length of clipped initial bases.  Used to calculate correct start location of clipped reads. */
-	public static int countLeadingClip(String cigar, boolean includeSoftClip, boolean includeHardClip){
-		if(cigar==null || (!includeSoftClip && !includeHardClip)){return 0;}
-		int len=0;
-		int current=0;
-		for(int i=0; i<cigar.length(); i++){
-			char c=cigar.charAt(i);
-			if(Tools.isLetter(c) || c=='='){
-				if(c=='H'){
-					if(includeHardClip){
-						len+=current;
-					}
-				}else if(c=='S'){
-					if(includeSoftClip){
-						len+=current;
-					}
-				}else{
-					break;
-				}
-				current=0;
-			}else{
-				current=(current*10)+(c-'0');
-			}
-		}
-		return len;
-	}
-
-	/** Length of clipped final bases.  Used to calculate correct stop location of clipped reads. */
-	public static int countTrailingClip(String cigar, boolean includeSoftClip, boolean includeHardClip){
-		if(cigar==null || (!includeSoftClip && !includeHardClip)){return 0;}
-		int len=0;
-		if(includeHardClip){len+=countTrailingHardClip(cigar);}
-		int last=cigar.lastIndexOf('S');
-
-		int mult=1;
-		int i;
-		for(i=last-1; i>=0; i--){
-			char c=cigar.charAt(i);
-			if(Tools.isLetter(c) || c=='='){
-				break;
-			}
-			len+=(c-'0')*mult;
-			mult*=10;
-		}
-		//TODO: Possible bug [stream/SamLine#002] - i<0 means the digit-scan hit the string start; returning 0 here DISCARDS the
-		//accumulated trailing-clip len. Bites an all-soft-clip cigar (e.g. "100S"->0) and, for includeHardClip callers, "50M10H"->0.
-		//LOW: only live caller is Realigner(cigar,true,false); all-soft-clip reads are ~illegal (asserted against in calcLeftClip/calcRightClip).
-		//Note: the loop also accumulates soft-clip digits without checking includeSoftClip, so a naive 'return len' mishandles (false,true).
-		//FLAG FOR BRIAN - subtle clip semantics; not auto-fixed. Same i<0 pattern in countTrailingHardClip below.
-		if(i<0){return 0;}
-		return len;
-	}
-
-	/** Length of clipped final bases.  Used to calculate correct stop location of clipped reads. */
-	public static int countTrailingHardClip(String cigar){
-		if(cigar==null){return 0;}
-		int last=cigar.lastIndexOf('H');
-
-		int mult=1, len=0;
-		int i;
-		for(i=last-1; i>=0; i--){
-			char c=cigar.charAt(i);
-			if(Tools.isLetter(c) || c=='='){
-				break;
-			}
-			len+=(c-'0')*mult;
-			mult*=10;
-		}
-		if(i<0){return 0;}
-		return len;
-	}
-
-	/**
-	 * Counts substitutions in an MD tag string.
-	 * @param mdTag MD tag value (with or without MD:Z: prefix)
-	 * @return Number of substitutions found
-	 */
-	public static int countMdSubs(String mdTag){
-		assert(mdTag!=null);
-
-		final int NORMAL=0, SUB=1, DEL=2;
-		int dels=0, subs=0, normals=0;
-
-		if(mdTag!=null){
-			int current=0;
-			int mode=NORMAL;
-			int i=0;
-			if(mdTag.startsWith("MD:Z:")){i=5;}
-			for(final int max=mdTag.length(); i<max; i++){
-				char c=mdTag.charAt(i);
-				if(Tools.isDigit(c)){
-					current=(current*10)+(c-'0');
-					mode=NORMAL;
-				}else{
-					if(current>0){
-						if(mode==NORMAL){normals+=current;}
-						else{assert(false) : mode+", "+current;}
-						current=0;
-					}
-					if(c=='^'){mode=DEL;}
-					else if(mode==DEL){
-						dels++;
-					}else if(mode==NORMAL || mode==SUB){
-						mode=SUB;
-						subs++;
-					}
-				}
-			}
-		}
-		return subs;
-	}
-
-	/** Length of clipped initial bases. */
-	public static int countLeadingClip(byte[] match){
-		if(match==null || match.length<1 || match[0]!='C'){return 0;}
-		int clips=0;
-		int current=0;
-		for(int mloc=0; mloc<match.length; mloc++){
-			byte b=match[mloc];
-			if(Tools.isDigit(b)){
-				current=current*10+(b-'0');
-			}else{
-				if(current>0){
-					clips=clips+current-1;
-				}
-				current=0;
-				if(b!='C'){break;}
-				clips++;
-			}
-		}
-		if(current>0){
-			clips=clips+current-1;
-		}
-		return clips;
-	}
-
-	/** Length of match string portion describing clipped initial bases. */
-	public static int countLeadingClip2(byte[] match){
-		if(match==null || match.length<1 || match[0]!='C'){return 0;}
-		int mloc=0;
-		for(; mloc<match.length; mloc++){
-			byte b=match[mloc];
-			if(b!='C' && !Tools.isDigit(b)){return mloc;}
-		}
-		return match.length;
-	}
-
-	/** Length of clipped trailing bases. */
-	public static int countTrailingClip(byte[] match){
-		if(match==null){return 0;}
-		int clips=0;
-		for(int mloc=match.length-1; mloc>=0; mloc--){
-			byte b=match[mloc];
-			assert(!Tools.isDigit(b)) : new String(match);
-			if(b=='C'){
-				clips++;
-			}else{
-				break;
-			}
-		}
-		return clips;
-	}
-
-	/** Length of clipped (out of bounds) initial insertions and deletions. */
-	public static int countLeadingIndels(int rloc, byte[] match){
-		if(match==null || rloc>=0){return 0;}
-		int dels=0;
-		int inss=0;
-		int cloc=0;
-		for(int mloc=0; mloc<match.length && rloc<0; mloc++){
-			byte b=match[mloc];
-			assert(!Tools.isDigit(b));
-			if(b=='D'){
-				dels++;
-				rloc++;
-			}else if(b=='I'){
-				inss++;
-				cloc++;
-			}else{
-				rloc++;
-				cloc++;
-			}
-		}
-		return dels-inss;
-	}
-
-	/** Length of clipped (out of bounds) trialing insertions and deletions. */
-	public static int countTrailingIndels(int rloc, int rlen, byte[] match){
-		//[stream/SamLine#003] FIXED 2026-06-20 (greenlit by Brian): ENABLED the trailing out-of-bounds indel
-		//correction (was silently disabled by a copy-pasted leading-version guard). Two coupled changes:
-		//(1) guard 'rloc>=0' -> 'rloc<rlen' so it fires on a 3' overhang (rloc>=rlen), mirroring the leading
-		//version's rloc<0; (2) loop start 'match.length' -> 'match.length-1' to avoid the AIOOBE (match[length]).
-		//Effect: corrects SAM POS/TLEN for reads overhanging a scaffold 3' end with indels in the overhang
-		//(previously only the 5' end was corrected). VALIDATED 2026-06-20 (Furina): direct unit test of this method —
-		//guard (rloc<rlen->0), del/ins counting (+1/-1), null/empty inputs, AND the deep-overhang case (rloc>>match.length)
-		//that the pre-fix loop start 'match.length' would have AIOOBE'd on — all pass; numerically symmetric with the
-		//working countLeadingIndels. (Live BBMap 3'-overhang-with-indel repro deferred as impractical per Brian; the
-		//unit test exercises the fixed code directly, which is the stronger check.)
-		if(match==null || rloc<rlen){return 0;}
-		int dels=0;
-		int inss=0;
-		int cloc=0;
-		for(int mloc=match.length-1; mloc>=0 && rloc>=rlen; mloc--){
-			byte b=match[mloc];
-			assert(!Tools.isDigit(b));
-			if(b=='D'){
-				dels++;
-				rloc--;
-			}else if(b=='I'){
-				inss++;
-				cloc--;
-			}else{
-				rloc--;
-				cloc--;
-			}
-		}
-		return dels-inss;
-	}
-
-	/** Counts aligned bases excluding clipped regions.
-	 * @return Number of mapped non-clipped bases */
-	public int mappedNonClippedBases() {
+	/** Sums M/=/X/I query counts for a mapped record, excluding clips and D/N gaps.
+	 * Returns zero for unmapped records or null CIGAR. P/unknown operations and a trailing
+	 * digit run contribute nothing; this counter does not validate CIGAR grammar. */
+	public int mappedNonClippedBases(){
 		if(!mapped() || cigar==null){return 0;}
 
 		int len=0;
@@ -1159,42 +583,9 @@ public class SamLine implements Serializable {
 		return len;
 	}
 
-	/**
-	 * @param cigar
-	 * @return Max consecutive match, sub, del, ins, or clip symbols
-	 */
-	public static final int[] cigarToMdsiMax(String cigar) {
-		if(cigar==null){return null;}
-		int[] msdic=KillSwitch.allocInt1D(5);
-
-		int current=0;
-		for(int i=0; i<cigar.length(); i++){
-			char c=cigar.charAt(i);
-			if(Tools.isDigit(c)){
-				current=(current*10)+(c-'0');
-			}else{
-				if(c=='M' || c=='='){
-					msdic[0]=Tools.max(msdic[0], current);
-				}else if(c=='X'){
-					msdic[1]=Tools.max(msdic[1], current);
-				}else if(c=='D' || c=='N'){
-					msdic[2]=Tools.max(msdic[2], current);
-				}else if(c=='I'){
-					msdic[3]=Tools.max(msdic[3], current);
-				}else if(c=='S' || c=='H' || c=='P'){
-					msdic[4]=Tools.max(msdic[4], current);
-				}
-				current=0;
-			}
-		}
-		return msdic;
-	}
-
-	/** Calculates alignment identity from CIGAR string.
-	 * @return Identity fraction (0.0 to 1.0) */
-	/** True if a default reference (ScafMap) is loaded that contains this read's scaffold with bases --
-	 * enough for toShortMatch to resolve an ambiguous M-only cigar against the reference (e.g. CallVariants,
-	 * which always loads the ref). Mirrors toShortMatch's ref-availability conditions. */
+	/** Tests whether the default ScafMap resolves this record's reference name to nonnull bases.
+	 * Lookup retains ScafMap's missing/ambiguous-name diagnostics. Does not check query
+	 * sequence availability, alignment bounds or mapping flags. */
 	private boolean refLoadedForThisRead(){
 		final ScafMap sm=ScafMap.defaultScafMap();
 		if(sm==null){return false;}
@@ -1202,7 +593,15 @@ public class SamLine implements Serializable {
 		return scaf!=null && scaf.bases!=null;
 	}
 
-	public float calcIdentity() {
+	/** Estimates identity under this class's CIGAR/MD/reference policy; requires nonnull CIGAR.
+	 * The direct path uses =/(=+X+D+I), with denominator at least one; N and clips are omitted.
+	 * M alongside =/X is omitted as a BBMap no-call marker. M without =/X first tries
+	 * toShortMatch(false) when MD or reference bases are available, using m/(m+S+I+D)
+	 * from the returned match array. That path has toShortMatch's sequence-mutation contract.
+	 * If no match array is obtained, asserts M_CIGARS_OK through the terminating diagnostic;
+	 * permissive execution counts M as matches. This is not a general CIGAR validator.
+	 * @return Identity fraction for consistent, non-overflowing counts; zero for a zero denominator */
+	public float calcIdentity(){
 		assert(cigar!=null);
 		int match=0, other=0, mCount=0;
 		boolean foundM=false, foundEX=false;
@@ -1252,9 +651,12 @@ public class SamLine implements Serializable {
 		return match/(float)Tools.max(match+other, 1);
 	}
 
-	/** Counts substitutions (X operations) in CIGAR string.
-	 * @return Number of substitutions */
-	public int countSubs() {
+	/** Counts X operations, resolving M-only alignments through toShortMatch(false) when possible.
+	 * M mixed with =/X adds no substitutions. MD/reference resolution may temporarily modify
+	 * seq as documented by toShortMatch. With no resulting match array, an M-only CIGAR
+	 * requires M_CIGARS_OK under assertions; permissive execution returns zero substitutions.
+	 * @return Substitution count, or zero for null CIGAR; does not validate CIGAR grammar */
+	public int countSubs(){
 		if(cigar==null){return 0;}
 
 		int current=0;
@@ -1289,43 +691,22 @@ public class SamLine implements Serializable {
 		return subs; //Mixed M+=/X: M contributes no subs (N-bases); X count stands.
 	}
 
-	/**
-	 * @param cigar
-	 * @return Total number of match, sub, del, ins, or clip symbols
-	 */
-	public static final int[] cigarToMsdic(String cigar) {
-		if(cigar==null){return null;}
-		int[] msdic=KillSwitch.allocInt1D(5);
-
-		int current=0;
-		for(int i=0; i<cigar.length(); i++){
-			char c=cigar.charAt(i);
-			if(Tools.isDigit(c)){
-				current=(current*10)+(c-'0');
-			}else{
-				if(c=='M' || c=='='){
-					msdic[0]+=current;
-				}else if(c=='X'){
-					msdic[1]+=current;
-				}else if(c=='D' || c=='N'){
-					msdic[2]+=current;
-				}else if(c=='I'){
-					msdic[3]+=current;
-				}else if(c=='S' || c=='H' || c=='P'){
-					msdic[4]+=current;
-				}
-				current=0;
-			}
-		}
-		return msdic;
-	}
-
-	/**
-	 * @param allowM Allow M symbols in the cigar string
-	 * @return Match string of this cigar string when possible, otherwise null.
-	 * Takes into account MD tag and bases, but not reference (other than in MD tag).
-	 */
-	public final byte[] toShortMatch(boolean allowM) {
+	/** Converts CIGAR to newly allocated short BBTools match text, optionally resolving ambiguous M.
+	 * Maps =/X/D-or-N/I/S to m/S/D/I/C and omits hard clips. With allowM=false, M mixed
+	 * with =/X becomes N; M alone is resolved using MD or the default ScafMap reference.
+	 * An MD tag with zero substitutions supplies the fast path for M-only input. Otherwise
+	 * PREFER_MDTAG selects MD when present; usable reference/query bases are preferred by
+	 * default, with MD fallback. FIX_MATCH_NS may also reclassify X no-calls when no M exists.
+	 * Correction may reverse-complement stored seq on entry and again on normal completion
+	 * for a minus-strand record with reference/query bases, independently of FLIP_ON_LOAD.
+	 * Callers must supply the expected sequence orientation and coordinate shared-array access.
+	 * Missing M-resolution context uses existing terminating assertions; absent query bases
+	 * without usable MD can leave unresolved match symbols. This is not complete SAM validation.
+	 * @param allowM If true, delegates immediately to cigarToShortMatch_old, encoding M as N
+	 * without MD/reference correction or sequence mutation
+	 * @return Short match array; null for absent/'*' CIGAR and, on the resolving path, P or
+	 * no counted operations, with additional null outcomes in unsupported resolution cases */
+	public final byte[] toShortMatch(boolean allowM){
 		if(cigar==null || cigar.equals(stringstar)){return null;}
 		if(allowM){return cigarToShortMatch_old(cigar, allowM);}
 
@@ -1506,8 +887,7 @@ public class SamLine implements Serializable {
 			final MDWalker walker=new MDWalker(mdTag, cigar, longmatch, this);
 
 			walker.fixMatch(bases);
-		}else
-		if(refBases!=null && bases!=null){
+		}else if(refBases!=null && bases!=null){
 			final int refStart=start(true, false);
 			fixMatch(bases, refBases, longmatch, refStart, false);
 		}
@@ -1529,147 +909,8 @@ public class SamLine implements Serializable {
 		return match;
 	}
 
-	/** Requires longmatch.
-	 * Replaces M  */
-	public static void fixMatch(byte[] call, byte[] ref, byte[] match, int refstart, boolean unClip){
-		for(int mpos=0, rpos=refstart, cpos=0; mpos<match.length; mpos++){
-			assert(cpos>=0 && cpos<call.length) : "\n"+new String(match)+"\n"+new String(call)+"\n"+mpos+", "+cpos;
-			final byte m=match[mpos];
-
-			if(rpos<0 || rpos>=ref.length){
-				if(m=='I'){
-					assert(false) : "Insertion off scaffold end: "+refstart+", "+ref.length+"\n"+new String(call)+"\n"+new String(match);
-					cpos++;
-				}else if(m=='D'){
-					assert(false) : "Deletion off scaffold end: "+refstart+", "+ref.length+"\n"+new String(call)+"\n"+new String(match);
-					rpos++;
-				}else{
-					match[mpos]='C';
-					rpos++;
-					cpos++;
-				}
-			}else if(m=='m' || m=='S' || m=='N' || m=='s' || (m=='C' && unClip)){
-				final byte c=Tools.toUpperCase(call[cpos]);
-				final byte r=Tools.toUpperCase(ref[rpos]);
-				final boolean defined=(AminoAcid.isFullyDefined(c) && AminoAcid.isFullyDefined(r));
-				if(!defined){
-					match[mpos]='N';
-				}else if(c==r){
-					match[mpos]='m';
-				}else{
-					match[mpos]='S';
-				}
-				rpos++;
-				cpos++;
-			}else if(m=='C'){ //Do nothing for clipped call
-				rpos++;
-				cpos++;
-			}else if(m=='I' || m=='X' || m=='Y'){
-				cpos++;
-			}else if(m=='D'){
-				rpos++;
-			}else{
-				assert(false) : Character.toString((char)m);
-			}
-		}
-	}
-
-	/**
-	 * @param cigar
-	 * @return Match string of this cigar string when possible, otherwise null
-	 */
-	public static final byte[] cigarToShortMatch_old(String cigar, boolean allowM) {
-
-		int current=0;
-		ByteBuilder sb=new ByteBuilder(cigar.length());
-
-		for(int i=0; i<cigar.length(); i++){
-			char c=cigar.charAt(i);
-			if(Tools.isDigit(c)){
-				current=(current*10)+(c-'0');
-			}else{
-				if(c=='='){
-					sb.append('m');
-					if(current>1){sb.append(current);}
-				}else if(c=='X'){
-					sb.append('S');
-					if(current>1){sb.append(current);}
-				}else if(c=='D' || c=='N'){
-					sb.append('D');
-					if(current>1){sb.append(current);}
-				}else if(c=='I'){
-					sb.append('I');
-					if(current>1){sb.append(current);}
-				}else if(c=='S'){
-					sb.append('C');
-					if(current>1){sb.append(current);}
-				}else if(c=='M'){
-					if(!allowM){return null;}
-//					sb.append('B');
-					sb.append('N');
-					if(current>1){sb.append(current);}
-				}
-				current=0;
-			}
-		}
-
-		if(sb.array.length==sb.length()){return sb.array;}
-		return sb.toBytes();
-	}
-
-	/*--------------------------------------------------------------*/
-	/*----------------             Tags             ----------------*/
-	/*--------------------------------------------------------------*/
-
-	/**
-	 * Creates YS custom tag indicating stop position.
-	 * @param pos Start position
-	 * @param seqLength Sequence length
-	 * @param cigar CIGAR string
-	 * @param perfect Whether alignment is perfect
-	 * @return YS tag string
-	 */
-	public static String makeStopTag(int pos, int seqLength, String cigar, boolean perfect){
-//		return "YS:i:"+(pos+((cigar==null || perfect) ? seqLength : -countLeadingClip(cigar, false)+calcCigarLength(cigar, false))-1); //123456789
-		return "YS:i:"+(pos+((cigar==null || perfect) ? seqLength : calcCigarLength(cigar, true, false))-1);
-	}
-
-	/**
-	 * Creates YL custom tag indicating query and reference lengths.
-	 * @param pos Start position
-	 * @param seqLength Sequence length
-	 * @param cigar CIGAR string
-	 * @param perfect Whether alignment is perfect
-	 * @return YL tag string
-	 */
-	public static String makeLengthTag(int pos, int seqLength, String cigar, boolean perfect){
-		if(cigar==null || perfect){return "YL:Z:"+seqLength+","+seqLength;}
-		return "YL:Z:"+(seqLength-countLeadingClip(cigar, true, false))+","+calcCigarLength(cigar, false, false);
-	}
-
-	/**
-	 * Creates YI custom tag indicating alignment identity percentage.
-	 * @param match Match string for identity calculation
-	 * @param perfect Whether alignment is perfect
-	 * @return YI tag string with identity percentage
-	 */
-	public static String makeIdentityTag(byte[] match, boolean perfect){
-		if(perfect){return "YI:f:100";}
-		float f=Read.identity(match);
-		return Tools.format("YI:f:%.2f", (100*f));
-	}
-
-	/**
-	 * Creates YR custom tag with alignment score.
-	 * @param score Alignment score
-	 * @return YR tag string
-	 */
-	public static String makeScoreTag(int score){
-		return "YR:i:"+score;
-	}
-
-	/** Retrieves X2 match tag from optional tags.
-	 * @return X2 tag string or null if not present */
+	/** Returns the first optional string starting with X2:Z:, including its prefix.
+	 * Null list/no match returns null; does not decode or validate match text. */
 	public String matchTag(){
 		if(optional==null){return null;}
 		for(String s : optional){
@@ -1681,9 +922,11 @@ public class SamLine implements Serializable {
 	}
 
 	/**
-	 * Creates XS strand tag for spliced alignments.
-	 * @param r Read with spliced alignment
-	 * @return XS tag indicating strand or null if not spliced
+	 * Selects a shared XS strand tag only when r is mapped and this CIGAR contains N.
+	 * Starts from r's strand, inverts for a nonzero pair number, then for XS_SECONDSTRAND.
+	 * This encodes the configured library convention, not an inferred transcript strand.
+	 * @param r Nonnull read supplying mapping status, strand and pair number
+	 * @return Shared XSPLUS/XSMINUS string, or null when the mapping/CIGAR condition fails
 	 */
 	private String makeXSTag(Read r){
 		if(r.mapped() && cigar!=null && cigar.indexOf('N')>=0){
@@ -1701,158 +944,23 @@ public class SamLine implements Serializable {
 	}
 
 	/**
-	 * Creates MD tag string from match data and reference sequence.
-	 * @param chrom Chromosome number
-	 * @param refstart Reference start position
-	 * @param match BBTools match string
-	 * @param call Query bases
-	 * @param scafloc Scaffold location
-	 * @param scaflen Scaffold length
-	 * @return MD tag string
-	 */
-	public static String makeMdTag(int chrom, int refstart, byte[] match, byte[] call, int scafloc, int scaflen){
-		if(match==null || chrom<0){return null;}
-		ByteBuilder md=new ByteBuilder(8);
-		md.append("MD:Z:");
-
-		ChromosomeArray cha=Data.getChromosome(chrom);
-
-		final int scafstop=scafloc+scaflen;
-
-		byte prevM='?';
-		int count=0;
-		int dels=0;
-		boolean prevSub=false;
-		for(int mpos=0, rpos=refstart, cpos=0; mpos<match.length; mpos++){
-			assert(cpos>=0 && cpos<call.length) : "\n"+new String(match)+"\n"+new String(call)+"\n"+mpos+", "+cpos+", "+dels+", "+INTRON_LIMIT;
-			final byte c=call[cpos];
-			final byte m=match[mpos];
-
-			if(prevM=='D' && m!='D'){
-				if(dels<=INTRON_LIMIT){//Otherwise, ignore it
-					md.append(count);
-					count=0;
-					md.append('^');
-					for(int i=rpos-dels; i<rpos; i++){
-						md.append((char)cha.get(i));
-					}
-					dels=0;
-				}
-			}
-
-			if(m=='C' || rpos<scafloc || rpos>=scafstop){ //Do nothing for clipped bases
-				rpos++;
-				if(m!='D'){cpos++;}
-			}else if(m=='m' || m=='s'){
-				count++;
-				rpos++;
-				cpos++;
-			}else if(m=='S'){
-				if(count>0 || !prevSub){md.append(count);}
-				md.append((char)cha.get(rpos));
-
-				count=0;
-				rpos++;
-				cpos++;
-				prevSub=true;
-			}else if(m=='N'){
-
-				final byte r=cha.get(rpos);
-
-				if(c==r){//Act like match
-					count++;
-					rpos++;
-					cpos++;
-				}else{//Act like sub
-					if(count>0 || !prevSub){md.append(count);}
-					md.append((char)r);
-
-					count=0;
-					rpos++;
-					cpos++;
-					prevSub=true;
-				}
-			}else if(m=='I' || m=='X' || m=='Y'){
-				cpos++;
-//				count++;
-			}else if(m=='D'){
-//				if(prevM!='D'){
-//					md.append(count);
-//					count=0;
-//					md.append('^');
-//				}
-//				md.append((char)cha.get(rpos));
-
-				rpos++;
-				dels++;
-			}
-			prevM=m;
-
-		}
-//		if(count>0){
-			md.append(count);
-//		}
-
-		return md.toString();
-	}
-
-	/**
-	 * Calculates left soft clip length from CIGAR string.
-	 * @param cig CIGAR string
-	 * @param id Read identifier for error reporting
-	 * @return Number of left soft-clipped bases
-	 */
-	public static int calcLeftClip(String cig, String id){
-		if(cig==null){return 0;}
-		int len=0;
-		for(int i=0; i<cig.length(); i++){
-			char c=cig.charAt(i);
-			if(Tools.isDigit(c)){
-				len=len*10+(c-'0');
-			}else{
-				assert(c!='S' || i<cig.length()-1);//ban entirely soft-clipped reads
-				return (c=='S') ? len : 0;
-			}
-		}
-		return 0;
-	}
-
-	/**
-	 * Calculates right soft clip length from CIGAR string.
-	 * @param cig CIGAR string
-	 * @param id Read identifier for error reporting
-	 * @return Number of right soft-clipped bases
-	 */
-	public static int calcRightClip(String cig, String id){
-		if(cig==null || cig.length()<1 || cig.charAt(cig.length()-1)!='S'){return 0;}
-		int pos=cig.length()-2;
-		for(; pos>=0 && Tools.isDigit(cig.charAt(pos)); pos--){}
-
-		assert(pos>0) : cig+", id="+id+", pos="+pos;//ban entirely soft-clipped reads
-
-		int len=0;
-		for(int i=pos+1; i<cig.length(); i++){
-			char c=cig.charAt(i);
-			if(Tools.isDigit(c)){
-				len=len*10+(c-'0');
-			}else{
-				return (c=='S') ? len : 0;
-			}
-		}
-		return len;
-	}
-
-	/**
-	 * Creates all optional SAM tags based on read data and configuration flags.
-	 * Includes NM, AM, SM, XM, XS, MD, NH tags and custom BBTools tags.
-	 * @param r Primary read
-	 * @param r2 Mate read (may be null)
-	 * @param perfect Whether alignment is perfect
-	 * @param scafloc Scaffold location
-	 * @param scaflen Scaffold length
-	 * @param inbounds Whether read is within scaffold bounds
-	 * @param inbounds2 Whether mate is within scaffold bounds
-	 * @return List of optional tag strings
+	 * Builds a new optional-tag list from r, this record's CIGAR/POS/MAPQ and global policies.
+	 * Does not assign this.optional, copy existing optional tags, or deduplicate generated tags.
+	 * NO_TAGS returns null. Unmapped r also returns null unless read-group, custom or timing
+	 * output is enabled; bounds output alone does not bypass that early return.
+	 * Mapping-dependent tags are generated only for mapped r. Tophat tags take precedence over
+	 * the XM branch. NM and MD generation expect expanded r.match and consistent query/reference
+	 * metadata. Custom X2 output separately honors r.shortmatch(). Selected tags consult both
+	 * r.mate and the supplied r2; callers must keep those references consistent.
+	 * Read-group output requires READGROUP_TAG and timing output asserts a Long r.obj.
+	 * @param r Nonnull source read, including secondary/unmapped reads when supported by selected tags
+	 * @param r2 Mate context, possibly null
+	 * @param perfect Caller-supplied perfect status, used by NM and custom tag shortcuts
+	 * @param scafloc Zero-based chromosome scaffold start for MD generation
+	 * @param scaflen Scaffold length for MD generation
+	 * @param inbounds Caller-supplied read bounds status for XB
+	 * @param inbounds2 Caller-supplied mate bounds status for XB
+	 * @return New list (possibly empty), or null at the global/unmapped early returns
 	 */
 	public ArrayList<String> makeOptionalTags(Read r, Read r2, boolean perfect, int scafloc, int scaflen, boolean inbounds, boolean inbounds2){
 		if(NO_TAGS){return null;}
@@ -1900,8 +1008,7 @@ public class SamLine implements Serializable {
 					if(cpos>=from && cpos<to){
 						if(b=='I' || b=='S' || b=='N' || b=='X' || b=='Y'){nm++;}
 
-						if(b=='D'){delsCurrent++;}
-						else{
+						if(b=='D'){delsCurrent++;}else{
 							if(delsCurrent<=INTRON_LIMIT){nm+=delsCurrent;}
 							delsCurrent=0;
 						}
@@ -1918,15 +1025,14 @@ public class SamLine implements Serializable {
 			}
 
 			if(MAKE_NM_TAG){
-				if(perfect){optionalTags.add("NM:i:0");}
-				else if(r.match!=null){optionalTags.add("NM:i:"+(nm));}
+				if(perfect){optionalTags.add("NM:i:0");}else if(r.match!=null){optionalTags.add("NM:i:"+(nm));}
 			}
 			if(MAKE_SM_TAG){optionalTags.add("SM:i:"+mapq);}
 			if(MAKE_AM_TAG){optionalTags.add("AM:i:"+Data.min(mapq, r2==null ? mapq : (r2.mapped() ? Data.max(1, r2.mapScore/r2.length()) : 0)));}
-			if(MAKE_DUAL_MAPQ_TAGS&&r.primary()){
-				final int loose=NeuralMapqCache.getLoose(r),strict=NeuralMapqCache.getStrict(r);
+			if(MAKE_DUAL_MAPQ_TAGS && r.primary()){
+				final int loose=NeuralMapqCache.getLoose(r), strict=NeuralMapqCache.getStrict(r);
 				assert((loose<0)==(strict<0)) : KillSwitch.assertDie("QL/QS must be present together; loose="+loose+", strict="+strict+", read="+r.id);
-				if(loose>=0){optionalTags.add("QL:i:"+loose);optionalTags.add("QS:i:"+strict);}
+				if(loose>=0){optionalTags.add("QL:i:"+loose); optionalTags.add("QS:i:"+strict);}
 			}
 
 			if(MAKE_TOPHAT_TAGS){
@@ -2069,75 +1175,31 @@ public class SamLine implements Serializable {
 		return optionalTags;
 	}
 
-	/*--------------------------------------------------------------*/
-	/*----------------            ?            ----------------*/
-	/*--------------------------------------------------------------*/
 
-	/** Length of read bases */
+	/** Returns stored sequence length, otherwise query CIGAR count including S but excluding H.
+	 * Asserts that sequence is present and not '*' or that CIGAR exists; does not validate
+	 * sequence/CIGAR agreement. Empty stored arrays return zero. */
 	public int length(){
 		assert((seq!=null && (seq.length!=1 || seq[0]!='*')) || cigar!=null) :
 			"This program requires bases or a cigar string for every sam line.  Problem line:\n"+this+"\n";
 		return seq==null ? calcCigarBases(cigar, true, false) : seq.length;
 	}
 
-	public int lengthOrZero(){
-		return seq!=null ? seq.length : cigar!=null ? calcCigarBases(cigar, true, false) : 0;
-	}
+	/** Uses stored sequence length, otherwise query CIGAR count including S/excluding H, otherwise zero. */
+	public int lengthOrZero(){return seq!=null ? seq.length : cigar!=null ? calcCigarBases(cigar, true, false) : 0;}
 
-	public int estimateBamLength() {
-		return 40+(seq==null ? 1 : seq.length)+qname.length()+(cigar==null ? 1 : cigar.length()*2);
-	}
-
-//	public int length(boolean includeSoftClip){
-//		assert((seq!=null && (seq.length!=1 || seq[0]!='*')) || cigar!=null) :
-//			"This program requires bases or a cigar string for every sam line.  Problem line:\n"+this+"\n";
-//		return seq==null ? calcCigarBases(cigar, includeSoftClip, false) : seq.length;
-//	}
-
-	/**
-	 * Converts read alignment score to MAPQ value.
-	 * @param r Read with alignment data
-	 * @param ss Optional site score to use instead of read's score
-	 * @return MAPQ value (0-255)
-	 */
-	public static int toMapq(Read r, SiteScore ss){
-		assert(r!=null);
-		if(ss==null && r.primary()){
-			final int neural=STRICT_MAPQ?NeuralMapqCache.getStrict(r):NeuralMapqCache.getLoose(r);
-			if(neural>=0){return neural;}
-		}
-		int score=(ss==null ? r.mapScore : ss.slowScore);
-		return toMapq(score, r.length(), r.mapped(), r.ambiguous());
-	}
-
-	/**
-	 * Converts alignment score to MAPQ value using length and quality factors.
-	 * @param score Raw alignment score
-	 * @param length Query sequence length
-	 * @param mapped Whether read is mapped
-	 * @param ambig Whether read has ambiguous mapping
-	 * @return MAPQ value (0-255)
-	 */
-	public static int toMapq(int score, int length, boolean mapped, boolean ambig){
-		if(!mapped || length<1){return 0;}
-
-		if(ambig && PENALIZE_AMBIG){
-			float max=3;
-			float adjusted=(score*max)/(100f*length);
-			return Tools.max(1, (int)Math.round(adjusted));
-		}else{
-			float score2=(score-length*40)*1.6f;
-			float max=1.5f*((float)Tools.log2(length))+36;
-			float adjusted=(score2*max)/(100f*length);
-			return Tools.max(4, (int)Math.round(adjusted));
-		}
-	}
+	/** Returns a rough capacity estimate from fixed overhead, sequence, QNAME and CIGAR.
+	 * Requires nonnull QNAME; omits several fields and tags, so this is not exact BAM size. */
+	public int estimateBamLength(){return 40+(seq==null ? 1 : seq.length)+qname.length()+(cigar==null ? 1 : cigar.length()*2);}
 
 
-	/** Parses synthetic read name to extract original genomic coordinates.
-	 * @return Read object with original location or null if parsing fails */
+	/** Parses the legacy underscore-separated ID/chromosome/strand/start/stop name fields.
+	 * Shares seq/qual with the new Read; configured Read construction may modify those arrays.
+	 * Only NumberFormatException is caught, printed and converted to null. Missing/null fields
+	 * and other construction failures are not covered by that fallback; no CustomHeader is used.
+	 * @return New Read carrying the parsed coordinates, or null after a caught numeric parse failure */
 	public Read parseName(){
-		try {
+		try{
 			String[] answer=qname.split("_");
 			long id=Long.parseLong(answer[0]);
 			int trueChrom=Gene.toChromosome(answer[1]);
@@ -2148,32 +1210,37 @@ public class SamLine implements Serializable {
 //			Read r=new Read(seq.getBytes(), trueChrom, trueStrand, trueLoc, trueStop, qname, quals, false, id);
 			Read r=new Read(seq, qual, qname, id, trueStrand, trueChrom, trueLoc, trueStop);
 			return r;
-		} catch (NumberFormatException e) {
+		}catch(NumberFormatException e){
 			// TODO Auto-generated catch block
 			e.printStackTrace();
 			return null;
 		}
 	}
 
-	/** Extracts numeric ID from synthetic read name format.
-	 * @return Numeric read identifier */
+	/** Parses underscore field index one as a long; unlike parseName, this does not use field zero.
+	 * Requires a nonnull name and parseable field; failures propagate. */
 	public long parseNumericId(){
 //		return Long.parseLong(qname.substring(0, qname.indexOf('_')));
 		return Long.parseLong(qname.split("_")[1]);
 	}
 
 	/**
-	 * Converts this SamLine to a Read object.
+	 * Delegates to toRead(parseCustom, false), excluding hard clips from coordinates.
 	 * @param parseCustom Whether to parse custom BBTools naming format
 	 * @return Read object representation
 	 */
-	public Read toRead(boolean parseCustom){
-		return toRead(parseCustom, false);
-	}
+	public Read toRead(boolean parseCustom){return toRead(parseCustom, false);}
 
 	/**
 	 * Converts this SamLine to a Read object with detailed options.
-	 * Handles coordinate calculation, strand conversion, and optional tag parsing.
+	 * Uses stored sequence orientation, coordinate helpers, and optional tag parsing.
+	 * Retains sequence and numeric-quality arrays; configured Read validation may modify them.
+	 * A loaded Data genome can translate reference-local coordinates into chromosome coordinates.
+	 * Recognized custom tags are applied in list order, even when parseCustom is false; X6 replaces
+	 * the Read flags. No mate link or SamLine back-reference is attached, and the normal SAM pair
+	 * number assignment is disabled. MAPQ becomes mapScore; selected optional tags may replace
+	 * numeric ID, flags, copies, sites or match. Missing match may be generated from CIGAR under
+	 * CONVERT_CIGAR_TO_MATCH or when '=' occurs, with toShortMatch's mutation/dependency contract.
 	 * @param parseCustom Whether to parse custom BBTools naming format
 	 * @param includeHardClip Whether to include hard-clipped bases in coordinates
 	 * @return Read object with alignment and metadata
@@ -2262,7 +1329,8 @@ public class SamLine implements Serializable {
 		final Read r;
 		{
 			byte[] seqX=(seq==null || (seq.length==1 && seq[0]=='*')) ? null : seq;
-			byte[] qualX=(qual==null || (qual.length==1 && qual[0]=='*')) ? null : qual;
+			//Numeric Phred 42 is a score; only the legacy missing-array identity is a sentinel.
+			byte[] qualX=(qual==null || qual==bytestar) ? null : qual;
 			String qnameX=(qname==null || qname.equals(stringstar)) ? null : qname;
 			r=new Read(seqX, qualX, qnameX, numericId_, strand_, chrom_, start_, stop_);
 		}
@@ -2351,11 +1419,9 @@ public class SamLine implements Serializable {
 
 	}
 
-	/*--------------------------------------------------------------*/
-	/*----------------           toString           ----------------*/
-	/*--------------------------------------------------------------*/
 
-	/** Aproximate length of result of SamLine.toText() */
+	/** Returns a historical SAM text capacity estimate, not an exact serialized length.
+	 * Uses fixed numeric widths and does not account precisely for output trimming or all values. */
 	public int textLength(){
 		int len=11; //11 tabs
 		len+=(3+9+3+9);
@@ -2375,16 +1441,17 @@ public class SamLine implements Serializable {
 		return len;
 	}
 
-	/** Converts SamLine to tab-delimited SAM format string.
-	 * @return ByteBuilder containing SAM format line */
+	/** Returns a new builder containing SAM alignment text without a trailing newline. */
 	public ByteBuilder toText(){return toBytes((ByteBuilder)null);}
 
-	/**
-	 * Writes SamLine to ByteBuilder in tab-delimited SAM format.
-	 * Handles strand-specific base and quality reversal.
-	 * @param bb ByteBuilder to write to (created if null)
-	 * @return ByteBuilder containing SAM format line
-	 */
+	/** Appends SAM alignment text under current output-name and orientation policies.
+	 * Appends to existing builder contents and omits a final newline. TRIM_QNAME/TRIM_RNAME
+	 * affect emitted names without replacing stored fields. Mapped minus-strand sequence
+	 * and qualities are emitted in reverse order only when FLIP_ON_LOAD is enabled; sequence
+	 * is complemented and numeric qualities gain 33. Record arrays are not reversed in place.
+	 * The active RNAME_AS_BYTES representation must be consistent with the stored name.
+	 * @param bb Caller-owned destination, allocated when null; storage must not alias record arrays
+	 * @return Destination builder with the record appended */
 	public ByteBuilder toBytes(ByteBuilder bb){
 
 		final int buflen=Tools.max(rnameLen(), (rnext==null ? 1 : rnext.length), (seq==null ? 1 : seq.length), (qual==null ? 1 : qual.length));
@@ -2401,8 +1468,7 @@ public class SamLine implements Serializable {
 		}
 		bb.append(pos).tab();
 		bb.append(mapq).tab();
-		if(cigar==null){bb.append('*');}
-		else{bb.append(cigar);}
+		if(cigar==null){bb.append('*');}else{bb.append(cigar);}
 		bb.tab();
 		appendOutputRname(bb, rnext).tab();
 		bb.append(pnext).tab();
@@ -2430,106 +1496,13 @@ public class SamLine implements Serializable {
 		return bb;
 	}
 
+	/** Returns SAM text using current output policy, with no final newline. */
 	@Override
 	public String toString(){return toBytes(null).toString();}
 
-	/**
-	 * Appends byte array to ByteBuilder, using '*' for null/empty arrays.
-	 * @param sb ByteBuilder to append to
-	 * @param a Byte array to append
-	 * @return Updated ByteBuilder
-	 */
-	private static ByteBuilder appendTo(ByteBuilder sb, byte[] a){
-		if(a==null || a==bytestar || (a.length==1 && a[0]=='*')){return sb.append('*');}
-		return sb.append(a);
-	}
-
-	private static ByteBuilder appendOutputQname(ByteBuilder sb, String a){
-		if(a==null){return sb.append('*');}
-		if(Shared.TRIM_QNAME){return sb.appendUntilWhitespace(a);}
-		return sb.append(a);
-	}
-
-	private static ByteBuilder appendOutputRname(ByteBuilder sb, byte[] a){
-		if(a==null || a==bytestar || (a.length==1 && a[0]=='*')){return sb.append('*');}
-		if(Shared.TRIM_RNAME){return sb.appendUntilWhitespace(a);}
-		return sb.append(a);
-	}
-
-	private static ByteBuilder appendOutputRnameS(ByteBuilder sb, String a){
-		if(a==null || a.equals("*")){return sb.append('*');}
-		if(Shared.TRIM_RNAME){return sb.appendUntilWhitespace(a);}
-		return sb.append(a);
-	}
-
-	/**
-	 * Appends string to ByteBuilder, using '*' for null/empty strings.
-	 * @param sb ByteBuilder to append to
-	 * @param a String to append
-	 * @return Updated ByteBuilder
-	 */
-	private static ByteBuilder appendTo(ByteBuilder sb, String a){
-		if(a==null || a==stringstar || (a.length()==1 && a.charAt(0)=='*')){return sb.append('*');}
-		return sb.append(a);
-	}
-
-	/**
-	 * Appends reverse complement of bases to ByteBuilder for minus-strand reads.
-	 * @param sb ByteBuilder to append to
-	 * @param a Bases to reverse complement and append
-	 * @return Updated ByteBuilder
-	 */
-	private static ByteBuilder appendReverseComplemented(ByteBuilder sb, byte[] a){
-		if(a==null || a==bytestar || (a.length==1 && a[0]=='*')){return sb.append('*');}
-
-		sb.ensureExtra(a.length);
-		byte[] buffer=sb.array;
-		int i=sb.length;
-		for(int j=a.length-1; j>=0; i++, j--){buffer[i]=AminoAcid.baseToComplementExtended[a[j]];}
-		sb.length+=a.length;
-
-		return sb;
-	}
-
-	/**
-	 * Appends quality scores to ByteBuilder with ASCII+33 encoding.
-	 * @param sb ByteBuilder to append to
-	 * @param a Quality scores to encode and append
-	 * @return Updated ByteBuilder
-	 */
-	private static ByteBuilder appendQual(ByteBuilder sb, byte[] a){
-		if(a==null || a==bytestar || (a.length==1 && a[0]=='*')){return sb.append('*');}
-
-//		sb.ensureExtra(a.length);
-//		byte[] buffer=sb.array;
-//		int i=sb.length;
-//		for(int j=0; j<a.length; i++, j++){buffer[i]=(byte)(a[j]+33);}
-//		sb.length+=a.length;
-		Vector.addAndAppend(a, sb, 33);
-
-		return sb;
-	}
-
-	/**
-	 * Appends reversed quality scores to ByteBuilder with ASCII+33 encoding.
-	 * @param sb ByteBuilder to append to
-	 * @param a Quality scores to reverse, encode and append
-	 * @return Updated ByteBuilder
-	 */
-	private static ByteBuilder appendQualReversed(ByteBuilder sb, byte[] a){
-		if(a==null || a==bytestar || (a.length==1 && a[0]=='*')){return sb.append('*');}
-
-//		sb.ensureExtra(a.length);
-//		byte[] buffer=sb.array;
-//		int i=sb.length;
-//		for(int j=a.length-1; j>=0; i++, j--){buffer[i]=(byte)(a[j]+33);}
-//		sb.length+=a.length;
-		Vector.addAndAppendReversed(a, sb, 33);
-
-		return sb;
-	}
-
-	/** Assumes a custom name including original location */
+	/** Returns a new default-charset encoding of the suffix after QNAME's sixth underscore.
+	 * Requires nonnull QNAME; fewer separators return null, and a final separator yields empty bytes.
+	 * This is the legacy positional convention, not a CustomHeader parser. */
 	public byte[] originalContig(){
 //		assert(PARSE_CUSTOM);
 		int loc=-1;
@@ -2546,100 +1519,26 @@ public class SamLine implements Serializable {
 		return qname.substring(loc+1).getBytes();
 	}
 
+	/** Tests only that CIGAR is nonnull/nonempty and does not start with '*'; no grammar validation. */
+	public boolean hasCigar(){return cigar!=null && cigar.length()>0 && cigar.charAt(0)!='*';}
 
-	/*--------------------------------------------------------------*/
-	/*----------------             Flag             ----------------*/
-	/*--------------------------------------------------------------*/
-
-//	Bit Description
-//	0x1 template having multiple fragments in sequencing
-//	0x2 each fragment properly aligned according to the aligner
-//	0x4 fragment unmapped
-//	0x8 next fragment in the template unmapped
-//	0x10 SEQ being reverse complemented
-//	0x20 SEQ of the next fragment in the template being reversed
-//	0x40 the first fragment in the template
-//	0x80 the last fragment in the template
-//	0x100 secondary alignment
-//	0x200 not passing quality controls
-//	0x400 PCR or optical duplicate
-//	0x800 supplementary alignment
-
-
-	/**
-	 * Creates SAM FLAG value from read alignment data.
-	 * Sets bits for paired/mapped/strand/fragment according to SAM specification.
-	 * @param r Primary read
-	 * @param r2 Mate read (may be null)
-	 * @param fragNum Fragment number (0 or 1)
-	 * @param sameScaf Whether reads map to same scaffold
-	 * @return SAM FLAG bit field
-	 */
-	public static int makeFlag(Read r, Read r2, int fragNum, boolean sameScaf){
-		int flag=0;
-		if(r2!=null){
-			flag|=0x1;
-
-			if(r.mapped() && r.valid() && r.match!=null &&
-					(r2==null || (sameScaf && r.paired() && r2.mapped() && r2.valid() && r2.match!=null))){flag|=0x2;}
-			if(fragNum==0){flag|=0x40;}
-			if(fragNum>0){flag|=0x80;}
-		}
-		if(!r.mapped()){flag|=0x4;}
-		if(r2!=null && !r2.mapped()){flag|=0x8;}
-		if(r.strand()==Shared.MINUS){flag|=0x10;}
-		if(r2!=null && r2.strand()==Shared.MINUS){flag|=0x20;}
-		if(r.secondary()){flag|=0x100;}
-		if(r.discarded()){flag|=0x200;}
-		if(r.supplementary()){flag|=0x800;}
-		return flag;
-	}
-
-	/** Tests whether this SamLine has a valid CIGAR string.
-	 * @return True if CIGAR is present and not '*' */
-	public boolean hasCigar() {
-		return cigar!=null && cigar.length()>0 && cigar.charAt(0)!='*';
-	}
-
-	/** contains a cigar with X or = symbols */
-	public boolean hasCigarXE() {
-		if(cigar==null || cigar.length()<1 || cigar.charAt(0)=='*') {return false;}
-		for(int i=0; i<cigar.length(); i++) {
+	/** Tests for X or = anywhere in a nonempty CIGAR not starting with '*'; no grammar validation. */
+	public boolean hasCigarXE(){
+		if(cigar==null || cigar.length()<1 || cigar.charAt(0)=='*'){return false;}
+		for(int i=0; i<cigar.length(); i++){
 			char c=cigar.charAt(i);
-			if(c=='=' || c=='X') {return true;}
+			if(c=='=' || c=='X'){return true;}
 		}
 		return false;
 	}
 
 	/** Tests whether read is part of a paired sequencing template.
 	 * @return True if FLAG bit 0x1 is set */
-	public boolean hasMate(){
-		return (flag&0x1)==0x1;
-	}
+	public boolean hasMate(){return (flag&0x1)==0x1;}
 
 	/** Tests whether read pair is properly aligned.
 	 * @return True if FLAG bit 0x2 is set */
-	public boolean properPair(){
-		return (flag&0x2)==0x2;
-	}
-
-	/**
-	 * Tests whether read is mapped based on FLAG value.
-	 * @param flag SAM FLAG bit field
-	 * @return True if read is mapped (FLAG bit 0x4 not set)
-	 */
-	public static boolean mapped(int flag){
-		return (flag&0x4)!=0x4;
-	}
-
-	/**
-	 * Extracts strand from FLAG value.
-	 * @param flag SAM FLAG bit field
-	 * @return 0 for plus strand, 1 for minus strand
-	 */
-	public static byte strand(int flag){
-		return ((flag&0x10)==0x10 ? (byte)1 : (byte)0);
-	}
+	public boolean properPair(){return (flag&0x2)==0x2;}
 
 	/** Tests whether this read is mapped.
 	 * @return True if read is mapped (FLAG bit 0x4 not set) */
@@ -2659,36 +1558,26 @@ public class SamLine implements Serializable {
 
 	/** Returns strand of this read.
 	 * @return 0 for plus strand, 1 for minus strand */
-	public byte strand(){
-		return ((flag&0x10)==0x10 ? (byte)1 : (byte)0);
-	}
+	public byte strand(){return ((flag&0x10)==0x10 ? (byte)1 : (byte)0);}
 
 	/** Returns strand of mate read (alias for nextStrand).
 	 * @return 0 for plus strand, 1 for minus strand */
 	public byte mateStrand(){return nextStrand();}
 	/** Returns strand of mate/next read.
 	 * @return 0 for plus strand, 1 for minus strand */
-	public byte nextStrand(){
-		return ((flag&0x20)==0x20 ? (byte)1 : (byte)0);
-	}
+	public byte nextStrand(){return ((flag&0x20)==0x20 ? (byte)1 : (byte)0);}
 
 	/** Tests whether this is the first fragment in template.
 	 * @return True if FLAG bit 0x40 is set */
-	public boolean firstFragment(){
-		return (flag&0x40)==0x40;
-	}
+	public boolean firstFragment(){return (flag&0x40)==0x40;}
 
 	/** Tests whether this is the last fragment in template.
 	 * @return True if FLAG bit 0x80 is set */
-	public boolean lastFragment(){
-		return (flag&0x80)==0x80;
-	}
+	public boolean lastFragment(){return (flag&0x80)==0x80;}
 
 	/** Returns pair number (0 for first fragment, 1 for last).
 	 * @return 0 if first fragment, 1 if last fragment, 0 if neither */
-	public int pairnum(){
-		return firstFragment() ? 0 : lastFragment() ? 1 : 0;
-	}
+	public int pairnum(){return firstFragment() ? 0 : lastFragment() ? 1 : 0;}
 
 	/** Tests whether the secondary-alignment bit (SAM 0x100) is NOT set.
 	 * NOTE: this is NOT the SAM "primary" definition, which also excludes supplementary
@@ -2702,8 +1591,9 @@ public class SamLine implements Serializable {
 	/** Tests whether this is a non-primary alignment: secondary (0x100) or supplementary (0x800).
 	 * @return True if 0x100 or 0x800 is set */
 	public boolean nonPrimary(){return (flag&0x900)!=0;}
-	/** Sets primary alignment status.
-	 * @param b True for primary, false for secondary */
+	/** Clears the secondary bit when true, sets it when false; leaves supplementary status unchanged.
+	 * Therefore true does not guarantee primary() for an already supplementary record.
+	 * @param b Requested non-secondary status */
 	public void setPrimary(boolean b){
 		if(b){
 			flag=flag&~0x100;
@@ -2742,32 +1632,23 @@ public class SamLine implements Serializable {
 
 	/** Tests whether read failed quality controls.
 	 * @return True if FLAG bit 0x200 is set */
-	public boolean discarded(){
-		return (flag&0x200)==0x200;
-	}
+	public boolean discarded(){return (flag&0x200)==0x200;}
 
 	/** Tests whether read is PCR or optical duplicate.
 	 * @return True if FLAG bit 0x400 is set */
-	public boolean duplicate(){
-		return (flag&0x400)==0x400;
-	}
+	public boolean duplicate(){return (flag&0x400)==0x400;}
 
 	/** Tests whether this is a supplementary alignment.
 	 * @return True if FLAG bit 0x800 is set */
-	public boolean supplementary(){
-		return (flag&0x800)==0x800;
-	}
+	public boolean supplementary(){return (flag&0x800)==0x800;}
 
-	/** Tests whether this read is leftmost in a proper pair.
-	 * @return True if TLEN is positive or reads not on same chromosome */
+	/** Returns true when pairedOnSameChrom is false, or TLEN is zero or positive.
+	 * Uses pairedOnSameChrom's name-only comparison; does not require the proper-pair bit. */
 	public boolean leftmost(){
 		if(!pairedOnSameChrom() || tlen==0){return true;}
 		return tlen>0;
 	}
 
-	/*--------------------------------------------------------------*/
-	/*----------------             ?             ----------------*/
-	/*--------------------------------------------------------------*/
 
 //	/** Assumes rname is an integer. */
 //	public int chrom(){
@@ -2776,10 +1657,12 @@ public class SamLine implements Serializable {
 //	}
 
 	/** Tests whether read has ambiguous mapping (low MAPQ).
-	 * @return True if mapped with MAPQ < 4 */
-	public boolean ambiguous() {return mapped() && mapq<4;}
+	 * @return True if mapped with MAPQ &lt; 4 */
+	public boolean ambiguous(){return mapped() && mapq<4;}
 
-	/** Assumes rname is an integer. */
+	/** Legacy numeric-chromosome decoder, disabled by an unconditional assertion under -ea.
+	 * With assertions disabled it expects byte-name storage and performs unchecked decimal
+	 * accumulation after limited endpoint checks; not a general scaffold-name lookup. */
 	public int chrom_old(){
 		assert(false);
 		if(!Tools.isDigit(rname[0]) && !Tools.isDigit(rname[rname.length-1])){
@@ -2802,13 +1685,16 @@ public class SamLine implements Serializable {
 		return x;
 	}
 
-	/** Returns the zero-based starting location of this read on the sequence. */
+	/** Returns pos-1 minus the selected leading H/S counts, without checking mapped status.
+	 * The result may be negative for clipping or missing coordinates. */
 	public int start(boolean includeSoftClip, boolean includeHardClip){
-		int x=countLeadingClip(cigar, includeSoftClip, includeHardClip);//uses the cigar LEADING-clip helper (clean); SamLine#002/#003 trailing-clip bugs sit in the Read->SAM constructor, not in toRead's start()/stop().
+		int x=countLeadingClip(cigar, includeSoftClip, includeHardClip);//Leading CIGAR clips only; the Read constructor's match-array clip/indel adjustments are separate.
 		return pos-1-x;
 	}
 
-	/** Returns the zero-based stop location of this read on the sequence. */
+	/** Returns inclusive start+reference-span-1 for mapped records with usable CIGAR.
+	 * Otherwise returns start plus max(sequence-length-1,0), or start when sequence is absent.
+	 * A nonnull mapped CIGAR must be nonempty; selected clip contributions come from calcCigarLength. */
 	public int stop(int start, boolean includeSoftClip, boolean includeHardClip){
 		if(!mapped() || cigar==null || cigar.charAt(0)=='*'){
 //			return -1;
@@ -2821,6 +1707,9 @@ public class SamLine implements Serializable {
 		return r;
 	}
 
+	/** Uses stop's inclusive endpoint for mapped records with usable CIGAR.
+	 * The fallback instead returns start+sequence-length, or -1 for absent sequence.
+	 * These branches have different endpoint conventions; nonnull mapped CIGAR must be nonempty. */
 	public int stop2(final int start, final boolean includeSoftClip, final boolean includeHardClip){
 		if(mapped() && cigar!=null && cigar.charAt(0)!='*'){return stop(start, includeSoftClip, includeHardClip);}
 //		return (seq==null ? -1 : start()+seq.length());
@@ -2829,11 +1718,10 @@ public class SamLine implements Serializable {
 
 	/** Returns numeric identifier for this read.
 	 * @return Always returns 0 (placeholder implementation) */
-	public long numericId(){
-		return 0;
-	}
+	public long numericId(){return 0;}
 
-	/** This includes half-mapped pairs. */
+	/** Compares active reference names only: equal names or an '=' token on either side return true.
+	 * Both null names compare equal. Does not check mate-presence, mapped or proper-pair bits. */
 	public boolean pairedOnSameChrom(){
 //		assert(false) : (rname==null ? "nullX" : new String(rname))+", "+
 //		(rnext==null ? "nullX" : new String(rnext))+", "+Tools.equals(rnext, byteequals)+", "+Arrays.equals(rname, rnext)+"\n"+this;
@@ -2844,7 +1732,9 @@ public class SamLine implements Serializable {
 		}
 	}
 
-	/** Assumes a custom name including original location */
+	/** Parses a signed decimal prefix after QNAME's fifth underscore using the legacy layout.
+	 * Fewer separators return -1; no digits after an existing separator yields zero.
+	 * Stops at a non-digit other than an initial minus; requires nonnull QNAME and does not check overflow. */
 	public int originalContigStart(){
 //		assert(PARSE_CUSTOM);
 		int loc=-1;
@@ -2864,8 +1754,7 @@ public class SamLine implements Serializable {
 		for(int i=loc+1; i<qname.length(); i++){
 			char c=qname.charAt(i);
 			if(!Tools.isDigit(c)){
-				if(i==loc+1 && c=='-'){mult=-1;}
-				else{break;}
+				if(i==loc+1 && c=='-'){mult=-1;}else{break;}
 			}else{
 				sum=(sum*10)+(c-'0');
 			}
@@ -2873,135 +1762,60 @@ public class SamLine implements Serializable {
 		return sum*mult;
 	}
 
-	/*--------------------------------------------------------------*/
-	/*----------------           Getters            ----------------*/
-	/*--------------------------------------------------------------*/
 
-	/** Returns length of reference name.
-	 * @return Character count of RNAME field */
-	public int rnameLen(){
-		return (rname==null ? rnameS==null ? 1 : rnameS.length() : rname.length);
-	}
+	/** Returns the byte-name length, otherwise string-name length, otherwise one for the missing token. */
+	public int rnameLen(){return (rname==null ? rnameS==null ? 1 : rnameS.length() : rname.length);}
 
-	/** Returns reference name as byte array.
-	 * @return RNAME field bytes (requires RNAME_AS_BYTES=true) */
+	/** Returns the borrowed byte-name reference, possibly null; asserts RNAME_AS_BYTES. */
 	public byte[] rname(){
 		assert(RNAME_AS_BYTES);
 		return rname;
 	}
-	/** Returns mate reference name as byte array.
-	 * @return RNEXT field bytes */
+	/** Returns the borrowed mate-reference bytes, possibly null or the shared equals sentinel. */
 	public byte[] rnext(){return rnext;}
 
-	/** Sets reference name from byte array.
-	 * @param x RNAME bytes (requires RNAME_AS_BYTES=true) */
+	/** Canonicalizes a text-field byte name and retains its reference; asserts byte-name mode.
+	 * Does not clear a previously stored string representation. */
 	public void setRname(byte[] x){
 		assert(RNAME_AS_BYTES);
 		rname=canonicalize(x);
 	}
-	/** Sets mate reference name from byte array.
-	 * @param x RNEXT bytes */
-	public void setRnext(byte[] x){
-		rnext=canonicalize(x);
-	}
+	/** Canonicalizes mate-reference text bytes, retaining ordinary arrays and sharing the equals sentinel. */
+	public void setRnext(byte[] x){rnext=canonicalize(x);}
 
-	/** Sets reference name from string.
-	 * @param x RNAME string (requires RNAME_AS_BYTES=false) */
+	/** Canonicalizes a string reference name; asserts string-name mode and does not clear stored bytes. */
 	public void setRnameS(String x){
 		assert(!RNAME_AS_BYTES);
 		rnameS=canonicalize(x);
 	}
-	/** Sets mate reference name from string.
-	 * @param x RNEXT string */
-	public void setRnextS(String x){
-		rnext=canonicalizeB(x);
-	}
+	/** Canonicalizes mate-reference text, encoding ordinary strings with the default charset.
+	 * Null/star becomes null; equals uses shared bytes; an empty string becomes an empty array. */
+	public void setRnextS(String x){rnext=canonicalizeB(x);}
 
-	public void setCigar(String x) {
-		cigar=canonicalize(x);
-	}
+	/** Canonicalizes the supplied text token; '*' becomes null. Does not parse or validate CIGAR operations. */
+	public void setCigar(String x){cigar=canonicalize(x);}
 
-	public void setSeq(byte[] x) {
-		seq=canonicalize(x);
-	}
+	/** Canonicalizes sequence text bytes, retaining ordinary arrays; null/empty/star becomes null. */
+	public void setSeq(byte[] x){seq=canonicalize(x);}
 
-	public void setQual(byte[] x) {
-		qual=canonicalize(x);
-	}
+	/** Retains numeric Phred scores by reference; null or empty arrays mean missing qualities.
+	 * Numeric 42 and 61 are scores, not the text-field '*' and '=' sentinels. */
+	public void setQual(byte[] x){qual=(x==null || x.length==0 ? null : x);}
 
-	public static final String canonicalize(String x) {
-		if(x!=null && x.length()>1) {return x;}
-		else if(stringstar.equals(x)) {return null;}
-		else if(stringequals.equals(x)) {return stringequals;}
-		else if(x==null) {return x;/* handle? */}
-		else {return x;}
-	}
-
-	public static final byte[] canonicalizeB(String x) {
-		if(x!=null && x.length()>1) {return x.getBytes();}
-		else if(stringstar.equals(x)) {return null;}
-		else if(stringequals.equals(x)) {return byteequals;}
-		else if(x==null) {return null;/* handle? */}
-		else {return x.getBytes();}
-	}
-
-	public static final byte[] canonicalize(byte[] x) {
-		if(x!=null && x.length>1) {return x;}
-		else if(x==null || x.length==0) {return null;}
-		else if(x[0]==star) {return null;}
-		else if(x[0]==equals) {return byteequals;}
-		else {return x;}
-	}
-
-	/** Returns reference name as string.
-	 * @return RNAME field as string */
+	/** Returns the stored string name, otherwise a new US-ASCII decoding of stored bytes, or null. */
 	public String rnameS(){return rnameS!=null ? rnameS : rname==null ? null : new String(rname, StandardCharsets.US_ASCII);}
-	/** Returns mate reference name as string.
-	 * @return RNEXT field as string */
+	/** Returns a new US-ASCII decoding of mate-reference bytes, or null. */
 	public String rnextS(){return rnext==null ? null : new String(rnext, StandardCharsets.US_ASCII);}
 
-	/** Returns reference name prefix (before first whitespace).
-	 * @return RNAME prefix string */
-	public String rnamePrefix() {
-		return (rnameS!=null ? toPrefix(rnameS) : toPrefix(rname));
-	}
+	/** Returns the Character-whitespace prefix of the preferred stored name; requires a nonnull representation. */
+	public String rnamePrefix(){return (rnameS!=null ? toPrefix(rnameS) : toPrefix(rname));}
 
-	/**
-	 * Extracts prefix of string before first whitespace character.
-	 * @param s Input string
-	 * @return Prefix before whitespace or full string
-	 */
-	private static String toPrefix(String s) {
-		for(int i=0; i<s.length(); i++) {
-			if(Character.isWhitespace(s.charAt(i))) {
-				return s.substring(0, i);
-			}
-		}
-		return s;
-	}
 
-	/**
-	 * Extracts prefix of byte array before first whitespace character.
-	 * @param s Input byte array
-	 * @return Prefix string before whitespace or full string
-	 */
-	private static String toPrefix(byte[] s) {
-		for(int i=0; i<s.length; i++) {
-			if(Character.isWhitespace(s[i])) {
-				return new String(s, 0, i, StandardCharsets.US_ASCII);
-			}
-		}
-		return new String(s, StandardCharsets.US_ASCII);
-	}
-
-	/*--------------------------------------------------------------*/
-	/*----------------           Fields             ----------------*/
-	/*--------------------------------------------------------------*/
-
-	/** Adds an optional tag to this SamLine.
-	 * @param s Tag string in format "XX:T:value" */
-	public void addOptionalTag(String s) {
-		if(optional==null) {optional=new ArrayList<String>();}
+	/** Appends s to the optional list, allocating it if absent; no tag validation or deduplication.
+	 * Existing shallow copies share this mutation when they already share the list.
+	 * @param s Complete tag string, conventionally XX:T:value */
+	public void addOptionalTag(String s){
+		if(optional==null){optional=new ArrayList<String>();}
 		optional.add(s);
 	}
 
@@ -3010,7 +1824,7 @@ public class SamLine implements Serializable {
 	 * @param prefix Tag prefix to search for (e.g., "MD:Z:")
 	 * @return First matching tag string or null if not found
 	 */
-	public String findTag(String prefix) {
+	public String findTag(String prefix){
 		if(optional==null){return null;}
 		for(String s : optional){
 			if(s.startsWith(prefix)){return s;}
@@ -3025,36 +1839,46 @@ public class SamLine implements Serializable {
 	 * @return YQ tag or null if not present */
 	public String mateqTag(){return findTag("YQ:i:");}
 	/**
-	 * Parses integer value from optional tag with specified prefix.
-	 * @param prefix Tag prefix to search for
+	 * Parses the first matching optional tag beginning at fixed character offset five.
+	 * An optional leading plus is skipped; otherwise the existing signed-decimal parser
+	 * stops at the first nondigit. The offset does not depend on prefix length.
+	 * @param prefix Prefix for findTag, normally a complete XX:T: prefix
 	 * @return Integer value or Integer.MIN_VALUE if not found
 	 */
-	public int parseIntFlag(String prefix) {
+	public int parseIntFlag(String prefix){
 		String tag=findTag(prefix);
-		return tag==null ? Integer.MIN_VALUE : Parse.parseInt(tag, 5);
+		if(tag==null){return Integer.MIN_VALUE;}
+		//STR386: SAM integer values may have a leading plus.
+		return Parse.parseInt(tag, tag.charAt(5)=='+' ? 6 : 5);
 	}
 	/**
-	 * Parses float value from optional tag with specified prefix.
-	 * @param prefix Tag prefix to search for
+	 * Parses the complete value of the first matching tag after fixed character offset five.
+	 * Uses Java float syntax and rounding, including signs and exponents. The offset
+	 * does not depend on prefix length; malformed values are not treated as missing.
+	 * @param prefix Prefix for findTag, normally a complete XX:T: prefix
 	 * @return Float value or -1 if not found
 	 */
-	public float parseFloatFlag(String prefix) {
+	public float parseFloatFlag(String prefix){
 		String tag=findTag(prefix);
-		return tag==null ? -1 : Parse.parseFloat(tag, 5);
+		//STR386: The prefix-scanning Parse overload truncates valid exponent notation.
+		return tag==null ? -1 : Float.parseFloat(tag.substring(5));
 	}
 	/** Returns mate quality (YQ tag) value.
 	 * @return Mate MAPQ value or Integer.MIN_VALUE if not present */
-	public int mateq() {return parseIntFlag("YQ:i:");}
+	public int mateq(){return parseIntFlag("YQ:i:");}
 	/** Returns mate identity (YJ tag) value.
 	 * @return Mate identity percentage or -1 if not present */
-	public float mateID() {return parseFloatFlag("YJ:f:");}
+	public float mateID(){return parseFloatFlag("YJ:f:");}
 
 	/**
-	 * Sets scaffold number using ScafMap lookup.
-	 * @param scafMap Scaffold mapping object
-	 * @return Assigned scaffold number
+	 * Assigns scafnum from a selected reference name, asserting that scafnum is initially negative.
+	 * Uses this record's name when mapped or when a non-sentinel byte RNAME exists; otherwise
+	 * tries a non-sentinel RNEXT when the mate-mapped bit is set. With no selected name,
+	 * leaves scafnum unchanged. Name lookup retains ScafMap's diagnostics.
+	 * @param scafMap Map required when a name is selected
+	 * @return Current scafnum after the optional lookup
 	 */
-	public int setScafnum(ScafMap scafMap) {
+	public int setScafnum(ScafMap scafMap){
 		assert(scafnum<0);
 
 		String name=null;
@@ -3067,8 +1891,8 @@ public class SamLine implements Serializable {
 		return scafnum;
 	}
 
-	/** Estimates memory usage of this SamLine object.
-	 * @return Approximate byte count for memory profiling */
+	/** Returns a partial heap-size estimate for fixed overhead, CIGAR, optional tags and byte names.
+	 * Omits sequence, quality, QNAME, raw MD and payload storage; does not measure retained heap. */
 	public long countBytes(){
 		long sum=76;
 		sum+=(cigar==null ? 0 : cigar.length()*2+16);
@@ -3077,6 +1901,1281 @@ public class SamLine implements Serializable {
 		sum+=(rnext==null ? 0 : rnext.length+16);
 		return sum;
 	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Static Methods        ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/**
+	 * Extracts only the FLAG field from a SAM line byte array.
+	 * @param s Byte array containing SAM line
+	 * @return FLAG value, or -1 if header line
+	 */
+	public static final int parseFlagOnly(byte[] s){
+		assert(s!=null && s.length>0) : "Blank line.";
+		if(s[0]=='@'){return -1;}
+
+		int a=0, b=0;
+
+		while(b<s.length && s[b]!='\t'){b++;}
+		assert(b>a) : "Missing field 0: "+new String(s);
+		b++;
+		a=b;
+
+		while(b<s.length && s[b]!='\t'){b++;}
+		assert(b>a) : "Missing field 1: "+new String(s);
+		int flag=Parse.parseInt(s, a, b);
+		return flag;
+	}
+
+	/**
+	 * Extracts only the QNAME field from a SAM line byte array.
+	 * @param s Byte array containing SAM line
+	 * @return QNAME string, or null if header line or missing
+	 */
+	public static final String parseNameOnly(byte[] s){
+		assert(s!=null && s.length>0) : "Blank line.";
+		if(s[0]=='@'){return null;}
+
+		int a=0, b=0;
+
+		while(b<s.length && s[b]!='\t'){b++;}
+		assert(b>a) : "Missing field 0: "+new String(s);
+		String qname=(b==a+1 && s[a]=='*' ? null : new String(s, a, b-a, StandardCharsets.US_ASCII));
+		return qname;
+	}
+
+
+	/** Converts an expanded BBTools match array using VERSION-selected 1.3 or 1.4 rules.
+	 * Delegates coordinates, clipping, null handling and optional base-length
+	 * assertion to the selected converter; does not expand run-length encoded matches. */
+	public static String toCigar(byte[] match, int start, int stop, long scafLen, byte[] bases){
+		if(SamLine.VERSION>1.3){
+			return SamLine.toCigar14(match, start, stop, scafLen, bases);
+		}else{
+			return SamLine.toCigar13(match, start, stop, scafLen, bases);
+		}
+	}
+
+	/**
+	 * Converts expanded BBTools match operations to CIGAR with M for matches/mismatches.
+	 * Maps m/s/S/N/B to M, I/X/Y to I, D to D and C to S. SOFT_CLIP takes precedence
+	 * outside the reference, omitting out-of-bounds deletions from soft-clip counts.
+	 * Deletion runs longer than INTRON_LIMIT are emitted as N. Input arrays are not modified.
+	 * Equal inclusive endpoints describe one reference base and are converted normally.
+	 * @param match Expanded match operations; unsupported in-bounds symbols throw
+	 * @param readStart Zero-based initial reference position, possibly outside the reference
+	 * @param readStop Inclusive stop; retained for API compatibility, not used in conversion
+	 * @param reflen Reference length used by the clipping policy
+	 * @param bases Optional query array used only for an assertion on the generated query length
+	 * @return New CIGAR string, or null for null match
+	 */
+	public static String toCigar13(byte[] match, int readStart, int readStop, long reflen, byte[] bases){
+		if(match==null){return null;}
+		ByteBuilder sb=new ByteBuilder(8);
+		int count=0;
+		char mode='=';
+		char lastMode='=';
+
+		int refloc=readStart;
+
+		int cigarlen=0; //for debugging
+		int opcount=0; //for debugging
+
+		for(int mpos=0; mpos<match.length; mpos++){
+
+			byte m=match[mpos];
+
+			boolean sfdflag=false;
+			if(SOFT_CLIP && (refloc<0 || refloc>=reflen)){
+				mode='S'; //soft-clip out-of-bounds
+				if(m!='I'){refloc++;}
+				if(m=='D'){sfdflag=true;} //Don't add soft-clip count for deletions!
+			}else if(m=='m' || m=='s' || m=='S' || m=='N' || m=='B'){//Little 's' is for a match classified as a sub to improve the affine score.
+				mode='M';
+				refloc++;
+			}else if(m=='I' || m=='X' || m=='Y'){
+				mode='I';
+			}else if(m=='D'){
+				mode='D';
+				refloc++;
+			}else if(m=='C'){
+				mode='S';
+				refloc++;
+			}else{
+				throw new RuntimeException("Invalid match string character '"+(char)m+"' = "+m+" (ascii).  " +
+						"Match string should be in long format here.");
+			}
+
+			if(mode!=lastMode){
+				if(count>0){//Prevents an initial length-0 match
+					sb.append(count);
+//					sb.append(lastMode);
+					if(lastMode=='D' && count>INTRON_LIMIT){sb.append('N');}else{sb.append(lastMode);}
+					if(lastMode!='D'){cigarlen+=count;}
+					opcount+=count;
+				}
+				count=0;
+				lastMode=mode;
+			}
+
+			count++;
+			if(sfdflag){count--;}
+		}
+		sb.append(count);
+		if(mode=='D' && count>INTRON_LIMIT){sb.append('N');}else{sb.append(mode);}
+		if(mode!='D'){cigarlen+=count;}
+		opcount+=count;
+
+		assert(bases==null || cigarlen==bases.length) : "\n(cigarlen = "+cigarlen+") != (bases.length = "+(bases==null ? -1 : bases.length)+")\n" +
+				"cigar = "+sb+"\nmatch = "+new String(match)+"\nbases = "+new String(bases)+"\n";
+
+		return sb.toString();
+	}
+
+	/**
+	 * Replaces adjacent M, = and X runs with their combined M run, preserving other operations.
+	 * Does not validate operation names or positive lengths; asserts no nonzero trailing count.
+	 * @param cigar14 CIGAR text, or null
+	 * @return Converted text, null for null, or empty text for empty input
+	 */
+	public static String toCigar13(String cigar14){
+		if(cigar14==null){return null;}
+		final int len=cigar14.length();
+
+		int current=0;
+		int mcount=0;
+		ByteBuilder sb=new ByteBuilder(len);
+
+		for(int i=0; i<len; i++){
+			char b=cigar14.charAt(i);
+			if(Tools.isDigit(b)){
+				current=(10*current)+(b-'0');
+			}else{
+				if(b=='X' || b=='=' || b=='M'){
+					mcount+=current;
+				}else{
+					if(mcount>0){
+						sb.append(mcount);
+						sb.append('M');
+						mcount=0;
+					}
+					sb.append(current);
+					sb.append(b);
+				}
+				current=0;
+			}
+		}
+		assert(current==0);
+		if(mcount>0){
+			sb.append(mcount);
+			sb.append('M');
+			mcount=0;
+		}
+		return sb.toString();
+	}
+
+
+	/**
+	 * Converts expanded BBTools match operations to CIGAR using =, X and ambiguous M.
+	 * Maps m/s to =, S/V to X, N/B to M, I/X/Y to I, D to D and C to S.
+	 * SOFT_CLIP takes precedence outside the reference, omitting out-of-bounds deletions
+	 * from soft-clip counts. Deletion runs longer than INTRON_LIMIT become N.
+	 * Input arrays are not modified; no run-length expansion is performed.
+	 * Equal inclusive endpoints describe one reference base and are converted normally.
+	 * @param match Expanded match operations; unsupported in-bounds symbols throw
+	 * @param readStart Zero-based initial reference position, possibly outside the reference
+	 * @param readStop Inclusive stop; retained for API compatibility, not used in conversion
+	 * @param reflen Reference length used by the clipping policy
+	 * @param bases Optional query array used only for an assertion on the generated query length
+	 * @return New CIGAR string, or null for null match
+	 */
+	public static String toCigar14(byte[] match, int readStart, int readStop, long reflen, byte[] bases){
+//		assert(false) : readStart+", "+readStop+", "+reflen;
+		if(match==null){return null;}
+		ByteBuilder sb=new ByteBuilder(8);
+		int count=0;
+		char mode='=';
+		char lastMode='=';
+
+		int refloc=readStart;
+
+		int cigarlen=0; //for debugging
+		int opcount=0; //for debugging
+
+		for(int mpos=0; mpos<match.length; mpos++){
+
+			byte m=match[mpos];
+
+			boolean sfdflag=false;
+			if(SOFT_CLIP && (refloc<0 || refloc>=reflen)){
+				mode='S'; //soft-clip out-of-bounds
+				if(m!='I'){refloc++;}
+				if(m=='D'){sfdflag=true;} //Don't add soft-clip count for deletions!
+			}else if(m=='m' || m=='s'){//Little 's' is for a match classified as a sub to improve the affine score.
+				mode='=';
+				refloc++;
+			}else if(m=='S' || m=='V'){
+				mode='X';
+				refloc++;
+			}else if(m=='I' || m=='X' || m=='Y'){
+				mode='I';
+			}else if(m=='D'){
+				mode='D';
+				refloc++;
+			}else if(m=='C'){
+				mode='S';
+				refloc++;
+			}else if(m=='N' || m=='B'){
+				mode='M';
+				refloc++;
+			}else{
+				throw new RuntimeException("Invalid match string character '"+(char)m+"' = "+m+" (ascii).  " +
+						"Match string should be in long format here.");
+			}
+
+			if(mode!=lastMode){
+				if(count>0){//Prevents an initial length-0 match
+					sb.append(count);
+					if(lastMode=='D' && count>INTRON_LIMIT){sb.append('N');}else{sb.append(lastMode);}
+					if(lastMode!='D'){cigarlen+=count;}
+					opcount+=count;
+				}
+				count=0;
+				lastMode=mode;
+			}
+
+			count++;
+			if(sfdflag){count--;}
+		}
+		sb.append(count);
+		if(mode=='D' && count>INTRON_LIMIT){
+			sb.append('N');
+		}else{
+			sb.append(mode);
+		}
+		if(mode!='D'){cigarlen+=count;}
+		opcount+=count;
+
+		assert(bases==null || cigarlen==bases.length) : "\n(cigarlen = "+cigarlen+") != (bases.length = "+(bases==null ? -1 : bases.length)+")\n" +
+				"cigar = "+sb+"\nmatch = "+new String(match)+"\nbases = "+new String(bases)+"\n";
+
+		return sb.toString();
+	}
+
+	/** Sums M/=/X/D/N counts, optionally adding S and H; I contributes zero.
+	 * Null returns zero. P and unknown operations throw; this is not a complete CIGAR
+	 * validator and an unterminated final digit run is not included in the result. */
+	public static int calcCigarLength(String cigar, boolean includeSoftClip, boolean includeHardClip){
+		if(cigar==null){return 0;}
+		int len=0;
+		int current=0;
+		for(int i=0; i<cigar.length(); i++){
+			char c=cigar.charAt(i);
+			if(Tools.isDigit(c)){
+				current=(current*10)+(c-'0');
+			}else{
+				if(c=='M' || c=='=' || c=='X' || c=='D' || c=='N'){
+					len+=current;
+				}else if(c=='S'){
+					if(includeSoftClip){len+=current;}
+				}else if(c=='H'){
+					//In this case, the base string is the wrong length since letters were truncated.
+					//Therefore, the bases cannot be used for calling variations after mapping.
+					//Hard clipping messes up original location verification.
+					//Therefore...  len+=current would be best in practice, but for GRADING purposes, leaving it disabled is best.
+
+					if(includeHardClip){len+=current;}
+				}else if(c=='I'){
+					//do nothing
+				}else if(c=='P'){
+					throw new RuntimeException("Unhandled cigar symbol: "+c+"\n"+cigar+"\n");
+					//'P' is currently poorly defined
+				}else{
+					throw new RuntimeException("Unhandled cigar symbol: "+c+"\n"+cigar+"\n");
+				}
+				current=0;
+			}
+		}
+		return len;
+	}
+
+	/** Sums query-consuming M/=/X/I counts, optionally adding S and H; D/N contribute zero.
+	 * Null returns zero. P and unknown operations throw; an unterminated final digit run
+	 * is not included. Hard clipping contributes only when explicitly requested. */
+	public static int calcCigarReadLength(String cigar, boolean includeSoftClip, boolean includeHardClip){
+		if(cigar==null){return 0;}
+		int len=0;
+		int current=0;
+		for(int i=0; i<cigar.length(); i++){
+			char c=cigar.charAt(i);
+			if(Tools.isDigit(c)){
+				current=(current*10)+(c-'0');
+			}else{
+				if(c=='M' || c=='=' || c=='X' || c=='I'){
+					len+=current;
+				}else if(c=='S'){
+					if(includeSoftClip){len+=current;}
+				}else if(c=='H'){
+					//In this case, the base string is the wrong length since letters were truncated.
+					//Therefore, the bases cannot be used for calling variations after mapping.
+					//Hard clipping messes up original location verification.
+					//Therefore...  len+=current would be best in practice, but for GRADING purposes, leaving it disabled is best.
+
+					if(includeHardClip){len+=current;}
+				}else if(c=='D' || c=='N'){
+					//do nothing
+				}else if(c=='P'){
+					throw new RuntimeException("Unhandled cigar symbol: "+c+"\n"+cigar+"\n");
+					//'P' is currently poorly defined
+				}else{
+					throw new RuntimeException("Unhandled cigar symbol: "+c+"\n"+cigar+"\n");
+				}
+				current=0;
+			}
+		}
+		return len;
+	}
+
+	/** Sums query counts with the same operation/clip policy as calcCigarReadLength.
+	 * Null returns zero; P/unknown operations throw; a final digit run is not included. */
+	public static int calcCigarBases(String cigar, boolean includeSoftClip, boolean includeHardClip){
+		if(cigar==null){return 0;}
+		int len=0;
+		int current=0;
+		for(int i=0; i<cigar.length(); i++){
+			char c=cigar.charAt(i);
+			if(Tools.isDigit(c)){
+				current=(current*10)+(c-'0');
+			}else{
+				if(c=='M' || c=='=' || c=='X' || c=='I'){
+					len+=current;
+				}else if(c=='D' || c=='N'){
+					//do nothing
+				}else if(c=='H'){
+					if(includeHardClip){len+=current;}
+				}else if(c=='S'){
+					if(includeSoftClip){len+=current;}
+				}else if(c=='P'){
+					throw new RuntimeException("Unhandled cigar symbol: "+c+"\n"+cigar+"\n");
+					//'P' is currently poorly defined
+				}else{
+					throw new RuntimeException("Unhandled cigar symbol: "+c+"\n"+cigar+"\n");
+				}
+				current=0;
+			}
+		}
+		return len;
+	}
+
+	/** Sums selected H/S counts in the initial clipping prefix, stopping at another operation.
+	 * Unselected clip types are skipped without ending the prefix. Null or both flags false
+	 * returns zero. Expects count/operation text rather than validating its grammar. */
+	public static int countLeadingClip(String cigar, boolean includeSoftClip, boolean includeHardClip){
+		if(cigar==null || (!includeSoftClip && !includeHardClip)){return 0;}
+		int len=0;
+		int current=0;
+		for(int i=0; i<cigar.length(); i++){
+			char c=cigar.charAt(i);
+			if(Tools.isLetter(c) || c=='='){
+				if(c=='H'){
+					if(includeHardClip){
+						len+=current;
+					}
+				}else if(c=='S'){
+					if(includeSoftClip){
+						len+=current;
+					}
+				}else{
+					break;
+				}
+				current=0;
+			}else{
+				current=(current*10)+(c-'0');
+			}
+		}
+		return len;
+	}
+
+	/** Counts selected S/H operations at the end of a valid CIGAR, honoring flags independently.
+	 * S may precede a final H. Null, empty, absent clips or both flags false return zero.
+	 * Retains the legacy zero result when a selected soft count begins at character zero,
+	 * including any accumulated hard count; see the remaining all-clipped question below. */
+	public static int countTrailingClip(String cigar, boolean includeSoftClip, boolean includeHardClip){
+		if(cigar==null || (!includeSoftClip && !includeHardClip)){return 0;}
+		int last=cigar.length()-1;
+		final boolean trailingHard=last>=0 && cigar.charAt(last)=='H';
+		int len=(includeHardClip && trailingHard ? countTrailingHardClip(cigar) : 0);
+		if(!includeSoftClip){return len;}
+		if(trailingHard){
+			for(last--; last>=0 && Tools.isDigit(cigar.charAt(last)); last--){} //Skip the final H count.
+		}
+		if(last<0 || cigar.charAt(last)!='S'){return len;}
+
+		int mult=1;
+		int i;
+		for(i=last-1; i>=0; i--){
+			char c=cigar.charAt(i);
+			if(Tools.isLetter(c) || c=='='){
+				break;
+			}
+			len+=(c-'0')*mult;
+			mult*=10;
+		}
+		//STR-332 fixes ordinary suffix/flag counts; keep the separate all-clipped policy question.
+		//TODO [stream/SamLine#002 remainder]: a soft count starting at zero still returns zero,
+		//including accumulated H. calcLeftClip/calcRightClip assert against all-soft clipping;
+		//do not change that policy implicitly. countTrailingHardClip also retains its i<0 zero.
+		if(i<0){return 0;}
+		return len;
+	}
+
+	/** Reads the decimal count before the last H, without verifying a trailing suffix.
+	 * Null, absent H or a count reaching the string start returns zero; see #002 above. */
+	public static int countTrailingHardClip(String cigar){
+		if(cigar==null){return 0;}
+		int last=cigar.lastIndexOf('H');
+
+		int mult=1, len=0;
+		int i;
+		for(i=last-1; i>=0; i--){
+			char c=cigar.charAt(i);
+			if(Tools.isLetter(c) || c=='='){
+				break;
+			}
+			len+=(c-'0')*mult;
+			mult*=10;
+		}
+		if(i<0){return 0;}
+		return len;
+	}
+
+	/**
+	 * Counts substitution characters outside deletion runs in an MD payload.
+	 * A caret starts deletion mode and a digit ends it; does not validate base symbols.
+	 * @param mdTag Nonnull value, with or without the MD:Z: prefix; asserted nonnull
+	 * @return Substitution count; null returns zero only when assertions are disabled
+	 */
+	public static int countMdSubs(String mdTag){
+		assert(mdTag!=null);
+
+		final int NORMAL=0, SUB=1, DEL=2;
+		int dels=0, subs=0, normals=0;
+
+		if(mdTag!=null){
+			int current=0;
+			int mode=NORMAL;
+			int i=0;
+			if(mdTag.startsWith("MD:Z:")){i=5;}
+			for(final int max=mdTag.length(); i<max; i++){
+				char c=mdTag.charAt(i);
+				if(Tools.isDigit(c)){
+					current=(current*10)+(c-'0');
+					mode=NORMAL;
+				}else{
+					if(current>0){
+						if(mode==NORMAL){normals+=current;}else{assert(false) : mode+", "+current;}
+						current=0;
+					}
+					if(c=='^'){mode=DEL;}else if(mode==DEL){
+						dels++;
+					}else if(mode==NORMAL || mode==SUB){
+						mode=SUB;
+						subs++;
+					}
+				}
+			}
+		}
+		return subs;
+	}
+
+	/** Counts initial C bases in expanded or run-length encoded BBTools match text.
+	 * Null/empty or a first operation other than C returns zero; digits encode total run length. */
+	public static int countLeadingClip(byte[] match){
+		if(match==null || match.length<1 || match[0]!='C'){return 0;}
+		int clips=0;
+		int current=0;
+		for(int mloc=0; mloc<match.length; mloc++){
+			byte b=match[mloc];
+			if(Tools.isDigit(b)){
+				current=current*10+(b-'0');
+			}else{
+				if(current>0){
+					clips=clips+current-1;
+				}
+				current=0;
+				if(b!='C'){break;}
+				clips++;
+			}
+		}
+		if(current>0){
+			clips=clips+current-1;
+		}
+		return clips;
+	}
+
+	/** Returns the byte length of the initial C/digit prefix, not its expanded base count.
+	 * For example C10m returns three; null/empty or a non-C first byte returns zero. */
+	public static int countLeadingClip2(byte[] match){
+		if(match==null || match.length<1 || match[0]!='C'){return 0;}
+		int mloc=0;
+		for(; mloc<match.length; mloc++){
+			byte b=match[mloc];
+			if(b!='C' && !Tools.isDigit(b)){return mloc;}
+		}
+		return match.length;
+	}
+
+	/** Counts trailing C operations in expanded BBTools match text; null returns zero.
+	 * The scanned suffix must not contain run-length digits, checked by assertion. */
+	public static int countTrailingClip(byte[] match){
+		if(match==null){return 0;}
+		int clips=0;
+		for(int mloc=match.length-1; mloc>=0; mloc--){
+			byte b=match[mloc];
+			assert(!Tools.isDigit(b)) : new String(match);
+			if(b=='C'){
+				clips++;
+			}else{
+				break;
+			}
+		}
+		return clips;
+	}
+
+	/** Returns deletions minus insertions while advancing an out-of-bounds leading match prefix.
+	 * Scans expanded operations until reference position reaches zero or match ends. D advances
+	 * reference only, I advances query only, and other symbols advance both. Null or rloc>=0
+	 * returns zero; scanned run-length digits are rejected by assertion. The result is signed. */
+	public static int countLeadingIndels(int rloc, byte[] match){
+		if(match==null || rloc>=0){return 0;}
+		int dels=0;
+		int inss=0;
+		int cloc=0;
+		for(int mloc=0; mloc<match.length && rloc<0; mloc++){
+			byte b=match[mloc];
+			assert(!Tools.isDigit(b));
+			if(b=='D'){
+				dels++;
+				rloc++;
+			}else if(b=='I'){
+				inss++;
+				cloc++;
+			}else{
+				rloc++;
+				cloc++;
+			}
+		}
+		return dels-inss;
+	}
+
+	/** Returns deletions minus insertions while retreating through an out-of-bounds trailing suffix.
+	 * Scans expanded operations until rloc falls below rlen or match ends. D retreats reference
+	 * only, I retreats query only, and other symbols retreat both. Null or rloc below rlen
+	 * returns zero; scanned run-length digits are rejected by assertion. The result is signed. */
+	public static int countTrailingIndels(int rloc, int rlen, byte[] match){
+		//[stream/SamLine#003] FIXED 2026-06-20 (greenlit by Brian): ENABLED the trailing out-of-bounds indel
+		//correction (was silently disabled by a copy-pasted leading-version guard). Two coupled changes:
+		//(1) guard 'rloc>=0' -> 'rloc<rlen' so it fires on a 3' overhang (rloc>=rlen), mirroring the leading
+		//version's rloc<0; (2) loop start 'match.length' -> 'match.length-1' to avoid the AIOOBE (match[length]).
+		//Effect: corrects SAM POS/TLEN for reads overhanging a scaffold 3' end with indels in the overhang
+		//(previously only the 5' end was corrected). VALIDATED 2026-06-20 (Furina): direct unit test of this method —
+		//guard (rloc<rlen->0), del/ins counting (+1/-1), null/empty inputs, AND the deep-overhang case (rloc>>match.length)
+		//that the pre-fix loop start 'match.length' would have AIOOBE'd on — all pass; numerically symmetric with the
+		//working countLeadingIndels. (Live BBMap 3'-overhang-with-indel repro deferred as impractical per Brian; the
+		//unit test exercises the fixed code directly, which is the stronger check.)
+		if(match==null || rloc<rlen){return 0;}
+		int dels=0;
+		int inss=0;
+		int cloc=0;
+		for(int mloc=match.length-1; mloc>=0 && rloc>=rlen; mloc--){
+			byte b=match[mloc];
+			assert(!Tools.isDigit(b));
+			if(b=='D'){
+				dels++;
+				rloc--;
+			}else if(b=='I'){
+				inss++;
+				cloc--;
+			}else{
+				rloc--;
+				cloc--;
+			}
+		}
+		return dels-inss;
+	}
+
+	/** Returns the largest individual operation count in each of five categories.
+	 * Slots are M/=, X, D/N, I, and S/H/P. Adjacent operations are not merged;
+	 * unknown operations and trailing digits contribute nothing. Null returns null.
+	 * @param cigar Count/operation text
+	 * @return Newly allocated five-element array, or null; empty input yields all zeros */
+	public static final int[] cigarToMdsiMax(String cigar){
+		if(cigar==null){return null;}
+		int[] msdic=KillSwitch.allocInt1D(5);
+
+		int current=0;
+		for(int i=0; i<cigar.length(); i++){
+			char c=cigar.charAt(i);
+			if(Tools.isDigit(c)){
+				current=(current*10)+(c-'0');
+			}else{
+				if(c=='M' || c=='='){
+					msdic[0]=Tools.max(msdic[0], current);
+				}else if(c=='X'){
+					msdic[1]=Tools.max(msdic[1], current);
+				}else if(c=='D' || c=='N'){
+					msdic[2]=Tools.max(msdic[2], current);
+				}else if(c=='I'){
+					msdic[3]=Tools.max(msdic[3], current);
+				}else if(c=='S' || c=='H' || c=='P'){
+					msdic[4]=Tools.max(msdic[4], current);
+				}
+				current=0;
+			}
+		}
+		return msdic;
+	}
+
+	/** Sums operation lengths into slots M/=, X, D/N, I, and S/H/P, respectively.
+	 * Unknown operations and a trailing digit run contribute nothing; no grammar validation.
+	 * @param cigar Count/operation text, or null
+	 * @return New five-element totals array, null for null, or all zeros for empty input */
+	public static final int[] cigarToMsdic(String cigar){
+		if(cigar==null){return null;}
+		int[] msdic=KillSwitch.allocInt1D(5);
+
+		int current=0;
+		for(int i=0; i<cigar.length(); i++){
+			char c=cigar.charAt(i);
+			if(Tools.isDigit(c)){
+				current=(current*10)+(c-'0');
+			}else{
+				if(c=='M' || c=='='){
+					msdic[0]+=current;
+				}else if(c=='X'){
+					msdic[1]+=current;
+				}else if(c=='D' || c=='N'){
+					msdic[2]+=current;
+				}else if(c=='I'){
+					msdic[3]+=current;
+				}else if(c=='S' || c=='H' || c=='P'){
+					msdic[4]+=current;
+				}
+				current=0;
+			}
+		}
+		return msdic;
+	}
+
+	/** Reclassifies an expanded match array in place using query and reference bases.
+	 * In-bounds m/S/N/s (and C when unClip) become m, S or N after case-insensitive comparison.
+	 * Out-of-bounds non-indel entries become C; out-of-bounds I/D trigger assertions.
+	 * I/X/Y advance query only, D reference only, and aligned/clipped entries both.
+	 * Every iteration asserts a valid query cursor, including deletion entries.
+	 * @param call Nonnull query bases in the orientation used by match
+	 * @param ref Nonnull reference bases
+	 * @param match Nonnull expanded operations, modified in place; may be empty
+	 * @param refstart Zero-based reference position corresponding to the first match entry
+	 * @param unClip Whether to reclassify in-bounds C entries */
+	public static void fixMatch(byte[] call, byte[] ref, byte[] match, int refstart, boolean unClip){
+		for(int mpos=0, rpos=refstart, cpos=0; mpos<match.length; mpos++){
+			assert(cpos>=0 && cpos<call.length) : "\n"+new String(match)+"\n"+new String(call)+"\n"+mpos+", "+cpos;
+			final byte m=match[mpos];
+
+			if(rpos<0 || rpos>=ref.length){
+				if(m=='I'){
+					assert(false) : "Insertion off scaffold end: "+refstart+", "+ref.length+"\n"+new String(call)+"\n"+new String(match);
+					cpos++;
+				}else if(m=='D'){
+					assert(false) : "Deletion off scaffold end: "+refstart+", "+ref.length+"\n"+new String(call)+"\n"+new String(match);
+					rpos++;
+				}else{
+					match[mpos]='C';
+					rpos++;
+					cpos++;
+				}
+			}else if(m=='m' || m=='S' || m=='N' || m=='s' || (m=='C' && unClip)){
+				final byte c=Tools.toUpperCase(call[cpos]);
+				final byte r=Tools.toUpperCase(ref[rpos]);
+				final boolean defined=(AminoAcid.isFullyDefined(c) && AminoAcid.isFullyDefined(r));
+				if(!defined){
+					match[mpos]='N';
+				}else if(c==r){
+					match[mpos]='m';
+				}else{
+					match[mpos]='S';
+				}
+				rpos++;
+				cpos++;
+			}else if(m=='C'){ //Do nothing for clipped call
+				rpos++;
+				cpos++;
+			}else if(m=='I' || m=='X' || m=='Y'){
+				cpos++;
+			}else if(m=='D'){
+				rpos++;
+			}else{
+				assert(false) : Character.toString((char)m);
+			}
+		}
+	}
+
+	/** Converts CIGAR operations directly to short BBTools match text without MD/reference lookup.
+	 * Maps =/X/D-or-N/I/S to m/S/D/I/C; M becomes N when allowed, otherwise returns null.
+	 * H, P and unknown operations are omitted. Counts follow symbols only when greater than one;
+	 * adjacent equal operations are not merged. No complete grammar or length validation.
+	 * @param cigar Nonnull CIGAR text; empty text produces an empty array
+	 * @param allowM Whether to retain unresolved M as N
+	 * @return Newly allocated match bytes, or null upon encountering a disallowed M */
+	public static final byte[] cigarToShortMatch_old(String cigar, boolean allowM){
+
+		int current=0;
+		ByteBuilder sb=new ByteBuilder(cigar.length());
+
+		for(int i=0; i<cigar.length(); i++){
+			char c=cigar.charAt(i);
+			if(Tools.isDigit(c)){
+				current=(current*10)+(c-'0');
+			}else{
+				if(c=='='){
+					sb.append('m');
+					if(current>1){sb.append(current);}
+				}else if(c=='X'){
+					sb.append('S');
+					if(current>1){sb.append(current);}
+				}else if(c=='D' || c=='N'){
+					sb.append('D');
+					if(current>1){sb.append(current);}
+				}else if(c=='I'){
+					sb.append('I');
+					if(current>1){sb.append(current);}
+				}else if(c=='S'){
+					sb.append('C');
+					if(current>1){sb.append(current);}
+				}else if(c=='M'){
+					if(!allowM){return null;}
+//					sb.append('B');
+					sb.append('N');
+					if(current>1){sb.append(current);}
+				}
+				current=0;
+			}
+		}
+
+		if(sb.array.length==sb.length()){return sb.array;}
+		return sb.toBytes();
+	}
+
+
+	/**
+	 * Creates YS:i: with pos plus selected span minus one, without coordinate normalization.
+	 * Uses seqLength when perfect or CIGAR is null; otherwise uses reference span including S,
+	 * excluding H. The returned coordinate uses the same origin as the supplied pos.
+	 * @param pos Start position (normally the SAM POS field)
+	 * @param seqLength Query length for the direct path
+	 * @param cigar CIGAR for the non-perfect path
+	 * @param perfect Select the supplied sequence length
+	 * @return Complete YS tag
+	 */
+	public static String makeStopTag(int pos, int seqLength, String cigar, boolean perfect){
+//		return "YS:i:"+(pos+((cigar==null || perfect) ? seqLength : -countLeadingClip(cigar, false)+calcCigarLength(cigar, false))-1); //123456789
+		return "YS:i:"+(pos+((cigar==null || perfect) ? seqLength : calcCigarLength(cigar, true, false))-1);
+	}
+
+	/**
+	 * Creates YL:Z: with two comma-separated lengths. Perfect/null-CIGAR records use seqLength twice.
+	 * Otherwise the first value subtracts leading soft clips only from seqLength; the second
+	 * is reference span excluding both clip types. The first value retains trailing soft clips.
+	 * @param pos Unused
+	 * @param seqLength Supplied query length
+	 * @param cigar CIGAR for the non-perfect path
+	 * @param perfect Select the direct two-length path
+	 * @return Complete YL tag
+	 */
+	public static String makeLengthTag(int pos, int seqLength, String cigar, boolean perfect){
+		if(cigar==null || perfect){return "YL:Z:"+seqLength+","+seqLength;}
+		return "YL:Z:"+(seqLength-countLeadingClip(cigar, true, false))+","+calcCigarLength(cigar, false, false);
+	}
+
+	/**
+	 * Creates YI:f:100 when perfect; otherwise formats 100*Read.identity(match) to two decimals.
+	 * Uses Read's configured identity policy and Locale.ROOT formatting, not calcIdentity().
+	 * @param match Match representation accepted by Read.identity; ignored when perfect
+	 * @param perfect Bypass identity calculation with the literal 100 tag
+	 * @return Complete identity-percentage tag
+	 */
+	public static String makeIdentityTag(byte[] match, boolean perfect){
+		if(perfect){return "YI:f:100";}
+		float f=Read.identity(match);
+		return Tools.format("YI:f:%.2f", (100*f));
+	}
+
+	/**
+	 * Creates YR:i: from the supplied score, without range checking or rescaling.
+	 * @param score Alignment score
+	 * @return Complete YR tag
+	 */
+	public static String makeScoreTag(int score){return "YR:i:"+score;}
+
+	/**
+	 * Builds MD:Z: from expanded match operations and a loaded Data chromosome.
+	 * Uses reference bases for substitutions/deletions and compares raw query/reference bytes
+	 * for N operations. C and out-of-scaffold positions are skipped. Does not flip or expand inputs.
+	 * Deletions are emitted upon the following non-D operation only when within INTRON_LIMIT;
+	 * terminal pending deletions are not flushed. Retains the long-indel limitation below.
+	 * Every iteration reads a query base, including deletion entries; callers must provide a
+	 * valid query cursor throughout. Input arrays are read, not modified.
+	 * @param chrom Loaded chromosome index; a negative index returns null
+	 * @param refstart Zero-based chromosome coordinate at the first match entry
+	 * @param match Expanded operations, or null to return null
+	 * @param call Query bases in the orientation corresponding to match
+	 * @param scafloc Inclusive zero-based scaffold start on the chromosome
+	 * @param scaflen Scaffold length; upper bound is scafloc+scaflen, exclusive
+	 * @return Complete MD tag, or null for null match/negative chromosome
+	 */
+	public static String makeMdTag(int chrom, int refstart, byte[] match, byte[] call, int scafloc, int scaflen){
+		if(match==null || chrom<0){return null;}
+		ByteBuilder md=new ByteBuilder(8);
+		md.append("MD:Z:");
+
+		ChromosomeArray cha=Data.getChromosome(chrom);
+
+		final int scafstop=scafloc+scaflen;
+
+		byte prevM='?';
+		int count=0;
+		int dels=0;
+		boolean prevSub=false;
+		for(int mpos=0, rpos=refstart, cpos=0; mpos<match.length; mpos++){
+			assert(cpos>=0 && cpos<call.length) : "\n"+new String(match)+"\n"+new String(call)+"\n"+mpos+", "+cpos+", "+dels+", "+INTRON_LIMIT;
+			final byte c=call[cpos];
+			final byte m=match[mpos];
+
+			if(prevM=='D' && m!='D'){
+				//STR-326: each deletion run must be tested against INTRON_LIMIT independently.
+				//Reset after skipped runs too, or a later short deletion inherits the skipped count
+				//and can disappear from MD even though the CIGAR and NM tag retain it.
+				if(dels<=INTRON_LIMIT){//Otherwise, ignore it
+					md.append(count);
+					count=0;
+					md.append('^');
+					for(int i=rpos-dels; i<rpos; i++){
+						md.append((char)cha.get(i));
+					}
+				}
+				dels=0;
+			}
+
+			if(m=='C' || rpos<scafloc || rpos>=scafstop){ //Do nothing for clipped bases
+				rpos++;
+				if(m!='D'){cpos++;}
+			}else if(m=='m' || m=='s'){
+				count++;
+				rpos++;
+				cpos++;
+			}else if(m=='S'){
+				if(count>0 || !prevSub){md.append(count);}
+				md.append((char)cha.get(rpos));
+
+				count=0;
+				rpos++;
+				cpos++;
+				prevSub=true;
+			}else if(m=='N'){
+
+				final byte r=cha.get(rpos);
+
+				if(c==r){//Act like match
+					count++;
+					rpos++;
+					cpos++;
+				}else{//Act like sub
+					if(count>0 || !prevSub){md.append(count);}
+					md.append((char)r);
+
+					count=0;
+					rpos++;
+					cpos++;
+					prevSub=true;
+				}
+			}else if(m=='I' || m=='X' || m=='Y'){
+				cpos++;
+//				count++;
+			}else if(m=='D'){
+//				if(prevM!='D'){
+//					md.append(count);
+//					count=0;
+//					md.append('^');
+//				}
+//				md.append((char)cha.get(rpos));
+
+				rpos++;
+				dels++;
+			}
+			prevM=m;
+
+		}
+//		if(count>0){
+			md.append(count);
+//		}
+
+		return md.toString();
+	}
+
+	/**
+	 * Reads the first operation count only, returning it if the operation is S.
+	 * Does not skip leading hard clips; asserts that S is not the entire CIGAR.
+	 * @param cig CIGAR string
+	 * @param id Unused
+	 * @return Initial S count, or zero for null CIGAR or another first operation
+	 */
+	public static int calcLeftClip(String cig, String id){
+		if(cig==null){return 0;}
+		int len=0;
+		for(int i=0; i<cig.length(); i++){
+			char c=cig.charAt(i);
+			if(Tools.isDigit(c)){
+				len=len*10+(c-'0');
+			}else{
+				assert(c!='S' || i<cig.length()-1);//ban entirely soft-clipped reads
+				return (c=='S') ? len : 0;
+			}
+		}
+		return 0;
+	}
+
+	/**
+	 * Reads the final S count only when S is the last character; does not skip trailing H.
+	 * Asserts that a preceding operation exists at an index greater than zero.
+	 * @param cig CIGAR string
+	 * @param id Read identifier for error reporting
+	 * @return Final S count, or zero for null/empty CIGAR or a different final character
+	 */
+	public static int calcRightClip(String cig, String id){
+		if(cig==null || cig.length()<1 || cig.charAt(cig.length()-1)!='S'){return 0;}
+		int pos=cig.length()-2;
+		for(; pos>=0 && Tools.isDigit(cig.charAt(pos)); pos--){}
+
+		assert(pos>0) : cig+", id="+id+", pos="+pos;//ban entirely soft-clipped reads
+
+		int len=0;
+		for(int i=pos+1; i<cig.length(); i++){
+			char c=cig.charAt(i);
+			if(Tools.isDigit(c)){
+				len=len*10+(c-'0');
+			}else{
+				return (c=='S') ? len : 0;
+			}
+		}
+		return len;
+	}
+
+//	public int length(boolean includeSoftClip){
+//		assert((seq!=null && (seq.length!=1 || seq[0]!='*')) || cigar!=null) :
+//			"This program requires bases or a cigar string for every sam line.  Problem line:\n"+this+"\n";
+//		return seq==null ? calcCigarBases(cigar, includeSoftClip, false) : seq.length;
+//	}
+
+	/**
+	 * Uses cached neural MAPQ for a primary Read when ss is null and the selected cache is present.
+	 * STRICT_MAPQ selects strict versus loose cache. Otherwise passes r's length/mapping/ambiguity
+	 * and the selected alignment score to the numeric overload; no upper clamp is added here.
+	 * @param r Nonnull read with alignment data
+	 * @param ss Optional site supplying slowScore instead of r.mapScore and bypassing the neural cache
+	 * @return Cached nonnegative value or the numeric-overload result
+	 */
+	public static int toMapq(Read r, SiteScore ss){
+		assert(r!=null);
+		if(ss==null && r.primary()){
+			final int neural=STRICT_MAPQ?NeuralMapqCache.getStrict(r):NeuralMapqCache.getLoose(r);
+			if(neural>=0){return neural;}
+		}
+		int score=(ss==null ? r.mapScore : ss.slowScore);
+		return toMapq(score, r.length(), r.mapped(), r.ambiguous());
+	}
+
+	/**
+	 * Converts alignment score using the legacy length-scaled formula, without an upper cap.
+	 * Unmapped/nonpositive-length input returns zero. Penalized ambiguous reads have a floor
+	 * of one; the other branch has a floor of four and a logarithmic length factor.
+	 * Does not validate score range or guarantee a value at most 255.
+	 * @param score Raw alignment score
+	 * @param length Query sequence length
+	 * @param mapped Whether read is mapped
+	 * @param ambig Whether read has ambiguous mapping
+	 * @return Formula result with the selected lower bound, or zero for unmapped/empty input
+	 */
+	public static int toMapq(int score, int length, boolean mapped, boolean ambig){
+		if(!mapped || length<1){return 0;}
+
+		if(ambig && PENALIZE_AMBIG){
+			float max=3;
+			float adjusted=(score*max)/(100f*length);
+			return Tools.max(1, (int)Math.round(adjusted));
+		}else{
+			float score2=(score-length*40)*1.6f;
+			float max=1.5f*((float)Tools.log2(length))+36;
+			float adjusted=(score2*max)/(100f*length);
+			return Tools.max(4, (int)Math.round(adjusted));
+		}
+	}
+
+	/** Appends raw bytes, or '*' for null/star placeholders; an empty array emits no bytes.
+	 * @param sb Nonnull destination
+	 * @param a Borrowed text/base bytes, not numeric qualities
+	 * @return The supplied builder */
+	private static ByteBuilder appendTo(ByteBuilder sb, byte[] a){
+		if(a==null || a==bytestar || (a.length==1 && a[0]=='*')){return sb.append('*');}
+		return sb.append(a);
+	}
+
+	/** Appends '*' for null; otherwise emits all of a or its prefix under TRIM_QNAME.
+	 * The output-prefix helper stops at a character at or below space; empty input stays empty. */
+	private static ByteBuilder appendOutputQname(ByteBuilder sb, String a){
+		if(a==null){return sb.append('*');}
+		if(Shared.TRIM_QNAME){return sb.appendUntilWhitespace(a);}
+		return sb.append(a);
+	}
+
+	/** Appends '*' for null/star, otherwise raw or TRIM_RNAME-prefixed bytes.
+	 * The prefix helper stops at a byte at or below space; empty arrays emit no bytes. */
+	private static ByteBuilder appendOutputRname(ByteBuilder sb, byte[] a){
+		if(a==null || a==bytestar || (a.length==1 && a[0]=='*')){return sb.append('*');}
+		if(Shared.TRIM_RNAME){return sb.appendUntilWhitespace(a);}
+		return sb.append(a);
+	}
+
+	/** Appends '*' for null/star, otherwise all or the TRIM_RNAME prefix of the string.
+	 * The prefix helper stops at a character at or below space; empty input stays empty. */
+	private static ByteBuilder appendOutputRnameS(ByteBuilder sb, String a){
+		if(a==null || a.equals("*")){return sb.append('*');}
+		if(Shared.TRIM_RNAME){return sb.appendUntilWhitespace(a);}
+		return sb.append(a);
+	}
+
+	/** Appends a text string, or '*' for null/star; an empty string emits no characters.
+	 * @param sb Nonnull destination
+	 * @param a Text to append, without trimming
+	 * @return The supplied builder */
+	private static ByteBuilder appendTo(ByteBuilder sb, String a){
+		if(a==null || a==stringstar || (a.length()==1 && a.charAt(0)=='*')){return sb.append('*');}
+		return sb.append(a);
+	}
+
+	/** Appends the extended-alphabet reverse complement without modifying a.
+	 * Null/star emits '*'; empty arrays emit no bytes. Requires table-indexable input symbols
+	 * and independent destination storage.
+	 * @param sb Nonnull destination
+	 * @param a Borrowed sequence bytes
+	 * @return The supplied builder */
+	private static ByteBuilder appendReverseComplemented(ByteBuilder sb, byte[] a){
+		if(a==null || a==bytestar || (a.length==1 && a[0]=='*')){return sb.append('*');}
+
+		sb.ensureExtra(a.length);
+		byte[] buffer=sb.array;
+		int i=sb.length;
+		for(int j=a.length-1; j>=0; i++, j--){buffer[i]=AminoAcid.baseToComplementExtended[a[j]];}
+		sb.length+=a.length;
+
+		return sb;
+	}
+
+	/** Appends numeric qualities plus 33 without clamping or modifying the input.
+	 * Null/legacy canonical missing arrays emit '*'; empty arrays emit no bytes.
+	 * @param sb Nonnull destination with storage independent of a
+	 * @param a Borrowed numeric Phred scores
+	 * @return The supplied builder */
+	private static ByteBuilder appendQual(ByteBuilder sb, byte[] a){
+		//Only the legacy missing-array identity is a sentinel; numeric Phred 42 is valid.
+		if(a==null || a==bytestar){return sb.append('*');}
+
+//		sb.ensureExtra(a.length);
+//		byte[] buffer=sb.array;
+//		int i=sb.length;
+//		for(int j=0; j<a.length; i++, j++){buffer[i]=(byte)(a[j]+33);}
+//		sb.length+=a.length;
+		Vector.addAndAppend(a, sb, 33);
+
+		return sb;
+	}
+
+	/** Appends numeric qualities in reverse order, adding 33 without clamping.
+	 * Does not reverse a in place. Null/legacy canonical missing arrays emit '*'; empty arrays emit nothing.
+	 * @param sb Nonnull destination with storage independent of a
+	 * @param a Borrowed numeric Phred scores
+	 * @return The supplied builder */
+	private static ByteBuilder appendQualReversed(ByteBuilder sb, byte[] a){
+		//Only the legacy missing-array identity is a sentinel; numeric Phred 42 is valid.
+		if(a==null || a==bytestar){return sb.append('*');}
+
+//		sb.ensureExtra(a.length);
+//		byte[] buffer=sb.array;
+//		int i=sb.length;
+//		for(int j=a.length-1; j>=0; i++, j--){buffer[i]=(byte)(a[j]+33);}
+//		sb.length+=a.length;
+		Vector.addAndAppendReversed(a, sb, 33);
+
+		return sb;
+	}
+
+
+
+//	Bit Description
+//	0x1 template having multiple fragments in sequencing
+//	0x2 each fragment properly aligned according to the aligner
+//	0x4 fragment unmapped
+//	0x8 next fragment in the template unmapped
+//	0x10 SEQ being reverse complemented
+//	0x20 SEQ of the next fragment in the template being reversed
+//	0x40 the first fragment in the template
+//	0x80 the last fragment in the template
+//	0x100 secondary alignment
+//	0x200 not passing quality controls
+//	0x400 PCR or optical duplicate
+//	0x800 supplementary alignment
+
+
+	/**
+	 * Builds selected SAM bits from read state, without validating an alignment or setting duplicate.
+	 * A nonnull r2 sets paired status and enables fragment bits. Proper-pair requires both reads
+	 * mapped/valid with match arrays, r.paired(), and sameScaf. Secondary, discarded and supplementary
+	 * bits come from r; strand bits are copied independently of mapped status.
+	 * @param r Nonnull source read
+	 * @param r2 Mate context, possibly null
+	 * @param fragNum Zero sets first-fragment; positive sets last-fragment; negative sets neither
+	 * @param sameScaf Caller-supplied same-scaffold condition for proper-pair selection
+	 * @return SAM FLAG bit field
+	 */
+	public static int makeFlag(Read r, Read r2, int fragNum, boolean sameScaf){
+		int flag=0;
+		if(r2!=null){
+			flag|=0x1;
+
+			if(r.mapped() && r.valid() && r.match!=null &&
+					(r2==null || (sameScaf && r.paired() && r2.mapped() && r2.valid() && r2.match!=null))){flag|=0x2;}
+			if(fragNum==0){flag|=0x40;}
+			if(fragNum>0){flag|=0x80;}
+		}
+		if(!r.mapped()){flag|=0x4;}
+		if(r2!=null && !r2.mapped()){flag|=0x8;}
+		if(r.strand()==Shared.MINUS){flag|=0x10;}
+		if(r2!=null && r2.strand()==Shared.MINUS){flag|=0x20;}
+		if(r.secondary()){flag|=0x100;}
+		if(r.discarded()){flag|=0x200;}
+		if(r.supplementary()){flag|=0x800;}
+		return flag;
+	}
+
+	/**
+	 * Tests whether read is mapped based on FLAG value.
+	 * @param flag SAM FLAG bit field
+	 * @return True if read is mapped (FLAG bit 0x4 not set)
+	 */
+	public static boolean mapped(int flag){return (flag&0x4)!=0x4;}
+
+	/**
+	 * Extracts strand from FLAG value.
+	 * @param flag SAM FLAG bit field
+	 * @return 0 for plus strand, 1 for minus strand
+	 */
+	public static byte strand(int flag){return ((flag&0x10)==0x10 ? (byte)1 : (byte)0);}
+
+	/** Maps '*' to null and '=' to the canonical equals string; preserves other strings, including empty/null. */
+	public static final String canonicalize(String x){
+		if(x!=null && x.length()>1){return x;}else if(stringstar.equals(x)){return null;}else if(stringequals.equals(x)){return stringequals;}else if(x==null){return x;/* handle? */}else{return x;}
+	}
+
+	/** Maps null/star to null and equals to shared byteequals; default-charset encodes other strings.
+	 * Empty strings become empty arrays. Treat the canonical equals array as borrowed. */
+	public static final byte[] canonicalizeB(String x){
+		if(x!=null && x.length()>1){return x.getBytes();}else if(stringstar.equals(x)){return null;}else if(stringequals.equals(x)){return byteequals;}else if(x==null){return null;/* handle? */}else{return x.getBytes();}
+	}
+
+	/** Canonicalizes text-field bytes: null/empty/star becomes null and equals uses shared byteequals.
+	 * Other arrays are retained. This is not numeric-quality normalization; canonical arrays are borrowed. */
+	public static final byte[] canonicalize(byte[] x){
+		if(x!=null && x.length>1){return x;}else if(x==null || x.length==0){return null;}else if(x[0]==star){return null;}else if(x[0]==equals){return byteequals;}else{return x;}
+	}
+
+	/**
+	 * Extracts prefix of string before first whitespace character.
+	 * @param s Input string
+	 * @return Prefix before whitespace or full string
+	 */
+	private static String toPrefix(String s){
+		for(int i=0; i<s.length(); i++){
+			if(Character.isWhitespace(s.charAt(i))){
+				return s.substring(0, i);
+			}
+		}
+		return s;
+	}
+
+	/**
+	 * Extracts prefix of byte array before first whitespace character.
+	 * @param s Input byte array
+	 * @return Prefix string before whitespace or full string
+	 */
+	private static String toPrefix(byte[] s){
+		for(int i=0; i<s.length; i++){
+			if(Character.isWhitespace(s[i])){
+				return new String(s, 0, i, StandardCharsets.US_ASCII);
+			}
+		}
+		return new String(s, StandardCharsets.US_ASCII);
+	}
+
+
+	/** Tests whether any read-group metadata field or READGROUP_TAG is nonnull.
+	 * Ignores NO_TAGS and does not ensure READGROUP_ID/READGROUP_TAG are mutually consistent. */
+	public static boolean makeReadgroupTags(){
+		return READGROUP_ID!=null || READGROUP_CN!=null || READGROUP_DS!=null || READGROUP_DT!=null ||
+				READGROUP_FO!=null || READGROUP_KS!=null || READGROUP_LB!=null || READGROUP_PG!=null ||
+				READGROUP_PI!=null || READGROUP_PL!=null || READGROUP_PU!=null || READGROUP_SM!=null ||
+				READGROUP_TAG!=null;
+	}
+
+	/** Returns a historical subset-of-flags summary, gated by NO_TAGS.
+	 * Omits MAKE_MD_TAG/MAKE_XT_TAG and includes MAKE_AS_TAG, which makeOptionalTags does not use.
+	 * This is not a prediction of whether a particular record will receive optional tags. */
+	public static boolean makeOtherTags(){
+		if(NO_TAGS){return false;}
+		return MAKE_AM_TAG || MAKE_NM_TAG || MAKE_SM_TAG || MAKE_XM_TAG || MAKE_XS_TAG || MAKE_AS_TAG ||
+				MAKE_NH_TAG || MAKE_TOPHAT_TAGS || MAKE_IDENTITY_TAG || MAKE_SCORE_TAG || MAKE_STOP_TAG || MAKE_LENGTH_TAG ||
+				MAKE_CUSTOM_TAGS || MAKE_INSERT_TAG || MAKE_CORRECTNESS_TAG || MAKE_TIME_TAG || MAKE_BOUNDS_TAG || MAKE_MATEQ_TAG || MAKE_DUAL_MAPQ_TAGS;
+	}
+
+	/** ORs the read-group metadata and historical other-tag summaries.
+	 * Read-group metadata can make this true even with NO_TAGS; not a generation guarantee. */
+	public static boolean makeAnyTags(){return makeReadgroupTags() || makeOtherTags();}
+
+	/*--------------------------------------------------------------*/
+	/*--------------------        Fields        --------------------*/
+	/*--------------------------------------------------------------*/
+
+//	426_647_582	161	chr1	10159	0	26M9H	chr3	170711991	0	TCCCTAACCCTAACCCTAACCTAACC	IIFIIIIIIIIIIIIIIIIIICH2<>	RG:Z:20110708003021394	NH:i:3	CM:i:2	SM:i:1	CQ:Z:A9?(BB?:<A?>=>B67=:7A);.%8'%))/%*%'	CS:Z:G12002301002301002301023010200000003	XS:A:+
+
+//	1 QNAME String [!-?A-~]f1,255g Query template NAME
+//	2 FLAG Int [0,216-1] bitwise FLAG
+//	3 RNAME String \*|[!-()+-<>-~][!-~]* Reference sequence NAME
+//	4 POS Int [0,229-1] 1-based leftmost mapping POSition
+//	5 MAPQ Int [0,28-1] MAPping Quality
+//	6 CIGAR String \*|([0-9]+[MIDNSHPX=])+ CIGAR string
+//	7 RNEXT String \*|=|[!-()+-<>-~][!-~]* Ref. name of the mate/next fragment
+//	8 PNEXT Int [0,229-1] Position of the mate/next fragment
+//	9 TLEN Int [-229+1,229-1] observed Template LENgth
+//	10 SEQ String \*|[A-Za-z=.]+ fragment SEQuence
+//	11 QUAL String [!-~]+ ASCII of Phred-scaled base QUALity+33
+
+
+//	FCB062MABXX:1:1101:1177:2115#GGCTACAA	147	chr11	47765857	29	90M	=	47765579	-368	CCTCTGTGGCCCGGGTTGGAGTGCAGTGTCATGATCATGGCTCGCTGTAGCTACACCCTTCTGAGCTCAAGCAATCCTCCCACCTCTCCC	############################################################A@@><D<AAAB<=A2BD/BC<7:<4<%679	XT:A:M	NM:i:5	SM:i:29	AM:i:29	XM:i:5	XO:i:0	XG:i:0	MD:Z:7T4A15G26A30A3
+//	FCB062MABXX:1:1101:1193:2122#GGCTACAA	77	*	    0	         0	*	*	0	           0	TATATATGTGCTATGTACAGCATTGGAATTCACACCCTACACTTTCAAAAGNGAGCCCTAAATAAATGTTAGATCGGAAGAGCACACGTC	FCFCFDDDADDEDEBDAEDFEDEFFGGFGGHEEFHHHHHHEDDDEDFFEFB#CBBA@B8BGGFGEEEC>DGGGDFBGGGGHHHHH9<@##
+
+
+
+	/** Serialization version identifier */
+	private static final long serialVersionUID=-4180486051387471116L;
 
 	/** Query template name (QNAME field) */
 	public String qname;
@@ -3092,23 +3191,20 @@ public class SamLine implements Serializable {
 	public int pnext;
 	/** Observed template length (TLEN field) */
 	public int tlen;
-	/** Segment sequence bases (SEQ field) */
+	/** Mutable sequence bytes; orientation follows construction/load policy and may be shared. */
 	public byte[] seq;
-	/** ASCII quality scores (QUAL field) */
+	/** Numeric Phred quality scores, or null when absent; SAM text output adds 33. */
 	public byte[] qual;
-	/** List of optional SAM tags */
+	/** Mutable optional-tag list, shared by shallow copies; entries retain their full tag prefixes. */
 	public ArrayList<String> optional;
-	/** Cached MD tag value for efficient access */
+	/** Optional raw MD payload used by callers; mdTag() itself searches the optional-tag list. */
 	public byte[] mdTag;
 
-	/** General purpose object field for extensions */
+	/** Caller-specific payload retained by shallow copies. */
 	public Object obj;
 	/** Scaffold number for coordinate mapping */
 	public int scafnum=-1;
 
-	/*--------------------------------------------------------------*/
-	/*----------------        Private Fields        ----------------*/
-	/*--------------------------------------------------------------*/
 
 	/** Reference sequence name as byte array when RNAME_AS_BYTES=true */
 	private byte[] rname;
@@ -3118,57 +3214,30 @@ public class SamLine implements Serializable {
 	/** Reference sequence name as String when RNAME_AS_BYTES=false */
 	private String rnameS;
 
-
-
 	/*--------------------------------------------------------------*/
-	/*----------------         Static Fields        ----------------*/
+	/*----------------        Static Fields        -----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Text-field missing-token byte, not a numeric quality sentinel by value. */
 	private static final byte star=(byte)'*';
+	/** Text-field same-reference token byte. */
 	private static final byte equals=(byte)'=';
 
 	/** Constant for missing string fields in SAM format */
 	private static final String stringstar="*";
 	/** Constant indicating same reference as mate */
 	private static final String stringequals="=";
-	/** Byte array constant for missing fields */
-	private static final byte[] bytestar=new byte[] {star};
-	/** Byte array constant indicating same reference as mate */
-	public static final byte[] byteequals=new byte[] {equals};
+	/** Shared legacy missing-token array; callers of numeric-quality helpers use identity only. */
+	private static final byte[] bytestar=new byte[]{star};
+	/** Shared mutable array representing '='; borrowed by records and never to be modified by callers. */
+	public static final byte[] byteequals=new byte[]{equals};
+	/** Shared XS strand-tag strings selected by the configured library convention. */
 	private static final String XSPLUS="XS:A:+", XSMINUS="XS:A:-";
 //	private static final double inv100=0.01d;
 //	private static float minratio=0.4f;
 
-	/** Controls warning message display for development environment */
+	/** One-shot chrom_old warning gate, initially true when user.dir contains /bushnell/. */
 	private static boolean warning=System.getProperty("user.dir").contains("/bushnell/");
-
-	/*--------------------------------------------------------------*/
-	/*----------------     Public Static Fields     ----------------*/
-	/*--------------------------------------------------------------*/
-
-	/** Tests whether any readgroup tags are configured for output.
-	 * @return True if any readgroup parameters are set */
-	public static boolean makeReadgroupTags(){
-		return READGROUP_ID!=null || READGROUP_CN!=null || READGROUP_DS!=null || READGROUP_DT!=null ||
-				READGROUP_FO!=null || READGROUP_KS!=null || READGROUP_LB!=null || READGROUP_PG!=null ||
-				READGROUP_PI!=null || READGROUP_PL!=null || READGROUP_PU!=null || READGROUP_SM!=null ||
-				READGROUP_TAG!=null;
-	}
-
-	/** Tests whether any non-readgroup optional tags are enabled.
-	 * @return True if any optional tag flags are set */
-	public static boolean makeOtherTags(){
-		if(NO_TAGS){return false;}
-		return MAKE_AM_TAG || MAKE_NM_TAG || MAKE_SM_TAG || MAKE_XM_TAG || MAKE_XS_TAG || MAKE_AS_TAG ||
-				MAKE_NH_TAG || MAKE_TOPHAT_TAGS || MAKE_IDENTITY_TAG || MAKE_SCORE_TAG || MAKE_STOP_TAG || MAKE_LENGTH_TAG ||
-				MAKE_CUSTOM_TAGS || MAKE_INSERT_TAG || MAKE_CORRECTNESS_TAG || MAKE_TIME_TAG || MAKE_BOUNDS_TAG || MAKE_MATEQ_TAG || MAKE_DUAL_MAPQ_TAGS;
-	}
-
-	/** Tests whether any optional tags should be generated.
-	 * @return True if any tag generation is enabled */
-	public static boolean makeAnyTags(){
-		return makeReadgroupTags() || makeOtherTags();
-	}
 
 	/** Read group identifier */
 	public static String READGROUP_ID=null;
@@ -3195,42 +3264,42 @@ public class SamLine implements Serializable {
 	/** Read group sample */
 	public static String READGROUP_SM=null;
 
-	/** Complete readgroup tag string for output */
+	/** Complete RG tag appended by makeOptionalTags when READGROUP_ID is nonnull; configured externally. */
 	public static String READGROUP_TAG=null;
 
-	/** Turn this off for RNAseq or long indels */
+	/** Enable MD generation from loaded Data chromosome/match arrays. Turn this off for RNAseq or long indels. */
 	public static boolean MAKE_MD_TAG=false;
 
-	/** Disable all optional tag generation */
+	/** Suppress makeOptionalTags entirely; does not remove stored tags or prevent their serialization. */
 	public static boolean NO_TAGS=false;
 
-	/** Generate AM (template-independent mapping quality) tags */
+	/** Generate AM from current MAPQ and the mate-score/length calculation in makeOptionalTags. */
 	public static boolean MAKE_AM_TAG=true;
-	/** Generate NM (edit distance) tags */
+	/** Generate NM from expanded match operations and clip/intron policies, or zero when perfect. */
 	public static boolean MAKE_NM_TAG=true;
-	/** Generate SM (template-dependent mapping quality) tags */
+	/** Copy this record's MAPQ into SM for mapped reads. */
 	public static boolean MAKE_SM_TAG=false;
-	/** Generate XM (suboptimal alignment count) tags */
+	/** Generate the historical XM site-count estimate unless MAKE_TOPHAT_TAGS selects its own branch. */
 	public static boolean MAKE_XM_TAG=false;
-	/** Generate XS (strand for spliced alignments) tags */
+	/** Enable XS for mapped records whose CIGAR contains N, using the configured library convention. */
 	public static boolean MAKE_XS_TAG=false;
-	/** Generate XT (type: Unique/Repeat) tags */
+	/** Emit XT:A:R for mapped, ambiguous, non-secondary reads; no unique-read XT is generated here. */
 	public static boolean MAKE_XT_TAG=true;
-	/** Generate AS (alignment score) tags */
+	/** Reserved AS option included in makeOtherTags; makeOptionalTags does not consult this flag. */
 	public static boolean MAKE_AS_TAG=false; //TODO: Alignment score from aligner
-	/** Generate NH (number of alignments) tags */
+	/** Emit NH from site-list size when secondary output is enabled with multiple sites, otherwise one. */
 	public static boolean MAKE_NH_TAG=false;
-	/** Generate TopHat-compatible tags */
+	/** Emit historical TopHat compatibility placeholders, taking precedence over the separate XM branch. */
 	public static boolean MAKE_TOPHAT_TAGS=false;
-	/** Use second strand interpretation for XS tags */
+	/** Invert the pair-adjusted XS strand selected by makeXSTag. */
 	public static boolean XS_SECONDSTRAND=false;
-	/** Generate YI (identity percentage) tags */
+	/** Generate YI from Read.identity (or literal 100 when perfect), under the builder's data-availability guards. */
 	public static boolean MAKE_IDENTITY_TAG=false;
 	/** Generate YR (raw alignment score) tags */
 	public static boolean MAKE_SCORE_TAG=false;
 	/** Generate YS (stop position) tags */
 	public static boolean MAKE_STOP_TAG=false;
-	/** Generate YL (query and reference lengths) tags */
+	/** Generate YL lengths using makeLengthTag's leading-soft-clip and reference-span conventions. */
 	public static boolean MAKE_LENGTH_TAG=false;
 	/** Generate BBTools custom tags (X1, X2, X3, X5, X6, X7) */
 	public static boolean MAKE_CUSTOM_TAGS=false;
@@ -3238,78 +3307,80 @@ public class SamLine implements Serializable {
 	public static boolean MAKE_INSERT_TAG=false;
 	/** Generate X9 (correctness) tags */
 	public static boolean MAKE_CORRECTNESS_TAG=false;
-	/** Generate X0 (timestamp) tags */
+	/** Generate X0 from r.obj, which makeOptionalTags asserts is a nonnull Long. */
 	public static boolean MAKE_TIME_TAG=false;
-	/** Generate XB (bounds check) tags */
+	/** Generate XB from caller-supplied bounds flags; does not independently bypass the unmapped early return. */
 	public static boolean MAKE_BOUNDS_TAG=false;
 	/** Generate YQ/YJ (mate quality/identity) tags */
 	public static boolean MAKE_MATEQ_TAG=false;
-	/** Generate QL/QS loose/strict neural MAPQ tags when both scores are available. */
+	/** Emit cached QL/QS for mapped primary reads; asserts both caches are present or both absent. */
 	public static boolean MAKE_DUAL_MAPQ_TAGS=false;
-	/** Use strict rather than loose neural MAPQ in the primary SAM MAPQ field. */
+	/** Select strict instead of loose neural MAPQ when toMapq(Read, null) can use a primary read's cache. */
 	public static boolean STRICT_MAPQ=false;
 
 	/** Reduce MAPQ for ambiguously mapping reads */
 	public static boolean PENALIZE_AMBIG=true;
-	/** Convert CIGAR strings to BBTools match format when loading */
+	/** Enable missing-match conversion in toRead; a CIGAR containing '=' also triggers conversion when false. */
 	public static boolean CONVERT_CIGAR_TO_MATCH=true;
-	/** Use soft clipping for out-of-bounds alignments */
+	/** Convert out-of-reference match operations to soft clips in toCigar13/14; omit out-of-bounds deletions. */
 	public static boolean SOFT_CLIP=true;
-	/** Use asterisks for SEQ/QUAL in secondary alignments */
+	/** Omit shared SEQ/QUAL arrays when rebuilding a secondary Read as SamLine; serialization emits '*'. */
 	public static boolean SECONDARY_ALIGNMENT_ASTERISKS=true;
 	/** OK to use the "setFrom" function which uses the old SamLine instead of translating the read, if a genome is not loaded. */
 	public static boolean SET_FROM_OK=false;
-	/** For paired reads, keep original names rather than changing read2's name to match read1 */
+	/** Preserve paired names in cooperating writers and retain simple mate suffixes in the Read constructor. */
 	public static boolean KEEP_NAMES=false;
-	/** SAM format version for CIGAR string generation */
+	/** Select CIGAR generation policy: values above 1.3 use =/X-aware toCigar14, otherwise toCigar13. */
 	public static float VERSION=1.4f;
-	/** Tells program when to use 'N' rather than 'D' in cigar strings */
+	/** CIGAR deletion runs strictly longer than this become N; also consulted by MD/NM and identity helpers. */
 	public static int INTRON_LIMIT=Integer.MAX_VALUE;
-	/** Store reference names as byte arrays vs strings */
+	/** Select active RNAME byte/string storage; keep consistent with record construction and output policy. */
 	public static boolean RNAME_AS_BYTES=true;//Effect on speed is negligible for pileup...
 
-	/** Prefer MD tag over reference for translating cigar strings to match */
+	/** Prefer available MD text over reference bases during toShortMatch correction. */
 	public static boolean PREFER_MDTAG=false;
-	/** Determine whether cigar X means match N or S.
-	 * This makes sam loading substantially slower. */
+	/** Enable optional X-to-no-call correction when CIGAR contains X but no M.
+	 * May require reference lookup and expanded match correction in toShortMatch. */
 	public static boolean FIX_MATCH_NS=false;
 
-	/** Force XS tag setting */
+	/** Records that Parser saw an explicit XS option, even one disabling XS; used by callers to choose defaults. */
 	public static boolean setxs=false;
-	/** Force intron detection */
+	/** Records an explicit intron-length option, allowing callers to preserve the requested threshold. */
 	public static boolean setintron=false;
 
-	/** Sort header scaffolds in alphabetical order to be more compatible with Tophat */
+	/** Request sorted scaffold headers in SamHeader's supporting paths, historically for TopHat compatibility. */
 	public static boolean SORT_SCAFFOLDS=false;
 
-	/** qname */
+	/** Parse QNAME field 0 in the LineParser constructor; false leaves it null. */
 	public static boolean PARSE_0=true;
-	/** rname */
+	/** Parse RNAME field 2 into the selected byte/string representation. */
 	public static boolean PARSE_2=true;
-	/** cigar */
+	/** Parse CIGAR field 5; false leaves it null. */
 	public static boolean PARSE_5=true;
-	/** rnext */
+	/** Parse RNEXT field 6 into bytes; false leaves it null. */
 	public static boolean PARSE_6=true;
-	/** pnext */
+	/** Parse PNEXT field 7; false leaves zero. */
 	public static boolean PARSE_7=true;
-	/** tlen */
+	/** Parse TLEN field 8; false leaves zero. */
 	public static boolean PARSE_8=true;
-	/** qual */
+	/** Parse QUAL field 10 and convert from ASCII-33; false leaves numeric qualities null. */
 	public static boolean PARSE_10=true;
-	/** Parse optional tag fields */
+	/** Parse optional fields after the eleven mandatory columns, subject to the prefix-selection flags. */
 	public static boolean PARSE_OPTIONAL=true;
-	/** Parse only MD tags from optional fields */
+	/** Select MD:-prefixed optional fields; takes precedence over the YQ-only flag. */
 	public static boolean PARSE_OPTIONAL_MD_ONLY=false;
-	/** Parse only YQ (mate quality) tags from optional fields */
+	/** Select YQ:-prefixed optional fields when optional parsing is enabled and MD-only selection is false. */
 	public static boolean PARSE_OPTIONAL_MATEQ_ONLY=false;
 	/** Permit ambiguous M-only cigars (M with no =/X, e.g. minimap2 output) in identity/sub calculations.
-	 * Default false: calcIdentity()/countSubs() crash-loud on such cigars rather than silently returning a
-	 * wrong value (their match/mismatch split is uncomputable from the cigar alone). A tool that only needs
+	 * Default false: calcIdentity()/countSubs() require a usable MD/reference conversion for such cigars,
+	 * rather than guessing their match/mismatch split from CIGAR alone. True permits the fallback of
+	 * treating M as matches/zero substitutions when no match array is obtained. A tool that only needs
 	 * coverage and not identity (QuickBin) sets this true to process M reads permissively. Note: M ALONGSIDE
 	 * =/X is always fine (BBMap marks N-base regions with M) and never triggers the crash. */
 	public static boolean M_CIGARS_OK=false;
 
-	/** Reverse complement minus-strand sequences on loading */
+	/** Flip mapped minus-strand sequence/quality on parsing and reverse that policy for text output.
+	 * Configure consistently across record lifetime; toShortMatch's temporary flip is independent. */
 	public static boolean FLIP_ON_LOAD=true;
 
 	/** Enable verbose debug output */

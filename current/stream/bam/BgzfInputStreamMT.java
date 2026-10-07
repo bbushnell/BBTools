@@ -14,22 +14,28 @@ import java.util.zip.Inflater;
 import stream.JobQueue;
 
 /**
- * Multithreaded BGZF (Blocked GZIP Format) input stream.
+ * BGZF input with a daemon producer, daemon decompression workers and ordered consumption.
+ * Construction starts the helpers immediately. One caller owns read state and closure;
+ * this class does not serialize concurrent consumers. Jobs retain buffers and ascending
+ * IDs, and JobQueue supplies them in order after workers finish.
  *
- * Architecture:
- * - Producer thread: Reads BGZF blocks from file, creates jobs with ascending IDs
- * - Worker thread(s): Decompresses blocks in parallel
- * - Consumer (main thread): Uses JobQueue to retrieve jobs in sequential order
- *
- * Jobs are automatically ordered by JobQueue to maintain sequential output
- * even when workers complete out of order.
+ * Compressed BGZF jobs carry CRC/ISIZE in an eight-byte prefix of their decode workspace.
+ * Ordinary gzip fallback replays the already-read header through GZIPInputStream and
+ * submits decoded chunks. Bulk reads try to fill the requested length across jobs,
+ * returning a partial count only at EOF. close() closes inputs best-effort, interrupts
+ * helpers and uses short joins; it does not guarantee that every helper has exited.
+ * Existing error-delivery and DEBUG representation findings remain documented below.
  *
  * @author Chloe
  * @contributor Isla
  * @date October 23, 2025
  */
-public class BgzfInputStreamMT extends InputStream {
+public class BgzfInputStreamMT extends InputStream{
 	
+	/** Drains a file and reports read-call count, decoded bytes, elapsed time and throughput.
+	 * Positional arguments are filename and optional worker count; missing input exits 1.
+	 * The read-operation count measures successful bulk calls, not sequence records.
+	 * @throws IOException If opening, reading or closing through the declared API fails */
 	public static void main(String[] args) throws IOException{
 		if(args.length<1){
 			System.err.println("Usage: BgzfInputStreamMT <file.gz>");
@@ -67,10 +73,13 @@ public class BgzfInputStreamMT extends InputStream {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	public BgzfInputStreamMT(InputStream in){
-		this(in, BgzfSettings.READ_THREADS);
-	}
+	/** Starts helpers using the current BgzfSettings.READ_THREADS value. */
+	public BgzfInputStreamMT(InputStream in){this(in, BgzfSettings.READ_THREADS);}
 
+	/** Retains the input, creates queues and starts a producer plus the requested workers.
+	 * Both queue capacities use 3+(3*threads)/2; JobQueue's bound is its admission policy.
+	 * @param in Nonnull input retained for producer reads and close()
+	 * @param threads Decompression worker count, asserted within 1 through 32 */
 	public BgzfInputStreamMT(InputStream in, int threads){
 		assert(in!=null) : "Null input stream";
 		assert(threads>0 && threads<=32) : "Invalid thread count: "+threads;
@@ -78,7 +87,7 @@ public class BgzfInputStreamMT extends InputStream {
 		this.in=in;
 		this.workerThreads=threads;
 
-		//Queue size: 3+workers*2 allows some buffering without excessive memory
+		//Queue capacity uses 3+(3*workers)/2, with integer arithmetic.
 		final int queueSize=3+(3*workerThreads)/2;
 		this.inputQueue=new ArrayBlockingQueue<>(queueSize);
 		this.jobQueue=new JobQueue<BgzfJob>(queueSize, true, true, 0);
@@ -92,7 +101,7 @@ public class BgzfInputStreamMT extends InputStream {
 	/*----------------            Methods           ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Start producer and worker threads. */
+	/** Starts one producer and workerThreads workers, explicitly marking every helper daemon. */
 	private void startThreads(){
 		assert(producer==null) : "Threads already started";
 		assert(workers==null) : "Workers already started";
@@ -116,7 +125,10 @@ public class BgzfInputStreamMT extends InputStream {
 		}
 	}
 
-	/** Producer thread: Read BGZF blocks and create jobs. */
+	/** Reads and enqueues jobs until closure or input exhaustion, supplying an EOF job when needed.
+	 * Retains the existing retry/close behavior for queue insertion. A caught IOException
+	 * is stored in workerError; finally records producerFinished and may offer input poison.
+	 * The historical consumer-notification limitation below remains unresolved. */
 	private void producerLoop(){
 		try{
 			while(!closed){
@@ -125,14 +137,14 @@ public class BgzfInputStreamMT extends InputStream {
 					if(!lastJobQueued){
 						BgzfJob eofJob=new BgzfJob(nextJobId++, new byte[0], null, true);
 						eofJob.decompressedSize=0;
-						while(eofJob!=null) {
+						while(eofJob!=null){
 							try{
 								inputQueue.put(eofJob);
 								eofJob=null;
 							}catch(InterruptedException e){
 								// If closing, stop trying to enqueue and exit
-								synchronized(BgzfInputStreamMT.this) {
-									if(closed) {
+								synchronized(BgzfInputStreamMT.this){
+									if(closed){
 										inputQueue.offer(eofJob);
 										producerFinished=true;
 										return;
@@ -157,14 +169,14 @@ public class BgzfInputStreamMT extends InputStream {
 				assert(!DEBUG || job.repOK()) : "Producer created invalid job";
 
 				// Submit to input queue (be robust to interrupts during close)
-				while(job!=null) {
+				while(job!=null){
 					try{
 						inputQueue.put(job);
 						job=null;
 					}catch(InterruptedException e){
 						// If we are closing, stop trying to enqueue and exit loop
-						synchronized(BgzfInputStreamMT.this) {
-							if(closed) {
+						synchronized(BgzfInputStreamMT.this){
+							if(closed){
 								job=null;
 								producerFinished=true;
 								return;
@@ -196,7 +208,12 @@ public class BgzfInputStreamMT extends InputStream {
 		}
 	}
 
-	/** Read next BGZF block from input stream and create job. Returns null on EOF. */
+	/** Reads framing and returns a compressed BGZF job or an already-decoded ordinary-gzip chunk.
+	 * Absent FEXTRA or failure to find a usable BC subfield selects the JDK gzip fallback.
+	 * Compressed BGZF jobs retain raw payload bytes and an 8+65536-byte workspace with CRC/ISIZE prefix.
+	 * A zero compressed-size/expected-size pair latches lastJobQueued. Returns null on input
+	 * exhaustion; header/payload/trailer truncation and selected framing errors throw.
+	 * This method does not itself inflate BGZF payloads or validate their CRC. */
 	private BgzfJob readNextBlock() throws IOException{
 		while(true){
 			if(readingPlainGzip){
@@ -215,9 +232,9 @@ public class BgzfInputStreamMT extends InputStream {
 			}
 
 			//Verify gzip signature
-			assert((header[0] & 0xFF)==31 && (header[1] & 0xFF)==139) : 
-				"Not a gzip file: "+(header[0] & 0xFF)+", "+(header[1] & 0xFF);
-			if((header[0] & 0xFF)!=31 || (header[1] & 0xFF)!=139){
+			assert((header[0]&0xFF)==31 && (header[1]&0xFF)==139) :
+				"Not a gzip file: "+(header[0]&0xFF)+", "+(header[1]&0xFF);
+			if((header[0]&0xFF)!=31 || (header[1]&0xFF)!=139){
 				throw new IOException("Not a gzip file");
 			}
 
@@ -227,8 +244,8 @@ public class BgzfInputStreamMT extends InputStream {
 			}
 
 			//Check flags - FEXTRA must be set for BGZF
-			int flags=header[3] & 0xFF;
-			boolean fextra=(flags & 0x04)!=0;
+			int flags=header[3]&0xFF;
+			boolean fextra=(flags&0x04)!=0;
 			if(!fextra){
 				startPlainGzip(header, null, null);
 				continue;
@@ -239,7 +256,7 @@ public class BgzfInputStreamMT extends InputStream {
 			if(readFully(xlenBytes, 0, 2)<2){
 				throw new EOFException("Truncated XLEN");
 			}
-			int xlen=((xlenBytes[1] & 0xFF)<<8) | (xlenBytes[0] & 0xFF);
+			int xlen=((xlenBytes[1]&0xFF)<<8)|(xlenBytes[0]&0xFF);
 
 			//Read extra field and find BC subfield
 			byte[] extra=new byte[xlen];
@@ -274,7 +291,7 @@ public class BgzfInputStreamMT extends InputStream {
 
 			//Store trailer in job for worker validation
 			ByteBuffer bb=ByteBuffer.wrap(trailer).order(ByteOrder.LITTLE_ENDIAN);
-			long expectedCrc=bb.getInt() & 0xFFFFFFFFL;
+			long expectedCrc=bb.getInt()&0xFFFFFFFFL;
 			int expectedSize=bb.getInt();
 
 			//Store expected values for worker validation
@@ -297,17 +314,18 @@ public class BgzfInputStreamMT extends InputStream {
 		}
 	}
 
-	/** Find BC subfield in gzip extra field and extract BSIZE. */
+	/** Scans subfields up to xlen for a BC field with length two and available payload bytes.
+	 * Returns its little-endian BSIZE, or -1 if no such field is found. */
 	private int findBsizeInExtra(byte[] extra, int xlen){
 		int pos=0;
 		while(pos+4<=xlen){
-			int si1=extra[pos] & 0xFF;
-			int si2=extra[pos+1] & 0xFF;
-			int slen=((extra[pos+3] & 0xFF)<<8) | (extra[pos+2] & 0xFF);
+			int si1=extra[pos]&0xFF;
+			int si2=extra[pos+1]&0xFF;
+			int slen=((extra[pos+3]&0xFF)<<8)|(extra[pos+2]&0xFF);
 
 			if(si1==66 && si2==67){ //'B' 'C'
 				if(slen==2 && pos+6<=xlen){
-					return ((extra[pos+5] & 0xFF)<<8) | (extra[pos+4] & 0xFF);
+					return ((extra[pos+5]&0xFF)<<8)|(extra[pos+4]&0xFF);
 				}
 			}
 
@@ -316,7 +334,9 @@ public class BgzfInputStreamMT extends InputStream {
 		return -1;
 	}
 
-	private void startPlainGzip(byte[] header, byte[] xlenBytes, byte[] extra) 
+	/** Starts JDK gzip decoding by replaying consumed header bytes ahead of the borrowed input.
+	 * Returns unchanged if fallback is already active. The replay wrapper does not own in. */
+	private void startPlainGzip(byte[] header, byte[] xlenBytes, byte[] extra)
 		throws IOException{
 		if(readingPlainGzip){return;}
 		byte[] prefix=buildPrefix(header, xlenBytes, extra);
@@ -324,6 +344,9 @@ public class BgzfInputStreamMT extends InputStream {
 		readingPlainGzip=true;
 	}
 
+	/** Returns the first positive gzip read in a fresh 65536-byte buffer, or null at exhaustion.
+	 * Null is also returned when a caught read exception coincides with closed=true;
+	 * other read exceptions propagate. Returned jobs need no worker inflation. */
 	private BgzfJob readPlainGzipChunk() throws IOException{
 		if(plainGzipStream==null){return null;}
 
@@ -331,10 +354,10 @@ public class BgzfInputStreamMT extends InputStream {
 		int total=0;
 		while(total<buffer.length){
 			int n=0;
-			try {//Protects from a closing race condition
+			try{//Protects from a closing race condition
 				n=plainGzipStream.read(buffer, total, buffer.length-total);
-			} catch (Exception e) {
-				if(closed) {return null;} // Expected shutdown error
+			}catch(Exception e){
+				if(closed){return null;} // Expected shutdown error
 				throw e; // Real error
 			}
 			if(n<0){break;}
@@ -350,6 +373,7 @@ public class BgzfInputStreamMT extends InputStream {
 		return job;
 	}
 
+	/** Closes the fallback decoder and clears its fields on success; its wrapper leaves in open. */
 	private void closePlainStream() throws IOException{
 		if(plainGzipStream!=null){
 			plainGzipStream.close();
@@ -358,6 +382,7 @@ public class BgzfInputStreamMT extends InputStream {
 		readingPlainGzip=false;
 	}
 
+	/** Copies the header and optional XLEN/extra arrays into one replay prefix, in that order. */
 	private byte[] buildPrefix(byte[] header, byte[] xlenBytes, byte[] extra){
 		int prefixLen=header.length;
 		if(xlenBytes!=null){prefixLen+=xlenBytes.length;}
@@ -377,11 +402,16 @@ public class BgzfInputStreamMT extends InputStream {
 		return prefix;
 	}
 
+	/** Replays borrowed prefix bytes before delegating to a borrowed tail; close leaves the tail open. */
 	private static final class PrefixedInputStream extends InputStream{
+		/** Borrowed already-consumed header bytes. */
 		private final byte[] prefix;
+		/** Next unread prefix position. */
 		private int position=0;
+		/** Borrowed underlying stream, whose lifecycle belongs to the outer reader. */
 		private final InputStream tail;
 
+		/** Retains the prefix and tail without copying or closing either. */
 		PrefixedInputStream(byte[] prefix, InputStream tail){
 			this.prefix=prefix;
 			this.tail=tail;
@@ -397,12 +427,14 @@ public class BgzfInputStreamMT extends InputStream {
 			return (int)Math.min(Integer.MAX_VALUE, (long)(prefix.length-position)+tail.available());
 		}
 
+		/** Returns the next unsigned prefix byte, or delegates once the prefix is exhausted. */
 		@Override
 		public int read() throws IOException{
-			if(position<prefix.length){return prefix[position++] & 0xFF;}
+			if(position<prefix.length){return prefix[position++]&0xFF;}
 			return tail.read();
 		}
 
+		/** Copies only from the remaining prefix when present, otherwise delegates to tail. */
 		@Override
 		public int read(byte[] b, int off, int len) throws IOException{
 			if(position<prefix.length){
@@ -414,13 +446,16 @@ public class BgzfInputStreamMT extends InputStream {
 			return tail.read(b, off, len);
 		}
 
+		/** Leaves the borrowed tail open; the outer reader manages its lifecycle. */
 		@Override
-		public void close(){
-			//Do not close tail stream; caller manages lifecycle
-		}
+		public void close(){}//Do not close tail stream; caller manages lifecycle
 	}
 
-	/** Worker thread: Decompress BGZF blocks. */
+	/** Inflates BGZF jobs into their workspace after the eight-byte metadata prefix.
+	 * Plain-gzip jobs pass through without inflation. Size/CRC assertions precede the
+	 * explicit mismatch branches; those branches and caught DataFormatException attach
+	 * job errors when reached. Successful payloads move to offset zero before publication.
+	 * The thread-local inflater is ended by finally when the loop exits. */
 	private void workerLoop(){
 		Inflater inflater=new Inflater(true); //true=nowrap mode for raw deflate
 
@@ -455,7 +490,7 @@ public class BgzfInputStreamMT extends InputStream {
 						//Extract expected CRC and size from metadata
 						ByteBuffer meta=ByteBuffer.wrap(job.decompressed).order(
 							ByteOrder.LITTLE_ENDIAN);
-						long expectedCrc=meta.getInt() & 0xFFFFFFFFL;
+						long expectedCrc=meta.getInt()&0xFFFFFFFFL;
 						int expectedSize=meta.getInt();
 
 						//Decompress into same array (after metadata)
@@ -531,8 +566,7 @@ public class BgzfInputStreamMT extends InputStream {
 					final int toSignal=Math.max(1, workerThreads-1);
 					int signaled=0;
 					while(signaled<toSignal){
-						if(inputQueue.offer(BgzfJob.POISON_PILL)) {signaled++;}
-						else {Thread.yield();}
+						if(inputQueue.offer(BgzfJob.POISON_PILL)){signaled++;}else{Thread.yield();}
 					}
 				}
 			}
@@ -543,13 +577,24 @@ public class BgzfInputStreamMT extends InputStream {
 		}
 	}
 
+	/** Reads through a fresh one-byte array and returns an unsigned byte, or -1 at EOF. */
 	@Override
 	public int read() throws IOException{
 		byte[] b=new byte[1];
 		int n=read(b, 0, 1);
-		return n<0 ? -1 : (b[0] & 0xFF);
+		return n<0 ? -1 : (b[0]&0xFF);
 	}
 
+	/** Fills the requested range across ordered jobs, or returns the bytes preceding EOF.
+	 * Asserts buffer/range validity and rejects closed before handling len=0. A zero-length
+	 * request returns zero; a previously latched EOF returns -1 before the producer error
+	 * slot is checked. Null/LAST jobs latch EOF; LAST payload is not adopted. Empty nonfinal
+	 * jobs are skipped. Per-job errors are checked before adopting each new payload.
+	 * @param b Destination buffer
+	 * @param off First destination position
+	 * @param len Requested byte count
+	 * @return len on a full read, a partial count at EOF, or -1 at EOF before any bytes
+	 * @throws IOException If closed or an observed producer/job error is reported */
 	@Override
 	public int read(byte[] b, int off, int len) throws IOException{
 		assert(b!=null) : "Null buffer";
@@ -639,7 +684,8 @@ public class BgzfInputStreamMT extends InputStream {
 		return totalRead;
 	}
 
-	/** Read exactly n bytes from input stream. Returns 0 on immediate EOF, n on success. */
+	/** Accumulates up to len bytes from in, returning the count when EOF or len is reached.
+	 * Immediate EOF returns zero; EOF after some bytes returns that partial count. */
 	private int readFully(byte[] b, int off, int len) throws IOException{
 		int total=0;
 		while(total<len){
@@ -650,6 +696,10 @@ public class BgzfInputStreamMT extends InputStream {
 		return total;
 	}
 
+	/** Latches closed, attempts input closure, offers one poison and interrupts the helpers.
+	 * Input-close IOExceptions are ignored. Each producer/worker join is limited to 10 ms;
+	 * interruption restores the caller flag and skips remaining joins. Repeated calls return.
+	 * This is best-effort cleanup, not a guarantee of helper completion or error reporting. */
 	@Override
 	public void close() throws IOException{
 		if(closed){return;}
@@ -657,8 +707,8 @@ public class BgzfInputStreamMT extends InputStream {
 		closed=true;
 
 		// Close streams early to unblock any I/O
-		try {closePlainStream();} catch(IOException ignore) {}
-		try {in.close();} catch(IOException ignore) {}
+		try{closePlainStream();}catch(IOException ignore){}
+		try{in.close();}catch(IOException ignore){}
 
 		// Best-effort: nudge workers via poison without blocking
 		inputQueue.offer(BgzfJob.POISON_PILL);
@@ -680,7 +730,8 @@ public class BgzfInputStreamMT extends InputStream {
 		}
 	}
 
-	/** Validate internal state for debugging. */
+	/** Checks required input/queue references, worker-count range and current block counters.
+	 * Does not inspect payloads, helper completion or error state. */
 	private boolean repOK(){
 		if(in==null){return false;}
 		if(workerThreads<=0 || workerThreads>32){return false;}
@@ -694,7 +745,7 @@ public class BgzfInputStreamMT extends InputStream {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Number of worker threads (start with 1 for correctness, then scale up) */
+	/** Decompression worker count; excludes the separate producer. */
 	private final int workerThreads;
 	/** Input queue for jobs to be processed */
 	private final ArrayBlockingQueue<BgzfJob> inputQueue;
@@ -712,19 +763,19 @@ public class BgzfInputStreamMT extends InputStream {
 	private int currentBlockPos=0;
 	/** Size of current block */
 	private int currentBlockSize=0;
-	/** Underlying input stream */
+	/** Retained producer input, closed by outer close() rather than the replay wrapper. */
 	private final InputStream in;
-	/** Error state from worker threads */
+	/** IOException recorded by the producer; explicit worker failures are carried by jobs. */
 	private volatile IOException workerError=null;
-	/** Producer finished flag */
+	/** Producer-exit observation; consumer EOF is determined separately from queued jobs. */
 	private volatile boolean producerFinished=false;
 	/** Stream closed flag */
 	private volatile boolean closed=false;
-	/** Whether a last-job marker has already been queued */
+	/** Producer's last-job latch; may be set while constructing a job before its enqueue. */
 	private boolean lastJobQueued=false;
 	/** Whether EOF has already been delivered to the caller */
 	private boolean eofReached=false;
-	/** Debug flag (enable with -Dbgzf.debug=true) */
+	/** Compile-time disabled diagnostics; the system-property expression is commented out. */
 	private static final boolean DEBUG=false;//Boolean.getBoolean("bgzf.debug");
 	/** Plain gzip stream currently being drained by the producer (null when reading BGZF) */
 	private GZIPInputStream plainGzipStream=null;

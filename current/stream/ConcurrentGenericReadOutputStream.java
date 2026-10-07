@@ -9,20 +9,36 @@ import fileIO.FileFormat;
 import fileIO.ReadWrite;
 
 /**
- * Thread-safe output stream for writing sequence reads to files concurrently.
- * Extends ConcurrentReadOutputStream with generic file format support and ordering.
- * Manages dual ReadStreamByteWriter instances for paired-end output with buffering.
+ * Submits read lists to one or two background writers, optionally restoring list order.
+ * Synchronized submissions copy the outer list; Read objects and mates remain borrowed.
+ * Ordered callers supply every ID from zero, including empty lists for filtered batches.
+ * Unordered submission bypasses only the ordering table, not backend buffering.
+ * For normal shutdown, stop producers, call close, then join. Coordinate ordering
+ * resets with producers. Status accessors do not close or join the writers.
  *
  * @author Brian Bushnell
  * @date Jan 26, 2015
  */
-public final class ConcurrentGenericReadOutputStream extends ConcurrentReadOutputStream {
+public final class ConcurrentGenericReadOutputStream extends ConcurrentReadOutputStream{
 	
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Constructs the selected backend writers and optional ordered-list table.
+	 * Ordering is captured from the primary descriptor by the base constructor.
+	 * SAM/BAM uses ReadStreamSamWriter when its ReadWrite selector is enabled; that
+	 * adapter starts its delegate during construction, before this stream's start().
+	 * Otherwise, byte writers are created, with a separate mate writer only when the
+	 * primary is not standard I/O and a secondary descriptor is present.
+	 * @param ff1_ Nonnull primary output descriptor
+	 * @param ff2_ Optional mate descriptor; unused by the selected SAM/BAM adapter
+	 * @param qf1 Optional primary quality filename for the byte-writer route
+	 * @param qf2 Optional mate quality filename for the byte-writer route
+	 * @param rswBuffers Buffering capacity forwarded to each selected backend
+	 * @param header Optional header text forwarded to the backend
+	 * @param useSharedHeader Whether to request shared-header handling */
 	ConcurrentGenericReadOutputStream(FileFormat ff1_, FileFormat ff2_, String qf1, String qf2, int rswBuffers, CharSequence header, boolean useSharedHeader){
 		super(ff1_, ff2_);
 		
@@ -39,10 +55,10 @@ public final class ConcurrentGenericReadOutputStream extends ConcurrentReadOutpu
 			if(ff2!=null){assert(!ff1.name().equals(ff2.name())) : ff1.name()+"=="+ff2.name();}
 		}
 		
-		if(ff1.samOrBam() && ReadWrite.USE_READ_STREAM_SAM_WRITER) {
+		if(ff1.samOrBam() && ReadWrite.USE_READ_STREAM_SAM_WRITER){
 			readstream1=new ReadStreamSamWriter(ff1, rswBuffers, header, useSharedHeader);
 			readstream2=null;
-		}else {
+		}else{
 			readstream1=new ReadStreamByteWriter(ff1, qf1, true, rswBuffers, header, useSharedHeader);
 			readstream2=ff1.stdio() || ff2==null ? null : new ReadStreamByteWriter(ff2, qf2, false, rswBuffers, header, useSharedHeader);
 		}
@@ -58,6 +74,8 @@ public final class ConcurrentGenericReadOutputStream extends ConcurrentReadOutpu
 		assert(readstream2==null || (readstream2.read1==false));
 	}
 	
+	/** Starts the outer backend threads once, before any submissions.
+	 * @throws RuntimeException On a repeated call, after resetting the next ordered ID to zero */
 	@Override
 	public synchronized void start(){
 		if(started){
@@ -76,12 +94,14 @@ public final class ConcurrentGenericReadOutputStream extends ConcurrentReadOutpu
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Adds a list of reads to the output queue with optional ordering.
-	 * For ordered output, blocks if buffer becomes full waiting for sequential IDs.
-	 * For unordered output, writes immediately without buffering.
-	 *
-	 * @param list Read list to add to output queue
-	 * @param listnum Sequential identifier for ordering (ignored if unordered)
+	 * Submits a shallow list copy; callers may reuse the list after this call returns.
+	 * Read payloads must remain stable until downstream writing completes.
+	 * Ordered IDs start at zero and must be unique and contiguous, including empty lists.
+	 * Future IDs can wait for ordering capacity; the currently required ID bypasses
+	 * that wait. Either mode may wait for capacity in the backend writers.
+	 * @param list Nonnull list of borrowed Read references
+	 * @param listnum Ordered batch ID, ignored by the unordered route
+	 * @throws RuntimeException If this stream has been aborted or a backend has terminated
 	 */
 	@Override
 	public synchronized void add(ArrayList<Read> list, long listnum){
@@ -90,16 +110,20 @@ public final class ConcurrentGenericReadOutputStream extends ConcurrentReadOutpu
 			int size=table.size();
 //			System.err.print(size+", ");
 			final boolean flag=(size>=HALF_LIMIT);
-			//BACKPRESSURE (deadlock-free by construction): only a list STRICTLY AHEAD of order (listnum>nextListID) blocks when the buffer is full. The list AT nextListID - the one whose write advances the order and drains the buffer - is NEVER caught by this guard, so it always gets through, writes, and bumps nextListID. wait() releases 'this', so a sibling add() carrying nextListID runs while this one waits. NOTE (#002, LOW latency, RESOLVED): the notifyAll coverage is INCOMPLETE - a drain that drops the buffer below HALF_LIMIT without emptying it, when flag was false at entry, signals neither waiter path. Rather than add fragile notify-tracking, the wait timeout below was tightened 20000ms->500ms, so a missed signal costs at most ~0.5s instead of ~20s (and the poll only runs during active backpressure). Not a deadlock/correctness bug; a bounded latency tail.
+			//Only future IDs wait for ordering capacity; the required ID can enter and drain
+			//the table while wait() releases this monitor. This assumes every required ID arrives.
+			//Historical #002: a partial drain can miss notification when flag was false at entry.
+			//The timed wait was reduced from 20000ms to 500ms to recheck that condition sooner;
+			//it does not bound scheduler delays, backend I/O or the total time spent in add().
 			if(listnum>nextListID && size>=ADD_LIMIT){
 				if(printBufferNotification){
 					System.err.println("Output buffer became full; key "+listnum+" waiting on "+nextListID+".");
 					printBufferNotification=false;
 				}
 				while(!aborted && listnum>nextListID && size>=HALF_LIMIT){
-					try {
-						this.wait(500);//#002 fix: 500ms (was 20000) bounds the worst-case spurious stall from the incomplete notifyAll coverage to ~0.5s instead of ~20s. Cheap: this only polls while a producer is actually blocked (active backpressure - rare).
-					} catch (InterruptedException e) {
+					try{
+						this.wait(500);//#002: timed recheck only while ordering capacity blocks this future ID.
+					}catch(InterruptedException e){
 						e.printStackTrace();
 					}
 					size=table.size();
@@ -118,9 +142,9 @@ public final class ConcurrentGenericReadOutputStream extends ConcurrentReadOutpu
 	}
 	
 	/**
-	 * Closes the output stream and terminates writer threads.
-	 * Sets error state if unfinished lists remain in buffer.
-	 * Poisons ReadStreamByteWriter instances to trigger shutdown.
+	 * Requests writer termination without joining; all producers must have stopped.
+	 * A nonempty ordering table marks an error because some required IDs never arrived.
+	 * Sends poison to the selected backends; an already aborted stream is left alone.
 	 */
 	@Override
 	public synchronized void close(){
@@ -156,25 +180,26 @@ public final class ConcurrentGenericReadOutputStream extends ConcurrentReadOutpu
 	}
 	
 	/**
-	 * Waits for all writer threads to complete before returning.
-	 * Ensures proper cleanup by joining both ReadStreamByteWriter instances.
-	 * Sets finishedSuccessfully flag upon completion.
+	 * Waits for previously started outer writer threads, after close or abort was requested.
+	 * Does not request termination itself. Interrupted waits print a trace and retry.
+	 * After joining, asserts that ordered pending data is empty and records whether
+	 * this stream was aborted; finishedSuccessfully() also checks child/error flags.
 	 */
 	@Override
 	public void join(){
 		while(readstream1!=null && readstream1.getState()!=Thread.State.TERMINATED){
-			try {
+			try{
 				readstream1.join();
-			} catch (InterruptedException e) {
-				// TODO Auto-generated catch block
+			}catch(InterruptedException e){
+				//Report the interruption and retry the join.
 				e.printStackTrace();
 			}
 		}
 		while(readstream2!=null && readstream2.getState()!=Thread.State.TERMINATED){
-			try {
+			try{
 				if(readstream2!=null){readstream2.join();}
-			} catch (InterruptedException e) {
-				// TODO Auto-generated catch block
+			}catch(InterruptedException e){
+				//Report the interruption and retry the join.
 				e.printStackTrace();
 			}
 		}
@@ -185,44 +210,44 @@ public final class ConcurrentGenericReadOutputStream extends ConcurrentReadOutpu
 	}
 	
 	/**
-	 * Resets the next list ID counter to zero after clearing buffers.
-	 * Waits up to ~66 minutes (2000 iterations x wait(2000ms)) for the table to clear, warns once past that, then waits indefinitely.
-	 * (#001 doc fix: the javadoc previously said "4 minutes" but 2000 x 2000ms = 4000s; the loop bound may be higher than intended - flagged, code left unchanged.)
-	 * Issues a warning if the table doesn't clear within the timeout period.
+	 * Waits for ordered pending data to drain, then resets its next ID to zero.
+	 * Requires an ordered instance and coordinated producers; does not clear data or
+	 * wait for already submitted backend writes. Unordered instances have no table.
+	 * The initial loop permits 2000 waits of 2000ms, then warns and continues waiting
+	 * without an iteration limit. Notifications and scheduling affect elapsed time.
+	 * Historical #001 corrected the former "4 minutes" claim; the wait counts remain.
 	 */
 	@Override
 	public synchronized void resetNextListID(){
 		for(int i=0; i<2000 && !table.isEmpty(); i++){
-			try {this.wait(2000);}
-			catch (InterruptedException e) {e.printStackTrace();}
+			try{this.wait(2000);}catch(InterruptedException e){e.printStackTrace();}
 		}
 		if(!table.isEmpty()){
 			System.err.println("WARNING! resetNextListID() waited a long time and the table never cleared.  Process may have stalled.");
 		}
 		while(!table.isEmpty()){
-			try {this.wait(2000);}
-			catch (InterruptedException e) {e.printStackTrace();}
+			try{this.wait(2000);}catch(InterruptedException e){e.printStackTrace();}
 		}
 		nextListID=0;
 	}
 	
-	/** Gets the filename of the primary output stream.
-	 * @return Filename from primary ReadStreamByteWriter */
+	/** @return Primary backend filename */
 	@Override
 	public final String fname(){
 //		if(STANDARD_OUT){return "stdout";}
 		return readstream1.fname();
 	}
 	
-	/** Checks if any component is in an error state.
-	 * @return true if this stream or either ReadStreamByteWriter has errors */
+	/** Combines currently observed error flags without waiting for completion.
+	 * @return true if this stream or either selected backend reports an error */
 	@Override
 	public boolean errorState(){
 		return errorState || (readstream1!=null && readstream1.errorState()) || (readstream2!=null && readstream2.errorState());
 	}
 	
-	/** Checks if all components finished without errors.
-	 * @return true if this stream and both ReadStreamByteWriter instances completed successfully */
+	/** Checks stored completion/error flags without closing or joining anything.
+	 * @return true after a successful join when this stream and both present backends
+	 * report success, with no local error or abort */
 	@Override
 	public synchronized boolean finishedSuccessfully(){
 		return !errorState && !aborted && finishedSuccessfully &&
@@ -235,6 +260,9 @@ public final class ConcurrentGenericReadOutputStream extends ConcurrentReadOutpu
 	/*--------------------------------------------------------------*/
 	
 	
+	/** Copies one unique ordered list, then drains consecutive IDs from the expected ID.
+	 * @param list Nonnull list whose Read payloads remain borrowed
+	 * @param listnum Pending ID at or after the currently expected ID */
 	private synchronized void addOrdered(ArrayList<Read> list, long listnum){
 //		System.err.println("RTOS got "+listnum+" of size "+(list==null ? "null" : list.size())+
 //				" with first read id "+(list==null || list.isEmpty() || list.get(0)==null ? "null" : ""+list.get(0).numericID));
@@ -252,20 +280,31 @@ public final class ConcurrentGenericReadOutputStream extends ConcurrentReadOutpu
 			write(value);
 			nextListID++;
 		}
-		//#002 (LOW latency, RESOLVED 2026-06-18): this notifies ONLY on a full drain (table empty), and add()'s other notify is gated on flag, so a partial drain below HALF_LIMIT can miss waking a blocked producer. Rather than make this notify edge-perfect (a waiter-count or size-crossing test - more shared state, more to test), the backpressure wait above was tightened 20000ms->500ms, bounding any missed-signal stall to ~0.5s. This notify left as-is.
+		//Historical #002 (2026-06-18): this notifies only on a full drain; add()'s other
+		//notification depends on its entry flag. The unchanged 500ms polling wait covers
+		//a missed partial-drain notification without promising a wall-clock completion bound.
 		if(table.isEmpty()){notifyAll();}
 	}
 	
+	/** Copies the outer list and submits it directly to the backend queues.
+	 * @param list Nonnull list of borrowed Read references
+	 * @param listnum Unused compatibility argument */
 	private synchronized void addDisordered(ArrayList<Read> list, long listnum){
 		assert(list!=null);
 		assert(table==null);
 		write(new ArrayList<Read>(list));
 	}
 
+	/** Creates a diagnostic rejection for a submission after abort.
+	 * @param listnum Rejected input batch ID
+	 * @return Exception naming the attempted batch and primary output */
 	private RuntimeException abortedException(long listnum){
 		return new RuntimeException("Cannot add list "+listnum+" to aborted output stream "+fname()+".");
 	}
 	
+	/** Enqueues the supplied list in each present backend, which may wait for capacity.
+	 * @param list Already copied list; shared by both mate writers when present
+	 * @throws RuntimeException If a backend thread has already terminated */
 	private synchronized void write(ArrayList<Read> list){
 		//Crash-loud guard: writing to an already-terminated writer thread would silently drop the lists, so fail loudly instead.
 		if(readstream1!=null){
@@ -282,10 +321,10 @@ public final class ConcurrentGenericReadOutputStream extends ConcurrentReadOutpu
 	/*----------------           Getters            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Gets the primary ReadStreamWriter instance.
-	 * @return Primary ReadStreamWriter for first-in-pair or single-end reads */
+	/** @return Live primary backend; includes interleaved mates when there is no secondary */
 	@Override
 	public final ReadStreamWriter getRS1(){return readstream1;}
+	/** @return Live secondary backend, or null for single/interleaved or selected SAM/BAM output */
 	@Override
 	public final ReadStreamWriter getRS2(){return readstream2;}
 	
@@ -293,23 +332,32 @@ public final class ConcurrentGenericReadOutputStream extends ConcurrentReadOutpu
 	/*----------------             Fields           ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Primary writer selected at construction. */
 	private final ReadStreamWriter readstream1;
+	/** Optional separate-mate writer; null for the single-backend routes. */
 	private final ReadStreamWriter readstream2;
+	/** Next required ordered ID, guarded by this object's monitor. */
 	private long nextListID=0;
 	
+	/** Initial ordered-table capacity and basis for the admission thresholds. */
 	private final int MAX_CAPACITY=256;
+	/** Future-ID table size at which an add begins waiting. */
 	private final int ADD_LIMIT=MAX_CAPACITY-2;
+	/** Table size below which an existing future-ID waiter may resume. */
 	private final int HALF_LIMIT=ADD_LIMIT/2;
 	
+	/** Pending shallow-copied lists, guarded by this monitor; null when unordered. */
 	private final HashMap<Long, ArrayList<Read>> table;
+	/** Abort state guarded by this monitor. */
 	private boolean aborted=false;
 	
 	{if(HALF_LIMIT<1){throw new RuntimeException("Capacity too low.");}}
 	
 	/*--------------------------------------------------------------*/
-	/*----------------        Static Fields         ----------------*/
+	/*----------------         Diagnostics          ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Controls the initial ordering-capacity notification; accessed under this monitor. */
 	private boolean printBufferNotification=true;
 	
 }
