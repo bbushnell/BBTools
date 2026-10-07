@@ -39,10 +39,19 @@ public class Orf extends PFeature {
 	 * @param type_ Feature type (CDS, tRNA, rRNA, etc.)
 	 */
 	public Orf(String scafName_, int start_, int stop_, int strand_, int frame_, byte[] bases, boolean flip, int type_) {
+		this(scafName_, start_, stop_, strand_, frame_, bases, flip, type_, true, true);
+	}
+
+	/** Carries known biological CDS boundaries independently of coordinate flipping.
+	 * The legacy constructor leaves both boundaries unknown/truncated; RNA ignores these flags. */
+	public Orf(String scafName_, int start_, int stop_, int strand_, int frame_, byte[] bases,
+			boolean flip, int type_, boolean startTruncated_, boolean stopTruncated_){
 		super(scafName_, start_, stop_, strand_, bases.length);
 		frame=frame_;
 		startCodon=getCodon(start, bases);
 		stopCodon=getCodon(stop-2, bases);
+		startTruncated=startTruncated_;
+		stopTruncated=stopTruncated_;
 		type=type_;
 		
 		if(flip && strand==Shared.MINUS){flip();}
@@ -520,6 +529,10 @@ public class Orf extends PFeature {
 	//These are not needed but nice for printing
 	public final int startCodon;
 	public final int stopCodon;
+	/** True for a synthetic/unknown biological 5' boundary; never swapped by flip(). */
+	public final boolean startTruncated;
+	/** True for a synthetic/unknown biological 3' boundary, including gaps and contig ends. */
+	public final boolean stopTruncated;
 	
 	public float startScore;
 	public float stopScore;

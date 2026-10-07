@@ -31,6 +31,21 @@ binlen=21       Histogram bin length.
 bins=1000       Maximum histogram bins.
 pz=f            (printzero) Print histogram lines with zero count.
 
+Genetic-code parameters:
+transl_table=   Explicit NCBI table 4, 11, or 25 for CDS calling and translation.
+                Omitted preserves historical ATG/GTG/TTG starts and translation.
+                Explicit 11 uses its full NCBI initiation set. The selected code
+                also governs start/stop candidates during multipass training.
+codefile=      Alternative complete TSV: codon, amino_acid, start header;
+                64 unique DNA codons, one canonical residue or *, start 0/1.
+                Mutually exclusive with transl_table. Real terminal stops are
+                omitted from proteins; truncated ends retain complete codons.
+                Initial M requires a known complete allowed start. Synthetic
+                contig-edge starts retain their elongation residue.
+                Existing PGMs are not retrained by selecting a code; accuracy
+                with a reassigned code requires separate evaluation.
+                Explicit codes currently reject recode/detranslate modes.
+
 rRNA alignment parameters:
 rrnafallback=f  For 16S, 18S, 23S, and 5S: after the universal rRNA consensus
                 fails alignment, try later consensuses in shipped-file order.

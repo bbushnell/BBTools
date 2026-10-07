@@ -1,12 +1,15 @@
 package prok;
 
 import java.io.File;
+import java.io.IOException;
 import java.io.PrintStream;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Arrays;
 
 import dna.AminoAcid;
 import dna.Data;
+import dna.GeneticCode;
 import fileIO.ByteFile;
 import fileIO.ByteStreamWriter;
 import fileIO.FileFormat;
@@ -94,6 +97,7 @@ public class CallGenes extends ProkObject {
 			
 			fixExtensions(); //Add or remove .gz or .bz2 as needed
 		checkFileExistence(); //Ensure files can be read and written
+		validateReferenceInputs(); //Reject reference-training errors before output writers start
 		checkStatics(); //Adjust file-related static fields as needed for this program
 		
 		ffoutGff=FileFormat.testOutput(outGff, FileFormat.GFF, null, true, overwrite, append, ordered);
@@ -135,12 +139,15 @@ public class CallGenes extends ProkObject {
 	private Parser parse(String[] args){
 		
 		Parser parser=new Parser();
+		Integer translationTable=null;
+		String codeFile=null;
 		for(int i=0; i<args.length; i++){
 			String arg=args[i];
-			String[] split=arg.split("=");
+			//[CallGenes/CG03] Split only the flag separator; paths may contain '='. Empty values still mean null.
+			String[] split=arg.split("=", 2);
 			String a=split[0].toLowerCase();
 			String b=split.length>1 ? split[1] : null;
-			if(b!=null && b.equalsIgnoreCase("null")){b=null;}
+			if(b!=null && (b.isEmpty() || b.equalsIgnoreCase("null"))){b=null;}
 
 //			outstream.println(arg+", "+a+", "+b);
 			if(PGMTools.parseStatic(arg, a, b)){
@@ -159,6 +166,12 @@ public class CallGenes extends ProkObject {
 				}else{
 					Tools.addFiles(b, pgmList);
 				}
+			}else if(a.equals("transl_table")){
+				if(b==null){throw new IllegalArgumentException("transl_table requires a supported NCBI table number");}
+				translationTable=Integer.parseInt(b);
+			}else if(a.equals("codefile")){
+				if(b==null || b.isEmpty()){throw new IllegalArgumentException("codefile requires a complete genetic-code TSV path");}
+				codeFile=b;
 			}else if(b==null && new File(arg).exists() && FileFormat.isPgmFile(arg)){
 				//[prok/CallGenes#001] FIXED: was pgmList.add(b), but b is null in this branch (guarded by b==null);
 				//the fna branch above correctly adds arg. A bare-pgm-filename positional arg was adding null to pgmList.
@@ -180,7 +193,7 @@ public class CallGenes extends ProkObject {
 				GeneCaller.verbose=verbose;
 				ProkObject.verbose=verbose;
 			}else if(a.equalsIgnoreCase("ingff") || a.equalsIgnoreCase("gffin")){
-				Tools.addFiles(b, inGffList);
+				if(!Tools.addFiles(b, inGffList)){throw new IllegalArgumentException("Cannot find reference GFF input: "+b);}
 			}
 			
 			else if(a.equals("json_out") || a.equalsIgnoreCase("json")){
@@ -660,6 +673,10 @@ public class CallGenes extends ProkObject {
 			}
 		}
 
+		geneticCode=selectGeneticCode(translationTable, codeFile);
+		if(geneticCode!=null && mode!=TRANSLATE){
+			throw new IllegalArgumentException("Explicit genetic codes currently require translate mode; recode/detranslate use standard canonical codons");
+		}
 		if(pgmList.isEmpty()){
 			String b=Data.findPath("?model.pgm");
 			pgmList.add(b);
@@ -735,6 +752,12 @@ public class CallGenes extends ProkObject {
 		return parser;
 	}
 	
+	/** Resolves run policy before resource loading; a custom code never inherits missing rows. */
+	static GeneticCode selectGeneticCode(Integer table, String file){
+		if(table!=null && file!=null){throw new IllegalArgumentException("transl_table and codefile are mutually exclusive");}
+		return file!=null ? GeneticCode.load(file) : table!=null ? GeneticCode.forTable(table) : null;
+	}
+
 	/** Add or remove .gz or .bz2 as needed */
 	private void fixExtensions(){
 		fnaList=Tools.fixExtension(fnaList);
@@ -774,6 +797,35 @@ public class CallGenes extends ProkObject {
 		}
 	}
 	
+	/** Reference GFFs are training inputs only for multipass calls. Preflight before writers
+	 * prevents bad pairs from hanging after a main-thread failure or overwriting training truth. */
+	private void validateReferenceInputs(){
+		if(inGffList.isEmpty()){return;}
+		if(inGffList.size()!=fnaList.size()){
+			throw new IllegalArgumentException("Number of FASTA and reference GFF files do not match: "
+				+fnaList.size()+", "+inGffList.size());
+		}
+		// process indexes each supplied reference even when a single pass does not train from it.
+		if(passes<2){return;}
+		if(!Tools.testInputFiles(true, true, inGffList.toArray(new String[0]))){
+			throw new IllegalArgumentException("Cannot read reference training GFF files");
+		}
+		final String[] outputs={outGff, outAmino, out16S, out18S, outIts, outStats, geneHistFile, fiveSAttemptLog, ncrnaDiagLog};
+		for(String gff : inGffList){
+			final File reference=new File(gff);
+			for(String path : outputs){
+				if(!Tools.isOutputFileName(path)){continue;}
+				final File output=new File(path);
+				try{
+					if(reference.exists() && output.exists() && Files.isSameFile(reference.toPath(), output.toPath())){
+						throw new IllegalArgumentException("Output aliases reference training GFF: "+path+" -> "+gff);
+					}
+				}catch(IOException e){throw new IllegalArgumentException("Cannot check reference/output identity: "+gff+", "+path, e);}
+			}
+			if(geneticCode!=null && geneticCode.id()>0){TranslationTableCensus.requireDeclaredCode(gff, geneticCode.id());}
+		}
+	}
+
 	/** Adjust file-related static fields as needed for this program */
 	private static void checkStatics(){
 		//Adjust the number of threads for input file reading
@@ -826,6 +878,9 @@ public class CallGenes extends ProkObject {
 		ByteStreamWriter bsw=makeBSW(ffoutGff);
 		if(bsw!=null){
 			bsw.forcePrint("##gff-version 3\n");
+			if(geneticCode!=null){
+				bsw.forcePrint(geneticCode.id()>0 ? "##transl_table "+geneticCode.id()+"\n" : "##genetic-code custom\n");
+			}
 		}
 		ByteStreamWriter attemptBsw=null;
 		RefinementAttemptSink attemptSink=null;
@@ -870,7 +925,7 @@ public class CallGenes extends ProkObject {
 				bsw.forcePrint("##ClassificationSource "+(lastClassificationSource!=null ? lastClassificationSource : "none")+"\n");
 			}
 			//Create a read input stream
-			final GeneModel pgm=makeMultipassModel(pgm0, fna, gffIn, passes/*, maxReads*/);
+			final GeneModel pgm=makeMultipassModel(pgm0, fna, gffIn, passes, geneticCode);
 			
 			final ConcurrentReadInputStream cris=makeCris(fna);
 			
@@ -1469,9 +1524,14 @@ public class CallGenes extends ProkObject {
 	 * @return Refined gene model with improved accuracy
 	 */
 	public static GeneModel makeMultipassModel(GeneModel pgm0, String fna, String gff, int passes/*, long maxReads*/) {
+		return makeMultipassModel(pgm0, fna, gff, passes, null);
+	}
+
+	/** Uses the same explicit code for calling and training on every refinement pass. */
+	public static GeneModel makeMultipassModel(GeneModel pgm0, String fna, String gff, int passes, GeneticCode code){
 		if(passes<2) {return pgm0;}
 		ArrayList<Read> reads=ReadInputStream.toReads(fna, FileFormat.FASTA, -1/*maxReads*/);
-		return makeMultipassModel(pgm0, reads, gff, passes);
+		return makeMultipassModel(pgm0, reads, gff, passes, code);
 	}
 	
 	/**
@@ -1485,10 +1545,15 @@ public class CallGenes extends ProkObject {
 	 * @return Refined gene model with weighted combination of predictions
 	 */
 	public static GeneModel makeMultipassModel(GeneModel pgm0, ArrayList<Read> reads, String gff, int passes) {
+		return makeMultipassModel(pgm0, reads, gff, passes, null);
+	}
+
+	/** Model mixing combines statistics only; the explicit run code is carried separately. */
+	public static GeneModel makeMultipassModel(GeneModel pgm0, ArrayList<Read> reads, String gff, int passes, GeneticCode code){
 		//Self-refinement: each pass re-calls the caller on the genome's OWN predictions (runOnePass) to derive a genome-specific pgm, then PGMTools.mix blends original+derived with pass-dependent weights (early passes trust the derived model less; the final pass weights CDS 0.50 + rRNA/tRNA ~0.12). Bootstraps a tuned model from an unannotated genome -- the praise-worthy core.
 		GeneModel pgm=pgm0;
 		for(int i=1; i<passes; i++) {
-			pgm=runOnePass(reads, gff, pgm);
+			pgm=runOnePass(reads, gff, pgm, code);
 			if(i==1 && passes==2) {//only pass for 2-pass
 				pgm=PGMTools.mix(0.50, 0.10, 0.10, true, pgm0, pgm);
 			}else if(i==passes-1) {//final pass for 3+ passes
@@ -1510,11 +1575,18 @@ public class CallGenes extends ProkObject {
 	
 	/** This needs a pgm OR a gff, not both */
 	public static GeneModel runOnePass(ArrayList<Read> reads, String gff, GeneModel pgm0) {//TODO: Make this multithreaded
+		return runOnePass(reads, gff, pgm0, null);
+	}
+
+	/** Calls and collects training sites with one code; existing PGMs are not relabeled as calibrated for it. */
+	public static GeneModel runOnePass(ArrayList<Read> reads, String gff, GeneModel pgm0, GeneticCode code){
 		GeneCaller caller=new GeneCaller(minLen, maxOverlapSameStrand, maxOverlapOppositeStrand, 
-				minStartScore, minStopScore, minKmerScore, minOrfScore, minAvgScore, pgm0);
+				minStartScore, minStopScore, minKmerScore, minOrfScore, minAvgScore, pgm0, code);
 		
 		final ArrayList<GffLine> cds, rrna, trna;
 		if(gff!=null && !"null".equalsIgnoreCase(gff)) {
+			// Direct API callers need the same gate even when no CLI preflight constructed this call.
+			if(code!=null && code.id()>0){TranslationTableCensus.requireDeclaredCode(gff, code.id());}
 			ArrayList<GffLine>[] allGffLines=GffLine.loadGffFileByType(gff, "CDS,rRNA,tRNA", true);
 			cds=allGffLines[0];
 			rrna=allGffLines[1];
@@ -1529,7 +1601,7 @@ public class CallGenes extends ProkObject {
 //			System.err.println("Called "+cds.size()+" CDSs");
 		}
 		
-		GeneModel pgm=new GeneModel(true);
+		GeneModel pgm=new GeneModel(true, code);
 		pgm.process(reads, cds, rrna, trna);
 		for(StatsContainer sc : pgm.allContainers) {
 			sc.calculate();//Not sure if this is needed...
@@ -1648,7 +1720,7 @@ public class CallGenes extends ProkObject {
 			tid=tid_;
 			geneHistT=(geneHistBins>1 ? new long[geneHistBins] : null);
 			caller=new GeneCaller(minLen, maxOverlapSameStrand, maxOverlapOppositeStrand, 
-					minStartScore, minStopScore, minKmerScore, minOrfScore, minAvgScore, pgm);
+					minStartScore, minStopScore, minKmerScore, minOrfScore, minAvgScore, pgm, geneticCode);
 			caller.setAttemptSink(attemptSink_);
 			caller.setNcrnaDiagSink(ncrnaDiagSink_);
 		}
@@ -1829,7 +1901,7 @@ public class CallGenes extends ProkObject {
 			if(rosAmino!=null){
 				if(mode==TRANSLATE){
 					if(list!=null && !list.isEmpty()){
-						ArrayList<Read> prots=translate(r, list);
+						ArrayList<Read> prots=translate(r, list, geneticCode);
 						if(prots!=null){rosAmino.add(prots, r.numericID);}
 					}
 				}else if(mode==RETRANSLATE) {
@@ -1936,17 +2008,26 @@ public class CallGenes extends ProkObject {
 	 * @return List of Read objects containing amino acid translations
 	 */
 	public static ArrayList<Read> translate(final Read r, final ArrayList<Orf> list){
+		return translate(r, list, null);
+	}
+
+	/** Translates CDSs with explicit boundary provenance; null retains historical output bytes. */
+	public static ArrayList<Read> translate(final Read r, final ArrayList<Orf> list, final GeneticCode code){
 		if(list==null || list.isEmpty()){return null;}
 		ArrayList<Read> prots=new ArrayList<Read>(list.size());
-		for(int strand=0; strand<2; strand++){
-			for(Orf orf : list){
-				if(orf.strand==strand && orf.type==CDS){
-					Read aa=translate(orf, r.bases, r.id);
-					prots.add(aa);
+		boolean reversed=false;
+		try{
+			for(int strand=0; strand<2; strand++){
+				for(Orf orf : list){
+					if(orf.strand==strand && orf.type==CDS){
+						Read aa=translate(orf, r.bases, r.id, code);
+						prots.add(aa);
+					}
 				}
+				r.reverseComplement();
+				reversed=!reversed;
 			}
-			r.reverseComplement();
-		}
+		}finally{if(reversed){r.reverseComplement();}}
 		return prots.isEmpty() ? null : prots;
 	}
 	
@@ -2002,10 +2083,30 @@ public class CallGenes extends ProkObject {
 	 * @return Read containing amino acid translation with coordinate metadata
 	 */
 	public static Read translate(Orf orf, byte[] bases, String id){
+		return translate(orf, bases, id, null);
+	}
+
+	/** Bases must already be in biological orientation, as in translate(Read,list).
+	 * Explicit codes omit real stops only and retain complete codons at truncated ends. */
+	public static Read translate(Orf orf, byte[] bases, String id, GeneticCode code){
 //		assert(orf.length()%3==0) : orf.length(); //Happens sometimes on genes that go off the end, perhaps
 		if(orf.strand==1){orf.flip();}
-		byte[] acids=AminoAcid.toAAs(bases, orf.start, orf.stop);
-		if(orf.strand==1){orf.flip();}
+		final byte[] acids;
+		try{
+			if(code==null){acids=AminoAcid.toAAs(bases, orf.start, orf.stop);}
+			else{
+				int count=orf.length()/3;
+				if(!orf.stopTruncated && count>0){
+					final int last=GeneticCode.codon(bases, orf.start+3*(count-1));
+					if(!code.isStop(last)){throw new IllegalArgumentException("Complete CDS stop is not a stop under code "+code.id()+": "+orf);}
+					count--;
+				}
+				acids=new byte[count];
+				for(int i=0; i<count; i++){
+					acids[i]=code.translateCodon(GeneticCode.codon(bases, orf.start+3*i), i==0 && !orf.startTruncated);
+				}
+			}
+		}finally{if(orf.strand==1){orf.flip();}}
 		Read r=new Read(acids, null, id+"\t"+(Shared.strandCodes[orf.strand]+"\t"+orf.start+"-"+orf.stop), 0, Read.AAMASK);
 //		assert((r.length()+1)*3==orf.length());
 		return r;
@@ -2118,8 +2219,13 @@ public class CallGenes extends ProkObject {
 	 * @return Configured GeneCaller instance
 	 */
 	public static GeneCaller makeGeneCaller(GeneModel pgm){
+		return makeGeneCaller(pgm, null);
+	}
+
+	/** Creates an independent caller with explicit codon assignments and unchanged scoring thresholds. */
+	public static GeneCaller makeGeneCaller(GeneModel pgm, GeneticCode code){
 		GeneCaller caller=new GeneCaller(minLen, maxOverlapSameStrand, maxOverlapOppositeStrand,
-				minStartScore, minStopScore, minKmerScore, minOrfScore, minAvgScore, pgm);
+				minStartScore, minStopScore, minKmerScore, minOrfScore, minAvgScore, pgm, code);
 		return caller;
 	}
 
@@ -3212,6 +3318,8 @@ public class CallGenes extends ProkObject {
 	private boolean ecco;
 	/** Number of iterative passes for model refinement */
 	private int passes=1;
+	/** Selected once during parsing, before workers; null keeps legacy codon and translation behavior. */
+	private GeneticCode geneticCode;
 	
 	/** Total number of input reads processed */
 	private long readsIn=0;

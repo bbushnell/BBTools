@@ -7,6 +7,7 @@ import java.util.HashMap;
 
 import aligner.SingleStateAlignerFlat2;
 import dna.AminoAcid;
+import dna.GeneticCode;
 import fileIO.FileFormat;
 import gff.GffLine;
 import shared.KillSwitch;
@@ -36,6 +37,13 @@ public class GeneModel extends ProkObject {
 	/** Creates a new GeneModel with optional container initialization.
 	 * @param fill Whether to initialize the statistics containers with k-mer parameters */
 	public GeneModel(boolean fill){
+		this(fill, null);
+	}
+
+	/** Code used only when collecting training sites; null preserves legacy codon rules.
+	 * Statistical model merging does not determine a caller's selected genetic code. */
+	public GeneModel(boolean fill, GeneticCode geneticCode_){
+		geneticCode=geneticCode_;
 		if(fill){
 			fillContainers();
 		}
@@ -327,7 +335,7 @@ public class GeneModel extends ProkObject {
 	 * @param list Output list to store stop codon positions
 	 * @param valid BitSet tracking already identified positions to avoid duplicates
 	 */
-	private static void findStopCodons(byte[] bases, IntList list, BitSet valid){
+	private void findStopCodons(byte[] bases, IntList list, BitSet valid){
 		final int k=3;
 		final int mask=~((-1)<<(2*k));
 		int kmer=0;
@@ -341,7 +349,7 @@ public class GeneModel extends ProkObject {
 				len++;
 				if(len>=k){
 					int point=i;//End of the stop codon
-					if(isStopCodon(kmer) && !valid.get(point)){
+					if((geneticCode==null ? isStopCodon(kmer) : geneticCode.isStop(kmer)) && !valid.get(point)){
 						list.add(point);
 						valid.set(point);
 					}
@@ -364,7 +372,7 @@ public class GeneModel extends ProkObject {
 	 * @param list Output list to store start codon positions
 	 * @param valid BitSet tracking already identified positions to avoid duplicates
 	 */
-	private static void findStartCodons(byte[] bases, IntList list, BitSet valid){
+	private void findStartCodons(byte[] bases, IntList list, BitSet valid){
 		final int k=3;
 		final int mask=~((-1)<<(2*k));
 		int kmer=0;
@@ -378,7 +386,7 @@ public class GeneModel extends ProkObject {
 				len++;
 				if(len>=k){
 					int point=i-k+1;//Start of the start codon
-					if(isStartCodon(kmer) && !valid.get(point)){
+					if((geneticCode==null ? isStartCodon(kmer) : geneticCode.isStart(kmer)) && !valid.get(point)){
 						list.add(point);
 						valid.set(point);
 					}
@@ -911,6 +919,8 @@ public class GeneModel extends ProkObject {
 
 	/** Maximum number of reads to process, or -1 for no limit */
 	private long maxReads=-1;
+	/** Training-site interpretation only; intentionally not serialized as PGM calibration metadata. */
+	private final GeneticCode geneticCode;
 	
 	/** Total number of scaffold sequences processed */
 	long readsProcessed=0;

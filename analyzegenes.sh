@@ -18,6 +18,14 @@ gff=<file>      A gff file or comma-delimited list.  This is optional;
                 If absent, a fasta file 'foo.fasta' will imply the
                 presence of 'foo.gff'.
 out=<file>      Output pgm file.
+transl_table=  Optional NCBI code (4, 11, or 25) used for training start/stop sites.
+                Every CDS must explicitly declare this table in its GFF.
+                Missing or mixed table declarations fail before training.
+codefile=     Complete custom codon TSV; mutually exclusive with transl_table.
+                Custom-code identity cannot be checked against numbered GFF tables.
+                Without either selector, historical training behavior is retained.
+                Record the selected code with the model; PGM loading does not
+                automatically select a translation table in CallGenes.
 
 Please contact Brian Bushnell at bbushnell@lbl.gov if you encounter any problems.
 For documentation and the latest version, visit: https://bbmap.org

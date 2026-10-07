@@ -9,6 +9,7 @@ import aligner.SingleStateAlignerFlat2;
 import aligner.SingleStateAlignerFlat3;
 import aligner.SingleStateAlignerFlatFloat;
 import dna.AminoAcid;
+import dna.GeneticCode;
 import idaligner.IDAligner;
 import map.LongHashSet;
 import ml.CellNet;
@@ -49,6 +50,15 @@ public class GeneCaller extends ProkObject {
 	GeneCaller(int minLen_, int maxOverlapSameStrand_, int maxOverlapOppositeStrand_,
 			float minStartScore_, float minStopScore_, float minInnerScore_,
 			float minOrfScore_, float minAvgScore_, GeneModel pgm_){
+		this(minLen_, maxOverlapSameStrand_, maxOverlapOppositeStrand_, minStartScore_, minStopScore_,
+			minInnerScore_, minOrfScore_, minAvgScore_, pgm_, null);
+	}
+
+	/** The run's code is independent of replaceable PGM statistics; null preserves legacy starts/stops. */
+	GeneCaller(int minLen_, int maxOverlapSameStrand_, int maxOverlapOppositeStrand_,
+			float minStartScore_, float minStopScore_, float minInnerScore_,
+			float minOrfScore_, float minAvgScore_, GeneModel pgm_, GeneticCode geneticCode_){
+		geneticCode=geneticCode_;
 		minLen=minLen_;
 		maxOverlapSameStrand=maxOverlapSameStrand_;
 		maxOverlapOppositeStrand=maxOverlapOppositeStrand_;
@@ -136,7 +146,7 @@ public class GeneCaller extends ProkObject {
 		pgm=pgm_;
 		final byte[] bases=r.bases;
 		final String name=r.id;
-		ArrayList<Orf>[] frameLists=makeOrfs(name, bases, minLen);
+		ArrayList<Orf>[] frameLists=makeOrfs(name, bases, minLen, geneticCode);
 		ArrayList<Orf>[] brokenLists=breakOrfs(frameLists, bases);
 		ArrayList<Orf> all=new ArrayList<Orf>();
 		for(ArrayList<Orf> list : brokenLists){
@@ -167,7 +177,7 @@ public class GeneCaller extends ProkObject {
 		activeMetaNet=selectMetaNet(contigGC);
 
 		//Lists of all longest orfs per frame
-		ArrayList<Orf>[] frameLists=makeOrfs(name, bases, minLen);
+		ArrayList<Orf>[] frameLists=makeOrfs(name, bases, minLen, geneticCode);
 		//Lists of all high-scoring orfs per frame, with potentially multiple orfs sharing stops.
 		ArrayList<Orf>[] brokenLists=(breakOrfs ? breakOrfs(frameLists, bases) : frameLists);
 		if(!breakOrfs) {
@@ -485,12 +495,17 @@ public class GeneCaller extends ProkObject {
 	 * All Orfs come out flipped to + orientation. 
 	 * */
 	static ArrayList<Orf>[] makeOrfs(String name, byte[] bases, int minlen){
+		return makeOrfs(name, bases, minlen, null);
+	}
+
+	/** Uses one explicit code on both strands while preserving the caller's input bases. */
+	static ArrayList<Orf>[] makeOrfs(String name, byte[] bases, int minlen, GeneticCode geneticCode){
 		@SuppressWarnings("unchecked")
 		int orfs=0;
 		ArrayList<Orf>[] array=new ArrayList[6];
 		for(int strand=0; strand<2; strand++){
 			for(int frame=0; frame<3; frame++){
-				ArrayList<Orf> list=makeOrfsForFrame(name, bases, frame, strand, minlen);
+				ArrayList<Orf> list=makeOrfsForFrame(name, bases, frame, strand, minlen, geneticCode);
 				orfs+=(list==null ? 0 : list.size());
 				array[frame+3*strand]=list;
 				if(strand==1 && list!=null){
@@ -658,6 +673,9 @@ public class GeneCaller extends ProkObject {
 			if(orf.isValidPrev(prev, maxOverlap)){
 				int overlap=Tools.max(0, prev.stop-orf.start+1);
 				float orfScore=(overlap==0 || orf.type==ProkObject.RNA) ? orf.orfScore : orf.calcOrfScore(overlap);
+				if(MINOR_START_MULTIPLIER!=1f && overlap>0 && orf.type==CDS){
+					orfScore=minorStartScore(orfScore, orf.startCodon, orf.startTruncated, MINOR_START_MULTIPLIER);
+				}
 				
 				final float prevScore=prev.pathScore();
 				final int prevLength=prev.pathLength();
@@ -719,6 +737,9 @@ public class GeneCaller extends ProkObject {
 			if(orf.isValidPrev(prev, maxOverlap)){
 				int overlap=Tools.max(0, prev.stop-orf.start+1);
 				float orfScore=(overlap==0 || orf.type==ProkObject.RNA) ? orf.orfScore : orf.calcOrfScore(overlap);
+				if(MINOR_START_MULTIPLIER!=1f && overlap>0 && orf.type==CDS){
+					orfScore=minorStartScore(orfScore, orf.startCodon, orf.startTruncated, MINOR_START_MULTIPLIER);
+				}
 				
 				final float prevScore=prev.pathScore();
 				final int prevLength=prev.pathLength();
@@ -754,6 +775,11 @@ public class GeneCaller extends ProkObject {
 	 * All Orfs come out in native orientation (unflipped). 
 	 * */
 	static ArrayList<Orf> makeOrfsForFrame(String name, byte[] bases, int startFrame, int strand, int minlen){
+		return makeOrfsForFrame(name, bases, startFrame, strand, minlen, null);
+	}
+
+	/** Enumerates selected-code stops and starts; edge/gap provenance survives later start selection. */
+	static ArrayList<Orf> makeOrfsForFrame(String name, byte[] bases, int startFrame, int strand, int minlen, GeneticCode geneticCode){
 //		assert(false) : "TODO";
 		// TODO: Probable CLI-validation bug - CallGenes accepts minlen=1 or 2,
 		// then worker threads fail here instead of rejecting the parameter up front.
@@ -764,6 +790,7 @@ public class GeneCaller extends ProkObject {
 //		int mask=63;
 		int code=0;
 		int start=-2;
+		boolean startTruncated=true;
 		int frame=0;
 		int pos=startFrame;
 		
@@ -777,10 +804,10 @@ public class GeneCaller extends ProkObject {
 			if(frame==3){
 				frame=0;
 				if(start>=0){
-					if(GeneModel.isStopCodon(code) || code<0){//NOTE: This adds a stop codon wherever there are Ns.
+					if(isStopCodon(code, geneticCode) || code<0){//NOTE: This adds a stop codon wherever there are Ns.
 						int len=pos-start+1;
 						if(len>=minlen){
-							Orf f=new Orf(name, start, pos, strand, startFrame, bases, true, CDS);
+							Orf f=new Orf(name, start, pos, strand, startFrame, bases, true, CDS, startTruncated, code<0);
 							orfs.add(f);
 						}
 						start=-1;
@@ -790,9 +817,11 @@ public class GeneCaller extends ProkObject {
 						//At a contig edge, retain a complete first sense codon as a
 						//synthetic truncated start.  A stop or ambiguous codon cannot
 						//start a CDS; including it produces a leading '*' or X.
-						start=(validSyntheticEdgeStart(code) ? pos-2 : -1);
-					}else if(start<0 && GeneModel.isStartCodon(code)){
+						start=(validSyntheticEdgeStart(code, geneticCode) ? pos-2 : -1);
+						startTruncated=true;
+					}else if(start<0 && isStartCodon(code, geneticCode)){
 						start=pos-2;
+						startTruncated=false;
 					}
 				}
 				code=0;
@@ -801,15 +830,16 @@ public class GeneCaller extends ProkObject {
 
 		//Add a stop codon at the sequence end.
 		if(start>=0){
-			pos--;
-			while(frame!=3 && frame!=-1){
+			if(geneticCode==null){
+				//TODO: Legacy end clipping removes an extra base after the last complete
+				//codon. Preserve no-option output; explicit codes retain complete edge codons.
 				pos--;
-				frame--;
-			}
+				while(frame!=3 && frame!=-1){pos--; frame--;}
+			}else{pos-=frame+1;}
 			int len=pos-start+1;
 			if(len>=minlen){
 				assert(pos<bases.length) : start+", "+pos+", "+bases.length;
-				Orf f=new Orf(name, start, pos, strand, startFrame, bases, true, CDS);
+				Orf f=new Orf(name, start, pos, strand, startFrame, bases, true, CDS, startTruncated, true);
 				orfs.add(f);
 			}
 		}
@@ -1429,6 +1459,9 @@ public class GeneCaller extends ProkObject {
 	 * @param scores Output list of corresponding scores
 	 */
 	void fillPoints(final int left, final int right, final byte[] bases, final FrameStats fs, float thresh, final IntList points, final FloatList scores){
+		//TODO: Confirmed bug CG01 - nonpositive thresholds can loop forever with fewer
+		//than 8 qualifying positions; trnastop=0 reproduces through the legacy tRNA CLI.
+		//Keep its bounded-loop repair separate from genetic-code integration.
 		points.clear();
 		scores.clear();
 		final float minThresh=thresh;//thresh*0.05f;
@@ -1556,8 +1589,8 @@ public class GeneCaller extends ProkObject {
 //			outstream.println("pos="+pos+", codon="+AminoAcid.kmerToString(kmer, 3)+", frame="+currentFrame+", start="+start+", isStartCodon="+pgm.isStartCodon(codon));
 			if(currentFrame>2){
 				currentFrame=0;
-				final boolean syntheticEdgeStart=(pos==start+2 && validSyntheticEdgeStart(codon));
-				if(pos<max && created<breakLimit && (syntheticEdgeStart || pgm.isStartCodon(codon))){
+				final boolean syntheticEdgeStart=(pos==start+2 && validSyntheticEdgeStart(codon, geneticCode));
+				if(pos<max && created<breakLimit && (syntheticEdgeStart || isStartCodon(codon, geneticCode))){
 //					outstream.println(x);
 					int glen=stop-pos+3;
 					assert(glen>=minLen) : "glen="+glen+", minLen="+minLen+", pos="+pos+", max="+max+", start="+start;
@@ -1572,7 +1605,8 @@ public class GeneCaller extends ProkObject {
 					stCds.lengthCount++;
 					
 					if((startScore>=minStartScore || pos<6) /* && stopScore>=minStopScore /*|| broken.isEmpty()*/){
-						Orf orf=new Orf(name, pos-2, stop, strand, longest.frame, bases, false, longest.type);
+						Orf orf=new Orf(name, pos-2, stop, strand, longest.frame, bases, false, longest.type,
+							pos-2==start && longest.startTruncated, longest.stopTruncated);
 						
 						geneStartsMade++;
 						orf.kmerScore=currentScore;
@@ -1614,6 +1648,9 @@ public class GeneCaller extends ProkObject {
 			}else{
 				orf.orfScore=orf.calcOrfScore();
 			}
+			if(MINOR_START_MULTIPLIER!=1f){
+				orf.orfScore=minorStartScore(orf.orfScore, orf.startCodon, orf.startTruncated, MINOR_START_MULTIPLIER);
+			}
 			if(orf.orfScore>=best.orfScore){best=orf;}
 			if(orf.startScore>=bestStart.startScore){bestStart=orf;}
 			
@@ -1650,9 +1687,44 @@ public class GeneCaller extends ProkObject {
 		return broken;
 	}
 
+	/** Measurement-only whole-score penalty before best-candidate selection, pruning and DP.
+	 * Codons are captured in biological orientation by Orf; unknown5prime edges are exempt.
+	 * A nonpositive score is preserved because multiplication would otherwise improve it. */
+	static float minorStartScore(float score, int codon, boolean startTruncated, float multiplier){
+		assert(multiplier>0f && multiplier<=1f && Float.isFinite(multiplier))
+			: "The diagnostic multiplier must attenuate positive scores without changing their sign";
+		if(multiplier==1f || !(score>0f) || startTruncated){return score;}
+		// Packed A/C/G/T codons: CTG=30, ATT=15, ATC=13, ATA=12 (GeneticCode.codon).
+		return codon==30 || codon==15 || codon==13 || codon==12 ? score*multiplier : score;
+	}
+
+	/** Invalid JVM diagnostic policy fails before any caller worker or output is started. */
+	static float parseMinorStartMultiplier(String value){
+		final float factor;
+		try{factor=Float.parseFloat(value);}
+		catch(NumberFormatException e){throw new IllegalArgumentException("Invalid bbtools.diagnostic.minorStartMultiplier: "+value, e);}
+		if(!Float.isFinite(factor) || factor<=0f || factor>1f){
+			throw new IllegalArgumentException("bbtools.diagnostic.minorStartMultiplier must be finite in (0,1]: "+value);
+		}
+		return factor;
+	}
+
 	/** True when a complete first edge codon may seed a truncated CDS. */
 	static boolean validSyntheticEdgeStart(final int code){
-		return code>=0 && !GeneModel.isStopCodon(code);
+		return validSyntheticEdgeStart(code, null);
+	}
+
+	static boolean validSyntheticEdgeStart(final int code, final GeneticCode geneticCode){
+		return code>=0 && !isStopCodon(code, geneticCode);
+	}
+
+	/** Negative rolling codons may be below -1; never pass them into GeneticCode's strict index API. */
+	private static boolean isStartCodon(final int code, final GeneticCode geneticCode){
+		return code>=0 && (geneticCode==null ? GeneModel.isStartCodon(code) : geneticCode.isStart(code));
+	}
+
+	private static boolean isStopCodon(final int code, final GeneticCode geneticCode){
+		return code>=0 && (geneticCode==null ? GeneModel.isStopCodon(code) : geneticCode.isStop(code));
 	}
 	
 	/**
@@ -1718,6 +1790,8 @@ public class GeneCaller extends ProkObject {
 	 * TODO: Dynamically swap this as needed for contigs with varying GC.
 	 */
 	GeneModel pgm;
+	/** Immutable run policy; changing PGM statistics never changes the selected codon assignments. */
+	private final GeneticCode geneticCode;
 	private TrnaCaller trnaCaller;
 	public static byte[][] trnaLibrary;
 	public static consensus.BaseGraph[] trnaModels;
@@ -2220,6 +2294,10 @@ public class GeneCaller extends ProkObject {
 	
 	/** Maximum number of alternative starts to generate per stop codon */
 	public static int breakLimit=12;
+	/** Immutable experiment policy shared by all refinement/final callers in this JVM.
+	 * Default1.0 bypasses the hook; it changes no genetic-code permissions or model counts. */
+	private static final float MINOR_START_MULTIPLIER=parseMinorStartMultiplier(
+		System.getProperty("bbtools.diagnostic.minorStartMultiplier", "1.0"));
 	/** Lookback distance for plus-strand path scoring */
 	public static int lookbackPlus=70;
 	/** Lookback distance for minus-strand path scoring */

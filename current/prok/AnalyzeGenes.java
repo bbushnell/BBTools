@@ -5,6 +5,7 @@ import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import dna.GeneticCode;
 import fileIO.ByteFile;
 import fileIO.ByteStreamWriter;
 import fileIO.FileFormat;
@@ -77,6 +78,7 @@ public class AnalyzeGenes {
 		
 		fixExtensions(); //Add or remove .gz or .bz2 as needed
 		checkFileExistence(); //Ensure files can be read and written
+		validateDeclaredTables();
 		checkStatics(); //Adjust file-related static fields as needed for this program
 		
 		//Determine how many threads may be used
@@ -99,12 +101,14 @@ public class AnalyzeGenes {
 	private Parser parse(String[] args){
 		
 		Parser parser=new Parser();
+		Integer translationTable=null;
+		String codeFile=null;
 		parser.overwrite=overwrite;
 		for(int i=0; i<args.length; i++){
 			String arg=args[i];
-			String[] split=arg.split("=");
+			String[] split=arg.split("=", 2);
 			String a=split[0].toLowerCase();
-			String b=split.length>1 ? split[1] : null;
+			String b=split.length>1 && !split[1].isEmpty() ? split[1] : null;
 			if(b!=null && b.equalsIgnoreCase("null")){b=null;}
 
 //			outstream.println(arg+", "+a+", "+b);
@@ -116,6 +120,12 @@ public class AnalyzeGenes {
 			}else if(a.equals("gff") || a.equals("ingff") || a.equals("gffin")){
 				assert(b!=null);
 				Tools.addFiles(b, gffList);
+			}else if(a.equals("transl_table")){
+				if(b==null){throw new IllegalArgumentException("transl_table requires a supported NCBI table number");}
+				translationTable=Integer.parseInt(b);
+			}else if(a.equals("codefile")){
+				if(b==null || b.isEmpty()){throw new IllegalArgumentException("codefile requires a complete genetic-code TSV path");}
+				codeFile=b;
 			}else if(a.equals("verbose")){
 				verbose=Parse.parseBoolean(b);
 				ReadWrite.verbose=verbose;
@@ -138,6 +148,7 @@ public class AnalyzeGenes {
 			}
 		}
 
+		geneticCode=CallGenes.selectGeneticCode(translationTable, codeFile);
 		if(gffList.isEmpty()){
 			for(String s : fnaList){
 				String prefix=ReadWrite.stripExtension(s);
@@ -153,8 +164,19 @@ public class AnalyzeGenes {
 				gffList.add(gff);
 			}
 		}
-		assert(gffList.size()==fnaList.size()) : "Number of fna and gff files do not match: "+fnaList.size()+", "+gffList.size();
+		if(gffList.size()!=fnaList.size()){
+			throw new IllegalArgumentException("Number of fna and gff files do not match: "+fnaList.size()+", "+gffList.size());
+		}
 		return parser;
+	}
+
+	/** Numbered-code training requires every CDS to declare that same code before any model is written.
+	 * No-selector training retains legacy behavior; custom-code training has no corresponding NCBI identity. */
+	private void validateDeclaredTables(){
+		if(geneticCode==null || geneticCode.id()==0){return;}
+		for(String gff : gffList){
+			TranslationTableCensus.requireDeclaredCode(gff, geneticCode.id());
+		}
 	}
 	
 	/** Adds or removes .gz or .bz2 extensions as needed for input files.
@@ -214,6 +236,7 @@ public class AnalyzeGenes {
 			pgm=spawnThreads();
 		}
 		
+		if(errorState){throw new IllegalStateException("Training failed; refusing to write a partial gene model");}
 		ByteStreamWriter bsw=ByteStreamWriter.makeBSW(ffout);
 		
 		ByteBuilder bb=new ByteBuilder();
@@ -279,12 +302,12 @@ public class AnalyzeGenes {
 	
 	//TODO: Process each file in a thread.
 	private GeneModel makeModelST(){
-		GeneModel pgmSum=new GeneModel(true);
+		GeneModel pgmSum=new GeneModel(true, geneticCode);
 		
 		for(int i=0; i<fnaList.size(); i++){
 			String fna=fnaList.get(i);
 			String gff=gffList.get(i);
-			pgmSum.process(fna, gff);
+			errorState|=pgmSum.process(fna, gff);
 		}
 		return pgmSum;
 	}
@@ -356,7 +379,7 @@ public class AnalyzeGenes {
 		
 		FileThread(AtomicInteger fnum_){
 			fnum=fnum_;
-			pgm=new GeneModel(true);
+			pgm=new GeneModel(true, geneticCode);
 		}
 		
 		@Override
@@ -364,7 +387,7 @@ public class AnalyzeGenes {
 			for(int i=fnum.getAndIncrement(); i<fnaList.size(); i=fnum.getAndIncrement()){
 				String fna=fnaList.get(i);
 				String gff=gffList.get(i);
-				errorStateT=pgm.process(fna, gff)|errorState;
+				errorStateT|=pgm.process(fna, gff);
 //				System.err.println("Processed "+fna+" in "+this.toString());
 			}
 			success=true;
@@ -384,6 +407,8 @@ public class AnalyzeGenes {
 	private ArrayList<String> gffList=new ArrayList<String>();
 	private IntList taxList=new IntList();
 	private String out=null;
+	/** Immutable code for training sites, selected before file workers start; null preserves legacy rules. */
+	private GeneticCode geneticCode;
 	
 	/*--------------------------------------------------------------*/
 	
@@ -409,4 +434,3 @@ public class AnalyzeGenes {
 	private boolean append=false;
 	
 }
-

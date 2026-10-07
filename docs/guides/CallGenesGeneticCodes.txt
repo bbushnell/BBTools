@@ -1,0 +1,68 @@
+CallGenes: alternative genetic codes and trained gene models
+
+The default caller behavior is unchanged. To select a different genetic code,
+use transl_table=4, transl_table=11, or transl_table=25. A complete custom table
+can instead be supplied with codefile=path.tsv. These options are mutually
+exclusive and apply to CDS discovery, translation, and multipass training.
+
+The code and statistical gene model are separate choices. Loading a PGM does
+not select its translation table. Selecting a table does not retrain the PGM.
+Use a matching PGM explicitly, and taxonomy=f to keep phylum-model selection
+from replacing it. Example (replace the installation path):
+
+callgenes.sh in=genome.fna out=calls.gff outa=proteins.faa \
+  transl_table=4 pgm=/path/to/bbmap/resources/table4.pgm.gz taxonomy=f
+
+Packaged models (BGZF level 9):
+  table4.pgm.gz            Table 4; 274 bacterial genomes, 248,160 annotated CDS.
+  table11.pgm.gz           Full table 11; 36,485 bacteria/archaea genomes,
+                          156,947,954 annotated CDS.
+  table25_mix75_25.pgm.gz   75% table 25 plus 25% table 11, normalized by source base
+                          counts with mergepgm.sh normalize=t. The table 25
+                          component contains 2 genomes/2,144 annotated CDS.
+                          Call with transl_table=25 and taxonomy=f.
+
+The table 25 blend combines all count blocks, including starts/stops, not only
+coding hexamers. These models are alternatives; they do not replace model.pgm.
+Their training sources are NCBI-annotated bacteria5/archaea4 corpora. Accuracy
+measurements on those organisms are resubstitution, not independent holdouts;
+table 25 in particular has little training diversity.
+
+Omitting the code selector retains historical ATG/GTG/TTG starts and translation.
+Explicit table 11 permits all seven NCBI start codons and can change predictions.
+It is therefore intentionally not equivalent to the default caller. Extra allowed
+starts do not guarantee better gene calls. Real terminal stop codons are omitted
+from selected-code proteins; complete codons at truncated ends are retained.
+A known complete allowed initiation codon becomes initial M. Synthetic contig-edge
+starts retain their elongation residue. Explicit codes reject recode/detranslate.
+
+Training:
+  analyzegenes.sh in=genome.fna gff=reference.gff out=custom.pgm \
+    transl_table=4 alignribo=f
+
+For a numbered table, each training CDS must declare that transl_table in its
+GFF. Missing/mixed/contradictory declarations are rejected. This validation also
+applies to reference GFFs used in CallGenes multipass training. Input/reference
+counts and output aliases are checked before output writers start.
+
+translationtablecensus.sh indir=/path/to/genomes out=tables.tsv t=4
+reports declared, mixed, missing and empty-CDS GFF cases. Its input and output
+paths must differ. See the launcher help for the supported arguments.
+
+Custom table format:
+  Header: codon<TAB>amino_acid<TAB>start
+  Exactly 64 unique DNA codons, one uppercase amino-acid letter or *, and 0/1 start.
+  Example row: ATG<TAB>M<TAB>1
+  A stop codon cannot also be a start. Blank lines and # comments are allowed.
+  This is a complete code definition, not a list of changes to the default.
+
+Advanced diagnostic only: the JVM property bbtools.diagnostic.minorStartMultiplier
+accepts a finite factor in (0, 1], default 1.0. A smaller factor penalizes positive
+whole-ORF scores at known CTG/ATT/ATC/ATA starts, including DP overlap rescoring.
+Unknown 5-prime edges, nonpositive scores and ordinary starts are unaffected. This
+property does not change which codons the selected genetic code permits. It is
+not an automatically calibrated table 11 default.
+
+For generated data files, use BGZF level 9 when the raw file exceeds 200 KB,
+and pigz level 11 when it is smaller. The packaged PGMs above use BGZF based
+on their raw sizes, even when their compressed files are smaller than 200 KB.
