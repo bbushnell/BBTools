@@ -64,7 +64,7 @@ its             In lookup mode, return only ITS records.
 ssu             In lookup mode, return only SSU records (16S + 18S).
                 Flags are combinable: 'its 16s' returns both ITS and 16S.
 records=5       Max hits to display per query.
-minhits=8       Minimum shared index keys to compare a ref.
+minhits=5       Minimum shared index keys to compare a ref.
 buffer=0        Alignment buffer size.  After index filtering, the top
                 max(buffer, 20+2*records) candidates are aligned, then
                 re-sorted by alignment ANI.  Bounds alignment cost while

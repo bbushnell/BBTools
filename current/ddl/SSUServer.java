@@ -755,7 +755,9 @@ public class SSUServer {
 	private int exponent=4;
 	private int buckets=128;
 	private int maxRecords=5;
-	private int minHits=8;
+	int minHits(){return minHits;}
+
+	private int minHits=SSUCompare.DEFAULT_MIN_HITS;
 	private int buffer=0;
 	private int threads=Shared.threads();
 	private long maxSize=100*1024*1024;

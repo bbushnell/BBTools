@@ -45,7 +45,7 @@ public class SSUCompare {
 			System.exit(1);
 		}
 
-		int k=19, buckets=128, maxRecords=5, minHits=8, buffer=0;
+		int k=19, buckets=128, maxRecords=5, minHits=DEFAULT_MIN_HITS, buffer=0;
 		boolean useIndex=true, callMode=false, alignSSU=true, banSelf=false;
 		boolean local=false, loud=false, callSetByUser=false;
 		String address=null;
@@ -712,5 +712,6 @@ public class SSUCompare {
 
 	private static final int MIN_GENE_CALL_LENGTH=800;
 	private static final int MAX_SSU_LEN=4000;
+	static final int DEFAULT_MIN_HITS=5;
 	private static final String DEFAULT_ADDRESS="https://bbmapservers.jgi.doe.gov/sendclade/findssu/";
 }
