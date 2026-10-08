@@ -4,6 +4,7 @@ import java.util.Arrays;
 import shared.Random;
 
 import shared.Tools;
+import shared.KillSwitch;
 import simd.Vector;
 
 /**
@@ -271,7 +272,7 @@ public class Cell extends Source {
 	
 	//TODO: Vectorize?  Final layer is usually small though
 	/**
-	 * Updates weights and gradients for output layer cells in dense networks.
+	 * Accumulates output gradients using dense positions or explicit sparse input indices.
 	 * Computes error derivatives and accumulates weight updates based on target values.
 	 *
 	 * @param target Target output value for this cell
@@ -310,6 +311,43 @@ public class Cell extends Source {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Classifies output connectivity once, alongside training-matrix construction. */
+	void prepareOutputGradient(final int inputWidth){
+		sparseOutputGradient=false;
+		if(inputs==null){return;}
+		assert(inputs.length==weights.length) : KillSwitch.assertDie(
+			"Sparse output-gradient indexing requires one source per weight; cell="+id);
+		for(int i=0; i<inputs.length; i++){
+			final int source=inputs[i];
+			assert(source>=0 && source<inputWidth && (i==0 || inputs[i-1]<source)) : KillSwitch.assertDie(
+				"Sparse output-gradient indexing requires ordered unique in-range sources; positional indexing "+
+				"previously trained the wrong edges; cell="+id+", edge="+i+", source="+source);
+			sparseOutputGradient|=(source!=i);
+		}
+	}
+
+	/** Gathers source activations only for output rows that contain gaps. */
+	void updateEdgesFinalLayerSparse(final float target, final float[] valuesIn, final float weightMult){
+		assert(inputs!=null && inputs.length==weights.length) : KillSwitch.assertDie(
+			"Cached sparse output-gradient mode must match the topology prepared with the training matrices");
+		final float v=value();
+		eTotalOverOut=calcETotalOverOut(v, target, weightMult);
+		outOverNet=(float)derivativeXFX(sum, v);
+		eOverNet=eOverNetArray[lpos]=eTotalOverOut*outOverNet;
+		for(int i=0; i<weights.length; i++){
+			final int source=inputs[i];
+			assert(source>=0 && source<valuesIn.length) : KillSwitch.assertDie(
+				"Sparse output-gradient fix indexes source activations, not weight positions; source="+source);
+			final float netOverWeight=valuesIn[source];
+			final float eTotalOverWeight=eOverNet*netOverWeight;
+			deltas[i]-=eTotalOverWeight;
+		}
+		biasDelta-=eOverNet;
+	}
+
+	/** Returns the connectivity classification prepared with the training matrices. */
+	boolean needsIndexedOutputGradient(){return sparseOutputGradient;}
+
 	/**
 	 * Updates weights and gradients for hidden layer cells in dense networks.
 	 * Propagates error backwards from next layer using chain rule.
@@ -490,6 +528,7 @@ public class Cell extends Source {
 	 * @param copyDelta Whether to copy delta values for gradient accumulation
 	 */
 	public void setFrom(Cell c, boolean copyDelta) {
+		sparseOutputGradient=c.sparseOutputGradient;
 		eTotalOverOut=c.eTotalOverOut;
 		outOverNet=c.outOverNet;
 		bias=c.bias;
@@ -807,6 +846,8 @@ public class Cell extends Source {
 	//Lpos (layer position) of inputs
 	/** Array of input connection indices for sparse networks */
 	public int[] inputs;
+	/** Prepared with the training matrices; false preserves the original positional output loop. */
+	private boolean sparseOutputGradient=false;
 	/** Array of output connection indices for sparse networks */
 	public int[] outputs;
 	/** Weights for incoming connections from previous layer */

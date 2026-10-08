@@ -36,6 +36,13 @@ public class NetConvert {
 			if(a.equals("in") || a.equals("net") || a.equals("netin")){in=b;}
 			else if(a.equals("out") || a.equals("netout")){out=b;}
 			else if(a.equals("a48")){CellNet.codingA48Out=Parse.parseBoolean(b);}
+			else if(a.equals("outsparse")){CellNet.OUT_SPARSE=Parse.parseBoolean(b); if(CellNet.OUT_SPARSE){CellNet.OUT_DENSE=false;}}
+			else if(a.equals("outdense")){CellNet.OUT_DENSE=Parse.parseBoolean(b); if(CellNet.OUT_DENSE){CellNet.OUT_SPARSE=false;}}
+			else if(a.equals("outhex")){CellNet.OUT_HEX=Parse.parseBoolean(b); if(CellNet.OUT_HEX){CellNet.OUT_DELTA_A48=false;}}
+			else if(a.equals("outdelta") || a.equals("outdeltaa48") || a.equals("deltaa48")){
+				CellNet.OUT_DELTA_A48=Parse.parseBoolean(b);
+				if(CellNet.OUT_DELTA_A48){CellNet.OUT_HEX=false;}
+			}
 			else if(a.equals("overwrite") || a.equals("ow")){overwrite=Parse.parseBoolean(b);}
 			else{outstream.println("Unknown parameter "+arg); assert(false) : "Unknown parameter "+arg;}
 		}

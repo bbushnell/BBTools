@@ -226,6 +226,10 @@ public class Trainer implements Accumulator<WorkerThread> {
 				if(CellNet.OUT_DENSE) {CellNet.OUT_SPARSE=false;}
 			}else if(a.equals("outhex")){
 				CellNet.OUT_HEX=Parse.parseBoolean(b);
+				if(CellNet.OUT_HEX){CellNet.OUT_DELTA_A48=false;}
+			}else if(a.equals("outdelta") || a.equals("outdeltaa48") || a.equals("deltaa48")){
+				CellNet.OUT_DELTA_A48=Parse.parseBoolean(b);
+				if(CellNet.OUT_DELTA_A48){CellNet.OUT_HEX=false;}
 			}else if(a.equals("print") || a.equals("printstatus")){
 				printStatus=Parse.parseBoolean(b);
 			}else if(a.equals("machineout")){

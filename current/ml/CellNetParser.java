@@ -19,7 +19,7 @@ import structures.IntList;
  * @author Brian Bushnell
  */
 public class CellNetParser {
-	
+
 	/**
 	 * Parses a CellNet configuration from the specified file.
 	 * @param fname Path to the CellNet configuration file
@@ -61,7 +61,7 @@ public class CellNetParser {
 	public static CellNet load(String fname, boolean nullOnFailure) {
 		return parse(fname, nullOnFailure);
 	}
-	
+
 	/** Constructs a parser for the specified CellNet file.
 	 * @param fname_ Path to the CellNet configuration file */
 	private CellNetParser(String fname_){
@@ -69,7 +69,7 @@ public class CellNetParser {
 		fname=fname_;
 		net.fname=fname_; //Tag the loaded net with its source path (in-memory only)
 	}
-	
+
 	/**
 	 * Constructs a parser from pre-loaded file lines.
 	 * Parses header information and creates the CellNet with appropriate edge parsing.
@@ -80,20 +80,25 @@ public class CellNetParser {
 	/** Selects legacy training construction or isolated inference construction. */
 	private CellNetParser(ArrayList<byte[]> lines_, boolean inferenceOnly_){
 		lines=lines_; inferenceOnly=inferenceOnly_;
-		
+
 		parseHeader();
 		if(weightBits<32 && (codingHeaders!=1 || !codingKeyValid || !a48)){
 			throw new IllegalArgumentException("Reduced #weightbits requires exactly one explicit #coding A48 header");
 		}
+		if(!dense && zeroAbsentSeen){throw new IllegalArgumentException("#zeroabsent applies only to dense networks");}
+		if(dense && sparseEncoding!=SPARSE_LITERAL){throw new IllegalArgumentException("#indexencoding applies only to sparse networks");}
+		if(!zeroAbsent && liveEdgesSeen){throw new IllegalArgumentException("#liveedges requires #zeroabsent true");}
+		if(zeroAbsent && !liveEdgesSeen){throw new IllegalArgumentException("#zeroabsent true requires #liveedges");}
 		if("explicit-input".equals(tags.get("normalization")) && (inputMean==null || inputInverseStd==null)){
 			throw new IllegalArgumentException("explicit-input normalization requires both critical input headers");
 		}
 		if(!inferenceOnly){CellNet.DENSE=dense;}
-		
+
 		net=inferenceOnly ? new ParsedInferenceNet(dims, seed, density, density1, edgeBlockSize, commands, dense) :
 			new CellNet(dims, seed, density, density1, edgeBlockSize, commands);
 		net.setInputNormalization(inputMean, inputInverseStd);
 		net.setWeightBits(weightBits);
+		net.setZeroAbsent(zeroAbsent);
 		net.epochsTrained=epochs;
 		net.samplesTrained=samples;
 //		net.annealSeed=annealSeed;
@@ -109,15 +114,15 @@ public class CellNetParser {
 		}
 		if(!inferenceOnly){net.makeWeightMatrices();}
 	}
-	
+
 	/** Parses header lines containing network metadata and configuration.
 	 * Processes version, layers, seed, density, dimensions, and other parameters. */
 	public void parseHeader() {
-		
+
 		//TODO: This should really use LineParser instead.
 		while(pos<lines.size()) {
 			byte[] line=lines.get(pos);
-			
+
 			if(line.length<1){
 				//ignore
 			}else if(Tools.startsWith(line, "#")){//header
@@ -162,6 +167,15 @@ public class CellNetParser {
 					concise=true;
 				}else if(Tools.startsWith(line, "#dense")){
 					dense=true;
+				}else if(Tools.startsWith(line, "#indexencoding")){
+					if(sparseEncoding!=SPARSE_LITERAL || line.length<16 || line[14]!=' '){
+						throw new IllegalArgumentException("Duplicate or malformed #indexencoding header");
+					}
+					final String value=parseString(line).trim();
+					if(value.equalsIgnoreCase("deltaa48")){sparseEncoding=SPARSE_DELTA_A48;}
+					else{throw new IllegalArgumentException("Unknown #indexencoding value: "+value);}
+				}else if(Tools.startsWith(line, "#sparseencoding")){
+					throw new IllegalArgumentException("Unsafe obsolete #sparseencoding marker; use #indexencoding");
 				}else if(Tools.startsWith(line, "#sparse")){
 					dense=false;
 				}else if(Tools.startsWith(line, "#inputmean_a48")){
@@ -177,6 +191,18 @@ public class CellNetParser {
 					commands.add(new String(line));
 				}else if(Tools.startsWith(line, "#edges")){
 					if(line.length>7) {edges=parseInt(line);}
+				}else if(Tools.startsWith(line, "#zeroabsent")){
+					if(zeroAbsentSeen || line.length<12 || line[11]!=' '){
+						throw new IllegalArgumentException("Duplicate or malformed #zeroabsent header");
+					}
+					zeroAbsent=parseZeroAbsent(line);
+					zeroAbsentSeen=true;
+				}else if(Tools.startsWith(line, "#liveedges")){
+					if(liveEdgesSeen || line.length<11 || line[10]!=' '){
+						throw new IllegalArgumentException("Duplicate or malformed #liveedges header");
+					}
+					liveEdges=parseLiveEdges(line);
+					liveEdgesSeen=true;
 				}else if(Tools.startsWith(line, "#coding")){
 					codingHeaders++;
 					codingKeyValid&=line.length>8 && line[7]==' ';
@@ -200,27 +226,27 @@ public class CellNetParser {
 		}
 //		assert(false) : pos+", "+new String(lines.get(pos));
 	}
-	
+
 	/** Parses dense weight representation where all connections are stored.
 	 * Each cell line contains bias and all weights in sequential order. */
 	private void parseEdgesDense() {
 		assert(concise);
 		pos=posFirstEdge;
 		long numEdges=0;
-		
+
 		int numCells=(int) simd.Vector.sum(dims);
 		LineParser2 lp=new LineParser2(delimiter);
 		FloatList weights=new FloatList();
-		
+
 		while(pos<lines.size()) {
 			byte[] line=lines.get(pos);
-			
+
 			if(line.length<1){
 				//ignore
 			}else if(Tools.startsWith(line, "##")){
 				//ignore
 			}else if(Tools.startsWith(line, 'C') || Tools.startsWith(line, 'W')){
-				
+
 				lp.set(line);
 				lp.setBounds(0, 0);
 				int cid=lp.parseInt();
@@ -229,9 +255,10 @@ public class CellNetParser {
 				int type=Tools.find(s, Function.TYPES);
 				assert(type>=0) : type+", "+s+"\n'"+new String(line)+"'";
 				Cell c=net.list.get(cid);
+				if(c.weights!=null){throw new IllegalArgumentException("Duplicate dense row for cell "+cid);}
 				c.function=Function.getFunction(type);
 				assert(c.function.type()==type);
-				
+
 				final float bias=a48 ? lp.parseFloatA48() : lp.parseFloat();
 				if(weightBits<32 && !Float.isFinite(bias)){throw new IllegalArgumentException("Nonfinite bias in a reduced-precision network");}
 				c.setBias(bias, true);
@@ -241,6 +268,7 @@ public class CellNetParser {
 				}
 				c.weights=weights.toArray();
 				c.deltas=new float[c.weights.length];
+				if(zeroAbsent){numEdges+=countNonzero(c.weights);}
 				assert(c.weights.length==c.id()-c.lpos-c.prevLayerStart) : new String(line)+"\n"+
 						c.weights.length+", "+c.layer+", "+c.id()+", "+c.lpos+", "+c.prevLayerStart+", "+
 						(c.id()-c.lpos-c.prevLayerStart);
@@ -249,30 +277,33 @@ public class CellNetParser {
 			}
 			pos++;
 		}
+		if(zeroAbsent && liveEdges!=numEdges){
+			throw new IllegalArgumentException("#liveedges "+liveEdges+" != observed dense nonzero edge count "+numEdges);
+		}
 		assert(!inferenceOnly || checkInference()) : "Parsed inference cells must match their local dense/sparse header";
 	}
-	
+
 	/** Parses sparse weight representation with explicit input indices.
 	 * Uses separate lines for cell weights (C/W) and input connections (I/H). */
 	private void parseEdgesSparse() {
 		assert(concise);
 		pos=posFirstEdge;
 		long numEdges=0;
-		
+
 		int numCells=(int) simd.Vector.sum(dims);
 		LineParser2 lp=new LineParser2(delimiter);
 		FloatList weights=new FloatList();
 		IntList inputs=new IntList();
-		
+
 		while(pos<lines.size()) {
 			byte[] line=lines.get(pos);
-			
+
 			if(line.length<1){
 				//ignore
 			}else if(Tools.startsWith(line, "##")){
 				//ignore
 			}else if(Tools.startsWith(line, 'C') || Tools.startsWith(line, 'W')){
-				
+
 				lp.set(line);
 				lp.setBounds(0, 0);
 				int cid=lp.parseInt();
@@ -284,7 +315,7 @@ public class CellNetParser {
 				assert(c.weights==null);
 				c.function=Function.getFunction(type);
 				assert(c.function.type()==type);
-				
+
 				final float bias=a48 ? lp.parseFloatA48() : lp.parseFloat();
 				if(weightBits<32 && !Float.isFinite(bias)){throw new IllegalArgumentException("Nonfinite bias in a reduced-precision network");}
 				c.setBias(bias, true);
@@ -297,21 +328,26 @@ public class CellNetParser {
 				assert(c.inputs==null || c.inputs.length==c.weights.length) :
 					c.layer+", "+c.lpos+", "+c.inputs.length+", "+c.weights.length+"\n"+Arrays.toString(c.inputs);
 			}else if(Tools.startsWith(line, 'I')){
-				
 				lp.set(line);
 				lp.setBounds(0, 0);
 				int cid=lp.parseInt();
 				Cell c=net.list.get(cid);
 				assert(c.inputs==null);
 				inputs.clear();
-				while(lp.hasMore()) {
-					inputs.add(lp.parseInt());
+				if(sparseEncoding==SPARSE_DELTA_A48){
+					int prev=-1;
+					while(lp.hasMore()){
+						prev=parseInputDelta(lp, c, prev);
+						inputs.add(prev);
+					}
+				}else{
+					while(lp.hasMore()){inputs.add(lp.parseInt());}
 				}
 				c.inputs=inputs.toArray();
 //				for(int i=0; i<c.inputs.length; i++) {c.inputs[i]-=c.prevLayerStart;}
 				assert(c.weights==null || c.inputs.length==c.weights.length);
 			}else if(Tools.startsWith(line, 'H')){
-				
+
 				lp.set(line);
 				lp.setBounds(0, 0);
 				int cid=lp.parseInt();
@@ -328,7 +364,7 @@ public class CellNetParser {
 		CellNet.makeOutputSets(net.net);
 		assert(inferenceOnly ? checkInference() : net.check()) : "Parsed cells must match their network representation";
 	}
-	
+
 	/** Cell.check() reads global DENSE, so isolated loading checks local geometry directly. */
 	private boolean checkInference(){
 		for(int layer=1; layer<net.layers; layer++){
@@ -358,7 +394,7 @@ public class CellNetParser {
 	boolean hasMore(){
 		return pos<lines.size();
 	}
-	
+
 	/** Returns the next line for parsing and advances the position.
 	 * @return Next line as byte array or null if no more lines */
 	byte[] nextLine(){
@@ -367,7 +403,7 @@ public class CellNetParser {
 		pos++;
 		return line;
 	}
-	
+
 	/** Source filename for the parsed CellNet */
 	String fname;
 	/** Lines from the CellNet configuration file */
@@ -387,6 +423,8 @@ public class CellNetParser {
 	int edgeBlockSize=1;
 	/** Total edge count (unused) */
 	int edges=0;//unused
+	/** Live edge count required when dense zeroes are absent. */
+	long liveEdges=-1;
 	/** Number of training epochs completed */
 	long epochs=0;
 	/** Number of training samples processed */
@@ -404,6 +442,8 @@ public class CellNetParser {
 	/** Explicit reduced edge precision; biases and normalization keep their32-bit format. */
 	private int weightBits=32, codingHeaders=0;
 	private boolean weightBitsSeen=false, codingKeyValid=true;
+	private boolean zeroAbsentSeen=false, zeroAbsent=false, liveEdgesSeen=false;
+	private int sparseEncoding=SPARSE_LITERAL;
 	/** Dimensions (neuron counts) for each layer */
 	int[] dims;
 	/** Exact A48 input preprocessing, independent of edge-weight coding. */
@@ -423,14 +463,15 @@ public class CellNetParser {
 	final int posFirstEdge;
 	/** Command lines used to generate this network */
 	ArrayList<String> commands=new ArrayList<String>();
-	
+
 	/** Delimiter character used for parsing (space) */
 	public static final byte delimiter=' ';
-	
+	private static final int SPARSE_LITERAL=0, SPARSE_DELTA_A48=1;
+
 	/*--------------------------------------------------------------*/
 	/*----------------           Parsing            ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
 	 * Extracts string value after the first delimiter in a line.
 	 * @param line Line to parse
@@ -453,7 +494,7 @@ public class CellNetParser {
 		if(values.size==0){throw new IllegalArgumentException("Empty input normalization header");}
 		return values.toArray();
 	}
-	
+
 	/**
 	 * Extracts float value after the first delimiter in a line.
 	 * @param line Line to parse
@@ -463,7 +504,68 @@ public class CellNetParser {
 		int idx=Tools.indexOf(line, delimiter);
 		return Parse.parseFloat(line, idx+1, line.length);
 	}
-	
+
+	/** Counts nonzero edge weights for #zeroabsent/#liveedges validation. */
+	private static int countNonzero(final float[] weights){
+		int sum=0;
+		for(float w : weights){sum+=(w==0 ? 0 : 1);}
+		return sum;
+	}
+
+	/** Reads the critical dense-zero contract without treating an empty value as true. */
+	private static boolean parseZeroAbsent(final byte[] line){
+		final String s=parseString(line).trim();
+		if(s.equals("1") || s.equalsIgnoreCase("t") || s.equalsIgnoreCase("true")){return true;}
+		if(s.equals("0") || s.equalsIgnoreCase("f") || s.equalsIgnoreCase("false")){return false;}
+		throw new IllegalArgumentException("Malformed #zeroabsent value: "+s);
+	}
+
+	/** Reads a nonnegative critical live-edge count with digit and overflow checks. */
+	private static long parseLiveEdges(final byte[] line){
+		final String s=parseString(line).trim();
+		if(s.length()<1){throw new IllegalArgumentException("Malformed empty #liveedges header");}
+		long value=0;
+		for(int i=0; i<s.length(); i++){
+			final char c=s.charAt(i);
+			if(c<'0' || c>'9'){throw new IllegalArgumentException("Malformed #liveedges value: "+s);}
+			final int digit=c-'0';
+			if(value>(Long.MAX_VALUE-digit)/10){
+				throw new IllegalArgumentException("Overflowing #liveedges value: "+s);
+			}
+			value=value*10+digit;
+		}
+		return value;
+	}
+
+	/** Reads one space-delimited delta-A48 sparse input and returns the decoded absolute input ID. */
+	private static int parseInputDelta(final LineParser2 lp, final Cell c, final int prev){
+		lp.advance();
+		final int length=lp.currentFieldLength();
+		if(length<1 || length>6){
+			throw new IllegalArgumentException("Malformed delta-A48 input length for cell "+c.id()+": "+length);
+		}
+		if(length>1 && lp.line()[lp.a()]=='0'){
+			throw new IllegalArgumentException("Nonminimal delta-A48 input for cell "+c.id());
+		}
+		long delta=0;
+		for(int i=lp.a(), lim=lp.b(); i<lim; i++){
+			final int x=lp.line()[i]-48;
+			if(x<0 || x>63){
+				throw new IllegalArgumentException("Malformed delta-A48 byte "+lp.line()[i]+" for cell "+c.id());
+			}
+			delta=(delta<<6)|x;
+			if(delta>Integer.MAX_VALUE){
+				throw new IllegalArgumentException("Overflowing delta-A48 input for cell "+c.id());
+			}
+		}
+		final long input=((long)prev)+delta+1;
+		final int width=c.id()-c.lpos-c.prevLayerStart;
+		if(input>Integer.MAX_VALUE || input>=width){
+			throw new IllegalArgumentException("Delta-A48 input "+input+" outside width "+width+" for cell "+c.id());
+		}
+		return (int)input;
+	}
+
 	/**
 	 * Extracts integer value after the first delimiter in a line.
 	 * @param line Line to parse
@@ -473,7 +575,7 @@ public class CellNetParser {
 		int idx=Tools.indexOf(line, delimiter);
 		return Parse.parseInt(line, idx+1, line.length);
 	}
-	
+
 	/**
 	 * Extracts long value after the first delimiter in a line.
 	 * @param line Line to parse
@@ -483,7 +585,7 @@ public class CellNetParser {
 		int idx=Tools.indexOf(line, delimiter);
 		return Parse.parseLong(line, idx+1, line.length);
 	}
-	
+
 	/**
 	 * Parses a delimited line into an array of integers.
 	 *
@@ -495,14 +597,14 @@ public class CellNetParser {
 	public static int[] parseIntArray(final byte[] line, final byte delimiter, boolean parseTitle){
 		int a=0, b=0;
 		IntList list=new IntList(3);
-		
+
 		if(parseTitle) {
 			while(b<line.length && line[b]!=delimiter){b++;}
 			assert(b>a) : "Missing Title: "+new String(line);
 			b++;
 			a=b;
 		}
-		
+
 		while(a<line.length) {
 			while(b<line.length && line[b]!=delimiter){b++;}
 			assert(b>a) : "Missing element "+list.size+": '"+new String(line)+"'";
@@ -514,6 +616,6 @@ public class CellNetParser {
 		}
 		return list.toArray();
 	}
-	
-	
+
+
 }

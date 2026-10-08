@@ -104,6 +104,7 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 	void makeWeightMatrices(){
 //		assert(check());
 		assert(weightsIn==null); //Ensure not already initialized
+		for(Cell cell:finalLayer){cell.prepareOutputGradient(dims[layers-2]);}
 		weightsIn=makeWeightsInMatrix(); //Input weight matrix for forward pass
 		weightsOut=makeWeightsOutMatrix(); //Output weight matrix for backprop
 		edgesIn=makeEdgesInMatrix(); //Input connectivity for sparse networks
@@ -715,6 +716,12 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 	/** True only when an actual validated preprocessing pair is installed. */
 	public boolean hasInputNormalization(){return inputMean!=null;}
 
+	/** Returns a defensive copy of explicit input means, or null for identity preprocessing. */
+	public float[] inputMeanCopy(){return inputMean==null ? null : inputMean.clone();}
+
+	/** Returns a defensive copy of explicit inverse standard deviations, or null for identity preprocessing. */
+	public float[] inputInverseStdCopy(){return inputInverseStd==null ? null : inputInverseStd.clone();}
+
 	/** Standardizes private input scratch in place; never changes the caller's row. */
 	private void normalizeInput(){
 		if(inputMean==null){return;}
@@ -833,8 +840,11 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 			final float[] valuesIn=values[values.length-2]; //Previous layer activations
 			for(int i=0; i<finalLayer.length; i++){
 				final Cell c=finalLayer[i];
-				//Final layer is always dense
-				c.updateEdgesFinalLayerDense(truth[i], valuesIn, weightMult); //Output layer gradients
+				if(c.needsIndexedOutputGradient()){
+					c.updateEdgesFinalLayerSparse(truth[i], valuesIn, weightMult);
+				}else{
+					c.updateEdgesFinalLayerDense(truth[i], valuesIn, weightMult);
+				}
 			}
 		}
 		
@@ -1134,6 +1144,10 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 	 */
 	public ByteBuilder header(){
 		if(weightBits<32 && !codingA48Out){throw new IllegalStateException("Reduced-precision edge output requires A48 coding");}
+		final boolean outputDense=OUT_DENSE || (DENSE && !OUT_SPARSE);
+		if(OUT_DELTA_A48 && !outputDense && OUT_HEX){
+			throw new IllegalStateException("Sparse delta-A48 input encoding is mutually exclusive with H-line bitset encoding");
+		}
 		ByteBuilder bb=new ByteBuilder();
 		bb.append("##bbnet").nl(); //File format identifier
 		bb.append("#version ").append(version).nl();
@@ -1142,7 +1156,7 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 		bb.append("##simd_ff ").append(Shared.SIMD && Shared.SIMD_FEED_FORWARD).nl();
 		bb.append("##simd_bp ").append(Shared.SIMD && Shared.SIMD_BACKPROP).nl();
 		if(CONCISE){bb.append("#concise").nl();} //Format options
-		bb.append(OUT_DENSE ? "#dense" : OUT_SPARSE ? "#sparse" : DENSE ? "#dense" : "#sparse").nl();
+		bb.append(outputDense ? "#dense" : "#sparse").nl();
 		bb.append("#density ").append(density, 8, true).nl(); //Network parameters
 		if(density1>0 && density1!=density){bb.append("#density1 ").append(density1, 8, true).nl();}
 		bb.append("#blocksize ").append(edgeBlockSize).nl();
@@ -1175,6 +1189,7 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 			String k=e.getKey();
 			if(k.equals(k.toLowerCase())){bb.append("##").append(k).space().append(e.getValue()).nl();}
 		}
+		if(OUT_DELTA_A48 && !outputDense){bb.append("#indexencoding deltaa48").nl();}
 		bb.append(codingA48Out ? "#coding A48" : "#coding decimal").nl();
 		if(weightBits<32){bb.append("#weightbits ").append(weightBits).nl();}
 		return bb;
@@ -1189,14 +1204,90 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 	/** Returns the edge encoding precision retained from a critical header or explicit output choice. */
 	public int weightBits(){return weightBits;}
 
+	/** Returns true when dense zero weights encode absent edges rather than legacy active zero edges. */
+	public boolean zeroAbsent(){return zeroAbsent;}
+
+	/** Sets the dense zero-mask contract for serialization and structural edge accounting. */
+	public void setZeroAbsent(final boolean zeroAbsent_){zeroAbsent=zeroAbsent_;}
+
 	/** Writes one edge, omitting low14 or low8 bits under the explicit18/24-bit wire contract. */
 	private void appendWeight(final ByteBuilder bb, final float weight){
 		bb.space();
 		if(weightBits<32){
 			if(!Float.isFinite(weight)){throw new IllegalArgumentException("Cannot encode a nonfinite reduced-precision edge weight");}
-			bb.appendA48(Float.floatToRawIntBits(weight)>>>(32-weightBits));
+			bb.appendA48(reducedA48Bits(weight));
 		}else if(codingA48Out){bb.appendFloatA48(weight);}
-		else{bb.append(weight, 6, true);}
+		else{bb.append(decimalEdgeWeight(weight), 6, true);}
+	}
+
+	/** Returns reduced A48 edge bits, flooring nonzero sub-precision magnitudes away from zero. */
+	private int reducedA48Bits(final float weight){
+		final int raw=Float.floatToRawIntBits(weight);
+		int bits=raw>>>(32-weightBits);
+		final int signless=bits&((1<<(weightBits-1))-1);
+		if(weight!=0 && signless==0){bits=(bits&(1<<(weightBits-1)))|1;}
+		assert(weight==0 || (bits&((1<<(weightBits-1))-1))!=0) :
+			"Reduced edge export must not erase a live edge under zero=absent: weight="+weight+" precision="+weightBits;
+		return bits;
+	}
+
+	/** Returns a decimal edge that will not round a nonzero stored edge to textual zero. */
+	private static float decimalEdgeWeight(final float weight){
+		final float encoded=weight!=0 && Math.abs((double)weight)<DECIMAL_WEIGHT_HALF_QUANTUM ?
+			(weight<0 ? -DECIMAL_WEIGHT_QUANTUM : DECIMAL_WEIGHT_QUANTUM) : weight;
+		assert(!Float.isFinite(weight) || weight==0 || Math.abs((double)encoded)>=DECIMAL_WEIGHT_HALF_QUANTUM) :
+			"Six-decimal export must keep finite live edges above its zero-rounding interval: weight="+weight;
+		return encoded;
+	}
+
+	/** Counts live edges in the serialized representation selected by DENSE/OUT_DENSE/OUT_SPARSE. */
+	private long outputLiveEdges(final boolean outputDense, final boolean outputZeroAbsent){
+		long sum=0;
+		for(int layer=1; layer<net.length; layer++){
+			for(Cell c : net[layer]){
+				if(c.inputs==null){
+					sum+=zeroAbsent ? countNonzero(c.weights) : c.weights.length;
+				}else if(outputDense){
+					sum+=outputZeroAbsent ? countNonzero(c.weights) : dims[layer-1];
+				}else{
+					sum+=c.inputs.length;
+				}
+			}
+		}
+		return sum;
+	}
+
+	/** Returns true if sparse-to-dense output must encode absent sparse inputs as zeroes. */
+	private boolean hasAbsentSparseInputs(){
+		for(int layer=1; layer<net.length; layer++){
+			for(Cell c : net[layer]){
+				if(c.inputs.length<dims[layer-1]){return true;}
+			}
+		}
+		return false;
+	}
+
+	/** Returns true if a sparse row has an explicit active zero. */
+	private static boolean hasExplicitSparseZeros(final Cell c){
+		for(float w : c.weights){
+			if(w==0){return true;}
+		}
+		return false;
+	}
+
+	/** Counts nonzero weights. */
+	private static int countNonzero(final float[] weights){
+		int sum=0;
+		for(float w : weights){sum+=(w==0 ? 0 : 1);}
+		return sum;
+	}
+
+	/** Appends delta-A48 sparse edge input IDs; rows must be strictly ascending by construction. */
+	private static int appendInputDeltaA48(final ByteBuilder bb, final int input, final int prev){
+		final int delta=input-prev-1;
+		if(delta<0){throw new IllegalStateException("Sparse inputs must be strictly ascending for delta-A48 output: prev="+prev+", input="+input);}
+		bb.space().appendA48(delta);
+		return input;
 	}
 
 	/** Store a custom tag under BOTH its original case and lowercase (same value), so getTag() is
@@ -1225,7 +1316,14 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 	public ByteBuilder toBytes(){
 		
 		ByteBuilder bb=header(); //Include metadata header
-		bb.append("#edges ").append(countEdges()).nl(); //Total edge count
+		final boolean outputDense=OUT_DENSE || (DENSE && !OUT_SPARSE);
+		final boolean outputZeroAbsent=outputDense && (DENSE ? zeroAbsent : hasAbsentSparseInputs());
+		final long liveEdges=outputLiveEdges(outputDense, outputZeroAbsent);
+		if(outputZeroAbsent){
+			bb.append("#zeroabsent true").nl();
+			bb.append("#liveedges ").append(liveEdges).nl();
+		}
+		bb.append("#edges ").append(liveEdges).nl(); //Total structural edge count in the serialized representation
 		
 		lastLinesWritten=18; //Track output size
 		long edgeCount=0;
@@ -1244,14 +1342,16 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 							bb.append('H').append(c.id()).space();
 							BitSet bs=new BitSet(c.weights.length);
 							for(int i=0; i<c.weights.length; i++){
-								if(c.weights[i]!=0){bs.set(i);} //Mark non-zero weights
+								if(c.weights[i]!=0 || !zeroAbsent){bs.set(i);} //Mark active weights
 							}
 							toHex(bs, bb); //Encode as hex
 						}else{ //Text connectivity
 							bb.append('I').append(c.id()); //Input line
+							int prevInput=-1;
 							for(int i=0; i<c.weights.length; i++){
-								if(c.weights[i]!=0){
-									bb.space().append(i); //Non-zero indices
+								if(c.weights[i]!=0 || !zeroAbsent){
+									if(OUT_DELTA_A48){prevInput=appendInputDeltaA48(bb, i, prevInput);}
+									else{bb.space().append(i);} //Active indices
 								}
 							}
 						}
@@ -1260,7 +1360,7 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 						bb.append('W').append(c.id()).space().append(c.typeString()); //Weight line
 						if(codingA48Out){ bb.space().appendFloatA48(c.bias()); } else { bb.space().append(c.bias(), 6, true); } //Bias value
 						for(int i=0; i<c.weights.length; i++){
-							if(c.weights[i]!=0){
+							if(c.weights[i]!=0 || !zeroAbsent){
 								appendWeight(bb, c.weights[i]); //Weight values
 								edgeCount++;
 							}
@@ -1278,6 +1378,9 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 					}
 				}else{ //Sparse network format
 					if(OUT_DENSE){ //Force dense output
+						if(outputZeroAbsent && hasExplicitSparseZeros(c)){
+							throw new IllegalStateException("Cannot force dense output for a sparse row containing both absent inputs and explicit zero weights");
+						}
 						lastLinesWritten++;
 						bb.append('C').append(c.id()).space().append(c.typeString());
 						if(codingA48Out){ bb.space().appendFloatA48(c.bias()); } else { bb.space().append(c.bias(), 6, true); }
@@ -1307,7 +1410,11 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 							toHex(c.inputs, bb); //Encode input indices
 						}else{ //Text connectivity
 							bb.append('I').append(c.id()); //Input line
-							for(int i=0; i<c.inputs.length; i++){bb.space().append(c.inputs[i]);} //Input indices
+							int prevInput=-1;
+							for(int i=0; i<c.inputs.length; i++){ //Input indices
+								if(OUT_DELTA_A48){prevInput=appendInputDeltaA48(bb, c.inputs[i], prevInput);}
+								else{bb.space().append(c.inputs[i]);}
+							}
 						}
 						bb.nl();
 
@@ -1421,6 +1528,7 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 		copy.fname=fname; //Preserve source-file metadata
 		copy.setInputNormalization(inputMean, inputInverseStd);
 		copy.weightBits=weightBits;
+		copy.zeroAbsent=zeroAbsent;
 		copy.alpha=alpha;
 		copy.annealStrength=annealStrength;
 //		copy.annealSeed=annealSeed;
@@ -1516,6 +1624,8 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 		tags=new LinkedHashMap<String,String>(cn.tags); //Copy custom tags
 		fname=cn.fname; //Copy source-file metadata
 		setInputNormalization(cn.inputMean, cn.inputInverseStd);
+		weightBits=cn.weightBits;
+		zeroAbsent=cn.zeroAbsent;
 		alpha=cn.alpha; //Copy learning parameters
 		annealStrength=cn.annealStrength;
 //		annealSeed=cn.annealSeed;
@@ -1594,23 +1704,20 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 	}
 	
 	/**
-	 * Counts total non-zero connections in the network.
-	 * Iterates through all weight matrices to find active edges.
-	 * Works for both dense and sparse networks by checking weight values.
-	 * Used for network analysis and memory usage estimation.
-	 * 
-	 * @return Number of non-zero weighted connections
+	 * Counts total structural connections in the network.
+	 * Sparse entries are always explicit connections; dense zero weights are
+	 * absent only under the flagged zero-mask contract.
+	 *
+	 * @return Number of active structural connections
 	 */
 	public long countEdges(){
 		long sum=0;
-		for(float[][] y : weightsIn){ //Each layer's weight matrix
-			if(y!=null){
-				for(float[] z : y){ //Each neuron's weights
-					if(z!=null){
-						for(float f : z){ //Each individual weight
-							sum+=(f==0 ? 0 : 1); //Count non-zero weights
-						}
-					}
+		for(int layer=1; layer<net.length; layer++){
+			for(Cell c : net[layer]){
+				if(c.inputs==null){
+					sum+=zeroAbsent ? countNonzero(c.weights) : c.weights.length;
+				}else{
+					sum+=c.inputs.length;
 				}
 			}
 		}
@@ -1859,12 +1966,20 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 	public static boolean codingA48In=false;
 	/** Write weights/biases in A48 by default (smaller + lossless); the #coding header records it for the reader */
 	public static boolean codingA48Out=true;
+	/** Smallest nonzero decimal edge emitted by the 6-decimal legacy path. */
+	private static final float DECIMAL_WEIGHT_QUANTUM=0.000001f;
+	/** Half quantum where ByteBuilder.append(double, 6, true) starts rounding away from zero. */
+	private static final double DECIMAL_WEIGHT_HALF_QUANTUM=0.0000005;
 	/** Critical edge precision for serialization; biases/input normalization are always32-bit. */
 	private int weightBits=32;
+	/** Dense zero weights encode absent edges, guarded by #zeroabsent and #liveedges on disk. */
+	private boolean zeroAbsent=true;
 	/** Network type: true=dense connectivity, false=sparse */
 	public static boolean DENSE=true;
 	/** Output format: use hexadecimal encoding */
 	public static boolean OUT_HEX=false;
+	/** Output format: encode sparse I-line input IDs as A48 deltas. */
+	public static boolean OUT_DELTA_A48=false;
 	/** Output format: force dense representation */
 	public static boolean OUT_DENSE=false;
 	/** Output format: force sparse representation */

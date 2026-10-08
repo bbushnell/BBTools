@@ -16,6 +16,10 @@ Usage:  netconvert.sh in=<old.bbnet> out=<new.bbnet>
 in=<file>       Input network (.bbnet); decimal or A48 (auto-detected).
 out=<file>      Output network (.bbnet).
 a48=t           Write A48 coding (default).  Set a48=f to write decimal.
+outsparse=f     Force sparse output.
+outdense=f      Force dense output.
+outdelta=f      Encode sparse edge IDs as #indexencoding deltaa48.
+outhex=f        Encode sparse edge IDs as legacy H-line bitsets.
 overwrite=t     (ow) Permit overwriting the output file.
 
 Java Parameters:
