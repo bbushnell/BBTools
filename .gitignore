@@ -20,3 +20,7 @@ old/*
 resources/prokcc
 resources/prokcc/*
 
+/resources/prokcc/magqc_hbm_v2_profile.rare01.hbmc.gz
+/resources/prokcc/magqc_hbm_v2_profile.consensus.faa.gz
+/resources/prokcc/magqc_hbm_v2_profile.provenance.tsv.gz
+/resources/prokcc/magqc_hbm_v2_profile.background.tsv.gz

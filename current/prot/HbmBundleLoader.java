@@ -109,6 +109,47 @@ public final class HbmBundleLoader {
 		/** Declares the stable ordering and meaning of values returned by {@link #score}. */
 		public String scoreContract(){return HbmScoreContract.VALUE;}
 		public String repId(final int i){return repIds[i];}
+		/** Derives detached immutable experimental position scores; loaded graphs stay private and unchanged. */
+		HbmPositionModel[] positionModels(String kind,double beta,boolean clip){
+			return HbmPositionModel.derive(graphs,kind,beta,clip);
+		}
+		/** As above, with an explicit experimental lower clipping bound in half-bit units. */
+		HbmPositionModel[] positionModels(String kind,double beta,boolean clip,double clipMin){
+			return HbmPositionModel.derive(graphs,kind,beta,clip,clipMin);
+		}
+		/** Returns a new background vector; no private histogram storage escapes. */
+		double[] positionBackground(){return HbmPositionModel.backgroundProbabilities(graphs);}
+		/** Refines one family into fresh caller-owned output while leaving the loaded graph untouched. */
+		HbmProfileRefiner.Result refineFamily(int rank,byte[][] members,double[] background,int padding){
+			if(rank<0 || rank>=graphs.length){throw new IllegalArgumentException("Refinement rank outside loaded roster: "+rank);}
+			return HbmProfileRefiner.refine(graphs[rank],members,background,padding);
+		}
+		/** Composes verified immutable singleton bundles in an explicit roster order; no graph alias escapes. */
+		static Loaded combine(final List<Loaded> families,final List<String> roster){
+			if(families.size()!=roster.size() || families.isEmpty()){throw new IllegalArgumentException("Combined family count differs from the required roster");}
+			final String[] ids=new String[roster.size()];final AAGraph[] combined=new AAGraph[roster.size()];
+			final HashSet<String> seen=new HashSet<String>();
+			for(int i=0; i<ids.length; i++){
+				final Loaded family=families.get(i);ids[i]=roster.get(i);
+				if(family.graphs.length!=1 || !ids[i].equals(family.repIds[0]) || !seen.add(ids[i])){
+					throw new IllegalArgumentException("Missing, duplicate, or out-of-order combined family at "+i);
+				}
+				combined[i]=family.graphs[0];
+			}
+			return new Loaded(ids,combined);
+		}
+		/** Writes this immutable loaded model set without exposing it to the caller. */
+		void writeBundle(final Path out,final byte[][] provenance) throws IOException{
+			final java.util.ArrayList<HbmBundleBuilder.FamilyInput> families=new java.util.ArrayList<HbmBundleBuilder.FamilyInput>();
+			for(int i=0; i<graphs.length; i++){families.add(new HbmBundleBuilder.FamilyInput(repIds[i],graphs[i].pivot,graphs[i]));}
+			HbmBundleBuilder.build(out,families,provenance);
+		}
+		/** Uses an explicitly frozen background when comparing a rebuilt library with its parent. */
+		HbmPositionModel[] positionModels(String kind,double beta,boolean clip,double clipMin,double[] background){
+			final HbmPositionModel[] models=new HbmPositionModel[graphs.length];
+			for(int i=0; i<graphs.length; i++){models[i]=HbmPositionModel.deriveOne(graphs[i],kind,beta,clip,background,clipMin);}
+			return models;
+		}
 		/** Scores a query against family {@code i}'s private graph, applying the AAGraphScorer "final
 		 *  conditional scorer" gate: returns {@code null} unless {@code passedAllOtherFilters} is true
 		 *  (the caller owns that decision — this class evaluates no filter itself, matching

@@ -76,6 +76,9 @@ polyA.fa.gz
 favicon.ico
 For the taxonomy server.
 
+TaxTreeExtra.tsv.gz
+Auxiliary fake-TaxID nodes to overlay on an NCBI TaxTree.
+
 16S_consensus_sequence.fa
 These files contain consensus sequences of various conserved RNAs (rRNAs and tRNAs) from different clades.
 
@@ -84,4 +87,3 @@ Prokaryotic gene model, used by CallGenes and BBSketch in protein mode.
 
 PacBioAdapter.fa
 A sequence found at read tips in some PacBio low input libraries.
-

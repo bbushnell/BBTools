@@ -1,6 +1,7 @@
 package prot;
 
 import java.util.Arrays;
+import java.util.ArrayList;
 
 import dna.AminoAcid;
 import shared.Tools;
@@ -108,8 +109,41 @@ public final class AAGraph {
 		assert(match!=null) : "add() needs a path-recorded alignment (alignGlocal(...,true)).";
 		int weight=baseWeight;
 		if(weightByIdentity){weight+=Tools.max(0, (int)(identityCeiling-aln.pident()));}
+		addTraceInternal(memberEnc, aln.qStart, aln.tStart, match, weight);
+	}
 
-		int qpos=aln.qStart, rpos=aln.tStart;
+	/**
+	 * Adds a full-query m/I/D trace without assigning a BLOSUM meaning to its score.
+	 * Validates the entire path before mutation and derives identity from actual residues.
+	 * Returns residues excluded by the existing leading/trailing-overhang policy.
+	 */
+	public int addTrace(final byte[] memberEnc, final int targetStart, final byte[] path){
+		if(path==null || path.length==0 || memberEnc.length==0 || targetStart<0 || targetStart>=ref.length){
+			throw new IllegalArgumentException("Graph accumulation needs a nonempty full-query trace anchored inside its pivot");
+		}
+		for(byte aa : memberEnc){
+			if(aa<0 || aa>Blosum62.X_CODE || aa==20){throw new IllegalArgumentException("Invalid graph member residue: "+aa);}
+		}
+		int q=0, r=targetStart, identities=0;
+		for(byte op : path){
+			if(op=='m'){
+				if(q>=memberEnc.length || r>=ref.length){throw new IllegalArgumentException("Graph trace emission exceeds query or pivot");}
+				if(memberEnc[q]==pivot[r] && memberEnc[q]<20){identities++;}
+				q++; r++;
+			}else if(op=='I'){q++;}
+			else if(op=='D'){r++;}
+			else{throw new IllegalArgumentException("Unknown graph trace operation: "+op);}
+			if(q>memberEnc.length || r>ref.length){throw new IllegalArgumentException("Graph trace exceeds query or pivot");}
+		}
+		if(q!=memberEnc.length){throw new IllegalArgumentException("Graph trace must consume the complete member");}
+		int weight=baseWeight;
+		if(weightByIdentity){weight+=Tools.max(0, (int)(identityCeiling-100.0*identities/path.length));}
+		return addTraceInternal(memberEnc, 0, targetStart, path, weight);
+	}
+
+	/** Shared legacy accumulation; callers select validation and weighting contracts. */
+	private int addTraceInternal(byte[] memberEnc, int qpos, int rpos, byte[] match, int weight){
+		int dropped=0;
 		AAGraphNode prevNode=(rpos<=0 ? null : ref[rpos-1]);
 		for(int mpos=0; mpos<match.length && rpos<ref.length; mpos++){
 			final byte m=match[mpos];
@@ -127,7 +161,7 @@ public final class AAGraph {
 				//edge beyond the padding: those residues have no node to attach to, so drop them
 				//(a few N-terminal residues of one member, under-counted) rather than crash. Enlarge
 				//pad if this happens often. prevNode stays null until the first anchored column.
-				if(prevNode==null){qpos++; continue;}
+				if(prevNode==null){qpos++; dropped++; continue;}
 				if(prevNode.insEdge==null){
 					prevNode.insEdge=new AAGraphNode(Blosum62.X_CODE, AAGraphNode.INS, rpos);
 				}
@@ -137,6 +171,7 @@ public final class AAGraph {
 			}
 			prevNode=next;
 		}
+		return dropped+memberEnc.length-qpos;
 	}
 
 	/**
@@ -147,6 +182,17 @@ public final class AAGraph {
 	 * @return The consensus as encoded residues (0-19 or X_CODE).
 	 */
 	public byte[] traverse(){
+		return traverse(null);
+	}
+
+	/** Returns detached selected column counts in exactly the emitted, trimmed consensus frame. */
+	public Traversal traverseProfile(){
+		final ArrayList<AAGraphNode> selected=new ArrayList<AAGraphNode>();
+		final byte[] consensus=traverse(selected);
+		return new Traversal(consensus, selected);
+	}
+
+	private byte[] traverse(final ArrayList<AAGraphNode> selected){
 		final ByteBuilder bb=new ByteBuilder();
 		final IntList depthList=new IntList();
 		int maxDepth=0;
@@ -167,22 +213,24 @@ public final class AAGraph {
 			if(rw>=dw || daf<MAF_del){//Keep this reference column.
 				bb.append(rnode.consensus(MAF_sub, minDepth));
 				depthList.add(depth);
+				if(selected!=null){selected.add(rnode);}
 				//Then walk the insertion chain while it is the plurality outgoing allele.
 				while(inode!=null && inode.weightSum>=(weightSum-inode.weightSum)
 						&& inode.countSum*afMult>=MAF_ins){
 					bb.append(inode.consensus(MAF_ins, minDepth));
 					depthList.add(depth);
+					if(selected!=null){selected.add(inode);}
 					inode=inode.insEdge;
 				}
 			}//else: deletion column, emit nothing
 		}
 
 		final byte[] cons=bb.toBytes();
-		return trim(cons, depthList, maxDepth);
+		return trim(cons, depthList, maxDepth, selected);
 	}
 
 	/** Trims residual-X and (optionally) low-depth residues from both consensus ends. */
-	private byte[] trim(byte[] cons, IntList depthList, int maxDepth){
+	private byte[] trim(byte[] cons, IntList depthList, int maxDepth, ArrayList<AAGraphNode> selected){
 		final int trimDepth=(trimDepthFraction>0 ? Tools.max(1, (int)(trimDepthFraction*maxDepth)) : 0);
 		int left=0, right=0;
 		while(left<cons.length &&
@@ -190,7 +238,32 @@ public final class AAGraph {
 		while(right<cons.length-left &&
 				(cons[cons.length-right-1]==Blosum62.X_CODE
 				|| depthList.get(cons.length-right-1)<trimDepth)){right++;}
+		if(selected!=null){
+			selected.subList(cons.length-right, selected.size()).clear();
+			selected.subList(0, left).clear();
+		}
 		return (left==0 && right==0) ? cons : Arrays.copyOfRange(cons, left, cons.length-right);
+	}
+
+	/** Immutable emitted-column snapshot; it does not claim to rebase the complete DEL/INS graph. */
+	public static final class Traversal{
+		private final byte[] consensus;
+		private final int[][] counts;
+		private final int[] types, positions;
+		private Traversal(byte[] sequence, ArrayList<AAGraphNode> nodes){
+			assert(sequence.length==nodes.size()) : "Selected columns must follow exactly the consensus trim";
+			consensus=sequence.clone(); counts=new int[nodes.size()][];
+			types=new int[nodes.size()]; positions=new int[nodes.size()];
+			for(int i=0; i<nodes.size(); i++){
+				final AAGraphNode node=nodes.get(i);
+				counts[i]=node.count.clone(); types[i]=node.type; positions[i]=node.rpos;
+			}
+		}
+		public byte[] consensus(){return consensus.clone();}
+		public int length(){return consensus.length;}
+		public int count(int column, int residue){return counts[column][residue];}
+		public int sourceType(int column){return types[column];}
+		public int sourcePosition(int column){return positions[column];}
 	}
 
 	/** Convenience: the consensus decoded to an amino-acid string. */

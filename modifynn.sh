@@ -20,6 +20,8 @@ pruneabs=0      Delete old active edges with abs(weight) below this threshold.
 zero2epsilon=f  Replace stored zero edges with seeded weights in the newweight range.
                 Applies to legacy dense active zeros or explicit sparse zero entries.
                 Dense zero-absent slots, absent sparse edges, and biases are unchanged.
+privateperhead=0  Append this many private last-hidden nodes per new output head.
+                Requires partition metadata and matching dims. With 0, new hidden nodes are shared.
 report=<file>   Optional TSV modification report.
 overwrite=f     (ow) Permit overwriting the output file.
 

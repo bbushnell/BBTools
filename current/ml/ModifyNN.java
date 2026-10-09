@@ -29,7 +29,7 @@ import structures.IntList;
  * Grows a .bbnet network and optionally deletes low-magnitude active edges.
  * Existing neurons retain their layer position and retained weights exactly.
  *
- * @author Yelan
+ * @author Yelan, Nilou
  */
 public final class ModifyNN {
 
@@ -50,6 +50,7 @@ public final class ModifyNN {
 			else if(key.equals("seed")){seed=Long.parseLong(value);}
 			else if(key.equals("newweight")){newWeight=Float.parseFloat(value);}
 			else if(key.equals("pruneabs")){pruneAbs=Float.parseFloat(value);}
+			else if(key.equals("privateperhead")){privatePerHead=Integer.parseInt(value);}
 			else if(key.equals("zero2epsilon") || key.equals("zeros2epsilon") || key.equals("zeroes2epsilon") ||
 					key.equals("zero2eps")){
 				zero2epsilon=Parse.parseBoolean(value);
@@ -64,6 +65,7 @@ public final class ModifyNN {
 			throw new IllegalArgumentException("Output exists and overwrite=f");
 		}
 		checkFiniteNonnegative(pruneAbs, "pruneabs");
+		if(privatePerHead<0){throw new IllegalArgumentException("privateperhead must be nonnegative");}
 		if(seed<0){throw new IllegalArgumentException("seed must be nonnegative: "+seed);}
 		if(!Float.isFinite(newWeight) || newWeight<MIN_NEW_WEIGHT || newWeight>MAX_NEW_WEIGHT){
 			throw new IllegalArgumentException("newweight must be finite and FP16-safe, in ["+
@@ -81,6 +83,7 @@ public final class ModifyNN {
 			validate(net);
 			final int[] oldDims=net.dims.clone();
 			final int[] newDims=parseDims(dimsText, oldDims);
+			final ModifyNNPartition partition=ModifyNNPartition.grow(net, newDims, privatePerHead);
 			final boolean noOp=Arrays.equals(oldDims, newDims) && pruneAbs==0 && !zero2epsilon;
 			final Report r=new Report(oldDims, newDims, parentSha80);
 			if(noOp){
@@ -92,7 +95,7 @@ public final class ModifyNN {
 				return;
 			}
 
-			final CellNet grown=grow(net, newDims, r);
+			final CellNet grown=grow(net, newDims, r, partition);
 			grown.setWeightBits(32);
 			CellNet.codingA48Out=true;
 			publishNet(grown, out);
@@ -104,15 +107,12 @@ public final class ModifyNN {
 		}
 	}
 
-	private CellNet grow(final CellNet old, final int[] newDims, final Report report){
-		if(hasPartitionedOutputs(old)){
-			throw new IllegalArgumentException("Cannot modify output_partition networks until explicit layout preservation is implemented");
-		}
+	private CellNet grow(final CellNet old, final int[] newDims, final Report report, final ModifyNNPartition partition){
 		assert(newDims.length==old.dims.length) : "grow preserves layer count validated by parseDims: new="+
 			dimsString(newDims)+" old="+dimsString(old.dims);
 		final boolean sourceDense=old.net[1][0].inputs==null;
 		final boolean sourceZeroAbsent=sourceDense && old.zeroAbsent();
-		final boolean outputDense=sourceDense && pruneAbs==0;
+		final boolean outputDense=sourceDense && pruneAbs==0 && partition==null;
 		CellNet.DENSE=outputDense;
 		final CellNet grown=new CellNet(newDims, old.seed, old.density, old.density1,
 			old.edgeBlockSize, new ArrayList<String>(old.commands));
@@ -122,8 +122,9 @@ public final class ModifyNN {
 		archiveParentStats(old, grown);
 		grown.tags.put("parent_sha80", report.parentSha80);
 		archiveStaleChildTags(grown);
+		if(partition!=null){grown.tags.put("output_partition", partition.metadata());}
 		grown.commands.add("#CL modifynn.sh seed="+seed+" newweight="+newWeight+" pruneabs="+pruneAbs+
-			" zero2epsilon="+zero2epsilon+" olddims="+dimsString(old.dims)+" newdims="+dimsString(newDims));
+			" zero2epsilon="+zero2epsilon+(partition==null ? "" : " privateperhead="+privatePerHead)+" olddims="+dimsString(old.dims)+" newdims="+dimsString(newDims));
 		copyNormalization(old, grown);
 		final EdgeRandom random=new EdgeRandom(seed);
 		for(int layer=1; layer<newDims.length; layer++){
@@ -141,7 +142,10 @@ public final class ModifyNN {
 					dest.function=source.function;
 					dest.bias=source.bias;
 				}
-				if(outputDense){fillDense(source, dest, oldPrev, newPrev, sink, oldLayer.length, random, report, layer, sourceZeroAbsent);}
+				if(partition!=null){
+					final boolean[] allowed=layer==newDims.length-1 ? partition.allowed[sink] : null;
+					fillPartitioned(source, dest, oldPrev, newPrev, random, report, layer, sourceZeroAbsent, allowed);
+				}else if(outputDense){fillDense(source, dest, oldPrev, newPrev, sink, oldLayer.length, random, report, layer, sourceZeroAbsent);}
 				else if(sourceDense){fillDenseToSparse(source, dest, oldPrev, newPrev, sink, oldLayer.length, random, report, layer, sourceZeroAbsent);}
 				else{fillSparse(source, dest, oldPrev, newPrev, sink, oldLayer.length, random, report, layer);}
 			}
@@ -229,6 +233,37 @@ public final class ModifyNN {
 			for(int input=0; input<newPrev; input++){inputs.add(input); weights.add(newRandomWeight(random)); report.added(layer);}
 		}else{
 			for(int input=oldPrev; input<newPrev; input++){inputs.add(input); weights.add(newRandomWeight(random)); report.added(layer);}
+		}
+		dest.inputs=inputs.toArray();
+		dest.weights=new float[weights.size()];
+		for(int i=0; i<weights.size(); i++){dest.weights[i]=weights.get(i);}
+		dest.deltas=new float[dest.weights.length];
+	}
+
+	/** Explicit sparse rows retain active zero weights and never initialize forbidden ownership slots. */
+	private void fillPartitioned(Cell source, Cell dest, int oldPrev, int newPrev,
+			EdgeRandom random, Report report, int layer, boolean zeroAbsent, boolean[] allowed){
+		assert(allowed==null || allowed.length==newPrev) : "Output ownership covers the entire new last-hidden width";
+		final IntList inputs=new IntList(newPrev);
+		final FloatList weights=new FloatList(newPrev);
+		int cursor=0;
+		for(int i=0; i<newPrev; i++){
+			if(allowed!=null && !allowed[i]){continue;}
+			float w;
+			if(source==null || i>=oldPrev){w=newRandomWeight(random); report.added(layer);}
+			else{
+				if(source.inputs==null){
+					w=source.weights[i];
+					if(zeroAbsent && w==0){continue;}
+				}else{
+					if(cursor>=source.inputs.length || source.inputs[cursor]!=i){continue;}
+					w=source.weights[cursor++];
+				}
+				if(w==0 && zero2epsilon){w=newRandomWeight(random); report.converted(layer);}
+				else if(w!=0 && Math.abs(w)<pruneAbs){report.deleted(layer); continue;}
+				else{report.retained(layer);}
+			}
+			inputs.add(i); weights.add(w);
 		}
 		dest.inputs=inputs.toArray();
 		dest.weights=new float[weights.size()];
@@ -328,10 +363,6 @@ public final class ModifyNN {
 			bb.append(dims[i]);
 		}
 		return bb.toString();
-	}
-
-	private static boolean hasPartitionedOutputs(final CellNet net){
-		return net.getTag("output_partition")!=null;
 	}
 
 	/** Validates finite weights and row topology before a no-op copy or in-place growth. */
@@ -611,7 +642,7 @@ public final class ModifyNN {
 	}
 
 	public static final String USAGE="modifynn.sh in=old.bbnet out=grown.bbnet "+
-		"dims=N,H1,H2,O seed=1 newweight=1e-3 pruneabs=0 zero2epsilon=f report=changes.tsv";
+		"dims=N,H1,H2,O seed=1 newweight=1e-3 pruneabs=0 zero2epsilon=f privateperhead=0 report=changes.tsv";
 
 	private static final long GAMMA=0x9E3779B97F4A7C15L;
 	private static final float MIN_NEW_WEIGHT=0x1p-13f;
@@ -626,5 +657,6 @@ public final class ModifyNN {
 	private String in, out, dimsText, report;
 	private boolean overwrite=false, zero2epsilon=false;
 	private long seed=1;
+	private int privatePerHead=0;
 	private float newWeight=1e-3f, pruneAbs=0;
 }

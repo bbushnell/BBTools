@@ -78,12 +78,12 @@ public class TaxTree implements Serializable{
 				int lim=10;
 				for(int j=0; j<lim && j<tree.treeLevelsExtended[i].length; j++){
 					TaxNode n=tree.treeLevelsExtended[i][j];
-					outstream.print("\n"+n+" -> "+tree.nodes[n.pid]);
+					outstream.print("\n"+n+" -> "+tree.getNode(n.pid));
 				}
 				for(int j=tree.treeLevelsExtended[i].length-lim; j<tree.treeLevelsExtended[i].length; j++){
 					if(j>=lim){
 						TaxNode n=tree.treeLevelsExtended[i][j];
-						outstream.print("\n"+n+" -> "+tree.nodes[n.pid]);
+						outstream.print("\n"+n+" -> "+tree.getNode(n.pid));
 					}
 				}
 			}
@@ -167,6 +167,8 @@ public class TaxTree implements Serializable{
 		getNodes(nodesFile, nodes);
 		
 		mergedMap=getMerged(mergedFile);
+		externalToInternalMap=null;
+		firstAuxIndex=nodes.length;
 		
 		countChildren();
 		outstream.println("Counted children.");
@@ -198,13 +200,21 @@ public class TaxTree implements Serializable{
 
 	TaxTree(TaxNode[] nodes_, IntHashMap mergedMap_, int minValidTaxa_, boolean simplify_,
 			boolean reassign_, boolean skipNorank_, int inferRankLimit_){
-		this(nodes_, mergedMap_, minValidTaxa_, simplify_, reassign_, skipNorank_, inferRankLimit_, 1);
+		this(nodes_, mergedMap_, minValidTaxa_, simplify_, reassign_, skipNorank_, inferRankLimit_, 1, null, nodes_.length);
 	}
 
 	TaxTree(TaxNode[] nodes_, IntHashMap mergedMap_, int minValidTaxa_, boolean simplify_,
 			boolean reassign_, boolean skipNorank_, int inferRankLimit_, int threads){
+		this(nodes_, mergedMap_, minValidTaxa_, simplify_, reassign_, skipNorank_, inferRankLimit_, threads, null, nodes_.length);
+	}
+	
+	TaxTree(TaxNode[] nodes_, IntHashMap mergedMap_, int minValidTaxa_, boolean simplify_,
+			boolean reassign_, boolean skipNorank_, int inferRankLimit_, int threads,
+			IntHashMap externalToInternalMap_, int firstAuxIndex_){
 		nodes=nodes_;
 		mergedMap=mergedMap_;
+		externalToInternalMap=externalToInternalMap_;
+		firstAuxIndex=firstAuxIndex_;
 		minValidTaxa=minValidTaxa_;
 		simplify=simplify_;
 		reassign=reassign_;
@@ -221,7 +231,7 @@ public class TaxTree implements Serializable{
 		for(int tid=0; tid<threadCount; tid++){
 			int from=(int)(((long)nodes.length*tid)/threadCount);
 			int to=(int)(((long)nodes.length*(tid+1))/threadCount);
-			counters.add(new LevelCountThread(nodes, from, to));
+			counters.add(new LevelCountThread(nodes, from, to, this));
 		}
 		ThreadWaiter.startAndWait(counters);
 
@@ -264,10 +274,11 @@ public class TaxTree implements Serializable{
 	}
 
 	private static final class LevelCountThread extends Thread {
-		LevelCountThread(TaxNode[] nodes_, int from_, int to_){
+		LevelCountThread(TaxNode[] nodes_, int from_, int to_, TaxTree tree_){
 			nodes=nodes_;
 			from=from_;
 			to=to_;
+			tree=tree_;
 			counts=new int[taxLevelNames.length];
 			countsExtended=new int[taxLevelNamesExtended.length];
 		}
@@ -278,7 +289,7 @@ public class TaxTree implements Serializable{
 				for(int i=from; i<to; i++){
 					TaxNode n=nodes[i];
 					if(n!=null){
-						if(n.id!=i){throw new IllegalArgumentException("TaxNode "+n.id+" is stored at index "+i);}
+						if(tree.nodeIndex(n.id)!=i){throw new IllegalArgumentException("TaxNode "+n.id+" is stored at index "+i);}
 						if(n.level<0 || n.level>=counts.length){
 							throw new IllegalArgumentException("Invalid taxonomic level "+n.level+" for TaxID "+n.id);
 						}
@@ -295,6 +306,7 @@ public class TaxTree implements Serializable{
 		}
 
 		final TaxNode[] nodes;
+		final TaxTree tree;
 		final int from, to;
 		final int[] counts, countsExtended;
 		int count=0;
@@ -335,7 +347,7 @@ public class TaxTree implements Serializable{
 		for(int i=0; i<nodes.length; i++){
 			TaxNode n=nodes[i];
 			if(n!=null){
-				if(n.id!=i){throw new IllegalArgumentException("TaxNode "+n.id+" is stored at index "+i);}
+				if(nodeIndex(n.id)!=i){throw new IllegalArgumentException("TaxNode "+n.id+" is stored at index "+i);}
 				if(n.level<0 || n.level>=nodesPerLevel.length){
 					throw new IllegalArgumentException("Invalid taxonomic level "+n.level+" for TaxID "+n.id);
 				}
@@ -361,7 +373,7 @@ public class TaxTree implements Serializable{
 	}
 
 	final boolean hasTextExcludedState(){
-		return nameMap!=null || nameMapLower!=null || childMap!=null || refseqSizeMap!=null
+		return externalToInternalMap!=null || nameMap!=null || nameMapLower!=null || childMap!=null || refseqSizeMap!=null
 				|| refseqSizeMapC!=null || refseqSeqMap!=null || refseqSeqMapC!=null || nodeMapC!=null;
 	}
 	
@@ -439,10 +451,31 @@ public class TaxTree implements Serializable{
 
 	/** Load either the portable TSV representation or legacy Java serialization. */
 	public static TaxTree loadTaxTreeFile(String fname){
-		if(isTextTreeFile(fname)){
-			return TaxTreeText.load(fname);
+		return loadTaxTreeFile(fname, LOAD_FAKE_TREE ? fakeTreeFile : null);
+	}
+	
+	/** Load the base tree and optionally overlay an auxiliary fake-TaxID table. */
+	private static TaxTree loadTaxTreeFile(String fname, String auxFile){
+		int comma=fname==null ? -1 : fname.indexOf(',');
+		if(comma>=0){
+			TaxTree tree=loadTaxTreeFile(fname.substring(0, comma), null);
+			tree=loadAuxTree(tree, fname.substring(comma+1));
+			return auxFile==null ? tree : loadAuxTree(tree, auxFile);
 		}
-		return ReadWrite.read(TaxTree.class, fname, true);
+		final TaxTree tree;
+		if(isTextTreeFile(fname)){
+			tree=TaxTreeText.load(fname);
+		}else{
+			tree=ReadWrite.read(TaxTree.class, fname, true);
+		}
+		return auxFile==null ? tree : loadAuxTree(tree, auxFile);
+	}
+	
+	/** Overlay an auxiliary tree file, using BBTools resource-path semantics. */
+	private static TaxTree loadAuxTree(TaxTree tree, String fname){
+		String path=Data.findPath(fname);
+		if(path==null){throw new RuntimeException("Could not find auxiliary TaxTree file "+fname);}
+		return TaxTreeAux.apply(tree, path);
 	}
 
 	/** Write portable TSV or legacy Java serialization according to the filename extension. */
@@ -468,6 +501,22 @@ public class TaxTree implements Serializable{
 		}
 		treeFile=value;
 		return true;
+	}
+	
+	/** Parse the global auxiliary fake-TaxID tree flag. */
+	public static boolean parseFakeTreeFlag(String value){
+		if(value==null || value.isEmpty()){
+			LOAD_FAKE_TREE=true;
+			fakeTreeFile=defaultFakeTreeFile;
+		}else if(Parse.isBoolean(value) || "1".equals(value) || "0".equals(value)
+				|| "null".equalsIgnoreCase(value) || "none".equalsIgnoreCase(value)){
+			LOAD_FAKE_TREE=Parse.parseBoolean(value);
+			if(LOAD_FAKE_TREE){fakeTreeFile=defaultFakeTreeFile;}
+		}else{
+			LOAD_FAKE_TREE=true;
+			fakeTreeFile=value;
+		}
+		return LOAD_FAKE_TREE;
 	}
 	
 	/*--------------------------------------------------------------*/
@@ -1645,13 +1694,7 @@ public class TaxTree implements Serializable{
 			if(number>=0){return getNode(number);}
 		}
 		if(verbose){System.err.println("Can't process name "+s);}
-		if(Tools.isDigit(s.charAt(0)) && s.length()<=9){
-			try {
-				return getNode(Integer.parseInt(s));
-			} catch (NumberFormatException e) {
-				//ignore
-			}
-		}
+		if(Tools.isNumeric(s)){return getNode(Integer.parseInt(s), true);}
 		return null;
 	}
 	
@@ -1688,13 +1731,7 @@ public class TaxTree implements Serializable{
 			}
 		}
 		
-		if(number<0 && Tools.isDigit(s.charAt(0)) && s.length()<=9 && space<0){
-			try {
-				return getNode(Integer.parseInt(s));
-			} catch (NumberFormatException e) {
-				//ignore
-			}
-		}
+		if(number<0 && space<0 && Tools.isNumeric(s)){return getNode(Integer.parseInt(s), true);}
 		
 		if(number<0 && space>0){
 			number=parseNameToTaxid(s.substring(space+1));
@@ -1857,10 +1894,11 @@ public class TaxTree implements Serializable{
 	 * @return Parent TaxID
 	 */
 	public int getParentID(int id){
-		assert(id<nodes.length) : id+", "+nodes.length+"\nYou have encountered a TaxID more recent than your NCBI dump."
+		final int idx=nodeIndex(id);
+		assert(idx<nodes.length) : id+", "+nodes.length+"\nYou have encountered a TaxID more recent than your NCBI dump."
 				+ "\nPlease redownload it and regenerate the taxtree.";
-		if(id<0 || id>=nodes.length){return -1;}
-		TaxNode tn=nodes[id];
+		if(idx<0 || idx>=nodes.length){return -1;}
+		TaxNode tn=nodes[idx];
 		if(tn==null && mergedMap!=null){tn=getNode(mergedMap.get(id), true);}
 		return tn==null ? -1 : tn.pid;
 	}
@@ -1871,10 +1909,11 @@ public class TaxTree implements Serializable{
 	 * @return Node
 	 */
 	public TaxNode getNode(int id){
-		assert(id<nodes.length) : id+", "+nodes.length+"\nYou have encountered a TaxID more recent than your NCBI dump."
+		final int idx=nodeIndex(id);
+		assert(idx<nodes.length) : id+", "+nodes.length+"\nYou have encountered a TaxID more recent than your NCBI dump."
 				+ "\nPlease redownload it and regenerate the taxtree.";
-		if(id<0 || id>=nodes.length){return null;}
-		TaxNode tn=nodes[id];
+		if(idx<0 || idx>=nodes.length){return null;}
+		TaxNode tn=nodes[idx];
 		if(tn!=null || mergedMap==null){return tn;}
 		return getNode(mergedMap.get(id), true);
 	}
@@ -1895,6 +1934,7 @@ public class TaxTree implements Serializable{
 	 * @return Current TaxID
 	 */
 	public int resolveID(int id) {
+		if(externalToInternalMap!=null && externalToInternalMap.contains(id)){return id;}
 		if(mergedMap==null) {return id;}
 		int x=mergedMap.get(id);
 		return x<0 ? id : x;
@@ -1906,12 +1946,24 @@ public class TaxTree implements Serializable{
 	 * @return Node
 	 */	
 	public TaxNode getNode(int id, boolean skipAssertion){
-		assert(skipAssertion || id<nodes.length) : id+", "+nodes.length+"\nYou have encountered a TaxID more recent than your NCBI dump."
+		final int idx=nodeIndex(id);
+		assert(skipAssertion || idx<nodes.length) : id+", "+nodes.length+"\nYou have encountered a TaxID more recent than your NCBI dump."
 				+ "\nPlease redownload it and regenerate the taxtree.";
-		if(id<0 || id>=nodes.length){return null;}
-		TaxNode tn=nodes[id];
+		if(idx<0 || idx>=nodes.length){return null;}
+		TaxNode tn=nodes[idx];
 		if(tn!=null || mergedMap==null){return tn;}
 		return getNode(mergedMap.get(id), true);
+	}
+
+	/** Convert an external TaxID to an array slot. */
+	int nodeIndex(int id){
+		if(id<0){return -1;}
+		if(externalToInternalMap!=null){
+			int idx=externalToInternalMap.get(id);
+			if(idx>=0){return idx;}
+			if(id>=firstAuxIndex && id<nodes.length){return -1;}
+		}
+		return id;
 	}
 	
 	/**
@@ -2120,9 +2172,10 @@ public class TaxTree implements Serializable{
 	 * @param amt Amount to increment
 	 */
 	public void incrementRaw(int id, long amt){
-		assert(id>=0 && id<nodes.length) : "TaxID "+id+" is out of range."+(id<0 ? "" : "  Possibly the taxonomy data needs to be updated.");
-		assert(nodes[id]!=null) : "No node for TaxID "+id+"; possibly the taxonomy data needs to be updated.";
-		nodes[id].incrementRaw(amt);
+		final int idx=nodeIndex(id);
+		assert(idx>=0 && idx<nodes.length) : "TaxID "+id+" is out of range."+(idx<0 ? "" : "  Possibly the taxonomy data needs to be updated.");
+		assert(nodes[idx]!=null) : "No node for TaxID "+id+"; possibly the taxonomy data needs to be updated.";
+		nodes[idx].incrementRaw(amt);
 	}
 	
 	/** Percolate counts upward through the entire tree */
@@ -2155,7 +2208,7 @@ public class TaxTree implements Serializable{
 		if(verbose){System.err.println("percolateUp("+amt+") node: "+node);}
 		while(node.id!=node.pid){
 			node.incrementSum(amt);
-			node=nodes[node.pid];
+			node=getNode(node.pid);
 		}
 		node.incrementSum(amt);
 	}
@@ -2201,7 +2254,7 @@ public class TaxTree implements Serializable{
 		for(final TaxNode n : stratum){
 			if(n.countSum>=limit){
 				list.add(n);
-				TaxNode parent=nodes[n.pid];
+				TaxNode parent=getNode(n.pid);
 				if(n!=parent){
 					percolateUp(parent, -n.countSum);//123 This was negative for some reason
 				}
@@ -2640,6 +2693,12 @@ public class TaxTree implements Serializable{
 	/** Maps old TaxIDs to new TaxIDs */
 	public final IntHashMap mergedMap;
 
+	/** Maps durable auxiliary TaxIDs to their packed runtime node indices. */
+	public final IntHashMap externalToInternalMap;
+
+	/** First packed auxiliary index; packed IDs are private and not accepted as TaxIDs. */
+	public final int firstAuxIndex;
+
 	/** Arrays of all nodes at a given taxonomic level (extended) */
 	public final TaxNode[][] treeLevelsExtended=new TaxNode[taxLevelNamesExtended.length][];
 	
@@ -2702,6 +2761,15 @@ public class TaxTree implements Serializable{
 	 * @TODO Remove mutable fields from the tree (like counters).
 	 */
 	public static boolean ALLOW_SHARED_TREE=true;
+	
+	/** Load the bundled auxiliary fake-TaxID tree when loading a main TaxTree. */
+	public static boolean LOAD_FAKE_TREE=false;
+	
+	/** Bundled auxiliary fake-TaxID tree file. */
+	public static final String defaultFakeTreeFile="?TaxTreeExtra.tsv.gz";
+	
+	/** Current auxiliary fake-TaxID tree path. */
+	public static String fakeTreeFile=defaultFakeTreeFile;
 	
 	/** Universal location of the shared TaxTree used by various classes */
 	private static TaxTree sharedTree;

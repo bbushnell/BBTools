@@ -1003,6 +1003,8 @@ public class Parser {
 		
 		else if(a.equals("treefile")){
 			TaxTree.treeFile=(b==null || "null".equalsIgnoreCase(b) || "none".equalsIgnoreCase(b)) ? null : b;
+		}else if(a.equals("faketree")){
+			TaxTree.parseFakeTreeFlag(b);
 		}
 		
 //		else if(a.equalsIgnoreCase("sortserial")){
