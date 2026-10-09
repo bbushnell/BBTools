@@ -24,10 +24,10 @@ public final class RrnaEndpointNetworkLoader {
 				final int i=index.get(model),seed=p.parseInt(2);final CellNet[] dest=end.equals("5prime")?five:end.equals("3prime")?three:null;
 				require(dest!=null && dest[i]==null && seed>=0 && p.parseString(4).matches("[0-9a-f]{20}"),"Exactly one selected network per model/end is required");
 				require(path.equals("networks/"+model+'.'+end+".s"+seed+".bbnet"),"Network filename must preserve its declared model/end/seed within the bundle");
-				final CellNet net=CellNetParser.load(new File(directory,path).toString());RrnaEndpointCallerFeatures.Resources.validateNet(net);dest[i]=net;rows++;
+				final CellNet net=CellNetParser.load(new File(directory,path).toString());RrnaEndpointCallerFeatures.Resources.validateNet(net,tables.inputs,tables.sites);dest[i]=net;rows++;
 			}require(rows==2*n,"Every model must have both selected endpoint networks");
 		}finally{require(!in.close(),"Network manifest read failed");}
-		return new RrnaEndpointCallerFeatures.Resources(tables.names,tables.refs,tables.five,tables.three,five,three);
+		return new RrnaEndpointCallerFeatures.Resources(tables.family,tables.names,tables.refs,tables.five,tables.three,five,three);
 	}
 	static void require(boolean ok,String why){if(!ok){throw new IllegalArgumentException(why);}}
 }

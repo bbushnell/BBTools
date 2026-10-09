@@ -60,7 +60,14 @@ public final class MultiStateAligner9PacBio extends MSA{
 	 * @param maxColumns_ Maximum number of columns (reference length) the aligner can handle
 	 */
 	public MultiStateAligner9PacBio(int maxRows_, int maxColumns_){
-		super(maxRows_, maxColumns_);
+		this(maxRows_,maxColumns_,PacBioScoreParameters.DEFAULT);
+	}
+
+	/** Explicit per-instance experimental penalties; no shared static mutation. */
+	public MultiStateAligner9PacBio(int maxRows_,int maxColumns_,PacBioScoreParameters costs_){
+		super(maxRows_,maxColumns_);
+		if(costs_==null){throw new IllegalArgumentException("PacBio penalties cannot be null");}
+		costs=costs_;
 
 		//Comprehension (Ady 2026-06-21): 9PacBio is a PacBio variant -- TIMEBITS=9, ss.semiperfect ACTIVE
 		//(scoreNoIndels L1945/L2035), AFFINE_ARRAYS=false; groups with 9XFlat despite the "Based on MSA9ts" class doc.
@@ -91,9 +98,9 @@ public final class MultiStateAligner9PacBio extends MSA{
 			for(int i=0; i<=maxRows; i++){
 
 				int prevScore=(i<2 ? 0 : packed[matrix][i-1][0]);
-				int score=(i<2 ? (i*POINTSoff_INS) :
+				int score=(i<2 ? (i*costs.offIns) :
 					(i<LIMIT_FOR_COST_3 ? prevScore+POINTSoff_INS2 :
-						(i<LIMIT_FOR_COST_4 ? prevScore+POINTSoff_INS3 : prevScore+POINTSoff_INS4)));
+						(i<LIMIT_FOR_COST_4 ? prevScore+POINTSoff_INS3 : prevScore+costs.offIns4)));
 
 				packed[matrix][i][0]=score;
 			}
@@ -219,7 +226,7 @@ public final class MultiStateAligner9PacBio extends MSA{
 				horizLimit[i]=Tools.max(horizLimit[i+1]-(prevDefined ? POINTSoff_MATCH2 : POINTSoff_MATCH), floor);
 				prevDefined=true;
 			}else{
-				horizLimit[i]=Tools.max(horizLimit[i+1]-(prevDefined && c==GAPC ? POINTSoff_DEL : POINTSoff_NOREF), floor);
+				horizLimit[i]=Tools.max(horizLimit[i+1]-(prevDefined && c==GAPC ? costs.offDel : POINTSoff_NOREF), floor);
 				prevDefined=false;
 			}
 		}
@@ -284,7 +291,7 @@ public final class MultiStateAligner9PacBio extends MSA{
 
 				iterationsLimited++;
 				final int limit=Tools.max(vlimit, horizLimit[col]);
-				final int limit3=Tools.max(floor, (match ? limit-POINTSoff_MATCH2 : limit-POINTSoff_SUB3));
+				final int limit3=Tools.max(floor, (match ? limit-POINTSoff_MATCH2 : limit-costs.offSub3));
 
 				final int delNeeded=Tools.max(0, row-col-1);
 				final int insNeeded=Tools.max(0, (rows-row)-(columns-col)-1);
@@ -352,14 +359,14 @@ public final class MultiStateAligner9PacBio extends MSA{
 
 							int scoreMS;
 							if(ref1!='N' && call1!='N'){
-								scoreMS=scoreFromDiag_MS+(prevMatch ? (streak<=1 ? POINTSoff_SUBR : POINTSoff_SUB) :
-									(streak==0 ? POINTSoff_SUB : streak<LIMIT_FOR_COST_3 ? POINTSoff_SUB2 : POINTSoff_SUB3));
+								scoreMS=scoreFromDiag_MS+(prevMatch ? (streak<=1 ? costs.offSubR : costs.offSub) :
+									(streak==0 ? costs.offSub : streak<LIMIT_FOR_COST_3 ? costs.offSub2 : costs.offSub3));
 							}else{
 								scoreMS=scoreFromDiag_MS+POINTSoff_NOCALL;
 							}
 
-							int scoreD=scoreFromDel_MS+POINTSoff_SUB; //+2 to move it as close as possible to the deletion / insertion
-							int scoreI=scoreFromIns_MS+POINTSoff_SUB;
+							int scoreD=scoreFromDel_MS+costs.offSub; //+2 to move it as close as possible to the deletion / insertion
+							int scoreI=scoreFromIns_MS+costs.offSub;
 
 							if(scoreMS>=scoreD && scoreMS>=scoreI){
 								score=scoreMS;
@@ -423,13 +430,13 @@ public final class MultiStateAligner9PacBio extends MSA{
 
 					final int streak=packed[MODE_DEL][row][col-1]&TIMEMASK;
 
-					int scoreMS=scoreFromDiag_DEL+POINTSoff_DEL;
-					int scoreD=scoreFromDel_DEL+(streak==0 ? POINTSoff_DEL :
+					int scoreMS=scoreFromDiag_DEL+costs.offDel;
+					int scoreD=scoreFromDel_DEL+(streak==0 ? costs.offDel :
 						streak<LIMIT_FOR_COST_3 ? POINTSoff_DEL2 :
 							streak<LIMIT_FOR_COST_4 ? POINTSoff_DEL3 :
-								streak<LIMIT_FOR_COST_5 ? POINTSoff_DEL4 :
-									((streak&MASK5)==0 ? POINTSoff_DEL5 : 0));
-//					int scoreI=scoreFromIns+POINTSoff_DEL;
+								streak<LIMIT_FOR_COST_5 ? costs.offDel4 :
+									((streak&MASK5)==0 ? costs.offDel5 : 0));
+//					int scoreI=scoreFromIns+costs.offDel;
 
 					if(ref1=='N'){
 						scoreMS+=POINTSoff_DEL_REF_N;
@@ -489,16 +496,16 @@ public final class MultiStateAligner9PacBio extends MSA{
 
 					final int streak=packed[MODE_INS][row-1][col]&TIMEMASK;
 
-					int scoreMS=scoreFromDiag_INS+POINTSoff_INS;
-//					int scoreD=scoreFromDel+POINTSoff_INS;
-					int scoreI=scoreFromIns_INS+(streak==0 ? POINTSoff_INS :
+					int scoreMS=scoreFromDiag_INS+costs.offIns;
+//					int scoreD=scoreFromDel+costs.offIns;
+					int scoreI=scoreFromIns_INS+(streak==0 ? costs.offIns :
 						streak<LIMIT_FOR_COST_3 ? POINTSoff_INS2 :
-							streak<LIMIT_FOR_COST_4 ? POINTSoff_INS3 : POINTSoff_INS4);
+							streak<LIMIT_FOR_COST_4 ? POINTSoff_INS3 : costs.offIns4);
 
-//					System.err.println("("+row+","+col+")\t"+scoreFromDiag+"+"+POINTSoff_INS+"="+scoreM+", "+
-//							scoreFromSub+"+"+POINTSoff_INS+"="+scoreS+", "
+//					System.err.println("("+row+","+col+")\t"+scoreFromDiag+"+"+costs.offIns+"="+scoreM+", "+
+//							scoreFromSub+"+"+costs.offIns+"="+scoreS+", "
 //							+scoreD+", "+scoreFromIns+"+"+
-//							(streak==0 ? POINTSoff_INS : streak<LIMIT_FOR_COST_3 ? POINTSoff_INS2 : POINTSoff_INS3)+"="+scoreI);
+//							(streak==0 ? costs.offIns : streak<LIMIT_FOR_COST_3 ? POINTSoff_INS2 : POINTSoff_INS3)+"="+scoreI);
 
 					//if(match){scoreMS=subfloor;}
 
@@ -706,14 +713,14 @@ public final class MultiStateAligner9PacBio extends MSA{
 
 							int scoreMS;
 							if(ref1!='N' && call1!='N'){
-								scoreMS=scoreFromDiag+(prevMatch ? (streak<=1 ? POINTSoff_SUBR : POINTSoff_SUB) :
-									(streak==0 ? POINTSoff_SUB : streak<LIMIT_FOR_COST_3 ? POINTSoff_SUB2 : POINTSoff_SUB3));
+								scoreMS=scoreFromDiag+(prevMatch ? (streak<=1 ? costs.offSubR : costs.offSub) :
+									(streak==0 ? costs.offSub : streak<LIMIT_FOR_COST_3 ? costs.offSub2 : costs.offSub3));
 							}else{
 								scoreMS=scoreFromDiag+POINTSoff_NOCALL;
 							}
 
-							int scoreD=scoreFromDel+POINTSoff_SUB; //+2 to move it as close as possible to the deletion / insertion
-							int scoreI=scoreFromIns+POINTSoff_SUB;
+							int scoreD=scoreFromDel+costs.offSub; //+2 to move it as close as possible to the deletion / insertion
+							int scoreI=scoreFromIns+costs.offSub;
 
 							int score;
 							int time;
@@ -754,13 +761,13 @@ public final class MultiStateAligner9PacBio extends MSA{
 					final int scoreFromDiag=packed[MODE_MS][row][col-1]&SCOREMASK;
 					final int scoreFromDel=packed[MODE_DEL][row][col-1]&SCOREMASK;
 
-					int scoreMS=scoreFromDiag+POINTSoff_DEL;
-					int scoreD=scoreFromDel+(streak==0 ? POINTSoff_DEL :
+					int scoreMS=scoreFromDiag+costs.offDel;
+					int scoreD=scoreFromDel+(streak==0 ? costs.offDel :
 						streak<LIMIT_FOR_COST_3 ? POINTSoff_DEL2 :
 							streak<LIMIT_FOR_COST_4 ? POINTSoff_DEL3 :
-								streak<LIMIT_FOR_COST_5 ? POINTSoff_DEL4 :
-									((streak&MASK5)==0 ? POINTSoff_DEL5 : 0));
-//					int scoreI=scoreFromIns+POINTSoff_DEL;
+								streak<LIMIT_FOR_COST_5 ? costs.offDel4 :
+									((streak&MASK5)==0 ? costs.offDel5 : 0));
+//					int scoreI=scoreFromIns+costs.offDel;
 
 					if(ref1=='N'){
 						scoreMS+=POINTSoff_DEL_REF_N;
@@ -806,16 +813,16 @@ public final class MultiStateAligner9PacBio extends MSA{
 					final int scoreFromDiag=packed[MODE_MS][row-1][col]&SCOREMASK;
 					final int scoreFromIns=packed[MODE_INS][row-1][col]&SCOREMASK;
 
-					int scoreMS=scoreFromDiag+POINTSoff_INS;
-//					int scoreD=scoreFromDel+POINTSoff_INS;
-					int scoreI=scoreFromIns+(streak==0 ? POINTSoff_INS :
+					int scoreMS=scoreFromDiag+costs.offIns;
+//					int scoreD=scoreFromDel+costs.offIns;
+					int scoreI=scoreFromIns+(streak==0 ? costs.offIns :
 						streak<LIMIT_FOR_COST_3 ? POINTSoff_INS2 :
-							streak<LIMIT_FOR_COST_4 ? POINTSoff_INS3 : POINTSoff_INS4);
+							streak<LIMIT_FOR_COST_4 ? POINTSoff_INS3 : costs.offIns4);
 
-//					System.err.println("("+row+","+col+")\t"+scoreFromDiag+"+"+POINTSoff_INS+"="+scoreM+", "+
-//							scoreFromSub+"+"+POINTSoff_INS+"="+scoreS+", "
+//					System.err.println("("+row+","+col+")\t"+scoreFromDiag+"+"+costs.offIns+"="+scoreM+", "+
+//							scoreFromSub+"+"+costs.offIns+"="+scoreS+", "
 //							+scoreD+", "+scoreFromIns+"+"+
-//							(streak==0 ? POINTSoff_INS : streak<LIMIT_FOR_COST_3 ? POINTSoff_INS2 : POINTSoff_INS3)+"="+scoreI);
+//							(streak==0 ? costs.offIns : streak<LIMIT_FOR_COST_3 ? POINTSoff_INS2 : POINTSoff_INS3)+"="+scoreI);
 
 					//if(match){scoreMS=subfloor;}
 
@@ -932,10 +939,10 @@ public final class MultiStateAligner9PacBio extends MSA{
 
 						}else{
 
-							int scoreMS=scoreFromDiag+(prevMatch ? (streak<=1 ? POINTSoff_SUBR : POINTSoff_SUB) :
-								(streak==0 ? POINTSoff_SUB : streak<LIMIT_FOR_COST_3 ? POINTSoff_SUB2 : POINTSoff_SUB3));
-							int scoreD=scoreFromDel+POINTSoff_SUB; //+2 to move it as close as possible to the deletion / insertion
-							int scoreI=scoreFromIns+POINTSoff_SUB;
+							int scoreMS=scoreFromDiag+(prevMatch ? (streak<=1 ? costs.offSubR : costs.offSub) :
+								(streak==0 ? costs.offSub : streak<LIMIT_FOR_COST_3 ? costs.offSub2 : costs.offSub3));
+							int scoreD=scoreFromDel+costs.offSub; //+2 to move it as close as possible to the deletion / insertion
+							int scoreI=scoreFromIns+costs.offSub;
 
 							int score;
 							int time;
@@ -974,13 +981,13 @@ public final class MultiStateAligner9PacBio extends MSA{
 					final int scoreFromDiag=packed[MODE_MS][row][col-1]&SCOREMASK;
 					final int scoreFromDel=packed[MODE_DEL][row][col-1]&SCOREMASK;
 
-					int scoreMS=scoreFromDiag+POINTSoff_DEL;
-					int scoreD=scoreFromDel+(streak==0 ? POINTSoff_DEL :
+					int scoreMS=scoreFromDiag+costs.offDel;
+					int scoreD=scoreFromDel+(streak==0 ? costs.offDel :
 						streak<LIMIT_FOR_COST_3 ? POINTSoff_DEL2 :
 							streak<LIMIT_FOR_COST_4 ? POINTSoff_DEL3 :
-								streak<LIMIT_FOR_COST_5 ? POINTSoff_DEL4 :
-									((streak&MASK5)==0 ? POINTSoff_DEL5 : 0));
-//					int scoreI=scoreFromIns+POINTSoff_DEL;
+								streak<LIMIT_FOR_COST_5 ? costs.offDel4 :
+									((streak&MASK5)==0 ? costs.offDel5 : 0));
+//					int scoreI=scoreFromIns+costs.offDel;
 
 					int score;
 					int time;
@@ -1012,16 +1019,16 @@ public final class MultiStateAligner9PacBio extends MSA{
 					final int scoreFromDiag=packed[MODE_MS][row-1][col]&SCOREMASK;
 					final int scoreFromIns=packed[MODE_INS][row-1][col]&SCOREMASK;
 
-					int scoreMS=scoreFromDiag+POINTSoff_INS;
-//					int scoreD=scoreFromDel+POINTSoff_INS;
-					int scoreI=scoreFromIns+(streak==0 ? POINTSoff_INS :
+					int scoreMS=scoreFromDiag+costs.offIns;
+//					int scoreD=scoreFromDel+costs.offIns;
+					int scoreI=scoreFromIns+(streak==0 ? costs.offIns :
 						streak<LIMIT_FOR_COST_3 ? POINTSoff_INS2 :
-							streak<LIMIT_FOR_COST_4 ? POINTSoff_INS3 : POINTSoff_INS4);
+							streak<LIMIT_FOR_COST_4 ? POINTSoff_INS3 : costs.offIns4);
 
-//					System.err.println("("+row+","+col+")\t"+scoreFromDiag+"+"+POINTSoff_INS+"="+scoreM+", "+
-//							scoreFromSub+"+"+POINTSoff_INS+"="+scoreS+", "
+//					System.err.println("("+row+","+col+")\t"+scoreFromDiag+"+"+costs.offIns+"="+scoreM+", "+
+//							scoreFromSub+"+"+costs.offIns+"="+scoreS+", "
 //							+scoreD+", "+scoreFromIns+"+"+
-//							(streak==0 ? POINTSoff_INS : streak<LIMIT_FOR_COST_3 ? POINTSoff_INS2 : POINTSoff_INS3)+"="+scoreI);
+//							(streak==0 ? costs.offIns : streak<LIMIT_FOR_COST_3 ? POINTSoff_INS2 : POINTSoff_INS3)+"="+scoreI);
 
 					int score;
 					int time;
@@ -1620,7 +1627,7 @@ public final class MultiStateAligner9PacBio extends MSA{
 				}else if(loc<lastLoc){//deletion
 					assert(lastLoc>=0);
 					score+=POINTS_MATCH;
-					score+=POINTS_DEL;
+					score+=costs.del;
 					int dif=lastLoc-loc+1;
 					if(dif>MINGAP){
 						int rem=dif%GAPLEN;
@@ -1632,11 +1639,11 @@ public final class MultiStateAligner9PacBio extends MSA{
 //						assert(false) : div;
 					}
 					if(dif>LIMIT_FOR_COST_5){
-						score+=((dif-LIMIT_FOR_COST_5+MASK5)/TIMESLIP)*POINTS_DEL5;
+						score+=((dif-LIMIT_FOR_COST_5+MASK5)/TIMESLIP)*costs.del5;
 						dif=LIMIT_FOR_COST_5;
 					}
 					if(dif>LIMIT_FOR_COST_4){
-						score+=(dif-LIMIT_FOR_COST_4)*POINTS_DEL4;
+						score+=(dif-LIMIT_FOR_COST_4)*costs.del4;
 						dif=LIMIT_FOR_COST_4;
 					}
 					if(dif>LIMIT_FOR_COST_3){
@@ -1650,11 +1657,11 @@ public final class MultiStateAligner9PacBio extends MSA{
 				}else if(loc>lastLoc){//insertion
 					assert(lastLoc>=0);
 					score+=POINTS_MATCH;
-					score+=POINTS_INS;
+					score+=costs.ins;
 					int dif=Tools.min(loc-lastLoc+1, 5);
 					assert(dif>0);
 					if(dif>LIMIT_FOR_COST_4){
-						score+=(dif-LIMIT_FOR_COST_4)*POINTS_INS4;
+						score+=(dif-LIMIT_FOR_COST_4)*costs.ins4;
 						dif=LIMIT_FOR_COST_4;
 					}
 					if(dif>LIMIT_FOR_COST_3){
@@ -1671,11 +1678,11 @@ public final class MultiStateAligner9PacBio extends MSA{
 				lastLoc=loc;
 			}else{//substitution
 				if(lastValue<0 && timeInMode>0){//contiguous
-					if(timeInMode<LIMIT_FOR_COST_3){score+=POINTS_SUB2;}
-					else{score+=POINTS_SUB3;}
+					if(timeInMode<LIMIT_FOR_COST_3){score+=costs.sub2;}
+					else{score+=costs.sub3;}
 					timeInMode++;
 				}else{
-					score+=POINTS_SUB;
+					score+=costs.sub;
 					timeInMode=1;
 				}
 			}
@@ -1703,7 +1710,7 @@ public final class MultiStateAligner9PacBio extends MSA{
 				}else if(loc<lastLoc){//deletion
 					assert(lastLoc>=0);
 					score+=(POINTS_MATCH+baseScores[i]);
-					score+=POINTS_DEL;
+					score+=costs.del;
 					int dif=lastLoc-loc+1;
 					if(dif>MINGAP){
 						int rem=dif%GAPLEN;
@@ -1715,11 +1722,11 @@ public final class MultiStateAligner9PacBio extends MSA{
 //						assert(false) : div;
 					}
 					if(dif>LIMIT_FOR_COST_5){
-						score+=((dif-LIMIT_FOR_COST_5+MASK5)/TIMESLIP)*POINTS_DEL5;
+						score+=((dif-LIMIT_FOR_COST_5+MASK5)/TIMESLIP)*costs.del5;
 						dif=LIMIT_FOR_COST_5;
 					}
 					if(dif>LIMIT_FOR_COST_4){
-						score+=(dif-LIMIT_FOR_COST_4)*POINTS_DEL4;
+						score+=(dif-LIMIT_FOR_COST_4)*costs.del4;
 						dif=LIMIT_FOR_COST_4;
 					}
 					if(dif>LIMIT_FOR_COST_3){
@@ -1733,11 +1740,11 @@ public final class MultiStateAligner9PacBio extends MSA{
 				}else if(loc>lastLoc){//insertion
 					assert(lastLoc>=0);
 					score+=(POINTS_MATCH+baseScores[i]);
-					score+=POINTS_INS;
+					score+=costs.ins;
 					int dif=Tools.min(loc-lastLoc+1, 5);
 					assert(dif>0);
 					if(dif>LIMIT_FOR_COST_4){
-						score+=(dif-LIMIT_FOR_COST_4)*POINTS_INS4;
+						score+=(dif-LIMIT_FOR_COST_4)*costs.ins4;
 						dif=LIMIT_FOR_COST_4;
 					}
 					if(dif>LIMIT_FOR_COST_3){
@@ -1754,11 +1761,11 @@ public final class MultiStateAligner9PacBio extends MSA{
 				lastLoc=loc;
 			}else if(loc==-1){//substitution
 				if(lastValue<0 && timeInMode>0){//contiguous
-					if(timeInMode<LIMIT_FOR_COST_3){score+=POINTS_SUB2;}
-					else{score+=POINTS_SUB3;}
+					if(timeInMode<LIMIT_FOR_COST_3){score+=costs.sub2;}
+					else{score+=costs.sub3;}
 					timeInMode++;
 				}else{
-					score+=POINTS_SUB;
+					score+=costs.sub;
 					timeInMode=1;
 				}
 			}else{
@@ -1803,7 +1810,7 @@ public final class MultiStateAligner9PacBio extends MSA{
 					contig=0;
 					assert(lastLoc>=0);
 					score+=(POINTS_MATCH+baseScores[i]);
-					score+=POINTS_DEL;
+					score+=costs.del;
 					int dif=lastLoc-loc+1;
 					if(dif>MINGAP){
 						int rem=dif%GAPLEN;
@@ -1815,11 +1822,11 @@ public final class MultiStateAligner9PacBio extends MSA{
 //						assert(false) : div;
 					}
 					if(dif>LIMIT_FOR_COST_5){
-						score+=((dif-LIMIT_FOR_COST_5+MASK5)/TIMESLIP)*POINTS_DEL5;
+						score+=((dif-LIMIT_FOR_COST_5+MASK5)/TIMESLIP)*costs.del5;
 						dif=LIMIT_FOR_COST_5;
 					}
 					if(dif>LIMIT_FOR_COST_4){
-						score+=(dif-LIMIT_FOR_COST_4)*POINTS_DEL4;
+						score+=(dif-LIMIT_FOR_COST_4)*costs.del4;
 						dif=LIMIT_FOR_COST_4;
 					}
 					if(dif>LIMIT_FOR_COST_3){
@@ -1835,11 +1842,11 @@ public final class MultiStateAligner9PacBio extends MSA{
 					contig=0;
 					assert(lastLoc>=0);
 					score+=(POINTS_MATCH+baseScores[i]);
-					score+=POINTS_INS;
+					score+=costs.ins;
 					int dif=Tools.min(loc-lastLoc+1, 5);
 					assert(dif>0);
 					if(dif>LIMIT_FOR_COST_4){
-						score+=(dif-LIMIT_FOR_COST_4)*POINTS_INS4;
+						score+=(dif-LIMIT_FOR_COST_4)*costs.ins4;
 						dif=LIMIT_FOR_COST_4;
 					}
 					if(dif>LIMIT_FOR_COST_3){
@@ -1856,11 +1863,11 @@ public final class MultiStateAligner9PacBio extends MSA{
 				lastLoc=loc;
 			}else if(loc==-1){//substitution
 				if(lastValue<0 && timeInMode>0){//contiguous
-					if(timeInMode<LIMIT_FOR_COST_3){score+=POINTS_SUB2;}
-					else{score+=POINTS_SUB3;}
+					if(timeInMode<LIMIT_FOR_COST_3){score+=costs.sub2;}
+					else{score+=costs.sub3;}
 					timeInMode++;
 				}else{
-					score+=POINTS_SUB;
+					score+=costs.sub;
 					timeInMode=1;
 				}
 			}else{
@@ -1932,9 +1939,9 @@ public final class MultiStateAligner9PacBio extends MSA{
 				if(mode==MODE_SUB){timeInMode++;}
 				else{timeInMode=0;}
 
-				if(timeInMode==0){score+=POINTS_SUB;}
-				else if(timeInMode<LIMIT_FOR_COST_3){score+=POINTS_SUB2;}
-				else{score+=POINTS_SUB3;}
+				if(timeInMode==0){score+=costs.sub;}
+				else if(timeInMode<LIMIT_FOR_COST_3){score+=costs.sub2;}
+				else{score+=costs.sub3;}
 				mode=MODE_SUB;
 				semiperfect=false;
 			}
@@ -2022,9 +2029,9 @@ public final class MultiStateAligner9PacBio extends MSA{
 				if(mode==MODE_SUB){timeInMode++;}
 				else{timeInMode=0;}
 
-				if(timeInMode==0){score+=POINTS_SUB;}
-				else if(timeInMode<LIMIT_FOR_COST_3){score+=POINTS_SUB2;}
-				else{score+=POINTS_SUB3;}
+				if(timeInMode==0){score+=costs.sub;}
+				else if(timeInMode<LIMIT_FOR_COST_3){score+=costs.sub2;}
+				else{score+=costs.sub3;}
 				mode=MODE_SUB;
 				semiperfect=false;
 			}
@@ -2103,9 +2110,9 @@ public final class MultiStateAligner9PacBio extends MSA{
 				if(mode==MODE_SUB){timeInMode++;}
 				else{timeInMode=0;}
 
-				if(timeInMode==0){score+=POINTS_SUB;}
-				else if(timeInMode<LIMIT_FOR_COST_3){score+=POINTS_SUB2;}
-				else{score+=POINTS_SUB3;}
+				if(timeInMode==0){score+=costs.sub;}
+				else if(timeInMode<LIMIT_FOR_COST_3){score+=costs.sub2;}
+				else{score+=costs.sub3;}
 				mode=MODE_SUB;
 			}
 		}
@@ -2178,9 +2185,9 @@ public final class MultiStateAligner9PacBio extends MSA{
 				if(mode==MODE_SUB){timeInMode++;}
 				else{timeInMode=0;}
 
-				if(timeInMode==0){score+=POINTS_SUB;}
-				else if(timeInMode<LIMIT_FOR_COST_3){score+=POINTS_SUB2;}
-				else{score+=POINTS_SUB3;}
+				if(timeInMode==0){score+=costs.sub;}
+				else if(timeInMode<LIMIT_FOR_COST_3){score+=costs.sub2;}
+				else{score+=costs.sub3;}
 				mode=MODE_SUB;
 			}
 		}
@@ -2201,35 +2208,35 @@ public final class MultiStateAligner9PacBio extends MSA{
 	@Override
 	public final int maxImperfectScore(int numBases){
 //		int maxQ=maxQuality(numBases);
-////		maxImperfectSwScore=maxQ-(POINTS_MATCH2+POINTS_MATCH2)+(POINTS_MATCH+POINTS_SUB);
-//		int maxI=maxQ+POINTS_DEL;
-//		maxI=Tools.max(maxI, maxQ+POINTS_INS-POINTS_MATCH2);
-//		maxI=Tools.min(maxI, maxQ-(POINTS_MATCH2+POINTS_MATCH2)+(POINTS_MATCH+POINTS_SUB));
+////		maxImperfectSwScore=maxQ-(POINTS_MATCH2+POINTS_MATCH2)+(POINTS_MATCH+costs.sub);
+//		int maxI=maxQ+costs.del;
+//		maxI=Tools.max(maxI, maxQ+costs.ins-POINTS_MATCH2);
+//		maxI=Tools.min(maxI, maxQ-(POINTS_MATCH2+POINTS_MATCH2)+(POINTS_MATCH+costs.sub));
 
 		int maxQ=maxQuality(numBases);
-		int maxI=maxQ+Tools.min(POINTS_DEL, POINTS_INS-POINTS_MATCH2);
-		assert(maxI<(maxQ-(POINTS_MATCH2+POINTS_MATCH2)+(POINTS_MATCH+POINTS_SUB)));
+		int maxI=maxQ+Tools.min(costs.del, costs.ins-POINTS_MATCH2);
+		assert(maxI<(maxQ-(POINTS_MATCH2+POINTS_MATCH2)+(POINTS_MATCH+costs.sub)));
 		return maxI;
 	}
 
 	@Override
 	public final int maxImperfectScore(byte[] baseScores){
 //		int maxQ=maxQuality(numBases);
-////		maxImperfectSwScore=maxQ-(POINTS_MATCH2+POINTS_MATCH2)+(POINTS_MATCH+POINTS_SUB);
-//		int maxI=maxQ+POINTS_DEL;
-//		maxI=Tools.max(maxI, maxQ+POINTS_INS-POINTS_MATCH2);
-//		maxI=Tools.min(maxI, maxQ-(POINTS_MATCH2+POINTS_MATCH2)+(POINTS_MATCH+POINTS_SUB));
+////		maxImperfectSwScore=maxQ-(POINTS_MATCH2+POINTS_MATCH2)+(POINTS_MATCH+costs.sub);
+//		int maxI=maxQ+costs.del;
+//		maxI=Tools.max(maxI, maxQ+costs.ins-POINTS_MATCH2);
+//		maxI=Tools.min(maxI, maxQ-(POINTS_MATCH2+POINTS_MATCH2)+(POINTS_MATCH+costs.sub));
 
 		int maxQ=maxQuality(baseScores);
-		int maxI=maxQ+Tools.min(POINTS_DEL, POINTS_INS-POINTS_MATCH2);
-		assert(maxI<(maxQ-(POINTS_MATCH2+POINTS_MATCH2)+(POINTS_MATCH+POINTS_SUB)));
+		int maxI=maxQ+Tools.min(costs.del, costs.ins-POINTS_MATCH2);
+		assert(maxI<(maxQ-(POINTS_MATCH2+POINTS_MATCH2)+(POINTS_MATCH+costs.sub)));
 		return maxI;
 	}
 
 	@Override
 	public int calcDelScore(int len, boolean approximateGaps){
 		if(len<=0){return 0;}
-		int score=POINTS_DEL;
+		int score=costs.del;
 
 		if(approximateGaps && len>MINGAP){
 			int rem=len%GAPLEN;
@@ -2242,11 +2249,11 @@ public final class MultiStateAligner9PacBio extends MSA{
 		}
 
 		if(len>LIMIT_FOR_COST_5){
-			score+=((len-LIMIT_FOR_COST_5+MASK5)/TIMESLIP)*POINTS_DEL5;
+			score+=((len-LIMIT_FOR_COST_5+MASK5)/TIMESLIP)*costs.del5;
 			len=LIMIT_FOR_COST_5;
 		}
 		if(len>LIMIT_FOR_COST_4){
-			score+=(len-LIMIT_FOR_COST_4)*POINTS_DEL4;
+			score+=(len-LIMIT_FOR_COST_4)*costs.del4;
 			len=LIMIT_FOR_COST_4;
 		}
 		if(len>LIMIT_FOR_COST_3){
@@ -2265,16 +2272,16 @@ public final class MultiStateAligner9PacBio extends MSA{
 	 * @param len Deletion length
 	 * @return Offset-encoded deletion penalty
 	 */
-	private static int calcDelScoreOffset(int len){
+	private int calcDelScoreOffset(int len){
 		if(len<=0){return 0;}
-		int score=POINTSoff_DEL;
+		int score=costs.offDel;
 
 		if(len>LIMIT_FOR_COST_5){
-			score+=((len-LIMIT_FOR_COST_5+MASK5)/TIMESLIP)*POINTSoff_DEL5;
+			score+=((len-LIMIT_FOR_COST_5+MASK5)/TIMESLIP)*costs.offDel5;
 			len=LIMIT_FOR_COST_5;
 		}
 		if(len>LIMIT_FOR_COST_4){
-			score+=(len-LIMIT_FOR_COST_4)*POINTSoff_DEL4;
+			score+=(len-LIMIT_FOR_COST_4)*costs.offDel4;
 			len=LIMIT_FOR_COST_4;
 		}
 		if(len>LIMIT_FOR_COST_3){
@@ -2290,10 +2297,10 @@ public final class MultiStateAligner9PacBio extends MSA{
 	@Override
 	public int calcInsScore(int len){
 		if(len<=0){return 0;}
-		int score=POINTS_INS;
+		int score=costs.ins;
 
 		if(len>LIMIT_FOR_COST_4){
-			score+=(len-LIMIT_FOR_COST_4)*POINTS_INS4;
+			score+=(len-LIMIT_FOR_COST_4)*costs.ins4;
 			len=LIMIT_FOR_COST_4;
 		}
 		if(len>LIMIT_FOR_COST_3){
@@ -2312,11 +2319,11 @@ public final class MultiStateAligner9PacBio extends MSA{
 	 * @param len Insertion length
 	 * @return Offset-encoded insertion penalty
 	 */
-	private static int calcInsScoreOffset(int len){
+	private int calcInsScoreOffset(int len){
 		if(len<=0){return 0;}
-		int score=POINTSoff_INS;
+		int score=costs.offIns;
 		if(len>LIMIT_FOR_COST_4){
-			score+=(len-LIMIT_FOR_COST_4)*POINTSoff_INS4;
+			score+=(len-LIMIT_FOR_COST_4)*costs.offIns4;
 			len=LIMIT_FOR_COST_4;
 		}
 		if(len>LIMIT_FOR_COST_3){
@@ -2331,6 +2338,7 @@ public final class MultiStateAligner9PacBio extends MSA{
 
 	/** Three-dimensional scoring matrix for match/insertion/deletion states */
 	private final int[][][] packed;
+	private final PacBioScoreParameters costs;
 	/** Buffer for storing gapped reference sequences */
 	private final byte[] grefbuffer;
 	/** Current limit of valid data in gapped reference buffer */
@@ -2578,33 +2586,33 @@ public final class MultiStateAligner9PacBio extends MSA{
 	@Override
 	public final int POINTS_COMPATIBLE(){return POINTS_COMPATIBLE;}
 	@Override
-	public final int POINTS_SUB(){return POINTS_SUB;}
+	public final int POINTS_SUB(){return costs.sub;}
 	@Override
-	public final int POINTS_SUBR(){return POINTS_SUBR;}
+	public final int POINTS_SUBR(){return costs.subR;}
 	@Override
-	public final int POINTS_SUB2(){return POINTS_SUB2;}
+	public final int POINTS_SUB2(){return costs.sub2;}
 	@Override
-	public final int POINTS_SUB3(){return POINTS_SUB3;}
+	public final int POINTS_SUB3(){return costs.sub3;}
 	@Override
 	public final int POINTS_MATCHSUB(){return POINTS_MATCHSUB;}
 	@Override
-	public final int POINTS_INS(){return POINTS_INS;}
+	public final int POINTS_INS(){return costs.ins;}
 	@Override
 	public final int POINTS_INS2(){return POINTS_INS2;}
 	@Override
 	public final int POINTS_INS3(){return POINTS_INS3;}
 	@Override
-	public final int POINTS_INS4(){return POINTS_INS4;}
+	public final int POINTS_INS4(){return costs.ins4;}
 	@Override
-	public final int POINTS_DEL(){return POINTS_DEL;}
+	public final int POINTS_DEL(){return costs.del;}
 	@Override
 	public final int POINTS_DEL2(){return POINTS_DEL2;}
 	@Override
 	public final int POINTS_DEL3(){return POINTS_DEL3;}
 	@Override
-	public final int POINTS_DEL4(){return POINTS_DEL4;}
+	public final int POINTS_DEL4(){return costs.del4;}
 	@Override
-	public final int POINTS_DEL5(){return POINTS_DEL5;}
+	public final int POINTS_DEL5(){return costs.del5;}
 	@Override
 	public final int POINTS_DEL_REF_N(){return POINTS_DEL_REF_N;}
 	@Override

@@ -175,7 +175,15 @@ final class TrnaKmerIndex {
 	 * are not bit-identical to it for queries with repeated k-mers -- see the class javadoc and the
 	 * unique-query-k-mer block below. */
 	int[] shortlist(byte[] seq, int topN){
+		return shortlist(seq,topN,-1);
+	}
+
+	/** A nonnegative scoreMargin replaces the topN cap with an inclusive distance
+	 * below this window's best score. Existing absolute/adaptive cutoffs still apply;
+	 * zero-score models are never admitted. -1 preserves the legacy policy exactly. */
+	int[] shortlist(byte[] seq, int topN, int scoreMargin){
 		validateTopN(topN);
+		if(scoreMargin < -1){throw new IllegalArgumentException("indexScoreMargin must be -1 (disabled) or >=0: "+scoreMargin);}
 		queries++;
 		//Clear the previous query's counts in O(touched).
 		final int[] cnt=counts;
@@ -183,7 +191,7 @@ final class TrnaKmerIndex {
 		touched.clear();
 		//A zero fixed cutoff is the explicit direct-alignment control for a one-model library:
 		//there is no ranking decision, and bypassing the set establishes whether filtering loses loci.
-		if(singleModelKmers!=null && !adaptive && fixedMinHits==0){
+		if(scoreMargin<0 && singleModelKmers!=null && !adaptive && fixedMinHits==0){
 			lastMaxShared=0;
 			touched.add(0);
 			totalShortlisted++;
@@ -276,10 +284,11 @@ final class TrnaKmerIndex {
 		//out[0..acc-1] == touched models in count-desc / id-asc order (acc==distinct).
 
 		//Apply topN + minHits cutoff with the keep-top-1 fallback.
-		final int limit=Tools.min(topN, nModels);
+		final int limit=(scoreMargin<0 ? Tools.min(topN, nModels) : nModels);
+		final int cutoff=(scoreMargin<0 ? minHits : Tools.max(minHits,maxShared-scoreMargin));
 		int count=0;
-		while(count<limit && count<acc && cnt[out[count]]>=minHits){count++;}
-		if(count<1 && acc>0){count=1;}//keep the single best if anything was shared (old: scored[0][1]>0)
+		while(count<limit && count<acc && cnt[out[count]]>=cutoff){count++;}
+		if(scoreMargin<0 && count<1 && acc>0){count=1;}//Legacy keep-best; score-margin mode honors its floor.
 
 		totalShortlisted+=count;
 		final int[] result=new int[count];

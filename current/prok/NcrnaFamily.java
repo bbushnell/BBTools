@@ -194,13 +194,13 @@ public class NcrnaFamily {
 	 * constructor keep this path off; real endpoint refinement is a separate step. */
 	public void setRrnaEndpointFeatures(RrnaPositionalKmerTable.Table[] five,
 			RrnaPositionalKmerTable.Table[] three,RrnaEndpointCallerFeatures.Sink sink){
-		if(!"euk5S".equals(name) || sink==null){throw new IllegalArgumentException("Explicit euk5S feature consumer required");}
-		 rrnaEndpointFeatures=new RrnaEndpointCallerFeatures.Resources(modelNames,library,five,three);rrnaEndpointFeatureSink=sink;
+		if(sink==null){throw new IllegalArgumentException("Explicit family feature consumer required");}
+		 rrnaEndpointFeatures=new RrnaEndpointCallerFeatures.Resources(name,modelNames,library,five,three);rrnaEndpointFeatureSink=sink;
 	}
 	RrnaEndpointCallerFeatures.Resources rrnaEndpointFeatures=null;
 	/** Explicit default-off inference bundle; ordinary construction never loads it. */
 	public void setRrnaEndpointInference(RrnaEndpointCallerFeatures.Resources resources,RrnaEndpointCallerFeatures.Sink sink){
-		if(!"euk5S".equals(name) || resources==null || resources.fiveNets==null){throw new IllegalArgumentException("Explicit euk5S endpoint networks required");}
+		if(resources==null || !name.equals(resources.family) || resources.fiveNets==null){throw new IllegalArgumentException("Explicit family-matched endpoint networks required");}
 		rrnaEndpointFeatures=resources;rrnaEndpointFeatureSink=sink;
 	}
 	RrnaEndpointCallerFeatures.Sink rrnaEndpointFeatureSink=null;
@@ -252,6 +252,8 @@ public class NcrnaFamily {
 	final float boundaryMarginStop;
 	SeedOffsetTable voteTable=null;
 	boolean voteWindows=false, voteEnds=false;
+	/** Experimental window grouping on unpadded seed predictions; false preserves legacy geometry. */
+	boolean voteBeforePadding=false;
 	int voteSlack=60;
 	float voteEndsMaxSd=5f;
 	/** Optional production model-dispatched endpoint resources. Null preserves the
@@ -268,14 +270,33 @@ public class NcrnaFamily {
 	 * Defaults preserve every existing generic-ncRNA family. */
 	int outputType=ProkObject.RNA;
 	int seedMinHits=1;
+	/** Count distinct matching keys only for the post-window seed gate; diagnostics remain occurrences. */
+	boolean seedDistinct=false;
 	/** Inclusive alignment-span cap; unlimited unless explicitly selected. */
 	int maxLen=Integer.MAX_VALUE;
 	int quantumThresh=120;
 	boolean scavengePass2=true;
 	boolean rankedModelFallback=false;
 	boolean strictIndexCutoff=false;
+	/** Inclusive shared-kmer score distance below the best model; -1 keeps topN. */
+	int indexScoreMargin=-1;
 	boolean trimAlignmentExtent=true;
 	/** When true, every shortlisted consensus is Quantum-aligned once with
 	 * traceback, and that result supplies detection, coordinates, and HBM input. */
 	boolean reuseConsensusAlignment=false;
+	/** Default-off unchanged PacBio MSA primary; only the experimental euk18S profile sets this. */
+	boolean pacBioConsensusAlignment=false;
+	boolean pacBioRolling=false;
+	/** Experimental frozen joined-window geometry; null leaves every ordinary path unchanged. */
+	Euk18sJoinedProposals joinedProposals=null;
+	SeedModelPositionTable joinedPositions=null;
+	int joinedSideSupport=1;
+	/** Immutable experimental costs; all omitted controls retain native defaults. */
+	align2.PacBioScoreParameters pacBioCosts=align2.PacBioScoreParameters.DEFAULT;
+	/** Experimental local alignment with free model ends; never enabled implicitly. */
+	boolean modelEndClipping=false;
+	/** Try local model clipping only after the unchanged Quantum window rejects. */
+	boolean modelClipRescue=false;
+	/** NaN retains each model's cutoff; an explicit value applies only to local rescue. */
+	float modelClipRescueId=Float.NaN;
 }

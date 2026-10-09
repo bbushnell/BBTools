@@ -238,7 +238,11 @@ public class GeneCaller extends ProkObject {
 		stCds2.add(brokenLists);
 		
 		//Find the optimal path through Orfs
+		if(ncrnaDiagSink!=null){
+			for(ArrayList<Orf> list : brokenLists){recordNcrnaPath(list, name, rlen, false);}
+		}
 		ArrayList<Orf> path=findPath(brokenLists, bases);
+		if(ncrnaDiagSink!=null){recordNcrnaPath(path, name, rlen, true);}
 //		geneStartsOut+=path.size();
 
 		if(callCDS){stCdsPass.add(path);}
@@ -249,6 +253,19 @@ public class GeneCaller extends ProkObject {
 		if(call18S){st18s.add(path);}
 		
 		return path;
+	}
+
+	/** Observe the exact shared-DP boundary, distinct from verifier accepts that
+	 * scavenger snapshot resolution may discard. Never exposes mutable Orfs. */
+	private void recordNcrnaPath(ArrayList<Orf> list,String name,int length,boolean retained){
+		assert(ncrnaDiagSink!=null && list!=null) : "Path observation is reached only when explicitly enabled";
+		for(Orf orf : list){
+			if(orf.ncrnaFamily==null){continue;}
+			//makeRnas flips minus-strand calls to genomic coordinates before the DP.
+			final int start=orf.strand==0 ? orf.start : length-1-orf.stop;
+			final int stop=orf.strand==0 ? orf.stop : length-1-orf.start;
+			ncrnaDiagSink.path(orf.ncrnaFamily,name,orf.strand,length,orf.trnaModel,start,stop,retained);
+		}
 	}
 	
 	/*--------------------------------------------------------------*/
@@ -283,7 +300,10 @@ public class GeneCaller extends ProkObject {
 					fam.boundaryMeanLen, fam.boundaryStartOffsets, fam.boundaryStopOffsets,
 					fam.boundaryMarginStart, fam.boundaryMarginStop);
 				applyNcrnaFamilyControls(scavenger, fam);
+				// D50 keeps18S on its fast path even when small-family CM is enabled.
+				scavenger.cmVerifier=(fam.outputType!=r18S && cmVerifier!=null && cmVerifier.supports(fam.outputType) ? cmVerifier : null);
 				scavenger.setStageDiagSink(ncrnaDiagSink,fam.name);
+				scavenger.setVoteDiagSink(ncrnaVoteDiagSink, fam.name);
 				ncrnaScavengers.add(scavenger);
 			}
 		}
@@ -324,7 +344,7 @@ public class GeneCaller extends ProkObject {
 			for(StatsContainer sc : pgm.rnaContainers){
 				if(ProkObject.callType(sc.type)){
 					if(sc.type==tRNA && trnaLibrary!=null && trnaLibrary.length>0){
-						if(trnaCaller==null){trnaCaller=new TrnaCaller(pgm, trnaLibrary, trnaModels, trnaModelNames);}
+						if(trnaCaller==null){trnaCaller=new TrnaCaller(pgm, trnaLibrary, trnaModels, trnaModelNames);trnaCaller.cmVerifier=cmVerifier;}
 						ArrayList<Orf> list;
 						if(TrnaCaller.SCAVENGE_ONLY){
 							list=new ArrayList<>();
@@ -381,16 +401,28 @@ public class GeneCaller extends ProkObject {
 		scavenger.collapseFrac=family.collapseFrac;
 		scavenger.family=family.name;
 		scavenger.voteTable=family.voteTable; scavenger.voteWindows=family.voteWindows; scavenger.voteEnds=family.voteEnds;
+		scavenger.voteBeforePadding=family.voteBeforePadding;
 		scavenger.voteSlack=family.voteSlack; scavenger.voteEndsMaxSd=family.voteEndsMaxSd;
 		scavenger.outputType=family.outputType;
 		scavenger.minKmerHits=family.seedMinHits;
+		scavenger.seedDistinct=family.seedDistinct;
 		scavenger.maxLen=family.maxLen;
 		scavenger.quantumThresh=family.quantumThresh;
 		scavenger.scavengePass2=family.scavengePass2;
 		scavenger.rankedModelFallback=family.rankedModelFallback;
 		scavenger.strictIndexCutoff=family.strictIndexCutoff;
+		scavenger.indexScoreMargin=family.indexScoreMargin;
 		scavenger.trimAlignmentExtent=family.trimAlignmentExtent;
 		scavenger.reuseConsensusAlignment=family.reuseConsensusAlignment;
+		scavenger.pacBioConsensusAlignment=family.pacBioConsensusAlignment;
+		scavenger.pacBioCosts=family.pacBioCosts;
+		scavenger.pacBioRolling=family.pacBioRolling;
+		scavenger.joinedProposals=family.joinedProposals;
+		scavenger.joinedPositions=family.joinedPositions;
+		scavenger.joinedSideSupport=family.joinedSideSupport;
+		scavenger.modelEndClipping=family.modelEndClipping;
+		scavenger.modelClipRescue=family.modelClipRescue;
+		scavenger.modelClipRescueId=family.modelClipRescueId;
 		if(family.modelThresholds!=null){scavenger.setModelThresholds(family.modelThresholds);}
 		scavenger.boundaryFeatureVersion=family.boundaryFeatureVersion;
 		scavenger.boundaryOnRawEndpoints=family.boundaryOnRawEndpoints;
@@ -418,7 +450,7 @@ public class GeneCaller extends ProkObject {
 			if(family.kLong==ConservedRnaSeedIndex.K && family.kmerSet!=null){
 				ncrnaSeedSlots[i]=seedSets.size();
 				seedSets.add(family.kmerSet);
-				retainKeys.add(family.voteTable!=null && (family.voteWindows || family.voteEnds));
+				retainKeys.add(family.joinedPositions!=null || family.voteTable!=null && (family.voteWindows || family.voteEnds));
 			}
 		}
 		trnaSeedSlot=-1;
@@ -685,11 +717,12 @@ public class GeneCaller extends ProkObject {
 				if(sameStrand){
 					pathLength=prevLength+1;
 					pathScore=prevScore+orfScore;
-					pathScore+=p0+p1*(Tools.mid(p5*(p2+pathLength), p6*(p3-pathLength), p4));
+					pathScore+=(FLAT_RNA_TRANSITIONS && orf.type!=CDS ? p0 : p0+p1*(Tools.mid(p5*(p2+pathLength), p6*(p3-pathLength), p4)));
+					if(EUK5S_ARRAY_BONUS && euk5sArrayEdge(prev,orf,EUK5S_ARRAY_MAX_GAP)){pathScore+=30f;}
 				}else{
 					pathLength=1;
 					pathScore=prev.pathScore()+orfScore;
-					pathScore+=q1+Tools.mid(q2*prevLength, q3+q4*prevLength, q5);
+					pathScore+=(FLAT_RNA_TRANSITIONS && orf.type!=CDS ? p0 : q1+Tools.mid(q2*prevLength, q3+q4*prevLength, q5));
 				}
 				
 				if(overlap<1 && prevScore>0){found=true;}
@@ -749,11 +782,12 @@ public class GeneCaller extends ProkObject {
 				if(sameStrand){
 					pathLength=prevLength+1;
 					pathScore=prevScore+orfScore;
-					pathScore+=p0+p1*(Tools.mid(p5*(p2+pathLength), p6*(p3-pathLength), p4));
+					pathScore+=(FLAT_RNA_TRANSITIONS && orf.type!=CDS ? p0 : p0+p1*(Tools.mid(p5*(p2+pathLength), p6*(p3-pathLength), p4)));
+					if(EUK5S_ARRAY_BONUS && euk5sArrayEdge(prev,orf,EUK5S_ARRAY_MAX_GAP)){pathScore+=30f;}
 				}else{
 					pathLength=1;
 					pathScore=prev.pathScore()+orfScore;
-					pathScore+=q1+Tools.mid(q2*prevLength, q3+q4*prevLength, q5);
+					pathScore+=(FLAT_RNA_TRANSITIONS && orf.type!=CDS ? p0 : q1+Tools.mid(q2*prevLength, q3+q4*prevLength, q5));
 				}
 				if(overlap<1 && prevScore>0){found=true;}
 				if(pathScore>=orf.pathScoreMinus){
@@ -770,6 +804,20 @@ public class GeneCaller extends ProkObject {
 		}
 	}
 	
+	/** Eligibility of this proposed immediate DP predecessor edge, not a search
+	 * for nearby RNA across other retained genes. Genomic inclusive coordinates
+	 * apply on both strands; overlapping calls never receive the diagnostic bonus. */
+	static boolean euk5sArrayEdge(Orf prev,Orf next,int maxGap){
+		assert(prev!=null && next!=null && maxGap>=0) : "A proposed DP edge needs two real candidates and a nonnegative genomic gap limit";
+		// addEuk5sFamily configures outputType=r5S, shared with legacy5S;
+		// the explicit family tag, not the numeric output type, defines eligibility.
+		if(prev.strand!=next.strand
+			|| !"euk5S".equals(prev.ncrnaFamily) || !"euk5S".equals(next.ncrnaFamily)){return false;}
+		assert(prev.scafName.equals(next.scafName)) : "GeneCaller DP predecessors must belong to the same contig";
+		final long gap=(long)next.start-prev.stop-1;
+		return gap>=0 && gap<=maxGap;
+	}
+
 	/** 
 	 * Generates a list of maximal-length Orfs only (non-overlapping).
 	 * All Orfs come out in native orientation (unflipped). 
@@ -981,7 +1029,10 @@ public class GeneCaller extends ProkObject {
 			Orf orf=orfs.get(i);
 //			System.err.println(orf.orfScore);
 			boolean good=refineRna(orf, bases, strand, sc, scores, kmersSeen);
-			if(!admitRnaCandidate(orf.orfScore, good, cutoff, sc.type)){
+			final boolean cm=(cmVerifier!=null && cmVerifier.supports(sc.type));
+			final boolean admitted=cm ? good && cmVerifier.verify(orf, bases, cmWindowStart, cmWindowStop, "legacy_rna")
+				: admitRnaCandidate(orf.orfScore, good, cutoff, sc.type);
+			if(!admitted){
 				if(verbose){System.err.println("REJECT: "+orf.toStringFlipped());}
 				orfs.set(i, null);
 			}else{
@@ -1099,6 +1150,7 @@ public class GeneCaller extends ProkObject {
 
 		final int leftmost=Tools.max(0, orf.start-slop);
 		final int rightmost=Tools.min(bases.length-1, orf.stop+slop);
+		if(cmVerifier!=null){cmWindowStart=leftmost;cmWindowStop=rightmost;}
 		if(kmersSeen!=null){
 			if(kmersSeen[leftmost]>=kmersSeen[rightmost]){
 //				System.err.println("Bad: "+oldScore);
@@ -1337,6 +1389,7 @@ public class GeneCaller extends ProkObject {
 		int[] pos=new int[2];
 		float id=ida.align(consensus, bases, pos, a, b);
 		if(id<minID){if(attemptSink!=null){lastAttemptIdentity=id; lastAttemptReason="IDENTITY_BELOW_THRESHOLD";} return false;}
+		if(cmVerifier!=null){cmWindowStart=a;cmWindowStop=b;}
 		
 		final int rstart=Tools.max(pos[0], 0);
 		final int rstop=Tools.min(pos[1], bases.length-1);
@@ -1440,6 +1493,7 @@ public class GeneCaller extends ProkObject {
 		if(id<minID){if(attemptSink!=null){lastAttemptIdentity=id; lastAttemptReason="IDENTITY_BELOW_THRESHOLD";} return false;}
 		
 		
+		if(cmVerifier!=null){cmWindowStart=a;cmWindowStop=b;}
 		if(Tools.absdif(rstart, start0)>startSlop){orf.start=rstart;}
 		if(Tools.absdif(rstop, stop0)>stopSlop){orf.stop=rstop;}
 		if(attemptSink!=null){lastAttemptIdentity=id; lastAttemptReason="ACCEPTED";}
@@ -1533,6 +1587,11 @@ public class GeneCaller extends ProkObject {
 		final FrameStats innerStats=pgm.statsCDS.inner;
 		final FrameStats startStats=pgm.statsCDS.start;
 		final FrameStats stopStats=pgm.statsCDS.stop;
+		//TODO: Confirmed compatibility bug CG02 - an expanded start mask can admit
+		//codons whose negatives were only noise-sampled by GeneModel.findStartCodons
+		//when this PGM was trained. In the shipped model, central CTG enrichment is
+		//27.93 versus ATG 2.51 (FrameStats.calculate); this preferentially selects
+		//wrong starts. Training and inference must use compatible candidate sets.
 		
 		final String name=longest.scafName;
 		final int start=longest.start;
@@ -1793,6 +1852,10 @@ public class GeneCaller extends ProkObject {
 	/** Immutable run policy; changing PGM statistics never changes the selected codon assignments. */
 	private final GeneticCode geneticCode;
 	private TrnaCaller trnaCaller;
+	/** Run-local, per-worker verifier; null is the unchanged fast caller. */
+	CmRnaVerifier cmVerifier;
+	/** Actual padded window of the successful legacy refinement, per worker. */
+	private int cmWindowStart=-1, cmWindowStop=-1;
 	public static byte[][] trnaLibrary;
 	public static consensus.BaseGraph[] trnaModels;
 	public static String[] trnaModelNames;
@@ -1867,6 +1930,22 @@ public class GeneCaller extends ProkObject {
 		if(ncrnaScavengers!=null){
 			assert(ncrnaScavengers.size()==counts.length) : "Family registry changed before window-count aggregation; per-family statistics would be misattributed";
 			for(int i=0; i<counts.length; i++){counts[i]=ncrnaScavengers.get(i).windowCount();}
+		}
+		return counts;
+	}
+
+	/** Generated voted windows across both passes, before claimed-window subtraction; read after worker termination. */
+	long[] ncrnaGeneratedVotedWindowCounts(){return ncrnaGeneratedVoteCounts(false);}
+	/** Generated fallback windows across both passes, before claimed-window subtraction; read after worker termination. */
+	long[] ncrnaGeneratedFallbackWindowCounts(){return ncrnaGeneratedVoteCounts(true);}
+	private long[] ncrnaGeneratedVoteCounts(boolean fallback){
+		final long[] counts=new long[ncrnaFamilies.size()];
+		if(ncrnaScavengers!=null){
+			assert(ncrnaScavengers.size()==counts.length) : "Family registry changed before generated-window aggregation; per-family counts would be misattributed";
+			for(int i=0; i<counts.length; i++){
+				final NcrnaScavenger scavenger=ncrnaScavengers.get(i);
+				counts[i]=fallback ? scavenger.voteWindowFallbacks : scavenger.votedWindows;
+			}
 		}
 		return counts;
 	}
@@ -2276,6 +2355,17 @@ public class GeneCaller extends ProkObject {
 		}
 	}
 	private float lastAttemptIdentity=Float.NaN;
+	/** Separate observer for generated vote proposals; existing stage rows stay unchanged. */
+	private NcrnaVoteDiagSink ncrnaVoteDiagSink;
+	void setNcrnaVoteDiagSink(NcrnaVoteDiagSink sink){
+		ncrnaVoteDiagSink=sink;
+		if(ncrnaScavengers!=null){
+			assert(ncrnaScavengers.size()==ncrnaFamilies.size()) : "Stable family ordering is required to label existing scavenger vote observers";
+			for(int i=0; i<ncrnaScavengers.size(); i++){
+				ncrnaScavengers.get(i).setVoteDiagSink(sink, ncrnaFamilies.get(i).name);
+			}
+		}
+	}
 	private String lastAttemptReason="UNKNOWN";
 
 	/** Thread-local storage for SingleStateAlignerFlat2 instances */
@@ -2302,6 +2392,20 @@ public class GeneCaller extends ProkObject {
 	public static int lookbackPlus=70;
 	/** Lookback distance for minus-strand path scoring */
 	public static int lookbackMinus=25;
+
+	/** Measurement-only JVM switch. Default false preserves production path scores.
+	 * Applies to incoming RNA edges only; incoming CDS rules, predecessor selection,
+	 * run lengths, overlaps and candidate generation are unchanged. */
+	static final boolean FLAT_RNA_TRANSITIONS=Boolean.getBoolean("bbtools.diagnostic.flatRnaTransitions");
+	/** G11-approved measurement only: +30 on adjacent same-strand euk5S edges.
+	 * Static false removes the predicate from ordinary production scoring. */
+	static final boolean EUK5S_ARRAY_BONUS=Boolean.getBoolean("bbtools.diagnostic.euk5sArrayBonus");
+	static final int EUK5S_ARRAY_MAX_GAP=Integer.parseInt(System.getProperty("bbtools.diagnostic.euk5sArrayMaxGap","1000"));
+	static{
+		if(EUK5S_ARRAY_MAX_GAP<0 || (EUK5S_ARRAY_BONUS && FLAT_RNA_TRANSITIONS)){
+			throw new IllegalArgumentException("Array-gap limit must be nonnegative; array and global flat-RNA experiments cannot be combined");
+		}
+	}
 	
 //	pathScore+=p0+p1*(Tools.mid(p5*(p2+pathLength), p6*(p3-pathLength), p4));
 	

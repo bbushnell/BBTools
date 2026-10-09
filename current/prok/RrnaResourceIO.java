@@ -57,7 +57,7 @@ final class RrnaResourceIO {
 		return null;
 	}
 	static int argmax(float[] output){
-		require(output!=null && output.length==25,"Argmax requires all25 endpoint outputs");int best=0;
+		require(output!=null && output.length>=3 && (output.length&1)==1,"Argmax requires the complete centered endpoint output window");int best=0;
 		for(int i=0;i<output.length;i++){require(Float.isFinite(output[i]),"Nonfinite network outputs cannot be graded as a prediction");if(output[i]>output[best]){best=i;}}return best;
 	}
 	static int base(byte b){switch(b){case 'A':case 'a':return 0;case 'C':case 'c':return 1;case 'G':case 'g':return 2;case 'T':case 't':case 'U':case 'u':return 3;default:return -1;}}

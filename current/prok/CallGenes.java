@@ -200,12 +200,40 @@ public class CallGenes extends ProkObject {
 				json_out=Parse.parseBoolean(b);
 			}else if(a.equals("stats") || a.equalsIgnoreCase("outstats")){
 				outStats=b;
+			}else if(a.equals("cm")){
+				cmEnabled=Parse.parseBoolean(b);
+			}else if(a.equals("cmlocal")){
+				cmLocal=Parse.parseBoolean(b);cmLocalSet=true;
+			}else if(a.equals("cmlocalwide")){
+				cmLocalWide=Parse.parseBoolean(b);cmLocalWideSet=true;
+			}else if(a.equals("cmlocalextend")){
+				cmLocalExtend=Parse.parseIntKMG(b);cmLocalExtendSet=true;
+			}else if(a.equals("cmtrnaextendedgreedy")){
+				cmTrnaExtendedGreedy=Parse.parseBoolean(b);cmTrnaExtendedGreedySet=true;
+			}else if(a.equals("cmsmallgreedy")){
+				cmSmallGreedy=Parse.parseBoolean(b);cmSmallGreedySet=true;
+			}else if(a.equals("cmmodeldir")){
+				cmModelDir=b;
+			}else if(a.equals("cmmaxcells")){
+				cmMaxCells=Parse.parseKMG(b);
+			}else if(a.equals("cm18sanchors") || a.equals("cmplacementradius") || a.equals("cmplacementadaptive") || a.equals("cmplacementdiag")){
+				throw new IllegalArgumentException("18S CM placement is research-only; cm=t verifies tRNA/5S while euk18s=t retains fast alignment");
+			}else if(a.equals("cmwindowslack")){
+				cmWindowSlack=Parse.parseIntKMG(b);
+			}else if(a.equals("cmsecfallback")){
+				cmSecFallback=Parse.parseBoolean(b);
+			}else if(a.equals("cmdiag")){
+				if(b==null || b.isEmpty()){throw new IllegalArgumentException("cmdiag requires an output path");}
+				cmDiagLog=b;
 			}else if(a.equalsIgnoreCase("5sattemptlog")){
 				assert(b!=null) : "5sattemptlog requires a path";
 				fiveSAttemptLog=b;
 			}else if(a.equalsIgnoreCase("ncrnadiag") || a.equalsIgnoreCase("r58diag")){
 				if(b==null || b.isEmpty()){throw new IllegalArgumentException(a+" requires an output path");}
 				ncrnaDiagLog=b;
+			}else if(a.equalsIgnoreCase("ncrnavotediag")){
+				if(b==null || b.isEmpty()){throw new IllegalArgumentException(a+" requires an output path");}
+				ncrnaVoteDiagLog=b;
 			}else if(a.equals("hist") || a.equalsIgnoreCase("outhist") || a.equalsIgnoreCase("lengthhist") || a.equalsIgnoreCase("lhist") || a.equalsIgnoreCase("genehist")){
 				geneHistFile=b;
 			}else if(a.equals("bins")){
@@ -498,6 +526,8 @@ public class CallGenes extends ProkObject {
 				//Independent of the generic ncRNA and bulk rRNA profile gates.
 			}else if(euk5sRuntime.parse(a, b)){
 				//Resources are installed after all families have registered, before workers.
+			}else if(euk18sRuntime.parse(a, b)){
+				//Independent default-off family; resources are validated before workers.
 			}else if(a.equalsIgnoreCase("euk5sconsensus")){
 				if(b==null || b.isEmpty()){throw new IllegalArgumentException("euk5sconsensus requires a resource path");}
 				EUK5S_CONSENSUS_OVERRIDE=b;
@@ -745,6 +775,31 @@ public class CallGenes extends ProkObject {
 		if(RRNA17_ENABLED){loadRrna17Resources(RRNA17_PROFILE);}
 		if(EUK5S_ENABLED){loadEuk5sResources();}
 		euk5sRuntime.apply(GeneCaller.ncrnaFamilies);
+		euk18sRuntime.apply(GeneCaller.ncrnaFamilies);
+		// Resolve omitted small-family defaults only after parsing; explicit choices
+		// are order-independent. D50 limits production CM verification to tRNA/5S.
+		if(!cmLocalSet){cmLocal=cmEnabled;}
+		if(!cmLocalWideSet){cmLocalWide=cmEnabled && cmLocal;}
+		if(!cmLocalExtendSet){cmLocalExtend=cmEnabled && cmLocal && cmLocalWide ? 64 : 0;}
+		if(!cmTrnaExtendedGreedySet){cmTrnaExtendedGreedy=cmEnabled && cmLocal && cmLocalWide && cmLocalExtend>0;}
+		if(!cmSmallGreedySet){cmSmallGreedy=cmEnabled && cmLocal;}
+		if(cmDiagLog!=null && !cmEnabled){throw new IllegalArgumentException("cmdiag requires cm=t");}
+		if(cmLocal && !cmEnabled){throw new IllegalArgumentException("cmlocal requires cm=t");}
+		if(cmLocalWide && (!cmEnabled || !cmLocal)){throw new IllegalArgumentException("cmlocalwide requires cm=t cmlocal=t");}
+		if(cmLocalExtend<0 || cmLocalExtend>0 && (!cmEnabled || !cmLocal || !cmLocalWide)){
+			throw new IllegalArgumentException("cmlocalextend requires nonnegative padding and cm=t cmlocal=t cmlocalwide=t");
+		}
+		if(cmTrnaExtendedGreedy && (!cmEnabled || !cmLocal || !cmLocalWide || cmLocalExtend<=0)){
+			throw new IllegalArgumentException("cmtrnaextendedgreedy requires cm=t cmlocal=t cmlocalwide=t cmlocalextend>0");
+		}
+		if(cmSmallGreedy && (!cmEnabled || !cmLocal)){
+			throw new IllegalArgumentException("cmsmallgreedy requires cm=t cmlocal=t");
+		}
+		if(cmEnabled){
+			boolean fiveS=call5S;
+			for(NcrnaFamily family : GeneCaller.ncrnaFamilies){fiveS|=family.outputType==r5S;}
+			cmLibrary=new CmRnaVerifier.Library(cmModelDir, calltRNA, fiveS, false, cmMaxCells, cmWindowSlack, cmSecFallback, cmLocal, cmLocalWide, cmLocalExtend, false,cmTrnaExtendedGreedy,cmSmallGreedy);
+		}
 
 		if(Shared.threads()<2){ordered=false;}
 		assert(!fnaList.isEmpty()) : "At least 1 fasta file is required.";
@@ -768,16 +823,17 @@ public class CallGenes extends ProkObject {
 	/** Ensure files can be read and written */
 	private void checkFileExistence(){
 		//Ensure output files can be written
-		if(!Tools.testOutputFiles(overwrite, append, false, outGff, outAmino, out16S, out18S, outIts, outStats, geneHistFile, fiveSAttemptLog, ncrnaDiagLog)){
+		if(!Tools.testOutputFiles(overwrite, append, false, outGff, outAmino, out16S, out18S, outIts, outStats, geneHistFile, fiveSAttemptLog, ncrnaDiagLog, ncrnaVoteDiagLog, cmDiagLog, cmPlacementLog)){
 			outstream.println((outGff==null)+", "+outGff);
 			throw new RuntimeException("\n\noverwrite="+overwrite+"; Can't write to output files "
-					+outGff+", "+outAmino+", "+out16S+", "+out18S+", "+outIts+", "+outStats+", "+geneHistFile+", "+fiveSAttemptLog+", "+ncrnaDiagLog+"\n");
+					+outGff+", "+outAmino+", "+out16S+", "+out18S+", "+outIts+", "+outStats+", "+geneHistFile+", "+fiveSAttemptLog+", "+ncrnaDiagLog+", "+ncrnaVoteDiagLog+", "+cmDiagLog+", "+cmPlacementLog+"\n");
 		}
 		
 		//Ensure input files can be read
 		ArrayList<String> foo=new ArrayList<String>();
 		foo.addAll(fnaList);
 		foo.addAll(pgmList);
+		if(cmLibrary!=null){foo.addAll(cmLibrary.paths);}
 		if(!Tools.testInputFiles(false, true, foo.toArray(new String[0]))){
 			throw new RuntimeException("\nCan't read some input files.\n");  
 		}
@@ -792,8 +848,25 @@ public class CallGenes extends ProkObject {
 		foo.add(geneHistFile);
 		foo.add(fiveSAttemptLog);
 		foo.add(ncrnaDiagLog);
+		foo.add(ncrnaVoteDiagLog);
+		foo.add(cmDiagLog);
+		foo.add(cmPlacementLog);
 		if(!Tools.testForDuplicateFiles(true, foo.toArray(new String[0]))){
 			throw new RuntimeException("\nSome file names were specified multiple times.\n");
+		}
+		if(cmLibrary!=null){
+			final String[] outputs={outGff, outAmino, out16S, out18S, outIts, outStats, geneHistFile, fiveSAttemptLog, ncrnaDiagLog, ncrnaVoteDiagLog, cmDiagLog, cmPlacementLog};
+			for(String model : cmLibrary.paths){
+				for(String path : outputs){
+					if(!Tools.isOutputFileName(path)){continue;}
+					final File output=new File(path);
+					try{
+						if(output.exists() && Files.isSameFile(new File(model).toPath(), output.toPath())){
+							throw new IllegalArgumentException("Output aliases input CM: "+path+" -> "+model);
+						}
+					}catch(IOException e){throw new IllegalArgumentException("Cannot check CM/output identity", e);}
+				}
+			}
 		}
 	}
 	
@@ -810,7 +883,7 @@ public class CallGenes extends ProkObject {
 		if(!Tools.testInputFiles(true, true, inGffList.toArray(new String[0]))){
 			throw new IllegalArgumentException("Cannot read reference training GFF files");
 		}
-		final String[] outputs={outGff, outAmino, out16S, out18S, outIts, outStats, geneHistFile, fiveSAttemptLog, ncrnaDiagLog};
+		final String[] outputs={outGff, outAmino, out16S, out18S, outIts, outStats, geneHistFile, fiveSAttemptLog, ncrnaDiagLog, ncrnaVoteDiagLog, cmDiagLog, cmPlacementLog};
 		for(String gff : inGffList){
 			final File reference=new File(gff);
 			for(String path : outputs){
@@ -899,6 +972,22 @@ public class CallGenes extends ProkObject {
 			ncrnaDiagBsw.println(NcrnaStageDiagLogSink.HEADER);
 			ncrnaDiagSink=new NcrnaStageDiagLogSink(ncrnaDiagBsw);
 		}
+		ByteStreamWriter ncrnaVoteDiagBsw=null;
+		NcrnaVoteDiagSink ncrnaVoteDiagSink=null;
+		if(ncrnaVoteDiagLog!=null){
+			ncrnaVoteDiagBsw=new ByteStreamWriter(ncrnaVoteDiagLog, overwrite, append, false);
+			ncrnaVoteDiagBsw.start();
+			ncrnaVoteDiagBsw.println(NcrnaVoteDiagLogSink.HEADER);
+			ncrnaVoteDiagSink=new NcrnaVoteDiagLogSink(ncrnaVoteDiagBsw);
+		}
+		if(cmDiagLog!=null){
+			cmDiagBsw=new ByteStreamWriter(cmDiagLog, overwrite, append, false);
+			cmDiagBsw.start();cmDiagBsw.println(CmRnaVerifier.HEADER);
+		}
+		if(cmPlacementLog!=null){
+			cmPlacementBsw=new ByteStreamWriter(cmPlacementLog, overwrite, append, false);
+			cmPlacementBsw.start();cmPlacementBsw.println(CmRnaVerifier.PLACEMENT_HEADER);
+		}
 		ConcurrentReadOutputStream rosAmino=makeCros(ffoutAmino);
 		ConcurrentReadOutputStream ros16S=makeCros(ffout16S);
 		ConcurrentReadOutputStream ros18S=makeCros(ffout18S);
@@ -930,7 +1019,7 @@ public class CallGenes extends ProkObject {
 			final ConcurrentReadInputStream cris=makeCris(fna);
 			
 			//Process the reads in separate threads
-			spawnThreads(cris, bsw, rosAmino, ros16S, ros18S, rosIts, pgm, attemptSink, ncrnaDiagSink);
+			spawnThreads(cris, bsw, rosAmino, ros16S, ros18S, rosIts, pgm, attemptSink, ncrnaDiagSink, ncrnaVoteDiagSink);
 			
 			//Close the input stream
 			errorState|=ReadWrite.closeStream(cris);
@@ -947,6 +1036,9 @@ public class CallGenes extends ProkObject {
 		if(bsw!=null){errorState|=bsw.poisonAndWait();}
 		if(attemptBsw!=null){errorState|=attemptBsw.poisonAndWait();}
 		if(ncrnaDiagBsw!=null){errorState|=ncrnaDiagBsw.poisonAndWait();}
+		if(ncrnaVoteDiagBsw!=null){errorState|=ncrnaVoteDiagBsw.poisonAndWait();}
+		if(cmDiagBsw!=null){errorState|=cmDiagBsw.poisonAndWait();}
+		if(cmPlacementBsw!=null){errorState|=cmPlacementBsw.poisonAndWait();}
 		
 		//Reset read validation
 		Read.VALIDATE_IN_CONSTRUCTOR=vic;
@@ -1151,6 +1243,10 @@ public class CallGenes extends ProkObject {
 				NcrnaFamily family=GeneCaller.ncrnaFamilies.get(i);
 				bsw.println("ncRNA Kmer Hits ("+family.name+"):\t "+Tools.padLeft(ncrnaKmerHits[i], 12));
 				bsw.println("ncRNA Windows ("+family.name+"):\t "+Tools.padLeft(ncrnaWindows[i], 12));
+				if(family.voteWindows){
+					bsw.println("ncRNA Generated Voted Windows ("+family.name+"):\t "+Tools.padLeft(ncrnaGeneratedVotedWindows[i], 12));
+					bsw.println("ncRNA Generated Fallback Windows ("+family.name+"):\t "+Tools.padLeft(ncrnaGeneratedFallbackWindows[i], 12));
+				}
 				bsw.println("ncRNA Alignments ("+family.name+"):\t "+Tools.padLeft(ncrnaAlignments[i], 12));
 				bsw.println("ncRNA Out ("+family.name+"):\t "+Tools.padLeft(ncrnaCalls[i], 12));
 			}
@@ -1299,6 +1395,10 @@ public class CallGenes extends ProkObject {
 					NcrnaFamily family=GeneCaller.ncrnaFamilies.get(i);
 					jo.add("ncRNA Kmer Hits ("+family.name+")", ncrnaKmerHits[i]);
 					jo.add("ncRNA Windows ("+family.name+")", ncrnaWindows[i]);
+					if(family.voteWindows){
+						jo.add("ncRNA Generated Voted Windows ("+family.name+")", ncrnaGeneratedVotedWindows[i]);
+						jo.add("ncRNA Generated Fallback Windows ("+family.name+")", ncrnaGeneratedFallbackWindows[i]);
+					}
 					jo.add("ncRNA Alignments ("+family.name+")", ncrnaAlignments[i]);
 					jo.add("ncRNA Out ("+family.name+")", ncrnaCalls[i]);
 				}
@@ -1377,7 +1477,7 @@ public class CallGenes extends ProkObject {
 	
 	/** Spawn process threads */
 	private void spawnThreads(final ConcurrentReadInputStream cris, final ByteStreamWriter bsw, 
-			ConcurrentReadOutputStream rosAmino, ConcurrentReadOutputStream ros16S, ConcurrentReadOutputStream ros18S, ConcurrentReadOutputStream rosIts, GeneModel pgm, RefinementAttemptSink attemptSink, NcrnaStageDiagSink ncrnaDiagSink){
+			ConcurrentReadOutputStream rosAmino, ConcurrentReadOutputStream ros16S, ConcurrentReadOutputStream ros18S, ConcurrentReadOutputStream rosIts, GeneModel pgm, RefinementAttemptSink attemptSink, NcrnaStageDiagSink ncrnaDiagSink, NcrnaVoteDiagSink ncrnaVoteDiagSink){
 		
 		//Do anything necessary prior to processing
 		
@@ -1387,7 +1487,7 @@ public class CallGenes extends ProkObject {
 		//Fill a list with ProcessThreads
 		ArrayList<ProcessThread> alpt=new ArrayList<ProcessThread>(threads);
 		for(int i=0; i<threads; i++){
-			alpt.add(new ProcessThread(cris, bsw, rosAmino, ros16S, ros18S, rosIts, pgm, minLen, i, attemptSink, ncrnaDiagSink));
+			alpt.add(new ProcessThread(cris, bsw, rosAmino, ros16S, ros18S, rosIts, pgm, minLen, i, attemptSink, ncrnaDiagSink, ncrnaVoteDiagSink));
 		}
 		
 		//Start the threads
@@ -1486,6 +1586,7 @@ public class CallGenes extends ProkObject {
 				ncrnaKmerHits[i]+=threadNcrnaKmerHits[i];
 				ncrnaWindows[i]+=threadNcrnaWindows[i];
 			}
+			accumulateNcrnaVoteStats(pt.caller);
 			ncrnaSharedSweepPasses+=pt.caller.sharedSweepPasses();
 			long[] threadNcrnaCalls=pt.caller.ncrnaOutputCounts();
 			if(ncrnaCalls==null){ncrnaCalls=new long[threadNcrnaCalls.length];}
@@ -1507,6 +1608,21 @@ public class CallGenes extends ProkObject {
 
 		//Track whether any threads failed. NOTE: this is the CORRECT monotonic pattern (set errorState=true on failure, NEVER clear) -- unlike the template Accumulator tools' "errorState&=!success" (prok/MergeRibo#001 / MergeRibo_Fast#001) which clears prior errors when a later pass succeeds. CallGenes loops spawnThreads per input file (process L403) but stays correct because it never clears.
 		if(!success){errorState=true;}
+	}
+
+	/** Merges a joined worker's generated windows, which may be removed before scheduling. */
+	void accumulateNcrnaVoteStats(GeneCaller caller){
+		assert(caller!=null) : "Generated-window aggregation requires the joined worker's caller";
+		final long[] voted=caller.ncrnaGeneratedVotedWindowCounts(), fallback=caller.ncrnaGeneratedFallbackWindowCounts();
+		if(ncrnaGeneratedVotedWindows==null){ncrnaGeneratedVotedWindows=new long[voted.length];}
+		if(ncrnaGeneratedFallbackWindows==null){ncrnaGeneratedFallbackWindows=new long[fallback.length];}
+		assert(voted.length==fallback.length && voted.length==GeneCaller.ncrnaFamilies.size()
+			&& voted.length==ncrnaGeneratedVotedWindows.length && fallback.length==ncrnaGeneratedFallbackWindows.length)
+			: "Family count changed between workers; generated-window counts must retain registry order";
+		for(int i=0; i<voted.length; i++){
+			ncrnaGeneratedVotedWindows[i]+=voted[i];
+			ncrnaGeneratedFallbackWindows[i]+=fallback[i];
+		}
 	}
 	
 	/*--------------------------------------------------------------*/
@@ -1709,7 +1825,7 @@ public class CallGenes extends ProkObject {
 		 */
 		ProcessThread(final ConcurrentReadInputStream cris_, final ByteStreamWriter bsw_, 
 				ConcurrentReadOutputStream rosAmino_, ConcurrentReadOutputStream ros16S_, ConcurrentReadOutputStream ros18S_, ConcurrentReadOutputStream rosIts_, 
-				GeneModel pgm_, final int minLen, final int tid_, RefinementAttemptSink attemptSink_, NcrnaStageDiagSink ncrnaDiagSink_){
+				GeneModel pgm_, final int minLen, final int tid_, RefinementAttemptSink attemptSink_, NcrnaStageDiagSink ncrnaDiagSink_, NcrnaVoteDiagSink ncrnaVoteDiagSink_){
 			cris=cris_;
 			bsw=bsw_;
 			rosAmino=rosAmino_;
@@ -1723,6 +1839,8 @@ public class CallGenes extends ProkObject {
 					minStartScore, minStopScore, minKmerScore, minOrfScore, minAvgScore, pgm, geneticCode);
 			caller.setAttemptSink(attemptSink_);
 			caller.setNcrnaDiagSink(ncrnaDiagSink_);
+			caller.setNcrnaVoteDiagSink(ncrnaVoteDiagSink_);
+			if(cmLibrary!=null){caller.cmVerifier=new CmRnaVerifier(cmLibrary, cmDiagBsw, cmPlacementBsw);}
 		}
 		
 		//Called by start()
@@ -3381,6 +3499,8 @@ public class CallGenes extends ProkObject {
 	long[] ncrnaAlignments;
 	/** Family-local seed occurrences and scheduled pre-filter windows, merged after join. */
 	long[] ncrnaKmerHits, ncrnaWindows;
+	/** Generated voted/fallback windows before claimed subtraction, not scheduled ncRNA Windows. */
+	long[] ncrnaGeneratedVotedWindows, ncrnaGeneratedFallbackWindows;
 	/** Actual shared 17-mer strand scans, not multiplied by the number of registered families. */
 	long ncrnaSharedSweepPasses=0;
 	/** Committed output calls in GeneCaller.ncrnaFamilies order. */
@@ -3453,6 +3573,26 @@ public class CallGenes extends ProkObject {
 	private ArrayList<String> inGffList=new ArrayList<String>();
 	/** Output filename for GFF3 gene annotations */
 	private String outGff=null;
+	/** Experimental CM verification is run-local and never loaded by cm=f. */
+	private boolean cmEnabled=false;
+	private boolean cmLocal=false;
+	private boolean cmLocalWide=false;
+	private int cmLocalExtend=0;
+	private boolean cmTrnaExtendedGreedy=false;
+	private boolean cmTrnaExtendedGreedySet=false;
+	private boolean cmSmallGreedy=false;
+	private boolean cmSmallGreedySet=false;
+	/** Explicit overrides survive default resolution regardless of argument order. */
+	private boolean cmLocalSet=false, cmLocalWideSet=false, cmLocalExtendSet=false;
+	private String cmModelDir=null, cmDiagLog=null;
+	private String cmPlacementLog=null;// Research diagnostic slot; production D50 never enables18S CM.
+	private long cmMaxCells=100000000;
+	/** Experimental small-family CM policy: candidate +/-12; -1 restores full padded windows. */
+	private int cmWindowSlack=12;
+	private boolean cmSecFallback=true;
+	private CmRnaVerifier.Library cmLibrary;
+	private ByteStreamWriter cmDiagBsw;
+	private ByteStreamWriter cmPlacementBsw;
 	/** Output filename for amino acid translations */
 	private String outAmino=null;
 	/** Output filename for 16S rRNA sequences */
@@ -3533,6 +3673,7 @@ public class CallGenes extends ProkObject {
 	static boolean EUK5S_ENABLED=false;
 	static String EUK5S_CONSENSUS_OVERRIDE=null;
 	private final Euk5sRuntimeConfig euk5sRuntime=new Euk5sRuntimeConfig();
+	private final Euk18sRuntimeConfig euk18sRuntime=new Euk18sRuntimeConfig();
 	static boolean parseEuk5sFlag(String key, String value){
 		if(!key.equalsIgnoreCase("euk5s")){return false;}
 		EUK5S_ENABLED=Parse.parseBoolean(value);
@@ -3771,6 +3912,8 @@ public class CallGenes extends ProkObject {
 	private String fiveSAttemptLog=null;
 	/** Optional stage TSV, shared across workers; omitted means no diagnostic output. */
 	private String ncrnaDiagLog=null;
+	/** Optional generated-vote evidence, independent of the established stage logger. */
+	private String ncrnaVoteDiagLog=null;
 	/** Output filename for gene length histogram */
 	private String geneHistFile=null;
 	/** Whether to output statistics in JSON format */

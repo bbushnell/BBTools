@@ -48,7 +48,7 @@ final class Euk5sRuntimeConfig {
 		if(infer){
 			final String tableDir=tables==null?new File(resource("euk5S_endpoint/TABLES.tsv")).getParent():tables;
 			final String netDir=nets==null?new File(resource("euk5S_endpoint/MANIFEST.tsv")).getParent():nets;
-			final RrnaEndpointCallerFeatures.Resources loaded=RrnaEndpointResourceLoader.load(tableDir,selected.modelNames,selected.library);
+			final RrnaEndpointCallerFeatures.Resources loaded=RrnaEndpointResourceLoader.load(selected.name,tableDir,selected.modelNames,selected.library);
 			selected.setRrnaEndpointInference(RrnaEndpointNetworkLoader.load(netDir,loaded),null);
 			System.err.println("euk5S endpoints: enabled models="+selected.library.length+" tables="+tableDir+" nets="+netDir);
 		}else{System.err.println("euk5S endpoints: disabled");}

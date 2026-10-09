@@ -316,7 +316,7 @@ public class TrnaCaller extends ProkObject {
 		orf.startScore=sScore;
 		orf.stopScore=pScore;
 		orf.kmerScore=splicedInner*splicedLen;
-		if(verifyIntronOrf(orf, product)){
+		if(verifyIntronOrf(orf, product, bases, gis, gie)){
 			if(DEBUG){System.err.println("INTRONHIT\t"+name+"\t"+strand+"\t"+start+"\t"+stop+"\t"+orf.trnaModel);}
 			accepted.add(new int[]{orf.start, orf.stop});
 			results.add(orf);
@@ -367,7 +367,7 @@ public class TrnaCaller extends ProkObject {
 	 * cannot match a long model via free terminal deletions).  On pass, annotates the model name; the
 	 * tRNA span keeps the full locus (intron included), so no boundary trim is applied.
 	 */
-	private boolean verifyIntronOrf(Orf orf, byte[] product){
+	private boolean verifyIntronOrf(Orf orf, byte[] product, byte[] genome, int intronStart, int intronStop){
 		//Long-kmer pre-filter (Brian): the SPLICED product must carry conserved tRNA 15-mers before align.
 		final int khits=trnaKmerHits(product);
 		if(khits<MIN_TRNA_KHITS){
@@ -390,6 +390,11 @@ public class TrnaCaller extends ProkObject {
 			if(id>bestId){bestId=id; bestModel=m; sinceImproved=0;}else{sinceImproved++;}
 			if(id>=ID_PASS){passed=true; if(earlyExit && sinceImproved>=earlyExitPatience){break;}}
 			if(trnaModels!=null && id>=ID_BORDERLINE_LONG){borderlineModels[borderlineCount++]=m;}
+		}
+		if(cmVerifier!=null && cmVerifier.supports(tRNA)){
+			if(bestModel<0 || bestId<ID_BORDERLINE_LONG){return false;}
+			if(annotate && modelNames!=null && bestModel<modelNames.length){orf.trnaModel=modelNames[bestModel];}
+			return cmVerifier.verifySpliced(orf, genome, intronStart, intronStop, TRIM_EXT, "trna_spliced");
 		}
 		if(passed){
 			if(annotate && bestModel>=0 && modelNames!=null && bestModel<modelNames.length){orf.trnaModel=modelNames[bestModel];}
@@ -479,6 +484,14 @@ public class TrnaCaller extends ProkObject {
 			}
 		}
 
+		if(cmVerifier!=null && cmVerifier.supports(tRNA)){
+			if(bestModel<0 || bestId<ID_BORDERLINE){return false;}
+			final int cmStart=Tools.max(0, orf.start-TRIM_EXT), cmStop=Tools.min(bases.length-1, orf.stop+TRIM_EXT);
+			if(annotate && modelNames!=null && bestModel<modelNames.length){
+				orf.trnaModel=modelNames[bestModel];annotateAndTrim(orf,bases,bestModel,bestTrimModel);
+			}
+			return cmVerifier.verify(orf, bases, cmStart, cmStop, "trna_pgm");
+		}
 		if(passed){
 			if(annotate && bestModel>=0 && modelNames!=null && bestModel<modelNames.length){
 				orf.trnaModel=modelNames[bestModel];
@@ -1096,6 +1109,12 @@ public class TrnaCaller extends ProkObject {
 		if(orfStop-orfStart<MIN_TRNA){return;}
 		Orf orf=new Orf(name, orfStart, orfStop, strand, 0, bases, false, tRNA);
 		orf.orfScore=bestId*100;
+		if(cmVerifier!=null && cmVerifier.supports(tRNA)){
+			if(annotate && modelNames!=null && bestModel<modelNames.length){
+				orf.trnaModel=modelNames[bestModel];annotateAndTrim(orf,bases,bestModel,bestModel);
+			}
+			if(cmVerifier.verify(orf, bases, wStart, wStart+windowLength-1, "trna_seed")){output.add(orf);}return;
+		}
 
 		//Skip-verify-on-pass (Brian, 2026-08-16): a clear pass (bestId>=ID_PASS) trusts the window
 		//alignment's identity+coordinates -- no second alignment.  Only borderline windows (ID_BORDERLINE
@@ -1311,6 +1330,7 @@ public class TrnaCaller extends ProkObject {
 	private final float REGION_THRESH=GeneCaller.cutoff1[tRNA];
 	private final float INNER_THRESH=GeneCaller.cutoff5[tRNA];
 	private final float CANDIDATE_THRESH=GeneCaller.cutoff2[tRNA];
+	CmRnaVerifier cmVerifier;
 	static float ID_PASS=0.75f;
 	static float ID_BORDERLINE=0.65f;
 	static float HBM_PASS=0.75f;
