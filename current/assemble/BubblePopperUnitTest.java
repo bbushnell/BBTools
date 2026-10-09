@@ -139,6 +139,8 @@ public class BubblePopperUnitTest {
 
 	private static void isolatedTrueBubbleUnzips(){
 		BubbleFixture f=twoArmBubble(48, 45, 48, 45);
+		f.left.leftFusionEndpoint=true;
+		f.right.rightFusionEndpoint=false;
 		checkReciprocalDepthsAsymmetric(f);
 		final float highCoverage=f.mids[0].coverage, lowCoverage=f.mids[1].coverage;
 		BubblePopper.popIndirect=false;
@@ -148,6 +150,9 @@ public class BubblePopperUnitTest {
 		BubblePopper.popIndirect=true;
 
 		check(expansions==1, "Expected one isolated true-bubble unzip, got "+expansions);
+		check(f.left.leftFusionEndpoint && f.right.leftFusionEndpoint
+				&& !f.left.rightFusionEndpoint && !f.right.rightFusionEndpoint,
+				"Unzipping manufactured fusion eligibility instead of inheriting original outer ends");
 		check(sequence(f.left).equals("GGGGGAAAAATTCCCCCGGGGG"),
 				"Incorrect representative allele product: "+sequence(f.left));
 		check(sequence(f.right).equals("GGGGGAAAAAGGCCCCCGGGGG"),

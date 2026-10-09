@@ -14,8 +14,8 @@ import structures.ByteBuilder;
 import ukmer.Kmer;
 
 /**
- * Runs a Tadpole assembly, exhausts exact tip overlaps at requested shorter kmer
- * lengths, then bridges graph-disconnected ends with independent kmer tables.
+ * Runs assembly followed by ordered, shared-table fusion and bridging phases.
+ * The last phase lends its count table to final graph processing when K matches.
  *
  * @author Brian Bushnell, Noelle
  */
@@ -31,6 +31,43 @@ public class TadpoleMulti {
 
 	void process(){
 		final Tadpole longest=Tadpole.makeTadpole(makeArgs(config.assembleK, true), true);
+		fusionNeural=makeNeuralGate(longest);
+		try(FusionJoinCollector collector=makeCollector(longest)){
+			fusionCollector=collector;
+			processInner(longest);
+		}finally{
+			fusionCollector=null;
+			clearFusionSupport();
+		}
+	}
+
+	/** Validates model/output aliases before opening any collector or assembly writer. */
+	private FusionNeuralGate makeNeuralGate(final Tadpole longest){
+		if(config.fuseNet==null){return null;}
+		final ArrayList<String> inputs=new ArrayList<String>(longest.tables().in1);
+		inputs.addAll(longest.tables().in2);
+		inputs.addAll(longest.tables().extra);
+		inputs.add(config.fuseNet);
+		TadpoleGraph.checkPaths(config.fuseNet, inputs, config.out, config.outGfa);
+		if(!Tools.testInputFiles(false, true, config.fuseNet)){
+			throw new IllegalArgumentException("Unreadable fusion network: "+config.fuseNet);
+		}
+		return new FusionNeuralGate(config.fuseNet, config.fuseCutoff);
+	}
+
+	/** Creates optional evidence sidecars, protecting all source files and final graph outputs. */
+	private FusionJoinCollector makeCollector(final Tadpole longest){
+		if(config.fusionVectorPrefix==null){return null;}
+		final ArrayList<String> inputs=new ArrayList<String>(longest.tables().in1);
+		inputs.addAll(longest.tables().in2);
+		inputs.addAll(longest.tables().extra);
+		if(config.fuseNet!=null){inputs.add(config.fuseNet);}
+		return new FusionJoinCollector(config.fusionVectorPrefix, inputs, config.out, config.outGfa);
+	}
+
+	/** Constructs initial contigs, then applies the selected multi-K schedule. */
+	private void processInner(final Tadpole longest){
+		assert(longest!=null) : "The initial assembler owns source arguments and original contigs.";
 		config.printExecutionPlan(longest);
 		if(!Tools.testOutputFiles(Tadpole.overwrite, Tadpole.append, false, config.out)){
 			throw new RuntimeException("Can't write output file "+config.out+"; overwrite="+Tadpole.overwrite);
@@ -47,23 +84,48 @@ public class TadpoleMulti {
 		ArrayList<Contig> contigs=longest.detachContigs();
 		final int minContig=longest.minContigLen;
 		final int idOffset=longest.contigIDOffset;
-		longest.tables().clear();
-		System.gc();
+		if(config.ordered){
+			contigs=processOrdered(contigs, longest, minContig);
+		}else{
+			longest.tables().clear();
+			System.gc();
+			contigs=processLegacy(contigs, longest, minContig);
+		}
+		if(earlyLowDepth!=null && finalLowDepthDiagnostic!=null){
+			earlyLowDepth.reportFates(finalLowDepthDiagnostic);
+		}
+		writeContigs(contigs, config.out, minContig, idOffset);
+		if(config.showStats && FileFormat.isFastaExt(ReadWrite.rawExtension(config.out)) && !FileFormat.isStdio(config.out)){
+			System.err.println();
+			jgi.AssemblyStats2.main(new String[] {"in="+config.out, "printextended"});
+		}
+	}
 
-		/* Exact terminal overlaps need only contig sequence; exhaust them before rereading the reads. */
+	/** Keeps the historical ordering available for controlled comparisons. */
+	private ArrayList<Contig> processLegacy(ArrayList<Contig> contigs, final Tadpole longest, final int minContig){
+
+		/* Preserve fusion-before-bridging order. Each fusion K owns at most one table. */
 		Tadpole reusableGraphTadpole=null;
 		for(int i=0; i<config.fuseKs.length; i++){
 			final int k=config.fuseKs[i], before=contigs.size();
-			final Timer timer=new Timer();
-			longest.setContigs(contigs);
-			longest.clearContigEdges();
-			final CrossKTipOverlapper overlapper=new CrossKTipOverlapper(contigs, k,
-					config.assembleK-1, false, minContig);
-			if(overlapper.addEdges()>0){mergeCrossK(longest);}
-			contigs=longest.detachContigs();
-			checkErrorState(longest);
-			timer.stop();
-			System.err.println("Cross-k overlaps "+k+": "+before+" -> "+contigs.size()+" contigs; "+timer);
+			try{
+				loadFusionSupport(k);
+				final Timer timer=new Timer();
+				longest.setContigs(contigs);
+				longest.clearContigEdges();
+				final CrossKTipOverlapper overlapper=new CrossKTipOverlapper(contigs, k,
+						config.assembleK-1, false, minContig, config.fuseMaxMismatches,
+						config.fuseDeadEndsOnly, config.fuseConflicts);
+				overlapper.support=fusionSupport;
+				overlapper.collector=fusionCollector;
+				overlapper.neural=fusionNeural;
+				overlapper.allowTrim=config.fuseTrim;
+				if(overlapper.addEdges()>0){mergeCrossK(longest);}
+				contigs=longest.detachContigs();
+				checkErrorState(longest);
+				timer.stop();
+				System.err.println("Cross-k overlaps "+k+": "+before+" -> "+contigs.size()+" contigs; "+timer);
+			}finally{clearFusionSupport();}
 		}
 
 		/* Bridge tables are needed only for unbranched paths across actual sequence gaps. */
@@ -104,15 +166,106 @@ public class TadpoleMulti {
 		if(config.finalGraphNeeded()){
 			contigs=extractFinalGraph(contigs, reusableGraphTadpole, minContig);
 		}
-		if(earlyLowDepth!=null && finalLowDepthDiagnostic!=null){
-			earlyLowDepth.reportFates(finalLowDepthDiagnostic);
-		}
+		return contigs;
+	}
 
-		writeContigs(contigs, config.out, minContig, idOffset);
-		if(config.showStats && FileFormat.isFastaExt(ReadWrite.rawExtension(config.out)) && !FileFormat.isStdio(config.out)){
-			System.err.println();
-			jgi.AssemblyStats2.main(new String[] {"in="+config.out, "printextended"});
+	/** Uses one table per occurrence; fusion sees raw counts before bridge cleaning. */
+	private ArrayList<Contig> processOrdered(ArrayList<Contig> contigs, final Tadpole initial, final int minContig){
+		assert(config.phaseKs.length>0 && config.phaseKs[0]==config.assembleK) :
+				"The initial assembly table must be the first ordered phase owner.";
+		boolean finalDone=false;
+		for(int i=0; i<config.phaseKs.length; i++){
+			final int k=config.phaseKs[i];
+			final boolean fuse=Config.contains(config.fuseKs, k);
+			final boolean bridge=Config.contains(config.bridgeKs, k) && (i>0 || config.bridgeInitial);
+			final boolean finish=config.finalGraphNeeded() && i==config.phaseKs.length-1 && k==config.graphK;
+			final boolean evidence=fuse && (config.fusePath || fusionCollector!=null || fusionNeural!=null);
+			Tadpole owner=(i==0 ? initial : null);
+			try{
+				if(owner==null && (evidence || finish || (bridge && countBridgeEndpoints(contigs, k)>=2))){
+					owner=Tadpole.makeTadpole(evidence ? makeFusionSupportArgs(k) : makeArgs(k, false), true);
+					System.err.println("Loading ordered phase "+(i+1)+" at k="+k+
+							(evidence ? " (explicit fusion evidence shared with bridging)." : "."));
+					owner.loadKmers(new Timer());
+					checkErrorState(owner);
+				}
+				if(fuse){
+					if(evidence){
+						if(config.fusePath){attachFusionSupport(owner);}
+						if(fusionCollector!=null){fusionCollector.beginPhase(k, config.assembleK-1, false, countProvider(owner));}
+						if(fusionNeural!=null){fusionNeural.beginPhase(k, countProvider(owner));}
+					}
+					try{contigs=fuseContigs(contigs, initial, k, minContig);}
+					finally{clearFusionSupport();}// Borrower only; owner survives until this phase ends.
+				}
+				if(owner!=null && i>0){
+					setCrossKGraph(owner, bridge);
+					owner.pruneLoadedKmers();
+					owner.setContigs(contigs);
+					owner.cleanLoadedKmers(contigs);
+					checkErrorState(owner);
+				}
+				if(bridge){
+					final int endpoints=countBridgeEndpoints(contigs, k);
+					if(endpoints>=2){
+						assert(owner!=null) : "Bridge traversal requires the current phase's live count table.";
+						contigs=bridgeContigs(contigs, owner);
+					}else{System.err.println("Cross-k bridges "+k+": skipped; only "+endpoints+" eligible endpoints.");}
+				}
+				if(finish){
+					contigs=extractFinalGraph(contigs, owner, minContig);
+					owner=null;// extractFinalGraph released the table successfully.
+					finalDone=true;
+				}
+			}finally{
+				clearFusionSupport();
+				if(owner!=null){owner.tables().clear();}
+			}
+			System.gc();
 		}
+		if(config.finalGraphNeeded() && !finalDone){contigs=extractFinalGraph(contigs, null, minContig);}
+		return contigs;
+	}
+
+	/** Adds shorter-K overlap proposals using the current optional borrowed evidence. */
+	private ArrayList<Contig> fuseContigs(final ArrayList<Contig> contigs, final Tadpole initial,
+			final int k, final int minContig){
+		assert(k<config.assembleK) : "CrossKTipOverlapper's overlap ceiling remains assembleK-1.";
+		final int before=contigs.size();
+		final Timer timer=new Timer();
+		initial.setContigs(contigs);
+		initial.clearContigEdges();
+		final CrossKTipOverlapper overlapper=new CrossKTipOverlapper(contigs, k, config.assembleK-1,
+				false, minContig, config.fuseMaxMismatches, config.fuseDeadEndsOnly, config.fuseConflicts);
+		overlapper.support=fusionSupport;
+		overlapper.collector=fusionCollector;
+		overlapper.neural=fusionNeural;
+		overlapper.allowTrim=config.fuseTrim;
+		if(overlapper.addEdges()>0){mergeCrossK(initial);}
+		final ArrayList<Contig> result=initial.detachContigs();
+		checkErrorState(initial);
+		timer.stop();
+		System.err.println("Cross-k overlaps "+k+": "+before+" -> "+result.size()+" contigs; "+timer);
+		return result;
+	}
+
+	/** Traverses gaps on the cleaned phase table without enabling final graph operations. */
+	private ArrayList<Contig> bridgeContigs(final ArrayList<Contig> contigs, final Tadpole tad){
+		assert(tad!=null) : "Bridge graph discovery must borrow a live phase table.";
+		final int before=contigs.size();
+		setCrossKGraph(tad, true);
+		tad.setContigs(contigs);
+		tad.clearContigEdges();
+		final boolean oldResolve=tad.resolveRepeats, oldPop=tad.popBubbles;
+		tad.resolveRepeats=false;
+		tad.popBubbles=false;
+		try{tad.processContigs();}
+		finally{tad.resolveRepeats=oldResolve; tad.popBubbles=oldPop;}
+		mergeCrossK(tad);
+		final ArrayList<Contig> result=tad.detachContigs();
+		checkErrorState(tad);
+		System.err.println("Cross-k bridges "+tad.k()+": "+before+" -> "+result.size()+" contigs.");
+		return result;
 	}
 
 	/** Builds one complete graph after all cross-k merges, then emits the requested terminal representation. */
@@ -132,6 +285,10 @@ public class TadpoleMulti {
 		setCrossKGraph(tad, false);
 		tad.minContigLen=minContig;
 		tad.refreshGraphEndpoints=true;
+		tad.popBubbles=false;
+		// The borrowed initial table must not repeat its initial-only sweep.
+		tad.sweepContigLen=0;
+		tad.classifyGraphContigs=false;
 		/* Refresh graph-k endpoint topology before resolving exact overlaps that were
 		 * ineligible under the original longest-k endpoint classifications. */
 		final boolean resolveRepeats=tad.resolveRepeats;
@@ -146,10 +303,22 @@ public class TadpoleMulti {
 		int graphOverlapBefore=-1;
 		final Timer graphOverlapTimer=new Timer();
 		if(config.graphK<config.assembleK){
+			//Borrow the current graph counts, which may already be pruned/washed.
+			//Never load another table while this graph table remains live.
+			if(config.fusePath){attachFusionSupport(tad);}
+			if(fusionCollector!=null){fusionCollector.beginPhase(tad.k(), config.assembleK-1, true, countProvider(tad));}
+			if(fusionNeural!=null){fusionNeural.beginPhase(tad.k(), countProvider(tad));}
 			graphOverlapBefore=contigs.size();
-			final CrossKTipOverlapper overlapper=new CrossKTipOverlapper(contigs, config.graphK,
-					config.assembleK-1, true, minContig);
-			if(overlapper.addEdges()>0){mergeCrossK(tad);}
+			try{
+				final CrossKTipOverlapper overlapper=new CrossKTipOverlapper(contigs, config.graphK,
+						config.assembleK-1, true, minContig, config.fuseMaxMismatches,
+						config.fuseDeadEndsOnly, config.fuseConflicts);
+				overlapper.support=fusionSupport;
+				overlapper.collector=fusionCollector;
+				overlapper.neural=fusionNeural;
+				overlapper.allowTrim=config.fuseTrim;
+				if(overlapper.addEdges()>0){mergeCrossK(tad);}
+			}finally{clearFusionSupport();}
 		}
 		final ArrayList<Contig> merged=tad.detachContigs();
 		graphOverlapTimer.stop();
@@ -194,10 +363,14 @@ public class TadpoleMulti {
 		final boolean oldIndirect=BubblePopper.popIndirect;
 		final boolean oldCrossK=BubblePopper.crossKMerge;
 		final float oldDepthRatio=BubblePopper.crossKMaxDepthRatio;
+		final int oldMismatches=BubblePopper.crossKMaxMismatches;
+		final FusionKmerSupport oldSupport=BubblePopper.crossKSupport;
 		BubblePopper.popDirect=true;
 		BubblePopper.popIndirect=false;
 		BubblePopper.crossKMerge=true;
 		BubblePopper.crossKMaxDepthRatio=config.maxDepthRatio;
+		BubblePopper.crossKMaxMismatches=config.fuseMaxMismatches;
+		BubblePopper.crossKSupport=fusionSupport;
 		try{
 			for(int pass=0, merged=1; pass<config.passes && merged>0; pass++){
 				merged=tad.popBubbles(false);
@@ -207,6 +380,80 @@ public class TadpoleMulti {
 			BubblePopper.popIndirect=oldIndirect;
 			BubblePopper.crossKMerge=oldCrossK;
 			BubblePopper.crossKMaxDepthRatio=oldDepthRatio;
+			BubblePopper.crossKMaxMismatches=oldMismatches;
+			BubblePopper.crossKSupport=oldSupport;
+		}
+	}
+
+	/** Loads the sole live table for an initial same-K fusion pass. */
+	private void loadFusionSupport(final int k){
+		if(!config.fusePath && fusionCollector==null && fusionNeural==null){return;}
+		assert(fusionSupport==null && fusionSupportTadpole==null) :
+				"Each serial fusion phase must release its support table before another load.";
+		final Tadpole evidence=Tadpole.makeTadpole(makeFusionSupportArgs(k), true);
+		fusionSupportTadpole=evidence;
+		if(evidence.k()!=k){
+			throw new IllegalArgumentException("Fusion support K changed while constructing its count table.");
+		}
+		System.err.println("Loading fusion path at k="+k+", depth="+config.fusePathDepth+".");
+		evidence.loadKmers(new Timer());
+		checkErrorState(evidence);
+		if(config.fusePath){attachFusionSupport(evidence);}
+		if(fusionCollector!=null){fusionCollector.beginPhase(k, config.assembleK-1, false, countProvider(evidence));}
+		if(fusionNeural!=null){fusionNeural.beginPhase(k, countProvider(evidence));}
+	}
+
+	/** Borrows counts only; feature collection must not implicitly enable a path veto. */
+	private static TadpoleGraph.Counts countProvider(final Tadpole evidence){
+		assert(evidence!=null) : "Fusion features require a live-phase count owner.";
+		if(!evidence.tables().rcomp() || kmer.AbstractKmerTableSet.MASK_MIDDLE || shared.Shared.AMINO_IN){
+			throw new IllegalArgumentException("Fusion features require rcomp=t, maskmiddle=f, amino=f.");
+		}
+		return new TadpoleGraph.Counts(){
+			@Override
+			public int count(final Kmer word){return evidence.bridgeCount(word);}
+		};
+	}
+
+	/** Installs a serial checker; table ownership is separate so final graphs can lend theirs. */
+	private void attachFusionSupport(final Tadpole evidence){
+		assert(fusionSupport==null) : "A fusion checker must be detached before changing its count table.";
+		if(!evidence.tables().rcomp() || kmer.AbstractKmerTableSet.MASK_MIDDLE || shared.Shared.AMINO_IN){
+			throw new IllegalArgumentException("Fusion paths require rcomp=t, maskmiddle=f, amino=f.");
+		}
+		fusionSupport=new FusionKmerSupport(new FusionKmerSupport.Evidence(){
+			@Override
+			public int count(final Kmer key){return evidence.bridgeCount(key);}
+			@Override
+			public boolean isJunction(final int max, final int second){return evidence.isJunction(max, second);}
+		}, evidence.k(), config.fusePathDepth, config.fusePathFlank);
+	}
+
+	/** Evidence counts must not lose singleton words to a probabilistic prefilter. */
+	String[] makeFusionSupportArgs(final int k){
+		assert((config.fusePath || config.fusionVectorPrefix!=null || config.fuseNet!=null) && k<config.assembleK) :
+				"Only a shorter-K support or collection pass may load a separate, sole evidence table.";
+		final ArrayList<String> args=new ArrayList<String>(Arrays.asList(makeArgs(k, false)));
+		args.add("hashkmers=explicit");
+		args.add("prefilter=f");
+		args.add("prepasses=1");
+		return args.toArray(new String[args.size()]);
+	}
+
+	/** Releases an owned table, never a borrowed final-graph table, even after a failed load. */
+	private void clearFusionSupport(){
+		if(fusionCollector!=null){fusionCollector.endPhase();}
+		if(fusionNeural!=null){fusionNeural.endPhase();}
+		if(fusionSupport!=null){
+			System.err.println("Fusion path: k="+fusionSupport.k+", evaluations="+fusionSupport.evaluations+
+					", rejected="+fusionSupport.rejected+", words="+fusionSupport.words+
+					", flank="+fusionSupport.flank+".");
+		}
+		fusionSupport=null;
+		if(fusionSupportTadpole!=null){
+			fusionSupportTadpole.tables().clear();
+			fusionSupportTadpole=null;
+			System.gc();
 		}
 	}
 
@@ -265,7 +512,11 @@ public class TadpoleMulti {
 			final String b=(equals<0 ? null : arg.substring(equals+1));
 			if(a.equals("k") && equals>=0 && arg.indexOf(',', equals+1)>=0){return true;}
 			if(a.equals("assemblek") || a.equals("fusek") || a.equals("joink")
-					|| a.equals("bridgek") || a.equals("graphk")){return true;}
+					|| a.equals("bridgek") || a.equals("graphk") || a.equals("fusemaxmismatches")
+					|| a.equals("fusedeadends") || a.equals("fuseconflicts")
+					|| a.equals("fusepath") || a.equals("fusepathdepth") || a.equals("fusepathflank")
+					|| a.equals("fusetrim") || a.equals("fusesupportk") || a.equals("fusionvectors")
+					|| a.equals("fusenet") || a.equals("fusencutoff") || a.equals("korder")){return true;}
 			if(a.equals("lowdepthcontigdiagstage") || a.equals("ldcdstage")){return true;}
 			if((a.equals("lowdepthcontigdiag") || a.equals("diagnoselowdepthcontigs") || a.equals("ldcd"))
 					&& isLowDepthDiagStage(b)){return true;}
@@ -290,6 +541,11 @@ public class TadpoleMulti {
 				final String b=(equals<0 ? null : arg.substring(equals+1));
 				while(a.startsWith("-")){a=a.substring(1);}
 				if(a.equals("k")){kList=b;}
+				else if(a.equals("korder")){
+					if("input".equalsIgnoreCase(b)){ordered=true;}
+					else if("legacy".equalsIgnoreCase(b)){ordered=false;}
+					else{throw new IllegalArgumentException("korder must be input or legacy: "+b);}
+				}
 				else if(a.equals("assemblek")){
 					assembleText=b;
 					assembleExplicit=(b==null || !b.equalsIgnoreCase("auto"));
@@ -299,6 +555,31 @@ public class TadpoleMulti {
 				}else if(a.equals("bridgek")){
 					bridgeText=b;
 					bridgeExplicit=(b==null || !b.equalsIgnoreCase("auto"));
+				}else if(a.equals("fusemaxmismatches")){
+					fuseMaxMismatches=Integer.parseInt(b);
+				}else if(a.equals("fusedeadends")){
+					fuseDeadEndsOnly=Parse.parseBoolean(b);
+				}else if(a.equals("fuseconflicts")){
+					fuseConflicts=Parse.parseBoolean(b);
+				}else if(a.equals("fusesupportk")){
+					throw new IllegalArgumentException("Experimental fusesupportk was replaced by fusepath=t (same-K, one table).");
+				}else if(a.equals("fusepath")){
+					fusePath=Parse.parseBoolean(b);
+				}else if(a.equals("fusepathdepth")){
+					fusePathDepth=Integer.parseInt(b);
+				}else if(a.equals("fusepathflank")){
+					fusePathFlank=("auto".equalsIgnoreCase(b) ? 0 : Parse.parseIntKMG(b));
+				}else if(a.equals("fusetrim")){
+					fuseTrim=Parse.parseBoolean(b);
+				}else if(a.equals("fusionvectors")){
+					if(b==null || b.length()==0){throw new IllegalArgumentException("fusionvectors requires a file prefix.");}
+					fusionVectorPrefix=b.equalsIgnoreCase("null") ? null : b;
+				}else if(a.equals("fusenet")){
+					if(b==null || b.length()==0){throw new IllegalArgumentException("fusenet requires a model path or null.");}
+					fuseNet=b.equalsIgnoreCase("null") ? null : b;
+				}else if(a.equals("fusencutoff")){
+					fuseCutoff=Float.parseFloat(b);
+					fuseCutoffSet=true;
 				}else if(a.equals("hashkmers") || a.equals("kmerhash") || a.equals("bridgehash") || a.equals("hashbridges")
 						|| a.equals("hashonly") || a.equals("hashedkmers")){
 					hashModeRequested=Tadpole.parseHashMode(b);
@@ -408,7 +689,9 @@ public class TadpoleMulti {
 			fuseKs=(fuseExplicit ? parseKList(fuseText, "fusek", true)
 					: selectBelow(shorthand, assembleK));
 			bridgeKs=(bridgeExplicit ? parseKList(bridgeText, "bridgek", true)
-					: (assembleExplicit ? shorthand : selectBelow(shorthand, assembleK)));
+					: (ordered || assembleExplicit ? shorthand : selectBelow(shorthand, assembleK)));
+			bridgeInitial=bridgeExplicit && contains(bridgeKs, assembleK);
+			phaseKs=makePhaseKs(shorthand, kList!=null);
 			for(int k : fuseKs){
 				if(k>=assembleK){
 					throw new RuntimeException("fusek values must be shorter than assemblek="+assembleK+": "+k);
@@ -417,6 +700,18 @@ public class TadpoleMulti {
 			if(out==null){throw new RuntimeException("TadpoleMulti requires an output file.");}
 			if(maxDepthRatio<0){throw new RuntimeException("crosskmaxdepthratio must be nonnegative.");}
 			if(passes<1){throw new RuntimeException("crosskpasses must be positive.");}
+			if(fuseMaxMismatches<-1){throw new IllegalArgumentException("fusemaxmismatches must be -1 or nonnegative.");}
+			if(fuseConflicts && fuseMaxMismatches<0){
+				throw new IllegalArgumentException("fuseconflicts requires fusemaxmismatches>=0.");
+			}
+			if(fusePathDepth<1){throw new IllegalArgumentException("fusepathdepth must be positive.");}
+			if(fusePathFlank<0){throw new IllegalArgumentException("fusepathflank must be auto, zero or positive.");}
+			if(fuseCutoffSet && (!Float.isFinite(fuseCutoff) || fuseCutoff<0 || fuseCutoff>1)){
+				throw new IllegalArgumentException("fusencutoff must be finite and in [0,1].");
+			}
+			if((fuseNet!=null)!=fuseCutoffSet){
+				throw new IllegalArgumentException("Specify fusenet and an explicit fusencutoff together.");
+			}
 			if(simpleOmnitigs && graphCover){throw new RuntimeException("simpleOmnitigs and graphCover are mutually exclusive output modes.");}
 			if(lowDepthContigMaxLen==0 || lowDepthContigMaxLen< -1){throw new RuntimeException("lowDepthContigMaxLen must be positive or auto.");}
 			if(lowDepthContigMaxCov<0){throw new RuntimeException("lowDepthContigMaxCov must be nonnegative.");}
@@ -437,7 +732,10 @@ public class TadpoleMulti {
 			if(sweepContigLen<0){throw new RuntimeException("sweeplen must be nonnegative.");}
 			if(graphClassificationRequested()){classifyGraphContigs=true;}
 			if(finalGraphNeeded()){
-				if(graphK<0){graphK=assembleK;}
+				if(graphK<0){
+					graphK=(!ordered ? assembleK : shorthand.length>0 ? shorthand[shorthand.length-1]
+							: phaseKs[phaseKs.length-1]);
+				}
 			}else if(graphExplicit){throw new RuntimeException("graphk requires graph operations, graph classification, or lowDepthContigDiag=t.");}
 			else{graphK=assembleK;}
 		}
@@ -449,16 +747,17 @@ public class TadpoleMulti {
 			return Kmer.getKbig(requested);
 		}
 
-		private static int[] parseKList(final String text, final String name, final boolean nullIsEmpty){
+		private int[] parseKList(final String text, final String name, final boolean nullIsEmpty){
 			if(text==null){
 				if(nullIsEmpty){return new int[0];}
 				throw new RuntimeException(name+" requires a comma-delimited kmer list.");
 			}
 			if(text.length()<1 || text.equalsIgnoreCase("none") || text.equalsIgnoreCase("false")
 					|| text.equalsIgnoreCase("f")){return new int[0];}
-			final String[] split=text.split(",");
+			final String[] split=text.split(",", -1);
 			final int[] array=new int[split.length];
 			for(int i=0; i<split.length; i++){array[i]=parseK(split[i], name);}
+			if(ordered){return array;}
 			Arrays.sort(array);
 			final int[] descending=new int[array.length];
 			int unique=0, last=-1;
@@ -467,6 +766,38 @@ public class TadpoleMulti {
 				if(unique==0 || value!=last){descending[unique++]=value; last=value;}
 			}
 			return Arrays.copyOf(descending, unique);
+		}
+
+		/** Reserves the first assemble-K occurrence for assembly; later repeats remain real phases. */
+		private int[] makePhaseKs(final int[] shorthand, final boolean hasList){
+			assert(assembleK>0) : "Phase construction requires the resolved initial assembly K.";
+			final structures.IntList phases=new structures.IntList();
+			phases.add(assembleK);
+			boolean consumed=false;
+			for(int k : shorthand){
+				if(!consumed && k==assembleK){consumed=true;}
+				else{phases.add(k);}
+			}
+			for(int[] requested : new int[][] {fuseKs, bridgeKs}){
+				for(int k : requested){
+					if(contains(phases.array, phases.size, k)){continue;}
+					if(ordered && hasList){
+						throw new IllegalArgumentException("Phase K="+k+" is absent from k; include it in the ordered k list.");
+					}
+					phases.add(k);
+				}
+			}
+			return Arrays.copyOf(phases.array, phases.size);
+		}
+
+		/** Tests membership without sorting away the caller's phase order. */
+		static boolean contains(final int[] values, final int k){return contains(values, values.length, k);}
+
+		/** Searches only the populated prefix of a phase list. */
+		private static boolean contains(final int[] values, final int length, final int k){
+			assert(length<=values.length) : "Phase membership cannot inspect unused list capacity.";
+			for(int i=0; i<length; i++){if(values[i]==k){return true;}}
+			return false;
 		}
 
 		private static int[] selectBelow(final int[] source, final int ceiling){
@@ -605,7 +936,23 @@ public class TadpoleMulti {
 			Tadpole.printPlanLine("mode", "assemble");
 			if(extras.length()>0){Tadpole.printPlanLine("extra", extras.toString());}
 			Tadpole.printPlanLine("assemblek", assembleK);
+			Tadpole.printPlanLine("korder", ordered ? "input" : "legacy");
+			if(ordered){Tadpole.printPlanLine("phasek", toKList(phaseKs));}
 			if(fuseKs.length>0){Tadpole.printPlanLine("fusek", toKList(fuseKs));}
+			if(fuseMaxMismatches>=0){Tadpole.printPlanLine("fusemaxmismatches", fuseMaxMismatches);}
+			if(fuseDeadEndsOnly){Tadpole.printPlanLine("fusedeadends", "true");}
+			if(fuseConflicts){Tadpole.printPlanLine("fuseconflicts", "true");}
+			if(!fuseTrim){Tadpole.printPlanLine("fusetrim", "false");}
+			if(fusionVectorPrefix!=null){Tadpole.printPlanLine("fusionvectors", fusionVectorPrefix);}
+			if(fuseNet!=null){
+				Tadpole.printPlanLine("fusenet", fuseNet);
+				Tadpole.printPlanLine("fusencutoff", ""+fuseCutoff);
+			}
+			if(fusePath){
+				Tadpole.printPlanLine("fusepath", "true");
+				Tadpole.printPlanLine("fusepathdepth", fusePathDepth);
+				Tadpole.printPlanLine("fusepathflank", fusePathFlank==0 ? "auto" : ""+fusePathFlank);
+			}
 			if(bridgeKs.length>0){Tadpole.printPlanLine("bridgek", toKList(bridgeKs));}
 			final int displayedHashMode=displayedHashMode();
 			if(displayedHashMode>0){
@@ -633,10 +980,23 @@ public class TadpoleMulti {
 
 		final ArrayList<String> common=new ArrayList<String>();
 		final int assembleK;
-		final int[] fuseKs, bridgeKs;
+		final int[] fuseKs, bridgeKs, phaseKs;
+		final boolean bridgeInitial;
+		boolean ordered=true;
 		String out, outGfa;
+		String fusionVectorPrefix;
+		String fuseNet;
+		float fuseCutoff=Float.NaN;
+		boolean fuseCutoffSet=false;
 		float maxDepthRatio=3;
 		int passes=10;
+		int fuseMaxMismatches=-1;
+		boolean fuseDeadEndsOnly=false;
+		boolean fuseConflicts=false;
+		boolean fusePath=false;
+		int fusePathDepth=1;
+		int fusePathFlank=0;
+		boolean fuseTrim=true;
 		int graphK=-1;
 		boolean simpleOmnitigs=false, graphCover=false, lowDepthContigDiag=false, evictLowDepthContigs=false, popBubbles=true;
 		boolean classifyGraphContigs=false;
@@ -660,6 +1020,10 @@ public class TadpoleMulti {
 	}
 
 	private final Config config;
+	private Tadpole fusionSupportTadpole;
+	private FusionKmerSupport fusionSupport;
+	private FusionJoinCollector fusionCollector;
+	private FusionNeuralGate fusionNeural;
 	private Tadpole.LowDepthDiagnostic finalLowDepthDiagnostic;
 
 	private static boolean isLowDepthDiagStage(final String s){

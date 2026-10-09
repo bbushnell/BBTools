@@ -3,26 +3,37 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified August 30, 2026
+Last modified October 9, 2026
 
-Description:  Assemble at one kmer length, directly join unique reciprocal
-tip overlaps at requested shorter K values, then load independent bridge-K
-tables and conservatively bridge remaining gaps.  Bridge K may be longer or
-shorter than the assembly K.
+Description:  Assemble at one kmer length, then process the ordered K list.
+Each phase fuses eligible shorter-K overlaps and bridges remaining gaps,
+sharing one count table.  Bridge K may be longer or shorter than assembly K.
 
-Usage:  tadpolemulti.sh in=<reads> out=<contigs> k=31,75,140
+Usage:  tadpolemulti.sh in=<reads> out=<contigs> k=96,124,64,32
 Custom: tadpolemulti.sh in=<reads> out=<contigs> assemblek=96 fusek=64 bridgek=128,96,64,32 graphk=96
 
 Core parameters:
-k=             Shorthand kmer list; internally sorted descending.  The longest
-               value assembles, and shorter values fuse and bridge by default.
+k=             Ordered K list. The first value assembles by default; repeated
+               values request repeated phases, e.g.96,124,64,32,96.
+korder=input   input preserves order; legacy sorts unique Ks and runs all
+               fusions before all bridges, with the old longest-K defaults.
 assemblek=auto Initial assembly K.  An explicit value overrides k shorthand.
+               The first matching list occurrence is consumed by assembly;
+               if absent, assembly precedes the list.
 fusek=auto     Exact reciprocal tip-overlap K values; all must be below assemblek.
                joink is an alias.  Set to none to disable.
 bridgek=auto   Read-supported unbranched-walk K values; these may be above,
                below, or equal to assemblek.  Set to none to disable.
-graphk=auto    Final graph K for simpleomnitigs or graphcover.  Defaults to
-               assemblek; a matching final bridge table is reused when available.
+               In input order, fusek/bridgek filter the k list, which must
+               contain all requested values. Without k, use fusek order then
+               additional bridgek values after assembly.
+graphk=auto    Final graph K for simplification, graph output or path extraction.
+               Defaults to the last listed K; a matching final table is reused.
+               A different graphk needs another load. Legacy defaults to assemblek.
+fusenet=null   Optional fusion-join network; disabled by default. Supply the path
+               to networks/tadpole_fusion.bbnet for the bundled dense model.
+fusencutoff=   Required with fusenet. The bundled model was tested at 0.667098
+               on simulated bacterial reads with minprob=0 minprobmain=f.
 crosskmaxdepthratio=3
                Reject a bridge whose depth exceeds this multiple of the
                greater flank coverage.  Set to 0 to disable.

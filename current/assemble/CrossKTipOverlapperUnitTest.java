@@ -3,6 +3,8 @@ package assemble;
 import java.util.ArrayList;
 import java.util.HashMap;
 
+import dna.AminoAcid;
+
 /** Assertion-based tests for exact low-depth tip-overlap joining. */
 public class CrossKTipOverlapperUnitTest {
 
@@ -26,6 +28,16 @@ public class CrossKTipOverlapperUnitTest {
 		failures+=run("graphKUnbranchedOverlap", CrossKTipOverlapperUnitTest::graphKUnbranchedOverlap);
 		failures+=run("graphKBranchIgnored", CrossKTipOverlapperUnitTest::graphKBranchIgnored);
 		failures+=run("selfOverlapIsAmbiguous", CrossKTipOverlapperUnitTest::selfOverlapIsAmbiguous);
+		failures+=run("trimmedFlankOrientations", CrossKTipOverlapperUnitTest::trimmedFlankOrientations);
+		failures+=run("trimmedFlankBudget", CrossKTipOverlapperUnitTest::trimmedFlankBudget);
+		failures+=run("trimmedFlankCoverage", CrossKTipOverlapperUnitTest::trimmedFlankCoverage);
+		failures+=run("guardedInwardOverlap", CrossKTipOverlapperUnitTest::guardedInwardOverlap);
+		failures+=run("realRepeatTrimRejected", CrossKTipOverlapperUnitTest::realRepeatTrimRejected);
+		failures+=run("changedContextDeclinesMerge", CrossKTipOverlapperUnitTest::changedContextDeclinesMerge);
+		failures+=run("historicalDeadEnds", CrossKTipOverlapperUnitTest::historicalDeadEnds);
+		failures+=run("fusionEndpointOrientations", CrossKTipOverlapperUnitTest::fusionEndpointOrientations);
+		failures+=run("conflictingRepeatPlacement", CrossKTipOverlapperUnitTest::conflictingRepeatPlacement);
+		failures+=run("unconflictedFusionPreserved", CrossKTipOverlapperUnitTest::unconflictedFusionPreserved);
 		BubblePopper.crossKMerge=false;
 		System.out.println(failures==0 ? "ALL TESTS PASSED" : failures+" TEST(S) FAILED");
 		if(failures>0){System.exit(1);}
@@ -155,6 +167,194 @@ public class CrossKTipOverlapperUnitTest {
 				"A terminal self-overlap was ignored when selecting an external join");
 	}
 
+	/** Covers all stored orientations and the reciprocal direction of the same splice. */
+	private static void trimmedFlankOrientations(){
+		for(int orientation=0; orientation<4; orientation++){
+			final boolean ar=(orientation&1)!=0, br=(orientation&2)!=0;
+			final Contig a=oriented("GGACGTCAGTA", ar);
+			final Contig b=oriented("ACGTCAGTACC", br);
+			check(CrossKTipOverlapper.compatibleTrimmedFlanks(a, ar, 2, b, br, 2, 5, 0),
+					"Compatible flanks rejected in orientation "+orientation);
+			final Contig changed=oriented("GGACGTCAGTG", ar);
+			for(int allowance=0; allowance<=1; allowance++){
+				final boolean forward=CrossKTipOverlapper.compatibleTrimmedFlanks(changed, ar, 2, b, br, 2, 5, allowance);
+				final boolean reverse=CrossKTipOverlapper.compatibleTrimmedFlanks(b, !br, 2, changed, !ar, 2, 5, allowance);
+				check(forward==(allowance==1) && reverse==forward,
+						"Mismatch budget or reciprocal geometry differs in orientation "+orientation);
+			}
+		}
+	}
+
+	/** The allowance is shared across both flanks, and N/N consumes a mismatch. */
+	private static void trimmedFlankBudget(){
+		final Contig a=oriented("GGACGTCAGTG", false);
+		final Contig b=oriented("ATGTCAGTACC", false);
+		check(!CrossKTipOverlapper.compatibleTrimmedFlanks(a, false, 2, b, false, 2, 5, 1),
+				"One mismatch on each side incorrectly counted as one total");
+		check(CrossKTipOverlapper.compatibleTrimmedFlanks(a, false, 2, b, false, 2, 5, 2),
+				"Two allowed flank mismatches rejected");
+		final Contig unknownA=oriented("GGACGTCAGNA", false);
+		final Contig unknownB=oriented("ACGTCAGNACC", false);
+		check(!CrossKTipOverlapper.compatibleTrimmedFlanks(unknownA, false, 2, unknownB, false, 2, 5, 0),
+				"Matching unknown bases were treated as positive evidence");
+		check(CrossKTipOverlapper.compatibleTrimmedFlanks(unknownA, false, 2, unknownB, false, 2, 5, 1),
+				"One unknown comparison must consume exactly one allowed disagreement");
+	}
+
+	/** Every discarded base must have a corresponding base in the other contig. */
+	private static void trimmedFlankCoverage(){
+		final Contig a=oriented("GGACGTCAGTAC", false);
+		final Contig b=oriented("ACGTCAGTA", false);
+		check(!CrossKTipOverlapper.compatibleTrimmedFlanks(a, false, 3, b, false, 2, 5, 10),
+				"Uncovered source tail was silently ignored");
+		final Contig shortA=oriented("GTCAGTA", false);
+		check(!CrossKTipOverlapper.compatibleTrimmedFlanks(shortA, false, 2, b, false, 2, 5, 10),
+				"Uncovered destination prefix was silently ignored");
+	}
+
+	/** The historical inward-tip fixture discards four conflicting bases. */
+	private static void guardedInwardOverlap(){
+		for(int allowance=0; allowance<=1; allowance++){
+			final Contig a=contig(0, "AAAACCCCGGGTT", false, true);
+			final Contig b=contig(1, "TTCCCCGGGAAAA", true, false);
+			check(new CrossKTipOverlapper(list(a, b), 5, 9, false, 0, allowance).addEdges()==0,
+					"Conflicting inward-tip fixture survived allowance "+allowance);
+		}
+		final Contig a=contig(0, "AAAACCCCGGGG", false, true);
+		final Contig b=contig(1, "CCCGGGGTTTT", true, false);
+		check(new CrossKTipOverlapper(list(a, b), 5, 9, false, 0, 0).addEdges()==1,
+				"Strict validation changed an ordinary untrimmed exact fusion");
+	}
+
+	/** Uses the observed M.ruber 55bp repeat and both contradictory continuations. */
+	private static void realRepeatTrimRejected(){
+		final String anchor="ATTCAAGCCGACCGAAGGGAGTAGAAAAGCCTTTCGGTAGTATCGTTTAGGCTTG";
+		final String source="GGTGAAGG"+anchor+"CCACAGTGAACGATACTACCGAAATGCGTATGAGAGACT";
+		final String dest=anchor+"TCAAAGTGAACAATACTACCGAAATGCGTATGAAGTCCG"+"GCTGC";
+		for(int allowance=-1; allowance<=1; allowance++){
+			final Contig a=contig(0, source, false, true), b=contig(1, dest, true, false);
+			final int pairs=new CrossKTipOverlapper(list(a, b), 32, 94, false, 0, allowance).addEdges();
+			check(pairs==(allowance<0 ? 1 : 0), "Real repeat fixture has wrong fusion count: "+pairs);
+		}
+	}
+
+	/** Stale anchors and newly contradictory tails must decline before mutating either contig. */
+	private static void changedContextDeclinesMerge(){
+		final int oldAllowance=BubblePopper.crossKMaxMismatches;
+		BubblePopper.crossKMaxMismatches=1;
+		try{
+			for(int changed=0; changed<3; changed++){
+				final Contig a=contig(0, "GGACGTCAGTG", false, true);
+				final Contig b=contig(1, "ACGTCAGTACC", true, false);
+				a.addRightEdge(new Edge(0, 1, 0, 1, 20, null, 5, 2, 2));
+				b.addLeftEdge(new Edge(1, 0, 0, 2, 20, null, 5, 2, 2));
+				if(changed==1){b.bases[1]='T';}//A second disagreement in the opposite flank.
+				if(changed==2){b.bases[4]='A';}//The exact anchor itself is no longer valid.
+				final BubblePopper popper=popper(list(a, b));
+				final int merged=popper.expand(a);
+				check(merged==(changed==0 ? 1 : 0), "Stale fusion was not rechecked: "+changed);
+				if(changed>0){
+					check(!b.used() && a.length()==11 && popper.crossKRejectedFlanks>0,
+							"Declined stale edge changed sequence ownership");
+				}
+			}
+		}finally{
+			BubblePopper.crossKMaxMismatches=oldAllowance;
+		}
+	}
+
+	/** Clearing/reclassifying the graph must not manufacture original dead-end evidence. */
+	private static void historicalDeadEnds(){
+		for(boolean graphK : new boolean[]{false, true}){
+			for(int condition=0; condition<3; condition++){
+				final Contig a=contig(0, "AAAACCCCGGGG", false, true);
+				final Contig b=contig(1, "CCCGGGGTTTT", true, false);
+				if(condition==1){a.rightCode=Tadpole.F_BRANCH;}
+				if(condition==2){a.addRightEdge(new Edge(0, 1, 1, 1, 20, new byte[]{'A'}));}
+				a.markFusionEndpoints();
+				b.markFusionEndpoints();
+				a.rightEdges=null;
+				if(graphK){
+					a.leftCode=b.rightCode=Tadpole.F_BRANCH;
+					a.rightCode=b.leftCode=Tadpole.KEEP_GOING;
+				}
+				final int pairs=new CrossKTipOverlapper(list(a, b), 5, 9, graphK, 0, 0, true).addEdges();
+				check(pairs==(condition==0 ? 1 : 0),
+						"Historical dead-end gate failed: condition="+condition+", graphK="+graphK);
+				check(a.rightBridgeEndpoint && b.leftBridgeEndpoint,
+						"Fusion restriction altered independent bridge eligibility");
+			}
+		}
+	}
+
+	/** Both orientation APIs and actual reverse merges preserve only surviving outer flags. */
+	private static void fusionEndpointOrientations(){
+		final Contig c=contig(0, "ACGTTGCA", false, true);
+		c.leftFusionEndpoint=true;
+		c.rcomp();
+		check(!c.leftFusionEndpoint && c.rightFusionEndpoint, "rcomp did not swap fusion endpoints");
+		c.rcomp();
+		c.flip(null);
+		check(!c.leftFusionEndpoint && c.rightFusionEndpoint, "flip did not swap fusion endpoints");
+		c.flip(null);
+		check(c.leftFusionEndpoint && !c.rightFusionEndpoint, "Double flip lost endpoint state");
+		for(boolean reverse : new boolean[]{false, true}){
+			final Contig a=contig(0, "AAAACCCCGGGG", false, true);
+			final Contig b=contig(1, "CCCGGGGTTTT", true, false);
+			a.leftFusionEndpoint=false;
+			a.rightFusionEndpoint=b.leftFusionEndpoint=b.rightFusionEndpoint=true;
+			if(reverse){b.rcomp();}
+			final ArrayList<Contig> contigs=list(a, b);
+			check(new CrossKTipOverlapper(contigs, 5, 9, false, 0, 0, true).addEdges()==1,
+					"Eligible oriented ends failed to select a fusion");
+			check(popper(contigs).expand(a)==1, "Eligible oriented fusion failed to merge");
+			check(!a.leftFusionEndpoint && a.rightFusionEndpoint,
+					"Merged eligibility did not follow the surviving outer ends");
+		}
+	}
+
+	/** Real Spirulina event28: a shorter exact anchor has a larger contradictory placement span. */
+	private static void conflictingRepeatPlacement(){
+		final String source="TTCCCCTTTTTAAGGGGGGAGCCGCTCAAAGTCCCCCTTAAAAATAGGGGAGCCGCTCAAAGTCCCCCTTTTTAAGGGGGGAGCCGCTCAAAGTCCCCCTTTTTAAGGGGGGAGCCGCTCAAAGTCCCCCTTTTTAAGGG";
+		final String dest="CCGCTCAAAGTCCCCCTTTTTAAGGGGGGAGCCGCTCAAAGTCCCCCTTTTTAAGGGGGGAGCCGCTCAAAGTCCCCCTTTTTAAGGGGGGAGCTGCTCAAAGTCCCCCTTTTTAAGGGGGATTTAGGGGGATCGATCGC";
+		for(int orientation=0; orientation<4; orientation++){
+			for(boolean swap : new boolean[]{false, true}){
+				for(boolean enabled : new boolean[]{false, true}){
+					final Contig a=contig(0, source, false, true), b=contig(1, dest, true, false);
+					if((orientation&1)!=0){a.rcomp();}
+					if((orientation&2)!=0){b.rcomp();}
+					if(swap){a.id=1; b.id=0;}
+					final ArrayList<Contig> contigs=swap ? list(b, a) : list(a, b);
+					final int pairs=new CrossKTipOverlapper(contigs, 64, 94, false, 0, 1, false, enabled).addEdges();
+					check(pairs==(enabled ? 0 : 1),
+							"Conflict veto changed with orientation/order: "+orientation+", "+swap+", "+enabled);
+					if(!enabled){
+						final Edge edge=(orientation&1)==0 ? a.rightEdges.get(0) : a.leftEdges.get(0);
+						check(edge.overlap==88 && edge.sourceTrim==0 && edge.destTrim==0,
+								"Real repeat fixture no longer reproduces the observed 88bp fusion");
+					}
+				}
+			}
+		}
+	}
+
+	/** Ordinary exact joins remain available in initial and final graph-K overlap discovery. */
+	private static void unconflictedFusionPreserved(){
+		for(boolean graphK : new boolean[]{false, true}){
+			final Contig a=contig(0, "AAAACCCCGGGG", false, true);
+			final Contig b=contig(1, "CCCGGGGTTTT", true, false);
+			if(graphK){a.rightCode=b.leftCode=Tadpole.KEEP_GOING;}
+			check(new CrossKTipOverlapper(list(a, b), 5, 9, graphK, 0, 1, false, true).addEdges()==1,
+					"Conflict policy removed an unconflicted exact join");
+		}
+	}
+
+	/** Stores a requested oriented sequence forward or reverse-complemented. */
+	private static Contig oriented(final String sequence, final boolean reverse){
+		final byte[] bases=sequence.getBytes(java.nio.charset.StandardCharsets.US_ASCII);
+		if(reverse){AminoAcid.reverseComplementBasesInPlace(bases);}
+		return new Contig(bases);
+	}
 	private static BubblePopper popper(ArrayList<Contig> contigs){
 		HashMap<Integer, ArrayList<Edge>> map=new HashMap<Integer, ArrayList<Edge>>();
 		for(Contig c : contigs){

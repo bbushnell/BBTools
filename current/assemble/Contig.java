@@ -353,6 +353,11 @@ public class Contig {
 			rightBridgeEndpoint=temp;
 		}
 		{
+			final boolean temp=leftFusionEndpoint;
+			leftFusionEndpoint=rightFusionEndpoint;
+			rightFusionEndpoint=temp;
+		}
+		{
 			ArrayList<Edge> temp=leftEdges;
 			leftEdges=rightEdges;
 			rightEdges=temp;
@@ -495,6 +500,13 @@ public class Contig {
 	}
 	
 	public final boolean flipped(){return flipped;}
+
+	/** Captures assembly-K dead ends before TadpoleMulti clears the original graph. */
+	void markFusionEndpoints(){
+		assert(!used && !associate) : "Only surviving initial contigs may supply historical fusion endpoints.";
+		leftFusionEndpoint=(leftCode==Tadpole.DEAD_END && leftEdgeCount()==0);
+		rightFusionEndpoint=(rightCode==Tadpole.DEAD_END && rightEdgeCount()==0);
+	}
 	
 	final void flip(ArrayList<Edge> inbound){
 		if(Tadpole.verbose){System.err.println("Flipping contig "+name());}
@@ -514,6 +526,11 @@ public class Contig {
 			boolean temp=leftBridgeEndpoint;
 			leftBridgeEndpoint=rightBridgeEndpoint;
 			rightBridgeEndpoint=temp;
+		}
+		{
+			final boolean temp=leftFusionEndpoint;
+			leftFusionEndpoint=rightFusionEndpoint;
+			rightFusionEndpoint=temp;
 		}
 		{
 			ArrayList<Edge> temp=leftEdges;
@@ -638,6 +655,8 @@ public class Contig {
 	float rightRatio;
 	boolean leftBridgeEndpoint;
 	boolean rightBridgeEndpoint;
+	/** Original assembly-K dead-end eligibility; follows the surviving outer ends. */
+	boolean leftFusionEndpoint, rightFusionEndpoint;
 	public int id;
 	/** Orthogonal graph QC axes; graphClassHop stores N for anchored topology classes. */
 	public int graphClass=GRAPH_UNCLASSIFIED;

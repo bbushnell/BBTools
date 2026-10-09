@@ -8,6 +8,6 @@ parseJavaArgs --xmx=512m --xms=64m --mode=fixed "$@"
 setEnvironment
 java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" assemble.TadpoleGraphTest "$@"
 for test in BubblePopperUnitTest PathPreservingBubbleSimplifierSpec ReadThreadedXResolverUnitTest \
-    CrossKTipOverlapperUnitTest SimpleOmnitigExtractorUnitTest TadpoleMultiUnitTest ContigGraphClassifierUnitTest; do
+    CrossKTipOverlapperUnitTest FusionKmerSupportTest SimpleOmnitigExtractorUnitTest TadpoleMultiUnitTest ContigGraphClassifierUnitTest; do
   java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" "assemble.$test"
 done

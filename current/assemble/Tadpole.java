@@ -1259,11 +1259,12 @@ public abstract class Tadpole extends ShaveObject{
 	/** Installs externally built contigs for graph processing. */
 	final void setContigs(ArrayList<Contig> contigs){allContigs=contigs;}
 
-	/** Marks low-depth, graph-disconnected ends as candidates for shorter-k bridging. */
+	/** Captures independent bridge and fusion eligibility before clearing assembly-K edges. */
 	final void markBridgeEndpoints(){
 		for(Contig c : allContigs){
 			c.leftBridgeEndpoint=(c.leftCode!=LOOP);
 			c.rightBridgeEndpoint=(c.rightCode!=LOOP);
+			c.markFusionEndpoints();
 		}
 	}
 

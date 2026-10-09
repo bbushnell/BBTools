@@ -5,9 +5,15 @@ public class TadpoleMultiUnitTest {
 
 	public static void main(String[] args){
 		int failures=0;
+		failures+=run("orderedPhasesPreserveOccurrences", TadpoleMultiUnitTest::orderedPhasesPreserveOccurrences);
+		failures+=run("orderedGraphDefaultsAndOverrides", TadpoleMultiUnitTest::orderedGraphDefaultsAndOverrides);
+		failures+=run("orderedPhaseFilters", TadpoleMultiUnitTest::orderedPhaseFilters);
 		failures+=run("shorthandExpandsFromLargest", TadpoleMultiUnitTest::shorthandExpandsFromLargest);
 		failures+=run("explicitAssemblyReclassifiesShorthand", TadpoleMultiUnitTest::explicitAssemblyReclassifiesShorthand);
 		failures+=run("explicitPhaseListsOverrideShorthand", TadpoleMultiUnitTest::explicitPhaseListsOverrideShorthand);
+		failures+=run("fusionMismatchOption", TadpoleMultiUnitTest::fusionMismatchOption);
+		failures+=run("fusionDeadEndOption", TadpoleMultiUnitTest::fusionDeadEndOption);
+		failures+=run("fusionConflictOption", TadpoleMultiUnitTest::fusionConflictOption);
 		failures+=run("singleKHasNoImplicitJoining", TadpoleMultiUnitTest::singleKHasNoImplicitJoining);
 		failures+=run("noneDisablesPhases", TadpoleMultiUnitTest::noneDisablesPhases);
 		failures+=run("explicitAutoUsesShorthand", TadpoleMultiUnitTest::explicitAutoUsesShorthand);
@@ -42,6 +48,47 @@ public class TadpoleMultiUnitTest {
 		}
 	}
 
+	/** A repeated K represents another pass, not a duplicate to discard. */
+	private static void orderedPhasesPreserveOccurrences(){
+		final TadpoleMulti.Config c=config("korder=input", "packed=t", "k=96,124,64,32,96");
+		check(c.ordered && c.assembleK==96, "Input order must select the first assembly K");
+		checkArray(c.phaseKs, 96, 124, 64, 32, 96);
+		checkArray(c.fuseKs, 64, 32);
+		check(c.graphK==96, "Repeated final96 must supply the graph");
+		check(!c.bridgeInitial, "Default initial assembly must not repeat bridge discovery");
+		final TadpoleMulti.Config moved=config("korder=input", "packed=t", "k=32,64,96,124", "assemblek=96");
+		checkArray(moved.phaseKs, 96, 32, 64, 124);
+		check(moved.graphK==124, "Moving the initial K must preserve remaining phase order");
+	}
+
+	/** Mixed-order lists expose the difference between assembly-K and last-K defaults. */
+	private static void orderedGraphDefaultsAndOverrides(){
+		final TadpoleMulti.Config c=config("korder=input", "packed=t", "k=96,124,32,64");
+		checkArray(c.phaseKs, 96, 124, 32, 64);
+		check(c.graphK==64, "Default graph must reuse final64, not initial96");
+		check(config("korder=input", "k=96,124,32,64", "graphk=auto").graphK==64,
+				"Explicit auto must also select final64");
+		check(config("korder=input", "k=96,124,32,64", "graphk=96").graphK==96,
+				"Explicit graphk override was lost");
+		final TadpoleMulti.Config normal=new TadpoleMulti.Config(new String[]{"k=96,124,32,64", "out=test.fa"});
+		check(normal.ordered && normal.graphK==64, "Ordered processing must be the actual default");
+		check(config("korder=input", "k=32,64,96", "assemblek=96").graphK==96,
+				"Explicit assembly relocation must not change the user's last listed graph K");
+	}
+
+	/** Explicit phase lists filter occurrences; they cannot silently add an unordered K. */
+	private static void orderedPhaseFilters(){
+		final TadpoleMulti.Config c=config("korder=input", "k=96,124,32,64,32", "fusek=64", "bridgek=124,32");
+		checkArray(c.phaseKs, 96, 124, 32, 64, 32);
+		checkArray(c.fuseKs, 64);
+		checkArray(c.bridgeKs, 124, 32);
+		expectFailure("absent from k", "korder=input", "k=96,64", "bridgek=32");
+		final TadpoleMulti.Config noList=config("korder=input", "assemblek=96", "fusek=32,64", "bridgek=124,64");
+		checkArray(noList.phaseKs, 96, 32, 64, 124);
+		check(noList.graphK==124, "Without k, default graph uses the last constructed phase");
+		expectFailure("requires a positive", "korder=input", "k=96,64,");
+	}
+
 	private static void shorthandExpandsFromLargest(){
 		final TadpoleMulti.Config c=config("k=31,63,95,127");
 		check(c.assembleK==127, "Wrong assembly k: "+c.assembleK);
@@ -62,6 +109,53 @@ public class TadpoleMultiUnitTest {
 		check(c.assembleK==96, "Wrong assembly k: "+c.assembleK);
 		checkArray(c.fuseKs, 64);
 		checkArray(c.bridgeKs, 128, 96, 64, 32);
+	}
+
+	/** Conflict detection needs a mismatch budget and must stay out of table-loader arguments. */
+	private static void fusionConflictOption(){
+		check(!config("k=95,63").fuseConflicts, "Conflict restriction changed the default");
+		expectFailure("requires fusemaxmismatches", "k=95,63", "fuseconflicts=t");
+		final TadpoleMulti.Config c=config("k=95,63", "fuseconflicts=t", "fusemaxmismatches=1");
+		check(c.fuseConflicts, "Conflict restriction was not parsed");
+		check(!config("k=95,63", "fuseconflicts=t", "fuseconflicts=f").fuseConflicts,
+				"Explicit false did not restore legacy selection");
+		for(String arg : new TadpoleMulti(c).makeArgs(63, false)){
+			check(!arg.startsWith("fuseconflicts="), "Conflict policy leaked into a table loader");
+		}
+		check(TadpoleMulti.hasMultipleK(new String[]{"k=95", "fuseconflicts=t"}),
+				"Conflict option was not routed to the multi-K controller");
+	}
+
+	/** Historical eligibility is opt-in, parsed once, and never passed to a table loader. */
+	private static void fusionDeadEndOption(){
+		check(!config("k=95,63").fuseDeadEndsOnly, "Dead-end restriction changed the default");
+		final TadpoleMulti.Config c=config("k=95,63", "fusedeadends=t");
+		check(c.fuseDeadEndsOnly, "Dead-end restriction was not parsed");
+		check(!config("k=95,63", "fusedeadends=t", "fusedeadends=f").fuseDeadEndsOnly,
+				"Explicit false did not restore legacy fusion eligibility");
+		for(String arg : new TadpoleMulti(c).makeArgs(63, false)){
+			check(!arg.startsWith("fusedeadends="), "Fusion eligibility leaked into a table loader");
+		}
+		check(TadpoleMulti.hasMultipleK(new String[]{"k=95", "fusedeadends=t"}),
+				"Dead-end option was not routed to the multi-K controller");
+	}
+
+	/** The guard is opt-in and must not leak into individual table loaders. */
+	private static void fusionMismatchOption(){
+		check(config("k=95,63").fuseMaxMismatches==-1, "Legacy fusion default changed");
+		for(int allowance=0; allowance<=1; allowance++){
+			final TadpoleMulti.Config c=config("k=95,63", "fusemaxmismatches="+allowance);
+			check(c.fuseMaxMismatches==allowance, "Fusion mismatch budget not parsed");
+			for(String arg : new TadpoleMulti(c).makeArgs(63, false)){
+				check(!arg.startsWith("fusemaxmismatches="), "Fusion option leaked into a table loader");
+			}
+		}
+		boolean rejected=false;
+		try{config("k=95,63", "fusemaxmismatches=-2");}
+		catch(IllegalArgumentException expected){rejected=true;}
+		check(rejected, "Invalid negative fusion mismatch budget accepted");
+		check(TadpoleMulti.hasMultipleK(new String[]{"k=95", "fusemaxmismatches=1"}),
+				"Fusion option was not routed to the multi-K controller");
 	}
 
 	private static void singleKHasNoImplicitJoining(){
@@ -259,9 +353,10 @@ public class TadpoleMultiUnitTest {
 	}
 
 	private static TadpoleMulti.Config config(final String... args){
-		final String[] withOut=new String[args.length+1];
-		System.arraycopy(args, 0, withOut, 0, args.length);
-		withOut[args.length]="out=test.fa";
+		final String[] withOut=new String[args.length+2];
+		withOut[0]="korder=legacy";// Existing fixtures explicitly retain their historical parser contract.
+		System.arraycopy(args, 0, withOut, 1, args.length);
+		withOut[args.length+1]="out=test.fa";
 		return new TadpoleMulti.Config(withOut);
 	}
 

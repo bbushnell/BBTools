@@ -385,9 +385,11 @@ class SimpleOmnitigExtractor {
 		out.leftCode=firstReverse ? left.rightCode : left.leftCode;
 		out.leftRatio=firstReverse ? left.rightRatio : left.leftRatio;
 		out.leftBridgeEndpoint=firstReverse ? left.rightBridgeEndpoint : left.leftBridgeEndpoint;
+		out.leftFusionEndpoint=firstReverse ? left.rightFusionEndpoint : left.leftFusionEndpoint;
 		out.rightCode=lastReverse ? right.leftCode : right.rightCode;
 		out.rightRatio=lastReverse ? right.leftRatio : right.rightRatio;
 		out.rightBridgeEndpoint=lastReverse ? right.leftBridgeEndpoint : right.rightBridgeEndpoint;
+		out.rightFusionEndpoint=lastReverse ? right.leftFusionEndpoint : right.rightFusionEndpoint;
 		return out;
 	}
 
@@ -412,9 +414,11 @@ class SimpleOmnitigExtractor {
 		out.leftCode=reverse ? source.rightCode : source.leftCode;
 		out.leftRatio=reverse ? source.rightRatio : source.leftRatio;
 		out.leftBridgeEndpoint=reverse ? source.rightBridgeEndpoint : source.leftBridgeEndpoint;
+		out.leftFusionEndpoint=reverse ? source.rightFusionEndpoint : source.leftFusionEndpoint;
 		out.rightCode=reverse ? source.leftCode : source.rightCode;
 		out.rightRatio=reverse ? source.leftRatio : source.rightRatio;
 		out.rightBridgeEndpoint=reverse ? source.leftBridgeEndpoint : source.rightBridgeEndpoint;
+		out.rightFusionEndpoint=reverse ? source.leftFusionEndpoint : source.rightFusionEndpoint;
 		return out;
 	}
 

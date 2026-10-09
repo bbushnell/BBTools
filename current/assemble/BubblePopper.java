@@ -301,6 +301,19 @@ public class BubblePopper {
 			if(crossKMerge){crossKRejectedDestInbound++;}
 			return false;
 		}
+		//An earlier fusion at the other end can change this edge's context,
+		//particularly with short contigs and a nonzero mismatch allowance.
+		if(crossKMerge && crossKMaxMismatches>=0 && leftEdge.overlap>0
+				&& !CrossKTipOverlapper.compatibleTrimmedFlanks(center, false, leftEdge.sourceTrim,
+						dest, leftEdge.destRight(), leftEdge.destTrim, leftEdge.overlap, crossKMaxMismatches)){
+			crossKRejectedFlanks++;
+			return false;
+		}
+		if(crossKMerge && crossKSupport!=null && leftEdge.overlap>0
+				&& !crossKSupport.supported(center, false, leftEdge.sourceTrim,
+						dest, leftEdge.destRight(), leftEdge.destTrim, leftEdge.overlap)){
+			return false;
+		}
 		
 		if(leftEdge.destRight()){
 			dest.flip(destMap.get(dest.id));
@@ -605,6 +618,7 @@ public class BubblePopper {
 				alternateEntry.depth/(float)entryDepthSum, alternateExit.depth/(float)exitDepthSum);
 		final int leftMin=left.minCov, leftMax=left.maxCov;
 		final int rightMin=right.minCov, rightMax=right.maxCov;
+		final boolean leftFusion=left.leftFusionEndpoint, rightFusion=right.rightFusionEndpoint;
 
 		representative.setUsed(destMap, allContigs);
 		alternate.setUsed(destMap, allContigs);
@@ -617,6 +631,9 @@ public class BubblePopper {
 		setTerminalProduct(right, alternatePath, alternateCoverage,
 				Tools.min(leftMin, rightMin, alternate.minCov),
 				Tools.max(leftMax, rightMax, alternate.maxCov));
+		//Both products share the original outer ends; new DEAD_END codes are not evidence.
+		left.leftFusionEndpoint=right.leftFusionEndpoint=leftFusion;
+		left.rightFusionEndpoint=right.rightFusionEndpoint=rightFusion;
 
 		expansions++;
 		trueBubblesUnzipped++;
@@ -773,6 +790,7 @@ public class BubblePopper {
 		left.rightCode=right.rightCode;
 		left.rightRatio=right.rightRatio;
 		left.rightBridgeEndpoint=right.rightBridgeEndpoint;
+		left.rightFusionEndpoint=right.rightFusionEndpoint;
 		final double coverageSum;
 		if(crossKMerge){
 			coverageSum=left.coverage*originalLeftLength+right.coverage*right.length();
@@ -793,6 +811,7 @@ public class BubblePopper {
 			left.leftCode=Tadpole.LOOP;
 			left.rightCode=Tadpole.LOOP;
 			left.leftBridgeEndpoint=left.rightBridgeEndpoint=false;
+			left.leftFusionEndpoint=left.rightFusionEndpoint=false;
 			left.removeAllEdges(destMap.remove(left.id), allContigs); //remove, not get: also drop the stale destMap entry for this now-loop contig, else validateGraph sees a dangling inbound list (validate:983)
 		}
 		
@@ -928,6 +947,7 @@ public class BubblePopper {
 		left.rightCode=right.rightCode;
 		left.rightRatio=right.rightRatio;
 		left.rightBridgeEndpoint=right.rightBridgeEndpoint;
+		left.rightFusionEndpoint=right.rightFusionEndpoint;
 		final double coverageSum;
 		if(crossKMerge){
 			final int retainedLeft=originalLeftLength-leftEdge.sourceTrim;
@@ -944,6 +964,7 @@ public class BubblePopper {
 			left.leftCode=Tadpole.LOOP;
 			left.rightCode=Tadpole.LOOP;
 			left.leftBridgeEndpoint=left.rightBridgeEndpoint=false;
+			left.leftFusionEndpoint=left.rightFusionEndpoint=false;
 			left.removeAllEdges(destMap.remove(left.id), allContigs); //remove, not get: also drop the stale destMap entry for this now-loop contig, else validateGraph sees a dangling inbound list (validate:983)
 		}
 		
@@ -1364,6 +1385,10 @@ public class BubblePopper {
 	static boolean crossKMerge=false;
 	/** Maximum bridge depth divided by the greater flank coverage; nonpositive disables. */
 	static float crossKMaxDepthRatio=3;
+	/** Extra-overlap disagreement budget; negative retains legacy unchecked trimming. */
+	static int crossKMaxMismatches=-1;
+	/** Optional serial exact-fusion check; gap bridges never consult this checker. */
+	static FusionKmerSupport crossKSupport;
 	long crossKMergeEvaluations=0;
 	long crossKMerged=0;
 	long crossKRejectedSourceShape=0;
@@ -1373,6 +1398,7 @@ public class BubblePopper {
 	long crossKRejectedReciprocal=0;
 	long crossKRejectedSourceInbound=0;
 	long crossKRejectedDestInbound=0;
+	long crossKRejectedFlanks=0;
 	/** Whether debranching of dead ends is enabled */
 	static boolean debranch=false;
 	/** Whether assertion-enabled runs perform graph consistency checks */

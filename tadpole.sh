@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified September 30, 2026
+Last modified October 9, 2026
 
 Description:  Uses kmer counts to assemble contigs, extend sequences,
 or error-correct reads.  Tadpole has no upper bound for kmer length.
@@ -16,17 +16,17 @@ etc.) and silently rounds down otherwise.
 Please read bbmap/docs/guides/TadpoleGuide.txt for more information.
 
 Usage (Assembly):  tadpole.sh k=62 in=<reads> out=<contigs>
-Multi-K assembly:  tadpole.sh k=31,63,95,127 in=<reads> out=<contigs>
+Multi-K assembly:  tadpole.sh k=96,124,64,32 in=<reads> out=<contigs>
 Custom phases:     tadpole.sh assemblek=96 fusek=64 bridgek=128,96,64,32 graphk=96 in=<reads> out=<contigs>
 Extension:    tadpole.sh k=62 in=<reads> out=<extended> mode=extend
 Correction:   tadpole.sh k=62 in=<reads> out=<corrected> mode=correct
 Graph only:   tadpole.sh in=<reads> contigs=<assembly.fa> mode=graph k=31 dot=<graph.dot> pretty
 PacBio HiFi:  tadpole.sh in=<reads> out=<corrected> k=62 ecc pacbio
 
-Multi-K shorthand assembles at the longest K, joins unique reciprocal exact
-tip overlaps at each shorter K, and uses each shorter read table to bridge
-eligible tips through unique unbranched paths.  The phases can also be set
-independently; bridge K values may be longer or shorter than the assembly K.
+Multi-K shorthand assembles at the first K, then processes the remaining Ks
+in their supplied order. Each phase joins eligible reciprocal exact tip
+overlaps and bridges eligible tips through unique unbranched paths, sharing
+one read-count table. Bridge K may be longer or shorter than assembly K.
 It currently supports contig mode only, requires rereadable input files,
 and cannot use stdin.
 
@@ -97,7 +97,7 @@ filtermem=0         Allows manually specifying prefilter memory in bytes, for
 Hashing parameters:
 k=31                Kmer length (1 to infinity).  Memory use increases with K.
                     A comma-delimited list enables multi-K assembly; values are
-                    internally sorted from longest to shortest.
+                    processed in input order unless korder=legacy is requested.
 prealloc=f          Pre-allocate memory rather than dynamically growing;
                     faster and more memory-efficient.  A float fraction (0-1)
                     may be specified; default is 1.
@@ -129,9 +129,71 @@ fillfast=t          Speed up kmer extension lookups.
 
 Multi-K parameters:
 assemblek=auto      Kmer length used to build the initial contigs.  By default,
-                    this is the longest value in k.
+                    this is the first value in k.
+korder=input       Process k in the supplied order, preserving repeated values.
+                    Assembly consumes the first occurrence of assemblek (or
+                    precedes the list if absent). Each later occurrence groups
+                    fusion then bridging and shares one count table when needed.
+                    legacy restores sorted unique Ks, all fusion before bridging,
+                    and the old assemblek/graphk defaults for comparisons.
 fusek=auto          (joink) Comma-delimited K values for exact reciprocal tip
                     overlaps.  Values must be shorter than assemblek.
+                    With korder=input, fusek and bridgek filter the k schedule;
+                    list every requested phase K in k. If k is absent, phases
+                    follow fusek then additional bridgek values. Neural/path
+                    fusion uses raw explicit counts, then cleans that same table
+                    for bridging; no second evidence table is kept in memory.
+fusedeadends=f      Require both fusion ends to have been DEAD_END with no edges
+                   after initial assembly-K processing.  Applies to final graph-K
+                   overlap fusion too; bridge eligibility is unchanged.
+fusemaxmismatches=-1 Validate trimmed-away overlapping flanks at every fusion K.
+                    -1 preserves unchecked trimming; 0 requires agreement;
+                    1 permits one mismatch total across both discarded flanks.
+                    The shared anchor remains exact. Unknown bases count as
+                    mismatches; uncovered trimmed bases reject the fusion.
+fuseconflicts=f     Reject a best fusion if the same ends have a larger covered
+                    placement with conflicting flanks in that pass. Placement
+                    span includes both trims. Requires fusemaxmismatches>=0;
+                    applies at every fusion K without a cross-K cache.
+fusepath=f         Validate each fusion using that fusion's K, across the overlap
+                    plus K retained bases on each side. All words must occur;
+                    both directions must favor the proposed path without a
+                    significant branch (existing branch-ratio settings apply).
+                    Missing flank context rejects. Rechecks before merging.
+                    Only one table is live: initial fusion passes load serially;
+                    final graph-K fusions reuse the possibly cleaned graph table.
+                    Gap bridging is unchanged. This is not spanning-read proof.
+fusepathdepth=1    Minimum word count for fusepath validation.
+fusenet=null       Optional experimental fusion-join network (109 v2 inputs,
+                    one output). Disabled by default; requires fusencutoff.
+                    Vetoes frozen reciprocal proposals after existing guards;
+                    never selects a replacement partner or changes gap bridging.
+                    Uses retained-window depths and original-tip entropy.
+                    Each fusion phase loads one exact, non-prefiltered read table;
+                    final graph-K fusions borrow its possibly cleaned table.
+                    Quality filtering is unchanged. Models trained on unfiltered
+                    counts should be tested with minprob=0 minprobmain=f.
+fusencutoff=<0..1> Explicit minimum accepted fusion score (inclusive).
+                    The model's embedded cutoff is not used. The bundled dense
+                    networks/tadpole_fusion.bbnet was tested at 0.667098 on
+                    simulated bacterial reads; it is not enabled automatically.
+                    Supply its actual file path with fusenet. Phase timings
+                    separate feature extraction and inference from table loading.
+fusionvectors=     Optional development-only prefix for .vectors.tsv,
+                    .histograms.tsv, .diagnostic.tsv, and .trace.tsv sidecars.
+                    Records reciprocal proposals before cycle/conflict/path
+                    vetoes, after partner selection and overlap eligibility.
+                    Does not change fusion decisions. Loads one count table
+                    per fusion phase; reference labels are generated separately.
+                    Outputs must not already exist. Disabled by default.
+fusepathflank=auto Minimum retained bases to validate on EACH side of the overlap.
+                    Effective flank is max(current fusion K, this value).
+                    auto or 0 uses K. Requires full flanks; never silently clips.
+fusetrim=t         Allow exact anchors with terminal trimming; validation follows
+                    fusemaxmismatches. Set f
+                    to admit only zero-trim external overlaps at both ends.
+                    Longer-than-K exact terminal overlaps remain eligible;
+                    conservative anchor/self/conflict ambiguity rules still apply.
 bridgek=auto        Comma-delimited K values for read-supported unbranched gap
                     walks.  Values may be above, below, or equal to assemblek.
                     Set fusek=none or bridgek=none to disable either phase.
@@ -143,6 +205,9 @@ crosskmaxdepthratio=3 (ckmdr) Maximum connecting-edge depth relative to the
                     higher-coverage flanking contig; 0 disables this filter.
 crosskpasses=10     (ckpasses) Maximum merge passes after each overlap or
                     bridging phase.
+
+Opt-in fusion example (replace /path/to/bbtools with the installation path):
+tadpole.sh in=reads.fq out=assembly.fa k=96,124,64,32 minprob=0 minprobmain=f fusenet=/path/to/bbtools/networks/tadpole_fusion.bbnet fusencutoff=0.667098
 
 Assembly parameters:
 mincountseed=3      (mcs) Minimum kmer count to seed a new contig or begin extension.
@@ -188,8 +253,12 @@ graphcover=f         (pathcover, nonredundantpaths) Output a deterministic graph
                     center is emitted twice on one boundary, never paired through.
                     Joined products must contain an independently output-sized contig.
 graphk=auto          Multi-K only.  Build the final graph at this kmer length.
-                    Defaults to assemblek and reuses a matching final bridge
-                    table when possible; another value rereads the inputs once.
+                    Defaults to the last listed K (assemblek in legacy mode;
+                    last constructed phase when no k list is supplied).
+                    Reuses the last phase table when K matches; a different
+                    explicit graphk rereads the inputs once. For example,
+                    k=96,124,32,64 ends with graphk=64 using at most four loads;
+                    k=96,124,64,32,96 intentionally loads 96 again at the end.
                     Before graph extraction, uniquely overlapping unbranched
                     graph-k ends are joined conservatively.
 lowdepthcontigdiag=f (ldcd) Report conservative short, low-depth isolate contigs.
