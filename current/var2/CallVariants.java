@@ -969,7 +969,10 @@ public class CallVariants {
 		final double insQual=Tools.sumHistogram(avgQualityArray[Var.INS+1])*imult;
 		
 		// Print detailed variant type statistics table
-		outstream.println("Type           \tCount\tRate\tAD\tDepth\tAF\tScore\tQual");
+		final boolean overflowedScore=scoreArray[Var.SUB+1][scoreArray[Var.SUB+1].length-1]>0 ||
+				scoreArray[Var.DEL+1][scoreArray[Var.DEL+1].length-1]>0 ||
+				scoreArray[Var.INS+1][scoreArray[Var.INS+1].length-1]>0;
+		outstream.println("Type           \tCount\tRate\tAD\tDepth\tAF\t"+(overflowedScore ? "Score>=" : "Score")+"\tQual");
 		outstream.println("Substitutions: \t"+sub+Tools.format("\t%.1f%%\t%."+(subAD>1000 ? 0 : 1)+"f\t%."+(subRD>1000 ? 0 : 1)+"f\t%.3f\t%.1f\t%.1f", 
 				sub*bmult, subAD, subRD, subAF, subScore, subQual));
 		outstream.println("Deletions:     \t"+del+Tools.format("\t%.1f%%\t%."+(delAD>1000 ? 0 : 1)+"f\t%."+(delRD>1000 ? 0 : 1)+"f\t%.3f\t%.1f\t%.1f", 
@@ -1613,18 +1616,18 @@ public class CallVariants {
 	public final VarFilter varFilter=new VarFilter();
 	/** SAM/BAM filtering parameters and methods */
 	public final SamFilter samFilter=new SamFilter();
-	/** Histogram arrays for variant scores by type [type][score] */
-	public final long[][] scoreArray=new long[8][200];
+	/** Histogram arrays for variant scores by type [type][score], with the final bin for >=200 */
+	public final long[][] scoreArray=new long[Var.VAR_TYPES+1][201];
 	/** Histogram array for ploidy/zygosity distribution */
 	public final long[] ploidyArray;
 	/** Histogram arrays for average base quality by type [type][quality] */
-	public final long[][] avgQualityArray=new long[8][100];
+	public final long[][] avgQualityArray=new long[Var.VAR_TYPES+1][100];
 	/** Histogram array for maximum base quality distribution */
 	public final long[] maxQualityArray=new long[100];
 	/** Allele and reference depth arrays [depth_type][variant_type] */
-	public final long[][] ADArray=new long[2][7];
+	public final long[][] ADArray=new long[2][Var.VAR_TYPES];
 	/** Allele frequency totals by variant type */
-	public final double[] AFArray=new double[7];
+	public final double[] AFArray=new double[Var.VAR_TYPES];
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Static Fields         ----------------*/

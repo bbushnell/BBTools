@@ -699,7 +699,7 @@ public class FilterVCF {
 		}
 		
 		if(scoreHistFile!=null){
-			CVOutputWriter.writeScoreHist(scoreHistFile, scoreHist);
+			CVOutputWriter.writeScoreHist(scoreHistFile, scoreHist, true);
 		}
 		
 		errorState|=bf.close();

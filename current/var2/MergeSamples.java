@@ -225,7 +225,7 @@ public class MergeSamples {
 		mergeMT(outVcf, bfa);
 
 		if(scoreHistFile!=null){
-			CVOutputWriter.writeScoreHist(scoreHistFile, scoreArray);
+			CVOutputWriter.writeScoreHist(scoreHistFile, scoreArray, false);
 		}
 	}
 	

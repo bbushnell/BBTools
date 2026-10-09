@@ -1544,18 +1544,18 @@ public class CallVariants2 {
 	public final VarFilter varFilter=new VarFilter();
 	/** SAM/BAM filtering configuration for read quality and mapping criteria */
 	public final SamFilter samFilter=new SamFilter();
-	/** 2D histogram array for variant quality score distribution analysis */
-	public final long[][] scoreArray=new long[8][200];
+	/** 2D histogram array for variant quality score distribution analysis; final bin is >=200 */
+	public final long[][] scoreArray=new long[Var.VAR_TYPES+1][201];
 	/** Array for tracking ploidy-specific variant count statistics */
 	public final long[] ploidyArray;
 	/** 2D histogram for average base quality distribution by variant type */
-	public final long[][] avgQualityArray=new long[8][100];
+	public final long[][] avgQualityArray=new long[Var.VAR_TYPES+1][100];
 	/** Histogram for maximum base quality distribution analysis */
 	public final long[] maxQualityArray=new long[100];
-	/** 2D array for allelic depth statistics [ref/alt][depth_bins] */
-	public final long[][] ADArray=new long[2][7];
+	/** 2D array for allelic depth statistics [ref/alt][variant_type] */
+	public final long[][] ADArray=new long[2][Var.VAR_TYPES];
 	/** Array for allele frequency distribution statistics */
-	public final double[] AFArray=new double[7];
+	public final double[] AFArray=new double[Var.VAR_TYPES];
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Static Fields         ----------------*/
