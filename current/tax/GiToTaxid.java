@@ -436,8 +436,8 @@ public class GiToTaxid {
 	public static boolean DISK_MODE=false;
 	private static DiskGiTable diskTable=null;
 	private static long contradictions=0;
-	private static long maxGiLoaded=-1;
-	private static int[][] array;
+	static long maxGiLoaded=-1;
+	static int[][] array;
 	private static final int SHIFT=30;
 	private static final long UPPERMASK=(-1L)<<SHIFT;
 	private static final long LOWERMASK=~UPPERMASK;
