@@ -3,6 +3,7 @@
 #Version 1.1
 #Brian Bushnell
 #October 30, 2024
+#Tadpole assembly example added October 10, 2026; preprocessing remains a site-specific reference.
 
 #link dev version
 export PATH=$PATH:/global/cfs/cdirs/bbtools/jgi-bbtools/
@@ -21,6 +22,8 @@ HIGHRAM=31g
 #MAXRAM here is for login nodes; scheduled jobs should set this to 85% of physical memory requested
 MAXRAM=48g
 
+#TODO: Probable bug - quoted "$ARGS" below passes all three options as one argument.
+#Use a Bash array and "${ARGS[@]}" when revising the legacy preprocessing commands.
 ARGS="t=$CORES zl=$ZL ow"
 
 #Max memory commands
@@ -105,7 +108,24 @@ bbduk.sh "$LOW" "$ARGS" in=unmerged_rem3.fq.gz out=qtrimmed.fq.gz qtrim=r trimq=
 tadpole.sh "$HIGH" "$ARGS" in=merged_both.fq.gz extra=qtrimmed.fq.gz out=merged_ext1.fq.gz mode=extend mce=4 er=10 el=10 k=145
 tadpole.sh "$HIGH" "$ARGS" in=qtrimmed.fq.gz extra=merged_both.fq.gz out=unmerged_ext1.fq.gz mode=extend mce=4 el=10 k=124
 
-#Assemble with Spades
+#Optional Tadpole alternative to the SPAdes assembly below; uncomment to use.
+#K124 builds initial contigs from both merged and unmerged reads. K300 bridges
+#existing contigs using long-read support; K96/64/32 then fuse and bridge.
+#Five serial count-table loads, one live table; final graph reuses K32.
+#If long-read coverage is insufficient, omit 300 for a four-load schedule.
+#The NN and coverage guards are explicitly enabled, not program defaults.
+#Set either coverage ratio to 0 to disable that guard for strongly uneven coverage.
+#TADPOLE=$(readlink -f "$(command -v tadpole.sh)")
+#FUSENET="$(dirname "$TADPOLE")/networks/tadpole_fusion.bbnet"
+#"$TADPOLE" "$HIGH" t="$CORES" zl="$ZL" ow \
+#    in=merged_ext1.fq.gz extra=unmerged_ext1.fq.gz interleaved=f out=tadpole_contigs.fa \
+#    assemblek=124 k=124,300,96,64,32 minprob=0 minprobmain=f \
+#    fusenet="$FUSENET" fusencutoff=0.667098 \
+#    fusecoverageratio=1.75 graphmergecoverageratio=1.75
+#stats.sh tadpole_contigs.fa
+#See docs/guides/TadpoleGuide.txt for the A124 rationale and validation limits.
+
+#Assemble with Spades (choose this or the Tadpole alternative above).
 shifter --image=staphb/spades:4.0.0 spades.py -t "$CORES" -k 25,55,95,127 --phred-offset 33 --only-assembler --isolate --pe-m 1 merged_ext1.fq.gz --pe-12 1 unmerged_ext1.fq.gz -o spades_out 1>spades.o 2>&1
 
 #Test for residual poly-G contam

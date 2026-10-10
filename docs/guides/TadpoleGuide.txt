@@ -1,6 +1,6 @@
 Tadpole Guide
 Written by Brian Bushnell
-Last updated October 9, 2026
+Last updated October 10, 2026
 
 Tadpole is a kmer-based assembler with graph simplification, optional multi-K fusion and bridging, error correction, and read extension.  It is designed for fast assembly and can handle extremely irregular or superhigh coverage distributions.  It can also selectively assemble a coverage 'band' from a dataset (for example, just areas with a depth between 1000x and 1500x).  These features make it useful for microbial single-cell data, viruses, organelles, and preliminary assemblies for use in binning, quality recalibration, insert-size estimation, and so forth.  Tadpole has no upper limit on kmer length.
 
@@ -77,6 +77,33 @@ Assembly:
 tadpole.sh in=reads.fq out=contigs.fa k=93
 
 This will assemble the reads into contigs.  Each contig will consist of unique kmers, so contigs will not overlap by more than K-1 bases.  Contigs end when there is a branch or dead-end in the kmer graph.  The specific triggers for detecting a branch or dead-end are controlled by the flags mincountextend, branchmult1, branchmult2, and branchlower.  Contigs will only be assembled starting with kmers with depth at least mincountseed, and contigs shorter than mincontig or with average coverage lower than mincoverage will be discarded.
+
+Multi-K isolate assembly starting at K124:
+
+For quality-controlled, error-corrected Illumina libraries with reads around 150bp or longer, assemblek=124 is a practical starting point.  It builds the initial contigs below the original read length, then explores connections at other K values.  This avoids requiring every initial contig to have long merged-read support, which may be patchy in real libraries.  It is a recommendation, not a universal optimum; substantially shorter reads or very low coverage may need a lower initial K.
+
+Set the bundled fusion model's actual installation path once:
+FUSENET=/path/to/bbtools/networks/tadpole_fusion.bbnet
+
+For ordinary paired reads without a substantial long merged/extended component:
+tadpole.sh in=reads_R1.fq.gz in2=reads_R2.fq.gz out=assembly.fa \
+    assemblek=124 k=124,96,64,32 minprob=0 minprobmain=f \
+    fusenet="$FUSENET" fusencutoff=0.667098 \
+    fusecoverageratio=1.75 graphmergecoverageratio=1.75
+
+For merged and extended reads, with the remaining unmerged reads retained as additional kmer evidence:
+tadpole.sh in=merged_ext1.fq.gz extra=unmerged_ext1.fq.gz interleaved=f out=assembly.fa \
+    assemblek=124 k=124,300,96,64,32 minprob=0 minprobmain=f \
+    fusenet="$FUSENET" fusencutoff=0.667098 \
+    fusecoverageratio=1.75 graphmergecoverageratio=1.75
+
+The first command uses four count-table loads; the second uses five, with only one table live at a time.  In the second, K300 bridges existing contigs where sufficiently long reads support traversal; it does not repeat initial contig assembly or perform overlap fusion above assemblek.  Later K96, K64, and K32 phases perform eligible fusion followed by bridging.  Leave graphk at its default to reuse the final K32 table rather than adding another load.
+
+Both read sets contribute counts to initial assembly and subsequent passes.  interleaved=f treats merged reads as single sequences; mate relationships in the extra file are not used by this assembly recipe.  If no reads span 300 bases, omit the K300 pass; even when some do, usefulness depends on their coverage through the region.  These commands assume preprocessing has already removed adapters and corrected errors.  minprob=0 minprobmain=f keeps the NN's count features consistent with its training rather than discarding kmers by their quality-score products.
+
+The guarded A124 schedules were compared on three simulated bacterial diagnostic genomes, not a broad real-library validation set.  Adding K300 improved NGA50 in all three without global or local misassemblies in those runs.  Higher initial K gave substantially higher NGA50 on two, nearly the same on the third, and slightly higher recovered genome fractions on all three.  A124 is recommended here as a practical compromise for variable real-library coverage, not because it won every measured metric.  The 1.75 coverage guards are optional; they can reject genuine joins across coverage changes.  Set either ratio to 0 to disable that check, particularly when evaluating strongly uneven or mixed libraries.
+
+See pipelines/assemble_polyg_isolate_v1.sh for an example of staged BBMerge merging and Tadpole extension before the long-read command.  The pipeline is a site-specific reference, not a ready-to-run universal preprocessing script.
 
 Read-threaded repeat resolution:
 tadpole.sh in=reads.fq out=contigs.fa k=93 resolverepeats=t

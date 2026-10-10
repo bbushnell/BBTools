@@ -3,6 +3,7 @@ set -e
 
 #Written by Brian Bushnell
 #Last updated March 4, 2019
+#Tadpole assembly examples updated October 10, 2026; other stages remain a legacy reference.
 
 #This script is designed to preprocess data for assembly of overlapping 2x150bp reads from Illumina HiSeq 2500.
 #Some numbers and steps may need adjustment for different data types or file paths.
@@ -24,8 +25,10 @@ if [[ $NERSC_HOST == genepool ]]; then
 	module load quast
 elif [[ $NERSC_HOST == denovo ]]; then
 	#TODO
+	:
 elif [[ $NERSC_HOST == cori ]]; then
 	#TODO
+	:
 fi
 
 
@@ -89,9 +92,22 @@ bbduk.sh in=unmerged.fq.gz out=qtrimmed.fq.gz qtrim=r trimq=10 minlen=70 ordered
 
 #You do not need to assemble with all assemblers, but I have listed the commands for the 3 I use most often
 
-#Assemble with Tadpole
+#Assemble with Tadpole, starting at K124 before shorter-K fusion and bridging.
 #For very large datasets, "prefilter=1" or "prefilter=2" can be added to conserve memory.
-tadpole.sh in=merged.fq.gz,qtrimmed.fq.gz out=tadpole_contigs.fa k=124
+#Neural fusion still requires an exact, non-prefiltered table in its own phases.
+#Locate the model beside the installed launcher; override this path for a custom model.
+TADPOLE=$(readlink -f "$(command -v tadpole.sh)")
+FUSENET="$(dirname "$TADPOLE")/networks/tadpole_fusion.bbnet"
+"$TADPOLE" in=merged.fq.gz extra=qtrimmed.fq.gz interleaved=f out=tadpole_contigs.fa \
+    assemblek=124 k=124,96,64,32 minprob=0 minprobmain=f \
+    fusenet="$FUSENET" fusencutoff=0.667098 \
+    fusecoverageratio=1.75 graphmergecoverageratio=1.75
+#For libraries with substantial merged/extended-read coverage beyond 300bp,
+#use k=124,300,96,64,32 instead. This adds long-K bridging, not long-K initial contigging.
+#The shorter schedule uses four count-table loads; the long schedule uses five.
+#The final K32 table is reused for graph processing; no graphk override is needed.
+#Coverage guards are optional: set either ratio to 0 if genuine coverage variation
+#makes it too restrictive. See docs/guides/TadpoleGuide.txt for scope and evidence.
 
 #Or assemble with TadWrapper (which automatically finds the best value of K but takes longer)
 tadwrapper.sh in=merged.fq.gz,qtrimmed.fq.gz out=tadwrapper_contigs_%.fa outfinal=tadwrapper_contigs k=40,124,217 bisect
@@ -121,4 +137,3 @@ sendsketch.sh in=tadpole_contigs.fa persequence minhits=1 records=4
 
 #Calculate the coverage distribution, and capture reads that did not make it into the assembly
 bbmap.sh in=filtered.fq.gz ref=tadpole_contigs.fa nodisk covhist=covhist.txt covstats=covstats.txt outm=assembled.fq.gz outu=unassembled.fq.gz maxindel=200 minid=90 qtrim=10 untrim ambig=all
-
