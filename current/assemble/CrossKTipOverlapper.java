@@ -56,6 +56,7 @@ class CrossKTipOverlapper {
 
 	/** Adds reciprocal overlap edges and returns the number of acyclic pairs added. */
 	int addEdges(){
+		validateCoverageRatio(maxCoverageRatio);
 		final ArrayList<Tip> tips=makeTips();
 		if(BubblePopper.verbose){
 			System.err.println("FusionPass\t"+minOverlap+"\t"+maxOverlap+"\t"+graphKEnds);
@@ -115,6 +116,10 @@ class CrossKTipOverlapper {
 			}
 			if(cyclic[i]){cycleRejected++; continue;}
 			if(pair.a.conflictingPlacement || pair.b.conflictingPlacement){conflictRejected++; continue;}
+			if(!compatibleCoverage(pair.a.contig.coverage, pair.b.contig.coverage, maxCoverageRatio)){
+				coverageRejected++;
+				continue;
+			}
 			if(support!=null && !support.supported(pair.a.contig, !pair.a.right, pair.aTrim,
 					pair.b.contig, pair.b.right, pair.bTrim, pair.overlap)){
 				supportRejected++;
@@ -134,6 +139,28 @@ class CrossKTipOverlapper {
 		}
 		printSummary(tips.size(), ambiguous, reciprocal.size(), cycleRejected);
 		return added;
+	}
+
+	/** Zero disables the experimental guard; an enabled maximum ratio cannot be below one. */
+	static void validateCoverageRatio(final float ratio){
+		if(!Float.isFinite(ratio) || ratio<0 || (ratio>0 && ratio<1)){
+			throw new IllegalArgumentException("fusecoverageratio must be zero or finite and at least one: "+ratio);
+		}
+	}
+
+	/**
+	 * Compares frozen whole-contig mean depths, not a second read-count table.
+	 * This deliberately broad experimental veto may remove correct one-sided
+	 * repeat attachments. Missing depth is not evidence of compatible copy number.
+	 */
+	static boolean compatibleCoverage(final float a, final float b, final float ratio){
+		assert(Float.isFinite(ratio) && (ratio==0 || ratio>=1)) :
+				"The coverage veto requires a validated multiplicative limit or its zero/off sentinel.";
+		if(ratio==0){return true;}
+		assert(Float.isFinite(a) && Float.isFinite(b) && a>=0 && b>=0) :
+				"Contig mean depths must be finite and nonnegative before comparing copy-number evidence: "+a+", "+b;
+		final double low=Math.min(a, b), high=Math.max(a, b);
+		return low>0 && high<=low*ratio;
 	}
 
 	/** Reuses the anchor maps for either best selection or a read-only replay of selected alternatives. */
@@ -419,7 +446,7 @@ class CrossKTipOverlapper {
 	}
 
 	private void printSummary(int tips, int ambiguous, int reciprocal, int cycleRejected){
-		if(!BubblePopper.verbose && maxMismatches<0 && support==null && neural==null){return;}
+		if(!BubblePopper.verbose && maxMismatches<0 && support==null && neural==null && maxCoverageRatio==0){return;}
 		System.err.println((graphKEnds ? "Graph-k" : "Cross-k")+" tip overlaps: endpoints="+tips+
 				", exactCandidates="+exactCandidates+
 				", selfMatches="+selfMatches+
@@ -427,8 +454,9 @@ class CrossKTipOverlapper {
 				", ambiguous="+ambiguous+", reciprocal="+reciprocal+
 				", cycleRejected="+cycleRejected+", conflictRejected="+conflictRejected+
 				", supportRejected="+supportRejected+
+				(maxCoverageRatio==0 ? "" : ", coverageRejected="+coverageRejected)+
 				(neural==null ? "" : ", neuralRejected="+neuralRejected)+
-				", added="+(reciprocal-cycleRejected-conflictRejected-supportRejected-neuralRejected)+".");
+				", added="+(reciprocal-cycleRejected-conflictRejected-supportRejected-coverageRejected-neuralRejected)+".");
 	}
 
 	private static long hash(Contig c, boolean reverse, int start, int length){
@@ -484,7 +512,10 @@ class CrossKTipOverlapper {
 	FusionNeuralGate neural;
 	/** Controls external-pair eligibility, not conservative self/anchor/conflict evidence. */
 	boolean allowTrim=true;
+	/** Experimental whole-contig depth-discontinuity veto; zero preserves legacy behavior. */
+	float maxCoverageRatio=0;
 	private int supportRejected=0;
+	private int coverageRejected=0;
 	private int neuralRejected=0;
 	private static final long AMBIGUOUS=Long.MAX_VALUE;
 	private static final long HASH_MULT=0x9E3779B185EBCA87L;

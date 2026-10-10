@@ -34,6 +34,18 @@ fusenet=null   Optional fusion-join network; disabled by default. Supply the pat
                to networks/tadpole_fusion.bbnet for the bundled dense model.
 fusencutoff=   Required with fusenet. The bundled model was tested at 0.667098
                on simulated bacterial reads with minprob=0 minprobmain=f.
+fusecoverageratio=0
+               Maximum higher/lower whole-contig mean-depth ratio for exact
+               overlap fusion, including final graph-K fusions. Not gap bridges.
+               0 disables; otherwise finite >=1. Zero-depth ends then reject.
+graphmergecoverageratio=0
+               Same ratio check for ordinary direct merges in the final graph.
+               Requests final graph processing, reusing a matching last table.
+               Does not filter initial assembly, cross-K fusion/bridging,
+               indirect bubble removal, or path extraction. 0 disables;
+               otherwise finite >=1. Zero-depth ends then reject.
+               Both guards work without an NN; 1.75 was tested with the bundled
+               NN. They can reject correct joins across genuine depth changes.
 crosskmaxdepthratio=3
                Reject a bridge whose depth exceeds this multiple of the
                greater flank coverage.  Set to 0 to disable.
@@ -42,6 +54,9 @@ crosskpasses=10
 crosskmaxlen=500
                Maximum unbranched bridge distance searched from an eligible
                contig end.  Cycles and branches terminate earlier.
+
+Optional coverage safeguards: fusecoverageratio=1.75 graphmergecoverageratio=1.75
+These use stored contig depths, not an additional evidence table.
 
 Other Tadpole parameters, including pop, shave, rinse, mincountseed, and
 mincountextend, are passed to the initial assembly.

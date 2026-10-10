@@ -1,8 +1,8 @@
 Tadpole Guide
 Written by Brian Bushnell
-Last updated December 11, 2015
+Last updated October 9, 2026
 
-Tadpole is a kmer-based assembler, with additional capabilities of error-correcting and extending reads.  It does not do any complicated graph analysis or scaffolding, and therefore, is not particularly good for diploid organisms.  However, compared to most other assemblers, it is incredibly fast, has a very low misassembly rate, and is very adept at handling extremely irregular or superhigh coverage distributions.  It does not have any annoying side-effects of generating temp files and directories.  Also, it can selectively assemble a coverage 'band' from a dataset (for example, just areas with a depth between 1000x and 1500x).  These features make it a good choice for microbial single-cell data, viruses, organelles, and preliminary assemblies for use in binning, quality recalibration, insert-size estimation, and so forth.  Tadpole has no upper limit on kmer length.
+Tadpole is a kmer-based assembler with graph simplification, optional multi-K fusion and bridging, error correction, and read extension.  It is designed for fast assembly and can handle extremely irregular or superhigh coverage distributions.  It can also selectively assemble a coverage 'band' from a dataset (for example, just areas with a depth between 1000x and 1500x).  These features make it useful for microbial single-cell data, viruses, organelles, and preliminary assemblies for use in binning, quality recalibration, insert-size estimation, and so forth.  Tadpole has no upper limit on kmer length.
 
 Tadpole's parameters are described in its shellscript (tadpole.sh).  This file provides usage examples of various common tasks.
 
@@ -27,7 +27,7 @@ Tadpole is fully multithreaded, both for kmer-counting and for the output phase 
 
 Kmer Length:
 
-Tadpole supports unlimited kmer length, but it does not support all kmer lengths.  Specifically, it supports every value of K from 1-31, every multiple of 2 from 32-62 (meaning 32, 34, 36, etc), every multiple of 3 from 63-93, and so forth.  There is a wrapper script, tadwrapper.sh, that will assemble a range of different kmer lengths to determine which is best.  Typically, about 2/3rds of read length is a good value for K for assembly.  For error-correction, about 1/3rd of read length is better.  In order to assemble with longer kmers, it is possible to error-correct and extend reads with short kmers (such as 31-mers), then use the longer extended (and potentially merged) reads to assemble with a longer kmer.  Longer kmers are better able to resolve repetitive features in genomes, and thus tend to yield more continuous assemblies.  The tradeoff is that longer kmers have lower coverage.
+Tadpole supports arbitrary integer kmer lengths with the default packed=t representation.  The legacy packed=f layout supports every K from 1-31, multiples of 2 from 32-62, multiples of 3 from 63-93, and so forth, rounding other values down.  There is a wrapper script, tadwrapper.sh, that will assemble a range of different kmer lengths to determine which is best.  Typically, about 2/3rds of read length is a good value for K for assembly.  For error-correction, about 1/3rd of read length is better.  In order to assemble with longer kmers, it is possible to error-correct and extend reads with short kmers (such as 31-mers), then use the longer extended (and potentially merged) reads to assemble with a longer kmer.  Longer kmers are better able to resolve repetitive features in genomes, and thus tend to yield more continuous assemblies.  The tradeoff is that longer kmers have lower coverage.
 
 
 Shave and Rinse:
@@ -53,6 +53,22 @@ For multi-K assembly, pass an ordered comma-delimited list such as k=96,124,32,6
 Graphk selects the final contig-graph resolution and defaults to the last listed K (the last constructed phase when no list is supplied). A matching final table is reused; an explicit different graphk requires one more count-table load. Thus k=96,124,32,64 can finish at graphk=64 with four loads, while the explicit return to96 uses five. Final graph processing is not merely file export: bubble popping, optional repeat resolution, classification/filtering, and simpleomnitigs or graphcover can change the emitted assembly. Neural/path fusion reads raw explicit counts before pruning/washing, then bridging uses the same cleaned table. Only one count table is live at a time. Shorter or repeated schedules should be selected by measured assembly quality and runtime, not by assuming more passes are better.
 
 Resolverepeats=t experimentally resolves a different structure: a closed 2-by-2 X junction made by two paths sharing one repeat contig.  Tadpole rereads the primary input and requires individual reads to traverse the incoming contig, the repeat, and the outgoing contig.  Both inferred paths must have at least repeatminsupport spanning reads, conflicting traversals must not exceed repeatmaxnoise, and each accepted path must have more support than alternatives sharing either side.  One physical read contributes at most once to a proposed path.  The defaults require two reads per path and no conflicts.  Topology or edge depth alone never resolves an X.  The feature is disabled by default, requires named input files rather than stdin, and currently uses single-read evidence rather than mate-pair linkage.
+
+
+Coverage safeguards for multi-K joins:
+
+fusecoverageratio and graphmergecoverageratio are independent, optional checks using the stored whole-contig mean kmer depths.  Both default to 0 (disabled); enabled values must be finite and at least 1.  A pair is accepted by a coverage check only when both depths are positive and higher <= lower * ratio, including equality.  All other topology, sequence, and optional neural checks still apply.
+
+fusecoverageratio checks frozen reciprocal exact-overlap fusion proposals before the path and neural vetoes, including final graph-K overlap fusion.  It never chooses a replacement partner and does not filter gap bridging.  graphmergecoverageratio instead checks ordinary direct merges during final Multi-K graph simplification, using the depths at merge time.  It does not filter initial assembly, cross-K fusion/bridging, indirect bubble removal, or graphcover/simpleomnitigs path extraction.  Enabling it requests final graph processing; an already loaded matching final table is reused.
+
+These checks help avoid connecting different copies through a high-depth repeat.  The bundled fusion NN measures local depth percentiles around a candidate junction and original-tip entropy, not whole-contig mean depth.  Its local reference-support training labels do not prove that several accepted joins belong to the same repeat copy.  The coverage guards provide complementary information and can also be used without a network.  They are not proof of copy identity and may reject correct joins across genuine coverage changes, particularly in mixed or uneven-depth data.
+
+Both ratios were tested at 1.75 with the bundled NN at cutoff 0.667098 on 100 simulated bacterial genomes at 60x, using k=96,124,64,32.  Global/local misassembly totals changed from 38/3 with the NN alone to 21/0 with both guards.  Median NGA50 and NGA90 were unchanged; mean NGA50 was about 0.59% lower.  Six genomes were used for diagnosis, so this was a regression panel rather than untouched validation.  These results do not establish a universal threshold or a new default.
+
+Example for interleaved paired reads (replace /path/to/bbtools with the installation path):
+tadpole.sh in=reads.fq.gz out=assembly.fa interleaved=t k=96,124,64,32 assemblek=96 minprob=0 minprobmain=f fusenet=/path/to/bbtools/networks/tadpole_fusion.bbnet fusencutoff=0.667098 fusecoverageratio=1.75 graphmergecoverageratio=1.75
+
+This schedule uses four count-table loads with the final graph at K32.  The guards do not allocate another evidence table.  The full benchmark additionally fixed t=8, buildthreads=1, hashkmers=explicit, prefilter=f, and prealloc=f; the command above is a usage example, not a complete benchmark recipe.  Set either ratio to 0 to disable that guard independently.
 
 
 *Usage Examples*

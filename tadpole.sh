@@ -155,6 +155,12 @@ fuseconflicts=f     Reject a best fusion if the same ends have a larger covered
                     placement with conflicting flanks in that pass. Placement
                     span includes both trims. Requires fusemaxmismatches>=0;
                     applies at every fusion K without a cross-K cache.
+fusecoverageratio=0 Maximum ratio of higher to lower whole-contig mean depth
+                    for exact-overlap fusion. 0 disables; otherwise finite >=1.
+                    Rejects zero-depth ends when enabled. Applies before path/NN
+                    vetoes, including final graph-K overlap fusion; not gap bridges.
+                    Optional repeat-copy safeguard; 1.75 was tested with the
+                    bundled NN. Can also reject correct joins across depth changes.
 fusepath=f         Validate each fusion using that fusion's K, across the overlap
                     plus K retained bases on each side. All words must occur;
                     both directions must favor the proposed path without a
@@ -208,6 +214,9 @@ crosskpasses=10     (ckpasses) Maximum merge passes after each overlap or
 
 Opt-in fusion example (replace /path/to/bbtools with the installation path):
 tadpole.sh in=reads.fq out=assembly.fa k=96,124,64,32 minprob=0 minprobmain=f fusenet=/path/to/bbtools/networks/tadpole_fusion.bbnet fusencutoff=0.667098
+Optional coverage safeguards for that command:
+  fusecoverageratio=1.75 graphmergecoverageratio=1.75
+Both default off and also work without a network. They use stored contig depths.
 
 Assembly parameters:
 mincountseed=3      (mcs) Minimum kmer count to seed a new contig or begin extension.
@@ -261,6 +270,14 @@ graphk=auto          Multi-K only.  Build the final graph at this kmer length.
                     k=96,124,64,32,96 intentionally loads 96 again at the end.
                     Before graph extraction, uniquely overlapping unbranched
                     graph-k ends are joined conservatively.
+graphmergecoverageratio=0
+                    Maximum whole-contig mean-depth ratio for ordinary direct
+                    merges in the final Multi-K graph. 0 disables; otherwise
+                    finite >=1. Rejects zero-depth ends when enabled.
+                    Requests final graph processing and reuses a matching last
+                    table. Initial assembly, cross-K fusion/bridging, indirect
+                    bubble removal, and path extraction are not filtered by it.
+                    Use fusecoverageratio separately for exact-overlap fusion.
 lowdepthcontigdiag=f (ldcd) Report conservative short, low-depth isolate contigs.
                     Set to early, final, or both to select the assembly-K and/or
                     post-joining graph boundary; t means final.  With both, report

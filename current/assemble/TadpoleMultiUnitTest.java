@@ -14,6 +14,8 @@ public class TadpoleMultiUnitTest {
 		failures+=run("fusionMismatchOption", TadpoleMultiUnitTest::fusionMismatchOption);
 		failures+=run("fusionDeadEndOption", TadpoleMultiUnitTest::fusionDeadEndOption);
 		failures+=run("fusionConflictOption", TadpoleMultiUnitTest::fusionConflictOption);
+		failures+=run("fusionCoverageRatioOption", TadpoleMultiUnitTest::fusionCoverageRatioOption);
+		failures+=run("finalGraphCoverageRatioOption", TadpoleMultiUnitTest::finalGraphCoverageRatioOption);
 		failures+=run("singleKHasNoImplicitJoining", TadpoleMultiUnitTest::singleKHasNoImplicitJoining);
 		failures+=run("noneDisablesPhases", TadpoleMultiUnitTest::noneDisablesPhases);
 		failures+=run("explicitAutoUsesShorthand", TadpoleMultiUnitTest::explicitAutoUsesShorthand);
@@ -124,6 +126,48 @@ public class TadpoleMultiUnitTest {
 		}
 		check(TadpoleMulti.hasMultipleK(new String[]{"k=95", "fuseconflicts=t"}),
 				"Conflict option was not routed to the multi-K controller");
+	}
+
+	/** Experimental depth ratios are bounded, opt-in, and consumed only by the multi-K controller. */
+	private static void fusionCoverageRatioOption(){
+		check(config("k=95,63").fuseCoverageRatio==0, "Coverage veto changed the default");
+		final TadpoleMulti.Config c=config("k=95,63", "fusecoverageratio=1.75");
+		check(c.fuseCoverageRatio==1.75f, "Coverage ratio was not parsed");
+		check(config("k=95,63", "fusecoverageratio=1.75", "fusecoverageratio=0").fuseCoverageRatio==0,
+				"Explicit zero did not disable the coverage veto");
+		for(String value : new String[]{"-1", "0.99", "NaN", "Infinity"}){
+			expectFailure("fusecoverageratio", "k=95,63", "fusecoverageratio="+value);
+		}
+		for(String arg : new TadpoleMulti(c).makeArgs(63, false)){
+			check(!arg.startsWith("fusecoverageratio="), "Coverage ratio leaked into a table loader");
+		}
+		check(TadpoleMulti.hasMultipleK(new String[]{"k=95", "fusecoverageratio=1.75"}),
+				"Coverage ratio was not routed to the multi-K controller");
+	}
+
+	/** Final-only coverage filtering must not leak into initial assembly or intermediate loaders. */
+	private static void finalGraphCoverageRatioOption(){
+		check(config("k=95,63").graphMergeCoverageRatio==0, "Final graph coverage filtering changed the default");
+		final TadpoleMulti.Config c=config("korder=input", "k=96,124,64,32", "sweeplen=0",
+				"graphmergecoverageratio=1.75");
+		check(c.graphMergeCoverageRatio==1.75f && c.finalGraphNeeded() && c.graphK==32,
+				"Final graph coverage policy did not request the last phase's graph");
+		checkArray(c.phaseKs, 96, 124, 64, 32);
+		check(c.fuseCoverageRatio==0, "Final-graph policy changed the independent fusion policy");
+		for(boolean initial : new boolean[]{false, true}){
+			for(String arg : new TadpoleMulti(c).makeArgs(initial ? 96 : 32, initial)){
+				check(!arg.startsWith("graphmergecoverageratio="), "Final coverage policy leaked into a loader");
+			}
+		}
+		final TadpoleMulti.Config disabled=config("k=95,63", "sweeplen=0",
+				"graphmergecoverageratio=1.75", "graphmergecoverageratio=0");
+		check(disabled.graphMergeCoverageRatio==0 && !disabled.finalGraphNeeded(),
+				"Explicit zero did not restore the original graph requirements");
+		for(String value : new String[]{"-1", "0.99", "NaN", "Infinity"}){
+			expectFailure("graphmergecoverageratio", "k=95,63", "graphmergecoverageratio="+value);
+		}
+		check(TadpoleMulti.hasMultipleK(new String[]{"k=95", "graphmergecoverageratio=1.75"}),
+				"Final-graph coverage option was not dispatched to the controller");
 	}
 
 	/** Historical eligibility is opt-in, parsed once, and never passed to a table loader. */

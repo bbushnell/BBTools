@@ -38,6 +38,7 @@ public class CrossKTipOverlapperUnitTest {
 		failures+=run("fusionEndpointOrientations", CrossKTipOverlapperUnitTest::fusionEndpointOrientations);
 		failures+=run("conflictingRepeatPlacement", CrossKTipOverlapperUnitTest::conflictingRepeatPlacement);
 		failures+=run("unconflictedFusionPreserved", CrossKTipOverlapperUnitTest::unconflictedFusionPreserved);
+		failures+=run("coverageRatioVeto", CrossKTipOverlapperUnitTest::coverageRatioVeto);
 		BubblePopper.crossKMerge=false;
 		System.out.println(failures==0 ? "ALL TESTS PASSED" : failures+" TEST(S) FAILED");
 		if(failures>0){System.exit(1);}
@@ -346,6 +347,34 @@ public class CrossKTipOverlapperUnitTest {
 			if(graphK){a.rightCode=b.leftCode=Tadpole.KEEP_GOING;}
 			check(new CrossKTipOverlapper(list(a, b), 5, 9, graphK, 0, 1, false, true).addEdges()==1,
 					"Conflict policy removed an unconflicted exact join");
+		}
+	}
+
+	/** Checks off/default behavior, inclusive boundaries, missing depth, and both graph routes/strands. */
+	private static void coverageRatioVeto(){
+		check(CrossKTipOverlapper.compatibleCoverage(20, 80, 0), "Disabled veto changed legacy behavior");
+		check(CrossKTipOverlapper.compatibleCoverage(300, 300, 1), "High absolute depth was treated as a mismatch");
+		check(!CrossKTipOverlapper.compatibleCoverage(0, 0, 2), "Missing depths supplied false copy-number evidence");
+		for(boolean graphK : new boolean[]{false, true}){
+			for(int orientation=0; orientation<4; orientation++){
+				for(float depth : new float[]{20, 35, Math.nextUp(35f), 40, 0}){
+					final Contig a=contig(0, "AAAACCCCGGGG", false, true);
+					final Contig b=contig(1, "CCCGGGGTTTT", true, false);
+					b.coverage=depth;
+					if(graphK){a.rightCode=b.leftCode=Tadpole.KEEP_GOING;}
+					if((orientation&1)!=0){a.rcomp();}
+					if((orientation&2)!=0){b.rcomp();}
+					final CrossKTipOverlapper overlapper=new CrossKTipOverlapper(list(a, b), 5, 9, graphK);
+					overlapper.maxCoverageRatio=1.75f;
+					final int expected=(depth>0 && depth<=35 ? 1 : 0);
+					check(overlapper.addEdges()==expected, "Coverage veto changed with depth/strand/graph route: "+
+							depth+", "+orientation+", "+graphK);
+					if(expected==0){
+						check(a.leftEdgeCount()+a.rightEdgeCount()+b.leftEdgeCount()+b.rightEdgeCount()==0,
+								"A rejected depth-discontinuous pair left live graph edges");
+					}
+				}
+			}
 		}
 	}
 

@@ -314,6 +314,12 @@ public class BubblePopper {
 						dest, leftEdge.destRight(), leftEdge.destTrim, leftEdge.overlap)){
 			return false;
 		}
+		//Final graph simplification must not recreate a depth-incompatible join
+		//after the earlier exact-fusion policy declined it. Cross-K paths retain
+		//their own policies; this gate never changes bridge or fusion semantics.
+		if(!crossKMerge && directCoverageGate!=null && !directCoverageGate.accept(center, dest)){
+			return false;
+		}
 		
 		if(leftEdge.destRight()){
 			dest.flip(destMap.get(dest.id));
@@ -1389,6 +1395,8 @@ public class BubblePopper {
 	static int crossKMaxMismatches=-1;
 	/** Optional serial exact-fusion check; gap bridges never consult this checker. */
 	static FusionKmerSupport crossKSupport;
+	/** Optional serial final-graph policy; TadpoleMulti installs/restores it around final processing only. */
+	static CoverageGate directCoverageGate;
 	long crossKMergeEvaluations=0;
 	long crossKMerged=0;
 	long crossKRejectedSourceShape=0;
@@ -1403,6 +1411,41 @@ public class BubblePopper {
 	static boolean debranch=false;
 	/** Whether assertion-enabled runs perform graph consistency checks */
 	static boolean validateGraph=false;
+
+	/** One final phase's optional direct-merge policy and counters; no per-edge allocation. */
+	static final class CoverageGate {
+
+		/** Creates an enabled gate; a null policy, not a zero-ratio object, represents disabled. */
+		CoverageGate(final float ratio_){
+			validateRatio(ratio_);
+			ratio=ratio_;
+		}
+
+		/** Rejects invalid explicit thresholds before graph construction begins. */
+		static void validateRatio(final float ratio){
+			if(!Float.isFinite(ratio) || ratio<1){
+				throw new IllegalArgumentException("graphmergecoverageratio must be zero (disabled) or finite and at least 1.");
+			}
+		}
+
+		/** Tests actual merge-time depths, including changes from earlier accepted joins. */
+		boolean accept(final Contig left, final Contig right){
+			assert(left!=null && right!=null) : "Direct-merge coverage requires both live graph endpoints.";
+			evaluations++;
+			final boolean accepted=CrossKTipOverlapper.compatibleCoverage(left.coverage, right.coverage, ratio);
+			if(!accepted){
+				rejected++;
+				if(verbose){
+					System.err.println("Graph coverage rejected: left="+left.id+", right="+right.id+
+							", depths="+left.coverage+","+right.coverage+", ratio="+ratio);
+				}
+			}
+			return accepted;
+		}
+
+		final float ratio;
+		long evaluations, rejected;
+	}
 
 	/** Minimal callback used to share Tadpole's tuned error-count heuristic without duplicating constants. */
 	interface ErrorClassifier {

@@ -120,6 +120,7 @@ public class TadpoleMulti {
 				overlapper.collector=fusionCollector;
 				overlapper.neural=fusionNeural;
 				overlapper.allowTrim=config.fuseTrim;
+				overlapper.maxCoverageRatio=config.fuseCoverageRatio;
 				if(overlapper.addEdges()>0){mergeCrossK(longest);}
 				contigs=longest.detachContigs();
 				checkErrorState(longest);
@@ -241,6 +242,7 @@ public class TadpoleMulti {
 		overlapper.collector=fusionCollector;
 		overlapper.neural=fusionNeural;
 		overlapper.allowTrim=config.fuseTrim;
+		overlapper.maxCoverageRatio=config.fuseCoverageRatio;
 		if(overlapper.addEdges()>0){mergeCrossK(initial);}
 		final ArrayList<Contig> result=initial.detachContigs();
 		checkErrorState(initial);
@@ -317,6 +319,7 @@ public class TadpoleMulti {
 				overlapper.collector=fusionCollector;
 				overlapper.neural=fusionNeural;
 				overlapper.allowTrim=config.fuseTrim;
+				overlapper.maxCoverageRatio=config.fuseCoverageRatio;
 				if(overlapper.addEdges()>0){mergeCrossK(tad);}
 			}finally{clearFusionSupport();}
 		}
@@ -334,7 +337,19 @@ public class TadpoleMulti {
 		config.applyFinalGraphOutput(tad);
 		tad.setContigs(merged);
 		tad.clearContigEdges();
-		tad.processContigs();
+		final BubblePopper.CoverageGate previousGate=BubblePopper.directCoverageGate;
+		final BubblePopper.CoverageGate gate=config.graphMergeCoverageRatio==0 ? null
+				: new BubblePopper.CoverageGate(config.graphMergeCoverageRatio);
+		BubblePopper.directCoverageGate=gate;
+		try{
+			tad.processContigs();
+		}finally{
+			BubblePopper.directCoverageGate=previousGate;
+			if(gate!=null){
+				System.err.println("Graph merge coverage: ratio="+gate.ratio+", evaluations="+
+						gate.evaluations+", rejected="+gate.rejected+".");
+			}
+		}
 		finalLowDepthDiagnostic=tad.lastLowDepthDiagnostic;
 		final ArrayList<Contig> extracted=tad.detachContigs();
 		checkErrorState(tad);
@@ -513,7 +528,8 @@ public class TadpoleMulti {
 			if(a.equals("k") && equals>=0 && arg.indexOf(',', equals+1)>=0){return true;}
 			if(a.equals("assemblek") || a.equals("fusek") || a.equals("joink")
 					|| a.equals("bridgek") || a.equals("graphk") || a.equals("fusemaxmismatches")
-					|| a.equals("fusedeadends") || a.equals("fuseconflicts")
+					|| a.equals("fusedeadends") || a.equals("fuseconflicts") || a.equals("fusecoverageratio")
+					|| a.equals("graphmergecoverageratio")
 					|| a.equals("fusepath") || a.equals("fusepathdepth") || a.equals("fusepathflank")
 					|| a.equals("fusetrim") || a.equals("fusesupportk") || a.equals("fusionvectors")
 					|| a.equals("fusenet") || a.equals("fusencutoff") || a.equals("korder")){return true;}
@@ -561,6 +577,10 @@ public class TadpoleMulti {
 					fuseDeadEndsOnly=Parse.parseBoolean(b);
 				}else if(a.equals("fuseconflicts")){
 					fuseConflicts=Parse.parseBoolean(b);
+				}else if(a.equals("fusecoverageratio")){
+					fuseCoverageRatio=Float.parseFloat(b);
+				}else if(a.equals("graphmergecoverageratio")){
+					graphMergeCoverageRatio=Float.parseFloat(b);
 				}else if(a.equals("fusesupportk")){
 					throw new IllegalArgumentException("Experimental fusesupportk was replaced by fusepath=t (same-K, one table).");
 				}else if(a.equals("fusepath")){
@@ -701,6 +721,8 @@ public class TadpoleMulti {
 			if(maxDepthRatio<0){throw new RuntimeException("crosskmaxdepthratio must be nonnegative.");}
 			if(passes<1){throw new RuntimeException("crosskpasses must be positive.");}
 			if(fuseMaxMismatches<-1){throw new IllegalArgumentException("fusemaxmismatches must be -1 or nonnegative.");}
+			CrossKTipOverlapper.validateCoverageRatio(fuseCoverageRatio);
+			if(graphMergeCoverageRatio!=0){BubblePopper.CoverageGate.validateRatio(graphMergeCoverageRatio);}
 			if(fuseConflicts && fuseMaxMismatches<0){
 				throw new IllegalArgumentException("fuseconflicts requires fusemaxmismatches>=0.");
 			}
@@ -812,7 +834,9 @@ public class TadpoleMulti {
 		boolean graphOperations(){return simpleOmnitigs || graphCover || outGfa!=null;}
 		boolean earlyLowDepthDiag(){return lowDepthContigDiag && (lowDepthContigDiagStage&DIAG_EARLY)!=0;}
 		boolean finalLowDepthDiag(){return lowDepthContigDiag && (lowDepthContigDiagStage&DIAG_FINAL)!=0;}
-		boolean finalGraphNeeded(){return graphOperations() || finalLowDepthDiag() || graphClassificationRequested();}
+		boolean finalGraphNeeded(){
+			return graphOperations() || finalLowDepthDiag() || graphClassificationRequested() || graphMergeCoverageRatio>0;
+		}
 		boolean explicitGraphClassificationRequested(){
 			return classifyGraphContigs || emitTerminal || emitBranchedTerminal || emitUnanchored || emitLoopback
 					|| emitBranchedConnected || emitMultiConnected || emitSelfLoop || emitConnectedMax>0
@@ -942,6 +966,8 @@ public class TadpoleMulti {
 			if(fuseMaxMismatches>=0){Tadpole.printPlanLine("fusemaxmismatches", fuseMaxMismatches);}
 			if(fuseDeadEndsOnly){Tadpole.printPlanLine("fusedeadends", "true");}
 			if(fuseConflicts){Tadpole.printPlanLine("fuseconflicts", "true");}
+			if(fuseCoverageRatio>0){Tadpole.printPlanLine("fusecoverageratio", ""+fuseCoverageRatio);}
+			if(graphMergeCoverageRatio>0){Tadpole.printPlanLine("graphmergecoverageratio", ""+graphMergeCoverageRatio);}
 			if(!fuseTrim){Tadpole.printPlanLine("fusetrim", "false");}
 			if(fusionVectorPrefix!=null){Tadpole.printPlanLine("fusionvectors", fusionVectorPrefix);}
 			if(fuseNet!=null){
@@ -993,6 +1019,10 @@ public class TadpoleMulti {
 		int fuseMaxMismatches=-1;
 		boolean fuseDeadEndsOnly=false;
 		boolean fuseConflicts=false;
+		/** Optional experimental whole-contig depth ratio; zero disables the veto. */
+		float fuseCoverageRatio=0;
+		/** Optional direct-merge depth policy, scoped only to normal final-graph simplification. */
+		float graphMergeCoverageRatio=0;
 		boolean fusePath=false;
 		int fusePathDepth=1;
 		int fusePathFlank=0;

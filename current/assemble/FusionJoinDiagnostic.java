@@ -410,6 +410,9 @@ public final class FusionJoinDiagnostic {
 	/** Only uniquely placed, incompatible arms on one reference establish a contradiction. */
 	static String label(final Join join, final ArrayList<String> refs,
 			final Hit whole, final Hit left, final Hit right){
+		//TODO: Global-truth limitation: these bounded windows cannot establish repeat-copy identity.
+		//Shouchella g0491 has two supported 495 bp joins through one 1185 bp repeat contig,
+		//but their combined 1585 bp window is absent. Do not interpret "supported" as global chain truth.
 		if(whole.count>0){return "supported";}
 		if(left.count!=1 || right.count!=1 || left.sequence/2!=right.sequence/2){return "unresolved";}
 		if(left.sequence!=right.sequence){return "unresolved";}

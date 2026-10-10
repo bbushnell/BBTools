@@ -24,6 +24,7 @@ public class BubblePopperUnitTest {
 
 		int failures=0;
 		failures+=run("directMergeKmerOverlap", BubblePopperUnitTest::directMergeKmerOverlap);
+		failures+=run("directMergeCoverageGate", BubblePopperUnitTest::directMergeCoverageGate);
 		failures+=run("directMergeWithoutRetainedInbound", BubblePopperUnitTest::directMergeWithoutRetainedInbound);
 		failures+=run("loopMergeRemovesInboundMapEntries", BubblePopperUnitTest::loopMergeRemovesInboundMapEntries);
 		failures+=run("soapBubbleCollapses", BubblePopperUnitTest::soapBubbleCollapses);
@@ -72,6 +73,57 @@ public class BubblePopperUnitTest {
 		check(sequence(left).equals("AAAAACCCCCGTTTTT"), "Incorrect direct merge: "+sequence(left));
 		check(approx(left.coverage, 15), "Incorrect direct coverage: "+left.coverage);
 		check(right.used(), "Destination was not retired");
+	}
+
+	/** Covers inclusive thresholds, unavailable depths, both endpoint orientations and cross-K isolation. */
+	private static void directMergeCoverageGate(){
+		check(BubblePopper.directCoverageGate==null, "Direct coverage filtering must default off");
+		for(int orientation=0; orientation<4; orientation++){
+			checkDirectCoverage(20, 35, 1.75f, true, orientation, false);
+			checkDirectCoverage(20, Math.nextUp(35f), 1.75f, false, orientation, false);
+			checkDirectCoverage(20, 80, 0, true, orientation, false);
+			checkDirectCoverage(80, 80, 1.75f, true, orientation, false);
+			checkDirectCoverage(0, 20, 1.75f, false, orientation, false);
+			checkDirectCoverage(20, 0, 1.75f, false, orientation, false);
+			checkDirectCoverage(20, 80, 1.75f, true, orientation, true);
+		}
+		check(BubblePopper.directCoverageGate==null, "Test leaked a direct coverage policy");
+	}
+
+	/** Executes one actual graph merge; rejected candidates must retain topology and sequence. */
+	private static void checkDirectCoverage(final float leftDepth, final float rightDepth,
+			final float ratio, final boolean accepted, final int orientation, final boolean crossK){
+		assert(orientation>=0 && orientation<4) : "The fixture encodes independent source/destination flips in two bits.";
+		final Contig left=contig(0, "AAAAACCCCC", leftDepth, Tadpole.DEAD_END, Tadpole.F_BRANCH);
+		final Contig right=contig(1, "CCCCGTTTTT", rightDepth, Tadpole.DEAD_END, Tadpole.DEAD_END);
+		final Edge forward=edge(0, 1, 1, 15, "G"), reverse=edge(1, 0, 2, 15, null);
+		left.rightEdges=list(forward);
+		right.leftEdges=list(reverse);
+		final Fixture f=fixture(left, right, forward, reverse);
+		if((orientation&1)!=0){left.flip(f.destMap.get(left.id));}
+		if((orientation&2)!=0){right.flip(f.destMap.get(right.id));}
+		final String before=graphSignature(f);
+		final BubblePopper.CoverageGate previous=BubblePopper.directCoverageGate;
+		final boolean oldCrossK=BubblePopper.crossKMerge, oldUnzip=BubblePopper.unzipBubbles;
+		final BubblePopper.CoverageGate gate=ratio==0 ? null : new BubblePopper.CoverageGate(ratio);
+		BubblePopper.directCoverageGate=gate;
+		BubblePopper.crossKMerge=crossK;
+		BubblePopper.unzipBubbles=true;
+		try{
+			final int expanded=new BubblePopper(f.contigs, f.destMap, K).expand(left);
+			check(expanded==(accepted ? 1 : 0), "Unexpected direct coverage decision at orientation "+orientation);
+			check(right.used()==accepted, "Coverage decision did not preserve destination ownership");
+			if(accepted){check(sequence(left).equals("AAAAACCCCCGTTTTT"), "Coverage gate changed accepted sequence");}
+			else{check(graphSignature(f).equals(before), "Rejected coverage candidate mutated the graph");}
+			if(gate!=null){
+				check(gate.evaluations==(crossK ? 0 : 1), "Final-graph coverage policy leaked into cross-K processing");
+				check(gate.rejected==(accepted ? 0 : 1), "Coverage rejection count differs from the merge decision");
+			}
+		}finally{
+			BubblePopper.directCoverageGate=previous;
+			BubblePopper.crossKMerge=oldCrossK;
+			BubblePopper.unzipBubbles=oldUnzip;
+		}
 	}
 
 	/** A terminal direct merge consumes the only inbound edge and must not leave a null-valued
