@@ -73,6 +73,24 @@ This schedule uses four count-table loads with the final graph at K32.  The guar
 
 *Usage Examples*
 
+Automated paired-read assembly with TadPipe:
+tadpipe.sh in=reads_R1.fq.gz in2=reads_R2.fq.gz out=assembly.fa -Xmx16g t=8
+
+The reads must already be adapter-trimmed, filtered, and quality-score calibrated.  TadPipe performs sequence-based paired deduplication (including SRA names without optical coordinates), overlap correction, Clumpify correction of both mates, Tadpole correction, overlap and staged kmer-assisted merging, read extension, then ordered A124 assembly.  For interleaved pairs, omit in2.  This starting recipe targets roughly 150bp bacterial isolate libraries, not arbitrary sequencing platforms or read lengths.
+
+Every phase runs in a fresh JVM through its BBTools launcher; shared static settings cannot carry over between phases.  -Xmx limits each child while the coordinator uses 256MB.  Phases run serially to reuse the memory budget.  The default assembly uses k=124,300,96,64,32, the bundled fusion NN at 0.667098, and the two optional coverage guards at 1.75.  The A124 and coverage sections below explain the evidence and limitations.  No new default is imposed on standalone tadpole.sh.
+
+Use temp=/path/to/scratch to choose the parent of the unique work directory.  Commands and one log per phase are retained there.  Successful runs delete intermediate FASTQs by default; delete=f retains them.  Failures stop the pipeline and retain intermediates for diagnosis.  The final assembly is published only after all processing stages succeed.  dryrun=t validates paths and records the commands without launching processing.  Existing final outputs are protected unless overwrite=t is requested.
+
+Stage switches such as dedupe=f, clump=f, rem=f, or extend=f permit controlled comparisons.  Phase-prefixed options expose finer control: dedupe_subs=0 requires exact duplicate matching; clump_passes=6 changes correction passes; extendu_k=96 changes only unmerged-read extension.  k=124,96,64,32 omits the long-read traversal pass.  assemble_fusecoverageratio=0 and assemble_graphmergecoverageratio=0 disable the corresponding guards for strongly uneven libraries.  Use nn=f to disable neural fusion scoring.  Custom assemble_fusenet requires an explicit assemble_fusencutoff.  TadPipe owns stage filenames and pairing; use top-level in/in2/out, not phase-prefixed file redirection.
+
+Bare k= and assemblek= go ONLY to the final assembly; they do not change the kmer lengths used for error correction, merging, or read extension.  graphk=, bridgek=, and fusek= are also final-only aliases.  The equivalent prefixed spellings are assemble_k=, assemble_assemblek=, assemble_graphk=, assemble_bridgek=, and assemble_fusek=.  The last occurrence wins across bare and prefixed spellings; K order and repetitions are preserved.  Changing k alone retains the pipeline's assemblek=124 default, so specify both when changing initial contigging K.
+
+For example, to assemble initially at K96 and then traverse at K124,300,64,32:
+tadpipe.sh in=interleaved.fq.gz out=assembly.fa k=96,124,300,64,32 assemblek=96 -Xmx16g t=8
+
+Other final assembly controls use assemble_<Tadpole option>=<value>, such as assemble_mincontig=500, assemble_mcs=2, assemble_mce=1, assemble_prefilter=t, or assemble_fusencutoff=0.7.  These override the final Tadpole defaults without affecting earlier phases.  To adjust those phases, use their own prefixes, such as ecc_k=55, extendm_k=124, or extendu_k=96.  Input/output/pairing redirections remain pipeline-managed, and unknown options are rejected by the receiving tool.  Use dryrun=t to inspect the exact commands before processing.
+
 Assembly:
 tadpole.sh in=reads.fq out=contigs.fa k=93
 
