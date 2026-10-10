@@ -11,32 +11,38 @@ import structures.LongList;
  * Designed for use with BBMerge since adapters are inferred by insert size.
  * Accumulates base counts across reads to generate consensus adapter sequences
  * for both read 1 and read 2, with PhiX filtering and poly-A/G trimming.
+ * Instances are unsynchronized; collect per worker, then merge after workers stop.
+ * Configure static filtering and trimming flags before collection.
  *
  * @author Brian Bushnell
  */
 public class AdapterTracker {
-	
-	public AdapterTracker() {
+
+	/** Creates A/C/G/T position histograms for both read ends. */
+	public AdapterTracker(){
 		for(int i=0; i<counts.length; i++){
 			for(int j=0; j<counts[i].length; j++){
 				counts[i][j]=new LongList(151);
 			}
 		}
 	}
-	
+
+	/** Counts a suffix beginning at the inferred insert boundary.
+	 * @param r Read with non-null bases and mate bases; pair number 0 or 1
+	 * @param insert Nonnegative insert length in bases */
 	public void storeAdapterSequence(Read r, int insert){
 		reads++;
-		if(r.length()<=insert) {return;}
+		if(r.length()<=insert){return;}
 		shortInserts++;
-		
+
 		if(looksLikePhix(r, insert)){
 			phixLike++;
 			if(ignorePhixAdapters){return;}
 		}
-		
+
 		LongList[] lists=counts[r.pairnum()];
 		byte[] bases=r.bases;
-		
+
 		for(int i=insert, j=0; i<bases.length; i++, j++){
 			byte b=bases[i];
 			int num=AminoAcid.baseToNumber[b];
@@ -45,14 +51,12 @@ public class AdapterTracker {
 			}
 		}
 	}
-	
+
 	private boolean looksLikePhix(Read r, int insert){
-		//n comprehension/caller-contract: r.mate.bases is dereferenced unconditionally -> NPE if r has no mate. Safe because
-		//n AdapterTracker infers adapters from insert size (paired-read overlap): storeAdapterSequence is only fed paired reads
-		//n by BBMerge, so r.mate is non-null on every path that reaches here. Latent, gated on the paired-only caller contract.
+		//BBMerge and TestFormat supply paired overlap candidates; either mate can identify PhiX.
 		return looksLikePhix(r.bases, insert) || looksLikePhix(r.mate.bases, insert);
 	}
-	
+
 	private boolean looksLikePhix(byte[] bases, int insert){
 		int len=bases.length-insert;
 		if(len<phixPrefix.length){return false;}
@@ -66,18 +70,24 @@ public class AdapterTracker {
 //		outstream.println(new String(phixPrefix));
 		return true;
 	}
-	
-	public boolean makeSequence() {
+
+	/** Refreshes seq1/seq2; returns whether either sequence exceeds one base. */
+	public boolean makeSequence(){
 		seq1=seq2=null;
 		seq1=toAdapterSequence(counts[0], trimPolyAorG);
 		seq2=toAdapterSequence(counts[1], trimPolyAorG);
 		return hasSequence();
 	}
-	
-	public boolean hasSequence() {
+
+	/** Tests cached sequences; does not regenerate them after collection. */
+	public boolean hasSequence(){
 		return (seq1!=null && seq1.length()>1) || (seq2!=null && seq2.length()>1);
 	}
-	
+
+	/** Writes both consensus sequences without refreshing seq1/seq2.
+	 * Unsupported sequences are written as N.
+	 * @param fname Output FASTA path
+	 * @return Read-1 A/C/G/T coverage at suffix position zero */
 	public long writeAdapterConsensus(String fname){
 		StringBuilder sb=new StringBuilder();
 		{
@@ -96,7 +106,7 @@ public class AdapterTracker {
 		ReadWrite.writeString(sb, fname);
 		return count;
 	}
-	
+
 	private static String toAdapterSequence(LongList[] lists, boolean trimPolyAorG){
 		StringBuilder adapter=new StringBuilder();
 		long max=0;
@@ -108,11 +118,8 @@ public class AdapterTracker {
 			long t=lists[3].get(i);
 			long sum=(a+c+g+t);
 			max=Tools.max(max, sum);
-			//n studied praise: this consensus loop scales BOTH its stop test and its call threshold with the running max
-			//n coverage, so it behaves sensibly at any depth (verified). Stop (L108): quits on zero coverage, OR on a >1000x
-			//n coverage drop from the peak (sum<=max/1000, the adapter signal has run out), OR on an absolute floor once
-			//n well-covered (max>100 && sum<8). Call (below): needs a >2/3 majority base, PLUS a +4 absolute margin once
-			//n max>100 so a couple of stray high-depth reads can't fabricate a base. Depth-adaptive without any magic fixed cutoff.
+			//At low coverage, stop relative to the peak; after a peak over100, also require8 observations.
+			//Calls require over two-thirds support, plus an absolute margin at high coverage.
 			if(sum==0 || (sum<10 && sum<=max/1000) || (max>100 && sum<8)){break;}
 			long thresh=(max>100 ? 4+(sum*2)/3 : (sum*2)/3);
 			if(a>thresh){
@@ -135,7 +142,7 @@ public class AdapterTracker {
 
 		String trimmed=trimPoly2(adapter.toString(), 'N');
 		if(trimPolyAorG){
-			for(int len=-1; len!=trimmed.length(); ) {
+			for(int len=-1; len!=trimmed.length(); ){
 				len=trimmed.length();
 				trimmed=trimPoly2(trimmed, 'G');
 				trimmed=trimPoly2(trimmed, 'A');
@@ -144,16 +151,16 @@ public class AdapterTracker {
 		if(trimJunk){
 			trimmed=trimJunk(trimmed, 6);
 		}
-		
+
 //		if(lastBase>=0){
 //			char A=(trimPolyAorG ? 'A' : 'N');
 //			while(lastBase>=0 && (adapter.charAt(lastBase)=='N' || adapter.charAt(lastBase)==A)){lastBase--;}
 //		}
-		
+
 		if(trimmed.length()<1){return "N";}
 		return trimmed;
 	}
-	
+
 	private static String trimPoly(String adapter, char trim){
 		int lastBase=-1;
 		for(int i=0; i<adapter.length(); i++){
@@ -162,7 +169,7 @@ public class AdapterTracker {
 				lastBase=i;
 			}
 		}
-		
+
 		int aCount=0;
 		int nCount=0;
 		int count=0;
@@ -174,50 +181,51 @@ public class AdapterTracker {
 			count++;
 			lastBase--;
 		}
-		
+
 		if(lastBase<0){return "N";}
 		if(count==nCount || (aCount>3)){
 			return adapter.substring(0, lastBase+1);
 		}
 		return adapter;
 	}
-	
+
 	private static String trimPoly2(String adapter, char poly){
 		int last=adapter.length()-1;
 		int trim=0;
-		while(last>=0) {
+		while(last>=0){
 			char c=adapter.charAt(last);
 //			System.err.println("c="+Character.toString(c)+", poly="+Character.toString(poly));
-			if(c==poly || c=='N') {
+			if(c==poly || c=='N'){
 				trim++;
 				last--;
 			}else{
 				break;
 			}
 		}
-		
-		if(trim>3 || (trim>0 && poly=='N')) {
+
+		if(trim>3 || (trim>0 && poly=='N')){
 			adapter=adapter.substring(0, last+1);
 		}
 //		assert(poly=='N') : Character.toString(poly)+"\n"+adapter+"\n"+trim+"\n"+last;
 		return adapter==null || adapter.length()<1 ? "N" : adapter;
 	}
-	
-	private static String trimJunk(String s, int minScore) {
+
+	private static String trimJunk(String s, int minScore){
 		int score=0, last=s.length()-1;
-		for(; last>=0 && score<minScore; last--) {
+		for(; last>=0 && score<minScore; last--){
 			char c=s.charAt(last);
-			if(c=='N') {
+			if(c=='N'){
 				score--;
 			}else {
 				score+=2;
 			}
 		}
 		last++;
-		while(last<s.length() && s.charAt(last)!='N' || (last<s.length()-1 && s.charAt(last+1)!='N')) {last++;}
+		while(last<s.length() && s.charAt(last)!='N' || (last<s.length()-1 && s.charAt(last+1)!='N')){last++;}
 		return (last<1 ? "N" : last>s.length() ? s : s.substring(0, last));
 	}
-	
+
+	/** Adds counts/counters; cached sequences require makeSequence afterward. */
 	public void merge(AdapterTracker b){
 		for(int x=0; x<counts.length; x++){
 			for(int y=0; y<counts[x].length; y++){
@@ -228,17 +236,17 @@ public class AdapterTracker {
 		shortInserts+=b.shortInserts;
 		phixLike+=b.phixLike;
 	}
-	
+
 	final LongList[][] counts=new LongList[2][4];
 	public String seq1=null;
 	public String seq2=null;
 	public long reads=0;
 	public long shortInserts=0;
 	public long phixLike=0;
-	
+
 	private static final byte[] phixPrefix="AGATCGGAAGAGCG".getBytes();
 	public static boolean ignorePhixAdapters=false;
 	public static boolean trimPolyAorG=true;
 	public static boolean trimJunk=true;
-	
+
 }

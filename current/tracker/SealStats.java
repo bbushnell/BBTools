@@ -13,153 +13,173 @@ import shared.Tools;
  * Reads tab-delimited statistics containing read counts and base counts
  * for matched sequences, organized by reference name. Provides methods
  * to identify primary matches and compute aggregate statistics.
+ * Instances and their exposed map entries are mutable and unsynchronized.
+ * fname remains the statistics path passed to the constructor; the #File header
+ * is currently parsed into a local variable only.
  *
  * @author Brian Bushnell
  */
 public class SealStats {
-	
+
 //	#File	NYUTS.fq.gz
 //	#Total	54848862	8282178162
 //	#Matched	936762	1.70790%
 //	#Name	Reads	ReadsPct	Bases	BasesPct
 //	NYUTS	914178	1.66672%	138040878	1.66672%
-	
+
 	/** Constructs a SealStats object and loads statistics from file.
 	 * @param fname_ Path to the statistics file to load */
-	public SealStats(String fname_) {
+	public SealStats(String fname_){
 		fname=fname_;
 		load(fname);
 	}
-	
+
 	/**
 	 * Loads statistics from a tab-delimited file.
 	 * Parses header lines starting with # and data lines containing
 	 * reference names with read/base counts. Updates internal counters
 	 * and builds map of per-reference statistics.
+	 * Always attempts to close its reader. A parse failure remains primary if
+	 * cleanup also fails; read/close errors otherwise fail the load with its input path.
 	 *
 	 * @param fname Path to the statistics file
 	 */
-	void load(String fname) {
-		ByteFile bf=ByteFile.makeByteFile1(fname, true);
-		LineParser1 lp=new LineParser1('\t');
-		for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()) {
-			lp.set(line);
-			if(Tools.startsWith(line, '#')) {//Header
-				if(lp.startsWith("#File")) {
-					fname=lp.parseString(1);
-				}else if(lp.startsWith("#Total")) {
-					totalReads=lp.parseLong(1);
-					totalBases=lp.parseLong(2);
-				}else if(lp.startsWith("#Matched")) {
-					matchedReads=lp.parseLong(1);
+	void load(String fname){
+		final String inputPath=fname;//#File metadata below is not the path of the owned reader.
+		final ByteFile bf=ByteFile.makeByteFile1(inputPath, true);
+		Throwable failure=null;
+		try{
+			LineParser1 lp=new LineParser1('\t');
+			for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()){
+				lp.set(line);
+				if(Tools.startsWith(line, '#')){//Header
+					if(lp.startsWith("#File")){
+						fname=lp.parseString(1);
+					}else if(lp.startsWith("#Total")){
+						totalReads=lp.parseLong(1);
+						totalBases=lp.parseLong(2);
+					}else if(lp.startsWith("#Matched")){
+						matchedReads=lp.parseLong(1);
+					}
+				}else {
+					String name=lp.parseString(0);
+					long reads=lp.parseLong(1);
+					long bases=lp.parseLong(3);
+					SealStatsLine ssl=map.get(name);
+					assert(ssl==null);
+					ssl=new SealStatsLine(name, reads, bases);
+					matchedBases+=bases; //Since that is not reported earlier
+					map.put(name, ssl);
 				}
-			}else {
-				String name=lp.parseString(0);
-				long reads=lp.parseLong(1);
-				long bases=lp.parseLong(3);
-				SealStatsLine ssl=map.get(name);
-				assert(ssl==null);
-				ssl=new SealStatsLine(name, reads, bases);
-				matchedBases+=bases; //Since that is not reported earlier
-				map.put(name, ssl);
+			}
+		}catch(RuntimeException | Error e){
+			failure=e;
+			throw e;
+		}finally{
+			//JT013: Close the owned reader on every path without replacing a parse failure.
+			try{
+				if(bf.close()){throw new RuntimeException("Error reading statistics file: "+inputPath);}
+			}catch(RuntimeException | Error e){
+				if(failure==null){throw e;}
+				if(e!=failure){failure.addSuppressed(e);}
 			}
 		}
-		bf.close();
 	}
-	
+
 	/**
 	 * Creates aggregate statistics for all references except the specified one.
 	 * Sums read and base counts from all entries that don't match the given name.
 	 * @param name Reference name to exclude from counting
 	 * @return SealStatsLine containing aggregated counts with name prefixed by "!"
 	 */
-	public SealStatsLine countNonmatching(String name) {
+	public SealStatsLine countNonmatching(String name){
 		SealStatsLine sum=new SealStatsLine("!"+name, 0, 0);
-		for(Entry<String, SealStatsLine> e : map.entrySet()) {
+		for(Entry<String, SealStatsLine> e : map.entrySet()){
 			String key=e.getKey();
-			if(!key.equals(name)) {
+			if(!key.equals(name)){
 				SealStatsLine ssl=e.getValue();
 				sum.add(ssl);
 			}
 		}
 		return sum;
 	}
-	
+
 	/**
 	 * Creates aggregate statistics for all non-primary references.
 	 * Identifies the primary reference and returns counts for all others.
-	 * @param name Currently unused parameter
-	 * @return SealStatsLine containing aggregated counts for non-primary references
+	 * If there is no primary, returns zero counts labeled with "!" plus name.
+	 * @param name Fallback name for an empty map; null yields the label "!null".
+	 * Ignored when a primary reference exists.
+	 * @return New aggregate, named "!" plus the primary name or the empty-map fallback
 	 */
-	public SealStatsLine countNonprimary(String name) {
-		//n [tracker/SealStats#001] LOW/latent: primary() is DOCUMENTED to return null on an empty map (a Seal stats file with
-		//n only headers, i.e. a sample that matched no reference — a legitimately-occurring input), and this line dereferences
-		//n primary.name with no guard -> NPE. Verified LATENT: grep found ZERO live callers of countNonprimary (existence-vs-
-		//n reachability: wrong-but-unreached -> latent LOW). The reachable primary()-null path is in driver/SummarizeSealCrosstalk
-		//n L113 (usePrimary mode), which is that file's concern. `name` param is unused (javadoc already notes this honestly).
+	public SealStatsLine countNonprimary(String name){
+		//tracker/SealStats#001, JT009: Empty maps use the caller's fallback name.
 		SealStatsLine primary=primary();
-		return countNonmatching(primary.name);
+		return countNonmatching(primary==null ? name : primary.name);
 	}
-	
+
 	/**
 	 * Identifies the primary reference with the highest match counts.
 	 * Uses SealStatsLine comparison to find reference with most reads/bases.
 	 * @return SealStatsLine for the reference with highest counts, null if no data
 	 */
-	public SealStatsLine primary() {
+	public SealStatsLine primary(){
 		SealStatsLine primary=null;
-		for(Entry<String, SealStatsLine> e : map.entrySet()) {
+		for(Entry<String, SealStatsLine> e : map.entrySet()){
 			SealStatsLine ssl=e.getValue();
-			if(primary==null || ssl.compareTo(primary)>0) {primary=ssl;}
+			if(primary==null || ssl.compareTo(primary)>0){primary=ssl;}
 		}
 		return primary;
 	}
-	
+
 	/** Extracts the core filename without path or extensions.
 	 * @return Core filename from the loaded statistics file */
-	public String fnamePrefix() {
+	public String fnamePrefix(){
 		return ReadWrite.stripToCore(fname);
 	}
-	
+
 	/**
 	 * Represents statistics for a single reference sequence.
 	 * Contains reference name, read count, and base count with methods
 	 * for aggregation and comparison. Implements Comparable to enable
 	 * sorting by read count, then base count, then name.
+	 * Name-only equality differs from count-based ordering and has no corresponding
+	 * hashCode override. Equality assumes a non-null SealStatsLine argument. Avoid
+	 * hash-key use; the legacy identity/ranking distinction is retained for review.
 	 */
 	public static class SealStatsLine implements Comparable<SealStatsLine> {
-		
+
 		/**
 		 * Constructs a statistics line for a reference sequence.
 		 * @param name_ Reference sequence name
 		 * @param reads_ Number of reads matched to this reference
 		 * @param bases_ Number of bases matched to this reference
 		 */
-		public SealStatsLine(String name_, long reads_, long bases_) {
+		public SealStatsLine(String name_, long reads_, long bases_){
 			name=name_;
 			reads=reads_;
 			bases=bases_;
 		}
-		
+
 		/**
 		 * Adds counts from another statistics line to this one.
 		 * Used for aggregating statistics across multiple references.
 		 * @param ssl Statistics line to add to this one
 		 */
-		public void add(SealStatsLine ssl) {
+		public void add(SealStatsLine ssl){
 			reads+=ssl.reads;
 			bases+=ssl.bases;
 		}
-		
+
 		@Override
-		public int compareTo(SealStatsLine o) {
-			if(reads!=o.reads) {return reads>o.reads ? 1 : -1;} 
-			if(bases!=o.bases) {return bases>o.bases ? 1 : -1;} 
+		public int compareTo(SealStatsLine o){
+			if(reads!=o.reads){return reads>o.reads ? 1 : -1;}
+			if(bases!=o.bases){return bases>o.bases ? 1 : -1;}
 			return name.compareTo(o.name);
 		}
 
 		@Override
-		public boolean equals(Object o) {return equals((SealStatsLine)o);}
+		public boolean equals(Object o){return equals((SealStatsLine)o);}
 		//n [tracker/SealStats#002] LOW/QUESTION-float, do NOT patch: equals compares NAME ONLY, but compareTo compares
 		//n reads,then bases,then name — an equals/compareTo inconsistency, and there is no hashCode override, and equals(Object)
 		//n casts without instanceof/null guard. This has the tell of Brian's INTENTIONAL partial-key pattern: a reference's
@@ -172,8 +192,8 @@ public class SealStats {
 		 * @param o SealStatsLine to compare against
 		 * @return true if names are equal
 		 */
-		public boolean equals(SealStatsLine o) {return name.equals(o.name);}
-		
+		public boolean equals(SealStatsLine o){return name.equals(o.name);}
+
 		/** Reference sequence name */
 		public String name;
 		/** Number of reads matched to this reference */
@@ -181,12 +201,12 @@ public class SealStats {
 		/** Number of bases matched to this reference */
 		public long bases;
 	}
-	
+
 	/** Path to the loaded statistics file */
 	public String fname;
 	public long totalReads, totalBases;
 	public long matchedReads, matchedBases;
 	/** Map of reference names to their statistics, preserving insertion order */
 	public LinkedHashMap<String, SealStatsLine> map=new LinkedHashMap<String, SealStatsLine>();
-	
+
 }

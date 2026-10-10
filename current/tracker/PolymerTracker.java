@@ -10,37 +10,41 @@ import structures.LongList;
 
 /**
  * Tracks the number of homopolymers observed of given lengths.
- * Only the longest homopolymer for a given base is counted per sequence.
- * Supports both per-sequence and per-polymer counting modes.
+ * Per-sequence mode counts the longest run of each base, including a zero bin
+ * for absent bases. Per-polymer mode counts every observed run. Runs compare
+ * literal bytes: a case change breaks a run even though both cases are recognized.
+ * Unknown symbols break runs and are omitted. Instances are unsynchronized;
+ * keep PER_SEQUENCE fixed during collection/merging. Add/reset invalidates cached totals.
  *
  * @author Brian Bushnell
  * @date August 27, 2018
  */
 public class PolymerTracker {
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/** Creates a PolymerTracker and initializes internal counters. */
 	public PolymerTracker(){
 		reset();
 	}
-	
+
 	/**
 	 * Resets all homopolymer counters and longest-length trackers to empty state.
 	 */
 	public void reset(){
+		cumulativeACGTN=null;
 		Arrays.fill(maxACGTN, 0);
 		for(int i=0; i<5; i++){
 			countsACGTN[i]=new LongList();
 		}
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------      Public Add Methods      ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/** Adds a paired read (and mate) to the homopolymer statistics if present.
 	 * @param r Read (with optional mate) to analyze */
 	public void addPair(Read r){
@@ -48,17 +52,18 @@ public class PolymerTracker {
 		add(r.bases);
 		add(r.mate);
 	}
-	
+
 	/** Adds a single read to the homopolymer statistics.
 	 * @param r Read to analyze */
 	public void add(Read r){
 		if(r==null){return;}
 		add(r.bases);
 	}
-	
+
 	/** Merges counts from another PolymerTracker into this one.
 	 * @param pt Tracker to merge */
 	public void add(PolymerTracker pt){
+		cumulativeACGTN=null;
 		for(int i=0; i<5; i++){
 			LongList list=countsACGTN[i];
 			LongList ptList=pt.countsACGTN[i];
@@ -68,20 +73,25 @@ public class PolymerTracker {
 			}
 		}
 	}
-	
+
+	/** Records a sequence under PER_SEQUENCE; ignores null and empty input. */
 	public void add(byte[] bases){
 		if(bases==null || bases.length<1){return;}
+		cumulativeACGTN=null;
 		if(PER_SEQUENCE){
 			addPerSequence(bases);
 		}else{
 			addPerPolymer(bases);
 		}
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------           Methods            ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
+	/** Returns borrowed histograms whose bin n counts lengths at least n.
+	 * Do not mutate the lists. Subsequent tracker mutation invalidates the cache;
+	 * an earlier returned array remains a snapshot and does not update itself. */
 	public LongList[] accumulate(){
 		if(cumulativeACGTN!=null){return cumulativeACGTN;}
 		LongList[] sums=new LongList[5];
@@ -99,12 +109,12 @@ public class PolymerTracker {
 		cumulativeACGTN=sums;
 		return sums;
 	}
-	
-	//Non-cumulative
+
+	/** Formats exact-length counts through the longest observed length, including zero bins. */
 	public String toHistogram(){
 		StringBuilder sb=new StringBuilder();
 		sb.append("#Length\tA\tC\tG\tT\tN\n");
-		
+
 		final int maxIndex=longest();
 		for(int len=0; len<maxIndex; len++){
 			sb.append(len);
@@ -116,11 +126,11 @@ public class PolymerTracker {
 		}
 		return sb.toString();
 	}
-	
-	//Cumulative
+
+	/** Formats counts of lengths at least each threshold, refreshing the cache if needed. */
 	public String toHistogramCumulative(){
 		LongList[] sums=accumulate();
-		
+
 		StringBuilder sb=new StringBuilder();
 		sb.append("#Length\tA\tC\tG\tT\tN\n");
 
@@ -135,36 +145,34 @@ public class PolymerTracker {
 		}
 		return sb.toString();
 	}
-	
+
 	public double calcRatio(byte base1, byte base2, int length){
 		long count1=getCount(base1, length);
 		long count2=getCount(base2, length);
 		return count1/Tools.max(1.0, count2);
 	}
-	
-	public long getCount(byte base, int length) {
-		//n comprehension/caller-contract: baseToNumberACGTN maps A/C/G/T/N->0..4 and ANY other byte->-1, so countsACGTN[-1]
-		//n would AIOOBE. Safe here because every caller passes a literal ACGTN base (calcRatio/calcRatioCumulative feed uppercase
-		//n base constants); a non-ACGTN or lowercase byte would crash. Latent, gated on caller contract — not a live bug.
+
+	public long getCount(byte base, int length){
+		//The mapping accepts both cases of A/C/G/T/N and U as T; other query keys are invalid.
 		int x=AminoAcid.baseToNumberACGTN[base];
 		return countsACGTN[x].get(length);
 	}
-	
+
 	public double calcRatioCumulative(byte base1, byte base2, int length){
 		long count1=getCountCumulative(base1, length);
 		long count2=getCountCumulative(base2, length);
 		return count1/Tools.max(1.0, count2);
 	}
-	
-	public long getCountCumulative(byte base, int length) {
+
+	public long getCountCumulative(byte base, int length){
 		int x=AminoAcid.baseToNumberACGTN[base];
 		return accumulate()[x].get(length);
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Inner Methods         ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	private void addPerSequence(byte[] bases){
 		Arrays.fill(maxACGTN, 0);
 		byte prev=-1;
@@ -179,12 +187,12 @@ public class PolymerTracker {
 			}
 		}
 		recordMax(prev, current);
-		
+
 		for(int i=0; i<maxACGTN.length; i++){
 			countsACGTN[i].increment(maxACGTN[i], 1);
 		}
 	}
-	
+
 	private void addPerPolymer(byte[] bases){
 		byte prev=-1;
 		int current=0;
@@ -199,21 +207,22 @@ public class PolymerTracker {
 		}
 		recordCounts(prev, current);
 	}
-	
+
 	private void recordMax(byte base, int len){
 		if(base<0){return;}
 		int x=AminoAcid.baseToNumberACGTN[base];
 		if(x<0){return;}
 		maxACGTN[x]=Tools.max(maxACGTN[x], len);
 	}
-	
+
 	private void recordCounts(byte base, int len){
 		if(base<0){return;}
 		int x=AminoAcid.baseToNumberACGTN[base];
 		if(x<0){return;}
 		countsACGTN[x].increment(len, 1);
 	}
-	
+
+	/** Number of bins, one more than the greatest stored length. */
 	private int longest(){
 		int max=0;
 		for(LongList list : countsACGTN){
@@ -221,20 +230,21 @@ public class PolymerTracker {
 		}
 		return max;
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	private final int[] maxACGTN=KillSwitch.allocInt1D(5);
 	final LongList[] countsACGTN=new LongList[5];
+	/** Borrowed query cache, invalidated by every count mutation (JT001). */
 	private LongList[] cumulativeACGTN;
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Static Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 
 	public static boolean PER_SEQUENCE=true;
 	public static boolean CUMULATIVE=true;
-	
+
 }

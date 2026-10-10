@@ -12,20 +12,24 @@ import structures.IntRingBufferCond;
  * dinucleotide analysis. For k=2, calculates frequencies within compositional bins
  * (e.g., 0-GC dimers: AA/AT/TA/TT, 2-GC dimers: CC/CG/GC/GG) for composition-independent
  * sequence signature analysis.
+ * Instances are unsynchronized and count forward two-bit encodings. Only
+ * addWindowed uses the ring: its window counts emitted valid k-mers, not a
+ * contiguous base interval. Ambiguities reset construction but leave the ring.
+ * Existing metric-specific zero-denominator behavior, including NaN, is retained.
  *
  * @author Brian Bushnell
  * @date October 2, 2025
  */
 public class KmerTracker{
-	
-	public KmerTracker(int k_) {this(k_, 0);}
+
+	public KmerTracker(int k_){this(k_, 0);}
 
 	/**
 	 * Constructs a k-mer tracker with optional windowed counting.
 	 * @param k_ K-mer length (must be 1-15)
-	 * @param window_ Fixed window size for rolling counts (0 for unlimited)
+	 * @param window_ Number of valid k-mers retained by addWindowed; 0 for unlimited use
 	 */
-	public KmerTracker(int k_, int window_) {
+	public KmerTracker(int k_, int window_){
 		assert(k_>0 && k_<16);
 		k=k_;
 		bits=2*k;
@@ -38,6 +42,8 @@ public class KmerTracker{
 	/**
 	 * Counts all k-mers in a sequence.
 	 * Resets on ambiguous bases (non-ACGT).
+	 * Uses local rolling state for a separate sequence and leaves the single-base
+	 * rolling state/ring unchanged. Sequences shorter than k are ignored entirely.
 	 * @param bases Sequence to process
 	 */
 	public void add(final byte[] bases){
@@ -52,7 +58,7 @@ public class KmerTracker{
 			if(x>=0){
 				len++;
 				count++;
-				if(len>=k) {counts[kmer]++;}
+				if(len>=k){counts[kmer]++;}
 			}else{len=kmer=0;}
 		}
 	}
@@ -62,32 +68,34 @@ public class KmerTracker{
 	 * Updates count when k valid bases have been seen.
 	 * @param b Base to add
 	 */
-	public void add(byte b) {
+	public void add(byte b){
 		int x=AminoAcid.baseToNumber[b];// Element i is: 0 for 'A', 1 for 'C', 2 for 'G', 3 for 'T', -1 otherwise
 		kmer=(((kmer<<2)|x)&mask);
 		if(x>=0){
 			len++;
 			count++;
-			if(len>=k) {counts[kmer]++;}
+			if(len>=k){counts[kmer]++;}
 		}else{len=kmer=0;}
 	}
 
 	/**
 	 * Adds a base with windowed counting.
 	 * Maintains fixed-size window by incrementing new k-mer and decrementing evicted k-mer.
+	 * Requires a positive window. Do not mix with unlimited accumulation without
+	 * clearing all state. Ambiguities do not remove existing ring entries.
 	 * @param b Base to add
 	 * @return True if this completed a new valid window
 	 */
-	public boolean addWindowed(byte b) {
+	public boolean addWindowed(byte b){
 		int x=AminoAcid.baseToNumber[b];
 		kmer=(((kmer<<2)|x)&mask);
 		if(x>=0){
 			len++;
 			count++;
-			if(len>=k) {
+			if(len>=k){
 				counts[kmer]++;
 				int old=buffer.add(kmer);
-				if(old>=0) {counts[old]--;}
+				if(old>=0){counts[old]--;}
 				return buffer.isFull();
 			}
 		}else{len=kmer=0;}
@@ -95,38 +103,38 @@ public class KmerTracker{
 	}
 
 	/** Returns GC content from instance counts */
-	public float GC() {return GC(counts);}
+	public float GC(){return GC(counts);}
 	/** Returns strand bias metric from instance counts */
-	public float strandedness() {return strandedness(counts, k);}
+	public float strandedness(){return strandedness(counts, k);}
 	/** Returns AA+TT fraction within 0-GC dimers from instance counts */
-	public float AAAT() {return AAAT(counts);}
+	public float AAAT(){return AAAT(counts);}
 	/** Returns CC+GG fraction within 2-GC dimers from instance counts */
-	public float CCCG() {return CCCG(counts);}
+	public float CCCG(){return CCCG(counts);}
 	/** Returns homopolymer dimer fraction from instance counts */
-	public float HH() {return HH(counts);}
+	public float HH(){return HH(counts);}
 	/** Returns purine/pyrimidine dimer fraction from instance counts */
-	public float PP() {return PP(counts);}
+	public float PP(){return PP(counts);}
 	/** Returns hydrophobic metric from instance counts */
-	public float HMH() {return HMH(counts);}
+	public float HMH(){return HMH(counts);}
 	/** Returns combined homopolymer and purine/pyrimidine metric from instance counts */
-	public float HHPP() {return HHPP(counts);}
-	public float ACTG() {return ACTG(counts);}
-	public float ACAG() {return ACAG(counts);}
-	public float CAGA() {return CAGA(counts);}
-	public float CCMCG() {return CCMCG(counts);}
-	public float ATMTA() {return ATMTA(counts);}
-	public float AT() {return AT(counts);}
+	public float HHPP(){return HHPP(counts);}
+	public float ACTG(){return ACTG(counts);}
+	public float ACAG(){return ACAG(counts);}
+	public float CAGA(){return CAGA(counts);}
+	public float CCMCG(){return CCMCG(counts);}
+	public float ATMTA(){return ATMTA(counts);}
+	public float AT(){return AT(counts);}
 
 	/**
 	 * Calculates GC content from k-mer counts.
-	 * Works for any k by examining terminal base.
+	 * Examines counted k-mer terminal bases, which need not represent every input base.
 	 * @param counts K-mer count array
-	 * @return GC fraction (0.0-1.0)
+	 * @return GC fraction (0.0-1.0), or NaN for zero total count
 	 */
-	public static float GC(long[] counts) {//Works for any k
+	public static float GC(long[] counts){//Works for any k
 		final int mask=0b11;
 		long[] acgt=new long[4];
-		for(int kmer=0; kmer<counts.length; kmer++) {
+		for(int kmer=0; kmer<counts.length; kmer++){
 			final long count=counts[kmer];
 			final int masked=kmer&mask;
 			acgt[masked]+=count;
@@ -144,17 +152,17 @@ public class KmerTracker{
 
 	/**
 	 * Calculates strand bias as deviation from strand symmetry.
-	 * Compares each k-mer to its reverse complement.
+	 * Compares each dimer to its basewise complement, without reversing base order.
 	 * @param counts Dimer count array (must be length 16)
 	 * @param k K-mer length
 	 * @return Strand bias metric (0.0=perfect symmetry, 1.0=maximum bias)
 	 */
-	public static float strandedness(long[] counts, int k) {//I assume k must be 2, need to check
+	public static float strandedness(long[] counts, int k){//I assume k must be 2, need to check
 		assert(counts.length==16);
 		final int mask=~((-1)<<(2*k));
 		assert(mask==counts.length-1);
 		long lower=0, upper=0;
-		for(int kmer=0, limit=counts.length/2; kmer<limit; kmer++) {
+		for(int kmer=0, limit=counts.length/2; kmer<limit; kmer++){
 			long a=counts[kmer];
 			long b=counts[mask&(~kmer)];
 			lower+=Math.min(a, b);
@@ -170,7 +178,7 @@ public class KmerTracker{
 	 * @param counts Dimer count array (must be length 16)
 	 * @return (AA+TT)/(AA+AT+TA+TT)
 	 */
-	public static float AAAT(long[] counts) {
+	public static float AAAT(long[] counts){
 		assert(counts.length==16);
 		long AA=counts[0b0000], TT=counts[0b1111];
 		long AT=counts[0b0011], TA=counts[0b1100];
@@ -183,7 +191,7 @@ public class KmerTracker{
 	 * @param counts Dimer count array (must be length 16)
 	 * @return 0.5f*(1+((AT-TA)/(float)(AA+TT+AT+TA)));
 	 */
-	public static float ATMTA(long[] counts) {
+	public static float ATMTA(long[] counts){
 		assert(counts.length==16);
 		long AA=counts[0b0000], TT=counts[0b1111];
 		long AT=counts[0b0011], TA=counts[0b1100];
@@ -196,27 +204,27 @@ public class KmerTracker{
 	 * @param counts Dimer count array (must be length 16)
 	 * @return (AT)/(AA+AT+TA+TT)
 	 */
-	public static float AT(long[] counts) {
+	public static float AT(long[] counts){
 		assert(counts.length==16);
 		long AA=counts[0b0000], TT=counts[0b1111];
 		long AT=counts[0b0011], TA=counts[0b1100];
 		return AT/(float)(AA+TT+AT+TA);
 	}
-	
+
 	/**
 	 * Calculates CC+GG fraction within 2-GC dinucleotides.
 	 * Uses GC-binned normalization for composition-independent metric.
 	 * @param counts Dimer count array (must be length 16)
 	 * @return (CC+GG)/(CC+CG+GC+GG)
 	 */
-	public static float CCCG(long[] counts) {
+	public static float CCCG(long[] counts){
 		assert(counts.length==16);
 		long CC=counts[0b0101], GG=counts[0b1010];
 		long CG=counts[0b0110], GC=counts[0b1001];
 		return (CC+GG)/(float)(CC+GG+CG+GC);
 	}
-	
-	public static float CCMCG(long[] counts) {
+
+	public static float CCMCG(long[] counts){
 		assert(counts.length==16);
 		long CC=counts[0b0101], GG=counts[0b1010];
 		long CG=counts[0b0110], GC=counts[0b1001];
@@ -226,9 +234,9 @@ public class KmerTracker{
 	/**
 	 * Calculates homopolymer dimer fraction (AA, CC, GG, TT).
 	 * @param counts Dimer count array (must be length 16)
-	 * @return Homopolymer fraction of all dimers
+	 * @return Homopolymer fraction among AA/AT/TA/TT/CC/CG/GC/GG; zero for an empty denominator
 	 */
-	public static float HH(long[] counts) {
+	public static float HH(long[] counts){
 		assert(counts.length==16);
 		long AA=counts[0b0000], TT=counts[0b1111];
 		long AT=counts[0b0011], TA=counts[0b1100];
@@ -240,9 +248,9 @@ public class KmerTracker{
 	/**
 	 * Calculates homopolymer dimer fraction from int counts.
 	 * @param counts Dimer count array (must be length 16)
-	 * @return Homopolymer fraction of all dimers
+	 * @return Homopolymer fraction among AA/AT/TA/TT/CC/CG/GC/GG; zero for an empty denominator
 	 */
-	public static float HH(int[] counts) {
+	public static float HH(int[] counts){
 		assert(counts.length==16);
 		long AA=counts[0b0000], TT=counts[0b1111];
 		long AT=counts[0b0011], TA=counts[0b1100];
@@ -254,11 +262,11 @@ public class KmerTracker{
 	/**
 	 * Calculates purine-purine/pyrimidine-pyrimidine dimer fraction.
 	 * Purines: A (00), G (10); Pyrimidines: C (01), T (11).
-	 * Tests second bit of each base (0=purine, 1=pyrimidine).
+	 * Tests the low bit of each two-bit base (0=purine, 1=pyrimidine).
 	 * @param counts Dimer count array (must be length 16)
 	 * @return Fraction of dimers with matching purine/pyrimidine type
 	 */
-	public static float PP(long[] counts) {
+	public static float PP(long[] counts){
 		assert(counts.length==16);
 		//Purine: A=00, G=10
 		//Pyramidine: C=01, T=11
@@ -268,18 +276,18 @@ public class KmerTracker{
 		long purineCount=0;
 		long pyramidineCount=0;
 		long deltaCount=0;
-		for(int kmer=0; kmer<counts.length; kmer++) {
+		for(int kmer=0; kmer<counts.length; kmer++){
 			final long count=counts[kmer];
 			final int masked=kmer&mask;
-			if(masked==purine) {purineCount+=count;}
-			else if(masked==pyramidine) {pyramidineCount+=count;}
+			if(masked==purine){purineCount+=count;}
+			else if(masked==pyramidine){pyramidineCount+=count;}
 			else {deltaCount+=count;}
 		}
 		long pp=purineCount+pyramidineCount;
 		return (pp)/(float)(pp+deltaCount);
 	}
-	
-	public static float ACTG(long[] counts) {
+
+	public static float ACTG(long[] counts){
 		assert(counts.length==16);
 		long AC=counts[0b0001], TG=counts[0b1110];
 		long AG=counts[0b0010], CT=counts[0b0111];
@@ -287,8 +295,8 @@ public class KmerTracker{
 		long GT=counts[0b1011], CA=counts[0b0100];
 		return (AC+TG+GT+CA)/(float)(AC+AG+CA+GA+TC+TG+CT+GT);
 	}
-	
-	public static float ACAG(long[] counts) {
+
+	public static float ACAG(long[] counts){
 		assert(counts.length==16);
 		long AC=counts[0b0001], TG=counts[0b1110];
 		long AG=counts[0b0010], CT=counts[0b0111];
@@ -296,8 +304,8 @@ public class KmerTracker{
 		long GT=counts[0b1011], CA=counts[0b0100];
 		return 0.5f*(1+(AC+GT-AG-CT)/(float)(AC+AG+CA+GA+TC+TG+CT+GT));
 	}
-	
-	public static float CAGA(long[] counts) {
+
+	public static float CAGA(long[] counts){
 		assert(counts.length==16);
 		long AC=counts[0b0001], TG=counts[0b1110];
 		long AG=counts[0b0010], CT=counts[0b0111];
@@ -305,8 +313,8 @@ public class KmerTracker{
 		long GT=counts[0b1011], CA=counts[0b0100];
 		return 0.5f*(1+(CA+TG-GA-TC)/(float)Math.max(1f, AC+AG+CA+GA+TC+TG+CT+GT));
 	}
-	
-	public static float CAGA(int[] counts) {
+
+	public static float CAGA(int[] counts){
 		assert(counts.length==16);
 		long AC=counts[0b0001], TG=counts[0b1110];
 		long AG=counts[0b0010], CT=counts[0b0111];
@@ -321,7 +329,7 @@ public class KmerTracker{
 	 * @param counts Dimer count array (must be length 16)
 	 * @return Hydrophobic metric
 	 */
-	public static float HMH(long[] counts) {
+	public static float HMH(long[] counts){
 		return Math.max(0, 0.5f*(AAAT(counts)-CCCG(counts)+1));
 	}
 
@@ -330,7 +338,7 @@ public class KmerTracker{
 	 * @param counts Dimer count array (must be length 16)
 	 * @return Average of HH and PP metrics
 	 */
-	public static float HHPP(long[] counts) {
+	public static float HHPP(long[] counts){
 		return 0.5f*(HH(counts)+PP(counts));
 	}
 
@@ -346,18 +354,19 @@ public class KmerTracker{
 	 */
 	public void add(KmerTracker tracker){add(tracker.counts);}
 
-	/** Resets rolling k-mer state without clearing accumulated counts */
-	public void reset() {len=kmer=0;}
+	/** Resets construction only; preserves counts, valid-base count and ring contents. */
+	public void reset(){len=kmer=0;}
 
 	/** Clears all state and accumulated counts */
-	public void clearAll() {
+	public void clearAll(){
 		count=len=kmer=0;
 		Arrays.fill(counts, 0);
-		if(buffer!=null) {buffer.clear();}
+		if(buffer!=null){buffer.clear();}
 	}
-	
-	public long count() {return count;}
-	public void resetCount() {count=0;}
+
+	/** Counts valid input bases since clearAll/resetCount, not emitted k-mers. */
+	public long count(){return count;}
+	public void resetCount(){count=0;}
 
 	/** Current rolling k-mer value */
 	private int kmer=0;
@@ -372,7 +381,7 @@ public class KmerTracker{
 	public final int bits;
 	/** Bitmask for k-mer extraction */
 	public final int mask;
-	/** Window size for rolling counts (0 for unlimited) */
+	/** Number of emitted valid k-mers retained in the ring (0 for unlimited). */
 	public final int window;
 
 	/** K-mer counts array (length = 4^k) */

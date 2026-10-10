@@ -7,13 +7,17 @@ import parse.Parse;
 import shared.Tools;
 
 /**
- * Tracks entropy over a sliding window.
+ * Tracks k-mer entropy over a fixed-size sliding window of bases or amino acids.
+ * Mutable instances are unsynchronized. Undefined symbols are encoded as zero
+ * for counting and tracked separately by ns(); callers may exclude those windows.
+ * Entropy uses natural logarithms and a fixed window-kmer normalization, including
+ * during initial partial windows. Configure static defaults before creating workers.
  * @author Brian Bushnell
  * @date Oct 6, 2017
  *
  */
 public class EntropyTracker {
-	
+
 	/** Program entry point for testing entropy tracking functionality.
 	 * @param args Command-line arguments: k-mer length, window size, cutoff, highPass flag */
 	public static void main(String[] args){
@@ -21,84 +25,88 @@ public class EntropyTracker {
 		final int window=args.length>1 ? Integer.parseInt(args[1]) : 3;
 		final float cutoff=args.length>2 ? Float.parseFloat(args[2]) : 0.7f;
 		final boolean highPass=args.length>3 ? Parse.parseBoolean(args[3]) : true;
-		
+
 		EntropyTracker et=new EntropyTracker(k, window, false, cutoff, highPass);
 		System.err.println(et);
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
 	 * Normal constructor.
 	 * @param k_ Kmer length.
 	 * @param window_ Window size in bases.
+	 * @param amino_ True for amino-acid symbols, false for nucleotides
 	 */
 	public EntropyTracker(int k_, int window_, boolean amino_){
 		this(k_, window_, amino_, -1, true);
 	}
-	
+
 	/**
 	 * Allows the use of passes() based on entropy.
-	 * @param k_ Kmer length.
-	 * @param window_ Window size in bases.
+	 * Uses configured defaults, with amino-specific defaults when not overridden.
+	 * @param amino_ True for amino-acid symbols, false for nucleotides
 	 * @param cutoff_ Entropy cutoff, 0 (no entropy) to 1 (max entropy).
 	 * @param highPass_ True passes entropy of at least cutoff; false fails.
 	 */
 	public EntropyTracker(boolean amino_, float cutoff_, boolean highPass_){
-		this((setDefaultK ? defaultK : amino_ ? 2 : defaultK), 
+		this((setDefaultK ? defaultK : amino_ ? 2 : defaultK),
 				(setDefaultWindow ? defaultWindowBases : amino_ ? 25 : 50),
 				amino_, cutoff_, highPass_);
 	}
-	
+
 	/**
 	 * Allows the use of passes() based on entropy.
 	 * @param k_ Kmer length.
 	 * @param window_ Window size in bases.
+	 * @param amino_ True for amino-acid symbols, false for nucleotides
 	 * @param cutoff_ Entropy cutoff, 0 (no entropy) to 1 (max entropy).
 	 * @param highPass_ True passes entropy of at least cutoff; false fails.
 	 */
 	public EntropyTracker(int k_, int window_, boolean amino_, float cutoff_, boolean highPass_){
-		
 		k=k_;
 		windowBases=window_;
 		windowKmers=windowBases-k+1;
 		amino=amino_;
 		entropyCutoff=cutoff_;
 		highPass=highPass_;
-		
-		
+
+
 		assert(k>0 && k<=15 && k<windowBases) : k+", "+windowBases;
 		assert(windowKmers>0 && (entropyCutoff>=0 || entropyCutoff==-1) && entropyCutoff<=1) : k+", "+windowBases+", "+windowKmers+", "+entropyCutoff;
-		
+		assert(windowBases<=Short.MAX_VALUE && windowKmers<Short.MAX_VALUE) :
+			"Short counters require windowBases<=32767 and windowKmers<=32766 because EntropyTracker.add inserts before eviction; "+
+			"k="+k+", windowBases="+windowBases+", windowKmers="+windowKmers;
+
 		bitsPerBase=(amino ? 5 : 2);
-		//n [tracker/EntropyTracker#006] LOW/latent-edge: the k>15 guard for the shift is correct for nucleotide (bitsPerBase=2:
-		//n 2*k exceeds 31 only when k>15), but for amino (bitsPerBase=5) the product 5*k exceeds 31 at k>=7, so mask and kmerSpace
-		//n use a Java int-shift with count>=35 (silently masked to count&31) -> wrong mask/kmerSpace for amino && k in [7,15]. The
-		//n constructor assert only bounds k<=15, not bitsPerBase*k<=31. Latent: amino EntropyTracker is used with tiny k (default
-		//n 2, see ctor above); no path builds an amino tracker with k>=7. Correct guard would be `bitsPerBase*k>31`, not `k>15`.
+		//tracker/EntropyTracker#006, JT011: Amino needs five bits per symbol; int shifts wrap at32.
+		assert(bitsPerBase*k<31) : "Encoding width must be <31 bits for a positive int-sized k-mer table; "+
+			"amino="+amino+", bitsPerBase="+bitsPerBase+", k="+k+", bits="+(bitsPerBase*k);
 		mask=(k>15 ? -1 : ~((-1)<<(bitsPerBase*k)));
 		kmerSpace=(1<<(bitsPerBase*k));//Note: This should be different for amino, but decoding would be a pain
 		symbolToNumber=AminoAcid.symbolToNumber(amino);
 		symbolToNumber0=AminoAcid.symbolToNumber0(amino);
-		
+
 		entropy=makeEntropyArray(windowKmers);
 		entropyMult=-1/Math.log(windowKmers);
 		baseCountMult=1f/windowBases;
-		baseCounts=new short[4];
+		baseCounts=new short[1<<bitsPerBase];
 		counts=new short[kmerSpace];
 		countCounts=new short[windowKmers+2];
 		countCounts[0]=(short)windowKmers;
 		baseRingBuffer=new byte[windowBases];
-		
+		//Match clear(): prime the trailing k-mer before the first eviction (JT005).
+		pos2=0-windowBases+k-1;
+
 //		assert(false) : "\namino="+amino+", windowBases="+windowBases+", windowKmers="+windowKmers+", cutoff="+entropyCutoff+", bpb="+bitsPerBase+", mask="+
 //			Integer.toBinaryString(mask)+", space="+kmerSpace+", mult="+entropyMult+"\n"+"entropy="+Arrays.toString(entropy);
-		
+
 //		entropyDeltaPlus=makeEntropyDeltaPlus(entropy, entropyMult);
 //		entropyDeltaMinus=makeEntropyDeltaMinus(entropy, entropyMult);
 	}
-	
+
 	/**
 	 * @param maxCount Highest possible count; equal to window size in kmers.
 	 * @return Entropy array
@@ -112,7 +120,7 @@ public class EntropyTracker {
 		}
 		return array;
 	}
-	
+
 	/**
 	 * @param entropy Entropy array
 	 * @param entropyMult Multiplier applied to each array element
@@ -126,7 +134,7 @@ public class EntropyTracker {
 		}
 		return array;
 	}
-	
+
 	/**
 	 * @param entropy Entropy array
 	 * @param entropyMult Multiplier applied to each array element
@@ -140,45 +148,47 @@ public class EntropyTracker {
 		}
 		return array;
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------            Getters           ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/** @return Number of unique kmers in current window. */
 	public int unique(){return unique;}
-	
+
 	/** @return Number of undefined bases in current window. */
 	public int ns(){return ns;}
-	
+
 	/** @return Sequence position of rightmost base in window. */
 	public int rightPos(){return len-1;}
-	
+
 	/** @return Sequence position of leftmost base in window. */
 	public int leftPos(){return len-windowBases;}
 
 	/** @return Window size in bases. */
-	public int windowBases() {return windowBases;}
+	public int windowBases(){return windowBases;}
 
 	/** Gets the k-mer length used for entropy calculation.
 	 * @return Length of k-mers being counted */
-	public int k() {return k;}
+	public int k(){return k;}
 
 	/** @return Entropy cutoff. */
-	public float cutoff() {return entropyCutoff;}
-	
+	public float cutoff(){return entropyCutoff;}
+
 	/*--------------------------------------------------------------*/
 	/*----------------      Entropy Calculation     ----------------*/
 	/*--------------------------------------------------------------*/
-	
-	/** Calculates the fraction of the window occupied by the most frequent base.
-	 * @return Proportion of most common nucleotide (0-1 scale) */
+
+	/** Fraction of the configured window occupied by the most frequent encoded symbol.
+	 * Undefined symbols contribute to encoding zero, and partial windows retain the
+	 * full-window denominator.
+	 * @return Most frequent encoded-symbol count divided by windowBases */
 	public float calcMaxMonomerFraction(){
 		//int total=sum(baseCounts); should be window length
 		int max=Tools.max(baseCounts);
 		return baseCountMult*max;
 	}
-	
+
 	/**
 	 * Calculate entropy in current window.
 	 * @return Entropy in current window.
@@ -189,104 +199,104 @@ public class EntropyTracker {
 		else if(speed==SLOW){return calcEntropySlow();}
 		else{return calcEntropySuperSlow();}
 	}
-	
+
 	/** Sub-method of calcEntropy() */
 	private float calcEntropyFast(){
 		final float f=(float)(currentEsum*entropyMult);
 //		final float f=(float)currentEsum; //For delta arrays
-		
+
 		//Avoid potential negative numbers due to underflow
 		return f>0 ? f : 0;
 	}
-	
+
 	/** Sub-method of calcEntropy()
 	 * Calculates entropy from countCounts using precalculated entropy array and early exit. */
 	private float calcEntropyMedium(){
 		//Sum of entropy contributions from each kmer
 		double eSum=0;
-		
+
 		//Sum of kmer counts, used for loop early exit
 		int cSum=countCounts[0];
-		
+
 		//Simpler loop with no early exit.  Slower for complex sequences, but faster for homopolymonomers.
 //		for(int i=1; i<countCounts.length; i++){
-		
+
 		//Loop over all nonzero kmer counts
 		for(int i=1; cSum<windowKmers; i++){
 			//Number of unique kmers with count i
 			final int cc=countCounts[i];
 			cSum+=cc;
-			
+
 			//Entropy contribution for each unique kmer with count i
 			double pklogpk=entropy[i];
-			
+
 			//Add the entropy contribution for all unique kmers with count i
 			eSum+=(cc*pklogpk);
 		}
-		//eSum now holds negative entropy in bits.
-		
+		//eSum now holds negative entropy in nats.
+
 		//Adjust entropy to 0-1 scale based on window size
 		float e=(float)(eSum*entropyMult);
 		assert(e>=0 && e<=1) : e+", "+eSum+", "+entropyMult+"\n"+Arrays.toString(entropy)+"\n"+this;
-		
+
 		//Get rid of negative zero
 		if(e<=0){e=0;}
-		
+
 		if(verbose){
 			System.err.println(Tools.format("%.3f", eSum)+"\t"+Tools.format("%.3f", entropyMult)+"\t"
 					+Tools.format("%.3f", e)+"\t"+len+"\t"+unique+"\t"+basesToString());
 		}
-		
+
 		return e;
 	}
-	
+
 	/** Sub-method of calcEntropy()
 	 * Calculates entropy from counts using precalculated entropy array. */
 	private float calcEntropySlow(){
 		//Sum of entropy contributions from each kmer
 		double eSum=0;
-		
+
 		//Loop over all nonzero kmer counts
 		for(int count : counts){
-			
+
 			//Entropy contribution for this kmer's count
 			double pklogpk=entropy[count];
 			eSum+=pklogpk;
 		}
-		//eSum now holds negative entropy in bits.
-		
+		//eSum now holds negative entropy in nats.
+
 		//Adjust entropy to 0-1 scale based on window size
 		float e=(float)(eSum*entropyMult);
 		assert(e>=0 && e<=1) : e+", "+eSum+", "+entropyMult+"\n"+Arrays.toString(entropy)+"\n"+this;
-		
+
 		//Get rid of negative zero
 		if(e<=0){e=0;}
-		
+
 		if(verbose){
 			System.err.println(Tools.format("%.3f", eSum)+"\t"+Tools.format("%.3f", entropyMult)+"\t"
 					+Tools.format("%.3f", e)+"\t"+len+"\t"+unique+"\t"+basesToString());
 		}
-		
+
 		return e;
 	}
-	
+
 	/**
 	 * Sub-method of calcEntropy()
 	 * Demonstrates explicit entropy calculation.
-	 * 
+	 *
 	 * Definition:
 	 * Entropy, or information content, can be calculated using kmer counts of a sequence.
-	 * 
+	 *
 	 * Probability of an event (unique kmer), pk, is that kmer's count divided by the number of kmers.
 	 * Entropy contribution from that kmer is -pk*log(pk).
 	 * Total entropy is sum of (-pk*log(pk)) for all kmer counts.
-	 * entropyMult is simply a multiplier to convert the entropy measure (in bits) to a convenient 0-1 scale,
+	 * entropyMult is simply a multiplier to convert the entropy measure (in nats) to a convenient 0-1 scale,
 	 * corresponding to the inverse of the maximum possible entropy.
 	 */
 	private float calcEntropySuperSlow(){
 		//Sum of entropy contributions from each kmer
 		double eSum=0;
-		
+
 		//Loop over all nonzero kmer counts
 		for(int count : counts){
 			//Prevent NaN and INF
@@ -303,32 +313,32 @@ public class EntropyTracker {
 //				System.err.println("eSum="+eSum);
 			}
 		}
-		//eSum now holds entropy in bits.
-		
+		//eSum now holds entropy in nats.
+
 		//Multiplier to convert entropy to 0-1 scale.
 		double multiplier=1/Math.log(windowKmers);
-		
+
 		//Adjust entropy to 0-1 scale based on window size
 		float e=(float)(eSum*multiplier);
 //		System.err.println("e="+e);
 		assert(e>=0 && e<=1) : e+", "+eSum+", "+entropyMult+"\n"+Arrays.toString(entropy)+"\n"+this;
-		
+
 		//Get rid of negative zero
 		if(e<=0){e=0;}
-		
+
 		if(verbose){
 			System.err.println(Tools.format("%.3f", eSum)+"\t"+Tools.format("%.3f", entropyMult)+"\t"
 					+Tools.format("%.3f", e)+"\t"+len+"\t"+unique+"\t"+basesToString());
 		}
-		
+
 		return e;
 	}
-	
+
 	/*--------------------------------------------------------------*/
-	
+
 	/**
 	 * Calculates strandedness metric for a sequence using k-mer counts.
-	 * Measures how balanced forward and reverse complement k-mers are.
+	 * Measures balance between k-mers and their basewise complements, without reversal.
 	 *
 	 * @param bases Sequence to analyze
 	 * @param counts Work array for k-mer counting (can be null)
@@ -340,19 +350,19 @@ public class EntropyTracker {
 	//n pairs, so a==b (balanced/unstranded) -> 1.0 and one-strand-only (b=0) -> 0.0. Verified with a k=1 "AAAA" trace: counts
 	//n [4,0,0,0], A/T pair min=0 max=4 -> 0.0 = maximally stranded. Corrected 3 docs to match the math + the already-correct
 	//n sibling strandedness(int[],k) below. (The complement (~kmer) pairing is INTENTIONAL and correct — see #005 for the why.)
-	public static float strandedness(byte[] bases, int[] counts, int k) {
-		if(counts==null) {counts=new int[1<<(2*k)];}
+	public static float strandedness(byte[] bases, int[] counts, int k){
+		if(counts==null){counts=new int[1<<(2*k)];}
 		countKmers(bases, counts, k);
 		return strandedness(counts, k);
 	}
-	
+
 	/**
 	 * Calculates strandedness from existing k-mer counts.
 	 * @param counts Array of k-mer counts indexed by numeric k-mer value
 	 * @param k K-mer length
 	 * @return Strandedness score (0=perfectly stranded, 1=perfectly balanced/unstranded)
 	 */
-	public static float strandedness(int[] counts, int k) {
+	public static float strandedness(int[] counts, int k){
 		final int mask=~((-1)<<(2*k));
 		assert(mask==counts.length-1);
 		long lower=0, upper=0;
@@ -362,7 +372,7 @@ public class EntropyTracker {
 		//So AC-vs-TG is a fast proxy for AC-vs-CA. Balanced -> 1.0 (unstranded); AC present but TG absent -> 0.0 (stranded); a
 		//poly-ACGT repeat scores 0.0 because every dimer occurs only forward. Intended for contig-length k=2 dimers.
 		//Partition: kmer in [0,len/2) pairs with mask-kmer in [len/2,len), no self-pair (mask is odd).
-		for(int kmer=0, limit=counts.length/2; kmer<limit; kmer++) {
+		for(int kmer=0, limit=counts.length/2; kmer<limit; kmer++){
 			int a=counts[kmer];
 			int b=counts[mask&(~kmer)];
 			lower+=Math.min(a, b);
@@ -370,18 +380,18 @@ public class EntropyTracker {
 		}
 		return lower/(float)(Long.max(1, upper));
 	}
-	
+
 	/**
 	 * Calculates strandedness from existing k-mer counts using long arrays.
 	 * @param counts Array of k-mer counts indexed by numeric k-mer value
 	 * @param k K-mer length
 	 * @return Strandedness score (0=perfectly stranded/single-strand, 1=perfectly balanced/unstranded)
 	 */
-	public static float strandedness(long[] counts, int k) {
+	public static float strandedness(long[] counts, int k){
 		final int mask=~((-1)<<(2*k));
 		assert(mask==counts.length-1);
 		long lower=0, upper=0;
-		for(int kmer=0, limit=counts.length/2; kmer<limit; kmer++) {
+		for(int kmer=0, limit=counts.length/2; kmer<limit; kmer++){
 			long a=counts[kmer];
 			long b=counts[mask&(~kmer)];
 			lower+=Math.min(a, b);
@@ -389,17 +399,17 @@ public class EntropyTracker {
 		}
 		return lower/(float)(Long.max(1, upper));
 	}
-	
+
 	/**
 	 * Optimized strandedness calculation for k=2 (dinucleotides).
 	 * @param counts Array of 16 dinucleotide counts
 	 * @return Strandedness score (0=perfectly stranded/single-strand, 1=perfectly balanced/unstranded)
 	 */
-	public static float strandednessK2(int[] counts) {
+	public static float strandednessK2(int[] counts){
 		final int mask=15;
 		assert(counts.length==16);
 		long lower=0, upper=0;
-		for(int kmer=0; kmer<8; kmer++) {
+		for(int kmer=0; kmer<8; kmer++){
 			int a=counts[kmer];
 			int b=counts[mask&(~kmer)];
 			lower+=Math.min(a, b);
@@ -407,21 +417,24 @@ public class EntropyTracker {
 		}
 		return lower/(float)(Long.max(1, upper-lower));
 	}
-	
+
 	/**
 	 * Calculates average strandedness over sliding windows of a sequence.
+	 * Counts only k-mers wholly inside each base window. Sequences shorter than
+	 * the window are scored once using the whole sequence.
 	 *
 	 * @param bases Sequence to analyze
-	 * @param counts Work array for k-mer counting (can be null)
+	 * @param counts Work array cleared before counting (can be null)
 	 * @param k K-mer length
 	 * @param window Window size for sliding analysis
 	 * @return Average strandedness across all windows
 	 */
-	public static float strandednessWindowed(byte[] bases, int[] counts, int k, int window) {
-		if(k==2) {return strandednessWindowedK2(bases, counts, window);}
+	public static float strandednessWindowed(byte[] bases, int[] counts, int k, int window){
+		if(k==2){return strandednessWindowedK2(bases, counts, window);}
 		assert(k>2);
-		if(counts==null) {counts=new int[1<<(2*k)];}
-		
+		if(counts==null){counts=new int[1<<(2*k)];}
+		else{Arrays.fill(counts, 0);}//JT012: Scratch belongs to this call, not an earlier sequence.
+
 		final int shift=2*k;
 		final int mask=~((-1)<<shift);
 		assert(mask==counts.length-1);
@@ -429,26 +442,18 @@ public class EntropyTracker {
 		int valid=0;
 		double sum=0;
 		int sums=0;
-		//TODO: Possible bug [tracker/EntropyTracker#001] - FIXED HERE (was bases[i], now bases[j]); flagged for Brian's review.
-		//n #001 EMPIRICALLY VALIDATED (predict-then-run): with the fix, a two-region seq (poly-AC stranded | ACTG balanced,
-		//n window=12) returns 0.654 — the sliding average of ~0.0 and ~0.99, proving it traverses BOTH regions; window=len
-		//n reproduces the non-windowed strandedness exactly (0.95==0.95). The old bases[i] code would report ~0 (first region only).
-		//n [tracker/EntropyTracker#001] LATENT wrong-variable (LOW: strandednessWindowed + its K2 twin have ZERO callers in
-		//n the repo — verified by grep — so nothing is broken today; fix is landmine-removal for the first future caller). The
-		//n remove/trailing pointer must read the base LEAVING the window, at bases[j] (j=i-window), NOT bases[i]. With the old
-		//n bases[i], jkmer obeys the SAME recurrence as ikmer on the SAME input, so within k shifts jkmer==ikmer permanently;
-		//n then every counts[ikmer]++ is cancelled by counts[jkmer]-- and the window never slides (freezes at its i~=window
-		//n state), returning one window's strandedness repeated. bases[j] makes it the standard two-pointer rolling window:
-		//n ikmer counts the kmer entering at i, jkmer removes the kmer that entered `window` steps earlier (ending at j). j is
-		//n a valid index here (0<=j<i<bases.length under the j>=0 gate). Mirrors the instance add()/kmer2 lagging-pointer design.
-		for(int i=0, j=-window, ikmer=0, jkmer=0, ilen=0, jlen=0; i<bases.length; i++, j++){
+		//Historical tracker/EntropyTracker#001 changed bases[i] to bases[j] below: feeding both
+		//streams bases[i] made each insertion cancel its own removal and froze the counts.
+		//JT012: The current base window starts at i-window+1. The outgoing k-mer starts one
+		//base earlier and ends at i-window+k-1, so its last base must be read at that j.
+		for(int i=0, j=-window+k-1, ikmer=0, jkmer=0, ilen=0, jlen=0; i<bases.length; i++, j++){
 			{
 				byte b=bases[i];
 				int x=AminoAcid.baseToNumber[b];
 				ikmer=((ikmer<<2)|x)&mask;
 				if(x>=0){
 					ilen++;
-					if(ilen>=k) {
+					if(ilen>=k){
 						valid++;
 						counts[ikmer]++;
 					}
@@ -461,81 +466,85 @@ public class EntropyTracker {
 				jkmer=((jkmer<<2)|y)&mask;
 				if(y>=0){
 					jlen++;
-					if(jlen>=k) {
+					if(jlen>=k){
 						valid--;
 						counts[jkmer]--;
 					}
 				}else{jlen=jkmer=0;}
 			}
-			
-			if(i>=window-1) {
+
+			if(i>=window-1){
 				sums++;
 				sum+=strandedness(counts, k);
 			}
 		}
-		if(sums<1) {
+		if(sums<1){
 			return strandedness(counts, k);
 		}
 		return (float)(sum/sums);
 	}
-	
+
 	/**
 	 * Optimized windowed strandedness calculation for k=2.
+	 * Counts only dinucleotides wholly inside each base window, or inside the
+	 * whole sequence when it is shorter than the window.
 	 *
 	 * @param bases Sequence to analyze
-	 * @param counts Work array for dinucleotide counting (can be null)
+	 * @param counts Work array cleared before counting (can be null)
 	 * @param window Window size for sliding analysis
 	 * @return Average strandedness across all windows
 	 */
-	public static float strandednessWindowedK2(byte[] bases, int[] counts, int window) {
-		if(counts==null) {counts=new int[16];}
-		
+	public static float strandednessWindowedK2(byte[] bases, int[] counts, int window){
+		if(counts==null){counts=new int[16];}
+		else{Arrays.fill(counts, 0);}//JT012: Match the general method's scratch lifecycle.
+
 		final int mask=15;
 		assert(mask==counts.length-1);
 
 		int valid=0;
 		double sum=0;
 		int sums=0;
-		for(int i=0, j=-window, ikmer=0, jkmer=0, ilen=0, jlen=0; i<bases.length; i++, j++){
+		//JT012: The outgoing dinucleotide ends at i-window+1.
+		for(int i=0, j=-window+1, ikmer=0, jkmer=0, ilen=0, jlen=0; i<bases.length; i++, j++){
 			{
 				byte b=bases[i];
 				int x=AminoAcid.baseToNumber[b];
 				ikmer=((ikmer<<2)|x)&mask;
 				if(x>=0){
 					ilen++;
-					if(ilen>=2) {
+					if(ilen>=2){
 						valid++;
 						counts[ikmer]++;
 					}
 				}else{ilen=ikmer=0;}
 			}
-			
+
 			if(j>=0){
 				byte b=bases[j];//[tracker/EntropyTracker#001] FIXED: was bases[i] (K2 twin of the bug above); trailing base is at j.
 				int y=AminoAcid.baseToNumber[b];
 				jkmer=((jkmer<<2)|y)&mask;
 				if(y>=0){
 					jlen++;
-					if(jlen>=2) {
+					if(jlen>=2){
 						valid--;
 						counts[jkmer]--;
 					}
 				}else{jlen=jkmer=0;}
 			}
-			
-			if(i>=window-1) {
+
+			if(i>=window-1){
 				sums++;
 				sum+=strandednessK2(counts);
 			}
 		}
-		if(sums<1) {
+		if(sums<1){
 			return strandednessK2(counts);
 		}
 		return (float)(sum/sums);
 	}
-	
+
 	/*--------------------------------------------------------------*/
-	
+
 	/**
 	 * Static method to calculate entropy for an entire sequence.
 	 * Non-windowed version that processes the complete sequence at once.
@@ -547,28 +556,28 @@ public class EntropyTracker {
 	 */
 	public static float calcEntropy(byte[] bases, int[] counts, int k){
 		assert(k<=10) : k;//This is for small kmers
-		if(counts==null) {counts=new int[1<<(2*k)];}
+		if(counts==null){counts=new int[1<<(2*k)];}
 		countKmers(bases, counts, k);
 		return calcEntropyFromCounts(counts);
 	}
-	
+
 	/**
 	 * Static, non-windowed version.
 	 * Demonstrates explicit entropy calculation.
-	 * 
+	 *
 	 * Definition:
 	 * Entropy, or information content, can be calculated using kmer counts of a sequence.
-	 * 
+	 *
 	 * Probability of an event (unique kmer), pk, is that kmer's count divided by the number of kmers.
 	 * Entropy contribution from that kmer is -pk*log(pk).
 	 * Total entropy is sum of (-pk*log(pk)) for all kmer counts.
-	 * entropyMult is simply a multiplier to convert the entropy measure (in bits) to a convenient 0-1 scale,
+	 * entropyMult is simply a multiplier to convert the entropy measure (in nats) to a convenient 0-1 scale,
 	 * corresponding to the inverse of the maximum possible entropy.
 	 */
 	public static float calcEntropyFromCounts(int[] counts){
 		//Sum of entropy contributions from each kmer
 		double eSum=0;
-		
+
 		long windowKmers=Tools.sum(counts);
 		double invKmers=1.0/windowKmers;
 		//Loop over all nonzero kmer counts
@@ -587,20 +596,20 @@ public class EntropyTracker {
 //				System.err.println("eSum="+eSum);
 			}
 		}
-		//eSum now holds entropy in bits.
-		
+		//eSum now holds entropy in nats.
+
 		//Multiplier to convert entropy to 0-1 scale.
 		double multiplier=1/Math.log(windowKmers);
-		
+
 		//Adjust entropy to 0-1 scale based on window size
 		float e=(float)(eSum*multiplier);
-		
+
 		//Get rid of negative zero
 		if(e<=0){e=0;}
-		
+
 		return e;
 	}
-	
+
 	/**
 	 * Counts k-mers in a sequence and populates the counts array.
 	 * Handles ambiguous bases by resetting k-mer construction on encounment.
@@ -613,21 +622,21 @@ public class EntropyTracker {
 	public static int countKmers(final byte[] bases, final int[] counts, int k){
 		Arrays.fill(counts, 0);
 		if(bases==null || bases.length<k){return 0;}
-		
+
 		final int shift=2*k;
 		final int mask=~((-1)<<shift);
-		
+
 		int kmer=0;
 		int len=0;
 		int valid=0;
-		
+
 		for(int i=0; i<bases.length; i++){
 			byte b=bases[i];
 			int x=AminoAcid.baseToNumber[b];
 			kmer=((kmer<<2)|x)&mask;
 			if(x>=0){
 				len++;
-				if(len>=k) {
+				if(len>=k){
 					valid++;
 					counts[kmer]++;
 				}
@@ -635,9 +644,9 @@ public class EntropyTracker {
 		}
 		return valid;
 	}
-	
+
 	/*--------------------------------------------------------------*/
-	
+
 	/**
 	 * Calculate the average entropy of a sequence.
 	 * @param bases Sequence as bytes
@@ -647,7 +656,7 @@ public class EntropyTracker {
 	public float averageEntropy(byte[] bases, boolean allowNs){
 		return averageEntropy(bases, allowNs, 0, bases.length-1);
 	}
-	
+
 	/**
 	 * Calculate the average entropy of a sequence.
 	 * @param bases Sequence as bytes
@@ -657,34 +666,34 @@ public class EntropyTracker {
 	public float averageEntropy(final byte[] bases, final boolean allowNs, final int from, final int to){
 		assert(from>=0 && to<bases.length && from<=to) : from+", "+to+", "+bases.length;
 		final int len=to-from+1;
-		
+
 		//Reset the initial state
 		clear();
-		
+
 		//Position in sequence
 		int i=from;
-		
+
 		//Accumulated entropy
 		double sum=0;
-		
+
 		//Number of entropy measurements
 		int divisor=0;
-		
+
 //		System.err.println("\n"+new String(bases, from, len));
 //		System.err.println("from="+from+", to="+to+", lim=min("+(bases.length)+","+windowBases+","+(to+1)+")");
-		
+
 		//Prefill the first window
 		for(final int lim=Tools.min(bases.length, windowBases+from, to+1); i<lim; i++){
 			add(bases[i]);
 		}
-		
+
 		//Calculate entropy for the first window.
 		//This allows entropy to pass if it is high enough even though the sequence is shorter than window length.
 		if(allowNs || ns==0){
 			sum+=calcEntropy();
 			divisor++;
 		}
-		
+
 		//Calculate entropy for remaining windows
 		for(; i<=to; i++){
 			add(bases[i]);
@@ -693,41 +702,44 @@ public class EntropyTracker {
 				divisor++;
 			}
 		}
-		
+
 		//divisor is only ever incremented, so this never fires; 0 valid windows falls through to 0.0 below, which callers accept.
 		if(divisor<0){return -1;}//No valid windows.
-		
+
 		//Calculate the average
 		double avg=(sum/(Tools.max(1, divisor)));
 		return (float)avg;
 	}
-	
+
 	/**
 	 * Reports the longest block of consecutive bases in which all windows
 	 * are below the entropy cutoff and at least the (optional) monomer fraction.
-	 * @param bases
-	 * @param allowNs
-	 * @param maxMonomer
-	 * @return
+	 * @param bases Non-null sequence to scan
+	 * @param allowNs Whether to include windows containing undefined symbols;
+	 * excluded windows break the consecutive low-entropy streak
+	 * @param maxMonomerFraction Minimum encoded-symbol fraction for a low-entropy window
+	 * @return Length in bases of the longest reported block, bounded by the sequence length
 	 */
 	public int longestLowEntropyBlock(byte[] bases, boolean allowNs, float maxMonomerFraction){
+		//JT006: block lengths refer to consecutive original positions, as required
+		//by IceCreamFinder/ReformatPacBio's entropylen contract; excluded windows are boundaries.
 		//Reset the initial state
 		clear();
-		
+
 		//Position in sequence
 		int i=0;
-		
+
 		//Number of entropy measurements
 		int totalWindows=0;
-		
+
 		double sum=0;
 		int totalLowWindows=0;
 		int currentLowWindows=0;
 		int maxLowWindows=0;
-		
+
 		//Prefill the first window
 		for(final int lim=Tools.min(bases.length, windowBases); i<lim; i++){add(bases[i]);}
-		
+
 		//Calculate entropy for the first window.
 		//This allows entropy to pass if it is high enough even though the sequence is shorter than window length.
 		if(allowNs || ns==0){
@@ -743,7 +755,7 @@ public class EntropyTracker {
 				currentLowWindows=0;
 			}
 		}
-		
+
 		//Calculate entropy for remaining windows
 		for(; i<bases.length; i++){
 			add(bases[i]);
@@ -765,16 +777,18 @@ public class EntropyTracker {
 				}else{
 					currentLowWindows=0;
 				}
+			}else{
+				currentLowWindows=0;
 			}
 		}
 
 		//Calculate the average; not needed
 		double avg=(sum/(Tools.max(1, totalWindows)));
-		
+
 		int maxLowBlock=maxLowWindows<1 ? 0 : Tools.min(bases.length, maxLowWindows+windowBases-1);
 		return maxLowBlock;
 	}
-	
+
 	/**
 	 * Calculate entropy in the window and compare to the cutoff.
 	 * If Ns are important they should be handled externally with ns().
@@ -784,11 +798,11 @@ public class EntropyTracker {
 		//This function should only be used if entropyCutoff is set.
 		assert(entropyCutoff>=0);
 		float e=calcEntropy();
-		
+
 		//XOR: highPass inverts truth of comparison.
 		return highPass ^ (e<entropyCutoff);
 	}
-	
+
 	/**
 	 * Calculate average entropy of the sequence and compare to the cutoff.
 	 * @param sequence Sequence to measure.
@@ -799,70 +813,70 @@ public class EntropyTracker {
 		//This function should only be used if entropyCutoff is set.
 		assert(entropyCutoff>=0);
 		float e=averageEntropy(sequence, allowNs);
-		
+
 		//XOR: highPass inverts truth of comparison.
 		return highPass ^ (e<entropyCutoff);
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------       Mutating Methods       ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
 	 * Slide the window by adding a new base.
 	 * @param b Base to add.
 	 */
 	public void add(final byte b){
-		
+
 		//Test initial state
 		assert(!verify || verify()) : this;
-		
+
 		final byte oldBase=baseRingBuffer[pos]; //Leftmost base, about to be overwritten
-		
+
 		if(verbose){System.err.println("\nAdding "+Character.toString((char)b)+
 				"; evicting "+Character.toString((char)oldBase)+"; counts="+Arrays.toString(counts)+"; countcounts="+Arrays.toString(countCounts)+", pos="+pos+", pos2="+pos2);}
-		
+
 		//Increment length
 		len++;
-		
+
 		{//Add a new rightmost base
 			baseRingBuffer[pos]=b;
 			final int n=symbolToNumber0[b];
 			baseCounts[n]++;
 			kmer=((kmer<<bitsPerBase)|n)&mask; //Generate new rightmost kmer using the new base
-			
+
 			//Update number of Ns in current window
 			if(!isFullyDefined(b)){
 				ns++;
 				assert(ns<=windowBases+1) : "There are more Ns than bases in the window:\n"+this;
 			}
-			
+
 			if(len>=k){//Add a kmer
 				//System.err.println("Adding "+kmer);
-				
+
 				final short oldCount=counts[kmer];
-				
+
 				/* Update unique kmer count */
 				if(oldCount<1){
 					assert(oldCount==0) : "An incoming array has negative counts: \n"+this;
 					unique++;
 				}
-				
+
 				/* Decrement the old countCount */
 				countCounts[oldCount]--;
-				
+
 				/* countCounts[0] could be temporarily -1 at this point; for all others, min is 0. */
 				assert(countCounts[oldCount]>=-1) : this;
-				
+
 				/* Increment the kmer count */
 				final short newCount=counts[kmer]=(short)(oldCount+1);
-				
+
 				/* The count could at most be 1 more than the total window kmers here temporarily */
 				assert(newCount<=windowKmers+1) : this;
-				
+
 				/* Increment the new countCount */
 				countCounts[newCount]++;
-				
+
 				/* Update entropy */
 				//n studied praise: this is the elegant core. entropy[c]=(c/W)*log(c/W) is precomputed per possible count, so
 				//n when one kmer's count goes oldCount->newCount the window's entropy sum is repaired in O(1) by adding just the
@@ -878,9 +892,9 @@ public class EntropyTracker {
 			}
 		}
 		if(verbose){System.err.println("B: counts="+Arrays.toString(counts)+"; countcounts="+Arrays.toString(countCounts));}
-		
+
 		//At this point the state is inconsistent as it may have one too many kmers.
-		
+
 		if(pos2>=0){//Remove the leftmost base
 			final byte b2=(k>1 ? baseRingBuffer[pos2] : oldBase);//This is not the leftmost base, but the base to the right of the leftmost kmer
 			final int n2=symbolToNumber0[b2];
@@ -890,47 +904,48 @@ public class EntropyTracker {
 			if(verbose){System.err.println("B2: pos="+pos+", pos2="+pos2+"; b2="+Character.toString((char)b2)+"; kmer2="+kmer2);}
 
 			if(len>windowBases){//Remove a kmer, only if a base is leaving the window
-				baseCounts[n2]--;
+				//JT004: n2 builds the trailing k-mer; oldBase is the actual symbol leaving the window.
+				baseCounts[symbolToNumber0[oldBase]]--;
 				//System.err.println("Removing "+kmer2);
-				
+
 				//Update number of Ns in current window
 				if(!isFullyDefined(oldBase)){
 					ns--;
 					assert(ns>=0) : "There are fewer than 0 Ns in the window:\n"+this;
 				}
-				
+
 				assert(kmer2>=0) : "A negative kmer was observed: "+kmer2+"\n"+this;
-				
+
 				final short oldCount=counts[kmer2];
 				assert(oldCount>0) : "Attempting to decrement a nonpositive count: \n"+oldCount+"\n"+this;
-				
+
 				//Decrement the old countCount
 				countCounts[oldCount]--;
-				
+
 				assert(countCounts[oldCount]>=0) : "A countCount became negative: \n"+countCounts[oldCount]+"\n"+this;
-				
+
 				//Decrement the kmer count
 				final short newCount=counts[kmer2]=(short)(oldCount-1);
-				
+
 				/* Increment the new countCount */
 				countCounts[newCount]++;
-				
+
 				/* Update unique kmer count */
 				if(newCount<1){
 					assert(newCount==0): "An outgoing array has negative counts: \n"+this;
 					unique--;
 				}
-				
+
 				/* Update entropy */
 				currentEsum=currentEsum+entropy[newCount]-entropy[oldCount];
 //				currentEsum+=entropyDeltaMinus[oldCount];
-				
+
 				assert(!verify || unique==Tools.cardinality(counts)) : this;
 				assert(!verify || (simd.Vector.sum(countCounts)>=0 && (simd.Vector.sum(countCounts)<=windowKmers))) : this;
 			}
 		}
 		if(verbose){System.err.println("C: counts="+Arrays.toString(counts)+"; countcounts="+Arrays.toString(countCounts));}
-		
+
 		//Update position pointers
 		//Can use modulo, but this is faster because the branch is normally skipped.
 		//Ternary conditionals are also slower.
@@ -939,11 +954,11 @@ public class EntropyTracker {
 		if(pos>=windowBases){pos=0;}
 		if(pos2>=windowBases){pos2=0;}
 		assert(k==1 || pos!=pos2) : "pos="+pos+", pos2="+pos2;
-		
+
 		//Test final state.
 		assert(!verify || verify()) : this;
 	}
-	
+
 	/**
 	 * Reset fields to prepare for a new sequence.
 	 */
@@ -953,25 +968,25 @@ public class EntropyTracker {
 		pos=0;
 		pos2=0-windowBases+k-1;
 		currentEsum=0;
-		
+
 		//Clear mutable arrays.  Bases does not need to be cleared.
-		Arrays.fill(baseCounts, (short)0); //4 operations
+		Arrays.fill(baseCounts, (short)0); //4 nucleotide or32 amino encoding slots
 		Arrays.fill(counts, (short)0); //Time proportional to kmer space
-		
+
 		//Note - countCounts are only needed for medium speed mode.
 		Arrays.fill(countCounts, (short)0); //Time proportional to window size
-		
+
 		//Sets the number of kmers with a count of zero to maximum.
 		countCounts[0]=(short)windowKmers;
-		
+
 		//Verify the state was cleared
 		assert(!verify || verifyClear()) : this;
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------          Validation          ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
 	 * Verify that mutable fields were properly cleared.
 	 * Throws an assertion error upon failure.
@@ -990,23 +1005,23 @@ public class EntropyTracker {
 		assert(currentEsum==0) : this;
 		return true;
 	}
-	
+
 	/**
 	 * Verify that internal state is consistent.
 	 * Throws an assertion error upon failure.
 	 * @return True.
 	 */
 	public boolean verify(){
-		
+
 		//Number of unique kmers in the window
 		int existSum=0;
-		
+
 		//Total number of kmers in the window
 		int countSum=0;
-		
+
 		//Number of undefined symbols in the window
 		int nSum=0;
-		
+
 		//Check the kmer counts
 		for(int c : counts){
 			assert(c>=0 && c<=windowKmers) : "A kmer count exceeds the possible bounds.\n"+this;
@@ -1015,26 +1030,26 @@ public class EntropyTracker {
 				countSum+=c;
 			}
 		}
-		
+
 		//Check the countCounts
 		for(int cc : countCounts){
 			assert(cc>=0 && cc<=windowKmers) : "A countCount exceeds the possible bounds.\n"+this;
 		}
-		
+
 		//Count undefined symbols
 		for(byte b : baseRingBuffer){
 			if(!isFullyDefined(b)){nSum++;}
 		}
-		
+
 		//Number of kmers with count 0
 		final int cc0=countCounts[0];
-		
+
 		//Sum of countCounts
 		final int ccSum=(int)simd.Vector.sum(countCounts);
-		
+
 		//Sum of nonzero countCounts; should equal the number of unique kmers
 		final int ccSum1=ccSum-cc0;
-		
+
 		//Do assertions
 		assert(len<windowBases || ns==nSum) : this;
 		assert(existSum==unique) : this;
@@ -1043,7 +1058,7 @@ public class EntropyTracker {
 		assert(len<windowBases || countSum==windowKmers) : this;
 		assert(ccSum==windowKmers);
 		assert(pos==len%windowBases) : this;
-		
+
 		//Ensure different entropy calculation methods are consistent
 		if(len>=windowKmers){
 			float a=calcEntropyFast();
@@ -1056,7 +1071,7 @@ public class EntropyTracker {
 		}
 		return true;
 	}
-	
+
 	@Override
 	public String toString(){
 		StringBuilder sb=new StringBuilder();
@@ -1083,7 +1098,7 @@ public class EntropyTracker {
 		sb.append("entropySum\t"+currentEsum).append('\n');
 		return sb.toString();
 	}
-	
+
 	/** Returns the ring buffer as a String in its correct order. */
 	public String basesToString(){
 		StringBuilder sb=new StringBuilder(baseRingBuffer.length);
@@ -1094,11 +1109,11 @@ public class EntropyTracker {
 		}
 		return sb.toString();
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Mutable Fields        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/** Current leading kmer; rightmost k bases of window */
 	int kmer=0;
 	/** Current trailing kmer; leftmost k-1 bases of window plus the removed base */
@@ -1116,33 +1131,34 @@ public class EntropyTracker {
 
 	/** Current sum of entropy from kmers in the current window */
 	double currentEsum=0;
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Mutable Arrays        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/** Number of times each base occurs in current window.
 	 * Equivalent to counts if k=1. */
 	private final short[] baseCounts;
-	
+
 	/** Number of times each kmer occurs in current window.
 	 * Indexed by the kmer's numeric value.
 	 * counts[0] stores the count of the kmer AAA, if k=3. */
 	private final short[] counts;
-	
-	/** Number of instances of each number in counts.
-	 * countCounts[0] stores the number of kmers with count 0.
+
+	/** Number of k-mer species at each positive abundance.
+	 * countCounts[0] is windowKmers minus the number of distinct observed k-mers,
+	 * not the number of absent encodings in the counts array.
 	 * This is only needed in medium speed mode (or verify mode). */
 	private final short[] countCounts;
-	
+
 	/** Ring buffer of bases in current window.
 	 * Not strictly necessary, but convenient. */
 	private final byte[] baseRingBuffer;
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/** Kmer length for entropy calculation */
 	private final int k;
 	/** Window length for entropy calculation */
@@ -1156,19 +1172,19 @@ public class EntropyTracker {
 	private final int bitsPerBase;
 	/** Mask for sliding kmers */
 	private final int mask;
-	
+
 	/** Minimum entropy to be considered "complex", on a scale of 0-1; optional */
 	private final float entropyCutoff;
 	/** Pass entropy values above the cutoff */
 	private final boolean highPass;
-	
+
 	/** Number of possible unique kmers */
 	private final int kmerSpace;
 	/** A precalculated constant */
 	private final double entropyMult;
 	/** Array of precalculated constants */
 	private final double[] entropy;
-	
+
 	/** Precalculated constant equal to 1f/windowBases */
 	private final float baseCountMult;
 
@@ -1176,11 +1192,11 @@ public class EntropyTracker {
 	private final byte[] symbolToNumber0;
 	/** Translation table yielding -1 if undefined */
 	private final byte[] symbolToNumber;
-	
+
 	final boolean isFullyDefined(byte symbol){
 		return symbol>=0 && symbolToNumber[symbol]>=0;
 	}
-	
+
 	//Note:  These incur fewer operations, but in testing, were not faster.
 //	/** For calculating entropy running average quickly when adding a kmer.
 //	 * entropyDeltaPlus[i] = (entropy[i+1]-entropy[i])*entropyMult */
@@ -1188,20 +1204,20 @@ public class EntropyTracker {
 //	/** For calculating entropy running average quickly when removing a kmer.
 //	 * entropyDeltaMinus[i] = (entropy[i-1]-entropy[i])*entropyMult */
 //	private final double[] entropyDeltaMinus;
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------          Constants           ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/** Entropy calculation speed constants.
 	 * FAST is less precise for long sequences.
 	 * MEDIUM is probably most precise. */
 	public static final int FAST=0, MEDIUM=1, SLOW=2, SUPERSLOW=3;
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Static Fields         ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/** Kmer length for entropy calculation */
 	public static int defaultK=5;
 	public static boolean setDefaultK=false;
@@ -1210,13 +1226,13 @@ public class EntropyTracker {
 	public static boolean setDefaultWindow=false;
 //	/** Minimum entropy to be considered "complex", on a scale of 0-1 */
 //	public static float defaultCutoff=-1;
-	
+
 	/** Entropy calculation mode */
 	public static int speed=FAST;
-	
+
 	/** Verify consistency of related data structures (slow) */
 	public static boolean verify=false;
 	/** Verbose output */
 	public static final boolean verbose=false;
-	
+
 }
