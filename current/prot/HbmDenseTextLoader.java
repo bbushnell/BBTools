@@ -243,7 +243,7 @@ public final class HbmDenseTextLoader {
 	}
 
 	/** Mirrors HbmBundleLoader.overwrite: protect REF pivot, retain DEL occupancy. */
-	private static void filterCounts(final AAGraphNode node, final int minCount, final int protectedResidue){
+	static void filterCounts(final AAGraphNode node, final int minCount, final int protectedResidue){
 		assert(node.type!=AAGraphNode.DEL) : "DEL has no histogram; native minCount only filters REF/INS slots";
 		int sum=0;
 		for(int i=0; i<node.count.length; i++){
@@ -255,7 +255,7 @@ public final class HbmDenseTextLoader {
 	}
 
 	/** An empty filtered INS node truncates its whole suffix, per native readChain. */
-	private static void filterChain(final AAGraphNode parent, final int minCount){
+	static void filterChain(final AAGraphNode parent, final int minCount){
 		AAGraphNode previous=parent;
 		for(AAGraphNode node=parent.insEdge; node!=null; node=node.insEdge){
 			filterCounts(node, minCount, -1);
@@ -280,7 +280,12 @@ public final class HbmDenseTextLoader {
 
 	/** Canonical, overflow-checked A48 int parsing without per-field allocations. */
 	static int integer(final LineParser1 lp, final int term){
-		final int length=lp.length(term), start=lp.a(), end=lp.b();
+		return integer(lp, term, 0);
+	}
+
+	/** Compact DEL tokens prefix the same canonical integer with one '-'. */
+	static int integer(final LineParser1 lp, final int term, final int skip){
+		final int length=lp.length(term)-skip, start=lp.a()+skip, end=lp.b();
 		final byte[] line=lp.line();
 		if(length<1 || length>6 || (length>1 && line[start]=='0')){throw bad("noncanonical A48 integer at field "+term);}
 		long value=0;

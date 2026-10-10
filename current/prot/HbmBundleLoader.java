@@ -190,6 +190,9 @@ public final class HbmBundleLoader {
 			final ConsensusProvider consensus, final byte[][] trustedProvenanceHashes,
 			final int minCount) throws IOException{
 		if(minCount<1){throw new IllegalArgumentException("minCount must be at least 1: "+minCount);}
+		if(HbmCompactTextReader.matches(file)){
+			return HbmCompactTextReader.loadVerified(file.toString(), roster, consensus, trustedProvenanceHashes, minCount);
+		}
 		if(HbmDenseTextBundle.matches(file)){
 			return HbmDenseTextLoader.loadVerified(file.toString(), roster, consensus, trustedProvenanceHashes,
 				Math.max(1, Math.min(256, shared.Shared.threads())), minCount);

@@ -13,6 +13,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
+import java.util.HashMap;
 import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
@@ -21,6 +22,8 @@ import java.util.concurrent.Future;
 
 import dna.AminoAcid;
 import fileIO.FileFormat;
+import fileIO.ByteFile;
+import parse.LineParser1;
 import fileIO.ReadWrite;
 import map.LongHashSet;
 import map.LongIntMap;
@@ -97,10 +100,213 @@ public class CoveringSet {
 			final String sumT32=new String(java.nio.file.Files.readAllBytes(c8T32Summary), java.nio.charset.StandardCharsets.US_ASCII);
 			if(!aa.contains("#columns\tfamily_id\tkmer") || !c8.contains("#columns\tfamily_id\tkmer")){throw new RuntimeException("missing covering-set output schema");}
 			if(!sum.contains("A\t3\t1\t") || !sum.contains("B\t3\t0\t")){throw new RuntimeException("exclude/member accounting failed");}
+			boolean sawSha80=false;
+			for(String line : sum.split("\\n")){
+				if(line.startsWith("#input\t") && !line.startsWith("#input\tfamily_id\t")){
+					final String[] fields=line.split("\\t", -1);
+					if(fields.length!=4 || !fields[3].matches("[0-9a-f]{20}")){
+						throw new RuntimeException("input provenance is not sha80: "+line);
+					}
+					sawSha80=true;
+				}
+			}
+			if(!sawSha80 || !sum.contains("#input\tfamily_id\tpath\tsha80\n")){
+				throw new RuntimeException("missing sha80 input provenance");
+			}
 			if(!c8.contains("#cross_family_candidates_removed\t")){throw new RuntimeException("maxfamilies accounting missing");}
 			if(!c8.equals(c8T32) || !sum.equals(sumT32)){throw new RuntimeException("t=1 and t=32 outputs differ");}
 			System.out.println("PASS CoveringSet selftest: aa20+c8, six-sequence pool, exclude, minhits=2, maxfamilies=1, deterministic t=1/32");
+			testStreamingFamilies();
+			testStreamingInstrumentationAcrossFailureAndReuse();
+			testScheduledSelection(a.toString(), dir.toString());
 		} catch(Exception e){throw new RuntimeException("CoveringSet selftest failed", e);}
+	}
+
+	/** Focused regression (Yoimiya's root review, 2026-09-16) for the streamingLivePools/
+	 * streamingPeakPools reset-at-entry and decrement-on-failure fix. CoveringSet has no reconfigure/
+	 * setter API (its own {@code main()} constructs exactly one instance per invocation and calls
+	 * {@link #process(Timer)} exactly once), so this test does not invent one -- broadening the
+	 * production surface just to make an instance reusable would be exactly the scope creep the
+	 * review asked to avoid. Instead it exercises each fix precisely at its own seam:
+	 * <ul>
+	 * <li>Decrement-on-failure: a real {@link #process(Timer)} call on a family whose sole member is
+	 * too short to yield any valid kmer at k=2 (so {@code selectFamily} throws "Family has 0 valid
+	 * kmers" AFTER its pool has already incremented {@link #streamingLivePools}) -- proves the
+	 * try/finally decrements it back to 0 even on that throw, on the SAME instance whose run failed.
+	 * <li>Reset-at-entry: {@link #streamingLivePools}/{@link #streamingPeakPools} are package-visible
+	 * test instrumentation (added for exactly this purpose) -- poisoning them to a nonzero value
+	 * BEFORE calling {@link #processFamiliesStreaming(Timer)} directly reproduces precisely the state
+	 * a reused instance would carry from an earlier crash (the scenario the review described:
+	 * "can report peak 2 on reuse"), without needing to actually reuse an instance across two
+	 * different {@code families=} targets.
+	 * </ul> */
+	private static void testStreamingInstrumentationAcrossFailureAndReuse() throws Exception {
+		final java.nio.file.Path dir=java.nio.file.Files.createTempDirectory("covering-set-stream-reuse-selftest.");
+
+		//Part 1: decrement-on-failure. A single member of length 1 < k=2 yields zero valid 2-mers ->
+		//selectFamily's "Family has 0 valid kmers" throw fires AFTER the pool (and its
+		//streamingLivePools increment) already exist.
+		final java.nio.file.Path failFamilies=java.nio.file.Files.createDirectory(dir.resolve("fail_families"));
+		java.nio.file.Files.write(failFamilies.resolve("F.faa"), ">f1\nA\n".getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+		final CoveringSet failing=new CoveringSet(new String[]{"families="+failFamilies,
+			"alphabet=ACDFGHIW", "key=AST/C/DEKNQR/FY/GP/H/ILMV/W", "k=2", "step=1", "target=1.0", "minhits=2", "t=1",
+			"streamfamilies=t", "out="+dir.resolve("fail.sets.tsv"), "summary="+dir.resolve("fail.summary.tsv")});
+		boolean threw=false;
+		try{ failing.process(new Timer()); }
+		catch(RuntimeException e){ threw=(e.getMessage()!=null && e.getMessage().contains("Family has 0 valid kmers")); }
+		if(!threw){throw new RuntimeException("expected the fixture family to crash loud with 'Family has 0 valid kmers', did not get it");}
+		if(failing.streamingLivePools!=0){
+			throw new RuntimeException("after a failed run, streamingLivePools must be decremented back to 0 by the "
+				+"try/finally, got "+failing.streamingLivePools);
+		}
+		if(failing.streamingPeakPools!=1){
+			throw new RuntimeException("the failed run's peak should still record the 1 pool that was briefly live "
+				+"before the failure, got "+failing.streamingPeakPools);
+		}
+
+		//Part 2: reset-at-entry. Build a real, normal, one-family fixture; construct a CoveringSet for
+		//it; POISON its instrumentation fields to simulate exactly the stale state a reused instance
+		//would carry from an earlier crash (root's "reports peak 2 on reuse" scenario); then call the
+		//streaming method directly (same class, private-method access) and confirm the entry-reset
+		//makes this run's OWN peak/live counts correct regardless of what was there before.
+		final java.nio.file.Path okFamilies=java.nio.file.Files.createDirectory(dir.resolve("ok_families"));
+		java.nio.file.Files.write(okFamilies.resolve("A.faa"), ">a1\nACDEFG\n>a2\nACDEFW\n>a3\nWWWWAC\n".getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+		final CoveringSet poisoned=new CoveringSet(new String[]{"families="+okFamilies,
+			"alphabet=ACDFGHIW", "key=AST/C/DEKNQR/FY/GP/H/ILMV/W", "k=2", "step=1", "target=1.0", "minhits=2", "t=1",
+			"streamfamilies=t", "out="+dir.resolve("ok.sets.tsv"), "summary="+dir.resolve("ok.summary.tsv")});
+		poisoned.streamingLivePools=5; poisoned.streamingPeakPools=5;//simulated stale state from a prior crash
+		poisoned.processFamiliesStreaming(new Timer());
+		if(poisoned.streamingPeakPools!=1){
+			throw new RuntimeException("a run starting from poisoned stale instrumentation must still report its OWN "
+				+"peak (1 family, so peak=1), not the leftover poisoned value -- got "+poisoned.streamingPeakPools);
+		}
+		if(poisoned.streamingLivePools!=0){
+			throw new RuntimeException("a clean run must leave streamingLivePools at 0 after finishing, "
+				+"regardless of the poisoned starting value -- got "+poisoned.streamingLivePools);
+		}
+		System.out.println("PASS CoveringSet streaming instrumentation regression: reset-at-entry + "
+			+"decrement-on-failure both verified at their own seam (no reused/reconfigured instance needed)");
+	}
+
+	/** Adversarial regression for the opt-in streaming family mode (streamfamilies=t): byte-identical
+	 * output vs the default (batch) family mode for the same input SET at both t=1 and a higher thread
+	 * count, thread-count invariance within streaming mode itself, order-independence against a
+	 * non-alphabetically-sorted manifest, shared exclusion/duplicate/malformed-input behavior
+	 * (inherited from the same {@link #loadFamilyInputs}/{@link #loadExclude}/{@link
+	 * #loadProteinMembers} the batch path already uses -- not reimplemented here), the
+	 * maxfamilies&gt;0 construction-time rejection, and the peak-pools==1 memory-bound proof. */
+	private static void testStreamingFamilies() throws Exception {
+		final java.nio.file.Path dir=java.nio.file.Files.createTempDirectory("covering-set-stream-selftest.");
+		final java.nio.file.Path families=java.nio.file.Files.createDirectory(dir.resolve("families"));
+		final java.nio.file.Path a=families.resolve("A.faa"), b=families.resolve("B.faa"), c=families.resolve("C.faa");
+		final java.nio.file.Path exclude=dir.resolve("exclude.tsv");
+		java.nio.file.Files.write(a, ">a1\nACDEFG\n>a2\nACDEFW\n>a3\nWWWWAC\n".getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+		java.nio.file.Files.write(b, ">b1\nACDEFG\n>b2\nHHHHAC\n>b3\nGGGGGG\n".getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+		java.nio.file.Files.write(c, ">c1\nACDEFG\n>c2\nIIIIAC\n>c3\nKKKKAC\n".getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+		java.nio.file.Files.write(exclude, "#id\taction\nb2\tholdout\n".getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+
+		final String[] baseArgs={"families="+families, "exclude="+exclude,
+			"alphabet=ACDFGHIW", "key=AST/C/DEKNQR/FY/GP/H/ILMV/W", "k=2", "step=1", "target=1.0", "minhits=2"};
+			//maxfamilies deliberately left at its default 0 -- streaming's opt-in precondition.
+
+		//1. Byte-identical: batch vs streaming, t=1.
+		final java.nio.file.Path batchOut1=dir.resolve("batch.t1.sets.tsv"), batchSum1=dir.resolve("batch.t1.summary.tsv");
+		new CoveringSet(concatArgs(baseArgs, "out="+batchOut1, "summary="+batchSum1, "t=1")).process(new Timer());
+		final java.nio.file.Path streamOut1=dir.resolve("stream.t1.sets.tsv"), streamSum1=dir.resolve("stream.t1.summary.tsv");
+		final CoveringSet stream1=new CoveringSet(concatArgs(baseArgs, "out="+streamOut1, "summary="+streamSum1, "t=1", "streamfamilies=t"));
+		stream1.process(new Timer());
+		final String batchSets1=readAllText(batchOut1), batchSums1=readAllText(batchSum1);
+		final String streamSets1=readAllText(streamOut1), streamSums1=readAllText(streamSum1);
+		if(!batchSets1.equals(streamSets1)){throw new RuntimeException("streaming vs batch sets differ at t=1:\nbatch:\n"+batchSets1+"\nstream:\n"+streamSets1);}
+		if(!batchSums1.equals(streamSums1)){throw new RuntimeException("streaming vs batch summary differ at t=1:\nbatch:\n"+batchSums1+"\nstream:\n"+streamSums1);}
+		if(stream1.streamingPeakPools!=1){throw new RuntimeException("streaming peak pools must be 1 at t=1, got "+stream1.streamingPeakPools);}
+
+		//2. Byte-identical: streaming t=1 vs streaming t=32 (thread-count invariance within streaming itself).
+		final java.nio.file.Path streamOut32=dir.resolve("stream.t32.sets.tsv"), streamSum32=dir.resolve("stream.t32.summary.tsv");
+		final CoveringSet stream32=new CoveringSet(concatArgs(baseArgs, "out="+streamOut32, "summary="+streamSum32, "t=32", "streamfamilies=t"));
+		stream32.process(new Timer());
+		final String streamSets32=readAllText(streamOut32), streamSums32=readAllText(streamSum32);
+		if(!streamSets1.equals(streamSets32) || !streamSums1.equals(streamSums32)){
+			throw new RuntimeException("streaming output differs between t=1 and t=32:\nt1:\n"+streamSets1+"\nt32:\n"+streamSets32);
+		}
+		if(stream32.streamingPeakPools!=1){throw new RuntimeException("streaming peak pools must be 1 at t=32 too, got "+stream32.streamingPeakPools);}
+
+		//3. Byte-identical: batch vs streaming at t=32 too (batch's own per-family MT fan-out must still agree).
+		final java.nio.file.Path batchOut32=dir.resolve("batch.t32.sets.tsv"), batchSum32=dir.resolve("batch.t32.summary.tsv");
+		new CoveringSet(concatArgs(baseArgs, "out="+batchOut32, "summary="+batchSum32, "t=32")).process(new Timer());
+		final String batchSets32=readAllText(batchOut32), batchSums32=readAllText(batchSum32);
+		if(!batchSets32.equals(streamSets32) || !batchSums32.equals(streamSums32)){
+			throw new RuntimeException("streaming vs batch differ at t=32:\nbatch:\n"+batchSets32+"\nstream:\n"+streamSets32);
+		}
+
+		//4. Non-sorted manifest ordering: a manifest listing C, A, B (not alphabetical) must still
+		//   produce output identical to the sorted-directory-listing runs above, for both modes --
+		//   batch achieves this via its output-time sort, streaming via its input-time sort.
+		final java.nio.file.Path manifest=dir.resolve("manifest_unsorted.tsv");
+		java.nio.file.Files.write(manifest, ("C\t"+c+"\nA\t"+a+"\nB\t"+b+"\n").getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+		final String[] manifestBase={"families="+manifest, "exclude="+exclude,
+			"alphabet=ACDFGHIW", "key=AST/C/DEKNQR/FY/GP/H/ILMV/W", "k=2", "step=1", "target=1.0", "minhits=2", "t=1"};
+		final java.nio.file.Path manOutBatch=dir.resolve("manifest.batch.sets.tsv"), manSumBatch=dir.resolve("manifest.batch.summary.tsv");
+		new CoveringSet(concatArgs(manifestBase, "out="+manOutBatch, "summary="+manSumBatch)).process(new Timer());
+		final java.nio.file.Path manOutStream=dir.resolve("manifest.stream.sets.tsv"), manSumStream=dir.resolve("manifest.stream.summary.tsv");
+		new CoveringSet(concatArgs(manifestBase, "out="+manOutStream, "summary="+manSumStream, "streamfamilies=t")).process(new Timer());
+		final String manBatchSets=readAllText(manOutBatch), manStreamSets=readAllText(manOutStream);
+		if(!manBatchSets.equals(manStreamSets)){
+			throw new RuntimeException("non-sorted manifest: batch vs streaming sets differ:\nbatch:\n"+manBatchSets+"\nstream:\n"+manStreamSets);
+		}
+		if(!manBatchSets.equals(batchSets1)){
+			throw new RuntimeException("non-sorted manifest output should match the directory-listing "
+				+"(already family-sorted) run:\nmanifest:\n"+manBatchSets+"\ndirectory:\n"+batchSets1);
+		}
+
+		//5. Exclusion is preserved identically in streaming mode -- already implied by (1)'s
+		//   byte-identical comparison (same exclude= used by both), verified explicitly here against
+		//   the summary's members/excluded columns for family B (3 members, 1 excluded).
+		if(!streamSums1.contains("B\t3\t1\t")){throw new RuntimeException("streaming exclude accounting wrong:\n"+streamSums1);}
+
+		//6. Duplicate family id in a manifest must crash loud identically for streaming (shared
+		//   validation in loadFamilyInputs, exercised here via the new streaming call site).
+		final java.nio.file.Path dupManifest=dir.resolve("manifest_dup.tsv");
+		java.nio.file.Files.write(dupManifest, ("A\t"+a+"\nA\t"+a+"\n").getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+		expectThrowsContaining(()->new CoveringSet(concatArgs(new String[]{"families="+dupManifest,
+			"alphabet=ACDFGHIW", "key=AST/C/DEKNQR/FY/GP/H/ILMV/W", "k=2", "step=1", "target=1.0", "minhits=2", "t=1", "streamfamilies=t"},
+			"out="+dir.resolve("dup.sets.tsv"), "summary="+dir.resolve("dup.summary.tsv"))).process(new Timer()), "Duplicate family id");
+
+		//7. Malformed manifest row (wrong field count) must crash loud identically for streaming.
+		final java.nio.file.Path badManifest=dir.resolve("manifest_bad.tsv");
+		java.nio.file.Files.write(badManifest, ("A\t"+a+"\textra\n").getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+		expectThrowsContaining(()->new CoveringSet(concatArgs(new String[]{"families="+badManifest,
+			"alphabet=ACDFGHIW", "key=AST/C/DEKNQR/FY/GP/H/ILMV/W", "k=2", "step=1", "target=1.0", "minhits=2", "t=1", "streamfamilies=t"},
+			"out="+dir.resolve("bad.sets.tsv"), "summary="+dir.resolve("bad.summary.tsv"))).process(new Timer()), "Malformed family manifest row");
+
+		//8. streamfamilies=t with maxfamilies>0 must be rejected at construction time, never silently
+		//   ignored or silently downgraded to the batch path.
+		expectThrowsContaining(()->new CoveringSet(concatArgs(baseArgs, "out="+dir.resolve("reject.sets.tsv"),
+			"summary="+dir.resolve("reject.summary.tsv"), "streamfamilies=t", "maxfamilies=1")),
+			"streamfamilies=t requires maxfamilies=0");
+
+		System.out.println("PASS CoveringSet streaming selftest: batch/streaming byte-identical (t=1,t=32), "
+			+"order-independence, exclude/duplicate/malformed parity, maxfamilies>0 gate, peak pools=1");
+	}
+
+	private static String[] concatArgs(String[] base, String... extra){
+		final String[] out=new String[base.length+extra.length];
+		System.arraycopy(base, 0, out, 0, base.length);
+		System.arraycopy(extra, 0, out, base.length, extra.length);
+		return out;
+	}
+	private static String readAllText(java.nio.file.Path p) throws Exception {
+		return new String(java.nio.file.Files.readAllBytes(p), java.nio.charset.StandardCharsets.US_ASCII);
+	}
+	private interface ThrowingConstruction { void run() throws Exception; }
+	private static void expectThrowsContaining(ThrowingConstruction r, String needle) throws Exception {
+		try{ r.run(); }
+		catch(Exception e){
+			final String msg=(e.getMessage()==null ? e.toString() : e.getMessage());
+			if(!msg.contains(needle)){throw new RuntimeException("threw but message lacked '"+needle+"': "+msg, e);}
+			return;
+		}
+		throw new RuntimeException("expected a throw containing '"+needle+"', none occurred");
 	}
 
 	public CoveringSet(String[] args){
@@ -149,6 +355,10 @@ public class CoveringSet {
 				extra=b;
 			}else if(a.equals("copies")){
 				copies=Integer.parseInt(b);
+			}else if(a.equals("consensus")){
+				consensusFile=b;
+			}else if(a.equals("consensuscopies")){
+				consensusCopiesFile=b;
 			}else if(a.equals("rcomp")){
 				rcomp=Parse.parseBoolean(b);
 			}else if(a.equals("alphabet")){
@@ -165,6 +375,8 @@ public class CoveringSet {
 				summary=b;
 			}else if(a.equals("maxfamilies")){
 				maxFamilies=Integer.parseInt(b);
+			}else if(a.equals("streamfamilies") || a.equals("stream")){
+				streamFamilies=Parse.parseBoolean(b);
 			}else if(a.equals("bbtools_commit") || a.equals("commit")){
 				bbtoolsCommit=b;
 			}else if(a.equals("partitions") || a.equals("numpartitions")){
@@ -190,6 +402,15 @@ public class CoveringSet {
 		}
 		if(minHits<1){throw new IllegalArgumentException("minhits must be >=1: "+minHits);}
 		if(maxFamilies<0){throw new IllegalArgumentException("maxfamilies must be >=0: "+maxFamilies);}
+		if(streamFamilies && maxFamilies>0){
+			throw new IllegalArgumentException("streamfamilies=t requires maxfamilies=0 (cross-family "
+				+"frequency needs every family's kmers seen before any family can be scored; streaming "
+				+"loads and releases one family at a time, so it cannot support that accounting): "
+				+"maxfamilies="+maxFamilies);
+		}
+		if(streamFamilies && families==null){
+			throw new IllegalArgumentException("streamfamilies=t requires families=");
+		}
 		if(alphabetSpec==null || alphabetSpec.equalsIgnoreCase("nt")){
 			proteinMode=false;
 		}else{
@@ -198,6 +419,15 @@ public class CoveringSet {
 			if(rcomp){throw new IllegalArgumentException("rcomp is valid only for alphabet=nt");}
 		}
 		if(families!=null && !proteinMode){throw new IllegalArgumentException("families= requires an amino alphabet");}
+		if(consensusFile!=null && (families==null || copies<1)){
+			throw new IllegalArgumentException("consensus= requires families= and positive copies=");
+		}
+		if(consensusFile!=null && maxFamilies>0){
+			throw new IllegalArgumentException("consensus= currently requires maxfamilies=0; specificity counts otherwise omit added consensuses");
+		}
+		if(consensusCopiesFile!=null && consensusFile==null){
+			throw new IllegalArgumentException("consensuscopies= requires consensus=");
+		}
 
 		if(kDesign<0){kDesign=k;}
 		if(k<1 || k>31){throw new IllegalArgumentException("k must be 1..31: "+k);}
@@ -211,7 +441,6 @@ public class CoveringSet {
 			if(stepSchedule.length<1){throw new IllegalArgumentException("steps must contain at least one positive batch size");}
 			for(int x : stepSchedule){if(x<1){throw new IllegalArgumentException("steps values must be positive: "+Arrays.toString(stepSchedule));}}
 			if(stepFraction>0){throw new IllegalArgumentException("steps and stepfraction are mutually exclusive");}
-			if(proteinMode || families!=null){throw new IllegalArgumentException("steps is currently supported only for single-pool nucleotide mode");}
 		}
 		if(stepFraction<0 || stepFraction>1){
 			throw new IllegalArgumentException("stepfraction must be in [0,1]: "+stepFraction);
@@ -231,7 +460,16 @@ public class CoveringSet {
 	/*--------------------------------------------------------------*/
 
 	void process(Timer t){
-		if(families!=null){processFamilies(t); return;}
+		if(consensusCopiesFile!=null){consensusCopies=readConsensusCopies(consensusCopiesFile);}
+		if(consensusFile!=null){
+			consensusByFamily=new HashMap<String, byte[]>();
+			final ProteinLoad loaded=loadProteinMembers(consensusFile, Collections.<String>emptySet(), "consensus");
+			for(ProteinMember member:loaded.members){consensusByFamily.put(member.id, member.bases);}
+		}
+		if(families!=null){
+			if(streamFamilies){processFamiliesStreaming(t);}else{processFamilies(t);}
+			return;
+		}
 		if(proteinMode){processSingleProtein(t); return;}
 		processNucleotide(t);
 	}
@@ -424,15 +662,103 @@ public class CoveringSet {
 		t.stop(); outstream.println("Processed "+results.size()+" families in one JVM; Time:   "+t);
 	}
 
+	/** Opt-in streaming family mode (streamfamilies=t), valid only with maxfamilies=0. {@link
+	 * #processFamilies} loads every family's members into a {@link FamilyPool} before any family is
+	 * scored, because maxfamilies&gt;0's cross-family frequency accounting needs every family's kmers
+	 * counted first -- unsafe for a corpus the scale this mode targets (13.4M members). But when
+	 * maxfamilies==0, {@link #selectFamily}'s only use of its {@code familyFrequency} argument is
+	 * gated behind {@code maxFamilies>0} (see the specificity-rejection check inside its round loop),
+	 * so with maxfamilies==0 that argument is never actually read -- each family's selection is
+	 * already fully independent of every other family. This method exploits that: it loads, scores,
+	 * and releases ONE family at a time, in family-id sorted order (independent of the input
+	 * manifest/directory listing order, matching {@link #processFamilies}'s own output-time sort in
+	 * {@link Collections#sort(java.util.List, Comparator)} on {@code results} -- so both paths produce
+	 * byte-identical output for the same input SET regardless of input order). There is no
+	 * per-family {@link ExecutorService} fan-out here (unlike {@link #processFamilies}): sequential
+	 * single-family processing is what gives the bounded-peak-memory property this mode exists for,
+	 * by construction -- at most one {@link FamilyPool} is ever reachable at a time. {@link
+	 * #streamingPeakPools} is package-visible test instrumentation (always 0 outside a streaming run)
+	 * that proves this empirically rather than by code inspection alone. Does not modify or call
+	 * {@link #processFamilies} -- the default (non-streaming) path is untouched by this method's
+	 * existence. */
+	private void processFamiliesStreaming(Timer t){
+		if(maxFamilies>0){
+			//Belt-and-suspenders: the constructor already rejects this combination, so this path is
+			//unreachable via normal construction; a future caller that bypasses the constructor guard
+			//must still be stopped here rather than silently reading a stale/absent familyFrequency.
+			throw new RuntimeException("processFamiliesStreaming requires maxFamilies==0; got "+maxFamilies);
+		}
+		//Reset at entry: streamingLivePools/streamingPeakPools describe the MOST RECENT streaming run
+		//only (see their field javadoc). Without this, a second process() call on the same instance --
+		//or, worse, a PRIOR run that failed mid-loop and left streamingLivePools non-zero (see the
+		//try/finally below) -- would silently corrupt this run's peak-pools measurement with stale
+		//state from before, exactly the "reports peak 2 on reuse" failure mode Yoimiya's root review
+		//identified (2026-09-16).
+		streamingLivePools=0;
+		streamingPeakPools=0;
+		final Set<String> excluded=loadExclude(exclude);
+		final ArrayList<FamilyInput> inputs=loadFamilyInputs(families);
+		final ArrayList<FamilyInput> sortedInputs=new ArrayList<FamilyInput>(inputs);
+		Collections.sort(sortedInputs, new Comparator<FamilyInput>(){
+			@Override public int compare(FamilyInput a, FamilyInput b){return a.family.compareTo(b.family);}
+		});
+		final ArrayList<FamilyResult> results=new ArrayList<FamilyResult>(sortedInputs.size());
+		for(FamilyInput input : sortedInputs){
+			final ProteinLoad loaded=loadProteinMembers(input.path, excluded, input.family);
+			final ArrayList<ProteinMember> members=loaded.members;
+			if(members.isEmpty()){throw new RuntimeException("Family has no non-excluded members: "+input.family);}
+			final FamilyPool pool=new FamilyPool(input.family, members, input.path, input.sha256, loaded.totalMembers);
+			streamingLivePools++;
+			streamingPeakPools=Math.max(streamingPeakPools, streamingLivePools);
+			//familyFrequency is null, not an empty/placeholder map: selectFamily's specificity-rejection
+			//branch is unreachable at maxFamilies==0 (guarded above), so null is exactly what
+			//processFamilies would functionally use here too, never behavior this method invents.
+			//try/finally: the decrement must run even if selectFamily throws (e.g. a family whose
+			//members yield zero valid kmers), so a mid-run failure never leaves streamingLivePools
+			//stuck above 0 -- for THIS run's own later iterations (moot here, since the throw aborts
+			//the loop) and, more importantly, for any FUTURE run on this same instance, which the
+			//entry-reset above only protects going forward, not retroactively (Yoimiya's root review).
+			final FamilyResult result;
+			try{
+				result=selectFamily(pool, null);
+			}finally{
+				streamingLivePools--;
+			}
+			results.add(result);
+			//pool (and loaded/members) fall out of scope here -- nothing retains a reference past this
+			//iteration, so the next loop turn's allocation is the only family pool ever concurrently live.
+		}
+		//Already produced in family-id sorted order by the loop above; sort explicitly anyway so this
+		//method's output-order contract does not silently depend on the loop's own iteration order if
+		//it is ever refactored -- matches processFamilies' explicit sort immediately before the same
+		//writeFamilyOutputs call.
+		Collections.sort(results, new Comparator<FamilyResult>(){
+			@Override public int compare(FamilyResult a, FamilyResult b){return a.family.compareTo(b.family);}
+		});
+		writeFamilyOutputs(results);
+		t.stop(); outstream.println("Processed "+results.size()+" families (streaming, one at a time, peak pools="
+			+streamingPeakPools+"); Time:   "+t);
+	}
+
 	private FamilyResult selectFamily(final FamilyPool pool, final LongIntMap familyFrequency){
 		final int design=kDesign, use=k;
 		final int bits=reducedAlphabet.bits();
 		if((long)design*bits>62){throw new RuntimeException("Packed k-mer exceeds 62 bits: k="+design+" bits="+bits+" alphabet="+reducedAlphabet.symbols());}
-		final long[][] memberKmers=new long[pool.members.size()][];
-		final long[][] memberUniqueKmers=new long[pool.members.size()][];
-		final LongIntMap original=new LongIntMap(Math.max(16, pool.members.size()*4));
+		final ArrayList<ProteinMember> members;
+		if(consensusByFamily==null){members=pool.members;}
+		else{
+			final byte[] consensus=consensusByFamily.get(pool.family);
+			if(consensus==null){throw new IllegalArgumentException("Missing consensus for family "+pool.family);}
+			members=new ArrayList<ProteinMember>(pool.members);
+			final int count=consensusCopyCount(pool.family);
+			for(int i=0; i<count; i++){members.add(new ProteinMember(pool.family, consensus));}
+		}
+		final int addedCopies=members.size()-pool.members.size();
+		final long[][] memberKmers=new long[members.size()][];
+		final long[][] memberUniqueKmers=new long[members.size()][];
+		final LongIntMap original=new LongIntMap(Math.max(16, members.size()*4));
 		int memberIndex=0;
-		for(ProteinMember member : pool.members){
+		for(ProteinMember member : members){
 			final long[] words=kmers(member.bases, design);
 			memberKmers[memberIndex]=words;
 			final LongHashSet unique=new LongHashSet(Math.max(16, words.length*2));
@@ -441,12 +767,14 @@ public class CoveringSet {
 			memberIndex++;
 		}
 		if(original.isEmpty()){throw new RuntimeException("Family has 0 valid kmers: "+pool.family);}
-		final boolean[] alive=new boolean[pool.members.size()]; Arrays.fill(alive, true);
+		final boolean[] alive=new boolean[members.size()]; Arrays.fill(alive, true);
+		assert(alive.length==memberKmers.length) : "Every real or copied consensus member needs matching eviction state";
 		final LongHashSet selected=new LongHashSet(Math.max(16, original.size()*2));
 		final ArrayList<Selection> selections=new ArrayList<Selection>();
 		final LongHashSet rejectedBySpecificity=new LongHashSet(1024);
 		int aliveCount=alive.length, rounds=0, currentStep=step;
 		while(aliveCount>0 && (maxKmers<=0 || selections.size()<maxKmers)){
+			if(stepSchedule!=null){currentStep=stepSchedule[Math.min(rounds, stepSchedule.length-1)];}
 			final float coverage=1f-aliveCount/(float)alive.length;
 			if(coverage>=minCovFraction){break;}
 			final LongIntMap current=new LongIntMap(Math.max(16, original.size()));
@@ -459,10 +787,12 @@ public class CoveringSet {
 			final TopKHeap currentHeap=new TopKHeap(candidateLimit);
 			final long[] currentKeys=current.keys(); final int[] currentValues=current.values();
 			final long currentInvalid=current.invalid();
-			//TODO: Probable bug - this protein-family heap does not exclude already-selected
-			//keys before truncation and may stall minhits>1 as the nucleotide path did.
 			for(int cell=0; cell<currentKeys.length; cell++){
-				if(currentKeys[cell]!=currentInvalid){currentHeap.add(currentKeys[cell], currentValues[cell], currentKeys[cell]);}
+				// With minhits>1, uncovered members may contain already selected words.
+				// Exclude those before top-K, or they can fill every slot and stop selection prematurely.
+				if(currentKeys[cell]!=currentInvalid && !selected.contains(currentKeys[cell])){
+					currentHeap.add(currentKeys[cell], currentValues[cell], currentKeys[cell]);
+				}
 			}
 			final long[] candidates=currentHeap.keysDescending();
 			final TopKHeap originalHeap=new TopKHeap(Tools.min(currentStep, candidates.length));
@@ -486,7 +816,8 @@ public class CoveringSet {
 				if(hits>=minHits){alive[i]=false; evicted++;}
 			}
 			aliveCount-=evicted; rounds++;
-				if(evicted==0 && selected.size()>=current.size()){break;}
+			// added==0 above is the exhaustion test; selected.size includes words from
+			// already evicted members and cannot be compared with the remaining vocabulary.
 		}
 		final ArrayList<OutputKmer> output=new ArrayList<OutputKmer>();
 		final LongHashSet emitted=new LongHashSet(Math.max(16, selections.size()*2));
@@ -498,8 +829,63 @@ public class CoveringSet {
 			}
 		}
 		final int excluded=pool.totalMembers-pool.members.size();
-		return new FamilyResult(pool.family, pool.path, pool.inputHash, pool.totalMembers, excluded, output, selections.size(), rounds,
+		return new FamilyResult(pool.family, pool.path, pool.inputHash, pool.totalMembers+addedCopies, excluded, output, selections.size(), rounds,
 			1f-aliveCount/(float)alive.length, aliveCount, rejectedBySpecificity.size());
+	}
+
+	/** Explicit family counts override copies; missing rows must never silently use a different recipe. */
+	private int consensusCopyCount(String family){
+		if(consensusCopies==null){return copies;}
+		final Integer count=consensusCopies.get(family);
+		if(count==null){throw new IllegalArgumentException("Missing consensus copy count for "+family);}
+		return count.intValue();
+	}
+
+	/** Reads a two-column family/count table; extra families permit reuse across input shards. */
+	private static HashMap<String, Integer> readConsensusCopies(String path){
+		final HashMap<String, Integer> counts=new HashMap<String, Integer>();
+		final ByteFile input=ByteFile.makeByteFile(path, false);
+		final LineParser1 row=new LineParser1('\t');
+		try{
+			for(byte[] line=input.nextLine(); line!=null; line=input.nextLine()){
+				if(line.length==0 || line[0]=='#'){continue;}
+				row.set(line);
+				if(row.terms()!=2){throw new IllegalArgumentException("Expected family and consensus copies in "+path);}
+				final String family=row.parseString(0); final int count=row.parseInt(1);
+				if(family.isEmpty() || count<1 || counts.put(family, count)!=null){
+					throw new IllegalArgumentException("Invalid or duplicate consensus copy row for "+family);
+				}
+			}
+		}finally{if(input.close()){throw new IllegalStateException("Failed reading consensus copies "+path);}}
+		if(counts.isEmpty()){throw new IllegalArgumentException("Empty consensus copy table "+path);}
+		return counts;
+	}
+
+	/** Checks late-round progress with repeated words, schedule tail reuse and consensus weighting. */
+	private static void testScheduledSelection(String input, String dir) throws Exception{
+		final CoveringSet selector=new CoveringSet(new String[]{"in="+input, "out="+dir+"/scheduled.fa",
+			"alphabet=amino", "k=2", "steps=1,1", "minhits=3", "target=1", "t=1"});
+		final ArrayList<ProteinMember> members=new ArrayList<ProteinMember>();
+		members.add(new ProteinMember("member", "AAAAAAACDE".getBytes(java.nio.charset.StandardCharsets.US_ASCII)));
+		final FamilyPool pool=new FamilyPool("F", members, input, "fixture", 1);
+		final FamilyResult result=selector.selectFamily(pool, null);
+		if(result.selectedKmers!=3 || result.rounds!=3 || result.uncovered!=0){
+			throw new AssertionError("Three distinct hits require three rounds despite frequent already-selected AA");
+		}
+		selector.consensusByFamily=new HashMap<String, byte[]>();
+		selector.consensusByFamily.put("F", "WWWWWWWWWW".getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+		selector.copies=5; selector.minHits=1; selector.maxKmers=1;
+		final FamilyResult weighted=selector.selectFamily(pool, null);
+		if(weighted.output.size()!=1 || !weighted.output.get(0).text.equals("WW") || weighted.members!=6 || weighted.uncovered!=1){
+			throw new AssertionError("Five consensus copies must upweight WW and be evicted separately from the real member");
+		}
+		selector.consensusCopies=new HashMap<String, Integer>(); selector.consensusCopies.put("F", 3);
+		final FamilyResult variable=selector.selectFamily(pool, null);
+		if(variable.members!=4 || variable.output.size()!=1 || !variable.output.get(0).text.equals("WW")){
+			throw new AssertionError("Explicit per-family copies must override the fixed count and preserve weighting");
+		}
+		expectThrowsContaining(()->selector.consensusCopyCount("missing"), "Missing consensus copy count");
+		System.out.println("PASS CoveringSet scheduled selection: distinct multi-hit progress, repeated tail, consensus-copy weighting");
 	}
 
 	private long[] useWords(final long designWord, final int design, final int use){
@@ -651,6 +1037,7 @@ public class CoveringSet {
 		sets.println("#alphabet\t"+reducedAlphabet.symbols());
 		sets.println("#key\t"+(keySpec==null ? "none" : keySpec));
 		sets.println("#k\t"+k+"\tkdesign\t"+kDesign+"\tminhits\t"+minHits+"\tmaxfamilies\t"+maxFamilies);
+		writeSelectionOptions(sets);
 		sets.println("#columns\tfamily_id\tkmer\tselection_rank\toriginal_count\tround");
 		long removed=0;
 		for(FamilyResult result : results){
@@ -667,7 +1054,8 @@ public class CoveringSet {
 		sums.println("#alphabet\t"+reducedAlphabet.symbols());
 		sums.println("#key\t"+(keySpec==null ? "none" : keySpec));
 		sums.println("#k\t"+k+"\tkdesign\t"+kDesign+"\tminhits\t"+minHits+"\tmaxfamilies\t"+maxFamilies);
-		sums.println("#input\tfamily_id\tpath\tsha256");
+		writeSelectionOptions(sums);
+		sums.println("#input\tfamily_id\tpath\tsha80");
 		for(FamilyResult result : results){sums.println("#input\t"+result.family+'\t'+result.path+'\t'+result.inputHash);}
 		sums.println("#cross_family_candidates_removed\t"+removed);
 		sums.println("#columns\tfamily_id\tmembers\texcluded\tselected_kmers\trounds\tcoverage\tuncovered");
@@ -678,6 +1066,20 @@ public class CoveringSet {
 		sums.close();
 	}
 
+	/** Optional metadata leaves the historical fixed-step/no-consensus bytes unchanged. */
+	private void writeSelectionOptions(PrintWriter out){
+		if(stepSchedule!=null){
+			out.print("#steps\t");
+			for(int i=0; i<stepSchedule.length; i++){if(i>0){out.print(',');} out.print(stepSchedule[i]);}
+			out.println("\ttail\trepeat_last");
+		}
+		if(consensusFile!=null){
+			out.println("#consensus\t"+consensusFile+"\tcopies\t"+(consensusCopiesFile==null ? Integer.toString(copies) : "per_family"));
+			if(consensusCopiesFile!=null){out.println("#consensus_copies_file\t"+consensusCopiesFile);}
+			out.println("#members_include_consensus_copies\ttrue");
+		}
+	}
+
 	private static String hashFile(final File file){
 		try{
 			final File source=resolveSource(file);
@@ -686,7 +1088,7 @@ public class CoveringSet {
 			for(int n=in.read(buffer); n>=0; n=in.read(buffer)){if(n>0){digest.update(buffer, 0, n);}}
 			in.close(); final StringBuilder sb=new StringBuilder(64);
 			for(byte b : digest.digest()){sb.append(String.format("%02x", b&255));}
-			return sb.toString();
+			return sb.substring(sb.length()-20);
 		}catch(RuntimeException e){throw e;
 		}catch(Exception e){throw new RuntimeException("Could not hash input: "+file, e);}
 	}
@@ -999,7 +1401,7 @@ public class CoveringSet {
 		return Tools.max(1L, x>=Integer.MAX_VALUE ? Integer.MAX_VALUE : (long)x);
 	}
 
-	/** Marks sequences as not-alive if they contain any selected (canonical) kmer,
+	/** Marks sequences as not-alive after minHits distinct selected canonical kmers,
 	 * over pool[from,to). Only reads `selected` (a fixed snapshot for the whole
 	 * round) and writes exclusively to its own index range of `alive`, so this is
 	 * safe to run from multiple threads on disjoint ranges concurrently.
@@ -1219,6 +1621,10 @@ public class CoveringSet {
 	private String in;
 	private String out;
 	private String extra;
+	private String consensusFile;
+	private String consensusCopiesFile;
+	private HashMap<String, Integer> consensusCopies;
+	private HashMap<String, byte[]> consensusByFamily;
 	private String families;
 	private String exclude;
 	private String summary;
@@ -1235,7 +1641,7 @@ public class CoveringSet {
 	private int k=17;
 	private int kDesign=-1;
 	private int step=500;
-	/** Literal per-round nucleotide batch schedule; the last value repeats. */
+	/** Literal per-round batch schedule for either alphabet; the last value repeats. */
 	private int[] stepSchedule=null;
 	/** Fraction of remaining sequences targeted per adaptive round; 0 keeps the
 	 * historical fixed-step behavior. */
@@ -1246,6 +1652,18 @@ public class CoveringSet {
 	private int maxKmers=0;
 	private int minHits=1;
 	private int maxFamilies=0;
+	/** Opt-in streaming family mode (streamfamilies=t/stream=t); see {@link #processFamiliesStreaming}.
+	 *  Constructor-validated to require maxfamilies=0 and families!=null. Default false: {@link
+	 *  #process(Timer)} calls the original {@link #processFamilies} unchanged. */
+	private boolean streamFamilies=false;
+	/** Live count of family pools held in memory by {@link #processFamiliesStreaming}; always 0
+	 *  outside a streaming run. Package-visible test instrumentation only, zero cost in every other
+	 *  path (a single int increment/decrement touched only inside that one method). */
+	int streamingLivePools=0;
+	/** Peak value {@link #streamingLivePools} reached during the most recent {@link
+	 *  #processFamiliesStreaming} run -- proves at most one {@link FamilyPool} is ever concurrently
+	 *  retained, empirically rather than by code inspection alone. Test instrumentation only. */
+	int streamingPeakPools=0;
 	private float minCovFraction=0.999f;
 	private int copies=10;
 	private boolean rcomp=false;

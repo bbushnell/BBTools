@@ -808,10 +808,13 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream{
 			ArrayList<Read> list=null;
 
 			if(verbose){System.err.println(getClass().getName()+" entering read lists loop.");}
-			while(list!=null || (!shutdown && producer.hasMore() && generatedLocal<maxReads)){
+			//hasMore may prefetch a batch. After the quota is met the consumer can
+			//close the producer, so another prefetch can see false EOF mid-record.
+			//Check the quota first; Tools.estimateFileMemory samples through this path.
+			while(list!=null || (!shutdown && generatedLocal<maxReads && producer.hasMore())){
 
 				if(verbose){System.err.println(getClass().getName()+" looping: buffer1==null "+(list==null)+", shutdown="+shutdown+
-						", producer.hasMore()="+producer.hasMore()+", generated<maxReads="+(generatedLocal<maxReads));}
+						", generated<maxReads="+(generatedLocal<maxReads));}
 
 				if(verbose){System.err.println(getClass().getName()+" Entering full fetch loop.");}
 				while(generatedLocal<maxReads){
@@ -890,7 +893,7 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream{
 				}
 			}
 
-			if(verbose){System.err.println(getClass().getName()+" exited read lists loop: "+(list==null)+", "+shutdown+", "+producer.hasMore()+", "+generatedLocal+", "+maxReads);}
+			if(verbose){System.err.println(getClass().getName()+" exited read lists loop: "+(list==null)+", "+shutdown+", "+generatedLocal+", "+maxReads);}
 
 		}
 
