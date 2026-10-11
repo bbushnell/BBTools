@@ -11,12 +11,13 @@ Uses consensus-centroid clustering with reassignment for optimal
 cluster representatives.  Output can be used with callgenes.sh
 via the trnalib= and trnamodel= flags.
 
-Usage:  trnaconsensus.sh in=trnas.fa out=consensus.fa outmodel=models.hbm
+Usage:  trnaconsensus.sh in=trnas.fa out=consensus.fa outmodel=models.hbmc
 
 File parameters:
 in=<file>       Input fasta of tRNA sequences (with anticodon in header).
 out=<file>      Output consensus fasta.
-outmodel=<file> Output HBM model file (.hbm for text, .bgm for binary).
+outmodel=<file> Output model: .hbmc for compact text, .hbm for legacy text,
+                or .bgm for serialized graphs. Text formats also support .gz.
 
 Clustering parameters:
 cluster=t       Enable clustering (default true).

@@ -82,7 +82,7 @@ Auxiliary fake-TaxID nodes to overlay on an NCBI TaxTree.
 16S_consensus_sequence.fa
 These files contain consensus sequences of various conserved RNAs (rRNAs and tRNAs) from different clades.
 
-model.pgm
+model.pgm.gz
 Prokaryotic gene model, used by CallGenes and BBSketch in protein mode.
 
 PacBioAdapter.fa

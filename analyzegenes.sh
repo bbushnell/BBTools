@@ -5,9 +5,9 @@ echo "
 Written by Brian Bushnell
 Last modified September 27, 2018
 
-Description:  Generates a prokaryotic gene model (.pkm) for gene calling.
+Description:  Generates a prokaryotic gene model (.pgm) for gene calling.
 Input is fasta and gff files.
-The .pkm file may be used by CallGenes.
+The .pgm file may be used by CallGenes.
 
 Usage:  analyzegenes.sh in=x.fa gff=x.gff out=x.pgm
 
@@ -18,6 +18,8 @@ gff=<file>      A gff file or comma-delimited list.  This is optional;
                 If absent, a fasta file 'foo.fasta' will imply the
                 presence of 'foo.gff'.
 out=<file>      Output pgm file.
+a48=t          Write exact integer counts in compact A48 encoding.
+                Set a48=f for decimal text.  Both formats can be read automatically.
 transl_table=  Optional NCBI code (4, 11, or 25) used for training start/stop sites.
                 Every CDS must explicitly declare this table in its GFF.
                 Missing or mixed table declarations fail before training.

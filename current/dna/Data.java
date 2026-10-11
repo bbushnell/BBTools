@@ -1312,7 +1312,9 @@ public class Data {
 	
 	/**
 	 * Locates resource file with optional warning for missing files.
-	 * Searches multiple standard locations and JAR resources.
+	 * Searches multiple standard locations and JAR resources. Each location tries
+	 * the exact name before appending .gz; location priority is unchanged. Literal
+	 * paths and names already ending in .gz or .gzip are not expanded.
 	 *
 	 * @param fname Filename to locate (prefix with ? for standard locations)
 	 * @param warn Whether to print warnings for missing files
@@ -1326,33 +1328,36 @@ public class Data {
 			return fname;
 		}
 		final boolean network=isNetworkFile(fname);
+		final String lower=fname.toLowerCase(Locale.ROOT);
+		final boolean tryGzip=!lower.endsWith(".gz") && !lower.endsWith(".gzip");
 		String path=(network ? ROOT_NETWORKS : ROOT_RESOURCES)+fname;
 		boolean vb=false;
 		{
-			File f=new File(path);
+			File f=resourceFile(path, tryGzip);
+			path=f.getPath();
 			if(!f.exists() && network){
 				if(vb){System.err.println("Did not find "+fname+" at "+path);}
-				path=ROOT_RESOURCES+fname;f=new File(path);
+				f=resourceFile(ROOT_RESOURCES+fname, tryGzip);path=f.getPath();
 			}
 			if(!f.exists()){
 				if(vb){System.err.println("Did not find "+fname+" at "+path);}
-				f=new File(ROOT+fname);
-				if(f.exists()){path=ROOT+fname;}
+				f=resourceFile(ROOT+fname, tryGzip);
+				if(f.exists()){path=f.getPath();}
 				else{if(vb){System.err.println("Did not find "+fname+" at "+ROOT);}}
 			}
 			if(!f.exists()){
 				if(vb){System.err.println("Considering fixing "+path+"\n"+path.contains("/file:"));}
 				if(path.contains("/file:")){
 					String fixed=path.substring(path.lastIndexOf("/file:")+1)+fname;
-					f=new File(fixed);
-					if(f.exists()){path=fixed;}
+					f=resourceFile(fixed, tryGzip);
+					if(f.exists()){path=f.getPath();}
 					else{if(vb){System.err.println("Did not find "+fname+" at "+fixed);}}
 				}
 			}
 			if(!f.exists()){
 				if(vb){System.err.println("Considering getResource");}
-				URL url=(network ? Primes.class.getResource("/networks/"+fname) : null);
-				if(url==null){url=Primes.class.getResource("/"+fname);}
+				URL url=(network ? resourceURL("/networks/"+fname, tryGzip) : null);
+				if(url==null){url=resourceURL("/"+fname, tryGzip);}
 				if(url!=null){
 					String temp=PercentEncoding.codeToSymbol(url.toString());
 					if(vb){System.err.println("Found URL "+temp);}
@@ -1365,23 +1370,23 @@ public class Data {
 			//command-line path (no '?') returned at the top and never reaches here, so overrides always win.
 			if(!f.exists() && !path.startsWith("jar:")){
 				String dori=(network ? DORI_NETWORKS : DORI_RESOURCES)+fname;
-				f=new File(dori);
-				if(f.exists()){path=dori;}
+				f=resourceFile(dori, tryGzip);
+				if(f.exists()){path=f.getPath();}
 				else{if(vb){System.err.println("Did not find "+fname+" at "+dori);}}
 			}
 			if(!f.exists() && network && !path.startsWith("jar:")){
-				String dori=DORI_RESOURCES+fname;f=new File(dori);
-				if(f.exists()){path=dori;}else{if(vb){System.err.println("Did not find "+fname+" at "+dori);}}
+				String dori=DORI_RESOURCES+fname;f=resourceFile(dori, tryGzip);
+				if(f.exists()){path=f.getPath();}else{if(vb){System.err.println("Did not find "+fname+" at "+dori);}}
 			}
 			if(!f.exists() && !path.startsWith("jar:")){
 				String nersc=(network ? NERSC_NETWORKS : NERSC_RESOURCES)+fname;
-				f=new File(nersc);
-				if(f.exists()){path=nersc;}
+				f=resourceFile(nersc, tryGzip);
+				if(f.exists()){path=f.getPath();}
 				else{if(vb){System.err.println("Did not find "+fname+" at "+nersc);}}
 			}
 			if(!f.exists() && network && !path.startsWith("jar:")){
-				String nersc=NERSC_RESOURCES+fname;f=new File(nersc);
-				if(f.exists()){path=nersc;}else{if(vb){System.err.println("Did not find "+fname+" at "+nersc);}}
+				String nersc=NERSC_RESOURCES+fname;f=resourceFile(nersc, tryGzip);
+				if(f.exists()){path=f.getPath();}else{if(vb){System.err.println("Did not find "+fname+" at "+nersc);}}
 			}
 			if(!f.exists() && !path.startsWith("jar:")){
 				if(warn){
@@ -1393,6 +1398,22 @@ public class Data {
 		}
 		if(vb){System.err.println("Found "+fname+" at "+path);}
 		return path;
+	}
+
+	/** Keeps exact-name preference within one filesystem location. */
+	private static File resourceFile(String path, boolean tryGzip){
+		assert(path!=null) : "Resource locations must be constructed before testing gzip alternatives";
+		final File exact=new File(path);
+		if(exact.exists() || !tryGzip){return exact;}
+		final File compressed=new File(path+".gz");
+		return compressed.exists() ? compressed : exact;
+	}
+
+	/** Uses the same exact-then-gzip rule for classpath and JAR resources. */
+	private static URL resourceURL(String name, boolean tryGzip){
+		assert(name!=null && name.startsWith("/")) : "Classpath resource lookup must be absolute: "+name;
+		final URL exact=Primes.class.getResource(name);
+		return exact!=null || !tryGzip ? exact : Primes.class.getResource(name+".gz");
 	}
 
 	/** True for single- or multi-network files, optionally gzip-compressed. */

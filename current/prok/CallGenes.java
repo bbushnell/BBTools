@@ -2375,7 +2375,8 @@ public class CallGenes extends ProkObject {
 	public static synchronized void loadTrnaResources(){
 		if(GeneCaller.trnaLibrary!=null){return;}
 		String libPath=Data.findPath("?trna_consensus.fa");
-		String modelPath=Data.findPath("?trna_models.hbm");
+		String modelPath=defaultNcrnaModel("trna_models.hbm", false);
+		if(modelPath.equals("trna_models.hbm")){modelPath=Data.findPath("?trna_models.hbm");}
 		if(libPath!=null && new java.io.File(libPath).exists()){
 			GeneCaller.trnaLibrary=TrnaConsensusBuilder.loadLibrary(libPath);
 			GeneCaller.trnaModelNames=TrnaConsensusBuilder.lastLoadedNames;
@@ -2418,7 +2419,7 @@ public class CallGenes extends ProkObject {
 		//should fail loud rather than emit calls using a stale resource configuration.
 		if(!GeneCaller.ncrnaFamilies.isEmpty()){return;}
 		LongHashSet rnasepKmers=loadEffectiveNcrnaKmerSet("rnasep", "rnasep_17mers.fa", RNASEP_KMERS_OVERRIDE, 17);
-		addNcrnaFamily("rnasep", "rnasep_consensus.fa", "rnasep_models.hbm", rnasepKmers, 17, 200,
+		addNcrnaFamily("rnasep", "rnasep_consensus.fa", defaultNcrnaModel("rnasep_models.hbm"), rnasepKmers, 17, 200,
 			resolveSweepPad("rnasep", RNASEP_PAD_OVERRIDE, 320),
 			7, 60, true, 100f, 0.74f, 0.072f, 12,
 			resolveFamilyScore("rnasep", RNASEP_SCORE_A_OVERRIDE, NCRNA_SCORE_A_OVERRIDE, 0f),
@@ -2427,7 +2428,7 @@ public class CallGenes extends ProkObject {
 			resolveSweepFloat("rnasep", NCRNA_HBM_PASS_OVERRIDE, 0.62f), resolveSweepFloat("rnasep", NCRNA_COLLAPSE_FRAC_OVERRIDE, 0.85f),
 			boundaryStartOffsets("rnasep"), boundaryStopOffsets("rnasep"));
 		LongHashSet srpSmallKmers=loadEffectiveNcrnaKmerSet("srp_small", "srp_17mers.fa", SRPSMALL_KMERS_OVERRIDE, 17);
-		addNcrnaFamily("srp_small", "srp_small_consensus.fa", "srp_small_models.hbm", srpSmallKmers, 17, 80,
+		addNcrnaFamily("srp_small", "srp_small_consensus.fa", defaultNcrnaModel("srp_small_models.hbm"), srpSmallKmers, 17, 80,
 			resolveSweepPad("srp_small", SRPSMALL_PAD_OVERRIDE, 75),
 			7, 60, true, 23f, 0.68f, 0.072f, 12,
 			resolveFamilyScore("srp_small", SRPSMALL_SCORE_A_OVERRIDE, NCRNA_SCORE_A_OVERRIDE, 0f),
@@ -2436,7 +2437,7 @@ public class CallGenes extends ProkObject {
 			resolveSweepFloat("srp_small", NCRNA_HBM_PASS_OVERRIDE, 0.70f), resolveSweepFloat("srp_small", NCRNA_COLLAPSE_FRAC_OVERRIDE, 0.85f),
 			boundaryStartOffsets("srp_small"), boundaryStopOffsets("srp_small"));
 		LongHashSet srpLargeKmers=loadEffectiveNcrnaKmerSet("srp_large", "srp_17mers.fa", SRPLARGE_KMERS_OVERRIDE, 17);
-		addNcrnaFamily("srp_large", "srp_large_consensus.fa", "srp_large_models.hbm", srpLargeKmers, 17, 150,
+		addNcrnaFamily("srp_large", "srp_large_consensus.fa", defaultNcrnaModel("srp_large_models.hbm"), srpLargeKmers, 17, 150,
 			resolveSweepPad("srp_large", SRPLARGE_PAD_OVERRIDE, 250),
 			7, 60, true, 45f, 0.75f, 0.072f, 12,
 			resolveFamilyScore("srp_large", SRPLARGE_SCORE_A_OVERRIDE, NCRNA_SCORE_A_OVERRIDE, 0f),
@@ -2448,7 +2449,7 @@ public class CallGenes extends ProkObject {
 			final int before=GeneCaller.ncrnaFamilies.size();
 			LongHashSet tmrnaKmers=loadEffectiveNcrnaKmerSet("tmrna", "tmrna_17mers.fa", TMRNA_KMERS_OVERRIDE, 17);
 			addNcrnaFamily("tmrna", (TMRNA_CONSENSUS_OVERRIDE==null ? "tmrna_consensus.fa" : TMRNA_CONSENSUS_OVERRIDE),
-				(TMRNA_MODELS_OVERRIDE==null ? "tmrna_models.hbm" : TMRNA_MODELS_OVERRIDE), tmrnaKmers, 17, 180,
+				(TMRNA_MODELS_OVERRIDE==null ? defaultNcrnaModel("tmrna_models.hbm") : TMRNA_MODELS_OVERRIDE), tmrnaKmers, 17, 180,
 				resolveSweepPad("tmrna", TMRNA_PAD_OVERRIDE, 370),
 				7, 60, true, 11f, 0.48f, 0.072f, 12,
 				resolveFamilyScore("tmrna", TMRNA_SCORE_A_OVERRIDE, NCRNA_SCORE_A_OVERRIDE, 5f),
@@ -2467,7 +2468,7 @@ public class CallGenes extends ProkObject {
 		if(SIXS_ENABLED){
 			final int before=GeneCaller.ncrnaFamilies.size();
 			LongHashSet rf00013Kmers=loadEffectiveNcrnaKmerSet("sixs_rf00013", "sixs_rf00013_16mers.fa", SIXS_RF00013_KMERS_OVERRIDE, 16);
-			addNcrnaFamily("sixs_rf00013", "sixs_rf00013_consensus.fa", "sixs_rf00013_models.hbm", rf00013Kmers, 16, 60,
+			addNcrnaFamily("sixs_rf00013", "sixs_rf00013_consensus.fa", defaultNcrnaModel("sixs_rf00013_models.hbm"), rf00013Kmers, 16, 60,
 				resolveSweepPad("sixs_rf00013", SIXS_RF00013_PAD_OVERRIDE, 250),
 				7, 60, false, 0f, 0f, 0f, 1,
 				resolveSweepFloat("sixs_rf00013", NCRNA_SCORE_A_OVERRIDE, 0f),
@@ -2476,7 +2477,7 @@ public class CallGenes extends ProkObject {
 				resolveSweepFloat("sixs_rf00013", NCRNA_HBM_PASS_OVERRIDE, 0.64f), resolveSweepFloat("sixs_rf00013", NCRNA_COLLAPSE_FRAC_OVERRIDE, 0.85f),
 				boundaryStartOffsets("sixs_rf00013"), boundaryStopOffsets("sixs_rf00013"));
 			LongHashSet rf01685Kmers=loadEffectiveNcrnaKmerSet("sixs_rf01685", "sixs_rf01685_17mers.fa", SIXS_RF01685_KMERS_OVERRIDE, 17);
-			addNcrnaFamily("sixs_rf01685", "sixs_rf01685_consensus.fa", "sixs_rf01685_models.hbm", rf01685Kmers, 17, 60,
+			addNcrnaFamily("sixs_rf01685", "sixs_rf01685_consensus.fa", defaultNcrnaModel("sixs_rf01685_models.hbm"), rf01685Kmers, 17, 60,
 				resolveSweepPad("sixs_rf01685", SIXS_RF01685_PAD_OVERRIDE, 125),
 				7, 60, false, 0f, 0f, 0f, 1,
 				resolveSweepFloat("sixs_rf01685", NCRNA_SCORE_A_OVERRIDE, 0f),
@@ -2518,7 +2519,7 @@ public class CallGenes extends ProkObject {
 				final boolean endpoint23S=(RRNA23S_ENDPOINT_MODE!=RRNA23S_ENDPOINT_OFF);
 				final String endpoint23SNet=(RRNA23S_ENDPOINT_MODE==RRNA23S_ENDPOINT_G28
 					? "23S_boundary_g28_universal_net.bbnet" : "23S_boundary_g16c_net.bbnet");
-				addNcrnaFamily("23S", "23S_consensus_sequence.fa", endpoint23S ? "23S.models.hbm" : null,
+				addNcrnaFamily("23S", "23S_consensus_sequence.fa", endpoint23S ? defaultNcrnaModel("23S.models.hbm") : null,
 					loadEffectiveNcrnaKmerSet("23S", "23S_17mers.fa", null, 17), 17, 2600, 3500,
 					9, 3, false, 0f, 0f, 0f, 128, 0f, 1f, .60f, .60f, 1.01f, .85f,
 					centeredOffsets(16), centeredOffsets(16), endpoint23S, endpoint23SNet,
@@ -2527,7 +2528,7 @@ public class CallGenes extends ProkObject {
 				configureRrna17Family(prok23s, ProkObject.r23S, 5, false, true, true,
 					RRNA23S_ENDPOINT_MODE==RRNA23S_ENDPOINT_G16);
 				configureRrna23SEndpoints(prok23s);
-				final String prok5sModelResource=(RRNA17_PROK5S_HBM ? "5S.g5.models.hbm" : null);
+				final String prok5sModelResource=(RRNA17_PROK5S_HBM ? defaultNcrnaModel("5S.g5.models.hbm") : null);
 				addRrna17Family("prok5S", "5S_consensus_sequence.fa", prok5sModelResource,
 					loadEffectiveNcrnaKmerSet("prok5S", "5S_17mers.fa", null, 17), 17, 90, 150,
 					7, 3, false, 0f, 0f, 0f, 2, 0f, 1f, .80f, .60f,
@@ -2767,7 +2768,7 @@ public class CallGenes extends ProkObject {
 		try{
 			final String r58KmerResource=(R58_KMERS_OVERRIDE==null ? "r58_17mers.fa" : R58_KMERS_OVERRIDE);
 			final String r58ConsensusResource=(R58_CONSENSUS_OVERRIDE==null ? "r58_consensus.fa" : R58_CONSENSUS_OVERRIDE);
-			final String r58ModelResource=(R58_MODELS_OVERRIDE==null ? "r58_models.hbm" : R58_MODELS_OVERRIDE);
+			final String r58ModelResource=(R58_MODELS_OVERRIDE==null ? defaultNcrnaModel("r58_models.hbm") : R58_MODELS_OVERRIDE);
 			final LongHashSet r58Kmers=loadEffectiveNcrnaKmerSet("r58", "r58_17mers.fa", R58_KMERS_OVERRIDE, 17);
 			requireNonemptyNcrnaKmerSet("r58", r58KmerResource, r58Kmers);
 			requireNcrnaResource("r58", "consensus", r58ConsensusResource);
@@ -2784,7 +2785,7 @@ public class CallGenes extends ProkObject {
 				R58_BOUNDARY_MARGIN_START, R58_BOUNDARY_MARGIN_STOP);
 			final String lsuKmerResource=(LSU_KMERS_OVERRIDE==null ? "lsu_17mers.fa" : LSU_KMERS_OVERRIDE);
 			final String lsuConsensusResource=(LSU_CONSENSUS_OVERRIDE==null ? "lsu_consensus.fa" : LSU_CONSENSUS_OVERRIDE);
-			final String lsuModelResource=(LSU_MODELS_OVERRIDE==null ? "lsu_models.hbm" : LSU_MODELS_OVERRIDE);
+			final String lsuModelResource=(LSU_MODELS_OVERRIDE==null ? defaultNcrnaModel("lsu_models.hbm") : LSU_MODELS_OVERRIDE);
 			final LongHashSet lsuKmers=loadEffectiveNcrnaKmerSet("lsu", "lsu_17mers.fa", LSU_KMERS_OVERRIDE, 17);
 			requireNonemptyNcrnaKmerSet("lsu", lsuKmerResource, lsuKmers);
 			requireNcrnaResource("lsu", "consensus", lsuConsensusResource);
@@ -3066,6 +3067,35 @@ public class CallGenes extends ProkObject {
 
 	private static String resolveBoundaryResource(String family, String suffix, String override){
 		return override==null ? Data.findPath("?"+family+"_"+suffix, false) : findNcrnaResource(override);
+	}
+
+	/** Prefers compact packaged models; explicit caller overrides never pass through here. */
+	static String defaultNcrnaModel(String legacy){
+		return defaultNcrnaModel(legacy, true);
+	}
+
+	/** Generic ncRNA loading historically honors CWD files; tRNA searches only resource roots. */
+	static String defaultNcrnaModel(String legacy, boolean honorWorkingDirectory){
+		assert(legacy!=null && legacy.endsWith(".hbm")) : "Compact alternatives require a legacy .hbm resource name";
+		if(honorWorkingDirectory && new File(legacy).exists()){return legacy;}
+		final String compact=Data.findPath("?"+legacy+"c", false);
+		if(compact==null){return legacy;}
+		final String prior=Data.findPath("?"+legacy, false);
+		// A global compact copy must not displace an explicitly installed local model.
+		return prior!=null && modelResourceRank(prior)<modelResourceRank(compact) ? legacy : compact;
+	}
+
+	/** Matches Data.findPath's location order across the two model-format names. */
+	private static int modelResourceRank(String path){
+		assert(path!=null) : "Only resolved model paths have a search-location rank";
+		final String normalized=path.replace('\\', '/');
+		if(normalized.startsWith("jar:")){return 2;}
+		final String parent=normalized.substring(0, normalized.lastIndexOf('/')+1);
+		if(parent.equals(Data.RESOURCES().replace('\\', '/'))){return 0;}
+		if(parent.equals(Data.ROOT().replace('\\', '/'))){return 1;}
+		if(parent.equals(Data.DORI_RESOURCES.replace('\\', '/'))){return 3;}
+		if(parent.equals(Data.NERSC_RESOURCES.replace('\\', '/'))){return 4;}
+		return 2;//Other classpath resources precede cluster fallbacks.
 	}
 
 	/** Resolves a literal development/sweep path when it exists or names a path, otherwise

@@ -138,6 +138,9 @@ public class TrnaConsensusBuilder {
 			: (stochasticSeed>=0 ? stochasticSeed : new java.util.Random().nextLong()));
 
 		overwrite=parser.overwrite;
+		if(!Tools.testOutputFiles(overwrite, false, false, outModel)){
+			throw new IllegalArgumentException("Cannot write model output with overwrite="+overwrite+": "+outModel);
+		}
 
 		ffin=FileFormat.testInput(in, FileFormat.FASTA, null, true, true);
 		ffout=FileFormat.testOutput(out, FileFormat.FASTA, null, true, overwrite, false, false);
@@ -318,7 +321,11 @@ public class TrnaConsensusBuilder {
 
 		if(modelList!=null && outModel!=null){
 			outstream.println("Writing "+modelList.size()+" BaseGraph models to "+outModel);
-			if(outModel.endsWith(".txt") || outModel.endsWith(".hbm")){
+			final String lower=outModel.toLowerCase(java.util.Locale.ROOT);
+			if(NucleotideHbmCodec.isCompact(outModel)){
+				NucleotideHbmCodec.writeModels(modelList, outModel, overwrite);
+			}else if(lower.endsWith(".txt") || lower.endsWith(".hbm") ||
+					lower.endsWith(".txt.gz") || lower.endsWith(".hbm.gz")){
 				writeTextModels(modelList, outModel);
 			}else{
 				ReadWrite.writeObjectInThread(modelList, outModel, false);
@@ -1308,6 +1315,7 @@ public class TrnaConsensusBuilder {
 	@SuppressWarnings("unchecked")
 	public static BaseGraph[] loadModels(String fname){
 		if(fname==null){return null;}
+		if(NucleotideHbmCodec.isCompact(fname)){return NucleotideHbmCodec.loadModels(fname);}
 		final String lower=fname.toLowerCase(java.util.Locale.ROOT);
 		if(lower.endsWith(".txt") || lower.endsWith(".hbm") ||
 				lower.endsWith(".txt.gz") || lower.endsWith(".hbm.gz")){

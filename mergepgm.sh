@@ -12,6 +12,8 @@ Usage:  mergepgm.sh in=x.pgm,y.pgm out=z.pgm
 File parameters:
 in=<file,file>  A pgm file or comma-delimited list of pgm files.
 out=<file>      Output filename.
+a48=t          Write exact integer counts in compact A48 encoding.
+                Set a48=f for decimal text.  Both formats can be read automatically.
 normalize=f     Merge proportionally to base counts, so small models
                 have equal weight to large models.  Normalization happens
                 before applying the @ multiplier.

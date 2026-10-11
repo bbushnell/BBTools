@@ -1103,8 +1103,8 @@ public class GeneModel extends ProkObject {
 	public static boolean verbose=false;
 	/** Tracks whether an error has occurred during processing */
 	public static boolean errorState=false;
-	/** Write PGM files using compact A48 encoding */
-	public static boolean useA48=false;
+	/** Writes exact integer PGM counts in A48 by default; a48=f selects decimal text. */
+	public static boolean useA48=true;
 	/** Current file being parsed uses A48 encoding */
 	static boolean readingA48=false;
 	

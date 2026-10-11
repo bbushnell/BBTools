@@ -184,7 +184,8 @@ trnaalign=t     Align predicted tRNAs to a consensus library to verify
                 anticodon/amino-acid annotation.  Uses built-in library
                 by default; override with trnalib= and trnamodel=.
 trnalib=<file>  Custom tRNA consensus library (fasta).
-trnamodel=<file> Custom tRNA HBM model file.
+trnamodel=<file> Custom tRNA HBM model file (.hbmc or legacy .hbm, optionally .gz).
+                Packaged RNA models prefer compact HBMC; explicit paths are honored.
 indexk=7        Kmer length for the library shortlist index.  Longer is more
                 selective (fewer models aligned per candidate); shorter is more
                 permissive.  7 is the shipped default.
