@@ -210,9 +210,8 @@ public class BuildDiskTables {
 	private int bufferEntries(){
 		if(bufferEntries>0){return bufferEntries;}
 		final long memory=Runtime.getRuntime().maxMemory();
-		final long bytes=memory/(32L*DiskAccessionTable.BUILD_PARTITIONS);
-		final long entries=bytes/BUFFER_ENTRY_BYTES;
-		return (int)Tools.mid(1024, MAX_BUFFER_ENTRIES, entries);
+		final long entries=memory/(4L*BUFFER_ENTRY_BYTES*DiskAccessionTable.BUILD_PARTITIONS);
+		return (int)Tools.mid(64, MAX_BUFFER_ENTRIES, entries);
 	}
 
 	private static class CountThread extends Thread {

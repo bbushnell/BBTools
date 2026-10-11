@@ -7,6 +7,8 @@ import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 
 import shared.Timer;
+import structures.IntList;
+import structures.LongList;
 
 /**
  * Disk-backed accession-to-TaxID table using a memory-mapped
@@ -45,7 +47,7 @@ public class DiskAccessionTable {
 		numPartitions=raf.readInt();
 		raf.readInt(); //reserved
 
-		if(numPartitions<1 || numPartitions>64){
+		if(numPartitions<1 || numPartitions>(1<<20)){
 			//Legacy non-partitioned format
 			numPartitions=1;
 			partCapacities=new long[]{totalCapacity};
@@ -197,8 +199,6 @@ public class DiskAccessionTable {
 				raf.writeLong(partCapacity);
 				raf.writeLong(headerSize+i*partLength);
 			}
-			raf.writeLong(0);//Pad the body to byte 160 for 8 partitions, matching existing tables.
-
 			final FileChannel channel=raf.getChannel();
 			parts=new MappedByteBuffer[numPartitions][];
 			for(int i=0; i<numPartitions; i++){
@@ -272,8 +272,7 @@ public class DiskAccessionTable {
 
 		public void add(long key, int value) throws IOException {
 			if(key<=0){return;}
-			final long h=hash(key);
-			buffers[builder.partition(h)].add(h&builder.partMask, key, value);
+			buffers[builder.partition(hash(key))].add(key, value);
 		}
 
 		public void flush() throws IOException {
@@ -296,17 +295,16 @@ public class DiskAccessionTable {
 		Buffer(Builder builder_, int part_, int capacity){
 			builder=builder_;
 			part=part_;
-			slots=new long[capacity];
-			keys=new long[capacity];
-			values=new int[capacity];
+			keys=new LongList(capacity);
+			values=new IntList(capacity);
+			sortSlots=new long[capacity];
+			maxSize=capacity;
 		}
 
-		synchronized void add(long slot, long key, int value) throws IOException {
-			slots[size]=slot;
-			keys[size]=key;
-			values[size]=value;
-			size++;
-			if(size>=slots.length){flushInner();}
+		synchronized void add(long key, int value) throws IOException {
+			keys.add(key);
+			values.add(value);
+			if(keys.size>=maxSize){flushInner();}
 		}
 
 		synchronized void flush() throws IOException {
@@ -314,18 +312,24 @@ public class DiskAccessionTable {
 		}
 
 		private void flushInner() throws IOException {
+			final int size=keys.size;
 			if(size>0){
-				added+=builder.addSorted(part, slots, keys, values, size);
-				size=0;
+				final long[] ka=keys.array;
+				final int[] va=values.array;
+				final long mask=builder.partMask;
+				for(int i=0; i<size; i++){sortSlots[i]=hash(ka[i])&mask;}
+				added+=builder.addSorted(part, sortSlots, ka, va, size);
+				keys.size=0;
+				values.size=0;
 			}
 		}
 
 		private final Builder builder;
 		private final int part;
-		private final long[] slots;
-		private final long[] keys;
-		private final int[] values;
-		private int size=0;
+		private final LongList keys;
+		private final IntList values;
+		private final long[] sortSlots;
+		private final int maxSize;
 		private long added=0;
 
 	}
@@ -433,7 +437,7 @@ public class DiskAccessionTable {
 	private static final long SLOT_SIZE=12;
 	private static final long EMPTY=0;
 	private static final long SEGMENT_SIZE=((long)Integer.MAX_VALUE/SLOT_SIZE)*SLOT_SIZE;
-	static final int BUILD_PARTITIONS=8;
+	static final int BUILD_PARTITIONS=1<<14;
 	private static final int MIN_PART_CAPACITY=16;
 	private static final int SORT_SMALL=32;
 
