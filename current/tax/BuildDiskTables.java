@@ -129,26 +129,17 @@ public class BuildDiskTables {
 		Timer t=new Timer();
 		outstream.println("\n--- Building accession disk table ---");
 
+		final String[] files=accessionFile.split(",");
+
 		outstream.println("Pass 1: counting digitizable entries.");
-		long digitizable=0, total=0, nonDigitizable=0;
-		for(String fname : accessionFile.split(",")){
-			ByteFile bf=ByteFile.makeByteFile(fname, true);
-			for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()){
-				if(skipAccessionLine(line)){continue;}
-				total++;
-				if(AnalyzeAccession.digitize(line)>0){digitizable++;}
-				else{nonDigitizable++;}
-			}
-			bf.close();
-		}
-		outstream.println("Total lines: "+total);
-		outstream.println("Digitizable: "+digitizable);
-		outstream.println("Non-digitizable: "+nonDigitizable);
+		final CountStats stats=CountStats.sum(spawnCountThreads(files));
+		outstream.println("Total lines: "+stats.total);
+		outstream.println("Digitizable: "+stats.digitizable);
+		outstream.println("Non-digitizable: "+stats.nonDigitizable);
 
 		outstream.println("Pass 2: building disk table.");
-		final String[] files=accessionFile.split(",");
 		long collected=0, added=0;
-		try(DiskAccessionTable.Builder builder=DiskAccessionTable.build(accOut, digitizable)){
+		try(DiskAccessionTable.Builder builder=DiskAccessionTable.build(accOut, stats.digitizable)){
 			final DiskAccessionTable.BufferSet buffers=builder.bufferSet(bufferEntries());
 			final ProcessThread[] threads=spawnThreads(files, buffers);
 			collected=waitForThreads(threads);
@@ -166,6 +157,18 @@ public class BuildDiskTables {
 
 	private static boolean skipAccessionLine(byte[] line){
 		return line.length<1 || Tools.startsWith(line, "accession") || Tools.startsWith(line, "#");
+	}
+
+	private CountThread[] spawnCountThreads(String[] files){
+		final int threads=Tools.mid(1, files.length, Shared.threads());
+		final CountThread[] array=new CountThread[threads];
+		final AtomicInteger next=new AtomicInteger(0);
+		final AtomicReference<Throwable> error=new AtomicReference<Throwable>();
+		for(int i=0; i<array.length; i++){
+			array[i]=new CountThread(files, next, error);
+			array[i].start();
+		}
+		return array;
 	}
 
 	private ProcessThread[] spawnThreads(String[] files, DiskAccessionTable.BufferSet buffers){
@@ -202,6 +205,73 @@ public class BuildDiskTables {
 		final long bytes=memory/(32L*DiskAccessionTable.BUILD_PARTITIONS);
 		final long entries=bytes/BUFFER_ENTRY_BYTES;
 		return (int)Tools.mid(1024, MAX_BUFFER_ENTRIES, entries);
+	}
+
+	private static class CountThread extends Thread {
+
+		CountThread(String[] files_, AtomicInteger next_, AtomicReference<Throwable> error_){
+			files=files_;
+			next=next_;
+			errorRef=error_;
+		}
+
+		@Override
+		public void run(){
+			try{
+				for(int i=next.getAndIncrement(); i<files.length && errorRef.get()==null; i=next.getAndIncrement()){
+					processFile(files[i]);
+				}
+			}catch(Throwable e){
+				error=e;
+				errorRef.compareAndSet(null, e);
+			}
+		}
+
+		private void processFile(String fname) throws IOException {
+			ByteFile bf=ByteFile.makeByteFile(fname, true);
+			for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()){
+				if(skipAccessionLine(line)){continue;}
+				total++;
+				if(AnalyzeAccession.digitize(line)>0){digitizable++;}
+				else{nonDigitizable++;}
+			}
+			if(bf.close()){throw new IOException("Error reading "+fname);}
+		}
+
+		private final String[] files;
+		private final AtomicInteger next;
+		private final AtomicReference<Throwable> errorRef;
+		private long total=0;
+		private long digitizable=0;
+		private long nonDigitizable=0;
+		private Throwable error=null;
+
+	}
+
+	private static class CountStats {
+
+		private static CountStats sum(CountThread[] threads){
+			CountStats stats=new CountStats();
+			for(int i=0; i<threads.length; i++){
+				while(threads[i].getState()!=Thread.State.TERMINATED){
+					try{
+						threads[i].join();
+					}catch(InterruptedException e){
+						throw new RuntimeException(e);
+					}
+				}
+				if(threads[i].error!=null){throw new RuntimeException(threads[i].error);}
+				stats.total+=threads[i].total;
+				stats.digitizable+=threads[i].digitizable;
+				stats.nonDigitizable+=threads[i].nonDigitizable;
+			}
+			return stats;
+		}
+
+		private long total=0;
+		private long digitizable=0;
+		private long nonDigitizable=0;
+
 	}
 
 	private static class ProcessThread extends Thread {
