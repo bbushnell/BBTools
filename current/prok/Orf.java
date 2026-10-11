@@ -560,6 +560,11 @@ public class Orf extends PFeature {
 	 * is not a safe family identity -- Ganyu/Qiqi design note, 2026-09-17). Purely
 	 * additive: unused by appendGff() so far, does not change any existing GFF byte. */
 	public String ncrnaFamily;
+	/** Immutable accepted consensus provenance for SSU competition, independent of GFF annotation. */
+	byte[] ssuFullModel;
+	String ssuFullModelName;
+	/** Only the euk18S mitochondrial model accepted through modelClipRescue sets this. */
+	boolean ssuClippedMitoRescue;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Static Fields        ----------------*/

@@ -853,6 +853,12 @@ public class NcrnaScavenger {
 		}
 		final Orf orf=new Orf(name,orfStart,orfStop,strand,0,bases,false,outputType);
 		orf.ncrnaFamily=family;
+		if(clipModel && modelClipRescue && Euk18sRuntimeConfig.FAMILY.equals(family)
+				&& modelNames!=null && "euk18S_mitochondria".equals(modelNames[model])){
+			orf.ssuFullModel=library[model];
+			orf.ssuFullModelName=modelNames[model];
+			orf.ssuClippedMitoRescue=true;
+		}
 		final int orfLen=orfStop-orfStart+1;
 		orf.orfScore=scoreA+scoreB*orfLen*identity*identity;
 		boolean trimmed=false;

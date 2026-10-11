@@ -190,6 +190,7 @@ public class GeneCaller extends ProkObject {
 		final int rlen=r.length();
 		if(calltRNA || (call16S && rlen>800) || (call23S && rlen>1500) || call5S || (call18S && rlen>1000) || !ncrnaFamilies.isEmpty()){
 			rnaLists=makeRnas(name, bases);
+			applySsuCompetition(rnaLists, bases);
 			if(NcrnaScavenger.DEBUG){
 				for(ArrayList<Orf> list : rnaLists){for(Orf o : list){
 					System.err.println("DEBUG rnaList candidate: "+o.start+"-"+o.stop+" strand="+o.strand+" type="+o.type+" score="+o.orfScore);
@@ -242,6 +243,10 @@ public class GeneCaller extends ProkObject {
 			for(ArrayList<Orf> list : brokenLists){recordNcrnaPath(list, name, rlen, false);}
 		}
 		ArrayList<Orf> path=findPath(brokenLists, bases);
+		if(ssuCompetition!=null){
+			try{ssuCompetition.finish(path);}
+			catch(RuntimeException | AssertionError e){KillSwitch.assertDie("SSU final-path verification failed: "+e);throw e;}
+		}
 		if(ncrnaDiagSink!=null){recordNcrnaPath(path, name, rlen, true);}
 //		geneStartsOut+=path.size();
 
@@ -253,6 +258,16 @@ public class GeneCaller extends ProkObject {
 		if(call18S){st18s.add(path);}
 		
 		return path;
+	}
+
+	/** Compare only admitted RNA candidates, in restored genomic coordinates, before shared DP. */
+	private void applySsuCompetition(ArrayList<Orf>[] rnas, byte[] bases){
+		if(!call16S || !SsuOverlapResolver.hasClippedMito(rnas)){return;}
+		try{
+			if(ssuCompetition==null){ssuCompetition=new SsuOverlapResolver(
+				Boolean.getBoolean("bbtools.diagnostic.ssuVeto"), Boolean.getBoolean("bbtools.verify.ssuVeto"));}
+			ssuCompetition.apply(rnas, bases);
+		}catch(RuntimeException | AssertionError e){KillSwitch.assertDie("SSU full-model competition failed: "+e);throw e;}
 	}
 
 	/** Observe the exact shared-DP boundary, distinct from verifier accepts that
@@ -1265,6 +1280,7 @@ public class GeneCaller extends ProkObject {
 	 * @return true if successful alignment found
 	 */
 	boolean refineByAlignment(Orf orf, byte[] bases, int strand, StatsContainer sc){
+		if(sc.type==r16S){orf.ssuFullModel=null;orf.ssuFullModelName=null;}
 		rrnaRefineByAlignmentCalls[sc.type]++;
 		if(verbose){System.err.println("ALIGN");}
 		Read[] consensus=ProkObject.consensusReads(sc.type);
@@ -1291,7 +1307,18 @@ public class GeneCaller extends ProkObject {
 			}
 			attemptsMade++;
 			if(i==0){rrnaUniversalAttempts[sc.type]++;}else{rrnaFallbackAttempts[sc.type]++;}
-			if(refined){acceptedIndex=i;}
+			if(refined){
+				acceptedIndex=i;
+				if(sc.type==r16S){
+					assert(orf.length()>0 && Float.isFinite(lastAttemptIdentity) && lastAttemptIdentity>=0f && lastAttemptIdentity<=1f)
+						: KillSwitch.assertDie("Successful16S refinement must retain its accepted identity for length-times-identity-squared scoring; identity="+lastAttemptIdentity+" length="+orf.length());
+					// Match NcrnaScavenger's SSU score scale after actual endpoint refinement.
+					// Candidate generation and the existing identity acceptance remain unchanged.
+					orf.orfScore=orf.length()*lastAttemptIdentity*lastAttemptIdentity;
+					orf.ssuFullModel=r.bases;
+					orf.ssuFullModelName=r.id;
+				}
+			}
 			if(attemptSink!=null){
 				assert(!"UNKNOWN".equals(lastAttemptReason));
 				// The strand-1 pass operates on an in-place reverse complement.  Emit
@@ -1336,7 +1363,8 @@ public class GeneCaller extends ProkObject {
 	 */
 	boolean refineByAlignment(Orf orf, byte[] bases, int strand, StatsContainer sc, byte[] consensus, 
 			final int startSlop, final int stopSlop, int recurLimit){
-		if(attemptSink!=null){lastAttemptIdentity=Float.NaN; lastAttemptReason="UNKNOWN";}
+		lastAttemptIdentity=Float.NaN;
+		if(attemptSink!=null){lastAttemptReason="UNKNOWN";}
 		if(useIDAligner) {
 			return refineByAlignment_IDA(orf, bases, strand, 
 					sc, consensus, startSlop, stopSlop, recurLimit);
@@ -1401,7 +1429,8 @@ public class GeneCaller extends ProkObject {
 			"qlen="+consensus.length+", rlen="+bases.length+", a="+a+", b="+b+"\n"+
 			"pos="+Arrays.toString(pos)+", start0="+start0+", stop0="+stop0+"\n"+orf;
 			//+new String(consensus)+"\n"+new String(bases, a, b-a+1)+"\n";
-		if(attemptSink!=null){lastAttemptIdentity=id; lastAttemptReason=(orf.length()>0 ? "ACCEPTED" : "EMPTY_RESULT");}
+		lastAttemptIdentity=id;
+		if(attemptSink!=null){lastAttemptReason=(orf.length()>0 ? "ACCEPTED" : "EMPTY_RESULT");}
 		return orf.length()>0;
 	}
 	
@@ -1496,7 +1525,8 @@ public class GeneCaller extends ProkObject {
 		if(cmVerifier!=null){cmWindowStart=a;cmWindowStop=b;}
 		if(Tools.absdif(rstart, start0)>startSlop){orf.start=rstart;}
 		if(Tools.absdif(rstop, stop0)>stopSlop){orf.stop=rstop;}
-		if(attemptSink!=null){lastAttemptIdentity=id; lastAttemptReason="ACCEPTED";}
+		lastAttemptIdentity=id;
+		if(attemptSink!=null){lastAttemptReason="ACCEPTED";}
 		return true;
 	}
 	
@@ -1877,6 +1907,7 @@ public class GeneCaller extends ProkObject {
 	 * TrnaKmerIndex is per-thread-mutable, so each GeneCaller instance needs its own,
 	 * built from the SHARED read-only family bundle). Null until first use. */
 	private ArrayList<NcrnaScavenger> ncrnaScavengers;
+	private SsuOverlapResolver ssuCompetition;
 	private long[] ncrnaOutByFamily;
 	/** Per-worker shared 17-mer scans, including the optional tRNA slot; never per family. */
 	private long sharedSweepPasses=0;
@@ -1890,6 +1921,9 @@ public class GeneCaller extends ProkObject {
 			assert(ncrnaScavengers.size()==counts.length);
 			for(int i=0; i<ncrnaScavengers.size(); i++){
 				counts[i]=ncrnaScavengers.get(i).alignmentCount();
+				if(ssuCompetition!=null && Euk18sRuntimeConfig.FAMILY.equals(ncrnaFamilies.get(i).name)){
+					counts[i]+=ssuCompetition.alignmentCount;
+				}
 			}
 		}
 		return counts;
@@ -1909,6 +1943,9 @@ public class GeneCaller extends ProkObject {
 			for(int i=0;i<counts.length;i++){
 				final NcrnaScavenger s=ncrnaScavengers.get(i);
 				counts[i]=(kind==0 ? s.alignedBases() : kind==1 ? s.hbmScoreCalls() : s.hbmBasesScored());
+				if(kind==0 && ssuCompetition!=null && Euk18sRuntimeConfig.FAMILY.equals(ncrnaFamilies.get(i).name)){
+					counts[i]+=ssuCompetition.alignedBases;
+				}
 			}
 		}
 		return counts;
@@ -2354,6 +2391,7 @@ public class GeneCaller extends ProkObject {
 			}
 		}
 	}
+	/** Accepted refinement identity is needed for16S scoring even without a diagnostic sink. */
 	private float lastAttemptIdentity=Float.NaN;
 	/** Separate observer for generated vote proposals; existing stage rows stay unchanged. */
 	private NcrnaVoteDiagSink ncrnaVoteDiagSink;

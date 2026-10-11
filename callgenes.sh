@@ -219,8 +219,10 @@ maxtrna=120     (Experimental) Raise the tRNA candidate length cap, enabling
                 candidates still fail alignment verification.
 
 Conserved ncRNA engineering parameters:
-euk18s=f       Enable the resource-bound development 18S recipe: seven cleaned
-                models, 385 seeds, distinct-2 support, voted windows and rolling MSA.
+euk18s=f       Enable 18S calling with ten consensus models, including split
+                animal groups and mitochondria; 385 seeds, distinct-2 support,
+                voted windows and rolling MSA. Mitochondrial-model hits can
+                also match bacterial 16S and do not establish compartment.
 euk18sconsensus=   Consensus FASTA; requires matching euk18smodelcutoffs= table.
 euk18sseeds=       Forward K17 FASTA; omitted uses euk18S_17mers.fa.gz.
 euk18srawends=alignment  Or vote; omitted offsets use euk18S_seed_offsets.tsv.

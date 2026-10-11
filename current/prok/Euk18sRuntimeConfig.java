@@ -101,6 +101,7 @@ final class Euk18sRuntimeConfig {
 		final byte[][] refs=TrnaConsensusBuilder.loadLibrary(libPath);
 		final String[] names=TrnaConsensusBuilder.lastLoadedNames;
 		require(refs!=null&&refs.length>0&&names!=null&&names.length==refs.length,"18S consensus must bind every model name");
+		if(consensus==null){validateDefaultNames(names);}
 		final ObjectSet<String> unique=new ObjectSet<String>(String.class);int longest=0;
 		for(int i=0;i<refs.length;i++){
 			require(names[i]!=null&&names[i].matches("[A-Za-z0-9_]+")&&unique.add(names[i]),"18S model names must be unique safe tokens");
@@ -156,6 +157,12 @@ final class Euk18sRuntimeConfig {
 			+" msaSubScale="+msaSubScale+" msaSub="+costs.sub+" msaSubR="+costs.subR+" msaSub2="+costs.sub2+" msaSub3="+costs.sub3
 			+" msaEngine="+(rolling ? "rolling" : "native")+" joined="+useJoined+" joinedSupport="+joinedSupport);
 	}
+	static void validateDefaultNames(String[] names){
+		require(names!=null && names.length==DEFAULT_MODEL_NAMES.length, "Default euk18S library requires all ten declared models");
+		for(int i=0; i<names.length; i++){
+			require(DEFAULT_MODEL_NAMES[i].equals(names[i]), "Default euk18S model roster mismatch at "+i+": expected="+DEFAULT_MODEL_NAMES[i]+" observed="+names[i]);
+		}
+	}
 	private static String resource(String override,String fallback){
 		final String chosen=override==null?fallback:override;require(chosen!=null,"Missing 18S resource path");
 		final String p=new File(chosen).isFile()?chosen:Data.findPath(chosen.startsWith("?")?chosen:"?"+chosen,false);
@@ -166,6 +173,9 @@ final class Euk18sRuntimeConfig {
 	private static float number(String value,float lo,float hi,String key){final float x=Float.parseFloat(value);require(Float.isFinite(x)&&x>=lo&&x<=hi,key+" outside ["+lo+","+hi+"]");return x;}
 	private static void require(boolean ok,String why){if(!ok){throw new IllegalArgumentException(why);}}
 	static final String FAMILY="euk18S";
+	private static final String[] DEFAULT_MODEL_NAMES={"euk18S_universal", "euk18S_fungi", "euk18S_plant",
+		"euk18S_invertebrate", "euk18S_vertebrate_other", "euk18S_vertebrate_mammalian",
+		"euk18S_mitochondria", "euk18S_protist", "euk18S_protozoa_component_001", "euk18S_protozoa_component_003"};
 	/** Explicit D48 package variant; review its manifest before building. */
 	static final boolean DEFAULT_JOINED=true;
 	boolean enabled=false;
