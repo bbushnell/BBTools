@@ -384,13 +384,26 @@ public final class HashArrayU1D extends HashArrayU {
 	/**
 	 * Removes k-mers with counts at or below the specified limit.
 	 * Processes both main arrays and victim cache, keeping only high-count k-mers.
+	 * Includes entries whose counts were zeroed by a caller before regeneration.
 	 * @param limit Count threshold; k-mers with counts <= limit are removed
 	 * @return Number of k-mers that were removed
 	 */
 	@Override
 	public long regenerate(final int limit){
-		long sum=0;
-		assert(owners==null) : "Clear ownership before regeneration.";
+		//Shave/remove workers do not propagate exceptions to their caller.
+		assert(owners==null) : KillSwitch.assertDie("Clear ownership before regeneration moves table entries.");
+		final long oldTotal=size+victims.size;
+		//Shaver2 and AbstractRemoveThread zero counts before calling here.
+		//fillKmer cannot recover those entries: zero is the occupancy sentinel,
+		//and every packed key word (including -1L) is valid sequence data.
+		long live=0;
+		for(int value : values){
+			assert(value>=0) : KillSwitch.assertDie("Explicit count arrays use positive counts or zero for empty cells: "+value);
+			if(value>0){live++;}
+		}
+		assert(live<=size) : KillSwitch.assertDie("Regeneration cannot have more live array entries than its tracked size: live="+live+", size="+size);
+		long sum=size-live;
+		size=live;
 		final Kmer kmer=new Kmer(kbig);
 		for(int pos=0; pos<values.length; pos++){
 			Kmer key=fillKmer(pos, kmer);
@@ -419,6 +432,9 @@ public final class HashArrayU1D extends HashArrayU {
 			}
 		}
 		
+		assert(oldTotal==sum+size+victims.size) :
+			KillSwitch.assertDie("Regeneration must conserve surviving plus removed entries, including pre-zeroed counts: before="+
+			oldTotal+", removed="+sum+", array="+size+", victims="+victims.size);
 		return sum;
 	}
 	

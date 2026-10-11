@@ -398,9 +398,19 @@ public class KmerTableSetU extends AbstractKmerTableSet {
 		final int tableType=(hashMode==2 ? AbstractKmerTableU.ARRAYHASH1D_FIXED :
 			hashMode==1 ? AbstractKmerTableU.ARRAYHASH1D : AbstractKmerTableU.ARRAY1D);
 		
-		ScheduleMaker scheduleMaker=new ScheduleMaker(ways, bytesPerKmer, prealloc, 
-				(prealloc ? preallocFraction : 1.0), -1, (prefilter ? prepasses : 0), prefilterFraction, filterMemoryOverride);
+		plannedLoaderThreads=Shared.threads();
+		//HashBufferU holds one shard lock per flush. Each LoadThread can therefore
+		//retain old resize arrays for only one explicit HashArrayU1D at a time.
+		//Compact hash backends keep the legacy budget until separately verified.
+		final int concurrentResizes=(hashMode==0 ? plannedLoaderThreads : -1);
+		ScheduleMaker scheduleMaker=new ScheduleMaker(ways, bytesPerKmer, prealloc,
+				(prealloc ? preallocFraction : 1.0), -1, (prefilter ? prepasses : 0),
+				prefilterFraction, filterMemoryOverride, concurrentResizes);
 		int[] schedule=scheduleMaker.makeSchedule();
+		if(Boolean.getBoolean("bbtools.schedule.trace")){
+			outstream.println(scheduleMaker);
+			outstream.println("Kmer resize sizes: "+java.util.Arrays.toString(schedule));
+		}
 		tables=AbstractKmerTableU.preallocate(ways, tableType, schedule, k, kbig);
 	}
 	
@@ -408,7 +418,11 @@ public class KmerTableSetU extends AbstractKmerTableSet {
 	 * Load reads into tables, using multiple LoadThread.
 	 */
 	@Override
-	public long loadKmers(String fname1, String fname2){
+	public synchronized long loadKmers(String fname1, String fname2){
+		final int THREADS=Shared.threads();
+		assert(plannedLoaderThreads>0 && THREADS<=plannedLoaderThreads) :
+			"ScheduleMaker reserved old arrays for at most "+plannedLoaderThreads+
+			" HashBufferU loader flushes; requested "+THREADS+". Reallocate before increasing loader threads.";
 		
 		/* Create read input stream */
 		final Streamer cris;
@@ -420,9 +434,10 @@ public class KmerTableSetU extends AbstractKmerTableSet {
 		}
 		
 		/* Create ProcessThreads */
-		final int THREADS=Shared.threads();
 		ArrayList<LoadThread> alpt=new ArrayList<LoadThread>(THREADS);
 		for(int i=0; i<THREADS; i++){alpt.add(new LoadThread(cris));}
+		assert(alpt.size()<=plannedLoaderThreads) :
+			"LoadThread fanout exceeds the stored resize-memory bound: "+alpt.size()+" > "+plannedLoaderThreads;
 		for(LoadThread pt : alpt){pt.setUncaughtExceptionHandler((thread, throwable)->KillSwitch.throwableKill(throwable));}
 		for(LoadThread pt : alpt){pt.start();}
 		
@@ -1666,6 +1681,8 @@ public class KmerTableSetU extends AbstractKmerTableSet {
 	
 	/** Hold kmers.  A kmer X such that X%WAYS=Y will be stored in tables[Y] */
 	private AbstractKmerTableU[] tables;
+	/** Fanout used to budget resizing; synchronized loadKmers prevents overlapping loads. */
+	private int plannedLoaderThreads=-1;
 	/** Gets the array of hash tables.
 	 * @return Array of all hash tables in this set */
 	public AbstractKmerTableU[] tables(){return tables;}

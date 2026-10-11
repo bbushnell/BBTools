@@ -57,6 +57,20 @@ public class ScheduleMaker {
 	 */
 	public ScheduleMaker(int ways_, int bytesPerKmer_, boolean prealloc_, double memRatio_, int initialSize_, 
 			int prepasses_, double prefilterFraction_, long filterMemoryOverride_){
+		this(ways_, bytesPerKmer_, prealloc_, memRatio_, initialSize_, prepasses_,
+				prefilterFraction_, filterMemoryOverride_, -1);
+	}
+
+	/**
+	 * Budgets old resize arrays for a caller-proven bound on concurrent resizers.
+	 * A negative bound retains the legacy all-shards assumption. Positive bounds
+	 * require the caller to enforce its writer fanout; preallocation is unchanged.
+	 * @param maxConcurrentResizes_ Maximum simultaneously resizing shards, or -1
+	 */
+	public ScheduleMaker(int ways_, int bytesPerKmer_, boolean prealloc_, double memRatio_, int initialSize_,
+			int prepasses_, double prefilterFraction_, long filterMemoryOverride_, int maxConcurrentResizes_){
+		assert(maxConcurrentResizes_==-1 || maxConcurrentResizes_>0) :
+			"Resize headroom needs a positive writer bound or -1 for all shards: "+maxConcurrentResizes_;
 		bytesPerKmer=bytesPerKmer_;
 		prealloc=prealloc_;
 		memRatio=(float)(memRatio_<=0 ? 1 : memRatio_);
@@ -99,7 +113,12 @@ public class ScheduleMaker {
 			", \nmemRatio="+memRatio+", bytesPerKmer="+bytesPerKmer+", ways="+ways+
 			", \ninitialSize="+initialSize_+", initialSizeDefault="+initialSizeDefault+", prealloc="+prealloc;
 		
-		lastSizeFraction=prealloc ? 1.0 : resizeMult/(1.0+resizeMult);
+		maxConcurrentResizes=(maxConcurrentResizes_<0 ? ways : Tools.min(ways, maxConcurrentResizes_));
+		//The last resize retains old arrays at approximately finalSize/5.
+		//Unknown callers reserve this for every shard. A bounded loader reserves
+		//it only for the shards its writers can resize simultaneously.
+		lastSizeFraction=prealloc ? 1.0 : (maxConcurrentResizes==ways ?
+				resizeMult/(1.0+resizeMult) : ways/(ways+maxConcurrentResizes/resizeMult));
 		maxSize=Primes.primeAtMost((int)Tools.min(maxPrime, maxSize0*lastSizeFraction));
 		initialSize=(prealloc ? maxSize : Primes.primeAtMost(initialSize_>0 ? initialSize_ : initialSizeDefault));
 		
@@ -130,7 +149,7 @@ public class ScheduleMaker {
 		//drops 5x (invResizeMult) then 3x per step (invResizeMult2) down to initialSize, optionally appends initialSize,
 		//reverses, and rounds each up to a prime (Primes.primeAtLeast). primeAtLeast is monotonic so the sorted order the
 		//assert checks survives conversion; any resulting duplicate sizes are harmless (resize() no-ops when prime2<=prime).
-		if(prealloc || maxSize<2L*initialSize){return new int[] {maxSize};}
+		if(prealloc || maxSize<2L*initialSize){return validateSchedule(new int[] {maxSize});}
 		IntList list=new IntList(10);
 		list.add(maxSize);
 		for(double x=maxSize*invResizeMult; x>=initialSize; x=x*invResizeMult2){
@@ -147,7 +166,30 @@ public class ScheduleMaker {
 		for(int i=0; i<array.length; i++){
 			array[i]=array[i]==1 ? 1 : (int)Tools.min(maxPrime, Primes.primeAtLeast(array[i]));
 		}
+		return validateSchedule(array);
+	}
+
+	/** Checks the actual prime-rounded resize ladder against its reserved budget. */
+	private int[] validateSchedule(final int[] array){
+		assert(array.length>0 && Tools.isSorted(array) && array[array.length-1]==maxSize) :
+			"HashArray.nextScheduleSize requires an ascending ladder ending at its budgeted maximum: "+Arrays.toString(array);
+		final long oldSize=(array.length>1 ? array[array.length-2]+20L : 0);
+		final double peakBytes=((maxSize+20.0)*ways+oldSize*maxConcurrentResizes)*bytesPerKmer;
+		//The inner 5% margin covers prime rounding and the 20 overflow cells.
+		assert(peakBytes<=tableMemory*(double)memRatio) :
+			"Prime-rounded table arrays plus bounded old arrays exceed the reserved table budget: peak="+
+			peakBytes+", budget="+(tableMemory*(double)memRatio)+", "+this;
 		return array;
+	}
+
+	/** Explains the scheduled capacity without allocating any kmer table arrays. */
+	@Override
+	public String toString(){
+		assert(ways>0 && maxConcurrentResizes>0) : "Schedule diagnostics require a valid shard/writer budget.";
+		return "Kmer table schedule: ways="+ways+", maxConcurrentResizes="+maxConcurrentResizes+
+			", resizeMult="+resizeMult+", lastSizeFraction="+lastSizeFraction+
+			", bytesPerKmer="+bytesPerKmer+", tableMemory="+tableMemory+
+			", maxSize="+maxSize+", estimatedKmerCapacity="+estimatedKmerCapacity;
 	}
 	
 //	public static int[] makeScheduleStatic(int initialSize, int maxSize, boolean autoResize){
@@ -178,6 +220,8 @@ public class ScheduleMaker {
 	final double invResizeMult2=1/resizeMult2;
 	/** Fraction of maximum size to use for final table capacity calculation */
 	final double lastSizeFraction;
+	/** Caller-enforced maximum number of shards retaining old arrays at once. */
+	public final int maxConcurrentResizes;
 	
 	/** Total JVM heap memory available at runtime */
 	final long memory=Runtime.getRuntime().maxMemory();
