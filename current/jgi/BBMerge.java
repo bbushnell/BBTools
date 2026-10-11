@@ -891,6 +891,10 @@ public class BBMerge {
 			final int hashMode=effectiveHashMode();
 			list.add("hashkmers="+(hashMode==2 ? "fixed" : hashMode==1 ? "pair" : "f"));
 			list.add("seedfromtable=f");
+			//BBMerge loads counts but never calls Tadpole.process2 to build contigs.
+			//Only optional Shaver cleaning allocates ownership arrays. Reserving
+			//four bytes per entry otherwise needlessly lowers the resize ceiling.
+			list.add("ownership="+(shave || rinse));
 			list.add("prealloc="+(prealloc || hashMode==2));
 			list.add("prefilter="+prefilter);
 			if(maxReads>0 && maxReads<Long.MAX_VALUE){

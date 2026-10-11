@@ -14,6 +14,7 @@ import fileIO.ReadWrite;
 import jgi.CallPeaks;
 import parse.Parse;
 import parse.Parser;
+import parse.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
@@ -52,7 +53,7 @@ public class LogLogWrapper {
 		final boolean vic=Read.VALIDATE_IN_CONSTRUCTOR;
 		Read.VALIDATE_IN_CONSTRUCTOR=Shared.threads()<4;
 
-		final Timer t=new Timer();
+		final Timer t=new Timer(llw.outstream);
 		final LongList results=new LongList();
 		for(int i=0; i<llw.trials; i++){
 			final long card=llw.process();
@@ -94,12 +95,12 @@ public class LogLogWrapper {
 			/* from the standpoint of minimizing the standard deviation of the hmean of the estimates over 45 reps. */
 
 			t.stopAndPrint();
-			System.err.println("#Trials\tkmers\thmean\tmedian\tmin\tmax\t5%ile\t95%ile\trange\tstdev\tavgDif");
-			System.err.println(llw.trials+"\t"+kmers+"\t"+String.format("%.2f", hmean)+"\t"+median+"\t"+min+"\t"+max
+			llw.outstream.println("#Trials\tkmers\thmean\tmedian\tmin\tmax\t5%ile\t95%ile\trange\tstdev\tavgDif");
+			llw.outstream.println(llw.trials+"\t"+kmers+"\t"+String.format("%.2f", hmean)+"\t"+median+"\t"+min+"\t"+max
 					+"\t"+p05+"\t"+p95+"\t"+String.format("%.5f", range)+"\t"+String.format("%.5f", stdev)+"\t"+String.format("%.5f", avgDif));
 
 			if(CardinalityTracker.trackCounts){
-				System.err.println("Avg Count:\t"+String.format("%.4f", llw.countSum/(llw.trials*(double)llw.buckets)));
+				llw.outstream.println("Avg Count:\t"+String.format("%.4f", llw.countSum/(llw.trials*(double)llw.buckets)));
 			}
 //			System.err.println("#Trials\tkmers\tmean\thmean\tgmean\tmedian\tmin\tmax\t5%ile\t95%ile\trange\tstdev\tavgDif");
 //			System.err.println(llw.trials+"\t"+kmers+"\t"+String.format("%.2f", mean)+"\t"+String.format("%.2f", hmean)+"\t"+String.format("%.2f", gmean)+"\t"+median+"\t"+min+"\t"+max
@@ -108,6 +109,7 @@ public class LogLogWrapper {
 		}
 
 		Read.VALIDATE_IN_CONSTRUCTOR=vic;
+		Shared.closeStream(llw.outstream);
 	}
 	
 	/**
@@ -116,6 +118,12 @@ public class LogLogWrapper {
 	 * @param args Command-line arguments
 	 */
 	public LogLogWrapper(String[] args){
+
+		{//Preparse block for help, config files, Java flags, and outstream.
+			final PreParser pp=new PreParser(args, getClass(), false);
+			args=pp.args;
+			outstream=pp.outstream;
+		}
 
 		Shared.capBufferLen(200);
 		Shared.capBuffers(8);
@@ -305,32 +313,32 @@ public class LogLogWrapper {
 			if(log.getClass()==DynamicDemiLog.class){
 				final DynamicDemiLog ddl=(DynamicDemiLog)log;
 				if(ddl.branch1>0){
-					System.err.println("Branch1 Rate:  "+ddl.branch1Rate());
-					System.err.println("Branch2 Rate:  "+ddl.branch2Rate());
+					outstream.println("Branch1 Rate:  "+ddl.branch1Rate());
+					outstream.println("Branch2 Rate:  "+ddl.branch2Rate());
 				}
 			}else if(log.getClass()==DynamicDemiLog8.class){
 				final DynamicDemiLog8 ddl=(DynamicDemiLog8)log;
 				if(ddl.branch1>0){
-					System.err.println("Branch1 Rate:  "+ddl.branch1Rate());
-					System.err.println("Branch2 Rate:  "+ddl.branch2Rate());
+					outstream.println("Branch1 Rate:  "+ddl.branch1Rate());
+					outstream.println("Branch2 Rate:  "+ddl.branch2Rate());
 				}
 			}else if(log.getClass()==DynamicLogLog4.class){
 				final DynamicLogLog4 ddl=(DynamicLogLog4)log;
 				if(ddl.branch1>0){
-					System.err.println("Branch1 Rate:  "+ddl.branch1Rate());
-					System.err.println("Branch2 Rate:  "+ddl.branch2Rate());
+					outstream.println("Branch1 Rate:  "+ddl.branch1Rate());
+					outstream.println("Branch2 Rate:  "+ddl.branch2Rate());
 				}
 			}//assert(false) : log.getClass();
-			System.err.println("Cardinality:   "+cardinality);
+			outstream.println("Cardinality:   "+cardinality);
 //			System.err.println("CardinalityH:  "+log.cardinalityH());
 //			for(long i : log.counts){System.err.println(i);}
 
-			System.err.println("Time: \t"+t);
+			outstream.println("Time: \t"+t);
 			if(printCounts){
 				final char[] counts=log.counts16();
 				Arrays.sort(counts);
 				for(int i=0; i<counts.length; i++){
-					System.err.print(((int)counts[i])+" ");
+					outstream.print(((int)counts[i])+" ");
 				}
 			}
 			if(printHist){
@@ -342,7 +350,7 @@ public class LogLogWrapper {
 					final int count=hist.get(i);
 					if(count>0){bb.append(i).tab().append(count).nl();}
 				}
-				System.err.println(bb);
+				outstream.println(bb);
 			}
 		}
 
@@ -576,6 +584,6 @@ public class LogLogWrapper {
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	private static PrintStream outstream=System.err;
+	private PrintStream outstream=System.err;
 	public static boolean verbose=false;
 }

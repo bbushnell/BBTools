@@ -867,7 +867,7 @@ public class DemuxByName2 {
 			String key=e.getKey();
 			String value=e.getValue();
 			int pos=key.indexOf(delimiter);
-			assert(pos>0) : "Can't find delimiter '"+Character.toString(delimiter)+"' in "+key;
+			assert(pos>0) : "Can't find delimiter '"+new String(Character.toChars(delimiter))+"' in "+key;
 			final String k1=key.substring(0, pos);
 			final String k2=key.substring(pos+1);
 			final String v1, v2;
@@ -993,7 +993,8 @@ public class DemuxByName2 {
 				String k1=key.substring(0, idx), k2=key.substring(idx+1);
 				String v1=leftNames.get(k1), v2=rightNames.get(k2);
 				if(v1!=null && v2!=null) {
-					name=v1+Character.toString(barcodeDelimiter)+v2;
+					//Preserve code-point conversion while retaining Java 8 compatibility.
+					name=v1+new String(Character.toChars(barcodeDelimiter))+v2;
 				}
 			}
 			if(verbose){System.err.println("Got value "+assignmentMap.get(key));}
