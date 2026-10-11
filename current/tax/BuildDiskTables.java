@@ -5,6 +5,7 @@ import java.io.PrintStream;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
+import cardinality.DynamicDemiLog;
 import fileIO.ByteFile;
 import fileIO.ReadWrite;
 import parse.Parse;
@@ -131,14 +132,16 @@ public class BuildDiskTables {
 
 		final String[] files=accessionFile.split(",");
 
-		outstream.println("Pass 1: counting candidate entries.");
+		outstream.println("Pass 1: counting digitizable entries.");
 		final CountStats stats=CountStats.sum(spawnCountThreads(files));
 		outstream.println("Total lines: "+stats.total);
-		outstream.println("Candidate entries: "+stats.candidates);
+		outstream.println("Digitizable: "+stats.digitizable);
+		outstream.println("Non-digitizable: "+stats.nonDigitizable);
+		outstream.println("Estimated Unique: "+stats.estimatedUnique);
 
 		outstream.println("Pass 2: building disk table.");
 		long collected=0, added=0;
-		try(DiskAccessionTable.Builder builder=DiskAccessionTable.build(accOut, stats.candidates)){
+		try(DiskAccessionTable.Builder builder=DiskAccessionTable.build(accOut, stats.estimatedUnique)){
 			final DiskAccessionTable.BufferSet buffers=builder.bufferSet(bufferEntries());
 			final ProcessThread[] threads=spawnThreads(files, buffers);
 			collected=waitForThreads(threads);
@@ -239,7 +242,13 @@ public class BuildDiskTables {
 			for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()){
 				if(skipAccessionLine(line)){continue;}
 				total++;
-				candidates++;
+				final long number=AnalyzeAccession.digitize(line);
+				if(number>0){
+					unique.add(number);
+					digitizable++;
+				}else{
+					nonDigitizable++;
+				}
 			}
 			if(bf.close()){throw new IOException("Error reading "+fname);}
 		}
@@ -247,8 +256,10 @@ public class BuildDiskTables {
 		private final String[] files;
 		private final AtomicInteger next;
 		private final AtomicReference<Throwable> errorRef;
+		private final DynamicDemiLog unique=DynamicDemiLog.create(UNIQUE_BUCKETS, 31, -1, 0, false);
 		private long total=0;
-		private long candidates=0;
+		private long digitizable=0;
+		private long nonDigitizable=0;
 		private Throwable error=null;
 
 	}
@@ -257,6 +268,7 @@ public class BuildDiskTables {
 
 		private static CountStats sum(CountThread[] threads){
 			CountStats stats=new CountStats();
+			DynamicDemiLog unique=DynamicDemiLog.create(UNIQUE_BUCKETS, 31, -1, 0, false);
 			for(int i=0; i<threads.length; i++){
 				while(threads[i].getState()!=Thread.State.TERMINATED){
 					try{
@@ -267,13 +279,18 @@ public class BuildDiskTables {
 				}
 				if(threads[i].error!=null){throw new RuntimeException(threads[i].error);}
 				stats.total+=threads[i].total;
-				stats.candidates+=threads[i].candidates;
+				stats.digitizable+=threads[i].digitizable;
+				stats.nonDigitizable+=threads[i].nonDigitizable;
+				unique.add(threads[i].unique);
 			}
+			stats.estimatedUnique=Tools.max(1, unique.cardinality());
 			return stats;
 		}
 
 		private long total=0;
-		private long candidates=0;
+		private long digitizable=0;
+		private long nonDigitizable=0;
+		private long estimatedUnique=0;
 
 	}
 
@@ -338,5 +355,6 @@ public class BuildDiskTables {
 
 	private static final long BUFFER_ENTRY_BYTES=20;
 	private static final int MAX_BUFFER_ENTRIES=1<<24;
+	private static final int UNIQUE_BUCKETS=1<<16;
 
 }
