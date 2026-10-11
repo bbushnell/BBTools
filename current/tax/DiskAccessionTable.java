@@ -158,9 +158,9 @@ public class DiskAccessionTable {
 	}
 
 	private static long tableCapacity(long entries){
-		if(entries>(Long.MAX_VALUE/2)){throw new RuntimeException("Too many entries: "+entries);}
+		if(entries>(Long.MAX_VALUE/4)*3){throw new RuntimeException("Too many entries: "+entries);}
 		long capacity=BUILD_PARTITIONS*MIN_PART_CAPACITY;
-		final long target=entries*2;
+		final long target=entries+(entries/3)+(entries%3==0 ? 0 : 1);
 		while(capacity<target){
 			if(capacity>(Long.MAX_VALUE/2)){throw new RuntimeException("Too many entries: "+entries);}
 			capacity*=2;
