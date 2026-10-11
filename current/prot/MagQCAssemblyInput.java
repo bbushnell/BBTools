@@ -14,6 +14,8 @@ import prok.GeneModel;
 import stream.Read;
 import stream.StreamerFactory;
 import structures.ByteBuilder;
+import structures.IntList;
+import structures.LongList;
 import bin.AdjustEntropy;
 import tracker.EntropyTracker;
 
@@ -175,6 +177,130 @@ final class MagQCAssemblyInput {
 			return parseResponse(machineBody(response), query.monomerSum(), contigs.size(), true);
 		}
 
+		/** Classifies qualifying contigs in base-bounded network batches; short contigs stay null. */
+		Taxonomy[] classifyContigs(ArrayList<Read> contigs, int minLength, long batchBases, String address){
+			final String endpoint=address==null || address.equals("refseq") ? null : address;
+			if(endpoint!=null && endpoint.isEmpty()){throw new IllegalArgumentException("Empty taxaddress");}
+			if(minLength<1 || batchBases<1){throw new IllegalArgumentException("Invalid per-contig QuickClade thresholds");}
+			if(contigs==null || contigs.isEmpty()){throw new IllegalArgumentException("QuickClade requires contigs");}
+			final Taxonomy[] result=new Taxonomy[contigs.size()];
+			final ArrayList<Clade> queries=new ArrayList<Clade>();
+			final LongList queryBases=new LongList();
+			final IntList indexes=new IntList();
+			long pendingBases=0;
+			for(int i=0; i<contigs.size(); i++){
+				final Read contig=contigs.get(i);
+				if(contig==null || contig.bases==null || contig.bases.length==0){
+					throw new IllegalArgumentException("Empty/null assembly contig");
+				}
+				if(contig.length()<minLength){continue;}
+				final Clade query=oneContigQuery(contig);
+				queries.add(query);
+				queryBases.add(query.monomerSum());
+				indexes.add(i);
+				pendingBases+=contig.length();
+				if(pendingBases>=batchBases){
+					classifyContigBatch(queries, queryBases, indexes, result, endpoint);
+					pendingBases=0;
+				}
+			}
+			if(!queries.isEmpty()){classifyContigBatch(queries, queryBases, indexes, result, endpoint);}
+			return result;
+		}
+
+		/** Classifies qualifying contigs through either HTTP or pinned local QuickClade. */
+		Taxonomy[] classifyContigs(ArrayList<Read> contigs, int minLength, long batchBases, HashMap<String,String> options){
+			if(!localTaxonomy(options)){
+				return classifyContigs(contigs, minLength, batchBases, options==null ? null : options.get("taxaddress"));
+			}
+			if(minLength<1 || batchBases<1){throw new IllegalArgumentException("Invalid per-contig QuickClade thresholds");}
+			if(contigs==null || contigs.isEmpty()){throw new IllegalArgumentException("QuickClade requires contigs");}
+			final Taxonomy[] result=new Taxonomy[contigs.size()];
+			final ArrayList<Clade> queries=new ArrayList<Clade>();
+			final LongList queryBases=new LongList();
+			final IntList indexes=new IntList();
+			long pendingBases=0;
+			for(int i=0; i<contigs.size(); i++){
+				final Read contig=contigs.get(i);
+				if(contig==null || contig.bases==null || contig.bases.length==0){
+					throw new IllegalArgumentException("Empty/null assembly contig");
+				}
+				if(contig.length()<minLength){continue;}
+				final Clade query=oneContigQuery(contig);
+				queries.add(query);
+				queryBases.add(query.monomerSum());
+				indexes.add(i);
+				pendingBases+=contig.length();
+				if(pendingBases>=batchBases){
+					classifyLocalContigBatch(queries, queryBases, indexes, result, options);
+					pendingBases=0;
+				}
+			}
+			if(!queries.isEmpty()){classifyLocalContigBatch(queries, queryBases, indexes, result, options);}
+			return result;
+		}
+
+		/** Flushes the queued one-contig queries as a single QuickClade request. */
+		private void classifyContigBatch(ArrayList<Clade> queries, LongList queryBases,
+				IntList indexes, Taxonomy[] result, String endpoint){
+			final BatchSketchRequest request=batchRequest(queries, queryBases);
+			final String response=SendClade.sendMessage(request.bytes, endpoint, false);
+			final Taxonomy[] called=parseResponses(machineBody(response), request.bases, request.contigs, true);
+			for(int i=0; i<called.length; i++){result[indexes.get(i)]=called[i];}
+			queries.clear(); queryBases.clear(); indexes.clear();
+		}
+
+		/** Flushes one-contig queries through a pinned local QuickClade index. */
+		private void classifyLocalContigBatch(ArrayList<Clade> queries, LongList queryBases,
+				IntList indexes, Taxonomy[] result, HashMap<String,String> options){
+			final long[] bases=new long[queries.size()], counts=new long[queries.size()];
+			for(int i=0; i<queries.size(); i++){
+				bases[i]=queryBases.get(i);
+				counts[i]=1;
+			}
+			persistentLocalDDL=true;
+			final String response=CladeSearcher.classifyLocalMachine(queries, required(options, "taxsketch"), LOCAL_DDL_BUCKETS, normalSearch);
+			final Taxonomy[] called=parseResponses(machineBody(response), bases, counts, true);
+			for(int i=0; i<called.length; i++){result[indexes.get(i)]=called[i];}
+			queries.clear(); queryBases.clear(); indexes.clear();
+		}
+
+		/** Builds one machine query whose taxonomy will drive only this contig's PGM. */
+		private Clade oneContigQuery(Read contig){
+			synchronized(Clade.class){
+				if(activeSketchSession!=this){throw new IllegalStateException("Taxonomy sketch session is closed");}
+				active++; peak=Math.max(peak, active);
+			}
+			try{
+				final Clade query=new Clade(0, 0, QUERY_NAME);
+				query.add(contig.bases, new EntropyTracker(4, 150, false));
+				query.finish();
+				return query;
+			}finally{
+				synchronized(Clade.class){active--;}
+			}
+		}
+
+		/** Serializes an ordered batch of already-finished one-contig queries. */
+		private BatchSketchRequest batchRequest(ArrayList<Clade> queries, LongList queryBases){
+			synchronized(Clade.class){
+				if(activeSketchSession!=this){throw new IllegalStateException("Taxonomy sketch session is closed");}
+				active++; peak=Math.max(peak, active);
+			}
+			try{
+				if(queries.isEmpty()){throw new IllegalArgumentException("QuickClade requires queries");}
+				final long[] bases=new long[queries.size()], counts=new long[queries.size()];
+				for(int i=0; i<queries.size(); i++){
+					bases[i]=queryBases.get(i);
+					counts[i]=1;
+				}
+				return new BatchSketchRequest(SendClade.toMessage(queries, true, 1, false, false, 1, 1, normalSearch),
+					bases, counts);
+			}finally{
+				synchronized(Clade.class){active--;}
+			}
+		}
+
 		/**
 		 * Serializes while the recipe is fixed. Network I/O and response parsing no
 		 * longer depend on sketch globals and need not hold their configuration lock.
@@ -257,6 +383,18 @@ final class MagQCAssemblyInput {
 		final long bases, contigs;
 	}
 
+	/** Fully serialized multi-query request plus the expected echo counts per query. */
+	static final class BatchSketchRequest{
+		BatchSketchRequest(byte[] bytes_, long[] bases_, long[] contigs_){
+			assert(bytes_!=null && bytes_.length>0 && bases_!=null && contigs_!=null &&
+				bases_.length==contigs_.length && bases_.length>0) :
+				"A serialized nonempty batch must carry bytes and echoed query counts";
+			bytes=bytes_; bases=bases_; contigs=contigs_;
+		}
+		final byte[] bytes;
+		final long[] bases, contigs;
+	}
+
 	/** The same five restored globals as the original single-bin classifier. */
 	private static final class SketchSettings implements AutoCloseable{
 		@Override public void close(){close(false);}
@@ -279,28 +417,47 @@ final class MagQCAssemblyInput {
 	 * a taxonomy filter: C1 used the returned reference lineage, not ConfLevel/Confidence.
 	 */
 	static Taxonomy parseResponse(String response, long bases, long contigs){
-		return parseResponse(response, bases, contigs, false);
+		return parseResponses(response, new long[]{bases}, new long[]{contigs})[0];
 	}
 
 	/** Local displays may omit the domain; an isolated phylum then stays unknown. */
 	static Taxonomy parseResponse(String response, long bases, long contigs, boolean isolatedPhylumUnknown){
+		return parseResponses(response, new long[]{bases}, new long[]{contigs}, isolatedPhylumUnknown)[0];
+	}
+
+	/** Accepts ordered machine queries and at most one result per query. */
+	static Taxonomy[] parseResponses(String response, long[] bases, long[] contigs){
+		return parseResponses(response, bases, contigs, false);
+	}
+
+	/** Accepts ordered machine queries and at most one result per query. */
+	static Taxonomy[] parseResponses(String response, long[] bases, long[] contigs, boolean isolatedPhylumUnknown){
+		if(bases==null || contigs==null || bases.length!=contigs.length || bases.length<1){
+			throw malformed("invalid expected counts");
+		}
 		if(response==null || response.isEmpty()){throw malformed("empty server response");}
 		final String[] lines=response.split("\n", -1);
-		boolean query=false, result=false;
-		Taxonomy taxonomy=new Taxonomy("unknown", "unknown");
+		final Taxonomy[] taxonomies=new Taxonomy[bases.length];
+		int query=-1;
+		boolean result=false;
 		for(String raw:lines){
 			final String line=raw.endsWith("\r") ? raw.substring(0, raw.length()-1) : raw;
 			if(line.isEmpty()){continue;}
-			if(!query){
-				if(!line.equals("#Query1")){throw malformed("expected single-query machine envelope");}
-				query=true; continue;
+			if(line.startsWith("#")){
+				if(query+1>=taxonomies.length || !line.equals("#Query"+(query+2))){
+					throw malformed("unexpected query envelope");
+				}
+				query++;
+				taxonomies[query]=new Taxonomy("unknown", "unknown");
+				result=false;
+				continue;
 			}
-			if(result || line.startsWith("#")){throw malformed("extra query or result");}
+			if(query<0 || result){throw malformed("extra query or result");}
 			result=true;
 			final String[] fields=line.split("\t", -1);
 			if(fields.length<20 || !fields[0].equals(QUERY_NAME)){throw malformed("mismatched query or short row");}
-			if(Long.parseLong(fields[2])!=bases || Long.parseLong(fields[3])!=contigs){
-				throw malformed("query base/contig counts differ from submitted assembly");
+			if(Long.parseLong(fields[2])!=bases[query] || Long.parseLong(fields[3])!=contigs[query]){
+				throw malformed("query base/contig counts differ from submitted input");
 			}
 			Long.parseLong(fields[5]); Long.parseLong(fields[7]); Long.parseLong(fields[8]);
 			finite(fields[1]); finite(fields[6]);
@@ -323,10 +480,15 @@ final class MagQCAssemblyInput {
 			}
 			final double ani=optional>=6 ? Double.parseDouble(fields[lineage-6]) : -1;
 			if(ani < -1 || ani>1){throw malformed("ANI outside its fraction range");}
-			taxonomy=new Taxonomy(ranks.domain, ranks.phylum, fields[4], Long.parseLong(fields[5]), ani);
+			taxonomies[query]=new Taxonomy(ranks.domain, ranks.phylum, fields[4], Long.parseLong(fields[5]), ani);
 		}
-		if(!query){throw malformed("missing query envelope");}
-		return taxonomy;
+		if(query!=taxonomies.length-1){throw malformed("missing query envelope");}
+		return taxonomies;
+	}
+
+	/** Parses named taxonomy ranks only; duplicate or malformed ranks cannot invent a label. */
+	private static Taxonomy parseLineage(String lineage){
+		return parseLineage(lineage, false);
 	}
 
 	/** Parses named taxonomy ranks only; duplicate or malformed ranks cannot invent a label. */

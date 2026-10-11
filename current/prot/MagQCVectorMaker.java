@@ -105,6 +105,12 @@ public class MagQCVectorMaker implements Cloneable {
 			x.quantizedRowCtx=quantizedRowCtx==null ? null : quantizedRowCtx.clone();
 			x.subnetSharedInputs=null; x.subnetObservedInputs=null;
 			x.preparedGlob=preparedGlob==null ? null : preparedGlob.clone();
+			x.v14Scratch=v14Scratch==null ? null : v14Scratch.clone();
+			x.sizeTargetScratch=sizeTargetScratch==null ? null : sizeTargetScratch.clone();
+			if(v14Contract!=null){
+				x.v14SizeNet=loadedBundle.subnet(131).newReplayWorker();
+				x.v14SizeInputs=new float[213]; x.v14SizeBytes=new ByteBuilder(); x.v14SizeParser=new LineParser1('\t');
+			}
 			x.observedByItem=observedByItem==null ? null : observedByItem.clone();
 			if(aggSubnets!=null){
 				x.aggSubnets=new ArrayList<AggSubnet>(aggSubnets.size());
@@ -211,6 +217,8 @@ public class MagQCVectorMaker implements Cloneable {
 			else if(a.equals("binmanifestout")){binManifestOutFile=b;}
 			else if(a.equals("binmanifestin")){binManifestInFile=b;}
 			else if(a.equals("binmodel")){binModel=b;}
+			else if(a.equals("replayselect")){replaySelectFile=b;}
+			else if(a.equals("replayselectsha80")){replaySelectSha80=b;}
 			else if(a.equals("replaytmp")){replayTmpDir=b;}
 			else if(a.equals("replayseed")){replaySeed=Long.parseLong(b); replaySeedSet=true;}
 			else if(a.equals("replayshuffle")){replayShuffle=parseBool(b);}
@@ -312,6 +320,12 @@ public class MagQCVectorMaker implements Cloneable {
 			if(benchMode || panelTidsFile!=null){throw new RuntimeException("binmodel= is supported only for manifest replay");}
 		}
 		if(replayShuffle && !replaySeedSet){throw new IllegalArgumentException("replayshuffle=t requires replayseed=");}
+		if((replaySelectFile==null)!=(replaySelectSha80==null) || (replaySelectFile!=null && binModel==null)){
+			throw new IllegalArgumentException("Sparse replay requires replayselect=, replayselectsha80= and binmodel=");
+		}
+		if(replaySelectFile!=null && hasReplayRange()){
+			throw new IllegalArgumentException("Sparse replay cannot also apply ranges; selectors must emit every requested occurrence");
+		}
 		if(replaySeedSet && !replayShuffle){throw new IllegalArgumentException("replayseed= requires replayshuffle=t");}
 		if((replayShuffle || replayMemory || replayParts>1) && binModel==null){
 			throw new IllegalArgumentException("Replay shuffle, memory and part options require binmanifestin= with binmodel=");
@@ -427,7 +441,12 @@ public class MagQCVectorMaker implements Cloneable {
 					+"refcdstable= + referencecdscontributionindex= replay pair");
 			}
 			if(subnetName==null){throw new RuntimeException("subnetlabels=gene requires subnet=ncrna|rrna|trna_anticodon|famset");}
-			if(subnetOut==null && subnetValOut==null){throw new RuntimeException("subnetlabels=gene requires subnetout= or subnetvalout=");}
+			// Replay computes exact labels before formatAggRow, independently of optional
+			// subnet writers. Composite-only replay must not require redundant subnet sidecars.
+			final boolean compositeReplay=binManifestInFile!=null && aggOut!=null && (aggManifestFile!=null || aggBundleFile!=null);
+			if(subnetOut==null && subnetValOut==null && !compositeReplay){
+				throw new RuntimeException("subnetlabels=gene requires subnetout= or subnetvalout=, or manifest replay with aggout= and loaded subnets");
+			}
 		}
 		// A4 explicit-panel emission (PATH_TO_PRODUCTION_v1, 2026-09-02): a deterministic,
 		// non-random alternative to the writeSet/writeBench sampling paths, added for the A4
@@ -827,6 +846,22 @@ public class MagQCVectorMaker implements Cloneable {
 		return idx<0 ? null : contigLists.get(idx);
 	}
 
+	/** Loads an already validated BP-panel cache through the normal training parser, retaining all short tiles and IDs. */
+	static MagQCVectorMaker loadBpSamplingCache(final String path){
+		if(path==null){throw new IllegalArgumentException("BP sampling requires a pinned native per-contig cache");}
+		final MagQCVectorMaker vm=new MagQCVectorMaker();
+		vm.cacheFile=path; vm.minlen=0; vm.benchMode=true;
+		vm.loadCache();
+		return vm;
+	}
+
+	/** Read-only sampling access to existing parsed contigs; no second cache interpretation. */
+	ArrayList<Contig> bpSamplingContigs(final int tid){
+		final ArrayList<Contig> contigs=getContigs(tid);
+		if(contigs==null || contigs.isEmpty()){throw new IllegalArgumentException("No BP sampling cache for source "+tid);}
+		return contigs;
+	}
+
 	/** Loads the SECOND (unshredded-genome) per-contig cache into a parallel tid->contig-list
 	 *  map, for the unshredded-isolate-spike append path (Brian 2026-08-26: a "perfect" bin
 	 *  built from real, whole-genome CallGenes-called contigs instead of 20kb shred fragments --
@@ -1037,7 +1072,7 @@ public class MagQCVectorMaker implements Cloneable {
 		if(familyFile==null){throw new IllegalArgumentException("bundle= requires familylist=");}
 		try{
 			final java.nio.file.Path path=java.nio.file.Paths.get(aggBundleFile);
-			final MagQCNetBundle candidate=subnetFeatures==SUBNETFEATURES_SIX ?
+			final MagQCNetBundle candidate=v14Composite ? MagQCNetBundle.loadV14(path) : subnetFeatures==SUBNETFEATURES_SIX ?
 					MagQCNetBundle.loadMultiOutput(path) : MagQCNetBundle.load(path);
 			candidate.requireConsumerRelease(releaseManifestFile==null ? null : java.nio.file.Paths.get(releaseManifestFile),
 					releaseManifestSha80);
@@ -1047,6 +1082,7 @@ public class MagQCVectorMaker implements Cloneable {
 				throw new IllegalArgumentException("Frozen gene subnets require subnetfeatures=six");
 			}
 			loadedBundle=candidate;
+			if(v14Composite){v14Contract=candidate.v14Contract();}
 			frozenInputs=inputs;
 			if(verbose){System.err.println("replay SIMD: Shared.SIMD="+shared.Shared.SIMD
 				+" SIMD_FMA="+shared.Shared.SIMD_FMA
@@ -1102,10 +1138,10 @@ public class MagQCVectorMaker implements Cloneable {
 		final MagQCNetBundle bundle=loadedBundle;
 		bundle.requireFamilyList(java.nio.file.Paths.get(familyFile));
 		if(frozenInputs!=null){frozenInputs.requireVocabulary(phylumList);}
-		aggSubnets=new ArrayList<AggSubnet>(bundle.size());
-		for(int i=0; i<bundle.size(); i++){
+		aggSubnets=new ArrayList<AggSubnet>(bundle.ordinarySize());
+		for(int i=0; i<bundle.ordinarySize(); i++){
 			final MagQCNetBundle.Subnet bs=bundle.subnet(i);
-			final int expected=bs.numObs+numPhyla+SHARED_CONTEXT_WIDTH;
+			final int expected=bs.numObs+numPhyla+SHARED_CONTEXT_WIDTH+(v14Contract==null ? 0 : v14Contract.ordinaryExtra);
 			if(bs.order!=i){throw new RuntimeException("bundle ordering mismatch at "+i+" for "+bs.id);}
 			if(bs.expectedInputs!=expected){throw new RuntimeException("Subset "+bs.id+": bundle expectedInputs="
 				+bs.expectedInputs+" but vectorizer computes "+expected);}
@@ -1127,7 +1163,7 @@ public class MagQCVectorMaker implements Cloneable {
 			s.ranks=bs.familyRanks==null ? null : bs.familyRanks.clone(); s.bundleSubnet=bs; s.buf=new float[expected];
 			aggSubnets.add(s);
 		}
-		if(aggSubnets.size()!=bundle.size()){throw new RuntimeException("bundle subnet count changed during load");}
+		if(aggSubnets.size()!=bundle.ordinarySize()){throw new RuntimeException("bundle subnet count changed during load");}
 		final String[][] contract=requireFourOutputContract(bundle);
 		sixNames=contract[0]; sixUnits=contract[1];
 		expectedCopy=MagQCExpectedCopyBinding.bind(expectedCopyTableFile,expectedCopyTableSha256,bundle,
@@ -1163,7 +1199,7 @@ public class MagQCVectorMaker implements Cloneable {
 		if(names0==null || names0.length!=4 || units0==null || units0.length!=4){
 			throw new RuntimeException("subnetfeatures=six: subnet 0 output contract malformed");
 		}
-		for(int i=0; i<bundle.size(); i++){
+		for(int i=0; i<bundle.ordinarySize(); i++){
 			final MagQCNetBundle.Subnet bs=bundle.subnet(i);
 			if(bs.expectedOutputs!=4){throw new RuntimeException("subnetfeatures=six requires four-output subnets; "
 				+bs.id+" declares "+bs.expectedOutputs);}
@@ -1477,6 +1513,9 @@ public class MagQCVectorMaker implements Cloneable {
 		final MagQCBinManifest.Manifest replay=(binManifestInFile==null ? null : loadReplayManifest(binManifestInFile));
 		try(MagQCBinReplayStore store=replayStore){
 			if(store!=null){validateReplayRanges(store);}
+			if(replaySelection!=null && store.size("val")>0 && !validationOutputRequested()){
+				throw new IllegalArgumentException("Sparse selector requests validation rows but no validation output was supplied");
+			}
 			if(referenceCdsIndexFile!=null){referenceCdsIndex=MagQCReferenceCdsIndex.load(referenceCdsIndexFile, binManifestInFile);}
 			openBinManifest();
 			try{
@@ -1617,7 +1656,29 @@ public class MagQCVectorMaker implements Cloneable {
 	/** The public client can silence startup diagnostics without changing replay-tool defaults. */
 	static MagQCVectorMaker initializePrepared(String bundle, String family, String release, String releasePin,
 			String table, String tablePin, String populations, String populationsPin, boolean verbose){
+		return initializePreparedInternal(bundle, family, release, releasePin, table, tablePin, populations, populationsPin, verbose, false);
+	}
+
+	/** Explicit schema3 entry point; fixture bundles cannot enter production encoding accidentally. */
+	static MagQCVectorMaker initializePreparedV14(String bundle, String family, String release, String releasePin,
+			String table, String tablePin, String populations, String populationsPin, String requiredness, String requirednessPin,
+			String markers, String markersPin, boolean allowFixture){
+		final MagQCVectorMaker vm=initializePreparedInternal(bundle, family, release, releasePin, table, tablePin, populations, populationsPin, true, true);
+		if(vm.v14Contract.fixture && !allowFixture){throw new IllegalArgumentException("Fixture bundle is not a production encoder");}
+		if(!vm.v14Contract.requirednessPin.equals(requirednessPin) || !vm.v14Contract.markersPin.equals(markersPin)){
+			throw new IllegalArgumentException("V1.4 feature resources differ from the bundle metadata");
+		}
+		vm.enableV14TrainingInputs(requiredness, requirednessPin);vm.enableV14SizeInputs(markers, markersPin);
+		vm.v14SizeNet=vm.loadedBundle.subnet(131).newReplayWorker();vm.v14SizeInputs=new float[213];
+		vm.v14SizeBytes=new ByteBuilder();vm.v14SizeParser=new LineParser1('\t');
+		if(vm.preparedSizeInputWidth()!=213 || vm.numAggInputs!=9984){throw new IllegalArgumentException("V1.4 encoder layout differs from213/9984");}
+		return vm;
+	}
+
+	private static MagQCVectorMaker initializePreparedInternal(String bundle, String family, String release, String releasePin,
+			String table, String tablePin, String populations, String populationsPin, boolean verbose, boolean v14){
 		final MagQCVectorMaker vm=new MagQCVectorMaker();
+		vm.v14Composite=v14;
 		vm.verbose=verbose;
 		vm.aggBundleFile=bundle; vm.familyFile=family;
 		vm.releaseManifestFile=release; vm.releaseManifestSha80=releasePin;
@@ -1646,6 +1707,11 @@ public class MagQCVectorMaker implements Cloneable {
 
 	/** Number of family ranks accepted by the prepared-bin parser. */
 	int preparedFamilyCount(){return numFam;}
+	/** Read-only population declarations already verified against the frozen prepared bundle. */
+	MagQCExpectedCopyBinding preparedPopulations(){
+		if(!preparedDenseInference || expectedCopy==null){throw new IllegalStateException("Prepared resources must be initialized before sampling populations");}
+		return expectedCopy;
+	}
 	/**
 	 * Shares validated resources while giving one batch worker its own formatter and subnet state.
 	 * The replay copy already detaches every scratch buffer used by formatAggRowCore and expands
@@ -1671,9 +1737,217 @@ public class MagQCVectorMaker implements Cloneable {
 	}
 	/** Input-only output width, derived from the bound release rather than a caller-supplied number. */
 	int preparedInputWidth(){return numAggInputs;}
+	/** Population declarations bind the ordinary prefix, separately from the132-member release. */
+	String preparedOrdinaryManifestPin(){return loadedBundle.metadata(v14Composite ? "ordinary_release_manifest_sha80" : "release_manifest_sha256");}
+
+	/** Resolves an explicit frozen subnet ID once before producing its training rows. */
+	int preparedSubnetIndex(final String name){
+		if(!preparedDenseInference || aggSubnets==null){throw new IllegalStateException("Prepared resources are required for subnet training");}
+		for(int i=0; i<aggSubnets.size(); i++){if(aggSubnets.get(i).name.equals(name)){return i;}}
+		throw new IllegalArgumentException("Unknown frozen subnet ID: "+name);
+	}
+
+	/** Uses the loaded subnet input contract, never a caller-supplied dimension. */
+	int preparedSubnetInputWidth(final int index){return preparedSubnet(index).buf.length+(v14Features==null || v14Composite ? 0 : MagQCV14Features.WIDTH);}
+
+	/** Stable bound ID used to name evaluation matrices in release order. */
+	String preparedSubnetName(final int index){return preparedSubnet(index).name;}
+
+	/** Formats the ten new observed composite columns without evaluating legacy subnet weights. */
+	void formatPreparedV14InputBin(final ByteBuilder out, final MagQCPreparedBin bin){
+		if(v14Features==null || bin.families.length!=numFam){throw new IllegalStateException("Bound v1.4 observations required");}
+		bin.validate(); v14Features.compute(bin, v14Scratch);
+		for(int i=0; i<v14Scratch.length; i++){
+			if(i>0){out.tab();} appendFmt(out, v14Scratch[i]);
+		}
+		out.nl();
+	}
+
+	/** Opts training emission into the appended v1.4 inputs without evaluating an old-shape network. */
+	void enableV14TrainingInputs(final String path, final String pin){
+		if(!preparedDenseInference || preparedWorker || expectedCopy==null || v14Features!=null){
+			throw new IllegalStateException("Enable v1.4 inputs once on the initialized prepared resource master");
+		}
+		final String familyDigest=expectedCopy.familyListSha256();
+		final String familyPin=familyDigest.substring(familyDigest.length()-20);
+		final MagQCRequirednessTable table=MagQCRequirednessTable.load(path, pin, numFam, familyPin);
+		final java.util.HashMap<String,int[]> markers=new java.util.HashMap<String,int[]>();
+		for(int i=0; i<aggSubnets.size(); i++){
+			final AggSubnet subnet=aggSubnets.get(i);
+			if(!subnet.name.startsWith("marker_qc_") || !"phylum".equals(expectedCopy.populationType(i))){continue;}
+			if(!"famset".equals(subnet.type) || markers.put(expectedCopy.populationName(i), subnet.ranks)!=null){
+				throw new IllegalArgumentException("Predicted-phylum ratio requires one marker family set per declared phylum");
+			}
+		}
+		v14Features=new MagQCV14Features(table, markers, 0.5, 0.5);
+		v14Scratch=new double[MagQCV14Features.WIDTH];
+		v14RequirednessPin=pin;
+	}
+
+	/** Binds the universal size marker order before making workers or writing size rows. */
+	void enableV14SizeInputs(final String markerPath, final String markerPin){
+		if(v14Features==null || preparedWorker || sizeFeatures!=null){
+			throw new IllegalStateException("Size inputs require v1.4 features and one marker binding on the resource master");
+		}
+		final String digest=expectedCopy.familyListSha256();
+		sizeFeatures=MagQCSizeFeatures.load(markerPath, markerPin, v14RequirednessPin, digest.substring(digest.length()-20), numFam);
+		sizeTargetScratch=new double[MagQCSizeFeatures.VALUES];
+	}
+
+	/** Derives the size width from the bound taxonomy; the current75-phylum release has213 inputs. */
+	int preparedSizeInputWidth(){
+		if(sizeFeatures==null){throw new IllegalStateException("Size markers have not been bound");}
+		return MagQCV14Features.WIDTH+MagQCSizeFeatures.MARKERS+1+CTX_N+DOMAINS+numPhyla+2*NCRNA_OBS;
+	}
+
+	/** Emits observed size inputs only, for evaluation without any available truth labels. */
+	void formatPreparedSizeInputBin(final ByteBuilder out, final MagQCPreparedBin bin){
+		appendPreparedSizeInputs(out, bin);
+		assert(out.length()>0 && out.array[out.length()-1]=='\t') : "Size input blocks end in one field separator before their record terminator";
+		out.setLength(out.length()-1).nl();
+	}
+
+	/** Appends five value targets from the complete primary genome; error targets belong to the trainer. */
+	void formatPreparedSizeTrainingBin(final ByteBuilder out, final MagQCPreparedBin bin,
+			final long originalBp, final long originalCds, final double geneC, final double geneT){
+		if(sizeTargetScratch==null){throw new IllegalStateException("Size inputs must be enabled before size training");}
+		MagQCSizeFeatures.targets(originalBp, originalCds, geneC, geneT, sizeTargetScratch);
+		appendPreparedSizeInputs(out, bin);
+		for(int i=0; i<sizeTargetScratch.length; i++){
+			if(i>0){out.tab();} out.appendSlow(sizeTargetScratch[i]);
+		}
+		out.nl();
+	}
+
+	/** Shared213-column observation order for training, evaluation and eventual native size inference. */
+	private void appendPreparedSizeInputs(final ByteBuilder out, final MagQCPreparedBin bin){
+		if(sizeFeatures==null || v14Features==null || bin.families.length!=numFam){
+			throw new IllegalStateException("Size rows need matching v1.4 resources and observed family width");
+		}
+		bin.validate(); v14Features.compute(bin, v14Scratch);
+		for(double value:v14Scratch){appendFmt(out, value); out.tab();}
+		appendFmt(out, sizeFeatures.appendPresence(out, bin.families)); out.tab();
+		fillFeatureGlobals(bin.length, bin.agg, preparedGlob); computeContext(rowCtx, preparedGlob, bin.agg);
+		appendContextDomain(out, rowCtx, domainColumn(bin.status.equals("unknown") ? null : bin.domain));
+		final int phylum=phylumColumn(bin.status.equals("classified") ? bin.phylum : null);
+		for(int i=0; i<numPhyla; i++){out.append(i==phylum ? '1' : '0').tab();}
+		snapshotServeSpecial(bin.agg);
+		for(int count:lastNcServe){appendCountTwo(out, count);}
+	}
+
+	/** Emits one subnet's serve-faithful observations/context and two independent gene labels.
+	 * The counts, context arithmetic and decimal formatter are the existing gene-training
+	 * path (formatFamsetGeneRow/formatSpecialGeneRow); taxonomy is the actual QC call.
+	 * No subnet or composite network is evaluated to create a subnet input row. */
+	void formatPreparedSubnetTrainingBin(final ByteBuilder out, final MagQCPreparedBin bin,
+			final int index, final double[] targets){
+		if(targets==null || targets.length!=2 ||
+			!Double.isFinite(targets[0]) || !Double.isFinite(targets[1]) || targets[0]<0 || targets[0]>1 || targets[1]<0 || targets[1]>1){
+			throw new IllegalArgumentException("Prepared subnet requires matching observations and two bounded labels");
+		}
+		appendPreparedSubnetInputs(out, bin, index);
+		appendFmt(out, targets[0]); out.tab(); appendFmt(out, targets[1]); out.nl();
+	}
+
+	/** Emits exactly the training input prefix, without invented evaluation labels. */
+	void formatPreparedSubnetInputBin(final ByteBuilder out, final MagQCPreparedBin bin, final int index){
+		appendPreparedSubnetInputs(out, bin, index);
+		assert(out.length()>0 && out.array[out.length()-1]=='\t') : "Subnet input blocks end with one field separator";
+		out.setLength(out.length()-1).nl();
+	}
+
+	/** Writes the exact native subnet input bits, including its established context rounding. */
+	void formatPreparedSubnetA48(final ByteBuilder out, final MagQCPreparedBin bin, final int index){
+		final AggSubnet subnet=preparedSubnet(index);
+		if(preparedGlob==null || bin.families.length!=numFam){throw new IllegalArgumentException("Prepared family width differs");}
+		bin.validate(); fillFeatureGlobals(bin.length, bin.agg, preparedGlob); snapshotServeSpecial(bin.agg);
+		computeContext(rowCtx, preparedGlob, bin.agg);
+		int fields=0;
+		if("famset".equals(subnet.type)){
+			for(int rank:subnet.ranks){out.appendFloatA48((float)bin.families[rank]).tab(); fields++;}
+		}else{
+			final boolean anti="trna_anticodon".equals(subnet.type);
+			final int[] observations=anti ? lastAntiServe : lastNcServe;
+			final int count=anti ? TRNA_ANTICODON_OBS : "rrna".equals(subnet.type) ? RRNA_OBS : NCRNA_OBS;
+			if(!anti && !"rrna".equals(subnet.type) && !"ncrna".equals(subnet.type)){
+				throw new IllegalArgumentException("Unsupported subnet input type: "+subnet.type);
+			}
+			for(int i=0; i<count; i++){out.appendFloatA48((float)observations[i]).tab(); fields++;}
+		}
+		final int phylum=phylumColumn(bin.status.equals("classified") ? bin.phylum : null);
+		for(int i=0; i<numPhyla; i++){out.appendFloatA48(i==phylum ? 1f : 0f).tab(); fields++;}
+		// Native formatAggRowCore deliberately rounds context before subnet inference.
+		// Preserve that model input contract, then transport its exact float32 bits.
+		for(double value:rowCtx){out.appendFloatA48(Float.parseFloat(fmt(value))).tab(); fields++;}
+		final int domain=domainColumn(bin.status.equals("unknown") ? null : bin.domain);
+		for(int i=0; i<DOMAINS; i++){out.appendFloatA48(i==domain ? 1f : 0f).tab(); fields++;}
+		if(fields+(v14Contract==null ? 0 : v14Contract.ordinaryExtra)!=subnet.buf.length){throw new IllegalStateException("Lossless subnet input width differs from the native network");}
+		assert(fields>0) : "The final input separator is replaced by a newline";
+		if(v14Features!=null && (v14Contract==null || v14Contract.ordinaryExtra>0)){
+			v14Features.compute(bin, v14Scratch);
+			for(double value:v14Scratch){out.appendFloatA48(Float.parseFloat(fmt(value))).tab();}
+		}
+		out.setLength(out.length()-1).nl();
+	}
+
+	/** Shared observation-only encoder keeps training and evaluation field bytes identical. */
+	private void appendPreparedSubnetInputs(final ByteBuilder out, final MagQCPreparedBin bin, final int index){
+		final AggSubnet subnet=preparedSubnet(index);
+		if(preparedGlob==null || bin.families.length!=numFam){
+			throw new IllegalArgumentException("Prepared subnet requires matching observed family width");
+		}
+		bin.validate(); fillFeatureGlobals(bin.length, bin.agg, preparedGlob); snapshotServeSpecial(bin.agg);
+		int observations=0;
+		if("famset".equals(subnet.type)){
+			for(final int rank:subnet.ranks){out.append(bin.families[rank]).tab(); observations++;}
+		}else if("rrna".equals(subnet.type) || "ncrna".equals(subnet.type)){
+			observations="rrna".equals(subnet.type) ? RRNA_OBS : NCRNA_OBS;
+			for(int i=0; i<observations; i++){out.append(lastNcServe[i]).tab();}
+		}else if("trna_anticodon".equals(subnet.type)){
+			observations=TRNA_ANTICODON_OBS;
+			for(int i=0; i<observations; i++){out.append(lastAntiServe[i]).tab();}
+		}else{throw new IllegalArgumentException("Unsupported frozen subnet type: "+subnet.type);}
+		if(observations+numPhyla+CTX_N+DOMAINS+(v14Contract==null ? 0 : v14Contract.ordinaryExtra)!=subnet.buf.length){throw new IllegalStateException("Prepared subnet layout differs from its frozen input width");}
+		final int phylum=phylumColumn(bin.status.equals("classified") ? bin.phylum : null);
+		for(int i=0; i<numPhyla; i++){out.append(i==phylum ? '1' : '0').tab();}
+		computeContext(rowCtx, preparedGlob, bin.agg);
+		appendContextDomain(out, rowCtx, domainColumn(bin.status.equals("unknown") ? null : bin.domain));
+		if(v14Features!=null && (v14Contract==null || v14Contract.ordinaryExtra>0)){
+			v14Features.compute(bin, v14Scratch);
+			for(double value:v14Scratch){appendFmt(out, value); out.tab();}
+		}
+	}
+
+	/** Bounds the frozen subnet lookup before touching formatter state. */
+	private AggSubnet preparedSubnet(final int index){
+		if(!preparedDenseInference || aggSubnets==null || index<0 || index>=aggSubnets.size()){
+			throw new IllegalArgumentException("Invalid prepared subnet index: "+index);
+		}
+		return aggSubnets.get(index);
+	}
 
 	/** Appends exactly the replay formatter's input fields for one validated whole-bin observation. */
 	void formatPreparedBin(ByteBuilder out, MagQCPreparedBin bin){
+		formatPreparedRow(out,bin,null);
+	}
+
+	/**
+	 * Formats the same serving inputs followed by two independently computed
+	 * completeness/contamination labels; the caller declares gene or BP truth.
+	 * Labels never enter context/subnet input computation. The caller owns
+	 * the two-element array; it is consumed synchronously and never retained.
+	 */
+	void formatPreparedTrainingBin(ByteBuilder out, MagQCPreparedBin bin, double[] targets){
+		if(targets==null || targets.length!=2 || !Double.isFinite(targets[0]) || !Double.isFinite(targets[1])
+				|| targets[0]<0 || targets[0]>1 || targets[1]<0 || targets[1]>1){
+			throw new IllegalArgumentException("Prepared training requires completeness/contamination labels in [0,1]");
+		}
+		formatPreparedRow(out,bin,targets);
+	}
+
+	/** Shares native prepared input arithmetic so training labels cannot change any input byte. */
+	private void formatPreparedRow(ByteBuilder out, MagQCPreparedBin bin, double[] targets){
+		if(v14Features!=null && !v14Composite){throw new IllegalStateException("v1.4 training inputs cannot be evaluated with the legacy subnet bundle");}
 		if(preparedGlob==null || bin.families.length!=numFam){throw new IllegalStateException("Prepared inference state/family width mismatch");}
 		bin.validate();
 		fillFeatureGlobals(bin.length, bin.agg, preparedGlob);
@@ -1681,7 +1955,27 @@ public class MagQCVectorMaker implements Cloneable {
 		final boolean unknown=bin.status.equals("unknown"), classified=bin.status.equals("classified");
 		final int phylum=phylumColumn(classified ? bin.phylum : null);
 		final int domain=domainColumn(unknown ? null : bin.domain);
-		formatAggRowCore(out, bin.families, preparedGlob, phylum, null, bin.agg, false, domain, bin.id);
+		if(v14Composite){
+			v14Features.compute(bin, v14Scratch);
+			formatAggRowCore(out, bin.families, preparedGlob, phylum, null, bin.agg, false, domain, bin.id);
+			out.setLength(out.length()-1);
+			for(double value:v14Scratch){out.tab();appendFmt(out, value);}
+			v14SizeBytes.clear();appendPreparedSizeInputs(v14SizeBytes, bin);
+			v14SizeParser.set(v14SizeBytes.array, 212);
+			if(v14SizeParser.terms()!=v14SizeInputs.length || v14SizeParser.b()!=v14SizeBytes.length()-1){
+				throw new IllegalStateException("Size input width changed while encoding");
+			}
+			for(int i=0; i<v14SizeInputs.length; i++){v14SizeInputs[i]=v14SizeParser.parseFloat(i);}
+			v14SizeNet.applyInput(v14SizeInputs);v14SizeNet.feedForward();
+			for(int i=0; i<10; i++){
+				final float value=v14SizeNet.getOutput(i);
+				if(!Float.isFinite(value)){throw new IllegalStateException("Nonfinite size output for "+bin.id+" at "+i);}
+				out.tab();appendFmt(out, value);
+			}
+			out.tab();appendFmt(out, v14Contract.logRatio(bin.length, v14SizeNet.getOutput(1)));
+			if(targets!=null){for(double value:targets){out.tab();appendFmt(out, value);}}
+			out.nl();
+		}else{formatAggRowCore(out, bin.families, preparedGlob, phylum, targets, bin.agg, targets!=null, domain, bin.id);}
 	}
 
 	/** Aggregator row width: subnetBlockWidth*subnets + pooledCols + dense head(2x) + phylum +
@@ -1690,7 +1984,7 @@ public class MagQCVectorMaker implements Cloneable {
 	 *  (design revision2 §4.1, "root: one shared calculation") -- set by loadAggBundleLegacy/Six. */
 	private int aggInputWidth(){
 		if(subnetFeatures==SUBNETFEATURES_SIX){
-			return sixCompositeInputWidth(aggSubnets.size(),denseRanks.length,numPhyla);
+			return sixCompositeInputWidth(aggSubnets.size(), denseRanks.length, numPhyla)+(v14Composite ? 21 : 0);
 		}
 		return aggSubnets.size()*subnetBlockWidth+pooledCols+2*denseRanks.length+numPhyla
 			+SHARED_CONTEXT_WIDTH+2*NCRNA_OBS+1;
@@ -2072,11 +2366,15 @@ public class MagQCVectorMaker implements Cloneable {
 	/** Loads and verifies an explicit selection manifest before replay. */
 	private MagQCBinManifest.Manifest loadReplayManifest(String file){
 		if(binModel!=null){
+			if(replaySelectFile!=null){
+				replaySelection=MagQCReplaySelection.load(replaySelectFile, replaySelectSha80, binModel,
+					replayManifestSha256().substring(44));
+			}
 			replayStore=MagQCBinReplayStore.build(file,binModel,
 				replayTmpDir==null ? null : java.nio.file.Paths.get(replayTmpDir),new MagQCBinReplayStore.Validator(){
 					@Override public void header(MagQCBinManifest.Manifest m){validateReplayHeader(m);}
 					@Override public void bin(MagQCBinManifest.Bin b,MagQCBinManifest.Manifest m){validateReplayBin(b,m);}
-				},replayShuffle ? Long.valueOf(replaySeed) : null,replayMemory);
+				},replayShuffle ? Long.valueOf(replaySeed) : null,replayMemory,replaySelection);
 			System.err.println("Replay indexed "+replayStore.rowsRead()+" source rows; selected train="+
 				replayStore.size("train")+" val="+replayStore.size("val")+"; selected payload bytes on disk="+replayStore.spoolBytes());
 			return replayStore.header();
@@ -2713,8 +3011,9 @@ public class MagQCVectorMaker implements Cloneable {
 		return failed;
 	}
 
-	private static void appendReplayPartHeader(ByteBuilder header,String tag,int part,int parts,String manifestSha80,
+	private void appendReplayPartHeader(ByteBuilder header,String tag,int part,int parts,String manifestSha80,
 			boolean includeSplit,boolean includeManifestHash,boolean shuffled,long seed){
+		if(replaySelection!=null){replaySelection.appendHeader(header);}
 		if(parts>1 || shuffled){
 			if(includeManifestHash){header.append("#bin_manifest_sha80\t").append(manifestSha80).nl();}
 			if(shuffled){header.append("#replay_shuffle\tseeded_fisher_yates\n").append("#replay_seed\t").append(seed).nl();}
@@ -2990,7 +3289,7 @@ public class MagQCVectorMaker implements Cloneable {
 				"subnetlabels=gene requires an exact reference-CDS source (constructor validation)";
 		}
 		header.append("#subnet\t").append(subnetName).append("\tsubnet_inputs\t").append(subnetInputs).append("\ttargets\t2\n");
-		if(parts>1){
+		if(parts>1 || replaySelection!=null){
 			final String manifestSha80=replayManifestSha256().substring(44);
 			appendReplayPartHeader(header,split,part,parts,manifestSha80,true,true,replayShuffle,replaySeed);
 		}
@@ -4460,7 +4759,7 @@ public class MagQCVectorMaker implements Cloneable {
 		assert(fam.length>=numFam && nc.length>=NCRNA_OBS && anti.length>=TRNA_ANTICODON_OBS)
 			: "Subnet input layout requires all family, ncRNA and anticodon observations";
 		final int observedWidth=numFam+NCRNA_OBS+TRNA_ANTICODON_OBS;
-		final int sharedWidth=numPhyla+CTX_N+DOMAINS;
+		final int sharedWidth=numPhyla+CTX_N+DOMAINS+(v14Contract==null ? 0 : v14Contract.ordinaryExtra);
 		if(subnetObservedInputs==null || subnetObservedInputs.length!=observedWidth){subnetObservedInputs=new float[observedWidth];}
 		if(subnetSharedInputs==null || subnetSharedInputs.length!=sharedWidth){subnetSharedInputs=new float[sharedWidth];}
 		for(int i=0; i<numFam; i++){subnetObservedInputs[i]=fam[i];}
@@ -4470,6 +4769,9 @@ public class MagQCVectorMaker implements Cloneable {
 		if(phylumIdx>=0 && phylumIdx<numPhyla){subnetSharedInputs[phylumIdx]=1;}
 		System.arraycopy(quantizedRowCtx,0,subnetSharedInputs,numPhyla,CTX_N);
 		if(domainIdx>=0 && domainIdx<DOMAINS){subnetSharedInputs[numPhyla+CTX_N+domainIdx]=1;}
+		if(v14Contract!=null && v14Contract.ordinaryExtra>0){
+			for(int i=0; i<10; i++){subnetSharedInputs[numPhyla+CTX_N+DOMAINS+i]=Float.parseFloat(fmt(v14Scratch[i]));}
+		}
 	}
 
 	/** Builds one bin's Agg and global fields from the already-loaded 19-field cache rows.
@@ -4550,6 +4852,9 @@ public class MagQCVectorMaker implements Cloneable {
 	private String binModel;
 	/** Optional scratch directory for named-model replay; default is the JVM temporary directory. */
 	private String replayTmpDir;
+	/** Optional authenticated sparse selection; default replay behavior is unchanged. */
+	private String replaySelectFile, replaySelectSha80;
+	private MagQCReplaySelection replaySelection;
 	private MagQCBinReplayStore replayStore;
 	private long replaySeed;
 	private boolean replaySeedSet;
@@ -4642,6 +4947,17 @@ public class MagQCVectorMaker implements Cloneable {
 	/** Per-worker observation cache and common suffix, overwritten once per bin. */
 	private float[] subnetObservedInputs,subnetSharedInputs;
 	private double[] preparedGlob;
+	private MagQCV14Features v14Features;
+	private double[] v14Scratch;
+	private boolean v14Composite;
+	private MagQCV14Contract v14Contract;
+	private ml.CellNet v14SizeNet;
+	private float[] v14SizeInputs;
+	private ByteBuilder v14SizeBytes;
+	private LineParser1 v14SizeParser;
+	private String v14RequirednessPin;
+	private MagQCSizeFeatures sizeFeatures;
+	private double[] sizeTargetScratch;
 	/** Optional prepared-worker mode and clone guard; never enabled for replay generation. */
 	private boolean sharedPreparedSubnets, preparedWorker;
 	/** True only for initializePrepared(); keeps D196 dense serving scoped to prepared input. */

@@ -5,6 +5,7 @@ import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -236,17 +237,19 @@ public final class MagQCNetworkHarness {
 				readNetworkBytes(file), "harness final net");
 			model=retainModel ? parsed : null; sharedBinding=null;
 			if(inferWidth){width=parsed.inputs();}
-			if(parsed.inputs()!=width || parsed.outputs()!=(dummy ? 3 : 6)){
-				throw new IllegalArgumentException("Final net requires input width "+width+" and "+(dummy ? 3 : 6)+" outputs");
+			worker=parsed.newWorker();
+			final OutputContract contract=outputContract(worker, dummy);
+			if(parsed.inputs()!=width || parsed.outputs()!=contract.names.length){
+				throw new IllegalArgumentException("Final net requires input width "+width+" and "+contract.names.length+" outputs");
 			}
-			worker=parsed.newWorker(); input=new float[width];
-			output=new float[dummy ? 3 : 6];
+			input=new float[width]; output=new float[contract.names.length];
 			requireTag("magqc_harness_contract", "prepared_raw_v1");
 			requireTag("magqc_layout", MagQCVectorMaker.JOINT_COMPOSITE_LAYOUT);
 			requireTag("magqc_encoding", "raw");
 			for(String key:PIN_KEYS){requireTag("magqc_"+key, options.get(key));}
-			names=dummy ? DUMMY_NAMES : SIX_NAMES;
-			requireTag("magqc_output_mode", dummy ? "dummy3" : "live_six");
+			names=contract.names; outputMode=contract.mode;
+			fixtureTag=worker.getTag("magqc_fixture");
+			requireTag("magqc_output_mode", outputMode);
 			requireTag("magqc_output_names", String.join(",", names));
 			requireTag("magqc_input_normalization", dummy ? "identity" : "embedded");
 			if(dummy){
@@ -255,8 +258,6 @@ public final class MagQCNetworkHarness {
 					throw new IllegalArgumentException("Dummy identity net cannot declare trained normalization/output semantics");
 				}
 			}else{
-				// bbnet_export.py emits sorted compact JSON; pin its entire live_six semantics.
-				requireTag("output_contract", SIX_CONTRACT);
 				final String normalization=worker.getTag("normalization");
 				final boolean headers=worker.hasInputNormalization();
 				final boolean folded=!headers && "true".equals(worker.getTag("mean_sd_folded")) &&
@@ -284,19 +285,33 @@ public final class MagQCNetworkHarness {
 			model=source.model; sharedBinding=source.sharedBinding;
 			worker=sharedBinding==null ? model.newWorker() : null;
 			input=new float[source.input.length]; output=new float[source.output.length];
-			names=source.names; dummy=source.dummy;
+			names=source.names; outputMode=source.outputMode; fixtureTag=source.fixtureTag; dummy=source.dummy;
 			assert((sharedBinding!=null || worker!=source.worker) && input!=source.input && output!=source.output) :
 				"Batch final-network inference requires private activations and input scratch";
 		}
 
 		/** No model load: the first synchronized API call validates and loads this binding. */
 		Scorer(MagQCCompositeInference.Binding binding){
-			sharedBinding=binding; model=null; worker=null; dummy=false; names=SIX_NAMES;
-			input=new float[binding.inputs()]; output=new float[6];
+			sharedBinding=binding; model=null; worker=null; dummy=false;
+			final OutputContract contract=outputContract(binding.options());
+			names=contract.names; outputMode=contract.mode;
+			input=new float[binding.inputs()]; output=new float[names.length];
+			fixtureTag=null;
 		}
 
 		/** Private result storage keeps report formatting outside the composite lock. */
 		float getOutput(int index){return output[index];}
+
+		float getOutput(String name){return getOutput(name, name);}
+
+		float getOutput(String primary, String alternate){return output[indexOf(primary, alternate)];}
+
+		int indexOf(String primary, String alternate){
+			for(int i=0; i<names.length; i++){
+				if(names[i].equals(primary) || names[i].equals(alternate)){return i;}
+			}
+			throw new IllegalStateException("Final net lacks output "+primary);
+		}
 
 		/** One caller retains this private scorer for its entire worker lifetime. */
 		Scorer newWorker(){return new Scorer(this);}
@@ -312,9 +327,9 @@ public final class MagQCNetworkHarness {
 			appendBindings(out, options);
 			out.append("#encoding\traw\n#netsha80\t").append(options.get("netsha80")).nl();
 			out.append("#input_width\t").append(input.length).nl();
-			out.append("#output_mode\t").append(dummy ? "dummy3" : "live_six").nl();
+			out.append("#output_mode\t").append(outputMode).nl();
 			out.append("#dummy\t").append(dummy ? "PLUMBING_ONLY" : "false").nl();
-			if("synthetic_weights".equals(worker.getTag("magqc_fixture"))){out.append("#fixture\tSYNTHETIC_WEIGHTS_NOT_ACCURACY\n");}
+			if("synthetic_weights".equals(fixtureTag)){out.append("#fixture\tSYNTHETIC_WEIGHTS_NOT_ACCURACY\n");}
 			if(!dummy){out.append("#error_estimates\tpredicted absolute fraction-point errors; not confidence intervals\n");}
 			out.append("#columns\trow_index\tbin_id");
 			for(String name:names){out.tab().append(name);} out.nl();
@@ -353,7 +368,11 @@ public final class MagQCNetworkHarness {
 
 		/** Runs validated input scratch and captures outputs before another bin can overwrite them. */
 		private void evaluateInput(String id){
-			if(sharedBinding!=null){output=prok.ProkCC.calcCCSynced(input, sharedBinding); return;}
+			if(sharedBinding!=null){
+				output=prok.ProkCC.calcCCSynced(input, sharedBinding);
+				if(output.length!=names.length){throw new IllegalStateException("Shared final-net output width changed: "+id);}
+				return;
+			}
 			worker.applyInput(input); worker.feedForward();
 			for(int i=0; i<names.length; i++){
 				final float value=worker.getOutput(i);
@@ -379,6 +398,8 @@ public final class MagQCNetworkHarness {
 		private final MagQCNetBundle.InferenceModel model;
 		final float[] input;
 		final String[] names;
+		final String outputMode;
+		final String fixtureTag;
 		final boolean dummy;
 	}
 
@@ -443,6 +464,50 @@ public final class MagQCNetworkHarness {
 		"abs_residual_gene_completeness", "abs_residual_gene_contamination", "contamination_ge_0.01", "completeness_gt_0.99"};
 	private static final String SIX_CONTRACT="{\"error_target_rule\":\"same_forward_absolute_residual_stop_gradient\",\"mode\":\"live_six\",\"outputs\":[\""+
 		String.join("\",\"", SIX_NAMES)+"\"],\"selection\":\"value_only\",\"source_labels\":2}";
+
+	private static OutputContract outputContract(CellNet worker, boolean dummy){
+		return dummy ? new OutputContract("dummy3", DUMMY_NAMES) : parseOutputContract(worker.getTag("output_contract"));
+	}
+
+	private static OutputContract outputContract(HashMap<String,String> options){
+		try{
+			final String file=pinned(options, "net", "netsha80");
+			final byte[] bytes=readNetworkBytes(file);
+			for(final String line:new String(bytes, StandardCharsets.UTF_8).split("\\r?\\n")){
+				if(line.startsWith("##output_contract ")){return parseOutputContract(line.substring(18));}
+			}
+			throw new IllegalArgumentException("Final net is missing output_contract");
+		}catch(IOException e){throw new IllegalArgumentException("Could not read final-net contract", e);}
+	}
+
+	private static OutputContract parseOutputContract(String contract){
+		if(SIX_CONTRACT.equals(contract)){return new OutputContract("live_six", SIX_NAMES);}
+		if(contract==null || contract.indexOf("\"mode\":\"explicit\"")<0 ||
+				contract.indexOf("\"schema\":\"explicit_targets_v1\"")<0){
+			throw new IllegalArgumentException("Unsupported final-net output contract");
+		}
+		final ArrayList<String> names=new ArrayList<String>();
+		final HashSet<String> seen=new HashSet<String>();
+		for(int start=contract.indexOf("\"name\":\""); start>=0; start=contract.indexOf("\"name\":\"", start)){
+			start+=8;
+			final int end=contract.indexOf('"', start);
+			if(end<0){throw new IllegalArgumentException("Malformed explicit final-net output name");}
+			final String name=contract.substring(start, end);
+			if(name.length()<1 || name.indexOf('\\')>=0 || !seen.add(name)){
+				throw new IllegalArgumentException("Malformed or duplicate explicit final-net output name");
+			}
+			names.add(name);
+		}
+		if(names.size()<1){throw new IllegalArgumentException("Explicit final-net contract has no outputs");}
+		return new OutputContract("explicit", names.toArray(new String[names.size()]));
+	}
+
+	private static final class OutputContract {
+		OutputContract(String mode_, String[] names_){mode=mode_; names=names_.clone();}
+		final String mode;
+		final String[] names;
+	}
+
 	private static final HashMap<String,Boolean> ALLOWED=new HashMap<String,Boolean>();
 	static{
 		for(String key:new String[]{"in", "out", "idsout", "bundle", "familylist", "subnetmanifest",

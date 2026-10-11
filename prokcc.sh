@@ -48,6 +48,11 @@ swapnl=f              N is count and L is length by default. Set true to reverse
                       the N/L labels, as in stats.sh. Alias: swapln.
 comperrormultiplier=1.0    Positive finite multiplier for completeness error.
 contamerrormultiplier=1.0  Positive finite multiplier for contamination error.
+errorcalibration=<file>   Optional gene-error multiplier grid for this exact model.
+errorcalibrationsha80=<pin>  Required decoded-text sha80 when a table is supplied.
+                      Table lookup uses predicted completeness/contamination;
+                      raw model heads remain unchanged. Legacy scalar multipliers
+                      must both be 1 when using a table. No table is loaded by default.
 selftest=f            Runs small CLI/input fixtures instead of scoring assemblies.
 
 Java parameters:
@@ -55,8 +60,8 @@ Java parameters:
 -ea                   Assertions enabled by default.
 
 Model installation:
-Download prokcc_v1.2.1.tar from:
-https://sourceforge.net/projects/bbmap/files/Resources/prokcc_v1.2.1.tar
+Download prokcc_v1.4.tar from:
+https://sourceforge.net/projects/bbmap/files/Resources/prokcc_v1.4.tar
 Extract its contents into resources/ to create resources/prokcc/.
 The archive contains the matching configuration, models, and tables. Downloads
 are manual. See resources/prokcc/README.md for the model and release details.
@@ -65,7 +70,7 @@ Output:
 Aligned human-readable reports always go to stderr, one block per bin. Without
 out=, stdout is empty. Completeness, contamination, their errors, ANI, and coding
 density are percentages in the screen reports. GC is a fraction.
-The TSV contains completeness/contamination, six raw model heads, predicted
+The TSV contains completeness/contamination, raw model heads, predicted
 absolute errors, taxonomy provenance, input sha80, reference name/TaxID/ANI,
 contig Nx/Lx, genome size, GC, CDS/RNA counts, coding density, and MIMAG tier.
 Scores, errors, ANI, GC, and coding density are fractions, not percentages;
@@ -101,7 +106,7 @@ if [[ $CLASS == prok.ProkCC && $CONFIG_GIVEN == false ]]; then
   DEFAULT_CONFIG=$DIR/resources/prokcc/release.config
   if [[ ! -f $DEFAULT_CONFIG ]]; then
     echo "Missing default model config: $DEFAULT_CONFIG" >&2
-    echo 'Download prokcc_v1.2.1.tar from https://sourceforge.net/projects/bbmap/files/Resources/prokcc_v1.2.1.tar' >&2
+    echo 'Download prokcc_v1.4.tar from https://sourceforge.net/projects/bbmap/files/Resources/prokcc_v1.4.tar' >&2
     echo "Extract its contents into $DIR/resources/ to create resources/prokcc/, then try again." >&2
     exit 1
   fi

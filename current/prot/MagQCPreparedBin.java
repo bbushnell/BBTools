@@ -3,6 +3,7 @@ package prot;
 import java.util.Arrays;
 
 import parse.LineParser1;
+import structures.ByteBuilder;
 
 /**
  * Reusable whole-bin sufficient statistics for the frozen MAG-QC input layout.
@@ -15,6 +16,8 @@ final class MagQCPreparedBin {
 	static final String COLUMNS="bin_id\tqc_status\tqc_domain\tqc_phylum\tlength_bp\tgc_bases\tacgt_bases"
 		+"\tcoding_bp\tcds\tmapped_cds\tgene_length_sum\tgene_length_sq_sum\tr16\tr23\tr5\trother"
 		+"\ttrna_total\tfamily_counts\tanticodon_counts\tdimers";
+	static final String SCHEMA_V2="magqc_prepared_bin_v2";
+	static final String COLUMNS_V2=COLUMNS+"\tcontig_count\tn50_bp";
 
 	/** Allocates scratch once at the resource-bound family width. */
 	MagQCPreparedBin(int familyCount){
@@ -25,8 +28,9 @@ final class MagQCPreparedBin {
 	/** Parses strict integer fields and typed count lists without transient field arrays. */
 	void parse(byte[] line){
 		parser.set(line);
-		if(parser.terms()!=20){throw new IllegalArgumentException("Prepared bin requires exactly 20 columns");}
+		if(parser.terms()!=20 && parser.terms()!=22){throw new IllegalArgumentException("Prepared bin requires 20 legacy or 22 v2 columns");}
 		agg.reset(); Arrays.fill(families, 0);
+		storedN50=0;
 		id=parser.parseString(0); status=parser.parseString(1);
 		domain=parser.parseString(2); phylum=parser.parseString(3);
 		length=number(4, Long.MAX_VALUE); agg.gc=number(5, Long.MAX_VALUE);
@@ -37,7 +41,51 @@ final class MagQCPreparedBin {
 		agg.r5=(int)number(14, Integer.MAX_VALUE); agg.rother=(int)number(15, Integer.MAX_VALUE);
 		agg.trna=(int)number(16, Integer.MAX_VALUE);
 		sparse(17, families); sparse(18, agg.anti); denseDimers(19);
+		if(parser.terms()==22){
+			agg.contigs=(int)number(20, Integer.MAX_VALUE);
+			storedN50=number(21, Long.MAX_VALUE);
+			validateFragmentation();
+		}
 		validate();
+	}
+
+	/** Returns observed contigs; legacy serialized bins cannot supply this statistic. */
+	int contigCount(){
+		if(agg.contigs<=0){throw new IllegalArgumentException("Prepared bin lacks observed fragmentation: "+id);}
+		return agg.contigs;
+	}
+
+	/** Returns true N50, including the ceiling at odd total lengths; no label-derived proxy. */
+	long n50(){
+		if(agg.nlens==0){
+			if(storedN50<=0){throw new IllegalArgumentException("Prepared bin lacks observed N50: "+id);}
+			return storedN50;
+		}
+		assert(agg.nlens==agg.contigs) : "Every observed contig must contribute one length to N50";
+		final int[] sorted=agg.scratch(agg.nlens);
+		System.arraycopy(agg.lens, 0, sorted, 0, agg.nlens);
+		Arrays.sort(sorted, 0, agg.nlens);
+		long total=0;
+		for(int i=0; i<agg.nlens; i++){
+			if(sorted[i]<=0){throw new IllegalArgumentException("Nonpositive observed contig length: "+id);}
+			total=Math.addExact(total, sorted[i]);
+		}
+		if(total!=length){throw new IllegalArgumentException("Observed contig lengths do not sum to bin length: "+id);}
+		final long half=total/2+(total&1);
+		long cumulative=0;
+		for(int i=agg.nlens-1; i>=0; i--){
+			cumulative+=sorted[i];
+			if(cumulative>=half){return sorted[i];}
+		}
+		throw new IllegalStateException("Positive observed lengths did not reach half of bin length");
+	}
+
+	/** Rejects missing or impossible fragmentation summaries before any v2 row is emitted. */
+	private void validateFragmentation(){
+		final int count=contigCount(); final long midpoint=n50();
+		if(count>length || midpoint>length || (count==1 && midpoint!=length)){
+			throw new IllegalArgumentException("Prepared fragmentation is inconsistent with bin length: "+id);
+		}
 	}
 
 	/** Checks only invariants supported by the cache/aggregation contract, not assumed mapped-count identities. */
@@ -64,6 +112,33 @@ final class MagQCPreparedBin {
 		}
 		// Coding is summed CDS length (CacheBuilder.Acc.addCds), so overlap may exceed assembly length.
 		// No family-sum=mapped or mapped<=CDS assertion is implied by the serving contract.
+	}
+
+	/** Preserves whole-bin sufficient statistics for later reencoding with retrained subnets. */
+	void appendTo(final ByteBuilder out){appendTo(out, false);}
+
+	/** The v2 transport appends observed contig count and N50 without changing the legacy prefix. */
+	void appendTo(final ByteBuilder out, final boolean fragmentation){
+		validate();
+		if(fragmentation){validateFragmentation();}
+		out.append(id).tab().append(status).tab().append(domain).tab().append(phylum).tab()
+			.append(length).tab().append(agg.gc).tab().append(agg.acgt).tab().append(agg.coding).tab()
+			.append(agg.cds).tab().append(agg.mapped).tab().append(agg.glenSum).tab().append(agg.glenSq).tab()
+			.append(agg.r16).tab().append(agg.r23).tab().append(agg.r5).tab().append(agg.rother).tab().append(agg.trna).tab();
+		appendSparse(out,families); out.tab(); appendSparse(out,agg.anti); out.tab();
+		for(int i=0; i<16; i++){if(i>0){out.append(',');} out.append(agg.dimer[i]);}
+		if(fragmentation){out.tab().append(contigCount()).tab().append(n50());}
+		out.nl();
+	}
+
+	/** Uses the parser's ordered sparse convention, including an explicit empty marker. */
+	private static void appendSparse(final ByteBuilder out,final int[] counts){
+		boolean first=true;
+		for(int i=0; i<counts.length; i++){
+			if(counts[i]<0){throw new IllegalArgumentException("Cannot serialize a negative prepared count");}
+			if(counts[i]>0){if(!first){out.append(';');} out.append(i).append(':').append(counts[i]); first=false;}
+		}
+		if(first){out.append('-');}
 	}
 
 	/** Parses a nonnegative decimal integer with an explicit overflow bound. */
@@ -121,6 +196,7 @@ final class MagQCPreparedBin {
 
 	String id,status,domain,phylum;
 	long length;
+	private long storedN50;
 	final int[] families;
 	final MagQCVectorMaker.Agg agg=new MagQCVectorMaker.Agg();
 	private final LineParser1 parser=new LineParser1((byte)'\t');

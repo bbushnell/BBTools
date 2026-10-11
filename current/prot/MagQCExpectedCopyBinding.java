@@ -89,29 +89,30 @@ public final class MagQCExpectedCopyBinding {
 		}
 		final Declaration declaration=parseDeclaration(declarationPath);
 
-		final String rm=bundle.metadata("release_manifest_sha256");
+		final String rm=bundle.metadata("3".equals(bundle.metadata("schema_version")) ? "ordinary_release_manifest_sha80" : "release_manifest_sha256");
 		if(!matchesBundleDigest(bundle,rm,declaration.releaseManifestSha256)){
 			fail("release manifest hash mismatch between bundle and declaration");
 		}
 
-		for(int i=0;i<bundle.size();i++){
+		final int ordinary=bundle.ordinarySize();
+		for(int i=0; i<ordinary; i++){
 			final String id=bundle.subnet(i).id;
 			if(!declaration.rows.containsKey(id)){fail("declaration missing subnet id "+id);}
 		}
-		if(declaration.rows.size()!=bundle.size()){
+		if(declaration.rows.size()!=ordinary){
 			for(String id:declaration.rows.keySet()){
 				boolean found=false;
-				for(int i=0;i<bundle.size();i++){if(bundle.subnet(i).id.equals(id)){found=true;break;}}
+				for(int i=0; i<ordinary; i++){if(bundle.subnet(i).id.equals(id)){found=true;break;}}
 				if(!found){fail("declaration has extra subnet id "+id);}
 			}
 			fail("declaration/bundle subnet id set mismatch");
 		}
 
-		final String[] subnetIds=new String[bundle.size()];
-		final String[] populationTypes=new String[bundle.size()];
-		final String[] populationNames=new String[bundle.size()];
-		final MagQCExpectedCopyFeatures.Mapping[] mappings=new MagQCExpectedCopyFeatures.Mapping[bundle.size()];
-		for(int i=0;i<bundle.size();i++){
+		final String[] subnetIds=new String[ordinary];
+		final String[] populationTypes=new String[ordinary];
+		final String[] populationNames=new String[ordinary];
+		final MagQCExpectedCopyFeatures.Mapping[] mappings=new MagQCExpectedCopyFeatures.Mapping[ordinary];
+		for(int i=0; i<ordinary; i++){
 			final MagQCNetBundle.Subnet s=bundle.subnet(i);
 			final DeclarationRow row=declaration.rows.get(s.id);
 			final MagQCExpectedCopyTableTyped.Population pop=table.population(row.type,row.name);

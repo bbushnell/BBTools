@@ -121,14 +121,29 @@ public final class FastaInCacheRowBuilder {
 			final GeneModel pgm, final int passes, final ProteinSearcher.AssignmentBinding binding,
 			final ProteinSearcher searcher, final ProteinSearcher.AssignPolicy policy, final int lookahead,
 			final boolean configured){
+		return buildPreparedBin(contigs, binId, qcStatus, qcDomain, qcPhylum, pgm, null, passes,
+			binding, searcher, policy, lookahead, configured);
+	}
+
+	/** Shared arithmetic; only the caller lifecycle differs between legacy and batch operation. */
+	private static MagQCPreparedBin buildPreparedBin(final ArrayList<Read> contigs,
+			final String binId, final String qcStatus, final String qcDomain, final String qcPhylum,
+			final GeneModel pgm, final GeneModel[] pgms, final int passes,
+			final ProteinSearcher.AssignmentBinding binding, final ProteinSearcher searcher,
+			final ProteinSearcher.AssignPolicy policy, final int lookahead, final boolean configured){
 		if(binding==null || searcher==null || policy==null){
 			throw new RuntimeException("Prepared assignment requires binding, searcher, and policy.");
 		}
 		ProteinSearcher.validateLookahead(policy, lookahead);
 		if(contigs==null || contigs.isEmpty()){throw new RuntimeException("No contigs supplied.");}
-		if(pgm==null){throw new RuntimeException("No gene model supplied.");}
+		if((pgm==null)==(pgms==null)){throw new RuntimeException("Supply exactly one gene-model mode.");}
+		if(pgms!=null){
+			if(pgms.length!=contigs.size()){throw new RuntimeException("Per-contig gene models must match contig count.");}
+			for(final GeneModel model : pgms){if(model==null){throw new RuntimeException("No gene model supplied.");}}
+			if(passes!=1){throw new RuntimeException("Per-contig gene models require passes=1.");}
+		}
 		if(passes<1){throw new RuntimeException("CallGenes passes must be >=1: "+passes);}
-		final CallerData data=configured ? callConfiguredContigs(contigs, pgm, passes, true) :
+		final CallerData data=configured ? callConfiguredContigs(contigs, pgm, pgms, passes, true, null) :
 			callContigs(contigs, pgm, passes, true, true);
 		assignFamiliesViaBinding(data.accs, data.proteins, data.proteinToContig,
 			binding, searcher, policy, lookahead);
@@ -200,16 +215,34 @@ public final class FastaInCacheRowBuilder {
 			final String domain, final GeneModel pgm, final int passes, final boolean boundaryNet,
 			final ProteinSearcher searcher, final ProteinSearcher.AssignmentBinding binding,
 			final ProteinSearcher.AssignPolicy policy, final int lookahead){
+		return buildRows(contigs,domain,pgm,passes,boundaryNet,searcher,binding,policy,lookahead,null);
+	}
+
+	/** Captures the same called annotations and assignments while emitting ordinary whole-genome cache rows. */
+	static synchronized ArrayList<String> buildMapRows(final ArrayList<Read> contigs,
+			final String domain, final GeneModel pgm, final int passes,
+			final ProteinSearcher.AssignmentBinding binding, final ProteinSearcher searcher,
+			final ProteinSearcher.AssignPolicy policy, final int lookahead, final GeneMapSink sink){
+		if(binding==null || searcher==null || policy==null || sink==null){throw new IllegalArgumentException("Gene maps require the canonical assignment binding and an explicit sink");}
+		ProteinSearcher.validateLookahead(policy,lookahead);
+		return buildRows(contigs,domain,pgm,passes,true,searcher,binding,policy,lookahead,sink);
+	}
+
+	/** Optional capture never changes ordinary cache accumulation, assignment or serialization. */
+	private static ArrayList<String> buildRows(final ArrayList<Read> contigs,
+			final String domain, final GeneModel pgm, final int passes, final boolean boundaryNet,
+			final ProteinSearcher searcher, final ProteinSearcher.AssignmentBinding binding,
+			final ProteinSearcher.AssignPolicy policy, final int lookahead, final GeneMapSink sink){
 		if(contigs==null || contigs.isEmpty()){throw new RuntimeException("No contigs supplied.");}
 		if(!"Bacteria".equals(domain) && !"Archaea".equals(domain)){
 			throw new RuntimeException("Unsupported cache domain: "+domain);
 		}
 		if(pgm==null){throw new RuntimeException("No gene model supplied.");}
 		if(passes<1){throw new RuntimeException("CallGenes passes must be >=1: "+passes);}
-		final CallerData data=callContigs(contigs, pgm, passes, boundaryNet, binding!=null);
+		final CallerData data=callContigs(contigs, pgm, passes, boundaryNet, binding!=null, sink);
 		final HashMap<String, CacheBuilder.Acc> accs=data.accs;
 		if(binding!=null){assignFamiliesViaBinding(accs,data.proteins,data.proteinToContig,
-				binding,searcher,policy,lookahead);}
+				binding,searcher,policy,lookahead,sink);}
 
 		final IntHashMap archaeaSet=new IntHashMap(Math.max(4, contigs.size()));
 		final IntHashMap bacteriaSet=new IntHashMap(Math.max(4, contigs.size()));
@@ -249,10 +282,16 @@ public final class FastaInCacheRowBuilder {
 	/** Shared CallGenes preparation and ORF extraction for cache rows and prepared bins. */
 	private static CallerData callContigs(final ArrayList<Read> contigs, final GeneModel pgm,
 			final int passes, final boolean boundaryNet, final boolean collectProteins){
+		return callContigs(contigs,pgm,passes,boundaryNet,collectProteins,null);
+	}
+
+	/** Uses the ordinary caller lifetime for optional coordinate capture. */
+	private static CallerData callContigs(final ArrayList<Read> contigs, final GeneModel pgm,
+			final int passes, final boolean boundaryNet, final boolean collectProteins, final GeneMapSink sink){
 		requireLegacyCaller();
 		try(CallerSettings previous=new CallerSettings()){
 			configureCaller(boundaryNet);
-			return callConfiguredContigs(contigs, pgm, passes, collectProteins);
+			return callConfiguredContigs(contigs, pgm, passes, collectProteins, sink);
 		}
 	}
 
@@ -298,22 +337,51 @@ public final class FastaInCacheRowBuilder {
 	/** Calls one bin using fixed session settings and a new bin-local caller/refinement model. */
 	private static CallerData callConfiguredContigs(final ArrayList<Read> contigs, final GeneModel pgm,
 			final int passes, final boolean collectProteins){
-		assert(pgm!=null && passes>0) : "Caller geometry and refinement count must be validated before bin work";
-		final GeneModel activePgm=CallGenes.makeMultipassModel(pgm, contigs, null, passes);
-		final GeneCaller caller=CallGenes.makeGeneCaller(activePgm);
+		return callConfiguredContigs(contigs,pgm,passes,collectProteins,null);
+	}
+
+	/** Publishes source annotations before translation temporarily flips minus-strand coordinates. */
+	private static CallerData callConfiguredContigs(final ArrayList<Read> contigs, final GeneModel pgm,
+			final int passes, final boolean collectProteins, final GeneMapSink sink){
+		return callConfiguredContigs(contigs, pgm, null, passes, collectProteins, sink);
+	}
+
+	/** Publishes source annotations before translation temporarily flips minus-strand coordinates. */
+	private static CallerData callConfiguredContigs(final ArrayList<Read> contigs, final GeneModel pgm,
+			final GeneModel[] pgms, final int passes, final boolean collectProteins, final GeneMapSink sink){
+		assert((pgm!=null || pgms!=null) && passes>0) : "Caller geometry and refinement count must be validated before bin work";
+		assert(pgm==null || pgms==null) : "Single-PGM and per-contig modes are mutually exclusive";
+		final GeneModel activePgm=(pgms==null ? CallGenes.makeMultipassModel(pgm, contigs, null, passes) : null);
+		final GeneCaller caller=(pgms==null ? CallGenes.makeGeneCaller(activePgm) : null);
+		final ArrayList<GeneModel> seenModels=(pgms==null ? null : new ArrayList<GeneModel>());
+		final ArrayList<GeneCaller> seenCallers=(pgms==null ? null : new ArrayList<GeneCaller>());
 		final HashMap<String, CacheBuilder.Acc> accs=new HashMap<String, CacheBuilder.Acc>(contigs.size()*2);
 		final ArrayList<ProteinSequence> proteins=(collectProteins ? new ArrayList<ProteinSequence>() : null);
 		final HashMap<String, String> proteinToContig=(collectProteins ? new HashMap<String, String>() : null);
-		for(final Read r : contigs){
+		for(int i=0; i<contigs.size(); i++){
+			final Read r=contigs.get(i);
 			if(r==null || r.bases==null){continue;}
+			GeneModel contigPgm=activePgm;
+			GeneCaller contigCaller=caller;
+			if(pgms!=null){
+				contigPgm=pgms[i];
+				int modelIndex=seenModels.indexOf(contigPgm);
+				if(modelIndex<0){
+					modelIndex=seenModels.size();
+					seenModels.add(contigPgm);
+					seenCallers.add(CallGenes.makeGeneCaller(contigPgm));
+				}
+				contigCaller=seenCallers.get(modelIndex);
+			}
 			final String name=canonicalName(r.id);
 			if(accs.put(name, new CacheBuilder.Acc())!=null){
 				throw new RuntimeException("Duplicate contig id: "+name);
 			}
-			final ArrayList<Orf> path=caller.callGenes(r, activePgm, true);
+			if(sink!=null){sink.contig(r,name);}
+			final ArrayList<Orf> path=contigCaller.callGenes(r, contigPgm, true);
 			final CacheBuilder.Acc acc=accs.get(name);
 			if(path!=null){
-				for(final Orf orf : path){addOrfChecked(acc, orf);}
+				for(final Orf orf : path){addOrfChecked(acc, orf); if(sink!=null){sink.feature(r,name,orf);}}
 				if(collectProteins){
 					final ArrayList<Orf> cds=new ArrayList<Orf>();
 					for(final Orf orf : path){if(orf.type==ProkObject.CDS){cds.add(orf);}}
@@ -363,16 +431,38 @@ public final class FastaInCacheRowBuilder {
 		MagQCPreparedBin build(ArrayList<Read> contigs, String id, String status, String domain, String phylum,
 				GeneModel model, int passes, ProteinSearcher.AssignmentBinding binding,
 				ProteinSearcher searcher, ProteinSearcher.AssignPolicy policy, int lookahead){
-			synchronized(FastaInCacheRowBuilder.class){
-				if(activeSession!=this){throw new IllegalStateException("Caller session is closed");}
-				boolean known=false;
-				for(GeneModel candidate:models){if(candidate==model){known=true; break;}}
-				if(!known){throw new IllegalArgumentException("Caller model was not preloaded for this batch");}
-				active++; peakActive=Math.max(peakActive, active);
-			}
+			enter(model);
 			try{return buildPreparedBin(contigs, id, status, domain, phylum, model, passes,
 				binding, searcher, policy, lookahead, true);}
-			finally{synchronized(FastaInCacheRowBuilder.class){active--;}}
+			finally{leave();}
+		}
+		/** Selects a preloaded parent model independently for each input contig. */
+		MagQCPreparedBin build(ArrayList<Read> contigs, String id, String status, String domain, String phylum,
+				GeneModel[] modelsByContig, int passes, ProteinSearcher.AssignmentBinding binding,
+				ProteinSearcher searcher, ProteinSearcher.AssignPolicy policy, int lookahead){
+			enter(modelsByContig);
+			try{return buildPreparedBin(contigs, id, status, domain, phylum, null, modelsByContig, passes,
+				binding, searcher, policy, lookahead, true);}
+			finally{leave();}
+		}
+		/** Registers live work after checking every selected PGM was preloaded. */
+		private void enter(GeneModel model){enter(new GeneModel[]{model});}
+		/** Registers live work after checking every selected PGM was preloaded. */
+		private void enter(GeneModel[] selected){
+			synchronized(FastaInCacheRowBuilder.class){
+				if(activeSession!=this){throw new IllegalStateException("Caller session is closed");}
+				if(selected==null || selected.length<1){throw new IllegalArgumentException("No caller models selected");}
+				for(GeneModel model:selected){
+					boolean known=false;
+					for(GeneModel candidate:models){if(candidate==model){known=true; break;}}
+					if(!known){throw new IllegalArgumentException("Caller model was not preloaded for this batch");}
+				}
+				active++; peakActive=Math.max(peakActive, active);
+			}
+		}
+		/** Records the end of one private caller. */
+		private void leave(){
+			synchronized(FastaInCacheRowBuilder.class){active--;}
 		}
 		/** Maximum overlapping bin calls, useful for checking that a batch did not serialize its work. */
 		int peakWorkers(){synchronized(FastaInCacheRowBuilder.class){return peakActive;}}
@@ -455,6 +545,14 @@ public final class FastaInCacheRowBuilder {
 			final ArrayList<ProteinSequence> proteins, final HashMap<String, String> proteinToContig,
 			final ProteinSearcher.AssignmentBinding binding, final ProteinSearcher searcher,
 			final ProteinSearcher.AssignPolicy policy, final int lookahead){
+		assignFamiliesViaBinding(accs,proteins,proteinToContig,binding,searcher,policy,lookahead,null);
+	}
+
+	/** Shares the canonical assignment result with a coordinate sink without scoring a protein twice. */
+	private static void assignFamiliesViaBinding(final HashMap<String, CacheBuilder.Acc> accs,
+			final ArrayList<ProteinSequence> proteins, final HashMap<String, String> proteinToContig,
+			final ProteinSearcher.AssignmentBinding binding, final ProteinSearcher searcher,
+			final ProteinSearcher.AssignPolicy policy, final int lookahead, final GeneMapSink sink){
 		assert(proteins!=null && proteinToContig!=null && searcher!=null)
 			: "assignFamiliesViaBinding requires the binding path's non-null protein/contig maps + searcher "
 			+"(buildRowsWithAssignments guarantees a non-null searcher, so buildRows builds both maps at 148-149).";
@@ -462,6 +560,7 @@ public final class FastaInCacheRowBuilder {
 		for(final ProteinSequence protein : proteins){
 			final ProteinSearcher.FamilyAssignment result=
 				searcher.assignFamily(binding,protein,scratch,policy,lookahead);
+			if(sink!=null){sink.assignment(protein.id,result.isAssigned() ? result.familyIdx : -1);}
 			if(!result.isAssigned()){continue;}//rejection -> no family copy, NO fallback
 			final String contig=proteinToContig.get(protein.id);
 			if(contig==null){throw new RuntimeException("Missing contig owner for translated protein "+protein.id);}
@@ -474,6 +573,16 @@ public final class FastaInCacheRowBuilder {
 			acc.fam.put(result.familyIdx, old<0 ? 1 : old+1);
 			acc.mapped++;
 		}
+	}
+
+	/** Optional whole-genome capture; implementations copy mutable caller data before returning. */
+	interface GeneMapSink {
+		/** Registers an original contig, including contigs without annotations. */
+		void contig(Read read, String name);
+		/** Copies one original ORF before translation can temporarily mutate it. */
+		void feature(Read read, String name, Orf orf);
+		/** Associates the exact translated protein ID with its accepted rank or -1. */
+		void assignment(String proteinId, int familyRank);
 	}
 
 	/**

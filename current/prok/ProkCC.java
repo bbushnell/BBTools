@@ -20,9 +20,9 @@ public final class ProkCC {
 
 	/**
 	 * Scores the shipped default composite, loading its release and model on first
-	 * call inside this monitor. Input is the raw composite vector; returned heads
-	 * are completeness, contamination, their absolute residuals, contamination
-	 * at least1%, and completeness above99%. Input is copied and outputs are private.
+	 * call inside this monitor. Input is the raw composite vector; output order and
+	 * width follow the selected model's declared contract. Input is copied and
+	 * outputs are private.
 	 * No gene calling, assignment, taxonomy query, or subnet inference is performed.
 	 * A JVM already bound to another configured release is rejected, never reused.
 	 */

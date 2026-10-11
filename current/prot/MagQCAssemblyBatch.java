@@ -44,7 +44,13 @@ public final class MagQCAssemblyBatch {
 
 	/** The package fixture may retain raw rows to compare against the independent harness. */
 	MagQCAssemblyBatch(String[] args, boolean retainVectors_) throws IOException{
+		this(args, retainVectors_, false);
+	}
+
+	/** Offline exporters may retain observed v2 rows without changing public inference. */
+	MagQCAssemblyBatch(String[] args, boolean retainVectors_, boolean retainPrepared_) throws IOException{
 		retainVectors=retainVectors_;
+		retainPrepared=retainPrepared_;
 		options=parseOptions(args);
 		sharedComposite=lockedMode(required("compositemode"));
 		sharedSubnets=lockedMode(required("subnetmode"));
@@ -60,16 +66,26 @@ public final class MagQCAssemblyBatch {
 		if(!required("policy").equals("BOUNDED_LOOKAHEAD") || !required("lookahead").equals("4")){
 			throw new IllegalArgumentException("This release requires policy=BOUNDED_LOOKAHEAD lookahead=4");
 		}
-		if(!required("pgmmode").equals("taxonomy") && !required("pgmmode").equals("default")){
-			throw new IllegalArgumentException("pgmmode must be taxonomy or default");
+		pgmMode=required("pgmmode");
+		if(!pgmMode.equals("taxonomy") && !pgmMode.equals("default") && !pgmMode.equals("contigtaxonomy")){
+			throw new IllegalArgumentException("pgmmode must be taxonomy, default, or contigtaxonomy");
 		}
 		taxMode=required("taxmode");
 		if(!taxMode.equals("server") && !taxMode.equals("local")){
 			throw new IllegalArgumentException("taxmode must be server or local");
 		}
+		pgmContigMin=Parse.parseIntKMG(required("pgmcontigmin"));
+		if(pgmContigMin<1){throw new IllegalArgumentException("pgmcontigmin must be positive");}
+		pgmContigBatchBp=Parse.parseIntKMG(required("pgmcontigbatchbp"));
+		if(pgmContigBatchBp<1){throw new IllegalArgumentException("pgmcontigbatchbp must be positive");}
+		if(pgmMode.equals("contigtaxonomy") && passes!=1){
+			throw new IllegalArgumentException("pgmmode=contigtaxonomy requires passes=1");
+		}
 		override=MagQCAssemblyInput.overrideTaxonomy(options);
-		compMultiplier=multiplier(required("comperrormultiplier"));
-		contamMultiplier=multiplier(required("contamerrormultiplier"));
+		if(pgmMode.equals("contigtaxonomy") && override!=null){
+			throw new IllegalArgumentException("pgmmode=contigtaxonomy cannot use a taxonomy override");
+		}
+		calibration=MagQCErrorCalibration.fromOptions(options);
 		String output=options.get("out");
 		if("null".equalsIgnoreCase(output)){output=null;}
 		else if("-".equals(output)){output="stdout";}
@@ -130,6 +146,10 @@ public final class MagQCAssemblyBatch {
 		}
 		// Bind operator-supplied resources before any service request or output creation.
 		for(String name:PINNED_RESOURCES){MagQCNetworkHarness.pinned(options, name, name+"sha80");}
+		if(v14Configured(options)){
+			MagQCNetworkHarness.pinned(options, "requiredness", "requirednesssha80");
+			MagQCNetworkHarness.pinned(options, "sizemarkers", "sizemarkerssha80");
+		}
 		if(taxMode.equals("local")){MagQCNetworkHarness.pinned(options, "taxsketch", "taxsketchsha80");}
 		long phaseStart=timestamp();
 		if(parallelLoad){loadInParallel();}
@@ -144,10 +164,20 @@ public final class MagQCAssemblyBatch {
 		// PGM parsing changes caller geometry: finish all distinct loads before callers start.
 		phaseStart=timestamp();
 		final ArrayList<GeneModel> models=new ArrayList<GeneModel>();
+		if(pgmMode.equals("contigtaxonomy")){models.add(GeneCallAdapter.defaultModel());}
 		for(Job job:jobs){
-			job.model=required("pgmmode").equals("default") ? GeneCallAdapter.defaultModel() :
-				CallGenes.getPhylumPGM(job.taxonomy.phylum.equals("unknown") ? null : job.taxonomy.phylum);
-			if(!models.contains(job.model)){models.add(job.model);}
+			if(pgmMode.equals("default")){
+				job.model=GeneCallAdapter.defaultModel();
+				if(!models.contains(job.model)){models.add(job.model);}
+			}else if(pgmMode.equals("taxonomy")){
+				job.model=modelFor(job.taxonomy.phylum);
+				if(!models.contains(job.model)){models.add(job.model);}
+			}else{
+				if(job.routing==null){throw new IllegalStateException("Missing per-contig PGM assignments: "+job.path);}
+				for(GeneModel model:job.routing.models){
+					if(!models.contains(model)){models.add(model);}
+				}
+			}
 		}
 		long callerSetupNanos,networkNanos;
 		try(FastaInCacheRowBuilder.CallerSession session=FastaInCacheRowBuilder.openSession(models.toArray(new GeneModel[models.size()]))){
@@ -171,6 +201,7 @@ public final class MagQCAssemblyBatch {
 		}
 		if(timings){printTimings(bindingNanos,callerSetupNanos,networkNanos,elapsed(processStart));}
 		if(verbose){
+			//TODO: Probable bug - errorfitset=NA names calibration provenance, not missing numeric error predictions.
 			System.err.println("ProkCC completed "+jobs.size()+" bins with "+threads+" workers; error estimates are "+required("errorfitset"));
 		}
 	}
@@ -189,9 +220,26 @@ public final class MagQCAssemblyBatch {
 
 	/** The subnet loader owns its formatter construction; no global CellNet mode is changed. */
 	private MagQCVectorMaker loadSubnets(){
+		if(v14Configured(options)){
+			return MagQCVectorMaker.initializePreparedV14(required("bundle"), required("familylist"), required("subnetmanifest"),
+				required("subnetmanifestsha80"), required("expectedcopytable"), required("expectedcopytablesha80"),
+				required("subnetpopulations"), required("subnetpopulationssha80"), required("requiredness"),
+				required("requirednesssha80"), required("sizemarkers"), required("sizemarkerssha80"), false);
+		}
 		return MagQCVectorMaker.initializePrepared(required("bundle"), required("familylist"), required("subnetmanifest"),
 			required("subnetmanifestsha80"), required("expectedcopytable"), required("expectedcopytablesha80"),
 			required("subnetpopulations"), required("subnetpopulationssha80"), verbose);
+	}
+
+	/** Returns the bound master only after the captured batch has completed successfully. */
+	MagQCVectorMaker capturedFormatter(){
+		if(!retainPrepared || failure!=null || master==null){
+			throw new IllegalStateException("Evaluation export requires a completed observation-capture batch");
+		}
+		for(Job job:jobs){
+			if(job.prepared==null || job.result==null){throw new IllegalStateException("Incomplete captured bin: "+job.path);}
+		}
+		return master;
 	}
 
 	/** Joins establish publication, then independent model and formatter layouts must agree. */
@@ -200,7 +248,7 @@ public final class MagQCAssemblyBatch {
 			throw new IllegalArgumentException("Composite input width differs from the loaded subnet layout");
 		}
 		if(!sharedComposite && (scorer.dummy || scorer.worker.getTag("magqc_fixture")!=null)){
-			throw new IllegalArgumentException("The public client requires a real six-output model, not fixture weights");
+			throw new IllegalArgumentException("The public client requires a real composite model, not fixture weights");
 		}
 	}
 
@@ -322,6 +370,9 @@ public final class MagQCAssemblyBatch {
 						final ArrayList<Read> contigs=MagQCAssemblyInput.readContigs(job.path);
 						final long taxonomyStart=owner.timestamp();
 						job.taxonomy=owner.override==null ? owner.sketches.classify(contigs, owner.options) : owner.override;
+						if(owner.pgmMode.equals("contigtaxonomy")){
+							job.routing=owner.perContigRouting(contigs);
+						}
 						job.taxonomyNanos=owner.elapsed(taxonomyStart);
 						job.workerNanos=System.nanoTime()-binStart;
 					}else{
@@ -331,9 +382,17 @@ public final class MagQCAssemblyBatch {
 						}
 						final MagQCAssemblyInput.Taxonomy tax=job.taxonomy;
 						final long callingStart=owner.timestamp();
-						final MagQCPreparedBin bin=owner.callers.build(contigs, job.path, tax.status, tax.domain, tax.phylum,
-							job.model, owner.passes, owner.binding, searcher, ProteinSearcher.AssignPolicy.BOUNDED_LOOKAHEAD, 4);
+						final MagQCPreparedBin bin=job.routing==null ?
+							owner.callers.build(contigs, job.path, tax.status, tax.domain, tax.phylum,
+								job.model, owner.passes, owner.binding, searcher, ProteinSearcher.AssignPolicy.BOUNDED_LOOKAHEAD, 4) :
+							owner.callers.build(contigs, job.path, tax.status, tax.domain, tax.phylum,
+								job.routing.models, owner.passes, owner.binding, searcher, ProteinSearcher.AssignPolicy.BOUNDED_LOOKAHEAD, 4);
 						job.callingNanos=owner.elapsed(callingStart);
+						captureFragmentation(bin, contigs);
+						if(owner.retainPrepared){
+							output.clear(); bin.appendTo(output, true);
+							job.prepared=Arrays.copyOf(output.array, output.length()-1);
+						}
 						final long inferenceStart=owner.timestamp();
 						vector.clear(); formatter.formatPreparedBin(vector, bin);
 						if(owner.retainVectors){job.vector=vector.toBytes();}
@@ -355,23 +414,41 @@ public final class MagQCAssemblyBatch {
 		private boolean success;
 	}
 
+	/** Attaches observed FASTA lengths omitted by the legacy whole-bin accumulator. */
+	private static void captureFragmentation(final MagQCPreparedBin bin, final ArrayList<Read> contigs){
+		assert(bin!=null && contigs!=null) : "Capture uses the same loaded FASTA records that produced this bin";
+		if(bin.agg.lens.length<contigs.size()){bin.agg.lens=new int[contigs.size()];}
+		bin.agg.contigs=0; bin.agg.nlens=0;
+		long total=0;
+		for(Read contig:contigs){
+			if(contig==null || contig.bases==null || contig.length()<=0){
+				throw new IllegalArgumentException("Observed fragmentation requires nonempty FASTA records: "+bin.id);
+			}
+			bin.agg.lens[bin.agg.nlens++]=contig.length();
+			bin.agg.contigs++; total=Math.addExact(total, contig.length());
+		}
+		if(total!=bin.length){throw new IllegalStateException("Captured FASTA lengths differ from called bin length: "+bin.id);}
+	}
+
 	/** Keeps raw heads unchanged, appending provenance and the two configured estimates. */
 	private void appendScore(ByteBuilder out, MagQCNetworkHarness.Scorer scoring, Job job, int ordinal){
-		assert(scoring.names.length==6) : "The validated public model must supply the six frozen output heads";
 		out.append(ordinal).tab().append(job.path);
-		for(int i=0; i<6; i++){out.tab().appendSlow(scoring.getOutput(i));}
-		final double compError=scoring.getOutput(2), contamError=scoring.getOutput(3);
-		if(compError<0 || contamError<0){throw new IllegalStateException("Negative predicted error: "+job.path);}
-		final double comp=compError*compMultiplier, contam=contamError*contamMultiplier;
-		if(!Double.isFinite(comp) || !Double.isFinite(contam)){throw new IllegalArgumentException("Error multiplier overflow: "+job.path);}
+		for(int i=0; i<scoring.names.length; i++){out.tab().appendSlow(scoring.getOutput(i));}
+		final float compRaw=scoring.getOutput("gene_completeness");
+		final float contamRaw=scoring.getOutput("gene_contamination");
+		final float compErrRaw=scoring.getOutput("abs_residual_gene_completeness", "gene_completeness_error");
+		final float contamErrRaw=scoring.getOutput("abs_residual_gene_contamination", "gene_contamination_error");
+		final double comp=calibration.scaleComp(compRaw, contamRaw, compErrRaw);
+		final double contam=calibration.scaleContam(compRaw, contamRaw, contamErrRaw);
 		out.tab().appendSlow(comp).tab().appendSlow(contam).tab().append(MagQCAssemblyInput.taxonomySource(options));
 		out.tab().append(job.taxonomy.status).tab().append(job.taxonomy.domain).tab().append(job.taxonomy.phylum);
 		out.tab().append(job.inputPin);
-		job.report.append(out, job.taxonomy, scoring.getOutput(0), scoring.getOutput(1));
+		job.report.append(out, job.taxonomy, compRaw, contamRaw);
 		assert(job.workerNanos>=0) : "Bin worker time sums its two completed monotonic processing intervals";
 		out.tab().appendSlow(job.workerNanos/1e9);
+		if(job.routing!=null){job.routing.append(out);}
 		out.nl();
-		job.humanReport=job.report.human(job.taxonomy, scoring.getOutput(0), scoring.getOutput(1), comp, contam);
+		job.humanReport=job.report.human(job.taxonomy, compRaw, contamRaw, comp, contam);
 	}
 
 	/** Publishes optional TSV data only after all bins succeed; screen reports are separate stderr output. */
@@ -388,13 +465,16 @@ public final class MagQCAssemblyBatch {
 			MagQCNetworkHarness.appendBindings(header, options);
 			header.append("#netsha80\t").append(required("netsha80")).nl();
 			appendReportOptions(header);
+			calibration.appendProvenance(header);
 			header.append("#error_estimates\tpredicted absolute errors in fraction units; not confidence intervals\n");
 			header.append("#assembly_statistics\twhole FASTA records; GC=GC/ACGT; coding density=summed CDS bp/assembly bp; quality=RNA-aware BinStats.type\n");
 			header.append("#bin_worker_wall_seconds\tsum of per-bin taxonomy and calling/inference worker intervals, including input I/O; excludes shared setup, dispatch queues, phase barriers and report publication\n");
 			header.append("#columns\trow_index\tbin_id");
 			for(String name:scorer.names){header.tab().append(name);}
 			header.append("\tscaled_error_gene_completeness\tscaled_error_gene_contamination\ttaxonomy_source\tqc_status\tqc_domain\tqc_phylum\tinput_sha80");
-			header.append(MagQCAssemblyReport.columns(swapNL)).append("\tbin_worker_wall_seconds\n");
+			header.append(MagQCAssemblyReport.columns(swapNL)).append("\tbin_worker_wall_seconds");
+			if(pgmMode.equals("contigtaxonomy")){PgmRouting.appendColumns(header);}
+			header.nl();
 			writer.print(header);
 			for(Job job:jobs){
 				if(job.result==null){throw new IllegalStateException("Missing completed bin: "+job.path);}
@@ -449,13 +529,25 @@ public final class MagQCAssemblyBatch {
 			}
 		}
 		defaults(values, "policy", "BOUNDED_LOOKAHEAD", "lookahead", "4", "passes", "1", "pgmmode", "taxonomy",
+			"pgmcontigmin", "10000", "pgmcontigbatchbp", "5000000",
 			"taxaddress", "refseq", "taxmode", "server", "normalsearch", "t", "deterministic", "t", "comperrormultiplier", "1.0", "contamerrormultiplier", "1.0",
 			"errorfitset", "UNCALIBRATED", "errorfitdate", "NA", "errorcoverage", "NA",
 			"compositemode", "locked", "subnetmode", "locked", "loadmode", "parallel", "swapnl", "f", "verbose", "f", "ow", "t");
 		lockedMode(values.get("compositemode")); lockedMode(values.get("subnetmode"));
 		parallelMode(values.get("loadmode"));
 		MagQCAssemblyInput.normalSearch(values);
+		v14Configured(values);
 		return values;
+	}
+
+	/** V1.4 releases require both feature resources and their pins, or no schema extension at all. */
+	private static boolean v14Configured(HashMap<String,String> options){
+		int found=0;
+		for(String key:V14_KEYS){if(options.containsKey(key)){found++;}}
+		if(found!=0 && found!=V14_KEYS.length){
+			throw new IllegalArgumentException("V1.4 releases require requiredness, requirednesssha80, sizemarkers, and sizemarkerssha80");
+		}
+		return found==V14_KEYS.length;
 	}
 
 	/** Selects shared locked inference or explicit private workers for comparison. */
@@ -516,13 +608,55 @@ public final class MagQCAssemblyBatch {
 	}
 	private String required(String key){return MagQCNetworkHarness.required(options, key);}
 
-	/** Records the search policy and, when selected, the pinned local taxonomy input. */
+	/** Emits stable public options, plus experimental routing knobs only when they affect output. */
 	void appendReportOptions(ByteBuilder header){
 		for(String key:REPORT_OPTIONS){header.append('#').append(key).tab().append(required(key)).nl();}
+		if(pgmMode.equals("contigtaxonomy")){
+			header.append("#pgmcontigmin\t").append(required("pgmcontigmin")).nl();
+			header.append("#pgmcontigbatchbp\t").append(required("pgmcontigbatchbp")).nl();
+		}
 		if(taxMode.equals("local")){
 			header.append("#taxmode\tlocal\n#taxsketch\t").append(required("taxsketch"))
 				.nl().append("#taxsketchsha80\t").append(required("taxsketchsha80")).nl();
 		}
+	}
+
+	/** Resolves a reported QuickClade phylum to a supported PGM or the generic fallback. */
+	private static GeneModel modelFor(String phylum){
+		return CallGenes.getPhylumPGM("unknown".equals(phylum) ? null : phylum);
+	}
+
+	/** Resolves a contig phylum, mapping unsupported calls to the canonical generic model. */
+	private static GeneModel modelFor(String phylum, GeneModel generic, GeneModel fallback){
+		final GeneModel selected=modelFor(phylum);
+		return selected==fallback ? generic : selected;
+	}
+
+	/** Classifies only long contigs; short, unknown and unsupported contigs use the generic model intentionally. */
+	private PgmRouting perContigRouting(ArrayList<Read> contigs){
+		final GeneModel generic=GeneCallAdapter.defaultModel();
+		final GeneModel fallback=CallGenes.getPhylumPGM(null);
+		final GeneModel[] models=new GeneModel[contigs.size()];
+		final MagQCAssemblyInput.Taxonomy[] taxonomy=
+			sketches.classifyContigs(contigs, pgmContigMin, pgmContigBatchBp, options);
+		final PgmRouting routing=new PgmRouting(models);
+		for(int i=0; i<contigs.size(); i++){
+			final int bases=contigs.get(i).length();
+			final MagQCAssemblyInput.Taxonomy tax=taxonomy[i];
+			if(tax==null){
+				models[i]=generic; routing.shortContigs++; routing.shortBases+=bases;
+			}else{
+				models[i]=modelFor(tax.phylum, generic, fallback);
+				if(models[i]!=generic){
+					routing.ownContigs++; routing.ownBases+=bases;
+				}else if(tax.phylum.equals("unknown")){
+					routing.unknownContigs++; routing.unknownBases+=bases;
+				}else{
+					routing.unsupportedContigs++; routing.unsupportedBases+=bases;
+				}
+			}
+		}
+		return routing;
 	}
 
 	/** D231 requires positive finite constants and no silent clipping. */
@@ -539,22 +673,44 @@ public final class MagQCAssemblyBatch {
 		String inputPin;
 		MagQCAssemblyInput.Taxonomy taxonomy;
 		GeneModel model;
+		PgmRouting routing;
 		byte[] result;
 		byte[] vector;
+		byte[] prepared;
 		MagQCAssemblyReport report;
 		String humanReport;
 		long taxonomyNanos,callingNanos,inferenceNanos;
 		long workerNanos;
 	}
 
+	/** Per-bin accounting for the experimental contig-level taxonomy PGM route. */
+	static final class PgmRouting{
+		PgmRouting(GeneModel[] models_){models=models_;}
+		static void appendColumns(ByteBuilder out){
+			out.append("\tpgm_own_contigs\tpgm_own_bases\tpgm_generic_short_contigs\tpgm_generic_short_bases")
+				.append("\tpgm_generic_unknown_contigs\tpgm_generic_unknown_bases")
+				.append("\tpgm_generic_unsupported_contigs\tpgm_generic_unsupported_bases");
+		}
+		void append(ByteBuilder out){
+			out.tab().append(ownContigs).tab().append(ownBases)
+				.tab().append(shortContigs).tab().append(shortBases)
+				.tab().append(unknownContigs).tab().append(unknownBases)
+				.tab().append(unsupportedContigs).tab().append(unsupportedBases);
+		}
+		final GeneModel[] models;
+		int ownContigs, shortContigs, unknownContigs, unsupportedContigs;
+		long ownBases, shortBases, unknownBases, unsupportedBases;
+	}
+
 	private final HashMap<String,String> options;
 	final ArrayList<Job> jobs;
 	private final boolean retainVectors;
+	private final boolean retainPrepared;
 	private final boolean timings, sharedComposite, sharedSubnets, parallelLoad, swapNL, verbose;
 	private final long[] resourceNanos=new long[3];
-	private final int threads, passes;
-	private final String taxMode;
-	private final double compMultiplier, contamMultiplier;
+	private final int threads, passes, pgmContigMin, pgmContigBatchBp;
+	private final String pgmMode, taxMode;
+	private final MagQCErrorCalibration calibration;
 	private final FileFormat ffout;
 	private final MagQCAssemblyInput.Taxonomy override;
 	private volatile Throwable failure;
@@ -566,13 +722,17 @@ public final class MagQCAssemblyBatch {
 	private static final String[] PINNED_RESOURCES={"bundle", "familylist", "subnetmanifest", "expectedcopytable", "subnetpopulations", "net"};
 	private static final String[] OPTIONAL_ASSETS={"net", "bundle", "hbmbundle", "sidecar"};
 	private static final String[] RESOURCE_PATHS={"bundle", "familylist", "subnetmanifest", "expectedcopytable", "subnetpopulations", "net",
-		"profile", "roster", "ref", "rolemanifest", "core", "coveringsets", "sidecar", "hbmbundle", "hbmprovenance", "taxsketch"};
+		"profile", "roster", "ref", "rolemanifest", "core", "coveringsets", "sidecar", "hbmbundle", "hbmprovenance", "errorcalibration", "taxsketch",
+		"requiredness", "sizemarkers"};
 	private static final String[] REPORT_OPTIONS={"profilesha80", "policy", "lookahead", "passes", "pgmmode", "normalsearch", "deterministic",
 		"comperrormultiplier", "contamerrormultiplier", "errorfitset", "errorfitdate", "errorcoverage", "compositemode", "subnetmode", "loadmode", "swapnl"};
 	private static final HashSet<String> ALLOWED=new HashSet<String>();
+	private static final String[] V14_KEYS={"requiredness", "requirednesssha80", "sizemarkers", "sizemarkerssha80"};
 	static{
 		ALLOWED.addAll(Arrays.asList(RESOURCE_PATHS)); ALLOWED.addAll(Arrays.asList(REPORT_OPTIONS));
-		ALLOWED.addAll(Arrays.asList("in", "out", "t", "taxaddress", "taxmode", "taxsketchsha80", "taxdomain", "taxphylum", "timings", "verbose", "ow"));
+		ALLOWED.addAll(Arrays.asList("pgmcontigmin", "pgmcontigbatchbp"));
+		ALLOWED.addAll(Arrays.asList("in", "out", "t", "taxaddress", "taxmode", "taxdomain", "taxphylum", "timings", "verbose", "ow", "errorcalibrationsha80", "taxsketchsha80"));
+		ALLOWED.addAll(Arrays.asList(V14_KEYS));
 		for(String key:PINNED_RESOURCES){ALLOWED.add(key+"sha80");}
 	}
 }

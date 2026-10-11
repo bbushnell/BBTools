@@ -82,6 +82,8 @@ public final class MagQCNetBundle {
         "[ratio,log_obs,log_pred,zero_flag] aggregator transform downstream, unchanged";
     private static final String FOUR_OUTPUT_CLAMP_RATIO =
         "no clamp applied by this API; output_units are target semantics";
+	private static final String SCHEMA3_OUTPUT_SEMANTICS=
+		"131 ordered four-output ordinary subnets; final size member has ten separately named outputs; composite width9984";
 
     private final List<Subnet> subnets;
     private final Map<String, String> metadata;
@@ -315,6 +317,9 @@ public final class MagQCNetBundle {
     }
 
     public int size() { return subnets.size(); }
+	/** Schema3 keeps the size member outside all ordinary expected-copy and six-output loops. */
+	public int ordinarySize(){return "3".equals(metadata("schema_version")) ? 131 : size();}
+	MagQCV14Contract v14Contract() throws IOException{return new MagQCV14Contract(metadata);}
     public Subnet subnet(int index) { return subnets.get(index); }
     public Subnet subnet(String id) {
         for(Subnet s : subnets) if(s.id.equals(id)) return s;
@@ -515,6 +520,7 @@ public final class MagQCNetBundle {
 			MagQCNetBundleSpecialTest.main(new String[0]);
 		}
         else if("pack".equals(command)) pack(a);
+		else if("packv14".equals(command)) packV14(a);
         else if("sanitize".equals(command)) sanitizeRelease(a);
         else if("verify".equals(command)) verify(a);
         else if("list".equals(command)) list(a);
@@ -586,6 +592,111 @@ public final class MagQCNetBundle {
         out.write(bytes,start,bytes.length-start);
         return out.toByteArray();
     }
+
+	/** Packs the selected best net for each release-manifest subnet and atomically publishes it. */
+	public static void packV14(Map<String, String> a) throws Exception{
+		final Path basePath=requiredPath(a, "base"), out=requiredPath(a, "out");
+		if(!DigestSuffix.file(basePath.toString()).equals(DigestSuffix.requireSuffix(req(a, "basesha80"), "base bundle"))){
+			throw new IOException("Base bundle pin mismatch");
+		}
+		if(Files.exists(out)){throw new IOException("Refusing to replace a v1.4 bundle");}
+		final MagQCNetBundle base=loadMultiOutput(basePath);
+		if(base.size()!=131 || !CURRENT_HASH_ALGORITHM.equals(base.metadata("hash_algorithm"))){
+			throw new IOException("V1.4 packing requires the pinned131-member sha80 base");
+		}
+		base.requireFrozenInputs();
+		final Map<String, String> parameters=MagQCV14Contract.parse(pinnedBytes(a, "v14metadata", "v14metadatasha80"));
+		final MagQCV14Contract contract=new MagQCV14Contract(parameters);
+		final byte[] release=MagQCTextResource.bytes(req(a, "subnetmanifest"));
+		requireReleasePin(release, req(a, "subnetmanifestsha80"));
+		final Map<String, AggRow> replacements=a.containsKey("aggmanifest") ? readAgg(requiredPath(a, "aggmanifest")) : null;
+		if(replacements==null && !contract.fixture){throw new IOException("Production packing requires the selected131-net aggmanifest");}
+		if(replacements!=null && replacements.size()!=131){throw new IOException("Expected131 replacement ordinary networks");}
+		final List<ReleaseRow> baseRows=parseReleaseBytes(decode(base.metadata("release_manifest_values_b64"), "base release"));
+		final ArrayList<Subnet> records=new ArrayList<Subnet>(132);
+		for(int i=0; i<131; i++){
+			final Subnet old=base.subnet(i);
+			if(old.expectedOutputs!=4){throw new IOException("Base ordinary member must have four outputs");}
+			byte[] bytes=old.netBytes;String name=old.looseNetName;
+			if(replacements!=null){
+				final AggRow row=replacements.get(old.id);
+				if(row==null || !row.type.equals(old.type) || row.numObs!=old.numObs){throw new IOException("Replacement observation identity differs: "+old.id);}
+				requireReplacementSubset(a, old, row, baseRows.get(i).subsetPath);
+				final Path path=resolve(requiredPath(a, "netroot"), row.netPath);
+				bytes=Files.readAllBytes(path);name=path.getFileName().toString();
+				if(row.expectedInputs>=0 && row.expectedInputs!=old.expectedInputs+contract.ordinaryExtra){throw new IOException("Replacement manifest width differs");}
+			}
+			final CellNet net=parseNet(bytes, old.id); final int[] dims=parseDims(bytes, old.id);
+			if(net.numInputs()!=old.expectedInputs+contract.ordinaryExtra || net.numOutputs()!=4){throw new IOException("Replacement network width differs: "+old.id);}
+			final float[] density=parseDensities(bytes, old.id);
+			records.add(new Subnet(old.id, old.type, old.name, i, old.numObs, net.numInputs(), 4, parseSeed(bytes, old.id),
+				old.familyRanks, dims, bytes, digest(bytes, CURRENT_HASH_ALGORITHM), old.subsetSha256, name, old.looseSubsetName,
+				net, FOUR_OUTPUT_NAMES, FOUR_OUTPUT_UNITS, parseDenseFlag(bytes, old.id), density[0], density[1], parseBlockSize(bytes, old.id)));
+		}
+		final Path sizePath=requiredPath(a, "sizenet");
+		final byte[] bytes=pinnedBytes(a, "sizenet", "sizenetsha80");
+		final CellNet net=parseNet(bytes, "size"); final int[] dims=parseDims(bytes, "size");
+		if(net.numInputs()!=213 || net.numOutputs()!=10){throw new IOException("Size network must be213 inputs and ten outputs");}
+		contract.requireActivations(bytes, dims);
+		final float[] density=parseDensities(bytes, "size");
+		records.add(new Subnet("size", "size", "size", 131, 100, 213, 10, parseSeed(bytes, "size"), null, dims, bytes,
+			digest(bytes, CURRENT_HASH_ALGORITHM), "-", sizePath.getFileName().toString(), "-", net,
+			MagQCV14Contract.NAMES, MagQCV14Contract.UNITS, parseDenseFlag(bytes, "size"), density[0], density[1], parseBlockSize(bytes, "size")));
+		final LinkedHashMap<String, String> md=new LinkedHashMap<String, String>(base.metadata);
+		md.putAll(parameters);
+		md.put("schema_version", "3");md.put("subnet_count", "132");md.put("output_semantics", SCHEMA3_OUTPUT_SEMANTICS);
+		md.put("ordinary_release_manifest_values_b64", base.metadata("release_manifest_values_b64"));
+		md.put("ordinary_release_manifest_sha80", base.metadata("release_manifest_sha256"));
+		md.put("release_manifest_values_b64", b64(release));md.put("release_manifest_sha256", digest(release, CURRENT_HASH_ALGORITHM));
+		requireV14Layout(md, records, contract);
+		md.put("canonical_payload_sha256", canonicalHash(md, records));
+		writeAtomic(out, md, records);
+		System.out.println("MAGQC_V14_BUNDLE_PACK_PASS members=132 ordinary=131 size_outputs=10 fixture="+contract.fixture);
+	}
+
+	/** Equal widths do not prove equal observation order; retain the base subset bytes and ranks. */
+	private static void requireReplacementSubset(Map<String, String> args, Subnet base, AggRow row, String declared) throws Exception{
+		assert(base!=null && row!=null) : "Replacement identity checks require the authenticated base member and its selected manifest row";
+		if(base.familyRanks==null){
+			if(!"-".equals(row.subsetPath)){throw new IOException("Special replacement must retain '-' subset: "+base.id);}
+			return;
+		}
+		// Self-contained releases need not retain loose subsets. An unchanged
+		// authenticated declaration retains the base's embedded observation order.
+		if(row.subsetPath.equals(declared)){return;}
+		final Path root=pathOr(args, "subsetroot", requiredPath(args, "netroot"));
+		final Path subset=resolve(root, row.subsetPath);
+		if(!digest(Files.readAllBytes(subset), CURRENT_HASH_ALGORITHM).equals(base.subsetSha256) ||
+			!Arrays.equals(readRanks(subset, base.id), base.familyRanks)){
+			throw new IOException("Replacement subset bytes/order differ from the pinned base: "+base.id);
+		}
+	}
+
+	/** The independent132-member roster must retain the original131-member population prefix. */
+	private static void requireV14Layout(Map<String, String> md, List<Subnet> records, MagQCV14Contract contract) throws Exception{
+		if(!SCHEMA3_OUTPUT_SEMANTICS.equals(req(md, "output_semantics")) || records.size()!=132){throw new IOException("Schema3 layout differs");}
+		final FrozenInputs inputs=frozenInputs(md);
+		if(inputs.phyla().size()!=75){throw new IOException("The9984 layout requires the frozen75-column vocabulary");}
+		final byte[] ordinaryBytes=decode(req(md, "ordinary_release_manifest_values_b64"), "ordinary manifest");
+		if(!digest(ordinaryBytes, CURRENT_HASH_ALGORITHM).equals(req(md, "ordinary_release_manifest_sha80"))){throw new IOException("Ordinary manifest pin mismatch");}
+		final List<ReleaseRow> ordinary=parseReleaseBytes(ordinaryBytes);
+		final List<ReleaseRow> all=parseReleaseBytes(decode(req(md, "release_manifest_values_b64"), "release manifest"));
+		if(ordinary.size()!=131 || all.size()!=132){throw new IOException("Ordinary/full manifest counts differ");}
+		for(int i=0; i<131; i++){
+			final ReleaseRow old=ordinary.get(i), current=all.get(i);final Subnet member=records.get(i);
+			if(!old.id.equals(current.id) || !old.type.equals(current.type) || !old.subsetPath.equals(current.subsetPath) ||
+				old.expectedOutputs!=4 || current.expectedOutputs!=4 || !member.id.equals(current.id) ||
+				!member.type.equals(current.type) || member.expectedOutputs!=4 ||
+				member.expectedInputs!=member.numObs+inputs.phyla().size()+MagQCVectorMaker.SHARED_CONTEXT_WIDTH+contract.ordinaryExtra){
+				throw new IOException("V1.4 ordinary identity or input layout differs at "+i);
+			}
+		}
+		final ReleaseRow last=all.get(131);final Subnet size=records.get(131);
+		if(!last.id.equals("size") || !last.type.equals("size") || !last.subsetPath.equals("-") || last.expectedOutputs!=10 ||
+			!size.id.equals("size") || size.expectedInputs!=213 || size.expectedOutputs!=10 || size.numObs!=100){
+			throw new IOException("The final member must be the declared size subnet");
+		}
+	}
 
     /** Packs the selected best net for each release-manifest subnet and atomically publishes it. */
     public static void pack(Map<String,String> a) throws Exception {
@@ -759,7 +870,7 @@ public final class MagQCNetBundle {
         boolean published=false;
         try {
             writeBundle(tmp,md,records);
-            loadMultiOutput(tmp); // all gates pass before publication; accepts schema1 or schema2
+			if("3".equals(md.get("schema_version"))){loadV14(tmp);}else{loadMultiOutput(tmp);}
             try { Files.move(tmp,out,StandardCopyOption.ATOMIC_MOVE,StandardCopyOption.REPLACE_EXISTING); }
             catch(AtomicMoveNotSupportedException e) { Files.move(tmp,out,StandardCopyOption.REPLACE_EXISTING); }
             published=true;
@@ -772,7 +883,7 @@ public final class MagQCNetBundle {
         final BufferedWriter w=new BufferedWriter(new OutputStreamWriter(gz,UTF8));
         w.write(MAGIC); w.write('\n');
         for(Map.Entry<String,String> e:md.entrySet()) {
-            if("release_manifest_values_b64".equals(e.getKey())) writeWrapped(w,e.getKey(),e.getValue());
+			if("release_manifest_values_b64".equals(e.getKey()) || "ordinary_release_manifest_values_b64".equals(e.getKey())) writeWrapped(w, e.getKey(), e.getValue());
             else { w.write(e.getKey()); w.write('='); w.write(e.getValue()); w.write('\n'); }
         }
         for(Subnet s:records) {
@@ -781,11 +892,12 @@ public final class MagQCNetBundle {
             field(w,"num_obs",s.numObs); field(w,"expected_inputs",s.expectedInputs); field(w,"expected_outputs",s.expectedOutputs);
             field(w,"seed",s.seed); field(w,"dims",join(s.dims,","));
             field(w,"family_ranks",ranksToken(s.familyRanks));
-            field(w,"ncrna_obs_definition",MagQCObservationLayout.definition(s.type));
-            if(s.expectedOutputs==4) {
+			field(w, "ncrna_obs_definition", observationDefinition(s.type));
+			if(s.expectedOutputs==4 || s.expectedOutputs==10) {
                 field(w,"output_names",b64Lines(s.outputNames()));
                 field(w,"output_units",b64Lines(s.outputUnits()));
                 field(w,"output_clamp_ratio",FOUR_OUTPUT_CLAMP_RATIO);
+				if(s.expectedOutputs==10){field(w, "output_activations", md.get("size_output_activations"));}
             } else {
                 field(w,"output_units","completeness_or_contamination_regression");
                 field(w,"output_clamp_ratio","[0,2] ratio clamp; one scalar output");
@@ -817,7 +929,17 @@ public final class MagQCNetBundle {
      * call; also accepts pure-legacy (schema_version=1) bundles, so one method covers both. */
     public static MagQCNetBundle loadMultiOutput(Path in) throws Exception { return loadInternal(in,true); }
 
+	/** Explicit opt-in for the132-member schema; legacy consumers continue to reject it. */
+	public static MagQCNetBundle loadV14(Path in) throws Exception{
+		final MagQCNetBundle bundle=loadInternal(in, true, true);
+		if(!"3".equals(bundle.metadata("schema_version"))){throw new IOException("Expected schema3 v1.4 bundle");}
+		return bundle;
+	}
+
     private static MagQCNetBundle loadInternal(Path in, boolean allowMultiOutput) throws Exception {
+		return loadInternal(in, allowMultiOutput, false);
+	}
+	private static MagQCNetBundle loadInternal(Path in, boolean allowMultiOutput, boolean allowV14) throws Exception {
         final ArrayList<String> lines=new ArrayList<String>();
         final InputStream raw=new BufferedInputStream(Files.newInputStream(in));
         final GZIPInputStream gz;
@@ -839,7 +961,7 @@ public final class MagQCNetBundle {
             if(eq<=0 || line.startsWith("+")) throw new IOException("malformed header line: "+line);
             final String key=line.substring(0,eq), value=line.substring(eq+1);
             if(md.containsKey(key)) throw new IOException("duplicate header key: "+key);
-            if("release_manifest_values_b64".equals(key)) {
+			if("release_manifest_values_b64".equals(key) || "ordinary_release_manifest_values_b64".equals(key)) {
                 StringBuilder b=new StringBuilder(value); while(p<lines.size() && lines.get(p).startsWith("+")) b.append(lines.get(p++).substring(1));
                 md.put(key,b.toString());
             } else md.put(key,value);
@@ -868,19 +990,22 @@ public final class MagQCNetBundle {
             if(netB64==null) throw new IOException("empty subnet net payload");
             blocks.add(new SubnetText(f,netB64));
         }
-        return validate(md,blocks,allowMultiOutput);
+		return validate(md, blocks, allowMultiOutput, allowV14);
     }
 
-    private static MagQCNetBundle validate(Map<String,String> md,List<SubnetText> blocks,boolean allowMultiOutput) throws Exception {
+	private static MagQCNetBundle validate(Map<String, String> md, List<SubnetText> blocks, boolean allowMultiOutput, boolean allowV14) throws Exception {
         require(md,"schema_version"); require(md,"hash_algorithm"); require(md,"subnet_count");
         require(md,"release_manifest_sha256"); require(md,"release_manifest_values_b64");
         require(md,"family_list_sha256"); require(md,"family_list_values"); require(md,"canonical_payload_sha256");
         final String schemaVersion=md.get("schema_version");
         final String algorithm=md.get("hash_algorithm");
-        if((!"1".equals(schemaVersion) && !"2".equals(schemaVersion)) ||
+		final boolean v14="3".equals(schemaVersion);
+		if((!"1".equals(schemaVersion) && !"2".equals(schemaVersion) && !v14) ||
                 (!HASH_ALGORITHM.equals(algorithm) && !CURRENT_HASH_ALGORITHM.equals(algorithm))) {
             throw new IOException("unsupported schema/hash");
         }
+		if(v14 && !allowV14){throw new IOException("schema3 requires the explicit loadV14 entry point");}
+		final MagQCV14Contract v14Contract=v14 ? new MagQCV14Contract(md) : null;
         if("2".equals(schemaVersion) && !allowMultiOutput) {
             throw new IOException("schema_version=2 bundle requires loadMultiOutput(), not load()");
         }
@@ -893,6 +1018,7 @@ public final class MagQCNetBundle {
         }
         final int count=parseInt(md,"subnet_count");
         if(count!=blocks.size()) throw new IOException("header count="+count+" block count="+blocks.size());
+		if(v14 && (count!=132 || !CURRENT_HASH_ALGORITHM.equals(algorithm))){throw new IOException("Schema3 requires132 members and sha80");}
         final byte[] release=decode(md.get("release_manifest_values_b64"),"release manifest");
         if(!digest(release,algorithm).equals(md.get("release_manifest_sha256"))) throw new IOException("release manifest hash mismatch");
         final List<ReleaseRow> expected=parseReleaseBytes(release);
@@ -905,15 +1031,20 @@ public final class MagQCNetBundle {
             final ReleaseRow rr=expected.get(i);
             if(!id.equals(rr.id) || !req(f,"type").equals(rr.type) || parseInt(f,"order")!=i) throw new IOException("release order/id/type mismatch at "+i);
             final int numObs=parseInt(f,"num_obs"), expIn=parseInt(f,"expected_inputs"), expOut=parseInt(f,"expected_outputs");
-            if(expOut!=1 && expOut!=4) throw new IOException(id+": unsupported declared output count "+expOut);
+			final boolean size=v14 && i==131;
+			if(v14 ? (size ? expOut!=10 || !id.equals("size") || !rr.type.equals("size") : expOut!=4 || rr.type.equals("size")) :
+					expOut!=1 && expOut!=4 || rr.type.equals("size")){
+				throw new IOException(id+": unsupported member position/type/output contract");
+			}
             if(rr.expectedOutputs!=expOut) throw new IOException(id+": release manifest declares "+
                     rr.expectedOutputs+" output(s) but subnet block declares "+expOut);
             final String[] outNames, outUnits;
-            if(expOut==4) {
+			if(expOut==4 || size) {
                 final String[] names=decodeLines(req(f,"output_names"),id+" output_names");
                 final String[] units=decodeLines(req(f,"output_units"),id+" output_units");
-                if(!Arrays.equals(names,FOUR_OUTPUT_NAMES)) throw new IOException(id+": output_names does not match the frozen four-output contract");
-                if(!Arrays.equals(units,FOUR_OUTPUT_UNITS)) throw new IOException(id+": output_units does not match the frozen four-output contract");
+				if(!Arrays.equals(names, size ? MagQCV14Contract.NAMES : FOUR_OUTPUT_NAMES)) throw new IOException(id+": output_names does not match the frozen contract");
+				if(!Arrays.equals(units, size ? MagQCV14Contract.UNITS : FOUR_OUTPUT_UNITS)) throw new IOException(id+": output_units does not match the frozen contract");
+				if(size && !req(f, "output_activations").equals(req(md, "size_output_activations"))){throw new IOException("Size activation bindings disagree");}
                 if(!FOUR_OUTPUT_CLAMP_RATIO.equals(req(f,"output_clamp_ratio"))) throw new IOException(id+": output_clamp_ratio does not match the frozen four-output contract");
                 outNames=names; outUnits=units;
             } else {
@@ -923,12 +1054,12 @@ public final class MagQCNetBundle {
             final int seed=parseInt(f,"seed"); final int[] dims=parseInts(req(f,"dims"),",",id+" dims");
             final String rankToken=req(f,"family_ranks");
             final int[] ranks="-".equals(rankToken)?null:("empty".equals(rankToken)?new int[0]:parseInts(rankToken,",",id+" family ranks"));
-			final int specialCount=MagQCObservationLayout.specialCount(rr.type);
+			final int specialCount=specialCount(rr.type);
 			if((specialCount>=0)!=(ranks==null)){
 				throw new IOException(id+": special/famset payload mismatch");
 			}
 			if(specialCount>=0 && (numObs!=specialCount ||
-					!MagQCObservationLayout.definition(rr.type).equals(req(f,"ncrna_obs_definition")))){
+					!observationDefinition(rr.type).equals(req(f, "ncrna_obs_definition")))){
 				throw new IOException(id+": bad "+rr.type+" observation definition");
 			}
             if(ranks==null && (!"-".equals(rr.subsetPath) || !"-".equals(req(f,"subset_sha256")) ||
@@ -942,6 +1073,7 @@ public final class MagQCNetBundle {
             if(parseInt(f,"net_bytes")!=net.length) throw new IOException(id+": net byte count mismatch");
             final CellNet cell=parseNet(net,id);
             if(cell.numInputs()!=expIn || cell.numOutputs()!=expOut || !Arrays.equals(dims,parseDims(net,id))) throw new IOException(id+": incompatible CellNet dimensions");
+			if(size){v14Contract.requireActivations(net, dims);}
             final int actualSeed=parseSeed(net,id); if(actualSeed!=seed) throw new IOException(id+": seed mismatch");
             final boolean dense=parseDenseFlag(net,id);
             final float[] densities=parseDensities(net,id);
@@ -958,14 +1090,16 @@ public final class MagQCNetBundle {
         if("2".equals(schemaVersion) && !anyFourOutput) throw new IOException("schema_version=2 bundle contains no four-output subnet");
         final String canonical=canonicalHash(md,result);
         if(!canonical.equals(md.get("canonical_payload_sha256"))) throw new IOException("semantic payload hash mismatch");
-        if(md.containsKey("input_definition")){requireFrozenWidths(frozenInputs(md),result);}
+		if(v14){requireV14Layout(md, result, v14Contract);}
+		else if(md.containsKey("input_definition")){requireFrozenWidths(frozenInputs(md), result);}
         return new MagQCNetBundle(result,md);
     }
 
     public static void verify(Map<String,String> a) throws Exception {
         final Path in=requiredPath(a,"in");
         final boolean multi=parseMultioutputFlag(a.get("multioutput"));
-        final MagQCNetBundle b= multi ? loadMultiOutput(in) : load(in);
+        final boolean v14=parseMultioutputFlag(a.get("v14")),parity=parseMultioutputFlag(a.get("parity"));
+        final MagQCNetBundle b=v14 ? loadV14(in) : multi ? loadMultiOutput(in) : load(in);
         final String releasePath=a.get("subnetmanifest");
         final String releasePin=a.get("subnetmanifestsha80");
         if(releasePin!=null && releasePath==null){throw new IOException("subnetmanifestsha80 requires subnetmanifest");}
@@ -980,29 +1114,53 @@ public final class MagQCNetBundle {
             }
         }
         final String root=a.get("netroot");
+        if(parity && root==null){throw new IOException("Numerical loose/bundled parity requires netroot");}
+        long compared=0;
         if(root!=null) for(Subnet s:b.subnets) {
             final Path loose=resolve(Paths.get(root),s.looseNetName);
             final byte[] bytes=Files.readAllBytes(loose);
             if(!digest(bytes,b.metadata("hash_algorithm")).equals(s.netSha256) || !Arrays.equals(bytes,s.netBytes)) throw new IOException(s.id+": loose net mismatch");
+            if(parity){compared+=requireLooseParity(s,bytes);}
         }
+        if(parity){System.out.println("MAGQC_BUNDLE_NUMERICAL_PARITY_PASS members="+b.size()+" outputs_compared="+compared);}
         System.out.println("MAGQC_BBNETS_VERIFY PASS count="+b.size()+" semantic_sha80="+displaySha80(b.metadata("canonical_payload_sha256")));
     }
 
     public static void list(Map<String,String> a) throws Exception {
         final boolean multi=parseMultioutputFlag(a.get("multioutput"));
-        final MagQCNetBundle b= multi ? loadMultiOutput(requiredPath(a,"in")) : load(requiredPath(a,"in"));
+        final MagQCNetBundle b=parseMultioutputFlag(a.get("v14")) ? loadV14(requiredPath(a,"in")) :
+            multi ? loadMultiOutput(requiredPath(a,"in")) : load(requiredPath(a,"in"));
         System.out.println("count="+b.size()+" semantic_sha80="+displaySha80(b.metadata("canonical_payload_sha256")));
         for(Subnet s:b.subnets) System.out.println(s.order+"\t"+s.id+"\t"+s.type+"\t"+s.expectedInputs+"\t"+displaySha80(s.netSha256));
     }
 
+    /** Identical input arrays exercise every output using the same native dense inference convention. */
+    private static long requireLooseParity(Subnet member,byte[] loose) throws Exception{
+        assert(member!=null && loose!=null) : "Numerical parity follows the independent loose-file and embedded-payload identity checks";
+        final CellNet a=parseNet(loose,member.id).copyDenseForInference(),b=member.newReplayWorker();
+        final float[] input=new float[member.expectedInputs];
+        final java.util.Random random=new java.util.Random(731L+member.order);
+        for(int row=0;row<16;row++){
+            for(int i=0;i<input.length;i++){input[i]=row==0 ? 0 : random.nextFloat()*2-1;}
+            a.applyInput(input);b.applyInput(input);a.feedForward();b.feedForward();
+            for(int out=0;out<member.expectedOutputs;out++){
+                final float x=a.getOutput(out),y=b.getOutput(out);
+                if(!Float.isFinite(x) || !Float.isFinite(y) || Math.abs((double)x-y)>6.5e-8){
+                    throw new IOException("Loose/bundled prediction mismatch for "+member.id+" row="+row+" output="+out+" difference="+Math.abs((double)x-y));
+                }
+            }
+        }
+        return 16L*member.expectedOutputs;
+    }
+
     private static String canonicalHash(Map<String,String> md,List<Subnet> records) {
-        final boolean v2="2".equals(md.get("schema_version"));
+		final boolean v2="2".equals(md.get("schema_version")), v3="3".equals(md.get("schema_version"));
         final StringBuilder b=new StringBuilder();
         // Pure-legacy bundles (schema_version=1) use the exact V1 domain literal and line
         // format, byte for byte -- this is the whole backward-compatibility guarantee, verified
         // by construction: a bundle with zero four-output entries never enters the v2 branches
         // below, so its canonical hash is computed identically to before this change.
-        b.append(v2 ? "MAGQC_BBNETS_CANONICAL_V2\n" : "MAGQC_BBNETS_CANONICAL_V1\n");
+		b.append(v3 ? "MAGQC_BBNETS_CANONICAL_V3\n" : v2 ? "MAGQC_BBNETS_CANONICAL_V2\n" : "MAGQC_BBNETS_CANONICAL_V1\n");
         for(Map.Entry<String,String> e:md.entrySet()) {
             // These are provenance-only locations, not semantic bundle content.
             // Packing the same bytes from another staging directory must produce
@@ -1023,7 +1181,7 @@ public final class MagQCNetBundle {
             // at all). output_clamp_ratio is included here (root's review, 2026-09-09): it was
             // previously neither validated nor canonicalized for four-output entries, so a
             // tampered value survived a recomputed-checksum forgery undetected.
-            if(s.expectedOutputs==4) {
+			if(s.expectedOutputs==4 || s.expectedOutputs==10) {
                 b.append('\t').append(b64Lines(s.outputNames())).append('\t').append(b64Lines(s.outputUnits()))
                  .append('\t').append(FOUR_OUTPUT_CLAMP_RATIO);
             }
@@ -1051,8 +1209,9 @@ public final class MagQCNetBundle {
 			requireObservationType(fields[1]);
 			int expectedOutputs=1;
 			if(fields.length==4){
-				if(!"outputs=4".equals(fields[3])){throw new IOException("bad release row flag: "+line);}
-				expectedOutputs=4;
+				if("outputs=4".equals(fields[3])){expectedOutputs=4;}
+				else if("size".equals(fields[1]) && "outputs=10".equals(fields[3])){expectedOutputs=10;}
+				else{throw new IOException("bad release row flag: "+line);}
 			}
 			out.add(new ReleaseRow(fields[0],fields[1],fields[2],expectedOutputs));
 		}
@@ -1060,9 +1219,12 @@ public final class MagQCNetBundle {
 	}
 	/** Converts unknown semantic types into the bundle parser's checked failure. */
 	private static void requireObservationType(String type) throws IOException{
+		if("size".equals(type)){return;}
 		try{MagQCObservationLayout.specialCount(type);}
 		catch(IllegalArgumentException e){throw new IOException(e.getMessage(),e);}
 	}
+	private static int specialCount(String type){return "size".equals(type) ? 100 : MagQCObservationLayout.specialCount(type);}
+	private static String observationDefinition(String type){return "size".equals(type) ? "v14 size213 observed features; ordered markers bound by size resource pin" : MagQCObservationLayout.definition(type);}
 
 	/**
 	 * Reads six legacy columns, optionally followed by an explicit observation type.

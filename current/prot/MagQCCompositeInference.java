@@ -7,7 +7,7 @@ import java.util.Map;
 import dna.Data;
 
 /**
- * Resource-bound six-head composite inference for the synchronized ProkCC API.
+ * Resource-bound composite inference for the synchronized ProkCC API.
  * A binding contains no loaded networks. Loading validates the same contract as
  * the native harness, and discards the construction master after making one worker.
  * @author Nilou
@@ -43,7 +43,7 @@ public final class MagQCCompositeInference {
 				MagQCNetworkHarness.Scorer.loadConfigured(options, false) :
 				new MagQCNetworkHarness.Scorer(options, width, false);
 			if(loaded.dummy || loaded.worker.getTag("magqc_fixture")!=null){
-				throw new IllegalArgumentException("The synchronized API requires a real six-output composite");
+				throw new IllegalArgumentException("The synchronized API requires a real composite");
 			}
 			return loaded;
 		}catch(RuntimeException e){throw e;}
@@ -51,7 +51,7 @@ public final class MagQCCompositeInference {
 	}
 
 	/**
-	 * Copies caller inputs and returns six private outputs. The instance lock also
+	 * Copies caller inputs and returns the model's declared private outputs. The instance lock also
 	 * protects direct callers; ProkCC additionally serializes binding and first load.
 	 * Callers must not modify their input concurrently with this call.
 	 */
@@ -59,7 +59,7 @@ public final class MagQCCompositeInference {
 
 	/** Resolves the release next to this installation, without loading a network. */
 	public static Binding shippedDefault(int width){
-		final String config=Paths.get(Data.NETWORKS(), "magqc", "release.config").toString();
+		final String config=Paths.get(Data.RESOURCES(), "prokcc", "release.config").toString();
 		return new Binding(MagQCAssemblyBatch.parseOptions(new String[]{"config="+config}), width);
 	}
 
@@ -81,6 +81,9 @@ public final class MagQCCompositeInference {
 
 		/** The expected caller vector width, checked again against the parsed model. */
 		public int inputs(){return width;}
+
+		/** Private immutable option snapshot for same-package synchronized scorers. */
+		HashMap<String,String> options(){return options;}
 
 		/** Model plus all frozen resource paths/pins must agree before cache reuse. */
 		@Override public boolean equals(Object other){

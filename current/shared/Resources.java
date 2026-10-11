@@ -20,14 +20,27 @@ public class Resources {
 	public static String downloadURL(String filename){
 		if(filename==null || filename.isEmpty()){throw new IllegalArgumentException("Resource filename is required");}
 		final String path=(filename.startsWith("?") ? filename.substring(1) : filename).replace('\\', '/');
+		final String known=RESOURCE_URLS.get(new java.io.File(path).getName());
+		if(known!=null){return known;}
 		if(path.startsWith("prokcc/") || path.contains("/prokcc/")){return PROKCC_ARCHIVE;}
-		return RESOURCE_URLS.get(new java.io.File(path).getName());
+		return null;
 	}
 
 	/** ProkCC's config, models and tables are installed together from one manual download. */
 	public static String prokccDownloadInstructions(){
-		return "Download prokcc_v1.2.1.tar from:\n  "+PROKCC_ARCHIVE+
+		return prokccDownloadInstructions(PROKCC_ARCHIVE);
+	}
+
+	/** Gives extraction instructions for the archive matching a current or legacy resource. */
+	public static String prokccDownloadInstructions(String archive){
+		if(!isProkccArchive(archive)){throw new IllegalArgumentException("Unknown ProkCC archive: "+archive);}
+		return "Download "+archive.substring(archive.lastIndexOf('/')+1)+" from:\n  "+archive+
 			"\nExtract its contents into BBTools/resources/ to create resources/prokcc/, then try again.\n";
+	}
+
+	/** Identifies the current archive and the explicitly retained previous release. */
+	private static boolean isProkccArchive(String url){
+		return PROKCC_ARCHIVE.equals(url) || PROKCC_LEGACY_ARCHIVE.equals(url);
 	}
 
 	/** Locates a resource file.  If fname contains commas, tries each
@@ -60,17 +73,17 @@ public class Resources {
 		if(fnames.isEmpty()){return null;}
 		if(!exit){return null;}
 		StringBuilder sb=new StringBuilder();
-		boolean prokcc=false;
+		final ArrayList<String> archives=new ArrayList<String>();
 		sb.append("\nERROR: No resource found from candidates:\n");
 		for(String f : fnames){
 			String bare=f.startsWith("?") ? f.substring(1) : f;
 			String url=downloadURL(bare);
-			prokcc|=PROKCC_ARCHIVE.equals(url);
+			if(isProkccArchive(url) && !archives.contains(url)){archives.add(url);}
 			sb.append("  ").append(bare);
 			if(url!=null){sb.append("  (").append(url).append(')');}
 			sb.append('\n');
 		}
-		if(prokcc){sb.append(prokccDownloadInstructions());}
+		for(String archive:archives){sb.append(prokccDownloadInstructions(archive));}
 		sb.append("Place other network files in BBTools/networks/ and other resources in BBTools/resources/.\n");
 		System.err.print(sb);
 		System.exit(1);
@@ -89,8 +102,8 @@ public class Resources {
 		String url=downloadURL(bare);
 		StringBuilder sb=new StringBuilder();
 		sb.append("\nERROR: Required resource not found: ").append(bare).append('\n');
-		if(PROKCC_ARCHIVE.equals(url)){
-			sb.append(prokccDownloadInstructions());
+		if(isProkccArchive(url)){
+			sb.append(prokccDownloadInstructions(url));
 		}else{
 			if(url!=null){
 				sb.append("Download it from:\n  ").append(url).append('\n');
@@ -116,15 +129,18 @@ public class Resources {
 	private static final String NERSC_URL="https://portal.nersc.gov/cfs/bbtools/";
 	private static final String SOURCEFORGE_URL="https://sourceforge.net/projects/bbmap/files/Resources/";
 	/** One archive contains the matching ProkCC release config, model files and tables. */
-	private static final String PROKCC_ARCHIVE=SOURCEFORGE_URL+"prokcc_v1.2.1.tar";
+	private static final String PROKCC_ARCHIVE=SOURCEFORGE_URL+"prokcc_v1.4.tar";
+	private static final String PROKCC_LEGACY_ARCHIVE=SOURCEFORGE_URL+"prokcc_v1.2.1.tar";
 	/** The size-filtered 32k DDL sketch DB is ~9.8 GB -- too large for GitHub's 2GB cap; hosted on Zenodo
 	 * as a direct-download file link pinned to the v40.00 record (matches the v40.00 GitHub links above). */
 	private static final String ZENODO_DDL32K="https://zenodo.org/records/21630308/files/refseqSketchDDL_k25e5b32768.tsv.gz";
 
 	private static final HashMap<String, String> RESOURCE_URLS=new HashMap<>();
 	static{
-		RESOURCE_URLS.put("composite_v1.2.1_shrunk_0.8pct_18bit.bbnet.gz", PROKCC_ARCHIVE);
-		RESOURCE_URLS.put("magqc_subnets_v1.2.1_shrunk_57.4pct_18bit.bbnets.gz", PROKCC_ARCHIVE);
+		RESOURCE_URLS.put("magqc_composite_v1.4_shrunk_18bit.bbnet.gz", PROKCC_ARCHIVE);
+		RESOURCE_URLS.put("magqc_subnets_v1.4_shrunk_18bit.bbnets.gz", PROKCC_ARCHIVE);
+		RESOURCE_URLS.put("composite_v1.2.1_shrunk_0.8pct_18bit.bbnet.gz", PROKCC_LEGACY_ARCHIVE);
+		RESOURCE_URLS.put("magqc_subnets_v1.2.1_shrunk_57.4pct_18bit.bbnets.gz", PROKCC_LEGACY_ARCHIVE);
 		RESOURCE_URLS.put("composite_d252_polished_weight18.bbnet.gz", PROKCC_ARCHIVE);
 		RESOURCE_URLS.put("v1.bbnets.gz", PROKCC_ARCHIVE);
 		RESOURCE_URLS.put("magqc_subnets_v1.bbnets.gz", PROKCC_ARCHIVE);

@@ -50,15 +50,21 @@ public final class MagQCBinReplayStore implements AutoCloseable {
 	/** Creates a replay store with optional in-memory raw rows for shuffle-heavy workers. */
 	public static MagQCBinReplayStore build(String file,String model,Path directory,Validator validator,
 			Long shuffleSeed,boolean memoryRows){
+		return build(file, model, directory, validator, shuffleSeed, memoryRows, null);
+	}
+
+	/** Retains only pinned sparse IDs while validating all original model ordinals and rows. */
+	static MagQCBinReplayStore build(String file,String model,Path directory,Validator validator,
+			Long shuffleSeed,boolean memoryRows,MagQCReplaySelection selection){
 		MagQCBinManifest.validateModelName(model);
 		if(validator==null){throw new IllegalArgumentException("Replay requires full-manifest validation");}
-		try{return buildChecked(file,model,directory,validator,shuffleSeed,memoryRows);}
+		try{return buildChecked(file,model,directory,validator,shuffleSeed,memoryRows,selection);}
 		catch(IOException e){throw new RuntimeException("Could not build replay spool for "+file,e);}
 	}
 
 	/** Validates, writes selected payloads and constructs contiguous per-split offset arrays. */
 	private static MagQCBinReplayStore buildChecked(String file,String model,Path directory,Validator validator,Long shuffleSeed,
-			boolean memoryRows) throws IOException{
+			boolean memoryRows,MagQCReplaySelection selection) throws IOException{
 		Path spool=null;
 		try{
 			final MagQCBinManifest.Manifest header;
@@ -79,9 +85,11 @@ public final class MagQCBinReplayStore implements AutoCloseable {
 						ids.add(bin.id); rows++;
 						validator.bin(bin,header);
 						final int ordinal=MagQCBinManifest.modelOrdinal(bin,model);
+						final boolean keep=selection==null || selection.retain(bin, ordinal);
 						if(ordinal<0){continue;}
 						final int split=bin.split.equals("train") ? 0 : 1;
-						ordinals[split].add(ordinal); positions[split].add(bytes);
+						ordinals[split].add(ordinal); positions[split].add(keep ? bytes : -1L);
+						if(!keep){continue;}
 						row.clear(); MagQCBinManifest.append(bin,row);
 						final int length=row.length()-1; // The binary record does not need the terminal newline.
 						assert(length>0) : "A formatted manifest row contains eleven nonempty fields";
@@ -91,10 +99,11 @@ public final class MagQCBinReplayStore implements AutoCloseable {
 					}
 				}
 			}
+			if(selection!=null){selection.finish();}
 			final Order[] ordered={order(ordinals[0],positions[0],model,"train",shuffleSeed,0),
 				order(ordinals[1],positions[1],model,"val",shuffleSeed,1)};
 			if(ordered[0].offsets.length==0 && ordered[1].offsets.length==0){throw new IllegalArgumentException("No manifest rows for binmodel="+model);}
-			final byte[][][] memory=memoryRows ? retainedRows(retainedTrain,retainedVal,ordered) : null;
+			final byte[][][] memory=memoryRows ? retainedRows(retainedTrain,retainedVal,ordered,ordinals) : null;
 			return new MagQCBinReplayStore(spool,header,model,
 				new long[][]{ordered[0].offsets,ordered[1].offsets},
 				new int[][]{ordered[0].sourceOrdinals,ordered[1].sourceOrdinals},memory,maxLength,rows,bytes);
@@ -104,11 +113,11 @@ public final class MagQCBinReplayStore implements AutoCloseable {
 		}
 	}
 
-	private static byte[][][] retainedRows(ArrayList<Retained> retainedTrain,ArrayList<Retained> retainedVal,Order[] ordered){
+	private static byte[][][] retainedRows(ArrayList<Retained> retainedTrain,ArrayList<Retained> retainedVal,Order[] ordered,IntList[] ordinals){
 		final ArrayList<Retained>[] retained=new ArrayList[]{retainedTrain,retainedVal};
 		final byte[][][] result=new byte[2][][];
 		for(int split=0; split<2; split++){
-			final byte[][] byOrdinal=new byte[retained[split].size()][];
+			final byte[][] byOrdinal=new byte[ordinals[split].size][];
 			for(Retained row : retained[split]){
 				if(row.ordinal<0 || row.ordinal>=byOrdinal.length || byOrdinal[row.ordinal]!=null){
 					throw new IllegalArgumentException("Retained replay row ordinal is not dense: "+row.ordinal);
@@ -133,10 +142,10 @@ public final class MagQCBinReplayStore implements AutoCloseable {
 		final long[] orderedOffsets=new long[ordinals.size];
 		final int[] orderedOrdinals=new int[ordinals.size];
 		final long[] byOrdinal=new long[ordinals.size];
-		Arrays.fill(byOrdinal,-1);
+		Arrays.fill(byOrdinal,-2);
 		for(int i=0; i<byOrdinal.length; i++){
 			final int ordinal=ordinals.get(i);
-			if(ordinal<0 || ordinal>=byOrdinal.length || byOrdinal[ordinal]>=0){
+			if(ordinal<0 || ordinal>=byOrdinal.length || byOrdinal[ordinal]!=-2){
 				throw new IllegalArgumentException("Noncontiguous or duplicate row "+ordinal+" for model "+model+" split "+split);
 			}
 			byOrdinal[ordinal]=positions.get(i);
@@ -152,7 +161,15 @@ public final class MagQCBinReplayStore implements AutoCloseable {
 				final int ordinal=orderedOrdinals[i]; orderedOrdinals[i]=orderedOrdinals[j]; orderedOrdinals[j]=ordinal;
 			}
 		}
-		return new Order(orderedOffsets,orderedOrdinals);
+		// Filter AFTER the original shuffle so selected order equals a subset of full replay.
+		int kept=0;
+		for(int i=0; i<orderedOffsets.length; i++){
+			if(orderedOffsets[i]>=0){
+				orderedOffsets[kept]=orderedOffsets[i]; orderedOrdinals[kept]=orderedOrdinals[i]; kept++;
+			}
+		}
+		return new Order(kept==orderedOffsets.length ? orderedOffsets : Arrays.copyOf(orderedOffsets, kept),
+			kept==orderedOrdinals.length ? orderedOrdinals : Arrays.copyOf(orderedOrdinals, kept));
 	}
 
 	private static final class Order {
