@@ -20,7 +20,7 @@ import shared.Tools;
  * memory-mappable binary files.
  *
  * Usage:
- *   BuildDiskTables accession=auto pattern=auto table=auto tree=auto \
+ *   BuildDiskTables accession=auto pattern=auto table=auto tree=null \
  *     accout=accession_disk.bin giout=gi_disk.bin
  *
  * @author Brian Bushnell, Chloe
@@ -55,7 +55,7 @@ public class BuildDiskTables {
 			}else if(a.equals("table") || a.equals("gi") || a.equals("gitable")){
 				giTableFile=b;
 			}else if(a.equals("tree") || a.equals("taxtree")){
-				taxTreeFile=b;
+				taxTreeFile=parseTreeFile(b);
 			}else if(a.equals("pattern")){
 				patternFile=b;
 			}else if(a.equals("accout") || a.equals("accessionout")){
@@ -131,15 +131,14 @@ public class BuildDiskTables {
 
 		final String[] files=accessionFile.split(",");
 
-		outstream.println("Pass 1: counting digitizable entries.");
+		outstream.println("Pass 1: counting candidate entries.");
 		final CountStats stats=CountStats.sum(spawnCountThreads(files));
 		outstream.println("Total lines: "+stats.total);
-		outstream.println("Digitizable: "+stats.digitizable);
-		outstream.println("Non-digitizable: "+stats.nonDigitizable);
+		outstream.println("Candidate entries: "+stats.candidates);
 
 		outstream.println("Pass 2: building disk table.");
 		long collected=0, added=0;
-		try(DiskAccessionTable.Builder builder=DiskAccessionTable.build(accOut, stats.digitizable)){
+		try(DiskAccessionTable.Builder builder=DiskAccessionTable.build(accOut, stats.candidates)){
 			final DiskAccessionTable.BufferSet buffers=builder.bufferSet(bufferEntries());
 			final ProcessThread[] threads=spawnThreads(files, buffers);
 			collected=waitForThreads(threads);
@@ -157,6 +156,15 @@ public class BuildDiskTables {
 
 	private static boolean skipAccessionLine(byte[] line){
 		return line.length<1 || Tools.startsWith(line, "accession") || Tools.startsWith(line, "#");
+	}
+
+	private static String parseTreeFile(String s){
+		if(s==null || s.length()<1){return "auto";}
+		if(Parse.isBoolean(s) || s.equals("1") || s.equals("0") ||
+				s.equalsIgnoreCase("null") || s.equalsIgnoreCase("none")){
+			return Parse.parseBoolean(s) ? "auto" : null;
+		}
+		return s;
 	}
 
 	private CountThread[] spawnCountThreads(String[] files){
@@ -232,8 +240,7 @@ public class BuildDiskTables {
 			for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()){
 				if(skipAccessionLine(line)){continue;}
 				total++;
-				if(AnalyzeAccession.digitize(line)>0){digitizable++;}
-				else{nonDigitizable++;}
+				candidates++;
 			}
 			if(bf.close()){throw new IOException("Error reading "+fname);}
 		}
@@ -242,8 +249,7 @@ public class BuildDiskTables {
 		private final AtomicInteger next;
 		private final AtomicReference<Throwable> errorRef;
 		private long total=0;
-		private long digitizable=0;
-		private long nonDigitizable=0;
+		private long candidates=0;
 		private Throwable error=null;
 
 	}
@@ -262,15 +268,13 @@ public class BuildDiskTables {
 				}
 				if(threads[i].error!=null){throw new RuntimeException(threads[i].error);}
 				stats.total+=threads[i].total;
-				stats.digitizable+=threads[i].digitizable;
-				stats.nonDigitizable+=threads[i].nonDigitizable;
+				stats.candidates+=threads[i].candidates;
 			}
 			return stats;
 		}
 
 		private long total=0;
-		private long digitizable=0;
-		private long nonDigitizable=0;
+		private long candidates=0;
 
 	}
 
@@ -325,7 +329,7 @@ public class BuildDiskTables {
 
 	private String accessionFile=null;
 	private String giTableFile=null;
-	private String taxTreeFile="auto";
+	private String taxTreeFile=null;
 	private String patternFile=null;
 	private String accOut=null;
 	private String giOut=null;

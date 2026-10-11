@@ -17,6 +17,7 @@ import fileIO.ByteStreamWriter;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
 import fileIO.TextFile;
+import map.LongHashMap;
 import parse.Parse;
 import parse.Parser;
 import parse.PreParser;
@@ -321,6 +322,7 @@ public class AnalyzeAccession implements Accumulator<AnalyzeAccession.ProcessThr
 
 	public static HashMap<String, Integer> loadCodeMap(String fname){
 		assert(codeMap==null);
+		assert(patternCodeMap==null);
 		TextFile tf=new TextFile(fname);
 		ArrayList<String> list=new ArrayList<String>();
 		for(String line=tf.nextLine(); line!=null; line=tf.nextLine()){
@@ -369,8 +371,10 @@ public class AnalyzeAccession implements Accumulator<AnalyzeAccession.ProcessThr
 		long maxCombos1=(1L<<(62-codeBits1));
 
 		HashMap<String, Integer> map=new HashMap<String, Integer>(numPatterns*3);
+		LongHashMap map2=new LongHashMap(numPatterns*3);
 		patternShift=new int[numPatterns];
 		patternLowBits=new int[numPatterns];
+		patternList=list.toArray(new String[numPatterns]);
 
 		int code0=0, code1=0;
 		for(int i=0; i<numPatterns; i++){
@@ -379,26 +383,86 @@ public class AnalyzeAccession implements Accumulator<AnalyzeAccession.ProcessThr
 				if(combosArr[i]<0 || combosArr[i]>=maxCombos1){
 					map.put(s, -1);
 					patternShift[i]=-1;
+					long key=patternKey(s);
+					if(key>=0){map2.put(key, 0);}
 				}else{
 					int pc=code1++;
 					patternShift[i]=codeBits1+1;
 					patternLowBits[i]=(pc<<1)|1;
 					map.put(s, i);
+					long key=patternKey(s);
+					if(key>=0){map2.put(key, i+1);}
 				}
 			}else{
 				int pc=code0++;
 				patternShift[i]=codeBits0+1;
 				patternLowBits[i]=(pc<<1)|0;
 				map.put(s, i);
+				long key=patternKey(s);
+				if(key>=0){map2.put(key, i+1);}
 			}
 		}
 
 		codeMap=map;
+		patternCodeMap=map2;
 		return map;
 	}
 
 	public static long digitize(String s){
-		String pattern=remap(s);
+		final long key=remapKey(s);
+		if(key<0){return digitize(remap(s), s);}
+		final int code=patternCodeMap.get(key);
+		if(code<0){return -2;}
+		if(code==0){return -1;}
+		final int idx=code-1;
+		final String pattern=patternList[idx];
+
+		long number=0;
+		for(int i=0; i<pattern.length(); i++){
+			char c=s.charAt(i);
+			char p=pattern.charAt(i);
+			if(p=='-' || p=='?' || p=='N' || p=='Z'){
+				//do nothing - constant symbols, zero bits
+			}else if(p=='D'){
+				number=(number*10)+(c-'0');
+			}else if(p=='L'){
+				number=(number*26)+(Tools.toUpperCase(c)-'A');
+			}else{
+				assert(false) : s;
+			}
+		}
+		number=((number+1)<<patternShift[idx])|patternLowBits[idx];
+		return number;
+	}
+
+	public static long digitize(byte[] s){
+		final long key=remapKey(s);
+		if(key<0){return digitize(remap(s), s);}
+		final int code=patternCodeMap.get(key);
+		if(code<0){return -2;}
+		if(code==0){return -1;}
+		final int idx=code-1;
+		final String pattern=patternList[idx];
+
+		long number=0;
+		for(int i=0; i<pattern.length(); i++){
+			byte c=s[i];
+			char p=pattern.charAt(i);
+			if(p=='-' || p=='?' || p=='N' || p=='Z'){
+				//do nothing - constant symbols, zero bits
+			}else if(p=='D'){
+				number=(number*10)+(c-'0');
+			}else if(p=='L'){
+				number=(number*26)+(Tools.toUpperCase(c)-'A');
+			}else{
+				assert(false) : new String(s);
+			}
+		}
+		number=((number+1)<<patternShift[idx])|patternLowBits[idx];
+		return number;
+	}
+
+	private static long digitize(String pattern, String s){
 		Integer idx=codeMap.get(pattern);
 		if(idx==null){return -2;}
 		if(idx.intValue()<0){return -1;}
@@ -421,8 +485,7 @@ public class AnalyzeAccession implements Accumulator<AnalyzeAccession.ProcessThr
 		return number;
 	}
 
-	public static long digitize(byte[] s){
-		String pattern=remap(s);
+	private static long digitize(String pattern, byte[] s){
 		Integer idx=codeMap.get(pattern);
 		if(idx==null){return -2;}
 		if(idx.intValue()<0){return -1;}
@@ -482,6 +545,55 @@ public class AnalyzeAccession implements Accumulator<AnalyzeAccession.ProcessThr
 		return result;
 	}
 
+	private static long patternKey(String s){
+		if(s.length()>MAX_CODED_PATTERN_LENGTH){return -1;}
+		long key=0;
+		for(int i=0; i<s.length(); i++){
+			key|=((long)patternCode(s.charAt(i)))<<(PATTERN_BITS*i);
+		}
+		return key;
+	}
+
+	private static long remapKey(String s){
+		if(s==null || s.length()<1){return 0;}
+		long key=0;
+		final boolean nz=(s.length()>=3 && (s.charAt(0)=='N' || s.charAt(0)=='n')
+				&& (s.charAt(1)=='Z' || s.charAt(1)=='z') && (s.charAt(2)=='_' || s.charAt(2)=='-'));
+		for(int i=0; i<s.length(); i++){
+			final char b=s.charAt(i);
+			if(b==' ' || b=='\t' || b=='.' || b==':'){break;}
+			if(i>=MAX_CODED_PATTERN_LENGTH){return -1;}
+			final char p=(nz && i<2) ? b : (char)remap[b];
+			key|=((long)patternCode(p))<<(PATTERN_BITS*i);
+		}
+		return key;
+	}
+
+	private static long remapKey(byte[] s){
+		long key=0;
+		final boolean nz=(s.length>=3 && (s[0]=='N' || s[0]=='n')
+				&& (s[1]=='Z' || s[1]=='z') && (s[2]=='_' || s[2]=='-'));
+		for(int i=0; i<s.length; i++){
+			final byte b=s[i];
+			if(b==' ' || b=='\t' || b=='.' || b==':'){break;}
+			if(i>=MAX_CODED_PATTERN_LENGTH){return -1;}
+			final char p=(nz && i<2) ? (char)b : (char)remap[b];
+			key|=((long)patternCode(p))<<(PATTERN_BITS*i);
+		}
+		return key;
+	}
+
+	private static int patternCode(char c){
+		if(c=='D'){return 1;}
+		if(c=='L' || c=='l'){return 2;}
+		if(c=='-'){return 3;}
+		if(c=='?'){return 4;}
+		if(c=='N' || c=='n'){return 5;}
+		if(c=='Z' || c=='z'){return 6;}
+		assert(false) : c;
+		return 7;
+	}
+
 	/*--------------------------------------------------------------*/
 
 	private ArrayList<String> in=new ArrayList<String>();
@@ -492,11 +604,15 @@ public class AnalyzeAccession implements Accumulator<AnalyzeAccession.ProcessThr
 
 	private HashMap<String, StringNum> countMap=new HashMap<String, StringNum>();
 	public static HashMap<String, Integer> codeMap;
+	private static LongHashMap patternCodeMap;
+	private static String[] patternList;
 	static int codeBits0=-1;
 	static int codeBits1=-1;
 	static int[] patternShift;
 	static int[] patternLowBits;
 	private static int longestPattern=-1;
+	private static final int PATTERN_BITS=3;
+	private static final int MAX_CODED_PATTERN_LENGTH=21;
 
 	private long linesProcessed=0;
 	private long linesOut=0;
