@@ -2,9 +2,12 @@ package tax;
 
 import java.io.IOException;
 import java.io.PrintStream;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import fileIO.ByteFile;
 import fileIO.ReadWrite;
+import parse.Parse;
 import parse.Parser;
 import parse.PreParser;
 import shared.Shared;
@@ -59,6 +62,8 @@ public class BuildDiskTables {
 				accOut=b;
 			}else if(a.equals("giout")){
 				giOut=b;
+			}else if(a.equals("bufferentries")){
+				bufferEntries=Parse.parseIntKMG(b);
 			}else if(parser.parse(arg, a, b)){
 				//do nothing
 			}else{
@@ -141,21 +146,14 @@ public class BuildDiskTables {
 		outstream.println("Non-digitizable: "+nonDigitizable);
 
 		outstream.println("Pass 2: building disk table.");
+		final String[] files=accessionFile.split(",");
 		long collected=0, added=0;
 		try(DiskAccessionTable.Builder builder=DiskAccessionTable.build(accOut, digitizable)){
-			for(String fname : accessionFile.split(",")){
-				ByteFile bf=ByteFile.makeByteFile(fname, true);
-				for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()){
-					if(skipAccessionLine(line)){continue;}
-					final long number=AnalyzeAccession.digitize(line);
-					if(number>0){
-						collected++;
-						final int taxid=AccessionToTaxid.parseLineToTaxid(line, (byte)'\t');
-						if(taxid>0 && builder.add(number, taxid)){added++;}
-					}
-				}
-				bf.close();
-			}
+			final DiskAccessionTable.BufferSet buffers=builder.bufferSet(bufferEntries());
+			final ProcessThread[] threads=spawnThreads(files, buffers);
+			collected=waitForThreads(threads);
+			buffers.flush();
+			added=buffers.added();
 		}catch(IOException e){
 			throw new RuntimeException(e);
 		}
@@ -170,6 +168,89 @@ public class BuildDiskTables {
 		return line.length<1 || Tools.startsWith(line, "accession") || Tools.startsWith(line, "#");
 	}
 
+	private ProcessThread[] spawnThreads(String[] files, DiskAccessionTable.BufferSet buffers){
+		final int threads=Tools.mid(1, files.length, Shared.threads());
+		final ProcessThread[] array=new ProcessThread[threads];
+		final AtomicInteger next=new AtomicInteger(0);
+		final AtomicReference<Throwable> error=new AtomicReference<Throwable>();
+		for(int i=0; i<array.length; i++){
+			array[i]=new ProcessThread(files, next, error, buffers);
+			array[i].start();
+		}
+		return array;
+	}
+
+	private static long waitForThreads(ProcessThread[] threads){
+		long collected=0;
+		for(int i=0; i<threads.length; i++){
+			while(threads[i].getState()!=Thread.State.TERMINATED){
+				try{
+					threads[i].join();
+				}catch(InterruptedException e){
+					throw new RuntimeException(e);
+				}
+			}
+			if(threads[i].error!=null){throw new RuntimeException(threads[i].error);}
+			collected+=threads[i].collected;
+		}
+		return collected;
+	}
+
+	private int bufferEntries(){
+		if(bufferEntries>0){return bufferEntries;}
+		final long memory=Runtime.getRuntime().maxMemory();
+		final long bytes=memory/(32L*DiskAccessionTable.BUILD_PARTITIONS);
+		final long entries=bytes/BUFFER_ENTRY_BYTES;
+		return (int)Tools.mid(1024, MAX_BUFFER_ENTRIES, entries);
+	}
+
+	private static class ProcessThread extends Thread {
+
+		ProcessThread(String[] files_, AtomicInteger next_, AtomicReference<Throwable> error_,
+				DiskAccessionTable.BufferSet buffers_){
+			files=files_;
+			next=next_;
+			errorRef=error_;
+			buffers=buffers_;
+		}
+
+		@Override
+		public void run(){
+			try{
+				for(int i=next.getAndIncrement(); i<files.length && errorRef.get()==null; i=next.getAndIncrement()){
+					processFile(files[i]);
+				}
+			}catch(Throwable e){
+				error=e;
+				errorRef.compareAndSet(null, e);
+			}
+		}
+
+		private void processFile(String fname) throws IOException {
+			ByteFile bf=ByteFile.makeByteFile(fname, true);
+			for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()){
+				if(skipAccessionLine(line)){continue;}
+				final long number=AnalyzeAccession.digitize(line);
+				if(number>0){
+					final int taxid=AccessionToTaxid.parseLineToTaxid(line, (byte)'\t');
+					if(taxid>0){
+						buffers.add(number, taxid);
+						collected++;
+					}
+				}
+			}
+			if(bf.close()){throw new IOException("Error reading "+fname);}
+		}
+
+		private final String[] files;
+		private final AtomicInteger next;
+		private final AtomicReference<Throwable> errorRef;
+		private final DiskAccessionTable.BufferSet buffers;
+		private long collected=0;
+		private Throwable error=null;
+
+	}
+
 	/*--------------------------------------------------------------*/
 
 	private String accessionFile=null;
@@ -178,7 +259,11 @@ public class BuildDiskTables {
 	private String patternFile=null;
 	private String accOut=null;
 	private String giOut=null;
+	private int bufferEntries=0;
 	private TaxTree tree=null;
 	private PrintStream outstream=System.err;
+
+	private static final long BUFFER_ENTRY_BYTES=20;
+	private static final int MAX_BUFFER_ENTRIES=1<<24;
 
 }

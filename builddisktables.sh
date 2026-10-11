@@ -24,6 +24,7 @@ accout=          Output path for the binary disk accession table.
 gi=              Optional input GI table, such as gitable.int2d.gz.
                  This may also be set with table= or gitable=.
 giout=           Optional output path for the binary disk GI table.
+bufferentries=   Override the per-partition accession buffer size.
 tree=auto        Taxonomy tree.
 taxpath=auto     Set the path to taxonomy files; auto only works at NERSC.
 

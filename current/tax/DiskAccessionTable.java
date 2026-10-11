@@ -209,10 +209,33 @@ public class DiskAccessionTable {
 		public boolean add(long key, int value) throws IOException {
 			if(key<=0){return false;}
 			final long h=hash(key);
-			final int part=(int)((h>>>(63-partitionBits))&(numPartitions-1));
+			final int part=partition(h);
 			final boolean added=insert(parts[part], partMask, h&partMask, key, value);
-			if(added){entryCount++;}
+			if(added){addEntries(1);}
 			return added;
+		}
+
+		public BufferSet bufferSet(int entriesPerPartition){
+			return new BufferSet(this, entriesPerPartition);
+		}
+
+		private int partition(final long h){
+			return (int)((h>>>(63-partitionBits))&(numPartitions-1));
+		}
+
+		private long addSorted(int part, long[] slots, long[] keys, int[] values, int size) throws IOException {
+			sort(slots, keys, values, size);
+			long added=0;
+			final MappedByteBuffer[] segs=parts[part];
+			for(int i=0; i<size; i++){
+				if(insert(segs, partMask, slots[i], keys[i], values[i])){added++;}
+			}
+			addEntries(added);
+			return added;
+		}
+
+		private synchronized void addEntries(long added){
+			entryCount+=added;
 		}
 
 		@Override
@@ -235,6 +258,132 @@ public class DiskAccessionTable {
 		private long entryCount=0;
 		private boolean closed=false;
 
+	}
+
+	public static class BufferSet {
+
+		private BufferSet(Builder builder_, int entriesPerPartition){
+			builder=builder_;
+			buffers=new Buffer[builder.numPartitions];
+			for(int i=0; i<buffers.length; i++){
+				buffers[i]=new Buffer(builder, i, entriesPerPartition);
+			}
+		}
+
+		public void add(long key, int value) throws IOException {
+			if(key<=0){return;}
+			final long h=hash(key);
+			buffers[builder.partition(h)].add(h&builder.partMask, key, value);
+		}
+
+		public void flush() throws IOException {
+			for(int i=0; i<buffers.length; i++){buffers[i].flush();}
+		}
+
+		public long added(){
+			long sum=0;
+			for(int i=0; i<buffers.length; i++){sum+=buffers[i].added;}
+			return sum;
+		}
+
+		private final Builder builder;
+		private final Buffer[] buffers;
+
+	}
+
+	private static class Buffer {
+
+		Buffer(Builder builder_, int part_, int capacity){
+			builder=builder_;
+			part=part_;
+			slots=new long[capacity];
+			keys=new long[capacity];
+			values=new int[capacity];
+		}
+
+		synchronized void add(long slot, long key, int value) throws IOException {
+			slots[size]=slot;
+			keys[size]=key;
+			values[size]=value;
+			size++;
+			if(size>=slots.length){flushInner();}
+		}
+
+		synchronized void flush() throws IOException {
+			flushInner();
+		}
+
+		private void flushInner() throws IOException {
+			if(size>0){
+				added+=builder.addSorted(part, slots, keys, values, size);
+				size=0;
+			}
+		}
+
+		private final Builder builder;
+		private final int part;
+		private final long[] slots;
+		private final long[] keys;
+		private final int[] values;
+		private int size=0;
+		private long added=0;
+
+	}
+
+	private static void sort(long[] slots, long[] keys, int[] values, int size){
+		if(size>1){quickSort(slots, keys, values, 0, size-1);}
+	}
+
+	private static void quickSort(long[] slots, long[] keys, int[] values, int left, int right){
+		while(right-left>SORT_SMALL){
+			final long pivot=slots[(left+right)>>>1];
+			int a=left, b=right;
+			while(a<=b){
+				while(slots[a]<pivot){a++;}
+				while(slots[b]>pivot){b--;}
+				if(a<=b){
+					swap(slots, keys, values, a, b);
+					a++;
+					b--;
+				}
+			}
+			if(b-left<right-a){
+				if(left<b){quickSort(slots, keys, values, left, b);}
+				left=a;
+			}else{
+				if(a<right){quickSort(slots, keys, values, a, right);}
+				right=b;
+			}
+		}
+		insertionSort(slots, keys, values, left, right);
+	}
+
+	private static void insertionSort(long[] slots, long[] keys, int[] values, int left, int right){
+		for(int i=left+1; i<=right; i++){
+			final long slot=slots[i], key=keys[i];
+			final int value=values[i];
+			int j=i;
+			while(j>left && slots[j-1]>slot){
+				slots[j]=slots[j-1];
+				keys[j]=keys[j-1];
+				values[j]=values[j-1];
+				j--;
+			}
+			slots[j]=slot;
+			keys[j]=key;
+			values[j]=value;
+		}
+	}
+
+	private static void swap(long[] slots, long[] keys, int[] values, int a, int b){
+		final long slot=slots[a], key=keys[a];
+		final int value=values[a];
+		slots[a]=slots[b];
+		keys[a]=keys[b];
+		values[a]=values[b];
+		slots[b]=slot;
+		keys[b]=key;
+		values[b]=value;
 	}
 
 	/*--------------------------------------------------------------*/
@@ -284,7 +433,8 @@ public class DiskAccessionTable {
 	private static final long SLOT_SIZE=12;
 	private static final long EMPTY=0;
 	private static final long SEGMENT_SIZE=((long)Integer.MAX_VALUE/SLOT_SIZE)*SLOT_SIZE;
-	private static final int BUILD_PARTITIONS=8;
+	static final int BUILD_PARTITIONS=8;
 	private static final int MIN_PART_CAPACITY=16;
+	private static final int SORT_SMALL=32;
 
 }
