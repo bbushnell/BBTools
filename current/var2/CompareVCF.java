@@ -35,6 +35,10 @@ import structures.ByteBuilder;
  */
 public class CompareVCF {
 	
+	/*--------------------------------------------------------------*/
+	/*----------------            Startup           ----------------*/
+	/*--------------------------------------------------------------*/
+
 	public static void main(String[] args){
 		Timer t=new Timer();
 		CompareVCF x=new CompareVCF(args);
@@ -163,6 +167,10 @@ public class CompareVCF {
 		}
 	}
 	
+	/*--------------------------------------------------------------*/
+	/*----------------       Variant Loading        ----------------*/
+	/*--------------------------------------------------------------*/
+
 	/**
 	 * Loads VCF variants from a file into a HashSet.
 	 * Optionally splits complex variants and filters by minimum quality score.
@@ -223,6 +231,10 @@ public class CompareVCF {
 		return bedMask==null || (bedMask.contains(v.scaf, v.pos)^invertBed);
 	}
 
+	/*--------------------------------------------------------------*/
+	/*----------------        Set Operations        ----------------*/
+	/*--------------------------------------------------------------*/
+
 	/**
 	 * Creates the union of all variants from input VCF files.
 	 * Combines all unique variants from all input files into a single set.
@@ -268,6 +280,10 @@ public class CompareVCF {
 		}
 		return set0;
 	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Ploidy Merging        ----------------*/
+	/*--------------------------------------------------------------*/
 
 	/**
 	 * Merges variants across all inputs (union or intersection) and rewrites each
@@ -467,6 +483,10 @@ public class CompareVCF {
 		}
 	}
 	
+	/*--------------------------------------------------------------*/
+	/*----------------            Output            ----------------*/
+	/*--------------------------------------------------------------*/
+
 	/**
 	 * Performs the specified set operation and returns results as a sorted list.
 	 * Executes difference, union, or intersection based on configured mode.
@@ -550,40 +570,63 @@ public class CompareVCF {
 	}
 	
 	/*--------------------------------------------------------------*/
-	
+	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Total input lines consumed, including headers. */
 	private long linesProcessed=0;
+	/** Input VCF header lines consumed. */
 	private long headerLinesProcessed=0;
+	/** Input variant records consumed after VCF parsing. */
 	private long variantLinesProcessed=0;
+	/** Header lines emitted to the output stream. */
 	private long headerLinesOut=0;
+	/** Variant records emitted to the output stream. */
 	private long variantLinesOut=0;
+	/** Input bytes consumed across all VCF files. */
 	private long bytesProcessed=0;
 	
+	/** Maximum number of lines to read from each input file. */
 	private long maxLines=Long.MAX_VALUE;
 
+	/** Header copied from the first input VCF. */
 	public ArrayList<byte[]> header=null;
+	/** Sample names observed across input VCF files. */
 	public ArrayList<String> samples=new ArrayList<String>();
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Input VCF paths, parsed from a comma-delimited in= argument. */
 	private String in1[]=null;
+	/** Output path, or null for statistics-only processing. */
 	private String out1=null;
+	/** Reference fasta path for left-alignment. */
 	private String ref=null;
 
+	/** FileFormat wrappers for all input VCFs. */
 	private final FileFormat ffin1[];
+	/** Output VCF/VAR destination, or null when out= is omitted. */
 	private final FileFormat ffout1;
 	
+	/** Selected set operation. */
 	public final int mode;
 	
+	/** Include sample columns in output lines. */
 	public boolean addSamples=true;
+	/** Write VAR records instead of VCF records. */
 	private boolean outputVar=false;
 
+	/** Split multiallelic records into one record per alternate allele. */
 	boolean splitAlleles=false;
+	/** Split multi-base substitutions into SNPs. */
 	boolean splitSubs=false;
+	/** Split complex variants into primitive records. */
 	boolean splitComplex=false;
+	/** Left-align indels against the loaded reference. */
 	boolean normalize=false;
+	/** Minimum QUAL score for an input variant to be retained. */
 	double minScore=-99999;
+	/** Output ploidy for dosage-summed union/intersection merging, or 0 to disable. */
 	int ploidyOut=0;
 
 	/** BED file restricting which variants are compared; null disables region filtering */
@@ -593,22 +636,31 @@ public class CompareVCF {
 	/** Loaded region mask, or null when no bed= was given */
 	private BedMask bedMask=null;
 
-	/** Cached scaffold name and reference bases for the most recent leftAlign lookup */
+	/** Cached scaffold name for the most recent leftAlign lookup. */
 	private String lastScaf=null;
+	/** Reference bases for {@link #lastScaf}. */
 	private byte[] lastBases=null;
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Constant for intersection operation mode (value 2) */
-	/** Constant for union operation mode (value 1) */
-	public static int DIFFERENCE=0, UNION=1, INTERSECTION=2;
+	/** Constant for difference operation mode: subtract later inputs from the first. */
+	public static int DIFFERENCE=0;
+	/** Constant for union operation mode. */
+	public static int UNION=1;
+	/** Constant for intersection operation mode. */
+	public static int INTERSECTION=2;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Destination for diagnostic progress and summary text. */
 	private PrintStream outstream=System.err;
+	/** Enable verbose logging in CompareVCF and delegated I/O readers. */
 	public static boolean verbose=false;
+	/** Set if any underlying reader or writer reports an error. */
 	public boolean errorState=false;
+	/** Allow overwriting existing output. */
 	private boolean overwrite=true;
+	/** Append to existing output. */
 	private boolean append=false;
 	
 }

@@ -16,6 +16,10 @@ import shared.Tools;
  */
 public class CVOutputWriter{
 
+	/*--------------------------------------------------------------*/
+	/*----------------        Output Writers        ----------------*/
+	/*--------------------------------------------------------------*/
+
 	/**
 	 * Writes selected variant outputs with composite scoring (no supplied network).
 	 * @param varMap Borrowed quiescent variants and dataset statistics
@@ -111,6 +115,10 @@ public class CVOutputWriter{
 			if(errorState){throw new RuntimeException("Failed to write histogram output.");}
 		}
 	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------      Histogram Helpers       ----------------*/
+	/*--------------------------------------------------------------*/
 
 	/** Writes a score histogram whose terminal bin reports overflow when populated. */
 	static boolean writeScoreHist(String fname, long[] array){

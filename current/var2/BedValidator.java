@@ -17,8 +17,9 @@ import structures.IntList;
  * @author Shinobu
  * @date Sep 26, 2026
  */
-public final class BedValidator {
+public final class BedValidator{
 
+	/** Utility class; all state belongs to a call or its caller-owned scratch. */
 	private BedValidator(){}
 
 	/*--------------------------------------------------------------*/
@@ -32,10 +33,12 @@ public final class BedValidator {
 	 * Checks one data line without modifying it. Scratch must be exclusive to the caller.
 	 * A valid single-tab interpretation takes precedence; otherwise horizontal
 	 * whitespace is tried. Explicit standardFields disambiguates BEDn+ custom columns.
+	 * Retains the line in scratch without copying; null/empty lines leave scratch unchanged.
 	 * @param line Data bytes without a line terminator
 	 * @param scratch Reusable private parsing state
 	 * @param standardFields Zero to infer, otherwise3-9 or12; later columns are custom
 	 * @return Null on success, otherwise the first core-field diagnostic
+	 * @throws IllegalArgumentException if scratch is null or the declared prefix is unsupported
 	 */
 	public static String validateFields(final byte[] line, final Scratch scratch, final int standardFields){
 		if(scratch==null || (standardFields!=0 && !standardCount(standardFields))){
@@ -87,7 +90,14 @@ public final class BedValidator {
 		return null;
 	}
 
-	/** Scans a BED/custom-track file with local state; custom column meanings remain unchecked. */
+	/** Scans a BED/custom-track file with a directly opened ByteFile1, independent of force flags.
+	 * Closes the owned reader in finally; normal completion returns its read/close flag
+	 * in Result rather than throwing for that flag. Unexpected exceptions still propagate.
+	 * Track directives reset column/delimiter expectations; browser directives after data in a track
+	 * are counted as directives and invalid lines. Custom column meanings remain unchecked.
+	 * @param ff Read-mode input descriptor; its BED format flag is not required
+	 * @param standardFields Zero to infer, otherwise3-9 or12; later columns are custom
+	 * @return Per-file counters and first diagnostic, including the final input-error flag */
 	public static Result validateFile(final FileFormat ff, final int standardFields){
 		if(ff==null || !ff.read() || (standardFields!=0 && !standardCount(standardFields))){
 			throw new IllegalArgumentException("Expected BED input and standard fields auto, 3-9, or 12.");
@@ -132,7 +142,9 @@ public final class BedValidator {
 		return new Result(lines, records, invalid, comments, blanks, tracks, custom, firstLine, firstError, readError);
 	}
 
-	/** Prints explicit core coverage and bounded diagnostics; returns whether the scan passed. */
+	/** Prints explicit core coverage and the first validation diagnostic to borrowed streams.
+	 * Checks output errors and, before returning success, diagnostic-stream errors; closes neither.
+	 * @return True only when the scan passed and both report streams remain error-free */
 	public static boolean printResult(final Result r, final FileFormat ff, final PrintStream out, final PrintStream err){
 		out.println("File\t\t"+ff.name());
 		out.println("Format\t\tbed");
@@ -188,7 +200,9 @@ public final class BedValidator {
 		return "RGB requires exactly three components without a trailing comma";
 	}
 
-	/** Checks paired block lists without materializing arrays or overflowing unsigned extents. */
+	/** Checks paired block lists without materializing arrays or overflowing unsigned extents.
+	 * Requires the first offset to be zero and the last end to equal the feature span;
+	 * permits one trailing comma per list. */
 	private static String blocks(final Scratch s, final long span){
 		final long n=number(s, 9);
 		if(n==0 || Long.compareUnsigned(n, span)>0 || Long.compareUnsigned(n, s.line.length)>0){return "Block count must be positive and fit the feature and block lists";}
@@ -246,8 +260,8 @@ public final class BedValidator {
 	/*--------------------------------------------------------------*/
 
 	/** Reusable, caller-owned parsing buffers; never share concurrently between calls. */
-	public static final class Scratch {
-		/** Number of fields in the most recently checked data line. */
+	public static final class Scratch{
+		/** Number of fields in the most recently parsed nonempty line; null/empty checks leave it unchanged. */
 		public int fieldCount(){return tabDelimited ? tabs.terms() : starts.size;}
 		/** Selects unambiguous tab fields when possible, otherwise scans horizontal whitespace. */
 		private void set(final byte[] value, final int core){
@@ -298,14 +312,19 @@ public final class BedValidator {
 			}
 			return false;
 		}
+		/** Borrowed most recent nonempty line; no ownership transfer or copy. */
 		private byte[] line;
+		/** Selects tab bounds or whitespace bounds for subsequent field access. */
 		private boolean tabDelimited;
+		/** Tab boundaries retained while the alternative whitespace interpretation is tried. */
 		private final LineParser1 tabs=new LineParser1('\t');
+		/** Reused starts and exclusive ends for horizontal-whitespace fields. */
 		private final IntList starts=new IntList(), ends=new IntList();
 	}
 
 	/** Immutable per-file counts and first diagnostic; no global validation state. */
-	public static final class Result {
+	public static final class Result{
+		/** Captures completed scan counts; invalid and custom counts may overlap other categories. */
 		private Result(final long l, final long r, final long i, final long c, final long b, final long t,
 			final long custom, final long first, final String error, final boolean io){
 			lines=l; records=r; invalid=i; comments=c; blanks=b; tracks=t; customRecords=custom;
@@ -313,7 +332,8 @@ public final class BedValidator {
 		}
 		/** True if all documented checks and input reading succeeded. */
 		public boolean passed(){return invalid==0 && !readError;}
-		/** Scan counters; customRecords counts rows with unchecked extension columns. */
+		/** Physical lines partition into records, comments, blanks and tracks (including browser directives).
+		 * invalid can count data or misplaced browser lines; customRecords is a subset of records. */
 		public final long lines, records, invalid, comments, blanks, tracks, customRecords;
 		/** One-based first failing line, or zero when no line failed. */
 		public final long firstErrorLine;

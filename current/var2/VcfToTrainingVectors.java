@@ -1,6 +1,7 @@
 package var2;
 
 import java.io.PrintStream;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
 
@@ -11,9 +12,17 @@ import shared.Tools;
 import structures.ByteBuilder;
 
 /**
- * Converts CallVariants VCF output into training vectors for neural network training.
- * Loads truth VCF as simple (chrom,pos,ref,alt) keys — compatible with any VCF format
- * including GIAB. Loads candidates with VcfLoader for full Var objects.
+ * Converts BBTools CallVariants VCF output into neural-network training vectors.
+ * Truth membership is loaded from {@link VCFLine} rows, using the default
+ * {@link VCFLine#TRIM_TO_CANONICAL} canonical trimming and comma-ALT splitting
+ * before creating keys; candidate rows are loaded
+ * as full {@link Var} objects with {@link VcfLoader}/{@link VcfToVar} coverage
+ * and extended-statistics parsing.
+ *
+ * This older two-VCF path does not decompose multi-base substitutions or perform
+ * {@link VCFLine#leftAlign}. After truth canonicalization, each resulting truth
+ * allele and candidate row must already use the same representation and
+ * {@link VcfToVar#fromVCF} indel coordinate convention.
  *
  * Usage: java var2.VcfToTrainingVectors in=candidates.vcf truth=truth.vcf
  *        ref=reference.fa out=vectors.tsv ploidy=2 platform=illumina
@@ -59,11 +68,15 @@ public class VcfToTrainingVectors {
 			out.println("Loading reference: "+refFile);
 			scafMap=ScafMap.loadReference(refFile, true);
 		}else{
+			//TODO: Possible bug [var2/VcfToTrainingVectors#002] (MEDIUM, feature drift) - without ref=,
+			//VectorUMP45 computes HMP as 0 and CED from scaffold length only; VcfToVar.fromVCF does not
+			//parse the HMP/CED INFO values already present in the VCF. Same contract choice as
+			//VectorsFromLabeledVCF#002: either require ref= or cache VCF-provided HMP/CED on Var.
 			out.println("Loading scaffold map from VCF header: "+inFile);
 			scafMap=ScafMap.loadVcfHeader(inFile);
 		}
 
-		// Load truth VCF as simple variant keys (works with ANY VCF format)
+		// Load truth VCF as per-ALT keys.
 		out.println("Loading truth: "+truthFile);
 		HashSet<String> truthSet=loadTruthKeys(truthFile, scafMap);
 		out.println("Truth variant keys loaded: "+truthSet.size());
@@ -143,7 +156,10 @@ public class VcfToTrainingVectors {
 			else{negative++;}
 		}
 
-		bsw.poisonAndWait();
+		if(bsw.poisonAndWait()){
+			throw new RuntimeException(VcfToTrainingVectors.class.getName()+
+					" terminated in an error state; the output may be corrupt.");
+		}
 
 		out.println("Written: "+written+" (positive: "+positive+", negative: "+negative+")");
 		out.println("Excluded (ambiguous 25-30): "+excluded);
@@ -152,30 +168,65 @@ public class VcfToTrainingVectors {
 
 	/**
 	 * Loads truth VCF as a set of canonical variant keys.
-	 * Parses only CHROM, POS, REF, ALT — works with any VCF format (GIAB, GATK, etc.).
+	 * Parses VCF rows through VCFLine so simple equivalent representations are
+	 * trimmed before keying; multi-allelic rows are split into biallelic rows.
 	 */
 	private static HashSet<String> loadTruthKeys(String fname, ScafMap scafMap){
 		HashSet<String> set=new HashSet<String>();
-		TextFile tf=new TextFile(fname);
-		for(String line=tf.nextLine(); line!=null; line=tf.nextLine()){
-			if(line.startsWith("#")){continue;}
-			String[] fields=line.split("\t", 6);
-			if(fields.length<5){continue;}
-
-			String chrom=fields[0];
-			int pos=Integer.parseInt(fields[1]);
-			String ref=fields[3];
-			String alt=fields[4];
-
-			// Handle multi-allelic (comma-separated ALT)
-			String[] alts=alt.split(",");
-			for(String a : alts){
-				String key=makeKeyFromVcfFields(chrom, pos, ref, a.trim(), scafMap);
-				if(key!=null){set.add(key);}
+		final TextFile tf=new TextFile(fname);
+		Throwable pending=null;
+		boolean errorState=false;
+		try{
+			for(String line=tf.nextLine(); line!=null; line=tf.nextLine()){
+				if(line.startsWith("#")){continue;}
+				final String[] fields=line.split("\t", 6);
+				if(fields.length<5){continue;}
+				//TODO: Possible bug [var2/VcfToTrainingVectors#005] (HIGH, truth mismatch) - this now reuses
+				//VCFLine canonical trimming for equivalent REF/ALT text, but it does not decompose multi-base
+				//substitutions or left-align indels, so "any VCF format" remains too broad for GIAB-style truth.
+				final VCFLine vcf=new VCFLine(line.getBytes());
+				final ArrayList<VCFLine> list=vcf.split(true, false, false);
+				if(list==null){
+					addTruthKey(set, vcf, scafMap);
+				}else{
+					for(VCFLine v : list){addTruthKey(set, v, scafMap);}
+				}
 			}
+		}catch(Throwable t){
+			pending=t;
 		}
-		tf.close();
+		try{
+			tf.close();
+			errorState=tf.errorState;
+		}catch(Throwable t){
+			pending=suppressOrReturn(pending, t);
+		}
+		if(errorState){
+			pending=suppressOrReturn(pending, new RuntimeException(
+					"Failed to read or close truth VCF: "+fname));
+		}
+		if(pending!=null){rethrow(pending);}
 		return set;
+	}
+
+	/** Adds one canonicalized VCFLine to the truth set. */
+	private static void addTruthKey(final HashSet<String> set, final VCFLine vcf, final ScafMap scafMap){
+		final String key=makeKeyFromVcfFields(vcf.scaf, vcf.pos, new String(vcf.ref), new String(vcf.alt), scafMap);
+		if(key!=null){set.add(key);}
+	}
+
+	/** Returns pending with the new cleanup failure suppressed, preserving the primary cause. */
+	private static Throwable suppressOrReturn(final Throwable pending, final Throwable cleanup){
+		if(pending==null){return cleanup;}
+		pending.addSuppressed(cleanup);
+		return pending;
+	}
+
+	/** Rethrows without wrapping unchecked exceptions or errors. */
+	private static void rethrow(final Throwable t){
+		if(t instanceof RuntimeException){throw (RuntimeException)t;}
+		if(t instanceof Error){throw (Error)t;}
+		throw new RuntimeException(t);
 	}
 
 	/**

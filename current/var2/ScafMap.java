@@ -17,17 +17,24 @@ import stream.Streamer;
 import stream.StreamerFactory;
 
 /**
- * Maps scaffold (chromosome/contig) names to Scaffold objects and provides efficient lookup by name or numeric ID.
- * Supports loading scaffold information from SAM headers, VCF headers, or FASTA reference files and maintains alternative name mappings for whitespace variants.
+ * Reference-scaffold registry with insertion-order numeric IDs and name lookup.
+ * Loads metadata from SAM/VCF headers and attaches caller-owned reference bases.
+ * Exact names take precedence over aliases ending at the first whitespace.
+ * Distinct reference names can make an alias ambiguous; header-first promotion
+ * has separate reuse rules described by addScaffold(Read).
+ * The registry and process-wide default cache are mutable and unsynchronized;
+ * finish construction before sharing for lookup and coordinate later mutations.
  * @author Brian Bushnell
  * @contributor Isla
+ * @contributor Sucrose
  */
-public class ScafMap {
-	
+public class ScafMap{
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Construction          ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
+	/** Creates an empty registry without changing the process-wide default. */
 	public ScafMap(){}
 
 	/*--------------------------------------------------------------*/
@@ -41,7 +48,7 @@ public class ScafMap {
 	 */
 	@Deprecated
 	public static ScafMap loadSamHeader(String fname){return loadSamHeader(fname, null);}
-	
+
 	/**
 	 * Loads scaffold information from a SAM file header.
 	 * @param ff SAM FileFormat object
@@ -49,7 +56,7 @@ public class ScafMap {
 	 */
 	@Deprecated
 	public static ScafMap loadSamHeader(FileFormat ff){return loadSamHeader(ff, null);}
-	
+
 	/**
 	 * Loads scaffold information from a SAM file header into an existing ScafMap.
 	 * @param fname SAM filename
@@ -61,10 +68,13 @@ public class ScafMap {
 		FileFormat ff=FileFormat.testInput(fname, FileFormat.SAM, null, false, false);
 		return loadSamHeader(ff, scafMap);
 	}
-	
+
 	/**
-	 * Loads scaffold information from a SAM file header into an existing ScafMap using shared header parsing.
-	 * @param ff SAM FileFormat object
+	 * Starts a one-read SAM/BAM streamer that requests header publication, merges
+	 * the JVM-wide shared header, then closes the streamer on normal return.
+	 * Shared-header ownership must be coordinated by the caller; this method does
+	 * not isolate the header from other inputs or close in a finally block.
+	 * @param ff SAM/BAM input descriptor
 	 * @param scafMap Existing ScafMap to add to (null to create new)
 	 * @return ScafMap populated with scaffold information
 	 */
@@ -81,8 +91,14 @@ public class ScafMap {
 		ss.close();
 		return scafMap;
 	}
-	
-	public static ScafMap waitForSamHeader(ScafMap scafMap) {
+
+	/** Obtains the JVM-wide header with waiting requested and adds its SQ lines.
+	 * Does not start a reader. Requires a publisher and nonempty header lines;
+	 * the shared-header API may return null when no input has been marked present.
+	 * Stops at the first line not beginning with '@'.
+	 * @param scafMap Registry to extend, or null to create one
+	 * @return Extended or newly created registry */
+	public static ScafMap waitForSamHeader(ScafMap scafMap){
 		ArrayList<byte[]> header=SamReadInputStream.getSharedHeader(true);
 		assert(header!=null);
 		if(scafMap==null){scafMap=new ScafMap();}
@@ -106,14 +122,14 @@ public class ScafMap {
 	 * @return ScafMap populated with scaffold information
 	 */
 	public static ScafMap loadVcfHeader(String fname){return loadVcfHeader(fname, null);}
-	
+
 	/**
 	 * Loads scaffold information from a VCF file header.
 	 * @param ff VCF FileFormat object
 	 * @return ScafMap populated with scaffold information
 	 */
 	public static ScafMap loadVcfHeader(FileFormat ff){return loadVcfHeader(ff, null);}
-	
+
 	/**
 	 * Loads scaffold information from a VCF file header into an existing ScafMap.
 	 * @param fname VCF filename
@@ -124,10 +140,12 @@ public class ScafMap {
 		FileFormat ff=FileFormat.testInput(fname, FileFormat.VCF, null, false, false);
 		return loadVcfHeader(ff, scafMap);
 	}
-	
+
 	/**
-	 * Loads scaffold information from a VCF file header into an existing ScafMap.
-	 * Parses `##contig=<ID=name,length=len>` header lines to extract scaffold names and lengths.
+	 * Reads leading header lines, adding those beginning with {@code ##contig=<ID=}.
+	 * Stops at EOF, an empty line, or the first non-header line. The parser expects
+	 * the field layout described by addFromVcf. Closes the ByteFile on normal return;
+	 * exceptions propagate without finally-based cleanup.
 	 * @param ff VCF FileFormat object
 	 * @param scafMap Existing ScafMap to add to (null to create new)
 	 * @return ScafMap populated with scaffold information
@@ -159,7 +177,7 @@ public class ScafMap {
 	 * @return ScafMap populated with scaffold information
 	 */
 	public static ScafMap loadReference(String fname, boolean makeDefault){return loadReference(fname, null, null, makeDefault);}
-	
+
 	/**
 	 * Loads scaffold information from a FASTA reference file.
 	 * @param ff FASTA FileFormat object
@@ -167,7 +185,7 @@ public class ScafMap {
 	 * @return ScafMap populated with scaffold information
 	 */
 	public static ScafMap loadReference(FileFormat ff, boolean makeDefault){return loadReference(ff, null, null, makeDefault);}
-	
+
 	/**
 	 * Loads scaffold information from a FASTA reference file with optional filtering.
 	 * @param fname FASTA filename
@@ -180,10 +198,13 @@ public class ScafMap {
 		FileFormat ff=FileFormat.testInput(fname, FileFormat.FASTA, null, true, true);
 		return loadReference(ff, scafMap, samFilter, makeDefault);
 	}
-	
+
 	/**
-	 * Loads scaffold information from a FASTA reference file with filtering.
-	 * Returns the existing default ScafMap if the FileFormat name matches; otherwise reads sequences and adds them with optional filtering.
+	 * Reuses the default registry when its stored filename equals ff.name(),
+	 * ignoring map, samFilter and makeDefault on that path. This is a filename-only
+	 * cache; it does not check whether the input or requested filter has changed.
+	 * Otherwise materializes the input reads, filters their IDs, and attaches their
+	 * base arrays without copying. Filtering occurs after all reads are loaded.
 	 * @param ff FASTA FileFormat object
 	 * @param map Existing ScafMap to add to (null to create new)
 	 * @param samFilter Filter for scaffold names (null for no filtering)
@@ -206,12 +227,14 @@ public class ScafMap {
 	/** Returns the default ScafMap instance.
 	 * @return Default ScafMap or null if not set */
 	public static ScafMap defaultScafMap(){return defaultScafMap;}
-	
+
 	/**
 	 * Sets the default ScafMap instance for global access.
-	 * Also disables `RNAME_AS_BYTES` in SamLine for string-based scaffold lookups.
-	 * @param map ScafMap to set as default
-	 * @param fname Filename associated with this ScafMap
+	 * Also disables {@code RNAME_AS_BYTES} in SamLine for string-based lookups.
+	 * Does not copy the registry. Asserts that a nonnull filename differs from the
+	 * previous nonnull cached filename; publication is not synchronized here.
+	 * @param map Registry to store, including null to clear the reference
+	 * @param fname Cache key, or null to disable filename-based reuse
 	 */
 	public static void setDefaultScafMap(ScafMap map, String fname){
 		SamLine.RNAME_AS_BYTES=false;
@@ -219,11 +242,13 @@ public class ScafMap {
 		defaultScafMap=map;
 		defaultScafMapFile=fname;
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------       Collection Methods     ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
+	/** Removes all registry entries and alias bookkeeping. Does not reset the static
+	 * default pointer/filename or mutate Scaffold objects held by other callers. */
 	public void clear(){
 		map.clear();
 		alt.clear();
@@ -232,31 +257,38 @@ public class ScafMap {
 		hasNameOnlyScaffolds=false;
 		list.clear();
 	}
-	
+
 	/** Returns the number of scaffolds in this ScafMap.
 	 * @return Scaffold count */
 	public int size(){return list.size();}
-	
-	/** Returns the set of primary scaffold names.
-	 * @return Set of scaffold names */
-	public Set<String> keySet() {
+
+	/** Returns the live primary-map key view, which can include promoted full names.
+	 * Treat it as read-only: removing keys would leave other registry structures stale.
+	 * @return Backed key set, not a snapshot */
+	public Set<String> keySet(){
 		return map.keySet();
 	}
-	
-	/** Returns the set of alternative scaffold names.
-	 * @return Set of alternative names */
-	public Set<String> altKeySet() {
+
+	/** Returns the live view of currently unambiguous first-whitespace aliases.
+	 * Treat it as read-only; mutations do not update the primary map or scaffold list.
+	 * @return Backed alias key set, not a snapshot */
+	public Set<String> altKeySet(){
 		return alt.keySet();
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------           Adders             ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
-	 * Adds a scaffold from a Read object, storing sequence data.
-	 * Updates existing scaffold with sequence bases if already present.
-	 * @param r Read containing scaffold name and sequence
+	 * Attaches the read's base array without copying, replacing any prior bases.
+	 * Reuses an exact name, or may promote a prior name-only scaffold through its
+	 * first-whitespace alias when trimming is enabled. Once promoted, subsequent
+	 * full names sharing that alias can reuse the same object if lengths match;
+	 * the stored name and number remain those of the original Scaffold.
+	 * Otherwise creates a new scaffold with the next numeric ID.
+	 * Length mismatches throw; sequence equality is not checked before replacement.
+	 * @param r Nonnull read with a name and nonnull reference bases
 	 * @return Added or existing Scaffold object
 	 */
 	public Scaffold addScaffold(Read r){
@@ -276,11 +308,12 @@ public class ScafMap {
 		assert(scaf.bases.length==scaf.length) : "Incorrect reference length: "+scaf.bases.length+", "+scaf.length+", "+scaf.name;
 		return scaf;
 	}
-	
+
 	/**
-	 * Adds a scaffold from a SAM header line (`@SQ` format).
-	 * Returns existing scaffold if already present.
-	 * @param line SAM header line
+	 * Parses metadata through Scaffold's fixed-order SQ parser, then resolves an
+	 * existing exact name or eligible alias. A reused scaffold keeps its existing
+	 * length without comparing the header's length. Otherwise appends metadata only.
+	 * @param line Header bytes beginning with @SQ, followed by SN and LN fields
 	 * @return Added or existing Scaffold object
 	 */
 	public Scaffold add(byte[] line){
@@ -290,11 +323,14 @@ public class ScafMap {
 		hasNameOnlyScaffolds=true;
 		return add(scaf);
 	}
-	
+
 	/**
-	 * Adds a scaffold from a VCF contig header line (`##contig=<ID=name,length=len>`).
-	 * Parses scaffold name and length from VCF format.
-	 * @param line VCF contig header line
+	 * Parses the layout {@code ##contig=<ID=name,length=len>} (also accepts Length).
+	 * Takes the name from ID= through the comma preceding length; this is not a
+	 * general order-independent VCF attribute parser. Length uses consecutive
+	 * decimal digits. Resolves existing exact names or eligible aliases, retaining
+	 * the old length without comparing it, or appends a new metadata-only scaffold.
+	 * @param line Header bytes with ID immediately followed by length/Length
 	 * @return Added or existing Scaffold object
 	 */
 	public Scaffold addFromVcf(byte[] line){
@@ -318,10 +354,11 @@ public class ScafMap {
 		hasNameOnlyScaffolds=true;
 		return add(scaf);
 	}
-	
+
 	/**
 	 * Adds a scaffold with specified name and length.
-	 * Returns existing scaffold if already present.
+	 * Reuses only an exact primary-map key, retaining its old length unchecked.
+	 * Unlike header adders, this overload does not resolve aliases before adding.
 	 * @param s Scaffold name
 	 * @param len Scaffold length
 	 * @return Added or existing Scaffold object
@@ -333,17 +370,19 @@ public class ScafMap {
 		hasNameOnlyScaffolds=true;
 		return add(scaf);
 	}
-	
+
 	/**
-	 * Internal method to add a scaffold and update all lookup structures.
-	 * Creates alternative mapping for whitespace-trimmed names if enabled.
+	 * Appends a scaffold whose number equals the current size and whose exact name
+	 * is absent. When trimming is enabled, registers the first-whitespace alias,
+	 * including names without whitespace. A collision removes that alias from alt
+	 * and marks it ambiguous; exact primary-map entries remain available.
 	 * @param scaf Scaffold to add
 	 * @return The added scaffold
 	 */
 	private Scaffold add(Scaffold scaf){
 		assert(!map.containsKey(scaf.name));
 		assert(size()==scaf.number);
-		
+
 		list.add(scaf);
 		map.put(scaf.name, scaf);
 		String s=scaf.name;
@@ -362,7 +401,14 @@ public class ScafMap {
 		return scaf;
 	}
 
+	/** Resolves a reference through a previously added name-only entry.
+	 * First promotion removes the short primary key and inserts the full name;
+	 * the Scaffold itself retains its original name/number. Later names with the
+	 * promoted alias reuse that object after a length check. Does not compare bases.
+	 * @param r Reference read whose full name was not found exactly
+	 * @return Reused scaffold, or null if no promotable entry exists */
 	private Scaffold findNameOnlyScaffoldForReference(Read r){
+		//TODO: Confirm whether promoted aliases may replace different same-length reference sequences; current tests use identical bases (VAR2-006).
 		final String fullName=r.id;
 		final String alias=Tools.trimToWhitespace(fullName);
 		Scaffold scaf=null;
@@ -392,6 +438,7 @@ public class ScafMap {
 		return scaf;
 	}
 
+	/** Describes a full reference name conflicting with existing short-name length. */
 	private static IllegalArgumentException lengthCollision(String fullName, int fullLength,
 			String shortName, int shortLength){
 		return new IllegalArgumentException("Reference scaffold '"+fullName+"' has length "+fullLength+
@@ -399,6 +446,11 @@ public class ScafMap {
 				shortLength+". The short name is ambiguous.");
 	}
 
+	/** Resolves a SAM/VCF header name by exact primary key, then an exact alias.
+	 * Does not trim a longer header name to force a match. A bare ambiguous alias
+	 * throws; an unknown name returns null so the caller can add metadata.
+	 * @param name Parsed header name
+	 * @return Existing scaffold, or null */
 	private Scaffold findScaffoldForSecondarySource(String name){
 		Scaffold value=map.get(name);
 		if(value!=null || !TRIM_WHITESPACE_ALSO){return value;}
@@ -413,7 +465,7 @@ public class ScafMap {
 		}
 		return alt.get(alias);
 	}
-	
+
 	/**
 	 * Adds coverage information from a SAM alignment.
 	 * Only processes mapped alignments.
@@ -424,55 +476,85 @@ public class ScafMap {
 		Scaffold scaf=getScaffold(sl);
 		scaf.add(sl);
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------           Getters            ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
 	 * Gets scaffold number by name.
-	 * @param s Scaffold name
-	 * @return Scaffold number or -1 if not found
+	 * @param s Nonnull scaffold name
+	 * @return Scaffold number, or -1 for an absent name when assertions are disabled
+	 * @throws AssertionError If the name is absent and assertions are enabled
+	 * @throws IllegalArgumentException If alias lookup encounters ambiguity
 	 */
 	public int getNumber(String s){
 		Scaffold value=getScaffold(s);
 		return value==null ? -1 : value.number;
 	}
-	
+
 	/**
 	 * Gets scaffold name by number.
-	 * @param number Scaffold number
-	 * @return Scaffold name or null if invalid number
+	 * @param number Nonnegative scaffold number; negative values throw
+	 * @return Scaffold name, or null when number is at least size()
 	 */
 	public String getName(int number){
 		return number>=size() ? null : list.get(number).name;
 	}
-	
+
 	/**
 	 * Gets scaffold length by number.
-	 * @param number Scaffold number
-	 * @return Scaffold length or 0 if invalid number
+	 * @param number Nonnegative scaffold number; negative values throw
+	 * @return Scaffold length, or zero when number is at least size()
 	 */
 	public int getLength(int number){
 		return number>=size() ? 0 : list.get(number).length;
 	}
-	
+
 	/**
 	 * Gets scaffold by numeric ID.
-	 * @param number Scaffold number
-	 * @return Scaffold object or null if invalid number
+	 * @param number Nonnegative scaffold number; negative values throw
+	 * @return Scaffold object, or null when number is at least size()
 	 */
 	public Scaffold getScaffold(int number){
 		return number>=size() ? null : list.get(number);
 	}
-	
+
 	/**
-	 * Gets scaffold by name with intelligent whitespace handling.
-	 * First tries exact match, then alternative mapping, then whitespace trimming to resolve format differences.
-	 * @param s Scaffold name (may contain whitespace variations)
-	 * @return Scaffold object
+	 * Tests whether a scaffold name is present without asserting on absence.
+	 * Ambiguous first-token aliases still throw because they identify multiple
+	 * possible scaffolds.
+	 * @param s Nonnull reference name
+	 * @return True when s resolves to a scaffold
+	 */
+	public boolean containsScaffold(final String s){
+		return findScaffold(s, false)!=null;
+	}
+
+	/**
+	 * Tries an exact primary key, then an already registered exact alias even if
+	 * trimming has since been disabled. If still absent and trimming is enabled,
+	 * checks alias ambiguity and tries the prefix ending at the first whitespace.
+	 * Exact primary keys take precedence over ambiguity in the alias table.
+	 * @param s Nonnull reference name
+	 * @return Scaffold, or null for an absent name when assertions are disabled
+	 * @throws AssertionError If no matching scaffold exists and assertions are enabled
+	 * @throws IllegalArgumentException If fallback lookup encounters an ambiguous alias
 	 */
 	public Scaffold getScaffold(final String s){
+		Scaffold value=findScaffold(s, true);
+		assert(value!=null) : s+"\n"+keySet()+"\n"+altKeySet()+"\n";
+		return value;
+	}
+
+	/**
+	 * Looks up a scaffold name by exact primary key, exact alias, then optional
+	 * first-whitespace alias.
+	 * @param s Nonnull reference name
+	 * @param assertAbsent Whether to assert if no first-whitespace alias resolves
+	 * @return Resolved scaffold, or null when absent
+	 */
+	private Scaffold findScaffold(final String s, final boolean assertAbsent){
 		Scaffold value=map.get(s);
 		if(value==null){value=alt.get(s);}
 		if(value==null && TRIM_WHITESPACE_ALSO){
@@ -482,13 +564,12 @@ public class ScafMap {
 						"' matches multiple reference sequences. Use unique first tokens.");
 			}
 			if(!alias.equals(s)){value=alt.get(alias);}
-			assert(value!=null) : "Scaffold not present in reference: "+s+
+			assert(!assertAbsent || value!=null) : "Scaffold not present in reference: "+s+
 				"\nalias="+alias+"\nkeySet="+keySet()+"\naltSet="+altKeySet()+"\n";
 		}
-		assert(value!=null) : s+"\n"+keySet()+"\n"+altKeySet()+"\n";
 		return value;
 	}
-	
+
 	/**
 	 * Gets scaffold from a SAM line’s reference name.
 	 * @param sl SAM line
@@ -497,7 +578,7 @@ public class ScafMap {
 	public Scaffold getScaffold(SamLine sl){
 		return getScaffold(sl.rnameS());
 	}
-	
+
 	/**
 	 * Gets coverage at a variant position.
 	 * @param v Variant object
@@ -507,21 +588,23 @@ public class ScafMap {
 		Scaffold scaf=getScaffold(v.scafnum);
 		return scaf.calcCoverage(v);
 	}
-	
+
 	/** Calculates total length of all scaffolds.
 	 * @return Sum of all scaffold lengths */
-	public long lengthSum() {
+	public long lengthSum(){
 		long sum=0;
 		for(Scaffold scaf : list){
 			sum+=scaf.length;
 		}
 		return sum;
 	}
-	
-	public void clearCoverage() {
+
+	/** Clears each scaffold's coverage after its readers and writers have finished.
+	 * Preserves names, numeric IDs, reference bases and the default-cache binding. */
+	public void clearCoverage(){
 		for(Scaffold scaf : list){scaf.clearCoverage();}
 	}
-	
+
 	/** Returns string representation of all scaffolds.
 	 * @return Formatted scaffold information */
 	@Override
@@ -530,25 +613,35 @@ public class ScafMap {
 		for(Scaffold sc : list){sb.append(sc).append('\n');}
 		return sb.toString();
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------           Fields             ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Unique scaffolds in numeric-ID order. */
 	final ArrayList<Scaffold> list=new ArrayList<Scaffold>();
+	/** Exact lookup keys; several promoted full names may reference one Scaffold. */
 	final HashMap<String, Scaffold> map=new HashMap<String, Scaffold>();
+	/** First-whitespace aliases that have not collided with a different Scaffold. */
 	private final HashMap<String, Scaffold> alt=new HashMap<String, Scaffold>();
+	/** Colliding aliases removed from alt; reset only by clear(). */
 	private final HashSet<String> ambiguousAlt=new HashSet<String>();
+	/** Short metadata names promoted by reference loading; lazily allocated. */
 	private HashSet<String> promotedAliases;
+	/** Records that a metadata-only adder inserted an entry since the last clear. */
 	private boolean hasNameOnlyScaffolds=false;
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Static Fields         ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
+	/** Shared default reference registry, not copied or synchronized. */
 	private static ScafMap defaultScafMap=null;
+	/** Exact filename cache key; null disables loadReference's cache hit. */
 	private static String defaultScafMapFile=null;
+	/** Controls alias creation and fallback lookup; changing it does not rebuild aliases. */
 	public static boolean TRIM_WHITESPACE_ALSO=true;
-	
-	private static final long serialVersionUID = 1L;
+
+	/** Legacy identifier; this class does not implement Serializable. */
+	private static final long serialVersionUID=1L;
 }

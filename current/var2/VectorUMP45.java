@@ -3,31 +3,66 @@ package var2;
 import shared.Tools;
 
 /**
- * Feature vector generator for variant quality prediction.
- * Produces a 33-dimensional normalized vector with deterministic transforms
- * (no external data files required). Includes ploidy, platform, variant type,
- * and the non-NN composite score as inputs.
+ * Builds 33 scaled features for variant scoring. Features are not all bounded to
+ * [0,1]; type/platform indicators, logarithms, ratios and affine transforms use
+ * the layout shown in makeVector. The composite-score feature is optional.
+ * Performs no file I/O itself, but reference-derived features depend on the supplied
+ * scaffold map and its bases. May populate the variant's revised-allele-fraction cache.
+ * Callers must coordinate shared settings, variants and reusable output arrays.
  * @author UMP45
+ * @contributor Sucrose
  */
-public class VectorUMP45 {
+public class VectorUMP45{
 
+	/*--------------------------------------------------------------*/
+	/*----------------        Configuration        ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Number of feature slots populated by this implementation. */
 	public static final int DIMS=33;
 
+	/** Indices for the four platform indicators in slots4–7. */
 	public static final int PLATFORM_ILLUMINA=0, PLATFORM_PACBIO=1,
 			PLATFORM_NANOPORE=2, PLATFORM_ROCHE=3;
 
+	/** Process-wide platform setting; vector encoding clamps it to0–3. */
 	public static int platform=PLATFORM_ILLUMINA;
+	/** Enables the non-NN score in slot29; otherwise that slot remains zero. */
 	public static boolean includeScore=false;
 
+	/*--------------------------------------------------------------*/
+	/*----------------     Vector Construction     ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Allocates a DIMS-length array and delegates to the reusable-buffer overload.
+	 * The returned array is owned by the caller. */
 	public static float[] makeVector(Var v, double pairingRate, double totalQualityAvg,
 			double totalMapqAvg, double readLengthAvg, int ploidy, ScafMap map){
 		return makeVector(v, pairingRate, totalQualityAvg, totalMapqAvg, readLengthAvg, ploidy, map, new float[DIMS]);
 	}
 
 	/**
-	 * As makeVector(...), but fills the caller-provided vec (length DIMS) instead of allocating one,
-	 * for per-thread reuse in hot loops. The array is zeroed first because several dims (type/platform
-	 * 1-hot, reserved) rely on zero-initialization.
+	 * Clears the entire supplied array, then fills slots0–32 and returns that same array.
+	 * Any extra slots remain zero. Only SUB/INS/DEL set a variant-type indicator;
+	 * other types leave all three type slots zero. Platform encoding uses the current
+	 * static platform, clamped to0–3. Slot31 is reserved and stays zero.
+	 *
+	 * Revised AF may be cached into v; an existing cache value is reused. Reference
+	 * features use map and its bases. With null map, homopolymer count is zero and
+	 * the distance feature uses v.start. A metadata-only map can produce different
+	 * features from one with loaded bases. Callers supply their model's reference context.
+	 * The final assertion checks finiteness, not feature ranges or model compatibility.
+	 * Exceptions can leave a partially filled array and updated variant cache.
+	 *
+	 * @param v Nonnull variant with the coverage/statistics needed by its accessors
+	 * @param pairingRate Dataset pairing rate, used only by the optional score feature
+	 * @param totalQualityAvg Dataset base-quality mean, used only by the optional score
+	 * @param totalMapqAvg Dataset mapping-quality mean, used only by the optional score
+	 * @param readLengthAvg Used by the revised-AF calculation and optional score
+	 * @param ploidy Positive sample ploidy, encoded as its inverse and a greater-than-one flag
+	 * @param map Reference registry for sequence-derived features, or null for the fallbacks above
+	 * @param vec Nonnull caller-owned array with at least DIMS entries; all entries are cleared
+	 * @return The supplied vec reference
 	 */
 	public static float[] makeVector(Var v, double pairingRate, double totalQualityAvg,
 			double totalMapqAvg, double readLengthAvg, int ploidy, ScafMap map, float[] vec){
@@ -86,7 +121,7 @@ public class VectorUMP45 {
 		// 22: Strand ratio (raw)
 		vec[22]=(float)v.strandRatio();
 
-		// 23: Strand bias probability
+		// 23: Adjusted strand-balance score
 		vec[23]=(float)VarProb.eventProb(v.allelePlusCount(), v.alleleMinusCount());
 
 		// 24: Read bias ratio (raw)
@@ -95,7 +130,7 @@ public class VectorUMP45 {
 			vec[24]=(r1+r2==0) ? 1f : (float)(Tools.min(r1, r2)+1)/(float)Tools.max(r1, r2);
 		}
 
-		// 25: Read bias probability
+		// 25: Adjusted read-balance score
 		vec[25]=(float)VarProb.eventProb(v.r1AlleleCount(), v.r2AlleleCount());
 
 		// 26: Nearby variant count
@@ -130,6 +165,13 @@ public class VectorUMP45 {
 		return vec;
 	}
 
+	/*--------------------------------------------------------------*/
+	/*----------------         Validation          ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Checks every supplied slot for NaN/infinity, printing context for the first failure.
+	 * Invoked by an assertion, so this scan is skipped when assertions are disabled.
+	 * Diagnostic accessors can also read the reference or populate the revised-AF cache. */
 	private static boolean validateVector(float[] vec, Var v, int count, double af,
 			double pairingRate, double totalQualityAvg, double totalMapqAvg,
 			double readLengthAvg, int ploidy, ScafMap map){
@@ -162,11 +204,23 @@ public class VectorUMP45 {
 		return true;
 	}
 
+	/*--------------------------------------------------------------*/
+	/*----------------       Utility Methods       ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Returns log(x+1) scaled by the stored float approximation to 1/ln(2).
+	 * Performs no domain check; invalid inputs propagate non-finite results. */
 	private static float log2p1(double x){
 		return (float)(Math.log(x+1)*INV_LN2);
 	}
 
+	/*--------------------------------------------------------------*/
+	/*----------------          Constants           ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Base conversion for logarithmic features. */
 	private static final float INV_LN2=(float)(1.0/Math.log(2));
+	/** Scales for logarithmic lengths/distances and quality features. */
 	private static final float INV4=1f/4;
 	private static final float INV8=1f/8;
 	private static final float INV40=1f/40;

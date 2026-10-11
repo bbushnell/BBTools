@@ -20,8 +20,9 @@ import structures.IntList;
  * @author Shinobu
  * @date Sep 26, 2026
  */
-public final class VCFValidator {
+public final class VCFValidator{
 
+	/** Utility class; mutable parsing and scan state belongs to individual callers. */
 	private VCFValidator(){}
 
 	/*--------------------------------------------------------------*/
@@ -38,10 +39,12 @@ public final class VCFValidator {
 	 * POS is checked as nonnegative decimal text, including telomere zero, without
 	 * imposing a machine integer range. ALT tokens are nonempty and whitespace-free;
 	 * their detailed symbolic/breakend grammar is deliberately not interpreted.
+	 * Scratch retains the line without copying; null/empty input leaves scratch unchanged.
 	 * @param line Record bytes without CR/LF
 	 * @param scratch Caller-owned scratch, not shared concurrently
 	 * @param expectedColumns Column count established by a validated header
 	 * @return Null on success, otherwise the first structural diagnostic
+	 * @throws IllegalArgumentException if scratch is null or expectedColumns is below eight
 	 */
 	public static String validateFields(final byte[] line, final Scratch scratch, final int expectedColumns){
 		if(scratch==null || expectedColumns<8){throw new IllegalArgumentException("VCF validation needs scratch and a header with at least eight columns.");}
@@ -71,8 +74,9 @@ public final class VCFValidator {
 	/**
 	 * Checks the exact fixed header names, optional FORMAT, and unique nonempty
 	 * sample IDs. Sample Strings are allocated only while checking the header.
+	 * Retains nonempty input in scratch; null/empty input leaves its previous state intact.
 	 * @param line The #CHROM line without a terminator
-	 * @param scratch Caller-owned parser; fieldCount is available after this call
+	 * @param scratch Caller-owned parser; fieldCount describes nonempty input even when invalid
 	 * @return Null on success, otherwise the first header diagnostic
 	 */
 	public static String validateColumnHeader(final byte[] line, final Scratch scratch){
@@ -96,7 +100,14 @@ public final class VCFValidator {
 		return null;
 	}
 
-	/** Scans to EOF with independent header state; preserves BBTools summary metadata. */
+	/** Scans to EOF with independent header state and a directly opened ByteFile1.
+	 * Continues after structural diagnostics, counting each failing physical line or
+	 * EOF position once. Closes the owned reader in finally; normal completion returns
+	 * its read/close flag in Result. Unexpected exceptions still propagate.
+	 * The first valid column header before data establishes record width. Blank lines
+	 * after the required first-line version are tolerated; BBTools summary metadata is retained.
+	 * @param ff Read-mode descriptor; its VCF format flag is not required
+	 * @return Immutable counters, first diagnostic and retained metadata */
 	public static Result validateFile(final FileFormat ff){
 		if(ff==null || !ff.read()){throw new IllegalArgumentException("VCF validation requires an input FileFormat.");}
 		final ByteFile bf=new ByteFile1(ff);
@@ -144,7 +155,10 @@ public final class VCFValidator {
 		return new Result(scan, columns);
 	}
 
-	/** Prints per-file structural coverage, existing metadata summaries, and bounded diagnostics. */
+	/** Prints structural coverage, positive BBTools summary values and the first diagnostic.
+	 * Borrows both streams, checks output errors and checks diagnostic-stream errors
+	 * before returning success; closes neither stream.
+	 * @return True only if the scan passed and both report streams remain error-free */
 	public static boolean printResult(final Result r, final FileFormat ff, final PrintStream out, final PrintStream err){
 		out.println("File\t\t"+ff.name());
 		out.println("Format\t\tvcf");
@@ -233,7 +247,7 @@ public final class VCFValidator {
 		return a==b;
 	}
 
-	/** Rejects raw control bytes while permitting UTF-8 non-ASCII bytes and tab separators. */
+	/** Rejects raw control bytes, permitting tabs and non-ASCII bytes without validating UTF-8. */
 	private static boolean controlByte(final byte[] line){for(byte b : line){if((b>=0 && b<32 && b!='\t') || b==127){return true;}} return false;}
 	/** Tests ASCII whitespace inside a field; tabs have already been separated. */
 	private static boolean whitespace(final byte[] line, final int a, final int b){for(int i=a; i<b; i++){if(line[i]>=0 && line[i]<=32){return true;}} return false;}
@@ -257,21 +271,25 @@ public final class VCFValidator {
 	/*--------------------------------------------------------------*/
 
 	/** Caller-owned buffers; use one per concurrent validation invocation. */
-	public static final class Scratch {
-		/** Header or record column count established by the most recent call. */
+	public static final class Scratch{
+		/** Column count of the most recent parsed nonempty input; null/empty checks leave it unchanged. */
 		public int fieldCount(){return fields.terms();}
+		/** Reused tab bounds and borrowed header/record bytes. */
 		private final LineParser1 fields=new LineParser1('\t');
+		/** FORMAT key bounds, cleared when sampleFields starts a nonmissing FORMAT. */
 		private final IntList starts=new IntList(), ends=new IntList();
 	}
 
 	/** Private per-file counters and retained summary metadata. */
-	private static final class Scan {
+	private static final class Scan{
 		/** Counts each failing physical line/EOF position once and retains one bounded diagnostic. */
 		private void fail(final String error, final long line){
 			if(lastErrorLine!=line){errors++; lastErrorLine=line;}
 			if(firstError==null){firstError=error; firstErrorLine=line;}
 		}
-		/** Parses only the legacy BBTools summary keys; structured VCF metadata stays opaque. */
+		/** Parses only legacy BBTools summary keys with exactly one equals sign.
+		 * Later parsed values replace earlier ones; malformed numeric values add a diagnostic.
+		 * Structured VCF metadata stays opaque. */
 		private void metadata(final byte[] line){
 			metadataParser.set(line);
 			if(metadataParser.terms()!=2){return;}
@@ -292,16 +310,23 @@ public final class VCFValidator {
 				else{readLengthAvg=Double.parseDouble(value);}
 			}catch(NumberFormatException e){fail("Malformed BBTools numeric summary metadata", lines);}
 		}
+		/** Reused bounds for simple key=value summary metadata. */
 		private final LineParser1 metadataParser=new LineParser1('=');
+		/** Physical classifications and error-position counters; repeated errors at one position collapse. */
 		private long lines, records, headers, blanks, errors, firstErrorLine, lastErrorLine=-1;
+		/** First diagnostic and last supported version string seen, even in an already invalid file. */
 		private String firstError, version="unknown";
+		/** Final reader error flag, independent of structural error counts. */
 		private boolean readError;
+		/** Optional BBTools ploidy; -1 when no value was parsed. */
 		private int ploidy=-1;
+		/** Optional BBTools summary values; -1 defaults, with numeric ranges unchecked. */
 		private double pairingRate=-1, qualityAvg=-1, mapqAvg=-1, readLengthAvg=-1;
 	}
 
 	/** Immutable scan result; passing does not imply complete VCF conformance. */
-	public static final class Result {
+	public static final class Result{
+		/** Copies per-file state after normal scan completion; count is zero without a valid header. */
 		private Result(final Scan s, final int count){
 			lines=s.lines; records=s.records; headers=s.headers; blanks=s.blanks; errors=s.errors;
 			firstErrorLine=s.firstErrorLine; firstError=s.firstError; version=s.version; readError=s.readError;
@@ -322,7 +347,9 @@ public final class VCFValidator {
 		public final double pairingRate, qualityAvg, mapqAvg, readLengthAvg;
 	}
 
+	/** Exact version-declaration key and supported major-version prefix. */
 	private static final String FILEFORMAT="##fileformat=";
 	private static final String VERSION_PREFIX="##fileformat=VCFv4.";
+	/** Required fixed column names, in order, before optional FORMAT and sample columns. */
 	private static final String[] HEADER_FIELDS={"#CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO"};
 }

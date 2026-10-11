@@ -44,6 +44,10 @@ import structures.ListNum;
 * @date January 14, 2017
 */
 public class FilterVCF {
+
+	/*--------------------------------------------------------------*/
+	/*----------------          Startup            ----------------*/
+	/*--------------------------------------------------------------*/
 	
 	/**
 	 * Main method for command-line execution.
@@ -261,6 +265,10 @@ public class FilterVCF {
 		//Determine how many threads may be used
 		threads=Tools.min(MAX_VCF_READ_THREADS>0 ? MAX_VCF_READ_THREADS : (net0==null ? 8 : 16), Shared.threads());
 	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------     Reference Helpers       ----------------*/
+	/*--------------------------------------------------------------*/
 	
 	/**
 	 * Returns the reference bases (0-based) for a scaffold, for left-alignment, or null if
@@ -274,6 +282,10 @@ public class FilterVCF {
 		Scaffold sc=scafMap.getScaffold(scaf);
 		return sc==null ? null : sc.bases;
 	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------     Genotype Filters        ----------------*/
+	/*--------------------------------------------------------------*/
 
 	/**
 	 * Genotype-based pass test for the gt=/homozygous=/heterozygous=/multiallelic= filters.  Returns true
@@ -367,9 +379,13 @@ public class FilterVCF {
 		return false;
 	}
 
+	/*--------------------------------------------------------------*/
+	/*----------------      Header Helpers         ----------------*/
+	/*--------------------------------------------------------------*/
+
 	/**
 	 * Loads scaffold information from VCF contig header lines into the ScafMap.
-	 * Processes ##contig=<ID=...> lines to build coordinate reference system.
+	 * Processes {@code ##contig=&lt;ID=...&gt;} lines to build coordinate reference system.
 	 */
 	public void loadHeaderInScafMap(){
 		for(byte[] line : header){
@@ -394,6 +410,10 @@ public class FilterVCF {
 		}
 		return sb.toString();
 	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------       MT Processing          ----------------*/
+	/*--------------------------------------------------------------*/
 	
 	/**
 	 * Spawns worker threads for multithreaded VCF processing.
@@ -453,6 +473,10 @@ public class FilterVCF {
 		//Track whether any threads failed
 		if(!allSuccess){errorState=true;}
 	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------       Header Loading         ----------------*/
+	/*--------------------------------------------------------------*/
 	
 	/**
 	 * Processes VCF header section and extracts metadata.
@@ -511,6 +535,10 @@ public class FilterVCF {
 			jobIDOffset++;
 		}
 	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------    Variant Processing       ----------------*/
+	/*--------------------------------------------------------------*/
 	
 	/**
 	 * Single-threaded VCF variant processing.
@@ -660,6 +688,10 @@ public class FilterVCF {
 		ArrayList<ProcessThread> alpt=spawnThreads(bf, bsw);
 		waitForFinish(alpt);
 	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------       Core Processing        ----------------*/
+	/*--------------------------------------------------------------*/
 	
 	/* COMMENTED OUT: Producer-consumer threading model
 	 * This was an earlier approach that used a separate thread to read bytes
@@ -743,7 +775,7 @@ public class FilterVCF {
 	}
 	
 	/*--------------------------------------------------------------*/
-	/*----------------      Threading Support      ----------------*/
+	/*----------------        Worker Thread        ----------------*/
 	/*--------------------------------------------------------------*/
 
 	/* COMMENTED OUT: Queue-based threading methods
@@ -956,6 +988,10 @@ public class FilterVCF {
 	/*----------------           Fields             ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/*--------------------------------------------------------------*/
+	/*----------------           Counters           ----------------*/
+	/*--------------------------------------------------------------*/
+
 	/** Number of lines processed from input */
 	private long linesProcessed=0;
 	/** Number of header lines processed */
@@ -974,10 +1010,18 @@ public class FilterVCF {
 	/** Maximum number of lines to process (for testing/debugging) */
 	private long maxLines=Long.MAX_VALUE;
 
+	/*--------------------------------------------------------------*/
+	/*----------------       Header State           ----------------*/
+	/*--------------------------------------------------------------*/
+
 	/** VCF header lines */
 	public ArrayList<byte[]> header=new ArrayList<byte[]>();
 	/** Sample names extracted from VCF header */
 	public ArrayList<String> samples=new ArrayList<String>();
+
+	/*--------------------------------------------------------------*/
+	/*----------------           Filters            ----------------*/
+	/*--------------------------------------------------------------*/
 	
 	/** Filter for SAM/alignment-based criteria */
 	SamFilter samFilter=new SamFilter();

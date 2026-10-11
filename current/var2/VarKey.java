@@ -1,22 +1,24 @@
 package var2;
 
 /**
- * Simplified key representation of genetic variants for efficient hashing and comparison.
- * Provides a lightweight alternative to full Var objects when only basic variant
- * identification is needed, without storing complete allele sequences.
- *
- * Note: This class is not currently thought to be used in the active codebase.
+ * Legacy five-field variant key that retains only one allele byte.
+ * Distinct multi-base alleles can therefore produce equal keys. Fields are mutable
+ * within the package; callers using keys in collections must keep their values stable.
+ * No active caller was found in the current Java sources during the package review.
  *
  * @author Brian Bushnell
  * @contributor Isla
+ * @contributor Sucrose
  */
-public class VarKey implements Comparable<VarKey> {
-	
+public class VarKey implements Comparable<VarKey>{
+
 	/**
-	 * Creates a VarKey from a full Var object.
-	 * Extracts essential identifying information while discarding detailed statistics.
-	 * @param v Source Var object to convert
-	 * @return VarKey representing the same variant
+	 * Copies scaffold, start and type, with type-dependent length and allele fields.
+	 * Insertions use allele length and first allele byte; deletions use reference
+	 * length and allele zero; other types use reference length and first allele byte.
+	 * Does not preserve the complete allele identity or any observation statistics.
+	 * @param v Nonnull variant; all non-deletion paths require a nonempty allele
+	 * @return New reduced key
 	 */
 	public static VarKey toVarKey(Var v){
 		if(v.type==Var.INS){
@@ -26,7 +28,13 @@ public class VarKey implements Comparable<VarKey> {
 		}
 		return new VarKey(v.scafnum, v.start, v.reflen(), v.type, v.allele[0]);
 	}
-	
+
+	/** Stores the five values without validation or normalization.
+	 * @param scafNum_ Scaffold number
+	 * @param start_ Variant start coordinate
+	 * @param length_ Allele length for insertions, reference length otherwise
+	 * @param type_ Variant type code
+	 * @param allele_ Promoted first allele byte, or zero for deletions */
 	public VarKey(int scafNum_, int start_, int length_, int type_, int allele_){
 		scafNum=scafNum_;
 		start=start_;
@@ -34,38 +42,44 @@ public class VarKey implements Comparable<VarKey> {
 		type=type_;
 		allele=allele_;
 	}
-	
+
 	/**
-	 * Computes hash code for efficient storage in hash-based collections.
-	 * Uses bit rotation to distribute hash values across all fields.
-	 * @return Hash code for this VarKey
+	 * Combines scaffold, start, type and allele using XOR and rotations.
+	 * Length participates in equality but is not included in this hash.
+	 * @return Hash of the current field values
 	 */
 	@Override
 	public int hashCode(){
 		return scafNum^Integer.rotateLeft(start, 4)^Integer.rotateRight(start, 18)^Integer.rotateLeft(type, 8)^Integer.rotateLeft(allele, 12);
 	}
-	
+
+	/** Delegates through an unchecked VarKey cast; null compares unequal.
+	 * @param b Object to compare
+	 * @return Equality of all five fields for a VarKey, false for null
+	 * @throws ClassCastException If b is a nonnull object of another type */
 	@Override
 	public boolean equals(Object b){
+		//TODO: Probable bug - unrelated object types throw instead of comparing unequal (VAR2-004).
 		return equals((VarKey)b);
 	}
-	
+
 	/**
 	 * Tests equality with another VarKey.
 	 * Two VarKeys are equal if all identifying fields match.
 	 * @param b VarKey to compare with
-	 * @return true if both VarKeys represent the same variant
+	 * @return True if all stored fields match, not necessarily the complete allele sequence
 	 */
 	public boolean equals(VarKey b){
 		if(b==null){return false;}
 		return scafNum==b.scafNum && start==b.start && length==b.length && type==b.type && allele==b.allele;
 	}
-	
+
 	/**
 	 * Compares this VarKey with another for sorting purposes.
 	 * Orders by scaffold, then position, then length, then type, then allele.
-	 * @param b VarKey to compare with
-	 * @return Negative, zero, or positive integer for less-than, equal, or greater-than
+	 * Uses int subtraction, so ordering assumes those differences do not overflow.
+	 * @param b Key to compare, or null
+	 * @return First nonzero field difference, zero for equal fields, or -1 for null
 	 */
 	@Override
 	public int compareTo(VarKey b){
@@ -77,14 +91,19 @@ public class VarKey implements Comparable<VarKey> {
 		if(allele!=b.allele){return allele-b.allele;}
 		return 0;
 	}
-	
+
+	/** Scaffold number. */
 	int scafNum;
-	
+
+	/** Variant start coordinate. */
 	int start;
-	
+
+	/** Insertion allele length or other variant's reference length. */
 	int length;
-	
+
+	/** Variant type code. */
 	int type;
-	
+
+	/** First allele byte promoted to int, or zero for deletion keys. */
 	int allele;
 }

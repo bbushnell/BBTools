@@ -380,7 +380,15 @@ public class FilterSam {
 		return s;
 	}
 	
-	/** Spawn process threads */
+	/**
+	 * Starts workers on either the CRIS or SamStreamer input path, then folds their
+	 * per-thread retention counters into the run totals.
+	 *
+	 * @param cris CRIS input stream, or {@code null} on the SamStreamer path
+	 * @param ss SamStreamer input stream, or {@code null} on the CRIS path
+	 * @param ros optional retained-read output stream
+	 * @param rosb optional discarded-read output stream
+	 */
 	private void spawnThreads(final ConcurrentReadInputStream cris, final Streamer ss, final ConcurrentReadOutputStream ros, final ConcurrentReadOutputStream rosb){
 		
 		//Do anything necessary prior to processing
@@ -455,7 +463,13 @@ public class FilterSam {
 	 * It is safe to remove the static modifier. */
 	private class ProcessThread extends Thread {
 		
-		//Constructor
+		/**
+		 * @param cris_ shared CRIS input stream
+		 * @param ss_ shared SamStreamer input stream
+		 * @param ros_ optional retained-read output stream
+		 * @param rosb_ optional discarded-read output stream
+		 * @param tid_ worker index
+		 */
 		ProcessThread(final ConcurrentReadInputStream cris_, final Streamer ss_, final ConcurrentReadOutputStream ros_, final ConcurrentReadOutputStream rosb_, final int tid_){
 			cris=cris_;
 			ss=ss_;
@@ -464,7 +478,7 @@ public class FilterSam {
 			tid=tid_;
 		}
 		
-		//Called by start()
+		/** Processes reads from the selected input stream until EOF. */
 		@Override
 		public void run(){
 			//Do anything necessary prior to processing
@@ -482,7 +496,7 @@ public class FilterSam {
 			success=true;
 		}
 		
-		/** Iterate through the reads */
+		/** Iterates through CRIS lists and returns each list to CRIS after classification. */
 		void processCris(){
 			
 			//Grab the first ListNum of reads
@@ -550,7 +564,7 @@ public class FilterSam {
 			}
 		}
 		
-		/** Iterate through the reads */
+		/** Iterates through SamStreamer lists and writes retained and discarded reads. */
 		void processSS(){
 			
 			//Grab the first ListNum of reads
@@ -693,6 +707,10 @@ public class FilterSam {
 			}
 		}
 
+		/*--------------------------------------------------------------*/
+		/*----------------       Per-Thread Stats       ----------------*/
+		/*--------------------------------------------------------------*/
+
 		/** Number of reads processed by this thread */
 		protected long readsProcessedT=0;
 		/** Number of reads processed by this thread */
@@ -741,6 +759,10 @@ public class FilterSam {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/*--------------------------------------------------------------*/
+	/*----------------          File Fields         ----------------*/
+	/*--------------------------------------------------------------*/
+
 	/** Primary input file path */
 	private String in1=null;
 	
@@ -762,6 +784,8 @@ public class FilterSam {
 	private ScafMap scafMap=null;
 	
 	/*--------------------------------------------------------------*/
+	/*----------------       Filter Settings        ----------------*/
+	/*--------------------------------------------------------------*/
 	
 	/** Maximum allowed substitutions in a read */
 	private int maxSubs=-1;
@@ -782,6 +806,10 @@ public class FilterSam {
 	private int ploidy=1;
 	/** Whether to apply prefiltering during variant calling */
 	private boolean prefilter=false;
+
+	/*--------------------------------------------------------------*/
+	/*----------------           Counters           ----------------*/
+	/*--------------------------------------------------------------*/
 
 	/** Number of reads processed */
 	protected long readsProcessed=0;

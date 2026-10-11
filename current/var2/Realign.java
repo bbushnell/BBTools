@@ -32,9 +32,10 @@ import tracker.ReadStats;
 public class Realign {
 	
 	/*--------------------------------------------------------------*/
-	/*----------------        Initialization        ----------------*/
+	/*----------------            Startup           ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Runs the standalone SAM/BAM realignment tool. */
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
 		Timer t=new Timer();
@@ -48,6 +49,10 @@ public class Realign {
 		//Close the print stream if it was redirected
 		Shared.closeStream(x.outstream);
 	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Initialization        ----------------*/
+	/*--------------------------------------------------------------*/
 	
 	/**
 	 * Parses command-line arguments, configures SAM filtering, quality trimming,
@@ -496,10 +501,12 @@ public class Realign {
 
 	private String in1=null;
 
+	/** Reference FASTA path; required for standalone realignment. */
 	private String ref=null;
 	
 	private String out1=null;
 	
+	/** Optional input and output extension overrides. */
 	private String extin=null;
 	private String extout=null;
 	
@@ -513,8 +520,10 @@ public class Realign {
 	/*--------------------------------------------------------------*/
 	
 	
+	/** True after this instance has loaded its reference into scafMap and Realigner.map. */
 	private boolean loadedRef=false;
 
+	/** Quality-trimming side switches and error probability. */
 	private boolean qtrimLeft=false;
 	private boolean qtrimRight=true;
 	private float trimq=10;
@@ -533,11 +542,15 @@ public class Realign {
 	protected long realignmentsSucceeded;
 	protected long realignmentsRetained;
 	
+	/** Reference scaffold map shared by worker realigners after loadReference(). */
 	public final ScafMap scafMap=new ScafMap();
 	
+	/** Minimum fixed trim on both read ends. */
 	public int border=0;
+	/** True to convert terminal realignment indels back into matches/substitutions. */
 	public boolean unclip=false;
 	
+	/** SAM/BAM read filter configured from command-line filtering flags. */
 	public final SamFilter samFilter=new SamFilter();
 	
 	/*--------------------------------------------------------------*/
@@ -546,6 +559,7 @@ public class Realign {
 
 	private final FileFormat ffin1;
 	
+	/** Output SAM/BAM descriptor, or null when writing is disabled. */
 	private final FileFormat ffout1;
 	
 	/*--------------------------------------------------------------*/
@@ -555,6 +569,7 @@ public class Realign {
 	private PrintStream outstream=System.err;
 	public static boolean verbose=false;
 	public boolean errorState=false;
+	/** Output overwrite/append/ordering controls from Parser. */
 	private boolean overwrite=true;
 	private boolean append=false;
 	private boolean ordered=true;

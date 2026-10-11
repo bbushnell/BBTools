@@ -7,43 +7,52 @@ import parse.Parse;
 import shared.Tools;
 
 /**
- * Utility class for parsing VCF format data into Var objects.
- * Handles complex VCF parsing including coordinate conversion, allele normalization,
- * and extraction of statistical information from INFO fields.
- * 
- * Supports both basic and extended parsing modes:
- * - Basic: Creates Var with position and allele data only
- * - Extended: Includes full statistical data (coverage, quality, bias metrics)
- * 
+ * Parses one record into a new Var, optionally loading BBTools coverage and
+ * extended-statistics fields. This byte-oriented parser uses a single ALT value
+ * and historical coordinate conversion; it does not split multiallelic records
+ * or perform general allele normalization. INFO keys are searched by delimiter,
+ * without separately bounding the INFO column.
+ *
  * @author Brian Bushnell
  * @author Isla
+ * @contributor Sucrose
  * @date June 25, 2025
  */
-public class VcfToVar {
+public class VcfToVar{
 
 
 
 	/**
-	 * Creates variant from VCF format line with full parsing of INFO fields.
-	 * Handles complex VCF parsing including allele normalization for indels,
-	 * coordinate conversion, and optional parsing of coverage/extended statistics.
-	 * 
-	 * @param line VCF format line as byte array
-	 * @param scafMap Scaffold mapping for chromosome name resolution
-	 * @param parseCoverage Whether to parse coverage statistics from INFO field
-	 * @param parseExtended Whether to parse extended statistical fields
+	 * Reads CHROM, POS, REF length and ALT, resolves the scaffold, and constructs a Var.
+	 * CHROM is decoded as US-ASCII. A one-byte ALT uses Var.AL_MAP; longer ALT values
+	 * are copied. When ALT is nonempty and its length differs from REF, drops its
+	 * first byte and uses POS as start. REF length is decremented only when it was one, preserving
+	 * the historical deletion convention documented below. Other starts use POS-1;
+	 * stop is start plus the resulting REF length.
+	 *
+	 * parseCoverage loads the R1P block and requires positive DP under assertions.
+	 * parseExtended loads the PPC block and prefers TYP when found, otherwise infers
+	 * type from span and allele. Each enabled block needs its searchable marker;
+	 * missing markers are not handled as a clean absent-block result. Missing
+	 * individual values use helper sentinels, with most counts floored at zero.
+	 * Disabled blocks retain the new Var's defaults. Parsing does not retain line.
+	 *
+	 * @param line Nonnull record with a single ALT and the enabled custom-statistics blocks
+	 * @param scafMap Nonnull registry containing CHROM
+	 * @param parseCoverage Whether to parse coverage and strand/read counts
+	 * @param parseExtended Whether to parse extended statistics and prefer an explicit type
 	 * @return New Var object with data from VCF line
 	 */
-	public static Var fromVCF(byte[] line, ScafMap scafMap, boolean parseCoverage, boolean parseExtended) {
+	public static Var fromVCF(byte[] line, ScafMap scafMap, boolean parseCoverage, boolean parseExtended){
 		int a=0, b=0;
-		
+
 		// Field 0: CHROM - chromosome/scaffold name
 		while(b<line.length && line[b]!='\t'){b++;}
 		assert(b>a) : "Missing field 0: "+new String(line);
 		String scaf=new String(line, a, b-a, StandardCharsets.US_ASCII);
 		b++;
 		a=b;
-		
+
 		// Field 1: POS - position (1-based in VCF)
 		while(b<line.length && line[b]!='\t'){b++;}
 		assert(b>a) : "Missing field 1: "+new String(line);
@@ -56,7 +65,7 @@ public class VcfToVar {
 		assert(b>a) : "Missing field 2: "+new String(line);
 		b++;
 		a=b;
-		
+
 		// Field 3: REF - reference allele
 		while(b<line.length && line[b]!='\t'){b++;}
 		assert(b>a) : "Missing field 3: "+new String(line);
@@ -76,12 +85,12 @@ public class VcfToVar {
 		b++;
 		a=b;
 
-		// Skip QUAL field, find INFO section for extended parsing
+		// Search begins at QUAL, immediately after ALT; INFO is not separately bounded.
 		int infoStart=b;
-		
+
 		// Convert VCF coordinates to internal format
 		final int start;
-		if(alt.length!=reflen && alt.length>0){  // Indel normalization
+		if(alt.length!=reflen && alt.length>0){  // Historical indel coordinate conversion
 			alt=Arrays.copyOfRange(alt, 1, alt.length);  // Remove first base
 			start=pos;  // Use 1-based position directly
 			if(alt.length==0){alt=Var.AL_0;}  // Empty alternative for deletions
@@ -102,13 +111,13 @@ public class VcfToVar {
 		//reflen and the Var ctor derives read length from alt. Delete this line.
 		final int readlen=(alt==null || alt.length==0 || alt[0]=='.' ? 0 : alt.length);
 		final int stop=start+reflen;
-		
+
 		// Resolve scaffold name to number
 		assert(scaf!=null);
 		assert(scafMap!=null);
 		final int scafNum=scafMap.getNumber(scaf);
 		assert(scafNum>=0) : scaf+"\n"+scafMap.keySet()+"\n"+scafMap.altKeySet()+"\n";
-		
+
 		// Determine variant type
 		int type=-1;
 		if(parseExtended){
@@ -117,24 +126,24 @@ public class VcfToVar {
 		}else{
 			type=Var.typeStartStop(start, stop, alt);
 		}
-		
+
 		Var v=new Var(scafNum, start, stop, alt, type);
-		
+
 		// Parse coverage statistics if requested
 		if(parseCoverage){
 			infoStart=Tools.indexOfDelimited(line, "R1P=", infoStart, (byte)';');
-			
+
 			// Parse strand-specific read counts: R1P=2;R1M=0;R2P=0;R2M=0;
 			int r1p=Tools.max(0, parseVcfIntDelimited(line, "R1P=", infoStart));
 			int r1m=Tools.max(0, parseVcfIntDelimited(line, "R1M=", infoStart));
 			int r2p=Tools.max(0, parseVcfIntDelimited(line, "R2P=", infoStart));
 			int r2m=Tools.max(0, parseVcfIntDelimited(line, "R2M=", infoStart));
-			
+
 			// Parse coverage: AD=2;DP=24;MCOV=0;PPC=0;
 			int cov=parseVcfIntDelimited(line, "DP=", infoStart);
 			assert(cov>0) : new String(line, infoStart, line.length-infoStart);
 			int mcov=parseVcfIntDelimited(line, "MCOV=", infoStart);
-			
+
 			v.coverage=cov;
 			v.minusCoverage=mcov;
 			v.r1plus=r1p;
@@ -142,32 +151,32 @@ public class VcfToVar {
 			v.r2plus=r2p;
 			v.r2minus=r2m;
 		}
-		
+
 		// Parse extended statistical fields if requested
 		if(parseExtended){
 			infoStart=Tools.indexOfDelimited(line, "PPC=", infoStart, (byte)';');
-			
+
 			// Parse pairing and allele fraction: PPC=0;AF=0.0833;RAF=0.0833;LS=280;
 			int pc=Tools.max(0, parseVcfIntDelimited(line, "PPC=", infoStart));
 			double raf=parseVcfDoubleDelimited(line, "RAF=", infoStart);
 			long ls=Tools.max(0, parseVcfLongDelimited(line, "LS=", infoStart));
-	
+
 			// Parse mapping quality: MQS=86;MQM=43;BQS=64;BQM=32;
 			long mqs=Tools.max(0, parseVcfLongDelimited(line, "MQS=", infoStart));
 			int mqm=Tools.max(0, parseVcfIntDelimited(line, "MQM=", infoStart));
 			long bqs=Tools.max(0, parseVcfLongDelimited(line, "BQS=", infoStart));
 			int bqm=Tools.max(0, parseVcfIntDelimited(line, "BQM=", infoStart));
-			
+
 			// Parse distance and identity: EDS=18;EDM=9;IDS=1984;IDM=992;
 			long eds=Tools.max(0, parseVcfLongDelimited(line, "EDS=", infoStart));
 			int edm=Tools.max(0, parseVcfIntDelimited(line, "EDM=", infoStart));
 			long ids=Tools.max(0, parseVcfLongDelimited(line, "IDS=", infoStart));
 			int idm=Tools.max(0, parseVcfIntDelimited(line, "IDM=", infoStart));
-			
+
 			// Parse annotation fields: NVC=0;FLG=0;CED=601;HMP=0;SB=0.1809;DP4=37,28,15,97
 			int nvc=Tools.max(0, parseVcfIntDelimited(line, "NVC=", infoStart));
 			int flg=Tools.max(0, parseVcfIntDelimited(line, "FLG=", infoStart));
-			
+
 			// Store all extended statistics in variant object
 			v.properPairCount=pc;
 			v.revisedAlleleFraction=raf;
@@ -183,14 +192,14 @@ public class VcfToVar {
 			v.nearbyVarCount=nvc;
 			v.flagged=(flg>0);
 		}
-		
+
 		return v;
 	}
-	
+
 	/**
-	 * Parses integer value from VCF INFO field with specified key.
-	 * Searches for key=value pattern and extracts integer, with bounds checking.
-	 * 
+	 * Parses a long, caps it at Integer.MAX_VALUE, then casts to int.
+	 * There is no lower-bound clamp or long-overflow detection.
+	 *
 	 * @param line VCF line data
 	 * @param query Search key (e.g., "DP=")
 	 * @param start Starting position for search
@@ -199,15 +208,16 @@ public class VcfToVar {
 	private static int parseVcfIntDelimited(byte[] line, String query, int start){
 		return (int)Tools.min(Integer.MAX_VALUE, parseVcfLongDelimited(line, query, start));
 	}
-	
+
 	/**
-	 * Parses long integer value from VCF INFO field with specified key.
-	 * Handles negative values and validates numeric parsing.
-	 * 
+	 * Searches at start or after a semicolon, then parses digits with optional '-'.
+	 * Stops at tab/semicolon, asserting on other terminators. Digit accumulation has
+	 * no overflow check. A match at byte zero returns zero without parsing its value.
+	 *
 	 * @param line VCF line data
 	 * @param query Search key (e.g., "MQS=")
-	 * @param start Starting position for search
-	 * @return Parsed long value, or -1 if not found
+	 * @param start Valid nonnegative search offset
+	 * @return Accumulated value, or -1 if no key is found
 	 */
 	private static long parseVcfLongDelimited(byte[] line, String query, final int start){
 		int loc=Tools.indexOfDelimited(line, query, start, (byte)';');
@@ -228,14 +238,14 @@ public class VcfToVar {
 		}
 		return mult*current;
 	}
-	
+
 	/**
-	 * Parses double/float value from VCF INFO field with specified key.
-	 * Extracts decimal number from key=value pattern in INFO section.
-	 * 
+	 * Parses the value span up to tab/semicolon through Parse.parseDouble.
+	 * A match at byte zero is treated as unavailable.
+	 *
 	 * @param line VCF line data
 	 * @param query Search key (e.g., "AF=")
-	 * @param start Starting position for search
+	 * @param start Valid nonnegative search offset
 	 * @return Parsed double value, or -1.0 if not found
 	 */
 	private static double parseVcfDoubleDelimited(byte[] line, String query, int start){
@@ -254,12 +264,13 @@ public class VcfToVar {
 		}
 		return -1;
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Static Fields         ----------------*/
 	/*--------------------------------------------------------------*/
-	
-	/** Parses TYP= field as either integer type code or string type name. */
+
+	/** Parses numeric TYP or maps only its first byte through Var.typeInitialArray.
+	 * Numeric codes are not range-checked here; absent/unrecognized initials yield -1. */
 	private static int parseVcfType(byte[] line, int start){
 		int idx=Tools.indexOfDelimited(line, "TYP=", start, (byte)';');
 		if(idx<0){return -1;}

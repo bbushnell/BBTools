@@ -46,6 +46,15 @@ import structures.ListNum;
  */
 public class GradeVCF {
 
+	/*--------------------------------------------------------------*/
+	/*----------------          Startup            ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/**
+	 * Parses command-line arguments and grades one input VCF against a truth set.
+	 *
+	 * @param args command-line arguments
+	 */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		GradeVCF x=new GradeVCF(args);
@@ -53,6 +62,12 @@ public class GradeVCF {
 		Shared.closeStream(x.outstream);
 	}
 
+	/**
+	 * Parses arguments, loads optional reference/BED/NN inputs, and validates the
+	 * files needed before worker threads start reading the query VCF.
+	 *
+	 * @param args command-line arguments
+	 */
 	public GradeVCF(String[] args){
 
 		{
@@ -225,6 +240,16 @@ public class GradeVCF {
 		threads=Tools.min(MAX_VCF_READ_THREADS>0 ? MAX_VCF_READ_THREADS : (net0==null ? 8 : 16), Shared.threads());
 	}
 
+	/*--------------------------------------------------------------*/
+	/*----------------       Reference Helpers      ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/**
+	 * Looks up bases for one contig in the globally loaded reference map.
+	 *
+	 * @param scaf scaffold name from a VCF line
+	 * @return reference bases, or {@code null} if that scaffold is absent
+	 */
 	private byte[] refBasesFor(String scaf){
 		Scaffold sc=ScafMap.defaultScafMap().getScaffold(scaf);
 		return sc==null ? null : sc.bases;
@@ -280,6 +305,13 @@ public class GradeVCF {
 	/*----------------         VCF Header           ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/**
+	 * Copies VCF header lines to output, records them for downstream use, and
+	 * harvests contig and summary metadata required for post-hoc NN scoring.
+	 *
+	 * @param bf input stream positioned at the beginning of a VCF
+	 * @param bsw optional output writer for passing-call VCF output
+	 */
 	private void processVcfHeader(ByteFile bf, ByteStreamWriter bsw){
 		byte[] line=bf.nextLine();
 		ByteBuilder bb=new ByteBuilder();
@@ -322,6 +354,13 @@ public class GradeVCF {
 	/*----------------       MT Processing          ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/**
+	 * Starts worker threads that share the same input stream and optional writer.
+	 *
+	 * @param bf VCF body stream after the header has been consumed
+	 * @param bsw optional output writer for passing-call VCF output
+	 * @return started worker threads
+	 */
 	private ArrayList<ProcessThread> spawnThreads(ByteFile bf, ByteStreamWriter bsw){
 		ArrayList<ProcessThread> alpt=new ArrayList<ProcessThread>(threads);
 		for(int i=0; i<threads; i++){
@@ -331,6 +370,12 @@ public class GradeVCF {
 		return alpt;
 	}
 
+	/**
+	 * Waits for all workers, folds their private counters and histograms into
+	 * shared totals, and preserves the highest per-truth matching scores.
+	 *
+	 * @param alpt started worker threads
+	 */
 	private void waitForFinish(ArrayList<ProcessThread> alpt){
 		boolean allSuccess=true;
 		for(ProcessThread pt : alpt){
@@ -364,14 +409,24 @@ public class GradeVCF {
 	/*----------------        Worker Thread         ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/**
+	 * Consumes VCF body lines from a shared {@link ByteFile}, grades variants,
+	 * and buffers any passing output lines with stable list-number ordering.
+	 */
 	private class ProcessThread extends Thread {
 
+		/**
+		 * @param bf_ shared input stream
+		 * @param bsw_ optional output writer for passing-call VCF output
+		 * @param jobIDOffset_ number of header lists already written
+		 */
 		ProcessThread(ByteFile bf_, ByteStreamWriter bsw_, long jobIDOffset_){
 			bf=bf_;
 			bsw=bsw_;
 			offset=jobIDOffset_;
 		}
 
+		/** Reads lists until EOF, grades every variant line, and publishes one output buffer per list. */
 		@Override
 		public void run(){
 			net=(net0==null ? null : net0.copy(false));
@@ -390,10 +445,21 @@ public class GradeVCF {
 			synchronized(this){notify();}
 		}
 
+		/**
+		 * Takes the next list from the shared input stream under the stream lock.
+		 *
+		 * @return next list, or a terminal list from {@link ByteFile}
+		 */
 		private ListNum<byte[]> nextListSync(){
 			synchronized(bf){return bf.nextList();}
 		}
 
+		/**
+		 * Parses, optionally splits and normalizes, then grades one nonempty VCF body line.
+		 *
+		 * @param line raw VCF line
+		 * @param bb optional per-list output buffer
+		 */
 		void processLine(byte[] line, ByteBuilder bb){
 			bytesProcessedT+=line.length;
 			if(line.length<1){return;}
@@ -415,6 +481,14 @@ public class GradeVCF {
 			}
 		}
 
+		/**
+		 * Scores one normalized call variant, records TP/FP evidence, and writes
+		 * the original call line when it passes the configured operating point.
+		 *
+		 * @param vline normalized call variant to grade
+		 * @param origLine original unsplit VCF line used for Var reconstruction/output
+		 * @param bb optional per-list output buffer
+		 */
 		void gradeVariant(VCFLine vline, byte[] origLine, ByteBuilder bb){
 			final double weight=weightFor(vline);
 			if(weight<=0){return;}

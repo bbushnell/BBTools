@@ -3,62 +3,58 @@ package var2;
 import shared.Tools;
 
 /**
- * Converts Var objects into feature vectors for neural network analysis.
- * Implements a factory pattern supporting three different neural network models
- * developed by summer interns, each with specialized feature extraction algorithms.
+ * Legacy dispatcher for four feature layouts, retained from the intern models.
+ * ELBA has 32 slots (20 populated), LAWRENCE has eight scaled features, DONOVAN
+ * has 16 slots (four populated), and UMP45 delegates to VectorUMP45 (33 slots).
+ * The private ELBA and DONOVAN implementations are distinct from the standalone
+ * VectorElba and VectorDonovan classes. The current Java scoring path bypasses
+ * this dispatcher and calls VectorUMP45 directly; see the historical issue below.
  *
- * Feature extraction modes:
- * - ELBA: Quality score prediction using 32-dimensional vectors with quality metrics,
- * strand bias analysis, and context normalization against dataset statistics
- * - LAWRENCE: Genotype calling using 8-dimensional min-max scaled vectors with
- * revised allele fractions, mapping qualities, and strand bias scoring
- * - DONOVAN: Template framework for additional model development (16-dimensional placeholder)
- *
- * The feature vectors are designed for specific neural network architectures trained
- * on variant calling datasets, with each intern optimizing for their particular task.
- *
+ * Mode is process-global and unsynchronized; configure before use, not during
+ * concurrent extraction. This class neither selects a network nor validates its
+ * input schema. LAWRENCE and UMP45 may update the variant's revised-AF cache.
  * @author Brian Bushnell
  * @author Isla
  * @date July 21, 2025
  */
-public class FeatureVectorMaker {
-	
+public class FeatureVectorMaker{
 	/*--------------------------------------------------------------*/
 	/*----------------        Mode Constants        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
+	/** Stable indices into MODE_NAMES. */
 	public static final int ELBA=0, LAWRENCE=1, DONOVAN=2, UMP45=3;
 
+	/** Legacy selection, initially ELBA; not read by current direct scoring callers. */
 	private static int MODE=ELBA;
 
+	/** Names in the same order as the mode constants. */
 	private static final String[] MODE_NAMES={"ELBA", "LAWRENCE", "DONOVAN", "UMP45"};
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------      Main Entry Point       ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
-	 * Convert a variant to a feature vector using the currently selected extraction method.
-	 * Implements factory pattern routing to intern-specific feature extraction algorithms.
-	 * Each algorithm produces vectors of different dimensionality and scaling appropriate
-	 * for their trained neural network architectures.
-	 *
-	 * @param v Variant to convert with coverage, quality, and mapping statistics
-	 * @param pairingRate Dataset-wide proper pairing rate for normalization context
-	 * @param totalQualityAvg Average base quality across entire sequencing dataset
-	 * @param totalMapqAvg Average mapping quality across entire sequencing dataset
-	 * @param readLengthAvg Average read length for the sequencing technology used
-	 * @param ploidy Expected sample ploidy (1 for haploid, 2 for diploid organisms)
-	 * @param map Scaffold mapping for calculating positional features and end distances
-	 * @return Float array feature vector ready for neural network input layer
+	 * Allocates a vector using the process-global mode and its historical layout.
+	 * No finiteness or network-dimension check is added by the dispatcher; UMP45
+	 * retains its own checks. Parameter usage depends on the selected branch.
+	 * @param v Non-null variant with coverage and supporting-read statistics
+	 * @param pairingRate Dataset proper-pair fraction for ELBA or UMP45
+	 * @param totalQualityAvg Dataset mean base quality for ELBA or UMP45
+	 * @param totalMapqAvg Dataset mean mapping quality for ELBA or UMP45
+	 * @param readLengthAvg Dataset mean read length in bases; unused by DONOVAN
+	 * @param ploidy Sample ploidy for ELBA or UMP45
+	 * @param map Optional scaffold context for LAWRENCE or UMP45
+	 * @return Fresh array in the selected layout
+	 * @throws RuntimeException if MODE contains an unsupported value
 	 */
-	//TODO: Possible bug [var2/FeatureVectorMaker#001] (LOW) - toVector() has ZERO callers (grep); the live
-	//path calls VectorUMP45.makeVector directly. setMode() IS called (netmode= flag) but no live code reads
-	//MODE, so netmode=elba/lawrence/donovan is a SILENT NO-OP (and would be a dim-mismatch if it weren't
-	//dead). The ELBA/LAWRENCE/DONOVAN branches below are all dead. Cleanup/architecture decision for Brian.
+	//TODO: Possible bug [var2/FeatureVectorMaker#001] (LOW) - no toVector callers found in current
+	//Java sources; live scoring calls VectorUMP45.makeVector directly. netmode= parsing sets MODE
+	//and useNet, but the chosen layout is not consulted by that scoring path. Rewiring would require
+	//compatible model dimensions and preprocessing. Cleanup/architecture decision remains for Brian.
 	public static float[] toVector(Var v, double pairingRate, double totalQualityAvg,
 			double totalMapqAvg, double readLengthAvg, int ploidy, ScafMap map){
-
 		if(MODE==ELBA){
 			return makeElbaVector(v, pairingRate, totalQualityAvg, totalMapqAvg, readLengthAvg, ploidy, map);
 		}else if(MODE==LAWRENCE){
@@ -71,59 +67,54 @@ public class FeatureVectorMaker {
 			throw new RuntimeException("Unknown feature vector mode: "+MODE);
 		}
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------    Intern-Specific Methods   ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
-	 * Generate Elba's 32-dimensional feature vector optimized for quality score prediction.
-	 * Implements quality analysis combining raw statistics, averages, and normalization
-	 * against dataset-wide metrics. Features include variant properties, quality metrics
-	 * (both raw and averaged), strand bias analysis, pairing statistics, and contextual
-	 * normalization ratios.
-	 * Algorithm combines absolute quality metrics with relative measures normalized
-	 * against dataset averages to provide context-aware features for neural network training.
-	 *
-	 * @param v Variant with accumulated quality and coverage statistics
-	 * @param pairingRate Dataset proper pairing rate for normalization
-	 * @param totalQualityAvg Dataset average base quality for relative scaling
-	 * @param totalMapqAvg Dataset average mapping quality for relative scaling
-	 * @param readLengthAvg Technology-specific average read length
-	 * @param ploidy Expected sample ploidy for genotype context
-	 * @param map Scaffold mapping for positional feature calculation
-	 * @return 32-element float array with normalized quality prediction features
+	 * Builds the historical 32-slot ELBA layout: 20 features followed by 12 zeros.
+	 * Combines raw statistics, guarded means and three dataset-relative ratios.
+	 * The ratios guard dataset denominators but not allele count (see issue #002).
+	 * This is not the standalone VectorElba 11-feature preprocessing pipeline.
+	 * @param v Non-null variant with accumulated statistics
+	 * @param pairingRate Dataset proper-pair fraction; nonpositive values use ratio 1
+	 * @param totalQualityAvg Dataset mean base quality; nonpositive values use ratio 1
+	 * @param totalMapqAvg Dataset mean mapping quality; nonpositive values use ratio 1
+	 * @param readLengthAvg Dataset mean read length, emitted directly
+	 * @param ploidy Sample ploidy, emitted directly
+	 * @param map Unused compatibility parameter
+	 * @return Fresh 32-element array; no finiteness or range validation
 	 */
 	private static float[] makeElbaVector(Var v, double pairingRate, double totalQualityAvg,
 			double totalMapqAvg, double readLengthAvg, int ploidy, ScafMap map){
-		
 		//Elba's vector focuses on quality prediction - allocate appropriate size
-		float[] vec=new float[32]; //32-element vector matches Elba's network architecture
+		float[] vec=new float[32]; //Historical layout; no model-dimension check here
 		int idx=0;
-		
+
 		//Basic variant properties
 		vec[idx++]=(float)v.type(); //Variant type (SUB, INS, DEL)
 		vec[idx++]=(float)v.alleleCount(); //Supporting read count
 		vec[idx++]=(float)v.coverage(); //Total coverage depth
 		vec[idx++]=(float)v.alleleFraction(); //Allele frequency
-		
+
 		//Quality metrics (raw values)
 		vec[idx++]=(float)v.baseQMax; //Maximum base quality
 		vec[idx++]=(float)v.mapQMax; //Maximum mapping quality
-		vec[idx++]=(float)v.idMax*0.001f; //Maximum identity scaled to [0,1]
+		vec[idx++]=(float)v.idMax*0.001f; //Maximum identity converted from per-mille to fraction
 		vec[idx++]=(float)v.endDistMax; //Maximum end distance
-		
+
 		//Quality metrics (averages)
 		final int count=v.alleleCount();
 		vec[idx++]=(count>0 ? (float)(v.baseQSum/(double)count) : 0f); //Average base quality
 		vec[idx++]=(count>0 ? (float)(v.mapQSum/(double)count) : 0f); //Average mapping quality
-		vec[idx++]=(count>0 ? (float)(v.idSum/(double)count*0.001) : 0f); //Average identity scaled to [0,1]
+		vec[idx++]=(count>0 ? (float)(v.idSum/(double)count*0.001) : 0f); //Mean identity converted from per-mille to fraction
 		vec[idx++]=(count>0 ? (float)(v.endDistSum/(double)count) : 0f); //Average end distance
-		
+
 		//Strand bias and pairing
 		vec[idx++]=(float)v.strandRatio(); //Strand balance ratio
 		vec[idx++]=(count>0 ? (float)(v.properPairCount/(double)count) : 0f); //Proper pair rate
-		
+
 		//Context features relative to dataset averages
 		//TODO: Possible bug [var2/FeatureVectorMaker#002] (LOW, latent - this method is DEAD per #001) - these
 		//three ratio dims divide by count with NO count>0 guard (the avg dims above DO guard), so count==0
@@ -132,42 +123,37 @@ public class FeatureVectorMaker {
 		vec[idx++]=(float)(totalQualityAvg>0 ? (v.baseQSum/(double)count)/totalQualityAvg : 1.0); //Quality ratio vs dataset
 		vec[idx++]=(float)(totalMapqAvg>0 ? (v.mapQSum/(double)count)/totalMapqAvg : 1.0); //MapQ ratio vs dataset
 		vec[idx++]=(float)(pairingRate>0 ? (v.properPairCount/(double)count)/pairingRate : 1.0); //Pairing ratio vs dataset
-		
+
 		//Positional features
 		vec[idx++]=(float)ploidy; //Sample ploidy
 		vec[idx++]=(float)readLengthAvg; //Average read length
-		
+
 		//Nearby variant context (if available)
 		vec[idx++]=(float)v.nearbyVarCount; //Nearby variant density
-		
+
 		//Reserved slots for additional features
 		while(idx<vec.length){vec[idx++]=0f;}
-		
 		return vec;
 	}
-	
-	/**
-	 * Generate Lawrence's 8-dimensional feature vector optimized for genotype calling.
-	 * Implements min-max scaling algorithm with pre-trained bounds derived from training data.
-	 * Features focus on revised allele fractions, quality metrics, and strand bias scoring
-	 * specifically tuned for distinguishing true variants from sequencing artifacts.
-	 *
-	 * The algorithm applies min-max normalization: (value - min) / (max - min)
-	 * with bounds clipped to [0,1] to handle values outside the training range.
-	 * Feature bounds were empirically derived from variant calling training datasets.
-	 *
-	 * @param v Variant with quality and mapping statistics
-	 * @param pairingRate Dataset proper pairing rate (unused in current implementation)
-	 * @param totalQualityAvg Dataset average base quality (unused in current implementation)
-	 * @param totalMapqAvg Dataset average mapping quality (unused in current implementation)
-	 * @param readLengthAvg Average read length for revised allele fraction calculation
-	 * @param ploidy Sample ploidy (unused in current implementation)
-	 * @param map Scaffold mapping for strand bias end distance calculation
-	 * @return 8-element float array with min-max scaled genotype calling features
-	 */
-	private static float[] makeLawrenceVector(Var v, double pairingRate, double totalQualityAvg, 
-			double totalMapqAvg, double readLengthAvg, int ploidy, ScafMap map){
 
+	/**
+	 * Builds eight historical features and scales with literal min/max endpoints.
+	 * The source originally attributed these bounds to training data. Non-NaN
+	 * scaled values are clipped to the inclusive interval [0,1]; NaN is retained.
+	 * Revised AF may update the variant's insertion cache. Mean accessors have no
+	 * zero-count guard. Scaffold context follows Var.nScan when scanning is off,
+	 * v.start without a map, or v.contigEndDist with a map.
+	 * @param v Non-null variant with supporting-read statistics
+	 * @param pairingRate Unused compatibility parameter
+	 * @param totalQualityAvg Unused compatibility parameter
+	 * @param totalMapqAvg Unused compatibility parameter
+	 * @param readLengthAvg Mean read length in bases for revised allele fraction
+	 * @param ploidy Unused compatibility parameter
+	 * @param map Optional scaffold map for strand-bias context
+	 * @return Fresh eight-element scaled vector
+	 */
+	private static float[] makeLawrenceVector(Var v, double pairingRate, double totalQualityAvg,
+			double totalMapqAvg, double readLengthAvg, int ploidy, ScafMap map){
 		float[] vec=new float[8];
 
 		//1. RAF: Revised Allele Fraction
@@ -187,7 +173,7 @@ public class FeatureVectorMaker {
 		//8. SB: Strand Bias
 		final int scafEndDist=!Var.doNscan ? Var.nScan : (map==null ? v.start : v.contigEndDist(map));
 		vec[7]=(float)v.strandBiasScore(scafEndDist);
-		
+
 		//Min-max scaling with empirically-derived bounds from training data
 		float[] scaledVec=new float[8];
 
@@ -226,87 +212,77 @@ public class FeatureVectorMaker {
 				scaledVec[i]=0.0f;
 			}else{
 				float scaledValue=(rawValue-min)/denominator;
-				//Clip the value to be strictly between 0 and 1
+				//Clip to the inclusive interval [0,1]; NaN remains NaN
 				//This handles cases where a new variant's feature is outside the training range
 				scaledVec[i]=Math.max(0.0f, Math.min(1.0f, scaledValue));
 			}
 		}
-
 		return scaledVec;
 	}
-	
+
 	/**
-	 * Generate Donovan's 16-dimensional feature vector template for future model development.
-	 * Currently implements basic variant features as a foundation for custom neural network
-	 * architecture development. This method serves as a starting framework that can be
-	 * extended with domain-specific features as requirements become defined.
-	 *
-	 * Template includes fundamental variant properties (allele count, coverage, frequency,
-	 * and type) with remaining vector slots reserved for custom feature engineering.
-	 *
-	 * @param v Variant with basic statistics for feature extraction
-	 * @param pairingRate Dataset proper pairing rate (reserved for future use)
-	 * @param totalQualityAvg Dataset average base quality (reserved for future use)
-	 * @param totalMapqAvg Dataset average mapping quality (reserved for future use)
-	 * @param readLengthAvg Average read length (reserved for future use)
-	 * @param ploidy Sample ploidy (reserved for future use)
-	 * @param map Scaffold mapping (reserved for future use)
-	 * @return 16-element float array with basic features and reserved slots for expansion
+	 * Retains the 16-slot DONOVAN placeholder: count, coverage, AF and type in
+	 * slots 0-3, with the remaining slots zero. This does not call VectorDonovan
+	 * or load its quantile resources.
+	 * @param v Non-null variant
+	 * @param pairingRate Unused compatibility parameter
+	 * @param totalQualityAvg Unused compatibility parameter
+	 * @param totalMapqAvg Unused compatibility parameter
+	 * @param readLengthAvg Unused compatibility parameter
+	 * @param ploidy Unused compatibility parameter
+	 * @param map Unused compatibility parameter
+	 * @return Fresh 16-element placeholder vector
 	 */
 	private static float[] makeDonovanVector(Var v, double pairingRate, double totalQualityAvg,
 			double totalMapqAvg, double readLengthAvg, int ploidy, ScafMap map){
-		
 		//Placeholder for third intern's feature extraction
 		float[] vec=new float[16]; //Adjust based on requirements
 		int idx=0;
-		
+
 		//Basic features as starting point
 		vec[idx++]=(float)v.alleleCount();
 		vec[idx++]=(float)v.coverage();
 		vec[idx++]=(float)v.alleleFraction();
 		vec[idx++]=(float)v.type();
-		
+
 		//Donovan can customize this method for their specific model
 		//Reserved slots for custom features
 		while(idx<vec.length){vec[idx++]=0f;}
-		
 		return vec;
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------       Utility Methods       ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
-	 * Set the active feature extraction mode for all subsequent toVector() calls.
-	 * Changes the global MODE variable to route to the specified intern's algorithm.
-	 * @param mode Feature extraction mode constant (ELBA=0, LAWRENCE=1, DONOVAN=2)
+	 * Sets the global mode for subsequent dispatcher calls, not direct scoring.
+	 * Validation is assertion-only; with assertions disabled an invalid value is stored.
+	 * @param mode ELBA=0, LAWRENCE=1, DONOVAN=2 or UMP45=3
 	 */
 	public static void setMode(int mode){
 		assert(mode>=0 && mode<=3) : "Invalid mode: "+mode;
 		MODE=mode;
 	}
-	
+
 	/**
-	 * Set the active feature extraction mode from string representation.
-	 * Parses case-insensitive mode names and converts to internal mode constants.
-	 * @param modeStr Mode name string ("ELBA", "LAWRENCE", "DONOVAN", case-insensitive)
-	 * @throws RuntimeException if modeStr does not match any known mode name
+	 * Sets the global mode by name after uppercasing with the default locale.
+	 * @param modeStr Non-null ELBA, LAWRENCE, DONOVAN or UMP45 name
+	 * @throws RuntimeException if the uppercased name is unknown
 	 */
 	public static void setMode(String modeStr){
 		int mode=Tools.find(modeStr.toUpperCase(), MODE_NAMES);
 		if(mode<0){throw new RuntimeException("Unknown feature mode: "+modeStr);}
 		MODE=mode;
 	}
-	
-	public static int getMode(){
-		return MODE;
-	}
-	
+
+	/** Returns the legacy global selection. */
+	public static int getMode(){return MODE;}
+
 	/**
-	 * Get the expected feature vector length for the currently active mode.
-	 * Each intern's neural network architecture requires different input dimensions.
-	 * @return Expected vector length (ELBA=32, LAWRENCE=8, DONOVAN=16)
+	 * Returns the selected layout length without checking any network.
+	 * @return ELBA=32, LAWRENCE=8, DONOVAN=16 or VectorUMP45.DIMS (currently 33)
+	 * @throws RuntimeException if MODE contains an unsupported value
 	 */
 	public static int getVectorLength(){
 		if(MODE==ELBA){return 32;}
@@ -315,8 +291,7 @@ public class FeatureVectorMaker {
 		else if(MODE==UMP45){return VectorUMP45.DIMS;}
 		else{throw new RuntimeException("Unknown mode: "+MODE);}
 	}
-	
-	public static String getModeName(){
-		return MODE_NAMES[MODE];
-	}
+
+	/** Returns the name indexed by MODE; an invalid stored mode throws. */
+	public static String getModeName(){return MODE_NAMES[MODE];}
 }

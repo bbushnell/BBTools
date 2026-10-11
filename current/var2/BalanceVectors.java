@@ -61,12 +61,21 @@ import structures.IntList;
  */
 public class BalanceVectors {
 
+	/*--------------------------------------------------------------*/
+	/*----------------            Startup           ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Runs labeled-vector balancing. */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		BalanceVectors x=new BalanceVectors(args);
 		x.process(t);
 		Shared.closeStream(x.outstream);
 	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Initialization        ----------------*/
+	/*--------------------------------------------------------------*/
 
 	/**
 	 * Parses command-line arguments and validates I/O.
@@ -281,27 +290,35 @@ public class BalanceVectors {
 		}
 	}
 
+	/** Appends idx to the list under key, allocating the bucket on first use. */
 	private static void bucket(HashMap<String, IntList> map, String key, int idx){
 		IntList list=map.get(key);
 		if(list==null){list=new IntList(); map.put(key, list);}
 		list.add(idx);
 	}
 
+	/** Decodes the one-hot VectorUMP45 variant-type slots into a stratification label. */
 	private static String typeStr(float[] f){
 		if(f[IDX_TYPE_SUB]>0.5f){return "SUB";}
 		if(f[IDX_TYPE_INS]>0.5f){return "INS";}
 		if(f[IDX_TYPE_DEL]>0.5f){return "DEL";}
 		return "OTHER";
 	}
+
+	/** Bins total read depth from the log2(depth+1)/8 feature. */
 	private static String depthBin(float[] f){
 		int d=Math.max(1, (int)(Math.pow(2, f[IDX_DEPTH]*8)-1));
 		if(d<10){return "d"+d;}
 		if(d<100){return "d"+((d/10)*10)+"-"+((d/10)*10+9);}
 		return "d100+";
 	}
+
+	/** Bins the optional composite score into twentieths, with scores >=0.20 coalesced. */
 	private static String scoreBin(float[] f){
 		return "s"+Math.min(19, (int)(f[IDX_SCORE]*100));
 	}
+
+	/** Bins max(ref length, alt length) from the log2(eventLength+1)/8 feature. */
 	private static String eventLenBin(float[] f){
 		int e=Math.max(0, (int)(Math.pow(2, f[IDX_EVENT_LEN]*8)-1));
 		if(e<=1){return "len1";}
@@ -309,6 +326,8 @@ public class BalanceVectors {
 		if(e<=20){return "len6-20";}
 		return "len20+";
 	}
+
+	/** Bins the original homopolymer count from its 1/(hpc+1) encoded feature. */
 	private static String hpBin(float[] f){
 		float c=f[IDX_HP];
 		int hpc=c>0 ? Math.round(1f/c-1) : 0;//invert 1/(hpc+1)
@@ -317,6 +336,8 @@ public class BalanceVectors {
 		if(hpc<=5){return "hp3-5";}
 		return "hp6+";
 	}
+
+	/** Bins the raw allele fraction. */
 	private static String afBin(float[] f){
 		float af=f[IDX_AF];
 		if(af<0.1f){return "af00-10";}
@@ -324,12 +345,16 @@ public class BalanceVectors {
 		if(af<0.6f){return "af30-60";}
 		return "af60+";
 	}
+
+	/** Bins the raw strand ratio. */
 	private static String srBin(float[] f){
 		float sr=f[IDX_STRAND];
 		if(sr<0.1f){return "sr00-10";}
 		if(sr<0.3f){return "sr10-30";}
 		return "sr30+";
 	}
+
+	/** Bins average mapping quality after undoing VectorUMP45's /40 scaling. */
 	private static String mqBin(float[] f){
 		float mq=f[IDX_MAPQ]*40;
 		if(mq<10){return "mq00-10";}
@@ -424,7 +449,7 @@ public class BalanceVectors {
 		}
 	}
 
-	/** Parses just the value of the col-th tab field of a vector line. */
+	/** Parses just the value of the col-th tab field of a vector line; retained for probes. */
 	private static float fieldAt(byte[] line, int col){
 		int a=0, field=0;
 		for(int i=0; i<=line.length; i++){
@@ -461,21 +486,36 @@ public class BalanceVectors {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Input labeled-vector TSV and output split paths. */
 	private String in=null, outTrain=null, outVal=null;
+	/** Input and output file descriptors. */
 	private final FileFormat ffin, ffoutTrain, ffoutVal;
 
+	/** Target positive fraction among AD>=2 rows. */
 	private double posFraction=0.3;//Target positive fraction of the output
+	/** Fraction of the final shuffled rows written to validation. */
 	private double valFraction=0.1;//Fraction held out for validation
+	/** Per-artifact-category quota multiplier relative to base category quota. */
 	private double newWeight=0.3;  //Artifact-category quota relative to existing categories
+	/** True to sample negatives from stratification categories before random fill. */
 	private boolean enrich=true;   //Use enriched category sampling at all
+	/** True to include homopolymer, allele-fraction, strand and mapq categories. */
 	private boolean newCats=true;  //Include the artifact axes (homopolymer/AF/strand/mapq)
+	/** True to zero VectorUMP45's optional existing-score column on output. */
 	private boolean noScore=true;  //Zero the composite-score column on output
+	/** Random seed for category sampling and final shuffling. */
 	private long seed=42;
+	/** Positive value overriding the computed base category quota. */
 	private int quotaOverride=-1;  //If >0, overrides the computed per-existing-category quota
+	/** Maximum separately sampled depth-1 rows; zero leaves AD==1 in the main pools. */
 	private int depth1Count=0;     //If >0, gather AD==1 variants separately and sample this many (NOT balanced)
+	/** Minimum positive fraction for separately sampled depth-1 rows. */
 	private double depth1Floor=0.01;//Enrich depth-1 positives to this fraction only if the natural rate is below it
 
+	/** Number of nonempty, nonheader vector rows consumed. */
 	private long linesIn=0;
+	/** Status output stream. */
 	private PrintStream outstream=System.err;
+	/** True if a writer reported an error. */
 	private boolean errorState=false;
 }

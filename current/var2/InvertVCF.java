@@ -18,18 +18,28 @@ import shared.Tools;
 import structures.ByteBuilder;
 
 /**
- * Inverts a VCF file produced by MutateGenome (mutate.sh).
- * Swaps ref/alt alleles, flips INS/DEL types, and adjusts coordinates
- * from original-genome space to mutant-genome space.
- *
- * This allows comparison of variant calls made by mapping real reads
- * to a mutant genome against the known ground truth of the mutations.
+ * Inverts a mutate.sh truth VCF from original-reference coordinates into the
+ * mutated-reference coordinate system.
+ * <p>
+ * Each variant line has REF and ALT swapped, INFO TYP=INS/DEL exchanged, and
+ * INFO STA/STO shifted by the cumulative earlier indel length change on the
+ * same scaffold. ##contig length headers are adjusted by the final net length
+ * change for each scaffold. This lets gradevcf compare calls made by mapping
+ * original reads to the mutated reference against the inverted ground truth.
+ * <p>
+ * Input variant rows are expected in the per-scaffold order emitted by
+ * mutate.sh, so the running shift matches preceding variants on that scaffold.
  *
  * @author Brian Bushnell, Chloe
  * @date June 2026
  */
 public class InvertVCF {
 
+/*--------------------------------------------------------------*/
+/*----------------            Startup           ----------------*/
+/*--------------------------------------------------------------*/
+
+	/** Runs the VCF inversion. */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		InvertVCF x=new InvertVCF(args);
@@ -37,6 +47,11 @@ public class InvertVCF {
 		Shared.closeStream(x.outstream);
 	}
 
+/*--------------------------------------------------------------*/
+/*----------------        Initialization        ----------------*/
+/*--------------------------------------------------------------*/
+
+	/** Parses arguments and validates input/output paths. */
 	public InvertVCF(String[] args){
 
 		{
@@ -88,6 +103,14 @@ public class InvertVCF {
 		ffout1=FileFormat.testOutput(out1, FileFormat.TXT, null, true, overwrite, append, false);
 	}
 
+/*--------------------------------------------------------------*/
+/*----------------           Methods            ----------------*/
+/*--------------------------------------------------------------*/
+
+	/**
+	 * Loads all header and variant rows, computes net scaffold length changes,
+	 * writes adjusted headers, and streams inverted variant rows.
+	 */
 	void process(Timer t){
 
 		ByteFile bf=ByteFile.makeByteFile(ffin1);
@@ -129,83 +152,93 @@ public class InvertVCF {
 			bsw.start();
 		}
 
-		ByteBuilder bb=new ByteBuilder();
-		for(byte[] hline : headerLines){
-			String hs=new String(hline);
-			if(hs.startsWith("##contig=<ID=")){
-				String adjusted=adjustContigLength(hs, netShiftPerScaf);
-				bb.append(adjusted).append('\n');
-			}else if(hs.startsWith("##Program=")){
-				bb.append(hs).append('\n');
-				bb.append("##InvertedBy=InvertVCF").append('\n');
-			}else{
-				bb.append(hline).append('\n');
-			}
-			headerLinesOut++;
-		}
-		if(bsw!=null && bb.length()>0){
-			bsw.print(bb);
-			bb.clear();
-		}
-
-		String prevChrom=null;
-		long cumShift=0;
-
-		for(byte[] dline : dataLines){
-			String[] fields=new String(dline).split("\t");
-			String chrom=fields[0];
-			int pos=Integer.parseInt(fields[1]);
-			String id_f=fields[2];
-			String refStr=fields[3];
-			String altStr=fields[4];
-
-			if(!chrom.equals(prevChrom)){
-				cumShift=0;
-				prevChrom=chrom;
-			}
-
-			int newPos=pos+(int)cumShift;
-
-			int refLen=refStr.length();
-			int altLen=altStr.length();
-			int delta=altLen-refLen;
-
-			String newRef=altStr;
-			String newAlt=refStr;
-
-			String infoStr=fields[7];
-			String newInfo=invertInfo(infoStr, cumShift);
-
-			cumShift+=delta;
-
-			bb.append(chrom).append('\t');
-			bb.append(newPos).append('\t');
-			bb.append(id_f).append('\t');
-			bb.append(newRef).append('\t');
-			bb.append(newAlt).append('\t');
-			for(int i=5; i<fields.length; i++){
-				if(i==7){
-					bb.append(newInfo);
+		Throwable pending=null;
+		try{
+			ByteBuilder bb=new ByteBuilder();
+			for(byte[] hline : headerLines){
+				String hs=new String(hline);
+				if(hs.startsWith("##contig=<ID=")){
+					String adjusted=adjustContigLength(hs, netShiftPerScaf);
+					bb.append(adjusted).append('\n');
+				}else if(hs.startsWith("##Program=")){
+					bb.append(hs).append('\n');
+					bb.append("##InvertedBy=InvertVCF").append('\n');
 				}else{
-					bb.append(fields[i]);
+					bb.append(hline).append('\n');
 				}
-				if(i<fields.length-1){bb.append('\t');}
+				headerLinesOut++;
 			}
-			bb.append('\n');
-			variantLinesOut++;
-
-			if(bb.length()>=64000){
-				if(bsw!=null){bsw.print(bb);}
+			if(bsw!=null && bb.length()>0){
+				bsw.print(bb);
 				bb.clear();
 			}
+
+			String prevChrom=null;
+			long cumShift=0;
+
+			for(byte[] dline : dataLines){
+				String[] fields=new String(dline).split("\t");
+				String chrom=fields[0];
+				int pos=Integer.parseInt(fields[1]);
+				String id_f=fields[2];
+				String refStr=fields[3];
+				String altStr=fields[4];
+
+				if(!chrom.equals(prevChrom)){
+					cumShift=0;
+					prevChrom=chrom;
+				}
+
+				int newPos=pos+(int)cumShift;
+
+				int refLen=refStr.length();
+				int altLen=altStr.length();
+				int delta=altLen-refLen;
+
+				String newRef=altStr;
+				String newAlt=refStr;
+
+				String infoStr=fields[7];
+				String newInfo=invertInfo(infoStr, cumShift);
+
+				cumShift+=delta;
+
+				bb.append(chrom).append('\t');
+				bb.append(newPos).append('\t');
+				bb.append(id_f).append('\t');
+				bb.append(newRef).append('\t');
+				bb.append(newAlt).append('\t');
+				for(int i=5; i<fields.length; i++){
+					if(i==7){
+						bb.append(newInfo);
+					}else{
+						bb.append(fields[i]);
+					}
+					if(i<fields.length-1){bb.append('\t');}
+				}
+				bb.append('\n');
+				variantLinesOut++;
+
+				if(bb.length()>=64000){
+					if(bsw!=null){bsw.print(bb);}
+					bb.clear();
+				}
+			}
+
+			if(bb.length()>0 && bsw!=null){
+				bsw.print(bb);
+				bb.clear();
+			}
+		}catch(Throwable failure){
+			pending=failure;
+		}
+		try{
+			if(bsw!=null){errorState|=bsw.poisonAndWait();}
+		}catch(Throwable failure){
+			pending=suppressOrReturn(pending, failure);
 		}
 
-		if(bb.length()>0 && bsw!=null){
-			bsw.print(bb);
-			bb.clear();
-		}
-
-		if(bsw!=null){errorState|=bsw.poisonAndWait();}
+		if(pending!=null){rethrow(pending);}
 
 		t.stop();
 		outstream.println(Tools.timeLinesBytesProcessed(t, linesIn, bytesIn, 8));
@@ -218,10 +251,7 @@ public class InvertVCF {
 		}
 	}
 
-	/**
-	 * Adjusts the length in a ##contig header line by the net indel shift
-	 * for that scaffold.
-	 */
+	/** Adjusts one ##contig length by the final net length change for its scaffold. */
 	private String adjustContigLength(String headerLine, LinkedHashMap<String, Long> netShiftPerScaf){
 		int idStart=headerLine.indexOf("ID=")+3;
 		int idEnd=headerLine.indexOf(',', idStart);
@@ -242,10 +272,7 @@ public class InvertVCF {
 		return headerLine.substring(0, lenStart)+newLen+headerLine.substring(lenEnd);
 	}
 
-	/**
-	 * Inverts the INFO field: updates STA, STO coordinates with cumShift,
-	 * and flips TYP between INS and DEL.
-	 */
+	/** Shifts STA/STO and exchanges TYP=INS/DEL in one semicolon-delimited INFO field. */
 	private String invertInfo(String info, long cumShift){
 		String[] parts=info.split(";");
 		StringBuilder sb=new StringBuilder();
@@ -274,20 +301,51 @@ public class InvertVCF {
 		return sb.toString();
 	}
 
+	/** Returns pending with the new cleanup failure suppressed, preserving the primary cause. */
+	private static Throwable suppressOrReturn(final Throwable pending, final Throwable cleanup){
+		if(pending==null){return cleanup;}
+		if(pending!=cleanup){pending.addSuppressed(cleanup);}
+		return pending;
+	}
+
+	/** Rethrows without wrapping unchecked exceptions or errors. */
+	private static void rethrow(final Throwable t){
+		if(t instanceof RuntimeException){throw (RuntimeException)t;}
+		if(t instanceof Error){throw (Error)t;}
+		throw new RuntimeException(t);
+	}
+
+/*--------------------------------------------------------------*/
+/*----------------            Fields            ----------------*/
+/*--------------------------------------------------------------*/
+
+	/** Input VCF path. */
 	private String in1=null;
+	/** Output VCF path. */
 	private String out1=null;
 
+	/** Input file descriptor. */
 	private final FileFormat ffin1;
+	/** Output file descriptor. */
 	private final FileFormat ffout1;
 
+	/** Nonempty input lines. */
 	private long linesIn=0;
+	/** Bytes in nonempty input lines. */
 	private long bytesIn=0;
+	/** Header rows emitted to the inverted output. */
 	private long headerLinesOut=0;
+	/** Variant rows emitted to the inverted output. */
 	private long variantLinesOut=0;
 
+	/** Status output stream. */
 	private PrintStream outstream=System.err;
+	/** True to enable verbose file readers. */
 	public static boolean verbose=false;
+	/** True if a reader or writer reported an error. */
 	public boolean errorState=false;
+	/** True to overwrite existing output. */
 	private boolean overwrite=true;
+	/** True to append to existing output. */
 	private boolean append=false;
 }

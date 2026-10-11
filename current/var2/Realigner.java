@@ -21,10 +21,22 @@ import stream.SiteScore;
  */
 public class Realigner {
 	
+	/*--------------------------------------------------------------*/
+	/*----------------         Construction         ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Constructs a realigner using the current static defaults. */
 	public Realigner(){
 		this(defaultMaxrows, defaultColumns, defaultPadding, defaultMsaType);
 	}
 	
+	/**
+	 * Constructs a realigner with explicit matrix limits and MSA implementation.
+	 * @param maxrows_ maximum query rows accepted for realignment
+	 * @param columns_ base reference-column budget for the padded window
+	 * @param padding_ reference bases added to each side of the original alignment
+	 * @param msaType_ MSA implementation name passed to {@link MSA#makeMSA}
+	 */
 	public Realigner(int maxrows_, int columns_, int padding_, String msaType_){
 		maxrows=maxrows_;
 		columns=columns_;
@@ -33,6 +45,17 @@ public class Realigner {
 		msa=MSA.makeMSA(maxrows, columns+2, msaType);
 	}
 	
+	/*--------------------------------------------------------------*/
+	/*----------------        Outer Methods         ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/**
+	 * Realigns a mapped primary read using the static scaffold map.
+	 * @param r read to realign
+	 * @param sl parsed SAM line for the read
+	 * @param unclip true to try converting terminal indels back to aligned bases
+	 * @return true if the read kept an improved realignment
+	 */
 	public boolean realign(Read r, SamLine sl, final boolean unclip){
 		if(!r.mapped() || sl.supplementary() || !sl.nonSecondary()){return false;}
 		Scaffold scaf=map.getScaffold(sl.rnameS());
@@ -40,6 +63,14 @@ public class Realigner {
 		return realign(r, sl, scaf, unclip);
 	}
 	
+	/**
+	 * Realigns a mapped primary read against an already resolved scaffold.
+	 * @param r read to realign
+	 * @param sl parsed SAM line for the read
+	 * @param scaf reference scaffold containing the read alignment
+	 * @param unclip true to try converting terminal indels back to aligned bases
+	 * @return true if the read kept an improved realignment
+	 */
 	public boolean realign(final Read r, final SamLine sl, final Scaffold scaf, final boolean unclip){
 		return realign(r, sl, scaf.bases, unclip);
 	}
@@ -71,11 +102,14 @@ public class Realigner {
 		// Skip realignment for high-quality alignments with minimal issues
 		if(mSCNID[1]<3 && mSCNID[2]==0 && mSCNID[4]<2 && mSCNID[5]<2 && sumBad<3 && sumIndel<2){return false;}
 		
+		if(r.shortmatch()){r.toLongMatchString(false);}
+
 		// Resize MSA matrix if needed for this read length
+		if(r.length()>maxrows){return false;}
 		if(r.length()+2>msa.maxColumns+2*padding){
 			msa=MSA.makeMSA(msa.maxRows, r.length()+2+r.length()/4+2*padding, msaType);
 		}
-		if(r.length()+2>msa.maxRows){
+		if(r.length()>msa.maxRows){
 			msa=MSA.makeMSA(r.length()+2+r.length()/4+2*padding, msa.maxColumns, msaType);
 		}
 
@@ -104,7 +138,6 @@ public class Realigner {
 			qbases=AminoAcid.reverseComplementBases(qbases);
 		}
 		
-		if(r.shortmatch()){r.toLongMatchString(false);}
 		final int score0=msa.score(r.match);
 		final int minScore=clipped ? 1 : Tools.max(1, score0-1);
 		
@@ -172,6 +205,10 @@ public class Realigner {
 		return true;
 	}
 	
+	/*--------------------------------------------------------------*/
+	/*----------------        Inner Methods         ----------------*/
+	/*--------------------------------------------------------------*/
+
 	/**
 	 * Creates a padded reference sequence segment for MSA alignment.
 	 * Extends the reference region with padding bases, using 'N' for out-of-bounds positions.
@@ -192,30 +229,45 @@ public class Realigner {
 		return out;
 	}
 	
+	/** Returns the live MSA workspace, primarily for inspection by callers/tests. */
 	public MSA msa(){return msa;}
 
 	/*--------------------------------------------------------------*/
 	/*----------------           Fields             ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Reads that passed the cheap filters and reached the MSA stage. */
 	long realignmentsAttempted=0;
+	/** MSA runs that produced a candidate alignment score. */
 	long realignmentsSucceeded=0;
+	/** Improved candidate alignments that survived final match-symbol checks. */
 	long realignmentsRetained=0;  
+	/** MSA candidates that improved over the original alignment. */
 	long realignmentsImproved=0;
 	
+	/** Maximum read length allowed to reach MSA. */
 	private int maxrows=603; //[var2/Realigner#001] was 602 (stale & dead: constructor always overwrites with defaultMaxrows=603)
+	/** Maximum padded reference-window length allowed to reach MSA. */
 	private int columns=2000;
+	/** Reference bases added to both sides of the original alignment window. */
 	private int padding=200; //[var2/Realigner#001] was 100 (stale & dead: constructor always overwrites with defaultPadding=200)
+	/** Name of the MSA implementation used for new workspaces. */
 	private String msaType;
+	/** Reusable MSA workspace for this Realigner. */
 	private MSA msa;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------       Static Fields          ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Default maximum read length allowed to reach MSA. */
 	public static int defaultMaxrows=603;
+	/** Default maximum padded reference-window length allowed to reach MSA. */
 	public static int defaultColumns=2000;
+	/** Default reference padding on each side of the original alignment. */
 	public static int defaultPadding=200;
+	/** Default MSA implementation for new Realigner instances. */
 	public static String defaultMsaType="MultiStateAligner11ts";
+	/** Scaffold map used by the SAM-line overload to resolve reference names. */
 	public static ScafMap map=null;
 }

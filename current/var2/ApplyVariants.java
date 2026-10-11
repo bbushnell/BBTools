@@ -610,48 +610,70 @@ public class ApplyVariants {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Primary input reference FASTA path. */
 	private String in1=null;
-	/** Variant input file path */
+	/** Variant input VCF path. */
 	private String inVcf;
-	/** Per-base coverage depth file path (optional) */
+	/** Optional per-base coverage depth path. */
 	private String inDepth;
 
+	/** Primary output FASTA path. */
 	private String out1=null;
 	
+	/** Optional input extension override. */
 	private String extin=null;
+	/** Optional output extension override. */
 	private String extout=null;
 	
+	/** Minimum depth below which bases are masked and indels are ignored. */
 	private int minDepth=0;
 	
+	/** Replacement base for positions below minDepth. */
 	private byte noCovSymbol='N';
 	
+	/** Variants grouped by scaffold/read name. */
 	NameMapper<ArrayList<Var>> varMap;
 	
+	/** Optional per-scaffold depth vectors keyed by scaffold name. */
 	HashMap<String, CoverageArray> depthMap;
 	
+	/** Optional emitted scaffold name or prefix. */
 	String sampleName=null;
+	/** Rename contigs with sampleName plus their numeric index. */
 	boolean addContigNumbers=true;
-	/** Use samplename as prefix, rather than replacing the existing name */
+	/** Use sampleName as prefix, rather than replacing the existing name. */
 	boolean usePrefix=false;
-	/** Character that delimits modified names */
+	/** Character that delimits modified names. */
 	char delimiter='_';
 	
+	/** Discard indels whose reference/read length delta is not divisible by 3. */
 	private boolean noFrameshifts=false;
+	/** Maximum allowed insertion/deletion length. */
 	private int maxIndel=Integer.MAX_VALUE;
+	/** Discard all insertions and deletions. */
 	private boolean noIndels=false;
 	
+	/** Reused builder for renamed scaffold IDs. */
 	private ByteBuilder nameBuilder=new ByteBuilder();
 	
 	/*--------------------------------------------------------------*/
+	/*----------------           Counters           ----------------*/
+	/*--------------------------------------------------------------*/
 
+	/** Number of input reads processed. */
 	protected long readsProcessed=0;
+	/** Number of input bases processed. */
 	protected long basesProcessed=0;
 
+	/** Number of output reads emitted. */
 	protected long readsOut=0;
+	/** Number of output bases emitted. */
 	protected long basesOut=0;
 
+	/** Maximum number of input reads to process, or -1 for all. */
 	private long maxReads=-1;
 	
+	/** Number of variants applied to emitted scaffolds. */
 	private long applied=0;
 	
 	/*--------------------------------------------------------------*/
@@ -672,11 +694,17 @@ public class ApplyVariants {
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Output stream for status messages. */
 	private PrintStream outstream=System.err;
+	/** Print verbose diagnostics. */
 	public static boolean verbose=false;
+	/** True if an I/O error was detected during processing. */
 	public boolean errorState=false;
+	/** Allow overwriting existing output files. */
 	private boolean overwrite=true;
+	/** Append to output files instead of replacing them. */
 	private boolean append=false;
+	/** Emit output in input order. */
 	private final boolean ordered=false;
 	
 }

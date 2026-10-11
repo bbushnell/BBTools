@@ -12,10 +12,13 @@ import stream.Read;
 import stream.SamLine;
 
 /**
- * Utility class for analyzing and manipulating variants in reads.
- * Contains static methods for variant detection, modification, and filtering.
- * Processes genomic reads to identify substitutions, insertions, and deletions,
- * and provides functionality for marking known variants and loading VCF data.
+ * Marks known variants in read match strings and finds variants absent or
+ * weakly represented in an existing VarMap.
+ * <p>
+ * This is used by BBDuk and CalcTrueQuality to distinguish already-known
+ * substitutions, insertions, and deletions from variants that remain useful
+ * for masking or calibration. VCF loading here is limited to loading forced
+ * variants into an existing VarMap.
  *
  * @author Brian Bushnell
  * @author Isla
@@ -23,15 +26,21 @@ import stream.SamLine;
  */
 public class AnalyzeVars {
 
+/*--------------------------------------------------------------*/
+/*----------------      Known-Variant Marking   ----------------*/
+/*--------------------------------------------------------------*/
+
 	/**
-	 * Fixes variants in a read by changing match string characters to indicate known variants.
-	 * Changes 'S' to 'V' for substitutions, 'I' to 'i' for insertions, 'D' to 'd' for deletions.
-	 * Performs initial validation and delegates to the main fixVars implementation.
+	 * Marks variants in a mapped read's match string when they are already in
+	 * varMap.
+	 * <p>
+	 * This wrapper rejects null, unmapped, and unaligned reads before delegating
+	 * to the alignment-aware implementation.
 	 *
 	 * @param r Read to modify
-	 * @param varMap Map of known variants for comparison
-	 * @param scafMap Scaffold mapping information for coordinate resolution
-	 * @return Number of variants fixed, 0 if read is invalid or unmapped
+	 * @param varMap Known variants
+	 * @param scafMap Scaffold names to numeric IDs
+	 * @return Number of known variants marked
 	 */
 	public static int fixVars(Read r, VarMap varMap, ScafMap scafMap){
 		if(r==null || r.bases==null || r.match==null || r.samline==null){return 0;}
@@ -41,10 +50,9 @@ public class AnalyzeVars {
 	}
 
 	/**
-	 * Reverses the effects of fixVars by changing variant indicators back to standard match characters.
-	 * Changes 'V' back to 'S', 'i' back to 'I', 'd' back to 'D'.
-	 * Used to restore original match string format after variant processing.
-	 * @param r Read to modify, null-safe operation
+	 * Restores match symbols changed by {@link #fixVars(Read, VarMap, ScafMap)}.
+	 *
+	 * @param r Read to restore; null-safe
 	 */
 	public static void unfixVars(Read r){
 		if(r==null || r.match==null){return;}
@@ -56,16 +64,17 @@ public class AnalyzeVars {
 	}
 
 	/**
-	 * Main implementation that fixes variants in a read by comparing against known variants.
-	 * Processes the read's match string to identify substitutions and indels, then checks
-	 * if these variants exist in the provided VarMap. Known variants have their match
-	 * string characters modified to indicate their status.
+	 * Marks known substitutions as 'V', known insertions as 'i', and known
+	 * deletions as 'd' in a mapped read's long match string.
+	 * <p>
+	 * Minus-strand reads are reverse-complemented temporarily so match-string
+	 * coordinates can be compared directly to VCF-derived VarMap coordinates.
 	 *
-	 * @param r Read to modify containing bases and match string
-	 * @param sl SamLine containing alignment information for the read
-	 * @param varMap Map of known variants for comparison
-	 * @param scafMap Scaffold mapping information for coordinate resolution
-	 * @return Number of variants successfully fixed in the read
+	 * @param r Read to modify
+	 * @param sl Alignment record for the read
+	 * @param varMap Known variants
+	 * @param scafMap Scaffold names to numeric IDs
+	 * @return Number of known variants marked
 	 */
 	public static int fixVars(Read r, SamLine sl, VarMap varMap, ScafMap scafMap){
 		if(r==null || r.bases==null || r.match==null){return 0;}
@@ -145,21 +154,23 @@ public class AnalyzeVars {
 		return varsFound;
 	}
 
+/*--------------------------------------------------------------*/
+/*----------------       Unique-Variant Calls   ----------------*/
+/*--------------------------------------------------------------*/
+
 	/**
-	 * Finds unique substitution variants in a read that meet specified filtering criteria.
-	 * Scans the read's alignment for substitutions and applies coverage, allele depth,
-	 * allele fraction, and distance from read ends filters. Only substitutions are
-	 * considered, not insertions or deletions.
+	 * Finds substitution calls that are absent from varMap or weak enough in
+	 * varMap to keep for masking.
 	 *
 	 * @param r Read to analyze for substitution variants
-	 * @param sl SamLine containing alignment information
-	 * @param varMap Map of known variants for comparison and filtering
-	 * @param scafMap Scaffold mapping information for coordinate resolution
-	 * @param maxVarDepth Maximum allowed variant depth for filtering
-	 * @param maxAlleleFraction Maximum allowed allele fraction for filtering
-	 * @param minCov Minimum coverage requirement for known variants
-	 * @param minEDist Minimum distance from read ends to consider variants
-	 * @return List of unique substitution variants meeting criteria, null if none found
+	 * @param sl Alignment record for the read
+	 * @param varMap Known variants and their observed depths
+	 * @param scafMap Scaffold names to numeric IDs
+	 * @param maxVarDepth Maximum known-variant allele depth to keep
+	 * @param maxAlleleFraction Maximum known-variant allele fraction to keep
+	 * @param minCov Minimum coverage before allele-depth filters apply
+	 * @param minEDist Minimum end distance for emitted variants
+	 * @return Unique substitution calls, or null if none pass
 	 */
 	public static ArrayList<Var> findUniqueSubs(Read r, SamLine sl, VarMap varMap, ScafMap scafMap, int maxVarDepth, float maxAlleleFraction, int minCov, int minEDist){
 		if(r==null || r.bases==null || r.match==null){return null;}
@@ -214,20 +225,18 @@ public class AnalyzeVars {
 	}
 
 	/**
-	 * Finds unique variants of all types in a read that meet specified filtering criteria.
-	 * More comprehensive than findUniqueSubs, handles substitutions, insertions, and
-	 * deletions. Uses Var.toVars() to extract variants from the read alignment and
-	 * applies filtering based on coverage and allele metrics.
+	 * Finds substitution, insertion, and deletion calls that are absent from
+	 * varMap or weak enough in varMap to keep for masking.
 	 *
 	 * @param r Read to analyze for all variant types
-	 * @param sl SamLine containing alignment information
-	 * @param varMap Map of known variants for comparison and filtering
-	 * @param scafMap Scaffold mapping information for coordinate resolution
-	 * @param maxVarDepth Maximum allowed variant depth for filtering
-	 * @param maxAlleleFraction Maximum allowed allele fraction for filtering
-	 * @param minCov Minimum coverage requirement for known variants
-	 * @param minEDist Minimum distance from read ends to consider variants
-	 * @return List of unique variants meeting criteria, null if none found
+	 * @param sl Alignment record for the read
+	 * @param varMap Known variants and their observed depths
+	 * @param scafMap Scaffold names to numeric IDs
+	 * @param maxVarDepth Maximum known-variant allele depth to keep
+	 * @param maxAlleleFraction Maximum known-variant allele fraction to keep
+	 * @param minCov Minimum coverage before allele-depth filters apply
+	 * @param minEDist Minimum end distance for emitted variants
+	 * @return Unique variant calls, or null if none pass
 	 */
 	public static ArrayList<Var> findUniqueVars(Read r, SamLine sl, VarMap varMap, ScafMap scafMap, int maxVarDepth, float maxAlleleFraction, int minCov, int minEDist){
 		if(r==null || r.bases==null || r.match==null){return null;}
@@ -271,18 +280,20 @@ public class AnalyzeVars {
 		}
 		return list2.isEmpty() ? null : list2;
 	}
+
+/*--------------------------------------------------------------*/
+/*----------------            Loading           ----------------*/
+/*--------------------------------------------------------------*/
 	
 	/**
-	 * Loads variants from VCF files and marks them as forced variants.
-	 * Processes comma-separated list of VCF file paths, loading all variants
-	 * and adding them to the provided VarMap with forced status set to true.
-	 * Forced variants are treated specially in variant calling pipelines.
+	 * Loads comma-delimited VCF paths, clears each loaded variant's counters,
+	 * marks it forced, and adds it to the supplied map.
 	 *
-	 * @param fnames Comma-separated list of VCF file paths to load
-	 * @param scafMap Scaffold mapping information for variant positioning
-	 * @param varMap Existing VarMap to add loaded variants to
-	 * @param outstream PrintStream for progress and timing output
-	 * @return The modified VarMap with added forced variants
+	 * @param fnames Comma-delimited VCF paths to load
+	 * @param scafMap Scaffold names to numeric IDs
+	 * @param varMap Map to receive forced variants
+	 * @param outstream Progress stream
+	 * @return The modified map, or null if {@code fnames} is null
 	 */
 	public static VarMap loadForcedVCF(String fnames, ScafMap scafMap, VarMap varMap, PrintStream outstream) {
 		if(fnames==null){return null;}

@@ -8,40 +8,48 @@ import parse.Parse;
 import shared.Tools;
 
 /**
- * Mutable, reusable parallel of Var. Var's identity fields (scafnum/start/stop/allele/type/
- * hashcode) are final so Var can safely serve as a hash key; that immutability blocks in-place
- * reuse. VarM instead has all-mutable fields and a {@link #set(byte[], ScafMap)} method that
- * refills it from a VCF line with no allocation. VarM is NEVER a map key and has no hashcode.
+ * Mutable parsed-variant record with identity and observation fields that can be refilled
+ * by {@link #set(byte[], ScafMap)}. Parsing allocates a scaffold-name String and may copy
+ * allele arrays; reuse avoids allocating another VarM, not all temporary allocation.
+ * This class inherits Object's identity equality/hashCode rather than Var's value-key
+ * semantics. A caller must coordinate mutation and avoid sharing partially refilled state.
  *
- * <p>VarM mirrors the FULL mutable field set of Var (not just the vector inputs) so it can also
- * serve other per-variant consumers such as VarFilter — primitive fields are cheap. Only Var's
- * final hashcode is intentionally omitted (a mutable object has no stable hash identity; carrying
- * one would be misleading, not an optimization).
+ * <p>The parser follows the extended-statistics path of {@link VcfToVar#fromVCF}, including
+ * its deletion-coordinate convention. The accessors were ported from Var; later changes
+ * to Var do not automatically update this separate implementation. The non-vector
+ * score()/phredScore path is not mirrored.
  *
- * <p>The parse mirrors {@link VcfToVar#fromVCF} (parseCoverage+parseExtended) and the accessors are
- * copied verbatim from Var, so a VarM yields values bit-identical to VcfToVar.fromVCF(...). If a Var
- * accessor changes, change the copy here too. The non-vector score()/phredScore path is not mirrored.
- *
- * <p><b>Performance note — do NOT pool VarM for speed.</b> Reusing one VarM per thread was measured
+ * <p><b>Historical performance note — do NOT pool VarM for speed.</b> The original implementation
+ * reported that reusing one VarM per thread was measured
  * SLOWER than allocating a fresh Var per variant on the giab net9b set (~204M candidate variants, 16
  * workers): about <b>+5.7% CPU</b> in the NN-scoring path and about <b>+29% CPU</b> in the no-NN
- * filter path (CROSSOVER results bit-identical either way). The JVM handles short-lived Var
- * allocation better than a hand-pooled mutable object (escape analysis / cheap young-gen GC), so the
+ * filter path (CROSSOVER results bit-identical either way). Those runs favored allocating Var, so the
  * gradevcf reusevar flag and the pipeline overloads VectorUMP45.makeVector(VarM) and
  * VarFilter.passesFilter(VarM) were removed. VarM is kept only as a mutable parsed-variant building
  * block; re-add those overloads if a genuine consumer appears.
  *
  * @author Ady
+ * @contributor Sucrose
  */
-public class VarM {
+public class VarM{
 
 	/**
-	 * Refills this VarM from a VCF line in place (no allocation), mirroring
-	 * VcfToVar.fromVCF with parseCoverage=true, parseExtended=true. EVERY vector-relevant
-	 * field is re-set each call so nothing is stale from a previously-parsed variant.
+	 * Refills the record using VcfToVar's coverage/extended parsing rules.
+	 * Decodes CHROM as US-ASCII, parses POS and copies or canonicalizes ALT.
+	 * When ALT and REF lengths differ and ALT is nonempty, ALT loses its first byte
+	 * and start becomes POS. Only a one-base REF has its length decremented, retaining
+	 * the historical deletion span. Otherwise start is POS-1; stop is start plus REF length.
+	 * This is not general allele normalization or multiallelic splitting.
 	 *
-	 * @param line VCF record as a byte array
-	 * @param scafMap Scaffold map for CHROM-name resolution (and later base lookups)
+	 * Searches for custom statistics after ALT using exact keys and semicolon
+	 * delimiters; the R1P and PPC block markers must be found before their helpers
+	 * are called. Missing individual statistics use the helpers' sentinel values,
+	 * with most count fields floored at zero. DP must be positive under assertions.
+	 * Successful parsing assigns every stored field, including resetting forced.
+	 * Exceptions can leave a partially updated object; no rollback is performed.
+	 *
+	 * @param line Nonnull record in the expected single-ALT/custom-INFO layout
+	 * @param scafMap Nonnull registry containing CHROM
 	 */
 	public void set(byte[] line, ScafMap scafMap){
 		int a=0, b=0;
@@ -85,7 +93,7 @@ public class VarM {
 		b++;
 		a=b;
 
-		// INFO begins after QUAL; record the position for the field searches below.
+		// Search begins at QUAL, immediately after ALT; INFO is not separately bounded.
 		int infoStart=b;
 
 		// Convert VCF coordinates to internal format (identical to VcfToVar.fromVCF).
@@ -144,7 +152,7 @@ public class VarM {
 	}
 
 	/*--------------------------------------------------------------*/
-	/*----------------   Accessors (verbatim from Var)  -----------*/
+	/*----------------    Accessors (ported from Var)   -----------*/
 	/*--------------------------------------------------------------*/
 
 	/** Variant type constant (Var.SUB/INS/DEL/...). */
@@ -166,7 +174,8 @@ public class VarM {
 		return coverage;
 	}
 
-	/** Insertion-length-adjusted allele fraction; caches into revisedAlleleFraction. */
+	/** Returns cached RAF unless it is -1; otherwise caches an insertion adjustment.
+	 * Non-insertions return af without caching it. */
 	public double revisedAlleleFraction(double af, double readLengthAvg){
 		if(revisedAlleleFraction!=-1){
 			return revisedAlleleFraction;
@@ -176,19 +185,19 @@ public class VarM {
 		return af;
 	}
 
-	/** Mean mapping quality over allele observations. */
+	/** Mapping-quality sum divided by allele count; zero-count division is not guarded. */
 	public double mapQAvg(){return mapQSum/(double)alleleCount();}
 
-	/** Mean base quality over allele observations. */
+	/** Base-quality sum divided by allele count; zero-count division is not guarded. */
 	public double baseQAvg(){return baseQSum/(double)alleleCount();}
 
-	/** Mean alignment identity (per-mille) over allele observations. */
+	/** Identity sum (per-mille units) divided by allele count, without a zero-count guard. */
 	public double identityAvg(){return idSum/(double)alleleCount();}
 
-	/** Mean read-end distance over allele observations. */
+	/** Read-end-distance sum divided by allele count, without a zero-count guard. */
 	public double edistAvg(){return endDistSum/(double)alleleCount();}
 
-	/** Mean read length over allele observations. */
+	/** Read-length sum divided by allele count, without a zero-count guard. */
 	public double lengthAvg(){return lengthSum/(double)alleleCount();}
 
 	/** Strand balance ratio in (0,1]; 1.0 when plus and minus counts are equal. */
@@ -211,7 +220,7 @@ public class VarM {
 	/** Allele observations from read 2 (both strands). */
 	public int r2AlleleCount(){return r2plus+r2minus;}
 
-	/** Fraction of allele observations from proper pairs. */
+	/** Proper-pair count divided by allele count, without a zero-count guard. */
 	public double properPairRate(){return properPairCount/(double)alleleCount();}
 
 	/** Reference-span length (stop-start). */
@@ -237,7 +246,9 @@ public class VarM {
 		return revisedRatio;
 	}
 
-	/** Homopolymer run length around this variant, or 0 if none/unavailable; copied from Var. */
+	/** Calculates the type-specific, bounded homopolymer statistic through VarHelper.
+	 * Returns zero for absent map/bases or unsupported types. Deletions use this
+	 * parser's historical coordinate convention; this is not an unrestricted run length. */
 	public int homopolymerCount(ScafMap map){
 		if(map==null){return 0;}
 		final byte[] bases=map.getScaffold(scafnum).bases;
@@ -273,7 +284,10 @@ public class VarM {
 		}
 	}
 
-	/** Distance to the nearest contig end (N-run boundary), capped at Var.nScan; copied from Var. */
+	/** Starts with distance to the scaffold edge, then searches for runs of ten bases
+	 * that are not fully defined. Var.nScan bounds the search, not necessarily the
+	 * returned value: an unsuccessful scan can return its limit plus one. Without
+	 * bases or with scanning disabled, returns the scaffold-edge distance. */
 	public int contigEndDist(ScafMap map){
 		Scaffold scaf=map.getScaffold(scafnum);
 		int len=scaf.length;
@@ -288,7 +302,9 @@ public class VarM {
 		return Tools.min(scafEndDist, contigEndDist);
 	}
 
-	/** Distance to the nearest contig end on the left (10+ Ns = boundary); copied from Var. */
+	/** Scans left from start for ten consecutive not-fully-defined bases.
+	 * Returns distance to the near edge of the first complete run found, or maxDist+1.
+	 * A start beyond the sequence returns min(bases.length, maxDist+1). */
 	public int leftContigEndDist(byte[] bases, int maxDist){
 		if(start>=bases.length){return Tools.min(bases.length, maxDist+1);}
 		int ns=0;
@@ -307,7 +323,9 @@ public class VarM {
 		return maxDist+1;
 	}
 
-	/** Distance to the nearest contig end on the right (10+ Ns = boundary); copied from Var. */
+	/** Scans right from stop for ten consecutive not-fully-defined bases.
+	 * Returns distance to the near edge of the first complete run found, or maxDist+1.
+	 * A negative stop returns min(bases.length, maxDist+1). */
 	public int rightContigEndDist(byte[] bases, int maxDist){
 		if(stop<0){return Tools.min(bases.length, maxDist+1);}
 		int ns=0;
@@ -326,6 +344,7 @@ public class VarM {
 		return maxDist+1;
 	}
 
+	/** Describes identity, allele, coverage and strand/read counts for diagnostics. */
 	@Override
 	public String toString(){
 		return "VarM[scafnum="+scafnum+" start="+start+" stop="+stop+" type="+type
@@ -337,12 +356,16 @@ public class VarM {
 	/*----------------   INFO parse helpers (from VcfToVar)  ------*/
 	/*--------------------------------------------------------------*/
 
-	/** Parses an int from an INFO key=value, clamped to int range; -1 if absent. */
+	/** Parses a long, caps it at Integer.MAX_VALUE, then casts to int.
+	 * No lower-bound clamp or long-overflow detection is performed; absent keys yield -1. */
 	private static int parseVcfIntDelimited(byte[] line, String query, int start){
 		return (int)Tools.min(Integer.MAX_VALUE, parseVcfLongDelimited(line, query, start));
 	}
 
-	/** Parses a long from an INFO key=value (handles a leading '-'); -1 if absent. */
+	/** Searches at start or after a semicolon, then parses digits with optional '-'.
+	 * Stops at tab/semicolon (asserting on other terminators); returns -1 if absent.
+	 * Accumulation has no overflow check. A match at byte zero returns zero unparsed.
+	 * start must be a valid nonnegative search offset. */
 	private static long parseVcfLongDelimited(byte[] line, String query, final int start){
 		int loc=Tools.indexOfDelimited(line, query, start, (byte)';');
 		if(loc<0){return -1;}
@@ -363,7 +386,8 @@ public class VarM {
 		return mult*current;
 	}
 
-	/** Parses a double from an INFO key=value; -1.0 if absent. */
+	/** Parses the span up to tab/semicolon using Parse.parseDouble.
+	 * Returns -1 for an absent key or a match at byte zero; start must be nonnegative. */
 	private static double parseVcfDoubleDelimited(byte[] line, String query, int start){
 		int loc=Tools.indexOfDelimited(line, query, start, (byte)';');
 		if(loc<0){return -1;}
@@ -380,7 +404,8 @@ public class VarM {
 		return -1;
 	}
 
-	/** Parses TYP= as an integer code or a string type name; -1 if absent/unrecognized. */
+	/** Parses numeric TYP or maps only its first byte through Var.typeInitialArray.
+	 * Numeric codes are not range-checked here; absent/unrecognized initials yield -1. */
 	private static int parseVcfType(byte[] line, int start){
 		int idx=Tools.indexOfDelimited(line, "TYP=", start, (byte)';');
 		if(idx<0){return -1;}
@@ -403,11 +428,11 @@ public class VarM {
 
 	/** Scaffold/chromosome number. */
 	public int scafnum;
-	/** Start position (0-based, inclusive). */
+	/** Start from the parser's POS/REF/ALT conversion; see set for the deletion convention. */
 	public int start;
-	/** Stop position (0-based, exclusive). */
+	/** Parser start plus adjusted REF length; see set for the deletion convention. */
 	public int stop;
-	/** Alternate allele sequence. */
+	/** Alternate allele; may reference a shared Var canonical array, so do not mutate its contents. */
 	public byte[] allele;
 	/** Variant type constant (Var.SUB/INS/DEL/...). */
 	public int type;

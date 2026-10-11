@@ -4,29 +4,46 @@ import shared.Tools;
 import structures.ByteBuilder;
 
 /**
- * Performs soft-clipping operations on sequence alignments by identifying
- * poorly aligned terminal regions and converting them to clipped sequences.
- * Uses a scoring system to determine optimal clipping boundaries.
+ * Scores an expanded alignment-operation string and converts selected terminal
+ * operations to soft clips. Used by VarHelper's junction caller after Var.toVars
+ * expands the match string. This heuristic scans existing operations; it does
+ * not realign bases or validate the operation alphabet.
  *
  * @author Brian Bushnell
  * @contributor Isla
+ * @contributor Sucrose
  */
-public class SoftClipper {
+public class SoftClipper{
 
 	/**
-	 * Applies soft clipping to a match string by identifying poorly aligned regions
-	 * at the ends and converting them to clipped bases. Uses dynamic scoring to
-	 * find the optimal alignment region and clips everything outside it.
+	 * Finds the first strictly best-scoring run encountered, resetting negative
+	 * running scores to zero. Matches score 100; N/R score 1; S/s cost 200 initially
+	 * and 100 when the identical symbol repeats; D costs 200 initially and 10 on
+	 * repetition; I/X/Y cost 200 and existing C costs 1.
+	 * Terminal clip lengths count non-D operations, not all match-array entries.
+	 * Returns early when no positive score exists or both clip lengths are below
+	 * minClipLength; those returns leave the input and output coordinates untouched.
 	 *
-	 * @param match Original match string representing alignment operations
-	 * @param minClipLength Minimum number of bases required to perform clipping
-	 * @param allowMutation Whether to modify the original match array or create a copy
-	 * @param oldStart Original start position of the alignment
-	 * @param oldStop Original stop position of the alignment
-	 * @param startStopRvec Return vector for adjusted start/stop positions [start, stop]
-	 * @return Modified match string with soft clipping applied, or original if no clipping needed
+	 * Without any D, reaching the clipping path converts both selected ends to C
+	 * even if only one end reaches the threshold. Each clipped I decrements start
+	 * on the left or increments stop on the right; other symbols leave them unchanged.
+	 * This path mutates match only when allowMutation is true, otherwise clones it.
+	 * With any D, a new array is built regardless of allowMutation and each end must
+	 * separately meet the threshold. Clipped D operations are removed; clipped I
+	 * operations become C. On the left these adjust start by +1/-1 respectively;
+	 * on the right they adjust stop by -1/+1. Other clipped operations become C
+	 * without coordinate adjustment.
+	 *
+	 * @param match Nonnull expanded match operations, one byte per operation
+	 * @param minClipLength Threshold in read bases, with branch-specific end handling above
+	 * @param allowMutation Permits in-place edits only on the deletion-free clipping path
+	 * @param oldStart Original zero-based reference start
+	 * @param oldStop Original zero-based inclusive reference stop
+	 * @param startStopRvec Output [start, stop]; needs at least two entries on a clipping path,
+	 * and is not initialized on early return
+	 * @return Original array on early return or in-place clipping; otherwise a new array
 	 */
-	public static byte[] softClipMatch(byte[] match, int minClipLength, boolean allowMutation, 
+	public static byte[] softClipMatch(byte[] match, int minClipLength, boolean allowMutation,
 			final int oldStart, final int oldStop, final int[] startStopRvec){
 
 		// Scoring parameters for alignment quality assessment
@@ -41,25 +58,25 @@ public class SoftClipper {
 
 		int insCount=0;
 		int delCount=0;
-		
-		// Track scoring to find optimal alignment region
+
+		// Track the highest running score encountered; ties retain the earlier run.
 		long score=0;
 		long maxScore=0;
-		int maxPos=-1;                 // Position of maximum score (end of optimal region)
-		int maxStart=-1;               // Start position of optimal scoring region
+		int maxPos=-1;                 // End position of the best scoring run encountered
+		int maxStart=-1;               // Start position of that run
 		int currentStart=-1;           // Current region start position
 		byte current='?';              // Previous match character for consecutive penalty logic
-		
-		// Scan through match string to find highest-scoring contiguous region
+
+		// Scan expanded operations; this does not decode run-length counts.
 		for(int mpos=0; mpos<match.length; mpos++){
 			final byte m=match[mpos];
-			
+
 			if(m=='m' || m=='N' || m=='R'){
 				// Good alignment - start new region if score was zero
 				if(score==0){currentStart=mpos;}
-				
+
 				score=score+(m=='m' ? matchScore : nScore);
-				
+
 				// Track the best scoring region
 				if(score>maxScore){
 					maxScore=score;
@@ -88,15 +105,15 @@ public class SoftClipper {
 			}
 			current=m;
 		}
-		
+
 		// If no good alignment region found, return original
 		if(maxScore<1){return match;}
-		
+
 		// Calculate clipping lengths
 		final int leftClipM=maxStart;                    // Match positions to clip on left
 		final int rightClipM=(match.length-maxPos-1);   // Match positions to clip on right
 		int leftClip=0, rightClip=0;                    // Actual base positions to clip
-		
+
 		// Count bases to be clipped (excluding deletions which don't consume read bases)
 		for(int i=0; i<match.length; i++){
 			byte m=match[i];
@@ -106,25 +123,32 @@ public class SoftClipper {
 				rightClip+=(m=='D' ? 0 : 1);
 			}
 		}
-		
-		// Only clip if we meet minimum length requirements
+
+		// At least one end must meet the threshold before either clipping path runs.
 		if(leftClip<minClipLength && rightClip<minClipLength){return match;}
-		
+
 		int start=oldStart, stop=oldStop;
-		
-		// Simple case: no deletions, just replace ends with 'C' (clipped)
+
+		// No deletions: replace both selected ends, including a shorter opposite end.
+		// Preserve the junction position when an insertion becomes a clip (VAR2-007).
 		if(delCount==0){
 			final byte[] array=allowMutation ? match : match.clone();
-			for(int i=0; i<leftClip; i++){array[i]='C';}
-			for(int i=0, j=array.length-1; i<rightClip; i++, j--){array[j]='C';}
+			for(int i=0; i<leftClip; i++){
+				if(array[i]=='I'){start--;}
+				array[i]='C';
+			}
+			for(int i=0, j=array.length-1; i<rightClip; i++, j--){
+				if(array[j]=='I'){stop++;}
+				array[j]='C';
+			}
 			startStopRvec[0]=start;
 			startStopRvec[1]=stop;
 			return array;
 		}
-		
+
 		// Complex case: deletions present, need to rebuild match string and adjust coordinates
 		ByteBuilder bb=new ByteBuilder(match.length);
-		
+
 		// Handle left clipping with coordinate adjustment
 		if(leftClip>=minClipLength){
 			for(int mpos=0, processed=0; mpos<match.length; mpos++){
@@ -150,7 +174,7 @@ public class SoftClipper {
 		}else{
 			bb.append(match);
 		}
-		
+
 		// Handle right clipping with coordinate adjustment (process in reverse)
 		if(rightClip>=minClipLength){
 			bb.reverseInPlace();
@@ -178,7 +202,7 @@ public class SoftClipper {
 			}
 			bb.reverseInPlace();
 		}
-		
+
 		// Return adjusted coordinates
 		startStopRvec[0]=start;
 		startStopRvec[1]=stop;

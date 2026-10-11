@@ -11,7 +11,7 @@ import fileIO.FileFormat;
 import shared.Tools;
 
 /**
- * An immutable set of genomic intervals loaded from a BED file, supporting fast
+ * A read-only index of genomic intervals loaded from a BED file, supporting fast
  * "is this position covered?" queries.  Used to restrict VCF processing to a set
  * of regions (e.g. a GIAB high-confidence benchmark BED).
  *
@@ -19,39 +19,63 @@ import shared.Tools;
  * 1-based positions start+1 through end.  A 1-based VCF POS is therefore inside
  * the interval iff start &lt; POS &lt;= end.
  *
- * Intervals are sorted and merged per scaffold on load, so {@link #contains} is a
- * single binary search and is correct even if the input BED is unsorted or has
- * overlapping intervals.  After construction the instance is read-only and its
- * {@link #contains} method is safe to call from multiple threads.
+ * Intervals are sorted and overlapping or abutting intervals are merged per
+ * scaffold. For valid intervals, {@link #contains} performs one binary search
+ * even when the input was unsorted. Coordinate bounds and interval ordering are
+ * not validated during parsing. Only the first three tab-delimited columns are
+ * used; later columns, including strand and block structure, are ignored.
+ * After construction the index is not modified. Publish the completed instance
+ * before sharing it with query threads; queries do not mutate its arrays or maps.
  *
  * @author UMP45
  * @date June 7, 2026
  */
-public class BedMask {
+public class BedMask{
 
 	/**
-	 * Loads and indexes intervals from a BED file.
+	 * Loads and indexes intervals from a BED file, matching scaffold names exactly.
+	 * Skips empty lines, lines beginning with '#', and rows with fewer than three
+	 * tab-delimited fields. Header keywords must be complete words; tab-delimited
+	 * records with integer coordinates take precedence over the reserved names
+	 * "track" and "browser". Numeric fields use Integer.parseInt without trimming.
+	 * The reader is closed before indexing, including when parsing fails. Reported
+	 * read/close errors prevent construction; a parsing failure retains precedence.
 	 * @param fname Path to a BED file (may be gzipped); columns: scaffold, start, end (tab-delimited)
+	 * @throws NumberFormatException If a retained record's coordinates are not parseable ints
+	 * @throws RuntimeException If the reader reports an input or closure error
 	 */
 	public BedMask(String fname){
 		//Accumulate raw intervals per scaffold
 		HashMap<String, ArrayList<int[]>> tmp=new HashMap<String, ArrayList<int[]>>();
 		ByteFile bf=ByteFile.makeByteFile(FileFormat.testInput(fname, FileFormat.TXT, null, true, false));
 		long raw=0;
-		for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()){
-			if(line.length==0 || line[0]=='#'){continue;}//Comment line
-			if(Tools.startsWith(line, "track") || Tools.startsWith(line, "browser")){continue;}//BED header line
-			String[] f=new String(line).split("\t");
-			if(f.length<3){continue;}//Not a valid BED record
-			String scaf=f[0];
-			int start=Integer.parseInt(f[1]);
-			int stop=Integer.parseInt(f[2]);
-			ArrayList<int[]> list=tmp.get(scaf);
-			if(list==null){list=new ArrayList<int[]>(); tmp.put(scaf, list);}
-			list.add(new int[] {start, stop});
-			raw++;
+		Throwable failure=null;
+		try{
+			for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()){
+				if(line.length==0 || line[0]=='#'){continue;}//Comment line
+				String[] f=new String(line).split("\t");
+				if(isHeader(line, f)){continue;}//VAR2-039: do not discard scaffold-name prefixes.
+				if(f.length<3){continue;}//Not a valid BED record
+				String scaf=f[0];
+				int start=Integer.parseInt(f[1]);
+				int stop=Integer.parseInt(f[2]);
+				ArrayList<int[]> list=tmp.get(scaf);
+				if(list==null){list=new ArrayList<int[]>(); tmp.put(scaf, list);}
+				list.add(new int[] {start, stop});
+				raw++;
+			}
+		}catch(RuntimeException | Error t){
+			failure=t;
+			throw t;
+		}finally{
+			//VAR2-040: close on rejection and never publish a mask after a latched read failure.
+			try{
+				if(bf.close()){throw new RuntimeException("Error reading or closing BED file: "+fname);}
+			}catch(RuntimeException | Error t){
+				if(failure==null){throw t;}
+				if(failure!=t){failure.addSuppressed(t);}
+			}
 		}
-		bf.close();
 
 		//Sort and merge each scaffold's intervals into parallel start/end arrays
 		long merged=0;
@@ -81,11 +105,26 @@ public class BedMask {
 		scaffolds=tmp.size();
 	}
 
+	/** Recognizes complete header keywords while giving parseable BED rows precedence. */
+	private static boolean isHeader(final byte[] line, final String[] fields){
+		assert(line.length>0) : "Constructor removes empty lines before BED header classification";
+		final int length=Tools.startsWith(line, "track") ? 5 : Tools.startsWith(line, "browser") ? 7 : 0;
+		if(length==0 || (line.length>length && line[length]!=' ' && line[length]!='\t')){return false;}
+		if(fields.length>=3 && (fields[0].equals("track") || fields[0].equals("browser"))){
+			try{
+				Integer.parseInt(fields[1]);
+				Integer.parseInt(fields[2]);
+				return false;
+			}catch(NumberFormatException e){/* Header metadata is not an interval. */}
+		}
+		return true;
+	}
+
 	/**
 	 * Tests whether a 1-based position on a scaffold falls inside any interval.
 	 * @param scaf Scaffold/chromosome name (must match the BED's naming)
 	 * @param pos 1-based position
-	 * @return true if the position is covered by an interval
+	 * @return true if start &lt; pos &lt;= end for an indexed interval; false for an absent scaffold
 	 */
 	public boolean contains(String scaf, int pos){
 		final int[] starts=startMap.get(scaf);
@@ -104,7 +143,7 @@ public class BedMask {
 
 	/** Number of merged intervals loaded across all scaffolds. */
 	public long intervalsLoaded(){return intervalsLoaded;}
-	/** Number of raw BED records read before merging. */
+	/** Number of parsed intervals before merging, excluding skipped input rows. */
 	public long rawIntervals(){return rawIntervals;}
 	/** Number of distinct scaffolds with at least one interval. */
 	public int scaffolds(){return scaffolds;}
@@ -114,8 +153,11 @@ public class BedMask {
 	/** Sorted, merged interval ends (0-based, exclusive) per scaffold. */
 	private final HashMap<String, int[]> stopMap=new HashMap<String, int[]>();
 
+	/** Number of indexed intervals after merging, including retained empty intervals. */
 	private long intervalsLoaded=0;
+	/** Number of parsed interval rows, including duplicates. */
 	private long rawIntervals=0;
+	/** Number of exact scaffold names with at least one parsed interval. */
 	private int scaffolds=0;
 
 }

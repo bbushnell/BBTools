@@ -23,6 +23,10 @@ import structures.ByteBuilder;
  */
 public class VCFLine implements Comparable<VCFLine>, Cloneable {
 	
+	/*--------------------------------------------------------------*/
+	/*----------------        Construction         ----------------*/
+	/*--------------------------------------------------------------*/
+
 	/**
 	 * Constructs a VCFLine from individual field components.
 	 *
@@ -220,6 +224,10 @@ public class VCFLine implements Comparable<VCFLine>, Cloneable {
 		hashcode=hash();
 		if(AUTOCACHE){cache();}
 	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------       Var Conversion        ----------------*/
+	/*--------------------------------------------------------------*/
 
 	/** Converts this VCFLine to a Var object for internal processing.
 	 * @return Var representation of this variant */
@@ -529,7 +537,11 @@ public class VCFLine implements Comparable<VCFLine>, Cloneable {
 		
 		return v;
 	}
-	
+
+	/*--------------------------------------------------------------*/
+	/*----------------      Allele Splitting       ----------------*/
+	/*--------------------------------------------------------------*/
+
 	/**
 	 * Splits complex variants into simpler components based on specified criteria.
 	 * Can separate multi-allelic variants, complex variants, and multi-base substitutions.
@@ -745,8 +757,11 @@ public class VCFLine implements Comparable<VCFLine>, Cloneable {
 			throw new RuntimeException();
 		}
 	}
-	
-	
+
+	/*--------------------------------------------------------------*/
+	/*----------------      Canonicalization       ----------------*/
+	/*--------------------------------------------------------------*/
+
 	/** Trim matching affixes for a canonical representation */
 	private int trimToCanonical(){
 		if(isMulti() || alt.length<2 || ref.length<2 /*|| ref.length==alt.length*/){return 0;}
@@ -880,6 +895,10 @@ public class VCFLine implements Comparable<VCFLine>, Cloneable {
 		return shifts;
 	}
 
+	/*--------------------------------------------------------------*/
+	/*----------------       Utility Methods       ----------------*/
+	/*--------------------------------------------------------------*/
+
 	/** Uppercases a single ASCII base byte; non-lowercase bytes are returned unchanged. */
 	private static byte toUpper(byte b){
 		return (b>='a' && b<='z') ? (byte)(b-32) : b;
@@ -984,11 +1003,11 @@ public class VCFLine implements Comparable<VCFLine>, Cloneable {
 		}
 		return bb;
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------            Other             ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/** Gets the length of the reference allele */
 	public int reflen(){return ref.length;}
 	/** Gets the length of the alternate allele */
@@ -1141,11 +1160,11 @@ public class VCFLine implements Comparable<VCFLine>, Cloneable {
 		type=type_old();
 		hashcode=hash();
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/** Scaffold/chromosome name */
 	public final String scaf;
 	/** Position on scaffold (1-based) */
@@ -1176,7 +1195,7 @@ public class VCFLine implements Comparable<VCFLine>, Cloneable {
 	/*--------------------------------------------------------------*/
 	/*----------------        Static Fields         ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/** String-to-byte array cache for memory optimization */
 	public static HashMap<String, byte[]> cache=new HashMap<String, byte[]>(99997);
 	

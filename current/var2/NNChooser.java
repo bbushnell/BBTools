@@ -3,31 +3,33 @@ package var2;
 import dna.Data;
 
 /**
- * Static registry that selects the best bundled neural network for variant scoring,
- * based on sequencing platform and ploidy.
+ * Static registry mapping sequencing platform and ploidy to a bundled network resource.
  *
  * <p>Each registered network declares which platforms it supports (a bitmask over
  * {@link VectorUMP45}'s {@code PLATFORM_*} indices) and the ploidy range it covers
  * ({@code minPloidy}..{@code maxPloidy}, inclusive). {@link #choose(int, int)} scans the
- * registry, matching platform first and then ploidy, and returns the file path of the
- * best-matching network. When nothing matches it asserts (so a run with {@code -ea}
- * fails loudly and debuggably) and otherwise falls back to the default network
- * (so a run with {@code -da} proceeds using the default).</p>
+ * registry and resolves the first matching entry. It does not rank networks by measured
+ * accuracy or inspect network contents. A matched but missing resource returns null;
+ * there is no retry with another entry or the default in that case. When no entry matches,
+ * assertions fail under {@code -ea}; with assertions disabled it resolves the default.</p>
  *
  * <p>This is invoked from the variant tools (CallVariants, CallVariants2, GradeVCF) when
  * NN scoring is requested ({@code nn}) but no explicit network was given ({@code net=}).
  * Adding a platform- or ploidy-specific network later is a one-line registry addition.</p>
+ * Resource comments retain the original model-selection history; selection here performs
+ * no training or validation of those historical results.
  *
  * @author UMP45
+ * @contributor Sucrose
  */
-public final class NNChooser {
+public final class NNChooser{
 
 	/*--------------------------------------------------------------*/
 	/*----------------          Registry            ----------------*/
 	/*--------------------------------------------------------------*/
 
 	/** One registered network and the conditions it serves. */
-	private static final class NetEntry {
+	private static final class NetEntry{
 		/** OR of {@code (1<<PLATFORM_*)} for every platform this net supports. */
 		final int platformMask;
 		/** Inclusive ploidy range this net is valid for. */
@@ -35,17 +37,18 @@ public final class NNChooser {
 		/** {@link Data#findPath(String, boolean)} token, e.g. {@code "?callvars_illumina_hap_dip.bbnet"}. */
 		final String resource;
 
+		/** Stores the platform mask, inclusive ploidy bounds and unresolved resource token. */
 		NetEntry(int platformMask, int minPloidy, int maxPloidy, String resource){
-			assert minPloidy>=1 && maxPloidy>=minPloidy : "Bad ploidy range "+minPloidy+".."+maxPloidy;
-			assert resource!=null && resource.startsWith("?") : "Resource must be a findPath token: "+resource;
+			assert(minPloidy>=1 && maxPloidy>=minPloidy) : "Bad ploidy range "+minPloidy+".."+maxPloidy;
+			assert(resource!=null && resource.startsWith("?")) : "Resource must be a findPath token: "+resource;
 			this.platformMask=platformMask;
 			this.minPloidy=minPloidy;
 			this.maxPloidy=maxPloidy;
 			this.resource=resource;
 		}
 
-		/** True if this net's mask includes the platform bit. */
-		boolean supportsPlatform(int platform){return (platformMask & (1<<platform))!=0;}
+		/** Tests the platform bit; callers supply a declared platform index. */
+		boolean supportsPlatform(int platform){return (platformMask&(1<<platform))!=0;}
 
 		/** True if this net covers the (platform, ploidy) combination. */
 		boolean supports(int platform, int ploidy){
@@ -79,10 +82,9 @@ public final class NNChooser {
 	static final String PACBIO_POLYPLOID_RESOURCE="?callvars_pacbio_polyploid.bbnet";
 
 	/**
-	 * Registered networks, most-specific first (choose() returns the first match).
-	 * Two Illumina nets covering disjoint ploidy ranges:
-	 *   - hap+dip combined net (DEFAULT_RESOURCE): ploidy 1 (haploid, dim32=0) and 2 (diploid, dim32=1).
-	 *   - polyploid net (POLYPLOID_RESOURCE): ploidy 3 and up (synthetic-tetraploid-trained).
+	 * Registered networks in selection order; the first match wins if entries overlap.
+	 * Illumina and PacBio each have separate ploidy1–2 and ploidy3+ entries; Roche
+	 * has one entry for all positive ploidies. No Nanopore entry is registered here.
 	 * (Declared after the *_RESOURCE tokens: Java initializes statics in textual order.)
 	 */
 	private static final NetEntry[] REGISTRY={
@@ -105,15 +107,18 @@ public final class NNChooser {
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Resolve the file path of the best network for a platform and ploidy.
+	 * Resolves the first matching registry token with Data.findPath warnings disabled.
+	 * Returns its result directly, including null for an unavailable matched resource.
+	 * Only an unmatched platform/ploidy reaches the default fallback, and only when
+	 * assertions are disabled. Does not load the network or validate its feature schema.
 	 *
 	 * @param platform a {@link VectorUMP45} {@code PLATFORM_*} index (e.g. {@code PLATFORM_ILLUMINA}).
 	 * @param ploidy   sample ploidy ({@code >=1}).
-	 * @return the resolved network file path (via {@link Data#findPath(String, boolean)}),
-	 *         or {@code null} if even the default cannot be located on disk.
+	 * @return Location from {@link Data#findPath(String, boolean)}, or null if unresolved
+	 * @throws AssertionError With assertions enabled, if ploidy is below one or no entry matches
 	 */
 	public static String choose(int platform, int ploidy){
-		assert ploidy>=1 : "Ploidy must be >=1; got "+ploidy;
+		assert(ploidy>=1) : "Ploidy must be >=1; got "+ploidy;
 
 		// Match platform first, then ploidy; return the first network that covers both.
 		boolean platformKnown=false;
@@ -126,10 +131,10 @@ public final class NNChooser {
 
 		// No registered network covers this case. Assert (so -ea crashes loud and debuggable);
 		// with -da, fall through and use the default network anyway.
-		assert platformKnown :
+		assert(platformKnown) :
 			"No neural network registered for platform="+platform
 			+". Specify a network with net=, or run with -da to use the default ("+DEFAULT_RESOURCE+").";
-		assert false :
+		assert(false) :
 			"No neural network registered for platform="+platform+" at ploidy="+ploidy
 			+" (registered nets do not cover this ploidy)."
 			+" Specify a network with net=, or run with -da to use the default ("+DEFAULT_RESOURCE+").";

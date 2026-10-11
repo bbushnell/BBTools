@@ -29,26 +29,22 @@ import stream.StreamerFactory;
 import structures.ListNum;
 
 /**
-* Calls variants from one or more sam or bam files.
-* 
-* @author Brian Bushnell
-* @date December 18, 2016
-*
-*/
+ * Two-pass multisample variant caller for aligned SAM or BAM inputs.
+ *
+ * <p>Each sample is scanned once to discover candidate variants, then all samples
+ * are scanned again against the shared candidate set so the final VCF contains
+ * one genotype column per sample at the same loci.
+ *
+ * @author Brian Bushnell
+ * @date December 18, 2016
+ */
 public class CallVariants2 {
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Main entry point for multi-sample variant calling from command line.
-	 * Initializes timing, creates CallVariants2 instance, executes processing pipeline,
-	 * and handles proper cleanup of output streams.
-	 * 
-	 * @param args Command line arguments including input files, reference genome,
-	 *             sample specifications, filtering parameters, and output destinations
-	 */
+	/** Runs multisample variant calling from the command line. */
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
 		Timer t=new Timer();
@@ -63,10 +59,7 @@ public class CallVariants2 {
 		Shared.closeStream(x.outstream);
 	}
 	
-	/**
-	* Constructor.
-	* @param args Command line arguments
-	*/
+	/** Parses arguments, configures shared read/variant settings, and validates I/O. */
 	public CallVariants2(String[] args){
 		
 		{ //Preparse block for help, config files, and outstream
@@ -358,12 +351,10 @@ public class CallVariants2 {
 	}
 	
 	/**
-	 * Loads forced variants from one or more VCF files for multi-sample analysis.
-	 * These variants will be included in the output regardless of quality filters,
-	 * useful for validating known variants or ensuring consistency across analyses.
-	 * 
-	 * @param fnames Comma-separated list of VCF file paths containing forced variants
-	 * @return VarMap containing all loaded forced variants, or null if no files specified
+	 * Loads forced variants from one or more input VCF files.
+	 *
+	 * @param fnames comma-separated input VCF paths, or null when no forced set is configured
+	 * @return loaded variants flagged as forced, or null when {@code fnames} is null
 	 */
 	private VarMap loadForcedVCF(String fnames){
 		if(fnames==null){return null;}
@@ -386,17 +377,7 @@ public class CallVariants2 {
 		return varMap;
 	}
 	
-	/**
-	 * Validates and normalizes sample names to ensure uniqueness across the cohort.
-	 * Automatically generates sample names from input file paths if not explicitly provided.
-	 * Handles duplicate names by appending copy numbers for disambiguation.
-	 * 
-	 * This method ensures:
-	 * - Each sample has a unique identifier for VCF output
-	 * - Sample count matches input file count
-	 * - Automatic name generation from file paths when needed
-	 * - Collision resolution for duplicate base names
-	 */
+	/** Generates sample names from input paths when needed and checks for duplicates. */
 	private void fixSampleNames(){
 		if(sampleNames.size()!=0){assert(sampleNames.size()==in.size()) : "Different number of input files ("+in.size()+") and sample names ("+sampleNames.size()+")";}
 		if(sampleNames.size()==0){
@@ -428,11 +409,7 @@ public class CallVariants2 {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/**
-	 * Loads reference genome and initializes scaffold mapping for multi-sample analysis.
-	 * Sets up realigner configuration if realignment is enabled. This method is
-	 * idempotent and can be called multiple times safely.
-	 */
+	/** Loads the reference once and points Realigner at the resulting scaffold map. */
 	private void loadReference(){
 		if(loadedRef){return;}
 		assert(ref!=null);
@@ -441,7 +418,10 @@ public class CallVariants2 {
 		loadedRef=true;
 	}
 	
-	/** Create read streams and process all data */
+	/**
+	 * Runs the two-pass cohort caller, writes per-sample VCFs, and merges them into
+	 * the multisample VCF when a merged output path is configured.
+	 */
 	public void process(Timer t){
 
 		//Turn off read validation in the input threads to increase speed
@@ -488,23 +468,17 @@ public class CallVariants2 {
 		
 		t2.start("Processing second pass.");
 		
-		/** Number of reads processed */
+		// Second-pass totals across all samples.
 		long readsProcessed=0;
-		/** Number of bases processed */
 		long basesProcessed=0;
-		/** Number of paired reads processed by this thread, whether or not they mapped as pairs */
 		long pairedInSequencingReadsProcessed=0;
-		/** Number of properly paired reads processed */
 		long properlyPairedReadsProcessed=0;
-		/** Number of trimmed, mapped bases processed */
 		long trimmedBasesProcessed=0;
 		long realignmentsAttempted=0;
 		long realignmentsSucceeded=0;
 		long realignmentsImproved=0;
 		long realignmentsRetained=0;
-		/** Number of vars ignored via prefilter */
 		long varsPrefiltered=0;
-		/** Number of vars processed */
 		long varsProcessed=0;
 		
 		for(Sample sample : samples){
@@ -580,7 +554,7 @@ public class CallVariants2 {
 			outstream.println(Tools.timeReadsBasesProcessed(t, readsProcessed, basesProcessed, 8));
 		}
 		
-		//Throw an exception of there was an error in a thread
+		//Throw an exception if there was an error in a worker thread.
 		if(errorStateOverall){
 			throw new RuntimeException(getClass().getName()+" terminated in an error state; the output may be corrupt.");
 		}
@@ -818,10 +792,10 @@ public class CallVariants2 {
 				ScafMap.loadSamHeader(ff, scafMap);
 			}
 
-			/** Optional SamStreamer for high throughput */
+			// Optional Streamer for high throughput.
 			final Streamer ss;
 			//Create a read input stream
-			/** Shared input stream */
+			// Shared input stream.
 			final ConcurrentReadInputStream cris;
 			if(useStreamer){
 				cris=null;
@@ -900,10 +874,10 @@ public class CallVariants2 {
 				ScafMap.loadSamHeader(ff, scafMap);
 			}
 			
-			/** Optional SamStreamer for high throughput */
+			// Optional Streamer for high throughput.
 			final Streamer ss;
 			//Create a read input stream
-			/** Shared input stream */
+			// Shared input stream.
 			final ConcurrentReadInputStream cris;
 			if(useStreamer){
 				cris=null;

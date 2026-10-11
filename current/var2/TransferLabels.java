@@ -33,6 +33,7 @@ import structures.ByteBuilder;
  */
 public class TransferLabels {
 
+	/** Transfers the deepest-coverage NNL/NNC suffixes onto matching input records. */
 	public static void main(String[] args){
 		String masterFile=null, inFile=null, outFile=null;
 
@@ -56,17 +57,22 @@ public class TransferLabels {
 		HashMap<String, String> labels=new HashMap<String, String>();
 		ByteFile mbf=ByteFile.makeByteFile(FileFormat.testInput(masterFile, FileFormat.TXT, null, true, false));
 		long masterRows=0, masterNoLabel=0;
-		for(byte[] line=mbf.nextLine(); line!=null; line=mbf.nextLine()){
-			if(line.length>0 && line[0]=='#'){continue;}
-			String[] f=new String(line).split("\t");
-			if(f.length<8){continue;}
-			int idx=f[7].indexOf(";NNL=");
-			if(idx<0){masterNoLabel++; continue;}
-			String key=f[0]+":"+f[1]+":"+f[3]+":"+f[4];
-			labels.put(key, f[7].substring(idx)); // ";NNL=x;NNC=y" (to end of INFO)
-			masterRows++;
+		boolean errorState=false;
+		try{
+			for(byte[] line=mbf.nextLine(); line!=null; line=mbf.nextLine()){
+				if(line.length>0 && line[0]=='#'){continue;}
+				String[] f=new String(line).split("\t");
+				if(f.length<8){continue;}
+				int idx=f[7].indexOf(";NNL=");
+				if(idx<0){masterNoLabel++; continue;}
+				String key=f[0]+":"+f[1]+":"+f[3]+":"+f[4];
+				labels.put(key, f[7].substring(idx)); // ";NNL=x;NNC=y" (to end of INFO)
+				masterRows++;
+			}
+		}finally{
+			errorState|=mbf.close();
 		}
-		mbf.close();
+		if(errorState){throw new RuntimeException("Failed to read master labels: "+masterFile);}
 		out.println("Master labels loaded: "+masterRows+" (master rows without NNL: "+masterNoLabel+")");
 
 		// 2) Stream the input VCF, splice matching labels into INFO, emit.
@@ -79,45 +85,49 @@ public class TransferLabels {
 		long total=0, transferred=0, unmatched=0;
 		boolean headerInjected=false;
 
-		for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()){
-			if(line.length>0 && line[0]=='#'){
-				if(!headerInjected && Tools.startsWith(line, "#CHROM")){
-					bb.clear();
-					bb.append("##INFO=<ID=NNL,Number=1,Type=Float,Description=\"UMP45 NN training target label (transferred)\">").nl();
-					bb.append("##INFO=<ID=NNC,Number=1,Type=Integer,Description=\"UMP45 label category: 1=GIAB-HC,2=GIAB-LC,3=nonGIAB-HCregion,4=nonGIAB-LCregion\">").nl();
-					bsw.print(bb);
-					headerInjected=true;
+		try{
+			for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()){
+				if(line.length>0 && line[0]=='#'){
+					if(!headerInjected && Tools.startsWith(line, "#CHROM")){
+						bb.clear();
+						bb.append("##INFO=<ID=NNL,Number=1,Type=Float,Description=\"UMP45 NN training target label (transferred)\">").nl();
+						bb.append("##INFO=<ID=NNC,Number=1,Type=Integer,Description=\"UMP45 label category: 1=GIAB-HC,2=GIAB-LC,3=nonGIAB-HCregion,4=nonGIAB-LCregion\">").nl();
+						bsw.print(bb);
+						headerInjected=true;
+					}
+					bb.clear(); bb.append(line).nl(); bsw.print(bb);
+					continue;
 				}
-				bb.clear(); bb.append(line).nl(); bsw.print(bb);
-				continue;
+
+				String[] f=new String(line).split("\t");
+				if(f.length<8){bb.clear(); bb.append(line).nl(); bsw.print(bb); continue;}
+				total++;
+				String key=f[0]+":"+f[1]+":"+f[3]+":"+f[4];
+				String suffix=labels.get(key);
+
+				bb.clear();
+				for(int i=0; i<f.length; i++){
+					if(i>0){bb.tab();}
+					bb.append(f[i]);
+					if(i==7 && suffix!=null){bb.append(suffix);}
+				}
+				bb.nl();
+				bsw.print(bb);
+
+				if(suffix!=null){transferred++;}else{unmatched++;}
 			}
-
-			String[] f=new String(line).split("\t");
-			if(f.length<8){bb.clear(); bb.append(line).nl(); bsw.print(bb); continue;}
-			total++;
-			String key=f[0]+":"+f[1]+":"+f[3]+":"+f[4];
-			String suffix=labels.get(key);
-
-			bb.clear();
-			for(int i=0; i<f.length; i++){
-				if(i>0){bb.tab();}
-				bb.append(f[i]);
-				if(i==7 && suffix!=null){bb.append(suffix);}
-			}
-			bb.nl();
-			bsw.print(bb);
-
-			if(suffix!=null){transferred++;}else{unmatched++;}
+		}finally{
+			errorState|=bf.close();
+			errorState|=bsw.poisonAndWait();
 		}
-		bf.close();
-		//TODO: Possible bug [var2/TransferLabels#001] (LOW, dropped-wire) - poisonAndWait()'s errorState
-		//return is discarded; a write failure yields a truncated output VCF while the tool exits 0. Capture
-		//it and exit(1)/throw on true.
-		bsw.poisonAndWait();
 
 		out.println("Input variants:        "+total);
 		out.println("  labels transferred:  "+transferred);
 		out.println("  unmatched (no label):"+unmatched);
 		out.println("Output: "+outFile);
+		if(errorState){
+			throw new RuntimeException(TransferLabels.class.getName()+
+					" terminated in an error state; the output may be corrupt.");
+		}
 	}
 }

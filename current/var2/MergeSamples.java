@@ -46,11 +46,15 @@ import var2.CallVariants2.Sample;
  * @date December 18, 2016
  */
 public class MergeSamples {
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Initialization        ----------------*/
+	/*--------------------------------------------------------------*/
 	
 	/**
 	 * Command-line entry point for VCF file merging operations.
 	 * Parses arguments, configures the merger, and manages I/O streams.
-	 * The main processing is currently commented out (line 58).
+	 * The main processing call is currently commented out.
 	 * @param args Command line arguments including input files, output paths, and neural network parameters
 	 */
 	public static void main(String[] args){
@@ -628,7 +632,7 @@ public class MergeSamples {
 	}
 	
 	/*--------------------------------------------------------------*/
-	/*----------------           Fields             ----------------*/
+	/*----------------      Threading Fields        ----------------*/
 	/*--------------------------------------------------------------*/
 	
 	/** Poison pill sentinel for terminating thread processing loops */
@@ -638,6 +642,10 @@ public class MergeSamples {
 	/** Number of worker threads for parallel processing (matches CPU count) */
 	private final int threads;
 	
+	/*--------------------------------------------------------------*/
+	/*----------------        Header Fields         ----------------*/
+	/*--------------------------------------------------------------*/
+
 	/** Total read count accumulated from all input samples (legacy field) */
 	long readsSum;
 	/** Total read pair count accumulated from all input samples (legacy field) */
@@ -661,6 +669,10 @@ public class MergeSamples {
 	/** Cumulative properly paired read count aggregated from all sample headers */
 	long properlyPairedReads;
 	
+	/*--------------------------------------------------------------*/
+	/*----------------        Merge Settings        ----------------*/
+	/*--------------------------------------------------------------*/
+
 	/** Variant filtering criteria (currently unused but passed to Var.toVCF()) */
 	VarFilter filter;
 	/** Scaffold name mapping for coordinate system resolution */
@@ -668,6 +680,10 @@ public class MergeSamples {
 	/** Flag to trim whitespace from scaffold names during processing */
 	boolean trimWhitespace=true;
 	
+	/*--------------------------------------------------------------*/
+	/*----------------        File Settings         ----------------*/
+	/*--------------------------------------------------------------*/
+
 	/** Primary input VCF filename (first sample, used for validation) */
 	private String in1=null;
 	/** Primary merged output VCF filename (null writes to stdout) */
@@ -678,6 +694,10 @@ public class MergeSamples {
 	/** Quality score histogram tracking distribution of final merged variant scores (0-199) */
 	long[] scoreArray=new long[200];
 	
+	/*--------------------------------------------------------------*/
+	/*----------------           Counters           ----------------*/
+	/*--------------------------------------------------------------*/
+
 	/** Total VCF lines processed across all input files (unused in current implementation) */
 	private long linesProcessed=0;
 	/** Count of valid variant lines processed (unused in current implementation) */
@@ -698,6 +718,10 @@ public class MergeSamples {
 	/** Probability threshold for neural network variant classification (0.0-1.0) */
 	private float netCutoff=0.5f;
 	
+	/*--------------------------------------------------------------*/
+	/*----------------        Common Fields         ----------------*/
+	/*--------------------------------------------------------------*/
+
 	/** PrintStream for diagnostic and progress messages (System.err by default) */
 	private PrintStream outstream=System.err;
 	/** Global flag controlling detailed progress and debug output */

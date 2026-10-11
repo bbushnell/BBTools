@@ -55,7 +55,7 @@ import tracker.ReadStats;
 public class RestoreBases {
 
 	/*--------------------------------------------------------------*/
-	/*----------------        Initialization        ----------------*/
+	/*----------------           Startup           ----------------*/
 	/*--------------------------------------------------------------*/
 
 	/**
@@ -68,6 +68,10 @@ public class RestoreBases {
 		x.process(t);
 		Shared.closeStream(x.outstream);
 	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Initialization        ----------------*/
+	/*--------------------------------------------------------------*/
 
 	/**
 	 * Constructor that parses command-line arguments and initializes processing parameters.
@@ -600,8 +604,11 @@ public class RestoreBases {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Input SAM/BAM file containing alignments to restore. */
 	private String in1=null;
+	/** Output SAM/BAM file for restored alignments. */
 	private String out1=null;
+	/** Directory for temporary per-bucket sam.gz files when ways>1. */
 	private String tmpDir=null;
 
 	/** Number of subfiles to partition into; larger values reduce per-subfile memory.
@@ -613,23 +620,35 @@ public class RestoreBases {
 	private int hardclipMode=CONVERT;
 	/** Maximum input alignments to process, or -1 for all. */
 	private long maxReads=-1;
+	/** Allow overwriting existing output and temporary files. */
 	private boolean overwrite=true;
 
+	/** Input alignment file format. */
 	private final FileFormat ffin;
 
 	/*--------------------------------------------------------------*/
 	/*----------------           Counters           ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Number of input alignments read. */
 	private long readsIn=0;
+	/** Number of input bases represented by non-null SEQ fields. */
 	private long basesIn=0;
+	/** Number of secondary/supplementary records considered for restoration. */
 	private long restoreAttempts=0;
+	/** Number of records that received restored sequence data or tags. */
 	private long restored=0;
+	/** Number of supplementary records converted from hard to soft clipping. */
 	private long hardConverted=0;
+	/** Number of supplementary records truncated to hard-clipped segments. */
 	private long truncated=0;
+	/** Number of groups skipped because the primary alignment was hard-clipped. */
 	private long skippedHardPrimary=0;
+	/** Number of records skipped because restored bases disagreed with the CIGAR length. */
 	private long skippedLenMismatch=0;
+	/** Number of records skipped because they lacked a usable CIGAR. */
 	private long skippedNoCigar=0;
+	/** Number of same-name groups with no primary alignment to copy from. */
 	private long groupsNoPrimary=0;
 
 	/** True if an error was encountered during processing. */
@@ -641,8 +660,14 @@ public class RestoreBases {
 
 	/** Output/buffer chunk size for ListNum batches. */
 	private static final int CHUNK=200;
-	static final int FIX=0, TAG=1;
-	static final int CONVERT=0, TRUNCATE=1;
+	/** Copy primary bases and qualities directly onto secondary/supplementary records. */
+	static final int FIX=0;
+	/** Add original sequencing bases and qualities as tags while leaving SEQ and QUAL absent. */
+	static final int TAG=1;
+	/** Convert supplementary hard clips to soft clips and retain the full read. */
+	static final int CONVERT=0;
+	/** Keep supplementary hard clips and copy only the aligned read segment. */
+	static final int TRUNCATE=1;
 
 	/** Output stream for status messages. */
 	private PrintStream outstream=System.err;

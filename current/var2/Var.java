@@ -18,36 +18,22 @@ import stream.SamLine;
 import structures.ByteBuilder;
 
 /**
-* Represents a single genomic variant with associated quality metrics and statistics.
-* Stores variant position, type, allele information, and comprehensive read-level data
-* for variant calling quality assessment and filtering.
-* 
-* Core variant calling class that accumulates evidence from multiple reads,
-* calculates statistical scores for variant confidence, and outputs results
-* in standard formats (VAR, VCF). Handles all major variant types including
-* substitutions, insertions, deletions, and junction variants.
-* 
-* Key features:
-* - Multi-threaded variant accumulation from read alignments
-* - Sophisticated statistical scoring algorithms for quality assessment
-* - Bias detection (strand bias, read bias, positional bias)
-* - Homopolymer and repeat region analysis
-* - Support for multiple output formats with comprehensive metadata
-* 
-* @author Brian Bushnell
-* @contributor Isla
-* @date November 4, 2016
-*/
+ * Variant identity, evidence counters, scoring helpers, and VAR/VCF formatting.
+ * <p>
+ * Instances are keyed by scaffold, zero-based half-open reference span, allele
+ * bytes and type. CallVariants accumulates read support into these mutable
+ * counters, while loaders and writers reuse the same object for serialized VAR
+ * and VCF records.
+ *
+ * @author Brian Bushnell
+ * @contributor Isla
+ * @date November 4, 2016
+ */
 public class Var implements Comparable<Var>, Serializable, Cloneable {
 
 	private static final long serialVersionUID=3328626403863586829L;
 
-	/**
-	 * Main method for testing and loading variant files.
-	 * Supports both VAR and VCF format input files for validation and analysis.
-	 * 
-	 * @param args Command line arguments: [0] = input file path, [1+] = optional parameters
-	 */
+	/** Test entry for loading an existing VAR or VCF file. */
 	public static void main(String[] args){
 		if(args.length>1){
 			for(int i=1; i<args.length; i++){			
@@ -85,39 +71,32 @@ public class Var implements Comparable<Var>, Serializable, Cloneable {
 	}
 	
 	/**
-	 * Creates variant from basic parameters using allele as integer ASCII code.
-	 * Convenience constructor that converts single-character alleles from ASCII codes
-	 * to byte arrays using the pre-allocated AL_MAP lookup table. Used primarily
-	 * for single-base substitutions where the allele is known as a character code.
+	 * Constructs a variant whose allele is represented by one ASCII code.
 	 * 
-	 * @param scafnum_ Scaffold/chromosome number (0-based indexing)
-	 * @param start_ Start position in reference coordinates (0-based, inclusive)
-	 * @param stop_ Stop position in reference coordinates (0-based, exclusive)
-	 * @param allele_ Single-character allele as ASCII integer code
-	 * @param type_ Variant type constant (SUB, INS, DEL, etc.)
+	 * @param scafnum_ zero-based scaffold number
+	 * @param start_ zero-based inclusive reference start
+	 * @param stop_ zero-based exclusive reference stop
+	 * @param allele_ single-character allele as an ASCII integer
+	 * @param type_ variant type constant
 	 */
 	public Var(int scafnum_, int start_, int stop_, int allele_, int type_){
 		this(scafnum_, start_, stop_, AL_MAP[allele_], type_);
 	}
 
-	/**
-	 * Copy constructor - creates new variant with identical properties.
-	 * @param v Source variant to copy
-	 */
+	/** Constructs a variant with the same immutable identity as {@code v}. */
 	public Var(Var v){
 		this(v.scafnum, v.start, v.stop, v.allele, v.type);
 	}
 	
 	/**
-	* Primary constructor for creating variants.
-	* Validates coordinates and allele data, computes hash code for efficient storage.
-	* 
-	* @param scafnum_ Scaffold/chromosome number
-	* @param start_ Start position (0-based, inclusive)
-	* @param stop_ Stop position (0-based, exclusive) 
-	* @param allele_ Allele sequence as byte array
-	* @param type_ Variant type (SUB, INS, DEL, etc.)
-	*/
+	 * Constructs a variant identity and precomputes its hash code.
+	 *
+	 * @param scafnum_ zero-based scaffold number
+	 * @param start_ zero-based inclusive reference start
+	 * @param stop_ zero-based exclusive reference stop
+	 * @param allele_ alternate allele bytes
+	 * @param type_ variant type constant
+	 */
 	public Var(int scafnum_, int start_, int stop_, byte[] allele_, int type_){
 		scafnum=scafnum_;
 		start=start_;
@@ -134,12 +113,10 @@ public class Var implements Comparable<Var>, Serializable, Cloneable {
 	}
 	
 	/**
-	 * Constructs variant by parsing delimited text line from VAR format file.
-	 * Parses all 24+ fields including position, type, counts, and quality statistics.
-	 * Used for loading existing variant data from disk storage.
+	 * Parses one serialized VAR-format row and restores its accumulated counters.
 	 * 
-	 * @param line Byte array containing tab-delimited variant data
-	 * @param delimiter Field separator character (typically tab)
+	 * @param line serialized row bytes
+	 * @param delimiter field delimiter
 	 */
 	public Var(final byte[] line, final byte delimiter){
 	    LineParser2 lp=new LineParser2(delimiter);
@@ -789,26 +766,14 @@ public class Var implements Comparable<Var>, Serializable, Cloneable {
 	/*--------------------------------------------------------------*/
 	/*----------------       Contract Methods       ----------------*/
 	/*--------------------------------------------------------------*/
-	
-	/*--------------------------------------------------------------*/
-	/*----------------       Contract Methods       ----------------*/
-	/*--------------------------------------------------------------*/
 
 	/**
-	* Tests equality with another object (must be a Var).
-	* Uses optimized comparison with hash code pre-check for performance.
-	* 
-	* @param b Object to compare against
-	* @return True if objects represent the same variant
-	*/
+	 * Tests equality with another object, which must be a Var.
+	 *
+	 * @param b object to compare against
+	 * @return true if both objects represent the same variant identity
+	 */
 	@Override
-	/**
-	* Tests equality with another object (must be a Var).
-	* Uses optimized comparison with hash code pre-check for performance.
-	* 
-	* @param b Object to compare against
-	* @return True if objects represent the same variant
-	*/
 	public boolean equals(Object b){
 		return equals((Var)b);
 	}
@@ -825,19 +790,8 @@ public class Var implements Comparable<Var>, Serializable, Cloneable {
 		return hashcode==b.hashcode && compareTo(b)==0; // Hash pre-check + full comparison
 	}
 
-	/**
-	* Returns hash code for this variant.
-	* Used for efficient storage in hash-based collections.
-	* 
-	* @return Pre-computed hash code value
-	*/
+	/** Returns the precomputed identity hash code. */
 	@Override
-	/**
-	* Returns hash code for this variant.
-	* Used for efficient storage in hash-based collections.
-	* 
-	* @return Pre-computed hash code value
-	*/
 	public int hashCode(){
 		return hashcode;
 	}
@@ -857,27 +811,11 @@ public class Var implements Comparable<Var>, Serializable, Cloneable {
 
 	/**
 	 * Compares this variant to another for sorting.
-	 * Primary sort: scaffold number
-	 * Secondary sort: adjusted start position (deletions sort slightly earlier)
-	 * Tertiary sort: variant type  
-	 * Quaternary sort: stop position
-	 * Final sort: allele sequence
 	 * 
 	 * @param v Variant to compare against
 	 * @return Negative, zero, or positive for less than, equal, or greater than
 	 */
 	@Override
-	/**
-	* Compares this variant to another for sorting.
-	* Primary sort: scaffold number
-	* Secondary sort: adjusted start position (deletions sort slightly earlier)
-	* Tertiary sort: variant type  
-	* Quaternary sort: stop position
-	* Final sort: allele sequence
-	* 
-	* @param v Variant to compare against
-	* @return Negative, zero, or positive for less than, equal, or greater than
-	*/
 	public int compareTo(Var v){
 		if(scafnum!=v.scafnum){return scafnum-v.scafnum;} // Sort by scaffold first
 		
@@ -908,19 +846,8 @@ public class Var implements Comparable<Var>, Serializable, Cloneable {
 		return 0;
 	}
 
-	/**
-	 * Returns string representation of this variant.
-	 * Uses quick formatting with default parameters for debugging.
-	 * 
-	 * @return Formatted variant string
-	 */
+	/** Returns quick VAR-format text for debugging. */
 	@Override
-	/**
-	* Returns string representation of this variant.
-	* Uses quick formatting with default parameters for debugging.
-	* 
-	* @return Formatted variant string
-	*/
 	public String toString(){
 		return toTextQuick(new ByteBuilder()).toString();
 	}
@@ -1225,7 +1152,9 @@ public class Var implements Comparable<Var>, Serializable, Cloneable {
 		if(af>=0.5){copies=Tools.max(copies, 1);} // At least 1 copy if AF >= 50%
 		copies=Tools.mid(MIN_VAR_COPIES, copies, ploidy); // Clamp to valid range
 		return copies;
-	}/**
+	}
+
+	/**
 	 * Generates VCF genotype string based on variant copies and filter status.
 	 * Uses allele frequency and ploidy to determine genotype call.
 	 * Can output dot genotype for failed variants if configured.
@@ -1316,10 +1245,6 @@ public class Var implements Comparable<Var>, Serializable, Cloneable {
 		}
 		return coverage;
 	}
-	
-	/*--------------------------------------------------------------*/
-	/*----------------        Scoring Methods       ----------------*/
-	/*--------------------------------------------------------------*/
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Scoring Methods       ----------------*/
@@ -1508,12 +1433,12 @@ public class Var implements Comparable<Var>, Serializable, Cloneable {
 	}
 
 	/**
-	* Scores variant based on distance from read ends.
-	* Variants near read ends are less reliable due to sequencing quality decline.
-	* Uses read length and position to calculate confidence penalty.
-	* 
-	* @return Score from 0.05 to 1.0 (higher = farther from ends)
-	*/
+	 * Scores the mean/max mapping quality of supporting reads.
+	 *
+	 * @param totalMapqAvg dataset-wide average mapping quality, retained for
+	 *        signature symmetry with {@link #qualityScore(double, double)}
+	 * @return mapping-quality score
+	 */
 	public double mapQualityScore(double totalMapqAvg){
 		double mqAvg=0.5f*(mapQAvg()+mapQMax); // Average of mean and max
 		double mapProbAvg=1-Math.pow(10, 0-.1*(mqAvg+2)); // Phred to probability (+2 bonus)
@@ -2307,10 +2232,6 @@ public class Var implements Comparable<Var>, Serializable, Cloneable {
 		Arrays.fill(typeInitialArray, (byte)-1); // Initialize to invalid
 		
 		// Map type initial letters to constants
-		/**
-		* Static initialization block for type parsing arrays.
-		* Maps variant type initial letters to type constants.
-		*/
 		typeInitialArray['I']=INS; // Insertion
 		typeInitialArray['N']=NOCALL; // No-call
 		typeInitialArray['S']=SUB; // Substitution
@@ -2326,4 +2247,3 @@ public class Var implements Comparable<Var>, Serializable, Cloneable {
 	public static final String varFormat="1.3";
 
 }
-

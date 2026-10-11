@@ -32,22 +32,18 @@ import stream.StreamerFactory;
 import structures.ListNum;
 
 /**
-* Calls variants from one or more SAM or BAM files using multithreaded processing.
-* Supports prefiltering, realignment, quality trimming, and comprehensive variant analysis.
-* Outputs results in VAR, VCF, and GFF formats with detailed statistics and histograms.
-* 
-* Key features:
-* - Multithreaded variant calling with configurable thread pools
-* - Optional prefiltering using Bloom filter-like structures for performance
-* - Read realignment and quality-based trimming
-* - Comprehensive variant statistics and filtering
-* - Support for forced variants from input VCF files
-* - Multiple output formats (VAR, VCF, GFF)
-* 
-* @author Brian Bushnell
-* @contributor Isla
-* @date November 4, 2016
-*/
+ * Single-sample variant caller for SAM/BAM alignments.
+ * <p>
+ * The launcher lands here for ordinary single-sample calls; multisample calls
+ * are detected in {@link #main(String[])} and delegated to {@link CallVariants2}.
+ * This class loads one or more alignment files into a shared {@link VarMap},
+ * optionally builds a prefilter, then scores, filters, and writes VAR/VCF/GFF
+ * plus optional histograms.
+ *
+ * @author Brian Bushnell
+ * @contributor Isla
+ * @date November 4, 2016
+ */
 public class CallVariants {
 	
 	/*--------------------------------------------------------------*/
@@ -55,8 +51,9 @@ public class CallVariants {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Code entrance from the command line.
-	 * Automatically delegates to CallVariants2 if multisample mode is detected.
+	 * Command-line entry; delegates to {@link CallVariants2} when the arguments
+	 * request multisample mode, otherwise runs the single-sample pipeline.
+	 *
 	 * @param args Command line arguments
 	 */
 	public static void main(String[] args){
@@ -81,8 +78,9 @@ public class CallVariants {
 	}
 	
 	/**
-	 * Parses command line arguments to detect multisample mode.
-	 * Used to determine whether to delegate to CallVariants2.
+	 * Pre-parses only the multisample flag before full argument handling decides
+	 * whether this launch belongs to the single-sample or multisample caller.
+	 *
 	 * @param args Command line arguments
 	 * @return True if multisample mode is requested
 	 */
@@ -105,11 +103,12 @@ public class CallVariants {
 	}
 	
 	/**
-	* Constructor that parses command line arguments and initializes all parameters.
-	* Sets up input/output files, filtering parameters, threading options, and validation.
-	* 
-	* @param args Command line arguments containing file paths and processing options
-	*/
+	 * Parses command-line arguments, initializes static caller knobs, resolves
+	 * input/output file formats, chooses the default neural net when requested,
+	 * and validates file accessibility before processing starts.
+	 *
+	 * @param args Command line arguments containing file paths and processing options
+	 */
 	public CallVariants(String[] args){
 		
 		{ //Preparse block for help, config files, and outstream
@@ -518,13 +517,8 @@ public class CallVariants {
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Loads the reference genome file if not already loaded.
-	 * Creates a ScafMap object containing all reference scaffolds with their sequences,
-	 * lengths, and metadata. Configures the realigner to use the loaded scaffold mapping
-	 * for alignment score calculations during read realignment.
-	 * 
-	 * This method is idempotent - safe to call multiple times without side effects.
-	 * Uses ScafMap.loadReference() which handles FASTA parsing and scaffold indexing.
+	 * Lazily loads the reference FASTA into {@link #scafMap} and points
+	 * {@link Realigner} at the same map when realignment is enabled.
 	 */
 	private void loadReference(){
 		if(loadedRef){return;} // Skip if already loaded
@@ -537,13 +531,8 @@ public class CallVariants {
 	}
 	
 	/**
-	 * Loads reference file or SAM headers to create scaffold map.
-	 * Implements a two-tier approach for scaffold discovery:
-	 * 1. Primary: Load from reference FASTA file using FastaReadInputStream
-	 * 2. Fallback: Extract scaffold information from SAM/BAM headers using ScafMap.loadSamHeader()
-	 * 
-	 * The FASTA approach provides full sequence data for realignment and variant validation,
-	 * while the SAM header approach only provides scaffold names and lengths for basic mapping.
+	 * Loads full scaffold bases from the reference when present; otherwise
+	 * populates scaffold names and lengths from the input SAM/BAM headers.
 	 * 
 	 * @param t2 Timer for tracking load time and performance measurement
 	 */
@@ -563,21 +552,10 @@ public class CallVariants {
 	}
 	
 	/**
-	 * Creates and populates a prefilter to reduce memory usage for low-frequency variants.
-	 * Implements a two-pass algorithm using KCountArray7MTA (Bloom filter-like counter array):
-	 * 
-	 * Pass 1: Count variant occurrences using probabilistic counters with configurable bit width
-	 * Pass 2: Only process variants that exceed minReads threshold in main processing
-	 * 
-	 * Algorithm details:
-	 * 1. Calculates optimal counter bit width: cbits = 2^n where 2^cbits >= minReads
-	 * 2. Allocates ~1/8th of available memory for counter array (1 bit per byte)
-	 * 3. Creates KCountArray7MTA with calculated parameters and 2 hash functions
-	 * 4. Chooses single-file vs multi-file processing based on thread count and dataset size
-	 * 5. Adds forced variants from input VCF to ensure they pass filtering
-	 * 
-	 * Memory efficiency: Reduces main VarMap memory usage by filtering out low-confidence variants
-	 * before full processing, critical for large-scale variant calling on limited-memory systems.
+	 * Builds the optional count-min prefilter used to avoid retaining variants
+	 * below the minimum allele-depth threshold during the main input pass.
+	 * Forced VCF variants are incremented to the threshold so the prefilter
+	 * cannot discard them before forced-output handling.
 	 * 
 	 * @param minReads Minimum number of reads required to pass prefilter
 	 * @param vm Existing VarMap containing forced variants (may be null)
@@ -622,13 +600,9 @@ public class CallVariants {
 	}
 	
 	/**
-	 * Performs prefiltering using single-file processing mode.
-	 * Processes each input file sequentially using multithreaded read processing.
-	 * Creates either SamStreamer or ConcurrentReadInputStream based on useStreamer setting,
-	 * then spawns worker threads that extract variants and increment counters in the KCountArray7MTA.
-	 * 
-	 * This mode is used for smaller datasets or when memory/threading constraints prevent
-	 * multi-file processing. Each file is processed completely before moving to the next.
+	 * Populates the prefilter one input at a time using either {@link Streamer}
+	 * or {@link ConcurrentReadInputStream}, matching the ordinary single-file
+	 * read path.
 	 * 
 	 * @param kca The prefilter counter array to populate with variant counts
 	 */
@@ -636,9 +610,9 @@ public class CallVariants {
 		// Process each input file individually
 		for(FileFormat ff : ffin){
 
-			/** Optional SamStreamer for high throughput */
+			// Optional SamStreamer for high throughput
 			final Streamer ss;
-			/** Shared input stream */
+			// Shared input stream
 			final ConcurrentReadInputStream cris;
 			
 			// Set up input stream (either streamer or standard concurrent reader)
@@ -693,14 +667,8 @@ public class CallVariants {
 	}
 	
 	/**
-	 * Performs prefiltering using multi-file processing mode.
-	 * Processes multiple input files simultaneously using SamStreamerMF for maximum I/O parallelism.
-	 * Worker threads pull reads from all files concurrently, improving throughput for large datasets
-	 * with multiple input files by reducing I/O bottlenecks.
-	 * 
-	 * This mode is optimal for high-throughput variant calling with many input files,
-	 * sufficient threads (>4), and adequate memory. Provides better resource utilization
-	 * than sequential file processing.
+	 * Populates the prefilter through {@link SamStreamerMF}, allowing worker
+	 * threads to pull from multiple input files in one shared pass.
 	 * 
 	 * @param kca The prefilter counter array to populate with variant counts
 	 */
@@ -744,12 +712,14 @@ public class CallVariants {
 		if(!success){errorState=true;}
 	}
 	
-	/** 
-	* Main processing method that orchestrates the complete variant calling pipeline.
-	* Loads reference data, creates variant maps, processes input files, and generates output.
-	* @param t Timer for overall execution timing
-	* @return VarMap containing all discovered and filtered variants
-	*/
+	/**
+	 * Runs the full single-sample call: load scaffold context, fill
+	 * {@link #varMap}, write requested outputs and histograms, restore read
+	 * validation state, and throw if any worker failed.
+	 *
+	 * @param t Timer for overall execution timing
+	 * @return VarMap containing all discovered and filtered variants
+	 */
 	public VarMap process(Timer t){
 		
 		//Turn off read validation in the input threads to increase speed
@@ -793,14 +763,13 @@ public class CallVariants {
 	}
 
 	/**
-	* Creates and populates a prefilter to reduce memory usage for low-frequency variants.
-	* Uses a Bloom filter-like structure (KCountArray7MTA) to track variants that appear
-	* fewer than minReads times, allowing them to be filtered out early to save memory.
-	* 
-	* @param minReads Minimum number of reads required to pass prefilter
-	* @param vm Existing VarMap containing forced variants (may be null)
-	* @return Populated KCountArray7MTA prefilter, or null if insufficient memory
-	*/
+	 * Loads forced variants, optionally builds a prefilter, streams all inputs
+	 * into the shared {@link VarMap}, then filters/scores variants and fills the
+	 * output histogram arrays.
+	 *
+	 * @param t2 Timer for pipeline phases after reference loading
+	 * @return Variant-type counts after filtering and scoring
+	 */
 	private long[] makeVarMap(Timer t2) {
 		varMap=new VarMap(scafMap);
 		
@@ -928,11 +897,12 @@ public class CallVariants {
 	}
 
 	/**
-	* Prints comprehensive timing and results summary to output stream.
-	* Includes variant type breakdown, statistics, and performance metrics.
-	* @param types Array of variant counts by type from processVariants()
-	* @param t Main timer for overall execution time
-	*/
+	 * Prints the final variant-type table, prefilter summary, realignment
+	 * counters, and read/base throughput to the status stream.
+	 *
+	 * @param types Variant counts by internal type
+	 * @param t Main timer for overall execution time
+	 */
 	private void printResults(long[] types, Timer t) {
 		t.stop();
 		
@@ -998,18 +968,19 @@ public class CallVariants {
 		outstream.println(Tools.timeReadsBasesProcessed(t, readsProcessed, basesProcessed, 8));
 	}
 
-	/** 
-	* Processes input using single-file mode with multithreaded read processing.
-	* Creates input streams and spawns worker threads for variant detection.
-	* @param ff Input file format to process
-	* @param kca Prefilter for memory efficiency (may be null)
-	*/
+	/**
+	 * Processes one input file through either {@link Streamer} or
+	 * {@link ConcurrentReadInputStream}, then feeds batches to worker threads.
+	 *
+	 * @param ff Input file format to process
+	 * @param kca Prefilter for memory efficiency; may be null
+	 */
 	void processInput_SF(FileFormat ff, KCountArray7MTA kca){
 		assert(ff.samOrBam());
 
-		/** Optional SamStreamer for high throughput */
+		// Optional SamStreamer for high throughput
 		final Streamer ss;
-		/** Shared input stream */
+		// Shared input stream
 		final ConcurrentReadInputStream cris;
 		
 		// Set up appropriate input stream based on configuration
@@ -1036,28 +1007,19 @@ public class CallVariants {
 		errorState|=ReadWrite.closeStreams(cris);
 	}
 
-	/** 
-	 * Processes input using multi-file mode for high-throughput datasets.
-	 * Uses SamStreamerMF to simultaneously read from multiple files, maximizing I/O parallelism
-	 * and reducing processing time for large multi-file datasets.
-	 * 
-	 * This mode is optimal when:
-	 * - Multiple input files are available
-	 * - Sufficient threads are available (>4)
-	 * - I/O bandwidth is the limiting factor
-	 * 
-	 * Worker threads pull reads from all files concurrently, improving resource utilization
-	 * compared to sequential file processing.
-	 * 
+	/**
+	 * Processes all input files through one {@link SamStreamerMF}; worker
+	 * threads pull batches from that shared stream until it is exhausted.
+	 *
 	 * @param ff Array of input file formats to process simultaneously
-	 * @param kca Prefilter for memory efficiency (may be null)
+	 * @param kca Prefilter for memory efficiency; may be null
 	 */
 	void processInput_MF(FileFormat[] ff, KCountArray7MTA kca){
 		assert(useStreamer);
 		assert(ff[0].samOrBam());
 
 		// Create multi-file streamer for simultaneous file processing
-		/** Optional SamStreamerMF for very high throughput */
+		// Optional SamStreamerMF for very high throughput
 		final SamStreamerMF ssmf;
 		ssmf=new SamStreamerMF(ff, streamerThreads, false, maxReads);
 		ssmf.start();
@@ -1070,9 +1032,8 @@ public class CallVariants {
 	}
 	
 	/**
-	 * Processes all variants in the variant map using multithreaded scoring and filtering.
-	 * Delegates to VarMap.processVariantsMT() which applies statistical filters,
-	 * neural network scoring (if enabled), and generates histogram data for output.
+	 * Applies the composite scoring/filtering path and records histogram
+	 * statistics for the surviving variants.
 	 * 
 	 * @return Array of variant counts by type after filtering
 	 */
@@ -1081,7 +1042,7 @@ public class CallVariants {
 				maxQualityArray, ADArray, AFArray);
 	}
 	
-	/** Spawn process threads */
+	/** Spawns worker threads and merges their counters into this caller. */
 	private void spawnThreads(final ConcurrentReadInputStream cris, final Streamer ss, final SamStreamerMF ssmf, final KCountArray7MTA kca){
 		
 		//Do anything necessary prior to processing
@@ -1144,9 +1105,8 @@ public class CallVariants {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Dumps thread-local variants to the main variant map in a thread-safe manner.
-	 * Transfers all variants from the thread's local HashMap to the global VarMap,
-	 * merging duplicate variants and clearing the local map for continued processing.
+	 * Transfers one worker's accumulated variants into the sharded shared map
+	 * and clears the thread-local map for continued reuse.
 	 * 
 	 * @param mapT Thread-local variant map to dump
 	 * @return Number of variants added to the main map
@@ -1161,8 +1121,11 @@ public class CallVariants {
 	/*----------------         Inner Classes        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Non-static inner class; reads outer-instance fields (varMap, filters, scafMap, dumpVars()).
-	 * Making it static would require passing all that shared state in explicitly. */
+	/**
+	 * Worker for either the prefilter pass or the main variant-accumulation pass.
+	 * The non-static class reads outer shared configuration and periodically
+	 * flushes thread-local variants through {@link CallVariants#dumpVars(HashMap)}.
+	 */
 	private class ProcessThread extends Thread {
 		
 		//Constructor
@@ -1204,9 +1167,8 @@ public class CallVariants {
 		}
 		
 		/**
-		 * Processes read lists from ConcurrentReadInputStream in a loop.
-		 * Continuously fetches read lists, processes each read individually,
-		 * and manages proper list return to the input stream for memory efficiency.
+		 * Reads CRIS batches, processes every read, and returns each batch to
+		 * its producer after all contained reads have been consumed.
 		 */
 		void processInner_cris(){
 			
@@ -1253,7 +1215,7 @@ public class CallVariants {
 			}
 		}
 		
-		/** Iterate through the reads */
+		/** Reads ordinary Streamer batches until the stream is exhausted. */
 		void processInner_ss(){
 			
 			//Grab the actual read list from the ListNum
@@ -1287,7 +1249,7 @@ public class CallVariants {
 			}
 		}
 		
-		/** Iterate through the reads */
+		/** Reads multi-file Streamer batches until the stream is exhausted. */
 		void processInner_ssmf(){
 			
 			//Grab the actual read list from the ListNum
@@ -1323,24 +1285,12 @@ public class CallVariants {
 		}
 		
 		/**
-		 * Processes a single read to extract variants and update statistics.
-		 * Implements the core variant calling algorithm for individual reads:
-		 * 
-		 * Processing steps:
-		 * 1. Validates read and applies SAM filtering criteria
-		 * 2. Updates pairing and sequencing statistics
-		 * 3. Performs read realignment if enabled
-		 * 4. Calculates border and quality-based trimming amounts
-		 * 5. Extracts variants using Var.toVars() with scaffold context
-		 * 6. For prefilter mode: Increments variant counters in KCountArray7MTA
-		 * 7. For main mode: Adds variants to thread-local map if they pass depth filter
-		 * 
-		 * Quality trimming algorithm: Combines border trimming (near scaffold ends)
-		 * with Phred quality-based trimming using TrimRead.testOptimal().
-		 * 
-		 * Memory management: Uses thread-local variant map with periodic dumping
-		 * to main VarMap when size exceeds vmtSizeLimit.
-		 * 
+		 * Converts one mapped read into {@link Var} objects after optional
+		 * filtering, realignment, terminal trimming, and quality trimming. In
+		 * the prefilter pass variants only increment {@code kca}; in the main
+		 * pass variants above the prefilter threshold are accumulated in
+		 * {@link #varMapT}.
+		 *
 		 * @param r Read to process (must be validated SAM read)
 		 * @return True if read was processed successfully, false if discarded
 		 */
@@ -1560,7 +1510,7 @@ public class CallVariants {
 	private long maxReads=-1;
 	/** Fraction of input reads to randomly keep (1=all); applied via Streamer/cris setSampleRate. */
 	private float samplerate=1f;
-	/** Subsampling RNG seed; -1 is auto-set to a fixed value when samplerate<1 for reproducibility. */
+	/** Subsampling RNG seed; -1 is auto-set to a fixed value when {@code samplerate<1}. */
 	private long sampleseed=-1;
 	
 	/** Scaffold mapping for reference sequences */

@@ -38,8 +38,11 @@ import structures.ByteBuilder;
  * program; here we only count how many labels fall in 0.4-0.6 for diagnostics.
  *
  * GIAB membership uses VCFLine equals/hashCode — the same identity contract as CompareVCF —
- * so concordance with comparevcf intersection is exact.  When ref= is given, indels are
- * left-aligned for normalization; this matches the split=t normalize pipeline.
+ * after truth rows have been split by alternate allele and multi-base substitutions have been
+ * decomposed into SNPs.  Candidate rows are not split: each input line is streamed once and
+ * emitted with an appended label, or emitted unchanged when it is unparsable.  When normalize=t
+ * is requested, ref= is required and indels are left-aligned; this matches the split=t normalize
+ * pipeline only when the candidate VCF already uses the same decomposition as the truth set.
  *
  * Usage: java var2.LabelVCF in=allvariants.vcf.gz giab=giab_norm.vcf.gz bed=highconf.bed \
  *        out=labeled.vcf.gz [ref=ref.fa.gz] [divisor=55] [phredcap=60] [normalize=t]
@@ -144,7 +147,7 @@ public class LabelVCF {
 				continue;
 			}
 
-			if(scafMap.getScaffold(vline.scaf)==null){unkScaf++;}
+			if(!scafMap.containsScaffold(vline.scaf)){unkScaf++;}
 			if(normalize){vline.leftAlign(refBasesFor(vline.scaf, scafMap));}
 
 			boolean inGiab=giab.contains(vline);
@@ -174,11 +177,12 @@ public class LabelVCF {
 			bsw.print(bb);
 			total++;
 		}
-		bf.close();
+		final boolean readError=bf.close();
 		//TODO: Possible bug [var2/LabelVCF#001] (LOW, dropped-wire) - poisonAndWait() returns an errorState
 		//boolean that is discarded; a write failure -> truncated labeled VCF but the tool still exits 0.
 		//Capture it and System.exit(1)/throw on true (crash-loud-never-wrong).
 		bsw.poisonAndWait();
+		if(readError){throw new RuntimeException("Error reading "+inFile);}
 
 		out.println("Labeled variants: "+total);
 		out.println("  cat1 GIAB,  in-bed:   "+cat1);
@@ -200,26 +204,55 @@ public class LabelVCF {
 		HashSet<VCFLine> set=new HashSet<VCFLine>();
 		FileFormat ff=FileFormat.testInput(fname, FileFormat.TXT, null, true, false);
 		ByteFile bf=ByteFile.makeByteFile(ff);
-		for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()){
-			if(line.length==0 || line[0]=='#'){continue;}
-			VCFLine vline;
-			try{
-				vline=new VCFLine(line);
-			}catch(Throwable e){continue;}
-			if(scafMap.getScaffold(vline.scaf)==null){continue;}
-			ArrayList<VCFLine> variants=vline.split(true, false, true);
-			if(variants==null){
-				if(normalize){vline.leftAlign(refBasesFor(vline.scaf, scafMap));}
-				set.add(vline);
-			}else{
-				for(VCFLine v : variants){
-					if(normalize){v.leftAlign(refBasesFor(v.scaf, scafMap));}
-					set.add(v);
+		Throwable thrown=null;
+		try{
+			for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()){
+				if(line.length==0 || line[0]=='#'){continue;}
+				VCFLine vline;
+				try{
+					vline=new VCFLine(line);
+				}catch(Throwable e){continue;}
+				if(scafMap.getScaffold(vline.scaf)==null){continue;}
+				ArrayList<VCFLine> variants=vline.split(true, false, true);
+				if(variants==null){
+					if(normalize){vline.leftAlign(refBasesFor(vline.scaf, scafMap));}
+					set.add(vline);
+				}else{
+					for(VCFLine v : variants){
+						if(normalize){v.leftAlign(refBasesFor(v.scaf, scafMap));}
+						set.add(v);
+					}
 				}
 			}
+		}catch(Throwable t){
+			thrown=t;
 		}
-		bf.close();
+		boolean error=false;
+		try{
+			error=bf.close();
+		}catch(Throwable t){
+			thrown=suppressOrReturn(thrown, t);
+		}
+		if(thrown!=null){
+			if(error){thrown.addSuppressed(new RuntimeException("Error reading "+fname));}
+			rethrow(thrown);
+		}
+		if(error){throw new RuntimeException("Error reading "+fname);}
 		return set;
+	}
+
+	/** Returns pending with the new cleanup failure suppressed, preserving the primary cause. */
+	private static Throwable suppressOrReturn(final Throwable pending, final Throwable cleanup){
+		if(pending==null){return cleanup;}
+		pending.addSuppressed(cleanup);
+		return pending;
+	}
+
+	/** Rethrows without wrapping unchecked exceptions or errors. */
+	private static void rethrow(final Throwable t){
+		if(t instanceof RuntimeException){throw (RuntimeException)t;}
+		if(t instanceof Error){throw (Error)t;}
+		throw new RuntimeException(t);
 	}
 
 	private static byte[] refBasesFor(String scaf, ScafMap scafMap){
