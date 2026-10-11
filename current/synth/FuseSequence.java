@@ -126,7 +126,9 @@ public final class FuseSequence extends BBTool_ST {
 						basesProcessed+=initialLength2;
 					}
 					
-					if(!fusePairs && maxlen>0 && bases.length>0 && bases.length+initialLength1+initialLength2+npad>maxlen){
+					// Two nonempty mates add two gaps when joining a nonempty buffer.
+					final long padding=(long)npad*(initialLength1>0 && initialLength2>0 ? 2 : 1);
+					if(!fusePairs && maxlen>0 && bases.length>0 && (long)bases.length+initialLength1+initialLength2+padding>maxlen){
 						Read r=bufferToRead(outNum);
 						outNum++;
 						readsOut.add(r);
@@ -134,7 +136,8 @@ public final class FuseSequence extends BBTool_ST {
 					processReadPair(r1, r2);
 					if(fusePairs){
 						readsOut.add(r1);
-					}else if(maxlen>=0 && bases.length>=maxlen){
+					}else if(maxlen>0 && bases.length>=maxlen){
+						// Nonpositive limits retain all reads for the final unlimited-mode flush.
 						Read r=bufferToRead(outNum);
 						outNum++;
 						readsOut.add(r);

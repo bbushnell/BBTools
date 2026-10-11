@@ -28,6 +28,10 @@ import structures.ListNum;
 import var2.Var;
 
 /**
+ * Mutates monoploid FASTA input by introducing random substitutions, insertions,
+ * deletions, optional random subranges, optional random padding, and optional
+ * VCF records for the generated variants.
+ *
  * @author Brian Bushnell
  * @date June 1, 2016
  *
@@ -374,7 +378,7 @@ public class MutateGenome {
 			if(bases[pos+i]!=b){return false;}
 		}
 		if(pos>0 && bases[pos-1]==b){return true;}
-		if(pos<bases.length-1 && bases[pos+1]==b){return true;}
+		if(pos+len<bases.length && bases[pos+len]==b){return true;}
 		return false;
 	}
 
@@ -403,16 +407,28 @@ public class MutateGenome {
 	 */
 	public boolean isHomopolymerIns(byte[] bases, int pos, StringBuilder sb){
 		byte b=(byte) sb.charAt(0);
-		for(int i=1; i<sb.length(); i++) {
+		for(int i=1; i<sb.length(); i++){
 			if(sb.charAt(i)!=b){return false;}
 		}
 		return isHomopolymerIns(bases, pos, b);
 	}
 
+	/**
+	 * Mutates one nucleotide read in place.
+	 * May keep a randomly wrapped {@code genomeFraction} slice, choose periodic
+	 * or random per-position mutations, record variants for VCF output, apply
+	 * random padding, condense adjacent variants, and update aggregate counters.
+	 *
+	 * @param r read to mutate
+	 * @param bb scratch builder for the output sequence
+	 * @param vars scratch variant list, or null when VCF output is disabled
+	 * @param headers VCF contig header list, or null when VCF output is disabled
+	 * @param gc target GC fraction for substitutions
+	 */
 	public void processRead(Read r, ByteBuilder bb, ArrayList<SmallVar> vars, 
 			ArrayList<String> headers, float gc){
 
-		if(r.aminoacid()) {
+		if(r.aminoacid()){
 			processReadAmino(r, bb, vars, headers);
 			return;
 		}
@@ -477,7 +493,7 @@ public class MutateGenome {
 						subsAdded++;
 						mutationLengthAdded++;
 					}else if(randy.nextBoolean()){//del
-						if(banHomopolymers && isHomopolymerDel(bases, i, 1)) {
+						if(banHomopolymers && isHomopolymerDel(bases, i, 1)){
 							i--;
 						}else{
 							//do nothing
@@ -489,7 +505,7 @@ public class MutateGenome {
 						}
 					}else{//ins
 						b=AminoAcid.numberToBase[randy.nextInt()&3];
-						while(banHomopolymers && isHomopolymerIns(bases, i, b)) {
+						while(banHomopolymers && isHomopolymerIns(bases, i, b)){
 							b=AminoAcid.numberToBase[randy.nextInt()&3];
 						}
 						bb.append(b);
@@ -515,7 +531,7 @@ public class MutateGenome {
 			//All new code, rewritten from scratch, April 2025
 			char prevChar='N';
 			int lastIndel=-1;
-			for(int i=0; i<bases.length;) {
+			for(int i=0; i<bases.length;){
 				final byte b0=bases[i];
 				final boolean defined=AminoAcid.isFullyDefined(b0);
 				final boolean spaceOK=(i-lastIndel>indelSpacing);
@@ -536,14 +552,14 @@ public class MutateGenome {
 				boolean addRef=(i==0 || i==bases.length-1 || 
 					x>errorRate || !defined || !(addDel || addIns || addSub));
 				boolean success=false;
-				if(bb.length()>0) {prevChar=(char) bb.get(bb.length()-1);}
+				if(bb.length()>0){prevChar=(char) bb.get(bb.length()-1);}
 				//			    assert(false) : errorRate+", "+subRate+", "+delRate;
-				if(addRef) {
+				if(addRef){
 					refAdded++;
 					bb.append(b);
 					success=true;
 					i++;
-				}else if(addSub) {
+				}else if(addSub){
 					subsAdded++;
 					mutationLengthAdded++;
 					b=mutate(bases, i, gc, randy);
@@ -554,14 +570,14 @@ public class MutateGenome {
 					}
 					success=true;
 					i++;
-				}else if(addIns) {
+				}else if(addIns){
 					int lim=Tools.min(maxIndel, bases.length-i-2), len=1;
 					if(lim>=1){len=1+(Tools.min(randy.nextInt(lim), randy.nextInt(lim), randy.nextInt(lim)));}
-					if(mod3) {
-						len=(len+2)%3;
-						len=lim>len ? 0 : len;//TODO: Check if this is actually necessary
+					if(mod3){
+						len=((len+2)/3)*3;
+						len=lim<len ? 0 : len;
 					}
-					if(len>0) {
+					if(len>0){
 						insAdded++;
 						insLenAdded+=len;
 						mutationLengthAdded+=len;
@@ -582,16 +598,16 @@ public class MutateGenome {
 						lastIndel=i;
 						//i++; //No i++ for insertions
 					}
-				}else if(addDel) {
+				}else if(addDel){
 					int lim=Tools.min(maxIndel, bases.length-i-2), len=1;
 					if(lim>=1){len=1+(Tools.min(randy.nextInt(lim), randy.nextInt(lim), randy.nextInt(lim)));}
-					if(mod3) {
-						len=(len+2)%3;
-						len=lim>len ? 0 : len;//TODO: Check if this is actually necessary
+					if(mod3){
+						len=((len+2)/3)*3;
+						len=lim<len ? 0 : len;
 					}
-					if(banHomopolymers && delHomopolymer(r.bases, i, len, prevChar)) {
+					if(banHomopolymers && delHomopolymer(r.bases, i, len, prevChar)){
 						//Skip
-					}else if(len>0) {
+					}else if(len>0){
 						delsAdded++;
 						delLenAdded+=len;
 						mutationLengthAdded+=len;
@@ -630,19 +646,19 @@ public class MutateGenome {
 		this.delLenAdded+=delLenAdded;
 		this.junctionsAdded+=junctionsAdded;
 
-		if(padLeft>0) {
+		if(padLeft>0){
 			ByteBuilder bb2=new ByteBuilder(bb.length+padLeft+padRight);
-			for(int i=0; i<padLeft; i++) {bb2.append(AminoAcid.numberToBase[randy.nextInt()&3]);}
+			for(int i=0; i<padLeft; i++){bb2.append(AminoAcid.numberToBase[randy.nextInt()&3]);}
 			bb2.append(bb);
 			bb=bb2;
-			if(vars!=null) {
-				for(SmallVar v : vars) {
+			if(vars!=null){
+				for(SmallVar v : vars){
 					v.start+=padLeft;
 					v.stop+=padLeft;
 				}
 			}
 		}
-		for(int i=0; i<padRight; i++) {
+		for(int i=0; i<padRight; i++){
 			bb.append(AminoAcid.numberToBase[randy.nextInt()&3]);
 		}
 
@@ -656,11 +672,21 @@ public class MutateGenome {
 		}
 		basesRetained+=r.bases.length;
 	}
-	
-	
-	public static byte mutate(final byte[] bases, final int pos, final float gc, Random randy) {
+	/**
+	 * Chooses a replacement nucleotide for one source base.
+	 * At neutral GC, this selects uniformly among the other three bases. At any
+	 * other target GC fraction, it first chooses whether to stay in the source
+	 * base's GC or AT pool.
+	 *
+	 * @param bases source bases
+	 * @param pos index of the source base to replace
+	 * @param gc target GC fraction
+	 * @param randy random number generator
+	 * @return replacement nucleotide
+	 */
+	public static byte mutate(final byte[] bases, final int pos, final float gc, Random randy){
 		final byte original=bases[pos];
-		if(gc==0.5f) {
+		if(gc==0.5f){
 			int n=AminoAcid.baseToNumber[original];
 			return AminoAcid.numberToBase[(1+randy.nextInt3()+n)&3];
 		}
@@ -673,15 +699,15 @@ public class MutateGenome {
 		final boolean stayInPool = randy.nextFloat() < stayProb;
 		
 		byte result;
-		if(stayInPool) {
+		if(stayInPool){
 			// Stay in same GC/AT pool - pick the other base in that pool
 			result=AminoAcid.baseToComplementExtended[original];
-		} else {
+		}else{
 			// Switch pools - pick randomly from the other pool
 			boolean low=randy.nextBoolean();
-			if(isGC) {
+			if(isGC){
 				result = low ? (byte)'A' : (byte)'T';
-			} else {
+			}else{
 				result = low ? (byte)'C' : (byte)'G';
 			}
 		}
@@ -689,31 +715,53 @@ public class MutateGenome {
 		return result;
 	}
 
-	public static float[] calcPrefixProb(final byte[] bases, final int pos, final int k, final float[] freq, boolean rcomp) {
+	/**
+	 * Calculates normalized probabilities for the four candidate replacement
+	 * bases from the length-k prefix ending at {@code pos}.
+	 * Returns equal unnormalized weights if the source base is undefined, the
+	 * position is shorter than the requested prefix, or the prefix contains an
+	 * undefined base. If all valid candidate weights sum to zero, normalization
+	 * resets them to a uniform distribution including the source base.
+	 *
+	 * @param bases sequence to inspect
+	 * @param pos position whose source base will be replaced
+	 * @param k k-mer size
+	 * @param freq k-mer frequency vector indexed by a two-bit encoded key
+	 * @param rcomp whether to use reverse-complement-remapped keys
+	 * @return normalized probabilities for A, C, G, and T substitutions
+	 */
+	public static float[] calcPrefixProb(final byte[] bases, final int pos, final int k, final float[] freq, boolean rcomp){
 		float[] prob=new float[] {1, 1, 1, 1};
 		final byte b0=bases[pos];
 		final byte x0=AminoAcid.baseToNumber[b0];
-		if(x0<0 || pos<k-1) {return prob;}
+		if(x0<0 || pos<k-1){return prob;}
 		int kmer=0;
-		for(int i=0; i<k; i++) {
+		for(int i=0; i<k; i++){
 			final byte b=bases[pos-k+i+1];
 			final byte x=AminoAcid.baseToNumber[b];
-			if(x<0) {return prob;}
+			if(x<0){return prob;}
 			kmer=((kmer<<2)|x);
 		}
 		kmer&=(~3);
-		for(int i=0; i<4; i++) {
+		for(int i=0; i<4; i++){
 			int key=kmer|i;
-			if(rcomp) {key=CladeObject.remapMatrix[k][key];}
+			if(rcomp){key=CladeObject.remapMatrix[k][key];}
 			prob[i]=freq[key];
 		}
 		prob[x0]=0;
 		return normalize(prob);
 	}
 
-	public static float[] normalize(float[] prob) {
+	/**
+	 * Normalizes a probability vector in place.
+	 * If the vector sums to zero, it is first reset to a uniform vector.
+	 *
+	 * @param prob probability vector to normalize
+	 * @return the input vector after normalization
+	 */
+	public static float[] normalize(float[] prob){
 		float sum=(float)Tools.sum(prob);
-		if(sum==0) {
+		if(sum==0){
 			Arrays.fill(prob, 1);
 			sum=prob.length;
 		}
@@ -722,21 +770,22 @@ public class MutateGenome {
 	}
 
 	/**
-	 * Simplified homopolymer check for insertions.
+	 * Checks whether the source base at {@code i} matches the previous emitted
+	 * base.
 	 *
 	 * @param bases Sequence bases array
 	 * @param i Position index
-	 * @param len Insertion length (unused)
+	 * @param len Unused insertion length
 	 * @param prevChar Previous character in sequence
-	 * @return true if insertion would extend homopolymer
+	 * @return true if {@code prevChar==bases[i]}
 	 */
-	private boolean insHomopolymer(byte[] bases, int i, int len, char prevChar) {
+	private boolean insHomopolymer(byte[] bases, int i, int len, char prevChar){
 		return prevChar==bases[i];
 	}
 
 	/**
-	 * Checks if deletion would create homopolymer artifacts.
-	 * Examines bases before, within, and after deletion region.
+	 * Checks whether deleting a span would join or expose equal neighboring
+	 * bases.
 	 *
 	 * @param bases Sequence bases array
 	 * @param i Starting position of deletion
@@ -744,13 +793,13 @@ public class MutateGenome {
 	 * @param prevChar Previous character in output sequence
 	 * @return true if deletion would create homopolymer artifacts
 	 */
-	private boolean delHomopolymer(byte[] bases, int i, int len, char prevChar) {
+	private boolean delHomopolymer(byte[] bases, int i, int len, char prevChar){
 		byte a1=(byte)prevChar;
 		byte a2=bases[i];
 		byte b1=bases[i+len-1];
 		byte b2=bases[i+len];
 
-		if(a1==b2) {return true;}//It created a homopolymer (over-restrictive, but safe)
+		if(a1==b2){return true;}//It created a homopolymer (over-restrictive, but safe)
 		if(a2==b1 && (a1==a2 || b1==b2)){return true;}//Partial deletion within a homopolymer
 		return false;
 	}
@@ -1180,9 +1229,13 @@ public class MutateGenome {
 	/** Adjusted error rate accounting for indel length distribution */
 	private final float errorRate2;
 
+	/** Require random nucleotide indel lengths to be multiples of three */
 	private boolean mod3=false;
+	/** Loaded prefix k-mer frequencies; retained but not currently consulted */
 	private float[] kmerFreq;
+	/** Requested prefix k-mer size for loading dormant k-mer frequencies */
 	private int k=-1;
+	/** Loaded reverse-complement remap flag retained with dormant k-mer frequencies */
 	private boolean rcomp=false;
 
 	/** Random number generator for mutation decisions */

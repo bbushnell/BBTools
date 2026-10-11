@@ -3,21 +3,59 @@ package synth;
 import shared.Random;
 import shared.Shared;
 
+/** Fixed spatial read-acceptance model used by RandomReadsMG.
+ * Combines transformed sine waves with a linear origin-of-replication bias,
+ * then maps their sum into the requested probability range. A probability is an
+ * acceptance weight, not a guarantee of realized read coverage. Contigs shorter
+ * than 2000 bases bypass the model and always have probability 1.
+ * Construction consumes the supplied RNG but does not retain it. Probability
+ * lookup reads fixed parameters; read decisions consume a caller-supplied RNG,
+ * whose sharing and synchronization remain the caller's responsibility.
+ * Numeric ranges are not validated here; zero normalization and other invalid
+ * floating-point configurations can produce NaN rather than a bounded result.
+ * @author Brian Bushnell, Jean
+ */
 class CoverageModel{
 
 	/*--------------------------------------------------------------*/
 	/*----------------             Init             ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Uses four waves, amplitude 0.7, origin bias up to 0.25 and probability floor 0.1.
+	 * @param randy Non-null parameter generator, consumed but not retained
+	 */
 	public CoverageModel(Random randy){
 		this(4, 0.7, 0.25, 0.1, randy);
 	}
 
+	/** Uses periods spanning 2000 through 80000 bases.
+	 * @param numWaves Number of component waves
+	 * @param maxAmplitude_ Total wave-amplitude budget, narrowed to float
+	 * @param maxOriBias Upper bound on the randomly chosen origin-bias strength
+	 * @param minProb Probability floor for modeled contigs, normally in [0,1]
+	 * @param randy Non-null parameter generator, consumed but not retained
+	 */
 	public CoverageModel(int numWaves, double maxAmplitude_, double maxOriBias, 
 			double minProb, Random randy){
 		this(numWaves, maxAmplitude_, maxOriBias, minProb, randy, 2000, 80000);
 	}
 
+	/** Samples fixed waves from equal-width bands of the linear period interval.
+	 * Longer-period bands receive larger relative weights; positive total weight
+	 * is normalized to the amplitude budget. A sole wave receives the whole weight.
+	 * Draw order is one origin-bias float, then one period float and one phase
+	 * double per wave, including when a parameter range has zero width.
+	 * Callers supply usable numeric values: periods must be positive and ordered,
+	 * and the resulting floating-point normalization must be positive and finite.
+	 * These expectations are not checked or converted into fallback behavior.
+	 * @param numWaves Number of waves; ordinary wave modeling uses at least one
+	 * @param maxAmplitude_ Total wave-amplitude budget, narrowed to float
+	 * @param maxOriBias Upper bound on origin bias; zero disables this contribution
+	 * @param minProb Probability floor, normally in [0,1]
+	 * @param randy Non-null parameter generator, consumed but not retained
+	 * @param minPeriod Lower period bound in bases
+	 * @param maxPeriod Upper period bound in bases; may equal minPeriod
+	 */
 	public CoverageModel(int numWaves, double maxAmplitude_, double maxOriBias, 
 			double minProb, Random randy, int minPeriod, int maxPeriod){
 		amplitudes=new float[numWaves];
@@ -35,7 +73,8 @@ class CoverageModel{
 		float totalAmplitude=0;
 		for(int i=0; i<numWaves; i++){
 			// Assign amplitude, with larger amplitudes for longer periods
-			float relativeSize=0.4f+0.6f*i/(numWaves-1); // 0.4-1.0 range
+			// A sole wave receives the full weight; interpolation would divide by zero.
+			float relativeSize=numWaves==1 ? 1f : 0.4f+0.6f*i/(numWaves-1); // 0.4-1.0 range
 			amplitudes[i]=maxAmplitude*relativeSize/numWaves;
 			totalAmplitude+=amplitudes[i];
 
@@ -66,6 +105,16 @@ class CoverageModel{
 	/*----------------           Methods            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Computes the acceptance weight without drawing random numbers or changing state.
+	 * Each wave contributes one minus the eighth power of its sine mapped into [0,1].
+	 * Origin bias decreases linearly with position; the combined contribution is
+	 * normalized and scaled above the floor. Finite results are clamped to the
+	 * requested range, but the clamp does not repair NaN. Contigs shorter than 2000
+	 * return 1 before any wave, position or normalization arithmetic.
+	 * @param position Zero-based position within the contig
+	 * @param contigLength Contig length in bases
+	 * @return Acceptance probability, or NaN for an invalid floating-point model
+	 */
 	public float getProbability(int position, int contigLength){
 		// For very short contigs, use uniform probability
 		if(contigLength<2000){return 1;}
@@ -93,6 +142,8 @@ class CoverageModel{
 
 		// Scale to available probability range (above minimum)
 		float availableRange=1f-minProbability;
+		//TODO: Probable bug - SYN009: waveamp=0 and oribias=0 give 0/0 here, so
+		//long-contig probabilities become NaN. RandomReadsMG accepts both options.
 		float scaledProbability=minProbability+
 				availableRange*(sinSum+maxOriBiasValue)/maxPossibleSum;
 
@@ -100,11 +151,25 @@ class CoverageModel{
 		return Math.max(minProbability, Math.min(1f, scaledProbability));
 	}
 
+	/** Tests one double draw against the probability using an inclusive comparison.
+	 * Consumes one draw even for a short contig or a NaN probability; NaN rejects.
+	 * @param position Zero-based candidate position within the contig
+	 * @param contigLength Contig length in bases
+	 * @param randy Non-null decision generator owned by the caller
+	 * @return True when the draw is no greater than the modeled probability
+	 */
 	public boolean shouldGenerateReadAt(int position, int contigLength, Random randy){
 		float prob=getProbability(position, contigLength);
 		return randy.nextDouble()<=prob;
 	}
 
+	/** Diagnostic that convolves probabilities with a fixed read length and rescales
+	 * the resulting coverage track to the requested mean. Samples model parameters,
+	 * not individual reads. Prints 100-base bin means to stdout and parameters to
+	 * stderr; the last bin uses its actual base count. Requires positive genome
+	 * and read lengths and a usable model; argument values are otherwise unchecked.
+	 * @param args Positional numWaves, coverage, readLength and genomeLength values
+	 */
 	public static void main(String[] args){
 		if(args.length<4){
 			System.err.println("Usage: java CoverageModel <numWaves> <coverage> <readLength> <genomeLength>");
@@ -182,9 +247,13 @@ class CoverageModel{
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Legacy main method that simulates reads using random sampling.
-	 * Generates actual read positions and outputs coverage histogram.
-	 * @param args Command-line arguments: numWaves, coverage, readLength, genomeLength
+	 * Legacy sampling diagnostic, not invoked by main. Candidate positions advance
+	 * by 31 modulo genome length; acceptance uses the model and a random draw.
+	 * Stops after a target read count truncated from coverage*genomeLength/readLength,
+	 * then prints 100-base coverage bins and generation statistics. This can retry
+	 * indefinitely if no visited position accepts. Terminal bucket accounting has
+	 * the unresolved SYN010 issue annotated below; this is not an exact coverage oracle.
+	 * @param args Positional numWaves, coverage, readLength and genomeLength values
 	 */
 	public static void main_old(String[] args){
 		if(args.length<4){
@@ -229,13 +298,13 @@ class CoverageModel{
 		long ptr=0;
 		while(readsGenerated<totalReads){
 			int pos;
-			do {
-				// Pick a random position
+			do{
+				// Advance the candidate position; acceptance, not position, is random.
 				//        		pos=randy.nextInt(genomeLength);
 				pos=(int)(ptr%genomeLength);
 				ptr+=31;//A prime
 				readsAttempted++;
-			} while(!model.shouldGenerateReadAt(pos, genomeLength, randy));
+			}while(!model.shouldGenerateReadAt(pos, genomeLength, randy));
 
 			readsGenerated++;
 
@@ -245,6 +314,8 @@ class CoverageModel{
 			int endBucket=(readEnd-1)/binSize;
 
 			// First bucket - partial
+			//TODO: Probable bug - SYN010: this ignores readEnd when the terminal bucket
+			//is partial. genomeLength=150, pos=149, readLength=10 counts 10 instead of 1.
 			int basesInFirstBucket=Math.min((startBucket+1)*binSize-pos, readLength);
 			basesPerBucket[startBucket]+=basesInFirstBucket;
 
@@ -281,15 +352,22 @@ class CoverageModel{
 	/*----------------           Fields             ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Per-wave weights, normalized when their initial total is positive. */
 	private final float[] amplitudes;
-	private final float[] inversePeriods; // Store 2*PI/period for performance
+	/** Angular increments in radians per base, with 2*PI included. */
+	private final float[] inversePeriods;
+	/** Sampled phase offsets in radians. */
 	private final float[] offsets;
+	/** Sampled linear-bias strength at the contig origin. */
 	private final float maxOriBiasStrength;
+	/** Lower bound requested for finite modeled probabilities. */
 	private final float minProbability;
+	/** Amplitude budget plus sampled origin strength; probability divisor. */
 	private final float maxPossibleSum;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** One full turn, rounded to float for angle arithmetic. */
 	private static final float pi2=(float)(2*Math.PI);
 
 }

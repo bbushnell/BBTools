@@ -5,28 +5,36 @@ import shared.Random;
 import dna.AminoAcid;
 
 /**
- * Models hexamer priming bias for realistic coverage patterns in synthetic read generation.
- * Creates sequence-dependent coverage variation by assigning different priming efficiencies
- * to different k-mer sequences, simulating the non-random nature of "random" hexamer priming
- * used in library preparation.
+ * Assigns reusable, sequence-dependent keep probabilities to the first k bases of a read.
+ * The default k is six, modeling unequal primer efficiencies during random hexamer priming.
+ * Each encoded k-mer receives one probability when the shared table is built; subsequent
+ * reads with that prefix reuse it and draw separately to decide whether to keep the read.
+ *
+ * Configure and initialize this shared static state before starting worker threads.
+ * Do not change settings or rebuild the table while readers are using it. The construction
+ * monitor does not make the unsynchronized setters, fast paths or keep calls safe for
+ * arbitrary concurrent configuration. RandomReadsMG initializes before starting its workers.
  *
  * @author Brian Bushnell
  * @author Isla
  */
-public class RandomHexamer {
+public class RandomHexamer{
 
 	/**
-	 * Determines whether to keep a read based on hexamer priming bias at the start position.
-	 * Evaluates the first k bases to compute a k-mer value and compares against the
-	 * probability table to simulate sequence-dependent priming efficiency.
+	 * Samples the shared probability for the read's first k bases.
+	 * Reads shorter than k and prefixes containing an unencoded ASCII base are kept without
+	 * consuming a random draw. Otherwise, the encoded prefix selects a table entry and the
+	 * read is kept when that value exceeds the next random float. Lowercase bases are accepted;
+	 * U is encoded as T by AminoAcid.baseToNumber. Bases after the prefix are not examined.
 	 *
-	 * @param bases The sequence bases to check
-	 * @param randy Random number generator for probabilistic decision
-	 * @return true if the read should be kept based on priming efficiency, false otherwise
+	 * @param bases Non-null sequence whose examined prefix contains ASCII base symbols
+	 * @param randy Caller-owned generator, used only for a fully encoded prefix of length k
+	 * @return true for a bypassed read or a successful probability draw
+	 * @throws AssertionError if the table is not initialized and assertions are enabled
 	 */
-	public static boolean keep(byte[] bases, Random randy) {
+	public static boolean keep(byte[] bases, Random randy){
 		assert(initialized) : "RandomHexamer must be initialized prior to use.";
-		if(bases.length<k) {return true;}
+		if(bases.length<k){return true;}
 		//Generate a 2-bit number from the first k bases
 		int kmer=0;
 		for(int i=0; i<k; i++){
@@ -40,78 +48,86 @@ public class RandomHexamer {
 	}
 	
 	/**
-	 * Sets all main parameters for hexamer bias modeling.
-	 * Convenience method to configure k-mer length, power distribution, and minimum probability.
+	 * Applies the k, exponent and minimum-probability settings in that order.
+	 * A changed value invalidates the current table; call initialize before using it again.
+	 * This method does not build a table or provide atomic configuration for concurrent callers.
 	 *
-	 * @param k_ The k-mer length (typically 6 for hexamers)
-	 * @param power_ The exponent for power-law distribution (typically 0.5)
-	 * @param minProb_ Minimal relative occurrence frequency (typically 0.1)
+	 * @param k_ Prefix length in [1,15], default 6
+	 * @param power_ Positive exponent applied to a uniform draw, default 0.5
+	 * @param minProb_ Lower endpoint of the keep-probability transform in [0,1), default 0.1
 	 */
-	public static void set(int k_, float power_, float minProb_) {
+	public static void set(int k_, float power_, float minProb_){
 		setK(k_);
 		setPower(power_);
 		setMinProb(minProb_);
 	}
 	
 	/**
-	 * Sets the minimum probability threshold for any k-mer.
-	 * Values below this threshold will be set to this minimum, preventing
-	 * complete exclusion of any k-mer sequence.
-	 * @param minProb_ Minimal relative occurrence frequency (typically 0.1)
+	 * Sets the lower endpoint of the probability transform, invalidating the table if changed.
+	 * The transformed draw is scaled and shifted into the requested interval, not clamped
+	 * after sampling. A positive minimum prevents a zero keep probability for any encoded k-mer.
+	 * @param minProb_ Lower endpoint in [0,1), default 0.1
 	 */
-	public static void setMinProb(float minProb_) {
+	public static void setMinProb(float minProb_){
 		initialized=initialized && (minProb==minProb_);
 		minProb=minProb_;
 		assert(minProb>=0 && minProb<1) : minProb_;
 	}
 	
 	/**
-	 * Sets the power parameter for the probability distribution function.
-	 * Lower values create more bias (greater variation between k-mers),
-	 * while higher values create more uniform distribution.
-	 * @param power_ The exponent for power-law distribution (typically 0.5)
+	 * Sets the exponent of the probability transform, invalidating the table if changed.
+	 * For a fixed draw strictly between zero and one, a larger exponent lowers its keep
+	 * probability toward minProb; a smaller exponent raises it toward one.
+	 * @param power_ Positive exponent, default 0.5
 	 */
-	public static void setPower(float power_) {
+	public static void setPower(float power_){
 		initialized=initialized && (power==power_);
 		power=power_;
 		assert(power>0) : power;
 	}
 	
 	/**
-	 * Sets the k-mer length for hexamer bias analysis.
-	 * Determines the number of bases used to compute priming probability.
-	 * @param k_ The k-mer length (typically 6 for hexamers, max 15)
+	 * Sets the encoded prefix length, invalidating the table if changed.
+	 * Initialization allocates one float per possible k-mer; the encoding range does not
+	 * guarantee that the corresponding table fits in the available heap.
+	 * @param k_ Prefix length in [1,15], default 6
 	 */
-	public static void setK(int k_) {
+	public static void setK(int k_){
 		initialized=initialized && (k==k_);
 		k=k_;
 		assert(k>0 && k<=15) : k;
 	}
 	
-	/** Gets the current k-mer length setting */
-	public static int getK() {return k;}
+	/** Returns the configured prefix length, whether or not the table is initialized. */
+	public static int getK(){return k;}
 	
 	/**
-	 * Initializes the hexamer probability table using the current k value.
-	 * Convenience method that calls initialize(randy, k).
-	 * @param randy Random number generator for probability assignment
-	 * @return true if initialization was successful
+	 * Initializes the probability table using the configured prefix length.
+	 * @param randy Generator for table construction; unused when the current table is reused
+	 * @return true after construction or reuse; failures propagate to the caller
 	 */
-	public static boolean initialize(Random randy) {
+	public static boolean initialize(Random randy){
 		return initialize(randy, k);
 	}
 	
 	/**
-	 * Initializes the hexamer probability table with specified k-mer length.
-	 * Creates probability array for all possible k-mers using power-law distribution
-	 * to simulate realistic priming bias patterns. Uses double-checked locking
-	 * for thread-safe initialization.
+	 * Builds or reuses the shared table for the specified prefix length.
+	 * If already initialized for this k, the table is reused without consulting randy;
+	 * passing a new generator or seed alone does not regenerate probabilities. Otherwise,
+	 * construction consumes one float draw per table entry and marks the table initialized
+	 * after all entries are assigned. The inner check avoids rebuilding after another
+	 * initialization has completed under the monitor; the class-level threading restrictions apply.
 	 *
-	 * @param randy Random number generator for probability assignment
-	 * @param k_ The k-mer length to use for initialization
-	 * @return true if initialization was successful
+	 * This overload validates the same supported range as setK, but checks it before
+	 * changing shared state. Callers must ensure adequate heap for the resulting table.
+	 *
+	 * @param randy Generator used for construction, or unused if the table is reused
+	 * @param k_ Encoded prefix length in [1,15]
+	 * @return true after construction or reuse; failures propagate to the caller
 	 */
-	public static boolean initialize(Random randy, int k_) {
+	public static boolean initialize(Random randy, int k_){
+		assert(k_>0 && k_<=15) :
+			"Prefix length must be in [1,15] for positive length and 2-bit int indexing: "+k_;
 		if(initialized && k==k_){return true;}
 		
 		synchronized(RandomHexamer.class){
@@ -120,7 +136,7 @@ public class RandomHexamer {
 			k=k_;
 			final int cardinality=1<<(2*k);
 			probs=new float[cardinality];
-			for(int i=0; i<probs.length; i++) {
+			for(int i=0; i<probs.length; i++){
 				probs[i]=function(randy);
 			}
 			initialized=true;
@@ -129,12 +145,12 @@ public class RandomHexamer {
 	}
 	
 	/**
-	 * Generates a biased probability value using power-law distribution.
-	 * Applies the formula: minProb + (1-minProb) * random^power to create
-	 * non-uniform priming probabilities across k-mers.
+	 * Transforms one uniform float draw into a table-entry probability.
+	 * The formula is {@code minProb+(1-minProb)*random^power}; it scales and shifts
+	 * the powered draw rather than imposing a cutoff. Float rounding may produce one.
 	 *
 	 * @param randy Random number generator
-	 * @return Probability value between minProb and 1.0
+	 * @return Keep probability between minProb and one for valid settings and draws
 	 */
 	private static float function(Random randy){
 		return minProb+(1-minProb)*(float)Math.pow(randy.nextFloat(), power);
@@ -142,12 +158,12 @@ public class RandomHexamer {
 	
 	/** K-mer length for hexamer analysis (default 6) */
 	private static int k=6;
-	/** Flag indicating whether the probability table has been initialized */
+	/** Table validity flag; changed settings clear it. Not a concurrent publication mechanism. */
 	private static boolean initialized=false;
-	/** Probability array indexed by k-mer numeric value */
+	/** Shared probability table indexed by the encoded prefix, replaced during initialization. */
 	private static float[] probs;
-	/** Power parameter for probability distribution (lower values = more bias) */
+	/** Positive exponent; larger values lower probabilities for draws strictly between zero and one. */
 	private static float power=0.5f;
-	/** Minimum probability threshold for any k-mer sequence */
+	/** Lower endpoint of the affine probability transform, default 0.1. */
 	private static float minProb=0.1f;
 }

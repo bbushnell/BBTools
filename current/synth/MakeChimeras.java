@@ -26,15 +26,21 @@ import structures.ListNum;
 
 
 /**
- * Fuses reads together randomly to make chimeric reads.
- * Creates artificial chimeric sequences by combining fragments from different input reads.
- * Useful for testing chimera detection algorithms and creating synthetic datasets.
+ * Generates chimeric reads by concatenating copied fragments of retained input reads.
+ * Loads nonempty, unpaired reads into memory, then selects two parents with
+ * replacement for each candidate; both parents may be the same read. Fragments
+ * and the completed chimera may be reverse complemented independently.
+ * Qualities are retained in the generated Read only when both fragments have them.
+ * <p>Construction changes shared I/O settings and resolves formats. Processing
+ * finishes input loading before opening the optional output writer. Generation
+ * and counters are owned by the processing thread; output writing is asynchronous.
  *
  * @author Brian Bushnell
  * @date Oct 7, 2014
  */
 public class MakeChimeras {
 
+	/** Runs generation and closes a redirected diagnostic stream on normal completion. */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		MakeChimeras x=new MakeChimeras(args);
@@ -44,6 +50,12 @@ public class MakeChimeras {
 		Shared.closeStream(x.outstream);
 	}
 	
+	/**
+	 * Parses options and resolves input/output formats without opening the output writer.
+	 * Applies parsed overwrite/append flags. Interleaved input detection is initially
+	 * disabled; processing asserts that source reads are unpaired.
+	 * @param args Command-line options, including optional configuration files
+	 */
 	public MakeChimeras(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -90,6 +102,8 @@ public class MakeChimeras {
 		
 		{//Process parser fields
 			Parser.processQuality();
+			overwrite=parser.overwrite;
+			append=parser.append;
 			
 			readsIn=parser.maxReads;
 			
@@ -121,6 +135,18 @@ public class MakeChimeras {
 		ffin1=FileFormat.testInput(in1, FileFormat.FASTQ, extin, true, true);
 	}
 	
+	/**
+	 * Loads input, retaining nonempty reads, then generates the requested chimera count.
+	 * Input counters include reads discarded for zero length. Generation retries null
+	 * candidates, and output counters advance only when a writer is present. A missing
+	 * output therefore still runs generation but reports zero emitted reads and bases.
+	 * <p>Requires a positive requested count and usable source reads. A positive forced
+	 * length requires a longer source read, checked before opening the writer.
+	 * Normal completion returns input batches,
+	 * closes the reader, finishes the writer and reports accumulated I/O errors;
+	 * exceptional exits have no general finally cleanup here.
+	 * @param t Started timer; restarted to report loading and generation separately
+	 */
 	void process(Timer t){
 		assert(readsOut>0) : "Please set the 'readsout' flag to a positive integer.";
 		
@@ -184,6 +210,18 @@ public class MakeChimeras {
 		
 		if(readsOut>=0){
 			t.start();
+			//A positive second fragment requires a source longer than forceLength.
+			if(readsOut>0 && forceLength>0){
+				int maxLength=0;
+				for(Read r : source){
+					maxLength=Tools.max(maxLength, r.length());
+					if(maxLength>forceLength){break;}
+				}
+				if(maxLength<=forceLength){
+					throw new IllegalArgumentException("No source read is longer than forcelength="+
+							forceLength+"; maximum source length="+maxLength);
+				}
+			}
 			
 			final TextStreamWriter tsw;
 			if(ffout1==null){
@@ -224,6 +262,17 @@ public class MakeChimeras {
 		}
 	}
 	
+	/**
+	 * Concatenates copied fragments, preserving the parent reads.
+	 * With positive forceLength, requests that length from a (clipped to a's length)
+	 * and b.length()-forceLength from b. Otherwise draws each fragment's length.
+	 * The ID joins parent IDs with " ~ "; the result may be reverse complemented.
+	 * @param a First parent, which may be the same object as b
+	 * @param b Second parent
+	 * @param randy Generator used for fragment selection and orientation
+	 * @param numericID Numeric ID for the generated read
+	 * @return New chimera, or null when a forced fragment has no bases
+	 */
 	private Read makeChimera(Read a, Read b, Random randy, long numericID) {
 		final String id=a.id+" ~ "+b.id;
 
@@ -264,6 +313,14 @@ public class MakeChimeras {
 		return r;
 	}
 
+	/**
+	 * Copies a positive-length fragment no longer than the source read.
+	 * Chooses a prefix, suffix or random valid start, then may reverse complement
+	 * the copy. Copies qualities when present and retains the source IDs.
+	 * @param a Nonempty source read; its bases and qualities are not modified
+	 * @param randy Generator used for length, start and orientation
+	 * @return New fragment with independent base and optional quality arrays
+	 */
 	private static Read getPiece(Read a, Random randy) {
 		int len=randy.nextInt(a.length())+1;
 		
@@ -288,15 +345,15 @@ public class MakeChimeras {
 	}
 
 	/**
-	 * Extracts a fixed-length fragment from a read.
+	 * Copies a requested-length fragment without modifying the source read.
 	 * Fragment length is constrained to the specified length or read length if shorter.
-	 * Start position is selected based on random preference for start, end, or middle.
-	 * The extracted fragment may be reverse complemented randomly.
+	 * Chooses a prefix, suffix or random valid start.
+	 * The copy may be reverse complemented; source IDs and optional qualities are retained.
 	 *
 	 * @param a Source read to extract fragment from
 	 * @param randy Random number generator for position selection
 	 * @param len Desired fragment length in bases
-	 * @return New read containing the extracted fragment, or null if len < 1
+	 * @return New fragment, or null if the length after clipping is less than one
 	 */
 	private Read getPiece(Read a, Random randy, int len) {
 		len=Tools.min(len, a.length());
@@ -326,35 +383,50 @@ public class MakeChimeras {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Primary unpaired input filename. */
 	private String in1=null;
 	
+	/** Optional separate quality input passed to the reader factory. */
 	private String qfin1=null;
 
+	/** Optional output filename; null suppresses writing, not generation. */
 	private String out1=null;
 	
+	/** Optional input format override. */
 	private String extin=null;
+	/** Optional output format override. */
 	private String extout=null;
 
+	/** Positive values request this first-fragment length; nonpositive values draw lengths. */
 	private int forceLength=0;
 	
 	/*--------------------------------------------------------------*/
 
+	/** Limit passed to the source reader; negative means unlimited. */
 	private long readsIn=-1;
+	/** Requested successful chimera count; must be positive under assertions. */
 	private long readsOut=-1;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Input format descriptor used for loading the retained source pool. */
 	private final FileFormat ffin1;
 
+	/** Output descriptor, or null when no writer is requested. */
 	private final FileFormat ffout1;
 	
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Diagnostic stream selected by PreParser. */
 	private PrintStream outstream=System.err;
+	/** Enables additional diagnostics in this tool and selected I/O components. */
 	public static boolean verbose=false;
+	/** Accumulated reader/writer completion errors. */
 	public boolean errorState=false;
+	/** Parsed permission to overwrite existing output. */
 	private boolean overwrite=true;
+	/** Parsed request to append output. */
 	private boolean append=false;
 	
 }

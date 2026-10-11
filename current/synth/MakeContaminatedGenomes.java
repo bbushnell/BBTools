@@ -2,6 +2,7 @@ package synth;
 
 import java.io.PrintStream;
 import java.util.ArrayList;
+import java.util.regex.Matcher;
 import shared.Random;
 
 import dna.AminoAcid;
@@ -27,15 +28,26 @@ import structures.ByteBuilder;
 
 
 /**
- * Creates chimeric genomes by randomly fusing sequences from multiple input files.
- * Generates contaminated genomes with configurable sampling fractions and mutation rates.
- * Used for simulating real-world contamination scenarios in genomic datasets.
+ * Builds synthetic contaminated genomes from pairs of entries in an input file list.
+ * Each output combines the retained records from two loaded genomes, with the larger
+ * sampled fraction first. Retention is applied separately to each read as a circular
+ * fragment; optional substitutions and indels follow retention. Read IDs remain intact
+ * and qualities are discarded. The generated filename records retained base counts,
+ * sampled fractions, source filename cores and the output index.
+ *
+ * Selection and mutation run on the calling thread; each output uses a writer thread.
+ * Instances retain mutable counters and error state, and construction changes shared
+ * I/O settings. Concurrent use of one instance is unsupported. Writer completion errors
+ * are accumulated and reported after the requested generation loop finishes.
  *
  * @author Brian Bushnell
  * @date Oct 7, 2014
  */
 public class MakeContaminatedGenomes {
 
+	/** Runs generation and closes a redirected diagnostic stream on normal completion.
+	 * @param args Command-line arguments accepted by the constructor
+	 */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		MakeContaminatedGenomes x=new MakeContaminatedGenomes(args);
@@ -45,6 +57,12 @@ public class MakeContaminatedGenomes {
 		Shared.closeStream(x.outstream);
 	}
 	
+	/** Parses the input list, output pattern, sampling settings and mutation rates.
+	 * Also configures shared input, compression and diagnostic settings. The legacy
+	 * id/ani/identity aliases are currently parsed directly as combined error rates.
+	 * Output patterns and numerical ranges are not comprehensively validated here.
+	 * @param args Tool options and shared BBTools arguments, including config-file options
+	 */
 	public MakeContaminatedGenomes(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -115,6 +133,8 @@ public class MakeContaminatedGenomes {
 			fofn=parser.in1;
 
 			outPattern=parser.out1;
+			overwrite=parser.overwrite;
+			append=parser.append;
 		}
 		
 		assert(FastaReadInputStream.settingsOK());
@@ -130,8 +150,19 @@ public class MakeContaminatedGenomes {
 		fffofn=FileFormat.testInput(fofn, FileFormat.TXT, null, true, true);
 	}
 	
+	/** Loads input entries and generates the requested outputs with one seeded generator.
+	 * Positive output counts require at least two entries before selection or output creation;
+	 * nonpositive counts skip generation. Duplicate path strings remain distinct entries.
+	 * Reports counts of input records and pre-mutation bases, then throws for writer errors.
+	 * Counters and prior error state are retained if this instance is invoked again.
+	 * @param t Running timer to stop after generation
+	 */
 	void process(Timer t){
 		final String[] in=TextFile.toStringLines(fffofn);
+		if(chimeras>0 && in.length<2){
+			throw new IllegalArgumentException("At least two input entries are required for chimeras="+
+					chimeras+"; found "+in.length);
+		}
 //		final long sizes[]=calcSizes(in);
 		final Random randy=Shared.threadLocalRandom(seed);
 		
@@ -173,6 +204,13 @@ public class MakeContaminatedGenomes {
 //		return sizes;
 //	}
 	
+	/** Selects two distinct entry indices, loads both genomes and writes their modified reads.
+	 * Samples each fraction separately and raises it to the respective configured exponent.
+	 * @param in At least two genome-path entries; duplicate path values are permitted
+	 * @param randy Generator shared by selection, retention and mutation
+	 * @param cid Zero-based output index used in the generated filename
+	 * @return Generated output path
+	 */
 	String makeOne(String[] in, Random randy, int cid){
 //		System.err.println("A");
 		int a=randy.nextInt(in.length);
@@ -196,6 +234,20 @@ public class MakeContaminatedGenomes {
 		return writeChimera(in[a], in[b], readsA, readsB, fracA, fracB, randy, cid);
 	}
 	
+	/** Modifies both read lists in place, derives an output name and writes every retained record.
+	 * Larger sampled fraction goes first; ties place A first. Filename base counts are measured
+	 * after retention and mutation. Waits for the writer and accumulates its completion error.
+	 * Empty records are written too.
+	 * @param inA First source path, used for its filename core
+	 * @param inB Second source path, used for its filename core
+	 * @param readsA First genome's reads; bases and qualities may be replaced
+	 * @param readsB Second genome's reads; bases and qualities may be replaced
+	 * @param fracA Fraction applied to every read from A before mutation
+	 * @param fracB Fraction applied to every read from B before mutation
+	 * @param randy Generator used for fragment starts and mutations
+	 * @param cid Output index embedded in the filename
+	 * @return Output path, including when writer completion sets errorState
+	 */
 	String writeChimera(String inA, String inB, ArrayList<Read> readsA, ArrayList<Read> readsB, double fracA, double fracB, Random randy, int cid){
 		ByteBuilder bb=new ByteBuilder();
 		long sizeA=0, sizeB=0;
@@ -217,29 +269,39 @@ public class MakeContaminatedGenomes {
 		final String out;
 		if(fracA>=fracB){
 //			System.err.println("F");
-			out=outPattern.replaceFirst(regex, delimiter+sizeA+delimiter+Tools.format("%.3f", fracA)+delimiter+ReadWrite.stripToCore(inA)+delimiter+sizeB+delimiter+Tools.format("%.3f", fracB)+delimiter+ReadWrite.stripToCore(inB)+delimiter+cid+delimiter);
-			ByteStreamWriter bsw=new ByteStreamWriter(out, true, false, true);
+			out=outPattern.replaceFirst(regex, Matcher.quoteReplacement(delimiter+sizeA+delimiter+Tools.format("%.3f", fracA)+delimiter+ReadWrite.stripToCore(inA)+delimiter+sizeB+delimiter+Tools.format("%.3f", fracB)+delimiter+ReadWrite.stripToCore(inB)+delimiter+cid+delimiter));
+			ByteStreamWriter bsw=new ByteStreamWriter(out, overwrite, append, true);
 			bsw.start();
 //			System.err.println("G");
 			for(Read r : readsA){bsw.println(r);}
 			for(Read r : readsB){bsw.println(r);}
 //			System.err.println("H");
-			bsw.poisonAndWait();
+			errorState|=bsw.poisonAndWait();
 		}else{
 //			System.err.println("I");
-			out=outPattern.replaceFirst(regex, delimiter+sizeB+delimiter+Tools.format("%.3f", fracB)+delimiter+ReadWrite.stripToCore(inB)+delimiter+sizeA+delimiter+Tools.format("%.3f", fracA)+delimiter+ReadWrite.stripToCore(inA)+delimiter+cid+delimiter);
-			ByteStreamWriter bsw=new ByteStreamWriter(out, true, false, true);
+			out=outPattern.replaceFirst(regex, Matcher.quoteReplacement(delimiter+sizeB+delimiter+Tools.format("%.3f", fracB)+delimiter+ReadWrite.stripToCore(inB)+delimiter+sizeA+delimiter+Tools.format("%.3f", fracA)+delimiter+ReadWrite.stripToCore(inA)+delimiter+cid+delimiter));
+			ByteStreamWriter bsw=new ByteStreamWriter(out, overwrite, append, true);
 			bsw.start();
 //			System.err.println("J");
 			for(Read r : readsB){bsw.println(r);}
 			for(Read r : readsA){bsw.println(r);}
 //			System.err.println("K");
-			bsw.poisonAndWait();
+			errorState|=bsw.poisonAndWait();
 		}
 //		System.err.println("L");
 		return out;
 	}
 	
+	/** Retains a circular fragment, optionally mutates it, and counts the resulting bases.
+	 * Clears qualities even when bases are unchanged. Fractions below one truncate the retained
+	 * length to an integer and choose a start within the original read; copying can wrap to its
+	 * beginning. Mutations affect fully defined bases: substitutions choose another base,
+	 * deletions consume the position, and insertions emit a base and retry that position.
+	 * @param r Read with nonnull bases; modified in place while preserving its ID
+	 * @param bb Reusable scratch builder; cleared on entry and its final contents are unspecified
+	 * @param genomeFraction Fraction retained before mutation; values at least one keep all bases
+	 * @param randy Generator for fragment placement and mutation choices
+	 */
 	public void processRead(Read r, ByteBuilder bb, double genomeFraction, Random randy){
 		
 		//Setup
@@ -309,37 +371,58 @@ public class MakeContaminatedGenomes {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** File containing one genome input path per line. */
 	private String fofn=null;
 
+	/** Output path whose first regex match is replaced with generated source/count information. */
 	private String outPattern=null;
+	/** Optional output-path list; no constructor option currently sets this field. */
 	private String outNames=null;
 	
+	/** Requested number of mixed-genome output files. */
 	private int chimeras=1;
+	/** Generator seed; a negative value requests a nonfixed seed. */
 	private long seed=-1;
+	/** Exponent applied to the first genome's uniform fraction draw. */
 	double exponent1=1;
+	/** Exponent applied to the second genome's uniform fraction draw. */
 	double exponent2=1;
+	/** Separator inserted between generated filename components. */
 	String delimiter="_";
+	/** Regular expression whose first match in outPattern is replaced. */
 	String regex="#";
 	
+	/** Substitution threshold within the combined per-position mutation draw. */
 	double subRate=0;
+	/** Indel contribution to errorRate; an indel draw chooses insertion or deletion. */
 	double indelRate=0;
+	/** Combined mutation threshold, initialized from subRate plus indelRate after parsing. */
 	double errorRate=0;
+	/** Bases retained after both fragment selection and mutation; not the displayed input total. */
 	long basesRetained=0;
 
+	/** Source records processed across all outputs, counting repeated input selections again. */
 	long readsProcessed=0;
+	/** Source bases counted before each read is modified. */
 	long basesProcessed=0;
 	
+	/** Diagnostic stream selected by PreParser; closed by main only on normal completion. */
 	private PrintStream outstream=System.err;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Input format for the text file listing genome paths. */
 	private final FileFormat fffofn;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Shared verbose setting propagated to the selected I/O helpers during parsing. */
 	public static boolean verbose=false;
+	/** Accumulated writer completion failures; process reports these after generation. */
 	public boolean errorState=false;
+	/** Permission to replace an existing output, copied from Parser. */
 	private boolean overwrite=true;
+	/** Whether to append output records, copied from Parser. */
 	private boolean append=false;
 	
 }

@@ -960,7 +960,8 @@ public class RandomReadsMG{
 	 *within the specified quality range.
 	 *
 	 *@param r The read to modify with indels
-	 *@param rate The probability (0.0-1.0) of introducing an indel at each position
+	 *@param insRate The probability (0.0-1.0) of inserting a base at each position
+	 *@param delRate The probability (0.0-1.0) of deleting a base at each position
 	 *@param desiredLength The target length for the modified read
 	 *@param meanQ The mean quality score for inserted bases
 	 *@param qRange The range around meanQ for quality score randomization
@@ -1714,7 +1715,7 @@ public class RandomReadsMG{
 		private final ArrayList<String> files;
 		/** Thread-local random number generator for reproducible results */
 		private Random randy;
-		/** Nondeterministic fallback generator, used when seed<0 */
+		/** Nondeterministic fallback generator, used when {@code seed < 0} */
 		private Random threadRandy;
 		/** Coverage model for sine wave spatial bias simulation */
 		private CoverageModel covModel;

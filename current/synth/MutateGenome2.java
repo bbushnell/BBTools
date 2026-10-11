@@ -23,9 +23,11 @@ import structures.ListNum;
 import var2.Var;
 
 /**
- * Generates synthetic mutated genome sequences with controllable error rates.
- * Supports substitutions, insertions, deletions across both DNA and amino acid sequences.
- * Generates VCF output files documenting introduced mutations for validation and analysis.
+ * Polyploid synthetic genome mutator used by {@link MutateGenome} when {@code ploidy!=1}.
+ * Emits one mutated FASTA record per input record for haploid mode, or one record per
+ * haplotype for polyploid mode, and can optionally record generated variants as VCF.
+ * Supports both nucleotide and amino-acid inputs; amino records use the alternate mutation
+ * path selected by {@link Read#aminoacid()}.
  *
  * @author Brian Bushnell
  * @date June 1, 2016
@@ -41,6 +43,10 @@ public class MutateGenome2 {
 		Shared.closeStream(x.outstream);
 	}
 
+	/**
+	 * Parses parameters, reports the requested aggregate mutation rates, initializes the
+	 * random stream and binds FASTA/VCF input and output formats.
+	 */
 	public MutateGenome2(String[] args){
 
 		{//Preparse block for help, config files, and outstream
@@ -151,6 +157,10 @@ public class MutateGenome2 {
 		ffin1=FileFormat.testInput(in1, FileFormat.FASTA, null, true, true);
 	}
 
+	/**
+	 * Streams input records, expands each into one or more mutated haplotypes, writes the
+	 * generated FASTA records, then emits the accumulated VCF variants.
+	 */
 	void process(Timer t){
 
 		final ConcurrentReadInputStream cris;
@@ -217,8 +227,11 @@ public class MutateGenome2 {
 			writeVars(vars, headers);
 		}
 
-		ReadWrite.closeStreams(cris, ros);
+		errorState|=ReadWrite.closeStreams(cris, ros);
 		if(verbose){outstream.println("Finished.");}
+		if(errorState){
+			throw new RuntimeException(getClass().getName()+" terminated in an error state; the output may be corrupt.");
+		}
 
 
 		{
@@ -256,6 +269,11 @@ public class MutateGenome2 {
 		t.stop();
 	}
 
+	/**
+	 * Creates the per-haplotype presence mask for the next variant.
+	 * A value of 1 means the mutation is present on that haplotype; 0 keeps the reference.
+	 * Heterozygous calls require at least one mutated and one reference haplotype.
+	 */
 	public int[] makePresentArray(){
 		int[] present=new int[ploidy];
 		if(ploidy>1 && randy.nextFloat()<hetRate){
@@ -281,16 +299,21 @@ public class MutateGenome2 {
 			if(bases[pos+i]!=b){return false;}
 		}
 		if(pos>0 && bases[pos-1]==b){return true;}
-		if(pos<bases.length-1 && bases[pos+1]==b){return true;}
+		if(pos+len<bases.length && bases[pos+len]==b){return true;}
 		return false;
 	}
 
+	/** Returns true if inserting {@code b} at {@code pos} would create a homopolymer. */
 	public boolean isHomopolymerIns(byte[] bases, int pos, byte b){
 		if(b==bases[pos]){return true;}
 		if(pos>0 && b==bases[pos-1]){return true;}
 		return false;
 	}
 
+	/**
+	 * Returns true if the proposed insertion is a single repeated nucleotide and that base
+	 * would create a homopolymer at {@code pos}.
+	 */
 	public boolean isHomopolymerIns(byte[] bases, int pos, StringBuilder sb){
 		byte b=(byte) sb.charAt(0);
 		for(int i=1; i<sb.length(); i++) {
@@ -299,6 +322,11 @@ public class MutateGenome2 {
 		return isHomopolymerIns(bases, pos, b);
 	}
 
+	/**
+	 * Mutates one nucleotide record, optionally wraps it to a random retained fraction, and
+	 * returns one output read per haplotype. {@code vars} is cleared and filled with this
+	 * record's variants; the VCF contig header is appended when VCF output is enabled.
+	 */
 	public ArrayList<Read> processRead(Read r, ByteBuilder[] bba, ArrayList<SmallVar> vars, ArrayList<String> headers){
 
 		if(r.aminoacid()) {
@@ -424,67 +452,76 @@ public class MutateGenome2 {
 							}
 						}
 						if(vars!=null){vars.add(new SmallVar(SUB, i, i+1, Character.toString((char)b), Character.toString((char)b0), prevChar, r.id, r.numericID, present));}
-					}else if(i-lastIndel>indelSpacing){
-						int lim=Tools.min(maxIndel, bases.length-i-1);
-						if(lim>=1){
-							int len=1+(Tools.min(randy.nextInt(lim), randy.nextInt(lim), randy.nextInt(lim)));
+					}else{
+						boolean attemptedIndel=false;
+						if(i-lastIndel>indelSpacing){
+							int lim=Tools.min(maxIndel, bases.length-i-1);
+							if(lim>=1){
+								attemptedIndel=true;
+								int len=1+(Tools.min(randy.nextInt(lim), randy.nextInt(lim), randy.nextInt(lim)));
 
-							if(randy.nextBoolean()){//del
-								if(banHomopolymers && isHomopolymerDel(bases, i, len)) {
-									i--;
-								}else{
-									delsAdded++;
+								if(randy.nextBoolean()){//del
+									if(banHomopolymers && isHomopolymerDel(bases, i, len)) {
+										i--;
+									}else{
+										delsAdded++;
+										mutationLengthAdded+=len;
+										byte[] ref=new byte[len];
+										for(int rpos=0; rpos<len; rpos++){ref[rpos]=bases[i+rpos];}
+										//do nothing
+										for(int haplo=0; haplo<ploidy; haplo++){
+											if(present[haplo]==1){
+												//do nothing
+											}else{
+												bba[haplo].append(ref);
+											}
+										}
+										if(vars!=null){vars.add(new SmallVar(DEL, i, i+len, "", new String(bases, i, len), prevChar, r.id, r.numericID, present));}
+										i=i+len-1;
+									}
+								}else{//ins
+									insAdded++;
 									mutationLengthAdded+=len;
-									byte[] ref=new byte[len];
-									for(int rpos=0; rpos<len; rpos++){ref[rpos]=bases[i+rpos];}
-									//do nothing
-									for(int haplo=0; haplo<ploidy; haplo++){
-										if(present[haplo]==1){
-											//do nothing
-										}else{
-											bba[haplo].append(ref);
-										}
-									}
-									if(vars!=null){vars.add(new SmallVar(DEL, i, i+len, "", new String(bases, i, len), prevChar, r.id, r.numericID, present));}
-									i=i+len-1;
-								}
-							}else{//ins
-								insAdded++;
-								mutationLengthAdded+=len;
-								if(len==1){
-									b=AminoAcid.numberToBase[randy.nextInt()&3];
-									while(banHomopolymers && isHomopolymerIns(bases, i, b)) {
+									if(len==1){
 										b=AminoAcid.numberToBase[randy.nextInt()&3];
-									}
-									for(int haplo=0; haplo<ploidy; haplo++){
-										if(present[haplo]==1){
-											bba[haplo].append(b);
-										}else{
-											//do nothing
-										}
-									}
-									if(vars!=null){vars.add(new SmallVar(INS, i, i, Character.toString((char)b), "", prevChar, r.id, r.numericID, present));}
-								}else{
-									StringBuilder sb=new StringBuilder();
-									while(sb.length()==0 || (banHomopolymers && isHomopolymerIns(bases, i, sb))) {
-										sb.setLength(0);
-										while(sb.length()<len){
+										while(banHomopolymers && isHomopolymerIns(bases, i, b)) {
 											b=AminoAcid.numberToBase[randy.nextInt()&3];
-											sb.append((char)b);
 										}
-									}
-									for(int haplo=0; haplo<ploidy; haplo++){
-										if(present[haplo]==1){
-											bba[haplo].append(sb);
-										}else{
-											//do nothing
+										for(int haplo=0; haplo<ploidy; haplo++){
+											if(present[haplo]==1){
+												bba[haplo].append(b);
+											}else{
+												//do nothing
+											}
 										}
+										if(vars!=null){vars.add(new SmallVar(INS, i, i, Character.toString((char)b), "", prevChar, r.id, r.numericID, present));}
+									}else{
+										StringBuilder sb=new StringBuilder();
+										while(sb.length()==0 || (banHomopolymers && isHomopolymerIns(bases, i, sb))) {
+											sb.setLength(0);
+											while(sb.length()<len){
+												b=AminoAcid.numberToBase[randy.nextInt()&3];
+												sb.append((char)b);
+											}
+										}
+										for(int haplo=0; haplo<ploidy; haplo++){
+											if(present[haplo]==1){
+												bba[haplo].append(sb);
+											}else{
+												//do nothing
+											}
+										}
+										if(vars!=null){vars.add(new SmallVar(INS, i, i, sb.toString(), "", prevChar, r.id, r.numericID, present));}
 									}
-									if(vars!=null){vars.add(new SmallVar(INS, i, i, sb.toString(), "", prevChar, r.id, r.numericID, present));}
+									i--;
 								}
-								i--;
+								lastIndel=i;
 							}
-							lastIndel=i;
+						}
+						if(!attemptedIndel){
+							for(ByteBuilder bb : bba){
+								bb.append(b);
+							}
 						}
 					}
 				}else{
@@ -516,6 +553,10 @@ public class MutateGenome2 {
 		return ret;
 	}
 
+	/**
+	 * Amino-acid analogue of {@link #processRead}; uses amino-acid alphabets and skips the
+	 * nucleotide homopolymer guard.
+	 */
 	public ArrayList<Read> processReadAmino(Read r, ByteBuilder[] bba, ArrayList<SmallVar> vars, ArrayList<String> headers){
 
 		assert(r.aminoacid());
@@ -632,57 +673,70 @@ public class MutateGenome2 {
 							}
 						}
 						if(vars!=null){vars.add(new SmallVar(SUB, i, i+1, Character.toString((char)b), Character.toString((char)b0), prevChar, r.id, r.numericID, present));}
-					}else if(i-lastIndel>indelSpacing){
-						int lim=Tools.min(maxIndel, bases.length-i-1);
-						if(lim>=1){
-							int len=1+(Tools.min(randy.nextInt(lim), randy.nextInt(lim), randy.nextInt(lim)));
+					}else{
+						boolean attemptedIndel=false;
+						if(i-lastIndel>indelSpacing){
+							int lim=Tools.min(maxIndel, bases.length-i-1);
+							if(lim>=1){
+								attemptedIndel=true;
+								int len=1+(Tools.min(randy.nextInt(lim), randy.nextInt(lim), randy.nextInt(lim)));
 
-							if(randy.nextBoolean()){//del
-								delsAdded++;
-								mutationLengthAdded+=len;
-								byte[] ref=new byte[len];
-								for(int rpos=0; rpos<len; rpos++){ref[rpos]=bases[i+rpos];}
-								//do nothing
-								for(int haplo=0; haplo<ploidy; haplo++){
-									if(present[haplo]==1){
-										//do nothing
-									}else{
-										bba[haplo].append(ref);
-									}
-								}
-								if(vars!=null){vars.add(new SmallVar(DEL, i, i+len, "", new String(bases, i, len), prevChar, r.id, r.numericID, present));}
-								i=i+len-1;
-							}else{//ins
-								insAdded++;
-								mutationLengthAdded+=len;
-								if(len==1){
-									b=AminoAcid.numberToAcid[randy.nextInt(21)];
+								if(randy.nextBoolean()){//del
+									delsAdded++;
+									mutationLengthAdded+=len;
+									byte[] ref=new byte[len];
+									for(int rpos=0; rpos<len; rpos++){ref[rpos]=bases[i+rpos];}
+									//do nothing
 									for(int haplo=0; haplo<ploidy; haplo++){
 										if(present[haplo]==1){
-											bba[haplo].append(b);
-										}else{
 											//do nothing
+										}else{
+											bba[haplo].append(ref);
 										}
 									}
-									if(vars!=null){vars.add(new SmallVar(INS, i, i, Character.toString((char)b), "", prevChar, r.id, r.numericID, present));}
-								}else{
-									StringBuilder sb=new StringBuilder();
-									while(sb.length()<len){
+									if(vars!=null){vars.add(new SmallVar(DEL, i, i+len, "", new String(bases, i, len), prevChar, r.id, r.numericID, present));}
+									i=i+len-1;
+								}else{//ins
+									insAdded++;
+									mutationLengthAdded+=len;
+									if(len==1){
 										b=AminoAcid.numberToAcid[randy.nextInt(21)];
-										sb.append((char)b);
-									}
-									for(int haplo=0; haplo<ploidy; haplo++){
-										if(present[haplo]==1){
-											bba[haplo].append(sb);
-										}else{
-											//do nothing
+										for(int haplo=0; haplo<ploidy; haplo++){
+											if(present[haplo]==1){
+												bba[haplo].append(b);
+											}else{
+												//do nothing
+											}
 										}
+										if(vars!=null){vars.add(new SmallVar(INS, i, i, Character.toString((char)b), "", prevChar, r.id, r.numericID, present));}
+									}else{
+										StringBuilder sb=new StringBuilder();
+										while(sb.length()<len){
+											b=AminoAcid.numberToAcid[randy.nextInt(21)];
+											sb.append((char)b);
+										}
+										for(int haplo=0; haplo<ploidy; haplo++){
+											if(present[haplo]==1){
+												bba[haplo].append(sb);
+											}else{
+												//do nothing
+											}
+										}
+										if(vars!=null){vars.add(new SmallVar(INS, i, i, sb.toString(), "", prevChar, r.id, r.numericID, present));}
 									}
-									if(vars!=null){vars.add(new SmallVar(INS, i, i, sb.toString(), "", prevChar, r.id, r.numericID, present));}
+									i--;
 								}
-								i--;
+								lastIndel=i;
 							}
-							lastIndel=i;
+						}
+						if(!attemptedIndel){
+							for(int haplo=0; haplo<ploidy; haplo++){
+								if(present[haplo]==1){
+									bba[haplo].append(b);
+								}else{
+									bba[haplo].append(b0);
+								}
+							}
 						}
 					}
 				}else{
@@ -716,6 +770,10 @@ public class MutateGenome2 {
 
 	/*--------------------------------------------------------------*/
 
+	/**
+	 * Combines adjacent same-phase indels where the simplified VCF can represent them as a
+	 * substitution or as one longer same-type indel.
+	 */
 	private void condenseVars(ArrayList<SmallVar> vars){
 		if(vars==null || vars.size()<2){return;}
 
@@ -786,6 +844,7 @@ public class MutateGenome2 {
 		}
 	}
 
+	/** Writes generated variants after input records are processed and FASTA batches enqueued. */
 	void writeVars(ArrayList<SmallVar> vars, ArrayList<String> headers){
 		if(ffoutVcf==null){return;}
 		ByteStreamWriter bsw=new ByteStreamWriter(ffoutVcf);
@@ -828,6 +887,7 @@ public class MutateGenome2 {
 
 	/*--------------------------------------------------------------*/
 
+	/** Minimal zero-based variant record plus the haplotypes on which it is present. */
 	private static class SmallVar{
 
 		SmallVar(int type_, int start_, int stop_, String alt_, String ref_, char prevChar_, String rname_, long scafNum_, int[] present_){
@@ -842,10 +902,12 @@ public class MutateGenome2 {
 			present=present_;
 		}
 
+		/** Returns false only for condensed substitutions that did not change bases. */
 		boolean valid(){
 			return type!=SUB || !alt.equals(ref);
 		}
 
+		/** Appends one VCF data row, converting to VCF's coordinate and indel anchoring rules. */
 		void toVcf(ByteBuilder bb){
 			bb.append(rname).append('\t');
 			if(type==SUB){
@@ -873,6 +935,7 @@ public class MutateGenome2 {
 			bb.append("PASS");
 		}
 
+		/** Returns true when both variants are present on exactly the same haplotypes. */
 		boolean sharesPhase(SmallVar sv){
 			for(int i=0; i<present.length; i++){
 				if(present[i]!=sv.present[i]){return false;}
@@ -880,75 +943,115 @@ public class MutateGenome2 {
 			return true;
 		}
 
+		/** Variant type from {@link Var}. */
 		int type;
+		/** Zero-based inclusive start for insertions, zero-based start for deletions/subs. */
 		final int start;
+		/** Zero-based exclusive stop; equal to start for insertions. */
 		int stop;
+		/** Reference allele without the previous-base anchor. */
 		String ref;
+		/** Alternate allele without the previous-base anchor. */
 		String alt;
+		/** Base before the event, used as the VCF anchor for indels. */
 		final char prevChar;
+		/** Input record ID used as the VCF CHROM field. */
 		final String rname;
+		/** Input record numeric ID emitted as the SN info field. */
 		final long scafNum;
 
+		/** One element per haplotype: 1 for mutated, 0 for reference. */
 		final int[] present;
 
 	}
 
 	/*--------------------------------------------------------------*/
 
+	/** Input FASTA path. */
 	private String in1=null;
+	/** Mutated FASTA output path. */
 	private String out1=null;
+	/** Optional VCF output path. */
 	private String outVcf=null;
 
+	/** Optional output ID prefix; replaces the original ID with prefix+numericID. */
 	private String prefix=null;
 
+	/** Validated input FASTA format. */
 	private final FileFormat ffin1;
+	/** Validated output FASTA format. */
 	private final FileFormat ffout1;
+	/** Validated optional VCF format. */
 	private final FileFormat ffoutVcf;
 
 	/*--------------------------------------------------------------*/
 
 	private long maxReads=-1;
-	//	private long mutationsAdded=0;
+//	private long mutationsAdded=0;
 
+	/** Number of haplotypes to emit per input record. */
 	private int ploidy=1;
+	/** Probability that a polyploid variant is heterozygous. */
 	private float hetRate=0.5f;
 
+	/** Sum of inserted, deleted, substituted and junction bases for identity reporting. */
 	private long mutationLengthAdded=0;
+	/** Number of substitution events generated. */
 	private long subsAdded=0;
+	/** Number of insertion events generated. */
 	private long insAdded=0;
+	/** Number of deletion events generated. */
 	private long delsAdded=0;
+	/** Number of genome-fraction wraparound junctions generated. */
 	private long junctionsAdded=0;
 
+	/** If nonnegative, force mutation attempts after this many nonmutation loop iterations. */
 	private int period=-1;
 
+	/** Fraction of each input sequence retained before mutation. */
 	private float genomeFraction=1;
+	/** Sum of first-haplotype output lengths used for speed reporting. */
 	private long basesRetained;
 
+	/** Number of input reads processed. */
 	private long readsProcessed=0;
+	/** Number of input bases processed. */
 	private long basesProcessed=0;
 
+	/** Per-base substitution probability. */
 	private float subRate=0;
+	/** Per-base probability of attempting an indel event. */
 	private float indelRate=0;
+	/** Maximum sampled indel length. */
 	private int maxIndel=1;
+	/** Minimum reference spacing between random indel starts. */
 	private int indelSpacing=10;
+	/** If true, retry nucleotide indels that would create homopolymers. */
 	private boolean banHomopolymers=false;
+	/** Simple event probability used to decide whether to mutate the current base. */
 	private final float errorRate;
+	/** Approximate reported event-length-adjusted error rate. */
 	private final float errorRate2;
 
+	/** Seeded shared random source for variant generation. */
 	private final Random randy;
+	/** Seed passed to the shared thread-local random factory. */
 	private long seed=-1;
 
 	/*--------------------------------------------------------------*/
 
 	public boolean errorState=false;
+	/** Output overwrite flag. */
 	private boolean overwrite=true;
+	/** Output append flag. */
 	private boolean append=false;
 
-	/** Constant for deletion variant type */
-	/** Constant for insertion variant type */
+	/** Variant type constants matching {@link Var}. */
 	private static final int SUB=Var.SUB, INS=Var.INS, DEL=Var.DEL;
 
+	/** Diagnostic and status stream redirected by {@link PreParser}. */
 	private java.io.PrintStream outstream=System.err;
+	/** Verbose stream-loop logging flag. */
 	public static boolean verbose=false;
 
 }

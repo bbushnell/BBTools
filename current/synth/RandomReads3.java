@@ -1049,7 +1049,7 @@ public final class RandomReads3 {
 	 * @param minlen Minimum deletion length
 	 * @param maxlen Maximum deletion length
 	 * @param rand Random number generator
-	 * @return Array of deletion lengths, or null if dels < 1
+	 * @return Array of deletion lengths, or null if {@code dels < 1}
 	 */
 	public static int[] makeDelsa(int dels, int minlen, int maxlen, Random rand){
 		if(dels<1){return null;}
@@ -2461,7 +2461,7 @@ public final class RandomReads3 {
 	public static boolean BELL_LENGTH=false;
 	/** Lambda parameter for exponential insert size modification */
 	public static double EXP_LAMDA=0.8d;
-	/** Whether to bias SNPs toward complement bases (A<->T, G<->C) */
+	/** Whether to bias SNPs toward complement bases (A&lt;-&gt;T, G&lt;-&gt;C) */
 	public static boolean BIASED_SNPS=false;
 	/** Use Illumina-style read naming convention */
 	public static boolean ILLUMINA_NAMES=false;

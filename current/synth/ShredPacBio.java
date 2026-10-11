@@ -34,9 +34,12 @@ import tracker.ReadStats;
  * helps in moderately-repetitive regions, while letting CallVariants see a bbmap-style mapping that
  * (per the PacBio race probe) scores better than long-read alignments.</p>
  *
- * <p>Three output streams keep every input base accounted for in exactly one place:
+ * <p>Three logical classes keep every input base accounted for in exactly one place:
+ * proper pairs, singletons, and discards. If the corresponding {@code out=}, {@code outs=},
+ * or {@code outd=} stream is disabled, a base is still classified and counted but not written.
+ * When enabled, the streams receive:</p>
  * <ul>
- *   <li>{@code out=}  proper pairs (interleaved fastq)</li>
+ *   <li>{@code out=} proper pairs, written as interleaved FASTQ</li>
  *   <li>{@code outs=} singletons: a leftover read with no mate of length &gt;= {@code minlen}</li>
  *   <li>{@code outd=} discards: leftover fragments shorter than {@code minlen}</li>
  * </ul>
@@ -84,6 +87,7 @@ public class ShredPacBio {
 			outstream=pp.outstream;
 		}
 
+		//Configure process-wide FASTQ and I/O knobs before file formats are validated or streams open.
 		FASTQ.FORCE_INTERLEAVED=FASTQ.TEST_INTERLEAVED=false;
 		Shared.capBuffers(4);
 		ReadWrite.USE_PIGZ=ReadWrite.USE_UNPIGZ=true;
@@ -136,7 +140,7 @@ public class ShredPacBio {
 
 		assert(readLength>0) : "readlen must be positive: "+readLength;
 		assert(minLength>0 && minLength<=readLength) : "minlen must be in 1.."+readLength+": "+minLength;
-		fragLength=2*readLength;
+		fragLength=2L*readLength;
 
 		assert(FastaReadInputStream.settingsOK());
 
@@ -188,6 +192,7 @@ public class ShredPacBio {
 
 		processInner(cris, rosP, rosS, rosD);
 
+		//Write normal side outputs before closing primary streams; either path may report corruption.
 		errorState|=ReadStats.writeAll();
 		errorState|=ReadWrite.closeStreams(cris, rosP, rosS, rosD);
 		if(verbose){outstream.println("Finished.");}
@@ -217,8 +222,10 @@ public class ShredPacBio {
 	}
 
 	/**
-	 * Reads input lists and routes each molecule's shreds to the three output streams.
-	 * One output list per input list per stream keeps each stream's ordering monotonic by list id.
+	 * Reads input lists and routes each molecule's shreds to the three logical output classes.
+	 * One output list per input list per enabled stream keeps written output monotonic by list id.
+	 * Disabled streams still get local lists so classification counters stay independent of
+	 * persistence.
 	 */
 	private void processInner(final ConcurrentReadInputStream cris, final ConcurrentReadOutputStream rosP,
 			final ConcurrentReadOutputStream rosS, final ConcurrentReadOutputStream rosD){
@@ -280,7 +287,7 @@ public class ShredPacBio {
 
 		//Take full 2*readLength fragments as proper pairs
 		while(L-pos>=fragLength){
-			addPair(bases, quals, pos, pos+readLength, pos+fragLength, origHeader, pairs);
+			addPair(bases, quals, pos, pos+readLength, (int)(pos+fragLength), origHeader, pairs);
 			basesAccounted+=fragLength;
 			pos+=fragLength;
 		}
@@ -319,8 +326,10 @@ public class ShredPacBio {
 	}
 
 	/**
-	 * Builds one proper pair (r1=[start,mid), r2=[mid,end)) and appends r1 (with mate attached) to the list.
-	 * r2 is reverse-complemented (quality reversed) when {@code rcompMate}. Updates pair counters.
+	 * Builds one proper pair (r1=[start,mid), r2=[mid,end)) and appends r1, with r2 attached as
+	 * its mate, to the list. Each read receives its own base and quality arrays. r2 is
+	 * reverse-complemented, and its quality reversed, when {@code rcompMate}. Updates pair
+	 * counters for the logical pair class.
 	 */
 	private void addPair(final byte[] bases, final byte[] quals, final int start, final int mid, final int end,
 			final String origHeader, final ArrayList<Read> pairs){
@@ -343,7 +352,8 @@ public class ShredPacBio {
 	}
 
 	/**
-	 * Builds one unpaired read ([start,end)) and appends it to the given list.
+	 * Builds one unpaired read ([start,end)) with copied base and quality arrays, then appends it
+	 * to the given logical output list. The caller owns the matching counter update.
 	 * @param tag Short label distinguishing the source ("s"=singleton, "d"=discard)
 	 */
 	private void addSingle(final byte[] bases, final byte[] quals, final int start, final int end,
@@ -386,19 +396,27 @@ public class ShredPacBio {
 	/** Minimum length for any emitted read; shorter residuals go to discards. */
 	private int minLength=200;
 	/** 2*readLength; the span consumed per full pair. */
-	private int fragLength;
+	private long fragLength;
 	/** Reverse-complement r2 (and reverse its quality) so pairs are FR-oriented. */
 	private boolean rcompMate=true;
 
 	private long maxReads=-1;
 
+	/** Molecules pulled from the input stream. */
 	protected long readsProcessed=0;
+	/** Total input bases over processed molecules. */
 	protected long basesProcessed=0;
+	/** Proper pairs classified, whether or not {@code out=} is enabled. */
 	protected long pairsOut=0;
+	/** Singleton reads classified, whether or not {@code outs=} is enabled. */
 	protected long singlesOut=0;
+	/** Discard reads classified, whether or not {@code outd=} is enabled. */
 	protected long discardsOut=0;
+	/** Bases classified into proper pairs. */
 	protected long basesPairs=0;
+	/** Bases classified into singletons. */
 	protected long basesSingles=0;
+	/** Bases classified into discards. */
 	protected long basesDiscards=0;
 
 	/*--------------------------------------------------------------*/

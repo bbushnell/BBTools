@@ -21,13 +21,30 @@ import structures.ListNum;
 import ukmer.Kmer;
 import ukmer.KmerTableSetU;
 
-/** Lossless branch cuts on the original contigs, retaining repeat copies.
- * Counting and neighbor lookup use the native canonical k-mer tables. Output
- * batches are bounded even when consecutive branch positions yield1-base pieces.
+/** Partitions original contigs after branch k-mers without collapsing repeat copies.
+ * A branch has multiple present predecessors or successors in the native canonical
+ * k-mer tables; occurrence multiplicity alone does not create a branch. Exact or
+ * hash-only large-k storage follows the requested native-table representation.
+ * Output batches are bounded even when consecutive branch positions yield1-base pieces.
+ *
+ * Use each helper once, from one caller. The input must remain unchanged between
+ * counting and the second reading pass; matching read/base totals do not compare
+ * sequence contents. Configure shared input and k-mer settings before use.
  * @author Brian Bushnell, Nilou */
-final class ShredKmer {
+final class ShredKmer{
 
-	/** Two passes require a regular replayable DNA FASTA/FASTQ file. */
+	/** Configures two-pass branch shredding and checks format/encoding preconditions.
+	 * Requires one regular replayable DNA FASTA/FASTQ input, whole-contig FASTA
+	 * settings and unmasked k-mers. Paired reads are rejected during processing.
+	 * @param k_ Positive k-mer length, represented exactly by the native layout
+	 * @param hashOnly_ Use hash-only keys for k greater than31; ignored for smaller k
+	 * @param input_ Nonnull input descriptor; stdin and comma-separated names are unsupported
+	 * @param output_ FASTA/FASTQ output descriptor, or null to count generated pieces without writing
+	 * @param maxReads_ Input read limit applied to both passes; negative means unlimited
+	 * @param prefix_ Optional header prefix followed by the input numeric ID; null retains the input ID
+	 * @param fileTid_ Parse the filename's taxonomic ID; header-derived IDs take precedence
+	 * @param headerTid_ Parse IDs from each header instead of using the filename ID
+	 */
 	ShredKmer(int k_, boolean hashOnly_, FileFormat input_, FileFormat output_, long maxReads_, String prefix_, boolean fileTid_, boolean headerTid_){
 		k=k_; hashOnly=hashOnly_; input=input_; output=output_; maxReads=maxReads_;
 		prefix=prefix_; fileTid=fileTid_; headerTid=headerTid_;
@@ -48,7 +65,13 @@ final class ShredKmer {
 		if(k>31 && Kmer.getKbig(k)!=k){throw new IllegalArgumentException("Requested k requires exact packed k-mers; enable packed layout");}
 	}
 
-	/** Counts once, then streams original contigs in order through bounded output batches. */
+	/** Counts k-mers, then streams the original contigs in order through bounded batches.
+	 * Checks normal input/output status and read/base conservation after finalizing output.
+	 * On an incomplete streaming pass, requests writer abandonment before closing the
+	 * reader and clearing the tables. Abandonment does not guarantee drained output or
+	 * closed output handles; a thrown cleanup failure can replace an earlier failure.
+	 * Counts describe generated pieces even when no output writer was requested.
+	 */
 	void process(){
 		final String[] args={"in="+input.name(), "k="+k, "rcomp=t", "prefilter=f", "prealloc=f", "minprob=0", "qtrim=f",
 			"minavgquality=0", "reads="+maxReads, "hashonly="+(k>31 && hashOnly)};
@@ -90,7 +113,10 @@ final class ShredKmer {
 		}
 	}
 
-	/** Stop coordinates are exclusive; adjacent branches deliberately produce short pieces. */
+	/** Partitions one contig into half-open intervals, including ambiguous bases and short tails.
+	 * A branch increments the branch-site counter even at the final base, where no
+	 * additional cut is needed. Adjacent branch sites deliberately produce short pieces.
+	 */
 	private void cut(Read read, Cursor cursor, int tid){
 		cursor.clear();
 		final long before=basesOut;
@@ -105,7 +131,11 @@ final class ShredKmer {
 		assert(basesOut-before==read.length()) : "Half-open branch fragments must partition each original contig without gaps or overlaps";
 	}
 
-	/** Copies each base/quality exactly once into a result record, preserving existing header conventions. */
+	/** Copies one nonempty interval and its qualities into a result record.
+	 * Coordinates are half-open internally and inclusive in the output header.
+	 * Positive taxonomic IDs are appended; no tag is added for zero or negative IDs.
+	 * The generated-record counter supplies the output numeric ID before incrementing.
+	 */
 	private void emit(Read read, int start, int end, int tid){
 		assert(start>=0 && start<end && end<=read.length()) : "Every branch piece must be a nonempty original-contig interval";
 		final String name=prefix==null ? read.id : prefix+read.numericID;
@@ -116,21 +146,30 @@ final class ShredKmer {
 		if(pending.size()>=BATCH){flush();}
 	}
 
-	/** Hand off a fresh native batch; no retained list aliases the writer's queue. */
+	/** Transfers the pending batch to the writer, or discards it when no output was requested.
+	 * Installs a fresh list so later pieces cannot mutate a queued batch.
+	 */
 	private void flush(){
 		if(pending.isEmpty()){return;}
 		if(writer!=null){writer.addReads(new ListNum<Read>(pending, outputBatch++));}
 		pending=new ArrayList<Read>(BATCH);
 	}
 
-	/** Rolling input orientation plus native four-way predecessor/successor queries. */
-	private static final class Cursor {
+	/** Tracks input orientation and valid-prefix length for native four-way neighbor queries.
+	 * Small k uses paired forward/reverse-complement longs; large k uses a mutable
+	 * Kmer. Undefined bases clear the rolling state. Query return values are ignored;
+	 * branching depends on how many of the four populated counts are positive.
+	 */
+	private static final class Cursor{
+		/** Binds exactly one table representation and prepares its rolling encoding. */
 		Cursor(int k_, KmerTableSet small_, KmerTableSetU large_){
 			k=k_; small=small_; large=large_; word=large==null ? null : new Kmer(k);
 			shift=2*(Math.min(k,31)-1); mask=small==null ? 0 : (1L<<(2*k))-1;
 			assert((small==null)!=(large==null)) : "Exactly one native table representation serves this k";
 		}
+		/** Resets the run of valid bases at a contig boundary or undefined base. */
 		void clear(){valid=0; forward=reverse=0; if(word!=null){word.clear();}}
+		/** Adds an ASCII DNA symbol; returns true only for a complete k-mer with a branch. */
 		boolean add(byte base){
 			final int x=AminoAcid.baseToNumber[base];
 			if(x<0){clear(); return false;}
@@ -154,6 +193,7 @@ final class ShredKmer {
 			}
 			return branched(counts);
 		}
+		/** Tests distinct present extensions, irrespective of their occurrence multiplicity. */
 		private static boolean branched(int[] counts){
 			assert(counts.length==4) : "Native DNA neighbor enumeration returns one count per A/C/G/T extension";
 			int present=0;
@@ -170,14 +210,24 @@ final class ShredKmer {
 		long forward, reverse;
 	}
 
+	/** Second-pass input totals, generated piece/base totals, and branch-site occurrences. */
 	long readsIn, basesIn, readsOut, basesOut, branches;
+	/** Requested native k-mer length. */
 	private final int k;
+	/** Caller-supplied descriptors; output may be null. */
 	private final FileFormat input, output;
+	/** Same read limit for counting and original-contig streaming. */
 	private final long maxReads;
+	/** Optional replacement for the original header before coordinate suffixes. */
 	private final String prefix;
+	/** Header ID takes precedence over filename ID; hashOnly applies only to large k. */
 	private final boolean fileTid, headerTid, hashOnly;
+	/** Writer created for process(), or null when only generating counts. */
 	private Writer writer;
+	/** Current batch, replaced after each handoff or discard. */
 	private ArrayList<Read> pending=new ArrayList<Read>(BATCH);
+	/** Dense zero-based batch ID advanced only for actual writer handoffs. */
 	private long outputBatch;
+	/** Maximum number of generated records retained in one pending batch. */
 	private static final int BATCH=256;
 }

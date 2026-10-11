@@ -3,6 +3,7 @@ package synth;
 import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import shared.Random;
 
 import fileIO.ByteFile;
@@ -27,11 +28,16 @@ import structures.ListNum;
 
 
 /**
- * Generates artificial cross-contaminated data by mixing reads from multiple input files.
- * Takes input from multiple files and distributes reads probabilistically across
- * corresponding output files, simulating cross-contamination scenarios for testing.
- * Each source file contributes reads to multiple "sink" files with configurable
- * contamination probabilities and sink counts.
+ * Simulates cross-contamination by routing reads among corresponding output files.
+ * For each input, chooses other outputs as sinks and assigns their probabilities
+ * once; each read and its attached mate then go to one selected destination.
+ * The output at the input's index receives the remaining probability mass.
+ * For positive bounds, sink fractions are sampled in log space and applied to
+ * the remaining mass, rather than independently to the original total.
+ * <p>Construction changes shared I/O settings and opens all output writers.
+ * Sources are processed sequentially; routing probabilities and counters belong
+ * to that processing thread. Output writers run asynchronously. Optional shuffling
+ * is delegated to {@link Shuffle} after the writers are closed.
  *
  * @author Brian Bushnell
  * @date Oct 27, 2014
@@ -42,6 +48,7 @@ public class CrossContaminate {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Runs the command and closes a redirected diagnostic stream on normal completion. */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		CrossContaminate x=new CrossContaminate(args);
@@ -51,6 +58,14 @@ public class CrossContaminate {
 		Shared.closeStream(x.outstream);
 	}
 	
+	/**
+	 * Parses options, expands filename lists, validates names and starts output writers.
+	 * Input and output lists must have equal nonzero lengths. Repeated inputs are
+	 * allowed; exact input/output name matches are rejected before writers open.
+	 * This check does not resolve filesystem aliases. Numeric assertions do not
+	 * establish valid zero-bound sampling; see SYN021 below.
+	 * @param args Command-line options, including optional configuration files
+	 */
 	public CrossContaminate(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -177,6 +192,8 @@ public class CrossContaminate {
 		assert(minProb<=maxProb);
 		assert(minProb>=0 && maxProb<=1);
 
+		//TODO: Probable bug - SYN021: zero passes validation but log(0) makes the sampled range non-finite.
+		//Define whether zero rates are supported or rejected before sampling sink probabilities.
 		minProbPow=Math.log(minProb);
 		maxProbPow=Math.log(maxProb);
 		
@@ -196,6 +213,13 @@ public class CrossContaminate {
 		
 		if(seed>0){randy.setSeed(seed);}
 		
+		//Reject matching names before opening writers; repeated input names remain allowed.
+		final HashSet<String> inputNames=new HashSet<String>(inNames);
+		for(String name : outNames){
+			if(inputNames.contains(name)){
+				throw new RuntimeException("Input and output files overlap: "+name);
+			}
+		}
 		vessels=makeVessels(outNames);
 	}
 	
@@ -203,6 +227,13 @@ public class CrossContaminate {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Processes each input, records source failures and continues with later inputs.
+	 * On the normal control path, closes every output writer, optionally invokes
+	 * shuffling, stops the timer and reports accumulated errors. This is not a
+	 * general exception-safe cleanup wrapper for readers or partially opened writers.
+	 * @param t Started timer that includes construction time
+	 */
 	void process(Timer t){
 		
 		outstream.println("Processing data.");
@@ -238,10 +269,17 @@ public class CrossContaminate {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Starts in-place shuffling for each output using Shuffle's shared thread limit.
+	 * The final Shuffle wait checks that limit, not that every thread has terminated.
+	 * @param threads Maximum active shuffle-thread count requested from Shuffle
+	 */
 	void shuffle(final int threads){
 		outstream.println("Shuffling output in "+threads+" thread"+(threads==1 ? "." : "s."));
 		Shuffle.showSpeed=Shuffle.printClass=false;
 		Shuffle.setMaxThreads(threads);
+		//TODO: Probable bug - SYN024: ShuffleThread catches failures without returning a status;
+		//this caller can report success after a shuffle fails.
 		for(Vessel v : vessels){
 			ShuffleThread st=new ShuffleThread(v.fname, null, v.fname, null, Shuffle.SHUFFLE, true);
 			st.start();
@@ -249,6 +287,13 @@ public class CrossContaminate {
 		Shuffle.waitForFinish();
 	}
 	
+	/**
+	 * Reads one source and routes each primary read with its mate to one destination.
+	 * Counts individual reads and bases before routing. Returns input batches and
+	 * closes the reader on normal completion; exceptional exits have no finally here.
+	 * The configured read limit is passed independently to each source reader.
+	 * @param sourceNum Index shared by the input and its corresponding output
+	 */
 	void processOneSource(int sourceNum){
 		String fname=inNames.get(sourceNum);
 		
@@ -312,6 +357,11 @@ public class CrossContaminate {
 		errorState|=ReadWrite.closeStream(cris);
 	}
 	
+	/**
+	 * Formats a read and any attached mate into the first matching writer.
+	 * @param r Primary read with an optional attached mate
+	 * @param list Descending probability lower bounds, ending with a zero bound
+	 */
 	private void addRead(Read r, ArrayList<Vessel> list){
 		double p=randy.nextDouble();
 		for(Vessel v : list){
@@ -324,6 +374,7 @@ public class CrossContaminate {
 		assert(r==null) : p+"\n"+list;
 	}
 	
+	/** Opens and starts one writer per filename, preserving list order. */
 	private ArrayList<Vessel> makeVessels(ArrayList<String> strings){
 		ArrayList<Vessel> list=new ArrayList<Vessel>(strings.size());
 		for(String s : strings){
@@ -333,6 +384,15 @@ public class CrossContaminate {
 		return list;
 	}
 	
+	/**
+	 * Chooses distinct non-source sinks and rewrites shared Vessel probabilities.
+	 * Each sink takes a log-space sampled fraction of the remaining mass; the
+	 * source receives the remainder. Weights become cumulative lower bounds and
+	 * the result is reversed for {@link #addRead}. Zero bounds remain unresolved.
+	 * @param list Writers in input/output index order; list order is preserved
+	 * @param sourceNum Index of the source's corresponding output
+	 * @return New routing list referencing the original mutable Vessel objects
+	 */
 	private ArrayList<Vessel> assignSinks(ArrayList<Vessel> list, int sourceNum){
 		int potential=list.size()-1;
 		assert(potential>=minSinks && maxSinks<=potential) : potential+", "+minSinks+", "+maxSinks;
@@ -401,8 +461,10 @@ public class CrossContaminate {
 	/*----------------         Inner Classes        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** One owned output writer and the routing value for the current source. */
 	private class Vessel{
 		
+		/** Opens the output immediately and starts its asynchronous writer. */
 		public Vessel(String fname_, boolean allowSubprocess){
 			fname=fname_;
 			ff=FileFormat.testOutput(fname, FileFormat.FASTQ, null, allowSubprocess, overwrite, append, false);
@@ -410,19 +472,25 @@ public class CrossContaminate {
 			bsw.start();
 		}
 		
+		/** Finishes queued output and waits for writer termination; returns its error flag. */
 		public boolean close(){
 			return bsw.poisonAndWait();
 		}
 		
+		/** Formats the filename and the current weight or routing lower bound. */
 		@Override
 		public String toString(){
 			return fname+", "+Tools.format("%.6f", prob);
 		}
 		
+		/** Output filename, also used by the optional shuffle pass. */
 		final String fname;
+		/** Output format and overwrite/append settings. */
 		final FileFormat ff;
+		/** Writer owned by this vessel. */
 		final ByteStreamWriter bsw;
 		
+		/** Sampled mass during assignment, then a lower bound for read routing. */
 		double prob;
 		
 	}
@@ -434,22 +502,33 @@ public class CrossContaminate {
 	
 	/*--------------------------------------------------------------*/
 
+	/** Expanded input names, processed in order; duplicates are permitted. */
 	private ArrayList<String> inNames=new ArrayList<String>();
+	/** Expanded output names corresponding by index to the inputs. */
 	private ArrayList<String> outNames=new ArrayList<String>();
 	
+	/** Writers in output order; their probabilities are reassigned for each source. */
 	private ArrayList<Vessel> vessels;
 	
 	/*--------------------------------------------------------------*/
 
+	/** Read limit passed to each input reader separately; negative means unlimited. */
 	private long maxReads=-1;
+	/** Requested seed; only positive values explicitly reseed the routing generator. */
 	private long seed=-1;
 	
+	/** Minimum number of other outputs selected for a source, clamped to at least zero. */
 	private int minSinks=1;
+	/** Maximum sink count, clamped to the number of other outputs. */
 	private int maxSinks=8;
+	/** Lower sampled fraction of remaining mass; zero is not correctly handled (SYN021). */
 	private double minProb=0.000005;
+	/** Upper sampled fraction of remaining mass. */
 	private double maxProb=0.025;
 
+	/** Natural logarithm of the requested minimum fraction. */
 	private double minProbPow=Math.log(minProb);
+	/** Natural logarithm of the requested maximum fraction. */
 	private double maxProbPow=Math.log(maxProb);
 	
 //	private double root=3.0;
@@ -457,14 +536,20 @@ public class CrossContaminate {
 //	private double minProbRoot=Math.pow(minProb, 1/root);
 //	private double maxProbRoot=Math.pow(maxProb, 1/root);
 	
+	/** Generator used for sink counts, sink selection, weights and per-read routing. */
 	private final Random randy=shared.Shared.random();
 	
+	/** Individual reads observed before routing, including attached mates. */
 	long readsProcessed=0;
+	/** Bases observed before routing, including attached mates. */
 	long basesProcessed=0;
 	
+	/** Requested limit for Shuffle's shared active-thread counter. */
 	private int shufflethreads=3;
 	
+	/** Whether to invoke an in-place shuffle after closing the output writers. */
 	private boolean shuffle=false;
+	/** Whether to print accumulated read/base counts and elapsed time. */
 	private boolean showspeed=true;
 	
 	/*--------------------------------------------------------------*/
@@ -474,10 +559,15 @@ public class CrossContaminate {
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Diagnostic stream selected by PreParser. */
 	private PrintStream outstream=System.err;
+	/** Enables additional diagnostics; source/sink summaries are printed regardless. */
 	public static boolean verbose=false;
+	/** Accumulated source-processing and reader/writer completion errors. */
 	public boolean errorState=false;
+	/** Whether existing output files may be overwritten. */
 	private boolean overwrite=true;
+	/** Whether output is appended rather than truncated. */
 	private boolean append=false;
 	
 }
