@@ -44,6 +44,9 @@ public class MultiLogLog {
 		klist.shrinkToUnique();
 		assert(klist.size>0) : "No valid kmer lengths specified.";
 		kArray=klist.toArray();
+		//TODO: Probable bug - the factory can return DynamicDemiLog, which is not a
+		//LogLog subtype; this runtime array then rejects it with ArrayStoreException.
+		//Not changed here: khistmulti uses dedicated thread-local DDL arrays.
 		counters=new LogLog[kArray.length];
 		for(int i=0; i<kArray.length; i++){
 			counters[i]=CardinalityTracker.makeTracker(buckets, kArray[i], seed, minProb);
