@@ -582,12 +582,14 @@ public class NcrnaScavenger {
 	}
 	private void validate16sPartialRescue(){
 		if(prok16sPartialMinLen==0){return;}
-		if(prok16sPartialMinLen<1 || prok16sPartialMinLen>minLen || !"16S".equals(family)
-				|| outputType!=ProkObject.r16S || !reuseConsensusAlignment || trimAlignmentExtent
+		final boolean supportedPair=("16S".equals(family) && outputType==ProkObject.r16S)
+			|| ("23S".equals(family) && outputType==ProkObject.r23S);
+		if(prok16sPartialMinLen<1 || prok16sPartialMinLen>minLen || !supportedPair
+				|| !reuseConsensusAlignment || trimAlignmentExtent
 				|| models!=null || modelEndClipping || modelClipRescue || pacBioConsensusAlignment
 				|| voteWindows || voteEnds || voteBeforePadding || hasJoinedRoute() || cmVerifier!=null
 				|| boundaryNetsByModel!=null || boundary5Net!=null || boundary3Net!=null){
-			throw new IllegalStateException("16S partial rescue needs an explicit floor <= ordinary minLen, reused Quantum, no HBM/votes/legacy NN/other rescue: "+family);
+			throw new IllegalStateException("16S/23S partial rescue needs a matching family/type, explicit floor <= ordinary minLen, reused Quantum, no HBM/votes/legacy NN/other rescue: "+family);
 		}
 	}
 	/** Only proven model clipping qualifies for the shorter span; touching an edge alone does not. */
@@ -847,7 +849,7 @@ public class NcrnaScavenger {
 			final float id;
 			if(clipModel){
 				if(endClippedAligner==null){endClippedAligner=new EndClippedAligner();}
-				// Only16S uses the new physical-edge restriction; preserve existing18S local rescue.
+				// Explicit16S/23S floors restrict clipping to physical edges; preserve existing18S local rescue.
 				final EndClippedAligner.Result clipped=prok16sPartialMinLen>0
 					? endClippedAligner.alignContigEdges(library[m], seq, wStart==0, wStop==bases.length-1)
 					: endClippedAligner.align(library[m], seq);
@@ -907,7 +909,7 @@ public class NcrnaScavenger {
 		}
 		final Orf orf=new Orf(name,orfStart,orfStop,strand,0,bases,false,outputType);
 		orf.ncrnaFamily=family;
-		if("16S".equals(family)){orf.accepted16sIdentity=identity;}
+		if("16S".equals(family) || "23S".equals(family)){orf.acceptedRrnaIdentity=identity;}
 		if(clipModel && modelClipRescue && Euk18sRuntimeConfig.FAMILY.equals(family)
 				&& modelNames!=null && "euk18S_mitochondria".equals(modelNames[model])){
 			orf.ssuFullModel=library[model];
@@ -1447,7 +1449,7 @@ public class NcrnaScavenger {
 	private Euk18sPacBioAligner pacBioAligner;
 	boolean modelEndClipping=false;
 	boolean modelClipRescue=false;
-	/** Zero disables 16S-only failed physical-edge rescue; positive floor is experimental. */
+	/** Historical field name: explicit16S/23S failed physical-edge floor; zero disables it. */
 	int prok16sPartialMinLen=0;
 	/** NaN preserves the per-model pass cutoff; Quantum never consumes this override. */
 	float modelClipRescueId=Float.NaN;

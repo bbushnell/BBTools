@@ -299,7 +299,7 @@ public class NcrnaFamily {
 	boolean modelEndClipping=false;
 	/** Try local model clipping only after the unchanged Quantum window rejects. */
 	boolean modelClipRescue=false;
-	/** Zero disables the separate 16S physical-edge route; no production floor is assumed. */
+	/** Historical field name: explicit16S/23S physical-edge floor; zero disables it. */
 	int prok16sPartialMinLen=0;
 	/** NaN retains each model's cutoff; an explicit value applies only to local rescue. */
 	float modelClipRescueId=Float.NaN;

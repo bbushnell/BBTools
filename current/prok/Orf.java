@@ -590,9 +590,9 @@ public class Orf extends PFeature {
 	 * is not a safe family identity -- Ganyu/Qiqi design note, 2026-09-17). Purely
 	 * additive: unused by appendGff() so far, does not change any existing GFF byte. */
 	public String ncrnaFamily;
-	/** Selected16S verifier identity before endpoint refinement; NaN means unavailable.
+	/** Selected16S/23S verifier identity before endpoint refinement; NaN means unavailable.
 	 * Diagnostic provenance only: never reconstructed from rounded scores or used by DP. */
-	float accepted16sIdentity=Float.NaN;
+	float acceptedRrnaIdentity=Float.NaN;
 	/** Immutable accepted consensus provenance for SSU competition, independent of GFF annotation. */
 	byte[] ssuFullModel;
 	String ssuFullModelName;

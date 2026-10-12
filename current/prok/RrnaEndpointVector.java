@@ -28,19 +28,24 @@ public final class RrnaEndpointVector {
 	public static void main(String[] args){
 		final PreParser pp=new PreParser(args,RrnaEndpointVector.class,false);
 		String in=null,model=null,consensus=null,startTable=null,stopTable=null,histogram=null,prefix=null;
-		long expected=-1,seed=-1;int samples=-1;
+		long expected=-1,seed=-1;int samples=-1;boolean acceptedIdentity=false;
 		for(String arg:pp.args){final int eq=arg.indexOf('=');require(eq>0,"Expected explicit key=value");final String key=arg.substring(0,eq).toLowerCase(Locale.ROOT),v=arg.substring(eq+1);
 			if(key.equals("in")){in=v;}else if(key.equals("model")){model=v;}else if(key.equals("consensus")){consensus=v;}else if(key.equals("starttable")){startTable=v;}else if(key.equals("stoptable")){stopTable=v;}
 			else if(key.equals("histogram")){histogram=v;}else if(key.equals("outprefix")){prefix=v;}else if(key.equals("expected")){expected=Long.parseLong(v);}else if(key.equals("seed")){seed=Long.parseLong(v);}else if(key.equals("samples")){samples=Integer.parseInt(v);}
+			else if(key.equals("identitysource")){require(v.equals("candidate_span") || v.equals("accepted_verifier_window"),"Choose a named identity definition, never an inferred approximation");acceptedIdentity=v.equals("accepted_verifier_window");}
 			else{throw new IllegalArgumentException("Unknown option: "+key);}}
 		require(in!=null&&model!=null&&consensus!=null&&startTable!=null&&stopTable!=null&&histogram!=null&&prefix!=null&&expected>0&&seed>=0&&samples>0,"Declare all inputs, expected loci, samples per locus/end, seed and fresh output prefix");
 		Shared.TRIM_READ_DESCRIPTION=false;Read.TO_UPPER_CASE=true;ReadWrite.USE_BGZF=true;ReadWrite.ALLOW_NATIVE_BGZF=true;ReadWrite.FORCE_BGZIP=true;
 		final RrnaPositionalKmerTable.Table five=RrnaPositionalKmerTable.load(startTable,model),three=RrnaPositionalKmerTable.load(stopTable,model);
 		require(five.end.equals("5prime")&&three.end.equals("3prime"),"Bind each endpoint to its own validated k and anchor table");
-		new RrnaEndpointVector(model,reference(consensus,model),five,three,distributions(histogram,model,five.radius),seed,samples).run(in,prefix,expected);
+		new RrnaEndpointVector(model,reference(consensus,model),five,three,distributions(histogram,model,five.radius),seed,samples,acceptedIdentity).run(in,prefix,expected);
 	}
 
 	RrnaEndpointVector(String model_,byte[] consensus_,RrnaPositionalKmerTable.Table five,RrnaPositionalKmerTable.Table three,Distribution[] hist,long seed,int samples_){
+		this(model_,consensus_,five,three,hist,seed,samples_,false);
+	}
+	RrnaEndpointVector(String model_,byte[] consensus_,RrnaPositionalKmerTable.Table five,RrnaPositionalKmerTable.Table three,Distribution[] hist,long seed,int samples_,boolean acceptedIdentity_){
+		acceptedVerifierIdentity=acceptedIdentity_;
 		require(consensus_!=null&&consensus_.length>0&&hist.length==2&&samples_>0&&seed>=0,"Explicit reference, two measured histograms and reproducible samples required");
 		require(five!=null&&three!=null&&five.radius==three.radius&&five.model.equals(model_)&&three.model.equals(model_)&&five.end.equals("5prime")&&three.end.equals("3prime"),"One model and one family geometry must bind both training ends");
 		radius=five.radius;sites=five.sites;inputs=five.inputs;
@@ -89,16 +94,18 @@ public final class RrnaEndpointVector {
 		final ByteStreamWriter[] writers={RrnaResourceIO.writer(prefix+".5prime.tsv.gz"),RrnaResourceIO.writer(prefix+".3prime.tsv.gz")};
 		final ByteStreamWriter audit=RrnaResourceIO.writer(prefix+".audit.tsv.gz");final ByteBuilder b=new ByteBuilder();
 		final float[] scratch=new float[sites],features=new float[inputs];final ObjectSet<String> ids=new ObjectSet<String>(String.class);final AlignmentStats stats=new AlignmentStats(true);
-		try{for(int end=0;end<2;end++){header(writers[end],tables[end],b,rngSeed,samples);}
+		try{for(int end=0;end<2;end++){header(writers[end],tables[end],b,rngSeed,samples);if(acceptedVerifierIdentity){writers[end].println("#identity_source\taccepted_verifier_window");}}
 			audit.println("record_id\tsample\tend\traw_start\traw_stop\ttrue_end\tanchor_center\tlabel_index\tstatus\toutput_row");
 			RrnaResourceIO.stream(in,read->{
 				RrnaPositionalKmerTable.checkModel(read.id,model);final String id=RrnaResourceIO.first(read.id);require(ids.add(id),"Duplicate locus IDs would duplicate training weight");
 				final int left=integerField(read.id,"lflank"),right=integerField(read.id,"rflank");require(read.bases!=null&&left>=0&&right>=0&&(long)left+right<read.length(),"Actual flanks must leave a nonempty sense-oriented gene");
 				final int trueStart=left,trueStop=read.length()-right-1;final float gc=floatField(read.id,"gccontig");require(Float.isFinite(gc)&&gc>=0&&gc<=1,"gccontig is source-contig GC fraction, not extracted-window GC");loci++;
+				final String declaredIdentity=RrnaResourceIO.optionalField(read.id,"identity_source");require(acceptedVerifierIdentity || declaredIdentity==null || declaredIdentity.equals("candidate_span"),"Captured accepted-identity inputs require identitysource=accepted_verifier_window; never silently train them with the legacy definition");
+				final float acceptedIdentity=acceptedVerifierIdentity?acceptedIdentity(read.id):Float.NaN;
 				for(int sample=0;sample<samples;sample++){
 					final long proposedStart=(long)trueStart+distributions[0].draw(random[0]),proposedStop=(long)trueStop+distributions[1].draw(random[1]);
 					final boolean validSpan=proposedStart>=0&&proposedStop>=proposedStart&&proposedStop<read.length();
-					final float identity=validSpan?candidateIdentity(read.bases,(int)proposedStart,(int)proposedStop,consensus,stats):Float.NaN;
+					final float identity=validSpan?(acceptedVerifierIdentity?acceptedIdentity:candidateIdentity(read.bases,(int)proposedStart,(int)proposedStop,consensus,stats)):Float.NaN;
 					for(int end=0;end<2;end++){
 						attempts[end]++;final int truth=end==0?trueStart:trueStop;final long rawEnd=end==0?proposedStart:proposedStop;
 						final int label=(int)(truth-rawEnd+radius);require(label>=0&&label<sites,"Histogram clamp keeps labels inside the resource-defined classes");
@@ -117,6 +124,9 @@ public final class RrnaEndpointVector {
 		}finally{RrnaResourceIO.finish(summary);}System.err.println("RRNA_ENDPOINT_VECTOR_PASS model="+model+" loci="+loci+" kept="+kept[0]+","+kept[1]);
 	}
 
+	static float acceptedIdentity(String header){
+		require(RrnaResourceIO.field(header,"identity_source").equals("accepted_verifier_window"),"Training identities must come from actual captured caller windows");final float value=Float.parseFloat(RrnaResourceIO.field(header,"accepted_identity"));require(Float.isFinite(value) && value>=0 && value<=1,"Captured winning-model identity must be finite and fractional");return value;
+	}
 	static void header(ByteStreamWriter out,RrnaPositionalKmerTable.Table t,ByteBuilder b,long seed,int samples){
 		assert(t!=null):"Each dataset is bound to one saved consensus/end table";
 		out.print(b.clear().append("#dims\t").append(t.inputs).tab().append(t.sites).nl());out.println("#schema\tRRNA_ENDPOINT_VECTOR_V1");
@@ -157,7 +167,7 @@ public final class RrnaEndpointVector {
 	static void require(boolean ok,String why){if(!ok){throw new IllegalArgumentException(why);}}
 	/** Compatibility geometry for historical euk5S callers of the old overloads only. */
 	public static final int RADIUS=12,SITES=25,INPUTS=28;
-	final int radius,sites,inputs;
+	final int radius,sites,inputs;final boolean acceptedVerifierIdentity;
 	final String model;final byte[] consensus;final RrnaPositionalKmerTable.Table[] tables;final Distribution[] distributions;final Random[] random;final long rngSeed;final int samples;
 	long loci;final long[] attempts=new long[2],kept=new long[2],missing=new long[2],invalidSpan=new long[2];
 }

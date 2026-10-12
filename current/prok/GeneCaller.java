@@ -279,7 +279,8 @@ public class GeneCaller extends ProkObject {
 			//makeRnas flips minus-strand calls to genomic coordinates before the DP.
 			final int start=orf.strand==0 ? orf.start : length-1-orf.stop;
 			final int stop=orf.strand==0 ? orf.stop : length-1-orf.start;
-			ncrnaDiagSink.path(orf.ncrnaFamily,name,orf.strand,length,orf.trnaModel,start,stop,retained,orf.accepted16sIdentity);
+			final float acceptedIdentity=orf.acceptedRrnaIdentity;
+			ncrnaDiagSink.path(orf.ncrnaFamily,name,orf.strand,length,orf.trnaModel,start,stop,retained,acceptedIdentity);
 		}
 	}
 	

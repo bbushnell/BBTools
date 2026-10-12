@@ -34,7 +34,7 @@ public final class RrnaEndpointCallerFeatures {
 		}
 		public Resources(String family_,String[] names_,byte[][] refs_,RrnaPositionalKmerTable.Table[] five_,RrnaPositionalKmerTable.Table[] three_,CellNet[] fiveNets_,CellNet[] threeNets_,boolean[] raw_,boolean acceptedIdentity_){
 			require(family_!=null && family_.matches("[A-Za-z0-9_]+"),"Endpoint resources require an explicit registered family key");family=family_;
-			require(!acceptedIdentity_ || family.equals("16S"),"Accepted-verifier identity is trained and enabled for16S only; other families keep their candidate-span definition");acceptedVerifierIdentity=acceptedIdentity_;
+			require(!acceptedIdentity_ || family.equals("16S") || family.equals("23S"),"Only explicitly trained16S/23S resources may select accepted-verifier identity; other families keep their candidate-span definition");acceptedVerifierIdentity=acceptedIdentity_;
 			require(names_!=null && refs_!=null && five_!=null && three_!=null && names_.length>0 && names_.length==refs_.length && names_.length==five_.length && names_.length==three_.length,"Every caller consensus must bind one table per end");
 			names=names_.clone();refs=refs_.clone();five=five_.clone();three=three_.clone();final map.ObjectSet<String> seen=new map.ObjectSet<String>(String.class);
 			require(raw_==null || raw_.length==names.length,"Explicit raw-endpoint mask must bind every detection model");raw=raw_==null?new boolean[names.length]:raw_.clone();
@@ -80,7 +80,7 @@ public final class RrnaEndpointCallerFeatures {
 	void capture(Orf candidate,byte[] bases,int model,float contigGC,int minLen,int maxLen,float acceptedIdentity){
 		require(candidate!=null && resources.family.equals(candidate.ncrnaFamily) && model>=0 && model<resources.refs.length && resources.names[model].equals(candidate.trnaModel),"Raw candidate must belong to the configured family and winning model");
 		final byte[] reference=resources.refs[model];final float identity;
-		if(resources.acceptedVerifierIdentity){require(Float.isFinite(acceptedIdentity) && acceptedIdentity>=0 && acceptedIdentity<=1,"Retrained16S features require the actual accepted winning-model verifier identity; no cropped re-alignment fallback");identity=acceptedIdentity;}
+		if(resources.acceptedVerifierIdentity){require(Float.isFinite(acceptedIdentity) && acceptedIdentity>=0 && acceptedIdentity<=1,"Accepted-identity features require the actual winning-model verifier identity; no cropped re-alignment fallback");identity=acceptedIdentity;}
 		else{identity=RrnaEndpointVector.candidateIdentity(bases,candidate.start,candidate.stop,reference,stats);}
 		// Legacy bundles retain their counted candidate-span alignment. Accepted-
 		// identity bundles reuse the supplied scalar; neither path invents endpoint

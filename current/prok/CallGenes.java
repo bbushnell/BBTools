@@ -525,6 +525,14 @@ public class CallGenes extends ProkObject {
 			}else if(a.equalsIgnoreCase("rrna16sseedminhits")){
 				RRNA16S_SEED_MIN_HITS=parseSweepInt(a, b, 1, Integer.MAX_VALUE);
 				RRNA16S_SEED_MIN_HITS_EXPLICIT=true;
+			}else if(a.equalsIgnoreCase("rrna23sseedminhits")){
+				RRNA23S_SEED_MIN_HITS=parseSweepInt(a, b, 1, Integer.MAX_VALUE);
+				RRNA23S_SEED_EXPLICIT=true;
+			}else if(a.equalsIgnoreCase("rrna23sseeds")){
+				if(b==null || b.isEmpty()){throw new IllegalArgumentException("rrna23sseeds requires an explicit FASTA path");}
+				RRNA23S_SEEDS_OVERRIDE=b;RRNA23S_SEED_EXPLICIT=true;
+			}else if(a.equalsIgnoreCase("rrna23sidpass")){
+				setRrna23sIdentity(b);
 			}else if(parseEuk5sFlag(a, b)){
 				//Independent of the generic ncRNA and bulk rRNA profile gates.
 			}else if(euk5sRuntime.parse(a, b)){
@@ -533,8 +541,12 @@ public class CallGenes extends ProkObject {
 				//Independent default-off family; resources are validated before workers.
 			}else if(prok16sWindows.parse(a, b)){
 				//Selected16S window policy and physical-edge rescue overrides.
+			}else if(prok23sWindows.parse(a, b)){
+				//Explicit23S-only containment experiment; default policy unchanged.
 			}else if(prok16sEndpoints.parse(a, b)){
 				//Family-scoped endpoint resources load only after registration.
+			}else if(prok23sEndpoints.parse(a, b)){
+				//Unreleased23S resources remain explicit and separate from legacy modes.
 			}else if(a.equalsIgnoreCase("euk5sconsensus")){
 				if(b==null || b.isEmpty()){throw new IllegalArgumentException("euk5sconsensus requires a resource path");}
 				EUK5S_CONSENSUS_OVERRIDE=b;
@@ -784,7 +796,9 @@ public class CallGenes extends ProkObject {
 		euk5sRuntime.apply(GeneCaller.ncrnaFamilies);
 		euk18sRuntime.apply(GeneCaller.ncrnaFamilies);
 		prok16sWindows.apply(GeneCaller.ncrnaFamilies);
+		prok23sWindows.apply(GeneCaller.ncrnaFamilies);
 		prok16sEndpoints.apply(GeneCaller.ncrnaFamilies);
+		prok23sEndpoints.apply(GeneCaller.ncrnaFamilies);
 		// Resolve omitted small-family defaults only after parsing; explicit choices
 		// are order-independent. D50 limits production CM verification to tRNA/5S.
 		if(!cmLocalSet){cmLocal=cmEnabled;}
@@ -2512,7 +2526,7 @@ public class CallGenes extends ProkObject {
 	 * Families within the profile share one ConservedRnaSeedIndex scan; verification remains
 	 * family-local. Prokaryotic and eukaryotic 5S must not compete in the same call path. */
 	static synchronized void loadRrna17Resources(String profile){
-		if(profile==null){throw new IllegalArgumentException("rrna17 requires profile 16s, prok, euk, euk18s, or euk5s");}
+		if(profile==null){throw new IllegalArgumentException("rrna17 requires profile 16s, 23s, prok, euk, euk18s, or euk5s");}
 		if(RRNA17_LOADED_PROFILE!=null){
 			if(RRNA17_LOADED_PROFILE.equals(profile)){return;}
 			throw new IllegalStateException("rRNA17 resources already loaded for profile "+RRNA17_LOADED_PROFILE+", cannot switch to "+profile);
@@ -2521,20 +2535,11 @@ public class CallGenes extends ProkObject {
 		try{
 			if(profile.equals("16s")){
 				addRrna16sFamily(before);
+			}else if(profile.equals("23s")){
+				addRrna23sFamily(before);
 			}else if(profile.equals("prok")){
 				addRrna16sFamily(before);
-				final boolean endpoint23S=(RRNA23S_ENDPOINT_MODE!=RRNA23S_ENDPOINT_OFF);
-				final String endpoint23SNet=(RRNA23S_ENDPOINT_MODE==RRNA23S_ENDPOINT_G28
-					? "23S_boundary_g28_universal_net.bbnet" : "23S_boundary_g16c_net.bbnet");
-				addNcrnaFamily("23S", "23S_consensus_sequence.fa", endpoint23S ? defaultNcrnaModel("23S.models.hbm") : null,
-					loadEffectiveNcrnaKmerSet("23S", "23S_17mers.fa", null, 17), 17, 2600, 3500,
-					9, 3, false, 0f, 0f, 0f, 128, 0f, 1f, .60f, .60f, 1.01f, .85f,
-					centeredOffsets(16), centeredOffsets(16), endpoint23S, endpoint23SNet,
-					"23S_boundary_family_start_table.tsv", "23S_boundary_family_stop_table.tsv", 0f, 0f);
-				final NcrnaFamily prok23s=familyAt(before+1, "23S");
-				configureRrna17Family(prok23s, ProkObject.r23S, 5, false, true, true,
-					RRNA23S_ENDPOINT_MODE==RRNA23S_ENDPOINT_G16);
-				configureRrna23SEndpoints(prok23s);
+				addRrna23sFamily(before+1);
 				final String prok5sModelResource=(RRNA17_PROK5S_HBM ? defaultNcrnaModel("5S.g5.models.hbm") : null);
 				addRrna17Family("prok5S", "5S_consensus_sequence.fa", prok5sModelResource,
 					loadEffectiveNcrnaKmerSet("prok5S", "5S_17mers.fa", null, 17), 17, 90, 150,
@@ -2594,6 +2599,26 @@ public class CallGenes extends ProkObject {
 		family.preserveContainingWindows=true;
 		System.err.println("16S controls: seedK="+family.kLong+" seedMinHits="+family.seedMinHits
 			+" seedDistinct="+family.seedDistinct+" indexK="+family.indexK+" topN="+family.indexTopN);
+	}
+
+	/** Selected23S detection policy; endpoint resources are installed after registration. */
+	private static void addRrna23sFamily(final int index){
+		assert(index==GeneCaller.ncrnaFamilies.size()) : "23S must append at the rollback boundary so existing families survive load failure";
+		final boolean endpoint23S=(RRNA23S_ENDPOINT_MODE!=RRNA23S_ENDPOINT_OFF);
+		final String endpoint23SNet=(RRNA23S_ENDPOINT_MODE==RRNA23S_ENDPOINT_G28
+			? "23S_boundary_g28_universal_net.bbnet" : "23S_boundary_g16c_net.bbnet");
+		addNcrnaFamily("23S", "23S_consensus_sequence.fa", endpoint23S ? defaultNcrnaModel("23S.models.hbm") : null,
+			loadEffectiveNcrnaKmerSet("23S", "23S_17mers.fa", RRNA23S_SEEDS_OVERRIDE, 17), 17, 2600, 3500,
+			9, 3, false, 0f, 0f, 0f, 128, 0f, 1f, RRNA23S_ID_PASS, RRNA23S_ID_PASS, 1.01f, .85f,
+			centeredOffsets(16), centeredOffsets(16), endpoint23S, endpoint23SNet,
+			"23S_boundary_family_start_table.tsv", "23S_boundary_family_stop_table.tsv", 0f, 0f);
+		final NcrnaFamily family=familyAt(index, "23S");
+		configureRrna17Family(family, ProkObject.r23S, RRNA23S_SEED_MIN_HITS, false, true, true,
+			RRNA23S_ENDPOINT_MODE==RRNA23S_ENDPOINT_G16);
+		configureRrna23SEndpoints(family);
+		family.prok16sPartialMinLen=1800;
+		System.err.println("23S controls: seedK="+family.kLong+" seedKeys="+family.kmerSet.size()
+			+" seedMinHits="+family.seedMinHits+" seedDistinct="+family.seedDistinct+" idPass="+family.idPass);
 	}
 
 	/** Registers the standalone family without changing any legacy calling flag. */
@@ -3724,13 +3749,20 @@ public class CallGenes extends ProkObject {
 	/** Measured caller occurrence threshold for the packaged285 forward17-mers. */
 	static int RRNA16S_SEED_MIN_HITS=2;
 	static boolean RRNA16S_SEED_MIN_HITS_EXPLICIT=false;
+	static int RRNA23S_SEED_MIN_HITS=2;
+	static float RRNA23S_ID_PASS=.60f;
+	static boolean RRNA23S_ID_EXPLICIT=false;
+	static String RRNA23S_SEEDS_OVERRIDE=null;
+	static boolean RRNA23S_SEED_EXPLICIT=false;
 	/** Independent eukaryotic 5S entry point; default off until release calibration is accepted. */
 	static boolean EUK5S_ENABLED=false;
 	static String EUK5S_CONSENSUS_OVERRIDE=null;
 	private final Euk5sRuntimeConfig euk5sRuntime=new Euk5sRuntimeConfig();
 	private final Euk18sRuntimeConfig euk18sRuntime=new Euk18sRuntimeConfig();
 	private final Prok16sWindowConfig prok16sWindows=new Prok16sWindowConfig();
+	private final Prok23sWindowConfig prok23sWindows=new Prok23sWindowConfig();
 	private final Prok16sEndpointConfig prok16sEndpoints=new Prok16sEndpointConfig();
+	private final Prok23sEndpointConfig prok23sEndpoints=new Prok23sEndpointConfig();
 	static boolean parseEuk5sFlag(String key, String value){
 		if(!key.equalsIgnoreCase("euk5s")){return false;}
 		EUK5S_ENABLED=Parse.parseBoolean(value);
@@ -3910,12 +3942,14 @@ public class CallGenes extends ProkObject {
 		if(EUK5S_ENABLED && RRNA17_ENABLED && ("euk".equals(RRNA17_PROFILE) || "euk5s".equals(RRNA17_PROFILE))){
 			throw new IllegalArgumentException("Duplicate euk5S registration; use euk5s=t or an euk5S rrna17 profile, not both");
 		}
-		if(RRNA17_ENABLED && !("16s".equals(RRNA17_PROFILE) || "prok".equals(RRNA17_PROFILE) || "euk".equals(RRNA17_PROFILE)
+		if(RRNA17_ENABLED && !("16s".equals(RRNA17_PROFILE) || "23s".equals(RRNA17_PROFILE) || "prok".equals(RRNA17_PROFILE) || "euk".equals(RRNA17_PROFILE)
 				|| "euk18s".equals(RRNA17_PROFILE) || "euk5s".equals(RRNA17_PROFILE))){
-			throw new IllegalArgumentException("rrna17 must be 16s, prok, euk, euk18s, euk5s, or f");
+			throw new IllegalArgumentException("rrna17 must be 16s, 23s, prok, euk, euk18s, euk5s, or f");
 		}
 		if(RRNA17_ENABLED && "16s".equals(RRNA17_PROFILE)){
 			if(call16S){throw new IllegalArgumentException("rrna17=16s requires call16s=f to prevent duplicate mixed-method 16S calls");}
+		}else if(RRNA17_ENABLED && "23s".equals(RRNA17_PROFILE)){
+			if(call23S){throw new IllegalArgumentException("rrna17=23s requires call23s=f to prevent duplicate mixed-method 23S calls");}
 		}else if(RRNA17_ENABLED && (call16S || call18S || call23S || call5S)){
 			throw new IllegalArgumentException("rrna17 requires call16s=f call23s=f call5s=f call18s=f to prevent duplicate mixed-method rRNA calls");
 		}
@@ -3923,14 +3957,23 @@ public class CallGenes extends ProkObject {
 				&& ("16s".equals(RRNA17_PROFILE) || "prok".equals(RRNA17_PROFILE)))){
 			throw new IllegalArgumentException("rrna16sseedminhits requires rrna17=16s or rrna17=prok");
 		}
-		if(RRNA23S_ENDPOINT_EXPLICIT && !(RRNA17_ENABLED && "prok".equals(RRNA17_PROFILE))){
-			throw new IllegalArgumentException("rrna23sendpoint requires rrna17=prok");
+		if(RRNA23S_ENDPOINT_EXPLICIT && !(RRNA17_ENABLED && ("prok".equals(RRNA17_PROFILE) || "23s".equals(RRNA17_PROFILE)))){
+			throw new IllegalArgumentException("rrna23sendpoint requires rrna17=23s or rrna17=prok");
+		}
+		if(RRNA23S_SEED_EXPLICIT && !(RRNA17_ENABLED && ("prok".equals(RRNA17_PROFILE) || "23s".equals(RRNA17_PROFILE)))){
+			throw new IllegalArgumentException("23S seed controls require rrna17=23s or rrna17=prok");
+		}
+		if(RRNA23S_ID_EXPLICIT && !(RRNA17_ENABLED && ("prok".equals(RRNA17_PROFILE) || "23s".equals(RRNA17_PROFILE)))){
+			throw new IllegalArgumentException("rrna23sidpass requires rrna17=23s or rrna17=prok");
 		}
 		if(RRNA17_PROK5S_HBM_EXPLICIT && !(RRNA17_ENABLED && "prok".equals(RRNA17_PROFILE))){
 			throw new IllegalArgumentException("rrna17prok5shbm requires rrna17=prok");
 		}
 	}
 
+	static void setRrna23sIdentity(String value){
+		RRNA23S_ID_PASS=parseUnitFloat("rrna23sidpass",value);RRNA23S_ID_EXPLICIT=true;
+	}
 	static void setRrna17Prok5sHbm(String value){
 		RRNA17_PROK5S_HBM=Parse.parseBoolean(value);
 		RRNA17_PROK5S_HBM_EXPLICIT=true;
@@ -3952,12 +3995,12 @@ public class CallGenes extends ProkObject {
 		if(value!=null && (value.equalsIgnoreCase("f") || value.equalsIgnoreCase("false"))){
 			RRNA17_ENABLED=false;
 			RRNA17_PROFILE=null;
-		}else if(value!=null && (value.equalsIgnoreCase("16s") || value.equalsIgnoreCase("prok") || value.equalsIgnoreCase("euk")
+		}else if(value!=null && (value.equalsIgnoreCase("16s") || value.equalsIgnoreCase("23s") || value.equalsIgnoreCase("prok") || value.equalsIgnoreCase("euk")
 				|| value.equalsIgnoreCase("euk18s") || value.equalsIgnoreCase("euk5s"))){
 			RRNA17_ENABLED=true;
 			RRNA17_PROFILE=value.toLowerCase();
 		}else{
-			throw new IllegalArgumentException("rrna17 must be 16s, prok, euk, euk18s, euk5s, or f: "+value);
+			throw new IllegalArgumentException("rrna17 must be 16s, 23s, prok, euk, euk18s, euk5s, or f: "+value);
 		}
 	}
 

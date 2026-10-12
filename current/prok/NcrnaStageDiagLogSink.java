@@ -65,14 +65,14 @@ final class NcrnaStageDiagLogSink implements NcrnaStageDiagSink {
 		String modelName,int start,int stop,boolean retained){
 		writePath(family,contig,strand,scaflen,modelName,start,stop,retained,Float.NaN);
 	}
-	/** PATH bestId holds exact accepted16S identity, independent of refined ends.
+	/** PATH bestId holds exact accepted16S/23S identity, independent of refined ends.
 	 * Other families keep their prior unavailable field and byte representation. */
 	@Override
 	public synchronized void path(String family,String contig,int strand,int scaflen,
 		String modelName,int start,int stop,boolean retained,float acceptedIdentity){
-		if("16S".equals(family)){
+		if("16S".equals(family) || "23S".equals(family)){
 			if(!Float.isFinite(acceptedIdentity) || acceptedIdentity<0f || acceptedIdentity>1f){
-				KillSwitch.assertDie("16S path diagnostics require the selected verifier identity; missing provenance cannot become a cutoff measurement");
+				KillSwitch.assertDie(family+" path diagnostics require the selected verifier identity; missing provenance cannot become a cutoff measurement");
 			}
 			writePath(family,contig,strand,scaflen,modelName,start,stop,retained,acceptedIdentity);
 		}else{path(family,contig,strand,scaflen,modelName,start,stop,retained);}

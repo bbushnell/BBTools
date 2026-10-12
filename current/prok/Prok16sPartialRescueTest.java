@@ -22,7 +22,7 @@ public final class Prok16sPartialRescueTest {
 				final ArrayList<Orf> calls=on.scavenge("edge", bases, strand, new ArrayList<int[]>());
 				check(calls.size()==1, "One genuine clipped locus must reach the caller through seed/window/length gates");
 				final Orf call=calls.get(0);
-				check(call.ncrnaPartial==mode && call.accepted16sIdentity==1f && recorder.count==0,
+				check(call.ncrnaPartial==mode && call.acceptedRrnaIdentity==1f && recorder.count==0,
 					"Clipped rescue must retain verified identity and bypass complete-gene endpoint features/nets");
 				check(call.start==(mode==2 ? 80 : 0) && call.stop==bases.length-1-(mode==1 ? 80 : 0),
 					"Partial rescue must preserve raw clipped alignment ends");

@@ -292,10 +292,16 @@ euk5smodelcutoffs=  Override resources/euk5S_model_cutoffs.tsv; f uses scalars.
 ncrna=f         Enable generic conserved-ncRNA families (off by default).
                 Alias: generalncrna=.
 rrna17=f        Enable a 17-mer rRNA profile: 16s loads only the new 16S caller;
+                23s loads only the experimental 23S caller.
                 prok loads 16S/23S/prokaryotic-5S; euk loads 18S/eukaryotic-5S.
                 euk18s and euk5s load either eukaryotic family alone.
                 Families share one seed scan per contig and strand.
                 rrna17=16s requires call16s=f and preserves other calling flags.
+                rrna17=23s requires call23s=f and preserves other calling flags.
+                The 23S caller uses280 forward17-mers,2 seed hits, strict K9
+                minimum128, top3 ranked fallback and identity0.60. Packaged
+                networks refine complete endpoints; proven contig-edge partials
+                retain raw endpoints with a minimum length of1800 bases.
                 Other profiles require 16s=f 23s=f 5s=f 18s=f to prevent duplicates.
                 Alias: rrna17mer=.
 rrna16sseedminhits=2  Minimum seed occurrences per16S candidate window.
@@ -318,7 +324,23 @@ rrna16sendpointnets=    Override the16S .bbnets file or selected-network directo
 rrna17prok5shbm=t  Enable prok5S HBM rescue for alignments with identity
                 from 0.60 through 0.80.  Set false for a matched detection
                 ablation; requires rrna17=prok and leaves the full profile on.
-rrna23sendpoint=off  23S endpoint refinement inside rrna17=prok is disabled.
+rrna23swindow=legacy  Experimental23S window policy: legacy or containment.
+                Containment retains a containing window instead of its nested window;
+                default legacy retains the existing window-collapse policy.
+                Requires rrna17=23s or prok; other families are unchanged.
+rrna23spartialminlen=1800  Physical-edge23S rescue floor (0 disables).
+                     A shorter call requires proven model clipping at a real
+                     contig end; complete calls still require2600 bases.
+rrna23sseedminhits=2  Minimum17-mer occurrences per23S candidate window.
+rrna23sidpass=0.60  Explicit23S verifier identity cutoff; requires rrna17=23s
+                   or prok. Other families and endpoint resources are unchanged.
+rrna23sseeds=       Explicit forward17-mer FASTA for23S; omitted uses shipped seeds.
+rrna23sendpointnn=t Refine enabled23S with packaged model-specific endpoint nets.
+                Set f for raw alignment ends; clipped partials always retain
+                raw ends. Resources load only for rrna17=23s or prok.
+rrna23sendpointtables=  Override the packaged23S table directory.
+rrna23sendpointnets=    Override the23S .bbnets file or selected-network directory.
+rrna23sendpoint=off  Historical23S candidate-scoring mode (not endpointnn).
                 The discarded g28/g16 candidate-scoring networks are not shipped;
                 explicitly requesting either fails if its resources are missing.
 v2refresh=f     Recheck claimed loci before each ncRNA window when enabled.
