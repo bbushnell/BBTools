@@ -430,7 +430,7 @@ public final class MagQCAssemblyBatch {
 		if(total!=bin.length){throw new IllegalStateException("Captured FASTA lengths differ from called bin length: "+bin.id);}
 	}
 
-	/** Keeps raw heads unchanged, appending provenance and the two configured estimates. */
+	/** Reports interpreted values with raw diagnostics and the original error calibration. */
 	private void appendScore(ByteBuilder out, MagQCNetworkHarness.Scorer scoring, Job job, int ordinal){
 		out.append(ordinal).tab().append(job.path);
 		for(int i=0; i<scoring.names.length; i++){out.tab().appendSlow(scoring.getOutput(i));}
@@ -438,8 +438,10 @@ public final class MagQCAssemblyBatch {
 		final float contamRaw=scoring.getOutput("gene_contamination");
 		final float compErrRaw=scoring.getOutput("abs_residual_gene_completeness", "gene_completeness_error");
 		final float contamErrRaw=scoring.getOutput("abs_residual_gene_contamination", "gene_contamination_error");
-		final double comp=calibration.scaleComp(compRaw, contamRaw, compErrRaw);
-		final double contam=calibration.scaleContam(compRaw, contamRaw, contamErrRaw);
+		final float compLinear=scoring.errorReference("gene_completeness");
+		final float contamLinear=scoring.errorReference("gene_contamination");
+		final double comp=calibration.scaleComp(compLinear, contamLinear, compErrRaw);
+		final double contam=calibration.scaleContam(compLinear, contamLinear, contamErrRaw);
 		out.tab().appendSlow(comp).tab().appendSlow(contam).tab().append(MagQCAssemblyInput.taxonomySource(options));
 		out.tab().append(job.taxonomy.status).tab().append(job.taxonomy.domain).tab().append(job.taxonomy.phylum);
 		out.tab().append(job.inputPin);
@@ -448,7 +450,7 @@ public final class MagQCAssemblyBatch {
 		out.tab().appendSlow(job.workerNanos/1e9);
 		if(job.routing!=null){job.routing.append(out);}
 		out.nl();
-		job.humanReport=job.report.human(job.taxonomy, compRaw, contamRaw, comp, contam);
+		job.humanReport=job.report.human(job.taxonomy, compRaw, contamRaw, comp, contam)+scoring.predictionNote();
 	}
 
 	/** Publishes optional TSV data only after all bins succeed; screen reports are separate stderr output. */
@@ -466,6 +468,7 @@ public final class MagQCAssemblyBatch {
 			header.append("#netsha80\t").append(required("netsha80")).nl();
 			appendReportOptions(header);
 			calibration.appendProvenance(header);
+			scorer.appendPredictionProvenance(header);
 			header.append("#error_estimates\tpredicted absolute errors in fraction units; not confidence intervals\n");
 			header.append("#assembly_statistics\twhole FASTA records; GC=GC/ACGT; coding density=summed CDS bp/assembly bp; quality=RNA-aware BinStats.type\n");
 			header.append("#bin_worker_wall_seconds\tsum of per-bin taxonomy and calling/inference worker intervals, including input I/O; excludes shared setup, dispatch queues, phase barriers and report publication\n");

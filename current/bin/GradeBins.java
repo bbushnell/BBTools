@@ -2,6 +2,9 @@ package bin;
 
 import java.io.File;
 import java.io.PrintStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -15,6 +18,7 @@ import clade.CladeIndex;
 import clade.CladeSearcher;
 import clade.SendClade;
 import dna.AminoAcid;
+import dna.Data;
 import fileIO.ByteFile;
 import fileIO.ByteStreamWriter;
 import fileIO.FileFormat;
@@ -29,6 +33,7 @@ import parse.PreParser;
 import prok.CallGenes;
 import prok.GeneCaller;
 import prok.Orf;
+import prok.ProkCC;
 import prok.ProkObject;
 import shared.Shared;
 import shared.Timer;
@@ -136,7 +141,14 @@ public class GradeBins {
 			else if(a.equalsIgnoreCase("checkm") || a.equalsIgnoreCase("checkm2")){
 				checkMFile=b;
 			}else if(a.equals("prokcc")){
-				prokCCFile=b;
+				//PreParser normalizes literal null to an empty value; only a bare flag enables it.
+				if(b==null && arg.indexOf('=')>=0){runProkCC=false; prokCCFile=null;}
+				else if(b==null || Parse.isBoolean(b)){runProkCC=Parse.parseBoolean(b);}
+				else{prokCCFile=b;}
+			}else if(a.equals("keeptemp")){
+				keepTemp=Parse.parseBoolean(b);
+			}else if(a.equals("verbose")){
+				verbose=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("eukcc")){
 				eukCCFile=b;
 			}else if(a.equalsIgnoreCase("cami")){
@@ -207,8 +219,9 @@ public class GradeBins {
 			}
 		}
 		
-		assert(prokCCFile==null || checkMFile==null) :
-			"prokcc and checkm/checkm2 cannot be combined: two prokaryote completeness sources are ambiguous.";
+		if((runProkCC || prokCCFile!=null) && checkMFile!=null){
+			throw new IllegalArgumentException("prokcc and checkm/checkm2 cannot be combined: two prokaryote completeness sources are ambiguous.");
+		}
 		{//Process parser fields
 			Parser.processQuality();
 			
@@ -350,7 +363,7 @@ public class GradeBins {
 			writeTaxOut(taxOut, sizeMap, countMap);
 		}
 		checkMMap=loadCheckM(checkMFile);
-		prokCCMap=loadProkCC(prokCCFile);
+		prokCCMap=loadProkCCReport();
 		eukCCMap=loadEukCC(eukCCFile);
 		camiMap=loadCami(camiFile);
 		gtdbMap=loadGTDBDir(gtdbFile);
@@ -1193,6 +1206,47 @@ public class GradeBins {
 		}
 		return map;
 	}
+
+	/**
+	 * Runs the shipped ProkCC client only when requested without an existing report.
+	 * Its entry point returns normally and joins the report writer before parsing.
+	 * A private temporary directory prevents collisions; keeptemp or verbose retains
+	 * the report for inspection. The ordinary file-import path remains unchanged.
+	 */
+	private HashMap<String, CCLine> loadProkCCReport(){
+		if(!runProkCC || prokCCFile!=null){return loadProkCC(prokCCFile);}
+		if(in.isEmpty()){throw new IllegalArgumentException("prokcc requires input bins");}
+		final String config=Paths.get(Data.RESOURCES(), "prokcc", "release.config").toString();
+		final boolean oldVerbose=ProkObject.verbose;
+		final boolean oldFma=Shared.SIMD_FMA, oldFeedForward=Shared.SIMD_FEED_FORWARD;
+		Path directory=null, reportPath=null;
+		try{
+			final String tmp=Shared.tmpdir();
+			directory=tmp==null ? Files.createTempDirectory("gradebins-prokcc-") :
+				Files.createTempDirectory(Paths.get(tmp), "gradebins-prokcc-");
+			reportPath=directory.resolve("prokcc.tsv");
+			final String[] args={"config="+config, "in="+String.join(",", in),
+				"out="+reportPath, "t="+Shared.threads(), "ow=f"};
+			ProkCC.main(args);
+			return loadProkCC(reportPath.toString());
+		}catch(Exception e){
+			throw new RuntimeException("Could not generate or import the ProkCC report for these bins", e);
+		}finally{
+			ProkObject.verbose=oldVerbose;
+			Shared.SIMD_FMA=oldFma; Shared.SIMD_FEED_FORWARD=oldFeedForward;
+			if(directory!=null){
+				if(keepTemp || verbose){outstream.println("Retained ProkCC temporary directory: "+directory);}
+				else{
+					try{
+						if(reportPath!=null){Files.deleteIfExists(reportPath);}
+						Files.delete(directory);
+					}catch(java.io.IOException e){
+						outstream.println("Warning: could not delete ProkCC temporary directory "+directory+": "+e);
+					}
+				}
+			}
+		}
+	}
 	
 	/**
 	 * Imports fraction-valued ProkCC predictions, not reference truth or error heads.
@@ -1746,6 +1800,10 @@ public class GradeBins {
 	private String checkMFile=null;
 	/** Path to an existing ProkCC fraction-valued report; does not invoke gene calling. */
 	private String prokCCFile=null;
+	/** Invoke ProkCC on these bins when no report path was supplied. */
+	private boolean runProkCC=false;
+	/** Retain an internally generated ProkCC report for inspection. */
+	private boolean keepTemp=false;
 	/** Path to EukCC results file or directory */
 	private String eukCCFile=null;
 	/** Path to CAMI format taxonomic assignments file */

@@ -172,7 +172,7 @@ public final class MagQCNetworkHarness {
 	static String sha80(String path){return ReferenceCdsSurvivalLabelReader.sha256File(path).substring(44);}
 
 	/** Reads model text through native decompression; resource pins still cover file bytes. */
-	private static byte[] readNetworkBytes(String path) throws IOException{
+	static byte[] readNetworkBytes(String path) throws IOException{
 		final ByteFile input=ByteFile.makeByteFile(path, true);
 		final ByteBuilder bytes=new ByteBuilder(65536);
 		try{
@@ -233,24 +233,43 @@ public final class MagQCNetworkHarness {
 				throw new IllegalArgumentException("dummy= must be t or f");
 			}
 			dummy=flag.equals("t") || flag.equals("true");
+			final MagQCGraftModel.Descriptor descriptor=MagQCGraftModel.describe(file);
+			if(descriptor!=null){
+				if(dummy){throw new IllegalArgumentException("A graft cannot be a dummy network");}
+				MagQCGraftModel.verify(descriptor.baseFile, descriptor.basePin);
+			}
 			final MagQCNetBundle.InferenceModel parsed=MagQCNetBundle.parseInferenceModel(
-				readNetworkBytes(file), "harness final net");
+				readNetworkBytes(descriptor==null ? file : descriptor.baseFile), "harness final net");
 			model=retainModel ? parsed : null; sharedBinding=null;
 			if(inferWidth){width=parsed.inputs();}
 			worker=parsed.newWorker();
-			final OutputContract contract=outputContract(worker, dummy);
-			if(parsed.inputs()!=width || parsed.outputs()!=contract.names.length){
-				throw new IllegalArgumentException("Final net requires input width "+width+" and "+contract.names.length+" outputs");
+			final OutputContract baseContract=outputContract(worker, dummy);
+			if(parsed.inputs()!=width || parsed.outputs()!=baseContract.names.length){
+				throw new IllegalArgumentException("Final net requires input width "+width+" and "+baseContract.names.length+" outputs");
 			}
-			input=new float[width]; output=new float[contract.names.length];
+			final OutputContract contract=descriptor==null ? baseContract : parseOutputContract(descriptor.outputContract);
+			if(descriptor!=null){
+				MagQCGraftModel.requireNative18(worker);
+				if(contract.names.length!=baseContract.names.length+2 ||
+					!Arrays.equals(baseContract.names, Arrays.copyOf(contract.names, baseContract.names.length))){
+					throw new IllegalArgumentException("Graft must append two heads after the unchanged base contract");
+				}
+			}
+			prediction=predictionContract(descriptor==null ? worker.getTag("magqc_prediction_contract") :
+				descriptor.predictionContract, contract.names, dummy);
+			graftModel=descriptor==null ? null : new MagQCGraftModel(descriptor);
+			graftWorker=graftModel==null ? null : graftModel.newWorker(worker);
+			rawOutputs=contract.names.length;
+			input=new float[width];
 			requireTag("magqc_harness_contract", "prepared_raw_v1");
 			requireTag("magqc_layout", MagQCVectorMaker.JOINT_COMPOSITE_LAYOUT);
 			requireTag("magqc_encoding", "raw");
 			for(String key:PIN_KEYS){requireTag("magqc_"+key, options.get(key));}
-			names=contract.names; outputMode=contract.mode;
+			names=prediction==null ? contract.names : prediction.outputNames(); outputMode=contract.mode;
+			output=new float[names.length];
 			fixtureTag=worker.getTag("magqc_fixture");
-			requireTag("magqc_output_mode", outputMode);
-			requireTag("magqc_output_names", String.join(",", names));
+			requireTag("magqc_output_mode", baseContract.mode);
+			requireTag("magqc_output_names", String.join(",", baseContract.names));
 			requireTag("magqc_input_normalization", dummy ? "identity" : "embedded");
 			if(dummy){
 				if(worker.hasInputNormalization() || worker.getTag("mean_sd_folded")!=null || worker.getTag("normalization")!=null ||
@@ -283,7 +302,10 @@ public final class MagQCNetworkHarness {
 		/** Copies inference scratch from one validated model without rereading the model or resource files. */
 		private Scorer(Scorer source){
 			model=source.model; sharedBinding=source.sharedBinding;
+			prediction=source.prediction; rawOutputs=source.rawOutputs;
 			worker=sharedBinding==null ? model.newWorker() : null;
+			graftModel=source.graftModel;
+			graftWorker=graftModel==null || worker==null ? null : graftModel.newWorker(worker);
 			input=new float[source.input.length]; output=new float[source.output.length];
 			names=source.names; outputMode=source.outputMode; fixtureTag=source.fixtureTag; dummy=source.dummy;
 			assert((sharedBinding!=null || worker!=source.worker) && input!=source.input && output!=source.output) :
@@ -293,8 +315,12 @@ public final class MagQCNetworkHarness {
 		/** No model load: the first synchronized API call validates and loads this binding. */
 		Scorer(MagQCCompositeInference.Binding binding){
 			sharedBinding=binding; model=null; worker=null; dummy=false;
-			final OutputContract contract=outputContract(binding.options());
-			names=contract.names; outputMode=contract.mode;
+			graftModel=null; graftWorker=null;
+			final String[] metadata=readOutputMetadata(binding.options());
+			final OutputContract contract=parseOutputContract(metadata[0]);
+			prediction=predictionContract(metadata[1], contract.names, false);
+			rawOutputs=contract.names.length;
+			names=prediction==null ? contract.names : prediction.outputNames(); outputMode=contract.mode;
 			input=new float[binding.inputs()]; output=new float[names.length];
 			fixtureTag=null;
 		}
@@ -305,6 +331,21 @@ public final class MagQCNetworkHarness {
 		float getOutput(String name){return getOutput(name, name);}
 
 		float getOutput(String primary, String alternate){return output[indexOf(primary, alternate)];}
+
+		/** Existing error calibration was fit to the original linear predictions. */
+		float errorReference(String quantity){return getOutput(prediction==null ? quantity : "linear_"+quantity);}
+
+		/** Shared report provenance distinguishes blended values from unchanged linear-error heads. */
+		void appendPredictionProvenance(ByteBuilder out){
+			if(prediction!=null){
+				out.append("#reported_gene_values\tmodel-declared magnified blend\n");
+				out.append("#error_reference\toriginal linear heads; not recalibrated for blended values\n");
+			}
+		}
+
+		/** Screen reports must not present the old error estimate as calibrated for the new blend. */
+		String predictionNote(){return prediction==null ? "" :
+			"Error estimates refer to the original linear predictions, not the blended values.\n";}
 
 		int indexOf(String primary, String alternate){
 			for(int i=0; i<names.length; i++){
@@ -331,6 +372,7 @@ public final class MagQCNetworkHarness {
 			out.append("#dummy\t").append(dummy ? "PLUMBING_ONLY" : "false").nl();
 			if("synthetic_weights".equals(fixtureTag)){out.append("#fixture\tSYNTHETIC_WEIGHTS_NOT_ACCURACY\n");}
 			if(!dummy){out.append("#error_estimates\tpredicted absolute fraction-point errors; not confidence intervals\n");}
+			appendPredictionProvenance(out);
 			out.append("#columns\trow_index\tbin_id");
 			for(String name:names){out.tab().append(name);} out.nl();
 		}
@@ -374,11 +416,20 @@ public final class MagQCNetworkHarness {
 				return;
 			}
 			worker.applyInput(input); worker.feedForward();
-			for(int i=0; i<names.length; i++){
+			for(int i=0; i<worker.numOutputs(); i++){
 				final float value=worker.getOutput(i);
 				output[i]=value;
 				if(!Float.isFinite(value)){throw new IllegalStateException("Nonfinite final-net output "+i+": "+id);}
 			}
+			if(graftWorker!=null){graftWorker.appendAfterBase(output, worker.numOutputs());}
+			if(TRACE_BIN!=null && (TRACE_BIN.equals(id) || TRACE_BIN.equals("*"))){
+				if(graftWorker==null){throw new IllegalArgumentException("Graft tracing requires worker-mode graft inference");}
+				// Wildcard mode retains one fresh file per assembly; collisions fail in the writer.
+				final String destination=TRACE_BIN.equals("*") ?
+					Paths.get(TRACE_PATH, Paths.get(id).getFileName().toString()+".tsv").toString() : TRACE_PATH;
+				graftWorker.writeActivationTrace(destination, input);
+			}
+			if(prediction!=null){prediction.apply(output);}
 		}
 		/** Copies caller values into owned scratch and returns an independent snapshot. */
 		float[] evaluateCopy(float[] values){
@@ -392,6 +443,10 @@ public final class MagQCNetworkHarness {
 			return output.clone();
 		}
 		private final MagQCCompositeInference.Binding sharedBinding;
+		private final MagQCPredictionContract prediction;
+		private final MagQCGraftModel graftModel;
+		private final ml.CellNetGraft graftWorker;
+		private final int rawOutputs;
 		private float[] output;
 
 		final CellNet worker;
@@ -401,6 +456,9 @@ public final class MagQCNetworkHarness {
 		final String outputMode;
 		final String fixtureTag;
 		final boolean dummy;
+		/** Opt-in developer diagnostics; ordinary inference performs no trace allocation or I/O. */
+		private static final String TRACE_BIN=System.getProperty("magqc.trace.bin");
+		private static final String TRACE_PATH=System.getProperty("magqc.trace.path");
 	}
 
 	/** ByteFile-backed prepared schema reader; reuses one typed row across the entire stream. */
@@ -469,15 +527,32 @@ public final class MagQCNetworkHarness {
 		return dummy ? new OutputContract("dummy3", DUMMY_NAMES) : parseOutputContract(worker.getTag("output_contract"));
 	}
 
-	private static OutputContract outputContract(HashMap<String,String> options){
+	/** Loads both declarations for shared serving without loading a second network. */
+	private static String[] readOutputMetadata(HashMap<String,String> options){
 		try{
 			final String file=pinned(options, "net", "netsha80");
+			final MagQCGraftModel.Descriptor descriptor=MagQCGraftModel.describe(file);
+			if(descriptor!=null){return new String[]{descriptor.outputContract, descriptor.predictionContract};}
 			final byte[] bytes=readNetworkBytes(file);
+			final String[] metadata=new String[2];
 			for(final String line:new String(bytes, StandardCharsets.UTF_8).split("\\r?\\n")){
-				if(line.startsWith("##output_contract ")){return parseOutputContract(line.substring(18));}
+				final int slot=line.startsWith("##output_contract ") ? 0 :
+					line.startsWith("##magqc_prediction_contract ") ? 1 : -1;
+				if(slot>=0){
+					if(metadata[slot]!=null){throw new IllegalArgumentException("Duplicate final-net output metadata");}
+					metadata[slot]=line.substring(line.indexOf(' ')+1);
+				}
 			}
-			throw new IllegalArgumentException("Final net is missing output_contract");
+			if(metadata[0]==null){throw new IllegalArgumentException("Final net is missing output_contract");}
+			return metadata;
 		}catch(IOException e){throw new IllegalArgumentException("Could not read final-net contract", e);}
+	}
+
+	/** Absent interpretation metadata preserves legacy output behavior. */
+	private static MagQCPredictionContract predictionContract(String text, String[] names, boolean dummy){
+		if(text==null){return null;}
+		if(dummy){throw new IllegalArgumentException("Dummy nets cannot declare biological prediction semantics");}
+		return MagQCPredictionContract.parse(text, names);
 	}
 
 	private static OutputContract parseOutputContract(String contract){
