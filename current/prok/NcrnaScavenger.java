@@ -218,7 +218,8 @@ public class NcrnaScavenger {
 	/*--------------------------------------------------------------*/
 
 	public ArrayList<Orf> scavenge(String name, byte[] bases, int strand, ArrayList<int[]> called){
-		if(bases==null || bases.length<minLen || library==null || kmerSet==null){return new ArrayList<Orf>();}
+		validate16sPartialRescue();
+		if(bases==null || bases.length<inputMinLength() || library==null || kmerSet==null){return new ArrayList<Orf>();}
 		final int[] hits=findKmerHitPositions(bases);
 		return scavenge(name, bases, strand, called, hits, votingEnabled() || joinedPositions!=null ? findKmerHitKeys(bases, hits) : null);
 	}
@@ -233,7 +234,8 @@ public class NcrnaScavenger {
 	ArrayList<Orf> scavenge(String name, byte[] bases, int strand, ArrayList<int[]> called,
 			int[] hitPositions, long[] hitKeys){
 		ArrayList<Orf> results=new ArrayList<>();
-		if(bases==null || bases.length<minLen || library==null || kmerSet==null){return results;}
+		validate16sPartialRescue();
+		if(bases==null || bases.length<inputMinLength() || library==null || kmerSet==null){return results;}
 		if(hitPositions==null){throw new IllegalArgumentException("Null ncRNA seed-hit stream for "+family);}
 		if((votingEnabled() || joinedPositions!=null) && (hitKeys==null || hitKeys.length!=hitPositions.length)){
 			throw new IllegalArgumentException("Seed voting requires one key per hit for "+family);
@@ -247,7 +249,7 @@ public class NcrnaScavenger {
 		final ArrayList<int[]> joinedPrior=hasJoinedRoute()?new ArrayList<int[]>(called):null;
 		ArrayList<int[]> windows=prepareCandidateWindows(name, bases, strand, 1, hitPositions, hitKeys);
 		if(DEBUG){System.err.println("DEBUG windows after collapse: "+dumpWindows(windows));}
-		windows=subtractClaimed(windows, called);
+		windows=subtractClaimed(windows, called, bases.length);
 		if(DEBUG){System.err.println("DEBUG windows after subtractClaimed: "+dumpWindows(windows));}
 		if(refreshClaimedWindows){
 			alignPassAgainstSnapshot(name,bases,strand,1,windows,new ArrayList<int[]>(called),hitPositions,hitKeys,called,results);
@@ -269,7 +271,7 @@ public class NcrnaScavenger {
 			long[] nearKeys=(votingEnabled() ? subsetKeys(hitPositions, hitKeys, nearHits) : null);
 			if(nearHits.length>0){
 				ArrayList<int[]> pass2Windows=prepareCandidateWindows(name, bases, strand, 2, nearHits, nearKeys);
-				pass2Windows=subtractClaimed(pass2Windows, called);
+				pass2Windows=subtractClaimed(pass2Windows, called, bases.length);
 				if(refreshClaimedWindows){
 					alignPassAgainstSnapshot(name,bases,strand,2,pass2Windows,new ArrayList<int[]>(called),nearHits,nearKeys,called,results);
 				}else{
@@ -294,7 +296,7 @@ public class NcrnaScavenger {
 		final ArrayList<Orf> candidates=new ArrayList<Orf>();
 		for(int[] original:windows){
 			final ArrayList<int[]> pending=new ArrayList<int[]>(1);pending.add(original);
-			for(int[] w:subtractClaimed(pending,claimSnapshot)){
+			for(int[] w:subtractClaimed(pending,claimSnapshot,bases.length)){
 				windowCount++;
 				if(workloadSink!=null){workloadSink.scheduledWindow(name,strand,pass,w[0],w[1]);}
 				final Orf orf=alignWindow(name,bases,strand,pass,w[0],w[1],windowSource(w),hitPositions,hitKeys);
@@ -313,7 +315,7 @@ public class NcrnaScavenger {
 				if(proposal.stop>bases.length){throw new IllegalArgumentException("Joined proposal exceeds its original shred: "+name);}
 				final int lo=strand==0?proposal.start-1:bases.length-proposal.stop,hi=strand==0?proposal.stop-1:bases.length-proposal.start;
 				final ArrayList<int[]> pending=new ArrayList<int[]>(1);pending.add(new int[]{lo,hi,WINDOW_JOINED});
-				for(int[] w:subtractClaimed(pending,claimSnapshot)){
+				for(int[] w:subtractClaimed(pending,claimSnapshot,bases.length)){
 					windowCount++;if(workloadSink!=null){workloadSink.scheduledWindow(name,strand,1,w[0],w[1]);}
 					final Orf orf=alignJoinedWindow(name,bases,strand,w[0],w[1],proposal.model,hitPositions,hitKeys);
 					if(orf!=null){candidates.add(orf);}
@@ -480,7 +482,7 @@ public class NcrnaScavenger {
 			catch(RuntimeException | AssertionError e){shared.KillSwitch.assertDie("Seed-voted window construction failed on caller worker: "+e);throw e;}
 			votedWindows+=voteWindowBuilder.voted;voteWindowFallbacks+=voteWindowBuilder.fallbackWindows;return windows;
 		}
-		final ArrayList<int[]> windows=collapseByIntersection(buildCandidateWindows(positions, seqLen));
+		final ArrayList<int[]> windows=collapseByIntersection(buildCandidateWindows(positions, seqLen), seqLen);
 		if(voteWindows){applyVoteWindows(windows, positions, keys, seqLen);}return windows;
 	}
 
@@ -497,24 +499,31 @@ public class NcrnaScavenger {
 	/** No explicit upper bound on the merged window size -- matches TrnaCaller's own
 	 * collapseByIntersection, which has never capped this either (SCAV_QUANTUM_THRESH
 	 * only switches the aligner for large windows, it doesn't reject them). */
-	private ArrayList<int[]> collapseByIntersection(ArrayList<int[]> windows){
+	private ArrayList<int[]> collapseByIntersection(ArrayList<int[]> windows, int seqLen){
 		if(windows.size()<2){return windows;}
 		windows.sort((a, b)->a[0]-b[0]);
 		ArrayList<int[]> result=new ArrayList<>();
 		int[] current=windows.get(0);
 		for(int i=1; i<windows.size(); i++){
 			int[] next=windows.get(i);
+			// Borreliella prok16s_0: a neighboring fragment's edge-clipped [0,1856]
+			// proposal used to truncate a containing [0,2491] proposal. Keep the
+			// containing proposal, not an unbounded union of partially overlapping ones.
+			if(preserveContainingWindows){
+				if(current[0]<=next[0] && current[1]>=next[1]){continue;}
+				if(next[0]<=current[0] && next[1]>=current[1]){current=next;continue;}
+			}
 			int overlap=Tools.min(current[1], next[1])-Tools.max(current[0], next[0]);
 			int shorter=Tools.min(current[1]-current[0], next[1]-next[0]);
 			if(overlap>0 && overlap>=shorter*collapseFrac){
 				current=new int[]{Tools.max(current[0], next[0]), Tools.min(current[1], next[1]), WINDOW_COLLAPSE};
 			}else{
-				if(current[1]-current[0]>=minLen){result.add(current);}
+				if(retainWindow(current, seqLen)){result.add(current);}
 				else{diagnoseCollapsedDrop(current);}
 				current=next;
 			}
 		}
-		if(current[1]-current[0]>=minLen){result.add(current);}
+		if(retainWindow(current, seqLen)){result.add(current);}
 		else{diagnoseCollapsedDrop(current);}
 		return result;
 	}
@@ -531,7 +540,7 @@ public class NcrnaScavenger {
 	 * first, applied here because this class shares the same buggy pattern). Carries a list of
 	 * surviving segments through every claim so a claim strictly inside a window correctly produces
 	 * TWO output windows (left + right), not zero or one. */
-	private ArrayList<int[]> subtractClaimed(ArrayList<int[]> windows, ArrayList<int[]> claimed){
+	private ArrayList<int[]> subtractClaimed(ArrayList<int[]> windows, ArrayList<int[]> claimed, int seqLen){
 		ArrayList<int[]> result=new ArrayList<>();
 		for(int[] w : windows){
 			ArrayList<int[]> segments=new ArrayList<>();
@@ -554,10 +563,40 @@ public class NcrnaScavenger {
 			//TrnaCaller.subtractClaimed) -- hi-lo>=minLen treats an inclusive [lo,hi] range as if it
 			//had hi-lo bases, when it actually has hi-lo+1. Not changed here; flagging only.
 			for(int[] seg : segments){
-				if(seg[1]-seg[0]>=minLen){result.add(seg);}
+				if(retainWindow(seg, seqLen)){result.add(seg);}
 			}
 		}
 		return result;
+	}
+
+	/** A claimed interval or an N gap is not an original-contig boundary. */
+	private boolean physical16sEdge(int start, int stop, int seqLen){
+		return prok16sPartialMinLen>0 && (start==0 || stop==seqLen-1);
+	}
+	private int inputMinLength(){return prok16sPartialMinLen>0 ? Tools.min(minLen, prok16sPartialMinLen) : minLen;}
+	private boolean retainWindow(int[] window, int seqLen){
+		assert(window[0]>=0 && window[1]<seqLen) : "Physical-edge rescue requires original-contig coordinates after claim subtraction";
+		// Preserve the historical internal-window filter, including its documented inclusive-length TODO.
+		return window[1]-window[0]>=minLen || (physical16sEdge(window[0], window[1], seqLen)
+			&& window[1]-window[0]+1>=prok16sPartialMinLen);
+	}
+	private void validate16sPartialRescue(){
+		if(prok16sPartialMinLen==0){return;}
+		if(prok16sPartialMinLen<1 || prok16sPartialMinLen>minLen || !"16S".equals(family)
+				|| outputType!=ProkObject.r16S || !reuseConsensusAlignment || trimAlignmentExtent
+				|| models!=null || modelEndClipping || modelClipRescue || pacBioConsensusAlignment
+				|| voteWindows || voteEnds || voteBeforePadding || hasJoinedRoute() || cmVerifier!=null
+				|| boundaryNetsByModel!=null || boundary5Net!=null || boundary3Net!=null){
+			throw new IllegalStateException("16S partial rescue needs an explicit floor <= ordinary minLen, reused Quantum, no HBM/votes/legacy NN/other rescue: "+family);
+		}
+	}
+	/** Only proven model clipping qualifies for the shorter span; touching an edge alone does not. */
+	private int alignmentMinLength(AlignmentStats stats, boolean clipModel){
+		if(prok16sPartialMinLen>0 && clipModel && stats instanceof EndClippedAligner.Result){
+			final EndClippedAligner.Result clipped=(EndClippedAligner.Result)stats;
+			if(clipped.qStart>0 || clipped.qStop<clipped.qLen-1){return prok16sPartialMinLen;}
+		}
+		return minLen;
 	}
 
 	private int[] findNearbyUnclaimed(int[] allHits, ArrayList<int[]> claimed, int seqLen){
@@ -594,7 +633,8 @@ public class NcrnaScavenger {
 			throw new IllegalStateException("Experimental model clipping requires reused alignment, no HBM/endpoint nets, and alignment ends: "+family);
 		}
 		final int wLen=wStop-wStart+1;
-		if(wLen<minLen){
+		final boolean rescue16s=physical16sEdge(wStart, wStop, bases.length);
+		if(wLen<(rescue16s ? prok16sPartialMinLen : minLen)){
 			diagnoseWindow(name,bases,strand,pass,wStart,wStop,"REJECT_WLEN",-1,-1,-1,0f,0f,0f,-1,-1,false);
 			return null;
 		}
@@ -616,6 +656,17 @@ public class NcrnaScavenger {
 			return null;
 		}
 		if(reuseConsensusAlignment){
+			if(rescue16s){
+				assert(!suppressRejectedWindow) : "16S edge rescue must not inherit diagnostic suppression from another window";
+				Orf accepted=null;
+				if(wLen>=minLen){
+					suppressRejectedWindow=true;
+					try{accepted=alignWindowOnce(name,bases,strand,pass,wStart,wStop,windowSource,hitPositions,hitKeys,seq,shortlist,khits,false);}
+					finally{suppressRejectedWindow=false;}
+				}
+				if(accepted!=null){return accepted;}
+				return alignWindowOnce(name,bases,strand,pass,wStart,wStop,windowSource,hitPositions,hitKeys,seq,shortlist,khits,true);
+			}
 			if(modelClipRescue){
 				assert(!modelEndClipping && !suppressRejectedWindow) : "Rescue must begin with unchanged Quantum and no leaked diagnostic suppression";
 				final Orf accepted;
@@ -796,9 +847,12 @@ public class NcrnaScavenger {
 			final float id;
 			if(clipModel){
 				if(endClippedAligner==null){endClippedAligner=new EndClippedAligner();}
-				final EndClippedAligner.Result clipped=endClippedAligner.align(library[m], seq);
+				// Only16S uses the new physical-edge restriction; preserve existing18S local rescue.
+				final EndClippedAligner.Result clipped=prok16sPartialMinLen>0
+					? endClippedAligner.alignContigEdges(library[m], seq, wStart==0, wStop==bases.length-1)
+					: endClippedAligner.align(library[m], seq);
 				stats=clipped;
-				if(diagSink!=null){diagSink.modelClip(family,name,strand,pass,wStart,wStop,m,clipped,minLen);}
+				if(diagSink!=null){diagSink.modelClip(family,name,strand,pass,wStart,wStop,m,clipped,alignmentMinLength(clipped,true));}
 				id=stats==null ? 0f : stats.identity;
 			}else if(pacBioConsensusAlignment){
 				if(pacBioAligner==null){pacBioAligner=new Euk18sPacBioAligner(pacBioCosts, pacBioRolling);}
@@ -817,7 +871,7 @@ public class NcrnaScavenger {
 			alignedBases+=seq.length;
 			alignmentCount++;
 			final int alignedLength=stats==null ? 0 : quantumAlignedLength(stats,seq.length);
-			final boolean lengthAllowed=joined ? joinedLengthAllowed(stats,seq.length) : stats!=null && alignedLength<=maxLen && (!clipModel || alignedLength>=minLen);
+			final boolean lengthAllowed=joined ? joinedLengthAllowed(stats,seq.length) : stats!=null && alignedLength<=maxLen && (!clipModel || alignedLength>=alignmentMinLength(stats,true));
 			if(modelAttemptSink!=null){
 				modelAttemptSink.modelAttempt(name,strand,pass,wStart,wStop,j+1,m,
 					kmerIndex.lastSharedCount(m),id,alignedLength,id>=modelPass && lengthAllowed);
@@ -847,12 +901,13 @@ public class NcrnaScavenger {
 			return null;
 		}
 		final int orfStart=wStart+stats.rStart, orfStop=wStart+stats.rStop;
-		if(orfStop-orfStart+1<minLen){
+		if(orfStop-orfStart+1<alignmentMinLength(stats,clipModel)){
 			diagnoseWindow(name,bases,strand,pass,wStart,wStop,"REJECT_LEN",khits,shortlist.length,model,bestId,0f,bestHbm,orfStart,orfStop,false);
 			return null;
 		}
 		final Orf orf=new Orf(name,orfStart,orfStop,strand,0,bases,false,outputType);
 		orf.ncrnaFamily=family;
+		if("16S".equals(family)){orf.accepted16sIdentity=identity;}
 		if(clipModel && modelClipRescue && Euk18sRuntimeConfig.FAMILY.equals(family)
 				&& modelNames!=null && "euk18S_mitochondria".equals(modelNames[model])){
 			orf.ssuFullModel=library[model];
@@ -860,12 +915,22 @@ public class NcrnaScavenger {
 			orf.ssuClippedMitoRescue=true;
 		}
 		final int orfLen=orfStop-orfStart+1;
+		if(prok16sPartialMinLen>0 && stats instanceof EndClippedAligner.Result){
+			final EndClippedAligner.Result clipped=(EndClippedAligner.Result)stats;
+			orf.ncrnaPartial=(clipped.qStart>0 ? 1 : 0)|(clipped.qStop<clipped.qLen-1 ? 2 : 0);
+		}
 		orf.orfScore=scoreA+scoreB*orfLen*identity*identity;
 		boolean trimmed=false;
 		if(annotate && modelNames!=null && model<modelNames.length){
 			orf.trnaModel=modelNames[model];
-			trimmed=finishAcceptedBoundary(orf,bases,model,wStart,wStop,windowSource,identity,orfLen,
-				identity,true,hitPositions,hitKeys);
+			if(prok16sPartialMinLen>0 && clipModel && orf.ncrnaPartial!=0){
+				assert(((orf.ncrnaPartial&1)==0 || orf.start==0) && ((orf.ncrnaPartial&2)==0 || orf.stop==bases.length-1))
+					: "alignContigEdges partial provenance must reach the original contig boundary before GFF formatting";
+				if(instrumentSink!=null){captureInstrumentation(orf,bases,model,wStart,wStop,false,false,windowSource,identity,orfLen);}
+			}else{
+				trimmed=finishAcceptedBoundary(orf,bases,model,wStart,wStop,windowSource,identity,orfLen,
+					identity,true,hitPositions,hitKeys);
+			}
 		}else{applyVotedEnds(orf,hitPositions,hitKeys,wStart,wStop,bases.length);}
 		if(!joined && orf.stop-orf.start+1>maxLen){
 			if(pendingInstrumentation!=null){pendingInstrumentation.remove(orf);}
@@ -942,7 +1007,7 @@ public class NcrnaScavenger {
 			// Resource-sized endpoint nets observe the selected raw anchor. Voting
 			// must happen before features/NN, never overwrite an NN-refined result.
 			applyVotedEnds(orf,hitPositions,hitKeys,wStart,wStop,bases.length);
-			captureRrnaEndpointFeatures(orf,bases,model);
+			captureRrnaEndpointFeatures(orf,bases,model,acceptedIdentity);
 			if(instrumentSink!=null){captureInstrumentation(orf,bases,model,wStart,wStop,false,false,windowSource,acceptedIdentity,alignedLength);}
 			return false;
 		}
@@ -1344,6 +1409,7 @@ public class NcrnaScavenger {
 	SeedOffsetTable voteTable=null;
 	boolean voteWindows=false, voteEnds=false;
 	boolean voteBeforePadding=false;
+	boolean preserveContainingWindows=false;
 	private SeedVoteWindowBuilder voteWindowBuilder=null;
 	private int fallbackCoreLength;
 	int voteSlack=60;
@@ -1381,6 +1447,8 @@ public class NcrnaScavenger {
 	private Euk18sPacBioAligner pacBioAligner;
 	boolean modelEndClipping=false;
 	boolean modelClipRescue=false;
+	/** Zero disables 16S-only failed physical-edge rescue; positive floor is experimental. */
+	int prok16sPartialMinLen=0;
 	/** NaN preserves the per-model pass cutoff; Quantum never consumes this override. */
 	float modelClipRescueId=Float.NaN;
 	private boolean suppressRejectedWindow=false;
@@ -1434,10 +1502,11 @@ public class NcrnaScavenger {
 		rrnaEndpointFeatures=new RrnaEndpointCallerFeatures(resources,sink);
 	}
 	/** Test-visible caller seam; no work or validation occurs while observation is off. */
-	void captureRrnaEndpointFeatures(Orf orf,byte[] bases,int model){
+	void captureRrnaEndpointFeatures(Orf orf,byte[] bases,int model){captureRrnaEndpointFeatures(orf,bases,model,Float.NaN);}
+	void captureRrnaEndpointFeatures(Orf orf,byte[] bases,int model,float acceptedIdentity){
 		if(rrnaEndpointFeatures==null){return;}
 		final long start=System.nanoTime(),rawLength=orf.stop-orf.start+1L;
-		try{rrnaEndpointFeatures.capture(orf,bases,model,contigGC(bases),minLen,maxLen);alignmentCount++;alignedBases+=rawLength;}
+		try{rrnaEndpointFeatures.capture(orf,bases,model,contigGC(bases),minLen,maxLen,acceptedIdentity);if(!rrnaEndpointFeatures.resources.acceptedVerifierIdentity){alignmentCount++;alignedBases+=rawLength;}}
 		catch(RuntimeException | AssertionError e){shared.KillSwitch.assertDie("Endpoint inference/observation failed on caller worker: "+e);throw e;}
 		finally{boundaryNanos+=System.nanoTime()-start;}
 	}

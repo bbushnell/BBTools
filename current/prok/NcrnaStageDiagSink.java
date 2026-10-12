@@ -34,6 +34,13 @@ interface NcrnaStageDiagSink {
 	default void path(String family, String contig, int strand, int scaflen,
 		String modelName, int start, int stop, boolean retained){}
 
+	/** Selected verifier identity carried by the exact16S candidate through DP.
+	 * NaN for other families. Existing observers retain their old path callback. */
+	default void path(String family,String contig,int strand,int scaflen,
+		String modelName,int start,int stop,boolean retained,float acceptedIdentity){
+		path(family,contig,strand,scaflen,modelName,start,stop,retained);
+	}
+
 	/** One initial alignment actually attempted for a shortlisted model. Identity
 	 * is observed before length/identity acceptance; it is not a counterfactual
 	 * for models outside the shortlist. Rescue realignments are not reported here. */

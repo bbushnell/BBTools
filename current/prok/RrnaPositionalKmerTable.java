@@ -54,11 +54,14 @@ public final class RrnaPositionalKmerTable {
 	public static final class Table{
 		public Table(String model_,String end_,int k_,int offset_,double alpha_){this(model_,end_,k_,offset_,alpha_,RADIUS);}
 		public Table(String model_,String end_,int k_,int offset_,double alpha_,int radius_){
+			this(model_,end_,k_,offset_,alpha_,radius_,false);
+		}
+		private Table(String model_,String end_,int k_,int offset_,double alpha_,int radius_,boolean inferenceOnly){
 			require(model_!=null&&model_.matches("[A-Za-z0-9_.:-]+")&&(end_.equals("5prime")||end_.equals("3prime")),"One explicit consensus and gene end per table");
 			require(k_>=6&&k_<=9&&Double.isFinite(alpha_)&&alpha_>0,"Recipe anchor search uses k6..9 and finite positive pseudocount");
 			radius=radius_;sites=sitesForRadius(radius);inputs=Math.addExact(sites,3);
 			valid=new long[sites];clipped=new long[sites];ambiguous=new long[sites];
-			model=model_;end=end_;k=k_;offset=offset_;alpha=alpha_;space=1<<(2*k);counts=new long[sites][space];
+			model=model_;end=end_;k=k_;offset=offset_;alpha=alpha_;space=1<<(2*k);counts=inferenceOnly?null:new long[sites][space];
 		}
 		public void add(byte[] bases,int trueEnd){
 			require(!finished&&bases!=null&&trueEnd>=0&&trueEnd<bases.length,"Training requires a real inclusive endpoint before finalization");records++;
@@ -68,7 +71,7 @@ public final class RrnaPositionalKmerTable {
 			}
 		}
 		public void finish(){
-			require(!finished&&records>0,"Finalize a nonempty training population once");
+			require(!finished&&records>0&&counts!=null,"Finalize a nonempty training population once; inference-only tables have no training counts");
 			for(int site=0;site<sites;site++){long sum=0;for(long n:counts[site]){require(n>=0,"Count overflow must not produce a valid table");sum=Math.addExact(sum,n);}
 				require(sum==valid[site]&&valid[site]+clipped[site]+ambiguous[site]==records,"Every training record has one counted, clipped or ambiguous observation per offset");
 				require(valid[site]>0,"Every scored offset needs observed training bases, not only a pseudocount prior");
@@ -95,12 +98,30 @@ public final class RrnaPositionalKmerTable {
 			for(int site=0;site<sites;site++){final long pos=(long)anchorStart+site-radius;final int word=pos<0||pos+k>bases.length?-1:encode(bases,(int)pos,k);dest[site]=word<0?Float.NaN:(float)scoreKey(word);}
 		}
 		public void write(String path){
-			require(finished,"Only validated completed tables are written");RrnaResourceIO.fresh(path,"");final ByteStreamWriter out=RrnaResourceIO.writer(path);final ByteBuilder b=new ByteBuilder();
+			require(finished&&counts!=null,"Only completed training tables with positional counts can be written");RrnaResourceIO.fresh(path,"");final ByteStreamWriter out=RrnaResourceIO.writer(path);final ByteBuilder b=new ByteBuilder();
 			try{out.println(SCHEMA);out.println(META_HEADER);out.print(b.clear().append(model).tab().append(end).tab().append(k).tab().append(radius).tab().append(offset).tab().append(Double.toString(alpha)).tab().append(records).nl());
 				writeTotals(out,b,"valid",valid);writeTotals(out,b,"clipped",clipped);writeTotals(out,b,"ambiguous",ambiguous);out.println(rowHeader(radius));
 				for(int word=0;word<space;word++){long other=0;for(int site=0;site<sites;site++){if(site!=radius){other+=counts[site][word];}}if(other+counts[radius][word]==0){continue;}
 					b.clear();appendKmer(b,word,k);b.tab().append(counts[radius][word]).tab().append(other).tab().append(Double.toString(scoreKey(word)));
 					for(int site=0;site<sites;site++){b.tab().append(counts[site][word]);}out.print(b.nl());
+				}
+			}finally{RrnaResourceIO.finish(out);}
+		}
+		/** Compact shipping format: geometry/denominators plus exact scores only.
+		 * Omitted keys use the same smoothed default as the full training table. */
+		public void writeScores(String path){
+			require(finished && scores!=null,"Only finalized inference scores may be packaged");
+			RrnaResourceIO.fresh(path,"");final ByteStreamWriter out=RrnaResourceIO.writer(path);final ByteBuilder b=new ByteBuilder();
+			final long absentBits=Double.doubleToLongBits(unobservedScore(this));
+			try{
+				out.println(SCORE_SCHEMA);out.println(META_HEADER);
+				out.print(b.clear().append(model).tab().append(end).tab().append(k).tab().append(radius).tab().append(offset).tab().append(Double.toString(alpha)).tab().append(records).nl());
+				writeTotals(out,b,"valid",valid);writeTotals(out,b,"clipped",clipped);writeTotals(out,b,"ambiguous",ambiguous);
+				out.println("kmer\tlog_score");
+				for(int word=0; word<space; word++){
+					if(Double.doubleToLongBits(scores[word])==absentBits){continue;}
+					require(Double.isFinite(scores[word]),"Packaged endpoint scores must be finite");
+					b.clear();appendKmer(b,word,k);out.print(b.tab().append(Double.toString(scores[word])).nl());
 				}
 			}finally{RrnaResourceIO.finish(out);}
 		}
@@ -121,6 +142,39 @@ public final class RrnaPositionalKmerTable {
 			for(int word=0;word<table.space;word++){if(seen[word]){require(Double.isFinite(saved[word])&&Math.abs(saved[word]-table.scoreKey(word))<1e-10,"Saved log score disagrees with its counts/denominators/pseudocount");}}
 			return table;
 		}finally{require(!in.close(),"Score table read failed");}
+	}
+	/** Inference retains only exact saved double scores. Training keeps load(),
+	 * including its count reconstruction/checks. Missing sparse rows use the
+	 * same smoothed score as computeScore for an unobserved key, never zero. */
+	public static Table loadScores(String path,String expectedModel){
+		final ByteFile in=RrnaResourceIO.open(path);final LineParser1 p=new LineParser1('\t');
+		try{final byte[] first=in.nextLine();require(first!=null,"Missing endpoint table schema: "+path);
+			final String schema=new String(first,java.nio.charset.StandardCharsets.US_ASCII);
+			final boolean compact=SCORE_SCHEMA.equals(schema);require(compact || SCHEMA.equals(schema),"Unsupported endpoint table schema: "+path);
+			RrnaResourceIO.header(in,META_HEADER,path);p.set(in.nextLine());
+			require(p.terms()==7&&p.termEquals(expectedModel,0),"Saved model must match inference and declare its radius");
+			final Table table=new Table(p.parseString(0),p.parseString(1),p.parseInt(2),p.parseInt(4),savedDouble(p,5),p.parseInt(3),true);table.records=p.parseLong(6);
+			require(table.records>0,"Inference scores require a nonempty declared training population");
+			readTotals(in,p,"valid",table.valid);readTotals(in,p,"clipped",table.clipped);readTotals(in,p,"ambiguous",table.ambiguous);RrnaResourceIO.header(in,compact ? "kmer\tlog_score" : rowHeader(table.radius),path);
+			for(int i=0;i<table.sites;i++){require(table.valid[i]>0&&Math.addExact(Math.addExact(table.valid[i],table.clipped[i]),table.ambiguous[i])==table.records,"Every offset denominator must account for the declared population");}
+			final double absent=unobservedScore(table);
+			table.scores=new double[table.space];java.util.Arrays.fill(table.scores,absent);final boolean[] seen=new boolean[table.space];
+			for(byte[] row;(row=in.nextLine())!=null;){p.set(row);p.setBounds(0);require(p.terms()==(compact ? 2 : table.sites+4)&&p.b()-p.a()==table.k,"Inference rows must match their declared score-only or training schema");
+				final int word=encode(row,p.a(),table.k);require(word>=0&&!seen[word],"Invalid or duplicate inference table key");seen[word]=true;p.setBounds(compact ? 1 : 3);
+				// Exact decimal roundtrip is required for double-bit parity with write().
+				// Native approximate parsing can differ by an ulp; this cold-path allocation
+				// replaces the far larger positional-count reconstruction, not a hot lookup.
+				final double value=Parse.parseDoubleSlow(row,p.a(),p.b());require(Double.isFinite(value),"Nonfinite saved score would corrupt endpoint input");table.scores[word]=value;
+			}
+			table.finished=true;return table;
+		}finally{require(!in.close(),"Inference score table read failed");}
+	}
+	static double unobservedScore(Table table){
+		assert(table.valid.length==table.sites && table.sites>1) : "Omitted-key smoothing uses every non-anchor denominator in the saved geometry";
+		final double prior=table.alpha*table.space,anchor=table.alpha/(table.valid[table.radius]+prior);double background=0;
+		for(int site=0; site<table.sites; site++){if(site!=table.radius){background+=table.alpha/(table.valid[site]+prior);}}
+		final double absent=Math.log(anchor/(background/(table.sites-1)));
+		require(Double.isFinite(absent),"Unobserved-key smoothing must produce a finite lookup score");return absent;
 	}
 	static void score(String input,Table table,String path,long expected){
 		RrnaResourceIO.fresh(path,"");final ByteStreamWriter out=RrnaResourceIO.writer(path);final ByteBuilder b=new ByteBuilder();final float[] values=new float[table.sites];final long[] rows={0};final ObjectSet<String> seen=new ObjectSet<String>(String.class);
@@ -149,5 +203,6 @@ public final class RrnaPositionalKmerTable {
 	public static final int RADIUS=12,SITES=25;
 	static int sitesForRadius(int radius){require(radius>0,"An anchor/background table needs a positive radius");return Math.addExact(Math.multiplyExact(2,radius),1);}
 	static final String SCHEMA="#RRNA_ANCHOR_LOG_RATIO_V1",META_HEADER="model\tend\tk\tradius\tanchor_start_offset\tpseudocount_per_key_per_offset\trecords";
+	static final String SCORE_SCHEMA="#RRNA_ANCHOR_SCORES_V1";
 	static final byte[] BASES={'A','C','G','T'};
 }

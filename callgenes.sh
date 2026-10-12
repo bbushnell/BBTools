@@ -291,14 +291,30 @@ euk5smodelcutoffs=  Override resources/euk5S_model_cutoffs.tsv; f uses scalars.
                 for either unset scalar. euk5s=f loads none of these resources.
 ncrna=f         Enable generic conserved-ncRNA families (off by default).
                 Alias: generalncrna=.
-rrna17=f        Enable an integrated 17-mer rRNA profile: prok loads
-				16S/23S/prokaryotic-5S; euk loads 18S/eukaryotic-5S.
-				euk18s and euk5s explicitly load either eukaryotic family alone.
-				Families in one
-				profile share one seed scan per contig and strand.
-                Requires 16s=f 23s=f 5s=f 18s=f so legacy PGM and 17-mer rRNA
-				calls cannot mix.
+rrna17=f        Enable a 17-mer rRNA profile: 16s loads only the new 16S caller;
+                prok loads 16S/23S/prokaryotic-5S; euk loads 18S/eukaryotic-5S.
+                euk18s and euk5s load either eukaryotic family alone.
+                Families share one seed scan per contig and strand.
+                rrna17=16s requires call16s=f and preserves other calling flags.
+                Other profiles require 16s=f 23s=f 5s=f 18s=f to prevent duplicates.
                 Alias: rrna17mer=.
+rrna16sseedminhits=2  Minimum seed occurrences per16S candidate window.
+                Packaged resource contains285 forward17-mers; verification uses
+                the best K9 model, minimum identity0.66 and complete length1400.
+rrna16swindow=containment  Preserve containing candidate windows during collapse.
+                Set legacy to use the older intersection policy.
+rrna16spartialminlen=1200  Rescue failed16S windows at physical contig ends when
+                alignment proves model clipping;0 disables this rescue.
+                Partial calls keep raw endpoints and emit partial=10,01,11 for
+                missing genomic left,right,both ends. Internal fragments retain
+                the complete-gene length requirement.
+rrna16sendpoint=t  Refine enabled16S endpoints with packaged model-specific nets.
+                Set f for raw alignment ends. Mitochondrial16S and rescued
+                physical-edge partials always retain raw endpoints.
+rrna16sendpointtables=  Override the directory containing TABLES.tsv and tables.
+rrna16sendpointnets=    Override the16S .bbnets file or selected-network directory.
+                Resources load only when16S is enabled; missing/incompatible
+                resources fail before calling. Requires rrna17=16s or prok.
 rrna17prok5shbm=t  Enable prok5S HBM rescue for alignments with identity
                 from 0.60 through 0.80.  Set false for a matched detection
                 ablation; requires rrna17=prok and leaves the full profile on.

@@ -499,7 +499,34 @@ public class Orf extends PFeature {
 		if(ncrnaFamily!=null){
 			bb.append(",family:").append(ncrnaFamily);
 		}
+		final int partial=partialMask();
+		if(partial!=0){
+			bb.append(";partial=").append((partial&1)!=0 ? '1' : '0').append((partial&2)!=0 ? '1' : '0');
+		}
 		return bb;
+	}
+
+	/** Prodigal left/right bits in the same forward-genomic coordinates emitted by appendGff. */
+	int partialMask(){
+		assert(ncrnaPartial>=0 && ncrnaPartial<=3) : "Scavenger model-end provenance uses only sense 5-prime/3-prime bits";
+		int sense=0;
+		if(type==CDS){
+			final int first=(strand==Shared.PLUS ? start : scaflen-1-stop);
+			final int last=(strand==Shared.PLUS ? stop : scaflen-1-start);
+			// GeneCaller.makeOrfsForFrame starts a synthetic edge ORF at exactly
+			// startFrame. Its terminal branch ends at the last complete codon;
+			// the preserved legacy branch removes one extra base. These exact
+			// generator endpoints plus truncation provenance exclude internal gaps.
+			final int terminal=scaflen-1-(scaflen-frame)%3;
+			if(startTruncated && first==frame){sense|=1;}
+			if(stopTruncated && (last==terminal || last==terminal-1)){sense|=2;}
+		}else{
+			sense=ncrnaPartial;
+		}
+		final int genomic=(strand==Shared.MINUS ? ((sense&1)<<1)|((sense&2)>>>1) : sense);
+		// RNA model clipping can be internal; only an emitted physical-end call
+		// gets partial. CDS has the exact frame-bound terminal evidence above.
+		return type==CDS ? genomic : genomic&((start==0 ? 1 : 0)|(stop==scaflen-1 ? 2 : 0));
 	}
 	
 	public boolean isSSU(){return type==r16S || type==r18S;}
@@ -552,6 +579,9 @@ public class Orf extends PFeature {
 	
 	public final int type;
 	public String trnaModel;
+	/** Model ends absent beyond physical contig boundaries: bit1=5-prime, bit2=3-prime.
+	 * Sense-oriented provenance remains unchanged when genomic coordinates flip. */
+	int ncrnaPartial;
 	/** Anticodon triplet extracted structurally from the called sequence, or null */
 	public String trnaAnticodon;
 	/** Explicit generic-ncRNA family identity (e.g. "s18", "r58", "lsu"), set by
@@ -560,6 +590,9 @@ public class Orf extends PFeature {
 	 * is not a safe family identity -- Ganyu/Qiqi design note, 2026-09-17). Purely
 	 * additive: unused by appendGff() so far, does not change any existing GFF byte. */
 	public String ncrnaFamily;
+	/** Selected16S verifier identity before endpoint refinement; NaN means unavailable.
+	 * Diagnostic provenance only: never reconstructed from rounded scores or used by DP. */
+	float accepted16sIdentity=Float.NaN;
 	/** Immutable accepted consensus provenance for SSU competition, independent of GFF annotation. */
 	byte[] ssuFullModel;
 	String ssuFullModelName;

@@ -254,6 +254,8 @@ public class NcrnaFamily {
 	boolean voteWindows=false, voteEnds=false;
 	/** Experimental window grouping on unpadded seed predictions; false preserves legacy geometry. */
 	boolean voteBeforePadding=false;
+	/** Opt-in containment correction; a clipped subset cannot shrink its containing proposal. */
+	boolean preserveContainingWindows=false;
 	int voteSlack=60;
 	float voteEndsMaxSd=5f;
 	/** Optional production model-dispatched endpoint resources. Null preserves the
@@ -297,6 +299,8 @@ public class NcrnaFamily {
 	boolean modelEndClipping=false;
 	/** Try local model clipping only after the unchanged Quantum window rejects. */
 	boolean modelClipRescue=false;
+	/** Zero disables the separate 16S physical-edge route; no production floor is assumed. */
+	int prok16sPartialMinLen=0;
 	/** NaN retains each model's cutoff; an explicit value applies only to local rescue. */
 	float modelClipRescueId=Float.NaN;
 }

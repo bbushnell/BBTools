@@ -52,8 +52,8 @@ import ml.CellNetParser;
  * @author G11
  */
 public class NcrnaBoundaryScorer {
-	/** Shared 28-input rRNA feature contract; no network is loaded or evaluated.
-	 * Candidate identity must be measured on the same inclusive raw span. */
+	/** Shared resource-sized rRNA feature contract; no network is loaded or evaluated.
+	 * Identity follows the network bundle's declared training definition. */
 	public static boolean rrnaEndpointFeatures(RrnaPositionalKmerTable.Table table,byte[] bases,
 			int start,int stop,int consensusLength,float contigGC,float candidateIdentity,float[] scratch,float[] output){
 		return RrnaEndpointVector.fill(table,bases,start,stop,consensusLength,contigGC,candidateIdentity,scratch,output);

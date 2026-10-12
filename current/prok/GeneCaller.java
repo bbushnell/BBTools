@@ -279,7 +279,7 @@ public class GeneCaller extends ProkObject {
 			//makeRnas flips minus-strand calls to genomic coordinates before the DP.
 			final int start=orf.strand==0 ? orf.start : length-1-orf.stop;
 			final int stop=orf.strand==0 ? orf.stop : length-1-orf.start;
-			ncrnaDiagSink.path(orf.ncrnaFamily,name,orf.strand,length,orf.trnaModel,start,stop,retained);
+			ncrnaDiagSink.path(orf.ncrnaFamily,name,orf.strand,length,orf.trnaModel,start,stop,retained,orf.accepted16sIdentity);
 		}
 	}
 	
@@ -417,6 +417,7 @@ public class GeneCaller extends ProkObject {
 		scavenger.family=family.name;
 		scavenger.voteTable=family.voteTable; scavenger.voteWindows=family.voteWindows; scavenger.voteEnds=family.voteEnds;
 		scavenger.voteBeforePadding=family.voteBeforePadding;
+		scavenger.preserveContainingWindows=family.preserveContainingWindows;
 		scavenger.voteSlack=family.voteSlack; scavenger.voteEndsMaxSd=family.voteEndsMaxSd;
 		scavenger.outputType=family.outputType;
 		scavenger.minKmerHits=family.seedMinHits;
@@ -437,6 +438,7 @@ public class GeneCaller extends ProkObject {
 		scavenger.joinedSideSupport=family.joinedSideSupport;
 		scavenger.modelEndClipping=family.modelEndClipping;
 		scavenger.modelClipRescue=family.modelClipRescue;
+		scavenger.prok16sPartialMinLen=family.prok16sPartialMinLen;
 		scavenger.modelClipRescueId=family.modelClipRescueId;
 		if(family.modelThresholds!=null){scavenger.setModelThresholds(family.modelThresholds);}
 		scavenger.boundaryFeatureVersion=family.boundaryFeatureVersion;

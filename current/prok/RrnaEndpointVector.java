@@ -50,12 +50,12 @@ public final class RrnaEndpointVector {
 	}
 
 	/** Shared caller/training feature API. Bounds are zero-based inclusive in the
-	 * sense-oriented bases. The identity belongs to this SAME raw candidate span.
+	 * sense-oriented bases. Identity follows the network's declared training definition.
 	 * False means at least one missing k-mer: caller retains raw ends; no NN row.
 	 * Scratch/out are worker-local reusable buffers, never shared between threads. */
 	public static boolean fill(RrnaPositionalKmerTable.Table table,byte[] bases,int rawStart,int rawStop,int consensusLength,float contigGC,float identity,float[] scratch,float[] out){
 		require(table!=null&&bases!=null&&rawStart>=0&&rawStop>=rawStart&&rawStop<bases.length&&consensusLength>0,"Features require a valid inclusive raw candidate span and reference length");
-		require(Float.isFinite(contigGC)&&contigGC>=0&&contigGC<=1&&Float.isFinite(identity)&&identity>=0&&identity<=1,"Use measured full-contig GC fraction and finite candidate-span identity, never truth-derived substitutes");
+		require(Float.isFinite(contigGC)&&contigGC>=0&&contigGC<=1&&Float.isFinite(identity)&&identity>=0&&identity<=1,"Use measured full-contig GC and finite identity from the declared alignment definition, never truth-derived substitutes");
 		require(scratch!=null&&scratch.length==table.sites&&out!=null&&out.length==table.inputs,"Features must match the resource-sized score window followed by three extras");
 		final int rawEnd=table.end.equals("5prime")?rawStart:rawStop;final long anchor=(long)rawEnd+table.offset;
 		require(anchor>=Integer.MIN_VALUE&&anchor<=Integer.MAX_VALUE,"Endpoint plus signed anchor offset must not overflow");

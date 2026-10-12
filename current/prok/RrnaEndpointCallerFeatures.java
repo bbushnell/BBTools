@@ -27,15 +27,25 @@ public final class RrnaEndpointCallerFeatures {
 			this(family_,names_,refs_,five_,three_,null,null);
 		}
 		public Resources(String family_,String[] names_,byte[][] refs_,RrnaPositionalKmerTable.Table[] five_,RrnaPositionalKmerTable.Table[] three_,CellNet[] fiveNets_,CellNet[] threeNets_){
+			this(family_,names_,refs_,five_,three_,fiveNets_,threeNets_,null);
+		}
+		public Resources(String family_,String[] names_,byte[][] refs_,RrnaPositionalKmerTable.Table[] five_,RrnaPositionalKmerTable.Table[] three_,CellNet[] fiveNets_,CellNet[] threeNets_,boolean[] raw_){
+			this(family_,names_,refs_,five_,three_,fiveNets_,threeNets_,raw_,false);
+		}
+		public Resources(String family_,String[] names_,byte[][] refs_,RrnaPositionalKmerTable.Table[] five_,RrnaPositionalKmerTable.Table[] three_,CellNet[] fiveNets_,CellNet[] threeNets_,boolean[] raw_,boolean acceptedIdentity_){
 			require(family_!=null && family_.matches("[A-Za-z0-9_]+"),"Endpoint resources require an explicit registered family key");family=family_;
+			require(!acceptedIdentity_ || family.equals("16S"),"Accepted-verifier identity is trained and enabled for16S only; other families keep their candidate-span definition");acceptedVerifierIdentity=acceptedIdentity_;
 			require(names_!=null && refs_!=null && five_!=null && three_!=null && names_.length>0 && names_.length==refs_.length && names_.length==five_.length && names_.length==three_.length,"Every caller consensus must bind one table per end");
 			names=names_.clone();refs=refs_.clone();five=five_.clone();three=three_.clone();final map.ObjectSet<String> seen=new map.ObjectSet<String>(String.class);
+			require(raw_==null || raw_.length==names.length,"Explicit raw-endpoint mask must bind every detection model");raw=raw_==null?new boolean[names.length]:raw_.clone();
 			require((fiveNets_==null && threeNets_==null) || (fiveNets_!=null && threeNets_!=null && fiveNets_.length==names.length && threeNets_.length==names.length),"Inference requires both networks for every model");
 			fiveNets=fiveNets_==null?null:fiveNets_.clone();threeNets=threeNets_==null?null:threeNets_.clone();
-			require(five[0]!=null,"The first model must declare the family's endpoint geometry");
-			radius=five[0].radius;sites=five[0].sites;inputs=five[0].inputs;
+			int first=-1;for(int i=0;i<names.length;i++){if(!raw[i]){first=i;break;}}
+			require(first>=0 && five[first]!=null,"At least one refined model must declare the family's endpoint geometry");
+			radius=five[first].radius;sites=five[first].sites;inputs=five[first].inputs;
 			for(int i=0;i<names.length;i++){
 				require(names[i]!=null && names[i].matches("[A-Za-z0-9_]+") && seen.add(names[i]) && refs[i]!=null && refs[i].length>0,"Feature resources require unique safe caller model names and actual consensus bases");
+				if(raw[i]){require(five[i]==null && three[i]==null && (fiveNets==null || (fiveNets[i]==null && threeNets[i]==null)),"Explicit raw models must not silently load ignored tables or networks");continue;}
 				require(five[i]!=null && three[i]!=null && five[i].model.equals(names[i]) && three[i].model.equals(names[i]) && five[i].end.equals("5prime") && three[i].end.equals("3prime"),"Each table must bind the trained model and its own endpoint");
 				// Geometry is shared within a family; k and anchor remain per end/model.
 				require(five[i].radius==radius && three[i].radius==radius,"All model/end tables in one family must use its declared radius");
@@ -43,7 +53,8 @@ public final class RrnaEndpointCallerFeatures {
 				if(fiveNets!=null){validateNet(fiveNets[i],inputs,sites);validateNet(threeNets[i],inputs,sites);}
 			}
 		}
-		final String family;final int radius,sites,inputs;
+		final String family;final int radius,sites,inputs;final boolean acceptedVerifierIdentity;
+		final boolean[] raw;
 		final String[] names;final byte[][] refs;final RrnaPositionalKmerTable.Table[] five,three;
 		final CellNet[] fiveNets,threeNets;
 		static void validateNet(CellNet net,int inputs,int sites){require(net!=null && net.numInputs()==inputs && net.numOutputs()==sites,"Endpoint network dimensions must match the family's table radius and three extras");}
@@ -64,8 +75,17 @@ public final class RrnaEndpointCallerFeatures {
 		capture(candidate,bases,model,contigGC,1,Integer.MAX_VALUE);
 	}
 	void capture(Orf candidate,byte[] bases,int model,float contigGC,int minLen,int maxLen){
+		capture(candidate,bases,model,contigGC,minLen,maxLen,Float.NaN);
+	}
+	void capture(Orf candidate,byte[] bases,int model,float contigGC,int minLen,int maxLen,float acceptedIdentity){
 		require(candidate!=null && resources.family.equals(candidate.ncrnaFamily) && model>=0 && model<resources.refs.length && resources.names[model].equals(candidate.trnaModel),"Raw candidate must belong to the configured family and winning model");
-		final byte[] reference=resources.refs[model];final float identity=RrnaEndpointVector.candidateIdentity(bases,candidate.start,candidate.stop,reference,stats);
+		final byte[] reference=resources.refs[model];final float identity;
+		if(resources.acceptedVerifierIdentity){require(Float.isFinite(acceptedIdentity) && acceptedIdentity>=0 && acceptedIdentity<=1,"Retrained16S features require the actual accepted winning-model verifier identity; no cropped re-alignment fallback");identity=acceptedIdentity;}
+		else{identity=RrnaEndpointVector.candidateIdentity(bases,candidate.start,candidate.stop,reference,stats);}
+		// Legacy bundles retain their counted candidate-span alignment. Accepted-
+		// identity bundles reuse the supplied scalar; neither path invents endpoint
+		// predictions for explicit raw models.
+		if(resources.raw[model]){return;}
 		final boolean fiveUsable=NcrnaBoundaryScorer.rrnaEndpointFeatures(resources.five[model],bases,candidate.start,candidate.stop,reference.length,contigGC,identity,scratch,five);
 		final boolean threeUsable=NcrnaBoundaryScorer.rrnaEndpointFeatures(resources.three[model],bases,candidate.start,candidate.stop,reference.length,contigGC,identity,scratch,three);
 		if(sink!=null){sink.capture(candidate.scafName,candidate.strand,model,candidate.start,candidate.stop,five,fiveUsable,three,threeUsable);}
@@ -84,7 +104,7 @@ public final class RrnaEndpointCallerFeatures {
 		candidate.start=start;candidate.stop=stop;return true;
 	}
 	static int predict(CellNet net,float[] features){net.applyInput(features);net.feedForward();return RrnaResourceIO.argmax(net.getOutput());}
-	static CellNet[] copyNets(CellNet[] templates){if(templates==null){return null;}final CellNet[] copies=new CellNet[templates.length];for(int i=0;i<copies.length;i++){copies[i]=templates[i].copy(false);}return copies;}
+	static CellNet[] copyNets(CellNet[] templates){if(templates==null){return null;}final CellNet[] copies=new CellNet[templates.length];for(int i=0;i<copies.length;i++){copies[i]=templates[i]==null?null:templates[i].copy(false);}return copies;}
 	static void require(boolean ok,String why){if(!ok){throw new IllegalArgumentException(why);}}
 	final Resources resources;final Sink sink;final AlignmentStats stats=new AlignmentStats(true);
 	final CellNet[] fiveNets,threeNets;
