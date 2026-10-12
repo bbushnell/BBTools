@@ -60,9 +60,9 @@ Java parameters:
 -ea                   Assertions enabled by default.
 
 Model installation:
-Download prokcc_v1.4.tar from:
-https://sourceforge.net/projects/bbmap/files/Resources/prokcc_v1.4.tar
-Extract its contents into resources/ to create resources/prokcc/.
+Download prokcc_v1.5.tar from:
+https://sourceforge.net/projects/bbmap/files/Resources/prokcc_v1.5.tar
+Untar it in the BBTools resources/ directory to create resources/prokcc/.
 The archive contains the matching configuration, models, and tables. Downloads
 are manual. See resources/prokcc/README.md for the model and release details.
 
@@ -106,8 +106,8 @@ if [[ $CLASS == prok.ProkCC && $CONFIG_GIVEN == false ]]; then
   DEFAULT_CONFIG=$DIR/resources/prokcc/release.config
   if [[ ! -f $DEFAULT_CONFIG ]]; then
     echo "Missing default model config: $DEFAULT_CONFIG" >&2
-    echo 'Download prokcc_v1.4.tar from https://sourceforge.net/projects/bbmap/files/Resources/prokcc_v1.4.tar' >&2
-    echo "Extract its contents into $DIR/resources/ to create resources/prokcc/, then try again." >&2
+    echo 'Download https://sourceforge.net/projects/bbmap/files/Resources/prokcc_v1.5.tar' >&2
+    echo "Untar it in the BBTools resources/ directory ($DIR/resources/) to create resources/prokcc/, then try again." >&2
     exit 1
   fi
   ARGS=("config=$DEFAULT_CONFIG" "${ARGS[@]}")

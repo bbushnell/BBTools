@@ -13,6 +13,16 @@ public final class ProkCC {
 
 	/** Passes the public arguments to the shared native assembly engine. */
 	public static void main(String[] args) throws Exception{
+		//Embedded callers bypass prokcc.sh, so report installation help before config parsing fails.
+		for(String arg:args){
+			if(arg.regionMatches(true, 0, "config=", 0, 7)){
+				final String config=arg.substring(7);
+				if(!new java.io.File(config).isFile()){
+					throw new IllegalArgumentException("Missing ProkCC release config: "+config+"\n"+
+						shared.Resources.prokccDownloadInstructions());
+				}
+			}
+		}
 		prot.MagQCAssemblyBatch.main(args);
 	}
 

@@ -32,6 +32,9 @@ Input parameters:
 ref=<file>      The original assembly that was binned.
 in=<directory>  Location of bin fastas.
 checkm=<file>   Optional CheckM2 quality_report.tsv file or directory.
+prokcc         Runs ProkCC on the input bins and imports its temporary report.
+                Use the flag alone, without '='. Requires installed ProkCC models.
+                The temporary report is removed unless keeptemp=t or verbose=t.
 prokcc=<file>   Optional existing ProkCC TSV report, or directory/prokcc.tsv.
                 Reads bin_id, gene_completeness, and gene_contamination from
                 the #columns header. Scores are fractions, not percentages.

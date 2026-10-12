@@ -196,12 +196,18 @@ public final class MagQCAssemblyBatchTest {
 			final String message=e.getMessage();
 			rejected=message.contains("magqc_composite_v1.4_shrunk_18bit.bbnet.gz") && message.contains("magqc_subnets_v1.4_shrunk_18bit.bbnets.gz")
 				&& message.contains("magqc_hbm_v1.rare01.hbmt.gz") && message.contains("magqc_sidecar_v1.tsv.gz")
-				&& message.contains("https://sourceforge.net/projects/bbmap/files/Resources/prokcc_v1.4.tar")
-				&& message.contains("Extract its contents into BBTools/resources/ to create resources/prokcc/")
+				&& message.contains("https://sourceforge.net/projects/bbmap/files/Resources/prokcc_v1.5.tar")
+				&& message.contains("Untar it in the BBTools resources/ directory to create resources/prokcc/")
 				&& !message.contains("PROKCC_V1_TAG_PENDING");
 		}
 		check(rejected, "Missing assets must identify all four files and their download instructions");
-		final String archive="https://sourceforge.net/projects/bbmap/files/Resources/prokcc_v1.4.tar";
+		final String archive="https://sourceforge.net/projects/bbmap/files/Resources/prokcc_v1.5.tar";
+		rejected=false;
+		try{prok.ProkCC.main(new String[]{"config="+root.resolve("missing.config")});}
+		catch(IllegalArgumentException e){
+			rejected=e.getMessage().contains(archive) && e.getMessage().contains("BBTools resources/ directory");
+		}
+		check(rejected, "Embedded ProkCC must report installation instructions before parsing a missing release config");
 		check(archive.equals(shared.Resources.downloadURL("?prokcc/release.config"))
 			&& archive.equals(shared.Resources.downloadURL("magqc_subnets_v1.4_shrunk_18bit.bbnets.gz")),
 			"The release config and full subnet bundle must resolve to the same manual archive");
@@ -224,7 +230,7 @@ public final class MagQCAssemblyBatchTest {
 				"Missing legacy fixture must remain absent");
 		}finally{System.setErr(previous);}
 		final String instructions=captured.toString("UTF-8");
-		check(instructions.contains(legacy) && instructions.contains("Extract its contents into BBTools/resources/")
+		check(instructions.contains(legacy) && instructions.contains("Untar it in the BBTools resources/ directory")
 			&& !instructions.contains("Place it in BBTools/networks/"),
 			"Missing legacy models require their matching archive extraction instructions");
 		for(String path:options.values()){Files.write(java.nio.file.Paths.get(path), new byte[]{1});}
