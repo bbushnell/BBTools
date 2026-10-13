@@ -293,7 +293,10 @@ ncrna=f         Enable generic conserved-ncRNA families (off by default).
                 Alias: generalncrna=.
 rrna17=f        Enable a 17-mer rRNA profile: 16s loads only the new 16S caller;
                 23s loads only the experimental 23S caller.
-                prok loads 16S/23S/prokaryotic-5S; euk loads 18S/eukaryotic-5S.
+                prok loads the 16S/23S seeded callers and replaces their PGM paths.
+                Prokaryotic 5S uses the PGM caller until its 17-mer resource ships;
+                once present, that resource enables seeded 5S instead of PGM 5S.
+                Other calling flags remain unchanged. euk loads 18S/eukaryotic-5S.
                 euk18s and euk5s load either eukaryotic family alone.
                 Families share one seed scan per contig and strand.
                 rrna17=16s requires call16s=f and preserves other calling flags.
@@ -302,7 +305,7 @@ rrna17=f        Enable a 17-mer rRNA profile: 16s loads only the new 16S caller;
                 minimum128, top3 ranked fallback and identity0.60. Packaged
                 networks refine complete endpoints; proven contig-edge partials
                 retain raw endpoints with a minimum length of1800 bases.
-                Other profiles require 16s=f 23s=f 5s=f 18s=f to prevent duplicates.
+                Eukaryotic profiles require 16s=f 23s=f 5s=f 18s=f to prevent duplicates.
                 Alias: rrna17mer=.
 rrna16sseedminhits=2  Minimum seed occurrences per16S candidate window.
                 Packaged resource contains285 forward17-mers; verification uses

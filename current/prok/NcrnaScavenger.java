@@ -867,7 +867,8 @@ public class NcrnaScavenger {
 				if(diagSink!=null){diagSink.modelPacBio(family,name,strand,pass,wStart,wStop,m,r,modelPass,joined?seq.length:maxLen);}
 			}else{
 				stats=new AlignmentStats(true);
-				id=QuantumAligner.alignAndTraceStatic(library[m], seq, stats);
+				id=quantumCapMultiplier==1 ? QuantumAligner.alignAndTraceStatic(library[m], seq, stats)
+					: QuantumAligner.alignAndTraceStatic(library[m], seq, stats, quantumCapMultiplier);
 			}
 			diagnoseModel(name,bases.length,strand,pass,wStart,wStop,m,id);
 			alignedBases+=seq.length;
@@ -1443,6 +1444,7 @@ public class NcrnaScavenger {
 	int trimExt=10;
 	boolean scavengePass2=true;
 	boolean reuseConsensusAlignment=false;
+	int quantumCapMultiplier=1;
 	boolean pacBioConsensusAlignment=false;
 	boolean pacBioRolling=false;
 	align2.PacBioScoreParameters pacBioCosts=align2.PacBioScoreParameters.DEFAULT;

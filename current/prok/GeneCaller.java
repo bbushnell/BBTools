@@ -431,6 +431,11 @@ public class GeneCaller extends ProkObject {
 		scavenger.indexScoreMargin=family.indexScoreMargin;
 		scavenger.trimAlignmentExtent=family.trimAlignmentExtent;
 		scavenger.reuseConsensusAlignment=family.reuseConsensusAlignment;
+		if(family.quantumCapMultiplier!=1 && (!family.reuseConsensusAlignment
+				|| !"23S".equals(family.name) || family.quantumCapMultiplier!=2)){
+			throw new IllegalArgumentException("Only reused23S verification may select Quantum cap2: "+family.name);
+		}
+		scavenger.quantumCapMultiplier=family.quantumCapMultiplier;
 		scavenger.pacBioConsensusAlignment=family.pacBioConsensusAlignment;
 		scavenger.pacBioCosts=family.pacBioCosts;
 		scavenger.pacBioRolling=family.pacBioRolling;

@@ -2540,21 +2540,35 @@ public class CallGenes extends ProkObject {
 			}else if(profile.equals("prok")){
 				addRrna16sFamily(before);
 				addRrna23sFamily(before+1);
-				final String prok5sModelResource=(RRNA17_PROK5S_HBM ? defaultNcrnaModel("5S.g5.models.hbm") : null);
-				addRrna17Family("prok5S", "5S_consensus_sequence.fa", prok5sModelResource,
-					loadEffectiveNcrnaKmerSet("prok5S", "5S_17mers.fa", null, 17), 17, 90, 150,
-					7, 3, false, 0f, 0f, 0f, 2, 0f, 1f, .80f, .60f,
-					(RRNA17_PROK5S_HBM ? .60f : 1.01f), .85f,
-					NcrnaFamily.LEGACY_START_OFFSETS, NcrnaFamily.LEGACY_STOP_OFFSETS);
-				final NcrnaFamily prok5s=familyAt(before+2, "prok5S");
-				if(RRNA17_PROK5S_HBM){
-					requireNcrnaLibraryModelAlignment(prok5s.name, prok5s.library, prok5s.models, prok5s.modelNames,
-						"5S_consensus_sequence.fa", "5S.g5.models.hbm");
-				}else if(prok5s.models!=null){
-					throw new IllegalStateException("rrna17prok5shbm=f loaded unexpected prok5S models");
+				String prok5sSeedPath=findNcrnaResource("5S_17mers.fa");
+				if(prok5sSeedPath==null){prok5sSeedPath=findNcrnaResource("5S_17mers.fa.gz");}
+				if(prok5sSeedPath==null){
+					call5S=true;
+					System.err.println("Prokaryotic 5S uses the PGM caller until its 17-mer resource ships.");
+				}else{
+					final LongHashSet prok5sSeeds=ProkObject.loadLongKmers(prok5sSeedPath, 17);
+					if(prok5sSeeds==null || prok5sSeeds.size()<1){
+						throw new IllegalArgumentException("Empty prokaryotic 5S 17-mer resource: "+prok5sSeedPath);
+					}
+					final String prok5sModelResource=(RRNA17_PROK5S_HBM ? defaultNcrnaModel("5S.g5.models.hbm") : null);
+					addRrna17Family("prok5S", "5S_consensus_sequence.fa", prok5sModelResource,
+						prok5sSeeds, 17, 90, 150,
+						7, 3, false, 0f, 0f, 0f, 2, 0f, 1f, .80f, .60f,
+						(RRNA17_PROK5S_HBM ? .60f : 1.01f), .85f,
+						NcrnaFamily.LEGACY_START_OFFSETS, NcrnaFamily.LEGACY_STOP_OFFSETS);
+					final NcrnaFamily prok5s=familyAt(before+2, "prok5S");
+					if(RRNA17_PROK5S_HBM){
+						requireNcrnaLibraryModelAlignment(prok5s.name, prok5s.library, prok5s.models, prok5s.modelNames,
+							"5S_consensus_sequence.fa", "5S.g5.models.hbm");
+					}else if(prok5s.models!=null){
+						throw new IllegalStateException("rrna17prok5shbm=f loaded unexpected prok5S models");
+					}
+					configureRrna17Family(prok5s, ProkObject.r5S, 2, true, false, false, false);
+					call5S=false;
 				}
-				configureRrna17Family(prok5s, ProkObject.r5S, 2, true, false, false, false);
-				if(GeneCaller.ncrnaFamilies.size()!=before+3){throw new IllegalArgumentException("rrna17=prok requires complete 16S, 23S, and prok5S resources");}
+				if(GeneCaller.ncrnaFamilies.size()!=before+(call5S?2:3)){
+					throw new IllegalArgumentException("rrna17=prok must retain16S/23S and exactly one seeded or PGM5S caller");
+				}
 			}else if(profile.equals("euk") || profile.equals("euk18s")){
 				//Keep the expanded opt-in library separate from legacy 18S refinement.
 				addRrna17Family("18S", "18S_rrna17_consensus_sequence.fa", null,
@@ -2617,6 +2631,7 @@ public class CallGenes extends ProkObject {
 			RRNA23S_ENDPOINT_MODE==RRNA23S_ENDPOINT_G16);
 		configureRrna23SEndpoints(family);
 		family.prok16sPartialMinLen=1800;
+		family.quantumCapMultiplier=2;
 		System.err.println("23S controls: seedK="+family.kLong+" seedKeys="+family.kmerSet.size()
 			+" seedMinHits="+family.seedMinHits+" seedDistinct="+family.seedDistinct+" idPass="+family.idPass);
 	}
@@ -3950,6 +3965,9 @@ public class CallGenes extends ProkObject {
 			if(call16S){throw new IllegalArgumentException("rrna17=16s requires call16s=f to prevent duplicate mixed-method 16S calls");}
 		}else if(RRNA17_ENABLED && "23s".equals(RRNA17_PROFILE)){
 			if(call23S){throw new IllegalArgumentException("rrna17=23s requires call23s=f to prevent duplicate mixed-method 23S calls");}
+		}else if(RRNA17_ENABLED && "prok".equals(RRNA17_PROFILE)){
+			//The combined profile replaces these PGM callers;5S is resolved when its seed resource loads.
+			call16S=false;call23S=false;
 		}else if(RRNA17_ENABLED && (call16S || call18S || call23S || call5S)){
 			throw new IllegalArgumentException("rrna17 requires call16s=f call23s=f call5s=f call18s=f to prevent duplicate mixed-method rRNA calls");
 		}

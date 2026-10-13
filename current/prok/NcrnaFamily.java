@@ -286,6 +286,8 @@ public class NcrnaFamily {
 	/** When true, every shortlisted consensus is Quantum-aligned once with
 	 * traceback, and that result supplies detection, coordinates, and HBM input. */
 	boolean reuseConsensusAlignment=false;
+	/** Per-call Quantum cap; the production23S family alone selects a wider search. */
+	int quantumCapMultiplier=1;
 	/** Default-off unchanged PacBio MSA primary; only the experimental euk18S profile sets this. */
 	boolean pacBioConsensusAlignment=false;
 	boolean pacBioRolling=false;

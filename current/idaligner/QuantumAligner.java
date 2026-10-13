@@ -353,6 +353,14 @@ public class QuantumAligner implements IDAligner{
 	 * non-trace callers pay no ancestry-recording cost.  Each evaluated cell records one
 	 * compact predecessor node; a quantum deletion jump is one node with a multi-base run. */
 	public static final float alignAndTraceStatic(byte[] query, byte[] ref, AlignmentStats stats){
+		return alignAndTraceStatic(query, ref, stats, 1);
+	}
+
+	/** Explicit per-call search-width control. Existing entry points retain multiplier one.
+	 * Wider calls require trace stats; no global setting or nontrace user is changed. */
+	public static final float alignAndTraceStatic(byte[] query, byte[] ref, AlignmentStats stats, int capMultiplier){
+		if(capMultiplier!=1 && capMultiplier!=2 && capMultiplier!=4){throw new IllegalArgumentException("Quantum cap multiplier must be 1, 2 or 4: "+capMultiplier);}
+		if(capMultiplier!=1 && (stats==null || !stats.doTrace)){throw new IllegalArgumentException("An explicit wider Quantum cap requires trace-enabled alignment stats");}
 		if(stats==null){return alignStatic(query, ref, null);}
 		if(!stats.doTrace){
 			final int[] pos=new int[4];
@@ -370,7 +378,7 @@ public class QuantumAligner implements IDAligner{
 		final Visualizer viz=(output==null ? null : new Visualizer(output, POSITION_BITS, DEL_BITS));
 		final int[] bwPos=new int[2];
 		bwPos[0]=stats.rStart;
-		final int bandWidth=decideBandwidth(query, ref, bwPos);
+		final int bandWidth=capMultiplier*decideBandwidth(query, ref, bwPos);
 		final int topWidth=Math.min(qLen, bandWidth*2);
 		final int insPad=-16-rLen/128-(int)Math.sqrt(rLen)-(5*Math.max(0, rLen-qLen))/4;
 		final int sideWidth0=1;
