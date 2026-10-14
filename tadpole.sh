@@ -292,6 +292,24 @@ lowdepthcontigfraction=0.2 (ldcfrac) Maximum candidate depth relative to the
 lowdepthcontigtopology=conservative (ldctopology) Candidate endpoint policy.
                     Conservative accepts dead/dead, dead/back-branch, and
                     back-branch/back-branch; notloop accepts every non-loop form.
+contigrescuenet=<file> Experimental single-K raw-unitig NN postpass (off by default).
+                    Requires a samek27-v1 model and explicit contigrescuecutoff.
+                    Reuses the assembly table; no second table or input pass.
+                    REPLACES ordinary graph cleanup with exact K-1 joining of
+                    reciprocal-unique accepted ends; closed cycles are not joined.
+                    Retains short unitigs until final mincontig filtering.
+                    Domain: K24-127, canonical DNA, minextension>=2.
+                    Sets pop=f processcontigs=f sweeplen=0 retainshortcontigs=t
+                    trimends=0 trimcircular=f hashkmers=f. Conflicting overrides,
+                    multi-K, graph output and auxiliary outputs are rejected.
+                    Use one out=FASTA; append=t is unsupported. Redirect stderr
+                    in the shell instead of outstream=.
+                    Bundled model: <bbmap>/networks/tadpole_contig_rescue.bbnet.
+                    Pass its explicit path and contigrescuecutoff=0.7.
+contigrescuecutoff=<float> Required probability threshold in [0,1]; accept >= cutoff.
+contigrescuescores=<file> Optional per-candidate score/decision trace.
+                    For scalar dot products and reproducible score bits, set
+                    simdfma=f. Default SIMD scores can vary slightly with JIT state.
 retainshortcontigs=auto Retain sub-sweeplen unitigs through graph operations,
                     while still suppressing them from final FASTA output.  Auto
                     preserves the prior behavior: enabled with pop=t.

@@ -76,6 +76,11 @@ public abstract class Tadpole extends ShaveObject{
 	 */
 	public static void main(String[] args){
 		args=expandConfigArgs(args);
+		if(SameKJoinRescue.requested(args)){
+			try{SameKJoinRescue.run(args);}
+			finally{Shared.closeStream(outstream);}
+			return;
+		}
 		if(TadpoleMulti.hasMultipleK(args)){
 			if(TadpoleGraph.requested(args)){
 				throw new IllegalArgumentException("Graph-only mode currently requires one k value, not a multi-K assembly schedule.");
