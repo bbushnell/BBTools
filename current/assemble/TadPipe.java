@@ -158,21 +158,23 @@ public class TadPipe {
 		Path merged=null, unmerged=paired;
 		if(config.merge){
 			final ArrayList<Path> parts=new ArrayList<Path>();
-			final int[] ks=(config.rem ? new int[] {0,124,145,93} : new int[] {0});
-			for(int k : ks){
+			for(int pass=-1; pass<(config.rem ? config.remKs.length : 0); pass++){
+				final int k=(pass<0 ? 0 : config.remKs[pass]);
 				final String group="merge"+k;
-				final Stage merge=stage("05_"+group, "bbmerge.sh", "merge", group);
+				final String label=config.mergeLabel(pass);
+				final Stage merge=(pass<0 ? stage("05_"+label, "bbmerge.sh", "merge", group)
+						: stage("05_"+label, "bbmerge.sh", "merge", group, "rem"+(pass+1)));
 				merge.defaults("interleaved=t", "ordered=t");
 				if(k==0){merge.defaults("kfilter=1");}
 				else{
-					merge.defaults("rem=t", "k="+k, "extend2="+(k==124 ? 120 : k==145 ? 140 : 100));
+					merge.defaults("rem=t", "k="+k, "extend2="+config.remExtension(pass));
 					if(k==93){merge.defaults("strict=t");}
 				}
 				merge.overrides(config);
 				merge.io("in", unmerged);
 				if(!parts.isEmpty()){merge.args.put("extra", join(parts));}
-				final Path part=reads(group);
-				unmerged=reads(group+"_unmerged");
+				final Path part=reads(label);
+				unmerged=reads(label+"_unmerged");
 				merge.output("out", part);
 				merge.output("outu", unmerged);
 				parts.add(part);
@@ -193,10 +195,12 @@ public class TadPipe {
 		}
 		if(config.extend){
 			final Path originalMerged=merged, originalUnmerged=unmerged;
-			if(merged!=null){
+			if(merged!=null && config.extendMerged){
 				merged=extension(stages, "08_extend_merged", "extendm", originalMerged, originalUnmerged, false, 145);
 			}
-			unmerged=extension(stages, "09_extend_unmerged", "extendu", originalUnmerged, originalMerged, true, 124);
+			if(config.extendUnmerged){
+				unmerged=extension(stages, "09_extend_unmerged", "extendu", originalUnmerged, originalMerged, true, 124);
+			}
 		}
 		final Stage assembly=stage("10_assemble", "tadpole.sh", "assemble");
 		assembly.defaults("assemblek=124", "k=124,300,96,64,32", "minprob=0", "minprobmain=f",
@@ -330,7 +334,15 @@ public class TadPipe {
 				else if(key.equals("ecc") || key.equals("correct")){ecc=Parse.parseBoolean(value);}
 				else if(key.equals("merge")){merge=Parse.parseBoolean(value);}
 				else if(key.equals("rem")){rem=Parse.parseBoolean(value);}
+				else if(key.equals("remk")){
+					remKs="none".equalsIgnoreCase(value) ? new int[0] : integerList(value, "remk", 1);
+				}
+				else if(key.equals("remextend")){
+					remExtends="auto".equalsIgnoreCase(value) ? null : integerList(value, "remextend", 0);
+				}
 				else if(key.equals("extend")){extend=Parse.parseBoolean(value);}
+				else if(key.equals("extendm") || key.equals("extendmerged")){extendMerged=Parse.parseBoolean(value);}
+				else if(key.equals("extendu") || key.equals("extendunmerged")){extendUnmerged=Parse.parseBoolean(value);}
 				else if(key.equals("qtrim")){qtrim=Parse.parseBoolean(value);}
 				else if(key.equals("nn")){nn=Parse.parseBoolean(value);}
 				else if(key.equals("interleaved") || key.equals("int")){
@@ -342,6 +354,60 @@ public class TadPipe {
 					addOverride("assemble_"+key, value);
 				}
 				else{throw new IllegalArgumentException("Unknown TadPipe option: "+arg+"; use a documented phase_ prefix.");}
+			}
+			validateRem();
+		}
+
+		/** Parses ordered K/extension lists without silently discarding empty entries. */
+		private static int[] integerList(final String value, final String option, final int minimum){
+			assert(minimum>=0) : "REM lengths use nonnegative bounds; K additionally excludes zero.";
+			if(value==null || value.isEmpty()){throw new IllegalArgumentException(option+" needs a value.");}
+			final String[] fields=value.split(",", -1);
+			final int[] list=new int[fields.length];
+			for(int i=0; i<fields.length; i++){
+				if(fields[i].isEmpty()){throw new IllegalArgumentException("Empty entry in "+option+": "+value);}
+				list[i]=Parse.parseIntKMG(fields[i]);
+				if(list[i]<minimum){throw new IllegalArgumentException(option+" entries must be >="+minimum+": "+value);}
+			}
+			return list;
+		}
+
+		/** Resolves the extension limit for one REM pass; automatic values preserve the old recipe. */
+		int remExtension(final int pass){
+			assert(pass>=0 && pass<remKs.length) : "REM extension limits must align with the ordered REM K list.";
+			if(remExtends!=null){return remExtends[remExtends.length==1 ? 0 : pass];}
+			final int k=remKs[pass];
+			return k==124 ? 120 : k==145 ? 140 : 100;
+		}
+
+		/** Preserves legacy names, but prevents repeated K passes from overwriting earlier evidence. */
+		String mergeLabel(final int pass){
+			assert(pass>=-1 && pass<remKs.length) : "Only overlap (-1) or a scheduled REM pass has output paths.";
+			if(pass<0){return "merge0";}
+			final String label="merge"+remKs[pass];
+			for(int i=0; i<pass; i++){
+				if(remKs[i]==remKs[pass]){return label+"_pass"+(pass+1);}
+			}
+			return label;
+		}
+
+		/** Rejects mismatched lists and mistyped per-pass groups before any child can run. */
+		private void validateRem(){
+			assert(remKs!=null) : "The overlap pass is separate from the always-defined REM schedule.";
+			if(remExtends!=null && remExtends.length!=1 && remExtends.length!=remKs.length){
+				throw new IllegalArgumentException("remextend needs one value or one value per remk entry.");
+			}
+			if(!merge || !rem){return;}
+			for(String group : overrides.keySet()){
+				if(group.matches("rem[0-9]+")){
+					final int pass=Integer.parseInt(group.substring(3));
+					if(pass<1 || pass>remKs.length){throw new IllegalArgumentException("REM pass is not scheduled: "+group);}
+				}else if(group.matches("merge[0-9]+")){
+					final int k=Integer.parseInt(group.substring(5));
+					boolean present=(k==0);
+					for(int scheduled : remKs){present|=(k==scheduled);}
+					if(!present){throw new IllegalArgumentException("REM K is not scheduled: "+group+"; set remk first.");}
+				}
 			}
 		}
 
@@ -385,8 +451,11 @@ public class TadPipe {
 			if(group.equals("correct")){group="ecc";}
 			if(group.equals("clumpify")){group="clump";}
 			if(group.equals("extend1")){group="extend";}
-			if(!Arrays.asList("dedupe", "ecco", "clump", "ecc", "merge", "merge0", "merge124", "merge145",
-					"merge93", "qtrim", "extend", "extendm", "extendu", "assemble").contains(group)){
+			final boolean mergeGroup=group.matches("merge[0-9]+"), remGroup=group.matches("rem[0-9]+");
+			if(mergeGroup){group="merge"+Integer.parseInt(group.substring(5));}
+			if(remGroup){group="rem"+Integer.parseInt(group.substring(3));}
+			if(!mergeGroup && !remGroup && !Arrays.asList("dedupe", "ecco", "clump", "ecc", "merge",
+					"qtrim", "extend", "extendm", "extendu", "assemble").contains(group)){
 				throw new IllegalArgumentException("Unknown phase: "+group+"; inputs must already be adapter-trimmed, filtered and calibrated.");
 			}
 			if(option.isEmpty() || option.startsWith("in") || option.startsWith("out") || option.equals("extra")
@@ -412,6 +481,9 @@ public class TadPipe {
 		boolean delete=true, gz=true, overwrite=false, dryrun=false;
 		Boolean interleaved=null;
 		boolean dedupe=true, ecco=true, clump=true, ecc=true, merge=true, rem=true, extend=true, qtrim=true, nn=true;
+		boolean extendMerged=true, extendUnmerged=true;
+		int[] remKs={124,145,93};
+		int[] remExtends=null;
 		final Map<String,Map<String,String>> overrides=new LinkedHashMap<String,Map<String,String>>();
 	}
 

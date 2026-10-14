@@ -91,6 +91,21 @@ tadpipe.sh in=interleaved.fq.gz out=assembly.fa k=96,124,300,64,32 assemblek=96 
 
 Other final assembly controls use assemble_<Tadpole option>=<value>, such as assemble_mincontig=500, assemble_mcs=2, assemble_mce=1, assemble_prefilter=t, or assemble_fusencutoff=0.7.  These override the final Tadpole defaults without affecting earlier phases.  To adjust those phases, use their own prefixes, such as ecc_k=55, extendm_k=124, or extendu_k=96.  Input/output/pairing redirections remain pipeline-managed, and unknown options are rejected by the receiving tool.  Use dryrun=t to inspect the exact commands before processing.
 
+Preprocessing schedules for workflow comparisons:
+
+remk=124,145,93 sets the ordered read-extension-merging passes after the initial overlap merge.  It accepts arbitrary positive K values and repeats.  remk=none or rem=f disables REM without disabling overlap merging.  remextend=auto preserves limits of 120 for K124, 140 for K145, and 100 for other K values; alternatively, supply one nonnegative integer for every pass or one comma-separated value per remk entry.  The K93 pass begins with strict=t.  Pass-specific prefixes override this default: merge_ applies to all merging, merge<K>_ to a scheduled K, and rem<N>_ to one REM pass numbered from 1 (not counting the overlap pass).  Specificity wins in that order, regardless of CLI order between groups.  Repeated passes get unique output/log names and each sees all preceding merged evidence.  When changing the schedule, remove any K/pass-specific override that no longer names an enabled pass.  Disabled phases ignore their overrides.
+
+For example (an experimental configuration, not a recommended depth preset):
+tadpipe.sh in=interleaved.fq.gz out=assembly.fa ecc_k=47 ecc_rbb=t \
+    remk=64,96,64 remextend=40,80,40 rem3_strict=t \
+    extendm=f extendu_k=64 k=64,96,32 assemblek=64 -Xmx16g t=8
+
+extendm=t and extendu=t independently enable extension of merged and unmerged reads; extend=f overrides both switches.  Merged extension also requires merging to be enabled.  Whether one or both sets are extended, each extension uses the unextended opposite set as additional evidence.  The final assembly receives the extended version only for enabled stages; disabling a stage never drops that read set.
+
+Useful controls already available through the phase prefixes include ecco_k=31, clump_passes=4, ecc_k=62, ecc_wash=t, ecc_ldf=0.15, ecc_tossdepth=1, ecc_tu=t, ecc_rbb=f, and ecc_tossjunk=f.  Those are the current pipeline/native defaults, not tuned metagenome settings.  Residual filtering defaults are qtrim_trimq=15, qtrim_maq=14, qtrim_minlen=90 and qtrim_maxns=1.  Extension defaults are extend_mce=4, extendm_k=145, extendm_el=10, extendm_er=10, extendu_k=124, extendu_el=10 and extendu_er=0.  These parameters are independent of bare k/assemblek, which remain final-assembly-only.
+
+Use ordinary config=files (one flag=value per line) to save high-, mid-, low-depth and metagenome experiment recipes; put -Xmx on the command line.  No validated regime presets or automatic profile classifier are supplied yet.  The no-override pipeline remains unchanged.  Inspect the generated commands with dryrun=t and measure recovery, contiguity and misassemblies before promoting a recipe.
+
 Assembly:
 tadpole.sh in=reads.fq out=contigs.fa k=93
 

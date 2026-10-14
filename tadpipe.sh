@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified October 10, 2026
+Last modified October 12, 2026
 
 Description:  Assembles preprocessed paired Illumina reads with deduplication,
 overlap/Clumpify/Tadpole correction, staged merging, extension, and ordered
@@ -42,10 +42,29 @@ ecco=t              BBMerge overlap correction.
 clump=t             Clumpify correction of both mates, with pairing restored.
 ecc=t               Tadpole kmer correction at K62.
 merge=t             Overlap merging, then optional REM passes.
-rem=t               REM at K124,145,93 with accumulated merged-read evidence.
+rem=t               Enable the remk schedule after ordinary overlap merging.
 qtrim=t             Quality-trim/filter the residual unmerged reads.
 extend=t            Extend merged and unmerged reads with both sets as evidence.
+extendm=t           Extend merged reads; requires extend=t and merge=t.
+extendu=t           Extend unmerged reads; requires extend=t.
 nn=t                Use the bundled fusion NN at cutoff 0.667098.
+
+REM schedule controls (do not change ECC, extension, or final assembly K):
+remk=124,145,93      Ordered REM K list; arbitrary positive K values and repeats.
+                    remk=none or rem=f retains overlap merging only.
+remextend=auto       Extension limit per REM pass. One integer applies to all,
+                    or give one comma-separated integer per remk entry.
+                    Zero is allowed. Auto uses 120 for K124, 140 for K145,
+                    and 100 for other K values, preserving the old recipe.
+                    Each pass consumes residual pairs and earlier merged reads.
+                    Repeated K passes have distinct outputs and logs.
+The scheduled K93 pass starts with strict=t; other REM passes use native
+stringency unless overridden. merge_= all merging, merge<K>_= scheduled K,
+rem<N>_= one-based REM pass (excluding overlap). More specific overrides win:
+remextend defaults, then merge_, then merge<K>_, then rem<N>_.
+
+For example, remk=64,96,64 remextend=40,80,40 rem3_strict=t runs three REM
+passes, making only the last pass strict. These are controls, not tuned presets.
 
 Final assembly controls (never applied to correction, merging, or extension):
 k=124,300,96,64,32  Ordered final assembly/traversal schedule; repeats preserved.
@@ -72,15 +91,34 @@ assemble_mce=1           Override final assembly minimum extension kmer count.
 assemble_prefilter=t     Enable the final assembly prefilter.
 dedupe_subs=0            Require exact duplicates (native default permits 2).
 clump_passes=6           Set Clumpify correction passes (pipeline default 4).
+ecco_k=31               Set overlap-correction kmer filtering K (default 31).
+ecc_k=62                Set Tadpole correction K (default 62).
+ecc_wash=t              Clean the correction graph (pipeline default true).
+ecc_ldf=0.15            Set the low-depth-read discard fraction (default 0.15).
+ecc_tossdepth=1         Set the low-depth kmer threshold (pipeline default 1).
+                        Use -1 to disable this low-depth-read discard test.
+ecc_rbb=t               Require both mates to be bad before pair rejection
+                        (native default false).
+ecc_tu=f                Keep uncorrectable reads (pipeline default true).
+ecc_tossjunk=t          Enable native junk-read rejection (default false).
 merge_strict=t           Apply to all merging passes, not overlap correction.
 merge145_extend2=100     Override only the K145 REM pass.
+rem2_strict=f            Override stringency of only the second REM pass.
+qtrim_trimq=15          Residual-read trimming quality (pipeline default 15).
+qtrim_maq=14            Residual-read minimum mean quality (default 14).
+qtrim_minlen=90         Residual-read minimum length (default 90).
+extend_mce=4            Minimum extension kmer count for both sets (default 4).
 extend_el=20             Set left extension for both read sets.
 extendu_k=96             Override only unmerged-read extension.
+Merged extension defaults: extendm_k=145 extendm_el=10 extendm_er=10.
+Unmerged defaults: extendu_k=124 extendu_el=10 extendu_er=0.
+Each extension sees the unextended opposite read set, even if that set's
+extension is disabled. extend=f disables both sets regardless of their switches.
 
 Valid prefixes:
 
 dedupe_, ecco_, clump_ (clumpify_), ecc_ (correct_),
-merge_, merge0_, merge124_, merge145_, merge93_, qtrim_,
+merge_, merge0_ (overlap), merge<K>_, rem<N>_, qtrim_,
 extend_ (extend1_), extendm_, extendu_, assemble_.
 
 Stage-specific overrides follow group-wide overrides. TadPipe owns filenames
@@ -91,6 +129,11 @@ Use ecc_k, extendm_k, or extendu_k to adjust those earlier phases explicitly.
 Custom assemble_fusenet requires an explicit assemble_fusencutoff.
 Adapter trimming, contaminant filtering, and the old unreachable extend2_
 stage are not part of this pipeline. Named files and Bash are required.
+
+Workflow experiments can be stored as ordinary config=files, one flag=value
+per line; e.g. config=low_depth.config. Keep JVM heap flags on the command line.
+Inspect dryrun=t first. No validated high/mid/low/metagenome presets or automatic
+profile selection are supplied yet; current no-override defaults are unchanged.
 "
 }
 

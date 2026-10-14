@@ -26,9 +26,12 @@ public class TadPipeTest {
 		test.testReadQuota();
 		test.testPlan();
 		test.testAssemblyOverrides();
+		test.testPreprocessingOverrides();
+		test.testRemSchedule();
 		test.testSuccess();
 		test.testFailures();
 		test.testValidation();
+		test.testRemValidation();
 		test.testEmptyCompressed();
 		System.out.println("TADPIPE_TEST_PASS checks="+test.checks+" scratch="+test.root);
 	}
@@ -171,6 +174,111 @@ public class TadPipeTest {
 		check(plan.get(3).command.contains("k=55"), "An explicit ecc_k override still configures correction independently.");
 		check(plan.get(10).command.contains("k=145") && plan.get(11).command.contains("k=124"),
 				"Neither assembly nor ECC kmer overrides may leak into read extension.");
+	}
+
+	/** Confirms fine biological controls stay in their phase and extension switches preserve evidence. */
+	private void testPreprocessingOverrides() throws Exception{
+		final TadPipe baseline=new TadPipe(config("prep-default.fa"), System.err);
+		baseline.work=Files.createDirectory(root.resolve("prep-controls"));
+		final ArrayList<TadPipe.Stage> original=baseline.plan();
+		final TadPipe explicit=new TadPipe(config("prep-explicit.fa", "remk=124,145,93", "remextend=auto",
+				"extendm=t", "extendu=t"), System.err);
+		explicit.work=baseline.work;
+		final ArrayList<TadPipe.Stage> unchanged=explicit.plan();
+		check(unchanged.size()==original.size(), "Explicit default controls must retain every stage.");
+		for(int i=0; i<original.size(); i++){
+			check(original.get(i).command.equals(unchanged.get(i).command), "Explicit defaults must not alter stage "+i);
+		}
+		final TadPipe tuned=new TadPipe(config("prep-tuned.fa", "ecco_k=27", "clump_passes=2",
+				"ecc_k=47", "ecc_ldf=0", "ecc_tossdepth=1", "ecc_tossjunk=t", "ecc_rbb=t", "ecc_tu=f",
+				"merge_strict=f", "qtrim_minlen=60", "extend_mce=2", "extendm_k=96", "extendu_k=64"), System.err);
+		tuned.work=baseline.work;
+		final ArrayList<TadPipe.Stage> plan=tuned.plan();
+		check(plan.get(1).command.contains("k=27"), "Overlap correction has its own K override.");
+		check(plan.get(2).command.contains("passes=2"), "Clump correction pass count must remain configurable.");
+		for(String arg : Arrays.asList("k=47", "ldf=0", "tossdepth=1", "tossjunk=t", "rbb=t", "tu=f")){
+			check(plan.get(3).command.contains(arg), "Kmer correction must receive its independent control: "+arg);
+		}
+		check(plan.get(9).command.contains("minlen=60"), "Residual-read filtering must be configurable.");
+		check(plan.get(10).command.contains("mce=2") && plan.get(10).command.contains("k=96"), "Merged extension routing.");
+		check(plan.get(11).command.contains("mce=2") && plan.get(11).command.contains("k=64"), "Unmerged extension routing.");
+		check(plan.get(12).command.equals(original.get(12).command), "Preparation overrides must leave final assembly unchanged.");
+		for(int mask=0; mask<4; mask++){
+			final boolean merged=(mask&1)!=0, unmerged=(mask&2)!=0;
+			final TadPipe pipe=new TadPipe(config("switch"+mask+".fa", "extendm="+merged, "extendu="+unmerged), System.err);
+			pipe.work=baseline.work;
+			final ArrayList<TadPipe.Stage> switched=pipe.plan();
+			check(switched.size()==11+(merged ? 1 : 0)+(unmerged ? 1 : 0), "Independent extension switches change only their own stages.");
+			final TadPipe.Stage assembly=switched.get(switched.size()-1);
+			check(assembly.args.get("in").endsWith(merged ? "08_extend_merged.fq.gz" : "merged.fq.gz"), "Final merged input routing.");
+			check(assembly.args.get("extra").endsWith(unmerged ? "09_extend_unmerged.fq.gz" : "07_qtrim.fq.gz"), "Final unmerged input routing.");
+			for(TadPipe.Stage stage : switched){
+				if(stage.name.equals("08_extend_merged")){
+					check(stage.args.get("extra").endsWith("07_qtrim.fq.gz"), "Merged extension must not depend on residual extension.");
+				}else if(stage.name.equals("09_extend_unmerged")){
+					check(stage.args.get("extra").endsWith("merged.fq.gz"), "Residual extension must not depend on merged extension.");
+				}
+			}
+		}
+		final TadPipe off=new TadPipe(config("all-extension-off.fa", "extend=f", "extendm=t", "extendu=t"), System.err);
+		off.work=baseline.work;
+		check(off.plan().size()==11, "The master extend=f switch overrides both individual switches.");
+	}
+
+	/** Tests arbitrary REM order, repeats, positional controls, and the overlap-only case. */
+	private void testRemSchedule() throws Exception{
+		final TadPipe pipe=new TadPipe(config("custom-rem.fa", "remk=64,96,64", "remextend=20,40,60",
+				"merge_strict=f", "merge64_strict=t", "rem3_strict=f", "rem3_extend2=70"), System.err);
+		pipe.work=Files.createDirectory(root.resolve("rem-controls"));
+		final ArrayList<TadPipe.Stage> plan=pipe.plan();
+		check(plan.size()==13, "Three custom REM passes preserve the pipeline shape.");
+		final int[] ks={64,96,64}, limits={20,40,70};
+		final HashSet<String> paths=new HashSet<String>(), names=new HashSet<String>();
+		for(int i=0; i<3; i++){
+			final TadPipe.Stage rem=plan.get(5+i);
+			check(rem.command.contains("k="+ks[i]) && rem.command.contains("extend2="+limits[i]), "REM lists must preserve order and paired limits.");
+			check(rem.args.get("in").equals(plan.get(4+i).args.get("outu")), "Each REM pass consumes the preceding residuals.");
+			check(rem.args.get("extra").split(",").length==i+1, "Each REM pass receives all preceding merged evidence.");
+			check(paths.add(rem.args.get("out")) && names.add(rem.name), "Repeated K must have unique output and log paths.");
+		}
+		check(plan.get(5).args.get("strict").equals("t") && plan.get(7).args.get("strict").equals("f"),
+				"A positional REM override wins over scheduled-K and generic merge overrides.");
+		check(plan.get(7).name.equals("05_merge64_pass3"), "Repeated K names include the one-based REM pass.");
+		check(plan.get(8).args.get("in").split(",").length==4, "Combining must retain overlap plus every REM output.");
+		final TadPipe.Config broadcast=config("broadcast.fa", "remk=96,64", "remextend=35");
+		check(broadcast.remExtension(0)==35 && broadcast.remExtension(1)==35, "One extension limit broadcasts to all REM passes.");
+		final TadPipe.Config auto=config("automatic.fa", "remk=64,145,124,93");
+		check(auto.remExtension(0)==100 && auto.remExtension(1)==140 && auto.remExtension(2)==120
+				&& auto.remExtension(3)==100, "Automatic extension limits preserve legacy K-specific values.");
+		final TadPipe none=new TadPipe(config("no-rem.fa", "remk=none"), System.err);
+		final TadPipe disabled=new TadPipe(config("disabled-rem.fa", "rem=f"), System.err);
+		none.work=disabled.work=pipe.work;
+		final ArrayList<TadPipe.Stage> a=none.plan(), b=disabled.plan();
+		check(a.size()==9 && b.size()==9, "Empty REM schedule keeps overlap merging and omits concatenation.");
+		for(int i=0; i<a.size(); i++){check(a.get(i).command.equals(b.get(i).command), "remk=none and rem=f must have identical dataflow.");}
+		final TadPipe.Config executed=config("rem-executed.fa", "remk=64,96,64", "remextend=20,40,60",
+				"rem3_strict=f", "extendm=f", "extendu=f");
+		final TadPipe custom=new TadPipe(executed, System.err);
+		custom.process();
+		final String log=new String(Files.readAllBytes(custom.work.resolve("05_merge64_pass3.log")), StandardCharsets.UTF_8);
+		check(log.contains("ARG:<k=64>") && log.contains("ARG:<extend2=60>") && log.contains("ARG:<strict=f>"),
+				"Real child argument boundaries must preserve repeated-pass settings.");
+		check(Files.isRegularFile(executed.out), "Custom schedules must publish their successful child output.");
+	}
+
+	/** Rejects malformed schedules before filesystem validation or any subprocess launch. */
+	private void testRemValidation() throws Exception{
+		for(String flag : Arrays.asList("remk=0", "remk=-1", "remk=64,", "remk=,64", "remk=64,,96",
+				"remk=", "remextend=-1", "remextend=10,20", "remextend=", "rem0_strict=t",
+				"rem4_strict=t", "merge65_strict=t")){
+			boolean failed=false;
+			try{config("bad-rem.fa", flag);}catch(IllegalArgumentException expected){failed=true;}
+			check(failed, "Malformed or unscheduled REM control must fail before launch: "+flag);
+		}
+		final TadPipe.Config zero=config("zero-extension.fa", "remk=64", "remextend=0");
+		check(zero.remExtension(0)==0, "Zero extension is an explicit native BBMerge control, not an invalid K.");
+		final TadPipe.Config reordered=config("reordered.fa", "merge64_strict=t", "rem2_strict=f", "remk=96,64");
+		check(reordered.remKs.length==2, "Schedule validation follows all CLI arguments, not their spelling order.");
 	}
 
 	/** Confirms child isolation, publication, quoting, and successful FASTQ-only cleanup. */
