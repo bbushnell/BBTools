@@ -79,6 +79,15 @@ maxstepmult=2   Upper bound on adaptive step, as a multiple of initial step.
 step2boost=1    Multiplier applied only to the projected second-round step.
 maxkmers=       Maximum total kmers to select (0 = no limit).
 target=0.999    Stop when this fraction of pool sequences is covered.
+mincount=1      Minimum kmer occurrences in the still-uncovered pool at the
+                start of each greedy round. Ineligible keys are excluded before
+                ranking; stop and report if no eligible unselected key remains.
+mininitial=0    Optional initial-count EXEMPTION from mincount (0 disables).
+                Eligible if current count >= mincount OR initial count >=
+                mininitial when enabled. Thus mincount=2 mininitial=20 permits
+                a remaining singleton that initially occurred at least20 times.
+                Counts include repeated words and added sequence copies;
+                they are not numbers of distinct sequences. Both alphabets apply.
 
 Performance parameters (kmer counting is multithreaded via a partitioned
 counter -- each thread buffers kmers per-partition and only locks a partition
@@ -104,7 +113,8 @@ pushd . > /dev/null
 DIR="${BASH_SOURCE[0]}"
 while [ -h "$DIR" ]; do
   cd "$(dirname "$DIR")"
-  DIR="$(readlink "$(basename "$DIR")")"
+  COVERINGSET_LINK="$(readlink "$(basename "$DIR")")"
+  DIR="$COVERINGSET_LINK"
 done
 cd "$(dirname "$DIR")"
 DIR="$(pwd)/"

@@ -910,7 +910,7 @@ public class NcrnaScavenger {
 		}
 		final Orf orf=new Orf(name,orfStart,orfStop,strand,0,bases,false,outputType);
 		orf.ncrnaFamily=family;
-		if("16S".equals(family) || "23S".equals(family)){orf.acceptedRrnaIdentity=identity;}
+		if("16S".equals(family) || "23S".equals(family) || "prok5S".equals(family)){orf.acceptedRrnaIdentity=identity;}
 		if(clipModel && modelClipRescue && Euk18sRuntimeConfig.FAMILY.equals(family)
 				&& modelNames!=null && "euk18S_mitochondria".equals(modelNames[model])){
 			orf.ssuFullModel=library[model];

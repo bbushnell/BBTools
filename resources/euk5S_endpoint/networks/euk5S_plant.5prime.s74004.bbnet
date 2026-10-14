@@ -10,7 +10,7 @@
 #dims 28 96 64 48 25
 #CL train_mlp.py amp=none batch=2048 density=1.0 density1=1.0 dump_preds=/global/cfs/cdirs/bbtools/ganyu/euk5s_m3/results/euk5S_plant.5prime.s74004.pred.tsv dump_rows=1000 epochs=800 final=sigmoid fp32_tail_epochs=0 hidden=96,64,48 hidden_act=tanh lr=0.003 lr_floor=0.0 name=euk5S_plant.5prime.s74004 ring_rotate_every=1 save_model=/global/cfs/cdirs/bbtools/ganyu/euk5s_m3/results/euk5S_plant.5prime.s74004.pt seed=74004 targets=all tf32=false warmup_epochs=0 wd=1e-05
 ##gpu_trainer train_mlp.py unknown
-##checkpoint_sha256 7ef267e99bb04dd8d7be105723f3fb2c28687a357015ad5fcf07eb93c9ac4d4f
+##checkpoint_sha80 ad5fcf07eb93c9ac4d4f
 ##best_val_mse 0.0098516191970130663
 ##exported_by bbnet_export.py unknown
 ##mean_sd_folded true

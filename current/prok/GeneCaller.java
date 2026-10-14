@@ -727,6 +727,12 @@ public class GeneCaller extends ProkObject {
 //			System.err.println("Comparing to \t"+prev);
 			if(orf.isValidPrev(prev, maxOverlap)){
 				int overlap=Tools.max(0, prev.stop-orf.start+1);
+				//TODO: Probable bug - seeded rRNA uses r5S/r16S/r23S output types,
+				//not generic RNA, so positive overlap discards NcrnaScavenger's
+				//A+B*length*identity^2 score and applies the CDS heuristic to its
+				//unpopulated start/stop/kmer fields. Native5S trace (2026-10-13,
+				//Thermococcus celer) measured69.70996->4.5397615 at12bp overlap.
+				//Only annotated here: the current assignment is observation-only.
 				float orfScore=(overlap==0 || orf.type==ProkObject.RNA) ? orf.orfScore : orf.calcOrfScore(overlap);
 				if(MINOR_START_MULTIPLIER!=1f && overlap>0 && orf.type==CDS){
 					orfScore=minorStartScore(orfScore, orf.startCodon, orf.startTruncated, MINOR_START_MULTIPLIER);
@@ -792,6 +798,8 @@ public class GeneCaller extends ProkObject {
 //			System.err.println("Comparing to \t"+prev);
 			if(orf.isValidPrev(prev, maxOverlap)){
 				int overlap=Tools.max(0, prev.stop-orf.start+1);
+				//TODO: Same seeded-rRNA/CDS overlap-rescoring issue documented in
+				//calcPathScorePlus; the native12bp5S example reaches this branch.
 				float orfScore=(overlap==0 || orf.type==ProkObject.RNA) ? orf.orfScore : orf.calcOrfScore(overlap);
 				if(MINOR_START_MULTIPLIER!=1f && overlap>0 && orf.type==CDS){
 					orfScore=minorStartScore(orfScore, orf.startCodon, orf.startTruncated, MINOR_START_MULTIPLIER);

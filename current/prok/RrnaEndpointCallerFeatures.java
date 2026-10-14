@@ -34,7 +34,7 @@ public final class RrnaEndpointCallerFeatures {
 		}
 		public Resources(String family_,String[] names_,byte[][] refs_,RrnaPositionalKmerTable.Table[] five_,RrnaPositionalKmerTable.Table[] three_,CellNet[] fiveNets_,CellNet[] threeNets_,boolean[] raw_,boolean acceptedIdentity_){
 			require(family_!=null && family_.matches("[A-Za-z0-9_]+"),"Endpoint resources require an explicit registered family key");family=family_;
-			require(!acceptedIdentity_ || family.equals("16S") || family.equals("23S"),"Only explicitly trained16S/23S resources may select accepted-verifier identity; other families keep their candidate-span definition");acceptedVerifierIdentity=acceptedIdentity_;
+			require(!acceptedIdentity_ || supportsAcceptedIdentity(family),"Only explicitly trained16S/23S/prok5S resources may select accepted-verifier identity; other families keep their candidate-span definition");acceptedVerifierIdentity=acceptedIdentity_;
 			require(names_!=null && refs_!=null && five_!=null && three_!=null && names_.length>0 && names_.length==refs_.length && names_.length==five_.length && names_.length==three_.length,"Every caller consensus must bind one table per end");
 			names=names_.clone();refs=refs_.clone();five=five_.clone();three=three_.clone();final map.ObjectSet<String> seen=new map.ObjectSet<String>(String.class);
 			require(raw_==null || raw_.length==names.length,"Explicit raw-endpoint mask must bind every detection model");raw=raw_==null?new boolean[names.length]:raw_.clone();
@@ -59,6 +59,7 @@ public final class RrnaEndpointCallerFeatures {
 		final CellNet[] fiveNets,threeNets;
 		static void validateNet(CellNet net,int inputs,int sites){require(net!=null && net.numInputs()==inputs && net.numOutputs()==sites,"Endpoint network dimensions must match the family's table radius and three extras");}
 		static void validateNet(CellNet net){validateNet(net,28,25);}
+		static boolean supportsAcceptedIdentity(String family){return "16S".equals(family) || "23S".equals(family) || "prok5S".equals(family);}
 	}
 	/** Called synchronously with reusable worker-local arrays. Copy before retaining;
 	 * implementations shared by multiple workers must synchronize their own output. */

@@ -10,7 +10,7 @@
 #dims 28 96 64 48 25
 #CL train_mlp.py amp=none batch=2048 density=1.0 density1=1.0 dump_preds=/global/cfs/cdirs/bbtools/ganyu/euk5s_anchor_comparison_20260928/C/results/euk5S_fungi.5prime.s74004.pred.tsv dump_rows=1000 epochs=800 final=sigmoid fp32_tail_epochs=0 hidden=96,64,48 hidden_act=tanh lr=0.003 lr_floor=0.0 name=euk5S_fungi.5prime.s74004 ring_rotate_every=1 save_model=/global/cfs/cdirs/bbtools/ganyu/euk5s_anchor_comparison_20260928/C/results/euk5S_fungi.5prime.s74004.pt seed=74004 targets=all tf32=false warmup_epochs=0 wd=1e-05
 ##gpu_trainer train_mlp.py unknown
-##checkpoint_sha256 feea6d2a64b6ad4e6b6c472ee6a6b2019b023a52309d5fbc02877ab800063e9d
+##checkpoint_sha80 5fbc02877ab800063e9d
 ##best_val_mse 0.07856621131621061
 ##exported_by bbnet_export.py unknown
 ##mean_sd_folded true

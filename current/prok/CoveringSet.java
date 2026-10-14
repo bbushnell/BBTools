@@ -57,7 +57,7 @@ import structures.ListNum;
  * kmers shared between rare and common tRNAs rather than random sequence that
  * happens to be common among the rare stragglers.
  *
- * @author Neptune, Brian Bushnell
+	 * @author Neptune, Brian, Ganyu
  */
 public class CoveringSet {
 
@@ -119,6 +119,7 @@ public class CoveringSet {
 			testStreamingFamilies();
 			testStreamingInstrumentationAcrossFailureAndReuse();
 			testScheduledSelection(a.toString(), dir.toString());
+			testMinimumCounts(dir);
 		} catch(Exception e){throw new RuntimeException("CoveringSet selftest failed", e);}
 	}
 
@@ -367,6 +368,10 @@ public class CoveringSet {
 				keySpec=b;
 			}else if(a.equals("minhits")){
 				minHits=Integer.parseInt(b);
+			}else if(a.equals("mincount")){
+				minCount=Parse.parseIntKMG(b);
+			}else if(a.equals("mininitial")){
+				minInitial=Parse.parseIntKMG(b);
 			}else if(a.equals("families") || a.equals("familydir")){
 				families=b;
 			}else if(a.equals("exclude")){
@@ -401,6 +406,8 @@ public class CoveringSet {
 			throw new IllegalArgumentException("key= requires an amino alphabet");
 		}
 		if(minHits<1){throw new IllegalArgumentException("minhits must be >=1: "+minHits);}
+		if(minCount<1){throw new IllegalArgumentException("mincount must be >=1: "+minCount);}
+		if(minInitial<0){throw new IllegalArgumentException("mininitial must be >=0: "+minInitial);}
 		if(maxFamilies<0){throw new IllegalArgumentException("maxfamilies must be >=0: "+maxFamilies);}
 		if(streamFamilies && maxFamilies>0){
 			throw new IllegalArgumentException("streamfamilies=t requires maxfamilies=0 (cross-family "
@@ -511,6 +518,7 @@ public class CoveringSet {
 		int aliveCount=totalSeqs;
 		int round=0;
 		int currentStep=step;
+		long exemptions=0, singletonExemptions=0;
 
 		while(aliveCount>0){
 			if(maxKmers>0 && selectedKmers.size>=maxKmers){break;}
@@ -539,7 +547,13 @@ public class CoveringSet {
 			final int candidateLimit=(int)Tools.min(Integer.MAX_VALUE, 2L*roundStep);
 			//Exclude previously selected keys before bounded top-N truncation. If they
 			//occupy the heap, minhits>1 can see added==0 and stop before a second key.
-			long[] candidates=topNByCount(currentCounts, candidateLimit, selectedSet);
+			long[] candidates=topNByCount(currentCounts, candidateLimit, selectedSet, originalCounts);
+			if(candidates.length==0){
+				int best=0;
+				for(LongIntMap shard : currentCounts.shards){best=Tools.max(best, maxUnselectedCount(shard, selectedSet));}
+				reportCountStop("nucleotide", round, aliveCount, best);
+				break;
+			}
 			long[] ranked=rankByOriginal(candidates, originalCounts, roundStep);
 
 			int added=0;
@@ -547,6 +561,13 @@ public class CoveringSet {
 				if(selectedSet.contains(kmer)){continue;}
 				selectedSet.add(kmer);
 				selectedKmers.add(kmer);
+				if(minInitial>0 && currentCounts.get(kmer)<minCount){
+					final int count=currentCounts.get(kmer), initial=originalCounts.get(kmer);
+					assert(initial>=minInitial) : "topKFromShard only admits a below-mincount key through Brian's initial-count exemption";
+					exemptions++;
+					if(count==1){singletonExemptions++;}
+					if(verbose){outstream.println("  Initial-count exemption: round="+(round+1)+" key="+kmer+" current="+count+" initial="+initial);}
+				}
 				added++;
 			}
 			if(added==0){break;}
@@ -576,6 +597,7 @@ public class CoveringSet {
 		}
 
 		float finalCov=1f-(aliveCount/(float)totalSeqs);
+		if(minInitial>0){outstream.println("Initial-count exemptions selected: "+exemptions+"; current singletons: "+singletonExemptions);}
 		outstream.println("Selected "+selectedKmers.size+" "+kDesign+"-mers in "+round+
 				" rounds, coverage="+String.format("%.6f", finalCov)+
 				" ("+aliveCount+" uncovered of "+totalSeqs+")");
@@ -773,6 +795,7 @@ public class CoveringSet {
 		final ArrayList<Selection> selections=new ArrayList<Selection>();
 		final LongHashSet rejectedBySpecificity=new LongHashSet(1024);
 		int aliveCount=alive.length, rounds=0, currentStep=step;
+		long exemptions=0, singletonExemptions=0;
 		while(aliveCount>0 && (maxKmers<=0 || selections.size()<maxKmers)){
 			if(stepSchedule!=null){currentStep=stepSchedule[Math.min(rounds, stepSchedule.length-1)];}
 			final float coverage=1f-aliveCount/(float)alive.length;
@@ -790,11 +813,16 @@ public class CoveringSet {
 			for(int cell=0; cell<currentKeys.length; cell++){
 				// With minhits>1, uncovered members may contain already selected words.
 				// Exclude those before top-K, or they can fill every slot and stop selection prematurely.
-				if(currentKeys[cell]!=currentInvalid && !selected.contains(currentKeys[cell])){
+				if(currentKeys[cell]!=currentInvalid && !selected.contains(currentKeys[cell])
+						&& (currentValues[cell]>=minCount || (minInitial>0 && original.get(currentKeys[cell])>=minInitial))){
 					currentHeap.add(currentKeys[cell], currentValues[cell], currentKeys[cell]);
 				}
 			}
 			final long[] candidates=currentHeap.keysDescending();
+			if(candidates.length==0){
+				reportCountStop(pool.family, rounds, aliveCount, maxUnselectedCount(current, selected));
+				break;
+			}
 			final TopKHeap originalHeap=new TopKHeap(Tools.min(currentStep, candidates.length));
 			for(long candidate : candidates){originalHeap.add(candidate, original.get(candidate), candidate);}
 			final long[] rankedCandidates=originalHeap.keysDescending();
@@ -802,9 +830,20 @@ public class CoveringSet {
 			for(long word : rankedCandidates){
 				if(selected.contains(word)){continue;}
 				if(maxFamilies>0 && familyFrequency!=null && familyFrequency.get(word)>maxFamilies){
+					//TODO: Probable pre-existing bug - specificity is checked after both bounded
+					//heaps, so added==0 can stop with eligible lower-ranked keys still outside
+					//the shortlist. Apply specificity before truncation in a separately tested
+					//change; mincount work preserves maxFamilies behavior (default0 is unaffected).
 					rejectedBySpecificity.add(word); continue;
 				}
 				selected.add(word); selections.add(new Selection(word, original.get(word), rounds+1));
+				if(minInitial>0 && current.get(word)<minCount){
+					final int count=current.get(word), initial=original.get(word);
+					assert(initial>=minInitial) : "selectFamily's heap admits a below-mincount key only through Brian's initial-count exemption";
+					exemptions++;
+					if(count==1){singletonExemptions++;}
+					if(verbose){outstream.println("  Initial-count exemption: family="+pool.family+" round="+(rounds+1)+" key="+word+" current="+count+" initial="+initial);}
+				}
 				if(++added>=currentStep || (maxKmers>0 && selections.size()>=maxKmers)){break;}
 			}
 			if(added==0){break;}
@@ -820,6 +859,7 @@ public class CoveringSet {
 			// already evicted members and cannot be compared with the remaining vocabulary.
 		}
 		final ArrayList<OutputKmer> output=new ArrayList<OutputKmer>();
+		if(minInitial>0){outstream.println("Initial-count exemptions selected for "+pool.family+": "+exemptions+"; current singletons: "+singletonExemptions);}
 		final LongHashSet emitted=new LongHashSet(Math.max(16, selections.size()*2));
 		int rank=0;
 		for(Selection selection : selections){
@@ -886,6 +926,35 @@ public class CoveringSet {
 		}
 		expectThrowsContaining(()->selector.consensusCopyCount("missing"), "Missing consensus copy count");
 		System.out.println("PASS CoveringSet scheduled selection: distinct multi-hit progress, repeated tail, consensus-copy weighting");
+	}
+
+	/** AA occurs in two members; after selecting it, AC has current count1 but original count2. */
+	private static void testMinimumCounts(java.nio.file.Path dir) throws Exception{
+		assert(dir!=null) : "Minimum-count CLI fixtures need a private output directory";
+		final java.nio.file.Path input=dir.resolve("minimum-counts.fa");
+		java.nio.file.Files.write(input, ">a\nAAC\n>b\nAAG\n>c\nGAC\n".getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+		for(String alphabet : new String[]{"nt", "amino"}){
+			final String[] args={"in="+input, "alphabet="+alphabet, "k=2", "steps=1", "minhits=1", "target=1", "t=1"};
+			final java.nio.file.Path defaults=dir.resolve(alphabet+".counts-default.fa"), explicit=dir.resolve(alphabet+".counts-one.fa"),
+				floor=dir.resolve(alphabet+".counts-two.fa"), initial=dir.resolve(alphabet+".counts-initial.fa"),
+				empty=dir.resolve(alphabet+".counts-empty.fa"), batch=dir.resolve(alphabet+".counts-batch.fa");
+			new CoveringSet(concatArgs(args, "out="+defaults)).process(new Timer());
+			new CoveringSet(concatArgs(args, "out="+explicit, "mincount=1", "mininitial=0")).process(new Timer());
+			if(!readAllText(defaults).equals(readAllText(explicit))){throw new AssertionError("Explicit default count floors must preserve output bytes for "+alphabet);}
+			new CoveringSet(concatArgs(args, "out="+floor, "mincount=2")).process(new Timer());
+			new CoveringSet(concatArgs(args, "out="+initial, "mincount=2", "mininitial=2")).process(new Timer());
+			new CoveringSet(concatArgs(args, "out="+empty, "mincount=3", "mininitial=3")).process(new Timer());
+			new CoveringSet(concatArgs(args, "out="+batch, "steps=5", "mincount=2")).process(new Timer());
+			final int first=alphabet.equals("nt")?0:1;
+			final String one=">kmer_"+first+"\nAA\n", two=one+">kmer_"+(first+1)+"\nAC\n";
+			if(!readAllText(floor).equals(one)){throw new AssertionError("Remaining-count floor must stop before singleton AC after AA covers two members: "+alphabet);}
+			if(!readAllText(initial).equals(two)){throw new AssertionError("Initial counts must survive eviction so remaining singleton AC with original count2 is eligible: "+alphabet);}
+			if(!readAllText(empty).isEmpty()){throw new AssertionError("No kmer has current or original count3; exhaustion must emit an empty set: "+alphabet);}
+			if(!readAllText(batch).equals(two)){throw new AssertionError("Every batched key must meet the floor; low-count AG/GA may not enter behind a frequent key: "+alphabet);}
+			expectThrowsContaining(()->new CoveringSet(concatArgs(args, "out="+empty, "mincount=0")), "mincount must be >=1");
+			expectThrowsContaining(()->new CoveringSet(concatArgs(args, "out="+empty, "mininitial=-1")), "mininitial must be >=0");
+		}
+		System.out.println("PASS CoveringSet minimum counts: nt/amino default bytes, remaining/initial distinction, batch floor, exhaustion and invalid values");
 	}
 
 	private long[] useWords(final long designWord, final int design, final int use){
@@ -1068,6 +1137,7 @@ public class CoveringSet {
 
 	/** Optional metadata leaves the historical fixed-step/no-consensus bytes unchanged. */
 	private void writeSelectionOptions(PrintWriter out){
+		if(minCount!=1 || minInitial!=0){out.println("#mincount\t"+minCount+"\tmininitial\t"+minInitial+"\tcount_units\toccurrences");}
 		if(stepSchedule!=null){
 			out.print("#steps\t");
 			for(int i=0; i<stepSchedule.length; i++){if(i>0){out.print(',');} out.print(stepSchedule[i]);}
@@ -1338,21 +1408,22 @@ public class CoveringSet {
 	 * complete kmer space. Each shard is scanned independently in parallel into
 	 * a bounded primitive heap, then the small shard results are merged. Numeric
 	 * kmer order breaks count ties reproducibly, independent of shard count. */
-	private long[] topNByCount(final PartitionedCounter counter, final int n, final LongHashSet excluded){
+	private long[] topNByCount(final PartitionedCounter counter, final int n, final LongHashSet excluded,
+			final PartitionedCounter original){
 		if(n<=0 || counter.isEmpty()){return new long[0];}
 		final int limit=(int)Tools.min(n, counter.size());
 		final int ways=counter.shards.length;
 		final int threads=Tools.max(1, Shared.threads());
 		final TopKHeap merged=new TopKHeap(limit);
 		if(threads<=1 || ways<=1){
-			for(int way=0; way<ways; way++){merged.add(topKFromShard(counter.shards[way], limit, excluded));}
+			for(int way=0; way<ways; way++){merged.add(topKFromShard(counter.shards[way], limit, excluded, original));}
 		}else{
 			final ArrayList<Future<TopKHeap>> futures=new ArrayList<>(ways);
 			for(int way=0; way<ways; way++){
 				final int w=way;
 				futures.add(pool().submit(new Callable<TopKHeap>(){
 					@Override
-					public TopKHeap call(){return topKFromShard(counter.shards[w], limit, excluded);}
+					public TopKHeap call(){return topKFromShard(counter.shards[w], limit, excluded, original);}
 				}));
 			}
 			for(Future<TopKHeap> f : futures){
@@ -1363,16 +1434,35 @@ public class CoveringSet {
 	}
 
 	/** Scans one immutable shard into a bounded top-K heap. */
-	private static TopKHeap topKFromShard(LongIntMap map, int limit, LongHashSet excluded){
+	private TopKHeap topKFromShard(LongIntMap map, int limit, LongHashSet excluded, PartitionedCounter original){
+		assert(original!=null) : "The original map retained by processNucleotide supplies the mininitial exemption without recounting or changing units";
 		final TopKHeap heap=new TopKHeap(Tools.min(limit, map.size()));
 		final long[] keys=map.keys();
 		final int[] counts=map.values();
 		final long invalid=map.invalid();
 		for(int cell=0; cell<keys.length; cell++){
 			final long key=keys[cell];
-			if(key!=invalid && (excluded==null || !excluded.contains(key))){heap.add(key, counts[cell], key);}
+			if(key!=invalid && (excluded==null || !excluded.contains(key))
+					&& (counts[cell]>=minCount || (minInitial>0 && original.get(key)>=minInitial))){heap.add(key, counts[cell], key);}
 		}
 		return heap;
+	}
+
+	/** Counts remain occurrences, as in fillRange/selectFamily; do not count selected keys as progress. */
+	private static int maxUnselectedCount(LongIntMap map, LongHashSet selected){
+		assert(map!=null && selected!=null) : "Greedy exhaustion diagnostics require the current map and the selected-key exclusion set";
+		final long[] keys=map.keys();final int[] counts=map.values();final long invalid=map.invalid();int best=0;
+		for(int i=0; i<keys.length; i++){
+			if(keys[i]!=invalid && !selected.contains(keys[i])){best=Tools.max(best, counts[i]);}
+		}
+		return best;
+	}
+
+	/** Stop only after filtering the whole remaining vocabulary, before either bounded ranking stage. */
+	private void reportCountStop(String family, int rounds, int remaining, int best){
+		assert(rounds>=0 && remaining>0 && best>=0) : "Count-floor stop occurs before a greedy round with uncovered members still present";
+		outstream.println("Stopped before round "+(rounds+1)+" for "+family+": no eligible unselected kmer; mincount="
+			+minCount+", mininitial="+minInitial+", best remaining count="+best+", uncovered="+remaining);
 	}
 
 	/** From the candidate list, re-rank by original prevalence, keep top step. */
@@ -1651,6 +1741,10 @@ public class CoveringSet {
 	private double step2Boost=1;
 	private int maxKmers=0;
 	private int minHits=1;
+	/** Per-round remaining-pool occurrence floor; 1 preserves historical selection. */
+	private int minCount=1;
+	/** Initial-pool occurrence threshold exempting a key from minCount; 0 disables exemption. */
+	private int minInitial=0;
 	private int maxFamilies=0;
 	/** Opt-in streaming family mode (streamfamilies=t/stream=t); see {@link #processFamiliesStreaming}.
 	 *  Constructor-validated to require maxfamilies=0 and families!=null. Default false: {@link

@@ -23,7 +23,7 @@ final class Prok16sWindowConfig {
 
 	void apply(ArrayList<NcrnaFamily> families){
 		if(!configured){return;}
-		if(!CallGenes.RRNA17_ENABLED || !("16s".equals(CallGenes.RRNA17_PROFILE) || "prok".equals(CallGenes.RRNA17_PROFILE))){
+		if(!CallGenes.seededRrnaFamily(ProkObject.r16S)){
 			throw new IllegalArgumentException("rrna16swindow requires rrna17=16s or rrna17=prok");
 		}
 		NcrnaFamily selected=null;

@@ -37,7 +37,7 @@ public final class RrnaEndpointNetworkLoader {
 	static boolean acceptedIdentity(String directory,String family){
 		final File file=new File(directory,"IDENTITY_SOURCE.txt");if(!file.exists()){return false;}
 		final ByteFile in=RrnaResourceIO.open(file.toString());try{final byte[] line=in.nextLine();require(line!=null && in.nextLine()==null,"Identity metadata must contain exactly one explicit feature definition");final String value=new String(line,java.nio.charset.StandardCharsets.US_ASCII);
-			if(value.equals("candidate_span")){return false;}require(value.equals("accepted_verifier_window") && (family.equals("16S") || family.equals("23S")),"Only explicitly trained16S/23S bundles may select accepted-verifier identity;18S/euk5S stay unchanged");return true;
+			if(value.equals("candidate_span")){return false;}require(value.equals("accepted_verifier_window") && RrnaEndpointCallerFeatures.Resources.supportsAcceptedIdentity(family),"Only explicitly trained16S/23S/prok5S bundles may select accepted-verifier identity;18S/euk5S stay unchanged");return true;
 		}finally{require(!in.close(),"Network identity metadata read failed");}
 	}
 	static void require(boolean ok,String why){if(!ok){throw new IllegalArgumentException(why);}}

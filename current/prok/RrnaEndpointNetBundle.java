@@ -32,7 +32,7 @@ public final class RrnaEndpointNetBundle {
 		pack(directory,output,"16S");
 	}
 	static void pack(String directory,String output,String family){
-		require("16S".equals(family) || "23S".equals(family),"Only16S/23S have the accepted-verifier bundle contract");
+		require(RrnaEndpointCallerFeatures.Resources.supportsAcceptedIdentity(family),"Only16S/23S/prok5S have the accepted-verifier bundle contract");
 		require(RrnaEndpointNetworkLoader.acceptedIdentity(directory,family),"This release bundle requires accepted-verifier identity metadata");
 		final ByteFile in=RrnaResourceIO.open(new File(directory,"MANIFEST.tsv").toString());
 		final LineParser1 p=new LineParser1('\t');final ArrayList<Entry> entries=new ArrayList<Entry>();final ObjectSet<String> seen=new ObjectSet<String>(String.class);
@@ -58,7 +58,7 @@ public final class RrnaEndpointNetBundle {
 		System.err.println("RRNA_ENDPOINT_NET_BUNDLE_PACK_PASS members="+entries.size()+" identity=accepted_verifier_window");
 	}
 	static RrnaEndpointCallerFeatures.Resources load(String path,RrnaEndpointCallerFeatures.Resources tables){
-		require(tables!=null && ("16S".equals(tables.family) || "23S".equals(tables.family)),"Endpoint bundles require explicitly declared16S/23S tables");
+		require(tables!=null && RrnaEndpointCallerFeatures.Resources.supportsAcceptedIdentity(tables.family),"Endpoint bundles require explicitly declared16S/23S/prok5S tables");
 		final ObjectIntMap<String> indices=new ObjectIntMap<String>(String.class);int active=0;
 		for(int i=0; i<tables.names.length; i++){indices.put(tables.names[i],i);if(!tables.raw[i]){active++;}}
 		final CellNet[] five=new CellNet[tables.names.length],three=new CellNet[tables.names.length];

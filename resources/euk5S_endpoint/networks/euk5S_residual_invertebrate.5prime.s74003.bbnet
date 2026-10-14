@@ -10,7 +10,7 @@
 #dims 28 96 64 48 25
 #CL train_mlp.py amp=none batch=2048 density=1.0 density1=1.0 dump_preds=/global/cfs/cdirs/bbtools/ganyu/euk5s_m3/results/euk5S_residual_invertebrate.5prime.s74003.pred.tsv dump_rows=1000 epochs=800 final=sigmoid fp32_tail_epochs=0 hidden=96,64,48 hidden_act=tanh lr=0.003 lr_floor=0.0 name=euk5S_residual_invertebrate.5prime.s74003 ring_rotate_every=1 save_model=/global/cfs/cdirs/bbtools/ganyu/euk5s_m3/results/euk5S_residual_invertebrate.5prime.s74003.pt seed=74003 targets=all tf32=false warmup_epochs=0 wd=1e-05
 ##gpu_trainer train_mlp.py unknown
-##checkpoint_sha256 42c7327d7fe2271fbb3ab4c2985b08150c0d09c480e073ccadceebb86b92e1cf
+##checkpoint_sha80 73ccadceebb86b92e1cf
 ##best_val_mse 0.030145112493788932
 ##exported_by bbnet_export.py unknown
 ##mean_sd_folded true

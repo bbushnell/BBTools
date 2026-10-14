@@ -32,7 +32,7 @@ public final class RrnaEndpointResourceLoader {
 				require(!raw[i],"An explicitly raw model must have no endpoint tables: "+model);
 				require(dest!=null&&dest[i]==null&&p.parseInt(3)>0&&p.parseString(7).matches("[0-9a-f]{20}"),"Exactly one sha80-bound table per model and end");
 				final String tablePath=new File(directory,model+'.'+end+".tsv.gz").toString();
-				final RrnaPositionalKmerTable.Table t=(family.equals("16S") || family.equals("23S"))?RrnaPositionalKmerTable.loadScores(tablePath,model):RrnaPositionalKmerTable.load(tablePath,model);
+				final RrnaPositionalKmerTable.Table t=RrnaEndpointCallerFeatures.Resources.supportsAcceptedIdentity(family)?RrnaPositionalKmerTable.loadScores(tablePath,model):RrnaPositionalKmerTable.load(tablePath,model);
 				require(t.radius==p.parseInt(3)&&t.end.equals(end)&&t.k==p.parseInt(2)&&t.offset==p.parseInt(4)&&t.alpha==RrnaPositionalKmerTable.savedDouble(p,5)&&t.records==p.parseLong(6),"Loaded table differs from its declared model/end/k/radius/offset/smoothing/population");dest[i]=t;rows++;
 			}require(rows==2*(n-rawNames.length),"Every refined caller model requires both endpoint tables; only explicit raw models may omit them");
 		}finally{require(!in.close(),"Endpoint table manifest read failed");}
