@@ -91,6 +91,7 @@ public class GradeBins {
 		Parser parser=new Parser();
 		for(int i=0; i<args.length; i++){
 			String arg=args[i];
+			//TODO: Probable bug - split discards '=' inside filenames; the automatic-report fixture exposed report=a=b.tsv truncating to a.
 			String[] split=arg.split("=");
 			String a=split[0].toLowerCase();
 			String b=split.length>1 ? split[1] : null;
@@ -512,12 +513,11 @@ public class GradeBins {
 				String.format("%.3f", (cleanSize+contamSize)*100.0/totalSize));
 		outstream.println("Contig Recovery:             \t"+
 				String.format("%.3f", (cleanContigs+contamContigs)*100.0/totalContigs));
-		if(taxIDsIn>0) {
-			outstream.println("Bad Contigs:                 \t"+
-					String.format("%.3f", badContigs*100.0/(cleanContigs+contamContigs)));
-			outstream.println("Genomes Represented:         \t"+
-					String.format("%.3f", (tidBins.size())*100.0/taxIDsIn));
-		}
+		outstream.println("Bad Contigs:                 \t"+
+				badContigRate(bins, badContigs, cleanContigs+contamContigs));
+		//Keep report positions stable when an unlabeled reference has no taxon denominator.
+		outstream.println("Genomes Represented:         \t"+
+				(taxIDsIn>0 ? String.format("%.3f", tidBins.size()*100.0/taxIDsIn) : "NA"));
 		if(validation) {
 			outstream.println("Completeness Score:          \t"+
 					String.format("%.3f", 100*compltScore/totalSize));
@@ -606,7 +606,17 @@ public class GradeBins {
 		outstream.println(QuickBin.formatString("Contam Bases", 29, 
 				partialContamSize, cleanSize+contamSize-partialContamSize));
 		outstream.println("Bad Contigs:                 \t"+
-				String.format("%.3f", badContigs*100.0/(cleanContigs+contamContigs)));
+				badContigRate(bins, badContigs, cleanContigs+contamContigs));
+	}
+
+	/** Only Bin.calcContam's per-contig labels establish a contaminated-contig count. */
+	private static String badContigRate(ArrayList<BinStats> bins, long bad, long contigs){
+		assert(bins!=null && bad>=0 && bad<=contigs) : "Summary counts must conserve the completed bin contigs";
+		if(contigs==0){return "NA";}
+		for(BinStats bin : bins){
+			if(bin.truthSource!=BinObject.LABEL){return "NA";}
+		}
+		return String.format("%.3f", bad*100.0/contigs);
 	}
 	
 	/**
@@ -799,8 +809,7 @@ public class GradeBins {
 	
 	/**
 	 * Writes comprehensive bin statistics report to tab-delimited file.
-	 * Columns: Num, File, Size, Contigs, GC, Depth, MinDepth, MaxDepth, [TaxID],
-	 * [Completeness, Contam, Type], [gene counts], [Lineage], [Contig].
+	 * All truth sources use the same columns; unavailable gene counts are NA.
 	 * Bins are sorted size-descending; Num is 0-based position in that order.
 	 *
 	 * @param bins List of bin statistics to report
@@ -814,22 +823,9 @@ public class GradeBins {
 		Collections.sort(bins);
 		ByteStreamWriter bsw=new ByteStreamWriter(fname, true, false, false);
 		bsw.start();
-		boolean printTaxID=true;//TODO
-		boolean printCCT=false;
-		boolean printLineage=true;
-		boolean printContig=false;
-		for(BinStats b : bins) {
-			if(b.taxid>0) {printTaxID=true;}
-			if(b.complt>0 || b.contam>0) {printCCT=true;}
-			if(b.lineage!=null || (b.taxid>0 && BinObject.tree!=null)) {printLineage=true;}
-			if(b.contigName!=null) {printContig=true;}
-		}
-		String header="#Num\tFile\tSize\tContigs\tGC\tDepth\tMinDepth\tMaxDepth";
-		if(printTaxID) {header+="\tTaxID";}
-		if(printCCT) {header+="\tCompleteness\tContam\tType\tSource";}
-		if(callGenes || gffFile!=null || prokCCMap!=null) {header+="\t16S\t18S\t23S\t5S\ttRNA\tCDS\tCDSLen";}
-		if(printLineage) {header+="\tLineage";}
-		if(printContig) {header+="\tContig";}
+		final boolean geneCountsAvailable=(callGenes || gffFile!=null || prokCCMap!=null);
+		final String header="#Num\tFile\tSize\tContigs\tGC\tDepth\tMinDepth\tMaxDepth\tTaxID"
+				+"\tCompleteness\tContam\tType\tSource\t16S\t18S\t23S\t5S\ttRNA\tCDS\tCDSLen\tLineage\tContig";
 
 		bsw.println(header);
 		int i=0;
@@ -850,24 +846,20 @@ public class GradeBins {
 				bsw.printt(i).printt(file).printt(b.size).printt(b.contigs);
 				bsw.printt(b.gc, 3).printt(b.depth, 2);
 				bsw.printt(b.minDepth, 2).printt(b.maxDepth, 2);
-				if(printTaxID) {bsw.printt(b.taxid);}
-				if(printCCT) {
-					bsw.printt(b.complt, 5).printt(b.contam, 5).printt(b.type(useRNA));
-					bsw.printt(BinObject.TRUTH_SOURCE[b.truthSource]);
-				}
+				bsw.printt(b.taxid);
+				bsw.printt(b.complt, 5).printt(b.contam, 5).printt(b.type(useRNA));
+				bsw.printt(BinObject.TRUTH_SOURCE[b.truthSource]);
 
-				if(callGenes || gffFile!=null || prokCCMap!=null) {
+				if(geneCountsAvailable) {
 					printGeneCount(bsw, b.r16Scount); printGeneCount(bsw, b.r18Scount);
 					printGeneCount(bsw, b.r23Scount); printGeneCount(bsw, b.r5Scount);
 					printGeneCount(bsw, b.trnaCount);
 					printGeneCount(bsw, b.cdsCount); printGeneCount(bsw, b.cdsLength);
-				}
+				}else{bsw.print("NA\tNA\tNA\tNA\tNA\tNA\tNA\t");}
 
 				Object lineage=(b.lineage!=null ? b.lineage : BinObject.tree!=null ? Clade.lineage(b.taxid) : "NA");
-				if(printLineage && printContig) {bsw.printt(lineage.toString());}
-				else if(printLineage) {bsw.println(lineage.toString());}
-				if(printContig) {bsw.println(b.contigName!=null ? b.contigName : b.name);}
-				else if(!printLineage) {bsw.println();}
+				bsw.printt(lineage.toString());
+				bsw.println(b.contigName!=null ? b.contigName : b.name);
 				i++;
 			}
 		}
@@ -1060,9 +1052,9 @@ public class GradeBins {
 				if(chars[i]=='L'){chars[i]='N';}
 				else if(chars[i]=='N'){chars[i]='L';}
 			}
-			System.err.print(new String(chars));
+			outstream.print(new String(chars));
 		}else{
-			System.err.print(bb);
+			outstream.print(bb);
 		}
 	}
 
