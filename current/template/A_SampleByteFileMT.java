@@ -21,22 +21,25 @@ import structures.ByteBuilder;
 import structures.ListNum;
 
 /**
- * Multithreaded text file processing template with file input/output handling.
- * Loads text files, spawns worker threads to process input files, and manages
- * concurrent file reading. Supports multiple input/output file formats with configurable
- * thread management for file processing.
+ * Template for tools that read one small text file before processing a second
+ * text file with worker threads. The single-threaded prepass can write valid
+ * prefixes; dormant invalid-line output scaffolding remains disabled because
+ * outInvalid is private and never assigned. The threaded pass parses valid
+ * lines without writing output.
  *
+ * <p>Created February 6, 2023.
  * @author Brian Bushnell
- * @date February 6, 2023
  */
-public class A_SampleByteFileMT implements Accumulator<A_SampleByteFileMT.ProcessThread> {
+public class A_SampleByteFileMT implements Accumulator<A_SampleByteFileMT.ProcessThread>{
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Program entry point that creates an instance and processes input files.
-	 * @param args Command line arguments */
+	/**
+	 * Code entrance from the command line.
+	 * @param args command-line arguments
+	 */
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
 		Timer t=new Timer();
@@ -52,9 +55,8 @@ public class A_SampleByteFileMT implements Accumulator<A_SampleByteFileMT.Proces
 	}
 
 	/**
-	 * Constructor that initializes the processor from command line arguments.
-	 * Parses arguments, validates parameters, and sets up input/output file formats.
-	 * @param args Command line arguments containing input/output paths and options
+	 * Parses arguments, validates paths and initializes file descriptors.
+	 * @param args command-line arguments
 	 */
 	public A_SampleByteFileMT(String[] args){
 
@@ -93,12 +95,9 @@ public class A_SampleByteFileMT implements Accumulator<A_SampleByteFileMT.Proces
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Parses command line arguments into configuration parameters.
-	 * Supports verbose mode and standard Parser options.
-	 *
-	 * @param args Command line arguments array
-	 * @return Configured Parser object with parsed settings
-	 * @throws RuntimeException If unknown parameters are encountered
+	 * Parses command-line arguments and delegates standard flags to Parser.
+	 * @param args command-line arguments
+	 * @return Parser with recognized standard fields populated
 	 */
 	private Parser parse(String[] args){
 
@@ -113,8 +112,8 @@ public class A_SampleByteFileMT implements Accumulator<A_SampleByteFileMT.Proces
 		for(int i=0; i<args.length; i++){
 			String arg=args[i];
 
-			//Break arguments into their constituent parts, in the form of "a=b"
-			String[] split=arg.split("=");
+			//Split on only the first '=' so argument values may contain '='.
+			String[] split=Parse.splitOnFirst(arg, '=');
 			String a=split[0].toLowerCase();
 			String b=split.length>1 ? split[1] : null;
 			if(b!=null && b.equalsIgnoreCase("null")){b=null;}
@@ -137,9 +136,7 @@ public class A_SampleByteFileMT implements Accumulator<A_SampleByteFileMT.Proces
 	}
 
 	/**
-	 * Adjusts file extensions by adding or removing compression suffixes as needed.
-	 * Validates that at least one input file is specified.
-	 * @throws RuntimeException If no input file is provided
+	 * Normalizes input compression suffixes and requires both input paths.
 	 */
 	private void fixExtensions(){
 		in1=Tools.fixExtension(in1);
@@ -148,9 +145,8 @@ public class A_SampleByteFileMT implements Accumulator<A_SampleByteFileMT.Proces
 	}
 
 	/**
-	 * Validates that input files can be read and output files can be written.
-	 * Checks for duplicate file specifications and proper file permissions.
-	 * @throws RuntimeException If files cannot be accessed or duplicates exist
+	 * Verifies read/write path accessibility and rejects duplicate path strings
+	 * across the two inputs and optional outputs.
 	 */
 	private void checkFileExistence(){
 		//Ensure output files can be written
@@ -170,8 +166,8 @@ public class A_SampleByteFileMT implements Accumulator<A_SampleByteFileMT.Proces
 		}
 	}
 
-	/** Adjusts static file-related settings for optimal performance.
-	 * Forces ByteFile mode BF2 when using more than 2 threads. */
+	/** Enables ByteFile2 when neither BF1 nor BF2 is forced and more than two
+	 * threads are available. */
 	private static void checkStatics(){
 		//Adjust the number of threads for input file reading
 		if(!ByteFile.FORCE_MODE_BF1 && !ByteFile.FORCE_MODE_BF2 && Shared.threads()>2){
@@ -180,8 +176,7 @@ public class A_SampleByteFileMT implements Accumulator<A_SampleByteFileMT.Proces
 	}
 
 	/**
-	 * Validates parameter ranges and ensures required parameters are set.
-	 * Currently contains placeholder assertion that needs implementation.
+	 * Placeholder parameter validator; replace before using this template.
 	 * @return true if parameters are valid
 	 */
 	private boolean validateParams(){
@@ -195,12 +190,9 @@ public class A_SampleByteFileMT implements Accumulator<A_SampleByteFileMT.Proces
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Main processing method that orchestrates file reading and thread spawning.
-	 * Processes primary input file sequentially, then spawns threads for secondary file.
-	 * Reports timing and processing statistics upon completion.
-	 *
-	 * @param t Timer for tracking execution time
-	 * @throws RuntimeException If processing encounters errors
+	 * Runs the single-threaded first-input prepass, then the threaded second-input
+	 * pass, and reports aggregate nonempty-line statistics.
+	 * @param t timer started at program launch
 	 */
 	void process(Timer t){
 
@@ -235,15 +227,14 @@ public class A_SampleByteFileMT implements Accumulator<A_SampleByteFileMT.Proces
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Creates and manages worker threads for concurrent file processing.
-	 * Spawns threads equal to system thread count and waits for completion.
-	 * @param ffin Input file format to be processed by threads
+	 * Starts worker threads that share one ByteFile and accumulates their counters.
+	 * @param ffin input descriptor to process with workers
 	 */
 	private void spawnThreads(FileFormat ffin){
 
 		//Do anything necessary prior to processing
 		ByteFile bf=ByteFile.makeByteFile(ffin);
-		
+
 		//Determine how many threads may be used
 		final int threads=Shared.threads();
 
@@ -263,13 +254,12 @@ public class A_SampleByteFileMT implements Accumulator<A_SampleByteFileMT.Proces
 	}
 
 	/**
-	 * Accumulates processing statistics from completed worker threads.
-	 * Thread-safe method that combines counters from individual threads.
-	 * @param pt ProcessThread containing processing statistics to accumulate
+	 * Adds one completed worker's nonempty-line counters to the shared totals.
+	 * @param pt completed worker containing counters to accumulate
 	 */
 	@Override
 	public final void accumulate(ProcessThread pt){
-		synchronized(pt) {
+		synchronized(pt){
 			linesProcessed+=pt.linesProcessedT;
 			bytesProcessed+=pt.bytesProcessedT;
 			linesOut+=pt.linesOutT;
@@ -279,8 +269,10 @@ public class A_SampleByteFileMT implements Accumulator<A_SampleByteFileMT.Proces
 		}
 	}
 
-	/** Reports whether processing completed successfully.
-	 * @return true if no errors were encountered during processing */
+	/**
+	 * Reports aggregate prepass, worker, reader and writer success to ThreadWaiter.
+	 * @return true if no error has been recorded
+	 */
 	@Override
 	public final boolean success(){return !errorState;}
 
@@ -289,8 +281,10 @@ public class A_SampleByteFileMT implements Accumulator<A_SampleByteFileMT.Proces
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * For some small metadata file that needs to be processed before the big file.
-	 * @param ff File to process
+	 * Processes the first input on the main thread, counting nonempty lines and
+	 * routing valid prefixes to optional output. Invalid-line output is dormant:
+	 * outInvalid is private, always null and never parsed or assigned.
+	 * @param ff input descriptor for the prepass
 	 */
 	private void processSinglethreaded(FileFormat ff){
 		ByteFile bf=ByteFile.makeByteFile(ff);
@@ -330,11 +324,10 @@ public class A_SampleByteFileMT implements Accumulator<A_SampleByteFileMT.Proces
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Worker thread for processing input files concurrently.
-	 * Static class to prevent accidental access to shared variables.
-	 * Each thread processes lines from the input file independently.
+	 * Worker that pulls line batches from a shared ByteFile and parses valid
+	 * non-comment lines.
 	 */
-	static class ProcessThread extends Thread {
+	static class ProcessThread extends Thread{
 
 		//Constructor
 		ProcessThread(final ByteFile bf_, final int tid_){
@@ -342,9 +335,7 @@ public class A_SampleByteFileMT implements Accumulator<A_SampleByteFileMT.Proces
 			tid=tid_;
 		}
 
-		//Called by start()
-		/** Thread execution method that processes input and sets success status.
-		 * Calls processInner() to handle the actual file processing work. */
+		/** Pulls and processes lines until the shared ByteFile is exhausted. */
 		@Override
 		public synchronized void run(){
 			//Do anything necessary prior to processing
@@ -359,8 +350,8 @@ public class A_SampleByteFileMT implements Accumulator<A_SampleByteFileMT.Proces
 		}
 
 		/**
-		 * Iterates through input file lines and processes valid entries.
-		 * Reads lines from ByteFile, applies validation, and delegates to processLine().
+		 * Fetches byte-line batches, counts nonempty and valid lines, and
+		 * delegates valid lines to processLine().
 		 */
 		void processInner(){
 
@@ -383,10 +374,10 @@ public class A_SampleByteFileMT implements Accumulator<A_SampleByteFileMT.Proces
 		}
 
 		/**
-		 * Processes a single line from the input file.
-		 * Currently contains placeholder assertion that needs implementation.
-		 * @param line The input line to process as byte array
-		 * @return A value
+		 * Placeholder valid-line processing hook; replace before using this
+		 * template.
+		 * @param line tab-delimited input line
+		 * @return first parsed integer, as a placeholder result
 		 */
 		int processLine(final byte[] line){
 			lp.set(line); //Zero-allocation parsing
@@ -395,28 +386,35 @@ public class A_SampleByteFileMT implements Accumulator<A_SampleByteFileMT.Proces
 			return value;
 		}
 
-		/** Number of lines processed by this thread */
+		/** Number of nonempty input lines processed by this thread. */
 		protected long linesProcessedT=0;
-		/** Number of bytes processed by this thread */
+		/** Input bytes processed by this thread, with one newline byte counted per nonempty line. */
 		protected long bytesProcessedT=0;
 
-		/** Number of lines output by this thread */
+		/** Number of processed input lines that did not start with '#'. */
 		protected long linesOutT=0;
-		/** Number of bytes output by this thread */
+		/** Full valid input-line bytes, with one newline byte counted per valid line. */
 		protected long bytesOutT=0;
 
+		/** True if this worker hit a local error. */
 		protected boolean errorStateT=false;
 
-		/** Flag indicating successful completion of this thread */
+		/** True after normal completion. */
 		boolean success=false;
 
+		/** Reused tab-delimited parser. */
 		private final LineParser1 lp=new LineParser1(delimiter);
-		/** Shared input stream */
+		/** Shared input reader owned by spawnThreads. */
 		private final ByteFile bf;
-		/** Thread identifier for this worker thread */
+		/** Thread identifier for diagnostics. */
 		final int tid;
 	}
 
+	/**
+	 * Creates and starts a line writer.
+	 * @param ff output descriptor
+	 * @return started writer, or null when output is disabled
+	 */
 	private static ByteStreamWriter makeBSW(FileFormat ff){
 		if(ff==null){return null;}
 		ByteStreamWriter bsw=new ByteStreamWriter(ff);
@@ -428,57 +426,67 @@ public class A_SampleByteFileMT implements Accumulator<A_SampleByteFileMT.Proces
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** First input text file, processed on the main thread. */
 	private String in1=null;
 
+	/** Second input text file, processed by worker threads. */
 	private String in2=null;
 
+	/** Valid-line output file for the first input prepass. */
 	private String out1=null;
 
-	/** Output file path for invalid/filtered lines */
+	/** Dormant invalid-line output path; currently never assigned. */
 	private String outInvalid=null;
 
 	/*--------------------------------------------------------------*/
 
+	/** Total nonempty input lines processed across both inputs. */
 	private long linesProcessed=0;
+	/** Total processed input lines that did not start with '#'. */
 	private long linesOut=0;
+	/** Total input bytes processed, with one newline byte counted per nonempty line. */
 	private long bytesProcessed=0;
+	/** Total full valid input-line bytes, with one newline byte counted per valid line. */
 	private long bytesOut=0;
 
+	/** Delimiter for worker line parsing. */
 	private static byte delimiter='\t';
 
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** FileFormat wrapper for primary input file */
+	/** Validated first input descriptor. */
 	private final FileFormat ffin1;
 
-	/** FileFormat wrapper for secondary input file */
+	/** Validated second input descriptor. */
 	private final FileFormat ffin2;
-	/** FileFormat wrapper for primary output file */
+	/** Validated valid-line output descriptor, or null when output is disabled. */
 	private final FileFormat ffout1;
-	/** FileFormat wrapper for invalid line output file */
+	/** Validated invalid-line output descriptor, or null when output is disabled. */
 	private final FileFormat ffoutInvalid;
 
-	/** Returns the read-write lock for thread synchronization.
-	 * @return ReadWriteLock instance for coordinating thread access */
+	/**
+	 * Supplies ThreadWaiter with this accumulator's lock.
+	 * @return read-write lock for worker accumulation
+	 */
 	@Override
-	public final ReadWriteLock rwlock() {return rwlock;}
+	public final ReadWriteLock rwlock(){return rwlock;}
 	private final ReadWriteLock rwlock=new ReentrantReadWriteLock();
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Output stream for status messages */
+	/** Diagnostic and status output stream, possibly redirected by PreParser. */
 	private PrintStream outstream=System.err;
-	/** Flag to enable verbose output messages */
+	/** Print verbose diagnostic messages. */
 	public static boolean verbose=false;
-	/** Flag indicating whether an error was encountered during processing */
+	/** True if any worker, reader or writer reported an error. */
 	public boolean errorState=false;
-	/** Flag to allow overwriting existing output files */
+	/** Overwrite existing output files. */
 	private boolean overwrite=true;
-	/** Flag to append to existing output files instead of overwriting */
+	/** Append to existing output files. */
 	private boolean append=false;
 
 }

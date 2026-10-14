@@ -3,15 +3,16 @@ package template;
 import java.util.concurrent.locks.ReadWriteLock;
 
 /**
- * Interface for accumulating statistics captured by threads.
- * Provides a contract for collecting and consolidating thread-local data
- * with thread-safe access controls.
+ * Collects caller-owned worker results after their completion.
+ * ThreadWaiter invokes accumulate on its calling thread after joining workers;
+ * the implementation is responsible for interpreting each worker success flag.
+ * This interface itself supplies neither synchronization nor failure detection.
  *
  * @author Brian Bushnell
  * @date November 19, 2015
  * @param <T> Type of object containing statistics to accumulate
  */
-public interface Accumulator<T> {
+public interface Accumulator<T>{
 	
 	/**
 	 * Accumulates personal variables from finished threads.
@@ -24,14 +25,14 @@ public interface Accumulator<T> {
 //	public ReadWriteLock rwlock=new ReentrantReadWriteLock();
 	
 	/**
-	 * Gets the shared lock preventing premature accumulation.
-	 * Provides thread-safe coordination between statistics collection
-	 * and accumulation phases.
-	 * @return ReadWriteLock for coordinating thread access
+	 * Supplies the optional lock used by ThreadWaiter. Its read lock covers worker
+	 * execution/waiting, and its write lock covers result accumulation. Workers
+	 * must not require that write lock before they can terminate.
+	 * @return Caller-owned coordination lock, or null to omit that protocol
 	 */
 	public ReadWriteLock rwlock();
 	
-	/** Reports if processing finished successfully.
+	/** Reports success according to this accumulator's collected state.
 	 * @return true if all operations completed without errors */
 	public boolean success();
 	

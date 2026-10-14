@@ -28,13 +28,18 @@ import var2.SamFilter;
 import var2.ScafMap;
 
 /**
- * Template class for processing SAM/BAM files in multiple threads.
- * Designed to be easily modified by filling in the processRead method.
- * Provides a framework for multi-threaded read processing with SAM filtering, realignment, and reference loading.
- * @author Brian Bushnell
- * @date September 6, 2019
+ * Incomplete SAM/BAM processing template with worker-local read processing.
+ * Copy it and resolve the parameter, reference, output-format and processing
+ * TODOs before use; assertions deliberately stop the untouched skeleton.
+ * Workers share a Streamer and optional legacy output stream. The supplied
+ * processing assumes unlinked SAM-record roots, filters short/absent sequences
+ * and SAM flags, and leaves the actual transformation to the custom hook.
+ * Reference scaffolds and optional Realigner objects are prepared, but the
+ * default hook does not perform realignment.
+ * <p>Created September 6, 2019.
+ * @author Brian Bushnell, Shinobu
  */
-public class A_SampleSamStreamer implements Accumulator<A_SampleSamStreamer.ProcessThread> {
+public class A_SampleSamStreamer implements Accumulator<A_SampleSamStreamer.ProcessThread>{
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
@@ -58,7 +63,8 @@ public class A_SampleSamStreamer implements Accumulator<A_SampleSamStreamer.Proc
 	
 	/**
 	 * Constructor that parses arguments and initializes the processing environment.
-	 * Sets up input/output files, SAM filtering, threading parameters, and validates configuration.
+	 * Configures descriptors and global I/O/filter settings. Intentional TODO assertions
+	 * require decisions about validation, reference requirements and output format.
 	 * @param args Command line arguments for configuration
 	 */
 	public A_SampleSamStreamer(String[] args){
@@ -144,7 +150,8 @@ public class A_SampleSamStreamer implements Accumulator<A_SampleSamStreamer.Proc
 			String arg=args[i];
 			
 			//Break arguments into their constituent parts, in the form of "a=b"
-			String[] split=arg.split("=");
+			//Preserve the complete value after the first equals sign.
+			String[] split=Parse.splitOnFirst(arg, '=');
 			String a=split[0].toLowerCase();
 			String b=split.length>1 ? split[1] : null;
 			if(b!=null && b.equalsIgnoreCase("null")){b=null;}
@@ -187,8 +194,9 @@ public class A_SampleSamStreamer implements Accumulator<A_SampleSamStreamer.Proc
 		ref=Tools.fixExtension(ref);
 	}
 	
-	/** Validates that all required files exist and can be accessed.
-	 * Ensures input and reference files are readable, output files are writable, and no file paths are duplicated. */
+	/** Checks primary paths after the reference-policy TODO is resolved.
+	 * The skeleton currently requires both input and reference, tests access and
+	 * rejects duplicate input/reference/output path strings. */
 	private void checkFileExistence(){
 
 		//Ensure there is an input file
@@ -215,8 +223,8 @@ public class A_SampleSamStreamer implements Accumulator<A_SampleSamStreamer.Proc
 		}
 	}
 	
-	/** Adjusts static configuration for optimal file I/O performance.
-	 * Sets ByteFile modes based on thread count and validates FASTA stream settings. */
+	/** Enables BF2 when BF1/BF2 are not forced and more than two threads are available.
+	 * Also asserts the current FASTA configuration. */
 	private static void checkStatics(){
 		//Adjust the number of threads for input file reading
 		if(!ByteFile.FORCE_MODE_BF1 && !ByteFile.FORCE_MODE_BF2 && Shared.threads()>2){
@@ -226,8 +234,8 @@ public class A_SampleSamStreamer implements Accumulator<A_SampleSamStreamer.Proc
 		assert(FastaReadInputStream.settingsOK());
 	}
 	
-	/** Validates that parameter ranges are within bounds and required parameters are set.
-	 * @return true if all parameters are valid */
+	/** Intentional parameter-validation stub; replace the TODO before use.
+	 * @return True after validation is implemented; currently only reachable with assertions off */
 	private boolean validateParams(){
 //		assert(minfoo>0 && minfoo<=maxfoo) : minfoo+", "+maxfoo;
 		assert(false) : "TODO";
@@ -239,8 +247,9 @@ public class A_SampleSamStreamer implements Accumulator<A_SampleSamStreamer.Proc
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Main processing method that orchestrates the read processing pipeline.
-	 * Creates input/output streams, loads reference data, spawns worker threads, and reports timing statistics.
+	 * Starts input, loads reference scaffolds, creates output and waits for all workers.
+	 * Finalizes input/output, collects their error states and restores constructor
+	 * validation on the normal path before reporting any accumulated error.
 	 * @param t Timer for tracking execution time
 	 */
 	void process(Timer t){
@@ -270,7 +279,8 @@ public class A_SampleSamStreamer implements Accumulator<A_SampleSamStreamer.Proc
 		
 		//Write anything that was accumulated by ReadStats
 		errorState|=ReadStats.writeAll();
-		//Close the read streams
+		//Include input completion errors as well as output completion errors.
+		errorState|=ReadWrite.closeStream(ss);
 		errorState|=ReadWrite.closeStream(ros);
 		
 		//Reset read validation
@@ -287,6 +297,7 @@ public class A_SampleSamStreamer implements Accumulator<A_SampleSamStreamer.Proc
 		}
 	}
 
+	/** Loads reference scaffolds once and supplies the global Realigner map when requested. */
 	private void loadScafMapFromReference(){
 		if(loadedRef){return;}
 		assert(ref!=null);
@@ -295,14 +306,19 @@ public class A_SampleSamStreamer implements Accumulator<A_SampleSamStreamer.Proc
 		loadedRef=true;
 	}
 
+	/** Dormant alternative reference hook; its call is commented out.
+	 * Before enabling it, implement the TODO, return fetched lists and close the stream. */
 	private void loadReferenceCustom(){
 		ConcurrentReadInputStream cris=makeRefCris();
-		for(ListNum<Read> ln=cris.nextList(); ln!=null && ln.size()>0; ln=cris.nextList()) {
+		for(ListNum<Read> ln=cris.nextList(); ln!=null && ln.size()>0; ln=cris.nextList()){
 			//Do something
 			assert(false) : "TODO";
 		}
 	}
 	
+	/** Starts the unpaired reference stream used only by the dormant custom hook.
+	 * The main input limit is also forwarded here. Caller owns list return and closure.
+	 * @return Started reference input stream */
 	private ConcurrentReadInputStream makeRefCris(){
 		ConcurrentReadInputStream cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ffref, null);
 		cris.start(); //Start the stream
@@ -312,6 +328,9 @@ public class A_SampleSamStreamer implements Accumulator<A_SampleSamStreamer.Proc
 		return cris;
 	}
 	
+	/** Starts a Read-producing reader with shared SAM header retention.
+	 * @param ff Input descriptor; the intended input is SAM/BAM
+	 * @return Started reader, or null for a null descriptor */
 	private Streamer makeStreamer(FileFormat ff){
 		if(ff==null){return null;}
 		Streamer ss=StreamerFactory.makeSamOrBamStreamer(ff, streamerThreads, true, false, maxReads, true);
@@ -320,6 +339,10 @@ public class A_SampleSamStreamer implements Accumulator<A_SampleSamStreamer.Proc
 		return ss;
 	}
 	
+	/** Starts optional legacy output with the requested batch ordering.
+	 * Shared-header forwarding is disabled here; SAM output uses a generated header.
+	 * A customized tool must choose its header/reference policy before processing alignments.
+	 * @return Started output stream, or null when output is disabled */
 	private ConcurrentReadOutputStream makeCros(){
 		if(ffout==null){return null;}
 
@@ -335,6 +358,9 @@ public class A_SampleSamStreamer implements Accumulator<A_SampleSamStreamer.Proc
 	/*----------------       Thread Management      ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Starts Shared.threads workers and collects each through ThreadWaiter.
+	 * @param ss Shared started input reader
+	 * @param ros Shared started output stream, or null */
 	private void spawnThreads(final Streamer ss, final ConcurrentReadOutputStream ros){
 		
 		//Do anything necessary prior to processing
@@ -361,6 +387,8 @@ public class A_SampleSamStreamer implements Accumulator<A_SampleSamStreamer.Proc
 		
 	}
 	
+	/** Collects one completed worker under the caller's accumulator lock.
+	 * @param pt Worker to collect once */
 	@Override
 	public final void accumulate(ProcessThread pt){
 		readsProcessed+=pt.readsProcessedT;
@@ -370,22 +398,22 @@ public class A_SampleSamStreamer implements Accumulator<A_SampleSamStreamer.Proc
 		errorState|=(!pt.success);
 	}
 	
-	/** Reports overall processing success status.
-	 * @return true if no errors occurred during processing */
+	/** Reports the accumulated worker/input/output/statistics status.
+	 * @return True when no accumulated error has been recorded */
 	@Override
 	public final boolean success(){return !errorState;}
-	
-	/*--------------------------------------------------------------*/
-	/*----------------         Inner Methods        ----------------*/
-	/*--------------------------------------------------------------*/
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Inner Classes        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	class ProcessThread extends Thread {
+	/** Processes each fetched batch before handing it to the shared output. */
+	class ProcessThread extends Thread{
 		
-		//Constructor
+		/** Binds shared I/O and optionally creates a realigner for custom processing.
+		 * @param ss_ Started reader
+		 * @param ros_ Optional started output
+		 * @param tid_ Worker index */
 		ProcessThread(final Streamer ss_, final ConcurrentReadOutputStream ros_, final int tid_){
 			ss=ss_;
 			ros=ros_;
@@ -410,7 +438,7 @@ public class A_SampleSamStreamer implements Accumulator<A_SampleSamStreamer.Proc
 		}
 		
 		/**
-		 * Core processing loop that retrieves and processes read lists until input is exhausted.
+		 * Consumes through terminal null, passing empty batches through with their IDs.
 		 */
 		void processInner(){
 			
@@ -423,6 +451,11 @@ public class A_SampleSamStreamer implements Accumulator<A_SampleSamStreamer.Proc
 			
 		}
 		
+		/** Validates roots, counts input before customization and nulls rejected entries.
+		 * Counters assume unlinked SAM-record roots: bases use root length and retained
+		 * reads count roots, while the input read count adds pairCount. Adapt these
+		 * together if the template is changed to accept linked pairs.
+		 * @param ln Owned batch until output handoff; do not mutate it after submission */
 		void processList(ListNum<Read> ln){
 
 			//Grab the actual read list from the ListNum
@@ -459,8 +492,9 @@ public class A_SampleSamStreamer implements Accumulator<A_SampleSamStreamer.Proc
 		}
 		
 		/**
-		 * Template method for processing individual reads.
-		 * Currently contains basic validation and SAM filtering logic and is intended for customization.
+		 * Rejects missing/short bases and records failing the shared SAM filter.
+		 * Passing records reach the intentional TODO assertion; implement the actual
+		 * transformation there before use. The optional realigner is not invoked here.
 		 * @param r Read to process
 		 * @return true if the read should be retained, false if it should be discarded
 		 */
@@ -478,10 +512,14 @@ public class A_SampleSamStreamer implements Accumulator<A_SampleSamStreamer.Proc
 			return true;
 		}
 
+		/** Sum of pairCount for input roots before filtering. */
 		protected long readsProcessedT=0;
+		/** Input root bases before filtering; does not add mate bases. */
 		protected long basesProcessedT=0;
 		
+		/** Retained roots, one per accepted SAM record. */
 		protected long readsOutT=0;
+		/** Retained root bases after customization. */
 		protected long basesOutT=0;
 		
 		/** Flag indicating successful completion of this thread. */
@@ -491,9 +529,10 @@ public class A_SampleSamStreamer implements Accumulator<A_SampleSamStreamer.Proc
 		private final Streamer ss;
 		/** Shared output stream for writing processed reads. */
 		private final ConcurrentReadOutputStream ros;
+		/** Worker index, currently unused by the supplied hook. */
 		final int tid;
 		/**
-		 * Realigner instance for adjusting read alignments (null if realignment disabled).
+		 * Optional realigner provided for customization; the supplied hook never uses it.
 		 */
 		final Realigner realigner;
 	}
@@ -502,13 +541,17 @@ public class A_SampleSamStreamer implements Accumulator<A_SampleSamStreamer.Proc
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Primary input path. */
 	private String in=null;
 	/** Reference file path for scaffold mapping. */
 	private String ref=null;
 
+	/** Optional primary output path. */
 	private String out=null;
 	
+	/** Input extension override. */
 	private String extin=null;
+	/** Output extension override. */
 	private String extout=null;
 	
 	/*--------------------------------------------------------------*/
@@ -523,27 +566,32 @@ public class A_SampleSamStreamer implements Accumulator<A_SampleSamStreamer.Proc
 	/** Total number of bases retained after processing. */
 	protected long basesOut=0;
 
-	/** Maximum number of reads to process; -1 for no limit. */
+	/** Requested input limit forwarded to the reader; negative for unlimited. */
 	private long maxReads=-1;
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Number of threads dedicated to reading the SAM file. */
+	/** Reader-selection hint; the default -1 is clamped to one by the constructor. */
 	private int streamerThreads=-1;
 	
+	/** Whether the reference-loading step completed. */
 	private boolean loadedRef=false;
 	
+	/** Whether to provision a realigner for each worker; the default hook does not use it. */
 	private boolean realign=false;
 	
+	/** Reserved customization setting, normalized to at least one. */
 	private int ploidy=1;
 	
 	public ScafMap scafMap;
+	/** Shared filter configured before worker startup. */
 	public final SamFilter samFilter=new SamFilter();
 	
-	/** Provides read-write lock for thread-safe access.
-	 * @return ReadWriteLock instance for synchronization */
+	/** Supplies the lock used by ThreadWaiter for accumulation, not all object access.
+	 * @return Accumulator coordination lock */
 	@Override
-	public final ReadWriteLock rwlock() {return rwlock;}
+	public final ReadWriteLock rwlock(){return rwlock;}
+	/** Lock used for ThreadWaiter accumulation. */
 	private final ReadWriteLock rwlock=new ReentrantReadWriteLock();
 	
 	/*--------------------------------------------------------------*/
@@ -564,10 +612,15 @@ public class A_SampleSamStreamer implements Accumulator<A_SampleSamStreamer.Proc
 	
 	/** Output stream for status messages. */
 	private PrintStream outstream=System.err;
+	/** Whether to print selected lifecycle diagnostics. */
 	public static boolean verbose=false;
+	/** Accumulated worker/input/output/statistics error flag. */
 	public boolean errorState=false;
+	/** Whether output may replace an existing file. */
 	private boolean overwrite=true;
+	/** Whether output requests append mode. */
 	private boolean append=false;
+	/** Whether legacy output reorders batches by their IDs. */
 	private boolean ordered=false;
 	
 }

@@ -22,19 +22,23 @@ import structures.ListNum;
 import tracker.ReadStats;
 
 /**
- * Template class for single-threaded read processing programs.
- * Provides a complete framework for input/output handling, argument parsing, and read processing that can be adapted for specific bioinformatics tools.
+ * Single-threaded template for tools that transform reads and optionally write
+ * retained reads. This template demonstrates paired input/output setup,
+ * interleaving normalization and one-list-at-a-time read processing.
+ *
+ * <p>Created June 20, 2014.
  * @author Brian Bushnell
- * @date June 20, 2014
  */
-public class A_Sample {
+public class A_Sample{
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Program entry point that creates an instance, processes data, and handles cleanup.
-	 * @param args Command line arguments */
+	/**
+	 * Code entrance from the command line.
+	 * @param args Command line arguments
+	 */
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
 		Timer t=new Timer();
@@ -50,9 +54,8 @@ public class A_Sample {
 	}
 	
 	/**
-	 * Constructor that initializes the program with command line arguments.
-	 * Handles preprocessing, argument parsing, file validation, and stream setup.
-	 * @param args Command line arguments containing input/output paths and options
+	 * Parses arguments, validates paths, and initializes file formats.
+	 * @param args Command line arguments
 	 */
 	public A_Sample(String[] args){
 		
@@ -110,9 +113,8 @@ public class A_Sample {
 	
 	/**
 	 * Parses command line arguments and sets program parameters.
-	 * Handles standard BBTools arguments plus template-specific options.
-	 * @param args Array of command line arguments
-	 * @return Configured Parser object with parsed settings
+	 * @param args Command line arguments
+	 * @return Parser with recognized standard fields populated
 	 */
 	private Parser parse(String[] args){
 		
@@ -126,8 +128,8 @@ public class A_Sample {
 		for(int i=0; i<args.length; i++){
 			String arg=args[i];
 			
-			//Break arguments into their constituent parts, in the form of "a=b"
-			String[] split=arg.split("=");
+			//Split on only the first '=' so argument values may contain '='.
+			String[] split=Parse.splitOnFirst(arg, '=');
 			String a=split[0].toLowerCase();
 			String b=split.length>1 ? split[1] : null;
 			if(b!=null && b.equalsIgnoreCase("null")){b=null;}
@@ -148,8 +150,11 @@ public class A_Sample {
 		return parser;
 	}
 	
-	/** Replaces # symbols with 1 and 2 in input/output file paths.
-	 * Enables paired file specification using wildcards (e.g., reads_#.fq) and validates that required input files are specified. */
+	/**
+	 * Replaces # symbols with 1 and 2 in paired input/output file paths.
+	 * Also validates that the required input and paired output paths are
+	 * consistently specified.
+	 */
 	private void doPoundReplacement(){
 		//Do input file # replacement
 		if(in1!=null && in2==null && in1.indexOf('#')>-1 && !new File(in1).exists()){
@@ -170,8 +175,7 @@ public class A_Sample {
 		if(out1==null && out2!=null){throw new RuntimeException("Error - cannot define out2 without defining out1.");}
 	}
 	
-	/** Adds or removes compression extensions (.gz, .bz2) as needed.
-	 * Ensures file paths have appropriate extensions for automatic compression detection. */
+	/** Normalizes compression suffixes on input file paths. */
 	private void fixExtensions(){
 		in1=Tools.fixExtension(in1);
 		in2=Tools.fixExtension(in2);
@@ -180,9 +184,9 @@ public class A_Sample {
 	}
 	
 	/**
-	 * Validates that input files can be read and output files can be written.
-	 * Checks for duplicate file specifications and permission issues.
-	 * @throws RuntimeException if files cannot be accessed or are duplicated
+	 * Verifies primary read path accessibility and rejects duplicate primary
+	 * read path strings.
+	 * @throws RuntimeException if a primary path cannot be used
 	 */
 	private void checkFileExistence(){
 		//Ensure output files can be written
@@ -202,8 +206,7 @@ public class A_Sample {
 		}
 	}
 	
-	/** Configures interleaved read handling based on input/output file counts.
-	 * Sets FASTQ interleaving flags to match the specified file configuration. */
+	/** Configures FASTQ interleaving to match the input/output file counts. */
 	private void adjustInterleaving(){
 		//Adjust interleaved detection based on the number of input files
 		if(in2!=null){
@@ -227,8 +230,8 @@ public class A_Sample {
 		}
 	}
 	
-	/** Adjusts static configuration settings for optimal performance.
-	 * Configures threading and file handling modes based on system capabilities. */
+	/** Enables ByteFile2 when neither BF1 nor BF2 is forced and more than two
+	 * threads are available. */
 	private static void checkStatics(){
 		//Adjust the number of threads for input file reading
 		if(!ByteFile.FORCE_MODE_BF1 && !ByteFile.FORCE_MODE_BF2 && Shared.threads()>2){
@@ -243,10 +246,9 @@ public class A_Sample {
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Main processing method that coordinates input/output streams and read processing.
-	 * Creates streams, processes all reads, handles cleanup, and reports statistics.
-	 * @param t Timer for tracking execution time
-	 * @throws RuntimeException if processing encounters errors
+	 * Owns the read input and optional read output stream lifecycle, processes all
+	 * input lists and reports individual-read/base statistics.
+	 * @param t timer started at program launch
 	 */
 	void process(Timer t){
 		
@@ -285,6 +287,10 @@ public class A_Sample {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Creates and starts the read input stream that owns input list production.
+	 * @return started read input stream
+	 */
 	private ConcurrentReadInputStream makeCris(){
 		ConcurrentReadInputStream cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ffin1, ffin2, qfin1, qfin2);
 		cris.start(); //Start the stream
@@ -294,6 +300,12 @@ public class A_Sample {
 		return cris;
 	}
 	
+	/**
+	 * Creates and starts the optional read output stream. Ownership transfers to
+	 * the caller, which must close it after all retained lists are handed off.
+	 * @param pairedInput whether the input stream reports paired reads
+	 * @return started read output stream, or null when output is disabled
+	 */
 	private ConcurrentReadOutputStream makeCros(boolean pairedInput){
 		if(ffout1==null){return null;}
 
@@ -310,6 +322,13 @@ public class A_Sample {
 		return ros;
 	}
 	
+	/**
+	 * Pulls each input list, delegates filtering and output handoff to
+	 * {@link #processList(ListNum, ConcurrentReadInputStream, ConcurrentReadOutputStream)},
+	 * and returns the final empty list to the input stream.
+	 * @param cris input stream that owns the fetched lists
+	 * @param ros optional output stream receiving retained lists
+	 */
 	void processInner(final ConcurrentReadInputStream cris, final ConcurrentReadOutputStream ros){
 		
 		//Do anything necessary prior to processing
@@ -344,6 +363,14 @@ public class A_Sample {
 		
 	}
 	
+	/**
+	 * Filters one fetched list in place, updates individual-read and base-count
+	 * statistics, hands retained reads to the output stream and returns the list
+	 * to the input stream.
+	 * @param ln list wrapper fetched from the input stream
+	 * @param cris input stream that must receive the returned list
+	 * @param ros optional output stream receiving the filtered list
+	 */
 	void processList(ListNum<Read> ln, final ConcurrentReadInputStream cris, final ConcurrentReadOutputStream ros){
 
 		//Grab the actual read list from the ListNum
@@ -388,12 +415,10 @@ public class A_Sample {
 	
 	
 	/**
-	 * Template method for processing individual read pairs.
-	 * This method should be implemented with specific logic for the tool being created.
-	 * @param r1 First read in the pair
-	 * @param r2 Second read in the pair (may be null for single-end data)
-	 * @return true if the reads should be retained, false if they should be discarded
-	 * @throws RuntimeException Always throws \"TODO\" in the template; must be implemented by subclass
+	 * Placeholder processing hook; replace before using this template.
+	 * @param r1 first read in the pair
+	 * @param r2 second read in the pair, or null for single-ended data
+	 * @return true if the reads should be emitted
 	 */
 	boolean processReadPair(final Read r1, final Read r2){
 		throw new RuntimeException("TODO");
@@ -418,7 +443,7 @@ public class A_Sample {
 	private String extin=null;
 	private String extout=null;
 	
-	/** Whether interleaved was explicitly set */
+	/** Whether interleaved input or output was explicitly set. */
 	private boolean setInterleaved=false;
 	
 	/*--------------------------------------------------------------*/
@@ -429,6 +454,7 @@ public class A_Sample {
 	protected long readsOut=0;
 	protected long basesOut=0;
 
+	/** Maximum input fragments to process; negative means unlimited. */
 	private long maxReads=-1;
 	
 	/*--------------------------------------------------------------*/

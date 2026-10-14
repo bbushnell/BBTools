@@ -4,6 +4,7 @@ import java.util.ArrayList;
 
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
+import parse.Parse;
 import parse.Parser;
 import parse.PreParser;
 import shared.Shared;
@@ -15,14 +16,13 @@ import stream.Read;
 import structures.ListNum;
 
 /**
- * Template class for processing sequence reads with concurrent I/O streams.
- * Provides basic framework for read-by-read processing with standard BBTools infrastructure.
- * Serves as a starting point for developing custom read processing tools.
+ * Minimal read-processing template with concurrent input and optional output.
+ * Fill the read-pair loop to build a concrete single-pass FASTQ/SAM tool.
  *
+ * Created October 6, 2014.
  * @author Brian Bushnell
- * @date Oct 6, 2014
  */
-public class A_Sample2 {
+public class A_Sample2{
 
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
@@ -49,7 +49,7 @@ public class A_Sample2 {
 		Parser parser=new Parser();
 		for(int i=0; i<args.length; i++){
 			String arg=args[i];
-			String[] split=arg.split("=");
+			String[] split=Parse.splitOnFirst(arg, '=');
 			String a=split[0].toLowerCase();
 			String b=split.length>1 ? split[1] : null;
 			if(b!=null && b.equalsIgnoreCase("null")){b=null;}
@@ -73,7 +73,8 @@ public class A_Sample2 {
 			out1=parser.out1;
 		}
 		
-		ffout1=FileFormat.testOutput(out1, FileFormat.FASTQ, null, true, true, false, false);
+		ffout1=FileFormat.testOutput(out1, FileFormat.FASTQ, null, true,
+				parser.overwrite, parser.append, false);
 		ffin1=FileFormat.testInput(in1, FileFormat.FASTQ, null, true, true);
 	}
 	
@@ -133,16 +134,20 @@ public class A_Sample2 {
 				cris.returnList(ln.id, ln.list==null || ln.list.isEmpty());
 			}
 		}
-		ReadWrite.closeStreams(cris, ros);
+		final boolean errorState=ReadWrite.closeStreams(cris, ros);
 		if(verbose){outstream.println("Finished.");}
 		
 		t.stop();
 		outstream.println("Time:                         \t"+t);
 		outstream.println("Reads Processed:    "+readsProcessed+" \t"+Tools.format("%.2fk reads/sec", (readsProcessed/(double)(t.elapsed))*1000000));
+		if(errorState){
+			throw new RuntimeException(getClass().getName()+
+					" terminated in an error state; the output may be corrupt.");
+		}
 	}
 	
 	/*--------------------------------------------------------------*/
-	
+	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
 	private String in1=null;

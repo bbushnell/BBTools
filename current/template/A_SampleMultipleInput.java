@@ -5,6 +5,7 @@ import java.util.ArrayList;
 
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
+import parse.Parse;
 import parse.Parser;
 import parse.PreParser;
 import shared.Shared;
@@ -16,15 +17,19 @@ import stream.Read;
 import structures.ListNum;
 
 /**
- * Template tool for processing multiple input files and concatenating to single output.
- * Reads files sequentially and outputs everything to a single file.
- * Can be used to concatenate files while recompressing them and avoiding stdio.
+ * Template for tools that consume multiple read inputs sequentially and stream
+ * them to one optional output. Each input gets its own read stream and shares
+ * the same output stream.
  *
+ * <p>Created May 10, 2024.
  * @author Brian Bushnell
- * @date May 10, 2024
  */
-public class A_SampleMultipleInput {
+public class A_SampleMultipleInput{
 
+	/**
+	 * Code entrance from the command line.
+	 * @param args command-line arguments
+	 */
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
 		Timer t=new Timer();
@@ -39,6 +44,10 @@ public class A_SampleMultipleInput {
 		Shared.closeStream(x.outstream);
 	}
 	
+	/**
+	 * Parses arguments and initializes the optional output file descriptor.
+	 * @param args command-line arguments
+	 */
 	public A_SampleMultipleInput(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -50,7 +59,8 @@ public class A_SampleMultipleInput {
 		Parser parser=new Parser();
 		for(int i=0; i<args.length; i++){
 			String arg=args[i];
-			String[] split=arg.split("=");
+			//Split on only the first '=' so argument values may contain '='.
+			String[] split=Parse.splitOnFirst(arg, '=');
 			String a=split[0].toLowerCase();
 			String b=split.length>1 ? split[1] : null;
 			if(b!=null && b.equalsIgnoreCase("null")){b=null;}
@@ -59,7 +69,10 @@ public class A_SampleMultipleInput {
 				//Set a variable here
 			}else if(a.equals("in")){
 				in.clear();
-				String[] b2=(b==null) ? null : (new File(b).exists() ? new String[] {b} : b.split(","));
+				if(b==null || b.isEmpty()){
+					throw new IllegalArgumentException("in= requires a non-empty input path");
+				}
+				String[] b2=(new File(b).exists() ? new String[] {b} : b.split(","));
 				for(String b3 : b2){in.add(b3);}
 			}else if(b==null && new File(arg).exists()){
 				in.add(arg);
@@ -78,16 +91,22 @@ public class A_SampleMultipleInput {
 			out1=parser.out1;
 		}
 		
-		ffout1=FileFormat.testOutput(out1, FileFormat.FASTQ, null, true, true, false, false);
+		ffout1=FileFormat.testOutput(out1, FileFormat.FASTQ, null, true,
+				parser.overwrite, parser.append, false);
 	}
 	
+	/**
+	 * Opens the optional shared output stream, processes all configured inputs,
+	 * and reports any input or output close error after final statistics.
+	 * @param t timer started at program launch
+	 */
 	void process(Timer t){
 
 		final ConcurrentReadOutputStream ros;
 		if(out1!=null){
 			final int buff=4;
 
-			for(String s : in) {
+			for(String s : in){
 				assert(!out1.equalsIgnoreCase(s)) : "Input file and output file have same name.";
 			}
 			
@@ -95,20 +114,30 @@ public class A_SampleMultipleInput {
 			ros.start();
 		}else{ros=null;}
 		
-		for(String s : in) {
+		for(String s : in){
 			processInner(s, ros);
 		}
 		
-		ReadWrite.closeStream(ros);
+		errorState|=ReadWrite.closeStream(ros);
 		if(verbose){outstream.println("Finished.");}
 		
 		t.stop();
 		outstream.println("Time:                         \t"+t);
 		outstream.println("Reads Processed:    "+readsProcessed+" \t"
 				+Tools.format("%.2fk reads/sec", (readsProcessed/(double)(t.elapsed))*1000000));
+		if(errorState){
+			throw new RuntimeException(getClass().getName()+
+					" terminated in an error state; the output may be corrupt.");
+		}
 	}
 	
-	void processInner(String fname, ConcurrentReadOutputStream ros) {
+	/**
+	 * Streams one input file, counts individual reads and bases, hands each list
+	 * to the shared output stream, and accumulates reader close status.
+	 * @param fname input file to stream
+	 * @param ros optional output stream receiving fetched lists
+	 */
+	void processInner(String fname, ConcurrentReadOutputStream ros){
 		FileFormat ffin=FileFormat.testInput(fname, FileFormat.FASTQ, null, true, true);
 		
 		final ConcurrentReadInputStream cris;
@@ -150,27 +179,37 @@ public class A_SampleMultipleInput {
 				cris.returnList(ln.id, ln.list==null || ln.list.isEmpty());
 			}
 		}
-		ReadWrite.closeStream(cris);
+		errorState|=ReadWrite.closeStream(cris);
 	}
 	
 	/*--------------------------------------------------------------*/
-	
+	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Input read files, consumed sequentially. */
 	private ArrayList<String> in=new ArrayList<String>();
+	/** Primary output read file. */
 	private String out1=null;
 	
+	/** Validated output descriptor, or null when output is disabled. */
 	private final FileFormat ffout1;
 	
 	/*--------------------------------------------------------------*/
 
+	/** Maximum input fragments to process per input file; negative means unlimited. */
 	private long maxReads=-1;
-	/** Total count of bases processed */
-	private long readsProcessed=0, basesProcessed=0;
+	/** Total individual reads processed across all input files. */
+	private long readsProcessed=0;
+	/** Total bases processed across all input files. */
+	private long basesProcessed=0;
+	/** True if any reader or writer reported an error at close. */
+	private boolean errorState=false;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Diagnostic and status output stream, possibly redirected by PreParser. */
 	private java.io.PrintStream outstream=System.err;
+	/** Print verbose diagnostic messages. */
 	public static boolean verbose=false;
 	
 }

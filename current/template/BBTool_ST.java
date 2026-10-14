@@ -22,13 +22,15 @@ import structures.ListNum;
 import tracker.ReadStats;
 
 /**
- * Abstract base class for single-threaded BBTools that process sequence reads.
- * Provides common infrastructure for argument parsing, file I/O setup, and read processing,
- * using a template pattern where subclasses define specific processing and statistics logic.
+ * Abstract base class for single-threaded read processors.
+ * Subclasses provide tool-specific parsing, startup, shutdown, read-pair
+ * handling and final statistics while this class owns the common stream
+ * lifecycle.
+ *
+ * Created January 12, 2015.
  * @author Brian Bushnell
- * @date Jan 12, 2015
  */
-public abstract class BBTool_ST {
+public abstract class BBTool_ST{
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
@@ -36,7 +38,7 @@ public abstract class BBTool_ST {
 	
 	/**
 	 * Code entrance from the command line.
-	 * Must be overridden by concrete tools; the commented body in the source is an example implementation.
+	 * Concrete subclasses must provide their own main method.
 	 * @param args Command line arguments
 	 */
 	public static void main(String[] args){
@@ -50,7 +52,7 @@ public abstract class BBTool_ST {
 	}
 	
 	/**
-	 * Parses argument list, sets shared fields, and initializes file formats.
+	 * Parses common arguments and initializes file formats.
 	 * Must be called by subclass constructors before additional configuration.
 	 * @param args Command line arguments
 	 */
@@ -73,7 +75,7 @@ public abstract class BBTool_ST {
 		Parser parser=new Parser();
 		for(int i=0; i<args.length; i++){
 			String arg=args[i];
-			String[] split=arg.split("=");
+			String[] split=Parse.splitOnFirst(arg, '=');
 			String a=split[0].toLowerCase();
 			String b=split.length>1 ? split[1] : null;
 			
@@ -170,7 +172,7 @@ public abstract class BBTool_ST {
 	protected void reparse(String[] args){
 		for(int i=0; i<args.length; i++){
 			String arg=args[i];
-			String[] split=arg.split("=");
+			String[] split=Parse.splitOnFirst(arg, '=');
 			String a=split[0].toLowerCase();
 			String b=split.length>1 ? split[1] : null;
 
@@ -270,9 +272,7 @@ public abstract class BBTool_ST {
 		showStats(t);
 	}
 
-	/**
-	 * Creates read streams and initializes file I/O components, then calls startupSubclass() for tool-specific setup.
-	 */
+	/** Creates read and write streams after subclass startup. */
 	protected void startup(){
 		startupSubclass();
 		
@@ -308,7 +308,8 @@ public abstract class BBTool_ST {
 		ros_primary=ros;
 	}
 	
-	/** Called before the core startup logic allocates streams.
+	/**
+	 * Called before the core startup logic allocates streams.
 	 * Implement to perform tool-specific initialization prior to opening I/O. */
 	protected abstract void startupSubclass();
 	
@@ -322,7 +323,8 @@ public abstract class BBTool_ST {
 		errorState|=ReadWrite.closeStreams(cris, ros);
 	}
 	
-	/** Called before shutdown() closes streams and writes final statistics.
+	/**
+	 * Called before shutdown() closes streams and writes final statistics.
 	 * Implement to perform tool-specific cleanup. */
 	protected abstract void shutdownSubclass();
 	
@@ -338,7 +340,7 @@ public abstract class BBTool_ST {
 	}
 	
 	/**
-	 * Called after showStats() prints common timing and throughput statistics.
+	 * Called after showStats prints common timing and throughput statistics.
 	 * Implement to add tool-specific summary information.
 	 * @param t Timer containing execution time
 	 * @param readsIn Total reads processed

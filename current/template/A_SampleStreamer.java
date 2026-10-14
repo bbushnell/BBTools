@@ -24,12 +24,14 @@ import structures.ListNum;
 import tracker.ReadStats;
 
 /**
- * This class does nothing.
- * It is designed to be easily modified into a program
- * that processes reads in a single thread.
- * 
- * @author Brian Bushnell, Isla
- * @date November 4, 2025
+ * Sequence-processing template with one consumer and configurable I/O backends.
+ * Uses Read batches when either side requires Reads; SAM/BAM input with SAM/BAM
+ * or no output instead uses SamLine batches. Copy and customize the private
+ * processing hooks. The supplied Read hook counts and validates without filtering;
+ * the SamLine hook counts records and applies its length/output-format predicate.
+ * Configuration changes global I/O and SAM parsing settings.
+ * <p>Created November 4, 2025.
+ * @author Brian Bushnell, Isla, Shinobu
  */
 public class A_SampleStreamer{
 	
@@ -41,7 +43,7 @@ public class A_SampleStreamer{
 	 * Code entrance from the command line.
 	 * @param args Command line arguments
 	 */
-	public static void main(String[] args) {
+	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
 		Timer t=new Timer();
 		
@@ -56,7 +58,8 @@ public class A_SampleStreamer{
 	}
 
 	/**
-	 * Constructor.
+	 * Parses options, validates primary paths and configures input/output descriptors.
+	 * SAM field parsing may be disabled globally; those flags are not restored here.
 	 * @param args Command line arguments
 	 */
 	public A_SampleStreamer(String[] args){
@@ -98,8 +101,10 @@ public class A_SampleStreamer{
 		//Create input FileFormat objects
 		ffin1=FileFormat.testInput(in1, FileFormat.FASTQ, null, true, true);
 		ffin2=FileFormat.testInput(in2, FileFormat.FASTQ, null, true, true);
-		ffout1=FileFormat.testOutput(out1, FileFormat.FASTQ, null, true, overwrite, append, true);
-		ffout2=FileFormat.testOutput(out2, FileFormat.FASTQ, null, true, overwrite, append, true);
+		//WriterFactory requires ordered descriptors for separate mate outputs.
+		final boolean orderedOut=ordered || out2!=null;
+		ffout1=FileFormat.testOutput(out1, FileFormat.FASTQ, null, true, overwrite, append, orderedOut);
+		ffout2=FileFormat.testOutput(out2, FileFormat.FASTQ, null, true, overwrite, append, orderedOut);
 		
 		final boolean samIn=(ffin1!=null && ffin1.samOrBam());
 		final boolean samOut=(ffout1!=null && ffout1.samOrBam());
@@ -131,7 +136,8 @@ public class A_SampleStreamer{
 			String arg=args[i];
 			
 			//Break arguments into their constituent parts, in the form of "a=b"
-			String[] split=arg.split("=");
+			//Preserve the complete value after the first equals sign.
+			String[] split=Parse.splitOnFirst(arg, '=');
 			String a=split[0].toLowerCase();
 			String b=split.length>1 ? split[1] : null;
 			if(b!=null && b.equalsIgnoreCase("null")){b=null;}
@@ -150,7 +156,7 @@ public class A_SampleStreamer{
 				//do nothing
 			}else if(i==0 && Tools.looksLikeInputSequenceStream(arg)){
 				parser.in1=arg;
-			}else if(i==1 && parser.in1!=null && Tools.looksLikeOutputSequenceStream(arg)) {
+			}else if(i==1 && parser.in1!=null && Tools.looksLikeOutputSequenceStream(arg)){
 				parser.out1=arg;
 			}else{
 				outstream.println("Unknown parameter "+args[i]);
@@ -196,7 +202,7 @@ public class A_SampleStreamer{
 		in2=Tools.fixExtension(in2);
 	}
 	
-	/** Ensure input files can be read and output files can be written */
+	/** Checks primary input/output accessibility and rejects duplicate path strings. */
 	private void checkFileExistence(){
 		//Ensure output files can be written
 		if(!Tools.testOutputFiles(overwrite, append, false, out1, out2)){
@@ -218,7 +224,7 @@ public class A_SampleStreamer{
 	/** 
 	 * Adjust interleaved mode based on number of input and output files.
 	 * Two input files forces non-interleaved mode.
-	 * Two output files with one input forces interleaved mode.
+	 * Two outputs with one input force interleaving unless explicitly configured.
 	 */
 	private void adjustInterleaving(){
 		//Adjust interleaved detection based on the number of input files
@@ -243,7 +249,7 @@ public class A_SampleStreamer{
 		}
 	}
 	
-	/** Adjust file-related static fields as needed for this program */
+	/** Empty customization hook for additional global configuration. */
 	private static void checkStatics(){
 		//Empty
 	}
@@ -253,10 +259,11 @@ public class A_SampleStreamer{
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Create Streamer and Writer, then process all data.
+	 * Creates I/O backends, configures sampling and selects Read or SamLine mode.
+	 * Reader-specific sampling and limit semantics follow the selected backend.
 	 * @param t Timer for tracking elapsed time
 	 */
-	private void process(Timer t) {
+	private void process(Timer t){
 		final boolean inputReads=(ffin1!=null && !ffin1.samOrBam());
 		final boolean inputSam=(ffin1!=null && ffin1.samOrBam());
 		final boolean outputReads=(ffout1!=null && !ffout1.samOrBam());
@@ -272,36 +279,42 @@ public class A_SampleStreamer{
 	}
 	
 	/**
-	 * Main processing loop - reads from Streamer, processes, writes to Writer.
-	 * @param st Input Streamer
-	 * @param fw Output Writer (may be null)
+	 * Starts I/O, consumes numbered batches to terminal null and finalizes normal output.
+	 * Empty batches retain their IDs. Rejected SamLines become null entries; the
+	 * Read hook has no filtering return value. Read-mode output assertions assume
+	 * unchanged read/base totals and must be reconsidered when customizing that hook.
+	 * Constructor-validation globals are not restored. Reader and writer completion
+	 * errors are reported after normal finalization.
+	 * @param st Input Streamer whose start/close lifecycle is managed here
+	 * @param fw Output Writer whose start/finalization is managed here, or null
 	 * @param t Timer for tracking elapsed time
 	 * @param readMode True for Read objects, false for SamLine objects
 	 */
-	private void process(Streamer st, Writer fw, Timer t, boolean readMode) {
-		if(threadsIn==0 || threadsIn==1) {Read.VALIDATE_IN_CONSTRUCTOR=false;}
+	private void process(Streamer st, Writer fw, Timer t, boolean readMode){
+		if(threadsIn==0 || threadsIn==1){Read.VALIDATE_IN_CONSTRUCTOR=false;}
 		st.start();
-		if(fw!=null) {fw.start();}
-		if(readMode) {
-			for(ListNum<Read> ln=st.nextList(); ln!=null; ln=st.nextList()) {
-				for(Read r : ln) {
+		if(fw!=null){fw.start();}
+		if(readMode){
+			for(ListNum<Read> ln=st.nextList(); ln!=null; ln=st.nextList()){
+				for(Read r : ln){
 					processReadPair(r, r.mate);
 				}
-				if(fw!=null) {fw.addReads(ln);}
+				if(fw!=null){fw.addReads(ln);}
 			}
-		}else {
-			for(ListNum<SamLine> ln=st.nextLines(); ln!=null; ln=st.nextLines()) {
+		}else{
+			for(ListNum<SamLine> ln=st.nextLines(); ln!=null; ln=st.nextLines()){
 				final ArrayList<SamLine> list=ln.list;
-				for(int i=0, len=list.size(); i<len; i++) {
+				for(int i=0, len=list.size(); i<len; i++){
 					SamLine sl=list.get(i);
 					boolean keep=processSamLine(sl);
-					if(!keep) {list.set(i, null);}
+					if(!keep){list.set(i, null);}
 				}
-				if(fw!=null) {fw.addLines(ln);}
+				if(fw!=null){fw.addLines(ln);}
 			}
 		}
-		if(fw!=null) {
-			fw.poisonAndWait();
+		boolean errorState=false;
+		if(fw!=null){
+			errorState|=fw.poisonAndWait();
 			assert(!readMode || readsIn==fw.readsWritten());
 			assert(!readMode || basesIn==fw.basesWritten());
 			readsOut=fw.readsWritten();
@@ -310,26 +323,33 @@ public class A_SampleStreamer{
 		t.stop();
 		System.err.println(Tools.timeReadsBasesProcessed(t, readsIn, basesIn, 8));
 		st.close();//Prevents a BF4 hang with limited reads
+		errorState|=st.errorState();
+		if(errorState){
+			throw new RuntimeException(getClass().getName()+" terminated in an error state; the output may be corrupt.");
+		}
 	}
 	
 	/**
-	 * Process a read pair - override this method to add custom processing.
+	 * Private customization hook that counts individual reads/bases and validates both mates.
+	 * Modify this method in a copy; it is not an overridable subclass method.
 	 * @param r1 Read 1
 	 * @param r2 Read 2 (may be null)
 	 */
-	private void processReadPair(Read r1, Read r2) {
+	private void processReadPair(Read r1, Read r2){
 		readsIn+=r1.pairCount();
 		basesIn+=r1.pairLength();
-		if(!r1.validated()) {r1.validate(true);}
-		if(r2!=null && !r2.validated()) {r2.validate(true);}
+		if(!r1.validated()){r1.validate(true);}
+		if(r2!=null && !r2.validated()){r2.validate(true);}
 	}
 	
 	/**
-	 * Process a SamLine - override this method to add custom processing.
+	 * Private customization hook that counts one delivered SAM record before filtering.
+	 * Bases use lengthOrZero, with CIGAR fallback when sequence is absent and CIGAR was parsed.
+	 * Modify the hook in a copy to change its retention policy.
 	 * @param sl SamLine to process
-	 * @return keep;
+	 * @return True for positive inferred length, absent output, or SAM/BAM output
 	 */
-	private boolean processSamLine(SamLine sl) {
+	private boolean processSamLine(SamLine sl){
 		final int len=sl.lengthOrZero();
 		readsIn++;
 		basesIn+=len;
@@ -361,24 +381,24 @@ public class A_SampleStreamer{
 	/** Secondary output file format */
 	private FileFormat ffout2;
 	
-	/** Number of workers, for multithreaded implementations (-1 = auto) */
+	/** Parsed worker setting, unused by this single-consumer example. */
 	private int workers=-1;
 	/** Number of threads for input streaming (-1 = auto) */
 	private int threadsIn=-1;
 	/** Number of threads for output writing (-1 = auto) */
 	private int threadsOut=-1;
-	/** Quit after processing this many input reads; -1 means no limit */
+	/** Input limit forwarded to the reader; conventionally fragments, negative for unlimited. */
 	private long maxReads=-1;
-	/** Fraction of reads to keep (1.0 = all reads) */
+	/** Requested sample fraction; actual sampling units/policy depend on the reader. */
 	private float samplerate=1f;
 	/** Random seed for subsampling */
 	private long sampleseed=17;
-	/** Force parsing of all SAM fields even if not needed */
+	/** Prevents this constructor from disabling SAM fields; does not reset prior global flags. */
 	private boolean forceParse=false;
 
-	/** Number of reads processed */
+	/** Individual reads in Read mode, or delivered records in SamLine mode. */
 	private long readsIn=0;
-	/** Number of bases processed */
+	/** Read-mode mate bases, or SamLine.lengthOrZero totals including its CIGAR fallback. */
 	private long basesIn=0;
 	/** Number of reads written */
 	private long readsOut=0;
@@ -389,18 +409,18 @@ public class A_SampleStreamer{
 	private boolean overwrite=false;
 	/** Append to existing output files */
 	private boolean append=false;
-	/** Maintain input order in output */
+	/** Input and single-output order request; separate mate outputs remain ordered. */
 	private boolean ordered=true;
 	/** Whether interleaved was explicitly set */
 	private boolean setInterleaved=false;
-	/** Print status messages to this output stream */
+	/** Argument diagnostics; processing statistics currently go directly to System.err. */
 	private PrintStream outstream=System.err;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------           Statics            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Print verbose messages */
+	/** Parsed verbosity flag, currently unused by the processing loop. */
 	public static boolean verbose=false;
 	
 }

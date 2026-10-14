@@ -17,15 +17,14 @@ import stream.Read;
 import structures.ListNum;
 
 /**
- * Template class for processing sequence reads with concurrent I/O.
- * Demonstrates basic BBTools program structure including argument parsing,
- * stream handling, and read processing loop. Designed as a starting point
- * for new BBTools utilities.
+ * MPI-oriented read-processing template with concurrent input and output.
+ * The main method keeps an assertion reminder where MPI initialization and
+ * finalization must be wired before running with assertions enabled.
  *
+ * Created October 6, 2014.
  * @author Brian Bushnell
- * @date Oct 6, 2014
  */
-public class A_SampleD {
+public class A_SampleD{
 
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
@@ -56,7 +55,7 @@ public class A_SampleD {
 		Parser parser=new Parser();
 		for(int i=0; i<args.length; i++){
 			String arg=args[i];
-			String[] split=arg.split("=");
+			String[] split=Parse.splitOnFirst(arg, '=');
 			String a=split[0].toLowerCase();
 			String b=split.length>1 ? split[1] : null;
 			if(b!=null && b.equalsIgnoreCase("null")){b=null;}
@@ -83,7 +82,8 @@ public class A_SampleD {
 			out1=parser.out1;
 		}
 		
-		ffout1=FileFormat.testOutput(out1, FileFormat.FASTQ, null, true, true, false, false);
+		ffout1=FileFormat.testOutput(out1, FileFormat.FASTQ, null, true,
+				parser.overwrite, parser.append, false);
 		ffin1=FileFormat.testInput(in1, FileFormat.FASTQ, null, true, true);
 	}
 	
@@ -142,17 +142,21 @@ public class A_SampleD {
 				crisD.returnList(ln.id, ln.list==null || ln.list.isEmpty());
 			}
 		}
-		ReadWrite.closeStreams(crisD, ros);
+		final boolean errorState=ReadWrite.closeStreams(crisD, ros);
 		if(verbose){outstream.println("A_SampleD: Finished.");}
 		
 		t.stop();
 		outstream.println("A_SampleD: Time:                         \t"+t);
 		outstream.println("A_SampleD: Rank "+ Shared.MPI_RANK + ": Reads Processed:    "+readsProcessed+" \t"+
 				Tools.format("%.2fk reads/sec", (readsProcessed/(double)(t.elapsed))*1000000));
+		if(errorState){
+			throw new RuntimeException(getClass().getName()+
+					" terminated in an error state; the output may be corrupt.");
+		}
 	}
 	
 	/*--------------------------------------------------------------*/
-	
+	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
 	private String in1=null;

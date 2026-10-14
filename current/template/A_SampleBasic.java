@@ -17,23 +17,21 @@ import shared.Tools;
 import structures.ByteBuilder;
 
 /**
- * Template class demonstrating basic file input/output operations.
- * Reads a text file line by line and extracts content before the first tab
- * character, writing the processed output to another file.
+ * Basic line-oriented template for programs that read one text file and write
+ * one text file. This example copies the part of each input line before the
+ * first tab character.
  *
+ * Created April 9, 2020.
  * @author Brian Bushnell
- * @date April 9, 2020
  */
-public class A_SampleBasic {
+public class A_SampleBasic{
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Program entry point that initializes the application and processes files.
-	 * Creates an instance of A_SampleBasic, runs the processing pipeline,
-	 * and properly closes output streams.
+	 * Code entrance from the command line.
 	 * @param args Command line arguments
 	 */
 	public static void main(String[] args){
@@ -53,10 +51,8 @@ public class A_SampleBasic {
 	 //hmmsearch --domtblout out.txt --cut_ga mito_pfams.hmm mito4.faa
 	
 	/**
-	 * Constructor that parses command-line arguments and initializes file formats.
-	 * Handles argument preprocessing, file validation, and sets up input/output
-	 * file formats for the processing pipeline.
-	 * @param args Command line arguments containing input/output file paths
+	 * Parses arguments, validates paths, and initializes file formats.
+	 * @param args Command line arguments
 	 */
 	public A_SampleBasic(String[] args){
 		
@@ -92,17 +88,16 @@ public class A_SampleBasic {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Parses command-line arguments and configures program settings.
-	 * Processes key=value pairs and sets verbose mode for file operations.
-	 * @param args Array of command-line arguments
-	 * @return Configured Parser object with parsed settings
+	 * Parses command-line arguments and delegates standard flags to Parser.
+	 * @param args Command-line arguments
+	 * @return Parser with recognized standard fields populated
 	 */
 	private Parser parse(String[] args){
 		
 		Parser parser=new Parser();
 		for(int i=0; i<args.length; i++){
 			String arg=args[i];
-			String[] split=arg.split("=");
+			String[] split=Parse.splitOnFirst(arg, '=');
 			String a=split[0].toLowerCase();
 			String b=split.length>1 ? split[1] : null;
 			if(b!=null && b.equalsIgnoreCase("null")){b=null;}
@@ -124,17 +119,15 @@ public class A_SampleBasic {
 		return parser;
 	}
 	
-	/** Adjusts file extensions by adding or removing compression suffixes.
-	 * Ensures input file path is valid and throws exception if no input specified. */
+	/** Normalizes compression suffixes and verifies that input was specified. */
 	private void fixExtensions(){
 		in=Tools.fixExtension(in);
 		if(in==null){throw new RuntimeException("Error - at least one input file is required.");}
 	}
 	
 	/**
-	 * Validates that input files can be read and output files can be written.
-	 * Also ensures no file paths are specified multiple times to prevent conflicts.
-	 * @throws RuntimeException If files cannot be accessed or duplicate paths exist
+	 * Verifies read/write permissions and rejects duplicate file paths.
+	 * @throws RuntimeException if a path cannot be used
 	 */
 	private void checkFileExistence(){
 		//Ensure output files can be written

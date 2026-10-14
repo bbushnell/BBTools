@@ -22,22 +22,21 @@ import structures.ListNum;
 import tracker.ReadStats;
 
 /**
- * Template class for generating synthetic DNA/RNA reads.
- * Serves as a framework for read generation tools with multithreaded processing.
- * Provides standard BBTools infrastructure for file I/O, parameter parsing, and threading.
+ * Template for multithreaded synthetic read generators that preload template reads.
+ * Concrete generators supply the read-construction logic and paired-output policy.
+ *
+ * <p>Created June 8, 2019.
  * @author Brian Bushnell
- * @date June 8, 2019
  */
-public class A_Sample_Generator {
+public class A_Sample_Generator{
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Program entry point.
-	 * Creates instance, processes data, and handles cleanup.
-	 * @param args Command-line arguments
+	 * Code entrance from the command line.
+	 * @param args command-line arguments
 	 */
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
@@ -54,9 +53,8 @@ public class A_Sample_Generator {
 	}
 	
 	/**
-	 * Constructor that parses arguments and initializes file formats.
-	 * Sets up input/output streams, validates parameters, and configures threading.
-	 * @param args Command-line arguments for configuration
+	 * Parses arguments, validates configuration, and creates file-format descriptors.
+	 * @param args command-line arguments
 	 */
 	public A_Sample_Generator(String[] args){
 		
@@ -108,10 +106,9 @@ public class A_Sample_Generator {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Parses command-line arguments into configuration settings.
-	 * Processes verbose flag and delegates standard parsing to Parser class.
-	 * @param args Array of command-line arguments to parse
-	 * @return Configured Parser instance with parsed settings
+	 * Parses tool-specific flags and delegates standard flags to {@link Parser}.
+	 * @param args command-line arguments to parse
+	 * @return parser containing shared BBTools settings
 	 */
 	private Parser parse(String[] args){
 		
@@ -126,7 +123,7 @@ public class A_Sample_Generator {
 			String arg=args[i];
 			
 			//Break arguments into their constituent parts, in the form of "a=b"
-			String[] split=arg.split("=");
+			String[] split=Parse.splitOnFirst(arg, '=');
 			String a=split[0].toLowerCase();
 			String b=split.length>1 ? split[1] : null;
 			if(b!=null && b.equalsIgnoreCase("null")){b=null;}
@@ -148,9 +145,8 @@ public class A_Sample_Generator {
 	}
 	
 	/**
-	 * Replaces # symbols with 1 and 2 in paired output filenames.
-	 * Converts single filename with # into paired filenames for paired-end output.
-	 * Validates that required input files are specified.
+	 * Applies paired-output # replacement and validates output pairing.
+	 * Concrete generators can require template input here if needed.
 	 */
 	private void doPoundReplacement(){
 
@@ -168,17 +164,14 @@ public class A_Sample_Generator {
 		if(out1==null && out2!=null){throw new RuntimeException("Error - cannot define out2 without defining out1.");}
 	}
 	
-	/**
-	 * Adds or removes .gz or .bz2 extensions as needed for proper file handling.
-	 */
+	/** Adds or removes .gz and .bz2 extensions from input names as needed. */
 	private void fixExtensions(){
 		in1=Tools.fixExtension(in1);
 	}
 	
 	/**
-	 * Validates that input files can be read and output files can be written.
-	 * Checks for file accessibility and prevents duplicate file specifications.
-	 * @throws RuntimeException If files cannot be accessed or names are duplicated
+	 * Ensures inputs are readable, outputs are writable, and file names are unique.
+	 * @throws RuntimeException if any file path is unusable
 	 */
 	private void checkFileExistence(){
 		//Ensure output files can be written
@@ -198,8 +191,7 @@ public class A_Sample_Generator {
 		}
 	}
 	
-	/** Adjusts static settings for optimal file I/O performance.
-	 * Enables multi-threaded file reading when appropriate number of threads available. */
+	/** Adjusts static file I/O settings for this tool. */
 	private static void checkStatics(){
 		//Adjust the number of threads for input file reading
 		if(!ByteFile.FORCE_MODE_BF1 && !ByteFile.FORCE_MODE_BF2 && Shared.threads()>2){
@@ -209,8 +201,10 @@ public class A_Sample_Generator {
 		assert(FastaReadInputStream.settingsOK());
 	}
 	
-	/** Validates parameter ranges and required settings.
-	 * @return true if all parameters are valid */
+	/**
+	 * Validates generator-specific parameter ranges and required settings.
+	 * @return true if all parameters are valid
+	 */
 	private boolean validateParams(){
 //		assert(minfoo>0 && minfoo<=maxfoo) : minfoo+", "+maxfoo;
 		assert(false) : "TODO";
@@ -222,14 +216,13 @@ public class A_Sample_Generator {
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Main processing method that coordinates read generation and output.
-	 * Creates input/output streams, loads input data, spawns worker threads, and reports final statistics.
-	 * @param t Timer for tracking execution time
-	 * @throws RuntimeException If processing encounters errors
+	 * Loads template reads, runs generator workers, and reports final statistics.
+	 * @param t timer for tracking execution time
+	 * @throws RuntimeException if a worker, statistics writer, or stream close fails
 	 */
 	void process(Timer t){
 		
-		//Turn off read validation in the input threads to increase speed
+		//Force validation while loading template reads.
 		final boolean vic=Read.VALIDATE_IN_CONSTRUCTOR;
 		Read.VALIDATE_IN_CONSTRUCTOR=true;
 		
@@ -244,6 +237,7 @@ public class A_Sample_Generator {
 		readsProcessed=readsOut=0;
 		basesProcessed=basesOut=0;
 		
+		//Load all template reads before starting generator workers.
 		data=loadData(cris);
 		
 		//Process the reads in separate threads
@@ -270,8 +264,10 @@ public class A_Sample_Generator {
 		}
 	}
 	
-	/** Creates and starts a concurrent read input stream.
-	 * @return Started ConcurrentReadInputStream for reading input sequences */
+	/**
+	 * Creates and starts a concurrent read input stream.
+	 * @return stream for loading template reads
+	 */
 	private ConcurrentReadInputStream makeCris(){
 		ConcurrentReadInputStream cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ffin1, null);
 		cris.start(); //Start the stream
@@ -281,9 +277,8 @@ public class A_Sample_Generator {
 	
 	/**
 	 * Creates and starts a concurrent read output stream.
-	 * Configures output format and buffer size for optimal performance.
-	 * @param pairedInput Whether input data is paired-end
-	 * @return Started ConcurrentReadOutputStream, or null if no output specified
+	 * @param pairedInput true when generated reads should be written as paired
+	 * @return output stream, or null if no output file was specified
 	 */
 	private ConcurrentReadOutputStream makeCros(boolean pairedInput){
 		if(ffout1==null){return null;}
@@ -303,10 +298,9 @@ public class A_Sample_Generator {
 	}
 	
 	/**
-	 * Creates and manages worker threads for parallel read generation.
-	 * Spawns ProcessThread instances, waits for completion, and aggregates results.
-	 * @param cris Input stream for reading template sequences (may be null)
-	 * @param ros Output stream for writing generated reads
+	 * Starts generator workers, waits for completion, and aggregates counters.
+	 * @param cris input stream used to load template reads
+	 * @param ros output stream for generated reads
 	 */
 	private void spawnThreads(final ConcurrentReadInputStream cris, final ConcurrentReadOutputStream ros){
 		
@@ -334,9 +328,8 @@ public class A_Sample_Generator {
 	}
 	
 	/**
-	 * Waits for all worker threads to complete and aggregates their statistics.
-	 * Handles thread joining and accumulates per-thread counters.
-	 * @param alpt List of ProcessThread instances to wait for
+	 * Waits for workers to complete and aggregates their output counters.
+	 * @param alpt worker threads to wait for
 	 */
 	private void waitForThreads(ArrayList<ProcessThread> alpt){
 		
@@ -346,10 +339,10 @@ public class A_Sample_Generator {
 			
 			//Wait until this thread has terminated
 			while(pt.getState()!=Thread.State.TERMINATED){
-				try {
+				try{
 					//Attempt a join operation
 					pt.join();
-				} catch (InterruptedException e) {
+				}catch(InterruptedException e){
 					//Potentially handle this, if it is expected to occur
 					e.printStackTrace();
 				}
@@ -369,6 +362,11 @@ public class A_Sample_Generator {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Loads all input reads into memory for generator-specific sampling.
+	 * @param cris stream of template reads
+	 * @return loaded template reads
+	 */
 	private ArrayList<Read> loadData(ConcurrentReadInputStream cris){
 		
 		ArrayList<Read> input=new ArrayList<Read>();
@@ -412,9 +410,8 @@ public class A_Sample_Generator {
 	/*----------------         Inner Classes        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Worker thread for generating reads in parallel.
-	 * Static class to prevent accidental access to shared variables during threading. */
-	private static class ProcessThread extends Thread {
+	/** Worker that generates batches of synthetic reads from a shared ID counter. */
+	private static class ProcessThread extends Thread{
 		
 		//Constructor
 		ProcessThread(final ConcurrentReadOutputStream ros_, final int tid_, 
@@ -426,8 +423,7 @@ public class A_Sample_Generator {
 		}
 		
 		//Called by start()
-		/** Main thread execution method.
-		 * Calls processInner() to generate reads and marks successful completion. */
+		/** Generates reads and records successful completion. */
 		@Override
 		public void run(){
 			//Do anything necessary prior to processing
@@ -441,8 +437,7 @@ public class A_Sample_Generator {
 			success=true;
 		}
 		
-		/** Core read generation loop for this thread.
-		 * Generates reads in batches until maxReads limit is reached, using atomic counter to coordinate with other threads. */
+		/** Claims ID ranges from the shared counter and generates each claimed batch. */
 		void processInner(){
 
 			//As long as there is a nonempty read list...
@@ -460,11 +455,10 @@ public class A_Sample_Generator {
 		}
 		
 		/**
-		 * Generates a batch of reads with sequential IDs.
-		 * Creates specified number of reads and updates thread statistics.
-		 * @param toGenerate Number of reads to generate in this batch
-		 * @param nextID Starting ID for read numbering
-		 * @return ArrayList containing generated reads
+		 * Generates one output batch and updates per-thread counters.
+		 * @param toGenerate number of reads to generate in this batch
+		 * @param nextID first read ID to assign in the batch
+		 * @return generated reads
 		 */
 		private ArrayList<Read> generateList(int toGenerate, long nextID){
 
@@ -475,7 +469,7 @@ public class A_Sample_Generator {
 			for(int i=0; i<toGenerate; i++, nextID++){
 				Read r=generateRead(nextID);
 				readsOutT+=r.pairCount();
-				basesOutT+=r.length();
+				basesOutT+=r.pairLength();
 				reads.add(r);
 			}
 
@@ -483,10 +477,9 @@ public class A_Sample_Generator {
 		}
 		
 		/**
-		 * Generates a single read with the specified ID.
-		 * @param nextID Sequential ID to assign to the generated read
-		 * @return Generated Read object
-		 * @throws RuntimeException Method not yet implemented
+		 * Generates one read with the specified ID.
+		 * @param nextID read ID to assign
+		 * @return generated read
 		 */
 		private Read generateRead(final long nextID){
 //			Read r=new Read(null, null, nextID);
@@ -546,7 +539,7 @@ public class A_Sample_Generator {
 	/** Maximum number of reads to generate; -1 for unlimited */
 	private long maxReads=-1;
 	
-	/** Storage for input template reads loaded into memory */
+	/** Template reads loaded into memory for concrete generators */
 	private ArrayList<Read> data=new ArrayList<Read>();
 	
 	private AtomicLong nextReadID=new AtomicLong(0);

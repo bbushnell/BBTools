@@ -17,24 +17,23 @@ import shared.Tools;
 import structures.ByteBuilder;
 
 /**
- * Template class for text file processing with line validation and filtering.
- * Reads text files line by line, filters out invalid lines (lines starting with '#'),
- * and optionally routes invalid lines to a separate output file.
- * Provides framework for basic file processing tasks in BBTools.
+ * Template for tools that consume one text file with ByteFile and optionally
+ * write valid and invalid lines to separate outputs. Nonempty input lines that
+ * start with # are routed to the invalid output; other nonempty lines are counted
+ * as valid and emitted up to the first tab.
  *
+ * <p>Created May 9, 2016.
  * @author Brian Bushnell
- * @date May 9, 2016
  */
-public class A_SampleByteFile {
+public class A_SampleByteFile{
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Program entry point.
-	 * Creates an instance of the class, runs processing, and handles cleanup.
-	 * @param args Command-line arguments
+	 * Code entrance from the command line.
+	 * @param args command-line arguments
 	 */
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
@@ -51,10 +50,8 @@ public class A_SampleByteFile {
 	}
 	
 	/**
-	 * Constructor that initializes the processor from command-line arguments.
-	 * Sets up input/output file formats, validates parameters, and configures
-	 * file handling options.
-	 * @param args Command-line arguments specifying input files, output files, and options
+	 * Parses arguments, validates paths and initializes file descriptors.
+	 * @param args command-line arguments
 	 */
 	public A_SampleByteFile(String[] args){
 		
@@ -93,12 +90,10 @@ public class A_SampleByteFile {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Parses command-line arguments and configures processing parameters.
-	 * Handles input/output file specifications, line limits, verbosity settings,
-	 * and invalid line output routing.
-	 *
-	 * @param args Command-line arguments to parse
-	 * @return Configured Parser object with parsed settings
+	 * Parses command-line arguments, including the nonempty-line limit and optional
+	 * invalid-line output path.
+	 * @param args command-line arguments
+	 * @return Parser with recognized standard fields populated
 	 */
 	private Parser parse(String[] args){
 		
@@ -113,8 +108,8 @@ public class A_SampleByteFile {
 		for(int i=0; i<args.length; i++){
 			String arg=args[i];
 			
-			//Break arguments into their constituent parts, in the form of "a=b"
-			String[] split=arg.split("=");
+			//Split on only the first '=' so argument values may contain '='.
+			String[] split=Parse.splitOnFirst(arg, '=');
 			String a=split[0].toLowerCase();
 			String b=split.length>1 ? split[1] : null;
 			if(b!=null && b.equalsIgnoreCase("null")){b=null;}
@@ -144,20 +139,21 @@ public class A_SampleByteFile {
 		return parser;
 	}
 	
-	/** Adds or removes compression extensions (.gz, .bz2) as needed for input files.
-	 * Validates that at least one input file is specified. */
+	/** Normalizes the input compression suffix and requires an input path. */
 	private void fixExtensions(){
 		in1=Tools.fixExtension(in1);
 		if(in1==null){throw new RuntimeException("Error - at least one input file is required.");}
 	}
 	
-	/** Validates that input files can be read and output files can be written.
-	 * Checks for duplicate file specifications and ensures file accessibility. */
+	/**
+	 * Verifies read/write path accessibility and rejects duplicate path strings
+	 * across the input and optional outputs.
+	 */
 	private void checkFileExistence(){
 		//Ensure output files can be written
-		if(!Tools.testOutputFiles(overwrite, append, false, out1)){
-			outstream.println((out1==null)+", "+out1);
-			throw new RuntimeException("\n\noverwrite="+overwrite+"; Can't write to output file "+out1+"\n");
+		if(!Tools.testOutputFiles(overwrite, append, false, out1, outInvalid)){
+			outstream.println((out1==null)+", "+(outInvalid==null)+", "+out1+", "+outInvalid);
+			throw new RuntimeException("\n\noverwrite="+overwrite+"; Can't write to output files "+out1+", "+outInvalid+"\n");
 		}
 		
 		//Ensure input files can be read
@@ -166,13 +162,13 @@ public class A_SampleByteFile {
 		}
 		
 		//Ensure that no file was specified multiple times
-		if(!Tools.testForDuplicateFiles(true, in1, out1)){
+		if(!Tools.testForDuplicateFiles(true, in1, out1, outInvalid)){
 			throw new RuntimeException("\nSome file names were specified multiple times.\n");
 		}
 	}
 	
-	/** Adjusts file-related static fields for optimal performance.
-	 * Configures ByteFile threading mode based on available thread count. */
+	/** Enables ByteFile2 when neither BF1 nor BF2 is forced and more than two
+	 * threads are available. */
 	private static void checkStatics(){
 		//Adjust the number of threads for input file reading
 		if(!ByteFile.FORCE_MODE_BF1 && !ByteFile.FORCE_MODE_BF2 && Shared.threads()>2){
@@ -186,8 +182,7 @@ public class A_SampleByteFile {
 	}
 	
 	/**
-	 * Validates parameter ranges and ensures required parameters are set.
-	 * Currently contains placeholder assertion for implementation.
+	 * Placeholder parameter validator; replace before using this template.
 	 * @return true if parameters are valid
 	 */
 	private boolean validateParams(){
@@ -201,10 +196,9 @@ public class A_SampleByteFile {
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Creates streams and processes all input data.
-	 * Sets up ByteFile reader and ByteStreamWriter outputs, processes the input,
-	 * and reports processing statistics including timing and line counts.
-	 * @param t Timer for tracking execution time
+	 * Owns the ByteFile and optional writer lifecycles, processes nonempty input
+	 * lines and reports line statistics.
+	 * @param t timer started at program launch
 	 */
 	void process(Timer t){
 		
@@ -241,13 +235,20 @@ public class A_SampleByteFile {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Reads nonempty input lines, counts all processed lines/bytes and routes
+	 * valid or invalid lines to their optional writers.
+	 * @param bf input line reader
+	 * @param bsw optional writer for valid prefixes before the first tab
+	 * @param bswInvalid optional writer for full invalid lines
+	 */
 	private void processInner(ByteFile bf, ByteStreamWriter bsw, ByteStreamWriter bswInvalid){
 		byte[] line=bf.nextLine();
 		ByteBuilder bb=new ByteBuilder();
 		
 		while(line!=null){
 			if(line.length>0){
-				if(maxLines>0 && linesProcessed>=maxLines){break;}
+				if(linesProcessed>=maxLines){break;}
 				linesProcessed++;
 				bytesProcessed+=(line.length+1);
 				
@@ -256,12 +257,14 @@ public class A_SampleByteFile {
 				if(valid){
 					linesOut++;
 					bytesOut+=(line.length+1);
-					for(int i=0; i<line.length && line[i]!='\t'; i++){
-						bb.append(line[i]);
+					if(bsw!=null){
+						for(int i=0; i<line.length && line[i]!='\t'; i++){
+							bb.append(line[i]);
+						}
+						bb.nl();
+						bsw.print(bb.toBytes());
+						bb.clear();
 					}
-					bb.nl();
-					bsw.print(bb.toBytes());
-					bb.clear();
 				}else{
 					if(bswInvalid!=null){
 						bswInvalid.println(line);
@@ -272,6 +275,11 @@ public class A_SampleByteFile {
 		}
 	}
 	
+	/**
+	 * Creates and starts a line writer.
+	 * @param ff output descriptor
+	 * @return started writer, or null when output is disabled
+	 */
 	private static ByteStreamWriter makeBSW(FileFormat ff){
 		if(ff==null){return null;}
 		ByteStreamWriter bsw=new ByteStreamWriter(ff);
@@ -283,39 +291,53 @@ public class A_SampleByteFile {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Input text file. */
 	private String in1=null;
 
+	/** Valid-line output file. */
 	private String out1=null;
 
+	/** Invalid-line output file. */
 	private String outInvalid=null;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Number of nonempty input lines processed. */
 	private long linesProcessed=0;
+	/** Number of processed input lines that did not start with '#'. */
 	private long linesOut=0;
+	/** Input bytes processed, with one newline byte counted per nonempty line. */
 	private long bytesProcessed=0;
+	/** Full valid input-line bytes, with one newline byte counted per valid line. */
 	private long bytesOut=0;
 	
+	/** Maximum nonempty input lines to process; negative means unlimited. */
 	private long maxLines=Long.MAX_VALUE;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Validated input descriptor. */
 	private final FileFormat ffin1;
-	/** Output file format specification */
+	/** Validated valid-line output descriptor, or null when output is disabled. */
 	private final FileFormat ffout1;
+	/** Validated invalid-line output descriptor, or null when output is disabled. */
 	private final FileFormat ffoutInvalid;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Diagnostic and status output stream, possibly redirected by PreParser. */
 	private PrintStream outstream=System.err;
+	/** Print verbose diagnostic messages. */
 	public static boolean verbose=false;
+	/** True if any reader or writer reported an error. */
 	public boolean errorState=false;
+	/** Overwrite existing output files. */
 	private boolean overwrite=true;
-	/** Whether to append to existing output files instead of overwriting */
+	/** Append to existing output files. */
 	private boolean append=false;
 	
 }

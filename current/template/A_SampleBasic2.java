@@ -17,22 +17,21 @@ import shared.Tools;
 import structures.ByteBuilder;
 
 /**
- * Template class for basic file processing operations.
- * Demonstrates standard BBTools program structure with argument parsing,
- * file validation, and output generation patterns.
+ * Basic output-only template for programs that synthesize text records.
+ * The doSomething hook is deliberately empty until a concrete tool supplies
+ * record-generation logic.
  *
+ * Created April 9, 2020.
  * @author Brian Bushnell
- * @date April 9, 2020
  */
-public class A_SampleBasic2 {
+public class A_SampleBasic2{
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Program entry point. Initializes timer, creates instance, processes data,
-	 * and closes output stream.
+	 * Code entrance from the command line.
 	 * @param args Command line arguments
 	 */
 	public static void main(String[] args){
@@ -50,8 +49,7 @@ public class A_SampleBasic2 {
 	}
 	
 	/**
-	 * Constructor that initializes the program from command-line arguments.
-	 * Handles preprocessing, argument parsing, file validation, and output setup.
+	 * Parses arguments, validates output, and initializes file formats.
 	 * @param args Command line arguments
 	 */
 	public A_SampleBasic2(String[] args){
@@ -84,17 +82,16 @@ public class A_SampleBasic2 {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Parses command-line arguments and configures program settings.
-	 * Handles verbose flag and delegates other arguments to parser.
-	 * @param args Command line arguments to parse
-	 * @return Configured Parser instance
+	 * Parses command-line arguments and delegates standard flags to Parser.
+	 * @param args Command-line arguments
+	 * @return Parser with recognized standard fields populated
 	 */
 	private Parser parse(String[] args){
 		
 		Parser parser=new Parser();
 		for(int i=0; i<args.length; i++){
 			String arg=args[i];
-			String[] split=arg.split("=");
+			String[] split=Parse.splitOnFirst(arg, '=');
 			String a=split[0].toLowerCase();
 			String b=split.length>1 ? split[1] : null;
 			if(b!=null && b.equalsIgnoreCase("null")){b=null;}
@@ -116,8 +113,7 @@ public class A_SampleBasic2 {
 		return parser;
 	}
 	
-	/** Validates that output files can be written.
-	 * Throws RuntimeException if output path is invalid or not writable. */
+	/** Verifies that output files can be written. */
 	private void checkFileExistence(){
 		//Ensure output files can be written
 		if(!Tools.testOutputFiles(overwrite, append, false, out)){
@@ -126,8 +122,7 @@ public class A_SampleBasic2 {
 		}
 	}
 	
-	/** Adjusts file-related static settings for optimal performance.
-	 * Forces ByteFile2 mode when multiple threads are available. */
+	/** Chooses the multithreaded byte-file implementation when useful. */
 	private static void checkStatics(){
 		//Adjust the number of threads for input file reading
 		if(!ByteFile.FORCE_MODE_BF1 && !ByteFile.FORCE_MODE_BF2 && Shared.threads()>2){

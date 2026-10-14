@@ -24,25 +24,22 @@ import structures.ListNum;
 import tracker.ReadStats;
 
 /**
- * Template class for multi-threaded sequence read processing.
- * Provides complete infrastructure for parsing arguments, managing I/O streams,
- * and coordinating worker threads. Designed to be easily modified by filling
- * in the processReadPair method with specific processing logic.
+ * Multithreaded template for tools that transform reads and optionally write
+ * retained reads. Worker threads pull input lists concurrently, filter each
+ * list in place and accumulate individual-read and base-count statistics.
  *
+ * <p>Created November 19, 2015.
  * @author Brian Bushnell
- * @date November 19, 2015
  */
-public class A_SampleMT implements Accumulator<A_SampleMT.ProcessThread> {
+public class A_SampleMT implements Accumulator<A_SampleMT.ProcessThread>{
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Program entry point.
-	 * Creates an instance of A_SampleMT, runs the processing pipeline,
-	 * and handles stream cleanup.
-	 * @param args Command-line arguments
+	 * Code entrance from the command line.
+	 * @param args command-line arguments
 	 */
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
@@ -59,10 +56,9 @@ public class A_SampleMT implements Accumulator<A_SampleMT.ProcessThread> {
 	}
 	
 	/**
-	 * Constructor that parses arguments and initializes the processing pipeline.
-	 * Handles command-line parsing, file validation, stream setup, and parameter
-	 * validation. Sets up input and output FileFormat objects for stream creation.
-	 * @param args Command-line arguments containing input/output paths and options
+	 * Parses arguments, validates paths and initializes file formats while holding
+	 * the class lock for any shared I/O state changes.
+	 * @param args command-line arguments
 	 */
 	public A_SampleMT(String[] args){
 		synchronized(this.getClass()){//In case any global state needs modification
@@ -120,12 +116,9 @@ public class A_SampleMT implements Accumulator<A_SampleMT.ProcessThread> {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Parses command-line arguments and extracts configuration parameters.
-	 * Creates a Parser object and processes each argument, setting appropriate
-	 * fields based on key=value pairs. Handles verbose, ordered, and custom flags.
-	 *
-	 * @param args Array of command-line arguments to parse
-	 * @return Configured Parser object with standard settings
+	 * Parses command-line arguments and delegates standard flags to Parser.
+	 * @param args command-line arguments
+	 * @return Parser with recognized standard fields populated
 	 */
 	private Parser parse(String[] args){
 		
@@ -139,8 +132,8 @@ public class A_SampleMT implements Accumulator<A_SampleMT.ProcessThread> {
 		for(int i=0; i<args.length; i++){
 			String arg=args[i];
 			
-			//Break arguments into their constituent parts, in the form of "a=b"
-			String[] split=arg.split("=");
+			//Split on only the first '=' so argument values may contain '='.
+			String[] split=Parse.splitOnFirst(arg, '=');
 			String a=split[0].toLowerCase();
 			String b=split.length>1 ? split[1] : null;
 			if(b!=null && b.equalsIgnoreCase("null")){b=null;}
@@ -164,9 +157,9 @@ public class A_SampleMT implements Accumulator<A_SampleMT.ProcessThread> {
 	}
 	
 	/**
-	 * Replaces # symbols with 1 and 2 in input and output file paths.
-	 * Enables paired-file specification using patterns like "reads_#.fq".
-	 * Validates that required input files are specified and output pairing is correct.
+	 * Replaces # symbols with 1 and 2 in paired input/output file paths.
+	 * Also validates that the required input and paired output paths are
+	 * consistently specified.
 	 */
 	private void doPoundReplacement(){
 		//Do input file # replacement
@@ -188,11 +181,7 @@ public class A_SampleMT implements Accumulator<A_SampleMT.ProcessThread> {
 		if(out1==null && out2!=null){throw new RuntimeException("Error - cannot define out2 without defining out1.");}
 	}
 	
-	/**
-	 * Adds or removes compression extensions (.gz, .bz2) as needed.
-	 * Ensures file extensions match the actual compression format for
-	 * proper stream handling during I/O operations.
-	 */
+	/** Normalizes compression suffixes on input file paths. */
 	private void fixExtensions(){
 		in1=Tools.fixExtension(in1);
 		in2=Tools.fixExtension(in2);
@@ -201,9 +190,8 @@ public class A_SampleMT implements Accumulator<A_SampleMT.ProcessThread> {
 	}
 	
 	/**
-	 * Validates that input files can be read and output files can be written.
-	 * Checks file permissions, prevents overwrites unless allowed, and ensures
-	 * no file paths are duplicated across input and output specifications.
+	 * Verifies primary read path accessibility and rejects duplicate primary
+	 * read path strings.
 	 */
 	private void checkFileExistence(){
 		//Ensure output files can be written
@@ -223,11 +211,7 @@ public class A_SampleMT implements Accumulator<A_SampleMT.ProcessThread> {
 		}
 	}
 	
-	/**
-	 * Configures interleaved read settings based on input and output file counts.
-	 * Sets FASTQ.FORCE_INTERLEAVED and FASTQ.TEST_INTERLEAVED flags to ensure
-	 * proper handling of paired-end data across single or dual file formats.
-	 */
+	/** Configures FASTQ interleaving to match the input/output file counts. */
 	private void adjustInterleaving(){
 		//Adjust interleaved detection based on the number of input files
 		if(in2!=null){
@@ -251,11 +235,8 @@ public class A_SampleMT implements Accumulator<A_SampleMT.ProcessThread> {
 		}
 	}
 	
-	/**
-	 * Adjusts file-related static fields for optimal multi-threaded performance.
-	 * Enables ByteFile.FORCE_MODE_BF2 for better threading when sufficient
-	 * threads are available and validates FastaReadInputStream settings.
-	 */
+	/** Enables ByteFile2 when neither BF1 nor BF2 is forced and more than two
+	 * threads are available. */
 	private static void checkStatics(){
 		//Adjust the number of threads for input file reading
 		if(!ByteFile.FORCE_MODE_BF1 && !ByteFile.FORCE_MODE_BF2 && Shared.threads()>2){
@@ -266,8 +247,7 @@ public class A_SampleMT implements Accumulator<A_SampleMT.ProcessThread> {
 	}
 	
 	/**
-	 * Validates that parameter ranges are within bounds and required parameters are set.
-	 * Template method that needs implementation for specific parameter validation logic.
+	 * Placeholder parameter validator; replace before using this template.
 	 * @return true if all parameters are valid
 	 */
 	private boolean validateParams(){
@@ -281,10 +261,10 @@ public class A_SampleMT implements Accumulator<A_SampleMT.ProcessThread> {
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Main processing pipeline that creates streams and coordinates worker threads.
-	 * Sets up input/output streams, spawns processing threads, collects results,
-	 * and reports timing statistics. Handles error states from worker threads.
-	 * @param t Timer for tracking execution time and reporting performance
+	 * Owns the read input and optional read output stream lifecycle, runs worker
+	 * threads, restores constructor validation on the normal completion path and
+	 * reports accumulated individual-read/base statistics.
+	 * @param t timer started at program launch
 	 */
 	void process(Timer t){
 		
@@ -326,6 +306,10 @@ public class A_SampleMT implements Accumulator<A_SampleMT.ProcessThread> {
 		}
 	}
 	
+	/**
+	 * Creates and starts the read input stream shared by worker threads.
+	 * @return started read input stream
+	 */
 	private ConcurrentReadInputStream makeCris(){
 		ConcurrentReadInputStream cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ffin1, ffin2, qfin1, qfin2);
 		cris.start(); //Start the stream
@@ -335,6 +319,12 @@ public class A_SampleMT implements Accumulator<A_SampleMT.ProcessThread> {
 		return cris;
 	}
 	
+	/**
+	 * Creates and starts the optional read output stream. Ownership transfers to
+	 * the caller, which closes it after all retained lists are handed off.
+	 * @param pairedInput whether the input stream reports paired reads
+	 * @return started read output stream, or null when output is disabled
+	 */
 	private ConcurrentReadOutputStream makeCros(boolean pairedInput){
 		if(ffout1==null){return null;}
 
@@ -356,12 +346,10 @@ public class A_SampleMT implements Accumulator<A_SampleMT.ProcessThread> {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Creates and manages worker threads for parallel read processing.
-	 * Spawns one ProcessThread per available CPU thread, starts them all,
-	 * and waits for completion while accumulating results.
-	 *
-	 * @param cris Input stream for reading data
-	 * @param ros Output stream for writing results (may be null)
+	 * Starts one worker per configured thread and accumulates worker counters as
+	 * ThreadWaiter observes completion.
+	 * @param cris input stream shared by worker threads
+	 * @param ros optional output stream receiving retained lists
 	 */
 	private void spawnThreads(final ConcurrentReadInputStream cris, final ConcurrentReadOutputStream ros){
 		
@@ -385,14 +373,12 @@ public class A_SampleMT implements Accumulator<A_SampleMT.ProcessThread> {
 	}
 	
 	/**
-	 * Accumulates statistics from completed worker threads.
-	 * Thread-safe method that sums read/base counts and error states
-	 * from individual ProcessThread instances.
-	 * @param pt ProcessThread containing statistics to accumulate
+	 * Adds one completed worker's individual-read/base counters to the shared totals.
+	 * @param pt completed worker containing statistics to accumulate
 	 */
 	@Override
 	public final void accumulate(ProcessThread pt){
-		synchronized(pt) {
+		synchronized(pt){
 			readsProcessed+=pt.readsProcessedT;
 			basesProcessed+=pt.basesProcessedT;
 			readsOut+=pt.readsOutT;
@@ -401,25 +387,19 @@ public class A_SampleMT implements Accumulator<A_SampleMT.ProcessThread> {
 		}
 	}
 	
-	/** Returns overall success status of the processing operation.
-	 * @return true if no errors occurred in any worker thread */
+	/**
+	 * Reports aggregate worker success to ThreadWaiter.
+	 * @return true if no worker has failed
+	 */
 	@Override
 	public final boolean success(){return !errorState;}
-	
-	/*--------------------------------------------------------------*/
-	/*----------------         Inner Methods        ----------------*/
-	/*--------------------------------------------------------------*/
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Inner Classes        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Worker thread class for processing reads in parallel.
-	 * Static to prevent accidental access to shared variables and ensure
-	 * thread safety. Each thread processes batches of reads independently.
-	 */
-	static class ProcessThread extends Thread {
+	/** Worker that pulls read lists, filters them in place and records local counters. */
+	static class ProcessThread extends Thread{
 		
 		//Constructor
 		ProcessThread(final ConcurrentReadInputStream cris_, final ConcurrentReadOutputStream ros_, final int tid_){
@@ -429,20 +409,16 @@ public class A_SampleMT implements Accumulator<A_SampleMT.ProcessThread> {
 		}
 		
 		//Called by start()
-		/**
-		 * Main thread execution method called by Thread.start().
-		 * Performs any necessary setup, processes reads via processInner(),
-		 * handles cleanup, and sets success flag upon completion.
-		 */
+		/** Pulls and filters lists until the shared input stream is exhausted. */
 		@Override
 		public void run(){
 			//Do anything necessary prior to processing
-			synchronized(A_SampleMT.class) {
+			synchronized(A_SampleMT.class){
 				//If any global state needs to be read and initialized locally
 			}
 			
 			//Process the reads
-			synchronized(this) {
+			synchronized(this){
 				processInner();
 
 				//Do anything necessary after processing
@@ -452,11 +428,7 @@ public class A_SampleMT implements Accumulator<A_SampleMT.ProcessThread> {
 			}
 		}
 		
-		/**
-		 * Core read processing loop that fetches and processes read batches.
-		 * Continuously retrieves ListNum batches from input stream, processes
-		 * them via processList(), and returns them to the stream until exhausted.
-		 */
+		/** Fetches input lists, delegates filtering and returns each list to the stream. */
 		void processInner(){
 			
 			//Grab the first ListNum of reads
@@ -488,6 +460,11 @@ public class A_SampleMT implements Accumulator<A_SampleMT.ProcessThread> {
 			}
 		}
 		
+		/**
+		 * Filters one fetched list in place, updates local individual-read and base-count
+		 * statistics, and hands retained reads to the output stream.
+		 * @param ln list wrapper fetched from the input stream
+		 */
 		void processList(ListNum<Read> ln){
 
 			//Grab the actual read list from the ListNum
@@ -527,14 +504,10 @@ public class A_SampleMT implements Accumulator<A_SampleMT.ProcessThread> {
 		}
 		
 		/**
-		 * Template method for processing individual read pairs.
-		 * This method must be implemented with specific processing logic
-		 * for the desired functionality. Currently throws RuntimeException
-		 * as a placeholder for implementation.
-		 *
-		 * @param r1 First read of the pair
-		 * @param r2 Second read of the pair (may be null for single-end data)
-		 * @return true if reads should be retained, false if they should be discarded
+		 * Placeholder processing hook; replace before using this template.
+		 * @param r1 first read in the pair
+		 * @param r2 second read in the pair, or null for single-ended data
+		 * @return true if the reads should be emitted
 		 */
 		boolean processReadPair(final Read r1, final Read r2){
 			throw new RuntimeException("TODO: Implement this method."); //TODO
@@ -549,11 +522,11 @@ public class A_SampleMT implements Accumulator<A_SampleMT.ProcessThread> {
 		
 		boolean success=false;
 		
-		/** Shared input stream for reading sequence data */
+		/** Shared input stream that owns fetched lists. */
 		private final ConcurrentReadInputStream cris;
-		/** Shared output stream for writing processed data */
+		/** Optional shared output stream receiving retained lists. */
 		private final ConcurrentReadOutputStream ros;
-		/** Thread ID for identification and debugging */
+		/** Thread identifier for diagnostics. */
 		final int tid;
 	}
 	
@@ -562,77 +535,79 @@ public class A_SampleMT implements Accumulator<A_SampleMT.ProcessThread> {
 	/*--------------------------------------------------------------*/
 
 	private String in1=null;
-	/** Secondary input file path for paired-end data */
+	/** Secondary input read file. */
 	private String in2=null;
 	
 	private String qfin1=null;
 	private String qfin2=null;
 
 	private String out1=null;
-	/** Secondary output file path for paired-end output */
+	/** Secondary output read file. */
 	private String out2=null;
 
 	private String qfout1=null;
 	private String qfout2=null;
 	
-	/** Override input file extension for format detection */
+	/** Optional input extension override. */
 	private String extin=null;
-	/** Override output file extension for format specification */
+	/** Optional output extension override. */
 	private String extout=null;
 	
-	/** Whether interleaved mode was explicitly set by user */
+	/** Whether interleaved input or output was explicitly set. */
 	private boolean setInterleaved=false;
 	
 	/*--------------------------------------------------------------*/
 
-	/** Total number of reads processed across all threads */
+	/** Total individual input reads processed across all workers. */
 	protected long readsProcessed=0;
-	/** Total number of bases processed across all threads */
+	/** Total input bases processed across all workers. */
 	protected long basesProcessed=0;
 
-	/** Total number of reads retained across all threads */
+	/** Total individual reads retained across all workers. */
 	protected long readsOut=0;
-	/** Total number of bases retained across all threads */
+	/** Total bases retained across all workers. */
 	protected long basesOut=0;
 
-	/** Maximum number of input reads to process; -1 means no limit */
+	/** Maximum input fragments to process; negative means unlimited. */
 	private long maxReads=-1;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** FileFormat object for primary input file */
+	/** Validated primary input descriptor. */
 	private final FileFormat ffin1;
-	/** FileFormat object for secondary input file */
+	/** Validated secondary input descriptor, or null for interleaved input. */
 	private final FileFormat ffin2;
 	
-	/** FileFormat object for primary output file */
+	/** Validated primary output descriptor, or null when output is disabled. */
 	private final FileFormat ffout1;
-	/** FileFormat object for secondary output file */
+	/** Validated secondary output descriptor, or null for interleaved output. */
 	private final FileFormat ffout2;
 	
-	/** Returns the read-write lock for thread synchronization.
-	 * @return ReadWriteLock for coordinating thread access */
+	/**
+	 * Supplies ThreadWaiter with this accumulator's lock.
+	 * @return read-write lock for worker accumulation
+	 */
 	@Override
-	public final ReadWriteLock rwlock() {return rwlock;}
+	public final ReadWriteLock rwlock(){return rwlock;}
 	private final ReadWriteLock rwlock=new ReentrantReadWriteLock();
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Print stream for status messages and logging output */
+	/** Diagnostic and status output stream, possibly redirected by PreParser. */
 	private PrintStream outstream=System.err;
-	/** Global flag to enable verbose logging messages */
+	/** Print verbose diagnostic messages. */
 	public static boolean verbose=false;
-	/** Flag indicating whether any error occurred during processing */
+	/** True if any worker, reader, writer or statistics operation reported an error. */
 	public boolean errorState=false;
-	/** Whether to overwrite existing output files */
+	/** Overwrite existing output files. */
 	private boolean overwrite=true;
-	/** Whether to append to existing output files */
+	/** Append to existing output files. */
 	private boolean append=false;
-	/** Whether reads should be output in the same order as input */
+	/** Preserve input list order in output. */
 	private boolean ordered=false;
 	
 }

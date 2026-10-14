@@ -5,14 +5,16 @@ import java.util.concurrent.ArrayBlockingQueue;
 import shared.KillSwitch;
 
 /**
- * Template class for jobs executed in thread pools with producer-consumer pattern.
- * Manages job execution, result handling, and cleanup coordination between threads.
- * Uses generics where X is the input data type and Y is the result type.
+ * Base job for a package-local executor that returns inputs to a bounded queue.
+ * A subclass supplies doWork; the default implementation terminates the JVM.
+ * doJob stores its result and returns the input only after doWork returns
+ * normally. It does not return the input after an exception. Callers handle
+ * poison markers before execution: ArrayBlockingQueue cannot accept null inputs.
  *
  * @author Brian Bushnell
  * @date August 26, 2019
  */
-public class ThreadPoolJob<X, Y> {
+public class ThreadPoolJob<X, Y>{
 
 	/**
 	 * Constructs a ThreadPoolJob with input data and a destination queue for returning completed jobs.
@@ -25,15 +27,16 @@ public class ThreadPoolJob<X, Y> {
 	}
 	
 	/** Executes the complete job workflow.
-	 * Calls doWork() to process the data, then cleanup() to return job to queue. */
+	 * Calls doWork(), stores its result, then returns the input to the queue.
+	 * If doWork throws, cleanup is skipped; this is not a finally block. */
 	final void doJob(){
 		result=doWork();
 		cleanup();
 	}
 	
 	/**
-	 * Abstract method for subclasses to implement job-specific processing logic.
-	 * Default implementation throws KillSwitch exception to force override.
+	 * Customization method for job-specific processing.
+	 * The concrete default calls KillSwitch.kill and does not return normally.
 	 * @return Processed result of type Y
 	 */
 	public Y doWork(){
@@ -44,15 +47,15 @@ public class ThreadPoolJob<X, Y> {
 	/**
 	 * Returns the job input data to the destination queue after processing.
 	 * Blocks until successful insertion, retrying on InterruptedException.
-	 * Ensures proper coordination between producer and consumer threads.
+	 * Does not restore the interrupt flag or recognize poison markers here.
 	 */
 	final void cleanup(){
 		boolean success=false;
-		while(!success) {
-			try {
+		while(!success){
+			try{
 				dest.put(x);
 				success=true;
-			} catch (InterruptedException e) {
+			}catch(InterruptedException e){
 				// TODO Auto-generated catch block
 				e.printStackTrace();
 			}

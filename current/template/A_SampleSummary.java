@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import fileIO.ByteStreamWriter;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
+import parse.Parse;
 import parse.Parser;
 import parse.PreParser;
 import shared.Shared;
@@ -15,14 +16,13 @@ import stream.Read;
 import structures.ListNum;
 
 /**
- * Template class demonstrating standard BBTools read processing pattern.
- * Provides a framework for creating new BBTools programs with standard
- * argument parsing, file I/O, and read iteration structure.
+ * Read-processing template for tools that write a summary after consuming
+ * their input. Fill the read loop and outputResults hook for a concrete tool.
  *
+ * Created October 6, 2014.
  * @author Brian Bushnell
- * @date Oct 6, 2014
  */
-public class A_SampleSummary {
+public class A_SampleSummary{
 
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
@@ -49,7 +49,7 @@ public class A_SampleSummary {
 		Parser parser=new Parser();
 		for(int i=0; i<args.length; i++){
 			String arg=args[i];
-			String[] split=arg.split("=");
+			String[] split=Parse.splitOnFirst(arg, '=');
 			String a=split[0].toLowerCase();
 			String b=split.length>1 ? split[1] : null;
 			if(b!=null && b.equalsIgnoreCase("null")){b=null;}
@@ -139,7 +139,7 @@ public class A_SampleSummary {
 	}
 	
 	/*--------------------------------------------------------------*/
-	
+	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
 	private String in1=null;
