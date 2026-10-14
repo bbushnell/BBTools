@@ -8,27 +8,53 @@ import dna.Gene;
 import shared.Shared;
 
 /**
- * Parses and manages genome build conversion chain file data from UCSC chain file format.
- * Represents a single chain block from genome alignment conversion files, processing
- * complex genome alignment information between reference and query sequences.
- * Converts chain file entries into structured alignment chunks for cross-genome mapping.
+ * Stores a chain header and its ungapped alignment chunks for legacy build conversion.
+ * Header coordinates are parsed literally; {@link #toLines()} constructs inclusive
+ * segments using the arithmetic documented there. The parser does not validate the
+ * complete external format or reconcile header spans with chunk lengths and gaps.
+ * Fields and chunk arrays are mutable, without synchronization. Chromosome grouping
+ * uses Gene.chromCodes indices, while name parsing follows Gene's numeric-only policy.
  *
  * @author Brian Bushnell
  */
 public class ChainBlock implements Comparable<ChainBlock>{
-	
-	
-	public static void main(String args[]){
+
+	/*--------------------------------------------------------------*/
+	/*----------------            Startup           ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/**
+	 * Prints the loaded segments for chromosome indices 1 through 22.
+	 * Prints one blank separator per index, including uncovered chromosomes.
+	 * @param args Positional input filename at index zero
+	 */
+	public static void main(String[] args){
 		ChainLine[][] lines=loadChainLines(args[0]);
 		for(int i=1; i<=22; i++){
-			for(ChainLine line : lines[i]){
-				System.out.println(line);
+			//FIO-055: the loader represents an uncovered chromosome with a null segment array.
+			final ChainLine[] array=lines[i];
+			if(array!=null){
+				for(ChainLine line : array){
+					System.out.println(line);
+				}
 			}
 			System.out.println();
 		}
 	}
 
+	/*--------------------------------------------------------------*/
+	/*----------------        Initialization        ----------------*/
+	/*--------------------------------------------------------------*/
 
+	/**
+	 * Parses one tokenized header followed by chunk rows into newly allocated arrays.
+	 * Asserts the header marker and three-field/nonfinal versus one-field/final row
+	 * shapes. Header field count, positive lengths and span consistency are not checked.
+	 * A header alone creates an empty chunk array. Input lists/row arrays are not retained;
+	 * immutable name strings are retained directly. Unsupported names may fail conversion.
+	 * @param list Nonempty list: 13-field header, then {size, target gap, query gap}
+	 * rows ending with a {size} row
+	 */
 	public ChainBlock(List<String[]> list){
 		
 		String[] head=list.get(0);
@@ -65,16 +91,38 @@ public class ChainBlock implements Comparable<ChainBlock>{
 		
 	}
 	
+	/**
+	 * Uses Gene's numeric chromosome parser, then tries the legacy U fallback on Exception.
+	 * The fallback is also unsupported by that parser; assertion failures are not caught.
+	 * @param s Chromosome token from the header
+	 * @return Parsed numeric chromosome ID when conversion succeeds
+	 */
 	private static int toChromosome(String s){
 		int result;
 		try{
 			result=Gene.toChromosome(s);
 		}catch(Exception e){
+			//TODO: Probable bug - FIO-051: Gene.toChromosome now accepts numeric names only, so
+			//this legacy unknown-name fallback also throws. Reconcile name policy before repairing.
 			result=Gene.toChromosome("U");
 		}
 		return result;
 	}
 	
+	/*--------------------------------------------------------------*/
+	/*----------------           Methods            ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/**
+	 * Expands chunks into fresh inclusive segments in input chunk order.
+	 * Target traversal starts at tStart and increases by each size and following gap.
+	 * PLUS query traversal starts at qStart and increases; every other strand starts
+	 * at qStop-1 and decreases by each size and query gap. No qSize-based coordinate
+	 * conversion is performed. tStrand is copied to the result without changing traversal.
+	 * Does not check header endpoints against the final segment or validate lengths,
+	 * gaps, array shapes, coordinate overflow or external reverse-strand conventions.
+	 * @return New array with one new ChainLine per chunk, empty when there are no chunks
+	 */
 	public ChainLine[] toLines(){
 		ChainLine[] out=new ChainLine[chunks.length];
 		
@@ -106,8 +154,19 @@ public class ChainBlock implements Comparable<ChainBlock>{
 		
 		return out;
 	}
-	
-	
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Static Methods        ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/**
+	 * Loads blocks, groups by target chromosome and sorts each nonempty segment array.
+	 * Empty chromosomes remain null. Merges all blocks without score/chain-ID selection
+	 * or overlap validation. ChainLine search resolves overlaps by earliest source start,
+	 * then earliest destination at that start; sorting here retains all alternatives.
+	 * @param fname Input name interpreted by TextFile with subprocesses disabled
+	 * @return New chromosome-indexed array, sized to Gene.chromCodes.length
+	 */
 	public static ChainLine[][] loadChainLines(String fname){
 		ArrayList<ChainBlock> list=loadChainBlocks(fname);
 		ChainBlock[][] blocks=splitChain(list);
@@ -133,10 +192,21 @@ public class ChainBlock implements Comparable<ChainBlock>{
 	}
 	
 	
+	/**
+	 * Reads all TextFile logical lines, trims/splits whitespace and constructs blocks.
+	 * Every one-token row terminates the current block, which is then parsed; blank
+	 * handling comes from TextFile and there is no separate comment-line filter.
+	 * Sorts complete blocks by their natural order. Rejects a nonempty unfinished
+	 * tail rather than returning only the preceding complete blocks.
+	 * Attempts reader closure after collection, including on read failure, before parsing.
+	 * Reported close errors reject the result; a primary read failure remains primary.
+	 * @param fname Input name interpreted by TextFile with subprocesses disabled
+	 * @return New mutable list of parsed, sorted complete blocks
+	 * @throws IllegalArgumentException If rows remain after the last block terminator
+	 */
 	public static ArrayList<ChainBlock> loadChainBlocks(String fname){
-		TextFile tf=new TextFile(fname, false);
-		String[] lines=tf.toStringLines();
-		tf.close();
+		//FIO-056: the static helper owns cleanup and preserves an existing collection failure.
+		String[] lines=TextFile.toStringLines(fname);
 		String[][] text=TextFile.doublesplitWhitespace(lines, true);
 		
 		ArrayList<ChainBlock> out=new ArrayList<ChainBlock>();
@@ -149,11 +219,22 @@ public class ChainBlock implements Comparable<ChainBlock>{
 				current.clear();
 			}
 		}
+		//FIO-054: only a one-field size row finishes a block; leftover rows mean incomplete input.
+		if(!current.isEmpty()){
+			throw new IllegalArgumentException("Incomplete chain block at end of "+fname+
+				"; buffered rows: "+current.size());
+		}
 		Shared.sort(out);
 		return out;
 	}
 	
 	
+	/**
+	 * Groups existing block references by tChrom, preserving input order within a group.
+	 * Allocates every group, including empty arrays; does not copy blocks or sort them.
+	 * @param list Nonnull blocks whose target IDs index Gene.chromCodes (currently 0..26)
+	 * @return New outer/group arrays with the same mutable block objects
+	 */
 	public static ChainBlock[][] splitChain(ArrayList<ChainBlock> list){
 		int[] size=new int[Gene.chromCodes.length];
 		
@@ -172,8 +253,15 @@ public class ChainBlock implements Comparable<ChainBlock>{
 	}
 	
 
+	/**
+	 * Orders by target chromosome, target name, target start, then target stop.
+	 * Integer keys use subtraction. Equal chromosome/name keys assert equal strands;
+	 * score, query fields and chain ID do not break ties.
+	 * @param other Block with a nonnull target name
+	 * @return First nonzero key comparison, or zero when all ordering keys match
+	 */
 	@Override
-	public int compareTo(ChainBlock other) {
+	public int compareTo(ChainBlock other){
 		int temp;
 		
 		temp=tChrom-other.tChrom;
@@ -190,25 +278,43 @@ public class ChainBlock implements Comparable<ChainBlock>{
 		temp=tStop-other.tStop;
 		return temp;
 	}
-	
-	
+
+	/*--------------------------------------------------------------*/
+	/*----------------            Fields            ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Header score; not used to select or order mappings. */
 	public long score;
+	/** Literal target name; retained even when multiple names parse to the same ID. */
 	public String tName;
+	/** Parsed numeric target ID; grouping requires an index into Gene.chromCodes. */
 	public int tChrom;
+	/** Header target sequence size; retained without span validation. */
 	public int tSize;
+	/** Encoded target strand; copied to segments without changing target traversal. */
 	public byte tStrand;
+	/** Header target start; origin of ascending chunk traversal. */
 	public int tStart;
+	/** Header target end; stored literally and not reconciled with chunks. */
 	public int tStop;
 
+	/** Literal query name. */
 	public String qName;
+	/** Parsed numeric query ID; ChainLine.translate separately accepts only 1..25. */
 	public int qChrom;
+	/** Header query sequence size; not used by toLines. */
 	public int qSize;
+	/** Encoded query strand; PLUS increases query coordinates, other codes decrease them. */
 	public byte qStrand;
+	/** Header query start; used as the PLUS traversal origin. */
 	public int qStart;
+	/** Header query end; qStop-1 is the non-PLUS traversal origin. */
 	public int qStop;
 	
+	/** Parsed header chain ID; not used for ordering or mapping selection. */
 	public int chainID;
 	
+	/** Mutable {size, target gap, query gap} rows followed by a final {size} row. */
 	public int[][] chunks;
 	
 	//chain 3303 chr1 247249719 + 13192499 13192587 chr1 249250621 - 236203315 236203403 109

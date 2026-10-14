@@ -5,20 +5,26 @@ import dna.Gene;
 import shared.Shared;
 
 /**
- * Represents a genomic coordinate chain for genome-to-genome coordinate translation.
- * Stores mapping information between target and query coordinate systems with
- * chromosome, strand, and position data for both reference and query sequences.
- * Supports binary search operations and coordinate transformations between genome builds.
+ * One ungapped target-to-query segment produced by {@link ChainBlock#toLines()}.
+ * Target endpoints are inclusive. Query endpoints follow target traversal order:
+ * ascending for PLUS, descending for the reverse branch. Coordinates are stored
+ * and translated literally; this class does not convert external coordinate formats.
+ * Fields are mutable and caller-owned, with no synchronization or constructor validation.
+ * Search accepts overlapping intervals sorted by target start within one chromosome;
+ * it prefers the earliest target start, then the earliest destination at that start.
  *
- * @author Brian Bushnell
+ * @author Brian Bushnell, Shinobu
  */
-public class ChainLine implements Comparable<ChainLine> {
-	
-	
+public class ChainLine implements Comparable<ChainLine>{
+
+	/*--------------------------------------------------------------*/
+	/*----------------            Startup           ----------------*/
+	/*--------------------------------------------------------------*/
+
 	/**
-	 * Program entry point for testing coordinate translation functionality.
-	 * Loads chain file and translates coordinate positions from command line arguments.
-	 * @param args Command-line arguments: chromosome name followed by coordinates to translate
+	 * Prints translations through Data.ROOT_CHAIN's hg18ToHg19.over.chain file.
+	 * Arguments are positional; coordinates are passed through without an offset.
+	 * @param args Numeric chromosome token accepted by Gene.toChromosome, then positions
 	 */
 	public static void main(String[] args){
 
@@ -34,19 +40,22 @@ public class ChainLine implements Comparable<ChainLine> {
 		}
 		
 	}
-	
-	
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Initialization        ----------------*/
+	/*--------------------------------------------------------------*/
+
 	/**
-	 * Constructs a ChainLine with target and query coordinate information.
+	 * Copies all supplied values without checking or normalizing endpoints or strands.
 	 *
 	 * @param chromT Target chromosome number
-	 * @param strandT Target strand (+ or -)
-	 * @param startT Target start coordinate
-	 * @param stopT Target stop coordinate
+	 * @param strandT Encoded target strand, normally Shared.PLUS; not used in translation
+	 * @param startT Inclusive lower target endpoint
+	 * @param stopT Inclusive upper target endpoint
 	 * @param chromQ Query chromosome number
-	 * @param strandQ Query strand (+ or -)
-	 * @param startQ Query start coordinate
-	 * @param stopQ Query stop coordinate
+	 * @param strandQ Encoded query strand; Shared.PLUS selects ascending translation
+	 * @param startQ Query coordinate corresponding to startT
+	 * @param stopQ Query coordinate corresponding to stopT
 	 */
 	public ChainLine(int chromT, byte strandT, int startT, int stopT, int chromQ, byte strandQ, int startQ, int stopQ){
 		tChrom=chromT;
@@ -59,8 +68,12 @@ public class ChainLine implements Comparable<ChainLine> {
 		qStart=startQ;
 		qStop=stopQ;
 	}
-	
-	
+
+	/*--------------------------------------------------------------*/
+	/*----------------           Methods            ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Returns the eight stored fields separated by tabs, rendering strand codes as symbols. */
 	@Override
 	public String toString(){
 		return tChrom+"\t"+Shared.strandCodes[tStrand]+"\t"+tStart+"\t"+tStop+"\t"+
@@ -69,10 +82,17 @@ public class ChainLine implements Comparable<ChainLine> {
 	
 	
 	/**
-	 * Performs binary search to find ChainLine containing the specified location.
+	 * Finds a segment containing loc, treating null and empty arrays as unmapped.
+	 * Intervals must be sorted by ascending target start within one chromosome.
+	 * Among containing segments, prefers the lowest tStart, then the lowest qStart
+	 * (destination at that source start, also on reverse strands). Exact ties retain
+	 * array order. This is not score selection or minimum translated position across
+	 * mixed strands. Entries and keys must remain stable during the search.
+	 * The historical method name is retained; overlapping intervals require a scan
+	 * of the relevant prefix, with linear worst-case cost and no extra index storage.
 	 * @param loc Target coordinate to search for
-	 * @param array Sorted array of ChainLine objects
-	 * @return Index of ChainLine containing the location, or -1 if not found
+	 * @param array Searchable segment array, or null for an uncovered chromosome
+	 * @return Preferred containing index, or -1 when no segment is found
 	 */
 	public static int binarySearch(int loc, ChainLine[] array){
 		//FIXED [fileIO/ChainLine#001]: null array means the chromosome has zero chain blocks (Data.getChainLines /
@@ -86,32 +106,35 @@ public class ChainLine implements Comparable<ChainLine> {
 	
 	
 	/**
-	 * Recursive binary search implementation with specified bounds.
-	 * Searches for ChainLine containing the target location within array range.
+	 * Searches an inclusive index range with the same interval assumptions as
+	 * {@link #binarySearch(int, ChainLine[])}. An empty range returns -1 before
+	 * accessing the array; a nonempty range requires a nonnull array and valid bounds.
 	 *
 	 * @param loc Target coordinate to search for
-	 * @param array Sorted array of ChainLine objects
-	 * @param first Starting index for search range
-	 * @param last Ending index for search range
-	 * @return Index of ChainLine containing the location, or -1 if not found
+	 * @param array Array of nonnull segments satisfying the search assumptions
+	 * @param first Inclusive first index
+	 * @param last Inclusive last index; less than first denotes an empty range
+	 * @return Preferred containing index, or -1 when no segment is found
 	 */
 	public static int binarySearch(int loc, ChainLine[] array, int first, int last){
-//		if(first>=last){
-//			if(first>last){return -1;}
-//			assert(first==last && first<array.length);
-//			return (array[first].tStart<=loc && array[first].tStop>=loc) ? first : -1;
-//		}
-//		System.out.println("BinarySearch "+loc+", "+first+", "+last);
-		if(first>last){return -1;}
-		int mid=(first+last)/2;
-		ChainLine midcl=array[mid];
-//		System.out.println("mid = "+midcl);
-		if(loc<midcl.tStart){return binarySearch(loc, array, first, mid-1);}
-		else if(loc>midcl.tStop){return binarySearch(loc, array, mid+1, last);}
-		return mid;
+		//FIO-052: a later short interval cannot rule out an earlier enclosing interval.
+		int best=-1;
+		for(int i=first; i<=last; i++){
+			final ChainLine line=array[i];
+			if(line.tStart>loc || (best>=0 && line.tStart>array[best].tStart)){break;}
+			if(line.contains(loc) && (best<0 || line.qStart<array[best].qStart)){best=i;}
+		}
+		return best;
 	}
 	
-	/** Returns {chrom, strand, loc} */
+	/**
+	 * Searches the supplied segments and translates through the selected segment.
+	 * Uses the interval assumptions of {@link #binarySearch(int, ChainLine[])};
+	 * it does not select among competing mappings by score or chain ID.
+	 * @param loc Target coordinate, with no coordinate-format conversion
+	 * @param array Searchable segments, or null for an uncovered chromosome
+	 * @return Fresh {query chromosome, encoded query strand, position}, or null if unmapped
+	 */
 	public static int[] translate(int loc, ChainLine[] array){
 		int index=binarySearch(loc, array);
 		if(index<0){return null;}
@@ -120,29 +143,32 @@ public class ChainLine implements Comparable<ChainLine> {
 	}
 		
 	/**
-	 * Translates a single coordinate from target to query coordinate system.
-	 * Handles both plus and minus strand transformations with proper coordinate arithmetic.
+	 * Translates an inclusive target coordinate, rejecting out-of-range locations
+	 * and query chromosomes outside 1..25. PLUS adds loc-tStart to qStart; every
+	 * other strand code subtracts that offset and asserts qStart is at least qStop.
+	 * Target strand is not applied. No query-bound, span-length or overflow check is made.
 	 * @param loc Target coordinate to translate
-	 * @return Array containing {qChrom, qStrand, translated_coordinate} or null if invalid
+	 * @return Fresh {qChrom, qStrand, position}, or null for a rejected location/chromosome
 	 */
 	public int[] translate(int loc){
 		if(loc<tStart || loc>tStop){return null;}
 //		assert(loc>=tStart && loc<=tStop);
 		if(qChrom<1 || qChrom>25){return null;}
 		if(qStrand==Shared.PLUS){
-			return new int[] {qChrom, qStrand, qStart+loc-tStart};
+			return new int[]{qChrom, qStrand, qStart+loc-tStart};
 		}else{
 			assert(qStart>=qStop) : this;
-			return new int[] {qChrom, qStrand, qStart-(loc-tStart)};
+			return new int[]{qChrom, qStrand, qStart-(loc-tStart)};
 		}
 	}
 	
 	
 	/**
-	 * Checks if the target coordinate range [a,b] is completely contained within this ChainLine.
-	 * @param a Start of coordinate range
-	 * @param b End of coordinate range
-	 * @return true if range is completely contained, false otherwise
+	 * Tests whether inclusive range [a,b] lies within the target endpoints.
+	 * Asserts b is at least a; does not check chromosome, strand or query endpoints.
+	 * @param a Inclusive lower coordinate
+	 * @param b Inclusive upper coordinate
+	 * @return true when both endpoint comparisons succeed
 	 */
 	public boolean contains(int a, int b){
 		assert(b>=a);
@@ -151,7 +177,7 @@ public class ChainLine implements Comparable<ChainLine> {
 	
 	
 	/**
-	 * Checks if the specified coordinate falls within this ChainLine's target range.
+	 * Tests an inclusive target coordinate without checking chromosome or strand.
 	 * @param a Coordinate to test
 	 * @return true if coordinate is within tStart to tStop range, false otherwise
 	 */
@@ -160,8 +186,15 @@ public class ChainLine implements Comparable<ChainLine> {
 	}
 
 
+	/**
+	 * Orders by target chromosome, start, then stop using integer subtraction.
+	 * Equal target chromosomes must have equal target strands when assertions are enabled.
+	 * Query fields are ignored; equal ordering keys do not imply identical mappings.
+	 * @param other Segment to compare
+	 * @return First nonzero target-key difference, or zero when all ordering keys match
+	 */
 	@Override
-	public int compareTo(ChainLine other) {
+	public int compareTo(ChainLine other){
 		int temp;
 		
 		temp=tChrom-other.tChrom;
@@ -176,22 +209,26 @@ public class ChainLine implements Comparable<ChainLine> {
 		return temp;
 	}
 	
-	/** Target chromosome number */
+	/*--------------------------------------------------------------*/
+	/*----------------            Fields            ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Target chromosome number; used as the first ordering key. */
 	public int tChrom;
-	/** Target strand orientation (+ or -) */
+	/** Encoded target strand; compared by assertion, not applied by translate. */
 	public byte tStrand;
-	/** Target sequence start coordinate */
+	/** Inclusive lower target endpoint. */
 	public int tStart;
-	/** Target sequence stop coordinate */
+	/** Inclusive upper target endpoint. */
 	public int tStop;
 	
-	/** Query chromosome number */
+	/** Query chromosome number; translate accepts only 1..25. */
 	public int qChrom;
-	/** Query strand orientation (+ or -) */
+	/** Encoded query strand; Shared.PLUS selects addition, other codes select subtraction. */
 	public byte qStrand;
-	/** Query sequence start coordinate */
+	/** Query coordinate at tStart, used as the translation origin. */
 	public int qStart;
-	/** Query sequence stop coordinate */
+	/** Query coordinate at tStop; checked only by the reverse-branch ordering assertion. */
 	public int qStop;
 	
 }

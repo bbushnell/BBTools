@@ -1,99 +1,118 @@
 package fileIO;
+
 import dna.Matrix;
 
-
-
 /**
- * File reader for matrix data files in BBTools format.
- * Parses text files containing formatted matrix data with metadata headers.
- * Extends TextFile to provide specialized matrix parsing capabilities.
+ * Reads float matrices preceded by name, dimensions, prefix and count headers.
+ * Returns the grid, prefix and name in a Matrix; the count is parsed but discarded.
+ * Inherits TextFile's mutable reader state and blank-line filtering. Callers own
+ * closure: neither EOF nor a //end marker closes the reader.
  * @author Brian Bushnell
  */
 public class MatrixFile extends TextFile{
-	
+
+	/*--------------------------------------------------------------*/
+	/*----------------            Startup           ----------------*/
+	/*--------------------------------------------------------------*/
+
 	/**
-	 * Program entry point for testing matrix file reading.
-	 * Reads and prints all lines from the specified matrix file.
-	 * @param args Command-line arguments; first argument should be matrix file name
-	 * @throws RuntimeException If file cannot be read or other error occurs
+	 * Prints the input's retained TextFile lines without parsing matrices.
+	 * Uses readLine(), bypassing MatrixFile's slash/brace filter. This diagnostic
+	 * entry point wraps caught exceptions and does not explicitly close its reader.
+	 * @param args Input name as the first argument
+	 * @throws RuntimeException if an exception is caught while opening or reading input
 	 */
 	public static void main(String[] args){
-		
-		try {
-			//Name of mat file
+		try{
 			String name=args[0];
-			
 			MatrixFile mat=new MatrixFile(name);
-			
 			String s=null;
-			
 			for(s=mat.readLine(); s!=null; s=mat.readLine()){
 				System.out.println(s);
 			}
-		} catch (Exception e) {
+		}catch(Exception e){
 			throw new RuntimeException(e);
 		}
-		
 	}
-	
-	
-	/** Constructs a MatrixFile reader for the specified file.
-	 * @param name Path to the matrix file to read */
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Initialization        ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Opens the input immediately with subprocess permission disabled.
+	 * ReadWrite still selects the actual backend, as for TextFile.
+	 * @param name Input name interpreted by ReadWrite */
 	public MatrixFile(String name){super(name, false);}
-	
+
+	/*--------------------------------------------------------------*/
+	/*----------------           Reading            ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/**
+	 * Skips logical lines until the first character is slash or opening brace.
+	 * TextFile.readLine() removes its defined blank lines first. Retained lines are
+	 * not trimmed, so leading whitespace prevents selection. A slash selects any
+	 * such line; this method does not validate metadata or recognize end markers.
+	 * @return Next selected line, or null at EOF or when the inherited reader is closed
+	 */
 	@Override
 	public String nextLine(){
 		String line=readLine();
-		
 		while(line!=null && line.charAt(0)!='{' && line.charAt(0)!='/'){
 			line=readLine();
 		}
 		return line;
 	}
-	
+
 	/**
-	 * Parses the next complete matrix from the file.
-	 * Reads metadata headers (name, size, prefix, count) followed by matrix data rows.
-	 * Matrix data is expected in bracket-enclosed, comma-separated format.
-	 *
-	 * @return Parsed Matrix object or null if end of file or "//end" marker reached
-	 * @throws AssertionError If matrix format is invalid or expected headers missing
-	 * @throws NumberFormatException If numeric values cannot be parsed
+	 * Parses four selected header lines followed by the declared number of data rows:
+	 * <pre>
+	 * //name: example
+	 * //size: 2x2
+	 * //prefix: 1
+	 * //count: 25
+	 * {1.0,2.0}
+	 * {3.0,4.0}
+	 * </pre>
+	 * Trims the name; dimensions, prefix and count are parsed without trimming.
+	 * Dimensions use a lowercase x separator. The count is discarded; grid, prefix
+	 * and name are passed unchanged to the Matrix constructor.
+	 * Each data row occupies one selected line. Lines starting // are skipped while
+	 * seeking rows, but not between headers. ASCII spaces and braces are removed from
+	 * each row before splitting; a comma after the closing brace is also tolerated.
+	 * Header prefixes, boundary braces and row widths are checked with assertions;
+	 * malformed or truncated input can also produce other unchecked exceptions.
+	 * A first selected line beginning //end returns null without latching an end state;
+	 * later calls can continue after that marker. Does not close the reader.
+	 * @return Parsed matrix, or null when no first line is available or it begins //end
+	 * @throws AssertionError if an enabled header, brace or row-width assertion fails
+	 * @throws NumberFormatException if an integer header or float value cannot be parsed
 	 */
 	public Matrix nextMatrix(){
 		String line;
 		String[] split;
-		
 		line=nextLine();
 		if(line==null || line.startsWith("//end")){return null;}
-		
 		assert(line.startsWith("//name: ")) : line;
-		String name=line.replace("//name: ","").trim();
-		
+		String name=line.replace("//name: ", "").trim();
 		line=nextLine();
 		assert(line.startsWith("//size: ")) : line;
-		line=line.replace("//size: ","");
+		line=line.replace("//size: ", "");
 		split=line.split("x");
 		int length=Integer.parseInt(split[0]);
 		int width=Integer.parseInt(split[1]);
-		
 		line=nextLine();
 		assert(line.startsWith("//prefix: ")) : line;
-		line=line.replace("//prefix: ","");
+		line=line.replace("//prefix: ", "");
 		int prefix=Integer.parseInt(line);
-		
 		line=nextLine();
 		assert(line.startsWith("//count: ")) : line;
-		line=line.replace("//count: ","");
+		line=line.replace("//count: ", "");
 		int count=Integer.parseInt(line);
-		
-		
 		float[][] grid=new float[length][width];
 		for(int i=0; i<length; i++){
 			line=nextLine();
-			
 			while(line.startsWith("//")){line=nextLine();}
-			
 			assert(line.startsWith("{"));
 			if(line.endsWith(",")){line=line.substring(0, line.length()-1);}
 			assert(line.endsWith("}"));
@@ -104,8 +123,6 @@ public class MatrixFile extends TextFile{
 				grid[i][j]=Float.parseFloat(split[j]);
 			}
 		}
-		
 		return new Matrix(grid, prefix, name);
 	}
-	
 }

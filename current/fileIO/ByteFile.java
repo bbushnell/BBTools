@@ -6,27 +6,30 @@ import java.util.ArrayList;
 import shared.Shared;
 import structures.ListNum;
 
-
 /**
- * Abstract base class for efficient byte-level file reading and processing
- * across different file formats and input strategies.
- * Provides a flexible, extensible framework for reading files as byte arrays
- * with multiple implementation strategies and performance optimizations.
- * Factory methods automatically select optimal implementation based on
- * system resources and file characteristics.
+ * Byte-line reader contract, implementation selection, and collection helpers.
+ * Factories select ByteFile1 through ByteFile4 using explicit choices, process-wide
+ * flags, thread count and LOW_MEMORY; selection is a policy, not a per-file benchmark.
+ * Concrete readers define buffering, line counters, reset support and lifecycle.
+ * The inherited nextList method serializes its own callers and assigns record origins;
+ * direct nextLine/nextListAsync calls, resets and overriding methods have separate
+ * synchronization rules. Configure shared selection/batch settings before use.
  *
  * @author Brian Bushnell
- * @contributor Shinobu (reader-local preference)
+ * @contributor Shinobu (reader-local preference and contracts)
  */
-public abstract class ByteFile {
+public abstract class ByteFile{
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Initialization        ----------------*/
+	/*--------------------------------------------------------------*/
 	
 //	public static final ByteFile makeByteFile(String fname){
 //		return makeByteFile(fname, false, true);
 //	}
 	
 	/**
-	 * Creates a ByteFile1 instance for reading the specified file.
-	 * Forces usage of ByteFile1 implementation regardless of system settings.
+	 * Opens ByteFile1 directly, regardless of selection and allow flags.
 	 *
 	 * @param fname The filename to read
 	 * @param allowSubprocess Whether to allow subprocess decompression
@@ -38,12 +41,11 @@ public abstract class ByteFile {
 	}
 	
 	/**
-	 * Creates an appropriate ByteFile instance for reading the specified file.
-	 * Automatically selects optimal implementation based on system resources.
+	 * Creates an input descriptor with TEXT as fallback and uses the default reader policy.
 	 *
 	 * @param fname The filename to read
 	 * @param allowSubprocess Whether to allow subprocess decompression
-	 * @return ByteFile instance (ByteFile1 or ByteFile2) for the specified file
+	 * @return Selected ByteFile1, ByteFile2, ByteFile3 or ByteFile4 instance
 	 */
 	public static final ByteFile makeByteFile(String fname, boolean allowSubprocess){
 		FileFormat ff=FileFormat.testInput(fname, FileFormat.TEXT, null, allowSubprocess, false);
@@ -51,8 +53,7 @@ public abstract class ByteFile {
 	}
 	
 	/**
-	 * Creates an appropriate ByteFile instance for the specified FileFormat.
-	 * Uses default type selection logic.
+	 * Opens a reader using forced-mode or automatic selection.
 	 * @param ff The FileFormat describing the input file
 	 * @return ByteFile instance for the specified format
 	 */
@@ -96,58 +97,74 @@ public abstract class ByteFile {
 	}
 	
 	/**
-	 * Protected constructor for ByteFile instances.
-	 * Validates that the FileFormat is configured for reading.
+	 * Borrows the input descriptor and asserts that it is configured for reading.
 	 * @param ff_ The FileFormat for this ByteFile instance
 	 */
 	protected ByteFile(FileFormat ff_){
 		ff=ff_;
 		assert(ff.read()) : ff;
 	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------           Methods            ----------------*/
+	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Reads the entire file and returns all lines as byte arrays.
-	 * Convenient method for loading entire files into memory.
-	 * Uses initial capacity of 4096 lines for efficiency.
-	 * @return ArrayList containing all lines as byte arrays
+	 * Collects remaining lines from the current position using nextLine.
+	 * Retains the returned arrays without copying them. Does not explicitly close or
+	 * reset the reader; backend EOF handling still applies.
+	 * @return Newly allocated list of remaining line arrays
 	 */
 	public final ArrayList<byte[]> toByteLines(){
-		
 		byte[] s=null;
 		ArrayList<byte[]> list=new ArrayList<byte[]>(4096);
-		
 		for(s=nextLine(); s!=null; s=nextLine()){list.add(s);}
-		
 		return list;
 	}
 	
-	/** Uses nextList instead of nextLine, may be faster in some cases */
+	/** Collects remaining batches through nextListAsync, retaining their line arrays.
+	 * Does not use nextList's monitor or record-origin numbering, or explicitly close
+	 * or reset the reader. Overrides determine batching behavior.
+	 * @return Newly allocated list of remaining line arrays */
 	public final ArrayList<byte[]> toByteLinesList(){
-		
 		ArrayList<byte[]> list=new ArrayList<byte[]>(TARGET_LIST_SIZE*8);
 		for(ListNum<byte[]> ln=nextListAsync(); ln!=null; ln=nextListAsync()){
 			list.addAll(ln.list);
 		}
-		
 		return list;
 	}
 	
 	/**
-	 * Static utility method to read all lines from a FileFormat.
-	 * Creates temporary ByteFile instance and automatically closes it.
+	 * Opens the selected reader, collects lines, and closes it before returning.
+	 * Reported read/close errors reject the collected data. A collection exception
+	 * remains primary if closing also fails; the closure failure is suppressed on it.
 	 * @param ff The FileFormat to read from
 	 * @return ArrayList containing all lines as byte arrays
+	 * @throws RuntimeException if the reader reports an input or closure error
 	 */
 	public static final ArrayList<byte[]> toLines(FileFormat ff){
-		ByteFile bf=makeByteFile(ff);
-		ArrayList<byte[]> lines=bf.toByteLines();
-		bf.close();
-		return lines;
+		final ByteFile bf=makeByteFile(ff);
+		Throwable failure=null;
+		try{
+			return bf.toByteLines();
+		}catch(RuntimeException | Error t){
+			failure=t;
+			throw t;
+		}finally{
+			//FIO-002: close on rejection and do not return data after a latched error.
+			try{
+				if(bf.close()){throw new RuntimeException("Error reading or closing "+bf.name());}
+			}catch(RuntimeException | Error t){
+				if(failure==null){throw t;}
+				if(failure!=t){failure.addSuppressed(t);}
+			}
+		}
 	}
 	
 	/**
-	 * Static utility method to read all lines from a filename.
-	 * Creates FileFormat and ByteFile instances automatically.
+	 * Creates an input descriptor with TEXT as fallback and subprocesses allowed,
+	 * then delegates to toLines.
+	 * Shares that helper's closure and error-reporting contract.
 	 * @param fname The filename to read
 	 * @return ArrayList containing all lines as byte arrays
 	 */
@@ -157,42 +174,40 @@ public abstract class ByteFile {
 	}
 	
 	/**
-	 * Counts the total number of lines in the file.
-	 * Resets the file position after counting for subsequent reading.
-	 * Efficient method that doesn't store line content in memory.
-	 * @return Total number of lines in the file
+	 * Consumes and counts remaining lines, then requests reset from the backend.
+	 * Requires a reset-capable reader to restore subsequent reading; not every reader
+	 * selected by the factory supports that operation. Does not check a close-error flag.
+	 * @return Number of lines consumed from the current position
 	 */
 	public final long countLines(){
 		byte[] s=null;
 		long count=0;
 		for(s=nextLine(); s!=null; s=nextLine()){count++;}
+		//TODO: Probable bug (FIO-003) - automatic selection can return ByteFile4, whose reset cannot restart reading.
 		reset();
-		
 		return count;
 	}
 
-	/** Resets the file reader to the beginning of the file.
-	 * Implementation varies by subclass. */
+	/** Requests rewind/reopening according to the concrete reader's reset support.
+	 * Reset is not supported by every implementation returned by the factory. */
 	public abstract void reset();
-	/** Resets the internal list ID counter to zero.
-	 * Called by subclass reset() implementations. */
+	/** Resets this base class's list-ID and record-origin counters to zero.
+	 * Does not reopen input or reset subclass state. */
 	final void superReset(){
 		nextID=0;
 		nextRecordNum=0;
 	}
 	
 	/**
-	 * Synchronized.
-	 * Reads the next batch of lines as a numbered list, capped at
-	 * TARGET_LIST_SIZE lines (default 800) or TARGET_LIST_BYTES bytes
-	 * (default 262144), whichever is reached first.
-	 * Provides efficient batch processing for large files.
-	 * Each ListNum returned by this implementation carries a unique sequential ID
-	 * and zero-based first record number.
-	 * @return ListNum of byte-array lines (up to the size/byte cap), or null if EOF
+	 * Serializes calls through this inherited implementation, delegates batching to
+	 * nextListAsync, and sets firstRecordNum from the cumulative size of its returned
+	 * batches. The delegate supplies the list ID and batch limits. Direct calls to
+	 * other consumption methods are not coordinated by this monitor and are not
+	 * included in its record-origin count. Subclasses can override this method.
+	 * @return Next numbered batch, or null when the delegate has no more batches
 	 */
 	public ListNum<byte[]> nextList(){
-		synchronized(nlSync) {
+		synchronized(nlSync){
 			return numberList(nextListAsync());
 		}
 	}
@@ -207,12 +222,13 @@ public abstract class ByteFile {
 	}
 	
 	/**
-	 * Reads the next batch of lines as a numbered list, capped at
-	 * TARGET_LIST_SIZE lines (default 800) or TARGET_LIST_BYTES bytes
-	 * (default 262144), whichever is reached first.
-	 * Provides efficient batch processing for large files.
-	 * Each ListNum carries a unique sequential ID.
-	 * @return ListNum of byte-array lines (up to the size/byte cap), or null if EOF
+	 * Builds a batch without synchronization by repeatedly calling nextLine.
+	 * With positive limits, includes at most TARGET_LIST_SIZE lines and stops after
+	 * their total length reaches TARGET_LIST_BYTES. The last whole line can exceed
+	 * the byte threshold; line terminators are not added to the byte count.
+	 * Assigns successive list IDs from nextID, but does not set firstRecordNum.
+	 * Subclass overrides can use different batching limits and mechanisms.
+	 * @return Batch containing at least one line, or null if the first read returns null
 	 */
 	public ListNum<byte[]> nextListAsync(){
 		byte[] line=nextLine();
@@ -234,35 +250,37 @@ public abstract class ByteFile {
 	}
 	
 	/**
-	 * Checks if the file exists or is a special input source.
-	 * Returns true for stdin, stdin variants, JAR resources, or existing files.
-	 * @return true if the file exists or is accessible
+	 * Recognizes stdin/stdin.* and jar: names without opening them; otherwise uses
+	 * File.exists. A true result does not establish readability or a regular file.
+	 * @return True for a recognized special name or an existing filesystem entry
 	 */
 	public final boolean exists(){
 		return name().equals("stdin") || name().startsWith("stdin.") || name().startsWith("jar:") || new File(name()).exists(); //TODO Ugly and unsafe hack for files in jars
 	}
 
 	/**
-	 * Returns the underlying InputStream for this ByteFile.
-	 * Implementation varies by subclass.
-	 * @return InputStream for direct access to file data
+	 * Exposes the backend's input stream, which may be null after closure.
+	 * Buffered or producer-driven readers can have consumed bytes ahead of returned
+	 * lines; direct access must be coordinated with that backend.
+	 * @return Backend-owned input stream, or null as defined by the implementation
 	 */
 	public abstract InputStream is();
 	/**
-	 * Returns the current line number being read.
-	 * Implementation varies by subclass.
-	 * @return Current line number (1-based)
+	 * Returns the backend's line counter. Numbering, reset/closure values and whether
+	 * it observes producer progress or delivered lines depend on the implementation.
+	 * @return Implementation-specific line counter; not a universal one-based index
 	 */
 	public abstract long lineNum();
 	
-	/** Returns true if there was an error */
+	/** Requests closure according to the backend's lifecycle.
+	 * @return True if the backend reports a read or close error */
 	public abstract boolean close();
 	
 	/**
-	 * Reads the next line from the file as a byte array.
-	 * Core method for line-by-line file reading.
-	 * Implementation varies by subclass.
-	 * @return Next line as byte array, or null if EOF
+	 * Returns the next line according to the concrete reader's delimiter and buffering
+	 * rules. Empty arrays can represent blank lines; null signals no next line.
+	 * EOF alone does not establish an error-free read; inspect close's error result.
+	 * @return Next line array, possibly empty, or null
 	 */
 	public abstract byte[] nextLine();
 	
@@ -272,9 +290,8 @@ public abstract class ByteFile {
 //	}
 	
 	/**
-	 * Pushes a line back to be returned by the next nextLine() call.
-	 * Allows single-line lookahead functionality.
-	 * Implementation varies by subclass.
+	 * Requests that a line be returned again by nextLine. Support, copying, counter
+	 * effects and interaction with batching depend on the backend; some reject pushback.
 	 * @param line The line to push back for re-reading
 	 */
 	public abstract void pushBack(byte[] line);
@@ -291,7 +308,10 @@ public abstract class ByteFile {
 	/** Returns whether subprocess decompression is allowed */
 	public final boolean allowSubprocess(){return ff.allowSubprocess();}
 	
-	/** Applies explicit type, forced mode, then automatic selection in that order. */
+	/** Applies explicit type, forced mode, then automatic selection in that order.
+	 * Disallowed explicit modes fall back to policy; force flags bypass allow checks.
+	 * Automatic low-memory/fewer-than12-thread selection always uses BF1. Otherwise
+	 * it tries allowed BF4, BF3, BF2, then falls back to BF1. */
 	private static final int pickType(int type){
 		if(type==4 && !ALLOW_BF4){type=0;}
 		else if(type==3 && !ALLOW_BF3){type=0;}
@@ -311,7 +331,7 @@ public abstract class ByteFile {
 		return 1;
 	}
 
-	/** Returns the highest-priority forced mode, or 0 when no force flag is set. */
+	/** Returns the first forced mode in BF1/BF4/BF3/BF2 priority, or zero. */
 	private static final int forcedType(){
 		if(FORCE_MODE_BF1){return 1;}
 		if(FORCE_MODE_BF4){return 4;}
@@ -319,35 +339,48 @@ public abstract class ByteFile {
 		if(FORCE_MODE_BF2){return 2;}
 		return 0;
 	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------           Fields             ----------------*/
+	/*--------------------------------------------------------------*/
 	
 	/** The FileFormat describing this file's characteristics and location */
 	public final FileFormat ff;
-	/** Experimental alternate sync object to this */
+	/** Per-reader monitor used only by the inherited nextList implementation. */
 	private final String nlSync=new String(hashCode()+"");
 	
-	/** Force usage of ByteFile1 */
+	/** Highest-priority process-wide forced mode; consulted after an explicit type. */
 	public static boolean FORCE_MODE_BF1=false;
-	/** Force usage of ByteFile2 implementation regardless of system settings */
+	/** Force BF2 when no higher-priority forced mode or allowed explicit type wins. */
 	public static boolean FORCE_MODE_BF2=false;
 	/** Force usage of ByteFile3 implementation */
 	public static boolean FORCE_MODE_BF3=false;
 	/** Force usage of ByteFile4 implementation */
 	public static boolean FORCE_MODE_BF4=false;
 
+	/** Allows explicit BF1 selection; automatic fallback can still choose BF1 when false. */
 	public static boolean ALLOW_BF1=true;
+	/** Allows explicit/automatic BF2 selection; force flags take precedence. */
 	public static boolean ALLOW_BF2=true;
+	/** Allows explicit/automatic BF3 selection; disabled pending the historical FASTA concern. */
 	public static boolean ALLOW_BF3=false;//Hung on fasta input
-	public static boolean ALLOW_BF4=true;//Hangs if there are limited reads and it is never closed. 
+	/** Allows explicit/automatic BF4 selection; callers remain responsible for closure. */
+	public static boolean ALLOW_BF4=true;//Hangs if there are limited reads and it is never closed.
 	
-	/** Carriage return character constant */
+	/** Shared ASCII delimiters and common FASTA/FASTQ marker bytes. */
 	protected final static byte slashr='\r', slashn='\n', carrot='>', plus='+', at='@';//, tab='\t';
+	/** Shared one-byte plus marker. */
 	protected static final byte[] plusLine=new byte[] {plus};
 	
+	/** Positive line limit used by base batching and selected backend paths. */
 	public static int TARGET_LIST_SIZE=800;
+	/** Positive whole-line byte threshold used by base batching and selected backends. */
 	public static int TARGET_LIST_BYTES=262144;
 	
 //	byte[] pushBack=null;
+	/** Next batch ID for implementations using this base counter. */
 	protected long nextID=0;
+	/** Cumulative lines returned through the inherited nextList wrapper since superReset. */
 	private long nextRecordNum=0;
 	
 }

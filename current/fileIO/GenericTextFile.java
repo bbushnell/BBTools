@@ -3,44 +3,46 @@ package fileIO;
 import java.util.ArrayList;
 
 /**
- * Generic text file reader that extends TextFile with specialized line processing.
- * Provides convenient methods for reading all lines into an array and customized
- * line-by-line processing with optional filtering capabilities.
+ * TextFile subclass that collects remaining logical lines into a String array.
+ * Uses the inherited blank-line predicate; its additional filter placeholder is
+ * inactive. Instances retain TextFile's mutable reader state, and callers own closure.
  * @author Brian Bushnell
  */
-public class GenericTextFile extends TextFile {
+public class GenericTextFile extends TextFile{
 
-	/**
-	 * Constructs a GenericTextFile for reading from the specified file.
-	 * Opens the file in read-only mode without write capabilities.
-	 * @param name Path to the text file to read
-	 */
-	public GenericTextFile(String name) {
+	/*--------------------------------------------------------------*/
+	/*----------------        Initialization        ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Opens the input immediately with subprocess permission disabled.
+	 * ReadWrite still selects the actual backend, as for TextFile.
+	 * @param name Input name interpreted by ReadWrite */
+	public GenericTextFile(String name){
 		super(name, false);
 	}
-	
-	
 
-	
+	/*--------------------------------------------------------------*/
+	/*----------------           Reading            ----------------*/
+	/*--------------------------------------------------------------*/
+
 	/**
-	 * Reads all remaining lines from the file into a String array.
-	 * Uses an ArrayList with initial capacity of 4096 for efficient growth.
-	 * Each line is added sequentially until end of file is reached.
-	 * @return Array containing all lines from the current position to end of file
+	 * Collects remaining logical lines in order through virtual nextLine() calls.
+	 * Stops at the first null result without resetting or closing the reader.
+	 * Subclasses overriding nextLine() can change which lines are collected.
+	 * @return New array of retained lines, empty when none remain
 	 */
 	public String[] toLines(){
-		
 		String s=null;
 		ArrayList<String> list=new ArrayList<String>(4096);
-		
 		for(s=nextLine(); s!=null; s=nextLine()){
 			list.add(s);
 		}
-		
 		return list.toArray(new String[list.size()]);
-		
 	}
-	
+
+	/** Returns the next TextFile logical line; the extra filter loop is inactive.
+	 * Retained lines are not trimmed, and EOF does not close the reader.
+	 * @return Next retained line, or null at EOF or when the reader is closed */
 	@Override
 	public String nextLine(){
 		String line=readLine();
@@ -49,6 +51,4 @@ public class GenericTextFile extends TextFile {
 		}
 		return line;
 	}
-	
-
 }

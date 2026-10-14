@@ -14,17 +14,33 @@ import structures.IntList;
 import structures.ListNum;
 
 /**
- * ByteFile variant that splits on FASTA record boundaries (\n>) instead of newlines.
- * Each "line" returned is a block of complete FASTA records (header + sequence),
- * with \r stripped and only 2 \n per record.  Specifically, the blocks 
- * start with > and end with \n which signifies the end of a record.
- * Uses SIMD for boundary detection.
- * 
+ * Buffered, condensed FASTA block reader used by the FastaStreamer2 readers.
+ * The primary API, nextLine(IntList), returns a newly allocated backing array and
+ * records the meaningful header/sequence newline positions in the supplied list.
+ * Physical sequence lines are joined and a terminal CR is removed from each line;
+ * the backing-array capacity can exceed the meaningful output length.
+ * The no-argument compatibility API trims that array but discards the boundaries.
+ * This is not a general FASTA validator.
+ * <p>Reading and reset require a single owner. Synchronized open/close do not make
+ * concurrent consumption or reconfiguration safe. Configure shared SIMD and input
+ * settings before opening a reader; scalar boundary scanning is also supported.
+ *
  * @author Brian Bushnell
+ * @contributor Shinobu (condensed block and lifecycle contracts)
  * @date November 11, 2025
  */
-public final class ByteFile1Fc extends ByteFile {
+public final class ByteFile1Fc extends ByteFile{
 
+	/*--------------------------------------------------------------*/
+	/*----------------           Startup            ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Prints or counts a positional block range, then closes/reopens/closes.
+	 * Parses arguments before opening input. After construction, thrown processing
+	 * closes input and preserves the primary failure. Normal completion checks sticky
+	 * input status and, in print mode, borrowed stdout without closing it.
+	 * Optional arguments enable supported SIMD or native BGZF through shared settings.
+	 * Counts describe blocks and add one byte per block, not exact printed bytes. */
 	public static void main(String[] args){
 		long first=0, last=100;
 		boolean speedtest=false;
@@ -40,8 +56,9 @@ public final class ByteFile1Fc extends ByteFile {
 		}
 		if(args.length>2){
 			if(args[2].equalsIgnoreCase("simd")){
-				Shared.SIMD=true;
-			}else {
+				//[FIO-079] The optional request must respect Vector availability and supported width.
+				if(Vector.simd256){Shared.SIMD=true;}
+			}else{
 				last=Integer.parseInt(args[2]);
 			}
 		}
@@ -51,13 +68,35 @@ public final class ByteFile1Fc extends ByteFile {
 			}
 		}
 		ByteFile1Fc tf=new ByteFile1Fc(args.length>0 ? args[0] : "stdin", true);
-		speedtest(tf, first, last, !speedtest);
-
-		tf.close();
-		tf.reset();
-		tf.close();
+		boolean error=false;
+		Throwable failure=null;
+		try{
+			speedtest(tf, first, last, !speedtest);
+			//[FIO-080] Keep the normal reopen diagnostic without discarding earlier errors.
+			error|=tf.close();
+			tf.reset();
+		}catch(RuntimeException | Error t){
+			failure=t;
+			throw t;
+		}finally{
+			try{
+				error|=tf.close();
+			}catch(RuntimeException | Error t){
+				if(failure==null){throw t;}
+				if(failure!=t){failure.addSuppressed(t);}
+			}
+			if(failure!=null && error){
+				failure.addSuppressed(new RuntimeException("ByteFile1Fc: error reading or closing "+tf.name()));
+			}
+		}
+		if(error){throw new RuntimeException("ByteFile1Fc: error reading or closing "+tf.name());}
+		if(!speedtest && System.out.checkError()){
+			throw new RuntimeException("ByteFile1Fc: error writing output");
+		}
 	}
 
+	/** Skips initial blocks, then prints or counts the requested range until EOF.
+	 * Byte totals add one per trimmed block, rather than measuring input or printed bytes. */
 	private static void speedtest(ByteFile1Fc bf, long first, long last, boolean reprint){
 		Timer t=new Timer();
 		long records=0;
@@ -92,16 +131,31 @@ public final class ByteFile1Fc extends ByteFile {
 		}
 	}
 
+	/*--------------------------------------------------------------*/
+	/*----------------        Initialization        ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Opens a named input, using FASTA as the fallback format.
+	 * @param fname Input filename or supported stream name
+	 * @param allowSubprocess_ Whether the input factory may use subprocesses */
 	public ByteFile1Fc(String fname, boolean allowSubprocess_){
 		this(FileFormat.testInput(fname, FileFormat.FASTA, null, allowSubprocess_, false));
 	}
 
+	/** Borrows an input descriptor and opens its stream with current static settings.
+	 * @param ff Descriptor configured for reading */
 	public ByteFile1Fc(FileFormat ff){
 		super(ff);
 		if(verbose){System.err.println("ByteFile1F("+ff+")");}
 		is=open();
 	}
 
+	/*--------------------------------------------------------------*/
+	/*----------------        Reader Methods        ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Closes/reopens input and resets buffer positions and inherited batch counters.
+	 * Sticky errors survive reset. Reopening a borrowed stream does not rewind it. */
 	@Override
 	public final void reset(){
 		close();
@@ -112,6 +166,8 @@ public final class ByteFile1Fc extends ByteFile {
 		positions.clear();
 	}
 
+	/** Finishes an open input once; normal return clears its reference and lineNum.
+	 * @return Sticky caught-read or finishReading error status */
 	@Override
 	public synchronized final boolean close(){
 		if(verbose){System.err.println("Closing "+this.getClass().getName()+" for "+name()+"; open="+open+"; errorState="+errorState);}
@@ -126,12 +182,12 @@ public final class ByteFile1Fc extends ByteFile {
 		return errorState;
 	}
 
-	/**
-	 * @deprecated Returns a length-correct (copied) record block but discards the per-record
-	 * newline boundaries. Production code must use {@link #nextLine(IntList)} — the zero-copy
-	 * fast path that also returns the boundary IntList needed to split records. This no-arg form
-	 * exists only to satisfy the ByteFile interface and dev harnesses; it is unused on the live
-	 * FASTA path (both FastaStreamer2 variants call nextLine(IntList)).
+	/** Returns a length-correct block while discarding its record boundaries.
+	 * May copy again to trim backing-array padding; block condensation already copies
+	 * input bytes. Production Streamer2 readers use nextLine(IntList) instead.
+	 * @return Trimmed block, or null after exhaustion/closure
+	 * @deprecated Use {@link #nextLine(IntList)} to receive meaningful boundaries
+	 * and avoid the additional trimming copy.
 	 */
 	@Override
 	@Deprecated
@@ -145,6 +201,13 @@ public final class ByteFile1Fc extends ByteFile {
 		return len==block.length ? block : KillSwitch.copyOf(block, len);
 	}
 	
+	/** Condenses the next complete-record prefix into a newly allocated backing array.
+	 * Output newline indices delimit headers and joined sequences; the last index plus
+	 * one gives the meaningful length. Array capacity is not a record-length oracle.
+	 * Condensation clears/refills newlines; an already-closed reader returns null
+	 * without changing the supplied list. EOF processing closes exhausted input.
+	 * @param newlines Caller-owned list receiving output newline positions
+	 * @return Backing array, possibly with unused capacity, or null when no data remains */
 	public final byte[] nextLine(IntList newlines){
 		if(!open || is==null){
 			if(Shared.WINDOWS){System.err.println("Attempting to read from a closed file: "+name());}
@@ -155,14 +218,23 @@ public final class ByteFile1Fc extends ByteFile {
 		return records;
 	}
 	
+	/** Synchronously wraps one trimmed compatibility block in a numbered list.
+	 * Creates no worker and exports no per-record boundary list.
+	 * @return One-element batch, or null after exhaustion/closure */
 	@Override
 	public final ListNum<byte[]> nextListAsync(){
 		return nextList(new IntList());
 	}
 	
+	/** Wraps one trimmed compatibility block and advances the inherited batch ID.
+	 * FIO-081 records that this overload currently ignores the supplied boundary list.
+	 * @param newlines Currently unused; no boundary positions are exported
+	 * @return One-element batch, or null when no block is available */
 	public final ListNum<byte[]> nextList(IntList newlines){
+		//TODO: Probable bug - FIO-081: this overload discards the supplied boundary list.
+		//No production caller found; live Streamer2 readers use nextLine(IntList) directly.
 		byte[] records=nextLine();
-		if(records==null) {return null;}
+		if(records==null){return null;}
 		ArrayList<byte[]> list=new ArrayList<byte[]>(1);
 		list.add(records);
 		return new ListNum<byte[]>(list, nextID++);
@@ -225,7 +297,11 @@ public final class ByteFile1Fc extends ByteFile {
 //		return lastRecordLoc;
 //	}
 	
-	/** Fill buffer and find all FASTA boundaries */
+	/** Compacts residual input and scans until a record boundary or nonpositive read result.
+	 * Keeps all physical newline positions, adding a synthetic end position for an
+	 * unterminated tail. Growth uses capped long arithmetic. Both caught read exception types
+	 * latch sticky status so subsequent EOF and close cannot hide the failure.
+	 * @return LF index before the last detected next header, or -1 if none was found */
 	private int fillBuffer(){
 		// Shift remaining data to start
 		if(bstart>0 && bstart<bstop){
@@ -244,7 +320,7 @@ public final class ByteFile1Fc extends ByteFile {
 
 		// Read data
 		int lastRecordLoc=-1;
-		int scanStart=0; // <--- NEW: Track where we left off scanning
+		int scanStart=0;//First byte not yet scanned in this refill
 		
 		while(lastRecordLoc<0){
 			if(bstop==buffer.length){
@@ -265,6 +341,8 @@ public final class ByteFile1Fc extends ByteFile {
 				errorState=true;
 				if(!Shared.anomaly){e.printStackTrace();}
 			}catch(NullPointerException e){
+				//[FIO-078] EOF processing and later close must preserve this caught read failure.
+				errorState=true;
 				if(!Shared.anomaly){e.printStackTrace();}
 			}
 			
@@ -273,79 +351,96 @@ public final class ByteFile1Fc extends ByteFile {
 			if(r>0){bstop+=r;}
 			
 			if(firstRecord){
-			    assert(bstop<1 || buffer[0]==carrot) : "File does not start with '>' - "+ff.name()+" is not a valid FASTA file";
-			    firstRecord=false;
+				assert(bstop<1 || buffer[0]==carrot) : "File does not start with '>' - "+ff.name()+" is not a valid FASTA file";
+				firstRecord=false;
 			}
 
 			// Find all \n> boundaries in the buffer
-			// MODIFIED: Scan only from scanStart to bstop
+			// Scan only newly read bytes; previously found newline positions remain valid.
 			Vector.findSymbols(buffer, scanStart, bstop, slashn, positions);
-			scanStart = bstop; // Update scanStart for next iteration
+			scanStart=bstop; // Update scanStart for next iteration
 			
-			for(int i=positions.size-1; i>=0 && lastRecordLoc<0; i--) {
+			for(int i=positions.size-1; i>=0 && lastRecordLoc<0; i--){
 				int loc=positions.array[i];
-				if(loc+1<bstop && buffer[loc+1]==carrot) {lastRecordLoc=loc;}
+				if(loc+1<bstop && buffer[loc+1]==carrot){lastRecordLoc=loc;}
 			}
 			
 			if(r<=0){// EOF
-				if(bstop>0 && buffer[bstop-1]!='\n') {positions.add(bstop);}
+				if(bstop>0 && buffer[bstop-1]!='\n'){positions.add(bstop);}
 				break;
 			}
 		}
 		return lastRecordLoc;
 	}
 	
-	private byte[] condense(byte[] buffer, IntList newlines1, IntList newlines2, int lastRecordLoc) {
+	/** Copies a complete prefix, joins sequence lines and records output boundaries.
+	 * Trims one terminal CR per physical line and emits header/sequence newlines.
+	 * Retains the record after the last detected boundary, or consumes all data
+	 * when no next-header boundary was found. Empty input closes the reader.
+	 * @param buffer Input storage, with meaningful bytes ending at bstop
+	 * @param newlines1 Physical LF positions, including any synthetic EOF boundary
+	 * @param newlines2 Replaced with emitted newline positions
+	 * @param lastRecordLoc LF before the retained next header, or -1 at the final prefix
+	 * @return Newly allocated builder backing array, or null when no prefix remains */
+	private byte[] condense(byte[] buffer, IntList newlines1, IntList newlines2, int lastRecordLoc){
 		//At EOF, use the final physical newline's index, or the synthetic boundary for an unterminated line.
 		final int lastByte=lastRecordLoc>0 ? lastRecordLoc :
 			(bstop>0 && buffer[bstop-1]==slashn ? bstop-1 : bstop);
 		newlines2.clear();
-		if(lastByte<1) {
+		if(lastByte<1){
 			close();
 			return null;
 		}
 		ByteBuilder bb=new ByteBuilder(lastByte+1);
 		int prev=-1;
-		if(verbose) {System.err.println("Entered condense: lastRecordLoc="+
+		if(verbose){System.err.println("Entered condense: lastRecordLoc="+
 			lastRecordLoc+", bstop="+bstop+", newlines="+newlines1);}
-		for(int i=0; i<newlines1.size && prev<lastByte; i++) {
+		for(int i=0; i<newlines1.size && prev<lastByte; i++){
 			int loc=newlines1.get(i);
 			int len=loc-prev-1;
 			assert(len>=0) : "len="+len+", loc="+loc+", i="+i+", prev="+prev+
 				", bb.length="+bb.length+", newlines1.size="+newlines1.size;
+			//[FIO-082] Empty records add sequence newlines, so output can outgrow the physical prefix.
+			bb.ensureExtra(len);
 			System.arraycopy(buffer, prev+1, bb.array, bb.length, len);//Copy excluding newline
-			if(verbose) {System.err.println("Added "+len+" bytes.");}
+			if(verbose){System.err.println("Added "+len+" bytes.");}
 			bb.length+=len;
 			if(bb.endsWith('\r')){bb.length--;}//Trim \r
 			if(buffer[prev+1]==carrot){//Record start
 				newlines2.add(bb.length);
 				bb.nl();
-				if(verbose) {System.err.println("Added header start newline.");}
+				if(verbose){System.err.println("Added header start newline.");}
 			}
-			if(loc>=lastByte || buffer[loc+1]==carrot) {//Record end
+			if(loc>=lastByte || buffer[loc+1]==carrot){//Record end
 				newlines2.add(bb.length);
 				bb.nl();
-				if(verbose) {System.err.println("Added record stop newline.");}
+				if(verbose){System.err.println("Added record stop newline.");}
 			}
 			prev=loc;
 		}
 		//Shift residual
 		int residual=bstop-lastRecordLoc-1;
-		if(lastRecordLoc>0 && residual>0) {
+		if(lastRecordLoc>0 && residual>0){
 			System.arraycopy(buffer, lastRecordLoc+1, buffer, 0, residual);
 			bstop=residual;
-		}else {
+		}else{
 			bstop=0;
 		}
 		//assert(false) : "*"+bb.toString()+"*";
 		return bb.array;
 	}
 
+	/** Rejects pushback for this block reader.
+	 * @param record Unused argument
+	 * @throws UnsupportedOperationException Always */
 	@Override
 	public void pushBack(byte[] record){
 		throw new UnsupportedOperationException("pushBack not supported for ByteFile1F");
 	}
 
+	/** Opens configured input and clears buffered boundary state, preserving errors.
+	 * @return The opened stream, also stored in is
+	 * @throws RuntimeException If already open or if input creation fails */
 	private final synchronized InputStream open(){
 		if(open){
 			throw new RuntimeException("Attempt to open already-opened ByteFile1F "+name());
@@ -360,28 +455,48 @@ public final class ByteFile1Fc extends ByteFile {
 		return is;
 	}
 
+	/** Returns the local lifecycle flag; not a concurrent-completion guarantee. */
 	@Override
 	public boolean isOpen(){return open;}
 
+	/** Exposes the current input without transferring ownership; null after normal close. */
 	@Override
 	public final InputStream is(){return is;}
 
+	/** Returns the exposed counter field, which block consumption does not advance. */
 	@Override
 	public final long lineNum(){return lineNum;}
 
+	/*--------------------------------------------------------------*/
+	/*----------------            Fields            ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Local open state, not volatile. */
 	private boolean open=false;
+	/** Reused input buffer; output blocks are copied into separate storage. */
 	private byte[] buffer=new byte[bufferlen];
+	/** Unused historical empty-result constant. */
 	private static final byte[] blankLine=new byte[0];
+	/** Buffered input bounds; the current condensation path keeps bstart at zero. */
 	private int bstart=0, bstop=0;
+	/** Current backend reference, closed according to finishReading ownership rules. */
 	public InputStream is;
+	/** Historical counter field; reset by close but not advanced by block reads. */
 	public long lineNum=-1;
+	/** Physical input LF indices and any synthetic EOF boundary. */
 	private IntList positions=new IntList();
+	/** Historical cursor, cleared during refill/reset but unused by current condensation. */
 	private int listPos=0;
+	/** Whether the initial input-header assertion is still required. */
 	private boolean firstRecord=true;
 
+	/** Compile-time diagnostic switch. */
 	public static final boolean verbose=false;
+	/** Input-factory buffering request, sampled when opening. */
 	public static boolean BUFFERED=false;
+	/** Initial input capacity, sampled by each new reader. */
 	public static int bufferlen=262144;
 
+	/** Sticky caught-read and input-finish error status. */
 	private boolean errorState=false;
 }

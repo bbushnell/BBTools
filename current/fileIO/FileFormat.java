@@ -18,16 +18,25 @@ import stream.Read;
 import stream.bam.BamReader;
 
 /**
- * This class contains metadata about a file
- * @author Brian Bushnell
+ * Metadata inferred from a filename, optional content prefix, defaults and overrides.
+ * Factories describe an input or output; they do not open its eventual reader/writer
+ * or validate an entire file. Allowed input probing can read a prefix before overrides
+ * are applied. Sequence probing temporarily changes shared FASTQ settings, so callers
+ * must serialize that work and keep the relevant global configuration stable.
+ * Most metadata is fixed at construction; the BGZF-signature cache and preferShreds
+ * are mutable. The requested subprocess permission is stored separately from the
+ * derived policy exposed by allowSubprocess(), which does not honor that permission.
+ * @author Brian Bushnell, Shinobu
  * @date Dec 19, 2012
  *
  */
-public final class FileFormat {
+public final class FileFormat{
 	
 	/**
 	 * Command-line utility for testing file format detection.
-	 * Analyzes files and reports format, compression, quality encoding, and interleaving.
+	 * Bare paths and in*=path arguments are examined; full=true delegates to TestFormat.
+	 * The ordinary path reports metadata and may read prefixes and SAM/BAM headers.
+	 * Disables FASTQ quality-change warnings and this class's warnings without restoring them.
 	 * @param args Command-line arguments including file paths and options
 	 */
 	public static void main(String[] args){
@@ -75,7 +84,7 @@ public final class FileFormat {
 	 * Tests format detection on a single file with detailed output.
 	 * Reports format, compression, quality encoding, interleaving, and read length.
 	 * @param fname File path to analyze
-	 * @param forceFileRead Whether to read file contents for detection
+	 * @param forceFileRead Unused; this diagnostic always requests content detection
 	 */
 	private static void test(String fname, boolean forceFileRead){
 		FileFormat ffName=testInput(fname, FASTQ, null, false, false, false);
@@ -105,9 +114,9 @@ public final class FileFormat {
 				String qs=(q==33 ? "ASCII-33" : q==64 ? "ASCII-64" : ""+q);
 				System.out.print(qs+"\t"+ff.formatString()+"\t");
 				System.out.print(ff.compressionString());
-				if(ff.samOrBam()) {
+				if(ff.samOrBam()){
 					System.out.print("\t"+ff.sortOrder());
-				}else {
+				}else{
 					System.out.print("\t"+(i ? "interleaved" : "single-ended"));
 				}
 				if(len>0){System.out.print("\t"+len+"bp");}
@@ -128,12 +137,12 @@ public final class FileFormat {
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Creates input FileFormat with extension override and default FASTQ format.
-	 * Convenience method for common input file detection scenarios.
+	 * Creates input metadata with FASTQ fallback and permission for ordinary prefix probing.
+	 * A recognized override supplies format and non-RAW compression after inference.
 	 *
 	 * @param fname Input file path
-	 * @param overrideExtension Extension to use instead of actual file extension
-	 * @param allowSubprocess Whether to allow subprocess spawning for compression
+	 * @param overrideExtension Optional extension interpreted as a format/non-RAW compression override
+	 * @param allowSubprocess Requested permission, stored but not used by the derived subprocess policy
 	 * @return FileFormat object or null if fname is null
 	 */
 	public static FileFormat testInput(String fname, String overrideExtension, boolean allowSubprocess){
@@ -143,12 +152,12 @@ public final class FileFormat {
 	
 	/**
 	 * Creates FileFormat array for a list of input files.
-	 * Applies same parameters to all files in the list.
+	 * Preserves list order and applies the same parameters to each name; null names yield null entries.
 	 *
 	 * @param fname List of file paths to process
 	 * @param defaultFormat Format to use if detection fails
 	 * @param overrideExtension Extension override for all files
-	 * @param allowSubprocess Whether to allow subprocess spawning
+	 * @param allowSubprocess Requested permission; derived subprocess policy is computed separately
 	 * @param allowFileRead Whether to read file contents for detection
 	 * @return Array of FileFormat objects
 	 */
@@ -168,7 +177,7 @@ public final class FileFormat {
 	 * @param fnames Array of file paths
 	 * @param defaultFormat Format to use if detection fails
 	 * @param overrideExtension Extension override for all files
-	 * @param allowSubprocess Whether to allow subprocess spawning
+	 * @param allowSubprocess Requested permission; derived subprocess policy is computed separately
 	 * @param allowFileRead Whether to read file contents for detection
 	 * @return Array of FileFormat objects
 	 */
@@ -181,13 +190,13 @@ public final class FileFormat {
 	}
 	
 	/**
-	 * Creates input FileFormat with automatic stdin detection.
-	 * Sets forceFileRead based on whether file is stdin stream.
+	 * Creates input metadata with ordinary optional probing and forceFileRead=false.
+	 * This overload does not force a content read based on the stream name.
 	 *
 	 * @param fname Input file path
 	 * @param defaultFormat Format to use if detection fails
 	 * @param overrideExtension Extension override
-	 * @param allowSubprocess Whether to allow subprocess spawning
+	 * @param allowSubprocess Requested permission; derived subprocess policy is computed separately
 	 * @param allowFileRead Whether to read file contents for detection
 	 * @return FileFormat object or null if fname is null
 	 */
@@ -196,6 +205,15 @@ public final class FileFormat {
 		return testInput(fname, defaultFormat, overrideExtension, allowSubprocess, allowFileRead, false/*allowFileRead && !isStdin(fname)*/);
 	}
 	
+	/** Resolves an extension override, then constructs input metadata.
+	 * RAW inferred from the override does not replace the name's compression.
+	 * @param fname Input name, or null to return null
+	 * @param defaultFormat Fallback when inference and override do not supply a format
+	 * @param overrideExtension Optional format/non-RAW compression extension
+	 * @param allowSubprocess Requested permission; derived policy is computed separately
+	 * @param allowFileRead Permission to probe an existing non-directory file
+	 * @param forceFileRead Requests probing despite a known non-BAM extension; requires allowFileRead
+	 * @return Constructed metadata, or null for a null name */
 	public static FileFormat testInput(String fname, int defaultFormat, String overrideExtension, boolean allowSubprocess, boolean allowFileRead, boolean forceFileRead){
 		if(verbose){System.err.println("testInputC("+fname+", "+defaultFormat+", "+overrideExtension+", "+allowSubprocess+", "+allowFileRead+", "+forceFileRead+")");}
 		if(fname==null){return null;}
@@ -213,13 +231,14 @@ public final class FileFormat {
 	
 	/**
 	 * Create an input FileFormat object for this filename.
+	 * Overrides replace positive format/compression codes after inference; they do not prevent probing.
 	 * @param fname Filename (path).
 	 * @param defaultFormat Use this format if the name is unclear and the format is not autodetected.
-	 * @param overrideFormat If specified, ignore the file extension and autodetection and input using this format.
-	 * @param overrideCompression If specified, ignore the file extension and input using this compression protocol.
-	 * @param allowSubprocess Permission to spawn a subprocess like bgzip.
+	 * @param overrideFormat Positive replacement format code, or zero to retain inference/fallback
+	 * @param overrideCompression Positive replacement compression code, or zero to retain inference
+	 * @param allowSubprocess Requested permission, not honored by the separately derived subprocess policy
 	 * @param allowFileRead Permission to read the file while constructing this FileFormat, for the purpose of format detection.
-	 * @param forceFileRead Force reading the file while constructing this FileFormat, for the purpose of format detection.
+	 * @param forceFileRead Request probing despite a known non-BAM extension; requires allowFileRead
 	 * @return A FileFormat, or null if the filename is null.
 	 */
 	public static FileFormat testInput(String fname, int defaultFormat, int overrideFormat,
@@ -231,10 +250,12 @@ public final class FileFormat {
 	
 	/**
 	 * Create an output FileFormat object for this filename.
+	 * Does not read content or create output. A recognized override replaces format and
+	 * non-RAW compression after filename inference; specifying append disables overwrite.
 	 * @param fname Filename (path).
 	 * @param defaultFormat Use this format if the name is unclear.
-	 * @param overrideExtension If specified, ignore the file extension and output in this format.
-	 * @param allowSubprocess Permission to spawn a subprocess like bgzip.
+	 * @param overrideExtension Optional format/non-RAW compression override
+	 * @param allowSubprocess Requested permission; derived subprocess policy is computed separately
 	 * @param overwrite Permission to overwrite existing files.
 	 * @param append Permission to append to existing files.
 	 * @param ordered True if the input order should be maintained (for multithreaded read processing).
@@ -256,13 +277,14 @@ public final class FileFormat {
 	
 	/**
 	 * Creates output FileFormat with format and compression overrides.
-	 * Main factory method for output file configuration.
+	 * Does not open the output. Positive override codes replace filename inference;
+	 * append takes precedence over overwrite. Call canWrite separately for its limited checks.
 	 *
 	 * @param fname Output filename or path
 	 * @param defaultFormat Default format if detection fails
-	 * @param overrideFormat Force this format
-	 * @param overrideCompression Force this compression type
-	 * @param allowSubprocess Permission to spawn compression subprocesses
+	 * @param overrideFormat Positive replacement format code, or zero for inference/fallback
+	 * @param overrideCompression Positive replacement compression code, or zero for inference
+	 * @param allowSubprocess Requested permission; derived subprocess policy is computed separately
 	 * @param overwrite Permission to overwrite existing files
 	 * @param append Permission to append to existing files
 	 * @param ordered Whether to maintain input order
@@ -278,15 +300,19 @@ public final class FileFormat {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Private constructor that performs format detection and validation.
-	 * Analyzes file extension, reads file contents if needed, and sets all metadata fields.
+	 * Infers metadata, applies overrides, then captures effective settings.
+	 * Trims the name and changes backslashes to slashes. Missing default format becomes
+	 * FASTQ unless forceFileRead is set. Content probing is allowed only in READ mode;
+	 * overrides are applied afterward, so inferred quality/barcode fields can describe
+	 * the probe rather than the overridden format. Amino status still comes from the name.
+	 * Assertions check basic construction invariants, not file validity or all code ranges.
 	 *
 	 * @param fname File name or path
 	 * @param mode_ Read or write mode
 	 * @param defaultFormat Default format if detection fails
 	 * @param overrideFormat Force this format
 	 * @param overrideCompression Force this compression
-	 * @param allowSubprocess_ Permission for subprocess spawning
+	 * @param allowSubprocess_ Requested permission, stored independently of derived subprocess policy
 	 * @param allowFileRead Permission to read file contents
 	 * @param forceFileRead Force reading file contents
 	 * @param overwrite_ Permission to overwrite files
@@ -380,6 +406,7 @@ public final class FileFormat {
 	/*----------------            Methods           ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Describes stored fields without opening the file or querying its cached magic number. */
 	@Override
 	public String toString(){
 		StringBuilder sb=new StringBuilder();
@@ -429,16 +456,29 @@ public final class FileFormat {
 	/*----------------        Static Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Returns an int array: {format, compression, type, interleaved, 
-	 * quality, length, numBarcodes, barcodeDelimiter, bcLength1, bcLength2} */
+	/** Infers a ten-field metadata vector from name and an optional prefix probe.
+	 * Fields are format, compression, stream type, interleaving, quality offset, length,
+	 * barcode count, delimiter and two barcode lengths. Unknown format/interleaving use
+	 * UNKNOWN; unavailable quality/length/barcode fields initially use -1. A null/empty
+	 * name yields unknown STDIO metadata. Exact /dev/null and the devnull basename alias
+	 * identify the null sink; stdin/stdout aliases are recognized from the lowercase basename.
+	 * Probing requires allowFileRead and an existing non-directory FILE. It is considered
+	 * for unknown formats, forced non-BAM detection and optional FASTA/FASTQ interleaving.
+	 * Caught probe Exceptions are printed and inference continues; Errors are not caught.
+	 * This is heuristic identification, not content validation or a guarantee that a read occurred.
+	 * @param fname Name to inspect; content probing uses this original name
+	 * @param allowFileRead Permission for the prefix probe
+	 * @param forceFileRead Requests probing despite a known non-BAM format; does not override allowFileRead
+	 * @return Newly allocated ten-field vector; defaults and explicit overrides are applied by factories */
 	public static final int[] testFormat(String fname, boolean allowFileRead, boolean forceFileRead){
 		if(verbose){System.err.println("testFormat("+fname+", "+allowFileRead+", "+forceFileRead+")");}
-		final int[] r=new int[] {UNKNOWN, RAW, FILE, UNKNOWN, -1, -1, -1, -1, -1, -1};
+		final int[] r=new int[]{UNKNOWN, RAW, FILE, UNKNOWN, -1, -1, -1, -1, -1, -1};
 		if(fname==null || fname.length()<1){
 			r[2]=STDIO;
 			return r;
 		}
 		String slc=fname.trim().toLowerCase();
+		final boolean nullDevice="/dev/null".equals(slc);//FIO-041: retain the full path before stripping directories.
 		if(slc.indexOf('/')>=0){slc=slc.substring(slc.lastIndexOf('/')+1);}
 		String comp=ReadWrite.compressionType(slc);
 		String ext=ReadWrite.rawExtension(slc);
@@ -493,7 +533,7 @@ public final class FileFormat {
 		if(slc.length()>2 && slc.charAt(0)=='s' && slc.charAt(1)=='t'){
 			if(slc.equals("stdin") || slc.startsWith("stdin.") || slc.equals("standardin")){r[2]=STDIO;}
 			else if(slc.equals("stdout") || slc.startsWith("stdout.") || slc.equals("standardout")){r[2]=STDIO;}
-		}else if("/dev/null".equalsIgnoreCase(slc) || "devnull".equalsIgnoreCase(slc)){
+		}else if(nullDevice || "devnull".equalsIgnoreCase(slc)){
 			r[2]=DEVNULL;
 		}
 
@@ -512,11 +552,11 @@ public final class FileFormat {
 			if(f!=null && f.exists() && !f.isDirectory()){
 //				//a: {quality, interleaved, length, format}
 //				//r: {format, compression, type, interleaved, quality, length}
-				try {
+				try{
 					int[] a=testInterleavedAndQuality(fname, false);
-					if(a!=null ){
+					if(a!=null){
 						final int aq=a[0], ai=a[1], al=a[2], af=a[3], abc=a[4], abd=a[5];
-						if(af!=UNKNOWN) {//Fixes overwriting known data
+						if(af!=UNKNOWN){//Fixes overwriting known data
 							if(aq>-1){r[4]=aq;}
 							if(ai!=UNKNOWN){r[3]=ai;}
 							if(r[0]==UNKNOWN || (af!=TEXT && af!=BREAD)){r[0]=af;}
@@ -527,7 +567,7 @@ public final class FileFormat {
 							r[9]=a[7];
 						}
 					}
-				} catch (Exception e) {
+				}catch(Exception e){
 					// TODO Auto-generated catch block
 					e.printStackTrace();
 				}
@@ -542,12 +582,12 @@ public final class FileFormat {
 		}
 //		new Exception().printStackTrace();
 		if(r[0]==FASTQ || r[0]==FASTA){
-			if(r[3]==UNKNOWN) {
+			if(r[3]==UNKNOWN){
 				if(stream.FASTQ.FORCE_INTERLEAVED){r[3]=2;}
 				else{r[3]=1;}
-			}else if(r[0]==FASTQ && stream.FASTQ.FORCE_INTERLEAVED) {
+			}else if(r[0]==FASTQ && stream.FASTQ.FORCE_INTERLEAVED){
 				r[3]=2;
-			}else if(!stream.FASTQ.FORCE_INTERLEAVED && ! stream.FASTQ.TEST_INTERLEAVED) {
+			}else if(!stream.FASTQ.FORCE_INTERLEAVED && !stream.FASTQ.TEST_INTERLEAVED){
 				r[3]=1;
 			}
 		}
@@ -561,53 +601,63 @@ public final class FileFormat {
 		return r;
 	}
 	
+	/** Tests no-read name inference for GFF, including gff3; null returns false. */
 	public static boolean hasGffExtension(String fname){
 		int[] r=testFormat(fname, false, false);
 		return r[0]==GFF;
 	}
 	
+	/** Tests no-read name inference for VCF; null returns false. */
 	public static boolean hasVcfExtension(String fname){
 		int[] r=testFormat(fname, false, false);
 		return r[0]==VCF;
 	}
 	
+	/** Tests no-read name inference for recognized FASTA extensions; null returns false. */
 	public static boolean hasFastaExtension(String fname){
 		int[] r=testFormat(fname, false, false);
 		return r[0]==FA;
 	}
 	
+	/** Tests no-read name inference for FASTQ, including fqz compression; null returns false. */
 	public static boolean hasFastqExtension(String fname){
 		int[] r=testFormat(fname, false, false);
 		return r[0]==FQ;
 	}
 	
+	/** Tests no-read name inference for FASTA or FASTQ; null returns false. */
 	public static boolean hasFastaOrFastqExtension(String fname){
 		int[] r=testFormat(fname, false, false);
 		return r[0]==FQ || r[0]==FA;
 	}
 	
+	/** Tests no-read name inference for GFA; null returns false. */
 	public static boolean hasGfaExtension(String fname){
 		int[] r=testFormat(fname, false, false);
 		return r[0]==GFA;
 	}
 	
+	/** Tests the extracted extension for txt, tsv or csv; differs from isTextExt. */
 	public static boolean hasTextExtension(String fname){
 		String ext=ReadWrite.rawExtension(fname);
 		return ("txt".equals(ext) || "tsv".equals(ext) || "csv".equals(ext));
 	}
 	
+	/** Tests no-read name inference for SAM/BAM; null returns false. */
 	public static boolean hasSamOrBamExtension(String fname){
-		if(fname==null) {return false;}
+		if(fname==null){return false;}
 		int[] r=testFormat(fname, false, false);
 		return r[0]==SAM || r[0]==BAM;
 	}
 	
 	/*--------------------------------------------------------------*/
-	/*----------------            ???????           ----------------*/
+	/*----------------        Content Probing       ----------------*/
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * @param fname File to read
+	 * Probes the bounded text prefix returned by getFirstOctet.
+	 * @param fname File to read; null and recognized stdin names produce unknown metadata
+	 * @param forceFastq Runs FASTQ quality/interleaving analysis even for a different inferred format
 	 * @return {quality, interleaved, length, format, numBarcodes, barcodeDelimiter,
 	 * bcLen1, bcLen2}
 	 */
@@ -617,10 +667,15 @@ public final class FileFormat {
 	}
 	
 	/**
-	 * Reads first 8 lines from file for format analysis.
-	 * Opens file with appropriate compression handling.
+	 * Returns up to eight decoded text lines for format analysis.
+	 * Skips null, stdin and stdin.* names; other standard-stream spellings are not skipped here.
+	 * Uses the default charset and chooses subprocess permission from a bzip2 suffix.
+	 * Stops requesting lines after eight; the buffered reader/decoder may still read ahead.
+	 * Caught read IOExceptions are
+	 * printed; collected lines are returned after finishReading, whose error flag is ignored.
+	 * Stream construction and unchecked failures can propagate; this is not a strict validator.
 	 * @param fname File path to read
-	 * @return List of first 8 lines, or null if file cannot be read
+	 * @return Collected prefix, possibly empty/partial, or null for a skipped name
 	 */
 	public static ArrayList<String> getFirstOctet(String fname){
 		if(fname==null){return null;}
@@ -631,13 +686,13 @@ public final class FileFormat {
 		{
 			InputStream is=ReadWrite.getInputStream(fname, false, subprocess);
 			BufferedReader br=new BufferedReader(new InputStreamReader(is));
-			try {
+			try{
 				int cntr=0;
-				for(String s=br.readLine(); s!=null && cntr<8; s=br.readLine()){
+				//FIO-044: test the logical-line limit before requesting another line.
+				for(String s=null; cntr<8 && (s=br.readLine())!=null; cntr++){
 					oct.add(s);
-					cntr++;
 				}
-			} catch (IOException e) {
+			}catch(IOException e){
 				// TODO Auto-generated catch block
 				e.printStackTrace();
 			}
@@ -647,16 +702,23 @@ public final class FileFormat {
 	}
 	
 	/**
-	 * @param oct First 8 lines of file
-	 * @param fname File to read
-	 * @return {quality, interleaved, length, format, numBarcodes, barcodeDelimiter}
+	 * Infers metadata from supplied lines without opening the named file.
+	 * Recognizes selected header prefixes and a partial SAM-record heuristic. Null/empty
+	 * lists return unknown metadata. FASTQ analysis temporarily changes DETECT_QUALITY
+	 * and the input/output offsets, restoring them only on normal completion; serialize
+	 * callers that use this shared state. forceFastq does not replace the inferred format.
+	 * @param oct Prefix lines; present entries must be non-null
+	 * @param fname Name passed to the interleaving heuristic, not opened here
+	 * @param forceFastq Request FASTQ analysis even when the inferred format differs
+	 * @return Eight fields: quality offset, interleaving, length, format, barcode count,
+	 * delimiter, first barcode length and second barcode length
 	 */
 	public static int[] testInterleavedAndQuality(final ArrayList<String> oct, String fname, boolean forceFastq){
 		int len=-1, format=UNKNOWN;
 		byte q=-1, i=UNKNOWN;
 		int numBarcodes=0, barcodeDelimiter=0, bcLen1=-1, bcLen2=-1;
 		if(oct==null || oct.size()<1){
-			return new int[] {q, i, len, format, numBarcodes, barcodeDelimiter, bcLen1, bcLen2};
+			return new int[]{q, i, len, format, numBarcodes, barcodeDelimiter, bcLen1, bcLen2};
 		}
 		{
 			String s1=oct.size()>0 ? oct.get(0) : "";
@@ -666,20 +728,25 @@ public final class FileFormat {
 			int b2=(s2.length()>0 ? s2.charAt(0) : -1);
 			int b3=(s3.length()>0 ? s3.charAt(0) : -1);
 			
+			//FIO-042: non-comment prefixes must be checked outside the '#' branch.
 			if(b1=='>'){format=FA;}
 			else if(b1=='@'){
 				if(b3=='+'){format=FQ;}
 				else if(b2<0 || b2=='@'){format=SAM;}
 				else{format=UNKNOWN;} //probably a truncated fastq file?
+			}else if(s1.startsWith("LOCUS ")){
+				format=GBFF;
+			}else if(s1.startsWith("H\tVN:Z:")){
+				format=GFA;
 			}else if(b1=='#'){
 				if(s1.startsWith("#SZ:") || s1.startsWith("#SIZE:")){
 					format=SKETCH;
 					int x1=s1.indexOf(':');
 					int x2=s1.indexOf('\t');
 					if(x2>x1){
-						try {
+						try{
 							len=Integer.parseInt(s1.substring(x1+1, x2));
-						} catch (NumberFormatException e) {}
+						}catch(NumberFormatException e){}
 					}
 				}else if(s1.startsWith("#FASTR") || s1.startsWith("#FR")){
 					format=FASTR;
@@ -691,17 +758,13 @@ public final class FileFormat {
 					format=VAR;
 				}else if(s1.startsWith("##gff-version")){
 					format=GFF;
-				}else if(s1.startsWith("LOCUS ")){
-					format=GBFF;
-				}else if(s1.startsWith("H	VN:Z:")){
-					format=GFA;
 				}else if(s1.startsWith("#id\tnumericID\t")){
 					format=BREAD;
 				}else{format=TEXT;}
 			}
 //			else{format=BREAD;} //or possibly scarf
 			
-			if(format==UNKNOWN && looksLikeSamLine(s1)) {format=SAM;}
+			if(format==UNKNOWN && looksLikeSamLine(s1)){format=SAM;}
 
 			if(format!=FQ){len=-1;}
 		}
@@ -723,16 +786,16 @@ public final class FileFormat {
 				if(len<2){len=-1;}
 				if(h!=null){
 					String barcode=Read.headerToBarcode(h, false, null);
-					if(barcode!=null && barcode.length()>0) {
+					if(barcode!=null && barcode.length()>0){
 						numBarcodes=1;
 						if(barcode.length()>2){
 							barcodeDelimiter=barcodeDelimiter(barcode);
 							numBarcodes=(countLetters(barcode))>0 ? (barcodeDelimiter>0 ? 2 : 1) : 0;
 						}
-						if(numBarcodes==1) {
+						if(numBarcodes==1){
 							bcLen1=barcode.length();
 							bcLen2=0;
-						}else {
+						}else{
 							bcLen1=barcode.indexOf(barcodeDelimiter);
 							bcLen2=barcode.length()-bcLen1-1;
 						}
@@ -744,46 +807,53 @@ public final class FileFormat {
 			stream.FASTQ.ASCII_OFFSET_OUT=oldQout;
 		}
 		
-		int[] r=new int[] {q, i, len, format, numBarcodes, barcodeDelimiter, bcLen1, bcLen2};
+		int[] r=new int[]{q, i, len, format, numBarcodes, barcodeDelimiter, bcLen1, bcLen2};
 		if(verbose){System.err.println(Arrays.toString(r));}
 		return r;
 	}
 
-	public static boolean looksLikeSamLine(String line) {
-		if(line==null || line.isEmpty()) {return false;}
+	/** Applies a partial headerless-SAM heuristic, not a full SAM validation.
+	 * Requires at least eleven tab-separated terms and checks FLAG, POS, MAPQ and the CIGAR pattern.
+	 * Numeric token lengths are capped at four, nine and three characters respectively;
+	 * remaining fields and cross-field consistency are not checked.
+	 * @param line Candidate record, or null
+	 * @return True if these limited checks pass */
+	public static boolean looksLikeSamLine(String line){
+		if(line==null || line.isEmpty()){return false;}
 
 		LineParserS1 lp=new LineParserS1('\t');
 		lp.set(line);
 
-		if(lp.terms()<11) {return false;}
+		if(lp.terms()<11){return false;}
 
-		if(lp.length(1)>4 || !Tools.isNumeric(lp.parseString(1))) {return false;}
+		if(lp.length(1)>4 || !Tools.isNumeric(lp.parseString(1))){return false;}
 		long flag=lp.parseLong(1);
-		if(flag<0 || flag>4095) {return false;}
+		if(flag<0 || flag>4095){return false;}
 
-		if(lp.length(3)>9 || !Tools.isNumeric(lp.parseString(3))) {return false;}
+		if(lp.length(3)>9 || !Tools.isNumeric(lp.parseString(3))){return false;}
 		long pos=lp.parseLong(3);
-		if(pos<0 || pos>Integer.MAX_VALUE) {return false;}
+		if(pos<0 || pos>Integer.MAX_VALUE){return false;}
 
-		if(lp.length(4)>3 || !Tools.isNumeric(lp.parseString(4))) {return false;}
+		if(lp.length(4)>3 || !Tools.isNumeric(lp.parseString(4))){return false;}
 		long mapq=lp.parseLong(4);
-		if(mapq<0 || mapq>255) {return false;}
+		if(mapq<0 || mapq>255){return false;}
 
-		if(lp.length(5)<1) {return false;}
+		if(lp.length(5)<1){return false;}
 		String cigar=lp.parseString(5);
-		if(!cigar.equals("*") && !cigar.matches("^(\\d+[MIDNSHPX=])+$")) {return false;}
+		if(!cigar.equals("*") && !cigar.matches("^(\\d+[MIDNSHPX=])+$")){return false;}
 
 		return true;
 	}
 
 	/**
 	 * Detects delimiter character in dual-barcode sequences.
-	 * Returns delimiter if exactly one non-letter character separates letter sequences.
+	 * Returns the byte-cast sole non-letter when more than one letter is present.
+	 * Does not require the delimiter to be internal or validate barcode alphabets.
 	 * @param barcode Barcode sequence to analyze
 	 * @return Delimiter character or 0 if no single delimiter found
 	 */
 	public static byte barcodeDelimiter(String barcode){
-		if(barcode==null || barcode.length()<3) {return 0;}
+		if(barcode==null || barcode.length()<3){return 0;}
 		int letters=0, nonletters=0;
 		byte delimiter=0;
 		for(int i=0; i<barcode.length(); i++){
@@ -791,7 +861,7 @@ public final class FileFormat {
 			if(Tools.isLetter(c)){
 				letters++;
 			}else{
-				if(nonletters==0) {delimiter=(byte)c;}
+				if(nonletters==0){delimiter=(byte)c;}
 				nonletters++;
 			}
 		}
@@ -818,6 +888,7 @@ public final class FileFormat {
 		return letters;
 	}
 	
+	/** Tests the fixed lowercase FASTA extension aliases; null returns false. */
 	public static boolean isFastaExt(String ext){
 		if(ext==null){return false;}
 		return (ext.equals("fa") || ext.equals("fasta") || ext.equals("fas") || ext.equals("fna") || ext.equals("ffn")
@@ -825,68 +896,79 @@ public final class FileFormat {
 			|| ext.equals("foosta"));
 	}
 	
+	/** Tests lowercase txt, text, cov or tsv; csv is not in this alias set. */
 	public static boolean isTextExt(String ext){
 		if(ext==null){return false;}
 		return (ext.equals("txt") || ext.equals("text") || ext.equals("cov") || ext.equals("tsv"));
 	}
 	
+	/** Applies isFastaExt to the extracted raw extension; null returns false. */
 	public static boolean isFastaFile(String fname){
 		if(fname==null){return false;}
 		String ext=ReadWrite.rawExtension(fname);
 		return isFastaExt(ext);
 	}
 	
+	/** Applies isTextExt to the extracted raw extension without reading contents. */
 	public static boolean isTextFile(String fname){
 		if(fname==null){return false;}
 		String ext=ReadWrite.rawExtension(fname);
 		return isTextExt(ext);
 	}
 	
+	/** Tests the name-derived raw extension code, without content probing or overrides. */
 	public static boolean isSequence(String fname){
 		if(fname==null){return false;}
 		int code=rawExtensionCode(fname);
 		return isSequence(code);
 	}
 	
+	/** Tests the current sequence-code set; GBK is included but GBFF is not. */
 	public static boolean isSequence(int code){
 		return code==FASTA || code==FASTQ || code==FASTR || code==BREAD || code==SAM || code==BAM
 			|| code==CSFASTA || code==SCARF || code==HEADER || code==ONELINE || code==GBK || code==EMBL
 			|| code==GFA || code==FASTG;
 	}
 	
+	/** Tests the extracted extension for a gene-model format; null returns false. */
 	public static boolean isPgmFile(String fname){
 		if(fname==null){return false;}
 		String ext=ReadWrite.rawExtension(fname);
 		return isPgmExt(ext);
 	}
 	
+	/** Tests lowercase faa/prot; does not inspect sequence content. */
 	public static boolean isAminoExt(String ext){
 		if(ext==null){return false;}
 		return ext.equals("faa") || ext.equals("prot"); //TODO: Investigate whether other extensions imply AA.
 	}
 	
-	public static boolean isStdin(String s) {
+	/** Tests stdin/standardin before the first dot, ignoring case; no trimming or filesystem lookup. */
+	public static boolean isStdin(String s){
 		if(s==null){return false;}
 //		if(new File(s).exists()){return false;}
 		int idx=s.indexOf('.');
 		if(idx>=0){s=s.substring(0, idx);}
 		return s.equalsIgnoreCase("stdin") || s.equalsIgnoreCase("standardin");
 	}
-	public static boolean isStdout(String s) {
+	/** Tests stdout/standardout before the first dot, ignoring case; no filesystem lookup. */
+	public static boolean isStdout(String s){
 		if(s==null){return false;}
 //		if(new File(s).exists()){return false;}
 		int idx=s.indexOf('.');
 		if(idx>=0){s=s.substring(0, idx);}
 		return s.equalsIgnoreCase("stdout") || s.equalsIgnoreCase("standardout");
 	}
-	public static boolean isStderr(String s) {
+	/** Tests stderr/standarderror before the first dot, ignoring case; no filesystem lookup. */
+	public static boolean isStderr(String s){
 		if(s==null){return false;}
 //		if(new File(s).exists()){return false;}
 		int idx=s.indexOf('.');
 		if(idx>=0){s=s.substring(0, idx);}
 		return s.equalsIgnoreCase("stderr") || s.equalsIgnoreCase("standarderror");
 	}
-	public static boolean isStdio(String s) {
+	/** Tests standard input/output/error aliases before the first dot, ignoring case; null is false. */
+	public static boolean isStdio(String s){
 		if(s==null){return false;}
 //		if(new File(s).exists()){return false;}
 		int idx=s.indexOf('.');
@@ -904,113 +986,130 @@ public final class FileFormat {
 //		return (s.equalsIgnoreCase("stdin") || s.equalsIgnoreCase("stdout") || s.equalsIgnoreCase("stderr"));
 //	}
 	
+	/** Tests fq/fastq ignoring case; null returns false. */
 	public static boolean isFastqExt(String ext){
 		if(ext==null){return false;}
 		return (ext.equalsIgnoreCase("fq") || ext.equalsIgnoreCase("fastq"));
 	}
 	
+	/** Tests gfa ignoring case; null returns false. */
 	public static boolean isGfaExt(String ext){
 		if(ext==null){return false;}
 		return (ext.equalsIgnoreCase("gfa"));
 	}
 	
+	/** Tests pgm/pkm ignoring case; null returns false. */
 	public static boolean isPgmExt(String ext){
 		if(ext==null){return false;}
 		return (ext.equalsIgnoreCase("pgm") || ext.equalsIgnoreCase("pkm"));
 	}
 	
+	/** Tests the extracted raw extension for fq/fastq; null returns false. */
 	public static boolean isFastqFile(String fname){
 		if(fname==null){return false;}
 		String ext=ReadWrite.rawExtension(fname);
 		return isFastqExt(ext);
 	}
 	
+	/** Tests sam/bam ignoring case; null returns false. */
 	public static boolean isSamOrBamExt(String ext){
 		if(ext==null){return false;}
 		return (ext.equalsIgnoreCase("sam") || ext.equalsIgnoreCase("bam"));
 	}
 	
+	/** Tests bai ignoring case; null returns false. */
 	public static boolean isBaiExt(String ext){
 		if(ext==null){return false;}
 		return (ext.equalsIgnoreCase("bai"));
 	}
 	
+	/** Tests gff ignoring case; unlike hasGffExtension, does not accept gff3. */
 	public static boolean isGffExt(String ext){
 		if(ext==null){return false;}
 		return (ext.equalsIgnoreCase("gff"));
 	}
 	
+	/** Tests the extracted raw extension for SAM/BAM; null returns false. */
 	public static boolean isSamOrBamFile(String fname){
 		if(fname==null){return false;}
 		String ext=ReadWrite.rawExtension(fname);
 		return isSamOrBamExt(ext);
 	}
 	
+	/** Tests bam ignoring case; null returns false. */
 	public static boolean isBamExt(String ext){
 		if(ext==null){return false;}
 		return ext.equalsIgnoreCase("bam");
 	}
 	
+	/** Tests vcf ignoring case; null returns false. */
 	public static boolean isVcfExt(String ext){
 		if(ext==null){return false;}
 		return ext.equalsIgnoreCase("vcf");
 	}
 	
+	/** Tests bz2/bzip2 ignoring case; null returns false. */
 	public static boolean isBz2Ext(String ext){
 		if(ext==null){return false;}
 		return ext.equalsIgnoreCase("bz2") || ext.equalsIgnoreCase("bzip2");
 	}
 	
+	/** Tests the name for a bz2/bzip2 suffix, ignoring case; null returns false. */
 	public static boolean isBz2File(String fname){
 		if(fname==null){return false;}
 		fname=fname.toLowerCase();
 		return fname.endsWith(".bz2") || fname.endsWith(".bzip2");
 	}
 	
+	/** Tests the extracted raw extension for BAM; null returns false. */
 	public static boolean isBamFile(String fname){
 		if(fname==null){return false;}
 		String ext=ReadWrite.rawExtension(fname);
 		return isBamExt(ext);
 	}
 	
+	/** Tests the extracted raw extension for BAI; null returns false. */
 	public static boolean isBaiFile(String fname){
 		if(fname==null){return false;}
 		String ext=ReadWrite.rawExtension(fname);
 		return isBaiExt(ext);
 	}
 	
+	/** Tests the extracted raw extension for VCF; null returns false. */
 	public static boolean isVcfFile(String fname){
 		if(fname==null){return false;}
 		String ext=ReadWrite.rawExtension(fname);
 		return isVcfExt(ext);
 	}
 	
+	/** Tests the extracted raw extension for GFA; null returns false. */
 	public static boolean isGfaFile(String fname){
 		if(fname==null){return false;}
 		String ext=ReadWrite.rawExtension(fname);
 		return isGfaExt(ext);
 	}
 	
+	/** Delegates name-based compression detection to ReadWrite; does not inspect contents. */
 	public static boolean isCompressedFile(String fname){
 		return ReadWrite.isCompressed(fname);
 	}
 
-	/** Deletes the file if it exists on the filesystem */
-	public void deleteIfPresent() {
+	/** Attempts to delete an existing path; ignores File.delete's result and does not check stream type. */
+	public void deleteIfPresent(){
 		File f=new File(name);
 		if(f.exists()){f.delete();}
 	}
 
-	/** Returns the barcode delimiter character */
-	public int barcodeDelimiter() {return barcodeDelimiter;}
-	/** Returns the number of barcodes per read (0, 1, or 2) */
-	public int barcodesPerRead() {return numBarcodes;}
+	/** Returns the detected delimiter, 0 for none, or -1 if metadata was not obtained. */
+	public int barcodeDelimiter(){return barcodeDelimiter;}
+	/** Returns the detected barcode count (0, 1 or 2), or -1 if not obtained. */
+	public int barcodesPerRead(){return numBarcodes;}
 	/**
 	 * Returns length of specified barcode.
 	 * @param barcodeNum Barcode number (1 or 2)
-	 * @return Length of barcode or 0 if barcode doesn't exist
+	 * @return Stored length, possibly -1 when unknown, or 0 for an invalid barcodeNum
 	 */
-	public int barcodeLength(int barcodeNum) {
+	public int barcodeLength(int barcodeNum){
 		return barcodeNum==1 ? barcodeLength1 : barcodeNum==2 ? barcodeLength2 : 0;
 	}
 	
@@ -1023,25 +1122,27 @@ public final class FileFormat {
 	 * @param ext Extension to compare against
 	 * @return true if extensions match, false otherwise
 	 */
-	public boolean extensionEquals(String ext) {
+	public boolean extensionEquals(String ext){
 		String s=ReadWrite.rawExtension(name);
-		if(s==ext) {return true;}
-		if(s==null || ext==null) {return false;}
+		if(s==ext){return true;}
+		if(s==null || ext==null){return false;}
 		return ext.equals(s);
 	}
 	
 	/** Returns the raw file extension without compression suffix */
-	public String rawExtension() {
+	public String rawExtension(){
 		return ReadWrite.rawExtension(name);
 	}
 	/** Returns the format code corresponding to the raw extension */
-	public int rawExtensionCode() {
+	public int rawExtensionCode(){
 		return rawExtensionCode(name);
 	}
-	public static String rawExtension(String name) {
+	/** Delegates extraction of the raw extension to ReadWrite. */
+	public static String rawExtension(String name){
 		return ReadWrite.rawExtension(name);
 	}
-	public static int rawExtensionCode(String name) {
+	/** Maps extracted extension/compression to a code; includes text aliases unlike testFormat. */
+	public static int rawExtensionCode(String name){
 		String ext=ReadWrite.rawExtension(name);
 		String comp=ReadWrite.compressionType(name);
 		return rawExtensionCode(ext, comp);
@@ -1052,7 +1153,7 @@ public final class FileFormat {
 	 * @param comp Compression type string
 	 * @return Format constant corresponding to the extension
 	 */
-	private static int rawExtensionCode(String ext, String comp) {
+	private static int rawExtensionCode(String ext, String comp){
 		if(ext==null){return UNKNOWN;}
 		else if(ext.equals("fq") || ext.equals("fastq") || (comp!=null && comp.equals("fqz"))){return FASTQ;}
 		else if(isFastaExt(ext)){return FASTA;}
@@ -1094,22 +1195,34 @@ public final class FileFormat {
 		return UNKNOWN;
 	}
 
-	/** Returns true if format contains biological sequence data */
-	public boolean isSequence() {return isSequence(name);}
+	/** Returns whether the effective format contains biological sequence data (FIO-043). */
+	public boolean isSequence(){return isSequence(format);}
+	/** Returns the trimmed name with backslashes normalized to slashes. */
 	public final String name(){return name;}
+	/** Returns the File.getName component captured at construction. */
 	public final String simpleName(){return simpleName;}
+	/** Returns the effective format after inference, fallback and overrides. */
 	public final int format(){return format;}
+	/** Returns the effective compression code; BAM may still have RAW here. */
 	public final int compression(){return compression;}
+	/** Returns the inferred FILE, STDIO or DEVNULL code. */
 	public final int type(){return type;}
+	/** Returns the construction-time READ or WRITE mode. */
 	public final int mode(){return mode;}
+	/** Returns the name-derived amino-extension flag, independently of format overrides. */
 	public final boolean amino(){return amino;}
+	/** Tests whether a name was stored; construction normally requires one. */
 	public final boolean hasName(){return name!=null;}
+	/** Returns the probed ASCII quality offset or -1 when unknown. */
 	public final int asciiOffset(){return asciiOffset;}
+	/** Returns the probed FASTQ length estimate or -1 when unknown. */
 	public final int length(){return length;}
 	
 	/**
 	 * Determines if file can be written based on permissions and flags.
-	 * Checks file existence, write permissions, and overwrite/append settings.
+	 * STDIO/null sinks return true. Otherwise an absent path returns true without checking
+	 * parent permissions; an existing path needs canWrite plus overwrite or append.
+	 * Does not reject directories or guarantee that opening the output will succeed.
 	 * @return true if file can be written, false otherwise
 	 */
 	public final boolean canWrite(){
@@ -1122,8 +1235,9 @@ public final class FileFormat {
 		return overwrite() || append();
 	}
 	
-	/** Determines if file can be read based on existence and permissions.
-	 * @return true if file can be read, false otherwise */
+	/** Returns true for STDIO or delegates to File.canRead for the path.
+	 * Does not reject directories or guarantee that a reader can be opened.
+	 * @return Whether this limited readability check passes */
 	public final boolean canRead(){
 		assert(read());
 		if(stdio()){return true;}
@@ -1132,8 +1246,10 @@ public final class FileFormat {
 		return f.canRead();
 	}
 	
+	/** Checks format, compression, stream type and mode; ignores other unknown metadata. */
 	public final boolean unknownField(){return unknownFormat() || unknownCompression() || unknownType() || unknownMode();}
 
+	/** Tests for a nonpositive format code; does not check the upper enum bound. */
 	public final boolean unknownFormat(){return format<=UNKNOWN;}
 	public final boolean fasta(){return format==FASTA;}
 	public final boolean fastq(){return format==FASTQ;}
@@ -1175,8 +1291,10 @@ public final class FileFormat {
 	public final boolean gfa(){return format==GFA;}
 	public final boolean fastg(){return format==FASTG;}
 	
+	/** Returns the caller-mutable shredded-input preference. */
 	public final boolean preferShreds(){return preferShreds;}
 
+	/** Tests for a nonpositive compression code; does not check the upper bound. */
 	public final boolean unknownCompression(){return compression<=UNKNOWN;}
 	public final boolean raw(){return compression==RAW;}
 	public final boolean gzip(){return compression==GZIP;}
@@ -1188,30 +1306,47 @@ public final class FileFormat {
 	public final boolean xz(){return compression==XZ;}
 	public final boolean sevenz(){return compression==SEVENZ;}
 	public final boolean dsrc(){return compression==DSRC;}
+	/** Tests for non-RAW compression or BAM format, independently of contents. */
 	public final boolean compressed(){return compression!=RAW || format==BAM;}
 
+	/** Tests for a nonpositive stream-type code. */
 	public final boolean unknownType(){return type<=UNKNOWN;}
+	/** Tests whether the inferred stream type is FILE; no filesystem lookup. */
 	public final boolean file(){return type==FILE;}
+	/** Tests whether construction inferred STDIO. */
 	public final boolean stdio(){return type==STDIO;}
+	/** Tests for STDIO input rather than rechecking the name. */
 	public final boolean stdin(){return type==STDIO && input;}
+	/** Tests for STDIO output rather than rechecking the name. */
 	public final boolean stdout(){return type==STDIO && !input;}
+	/** Tests whether construction inferred the DEVNULL sink type. */
 	public final boolean devnull(){return type==DEVNULL;}
 
+	/** Tests for a nonpositive mode code. */
 	public final boolean unknownMode(){return mode<=UNKNOWN;}
+	/** Tests whether the construction mode is READ. */
 	public final boolean read(){return mode==READ;}
+	/** Tests whether the construction mode is WRITE. */
 	public final boolean write(){return mode==WRITE;}
 
+	/** Returns the stored overwrite flag; append=true clears it at construction. */
 	public final boolean overwrite(){return overwrite;}
+	/** Returns the stored append flag; format-specific support is not checked here. */
 	public final boolean append(){return append;}
+	/** Returns the derived subprocess policy, not the requested permission field. */
 	public final boolean allowSubprocess(){return subprocess;}
+	/** Returns the requested ordering flag; this metadata object does not enforce ordering. */
 	public final boolean ordered(){return ordered;}
 
+	/** Tests for stored INTERLEAVED status; UNKNOWN also returns false. */
 	public boolean interleaved(){return interleaving==INTERLEAVED;}
 	
 	/**
-	 * Tests if file exists and has reasonable size.
-	 * Returns true for stdin, or for files >10 bytes (or gzip files).
-	 * @return true if file exists and is readable
+	 * Applies a legacy size-based existence heuristic, not a readability check.
+	 * Non-FILE metadata returns read(). FILE metadata requires length greater than ten;
+	 * a missing gzip path bypasses the early absence check but still has zero length.
+	 * Does not reject directories or inspect file contents.
+	 * @return Result of the legacy stream/size heuristic
 	 */
 	public final boolean exists(){//TODO - check this for efficiency - .canRead, etc.
 		if(!file()){return read();}
@@ -1221,43 +1356,48 @@ public final class FileFormat {
 		return size>10;
 	}
 	
-	public String formatString() {
+	/** Returns the format label, using unknown for out-of-range codes. */
+	public String formatString(){
 		int x=(format<0 || format>=FORMAT_ARRAY.length) ? UNKNOWN : format;//FIXED [fileIO/FileFormat#002]: was '>' (off-by-one; format==length would AIOOBE — unreachable today, defensive)
 		return FORMAT_ARRAY[x];
 	}
 	
-	public String compressionString() {
-		if(bam() || bgzip()) {return "bgzip";}
+	/** Reports bgzip for BAM or a matching signature, otherwise the compression label; may open the named path. */
+	public String compressionString(){
+		if(bam() || bgzip()){return "bgzip";}
 		int x=(compression<0 || compression>=COMPRESSION_ARRAY.length) ? UNKNOWN : compression;//FIXED [fileIO/FileFormat#002]: was '>' (off-by-one, defensive)
 		return COMPRESSION_ARRAY[x];
 	}
 	
-	public String sortOrder() {
-		if(sam()) {
+	/** Probes SAM/BAM headers through BamReader; returns null for other formats. May perform I/O. */
+	public String sortOrder(){
+		if(sam()){
 			return BamReader.getSamSortOrder(name);
-		}else if(bam()) {
+		}else if(bam()){
 			return BamReader.getBamSortOrder(name);
 		}
 		return null;
 	}
 	
-	public boolean bgzip() {
-		if(magicNumber==Long.MIN_VALUE) {magicNumber=ReadWrite.getMagicNumber(name);}
+	/** Lazily reads/caches four raw bytes and compares with 529205252; not a full BGZF validation. */
+	public boolean bgzip(){
+		if(magicNumber==Long.MIN_VALUE){magicNumber=ReadWrite.getMagicNumber(name);}
 		return magicNumber==529205252;
 	}
 	
+	/** Derives policy from compression, direction and ReadWrite settings; ignores requested permission. */
 	private boolean shouldUseSubprocess(){//Note:  allowSubprocess is not really used...
-		if(!compressed()) {return false;}
-		else if(bz2()) {return true;}
+		if(!compressed()){return false;}
+		else if(bz2()){return true;}
 		
 		final boolean bam=bam(), gzip=gzip();
-		if(!bam && !gzip) {return true;}//Some unknown format
-		else if(mode==READ) {
-			if(gzip) {return !ReadWrite.nativeBgzfIn();}
-			else if(bam) {return !ReadWrite.nativeBamIn();}
-		}else {
-			if(gzip) {return !ReadWrite.nativeBgzfOut();
-			}else if(bam) {return !ReadWrite.nativeBamOut();}
+		if(!bam && !gzip){return true;}//Some unknown format
+		else if(mode==READ){
+			if(gzip){return !ReadWrite.nativeBgzfIn();}
+			else if(bam){return !ReadWrite.nativeBamIn();}
+		}else{
+			if(gzip){return !ReadWrite.nativeBgzfOut();
+			}else if(bam){return !ReadWrite.nativeBamOut();}
 		}
 		throw new RuntimeException("Unexpected format: "+this);
 	}
@@ -1272,7 +1412,7 @@ public final class FileFormat {
 	private final String simpleName;
 	/** Format constant (FASTA, FASTQ, SAM, etc.) */
 	private final int format;
-	/** ASCII offset for quality scores (33 for Sanger, 64 for Illumina) */
+	/** Inferred quality offset, or -1 when no offset was obtained. */
 	private final int asciiOffset;
 	/** Compression type constant (RAW, GZIP, BZIP2, etc.) */
 	private final int compression;
@@ -1280,15 +1420,15 @@ public final class FileFormat {
 	private final int type;
 	/** I/O mode constant (READ or WRITE) */
 	private final int mode;
-	/** Interleaving status (SINGLE or INTERLEAVED) */
+	/** Interleaving status (UNKNOWN, SINGLE or INTERLEAVED) */
 	private final int interleaving;
-	/** Typical sequence length in file */
+	/** Probed FASTQ length estimate from up to two records, or -1 when unknown. */
 	private final int length;
 	/** True if this is an input file, false for output */
 	private final boolean input;
-	/** True if file contains amino acid sequences */
+	/** Whether the name has an amino extension, independently of format overrides. */
 	private final boolean amino;
-	/** Number of barcodes per read (0, 1, or 2) */
+	/** Probed barcode count (0, 1 or 2), or -1 when not obtained. */
 	private final int numBarcodes;
 	/** Character separating dual barcodes */
 	private final int barcodeDelimiter;
@@ -1301,13 +1441,14 @@ public final class FileFormat {
 	private final boolean overwrite;
 	/** Permission to append to existing files */
 	private final boolean append;
-	/** Permission to spawn compression subprocesses */
+	/** Requested subprocess permission; the current derived-policy method does not use it. */
 	private final boolean allowSubprocess;
-	/** Whether this should actually use a subprocess */
+	/** Construction-time subprocess policy derived from format, direction and ReadWrite settings. */
 	public final boolean subprocess;
 	/** Whether to maintain input order in multithreaded processing */
 	private final boolean ordered;
 	
+	/** Lazy four-byte signature cache; Long.MIN_VALUE means not yet probed. Not synchronized. */
 	private long magicNumber=Long.MIN_VALUE;
 //	private final int magicNumber;
 	
@@ -1323,6 +1464,7 @@ public final class FileFormat {
 	public static boolean verbose=false;
 	/** Whether to print format detection warnings */
 	public static boolean PRINT_WARNING=true;
+	/** Shared, unsynchronized latch limiting the process-substitution warning. */
 	private static boolean warnedDevFd=false;
 	
 	/*--------------------------------------------------------------*/
@@ -1383,7 +1525,7 @@ public final class FileFormat {
 	 * (UNKNOWN=0 .. BBNETS=39). Do not insert extension-aliases (e.g. "vec","spectra") as
 	 * standalone slots — those are aliases of bbvec/clade, not codes, and would shift the
 	 * alignment. [fileIO/FileFormat#001 FIXED 2026-06-15: removed the two stray aliases.] */
-	public static final String[] FORMAT_ARRAY=new String[] {
+	public static final String[] FORMAT_ARRAY=new String[]{
 		"unknown", "fasta", "fastq", "bread", "sam", "csfasta",
 		"qual", "sequential", "random", "sites", "attachment",
 		"bam", "scarf", "text", "phylip", "header", "int1d",
@@ -1394,7 +1536,7 @@ public final class FileFormat {
 	};
 	
 	/** List of recognized file extensions */
-	public static final String[] EXTENSION_LIST=new String[] {
+	public static final String[] EXTENSION_LIST=new String[]{
 		"fq", "fastq", "fa", "fasta", "fas", "fna",
 		"ffn", "frn", "seq", "fsa", "faa",
 		"bread", "sam", "csfasta", "qual", "bam",
@@ -1424,7 +1566,7 @@ public final class FileFormat {
 	public static final int ZSTD=12;
 	
 	/** Array mapping compression constants to string names */
-	public static final String[] COMPRESSION_ARRAY=new String[] {
+	public static final String[] COMPRESSION_ARRAY=new String[]{
 		"unknown", "raw", "gz", "zip", "bz2", "xz",
 		"c4", "7z", "dsrc", "fqz", "lz", "ac", "zst"
 	};
@@ -1438,7 +1580,7 @@ public final class FileFormat {
 	public static final int DEVNULL=3;
 //	public static final int NULL=4;
 	
-	private static final String[] TYPE_ARRAY=new String[] {
+	private static final String[] TYPE_ARRAY=new String[]{
 		"unknown", "file", "stdio", "devnull"
 	};
 	
@@ -1447,7 +1589,7 @@ public final class FileFormat {
 	/** Read mode constant */
 	public static final int READ=1, WRITE=2;
 	
-	private static final String[] MODE_ARRAY=new String[] {
+	private static final String[] MODE_ARRAY=new String[]{
 		"unknown", "read", "write"
 	};
 	
@@ -1456,7 +1598,7 @@ public final class FileFormat {
 	/** Single-ended sequencing constant */
 	public static final int SINGLE=1, INTERLEAVED=2;
 	
-	private static final String[] INTERLEAVING_ARRAY=new String[] {
+	private static final String[] INTERLEAVING_ARRAY=new String[]{
 		"unknown", "single-ended", "interleaved"
 	};
 	

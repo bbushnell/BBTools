@@ -3,37 +3,39 @@ package fileIO;
 import java.io.File;
 import java.util.ArrayList;
 
-
 /**
- * Utility class for finding files in directory trees based on filename patterns.
- * Searches files recursively and filters by prefix, suffix, and middle string matching.
- * Provides both static convenience methods and instance-based searching.
- * @author Brian Bushnell
+ * Collects absolute file paths using literal prefix, suffix and substring constraints.
+ * Matching lowercases names and constructor arguments with the default locale;
+ * these are not regexes or general glob patterns. Traversal follows the order
+ * returned by File.listFiles(), without sorting or deduplication.
+ * Instance searches append to a shared mutable result list; static convenience
+ * calls use a fresh instance. Concurrent searches or reconfiguration are unsupported.
+ * A null directory listing is logged and leaves partial results; directory-link
+ * cycles are not detected.
+ * @author Brian Bushnell, Shinobu
  */
-public class FindFiles {
-	
-	
+public class FindFiles{
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Static Entry          ----------------*/
+	/*--------------------------------------------------------------*/
+
 	/**
-	 * Command-line entry point for file finding operations.
-	 * Arguments: root_directory prefix suffix [middle]
-	 * Prints found files in two formats for comparison.
-	 * @param args Command-line arguments: [0]=root, [1]=prefix, [2]=suffix, [3]=middle (optional)
+	 * Searches once and prints the same results twice: one path per line, then
+	 * a blank line followed by space-separated paths. No usage/count validation
+	 * precedes argument indexing. Extra arguments after the optional middle are ignored.
+	 * @param args Root, prefix, suffix and optional middle. Literal "null" disables
+	 * suffix or middle, but not prefix; "#" disables any constraint. Quote it in a shell.
 	 */
 	public static void main(String[] args){
-		
 		String root=args[0];
-//		if(root.equals(".")){root=null;}
+		//The historical dot-to-null conversion is inactive; both forms select the working directory.
 		String prefix=args[1];
 		String suffix=(args[2].equals("null") ? null : args[2]);
 		String middle=null;
-		
-		if(args.length>3){
-			middle=(args[3].equals("null") ? null : args[3]);
-		}
-
+		if(args.length>3){middle=(args[3].equals("null") ? null : args[3]);}
 		boolean NEWLINE=true;
 		boolean BOTH=true;
-
 		ArrayList<String> results=findFiles(root, prefix, suffix, middle);
 		for(String s : results){
 			if(NEWLINE){
@@ -42,8 +44,6 @@ public class FindFiles {
 				System.out.print(s+" ");
 			}
 		}
-
-
 		if(BOTH){
 			System.out.println();
 			NEWLINE=!NEWLINE;
@@ -56,16 +56,19 @@ public class FindFiles {
 			}
 		}
 	}
-	
-	
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Initialization        ----------------*/
+	/*--------------------------------------------------------------*/
+
 	/**
-	 * Constructs a FindFiles instance with search patterns.
-	 * Converts wildcard patterns (*,#) to null and normalizes to lowercase.
-	 * Validates that * wildcards are replaced with # for command-line safety.
+	 * Initializes literal matching constraints, lowercased using the default locale.
+	 * Null and "#" disable a constraint. "*" also disables one, but prefix and suffix
+	 * "*" are assertion-rejected to discourage shell expansion; middle "*" is allowed.
 	 *
-	 * @param pre Prefix pattern to match (null, *, or # for no constraint)
-	 * @param suf Suffix pattern to match (null, *, or # for no constraint)
-	 * @param mid Middle string pattern to match (null, *, or # for no constraint)
+	 * @param pre Literal prefix, null or "#"; "*" only with assertions disabled
+	 * @param suf Literal suffix, null or "#"; "*" only with assertions disabled
+	 * @param mid Literal substring, null, "#" or "*"
 	 */
 	public FindFiles(String pre, String suf, String mid){
 		assert(!"*".equals(pre)) : "Use # instead of *, which has problems from the command line";
@@ -74,56 +77,62 @@ public class FindFiles {
 		suffix=((suf==null || suf.equals("*") || suf.equals("#")) ? null : suf.toLowerCase());
 		middle=((mid==null || mid.equals("*") || mid.equals("#")) ? null : mid.toLowerCase());
 	}
-	
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Static Methods        ----------------*/
+	/*--------------------------------------------------------------*/
+
 	/**
-	 * Static convenience method to find files with prefix and suffix patterns.
-	 * Creates temporary FindFiles instance and searches from root directory.
+	 * Searches with a fresh instance and no substring constraint.
 	 *
-	 * @param root Root directory path to search from
-	 * @param prefix Filename prefix to match
-	 * @param suffix Filename suffix to match
-	 * @return List of absolute paths of matching files
+	 * @param root File or directory path; null uses the working directory
+	 * @param prefix Constructor prefix constraint
+	 * @param suffix Constructor suffix constraint
+	 * @return Fresh mutable result list, possibly partial after a directory-list failure
 	 */
 	public static ArrayList<String> findFiles(String root, String prefix, String suffix){
 		return findFiles(root, prefix, suffix, null);
 	}
-	
+
 	/**
-	 * Static convenience method to find files with prefix, suffix, and middle patterns.
-	 * Creates temporary FindFiles instance and searches from root directory.
+	 * Searches with a fresh instance using the constructor's constraint rules.
 	 *
-	 * @param root Root directory path to search from
-	 * @param prefix Filename prefix to match
-	 * @param suffix Filename suffix to match
-	 * @param mid Middle string pattern to match within filename
-	 * @return List of absolute paths of matching files
+	 * @param root File or directory path; null uses the working directory
+	 * @param prefix Constructor prefix constraint
+	 * @param suffix Constructor suffix constraint
+	 * @param mid Constructor substring constraint
+	 * @return Fresh mutable result list, possibly partial after a directory-list failure
 	 */
 	public static ArrayList<String> findFiles(String root, String prefix, String suffix, String mid){
 		FindFiles ff=new FindFiles(prefix, suffix, mid);
 		return ff.findFiles(root);
 	}
-	
+
+	/*--------------------------------------------------------------*/
+	/*----------------           Methods            ----------------*/
+	/*--------------------------------------------------------------*/
+
 	/**
-	 * Searches for matching files starting from specified path.
-	 * Uses current directory if path is null.
-	 * @param path Starting directory path (uses "." if null)
-	 * @return List of absolute paths of files matching this instance's patterns
+	 * Appends matches to this instance's existing results; never clears the list.
+	 * @param path File or directory path, or null for the working directory
+	 * @return The live {@link #results} list, including matches from earlier calls
 	 */
 	public ArrayList<String> findFiles(String path){
 		findFiles(new File(path==null ? "." : path));
 		return results;
 	}
-	
+
 	/**
-	 * Recursively searches for files matching the configured patterns.
-	 * If path is directory, recursively searches all contents.
-	 * If path is file, considers it for pattern matching.
+	 * Recursively appends matches without clearing, sorting or deduplicating results.
+	 * A null directory listing is reported to stderr and that subtree is skipped.
+	 * Non-directories are passed to {@link #consider(File)}, which ignores missing paths.
+	 * Links are followed by File's directory tests; no cycle guard is applied.
 	 *
-	 * @param path File or directory to search
-	 * @return List of absolute paths of matching files
+	 * @param path Non-null file or directory to search
+	 * @return The live accumulated result list, which may be partial after listing failure
 	 */
 	public ArrayList<String> findFiles(File path){
-		
+		//TODO: Probable bug [FIO-118] - directory links can revisit ancestors; traversal has no cycle guard. Policy deferred.
 		if(path.isDirectory()){
 			File[] array=path.listFiles();
 			if(array==null){System.err.println("null contents for "+path.getAbsolutePath());}
@@ -133,50 +142,44 @@ public class FindFiles {
 		}
 		return results;
 	}
-	
+
 	/**
-	 * Evaluates a single file against the configured search patterns.
-	 * Checks filename (not full path) against prefix, suffix, and middle constraints.
-	 * Adds matching files to results list as absolute paths.
-	 * @param in File to evaluate for pattern matching
+	 * Appends one matching absolute path, retaining its original spelling.
+	 * Missing paths are ignored; existing paths are assertion-checked as regular files.
+	 * The lowercased filename must satisfy every non-null literal constraint.
+	 * This method does not lowercase caller replacements of the public constraint fields.
+	 * @param in Non-null file to consider; directories are assertion-rejected
 	 */
 	public void consider(File in){
-//		System.out.println("Considering "+in.getAbsolutePath()+" versus '"+prefix+"' '"+suffix+"'");
 		if(!in.exists()){return;}
 		assert(in.exists()) : in;
 		assert(in.isFile());
 		String abs=in.getAbsolutePath();
-//		System.out.println("Considering "+abs);
 		String abs2=abs.toLowerCase();
 		int slashLoc=abs2.lastIndexOf(slash);
-		if(slashLoc>-1){
-			abs2=abs2.substring(slashLoc+1);
-		}
-//		System.out.println("a");
+		if(slashLoc>-1){abs2=abs2.substring(slashLoc+1);}
 		if(prefix!=null && !abs2.startsWith(prefix)){return;}
-//		System.out.println("b");
 		if(suffix!=null && !abs2.endsWith(suffix)){return;}
-//		System.out.println("c");
-		
 		if(middle!=null && !abs2.contains(middle)){return;}
-		
 		results.add(abs);
 	}
-	
-	
-	/** List storing absolute paths of files that match search patterns */
+
+	/*--------------------------------------------------------------*/
+	/*----------------            Fields            ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Live mutable output, appended by all instance searches; callers may clear or replace it. */
 	public ArrayList<String> results=new ArrayList<String>();
-	/** Filename prefix pattern to match (null means no constraint) */
+	/** Literal prefix, initially lowercased by the constructor; null disables it. */
 	public String prefix;
-	/** Filename suffix pattern to match (null means no constraint) */
+	/** Literal suffix, initially lowercased by the constructor; null disables it. */
 	public String suffix;
 	/**
-	 * Middle string pattern that must be contained in filename (null means no constraint)
+	 * Literal substring, initially lowercased by the constructor; null disables it.
 	 */
 	public String middle;
 	/**
-	 * Platform-specific file separator character obtained from system properties
+	 * First character of file.separator, cached when this class is initialized.
 	 */
 	public static final char slash=System.getProperty("file.separator").charAt(0);
-	
 }

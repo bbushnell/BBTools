@@ -3,21 +3,28 @@ package fileIO;
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.BufferedReader;
+import java.io.BufferedWriter;
+import java.io.Closeable;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
+import java.io.FilterInputStream;
+import java.io.FilterOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.io.OutputStream;
+import java.io.OutputStreamWriter;
+import java.io.PrintStream;
 import java.io.PrintWriter;
 import java.io.Reader;
 import java.lang.ProcessBuilder.Redirect;
 import java.net.MalformedURLException;
 import java.net.URL;
+import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -49,21 +56,26 @@ import stream.bam.BgzfSettings;
 import structures.ByteBuilder;
 
 /**
- * Comprehensive utility class for reading, writing, and managing file input/output
- * operations with advanced compression and multi-threading support.
- * Provides flexible, high-performance file reading and writing methods with support
- * for multiple compression formats (gzip, zip, bzip2, dsrc) and concurrent
- * file operations. Handles various file sources including local files, JAR resources,
- * and standard input/output streams.
+ * Stream factories, whole-file helpers, filename utilities and legacy writer accounting.
+ * Compression selection combines case-sensitive factory suffix checks, mutable global
+ * settings and external-tool availability; filename metadata helpers have different
+ * alias/case rules. Factories may open files or start processes before returning.
+ * Callers own returned streams and must complete the applicable close/process protocol.
+ * Standard streams are borrowed, but only some close helpers protect their direct identities.
  *
- * @author Brian Bushnell
+ * The methods named writeStringAsync and writeAsync execute in the calling thread;
+ * only the InThread wrappers start workers. Global settings are startup configuration,
+ * not per-call snapshots. Synchronization protects selected counters/maps and write/copy
+ * sections, not all I/O. Failure cleanup and propagation differ among legacy helpers;
+ * the source TODOs identify unresolved cases rather than promising universal cleanup.
+ * @author Brian Bushnell, Shinobu
  */
-public class ReadWrite {
+public class ReadWrite{
 	
 	
 	/**
 	 * Program entry point for file copying functionality.
-	 * Copies source file to destination, ensuring destination does not exist.
+	 * Asserts that the destination does not exist, then delegates to copyFile.
 	 * @param args Command-line arguments [source, destination]
 	 */
 	public static void main(String[] args){
@@ -73,7 +85,7 @@ public class ReadWrite {
 	}
 	
 	/**
-	 * Writes a character sequence to file asynchronously in a separate thread.
+	 * Starts a counted background character writer and returns without joining it.
 	 * @param x Character sequence to write
 	 * @param fname Output filename
 	 */
@@ -82,27 +94,49 @@ public class ReadWrite {
 	}
 	
 	/**
-	 * Writes a character sequence to file asynchronously in a separate thread.
+	 * Starts a counted background character writer and returns without joining it.
 	 * @param x Character sequence to write
 	 * @param fname Output filename
 	 * @param append Whether to append to existing file or overwrite
 	 */
 	public static void writeStringInThread(CharSequence x, String fname, boolean append){
-		addThread(1);
-		new Thread(new WriteStringThread(x, fname, append)).start();
+		startWritingThread(new WriteStringThread(x, fname, append));
 	}
 	
 	/**
-	 * Writes an object to file asynchronously using serialization in a separate thread.
+	 * Starts a counted background object writer and returns without a completion handle.
 	 * @param x Object to serialize and write
 	 * @param fname Output filename
 	 * @param allowSubprocess Whether to allow subprocess compression
 	 */
 	public static void writeObjectInThread(Object x, String fname, boolean allowSubprocess){
-		addThread(1);
-		new Thread(new WriteObjectThread(x, fname, allowSubprocess)).start();
+		startWritingThread(new WriteObjectThread(x, fname, allowSubprocess));
 	}
 	
+	/** Reserves a counted worker only after construction; rolls back a failed start.
+	 * @param writer Worker that transfers its reservation to running on entry */
+	private static void startWritingThread(final Runnable writer){
+		final Thread thread=new Thread(writer);
+		addThread(1);
+		boolean started=false;
+		try{
+			thread.start();
+			started=true;
+		}finally{
+			if(!started){
+				synchronized(activeThreads){
+					//No worker ran, so this reservation is waiting, not running.
+					activeThreads[0]--;
+					activeThreads[1]--;
+					assert(activeThreads[0]>=0 && activeThreads[1]>=0) :
+						"Failed writer start must release exactly its waiting reservation: "+Arrays.toString(activeThreads);
+					activeThreads.notifyAll();
+				}
+			}
+		}
+	}
+
+	/** Counted worker retaining the supplied CharSequence reference without a defensive copy. */
 	private static class WriteStringThread implements Runnable{
 		
 		private final CharSequence x;
@@ -115,16 +149,17 @@ public class ReadWrite {
 		}
 		
 		@Override
-		public void run() {
+		public void run(){
 			if(verbose){System.err.println("WriteStringThread.run() started for fname "+fname);}
 			addRunningThread(1);
-			writeStringAsync(x, fname, append);
-			addThread(-1);
+			try{writeStringAsync(x, fname, append);}
+			finally{addThread(-1);}
 			if(verbose){System.err.println("WriteStringThread.run() finished for fname "+fname);}
 		}
 		
 	}
 	
+	/** Counted worker retaining the supplied object until serialization completes. */
 	private static class WriteObjectThread implements Runnable{
 		
 		private final Object x;
@@ -137,37 +172,36 @@ public class ReadWrite {
 		}
 		
 		@Override
-		public void run() {
+		public void run(){
 			if(verbose){System.err.println("WriteObjectThread.run() started for fname "+fname);}
 			addRunningThread(1);
-//			System.out.println(fname+" began writing.");
-			writeAsync(x, fname, allowSubprocess);
-//			System.out.println(fname+" finished writing.");
-			addThread(-1);
-//			System.out.println(fname+" reports "+countActiveThreads()+" active threads.");
+			try{writeAsync(x, fname, allowSubprocess);}
+			finally{addThread(-1);}
 			if(verbose){System.err.println("WriteObjectThread.run() finished for fname "+fname);}
 		}
 		
 	}
 	
 	/**
-	 * Sets file permissions for read, write, and execute access.
+	 * Attempts to set read, write and execute permissions on an existing path.
+	 * Setter boolean results are currently ignored; true does not establish success (FIO-045).
 	 *
 	 * @param fname File path
 	 * @param read Whether to grant read permission
 	 * @param write Whether to grant write permission
 	 * @param execute Whether to grant execute permission
 	 * @param ownerOnly Whether permissions apply to owner only
-	 * @return true if permissions were successfully set, false otherwise
+	 * @return False for a missing path or caught Exception; otherwise true even if a setter returned false
 	 */
 	public static boolean setPermissions(String fname, boolean read, boolean write, boolean execute, boolean ownerOnly){
 		File f=new File(fname);
 		if(!f.exists()){return false;}
-		try {
+		try{
+			//TODO: Probable bug - FIO-045: ignored boolean setter results can report success after failure.
 			f.setReadable(read, ownerOnly);
 			f.setWritable(write, ownerOnly);
 			f.setExecutable(execute, ownerOnly);
-		} catch (Exception e) {
+		}catch(Exception e){
 			return false;
 		}
 		return true;
@@ -186,132 +220,229 @@ public class ReadWrite {
 	}
 	/**
 	 * Writes character sequence to file with explicit overwrite and append control.
-	 * Handles compressed formats and proper stream closure.
+	 * Uses PrintWriter charset rules under diskSync. Overwrite is assertion-checked.
+	 * Cleanup is attempted on normal and exceptional paths; retained writer errors are reported.
+	 * An original failure stays primary, with distinct cleanup failures suppressed beneath it.
+	 * Direct System.out/System.err backends remain open while the temporary writer is finalized.
 	 *
 	 * @param x Character sequence to write
 	 * @param fname Output filename
 	 * @param overwrite Whether to allow overwriting existing files
 	 * @param append Whether to append to existing file
+	 * @throws RuntimeException If output creation or writing fails
 	 */
 	public static void writeString(CharSequence x, String fname, boolean overwrite, boolean append){
 		if(verbose){System.err.println("writeString(x, "+fname+", "+append+")");}
 		File f=new File(fname);
 		assert(overwrite || append || !f.exists()) : "File "+fname+" exists and overwrite=f";
 		OutputStream os=getOutputStream(fname, append, true, false);
+		final PrintStream borrowed=(os==System.out || os==System.err ? (PrintStream)os : null);
 		
-		try {
+		try{
 
 			synchronized(diskSync){
-				PrintWriter out=new PrintWriter(os);
-				out.print(x);
-				out.flush();
+				PrintWriter out=null;
+				Throwable failure=null;
+				try{
+					out=(borrowed==null ? new PrintWriter(os) : borrowedWriter(borrowed));
+					out.print(x);
+					out.flush();
 
-				if(os.getClass()==ZipOutputStream.class){
-					ZipOutputStream zos=(ZipOutputStream)os;
-					zos.closeEntry();
-					zos.finish();
-				}
+					if(os.getClass()==ZipOutputStream.class){
+						ZipOutputStream zos=(ZipOutputStream)os;
+						zos.closeEntry();
+						zos.finish();
+					}
 //				else if(PROCESS_XZ && os.getClass()==org.tukaani.xz.XZOutputStream.class){
 //					org.tukaani.xz.XZOutputStream zos=(org.tukaani.xz.XZOutputStream)os;
 //					zos.finish();
 //				}
-				out.close();
+				}catch(Throwable t){
+					failure=t;
+					throw t;
+				}finally{
+					try{closeStringWriter(out, os, borrowed, fname, failure);}
+					catch(Throwable closing){
+						if(failure==null){throw closing;}
+						//JDK encoder cleanup may wrap a repeated primary in a self-suppression exception.
+						if(closing!=failure && closing.getCause()!=failure){failure.addSuppressed(closing);}
+					}
+				}
 			}
 //			System.out.println("Wrote to "+fname);
 			
 //			String read=readString(fname);
 //			assert(x.equals(read)) : x.length()+", "+read.length();
 			
-		} catch (FileNotFoundException e) {
+		}catch(FileNotFoundException e){
 			throw new RuntimeException(e);
-		} catch (IOException e) {
+		}catch(IOException e){
 			throw new RuntimeException(e);
-		} catch (OutOfMemoryError e) {
+		}catch(OutOfMemoryError e){
 			KillSwitch.memKill(e);
 		}
 	}
 
-	/** Writes character sequence to file asynchronously without synchronization */
+	/** Attempts writer cleanup while retaining caller ownership and reporting stored errors.
+	 * If construction or unchecked writer closure fails, owned/wrapped backend closure
+	 * is attempted. Borrowed encoders still close normally to finalize their characters.
+	 * @param out Constructed writer, or null if construction failed
+	 * @param backend Output returned by the factory, possibly null on a faulty factory path
+	 * @param borrowed Captured direct standard stream, or null for owned/wrapped backends
+	 * @param fname Filename used in the retained-error diagnostic
+	 * @param primary Original body/construction failure, excluded from nested suppression
+	 * @throws IOException If fallback backend closure fails
+	 */
+	private static void closeStringWriter(final PrintWriter out, final OutputStream backend,
+			final PrintStream borrowed, final String fname, final Throwable primary) throws IOException{
+		assert(borrowed==null || backend==borrowed) : "writeString marks only direct standard backends as borrowed; wrappers require closure.";
+		if(out==null){
+			if(backend!=null && borrowed==null){backend.close();}
+		}else{
+			try{out.close();}
+			catch(Throwable failure){
+				try{if(backend!=null && borrowed==null){backend.close();}}
+				catch(Throwable cleanup){
+					//Stored exceptions can recur; do not build a suppression cycle through the primary.
+					if(cleanup!=failure && cleanup!=primary && cleanup.getCause()!=failure
+							&& (primary==null || cleanup.getCause()!=primary)){
+						failure.addSuppressed(cleanup);
+					}
+				}
+				throw failure;
+			}
+		}
+		boolean error=out!=null && out.checkError();
+		if(borrowed!=null){error|=borrowed.checkError();}
+		if(error){throw new RuntimeException("Error writing to "+fname);}
+	}
+
+	/** Builds an owned encoder whose closure cannot close the borrowed PrintStream. */
+	private static PrintWriter borrowedWriter(final PrintStream stream){
+		assert(stream!=null) : "writeString passes a recognized borrowed standard stream.";
+		Charset charset=Charset.defaultCharset();
+		try{
+			// Java18+ PrintWriter adopts PrintStream.charset(); older constructors use the default.
+			charset=(Charset)PrintStream.class.getMethod("charset").invoke(stream);
+		}catch(NoSuchMethodException e){
+			// Keep the older PrintWriter constructor's default-charset behavior on Java8.
+		}catch(ReflectiveOperationException e){
+			throw new RuntimeException("Could not obtain the borrowed output stream charset", e);
+		}
+		return new PrintWriter(new BufferedWriter(new OutputStreamWriter(new NonClosingOutputStream(stream), charset)));
+	}
+
+	/** Borrows an output backend while allowing its owning encoder to finish normally. */
+	private static final class NonClosingOutputStream extends FilterOutputStream{
+		NonClosingOutputStream(final OutputStream out){super(out);}
+		/** Delegates a block without FilterOutputStream's per-byte loop. */
+		@Override
+		public void write(byte[] bytes, int offset, int length) throws IOException{
+			out.write(bytes, offset, length);
+		}
+		/** Flushes the borrowed backend; the caller retains responsibility for closing it. */
+		@Override
+		public void close() throws IOException{flush();}
+	}
+
+	/** Writes characters in the caller with append=false; failure policy follows the overload. */
 	public static void writeStringAsync(CharSequence x, String fname){writeStringAsync(x, fname, false);}
 	/**
-	 * Writes character sequence to file asynchronously without disk synchronization.
-	 * Used by background writer threads to avoid blocking.
-	 *
+	 * Writes in the calling thread using writeString's locking, cleanup and borrowed-stream rules.
+	 * The InThread wrapper supplies a worker. A write failure halts the JVM through
+	 * KillSwitch when assertions are enabled; with -da the original unchecked failure
+	 * propagates without explicitly terminating the JVM. Counted workers release their
+	 * reservation in finally when the JVM continues. No completion handle is returned.
 	 * @param x Character sequence to write
 	 * @param fname Output filename
 	 * @param append Whether to append to existing file or overwrite
 	 */
 	public static void writeStringAsync(CharSequence x, String fname, boolean append){
-		if(verbose){System.err.println("writeStringAsync(x, "+fname+", "+append+")");}
-		
-		OutputStream os=getOutputStream(fname, append, true, false);
-		
-		try {
-
-			synchronized(diskSync){
-				PrintWriter out=new PrintWriter(os);
-				out.print(x);
-				out.flush();
-
-				if(os.getClass()==ZipOutputStream.class){
-					ZipOutputStream zos=(ZipOutputStream)os;
-					zos.closeEntry();
-					zos.finish();
-				}
-//				else if(PROCESS_XZ && os.getClass()==org.tukaani.xz.XZOutputStream.class){
-//					org.tukaani.xz.XZOutputStream zos=(org.tukaani.xz.XZOutputStream)os;
-//					zos.finish();
-//				}
-				out.close();
-			}
-//			System.out.println("Wrote to "+fname);
-			
-//			String read=readString(fname);
-//			assert(x.equals(read)) : x.length()+", "+read.length();
-			
-		} catch (FileNotFoundException e) {
-			throw new RuntimeException(e);
-		} catch (IOException e) {
-			throw new RuntimeException(e);
-		} catch (OutOfMemoryError e) {
-			KillSwitch.memKill(e);
+		try{writeString(x, fname, append);}
+		catch(RuntimeException | Error failure){
+			//IO-042: worker failure must stop scientific runs; -da servers may survive log failure.
+			assert(false) : KillSwitch.assertDie("Error writing to "+fname+": "+failure);
+			throw failure;
 		}
 	}
 	
 	/**
 	 * Writes an object to file using serialization with disk synchronization.
+	 * Owns the returned backend and object wrapper. Attempts wrapper closure once and
+	 * falls back to backend closure if wrapper construction or closure fails.
+	 * Only distinct cleanup failures are suppressed onto the original failure.
 	 *
 	 * @param <X> Type of object to write
 	 * @param x Object to serialize and write
 	 * @param fname Output filename
 	 * @param allowSubprocess Whether to allow subprocess compression
+	 * @throws RuntimeException If output creation, serialization or closure fails
 	 */
 	public static <X> void write(X x, String fname, boolean allowSubprocess){
 		if(verbose){System.err.println("write(x, "+fname+", "+allowSubprocess+")");}
 		
 		OutputStream os=getOutputStream(fname, false, true, allowSubprocess);
 		
-		try {
+		try{
 
 			synchronized(diskSync){
-				ObjectOutputStream out=new ObjectOutputStream(os);
-				out.writeObject(x);
-				close(out);
+				ObjectOutputStream out=null;
+				Throwable failure=null;
+				try{
+					out=new ObjectOutputStream(os);
+					out.writeObject(x);
+				}catch(Throwable t){
+					failure=t;
+					throw t;
+				}finally{
+					try{closeObjectOutput(out, os, failure);}
+					catch(Throwable closing){
+						if(failure==null){throw closing;}
+						//Stored backend errors can be rethrown by close; never mask them with self-suppression.
+						if(closing!=failure){failure.addSuppressed(closing);}
+					}
+				}
 			}
 			
-		} catch (FileNotFoundException e) {
+		}catch(FileNotFoundException e){
 			throw new RuntimeException(e);
-		} catch (IOException e) {
+		}catch(IOException e){
 			throw new RuntimeException(e);
-		} catch (OutOfMemoryError e) {
+		}catch(OutOfMemoryError e){
 			KillSwitch.memKill(e);
 		}
 	}
 	
+	/** Closes the wrapper, using the backend only if construction or wrapper closure failed.
+	 * Avoids adding the original body failure back into a cleanup exception's suppressed list.
+	 * @param out Object wrapper, or null when its construction failed
+	 * @param backend Returned output backend, or null if the factory returned null
+	 * @param primary Original construction or serialization failure, or null
+	 * @throws IOException If closure fails */
+	private static void closeObjectOutput(final ObjectOutputStream out, final OutputStream backend,
+			final Throwable primary) throws IOException{
+		if(out==null){
+			if(backend!=null){backend.close();}
+			return;
+		}
+		try{out.close();}
+		catch(Throwable failure){
+			try{if(backend!=null){backend.close();}}
+			catch(Throwable cleanup){
+				//BgzfOutputStreamMT/MT2 can rethrow one stored IOException at several boundaries.
+				if(cleanup!=failure && cleanup!=primary){failure.addSuppressed(cleanup);}
+			}
+			throw failure;
+		}
+	}
+	
 	/**
-	 * Writes an object to file using serialization without disk synchronization.
-	 * Used by background writer threads.
-	 *
+	 * Serializes in the calling thread without diskSync; this method creates no worker.
+	 * Owns the object wrapper/backend and attempts cleanup before reporting failure.
+	 * Write failures halt the JVM only when assertions are enabled; with -da an
+	 * unchecked failure propagates without explicitly terminating the JVM. The
+	 * InThread wrapper releases its counted reservation when execution continues.
+	 * Existing OutOfMemoryError handling remains unconditional.
 	 * @param <X> Type of object to write
 	 * @param x Object to serialize and write
 	 * @param fname Output filename
@@ -319,32 +450,45 @@ public class ReadWrite {
 	 */
 	public static <X> void writeAsync(X x, String fname, boolean allowSubprocess){
 		if(verbose){System.err.println("writeAsync(x, "+fname+", "+allowSubprocess+")");}
-		
-		OutputStream os=getOutputStream(fname, false, true, allowSubprocess);
-		
-		try {
-
-			ObjectOutputStream out=new ObjectOutputStream(os);
-			out.writeObject(x);
-			close(out);
-
-		} catch (FileNotFoundException e) {
-			throw new RuntimeException(e);
-		} catch (IOException e) {
-			throw new RuntimeException(e);
-		} catch (OutOfMemoryError e) {
-			KillSwitch.memKill(e);
+		try{
+			final OutputStream os=getOutputStream(fname, false, true, allowSubprocess);
+			ObjectOutputStream out=null;
+			Throwable failure=null;
+			try{
+				out=new ObjectOutputStream(os);
+				out.writeObject(x);
+			}catch(Throwable t){
+				failure=t;
+				throw t;
+			}finally{
+				try{closeObjectOutput(out, os, failure);}
+				catch(Throwable closing){
+					if(failure==null){throw closing;}
+					if(closing!=failure){failure.addSuppressed(closing);}
+				}
+			}
+		}catch(IOException failure){
+			assert(false) : KillSwitch.assertDie("Error writing to "+fname+": "+failure);
+			throw new RuntimeException(failure);
+		}catch(OutOfMemoryError failure){
+			KillSwitch.memKill(failure);
+		}catch(RuntimeException | Error failure){
+			//IO-042: the assertion message is deliberately unevaluated with -da.
+			assert(false) : KillSwitch.assertDie("Error writing to "+fname+": "+failure);
+			throw failure;
 		}
 	}
 	
 	/**
-	 * Completes reading operations by closing input stream and readers.
-	 * Optionally kills associated subprocesses.
+	 * Closes supplied readers first, then delegates backend/process completion.
+	 * Reader IOExceptions are printed and accumulated; unchecked failures propagate.
+	 * Reader entries must be nonnull. A wrapper can close System.in before the backend's
+	 * direct-identity protection is reached; callers must account for borrowed ownership.
 	 *
 	 * @param is Input stream to close
 	 * @param fname Filename for process identification
 	 * @param killProcess Whether to kill associated subprocess
-	 * @param ra Additional readers to close
+	 * @param ra Readers to close in order; null array is allowed except with verbose logging
 	 * @return true if any errors occurred during closure
 	 */
 	public static final boolean finishReading(InputStream is, String fname, boolean killProcess, Reader...ra){
@@ -353,9 +497,9 @@ public class ReadWrite {
 		boolean error=false;
 		if(ra!=null){
 			for(Reader r : ra){
-				try {
+				try{
 					r.close();
-				} catch (IOException e) {
+				}catch(IOException e){
 					error=true;
 					e.printStackTrace();
 				}
@@ -367,8 +511,9 @@ public class ReadWrite {
 	}
 	
 	/**
-	 * Completes reading operations by closing input stream.
-	 * Optionally kills associated subprocesses.
+	 * Closes a nonnull backend unless it is exactly System.in, then optionally waits
+	 * for the filename-associated process. Caught close IOExceptions are printed and
+	 * reported; unchecked failures propagate. A wrapper around System.in is not exempt.
 	 *
 	 * @param is Input stream to close
 	 * @param fname Filename for process identification
@@ -383,9 +528,9 @@ public class ReadWrite {
 		//FastqScanStreamer, whose non-volatile 'is' may not yet be published when close() races in) can pass null
 		//here; without the guard is.close() NPEs. A null stream simply means "nothing to close."
 		if(is!=null && is!=System.in){
-			try {
+			try{
 				is.close();
-			} catch (IOException e) {
+			}catch(IOException e){
 				error=true;
 				// TODO Auto-generated catch block
 				e.printStackTrace();
@@ -401,21 +546,27 @@ public class ReadWrite {
 //	}
 	
 	/**
-	 * Completes writing operations by flushing and closing output streams.
-	 * Optionally kills associated subprocesses.
+	 * Checks PrintWriter status, closes the backend, then closes/checks the writer.
+	 * Direct System.out/System.err backends are flushed but kept open; wrappers are
+	 * not identified as borrowed. Finally requests filename-associated process completion.
+	 * Combines boolean failures without short-circuiting; unchecked exceptions can abort cleanup.
 	 *
 	 * @param writer Print writer to close (may be null)
-	 * @param outStream Output stream to close
+	 * @param outStream Nonnull backend to flush/close
 	 * @param fname Filename for process identification
 	 * @param killProcess Whether to kill associated subprocess
-	 * @return true if any errors occurred during closure
+	 * @return True if the writer, stream closure or subprocess reports an error
 	 */
 	public static final boolean finishWriting(PrintWriter writer, OutputStream outStream, String fname, boolean killProcess){
 		if(verbose){System.err.println("finishWriting("+writer+", "+outStream+" , "+fname+", "+killProcess+")");}
 		boolean error=false;
-		if(writer!=null){writer.flush();}
+		//FIO-033: checkError flushes and reports errors swallowed by PrintWriter.
+		if(writer!=null){error|=writer.checkError();}
 		error|=close(outStream);
-		if(writer!=null && outStream!=System.out && outStream!=System.err){writer.close();}
+		if(writer!=null && outStream!=System.out && outStream!=System.err){
+			writer.close();
+			error|=writer.checkError();
+		}
 		if(killProcess && fname!=null && outStream!=System.err && outStream!=System.out){error|=ReadWrite.killProcess(fname);}
 		if(verbose){System.err.println("finishWriting("+writer+", "+outStream+" , "+fname+", "+killProcess+") returned "+error);}
 		return error;
@@ -437,27 +588,29 @@ public class ReadWrite {
 //	}
 	
 	/**
-	 * Closes output stream with proper handling of compression formats.
-	 * Flushes data and handles special cases for ZIP and XZ streams.
-	 * @param os Output stream to close
+	 * Flushes a nonnull backend and closes it unless it is exactly System.out/System.err.
+	 * An exact ZipOutputStream also has its entry and archive finished before closure.
+	 * IOExceptions are printed and accumulated; unchecked failures propagate. This does
+	 * not detect PrintStream retained errors or wait for registered processes.
+	 * @param os Nonnull output backend
 	 * @return true if any errors occurred during closure
 	 */
 	public static final boolean close(OutputStream os){
 		if(verbose){System.err.println("close("+os+")");}
 		boolean error=false;
-		try {
+		try{
 			os.flush();
-		} catch (IOException e1) {
+		}catch(IOException e1){
 			// TODO Auto-generated catch block
 			e1.printStackTrace();
 			error=true;
 		}
 		if(os.getClass()==ZipOutputStream.class){
 			ZipOutputStream zos=(ZipOutputStream)os;
-			try {
+			try{
 				zos.closeEntry();
 				zos.finish();
-			} catch (IOException e) {
+			}catch(IOException e){
 				// TODO Auto-generated catch block
 				e.printStackTrace();
 				error=true;
@@ -473,9 +626,9 @@ public class ReadWrite {
 //			}
 //		}
 		if(os!=System.out && os!=System.err){
-			try {
+			try{
 				os.close();
-			} catch (IOException e) {
+			}catch(IOException e){
 				// TODO Auto-generated catch block
 				e.printStackTrace();
 				error=true;
@@ -496,9 +649,12 @@ public class ReadWrite {
 	}
 
 	/**
-	 * Creates appropriate output stream based on file extension and compression type.
-	 * Handles gzip, zip, bzip2, dsrc, fqz, alapy, and zstd formats.
-	 * Creates directories as needed and manages subprocess compression.
+	 * Selects an output backend using case-sensitive suffixes and global codec settings.
+	 * Normalizes backslashes and attempts parent creation before selection. The buffered
+	 * flag applies only to paths that forward it. allowSubprocess is reduced when fewer
+	 * than two threads are configured, but several codec/force branches ignore that hint.
+	 * ZIP/BZ2/XZ/DSRC/FQZ/Alapy append restrictions here are assertions, not universal guards.
+	 * BAM output has its own factory and is not selected by this method.
 	 *
 	 * @param fname Output filename with extension indicating compression type
 	 * @param append Whether to append to existing file
@@ -568,9 +724,12 @@ public class ReadWrite {
 		return getRawOutputStream(fname, append, buffered);
 	}
 	
-	public static OutputStream getBamOutputStream(String fname, boolean append) {
+	/** Chooses native BAM output or samtools, forwarding append to the selected backend.
+	 * Native construction IOExceptions are printed, then the method throws unsupported-output
+	 * rather than falling back to samtools. Ignores MAX_SAMTOOLS_THREADS in this path. */
+	public static OutputStream getBamOutputStream(String fname, boolean append){
 		int zl=Tools.min(ZIPLEVEL, 6);
-		if(nativeBamOut()) {
+		if(nativeBamOut()){
 			int threads=Tools.mid(1, Shared.threads(), zl>6 ? 16 : zl>4 ? 16 : zl>3 ? 8 : 4);
 			try{
 				//append must be forwarded: this path previously ignored it and truncated (2026-09-05)
@@ -612,11 +771,11 @@ public class ReadWrite {
 		if(fname.indexOf('|')>=0){fname=fname.replace('|', '_');}
 		
 		FileOutputStream fos=null;
-		try {
-			fos = new FileOutputStream(fname, append);
-		} catch (FileNotFoundException e) {
+		try{
+			fos=new FileOutputStream(fname, append);
+		}catch(FileNotFoundException e){
 			synchronized(ReadWrite.class){
-				try {
+				try{
 					File f=new File(fname);
 					String parent=f.getParent();
 					
@@ -627,8 +786,8 @@ public class ReadWrite {
 							if(!b){System.err.println("Warning - could not create directory "+f.getAbsolutePath());}
 						}
 					}
-					fos = new FileOutputStream(fname, append);
-				} catch (Exception e2) {
+					fos=new FileOutputStream(fname, append);
+				}catch(Exception e2){
 					throw new RuntimeException(e2);
 				}
 			}
@@ -639,16 +798,17 @@ public class ReadWrite {
 	}
 	
 	/**
-	 * Creates XZ compressed output stream.
-	 * Currently throws exception as XZ support is disabled.
+	 * Opens raw output, returning it in RAWMODE; otherwise throws for unsupported XZ.
+	 * The unsupported path currently leaves that opened backend unclosed (FIO-046).
 	 *
 	 * @param fname Output filename
 	 * @param buffered Whether to use buffered output
-	 * @param allowSubprocess Whether to allow subprocess compression
-	 * @return XZ compressed output stream
+	 * @param allowSubprocess Unused
+	 * @return Raw output only when RAWMODE is true
 	 * @throws RuntimeException XZ format currently unsupported
 	 */
 	public static OutputStream getXZOutputStream(String fname, boolean buffered, boolean allowSubprocess){
+		//TODO: Probable bug - FIO-046: the unsupported branch throws after opening raw output without closing it.
 		final OutputStream raw=getRawOutputStream(fname, false, buffered);
 		if(RAWMODE){return raw;}
 		throw new RuntimeException("Unsupported format: XZ");
@@ -671,8 +831,8 @@ public class ReadWrite {
 	 *
 	 * @param fname Output filename
 	 * @param buffered Whether to use buffered output
-	 * @param append Whether to append (not supported for bzip2)
-	 * @param allowSubprocess Whether to allow subprocess compression
+	 * @param append Forwarded to external output; RAWMODE ignores it and opens with append=false
+	 * @param allowSubprocess Unused; available external tools are selected regardless
 	 * @return Bzip2 compressed output stream
 	 * @throws RuntimeException if no bzip2 tools are available
 	 */
@@ -714,7 +874,7 @@ public class ReadWrite {
 	 *
 	 * @param fname Output filename
 	 * @param buffered Whether to use buffered output
-	 * @param append Whether to append (not supported for DSRC)
+	 * @param append Forwarded to DSRC output; RAWMODE ignores it and opens with append=false
 	 * @return DSRC compressed output stream
 	 * @throws RuntimeException if DSRC tool not available
 	 */
@@ -732,39 +892,82 @@ public class ReadWrite {
 	
 	/**
 	 * Creates ZIP compressed output stream using Java's built-in ZIP support.
+	 * Borrowed stdout/stderr remain open; their retained errors become IOExceptions.
+	 * Error checks flush the borrowed PrintStream after each write. Outside RAWMODE,
+	 * the wrapper remains exactly ZipOutputStream for concrete-class checks.
 	 *
 	 * @param fname Output filename
 	 * @param buffered Whether to use buffered output
-	 * @param allowSubprocess Whether to allow subprocess compression (ignored)
+	 * @param allowSubprocess Unused; this factory uses Java ZIP
 	 * @return ZIP compressed output stream
+	 * @throws RuntimeException If creation or entry setup fails; owned output cleanup is attempted
 	 */
 	public static OutputStream getZipOutputStream(String fname, boolean buffered, boolean allowSubprocess){
 		if(verbose){System.err.println("getZipOutputStream("+fname+", "+buffered+", "+allowSubprocess+")");}
 		final OutputStream raw=getRawOutputStream(fname, false, buffered);
 		if(RAWMODE){return raw;}
-		try {
-			ZipOutputStream out=new ZipOutputStream(raw);
+		final OutputStream backend=(raw==System.out || raw==System.err ?
+			new CheckedBorrowedOutputStream((PrintStream)raw) : raw);
+		ZipOutputStream out=null;
+		try{
+			out=new ZipOutputStream(backend);
 			out.setLevel(Tools.min(ZIPLEVEL, 9));
 			final String basename=basename(fname);
 			out.putNextEntry(new ZipEntry(basename));
 			return out;
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
+		}catch(IOException e){
+			closeFailedCompression(out, backend, e);
+			throw new RuntimeException(e);
+		}catch(RuntimeException | Error e){
+			closeFailedCompression(out, backend, e);
+			throw e;
 		}
-		assert(false);
-		return null;
+	}
+
+	/** Preserves borrowed ZIP backend ownership and exposes PrintStream's retained errors. */
+	private static final class CheckedBorrowedOutputStream extends OutputStream{
+		/** Captures the borrowed standard stream selected by the ZIP factory. */
+		CheckedBorrowedOutputStream(final PrintStream stream_){
+			assert(stream_!=null) : "ZIP borrowed backend must exist for byte delegation and error checks.";
+			stream=stream_;
+		}
+		/** Delegates one byte and surfaces any retained write/flush error. */
+		@Override
+		public void write(final int value) throws IOException{
+			stream.write(value);
+			checkError();
+		}
+		/** Delegates a complete block without introducing a per-byte adapter loop. */
+		@Override
+		public void write(final byte[] bytes, final int offset, final int length) throws IOException{
+			stream.write(bytes, offset, length);
+			checkError();
+		}
+		/** checkError itself flushes the PrintStream before reporting its retained status. */
+		@Override
+		public void flush() throws IOException{checkError();}
+		/** Completes this adapter without closing the caller-owned standard stream. */
+		@Override
+		public void close() throws IOException{flush();}
+		/** Converts the borrowed PrintStream's silent error flag to the OutputStream contract. */
+		private void checkError() throws IOException{
+			if(stream.checkError()){throw new IOException("Error writing to borrowed standard output");}
+		}
+		/** Caller-owned byte sink; never closed by this adapter. */
+		private final PrintStream stream;
 	}
 	
 	/**
-	 * Creates gzip compressed output stream with tool preference order.
-	 * Prefers bgzip for VCF/SAM files, then pigz for parallel compression,
-	 * falls back to Java's built-in GZIP implementation.
+	 * Selects native/external BGZF, pigz or gzip using global preferences, then falls
+	 * back to Java GZIP. Forced/preferred BGZF is considered before allowSubprocess;
+	 * FORCE_PIGZ also enters the external-selection branch despite that hint.
+	 * RAWMODE is checked only after earlier selection paths, not as a universal bypass.
 	 *
 	 * @param fname Output filename
 	 * @param append Whether to append to existing file
 	 * @param allowSubprocess Whether to allow external compression tools
 	 * @return Gzip compressed output stream
+	 * @throws RuntimeException If Java gzip construction fails; owned output cleanup is attempted
 	 */
 	public static OutputStream getGZipOutputStream(String fname, boolean append, boolean allowSubprocess){
 		if(verbose){System.err.println("getGZipOutputStream("+fname+", "+append+", "+allowSubprocess+"); "+FORCE_BGZIP+", "+USE_BGZIP+", "+Data.BGZIP()+", "+USE_PIGZ+", "+USE_GZIP+", "+RAWMODE);}
@@ -779,7 +982,7 @@ public class ReadWrite {
 		}
 		final OutputStream raw=getRawOutputStream(fname, append, false);
 		if(RAWMODE){return raw;}
-		try {
+		try{
 			final GZIPOutputStream out=new GZIPOutputStream(raw, 8192){
 				{
 					//					        def.setLevel(Deflater.DEFAULT_COMPRESSION);
@@ -787,17 +990,41 @@ public class ReadWrite {
 				}
 			};
 			return out;
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
+		}catch(IOException e){
+			closeFailedCompression(null, raw, e);
+			throw new RuntimeException(e);
+		}catch(RuntimeException | Error e){
+			closeFailedCompression(null, raw, e);
+			throw e;
 		}
-		assert(false);
-		return null;
+	}
+
+	/** Closes owned output after factory failure without replacing the primary cause.
+	 * An assigned wrapper is tried once; raw closure is the fallback if it cannot close.
+	 * Borrowed stdout/stderr are left open, including when hidden beneath a wrapper.
+	 * @param wrapper Constructed wrapper, or null if construction did not return
+	 * @param raw Underlying output opened by the factory
+	 * @param primary Construction or setup failure that will be propagated */
+	private static void closeFailedCompression(final OutputStream wrapper, final OutputStream raw,
+			final Throwable primary){
+		if(raw==System.out || raw==System.err){return;}
+		if(wrapper!=null){
+			try{
+				wrapper.close();
+				return;
+			}catch(Throwable closing){
+				if(closing!=primary){primary.addSuppressed(closing);}
+			}
+		}
+		try{raw.close();}
+		catch(Throwable closing){
+			if(closing!=primary){primary.addSuppressed(closing);}
+		}
 	}
 	
 	/**
-	 * Creates pigz (parallel gzip) output stream with optimized thread and
-	 * compression level settings based on available CPU cores.
+	 * Creates pigz (parallel gzip) output stream with configured thread and
+	 * compression-level adjustments based on configured thread count.
 	 *
 	 * @param fname Output filename
 	 * @param append Whether to append to existing file
@@ -835,7 +1062,7 @@ public class ReadWrite {
 	}
 	
 	/**
-	 * Creates FQZ compressed output stream optimized for FASTQ files.
+	 * Creates FQZ compressed output stream for FASTQ files.
 	 * @param fname Output filename
 	 * @return FQZ compressed output stream
 	 */
@@ -875,7 +1102,7 @@ public class ReadWrite {
 	}
 	
 	/**
-	 * Creates bgzip output stream with optimized thread allocation for
+	 * Creates bgzip output stream with configured thread allocation for
 	 * block-gzip format compatible with tabix indexing.
 	 *
 	 * @param fname Output filename
@@ -889,10 +1116,10 @@ public class ReadWrite {
 		threads=Tools.max(1, Tools.min(Shared.threads(), threads));
 		int zl=Tools.mid(ZIPLEVEL, 1, 9);
 //		System.err.println("A: ZIPLEVEL="+ZIPLEVEL+", ALLOW_CHANGE="+ALLOW_ZIPLEVEL_CHANGE+", zl="+zl);
-		if(!USE_BGZIP || nativeBgzfOut() || !Data.BGZIP()) {
-			if(zl>5) {zl=5;}//Required for native bgzip.
+		if(!USE_BGZIP || nativeBgzfOut() || !Data.BGZIP()){
+			if(zl>5){zl=5;}//Required for native bgzip.
 			if(ALLOW_ZIPLEVEL_CHANGE){
-				if(zl<4 && zl>0 && threads>=16) {zl=4;}
+				if(zl<4 && zl>0 && threads>=16){zl=4;}
 			}
 			if(zl<3){threads=Tools.min(threads, 16);}
 			else if(zl<5){threads=Tools.min(threads, 24);}
@@ -901,10 +1128,10 @@ public class ReadWrite {
 			final OutputStream raw=getRawOutputStream(fname, append, false);//TODO - should it be true or false?
 			if(RAWMODE){return raw;}
 			final OutputStream out;
-			if(!BgzfSettings.USE_MULTITHREADED_BGZF) {out=new BgzfOutputStream(raw);}
+			if(!BgzfSettings.USE_MULTITHREADED_BGZF){out=new BgzfOutputStream(raw);}
 			else if(BgzfSettings.USE_BGZFOS_MT2){
 				out=new BgzfOutputStreamMT2(raw, Tools.mid(1, 64, threads), zl);
-			}else {
+			}else{
 				out=new BgzfOutputStreamMT(raw, Tools.mid(1, 64, threads), zl);
 			}
 			return out;
@@ -948,7 +1175,7 @@ public class ReadWrite {
 	
 	//This works correctly, but decompression doesn't
 	/**
-	 * Creates Zstandard compressed output stream with thread optimization.
+	 * Creates Zstandard compressed output stream with configured thread selection.
 	 * @param fname Output filename
 	 * @param append Whether to append to existing file
 	 * @return Zstd compressed output stream
@@ -985,7 +1212,7 @@ public class ReadWrite {
 	}
 	
 	/**
-	 * Creates parallel bzip2 output stream with thread optimization.
+	 * Creates parallel bzip2 output stream with configured thread selection.
 	 * @param fname Output filename
 	 * @param append Whether to append to existing file
 	 * @return Pbzip2 compressed output stream
@@ -1000,7 +1227,7 @@ public class ReadWrite {
 	}
 	
 	/**
-	 * Creates lbzip2 output stream for fast bzip2 compression.
+	 * Creates lbzip2 output stream for bzip2 compression.
 	 * @param fname Output filename
 	 * @param append Whether to append to existing file
 	 * @return Lbzip2 compressed output stream
@@ -1013,7 +1240,7 @@ public class ReadWrite {
 	}
 	
 	/**
-	 * Creates DSRC output stream with compression parameter optimization
+	 * Creates DSRC output stream with compression parameter selection
 	 * based on compression level. DSRC is specialized for FASTQ files.
 	 *
 	 * @param fname Output filename
@@ -1050,6 +1277,12 @@ public class ReadWrite {
 		return out;
 	}
 	
+	/** Starts a named output process and returns its stdin pipe; callers must close it
+	 * before completing the registered process with killProcess. ProcessBuilder splits
+	 * command on literal spaces, inherits stderr and redirects stdout when useFname is true;
+	 * stdout aliases inherit stdout regardless of useFname. The legacy Runtime path may
+	 * use sh redirection. Startup IOExceptions are printed, followed by an assertion or
+	 * null dereference if startup failed. Duplicate filename registration is fatal. */
 	public static OutputStream getOutputStreamFromProcess(final String fname, final String command, boolean sh, boolean append, boolean useProcessBuilder, boolean useFname){
 		if(verbose){System.err.println("getOutputStreamFromProcess("+fname+", "+command+", "+sh+", "+useProcessBuilder+")");}
 		
@@ -1074,9 +1307,9 @@ public class ReadWrite {
 				
 				pb.command(command.split(" "));
 			}
-			try {
+			try{
 				p=pb.start();
-			} catch (IOException e) {
+			}catch(IOException e){
 				// TODO Auto-generated catch block
 				e.printStackTrace();
 			}
@@ -1095,9 +1328,9 @@ public class ReadWrite {
 		}
 		
 		if(fname.equals("stdout") || fname.startsWith("stdout.")){
-			try {
-				p = Runtime.getRuntime().exec(command);
-			} catch (IOException e) {
+			try{
+				p=Runtime.getRuntime().exec(command);
+			}catch(IOException e){
 				// TODO Auto-generated catch block
 				e.printStackTrace();
 			}
@@ -1117,9 +1350,9 @@ public class ReadWrite {
 //			PipeThread it=new PipeThread(is, System.err);
 //			it.start();
 		}else{
-			try {
+			try{
 				if(sh){
-					String[] cmd = {
+					String[] cmd={
 							"sh",
 							"-c",
 							command+(useFname ? " 1"+(append ? ">>" : ">")+fname : "")
@@ -1130,7 +1363,7 @@ public class ReadWrite {
 					assert(false) : command;
 					p=Runtime.getRuntime().exec(command);
 				}
-			} catch (IOException e) {
+			}catch(IOException e){
 				// TODO Auto-generated catch block
 				e.printStackTrace();
 			}
@@ -1148,73 +1381,92 @@ public class ReadWrite {
 	}
 	
 	/**
-	 * Reads entire file content as a single string with newline preservation.
+	 * Reads decoded lines using the default charset and appends one LF after every line.
+	 * Original line endings and the absence of a final terminator are not preserved.
+	 * Raw, Java ZIP/GZIP, native BGZF, bzip2 and Zstandard inputs receive normal and exceptional cleanup.
+	 * Java/native wrappers protect borrowed stdin; bzip2 and Zstandard also collect decoder exit status.
+	 * Other codecs retain legacy normal-only closure without process completion.
+	 * Closing wrappers does not preserve bytes already consumed by their read-ahead.
 	 * @param fname Input filename
 	 * @return Complete file content as string
 	 */
 	public static String readString(String fname){
+		//TODO: FIO-046: other codec cleanup and process completion remain separate.
 		if(verbose){System.err.println("readString("+fname+")");}
 		String x=null;
-		InputStream is=getInputStream(fname, false, false);
-		
-		try {
-			
+		final HelperInput input=new HelperInput();
+		//Failed acquisition remains the factory's responsibility.
+		input.stream=getInputStream(fname, false, false, true, input);
+		try{
 			StringBuilder sb=new StringBuilder();
-			
-//			synchronized(diskSync){
-				BufferedReader in=new BufferedReader(new InputStreamReader(is), INBUF);
-				String temp=in.readLine();
-				while(temp!=null){
-					sb.append(temp).append('\n');
-					temp=in.readLine();
-				}
-				in.close();
-//			}
-			
+			InputStreamReader decoder=new InputStreamReader(input.stream);
+			input.outer=decoder;
+			BufferedReader in=new BufferedReader(decoder, INBUF);
+			input.outer=in;
+			String temp=in.readLine();
+			while(temp!=null){
+				sb.append(temp).append('\n');
+				temp=in.readLine();
+			}
+			input.closeNormally();
 			x=sb.toString();
-		} catch (FileNotFoundException e) {
+		}catch(FileNotFoundException e){
+			input.closeAfterFailure(e);
 			throw new RuntimeException(e);
-		} catch (IOException e) {
+		}catch(IOException e){
+			input.closeAfterFailure(e);
 			throw new RuntimeException(e);
-		} catch (OutOfMemoryError e) {
+		}catch(OutOfMemoryError e){
+			input.closeAfterFailure(e);
 			KillSwitch.memKill(e);
+		}catch(RuntimeException | Error e){
+			input.closeAfterFailure(e);
+			throw e;
 		}
-		
 		return x;
 	}
 	
 	/**
-	 * Reads serialized object from file with subprocess decompression support.
+	 * Reads one serialized object. Raw, Java ZIP/GZIP, native BGZF, bzip2 and external
+	 * pigz/bgzip and Zstandard inputs receive normal and exceptional cleanup. Java/native wrappers
+	 * protect borrowed stdin; bzip2, pigz/bgzip and Zstandard also collect decoder status. Other
+	 * codecs retain normal-only closure without process completion. Reader prefetch
+	 * may consume bytes beyond the object.
 	 * @param fname Input filename
 	 * @param allowSubprocess Whether to allow subprocess decompression
-	 * @return Deserialized object
+	 * @return Deserialized object, which may be null
 	 */
 	public static Object readObject(String fname, boolean allowSubprocess){
+		//TODO: FIO-046: other codec cleanup and process completion remain separate.
 		if(verbose){System.err.println("readObject("+fname+")");}
 		Object x=null;
-		InputStream is=getInputStream(fname, true, allowSubprocess);
-		
-		try {
-//			synchronized(diskSync){
-				ObjectInputStream in=new ObjectInputStream(is);
-				x=in.readObject();
-				in.close();
-//			}
-		} catch (IOException e) {
+		final HelperInput input=new HelperInput();
+		//Failed acquisition remains the factory's responsibility.
+		input.stream=getInputStream(fname, true, allowSubprocess, true, input);
+		try{
+			ObjectInputStream in=new ObjectInputStream(input.stream);
+			input.outer=in;
+			x=in.readObject();
+			input.closeNormally();
+		}catch(IOException e){
+			input.closeAfterFailure(e);
 			throw new RuntimeException(e);
-		} catch (ClassNotFoundException e) {
+		}catch(ClassNotFoundException e){
+			input.closeAfterFailure(e);
 			throw new RuntimeException(e);
-		} catch (OutOfMemoryError e) {
+		}catch(OutOfMemoryError e){
+			input.closeAfterFailure(e);
 			KillSwitch.memKill(e);
+		}catch(RuntimeException | Error e){
+			input.closeAfterFailure(e);
+			throw e;
 		}
-		
 		return x;
 	}
 	
 	/**
-	 * Creates appropriate input stream based on file extension and compression type.
-	 * Handles gzip, zip, bzip2, dsrc, bam, fqz, alapy, and zstd formats.
-	 * Manages subprocess decompression and special file types.
+	 * Selects an input backend with ordered BAM decoding requested by default.
+	 * See the four-argument overload for codec selection and ownership.
 	 *
 	 * @param fname Input filename with extension indicating compression type
 	 * @param buffer Whether to use buffered input
@@ -1225,8 +1477,18 @@ public class ReadWrite {
 		return getInputStream(fname, buffer, allowSubprocess, true);
 	}
 	
+	/** Selects decompression using case-sensitive suffixes and global flags, unless RAWMODE.
+	 * Only raw fallback honors buffer directly; codec branches choose their own buffering.
+	 * ordered is forwarded only to native BAM. allowSubprocess is a hint honored by some
+	 * paths, not a guarantee that no external tool starts. Caller owns completion/closure. */
 	public static InputStream getInputStream(String fname, boolean buffer, boolean allowSubprocess, 
 			boolean ordered){
+		return getInputStream(fname, buffer, allowSubprocess, ordered, null);
+	}
+
+	/** Carries helper ownership through raw, Java/native gzip, pigz/bgzip, bzip2 and Zstandard acquisition. */
+	private static InputStream getInputStream(String fname, boolean buffer, boolean allowSubprocess,
+			boolean ordered, final HelperInput helper){
 		if(verbose){System.err.println("getInputStream("+fname+", "+buffer+", "+allowSubprocess+")");}
 		//[fileIO/ReadWrite#003 FIXED]: removed a dead 'boolean xz' local here — XZ input is unsupported (PROCESS_XZ=false,
 		//getXZInputStream returns null) and the local was never referenced below. No order-sensitive change (it was inert).
@@ -1242,11 +1504,11 @@ public class ReadWrite {
 		allowSubprocess=(allowSubprocess && Shared.threads()>1);
 		
 		if(!RAWMODE){
-			if(zipped){return getZipInputStream(fname);}
-			if(gzipped){return getGZipInputStream(fname, allowSubprocess, false);}
-			if(bzipped){return getBZipInputStream(fname, allowSubprocess);}
+			if(zipped){return getZipInputStream(fname, true, helper);}
+			if(gzipped){return getGZipInputStream(fname, allowSubprocess, false, helper);}
+			if(bzipped){return getBZipInputStream(fname, allowSubprocess, helper);}
 			if(dsrced){return getDsrcInputStream(fname);}
-			if(zst) {return getUnzstdStream(fname);}
+			if(zst){return getUnzstdStream(fname, helper);}
 			if(bam){return getBamInputStream(fname, ordered);}
 
 			if(fqz){return getInputStreamFromProcess(fname, "fqz_comp -d ", false, true, true);}
@@ -1255,11 +1517,14 @@ public class ReadWrite {
 			}
 		}
 		
-		return getRawInputStream(fname, buffer);
+		return getRawInputStream(fname, buffer, helper);
 	}
 	
-	public static InputStream getBamInputStream(String fname, boolean ordered) {
-		if(nativeBamIn()) {
+	/** Chooses native BAM decoding, then enabled sambamba, otherwise samtools.
+	 * ordered affects only native decoding; external tools receive SAM flag filtering.
+	 * Returned external streams require registered-process completion by the caller. */
+	public static InputStream getBamInputStream(String fname, boolean ordered){
+		if(nativeBamIn()){
 			return new BamInputStream(fname, ordered);
 		}else if(SAMBAMBA()){
 			String command="sambamba -q view -h";//Adding -t 8 did not change speed
@@ -1277,21 +1542,21 @@ public class ReadWrite {
 			}
 			String version=Data.SAMTOOLS_VERSION;
 			if(Shared.threads()>1 && version!=null && version.startsWith("1.") && version.length()>2){
-				try {
+				try{
 					String[] split=version.split("\\.");
 					int number=-1;
-					try {
+					try{
 						number=Integer.parseInt(split[1]);
-					} catch (Exception e) {}
+					}catch(Exception e){}
 					if(number<0){
-						try {
+						try{
 							number=Integer.parseInt(split[1].substring(0, 1));
-						} catch (Exception e1) {}
+						}catch(Exception e1){}
 					}
 					if(number>3){
 						command=command+" -@ 2";
 					}
-				} catch (NumberFormatException e) {
+				}catch(NumberFormatException e){
 					// TODO Auto-generated catch block
 					e.printStackTrace();
 				}
@@ -1310,6 +1575,11 @@ public class ReadWrite {
 	 * @return Raw file input stream
 	 */
 	public static InputStream getRawInputStream(String fname, boolean buffer){
+		return getRawInputStream(fname, buffer, null);
+	}
+
+	/** Marks actual raw acquisition and optionally shields the borrowed standard input. */
+	private static InputStream getRawInputStream(String fname, boolean buffer, final HelperInput helper){
 		if(verbose){System.err.println("getRawInputStream("+fname+", "+buffer+")");}
 		
 		assert(fname!=null);
@@ -1327,7 +1597,9 @@ public class ReadWrite {
 				String f2=fname.toLowerCase();
 				if(f2.equals("stdin") || f2.startsWith("stdin.")){
 					//				System.err.println("Returning stdin: A");
-					return System.in;
+					if(helper==null){return System.in;}
+					helper.managed=true;
+					return new NonClosingInputStream(System.in);
 				}
 				
 				if(fname.indexOf('/')<0){
@@ -1354,7 +1626,7 @@ public class ReadWrite {
 		
 		InputStream in=null;
 		if(jar){
-			try {
+			try{
 				
 				URL url=new URL(fname);
 				
@@ -1367,18 +1639,18 @@ public class ReadWrite {
 					in=is;
 				}
 
-			} catch (FileNotFoundException e) {
+			}catch(FileNotFoundException e){
 				System.err.println("Error when attempting to read "+fname);
 				throw new RuntimeException(e);
-			} catch (MalformedURLException e) {
+			}catch(MalformedURLException e){
 				System.err.println("Error when attempting to read "+fname);
 				throw new RuntimeException(e);
-			} catch (IOException e) {
+			}catch(IOException e){
 				System.err.println("Error when attempting to read "+fname);
 				throw new RuntimeException(e);
 			}
 		}else{
-			try {
+			try{
 
 				FileInputStream fis=new FileInputStream(fname);
 
@@ -1389,54 +1661,66 @@ public class ReadWrite {
 					in=fis;
 				}
 
-			} catch (FileNotFoundException e) {
+			}catch(FileNotFoundException e){
 				throw new RuntimeException(e);
 			}
 		}
 		
+		if(helper!=null){helper.managed=true;}
 		return in;
 	}
 	
 	/** Creates ZIP input stream with default buffering */
 	public static InputStream getZipInputStream(String fname){return getZipInputStream(fname, true);}
 	/**
-	 * Creates ZIP input stream with entry validation.
-	 * Verifies that ZIP entry name matches expected basename.
+	 * Opens Java ZIP input at its first entry. Assertions require an entry whose name
+	 * equals basename(fname); later entries are not traversed here. Setup failures
+	 * attempt owned wrapper/backend cleanup while preserving the original failure.
+	 * Borrowed System.in is left open, including beneath a partially initialized wrapper.
 	 *
 	 * @param fname Input ZIP filename
 	 * @param buffer Whether to use buffered input
 	 * @return ZIP input stream positioned at first entry
 	 */
 	public static InputStream getZipInputStream(String fname, boolean buffer){
+		return getZipInputStream(fname, buffer, null);
+	}
+
+	/** Acquires the Java ZIP backend using the helper's optional borrowed-input shield. */
+	private static InputStream getZipInputStream(String fname, boolean buffer, final HelperInput helper){
 		if(verbose){System.err.println("getZipInputStream("+fname+", "+buffer+")");}
-		InputStream raw=getRawInputStream(fname, buffer);
+		InputStream raw=getRawInputStream(fname, buffer, helper);
 		InputStream in=null;
 
-		final String basename=basename(fname);
-
-		try {
-
+		try{
+			final String basename=basename(fname);
 			ZipInputStream zis=new ZipInputStream(raw);
+			in=zis;//FIO-046: retain ownership before entry parsing or assertions can fail.
 			ZipEntry ze=zis.getNextEntry();
 			assert(ze!=null);
 			assert(basename.equals(ze.getName())) : basename+" != "+ze.getName();
-			in=zis;
 
-		} catch (FileNotFoundException e) {
+		}catch(FileNotFoundException e){
+			closeFailedInput(in, raw, e);
 			System.err.println("Error when attempting to read "+fname);
 			throw new RuntimeException(e);
-		} catch (IOException e) {
+		}catch(IOException e){
+			closeFailedInput(in, raw, e);
 			System.err.println("Error when attempting to read "+fname);
 			throw new RuntimeException(e);
+		}catch(RuntimeException | Error e){
+			closeFailedInput(in, raw, e);
+			throw e;
 		}
 
 		return in;
 	}
 	
 	/**
-	 * Creates gzip input stream with tool preference order for decompression.
-	 * Prefers unbgzip for bgzip files, then unpigz for parallel decompression,
-	 * falls back to Java's built-in GZIP implementation.
+	 * Selects native/external decompression from configured threads, low-memory mode,
+	 * JAR status and codec preferences, then falls back to Java GZIP. Native BGZF may
+	 * be selected without subprocess permission. Java-wrapper construction failures
+	 * attempt owned backend cleanup; borrowed System.in and the original failure are preserved.
 	 *
 	 * @param fname Input filename
 	 * @param allowSubprocess Whether to allow external decompression tools
@@ -1444,30 +1728,152 @@ public class ReadWrite {
 	 * @return Gzip decompressed input stream
 	 */
 	public static InputStream getGZipInputStream(String fname, boolean allowSubprocess, boolean buffer){
+		return getGZipInputStream(fname, allowSubprocess, buffer, null);
+	}
+
+	/** Preserves codec selection; Java/native BGZF and external pigz/bgzip carry helper ownership. */
+	private static InputStream getGZipInputStream(String fname, boolean allowSubprocess, boolean buffer,
+			final HelperInput helper){
 		if(verbose){System.err.println("getGZipInputStream("+fname+", "+allowSubprocess+")");}
 		
 		if(Shared.threads()<2 || Shared.LOW_MEMORY || fname.startsWith("jar:") || 
-				(!allowSubprocess && !ALLOW_NATIVE_BGZF)) {
+				(!allowSubprocess && !ALLOW_NATIVE_BGZF)){
 			//Use plain gzip stream
-		}else if(USE_UNBGZIP && ALLOW_NATIVE_BGZF && PREFER_NATIVE_BGZF_IN) {
-			return getUnbgzipStream(fname);
-		}else if(allowSubprocess) {
-			if(USE_UNBGZIP && (ALLOW_NATIVE_BGZF || Data.BGZIP())) {return getUnbgzipStream(fname);}
-			if(USE_UNPIGZ && Data.PIGZ()){return getUnpigzStream(fname);}
+		}else if(USE_UNBGZIP && ALLOW_NATIVE_BGZF && PREFER_NATIVE_BGZF_IN){
+			return getUnbgzipStream(fname, helper);
+		}else if(allowSubprocess){
+			if(USE_UNBGZIP && (ALLOW_NATIVE_BGZF || Data.BGZIP())){return getUnbgzipStream(fname, helper);}
+			if(USE_UNPIGZ && Data.PIGZ()){return getUnpigzStream(fname, helper);}
 			if(USE_GUNZIP && Data.GUNZIP()){return getGunzipStream(fname);}
 			//Fallthrough to plain
 		}
 		
-		InputStream raw=getRawInputStream(fname, buffer);
+		InputStream raw=getRawInputStream(fname, buffer, helper);
 		InputStream in=null;
-		try {
+		try{
 			in=new GZIPInputStream(raw, INBUF);
-		} catch (Exception e) {
+		}catch(Exception e){
+			closeFailedInput(in, raw, e);
 			System.err.println("Error when attempting to read "+fname);
 			throw new RuntimeException(e);
+		}catch(Error e){
+			closeFailedInput(in, raw, e);
+			throw e;
 		}
 
 		return in;
+	}
+
+	/** Attempts cleanup after Java input-wrapper setup fails, preserving the primary failure.
+	 * An assigned wrapper is closed first, with raw closure as fallback. Direct borrowed
+	 * System.in is never closed, including through its wrapper. This does not manage
+	 * registered processes or promise immediate reclamation of an unassigned inflater.
+	 * @param wrapper Constructed wrapper, or null when construction failed
+	 * @param raw Backend returned by getRawInputStream
+	 * @param primary Original setup failure; distinct cleanup failures are suppressed onto it */
+	private static void closeFailedInput(final InputStream wrapper, final InputStream raw,
+			final Throwable primary){
+		if(raw==System.in){return;}
+		Throwable wrapperFailure=null;
+		if(wrapper!=null){
+			try{
+				wrapper.close();
+				return;
+			}catch(Throwable closing){
+				wrapperFailure=closing;
+				if(closing!=primary){primary.addSuppressed(closing);}
+			}
+		}
+		try{raw.close();}
+		catch(Throwable closing){
+			if(closing!=primary && closing!=wrapperFailure){primary.addSuppressed(closing);}
+		}
+	}
+	
+	/** One whole-file helper acquisition; no shared or thread-local ownership state. */
+	private static final class HelperInput{
+
+		/** Preserves normal close-before-conversion ordering for every selected backend. */
+		void closeNormally() throws IOException{
+			assert(outer!=null) : "Whole-file helpers assign their outer wrapper before normal closure";
+			closeAttempted=true;
+			outer.close();
+			closed=true;
+			finishProcess();
+		}
+
+		/** Cleans only classified inputs and preserves the primary failure and its type. */
+		void closeAfterFailure(final Throwable primary){
+			if(!managed || closed){return;}
+			try{
+				Throwable wrapperFailure=null;
+				if(!closeAttempted && outer!=null){
+					closeAttempted=true;
+					try{
+						outer.close();
+						closed=true;
+						return;
+					}catch(Throwable closing){
+						wrapperFailure=closing;
+						if(closing!=primary){primary.addSuppressed(closing);}
+					}
+				}
+				if(stream==outer){return;}//The same object must not be closed twice after a failed attempt.
+				try{stream.close(); closed=true;}
+				catch(Throwable closing){
+					if(closing!=primary && closing!=wrapperFailure){primary.addSuppressed(closing);}
+				}
+			}finally{
+				try{finishProcess();}
+				catch(Throwable completion){if(completion!=primary){primary.addSuppressed(completion);}}
+			}
+		}
+
+		/** Records one successfully acquired external decoder; acquisition failures remain with the factory. */
+		void acquiredProcess(final String name, final String codec){
+			assert(processName==null) : "Each HelperInput owns one acquisition; replacing its registered process would lose completion: "+processName;
+			managed=true;
+			processName=name;
+			processCodec=codec;
+		}
+
+		/** Collects the acquired decoder once, after its stdout has been closed.
+		 * Uses the existing registry policy: exit0/141 accepted, unbounded wait.
+		 * @throws IOException If the registered decoder reports failure */
+		private void finishProcess() throws IOException{
+			final String name=processName;
+			if(name==null){return;}
+			processName=null;
+			assert(processCodec!=null && (name.endsWith(".bz2") || gzipSuffix(name) || name.endsWith(".zst"))) :
+				"HelperInput tracks bzip2/pigz/bgzip/Zstandard dispatch; killProcess must recognize the suffix and the error must identify its codec: "+name;
+			if(ReadWrite.killProcess(name)){throw new IOException(processCodec+" decoder failed for "+name);}
+		}
+
+		/** Successfully acquired backend, including any Java decoder. */
+		InputStream stream;
+		/** Most recently completed reader construction, for exceptional cleanup. */
+		Closeable outer;
+		/** Set at raw/native or successful bzip2/pigz/bgzip/Zstandard acquisition; other codecs leave it false. */
+		boolean managed;
+		/** Exact registered decoder filename; cleared before the one completion attempt. */
+		String processName;
+		/** Decoder name used in a completion error; preserves the existing Bzip2 wording. */
+		String processCodec;
+		/** Prevents retrying an outer close that already failed on the normal path. */
+		boolean closeAttempted;
+		/** Prevents duplicate closure if result conversion fails after a successful close. */
+		boolean closed;
+	}
+
+	/** Lets helper-owned readers/decoders close without closing their borrowed raw input. */
+	private static final class NonClosingInputStream extends FilterInputStream{
+		NonClosingInputStream(final InputStream in){super(in);}
+		@Override
+		public int read(final byte[] b, final int off, final int len) throws IOException{
+			return in.read(b, off, len);
+		}
+		@Override
+		public void close(){}//System.in remains owned by the caller, below any decoder.
 	}
 	
 	/**
@@ -1485,48 +1891,65 @@ public class ReadWrite {
 	 * @param fname Input filename
 	 * @return Unpigz decompressed input stream
 	 */
-	public static InputStream getUnpigzStream(String fname){
+	public static InputStream getUnpigzStream(String fname){return getUnpigzStream(fname, null);}
+
+	/** Records helper ownership only after the registered pigz stdout has been acquired. */
+	private static InputStream getUnpigzStream(String fname, final HelperInput helper){
 		if(verbose){System.err.println("getUnpigzStream("+fname+")");}
-		return getInputStreamFromProcess(fname, "pigz -c -d", false, true, true);
+		final InputStream in=getInputStreamFromProcess(fname, "pigz -c -d", false, true, true);
+		if(helper!=null){helper.acquiredProcess(fname, "pigz");}
+		return in;
 	}
 	
 	/**
-	 * Creates unbgzip input stream with thread optimization for
+	 * Creates unbgzip input stream with configured thread selection for
 	 * block-gzip decompression.
 	 * @param fname Input filename
 	 * @return Unbgzip decompressed input stream
 	 */
-	public static InputStream getUnbgzipStream(String fname){
+	public static InputStream getUnbgzipStream(String fname){return getUnbgzipStream(fname, null);}
+
+	/** Threads helper ownership through native raw acquisition or successful external stdout acquisition.
+	 * Native constructor failures remain separate.
+	 * Decoder close behavior, including MT close-error suppression, is unchanged. */
+	private static InputStream getUnbgzipStream(String fname, final HelperInput helper){
 		if(verbose){System.err.println("getUnbgzipStream("+fname+")");}
 		boolean stdin=FileFormat.isStdin(fname);
 		boolean bgz=stdin ? true : isBGZip(fname);
 
 		int threads=Tools.mid(BgzfSettings.READ_THREADS, 1, Shared.threads());
-		if(!bgz && !stdin) {threads=2;}
+		if(!bgz && !stdin){threads=2;}
 		
-		if(nativeBgzfIn()) {
+		if(nativeBgzfIn()){
 //			System.err.println("Native BGZF");
-			final InputStream in, raw=getRawInputStream(fname, true);
-			if(!BgzfSettings.USE_MULTITHREADED_BGZF) {in=new BgzfInputStream(raw);}
-			else {in=new BgzfInputStreamMT2(raw, threads);}
+			final InputStream in, raw=getRawInputStream(fname, true, helper);
+			if(!BgzfSettings.USE_MULTITHREADED_BGZF){in=new BgzfInputStream(raw);}
+			else{in=new BgzfInputStreamMT2(raw, threads);}
 			return in;
 		}
 		Data.BGZIP();//Ensure that threads capability was detected
-		return getInputStreamFromProcess(fname, "bgzip -c -d"+
+		final InputStream in=getInputStreamFromProcess(fname, "bgzip -c -d"+
 			(Data.BGZIP_VERSION_threadsFlag ? " -@ "+threads : ""), false, true, true);
+		if(helper!=null){helper.acquiredProcess(fname, "bgzip");}
+		return in;
 	}
 	
 	//Does not seem to work; just makes a big file somewhere (?).
 	//Very slow, too.
 	/**
-	 * Creates unzstd input stream for Zstandard decompression.
-	 * Note: Currently has performance issues.
+	 * Creates strict Zstandard stdout; file redirection also accepts ordinary input symlinks.
+	 * Historical warnings above describe the old named-file command; no speed claim is made.
 	 * @param fname Input filename
-	 * @return Unzstd decompressed input stream
+	 * @return Caller-owned stream; finishReading with process collection reports decoder status
 	 */
-	public static InputStream getUnzstdStream(String fname){
+	public static InputStream getUnzstdStream(String fname){return getUnzstdStream(fname, null);}
+
+	/** Records whole-file helper ownership after successful Zstandard stdout acquisition. */
+	private static InputStream getUnzstdStream(final String fname, final HelperInput helper){
 		if(verbose){System.err.println("getUnzstdStream("+fname+")");}
-		return getInputStreamFromProcess(fname, "zstd -f -d", false, true, true);
+		final InputStream in=getInputStreamFromProcess(fname, "zstd -d -c", false, false, true);//FIO-123: no derived file or force-mode raw pass-through.
+		if(helper!=null){helper.acquiredProcess(fname, "Zstandard");}
+		return in;
 	}
 	
 	/**
@@ -1560,7 +1983,7 @@ public class ReadWrite {
 	}
 	
 	/**
-	 * Creates DSRC decompression input stream with thread optimization.
+	 * Creates DSRC decompression input stream with configured thread selection.
 	 * @param fname Input filename
 	 * @return DSRC decompressed input stream
 	 */
@@ -1572,6 +1995,11 @@ public class ReadWrite {
 	}
 	
 	
+	/** Starts a named input process and returns its stdout pipe. ProcessBuilder splits
+	 * command on literal spaces; stdin aliases inherit stdin, otherwise appendFname adds
+	 * the path or redirects process input from it. cat is used only in the legacy Runtime
+	 * branch, whose cat mode is assertion-disabled/untested. The process is registered
+	 * separately from its stream; callers must perform applicable killProcess completion. */
 	public static InputStream getInputStreamFromProcess(final String fname, String command, boolean cat, final boolean appendFname, final boolean useProcessBuilder){
 		if(verbose){System.err.println("getInputStreamFromProcess("+fname+", "+command+", "+cat+")");}
 
@@ -1596,9 +2024,9 @@ public class ReadWrite {
 //				System.err.println(command+", "+appendFname);
 				pb.command(command.split(" "));
 			}
-			try {
+			try{
 				p=pb.start();
-			} catch (IOException e) {
+			}catch(IOException e){
 				// TODO Auto-generated catch block
 				e.printStackTrace();
 			}
@@ -1617,20 +2045,20 @@ public class ReadWrite {
 		}
 		
 		if(!appendFname){
-			try {
+			try{
 				p=Runtime.getRuntime().exec(command);
-			} catch (IOException e) {
+			}catch(IOException e){
 				// TODO Auto-generated catch block
 				e.printStackTrace();
 			}
 		}else if(fname.equals("stdin") || fname.startsWith("stdin.")){
-			try {
+			try{
 				if(cat){
 					throw new RuntimeException();
 				}else{
 					p=Runtime.getRuntime().exec(command);
 				}
-			} catch (IOException e) {
+			}catch(IOException e){
 				// TODO Auto-generated catch block
 				e.printStackTrace();
 			}
@@ -1640,18 +2068,18 @@ public class ReadWrite {
 			addPipeThread(fname, it);
 			it.start();
 		}else{
-			try {
+			try{
 				if(cat){
 					assert(false) : "This mode is untested.";
-					String[] cmd = {
+					String[] cmd={
 							"sh","cat "+fname,
 							" | "+command
 					};
 					p=Runtime.getRuntime().exec(cmd);
 				}else{
-					p = Runtime.getRuntime().exec(command+" "+fname);
+					p=Runtime.getRuntime().exec(command+" "+fname);
 				}
-			} catch (IOException e) {
+			}catch(IOException e){
 				// TODO Auto-generated catch block
 				e.printStackTrace();
 			}
@@ -1675,23 +2103,27 @@ public class ReadWrite {
 	 * Tries available bzip2 decompression tools in preference order.
 	 *
 	 * @param fname Input filename
-	 * @param allowSubprocess Whether to allow external decompression tools
+	 * @param allowSubprocess Unused; available external tools are selected regardless
 	 * @return Bzip2 decompressed input stream
 	 */
-	public static InputStream getBZipInputStream(String fname, boolean allowSubprocess){
+	public static InputStream getBZipInputStream(String fname, boolean allowSubprocess){return getBZipInputStream(fname, allowSubprocess, null);}
+
+	/** Records helper ownership only after a registered bzip2 stdout stream is returned. */
+	private static InputStream getBZipInputStream(String fname, boolean allowSubprocess, final HelperInput helper){
 		if(verbose){System.err.println("getBZipInputStream("+fname+")");}
 		InputStream in=null;
 		
-		try {in=getBZipInputStream2(fname, allowSubprocess);}
-		catch (IOException e) {
+		try{in=getBZipInputStream2(fname, allowSubprocess);}
+		catch(IOException e){
 			System.err.println("Error when attempting to read "+fname);
 			throw new RuntimeException(e);
-		}catch (NullPointerException e) {
+		}catch(NullPointerException e){
 			System.err.println("Error when attempting to read "+fname);
 			throw new RuntimeException(e);
 		}
 		
 		assert(in!=null);
+		if(helper!=null){helper.acquiredProcess(fname, "Bzip2");}
 		return in;
 	}
 	
@@ -1700,7 +2132,7 @@ public class ReadWrite {
 	 * lbzip2, pbzip2, or bzip2.
 	 *
 	 * @param fname Input filename
-	 * @param allowSubprocess Whether to allow external decompression tools
+	 * @param allowSubprocess Unused; available external tools are selected regardless
 	 * @return Bzip2 decompressed input stream
 	 * @throws IOException if no bzip2 tools are available
 	 */
@@ -1728,11 +2160,11 @@ public class ReadWrite {
 		if(verbose){System.err.println("getDsrcInputStream("+fname+")");}
 		InputStream in=null;
 		
-		try {in=getDsrcInputStream2(fname);}
-		catch (IOException e) {
+		try{in=getDsrcInputStream2(fname);}
+		catch(IOException e){
 			System.err.println("Error when attempting to read "+fname);
 			throw new RuntimeException(e);
-		}catch (NullPointerException e) {
+		}catch(NullPointerException e){
 			System.err.println("Error when attempting to read "+fname);
 			throw new RuntimeException(e);
 		}
@@ -1781,29 +2213,42 @@ public class ReadWrite {
 	}
 
 	/**
-	 * Reads entire file as raw byte array without decompression.
+	 * Collects raw bytes until a read returns zero or EOF; no decompression is selected.
+	 * Attempts closure on normal return or a propagated failure, preserving borrowed
+	 * stdin. The result must fit a single byte array; VM termination cannot be cleaned up.
 	 * @param fname Input filename
-	 * @return Complete file content as byte array
-	 * @throws IOException if file cannot be read
+	 * @return File bytes through the first zero read or EOF
+	 * @throws IOException if reading or closing the acquired stream fails
 	 */
 	public static byte[] readRaw(String fname) throws IOException{
-		InputStream ris=getRawInputStream(fname, false);
-		ByteBuilder bb=new ByteBuilder();
-		byte[] buffer=new byte[16384];
-		int x=ris.read(buffer);
-		while(x>0){
-			bb.append(buffer, x);
-			x=ris.read(buffer);
+		final HelperInput input=new HelperInput();
+		//Failed acquisition remains the factory's responsibility.
+		input.stream=getRawInputStream(fname, false, input);
+		input.outer=input.stream;
+		try{
+			ByteBuilder bb=new ByteBuilder();
+			byte[] buffer=new byte[16384];
+			int x=input.stream.read(buffer);
+			while(x>0){
+				bb.append(buffer, x);
+				x=input.stream.read(buffer);
+			}
+			input.closeNormally();
+			return bb.toBytes();
+		}catch(IOException e){
+			input.closeAfterFailure(e);
+			throw e;
+		}catch(RuntimeException | Error e){
+			input.closeAfterFailure(e);
+			throw e;
 		}
-		ris.close();
-		return bb.toBytes();
 	}
 	
 	/**
-	 * Reads and deserializes object with type safety.
+	 * Reads an object and performs an unchecked generic cast; cx is not consulted.
 	 *
 	 * @param <X> Expected object type
-	 * @param cx Class type for casting
+	 * @param cx Unused type token
 	 * @param fname Input filename
 	 * @param allowSubprocess Whether to allow subprocess decompression
 	 * @return Deserialized object of specified type
@@ -1814,10 +2259,10 @@ public class ReadWrite {
 	}
 	
 	/**
-	 * Reads and deserializes array with type safety.
+	 * Reads an object and casts to an object array; element class cx is not consulted.
 	 *
 	 * @param <X> Expected array element type
-	 * @param cx Element class type for casting
+	 * @param cx Unused element type token
 	 * @param fname Input filename
 	 * @param allowSubprocess Whether to allow subprocess decompression
 	 * @return Deserialized array of specified type
@@ -1828,10 +2273,10 @@ public class ReadWrite {
 	}
 	
 	/**
-	 * Reads and deserializes 2D array with type safety.
+	 * Reads an object and casts to a two-dimensional object array; cx is not consulted.
 	 *
 	 * @param <X> Expected array element type
-	 * @param cx Element class type for casting
+	 * @param cx Unused element type token
 	 * @param fname Input filename
 	 * @param allowSubprocess Whether to allow subprocess decompression
 	 * @return Deserialized 2D array of specified type
@@ -1842,10 +2287,10 @@ public class ReadWrite {
 	}
 	
 	/**
-	 * Reads and deserializes 3D array with type safety.
+	 * Reads an object and casts to a three-dimensional object array; cx is not consulted.
 	 *
 	 * @param <X> Expected array element type
-	 * @param cx Element class type for casting
+	 * @param cx Unused element type token
 	 * @param fname Input filename
 	 * @param allowSubprocess Whether to allow subprocess decompression
 	 * @return Deserialized 3D array of specified type
@@ -1857,10 +2302,11 @@ public class ReadWrite {
 	
 	
 	/**
-	 * Extracts base filename by removing path and compression extensions.
-	 * Handles various compression formats including gzip, zip, bzip2, and dsrc.
+	 * Normalizes backslashes, removes directories and strips one recognized suffix.
+	 * Recognizes lowercase .gz, .zip, .dsrc and, when enabled, .bz2. The xz local is
+	 * unused: .xz and other compression aliases remain in the returned name.
 	 * @param fname Full file path
-	 * @return Base filename without path or compression extensions
+	 * @return Last path component after the supported single-suffix removal
 	 */
 	public static String basename(String fname){
 		fname=fname.replace('\\', '/');
@@ -1879,10 +2325,11 @@ public class ReadWrite {
 	}
 	
 	/**
-	 * Removes all compression extensions from filename iteratively.
-	 * Handles multiple compression layers.
+	 * Visits compressedExtensions once in table order, stripping repeated matches for
+	 * each suffix. Matching is case-sensitive; mixed suffix layers can remain when
+	 * stripping a later table entry exposes an earlier one. Does not remove directories.
 	 * @param fname Filename with potential compression extensions
-	 * @return Filename with all compression extensions removed
+	 * @return Name after this ordered suffix pass
 	 */
 	public static String rawName(String fname){
 		for(String s : compressedExtensions){
@@ -1924,7 +2371,7 @@ public class ReadWrite {
 	
 	/**
 	 * Strips the directories, leaving only a filename
-	 * @param fname
+	 * @param fname Path, or null
 	 * @return File name without directories
 	 */
 	public static String stripPath(String fname){
@@ -1938,7 +2385,7 @@ public class ReadWrite {
 	/**
 	 * Extracts directory path from full filename.
 	 * @param fname Full file path
-	 * @return Directory path including trailing separator, or empty string
+	 * @return Normalized directory prefix including separator, empty string if none, or null for null input
 	 */
 	public static String getPath(String fname){
 		if(fname==null){return null;}
@@ -1954,7 +2401,7 @@ public class ReadWrite {
 	 * @return Compression type string or null if not compressed
 	 */
 	public static String compressionType(String fname){
-		if(fname==null || fname.indexOf('.')<0) {return null;}
+		if(fname==null || fname.indexOf('.')<0){return null;}
 		fname=fname.toLowerCase(Locale.ENGLISH);
 		for(int i=0; i<compressedExtensions.length; i++){
 			if(fname.endsWith(compressedExtensions[i])){return compressedExtensionMap[i];}
@@ -1984,7 +2431,8 @@ public class ReadWrite {
 		return fname.substring(0, fname.lastIndexOf('.')).endsWith(".sam");
 	}
 	
-	/** Returns extension, lower-case, without a period */ 
+	/** Returns text after the last dot following rawName, lowercased with Locale.ENGLISH.
+	 * A dotless name returns the whole remaining name; directory dots are not excluded. */
 	public static String rawExtension(String fname){
 		fname=rawName(fname);
 		int x=fname.lastIndexOf('.');
@@ -2093,17 +2541,21 @@ public class ReadWrite {
 	}
 	
 	/**
-	 * Delete a file.
+	 * Attempts nonrecursive deletion of an existing path and reports success.
+	 * A nonempty directory remains intact and returns false.
+	 * @param path Path, or null
+	 * @param verbose Whether to print the attempted path
+	 * @return True only when File.delete() succeeds; false for null/missing paths,
+	 * failed deletion, or a caught Exception
 	 */
 	public static boolean delete(String path, boolean verbose){
 		if(path==null){return false;}
 		if(verbose){System.err.println("Trying to delete "+path);}
 		File f=new File(path);
 		if(f.exists()){
-			try {
-				f.delete();
-				return true;
-			} catch (Exception e) {
+			try{
+				return f.delete();
+			}catch(Exception e){
 				// TODO Auto-generated catch block
 				e.printStackTrace();
 			}
@@ -2117,7 +2569,11 @@ public class ReadWrite {
 	public static synchronized void copyFile(String source, String dest){copyFile(source, dest, false);}
 	/**
 	 * Copies file from source to destination with optional path creation.
-	 * Preserves compression format and handles special stream types.
+	 * Uses global RAWMODE for same-suffix ZIP/GZIP/BZ2/XZ copies; otherwise factories
+	 * may transform compression. Destination nonexistence is assertion-checked.
+	 * The class lock serializes copies, not all I/O. Normal and caught-IOException
+	 * paths restore RAWMODE; unchecked failures can leave it changed. Exceptional
+	 * stream cleanup is not guaranteed. The global-state repair remains deferred (#004).
 	 *
 	 * @param source Source file path
 	 * @param dest Destination file path (must not exist)
@@ -2152,7 +2608,7 @@ public class ReadWrite {
 			byte[] buffer=new byte[INBUF];
 			int len;
 			
-			while((len = in.read(buffer)) > 0){
+			while((len=in.read(buffer))>0){
 				out.write(buffer, 0, len);
 			}
 			
@@ -2226,6 +2682,8 @@ public class ReadWrite {
 	}
 	
 	
+	/** Reserves positive active/waiting counts, or delegates negative completion to
+	 * addRunningThread. Uses the activeThreads array as both mutable counters and monitor. */
 	static final int addThread(int x){
 		if(verbose){System.err.println("addThread("+x+")");}
 		synchronized(activeThreads){
@@ -2243,6 +2701,9 @@ public class ReadWrite {
 		}
 	}
 	
+	/** Moves positive counts from waiting to running after capacity becomes available;
+	 * negative counts leave both running and active. LOW_MEMORY caps running at one.
+	 * Interrupted waits print and retry without restoring interruption. */
 	static final int addRunningThread(int x){
 		if(verbose){System.err.println("addRunningThread("+x+")");}
 		final int max=(Shared.LOW_MEMORY ? 1 : maxWriteThreads);
@@ -2251,9 +2712,9 @@ public class ReadWrite {
 			if(x>0){
 				assert(activeThreads[1]>=x);
 				while(activeThreads[2]>=max){
-					try {
+					try{
 						activeThreads.wait();
-					} catch (InterruptedException e) {
+					}catch(InterruptedException e){
 						// TODO Auto-generated catch block
 						e.printStackTrace();
 					}
@@ -2283,17 +2744,19 @@ public class ReadWrite {
 		}
 	}
 	
-	/** Blocks until all write threads have completed execution.
-	 * Used for synchronizing completion of async write operations. */
+	/** Waits for the counted InThread operations to decrement the active count to zero.
+	 * This is not a worker join or failure report. Interrupted waits print and retry.
+	 * Worker finally blocks release their counts on write failure when the JVM continues;
+	 * assertions-enabled write failures instead halt the JVM under IO-042. */
 	public static final void waitForWritingToFinish(){
 		if(verbose){System.err.println("waitForWritingToFinish()");}
 		synchronized(activeThreads){
 			while(activeThreads[0]>0){
 				assert(activeThreads[0]==(activeThreads[1]+activeThreads[2]) && activeThreads[0]>=0 && activeThreads[1]>=0 &&
 						activeThreads[2]>=0 && activeThreads[2]<=maxWriteThreads) : Arrays.toString(activeThreads);
-				try {
+				try{
 					activeThreads.wait(8000);
-				} catch (InterruptedException e) {
+				}catch(InterruptedException e){
 					// TODO Auto-generated catch block
 					e.printStackTrace();
 				}
@@ -2303,8 +2766,9 @@ public class ReadWrite {
 	}
 
 
+	/** Closes the input if present and returns its recorded error state; no explicit join here. */
 	public static final boolean closeStream(Streamer st){return closeStreams(st, (Writer[])null);}
-	/** Closes multiple concurrent read output streams and reports error state */
+	/** Calls poisonAndWait on each nonnull Writer and combines failure states. */
 	public static final boolean closeOutputStreams(Writer...ross){return closeStreams(null, ross);}
 
 	
@@ -2326,7 +2790,8 @@ public class ReadWrite {
 	}
 	
 	/** 
-	 * Close these streams and wait for them to finish.
+	 * Closes the input and reads its error state, then closes and joins each output.
+	 * Null entries are skipped. Unchecked exceptions propagate and can skip later streams.
 	 * @param cris An input stream.  May be null.
 	 * @param ross Zero or more output streams.
 	 * @return True if an error was encountered.
@@ -2365,7 +2830,9 @@ public class ReadWrite {
 	}
 	
 	/** 
-	 * Close these streams and wait for them to finish.
+	 * Closes the input and reads its error state, then calls poisonAndWait on each writer.
+	 * No separate input join occurs here. Null entries are skipped; unchecked exceptions
+	 * propagate and can skip later writers.
 	 * @param st An input stream.  May be null.
 	 * @param writers Zero or more output streams.
 	 * @return True if an error was encountered.
@@ -2399,8 +2866,11 @@ public class ReadWrite {
 	}
 	
 	/**
-	 * Terminates subprocess associated with filename and cleans up resources.
-	 * Waits for process completion and handles pipe threads.
+	 * Removes the registered process, waits for it and terminates registered pipe threads.
+	 * The name must indicate recognized compression or .bam unless FORCE_KILL is set.
+	 * waitFor holds the process-map lock and has no timeout; only twenty interruptions
+	 * trigger destroy. Exit 0 or 141 is accepted. Callers must close process input first
+	 * where required; this method is not an unconditional immediate kill.
 	 * @param fname Filename used to identify associated process
 	 * @return true if errors occurred during process termination
 	 */
@@ -2420,7 +2890,7 @@ public class ReadWrite {
 				int x=-1, tries=0;
 				for(; tries<20; tries++){
 					if(verbose){System.err.println("Trying p.waitFor()");}
-					try {
+					try{
 //						long t=System.nanoTime();
 //						Thread.sleep(4000);
 						if(verbose){System.err.println("p.isAlive()="+p.isAlive());}
@@ -2428,7 +2898,7 @@ public class ReadWrite {
 //						if(verbose){System.err.println(System.nanoTime()-t+" ns");}
 						if(verbose){System.err.println("success; return="+x);}
 						break;
-					} catch (InterruptedException e) {
+					}catch(InterruptedException e){
 						if(verbose){System.err.println("Failed.");}
 						e.printStackTrace();
 					}
@@ -2467,6 +2937,8 @@ public class ReadWrite {
 		return error;
 	}
 	
+	/** Registers one process per exact filename under the map lock. Replacing an entry
+	 * destroys the previous process and invokes KillSwitch; it is not normal replacement. */
 	private static void addProcess(String fname, Process p){
 		if(verbose){
 			System.err.println("addProcess("+fname+", "+p+")");
@@ -2482,6 +2954,7 @@ public class ReadWrite {
 		}
 	}
 	
+	/** Adds a pipe thread to the list for an exact filename under the pipe-map lock. */
 	private static void addPipeThread(String fname, PipeThread pt){
 		if(verbose){System.err.println("addPipeThread("+fname+", "+pt+")");}
 		synchronized(pipeThreadMap){
@@ -2495,8 +2968,10 @@ public class ReadWrite {
 		}
 	}
 	
-	public static boolean isBGZip(String fname) {
-		if(fname.startsWith("stdin")) {return false;}
+	/** Returns false for case-sensitive stdin-prefixed names; otherwise compares the
+	 * raw four-byte signature with 529205252. This is a heuristic, not complete BGZF validation. */
+	public static boolean isBGZip(String fname){
+		if(fname.startsWith("stdin")){return false;}
 		int magic=getMagicNumber(fname);
 		return magic==529205252;
 //		byte[] header=getFirst16Bytes(fname);
@@ -2505,16 +2980,20 @@ public class ReadWrite {
 //		}
 	}
 	
-	private static byte[] getFirstNBytes(String fname, int n) {
+	/** Legacy private helper that reads n raw bytes and closes on the normal path.
+	 * Returns null for a short read, except the empty-file negative-offset defect below.
+	 * Caught Exceptions invoke KillSwitch; this method has no current call sites here. */
+	private static byte[] getFirstNBytes(String fname, int n){
 		byte[] array=new byte[n];
 		FileInputStream fis;
 		try{
 			fis=new FileInputStream(fname);
+			//TODO: Probable bug - FIO-047: immediate EOF leaves read=-1, then the next read uses a negative offset.
 			int read=fis.read(array, 0, n);
-			while(read<n) {
+			while(read<n){
 				int r=fis.read(array, read, n-read);
 				read+=r;
-				if(r<1) {break;}
+				if(r<1){break;}
 			}
 			fis.close();
 			return read<n ? null : array;
@@ -2524,9 +3003,10 @@ public class ReadWrite {
 		}
 	}
 
-	/** 
-	 * Note:
-	 * Magic number of bgzip files is (first 4 bytes):
+	/** Reads four raw bytes in big-endian order and attempts closure.
+	 * Missing files print an exception and return zero. EOF bytes become 255; caught
+	 * read/close IOExceptions are printed, so this is not strict header validation.
+	 * Magic number commonly used for bgzip files (first 4 bytes):
 	 * 1f 8b 08 04
 	 * 31 139 8 4
 	 *  = 529205252
@@ -2542,12 +3022,12 @@ public class ReadWrite {
 	//every call, on the common gzip-read path (getUnbgzipStream->isBGZip->getMagicNumber) and FileFormat.bgzip().
 	//Now closes 'is' after reading and guards the null case (missing file) instead of NPEing at is.read().
 	//Mirrors getFirstNBytes() above, which already closes its fis.
-	public static int getMagicNumber(String fname) {
+	public static int getMagicNumber(String fname){
 		InputStream is=null;
-		try {
+		try{
 			FileInputStream fis=new FileInputStream(fname);
 			is=new BufferedInputStream(fis);
-		} catch (FileNotFoundException e) {
+		}catch(FileNotFoundException e){
 			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
@@ -2555,37 +3035,43 @@ public class ReadWrite {
 
 		int x=0;
 		for(int i=0; i<4; i++){
-			try {
+			try{
 				x=(x<<8)|(is.read()&255);
-			} catch (IOException e) {
+			}catch(IOException e){
 				// TODO Auto-generated catch block
 				e.printStackTrace();
 			}
 		}
-		try {is.close();} catch (IOException e) {e.printStackTrace();}
+		try{is.close();}catch(IOException e){e.printStackTrace();}
 //		System.err.println("Returning "+x);
 //		new Exception().printStackTrace();
 		return x;
 	}
 	
-	public static boolean nativeBamIn() {
+	/** Selects native BAM input when allowed and either preferred or both external tools are absent. */
+	public static boolean nativeBamIn(){
 		return ALLOW_NATIVE_BAM_IN && (PREFER_NATIVE_BAM_IN || (!Data.SAMBAMBA() && !Data.SAMTOOLS()));
 	}
 	
-	public static boolean nativeBamOut() {
+	/** Selects native BAM output when allowed and either preferred or both external tools are absent. */
+	public static boolean nativeBamOut(){
 		return ALLOW_NATIVE_BAM_OUT && (PREFER_NATIVE_BAM_OUT || (!Data.SAMBAMBA() && !Data.SAMTOOLS()));
 	}
 	
-	public static boolean nativeBgzfIn() {
+	/** Selects native BGZF input when allowed and either preferred or threaded bgzip is unavailable. */
+	public static boolean nativeBgzfIn(){
 		return ALLOW_NATIVE_BGZF && (PREFER_NATIVE_BGZF_IN || !Data.BGZIP_THREADED());
 	}
 	
-	public static boolean nativeBgzfOut() {
+	/** Selects native BGZF output when allowed and either preferred at {@code ZIPLEVEL<=5} or
+	 * threaded bgzip is unavailable; does not itself open output. */
+	public static boolean nativeBgzfOut(){
 		return ALLOW_NATIVE_BGZF && ((PREFER_NATIVE_BGZF_OUT && ZIPLEVEL<=5) || !Data.BGZIP_THREADED());
 	}
 	
-	/** {active, waiting, running} <br>
-	 * Active means running or waiting.
+	/** Counters {active, waiting, running} for InThread wrappers; active=waiting+running.
+	 * This array is also the synchronization monitor. External replacement/mutation is
+	 * unsupported by the accounting invariants, despite its public mutable declaration.
 	 */
 	public static int[] activeThreads={0, 0, 0};
 	/** Maximum number of concurrent write threads allowed */
@@ -2594,11 +3080,11 @@ public class ReadWrite {
 	/** Whether to enable verbose debugging output for I/O operations */
 	public static boolean verbose=false;
 	
-	/** When true, disables automatic compression and decompression */
-	public static boolean RAWMODE=false; //Does not automatically compress and decompress when true
+	/** Global raw-mode request; honored by selected factory paths, not all earlier codec branches. */
+	public static boolean RAWMODE=false; //Honored by selected factory paths; see the selection contracts.
 
 	//For killing subprocesses that are neither compression nor samtools
-	/** Forces subprocess termination for non-compression/samtools processes */
+	/** Permits killProcess lookup for names without a recognized compression/.bam suffix. */
 	public static boolean FORCE_KILL=false;
 
 	/** Whether to use external gzip command for compression */
@@ -2626,9 +3112,9 @@ public class ReadWrite {
 	public static boolean PREFER_NATIVE_BAM_IN=true;
 	public static boolean PREFER_NATIVE_BAM_OUT=true;
 	
-	/** Forces use of pigz even when other options might be preferred */
+	/** Enters gzip external-selection logic even without permission; earlier BGZF preference can still win. */
 	public static boolean FORCE_PIGZ=false;
-	/** Forces use of bgzip even when other options might be preferred */
+	/** Requests the early BGZF path when that backend is enabled/available. */
 	public static boolean FORCE_BGZIP=false;
 	
 	/** Prefers bgzip over other compression tools when available */
@@ -2640,7 +3126,7 @@ public class ReadWrite {
 	public static boolean USE_BZIP2=true;
 	/** Whether to use pbzip2 for parallel bzip2 compression */
 	public static boolean USE_PBZIP2=true;
-	/** Whether to use lbzip2 for fast bzip2 compression */
+	/** Whether to use lbzip2 for bzip2 compression */
 	public static boolean USE_LBZIP2=true;
 	/** Whether to use DSRC compression for FASTQ files */
 	public static boolean USE_DSRC=true;
@@ -2697,7 +3183,7 @@ public class ReadWrite {
 	public static boolean SET_ZIP_THREADS=false;
 	
 	/** Returns maximum number of threads allowed for compression operations */
-	public static int MAX_ZIP_THREADS() {return MAX_ZIP_THREADS;}
+	public static int MAX_ZIP_THREADS(){return MAX_ZIP_THREADS;}
 	/** Sets maximum number of compression threads with bounds checking.
 	 * @param x Number of threads (clamped to 1-96 range) */
 	public static void setZipThreads(int x){
@@ -2706,7 +3192,7 @@ public class ReadWrite {
 		SET_ZIP_THREADS=true;
 	}
 	/** Returns compression thread multiplier factor */
-	public static float ZIP_THREAD_MULT() {return ZIP_THREAD_MULT;}
+	public static float ZIP_THREAD_MULT(){return ZIP_THREAD_MULT;}
 	/** Sets compression thread multiplier with bounds checking.
 	 * @param x Multiplier factor (clamped to 0.125-1.0 range) */
 	public static void setZipThreadMult(float x){
@@ -2723,21 +3209,24 @@ public class ReadWrite {
 	/** System-specific file separator character */
 	public static final String FILESEP=System.getProperty("file.separator");
 
+	/** Monitor shared by character writes (including Async) and synchronous object writes. */
 	private static final String diskSync=new String("DISKSYNC");
 	
-	/** Set tracking filenames that have been loaded (for debugging) */
+	/** Legacy debugging set; current load-tracking calls in this class are commented out. */
 	public static final HashSet<String> loadedFiles=new HashSet<String>();
 
 	/** BGZF aliases need the same gzip-compatible stream dispatch as the suffix inventory below. */
 	private static boolean gzipSuffix(String name){
 		return name.endsWith(".gz") || name.endsWith(".gzip") || name.endsWith(".bgz") || name.endsWith(".bgzip");
 	}
-	private static final String[] compressedExtensions=new String[] {".gz", ".gzip", ".bgz", ".bgzip", ".zip", ".bz2", ".xz", ".dsrc", ".fqz", ".ac", ".7z", ".zst"};
-	private static final String[] compressedExtensionMap=new String[] {"gz", "gz", "gz", "gz", "zip", "bz2", "xz", "dsrc", "fqz", "ac", "7z", "zst"};
+	private static final String[] compressedExtensions=new String[]{".gz", ".gzip", ".bgz", ".bgzip", ".zip", ".bz2", ".xz", ".dsrc", ".fqz", ".ac", ".7z", ".zst"};
+	private static final String[] compressedExtensionMap=new String[]{"gz", "gz", "gz", "gz", "zip", "bz2", "xz", "dsrc", "fqz", "ac", "7z", "zst"};
 
 //	private static HashMap<String, Process> inputProcesses=new HashMap<String, Process>(8);
 //	private static HashMap<String, Process> outputProcesses=new HashMap<String, Process>(8);
+	/** Filename-keyed processes; normal access is synchronized on this map. */
 	private static HashMap<String, Process> processMap=new HashMap<String, Process>(8);
+	/** Filename-keyed pipe helpers; normal access is synchronized on this map. */
 	private static HashMap<String, ArrayList<PipeThread>> pipeThreadMap=new HashMap<String, ArrayList<PipeThread>>(8);
 	
 }

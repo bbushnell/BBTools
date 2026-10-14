@@ -2,12 +2,27 @@ package fileIO;
 
 import java.io.FileOutputStream;
 import java.util.Arrays;
+
 import shared.Shared;
 import structures.IntList;
 
-/** Regression inputs and exact sequence checks for the reader growth repair. @author Raiden */
-public final class ByteFileGrowthTest {
+/**
+ * Regression input generator and exact sequence checks for the reader growth repair.
+ * Run with assertions enabled. The generate mode writes a sequence with a
+ * 1,100,000,000-base A prefix; check reads that sequence through ByteFile1.
+ * Controls instead compares ByteFile1Fc block output with a fixed small input.
+ * @author Raiden
+ */
+public final class ByteFileGrowthTest{
 
+	/**
+	 * Runs one diagnostic mode, sets the shared thread count to one, and prints
+	 * a completion marker. Generate creates or truncates the named file; check
+	 * validates one record's sequence, and controls checks the recovered text
+	 * against {@code >a\nACGT\n>b\nACGTACGT\n}.
+	 * @param args Exactly two ordered arguments: mode=generate|check|controls and path=FILE
+	 * @throws Exception If an input/output operation fails
+	 */
 	public static void main(String[] args) throws Exception{
 		assert(args.length==2) : "Expected mode=generate|check|controls and path=FILE";
 		final String mode=args[0].substring("mode=".length()), path=args[1].substring("path=".length());
@@ -54,6 +69,8 @@ public final class ByteFileGrowthTest {
 		System.out.println("BYTEFILE_GROWTH_TEST_PASS mode="+mode);
 	}
 
+	/** Number of A bases preceding the distinctive suffix in the large fixture. */
 	private static final long PREFIX=1100000000L;
+	/** Distinctive suffix used to detect lost or damaged sequence after growth. */
 	private static final String TAIL="CGTACGTACGTACGTTAG";
 }

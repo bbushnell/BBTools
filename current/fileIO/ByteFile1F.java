@@ -13,15 +13,32 @@ import structures.IntList;
 import structures.ListNum;
 
 /**
- * ByteFile variant that splits on FASTA record boundaries (\n>) instead of newlines.
- * Each "line" returned is a complete FASTA record (header + sequence).
- * Uses SIMD for boundary detection.
+ * Buffered FASTA record reader using LF-before-header boundaries instead of lines.
+ * Returns copied byte blocks with sequence newlines retained; no sequence parsing or
+ * FASTA validation is performed. Each block retains its leading header marker;
+ * the final block also retains trailing bytes.
+ * Boundary detection uses the shared SIMD setting with a scalar fallback.
+ * This class is directly constructible and is not selected by ByteFile factories.
+ * Reading, batching and reset require a single owner; synchronized open/close alone
+ * do not make concurrent reading or reconfiguration safe.
  * 
  * @author Brian Bushnell
+ * @contributor Shinobu (record-reader contracts)
  * @date November 11, 2025
  */
 public final class ByteFile1F extends ByteFile {
 
+	/*--------------------------------------------------------------*/
+	/*----------------           Startup            ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Runs a positional record-printing or speed diagnostic, then close/reset/close.
+	 * Parses arguments before opening input. After construction, exceptional exits
+	 * close the reader and preserve the primary failure. Ordinary completion checks
+	 * accumulated input status and, in print mode, borrowed stdout.
+	 * Optional arguments select a record range, capability-gated SIMD and native BGZF.
+	 * Printed byte totals add one byte per returned block, not the exact input-file
+	 * byte count. This is not a format validator. */
 	public static void main(String[] args){
 		long first=0, last=100;
 		boolean speedtest=false;
@@ -37,7 +54,8 @@ public final class ByteFile1F extends ByteFile {
 		}
 		if(args.length>2){
 			if(args[2].equalsIgnoreCase("simd")){
-				Shared.SIMD=true;
+				//FIO-074: keep scalar scanning when the optional Vector API is unavailable.
+				if(Vector.simd256){Shared.SIMD=true;}
 			}else {
 				last=Integer.parseInt(args[2]);
 			}
@@ -48,13 +66,34 @@ public final class ByteFile1F extends ByteFile {
 			}
 		}
 		ByteFile1F tf=new ByteFile1F(args.length>0 ? args[0] : "stdin", true);
-		speedtest(tf, first, last, !speedtest);
-
-		tf.close();
-		tf.reset();
-		tf.close();
+		boolean error=false;
+		Throwable failure=null;
+		try{
+			speedtest(tf, first, last, !speedtest);
+			// Retain the successful diagnostic reopen without losing earlier errors.
+			error|=tf.close();
+			tf.reset();
+		}catch(RuntimeException | Error t){
+			failure=t;
+			throw t;
+		}finally{
+			try{
+				error|=tf.close();
+			}catch(RuntimeException | Error t){
+				if(failure==null){throw t;}
+				if(failure!=t){failure.addSuppressed(t);}
+			}
+			if(failure!=null && error){
+				failure.addSuppressed(new RuntimeException("ByteFile1F: error reading or closing "+tf.name()));
+			}
+		}
+		if(error){throw new RuntimeException("ByteFile1F: error reading or closing "+tf.name());}
+		if(!speedtest && System.out.checkError()){
+			throw new RuntimeException("ByteFile1F: error writing output");
+		}
 	}
 
+	/** Skips to first, then prints or counts blocks in [first,last), stopping at EOF. */
 	private static void speedtest(ByteFile1F bf, long first, long last, boolean reprint){
 		Timer t=new Timer();
 		long records=0;
@@ -87,16 +126,32 @@ public final class ByteFile1F extends ByteFile {
 		}
 	}
 
+	/*--------------------------------------------------------------*/
+	/*----------------        Initialization        ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Opens a named input with FASTA as the fallback format.
+	 * @param fname Input filename or supported stream name
+	 * @param allowSubprocess_ Whether decompression subprocesses are permitted */
 	public ByteFile1F(String fname, boolean allowSubprocess_){
 		this(FileFormat.testInput(fname, FileFormat.FASTA, null, allowSubprocess_, false));
 	}
 
+	/** Borrows the input descriptor and opens its stream using current static settings.
+	 * @param ff Descriptor configured for reading */
 	public ByteFile1F(FileFormat ff){
 		super(ff);
 		if(verbose){System.err.println("ByteFile1F("+ff+")");}
 		is=open();
 	}
 
+	/*--------------------------------------------------------------*/
+	/*----------------        Reader Methods        ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Closes and reopens the input, clearing buffered positions and inherited batch
+	 * counters. Prior close errors remain latched. Reopening a borrowed stream does
+	 * not itself rewind that stream. */
 	@Override
 	public final void reset(){
 		close();
@@ -107,6 +162,8 @@ public final class ByteFile1F extends ByteFile {
 		positions.clear();
 	}
 
+	/** Finishes the input once, releases this stream reference and resets lineNum.
+	 * @return Sticky caught-read or finishReading error status */
 	@Override
 	public synchronized final boolean close(){
 		if(verbose){System.err.println("Closing "+this.getClass().getName()+" for "+name()+"; open="+open+"; errorState="+errorState);}
@@ -121,6 +178,12 @@ public final class ByteFile1F extends ByteFile {
 		return errorState;
 	}
 
+	/** Returns the next copied FASTA block, or null after exhaustion/closure.
+	 * Searches for an initial header marker, then splits at LF-before-header positions.
+	 * Header markers and internal newlines remain. A caught input exception is
+	 * reported through close status; buffered prefix bytes may still be returned.
+	 * @return Copied record bytes, the shared empty array on the empty-boundary path,
+	 * or null when no bytes remain */
 	@Override
 	public final byte[] nextLine(){
 		if(!open || is==null){
@@ -171,9 +234,9 @@ public final class ByteFile1F extends ByteFile {
 
 		byte[] record=KillSwitch.copyOfRange(buffer, bstart, limit);
 
-		// Move past this record (\n> or end)
+		// Move past the delimiter LF, preserving the next header marker.
 		if(limit<bstop){
-			bstart=limit+2; // Skip \n>
+			bstart=limit+1; //FIO-072: the boundary points to LF, not to the next record start.
 		}else{
 			bstart=bstop;
 		}
@@ -181,6 +244,9 @@ public final class ByteFile1F extends ByteFile {
 		return record;
 	}
 	
+	/** Collects up to 200 blocks synchronously and assigns the next batch ID.
+	 * Creates no worker thread. Direct calls require the reader's single owner.
+	 * @return A nonempty batch, or null when no block is available */
 	@Override
 	public final ListNum<byte[]> nextListAsync(){
 		if(!open || is==null){
@@ -200,7 +266,10 @@ public final class ByteFile1F extends ByteFile {
 		return list.isEmpty() ? null : new ListNum<byte[]>(list, nextID++);
 	}
 
-	/** Fill buffer and find all FASTA boundaries */
+	/** Compacts unread bytes, then reads until a boundary or a nonpositive read result.
+	 * Boundary positions refer to the LF byte. Grows the buffer with capped long
+	 * arithmetic and rejects a full maximum-capacity buffer instead of treating it
+	 * as EOF. This does not validate headers or distinguish a zero-byte read from EOF. */
 	private void fillBuffer(){
 		// Shift remaining data to start
 		if(bstart>0 && bstart<bstop){
@@ -232,8 +301,10 @@ public final class ByteFile1F extends ByteFile {
 			try{
 				r=is.read(buffer, bstop, buffer.length-bstop);
 			}catch(IOException e){
+				errorState=true; //FIO-073: preserve the read failure even if closing succeeds.
 				if(!Shared.anomaly){e.printStackTrace();}
 			}catch(NullPointerException e){
+				errorState=true;
 				if(!Shared.anomaly){e.printStackTrace();}
 			}
 			
@@ -247,11 +318,17 @@ public final class ByteFile1F extends ByteFile {
 		}
 	}
 
+	/** Rejects pushback; this record reader does not implement it.
+	 * @param record Unused record
+	 * @throws UnsupportedOperationException Always */
 	@Override
 	public void pushBack(byte[] record){
 		throw new UnsupportedOperationException("pushBack not supported for ByteFile1F");
 	}
 
+	/** Opens the configured input and resets buffer/boundary state, preserving errors.
+	 * @return The stream also stored in is
+	 * @throws RuntimeException If already open, or if the input factory fails */
 	private final synchronized InputStream open(){
 		if(open){
 			throw new RuntimeException("Attempt to open already-opened ByteFile1F "+name());
@@ -266,28 +343,48 @@ public final class ByteFile1F extends ByteFile {
 		return is;
 	}
 
+	/** Reports the local open flag; not a concurrent-completion guarantee. */
 	@Override
 	public boolean isOpen(){return open;}
 
+	/** Exposes the current stream without transferring ownership; null after close. */
 	@Override
 	public final InputStream is(){return is;}
 
+	/** Returns the zero-based block counter, or -1 before reading/after close. */
 	@Override
 	public final long lineNum(){return lineNum;}
 
+	/*--------------------------------------------------------------*/
+	/*----------------            Fields            ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Local lifecycle flag, not volatile. */
 	private boolean open=false;
+	/** Reused input storage; each returned nonempty block is copied out. */
 	private byte[] buffer=new byte[bufferlen];
+	/** Shared result for an empty boundary interval. */
 	private static final byte[] blankLine=new byte[0];
+	/** Unread interval within buffer. */
 	private int bstart=0, bstop=0;
+	/** Current input reference; finishReading handles its closure or borrowed-stream policy. */
 	public InputStream is;
+	/** Block counter, incremented before extracting each interval. */
 	public long lineNum=-1;
+	/** LF indices before header markers in the current buffer. */
 	private IntList positions=new IntList();
+	/** Next unconsumed boundary index. */
 	private int listPos=0;
+	/** Whether the initial header search remains to be performed. */
 	private boolean firstRecord=true;
 
+	/** Shared diagnostic switch; configure before reading. */
 	public static boolean verbose=false;
+	/** Input factory buffering request, sampled when opening. */
 	public static boolean BUFFERED=false;
+	/** Initial buffer capacity for newly constructed readers. */
 	public static int bufferlen=65536;
 
+	/** Sticky caught-read or finishReading failure status; reset does not clear it. */
 	private boolean errorState=false;
 }

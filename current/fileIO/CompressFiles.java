@@ -2,21 +2,29 @@ package fileIO;
 
 import java.io.File;
 
-
 /**
- * Utility for batch file compression operations with support for multiple
- * compression formats and recursive directory processing.
- * Provides command-line interface for compressing files using zip or gzip formats.
- * @author Brian Bushnell
+ * Traverses files to print Windows 7-Zip commands or perform compression copies.
+ * The default PRINT_7Z_BATCH mode prints commands only, always with a .gz suffix.
+ * With that shared flag disabled programmatically, zip selects .zip or .gz output
+ * and ReadWrite.copyFile performs the copy through its compression-aware factories.
+ *
+ * Paths are processed in argument order; format keywords affect subsequent paths.
+ * Existing lowercase .gz/.zip/.bz2 suffixes and paths containing familytree after
+ * lowercasing are skipped. Input files remain in place. Printed commands use the
+ * hardcoded executable path and emit file operands without added quoting.
+ * Shared mode flags should be configured before traversal; traversal is not synchronized.
+ * @author Brian Bushnell, Shinobu
  */
 public class CompressFiles {
-	
-	
-	/**
-	 * Program entry point for batch file compression.
-	 * Processes command-line arguments to set compression format and compress files.
-	 * Supports "zip", "gzip", and "gz" format specifiers.
-	 * @param args Command-line arguments containing format options and file paths
+
+	/*--------------------------------------------------------------*/
+	/*----------------           Startup            ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Processes bare zip/gzip/gz keywords and paths from left to right.
+	 * Keywords are case-insensitive; other arguments are paths. There is no CLI
+	 * switch for PRINT_7Z_BATCH, so the default invocation only prints commands.
+	 * @param args Format keywords and file or directory paths
 	 */
 	public static void main(String[] args){
 		for(String s : args){
@@ -29,26 +37,24 @@ public class CompressFiles {
 			}
 		}
 	}
-	
-	
-	/**
-	 * Compresses files at the specified path string.
-	 * Creates File object and delegates to File-based compression method.
-	 * @param path Path to file or directory to compress
+
+	/*--------------------------------------------------------------*/
+	/*----------------          Compression         ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Creates a File for the supplied path and delegates traversal.
+	 * @param path Nonnull file or directory path
 	 */
 	public static void compressFiles(String path){
 		File f=new File(path);
 		compressFiles(f);
 	}
-	
-	/**
-	 * Recursively compresses files in directories or single files.
-	 * For directories, processes all contained files recursively.
-	 * For individual files, calls compress method directly.
-	 * @param path File or directory to compress
+
+	/** Recurses through directories in their returned listing order, or handles one file.
+	 * @param path Nonnull file or directory
+	 * @throws RuntimeException If a directory listing cannot be read
 	 */
 	public static void compressFiles(File path){
-		
 		if(path.isDirectory()){
 			File[] array=path.listFiles();
 			if(array==null){throw new RuntimeException("Failed to list directory contents (I/O error): "+path.getAbsolutePath());}
@@ -56,16 +62,14 @@ public class CompressFiles {
 		}else{
 			compress(path);
 		}
-		
 	}
-	
-	/**
-	 * Compresses a single file using the selected compression format.
-	 * Skips already compressed files (.gz, .zip, .bz2 extensions).
-	 * Includes filtering logic to skip certain file types like familytree files.
-	 * Supports both actual compression and 7-Zip batch command generation.
-	 *
-	 * @param in Input file to compress
+
+	/** Applies suffix/path filters, then prints a command or delegates a compression copy.
+	 * Lowercase .gz/.zip/.bz2 suffixes return before reporting the absolute path on
+	 * stderr; the familytree filter runs afterward. Command mode ignores zip and
+	 * prints a .gz destination. Copy mode selects its suffix from zip and delegates
+	 * destination validation, compression and stream handling to ReadWrite.copyFile.
+	 * @param in Existing regular file, checked by assertions
 	 */
 	public static void compress(File in){
 		assert(in.exists());
@@ -73,14 +77,14 @@ public class CompressFiles {
 		String abs=in.getAbsolutePath();
 //		System.out.println("Considering "+abs);
 		if(abs.endsWith(".gz") || abs.endsWith(".zip") || abs.endsWith(".bz2")){return;}
-		
+
 //		if(!abs.contains("custom_summary_") || !abs.endsWith("Gene_build36.txt")){return;} //TODO ***TEMPORARY***
 		System.err.println(abs);
 //		if(!abs.endsWith(".gvla")){return;} //TODO ***TEMPORARY***
 //		if(!abs.endsWith(".gvla") ||
 //				!(abs.contains("seqGene") || abs.contains("refGene") || abs.contains("unionGene"))){return;} //TODO ***TEMPORARY***
 		if(abs.toLowerCase().contains("familytree")){return;} //TODO ***TEMPORARY***
-		
+
 		if(PRINT_7Z_BATCH){
 			//-mx=4 is fast; -mx=5 or 6 is slow; 7+ is very slow.
 //			System.out.println("C:"+Data.SLASH+"\"Program Files\""+Data.SLASH+"7-Zip"+Data.SLASH+"7z a -mx=4 "+abs+".zip "+abs);
@@ -89,16 +93,16 @@ public class CompressFiles {
 			System.out.println("Compressing "+abs+" to "+(zip ? "zip" : "gz"));
 			ReadWrite.copyFile(abs, abs+(zip ? ".zip" : ".gz"));
 		}
-		
 	}
-	
-	
-	/** Flag indicating whether to use ZIP compression format */
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Configuration         ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Selects .zip rather than .gz for direct copies; command mode does not use it. */
 	public static boolean zip=true;
-	
-	/**
-	 * Flag controlling whether to print 7-Zip batch commands instead of compressing
-	 */
+
+	/** Prints Windows 7-Zip commands instead of copying; configured programmatically. */
 	public static boolean PRINT_7Z_BATCH=true;
-	
+
 }
