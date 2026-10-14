@@ -82,6 +82,12 @@ public class CellNetParser {
 		lines=lines_; inferenceOnly=inferenceOnly_;
 
 		parseHeader();
+		if(nodeRows && (dense || !concise || !a48 || codingHeaders!=1 || !codingKeyValid)){
+			throw new IllegalArgumentException("Node rows require concise sparse data and exactly one A48 coding header");
+		}
+		if(nodeRows && (edgeHeaderCount!=1 || edgeHeader.length<8 || edgeHeader[6]!=' ')){
+			throw new IllegalArgumentException("Node rows require exactly one explicit #edges count");
+		}
 		if(weightBits<32 && (codingHeaders!=1 || !codingKeyValid || !a48)){
 			throw new IllegalArgumentException("Reduced #weightbits requires exactly one explicit #coding A48 header");
 		}
@@ -107,7 +113,9 @@ public class CellNetParser {
 		net.fpRate=fpr; net.fnRate=fnr; net.errorRate=err; net.weightedErrorRate=wer; net.lastStats=stats; //Round-trip the stored stats
 		assert(layers==net.layers);
 		posFirstEdge=pos;
-		if(dense) {
+		if(nodeRows){
+			parseNodeRows();
+		}else if(dense) {
 			parseEdgesDense();
 		}else {
 			parseEdgesSparse();
@@ -165,6 +173,11 @@ public class CellNetParser {
 					samples=parseLong(line);
 				}else if(Tools.startsWith(line, "#concise")){
 					concise=true;
+				}else if(Tools.startsWith(line, "#noderows")){
+					if(nodeRows || line.length<11 || line[9]!=' ' || !parseString(line).equals("biasfirst")){
+						throw new IllegalArgumentException("Duplicate or malformed #noderows header");
+					}
+					nodeRows=true;
 				}else if(Tools.startsWith(line, "#dense")){
 					dense=true;
 				}else if(Tools.startsWith(line, "#indexencoding")){
@@ -190,6 +203,7 @@ public class CellNetParser {
 				}else if(Tools.startsWith(line, "#CL")){
 					commands.add(new String(line));
 				}else if(Tools.startsWith(line, "#edges")){
+					edgeHeader=line; edgeHeaderCount++;
 					if(line.length>7) {edges=parseInt(line);}
 				}else if(Tools.startsWith(line, "#zeroabsent")){
 					if(zeroAbsentSeen || line.length<12 || line[11]!=' '){
@@ -273,6 +287,7 @@ public class CellNetParser {
 						c.weights.length+", "+c.layer+", "+c.id()+", "+c.lpos+", "+c.prevLayerStart+", "+
 						(c.id()-c.lpos-c.prevLayerStart);
 			}else {
+				if(line[0]=='N'){throw new IllegalArgumentException("N records require #noderows biasfirst");}
 				assert(false) : new String(line);
 			}
 			pos++;
@@ -357,12 +372,98 @@ public class CellNetParser {
 				c.inputs=CellNet.fromHex(line, lp.a());
 				assert(c.weights==null || c.inputs.length==c.weights.length);
 			}else {
+				if(line[0]=='N'){throw new IllegalArgumentException("N records require #noderows biasfirst");}
 				assert(false) : new String(line);
 			}
 			pos++;
 		}
 		CellNet.makeOutputSets(net.net);
 		assert(inferenceOnly ? checkInference() : net.check()) : "Parsed cells must match their network representation";
+	}
+
+	/** Reads one complete sparse node per row, validating its paired bias/index/value groups. */
+	private void parseNodeRows(){
+		final LineParser2 lp=new LineParser2(delimiter);
+		long observedEdges=0;
+		for(pos=posFirstEdge; pos<lines.size(); pos++){
+			final byte[] line=lines.get(pos);
+			if(line.length==0 || Tools.startsWith(line, "##")){continue;}
+			if(line[0]!='N'){throw new IllegalArgumentException("Expected N record under #noderows");}
+			int terms=1;
+			for(int i=0; i<line.length; i++){
+				if(line[i]==' '){
+					if(i==0 || i==line.length-1 || line[i-1]==' '){throw new IllegalArgumentException("Empty node field");}
+					terms++;
+				}
+			}
+			if(terms<4 || (terms&1)!=0){throw new IllegalArgumentException("Node index and weight groups must be equal length");}
+			final int count=(terms-4)/2;
+			lp.set(line); lp.setBounds(0, 0);
+			final int cid=parseNodeInteger(lp);
+			if(cid<1 || cid>=net.list.size()){throw new IllegalArgumentException("Node ID outside network: "+cid);}
+			final Cell cell=net.list.get(cid);
+			if(cell.layer<1 || cell.weights!=null || cell.inputs!=null){throw new IllegalArgumentException("Duplicate or input-layer node: "+cid);}
+			final int type=Tools.find(lp.parseString(), Function.TYPES);
+			if(type<0){throw new IllegalArgumentException("Unknown node activation for cell "+cid);}
+			lp.advance();
+			if(lp.currentFieldLength()!=2 || line[lp.a()]!='-' || line[lp.a()+1]!='1'){
+				throw new IllegalArgumentException("First node index must be the -1 bias sentinel");
+			}
+			final int width=dims[cell.layer-1];
+			if(count>width){throw new IllegalArgumentException("Too many node inputs for previous layer");}
+			final int[] inputs=new int[count];
+			int previous=-1;
+			for(int i=0; i<count; i++){
+				final int input=sparseEncoding==SPARSE_DELTA_A48 ? parseInputDelta(lp, cell, previous) : parseNodeInteger(lp);
+				if(input<=previous || input>=width){throw new IllegalArgumentException("Node inputs must be ordered within previous layer");}
+				inputs[i]=previous=input;
+			}
+			final float bias=parseNodeFloat(lp, 32);
+			final float[] weights=new float[count];
+			for(int i=0; i<count; i++){weights[i]=parseNodeFloat(lp, weightBits);}
+			if(lp.hasMore()){throw new IllegalArgumentException("Extra node fields after weights");}
+			cell.function=Function.getFunction(type); cell.setBias(bias, true);
+			cell.inputs=inputs; cell.weights=weights; cell.deltas=new float[count];
+			observedEdges+=count;
+		}
+		for(int layer=1; layer<net.layers; layer++){
+			for(Cell cell:net.net[layer]){
+				if(cell.weights==null){throw new IllegalArgumentException("Missing node record for cell "+cell.id());}
+			}
+		}
+		if(observedEdges!=parseLiveEdges(edgeHeader)){throw new IllegalArgumentException("Node edge count differs from #edges");}
+		CellNet.makeOutputSets(net.net);
+		assert(checkInference()) : "Complete node records must satisfy sparse layer geometry";
+	}
+
+	/** Node IDs and literal inputs must not rely on assertions to reject malformed digits. */
+	private static int parseNodeInteger(final LineParser2 lp){
+		lp.advance();
+		if(lp.currentFieldLength()<1){throw new IllegalArgumentException("Empty node integer");}
+		int value=0;
+		for(int i=lp.a(); i<lp.b(); i++){
+			final int digit=lp.line()[i]-'0';
+			if(digit<0 || digit>9 || value>(Integer.MAX_VALUE-digit)/10){throw new IllegalArgumentException("Invalid or overflowing node integer");}
+			value=value*10+digit;
+		}
+		return value;
+	}
+
+	/** Finite A48 node values have bounded unsigned payloads, including exact signed zero. */
+	private static float parseNodeFloat(final LineParser2 lp, final int precision){
+		lp.advance();
+		final int length=lp.currentFieldLength();
+		if(length<1 || length>(precision+5)/6){throw new IllegalArgumentException("Invalid node A48 field length");}
+		long bits=0;
+		for(int i=lp.a(); i<lp.b(); i++){
+			final int digit=lp.line()[i]-48;
+			if(digit<0 || digit>63){throw new IllegalArgumentException("Invalid node A48 symbol");}
+			bits=(bits<<6)|digit;
+		}
+		if((bits>>>precision)!=0){throw new IllegalArgumentException("Overflowing node A48 value");}
+		final float value=Float.intBitsToFloat((int)(bits<<(32-precision)));
+		if(!Float.isFinite(value)){throw new IllegalArgumentException("Nonfinite node parameter");}
+		return value;
 	}
 
 	/** Cell.check() reads global DENSE, so isolated loading checks local geometry directly. */
@@ -444,6 +545,9 @@ public class CellNetParser {
 	private boolean weightBitsSeen=false, codingKeyValid=true;
 	private boolean zeroAbsentSeen=false, zeroAbsent=false, liveEdgesSeen=false;
 	private int sparseEncoding=SPARSE_LITERAL;
+	private boolean nodeRows=false;
+	private byte[] edgeHeader;
+	private int edgeHeaderCount=0;
 	/** Dimensions (neuron counts) for each layer */
 	int[] dims;
 	/** Exact A48 input preprocessing, independent of edge-weight coding. */

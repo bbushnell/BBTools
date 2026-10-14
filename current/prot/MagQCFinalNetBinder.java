@@ -52,7 +52,7 @@ public final class MagQCFinalNetBinder {
 		if(contracts[1]!=null){MagQCPredictionContract.parse(contracts[1], names);}
 		final ByteBuilder tags=new ByteBuilder();
 		tags.append("##magqc_harness_contract prepared_raw_v1\n");
-		tags.append("##magqc_layout ").append(MagQCVectorMaker.JOINT_COMPOSITE_LAYOUT).nl();
+		tags.append("##magqc_layout ").append(MagQCNetworkHarness.expectedLayout(options)).nl();
 		tags.append("##magqc_encoding raw\n");
 		for(String key:PIN_KEYS){
 			tags.append("##magqc_").append(key).append(' ').append(required(options, key)).nl();

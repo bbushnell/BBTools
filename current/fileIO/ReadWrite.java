@@ -527,7 +527,7 @@ public class ReadWrite {
 			}
 		}
 		
-		boolean gzipped=fname.endsWith(".gz") || fname.endsWith(".gzip");
+		boolean gzipped=gzipSuffix(fname);
 		boolean zipped=fname.endsWith(".zip");
 		boolean bzipped=PROCESS_BZ2 && fname.endsWith(".bz2");
 		boolean xz=PROCESS_XZ && fname.endsWith(".xz");
@@ -1230,7 +1230,7 @@ public class ReadWrite {
 		if(verbose){System.err.println("getInputStream("+fname+", "+buffer+", "+allowSubprocess+")");}
 		//[fileIO/ReadWrite#003 FIXED]: removed a dead 'boolean xz' local here — XZ input is unsupported (PROCESS_XZ=false,
 		//getXZInputStream returns null) and the local was never referenced below. No order-sensitive change (it was inert).
-		boolean gzipped=fname.endsWith(".gz") || fname.endsWith(".gzip");
+		boolean gzipped=gzipSuffix(fname);
 		boolean zipped=fname.endsWith(".zip");
 		boolean bzipped=PROCESS_BZ2 && fname.endsWith(".bz2");
 		boolean dsrced=fname.endsWith(".dsrc");
@@ -2728,6 +2728,10 @@ public class ReadWrite {
 	/** Set tracking filenames that have been loaded (for debugging) */
 	public static final HashSet<String> loadedFiles=new HashSet<String>();
 
+	/** BGZF aliases need the same gzip-compatible stream dispatch as the suffix inventory below. */
+	private static boolean gzipSuffix(String name){
+		return name.endsWith(".gz") || name.endsWith(".gzip") || name.endsWith(".bgz") || name.endsWith(".bgzip");
+	}
 	private static final String[] compressedExtensions=new String[] {".gz", ".gzip", ".bgz", ".bgzip", ".zip", ".bz2", ".xz", ".dsrc", ".fqz", ".ac", ".7z", ".zst"};
 	private static final String[] compressedExtensionMap=new String[] {"gz", "gz", "gz", "gz", "zip", "bz2", "xz", "dsrc", "fqz", "ac", "7z", "zst"};
 

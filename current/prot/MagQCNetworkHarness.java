@@ -68,9 +68,22 @@ public final class MagQCNetworkHarness {
 		final String release=pinned(options, "subnetmanifest", "subnetmanifestsha80");
 		final String table=pinned(options, "expectedcopytable", "expectedcopytablesha80");
 		final String populations=pinned(options, "subnetpopulations", "subnetpopulationssha80");
+		final boolean extended=MagQCAssemblyBatch.v14Configured(options), eight=eightFeatures(options);
+		if(eight && !extended){throw new IllegalArgumentException("subnetfeatures=eight requires requiredness and size-marker resources");}
+		if(extended){
+			pinned(options, "requiredness", "requirednesssha80");
+			pinned(options, "sizemarkers", "sizemarkerssha80");
+		}
 		// Classification/calling precedes subnet initialization: no classifier can alter loaded NN state.
 		final MagQCPreparedBin prepared=assembly ? MagQCAssemblyInput.build(options) : null;
-		final MagQCVectorMaker vm=MagQCVectorMaker.initializePrepared(bundle, family, release,
+		final MagQCVectorMaker vm=extended ? (eight ? MagQCVectorMaker.initializePreparedV16(bundle, family, release,
+			options.get("subnetmanifestsha80"), table, options.get("expectedcopytablesha80"),
+			populations, options.get("subnetpopulationssha80"), options.get("requiredness"), options.get("requirednesssha80"),
+			options.get("sizemarkers"), options.get("sizemarkerssha80"), false) :
+			MagQCVectorMaker.initializePreparedV14(bundle, family, release,
+			options.get("subnetmanifestsha80"), table, options.get("expectedcopytablesha80"),
+			populations, options.get("subnetpopulationssha80"), options.get("requiredness"), options.get("requirednesssha80"),
+			options.get("sizemarkers"), options.get("sizemarkerssha80"), false)) : MagQCVectorMaker.initializePrepared(bundle, family, release,
 			options.get("subnetmanifestsha80"), table, options.get("expectedcopytablesha80"),
 			populations, options.get("subnetpopulationssha80"));
 		final Scorer scorer=scores==null ? null : new Scorer(options, vm.preparedInputWidth());
@@ -163,9 +176,23 @@ public final class MagQCNetworkHarness {
 	/** Both paired outputs carry the same frozen resource identities and layout definition. */
 	static void appendBindings(ByteBuilder out, HashMap<String,String> options){
 		assert(options!=null) : "Output provenance must use the validated inference configuration";
-		out.append("#layout\t").append(MagQCVectorMaker.JOINT_COMPOSITE_LAYOUT).nl();
+		out.append("#layout\t").append(expectedLayout(options)).nl();
 		for(String key:PIN_KEYS){out.append('#').append(key).tab().append(options.get(key)).nl();}
 		MagQCAssemblyInput.appendProvenance(out, options);
+	}
+
+	/** Requires explicit opt-in; model width alone cannot declare the meaning of its input columns. */
+	static boolean eightFeatures(java.util.Map<String,String> options){
+		assert(options!=null) : "Layout selection requires the same options used to bind the model and vectorizer";
+		final String value=options.get("subnetfeatures");
+		if(value==null || "six".equals(value)){return false;}
+		if("eight".equals(value)){return true;}
+		throw new IllegalArgumentException("subnetfeatures must be six or eight: "+value);
+	}
+
+	/** Shared declaration for emitted vectors, model binding and both private and locked serving. */
+	static String expectedLayout(java.util.Map<String,String> options){
+		return eightFeatures(options) ? MagQCVectorMaker.JOINT_EIGHT_COMPOSITE_LAYOUT : MagQCVectorMaker.JOINT_COMPOSITE_LAYOUT;
 	}
 
 	/** Uses the established native digest implementation without exposing the full digest. */
@@ -257,12 +284,13 @@ public final class MagQCNetworkHarness {
 			}
 			prediction=predictionContract(descriptor==null ? worker.getTag("magqc_prediction_contract") :
 				descriptor.predictionContract, contract.names, dummy);
+			validateErrorDecoding(contract, prediction);
 			graftModel=descriptor==null ? null : new MagQCGraftModel(descriptor);
 			graftWorker=graftModel==null ? null : graftModel.newWorker(worker);
 			rawOutputs=contract.names.length;
 			input=new float[width];
 			requireTag("magqc_harness_contract", "prepared_raw_v1");
-			requireTag("magqc_layout", MagQCVectorMaker.JOINT_COMPOSITE_LAYOUT);
+			requireTag("magqc_layout", expectedLayout(options));
 			requireTag("magqc_encoding", "raw");
 			for(String key:PIN_KEYS){requireTag("magqc_"+key, options.get(key));}
 			names=prediction==null ? contract.names : prediction.outputNames(); outputMode=contract.mode;
@@ -319,6 +347,7 @@ public final class MagQCNetworkHarness {
 			final String[] metadata=readOutputMetadata(binding.options());
 			final OutputContract contract=parseOutputContract(metadata[0]);
 			prediction=predictionContract(metadata[1], contract.names, false);
+			validateErrorDecoding(contract, prediction);
 			rawOutputs=contract.names.length;
 			names=prediction==null ? contract.names : prediction.outputNames(); outputMode=contract.mode;
 			input=new float[binding.inputs()]; output=new float[names.length];
@@ -332,19 +361,22 @@ public final class MagQCNetworkHarness {
 
 		float getOutput(String primary, String alternate){return output[indexOf(primary, alternate)];}
 
-		/** Existing error calibration was fit to the original linear predictions. */
-		float errorReference(String quantity){return getOutput(prediction==null ? quantity : "linear_"+quantity);}
+		/** Legacy calibration uses original linear values; log-error targets model served values. */
+		float errorReference(String quantity){return getOutput(prediction==null ? quantity : prediction.errorReferenceName(quantity));}
 
 		/** Shared report provenance distinguishes blended values from unchanged linear-error heads. */
 		void appendPredictionProvenance(ByteBuilder out){
 			if(prediction!=null){
-				out.append("#reported_gene_values\tmodel-declared magnified blend\n");
-				out.append("#error_reference\toriginal linear heads; not recalibrated for blended values\n");
+				if(prediction.hasBlend()){out.append("#reported_gene_values\tmodel-declared magnified blend\n");}
+				out.append(prediction.hasLogErrors() ?
+					"#error_reference\tlog errors model served predictions; legacy errors retain their original reference\n" :
+					"#error_reference\toriginal linear heads; not recalibrated for blended values\n");
 			}
 		}
 
 		/** Screen reports must not present the old error estimate as calibrated for the new blend. */
-		String predictionNote(){return prediction==null ? "" :
+		String predictionNote(){return prediction==null ? "" : prediction.hasLogErrors() ?
+			"Log-error estimates refer to the model-declared served predictions.\n" :
 			"Error estimates refer to the original linear predictions, not the blended values.\n";}
 
 		int indexOf(String primary, String alternate){
@@ -574,13 +606,24 @@ public final class MagQCNetworkHarness {
 			names.add(name);
 		}
 		if(names.size()<1){throw new IllegalArgumentException("Explicit final-net contract has no outputs");}
-		return new OutputContract("explicit", names.toArray(new String[names.size()]));
+		return new OutputContract("explicit", names.toArray(new String[names.size()]), contract);
+	}
+
+	/** A log-trained head must never be presented as a fractional error without inverse decoding. */
+	private static void validateErrorDecoding(final OutputContract raw, final MagQCPredictionContract prediction){
+		if(prediction==null){
+			if(MagQCPredictionContract.requiresLogDecoding(raw.text)){
+				throw new IllegalArgumentException("Log-error targets require model-declared inverse reporting metadata");
+			}
+		}else{prediction.validateRawContract(raw.text);}
 	}
 
 	private static final class OutputContract {
-		OutputContract(String mode_, String[] names_){mode=mode_; names=names_.clone();}
+		OutputContract(String mode_, String[] names_){this(mode_, names_, null);}
+		OutputContract(String mode_, String[] names_, String text_){mode=mode_; names=names_.clone(); text=text_;}
 		final String mode;
 		final String[] names;
+		final String text;
 	}
 
 	private static final HashMap<String,Boolean> ALLOWED=new HashMap<String,Boolean>();
@@ -588,6 +631,7 @@ public final class MagQCNetworkHarness {
 		for(String key:new String[]{"in", "out", "idsout", "bundle", "familylist", "subnetmanifest",
 			"expectedcopytable", "subnetpopulations", "net", "netsha80", "scores", "dummy", "deterministic"}){ALLOWED.put(key, true);}
 		for(String key:PIN_KEYS){ALLOWED.put(key, true);}
+		for(String key:new String[]{"subnetfeatures", "requiredness", "requirednesssha80", "sizemarkers", "sizemarkerssha80"}){ALLOWED.put(key, true);}
 		for(String key:MagQCAssemblyInput.OPTIONS){ALLOWED.put(key, true);}
 	}
 }

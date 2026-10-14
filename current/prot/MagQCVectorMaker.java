@@ -1060,7 +1060,7 @@ public class MagQCVectorMaker implements Cloneable {
 	private void loadAggBundle(String file){
 		try{
 			if(familyFile==null){throw new RuntimeException("bundle= requires familylist= for the release hash gate");}
-			if(subnetFeatures==SUBNETFEATURES_SIX){loadAggBundleSix(file);}
+			if(subnetFeatures!=SUBNETFEATURES_LEGACY){loadAggBundleSix(file);}
 			else{loadAggBundleLegacy(file);}
 		}catch(Exception e){if(e instanceof RuntimeException){throw (RuntimeException)e;} throw new RuntimeException("Failed to load bundle "+file,e);}
 	}
@@ -1072,13 +1072,13 @@ public class MagQCVectorMaker implements Cloneable {
 		if(familyFile==null){throw new IllegalArgumentException("bundle= requires familylist=");}
 		try{
 			final java.nio.file.Path path=java.nio.file.Paths.get(aggBundleFile);
-			final MagQCNetBundle candidate=v14Composite ? MagQCNetBundle.loadV14(path) : subnetFeatures==SUBNETFEATURES_SIX ?
+			final MagQCNetBundle candidate=subnetFeatures==SUBNETFEATURES_EIGHT ? MagQCNetBundle.loadV16(path) : v14Composite ? MagQCNetBundle.loadV14(path) : subnetFeatures==SUBNETFEATURES_SIX ?
 					MagQCNetBundle.loadMultiOutput(path) : MagQCNetBundle.load(path);
 			candidate.requireConsumerRelease(releaseManifestFile==null ? null : java.nio.file.Paths.get(releaseManifestFile),
 					releaseManifestSha80);
 			candidate.requireFamilyList(java.nio.file.Paths.get(familyFile));
 			final MagQCNetBundle.FrozenInputs inputs=candidate.metadata("input_definition")==null ? null : candidate.requireFrozenInputs();
-			if(inputs!=null && subnetFeatures!=SUBNETFEATURES_SIX){
+			if(inputs!=null && subnetFeatures==SUBNETFEATURES_LEGACY){
 				throw new IllegalArgumentException("Frozen gene subnets require subnetfeatures=six");
 			}
 			loadedBundle=candidate;
@@ -1145,7 +1145,7 @@ public class MagQCVectorMaker implements Cloneable {
 			if(bs.order!=i){throw new RuntimeException("bundle ordering mismatch at "+i+" for "+bs.id);}
 			if(bs.expectedInputs!=expected){throw new RuntimeException("Subset "+bs.id+": bundle expectedInputs="
 				+bs.expectedInputs+" but vectorizer computes "+expected);}
-			if(bs.expectedOutputs!=4){throw new RuntimeException("subnetfeatures=six requires four-output subnets; "
+			if(bs.expectedOutputs!=learnedSubnetOutputs()){throw new RuntimeException("Learned subnet output width differs from its selected feature contract; "
 				+bs.id+" declares "+bs.expectedOutputs);}
 			noteAggObservationType(bs.type);
 			final int specialCount=MagQCObservationLayout.specialCount(bs.type);
@@ -1164,7 +1164,7 @@ public class MagQCVectorMaker implements Cloneable {
 			aggSubnets.add(s);
 		}
 		if(aggSubnets.size()!=bundle.ordinarySize()){throw new RuntimeException("bundle subnet count changed during load");}
-		final String[][] contract=requireFourOutputContract(bundle);
+		final String[][] contract=subnetFeatures==SUBNETFEATURES_EIGHT ? requireEightFeatureContract(bundle) : requireFourOutputContract(bundle);
 		sixNames=contract[0]; sixUnits=contract[1];
 		expectedCopy=MagQCExpectedCopyBinding.bind(expectedCopyTableFile,expectedCopyTableSha256,bundle,
 			subnetPopulationsFile,subnetPopulationsSha256,numFam);
@@ -1178,8 +1178,8 @@ public class MagQCVectorMaker implements Cloneable {
 				throw new RuntimeException("trna_anticodon requires extended expected-copy items (64 structural + unknown)");
 			}}
 		}
-		subnetBlockWidth=6; pooledCols=0;
-		if(verbose){System.err.println("aggregator bundle (six): "+aggSubnets.size()+" subnets loaded, "
+		subnetBlockWidth=subnetFeatures==SUBNETFEATURES_EIGHT ? 8 : 6; pooledCols=0;
+		if(verbose){System.err.println("aggregator bundle ("+subnetBlockWidth+" features): "+aggSubnets.size()+" subnets loaded, "
 			+"expected-copy table="+expectedCopyTableFile+" declaration="+subnetPopulationsFile);}
 	}
 
@@ -1216,6 +1216,28 @@ public class MagQCVectorMaker implements Cloneable {
 		for(int i=0; i<fn.length; i++){sixUnits[units0.length+i]=MagQCExpectedCopyFeatures.FEATURE_UNIT;}
 		return new String[][]{sixNames,sixUnits};
 	}
+
+	/** Schema4 preserves the four interpreted slots and two ratios, then appends raw magnifiers. */
+	static String[][] requireEightFeatureContract(final MagQCNetBundle bundle){
+		if(!bundle.eightFeatures() || bundle.ordinarySize()!=131){throw new IllegalArgumentException("Eight features require the schema4 ordinary roster");}
+		final String[] rawNames=bundle.subnet(0).outputNames(),rawUnits=bundle.subnet(0).outputUnits();
+		if(rawNames==null || rawUnits==null || rawNames.length!=6 || rawUnits.length!=6){throw new IllegalArgumentException("Malformed schema4 output names/units");}
+		for(int i=0;i<bundle.ordinarySize();i++){
+			final MagQCNetBundle.Subnet member=bundle.subnet(i);
+			if(member.expectedOutputs!=6 || !Arrays.equals(member.outputNames(),rawNames) || !Arrays.equals(member.outputUnits(),rawUnits)){
+				throw new IllegalArgumentException("Schema4 subnet output meanings differ at "+i);
+			}
+		}
+		final String[] names=new String[8],units=new String[8],derived=MagQCExpectedCopyFeatures.featureNames();
+		System.arraycopy(rawNames,0,names,0,4); System.arraycopy(rawUnits,0,units,0,4);
+		System.arraycopy(derived,0,names,4,2);
+		units[4]=units[5]=MagQCExpectedCopyFeatures.FEATURE_UNIT;
+		System.arraycopy(rawNames,4,names,6,2); System.arraycopy(rawUnits,4,units,6,2);
+		return new String[][]{names,units};
+	}
+
+	/** Number of network outputs before adding the two independently derived ratios. */
+	private int learnedSubnetOutputs(){return subnetFeatures==SUBNETFEATURES_EIGHT ? 6 : 4;}
 
 	/**
 	 * Selects the raw dense head: the K most-prevalent families (organism presence
@@ -1677,6 +1699,27 @@ public class MagQCVectorMaker implements Cloneable {
 
 	private static MagQCVectorMaker initializePreparedInternal(String bundle, String family, String release, String releasePin,
 			String table, String tablePin, String populations, String populationsPin, boolean verbose, boolean v14){
+		return initializePreparedInternal(bundle,family,release,releasePin,table,tablePin,populations,populationsPin,verbose,v14,false);
+	}
+
+	/** Explicit schema4 factory; old entry points never reinterpret new subnet outputs. */
+	static MagQCVectorMaker initializePreparedV16(String bundle,String family,String release,String releasePin,
+			String table,String tablePin,String populations,String populationsPin,String requiredness,String requirednessPin,
+			String markers,String markersPin,boolean allowFixture){
+		final MagQCVectorMaker vm=initializePreparedInternal(bundle,family,release,releasePin,table,tablePin,populations,populationsPin,true,true,true);
+		if(vm.v14Contract.fixture && !allowFixture){throw new IllegalArgumentException("Fixture bundle is not a production encoder");}
+		if(!vm.v14Contract.requirednessPin.equals(requirednessPin) || !vm.v14Contract.markersPin.equals(markersPin)){
+			throw new IllegalArgumentException("Schema4 observed features differ from the retained size/input contract");
+		}
+		vm.enableV14TrainingInputs(requiredness,requirednessPin); vm.enableV14SizeInputs(markers,markersPin);
+		vm.v14SizeNet=vm.loadedBundle.subnet(131).newReplayWorker(); vm.v14SizeInputs=new float[213];
+		vm.v14SizeBytes=new ByteBuilder(); vm.v14SizeParser=new LineParser1('\t');
+		if(vm.preparedSizeInputWidth()!=213 || vm.numAggInputs!=10246){throw new IllegalArgumentException("Schema4 encoder layout differs from213/10246");}
+		return vm;
+	}
+
+	private static MagQCVectorMaker initializePreparedInternal(String bundle,String family,String release,String releasePin,
+			String table,String tablePin,String populations,String populationsPin,boolean verbose,boolean v14,boolean v16){
 		final MagQCVectorMaker vm=new MagQCVectorMaker();
 		vm.v14Composite=v14;
 		vm.verbose=verbose;
@@ -1685,7 +1728,7 @@ public class MagQCVectorMaker implements Cloneable {
 		vm.expectedCopyTableFile=table; vm.expectedCopyTableSha256=tablePin;
 		vm.subnetPopulationsFile=populations; vm.subnetPopulationsSha256=populationsPin;
 		// Production composite recipe: run_composite_131_canary_20260928.sh uses enc=raw.
-		vm.subnetFeatures=SUBNETFEATURES_SIX; vm.aggObsServe=true; vm.enc=ENC_RAW;
+		vm.subnetFeatures=v16 ? SUBNETFEATURES_EIGHT : SUBNETFEATURES_SIX; vm.aggObsServe=true; vm.enc=ENC_RAW;
 		vm.loadConfiguredBundle();
 		if(vm.frozenInputs==null){throw new IllegalArgumentException("Prepared inference requires a frozen subnet input definition");}
 		vm.loadFamilyCount();
@@ -1737,8 +1780,12 @@ public class MagQCVectorMaker implements Cloneable {
 	}
 	/** Input-only output width, derived from the bound release rather than a caller-supplied number. */
 	int preparedInputWidth(){return numAggInputs;}
+	/** Meaning is versioned explicitly; equal input widths never substitute for this declaration. */
+	String preparedLayout(){return subnetFeatures==SUBNETFEATURES_EIGHT ? JOINT_EIGHT_COMPOSITE_LAYOUT : JOINT_COMPOSITE_LAYOUT;}
 	/** Population declarations bind the ordinary prefix, separately from the132-member release. */
 	String preparedOrdinaryManifestPin(){return loadedBundle.metadata(v14Composite ? "ordinary_release_manifest_sha80" : "release_manifest_sha256");}
+	/** Schema4 names the exact schema3 bundle whose size member and input definitions it retained. */
+	String preparedBaseBundlePin(){return loadedBundle.metadata("v16_base_bundle_sha80");}
 
 	/** Resolves an explicit frozen subnet ID once before producing its training rows. */
 	int preparedSubnetIndex(final String name){
@@ -1983,8 +2030,9 @@ public class MagQCVectorMaker implements Cloneable {
 	 *  are 4/1 under subnetfeatures=legacy (byte-identical to the pre-six formula) and 6/0 under six
 	 *  (design revision2 §4.1, "root: one shared calculation") -- set by loadAggBundleLegacy/Six. */
 	private int aggInputWidth(){
-		if(subnetFeatures==SUBNETFEATURES_SIX){
-			return sixCompositeInputWidth(aggSubnets.size(), denseRanks.length, numPhyla)+(v14Composite ? 21 : 0);
+		if(subnetFeatures!=SUBNETFEATURES_LEGACY){
+			return sixCompositeInputWidth(aggSubnets.size(), denseRanks.length, numPhyla)+(v14Composite ? 21 : 0)
+				+(subnetFeatures==SUBNETFEATURES_EIGHT ? Math.multiplyExact(2,aggSubnets.size()) : 0);
 		}
 		return aggSubnets.size()*subnetBlockWidth+pooledCols+2*denseRanks.length+numPhyla
 			+SHARED_CONTEXT_WIDTH+2*NCRNA_OBS+1;
@@ -2007,6 +2055,7 @@ public class MagQCVectorMaker implements Cloneable {
 	 * output clamp. Bump this ID when any column order, transform or numerical convention changes.
 	 */
 	static final String JOINT_COMPOSITE_LAYOUT="magqc_six_full_families_ratio_v1";
+	static final String JOINT_EIGHT_COMPOSITE_LAYOUT="magqc_eight_full_families_ratio_v1";
 
 	/** Package-visible for MagQCTool's phase-0 configuration validation (design revision2 §4.3 step
 	 *  2): derives numFam/numPhyla through the SAME read-only vocabulary loading MVM itself uses,
@@ -2545,7 +2594,7 @@ public class MagQCVectorMaker implements Cloneable {
 			observedByItem=expectedWidth>0 ? new int[expectedWidth] : null;
 			subnetObservedInputs=new float[owner.numFam+NCRNA_OBS+TRNA_ANTICODON_OBS];
 			subnetSharedInputs=new float[owner.numPhyla+CTX_N+DOMAINS];
-			subnetOutputs=new double[subnetCount*4]; subnetDerived=new double[subnetCount*2];
+			subnetOutputs=new double[subnetCount*owner.learnedSubnetOutputs()]; subnetDerived=new double[subnetCount*2];
 			subnetObs=new long[subnetCount]; subnetPred=new double[subnetCount];
 		}
 
@@ -2847,7 +2896,7 @@ public class MagQCVectorMaker implements Cloneable {
 	/** Evaluates each frozen subnet across the bounded row block, without changing row order. */
 	private void evaluateReplayBlock(ReplayBlockScratch block, int count){
 		if(aggSubnets==null || count<1){return;}
-		final boolean six=(subnetFeatures==SUBNETFEATURES_SIX);
+		final boolean six=(subnetFeatures!=SUBNETFEATURES_LEGACY);
 		for(int si=0; si<aggSubnets.size(); si++){
 			final AggSubnet s=aggSubnets.get(si);
 			for(int ri=0; ri<count; ri++){
@@ -2872,11 +2921,11 @@ public class MagQCVectorMaker implements Cloneable {
 					diag.feedForwardCalls++; diag.subnetInferenceNanos+=inferenceElapsed;
 				}
 				if(six){
-					for(int k=0; k<4; k++){
+					for(int k=0; k<learnedSubnetOutputs(); k++){
 						final float o=net.getOutput(k);
 						if(!Float.isFinite(o)){throw new RuntimeException("subnetfeatures=six: non-finite learned output "+sixNames[k]
 							+" from subnet "+s.name+" (order "+si+") for bin "+row.binId);}
-						row.subnetOutputs[si*4+k]=o;
+						row.subnetOutputs[si*learnedSubnetOutputs()+k]=o;
 					}
 					final long expectedCopyStart=(diag==null ? 0 : System.nanoTime());
 					final MagQCExpectedCopyFeatures.Result derived=expectedCopy.compute(si,row.observedByItem);
@@ -2908,15 +2957,15 @@ public class MagQCVectorMaker implements Cloneable {
 		int p=0; long obsTotal=0;
 		if("ncrna".equals(s.type)){
 			System.arraycopy(observed,numFam,s.buf,0,NCRNA_OBS); p=NCRNA_OBS;
-			if(subnetFeatures!=SUBNETFEATURES_SIX){for(int i=0; i<NCRNA_OBS; i++){obsTotal+=ncArr[i];}}
+			if(subnetFeatures==SUBNETFEATURES_LEGACY){for(int i=0; i<NCRNA_OBS; i++){obsTotal+=ncArr[i];}}
 		}else if("rrna".equals(s.type)){
 			System.arraycopy(observed,numFam,s.buf,0,RRNA_OBS); p=RRNA_OBS;
-			if(subnetFeatures!=SUBNETFEATURES_SIX){for(int i=0; i<RRNA_OBS; i++){obsTotal+=ncArr[i];}}
+			if(subnetFeatures==SUBNETFEATURES_LEGACY){for(int i=0; i<RRNA_OBS; i++){obsTotal+=ncArr[i];}}
 		}else if("trna_anticodon".equals(s.type)){
 			System.arraycopy(observed,numFam+NCRNA_OBS,s.buf,0,TRNA_ANTICODON_OBS); p=TRNA_ANTICODON_OBS;
-			if(subnetFeatures!=SUBNETFEATURES_SIX){for(int i=0; i<TRNA_ANTICODON_OBS; i++){obsTotal+=antiArr[i];}}
+			if(subnetFeatures==SUBNETFEATURES_LEGACY){for(int i=0; i<TRNA_ANTICODON_OBS; i++){obsTotal+=antiArr[i];}}
 		}else if("famset".equals(s.type)){
-			for(int r : s.ranks){s.buf[p++]=observed[r]; if(subnetFeatures!=SUBNETFEATURES_SIX){obsTotal+=famArr[r];}}
+			for(int r : s.ranks){s.buf[p++]=observed[r]; if(subnetFeatures==SUBNETFEATURES_LEGACY){obsTotal+=famArr[r];}}
 		}else{throw new RuntimeException("Unknown aggregator subnet type "+s.type+" for "+s.name);}
 		System.arraycopy(row.subnetSharedInputs,0,s.buf,p,row.subnetSharedInputs.length); p+=row.subnetSharedInputs.length;
 		assert(p==s.buf.length) : s.name+": filled "+p+" of "+s.buf.length;
@@ -2931,9 +2980,12 @@ public class MagQCVectorMaker implements Cloneable {
 		final long serializationStart=(diag==null ? 0 : System.nanoTime());
 		if(six){
 			for(int si=0; si<aggSubnets.size(); si++){
-				for(int k=0; k<4; k++){appendFmt(bb,row.subnetOutputs[si*4+k]); bb.tab();}
+				for(int k=0; k<4; k++){appendFmt(bb,row.subnetOutputs[si*learnedSubnetOutputs()+k]); bb.tab();}
 				appendFmt(bb,row.subnetDerived[si*2]); bb.tab();
 				appendFmt(bb,row.subnetDerived[si*2+1]); bb.tab();
+				if(subnetFeatures==SUBNETFEATURES_EIGHT){
+					for(int k=4;k<6;k++){appendFmt(bb,row.subnetOutputs[si*6+k]); bb.tab();}
+				}
 			}
 		}else{
 			for(int si=0; si<aggSubnets.size(); si++){
@@ -4640,7 +4692,7 @@ public class MagQCVectorMaker implements Cloneable {
 		prepareSubnetInputs(famArr,ncArr,antiArr,phylumIdx,domainIdx);
 		if(diag!=null){diag.contextNanos+=System.nanoTime()-contextStart;}
 
-		final boolean six=(subnetFeatures==SUBNETFEATURES_SIX);
+		final boolean six=(subnetFeatures!=SUBNETFEATURES_LEGACY);
 		if(six){
 			// Whole-bin observations for the table-derived features, stated once per row (design
 			// revision2 §4.1 step "Formatter"): NOT famArr/ncArr -- those alias fam/lastNcServe
@@ -4716,6 +4768,13 @@ public class MagQCVectorMaker implements Cloneable {
 				if(diag!=null){diag.expectedCopyNanos+=System.nanoTime()-expectedCopyStart;}
 				appendFmt(bb, r.observedExpected); bb.tab();
 				appendFmt(bb, r.excessExpected); bb.tab();
+				if(subnetFeatures==SUBNETFEATURES_EIGHT){
+					for(int k=4;k<6;k++){
+						final float raw=sharedPreparedSubnets ? s.preparedOutput[k] : net.getOutput(k);
+						if(!Float.isFinite(raw)){throw new IllegalStateException("Nonfinite raw magnifier from "+s.name);}
+						appendFmt(bb,raw); bb.tab();
+					}
+				}
 			}else{
 				final double pred=sharedPreparedSubnets ? s.preparedOutput[0] : net.getOutput(0);
 				final double ratio=Math.min(RATIO_CAP, obsTotal/Math.max(0.5, pred));
@@ -4915,7 +4974,7 @@ public class MagQCVectorMaker implements Cloneable {
 	// subnetfeatures= (opt-in, default legacy): see parseSubnetFeatures's javadoc. Six-mode-only
 	// fields: expectedCopy/observedByItem/sixNames/sixUnits are null/unset under legacy.
 	private int subnetFeatures=SUBNETFEATURES_LEGACY;
-	private static final int SUBNETFEATURES_LEGACY=0, SUBNETFEATURES_SIX=1;
+	private static final int SUBNETFEATURES_LEGACY=0, SUBNETFEATURES_SIX=1, SUBNETFEATURES_EIGHT=2;
 	private String expectedCopyTableFile, expectedCopyTableSha256, subnetPopulationsFile, subnetPopulationsSha256;
 	private MagQCExpectedCopyBinding expectedCopy;
 	private int[] observedByItem;

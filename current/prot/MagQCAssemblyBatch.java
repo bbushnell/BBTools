@@ -1,6 +1,9 @@
 package prot;
 
 import java.io.IOException;
+import java.io.BufferedWriter;
+import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -59,6 +62,7 @@ public final class MagQCAssemblyBatch {
 		verbose=Parse.parseBoolean(required("verbose"));
 		timings=options.containsKey("timings") && Parse.parseBoolean(required("timings"));
 		jobs=inputs(required("in"));
+		summaryOutput=prok.ProkCC.summaryDestination(required("summary"), jobs.size());
 		threads=Math.min(jobs.size(), options.containsKey("t") ? Parse.parseIntKMG(required("t")) : Shared.threads());
 		if(threads<1){throw new IllegalArgumentException("t must be positive");}
 		passes=Integer.parseInt(required("passes"));
@@ -94,7 +98,7 @@ public final class MagQCAssemblyBatch {
 		ffout=FileFormat.testOutput(output, FileFormat.TEXT, "txt", true, overwrite, false, false);
 		if(ffout!=null){
 			if(!ffout.canWrite()){throw new IllegalArgumentException("Cannot write output: "+output+" (overwrite="+overwrite+")");}
-			if(!ffout.stdio() && !ffout.devnull()){
+			if(reportStream()==null && !ffout.devnull()){
 				final Path target=Paths.get(ffout.name()).toAbsolutePath().normalize();
 				final String[] names=new String[jobs.size()+1];
 				for(int i=0; i<jobs.size(); i++){
@@ -107,6 +111,7 @@ public final class MagQCAssemblyBatch {
 				Tools.testForDuplicateFiles(true, names);
 			}
 		}
+		validateSummaryOutput();
 	}
 
 	/*--------------------------------------------------------------*/
@@ -195,10 +200,7 @@ public final class MagQCAssemblyBatch {
 			runWorkers(false);
 		}finally{callers=null;}
 		publish();
-		for(int i=0; i<jobs.size(); i++){
-			if(i>0){System.err.println();}
-			System.err.print(jobs.get(i).humanReport);
-		}
+		publishSummaries();
 		if(timings){printTimings(bindingNanos,callerSetupNanos,networkNanos,elapsed(processStart));}
 		if(verbose){
 			//TODO: Probable bug - errorfitset=NA names calibration provenance, not missing numeric error predictions.
@@ -220,6 +222,12 @@ public final class MagQCAssemblyBatch {
 
 	/** The subnet loader owns its formatter construction; no global CellNet mode is changed. */
 	private MagQCVectorMaker loadSubnets(){
+		if(MagQCNetworkHarness.eightFeatures(options)){
+			return MagQCVectorMaker.initializePreparedV16(required("bundle"), required("familylist"), required("subnetmanifest"),
+				required("subnetmanifestsha80"), required("expectedcopytable"), required("expectedcopytablesha80"),
+				required("subnetpopulations"), required("subnetpopulationssha80"), required("requiredness"),
+				required("requirednesssha80"), required("sizemarkers"), required("sizemarkerssha80"), false);
+		}
 		if(v14Configured(options)){
 			return MagQCVectorMaker.initializePreparedV14(required("bundle"), required("familylist"), required("subnetmanifest"),
 				required("subnetmanifestsha80"), required("expectedcopytable"), required("expectedcopytablesha80"),
@@ -450,20 +458,91 @@ public final class MagQCAssemblyBatch {
 		out.tab().appendSlow(job.workerNanos/1e9);
 		if(job.routing!=null){job.routing.append(out);}
 		out.nl();
-		job.humanReport=job.report.human(job.taxonomy, compRaw, contamRaw, comp, contam)+scoring.predictionNote();
+		if(summaryOutput!=null){
+			job.humanReport=job.report.human(job.taxonomy, compRaw, contamRaw, comp, contam)+scoring.predictionNote();
+		}
 	}
 
-	/** Publishes optional TSV data only after all bins succeed; screen reports are separate stderr output. */
+	/** Rejects destructive summary destinations before loading models or publishing TSV data. */
+	private void validateSummaryOutput() throws IOException{
+		if(summaryOutput==null){return;}
+		final boolean stdout=summaryOutput.equals("stdout"), stderr=summaryOutput.equals("stderr");
+		if(stdout || stderr){
+			// ReadWrite.getRawOutputStream routes stderr even though FileFormat labels it FILE.
+			if(summaryOutput.equals(reportStream())){
+				throw new IllegalArgumentException("summary and out must use different output streams");
+			}
+			return;
+		}
+		final Path target=Paths.get(summaryOutput).toAbsolutePath().normalize();
+		if(Files.exists(target) && (!Files.isRegularFile(target) || !Files.isWritable(target))){
+			throw new IllegalArgumentException("Cannot overwrite summary file: "+summaryOutput);
+		}
+		for(Job job:jobs){
+			if(sameDestination(target, Paths.get(job.path))){
+				throw new IllegalArgumentException("Summary must not overwrite an input assembly: "+summaryOutput);
+			}
+		}
+		if(ffout!=null && reportStream()==null && !ffout.devnull() && sameDestination(target, Paths.get(ffout.name()))){
+			throw new IllegalArgumentException("summary and out must use different files");
+		}
+	}
+
+	/** Matches ReadWrite's actual special output names, rather than FileFormat's basename classification. */
+	private String reportStream(){
+		if(ffout==null){return null;}
+		final String name=ffout.name();
+		if(name.equals("stdout") || name.startsWith("stdout.")){return "stdout";}
+		if(name.equals("stderr") || name.startsWith("stderr.")){return "stderr";}
+		return null;
+	}
+
+	/** Canonical paths catch aliases through parent symlinks; isSameFile also catches hard links. */
+	private static boolean sameDestination(Path a, Path b) throws IOException{
+		assert(a!=null && b!=null) : "Output collision checks require both resolved paths";
+		return a.toFile().getCanonicalFile().equals(b.toFile().getCanonicalFile()) ||
+			(Files.exists(a) && Files.exists(b) && Files.isSameFile(a, b));
+	}
+
+	/** Emits unchanged human text in input order, without closing the caller's standard streams. */
+	void publishSummaries() throws IOException{
+		if(summaryOutput==null){return;}
+		for(Job job:jobs){
+			if(job.humanReport==null){throw new IllegalStateException("Missing completed summary: "+job.path);}
+		}
+		final PrintStream stream=summaryOutput.equals("stderr") ? System.err :
+			(summaryOutput.equals("stdout") ? System.out : null);
+		if(stream!=null){
+			for(int i=0; i<jobs.size(); i++){
+				if(i>0){stream.println();}
+				stream.print(jobs.get(i).humanReport);
+			}
+			stream.flush();
+			if(stream.checkError()){throw new IOException("ProkCC summary publication failed: "+summaryOutput);}
+		}else{
+			final Path target=Paths.get(summaryOutput).toAbsolutePath();
+			Files.createDirectories(target.getParent());
+			// A summary path is literal plain text, overwritten independently of TSV's ow= setting.
+			try(BufferedWriter writer=Files.newBufferedWriter(target, StandardCharsets.UTF_8)){
+				for(int i=0; i<jobs.size(); i++){
+					if(i>0){writer.newLine();}
+					writer.write(jobs.get(i).humanReport);
+				}
+			}
+		}
+	}
+
+	/** Publishes optional TSV data only after all bins succeed; human summaries are routed separately. */
 	private void publish() throws IOException{
 		if(ffout==null){return;}// Omitted out or explicit out=null disables data output.
-		if(!ffout.stdio() && !ffout.devnull()){
+		if(reportStream()==null && !ffout.devnull()){
 			Files.createDirectories(Paths.get(ffout.name()).toAbsolutePath().getParent());
 		}
 		final ByteStreamWriter writer=new ByteStreamWriter(ffout);
 		writer.start();
 		try{
 			final ByteBuilder header=new ByteBuilder(2048);
-			header.append("#schema_version\tprokcc_assembly_scores_v4\n");
+			header.append("#schema_version\tprokcc_assembly_scores_v5\n");
 			MagQCNetworkHarness.appendBindings(header, options);
 			header.append("#netsha80\t").append(required("netsha80")).nl();
 			appendReportOptions(header);
@@ -471,6 +550,7 @@ public final class MagQCAssemblyBatch {
 			scorer.appendPredictionProvenance(header);
 			header.append("#error_estimates\tpredicted absolute errors in fraction units; not confidence intervals\n");
 			header.append("#assembly_statistics\twhole FASTA records; GC=GC/ACGT; coding density=summed CDS bp/assembly bp; quality=RNA-aware BinStats.type\n");
+			header.append("#quickclade_confidence\tclassifier rank:percent fields, preserved without recalibration; report-only, not taxonomy filters or MAG-QC error estimates; NA when unavailable\n");
 			header.append("#bin_worker_wall_seconds\tsum of per-bin taxonomy and calling/inference worker intervals, including input I/O; excludes shared setup, dispatch queues, phase barriers and report publication\n");
 			header.append("#columns\trow_index\tbin_id");
 			for(String name:scorer.names){header.tab().append(name);}
@@ -486,7 +566,10 @@ public final class MagQCAssemblyBatch {
 		}finally{
 			if(writer.poisonAndWait()){throw new IOException("ProkCC report writer failed");}
 		}
-		if(ffout.stdio() && System.out.checkError()){throw new IOException("ProkCC stdout publication failed");}
+		final String stream=reportStream();
+		if(stream!=null && (stream.equals("stdout") ? System.out : System.err).checkError()){
+			throw new IOException("ProkCC TSV publication failed: "+stream);
+		}
 	}
 
 	/*--------------------------------------------------------------*/
@@ -535,16 +618,19 @@ public final class MagQCAssemblyBatch {
 			"pgmcontigmin", "10000", "pgmcontigbatchbp", "5000000",
 			"taxaddress", "refseq", "taxmode", "server", "normalsearch", "t", "deterministic", "t", "comperrormultiplier", "1.0", "contamerrormultiplier", "1.0",
 			"errorfitset", "UNCALIBRATED", "errorfitdate", "NA", "errorcoverage", "NA",
-			"compositemode", "locked", "subnetmode", "locked", "loadmode", "parallel", "swapnl", "f", "verbose", "f", "ow", "t");
+			"compositemode", "locked", "subnetmode", "locked", "loadmode", "parallel", "swapnl", "f", "verbose", "f", "ow", "t", "summary", "auto");
 		lockedMode(values.get("compositemode")); lockedMode(values.get("subnetmode"));
 		parallelMode(values.get("loadmode"));
 		MagQCAssemblyInput.normalSearch(values);
-		v14Configured(values);
+		final boolean extended=v14Configured(values);
+		if(MagQCNetworkHarness.eightFeatures(values) && !extended){
+			throw new IllegalArgumentException("subnetfeatures=eight requires requiredness and size-marker resources");
+		}
 		return values;
 	}
 
 	/** V1.4 releases require both feature resources and their pins, or no schema extension at all. */
-	private static boolean v14Configured(HashMap<String,String> options){
+	static boolean v14Configured(HashMap<String,String> options){
 		int found=0;
 		for(String key:V14_KEYS){if(options.containsKey(key)){found++;}}
 		if(found!=0 && found!=V14_KEYS.length){
@@ -712,7 +798,7 @@ public final class MagQCAssemblyBatch {
 	private final boolean timings, sharedComposite, sharedSubnets, parallelLoad, swapNL, verbose;
 	private final long[] resourceNanos=new long[3];
 	private final int threads, passes, pgmContigMin, pgmContigBatchBp;
-	private final String pgmMode, taxMode;
+	private final String pgmMode, taxMode, summaryOutput;
 	private final MagQCErrorCalibration calibration;
 	private final FileFormat ffout;
 	private final MagQCAssemblyInput.Taxonomy override;
@@ -733,8 +819,8 @@ public final class MagQCAssemblyBatch {
 	private static final String[] V14_KEYS={"requiredness", "requirednesssha80", "sizemarkers", "sizemarkerssha80"};
 	static{
 		ALLOWED.addAll(Arrays.asList(RESOURCE_PATHS)); ALLOWED.addAll(Arrays.asList(REPORT_OPTIONS));
-		ALLOWED.addAll(Arrays.asList("pgmcontigmin", "pgmcontigbatchbp"));
-		ALLOWED.addAll(Arrays.asList("in", "out", "t", "taxaddress", "taxmode", "taxdomain", "taxphylum", "timings", "verbose", "ow", "errorcalibrationsha80", "taxsketchsha80"));
+		ALLOWED.addAll(Arrays.asList("pgmcontigmin", "pgmcontigbatchbp", "subnetfeatures"));
+		ALLOWED.addAll(Arrays.asList("in", "out", "summary", "t", "taxaddress", "taxmode", "taxdomain", "taxphylum", "timings", "verbose", "ow", "errorcalibrationsha80", "taxsketchsha80"));
 		ALLOWED.addAll(Arrays.asList(V14_KEYS));
 		for(String key:PINNED_RESOURCES){ALLOWED.add(key+"sha80");}
 	}

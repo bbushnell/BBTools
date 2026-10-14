@@ -28,6 +28,19 @@ public final class ProkCC {
 
 	private ProkCC(){}
 
+	/** Resolves human-summary routing after input expansion; literal file names retain their case. */
+	public static String summaryDestination(String selection, int inputFiles){
+		if(inputFiles<1){throw new IllegalArgumentException("Summary routing requires at least one input file");}
+		if(selection==null || selection.isEmpty()){
+			throw new IllegalArgumentException("summary requires auto, stderr, stdout, null, or a file path");
+		}
+		if("auto".equalsIgnoreCase(selection)){return inputFiles==1 ? "stderr" : null;}
+		if("null".equalsIgnoreCase(selection)){return null;}
+		if("stderr".equalsIgnoreCase(selection)){return "stderr";}
+		if("stdout".equalsIgnoreCase(selection)){return "stdout";}
+		return selection;
+	}
+
 	/**
 	 * Scores the shipped default composite, loading its release and model on first
 	 * call inside this monitor. Input is the raw composite vector; output order and

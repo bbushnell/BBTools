@@ -69,6 +69,7 @@ public final class MagQCCompositeInference {
 		public Binding(Map<String,String> source, int width_){
 			if(source==null || width_<1){throw new IllegalArgumentException("Composite binding requires options and positive width");}
 			width=width_; options=new HashMap<String,String>();
+			options.put("subnetfeatures", MagQCNetworkHarness.eightFeatures(source) ? "eight" : "six");
 			for(String key:RESOURCES){
 				final String path=source.get(key), pin=source.get(key+"sha80");
 				if(path==null || path.isEmpty() || pin==null || !pin.matches("[0-9a-f]{20}")){

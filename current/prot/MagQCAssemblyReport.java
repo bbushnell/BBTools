@@ -57,6 +57,7 @@ final class MagQCAssemblyReport {
 		if(Double.isNaN(gc)){out.append("NA");}else{out.appendSlow(gc);}
 		out.tab().append(cds).tab().appendSlow(coding).tab().append(r16).tab().append(r23);
 		out.tab().append(r5).tab().append(trna).tab().append(quality(comp, contam)).tab().append("NA");
+		out.tab().append(tax.confidentLevel).tab().append(tax.confidenceProfile);
 	}
 
 	/** Uses GradeBins' existing RNA-aware extended MIMAG classifier without clipping predictions. */
@@ -107,7 +108,8 @@ final class MagQCAssemblyReport {
 	static String columns(boolean swapNL){
 		return "\treference_name\treference_taxid\tani_fraction\tcontigs\tgenome_size_bp"
 			+(swapNL ? "\tl50_contigs\tn50_bp\tl90_contigs\tn90_bp" : "\tn50_contigs\tl50_bp\tn90_contigs\tl90_bp")
-			+"\tgc_fraction\tcds\tcoding_density_fraction\tr16\tr23\tr5\ttrna\tquality\tr18";
+			+"\tgc_fraction\tcds\tcoding_density_fraction\tr16\tr23\tr5\ttrna\tquality\tr18"
+			+"\tqc_confident_level\tqc_confidence_profile_percent";
 	}
 	private final boolean swapNL;
 	private final int contigs, cds, r16, r23, r5, trna;

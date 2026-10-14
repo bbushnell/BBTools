@@ -480,7 +480,10 @@ final class MagQCAssemblyInput {
 			}
 			final double ani=optional>=6 ? Double.parseDouble(fields[lineage-6]) : -1;
 			if(ani < -1 || ani>1){throw malformed("ANI outside its fraction range");}
-			taxonomies[query]=new Taxonomy(ranks.domain, ranks.phylum, fields[4], Long.parseLong(fields[5]), ani);
+			// Confidence follows lineage even when optional sketch/composite fields follow it.
+			// Retain it for reports only: feature taxonomy still comes solely from lineage.
+			taxonomies[query]=new Taxonomy(ranks.domain, ranks.phylum, fields[4], Long.parseLong(fields[5]), ani,
+				fields[lineage+1], fields[lineage+2]);
 		}
 		if(query!=taxonomies.length-1){throw malformed("missing query envelope");}
 		return taxonomies;
@@ -576,12 +579,23 @@ final class MagQCAssemblyInput {
 			this(domain_, phylum_, "NA", -1, -1);
 		}
 		Taxonomy(String domain_, String phylum_, String name_, long taxId_, double ani_){
+			this(domain_, phylum_, name_, taxId_, ani_, "NA", "NA");
+		}
+		Taxonomy(String domain_, String phylum_, String name_, long taxId_, double ani_,
+				String confidentLevel_, String confidenceProfile_){
 			domain=domain_; phylum=phylum_;
 			if(domain.equals("unknown") && !phylum.equals("unknown")){throw malformed("phylum without domain");}
 			status=domain.equals("unknown") ? "unknown" : phylum.equals("unknown") ? "partial" : "classified";
 			name=name_; taxId=taxId_; ani=ani_;
+			confidentLevel=reportConfidence(confidentLevel_);
+			confidenceProfile=reportConfidence(confidenceProfile_);
+		}
+		/** Disabled or missing profiles are unavailable; the classifier's explicit None is retained. */
+		private static String reportConfidence(String value){
+			return value==null || value.isEmpty() || value.equals(".") ? "NA" : value;
 		}
 		final String status, domain, phylum, name;
+		final String confidentLevel, confidenceProfile;
 		final long taxId;
 		final double ani;
 	}

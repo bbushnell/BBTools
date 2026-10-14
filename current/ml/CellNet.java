@@ -1143,8 +1143,16 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 	 * @return ByteBuilder containing formatted network header
 	 */
 	public ByteBuilder header(){
+		return header(false);
+	}
+
+	/** Node rows are explicit sparse records; legacy callers retain their selected layout. */
+	private ByteBuilder header(final boolean nodeRows){
 		if(weightBits<32 && !codingA48Out){throw new IllegalStateException("Reduced-precision edge output requires A48 coding");}
-		final boolean outputDense=OUT_DENSE || (DENSE && !OUT_SPARSE);
+		if(nodeRows && (OUT_DENSE || OUT_HEX || !CONCISE || !codingA48Out)){
+			throw new IllegalStateException("Node rows require concise A48 sparse output without dense/hex overrides");
+		}
+		final boolean outputDense=!nodeRows && (OUT_DENSE || (DENSE && !OUT_SPARSE));
 		if(OUT_DELTA_A48 && !outputDense && OUT_HEX){
 			throw new IllegalStateException("Sparse delta-A48 input encoding is mutually exclusive with H-line bitset encoding");
 		}
@@ -1157,6 +1165,7 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 		bb.append("##simd_bp ").append(Shared.SIMD && Shared.SIMD_BACKPROP).nl();
 		if(CONCISE){bb.append("#concise").nl();} //Format options
 		bb.append(outputDense ? "#dense" : "#sparse").nl();
+		if(nodeRows){bb.append("#noderows biasfirst").nl();}
 		bb.append("#density ").append(density, 8, true).nl(); //Network parameters
 		if(density1>0 && density1!=density){bb.append("#density1 ").append(density1, 8, true).nl();}
 		bb.append("#blocksize ").append(edgeBlockSize).nl();
@@ -1314,9 +1323,16 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 	 * @return ByteBuilder containing complete serialized network
 	 */
 	public ByteBuilder toBytes(){
+		return toBytes(false);
+	}
+
+	/** Opt-in node rows: N{id}, function, indices, weights. Index -1 denotes the bias.
+	 * Including the bias in both groups makes their lengths equal and inferable from the row.
+	 * Bias remains float32; only ordinary edges use the selected weightBits precision. */
+	public ByteBuilder toBytes(final boolean nodeRows){
 		
-		ByteBuilder bb=header(); //Include metadata header
-		final boolean outputDense=OUT_DENSE || (DENSE && !OUT_SPARSE);
+		ByteBuilder bb=header(nodeRows); //Include metadata header
+		final boolean outputDense=!nodeRows && (OUT_DENSE || (DENSE && !OUT_SPARSE));
 		final boolean outputZeroAbsent=outputDense && (DENSE ? zeroAbsent : hasAbsentSparseInputs());
 		final long liveEdges=outputLiveEdges(outputDense, outputZeroAbsent);
 		if(outputZeroAbsent){
@@ -1334,6 +1350,11 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 			bb.append("##layer ").append(lnum).nl(); //Layer header
 			for(Cell c : layer){ //Each neuron in layer
 				if(weightBits<32 && !Float.isFinite(c.bias())){throw new IllegalArgumentException("Cannot encode nonfinite bias in a reduced-precision network");}
+				if(nodeRows){
+					appendNodeRow(bb, c);
+					lastLinesWritten++;
+					continue;
+				}
 				if(DENSE){ //Dense network format
 					if(OUT_SPARSE){ //Force sparse output
 						lastLinesWritten+=2;
@@ -1430,6 +1451,30 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 			}
 		}
 		return bb;
+	}
+
+	/** Writes equal index/value groups in source order, preserving explicit active zero edges. */
+	private void appendNodeRow(final ByteBuilder bb, final Cell c){
+		if(c.function==null || c.weights==null || !Float.isFinite(c.bias())){
+			throw new IllegalArgumentException("Node record requires initialized finite parameters for cell "+c.id());
+		}
+		if(c.inputs!=null && c.inputs.length!=c.weights.length){throw new IllegalStateException("Mismatched node edge arrays");}
+		bb.append('N').append(c.id()).space().append(c.typeString()).append(" -1");
+		int previous=-1;
+		for(int i=0; i<c.weights.length; i++){
+			if(c.inputs==null && zeroAbsent && c.weights[i]==0){continue;}
+			final int input=c.inputs==null ? i : c.inputs[i];
+			if(input<=previous || input>=dims[c.layer-1]){throw new IllegalArgumentException("Node inputs must be ordered within previous layer");}
+			if(OUT_DELTA_A48){appendInputDeltaA48(bb, input, previous);}else{bb.space().append(input);}
+			previous=input;
+		}
+		bb.space().appendFloatA48(c.bias());
+		for(int i=0; i<c.weights.length; i++){
+			if(c.inputs==null && zeroAbsent && c.weights[i]==0){continue;}
+			if(!Float.isFinite(c.weights[i])){throw new IllegalArgumentException("Node weights must be finite for cell "+c.id());}
+			appendWeight(bb, c.weights[i]);
+		}
+		bb.nl();
 	}
 	
 	/**

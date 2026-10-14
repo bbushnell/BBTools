@@ -23,10 +23,15 @@ in=<file>             Assembly FASTA, comma-separated files, or a directory.
 out=<file>            Optional TSV data output; omitted by default.
                       Use out=stdout for TSV on stdout; out=null discards TSV.
                       Results are published only after every bin succeeds.
+summary=auto          Human-readable summary destination: auto, stderr, stdout,
+                      null, or a file path. Auto uses stderr for one input file
+                      and null for multiple files, including directory inputs.
+                      A path is overwritten with plain text, even with ow=f.
+                      Summary and TSV output must use separate destinations.
 ow=t                  Overwrite existing output. Set ow=f to protect existing files.
 config=<file>         Release configuration. Default: resources/prokcc/release.config
                       beside this installation. Relative resource paths use the
-                      config directory; in/out paths use the working directory.
+                      config directory; in/out/summary paths use the working directory.
 
 Processing parameters:
 t=<integer>           Bin workers; defaults to available threads, capped by inputs.
@@ -67,8 +72,10 @@ The archive contains the matching configuration, models, and tables. Downloads
 are manual. See resources/prokcc/README.md for the model and release details.
 
 Output:
-Aligned human-readable reports always go to stderr, one block per bin. Without
-out=, stdout is empty. Completeness, contamination, their errors, ANI, and coding
+Aligned human-readable reports default to stderr for one input file and are
+suppressed for multiple files. Explicit summary= selects a destination for all
+bins, one block per bin. Without out= or summary=stdout, stdout is empty.
+Completeness, contamination, their errors, ANI, and coding
 density are percentages in the screen reports. GC is a fraction.
 The TSV contains completeness/contamination, raw model heads, predicted
 absolute errors, taxonomy provenance, input sha80, reference name/TaxID/ANI,

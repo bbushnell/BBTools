@@ -89,7 +89,8 @@ public final class MagQCExpectedCopyBinding {
 		}
 		final Declaration declaration=parseDeclaration(declarationPath);
 
-		final String rm=bundle.metadata("3".equals(bundle.metadata("schema_version")) ? "ordinary_release_manifest_sha80" : "release_manifest_sha256");
+		final String rm=bundle.metadata("3".equals(bundle.metadata("schema_version")) || bundle.eightFeatures() ?
+			"ordinary_release_manifest_sha80" : "release_manifest_sha256");
 		if(!matchesBundleDigest(bundle,rm,declaration.releaseManifestSha256)){
 			fail("release manifest hash mismatch between bundle and declaration");
 		}

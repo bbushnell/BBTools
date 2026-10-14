@@ -29,9 +29,12 @@ final class ModifyNNPartition {
 		final boolean[] oldShared=new boolean[oldWidth];
 		final boolean[][] oldAllowed=new boolean[oldHeads][oldWidth];
 		final Object scheme=json.omap.get("scheme");
-		if("half_shared_v1".equals(scheme)){
+		if("half_shared_v1".equals(scheme) || "fixed_shared_v1".equals(scheme)){
 			final int shared=integer(json.omap.get("shared")), privateCount=oldWidth-shared;
-			if(shared!=oldWidth/2 || privateCount<oldHeads){throw new IllegalArgumentException("Invalid half-shared dimensions");}
+			final boolean fixed="fixed_shared_v1".equals(scheme);
+			if(privateCount<oldHeads || (fixed ? shared<1 || privateCount%oldHeads!=0 : shared!=oldWidth/2)){
+				throw new IllegalArgumentException("Invalid shared/private dimensions for "+scheme);
+			}
 			final Object[] counts=array(json.omap.get("private_counts")), order=array(json.omap.get("head_order"));
 			if(counts.length!=oldHeads || order.length!=oldHeads){throw new IllegalArgumentException("Missing private counts or head order");}
 			Arrays.fill(oldShared, 0, shared, true);

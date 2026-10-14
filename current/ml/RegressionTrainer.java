@@ -22,6 +22,7 @@ import shared.Shared;
 import shared.Timer;
 import shared.Tools;
 import structures.ByteBuilder;
+import structures.DoubleList;
 
 /**
  * Trains a feed-forward network for CONTINUOUS outputs and saves it in BBNet format
@@ -87,7 +88,10 @@ import structures.ByteBuilder;
  * in the .bbnet format), so the first resumed step is still a smaller, LR-scaled kick.
  *
  * Input format: same as train.sh — '#dims &lt;in&gt; &lt;out&gt;' header, then tab-delimited
- * floats, inputs first, then &lt;out&gt; target columns.  MULTIPLE OUTPUTS are supported: the
+ * floats, inputs first, then &lt;out&gt; target columns. An optional third header
+ * value of 1 declares one positive finite weight between inputs and targets.
+ * Weighted losses and batch gradients are normalized by weight mass, not row count.
+ * MULTIPLE OUTPUTS are supported: the
  * last dims entry sets the output width, loss is summed squared error across outputs, and
  * every output is checked on the round trip.  One output remains the common case and its
  * behaviour is unchanged.
@@ -383,32 +387,77 @@ public class RegressionTrainer {
 		final ArrayList<float[]> vectorList=new ArrayList<float[]>();
 		final ArrayList<float[]> targetList=new ArrayList<float[]>();
 		final LineParser1 lp=new LineParser1('\t');
+		DoubleList weightList=null;
+		boolean weighted=false;
 
 		//Hoisted out of the loop so the common case costs one test, not one per line
 		final boolean check=checkExponents && !Tools.FORCE_JAVA_PARSE_DOUBLE;
 
 		final ByteFile bf=ByteFile.makeByteFile(ff);
-		for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()){
+		try{for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()){
 			if(line.length==0){continue;}
 			if(line[0]=='#'){
-				if(Tools.startsWith(line, "#dims")){checkHeader(line, lp, name);}
+				if(Tools.startsWith(line, "#dims")){
+					checkHeader(line, lp, name);
+					if(lp.terms()>3 && (lp.terms()!=4 || !lp.termEquals("0", 3) && !lp.termEquals("1", 3))){
+						throw new IllegalArgumentException("Expected #dims inputs outputs [0|1] in "+name);
+					}
+					final boolean declared=lp.terms()==4 && lp.termEquals("1", 3);
+					if(declared && (lp.parseInt(1)!=numInputs || lp.parseInt(2)!=numOutputs)){
+						throw new IllegalArgumentException("Weighted header must match dims= to locate the weight column in "+name);
+					}
+					if(!vectorList.isEmpty() && declared!=weighted){
+						throw new IllegalArgumentException("Weight layout changed after data rows in "+name);
+					}
+					weighted=declared;
+					if(weighted && weightList==null){weightList=new DoubleList();}
+					if(!weighted){weightList=null;}
+				}
 				continue;
 			}
 			if(check && hasExponent(line)){
-				errorState|=bf.close();
 				return null;
 			}
 			lp.set(line);
-			if(lp.terms()<numInputs+numOutputs){continue;}
+			final int targetStart=numInputs+(weighted ? 1 : 0);
+			if(weighted && lp.terms()!=targetStart+numOutputs){
+				throw new IllegalArgumentException("Weighted row has wrong column count in "+name);
+			}
+			if(lp.terms()<targetStart+numOutputs){continue;}//Legacy unweighted handling.
+			if(weighted){
+				final double weight=parseRowWeight(lp, numInputs);
+				if(!Double.isFinite(weight) || weight<=0){
+					throw new IllegalArgumentException("Row weight must be finite and positive in "+name+": "+weight);
+				}
+				if(useSimd && (!Float.isFinite((float)weight) || (float)weight<=0)){
+					throw new IllegalArgumentException("SIMD row weight must be representable as a positive finite float in "+name);
+				}
+				weightList.add(weight);
+			}
 			final float[] vector=new float[numInputs];
 			final float[] target=new float[numOutputs];
 			for(int i=0; i<numInputs; i++){vector[i]=lp.parseFloat(i);}
-			for(int k=0; k<numOutputs; k++){target[k]=lp.parseFloat(numInputs+k);}
+			for(int k=0; k<numOutputs; k++){target[k]=lp.parseFloat(targetStart+k);}
 			vectorList.add(vector);
 			targetList.add(target);
+		}}finally{errorState|=bf.close();}
+		return new RegressionData(vectorList, targetList, weightList==null ? null : weightList.toArray());
+	}
+
+	/** Fast decimal weights allocate nothing; unusual/long syntax uses the strict JDK parser. */
+	private static double parseRowWeight(final LineParser1 parser, final int column){
+		parser.setBounds(column);
+		final int a=parser.a(), b=parser.b();
+		final byte[] line=parser.line();
+		boolean fast=b>a && b-a<=18;
+		int dots=0, digits=0;
+		for(int i=a; i<b && fast; i++){
+			final byte c=line[i];
+			if(c=='.'){fast=(++dots==1);}
+			else if(c>='0' && c<='9'){digits++;}
+			else{fast=false;}
 		}
-		errorState|=bf.close();
-		return new RegressionData(vectorList, targetList);
+		return fast && digits>0 ? Parse.parseDouble(line, a, b) : Parse.parseDoubleSlow(line, a, b);
 	}
 
 	/** @param line A data line
@@ -766,10 +815,11 @@ public class RegressionTrainer {
 				}
 				final double lrNow=lr*0.5*(1+Math.cos(Math.PI*(ep-1)/epochs));
 				double trainMse=0;
+				final double epochMass=trainingWeightMass(order, 0, active);
 
 				for(int start=0; start<active; start+=batch){
 					final int end=Math.min(active, start+batch);
-					final int bs=end-start;
+					final double mass=trainingWeightMass(order, start, end);
 					if(useSimd){
 						if(gradientPool==null){//Exact legacy order for the default one-thread path
 							zeroGradientsF();
@@ -788,7 +838,7 @@ public class RegressionTrainer {
 					}
 
 					step++;
-					if(useSimd){applyAdamF(bs, step, lrNow);}else{applyAdam(bs, step, lrNow);}
+					if(useSimd){applyAdamF(mass, step, lrNow);}else{applyAdam(mass, step, lrNow);}
 					if(normalize && normFactor>1e-4f){normalizeWeights();}
 				}
 
@@ -811,7 +861,7 @@ public class RegressionTrainer {
 				if(ep%effPrintEvery==0 || ep==effStart || ep==epochs){
 					outstream.println(String.format(
 						"epoch %d lr=%.5f trainMSE=%.6f valMSE=%.6f best=%.6f",
-						ep, lrNow, trainMse/Math.max(1, active), validMse, bestValid));
+						ep, lrNow, trainMse/epochMass, validMse, bestValid));
 				}
 			}
 		}finally{
@@ -1046,6 +1096,7 @@ public class RegressionTrainer {
 		}
 
 		final float[] outs=actLocal[layers];
+		final double rowWeight=trainingData.rowWeights==null ? 1 : trainingData.rowWeights[sample];
 		double sqErr=0, absErr=0;
 		for(int k=0; k<numOutputs; k++){
 			final double outv=outs[k];
@@ -1053,6 +1104,7 @@ public class RegressionTrainer {
 			sqErr+=err*err;
 			absErr+=Math.abs(err);
 			deltaLocal[layers][k]=(float)(2*err*finDeriv(outv, finalType));
+			if(trainingData.rowWeights!=null){deltaLocal[layers][k]=(float)(deltaLocal[layers][k]*rowWeight);}
 		}
 		if(sampleError!=null){sampleError[sample]=(float)(absErr/numOutputs);}
 
@@ -1084,7 +1136,7 @@ public class RegressionTrainer {
 				}
 			}
 		}
-		return sqErr;
+		return trainingData.rowWeights==null ? sqErr : sqErr*rowWeight;
 	}
 
 	/** Runs one batch on fixed worker partitions and reduces gradients in worker order. */
@@ -1141,10 +1193,12 @@ public class RegressionTrainer {
 	}
 
 	/** Float Adam update, then refresh the transpose the backward pass reads.
-	 * @param bs Batch size
+	 * @param mass Sum of row weights, or batch size for legacy unweighted input
 	 * @param step Global step count
 	 * @param lrNow Current learning rate */
-	private void applyAdamF(final int bs, final long step, final double lrNow){
+	private void applyAdamF(final double mass, final long step, final double lrNow){
+		final float divisor=(float)mass;
+		if(!Float.isFinite(divisor) || divisor<=0){throw new IllegalArgumentException("Float batch weight mass is not representable: "+mass);}
 		final float c1=(float)(1-Math.pow(BETA1, step)), c2=(float)(1-Math.pow(BETA2, step));
 		final float b1=(float)BETA1, b2=(float)BETA2, eps=(float)EPS, lrF=(float)lrNow, wdF=(float)wd;
 		for(int l=0; l<layers; l++){
@@ -1156,12 +1210,12 @@ public class RegressionTrainer {
 				final float[] wi=w[i], gi=gw[i], mi=mw[i], vi=vw[i];
 				for(int j=0; j<cols; j++){
 					if(mask!=null && !mask[p+j]){continue;}
-					final float g=gi[j]/bs+wdF*wi[j];
+					final float g=gi[j]/divisor+wdF*wi[j];
 					mi[j]=b1*mi[j]+(1-b1)*g;
 					vi[j]=b2*vi[j]+(1-b2)*g*g;
 					wi[j]-=lrF*(mi[j]/c1)/((float)Math.sqrt(vi[j]/c2)+eps);
 				}
-				final float g=gb[i]/bs;
+				final float g=gb[i]/divisor;
 				mb[i]=b1*mb[i]+(1-b1)*g;
 				vb[i]=b2*vb[i]+(1-b2)*g*g;
 				b[i]-=lrF*(mb[i]/c1)/((float)Math.sqrt(vb[i]/c2)+eps);
@@ -1289,6 +1343,7 @@ public class RegressionTrainer {
 		}
 
 		final double[] outs=act[layers];
+		final double rowWeight=trainingData.rowWeights==null ? 1 : trainingData.rowWeights[sample];
 		double sqErr=0, absErr=0;
 		for(int k=0; k<numOutputs; k++){
 			final double outv=outs[k];
@@ -1296,6 +1351,7 @@ public class RegressionTrainer {
 			sqErr+=err*err;
 			absErr+=Math.abs(err);
 			delta[layers][k]=2*err*finDeriv(outv, finalType);
+			if(trainingData.rowWeights!=null){delta[layers][k]*=rowWeight;}
 		}
 		if(sampleError!=null){sampleError[sample]=(float)(absErr/numOutputs);}
 
@@ -1318,16 +1374,17 @@ public class RegressionTrainer {
 				}
 			}
 		}
-		return sqErr;
+		return trainingData.rowWeights==null ? sqErr : sqErr*rowWeight;
 	}
 
 	/**
 	 * Applies one Adam update using the accumulated gradients.
-	 * @param bs Batch size used for gradient averaging
+	 * @param mass Row weight mass used for gradient averaging
 	 * @param step Global step count, for bias correction
 	 * @param lrNow Current learning rate
 	 */
-	private void applyAdam(final int bs, final long step, final double lrNow){
+	private void applyAdam(final double mass, final long step, final double lrNow){
+		assert(Double.isFinite(mass) && mass>0) : "Validated positive row weights must have finite batch mass";
 		final double c1=1-Math.pow(BETA1, step), c2=1-Math.pow(BETA2, step);
 		for(int l=0; l<layers; l++){
 			final int rows=dims[l+1], cols=dims[l];
@@ -1339,12 +1396,12 @@ public class RegressionTrainer {
 				for(int j=0; j<cols; j++){
 					final int q=p+j;
 					if(mask!=null && !mask[q]){continue;}//pruned edge stays exactly 0
-					final double g=gw[q]/bs+wd*w[q];
+					final double g=gw[q]/mass+wd*w[q];
 					mw[q]=BETA1*mw[q]+(1-BETA1)*g;
 					vw[q]=BETA2*vw[q]+(1-BETA2)*g*g;
 					w[q]-=lrNow*(mw[q]/c1)/(Math.sqrt(vw[q]/c2)+EPS);
 				}
-				final double g=gb[i]/bs;
+				final double g=gb[i]/mass;
 				mb[i]=BETA1*mb[i]+(1-BETA1)*g;
 				vb[i]=BETA2*vb[i]+(1-BETA2)*g*g;
 				b[i]-=lrNow*(mb[i]/c1)/(Math.sqrt(vb[i]/c2)+EPS);
@@ -1372,7 +1429,31 @@ public class RegressionTrainer {
 		}else{
 			sum=sumSquaredErrorRange(0, numValid, scratchA, scratchB);
 		}
-		return sum/numValid;
+		return sum/validationWeightMass();
+	}
+
+	/** Sums the selected training weights; the unweighted path retains the exact integer divisor. */
+	private double trainingWeightMass(final int[] order, final int start, final int end){
+		assert(start>=0 && end>start && end<=order.length) : "A training batch must contain valid selected rows";
+		if(trainingData.rowWeights==null){return end-start;}
+		double sum=0;
+		for(int i=start; i<end; i++){sum+=trainingData.rowWeights[order[i]];}
+		return checkedMass(sum);
+	}
+
+	/** Uses the same external or shuffled internal validation rows as the error accumulation. */
+	private double validationWeightMass(){
+		final RegressionData data=validationData==null ? trainingData : validationData;
+		if(data.rowWeights==null){return numValid;}
+		double sum=0;
+		for(int i=0; i<numValid; i++){sum+=data.rowWeights[validationData==null ? perm[numTrain+i] : i];}
+		return checkedMass(sum);
+	}
+
+	/** Overflow must fail before a weighted loss or gradient silently becomes zero. */
+	private static double checkedMass(final double mass){
+		if(!Double.isFinite(mass) || mass<=0){throw new IllegalArgumentException("Invalid total row weight: "+mass);}
+		return mass;
 	}
 
 	/** Float/SIMD forward pass (Phase 2, 2026-08-31) -- same computation as
@@ -1419,8 +1500,8 @@ public class RegressionTrainer {
 				final float[] p=predictF(trainingData.inputs[sample], actBuf);
 				final float[] target=trainingData.targets[sample];
 				for(int k=0; k<numOutputs; k++){
-					final double e=p[k]-target[k];
-					sum+=e*e;
+					final double e=trainingData.rowWeights==null ? p[k]-target[k] : (double)p[k]-target[k];
+					sum+=trainingData.rowWeights==null ? e*e : e*e*trainingData.rowWeights[sample];
 				}
 			}
 		}else{
@@ -1428,8 +1509,8 @@ public class RegressionTrainer {
 				final float[] p=predictF(validationData.inputs[i], actBuf);
 				final float[] target=validationData.targets[i];
 				for(int k=0; k<numOutputs; k++){
-					final double e=p[k]-target[k];
-					sum+=e*e;
+					final double e=validationData.rowWeights==null ? p[k]-target[k] : (double)p[k]-target[k];
+					sum+=validationData.rowWeights==null ? e*e : e*e*validationData.rowWeights[i];
 				}
 			}
 		}
@@ -1451,7 +1532,7 @@ public class RegressionTrainer {
 				final float[] target=trainingData.targets[sample];
 				for(int k=0; k<numOutputs; k++){
 					final double e=p[k]-target[k];
-					sum+=e*e;
+					sum+=trainingData.rowWeights==null ? e*e : e*e*trainingData.rowWeights[sample];
 				}
 			}
 		}else{
@@ -1460,7 +1541,7 @@ public class RegressionTrainer {
 				final float[] target=validationData.targets[i];
 				for(int k=0; k<numOutputs; k++){
 					final double e=p[k]-target[k];
-					sum+=e*e;
+					sum+=validationData.rowWeights==null ? e*e : e*e*validationData.rowWeights[i];
 				}
 			}
 		}
@@ -1662,18 +1743,28 @@ public class RegressionTrainer {
 	private static final class RegressionData {
 
 		RegressionData(ArrayList<float[]> inputList, ArrayList<float[]> targetList){
+			this(inputList, targetList, null);
+		}
+
+		RegressionData(ArrayList<float[]> inputList, ArrayList<float[]> targetList, double[] rowWeights_){
 			if(inputList.size()!=targetList.size()){
 				throw new IllegalArgumentException("Input/target row count mismatch: "
 					+inputList.size()+" != "+targetList.size());
 			}
 			inputs=inputList.toArray(new float[inputList.size()][]);
 			targets=targetList.toArray(new float[targetList.size()][]);
+			if(rowWeights_!=null && rowWeights_.length!=inputs.length){
+				throw new IllegalArgumentException("Row weights must align one-to-one with input/target rows");
+			}
+			rowWeights=rowWeights_;
 		}
 
 		int size(){return inputs.length;}
 
 		final float[][] inputs;
 		final float[][] targets;
+		/** Null preserves the legacy unweighted calculation without an allocated unit-weight vector. */
+		final double[] rowWeights;
 	}
 
 	/** Reusable task with private forward/backward scratch and gradient buffers. */
