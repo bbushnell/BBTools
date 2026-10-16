@@ -4625,6 +4625,10 @@ public abstract class Tadpole extends ShaveObject{
 		localTracker.set(new ErrorTracker());
 	}
 	
+	/** Optional observation-only contig-walk sink; installed by the diagnostic driver before workers start. */
+	LiveBranchObserver liveBranchObserver;
+	/** Development-only interior rescue; null preserves all native branch decisions. */
+	LiveBranchGate liveBranchGate;
 	protected ThreadLocal<int[]> localLeftCounts=new ThreadLocal<int[]>();
 	protected ThreadLocal<int[]> localRightCounts=new ThreadLocal<int[]>();
 	protected ThreadLocal<int[]> localExtraCounts=new ThreadLocal<int[]>();

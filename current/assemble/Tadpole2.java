@@ -1335,6 +1335,12 @@ public class Tadpole2 extends Tadpole {
 			outstream.println("rightSecond="+rightSecond);
 		}
 		
+		if(liveBranchObserver!=null && leftCounts!=null){
+			final boolean lb=isJunction(leftMax, leftSecond), rb=isJunction(rightMax, rightSecond);
+			if(liveBranchObserver.sample(kmer.xor(), lb || rb)){
+				liveBranchObserver.record(kmer, count, leftCounts, rightCounts, lb, rb, -1, true, false);
+			}
+		}
 		if(rightMax<minCountExtend){return DEAD_END;}
 		if(isJunction(rightMax, rightSecond)){//Returning here is fine because nothing can be added
 			if(verbose){outstream.println("B: Breaking because isJunction("+rightMax+", "+rightSecond+", "+leftMax+", "+leftSecond+")");}
@@ -1397,9 +1403,17 @@ public class Tadpole2 extends Tadpole {
 				outstream.println("rightSecond="+rightSecond);
 			}
 			
-			final boolean fbranch=isJunction(rightMax, rightSecond);
-			final boolean bbranch=isJunction(leftMax, leftSecond);
+			boolean fbranch=isJunction(rightMax, rightSecond);
+			boolean bbranch=isJunction(leftMax, leftSecond);
 			final boolean hbranch=(leftCounts!=null && leftMaxPos!=evicted && branchMult1>0);
+			if(liveBranchObserver!=null && leftCounts!=null && liveBranchObserver.sample(kmer.xor(), fbranch || bbranch || hbranch)){
+				liveBranchObserver.record(kmer, count, leftCounts, rightCounts, bbranch, fbranch, (int)evicted, false, hbranch);
+			}
+			if(liveBranchGate!=null && leftCounts!=null && !hbranch && (fbranch || bbranch) &&
+					liveBranchGate.rescue(count, leftCounts, rightCounts, bbranch, fbranch, (int)evicted)){
+				// One symmetric decision clears both flags; seed, hidden, ownership and cycle guards remain.
+				fbranch=bbranch=false;
+			}
 			if(bbranch){
 				if(verbose){outstream.println("B: Breaking - isJunction("+rightMax+", "+rightSecond+", "+leftMax+", "+leftSecond+"); "
 						+ "("+fbranch+", "+bbranch+", "+hbranch+")");}

@@ -2,7 +2,10 @@ package assemble;
 
 import dna.AminoAcid;
 import kmer.Walker;
+import ukmer.HashArrayU1D;
 import ukmer.Kmer;
+import ukmer.KmerNodeU;
+import ukmer.KmerTableSetU;
 import ukmer.WalkerU;
 
 /**
@@ -101,6 +104,30 @@ final class SameKJoinFeatures {
 
 	/** Visits the existing explicit table once; never builds another table or rereads reads. */
 	static Moments moments(final Tadpole tad){
+		if(!(tad instanceof Tadpole2)){return momentsByWalker(tad);}
+		final Moments result=new Moments();
+		final KmerTableSetU tables=((Tadpole2)tad).tables;
+		for(int i=0; i<tables.ways; i++){addLongCounts(result, tables.getTable(i));}
+		return result;
+	}
+
+	/**
+	 * Preserves WalkerU1D's ascending main-cell then victim-list order exactly,
+	 * including floating-point addition order, without reconstructing unused keys.
+	 * Positive values are authoritative occupancy (HashArrayU1D.fillHistogram and
+	 * WalkerU1D.next); this is intentionally not applied to the short-key tables.
+	 */
+	static void addLongCounts(final Moments result, final HashArrayU1D table){
+		assert(result!=null && table!=null) : "Moment accumulation requires a live explicit table and its caller-owned result.";
+		for(int count : table.values()){if(count>0){result.add(count);}}
+		for(KmerNodeU node : table.victims().toList()){
+			final int count=node.count();
+			if(count>0){result.add(count);}
+		}
+	}
+
+	/** Retains the original key-aware traversal as the short-K path and diagnostic oracle. */
+	static Moments momentsByWalker(final Tadpole tad){
 		final Moments result=new Moments();
 		if(tad instanceof Tadpole1){
 			final Walker walker=((Tadpole1)tad).tables.walk();

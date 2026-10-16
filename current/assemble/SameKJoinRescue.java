@@ -38,6 +38,21 @@ final class SameKJoinRescue {
 	/** Enters through tadpole.sh; the ordinary constructor still owns native options. */
 	static void run(final String[] args){new SameKJoinRescue(args).process();}
 
+	/** Development-only composition; the ordinary tadpole.sh binding remains unchanged. */
+	static void runCombined(final String[] args, final String liveModel, final float liveCutoff){
+		if(liveModel==null || liveModel.isEmpty() || !Float.isFinite(liveCutoff) || liveCutoff<0 || liveCutoff>1){
+			throw new IllegalArgumentException("Combined rescue requires a live model and explicit cutoff in[0,1].");
+		}
+		final SameKJoinRescue rescue=new SameKJoinRescue(args);
+		// The existing constructor checks every other input. This extra binding must
+		// also be protected before the postpass can open output or score-trace files.
+		TadpoleGraph.checkPaths(liveModel, new ArrayList<String>(Arrays.asList(liveModel)), rescue.output, rescue.scores);
+		if(!Tools.testInputFiles(true, true, liveModel)){
+			throw new IllegalArgumentException("The live branch model must be readable.");
+		}
+		rescue.process(new LiveBranchGate(rescue.tad, liveModel, liveCutoff));
+	}
+
 	/** Handles standard optional leading hyphens without changing filename case. */
 	private static String key(final String arg){
 		final int eq=arg.indexOf('=');
@@ -122,17 +137,22 @@ final class SameKJoinRescue {
 	/*--------------------------------------------------------------*/
 
 	/** Keeps the table live through scoring and metadata, clearing it even after failure. */
-	private void process(){
+	private void process(){process(null);}
+
+	/** Runs both decisions against one table, sharing immutable moments when a live gate exists. */
+	private void process(final LiveBranchGate liveGate){
 		assert(tad!=null && net!=null) : "Validate the complete binding before loading reads or opening outputs.";
 		final long start=System.nanoTime();
 		Tadpole.outstream.println("Contig rescue: raw-unitig postpass replaces ordinary graph cleanup; model="+model+" cutoff="+cutoff);
 		tad.printExecutionPlan();
 		try{
+			assert(tad.liveBranchGate==null) : "This driver owns the live gate for exactly one raw assembly.";
+			tad.liveBranchGate=liveGate;
 			tad.process2(Tadpole.contigMode);
 			if(tad.errorState || tad.tables().errorState){throw new IllegalStateException("Contig assembly failed before rescue.");}
 			final ArrayList<Contig> contigs=tad.detachContigs();
 			final long momentStart=System.nanoTime();
-			final SameKJoinFeatures.Moments moments=SameKJoinFeatures.moments(tad);
+			final SameKJoinFeatures.Moments moments=liveGate==null ? SameKJoinFeatures.moments(tad) : liveGate.populationMoments();
 			final long scoreStart=System.nanoTime();
 			final SameKJoinMerge.Choices choices=score(contigs, moments);
 			final long mergeStart=System.nanoTime();
@@ -145,7 +165,15 @@ final class SameKJoinRescue {
 			Tadpole.outstream.println("SAME_K_RESCUE_SECONDS build="+((momentStart-start)*1e-9)+
 					" moments="+((scoreStart-momentStart)*1e-9)+" score="+((mergeStart-scoreStart)*1e-9)+
 					" merge_write="+((end-mergeStart)*1e-9)+" total="+((end-start)*1e-9));
-		}finally{tad.clearData();}
+			if(liveGate!=null){
+				final long[] totals=liveGate.totals();
+				Tadpole.outstream.println("LIVE_BRANCH_RESCUE_PASS k="+k+" evaluations="+totals[0]+" rescued_encounters="+totals[1]);
+				Tadpole.outstream.println("LIVE_BRANCH_MOMENTS seconds="+(liveGate.momentNanos()*1e-9));
+			}
+		}finally{
+			tad.liveBranchGate=null;
+			tad.clearData();
+		}
 		if(tad.showStats && !FileFormat.isStdio(output)){
 			jgi.AssemblyStats2.main(new String[]{"in="+output, "printextended"});
 		}
