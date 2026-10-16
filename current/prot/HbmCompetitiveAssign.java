@@ -149,13 +149,13 @@ public final class HbmCompetitiveAssign {
 	}
 
 	/** Loads all dependency bindings before exposing a selectable library. */
-	private static final class Library{
-		Library(HashMap<String,String> o) throws Exception{
+	static final class Library{
+		Library(HashMap<String,String> o) throws java.io.IOException{
 			final byte[][] provenance=HbmBundleLoader.loadSemanticProvenance(o.get("provenance"));
 			// HbmFamilyUnion.writeProvenance binds its identity table as cluster_membership.
 			require(o.get("identitysha80").equals(DigestSuffix.fromDigest(provenance[13])), "Union identity table differs from HBM cluster-membership provenance");
 			final List<ProteinSequence> sequences=ProteinSearch.readFasta(o.get("consensus")); final int n=sequences.size();
-			require(n>=50, "Competitive experiment requires at least50 families"); refs=new byte[n][]; ids=new String[n]; familyIds=new int[n];
+			require(n>=50, "Competitive experiment requires at least50 families"); refs=new byte[n][]; ids=new String[n]; familyIds=new int[n]; memberCounts=new long[n];
 			final ArrayList<String> roster=new ArrayList<String>(); final HashMap<String,byte[]> byId=new HashMap<String,byte[]>();
 			for(int i=0; i<n; i++){final ProteinSequence p=sequences.get(i); refs[i]=p.enc; ids[i]=p.id; roster.add(p.id); require(byId.put(p.id, p.enc)==null, "Duplicate consensus ID");}
 			sidecar=FamilyShortlistSidecar.load(o.get("sidecar"), o.get("consensus"), o.get("kmers"));
@@ -169,6 +169,7 @@ public final class HbmCompetitiveAssign {
 				final String[] a=identities.get(i+1), c=cores.get(i+1);
 				require(a.length==6 && c.length==9 && a[0].equals(Integer.toString(i)) && c[0].equals(a[0]) && a[1].equals(c[1]) && a[3].equals(ids[i]) && c[2].equals(ids[i]) && a[4].equals(c[3]), "Core/union identity mismatch at "+i);
 				familyIds[i]=Integer.parseInt(a[1]); final long members=Long.parseLong(a[4]);
+				memberCounts[i]=members;
 				require(familyIds[i]>=0 && stable.add(familyIds[i]) && members>0 && Long.parseLong(c[5])==(members+1)/2 && Integer.parseInt(c[4])==refs[i].length, "Invalid family ID/count/core frame at "+i);
 				first[i]=Integer.parseInt(c[6]); last[i]=Integer.parseInt(c[7]); require(Integer.parseInt(c[8])==last[i]-first[i]+1, "Core width differs at "+i);
 			}
@@ -191,6 +192,7 @@ public final class HbmCompetitiveAssign {
 		final byte[][] refs;
 		final String[] ids;
 		final int[] familyIds;
+		final long[] memberCounts;
 		final FamilyShortlistSidecar sidecar;
 		final HbmCompetitiveGate gate;
 	}

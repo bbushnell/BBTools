@@ -1,0 +1,126 @@
+AnnotateGenes
+=============
+
+AnnotateGenes adds protein-family assignments and available functional labels to
+existing gene calls. It reads a nucleotide FASTA and its GFF, searches translated
+CDSs against a compact HBM family library, and writes an annotated GFF. It does
+not call new genes or alter gene coordinates.
+
+Quick start
+-----------
+
+Extract the reference tar into your BBTools resources directory. The archive
+creates resources/bbgap/ and keeps its models, labels and evidence together:
+
+tar -xzf BBGAP_models_v1.tar.gz -C /path/to/BBTools/resources/
+annotategenes.sh genome.fna genes.gff out=annotated.gff
+
+Use the downloaded archive filename in the extraction command. Named input
+arguments work too:
+
+annotategenes.sh in=genome.fna gff=genes.gff out=annotated.gff
+
+Positional FASTA and GFF files are identified by extension, in either order,
+including compressed files. Do not supply the same input type more than once.
+Add evidence=assignments.tsv for per-CDS details; t=8 and -Xmx8g can set the
+worker count and heap explicitly.
+
+The complete model directory is required, not just model.hbmc.gz. It contains
+the matching consensus, family roster, shortlist and supporting tables, with
+artifacts.tsv identifying their contents. Keep those files together. Labels are
+bound to the family identity and consensus; a mismatched release is rejected.
+The default models=?bbgap/models uses standard BBTools resource lookup. Labels
+are found in labels/family_labels.tsv.gz (or .tsv) beside the resolved models
+directory, so models and labels come from the same installation. The default
+installation requires both. Use labels=null to request family assignments
+without names.
+
+For an alternate package, supply models=/path/to/bundle/models. Its sibling
+labels are used when present; otherwise only family assignments are emitted.
+An explicit labels=/path/to/file.tsv.gz overrides that selection. Both options
+support the usual ? prefix for resource lookup. You can retain several reference
+versions in separate directories and choose one explicitly.
+
+The evidence argument names an OUTPUT table of per-CDS assignments and scores.
+Raw evidence supplied with a reference bundle documents how its labels were
+constructed; it is not an additional AnnotateGenes runtime input. Runtime
+annotation requires neither Internet access nor HMMER, DIAMOND or eggNOG.
+
+Supply GFF partial attributes wherever the caller knows a boundary is truncated.
+AnnotateGenes consumes and preserves these attributes in CallGenes GFFs and GFFs
+from other sources. Legacy GFFs without them retain conservative translation
+checks: AnnotateGenes does not infer missing partial-boundary metadata.
+
+Reading the results
+-------------------
+
+Original GFF columns, record order, comments and attributes are preserved,
+including product, partial and RNA anticodon information. Line endings become LF.
+Annotation fields use the bbgap_ prefix; an existing product is not overwritten.
+An input already containing bbgap_ fields is rejected to avoid mixing releases.
+
+bbgap_status separates three outcomes:
+  assigned     A translated CDS passed the protein-family assignment rule.
+  no_hit       The CDS was searched but no candidate passed that rule.
+  unsupported  The feature could not be translated under the supported contract.
+
+An assigned family can have unknown function. This is different from no_hit.
+Family assignment also does not establish an exact substrate or enzyme activity.
+
+bbgap_family_id identifies the family; bbgap_rep_id identifies its representative.
+bbgap_package and bbgap_label_version identify the model and label versions.
+bbgap_product contains the selected product, if any. Read it together with
+bbgap_label_class rather than interpreting every product as equally supported.
+
+Labels distinguish specific full-length assignments, Swiss-Prot-supported
+assignments, broad family/domain names, provisional suggestions and unnamed or
+conflicting cases. Schema-2 label files can carry provisional_full,
+weak_provisional and weak_provisional_placeholder classes. Loading such a file
+enables those suggestions; no separate provisional switch is required.
+
+Schema-2 outputs also contain:
+  bbgap_label_display       Display text including the evidence qualification.
+  bbgap_label_source        Source database/search methods.
+  bbgap_label_support       Support category, including retained disagreement.
+  bbgap_label_coverage      Evidence coverage qualification.
+  bbgap_label_score         Evidence score qualification.
+  bbgap_label_product_text  Product-text qualification.
+  bbgap_label_review        Review status.
+  bbgap_label_hit           Selected evidence identifier.
+
+Provisional suggestions may be incomplete, contradictory or wrong. Their visible
+qualification is part of the annotation, not optional decoration. A placeholder
+or DUF designation identifies an unknown family rather than a known function.
+Use the bundle's decision and evidence tables to inspect alternatives and the
+reason a particular suggestion was retained. Several identifiers transferred
+through one eggNOG donor do not constitute several independent votes.
+
+Assignment and translation limits
+---------------------------------
+
+The current search considers the top 50 F4 candidates, uses positional HBM
+alignment, and accepts the highest-scoring eligible family at identity at least
+40.612846% and mutual paired-core coverage at least 0.8. Representative-ID ties
+are deterministic. Partial genes use the same coverage rule, so truncation can
+prevent an otherwise plausible assignment. Scores are not E-values or calibrated
+probabilities of correct function.
+
+The fallback translation table is 11. Tables 4, 11 and 25 are supported; a row's
+transl_table overrides a file directive, which overrides the command-line
+fallback. The tool supports contiguous CDS records. Unsupported forms, including
+compound CDSs, recoding exceptions and ambiguous codons, remain in the output
+with a reason. Malformed GFF structure, missing contigs and out-of-bounds
+coordinates fail with a diagnostic instead of producing a successful result.
+
+Versioned baselines
+-------------------
+
+Keep the code version, reference-bundle version, command and input files when
+comparing releases. Model assignment coverage, functional-label availability
+and biological annotation accuracy are different measurements. A high fraction
+of labeled models does not imply the library captures the same fraction of all
+genes, or that those labels have that accuracy.
+
+The first release uses the existing 8,537-family library. Expanding the library,
+improving naming rules and testing difficult functions are subsequent increments;
+manual curation of every model is not a prerequisite for using this baseline.
