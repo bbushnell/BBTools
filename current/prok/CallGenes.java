@@ -2499,8 +2499,8 @@ public class CallGenes extends ProkObject {
 		}
 		if(SIXS_ENABLED){
 			final int before=GeneCaller.ncrnaFamilies.size();
-			LongHashSet rf00013Kmers=loadEffectiveNcrnaKmerSet("sixs_rf00013", "sixs_rf00013_16mers.fa", SIXS_RF00013_KMERS_OVERRIDE, 16);
-			addNcrnaFamily("sixs_rf00013", "sixs_rf00013_consensus.fa", defaultNcrnaModel("sixs_rf00013_models.hbm"), rf00013Kmers, 16, 60,
+			LongHashSet rf00013Kmers=loadEffectiveNcrnaKmerSet("sixs_rf00013", "sixs_rf00013_17mers.fa", SIXS_RF00013_KMERS_OVERRIDE, 17);
+			addNcrnaFamily("sixs_rf00013", "sixs_rf00013_consensus.fa", defaultNcrnaModel("sixs_rf00013_models.hbm"), rf00013Kmers, 17, 60,
 				resolveSweepPad("sixs_rf00013", SIXS_RF00013_PAD_OVERRIDE, 250),
 				7, 60, false, 0f, 0f, 0f, 1,
 				resolveSweepFloat("sixs_rf00013", NCRNA_SCORE_A_OVERRIDE, 0f),

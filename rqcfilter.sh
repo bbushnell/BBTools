@@ -3,9 +3,9 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified July 8, 2026
+Last modified October 14, 2026
 
-Description:  RQCFilter3 is a revised version of RQCFilter2 using BBDukStreamer and the Streamer interface.
+Description:  RQCFilter does raw Illumina read trimming and artifact removal.
 The dependencies are available at http://portal.nersc.gov/dna/microbial/assembly/bushnell/RQCFilterData.tar
 
 Performs quality-trimming, artifact removal, linker-trimming, adapter trimming, and spike-in removal using BBDuk.

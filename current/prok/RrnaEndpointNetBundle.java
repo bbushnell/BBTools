@@ -32,8 +32,9 @@ public final class RrnaEndpointNetBundle {
 		pack(directory,output,"16S");
 	}
 	static void pack(String directory,String output,String family){
-		require(RrnaEndpointCallerFeatures.Resources.supportsAcceptedIdentity(family),"Only16S/23S/prok5S have the accepted-verifier bundle contract");
-		require(RrnaEndpointNetworkLoader.acceptedIdentity(directory,family),"This release bundle requires accepted-verifier identity metadata");
+		final boolean accepted=acceptedIdentity(family);
+		require(RrnaEndpointNetworkLoader.acceptedIdentity(directory,family)==accepted,"Network identity metadata must match the family's trained feature contract");
+		final String identity=identitySource(accepted);
 		final ByteFile in=RrnaResourceIO.open(new File(directory,"MANIFEST.tsv").toString());
 		final LineParser1 p=new LineParser1('\t');final ArrayList<Entry> entries=new ArrayList<Entry>();final ObjectSet<String> seen=new ObjectSet<String>(String.class);
 		try{RrnaResourceIO.header(in,"model\tend\tseed\tfile\tsha80",directory);
@@ -49,21 +50,22 @@ public final class RrnaEndpointNetBundle {
 		}finally{require(!in.close(),"Selected network manifest read failed");}
 		require(!entries.isEmpty(),"A bundle needs selected network members");RrnaResourceIO.fresh(output,"");
 		final ByteStreamWriter out=RrnaResourceIO.writer(output);final ByteBuilder b=new ByteBuilder();
-		try{out.println(SCHEMA);out.println("family\t"+family);out.println("identity_source\taccepted_verifier_window");out.print(b.clear().append("networks\t").append(entries.size()).nl());
+		try{out.println(SCHEMA);out.println("family\t"+family);out.println("identity_source\t"+identity);out.print(b.clear().append("networks\t").append(entries.size()).nl());
 			for(Entry entry:entries){
 				out.print(b.clear().append("network\t").append(entry.model).tab().append(entry.end).tab().append(entry.seed).tab().append(entry.sha80).tab().append(entry.lines.size()).nl());
 				for(byte[] line:entry.lines){out.print(b.clear().append(line).nl());}
 			}out.println(END);
 		}finally{RrnaResourceIO.finish(out);}
-		System.err.println("RRNA_ENDPOINT_NET_BUNDLE_PACK_PASS members="+entries.size()+" identity=accepted_verifier_window");
+		System.err.println("RRNA_ENDPOINT_NET_BUNDLE_PACK_PASS members="+entries.size()+" identity="+identity);
 	}
 	static RrnaEndpointCallerFeatures.Resources load(String path,RrnaEndpointCallerFeatures.Resources tables){
-		require(tables!=null && RrnaEndpointCallerFeatures.Resources.supportsAcceptedIdentity(tables.family),"Endpoint bundles require explicitly declared16S/23S/prok5S tables");
+		require(tables!=null,"Endpoint bundles require explicit family table bindings");
+		final boolean accepted=acceptedIdentity(tables.family);
 		final ObjectIntMap<String> indices=new ObjectIntMap<String>(String.class);int active=0;
 		for(int i=0; i<tables.names.length; i++){indices.put(tables.names[i],i);if(!tables.raw[i]){active++;}}
 		final CellNet[] five=new CellNet[tables.names.length],three=new CellNet[tables.names.length];
 		final ByteFile in=RrnaResourceIO.open(path);final LineParser1 p=new LineParser1('\t');
-		try{RrnaResourceIO.header(in,SCHEMA,path);RrnaResourceIO.header(in,"family\t"+tables.family,path);RrnaResourceIO.header(in,"identity_source\taccepted_verifier_window",path);
+		try{RrnaResourceIO.header(in,SCHEMA,path);RrnaResourceIO.header(in,"family\t"+tables.family,path);RrnaResourceIO.header(in,"identity_source\t"+identitySource(accepted),path);
 			p.set(in.nextLine());require(p.terms()==2 && p.termEquals("networks",0),"Bundle must declare its member count");
 			final int count=p.parseInt(1);require(count==active*2,"Every refined model needs exactly two bundled networks");
 			for(int member=0; member<count; member++){
@@ -78,8 +80,15 @@ public final class RrnaEndpointNetBundle {
 			}
 			RrnaResourceIO.header(in,END,path);require(in.nextLine()==null,"Unexpected trailing bundle content");
 		}finally{require(!in.close(),"Endpoint bundle read failed");}
-		return new RrnaEndpointCallerFeatures.Resources(tables.family,tables.names,tables.refs,tables.five,tables.three,five,three,tables.raw,true);
+		return new RrnaEndpointCallerFeatures.Resources(tables.family,tables.names,tables.refs,tables.five,tables.three,five,three,tables.raw,accepted);
 	}
+	/** Family dispatch is explicit: packing must never redefine a trained feature. */
+	static boolean acceptedIdentity(String family){
+		if("euk5S".equals(family)){return false;}
+		require(RrnaEndpointCallerFeatures.Resources.supportsAcceptedIdentity(family),"Supported endpoint bundle families are16S/23S/prok5S and candidate-span euk5S");
+		return true;
+	}
+	static String identitySource(boolean accepted){return accepted?"accepted_verifier_window":"candidate_span";}
 	static void validateEntry(String model,String end,int seed,String digest){
 		require(model.matches("[A-Za-z0-9_.:-]+") && (end.equals("5prime") || end.equals("3prime")) && seed>=0 && digest.matches("[0-9a-f]{20}"),"Network metadata must preserve an unambiguous model/end/seed and sha80");
 	}

@@ -30,8 +30,9 @@ public class CallGenesSixsConfigTest {
 		try{
 			CallGenes.NCRNA_FAMILIES_ENABLED=false;
 			CallGenes.SIXS_ENABLED=true;
-			try{CallGenes.validateNcrnaGateCombo(); throw new AssertionError("sixs=t without ncrna=t was accepted");}
-			catch(AssertionError expected){/* pass */}
+			boolean rejected=false;
+			try{CallGenes.validateNcrnaGateCombo();}catch(AssertionError expected){rejected=true;}
+			if(!rejected){throw new AssertionError("sixs=t without ncrna=t was accepted");}
 			CallGenes.NCRNA_FAMILIES_ENABLED=true;
 			CallGenes.validateNcrnaGateCombo();
 		}finally{CallGenes.NCRNA_FAMILIES_ENABLED=oldNcrna; CallGenes.SIXS_ENABLED=oldSixs;}
@@ -65,8 +66,22 @@ public class CallGenesSixsConfigTest {
 			CallGenes.SIXS_ENABLED=true;
 			CallGenes.loadNcrnaResources();
 			if(countSixs()!=2){throw new AssertionError("sixs=t did not register exactly its paired two-family bundle");}
-			checkBundle(find("sixs_rf00013"), 16, 250, 590, 4000, 0.70f, 0.60f, 0.64f);
+			checkBundle(find("sixs_rf00013"), 17, 250, 590, 2093, 0.70f, 0.60f, 0.64f);
 			checkBundle(find("sixs_rf01685"), 17, 125, 19, 437, 0.70f, 0.70f, 0.75f);
+			GeneCaller.initializeConservedRnaSeedIndex();
+			for(int i=0; i<GeneCaller.ncrnaFamilies.size(); i++){
+				final NcrnaFamily f=GeneCaller.ncrnaFamilies.get(i);
+				if(f.name.startsWith("sixs_")){
+					final int withFamily=GeneCaller.conservedRnaSeedSlotCount();
+					GeneCaller.ncrnaFamilies.remove(i);
+					GeneCaller.initializeConservedRnaSeedIndex();
+					final int withoutFamily=GeneCaller.conservedRnaSeedSlotCount();
+					GeneCaller.ncrnaFamilies.add(i,f);
+					GeneCaller.initializeConservedRnaSeedIndex();
+					if(withFamily!=withoutFamily+1){throw new AssertionError("Both6S subtypes must enter the shared17-mer scan");}
+					if(f.seedMinHits!=1 || f.seedDistinct){throw new AssertionError("The K/resource comparison must retain the existing6S seed-hit policy");}
+				}
+			}
 		}finally{
 			GeneCaller.ncrnaFamilies.clear();
 			CallGenes.NCRNA_FAMILIES_ENABLED=oldNcrna; CallGenes.SIXS_ENABLED=oldSixs;

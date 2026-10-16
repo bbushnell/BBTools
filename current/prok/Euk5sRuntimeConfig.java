@@ -47,7 +47,7 @@ final class Euk5sRuntimeConfig {
 		}
 		if(infer){
 			final String tableDir=tables==null?new File(resource("euk5S_endpoint/TABLES.tsv")).getParent():tables;
-			final String netDir=nets==null?new File(resource("euk5S_endpoint/MANIFEST.tsv")).getParent():nets;
+			final String netDir=nets==null?resource("euk5S_endpoints.bbnets.gz"):nets;
 			final RrnaEndpointCallerFeatures.Resources loaded=RrnaEndpointResourceLoader.load(selected.name,tableDir,selected.modelNames,selected.library);
 			selected.setRrnaEndpointInference(RrnaEndpointNetworkLoader.load(netDir,loaded),null);
 			System.err.println("euk5S endpoints: enabled models="+selected.library.length+" tables="+tableDir+" nets="+netDir);
@@ -59,7 +59,7 @@ final class Euk5sRuntimeConfig {
 		return path;
 	}
 	private static String path(String key,String value){
-		require(value!=null && !value.isEmpty(),key+" requires a resource directory");return value;
+		require(value!=null && !value.isEmpty(),key+" requires a resource path");return value;
 	}
 	private static void require(boolean ok,String why){if(!ok){throw new IllegalArgumentException(why);}}
 	private boolean infer=true,cutoffsDisabled=false,inferExplicit=false;
