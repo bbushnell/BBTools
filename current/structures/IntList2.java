@@ -6,37 +6,40 @@ import shared.KillSwitch;
 
 
 /**
- * Dynamic array for holding sets of integers, similar to ArrayList<int[]>.
- * Optimized for scenarios where each entry contains a set of unique values.
- * Each entry is an int[] where valid values are at the beginning and
- * invalid positions are marked with INVALID (-1).
+ * Dynamic table of live int arrays that encode sets using INVALID-terminated
+ * spare capacity.
+ * Null rows are empty; non-null rows are scanned until a matching value, an
+ * INVALID sentinel, or the end of a full row is found.
+ * Access to mutation and the live arrays returned by get() must be coordinated
+ * by the caller.
  *
  * @author Brian Bushnell
  */
 public final class IntList2{
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
-	
-	/** Creates a new IntList2 with default initial capacity of 256 entries */
+
+	/** Constructs an IntList2 with the default initial entry-table capacity. */
 	public IntList2(){this(256);}
-	
-	/** Creates a new IntList2 with specified initial capacity.
-	 * @param initialSize Initial number of entries the list can hold */
+
+	/**
+	 * Constructs an IntList2 with the specified initial entry-table capacity.
+	 * @param initialSize Initial number of entry slots to allocate.
+	 */
 	public IntList2(int initialSize){
 		assert(initialSize>0);
 		entries=new int[initialSize][];
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------           Mutation           ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
-	 * Appends an entry to the end of the list.
-	 * Automatically resizes the underlying array if necessary.
-	 * @param entry The int array to add as a new entry
+	 * Appends a live entry array at the next location.
+	 * @param entry Integer array to store.
 	 */
 	public final void add(int[] entry){
 		if(size>=entries.length){
@@ -45,12 +48,11 @@ public final class IntList2{
 		entries[size]=entry;
 		size++;
 	}
-	
+
 	/**
-	 * Appends an entry to the end of the list with length parameter for IntList3 compatibility.
-	 * The length parameter is currently ignored but maintained for interface compatibility.
-	 * @param entry The int array to add as a new entry
-	 * @param len Length parameter (currently unused)
+	 * Appends a live entry array and ignores len for IntList3 compatibility.
+	 * @param entry Integer array to store.
+	 * @param len Ignored compatibility parameter.
 	 */
 	public final void add(int[] entry, int len){
 		if(size>=entries.length){
@@ -59,12 +61,12 @@ public final class IntList2{
 		entries[size]=entry;
 		size++;
 	}
-	
+
 	/**
-	 * Sets the entry at the specified location.
-	 * Automatically resizes the underlying array and updates size if necessary.
-	 * @param loc The index where to place the entry
-	 * @param entry The int array to place at the specified location
+	 * Stores a live entry array at loc, growing the entry table when loc is
+	 * beyond the current capacity.
+	 * @param loc Target location index.
+	 * @param entry Integer array to store.
 	 */
 	public final void set(int loc, int[] entry){
 		if(loc>=entries.length){
@@ -73,44 +75,44 @@ public final class IntList2{
 		entries[loc]=entry;
 		size=max(size, loc+1);
 	}
-	
+
 	/**
-	 * Inserts a value into the set at the specified location.
-	 * If the location doesn't exist, creates a new entry.
-	 * If the entry exists, attempts to insert the value if not already present.
-	 * Automatically grows the entry array if it becomes full.
-	 *
-	 * @param v The value to insert into the set
-	 * @param loc The location/index where the set resides
-	 * @return 1 if the value was inserted (new), 0 if already present
+	 * Inserts a value into the entry at loc, creating that entry if needed.
+	 * Existing entries are scanned linearly until v, INVALID, or the end of a
+	 * full row is found.
+	 * @param v Integer value to insert.
+	 *        Must differ from INVALID.
+	 * @param loc Target location index; loc may append exactly one new slot.
+	 * @return 1 if value was added, or 0 if already present before INVALID.
 	 */
 	public final int insertIntoList(final int v, final int loc){
-		
+
 		if(loc>=size){
 			assert(loc==size);
 			add(null);
 		}
-			
+
 		int[] entry=get(loc);
 		if(entry==null){
 			set(loc, new int[] {v, INVALID});
 			return 1;
 		}
-		
+
 		for(int i=0; i<entry.length; i++){//This is the slow bit; accelerate by hopping to the middle
 			if(entry[i]==v){return 0;}
 			if(entry[i]==INVALID){entry[i]=v;return 1;}
 		}
-		
+
 		final int oldSize=entry.length;
-		entry=KillSwitch.copyAndFill(entry, oldSize*2L, INVALID);
+		final long newSize=(oldSize>0 ? oldSize*2L : 2);
+		entry=KillSwitch.copyAndFill(entry, newSize, INVALID);
 		set(loc, entry);
-		
+
 		//Quick add
 		assert(entry[oldSize]==INVALID);
 		entry[oldSize]=v;
 		return 1;
-		
+
 		//Old code
 //		final int oldSize=entry.length;
 //		final int newSize=(int)Tools.min(Shared.MAX_ARRAY_LEN, oldSize*2L);
@@ -121,55 +123,56 @@ public final class IntList2{
 //		set(loc, entry);
 //		return 1;
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------           Resizing           ----------------*/
 	/*--------------------------------------------------------------*/
-	
-	/** Resizes the underlying entries array to accommodate more entries.
-	 * @param size2 The new size for the entries array, must be larger than current size */
+
+	/**
+	 * Resizes the entry table.
+	 * @param size2 New capacity; must exceed the current logical size.
+	 */
 	public final void resize(int size2){
 		assert(size2>size);
 		entries=KillSwitch.copyOf(entries, size2);
 	}
-	
-	/** Compresses the entries array by removing unused trailing capacity */
+
+	/** Removes unused trailing slots from the entry table. */
 	public final void shrink(){
 		if(size==entries.length){return;}
 		entries=KillSwitch.copyOf(entries, size);
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------           Reading            ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
-	 * Retrieves the entry at the specified location.
-	 * @param loc The index of the entry to retrieve
-	 * @return The int array at the specified location, or null if out of bounds
+	 * Gets the live entry array at loc.
+	 * @param loc Location index.
+	 * @return Entry array, or null if loc is past the logical table extent.
 	 */
 	public final int[] get(int loc){
 		return(loc>=size ? null : entries[loc]);
 	}
-	
+
 	/**
-	 * Gets the length of an entry for IntList3 compatibility.
-	 * Returns 0 if index is out of bounds or entry is null, -1 if entry exists.
-	 * @param i The index to check
-	 * @return 0 if out of bounds or null entry, -1 if entry exists
+	 * Gets the IntList3-compatible length marker for one entry.
+	 * @param i Location index.
+	 * @return -1 if an entry exists at i, or 0 if i is past the logical table
+	 * extent or the entry is null.
 	 */
-	public int getLen(int i) {
+	public int getLen(int i){
 		return i>=size ? 0 : entries[i]==null ? 0 : -1;
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------           ToString           ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
 	 * Returns a string representation showing all non-null entries with their indices.
-	 * Format: [(index, [values]), (index, [values]), ...]
-	 * @return String representation of the list contents
+	 * The complete backing arrays are printed, including INVALID spare slots.
 	 */
 	@Override
 	public String toString(){
@@ -185,26 +188,26 @@ public final class IntList2{
 		sb.append(']');
 		return sb.toString();
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Static Methods        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	private static final int min(int x, int y){return x<y ? x : y;}
 	private static final int max(int x, int y){return x>y ? x : y;}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------           Fields             ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	private int[][] entries;
 	public int size=0;
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Static Fields         ----------------*/
 	/*--------------------------------------------------------------*/
-	
-	/** Sentinel value (-1) used to mark invalid/empty positions in entry arrays */
+
+	/** Sentinel value used to mark invalid or empty positions in entry arrays. */
 	public static final int INVALID=-1;
-	
+
 }

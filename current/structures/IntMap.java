@@ -5,71 +5,66 @@ import shared.Tools;
 
 
 /**
- * Array-backed integer-to-integer map for contiguous key ranges.
- * Optimized for dense mappings where keys fall within a known range.
- * Uses Integer.MIN_VALUE as sentinel value for unset entries.
+ * Array-backed integer-to-integer map for a dense inclusive key range.
+ * Keys must be within {@link #min} and {@link #max}; unmapped entries store
+ * {@link Integer#MIN_VALUE}, so that value cannot be stored as a payload.
+ * This class is unsynchronized.
  *
  * @author Brian Bushnell
  * @date June 3, 2025
  */
-public class IntMap {
-	
-	/** Program entry point.
-	 * @param args Command-line arguments */
+public class IntMap{
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Initialization        ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Empty placeholder entry point.
+	 * @param args Unused command-line arguments */
 	public static void main(String[] args){
-		
+
 	}
-	
-	
-	/**
-	 * Constructs an IntMap for the specified key range.
-	 * @param from Minimum key value (inclusive)
-	 * @param to Maximum key value (inclusive)
-	 */
+
+	/** Constructs an IntMap for the inclusive key range {@code [from,to]}.
+	 * @param from Minimum supported key, inclusive
+	 * @param to Maximum supported key, inclusive */
 	public IntMap(int from, int to){
 		reset(from, to);
 	}
-	
-	
-	/**
-	 * Retrieves the value associated with the specified key.
-	 * @param key The key to look up
-	 * @return The associated value, or INVALID if key not present
-	 */
+
+	/*--------------------------------------------------------------*/
+	/*----------------           Methods            ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Returns the value associated with a mapped key.
+	 * @param key Key in the current supported range
+	 * @return Associated value, or {@link Integer#MIN_VALUE} if absent */
 	public int get(int key){
 		assert(key>=min && key<=max);
 		return array[key-min];
 	}
-	
-	
-	/**
-	 * Checks if the map contains a mapping for the specified key.
-	 * @param key The key to check
-	 * @return true if key is present, false otherwise
-	 */
+
+	/** Tests whether a key has a non-sentinel mapping.
+	 * @param key Key in the current supported range
+	 * @return {@code true} if {@code key} is present */
 	public boolean containsKey(int key){
 		assert(key>=min && key<=max);
 		return array[key-min]!=INVALID;
 	}
-	
-	
-	/**
-	 * Increments the value at the specified key by 1.
-	 * @param key The key to increment
-	 * @return The new value after incrementing
-	 */
+
+	/** Adds 1 to the existing value for a key.
+	 * @param key Present key in the current supported range
+	 * @return New value after incrementing */
 	public int increment(int key){
 		return increment(key, 1);
 	}
-	
-	
+
 	/**
-	 * Increments the value at the specified key by the given amount.
-	 * Prevents integer overflow by capping at Integer.MAX_VALUE.
-	 *
-	 * @param key The key to increment
-	 * @param value The amount to add
-	 * @return The new value after incrementing
+	 * Adds an increment to the existing value for a key.
+	 * Only positive overflow saturates at {@link Integer#MAX_VALUE}.
+	 * @param key Present key in the current supported range
+	 * @param value Amount to add
+	 * @return New value after incrementing
 	 */
 	public int increment(int key, int value){
 		assert(key>=min && key<=max);
@@ -80,14 +75,11 @@ public class IntMap {
 		array[index]=v2;
 		return v2;
 	}
-	
-	
-	/**
-	 * Associates the specified value with the specified key.
-	 * @param key The key to map
-	 * @param value The value to associate (must not be INVALID)
-	 * @return The previous value, or INVALID if key was not present
-	 */
+
+	/** Associates a value with a key.
+	 * @param key Key in the current supported range
+	 * @param value Value to store; must not be {@link Integer#MIN_VALUE}
+	 * @return Previous value, or {@link Integer#MIN_VALUE} if absent */
 	public int put(int key, int value){
 		assert(key>=min && key<=max);
 		assert(value!=INVALID);
@@ -96,13 +88,10 @@ public class IntMap {
 		array[index]=value;
 		return old;
 	}
-	
-	
-	/**
-	 * Removes the mapping for the specified key.
-	 * @param key The key to remove
-	 * @return The previous value, or INVALID if key was not present
-	 */
+
+	/** Removes the mapping for a key.
+	 * @param key Key in the current supported range
+	 * @return Previous value, or {@link Integer#MIN_VALUE} if absent */
 	public int remove(int key){
 		assert(key>=min && key<=max);
 		int index=key-min;
@@ -110,10 +99,11 @@ public class IntMap {
 		array[index]=INVALID;
 		return old;
 	}
-	
-	
-	/** Returns the number of key-value mappings in this map.
-	 * @return The count of non-INVALID entries */
+
+	/**
+	 * Returns the number of non-sentinel values in the retained backing capacity,
+	 * which may be wider than the current logical range after a shrinking reset.
+	 * @return Count of mapped entries */
 	public int size(){
 		int sum=0;
 		for(int i=0; i<array.length; i++){
@@ -121,10 +111,11 @@ public class IntMap {
 		}
 		return sum;
 	}
-	
-	
-	/** Returns an array containing all keys that have mappings.
-	 * @return Array of keys in ascending order */
+
+	/**
+	 * Returns the keys for all non-sentinel entries in the retained backing capacity,
+	 * which may be wider than the current logical range after a shrinking reset.
+	 * @return Keys in ascending backing-index order */
 	public int[] keys(){
 		int[] r=new int[size()];
 		for(int i=0, j=0; j<r.length; i++){
@@ -135,10 +126,11 @@ public class IntMap {
 		}
 		return r;
 	}
-	
-	
-	/** Returns an array containing all mapped values.
-	 * @return Array of values corresponding to mapped keys */
+
+	/**
+	 * Returns the values for all non-sentinel entries in the retained backing capacity,
+	 * which may be wider than the current logical range after a shrinking reset.
+	 * @return Values corresponding to {@link #keys()} order */
 	public int[] values(){
 		int[] r=new int[size()];
 		for(int i=0, j=0; j<r.length; i++){
@@ -149,42 +141,48 @@ public class IntMap {
 		}
 		return r;
 	}
-	
-	
-	/** Removes all mappings by setting all entries to INVALID */
+
+	/** Clears every backing slot while retaining the current key range and capacity. */
 	public void clear(){
 		Arrays.fill(array, INVALID);
 	}
-	
-	
+
 	/**
-	 * Resets the map to support a new key range.
-	 * Reallocates the backing array if necessary and clears all entries.
-	 * @param from New minimum key value (inclusive)
-	 * @param to New maximum key value (inclusive)
+	 * Resets this map to a new inclusive key range.
+	 * Grows the backing array only when the retained capacity is too small, then
+	 * clears every backing slot, including retained slots outside the new range.
+	 * @param from New minimum supported key, inclusive
+	 * @param to New maximum supported key, inclusive
 	 */
 	public void reset(int from, int to){
 		min=from;
 		max=to;
 		assert(max>=min);
 		assert(((long)max)-((long)min)<Integer.MAX_VALUE);
-		
+
 		int size=max-min+1;
 		if(array==null || array.length<size){
 			array=new int[size];
 		}
 		clear();
 	}
-	
-	
-	/** Minimum key value supported by this map */
+
+	/*--------------------------------------------------------------*/
+	/*----------------            Fields            ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Minimum key value supported by the current logical range. */
 	public int min;
-	/** Maximum key value supported by this map */
+	/** Maximum key value supported by the current logical range. */
 	public int max;
-	/** Backing array storing values indexed by (key - min) */
+	/** Backing array storing values indexed by {@code key-min}. */
 	public int[] array;
-	
-	/** Sentinel value indicating an unset or removed entry */
+
+	/*--------------------------------------------------------------*/
+	/*----------------          Constants           ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Sentinel value indicating an unset or removed entry. */
 	private static final int INVALID=Integer.MIN_VALUE;
-	
+
 }

@@ -5,25 +5,26 @@ import java.util.Arrays;
 import shared.Timer;
 
 /**
- * Circular buffer for storing long values using modulo arithmetic for any size.
- * Provides fixed-capacity storage with automatic overwriting of oldest values.
- * Uses standard modulo operations instead of bit masking for intuitive code.
- * Optimized for scenarios requiring arbitrary buffer sizes.
+ * Fixed-capacity circular buffer for long values, using modulo arithmetic for
+ * wraparound. Supported logical capacity is any positive size, and the physical
+ * array has exactly that many slots.
+ * Raw accessors do not validate empty reads or offsets; callers must either
+ * tolerate the current backing value or restrict reads to written logical positions.
  *
  * @author Brian Bushnell
  * @contributor Isla
  * @date May 8, 2025
  */
-public final class RingBufferMod {
+public final class RingBufferMod{
 	
 	/** Benchmark entry point: fills the buffer repeatedly and sums oldest values.
 	 * Arguments: args[0]=size, args[1]=iterations. */
-	public static void main(String[] args) {
+	public static void main(String[] args){
 		int size=Integer.parseInt(args[0]);
 		long iters=Long.parseLong(args[1]), sum=0;
 		Timer t=new Timer();
 		RingBufferMod ring=new RingBufferMod(size);
-		for(long i=0; i<iters; i++) {
+		for(long i=0; i<iters; i++){
 			ring.add(i);
 			sum+=ring.getOldestUnchecked();
 		}
@@ -34,9 +35,11 @@ public final class RingBufferMod {
 	/*----------------             Init             ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Creates a ring buffer with specified fixed capacity.
-	 * @param size_ The maximum number of elements the buffer can hold */
-	public RingBufferMod(int size_) {
+	/**
+	 * Creates a ring buffer with the requested fixed capacity.
+	 * @param size_ Positive logical and physical capacity.
+	 */
+	public RingBufferMod(int size_){
 		size=size_;
 		array=new long[size];
 	}
@@ -50,7 +53,7 @@ public final class RingBufferMod {
 	 * Advances the insertion position and increments the total count.
 	 * @param value The long value to store in the buffer
 	 */
-	public final void add(long value) {
+	public final void add(long value){
 		count++;
 		array[pos]=value;
 		pos=(pos+1)%size;
@@ -61,7 +64,7 @@ public final class RingBufferMod {
 	 * This position contains the oldest value when buffer is full.
 	 * @return The value at the current insertion position
 	 */
-	public final long getCurrent() {
+	public final long getCurrent(){
 		return array[pos];
 	}
 
@@ -70,17 +73,17 @@ public final class RingBufferMod {
 	 * Calculates position using modulo arithmetic with wraparound handling.
 	 * @return The value that was most recently added
 	 */
-	public final long getPrev() {
+	public final long getPrev(){
 		return array[(pos-1+size)%size];
 	}
 
 	/**
-	 * Gets the oldest value in the buffer with bounds checking.
-	 * Returns first element if buffer not yet full, otherwise oldest element.
-	 * Safe for use regardless of buffer fill state.
-	 * @return The oldest value currently stored in the buffer
+	 * Gets the raw oldest-slot value for the current fill state.
+	 * Selects array[0] before a full logical cycle rather than the next slot to age
+	 * out, but does not reject reads from an empty buffer.
+	 * @return The oldest-slot value for the current fill state.
 	 */
-	public final long getOldest() {
+	public final long getOldest(){
 		return (count<=size) ? array[0] : array[pos];
 	}
 
@@ -89,7 +92,7 @@ public final class RingBufferMod {
 	 * Assumes buffer has been filled with safe values. Use with caution.
 	 * @return The oldest value at the current position
 	 */
-	public final long getOldestUnchecked() {
+	public final long getOldestUnchecked(){
 		return array[pos]; // Position of oldest when buffer is full
 	}
 
@@ -99,8 +102,8 @@ public final class RingBufferMod {
 	 * @param offset Number of positions back from most recent (0=most recent)
 	 * @return The value at the specified offset position
 	 */
-	public final long get(int offset) {
-	    return array[(pos-1-offset+size)%size];
+	public final long get(int offset){
+		return array[(pos-1-offset+size)%size];
 	}
 
 	/**
@@ -108,7 +111,7 @@ public final class RingBufferMod {
 	 * Useful for initialization or resetting buffer contents.
 	 * @param value The value to fill all buffer positions with
 	 */
-	public final void fill(long value) {
+	public final void fill(long value){
 		Arrays.fill(array, value);
 	}
 	
@@ -117,7 +120,7 @@ public final class RingBufferMod {
 	 * Limited by buffer capacity, never exceeds the fixed size.
 	 * @return The count of valid elements, capped at buffer capacity
 	 */
-	public final int size() {
+	public final int size(){
 		return (int)Math.min(count, size);
 	}
 

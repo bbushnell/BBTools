@@ -11,23 +11,44 @@ import shared.Tools;
 import template.Accumulator;
 import template.ThreadWaiter;
 
-public class StandardDeviator implements Accumulator<StandardDeviator.ProcessThread> {
+/**
+ * Computes coverage statistics from CoverageArrays stored in scaffold obj0/obj1.
+ * Coverage population must finish before these calculations begin. Worker passes
+ * cache per-array results and merge their counters and optional histograms here.
+ * An instance must not run concurrent calculations. Histogram fields are retained
+ * between calls; independent histogram calculations need a fresh instance.
+ * @contributor Shinobu
+ */
+public class StandardDeviator implements Accumulator<StandardDeviator.ProcessThread>{
 
-	public StandardDeviator(boolean stranded_, int strand_) {
+	/*--------------------------------------------------------------*/
+	/*----------------        Initialization        ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/**
+	 * Creates a statistics accumulator.
+	 * @param stranded_ Whether worker passes visit both scaffold coverage arrays.
+	 * @param strand_ Array selected by serial methods: 1 selects obj1, otherwise obj0.
+	 */
+	public StandardDeviator(boolean stranded_, int strand_){
 		stranded=stranded_;
 		strand=strand_;
 	}
-	
+
+	/*--------------------------------------------------------------*/
+	/*----------------           Methods            ----------------*/
+	/*--------------------------------------------------------------*/
+
 	//This one is to slow, maybe because short contigs need too much locking.
 	//They would have to be put into lists of contigs.
-//	public boolean calculateStuffQueued(int threads0, Collection<Scaffold> scaffolds, 
+//	public boolean calculateStuffQueued(int threads0, Collection<Scaffold> scaffolds,
 //			boolean calcStd, boolean calcMedian, double windowAvg, int window) {
 //
 //		final int threads=Tools.mid(1, threads0, scaffolds.size());
 //		Timer t=new Timer();
-//		
+//
 //		System.err.println("threads="+threads);
-//		
+//
 //		{//First pass to sum depth
 //			totalSum=0;
 //			bins=0;
@@ -45,7 +66,7 @@ public class StandardDeviator implements Accumulator<StandardDeviator.ProcessThr
 //			errorState|=!success;
 //			t.stopAndStart("calcSumMT:");
 //		}
-//		
+//
 //		final double globalMean=totalSum/(double)bins;
 //		{//Second pass for statistics
 //			totalSum=0;
@@ -64,19 +85,35 @@ public class StandardDeviator implements Accumulator<StandardDeviator.ProcessThr
 //			errorState|=!success;
 //			t.stopAndStart("calcStdMT:");
 //		}
-//		
+//
 //		return errorState;
 //	}
-	
-	public boolean calculateStuff(int threads0, ArrayList<Scaffold> scaffolds, 
-			boolean calcStd, boolean calcMedian, boolean calcHist, 
-			int minDepth, int histMax, double windowAvg, int window) {
+
+	/**
+	 * Runs a sum pass followed by optional per-array statistics and histograms.
+	 * Both passes wait for their workers before returning. Worker passes visit obj0
+	 * and, when stranded, obj1; the global mean divides their combined sum by the
+	 * scaffold lengths counted once each. CoverageArray caches are updated in place.
+	 * @param threads0 Requested workers, clamped against the scaffold count.
+	 * @param scaffolds Stable scaffold list with completed coverage arrays.
+	 * @param calcStd Whether to calculate each array's standard deviation.
+	 * @param calcMedian Whether to calculate each array's median.
+	 * @param calcHist Whether to collect coverage histograms.
+	 * @param minDepth Minimum depth counted as covered.
+	 * @param histMax Histogram overflow bin; must be positive when calcHist is true.
+	 * @param windowAvg Positive threshold enables low-window-coverage calculation.
+	 * @param window Window length used for the optional window calculation.
+	 * @return Accumulated error state; true indicates failure.
+	 */
+	public boolean calculateStuff(int threads0, ArrayList<Scaffold> scaffolds,
+			boolean calcStd, boolean calcMedian, boolean calcHist,
+			int minDepth, int histMax, double windowAvg, int window){
 
 		final int threads=Tools.mid(1, threads0, scaffolds.size());
 		Timer t=new Timer();
-		
+
 //		if(verbose) {System.err.println("threads="+threads);}
-		
+
 		{//First pass to sum depth for global stdev
 			totalSum=0;
 			bins=0;
@@ -89,9 +126,9 @@ public class StandardDeviator implements Accumulator<StandardDeviator.ProcessThr
 			ThreadWaiter.startThreads(alpt);
 			boolean success=ThreadWaiter.waitForThreadsToFinish(alpt, this);
 			errorState|=!success;
-			if(verbose) {t.stopAndStart("calcSumMT:");}
+			if(verbose){t.stopAndStart("calcSumMT:");}
 		}
-		
+
 		final double globalMean=totalSum/(double)bins;
 		{//Second pass for statistics
 			totalSum=0;
@@ -106,18 +143,26 @@ public class StandardDeviator implements Accumulator<StandardDeviator.ProcessThr
 			ThreadWaiter.startThreads(alpt);
 			boolean success=ThreadWaiter.waitForThreadsToFinish(alpt, this);
 			errorState|=!success;
-			if(verbose) {t.stopAndStart("calcStdMT:");}
+			if(verbose){t.stopAndStart("calcStdMT:");}
 		}
-		
+
 		return errorState;
 	}
 
+	/**
+	 * Computes mean coverage and population standard deviation on the selected strand.
+	 * Null coverage arrays contribute zero at every scaffold position. Reuses each
+	 * array's cached sum and its deviation sum for the newly calculated mean.
+	 * @param scaffolds Scaffolds whose completed coverage arrays are read.
+	 * @param minscaf0 Minimum scaffold length, clamped to at least 1.
+	 * @return Mean and standard deviation, or two zeros when no bases qualify.
+	 */
 	public double[] standardDeviation(ArrayList<Scaffold> scaffolds, int minscaf0){
 		totalSum=bins=0;
 		mean=stdev=0;
 		long scafsCounted=0;
 		final int minscaf=Tools.max(minscaf0, 1);
-		
+
 		for(Scaffold scaf : scaffolds){
 			if(scaf.length>=minscaf){
 				final CoverageArray ca=(CoverageArray)(strand==1 ? scaf.obj1 : scaf.obj0);
@@ -126,7 +171,7 @@ public class StandardDeviator implements Accumulator<StandardDeviator.ProcessThr
 				scafsCounted++;
 			}
 		}
-		
+
 		if(bins<1){return new double[] {mean, stdev};}
 		mean=totalSum/(double)bins;
 //		System.err.println("sum="+totalSum+", bins="+bins+", mean="+mean+", scaffolds="+scafsCounted);
@@ -134,9 +179,9 @@ public class StandardDeviator implements Accumulator<StandardDeviator.ProcessThr
 		for(Scaffold scaf : scaffolds){
 			if(scaf.length>=minscaf){
 				final CoverageArray ca=(CoverageArray)(strand==1 ? scaf.obj1 : scaf.obj0);
-				if(ca==null) {
+				if(ca==null){
 					sumdev2+=(mean*mean*scaf.length);
-				}else {
+				}else{
 					sumdev2+=ca.devSum(mean);
 				}
 			}
@@ -147,30 +192,40 @@ public class StandardDeviator implements Accumulator<StandardDeviator.ProcessThr
 		return new double[] {mean, stdev};
 	}
 
+	/**
+	 * Retained binned-statistics implementation with a known mean-calculation defect.
+	 * @param scaffolds Scaffolds to examine on the selected strand.
+	 * @param binsize Positive number of positions per bin; partial tails are included.
+	 * @param minscaf0 Minimum scaffold length, clamped to at least 1.
+	 * @return Legacy mean and standard-deviation estimates; see the implementation TODO.
+	 */
 	@Deprecated
 	public double[] standardDeviationBinned(ArrayList<Scaffold> scaffolds, int binsize, int minscaf0){
 		totalSumBinned=binsBinned=0;
 		meanBinned=stdevBinned=0;
 		final int minscaf=Tools.max(minscaf0, 1);
-		
+
 		for(Scaffold scaf : scaffolds){
 			if(scaf.length>=minscaf){
 				CoverageArray ca=(CoverageArray)(strand==1 ? scaf.obj1 : scaf.obj0);
 				int bins=(int)((scaf.length+(long)binsize-1L)/binsize);
 				assert(bins>0) : scaf.length+", "+binsize+", "+minscaf;
 				binsBinned+=bins;
-				if(ca==null) {
+				if(ca==null){
 					totalSumBinned+=0;
-				}else {
+				}else{
+					//TODO: Dividing by the bin count does not sum bin means. For length 6,
+					//depth 2 and binsize 2, this yields mean 4/3 instead of 2. Current
+					//source callers are commented out; no behavioral repair is applied here.
 					totalSumBinned+=ca.sum()/bins;
 				}
 			}
 		}
-		
+
 		if(binsBinned<1){return new double[] {meanBinned, stdevBinned};}
 		meanBinned=totalSumBinned/(double)binsBinned;
 		double sumdev2=0;
-		
+
 		for(Scaffold scaf : scaffolds){
 			if(scaf.length>=minscaf){
 				CoverageArray ca=(CoverageArray)(strand==1 ? scaf.obj1 : scaf.obj0);
@@ -192,15 +247,24 @@ public class StandardDeviator implements Accumulator<StandardDeviator.ProcessThr
 				}
 			}
 		}
-		
+
 		stdevBinned=Math.sqrt(sumdev2/binsBinned);
 		return new double[] {meanBinned, stdevBinned};
 	}
 
 	//Unsafe because it will fail if there are over 2 billion bins
+	/**
+	 * Materializes bin depths quantized to tenths, then calculates list statistics.
+	 * Each full or partial bin contributes one value, regardless of its width.
+	 * @param fname Unused; this method does not write a file.
+	 * @param scaffolds Scaffolds to examine on the selected strand.
+	 * @param binsize Positive number of positions per bin.
+	 * @param minscaf0 Minimum scaffold length, clamped to at least 1.
+	 * @return Mean, median, mode and standard deviation of the quantized bin depths.
+	 */
 	public double[] standardDeviationBinnedUnsafe(String fname, ArrayList<Scaffold> scaffolds, int binsize, int minscaf0){
 		final int minscaf=Tools.max(minscaf0, 1);
-		
+
 		LongList list=new LongList();
 		for(Scaffold scaf : scaffolds){
 			CoverageArray ca=(CoverageArray)(strand==1 ? scaf.obj1 : scaf.obj0);
@@ -213,6 +277,8 @@ public class StandardDeviator implements Accumulator<StandardDeviator.ProcessThr
 				if(i>=nextPos || i==lim){
 					int bin=(i-lastPos);
 					if(scaf.length>=minscaf){
+						//TODO: The int cast saturates high depths before storage in LongList.
+						//No active caller of this legacy method was found in the current source.
 						list.add((int)(10*(sum/(double)bin)));
 					}
 					nextPos+=binsize;
@@ -222,32 +288,32 @@ public class StandardDeviator implements Accumulator<StandardDeviator.ProcessThr
 			}
 		}
 		list.sort();
-		
+
 		mean=0.1*list.mean();
 		double median=0.1*list.median();
 		double mode=0.1*list.mode();
 		stdev=0.1*list.stdev();
 		return new double[] {mean, median, mode, stdev};
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------          Threading           ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 //	static class ProcessThreadQueued extends Thread {
-//		
-//		ProcessThreadQueued(int tid_, ArrayBlockingQueue<Scaffold> queue_, boolean calcStd_, 
+//
+//		ProcessThreadQueued(int tid_, ArrayBlockingQueue<Scaffold> queue_, boolean calcStd_,
 //				boolean calcMedian_, double globalMean_, double windowAvg_, int window_){
 //			tid=tid_;
 //			queue=queue_;
-//			
+//
 //			calcStd=calcStd_;
 //			calcMedian=calcMedian_;
 //			globalMean=globalMean_;
 //			windowAvg=windowAvg_;
 //			window=window_;
 //		}
-//		
+//
 //		@Override
 //		public void run() {
 ////			synchronized(this) {
@@ -261,7 +327,7 @@ public class StandardDeviator implements Accumulator<StandardDeviator.ProcessThr
 //				addToQueue(queue, POISON);//Send it to the next one
 ////			}
 //		}
-//		
+//
 //		private void processCA(CoverageArray ca) {
 //			if(ca==null) {return;}
 //			totalSumT+=ca.sum();
@@ -270,30 +336,31 @@ public class StandardDeviator implements Accumulator<StandardDeviator.ProcessThr
 //			if(globalMean>-1) {ca.devSum(globalMean);}
 //			if(windowAvg>0) {ca.basesUnderAverageCoverage(windowAvg, window);}
 //		}
-//		
+//
 //		long totalSumT=0;
 //		long binsT=0;
-//		
+//
 //		final int tid;
 //		final ArrayBlockingQueue<Scaffold> queue;
-//		
+//
 //		final boolean calcStd;
 //		final boolean calcMedian;
 //		final double globalMean;
 //		final double windowAvg;
 //		final int window;
 //	}
-	
-	class ProcessThread extends Thread {
-		
-		ProcessThread(int tid_, int threads_, ArrayList<Scaffold> list_, 
-				boolean calcStd_, boolean calcMedian_, boolean calcHist_, int minDepth_, int histMax_, 
+
+	/** Visits a disjoint stride of scaffolds and keeps mergeable counters/histograms. */
+	class ProcessThread extends Thread{
+
+		ProcessThread(int tid_, int threads_, ArrayList<Scaffold> list_,
+				boolean calcStd_, boolean calcMedian_, boolean calcHist_, int minDepth_, int histMax_,
 				double globalMean_, double windowAvg_, int window_){
 //			System.err.println(calcHist_);
 			tid=tid_;
 			threads=threads_;
 			list=list_;
-			
+
 			calcStd=calcStd_;
 			calcMedian=calcMedian_;
 			calcHist=calcHist_;
@@ -302,71 +369,73 @@ public class StandardDeviator implements Accumulator<StandardDeviator.ProcessThr
 			globalMean=globalMean_;
 			windowAvg=windowAvg_;
 			window=window_;
-			if(calcHist) {
+			if(calcHist){
 				assert(histMax>0) : histMax;
 				hist0=new LongList(Tools.min(histMax+1, Character.MAX_VALUE+1));
-				if(stranded) {hist1=new LongList(Tools.min(histMax+1, Character.MAX_VALUE+1));}
+				if(stranded){hist1=new LongList(Tools.min(histMax+1, Character.MAX_VALUE+1));}
 			}
 		}
-		
+
 		@Override
-		public synchronized void run() {
+		public synchronized void run(){
 			for(int i=tid; i<list.size(); i+=threads){
 				Scaffold scaf=list.get(i);
-				synchronized(scaf) {
+				synchronized(scaf){
 					binsT+=scaf.length;
 					processCA((CoverageArray)scaf.obj0, 0, scaf.length, scaf.basehits);
-					if(stranded) {processCA((CoverageArray)scaf.obj1, 1, scaf.length, scaf.basehits);}
+					if(stranded){processCA((CoverageArray)scaf.obj1, 1, scaf.length, scaf.basehits);}
 				}
 			}
 		}
-		
-		private void processCA(CoverageArray ca, int strand, int length, long mappedBases) {
-			if(mappedBases>0) {
-				if(calcHist) {addToHist(ca, strand, length);}
-				if(ca==null) {return;}
+
+		/** Populates requested caches for one array, or supplies zero-mapped statistics. */
+		private void processCA(CoverageArray ca, int strand, int length, long mappedBases){
+			if(mappedBases>0){
+				if(calcHist){addToHist(ca, strand, length);}
+				if(ca==null){return;}
 				totalSumT+=ca.calcSumAndCovered(minDepth);
-				if(calcStd) {ca.standardDeviation();}
-				if(calcMedian) {ca.median();}
-				if(globalMean>-1) {ca.devSum(globalMean);}
-				if(windowAvg>0) {ca.basesUnderAverageCoverage(windowAvg, window);}
-			}else {
-				if(calcHist) {addToHist(null, strand, length);}
-				if(ca==null) {return;}
+				if(calcStd){ca.standardDeviation();}
+				if(calcMedian){ca.median();}
+				if(globalMean>-1){ca.devSum(globalMean);}
+				if(windowAvg>0){ca.basesUnderAverageCoverage(windowAvg, window);}
+			}else{
+				if(calcHist){addToHist(null, strand, length);}
+				if(ca==null){return;}
 				totalSumT+=0;
 				ca.setSum(0);
 				ca.setCovered(0);
 				ca.setStdev(0);
 				ca.setMedian(0);
-				ca.setDevSum(mappedBases);
-				if(globalMean>-1) {ca.setDevSum((globalMean*globalMean)*length);}
-				if(windowAvg>0) {ca.setUnderWindowAverage(length);}
+				ca.setDevSum(mappedBases, 0);
+				if(globalMean>-1){ca.setDevSum((globalMean*globalMean)*length, globalMean);}
+				if(windowAvg>0){ca.setUnderWindowAverage(length);}
 			}
 		}
-		
-		private void addToHist(CoverageArray ca, int strand, int length) {
+
+		/** Counts each position once, using histMax as the overflow bin and null as zero coverage. */
+		private void addToHist(CoverageArray ca, int strand, int length){
 			LongList hist=(strand==0 ? hist0 : hist1);
 			assert(hist!=null) : stranded+", "+strand+", "+length;
-			if(ca==null) {
+			if(ca==null){
 				hist.increment(0, length);
 				return;
 			}
 			assert(ca.length()==length) : ca.length()+", "+length+", "+ca.maxIndex;
-			for(int i=0, len=ca.length(); i<len; i++) {
+			for(int i=0, len=ca.length(); i<len; i++){
 				int d=Tools.min(ca.get(i), histMax);
 				hist.increment(d);
 			}
 		}
-		
+
 		long totalSumT=0;
 		long binsT=0;
-		
+
 		final int tid;
 		final int threads;
 		final ArrayList<Scaffold> list;
 		LongList hist0;
 		LongList hist1;
-		
+
 		final boolean calcStd;
 		final boolean calcMedian;
 		final boolean calcHist;
@@ -376,75 +445,79 @@ public class StandardDeviator implements Accumulator<StandardDeviator.ProcessThr
 		final double windowAvg;
 		final int window;
 	}
-	
-	private static Scaffold getNext(ArrayBlockingQueue<Scaffold> queue) {
+
+	private static Scaffold getNext(ArrayBlockingQueue<Scaffold> queue){
 		Scaffold next=null;
-		while(next==null) {
-			try {
+		while(next==null){
+			try{
 				next=queue.take();
-			} catch (InterruptedException e) {
+			}catch(InterruptedException e){
 				// TODO Auto-generated catch block
 				e.printStackTrace();
 			}
 		}
 		return next;
 	}
-	
-	private static void addToQueue(ArrayBlockingQueue<Scaffold> queue, Scaffold s) {
-		while(s!=null) {
-			try {
+
+	private static void addToQueue(ArrayBlockingQueue<Scaffold> queue, Scaffold s){
+		while(s!=null){
+			try{
 				queue.put(s);
 				s=null;
-			} catch (InterruptedException e) {
+			}catch(InterruptedException e){
 				// TODO Auto-generated catch block
 				e.printStackTrace();
 			}
 		}
 	}
 
+	/** Merges one finished worker's sums, lengths and optional histograms. */
 	@Override
-	public void accumulate(ProcessThread t) {
-		synchronized(t) {
+	public void accumulate(ProcessThread t){
+		synchronized(t){
 			totalSum+=t.totalSumT;
 			bins+=t.binsT;
-			if(hist0==null) {hist0=t.hist0;}
-			else if(t.hist0!=null) {hist0.incrementBy(t.hist0);}
-			if(hist1==null) {hist1=t.hist1;}
-			else if(t.hist1!=null) {hist1.incrementBy(t.hist1);}
+			if(hist0==null){hist0=t.hist0;}
+			else if(t.hist0!=null){hist0.incrementBy(t.hist0);}
+			if(hist1==null){hist1=t.hist1;}
+			else if(t.hist1!=null){hist1.incrementBy(t.hist1);}
 		}
 	}
 
+	/** Returns true if no worker-wait error has been recorded. */
 	@Override
-	public boolean success() {
+	public boolean success(){
 		return !errorState;
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	long totalSum;
 	long bins;
 	double mean;
 	double stdev;
-	
+
 	long totalSumBinned;
 	long binsBinned;
 	double meanBinned;
 	double stdevBinned;
 
+	/** Retained plus-strand coverage histogram; null when no histogram was collected. */
 	public LongList hist0;
+	/** Retained minus-strand histogram, populated by stranded worker calculations. */
 	public LongList hist1;
-	
+
 	@Override
-	public final ReadWriteLock rwlock() {return rwlock;}
+	public final ReadWriteLock rwlock(){return rwlock;}
 	private final ReadWriteLock rwlock=new ReentrantReadWriteLock();
 
 	public final int strand;
 	public final boolean stranded;
 	public boolean errorState=false;
-	
+
 	private static final Scaffold POISON=new Scaffold("POISON", null, -1);
 	public static boolean verbose=false;
-	
+
 }

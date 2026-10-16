@@ -4,7 +4,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 
 /**
- * Immutable, ZERO-ALLOCATION prefix dispatcher: maps a small fixed set of byte-string keys to int ids
+ * Immutable prefix dispatcher with allocation-free lookups: maps a small fixed set of byte-string keys to int ids
  * (0..N-1, input order) by matching a key that PREFIXES a query byte[] and is terminated by a delimiter.
  * Built for the common parser pattern "a labeled line 'name&lt;delim&gt;value...' -&gt; route by name"
  * without materializing a String per line (which an ObjectIntMap&lt;String&gt;/HashMap lookup would).
@@ -25,12 +25,18 @@ import java.util.Arrays;
  * <li>{@code id[]} -- the input-order id (0..N-1) of the key at each slot.</li>
  * </ul>
  *
- * <p>Case-sensitive. ASCII keys only. Immutable after construction.
+ * <p>Case-sensitive. ASCII keys only. Construction copies the key references and allocates
+ * lookup tables; queries do not modify them. Concurrent lookups may share a constructed
+ * dispatcher, provided callers do not mutate query bytes during a lookup.
  *
  * @author Noire (design with Barbara)
  * @date July 30, 2026
  */
-public final class BytePrefixDispatcher {
+public final class BytePrefixDispatcher{
+
+	/*--------------------------------------------------------------*/
+	/*----------------            Fields            ----------------*/
+	/*--------------------------------------------------------------*/
 
 	/** The delimiter byte that must terminate a matched key in the query. */
 	private final byte delimiter;
@@ -49,8 +55,14 @@ public final class BytePrefixDispatcher {
 	/** Original keys by id, for diagnostics only. */
 	private final String[] keysById;
 
+	/*--------------------------------------------------------------*/
+	/*----------------        Initialization        ----------------*/
+	/*--------------------------------------------------------------*/
+
 	/**
 	 * Builds the dispatcher from keys (id = input-order index) and the terminating delimiter.
+	 * Copies the key array; later changes to the caller's array do not alter this dispatcher.
+	 * Key preconditions are checked with assertions when enabled.
 	 * @param keys Distinct, non-empty, ASCII keys not containing the delimiter.
 	 * @param delimiter The byte that must immediately follow a matched key in a query (e.g. '\t').
 	 */
@@ -108,12 +120,18 @@ public final class BytePrefixDispatcher {
 		}
 	}
 
+	/*--------------------------------------------------------------*/
+	/*----------------           Methods            ----------------*/
+	/*--------------------------------------------------------------*/
+
 	/**
 	 * Resolves the key that prefixes {@code q} starting at {@code start} and is terminated by the delimiter
 	 * (which must fall strictly before {@code limit}). ZERO allocation.
+	 * Null queries, negative starts and empty ranges return -1. Otherwise the caller
+	 * supplies a valid array range; limit is not checked against q.length.
 	 * @param q Query bytes (e.g. a line).
 	 * @param start Index where the prefix begins.
-	 * @param limit Exclusive end of valid bytes in q (usually the line length).
+	 * @param limit Exclusive end of valid bytes in q, at most q.length.
 	 * @return The key's input-order id (0..N-1), or -1 if no key matches (unknown name, missing/mispositioned
 	 *         delimiter, truncation, or empty input).
 	 */
@@ -142,7 +160,7 @@ public final class BytePrefixDispatcher {
 	/** Number of keys. */
 	public int size(){return n;}
 
-	/** The original key for an id (diagnostics only). */
+	/** Returns the original key for an input-order id in [0, size()). */
 	public String keyForId(int keyId){return keysById[keyId];}
 
 	/*--------------------------------------------------------------*/
@@ -151,25 +169,25 @@ public final class BytePrefixDispatcher {
 
 	/** Correctness self-test over the clade key set + the nasty inputs Barbara flagged. */
 	public static void main(String[] args){
-		final String[] keys={"tid","level","name","lineage","domain","gc","entropy","strandedness",
-				"bases","contigs","1mers","2mers","3mers","4mers","5mers","ddl","16S","18S"};
+		final String[] keys={"tid", "level", "name", "lineage", "domain", "gc", "entropy", "strandedness",
+				"bases", "contigs", "1mers", "2mers", "3mers", "4mers", "5mers", "ddl", "16S", "18S"};
 		final BytePrefixDispatcher d=new BytePrefixDispatcher(keys, (byte)'\t');
 		int fails=0;
 		fails+=check(d, "tid\t123", 0);
 		fails+=check(d, "level\t2\tspecies", 1);
 		fails+=check(d, "name\tEscherichia coli", 2);
-		fails+=check(d, "names\tfoo", -1);      //name is a prefix of names -> must NOT match name
+		fails+=check(d, "names\tfoo", -1);//name is a prefix of names -> must NOT match name
 		fails+=check(d, "lineage\td__Bacteria", 3);
-		fails+=check(d, "level", -1);           //no delimiter
+		fails+=check(d, "level", -1);//no delimiter
 		fails+=check(d, "domain\t0", 4);
 		fails+=check(d, "1mers\t1 2 3 4", 10);
 		fails+=check(d, "16S\tACGT", 16);
 		fails+=check(d, "18S\tACGT", 17);
-		fails+=check(d, "potato\tx", -1);       //unknown key
-		fails+=check(d, "", -1);                //empty
-		fails+=check(d, "\t", -1);              //delimiter first
+		fails+=check(d, "potato\tx", -1);//unknown key
+		fails+=check(d, "", -1);//empty
+		fails+=check(d, "\t", -1);//delimiter first
 		fails+=check(d, "bases\t99", 8);
-		fails+=check(d, "base\t99", -1);        //base is not a key (bases is) -> no match
+		fails+=check(d, "base\t99", -1);//base is not a key (bases is) -> no match
 		//nonzero start (substring lookup)
 		byte[] q="XXtid\t7".getBytes(StandardCharsets.US_ASCII);
 		if(d.lookup(q, 2, q.length)!=0){System.err.println("FAIL nonzero-start"); fails++;}
@@ -186,13 +204,14 @@ public final class BytePrefixDispatcher {
 		if(d.lookup(q4, 0, q4.length)!=-1){System.err.println("FAIL high-bit first byte"); fails++;}
 		//duplicate input keys must be rejected at build (assertions on)
 		boolean rejectedDup=false;
-		try{new BytePrefixDispatcher(new String[]{"a","b","a"}, (byte)'\t');}
+		try{new BytePrefixDispatcher(new String[]{"a", "b", "a"}, (byte)'\t');}
 		catch(AssertionError e){rejectedDup=true;}
 		if(!rejectedDup){System.err.println("FAIL duplicate-key not rejected"); fails++;}
 		System.err.println(fails==0 ? "ALL SELF-TESTS PASS ("+keys.length+" keys)" : fails+" SELF-TEST FAILURES");
 		if(fails>0){System.exit(1);}
 	}
 
+	/** Checks one literal lookup oracle and returns 1 on mismatch, otherwise 0. */
 	private static int check(BytePrefixDispatcher d, String line, int expect){
 		byte[] q=line.getBytes(StandardCharsets.US_ASCII);
 		int got=d.lookup(q, 0, q.length);

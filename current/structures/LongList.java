@@ -7,9 +7,17 @@ import shared.Shared;
 import shared.Tools;
 
 
-
+/**
+ * Growable list of primitive long values backed by a public array.
+ * The logical size limits normal reads and aggregate operations; clear() resets
+ * only the logical size and leaves the backing array available for reuse.
+ */
 public final class LongList{
-	
+
+	/*--------------------------------------------------------------*/
+	/*----------------             Main             ----------------*/
+	/*--------------------------------------------------------------*/
+
 	public static void main(String[] args){
 		LongList list=new LongList();
 		list.add(3);
@@ -29,7 +37,12 @@ public final class LongList{
 		list.condense();
 		System.err.println(list);
 	}
-	
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Initialization        ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Constructs a list with default capacity 256. */
 	public LongList(){this(256);}
 
 	/**
@@ -41,6 +54,10 @@ public final class LongList{
 		array=KillSwitch.allocLong1D(Math.max(1, initial));
 	}
 
+	/*--------------------------------------------------------------*/
+	/*----------------           Mutation           ----------------*/
+	/*--------------------------------------------------------------*/
+
 	/** Clears the list by setting size to 0; array contents are left intact */
 	public void clear(){size=0;}
 	/** Clears list and zeros all array elements for security.
@@ -49,7 +66,7 @@ public final class LongList{
 		Arrays.fill(array, 0);
 		size=0;
 	}
-	
+
 	/**
 	 * Sets value at specified index, expanding array if necessary.
 	 * Updates list size to include the set position.
@@ -110,7 +127,10 @@ public final class LongList{
 		}
 	}
 
-	/** Appends all elements of b to the end of this list in order.
+	/**
+	 * Appends all elements of a distinct source list to the end of this list in order.
+	 * Self-append is unsupported because this list's size grows while the loop is
+	 * reading the source size.
 	 * @param b Source list to copy elements from */
 	public final void append(LongList b){
 		for(int i=0; i<b.size; i++){
@@ -127,8 +147,8 @@ public final class LongList{
 	}
 
 	/**
-	 * Gets value at specified index with bounds checking.
-	 * Returns 0 for out-of-bounds access instead of throwing exception.
+	 * Returns 0 for nonnegative locs past the logical end.
+	 * Negative locs are rejected by the backing array rather than normalized here.
 	 * @param loc Index to retrieve
 	 * @return Value at index, or 0 if index >= size
 	 */
@@ -154,9 +174,9 @@ public final class LongList{
 	 * @param x Value to search for
 	 * @return true if value is found, false otherwise
 	 */
-	public boolean contains(long x) {
-		for(int i=0; i<size; i++) {
-			if(array[i]==x) {return true;}
+	public boolean contains(long x){
+		for(int i=0; i<size; i++){
+			if(array[i]==x){return true;}
 		}
 		return false;
 	}
@@ -166,7 +186,7 @@ public final class LongList{
 	 * Elements are added in order from the source list.
 	 * @param list2 Source LongList to copy elements from
 	 */
-	public void addAll(LongList list2) {
+	public void addAll(LongList list2){
 		final long[] array2=list2.array;
 		final int size2=list2.size;
 		for(int i=0; i<size2; i++){add(array2[i]);}
@@ -178,18 +198,22 @@ public final class LongList{
 	 * @param from Inclusive start index in source
 	 * @param to Exclusive end index in source
 	 */
-	public void add(long[] array2, int from, int to) {
+	public void add(long[] array2, int from, int to){
 		int len=to-from;
 		expand(len);
 		System.arraycopy(array2, from, array, size, len);
 		size+=len;
 	}
 
+	/*--------------------------------------------------------------*/
+	/*----------------           Resizing           ----------------*/
+	/*--------------------------------------------------------------*/
+
 	/** Resizes if appending extra elements would exceed capacity.
 	 * @param extra Number of additional elements to make room for */
-	private final void expand(final long extra) {
-		if(size+extra>=array.length){
-			resize(size*2L+1);
+	private final void expand(final long extra){
+		if(size+extra>array.length){
+			resize(max(size+extra, size*2L+1));
 		}
 	}
 
@@ -204,7 +228,7 @@ public final class LongList{
 		assert(size3>size) : "Overflow: "+size+", "+size2+" -> "+size3;
 		array=KillSwitch.copyOf(array, size3);
 	}
-	
+
 	/**
 	 * Shrinks internal array to match current size exactly.
 	 * Reduces memory usage by eliminating unused capacity.
@@ -215,6 +239,10 @@ public final class LongList{
 		array=KillSwitch.copyOf(array, size);
 		return this;
 	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------          Statistics          ----------------*/
+	/*--------------------------------------------------------------*/
 
 	/** Computes population standard deviation of the elements.
 	 * @return Standard deviation, or 0 if fewer than 2 elements */
@@ -230,7 +258,7 @@ public final class LongList{
 		}
 		return Math.sqrt(sumdev2/size);
 	}
-	
+
 	/** Mean absolute difference between x and each element.
 	 * @param x Reference value
 	 * @return Average of |x - element| over all elements (0 if empty) */
@@ -316,7 +344,7 @@ public final class LongList{
 		double avg=sum/Tools.max(1, count);
 		return 1.0/avg;
 	}
-	
+
 	/** Geometric mean of elements, ignoring any element less than 1.
 	 * @return Geometric mean of positive elements */
 	//Ignores elements below 1
@@ -332,7 +360,7 @@ public final class LongList{
 		double avg=sum/Tools.max(1, count);
 		return Math.exp(avg);
 	}
-	
+
 	/**
 	 * Calculates a weighted average that emphasizes values near the median position.
 	 * Assumes the list is sorted. Uses position-based weighting with higher weights for elements closer to the center.
@@ -357,7 +385,7 @@ public final class LongList{
 		}
 		return sum/count;
 	}
-	
+
 	/**
 	 * Returns the median value from the list.
 	 * Assumes the list is sorted.
@@ -368,7 +396,7 @@ public final class LongList{
 		int idx=percentileIndex(0.5);
 		return array[idx];
 	}
-	
+
 	/**
 	 * Finds the minimum value in the list.
 	 * Works with unsorted lists.
@@ -382,7 +410,7 @@ public final class LongList{
 		}
 		return x;
 	}
-	
+
 	/**
 	 * Finds the maximum value in the list.
 	 * Works with unsorted lists.
@@ -396,7 +424,7 @@ public final class LongList{
 		}
 		return x;
 	}
-	
+
 	/**
 	 * Finds the most frequently occurring value in the list.
 	 * Assumes the list is sorted for efficient consecutive value counting.
@@ -408,7 +436,7 @@ public final class LongList{
 		int streak=1, bestStreak=0;
 		long prev=array[0];
 		long best=prev;
-		for(int i=0; i<size; i++){
+		for(int i=1; i<size; i++){
 			long x=array[i];
 			if(x==prev){streak++;}
 			else{
@@ -426,7 +454,7 @@ public final class LongList{
 		}
 		return best;
 	}
-	
+
 	/**
 	 * Finds the value where the cumulative sum reaches the given fraction.
 	 * Assumes the list is sorted; uses value-weighted (not position) percentile.
@@ -458,7 +486,11 @@ public final class LongList{
 		}
 		return size-1;
 	}
-	
+
+	/*--------------------------------------------------------------*/
+	/*----------------           Mutation           ----------------*/
+	/*--------------------------------------------------------------*/
+
 //	//TODO: This could be done in-place.
 //	public final void shrinkToUnique(){
 //		//Assumes sorted.
@@ -466,16 +498,16 @@ public final class LongList{
 //			shrink();
 //			return;
 //		}
-//		
+//
 //		int unique=1;
-//		
+//
 //		for(int i=1; i<size; i++){
 //			assert(array[i]>=array[i-1]);
 //			if(array[i]!=array[i-1]){unique++;}
 //		}
 //		if(unique==array.length){return;}
 //		long[] alt=KillSwitch.allocLong1D(unique);
-//		
+//
 //		alt[0]=array[0];
 //		for(int i=1, j=1; j<unique; i++){
 //			if(array[i]!=array[i-1]){
@@ -483,11 +515,11 @@ public final class LongList{
 //				j++;
 //			}
 //		}
-//		
+//
 //		array=alt;
 //		size=alt.length;
 //	}
-	
+
 	/** Removes duplicate elements and shrinks array to fit exactly */
 	public final void shrinkToUnique(){
 		condense();
@@ -503,10 +535,10 @@ public final class LongList{
 	//Assumes sorted.
 	public final void condense(){
 		if(size<=1){return;}
-		
+
 		int i=0, j=1;
-		for(; j<size && array[i]<array[j]; i++, j++){}//skip while strictly ascending 
-		
+		for(; j<size && array[i]<array[j]; i++, j++){}//skip while strictly ascending
+
 		int dupes=0;
 		for(; j<size; j++){//This only enters at the first nonascending pair
 			long a=array[i], b=array[j];
@@ -524,23 +556,27 @@ public final class LongList{
 		assert(size>=(i+1));
 		size=i+1;
 	}
-	
+
 	/** Removes the element at index i by shifting later elements left.
 	 * @param i Index of the element to remove */
-	public void removeElementAt(int i) {
-		for(int j=i+1; j<size; i++, j++) {
+	public void removeElementAt(int i){
+		for(int j=i+1; j<size; i++, j++){
 			array[i]=array[j];
 		}
 		size--;
 	}
-	
+
+	/*--------------------------------------------------------------*/
+	/*----------------           ToString           ----------------*/
+	/*--------------------------------------------------------------*/
+
 	/** Returns a string representation of the list in list format.
 	 * @return String representation showing all elements */
 	@Override
 	public String toString(){
 		return toStringListView();
 	}
-	
+
 	/**
 	 * Returns string showing non-zero elements as (index, value) pairs.
 	 * Useful for sparse data visualization.
@@ -577,6 +613,10 @@ public final class LongList{
 		return sb.toString();
 	}
 
+	/*--------------------------------------------------------------*/
+	/*----------------           Reading            ----------------*/
+	/*--------------------------------------------------------------*/
+
 	/**
 	 * Creates new array containing a copy of all list elements.
 	 * Returned array length equals list size, not capacity.
@@ -590,20 +630,28 @@ public final class LongList{
 		return x;
 	}
 
-	/** Sorts elements in ascending order using Shared.sort (parallel-capable) */
-	public void sort() {
+	/*--------------------------------------------------------------*/
+	/*----------------       Bulk Operations        ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Sorts the live prefix in ascending order using Shared.sort. */
+	public void sort(){
 		if(size>1){Shared.sort(array, 0, size);}
 	}
 
-	/** Sorts elements in ascending order using single-threaded Arrays.sort */
-	public void sortSerial() {
+	/** Sorts the live prefix in ascending order using Arrays.sort. */
+	public void sortSerial(){
 		if(size>1){Arrays.sort(array, 0, size);}
 	}
 
-	/** Reverses the order of all elements in-place */
-	public void reverse() {
+	/** Reverses the live prefix in place. */
+	public void reverse(){
 		if(size>1){Tools.reverseInPlace(array, 0, size);}
 	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------           Reading            ----------------*/
+	/*--------------------------------------------------------------*/
 
 	/** Checks if list is sorted in ascending order using O(n) scan.
 	 * @return true if elements are in non-decreasing order, false otherwise */
@@ -613,59 +661,71 @@ public final class LongList{
 		}
 		return true;
 	}
-	
-	public int size() {
+
+	/** Returns the logical element count. */
+	public int size(){
 		return size;
 	}
-	
-	public int capacity() {
+
+	/** Returns the backing-array capacity. */
+	public int capacity(){
 		return array.length;
 	}
-	
-	public int freeSpace() {
+
+	/** Returns capacity minus logical size. */
+	public int freeSpace(){
 		return array.length-size;
 	}
-	
-	public boolean isEmpty() {
+
+	/** Returns true when the live prefix is empty. */
+	public boolean isEmpty(){
 		return size==0;
 	}
-	
+
 	/** Finds the first index containing the specified value via linear search.
 	 * @param x Value to search for
 	 * @return Index of first match, or -1 if not found */
-	public int findIndex(long x) {
-		for(int i=0; i<size; i++) {
-			if(array[i]==x) {return i;}
+	public int findIndex(long x){
+		for(int i=0; i<size; i++){
+			if(array[i]==x){return i;}
 		}
 		return -1;
 	}
-	
+
 	/**
 	 * Finds the first index containing a value greater than the specified value.
 	 * Assumes the list is sorted in ascending order.
 	 * @param x Value to compare against
 	 * @return Index of first value greater than x, or size if none found
 	 */
-	public int findIndexAfter(long x) {
-		for(int i=0; i<size; i++) {
-			if(array[i]>x) {return i;}
+	public int findIndexAfter(long x){
+		for(int i=0; i<size; i++){
+			if(array[i]>x){return i;}
 		}
 		return size;
 	}
-	
+
+	/*--------------------------------------------------------------*/
+	/*----------------           Mutation           ----------------*/
+	/*--------------------------------------------------------------*/
+
 	/** Collapses the tail [max, size) into index max by summing those elements,
 	 * then truncates size to max+1. Treats the list as a histogram with a cap.
 	 * @param max Index of the final retained bin holding the accumulated tail */
-	public void capHist(final int max) {
-		if(size<=max+1) {return;}
+	public void capHist(final int max){
+		if(size<=max+1){return;}
 		//size=2, max=0 are the lowest values to enter
 		long sum=0;
-		for(int i=size-1; i>=max; i--) {
+		for(int i=size-1; i>=max; i--){
 			sum+=array[i];
 		}
 		array[max]=sum;
 		size=max+1;
 	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Static Methods        ----------------*/
+	/*--------------------------------------------------------------*/
 
 	/** Returns smaller of two longs */
 	private static final long min(long x, long y){return x<y ? x : y;}
@@ -677,9 +737,13 @@ public final class LongList{
 	/** Returns larger of two integers */
 	private static final int max(int x, int y){return x>y ? x : y;}
 
+	/*--------------------------------------------------------------*/
+	/*----------------            Fields            ----------------*/
+	/*--------------------------------------------------------------*/
+
 	/** Backing array for element storage, may have unused capacity */
 	public long[] array;
 	/** Current number of elements in the list (logical size) */
 	public int size=0;
-	
+
 }

@@ -7,32 +7,49 @@ import shared.KillSwitch;
 import shared.Tools;
 
 /**
- * Integer hash map implementation using power-of-2 table sizes to avoid modulo operations.
- * Optimized version of IntHashMap that replaces expensive modulo calculations with bitwise AND.
- * Uses open addressing with linear probing for collision resolution.
+ * Int-to-int hash map with power-of-two primary table sizes.
+ * Uses open addressing with linear probing and hashes with {@code key&modulus}.
+ * Empty cells are marked by a private negative sentinel that is regenerated if
+ * a caller inserts that sentinel value as a key.
  *
  * @author Brian Bushnell
  * @date June 8, 2017
  */
 public final class IntHashMapBinary extends AbstractIntHashMap{
-	
+
 	public static void main(String[] args){
 		IntHashMapBinary set=new IntHashMapBinary(32, 0.7f);
 		test(set);
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
+	/** Constructs a map with the default initial capacity. */
 	public IntHashMapBinary(){
 		this(256);
 	}
-	
+
+	/**
+	 * Constructs a map with the requested initial capacity and the default load
+	 * factor.
+	 * @param initialSize Initial primary slot target; zero asserts, while non-powers
+	 * round up to the next power of two, capped at {@code 1<<30} and then
+	 * clamped to at least 2.
+	 */
 	public IntHashMapBinary(int initialSize){
 		this(initialSize, 0.7f);
 	}
-	
+
+	/**
+	 * Constructs a map with the requested initial capacity and load factor.
+	 * @param initialSize Initial primary slot target; zero asserts, while non-powers
+	 * round up to the next power of two, capped at {@code 1<<30} and then
+	 * clamped to at least 2.
+	 * @param loadFactor_ Requested load factor; must be strictly between 0 and 1,
+	 * then clamped to {@code [0.25,0.90]} before use.
+	 */
 	public IntHashMapBinary(int initialSize, float loadFactor_){
 		if(Integer.bitCount(initialSize)>1){
 			int zeros=Integer.numberOfLeadingZeros(initialSize);
@@ -49,15 +66,14 @@ public final class IntHashMapBinary extends AbstractIntHashMap{
 		//AbstractIntHashMap.toCountHistogram() -> new IntHashMapBinary(Tools.mid(1,size(),64))==1 on a <=1-entry map (testformat.sh, tiny/
 		//empty ZMW). initialSize==0 still asserts loud above. Twin of the empirically-proven map/IntHashMapBinary#001 (Eru); structures/
 		//was V1-skim so it slipped. Cross-package lead, verified at source + applied by Furina.
-		resize(Tools.max(2,initialSize));
+		resize(Tools.max(2, initialSize));
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Public Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Removes all key-value pairs from the map.
-	 * Fills key array with invalid values and value array with zeros. */
+	/** Removes all mappings while retaining the current backing arrays. */
 	@Override
 	public void clear(){
 		if(size<1){return;}
@@ -67,9 +83,10 @@ public final class IntHashMapBinary extends AbstractIntHashMap{
 	}
 
 	/**
-	 * Returns the value associated with the specified key.
-	 * @param key The key to look up
-	 * @return The value associated with the key, or -1 if key not found
+	 * Returns the value mapped to a key.
+	 * @param key Key to search for.
+	 * @return Stored value, or -1 if the key is absent or equals the current
+	 * invalid sentinel.
 	 */
 	@Override
 	public int get(int key){
@@ -77,25 +94,15 @@ public final class IntHashMapBinary extends AbstractIntHashMap{
 		return cell<0 ? -1 : values[cell];
 	}
 
-	/**
-	 * Associates the specified value with the specified key.
-	 * Alias for set() method.
-	 *
-	 * @param key The key to associate with the value
-	 * @param value The value to associate with the key
-	 * @return The previous value associated with the key, or 0 if none
-	 */
 	@Override
 	public int put(int key, int value){return set(key, value);}
 
 	/**
-	 * Associates the specified value with the specified key.
-	 * If key conflicts with invalid marker, generates new invalid value.
-	 * Triggers resize if size exceeds load factor threshold.
+	 * Associates a value with a key, overwriting any previous value.
 	 *
-	 * @param key The key to associate with the value
-	 * @param value The value to associate with the key
-	 * @return The previous value associated with the key, or 0 if none
+	 * @param key Key to map.
+	 * @param value Value to store.
+	 * @return Previous value in the selected cell, or 0 for a newly inserted key.
 	 */
 	@Override
 	public int set(int key, int value){
@@ -113,10 +120,9 @@ public final class IntHashMapBinary extends AbstractIntHashMap{
 	}
 
 	/**
-	 * Increments the value associated with the specified key by 1.
-	 * Creates a new entry with value 1 if key doesn't exist.
-	 * @param key The key whose value to increment
-	 * @return The new value after incrementing
+	 * Increments a key's value by one.
+	 * @param key Key to increment.
+	 * @return Updated value.
 	 */
 	@Override
 	public int increment(int key){
@@ -124,13 +130,12 @@ public final class IntHashMapBinary extends AbstractIntHashMap{
 	}
 
 	/**
-	 * Increments the value associated with the specified key by the given amount.
-	 * Creates a new entry with the increment value if key doesn't exist.
-	 * Clamps result to Integer.MAX_VALUE to prevent overflow.
+	 * Increments a key's value with upper saturation at {@link Integer#MAX_VALUE}.
+	 * Absent keys start from zero and are inserted with the incremented value.
 	 *
-	 * @param key The key whose value to increment
-	 * @param incr The amount to increment by
-	 * @return The new value after incrementing
+	 * @param key Key to increment.
+	 * @param incr Increment amount.
+	 * @return Updated value after saturation.
 	 */
 	@Override
 	public int increment(int key, int incr){
@@ -149,10 +154,9 @@ public final class IntHashMapBinary extends AbstractIntHashMap{
 	}
 
 	/**
-	 * Removes the key-value pair for the specified key.
-	 * Performs rehashing from the removed cell to maintain hash table integrity.
-	 * @param key The key to remove
-	 * @return true if the key was removed, false if it wasn't present
+	 * Removes one key from the map, then rehashes the following probe run.
+	 * @param key Key to remove.
+	 * @return true if the key was present.
 	 */
 	@Override
 	public boolean remove(int key){
@@ -163,15 +167,16 @@ public final class IntHashMapBinary extends AbstractIntHashMap{
 		keys[cell]=invalid;
 		values[cell]=0;
 		size--;
-		
+
 		rehashFrom(cell);
 		return true;
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Private Methods       ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
+	/** Rehashes cells after a removed slot until the next empty cell. */
 	private void rehashFrom(int initial){
 		if(size<1){return;}
 		final int limit=keys.length;
@@ -186,7 +191,8 @@ public final class IntHashMapBinary extends AbstractIntHashMap{
 			rehashCell(cell);
 		}
 	}
-	
+
+	/** Moves one live cell to its first valid probe position when needed. */
 	private boolean rehashCell(final int cell){
 		final int key=keys[cell];
 		final int value=values[cell];
@@ -199,10 +205,14 @@ public final class IntHashMapBinary extends AbstractIntHashMap{
 		values[cell]=0;
 		keys[dest]=key;
 		values[dest]=value;
-		
+
 		return true;
 	}
-	
+
+	/**
+	 * Chooses a fresh empty-cell sentinel and rewrites all old empty cells.
+	 * Called before inserting the live sentinel as a user key.
+	 */
 	private void resetInvalid(){
 		final int old=invalid;
 		int x=invalid;
@@ -216,17 +226,16 @@ public final class IntHashMapBinary extends AbstractIntHashMap{
 			}
 		}
 	}
-	
+
 	/**
-	 * Locates the cell containing the specified key using linear probing.
-	 * Uses bitwise AND with modulus for efficient hash calculation.
-	 * @param key The key to search for
-	 * @return Cell index if found, -1 if not present
+	 * Locates a key by walking its wrapped linear-probe chain.
+	 * @param key Key to search for.
+	 * @return Cell index, or -1 when absent or equal to the current invalid sentinel.
 	 */
 	@Override
 	int findCell(final int key){
 		if(key==invalid){return -1;}
-		
+
 		final int limit=keys.length, initial=key&modulus;
 		for(int cell=initial; cell<limit; cell++){
 			final int x=keys[cell];
@@ -240,10 +249,15 @@ public final class IntHashMapBinary extends AbstractIntHashMap{
 		}
 		return -1;
 	}
-	
+
+	/**
+	 * Locates a key or the first empty cell in its wrapped linear-probe chain.
+	 * @param key Key to search for; must not be the current invalid sentinel.
+	 * @return Cell index containing the key or available for insertion.
+	 */
 	private int findCellOrEmpty(final int key){
 		assert(key!=invalid) : "Collision - this should have been intercepted.";
-		
+
 		final int limit=keys.length, initial=key&modulus;
 		for(int cell=initial; cell<limit; cell++){
 			final int x=keys[cell];
@@ -255,12 +269,17 @@ public final class IntHashMapBinary extends AbstractIntHashMap{
 		}
 		throw new RuntimeException("No empty cells - size="+size+", limit="+limit);
 	}
-	
+
+	/** Doubles the primary table range after the load limit is exceeded. */
 	private final void resize(){
 		assert(size>=sizeLimit);
 		resize(Tools.max(2, modulus+1)*2L);
 	}
-	
+
+	/**
+	 * Replaces storage with a power-of-two primary range plus overflow cells.
+	 * @param size2 Requested primary cell count; must be a power of two.
+	 */
 	private final void resize(final long size2){
 		assert(size2>size) : size+", "+size2;
 		assert(Long.bitCount(size2)==1) : size+", "+size2;
@@ -268,11 +287,11 @@ public final class IntHashMapBinary extends AbstractIntHashMap{
 		assert(newModulus>0) : newModulus;
 		assert(newModulus+extra<Integer.MAX_VALUE) : "Overflow";
 		assert(newModulus>modulus);
-		
+
 //		System.err.println("size="+size+", modulus="+modulus+" -> size2="+size2+", modulus2="+newModulus);
-		
+
 		modulus=(int)newModulus;
-		
+
 		final int size3=(int)(newModulus+extra);
 		sizeLimit=(int)(newModulus*loadFactor);
 		final int[] oldK=keys;
@@ -280,11 +299,11 @@ public final class IntHashMapBinary extends AbstractIntHashMap{
 		keys=KillSwitch.allocInt1D(size3);
 		values=KillSwitch.allocInt1D(size3);
 		Arrays.fill(keys, invalid);
-		
+
 //		System.err.println("Resizing "+(old==null ? "null" : ""+old.length)+" to "+size3);
-		
+
 		if(size<1){return;}
-		
+
 		size=0;
 		for(int i=0; i<oldK.length; i++){
 			final int k=oldK[i], v=oldV[i];
@@ -293,13 +312,15 @@ public final class IntHashMapBinary extends AbstractIntHashMap{
 			}
 		}
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------            Getters           ----------------*/
 	/*--------------------------------------------------------------*/
-	
-	/** Returns an array containing all keys in this map.
-	 * @return Array of all keys, excluding invalid entries */
+
+	/**
+	 * Copies all live keys into a dense array.
+	 * @return Array of live keys in backing-table order.
+	 */
 	@Override
 	public int[] toArray(){
 		int[] x=KillSwitch.allocInt1D(size);
@@ -312,39 +333,47 @@ public final class IntHashMapBinary extends AbstractIntHashMap{
 		}
 		return x;
 	}
-	
-	/** Returns the internal keys array including invalid entries */
+
+	/** Returns the mutable backing keys, including invalid sentinels. */
 	@Override
 	public int[] keys(){return keys;}
-	
-	/** Returns the internal values array including entries for invalid keys */
+
+	/** Returns the mutable backing values, including empty-cell values. */
 	@Override
 	public int[] values(){return values;}
-	
-	/** Returns the current invalid marker value used for empty cells */
+
+	/** Returns the current empty-cell sentinel. */
 	@Override
 	public int invalid(){return invalid;}
-	
-	/** Returns the number of key-value pairs in this map */
+
+	/** Returns the number of live mappings. */
 	@Override
 	public int size(){return size;}
-	
-	/** Returns true if this map contains no key-value pairs */
+
+	/** Returns true when the map has no live mappings. */
 	@Override
 	public boolean isEmpty(){return size==0;}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
+	/** Backing keys; empty cells contain {@link #invalid}. */
 	private int[] keys;
+	/** Backing values parallel to {@link #keys}; empty cells contain zero. */
 	private int[] values;
+	/** Number of live mappings. */
 	private int size=0;
+	/** Current empty-cell sentinel for {@link #keys}. */
 	private int invalid;
+	/** Mask for routing keys into the power-of-two primary table range. */
 	private int modulus;
+	/** Resize threshold derived from {@link #modulus} and {@link #loadFactor}. */
 	private int sizeLimit;
+	/** Maximum occupancy fraction for the primary table range. */
 	private final float loadFactor;
-	
+
+	/** Deterministic source for regenerating {@link #invalid} sentinels. */
 	private static final Random randy=shared.Shared.random(1);
-	
+
 }

@@ -1,19 +1,19 @@
 package structures;
 
 /**
- * Interface for objects that have a settable location and are comparable.
- * Provides a contract for data structures that maintain positional information
- * and can be ordered based on their location values.
+ * Comparable element that can store its current {@link HeapLoc} array index.
+ * {@code HeapLoc} uses this callback to repair an entry in place after the
+ * sort value changes.
  *
  * @author Brian Bushnell
  * @date 2013
  */
-public interface SetLoc<T> extends Comparable<T> {
-	
-	/** Sets the location of this object.
-	 * @param newLoc The new location value to assign */
+public interface SetLoc<T> extends Comparable<T>{
+
+	/** Records the one-based heap index, or a negative value when absent.
+	 * @param newLoc New heap location */
 	public void setLoc(int newLoc);
-	/** Returns the current location of this object */
+	/** Returns the last heap location assigned by {@link #setLoc(int)}. */
 	public int loc();
-	
+
 }

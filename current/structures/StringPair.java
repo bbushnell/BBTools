@@ -1,31 +1,27 @@
 package structures;
 
 /**
- * Simple container for storing a pair of strings.
- * Used throughout BBTools for paired string data such as key-value associations,
- * paired identifiers, or dual string parameters.
+ * Mutable pair of public strings.
  *
  * @author Brian Bushnell
  * @date 2013
  */
-public class StringPair {
-	
-	/**
-	 * Creates a new StringPair with the specified string values.
-	 * @param a_ First string in the pair
-	 * @param b_ Second string in the pair
-	 */
+public class StringPair{
+
+	/** Stores two string references without copying them.
+	 * @param a_ First value
+	 * @param b_ Second value */
 	public StringPair(String a_, String b_){
 		a=a_;
 		b=b_;
 	}
-	
+
 	@Override
 	public String toString(){return "("+a+", "+b+")";}
-	
-	/** First string in the pair */
+
+	/** First value. */
 	public String a;
-	/** Second string in the pair */
+	/** Second value. */
 	public String b;
-	
+
 }

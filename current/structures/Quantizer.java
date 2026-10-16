@@ -8,24 +8,31 @@ import shared.Tools;
 import stream.Read;
 
 /**
- * Quality score quantization utility for reducing quality score granularity.
- * Provides configurable quantization of Phred quality scores to reduce storage requirements
- * and noise in downstream analysis. Supports both uniform interval and custom bin quantization
- * with optional "sticky" mode that preserves adjacent identical scores.
+ * Static, in-place remapping of numeric quality scores through configurable bins.
+ * Configuration is shared and unsynchronized; configure before concurrent use.
+ * Sticky mode can reuse the preceding positive output when it is at least as
+ * close to the original score as the selected positive bin. It starts afresh
+ * for each quality array. Input quality bytes must be nonnegative table indices.
  *
  * @author Brian Bushnell
  * @date 2025
  */
-public class Quantizer {
-	
+public class Quantizer{
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Static Methods        ----------------*/
+	/*--------------------------------------------------------------*/
+
 	/**
-	 * Parses command-line arguments related to quantization settings.
-	 * Handles quantize, quantizesticky parameters and delegates to appropriate handlers.
-	 *
-	 * @param arg The full argument string
-	 * @param a The parameter name (e.g., "quantize", "quantizesticky")
-	 * @param b The parameter value
-	 * @return true if argument was recognized and processed, false otherwise
+	 * Applies a quantize or quantizesticky option already selected by the caller.
+	 * A boolean sticky setting returns true to enable quantization independently
+	 * of the sticky value; ordinary boolean values return their parsed value.
+	 * Numeric specifications replace bins, except interval 1 returns false without
+	 * replacing them. This method does not validate an arbitrary option name.
+	 * @param arg Full argument string; unused here.
+	 * @param a Preselected option name, normally lower case.
+	 * @param b Boolean, sticky keyword, interval, or comma-separated bin values.
+	 * @return Whether the caller should enable quantization, not name recognition.
 	 */
 	public static boolean parse(String arg, String a, String b){
 		if(a.equals("quantize")){
@@ -34,32 +41,33 @@ public class Quantizer {
 				return true;
 			}
 		}else if(a.equals("quantizesticky")){
-			if(b!=null && (b.charAt(0)=='/' || Tools.isDigit(b.charAt(0)))) {
+			if(b!=null && (b.charAt(0)=='/' || Tools.isDigit(b.charAt(0)))){
 				STICKY=true;
-			}else {
+			}else{
 				STICKY=Parse.parseBoolean(b);
 				return true;
 			}
 		}
-		
+
 		if(b==null || b.length()<1 || Character.isLetter(b.charAt(0))){
 			return Parse.parseBoolean(b);
 		}
 		return setArray(b);
 	}
-	
+
 	/**
 	 * Configures quantization array from string specification.
-	 * Supports both uniform interval format ("/N") and comma-separated bin list.
-	 * For uniform intervals, creates bins starting at 0 with step size N.
+	 * A single integer, optionally prefixed by '/', creates bins from 0 through
+	 * Read.MAX_CALLED_QUALITY() in that interval. Comma-separated signed byte
+	 * values are used in their supplied order; this method does not sort them.
 	 *
 	 * @param s String specification: "/N" for uniform intervals or "v1,v2,v3" for custom bins
-	 * @return true if array was successfully configured, false if disabled (quant=1)
+	 * @return True after configuring bins, or false for interval 1 without changing bins.
 	 */
 	private static boolean setArray(String s){
 		final byte[] array;
 		if(s.indexOf(',')<0){
-			if(s.charAt(0)=='/') {s=s.substring(1);}
+			if(s.charAt(0)=='/'){s=s.substring(1);}
 			int quant=Integer.parseInt(s);
 			assert(quant>0 && quant<128);
 			if(quant==1){return false;}
@@ -74,31 +82,32 @@ public class Quantizer {
 		setArray(array);
 		return true;
 	}
-	
-	/** Sets the quantization array and rebuilds the quality remapping table.
-	 * @param a Array of quantization bin values */
+
+	/** Retains the supplied bins and rebuilds the shared remapping table.
+	 * @param a Bin values in tie-breaking iteration order; borrowed, not copied. */
 	private static void setArray(byte[] a){
 		quantizeArray=a;
 		qualityRemapArray=makeQualityRemapArray(quantizeArray);
 	}
-	
+
 	/**
 	 * Quantizes quality scores for all reads in a list.
-	 * Processes both primary reads and their mates if present.
+	 * Processes each nonnull list entry and its mate, in list order.
+	 * The list is not deduplicated; listing both mates quantizes each twice.
 	 * @param list List of reads to quantize (may be null)
 	 */
-	public static void quantize(ArrayList<Read> list) {
-		if(list==null) {return;}
-		for(Read r : list) {
-			if(r!=null) {
+	public static void quantize(ArrayList<Read> list){
+		if(list==null){return;}
+		for(Read r : list){
+			if(r!=null){
 				quantize(r);
 				quantize(r.mate);
 			}
 		}
 	}
-	
+
 	/**
-	 * Quantizes quality scores for a pair of reads.
+	 * Quantizes two supplied reads independently; identical references are processed twice.
 	 * @param r1 First read to quantize (may be null)
 	 * @param r2 Second read to quantize (may be null)
 	 */
@@ -106,18 +115,19 @@ public class Quantizer {
 		quantize(r1);
 		quantize(r2);
 	}
-	
+
 	/** Quantizes quality scores for a single read.
 	 * @param r Read to quantize (may be null) */
 	public static void quantize(Read r){
-		if(r!=null) {quantize(r.quality);}
+		if(r!=null){quantize(r.quality);}
 	}
-	
+
 	/**
 	 * Quantizes a quality score array in-place using configured mapping.
-	 * In sticky mode, adjacent positions with similar original scores may retain
-	 * the same quantized value to preserve local quality patterns.
-	 * @param quals Quality score array to quantize (may be null)
+	 * Each original byte indexes the 128-entry table. Sticky mode retains the
+	 * previous positive output if both candidates are positive and the previous
+	 * output is no farther from the original score. Previous output starts at zero.
+	 * @param quals Borrowed quality array to modify, with values 0..127; may be null.
 	 */
 	public static void quantize(byte[] quals){
 		if(quals==null){return;}
@@ -132,14 +142,17 @@ public class Quantizer {
 			prev=q;
 		}
 	}
-	
+
 	/**
 	 * Creates a lookup table mapping original quality scores to quantized values.
-	 * For each possible quality score (0-127), finds the closest quantization bin value.
-	 * @param quantizeArray Array of quantization bin values
+	 * For each score 0..127, starts at zero and visits bins in supplied order.
+	 * A bin replaces the candidate when it is at least as close, so later ties win.
+	 * For a positive score, a positive bin also replaces a zero candidate regardless
+	 * of distance. Zero input remains zero even if no zero bin was supplied.
+	 * @param quantizeArray Bin values in iteration order.
 	 * @return Remapping array where index is original quality, value is quantized quality
 	 */
-	private static final byte[] makeQualityRemapArray(byte[] quantizeArray) {
+	private static final byte[] makeQualityRemapArray(byte[] quantizeArray){
 		byte[] array=KillSwitch.allocByte1D(128);
 		for(int i=0; i<array.length; i++){
 			byte q=0;
@@ -150,14 +163,19 @@ public class Quantizer {
 		}
 		return array;
 	}
-	
+
+	/*--------------------------------------------------------------*/
+	/*----------------            Fields            ----------------*/
+	/*--------------------------------------------------------------*/
+
 //	private static byte[] quantizeArray={0, 8, 13, 22, 27, 32, 37}; //Old
+	/** Current bins; replacement preserves the supplied iteration order. */
 	private static byte[] quantizeArray={0, 14, 21, 27, 32, 36};
 	/** Lookup table mapping original quality scores to quantized values */
 	private static byte[] qualityRemapArray=makeQualityRemapArray(quantizeArray);
 	/**
-	 * Whether to use sticky mode that preserves adjacent identical quantized scores
+	 * Whether to reuse the preceding positive output when it is at least as close.
 	 */
 	private static boolean STICKY=true;
-	
+
 }

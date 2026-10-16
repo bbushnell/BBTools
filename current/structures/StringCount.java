@@ -1,22 +1,28 @@
 package structures;
 
 /**
- * Data structure for tracking scaffold statistics in sequence alignment tools.
- * Stores a scaffold name along with counts of reads and bases that aligned to it.
- * Used primarily by BBDuk and Seal for contamination detection and reference matching.
- * Implements Comparable to enable sorting by base count (descending), then read count,
- * then lexicographically by name.
+ * Mutable per-reference hit-count row for BBDuk and Seal statistics.
+ * <p>
+ * Sorting puts higher base counts first, then higher read counts, then lower
+ * lexicographic names.  Seal also stores ambiguous-read counts for output;
+ * those do not affect ordering.  The typed equals overload tests compareTo
+ * equality but leaves inherited Object.equals as identity equality.
  *
  * @author Brian Bushnell
  */
 public class StringCount implements Comparable<StringCount>{
 
+	/** Creates a name-only row; callers fill counters later. */
 	public StringCount(String name_){
 		name=name_;
 	}
+
+	/** Creates a row without ambiguous-read counts. */
 	public StringCount(String name_, int len_, long reads_, long bases_){
 		this(name_, len_, reads_, bases_, 0);
 	}
+
+	/** Creates a complete row including Seal's ambiguous-read count. */
 	public StringCount(String name_, int len_, long reads_, long bases_, long ambigReads_){
 		name=name_;
 		length=len_;
@@ -24,44 +30,41 @@ public class StringCount implements Comparable<StringCount>{
 		bases=bases_;
 		ambigReads=ambigReads_;
 	}
-	/**
-	 * Compares StringCount objects for sorting by alignment statistics.
-	 * Primary sort: base count (descending)
-	 * Secondary sort: read count (descending)
-	 * Tertiary sort: name (ascending lexicographic)
-	 * @param o Other StringCount to compare against
-	 * @return Negative if this < o, positive if this > o, zero if equal
-	 */
+
+	/** Orders rows by bases descending, reads descending, then name ascending. */
 	@Override
 	public final int compareTo(StringCount o){
 		if(bases!=o.bases){return o.bases>bases ? 1 : -1;}
 		if(reads!=o.reads){return o.reads>reads ? 1 : -1;}
 		return name.compareTo(o.name);
 	}
+
+	/** Tests whether two rows compare as equal. */
 	public final boolean equals(StringCount o){
 		return compareTo(o)==0;
 	}
-	/** Hash code based solely on the scaffold name.
-	 * @return Hash code of the name string */
+
+	/** Returns a name-only hash. */
 	@Override
 	public final int hashCode(){
 		return name.hashCode();
 	}
-	/**
-	 * Tab-delimited string representation for output formatting.
-	 * Format: name\tlength\treads\tbases
-	 * @return Tab-separated values string
-	 */
+
+	/** Returns {@code name\tlength\treads\tbases}. */
 	@Override
 	public final String toString(){
 		return name+"\t"+length+"\t"+reads+"\t"+bases;
 	}
-	
+
 	/*--------------------------------------------------------------*/
-	
+
+	/** Reference or set name. */
 	public final String name;
+
+	/** Reference or set length. */
 	public int length;
-	/** Number of ambiguous reads that map to multiple locations. */
-	/** Number of bases aligned to this scaffold. */
+
+	/** Read, base and ambiguous-read counters. */
 	public long reads, bases, ambigReads;
+
 }

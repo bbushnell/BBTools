@@ -1,26 +1,23 @@
 package structures;
 
 /**
- * Generic container pairing an object with a long value.
- * Used to attach a number (count, id, or score) to an arbitrary item.
+ * Mutable pair of a public object reference and a public long value.
  *
- * @param <X> Type of the stored object
+ * @param <X> Type of the stored object reference
  */
 public class XNum<X>{
 
-	/**
-	 * Creates an XNum pairing an object with a numeric value.
-	 * @param x_ Object to store
-	 * @param num_ Numeric value to associate
-	 */
-	public XNum(X x_, long num_) {
+	/** Stores an object reference and a long value.
+	 * @param x_ Object reference
+	 * @param num_ Long value */
+	public XNum(X x_, long num_){
 		x=x_;
 		num=num_;
 	}
 
-	/** The stored object */
+	/** Stored object reference. */
 	public X x;
-	/** The associated numeric value */
+	/** Associated long value. */
 	public long num;
-	
+
 }

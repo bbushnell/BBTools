@@ -5,22 +5,26 @@ import java.util.Arrays;
 import shared.Timer;
 
 /**
- * Fixed-size circular buffer for longs using power-of-two physical storage and bit masking.
- * Supports arbitrary logical sizes with fast add/get operations.
+ * Fixed-capacity circular buffer for long values, using a power-of-two physical
+ * array and masks for wraparound. Supported logical capacity is {@code 1..1<<30};
+ * the physical backing array has at least two slots and is rounded up to a power
+ * of two.
+ * Raw accessors do not validate empty reads or offsets; callers must either
+ * tolerate the current backing value or restrict reads to written logical positions.
  * @author Brian Bushnell
  * @contributor Isla
  * @date May 8, 2025
  */
-public final class RingBuffer {
+public final class RingBuffer{
 	
 	/** Benchmark entry point measuring add/get throughput.
 	 * Args: [buffer_size] [iteration_count] */
-	public static void main(String[] args) {
+	public static void main(String[] args){
 		int size=Integer.parseInt(args[0]);
 		long iters=Long.parseLong(args[1]), sum=0;
 		Timer t=new Timer();
 		RingBuffer ring=new RingBuffer(size);
-		for(long i=0; i<iters; i++) {
+		for(long i=0; i<iters; i++){
 			ring.add(i);
 			sum+=ring.getOldestUnchecked();
 		}
@@ -31,12 +35,20 @@ public final class RingBuffer {
 	/*----------------             Init             ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Creates a buffer of specified logical size; physical array is rounded to next power of two.
-	 * @param size_ Logical capacity of the buffer */
-	public RingBuffer(int size_) {
+	/**
+	 * Creates a buffer with the requested logical capacity.
+	 * The physical array has at least two slots and is rounded up to the next power
+	 * of two.
+	 * @param size_ Fixed logical capacity in the supported {@code 1..1<<30} range.
+	 *        Values outside this range are rejected when assertions are enabled.
+	 */
+	public RingBuffer(int size_){
+		assert(size_>=1 && size_<=(1<<30)) :
+				"RingBuffer size="+size_+" is outside 1..1<<30; power-of-two "+
+				"int backing sizes above 1<<30 cannot stay positive and Java shift distances wrap";
 		size=size_;
 		int bits=1;
-		while(1<<bits<size) {bits++;}
+		while(1<<bits<size){bits++;}
 		array=new long[1<<bits];
 		mask=array.length-1;
 	}
@@ -50,18 +62,18 @@ public final class RingBuffer {
 	 * Uses bit masking for fast circular wraparound.
 	 * @param value The value to store in the buffer
 	 */
-	public final void add(long value) {
+	public final void add(long value){
 		count++;
 		array[pos]=value;
 		pos=(pos+1)&mask;
 	}
 
 	/**
-	 * Gets the value at the current insertion position.
-	 * Returns the value that would be overwritten by the next add().
-	 * @return The value at the current write position
+	 * Gets the raw value at the next insertion position.
+	 * This slot may be unwritten unless the buffer has been filled or wrapped.
+	 * @return The value at the next insertion position.
 	 */
-	public final long getCurrent() {
+	public final long getCurrent(){
 		return array[pos];
 	}
 
@@ -70,27 +82,27 @@ public final class RingBuffer {
 	 * Uses bit masking to wrap around buffer boundaries.
 	 * @return The most recently stored value
 	 */
-	public final long getPrev() {
+	public final long getPrev(){
 		return array[(pos-1)&mask];
 	}
 
 	/**
-	 * Gets the oldest value in the buffer with bounds checking.
-	 * Returns the first element if the buffer isn't yet full.
-	 * Safe version of getOldestUnchecked().
-	 * @return The oldest value in the buffer
+	 * Gets the raw oldest-slot value for the current fill state.
+	 * Selects array[0] before a full logical cycle rather than the next slot to age
+	 * out, but does not reject reads from an empty buffer.
+	 * @return The oldest-slot value for the current fill state.
 	 */
-	public final long getOldest() {
+	public final long getOldest(){
 		return array[(count<size) ? 0 : (pos-size)&mask];
 	}
 
 	/**
-	 * Gets the oldest value without bounds checking.
-	 * Assumes the buffer has been pre-filled with safe values.
-	 * Faster than getOldest() but requires careful initialization.
-	 * @return The oldest value in the buffer
+	 * Gets the raw value at the slot that will age out on the next add once the
+	 * logical buffer has wrapped. Before the first full cycle, or after clear(),
+	 * this can read backing-array values not written in the current cycle.
+	 * @return The raw value at the oldest unchecked slot.
 	 */
-	public final long getOldestUnchecked() {
+	public final long getOldestUnchecked(){
 		return array[(pos-size)&mask];//Faster; be sure to pre-fill with a safe value
 	}
 
@@ -100,7 +112,7 @@ public final class RingBuffer {
 	 * @param offset The number of positions back from the most recent value
 	 * @return The value at the specified offset
 	 */
-	public final long get(int offset) {
+	public final long get(int offset){
 		return array[(pos-offset-1)&mask];
 	}
 
@@ -109,7 +121,7 @@ public final class RingBuffer {
 	 * Useful for initializing buffer to safe values for getOldestUnchecked().
 	 * @param value The value to fill all buffer positions with
 	 */
-	public final void fill(long value) {
+	public final void fill(long value){
 		Arrays.fill(array, value);
 	}
 	
@@ -118,12 +130,12 @@ public final class RingBuffer {
 	 * Limited by the logical buffer capacity specified in constructor.
 	 * @return The number of elements, capped at buffer capacity
 	 */
-	public final int size() {
+	public final int size(){
 		return (int)Math.min(count, size);
 	}
 	
 	/** Clears buffer state (resets position; contents left as-is). */
-	public void clear() {
+	public void clear(){
 		pos=0;
 		count=0;
 		//fill(0); //Not needed

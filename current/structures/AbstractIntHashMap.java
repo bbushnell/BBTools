@@ -11,10 +11,10 @@ import shared.Tools;
 import structures.IntList;
 
 /**
- * Abstract base class for integer-to-integer hash maps.
- * Provides common operations for hash maps with integer keys and values.
- * Concrete implementations handle the underlying storage strategy and collision resolution.
- * Includes extensive testing capabilities and utility methods for data analysis.
+ * Base class for primitive int-to-int hash maps.
+ * Concrete implementations choose the table sizing and probing strategy; shared
+ * helpers iterate the raw arrays from {@link #keys()} and {@link #values()} and
+ * skip slots whose key is equal to {@link #invalid()}.
  *
  * @author Brian Bushnell
  * @date June 8, 2017
@@ -178,57 +178,77 @@ public abstract class AbstractIntHashMap{
 	/*----------------        Public Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Removes all mappings while retaining implementation-owned storage. */
 	public abstract void clear();
 	
+	/**
+	 * Tests whether the key is present.
+	 * @param key Key to search for.
+	 * @return true if the key is present and is not the current invalid sentinel.
+	 */
 	public final boolean contains(int key){
 		return findCell(key)>=0;
 	}
 	
+	/**
+	 * Tests whether the key is present.
+	 * @param key Key to search for.
+	 * @return true if the key is present and is not the current invalid sentinel.
+	 */
 	public final boolean containsKey(int key){
 		return findCell(key)>=0;
 	}
 	
+	/**
+	 * Returns the value mapped to a key.
+	 * @param key Key to search for.
+	 * @return Stored value, or the implementation's missing-value sentinel if absent.
+	 */
 	public abstract int get(int key);
 	
 	/**
-	 * Associates the specified value with the specified key in this map.
-	 * If the key was previously mapped, the old value is replaced.
+	 * Associates a value with a key, overwriting any previous value.
 	 *
-	 * @param key The key to associate with the value
-	 * @param value The value to associate with the key
-	 * @return The previous value associated with the key, or implementation-defined default if none
+	 * @param key Key to map.
+	 * @param value Value to store.
+	 * @return Previous value in the selected cell, or the implementation's
+	 * default value for a newly inserted key.
 	 */
 	public abstract int put(int key, int value);
 	
 	/**
-	 * Associates the specified value with the specified key in this map.
-	 * Functionally identical to put().
+	 * Associates a value with a key, overwriting any previous value.
 	 *
-	 * @param key The key to associate with the value
-	 * @param value The value to associate with the key
-	 * @return The previous value associated with the key, or implementation-defined default if none
+	 * @param key Key to map.
+	 * @param value Value to store.
+	 * @return Previous value in the selected cell, or the implementation's
+	 * default value for a newly inserted key.
 	 */
 	public abstract int set(int key, int value);
 	
 	/**
-	 * Increments the value associated with the specified key by 1.
-	 * If the key does not exist, it is created with value 1.
-	 * @param key The key whose value should be incremented
-	 * @return The new value after incrementing
+	 * Increments a key's value by one.
+	 * Absent keys are inserted as if their previous value were zero.
+	 * @param key Key to increment.
+	 * @return Updated value.
 	 */
 	public abstract int increment(int key);
 	
 	/**
-	 * Increments the value associated with the specified key by the specified amount.
-	 * If the key does not exist, it is created with the increment value.
+	 * Increments a key's value by the specified amount.
+	 * Absent keys are inserted as if their previous value were zero.
 	 *
-	 * @param key The key whose value should be incremented
-	 * @param incr The amount to increment by (may be negative)
-	 * @return The new value after incrementing
+	 * @param key Key to increment.
+	 * @param incr Increment amount.
+	 * @return Updated value.
 	 */
 	public abstract int increment(int key, int incr);
 
-	public final void incrementAll(AbstractIntHashMap map) {
+	/**
+	 * Adds every live value from another map into this map.
+	 * @param map Source map to scan through its raw backing arrays.
+	 */
+	public final void incrementAll(AbstractIntHashMap map){
 		final int[] keys=map.keys();
 		final int[] values=map.values();
 		final int invalid=map.invalid();
@@ -241,14 +261,26 @@ public abstract class AbstractIntHashMap{
 	}
 	
 	/**
-	 * Removes the mapping for the specified key from this map if present.
-	 * @param key The key whose mapping is to be removed
-	 * @return true if the key was present and removed, false otherwise
+	 * Removes a key from the map if present.
+	 * @param key Key to remove.
+	 * @return true if the key was present and removed.
 	 */
 	public abstract boolean remove(int key);
 	
+	/**
+	 * Returns the number of live mappings.
+	 * @return Number of live mappings.
+	 */
 	public final int cardinality(){return size();}
+	/**
+	 * Returns the number of live mappings.
+	 * @return Number of live mappings.
+	 */
 	public abstract int size();
+	/**
+	 * Tests whether the map has no live mappings.
+	 * @return true if empty.
+	 */
 	public abstract boolean isEmpty();
 	
 	/*--------------------------------------------------------------*/
@@ -265,6 +297,10 @@ public abstract class AbstractIntHashMap{
 		return toStringListView();
 	}
 	
+	/**
+	 * Returns a debug string containing (rawCell, key, value) triples.
+	 * @return String containing live entries and their backing-array cells.
+	 */
 	public final String toStringSetView(){
 		final int size=size(), invalid=invalid();
 		final int[] keys=keys(), values=values();
@@ -281,6 +317,10 @@ public abstract class AbstractIntHashMap{
 		return sb.toString();
 	}
 	
+	/**
+	 * Returns a string containing (key,value) pairs in backing-array order.
+	 * @return String containing live entries.
+	 */
 	public final String toStringListView(){
 		final int size=size(), invalid=invalid();
 		final int[] keys=keys(), values=values();
@@ -302,6 +342,10 @@ public abstract class AbstractIntHashMap{
 		return sb.toString();
 	}
 	
+	/**
+	 * Copies live keys into a compact array.
+	 * @return Newly allocated array containing exactly the live keys.
+	 */
 	public final int[] toKeyArray(){
 		final int size=size(), invalid=invalid();
 		final int[] keys=keys();
@@ -316,12 +360,16 @@ public abstract class AbstractIntHashMap{
 		return x;
 	}
 
-	public final IntHashMapBinary toCountHistogram() {
+	/**
+	 * Counts how many times each stored value occurs in this map.
+	 * @return Histogram keyed by values from this map.
+	 */
+	public final IntHashMapBinary toCountHistogram(){
 		IntHashMapBinary counts=new IntHashMapBinary(Tools.mid(1, size(), 64));
 		final int[] keys=keys();
 		final int[] values=values();
 		final int invalid=invalid();
-		for(int i=0; i<keys.length; i++) {
+		for(int i=0; i<keys.length; i++){
 			int a=keys[i];
 			int b=values[i];
 			if(a!=invalid){
@@ -331,6 +379,11 @@ public abstract class AbstractIntHashMap{
 		return counts;
 	}
 	
+	/**
+	 * Verifies raw-array lengths, empty-cell values, and live-key reachability.
+	 * @return true if each live key can be found at its current cell and the
+	 * live-cell count matches {@link #size()}.
+	 */
 	public final boolean verify(){
 		final int size=size(), invalid=invalid();
 		final int[] keys=keys(), values=values();
@@ -354,15 +407,36 @@ public abstract class AbstractIntHashMap{
 		return numValues==numFound && numValues==size;
 	}
 	
+	/**
+	 * Finds the backing-array cell containing a key.
+	 * @param key Key to search for.
+	 * @return Backing-array cell index, or -1 if absent.
+	 */
 	abstract int findCell(final int key);
 	
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/**
+	 * Copies live keys into a compact array.
+	 * @return Newly allocated array containing exactly the live keys.
+	 */
 	public abstract int[] toArray();
+	/**
+	 * Returns the raw backing key array, including invalid slots.
+	 * @return Implementation-owned key array.
+	 */
 	public abstract int[] keys();
+	/**
+	 * Returns the raw backing value array, including values for invalid slots.
+	 * @return Implementation-owned value array.
+	 */
 	public abstract int[] values();
+	/**
+	 * Returns the sentinel key used for empty backing-array slots.
+	 * @return Current invalid key sentinel.
+	 */
 	public abstract int invalid();
 	
 	static final int MASK=Integer.MAX_VALUE;

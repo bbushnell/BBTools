@@ -18,6 +18,8 @@ import structures.IntList;
  * Optimized for bioinformatics applications requiring efficient k-mer counting
  * and genomic coordinate mapping. Provides primitive operations without boxing
  * overhead and includes specialized increment operations for counting workflows.
+ * Absent lookups return -1. Several validation and threshold-export paths assume
+ * live keys are nonnegative and live values are positive.
  *
  * @author Brian Bushnell
  * @date December 12, 2017
@@ -133,14 +135,29 @@ public final class IntLongHashMap{
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Constructs a map with the default initial capacity.
+	 */
 	public IntLongHashMap(){
 		this(256);
 	}
 	
+	/**
+	 * Constructs a map with the requested initial capacity and the default load
+	 * factor.
+	 * @param initialSize Initial slot target; must be positive.
+	 */
 	public IntLongHashMap(int initialSize){
 		this(initialSize, 0.7f);
 	}
 	
+	/**
+	 * Constructs a map with the requested initial capacity and load factor.
+	 * The load factor is clamped to the supported resize range.
+	 *
+	 * @param initialSize Initial slot target; must be positive.
+	 * @param loadFactor_ Requested load factor; must be strictly between 0 and 1.
+	 */
 	public IntLongHashMap(int initialSize, float loadFactor_){
 		invalid=randy.nextInt()|MINMASK;
 		assert(invalid<0);
@@ -154,6 +171,9 @@ public final class IntLongHashMap{
 	/*----------------        Public Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Removes all keys and values while retaining the current backing arrays.
+	 */
 	public void clear(){
 		if(size<1){return;}
 		Arrays.fill(keys, invalid);
@@ -162,15 +182,31 @@ public final class IntLongHashMap{
 //		assert(verify()); //123
 	}
 	
+	/**
+	 * Tests whether a key is present.
+	 * @param key Key to search for.
+	 * @return true if the key is present and is not the current invalid sentinel.
+	 */
 	public boolean contains(int key){
 //		assert(verify()); //123
 		return key==invalid ? false : findCell(key)>=0;
 	}
 	
+	/**
+	 * Tests whether a key is present.
+	 * @param key Key to search for.
+	 * @return true if the key is present and is not the current invalid sentinel.
+	 */
 	public boolean containsKey(int key){
 		return contains(key);
 	}
 	
+	/**
+	 * Returns the value mapped to a key.
+	 * @param key Key to search for.
+	 * @return Stored value, or -1 if the key is absent or equals the current
+	 * invalid sentinel.
+	 */
 	public long get(int key){
 //		assert(verify()); //123
 		long value=-1;
@@ -182,22 +218,23 @@ public final class IntLongHashMap{
 	}
 	
 	/**
-	 * Increments the value for the specified key by 1.
-	 * Creates new mapping with value 1 if key doesn't exist.
-	 * @param key The key to increment
-	 * @return The new value after incrementing
+	 * Increments the value for the specified key by one.
+	 * Creates a new mapping with value 1 if the key is absent.
+	 * @param key Key to increment.
+	 * @return Updated value.
 	 */
 	public long add(int key){
 		return increment(key, 1);
 	}
 	
 	/**
-	 * Increments the value for the specified key by the given amount.
-	 * Creates new mapping with the increment value if key doesn't exist.
-	 * Automatically resizes the hash table when load threshold is exceeded.
-	 * @param key The key to increment
-	 * @param incr The amount to increment by
-	 * @return The new value after incrementing
+	 * Increments the value for the specified key by the given amount, using
+	 * unchecked long arithmetic. Creates a new mapping with the increment value
+	 * if the key is absent.
+	 *
+	 * @param key Key to increment.
+	 * @param incr Increment amount.
+	 * @return Updated value.
 	 */
 	public long increment(int key, long incr){
 //		assert(verify()); //123
@@ -218,20 +255,25 @@ public final class IntLongHashMap{
 		}
 	}
 	
-	public void incrementAll(IntLongHashMap map) {
-		for(int i=0; i<map.keys.length; i++) {
-			if(map.keys[i]!=map.invalid) {
+	/**
+	 * Adds every live value from another map into this one.
+	 * @param map Source map.
+	 */
+	public void incrementAll(IntLongHashMap map){
+		for(int i=0; i<map.keys.length; i++){
+			if(map.keys[i]!=map.invalid){
 				increment(map.keys[i], map.values[i]);
 			}
 		}
 	}
 	
 	/**
-	 * Associates the specified value with the specified key.
-	 * Does not overwrite existing mappings - returns false if key already exists.
-	 * @param key The key to map
-	 * @param value The value to associate with the key
-	 * @return true if the key was newly added, false if key already existed
+	 * Associates the specified value with an absent key.
+	 * Does not overwrite an existing mapping.
+	 *
+	 * @param key Key to map.
+	 * @param value Value to associate with the key.
+	 * @return true if the key was newly added, false if it already existed.
 	 */
 	public boolean put(int key, long value){
 //		assert(verify()); //123
@@ -253,8 +295,8 @@ public final class IntLongHashMap{
 	/**
 	 * Removes the mapping for the specified key from the hash map.
 	 * Performs rehashing of subsequent entries to maintain probe sequence integrity.
-	 * @param key The key to remove
-	 * @return The previous value associated with the key, or -1 if not found
+	 * @param key Key to remove.
+	 * @return Previous value associated with the key, or -1 if not found.
 	 */
 	public long remove(int key){
 //		assert(verify()); //123
@@ -272,8 +314,16 @@ public final class IntLongHashMap{
 		return value;
 	}
 	
+	/**
+	 * Returns the number of live mappings.
+	 * @return Number of live mappings.
+	 */
 	public int size(){return size;}
 	
+	/**
+	 * Tests whether the map has no live mappings.
+	 * @return true if empty.
+	 */
 	public boolean isEmpty(){return size==0;}
 	
 	/*--------------------------------------------------------------*/
@@ -331,14 +381,14 @@ public final class IntLongHashMap{
 		for(int i=0; i<values.length; i++){
 			assert((values[i]==0)==(keys[i]==invalid)) : i+", "+values[i]+", "+keys[i]+", "+invalid+"\n"+toStringSetView();
 			assert((keys[i]<0)==((keys[i]==invalid))) : toStringSetView();
-			if(values[i]>=thresh){
+			if(keys[i]!=invalid && values[i]>=thresh){
 				assert(keys[i]>=0) : "\nNegative key ("+keys[i]+", "+values[i]+", "+i+") for thresh "+thresh+":\n"+toStringSetView();
 				len++;
 			}
 		}
 		long[] x=KillSwitch.allocLong1D(len);
 		for(int i=0, j=0; j<len; i++){
-			if(values[i]>=thresh){
+			if(keys[i]!=invalid && values[i]>=thresh){
 				x[j]=keys[i];
 				assert(keys[i]>=0) : "\nNegative key ("+keys[i]+", "+values[i]+", "+i+") for thresh "+thresh+":\n"+toStringSetView();
 				j++;
@@ -501,16 +551,16 @@ public final class IntLongHashMap{
 	/*----------------            Getters           ----------------*/
 	/*--------------------------------------------------------------*/
 
-	public int[] keys() {return keys;}
+	public int[] keys(){return keys;}
 
-	public long[] values() {return values;}
+	public long[] values(){return values;}
 
-	public int invalid() {return invalid;}
+	public int invalid(){return invalid;}
 
-	public long sum() {
+	public long sum(){
 		long sum=0;
-		for(int i=0; i<keys.length; i++) {
-			if(keys[i]!=invalid) {
+		for(int i=0; i<keys.length; i++){
+			if(keys[i]!=invalid){
 				sum+=values[i];
 			}
 		}

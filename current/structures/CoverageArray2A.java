@@ -5,23 +5,35 @@ import shared.KillSwitch;
 import shared.Tools;
 
 /**
- * Thread-safe atomic version of CoverageArray using 16-bit coverage values.
- * Stores coverage data in an AtomicIntegerArray with two 16-bit values packed per integer.
- * Provides lock-free concurrent access to coverage data for multi-threaded applications.
- * Coverage values are capped at 0xFFFF (65535) to prevent overflow.
+ * Atomic CoverageArray implementation with two unsigned 16-bit coverage values
+ * packed per integer. Individual updates use compare-and-set loops and saturate
+ * positive increments above 0xFFFF. Inherited aggregate-statistic caches are not
+ * updated atomically with these element updates.
  *
  * @author Brian Bushnell
  * @date Sep 20, 2014
  */
-public class CoverageArray2A extends CoverageArray {
-	
-	/** Serial version UID for serialization compatibility */
-	private static final long serialVersionUID = 98483952072098494L;
-	
+public class CoverageArray2A extends CoverageArray{
+
+	/*--------------------------------------------------------------*/
+	/*----------------          Constants           ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Serial version UID for serialization compatibility. */
+	private static final long serialVersionUID=98483952072098494L;
+
+	/*--------------------------------------------------------------*/
+	/*----------------             Main             ----------------*/
+	/*--------------------------------------------------------------*/
+
 	public static void main(String[] args){
 		//TODO
 	}
-	
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Initialization        ----------------*/
+	/*--------------------------------------------------------------*/
+
 	public CoverageArray2A(int chrom, int len){
 		super(chrom, len);
 		int intLen=intIdx(len)+1;
@@ -29,18 +41,29 @@ public class CoverageArray2A extends CoverageArray {
 		minIndex=0;
 		maxIndex=len-1;
 	}
-	
-	private static final int intIdx(int idx) {
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Static Methods        ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Returns the packed integer index containing a logical coverage index. */
+	private static final int intIdx(int idx){
 		return (idx+1)/2;
 	}
-	
-	/** Atomically increments coverage at the specified location by 1.
-	 * @param loc Location to increment */
+
+	/*--------------------------------------------------------------*/
+	/*----------------           Methods            ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/**
+	 * Atomically increments coverage at the specified location by 1.
+	 * @param loc Location to increment.
+	 */
 	@Override
 	public void increment(int loc){
 		increment(loc, 1);
 	}
-	
+
 	/**
 	 * Atomically increments coverage at the specified location by the given amount.
 	 * Uses compare-and-exchange operations to ensure thread safety.
@@ -50,8 +73,9 @@ public class CoverageArray2A extends CoverageArray {
 	 * @param amt Amount to increment by (must be non-negative)
 	 */
 	@Override
-	public void increment(final int loc, final int amt) {
+	public void increment(final int loc, final int amt){
 		assert(amt>=0) : "This does not currently allow negative increments.";
+		if(amt==0){return;}
 		final int intIdx=intIdx(loc);
 		boolean overflow=((loc&1)==1 ? incrementUpper(intIdx, amt) : incrementLower(intIdx, amt));
 		if(overflow && !OVERFLOWED){
@@ -59,33 +83,33 @@ public class CoverageArray2A extends CoverageArray {
 			 OVERFLOWED=true;
 		}
 	}
-	
-	private boolean incrementLower(final int intIdx, final int amt) {
-		boolean overflow=false;
-		for(int oldVal=0, actual=amt; oldVal!=actual; ) {
-			oldVal=array.get(intIdx);
+
+	/** Saturating compare-and-set increment of the lower packed 16-bit value. */
+	private boolean incrementLower(final int intIdx, final int amt){
+		for(;;){
+			final int oldVal=array.get(intIdx);
 			int lower=oldVal&lowerMask, upper=oldVal&upperMask;
 			int charVal=lower;
-			int charVal2=Tools.min(0xFFFF, charVal+amt);
-			overflow=(charVal2>=0xFFFF);
+			// Widen before adding so saturation sees sums above Integer.MAX_VALUE.
+			int charVal2=(int)Tools.min(0xFFFF, (long)charVal+amt);
+			boolean overflow=(charVal2>=0xFFFF);
 			int newVal=(charVal2)|upper;
-			actual=array.compareAndExchange(intIdx, oldVal, newVal);
+			if(array.compareAndSet(intIdx, oldVal, newVal)){return overflow;}
 		}
-		return overflow;
 	}
-	
-	private boolean incrementUpper(int intIdx, int amt) {
-		boolean overflow=false;
-		for(int oldVal=0, actual=amt; oldVal!=actual; ) {
-			oldVal=array.get(intIdx);
+
+	/** Saturating compare-and-set increment of the upper packed 16-bit value. */
+	private boolean incrementUpper(int intIdx, int amt){
+		for(;;){
+			final int oldVal=array.get(intIdx);
 			int lower=oldVal&lowerMask, upper=oldVal&upperMask;
 			int charVal=upper>>>16;
-			int charVal2=Tools.min(0xFFFF, charVal+amt);
-			overflow=(charVal2>=0xFFFF);
+			// Widen before adding so saturation sees sums above Integer.MAX_VALUE.
+			int charVal2=(int)Tools.min(0xFFFF, (long)charVal+amt);
+			boolean overflow=(charVal2>=0xFFFF);
 			int newVal=(charVal2<<16)|lower;
-			actual=array.compareAndExchange(intIdx, oldVal, newVal);
+			if(array.compareAndSet(intIdx, oldVal, newVal)){return overflow;}
 		}
-		return overflow;
 	}
 
 	/**
@@ -97,10 +121,16 @@ public class CoverageArray2A extends CoverageArray {
 	 * @param amt Amount to increment by
 	 */
 	@Override
-	public void incrementRangeSynchronized(int min, int max, int amt) {
+	public void incrementRangeSynchronized(int min, int max, int amt){
 		incrementRange(min, max, amt);//Synchronized is not needed
 	}
-	
+
+	/**
+	 * Increments a range by visiting each position.
+	 * @param min Starting position; negative starts are clamped to 0.
+	 * @param max Ending position; positions above maxIndex are clamped.
+	 * @param amt Amount to increment by.
+	 */
 	public void incrementRangeSlow(int min, int max, int amt){
 		if(min<0){min=0;}
 		if(max>maxIndex){max=maxIndex;}
@@ -108,11 +138,11 @@ public class CoverageArray2A extends CoverageArray {
 			increment(loc, amt);
 		}
 	}
-	
+
 	/**
 	 * Atomically increments coverage values over a range of positions.
-	 * Currently uses the slow method due to boundary issues in the optimized version.
-	 * The commented optimized version should be 2x faster but gives ~1% incorrect results.
+	 * Currently uses per-position increments because the packed fast path below
+	 * has known boundary issues.
 	 *
 	 * @param min Starting position (inclusive)
 	 * @param max Ending position (inclusive)
@@ -120,7 +150,7 @@ public class CoverageArray2A extends CoverageArray {
 	 */
 	@Override
 	public void incrementRange(int min, int max, int amt){
-		if(amt>0xFFF || true) {
+		if(amt>0xFFF || true){
 			incrementRangeSlow(min, max, amt);
 			return;
 		}
@@ -128,22 +158,22 @@ public class CoverageArray2A extends CoverageArray {
 		//Off by ~1% so probably a boundary issue
 		//Try printing range and aborting
 		if(max>maxIndex){max=maxIndex;}
-		if((min&1)==1) {increment(min, amt);}
-		if((max&1)==0) {increment(max, amt);}
+		if((min&1)==1){increment(min, amt);}
+		if((max&1)==0){increment(max, amt);}
 		int minIdx=intIdx(min+1);
 		int maxIdx=intIdx(max-1);
-		for(int i=minIdx; i<=maxIdx; i++) {
-			for(int oldVal=0, actual=amt; oldVal!=actual; ) {
-				oldVal=array.get(i);
+		for(int i=minIdx; i<=maxIdx; i++){
+			for(;;){
+				final int oldVal=array.get(i);
 				int lower=oldVal&lowerMask, upper=(oldVal&upperMask)>>16;
 				int lower2=Tools.min(0xFFFF, lower+amt);
 				int upper2=Tools.min(0xFFFF, upper+amt);
 				int newVal=lower2|(upper2<<16);
-				actual=array.compareAndExchange(i, oldVal, newVal);
+				if(array.compareAndSet(i, oldVal, newVal)){break;}
 			}
 		}
 	}
-	
+
 	/**
 	 * Atomically sets the coverage value at the specified location.
 	 * Value is capped at 0xFFFF to prevent overflow of 16-bit storage.
@@ -161,31 +191,32 @@ public class CoverageArray2A extends CoverageArray {
 			 OVERFLOWED=true;
 		}
 	}
-	
-	private boolean setLower(final int intIdx, final int amt) {
-		for(int oldVal=0, actual=amt; oldVal!=actual; ) {
-			oldVal=array.get(intIdx);
+
+	/** Compare-and-set write of the lower packed 16-bit value. */
+	private boolean setLower(final int intIdx, final int amt){
+		for(;;){
+			final int oldVal=array.get(intIdx);
 			int lower=amt, upper=oldVal&upperMask;
 			int newVal=lower|upper;
-			actual=array.compareAndExchange(intIdx, oldVal, newVal);
+			if(array.compareAndSet(intIdx, oldVal, newVal)){return false;}
 		}
-		return false;
 	}
-	
-	private boolean setUpper(int intIdx, int amt) {
-		for(int oldVal=0, actual=amt; oldVal!=actual; ) {
-			oldVal=array.get(intIdx);
+
+	/** Compare-and-set write of the upper packed 16-bit value. */
+	private boolean setUpper(int intIdx, int amt){
+		for(;;){
+			final int oldVal=array.get(intIdx);
 			int lower=oldVal&lowerMask, upper=amt<<16;
 			int newVal=lower|upper;
-			actual=array.compareAndExchange(intIdx, oldVal, newVal);
+			if(array.compareAndSet(intIdx, oldVal, newVal)){return false;}
 		}
-		return false;
 	}
-	
+
 	/**
 	 * Atomically retrieves the coverage value at the specified location.
 	 * Extracts the appropriate 16-bit value from the packed integer storage.
-	 * Returns 0 for positions outside the valid array bounds.
+	 * Returns 0 when the computed packed integer index is outside the backing
+	 * array bounds.
 	 *
 	 * @param loc Location to retrieve coverage from
 	 * @return Coverage value at the specified location (0-65535)
@@ -196,7 +227,7 @@ public class CoverageArray2A extends CoverageArray {
 		final int intVal=intIdx<0 || intIdx>=array.length() ? 0 : array.get(intIdx);
 		return (loc&1)==1 ? (intVal>>>16) : (intVal&lowerMask);
 	}
-	
+
 	/**
 	 * Resize operation is not supported for atomic coverage arrays.
 	 * @param newlen New length (ignored)
@@ -206,7 +237,7 @@ public class CoverageArray2A extends CoverageArray {
 	public void resize(int newlen){
 		throw new RuntimeException("Resize: Unsupported.");
 	}
-	
+
 	/**
 	 * Creates a string representation of the coverage array.
 	 * Returns coverage values in comma-separated format within square brackets.
@@ -223,35 +254,55 @@ public class CoverageArray2A extends CoverageArray {
 		sb.append(']');
 		return sb.toString();
 	}
-	
+
 	/**
 	 * Converts the coverage array to a character array.
-	 * Each coverage value is cast to a char, suitable for values up to 65535.
+	 * Each logical coverage value is cast to a char.
 	 * @return Character array containing coverage values
 	 */
 	@Override
-	public char[] toArray() {
+	public char[] toArray(){return copyToArray();}
+
+	/** Returns independent writable storage for median sorting.
+	 * The copy is assembled element by element, not as one array-wide atomic snapshot.
+	 */
+	@Override
+	protected char[] toMedianArray(){return copyToArray();}
+
+	/** Copies logical values into an independent writable array.
+	 * Concurrent updates can make the result differ from any single point in time.
+	 */
+	private char[] copyToArray(){
 		char[] array2=new char[length()];
-		for(int i=0; i<array2.length; i++) {
+		for(int i=0; i<array2.length; i++){
 			array2[i]=(char)get(i);
 		}
 		return array2;
 	}
-	
+
+	/*--------------------------------------------------------------*/
+	/*----------------            Fields            ----------------*/
+	/*--------------------------------------------------------------*/
+
 	public final AtomicIntegerArray array;
 //	@Override
 //	public int length(){return maxIndex-minIndex+1;}
 	/**
 	 * Returns the length of the underlying atomic integer array.
-	 * This is half the coverage array length since values are packed 2 per integer.
+	 * Values are packed two per integer, with one extra packed cell allocated by
+	 * the constructor.
 	 * @return Length of the underlying integer array
 	 */
 	@Override
 	public int arrayLength(){return array.length();}
-	
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Static Fields         ----------------*/
+	/*--------------------------------------------------------------*/
+
 	private static boolean OVERFLOWED=false;
-	
+
 	private static final int lowerMask=0x0000FFFF;
 	private static final int upperMask=0xFFFF0000;
-	
+
 }

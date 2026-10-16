@@ -1,43 +1,45 @@
 package structures;
 
 /**
- * Pair of long values with comparison support.
- * Provides min/max/sum helpers, lexicographic ordering, and is commonly used for coordinate pairs, ranges, or key/value associations in genomic pipelines.
+ * Mutable pair of public long values.
+ * <p>
+ * Current callers use {@code a}/{@code b} as paired counters, histogram entries
+ * or count/key pairs.  Sorting is ascending by {@code a}, then {@code b},
+ * which is inconsistent with inherited identity equality.
+ *
  * @author Brian Bushnell
  * @date March 2014
  */
 public class LongPair implements Comparable<LongPair>{
 
-	/**
-	 * Creates a LongPair with the specified values.
-	 * @param a_ First long value
-	 * @param b_ Second long value
-	 */
+	/** Creates a pair with explicit values. */
 	public LongPair(long a_, long b_){
 		a=a_;
 		b=b_;
 	}
 
-	/** Creates a LongPair with default values of 0 for both elements. */
+	/** Creates a zero-initialized pair. */
 	public LongPair(){}
 
-	public long min() {return Math.min(a, b);}
-	public long max() {return Math.max(a, b);}
-	public long sum() {return a+b;}
-	
+	/** Returns the smaller element. */
+	public long min(){return Math.min(a, b);}
+
+	/** Returns the larger element. */
+	public long max(){return Math.max(a, b);}
+
+	/** Returns {@code a+b}. */
+	public long sum(){return a+b;}
+
 	/**
-	 * Compares this pair to another using lexicographic ordering.
-	 * Compares 'a' values first, then 'b' values if 'a' values are equal.
-	 * @param other The LongPair to compare against
-	 * @return Negative if this < other, positive if this > other, 0 if equal
+	 * Orders pairs by {@code a}, then {@code b}, both ascending.
 	 */
 	@Override
-	public int compareTo(LongPair other) {
+	public int compareTo(LongPair other){
 		if(a!=other.a){return a>other.a ? 1 : -1;}
 		return b>other.b ? 1 : b<other.b ? -1 : 0;
 	}
-	
-	/** The two long values stored in this pair (a is first, b is second). */
+
+	/** Public mutable values. */
 	public long a, b;
-	
+
 }

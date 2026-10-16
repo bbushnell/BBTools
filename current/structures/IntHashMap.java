@@ -15,14 +15,16 @@ import simd.Vector;
 /**
  * Hash map implementation with integer keys and integer values.
  * Uses open addressing with linear probing for collision resolution.
- * Provides better memory efficiency than HashMap<Integer,Integer> for integer mappings.
+ * Provides better memory efficiency than {@code HashMap<Integer,Integer>} for integer mappings.
+ * Absent lookups return -1; empty cells are marked by a private negative
+ * sentinel that is regenerated if a caller inserts that sentinel value as a key.
  *
  * @author Brian Bushnell
  * @date June 7, 2017
  */
-public final class IntHashMap extends AbstractIntHashMap implements Serializable {
+public final class IntHashMap extends AbstractIntHashMap implements Serializable{
 	
-	private static final long serialVersionUID = 5525726007591609843L;
+	private static final long serialVersionUID=5525726007591609843L;
 
 	public static void main(String[] args){
 //		IntHashMap set=new IntHashMap(20, 0.7f);
@@ -70,14 +72,29 @@ public final class IntHashMap extends AbstractIntHashMap implements Serializable
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Constructs a map with the default initial capacity.
+	 */
 	public IntHashMap(){
 		this(256);
 	}
 	
+	/**
+	 * Constructs a map with the requested initial capacity and the default load
+	 * factor.
+	 * @param initialSize Initial slot target; must be positive.
+	 */
 	public IntHashMap(int initialSize){
 		this(initialSize, 0.7f);
 	}
 	
+	/**
+	 * Constructs a map with the requested initial capacity and load factor.
+	 * The load factor is clamped to the supported resize range.
+	 *
+	 * @param initialSize Initial slot target; must be positive.
+	 * @param loadFactor_ Requested load factor; must be strictly between 0 and 1.
+	 */
 	public IntHashMap(int initialSize, float loadFactor_){
 		invalid=randy.nextInt()|MINMASK;
 		assert(invalid<0);
@@ -91,6 +108,9 @@ public final class IntHashMap extends AbstractIntHashMap implements Serializable
 	/*----------------        Public Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Removes all keys and values while retaining the current backing arrays.
+	 */
 	@Override
 	public void clear(){
 		if(size<1){return;}
@@ -99,6 +119,12 @@ public final class IntHashMap extends AbstractIntHashMap implements Serializable
 		size=0;
 	}
 	
+	/**
+	 * Returns the value mapped to a key.
+	 * @param key Key to search for.
+	 * @return Stored value, or -1 if the key is absent or equals the current
+	 * invalid sentinel.
+	 */
 	@Override
 	public int get(int key){
 		int cell=findCell(key);
@@ -108,14 +134,26 @@ public final class IntHashMap extends AbstractIntHashMap implements Serializable
 	@Override
 	public int put(int key, int value){return set(key, value);}
 	
-	public void putAll(IntHashMap map) {
-		for(int i=0; i<map.keys.length; i++) {
-			if(map.keys[i]!=map.invalid) {
+	/**
+	 * Copies every live mapping from another map into this map, overwriting
+	 * existing values for matching keys.
+	 * @param map Source map.
+	 */
+	public void putAll(IntHashMap map){
+		for(int i=0; i<map.keys.length; i++){
+			if(map.keys[i]!=map.invalid){
 				put(map.keys[i], map.values[i]);
 			}
 		}
 	}
 	
+	/**
+	 * Associates a value with a key, overwriting any previous value.
+	 *
+	 * @param key Key to map.
+	 * @param value Value to store.
+	 * @return Previous value in the selected cell, or 0 for a newly inserted key.
+	 */
 	@Override
 	public int set(int key, int value){
 		if(key==invalid){resetInvalid();}
@@ -131,11 +169,24 @@ public final class IntHashMap extends AbstractIntHashMap implements Serializable
 		return oldV;
 	}
 	
+	/**
+	 * Increments a key's value by one.
+	 * @param key Key to increment.
+	 * @return Updated value.
+	 */
 	@Override
 	public int increment(int key){
 		return increment(key, 1);
 	}
 	
+	/**
+	 * Increments a key's value with upper saturation at {@link Integer#MAX_VALUE}.
+	 * Absent keys start from zero and are inserted with the incremented value.
+	 *
+	 * @param key Key to increment.
+	 * @param incr Increment amount.
+	 * @return Updated value after saturation.
+	 */
 	@Override
 	public int increment(int key, int incr){
 		if(key==invalid){resetInvalid();}
@@ -152,23 +203,38 @@ public final class IntHashMap extends AbstractIntHashMap implements Serializable
 		return value;
 	}
 	
-	public void incrementAll(IntHashMap map) {
-		for(int i=0; i<map.keys.length; i++) {
-			if(map.keys[i]!=map.invalid) {
+	/**
+	 * Adds every live count from another map into this one.
+	 * @param map Source map.
+	 */
+	public void incrementAll(IntHashMap map){
+		for(int i=0; i<map.keys.length; i++){
+			if(map.keys[i]!=map.invalid){
 				increment(map.keys[i], map.values[i]);
 			}
 		}
 	}
 	
-	public void setToMax(IntHashMap map) {
-		for(int i=0; i<map.keys.length; i++) {
+	/**
+	 * Replaces each overlapping value with the larger of the two map values.
+	 * For absent keys, inserts the larger of the source value and the -1
+	 * missing-value sentinel returned by {@link #get(int)}.
+	 * @param map Source map.
+	 */
+	public void setToMax(IntHashMap map){
+		for(int i=0; i<map.keys.length; i++){
 			final int key=map.keys[i];
-			if(key!=map.invalid) {
+			if(key!=map.invalid){
 				put(key, Tools.max(map.values[i], get(key)));
 			}
 		}
 	}
 	
+	/**
+	 * Removes one key from the map.
+	 * @param key Key to remove.
+	 * @return true if the key was present.
+	 */
 	@Override
 	public boolean remove(int key){
 		if(key==invalid){return false;}
@@ -235,7 +301,7 @@ public final class IntHashMap extends AbstractIntHashMap implements Serializable
 	 */
 	@Override
 	int findCell(final int key){
-//		if(key==invalid){return -1;}
+		if(key==invalid){return -1;}
 		final int initial=((key&MASK)%modulus);
 		return Vector.findKeyScalar(keys, key, initial, invalid);
 	}

@@ -21,29 +21,34 @@ import stream.FASTQ;
 import ukmer.Kmer;
 
 /**
+ * Mutable byte builder with a public backing array and logical content length.
+ * Text and numeric appenders generally grow storage. Several binary writers
+ * require reserved capacity, as specified by their individual contracts.
+ * Most character appenders narrow each character to its low eight bits rather
+ * than encoding Unicode; toString decodes the live prefix as US-ASCII. Instances and exposed
+ * arrays are unsynchronized and require caller coordination when shared.
+ *
  * @author Brian Bushnell
  * @date Oct 8, 2013
  *
  */
-public final class ByteBuilder implements Serializable, CharSequence {
-	
-	/**
-	 * 
-	 */
-	private static final long serialVersionUID = -4786450129730831665L;
-	
+public final class ByteBuilder implements Serializable, CharSequence{
+
+	/** Serialization version for the builder's stored state. */
+	private static final long serialVersionUID=-4786450129730831665L;
+
 	/** Constructs ByteBuilder with initial capacity of 32 bytes */
 	public ByteBuilder(){
 		array=KillSwitch.allocByte1D(32);
 	}
-	
+
 	/** Constructs ByteBuilder with specified initial capacity.
 	 * @param initial Initial capacity in bytes (must be >= 1) */
 	public ByteBuilder(int initial){
 		assert(initial>=1) : initial;
 		array=KillSwitch.allocByte1D(initial);
 	}
-	
+
 	/** Constructs ByteBuilder initialized with string representation of object.
 	 * @param o Object to convert to string and append */
 	public ByteBuilder(Object o){
@@ -51,7 +56,7 @@ public final class ByteBuilder implements Serializable, CharSequence {
 		array=KillSwitch.allocByte1D(s.length()+1);
 		append(s);
 	}
-	
+
 	/**
 	 * Constructs ByteBuilder wrapping existing byte array.
 	 * Length is set to full array length.
@@ -62,7 +67,7 @@ public final class ByteBuilder implements Serializable, CharSequence {
 		array=array_;
 		length=array.length;
 	}
-	
+
 	/** Copy constructor that creates independent copy of another ByteBuilder.
 	 * @param bb ByteBuilder to copy */
 	public ByteBuilder(ByteBuilder bb){
@@ -75,46 +80,46 @@ public final class ByteBuilder implements Serializable, CharSequence {
 		if(start<0 || end>length() || start>end){throw new IndexOutOfBoundsException();}
 		return new ByteBuilder(KillSwitch.copyOfRange(array, start, end));
 	}
-	
+
 	/**
 	 * Finds first occurrence of character.
 	 * @param c Character to search for
 	 * @return Index of first occurrence, or -1 if not found
 	 */
-	public int indexOf(char c) {return indexOf((byte)c);}
+	public int indexOf(char c){return indexOf((byte)c);}
 	/**
 	 * Finds last occurrence of character.
 	 * @param c Character to search for
 	 * @return Index of last occurrence, or -1 if not found
 	 */
-	public int lastIndexOf(char c) {return lastIndexOf((byte)c);}
+	public int lastIndexOf(char c){return lastIndexOf((byte)c);}
 	/**
 	 * Counts occurrences of character.
 	 * @param c Character to count
 	 * @return Number of occurrences
 	 */
-	public int count(char c) {return count((byte)c);}
-	
+	public int count(char c){return count((byte)c);}
+
 	/**
 	 * Finds first occurrence of byte value.
 	 * @param c Byte value to search for
 	 * @return Index of first occurrence, or -1 if not found
 	 */
-	public int indexOf(byte c) {
-		for(int i=0; i<length; i++) {
-			if(array[i]==c) {return i;}
+	public int indexOf(byte c){
+		for(int i=0; i<length; i++){
+			if(array[i]==c){return i;}
 		}
 		return -1;
 	}
-	
+
 	/**
 	 * Finds last occurrence of byte value.
 	 * @param c Byte value to search for
 	 * @return Index of last occurrence, or -1 if not found
 	 */
-	public int lastIndexOf(byte c) {
-		for(int i=length-1; i>=0; i--) {
-			if(array[i]==c) {return i;}
+	public int lastIndexOf(byte c){
+		for(int i=length-1; i>=0; i--){
+			if(array[i]==c){return i;}
 		}
 		return -1;
 	}
@@ -124,9 +129,9 @@ public final class ByteBuilder implements Serializable, CharSequence {
 	 * @param c Byte value to count
 	 * @return Number of occurrences
 	 */
-	public int count(byte c) {
+	public int count(byte c){
 		int count=0;
-		for(int i=0; i<length; i++) {
+		for(int i=0; i<length; i++){
 			count+=(array[i]==c) ? 1 : 0;
 		}
 		return count;
@@ -174,7 +179,7 @@ public final class ByteBuilder implements Serializable, CharSequence {
 	 * @param b Second character
 	 * @return This ByteBuilder for chaining
 	 */
-	public ByteBuilder append(char a, char b) {
+	public ByteBuilder append(char a, char b){
 		append(a);append(b);
 		return this;
 	}
@@ -184,7 +189,7 @@ public final class ByteBuilder implements Serializable, CharSequence {
 	 * @param b Second byte
 	 * @return This ByteBuilder for chaining
 	 */
-	public ByteBuilder append(byte a, byte b) {
+	public ByteBuilder append(byte a, byte b){
 		append(a);append(b);
 		return this;
 	}
@@ -195,7 +200,7 @@ public final class ByteBuilder implements Serializable, CharSequence {
 	 * @param c Third character
 	 * @return This ByteBuilder for chaining
 	 */
-	public ByteBuilder append(char a, char b, char c) {
+	public ByteBuilder append(char a, char b, char c){
 		append(a);append(b);append(c);
 		return this;
 	}
@@ -206,7 +211,7 @@ public final class ByteBuilder implements Serializable, CharSequence {
 	 * @param c Third byte
 	 * @return This ByteBuilder for chaining
 	 */
-	public ByteBuilder append(byte a, byte b, byte c) {
+	public ByteBuilder append(byte a, byte b, byte c){
 		append(a);append(b);append(c);
 		return this;
 	}
@@ -218,7 +223,7 @@ public final class ByteBuilder implements Serializable, CharSequence {
 	 * @param d Fourth character
 	 * @return This ByteBuilder for chaining
 	 */
-	public ByteBuilder append(char a, char b, char c, char d) {
+	public ByteBuilder append(char a, char b, char c, char d){
 		append(a);append(b);append(c);append(d);
 		return this;
 	}
@@ -230,7 +235,7 @@ public final class ByteBuilder implements Serializable, CharSequence {
 	 * @param d Fourth byte
 	 * @return This ByteBuilder for chaining
 	 */
-	public ByteBuilder append(byte a, byte b, byte c, byte d) {
+	public ByteBuilder append(byte a, byte b, byte c, byte d){
 		append(a);append(b);append(c);append(d);
 		return this;
 	}
@@ -252,7 +257,7 @@ public final class ByteBuilder implements Serializable, CharSequence {
 	public ByteBuilder append(char x, long y){
 		append(x); append(y); return this;
 	}
-	
+
 	/**
 	 * Appends single character, expanding array if needed.
 	 * @param x Character to append (cast to byte)
@@ -287,13 +292,13 @@ public final class ByteBuilder implements Serializable, CharSequence {
 		array[length++]=(byte)':';
 		return this;
 	}
-	
+
 	/**
 	 * Appends k-mer as nucleotide sequence.
 	 * @param kmer K-mer object to append
 	 * @return This ByteBuilder for chaining
 	 */
-	public ByteBuilder appendKmer(Kmer kmer) {
+	public ByteBuilder appendKmer(Kmer kmer){
 		long[] array=kmer.array1();
 		//Per-word, not delegated to appendKmer(long[],int) -- that assumes a
 		//uniform k across every word, which stops holding once Item 1a's
@@ -303,25 +308,25 @@ public final class ByteBuilder implements Serializable, CharSequence {
 		}
 		return this;
 	}
-	
+
 	/**
 	 * Appends array of k-mers as nucleotide sequences.
 	 * @param kmer Array of k-mer values
 	 * @param k K-mer length
 	 * @return This ByteBuilder for chaining
 	 */
-	public ByteBuilder appendKmer(long[] kmer, int k) {
+	public ByteBuilder appendKmer(long[] kmer, int k){
 		for(long subkmer : kmer){
 			appendKmer(subkmer, k);
 		}
 		return this;
 	}
-	
+
 	/**
 	 * @param kmer
 	 * @param k
 	 */
-	public ByteBuilder appendKmer(long kmer, int k) {
+	public ByteBuilder appendKmer(long kmer, int k){
 		kmer=AminoAcid.reverseComplementBinaryFast(~kmer, k);
 		for(int i=0; i<k; i++){
 			int x=(int)(kmer&3);
@@ -330,17 +335,17 @@ public final class ByteBuilder implements Serializable, CharSequence {
 		}
 		return this;
 	}
-	
+
 	/**
 	 * Appends specified term from LineParser.
 	 * @param lp LineParser containing terms
 	 * @param term Term index to append
 	 * @return This ByteBuilder for chaining
 	 */
-	public ByteBuilder appendTerm(LineParser lp, int term) {
+	public ByteBuilder appendTerm(LineParser lp, int term){
 		return lp.appendTerm(this, term);
 	}
-	
+
 	/**
 	 * Appends integer followed by newline.
 	 * @param x Integer value to append
@@ -351,27 +356,27 @@ public final class ByteBuilder implements Serializable, CharSequence {
 		append(x);
 		return append(newline);
 	}
-	
+
 	public ByteBuilder appendln(char x){
 		expand(2);
 		array[length++]=(byte)x;
 		array[length++]=newline;
 		return this;
 	}
-	
+
 	public ByteBuilder appendln(byte x){
 		expand(2);
 		array[length++]=(byte)x;
 		array[length++]=newline;
 		return this;
 	}
-	
+
 	public ByteBuilder appendln(long x){
 		expand(12);
 		append(x);
 		return append(newline);
 	}
-	
+
 	/**
 	 * Appends integer using optimized formatting with lookup tables.
 	 * Handles negatives and uses two-digit chunking for efficiency.
@@ -393,7 +398,7 @@ public final class ByteBuilder implements Serializable, CharSequence {
 			length++;
 			return this;
 		}
-		
+
 		int pos=0;
 		while(x>9){
 			int y=x%100;
@@ -409,17 +414,17 @@ public final class ByteBuilder implements Serializable, CharSequence {
 			numbuffer[pos]=ones100[y];
 			pos++;
 		}
-		
+
 		assert(pos>0) : pos+", "+x;
 		while(pos>0){
 			pos--;
 			array[length]=numbuffer[pos];
 			length++;
 		}
-		
+
 		return this;
 	}
-	
+
 	public ByteBuilder appendOpUnsafe(int x, byte b){
 		if(x<0){
 			if(x<=Integer.MIN_VALUE){
@@ -433,7 +438,7 @@ public final class ByteBuilder implements Serializable, CharSequence {
 			array[length++]=b;
 			return this;
 		}
-		
+
 		int pos=0;
 		while(x>9){
 			int y=x%100;
@@ -446,7 +451,7 @@ public final class ByteBuilder implements Serializable, CharSequence {
 			x=x/10;
 			numbuffer[pos++]=ones100[y];
 		}
-		
+
 		assert(pos>0) : pos+", "+x;
 		while(pos>0){
 			pos--;
@@ -455,7 +460,7 @@ public final class ByteBuilder implements Serializable, CharSequence {
 		array[length++]=b;
 		return this;
 	}
-	
+
 	/**
 	 * Appends long integer using optimized formatting with lookup tables.
 	 * Uses int path for values that fit, otherwise uses two-digit chunking.
@@ -478,7 +483,7 @@ public final class ByteBuilder implements Serializable, CharSequence {
 			length++;
 			return this;
 		}
-		
+
 		int pos=0;
 		while(x>9){
 			int y=(int)(x%100);
@@ -494,17 +499,17 @@ public final class ByteBuilder implements Serializable, CharSequence {
 			numbuffer[pos]=ones100[y];
 			pos++;
 		}
-		
+
 		assert(pos>0) : x;
 		while(pos>0){
 			pos--;
 			array[length]=numbuffer[pos];
 			length++;
 		}
-		
+
 		return this;
 	}
-	
+
 	/**
 	 * Appends double with specified decimal places using fast formatting.
 	 * @param x0 Double value to append
@@ -514,11 +519,12 @@ public final class ByteBuilder implements Serializable, CharSequence {
 	public ByteBuilder append(final double x0, final int decimals0){
 		return append(x0, decimals0, false);
 	}
-	
+
 	public ByteBuilder append(final double x0, final int decimals0, boolean concise){
 //		if(true){return append(x0, decimals0);}
-		if(x0==(long)x0) {return append((long)x0);}
-		if(decimals0<1){return append((long)(x0+0.5));}
+		if(x0==(long)x0){return append((long)x0);}
+		// Round the magnitude before truncation, as in the fractional-digit path below.
+		if(decimals0<1){return append((long)(x0+(x0<0 ? -0.5 : 0.5)));}
 		expand(21+decimals0);
 		double x=x0;
 		int decimals=decimals0;
@@ -533,16 +539,16 @@ public final class ByteBuilder implements Serializable, CharSequence {
 		x*=decimalMult[decimals];
 		x=x+0.5;
 //		long longRep=(long)x;
-//		assert(longRep==(long)(decimalMult[decimals]*Double.parseDouble((Tools.format("%."+decimals0+"f", x0))))) : 
+//		assert(longRep==(long)(decimalMult[decimals]*Double.parseDouble((Tools.format("%."+decimals0+"f", x0))))) :
 //			"\n"+longRep+"\n"+decimalMult[decimals]*Double.parseDouble((Tools.format("%."+decimals0+"f", x0)))+"\n"+x0;
-		
+
 //		long upper=longRep/longMult[decimals];
 //		long lower=longRep%longMult[decimals];
-//		
+//
 //		append(upper);
-		
+
 		int pos=0;
-		
+
 		{
 			//Lower digits
 			for(; decimals>1; decimals-=2){
@@ -583,41 +589,42 @@ public final class ByteBuilder implements Serializable, CharSequence {
 				}
 			}
 		}
-		
-//		assert(Tools.format("%."+decimals0+"f", x0).equals(new String(Tools.reverseAndCopy(KillSwitch.copyOf(numbuffer, pos))))) : 
+
+//		assert(Tools.format("%."+decimals0+"f", x0).equals(new String(Tools.reverseAndCopy(KillSwitch.copyOf(numbuffer, pos))))) :
 //			Tools.format("%."+decimals0+"f", x0)+"\n"+new String(Tools.reverseAndCopy(KillSwitch.copyOf(numbuffer, pos)));
 
 //		longRep=(long)x;
-//		assert(longRep==(long)(decimalMult[decimals0]*Double.parseDouble((Tools.format("%."+decimals0+"f", x0))))) : 
+//		assert(longRep==(long)(decimalMult[decimals0]*Double.parseDouble((Tools.format("%."+decimals0+"f", x0))))) :
 //			"\n"+longRep+"\n"+decimalMult[decimals0]*Double.parseDouble((Tools.format("%."+decimals0+"f", x0)))+
 //			"\n"+x0+"\n"+Tools.format("%."+decimals0+"f", x0)+"\n"+new String(Tools.reverseAndCopy(KillSwitch.copyOf(numbuffer, pos)));
-		
+
 		int lim=0;
-		if(concise) {//eliminates trailing zeros.  This would also be a good place to limit sig figs.
-			while(concise && numbuffer[lim]=='0' && lim<decimals0-1) {lim++;}
+		if(concise){//eliminates trailing zeros.  This would also be a good place to limit sig figs.
+			while(concise && numbuffer[lim]=='0' && lim<decimals0-1){lim++;}
 		}
-		
+
 		while(pos>lim){
 			pos--;
 			array[length]=numbuffer[pos];
 			length++;
 		}
-		
+
 		return this;
 	}
-	
+
 	/**
-	 * Appends {@code num} in scientific notation with {@code decimals} mantissa fraction digits,
-	 * matching the layout of {@code String.format("%."+decimals+"e", num)} (Locale.ROOT): an
-	 * optional '-', one leading digit, '.', {@code decimals} fraction digits, 'e', an always-present
-	 * exponent sign, then the exponent zero-padded to at least 2 digits. Zero-allocation,
-	 * lookup-table driven, one {@code Math.log10} — a fast drop-in for {@code String.format("%.Ne")}
-	 * on write-heavy paths, and locale-independent (always '.'). Rounding is HALF_UP in double
-	 * arithmetic (like the other fast float appenders here), so for adversarial last-digit cases it
-	 * can differ from String.format's exact decimal rounding; use {@link #appendSlow} when exactness
-	 * is required. NaN/infinities emit their Java string forms.
+	 * Appends scientific notation with {@code decimals} mantissa fraction digits.
+	 * Finite values use an optional '-', one leading digit, a decimal point and fraction
+	 * only when {@code decimals>0}, then 'e', an exponent sign and at least two exponent digits.
+	 * Negative zero retains its sign. NaN and infinities use their Java string forms.
+	 * The fast path reuses the digit buffer and estimates the decimal exponent from the IEEE
+	 * binary exponent, correcting it with cached powers of ten rather than calling Math.log10.
+	 * Its half-up rounding uses double arithmetic and can differ from String.format's
+	 * decimal rounding. At 18 fraction digits, or for nonzero magnitudes below 1e-280 or
+	 * above 1e280, this method uses String.format with Locale.ROOT instead. Output always
+	 * uses a period as the decimal separator; the fallback can allocate temporary strings.
 	 * @param num Value to format.
-	 * @param decimals Mantissa fraction digits (0..18).
+	 * @param decimals Mantissa fraction digits (0..18); 18 uses String.format to avoid long overflow.
 	 * @return This ByteBuilder for chaining.
 	 */
 	public ByteBuilder appendSci(final double num, final int decimals){
@@ -625,11 +632,12 @@ public final class ByteBuilder implements Serializable, CharSequence {
 		if(num!=num){return append("NaN");}
 		if(num==Double.POSITIVE_INFINITY){return append("Infinity");}
 		if(num==Double.NEGATIVE_INFINITY){return append("-Infinity");}
-		{//Extreme tails: the double 10^(e-decimals) scaling can't represent the range without over/underflow
+		{//At 18 decimals, the full 19-digit mantissa range and its upper bound exceed a signed long.
+		 //Extreme tails: the double 10^(e-decimals) scaling can't represent the range without over/underflow
 		 //(e.g. subnormals near Double.MIN_VALUE); fall back to exact (slow) String.format there. Real data
 		 //(e-values, genomic stats) never reaches these magnitudes, so the fast path below covers all of it.
 			final double ax=(num<0 ? -num : num);
-			if(ax!=0.0 && (ax<1e-280 || ax>1e280)){return append(String.format(java.util.Locale.ROOT, "%."+decimals+"e", num));}
+			if(decimals==18 || (ax!=0.0 && (ax<1e-280 || ax>1e280))){return append(String.format(java.util.Locale.ROOT, "%."+decimals+"e", num));}
 		}
 		expand(decimals+24);
 		double x=num;
@@ -702,29 +710,30 @@ public final class ByteBuilder implements Serializable, CharSequence {
 		}
 		return this;
 	}
-	
+
 	//1.5x faster on cluster microbenchmark
 	//4.5x faster on laptop micorbenchmark
 	public ByteBuilder appendByCopy(String s){
 		if(s==null){return append(nullBytes);}
-		byte[] x=s.getBytes(StandardCharsets.ISO_8859_1);		
+		byte[] x=s.getBytes(StandardCharsets.ISO_8859_1);
 		expand(x.length);
 		System.arraycopy(x, 0, array, length, x.length);
 		length+=x.length;
 		return this;
 	}
-	
+
 	//11x faster on cluster and laptop microbenchmark
 	//Not faster in practice though, with fastq or sam
-	public ByteBuilder appendByVH(String s) {
+	public ByteBuilder appendByVH(String s){
 		if(s==null){return append(nullBytes);}
-		if(Vector.varHandles) {return Vector.append(this, s);}
+		if(Vector.varHandles){return Vector.append(this, s);}
 //		else{return appendByCopy(s);}
 		else{return append(s);}
 	}
-	
+
 	/**
 	 * Appends substring by converting characters to bytes.
+	 * An empty span appends nothing; a null string appends the literal "null".
 	 * @param x String to append from
 	 * @param from Starting index (inclusive)
 	 * @param toExclusive Ending index (exclusive)
@@ -732,7 +741,7 @@ public final class ByteBuilder implements Serializable, CharSequence {
 	 */
 	public ByteBuilder append(String x, int from, int toExclusive){
 		int len=toExclusive-from;
-		if(x==null || len<1){return append(nullBytes);}
+		if(x==null || len<0){return append(nullBytes);}
 		expand(len);
 		for(int i=from; i<toExclusive; i++){
 			array[length]=(byte)x.charAt(i);
@@ -740,7 +749,7 @@ public final class ByteBuilder implements Serializable, CharSequence {
 		}
 		return this;
 	}
-	
+
 	/**
 	 * Appends StringBuilder by converting characters to bytes.
 	 * @param x StringBuilder to append (null becomes "null")
@@ -755,7 +764,7 @@ public final class ByteBuilder implements Serializable, CharSequence {
 		}
 		return this;
 	}
-	
+
 	/**
 	 * Appends CharSequence by converting characters to bytes.
 	 * @param x CharSequence to append (null becomes "null")
@@ -770,7 +779,7 @@ public final class ByteBuilder implements Serializable, CharSequence {
 		}
 		return this;
 	}
-	
+
 	/**
 	 * Appends CharSequence followed by newline.
 	 * @param x CharSequence to append
@@ -784,12 +793,12 @@ public final class ByteBuilder implements Serializable, CharSequence {
 		length++;
 		return this;
 	}
-	
+
 //	public ByteBuilder append(Object x){
 //		if(x==null){return append(nullBytes);}
 //		return append(x.toString());
 //	}
-	
+
 	/**
 	 * Appends entire byte array.
 	 * @param x Byte array to append (null becomes "null")
@@ -808,8 +817,8 @@ public final class ByteBuilder implements Serializable, CharSequence {
 	}
 
 	/**
-	 * Appends string followed by tab character.
-	 * @param x String to append
+	 * Appends characters before the first character at or below ASCII space.
+	 * @param s String to append from; null becomes the literal "null"
 	 * @return This ByteBuilder for chaining
 	 */
 	public ByteBuilder appendUntilWhitespace(String s){
@@ -870,7 +879,7 @@ public final class ByteBuilder implements Serializable, CharSequence {
 	 * @return This ByteBuilder for chaining
 	 */
 	public ByteBuilder appendt(double x, int decimals){return append(x, decimals).tab();}
-	
+
 	/**
 	 * Appends byte array followed by newline.
 	 * @param x Byte array to append
@@ -883,15 +892,15 @@ public final class ByteBuilder implements Serializable, CharSequence {
 		length++;
 		return this;
 	}
-	
+
 	public ByteBuilder appendQuality(byte[] x){
 		return appendQuality(x, FASTQ.ASCII_OFFSET_OUT);
 	}
-	
+
 	/**
-	 * Appends quality scores as ASCII by adding 33 to each byte.
-	 * Converts Phred quality scores to FASTQ ASCII representation.
+	 * Appends quality scores by adding the supplied offset and narrowing to bytes.
 	 * @param x Quality score array (null is ignored)
+	 * @param offset Offset added to each score, normally the FASTQ ASCII offset
 	 * @return This ByteBuilder for chaining
 	 */
 	public ByteBuilder appendQuality(byte[] x, int offset){
@@ -903,7 +912,7 @@ public final class ByteBuilder implements Serializable, CharSequence {
 		}
 		return this;
 	}
-	
+
 	/**
 	 * Appends differential quality encoding starting from ASCII 77.
 	 * Encodes difference from previous quality score plus 77.
@@ -923,7 +932,7 @@ public final class ByteBuilder implements Serializable, CharSequence {
 		}
 		return this;
 	}
-	
+
 	/**
 	 * Appends long array with delimiter between values.
 	 * @param array Array of long values
@@ -939,7 +948,7 @@ public final class ByteBuilder implements Serializable, CharSequence {
 		length--;
 		return this;
 	}
-	
+
 	public ByteBuilder appendA48(long[] array, char delimiter){
 		if(array==null || array.length<1){return this;}
 		for(int i=0; i<array.length; i++){
@@ -977,7 +986,7 @@ public final class ByteBuilder implements Serializable, CharSequence {
 		length--;
 		return this;
 	}
-	
+
 	private ByteBuilder appendA48_old(long value, byte[] temp){
 		int i=0;
 		while(value!=0){
@@ -989,13 +998,13 @@ public final class ByteBuilder implements Serializable, CharSequence {
 		if(i==0){
 			append((byte)'0');
 		}else{
-			for(i--;i>=0;i--){
+			for(i--; i>=0; i--){
 				append((char)(temp[i]+48));
 			}
 		}
 		return this;
 	}
-	
+
 	public ByteBuilder appendA48(long value){
 		if(value==0){
 			return append((byte)'0');
@@ -1012,16 +1021,16 @@ public final class ByteBuilder implements Serializable, CharSequence {
 		return this;
 	}
 
-	public ByteBuilder appendFloatA48(float f){ return appendA48(((long)Float.floatToRawIntBits(f)) & 0xFFFFFFFFL); }
-	
+	public ByteBuilder appendFloatA48(float f){return appendA48(((long)Float.floatToRawIntBits(f))&0xFFFFFFFFL);}
+
 	public ByteBuilder appendA48(int value){
 		if(value==0){
 			return append((byte)'0');
 		}
-		
+
 		int highBit=31-Integer.numberOfLeadingZeros(value);
 		int symbols=(highBit/6)+1;
-		
+
 		expand(symbols);
 		for(int shift=(symbols-1)*6; shift>=0; shift-=6){
 			byte b=(byte)((value>>shift)&0x3F);
@@ -1029,7 +1038,7 @@ public final class ByteBuilder implements Serializable, CharSequence {
 		}
 		return this;
 	}
-	
+
 	/**
 	 * Appends int array with delimiter between values.
 	 * @param array Array of int values
@@ -1045,7 +1054,7 @@ public final class ByteBuilder implements Serializable, CharSequence {
 		length--;
 		return this;
 	}
-	
+
 	/**
 	 * Appends float array with specified decimals and delimiter between values.
 	 * @param array Array of float values
@@ -1062,7 +1071,7 @@ public final class ByteBuilder implements Serializable, CharSequence {
 		length--;
 		return this;
 	}
-	
+
 	/**
 	 * Appends contents of another ByteBuilder.
 	 * @param bb ByteBuilder to append
@@ -1071,7 +1080,7 @@ public final class ByteBuilder implements Serializable, CharSequence {
 	public ByteBuilder append(ByteBuilder bb){
 		return append(bb.array, 0, bb.length);
 	}
-	
+
 	/**
 	 * Appends ByteBuilder followed by newline.
 	 * @param x ByteBuilder to append
@@ -1083,7 +1092,7 @@ public final class ByteBuilder implements Serializable, CharSequence {
 		array[length++]=newline;
 		return this;
 	}
-	
+
 	/**
 	 * Appends byte array up to specified length.
 	 * @param x Byte array to append
@@ -1093,7 +1102,7 @@ public final class ByteBuilder implements Serializable, CharSequence {
 	public ByteBuilder append(byte[] x, int len){
 		return append(x, 0, len);
 	}
-	
+
 	/**
 	 * Appends portion of byte array from start position for specified length.
 	 * @param x Byte array to append from
@@ -1114,7 +1123,7 @@ public final class ByteBuilder implements Serializable, CharSequence {
 		length+=len;
 		return this;
 	}
-	
+
 	/**
 	 * Appends char array by converting characters to bytes.
 	 * @param x Char array to append (null becomes "null")
@@ -1129,7 +1138,7 @@ public final class ByteBuilder implements Serializable, CharSequence {
 		}
 		return this;
 	}
-	
+
 	/**
 	 * Appends char array followed by newline.
 	 * @param x Char array to append
@@ -1142,83 +1151,83 @@ public final class ByteBuilder implements Serializable, CharSequence {
 		length++;
 		return this;
 	}
-	
+
 	public void replaceLast(char c){array[length-1]=(byte)c;}
-	
-	public void replaceLast(byte b) {array[length-1]=b;}
-	
+
+	public void replaceLast(byte b){array[length-1]=b;}
+
 	/**
 	 * Append a newline.
 	 * @return This ByteBuilder.
 	 */
 	public ByteBuilder nl(){return append(newline);}
-	
+
 	/**
 	 * Append a tab.
 	 * @return This ByteBuilder.
 	 */
 	public ByteBuilder tab(){return append(tab);}
-	
+
 	/**
 	 * Append a space.
 	 * @return This ByteBuilder.
 	 */
 	public ByteBuilder space(){return append(' ');}
-	
+
 	/**
 	 * Append an underscore.
 	 * @return This ByteBuilder.
 	 */
 	public ByteBuilder under(){return append('_');}
-	
+
 	/**
 	 * Append a dash (hyphen).
 	 * @return This ByteBuilder.
 	 */
 	public ByteBuilder dash(){return append('-');}
-	
+
 	/**
 	 * Append a period.
 	 * @return This ByteBuilder.
 	 */
 	public ByteBuilder dot(){return append('.');}
-	
+
 	/**
 	 * Append a comma.
 	 * @return This ByteBuilder.
 	 */
 	public ByteBuilder comma(){return append(',');}
-	
+
 	/**
 	 * Append a colon.
 	 * @return This ByteBuilder.
 	 */
 	public ByteBuilder colon(){return append(':');}
-	
+
 	/**
-	 * Append a colon.
+	 * Append an equals sign.
 	 * @return This ByteBuilder.
 	 */
 	public ByteBuilder equals(){return append('=');}
-	
+
 	/**
 	 * Append a semicolon.
 	 * @return This ByteBuilder.
 	 */
 	public ByteBuilder semi(){return append(';');}
-	
+
 	/**
 	 * Append a plus.
 	 * @return This ByteBuilder.
 	 */
 	public ByteBuilder plus(){return append('+');}
-	
+
 	/**
 	 * Append a percent.
 	 * @return This ByteBuilder.
 	 */
 	public ByteBuilder percent(){return append('%');}
-	
+
 	/**
 	 * Gets byte at specified index.
 	 * @param i Index position
@@ -1228,7 +1237,7 @@ public final class ByteBuilder implements Serializable, CharSequence {
 		assert(i<length);
 		return array[i];
 	}
-	
+
 	/**
 	 * Sets byte at specified index.
 	 * @param i Index position
@@ -1238,7 +1247,7 @@ public final class ByteBuilder implements Serializable, CharSequence {
 		assert(i<length);
 		array[i]=b;
 	}
-	
+
 	/**
 	 * Sets character at specified index (converted to byte).
 	 * @param i Index position
@@ -1248,7 +1257,7 @@ public final class ByteBuilder implements Serializable, CharSequence {
 		assert(i<length) : i+", "+b+", "+length;
 		array[i]=(byte)b;
 	}
-	
+
 	@Override
 	public char charAt(int i){
 		assert(i<length);
@@ -1260,7 +1269,7 @@ public final class ByteBuilder implements Serializable, CharSequence {
 	 * @param c Character to test
 	 * @return true if sequence ends with character
 	 */
-	public boolean endsWith(char c) {
+	public boolean endsWith(char c){
 		return length<1 ? false : array[length-1]==c;
 	}
 
@@ -1269,7 +1278,7 @@ public final class ByteBuilder implements Serializable, CharSequence {
 	 * @param s String to test
 	 * @return true if sequence starts with string
 	 */
-	public boolean startsWith(String s) {
+	public boolean startsWith(String s){
 		return length>=s.length() && Tools.startsWith(array, s);
 	}
 
@@ -1277,7 +1286,7 @@ public final class ByteBuilder implements Serializable, CharSequence {
 	 * @param left Amount to trim from the left
 	 * @param right Amount to trim from the right
 	 */
-	public void trimByAmount(int left, int right) {
+	public void trimByAmount(int left, int right){
 		assert(left>=0 && right>=0);
 		int newlen=length-left-right;
 		if(newlen==length){return;}
@@ -1287,18 +1296,18 @@ public final class ByteBuilder implements Serializable, CharSequence {
 			array[i]=array[j];
 		}
 	}
-	
+
 	@Override
 	public final String toString(){
 		return new String(array, 0, length, StandardCharsets.US_ASCII);
 	}
-	
+
 	/** Returns copy of internal array trimmed to current length.
 	 * @return New byte array containing current content */
 	public final byte[] toBytes(){
 		return KillSwitch.copyOf(array, length);
 	}
-	
+
 	/**
 	 * Returns copy of internal array slice from specified range.
 	 * @param from Starting index (inclusive)
@@ -1308,7 +1317,7 @@ public final class ByteBuilder implements Serializable, CharSequence {
 	public final byte[] toBytes(int from, int to){
 		return KillSwitch.copyOfRange(array, from, to);
 	}
-	
+
 	/**
 	 * Extracts prefix and shifts remaining content with optional overlap.
 	 * Returns extracted bytes while compacting remaining content.
@@ -1334,7 +1343,7 @@ public final class ByteBuilder implements Serializable, CharSequence {
 	 * Preserves content up to current length or maxLen, whichever is smaller.
 	 * @param maxLen Maximum desired array length
 	 */
-	public void shrinkTo(int maxLen) {
+	public void shrinkTo(int maxLen){
 		assert(maxLen>=0);
 		if(array.length<=maxLen){return;}
 //		assert(length<=maxLen) : length+", "+array.length+", "+maxLen;
@@ -1345,7 +1354,7 @@ public final class ByteBuilder implements Serializable, CharSequence {
 			length=Tools.min(length, maxLen);
 		}
 	}
-	
+
 	/**
 	 * Tests if internal array has room for specified additional bytes.
 	 * @param x Number of additional bytes needed
@@ -1354,10 +1363,10 @@ public final class ByteBuilder implements Serializable, CharSequence {
 	private final boolean isRoom(int x){
 		return array.length-length>=x;
 	}
-	
+
 	/** Doubles internal array size up to maximum allowed length */
 	private final void expand(){
-		long x=Tools.min(MAXLEN, array.length*2L);
+		long x=Tools.min(MAXLEN, Tools.max(1, array.length*2L));
 		if(x<=array.length){
 			throw new RuntimeException("Array overflow: "+x+"<="+array.length);
 		}
@@ -1371,10 +1380,10 @@ public final class ByteBuilder implements Serializable, CharSequence {
 	 * @param c Byte value to insert
 	 * @return This ByteBuilder for chaining
 	 */
-	public ByteBuilder insert(int pos, byte c) {
+	public ByteBuilder insert(int pos, byte c){
 		assert(pos<=length);
 		if(pos==length){return append(c);}
-		
+
 		expand(1);
 		for(int i=length-1; i>=pos; i--){
 			array[i+1]=array[i];
@@ -1383,7 +1392,7 @@ public final class ByteBuilder implements Serializable, CharSequence {
 		length++;
 		return this;
 	}
-	
+
 	/**
 	 * Expands internal array to accommodate additional bytes if needed.
 	 * Doubles size repeatedly until sufficient space available.
@@ -1392,6 +1401,7 @@ public final class ByteBuilder implements Serializable, CharSequence {
 	public final void expand(int extra){//Doubles length until it can accommodate this much more.
 		long x=array.length;
 		if(x>=length+extra){return;}
+		x=Tools.max(1, x);
 //		System.err.println("x="+array.length+", extra="+extra+", length="+length);
 		while(x<=length+extra){
 //			System.err.println("*\t"+x+"-"+length+"<"+extra);
@@ -1402,52 +1412,52 @@ public final class ByteBuilder implements Serializable, CharSequence {
 		assert(x>array.length) : "Resizing to an non-longer array ("+array.length+"); probable array size overflow.";
 		array=KillSwitch.copyOf(array, (int)x);
 	}
-	
+
 	/** Reverses the order of bytes in current content.
 	 * @return This ByteBuilder for chaining */
-	public ByteBuilder reverse() {
+	public ByteBuilder reverse(){
 		Tools.reverseInPlace(array, 0, length);
 		return this;
 	}
-	
+
 	/** Reverses the order of bytes in current content in-place.
 	 * @return This ByteBuilder for chaining */
-	public ByteBuilder reverseInPlace() {
+	public ByteBuilder reverseInPlace(){
 		Tools.reverseInPlace(array, 0, length);
 		return this;
 	}
-	
+
 	/**
 	 * Reverses bytes within specified range in-place.
 	 * @param from Starting position (inclusive)
 	 * @param toExclusive Ending position (exclusive)
 	 * @return This ByteBuilder for chaining
 	 */
-	public ByteBuilder reverseInPlace(int from, int toExclusive) {
+	public ByteBuilder reverseInPlace(int from, int toExclusive){
 		Tools.reverseInPlace(array, from, toExclusive);
 		return this;
 	}
-	
+
 	/** Converts nucleotide bases to their complements in-place.
 	 * @return This ByteBuilder for chaining */
-	public ByteBuilder complementInPlace() {
+	public ByteBuilder complementInPlace(){
 		AminoAcid.complementBasesInPlace(array, length);
 		return this;
 	}
-	
+
 	/** Converts to reverse complement of nucleotide sequence in-place.
 	 * @return This ByteBuilder for chaining */
-	public ByteBuilder reverseComplementInPlace() {
+	public ByteBuilder reverseComplementInPlace(){
 		Vector.reverseComplementInPlace(array, length);
 		return this;
 	}
-	
+
 	/** Ensures internal array has space for specified additional bytes.
 	 * @param extra Number of additional bytes that will be needed */
 	public final void ensureExtra(int extra){
 		if(array.length-length<extra){expand(extra);}
 	}
-	
+
 	/** Tests if ByteBuilder contains no content */
 	public boolean isEmpty(){return length==0;}
 	@Override
@@ -1484,27 +1494,30 @@ public final class ByteBuilder implements Serializable, CharSequence {
 		lp.set(toBytes());
 		final int terms=lp.terms();
 		byte[][] out=new byte[terms][];
-		for(int i=0; i<terms; i++) {out[i]=lp.parseByteArray(i);}
+		for(int i=0; i<terms; i++){out[i]=lp.parseByteArray(i);}
 		return out;
 	}
-	
+
 
 	/*--------------------------------------------------------------*/
-	
-	/** Appends unsigned 8-bit value */
+
+	/** Appends the low eight bits; caller must reserve one byte of spare capacity. */
 	public ByteBuilder appendU8(int value){
 		array[length++]=(byte)(value&0xFF);
 		return this;
 	}
-	
-	/** Appends unsigned 16-bit little-endian value */
+
+	/** Appends the low 16 bits in little-endian order; caller reserves two bytes. */
 	public ByteBuilder appendU16LE(int value){
 		array[length++]=(byte)(value&0xFF);
 		array[length++]=(byte)((value>>>8)&0xFF);
 		return this;
 	}
-	
-	/** Appends signed 32-bit little-endian value */
+
+	/** Writes 32 little-endian bits at offset without changing length or growing storage.
+	 * @param value Bits to write
+	 * @param offset First backing-array index; four writable bytes must be available
+	 * @return This builder */
 	public ByteBuilder setI32LE(int value, int offset){
 		array[offset++]=(byte)(value&0xFF);
 		array[offset++]=(byte)((value>>>8)&0xFF);
@@ -1512,8 +1525,8 @@ public final class ByteBuilder implements Serializable, CharSequence {
 		array[offset++]=(byte)((value>>>24)&0xFF);
 		return this;
 	}
-	
-	/** Appends signed 32-bit little-endian value */
+
+	/** Appends 32 little-endian bits; caller reserves four bytes of spare capacity. */
 	public ByteBuilder appendI32LE(int value){
 		array[length++]=(byte)(value&0xFF);
 		array[length++]=(byte)((value>>>8)&0xFF);
@@ -1521,13 +1534,13 @@ public final class ByteBuilder implements Serializable, CharSequence {
 		array[length++]=(byte)((value>>>24)&0xFF);
 		return this;
 	}
-	
-	/** Appends unsigned 32-bit little-endian value */
+
+	/** Appends the low 32 bits in little-endian order; caller reserves four bytes. */
 	public ByteBuilder appendU32LE(long value){
 		return appendI32LE((int)(value&0xFFFFFFFFL));
 	}
-	
-	/** Appends signed 64-bit little-endian value */
+
+	/** Appends 64 little-endian bits; caller reserves eight bytes of spare capacity. */
 	public ByteBuilder appendI64LE(long value){
 		array[length++]=(byte)(value&0xFF);
 		array[length++]=(byte)((value>>>8)&0xFF);
@@ -1539,30 +1552,30 @@ public final class ByteBuilder implements Serializable, CharSequence {
 		array[length++]=(byte)((value>>>56)&0xFF);
 		return this;
 	}
-	
-	/** Appends 32-bit little-endian float */
+
+	/** Appends raw float bits in little-endian order; caller reserves four bytes. */
 	public ByteBuilder appendFloatLE(float value){
 		return appendI32LE(Float.floatToRawIntBits(value));
 	}
-	
-	/** Appends 64-bit little-endian double */
+
+	/** Appends raw double bits in little-endian order; caller reserves eight bytes. */
 	public ByteBuilder appendDoubleLE(double value){
 		return appendI64LE(Double.doubleToRawLongBits(value));
 	}
-	
-	/** Appends null-terminated string */
+
+	/** Appends a nonnull string in the platform default charset followed by a zero byte. */
 	public ByteBuilder appendNullTerminated(String s){
 		byte[] bytes=s.getBytes();
 		append(bytes);
 		append((byte)0);
 		return this;
 	}
-	
+
 	/*--------------------------------------------------------------*/
-	
-	/** something */
+
+	/** Live backing storage; external writes are visible and growth may replace this array. */
 	public byte[] array;
-	/** something else */
+	/** Number of live bytes in the backing-array prefix, independent of its capacity. */
 	public int length=0;
 	/** Temporary buffer for numeric formatting operations */
 	private final byte[] numbuffer=KillSwitch.allocByte1D(40);
@@ -1587,7 +1600,7 @@ public final class ByteBuilder implements Serializable, CharSequence {
 	public static final String[] decimalFormat;
 	/** Maximum allowed array length to prevent overflow */
 	public static final int MAXLEN=Integer.MAX_VALUE-20;
-	
+
 	static{
 		ones100=new byte[100];
 		tens100=new byte[100];
@@ -1608,16 +1621,16 @@ public final class ByteBuilder implements Serializable, CharSequence {
 			decimalFormat[i]="%."+i+"f";
 		}
 	}
-	
-	public ByteBuilder appendUint32(long val) {
-	    append((byte)(val & 0xFF));
-	    append((byte)((val >> 8) & 0xFF));
-	    append((byte)((val >> 16) & 0xFF));
-	    append((byte)((val >> 24) & 0xFF));
-	    return this;
+
+	public ByteBuilder appendUint32(long val){
+		append((byte)(val&0xFF));
+		append((byte)((val>>8)&0xFF));
+		append((byte)((val>>16)&0xFF));
+		append((byte)((val>>24)&0xFF));
+		return this;
 	}
-	
-	public static void main(String[] args) {
+
+	public static void main(String[] args){
 		Timer t=new Timer();
 		String in=args[0];
 		String out=(args.length<2 || "null".equalsIgnoreCase(args[1])) ? null : args[1];
@@ -1629,28 +1642,28 @@ public final class ByteBuilder implements Serializable, CharSequence {
 		ByteBuilder bb=new ByteBuilder(32768);
 //		assert(false) : out+", "+ffout+", "+bf+", "+bsw;
 		long lines=0, bytes=0;
-		for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()) {
+		for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()){
 			bb.append(line);
 			lines++;
 			bytes+=line.length;
 //			assert(false) : "BB "+bb.length;
-			if(bb.length>=16384) {
-				if(bsw!=null) {
+			if(bb.length>=16384){
+				if(bsw!=null){
 					bsw.print(bb);
 //					assert(false) : "Wrote "+bb.length;
 				}
 				bb.clear();
 			}
 		}
-		if(bsw!=null && !bb.isEmpty()) {bsw.print(bb);}
+		if(bsw!=null && !bb.isEmpty()){bsw.print(bb);}
 		bb.clear();
 		bf.close();
-		if(bsw!=null) {
+		if(bsw!=null){
 			boolean error=bsw.poisonAndWait();
 			assert(!error);
 		}
 		t.stop();
 		System.err.println(Tools.timeLinesBytesProcessed(t, lines, bytes, 8));
 	}
-	
+
 }

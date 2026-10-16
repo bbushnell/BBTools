@@ -1,96 +1,90 @@
 package structures;
 
-import shared.Tools;
-
 /**
- * Mutable SeqCount that accumulates occurrences and optional scores.
- * Allows incrementing counts for repeated sequences while retaining sequence bytes.
- * Used where SeqCount immutability is insufficient for aggregation.
+ * SeqCount with mutable occurrence and score fields.
+ * <p>
+ * Equality and hashing are inherited from SeqCount and remain sequence-only.
+ * Ordering delegates to SeqCount's count, length, score and bases comparison.
+ * Mutation is unsynchronized; callers sharing an instance coordinate externally.
  *
  * @author Brian Bushnell
  * @date June 3, 2025
  */
-public class SeqCountM extends SeqCount {
-	
+public class SeqCountM extends SeqCount{
+
 	/*--------------------------------------------------------------*/
-	/*----------------         Constructors         ----------------*/
+	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
-	
-	public SeqCountM(SeqCount sq) {
+
+	/** Creates a mutable counter retaining and canonizing sq's base array, then copying its current count. */
+	public SeqCountM(SeqCount sq){
 		super(sq.bases);
 		count=sq.count();
 	}
-	
-	public SeqCountM(byte[] s, int start, int stop) {
+
+	/** Creates a mutable counter from a copied half-open sequence slice. */
+	public SeqCountM(byte[] s, int start, int stop){
 		super(s, start, stop);
 	}
-	
-	public SeqCountM(byte[] s) {
+
+	/** Creates a mutable counter retaining and canonizing the supplied bases. */
+	public SeqCountM(byte[] s){
 		super(s);
 	}
-	
-	/**
-	 * Creates a synchronized clone of this SeqCountM.
-	 * Preserves the sequence data, count, and score values.
-	 * @return Deep copy of this SeqCountM
-	 */
+
+	/** Returns a shallow clone that shares the final base array. */
 	@Override
-	public SeqCountM clone() {
-		synchronized(this) {
+	public SeqCountM clone(){
+		synchronized(this){
 			SeqCountM clone=(SeqCountM) super.clone();
 			return clone;
 		}
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------            Methods           ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 //	@Override
-	/** Adds the count from another SeqCount to this instance (no sequence copy).
-	 * @param s SeqCount whose count should be accumulated */
-	public void add(SeqCount s) {
+	/**
+	 * Adds another SeqCount's count to this one.
+	 * Caller must supply the same sequence; only the count is read.
+	 */
+	public void add(SeqCount s){
 //		assert(equals(s));
 		count+=s.count();
 	}
 
 //	@Override
-	/** Increments the occurrence count by the specified amount.
-	 * @param x Amount to add to the current count */
-	public void increment(int x) {
+	/** Adds x to the occurrence count. */
+	public void increment(int x){
 		count+=x;
 	}
 
-	/** Returns the current occurrence count for this sequence */
+	/** Returns the current occurrence count. */
 	@Override
-	public int count() {return count;}
-	
+	public int count(){return count;}
+
+	/** Returns the current comparison score. */
+	@Override
+	public float score(){return score;}
+
 	/**
-	 * Compares SeqCounts for ordering, with enhanced score comparison.
-	 * Primary comparison by count, then sequence length, then score (for SeqCountM),
-	 * finally by lexicographic sequence comparison.
-	 *
-	 * @param s SeqCount to compare against
-	 * @return Negative, zero, or positive for less than, equal, or greater than
+	 * Orders by count, length, score, then canonicalized bases.
 	 */
 	@Override
-	public int compareTo(SeqCount s) {
-		if(count()!=s.count()) {return count()-s.count();}
-		if(bases.length!=s.bases.length) {return bases.length-s.bases.length;}
-		if(s.getClass()==SeqCountM.class) {
-			SeqCountM scm=(SeqCountM)s;
-			if(score!=scm.score) {return score>scm.score ? 1 : -1;}
-		}
-		return Tools.compare(bases, s.bases);
+	public int compareTo(SeqCount s){
+		return super.compareTo(s);
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
-	
-	/** Number of occurrences observed for this sequence (mutable). */
+
+	/** Mutable occurrence count. */
 	public int count=1;
-	/** Optional score associated with this sequence; defaults to -1 when unset. */
+
+	/** Mutable optional score; -1 when unset. */
 	public float score=-1;
-	
+
 }

@@ -3,78 +3,118 @@ package structures;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Thread-safe association of a string identifier with an atomic long counter.
- * Provides atomic increment operations and comparison capabilities for concurrent
- * counting applications such as k-mer frequency tracking and statistical analysis.
- * Comparison is first by numeric value, then by string lexicographically.
+ * String label paired with an atomically updated {@code long} counter.
+ * Increment operations are atomic for the counter value itself; comparisons,
+ * equality and hashing read the current counter values separately.
+ * Ordering is ascending by live counter value, then by string label.
  *
  * @author Brian Bushnell
  * @date 2013
  */
-public class AtomicStringNum implements Comparable<AtomicStringNum> {
+public class AtomicStringNum implements Comparable<AtomicStringNum>{
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Initialization        ----------------*/
+	/*--------------------------------------------------------------*/
 
 	/**
-	 * Creates a new AtomicStringNum with the specified string and initial count.
-	 * @param s_ The string identifier
-	 * @param n_ The initial numeric value
+	 * Creates an association with the specified label and initial count.
+	 * @param s_ String label.
+	 * @param n_ Initial counter value.
 	 */
 	public AtomicStringNum(String s_, long n_){
 		s=s_;
 		n=new AtomicLong(n_);
 	}
 
-	/** Atomically increments the numeric value by 1 and returns the new value.
-	 * @return The incremented value */
+	/*--------------------------------------------------------------*/
+	/*----------------           Mutation           ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/**
+	 * Atomically increments the counter by 1.
+	 * @return New counter value.
+	 */
 	public long increment(){
 		return n.incrementAndGet();
 	}
-	
+
 	/**
-	 * Atomically adds the specified value to the numeric counter.
-	 * @param x The value to add
-	 * @return The new value after addition
+	 * Atomically adds a delta to the counter.
+	 * @param x Amount to add; negative values are permitted.
+	 * @return New counter value.
 	 */
 	public long increment(long x){
 		return n.addAndGet(x);
 	}
-	
-	/** Atomically adds the numeric value from another AtomicStringNum to this one.
-	 * @param sn The AtomicStringNum whose value to add */
-	public void add(AtomicStringNum sn) {
+
+	/**
+	 * Atomically adds one snapshot of another counter's current value.
+	 * @param sn Counter whose current value to add.
+	 */
+	public void add(AtomicStringNum sn){
 		n.addAndGet(sn.n.get());
 	}
 
-	/* (non-Javadoc)
-	 * @see java.lang.Comparable#compareTo(java.lang.Object)
+	/*--------------------------------------------------------------*/
+	/*----------------           Ordering           ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/**
+	 * Compares live counter values, breaking ties by non-null label.
+	 * @param o Other value to compare.
+	 * @return A negative value, zero or a positive value as this value is less
+	 * than, equal to or greater than {@code o}.
 	 */
 	@Override
-	public int compareTo(AtomicStringNum o) {
+	public int compareTo(AtomicStringNum o){
 		final long a=n.get(), b=o.n.get();
 		if(a<b){return -1;}
 		if(a>b){return 1;}
 		return s.compareTo(o.s);
 	}
 
+	/*--------------------------------------------------------------*/
+	/*----------------           ToString           ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/**
+	 * Formats the label and live counter value separated by a tab.
+	 * @return Tab-delimited label and counter.
+	 */
 	@Override
 	public String toString(){
 		return s+"\t"+n;
 	}
 
+	/*--------------------------------------------------------------*/
+	/*----------------           Equality           ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/**
+	 * Hashes the non-null label and live counter value.
+	 * @return Hash code derived from the current state.
+	 */
 	@Override
 	public int hashCode(){
 		return ((int)(n.get()&Integer.MAX_VALUE))^(s.hashCode());
 	}
-	
+
+	/**
+	 * Tests equality with another object.
+	 * @param other Object to compare.
+	 * @return True if {@code other} is an AtomicStringNum with the same label
+	 * and live counter value.
+	 */
 	@Override
 	public boolean equals(Object other){
-		return equals((AtomicStringNum)other);
+		return other instanceof AtomicStringNum && equals((AtomicStringNum)other);
 	}
-	
+
 	/**
 	 * Tests equality with another AtomicStringNum.
-	 * Equality requires both identical numeric values and string content.
-	 * @param other The AtomicStringNum to compare
-	 * @return true if both string and numeric components are equal
+	 * @param other AtomicStringNum to compare; may be null.
+	 * @return True if both objects have the same label and live counter value.
 	 */
 	public boolean equals(AtomicStringNum other){
 		if(other==null){return false;}
@@ -83,12 +123,15 @@ public class AtomicStringNum implements Comparable<AtomicStringNum> {
 		if(s==null || other.s==null){return false;}
 		return s.equals(other.s);
 	}
-	
+
+	/*--------------------------------------------------------------*/
+	/*----------------           Fields             ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** The string identifier associated with this counter */
+	/** String label associated with this counter. */
 	public final String s;
-	/** The atomic long counter providing thread-safe numeric operations */
+
+	/** Publicly replaceable atomic counter. */
 	public AtomicLong n;
 
 }

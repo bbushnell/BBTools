@@ -1,54 +1,74 @@
 package structures;
 
 /**
- * Represents a 2D coordinate point with double precision.
- * Implements Comparable for natural ordering by x-coordinate first, then y-coordinate.
- * Used throughout BBTools for spatial positioning and geometric calculations in genomic analysis.
+ * Mutable two-dimensional point ordered by x coordinate, then y coordinate.
+ * Object equality requires matching runtime classes and exact coordinate equality.
+ * Coordinates are public and unsynchronized; callers sharing or sorting points
+ * must coordinate externally. Hash-key callers must not mutate coordinates
+ * while a Point is indexed.
  *
  * @author Brian Bushnell
  * @date 2013
  */
-public class Point implements Comparable<Point> {
-	
+public class Point implements Comparable<Point>{
+
 	/**
-	 * Constructs a Point with specified x and y coordinates.
-	 * @param x_ The x-coordinate value
-	 * @param y_ The y-coordinate value
+	 * Constructs a point with the specified coordinates.
+	 * @param x_ X coordinate.
+	 * @param y_ Y coordinate.
 	 */
-	public Point(double x_, double y_) {
+	public Point(double x_, double y_){
 		x=x_;
 		y=y_;
 	}
-	
+
+	/** Orders points by x coordinate, then y coordinate. */
 	@Override
-	public int compareTo(Point p) {
-		if(x!=p.x) {return x>p.x ? 1 : -1;}
+	public int compareTo(Point p){
+		if(x!=p.x){return x>p.x ? 1 : -1;} //TODO: Possible Bug - x=NaN makes compareTo(this) return -1.
 		return y>p.y ? 1 : y<p.y ? -1 : 0;
 	}
-	
+
 	@Override
-	public boolean equals(Object p) {
+	public boolean equals(Object p){
 		return p!=null && getClass()==p.getClass() && equals((Point)p);
 	}
-	
+
 	/**
-	 * Tests equality with another Point using coordinate comparison.
-	 * @param p The Point to compare against
-	 * @return true if both Points have identical x and y coordinates
+	 * Tests whether another Point has the same exact coordinates.
+	 * @param p Point to compare; may be null.
+	 * @return True if p has identical x and y coordinates.
 	 */
-	public boolean equals(Point p) {
+	public boolean equals(Point p){
 		return p!=null && x==p.x && y==p.y;
 	}
-	
-	/** Returns a string representation of this Point in "x,y" format.
-	 * @return String representation as "x,y" */
-	public String toString() {
+
+	/**
+	 * Returns a hash based on exact coordinate equality.
+	 * @return Hash code for this point.
+	 */
+	@Override
+	public int hashCode(){
+		return 31*coordinateHash(x)+coordinateHash(y);
+	}
+
+	/** Returns a hash for one coordinate, normalizing signed zeroes. */
+	private static int coordinateHash(double value){
+		final long bits=Double.doubleToLongBits(value==0 ? 0 : value);
+		return (int)(bits^(bits>>>32));
+	}
+
+	/**
+	 * Formats the coordinates separated by one comma.
+	 * @return x and y in {@code x,y} form.
+	 */
+	public String toString(){
 		return x+","+y;
 	}
-	
-	/** The x-coordinate of this Point */
+
+	/** X coordinate. */
 	public double x;
-	/** The y-coordinate of this Point */
+	/** Y coordinate. */
 	public double y;
-	
+
 }
