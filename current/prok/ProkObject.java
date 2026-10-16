@@ -183,12 +183,16 @@ public abstract class ProkObject {
 	public static synchronized void loadLongKmers(){
 //		assert(ssuKmers==null);
 //		assert(false) : load5Skmers+", "+kLong5s;
-		if(loadedLongKmers){return;}
+		if(loadedLongKmers){load5SKmersIfSelected();return;}
 		if(loadSSUkmers){ssuKmers=loadLongKmersByType(kLongSSU, "ssu");}
 		if(loadLSUkmers){lsuKmers=loadLongKmersByType(kLongLSU, "lsu");}
-		if(load5Skmers){r5SKmers=loadLongKmersByType(kLong5S, "5S");}
+		load5SKmersIfSelected();
 		if(loadtRNAkmers){trnaKmers=loadLongKmersByType(kLongTRna, "tRNA");}
 		loadedLongKmers=true;
+	}
+	/** A disabled 5S slot can be selected later by an in-process legacy consumer. */
+	private static void load5SKmersIfSelected(){
+		if(load5Skmers && !loaded5SKmers){r5SKmers=loadLongKmersByType(kLong5S, "5S");loaded5SKmers=true;}
 	}
 	
 //	private static LongHashSet loadLongKmers(StatsContainer sc, int k, String prefix){
@@ -213,6 +217,9 @@ public abstract class ProkObject {
 	//the same way ProkObject's own tRNA/rRNA kmer sets load. Visibility-only change, no behavior
 	//difference for any existing caller.
 	static LongHashSet loadLongKmersByType(int k, String prefix){
+		if(k==17 && "5S".equalsIgnoreCase(prefix)){
+			return loadLongKmers(new FamilyResourceResolver().resolve("5S", "seeds", null).path, k);
+		}
 		final String stem=prefix+"_"+k+"mers.fa";
 		String fname=Data.findPath("?"+stem, false);
 		if(fname==null){fname=Data.findPath("?"+stem+".gz", false);}
@@ -283,20 +290,29 @@ public abstract class ProkObject {
 	/** Loads the enabled rRNA/tRNA consensus reference sequences once (idempotent via loadedConsensusSequence).
 	 * @param removeMito drop mitochondrial entries @param removeChloro drop plastid entries. */
 	public static synchronized void loadConsensusSequenceFromFile(boolean removeMito, boolean removeChloro){
-		if(loadedConsensusSequence){return;}
+		if(loadedConsensusSequence){load5SSequenceIfSelected(removeMito, removeChloro);return;}
 //		assert(r16SSequence==null);
 		if(load16SSequence){r16SSequence=loadConsensusSequenceType("16S", removeMito, removeChloro);}
 		if(load18SSequence){r18SSequence=loadConsensusSequenceType("18S", removeMito, removeChloro);}
 		if(load23SSequence){r23SSequence=loadConsensusSequenceType("23S", removeMito, removeChloro);}
-		if(load5SSequence){r5SSequence=loadConsensusSequenceType("5S", removeMito, removeChloro);}
+		load5SSequenceIfSelected(removeMito, removeChloro);
 		if(loadtRNASequence){trnaSequence=loadConsensusSequenceType("tRNA", removeMito, removeChloro);}
 		loadedConsensusSequence=true;
+	}
+	/** Complete only the deferred 5S slot; all already loaded arrays retain identity. */
+	private static void load5SSequenceIfSelected(boolean removeMito, boolean removeChloro){
+		if(load5SSequence && !loaded5SConsensus){
+			r5SSequence=loadConsensusSequenceType("5S", removeMito, removeChloro);loaded5SConsensus=true;
+		}
 	}
 	
 	/** Loads one type's consensus sequences, preferring {@code prefix}_consensus_sequence.fq then .fa (also resolves inside
 	 * a .jar); optionally strips mito/plastid entries. Returns null if the file can't be found. */
 	public static Read[] loadConsensusSequenceType(String prefix, boolean removeMito, boolean removeChloro){
 		String fname=null;
+		if("5S".equalsIgnoreCase(prefix)){
+			fname=new FamilyResourceResolver().resolve("5S", "consensus", null).path;
+		}else{
 		fname=Data.findPath("?"+prefix+"_consensus_sequence.fq", false);
 		if(fname!=null && (fname.endsWith(".jar") || new File(fname).exists())){
 			fname=Tools.fixExtension(fname);
@@ -307,6 +323,7 @@ public abstract class ProkObject {
 				System.err.println("Can't find "+fname);
 				return null;
 			}
+		}
 		}
 		Read[] array=loadConsensusSequence(fname);
 		if(removeMito){array=stripOrganelle(array, "mito");}
@@ -402,6 +419,7 @@ public abstract class ProkObject {
 	public static boolean load5Skmers=true;
 	public static boolean loadtRNAkmers=true;
 	private static boolean loadedLongKmers=false;
+	private static boolean loaded5SKmers=false;
 
 	public static boolean loadtRNASequence=false;
 	public static boolean load16SSequence=true;
@@ -409,5 +427,6 @@ public abstract class ProkObject {
 	public static boolean load5SSequence=true;
 	public static boolean load18SSequence=true;
 	private static boolean loadedConsensusSequence=false;
+	private static boolean loaded5SConsensus=false;
 	
 }

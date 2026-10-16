@@ -1,8 +1,6 @@
 package prok;
 
-import java.io.File;
 import java.util.ArrayList;
-import dna.Data;
 import parse.Parse;
 
 /** Loads the measured prokaryotic5S endpoint resources for the seeded caller.
@@ -27,22 +25,16 @@ final class Prok5sEndpointConfig {
 		}
 		require(infer || (tables==null && nets==null),"Explicit5S endpoint resources require rrna5sendpointnn=t");
 		if(!infer){System.err.println("prok5S endpoints: disabled");return;}
-		final String tableDir=tables==null ? new File(resource("5S_endpoint_tables/TABLES.tsv")).getParent() : tables;
-		final String netPath=nets==null ? resource("5S_endpoints.bbnets.gz") : nets;
 		require(selected.reuseConsensusAlignment && !selected.trimAlignmentExtent && !selected.voteEnds && !selected.voteWindows
 			&& selected.boundary5NetTemplate==null && selected.boundary3NetTemplate==null && selected.boundaryNetsByModel==null,
 			"5S endpoint features require raw accepted alignment endpoints and cannot combine with other boundary policies");
-		require(new File(tableDir,"TABLES.tsv").isFile() && (new File(netPath).isFile() || new File(netPath,"MANIFEST.tsv").isFile()),
-			"5S endpoint inference needs a complete table manifest and selected-network directory or bundle");
-		final RrnaEndpointCallerFeatures.Resources loaded=RrnaEndpointResourceLoader.load("prok5S",tableDir,selected.modelNames,selected.library,new String[0]);
-		final RrnaEndpointCallerFeatures.Resources inference=RrnaEndpointNetworkLoader.load(netPath,loaded);
-		require(inference.acceptedVerifierIdentity,"5S nets must preserve the trained accepted-verifier-window identity feature");
+		final FamilyResourceResolver resolver=new FamilyResourceResolver();
+		final FamilyResourceResolver.Overrides overrides=new FamilyResourceResolver.Overrides();
+		overrides.tables=tables;overrides.endpoints=nets;
+		final RrnaEndpointCallerFeatures.Resources inference=NcrnaFamilyLoader.loadEndpoints(selected, overrides, resolver);
 		selected.setRrnaEndpointInference(inference,null);
-		System.err.println("prok5S endpoints: enabled; tables="+tableDir+" nets="+netPath+" radius="+inference.radius);
-	}
-	private static String resource(String name){
-		final String path=Data.findPath("?"+name,false);
-		require(path!=null && new File(path).isFile(),"Missing5S endpoint resource: "+name);return path;
+		System.err.println("prok5S endpoints: enabled; tables="+resolver.tables(selected.name, overrides).path
+			+" nets="+resolver.resolve(selected.name, "endpoints", overrides).path+" radius="+inference.radius);
 	}
 	private static String path(String key,String value){require(value!=null && !value.isEmpty(),key+" requires an explicit resource path");return value;}
 	private static void require(boolean ok,String why){if(!ok){throw new IllegalArgumentException(why);}}

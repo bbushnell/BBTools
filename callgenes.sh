@@ -341,8 +341,8 @@ rrna17prok5sweight=3  Multiply the initial seeded prok5S path score by this
                 the existing positive-overlap rescoring are unchanged.
 rrna5sendpointnn=t  Refine enabled seeded prokaryotic 5S endpoints.
                 Set f to retain raw alignment ends; PGM uses no endpoint resources.
-rrna5sendpointtables=  Override resources/5S_endpoint_tables/.
-rrna5sendpointnets=    Override resources/5S_endpoints.bbnets.gz with a bundle
+rrna5sendpointtables=  Override resources/callgenes_5S/tables/.
+rrna5sendpointnets=    Override resources/callgenes_5S/endpoints.bbnets.gz with a bundle
                 or selected-network directory. Missing/incompatible resources
                 fail before calling. Unrelated eukaryotic defaults are unchanged.
 euk5sweight=3    Multiply only the initial euk5S path score by this positive

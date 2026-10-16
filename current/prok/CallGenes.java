@@ -972,8 +972,14 @@ public class CallGenes extends ProkObject {
 		}
 
 		if(call16S || call18S || call23S || calltRNA || call5S){
-			loadLongKmers();
-			loadConsensusSequenceFromFile(false, false);
+			//The selected seeded family already owns its resources. A disabled 5S
+			//family must not open its package through the unrelated tRNA startup path.
+			final boolean old5sKmers=load5Skmers, old5sSequence=load5SSequence;
+			try{
+				load5Skmers&=call5S;load5SSequence&=call5S;
+				loadLongKmers();
+				loadConsensusSequenceFromFile(false, false);
+			}finally{load5Skmers=old5sKmers;load5SSequence=old5sSequence;}
 		}
 		GeneCaller.initializeConservedRnaSeedIndex();
 		final QuantumAligner quantumCounter=new QuantumAligner();
@@ -2619,36 +2625,25 @@ public class CallGenes extends ProkObject {
 		}
 	}
 
-	/** Historical5S baseline, not a newly calibrated policy. Missing seeds select PGM;
-	 * present but malformed resources fail rather than silently changing methods. */
+	/** Loads the selected 5S family atomically; missing resources never select PGM. */
 	static void addRrna5sFamily(final int index, final String seedResource){
 		assert(index==GeneCaller.ncrnaFamilies.size()) : "5S must append at the rollback boundary so other registered families survive a loading failure";
-		String seedPath=findNcrnaResource(seedResource);
-		//TODO: Probable packaging bug - Data.findPath (Data.java:1360-1391) accepts jar:
-		//URLs, but File.exists below treats them as absent. The current development
-		//baseline uses unpacked resources; preserve jar: paths before packaging this loader.
-		if(seedPath!=null && !new File(seedPath).exists()){seedPath=null;}
-		if(seedPath==null){
-			seedPath=findNcrnaResource(seedResource+".gz");
-			if(seedPath!=null && !new File(seedPath).exists()){seedPath=null;}
+		final NcrnaFamilyLoader.Options options=new NcrnaFamilyLoader.Options();
+		options.hbm=RRNA17_PROK5S_HBM;options.weight=RRNA17_PROK5S_WEIGHT;
+		options.endpoints=false;//The established later configuration phase owns endpoint overrides/off.
+		if(!"5S_17mers.fa".equals(seedResource)){
+			options.resources.seeds=findNcrnaResource(seedResource);
+			if(options.resources.seeds==null){throw new IllegalArgumentException("Missing explicit prok5S seed resource: "+seedResource);}
 		}
-		if(seedPath==null){
-			call5S=true;
-			System.err.println("Prokaryotic 5S uses the PGM caller because its 17-mer resource is absent.");
-			return;
-		}
-		final LongHashSet seeds=ProkObject.loadLongKmers(seedPath, 17);
-		if(seeds==null || seeds.size()<1){throw new IllegalArgumentException("Empty prokaryotic5S seed resource: "+seedPath);}
-		final String modelResource=RRNA17_PROK5S_HBM ? defaultNcrnaModel("5S.g5.models.hbm") : null;
-		addRrna17Family("prok5S", "5S_consensus_sequence.fa", modelResource, seeds, 17, 90, 150,
-			7, 3, false, 0f, 0f, 0f, 2, 0f, RRNA17_PROK5S_WEIGHT, .80f, .60f, RRNA17_PROK5S_HBM ? .60f : 1.01f, .85f,
-			NcrnaFamily.LEGACY_START_OFFSETS, NcrnaFamily.LEGACY_STOP_OFFSETS);
-		final NcrnaFamily family=familyAt(index, "prok5S");
-		if(RRNA17_PROK5S_HBM){
-			requireNcrnaLibraryModelAlignment(family.name, family.library, family.models, family.modelNames,
-				"5S_consensus_sequence.fa", "5S.g5.models.hbm");
-		}else if(family.models!=null){throw new IllegalStateException("Disabled prok5S HBM must not load models");}
-		configureRrna17Family(family, ProkObject.r5S, 2, true, false, false, false);
+		options.indexK=resolveFamilyInt("prok5S", -1, NCRNA_INDEX_K_OVERRIDE, 7);
+		options.topN=resolveFamilyInt("prok5S", -1, NCRNA_INDEX_TOP_N_OVERRIDE, 3);
+		options.minHits=resolveFamilyInt("prok5S", -1, NCRNA_INDEX_MIN_HITS_OVERRIDE, 2);
+		options.adaptive=resolveFamilyBoolean("prok5S", null, NCRNA_ADAPTIVE_MINHITS_OVERRIDE, false);
+		options.floor=resolveFamilyScore("prok5S", Float.NaN, NCRNA_ADAPT_FLOOR_OVERRIDE, 0f);
+		options.topFrac=resolveFamilyScore("prok5S", Float.NaN, NCRNA_ADAPT_TOPFRAC_OVERRIDE, 0f);
+		options.qFrac=resolveFamilyScore("prok5S", Float.NaN, NCRNA_ADAPT_QFRAC_OVERRIDE, 0f);
+		final NcrnaFamily family=NcrnaFamilyLoader.load("5S", options, new FamilyResourceResolver());
+		GeneCaller.ncrnaFamilies.add(family);
 		call5S=false;
 		System.err.println("5S baseline: seedK=17 seedKeys="+family.kmerSet.size()+" seedMinHits=2 seedDistinct="+family.seedDistinct
 			+" indexK=7 indexMinHits=2 indexTopN=3 idPass=0.8 idBorderline=0.6 hbmPass="+family.hbmPass+"; endpoint configuration follows registration");
