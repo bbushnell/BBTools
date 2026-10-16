@@ -79,7 +79,6 @@ public final class NeuralMapqPairedFeatureExtractor{
 		if(!first.mapped() && !second.mapped()){
 			throw new IllegalArgumentException("Paired neural MAPQ requires at least one mapped mate");
 		}
-		if(averagePairDistance<0){throw new IllegalArgumentException("Average pair distance must be nonnegative: "+averagePairDistance);}
 		validateVector(firstVector, scratch); validateVector(secondVector, scratch);
 		if(first.mapped() && second.mapped() && firstVector==secondVector){
 			throw new IllegalArgumentException("Mapped mates need distinct neural MAPQ output vectors; the second orientation would overwrite the first");
@@ -117,9 +116,6 @@ public final class NeuralMapqPairedFeatureExtractor{
 		if(!anchor.mapped() || !anchor.primary()){
 			throw new IllegalArgumentException("Paired neural MAPQ anchor must be mapped and primary");
 		}
-		if(averagePairDistance<0){
-			throw new IllegalArgumentException("Average pair distance must be nonnegative: "+averagePairDistance);
-		}
 		validateVector(vector, scratch);
 	}
 
@@ -147,7 +143,7 @@ public final class NeuralMapqPairedFeatureExtractor{
 		final int observedInsert=observedInsert(anchor, mate, requireCorrectStrands, sameStrandPairs);
 		final boolean insertMissing=observedInsert<1;
 		final int storedInsert=anchor.insert();
-		//Widen before arithmetic: the public API accepts any nonnegative int distance.
+		//Widen before arithmetic: overlapping short-insert libraries can have a negative expected inner distance.
 		final long expectedFragment=(long)averagePairDistance+anchor.length()+mate.length();
 		final int innerDistance=(sameChrom ? innerDistance(anchor, mate, requireCorrectStrands) : 0);
 		final long signedDeviation=(sameChrom ? (long)innerDistance-averagePairDistance : 0);

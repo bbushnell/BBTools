@@ -61,89 +61,6 @@ BBMapS automatically uses horizontal SIMD for limited and unlimited alignment wh
 "
 }
 
-addNeuralMapqResources(){
-	NEURAL_DEFAULT_ARGS=()
-	local enabled=false pairEnabled=false autoEnabled=true controlSeen=false
-	local hasNet=false hasLarge=false hasSmall=false
-	local hasPairNet=false hasPairLarge=false hasPairSmall=false hasCaps=false
-	local hasStrictNet=false hasStrictLarge=false hasStrictSmall=false
-	local hasStrictPairNet=false hasStrictPairLarge=false hasStrictPairSmall=false hasStrictCaps=false
-	local arg key value
-	for arg in "$@"; do
-		key="${arg%%=*}";key="${key,,}"
-		if [[ "$arg" == *=* ]];then value="${arg#*=}";else value="";fi
-		value="${value,,}"
-		case "$key" in
-			neuralmapq)
-				controlSeen=true;autoEnabled=false
-				case "$value" in ''|t|true|1|yes) enabled=true;; *) enabled=false;; esac
-				;;
-			neuralmapqpair)
-				controlSeen=true;autoEnabled=false
-				case "$value" in ''|t|true|1|yes) pairEnabled=true;; *) pairEnabled=false;; esac
-				;;
-			mapqmode)
-				controlSeen=true;autoEnabled=false
-				case "$value" in
-					neural) enabled=true;pairEnabled=false;;
-					neuralpaired) enabled=false;pairEnabled=true;;
-					legacy) enabled=false;pairEnabled=false;;
-					neuralauto|auto) enabled=false;pairEnabled=false;autoEnabled=true;;
-				esac
-				;;
-			neuralmapqnet) hasNet=true;;
-			neuralmapqlutlarge) hasLarge=true;;
-			neuralmapqlutsmall) hasSmall=true;;
-			neuralmapqpairnet) hasPairNet=true;;
-			neuralmapqpairlutlarge) hasPairLarge=true;;
-			neuralmapqpairlutsmall) hasPairSmall=true;;
-			neuralmapqcaps) hasCaps=true;;
-			strictmapqnet) hasStrictNet=true;;
-			strictmapqlutlarge) hasStrictLarge=true;;
-			strictmapqlutsmall) hasStrictSmall=true;;
-			strictmapqpairnet) hasStrictPairNet=true;;
-			strictmapqpairlutlarge) hasStrictPairLarge=true;;
-			strictmapqpairlutsmall) hasStrictPairSmall=true;;
-			strictmapqcaps) hasStrictCaps=true;;
-		esac
-		done
-	if ! $controlSeen;then NEURAL_DEFAULT_ARGS+=("mapqmode=neuralauto");fi
-	if $enabled || $autoEnabled;then
-		if ! $hasNet;then
-			NEURAL_DEFAULT_ARGS+=("neuralmapqnet=?bbmaps_mapq_single_v2.bbnet")
-		fi
-		if ! $hasLarge;then
-			NEURAL_DEFAULT_ARGS+=("neuralmapqlutlarge=?neural_mapq/bbmaps_mapq_single_v2_large.tsv")
-		fi
-		if ! $hasSmall;then
-			NEURAL_DEFAULT_ARGS+=("neuralmapqlutsmall=?neural_mapq/bbmaps_mapq_single_v2_small.tsv")
-		fi
-		if ! $hasStrictNet;then NEURAL_DEFAULT_ARGS+=("strictmapqnet=?bbmaps_mapq_single_strict_v1.bbnet");fi
-		if ! $hasStrictLarge;then NEURAL_DEFAULT_ARGS+=("strictmapqlutlarge=?neural_mapq/bbmaps_mapq_single_strict_v1_large.tsv");fi
-		if ! $hasStrictSmall;then NEURAL_DEFAULT_ARGS+=("strictmapqlutsmall=?neural_mapq/bbmaps_mapq_single_strict_v1_small.tsv");fi
-	fi
-	if $pairEnabled || $autoEnabled;then
-		if ! $hasPairNet;then
-			NEURAL_DEFAULT_ARGS+=("neuralmapqpairnet=?bbmaps_mapq_paired_v2.bbnet")
-		fi
-		if ! $hasPairLarge;then
-			NEURAL_DEFAULT_ARGS+=("neuralmapqpairlutlarge=?neural_mapq/bbmaps_mapq_paired_v2_large.tsv")
-		fi
-		if ! $hasPairSmall;then
-			NEURAL_DEFAULT_ARGS+=("neuralmapqpairlutsmall=?neural_mapq/bbmaps_mapq_paired_v2_small.tsv")
-		fi
-		if ! $hasStrictPairNet;then NEURAL_DEFAULT_ARGS+=("strictmapqpairnet=?bbmaps_mapq_paired_strict_v1.bbnet");fi
-		if ! $hasStrictPairLarge;then NEURAL_DEFAULT_ARGS+=("strictmapqpairlutlarge=?neural_mapq/bbmaps_mapq_paired_strict_v1_large.tsv");fi
-		if ! $hasStrictPairSmall;then NEURAL_DEFAULT_ARGS+=("strictmapqpairlutsmall=?neural_mapq/bbmaps_mapq_paired_strict_v1_small.tsv");fi
-	fi
-	if { $enabled || $pairEnabled || $autoEnabled; } && ! $hasCaps;then
-		NEURAL_DEFAULT_ARGS+=("neuralmapqcaps=?neural_mapq/bbmaps_mapq_v2_caps.tsv")
-	fi
-	if { $enabled || $pairEnabled || $autoEnabled; } && ! $hasStrictCaps;then
-		NEURAL_DEFAULT_ARGS+=("strictmapqcaps=?neural_mapq/bbmaps_mapq_strict_v1_caps.tsv")
-	fi
-}
-
 if [ -z "$1" ] || [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
 	usage
 	exit
@@ -173,12 +90,11 @@ setEnv(){
 }
 
 launch() {
-	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP align2.BBMapS build=1 overwrite=true fastareadlen=500 ${NEURAL_DEFAULT_ARGS[*]} $@"
+	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP align2.BBMapS build=1 overwrite=true fastareadlen=500 $@"
 	echo "$CMD" >&2
-	java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" align2.BBMapS build=1 overwrite=true fastareadlen=500 "${NEURAL_DEFAULT_ARGS[@]}" "$@"
+	java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" align2.BBMapS build=1 overwrite=true fastareadlen=500 "$@"
 }
 
 resolveSymlinks
-addNeuralMapqResources "$@"
 setEnv "$@"
 launch "$@"

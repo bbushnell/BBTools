@@ -74,6 +74,21 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 	private String strictMapqPairSmallLut;
 	private String strictMapqCaps;
 
+	private static final String DEFAULT_NEURAL_MAPQ_NET="?bbmaps_mapq_single_v2.bbnet";
+	private static final String DEFAULT_NEURAL_MAPQ_LUT_LARGE="?neural_mapq/bbmaps_mapq_single_v2_large.tsv";
+	private static final String DEFAULT_NEURAL_MAPQ_LUT_SMALL="?neural_mapq/bbmaps_mapq_single_v2_small.tsv";
+	private static final String DEFAULT_STRICT_MAPQ_NET="?bbmaps_mapq_single_strict_v1.bbnet";
+	private static final String DEFAULT_STRICT_MAPQ_LUT_LARGE="?neural_mapq/bbmaps_mapq_single_strict_v1_large.tsv";
+	private static final String DEFAULT_STRICT_MAPQ_LUT_SMALL="?neural_mapq/bbmaps_mapq_single_strict_v1_small.tsv";
+	private static final String DEFAULT_NEURAL_MAPQ_PAIR_NET="?bbmaps_mapq_paired_v2.bbnet";
+	private static final String DEFAULT_NEURAL_MAPQ_PAIR_LUT_LARGE="?neural_mapq/bbmaps_mapq_paired_v2_large.tsv";
+	private static final String DEFAULT_NEURAL_MAPQ_PAIR_LUT_SMALL="?neural_mapq/bbmaps_mapq_paired_v2_small.tsv";
+	private static final String DEFAULT_STRICT_MAPQ_PAIR_NET="?bbmaps_mapq_paired_strict_v1.bbnet";
+	private static final String DEFAULT_STRICT_MAPQ_PAIR_LUT_LARGE="?neural_mapq/bbmaps_mapq_paired_strict_v1_large.tsv";
+	private static final String DEFAULT_STRICT_MAPQ_PAIR_LUT_SMALL="?neural_mapq/bbmaps_mapq_paired_strict_v1_small.tsv";
+	private static final String DEFAULT_NEURAL_MAPQ_CAPS="?neural_mapq/bbmaps_mapq_v2_caps.tsv";
+	private static final String DEFAULT_STRICT_MAPQ_CAPS="?neural_mapq/bbmaps_mapq_strict_v1_caps.tsv";
+
 
 	/**
 	 * Program entry point for BBMap alignment.
@@ -177,6 +192,7 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 	 */
 	@Override
 	public String[] preparse(String[] args){
+		setDefaultNeuralMapqResources();
 		// JVM properties and CLI flags must choose the same presets and validation.
 		boolean quantumOnlyRequested=Boolean.getBoolean("bbmap3.quantumOnly");
 		boolean pseudoAlignRequested=Boolean.getBoolean("bbmap3.pseudoAlign");
@@ -394,6 +410,25 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 		// PreParser.parseHelp dereferences the final slot, so a consumed flag in
 		// final position must be removed before AbstractMapper.parse receives it.
 		return Tools.condenseStrict(args);
+	}
+
+	private void setDefaultNeuralMapqResources(){
+		neuralMapqAutoRequested=true;
+		neuralMapqRequested=neuralMapqPairRequested=false;
+		neuralMapqNet=DEFAULT_NEURAL_MAPQ_NET;
+		neuralMapqLargeLut=DEFAULT_NEURAL_MAPQ_LUT_LARGE;
+		neuralMapqSmallLut=DEFAULT_NEURAL_MAPQ_LUT_SMALL;
+		neuralMapqPairNet=DEFAULT_NEURAL_MAPQ_PAIR_NET;
+		neuralMapqPairLargeLut=DEFAULT_NEURAL_MAPQ_PAIR_LUT_LARGE;
+		neuralMapqPairSmallLut=DEFAULT_NEURAL_MAPQ_PAIR_LUT_SMALL;
+		neuralMapqCaps=DEFAULT_NEURAL_MAPQ_CAPS;
+		strictMapqNet=DEFAULT_STRICT_MAPQ_NET;
+		strictMapqLargeLut=DEFAULT_STRICT_MAPQ_LUT_LARGE;
+		strictMapqSmallLut=DEFAULT_STRICT_MAPQ_LUT_SMALL;
+		strictMapqPairNet=DEFAULT_STRICT_MAPQ_PAIR_NET;
+		strictMapqPairLargeLut=DEFAULT_STRICT_MAPQ_PAIR_LUT_LARGE;
+		strictMapqPairSmallLut=DEFAULT_STRICT_MAPQ_PAIR_LUT_SMALL;
+		strictMapqCaps=DEFAULT_STRICT_MAPQ_CAPS;
 	}
 
 	/**
