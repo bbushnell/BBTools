@@ -1419,34 +1419,27 @@ public class TrnaCaller extends ProkObject {
 	 * Public (Brian, 2026-09-02) so out-of-package in-process callers (MAG-QC's prot.FastaInCacheRowBuilder,
 	 * which must mirror CallGenes' default boundary-net load exactly) can call it directly instead of via reflection. */
 	public static synchronized void loadBoundaryNet(String net5Path, String net3Path, String startTablePath, String stopTablePath){
-		final ml.CellNet net5=TrnaBoundaryScorer.load(net5Path);
-		final ml.CellNet net3=(net3Path==null || net3Path.equals(net5Path)) ? net5 : TrnaBoundaryScorer.load(net3Path);
-		//Cross-boundary-enrichment dims are AUTO-DETECTED from the net's own declared input
-		//count (Brian, Aug 22 2026, via Noire, default-on ship): the vector format a net expects
-		//is a property of that net, not a separately-set flag that can silently drift out of
-		//sync with it -- deriving it here makes a dims mismatch structurally impossible instead
-		//of a maybe-remembered flag. Overrides whatever trnaboundarycrossenrichment= set.
-		final int inputDims=net5.numInputs();
-		assert(inputDims==11 || inputDims==14) : "Boundary net '"+net5Path+"' has "+inputDims
-			+" inputs; the boundary-precision feature vector is always 11 dims (no cross-"
-			+"enrichment) or 14 dims (with cross-enrichment) -- this net matches neither, so it "
-			+"was not trained by TrnaBoundaryVectorGen or is corrupt.";
-		if(net3!=net5){
-			assert(net3.numInputs()==inputDims) : "Boundary nets have mismatched input dims: "
-				+net5Path+" has "+inputDims+", "+net3Path+" has "+net3.numInputs()+" -- both "
-				+"nets in a two-net dispatch must use the SAME feature-vector format.";
-		}
-		TrnaBoundaryVectorGen.INCLUDE_CROSS_ENRICHMENT=(inputDims==14);
-		final TrnaNinemerTableBuilder.LoadedTable lt1=TrnaNinemerTableBuilder.loadTable(startTablePath);
-		final TrnaNinemerTableBuilder.LoadedTable lt2=TrnaNinemerTableBuilder.loadTable(stopTablePath);
-		assert(lt1.type==TrnaBoundaryFeatures.BoundaryType.START) : "trnaboundarystarttable= ("+startTablePath
-			+") is not labeled a start-boundary table -- wrong file, or start/stop tables swapped.";
-		assert(lt2.type==TrnaBoundaryFeatures.BoundaryType.STOP) : "trnaboundarystoptable= ("+stopTablePath
-			+") is not labeled a stop-boundary table -- wrong file, or start/stop tables swapped.";
-		BOUNDARY_5_NET_TEMPLATE=net5;
-		BOUNDARY_3_NET_TEMPLATE=net3;
-		BOUNDARY_START_TABLE=lt1.table; BOUNDARY_START_INSIDE=lt1.insideCount; BOUNDARY_START_OUTSIDE=lt1.outsideCount;
-		BOUNDARY_STOP_TABLE=lt2.table; BOUNDARY_STOP_INSIDE=lt2.insideCount; BOUNDARY_STOP_OUTSIDE=lt2.outsideCount;
+		FamilyResourceManifest.require(net5Path!=null && startTablePath!=null && stopTablePath!=null,
+			"Explicit tRNA boundary loading requires the5prime net and both table paths; only the3prime net may reuse5prime");
+		final FamilyResourceResolver.Overrides resources=new FamilyResourceResolver.Overrides();
+		resources.boundary=net5Path;resources.boundary3=net3Path;
+		resources.boundaryStart=startTablePath;resources.boundaryStop=stopTablePath;
+		useBoundaryResources(NcrnaFamilyLoader.loadTrnaBoundary(null, null, null, null, kLongTRna,
+			resources, new FamilyResourceResolver()));
+	}
+
+	/** Publish validated templates together; per-worker copies remain in the constructor. */
+	static synchronized void useBoundaryResources(NcrnaFamily resources){
+		assert(resources!=null && "tRNA".equals(resources.name) && resources.boundary5NetTemplate!=null
+			&& resources.boundary3NetTemplate!=null && resources.boundaryStartTable!=null && resources.boundaryStopTable!=null)
+			: "The independent tRNA adapter must validate both nets and both tables before any shared state changes";
+		TrnaBoundaryVectorGen.INCLUDE_CROSS_ENRICHMENT=(resources.boundary5NetTemplate.numInputs()==14);
+		BOUNDARY_5_NET_TEMPLATE=resources.boundary5NetTemplate;
+		BOUNDARY_3_NET_TEMPLATE=resources.boundary3NetTemplate;
+		BOUNDARY_START_TABLE=resources.boundaryStartTable;
+		BOUNDARY_START_INSIDE=resources.boundaryStartInside;BOUNDARY_START_OUTSIDE=resources.boundaryStartOutside;
+		BOUNDARY_STOP_TABLE=resources.boundaryStopTable;
+		BOUNDARY_STOP_INSIDE=resources.boundaryStopInside;BOUNDARY_STOP_OUTSIDE=resources.boundaryStopOutside;
 		REFINE_BOUNDARIES=true;
 	}
 

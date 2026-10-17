@@ -184,7 +184,7 @@ public class SSUServer {
 		System.err.println("Built inverted index.");
 
 		consensus16S=load16SConsensus();
-		consensus18S=loadFirstSequence("?18S_consensus_sequence.fa");
+		consensus18S=load18SConsensus();
 
 		try{pgmThread.join();}catch(InterruptedException e){}
 		System.err.println("PGM model loaded.");
@@ -740,6 +740,10 @@ public class SSUServer {
 	/** Keep the server's first-reference classifier aligned with the packaged family. */
 	static byte[] load16SConsensus(){
 		return loadFirstSequence(new prok.FamilyResourceResolver().resolve("16S", "consensus", null).path);
+	}
+	/** The server keeps the same legacy first reference as the SSU classifier. */
+	static byte[] load18SConsensus(){
+		return loadFirstSequence(new prok.FamilyResourceResolver().legacyConsensus("euk18S").path);
 	}
 
 	private static byte[] loadFirstSequence(String path){

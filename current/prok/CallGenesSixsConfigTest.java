@@ -2,11 +2,11 @@ package prok;
 
 import java.util.Arrays;
 
-/** Focused configuration checks for the default-off paired 6S ncRNA bundle. */
+/** Focused configuration checks for the default-on paired 6S ncRNA bundle. */
 public class CallGenesSixsConfigTest {
 
 	public static void main(String[] args){
-		if(CallGenes.SIXS_ENABLED){throw new AssertionError("sixS caller is unexpectedly enabled by default");}
+		if(!CallGenes.SIXS_ENABLED){throw new AssertionError("sixS caller must be enabled by default");}
 		check("sixs_rf01685", CallGenes.parseNcrnaFamily("sixs_rf01685"));
 		assertBareSixsAliasRejected("sixs");
 		assertBareSixsAliasRejected("ssrs");
@@ -17,7 +17,7 @@ public class CallGenesSixsConfigTest {
 		checkOffsets("sixs_rf01685");
 		testSubordinateGate();
 		testSpecificOverridesRequireSixsGate();
-		testNcrnaGateDoesNotRegisterSixsByDefault();
+		testExplicitSixsOptOut();
 		// This is intentionally resource-backed: the sealed caller values live at the
 		// addNcrnaFamily construction site, not only in the sweep-default helpers.
 		testShippedBundle();
@@ -27,15 +27,17 @@ public class CallGenesSixsConfigTest {
 
 	private static void testSubordinateGate(){
 		final boolean oldNcrna=CallGenes.NCRNA_FAMILIES_ENABLED, oldSixs=CallGenes.SIXS_ENABLED;
+		final boolean oldTmrna=CallGenes.TMRNA_ENABLED;
 		try{
 			CallGenes.NCRNA_FAMILIES_ENABLED=false;
+			CallGenes.TMRNA_ENABLED=false;
 			CallGenes.SIXS_ENABLED=true;
 			boolean rejected=false;
-			try{CallGenes.validateNcrnaGateCombo();}catch(AssertionError expected){rejected=true;}
+			try{CallGenes.validateNcrnaGateCombo();}catch(AssertionError expected){rejected=expected.getMessage()!=null && expected.getMessage().contains("sixs=t requires");}
 			if(!rejected){throw new AssertionError("sixs=t without ncrna=t was accepted");}
 			CallGenes.NCRNA_FAMILIES_ENABLED=true;
 			CallGenes.validateNcrnaGateCombo();
-		}finally{CallGenes.NCRNA_FAMILIES_ENABLED=oldNcrna; CallGenes.SIXS_ENABLED=oldSixs;}
+		}finally{CallGenes.NCRNA_FAMILIES_ENABLED=oldNcrna; CallGenes.SIXS_ENABLED=oldSixs;CallGenes.TMRNA_ENABLED=oldTmrna;}
 	}
 
 	private static void testSpecificOverridesRequireSixsGate(){
@@ -88,8 +90,8 @@ public class CallGenesSixsConfigTest {
 		}
 	}
 
-	/** The sub-gate is load-bearing: ordinary ncrna=t must not promote unfinished sixS. */
-	private static void testNcrnaGateDoesNotRegisterSixsByDefault(){
+	/** Explicit sixs=f must retain its opt-out behavior under the new defaults. */
+	private static void testExplicitSixsOptOut(){
 		final boolean oldNcrna=CallGenes.NCRNA_FAMILIES_ENABLED, oldSixs=CallGenes.SIXS_ENABLED;
 		try{
 			GeneCaller.ncrnaFamilies.clear();
@@ -123,6 +125,7 @@ public class CallGenesSixsConfigTest {
 					throw new AssertionError("Missing RF01685 kmer failure did not identify the subtype and path", expected);
 				}
 			}
+			if(countSixs()!=0){throw new AssertionError("A failed6S pair must not leave a partial subtype registration");}
 		}finally{
 			GeneCaller.ncrnaFamilies.clear();
 			CallGenes.NCRNA_FAMILIES_ENABLED=oldNcrna; CallGenes.SIXS_ENABLED=oldSixs;

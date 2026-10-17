@@ -2,27 +2,32 @@ package prok;
 
 import java.util.Arrays;
 
-/** Focused checks for the experimental tmRNA ncRNA-family gate and sweep aliases. */
+/** Focused checks for the default-on tmRNA ncRNA-family gate and sweep aliases. */
 public class CallGenesTmrnaConfigTest {
 
 	public static void main(String[] args){
-		testShippedOff();
-		check("tmrna", CallGenes.parseNcrnaFamily("tmrna"));
-		check("tmrna", CallGenes.parseNcrnaFamily("tm-rna"));
-		check("tmrna", CallGenes.parseNcrnaFamily("ssra"));
-		checkFloat(0.62f, CallGenes.defaultNcrnaIdPass("tmrna"));
-		checkFloat(0.60f, CallGenes.defaultNcrnaIdBorderline("tmrna"));
-		testSubordinateGate();
-		testSweepRequiresTmrnaGate();
-		testSpecificOverridesRequireTmrnaGate();
-		testCompressedKmerResource();
-		testDefaultBundle();
-		testDefaultBoundaryBundle();
-		System.out.println("PASS CallGenesTmrnaConfigTest");
+		final boolean oldSixs=CallGenes.SIXS_ENABLED;
+		try{
+			//This fixture validates tmRNA boundary resources, independently of the6S bundle.
+			CallGenes.SIXS_ENABLED=false;
+			testShippedOn();
+			check("tmrna", CallGenes.parseNcrnaFamily("tmrna"));
+			check("tmrna", CallGenes.parseNcrnaFamily("tm-rna"));
+			check("tmrna", CallGenes.parseNcrnaFamily("ssra"));
+			checkFloat(0.62f, CallGenes.defaultNcrnaIdPass("tmrna"));
+			checkFloat(0.60f, CallGenes.defaultNcrnaIdBorderline("tmrna"));
+			testSubordinateGate();
+			testSweepRequiresTmrnaGate();
+			testSpecificOverridesRequireTmrnaGate();
+			testCompressedKmerResource();
+			testDefaultBundle();
+			testDefaultBoundaryBundle();
+			System.out.println("PASS CallGenesTmrnaConfigTest");
+		}finally{CallGenes.SIXS_ENABLED=oldSixs;}
 	}
 
-	private static void testShippedOff(){
-		if(CallGenes.TMRNA_ENABLED){throw new AssertionError("tmRNA caller is unexpectedly enabled by default");}
+	private static void testShippedOn(){
+		if(!CallGenes.TMRNA_ENABLED){throw new AssertionError("tmRNA caller must be enabled by default");}
 	}
 
 	private static void testDefaultBundle(){
@@ -150,7 +155,7 @@ public class CallGenesTmrnaConfigTest {
 			CallGenes.TMRNA_ENABLED=true;
 			boolean failed=false;
 			try{CallGenes.validateNcrnaGateCombo();}
-			catch(AssertionError expected){failed=true;}
+			catch(AssertionError expected){failed=expected.getMessage()!=null && expected.getMessage().contains("tmrna=t requires");}
 			if(!failed){throw new AssertionError("tmrna=t without ncrna=t was accepted");}
 			CallGenes.NCRNA_FAMILIES_ENABLED=true;
 			CallGenes.validateNcrnaGateCombo();

@@ -596,9 +596,10 @@ public final class FastaInCacheRowBuilder {
 			final Class<?> clazz=Class.forName("prok.TrnaCaller");
 			final Field refine=boundaryField(clazz);
 			if(refine.getBoolean(null)){return;}
-			final String net=Data.findPath("?trna_boundary_net.bbnet");
-			final String start=Data.findPath("?trna_boundary_start_table.tsv");
-			final String stop=Data.findPath("?trna_boundary_stop_table.tsv");
+			final prok.FamilyResourceResolver resolver=new prok.FamilyResourceResolver();
+			final String net=resolver.resolve("tRNA", "boundary", null).path;
+			final String start=resolver.resolve("tRNA", "boundary_start", null).path;
+			final String stop=resolver.resolve("tRNA", "boundary_stop", null).path;
 			if(net==null || start==null || stop==null){
 				throw new RuntimeException("CallGenes boundary resources unresolved: net="+net+
 					" start="+start+" stop="+stop);

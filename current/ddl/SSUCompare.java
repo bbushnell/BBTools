@@ -432,7 +432,7 @@ public class SSUCompare {
 
 	private static ArrayList<DDLRecord> loadSSUMode(ArrayList<String> inFiles, int k, int buckets){
 		byte[] consensus16S=load16SConsensus();
-		byte[] consensus18S=loadFirstSequence("?18S_consensus_sequence.fa");
+		byte[] consensus18S=load18SConsensus();
 		QuantumAligner aligner=new QuantumAligner();
 		ArrayList<DDLRecord> queries=new ArrayList<>();
 
@@ -519,7 +519,7 @@ public class SSUCompare {
 
 	private static ArrayList<DDLRecord> loadLiteral(String seq, int k, int buckets){
 		byte[] consensus16S=load16SConsensus();
-		byte[] consensus18S=loadFirstSequence("?18S_consensus_sequence.fa");
+		byte[] consensus18S=load18SConsensus();
 		QuantumAligner aligner=new QuantumAligner();
 		DDLRecord rec=classifyAndSketch(seq.getBytes(), "literal", k, buckets, consensus16S, consensus18S, aligner);
 		rec.filename="literal";
@@ -595,6 +595,10 @@ public class SSUCompare {
 	/** Type classification uses the first (universal) reference, never a merged library. */
 	static byte[] load16SConsensus(){
 		return loadFirstSequence(new prok.FamilyResourceResolver().resolve("16S", "consensus", null).path);
+	}
+	/** The SSU classifier retains the first legacy reference, not the modern ten-model library. */
+	static byte[] load18SConsensus(){
+		return loadFirstSequence(new prok.FamilyResourceResolver().legacyConsensus("euk18S").path);
 	}
 
 	private static byte[] loadFirstSequence(String path){

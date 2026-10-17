@@ -1,0 +1,8 @@
+#ncrna_family	1	tmrna
+role	model	end	path	format	bytes	sha80
+consensus	.	.	consensus.fa	fasta	453205	592c2837701df7f8d05b
+models	.	.	models.hbmc.gz	hbm	333684	013d4ba960984fe5d7c3
+seeds	.	.	seeds.fa.gz	fasta	2302	b72486a19245e2676552
+boundary	.	.	boundary.bbnet	bbnet	19166	82fc7516fe7bb177b468
+boundary_start	.	.	tables/start.tsv	tsv	4289	e0c54d8d42587453781e
+boundary_stop	.	.	tables/stop.tsv	tsv	10766	888397b2113671e58669

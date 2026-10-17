@@ -1,0 +1,5 @@
+#ncrna_family	1	lsu
+role	model	end	path	format	bytes	sha80
+consensus	.	.	consensus.fa	fasta	14674	06d7dd08dd5f02c40c96
+models	.	.	models.hbmc.gz	hbm	102957	dc0217774368eecb951a
+seeds	.	.	seeds.fa.gz	fasta	542	875d23532ff5697b109a

@@ -183,16 +183,26 @@ public abstract class ProkObject {
 	public static synchronized void loadLongKmers(){
 //		assert(ssuKmers==null);
 //		assert(false) : load5Skmers+", "+kLong5s;
-		if(loadedLongKmers){load5SKmersIfSelected();return;}
+		if(loadedLongKmers){load5SKmersIfSelected();loadTrnaKmersIfSelected();return;}
 		if(loadSSUkmers){ssuKmers=loadLongKmersByType(kLongSSU, "ssu");}
 		if(loadLSUkmers){lsuKmers=loadLongKmersByType(kLongLSU, "lsu");}
 		load5SKmersIfSelected();
-		if(loadtRNAkmers){trnaKmers=loadLongKmersByType(kLongTRna, "tRNA");}
+		loadTrnaKmersIfSelected();
 		loadedLongKmers=true;
 	}
 	/** A disabled 5S slot can be selected later by an in-process legacy consumer. */
 	private static void load5SKmersIfSelected(){
 		if(load5Skmers && !loaded5SKmers){r5SKmers=loadLongKmersByType(kLong5S, "5S");loaded5SKmers=true;}
+	}
+	/** The default core and legacy startup share one seed set; explicit K changes reload only this slot. */
+	private static void loadTrnaKmersIfSelected(){
+		if(loadtRNAkmers && (trnaKmers==null || loadedTrnaSeedK!=kLongTRna)){
+			trnaKmers=loadLongKmersByType(kLongTRna, "tRNA");loadedTrnaSeedK=kLongTRna;
+		}
+	}
+	static synchronized void cacheTrnaKmers(LongHashSet keys, int k){
+		assert(keys!=null && k>0 && k<=31) : "A validated tRNA core publishes the exact seed set and K consumed by legacy startup";
+		trnaKmers=keys;loadedTrnaSeedK=k;
 	}
 	
 //	private static LongHashSet loadLongKmers(StatsContainer sc, int k, String prefix){
@@ -217,7 +227,14 @@ public abstract class ProkObject {
 	//the same way ProkObject's own tRNA/rRNA kmer sets load. Visibility-only change, no behavior
 	//difference for any existing caller.
 	static LongHashSet loadLongKmersByType(int k, String prefix){
-		if(k==17 && ("5S".equalsIgnoreCase(prefix) || "23S".equalsIgnoreCase(prefix) || "16S".equalsIgnoreCase(prefix) || "euk5S".equalsIgnoreCase(prefix))){
+		if(k==17 && "tRNA".equalsIgnoreCase(prefix)){
+			return NcrnaFamilyLoader.loadSeedKeys("tRNA", k, new FamilyResourceResolver());
+		}
+		if(k==17 && ("5S".equalsIgnoreCase(prefix) || "23S".equalsIgnoreCase(prefix) || "16S".equalsIgnoreCase(prefix) || "euk5S".equalsIgnoreCase(prefix)
+				|| "rnasep".equalsIgnoreCase(prefix) || "tmrna".equalsIgnoreCase(prefix)
+				|| "r58".equalsIgnoreCase(prefix) || "lsu".equalsIgnoreCase(prefix)
+				|| "sixs_rf00013".equalsIgnoreCase(prefix) || "sixs_rf01685".equalsIgnoreCase(prefix)
+				|| "srp_small".equalsIgnoreCase(prefix) || "srp_large".equalsIgnoreCase(prefix))){
 			return loadLongKmers(new FamilyResourceResolver().resolve(prefix, "seeds", null).path, k);
 		}
 		final String stem=prefix+"_"+k+"mers.fa";
@@ -325,8 +342,10 @@ public abstract class ProkObject {
 	 * a .jar); optionally strips mito/plastid entries. Returns null if the file can't be found. */
 	public static Read[] loadConsensusSequenceType(String prefix, boolean removeMito, boolean removeChloro){
 		String fname=null;
-		if("5S".equalsIgnoreCase(prefix) || "23S".equalsIgnoreCase(prefix) || "16S".equalsIgnoreCase(prefix) || "euk5S".equalsIgnoreCase(prefix)){
+		if("5S".equalsIgnoreCase(prefix) || "23S".equalsIgnoreCase(prefix) || "16S".equalsIgnoreCase(prefix) || "euk5S".equalsIgnoreCase(prefix) || "tRNA".equalsIgnoreCase(prefix)){
 			fname=new FamilyResourceResolver().legacyConsensus(prefix).path;
+		}else if("18S".equalsIgnoreCase(prefix)){
+			fname=new FamilyResourceResolver().legacyConsensus("euk18S").path;
 		}else{
 		fname=Data.findPath("?"+prefix+"_consensus_sequence.fq", false);
 		if(fname!=null && (fname.endsWith(".jar") || new File(fname).exists())){
@@ -435,6 +454,7 @@ public abstract class ProkObject {
 	public static boolean loadtRNAkmers=true;
 	private static boolean loadedLongKmers=false;
 	private static boolean loaded5SKmers=false;
+	private static int loadedTrnaSeedK=-1;
 
 	public static boolean loadtRNASequence=false;
 	public static boolean load16SSequence=true;

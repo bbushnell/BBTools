@@ -1,0 +1,8 @@
+#ncrna_family	2	6S
+member	role	model	end	path	format	bytes	sha80
+RF00013	consensus	.	.	consensus.fa	fasta	125301	261ace42a4893f15e329
+RF00013	models	.	.	models.hbmc.gz	hbm	98035	983ab45d4ba6b1d607af
+RF00013	seeds	.	.	seeds.fa.gz	fasta	9072	9ffde2dbc472f7ad1359
+RF01685	consensus	.	.	consensus.fa	fasta	2755	9d2196043ae3e0cfbf1b
+RF01685	models	.	.	models.hbmc.gz	hbm	2925	eb7144fda706f58d0cf8
+RF01685	seeds	.	.	seeds.fa	fasta	2652	d940ff5ca08f28fa4d5c

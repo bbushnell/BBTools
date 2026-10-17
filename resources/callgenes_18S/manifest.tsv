@@ -1,0 +1,8 @@
+#ncrna_family	1	euk18S
+role	model	end	path	format	bytes	sha80
+consensus	.	.	consensus.fa	fasta	18791	cfcf349e038ced136547
+seeds	.	.	seeds.fa.gz	fasta	1358	8b42705558b1ba276265
+cutoffs	.	.	cutoffs.tsv	tsv	413	d5beafad25d5071770c1
+vote_offsets	.	.	seed_offsets.tsv	tsv	9148	339fdcb518f21d60a8b7
+joined_model_positions	.	.	seed_positions.tsv	tsv	55714	5e65f1a668d45383803c
+legacy_consensus	.	.	legacy/consensus.fa	fasta	13196	0fbb2532d3e155215d0a

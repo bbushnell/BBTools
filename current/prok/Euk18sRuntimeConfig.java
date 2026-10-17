@@ -1,12 +1,9 @@
 package prok;
 
-import java.io.File;
 import java.util.ArrayList;
 import java.util.Locale;
 import align2.MultiStateAligner9PacBio;
 import align2.PacBioScoreParameters;
-import dna.Data;
-import map.LongHashSet;
 import map.ObjectSet;
 import parse.Parse;
 
@@ -95,11 +92,20 @@ final class Euk18sRuntimeConfig {
 		require(indexFrac==0 || topN<0,"euk18sindexfrac uses all models; do not specify euk18stopn");
 		require(infer||(tables==null&&nets==null),"Endpoint directories require euk18sendpoint=t");
 		require((voteEnds||voteWindows)||(offsets==null&&voteSeedSha80==null),"Vote offsets require voted windows or raw ends");
-		final String libPath=resource(consensus,"euk18S_consensus_sequence.fa");
-		final LongHashSet keys=ProkObject.loadLongKmers(resource(seeds,"euk18S_17mers.fa.gz"),ConservedRnaSeedIndex.K);
-		require(keys!=null&&keys.size()>=2,"euk18S requires at least two distinct forward 17-mer keys");
-		final byte[][] refs=TrnaConsensusBuilder.loadLibrary(libPath);
-		final String[] names=TrnaConsensusBuilder.lastLoadedNames;
+		final FamilyResourceResolver resolver=new FamilyResourceResolver();
+		final NcrnaFamilyLoader.Options options=new NcrnaFamilyLoader.Options();
+		options.hbm=false;options.endpoints=false;options.cutoffs=false;
+		options.resources.consensus=consensus;options.resources.seeds=seeds;options.resources.cutoffs=cutoffs;
+		options.resources.voteOffsets=offsets;options.resources.joinedModelPositions=joinedPositionPath;
+		options.resources.tables=tables;options.resources.endpoints=nets;
+		options.minLen=minLen;options.windowPad=windowPad;options.seedMinHits=seedMinHits;
+		if(windowPad<0){options.longestPadFlank=flank;}
+		options.indexK=9;options.topN=topN;options.minHits=indexMinHits;
+		options.adaptive=indexFrac>0;options.floor=indexFrac>0 ? indexMinHits : 0f;
+		options.topFrac=indexFrac;options.qFrac=0f;options.collapse=collapse;
+		final NcrnaFamily f=NcrnaFamilyLoader.load(FAMILY,options,resolver);
+		final byte[][] refs=f.library;
+		final String[] names=f.modelNames;
 		require(refs!=null&&refs.length>0&&names!=null&&names.length==refs.length,"18S consensus must bind every model name");
 		if(consensus==null){validateDefaultNames(names);}
 		final ObjectSet<String> unique=new ObjectSet<String>(String.class);int longest=0;
@@ -113,9 +119,7 @@ final class Euk18sRuntimeConfig {
 		require(longest<=Integer.MAX_VALUE-flank-17,"18S window length would overflow integer coordinates");
 		final int resolvedPad=windowPad<0?longest+flank:windowPad;
 		require(resolvedPad<=Integer.MAX_VALUE-17,"18S fallback window padding must leave room for its seed span");
-		final NcrnaFamily f=new NcrnaFamily(FAMILY,refs,null,names,keys,17,minLen,resolvedPad,
-			9,topN>0?topN:refs.length,indexFrac>0,indexFrac>0?indexMinHits:0f,indexFrac,0f,indexMinHits,0f,1f,1f,1f,
-			1.01f,collapse,null,null,null,null,-1,-1,-1,-1,0f);
+		require(f.windowPad==resolvedPad,"Shared loader must preserve longest-model plus flank or explicit 18S padding");
 		f.outputType=ProkObject.r18S;f.seedMinHits=seedMinHits;f.maxLen=maxLen;
 		f.seedDistinct=seedDistinct;
 		f.scavengePass2=false;f.rankedModelFallback=true;f.strictIndexCutoff=true;
@@ -125,25 +129,23 @@ final class Euk18sRuntimeConfig {
 		f.pacBioCosts=costs;
 		f.pacBioRolling=rolling;
 		if(joinedPath!=null){f.joinedProposals=Euk18sJoinedProposals.load(joinedPath,names,joinedSupport);}
-		if(useJoined && joinedPath==null){f.joinedPositions=SeedModelPositionResource.load(resource(joinedPositionPath,"euk18S_seed_positions.tsv"),keys,names,refs);}
+		if(useJoined && joinedPath==null){NcrnaFamilyLoader.loadJoinedPositions(f,options.resources,resolver);}
 		f.joinedSideSupport=joinedSupport;
 		f.modelEndClipping=modelClip;
 		f.modelClipRescue=modelClipRescue;
 		f.modelClipRescueId=modelClipRescue && Float.isNaN(rescueId) ? .66f : rescueId;
 		// No HBM library: detection uses the explicitly supplied identity table.
-		final ArrayList<NcrnaFamily> one=new ArrayList<NcrnaFamily>(1);one.add(f);
-		NcrnaModelThresholds.load(resource(cutoffs,"euk18S_model_cutoffs.tsv"),one);
+		NcrnaFamilyLoader.loadCutoffs(f,options.resources,resolver);
 		require(f.modelThresholds!=null,"18S has no accepted scalar fallback; every model needs a cutoff row");
 		f.voteWindows=voteWindows;f.voteEnds=voteEnds;f.voteSlack=voteSlack;f.voteEndsMaxSd=voteMaxSd;
 		f.voteBeforePadding=voteBeforePadding;
 		if(voteEnds||voteWindows){
 			final String expected=offsets==null && voteSeedSha80==null ? "b468f4f1faaf9dd6e56f" : voteSeedSha80;
-			f.voteTable=SeedOffsetTable.load(resource(offsets,"euk18S_seed_offsets.tsv"),17,keys,expected);
+			NcrnaFamilyLoader.loadVoteOffsets(f,options.resources,resolver,expected);
 		}
 		if(infer){
 			require(tables!=null&&nets!=null,"Uncalibrated 18S endpoint inference requires explicit table and network directories");
-			final RrnaEndpointCallerFeatures.Resources loaded=RrnaEndpointResourceLoader.load(FAMILY,tables,names,refs);
-			f.setRrnaEndpointInference(RrnaEndpointNetworkLoader.load(nets,loaded),null);
+			f.setRrnaEndpointInference(NcrnaFamilyLoader.loadEndpoints(f,options.resources,resolver),null);
 		}
 		families.add(f);
 		System.err.println("euk18S controls: models="+refs.length+" seedK=17 seedMinHits="+seedMinHits
@@ -162,11 +164,6 @@ final class Euk18sRuntimeConfig {
 		for(int i=0; i<names.length; i++){
 			require(DEFAULT_MODEL_NAMES[i].equals(names[i]), "Default euk18S model roster mismatch at "+i+": expected="+DEFAULT_MODEL_NAMES[i]+" observed="+names[i]);
 		}
-	}
-	private static String resource(String override,String fallback){
-		final String chosen=override==null?fallback:override;require(chosen!=null,"Missing 18S resource path");
-		final String p=new File(chosen).isFile()?chosen:Data.findPath(chosen.startsWith("?")?chosen:"?"+chosen,false);
-		require(p!=null&&new File(p).isFile(),"Missing euk18S runtime resource: "+chosen);return p;
 	}
 	private static String path(String key,String value){require(value!=null&&!value.isEmpty(),key+" requires a path");return value;}
 	private static int integer(String value,int minimum,String key){final int x=Parse.parseIntKMG(value);require(x>=minimum,key+" must be >="+minimum);return x;}

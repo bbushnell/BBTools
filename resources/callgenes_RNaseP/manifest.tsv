@@ -1,0 +1,8 @@
+#ncrna_family	1	rnasep
+role	model	end	path	format	bytes	sha80
+consensus	.	.	consensus.fa	fasta	838298	5d5f009d45358a6031d2
+models	.	.	models.hbmc.gz	hbm	720853	6fc80e0b534b368aea38
+seeds	.	.	seeds.fa	fasta	20890	e93ac7cf4538c9f37a48
+boundary	.	.	boundary.bbnet	bbnet	18845	633ad0012874a9d17836
+boundary_start	.	.	tables/start.tsv	tsv	48367	5fd0d92988b17d99bbf3
+boundary_stop	.	.	tables/stop.tsv	tsv	65350	ab7756d337aabd9f13a4

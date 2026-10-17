@@ -1,0 +1,13 @@
+#ncrna_family	2	SRP
+member	role	model	end	path	format	bytes	sha80
+.	seeds	.	.	seeds.fa	fasta	36590	64c93a699b64d6ad2539
+small	consensus	.	.	consensus.fa	fasta	77903	82a4bf0f5c4d751feee5
+small	models	.	.	models.hbmc.gz	hbm	66331	a7b0b6c276fcabacae5a
+small	boundary	.	.	boundary.bbnet	bbnet	18887	ca7f236801cbb1186838
+small	boundary_start	.	.	tables/start.tsv	tsv	57332	1bf5ce3b68e2d4cbe578
+small	boundary_stop	.	.	tables/stop.tsv	tsv	72426	ac4421dd5940b620fa9b
+large	consensus	.	.	consensus.fa	fasta	87604	42707d836a87eb5fc364
+large	models	.	.	models.hbmc.gz	hbm	70447	c789d06b06bafe95390b
+large	boundary	.	.	boundary.bbnet	bbnet	19238	2d629516fdad8c24b058
+large	boundary_start	.	.	tables/start.tsv	tsv	4814	56679de1298e0273e51f
+large	boundary_stop	.	.	tables/stop.tsv	tsv	5155	ca6c2d5e34b6a090ae00
