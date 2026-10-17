@@ -2,7 +2,6 @@ package prok;
 
 import java.io.File;
 import java.util.ArrayList;
-import dna.Data;
 import parse.Parse;
 
 /** Ordinary CallGenes loading of selected euk5S cutoffs and endpoint resources.
@@ -40,23 +39,18 @@ final class Euk5sRuntimeConfig {
 		require(infer || (tables==null && nets==null),"Endpoint table/network overrides require euk5sendpoint=t");
 		final boolean scalar=CallGenes.ncrnaSweepTarget("euk5S")
 			&& (!Float.isNaN(CallGenes.NCRNA_ID_PASS_OVERRIDE) || !Float.isNaN(CallGenes.NCRNA_ID_BORDERLINE_OVERRIDE));
+		final FamilyResourceResolver resolver=new FamilyResourceResolver();
+		final FamilyResourceResolver.Overrides overrides=new FamilyResourceResolver.Overrides();
+		overrides.cutoffs=cutoffs;overrides.tables=tables;overrides.endpoints=nets;
 		if(!cutoffsDisabled && (cutoffs!=null || !scalar)){
-			final String cutoffPath=cutoffs==null?resource("euk5S_model_cutoffs.tsv"):cutoffs;
-			final ArrayList<NcrnaFamily> one=new ArrayList<NcrnaFamily>(1);one.add(selected);
-			NcrnaModelThresholds.load(cutoffPath,one);
+			NcrnaFamilyLoader.loadCutoffs(selected,overrides,resolver);
 		}
 		if(infer){
-			final String tableDir=tables==null?new File(resource("euk5S_endpoint/TABLES.tsv")).getParent():tables;
-			final String netDir=nets==null?resource("euk5S_endpoints.bbnets.gz"):nets;
-			final RrnaEndpointCallerFeatures.Resources loaded=RrnaEndpointResourceLoader.load(selected.name,tableDir,selected.modelNames,selected.library);
-			selected.setRrnaEndpointInference(RrnaEndpointNetworkLoader.load(netDir,loaded),null);
+			selected.setRrnaEndpointInference(NcrnaFamilyLoader.loadEndpoints(selected,overrides,resolver),null);
+			final String tableDir=new File(resolver.tables(selected.name,overrides).path).getParent();
+			final String netDir=resolver.resolve(selected.name,"endpoints",overrides).path;
 			System.err.println("euk5S endpoints: enabled models="+selected.library.length+" tables="+tableDir+" nets="+netDir);
 		}else{System.err.println("euk5S endpoints: disabled");}
-	}
-	private static String resource(String name){
-		final String path=Data.findPath("?"+name,false);
-		require(path!=null && new File(path).isFile(),"Missing euk5S runtime resource: "+name);
-		return path;
 	}
 	private static String path(String key,String value){
 		require(value!=null && !value.isEmpty(),key+" requires a resource path");return value;

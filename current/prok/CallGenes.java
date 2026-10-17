@@ -2718,8 +2718,8 @@ public class CallGenes extends ProkObject {
 	private static void addEuk5sFamily(int index){
 		final String name="euk5S";
 		final String seedResource=(ncrnaSweepTarget(name) && NCRNA_KMERS_OVERRIDE!=null
-			? NCRNA_KMERS_OVERRIDE : "euk5S_17mers.fa.gz");
-		addEuk5sFamily(index, EUK5S_CONSENSUS_OVERRIDE==null ? "euk5S_consensus_sequence.fa.gz" : EUK5S_CONSENSUS_OVERRIDE, seedResource);
+			? NCRNA_KMERS_OVERRIDE : null);
+		addEuk5sFamily(index, EUK5S_CONSENSUS_OVERRIDE, seedResource);
 	}
 
 	/** Explicit paths also permit isolated missing/corrupt-resource fixtures. */
@@ -2729,29 +2729,26 @@ public class CallGenes extends ProkObject {
 		for(NcrnaFamily existing : GeneCaller.ncrnaFamilies){
 			if(name.equals(existing.name)){throw new IllegalArgumentException("Duplicate euk5S registration; use euk5s=t or an euk5S rrna17 profile, not both");}
 		}
-		String libPath=findNcrnaResource(consensusResource);
-		if(libPath==null){libPath=findNcrnaResource(consensusResource+".gz");}
-		String seedPath=findNcrnaResource(seedResource);
-		if(seedPath==null){seedPath=findNcrnaResource(seedResource+".gz");}
-		if(libPath==null || !new File(libPath).isFile() || seedPath==null || !new File(seedPath).isFile()){
-			throw new IllegalArgumentException("Missing euk5S consensus or seed resource: consensus="+consensusResource+", seeds="+seedResource);
-		}
-		final LongHashSet seeds=ProkObject.loadLongKmers(seedPath, ConservedRnaSeedIndex.K);
-		if(seeds==null || seeds.size()<2){
-			throw new IllegalArgumentException("Incompatible euk5S seed resource: require at least two distinct forward 17-mers: "+seedPath);
-		}
+		final NcrnaFamilyLoader.Options options=unifiedRrnaOptions(name);
+		options.cutoffs=false;//Runtime configuration retains scalar/explicit-table precedence.
+		options.resources.consensus=euk5sResourceOverride(consensusResource, "consensus");
+		options.resources.seeds=euk5sResourceOverride(seedResource, "seeds");
+		final String libPath=consensusResource==null ? "registered euk5S consensus" : options.resources.consensus;
 		final int seedMinHits=resolveSweepInt(name, NCRNA_SEED_MIN_HITS_OVERRIDE, 2);
 		if(EUK5S_ENABLED && seedMinHits<2){throw new IllegalArgumentException("euk5s=t requires ncrnaseedminhits>=2");}
+		options.seedMinHits=seedMinHits;
+		options.windowPad=resolveSweepPad(name, -1, 150);
+		// An explicit custom library retains the historical default of ranking all its models.
+		options.topN=resolveFamilyInt(name, familyIndexOverrides(name).topN, NCRNA_INDEX_TOP_N_OVERRIDE, -1);
+		options.weight=EUK5S_WEIGHT;
+		options.scoreA=EUK5S_WEIGHT*resolveSweepFloat(name, NCRNA_SCORE_A_OVERRIDE, 0f);
+		options.scoreB=EUK5S_WEIGHT*resolveSweepFloat(name, NCRNA_SCORE_B_OVERRIDE, 1f);
+		options.idPass=resolveSweepFloat(name, NCRNA_ID_PASS_OVERRIDE, .68f);
+		options.idBorderline=resolveSweepFloat(name, NCRNA_ID_BORDERLINE_OVERRIDE, .68f);
+		options.collapse=resolveSweepFloat(name, NCRNA_COLLAPSE_FRAC_OVERRIDE, .75f);
 		try{
-			addRrna17Family(name, libPath, null, seeds, 17, 90,
-				resolveSweepPad(name, -1, 150), resolveSweepInt(name, NCRNA_INDEX_K_OVERRIDE, 7),
-				resolveSweepInt(name, NCRNA_INDEX_TOP_N_OVERRIDE, 7), false, 0f, 0f, 0f,
-				resolveSweepInt(name, NCRNA_INDEX_MIN_HITS_OVERRIDE, 2),
-				EUK5S_WEIGHT*resolveSweepFloat(name, NCRNA_SCORE_A_OVERRIDE, 0f), EUK5S_WEIGHT*resolveSweepFloat(name, NCRNA_SCORE_B_OVERRIDE, 1f),
-				resolveSweepFloat(name, NCRNA_ID_PASS_OVERRIDE, .68f), resolveSweepFloat(name, NCRNA_ID_BORDERLINE_OVERRIDE, .68f),
-				1.01f, resolveSweepFloat(name, NCRNA_COLLAPSE_FRAC_OVERRIDE, .75f),
-				NcrnaFamily.LEGACY_START_OFFSETS, NcrnaFamily.LEGACY_STOP_OFFSETS);
-			final NcrnaFamily family=familyAt(index, name);
+			final NcrnaFamily family=NcrnaFamilyLoader.load(name, options, new FamilyResourceResolver());
+			GeneCaller.ncrnaFamilies.add(family);
 			if(family.library==null || family.library.length<1 || family.modelNames==null
 					|| family.modelNames.length!=family.library.length){
 				throw new IllegalArgumentException("Incompatible euk5S consensus resource: empty or missing model names: "+libPath);
@@ -2782,6 +2779,16 @@ public class CallGenes extends ProkObject {
 			while(GeneCaller.ncrnaFamilies.size()>index){GeneCaller.ncrnaFamilies.remove(GeneCaller.ncrnaFamilies.size()-1);}
 			throw e;
 		}
+	}
+
+	/** Preserve explicit legacy path lookup; defaults belong solely to the family resolver. */
+	private static String euk5sResourceOverride(String resource, String role){
+		if(resource==null){return null;}
+		String path=findNcrnaResource(resource);
+		if(path==null){path=findNcrnaResource(resource+".gz");}
+		if(path==null || !new File(path).isFile()){
+			throw new IllegalArgumentException("Missing euk5S "+role+" resource: "+resource);
+		}return path;
 	}
 
 	private static NcrnaFamily familyAt(int index, String name){

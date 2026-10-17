@@ -14,10 +14,14 @@ import stream.ReadInputStream;
  * @author Brian, Raiden */
 public final class NcrnaFamilyLoaderTest {
 	public static void main(String[] args){
-		require((args.length==1 || args.length==2) && args[0].startsWith("baseline="), "Supply baseline=/absolute/pre-migration/resources [family=16S|23S]");
+		require((args.length==1 || args.length==2) && args[0].startsWith("baseline="), "Supply baseline=/absolute/pre-migration/resources [family=16S|23S|euk5S]");
 		Shared.setThreads(1);Read.TO_UPPER_CASE=true;
 		final String old=args[0].substring(9);
-		if(args.length==2){require(args[1].equals("family=23S") || args[1].equals("family=16S"), "Only migrated long-rRNA families have fixtures");longRrna(old, args[1].substring(7));return;}
+		if(args.length==2){
+			if(args[1].equals("family=euk5S")){euk5s(old);return;}
+			require(args[1].equals("family=23S") || args[1].equals("family=16S"), "Unknown migrated family fixture");
+			longRrna(old, args[1].substring(7));return;
+		}
 		require(new File(old, "5S_consensus_sequence.fa").isFile(), "Baseline must retain original resources");
 		final NcrnaFamily family=NcrnaFamilyLoader.load("5S");
 		final byte[][] library=TrnaConsensusBuilder.loadLibrary(old+"/5S_consensus_sequence.fa");
@@ -44,6 +48,64 @@ public final class NcrnaFamilyLoaderTest {
 		controls(family, old);
 		deferredLegacySlots();
 		System.out.println("PASS family loader: models="+family.library.length+" seeds="+seeds.size()+" HBM="+models.length+" networks=8 tables=8; ordered references, exact tables and predictions, defaults and failure controls");
+	}
+	private static void euk5s(String old){
+		final String consensus=old+"/euk5S_consensus_sequence.fa.gz", seeds=old+"/euk5S_17mers.fa.gz";
+		final FamilyResourceResolver resolver=new FamilyResourceResolver();
+		final NcrnaFamily family=NcrnaFamilyLoader.load("euk5S", new NcrnaFamilyLoader.Options(), resolver);
+		final byte[][] library=TrnaConsensusBuilder.loadLibrary(consensus);
+		final String[] names=TrnaConsensusBuilder.lastLoadedNames;
+		require(Arrays.deepEquals(library, family.library) && Arrays.equals(names, family.modelNames), "euk5S model order and consensus bytes changed");
+		compareKeys(ProkObject.loadLongKmers(seeds, 17), family.kmerSet);
+		compareKeys(family.kmerSet, ProkObject.loadLongKmersByType(17, "euk5S"));
+		final String legacy=new File(old, "euk5S_consensus_sequence.fa").isFile() ? old+"/euk5S_consensus_sequence.fa" : consensus;
+		final Read[] original=ReadInputStream.toReadArray(FileFormat.testInput(legacy, FileFormat.FA, null, false, false), -1);
+		final Read[] loadedLegacy=ProkObject.loadConsensusSequenceType("euk5S", false, false);
+		require(original.length==loadedLegacy.length, "Private legacy euk5S reference count changed");
+		for(int i=0; i<original.length; i++){
+			require(original[i].id.equals(loadedLegacy[i].id) && Arrays.equals(original[i].bases, loadedLegacy[i].bases),
+				"Legacy euk5S reference order or bytes changed");
+		}
+		final RrnaEndpointCallerFeatures.Resources oldTables=RrnaEndpointResourceLoader.load("euk5S", old+"/euk5S_endpoint", names, library);
+		compareEndpoints(RrnaEndpointNetworkLoader.load(old+"/euk5S_endpoints.bbnets.gz", oldTables), family.rrnaEndpointFeatures);
+		require(!family.rrnaEndpointFeatures.acceptedVerifierIdentity, "euk5S must retain candidate-span identity");
+		for(int i=0; i<names.length; i++){
+			require(family.rrnaEndpointFeatures.five[i].counts!=null && family.rrnaEndpointFeatures.three[i].counts!=null,
+				"euk5S uses full positional counts rather than the prokaryotic scores-only adapter");
+		}
+		require(family.library.length==7 && family.models==null && family.indexTopN==7 && family.indexK==7 && family.fixedMinHits==2
+			&& family.kLong==17 && family.seedMinHits==2 && !family.seedDistinct && family.minLen==90 && family.windowPad==150
+			&& family.scoreA==0f && family.scoreB==3f && family.idPass==.68f && family.idBorderline==.68f && family.hbmPass==1.01f
+			&& family.collapseFrac==.75f && family.outputType==ProkObject.r5S && !family.scavengePass2 && !family.rankedModelFallback
+			&& !family.strictIndexCutoff && !family.trimAlignmentExtent && family.reuseConsensusAlignment && family.quantumCapMultiplier==1,
+			"euk5S migration changed the selected calling policy");
+		final NcrnaFamilyLoader.Options o=new NcrnaFamilyLoader.Options();
+		o.resources.consensus=consensus;o.resources.seeds=seeds;o.resources.cutoffs=old+"/euk5S_model_cutoffs.tsv";
+		o.resources.tables=old+"/euk5S_endpoint";o.resources.endpoints=old+"/euk5S_endpoints.bbnets.gz";
+		final NcrnaFamily explicit=NcrnaFamilyLoader.load("euk5S", o, resolver);
+		compareEndpoints(family.rrnaEndpointFeatures, explicit.rrnaEndpointFeatures);
+		for(int i=0; i<names.length; i++){
+			require(family.modelThresholds.pass(i)==explicit.modelThresholds.pass(i)
+				&& family.modelThresholds.borderline(i)==explicit.modelThresholds.borderline(i), "Model cutoff binding changed");
+		}
+		o.resources.cutoffs=old+"/absent-cutoffs.tsv";
+		fails(()->NcrnaFamilyLoader.load("euk5S", o, resolver), "cutoffs");
+		o.cutoffs=false;o.endpoints=false;o.resources.tables=old+"/absent-tables";o.resources.endpoints=old+"/absent-nets";
+		o.scoreA=2f;o.scoreB=4f;o.idPass=.73f;o.idBorderline=.72f;o.collapse=.8f;o.windowPad=123;
+		final NcrnaFamily scalar=NcrnaFamilyLoader.load("euk5S", o, resolver);
+		require(scalar.modelThresholds==null && scalar.rrnaEndpointFeatures==null && scalar.scoreA==2f && scalar.scoreB==4f
+			&& scalar.idPass==.73f && scalar.idBorderline==.72f && scalar.collapseFrac==.8f && scalar.windowPad==123,
+			"Scalar controls or disabled cutoff/endpoint resource I/O changed");
+		final NcrnaFamilyLoader.Options off=new NcrnaFamilyLoader.Options();off.resources.root=old+"/absent-package";off.enabled=false;
+		require(NcrnaFamilyLoader.load("euk5S", off, resolver)==null, "Disabled euk5S must perform no I/O");
+		off.enabled=true;fails(()->NcrnaFamilyLoader.load("euk5S", off, resolver), "manifest");
+		final NcrnaFamilyLoader.Options core=new NcrnaFamilyLoader.Options();core.endpoints=false;core.cutoffs=false;
+		NcrnaFamilyLoader.load("16S", core, resolver);
+		final NcrnaFamily again=NcrnaFamilyLoader.load("euk5S", core, resolver);
+		require(Arrays.deepEquals(family.library, again.library) && Arrays.equals(family.modelNames, again.modelNames),
+			"Switching families on the same resolver must not reuse another manifest");
+		compareKeys(family.kmerSet, again.kmerSet);
+		System.out.println("PASS euk5S family loader: seven models, exact seeds/cutoffs/full tables/network predictions, candidate-span identity, overrides and same-JVM compatibility");
 	}
 	private static void longRrna(String old, String id){
 		final boolean s16=id.equals("16S");
@@ -174,7 +236,7 @@ public final class NcrnaFamilyLoaderTest {
 	private static void compareTable(RrnaPositionalKmerTable.Table a, RrnaPositionalKmerTable.Table b){
 		require(a.k==b.k && a.offset==b.offset && a.radius==b.radius && a.alpha==b.alpha && a.records==b.records
 			&& Arrays.equals(a.scores, b.scores) && Arrays.equals(a.valid, b.valid) && Arrays.equals(a.clipped, b.clipped)
-			&& Arrays.equals(a.ambiguous, b.ambiguous), "Endpoint table counts, scores or geometry changed: "+a.model+"/"+a.end);
+			&& Arrays.equals(a.ambiguous, b.ambiguous) && Arrays.deepEquals(a.counts, b.counts), "Endpoint table counts, scores or geometry changed: "+a.model+"/"+a.end);
 	}
 	private static void compareNet(CellNet a, CellNet b){
 		require(a.numInputs()==b.numInputs() && a.numOutputs()==b.numOutputs(), "Network dimensions changed");

@@ -28,7 +28,7 @@ final class FamilyResourceManifest {
 					require(known && (end.equals("5prime") || end.equals("3prime")), "Table binding must name a registered model/end: "+model+"/"+end);
 				}else{
 					require(model.equals(".") && end.equals("."), "Only table roles have model/end bindings");
-					require(role.equals("consensus") || role.equals("models") || role.equals("seeds") || role.equals("tables") || role.equals("endpoints"),
+					require(role.equals("consensus") || role.equals("models") || role.equals("seeds") || role.equals("tables") || role.equals("endpoints") || role.equals("cutoffs"),
 						"Unknown resource role for "+family.id+": "+role);
 				}
 				final String key=key(role, model, end);

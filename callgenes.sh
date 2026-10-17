@@ -282,9 +282,9 @@ euk5sconsensus= Explicit euk5S consensus FASTA for a frozen resource comparison.
 euk5sendpoint=t Refine enabled euk5S calls; f retains raw alignment endpoints.
 euk5sendpointtables=  Override the directory containing TABLES.tsv and tables.
 euk5sendpointnets=    Override the directory containing MANIFEST.tsv and networks/.
-                Defaults resolve resources/euk5S_endpoint/. Missing or incompatible
+                Defaults resolve resources/callgenes_euk5S/. Missing or incompatible
                 resources fail before calling; start and stop may use different k.
-euk5smodelcutoffs=  Override resources/euk5S_model_cutoffs.tsv; f uses scalars.
+euk5smodelcutoffs=  Override resources/callgenes_euk5S/cutoffs.tsv; f uses scalars.
                 Each model needs family/model/idpass/idborderline TSV columns.
                 Explicit model tables take precedence over scalar identity flags.
                 Targeted scalar overrides bypass the default table, retaining .68

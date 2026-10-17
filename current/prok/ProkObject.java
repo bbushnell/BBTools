@@ -217,7 +217,7 @@ public abstract class ProkObject {
 	//the same way ProkObject's own tRNA/rRNA kmer sets load. Visibility-only change, no behavior
 	//difference for any existing caller.
 	static LongHashSet loadLongKmersByType(int k, String prefix){
-		if(k==17 && ("5S".equalsIgnoreCase(prefix) || "23S".equalsIgnoreCase(prefix) || "16S".equalsIgnoreCase(prefix))){
+		if(k==17 && ("5S".equalsIgnoreCase(prefix) || "23S".equalsIgnoreCase(prefix) || "16S".equalsIgnoreCase(prefix) || "euk5S".equalsIgnoreCase(prefix))){
 			return loadLongKmers(new FamilyResourceResolver().resolve(prefix, "seeds", null).path, k);
 		}
 		final String stem=prefix+"_"+k+"mers.fa";
@@ -325,8 +325,8 @@ public abstract class ProkObject {
 	 * a .jar); optionally strips mito/plastid entries. Returns null if the file can't be found. */
 	public static Read[] loadConsensusSequenceType(String prefix, boolean removeMito, boolean removeChloro){
 		String fname=null;
-		if("5S".equalsIgnoreCase(prefix) || "23S".equalsIgnoreCase(prefix) || "16S".equalsIgnoreCase(prefix)){
-			fname=new FamilyResourceResolver().resolve(prefix, "consensus", null).path;
+		if("5S".equalsIgnoreCase(prefix) || "23S".equalsIgnoreCase(prefix) || "16S".equalsIgnoreCase(prefix) || "euk5S".equalsIgnoreCase(prefix)){
+			fname=new FamilyResourceResolver().legacyConsensus(prefix).path;
 		}else{
 		fname=Data.findPath("?"+prefix+"_consensus_sequence.fq", false);
 		if(fname!=null && (fname.endsWith(".jar") || new File(fname).exists())){

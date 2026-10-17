@@ -10,15 +10,19 @@ import java.util.ArrayList;
  */
 public final class Euk5sRuntimeConfigTest {
 	public static void main(String[] args)throws Exception{
-		check(args.length==1,"Supply one fresh-JVM case: on, off, off_endpoint, off_cutoffs, off_enabled, off_path, scalar, ablation, missing, table");
+		check(args.length==1,"Supply one fresh-JVM case: on, profile, off, off_endpoint, off_cutoffs, off_enabled, off_path, scalar, ablation, missing, table");
 		final String mode=args[0];final Path dir=Files.createTempDirectory("euk5s_runtime_");
-		check(mode.matches("on|off|off_endpoint|off_cutoffs|off_enabled|off_path|scalar|ablation|missing|table"),"Unknown fixture case: "+mode);
+		check(mode.matches("on|profile|off|off_endpoint|off_cutoffs|off_enabled|off_path|scalar|ablation|missing|table"),"Unknown fixture case: "+mode);
 		final Path input=dir.resolve("input.fa");Files.write(input,">fixture\nACGTACGTACGTACGTACGT\n".getBytes(StandardCharsets.US_ASCII));
 		final ArrayList<String> flags=new ArrayList<String>();
 		for(String flag:new String[]{"in="+input,"out=null","taxonomy=f","trnaboundarynet=f","t=1"}){flags.add(flag);}
-		final boolean off=mode.startsWith("off");flags.add("euk5s="+(off?"f":"t"));
+		final boolean off=mode.startsWith("off");flags.add("euk5s="+(off || mode.equals("profile")?"f":"t"));
 		final boolean failure=mode.equals("missing") || mode.equals("off_enabled") || mode.equals("off_path");
-		if(mode.equals("scalar")){flags.add("ncrnafamily=euk5S");flags.add("ncrnaidpass=.71");flags.add("ncrnaidborderline=.70");}
+		if(mode.equals("profile")){
+			flags.add("rrna17=euk5s");
+			for(String flag:new String[]{"call16s=f","call23s=f","call5s=f","call18s=f"}){flags.add(flag);}
+		}
+		else if(mode.equals("scalar")){flags.add("ncrnafamily=euk5S");flags.add("ncrnaidpass=.71");flags.add("ncrnaidborderline=.70");}
 		else if(mode.equals("ablation")){flags.add("euk5sendpoint=f");}
 		else if(mode.equals("missing")){flags.add("euk5sendpointnets="+dir.resolve("missing"));}
 		else if(mode.equals("off_endpoint")){flags.add("euk5sendpoint=f");}
@@ -42,10 +46,14 @@ public final class Euk5sRuntimeConfigTest {
 			System.out.println("PASS Euk5sRuntimeConfigTest "+mode);return;
 		}throw e;}
 		check(!failure,"Missing endpoint resources or disabled-family dependencies must fail before calling");
-		if(off){check(GeneCaller.ncrnaFamilies.isEmpty(),"euk5s=f must not register any new family");}
+		NcrnaFamily selected=null;
+		for(NcrnaFamily f:GeneCaller.ncrnaFamilies){if(f.name.equals("euk5S")){
+			check(selected==null,"euk5S must register exactly once");selected=f;
+		}}
+		if(off){check(selected==null,"euk5s=f must not register euk5S; default prokaryotic callers remain independent");}
 		else{
-			check(GeneCaller.ncrnaFamilies.size()==1,"Ordinary CLI must independently register exactly euk5S");
-			final NcrnaFamily family=GeneCaller.ncrnaFamilies.get(0);
+			check(selected!=null,"Ordinary CLI must independently register euk5S");
+			final NcrnaFamily family=selected;
 			check(family.library.length==7 && family.indexTopN==7 && family.seedMinHits==2 && family.kLong==17,"Ordinary CLI must install the seven-model/two-hit configuration");
 			if(mode.equals("scalar")){check(family.modelThresholds==null && family.idPass==.71f && family.idBorderline==.70f,"Scalar sweep must reach the caller instead of being masked by the default table");}
 			else{

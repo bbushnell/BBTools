@@ -8,6 +8,16 @@ import dna.Data;
  * @author Brian, Raiden */
 public final class FamilyResourceResolver {
 
+	/** Retain a declared private local reference for legacy tools; published installs
+	 * use the canonical family consensus. The production family loader never calls this. */
+	public Handle legacyConsensus(String familyId){
+		final NcrnaFamilyRegistry.Entry family=NcrnaFamilyRegistry.get(familyId);
+		if(family.privateLegacyConsensus!=null){
+			final File local=new File(Data.RESOURCES(), family.privateLegacyConsensus);
+			if(local.isFile()){return checked(family.id, "consensus", local.toString(), false);}
+		}return resolve(family.id, "consensus", null);
+	}
+
 	public Handle resolve(String familyId, String role, Overrides overrides){
 		final Handle h=resolve(familyId, role, ".", ".", overrides);
 		if(role.equals("tables")){h.resolver=this;h.overrides=overrides;}return h;
@@ -40,10 +50,11 @@ public final class FamilyResourceResolver {
 	}
 	public static final class Overrides {
 		/** Root names one family directory, not the global resources directory. */
-		public String root, consensus, models, seeds, tables, endpoints;
+		public String root, consensus, models, seeds, tables, endpoints, cutoffs;
 		private String path(String role){
 			if(role.equals("consensus")){return consensus;}if(role.equals("models")){return models;}
 			if(role.equals("seeds")){return seeds;}if(role.equals("endpoints")){return endpoints;}
+			if(role.equals("cutoffs")){return cutoffs;}
 			if(role.equals("tables") && tables!=null){return new File(tables, "TABLES.tsv").toString();}return null;
 		}
 	}
