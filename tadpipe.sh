@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified October 12, 2026
+Last modified October 17, 2026
 
 Description:  Assembles preprocessed paired Illumina reads with deduplication,
 overlap/Clumpify/Tadpole correction, staged merging, extension, and ordered
@@ -47,7 +47,9 @@ qtrim=t             Quality-trim/filter the residual unmerged reads.
 extend=t            Extend merged and unmerged reads with both sets as evidence.
 extendm=t           Extend merged reads; requires extend=t and merge=t.
 extendu=t           Extend unmerged reads; requires extend=t.
-nn=t                Use the bundled fusion NN at cutoff 0.667098.
+nn=t                Use the bundled assembly NNs: fusion cutoff 0.667098 and
+                    branch-postpass cutoff 0.7. nn=f disables both; explicit
+                    assemble_ overrides can enable either independently.
 
 REM schedule controls (do not change ECC, extension, or final assembly K):
 remk=124,145,93      Ordered REM K list; arbitrary positive K values and repeats.
@@ -76,9 +78,15 @@ These are aliases for assemble_k, assemble_assemblek, assemble_graphk,
 assemble_bridgek, and assemble_fusek. Last occurrence wins across aliases.
 Changing k alone keeps assemblek=124; set both to change the initial K.
 
-Coverage guards are explicitly set to 1.75; they can reject genuine joins
-across uneven coverage. Use assemble_fusecoverageratio=0 and/or
+Final assembly inherits Tadpole's optimized defaults: branch postpass on the
+initial table, retained untrimmed short contigs, coverage guards at 1.75,
+short-fusion evidence and final graph branch safeguards. Bundled NNs abstain
+outside their supported K24-127 domain; no extra table load is required.
+Coverage guards can reject genuine joins across uneven coverage. Use
+assemble_initialmergecoverageratio=0, assemble_fusecoverageratio=0 and/or
 assemble_graphmergecoverageratio=0 to disable them independently.
+Use assemble_branchrescue=f or assemble_fusenet=null for individual NN opt-outs.
+Use assemble_branchrescuecutoff=<value> to adjust the postpass cutoff.
 For reads lacking long merged/extended support, use k=124,96,64,32.
 
 Other parameters can be passed to individual phases like this:
@@ -126,14 +134,16 @@ and pairing; phase-prefixed in/out/extra/config/overwrite options are rejected.
 Use assemble_<Tadpole option>=<value> for other final assembly controls;
 unknown options are rejected by the receiving tool, not silently ignored.
 Use ecc_k, extendm_k, or extendu_k to adjust those earlier phases explicitly.
-Custom assemble_fusenet requires an explicit assemble_fusencutoff.
+Custom assemble_fusenet requires an explicit assemble_fusencutoff; auto uses
+the bundled model and cutoff. Custom assemble_branchrescuenet accepts a file
+path; assemble_branchrescuenet=null disables that model.
 Adapter trimming, contaminant filtering, and the old unreachable extend2_
 stage are not part of this pipeline. Named files and Bash are required.
 
 Workflow experiments can be stored as ordinary config=files, one flag=value
 per line; e.g. config=low_depth.config. Keep JVM heap flags on the command line.
 Inspect dryrun=t first. No validated high/mid/low/metagenome presets or automatic
-profile selection are supplied yet; current no-override defaults are unchanged.
+profile selection are supplied yet; preprocessing defaults are unchanged.
 "
 }
 

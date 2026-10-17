@@ -4,6 +4,8 @@ import java.util.ArrayList;
 
 import dna.AminoAcid;
 import map.LongLongHashMap2;
+import structures.IntList;
+import structures.LongList;
 
 /** Finds unique reciprocal exact overlaps between selected contig ends. */
 class CrossKTipOverlapper {
@@ -107,6 +109,7 @@ class CrossKTipOverlapper {
 		//Keep the original candidate graph for cycle rejection. Removing a conflict
 		//first could break a cycle and inadvertently admit other previously rejected edges.
 		final boolean[] cyclic=cyclicComponents(reciprocal);
+		final ShortTipIndex shortIndex=shortEvidence && !reciprocal.isEmpty() ? indexShortTips() : null;
 		int added=0, cycleRejected=0;
 		for(int i=0; i<reciprocal.size(); i++){
 			final Pair pair=reciprocal.get(i);
@@ -116,6 +119,11 @@ class CrossKTipOverlapper {
 			}
 			if(cyclic[i]){cycleRejected++; continue;}
 			if(pair.a.conflictingPlacement || pair.b.conflictingPlacement){conflictRejected++; continue;}
+			if(shortIndex!=null && (hasShortAlternative(pair.a, pair.overlap, shortIndex)
+					|| hasShortAlternative(pair.b, pair.overlap, shortIndex))){
+				shortEvidenceRejected++;
+				continue;
+			}
 			if(!compatibleCoverage(pair.a.contig.coverage, pair.b.contig.coverage, maxCoverageRatio)){
 				coverageRejected++;
 				continue;
@@ -217,7 +225,13 @@ class CrossKTipOverlapper {
 		for(int i=0; i<contigs.size(); i++){
 			final Contig c=contigs.get(i);
 			if(c.id!=i){throw new RuntimeException("Cross-k overlap contig index mismatch: "+c.id+" != "+i);}
-			if(c.length()<Math.max(minOverlap+1, minContig)){continue;}
+			if(c.length()<Math.max(minOverlap+1, minContig)){
+				if(BubblePopper.verbose){
+					printShortTipState(c, false);
+					printShortTipState(c, true);
+				}
+				continue;
+			}
 			if((!deadEndsOnly || c.leftFusionEndpoint)
 					&& (graphKEnds ? c.leftCode==Tadpole.KEEP_GOING : c.leftBridgeEndpoint)){
 				tips.add(new Tip(c, false, tips.size()));
@@ -299,6 +313,96 @@ class CrossKTipOverlapper {
 				source.bestDestTrim=destTrim;
 			}
 		}
+	}
+
+	/**
+	 * Indexes length-excluded endpoints separately from the frozen ordinary candidates.
+	 * Every colliding anchor is retained: dropping a third repeat copy would discard
+	 * exactly the ambiguity evidence this veto is intended to preserve.
+	 */
+	private ShortTipIndex indexShortTips(){
+		assert(shortEvidence) : "The optional short-end index must not allocate in ordinary/off runs.";
+		final ArrayList<Tip> shortTips=new ArrayList<Tip>();
+		for(Contig c : contigs){
+			if(c.length()<=minOverlap || c.length()>=minContig){continue;}
+			if((!deadEndsOnly || c.leftFusionEndpoint)
+					&& (graphKEnds ? c.leftCode==Tadpole.KEEP_GOING : c.leftBridgeEndpoint)){
+				shortTips.add(new Tip(c, false, shortTips.size()));
+			}
+			if((!deadEndsOnly || c.rightFusionEndpoint)
+					&& (graphKEnds ? c.rightCode==Tadpole.KEEP_GOING : c.rightBridgeEndpoint)){
+				shortTips.add(new Tip(c, true, shortTips.size()));
+			}
+		}
+		if(shortTips.isEmpty()){return null;}
+		final ShortTipIndex index=new ShortTipIndex(shortTips);
+		final int maxTrim=maxOverlap-minOverlap+1;
+		final long outgoingPower=power(HASH_MULT, minOverlap-1);
+		for(Tip tip : shortTips){
+			final Contig c=tip.contig;
+			final boolean reverse=!tip.right;
+			final int limit=Math.min(maxTrim, c.length()-minOverlap-1);
+			long hash=hash(c, reverse, c.length()-limit-minOverlap, minOverlap);
+			for(int trim=limit; trim>=0; trim--){
+				index.add(hash, (((long)tip.index)<<32)|(trim&0xFFFFFFFFL));
+				if(trim>0){
+					final int start=c.length()-trim-minOverlap;
+					hash=(hash-((baseAt(c, reverse, start)&0xFF)+1)*outgoingPower)*HASH_MULT+
+							(baseAt(c, reverse, start+minOverlap)&0xFF)+1;
+				}
+			}
+		}
+		return index;
+	}
+
+	/** Checks one retained end without changing its best partner, ambiguity or cycle state. */
+	private boolean hasShortAlternative(final Tip retained, final int required, final ShortTipIndex index){
+		assert(index!=null && retained.contig.length()>=minContig && required>=minOverlap) :
+				"Short evidence only vetoes endpoints of already-selected retained-contig pairs.";
+		final Contig c=retained.contig;
+		final boolean reverse=retained.right;
+		final int limit=Math.min(maxOverlap-minOverlap+1, c.length()-minOverlap-1);
+		final long outgoingPower=power(HASH_MULT, minOverlap-1);
+		long hash=hash(c, reverse, 0, minOverlap);
+		for(int trim=0; trim<=limit; trim++){
+			for(long entry=index.heads.get(hash); entry>0; entry=index.next.get((int)entry-1)){
+				assert(entry<=index.codes.size) : "One-based anchor chains must point into the paired primitive arrays.";
+				final long code=index.codes.get((int)entry-1);
+				final Tip shortTip=index.tips.get((int)(code>>>32));
+				if(shortAlternativeMatches(shortTip, (int)code, retained, trim, required)){return true;}
+			}
+			if(trim<limit){
+				hash=(hash-((baseAt(c, reverse, trim)&0xFF)+1)*outgoingPower)*HASH_MULT+
+						(baseAt(c, reverse, trim+minOverlap)&0xFF)+1;
+			}
+		}
+		return false;
+	}
+
+	/** Applies the ordinary overlap/trim semantics to a short-to-retained alternative. */
+	private boolean shortAlternativeMatches(final Tip source, final int sourceTrim,
+			final Tip dest, final int destAnchorTrim, final int required){
+		assert(source.contig.length()<minContig && dest.contig.length()>=minContig) :
+				"Evidence endpoints cannot become ordinary join candidates.";
+		final boolean sourceReverse=!source.right, destReverse=dest.right;
+		final int start=source.contig.length()-sourceTrim-minOverlap;
+		final int limit=Math.min(maxOverlap-minOverlap, Math.min(start, destAnchorTrim));
+		int extra=0;
+		while(extra<limit && baseAt(source.contig, sourceReverse, start-extra-1)
+				==baseAt(dest.contig, destReverse, destAnchorTrim-extra-1)){extra++;}
+		final int overlap=minOverlap+extra, destTrim=destAnchorTrim-extra;
+		if(overlap<required || overlap>=source.contig.length()-sourceTrim
+				|| overlap>=dest.contig.length()-destTrim){return false;}
+		if(!allowTrim && (sourceTrim>0 || destTrim>0)){return false;}
+		if(!matches(source, sourceTrim, dest, destTrim, overlap)){return false;}
+		if(maxMismatches>=0 && !compatibleTrimmedFlanks(source.contig, sourceReverse, sourceTrim,
+				dest.contig, destReverse, destTrim, overlap, maxMismatches)){return false;}
+		if(BubblePopper.verbose){
+			System.err.println("FusionShortVeto\t"+minOverlap+"\t"+dest.contig.id+
+					"\t"+(dest.right ? "R" : "L")+"\t"+source.contig.id+
+					"\t"+(source.right ? "R" : "L")+"\t"+overlap+"\t"+sourceTrim+"\t"+destTrim);
+		}
+		return true;
 	}
 
 	private static boolean matches(Tip source, int sourceTrim, Tip dest, int destTrim, int overlap){
@@ -413,6 +517,24 @@ class CrossKTipOverlapper {
 				"\t"+tip.bestSourceTrim+"\t"+tip.bestDestTrim+"\t"+tip.ambiguous+"\t"+end);
 	}
 
+	/** Records length-excluded endpoints without admitting them to candidate discovery. */
+	private void printShortTipState(final Contig contig, final boolean right){
+		assert(contig.length()<Math.max(minOverlap+1, minContig)) :
+				"Short-tip diagnostics describe the makeTips length rejection, not candidate admission.";
+		final boolean endpoint=(graphKEnds ?
+				(right ? contig.rightCode : contig.leftCode)==Tadpole.KEEP_GOING :
+				(right ? contig.rightBridgeEndpoint : contig.leftBridgeEndpoint));
+		final boolean historical=(!deadEndsOnly ||
+				(right ? contig.rightFusionEndpoint : contig.leftFusionEndpoint));
+		final StringBuilder end=new StringBuilder(200);
+		for(int i=Math.max(0, contig.length()-200); i<contig.length(); i++){
+			end.append((char)baseAt(contig, !right, i));
+		}
+		System.err.println("FusionShortTip\t"+minOverlap+"\t"+minContig+"\t"+contig.id+
+				"\t"+(right ? "R" : "L")+"\t"+contig.length()+"\t"+endpoint+
+				"\t"+historical+"\t"+end);
+	}
+
 	/** Marks every pair belonging to a cyclic contig-level overlap component. */
 	private boolean[] cyclicComponents(ArrayList<Pair> pairs){
 		final boolean[] answer=new boolean[pairs.size()];
@@ -446,7 +568,7 @@ class CrossKTipOverlapper {
 	}
 
 	private void printSummary(int tips, int ambiguous, int reciprocal, int cycleRejected){
-		if(!BubblePopper.verbose && maxMismatches<0 && support==null && neural==null && maxCoverageRatio==0){return;}
+		if(!BubblePopper.verbose && maxMismatches<0 && support==null && neural==null && maxCoverageRatio==0 && !shortEvidence){return;}
 		System.err.println((graphKEnds ? "Graph-k" : "Cross-k")+" tip overlaps: endpoints="+tips+
 				", exactCandidates="+exactCandidates+
 				", selfMatches="+selfMatches+
@@ -456,7 +578,8 @@ class CrossKTipOverlapper {
 				", supportRejected="+supportRejected+
 				(maxCoverageRatio==0 ? "" : ", coverageRejected="+coverageRejected)+
 				(neural==null ? "" : ", neuralRejected="+neuralRejected)+
-				", added="+(reciprocal-cycleRejected-conflictRejected-supportRejected-coverageRejected-neuralRejected)+".");
+				(!shortEvidence ? "" : ", shortEvidenceRejected="+shortEvidenceRejected)+
+				", added="+(reciprocal-cycleRejected-conflictRejected-supportRejected-coverageRejected-neuralRejected-shortEvidenceRejected)+".");
 	}
 
 	private static long hash(Contig c, boolean reverse, int start, int length){
@@ -473,6 +596,30 @@ class CrossKTipOverlapper {
 
 	private static byte baseAt(Contig c, boolean reverse, int pos){
 		return reverse ? AminoAcid.baseToComplementExtended[c.bases[c.length()-1-pos]] : c.bases[pos];
+	}
+
+	/** Primitive anchor chains preserve every short repeat copy without boxing per anchor. */
+	private static final class ShortTipIndex {
+		/** The ordinary candidate index remains independent and unmodified. */
+		ShortTipIndex(final ArrayList<Tip> tips_){
+			assert(tips_!=null && !tips_.isEmpty()) : "Only eligible short ends justify an evidence index.";
+			tips=tips_;
+		}
+
+		/** Stores one-based positions because LongLongHashMap2 reserves nonpositive values. */
+		void add(final long hash, final long code){
+			assert(codes.size==next.size && codes.size<Integer.MAX_VALUE-1) :
+					"Parallel anchor arrays and one-based integer links must remain aligned and representable.";
+			final long previous=heads.get(hash);
+			codes.add(code);
+			next.add(previous<0 ? 0 : (int)previous);
+			heads.set(hash, codes.size);
+		}
+
+		final ArrayList<Tip> tips;
+		final LongLongHashMap2 heads=new LongLongHashMap2(256);
+		final LongList codes=new LongList();
+		final IntList next=new IntList();
 	}
 
 	static class Tip {
@@ -512,11 +659,14 @@ class CrossKTipOverlapper {
 	FusionNeuralGate neural;
 	/** Controls external-pair eligibility, not conservative self/anchor/conflict evidence. */
 	boolean allowTrim=true;
+	/** Development-only monotone veto; short endpoints never enter ordinary pair selection. */
+	boolean shortEvidence=false;
 	/** Experimental whole-contig depth-discontinuity veto; zero preserves legacy behavior. */
 	float maxCoverageRatio=0;
 	private int supportRejected=0;
 	private int coverageRejected=0;
 	private int neuralRejected=0;
+	private int shortEvidenceRejected=0;
 	private static final long AMBIGUOUS=Long.MAX_VALUE;
 	private static final long HASH_MULT=0x9E3779B185EBCA87L;
 }

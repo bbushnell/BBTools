@@ -17,7 +17,7 @@ out=<file>      Output gff file.
 outa=<file>     Amino acid output.
 out16s=<file>   16S output.
 out18s=<file>   18S output.
-outits=<file>   ITS1, ITS2, and combined ITS sequence output.  Implies its=t.
+outits=<file>   ITS1, ITS2, and combined ITS sequence output; enables ITS unless its=f.
 model=<file>    A pgm file or comma-delimited list.
                 If unspecified a default model will be used.
 stats=stderr    Stats output (may be stderr, stdin, a file, or null).
@@ -137,7 +137,7 @@ euk18slivepositions=  Experimental live joined discovery from the shared 17-mer
 euk18sjoinedsupport=1  Select side-support 1 or 2 for either joined source.
 euk18sjoined=t  Explicit control for joined discovery; t requires rolling PacBio.
                 Omitted Quantum/native-MSA calls use ordinary windows only.
-                With t and no explicit position path, load euk18S_seed_positions.tsv.
+                With t and no explicit position path, load callgenes_18S/seed_positions.tsv.
                 Use f in both backends for a matched aligner-only comparison.
 cmmodeldir=    Directory containing RF00005.cm and RF01852.cm (tRNA and tRNA-Sec)
                 and RF00001.cm (5S). RF01960 is not used by this caller.
@@ -183,6 +183,8 @@ trnaalign=t     Align predicted tRNAs to a consensus library to verify
                 and annotate them.  Reduces false positives and adds
                 anticodon/amino-acid annotation.  Uses built-in library
                 by default; override with trnalib= and trnamodel=.
+                Packaged tRNA resources use resources/callgenes_tRNA/; the
+                distinct legacy reference is in legacy/consensus.fa.
 trnalib=<file>  Custom tRNA consensus library (fasta).
 trnamodel=<file> Custom tRNA HBM model file (.hbmc or legacy .hbm, optionally .gz).
                 Packaged RNA models prefer compact HBMC; explicit paths are honored.
@@ -220,13 +222,21 @@ maxtrna=120     (Experimental) Raise the tRNA candidate length cap, enabling
                 candidates still fail alignment verification.
 
 Conserved ncRNA engineering parameters:
+euk=f          Enable 18S, eukaryotic5S, 5.8S, eukaryoticLSU and ITS together.
+                Individual family flags remain available; later flags override
+                the group selection. Enabled5.8S/LSU under euk=t ensures ncrna=t
+                even if ncrna=f was supplied. Explicit its=f suppresses ITS.
+                ITS also derives automatically with euk18s=t r58lsu=t;
+                eukaryotic5S is not required. No eukaryotic family is default-on.
 euk18s=f       Enable 18S calling with ten consensus models, including split
                 animal groups and mitochondria; 385 seeds, distinct-2 support,
                 voted windows and rolling MSA. Mitochondrial-model hits can
                 also match bacterial 16S and do not establish compartment.
 euk18sconsensus=   Consensus FASTA; requires matching euk18smodelcutoffs= table.
-euk18sseeds=       Forward K17 FASTA; omitted uses euk18S_17mers.fa.gz.
-euk18srawends=alignment  Or vote; omitted offsets use euk18S_seed_offsets.tsv.
+                Packaged resources are in resources/callgenes_18S/.
+                The legacy SSU reference remains separate in legacy/consensus.fa.
+euk18sseeds=       Forward K17 FASTA; omitted uses callgenes_18S/seeds.fa.gz.
+euk18srawends=alignment  Or vote; omitted offsets use callgenes_18S/seed_offsets.tsv.
 euk18saligner=pacbio  Alternative quantum retains the earlier primary aligner.
                 PacBio MSA primary with sqrt-discounted deletion-run identity.
                 Keeps model cutoffs and optional local rescue unchanged.
@@ -289,8 +299,17 @@ euk5smodelcutoffs=  Override resources/callgenes_euk5S/cutoffs.tsv; f uses scala
                 Explicit model tables take precedence over scalar identity flags.
                 Targeted scalar overrides bypass the default table, retaining .68
                 for either unset scalar. euk5s=f loads none of these resources.
-ncrna=f         Enable generic conserved-ncRNA families (off by default).
+ncrna=t         Enable conserved RNase P, SRP, tmRNA and6S calling by default.
                 Alias: generalncrna=.
+                Set f to disable this umbrella and omitted tmRNA/6S defaults.
+                Explicit conflicting child opt-ins fail loudly. Existing
+                cdsonly/trnaonly/etc selectors suppress these new defaults
+                unless generic families are also explicitly requested.
+                RNase P resources: resources/callgenes_RNaseP/.
+                Selected RNase P requires consensus, HBM models and seeds.
+                SRP resources: resources/callgenes_SRP/; one manifest binds
+                small/large models and shared seeds. Both subtypes are required.
+                tmRNA resources: resources/callgenes_tmRNA/.
 rrna17=         Omitted: 16S, 23S and 5S use the 17-mer callers with endpoint nets.
                 call16s=f/call23s=f/call5s=f disable the corresponding default.
                 Explicit f restores PGM methods for enabled prokaryotic families.
@@ -369,19 +388,22 @@ rrna23sendpoint=off  Historical23S candidate-scoring mode (not endpointnn).
                 The discarded g28/g16 candidate-scoring networks are not shipped;
                 explicitly requesting either fails if its resources are missing.
 v2refresh=f     Recheck claimed loci before each ncRNA window when enabled.
-tmrna=f         Add the experimental tmRNA family; requires ncrna=t (or
+tmrna=t         Enable tmRNA; requires ncrna=t (or
                 generalncrna=t).  Endpoint refinement follows the global
                 ncrnaboundarynet flag below.
-sixs=f          Add the experimental paired 6S/SsrS families (RF00013 and RF01685);
+sixs=t          Enable paired 6S/SsrS families (RF00013 and RF01685);
                 requires ncrna=t (or generalncrna=t).  Aliases: ssrs=, 6s=.
+                Resources: resources/callgenes_6S/manifest.tsv binds both members.
                 Both families must load together, with complete consensus, HBM,
                 and kmer resources and index-aligned consensus/HBM entries.
                 If ncrnaboundarynet=t, complete index-aligned boundary resources
                 are also required for every loaded family; missing or misaligned
                 resources fail loudly.
 r58lsu=f        Add the bundled eukaryotic 5.8S and LSU families.  This implies
-                ncrna=t; the family remains off unless r58lsu=t is specified.
+                ncrna=t; the pair remains off unless r58lsu=t or euk=t is specified.
+                Resources: resources/callgenes_5.8S/ and resources/callgenes_eukLSU/.
                 Explicit resource overrides below remain available.
+                Boundary networks and tables are not bundled.
                 The global ncrnaboundarynet gate remains incompatible with this
                 pair; use the R58-specific endpoint gate below.
 r58ncrnaboundarynet=f  Refine only R58 endpoints with its boundary network and
@@ -393,7 +415,10 @@ r58ncrnaboundarymarginstop=0  Require this confidence improvement before moving
 r58ncrnaboundarymarginstart=0  Corresponding 5' confidence margin.  The current
                 validated 3'-only configuration leaves this unused.
 its=f           Derive ITS1, ITS2, and combined ITS annotations from compatible
-                18S, 5.8S, and LSU calls.  outits=<file> also enables this.
+                18S, 5.8S, and LSU calls. Automatically enabled with euk18s=t
+                r58lsu=t, including through euk=t; euk5S is not required.
+                outits=<file> also enables this. Explicit its=f takes precedence
+                over both automatic triggers, regardless of argument order.
 s18=f           Add the experimental generic 18S development family (pilot);
                 requires ncrna=t and explicit s18kmers/s18consensus/s18models.
                 Distinct from 18s=t, which enables the legacy PGM-path 18S caller.

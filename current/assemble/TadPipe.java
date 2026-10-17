@@ -205,7 +205,9 @@ public class TadPipe {
 		final Stage assembly=stage("10_assemble", "tadpole.sh", "assemble");
 		assembly.defaults("assemblek=124", "k=124,300,96,64,32", "minprob=0", "minprobmain=f",
 				"fusecoverageratio=1.75", "graphmergecoverageratio=1.75");
-		if(config.nn){assembly.defaults("fusenet="+config.bbtools.resolve("networks/tadpole_fusion.bbnet"), "fusencutoff=0.667098");}
+		// Keep bundled-model domain selection in Tadpole; a literal path is a custom binding.
+		assembly.defaults("fusenet="+(config.nn ? "auto" : "null"));
+		if(!config.nn){assembly.defaults("branchrescue=f");}
 		assembly.defaults("interleaved="+(merged==null));
 		assembly.overrides(config);
 		if("null".equalsIgnoreCase(assembly.args.get("fusenet"))){assembly.args.remove("fusencutoff");}
@@ -276,13 +278,27 @@ public class TadPipe {
 			if(Files.exists(config.out) && Files.isSameFile(config.out, config.bbtools.resolve(stage.tool))){
 				throw new IOException("Output aliases a required launcher: "+config.out);
 			}
-			final String net=stage.args.get("fusenet");
-			if(net!=null && !net.equalsIgnoreCase("null") && !Files.isReadable(Paths.get(net))){
-				throw new IOException("Unreadable fusion model: "+net);
+			validateModel(stage.args.get("fusenet"), "tadpole_fusion.bbnet");
+			if(stage.name.equals("10_assemble")){
+				final String rescue=stage.args.get("branchrescue"), model=stage.args.get("branchrescuenet");
+				final String defaults=stage.args.get("assemblydefaults");
+				final boolean enabled=(rescue==null || rescue.equalsIgnoreCase("auto"))
+						? (defaults==null || Parse.parseBoolean(defaults) || model!=null) : Parse.parseBoolean(rescue);
+				if(enabled){validateModel(model==null ? "auto" : model, "tadpole_contig_rescue.bbnet");}
 			}
-			if(net!=null && !net.equalsIgnoreCase("null") && Files.exists(config.out) && Files.isSameFile(config.out, Paths.get(net))){
-				throw new IOException("Output aliases the fusion model: "+config.out);
-			}
+		}
+	}
+
+	/** Protects enabled model files from final publication before any child runs. */
+	private void validateModel(final String model, final String bundled) throws IOException{
+		assert(bundled!=null) : "Automatic models resolve against this pipeline's selected installation.";
+		if(model==null || model.equalsIgnoreCase("null")){return;}
+		final Path path=model.equalsIgnoreCase("auto") ? config.bbtools.resolve("networks/"+bundled) : Paths.get(model);
+		if(!Files.isRegularFile(path) || !Files.isReadable(path)){
+			throw new IOException("Unreadable assembly model: "+path);
+		}
+		if(Files.exists(config.out) && Files.isSameFile(config.out, path)){
+			throw new IOException("Output aliases an assembly model: "+config.out);
 		}
 	}
 
@@ -437,9 +453,13 @@ public class TadPipe {
 				}
 			}
 			final Map<String,String> assembly=overrides.get("assemble");
-			if(assembly!=null && assembly.containsKey("fusenet") && !"null".equalsIgnoreCase(assembly.get("fusenet"))){
+			if(assembly!=null && assembly.containsKey("fusenet") && !"null".equalsIgnoreCase(assembly.get("fusenet"))
+					&& !"auto".equalsIgnoreCase(assembly.get("fusenet"))){
 				if(!assembly.containsKey("fusencutoff")){throw new IllegalArgumentException("A custom assemble_fusenet requires assemble_fusencutoff.");}
 				assembly.put("fusenet", path(assembly.get("fusenet")).toString());
+			}
+			if(assembly!=null && assembly.containsKey("branchrescuenet") && !"null".equalsIgnoreCase(assembly.get("branchrescuenet"))){
+				assembly.put("branchrescuenet", path(assembly.get("branchrescuenet")).toString());
 			}
 		}
 
@@ -458,7 +478,8 @@ public class TadPipe {
 					"qtrim", "extend", "extendm", "extendu", "assemble").contains(group)){
 				throw new IllegalArgumentException("Unknown phase: "+group+"; inputs must already be adapter-trimmed, filtered and calibrated.");
 			}
-			if(option.isEmpty() || option.startsWith("in") || option.startsWith("out") || option.equals("extra")
+			if(option.isEmpty() || (option.startsWith("in") && !option.equals("initialmergecoverageratio"))
+					|| option.startsWith("out") || option.equals("extra")
 					|| option.equals("config") || option.equals("append") || option.equals("ow") || option.equals("overwrite")
 					|| option.equals("interleaved") || option.equals("int") || option.equals("gfa") || option.equals("dot")){
 				throw new IllegalArgumentException("TadPipe owns stage inputs, outputs and pairing: "+key);

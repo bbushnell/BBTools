@@ -136,6 +136,46 @@ final class SameKJoinRescue {
 	/*----------------           Methods            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Borrows an already constructed assembler; never loads reads or owns its table. */
+	SameKJoinRescue(final Tadpole tad_, final String model_, final float cutoff_){
+		if(tad_==null || model_==null || !Float.isFinite(cutoff_) || cutoff_<0 || cutoff_>1){
+			throw new IllegalArgumentException("Borrowed postpass requires a table owner, model and cutoff in[0,1].");
+		}
+		tad=tad_; k=tad.k(); model=model_; cutoff=cutoff_;
+		net=CellNetParser.load(model, false);
+		if(net==null || net.numInputs()!=SameKJoinFeatures.INPUTS || net.numOutputs()!=1){
+			throw new IllegalArgumentException("Borrowed postpass requires a27-input, one-output samek27-v1 model.");
+		}
+		net.simdFF=false;
+	}
+
+	/** Scores before ordinary cleanup and returns every product, including short contigs. */
+	ArrayList<Contig> mergeLoaded(final ArrayList<Contig> contigs, final SameKJoinFeatures.Moments moments){
+		assert(output==null && scores==null && contigs!=null && moments!=null) :
+				"Borrowed postpass has no writer; its caller owns final filtering and table lifetime.";
+		final SameKJoinMerge.Choices choices=score(contigs, moments);
+		final SameKJoinMerge.Result result=SameKJoinMerge.merge(contigs, choices.mates(), k);
+		final Kmer word=new Kmer(k);
+		for(Contig c : result.contigs){
+			if(tad instanceof Tadpole1){((Tadpole1)tad).tables.calcCoverage(c);}
+			else{((Tadpole2)tad).tables.calcCoverage(c, word);}
+			if(c.minCov<1 || !Float.isFinite(c.coverage)){
+				throw new IllegalStateException("Exact K-1 joining must preserve present kmers before multi-K traversal.");
+			}
+			c.name=null;// Restore native depth/end annotations for later graph emission.
+			if(!c.canonical()){
+				// Contig.rcomp swaps native endpoint state but not graph exploration limits.
+				final boolean limited=c.graphLeftLimited;
+				c.graphLeftLimited=c.graphRightLimited; c.graphRightLimited=limited;
+				c.rcomp();
+			}
+		}
+		Tadpole.outstream.println("MULTIK_POSTPASS input="+contigs.size()+" candidates="+candidates+
+				" selected="+choices.supported+" joined="+result.joins+" cycle_unitigs="+result.cycleUnitigs+
+				" output="+result.contigs.size());
+		return result.contigs;
+	}
+
 	/** Keeps the table live through scoring and metadata, clearing it even after failure. */
 	private void process(){process(null);}
 

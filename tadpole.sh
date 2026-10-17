@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified October 9, 2026
+Last modified October 17, 2026
 
 Description:  Uses kmer counts to assemble contigs, extend sequences,
 or error-correct reads.  Tadpole has no upper bound for kmer length.
@@ -30,8 +30,13 @@ one read-count table. Bridge K may be longer or shorter than assembly K.
 It currently supports contig mode only, requires rereadable input files,
 and cannot use stdin.
 
-Recommended parameters for optimal assembly:
-tadpole.sh in=<reads> out=<contigs> shave rinse pop k=<50-70% of read length>
+Assembly defaults include the bundled branch postpass and Multi-K fusion NN,
+with coverage and branch safeguards. No preset or tuning-flag list is required:
+tadpole.sh in=reads.fq.gz out=contigs.fa k=96,124,64,32
+Choose K for your reads; the example does not change the default K=31.
+Individual flags override defaults. assemblydefaults=f restores the previous
+CLI defaults for comparisons. Correction, extension and graph-only modes are
+unchanged. Washing remains optional; see its time/quality tradeoff below.
 
 Extension and correction may be done simultaneously.  Error correction on 
 multiple files may be done like this:
@@ -113,8 +118,9 @@ hashkmers=auto      Compact storage for sequence-driven long-k operations.
                     no table-seeded contigs, kmer dumps, GC histogram, bounded
                     kmer-range enumeration, or non-tip-seeded shave/rinse.
                     Multi-K wash uses contig-tip-seeded compact cleaning.
-minprob=0.5         Ignore kmers with overall probability of correctness below this.
-minprobmain=t       (mpm) Use minprob for the primary kmer counts.
+minprob=0/0.5       Ignore kmers with overall probability of correctness below this.
+                    Default 0 in assembly; 0.5 in other modes.
+minprobmain=f/t     (mpm) Use minprob for primary counts; f in assembly, t otherwise.
 threads=X           Spawn X worker threads; default is number of logical processors.
 buildthreads=X      Spawn X contig-building threads. If not set, defaults to the same
                     as threads.  Setting this to 1 will make contigs deterministic.
@@ -155,12 +161,14 @@ fuseconflicts=f     Reject a best fusion if the same ends have a larger covered
                     placement with conflicting flanks in that pass. Placement
                     span includes both trims. Requires fusemaxmismatches>=0;
                     applies at every fusion K without a cross-K cache.
-fusecoverageratio=0 Maximum ratio of higher to lower whole-contig mean depth
+fusecoverageratio=1.75 Maximum ratio of higher to lower whole-contig mean depth
                     for exact-overlap fusion. 0 disables; otherwise finite >=1.
                     Rejects zero-depth ends when enabled. Applies before path/NN
                     vetoes, including final graph-K overlap fusion; not gap bridges.
-                    Optional repeat-copy safeguard; 1.75 was tested with the
-                    bundled NN. Can also reject correct joins across depth changes.
+                    Repeat-copy safeguard. Can also reject correct joins across
+                    depth changes; set 0 to disable.
+fuseshortevidence=t Include short competing tips as ambiguity evidence without
+                    making them eligible fusion partners.
 fusepath=f         Validate each fusion using that fusion's K, across the overlap
                     plus K retained bases on each side. All words must occur;
                     both directions must favor the proposed path without a
@@ -170,8 +178,11 @@ fusepath=f         Validate each fusion using that fusion's K, across the overla
                     final graph-K fusions reuse the possibly cleaned graph table.
                     Gap bridging is unchanged. This is not spanning-read proof.
 fusepathdepth=1    Minimum word count for fusepath validation.
-fusenet=null       Optional experimental fusion-join network (109 v2 inputs,
-                    one output). Disabled by default; requires fusencutoff.
+fusenet=auto       Bundled fusion-join network (109 v2 inputs, one output).
+                    auto locates networks/tadpole_fusion.bbnet automatically.
+                    Automatic scoring uses canonical DNA at fusion K24-127;
+                    other Ks retain native joining and the other safeguards.
+                    Set null to disable, or supply a custom model plus cutoff.
                     Vetoes frozen reciprocal proposals after existing guards;
                     never selects a replacement partner or changes gap bridging.
                     Uses retained-window depths and original-tip entropy.
@@ -179,11 +190,11 @@ fusenet=null       Optional experimental fusion-join network (109 v2 inputs,
                     final graph-K fusions borrow its possibly cleaned table.
                     Quality filtering is unchanged. Models trained on unfiltered
                     counts should be tested with minprob=0 minprobmain=f.
-fusencutoff=<0..1> Explicit minimum accepted fusion score (inclusive).
+fusencutoff=0.667098 Minimum accepted bundled fusion score (inclusive).
                     The model's embedded cutoff is not used. The bundled dense
                     networks/tadpole_fusion.bbnet was tested at 0.667098 on
-                    simulated bacterial reads; it is not enabled automatically.
-                    Supply its actual file path with fusenet. Phase timings
+                    simulated bacterial reads. Custom models require an explicit
+                    cutoff. Phase timings
                     separate feature extraction and inference from table loading.
 fusionvectors=     Optional development-only prefix for .vectors.tsv,
                     .histograms.tsv, .diagnostic.tsv, and .trace.tsv sidecars.
@@ -212,13 +223,32 @@ crosskmaxdepthratio=3 (ckmdr) Maximum connecting-edge depth relative to the
 crosskpasses=10     (ckpasses) Maximum merge passes after each overlap or
                     bridging phase.
 
-Opt-in fusion example (replace /path/to/bbtools with the installation path):
-tadpole.sh in=reads.fq out=assembly.fa k=96,124,64,32 minprob=0 minprobmain=f fusenet=/path/to/bbtools/networks/tadpole_fusion.bbnet fusencutoff=0.667098
-Optional coverage safeguards for that command:
-  fusecoverageratio=1.75 graphmergecoverageratio=1.75
-Both default off and also work without a network. They use stored contig depths.
+Example disabling both assembly networks while retaining the safeguards:
+tadpole.sh in=reads.fq out=assembly.fa k=96,124,64,32 branchrescue=f fusenet=null
+Coverage safeguards also work without a network; they use stored contig depths.
 
 Assembly parameters:
+assemblydefaults=t Use the recommended assembly policy in the public CLI.
+                    It retains untrimmed short unitigs until graph processing,
+                    counts all valid kmers (minprob=0 minprobmain=f), and uses
+                    simdfma=f for the validated neural scoring arithmetic.
+                    Explicit individual settings win in either order.
+branchrescue=auto  Run the bundled NN postpass before ordinary graph cleanup,
+                    using the original assembly table with no extra read pass.
+                    It joins reciprocal-unique accepted K-1 overlaps; it does
+                    not change the live contig-extension heuristic.
+                    Auto is enabled for explicit canonical DNA at K24-127 with
+                    retained untrimmed unitigs, minextension>=2, mce>=1,
+                    ownership enabled and simdfma=f. Otherwise auto reports why
+                    it is disabled. Explicit t rejects incompatible settings.
+                    Set f to disable independently of other safeguards.
+branchrescuenet=?tadpole_contig_rescue.bbnet
+                    Bundled samek27-v1 model; null disables, a path replaces it.
+branchrescuecutoff=0.7 Minimum accepted postpass score, inclusive.
+initialmergecoverageratio=1.75
+                    Maximum contig mean-depth ratio for initial ordinary direct
+                    merges. Zero disables; otherwise finite >=1. It is restored
+                    before later Multi-K phases, which have separate controls.
 mincountseed=3      (mcs) Minimum kmer count to seed a new contig or begin extension.
 mincountextend=2    (mce) Minimum kmer count continue extension of a read or contig.
                     It is recommended that mce=1 for low-depth metagenomes.
@@ -240,7 +270,7 @@ mincoverage=1       (mincov) Do not write contigs with average coverage below th
 maxcoverage=inf     (maxcov) Do not write contigs with average coverage above this.
 trimends=0          (trim) Trim contig ends by this much.  Trimming by K/2 
                     may yield more accurate genome size estimation.
-trimcircular=t      Trim one end of contigs ending in LOOP/LOOP by K-1,
+trimcircular=f      Trim one end of contigs ending in LOOP/LOOP by K-1,
                     to eliminate the overlapping portion.
 contigpasses=16     Build contigs with decreasing seed depth for this many iterations.
 contigpassmult=1.7  Ratio between seed depth of two iterations.
@@ -270,7 +300,7 @@ graphk=auto          Multi-K only.  Build the final graph at this kmer length.
                     k=96,124,64,32,96 intentionally loads 96 again at the end.
                     Before graph extraction, uniquely overlapping unbranched
                     graph-k ends are joined conservatively.
-graphmergecoverageratio=0
+graphmergecoverageratio=1.75
                     Maximum whole-contig mean-depth ratio for ordinary direct
                     merges in the final Multi-K graph. 0 disables; otherwise
                     finite >=1. Rejects zero-depth ends when enabled.
@@ -278,6 +308,10 @@ graphmergecoverageratio=0
                     table. Initial assembly, cross-K fusion/bridging, indirect
                     bubble removal, and path extraction are not filtered by it.
                     Use fusecoverageratio separately for exact-overlap fusion.
+graphbranchguard=t Reject final implicit graph joins that consume an unresolved
+                    outward branch at either end. Explicit exact-overlap edges
+                    retain their separate fusion safeguards.
+graphoverlapguard=f Optional additional final-graph overlap-conflict veto.
 lowdepthcontigdiag=f (ldcd) Report conservative short, low-depth isolate contigs.
                     Set to early, final, or both to select the assembly-K and/or
                     post-joining graph boundary; t means final.  With both, report
@@ -576,9 +610,8 @@ wash=               Set shave and rinse at the same time.
 maxshavedepth=1     (msd) Shave or rinse kmers at most this deep.
 exploredist=300     (sed) Quit after exploring this far.
 discardlength=150   (sdl) Discard shavings up to this long.
-Note: Shave and rinse can produce substantially better assemblies
-for low-depth data, but they are very slow for large metagenomes.
-So they are recommended to be enabled for optimal results.
+Note: Shave and rinse can improve low-depth assemblies but can be very slow
+for large metagenomes. Enable wash=t when that tradeoff suits the dataset.
 
 Overlap parameters (for overlapping paired-end reads only):
 merge=f             Attempt to merge overlapping reads prior to 

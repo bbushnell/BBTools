@@ -23,19 +23,27 @@ public class TadpoleMulti {
 
 	public static void main(String[] args){
 		args=Tadpole.expandConfigArgs(args);
-		final Config config=new Config(args);
-		new TadpoleMulti(config).process();
+		TadpoleAssemblyPolicy.run(args, true);
 	}
 
-	TadpoleMulti(Config config_){config=config_;}
+	TadpoleMulti(Config config_){this(config_, null);}
+
+	/** Leaves public dispatch unchanged; a development driver may bind the initial table only. */
+	TadpoleMulti(final Config config_, final InitialAssembly initial_){
+		assert(config_!=null) : "The ordered assembly schedule must be validated before construction.";
+		config=config_; initialAssembly=initial_;
+	}
 
 	void process(){
 		final Tadpole longest=Tadpole.makeTadpole(makeArgs(config.assembleK, true), true);
+		if(initialAssembly!=null){initialAssembly.prepare(longest, config);}
 		fusionNeural=makeNeuralGate(longest);
 		try(FusionJoinCollector collector=makeCollector(longest)){
 			fusionCollector=collector;
 			processInner(longest);
 		}finally{
+			longest.liveBranchGate=null;
+			longest.rawContigTransform=null;
 			fusionCollector=null;
 			clearFusionSupport();
 		}
@@ -55,6 +63,12 @@ public class TadpoleMulti {
 		return new FusionNeuralGate(config.fuseNet, config.fuseCutoff);
 	}
 
+	/** The bundled model abstains outside its supported K range; custom bindings stay explicit. */
+	private FusionNeuralGate neuralForK(final int k){
+		assert(k>0) : "Fusion evidence must belong to a resolved positive phase K.";
+		return config.neuralKAllowed(k) ? fusionNeural : null;
+	}
+
 	/** Creates optional evidence sidecars, protecting all source files and final graph outputs. */
 	private FusionJoinCollector makeCollector(final Tadpole longest){
 		if(config.fusionVectorPrefix==null){return null;}
@@ -72,7 +86,14 @@ public class TadpoleMulti {
 		if(!Tools.testOutputFiles(Tadpole.overwrite, Tadpole.append, false, config.out)){
 			throw new RuntimeException("Can't write output file "+config.out+"; overwrite="+Tadpole.overwrite);
 		}
-		longest.process2(Tadpole.contigMode);
+		try{
+			longest.process2(Tadpole.contigMode);
+			checkErrorState(longest);
+			if(initialAssembly!=null){initialAssembly.finish(longest);}
+		}finally{
+			longest.liveBranchGate=null;
+			longest.rawContigTransform=null;
+		}
 		checkErrorState(longest);
 		final EarlyLowDepthTracker earlyLowDepth;
 		if(config.earlyLowDepthDiag()){
@@ -118,9 +139,10 @@ public class TadpoleMulti {
 						config.fuseDeadEndsOnly, config.fuseConflicts);
 				overlapper.support=fusionSupport;
 				overlapper.collector=fusionCollector;
-				overlapper.neural=fusionNeural;
+				overlapper.neural=neuralForK(k);
 				overlapper.allowTrim=config.fuseTrim;
 				overlapper.maxCoverageRatio=config.fuseCoverageRatio;
+				overlapper.shortEvidence=config.fuseShortEvidence;
 				if(overlapper.addEdges()>0){mergeCrossK(longest);}
 				contigs=longest.detachContigs();
 				checkErrorState(longest);
@@ -180,7 +202,8 @@ public class TadpoleMulti {
 			final boolean fuse=Config.contains(config.fuseKs, k);
 			final boolean bridge=Config.contains(config.bridgeKs, k) && (i>0 || config.bridgeInitial);
 			final boolean finish=config.finalGraphNeeded() && i==config.phaseKs.length-1 && k==config.graphK;
-			final boolean evidence=fuse && (config.fusePath || fusionCollector!=null || fusionNeural!=null);
+			final FusionNeuralGate neural=neuralForK(k);
+			final boolean evidence=fuse && (config.fusePath || fusionCollector!=null || neural!=null);
 			Tadpole owner=(i==0 ? initial : null);
 			try{
 				if(owner==null && (evidence || finish || (bridge && countBridgeEndpoints(contigs, k)>=2))){
@@ -194,7 +217,7 @@ public class TadpoleMulti {
 					if(evidence){
 						if(config.fusePath){attachFusionSupport(owner);}
 						if(fusionCollector!=null){fusionCollector.beginPhase(k, config.assembleK-1, false, countProvider(owner));}
-						if(fusionNeural!=null){fusionNeural.beginPhase(k, countProvider(owner));}
+						if(neural!=null){neural.beginPhase(k, countProvider(owner));}
 					}
 					try{contigs=fuseContigs(contigs, initial, k, minContig);}
 					finally{clearFusionSupport();}// Borrower only; owner survives until this phase ends.
@@ -240,9 +263,10 @@ public class TadpoleMulti {
 				false, minContig, config.fuseMaxMismatches, config.fuseDeadEndsOnly, config.fuseConflicts);
 		overlapper.support=fusionSupport;
 		overlapper.collector=fusionCollector;
-		overlapper.neural=fusionNeural;
+		overlapper.neural=neuralForK(k);
 		overlapper.allowTrim=config.fuseTrim;
 		overlapper.maxCoverageRatio=config.fuseCoverageRatio;
+		overlapper.shortEvidence=config.fuseShortEvidence;
 		if(overlapper.addEdges()>0){mergeCrossK(initial);}
 		final ArrayList<Contig> result=initial.detachContigs();
 		checkErrorState(initial);
@@ -309,7 +333,8 @@ public class TadpoleMulti {
 			//Never load another table while this graph table remains live.
 			if(config.fusePath){attachFusionSupport(tad);}
 			if(fusionCollector!=null){fusionCollector.beginPhase(tad.k(), config.assembleK-1, true, countProvider(tad));}
-			if(fusionNeural!=null){fusionNeural.beginPhase(tad.k(), countProvider(tad));}
+			final FusionNeuralGate neural=neuralForK(tad.k());
+			if(neural!=null){neural.beginPhase(tad.k(), countProvider(tad));}
 			graphOverlapBefore=contigs.size();
 			try{
 				final CrossKTipOverlapper overlapper=new CrossKTipOverlapper(contigs, config.graphK,
@@ -317,9 +342,10 @@ public class TadpoleMulti {
 						config.fuseDeadEndsOnly, config.fuseConflicts);
 				overlapper.support=fusionSupport;
 				overlapper.collector=fusionCollector;
-				overlapper.neural=fusionNeural;
+				overlapper.neural=neural;
 				overlapper.allowTrim=config.fuseTrim;
 				overlapper.maxCoverageRatio=config.fuseCoverageRatio;
+				overlapper.shortEvidence=config.fuseShortEvidence;
 				if(overlapper.addEdges()>0){mergeCrossK(tad);}
 			}finally{clearFusionSupport();}
 		}
@@ -338,13 +364,30 @@ public class TadpoleMulti {
 		tad.setContigs(merged);
 		tad.clearContigEdges();
 		final BubblePopper.CoverageGate previousGate=BubblePopper.directCoverageGate;
+		final GraphOverlapGate previousOverlapGate=BubblePopper.directOverlapGate;
+		final GraphBranchGate previousBranchGate=BubblePopper.directBranchGate;
+		final GraphBranchGate branchGate=config.graphMergeBranchGuard ? new GraphBranchGate() : null;
+		final GraphOverlapGate overlapGate=config.graphMergeOverlapGuard
+				? new GraphOverlapGate(config.assembleK-1) : null;
 		final BubblePopper.CoverageGate gate=config.graphMergeCoverageRatio==0 ? null
 				: new BubblePopper.CoverageGate(config.graphMergeCoverageRatio);
 		BubblePopper.directCoverageGate=gate;
+		BubblePopper.directOverlapGate=overlapGate;
+		BubblePopper.directBranchGate=branchGate;
 		try{
 			tad.processContigs();
 		}finally{
 			BubblePopper.directCoverageGate=previousGate;
+			BubblePopper.directOverlapGate=previousOverlapGate;
+			BubblePopper.directBranchGate=previousBranchGate;
+			if(branchGate!=null){
+				System.err.println("Graph merge branch: evaluations="+branchGate.evaluations+
+						", rejected="+branchGate.rejected+".");
+			}
+			if(overlapGate!=null){
+				System.err.println("Graph merge overlap: max="+overlapGate.maxOverlap+", evaluations="+
+						overlapGate.evaluations+", rejected="+overlapGate.rejected+".");
+			}
 			if(gate!=null){
 				System.err.println("Graph merge coverage: ratio="+gate.ratio+", evaluations="+
 						gate.evaluations+", rejected="+gate.rejected+".");
@@ -402,7 +445,8 @@ public class TadpoleMulti {
 
 	/** Loads the sole live table for an initial same-K fusion pass. */
 	private void loadFusionSupport(final int k){
-		if(!config.fusePath && fusionCollector==null && fusionNeural==null){return;}
+		final FusionNeuralGate neural=neuralForK(k);
+		if(!config.fusePath && fusionCollector==null && neural==null){return;}
 		assert(fusionSupport==null && fusionSupportTadpole==null) :
 				"Each serial fusion phase must release its support table before another load.";
 		final Tadpole evidence=Tadpole.makeTadpole(makeFusionSupportArgs(k), true);
@@ -415,7 +459,7 @@ public class TadpoleMulti {
 		checkErrorState(evidence);
 		if(config.fusePath){attachFusionSupport(evidence);}
 		if(fusionCollector!=null){fusionCollector.beginPhase(k, config.assembleK-1, false, countProvider(evidence));}
-		if(fusionNeural!=null){fusionNeural.beginPhase(k, countProvider(evidence));}
+		if(neural!=null){neural.beginPhase(k, countProvider(evidence));}
 	}
 
 	/** Borrows counts only; feature collection must not implicitly enable a path veto. */
@@ -530,6 +574,7 @@ public class TadpoleMulti {
 					|| a.equals("bridgek") || a.equals("graphk") || a.equals("fusemaxmismatches")
 					|| a.equals("fusedeadends") || a.equals("fuseconflicts") || a.equals("fusecoverageratio")
 					|| a.equals("graphmergecoverageratio")
+					|| a.equals("graphbranchguard") || a.equals("graphoverlapguard") || a.equals("fuseshortevidence")
 					|| a.equals("fusepath") || a.equals("fusepathdepth") || a.equals("fusepathflank")
 					|| a.equals("fusetrim") || a.equals("fusesupportk") || a.equals("fusionvectors")
 					|| a.equals("fusenet") || a.equals("fusencutoff") || a.equals("korder")){return true;}
@@ -581,6 +626,12 @@ public class TadpoleMulti {
 					fuseCoverageRatio=Float.parseFloat(b);
 				}else if(a.equals("graphmergecoverageratio")){
 					graphMergeCoverageRatio=Float.parseFloat(b);
+				}else if(a.equals("graphbranchguard")){
+					graphMergeBranchGuard=Parse.parseBoolean(b);
+				}else if(a.equals("graphoverlapguard")){
+					graphMergeOverlapGuard=Parse.parseBoolean(b);
+				}else if(a.equals("fuseshortevidence")){
+					fuseShortEvidence=Parse.parseBoolean(b);
 				}else if(a.equals("fusesupportk")){
 					throw new IllegalArgumentException("Experimental fusesupportk was replaced by fusepath=t (same-K, one table).");
 				}else if(a.equals("fusepath")){
@@ -832,10 +883,13 @@ public class TadpoleMulti {
 		}
 
 		boolean graphOperations(){return simpleOmnitigs || graphCover || outGfa!=null;}
+		/** Automatic models use the corpus/validation K range, never extrapolated long-K features. */
+		boolean neuralKAllowed(final int k){return !automaticFusion || (k>=24 && k<=127);}
 		boolean earlyLowDepthDiag(){return lowDepthContigDiag && (lowDepthContigDiagStage&DIAG_EARLY)!=0;}
 		boolean finalLowDepthDiag(){return lowDepthContigDiag && (lowDepthContigDiagStage&DIAG_FINAL)!=0;}
 		boolean finalGraphNeeded(){
-			return graphOperations() || finalLowDepthDiag() || graphClassificationRequested() || graphMergeCoverageRatio>0;
+			return graphOperations() || finalLowDepthDiag() || graphClassificationRequested()
+					|| graphMergeCoverageRatio>0 || graphMergeBranchGuard || graphMergeOverlapGuard;
 		}
 		boolean explicitGraphClassificationRequested(){
 			return classifyGraphContigs || emitTerminal || emitBranchedTerminal || emitUnanchored || emitLoopback
@@ -968,11 +1022,15 @@ public class TadpoleMulti {
 			if(fuseConflicts){Tadpole.printPlanLine("fuseconflicts", "true");}
 			if(fuseCoverageRatio>0){Tadpole.printPlanLine("fusecoverageratio", ""+fuseCoverageRatio);}
 			if(graphMergeCoverageRatio>0){Tadpole.printPlanLine("graphmergecoverageratio", ""+graphMergeCoverageRatio);}
+			if(graphMergeBranchGuard){Tadpole.printPlanLine("graphbranchguard", "true");}
+			if(graphMergeOverlapGuard){Tadpole.printPlanLine("graphoverlapguard", "true");}
+			if(fuseShortEvidence){Tadpole.printPlanLine("fuseshortevidence", "true");}
 			if(!fuseTrim){Tadpole.printPlanLine("fusetrim", "false");}
 			if(fusionVectorPrefix!=null){Tadpole.printPlanLine("fusionvectors", fusionVectorPrefix);}
 			if(fuseNet!=null){
 				Tadpole.printPlanLine("fusenet", fuseNet);
 				Tadpole.printPlanLine("fusencutoff", ""+fuseCutoff);
+				if(automaticFusion){Tadpole.printPlanLine("fusenetk", "24-127; native safeguards outside this range");}
 			}
 			if(fusePath){
 				Tadpole.printPlanLine("fusepath", "true");
@@ -1012,6 +1070,8 @@ public class TadpoleMulti {
 		String out, outGfa;
 		String fusionVectorPrefix;
 		String fuseNet;
+		/** Set only by the public CLI's automatic bundled-model selection. */
+		boolean automaticFusion=false;
 		float fuseCutoff=Float.NaN;
 		boolean fuseCutoffSet=false;
 		float maxDepthRatio=3;
@@ -1023,6 +1083,12 @@ public class TadpoleMulti {
 		float fuseCoverageRatio=0;
 		/** Optional direct-merge depth policy, scoped only to normal final-graph simplification. */
 		float graphMergeCoverageRatio=0;
+		/** Optional veto installed solely around final graph simplification. */
+		boolean graphMergeOverlapGuard=false;
+		/** Rejects implicit graph joins that consume an unresolved outward branch. */
+		boolean graphMergeBranchGuard=false;
+		/** Evidence veto; does not make short contigs joinable. */
+		boolean fuseShortEvidence=false;
 		boolean fusePath=false;
 		int fusePathDepth=1;
 		int fusePathFlank=0;
@@ -1049,7 +1115,14 @@ public class TadpoleMulti {
 		boolean showStats=true;
 	}
 
+	/** Initial-only hooks never bind to a later count-table owner. */
+	interface InitialAssembly {
+		void prepare(Tadpole tad, Config config);
+		void finish(Tadpole tad);
+	}
+
 	private final Config config;
+	private final InitialAssembly initialAssembly;
 	private Tadpole fusionSupportTadpole;
 	private FusionKmerSupport fusionSupport;
 	private FusionJoinCollector fusionCollector;

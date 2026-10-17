@@ -94,6 +94,7 @@ public class TadPipeTest {
 		tools=Files.createDirectories(root.resolve("tools with spaces"));
 		Files.createDirectories(tools.resolve("networks"));
 		Files.write(tools.resolve("networks/tadpole_fusion.bbnet"), Arrays.asList("fake model"), StandardCharsets.UTF_8);
+		Files.write(tools.resolve("networks/tadpole_contig_rescue.bbnet"), Arrays.asList("fake postpass model"), StandardCharsets.UTF_8);
 		in=Files.write(root.resolve("reads R1.fq"), Arrays.asList("input one"), StandardCharsets.UTF_8);
 		in2=Files.write(root.resolve("reads R2.fq"), Arrays.asList("input two"), StandardCharsets.UTF_8);
 		final String script="#!/bin/bash\nset -eu\nprintf '%s\\n' \"$$\" >> pids.txt\n"+
@@ -126,6 +127,8 @@ public class TadPipeTest {
 		check(plan.get(10).args.get("extra").equals(plan.get(11).args.get("in")), "Merged extension uses unextended residuals.");
 		check(plan.get(11).args.get("extra").equals(plan.get(10).args.get("in")), "Unmerged extension uses unextended merged reads.");
 		check(plan.get(12).args.get("k").equals("124,300,96,64,32"), "Assembly uses the ordered A124 recipe, not TadpoleWrapper.");
+		check(plan.get(12).args.get("fusenet").equals("auto"), "Bundled fusion must retain Tadpole's automatic K-domain check.");
+		check(!plan.get(12).args.containsKey("branchrescue"), "The default pipeline inherits Tadpole's branch-postpass policy.");
 		for(TadPipe.Stage stage : plan){
 			check(stage.command.contains("-Xmx256m") && stage.command.contains("t=1"), "Resources must reach each child.");
 			check(stage.command.get(1).startsWith(tools.toString()), "All phases must use the same BBTools installation.");
@@ -136,7 +139,8 @@ public class TadPipeTest {
 		simple.work=Files.createDirectory(root.resolve("simple"));
 		final ArrayList<TadPipe.Stage> small=simple.plan();
 		check(small.size()==2 && small.get(0).tool.equals("reformat.sh"), "Skipping dedupe must still normalize mate files.");
-		check(!small.get(1).args.containsKey("fusenet"), "nn=f removes the neural gate, not merely its cutoff.");
+		check(small.get(1).args.get("fusenet").equals("null") && small.get(1).args.get("branchrescue").equals("f"),
+				"nn=f explicitly disables both assembly neural gates despite Tadpole's defaults.");
 	}
 
 	/** Assembly-only aliases and arbitrary prefixed controls cannot alter preparation. */
@@ -147,7 +151,8 @@ public class TadPipeTest {
 		for(String prefix : Arrays.asList("", "assemble_")){
 			final TadPipe.Config config=config("override.fa", prefix+"k=96,124,64,32,96",
 					prefix+"assemblek=96", prefix+"graphk=64", prefix+"bridgek=124,64",
-					prefix+"fusek=64,32", "assemble_mincontig=750", "assemble_mcs=2", "assemble_mce=1");
+					prefix+"fusek=64,32", "assemble_mincontig=750", "assemble_mcs=2", "assemble_mce=1",
+					"assemble_initialmergecoverageratio=0");
 			config.validate();
 			final TadPipe pipe=new TadPipe(config, System.err);
 			pipe.work=baseline.work;
@@ -159,7 +164,7 @@ public class TadPipeTest {
 			}
 			final TadPipe.Stage assembly=changed.get(changed.size()-1);
 			for(String arg : Arrays.asList("k=96,124,64,32,96", "assemblek=96", "graphk=64",
-					"bridgek=124,64", "fusek=64,32", "mincontig=750", "mcs=2", "mce=1")){
+					"bridgek=124,64", "fusek=64,32", "mincontig=750", "mcs=2", "mce=1", "initialmergecoverageratio=0")){
 				check(assembly.command.contains(arg), "The final child must receive this override without its prefix: "+arg);
 			}
 		}
@@ -344,6 +349,14 @@ public class TadPipeTest {
 		failed=false;
 		try{new TadPipe(modelAlias, System.err).process();}catch(IOException expected){failed=true;}
 		check(failed, "Publication must not replace the model needed by the assembly.");
+		final TadPipe.Config branchAlias=config("unused.fa", "overwrite=t");
+		branchAlias.out=tools.resolve("networks/tadpole_contig_rescue.bbnet");
+		failed=false;
+		try{new TadPipe(branchAlias, System.err).process();}catch(IOException expected){failed=true;}
+		check(failed, "Publication must protect the inherited branch model before any stage runs.");
+		final TadPipe.Config automatic=config("auto-model.fa", "assemble_fusenet=auto");
+		automatic.validate();
+		check(automatic.overrides.get("assemble").get("fusenet").equals("auto"), "Automatic fusion is not a custom file requiring a cutoff.");
 	}
 
 	/** A valid compressed empty file must not pass the final nonempty-assembly gate. */

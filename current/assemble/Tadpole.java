@@ -81,28 +81,7 @@ public abstract class Tadpole extends ShaveObject{
 			finally{Shared.closeStream(outstream);}
 			return;
 		}
-		if(TadpoleMulti.hasMultipleK(args)){
-			if(TadpoleGraph.requested(args)){
-				throw new IllegalArgumentException("Graph-only mode currently requires one k value, not a multi-K assembly schedule.");
-			}
-			TadpoleMulti.main(args);
-			Shared.closeStream(outstream);
-			return;
-		}
-		Timer t=new Timer(), t2=new Timer();
-		t.start();
-		t2.start();
-
-		final Tadpole x=makeTadpole(args, true);
-		x.printExecutionPlan();
-		t2.stop();
-		outstream.println("Initialization Time:      \t"+t2);
-		
-		///And run it
-		x.process(t);
-		
-		//Close the print stream if it was redirected
-		Shared.closeStream(outstream);
+		TadpoleAssemblyPolicy.run(args, false);
 	}
 	
 	/**
@@ -1625,6 +1604,11 @@ public abstract class Tadpole extends ShaveObject{
 		
 		if(allContigs!=null){
 			Shared.sort(allContigs, ContigLengthComparator.comparator);//longest-first (ContigLengthComparator default)
+			if(rawContigTransform!=null){
+				allContigs=rawContigTransform.apply(allContigs);
+				if(allContigs==null){throw new IllegalStateException("Raw contig transform returned no population.");}
+				Shared.sort(allContigs, ContigLengthComparator.comparator);
+			}
 			if(evictLowDepthContigs){evictLowDepthContigs("pre-graph");}
 			if(processContigs){
 				processContigs();
@@ -4629,6 +4613,8 @@ public abstract class Tadpole extends ShaveObject{
 	LiveBranchObserver liveBranchObserver;
 	/** Development-only interior rescue; null preserves all native branch decisions. */
 	LiveBranchGate liveBranchGate;
+	/** Optional experiment on all formed unitigs, before ordinary initial graph cleanup. */
+	java.util.function.UnaryOperator<ArrayList<Contig>> rawContigTransform;
 	protected ThreadLocal<int[]> localLeftCounts=new ThreadLocal<int[]>();
 	protected ThreadLocal<int[]> localRightCounts=new ThreadLocal<int[]>();
 	protected ThreadLocal<int[]> localExtraCounts=new ThreadLocal<int[]>();

@@ -216,7 +216,8 @@ public final class SameKJoinMerge {
 			// A degree-two component with no free end is a cycle. Preserve original
 			// unitigs rather than opening it arbitrarily or duplicating its closure.
 			result.cycleUnitigs++;
-			result.add(input.get(id).bases.clone(), id+"+");
+			final Contig original=input.get(id);
+			copyOuterEnds(result.add(original.bases.clone(), id+"+"), original, false, original, false);
 			used[id]=true;
 		}
 		assert(result.contigs.size()+result.joins==input.size()) : "Each linear join absorbs one unitig; cycles absorb none.";
@@ -246,7 +247,29 @@ public final class SameKJoinMerge {
 			previous=c; previousReverse=reverse;
 			entry=mate[entry^1];
 		}
-		result.add(bases.toBytes(), path.toString());
+		copyOuterEnds(result.add(bases.toBytes(), path.toString()), input.get(start/2), (start&1)==1,
+				previous, previousReverse);
+	}
+
+	/**
+	 * Exact joining removes internal ends only. Preserve the physical outer ends
+	 * for later bridge/fusion eligibility; default integer zero is not topology.
+	 * Coverage is intentionally recomputed from the caller's live count table.
+	 */
+	private static void copyOuterEnds(final Contig target, final Contig first, final boolean firstReverse,
+			final Contig last, final boolean lastReverse){
+		assert(target!=null && first!=null && last!=null) : "Every spelled path has two surviving physical outer ends.";
+		target.leftCode=firstReverse ? first.rightCode : first.leftCode;
+		target.leftRatio=firstReverse ? first.rightRatio : first.leftRatio;
+		target.leftBridgeEndpoint=firstReverse ? first.rightBridgeEndpoint : first.leftBridgeEndpoint;
+		target.leftFusionEndpoint=firstReverse ? first.rightFusionEndpoint : first.leftFusionEndpoint;
+		target.graphLeftLimited=firstReverse ? first.graphRightLimited : first.graphLeftLimited;
+		target.rightCode=lastReverse ? last.leftCode : last.rightCode;
+		target.rightRatio=lastReverse ? last.leftRatio : last.rightRatio;
+		target.rightBridgeEndpoint=lastReverse ? last.leftBridgeEndpoint : last.rightBridgeEndpoint;
+		target.rightFusionEndpoint=lastReverse ? last.leftFusionEndpoint : last.rightFusionEndpoint;
+		target.graphRightLimited=lastReverse ? last.graphLeftLimited : last.graphRightLimited;
+		target.tid=first.tid==last.tid ? first.tid : -1;
 	}
 
 	/** Case/orientation-normalized sequence equality is mandatory, not merely a hash hit. */
@@ -318,10 +341,12 @@ public final class SameKJoinMerge {
 
 	/** Persistent spelled products and their original-unitig paths; no input is mutated. */
 	static final class Result {
-		void add(final byte[] bases, final String path){
+		Contig add(final byte[] bases, final String path){
 			assert(bases!=null && path!=null) : "Every output component retains its sequence and provenance.";
 			final int id=contigs.size();
-			contigs.add(new Contig(bases, "samek_"+id, id)); paths.add(path);
+			final Contig result=new Contig(bases, "samek_"+id, id);
+			contigs.add(result); paths.add(path);
+			return result;
 		}
 		final ArrayList<Contig> contigs=new ArrayList<Contig>();
 		final ArrayList<String> paths=new ArrayList<String>();

@@ -320,6 +320,15 @@ public class BubblePopper {
 		if(!crossKMerge && directCoverageGate!=null && !directCoverageGate.accept(center, dest)){
 			return false;
 		}
+		if(!crossKMerge && directOverlapGate!=null && !directOverlapGate.accept(center, dest, leftEdge, kbig)){
+			return false;
+		}
+		if(!crossKMerge && directBranchGate!=null && !directBranchGate.accept(center, dest, leftEdge, kbig)){
+			return false;
+		}
+		if(verbose && !crossKMerge){
+			printDirectTopology(leftEdge, outboundRight, inbound, inboundRight, rightCode);
+		}
 		
 		if(leftEdge.destRight()){
 			dest.flip(destMap.get(dest.id));
@@ -336,6 +345,26 @@ public class BubblePopper {
 		final boolean merged=merge(center, dest, leftEdge);
 		if(crossKMerge && merged){crossKMerged++;}
 		return merged;
+	}
+
+	/** Logs accepted ordinary-path topology before destination flipping changes edge orientation. */
+	private void printDirectTopology(final Edge edge, final ArrayList<Edge> returns,
+			final int sourceInbound, final int destInbound, final int destCode){
+		assert(center!=null && dest!=null && edge!=null) :
+				"Direct topology tracing requires the live inputs selected by expandRightSimple().";
+		final ByteBuilder row=new ByteBuilder(400);
+		row.append("GraphMergeTopology").tab().append(kbig).tab().append(center.id).tab().append(dest.id);
+		row.tab().append(center.length()).tab().append(dest.length());
+		row.tab().append(center.rightCode).tab().append(destCode).tab().append(edge.orientation);
+		row.tab().append(center.rightEdgeCount()).tab().append(returns==null ? 0 : returns.size());
+		row.tab().append(sourceInbound).tab().append(destInbound);
+		row.tab().append(Float.toString(center.coverage)).tab().append(Float.toString(dest.coverage));
+		row.tab().append(Float.toString(center.rightRatio));
+		row.tab().append(Float.toString(edge.destRight() ? dest.rightRatio : dest.leftRatio));
+		row.tab();
+		if(returns==null){row.append('.');}
+		else{row.append(returns.toString());}
+		System.err.println(row);
 	}
 	
 	/**
@@ -911,6 +940,7 @@ public class BubblePopper {
 
 		assert(!validateGraph || validate(left));
 		assert(!validateGraph || validate(right));
+		if(verbose && !crossKMerge){printDirectMerge(left, right, leftEdge);}
 		
 		bb.clear();
 		final int originalLeftLength=left.length();
@@ -985,6 +1015,29 @@ public class BubblePopper {
 		assert(!validateGraph || validate(right));
 		
 		return true;
+	}
+
+	/**
+	 * Logs already-oriented inputs before a direct merge mutates either contig.
+	 * TSV: tag, K, left/right IDs, left/right lengths, edge length, effective overlap,
+	 * left/right trims, depth, orientation, left-window offset, left tail, right head,
+	 * and edge bases (a dot means absent). Windows are capped at500 bases each.
+	 * This is diagnostic evidence only; no reference or decision logic is added.
+	 */
+	private void printDirectMerge(final Contig left, final Contig right, final Edge edge){
+		assert(left!=null && right!=null && edge!=null) :
+				"Direct-merge tracing must record the actual inputs consumed by merge().";
+		final int leftStart=Math.max(0, left.length()-500);
+		final ByteBuilder row=new ByteBuilder(1200);
+		row.append("GraphMerge").tab().append(kbig).tab().append(left.id).tab().append(right.id);
+		row.tab().append(left.length()).tab().append(right.length()).tab().append(edge.length);
+		row.tab().append(edge.overlap>0 ? edge.overlap : kbig);
+		row.tab().append(edge.sourceTrim).tab().append(edge.destTrim).tab().append(edge.depth);
+		row.tab().append(edge.orientation).tab().append(leftStart);
+		row.tab().append(left.bases, leftStart, left.length()-leftStart);
+		row.tab().append(right.bases, 0, Math.min(500, right.length())).tab();
+		if(edge.bases==null){row.append('.');}else{row.append(edge.bases);}
+		System.err.println(row);
 	}
 
 	private static boolean exactOverlap(Contig left, Contig right, int overlap, int sourceTrim, int destTrim){
@@ -1397,6 +1450,10 @@ public class BubblePopper {
 	static FusionKmerSupport crossKSupport;
 	/** Optional serial final-graph policy; TadpoleMulti installs/restores it around final processing only. */
 	static CoverageGate directCoverageGate;
+	/** Experimental final-only overlap-conflict veto; null preserves existing behavior. */
+	static GraphOverlapGate directOverlapGate;
+	/** Experimental final-only implicit-path branch veto; null preserves existing behavior. */
+	static GraphBranchGate directBranchGate;
 	long crossKMergeEvaluations=0;
 	long crossKMerged=0;
 	long crossKRejectedSourceShape=0;
