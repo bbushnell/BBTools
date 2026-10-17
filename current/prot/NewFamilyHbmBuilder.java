@@ -155,7 +155,8 @@ public final class NewFamilyHbmBuilder {
 		return result;
 	}
 
-	private static double[] readBackground(String file){
+	/** Shared builder/composer check for the frozen twenty-residue scoring background. */
+	static double[] readBackground(String file){
 		final List<String[]> rows=HmmComparisonData.rows(file);
 		require(rows.size()==21 && String.join("\t", rows.get(0)).equals("residue_code\tprobability"), "Background requires twenty ordered residue probabilities");
 		final double[] background=new double[20]; double sum=0;

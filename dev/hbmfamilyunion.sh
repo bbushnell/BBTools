@@ -12,6 +12,14 @@ their respective manifests for bounded checks. Defaults include every family.
 The output keeps all selected graphs unchanged, retains permanent IDs, emits
 dense consensus indexes for the sidecar, and verifies a native bundle round trip.
 The position-score background remains the explicitly pinned original background.
+Use newonly=t to compose an independent addition without resources or old* flags.
+Its source indexes may start above zero; output indexes are dense from zero and
+FASTA headers retain source_active_index. All singleton provenance checks apply.
+To reuse several previously built batches, pass newinputs=batches.tsv and
+newinputssha80=PIN instead of newsource/newruntime/newfamilies. Its tab-separated
+header is manifest,manifest_sha80,source,runtime,families. newmanifest must be
+the concatenation of those complete member manifests (one header). Each model
+is checked against its own original manifest and runtime, without rebuilding.
 HELP
  exit 0
 fi

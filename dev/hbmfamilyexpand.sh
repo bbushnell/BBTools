@@ -8,6 +8,11 @@ Usage: hbmfamilyexpand.sh mode=select in=clusters.tsv original=familylist.tsv
        hbmfamilyexpand.sh mode=extract in=clusters.tsv selected=prefix.selected.tsv
          seqs=families_all_seqs.fasta out=NEW_DIRECTORY
 Selection ranks unrepresented original clusters by membership count, then ID.
+Repeat reserved=prior.selected.tsv in build order to exclude prior additions
+and reserve their permanent IDs. Each file must continue the previous selection
+exactly; keep these small files for every batch, even after installing its pack.
+For an existing roster plus additions of 4000 and 100 families, pass both
+reservation files and count=7900 to select the remainder of the next pack.
 Extraction validates every selected ID against MMseqs segmented FASTA records.
 The original empty cluster-boundary headers are required in seqs=.
 Default heap: 4g. Existing outputs are refused. One input-processing thread.

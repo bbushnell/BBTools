@@ -29,15 +29,27 @@ The complete model directory is required, not just model.hbmc.gz. It contains
 the matching consensus, family roster, shortlist and supporting tables, with
 artifacts.tsv identifying their contents. Keep those files together. Labels are
 bound to the family identity and consensus; a mismatched release is rejected.
-The default models=?bbgap/models uses standard BBTools resource lookup. Labels
-are found in labels/family_labels.tsv.gz (or .tsv) beside the resolved models
-directory, so models and labels come from the same installation. The default
-installation requires both. Use labels=null to request family assignments
-without names.
+The default reference=?bbgap uses standard BBTools resource lookup. It loads
+the original bbgap/models package and compatible released packs under
+bbgap/packs/ID/. Later packs install alongside the original archive without
+replacing it; an installation containing only later packs is also supported.
+Declared load order makes results independent of directory enumeration order.
+Test/development packs are excluded unless includetest=t is explicitly supplied.
+Keep development examples separate from released reference downloads.
 
-For an alternate package, supply models=/path/to/bundle/models. Its sibling
+Labels are found beside each model directory in labels/family_labels.tsv.gz.
+The original package also accepts an uncompressed .tsv. Label tables retain
+their own pack-local family order and must match that pack's identity and
+consensus. The default installation requires names; labels=null requests family
+assignments without names across every enabled pack.
+
+For a different installation root, use reference=/path/to/bbgap. For exactly
+one package, supply models=/path/to/bundle/models; other installed packs are
+then excluded. Do not combine models= and reference=. Its sibling
 labels are used when present; otherwise only family assignments are emitted.
-An explicit labels=/path/to/file.tsv.gz overrides that selection. Both options
+An explicit labels=/path/to/file.tsv.gz overrides names for a single selected
+pack and must still match its scientific identity/consensus. A single label
+file cannot override a multi-pack installation. These path options
 support the usual ? prefix for resource lookup. You can retain several reference
 versions in separate directories and choose one explicitly.
 
@@ -69,6 +81,12 @@ Family assignment also does not establish an exact substrate or enzyme activity.
 
 bbgap_family_id identifies the family; bbgap_rep_id identifies its representative.
 bbgap_package and bbgap_label_version identify the model and label versions.
+With explicit additional packs, bbgap_pack identifies an assigned family’s
+pack, and bbgap_reference identifies the complete competition space. Unassigned
+or unsupported rows have no winning pack; their bbgap_package identifies that
+competition space. Modular evidence adds a pack_id column and #pack metadata
+with each pack's model, identity, consensus and label version. Legacy-only
+output retains the original fields and evidence columns.
 bbgap_product contains the selected product, if any. Read it together with
 bbgap_label_class rather than interpreting every product as equally supported.
 
@@ -98,7 +116,8 @@ through one eggNOG donor do not constitute several independent votes.
 Assignment and translation limits
 ---------------------------------
 
-The current search considers the top 50 F4 candidates, uses positional HBM
+The current search considers one global top 50 F4 shortlist across all enabled
+families, uses positional HBM
 alignment, and accepts the highest-scoring eligible family at identity at least
 40.612846% and mutual paired-core coverage at least 0.8. Representative-ID ties
 are deterministic. Partial genes use the same coverage rule, so truncation can

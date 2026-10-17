@@ -8,6 +8,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
+import java.util.HashMap;
 import java.util.Locale;
 import java.util.PriorityQueue;
 
@@ -46,6 +47,7 @@ public final class AdditionalFamilySelector {
 			final String b=(eq<0 ? null : arg.substring(eq+1));
 			if(a.equals("original")){original=b;}
 			else if(a.equals("roster")){roster=b;}
+			else if(a.equals("reserved")){require(b!=null && !b.isEmpty(), "reserved= needs an ordered prior selection file"); reservations.add(b);}
 			else if(a.equals("count")){count=Integer.parseInt(b);}
 			else if(a.equals("expectedfamilies")){expectedFamilies=Long.parseLong(b);}
 			else if(a.equals("expectedgenes")){expectedGenes=Long.parseLong(b);}
@@ -66,6 +68,8 @@ public final class AdditionalFamilySelector {
 		final boolean[] represented=loadRoster(roots.size());
 		final HashSet<String> excluded=new HashSet<String>();
 		for(int i=0; i<roots.size(); i++){if(represented[i]){excluded.add(roots.get(i));}}
+		final int originalExclusions=excluded.size();
+		loadReservations(excluded);
 		final HashSet<String> seen=new HashSet<String>();
 		final PriorityQueue<Family> largest=new PriorityQueue<Family>(count, BEST.reversed());
 		final ByteFile bf=ByteFile.makeByteFile(in, true);
@@ -93,6 +97,7 @@ public final class AdditionalFamilySelector {
 		require(expectedFamilies<0 || seen.size()==expectedFamilies, "Cluster total differs: "+seen.size()+" expected="+expectedFamilies);
 		require(expectedGenes<0 || rows==expectedGenes, "Membership total differs: "+rows+" expected="+expectedGenes);
 		for(String id : roots){require(seen.contains(id), "Original selected representative absent from cluster corpus: "+id);}
+		for(String id : reservedCounts.keySet()){require(seen.contains(id), "Reserved representative absent from cluster corpus: "+id);}
 		ArrayList<Family> selected=new ArrayList<Family>(largest);
 		Collections.sort(selected, BEST);
 		ByteStreamWriter bw=writer(".selected.tsv");
@@ -107,12 +112,41 @@ public final class AdditionalFamilySelector {
 		for(int i=0; i<roots.size(); i++){if(represented[i]){bw.print(i).tab().print(roots.get(i)).nl();}}
 		close(bw);
 		bw=writer(".summary.tsv");
-		bw.print("metric\tvalue\ncurrent_families\t").print(activeCount).print("\nexcluded_original_roots\t").print(excluded.size())
+		bw.print("metric\tvalue\ncurrent_families\t").print(activeCount).print("\nexcluded_original_roots\t").print(originalExclusions)
 			.print("\nsource_families\t").print(seen.size()).print("\nsource_memberships\t").print(rows)
 			.print("\nselected_families\t").print(selected.size()).print("\nselected_memberships\t").print(selectedMembers)
 			.print("\nsmallest_selected_family\t").print(selected.get(selected.size()-1).members).nl();
 		close(bw);
-		log.println("ADDITIONAL_FAMILY_SELECTION_PASS selected="+selected.size()+" members="+selectedMembers+" excluded_roots="+excluded.size());
+		log.println("ADDITIONAL_FAMILY_SELECTION_PASS selected="+selected.size()+" members="+selectedMembers+" excluded_roots="+originalExclusions);
+	}
+
+	/** Prior selections reserve both ancestry and IDs without changing released rosters. */
+	private void loadReservations(HashSet<String> excluded){
+		for(String path : reservations){
+			final ByteFile bf=ByteFile.makeByteFile(path, true);
+			final LineParser1 lp=new LineParser1('\t');
+			boolean header=false;
+			int n=0;
+			try{
+				for(byte[] row=bf.nextLine(); row!=null; row=bf.nextLine()){
+					lp.set(row);
+					if(!header){
+						require(lp.terms()==4 && lp.termEquals("active_index", 0) && lp.termEquals("family_id", 1)
+							&& lp.termEquals("rep_id", 2) && lp.termEquals("member_count", 3), "Expected selector reservation header: "+path);
+						header=true; continue;
+					}
+					require(lp.terms()==4 && lp.parseInt(0)==activeCount, "Reservation active indexes must continue the roster in file order: "+path+" expected="+activeCount);
+					final int id=lp.parseInt(1), members=lp.parseInt(3);
+					final String rep=lp.parseString(2);
+					require(id==Math.addExact(maxId, 1) && lp.termEquals(Integer.toString(id), 1), "Reservation IDs must continue the maximum permanent ID: "+path+" id="+id);
+					require(members>0 && !rep.isEmpty() && excluded.add(rep) && rosterReps.add(rep), "Duplicate represented cluster or invalid reservation: "+rep);
+					reservedCounts.put(rep, new Family(rep, members));
+					maxId=id; activeCount=Math.addExact(activeCount, 1); n++;
+				}
+			}finally{require(!bf.close(), "Reservation input I/O failure: "+path);}
+			require(header && n>0, "Empty reservation file: "+path);
+		}
+		require(maxId<Integer.MAX_VALUE-count && activeCount<=Integer.MAX_VALUE-count, "New selection would overflow family IDs or active indexes");
 	}
 
 	/** The original list defines permanent IDs by contiguous rank, independently of the current roster. */
@@ -138,7 +172,7 @@ public final class AdditionalFamilySelector {
 	/** Supports original IDs or direct original-parent IDs; unknown lineage fails instead of guessing. */
 	private boolean[] loadRoster(int rootCount){
 		final boolean[] represented=new boolean[rootCount];
-		final HashSet<String> ids=new HashSet<String>(), reps=new HashSet<String>();
+		final HashSet<String> ids=new HashSet<String>();
 		final LineParser1 lp=new LineParser1('\t');
 		final ByteFile bf=ByteFile.makeByteFile(roster, true);
 		boolean header=false;
@@ -155,7 +189,7 @@ public final class AdditionalFamilySelector {
 				final int id=lp.parseInt(1), root=lp.termEquals("NA", 4) ? id : lp.parseInt(4);
 				require(lp.termEquals(Integer.toString(id), 1) && (lp.termEquals("NA", 4) || lp.termEquals(Integer.toString(root), 4)),
 					"Roster IDs must use canonical decimal spelling at active index "+activeCount);
-				require(id>=0 && id<Integer.MAX_VALUE-count && ids.add(lp.parseString(1)) && reps.add(lp.parseString(2)),
+				require(id>=0 && id<Integer.MAX_VALUE-count && ids.add(lp.parseString(1)) && rosterReps.add(lp.parseString(2)),
 					"Invalid or duplicate permanent ID/representative at active index "+activeCount);
 				require(root>=0 && root<rootCount, "Unresolved original ancestor: family="+id+", parent="+root);
 				represented[root]=true; maxId=Math.max(maxId, id); activeCount++;
@@ -167,6 +201,8 @@ public final class AdditionalFamilySelector {
 
 	private void accept(String rep, int n, int self, HashSet<String> excluded, PriorityQueue<Family> largest){
 		require(n>0 && self==1, "Cluster must have exactly one representative member: "+rep+" size="+n+" self="+self);
+		final Family reserved=reservedCounts.get(rep);
+		require(reserved==null || reserved.members==n, "Reserved cluster membership changed: "+rep+" observed="+n);
 		if(excluded.contains(rep)){return;}
 		Family f=new Family(rep, n);
 		if(largest.size()<count){largest.add(f);}
@@ -206,6 +242,9 @@ public final class AdditionalFamilySelector {
 		@Override public int compare(Family a, Family b){int n=Integer.compare(b.members, a.members); return n==0 ? a.rep.compareTo(b.rep) : n;}
 	};
 	private String original, roster, in, out;
+	private final ArrayList<String> reservations=new ArrayList<String>();
+	private final HashSet<String> rosterReps=new HashSet<String>();
+	private final HashMap<String, Family> reservedCounts=new HashMap<String, Family>();
 	private int count=4000, activeCount=0, maxId=-1;
 	private long rows, expectedFamilies=-1, expectedGenes=-1;
 	private final PrintStream log;

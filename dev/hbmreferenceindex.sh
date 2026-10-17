@@ -8,6 +8,9 @@ coveringset: families=TABLE out=FILE summary=FILE alphabet=amino k=5 kdesign=6
   step=50 target=.999 minhits=1 maxfamilies=0 streamfamilies=t t=1
 sidecar: consensus=FASTA familiesdir=NUMERIC_FASTA_DIRECTORY kmersets=FILE
   out=FILE variant=centered rawpseudo=0 background=families
+  backgroundfrom=SIDECAR backgroundsha80=PIN optionally reuses an existing
+  sidecar's exact composition background. PIN hashes its stored bytes (including
+  compression). The composition recipe must match. Default: derive from families.
 The bare argument selftest runs the selected producer's existing fixture.
 This launcher does not activate the experimental reference in ProkCC.
 HELP

@@ -23,6 +23,8 @@ import parse.Parse;
 import parse.Parser;
 import parse.PreParser;
 import prot.ProteinFamilyAssigner;
+import prot.ProteinFamilyCompetition;
+import prot.ProteinFamilyPacks;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
@@ -53,7 +55,7 @@ public final class AnnotateGenes implements Accumulator<AnnotateGenes.ProcessThr
 	public AnnotateGenes(String[] args) throws IOException{
 		final PreParser pp=new PreParser(args, getClass(), false); outstream=pp.outstream;
 		final Parser parser=new Parser(); parser.overwrite=true;
-		boolean modelsSpecified=false, labelsSpecified=false;
+		boolean modelsSpecified=false, labelsSpecified=false, referenceSpecified=false;
 		for(String arg : pp.args){
 			final int eq=arg.indexOf('=');
 			final String key=(eq<0 ? arg : arg.substring(0, eq)).toLowerCase(Locale.ROOT);
@@ -74,6 +76,8 @@ public final class AnnotateGenes implements Accumulator<AnnotateGenes.ProcessThr
 				require(gff==null, "Multiple GFF inputs: "+gff+" and "+value);
 				gff=value;
 			}else if(key.equals("models")){models=value; modelsSpecified=true;}
+			else if(key.equals("reference")){reference=value; referenceSpecified=true;}
+			else if(key.equals("includetest")){includeTest=Parse.parseBoolean(value);}
 			else if(key.equals("labels")){labelFile=value; labelsSpecified=true;}
 			else if(key.equals("evidence")){evidence=value;}
 			else if(key.equals("transl_table") || key.equals("table")){table=Parse.parseIntKMG(value);}
@@ -83,36 +87,53 @@ public final class AnnotateGenes implements Accumulator<AnnotateGenes.ProcessThr
 		require(in!=null && gff!=null && out!=null, "Required: genome.fna calls.gff out=annotated.gff (or in=genome.fna gff=calls.gff)");
 		require(parser.in2==null && parser.out2==null && !parser.append && parser.maxReads<0,
 			"AnnotateGenes requires whole unpaired FASTA input and does not support append, in2, out2 or maxreads");
-		final String requestedModels=models;
-		models=models==null ? null : Data.findPath(models, false);
-		require(models!=null && new File(models).isDirectory(), "Model package directory not found: "+requestedModels
-			+". Extract the BBGAP reference tar into BBTools/resources/ to create bbgap/models/ and bbgap/labels/, or specify models=DIR.");
+		require(!modelsSpecified || !referenceSpecified, "Specify either models=DIR for one package or reference=DIR for pack discovery");
+		require(!modelsSpecified || !includeTest, "includetest applies to reference discovery, not an explicit models directory");
+		if(modelsSpecified){
+			final String requestedModels=models;
+			models=models==null ? null : Data.findPath(models, false);
+			require(models!=null && new File(models).isDirectory(), "Model package directory not found: "+requestedModels
+				+". Extract the BBGAP reference tar into BBTools/resources/, or specify models=DIR.");
+		}else{
+			final String requestedReference=reference;
+			reference=reference==null ? null : Data.findPath(reference, false);
+			require(reference!=null && new File(reference).isDirectory(), "BBGAP reference directory not found: "+requestedReference
+				+". Extract reference tar files into BBTools/resources/ to create bbgap/.");
+			packs=ProteinFamilyPacks.discover(Paths.get(reference), includeTest);
+			models=packs[0].models.toString();
+		}
+		labelFiles=new String[packs==null ? 1 : packs.length];
 		if(labelsSpecified){
 			if(labelFile!=null){
+				labelOverride=true;
+				require(labelFiles.length==1, "A labels=FILE override requires a single pack; use pack-local labels or labels=null");
 				final String requestedLabels=labelFile;
 				labelFile=Data.findPath(labelFile, false);
 				require(labelFile!=null, "Family labels not found: "+requestedLabels);
+				labelFiles[0]=labelFile;
 			}
 		}else{
 			// Resolve labels beside the selected models, never from another resource installation.
-			final File bundle=new File(models).getCanonicalFile().getParentFile();
-			final File compressed=new File(bundle, "labels/family_labels.tsv.gz");
-			final File raw=new File(bundle, "labels/family_labels.tsv");
-			labelFile=compressed.isFile() ? compressed.getPath() : raw.isFile() ? raw.getPath() : null;
-			require(modelsSpecified || labelFile!=null, "The installed BBGAP package is missing labels/family_labels.tsv.gz. "
-				+"Extract the complete reference tar into BBTools/resources/, or use labels=null for family assignments without names.");
+			for(int p=0; p<labelFiles.length; p++){
+				final File bundle=packs==null ? new File(models).getCanonicalFile().getParentFile() : packs[p].root.toFile();
+				final File compressed=new File(bundle, "labels/family_labels.tsv.gz");
+				final File raw=new File(bundle, "labels/family_labels.tsv");
+				labelFiles[p]=compressed.isFile() ? compressed.getPath() : raw.isFile() ? raw.getPath() : null;
+				require(modelsSpecified || labelFiles[p]!=null, "The installed BBGAP package is missing labels/family_labels.tsv.gz. "
+					+"Extract the complete reference tar into BBTools/resources/, or use labels=null for family assignments without names.");
+			}
+			labelFile=labelFiles[0];
 		}
 		GeneticCode.forTable(table);
 		require(Shared.threads()>0, "At least one alignment thread is required");
-		require(Tools.testInputFiles(false, true, in, gff, labelFile), "An AnnotateGenes input is unreadable");
+		require(Tools.testInputFiles(false, true, inputPaths()), "An AnnotateGenes input is unreadable");
 		require(Tools.testOutputFiles(overwrite, false, false, out, evidence), "Cannot write AnnotateGenes output");
 		validatePaths();
 	}
 
 	/** Canonical paths catch aliases before any writer can truncate an input. */
 	private void validatePaths() throws IOException{
-		final Path modelRoot=new File(models).getCanonicalFile().toPath();
-		final String[] sources={in, gff, labelFile}, targets={out, evidence};
+		final String[] sources=inputPaths(), targets={out, evidence};
 		int standardInputs=0, standardOutputs=0;
 		for(String source : sources){
 			if(source!=null && FileFormat.testInput(source, FileFormat.TEXT, null, false, false).stdin()){standardInputs++;}
@@ -124,11 +145,24 @@ public final class AnnotateGenes implements Accumulator<AnnotateGenes.ProcessThr
 		for(int i=0; i<targets.length; i++){
 			if(targets[i]==null){continue;}
 			final File target=new File(targets[i]).getCanonicalFile();
-			require(!target.toPath().startsWith(modelRoot), "Outputs must not overwrite the immutable model package: "+target);
-			if(Files.isDirectory(modelRoot)){
-				try(DirectoryStream<Path> members=Files.newDirectoryStream(modelRoot)){
-					for(Path member : members){
-						require(!sameFile(target, member.toFile()), "Output aliases a model package member: "+target);
+			for(int p=0; p<labelFiles.length; p++){
+				final Path modelRoot=(packs==null ? new File(models) : packs[p].models.toFile()).getCanonicalFile().toPath();
+				final Path protectedRoot=packs!=null && !packs[p].legacy ? packs[p].root.toRealPath() : modelRoot;
+				require(!target.toPath().startsWith(modelRoot) && !target.toPath().startsWith(protectedRoot),
+					"Outputs must not overwrite the immutable model package: "+target);
+				if(Files.isDirectory(modelRoot)){
+					try(DirectoryStream<Path> members=Files.newDirectoryStream(modelRoot)){
+						for(Path member : members){
+							require(!sameFile(target, member.toFile()), "Output aliases a model package member: "+target);
+						}
+					}
+				}
+				if(packs!=null && !packs[p].legacy){
+					for(String name : new String[]{"pack_manifest.tsv", "pack_manifest.tsv.gz", "manifest.tsv", "manifest.tsv.gz", "labels/family_labels.tsv.gz"}){
+						require(!sameFile(target, packs[p].root.resolve(name).toFile()), "Output aliases a reference pack member: "+target);
+					}
+					for(Path member : packs[p].payloadFiles()){
+						require(!sameFile(target, member.toFile()), "Output aliases a reference pack payload: "+target);
 					}
 				}
 			}
@@ -140,6 +174,10 @@ public final class AnnotateGenes implements Accumulator<AnnotateGenes.ProcessThr
 			}
 		}
 		require(!sameFile(new File(in).getCanonicalFile(), new File(gff).getCanonicalFile()), "FASTA and GFF must be separate inputs");
+	}
+	private String[] inputPaths(){
+		final String[] inputs=new String[2+labelFiles.length]; inputs[0]=in; inputs[1]=gff;
+		System.arraycopy(labelFiles, 0, inputs, 2, labelFiles.length); return inputs;
 	}
 	private static boolean sameFile(final File a, final File b) throws IOException{
 		return a.equals(b) || (a.exists() && b.exists() && Files.isSameFile(a.toPath(), b.toPath()));
@@ -153,17 +191,25 @@ public final class AnnotateGenes implements Accumulator<AnnotateGenes.ProcessThr
 		final HashMap<String,byte[]> scaffolds=readScaffolds(in);
 		final AnnotationGff document=AnnotationGff.load(gff, scaffolds, table);
 		outstream.println("Loaded "+scaffolds.size()+" contigs and "+document.cds.size()+" CDS features.");
-		final ProteinFamilyAssigner library=ProteinFamilyAssigner.load(Paths.get(models));
-		final FamilyLabels labels=labelFile==null ? null : FamilyLabels.load(labelFile, library);
+		final ProteinFamilyAssigner[] libraries=new ProteinFamilyAssigner[labelFiles.length];
+		final FamilyLabels[] labels=new FamilyLabels[labelFiles.length];
+		for(int p=0; p<libraries.length; p++){
+			libraries[p]=packs==null ? ProteinFamilyAssigner.load(Paths.get(models)) : packs[p].load();
+			labels[p]=labelFiles[p]==null ? null : FamilyLabels.load(labelFiles[p], libraries[p]);
+			if(packs!=null && !packs[p].legacy && labels[p]!=null && !labelOverride){
+				require(packs[p].labelVersion.equals(labels[p].version), "Label version differs from pack manifest: "+packs[p].id);
+			}
+		}
+		final ProteinFamilyCompetition competition=libraries.length>1 ? new ProteinFamilyCompetition(libraries) : null;
 		final AtomicInteger next=new AtomicInteger(); final AtomicReference<Throwable> failure=new AtomicReference<Throwable>();
 		final int count=Math.min(Shared.threads(), Math.max(1, document.cds.size()));
 		final ArrayList<ProcessThread> workers=new ArrayList<ProcessThread>(count);
-		for(int i=0; i<count; i++){workers.add(new ProcessThread(document.cds, library, next, failure));}
+		for(int i=0; i<count; i++){workers.add(new ProcessThread(document.cds, libraries[0], competition, next, failure));}
 		final boolean completed=ThreadWaiter.startAndWait(workers, this);
 		if(!completed || failure.get()!=null){throw new RuntimeException("Protein alignment failed; annotation output was not opened", failure.get());}
 		require(assigned+noHit+unsupported==document.cds.size(), "Every CDS must be assigned, no_hit or unsupported");
 		require(scored+lengthRejected==50*(assigned+noHit), "Every searched CDS must account for all 50 shortlisted candidates");
-		write(document, library, labels);
+		write(document, libraries, labels);
 		timer.stop();
 		outstream.println("CDS: "+document.cds.size()+"; assigned: "+assigned+"; no_hit: "+noHit+"; unsupported: "+unsupported);
 		outstream.println("Scored candidates: "+scored+"; length rejected: "+lengthRejected+"; time: "+timer);
@@ -194,7 +240,9 @@ public final class AnnotateGenes implements Accumulator<AnnotateGenes.ProcessThr
 	/*----------------            Output            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	private void write(final AnnotationGff document, final ProteinFamilyAssigner library, final FamilyLabels labels){
+	private void write(final AnnotationGff document, final ProteinFamilyAssigner[] libraries, final FamilyLabels[] labels){
+		final boolean modular=packs!=null && (packs.length>1 || !packs[0].legacy);
+		final String referencePin=modular ? ProteinFamilyPacks.referencePin(packs) : null;
 		ByteStreamWriter calls=null, details=null;
 		boolean error=false;
 		try{
@@ -202,18 +250,38 @@ public final class AnnotateGenes implements Accumulator<AnnotateGenes.ProcessThr
 			if(evidence!=null){
 				details=ByteStreamWriter.makeBSW(evidence, overwrite, false, true);
 				details.println("#rule\t"+ProteinFamilyAssigner.RULE);
-				details.println("#model_sha80\t"+library.modelPin());
-				details.println("#family_identity_sha80\t"+library.identityPin());
-				details.println("#consensus_sha80\t"+library.consensusPin());
-				if(labels!=null){details.println("#label_version\t"+labels.version);}
-				details.println("line\tseqid\tstart\tend\tstrand\tphase\ttranslation_table\tpartial_5\tpartial_3\tstatus\treason\tfamily_id\trep_id\tscore64\tidentity_pct\tcoverage_query\tcoverage_core\tmutual_coverage\tquery_length\tref_start\tref_end\tscored_candidates\tlength_rejected");
+				if(modular){
+					details.println("#reference_sha80\t"+referencePin);
+					for(int p=0; p<packs.length; p++){
+						details.println("#pack\t"+packs[p].id+"\t"+libraries[p].modelPin()+"\t"+libraries[p].identityPin()
+							+"\t"+libraries[p].consensusPin()+"\t"+(labels[p]==null ? "." : labels[p].version));
+					}
+				}else{
+					details.println("#model_sha80\t"+libraries[0].modelPin());
+					details.println("#family_identity_sha80\t"+libraries[0].identityPin());
+					details.println("#consensus_sha80\t"+libraries[0].consensusPin());
+					if(labels[0]!=null){details.println("#label_version\t"+labels[0].version);}
+				}
+				details.println("line\tseqid\tstart\tend\tstrand\tphase\ttranslation_table\tpartial_5\tpartial_3\tstatus\treason\tfamily_id\trep_id\tscore64\tidentity_pct\tcoverage_query\tcoverage_core\tmutual_coverage\tquery_length\tref_start\tref_end\tscored_candidates\tlength_rejected"+(modular ? "\tpack_id" : ""));
 			}
 			final ByteBuilder row=new ByteBuilder(1024); int next=0;
 			for(int i=0; i<document.lines.size(); i++){
 				if(next>=document.cds.size() || document.cds.get(next).line!=i){calls.println(document.lines.get(i)); continue;}
 				final AnnotationGff.Cds cds=document.cds.get(next++);
-				annotatedRow(row, document.lines.get(i), cds, library.modelPin(), labels); calls.println(row);
-				if(details!=null){evidenceRow(row, cds); details.println(row);}
+				final boolean hit=cds.hit!=null && cds.hit.assigned();
+				final int p=hit ? cds.hit.packIndex : 0;
+				annotatedRow(row, document.lines.get(i), cds, modular && !hit ? referencePin : libraries[p].modelPin(),
+					modular && !hit ? null : labels[p]);
+				if(modular){
+					row.append(";bbgap_reference=").append(referencePin);
+					if(hit){appendAttribute(row, "bbgap_pack", packs[p].id);}
+				}
+				calls.println(row);
+				if(details!=null){
+					evidenceRow(row, cds);
+					if(modular){row.tab().append(hit ? packs[p].id : ".");}
+					details.println(row);
+				}
 			}
 			assert(next==document.cds.size()) : "Every ordered CDS result must be written to its original GFF row";
 		}finally{
@@ -285,9 +353,10 @@ public final class AnnotateGenes implements Accumulator<AnnotateGenes.ProcessThr
 	/*--------------------------------------------------------------*/
 
 	static final class ProcessThread extends Thread {
-		ProcessThread(ArrayList<AnnotationGff.Cds> records_, ProteinFamilyAssigner library,
+		ProcessThread(ArrayList<AnnotationGff.Cds> records_, ProteinFamilyAssigner library, ProteinFamilyCompetition competition,
 				AtomicInteger next_, AtomicReference<Throwable> failure_){
-			records=records_; worker=library.newWorker(); next=next_; failure=failure_;
+			records=records_; worker=competition==null ? library.newWorker() : null;
+			combinedWorker=competition==null ? null : competition.newWorker(); next=next_; failure=failure_;
 		}
 		@Override
 		public void run(){
@@ -296,7 +365,8 @@ public final class AnnotateGenes implements Accumulator<AnnotateGenes.ProcessThr
 					for(int i=from, end=Math.min(from+8, records.size()); i<end; i++){
 						final AnnotationGff.Cds cds=records.get(i);
 						if(cds.reason!=null){unsupported++; continue;}
-						cds.hit=worker.assign("gff_line_"+(cds.line+1), cds.translation.peptide);
+						cds.hit=combinedWorker==null ? worker.assign("gff_line_"+(cds.line+1), cds.translation.peptide)
+							: combinedWorker.assign("gff_line_"+(cds.line+1), cds.translation.peptide);
 						if(cds.hit.assigned()){assigned++;}else{noHit++;}
 						scored+=cds.hit.scored; lengthRejected+=cds.hit.lengthRejected;
 					}
@@ -306,6 +376,7 @@ public final class AnnotateGenes implements Accumulator<AnnotateGenes.ProcessThr
 		}
 		final ArrayList<AnnotationGff.Cds> records;
 		final ProteinFamilyAssigner.Worker worker;
+		final ProteinFamilyCompetition.Worker combinedWorker;
 		final AtomicInteger next;
 		final AtomicReference<Throwable> failure;
 		long assigned, noHit, unsupported, scored, lengthRejected;
@@ -326,6 +397,10 @@ public final class AnnotateGenes implements Accumulator<AnnotateGenes.ProcessThr
 	private final PrintStream outstream;
 	private String in, gff, out, labelFile, evidence;
 	private String models="?bbgap/models";
+	private String reference="?bbgap";
+	private String[] labelFiles;
+	private ProteinFamilyPacks.Pack[] packs;
+	private boolean includeTest=false, labelOverride=false;
 	private int table=11;
 	private boolean overwrite=true, errorState=false;
 	private long assigned, noHit, unsupported, scored, lengthRejected;

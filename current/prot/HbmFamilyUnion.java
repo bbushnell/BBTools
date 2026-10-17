@@ -12,6 +12,7 @@ import java.util.HashSet;
 import java.util.List;
 
 import fileIO.ByteStreamWriter;
+import parse.Parse;
 import parse.PreParser;
 import shared.Shared;
 import structures.ByteBuilder;
@@ -21,6 +22,8 @@ import structures.ByteBuilder;
  * The dense output order is old selections followed by new selections; permanent
  * family IDs and source indexes are retained separately. The common position-score
  * background is frozen, not recalculated from the enlarged model collection.
+ * With newonly=t, an independent tranche starts at any nonnegative source index;
+ * its FASTA headers also preserve source_active_index for evidence binding.
  * @author Brian Bushnell, Keqing
  */
 public final class HbmFamilyUnion {
@@ -37,30 +40,45 @@ public final class HbmFamilyUnion {
 		for(String key : o.keySet()){
 			require(Arrays.asList("resources", "oldmanifest", "oldmanifestsha80", "oldsource", "oldruntime", "oldfamilies",
 				"newmanifest", "newmanifestsha80", "newsource", "newruntime", "newfamilies", "runtime", "out",
-				"background", "backgroundsha80", "oldranks", "newranks").contains(key), "Unknown union parameter: "+key);
+				"background", "backgroundsha80", "oldranks", "newranks", "newonly", "newinputs", "newinputssha80").contains(key), "Unknown union parameter: "+key);
 		}
 		final Path out=Paths.get(HmmComparisonData.required(o, "out"));
 		require(!Files.exists(out), "Union output must be a fresh directory: "+out);
-		final HashMap<String,String> previous=new HashMap<String,String>();
-		previous.put("resources", HmmComparisonData.required(o, "resources"));
-		for(String key : new String[]{"manifest", "manifestsha80", "runtime"}){previous.put(key, HmmComparisonData.required(o, "old"+key));}
-		final HbmProfilePilot.Session old=new HbmProfilePilot.Session(previous, true);
+		final boolean newOnly=Parse.parseBoolean(o.getOrDefault("newonly", "f"));
+		final HbmProfilePilot.Session old;
+		if(newOnly){
+			for(String key : o.keySet()){
+				require(!key.equals("resources") && !key.startsWith("old"), "newonly=t cannot consume old-library parameter: "+key);
+			}
+			old=null;
+		}else{
+			final HashMap<String,String> previous=new HashMap<String,String>();
+			previous.put("resources", HmmComparisonData.required(o, "resources"));
+			for(String key : new String[]{"manifest", "manifestsha80", "runtime"}){previous.put(key, HmmComparisonData.required(o, "old"+key));}
+			old=new HbmProfilePilot.Session(previous, true);
+		}
 		final String manifest=HmmComparisonData.required(o, "newmanifest"), manifestPin=HmmComparisonData.required(o, "newmanifestsha80");
 		HbmProfilePilot.requireHash(manifest, manifestPin);
 		final List<String[]> rows=HmmComparisonData.rows(manifest);
 		require(rows.size()>1 && String.join("\t", rows.get(0)).equals(MANIFEST_HEADER), "Unsupported new-family manifest");
+		final HashMap<String,Origin> origins=loadOrigins(o, rows, newOnly);
 		final HashSet<String> ids=new HashSet<String>(), reps=new HashSet<String>();
-		for(int i=1; i<old.rows.size(); i++){checkIdentity(old.rows.get(i), i-1, ids, reps);}
+		if(old!=null){for(int i=1; i<old.rows.size(); i++){checkIdentity(old.rows.get(i), i-1, ids, reps);}}
+		final int first=newOnly ? Integer.parseInt(rows.get(1)[0]) : old.roster.size();
+		require(first>=0, "Source active indexes must be nonnegative: "+first);
 		for(int i=1; i<rows.size(); i++){
-			final String[] row=rows.get(i); checkIdentity(row, old.roster.size()+i-1, ids, reps);
+			final String[] row=rows.get(i); checkIdentity(row, Math.addExact(first, i-1), ids, reps);
 			require(row[5].equals("rank_"+row[0]+".faa"), "Unexpected new-family input filename at "+row[0]);
 		}
 		final String background=HmmComparisonData.required(o, "background"), backgroundPin=HmmComparisonData.required(o, "backgroundsha80");
 		HbmProfilePilot.requireHash(background, backgroundPin);
-		final ByteBuilder bg=new ByteBuilder().append("residue_code\tprobability\n");
-		for(int i=0; i<20; i++){bg.append(i).tab().append(Double.toString(old.background[i])).nl();}
-		require(Arrays.equals(bg.toBytes(), Files.readAllBytes(Paths.get(background))), "Union background differs from the old frozen library background");
-		final int[] oldRanks=HbmProfileLibrary.readRanks(o.get("oldranks"), old.roster.size());
+		if(newOnly){NewFamilyHbmBuilder.readBackground(background);}
+		else{
+			final ByteBuilder bg=new ByteBuilder().append("residue_code\tprobability\n");
+			for(int i=0; i<20; i++){bg.append(i).tab().append(Double.toString(old.background[i])).nl();}
+			require(Arrays.equals(bg.toBytes(), Files.readAllBytes(Paths.get(background))), "Union background differs from the old frozen library background");
+		}
+		final int[] oldRanks=newOnly ? new int[0] : HbmProfileLibrary.readRanks(o.get("oldranks"), old.roster.size());
 		final int[] newRanks=HbmProfileLibrary.readRanks(o.get("newranks"), rows.size()-1);
 		Arrays.sort(oldRanks); Arrays.sort(newRanks);
 		final ArrayList<HbmBundleLoader.Loaded> models=new ArrayList<HbmBundleLoader.Loaded>();
@@ -73,11 +91,19 @@ public final class HbmFamilyUnion {
 		}
 		for(int rank : newRanks){
 			final String[] row=rows.get(rank+1);
-			final Path dir=Paths.get(HmmComparisonData.required(o, "newfamilies"), "rank_"+row[0]);
-			models.add(validateNew(dir, row, o, manifest, manifestPin, backgroundPin));
+			final Origin origin=origins==null ? null : origins.get(row[0]);
+			final HashMap<String,String> inputs=origin==null ? o : origin.options;
+			final Path dir=Paths.get(HmmComparisonData.required(inputs, "newfamilies"), "rank_"+row[0]);
+			models.add(validateNew(dir, row, inputs, origin==null ? manifest : origin.manifest,
+				origin==null ? manifestPin : origin.pin, backgroundPin));
 			entries.add(row); directories.add(dir);
 		}
-		old.verify(); HbmProfilePilot.requireHash(manifest, manifestPin); HbmProfilePilot.requireHash(background, backgroundPin);
+		if(old!=null){old.verify();}
+		HbmProfilePilot.requireHash(manifest, manifestPin); HbmProfilePilot.requireHash(background, backgroundPin);
+		if(origins!=null){
+			HbmProfilePilot.requireHash(o.get("newinputs"), o.get("newinputssha80"));
+			for(Origin origin : new HashSet<Origin>(origins.values())){HbmProfilePilot.requireHash(origin.manifest, origin.pin);}
+		}
 		final ArrayList<String> roster=new ArrayList<String>();
 		final HashMap<String,byte[]> sequences=new HashMap<String,byte[]>();
 		for(int i=0; i<entries.size(); i++){
@@ -96,7 +122,7 @@ public final class HbmFamilyUnion {
 		long members=0, residues=0;
 		for(int i=0; i<entries.size(); i++){
 			final String[] row=entries.get(i); final Path dir=directories.get(i);
-			HmmComparisonData.writeFasta(fasta, row[2]+" active_index="+i+" family_id="+row[1], sequences.get(row[2]));
+			HmmComparisonData.writeFasta(fasta, row[2]+" active_index="+i+" family_id="+row[1]+(newOnly ? " source_active_index="+row[0] : ""), sequences.get(row[2]));
 			order.println(new ByteBuilder().append(i).tab().append(row[2]).tab().append(row[3]));
 			identity.println(new ByteBuilder().append(i).tab().append(row[1]).tab().append(row[0]).tab().append(row[2]).tab().append(row[3]).tab().append(row[4]));
 			artifacts.println(new ByteBuilder().append(i).tab().append(row[2]).tab().append(dir.toString())
@@ -107,7 +133,9 @@ public final class HbmFamilyUnion {
 		Files.copy(Paths.get(background), out.resolve("background.tsv"));
 		final ByteStreamWriter recipe=HmmComparisonData.writer(out.resolve("recipe.txt").toString());
 		recipe.println("experimental_hbm_family_union_v1\noperation=compose_unchanged_singletons\nbeta=0.01\nclipmin=-4\nclipmax=11\ngap=4\nbackground_policy=frozen_original_library");
-		recipe.println("old_manifest_sha80="+old.manifestPin+"\nnew_manifest_sha80="+manifestPin+"\nbackground_sha80="+backgroundPin);
+		if(newOnly){recipe.println("newonly=true");}else{recipe.println("old_manifest_sha80="+old.manifestPin);}
+		recipe.println("new_manifest_sha80="+manifestPin+"\nbackground_sha80="+backgroundPin);
+		if(origins!=null){recipe.println("new_inputs_sha80="+o.get("newinputssha80"));}
 		recipe.println("family_identity_sha80="+DigestSuffix.file(out.resolve("family_identity.tsv").toString()));
 		recipe.println("family_artifacts_sha80="+DigestSuffix.file(out.resolve("family_artifacts.tsv").toString()));
 		HmmComparisonData.close(recipe);
@@ -127,6 +155,50 @@ public final class HbmFamilyUnion {
 		HmmComparisonData.close(summary);
 		final ByteStreamWriter pass=HmmComparisonData.writer(out.resolve("PASS").toString()); pass.println("HBM_FAMILY_UNION_PASS"); HmmComparisonData.close(pass);
 		System.err.println("HBM_FAMILY_UNION_PASS families="+roster.size()+" members="+members);
+	}
+
+	/** Every aggregate row must match exactly one original, pinned builder input. */
+	private static HashMap<String,Origin> loadOrigins(HashMap<String,String> options, List<String[]> aggregate,
+		boolean newOnly) throws Exception{
+		if(!options.containsKey("newinputs")){
+			require(!options.containsKey("newinputssha80"), "newinputssha80 requires newinputs"); return null;
+		}
+		require(newOnly, "Multiple original batches require newonly=t");
+		for(String key : new String[]{"newsource", "newruntime", "newfamilies"}){
+			require(!options.containsKey(key), "newinputs replaces ambiguous single-batch setting: "+key);
+		}
+		final String path=options.get("newinputs"), pin=HmmComparisonData.required(options, "newinputssha80");
+		HbmProfilePilot.requireHash(path, pin);
+		final List<String[]> inputs=HmmComparisonData.rows(path);
+		require(inputs.size()>1 && String.join("\t", inputs.get(0)).equals("manifest\tmanifest_sha80\tsource\truntime\tfamilies"),
+			"Expected original-batch input table with manifest, manifest_sha80, source, runtime, families");
+		final HashMap<String,Origin> origins=new HashMap<String,Origin>();
+		int next=1;
+		for(int i=1; i<inputs.size(); i++){
+			final String[] row=inputs.get(i);
+			require(row.length==5, "Malformed batch input row "+i);
+			final Origin origin=new Origin(row);
+			HbmProfilePilot.requireHash(origin.manifest, origin.pin);
+			final List<String[]> members=HmmComparisonData.rows(origin.manifest);
+			require(members.size()>1 && String.join("\t", members.get(0)).equals(MANIFEST_HEADER), "Unsupported origin member manifest: "+origin.manifest);
+			for(int j=1; j<members.size(); j++, next++){
+				final String[] member=members.get(j);
+				require(next<aggregate.size() && Arrays.equals(member, aggregate.get(next)), "Aggregate must concatenate complete original manifests in input-table order at row "+next);
+				require(origins.put(member[0], origin)==null, "Duplicate original source index: "+member[0]);
+			}
+		}
+		require(next==aggregate.size(), "Original manifests do not cover every aggregate member row");
+		return origins;
+	}
+
+	private static final class Origin {
+		Origin(String[] row){
+			manifest=row[0]; pin=row[1];
+			options=new HashMap<String,String>();
+			options.put("newsource", row[2]);options.put("newruntime", row[3]);options.put("newfamilies", row[4]);
+		}
+		final String manifest, pin;
+		final HashMap<String,String> options;
 	}
 
 	/** Rejects identity aliases because dense output indexes must retain unambiguous permanent IDs. */

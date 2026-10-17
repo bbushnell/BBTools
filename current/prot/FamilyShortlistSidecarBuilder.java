@@ -91,6 +91,8 @@ public final class FamilyShortlistSidecarBuilder {
 			else if(a.equals("variant")){variant=b.toLowerCase();}
 			else if(a.equals("rawpseudo")){rawPseudocount=Double.parseDouble(b);}
 			else if(a.equals("background")){backgroundMode=b.toLowerCase();}
+			else if(a.equals("backgroundfrom")){backgroundSource=b;}
+			else if(a.equals("backgroundsha80")){backgroundSourcePin=b;}
 			else if(a.equals("thresholds")){thresholdsFile=b;}
 			else if(a.equals("aaalignerfile")){aaalignerFile=b;}
 			else if(a.equals("blosum62file")){blosum62File=b;}
@@ -118,6 +120,9 @@ public final class FamilyShortlistSidecarBuilder {
 		if(!backgroundMode.equals("members") && !backgroundMode.equals("families")){
 			throw new RuntimeException("background must be 'members' or 'families': "+backgroundMode);
 		}
+		if((backgroundSource==null)!=(backgroundSourcePin==null)){
+			throw new IllegalArgumentException("backgroundfrom= and backgroundsha80= must be supplied together");
+		}
 		//thresholds= (plans/PER_FAMILY_THRESHOLDS_v1.md WP-A A2) is entirely optional -- when unset,
 		//every new field below is unused and this class's behavior/output is BYTE-IDENTICAL to
 		//before A2 (the sidecar v3 columns/header fields only appear when thresholds= is given).
@@ -137,6 +142,9 @@ public final class FamilyShortlistSidecarBuilder {
 	}
 
 	private void process(){
+		// Validate before scanning or writing. Default construction retains its original arithmetic.
+		fixedBackground=backgroundSource==null ? null : SidecarCompositionBackground.load(
+			backgroundSource, backgroundSourcePin, variant, rawPseudocount, backgroundMode);
 		System.err.println("Hashing "+consensusFile+"...");
 		final String consensusSha256=DigestSuffix.file(consensusFile);
 		System.err.println("consensus sha80="+consensusSha256);
@@ -178,8 +186,8 @@ public final class FamilyShortlistSidecarBuilder {
 		CompositionProfileAssay.scanFamilyCorpus(familiesDir, nFamilies, config, famCounts, famMemberCount);
 		System.err.println("Scanned in "+((System.nanoTime()-scanStart)/1e9)+"s.");
 
-		final double[] bgFreq=CompositionProfileAssay.computeBackgroundFreq(famCounts, nFamilies, config.dims,
-			rawPseudocount, backgroundMode);
+		final double[] bgFreq=fixedBackground==null ? CompositionProfileAssay.computeBackgroundFreq(
+			famCounts, nFamilies, config.dims, rawPseudocount, backgroundMode) : fixedBackground.frequencies;
 		//A live query at scoring time must apply the SAME "centered" transform (freq-bgFreq) using
 		//THIS exact background -- recomputing a fresh background from a different/smaller corpus at
 		//query time would silently produce inconsistent scores. Persisted below in the header so the
@@ -427,7 +435,8 @@ public final class FamilyShortlistSidecarBuilder {
 			bb.append("#composition_k\t").append(config.k).append('\n');
 			bb.append("#composition_dims\t").append(config.dims).append('\n');
 			bb.append("#composition_variant\t").append(variant).append('\n');
-			bb.append("#composition_rawpseudo\t").append(rawPseudocount, 8).append('\n');
+			if(fixedBackground==null){bb.append("#composition_rawpseudo\t").append(rawPseudocount, 8).append('\n');}
+			else{bb.append(fixedBackground.pseudocountLine).nl();}
 			bb.append("#composition_background\t").append(backgroundMode).append('\n');
 			bb.append("#covering_alphabet\t").append(sets.alphabet.name).append('\n');
 			bb.append("#covering_k\t").append(sets.k).append('\n');
@@ -459,12 +468,17 @@ public final class FamilyShortlistSidecarBuilder {
 			}
 			//The background vector used at build time for every family's "centered" transform -- a
 			//live query MUST apply this same background at scoring time (see process()'s comment).
-			bb.append("#background_"+config.dims+"f\t");
-			for(int d=0; d<config.dims; d++){
-				if(d>0){bb.append(',');}
-				bb.append(bgFreq[d], 8);
+			if(fixedBackground!=null){
+				bb.append("#composition_source_sha80\t").append(fixedBackground.pin).nl();
+				bb.append(fixedBackground.vectorLine).nl();
+			}else{
+				bb.append("#background_"+config.dims+"f\t");
+				for(int d=0; d<config.dims; d++){
+					if(d>0){bb.append(',');}
+					bb.append(bgFreq[d], 8);
+				}
+				bb.nl();
 			}
-			bb.nl();
 			bb.append("rank\trep_id\tmedian_len\tsd_ln_len\tcomposition_"+config.dims+"f\tcovering_kmers_hex");
 			if(thresholds!=null){
 				bb.append("\tn\tfallback\tr_lo\tr_hi\tmindimer\tminkmers\tminid\tminratio\tminscore\tmincovq\tmincovt");
@@ -797,6 +811,9 @@ public final class FamilyShortlistSidecarBuilder {
 	private String variant="centered";
 	private double rawPseudocount=0.0;
 	private String backgroundMode="families";
+	/** Optional stored-byte-pinned source sidecar; the default derives the background from the corpus. */
+	private String backgroundSource, backgroundSourcePin;
+	private SidecarCompositionBackground fixedBackground;
 
 	//---- A2 (plans/PER_FAMILY_THRESHOLDS_v1.md): sidecar v3, all optional -- see the constructor's
 	//thresholds!=null check for the fields this makes required. ----

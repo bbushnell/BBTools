@@ -51,16 +51,17 @@ public final class ProteinFamilyAssigner {
 		}
 		final HbmCompetitiveAssign.Library library=new HbmCompetitiveAssign.Library(options);
 		validateRoster(options.get("roster"), library.ids, library.memberCounts);
-		return new ProteinFamilyAssigner(library, modelPin, options.get("identitysha80"), options.get("consensussha80"));
+		return new ProteinFamilyAssigner(library, modelPin, options.get("identitysha80"), options.get("consensussha80"), options.get("backgroundsha80"));
 	}
 
 	private ProteinFamilyAssigner(final HbmCompetitiveAssign.Library library_,
-			final String modelPin_, final String identityPin_, final String consensusPin_){
+			final String modelPin_, final String identityPin_, final String consensusPin_, final String backgroundPin_){
 		assert(library_!=null && library_.ids.length>=SHORTLIST) : "The frozen competitive rule requires a full top50 reference";
 		library=library_;
 		modelPin=modelPin_;
 		identityPin=identityPin_;
 		consensusPin=consensusPin_;
+		backgroundPin=backgroundPin_;
 	}
 
 	/** Creates mutable query/selection scratch owned exclusively by one caller thread. */
@@ -72,6 +73,10 @@ public final class ProteinFamilyAssigner {
 	public String identityPin(){return identityPin;}
 	/** Decoded sequences against which public naming evidence was generated. */
 	public String consensusPin(){return consensusPin;}
+	/** Verified decoded positional-background pin, independent of transport compression. */
+	public String backgroundPin(){return backgroundPin;}
+	/** Package-internal read-only access for combined reference competition. */
+	HbmCompetitiveAssign.Library library(){return library;}
 	public int familyId(final int rank){checkRank(rank); return library.familyIds[rank];}
 	public String representative(final int rank){checkRank(rank); return library.ids[rank];}
 	/** Number of construction members, not a count of independent taxa. */
@@ -110,14 +115,22 @@ public final class ProteinFamilyAssigner {
 	public static final class Hit {
 		private Hit(final int rank_, final int family_, final String representative_,
 				final int length_, final HbmCompetitiveGate.Scratch work){
+			this(0, rank_, family_, representative_, length_, work, work.scored, work.lengthRejected);
+		}
+		/** Combined workers retain local ranks but account for the entire global shortlist. */
+		Hit(final int pack_, final int rank_, final int family_, final String representative_,
+				final int length_, final HbmCompetitiveGate.Scratch work, final int scored_, final int rejected_){
+			packIndex=pack_;
 			rank=rank_; familyId=family_; representative=representative_; queryLength=length_;
 			score64=work.score64; referenceStart=work.start; referenceEnd=work.end;
 			identity=work.metrics.identity; queryCoverage=work.metrics.coverageQ;
 			coreCoverage=work.metrics.coverageT; mutualCoverage=work.metrics.coverage;
-			scored=work.scored; lengthRejected=work.lengthRejected;
+			scored=scored_; lengthRejected=rejected_;
 		}
 		public boolean assigned(){return rank>=0;}
 		public final int rank, familyId, queryLength, score64, referenceStart, referenceEnd;
+		/** Canonical pack index; zero for the legacy single-library API, -1 for combined no-hit. */
+		public final int packIndex;
 		public final String representative;
 		public final float identity, queryCoverage, coreCoverage, mutualCoverage;
 		public final int scored, lengthRejected;
@@ -177,5 +190,5 @@ public final class ProteinFamilyAssigner {
 	private static final String[] NAMES={"model.hbmc", "consensus.faa", "provenance.tsv", "background.tsv", "family_identity.tsv", "roster.tsv", "cores.tsv", "kmers.tsv", "sidecar.tsv"};
 	private static final String[] LOGICAL_PINS={"identity", "consensus", "background"};
 	private final HbmCompetitiveAssign.Library library;
-	private final String modelPin, identityPin, consensusPin;
+	private final String modelPin, identityPin, consensusPin, backgroundPin;
 }

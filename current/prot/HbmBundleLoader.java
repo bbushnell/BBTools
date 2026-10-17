@@ -124,6 +124,11 @@ public final class HbmBundleLoader {
 			if(rank<0 || rank>=graphs.length){throw new IllegalArgumentException("Refinement rank outside loaded roster: "+rank);}
 			return HbmProfileRefiner.refine(graphs[rank],members,background,padding);
 		}
+		/** Returns a detached contiguous subset in this bundle's order without exposing graph aliases. */
+		Loaded subset(final int from, final int to){
+			if(from<0 || to>graphs.length || from>=to){throw new IllegalArgumentException("Invalid family subset: "+from+".."+to);}
+			return new Loaded(Arrays.copyOfRange(repIds, from, to), Arrays.copyOfRange(graphs, from, to));
+		}
 		/** Composes verified immutable singleton bundles in an explicit roster order; no graph alias escapes. */
 		static Loaded combine(final List<Loaded> families,final List<String> roster){
 			if(families.size()!=roster.size() || families.isEmpty()){throw new IllegalArgumentException("Combined family count differs from the required roster");}
@@ -143,6 +148,13 @@ public final class HbmBundleLoader {
 			final java.util.ArrayList<HbmBundleBuilder.FamilyInput> families=new java.util.ArrayList<HbmBundleBuilder.FamilyInput>();
 			for(int i=0; i<graphs.length; i++){families.add(new HbmBundleBuilder.FamilyInput(repIds[i],graphs[i].pivot,graphs[i]));}
 			HbmBundleBuilder.build(out,families,provenance);
+		}
+		/** Writes the owned graphs as compact text with explicit sha80 semantic provenance. */
+		void writeCompactBundle(final Path out, final String[] provenance){
+			try(HbmCompactTextWriter.GraphWriter writer=new HbmCompactTextWriter.GraphWriter(out.toString(), graphs.length, provenance)){
+				for(int i=0; i<graphs.length; i++){writer.add(repIds[i], graphs[i], null);}
+				writer.finish();
+			}
 		}
 		/** Uses an explicitly frozen background when comparing a rebuilt library with its parent. */
 		HbmPositionModel[] positionModels(String kind,double beta,boolean clip,double clipMin,double[] background){
