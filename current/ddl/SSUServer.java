@@ -183,7 +183,7 @@ public class SSUServer {
 		index.addAll(refs, threads);
 		System.err.println("Built inverted index.");
 
-		consensus16S=loadFirstSequence("?16S_consensus_sequence.fa");
+		consensus16S=load16SConsensus();
 		consensus18S=loadFirstSequence("?18S_consensus_sequence.fa");
 
 		try{pgmThread.join();}catch(InterruptedException e){}
@@ -736,6 +736,11 @@ public class SSUServer {
 	/*--------------------------------------------------------------*/
 	/*----------------          Helpers             ----------------*/
 	/*--------------------------------------------------------------*/
+
+	/** Keep the server's first-reference classifier aligned with the packaged family. */
+	static byte[] load16SConsensus(){
+		return loadFirstSequence(new prok.FamilyResourceResolver().resolve("16S", "consensus", null).path);
+	}
 
 	private static byte[] loadFirstSequence(String path){
 		String resolved=dna.Data.findPath(path);

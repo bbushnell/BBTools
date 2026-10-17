@@ -217,8 +217,8 @@ public abstract class ProkObject {
 	//the same way ProkObject's own tRNA/rRNA kmer sets load. Visibility-only change, no behavior
 	//difference for any existing caller.
 	static LongHashSet loadLongKmersByType(int k, String prefix){
-		if(k==17 && "5S".equalsIgnoreCase(prefix)){
-			return loadLongKmers(new FamilyResourceResolver().resolve("5S", "seeds", null).path, k);
+		if(k==17 && ("5S".equalsIgnoreCase(prefix) || "23S".equalsIgnoreCase(prefix) || "16S".equalsIgnoreCase(prefix))){
+			return loadLongKmers(new FamilyResourceResolver().resolve(prefix, "seeds", null).path, k);
 		}
 		final String stem=prefix+"_"+k+"mers.fa";
 		String fname=Data.findPath("?"+stem, false);
@@ -290,11 +290,14 @@ public abstract class ProkObject {
 	/** Loads the enabled rRNA/tRNA consensus reference sequences once (idempotent via loadedConsensusSequence).
 	 * @param removeMito drop mitochondrial entries @param removeChloro drop plastid entries. */
 	public static synchronized void loadConsensusSequenceFromFile(boolean removeMito, boolean removeChloro){
-		if(loadedConsensusSequence){load5SSequenceIfSelected(removeMito, removeChloro);return;}
+		if(loadedConsensusSequence){
+			load16SSequenceIfSelected(removeMito, removeChloro);load23SSequenceIfSelected(removeMito, removeChloro);
+			load5SSequenceIfSelected(removeMito, removeChloro);return;
+		}
 //		assert(r16SSequence==null);
-		if(load16SSequence){r16SSequence=loadConsensusSequenceType("16S", removeMito, removeChloro);}
+		load16SSequenceIfSelected(removeMito, removeChloro);
 		if(load18SSequence){r18SSequence=loadConsensusSequenceType("18S", removeMito, removeChloro);}
-		if(load23SSequence){r23SSequence=loadConsensusSequenceType("23S", removeMito, removeChloro);}
+		load23SSequenceIfSelected(removeMito, removeChloro);
 		load5SSequenceIfSelected(removeMito, removeChloro);
 		if(loadtRNASequence){trnaSequence=loadConsensusSequenceType("tRNA", removeMito, removeChloro);}
 		loadedConsensusSequence=true;
@@ -305,13 +308,25 @@ public abstract class ProkObject {
 			r5SSequence=loadConsensusSequenceType("5S", removeMito, removeChloro);loaded5SConsensus=true;
 		}
 	}
+	/** A later legacy caller completes only the previously disabled 23S slot. */
+	private static void load23SSequenceIfSelected(boolean removeMito, boolean removeChloro){
+		if(load23SSequence && !loaded23SConsensus){
+			r23SSequence=loadConsensusSequenceType("23S", removeMito, removeChloro);loaded23SConsensus=true;
+		}
+	}
+	/** A later legacy caller completes only the previously disabled 16S slot. */
+	private static void load16SSequenceIfSelected(boolean removeMito, boolean removeChloro){
+		if(load16SSequence && !loaded16SConsensus){
+			r16SSequence=loadConsensusSequenceType("16S", removeMito, removeChloro);loaded16SConsensus=true;
+		}
+	}
 	
 	/** Loads one type's consensus sequences, preferring {@code prefix}_consensus_sequence.fq then .fa (also resolves inside
 	 * a .jar); optionally strips mito/plastid entries. Returns null if the file can't be found. */
 	public static Read[] loadConsensusSequenceType(String prefix, boolean removeMito, boolean removeChloro){
 		String fname=null;
-		if("5S".equalsIgnoreCase(prefix)){
-			fname=new FamilyResourceResolver().resolve("5S", "consensus", null).path;
+		if("5S".equalsIgnoreCase(prefix) || "23S".equalsIgnoreCase(prefix) || "16S".equalsIgnoreCase(prefix)){
+			fname=new FamilyResourceResolver().resolve(prefix, "consensus", null).path;
 		}else{
 		fname=Data.findPath("?"+prefix+"_consensus_sequence.fq", false);
 		if(fname!=null && (fname.endsWith(".jar") || new File(fname).exists())){
@@ -428,5 +443,7 @@ public abstract class ProkObject {
 	public static boolean load18SSequence=true;
 	private static boolean loadedConsensusSequence=false;
 	private static boolean loaded5SConsensus=false;
+	private static boolean loaded23SConsensus=false;
+	private static boolean loaded16SConsensus=false;
 	
 }

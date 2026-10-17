@@ -1,29 +1,63 @@
 package prok;
 
-/** Stable resource identities and calibrated policies; only the 5S pilot is registered.
+/** Stable resource identities and calibrated policies for migrated families.
  * Other families retain their existing factories until individually migrated.
  * @author Brian, Raiden */
 public final class NcrnaFamilyRegistry {
 
 	public static Entry get(String id){
 		if("5S".equalsIgnoreCase(id) || "prok5S".equalsIgnoreCase(id)){return PROK5S;}
+		if("23S".equalsIgnoreCase(id)){return PROK23S;}
+		if("16S".equalsIgnoreCase(id)){return PROK16S;}
 		throw new IllegalArgumentException("No unified ncRNA resource registration for family: "+id);
 	}
 
 	public static final class Entry {
-		private Entry(String id_, String directory_, String member_, String gate_, String[] models_){
+		private Entry(String id_, String directory_, String gate_, String[] models_,
+				int minLen_, int windowPad_, int indexK_, int topN_, int minHits_,
+				float weight_, float idPass_, float idBorderline_, float hbmPass_, boolean hasHbm_,
+				int outputType_, boolean pass2_, boolean ranked_, boolean strict_,
+				int partialMinLen_, int cap_, int voteSlack_, int boundaryRadius_,
+				boolean preserveContaining_, String[] rawEndpointModels_){
 			assert(id_!=null && directory_!=null && models_.length>0) : "Resource identity and ordered models bind every loaded family";
-			id=id_;directory=directory_;member=member_;gate=gate_;models=models_;
+			id=id_;directory=directory_;gate=gate_;models=models_;
+			minLen=minLen_;windowPad=windowPad_;indexK=indexK_;topN=topN_;minHits=minHits_;
+			weight=weight_;idPass=idPass_;idBorderline=idBorderline_;hbmPass=hbmPass_;hasHbm=hasHbm_;
+			outputType=outputType_;pass2=pass2_;rankedFallback=ranked_;strictIndexCutoff=strict_;
+			partialMinLen=partialMinLen_;quantumCap=cap_;voteSlack=voteSlack_;boundaryRadius=boundaryRadius_;
+			preserveContaining=preserveContaining_;rawEndpointModels=rawEndpointModels_;
 		}
-		public final String id, directory, member, gate;
+		public final String id, directory, gate;
+		public final String member="";
 		final String[] models;
+		final String[] rawEndpointModels;
 		final String[] coreRoles={"consensus", "seeds"};
 		final String[] endpointRoles={"tables", "endpoints"};
-		final int seedK=17, minLen=90, windowPad=150, indexK=7, topN=3, minHits=2;
-		final float scoreA=0f, weight=3f, idPass=.80f, idBorderline=.60f, hbmPass=.60f, collapse=.85f;
-		final int outputType=ProkObject.r5S, seedMinHits=2;
+		final int seedK=17, seedMinHits=2;
+		final int minLen, windowPad, indexK, topN, minHits, outputType;
+		final int partialMinLen, quantumCap, voteSlack, boundaryRadius;
+		final float scoreA=0f, collapse=.85f;
+		final float weight, idPass, idBorderline, hbmPass;
+		final boolean hasHbm, pass2, rankedFallback, strictIndexCutoff;
+		final boolean preserveContaining;
+		int[] boundaryOffsets(boolean start){
+			if(boundaryRadius<0){return start ? NcrnaFamily.LEGACY_START_OFFSETS : NcrnaFamily.LEGACY_STOP_OFFSETS;}
+			assert(boundaryRadius>0) : "Centered boundary offsets must bracket the accepted alignment";
+			final int[] offsets=new int[2*boundaryRadius+1];
+			for(int i=0; i<offsets.length; i++){offsets[i]=i-boundaryRadius;}return offsets;
+		}
 	}
-	private static final Entry PROK5S=new Entry("prok5S", "callgenes_5S", "", "prok5S seeded selection",
-		new String[]{"universal", "bacteria", "archaea", "plastid"});
+	private static final Entry PROK5S=new Entry("prok5S", "callgenes_5S", "prok5S seeded selection",
+		new String[]{"universal", "bacteria", "archaea", "plastid"},
+		90, 150, 7, 3, 2, 3f, .80f, .60f, .60f, true, ProkObject.r5S,
+		true, false, false, 0, 1, 60, -1, false, new String[0]);
+	private static final Entry PROK23S=new Entry("23S", "callgenes_23S", "23S seeded selection",
+		new String[]{"universal", "bacteria", "archaea", "plastid"},
+		2600, 3500, 9, 3, 128, 1f, .60f, .60f, 1.01f, false, ProkObject.r23S,
+		false, true, true, 1800, 2, 150, 16, false, new String[0]);
+	private static final Entry PROK16S=new Entry("16S", "callgenes_16S", "16S seeded selection",
+		new String[]{"universal", "bacteria", "archaea", "plastid", "mitochondria"},
+		1400, 1800, 9, 1, 1, 1f, .66f, .66f, 1.01f, false, ProkObject.r16S,
+		true, false, false, 1200, 1, 60, -1, true, new String[]{"mitochondria"});
 	private NcrnaFamilyRegistry(){}
 }

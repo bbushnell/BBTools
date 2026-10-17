@@ -23,7 +23,8 @@ public final class NcrnaFamilyLoader {
 				"Consensus model order differs for "+p.id+" at "+i+": "+names[i]);
 		}
 		final BaseGraph[] models;
-		if(options.hbm){
+		final boolean useHbm=p.hasHbm && options.hbm;
+		if(useHbm){
 			final String hbm=resolver.resolve(p.id, "models", options.resources).path;
 			models=TrnaConsensusBuilder.loadModels(hbm);
 			CallGenes.requireNcrnaLibraryModelAlignment(p.id, library, models, names, lib, hbm);
@@ -36,30 +37,39 @@ public final class NcrnaFamilyLoader {
 		TrnaKmerIndex.validateConfiguration(k, options.floor, options.topFrac, options.qFrac, hits);
 		TrnaKmerIndex.validateTopN(top);
 		final float weight=Float.isNaN(options.weight) ? p.weight : options.weight;
+		final float idPass=Float.isNaN(options.idPass) ? p.idPass : options.idPass;
+		final float idBorderline=Float.isNaN(options.idBorderline) ? p.idBorderline : options.idBorderline;
+		final int seedMinHits=options.seedMinHits<0 ? p.seedMinHits : options.seedMinHits;
+		require(Float.isFinite(idPass) && idPass>=0 && idPass<=1 && Float.isFinite(idBorderline)
+			&& idBorderline>=0 && idBorderline<=1 && seedMinHits>0, "Invalid identity or seed gate for "+p.id);
 		require(Float.isFinite(weight) && weight>0, "Path weight must be finite and positive for "+p.id);
 		final NcrnaFamily family=new NcrnaFamily(p.id, library, models, names, keys, p.seedK, p.minLen, p.windowPad,
 			k, top, options.adaptive, options.floor, options.topFrac, options.qFrac, hits,
-			p.scoreA, weight, p.idPass, p.idBorderline, options.hbm ? p.hbmPass : 1.01f, p.collapse,
-			null, null, null, null, -1, -1, -1, -1, 0f, NcrnaFamily.LEGACY_START_OFFSETS, NcrnaFamily.LEGACY_STOP_OFFSETS);
-		family.outputType=p.outputType;family.seedMinHits=p.seedMinHits;family.scavengePass2=true;
-		family.rankedModelFallback=false;family.strictIndexCutoff=false;family.trimAlignmentExtent=false;
-		family.reuseConsensusAlignment=true;family.voteSlack=60;
+			p.scoreA, weight, idPass, idBorderline, useHbm ? p.hbmPass : 1.01f, p.collapse,
+			null, null, null, null, -1, -1, -1, -1, 0f, p.boundaryOffsets(true), p.boundaryOffsets(false));
+		family.outputType=p.outputType;family.seedMinHits=seedMinHits;family.scavengePass2=p.pass2;
+		family.rankedModelFallback=p.rankedFallback;family.strictIndexCutoff=p.strictIndexCutoff;family.trimAlignmentExtent=false;
+		family.reuseConsensusAlignment=true;family.voteSlack=p.voteSlack;
+		family.prok16sPartialMinLen=p.partialMinLen;family.quantumCapMultiplier=p.quantumCap;
+		family.preserveContainingWindows=p.preserveContaining;
 		if(options.endpoints){family.setRrnaEndpointInference(loadEndpoints(family, options.resources, resolver), null);}
 		return family;
 	}
 	static RrnaEndpointCallerFeatures.Resources loadEndpoints(NcrnaFamily family,
 			FamilyResourceResolver.Overrides overrides, FamilyResourceResolver resolver){
-		require(family!=null && family.name.equals("prok5S"), "Only the registered 5S pilot may use this endpoint adapter");
+		require(family!=null, "Endpoint resources require an initialized registered family");
+		final NcrnaFamilyRegistry.Entry p=NcrnaFamilyRegistry.get(family.name);
 		final FamilyResourceResolver.Handle tables=resolver.tables(family.name, overrides);
-		final RrnaEndpointCallerFeatures.Resources loaded=RrnaEndpointResourceLoader.load(tables, family.modelNames, family.library);
+		final RrnaEndpointCallerFeatures.Resources loaded=RrnaEndpointResourceLoader.load(tables, family.modelNames, family.library, p.rawEndpointModels);
 		final RrnaEndpointCallerFeatures.Resources inference=RrnaEndpointNetworkLoader.load(resolver.resolve(family.name, "endpoints", overrides), loaded);
-		require(inference.acceptedVerifierIdentity, "5S nets must preserve the trained accepted-verifier-window identity feature");
+		require(inference.acceptedVerifierIdentity, p.id+" nets must preserve the trained accepted-verifier-window identity feature");
 		return inference;
 	}
 	public static final class Options {
 		public boolean enabled=true, hbm=true, endpoints=true, adaptive=false;
-		public int indexK=-1, topN=-1, minHits=-1;
+		public int indexK=-1, topN=-1, minHits=-1, seedMinHits=-1;
 		public float floor=0f, topFrac=0f, qFrac=0f, weight=Float.NaN;
+		public float idPass=Float.NaN, idBorderline=Float.NaN;
 		public final FamilyResourceResolver.Overrides resources=new FamilyResourceResolver.Overrides();
 	}
 	private static void require(boolean ok, String why){FamilyResourceManifest.require(ok, why);}

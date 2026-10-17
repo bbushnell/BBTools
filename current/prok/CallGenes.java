@@ -972,14 +972,15 @@ public class CallGenes extends ProkObject {
 		}
 
 		if(call16S || call18S || call23S || calltRNA || call5S){
-			//The selected seeded family already owns its resources. A disabled 5S
-			//family must not open its package through the unrelated tRNA startup path.
-			final boolean old5sKmers=load5Skmers, old5sSequence=load5SSequence;
+			//Seeded families own their resources; disabled migrated families must not
+			//open their packages through the unrelated legacy tRNA startup path.
+			final boolean old5sKmers=load5Skmers, old5sSequence=load5SSequence, old23sSequence=load23SSequence;
+			final boolean old16sSequence=load16SSequence;
 			try{
-				load5Skmers&=call5S;load5SSequence&=call5S;
+				load5Skmers&=call5S;load5SSequence&=call5S;load23SSequence&=call23S;load16SSequence&=call16S;
 				loadLongKmers();
 				loadConsensusSequenceFromFile(false, false);
-			}finally{load5Skmers=old5sKmers;load5SSequence=old5sSequence;}
+			}finally{load5Skmers=old5sKmers;load5SSequence=old5sSequence;load23SSequence=old23sSequence;load16SSequence=old16sSequence;}
 		}
 		GeneCaller.initializeConservedRnaSeedIndex();
 		final QuantumAligner quantumCounter=new QuantumAligner();
@@ -2653,14 +2654,11 @@ public class CallGenes extends ProkObject {
 	/** Selected16S detection policy; endpoint resources are installed after registration. */
 	private static void addRrna16sFamily(final int index){
 		assert(index==GeneCaller.ncrnaFamilies.size()) : "16S must append at the rollback boundary; existing families must survive load failure";
-		addRrna17Family("16S", "16S_consensus_sequence.fa", null,
-			loadEffectiveNcrnaKmerSet("16S", "16S_17mers.fa", null, 17), 17, 1400, 1800,
-			9, 1, false, 0f, 0f, 0f, 1, 0f, 1f, .66f, .66f, 1.01f, .85f,
-			NcrnaFamily.LEGACY_START_OFFSETS, NcrnaFamily.LEGACY_STOP_OFFSETS);
-		final NcrnaFamily family=familyAt(index, "16S");
-		configureRrna17Family(family, ProkObject.r16S, RRNA16S_SEED_MIN_HITS, true, false, false, false);
-		family.prok16sPartialMinLen=1200;
-		family.preserveContainingWindows=true;
+		final NcrnaFamilyLoader.Options options=unifiedRrnaOptions("16S");
+		options.seedMinHits=RRNA16S_SEED_MIN_HITS;
+		options.resources.seeds=effectiveNcrnaSeedOverride("16S", null);
+		final NcrnaFamily family=NcrnaFamilyLoader.load("16S", options, new FamilyResourceResolver());
+		GeneCaller.ncrnaFamilies.add(family);
 		System.err.println("16S controls: seedK="+family.kLong+" seedMinHits="+family.seedMinHits
 			+" seedDistinct="+family.seedDistinct+" indexK="+family.indexK+" topN="+family.indexTopN);
 	}
@@ -2669,21 +2667,46 @@ public class CallGenes extends ProkObject {
 	private static void addRrna23sFamily(final int index){
 		assert(index==GeneCaller.ncrnaFamilies.size()) : "23S must append at the rollback boundary so existing families survive load failure";
 		final boolean endpoint23S=(RRNA23S_ENDPOINT_MODE!=RRNA23S_ENDPOINT_OFF);
-		final String endpoint23SNet=(RRNA23S_ENDPOINT_MODE==RRNA23S_ENDPOINT_G28
-			? "23S_boundary_g28_universal_net.bbnet" : "23S_boundary_g16c_net.bbnet");
-		addNcrnaFamily("23S", "23S_consensus_sequence.fa", endpoint23S ? defaultNcrnaModel("23S.models.hbm") : null,
-			loadEffectiveNcrnaKmerSet("23S", "23S_17mers.fa", RRNA23S_SEEDS_OVERRIDE, 17), 17, 2600, 3500,
-			9, 3, false, 0f, 0f, 0f, 128, 0f, 1f, RRNA23S_ID_PASS, RRNA23S_ID_PASS, 1.01f, .85f,
-			centeredOffsets(16), centeredOffsets(16), endpoint23S, endpoint23SNet,
-			"23S_boundary_family_start_table.tsv", "23S_boundary_family_stop_table.tsv", 0f, 0f);
+		if(!endpoint23S){
+			final NcrnaFamilyLoader.Options options=unifiedRrnaOptions("23S");
+			options.seedMinHits=RRNA23S_SEED_MIN_HITS;
+			options.idPass=options.idBorderline=RRNA23S_ID_PASS;
+			options.resources.seeds=effectiveNcrnaSeedOverride("23S", RRNA23S_SEEDS_OVERRIDE);
+			GeneCaller.ncrnaFamilies.add(NcrnaFamilyLoader.load("23S", options, new FamilyResourceResolver()));
+		}else{
+			final String endpoint23SNet=(RRNA23S_ENDPOINT_MODE==RRNA23S_ENDPOINT_G28
+				? "23S_boundary_g28_universal_net.bbnet" : "23S_boundary_g16c_net.bbnet");
+			addNcrnaFamily("23S", new FamilyResourceResolver().resolve("23S", "consensus", null).path, defaultNcrnaModel("23S.models.hbm"),
+				loadEffectiveNcrnaKmerSet("23S", "23S_17mers.fa", RRNA23S_SEEDS_OVERRIDE, 17), 17, 2600, 3500,
+				9, 3, false, 0f, 0f, 0f, 128, 0f, 1f, RRNA23S_ID_PASS, RRNA23S_ID_PASS, 1.01f, .85f,
+				centeredOffsets(16), centeredOffsets(16), endpoint23S, endpoint23SNet,
+				"23S_boundary_family_start_table.tsv", "23S_boundary_family_stop_table.tsv", 0f, 0f);
+			final NcrnaFamily family=familyAt(index, "23S");
+			configureRrna17Family(family, ProkObject.r23S, RRNA23S_SEED_MIN_HITS, false, true, true,
+				RRNA23S_ENDPOINT_MODE==RRNA23S_ENDPOINT_G16);
+			configureRrna23SEndpoints(family);
+			family.prok16sPartialMinLen=1800;
+			family.quantumCapMultiplier=2;
+		}
 		final NcrnaFamily family=familyAt(index, "23S");
-		configureRrna17Family(family, ProkObject.r23S, RRNA23S_SEED_MIN_HITS, false, true, true,
-			RRNA23S_ENDPOINT_MODE==RRNA23S_ENDPOINT_G16);
-		configureRrna23SEndpoints(family);
-		family.prok16sPartialMinLen=1800;
-		family.quantumCapMultiplier=2;
 		System.err.println("23S controls: seedK="+family.kLong+" seedKeys="+family.kmerSet.size()
 			+" seedMinHits="+family.seedMinHits+" seedDistinct="+family.seedDistinct+" idPass="+family.idPass);
+	}
+
+	/** Preserve scalar sweep precedence while the registered family supplies its defaults. */
+	private static NcrnaFamilyLoader.Options unifiedRrnaOptions(String name){
+		final NcrnaFamilyRegistry.Entry p=NcrnaFamilyRegistry.get(name);
+		final IndexOverrides overrides=familyIndexOverrides(name);
+		final NcrnaFamilyLoader.Options options=new NcrnaFamilyLoader.Options();
+		options.endpoints=false;//Window controls still precede endpoint installation.
+		options.indexK=resolveFamilyInt(name, overrides.k, NCRNA_INDEX_K_OVERRIDE, p.indexK);
+		options.topN=resolveFamilyInt(name, overrides.topN, NCRNA_INDEX_TOP_N_OVERRIDE, p.topN);
+		options.minHits=resolveFamilyInt(name, overrides.minHits, NCRNA_INDEX_MIN_HITS_OVERRIDE, p.minHits);
+		options.adaptive=resolveFamilyBoolean(name, overrides.adaptive, NCRNA_ADAPTIVE_MINHITS_OVERRIDE, false);
+		options.floor=resolveFamilyScore(name, overrides.floor, NCRNA_ADAPT_FLOOR_OVERRIDE, 0f);
+		options.topFrac=resolveFamilyScore(name, overrides.topFrac, NCRNA_ADAPT_TOPFRAC_OVERRIDE, 0f);
+		options.qFrac=resolveFamilyScore(name, overrides.qFrac, NCRNA_ADAPT_QFRAC_OVERRIDE, 0f);
+		return options;
 	}
 
 	/** Registers the standalone family without changing any legacy calling flag. */
@@ -2798,7 +2821,7 @@ public class CallGenes extends ProkObject {
 
 	/** Applies an explicitly requested historical 23S endpoint policy.
 	 * G28/G16-C resources were discarded; requesting either requires its resources
-	 * and fails loudly when they are absent. No endpoint network ships for 23S. */
+	 * and fails loudly when they are absent. The modern per-end bundle is separate. */
 	private static void configureRrna23SEndpoints(NcrnaFamily family){
 		if(RRNA23S_ENDPOINT_MODE==RRNA23S_ENDPOINT_OFF){return;}
 		final String votePath=findNcrnaResource("23S_seed_offsets.tsv");
@@ -3297,8 +3320,7 @@ public class CallGenes extends ProkObject {
 	/** Loads a sweep's explicit kmer FASTA, or the normal shipped resource when unset. */
 	private static LongHashSet loadEffectiveNcrnaKmerSet(String family, String shippedResource,
 			String familyOverride, int kLong){
-		final String path=(ncrnaSweepTarget(family) && NCRNA_KMERS_OVERRIDE!=null
-			? NCRNA_KMERS_OVERRIDE : familyOverride);
+		final String path=effectiveNcrnaSeedOverride(family, familyOverride);
 		if(path==null){return loadNcrnaKmerSet(shippedResource, kLong);}
 		java.io.File f=new java.io.File(path);
 		if(!f.isFile()){
@@ -3310,6 +3332,10 @@ public class CallGenes extends ProkObject {
 		}
 		if(ProkObject.verbose){System.err.println("Loaded "+set.size()+" "+family+" "+kLong+"-mers from explicit sweep file "+path);}
 		return set;
+	}
+	private static String effectiveNcrnaSeedOverride(String family, String familyOverride){
+		assert(family!=null) : "Sweep seed overrides are family-scoped; null would change unselected callers";
+		return ncrnaSweepTarget(family) && NCRNA_KMERS_OVERRIDE!=null ? NCRNA_KMERS_OVERRIDE : familyOverride;
 	}
 
 	static String parseNcrnaFamily(String value){

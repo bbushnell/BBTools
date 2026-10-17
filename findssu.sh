@@ -26,7 +26,7 @@ Required resource files are loaded automatically from BBTools/resources/:
   all_prok_16S_best_taxsorted.fa.gz   16S rRNA sequences (for alignment ANI)
   all_euk_18S_best_taxsorted.fa.gz    18S rRNA sequences (for alignment ANI)
   all_ITS_best_taxsorted.fa.gz        ITS sequences (for alignment ANI)
-  16S_consensus_sequence.fa    16S consensus (for type classification)
+  callgenes_16S/consensus.fa   16S consensus (for type classification)
   18S_consensus_sequence.fa    18S consensus (for type classification)
   ITS_*_consensus_sequence.fq  ITS consensuses (fungi, plant, animal, other)
 If missing, download from:

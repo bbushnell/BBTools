@@ -21,10 +21,13 @@ public final class RrnaEndpointResourceLoader {
 	public static RrnaEndpointCallerFeatures.Resources load(String family,String directory,String[] names,byte[][] refs,String[] rawNames){
 		return load(family, directory, names, refs, rawNames, null);
 	}
-	/** Manifest-resolved pilot entry; legacy directory APIs remain unchanged. */
+	/** Manifest-resolved entry; legacy directory APIs remain unchanged. */
 	public static RrnaEndpointCallerFeatures.Resources load(FamilyResourceResolver.Handle tables, String[] names, byte[][] refs){
+		return load(tables, names, refs, new String[0]);
+	}
+	public static RrnaEndpointCallerFeatures.Resources load(FamilyResourceResolver.Handle tables, String[] names, byte[][] refs, String[] rawNames){
 		require(tables!=null && tables.role.equals("tables"), "A resolved family table manifest is required");
-		return load(tables.family, tables.path, names, refs, new String[0], tables);
+		return load(tables.family, tables.path, names, refs, rawNames, tables);
 	}
 	private static RrnaEndpointCallerFeatures.Resources load(String family, String directory, String[] names, byte[][] refs,
 			String[] rawNames, FamilyResourceResolver.Handle handle){

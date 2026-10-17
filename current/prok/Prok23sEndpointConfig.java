@@ -1,8 +1,6 @@
 package prok;
 
-import java.io.File;
 import java.util.ArrayList;
-import dna.Data;
 import parse.Parse;
 
 /** Run-local23S endpoint inference; disabled families and explicit off do no resource I/O.
@@ -21,17 +19,13 @@ final class Prok23sEndpointConfig {
 		require(infer || (tables==null && nets==null),"Explicit resources require rrna23sendpointnn=t");if(!infer){return;}
 		require(CallGenes.RRNA23S_ENDPOINT_MODE==CallGenes.RRNA23S_ENDPOINT_OFF && selected.boundary5NetTemplate==null && selected.boundary3NetTemplate==null && selected.boundaryNetsByModel==null && !selected.voteEnds && !selected.trimAlignmentExtent,
 			"Current-recipe per-end nets must not combine with historical23S voting/scoring/trim modes");
-		final String tableDir=tables==null ? new File(resource("23S_endpoint_tables/TABLES.tsv")).getParent() : tables;
-		final String netPath=nets==null ? resource("23S_endpoints.bbnets.gz") : nets;
-		require(new File(tableDir,"TABLES.tsv").isFile() && (new File(netPath).isFile() || new File(netPath,"MANIFEST.tsv").isFile()),"23S endpoint resources require a table manifest and a selected-network directory or framed bundle file");
-		final RrnaEndpointCallerFeatures.Resources loaded=RrnaEndpointResourceLoader.load("23S",tableDir,selected.modelNames,selected.library,new String[0]);
-		final RrnaEndpointCallerFeatures.Resources inference=RrnaEndpointNetworkLoader.load(netPath,loaded);
-		require(inference.acceptedVerifierIdentity,"23S nets must explicitly carry accepted-verifier identity metadata");selected.setRrnaEndpointInference(inference,null);
-		System.err.println("23S endpoints: enabled; tables="+tableDir+" nets="+netPath+" radius="+inference.five[0].radius);
-	}
-	private static String resource(String name){
-		final String path=Data.findPath("?"+name,false);
-		require(path!=null && new File(path).isFile(),"Missing23S endpoint resource: "+name);return path;
+		final FamilyResourceResolver resolver=new FamilyResourceResolver();
+		final FamilyResourceResolver.Overrides overrides=new FamilyResourceResolver.Overrides();
+		overrides.tables=tables;overrides.endpoints=nets;
+		final RrnaEndpointCallerFeatures.Resources inference=NcrnaFamilyLoader.loadEndpoints(selected, overrides, resolver);
+		selected.setRrnaEndpointInference(inference,null);
+		System.err.println("23S endpoints: enabled; tables="+resolver.tables(selected.name, overrides).path
+			+" nets="+resolver.resolve(selected.name, "endpoints", overrides).path+" radius="+inference.radius);
 	}
 	private static String path(String key,String value){require(value!=null && !value.isEmpty(),key+" requires an explicit resource path");return value;}
 	private static void require(boolean ok,String why){if(!ok){throw new IllegalArgumentException(why);}}
