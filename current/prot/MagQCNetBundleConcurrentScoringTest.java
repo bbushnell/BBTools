@@ -1,20 +1,21 @@
 package prot;
 
 import ml.CellNet;
+import ml.CellNetParser;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 /** Genuine mixed-format concurrency test through the ACTUAL MagQCNetBundle.Subnet API (not a
  * standalone CellNet subclass probe): both direct netForCurrentThread().feedForward() calls (the
  * path MagQCVectorMaker.formatAggRowCore() already uses) and the score()/scoreAll() wrappers, for
  * a sparse (real candidate) and a dense (legacy) subnet, scored CONCURRENTLY from multiple worker
- * threads, while a separate thread continuously toggles the shared, deprecated-for-inference
- * ml.CellNet.DENSE flag -- proving the InferenceNet dispatch fix (per-instance denseMode, no
- * shared mutable state at inference time) is genuinely race-free, not merely correct when scored
- * serially. */
+ * threads, while a separate thread repeatedly loads ordinary dense and sparse models.
+ * This retains the load-interference exercise after removal of the old CellNet.DENSE
+ * global; it checks the exercised predictions, not every possible concurrent schedule. */
 public final class MagQCNetBundleConcurrentScoringTest {
 	public static void main(String[] args) throws Exception {
 		String bundlePath=null, rawValPath=null, torchPath=null;
@@ -42,12 +43,19 @@ public final class MagQCNetBundleConcurrentScoringTest {
 		float expectedDense=dense.score(denseInput.clone());
 
 		AtomicBoolean running=new AtomicBoolean(true);
-		Thread toggler=new Thread(()->{
-			while(running.get()){ CellNet.DENSE=true; Thread.yield(); CellNet.DENSE=false; Thread.yield(); }
+		final AtomicReference<Throwable> loadFailure=new AtomicReference<Throwable>();
+		final long[] loadPairs={0}; // Read only after joining the loader.
+		Thread loader=new Thread(()->{
+			try{
+				while(running.get()){
+					loadUnrelated(true); loadUnrelated(false); loadPairs[0]++;
+					Thread.yield();
+				}
+			}catch(Throwable problem){loadFailure.set(problem);}
 		});
 		ExecutorService pool=Executors.newFixedThreadPool(4);
 		ArrayList<Future<?>> work=new ArrayList<>();
-		toggler.start();
+		loader.start();
 		final int JOBS=64, CYCLES=30;
 		try {
 			for(int job=0;job<JOBS;job++){
@@ -86,12 +94,27 @@ public final class MagQCNetBundleConcurrentScoringTest {
 			}
 			for(Future<?> f:work) f.get();
 		} finally {
-			running.set(false); toggler.join(); pool.shutdownNow();
+			running.set(false); loader.join(); pool.shutdownNow();
 		}
-		System.out.println("PASS: "+JOBS+" tasks x "+CYCLES+" cycles, 4 workers, external DENSE toggler; "+
+		if(loadFailure.get()!=null){throw new AssertionError("Unrelated model loading failed", loadFailure.get());}
+		check(loadPairs[0]>0, "No unrelated model loads overlapped the scoring exercise");
+		System.out.println("PASS: "+JOBS+" tasks x "+CYCLES+" cycles, 4 workers, external mixed-model loader; "+
 			"score()/scoreAll() wrappers AND direct netForCurrentThread().feedForward() both correct "+
 			"for concurrently-scored sparse+dense subnets");
 		System.out.println("MAGQC_BUNDLE_CONCURRENT_SCORING PASS");
+	}
+
+	/** Both literal models compute 0.25+0.5*x0-0.25*x2; sparse inputs deliberately skip x1. */
+	private static void loadUnrelated(final boolean dense){
+		final String header="##bbnet\n#version 1\n#concise\n#coding decimal\n#seed 23\n"+
+			"#layers 2\n#blocksize 1\n#dims 3 1\n";
+		final String model=header+(dense ? "#dense\nC4 LINEAR 0.25 0.5 0 -0.25\n" :
+			"#sparse\nI4 0 2\nC4 LINEAR 0.25 0.5 -0.25\n");
+		final ArrayList<byte[]> lines=new ArrayList<byte[]>();
+		for(String line:model.split("\n")){lines.add(line.getBytes(StandardCharsets.US_ASCII));}
+		final CellNet net=CellNetParser.loadFromLines(lines);
+		check(net.dense==dense && net.applyInput(new float[]{2, 1, 4}).feedForward()==0.25f,
+			"Unrelated dense/sparse fixture produced the wrong mode or prediction");
 	}
 
 	static float[][] readFloatRows(String path,int skipCols) throws Exception {

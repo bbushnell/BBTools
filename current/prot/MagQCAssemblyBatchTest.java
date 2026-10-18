@@ -241,32 +241,30 @@ public final class MagQCAssemblyBatchTest {
 
 	/** Model loading must not change the mode used by a previously loaded legacy caller net. */
 	private static void checkCallerMode() throws Exception{
-		final boolean original=CellNet.DENSE;
 		final String header="##bbnet\n#version 1\n#concise\n#coding decimal\n#seed 23\n#layers 2\n#blocksize 1\n#dims 3 1\n";
 		final String dense=header+"#dense\nC4 LINEAR 0.25 0.5 0 -0.25\n";
 		final String sparse=header+"#sparse\nI4 0 2\nC4 LINEAR 0.25 0.5 -0.25\n";
 		final float[] input={2, 1, 4};
-		try{
-			for(boolean callerDense:new boolean[]{true, false}){
-				final ArrayList<byte[]> lines=new ArrayList<byte[]>();
-				for(String line:(callerDense ? dense : sparse).split("\n")){lines.add(line.getBytes(StandardCharsets.US_ASCII));}
-				final CellNet caller=CellNetParser.loadFromLines(lines);
-				caller.applyInput(input); final float expected=caller.feedForward();
-				final MagQCNetBundle.InferenceModel model=MagQCNetBundle.parseInferenceModel(
-					(callerDense ? sparse : dense).getBytes(StandardCharsets.US_ASCII), "opposite-mode fixture");
-				check(CellNet.DENSE==callerDense, "Composite parsing changed the legacy caller mode");
-				final CellNet copy=caller.copy(false), worker=model.newWorker();
-				copy.applyInput(input); worker.applyInput(input);
-				check(copy.feedForward()==expected && worker.feedForward()==expected,
-					"Legacy copy or instance-specific inference changed after an opposite-mode load");
-				boolean rejected=false;
-				try{
-					MagQCNetBundle.parseInferenceModel((header+(callerDense ? "#sparse\nI99 0 2\n" : "#dense\n")+
-						"C99 LINEAR 0.25 0.5 0 -0.25\n").getBytes(StandardCharsets.US_ASCII), "broken-mode fixture");
-				}catch(java.io.IOException e){rejected=true;}
-				check(rejected && CellNet.DENSE==callerDense, "Failed master parsing leaked its temporary network mode");
-			}
-		}finally{CellNet.DENSE=original;}
+		for(boolean callerDense:new boolean[]{true, false}){
+			final ArrayList<byte[]> lines=new ArrayList<byte[]>();
+			for(String line:(callerDense ? dense : sparse).split("\n")){lines.add(line.getBytes(StandardCharsets.US_ASCII));}
+			final CellNet caller=CellNetParser.loadFromLines(lines);
+			caller.applyInput(input); final float expected=caller.feedForward();
+			final MagQCNetBundle.InferenceModel model=MagQCNetBundle.parseInferenceModel(
+				(callerDense ? sparse : dense).getBytes(StandardCharsets.US_ASCII), "opposite-mode fixture");
+			check(caller.dense==callerDense, "Composite parsing changed the caller representation");
+			final CellNet copy=caller.copy(false), worker=model.newWorker();
+			copy.applyInput(input); worker.applyInput(input);
+			check(copy.feedForward()==expected && worker.feedForward()==expected,
+				"Legacy copy or instance-specific inference changed after an opposite-mode load");
+			boolean rejected=false;
+			try{
+				MagQCNetBundle.parseInferenceModel((header+(callerDense ? "#sparse\nI99 0 2\n" : "#dense\n")+
+					"C99 LINEAR 0.25 0.5 0 -0.25\n").getBytes(StandardCharsets.US_ASCII), "broken-mode fixture");
+			}catch(java.io.IOException e){rejected=true;}
+			check(rejected && caller.dense==callerDense && caller.applyInput(input).feedForward()==expected,
+				"Failed master parsing changed the existing caller's representation or prediction");
+		}
 	}
 
 	/** Injects failure on the second start while the first worker is still using its session. */

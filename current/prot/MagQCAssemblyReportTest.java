@@ -24,14 +24,18 @@ public final class MagQCAssemblyReportTest {
 		final MagQCAssemblyReport report=new MagQCAssemblyReport(reads, bin);
 		check(report.n50==1 && report.l50==5 && report.n90==2 && report.l90==4,
 			"BBTools Nx counts contigs and Lx gives lengths at inclusive cumulative boundaries");
-		final MagQCAssemblyInput.Taxonomy tax=new MagQCAssemblyInput.Taxonomy("Bacteria", "Bacillota", "reference", 123, .8351);
+		final MagQCAssemblyInput.Taxonomy tax=new MagQCAssemblyInput.Taxonomy("Bacteria", "Bacillota", "reference", 123, .8351,
+			"phylum:84.5", "d:99.9;p:84.5;g:12.0");
 		final ByteBuilder row=new ByteBuilder(); report.append(row, tax, .997f, .006f);
 		final LineParser1 p=new LineParser1('\t'); p.set(row.toBytes());
-		check(p.terms()==19 && p.termEquals("0.8351", 3) && p.termEquals("0.375", 10) && p.termEquals("1.1", 12),
+		check(p.terms()==21 && p.termEquals("0.8351", 3) && p.termEquals("0.375", 10) && p.termEquals("1.1", 12),
 			"TSV must retain fraction units, use GC/ACGT, and preserve overlapping coding bases: "+row);
 		check(p.termEquals("UHQ", 17), "RNA-complete high-quality fixture must use existing extended tier");
-		check(p.termEquals("NA", 18) && MagQCAssemblyReport.columns(false).endsWith("\tr18"),
+		check(p.termEquals("NA", 18) && MagQCAssemblyReport.columns(false).contains("\tr18\t"),
 			"Disabled 18S calling must publish unavailable, never a false zero");
+		check(p.termEquals("phylum:84.5", 19) && p.termEquals("d:99.9;p:84.5;g:12.0", 20)
+			&& MagQCAssemblyReport.columns(false).endsWith("\tqc_confident_level\tqc_confidence_profile_percent"),
+			"Classifier percentages must retain exact source units without rescaling or modifying earlier columns");
 		check(p.parseInt(6)==1 && p.parseInt(7)==5 && p.parseInt(8)==2 && p.parseInt(9)==4,
 			"TSV reports count before length at both thresholds");
 		final String human=report.human(tax, .997f, .006f, .0051, .0033);
@@ -46,6 +50,7 @@ public final class MagQCAssemblyReportTest {
 		p.set(row.toBytes());
 		check(p.termEquals("NA", 1) && p.termEquals("NA", 2) && p.termEquals("NA", 3) && p.termEquals("NA", 10),
 			"Unknown reference and undefined GC must not be invented as zero");
+		check(p.termEquals("NA", 19) && p.termEquals("NA", 20), "Unavailable classifier confidence must be explicit NA");
 		final String prefix="#Query1\nmagqc_bin\t0.5\t10\t3\treference\t123\t0.5\t20\t4\tspecies"
 			+"\t0\t0\t0\t0\t0\t0\t0";
 		final String suffix="\td__Bacteria;p__Bacillota\tdomain\t.\n";

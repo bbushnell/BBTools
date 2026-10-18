@@ -107,8 +107,10 @@ public final class MagQCNetBundle {
      * to replace the rejected static-DENSE-reset attempt, 2026-09-09). Constructs fresh,
      * structurally-empty cells via the public CellNet constructor, then copies weight/bias/input
      * state from the master net via setFrom(master,false) -- which does NOT call
-     * makeWeightMatrices() (unlike copy()), so construction never touches the shared
-     * ml.CellNet.DENSE global. feedForward() is overridden to dispatch directly on this
+     * makeWeightMatrices() (unlike copy()). This originally avoided the shared
+     * ml.CellNet.DENSE global; CellNet now also owns its representation per instance.
+     * The explicit constructor mode must agree with the master before setFrom().
+     * feedForward() is overridden to dispatch directly on this
      * instance's OWN final denseMode flag -- this protects the DIRECT
      * netForCurrentThread().feedForward() call path MagQCVectorMaker already uses today, not
      * just the score()/scoreAll() wrappers, and involves no shared mutable state at inference
@@ -128,7 +130,7 @@ public final class MagQCNetBundle {
         }
         InferenceNet(CellNet master, int[] dims, long seed, float density, float density1,
                 int blockSize, boolean denseMode, MagQCPredictionContract interpretation) {
-            super(dims, seed, density, density1, blockSize, new ArrayList<String>());
+            super(dims, seed, density, density1, blockSize, new ArrayList<String>(), denseMode);
             this.denseMode=denseMode;
             setFrom(master, false);
             prediction=interpretation;
@@ -163,7 +165,7 @@ public final class MagQCNetBundle {
 	/**
 	 * A parsed network and its own execution parameters, shared by subnet and
 	 * composite containers. The master stays private; workers obtain independent
-	 * inference-only copies whose dense/sparse dispatch never reads CellNet.DENSE.
+	 * inference-only copies whose dense/sparse dispatch uses their own representation.
 	 */
 	static final class InferenceModel {
 		private InferenceModel(CellNet master_,int[] dims_,long seed_,float[] densities,
@@ -1369,9 +1371,9 @@ public final class MagQCNetBundle {
         int[] r=new int[x.size()]; for(int i=0;i<r.length;i++) r[i]=x.get(i); return r;
     }
 	/**
-	 * Inference-only parsing never changes global CellNet.DENSE. A parser lock and
-	 * later restoration cannot protect legacy gene-caller inference that does not
-	 * take that lock; lazy composite loading must not expose a temporary mode.
+	 * Inference-only parsing keeps representation local to the loaded model. Before
+	 * CellNet acquired instance-owned mode, a parser lock and later restoration could
+	 * not protect gene-caller inference that did not take that lock.
 	 */
 	private static CellNet parseNet(byte[] bytes, String id) throws Exception{
 		final ArrayList<byte[]> lines=new ArrayList<byte[]>();
@@ -1423,7 +1425,8 @@ public final class MagQCNetBundle {
         for(String l:headerLines(bytes)) if(l.startsWith("#seed")) return Integer.parseInt(l.substring(5).trim());
         throw new IOException(id+": missing #seed");
     }
-    /** `ml.CellNet.DENSE` is a single GLOBAL static flag, set by CellNetParser's constructor
+    /** Historical rationale (before CellNet acquired instance-owned mode):
+     * `ml.CellNet.DENSE` was a single GLOBAL static flag, set by CellNetParser's constructor
      * from whichever file it most recently parsed -- NOT a per-CellNet-instance property.
      * CellNet.feedForward() reads that global flag at CALL time to choose feedForwardDense()
      * vs feedForwardSparse(), so a bundle holding a MIX of dense and sparse subnets (this
