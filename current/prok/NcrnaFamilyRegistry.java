@@ -5,6 +5,23 @@ package prok;
  * @author Brian, Raiden */
 public final class NcrnaFamilyRegistry {
 
+	/** Preserve existing family floors; introducing edge rescue does not tune length. */
+	static void enablePhysicalEdges(NcrnaFamily family){
+		final Entry entry=get(family.name);
+		if("tRNA".equals(entry.id) || family.modelEndClipping){
+			throw new IllegalArgumentException("Physical-edge policy requires a generic registered caller without primary model clipping: "+family.name);
+		}
+		family.physicalEdgeMinLen=family.prok16sPartialMinLen>0 ? family.prok16sPartialMinLen : family.minLen;
+		// Physical18S rescue retains its measured cutoff when unrestricted interior
+		// rescue is disabled. Primary model thresholds remain unchanged.
+		if("euk18S".equals(entry.id) && Float.isNaN(family.modelClipRescueId)){
+			family.modelClipRescueId=.66f;
+		}
+		assert(family.physicalEdgeMinLen>0 && family.physicalEdgeMinLen<=family.minLen)
+			: "Existing partial floors or unchanged family minLen bound physical-edge rescue";
+		System.err.println("Physical-edge policy: family="+family.name+" minLen="+family.physicalEdgeMinLen+" interiorModelRescue=false");
+	}
+
 	public static Entry get(String id){
 		if("5S".equalsIgnoreCase(id) || "prok5S".equalsIgnoreCase(id)){return PROK5S;}
 		if("23S".equalsIgnoreCase(id)){return PROK23S;}

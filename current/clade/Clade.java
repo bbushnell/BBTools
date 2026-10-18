@@ -322,6 +322,13 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 	}
 	
 	public void add(byte[] seq, EntropyTracker et) {
+		addSequence(seq, et);
+	}
+
+	/** Same accumulator as add(byte[],EntropyTracker), returning this contig's entropy
+	 * so CladeBuilder can reproduce the serial weighted-mean order after workers join. */
+	float addSequence(byte[] seq, EntropyTracker et) {
+		assert(seq!=null && (!calcCladeEntropy || et!=null)) : "Clade sequence counts require bases and a private entropy tracker when enabled";
 		//THREAD-SAFETY: intentionally NOT synchronized (hot path). It does read-modify-write on counts/bases/entropy/
 		//contigs, so the CALLER must guarantee single-thread access to `this` -- e.g. CladeLoader accumulates into a
 		//thread-local `dummy` then merges into the shared map via the synchronized add(Clade). Calling this on a Clade
@@ -335,6 +342,7 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 		incrementBases(seq.length);
 		contigs++;
 		addToSketch(seq);
+		return seqEntropy;
 	}
 	
 	private void addToSketch(byte[] seq) {

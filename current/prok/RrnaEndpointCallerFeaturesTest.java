@@ -52,8 +52,74 @@ public final class RrnaEndpointCallerFeaturesTest {
 		check(!actual.isEmpty() && calls(expected).equals(calls(actual)) && recorder.count>beforeRows,"Real accepted-candidate hook must fire without changing calls");
 		check(on.alignmentCount()-before==off.alignmentCount()+recorder.count-beforeRows,"Feature alignments must remain visible in actual caller workload");
 		boolean failed=false;family.trimAlignmentExtent=true;try{scavenger(family);}catch(IllegalArgumentException e){failed=true;}check(failed,"Raw-endpoint feature contract must reject trimming-enabled configuration");
+		fixedEnds(bases,consensus,five,three,gc);
 		System.out.println("PASS RrnaEndpointCallerFeaturesTest actual_family_hook byte_identical_28cols mixed_k6_k9 nonzero_anchors strands lowercase clipping default_off calls_unchanged alignment_accounting");
 	}
+	static void fixedEnds(byte[] bases,byte[] consensus,RrnaPositionalKmerTable.Table five,RrnaPositionalKmerTable.Table three,float gc){
+		final ml.CellNet[] fiveNets={constantNet(five.inputs,five.sites,9)},threeNets={constantNet(three.inputs,three.sites,16)};
+		final RrnaEndpointCallerFeatures.Resources resources=new RrnaEndpointCallerFeatures.Resources("prok5S",new String[]{MODEL},new byte[][]{consensus},
+			new RrnaPositionalKmerTable.Table[]{five},new RrnaPositionalKmerTable.Table[]{three},fiveNets,threeNets,null,true);
+		final Recorder oldRecorder=new Recorder(),zeroRecorder=new Recorder();
+		final RrnaEndpointCallerFeatures old=new RrnaEndpointCallerFeatures(resources,oldRecorder),zero=new RrnaEndpointCallerFeatures(resources,zeroRecorder);
+		final Orf a=prokCandidate(bases,53,125,0),b=prokCandidate(bases,53,125,0);a.orfScore=b.orfScore=123f;
+		old.capture(a,bases,0,gc,70,200,.73f);zero.capture(b,bases,0,gc,70,200,.73f,0);
+		check(a.start==50 && a.stop==129 && b.start==a.start && b.stop==a.stop
+			&& Arrays.equals(oldRecorder.five,zeroRecorder.five) && Arrays.equals(oldRecorder.three,zeroRecorder.three),
+			"Legacy overload and explicit mask0 must retain exact feature bytes and real inference results");
+		for(int strand=0;strand<2;strand++){
+			for(int mask=1;mask<=2;mask++){
+				final Recorder recorder=new Recorder();final RrnaEndpointCallerFeatures inference=new RrnaEndpointCallerFeatures(resources,recorder);
+				// A disabled network must never be dereferenced, even when its table would score.
+				if(mask==1){inference.fiveNets[0]=null;}else{inference.threeNets[0]=null;}
+				final Orf candidate=prokCandidate(bases,53,125,strand);candidate.orfScore=123f;
+				inference.capture(candidate,bases,0,gc,70,200,.73f,mask);
+				check(candidate.start==(mask==1?53:50) && candidate.stop==(mask==2?125:129) && candidate.orfScore==123f,
+					"Only unfixed oriented endpoint moves; accepted detection score remains unchanged on both strands");
+				check(recorder.fiveUsable==(mask==2) && recorder.threeUsable==(mask==1),"Observation cannot claim a fixed endpoint was scored");
+				final float[] active=mask==1?inference.three:inference.five,disabled=mask==1?inference.five:inference.three;
+				check(active[resources.sites]==73f/consensus.length && active[resources.sites+2]==.73f,
+					"Interior endpoint retains full trained consensus length and supplied accepted identity, not cropped-model substitutes");
+				for(float value:disabled){check(Float.isNaN(value),"Disabled end must not leak preceding-candidate feature values");}
+			}
+		}
+		final RrnaEndpointCallerFeatures scoped=new RrnaEndpointCallerFeatures(resources,new Recorder());
+		final Orf tooShort=prokCandidate(bases,53,125,0);scoped.capture(tooShort,bases,0,gc,80,200,.73f,1);
+		check(tooShort.start==53 && tooShort.stop==125,"Ordinary full-model minimum rejects77bp proposal, while explicit partial70 floor above permits it");
+		// Nulling the disabled table proves feature extraction is skipped, not just its output discarded.
+		resources.five[0]=null;
+		final Orf edge=prokCandidate(bases,0,125,0);scoped.capture(edge,bases,0,gc,70,200,.73f,1);
+		check(edge.start==0 && edge.stop==129,"Physical5prime coordinate stays fixed while normal3prime inference runs");
+		resources.five[0]=five;
+		final Recorder silent=new Recorder();final RrnaEndpointCallerFeatures both=new RrnaEndpointCallerFeatures(resources,silent);
+		final Orf fixed=prokCandidate(bases,0,179,1);both.capture(fixed,null,0,Float.NaN,70,200,Float.NaN,3);
+		check(silent.count==0 && fixed.start==0 && fixed.stop==179,"Both fixed means no features, identity computation, NN inference or sink observation");
+		boolean rejected=false;try{both.capture(fixed,bases,0,gc,70,200,.73f,4);}catch(IllegalArgumentException e){rejected=true;}
+		check(rejected,"Unknown mask bits cannot silently suppress endpoint work");
+		final String rawName="mitochondria";
+		final RrnaEndpointCallerFeatures.Resources mitoResources=new RrnaEndpointCallerFeatures.Resources("16S",new String[]{MODEL,rawName},new byte[][]{consensus,consensus},
+			new RrnaPositionalKmerTable.Table[]{five,null},new RrnaPositionalKmerTable.Table[]{three,null},new ml.CellNet[]{fiveNets[0],null},new ml.CellNet[]{threeNets[0],null},new boolean[]{false,true},true);
+		final Recorder mitoRecorder=new Recorder();final RrnaEndpointCallerFeatures mito=new RrnaEndpointCallerFeatures(mitoResources,mitoRecorder);
+		for(int mask=0;mask<=3;mask++){final Orf candidate=candidate(bases,53,125,0);candidate.ncrnaFamily="16S";candidate.trnaModel=rawName;
+			mito.capture(candidate,bases,1,gc,70,200,.73f,mask);check(candidate.start==53 && candidate.stop==125,"Raw mitochondrial model must retain both endpoints for every mask");}
+		check(mitoRecorder.count==0,"Raw mitochondrial exemption must not produce endpoint feature rows");
+		System.out.println("PASS fixed-end masks, mask0 byte parity, both strands, partial minimum, full-reference/accepted identity, no disabled work and raw mitochondrial exemption");
+	}
+	static ml.CellNet constantNet(int inputs,int sites,int winner){
+		final ml.CellNet net=new ml.CellNet(new int[]{inputs,sites},931,1f,0f,1,null);
+		// CellNet.randomize requires normalized activation-selection rates even
+		// without hidden layers. Preserve shared settings around this test setup.
+		final float[] rates=ml.Function.TYPE_RATES.clone(),cumulative=ml.Function.TYPE_RATES_CUM;
+		try{
+			if(cumulative==null){ml.Function.normalizeTypeRates();}
+			net.randomize();
+		}finally{
+			System.arraycopy(rates,0,ml.Function.TYPE_RATES,0,rates.length);
+			ml.Function.TYPE_RATES_CUM=cumulative;
+		}
+		for(int i=0;i<net.finalLayer.length;i++){final ml.Cell cell=net.finalLayer[i];Arrays.fill(cell.weights,0f);cell.setBias(i==winner?1f:0f,true);cell.function=ml.Function.getFunction(ml.Function.LINEAR);}
+		return net;
+	}
+	static Orf prokCandidate(byte[] bases,int start,int stop,int strand){final Orf o=candidate(bases,start,stop,strand);o.ncrnaFamily="prok5S";return o;}
 	static NcrnaFamily family(byte[] consensus){
 		final LongHashSet seeds=new LongHashSet(32);for(int i=0;i+17<=consensus.length;i++){long word=0;for(int j=0;j<17;j++){word=(word<<2)|dna.AminoAcid.baseToNumber[consensus[i+j]];}seeds.add(word);}
 		final NcrnaFamily f=new NcrnaFamily("euk5S",new byte[][]{consensus},null,new String[]{MODEL},seeds,17,20,50,7,1,false,1f,0f,0f,1,0f,1f,.6f,.6f);

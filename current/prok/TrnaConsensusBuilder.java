@@ -1208,6 +1208,16 @@ public class TrnaConsensusBuilder {
 		return r==null ? -999 : model.score(r, false, true);
 	}
 
+	/** Physical-edge traces retain their original model origin; no realignment. */
+	static float scoreAlignedAgainstModel(byte[] candidate, AlignmentStats stats, BaseGraph model, int modelStart){
+		if(model==null || candidate==null || stats==null || stats.matchString==null){return -999;}
+		if(modelStart<0 || modelStart>=model.original.length){throw new IllegalArgumentException("HBM model start outside original consensus: "+modelStart);}
+		final Read r=invertToModelFrame(candidate, stats, modelStart);
+		assert(r==null || r.start>=modelStart && r.stop<model.original.length)
+			: "Physical-edge HBM coordinates must stay inside the original model, not restart at zero";
+		return r==null ? -999 : model.score(r, false, true);
+	}
+
 	/**
 	 * Converts a consensus-as-query alignment (candidate as the reference) into
 	 * a candidate-as-query Read in model coordinates for BaseGraph scoring.
@@ -1218,6 +1228,12 @@ public class TrnaConsensusBuilder {
 	 * @return The inverted Read, or null if the alignment is unusable.
 	 */
 	static Read invertToModelFrame(byte[] candidate, AlignmentStats stats){
+		return invertToModelFrame(candidate, stats, 0);
+	}
+
+	/** The old glocal callers retain origin zero; clipped callers supply qStart. */
+	static Read invertToModelFrame(byte[] candidate, AlignmentStats stats, int modelStart){
+		assert(modelStart>=0):"Model origin is qStart for clipped traces and zero for full-model glocal traces";
 		final byte[] match=stats.matchString;
 		if(stats.rStart<0 || stats.rStop<stats.rStart || stats.rStop>=candidate.length){return null;}
 		byte[] inv=new byte[match.length];
@@ -1231,7 +1247,7 @@ public class TrnaConsensusBuilder {
 		//coordinate).  Neither should contribute counts or scores, and BaseGraph's
 		//walk reads bases[qpos] on EVERY op, so a trailing D after the last base
 		//would read past the end.  The first/last kept op is always m/S/N.
-		int from=0, to=inv.length, bFrom=0, bTo=bases.length, startPos=0;
+		int from=0, to=inv.length, bFrom=0, bTo=bases.length, startPos=modelStart;
 		while(from<to && (inv[from]=='I' || inv[from]=='D')){
 			if(inv[from]=='I'){bFrom++;}else{startPos++;}
 			from++;

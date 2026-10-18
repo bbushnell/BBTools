@@ -140,7 +140,7 @@ final class Euk18sRuntimeConfig {
 		f.voteWindows=voteWindows;f.voteEnds=voteEnds;f.voteSlack=voteSlack;f.voteEndsMaxSd=voteMaxSd;
 		f.voteBeforePadding=voteBeforePadding;
 		if(voteEnds||voteWindows){
-			final String expected=offsets==null && voteSeedSha80==null ? "b468f4f1faaf9dd6e56f" : voteSeedSha80;
+			final String expected=offsets==null && voteSeedSha80==null ? "47bd7e395c8398204083" : voteSeedSha80;
 			NcrnaFamilyLoader.loadVoteOffsets(f,options.resources,resolver,expected);
 		}
 		if(infer){
@@ -189,7 +189,7 @@ final class Euk18sRuntimeConfig {
 	private int msaDel4=MultiStateAligner9PacBio.POINTS_DEL4,msaDel5=MultiStateAligner9PacBio.POINTS_DEL5,
 		msaIns4=MultiStateAligner9PacBio.POINTS_INS4,msaIns=MultiStateAligner9PacBio.POINTS_INS,msaDel=MultiStateAligner9PacBio.POINTS_DEL;
 	private float msaSubScale=.66f;
-	private boolean modelClipRescue=true;
+	private boolean modelClipRescue=false;
 	private float rescueId=Float.NaN;
 	private String consensus,seeds,cutoffs,offsets,voteSeedSha80,tables,nets;
 	private int minLen=916,maxLen=4000,flank=100,seedMinHits=2,indexMinHits=96,topN=-1,indexMargin=121,voteSlack=60;

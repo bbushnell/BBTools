@@ -266,7 +266,14 @@ euk18swindowpad=3109  Fallback window radius. Mapping uses K9.
 euk18sflank=100  Retained explicit engineering control.
 euk18sminlen=916 euk18smaxlen=4000 euk18sseedminhits=2
 euk18sseeddistinct=t euk18scollapsefrac=0.9
-euk18smodelclip=rescue euk18srescueid=0.66  Retry primary rejection only.
+ncrnaedge=t     Rescue rejected generic ncRNA candidates only at physical contig
+                ends; preserve existing family length cutoffs. Edge rescues
+                require identity >=0.60 and the family's verifier thresholds.
+                Refine the interior endpoint; keep the physical contig end fixed.
+euk18smodelclip=f  Unrestricted 18S interior model-clipping rescue is off.
+                Physical-edge 18S rescue retains its 0.66 identity threshold.
+                Restore the previous policy with both ncrnaedge=f and
+                euk18smodelclip=rescue (optional euk18srescueid=0.66).
 euk18sindexminhits=96 euk18stopn=<uncapped>
 euk18sindexmargin=121  Nonnegative values replace topN with an inclusive shared-K9
                 score gap below the best model in each window. Keeps all positive

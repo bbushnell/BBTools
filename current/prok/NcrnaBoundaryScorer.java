@@ -290,11 +290,43 @@ public class NcrnaBoundaryScorer {
 			float[] startFuzz, float[] stopFuzz,
 			TrnaBoundaryFeatures.NinemerTable familyStartTable,
 			TrnaBoundaryFeatures.NinemerTable familyStopTable){
+		return refineBoundariesWithCounts(startNet,stopNet,window,s,e,modelConsensus,model,startTable,stopTable,
+			startInside,startOutside,stopInside,stopOutside,contigGC,meanLen,startOffsets,stopOffsets,
+			marginStart,marginStop,touchesContigStart,touchesContigEnd,featureVersion,locusAni,
+			startFuzz,stopFuzz,familyStartTable,familyStopTable,0);
+	}
+
+	/** A physically missing end is neither scored nor moved. The other end keeps
+	 * the family's normal feature definition and sweep with its anchor fixed. */
+	static RefinementResult refineBoundariesWithCounts(CellNet startNet, CellNet stopNet, byte[] window, int s, int e,
+			byte[] modelConsensus, BaseGraph model,
+			TrnaBoundaryFeatures.NinemerTable startTable, TrnaBoundaryFeatures.NinemerTable stopTable,
+			int startInside, int startOutside, int stopInside, int stopOutside, float contigGC, float meanLen,
+			int[] startOffsets, int[] stopOffsets, float marginStart, float marginStop,
+			boolean touchesContigStart, boolean touchesContigEnd, int featureVersion, float locusAni,
+			float[] startFuzz, float[] stopFuzz,
+			TrnaBoundaryFeatures.NinemerTable familyStartTable,
+			TrnaBoundaryFeatures.NinemerTable familyStopTable, int fixedMask){
+		if((fixedMask&~3)!=0){throw new IllegalArgumentException("Physical endpoint mask uses only start/stop bits");}
+		assert(s>=0 && e>=s && e<window.length)
+			:"Endpoint sweeps must retain the accepted span in the provided genomic window";
 		if(featureVersion!=FEATURES_V1 && featureVersion!=FEATURES_V2 && featureVersion!=FEATURES_V3){throw new IllegalArgumentException(
 			"Unknown ncRNA boundary feature version: "+featureVersion);}
 		if((familyStartTable==null)!=(familyStopTable==null)){throw new IllegalArgumentException("Family start/stop tables must be supplied together");}
 		if(familyStartTable!=null && featureVersion!=FEATURES_V3){throw new IllegalArgumentException("Family/consensus table blending requires boundaryfeatures=v3");}
+		if(fixedMask==3){return new RefinementResult(0,0,0,0,Float.NaN,Float.NaN);}
 		final float modelPlateau=(featureVersion==FEATURES_V1 && model!=null ? TrnaBoundaryFeatures.modelMaxCoverage(model) : 0);
+		if(fixedMask!=0){
+			final boolean stop=fixedMask==1;
+			final float[] sweep=bestOffset(stop?stopNet:startNet,window,s,e,stop,modelConsensus,model,stop?stopTable:startTable,
+				stop?stopInside:startInside,stop?stopOutside:startOutside,contigGC,meanLen,stop?stopOffsets:startOffsets,
+				stop?touchesContigEnd:touchesContigStart,modelPlateau,featureVersion,locusAni,startFuzz,stopFuzz,
+				stop?familyStopTable:familyStartTable);
+			final float margin=stop?marginStop:marginStart;
+			final int offset=applyMargin(sweep,margin),count=(int)sweep[3];final float chosen=selectedScore(sweep,margin);
+			return stop?new RefinementResult(0,offset,0,count,Float.NaN,chosen)
+				:new RefinementResult(offset,0,count,0,chosen,Float.NaN);
+		}
 		final float startConf=score(startNet, window, s, e, false, modelConsensus, model,
 			startTable, startInside, startOutside, contigGC, meanLen, modelPlateau,featureVersion,locusAni,startFuzz,stopFuzz,familyStartTable);
 		final float stopConf=score(stopNet, window, s, e, true, modelConsensus, model,

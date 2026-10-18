@@ -1,5 +1,6 @@
 package prok;
 
+import java.util.Arrays;
 import idaligner.AlignmentStats;
 import ml.CellNet;
 
@@ -79,7 +80,16 @@ public final class RrnaEndpointCallerFeatures {
 		capture(candidate,bases,model,contigGC,minLen,maxLen,Float.NaN);
 	}
 	void capture(Orf candidate,byte[] bases,int model,float contigGC,int minLen,int maxLen,float acceptedIdentity){
+		capture(candidate,bases,model,contigGC,minLen,maxLen,acceptedIdentity,0);
+	}
+	/** Fixed endpoints are in the current strand-oriented frame: bit1 is5prime,
+	 * bit2 is3prime. Disabled ends are neither scored nor predicted. The caller
+	 * supplies its already-established partial length floor; training reference
+	 * length and accepted-verifier identity retain their original definitions. */
+	void capture(Orf candidate,byte[] bases,int model,float contigGC,int minLen,int maxLen,float acceptedIdentity,int fixedMask){
+		require((fixedMask&~3)==0,"Endpoint fixed mask permits only oriented5prime/3prime bits");
 		require(candidate!=null && resources.family.equals(candidate.ncrnaFamily) && model>=0 && model<resources.refs.length && resources.names[model].equals(candidate.trnaModel),"Raw candidate must belong to the configured family and winning model");
+		if(fixedMask==3){return;}// No endpoint features, identity realignment, inference or observation.
 		final byte[] reference=resources.refs[model];final float identity;
 		if(resources.acceptedVerifierIdentity){require(Float.isFinite(acceptedIdentity) && acceptedIdentity>=0 && acceptedIdentity<=1,"Accepted-identity features require the actual winning-model verifier identity; no cropped re-alignment fallback");identity=acceptedIdentity;}
 		else{identity=RrnaEndpointVector.candidateIdentity(bases,candidate.start,candidate.stop,reference,stats);}
@@ -87,8 +97,10 @@ public final class RrnaEndpointCallerFeatures {
 		// identity bundles reuse the supplied scalar; neither path invents endpoint
 		// predictions for explicit raw models.
 		if(resources.raw[model]){return;}
-		final boolean fiveUsable=NcrnaBoundaryScorer.rrnaEndpointFeatures(resources.five[model],bases,candidate.start,candidate.stop,reference.length,contigGC,identity,scratch,five);
-		final boolean threeUsable=NcrnaBoundaryScorer.rrnaEndpointFeatures(resources.three[model],bases,candidate.start,candidate.stop,reference.length,contigGC,identity,scratch,three);
+		if((fixedMask&1)!=0){Arrays.fill(five,Float.NaN);}
+		if((fixedMask&2)!=0){Arrays.fill(three,Float.NaN);}
+		final boolean fiveUsable=(fixedMask&1)==0 && NcrnaBoundaryScorer.rrnaEndpointFeatures(resources.five[model],bases,candidate.start,candidate.stop,reference.length,contigGC,identity,scratch,five);
+		final boolean threeUsable=(fixedMask&2)==0 && NcrnaBoundaryScorer.rrnaEndpointFeatures(resources.three[model],bases,candidate.start,candidate.stop,reference.length,contigGC,identity,scratch,three);
 		if(sink!=null){sink.capture(candidate.scafName,candidate.strand,model,candidate.start,candidate.stop,five,fiveUsable,three,threeUsable);}
 		if(fiveNets!=null){
 			final int start=fiveUsable?RrnaEndpointVector.endpointFromClass(candidate.start,predict(fiveNets[model],five),resources.radius):candidate.start;

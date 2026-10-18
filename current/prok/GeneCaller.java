@@ -445,6 +445,7 @@ public class GeneCaller extends ProkObject {
 		scavenger.modelEndClipping=family.modelEndClipping;
 		scavenger.modelClipRescue=family.modelClipRescue;
 		scavenger.prok16sPartialMinLen=family.prok16sPartialMinLen;
+		scavenger.physicalEdgeMinLen=family.physicalEdgeMinLen;
 		scavenger.modelClipRescueId=family.modelClipRescueId;
 		if(family.modelThresholds!=null){scavenger.setModelThresholds(family.modelThresholds);}
 		scavenger.boundaryFeatureVersion=family.boundaryFeatureVersion;

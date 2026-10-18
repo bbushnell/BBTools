@@ -24,6 +24,7 @@ import map.LongHashSet;
 import parse.Parse;
 import bin.AdjustEntropy;
 import clade.Clade;
+import clade.CladeBuilder;
 import clade.CladeSearcher;
 import clade.SendClade;
 import parse.Parser;
@@ -153,6 +154,8 @@ public class CallGenes extends ProkObject {
 //			outstream.println(arg+", "+a+", "+b);
 			if(PGMTools.parseStatic(arg, a, b)){
 				if(isSingleFamilyFlag(a)){onlyMode=Parse.parseBoolean(b);}
+			}else if(a.equals("ncrnaedge")){
+				physicalNcrnaEdges=Parse.parseBoolean(b);
 			}else if(a.equals("in") || a.equals("infna") || 
 					a.equals("fnain") || a.equals("fna") || a.equals("ref")){
 				assert(b!=null);
@@ -806,6 +809,7 @@ public class CallGenes extends ProkObject {
 		prok16sEndpoints.apply(GeneCaller.ncrnaFamilies);
 		prok23sEndpoints.apply(GeneCaller.ncrnaFamilies);
 		prok5sEndpoints.apply(GeneCaller.ncrnaFamilies);
+		if(physicalNcrnaEdges){for(NcrnaFamily family:GeneCaller.ncrnaFamilies){NcrnaFamilyRegistry.enablePhysicalEdges(family);}}
 		// Resolve omitted small-family defaults only after parsing; explicit choices
 		// are order-independent. D50 limits production CM verification to tRNA/5S.
 		if(!cmLocalSet){cmLocal=cmEnabled;}
@@ -1038,6 +1042,7 @@ public class CallGenes extends ProkObject {
 		readsIn=genesOut=0;
 		basesIn=bytesOut=0;
 		
+		long outputListOffset=0;
 		for(int fnum=0; fnum<fnaList.size(); fnum++){
 			final String fna=fnaList.get(fnum);
 			String gffIn=(inGffList!=null && !inGffList.isEmpty()) ? inGffList.set(fnum, null) : null;
@@ -1056,7 +1061,10 @@ public class CallGenes extends ProkObject {
 			final ConcurrentReadInputStream cris=makeCris(fna);
 			
 			//Process the reads in separate threads
-			spawnThreads(cris, bsw, rosAmino, ros16S, ros18S, rosIts, pgm, attemptSink, ncrnaDiagSink, ncrnaVoteDiagSink);
+			final long lists=spawnThreads(cris, bsw, rosAmino, ros16S, ros18S, rosIts, pgm, attemptSink, ncrnaDiagSink, ncrnaVoteDiagSink,outputListOffset);
+			assert(lists>=0 && outputListOffset<=Long.MAX_VALUE-lists)
+				:"The shared ordered GFF writer needs unique monotonically increasing batch IDs across input files";
+			outputListOffset+=lists;
 			
 			//Close the input stream
 			errorState|=ReadWrite.closeStream(cris);
@@ -1153,10 +1161,7 @@ public class CallGenes extends ProkObject {
 			if(AdjustEntropy.kLoaded!=4 || AdjustEntropy.wLoaded!=150){
 				AdjustEntropy.load(4, 150);
 			}
-			ArrayList<Read> reads=ReadInputStream.toReads(fna, FileFormat.FASTA, -1);
-			Clade clade=new Clade(0, 0, fna);
-			for(Read r : reads){clade.add(r.bases, null);}
-			clade.finish();
+			Clade clade=CladeBuilder.fromFile(fna, Shared.threads());
 
 			String lineage=null;
 			if(useLocalClade){
@@ -1513,8 +1518,8 @@ public class CallGenes extends ProkObject {
 	}
 	
 	/** Spawn process threads */
-	private void spawnThreads(final ConcurrentReadInputStream cris, final ByteStreamWriter bsw, 
-			ConcurrentReadOutputStream rosAmino, ConcurrentReadOutputStream ros16S, ConcurrentReadOutputStream ros18S, ConcurrentReadOutputStream rosIts, GeneModel pgm, RefinementAttemptSink attemptSink, NcrnaStageDiagSink ncrnaDiagSink, NcrnaVoteDiagSink ncrnaVoteDiagSink){
+	private long spawnThreads(final ConcurrentReadInputStream cris, final ByteStreamWriter bsw, 
+			ConcurrentReadOutputStream rosAmino, ConcurrentReadOutputStream ros16S, ConcurrentReadOutputStream ros18S, ConcurrentReadOutputStream rosIts, GeneModel pgm, RefinementAttemptSink attemptSink, NcrnaStageDiagSink ncrnaDiagSink, NcrnaVoteDiagSink ncrnaVoteDiagSink,final long outputListOffset){
 		
 		//Do anything necessary prior to processing
 		
@@ -1524,7 +1529,7 @@ public class CallGenes extends ProkObject {
 		//Fill a list with ProcessThreads
 		ArrayList<ProcessThread> alpt=new ArrayList<ProcessThread>(threads);
 		for(int i=0; i<threads; i++){
-			alpt.add(new ProcessThread(cris, bsw, rosAmino, ros16S, ros18S, rosIts, pgm, minLen, i, attemptSink, ncrnaDiagSink, ncrnaVoteDiagSink));
+			alpt.add(new ProcessThread(cris, bsw, rosAmino, ros16S, ros18S, rosIts, pgm, minLen, i, attemptSink, ncrnaDiagSink, ncrnaVoteDiagSink,outputListOffset));
 		}
 		
 		//Start the threads
@@ -1535,8 +1540,11 @@ public class CallGenes extends ProkObject {
 		//Wait for threads to finish
 		waitForThreads(alpt);
 		
-		//Do anything necessary after processing
-		
+		long lists=0, last=-1;
+		for(ProcessThread pt:alpt){lists+=pt.listsProcessedT;last=Tools.max(last,pt.lastListIdT);}
+		assert(errorState || last+1==lists)
+			:"CRIS batch IDs must be contiguous from zero before advancing the next file's ordered GFF offset";
+		return lists;
 	}
 	
 	/**
@@ -1862,7 +1870,7 @@ public class CallGenes extends ProkObject {
 		 */
 		ProcessThread(final ConcurrentReadInputStream cris_, final ByteStreamWriter bsw_, 
 				ConcurrentReadOutputStream rosAmino_, ConcurrentReadOutputStream ros16S_, ConcurrentReadOutputStream ros18S_, ConcurrentReadOutputStream rosIts_, 
-				GeneModel pgm_, final int minLen, final int tid_, RefinementAttemptSink attemptSink_, NcrnaStageDiagSink ncrnaDiagSink_, NcrnaVoteDiagSink ncrnaVoteDiagSink_){
+				GeneModel pgm_, final int minLen, final int tid_, RefinementAttemptSink attemptSink_, NcrnaStageDiagSink ncrnaDiagSink_, NcrnaVoteDiagSink ncrnaVoteDiagSink_,final long outputListOffset_){
 			cris=cris_;
 			bsw=bsw_;
 			rosAmino=rosAmino_;
@@ -1870,6 +1878,7 @@ public class CallGenes extends ProkObject {
 			ros18S=ros18S_;
 			rosIts=rosIts_;
 			pgm=pgm_;
+			outputListOffset=outputListOffset_;
 			tid=tid_;
 			geneHistT=(geneHistBins>1 ? new long[geneHistBins] : null);
 			caller=new GeneCaller(minLen, maxOverlapSameStrand, maxOverlapOppositeStrand, 
@@ -1994,7 +2003,9 @@ public class CallGenes extends ProkObject {
 						bb.nl();
 					}
 					for(RrnaItsDeriver.Derived d : itsListAll){d.appendGff(bb); bb.nl();}
-					bsw.add(bb, ln.id);
+					assert(ln.id>=0 && ln.id<=Long.MAX_VALUE-outputListOffset)
+						:"Local CRIS IDs plus the completed-file offset must fit the shared ordered GFF writer's ID space";
+					bsw.add(bb, outputListOffset+ln.id);
 					bytesOutT+=bb.length();
 				}else{
 					for(Orf orf : orfList){
@@ -2015,6 +2026,8 @@ public class CallGenes extends ProkObject {
 			}
 
 			//Notify the input stream that the list was used
+			listsProcessedT++;
+			lastListIdT=Tools.max(lastListIdT,ln.id);
 			cris.returnList(ln);
 //			if(verbose){outstream.println("Returned a list.");} //Disabled due to non-static access
 		}
@@ -2095,6 +2108,8 @@ public class CallGenes extends ProkObject {
 		
 		/** Number of reads processed by this thread */
 		protected long readsInT=0;
+		private long listsProcessedT=0,lastListIdT=-1;
+		private final long outputListOffset;
 		/** Number of bases processed by this thread */
 		protected long basesInT=0;
 		
@@ -3787,6 +3802,8 @@ public class CallGenes extends ProkObject {
 	 * or null if classification was never attempted (taxonomy=f or percontig=t) */
 	private String lastClassificationSource=null;
 	private boolean perContig=false;
+	/** Default physical-contig-edge rescue; ncrnaedge=f restores the legacy policy. */
+	private boolean physicalNcrnaEdges=true;
 	private String taxAddress="refseq";
 	private boolean trnaAlign=true;
 	private boolean trnaLibExplicit=false;
