@@ -51,7 +51,10 @@ public final class MultiKBranchRescueTest {
 		}
 		final BubblePopper.CoverageGate original=BubblePopper.directCoverageGate;
 		final BubblePopper.CoverageGate sentinel=new BubblePopper.CoverageGate(17);
+		final GraphBranchGate originalBranch=BubblePopper.directBranchGate;
+		final GraphBranchGate branchSentinel=new GraphBranchGate();
 		BubblePopper.directCoverageGate=sentinel;
+		BubblePopper.directBranchGate=branchSentinel;
 		boolean failed=false;
 		try{
 			MultiKBranchRescue.main(Arrays.copyOfRange(args, 1, args.length));
@@ -60,11 +63,15 @@ public final class MultiKBranchRescueTest {
 			failed=true;
 		}finally{
 			final BubblePopper.CoverageGate restored=BubblePopper.directCoverageGate;
+			final GraphBranchGate restoredBranch=BubblePopper.directBranchGate;
 			BubblePopper.directCoverageGate=original;
+			BubblePopper.directBranchGate=originalBranch;
 			assert(restored==sentinel) : "An initial cleanup gate leaked out of the driver on success or failure.";
+			assert(restoredBranch==branchSentinel) : "Initial/final branch gates must restore their caller on success or failure.";
 		}
 		assert(failed==expectFailure) : "The failure fixture must reach fusion-model validation after prepare() installs the initial gate.";
 		System.out.println("MULTIK_INITIAL_COVERAGE_SCOPE_PASS failure="+failed);
+		System.out.println("MULTIK_INITIAL_BRANCH_SCOPE_PASS failure="+failed);
 	}
 
 	/** The start's physical outside end and finish's outside end must survive inversion. */

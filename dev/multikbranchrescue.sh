@@ -14,6 +14,9 @@
 # either consumed end is an outward kmer branch, including zero/short paths.
 # Explicit overlap edges retain their policies. Requires an existing final
 # graph phase; no new table load, initial cleanup change, or default change.
+# initialbranchguard=f: opt-in use of the same branch veto during initial
+# ordinary graph cleanup only, after the postpass. It restores the caller's
+# policy before later-K phases and on failure; no extra table is loaded.
 set -eo pipefail
 DIR="$(cd "$(dirname "$0")/.." && pwd)"
 . "$DIR/javasetup.sh"

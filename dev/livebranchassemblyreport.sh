@@ -1,6 +1,7 @@
 #!/bin/bash
-# Summarizes a collected native/live VALID panel, preserving empty/undefined cases.
-# in=directory out=NEW_directory expected=153
+# Summarizes a collected assembly panel, preserving empty/undefined cases.
+# in=directory out=NEW_directory expected=153 fold=validation
+# fold=confirmation explicitly requires fresh confirmation labels on every row.
 set -eo pipefail
 DIR="$(cd "$(dirname "$0")/.." && pwd)"
 . "$DIR/javasetup.sh"

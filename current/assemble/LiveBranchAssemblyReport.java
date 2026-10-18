@@ -41,6 +41,7 @@ public final class LiveBranchAssemblyReport {
 			final String value=split.length>1 ? split[1] : null;
 			if(key.equals("expected")){expected=Integer.parseInt(value);}
 			else if(key.equals("arms")){arms=value==null ? new String[0] : value.split(",", -1);}
+			else if(key.equals("fold")){fold=value;}
 			else if(key.equals("timings")){timings=Parse.parseBoolean(value);}
 			else if(key.equals("timingexclude")){
 				if(value==null || value.isEmpty()){throw new IllegalArgumentException("timingexclude requires genome IDs.");}
@@ -49,6 +50,9 @@ public final class LiveBranchAssemblyReport {
 			else if(!parser.parse(arg, key, value)){throw new IllegalArgumentException("Unknown report argument: "+arg);}
 		}
 		input=parser.in1; output=parser.out1;
+		if(!"validation".equals(fold) && !"confirmation".equals(fold)){
+			throw new IllegalArgumentException("fold must be validation or confirmation; training data are not an evaluation panel.");
+		}
 		if(arms.length<2 || arms.length>4){
 			throw new IllegalArgumentException("arms requires two to four distinct lowercase labels; first is the baseline.");
 		}
@@ -67,7 +71,7 @@ public final class LiveBranchAssemblyReport {
 	/*----------------           Methods            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Validates the complete frozen VALID panel before creating output. */
+	/** Requires every row to match the explicitly selected evaluation fold before creating output. */
 	private void run(){
 		final ArrayList<String> ids=new ArrayList<String>();
 		final ArrayList<double[][]> panel=new ArrayList<double[][]>();
@@ -77,11 +81,11 @@ public final class LiveBranchAssemblyReport {
 		try{
 			lp.set(manifest.nextLine());
 			if(lp.terms()!=7 || !lp.termEquals("genome", 0) || !lp.termEquals("fold", 1) || !lp.termEquals("run", 6)){
-				throw new IllegalArgumentException("Expected the seven-column live-validation manifest.");
+				throw new IllegalArgumentException("Expected the seven-column assembly-evaluation manifest.");
 			}
 			for(byte[] line=manifest.nextLine(); line!=null; line=manifest.nextLine()){
 				lp.set(line);
-				if(lp.terms()!=7 || !lp.termEquals("validation", 1) || lp.parseInt(2)<24 || lp.parseInt(2)>127 || lp.parseInt(3)<1){
+				if(lp.terms()!=7 || !lp.termEquals(fold, 1) || lp.parseInt(2)<24 || lp.parseInt(2)>127 || lp.parseInt(3)<1){
 					throw new IllegalArgumentException("Wrong fold, K, depth or manifest width.");
 				}
 				final String id=lp.parseString(0);
@@ -313,6 +317,7 @@ public final class LiveBranchAssemblyReport {
 	private final String input, output;
 	private final PrintStream outstream;
 	private int expected=-1;
+	private String fold="validation";
 	private boolean timings=false;
 	private final HashSet<String> timingExclusions=new HashSet<String>();
 	private String[] arms={"native", "live"};

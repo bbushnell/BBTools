@@ -18,11 +18,14 @@ final class FusionNeuralGateTest {
 
 	/** Tests the actual candidate model without treating a classifier score as assembly truth. */
 	static void run(final String model){
-		final boolean dense=CellNet.DENSE;
-		final FusionNeuralGate gate=new FusionNeuralGate(model, .5f);
-		check(CellNet.DENSE==dense, "Loading the fusion model changed global DENSE mode.");
 		final CellNet independent=CellNetParser.loadInferenceFromLines(ByteFile.toLines(model));
 		independent.simdFF=true;
+		final float[] zeroInput=new float[independent.numInputs()];
+		final float before=independent.applyInput(zeroInput).feedForward();
+		final FusionNeuralGate gate=new FusionNeuralGate(model, .5f);
+		final float after=independent.applyInput(zeroInput).feedForward();
+		check(Float.isFinite(before) && Float.isFinite(after) && Math.abs(after-before)<=0.000001f,
+				"Loading the fusion model changed an existing network's prediction.");
 		final TadpoleGraph.Counts counts=new TadpoleGraph.Counts(){
 			@Override
 			public int count(final Kmer key){return (int)((key.xor()&Long.MAX_VALUE)%71);}

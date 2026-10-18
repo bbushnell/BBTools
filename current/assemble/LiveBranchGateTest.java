@@ -23,7 +23,7 @@ public final class LiveBranchGateTest {
 		if(args.length<1 || args.length>2 || !new File(args[0]).mkdir()){
 			throw new IllegalArgumentException("Supply NEW_fixture_directory [candidate.bbnet].");
 		}
-		final boolean oldFma=Shared.SIMD_FMA, oldDense=CellNet.DENSE;
+		final boolean oldFma=Shared.SIMD_FMA;
 		try{
 			Shared.SIMD_FMA=false;
 			final SameKJoinFeatures.Moments moments=new SameKJoinFeatures.Moments();
@@ -47,7 +47,7 @@ public final class LiveBranchGateTest {
 			check(reject.totals()[0]==1 && reject.totals()[1]==0, "Rejected scores must still count as evaluations.");
 			if(args.length==2){parity(args[1], moments);}
 			System.err.println("LIVE_BRANCH_GATE_TEST_PASS guarded_calls=10 candidate_parity="+(args.length==2));
-		}finally{Shared.SIMD_FMA=oldFma; CellNet.DENSE=oldDense;}
+		}finally{Shared.SIMD_FMA=oldFma;}
 	}
 
 	/*--------------------------------------------------------------*/
@@ -126,8 +126,15 @@ public final class LiveBranchGateTest {
 					1+random.nextDouble()*150, 151+random.nextDouble()*150);
 			expected[i]=Float.floatToRawIntBits(reference.applyInput(vectors[i]).feedForwardDense());
 		}
-		// A later legacy sparse load must not change this gate's dispatch or copies.
-		CellNet.DENSE=false;
+		// A later ordinary sparse load must not change this gate's dispatch or copies.
+		final ArrayList<byte[]> sparseLines=new ArrayList<byte[]>();
+		for(String line:("##bbnet\n#version 1\n#concise\n#coding decimal\n#seed 23\n"+
+				"#layers 2\n#blocksize 1\n#dims 3 1\n#sparse\nI4 0 2\nC4 LINEAR 0.25 0.5 -0.25\n").split("\n")){
+			sparseLines.add(line.getBytes(StandardCharsets.US_ASCII));
+		}
+		final CellNet sparse=CellNetParser.loadFromLines(sparseLines);
+		check(!sparse.dense && sparse.applyInput(new float[]{2, 1, 4}).feedForward()==0.25f,
+				"The unrelated model must exercise a real sparse load with gapped inputs.");
 		final AtomicReference<Throwable> failure=new AtomicReference<Throwable>();
 		final ArrayList<Thread> workers=new ArrayList<Thread>();
 		for(int worker=0; worker<4; worker++){
@@ -146,7 +153,7 @@ public final class LiveBranchGateTest {
 		}
 		for(Thread thread : workers){thread.join();}
 		if(failure.get()!=null){throw new AssertionError("Concurrent candidate inference failed.", failure.get());}
-		System.err.println("LIVE_BRANCH_GATE_PARITY_PASS vectors=10000 workers=4 exact_float_bits=true global_dense=false");
+		System.err.println("LIVE_BRANCH_GATE_PARITY_PASS vectors=10000 workers=4 exact_float_bits=true unrelated_sparse_load=true");
 	}
 
 	/** Keeps test failures active even if the launcher accidentally loses assertions. */

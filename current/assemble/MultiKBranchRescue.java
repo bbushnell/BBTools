@@ -42,6 +42,7 @@ public final class MultiKBranchRescue implements TadpoleMulti.InitialAssembly {
 				"retainshortcontigs=t", "trimends=0", "trimcircular=f", "simdfma=f"));
 		boolean overlapGuard=false;
 		boolean branchGuard=false;
+		boolean initialBranch=false;
 		boolean shortEvidence=false;
 		float initialRatio=0;
 		for(String arg : args){
@@ -56,6 +57,7 @@ public final class MultiKBranchRescue implements TadpoleMulti.InitialAssembly {
 			else if(key.equals("postcutoff")){postCutoff=Float.parseFloat(value);}
 			else if(key.equals("graphoverlapguard")){overlapGuard=Parse.parseBoolean(value);}
 			else if(key.equals("graphbranchguard")){branchGuard=Parse.parseBoolean(value);}
+			else if(key.equals("initialbranchguard")){initialBranch=Parse.parseBoolean(value);}
 			else if(key.equals("fuseshortevidence")){shortEvidence=Parse.parseBoolean(value);}
 			else if(key.equals("initialmergecoverageratio")){initialRatio=Float.parseFloat(value);}
 			else if((key.startsWith("out") && !key.equals("out")) || key.equals("dot") || key.equals("gfa")
@@ -71,6 +73,7 @@ public final class MultiKBranchRescue implements TadpoleMulti.InitialAssembly {
 			throw new IllegalArgumentException("initialmergecoverageratio must be zero (disabled) or finite and at least 1.");
 		}
 		initialCoverageRatio=initialRatio;
+		initialBranchGuard=initialBranch;
 		config=new TadpoleMulti.Config(nativeArgs.toArray(new String[0]));
 		if(overlapGuard && !config.finalGraphNeeded()){
 			throw new IllegalArgumentException("graphoverlapguard requires an existing final graph phase; it never adds a table load.");
@@ -101,8 +104,12 @@ public final class MultiKBranchRescue implements TadpoleMulti.InitialAssembly {
 	/** Restores the caller's policy even if initial assembly fails before finish() runs. */
 	private void run(){
 		previousCoverageGate=BubblePopper.directCoverageGate;
+		previousBranchGate=BubblePopper.directBranchGate;
 		try{new TadpoleMulti(config, this).process();}
-		finally{BubblePopper.directCoverageGate=previousCoverageGate;}
+		finally{
+			BubblePopper.directCoverageGate=previousCoverageGate;
+			BubblePopper.directBranchGate=previousBranchGate;
+		}
 	}
 
 	/** Validates all paths and raw-unitig invariants before any reads or writers open. */
@@ -143,15 +150,27 @@ public final class MultiKBranchRescue implements TadpoleMulti.InitialAssembly {
 			initialCoverageGate=new BubblePopper.CoverageGate(initialCoverageRatio);
 			BubblePopper.directCoverageGate=initialCoverageGate;
 		}
+		if(initialBranchGuard){
+			initialBranchGate=new GraphBranchGate();
+			BubblePopper.directBranchGate=initialBranchGate;
+		}
 		Tadpole.outstream.println("MULTIK_BRANCH_BINDING live="+(live!=null)+" postpass="+(post!=null)+
 				" assemblek="+tad.k()+" cleanup="+(initialCoverageGate==null ? "unchanged" : "coverage_guard")+
 				" retained_short=true");
+		if(initialBranchGate!=null){Tadpole.outstream.println("MULTIK_INITIAL_BRANCH_BINDING enabled=true");}
 	}
 
 	/** Reports encounter counters after workers join, before the initial table is released. */
 	@Override
 	public void finish(final Tadpole tad){
 		assert(tad!=null && tad.k()==config.assembleK) : "Only the initial assembly may report live rescue counters.";
+		if(initialBranchGate!=null){
+			assert(BubblePopper.directBranchGate==initialBranchGate) :
+					"Initial branch policy must remain installed until finish(), before any later-K phase.";
+			BubblePopper.directBranchGate=previousBranchGate;
+			Tadpole.outstream.println("MULTIK_INITIAL_BRANCH evaluations="+initialBranchGate.evaluations+
+					" rejected="+initialBranchGate.rejected);
+		}
 		if(initialCoverageGate!=null){
 			assert(BubblePopper.directCoverageGate==initialCoverageGate) :
 					"Initial cleanup must retain its own policy until TadpoleMulti invokes finish(), before later-K phases.";
@@ -171,7 +190,9 @@ public final class MultiKBranchRescue implements TadpoleMulti.InitialAssembly {
 
 	private final TadpoleMulti.Config config;
 	private final float initialCoverageRatio;
+	private final boolean initialBranchGuard;
 	private BubblePopper.CoverageGate initialCoverageGate, previousCoverageGate;
+	private GraphBranchGate initialBranchGate, previousBranchGate;
 	private String liveModel, postModel;
 	private float liveCutoff=Float.NaN, postCutoff=Float.NaN;
 	private LiveBranchGate live;
