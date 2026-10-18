@@ -30,6 +30,7 @@ import clade.SendClade;
 import parse.Parser;
 import parse.PreParser;
 import shared.Shared;
+import shared.KillSwitch;
 import shared.Timer;
 import shared.Tools;
 import stream.ConcurrentReadInputStream;
@@ -38,6 +39,7 @@ import stream.Read;
 import stream.ReadInputStream;
 import structures.ByteBuilder;
 import structures.ListNum;
+import template.ThreadWaiter;
 import tracker.ReadStats;
 
 /**
@@ -64,7 +66,7 @@ public class CallGenes extends ProkObject {
 		CallGenes x=new CallGenes(args);
 		
 		//Run the object
-		x.process(t);
+		try{x.process(t);}finally{if(x.proteinReference!=null){x.proteinReference.close();}}
 		
 		//Close the print stream if it was redirected
 		Shared.closeStream(x.outstream);
@@ -98,6 +100,7 @@ public class CallGenes extends ProkObject {
 			fixExtensions(); //Add or remove .gz or .bz2 as needed
 		checkFileExistence(); //Ensure files can be read and written
 		validateReferenceInputs(); //Reject reference-training errors before output writers start
+		loadProteinSupport();
 		checkStatics(); //Adjust file-related static fields as needed for this program
 		
 		ffoutGff=FileFormat.testOutput(outGff, FileFormat.GFF, null, true, overwrite, append, ordered);
@@ -154,6 +157,35 @@ public class CallGenes extends ProkObject {
 //			outstream.println(arg+", "+a+", "+b);
 			if(PGMTools.parseStatic(arg, a, b)){
 				if(isSingleFamilyFlag(a)){onlyMode=Parse.parseBoolean(b);}
+			}else if(a.equals("annotation")){
+				annotationMode=b==null ? "core" : b.toLowerCase(java.util.Locale.ROOT);
+			}else if(a.equals("hbmreference")){
+				hbmReference=b;
+			}else if(a.equals("hbmdiag")){
+				hbmDiagLog=b;
+			}else if(a.equals("hbmtailrule")){
+				hbmTailRule=b;
+			}else if(a.equals("hbmtailcap")){
+				hbmTailCap=Parse.parseIntKMG(b);
+			}else if(a.equals("hbmsearch")){
+				hbmSearch=b;
+			}else if(a.equals("hbmminseeds")){
+				hbmMinSeeds="auto".equalsIgnoreCase(b) ? -1 : Integer.parseInt(b);
+			}else if(a.equals("hbmminseeddensity")){
+				hbmMinSeedDensity=Double.parseDouble(b);
+			}else if(a.equals("hbmlookahead")){
+				hbmLookahead="auto".equalsIgnoreCase(b) ? -1 : Integer.parseInt(b);
+			}else if(a.equals("hbmboostmode")){
+				hbmBoostMode=b;
+			}else if(a.equals("hbmtrainingset")){
+				hbmTrainingSet=b==null ? null : b.toLowerCase(java.util.Locale.ROOT);
+			}else if(a.equals("hbmprotect")){
+				hbmProtection=b;
+			}else if(a.equals("hbmboost")){
+				hbmBoost=Float.parseFloat(b);
+			}else if(a.equals("hbmstopboost")){
+				hbmStopBoostSet=!"auto".equalsIgnoreCase(b);
+				if(hbmStopBoostSet){hbmStopBoost=Float.parseFloat(b);}
 			}else if(a.equals("ncrnaedge")){
 				physicalNcrnaEdges=Parse.parseBoolean(b);
 			}else if(a.equals("in") || a.equals("infna") || 
@@ -733,6 +765,8 @@ public class CallGenes extends ProkObject {
 			}
 		}
 
+		// Forced interleaving would otherwise affect the reference FASTA readers below.
+		validateProteinTrainingOptions();
 		geneticCode=selectGeneticCode(translationTable, codeFile);
 		if(geneticCode!=null && mode!=TRANSLATE){
 			throw new IllegalArgumentException("Explicit genetic codes currently require translate mode; recode/detranslate use standard canonical codons");
@@ -857,10 +891,10 @@ public class CallGenes extends ProkObject {
 	/** Ensure files can be read and written */
 	private void checkFileExistence(){
 		//Ensure output files can be written
-		if(!Tools.testOutputFiles(overwrite, append, false, outGff, outAmino, out16S, out18S, outIts, outStats, geneHistFile, fiveSAttemptLog, ncrnaDiagLog, ncrnaVoteDiagLog, cmDiagLog, cmPlacementLog)){
+		if(!Tools.testOutputFiles(overwrite, append, false, outGff, outAmino, out16S, out18S, outIts, outStats, geneHistFile, fiveSAttemptLog, ncrnaDiagLog, ncrnaVoteDiagLog, cmDiagLog, cmPlacementLog, hbmDiagLog)){
 			outstream.println((outGff==null)+", "+outGff);
 			throw new RuntimeException("\n\noverwrite="+overwrite+"; Can't write to output files "
-					+outGff+", "+outAmino+", "+out16S+", "+out18S+", "+outIts+", "+outStats+", "+geneHistFile+", "+fiveSAttemptLog+", "+ncrnaDiagLog+", "+ncrnaVoteDiagLog+", "+cmDiagLog+", "+cmPlacementLog+"\n");
+					+outGff+", "+outAmino+", "+out16S+", "+out18S+", "+outIts+", "+outStats+", "+geneHistFile+", "+fiveSAttemptLog+", "+ncrnaDiagLog+", "+ncrnaVoteDiagLog+", "+cmDiagLog+", "+cmPlacementLog+", "+hbmDiagLog+"\n");
 		}
 		
 		//Ensure input files can be read
@@ -885,11 +919,12 @@ public class CallGenes extends ProkObject {
 		foo.add(ncrnaVoteDiagLog);
 		foo.add(cmDiagLog);
 		foo.add(cmPlacementLog);
+		foo.add(hbmDiagLog);
 		if(!Tools.testForDuplicateFiles(true, foo.toArray(new String[0]))){
 			throw new RuntimeException("\nSome file names were specified multiple times.\n");
 		}
 		if(cmLibrary!=null){
-			final String[] outputs={outGff, outAmino, out16S, out18S, outIts, outStats, geneHistFile, fiveSAttemptLog, ncrnaDiagLog, ncrnaVoteDiagLog, cmDiagLog, cmPlacementLog};
+			final String[] outputs={outGff, outAmino, out16S, out18S, outIts, outStats, geneHistFile, fiveSAttemptLog, ncrnaDiagLog, ncrnaVoteDiagLog, cmDiagLog, cmPlacementLog, hbmDiagLog};
 			for(String model : cmLibrary.paths){
 				for(String path : outputs){
 					if(!Tools.isOutputFileName(path)){continue;}
@@ -917,7 +952,7 @@ public class CallGenes extends ProkObject {
 		if(!Tools.testInputFiles(true, true, inGffList.toArray(new String[0]))){
 			throw new IllegalArgumentException("Cannot read reference training GFF files");
 		}
-		final String[] outputs={outGff, outAmino, out16S, out18S, outIts, outStats, geneHistFile, fiveSAttemptLog, ncrnaDiagLog, ncrnaVoteDiagLog, cmDiagLog, cmPlacementLog};
+		final String[] outputs={outGff, outAmino, out16S, out18S, outIts, outStats, geneHistFile, fiveSAttemptLog, ncrnaDiagLog, ncrnaVoteDiagLog, cmDiagLog, cmPlacementLog, hbmDiagLog};
 		for(String gff : inGffList){
 			final File reference=new File(gff);
 			for(String path : outputs){
@@ -930,6 +965,85 @@ public class CallGenes extends ProkObject {
 				}catch(IOException e){throw new IllegalArgumentException("Cannot check reference/output identity: "+gff+", "+path, e);}
 			}
 			if(geneticCode!=null && geneticCode.id()>0){TranslationTableCensus.requireDeclaredCode(gff, geneticCode.id());}
+		}
+	}
+
+	/** Load before opening any output. A fixed core must not depend on optional installed packs. */
+	private void loadProteinSupport(){
+		final prot.HbmTailGate.Policy tailPolicy=prot.HbmTailGate.forName(hbmTailRule, hbmTailCap);
+		final boolean modelWeighted=ProteinSupport.modelWeighted(hbmBoostMode);
+		final ProteinSupport.Protection protection=ProteinSupport.Protection.forName(hbmProtection);
+		final prot.ProteinTailAssigner.SearchPolicy search=ProteinSupport.searchPolicy(hbmSearch, hbmMinSeeds, hbmMinSeedDensity, hbmLookahead);
+		if(!Float.isFinite(hbmBoost) || hbmBoost<0){throw new IllegalArgumentException("hbmboost must be finite and nonnegative");}
+		if(!hbmStopBoostSet){hbmStopBoost=hbmBoost;}
+		if(!Float.isFinite(hbmStopBoost) || hbmStopBoost<0 || !Float.isFinite(hbmBoost+hbmStopBoost)){
+			throw new IllegalArgumentException("hbmstopboost and the sum of protein bonuses must be finite and nonnegative");
+		}
+		if(annotationMode.equals("off") || annotationMode.equals("f")){
+			if(hbmDiagLog!=null){throw new IllegalArgumentException("hbmdiag requires annotation=core or annotation=full");}
+			return;
+		}
+		if(!annotationMode.equals("core") && !annotationMode.equals("full")){
+			throw new IllegalArgumentException("annotation must be off, core, or full");
+		}
+		validateProteinTrainingOptions();
+		if(passes==2){validateProteinTrainingInputs();}
+		if(hbmReference==null){throw new IllegalArgumentException("hbmreference requires a BBGAP resource directory");}
+		try{
+			proteinReference=ProteinSupport.load(annotationMode, hbmReference, hbmBoost, hbmStopBoost,
+				new String[]{outGff,outAmino,out16S,out18S,outIts,outStats,geneHistFile,fiveSAttemptLog,ncrnaDiagLog,ncrnaVoteDiagLog,cmDiagLog,cmPlacementLog,hbmDiagLog}, tailPolicy, modelWeighted, protection, search);
+		}catch(IOException e){throw new IllegalArgumentException("Could not load annotation reference: "+hbmReference, e);}
+		outstream.println("Protein support: mode="+annotationMode+" families="+proteinReference.familyCount()
+			+" reference="+proteinReference.referencePin()+" orf_bonus="+hbmBoost+" stop_bonus="+hbmStopBoost
+			+" tail_cap="+tailPolicy.maxLength+" passes="+passes);
+		outstream.println("Protein tail search: mode="+search.mode+" min_seeds="+search.minSeeds
+			+" min_seed_density="+search.minSeedDensity+" lookahead="+search.lookahead);
+		if(modelWeighted){outstream.println("Protein bonus: rule=model_length_v1 mean_model_length="+proteinReference.meanModelLength()
+			+" mean_scope=loaded_families_unweighted tail_rule="+hbmTailRule);}
+		if(protection!=ProteinSupport.Protection.AUTO){outstream.println("Protein soft-pruning protection: "+protection.name);}
+	}
+
+	/** Check parsed options before default reference readers inherit incompatible input flags. */
+	private void validateProteinTrainingOptions(){
+		prot.HbmTailGate.forName(hbmTailRule, hbmTailCap);// Reject invalid caps before default reference loads.
+		if("auto".equals(hbmTrainingSet)){
+			hbmTrainingSet=(passes==2 && (annotationMode.equals("core") || annotationMode.equals("full")))
+				? "selected" : "supported";
+		}
+		//TODO: Explicit trnalib/trnamodel branches load inside the argument loop, before
+		//this check. Their ordering remains unchanged; this gate protects default loads.
+		if(!"supported".equals(hbmTrainingSet) && !"selected".equals(hbmTrainingSet)){
+			throw new IllegalArgumentException("hbmtrainingset must be auto, supported or selected: "+hbmTrainingSet);
+		}
+		if("selected".equals(hbmTrainingSet) && (passes!=2
+			|| (!annotationMode.equals("core") && !annotationMode.equals("full")))){
+			throw new IllegalArgumentException("Experimental hbmtrainingset=selected requires annotation=core or full and passes=2");
+		}
+		if(!annotationMode.equals("core") && !annotationMode.equals("full")){return;}
+		if((passes!=1 && passes!=2) || mode!=TRANSLATE){
+			throw new IllegalArgumentException("Experimental annotation-assisted calling requires passes=1 or passes=2 and ordinary translation mode");
+		}
+		if(passes!=2){return;}
+		if(inGffList!=null){for(String gff : inGffList){
+			if(gff!=null && !"null".equalsIgnoreCase(gff)){
+				throw new IllegalArgumentException("Annotated passes=2 trains from its own selected genes and does not accept ingff");
+			}
+		}}
+		if(merge || ecco || stream.FASTQ.FORCE_INTERLEAVED){
+			throw new IllegalArgumentException("Annotated passes=2 requires unpaired FASTA without merge, ecco or interleaving");
+		}
+	}
+
+	/** Path checks follow extension resolution, before protein loading or any output writer. */
+	private void validateProteinTrainingInputs(){
+		for(String fna : fnaList){
+			if(!Files.isRegularFile(new File(fna).toPath())){
+				throw new IllegalArgumentException("Annotated passes=2 requires a replayable regular FASTA file: "+fna);
+			}
+			final FileFormat ff=FileFormat.testInput(fna, FileFormat.FA, null, true, true);
+			if(ff.stdio() || !ff.fasta()){
+				throw new IllegalArgumentException("Annotated passes=2 requires a replayable regular FASTA file: "+fna);
+			}
 		}
 	}
 
@@ -1006,6 +1120,13 @@ public class CallGenes extends ProkObject {
 		}
 
 		ByteStreamWriter ncrnaDiagBsw=null;
+		ByteStreamWriter proteinFateBsw=null;
+		if(hbmDiagLog!=null){
+			proteinFateBsw=new ByteStreamWriter(hbmDiagLog, overwrite, append, false);
+			proteinFateBsw.start();
+			proteinFateBsw.println(ProteinSupportFate.HEADER);
+			proteinFateSink=new ProteinSupportFate(proteinFateBsw);
+		}
 		NcrnaStageDiagSink ncrnaDiagSink=null;
 		if(ncrnaDiagLog!=null){
 			ncrnaDiagBsw=new ByteStreamWriter(ncrnaDiagLog,overwrite,append,false);
@@ -1056,7 +1177,8 @@ public class CallGenes extends ProkObject {
 				bsw.forcePrint("##ClassificationSource "+(lastClassificationSource!=null ? lastClassificationSource : "none")+"\n");
 			}
 			//Create a read input stream
-			final GeneModel pgm=makeMultipassModel(pgm0, fna, gffIn, passes, geneticCode);
+			final GeneModel pgm=(proteinReference!=null && passes==2 ? makeProteinGuidedModel(pgm0, fna)
+				: makeMultipassModel(pgm0, fna, gffIn, passes, geneticCode));
 			
 			final ConcurrentReadInputStream cris=makeCris(fna);
 			
@@ -1081,6 +1203,7 @@ public class CallGenes extends ProkObject {
 		if(bsw!=null){errorState|=bsw.poisonAndWait();}
 		if(attemptBsw!=null){errorState|=attemptBsw.poisonAndWait();}
 		if(ncrnaDiagBsw!=null){errorState|=ncrnaDiagBsw.poisonAndWait();}
+		if(proteinFateBsw!=null){errorState|=proteinFateBsw.poisonAndWait();}
 		if(ncrnaVoteDiagBsw!=null){errorState|=ncrnaVoteDiagBsw.poisonAndWait();}
 		if(cmDiagBsw!=null){errorState|=cmDiagBsw.poisonAndWait();}
 		if(cmPlacementBsw!=null){errorState|=cmPlacementBsw.poisonAndWait();}
@@ -1093,6 +1216,20 @@ public class CallGenes extends ProkObject {
 		t.stop();
 		outstream.println(Tools.timeReadsBasesProcessed(t, readsIn, basesIn, 8));
 		outstream.println(Tools.linesBytesOut(readsIn, basesIn, genesOut, bytesOut, 8, false));
+		if(proteinReference!=null){outstream.println("Protein stop support: searched_stops="+proteinQueries+" matched_stops="+proteinMatches
+			+" unsupported_stops="+proteinUnsupported
+			+" matched_without_native_starts="+proteinWithoutStarts
+			+" scored_with_bonus="+proteinBoosted+" rescued_starts="+proteinRescued+" selected_with_bonus="+proteinSelected
+			+" selected_rescued_starts="+proteinRescuedSelected);}
+		if(proteinReference!=null){outstream.println("Protein tail search work: shortlisted="+proteinShortlisted
+			+" length_rejected="+proteinLengthRejected+" seed_rejected="+proteinSeedRejected
+			+" visited="+proteinVisited+" dp_alignments="+proteinScored+" recorded_paths="+proteinRecorded
+			+" accepted_candidates="+proteinAccepted+" unvisited="+proteinUnvisited+" early_stopped_queries="+proteinEarlyStopped
+			+" composition_skipped_queries="+proteinCompositionSkipped);}
+		if(proteinReference!=null){
+			reportProteinDpCounts(proteinMatchedDpCounts, proteinUnmatchedDpCounts,
+				proteinQueries, proteinMatches, proteinScored, "final");
+		}
 		outstream.println();
 		
 		if(json_out){
@@ -1517,6 +1654,139 @@ public class CallGenes extends ProkObject {
 		return cris;
 	}
 	
+	/** Streaming first pass; all diagnostics and final-output counters belong to separate final workers.
+	 * The same immutable support owner/pool survives both passes. Only CDS-inner statistics adapt. */
+	private GeneModel makeProteinGuidedModel(final GeneModel base, final String fna){
+		try{
+			final Timer timer=new Timer();
+			final QuantumAligner quantum=new QuantumAligner();
+			final ScrabbleAligner scrabble=new ScrabbleAligner();
+			final long cells0=quantum.loops()+scrabble.loops();
+			final ProteinGuidedModel trainer=new ProteinGuidedModel(base);
+			final ConcurrentReadInputStream cris=makeCris(fna);
+			final ArrayList<ProteinTrainingThread> workers=new ArrayList<ProteinTrainingThread>(Shared.threads());
+			for(int i=0; i<Shared.threads(); i++){workers.add(new ProteinTrainingThread(cris, base, fna));}
+			ThreadWaiter.startAndWait(workers);
+			// Joining publishes worker state but ThreadWaiter does not inspect worker failures.
+			for(ProteinTrainingThread worker : workers){
+				if(!worker.success){throw new IllegalStateException("Protein-guided worker failed for "+fna);}
+			}
+			if(ReadWrite.closeStream(cris)){throw new IllegalStateException("Input error during protein-guided training: "+fna);}
+			long contigs=0, bases=0, selectedSupported=0, searched=0, matched=0, scored=0;
+			final long[] matchedDp=new long[ProteinSupport.DP_HISTOGRAM_BINS];
+			final long[] unmatchedDp=new long[ProteinSupport.DP_HISTOGRAM_BINS];
+			for(ProteinTrainingThread worker : workers){
+				trainer.merge(worker.trainer);
+				contigs=Math.addExact(contigs, worker.contigs);
+				bases=Math.addExact(bases, worker.bases);
+				selectedSupported=Math.addExact(selectedSupported, worker.selectedSupported);
+				searched=Math.addExact(searched, worker.caller.proteinSupport.searched);
+				matched=Math.addExact(matched, worker.caller.proteinSupport.assigned);
+				scored=Math.addExact(scored, worker.caller.proteinSupport.scored);
+				ProteinSupport.mergeDpCounts(matchedDp, worker.caller.proteinSupport.matchedDpCounts);
+				ProteinSupport.mergeDpCounts(unmatchedDp, worker.caller.proteinSupport.unmatchedDpCounts);
+			}
+			// One whole-genome weight/rounding step; never finish individual worker models.
+			final GeneModel adapted=trainer.finish();
+			timer.stop();
+			outstream.println("Protein-guided training: input="+fna+" contigs="+contigs+" bases="+bases
+				+" searched_stops="+searched+" matched_stops="+matched
+				+" selected_supported="+selectedSupported+" dp_fills="+scored
+				+" ncrna_cells="+(quantum.loops()+scrabble.loops()-cells0)+" adapted="+(adapted!=base)
+				+" seconds="+Tools.format("%.6f", timer.elapsed*1e-9)
+				+" counter_scope=precall ncrna_total_scope=both_passes training_set="+hbmTrainingSet);
+			reportProteinDpCounts(matchedDp, unmatchedDp, searched, matched, scored, "precall");
+			return adapted;
+		}catch(RuntimeException | Error failure){
+			// Final output writers already exist. An ordinary throw can strand their consumers.
+			KillSwitch.kill("Protein-guided training failed for "+fna+": "+failure);
+			throw failure;
+		}
+	}
+
+	/** Check per-query accounting before reporting; zero-fill no-hits remain in the denominator. */
+	private void reportProteinDpCounts(final long[] matched, final long[] unmatched,
+		final long queries, final long hits, final long fills, final String scope){
+		long countedQueries=0, countedHits=0, countedFills=0;
+		if(matched.length!=ProteinSupport.DP_HISTOGRAM_BINS || unmatched.length!=matched.length){
+			throw new IllegalStateException("Protein DP histogram size violates the fixed shortlist accounting contract");
+		}
+		for(int i=0; i<matched.length; i++){
+			if(matched[i]<0 || unmatched[i]<0){throw new IllegalStateException("Negative protein DP query count at bin "+i);}
+			final long count=Math.addExact(matched[i], unmatched[i]);
+			countedQueries=Math.addExact(countedQueries, count);
+			countedHits=Math.addExact(countedHits, matched[i]);
+			countedFills=Math.addExact(countedFills, Math.multiplyExact(count, (long)i));
+		}
+		if(countedQueries!=queries || countedHits!=hits || countedFills!=fills){
+			throw new IllegalStateException("Protein DP histograms must account for every searched query and fill: scope="+scope
+				+" queries="+countedQueries+"/"+queries+" hits="+countedHits+"/"+hits+" fills="+countedFills+"/"+fills);
+		}
+		outstream.println("Protein tail DP matched: counter_scope="+scope+" "+ProteinSupport.dpSummary(matched));
+		outstream.println("Protein tail DP unmatched: counter_scope="+scope+" "+ProteinSupport.dpSummary(unmatched));
+	}
+
+	/** Isolated first-pass caller and raw counts; no final-output sinks, counters, or GFF ordering state. */
+	private final class ProteinTrainingThread extends Thread {
+		ProteinTrainingThread(final ConcurrentReadInputStream cris_, final GeneModel base_, final String fna_){
+			cris=cris_; base=base_; fna=fna_;
+			trainer=new ProteinGuidedModel(base);
+			caller=new GeneCaller(minLen, maxOverlapSameStrand, maxOverlapOppositeStrand,
+				minStartScore, minStopScore, minKmerScore, minOrfScore, minAvgScore, base, geneticCode);
+			caller.setProteinSupport(proteinReference);
+			if(cmLibrary!=null){caller.cmVerifier=new CmRnaVerifier(cmLibrary, null, null);}
+			trainSelected="selected".equals(hbmTrainingSet);
+		}
+
+		@Override
+		public void run(){
+			try{
+				ListNum<Read> ln=cris.nextList();
+				while(ln!=null && ln.size()>0){
+					for(Read read : ln.list){processContig(read);}
+					cris.returnList(ln);
+					ln=cris.nextList();
+				}
+				if(ln!=null){cris.returnList(ln.id, ln.list==null || ln.list.isEmpty());}
+				success=true;
+			}catch(RuntimeException | Error failure){
+				// Early CRIS cleanup can wait on unread queues. Fail before cleanup or parent joins
+				// can leave input consumers or already-open final output writers blocked.
+				failure.printStackTrace(outstream);
+				KillSwitch.kill("Protein-guided input/calling failed for "+fna+": "+failure);
+				throw failure;
+			}
+		}
+
+		private void processContig(final Read read){
+			if(read.mate!=null){throw new IllegalArgumentException("Guided training requires unpaired assembly contigs");}
+			if(!read.validated()){read.validate(true);}
+			final ArrayList<Orf> selected=caller.callGenes(read, base, true);
+			if(selected==null){throw new IllegalStateException("GeneCaller must return its final selected path, including an empty path");}
+			final boolean[] positiveLabels=new boolean[selected.size()];
+			for(int i=0; i<selected.size(); i++){
+				final Orf orf=selected.get(i);
+				if(orf.type!=CDS){continue;}
+				if(orf.proteinEvidence==null){throw new IllegalStateException("Selected CDS lacks evidence from the configured protein-support pass");}
+				final boolean supported=orf.proteinEvidence.stop.supported();
+				if(supported){selectedSupported=Math.addExact(selectedSupported, 1);}
+				// Training eligibility remains separate from observed supported-stop evidence.
+				positiveLabels[i]=supported || trainSelected;
+			}
+			trainer.addContig(read, selected, positiveLabels);
+			contigs=Math.addExact(contigs, 1); bases=Math.addExact(bases, read.length());
+		}
+
+		final ConcurrentReadInputStream cris;
+		final GeneModel base;
+		final String fna;
+		final ProteinGuidedModel trainer;
+		final GeneCaller caller;
+		final boolean trainSelected;
+		long contigs, bases, selectedSupported;
+		boolean success;
+	}
+
 	/** Spawn process threads */
 	private long spawnThreads(final ConcurrentReadInputStream cris, final ByteStreamWriter bsw, 
 			ConcurrentReadOutputStream rosAmino, ConcurrentReadOutputStream ros16S, ConcurrentReadOutputStream ros18S, ConcurrentReadOutputStream rosIts, GeneModel pgm, RefinementAttemptSink attemptSink, NcrnaStageDiagSink ncrnaDiagSink, NcrnaVoteDiagSink ncrnaVoteDiagSink,final long outputListOffset){
@@ -1575,6 +1845,28 @@ public class CallGenes extends ProkObject {
 			basesIn+=pt.basesInT;
 			genesOut+=pt.genesOutT;
 			bytesOut+=pt.bytesOutT;
+			proteinSelected+=pt.proteinSelectedT;
+			proteinRescuedSelected+=pt.proteinRescuedSelectedT;
+			if(pt.caller.proteinSupport!=null){
+				proteinQueries+=pt.caller.proteinSupport.searched;
+				proteinMatches+=pt.caller.proteinSupport.assigned;
+				proteinUnsupported+=pt.caller.proteinSupport.unsupported;
+				proteinWithoutStarts+=pt.caller.proteinSupport.withoutStarts;
+				proteinBoosted+=pt.caller.proteinSupport.boosted;
+				proteinRescued+=pt.caller.proteinSupport.rescuedStarts;
+				proteinShortlisted+=pt.caller.proteinSupport.shortlisted;
+				proteinLengthRejected+=pt.caller.proteinSupport.lengthRejected;
+				proteinSeedRejected+=pt.caller.proteinSupport.seedRejected;
+				proteinVisited+=pt.caller.proteinSupport.visited;
+				proteinScored+=pt.caller.proteinSupport.scored;
+				proteinRecorded+=pt.caller.proteinSupport.recorded;
+				proteinAccepted+=pt.caller.proteinSupport.accepted;
+				proteinUnvisited+=pt.caller.proteinSupport.unvisited;
+				proteinEarlyStopped+=pt.caller.proteinSupport.earlyStopped;
+				proteinCompositionSkipped+=pt.caller.proteinSupport.compositionSkipped;
+				ProteinSupport.mergeDpCounts(proteinMatchedDpCounts, pt.caller.proteinSupport.matchedDpCounts);
+				ProteinSupport.mergeDpCounts(proteinUnmatchedDpCounts, pt.caller.proteinSupport.unmatchedDpCounts);
+			}
 			
 			geneStopsMade+=pt.caller.geneStopsMade;
 			geneStartsMade+=pt.caller.geneStartsMade;
@@ -1884,6 +2176,8 @@ public class CallGenes extends ProkObject {
 			caller=new GeneCaller(minLen, maxOverlapSameStrand, maxOverlapOppositeStrand, 
 					minStartScore, minStopScore, minKmerScore, minOrfScore, minAvgScore, pgm, geneticCode);
 			caller.setAttemptSink(attemptSink_);
+			if(proteinReference!=null){caller.setProteinSupport(proteinReference);}
+			caller.proteinFateSink=proteinFateSink;
 			caller.setNcrnaDiagSink(ncrnaDiagSink_);
 			caller.setNcrnaVoteDiagSink(ncrnaVoteDiagSink_);
 			if(cmLibrary!=null){caller.cmVerifier=new CmRnaVerifier(cmLibrary, cmDiagBsw, cmPlacementBsw);}
@@ -2040,6 +2334,9 @@ public class CallGenes extends ProkObject {
 		 */
 		ArrayList<Orf> processRead(final Read r, ArrayList<RrnaItsDeriver.Derived> itsOut){
 			ArrayList<Orf> list=caller.callGenes(r, pgm, true);
+			if(proteinReference!=null && list!=null){for(Orf orf : list){if(orf.proteinBonus>0){
+				proteinSelectedT++; if(orf.proteinOnlyCandidate){proteinRescuedSelectedT++;}
+			}}}
 			if(callIts){deriveIts(r, list, itsOut);}
 			
 			if(geneHistT!=null && list!=null){
@@ -2115,6 +2412,8 @@ public class CallGenes extends ProkObject {
 		
 		/** Number of genes called by this thread */
 		protected long genesOutT=0;
+		private long proteinSelectedT=0;
+		private long proteinRescuedSelectedT=0;
 		/** Number of bytes written by this thread */
 		protected long bytesOutT=0;
 		
@@ -3604,6 +3903,29 @@ public class CallGenes extends ProkObject {
 	private boolean ecco;
 	/** Number of iterative passes for model refinement */
 	private int passes=1;
+	private String annotationMode="off", hbmReference="?bbgap";
+	private String hbmTailRule="geometry";
+	/** Cap both query and reference tail windows; acceptance thresholds are unchanged. */
+	private int hbmTailCap=200;
+	private String hbmSearch="fast";
+	private int hbmMinSeeds=-1, hbmLookahead=-1;
+	private double hbmMinSeedDensity=0;
+	private String hbmBoostMode="flat";
+	/** Experimental positive-label policy; it never changes observed protein support or bonuses. */
+	private String hbmTrainingSet="auto";
+	private String hbmProtection="auto";
+	private float hbmBoost=25;
+	private float hbmStopBoost;
+	private boolean hbmStopBoostSet;
+	private ProteinSupport proteinReference;
+	/** Optional observational supported-stop fate table; raw scores and calls are unchanged. */
+	private String hbmDiagLog;
+	private ProteinSupportFate proteinFateSink;
+	private long proteinQueries, proteinMatches, proteinUnsupported, proteinWithoutStarts, proteinBoosted, proteinSelected, proteinRescued, proteinRescuedSelected;
+	private long proteinShortlisted, proteinLengthRejected, proteinSeedRejected, proteinVisited, proteinScored,
+		proteinRecorded, proteinAccepted, proteinUnvisited, proteinEarlyStopped, proteinCompositionSkipped;
+	private final long[] proteinMatchedDpCounts=new long[ProteinSupport.DP_HISTOGRAM_BINS];
+	private final long[] proteinUnmatchedDpCounts=new long[ProteinSupport.DP_HISTOGRAM_BINS];
 	/** Selected once during parsing, before workers; null keeps legacy codon and translation behavior. */
 	private GeneticCode geneticCode;
 	

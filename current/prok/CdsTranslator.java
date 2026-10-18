@@ -11,9 +11,9 @@ import gff.GffLine;
  * Unsupported biological forms return a reason; invalid coordinates fail loudly.
  * @author Keqing
  */
-final class CdsTranslator {
+public final class CdsTranslator {
 
-	static Translation translate(final GffLine feature, final byte[] scaffold, final int fallbackTable){
+	public static Translation translate(final GffLine feature, final byte[] scaffold, final int fallbackTable){
 		if(feature==null || scaffold==null || feature.start<1 || feature.stop<feature.start || feature.stop>scaffold.length){
 			throw new IllegalArgumentException("CDS coordinates must be 1-based inclusive and inside the supplied scaffold");
 		}
@@ -84,14 +84,14 @@ final class CdsTranslator {
 		return new Translation(null, table, five, three, reason);
 	}
 
-	static final class Translation {
+	public static final class Translation {
 		Translation(byte[] peptide_, int table_, boolean five_, boolean three_, String reason_){
 			peptide=peptide_; table=table_; partialFive=five_; partialThree=three_; reason=reason_;
 		}
-		final byte[] peptide;
+		public final byte[] peptide;
 		final int table;
 		final boolean partialFive, partialThree;
-		final String reason;
+		public final String reason;
 	}
 	private CdsTranslator(){}
 }

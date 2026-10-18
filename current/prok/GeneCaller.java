@@ -102,6 +102,26 @@ public class GeneCaller extends ProkObject {
 		trnaCaller=null;
 	}
 
+	/** Explicit opt-in; each caller owns independent alignment scratch. */
+	public void setProteinSupport(final ProteinSupport reference){
+		proteinSupport=reference==null ? null : reference.newWorker();
+	}
+	ProteinSupport.Worker proteinSupport;
+	/** Optional observer; never changes candidate admission, scores or path selection. */
+	ProteinSupportFate proteinFateSink;
+	private ArrayList<ProteinSupportFate.Entry> proteinFates;
+
+	/** Preserve V10 scoring, adding conserved-family evidence once after overlap/minor-start terms. */
+	public static float proteinAwareScore(final Orf orf, final int overlap){
+		assert(overlap>=0) : "DP overlap is a nonnegative number of bases";
+		if(overlap==0 || orf.type==ProkObject.RNA){return orf.orfScore;}
+		float score=orf.calcOrfScore(overlap);
+		if(MINOR_START_MULTIPLIER!=1f && orf.type==CDS){
+			score=minorStartScore(score, orf.startCodon, orf.startTruncated, MINOR_START_MULTIPLIER);
+		}
+		return orf.proteinBonus>0 ? score+orf.proteinBonus : score;
+	}
+
 	/*--------------------------------------------------------------*/
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
@@ -166,6 +186,18 @@ public class GeneCaller extends ProkObject {
 	 * @return List of non-overlapping ORFs in optimal arrangement
 	 */
 	public ArrayList<Orf> callGenes(Read r, GeneModel pgm_, boolean breakOrfs){
+		if(proteinFateSink==null){return callGenesInner(r, pgm_, breakOrfs);}
+		try{return callGenesInner(r, pgm_, breakOrfs);}
+		catch(RuntimeException | Error failure){
+			KillSwitch.kill("Protein fate diagnostics failed on "+r.id+": "+failure);
+			throw failure;
+		}
+	}
+	/** Same caller path in both modes; diagnostic failures must not strand output consumers. */
+	private ArrayList<Orf> callGenesInner(Read r, GeneModel pgm_, boolean breakOrfs){
+		if(proteinSupport!=null && !breakOrfs){throw new IllegalArgumentException("Protein support requires candidate start enumeration");}
+		if(proteinFateSink!=null && proteinSupport==null){throw new IllegalStateException("Protein fate diagnostics require the actual protein-support search");}
+		proteinFates=proteinFateSink==null ? null : new ArrayList<ProteinSupportFate.Entry>();
 		pgm=pgm_;
 		assert(pgm!=null);
 
@@ -243,6 +275,10 @@ public class GeneCaller extends ProkObject {
 			for(ArrayList<Orf> list : brokenLists){recordNcrnaPath(list, name, rlen, false);}
 		}
 		ArrayList<Orf> path=findPath(brokenLists, bases);
+		if(proteinFateSink!=null){
+			proteinFateSink.write(proteinFates, path, maxOverlapSameStrand, maxOverlapOppositeStrand);
+			proteinFates=null;
+		}
 		if(ssuCompetition!=null){
 			try{ssuCompetition.finish(path);}
 			catch(RuntimeException | AssertionError e){KillSwitch.assertDie("SSU final-path verification failed: "+e);throw e;}
@@ -734,10 +770,7 @@ public class GeneCaller extends ProkObject {
 				//unpopulated start/stop/kmer fields. Native5S trace (2026-10-13,
 				//Thermococcus celer) measured69.70996->4.5397615 at12bp overlap.
 				//Only annotated here: the current assignment is observation-only.
-				float orfScore=(overlap==0 || orf.type==ProkObject.RNA) ? orf.orfScore : orf.calcOrfScore(overlap);
-				if(MINOR_START_MULTIPLIER!=1f && overlap>0 && orf.type==CDS){
-					orfScore=minorStartScore(orfScore, orf.startCodon, orf.startTruncated, MINOR_START_MULTIPLIER);
-				}
+				float orfScore=proteinAwareScore(orf, overlap);
 				
 				final float prevScore=prev.pathScore();
 				final int prevLength=prev.pathLength();
@@ -801,10 +834,7 @@ public class GeneCaller extends ProkObject {
 				int overlap=Tools.max(0, prev.stop-orf.start+1);
 				//TODO: Same seeded-rRNA/CDS overlap-rescoring issue documented in
 				//calcPathScorePlus; the native12bp5S example reaches this branch.
-				float orfScore=(overlap==0 || orf.type==ProkObject.RNA) ? orf.orfScore : orf.calcOrfScore(overlap);
-				if(MINOR_START_MULTIPLIER!=1f && overlap>0 && orf.type==CDS){
-					orfScore=minorStartScore(orfScore, orf.startCodon, orf.startTruncated, MINOR_START_MULTIPLIER);
-				}
+				float orfScore=proteinAwareScore(orf, overlap);
 				
 				final float prevScore=prev.pathScore();
 				final int prevLength=prev.pathLength();
@@ -1599,10 +1629,12 @@ public class GeneCaller extends ProkObject {
 				ArrayList<Orf> longest=frameLists[fnum]; //Longest Orf per stop
 				ArrayList<Orf> broken=new ArrayList<Orf>(); //All high scoring Orfs, including multiple per stop, with different starts
 				if(longest!=null) {
-					for(Orf orf : longest){
+					final ProteinSupport.StopEvidence[] evidence=proteinSupport==null ? null : proteinSupport.prepareStops(longest, bases, geneticCode);
+					for(int i=0; i<longest.size(); i++){
+						final Orf orf=longest.get(i);
 						assert(orf.frame==frame);
 						assert(orf.strand==strand);
-						ArrayList<Orf> temp=breakOrf(orf, bases);
+						ArrayList<Orf> temp=breakOrf(orf, bases, evidence==null ? null : evidence[i]);
 						if(temp!=null){
 							broken.addAll(temp);
 						}
@@ -1624,7 +1656,7 @@ public class GeneCaller extends ProkObject {
 	 * @param bases Bases, oriented for this Orf.
 	 * @return List of Orfs.
 	 */
-	private ArrayList<Orf> breakOrf(Orf longest, byte[] bases){
+	private ArrayList<Orf> breakOrf(Orf longest, byte[] bases, ProteinSupport.StopEvidence stopEvidence){
 		assert(longest.start<longest.stop);
 		final int flipped=longest.flipped();
 		if(flipped==1){longest.flip();}//Now the orf is aligned to its native strand
@@ -1657,6 +1689,9 @@ public class GeneCaller extends ProkObject {
 		final float stopScore=stopStats.scorePoint(longest.stop, bases);
 		stCds.geneStopScoreSum+=stopScore;
 		stCds.geneStopScoreCount++;
+		final ProteinSupportFate.Entry fate=proteinFates!=null && stopEvidence.supported()
+			? new ProteinSupportFate.Entry(longest, stopEvidence, stopScore, minLen, minStartScore) : null;
+		if(fate!=null){proteinFates.add(fate);}
 		
 		ArrayList<Orf> broken=new ArrayList<Orf>();
 		int created=0;
@@ -1696,6 +1731,10 @@ public class GeneCaller extends ProkObject {
 			if(currentFrame>2){
 				currentFrame=0;
 				final boolean syntheticEdgeStart=(pos==start+2 && validSyntheticEdgeStart(codon, geneticCode));
+				if(fate!=null && (syntheticEdgeStart || isStartCodon(codon, geneticCode))){
+					if(pos>=max){fate.rejectedLength++;}
+					else if(created>=breakLimit){fate.rejectedLimit++;}
+				}
 				if(pos<max && created<breakLimit && (syntheticEdgeStart || isStartCodon(codon, geneticCode))){
 //					outstream.println(x);
 					int glen=stop-pos+3;
@@ -1710,7 +1749,9 @@ public class GeneCaller extends ProkObject {
 					stCds.lengthSum+=(stop-(pos-2)+1);
 					stCds.lengthCount++;
 					
-					if((startScore>=minStartScore || pos<6) /* && stopScore>=minStopScore /*|| broken.isEmpty()*/){
+					final boolean nativeEligible=created<breakLimit && (startScore>=minStartScore || pos<6);
+					if(fate!=null && !nativeEligible){fate.rejectedStartScore++;}
+					if(nativeEligible){
 						Orf orf=new Orf(name, pos-2, stop, strand, longest.frame, bases, false, longest.type,
 							pos-2==start && longest.startTruncated, longest.stopTruncated);
 						
@@ -1724,7 +1765,7 @@ public class GeneCaller extends ProkObject {
 
 						if(strand==1){orf.flip();}
 						broken.add(orf);
-						created++;
+						if(nativeEligible){created++;}
 					}
 				}
 				codon=0;
@@ -1732,10 +1773,13 @@ public class GeneCaller extends ProkObject {
 		}
 		
 		final int size=broken.size();
-		final int sizeCutoff=Tools.max(5, size/2);
-		if(size<1){return broken;}
-		Orf best=broken.get(0);
-		Orf bestStart=broken.get(0);
+		if(size<1){
+			if(fate!=null){fate.retained(broken);}
+			if(proteinSupport!=null && stopEvidence.supported()){proteinSupport.withoutStarts++;}
+			return broken;
+		}
+		Orf best=null;
+		Orf bestStart=null;
 		for(int i=0; i<size; i++){
 			Orf orf=broken.get(i);
 			
@@ -1757,27 +1801,39 @@ public class GeneCaller extends ProkObject {
 			if(MINOR_START_MULTIPLIER!=1f){
 				orf.orfScore=minorStartScore(orf.orfScore, orf.startCodon, orf.startTruncated, MINOR_START_MULTIPLIER);
 			}
-			if(orf.orfScore>=best.orfScore){best=orf;}
-			if(orf.startScore>=bestStart.startScore){bestStart=orf;}
+			if(proteinSupport!=null){proteinSupport.annotate(orf, stopEvidence);}
+			if(fate!=null){fate.admitted(orf);}
+			if(best==null || orf.orfScore>=best.orfScore){best=orf;}
+			if(bestStart==null || orf.startScore>=bestStart.startScore){bestStart=orf;}
 			
 			stCds.geneInnerScoreSum+=orf.averageKmerScore();
 			stCds.geneInnerScoreCount++;
 		}
+		if(broken.isEmpty()){return broken;}
+		final int retained=broken.size(), sizeCutoff=Tools.max(5, retained/2);
 		
 		//Sort to by score descending to eliminate low-scoring copies. 
 		if(broken.size()>1){Collections.sort(broken, PFeature.featureComparatorScore);}
 		
 		int removed=0;
-		for(int i=0; i<size; i++){//Fix scores because they were generated together, from start to stop, to make this O(N) instead of O(N^2).
+		for(int i=0; i<retained; i++){
 			Orf orf=broken.get(i);
-			if(keepAtLeastOneOrf && i==0) {
+			if(ProteinSupport.protectsFromPruning(orf) || (keepAtLeastOneOrf && i==0)) {
 				//skip
 			}else if(orf.averageKmerScore()<minInnerScore || orf.orfScore<minOrfScore || 
 					orf.orfScore/orf.length()<minAvgScore || 
 					orf.orfScore<0.5f*best.orfScore-10 || (orf.startScore<bestStart.startScore-0.55f && orf.kmerScore<best.kmerScore*1.1f && orf!=best)){
+				if(fate!=null){
+					final String reason=orf.averageKmerScore()<minInnerScore ? "middle_score"
+						: orf.orfScore<minOrfScore ? "orf_score"
+						: orf.orfScore/orf.length()<minAvgScore ? "average_score"
+						: orf.orfScore<0.5f*best.orfScore-10 ? "relative_orf_score" : "relative_start_score";
+					fate.rejected(orf, reason);
+				}
 				broken.set(i, null);
 				removed++;
 			}else if(i>sizeCutoff){
+				if(fate!=null){fate.rejected(orf, "rank_limit");}
 				broken.set(i, null);
 				removed++;
 			}
@@ -1785,6 +1841,7 @@ public class GeneCaller extends ProkObject {
 		if(removed>0){
 			Tools.condenseStrict(broken);
 		}
+		if(fate!=null){fate.retained(broken);}
 		
 		geneStartsRetained+=broken.size();
 		geneStopsRetained+=(broken.size()>0 ? 1 : 0);

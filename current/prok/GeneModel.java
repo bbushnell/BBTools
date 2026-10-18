@@ -48,6 +48,19 @@ public class GeneModel extends ProkObject {
 			fillContainers();
 		}
 	}
+
+	/** Exact detached model snapshot; immutable genetic code is shared, globals are untouched. */
+	public GeneModel copy(){
+		final GeneModel out=new GeneModel(false, geneticCode);
+		for(int i=0; i<allContainers.length; i++){out.allContainers[i].copyFromExact(allContainers[i]);}
+		out.numFiles=numFiles; out.taxIds=taxIds.copy(); out.maxReads=maxReads;
+		out.readsProcessed=readsProcessed; out.basesProcessed=basesProcessed;
+		out.genesProcessed=genesProcessed; out.filesProcessed=filesProcessed;
+		out.baseCounts=baseCounts.clone();
+		assert(out.statsCDS!=statsCDS && out.baseCounts!=baseCounts && out.taxIds!=taxIds)
+			: "Per-genome adaptation must not mutate the cached base model";
+		return out;
+	}
 	
 	/** Initializes all statistics containers with appropriate k-mer lengths and frame offsets.
 	 * Sets up CDS containers with 3-frame analysis and RNA containers with single-frame analysis. */
@@ -888,7 +901,7 @@ public class GeneModel extends ProkObject {
 	/** Array of RNA statistics containers for batch processing */
 	final StatsContainer[] rnaContainers=new StatsContainer[] {statstRNA, stats16S, stats23S, stats5S, stats18S};
 	/** Array of all statistics containers (CDS and RNA) for batch processing */
-	final StatsContainer[] allContainers=new StatsContainer[] {statsCDS, statstRNA, stats16S, stats23S, stats5S, stats18S};
+	public final StatsContainer[] allContainers=new StatsContainer[] {statsCDS, statstRNA, stats16S, stats23S, stats5S, stats18S};
 	//public static int CDS=0, tRNA=1, r16S=2, r23S=3, r5S=4, r18S=5, r28S=6, RNA=7;
 	
 //	public final FrameStats innerKmerStats=new FrameStats("innerKmerStats", innerKmerLength, 3, 0);
@@ -923,15 +936,15 @@ public class GeneModel extends ProkObject {
 	private final GeneticCode geneticCode;
 	
 	/** Total number of scaffold sequences processed */
-	long readsProcessed=0;
+	public long readsProcessed=0;
 	/** Total number of bases processed across all sequences */
-	long basesProcessed=0;
+	public long basesProcessed=0;
 	/** Total number of genes processed (CDS, rRNA, tRNA combined) */
-	long genesProcessed=0;
+	public long genesProcessed=0;
 	/** Number of genome files successfully processed */
-	long filesProcessed=0;
+	public long filesProcessed=0;
 	/** Counts of each base type: A, C, G, T, other */
-	long[] baseCounts=new long[5];
+	public long[] baseCounts=new long[5];
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Static Setters        ----------------*/

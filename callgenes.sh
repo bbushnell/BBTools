@@ -25,6 +25,91 @@ hist=null       Gene length histogram.
 compareto=      Optional reference gff file to compare with the gene calls.
                 'auto' will name it based on the input file name.
 
+Experimental protein-family support (default off):
+annotation=off  off: ordinary calling without protein-family models.
+                core: load only bbgap/models, ignoring additional packs.
+                full: compete across all installed production BBGAP packs.
+                Requires the separately downloaded BBGAP reference tar,
+                extracted into BBTools/resources/. Supports passes=1 or passes=2.
+                With passes=2, complete genes selected in the first pass adapt
+                only the genome's CDS-inner kmer statistics; hbmtrainingset
+                controls which selected genes supply positive training examples.
+                For passes=2, use replayable, regular unpaired FASTA files;
+                no stdin, interleaving, ingff, merge or ecco.
+                Training counters are separate; output diagnostics cover the final
+                pass. Total runtime and ncRNA aligned cells include both passes.
+hbmtrainingset=auto  Experimental inner-model training labels for passes=2.
+                auto: use selected for annotated two-pass calling. Other modes
+                keep their existing behavior and do not use this training policy.
+                supported: use complete selected CDSs with model-supported stops.
+                selected: use all complete selected CDSs; requires annotation=core
+                or full and passes=2. This option changes training
+                labels only, not observed support, bonuses or completeness rules.
+                In an eight-genome reference comparison, supported-only training
+                reduced recall; selected recovered the aggregate loss in that panel.
+                Both are experimental; effects differ between genomes.
+                Use passes=1 to retain the original model without adaptation.
+                For two-pass evaluation, use annotation=core passes=2
+                (or annotation=full for installed packs).
+hbmreference=?bbgap  Alternate BBGAP resource root containing models/ and labels/.
+hbmdiag=null    Optional TSV tracing model-supported stops through start admission,
+                score pruning and DP selection; requires annotation=core or full.
+                Reports observed selected overlaps, not proven causal blockers.
+                Rows may follow worker completion order; join by contig/strand/stop.
+                Covers searched stops, not intervals excluded before HBM search.
+hbmtailrule=geometry  Experimental tail acceptance: geometry preserves the first
+                rule. profile uses paired identity and positive final20 profile
+                score, retaining joint terminal pairing. Not calibrated accuracy.
+hbmtailcap=200  Maximum amino acids in each query and reference tail window.
+                Minimum 30; shorter proteins retain their available sequence.
+                Changes the window, not identity, coverage or terminal gates.
+hbmsearch=fast  Search in shortlist rank order after cheap seed/length filtering.
+                Uses at most 50 candidates and bounded lookahead after a hit.
+                exhaustive retains the original full-top50 comparison path.
+hbmminseeds=auto  Minimum distinct shared 5-mers; fast defaults to 1,
+                exhaustive requires 0. This is an experimental global filter,
+                not a calibrated per-family ProkCC cutoff.
+hbmminseeddensity=0  Minimum shared / distinct query 5-mers, in [0,1].
+                A positive value requires fast mode.
+hbmlookahead=auto  fast defaults to 4 candidates after the last strict accepted
+                tail-score improvement; 0 stops at the first accepted hit.
+                exhaustive requires 0. Fast competitor scores cover only visited
+                candidates. Search statistics report actual DP calls and pruning.
+                Separate matched/unmatched summaries include zero-DP no-hits;
+                precall and final counters describe their respective passes.
+hbmboost=25     Nonnegative ORF-score contribution for candidates sharing a
+                supported stop. One search uses up to hbmtailcap amino acids
+                before each real stop, allowing free left clipping.
+hbmstopboost=auto  Separate stop-support contribution; auto equals hbmboost.
+                Both contributions are added after native scoring; raw neural
+                network inputs remain unchanged. Experimental, uncalibrated.
+                With passes=1 and default hbmprotect=auto, both zero annotate
+                without changing candidate selection. With passes=2, adaptation
+                can change calls even when both bonuses are zero.
+                With hbmprotect=auto, a positive protein bonus bypasses soft
+                ORF pruning.
+                Native start eligibility, breaklimit, minlen and hard overlap
+                limits are retained; tail evidence does not select a start site.
+                Selected CDSs retain ordinary GFF attributes and gain bbgap_*
+                family, label, reference, native-score and bonus fields.
+                Evidence is labeled stop_tail; it does not establish the start
+                or independently validate a full-length functional assignment.
+hbmboostmode=flat  flat: constant hbmboost; model: multiply hbmboost by the
+                winning full model length / unweighted mean loaded model length.
+                The stop bonus stays constant. All starts at a supported stop
+                receive the same bonus; longer candidate ORFs earn no extra.
+                Example: hbmboostmode=model hbmboost=30 hbmstopboost=20.
+                The mean includes all loaded families, not just matched ones.
+                Experimental: full model length can exceed the aligned tail.
+hbmprotect=auto  Experimental soft-pruning protection, separate from score bonus.
+                auto: protect candidates with a positive protein bonus (default).
+                on: protect candidates at supported stops even with zero bonus.
+                off: apply ordinary soft pruning after any score bonus.
+                Neither on nor off expands native start eligibility or hard limits.
+                Zero bonuses with on test retention alone and can change calls.
+                scored_with_bonus counts candidates before soft pruning;
+                Gene Starts/Stops Retained report the actual retained totals.
+
 Formatting parameters:
 json=false      Print stats in JSON.
 binlen=21       Histogram bin length.

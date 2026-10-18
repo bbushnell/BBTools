@@ -552,7 +552,7 @@ public final class HmmComparisonData {
 		return out;
 	}
 
-	static HashMap<String,String> options(String[] args){
+	public static HashMap<String,String> options(String[] args){
 		final HashMap<String,String> out=new HashMap<String,String>();
 		for(String arg : args){
 			final int eq=arg.indexOf('=');
@@ -562,17 +562,17 @@ public final class HmmComparisonData {
 		}
 		return out;
 	}
-	static String required(HashMap<String,String> opt,String key){
+	public static String required(HashMap<String,String> opt,String key){
 		final String value=opt.get(key);
 		if(value==null){throw new IllegalArgumentException("Missing "+key+"=");}
 		return value;
 	}
-	static ByteStreamWriter writer(String path){
+	public static ByteStreamWriter writer(String path){
 		if(new java.io.File(path).exists()){throw new IllegalArgumentException("Refusing existing output: "+path);}
 		final ByteStreamWriter out=new ByteStreamWriter(FileFormat.testOutput(path,FileFormat.TEXT,null,false,false,false,false));
 		out.start(); return out;
 	}
-	static void close(ByteStreamWriter out){if(out.poisonAndWait()){throw new RuntimeException("Output write failed");}}
+	public static void close(ByteStreamWriter out){if(out.poisonAndWait()){throw new RuntimeException("Output write failed");}}
 	static byte[] ascii(byte[] enc){
 		assert(enc!=null && enc.length>0) : "Alignment and FASTA output require a nonempty validated protein";
 		final byte[] raw=new byte[enc.length];

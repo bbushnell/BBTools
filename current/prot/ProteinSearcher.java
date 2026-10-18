@@ -384,16 +384,19 @@ public final class ProteinSearcher {
 	/** Per-thread reusable scratch for {@link #searchOneQueryShortlist} -- zero heap allocation
 	 *  per query in steady state (matches {@code hitCount}/{@code touched}'s role for the
 	 *  unshortlisted path). Sized once per thread from the sidecar's dims/family count.
-	 *  Package-private (2026-09-03, plans/PER_FAMILY_THRESHOLDS_v1.md WP-A A1): {@link
+	 *  Shared (2026-09-03, plans/PER_FAMILY_THRESHOLDS_v1.md WP-A A1): {@link
 	 *  FamilyCalibrationAssay} needs its own thread-local scratch to call {@link #scoreFamiliesF4}
 	 *  without a second implementation of the scratch layout. */
 	public static final class ShortlistScratch{
-		ShortlistScratch(final int dims, final int nFamilies, final int shortlistN){
+		public ShortlistScratch(final int dims, final int nFamilies, final int shortlistN){
 			counts=new double[dims]; centered=new double[dims]; qVec=new float[dims];
 			compScores=new float[nFamilies]; f4=new float[nFamilies]; sk=new int[nFamilies]; tk=new double[nFamilies];
 			topIdx=new int[Math.min(shortlistN, nFamilies)];
 		}
-		final double[] counts, centered; final float[] qVec, compScores, f4; final int[] sk, topIdx;
+		final double[] counts, centered; final float[] qVec;
+		public final float[] compScores, f4;
+		public final int[] sk;
+		final int[] topIdx;
 		/** The normalized k-mer term per family ({@code kmernorm=sub}); untouched under {@code none}. */
 		final double[] tk;
 		/** Qsize for the CURRENT query: the count of distinct query covering-set k-mer words, set by {@link
@@ -401,7 +404,9 @@ public final class ProteinSearcher {
 		 *  denominator (D105 {@code s_k/Qsize}) read by {@link ProteinSearcher#assignFamily}; 0 for a query with no
 		 *  covering words. Per-query mutable (like the other buffers' contents), captured once during the single F4
 		 *  pass so the assigner never rebuilds the word set. Added 2026-09-14 (UMP45, Patch 2). */
-		int qSize;
+		public int qSize;
+		private ProteinSequence seedQuery;
+		private FamilyShortlistSidecar seedSidecar;
 		/** Caller-owned distinct-word scratch shared by F4 and direct-family k-mer scoring. */
 		final FamilyKmerScratch familyKmers=new FamilyKmerScratch();
 		/** Reused D55/D60 Option-C metric holder for the shared {@link ProteinSearcher#d55Metrics}
@@ -480,7 +485,7 @@ public final class ProteinSearcher {
 	 * @param s Caller-provided, thread-local scratch (reused across calls on the same thread);
 	 *        {@code s.compScores}, {@code s.sk}, and {@code s.f4} are filled for every family.
 	 */
-	static void scoreFamiliesF4(final ProteinSequence q, final FamilyShortlistSidecar sc, final ShortlistScratch s){
+	public static void scoreFamiliesF4(final ProteinSequence q, final FamilyShortlistSidecar sc, final ShortlistScratch s){
 		scoreFamiliesF4(q, sc, s, KMERNORM_NONE);
 	}
 
@@ -493,6 +498,18 @@ public final class ProteinSearcher {
 	 */
 	static void scoreFamiliesF4(final ProteinSequence q, final FamilyShortlistSidecar sc, final ShortlistScratch s,
 			final String kmerNorm){
+		scoreFamiliesF4(q, sc, s, kmerNorm, false);
+	}
+
+	/** Completes F4 after scoreFamiliesKmers(q,sc,s) for this exact query and sidecar.
+	 * Caller must not reuse or modify scratch between the seed fill and this call. */
+	public static void scoreFamiliesF4FromSeeds(final ProteinSequence q, final FamilyShortlistSidecar sc, final ShortlistScratch s){
+		assert(s.seedQuery==q && s.seedSidecar==sc) : "Seeded F4 requires current-query counts from scoreFamiliesKmers for the same query and sidecar";
+		scoreFamiliesF4(q, sc, s, KMERNORM_NONE, true);
+	}
+
+	private static void scoreFamiliesF4(final ProteinSequence q, final FamilyShortlistSidecar sc, final ShortlistScratch s,
+			final String kmerNorm, final boolean seedsReady){
 		final int nFamilies=sc.nFamilies;
 		if(!validKmerNorm(kmerNorm)){
 			throw new RuntimeException("Unknown kmernorm: '"+kmerNorm+"' (expected "+KMERNORM_NONE+", "+KMERNORM_SUB+" or "+KMERNORM_CS300+").");
@@ -520,27 +537,11 @@ public final class ProteinSearcher {
 		//operation in the canonical MAG-QC source rather than depending on an unsealed BBTools helper: the accepted
 		//v5 load-gate evidence exposed that Vector.dotRowsScalar had never entered its declared clean BBTools commit.
 		//The loop is left-to-right JLS float summation, decoupled from Shared.SIMD, so the exact SIMD aligner and its
-		//in-run parity stay on. Scalar shortlist cost is negligible (measured).
+		//in-run parity stay on. The historical low-cost measurement was for ProkCC, not CallGenes'
+		//all-stop workload (2026-10-18 JFR: 53.63% of sampled Java execution; see BBGAP STATUS).
 		dotRowsScalar(s.qVec, sc.compositionMatrix, sc.dims, nFamilies, s.compScores);
 
-		//Covering-set k-mer hits: distinct query k-mers found in each family's covering set.
-		//The set/list are caller-owned per-thread scratch.  Direct-family calibration calls the
-		//same ReducedAlphabetSeedAssay.fillKmerSet seam, preventing an alternate packing/reset path.
-		Arrays.fill(s.sk, 0);
-		final FamilyKmerScratch kscratch=s.familyKmers;
-		ReducedAlphabetSeedAssay.fillKmerSet(q.enc,sc.coveringAlphabet,sc.coveringK,
-			ReducedAlphabetSeedAssay.Boundary.NONE,kscratch.set,kscratch.words);
-		//Qsize = distinct query covering-set words (D105 s_k/Qsize denominator), captured once here from the same set
-		//scoreFamiliesF4 already builds, so assignFamily need not rebuild it (Patch 2, UMP45 2026-09-14). ADDITIVE:
-		//writes a NEW scratch field only -- f4/sk/compScores are byte-identical, so the A1 differential still holds
-		//(please re-run it to confirm). The list contains exactly the words newly inserted into the set.
-		s.qSize=kscratch.words.size;
-		for(int i=0; i<kscratch.words.size; i++){
-			final long word=kscratch.words.get(i);
-			final LongList hit=sc.coveringIndex.get(word);
-			if(hit==null){continue;}
-			for(int j=0; j<hit.size; j++){s.sk[(int)hit.get(j)]++;}
-		}
+		if(!seedsReady){scoreFamiliesKmers(q, sc, s);}
 
 		//z-scores of s_k/s_c across all families (same formula as HybridShortlistAssay's F1/F4).
 		double sumSk=0, sumSkSq=0, sumSc=0, sumScSq=0;
@@ -583,12 +584,31 @@ public final class ProteinSearcher {
 		}
 	}
 
+	/** Fills all-family distinct covering-word counts and qSize only; leaves composition/F4 untouched.
+	 * The same scratch belongs to this query/sidecar until seeded F4 completes. */
+	public static void scoreFamiliesKmers(final ProteinSequence q, final FamilyShortlistSidecar sc, final ShortlistScratch s){
+		assert(s.sk.length==sc.nFamilies) : "Covering-index ranks and seed scratch must describe the same family roster";
+		Arrays.fill(s.sk, 0);
+		final FamilyKmerScratch kscratch=s.familyKmers;
+		ReducedAlphabetSeedAssay.fillKmerSet(q.enc,sc.coveringAlphabet,sc.coveringK,
+			ReducedAlphabetSeedAssay.Boundary.NONE,kscratch.set,kscratch.words);
+		//The list contains exactly the words newly inserted into the set: the live density denominator.
+		s.qSize=kscratch.words.size;
+		for(int i=0; i<kscratch.words.size; i++){
+			final long word=kscratch.words.get(i);
+			final LongList hit=sc.coveringIndex.get(word);
+			if(hit==null){continue;}
+			for(int j=0; j<hit.size; j++){s.sk[(int)hit.get(j)]++;}
+		}
+		s.seedQuery=q; s.seedSidecar=sc;
+	}
+
 	/**
 	 * Deterministic row-wise dot products for shortlist composition scores.
 	 * Each matrix row begins at {@code row*stride}; only {@code q.length}
 	 * values participate, accumulated in strict ascending-index order.
 	 */
-	static void dotRowsScalar(final float[] q, final float[] matrix, final int stride,
+	public static void dotRowsScalar(final float[] q, final float[] matrix, final int stride,
 			final int nRows, final float[] out){
 		if(q==null || matrix==null || out==null || stride<q.length || stride<1 ||
 				nRows<0 || out.length<nRows || (nRows>0 && (long)nRows*stride>matrix.length)){
@@ -596,7 +616,24 @@ public final class ProteinSearcher {
 				(q==null ? -1 : q.length)+" matrix="+(matrix==null ? -1 : matrix.length)+
 				" stride="+stride+" rows="+nRows+" out="+(out==null ? -1 : out.length));
 		}
-		for(int row=0; row<nRows; row++){
+		int row=0;
+		// Aliased output must keep the original row-at-a-time writes: later rows may read them.
+		if(out!=q && out!=matrix){
+			for(; row<nRows-3; row+=4){
+				final int b0=row*stride, b1=b0+stride, b2=b1+stride, b3=b2+stride;
+				float s0=0, s1=0, s2=0, s3=0;
+				// Independent dependency chains, but no reassociation within any row.
+				for(int d=0; d<q.length; d++){
+					final float x=q[d];
+					s0+=x*matrix[b0+d];
+					s1+=x*matrix[b1+d];
+					s2+=x*matrix[b2+d];
+					s3+=x*matrix[b3+d];
+				}
+				out[row]=s0; out[row+1]=s1; out[row+2]=s2; out[row+3]=s3;
+			}
+		}
+		for(; row<nRows; row++){
 			final int base=row*stride;
 			float sum=0;
 			for(int d=0; d<q.length; d++){sum+=q[d]*matrix[base+d];}
@@ -641,7 +678,7 @@ public final class ProteinSearcher {
 	 * calibration run's metrics are guaranteed identical to the assigner's decision inputs. Caller reuses
 	 * one instance per thread (see {@link ShortlistScratch#d55m}) -- zero per-candidate allocation.
 	 */
-	static final class D55Metrics{
+	public static final class D55Metrics{
 		/** Raw BLOSUM alignment score A (the D107 score-filter axis). */
 		int A;
 		/** D61 zeroed self-scores of the query span and the reference span (R's denominator arms). */
@@ -653,7 +690,8 @@ public final class ProteinSearcher {
 		double covq, covt, overlap;
 		/** Non-gap aligned-residue coverages. Unlike {@link #overlap}, these do not
 		 *  count a residue aligned to a gap. Construction D119 uses their minimum. */
-		double mutualCovQ, mutualCovT, mutualOverlap;
+		double mutualCovQ, mutualCovT;
+		public double mutualOverlap;
 		/** Overlap-weighted arm {@code R*overlap^0.25} -- HISTORICAL (D107 dropped the 0.25 exponent
 		 *  from acceptance); retained ONLY to keep calibration output byte-identical. Not a new-decision input. */
 		double Rov;
@@ -1615,7 +1653,7 @@ public final class ProteinSearcher {
 
 	/** Construction coverage is measured only inside the frozen per-family core.
 	 *  Whole-alignment identity and normalized D55 R remain unchanged. */
-	static void constructionCoreMetrics(final AAAlignment aln, final int queryLength,
+	public static void constructionCoreMetrics(final AAAlignment aln, final int queryLength,
 			final int coreStart, final int coreEnd, final int coreLength, final D55Metrics out){
 		if(aln==null || aln.match==null){throw new RuntimeException("Construction core coverage requires a recorded D55 path");}
 		if(queryLength<1 || coreStart<0 || coreEnd<coreStart || coreLength!=coreEnd-coreStart+1){

@@ -7,7 +7,7 @@ import java.security.MessageDigest;
 import java.util.HashMap;
 
 /** Canonical 80-bit textual suffix of a SHA-256 digest. Full digest text is never constructed. */
-final class DigestSuffix {
+public final class DigestSuffix {
 
 	static final int HEX_LENGTH=20;
 	static final int BYTE_LENGTH=10;
@@ -16,7 +16,7 @@ final class DigestSuffix {
 	private DigestSuffix(){}
 
 	/** Hashes the file's stored bytes, including compression bytes, and returns its lowercase sha80. */
-	static String file(final String path){
+	public static String file(final String path){
 		try{
 			final MessageDigest md=MessageDigest.getInstance("SHA-256");
 			final byte[] buffer=new byte[1<<20];

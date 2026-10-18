@@ -111,7 +111,7 @@ public final class HbmCompetitiveAssign {
 	}
 
 	/** Same first-whitespace token contract as ProteinSearch.readFasta; retain original source file. */
-	static String queryId(String header){
+	public static String queryId(String header){
 		require(header!=null && !header.isEmpty(), "Empty query header"); int end=0;
 		while(end<header.length() && !Character.isWhitespace(header.charAt(end))){
 			final char c=header.charAt(end); require(c>32 && c<127, "Query identifiers must be printable ASCII tokens"); end++;
@@ -120,7 +120,7 @@ public final class HbmCompetitiveAssign {
 	}
 
 	/** Repairs only malformed edge stops; strict ProteinSequence encoding rejects internal/unsupported residues. */
-	static byte[] trimEdges(byte[] raw, String id){
+	public static byte[] trimEdges(byte[] raw, String id){
 		require(raw!=null && raw.length>0, "Empty query residues: "+id); int first=0, end=raw.length;
 		while(first<end && raw[first]=='*'){first++;}
 		while(end>first && raw[end-1]=='*'){end--;}
@@ -149,7 +149,7 @@ public final class HbmCompetitiveAssign {
 	}
 
 	/** Loads all dependency bindings before exposing a selectable library. */
-	static final class Library{
+	public static final class Library{
 		Library(HashMap<String,String> o) throws java.io.IOException{
 			final byte[][] provenance=HbmBundleLoader.loadSemanticProvenance(o.get("provenance"));
 			// HbmFamilyUnion.writeProvenance binds its identity table as cluster_membership.
@@ -189,12 +189,12 @@ public final class HbmCompetitiveAssign {
 			final HbmBundleLoader.Loaded loaded=HbmBundleLoader.load(Paths.get(o.get("hbm")), roster, id->byId.get(id), provenance);
 			gate=new HbmCompetitiveGate(ids, refs, loaded.positionModels("logodds", .01, true, -4, bg), first, last);
 		}
-		final byte[][] refs;
-		final String[] ids;
-		final int[] familyIds;
+		public final byte[][] refs;
+		public final String[] ids;
+		public final int[] familyIds;
 		final long[] memberCounts;
-		final FamilyShortlistSidecar sidecar;
-		final HbmCompetitiveGate gate;
+		public final FamilyShortlistSidecar sidecar;
+		public final HbmCompetitiveGate gate;
 	}
 	private static void require(boolean ok, String message){if(!ok){throw new IllegalArgumentException(message);}}
 	private static final String[] PINNED={"in", "consensus", "identity", "hbm", "provenance", "cores", "background", "sidecar", "kmers"};

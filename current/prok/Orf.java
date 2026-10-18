@@ -503,11 +503,15 @@ public class Orf extends PFeature {
 		if(partial!=0){
 			bb.append(";partial=").append((partial&1)!=0 ? '1' : '0').append((partial&2)!=0 ? '1' : '0');
 		}
+		if(proteinEvidence!=null){
+			proteinEvidence.append(bb);
+			bb.append(";bbgap_candidate_origin=").append(proteinOnlyCandidate ? "rescued_start" : "native");
+		}
 		return bb;
 	}
 
 	/** Prodigal left/right bits in the same forward-genomic coordinates emitted by appendGff. */
-	int partialMask(){
+	public int partialMask(){
 		assert(ncrnaPartial>=0 && ncrnaPartial<=3) : "Scavenger model-end provenance uses only sense 5-prime/3-prime bits";
 		int sense=0;
 		if(type==CDS){
@@ -566,6 +570,12 @@ public class Orf extends PFeature {
 	public float kmerScore;
 	
 	public float orfScore;
+	/** Sum of independent homology stop/ORF contributions, applied once after native scoring.
+	 * Evidence retains both components; raw stopScore and NN inputs stay unchanged. */
+	public float proteinBonus;
+	/** True only for starts admitted beyond the native start-score/breakLimit gates. */
+	boolean proteinOnlyCandidate;
+	ProteinSupport.Evidence proteinEvidence;
 
 	//Path scores are for pathfinding phase
 	

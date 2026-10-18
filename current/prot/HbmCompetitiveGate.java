@@ -68,8 +68,65 @@ public final class HbmCompetitiveGate {
 		return -1;
 	}
 
+	/** Separate bounded-tail entry point; ordinary select() retains its full-query rules. */
+	public boolean tailLengthCanPass(int queryLength, int rank, HbmTailGate.Policy policy){
+		require(queryLength>0 && rank>=0 && rank<models.length && policy!=null,
+			"Tail feasibility requires a positive query, bound family rank and policy");
+		//HbmTailGate.evaluate divides pairedCore by the core/window intersection,
+		//not full query length: an arbitrarily long left query prefix may clip.
+		final int cappedStart=Math.max(coreStart[rank], references[rank].length-policy.maxLength);
+		final int coreLength=Math.max(0, coreEnd[rank]-cappedStart+1);
+		final int maxPaired=Math.min(Math.min(queryLength, policy.maxLength), coreLength);
+		return coreLength>0 && maxPaired>=policy.minPaired
+			&& (float)(maxPaired/(double)coreLength)>=policy.minCoverage;
+	}
+
+	/** Separate bounded-tail entry point; ordinary select() retains its full-query rules. */
+	public HbmPositionModel.TailResult alignTail(byte[] query, int rank, int cap, boolean record){
+		require(rank>=0 && rank<models.length, "Tail family rank exceeds the bound reference");
+		return models[rank].alignTail(query, cap, record);
+	}
+	public int evaluateTail(byte[] query, int rank, HbmPositionModel.TailResult alignment,
+			HbmTailGate.Policy policy, HbmTailGate.Metrics metrics){
+		require(rank>=0 && rank<models.length, "Tail family rank exceeds the bound reference");
+		final int status=HbmTailGate.evaluate(query, references[rank], alignment, coreStart[rank], coreEnd[rank], policy, metrics);
+		if(policy.profileEvidence && alignment!=null){
+			metrics.terminalScore64=tailWindowScore(query, rank, alignment, policy.terminalWindow);
+			if(status==HbmTailGate.SUPPORTED && metrics.terminalScore64<=0){return metrics.status=HbmTailGate.UNSUPPORTED_END;}
+		}
+		return status;
+	}
+
+	/** Diagnostic score along the recorded path for the last window query residues.
+	 * Includes deletions at/after the window boundary and trailing gaps. Clipped
+	 * query residues contribute nothing. This is not an independent local alignment
+	 * or an acceptance rule; units are profile half-bits times64, including clipping.
+	 */
+	public int tailWindowScore(byte[] query, int rank, HbmPositionModel.TailResult a, int window){
+		require(query!=null && query.length>0 && rank>=0 && rank<models.length && window>0
+			&& a!=null && a.path!=null && a.path.length>0, "Tail-window score needs a recorded path, positive window and valid family");
+		int q=a.queryStart, r=a.start;
+		final int first=Math.max(0, query.length-window), n=references[rank].length;
+		require(q>=0 && q<query.length && r>=0 && r<n && a.queryEnd==query.length-1 && a.end==n-1,
+			"Tail-window coordinates must consume both sequence ends");
+		long score=0;
+		for(byte op : a.path){
+			final boolean include=q>=first;
+			if(op=='m'){
+				require(q<query.length && r<n, "Paired tail-window column exceeds sequence bounds");
+				if(include){score+=models[rank].scoreAt(query[q], r);} q++; r++;
+			}else if(op=='I'){if(include){score-=HbmPositionModel.GAP;} q++;}
+			else if(op=='D'){if(include){score-=HbmPositionModel.GAP;} r++;}
+			else{throw new IllegalArgumentException("Unknown tail-window operation: "+(char)op);}
+			require(q<=query.length && r<=n, "Tail-window gap exceeds sequence bounds");
+		}
+		require(q==query.length && r==n && score>=Integer.MIN_VALUE && score<=Integer.MAX_VALUE,
+			"Tail-window path must consume both ends and preserve the integer score range");
+		return (int)score;
+	}
+
 	/** Paired columns cannot exceed either query length or core length, even with gaps. */
-	static boolean lengthCanPass(int queryLength, int coreLength){
+	public static boolean lengthCanPass(int queryLength, int coreLength){
 		require(queryLength>0 && coreLength>0, "Positive sequence lengths are required for coverage");
 		return (float)(Math.min(queryLength, coreLength)/(double)Math.max(queryLength, coreLength))>=MIN_COVERAGE;
 	}
@@ -80,7 +137,7 @@ public final class HbmCompetitiveGate {
 	 * paired m columns inside the core, divided by each length or their maximum.
 	 * Both metrics are rounded to float32 before the inclusive construction gates.
 	 */
-	static void metrics(byte[] query, byte[] ref, HbmPositionModel.Result alignment, int first, int last, Metrics out){
+	public static void metrics(byte[] query, byte[] ref, HbmPositionModel.Result alignment, int first, int last, Metrics out){
 		require(query!=null && ref!=null && query.length>0 && alignment!=null && alignment.path!=null && alignment.path.length>0 && out!=null,
 			"Competitive metrics require nonempty sequences and a recorded full-query path");
 		require(first>=0 && last>=first && last<ref.length && alignment.start>=0 && alignment.end>=alignment.start && alignment.end<ref.length,
@@ -105,7 +162,7 @@ public final class HbmCompetitiveGate {
 		out.coverage=(float)(paired/(double)Math.max(query.length, coreLength)); out.paired=paired;
 	}
 
-	static boolean passes(Metrics m){return m.identity>=MIN_IDENTITY && m.coverage>=MIN_COVERAGE;}
+	public static boolean passes(Metrics m){return m.identity>=MIN_IDENTITY && m.coverage>=MIN_COVERAGE;}
 	static boolean better(int score, String id, int oldScore, String oldId){return score>oldScore || (score==oldScore && id.compareTo(oldId)<0);}
 	private static void require(boolean ok, String message){if(!ok){throw new IllegalArgumentException(message);}}
 

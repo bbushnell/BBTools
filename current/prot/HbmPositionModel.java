@@ -47,7 +47,7 @@ public final class HbmPositionModel {
 	static HbmPositionModel deriveOne(AAGraph graph,String kind,double beta,boolean clip,double[] background){
 		return deriveOne(graph,kind,beta,clip,background,-4);
 	}
-	static HbmPositionModel deriveOne(AAGraph graph,String kind,double beta,boolean clip,double[] background,double clipMin){
+	public static HbmPositionModel deriveOne(AAGraph graph,String kind,double beta,boolean clip,double[] background,double clipMin){
 		final int[][] counts=new int[graph.ref.length][];
 		for(int j=0; j<counts.length; j++){counts[j]=graph.ref[j].count;}
 		return deriveColumns(graph.pivot,counts,kind,beta,clip,background,clipMin);
@@ -111,8 +111,8 @@ public final class HbmPositionModel {
 		}
 	}
 	/** Fixture factory copies every row, preserving the model's immutability. */
-	static HbmPositionModel fromScores(int[][] table){return new HbmPositionModel(table);}
-	int scoreAt(byte aa,int position){return scores[aa][position];}
+	public static HbmPositionModel fromScores(int[][] table){return new HbmPositionModel(table);}
+	public int scoreAt(byte aa,int position){return scores[aa][position];}
 	public int length(){return length;}
 	private static final class Scratch{
 		int[] matrix=new int[0];
@@ -158,6 +158,58 @@ public final class HbmPositionModel {
 		}
 		return new Result(best,start,bestJ-1,record ? Arrays.copyOfRange(ops,at,ops.length) : null);
 	}
+	/**
+	 * Aligns bounded C-terminal windows, with free left clipping on both sequences.
+	 * Both right ends are consumed; terminal gaps retain their ordinary penalties.
+	 * Returns null when no positive-scoring suffix reaches both ends. This is an
+	 * alignment primitive, not a stop-validation gate: callers must check aligned
+	 * span and terminal support. Coordinates refer to the original query/profile.
+	 */
+	public TailResult alignTail(byte[] query, int maxLength, boolean record){
+		if(query==null || query.length<1 || maxLength<1){
+			throw new IllegalArgumentException("Tail alignment requires a nonempty query and positive window limit");
+		}
+		final int m=Math.min(query.length, maxLength), n=Math.min(length, maxLength);
+		final int qOffset=query.length-m, rOffset=length-n, stride=n+1;
+		if((long)(m+1)*stride>Integer.MAX_VALUE-8 || ((long)m+n)*6400>Integer.MAX_VALUE/2){
+			throw new IllegalArgumentException("Oversized tail alignment: "+m+" x "+n);
+		}
+		final Scratch scratch=SCRATCH.get(); scratch.ensure((m+1)*stride);
+		final int[] h=scratch.matrix;
+		Arrays.fill(h, 0, stride, 0);
+		for(int i=1; i<=m; i++){
+			final byte a=query[qOffset+i-1];
+			if(a<0 || a>21 || a==20){throw new IllegalArgumentException("Invalid encoded tail residue: "+a);}
+			final int[] row=scores[a];
+			final int cur=i*stride, prev=cur-stride;
+			int diag=h[prev], left=h[cur]=0;
+			for(int j=1; j<=n; j++){
+				final int up=h[prev+j];
+				int value=Math.max(0, diag+row[rOffset+j-1]);
+				value=Math.max(value, up-GAP);
+				value=Math.max(value, left-GAP);
+				h[cur+j]=value; left=value; diag=up;
+			}
+		}
+		final int score=h[m*stride+n];
+		if(score<=0){return null;}
+		int i=m, j=n;
+		final byte[] ops=record ? new byte[m+n] : null;
+		int at=record ? ops.length : 0;
+		while(i>0 && j>0 && h[i*stride+j]>0){
+			if(h[i*stride+j]==h[(i-1)*stride+j-1]+scores[query[qOffset+i-1]][rOffset+j-1]){
+				if(record){ops[--at]='m';} i--; j--;
+			}else if(h[i*stride+j]==h[(i-1)*stride+j]-GAP){
+				if(record){ops[--at]='I';} i--;
+			}else{
+				if(h[i*stride+j]!=h[i*stride+j-1]-GAP){throw new AssertionError("Tail traceback has no valid predecessor");}
+				if(record){ops[--at]='D';} j--;
+			}
+		}
+		assert(i<m && j<n) : "Positive tail evidence must consume residues from both sequences";
+		return new TailResult(score, qOffset+i, query.length-1, rOffset+j, length-1,
+			record ? Arrays.copyOfRange(ops, at, ops.length) : null);
+	}
 	/** Scores every operation, including terminal insertions, on an existing full-query trace. */
 	public int scorePath(byte[] query,int start,byte[] path){
 		if(path==null){throw new IllegalArgumentException("Profile rescoring requires a recorded path");}
@@ -176,8 +228,16 @@ public final class HbmPositionModel {
 		return (int)sum;
 	}
 	/** Scores are fixed-point profile units, with no BLOSUM-specific E-value interpretation. */
+	public static final class TailResult{
+		public TailResult(int score_, int queryStart_, int queryEnd_, int start_, int end_, byte[] path_){
+			score=score_; queryStart=queryStart_; queryEnd=queryEnd_; start=start_; end=end_; path=path_;
+		}
+		public final int score, queryStart, queryEnd, start, end;
+		public final byte[] path;
+	}
+	/** Scores are fixed-point profile units, with no BLOSUM-specific E-value interpretation. */
 	public static final class Result{
-		Result(int score_,int start_,int end_,byte[] path_){score=score_;start=start_;end=end_;path=path_;}
+		public Result(int score_,int start_,int end_,byte[] path_){score=score_;start=start_;end=end_;path=path_;}
 		public final int score,start,end;
 		public final byte[] path;
 	}

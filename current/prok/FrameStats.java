@@ -49,6 +49,21 @@ public class FrameStats {
 		counts[valid][frame][kmer]++;
 		validSums[valid]++;
 	}
+
+	/** Exact detached snapshot, including cached probabilities; deliberately does not calculate(). */
+	public FrameStats copy(){
+		final FrameStats out=new FrameStats(name, k, frames, leftOffset);
+		for(int f=0; f<frames; f++){
+			System.arraycopy(countsTrue[f], 0, out.countsTrue[f], 0, kMax);
+			System.arraycopy(countsFalse[f], 0, out.countsFalse[f], 0, kMax);
+			System.arraycopy(probs[f], 0, out.probs[f], 0, kMax);
+		}
+		System.arraycopy(validSums, 0, out.validSums, 0, validSums.length);
+		out.average=average; out.invAvg=invAvg;
+		assert(out.counts[1]==out.countsTrue && out.counts[0]==out.countsFalse)
+			: "Copied FrameStats must retain the count-array aliases used by add/calculate";
+		return out;
+	}
 	
 	/** True iff {@code fs} matches this in name, leftOffset, k, and frames — i.e. their count matrices are add-compatible. */
 	public boolean compatibleWith(FrameStats fs) {
@@ -105,7 +120,7 @@ public class FrameStats {
 	
 	/** Recomputes probs[frame][kmer] from the accumulated true/false counts: each cell is the Laplace-smoothed
 	 * P(valid) for that kmer/frame, scaled by invAvg (the global valid rate). Call after add()/parseData(), before scoring. */
-	void calculate(){
+	public void calculate(){
 		//Laplace +1: numerator >=1.0, denominator >=1.0 -> average is in (0,1] and never 0, so invAvg is always finite
 		average=(float)((validSums[1]+1.0)/(validSums[0]+validSums[1]+1.0));
 		invAvg=1.0f/average;

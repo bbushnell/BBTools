@@ -75,10 +75,12 @@ public final class ProteinFamilyAssigner {
 	public String consensusPin(){return consensusPin;}
 	/** Verified decoded positional-background pin, independent of transport compression. */
 	public String backgroundPin(){return backgroundPin;}
-	/** Package-internal read-only access for combined reference competition. */
-	HbmCompetitiveAssign.Library library(){return library;}
+	/** Shared reference access; callers must not mutate the library or its backing arrays. */
+	public HbmCompetitiveAssign.Library library(){return library;}
 	public int familyId(final int rank){checkRank(rank); return library.familyIds[rank];}
 	public String representative(final int rank){checkRank(rank); return library.ids[rank];}
+	/** Full consensus/profile length in residues, before any tail clipping; the loader verifies their correspondence. */
+	public int modelLength(final int rank){checkRank(rank); return library.refs[rank].length;}
 	/** Number of construction members, not a count of independent taxa. */
 	public long memberCount(final int rank){checkRank(rank); return library.memberCounts[rank];}
 

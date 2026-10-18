@@ -17,6 +17,22 @@ public final class FamilyShortlistScores {
 	public static void score(final int[][] hits, final float[][] composition,
 			final double[][] medianLength, final double[][] sdLogLength,
 			final int queryLength, final float[][] out){
+		score(hits, composition, medianLength, sdLogLength, queryLength, out, true);
+	}
+
+	/** Tail retrieval retains global k-mer/composition normalization, omitting the
+	 * full-protein length prior. Stored indexes are reused; this does not create a
+	 * tail-specific covering set or imply that shortlist recall is unchanged.
+	 */
+	public static void scoreTail(final int[][] hits, final float[][] composition,
+			final double[][] medianLength, final double[][] sdLogLength,
+			final int queryLength, final float[][] out){
+		score(hits, composition, medianLength, sdLogLength, queryLength, out, false);
+	}
+
+	private static void score(final int[][] hits, final float[][] composition,
+			final double[][] medianLength, final double[][] sdLogLength,
+			final int queryLength, final float[][] out, final boolean penalizeLength){
 		require(queryLength>0, "Global F4 requires a nonempty query for its log-length term");
 		final int count=validate(hits, composition, medianLength, sdLogLength, out);
 		double sumK=0, squareK=0, sumC=0, squareC=0;
@@ -43,7 +59,7 @@ public final class FamilyShortlistScores {
 				if(!(length>0) || !Double.isFinite(length) || spread<0 || !Double.isFinite(spread)){
 					throw new IllegalArgumentException("Invalid shortlist length statistics at pack "+p+", rank "+r);
 				}
-				final double distance=Math.abs(logQuery-Math.log(length))/Math.max(spread, 0.05);
+				final double distance=penalizeLength ? Math.abs(logQuery-Math.log(length))/Math.max(spread, 0.05) : 0;
 				final double zk=sdK>1e-12 ? (hits[p][r]-meanK)/sdK : 0;
 				final double zc=sdC>1e-12 ? (composition[p][r]-meanC)/sdC : 0;
 				out[p][r]=(float)(zk+2*zc-distance);

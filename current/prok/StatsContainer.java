@@ -15,7 +15,7 @@ import structures.ByteBuilder;
  * @author Brian Bushnell
  * @date 2025
  */
-class StatsContainer {
+public class StatsContainer {
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
@@ -59,7 +59,7 @@ class StatsContainer {
 	 * @param kInner K-mer length for inner region analysis
 	 * @param framesInner Number of reading frames to analyze
 	 */
-	void setInner(int kInner, int framesInner){
+	public void setInner(int kInner, int framesInner){
 		assert(inner==null);
 		statsArray[0]=inner=new FrameStats(name+" inner", kInner, framesInner, 0);
 	}
@@ -70,7 +70,7 @@ class StatsContainer {
 	 * @param framesStart Number of reading frames to analyze
 	 * @param offsetStart Position offset for start site detection
 	 */
-	void setStart(int kStart, int framesStart, int offsetStart){
+	public void setStart(int kStart, int framesStart, int offsetStart){
 		assert(start==null);
 		statsArray[1]=start=new FrameStats(name+" start", kStart, framesStart, offsetStart);
 	}
@@ -81,7 +81,7 @@ class StatsContainer {
 	 * @param framesStop Number of reading frames to analyze
 	 * @param offsetStop Position offset for stop site detection
 	 */
-	void setStop(int kStop, int framesStop, int offsetStop){
+	public void setStop(int kStop, int framesStop, int offsetStop){
 		assert(stop==null);
 		statsArray[2]=stop=new FrameStats(name+" stop", kStop, framesStop, offsetStop);
 	}
@@ -195,6 +195,23 @@ class StatsContainer {
 		lengthCount=sc.lengthCount;
 		calculate();
 	}
+
+	/** Fills a fresh type-only container without recalculating any cached value. */
+	public void copyFromExact(final StatsContainer source){
+		if(source==null || source.type!=type || inner!=null || start!=null || stop!=null){
+			throw new IllegalArgumentException("Exact statistics copy requires a fresh same-type target: "+name);
+		}
+		for(int i=0; i<statsArray.length; i++){
+			if(statsArray[i]!=null || source.statsArray[i]==null){
+				throw new IllegalArgumentException("Exact statistics copy requires initialized source and empty target: "+name);
+			}
+			statsArray[i]=source.statsArray[i].copy();
+		}
+		inner=statsArray[0]; start=statsArray[1]; stop=statsArray[2];
+		lengths=source.lengths.clone();
+		lengthSum=source.lengthSum; lengthCount=source.lengthCount;
+		lengthAvg=source.lengthAvg; invLengthAvg=source.invLengthAvg;
+	}
 	
 	/**
 	 * Merges statistics from another StatsContainer into this one.
@@ -277,13 +294,13 @@ class StatsContainer {
 	/*--------------------------------------------------------------*/
 	
 	/** Frame statistics for inner gene regions */
-	FrameStats inner;
+	public FrameStats inner;
 	/** Frame statistics for start sites */
-	FrameStats start;
+	public FrameStats start;
 	/** Frame statistics for stop sites */
-	FrameStats stop;
+	public FrameStats stop;
 	/** Array containing inner, start, and stop frame statistics */
-	final FrameStats[] statsArray=new FrameStats[3];
+	public final FrameStats[] statsArray=new FrameStats[3];
 	
 	/** Gets the long k-mer length for this element type */
 	int kLongLen(){return ProkObject.kLongLen(type);}
@@ -300,18 +317,18 @@ class StatsContainer {
 	public int stopSlop(){return ProkObject.stopSlop(type);}
 	
 	/** Human-readable name for this element type */
-	final String name;
+	public final String name;
 	/** Total sum of all recorded lengths */
-	long lengthSum=0;
+	public long lengthSum=0;
 	/** Number of length observations recorded */
-	long lengthCount=0;
+	public long lengthCount=0;
 	/** Average length calculated from sum and count */
-	int lengthAvg=-1;
+	public int lengthAvg=-1;
 	/** Inverse of average length for efficient calculations */
-	float invLengthAvg;
+	public float invLengthAvg;
 	
 	/** Histogram of length frequencies up to maximum array size */
-	int[] lengths=new int[5000];
+	public int[] lengths=new int[5000];
 	/** Element type identifier corresponding to ProkObject types */
 	public final int type;
 	
