@@ -18,12 +18,21 @@ import parse.Parser;
 import structures.ByteBuilder;
 import template.ThreadWaiter;
 
-/** Paired native inference on pinned C-order float32 NPY validation rows.
- * Measures the first two value outputs, never error heads or training loss.
+/**
+ * Compares a reference network to a weight-reduced candidate on paired C-order
+ * float32 NPY matrices.  Metrics cover the first two value outputs only; error
+ * heads and training loss are outside this validation fixture.  A row-limited
+ * canary records {@code CANARY_ONLY}; a full run records whether candidate
+ * value MSE is under an explicit {@code limitmse} or the default 0.5% headroom
+ * above {@code originalmse}.
  * @author Ganyu
  */
-public final class CellNetWeightBitsEval {
+public final class CellNetWeightBitsEval{
 
+	/**
+	 * Parses paired-net and NPY arguments, requires a fresh output path, runs private per-range workers and
+	 * writes one TSV result row only after all worker failures have been propagated.
+	 */
 	public static void main(String[] args) throws IOException{
 		// PreParser opens outstream before validation; this read-only gate rejects it instead.
 		args=Parser.parseConfig(args);
@@ -31,10 +40,10 @@ public final class CellNetWeightBitsEval {
 		int rows=-1, limit=Integer.MAX_VALUE, threads=1;
 		double originalMse=Double.NaN, absoluteLimit=Double.NaN;
 		boolean explicitLimit=false;
-		for(String arg:args){
+		for(String arg : args){
 			final int eq=arg.indexOf('=');
 			if(eq<1){throw new IllegalArgumentException("Expected key=value: "+arg);}
-			final String key=arg.substring(0,eq).toLowerCase(Locale.ROOT), value=arg.substring(eq+1);
+			final String key=arg.substring(0, eq).toLowerCase(Locale.ROOT), value=arg.substring(eq+1);
 			if(key.equals("reference")){reference=value;}
 			else if(key.equals("candidate")){candidate=value;}
 			else if(key.equals("x")){x=value;}
@@ -58,32 +67,33 @@ public final class CellNetWeightBitsEval {
 		if(!Double.isFinite(limitMse)){throw new IllegalArgumentException("MSE limit overflow");}
 		if(Files.exists(Paths.get(out))){throw new IllegalArgumentException("Fresh output required: "+out);}
 		final long started=System.nanoTime();
-		final CellNet ref=CellNetParser.load(reference,false);
-		final boolean dense=CellNet.DENSE;
-		final CellNet cand=CellNetParser.load(candidate,false);
-		if(CellNet.DENSE!=dense){throw new IllegalArgumentException("Paired nets must use the same native dense/sparse representation");}
-		checkPair(ref,cand);
+		final CellNet ref=CellNetParser.load(reference, false);
+		final CellNet cand=CellNetParser.load(candidate, false);
+		if(cand.dense!=ref.dense){
+			throw new IllegalArgumentException("Paired nets must use the same native dense/sparse representation");
+		}
+		checkPair(ref, cand);
 		try(Npy rx=new Npy(x); Npy ry=new Npy(y)){
 			if(rx.rows!=rows || ry.rows!=rows || rx.cols!=ref.numInputs() || ry.cols!=2){
 				throw new IllegalArgumentException("Pinned row/input/label shape mismatch: X="+rx.rows+"x"+rx.cols+", Y="+ry.rows+"x"+ry.cols);
 			}
 		}
-		final int count=Math.min(rows,limit), jobs=Math.min(threads,count);
+		final int count=Math.min(rows, limit), jobs=Math.min(threads, count);
 		final ArrayList<Worker> workers=new ArrayList<Worker>(jobs);
 		for(int i=0; i<jobs; i++){
-			workers.add(new Worker(ref,cand,x,y,(int)((long)count*i/jobs),(int)((long)count*(i+1)/jobs),storage.equals("bfloat16")));
+			workers.add(new Worker(ref, cand, x, y, (int)((long)count*i/jobs), (int)((long)count*(i+1)/jobs), storage.equals("bfloat16")));
 		}
 		ThreadWaiter.startAndWait(workers);
 		final double[] refSq=new double[2], candSq=new double[2], deltaSq=new double[2];
 		double maxDelta=0;
 		long seen=0;
-		for(Worker worker:workers){
-			if(worker.failure!=null){throw new IllegalStateException("Paired evaluation worker failed; no result published",worker.failure);}
+		for(Worker worker : workers){
+			if(worker.failure!=null){throw new IllegalStateException("Paired evaluation worker failed; no result published", worker.failure);}
 			seen+=worker.seen; maxDelta=Math.max(maxDelta,worker.maxDelta);
 			for(int k=0; k<2; k++){refSq[k]+=worker.refSq[k]; candSq[k]+=worker.candSq[k]; deltaSq[k]+=worker.deltaSq[k];}
 		}
 		if(seen!=count){throw new IllegalStateException("Workers must conserve every requested row: "+seen+" != "+count);}
-		final double refMse=valueMse(refSq[0]+refSq[1],seen), candMse=valueMse(candSq[0]+candSq[1],seen);
+		final double refMse=valueMse(refSq[0]+refSq[1], seen), candMse=valueMse(candSq[0]+candSq[1], seen);
 		final ByteBuilder bb=new ByteBuilder();
 		bb.append("rows\tsource_rows\tstore\treference_mse\tcandidate_mse\tcandidate_over_reference\toriginal_mse\tlimit_mse\t")
 			.append(explicitLimit ? "within_absolute_bar" : "within_original_bar")
@@ -92,33 +102,36 @@ public final class CellNetWeightBitsEval {
 			.append(Double.toString(candMse)).tab().append(Double.toString(candMse/refMse)).tab()
 			.append(Double.toString(originalMse)).tab().append(Double.toString(limitMse)).tab()
 			.append(count==rows ? Boolean.toString(candMse<=limitMse) : "CANARY_ONLY").tab()
-			.append(Double.toString(valueMse(deltaSq[0]+deltaSq[1],seen))).tab().append(Double.toString(maxDelta)).tab()
+			.append(Double.toString(valueMse(deltaSq[0]+deltaSq[1], seen))).tab().append(Double.toString(maxDelta)).tab()
 			.append(Double.toString((System.nanoTime()-started)*1e-9)).nl();
-		final ByteStreamWriter writer=new ByteStreamWriter(out,false,false,false);
+		final ByteStreamWriter writer=new ByteStreamWriter(out, false, false, false);
 		writer.start(); writer.print(bb);
 		if(writer.poisonAndWait()){throw new IOException("Could not write paired evaluation: "+out);}
 		System.err.println("WEIGHT_BITS_EVAL_PASS rows="+seen+" sourceRows="+rows+" store="+storage);
 	}
 
-	/** Frozen train_mlp.evaluate_validation_files uses sum of two head SSEs / rows, not /2rows. */
-	static double valueMse(double sumSquared,long rows){
+	/** Converts first-two-value-head SSE to frozen train_mlp.evaluate_validation_files SSE/rows, not SSE/(2*rows). */
+	public static double valueMse(double sumSquared, long rows){
 		if(rows<1 || !Double.isFinite(sumSquared) || sumSquared<0){throw new IllegalArgumentException("Invalid value-loss accumulator");}
 		return sumSquared/rows;
 	}
 
-	/** Independent bit oracle: truncate omitted bits while retaining a nonzero edge at the smallest stored magnitude. */
-	static void checkPair(CellNet a, CellNet b){
+	/**
+	 * Verifies candidate topology, explicit-affine absence and exact reduced-weight truncation against
+	 * reference, retaining nonzero underflows at the smallest storable magnitude.
+	 */
+	public static void checkPair(CellNet a, CellNet b){
 		final int bits=b.weightBits();
 		if(bits!=18 && bits!=24){throw new IllegalArgumentException("Candidate must declare18-bit or24-bit trained edges");}
 		final int mask=bits==18 ? 0xffffc000 : 0xffffff00;
 		if(a.tags.containsKey("affine_prefix_layers") || b.tags.containsKey("affine_prefix_layers")){
 			throw new IllegalArgumentException("Convert explicit-affine prefixes to input headers before paired storage evaluation");
 		}
-		if(!Arrays.equals(a.dims,b.dims) || a.numOutputs()<2){throw new IllegalArgumentException("Paired topology/value-output mismatch");}
+		if(!Arrays.equals(a.dims, b.dims) || a.numOutputs()<2){throw new IllegalArgumentException("Paired topology/value-output mismatch");}
 		for(int layer=1; layer<a.net.length; layer++){
 			for(int i=0; i<a.net[layer].length; i++){
 				final Cell ca=a.net[layer][i], cb=b.net[layer][i];
-				if(!Arrays.equals(ca.inputs,cb.inputs) || ca.weights.length!=cb.weights.length
+				if(!Arrays.equals(ca.inputs, cb.inputs) || ca.weights.length!=cb.weights.length
 						|| Float.floatToRawIntBits(ca.bias())!=Float.floatToRawIntBits(cb.bias())
 						|| !ca.function.name().equals(cb.function.name())){
 					throw new IllegalArgumentException("Topology/bias/activation changed at layer="+layer+" cell="+i);
@@ -135,18 +148,19 @@ public final class CellNetWeightBitsEval {
 		}
 	}
 
-	/** Same RNE bfloat16 conversion as trainer storage, after float32 normalization. */
-	static float stored(float x, boolean bf16){
+	/** Returns finite float32 unchanged, or applies the trainer's +/-10000 clamp and RNE bfloat16 conversion. */
+	public static float stored(float x, boolean bf16){
 		if(!Float.isFinite(x)){throw new IllegalArgumentException("Nonfinite normalized input");}
 		if(!bf16){return x;}
-		x=Math.max(-10000f,Math.min(10000f,x));
+		x=Math.max(-10000f, Math.min(10000f, x));
 		final int bits=Float.floatToRawIntBits(x);
 		return Float.intBitsToFloat((bits+0x7fff+((bits>>>16)&1))&0xffff0000);
 	}
 
-	/** Disjoint row ranges with private readers, nets and buffers; merge once after join. */
-	private static final class Worker extends Thread {
-		Worker(CellNet a,CellNet b,String xp,String yp,int lo,int hi,boolean bf){
+	/** Evaluates one disjoint row range using borrowed seed nets copied into private mutable nets. */
+	private static final class Worker extends Thread{
+		/** Records borrowed immutable inputs and the half-open NPY row interval [lo, hi). */
+		Worker(CellNet a, CellNet b, String xp, String yp, int lo, int hi, boolean bf){
 			assert(lo>=0 && hi>lo) : "Worker ranges partition the positive requested row count";
 			ref=a; cand=b; x=xp; y=yp; start=lo; end=hi; bf16=bf;
 		}
@@ -162,7 +176,7 @@ public final class CellNetWeightBitsEval {
 						if(Float.floatToRawIntBits(a.values[0][j])!=Float.floatToRawIntBits(b.values[0][j])){
 							throw new IllegalStateException("Paired input normalization differs at row="+row+" column="+j);
 						}
-						a.values[0][j]=stored(a.values[0][j],bf16); b.values[0][j]=a.values[0][j];
+						a.values[0][j]=stored(a.values[0][j], bf16); b.values[0][j]=a.values[0][j];
 					}
 					a.feedForward(); b.feedForward();
 					for(int k=0; k<a.numOutputs(); k++){
@@ -170,7 +184,7 @@ public final class CellNetWeightBitsEval {
 						if(k<2){
 							final double av=a.getOutput(k), bv=b.getOutput(k), label=labels[k];
 							refSq[k]+=(av-label)*(av-label); candSq[k]+=(bv-label)*(bv-label);
-							deltaSq[k]+=(av-bv)*(av-bv); maxDelta=Math.max(maxDelta,Math.abs(av-bv));
+							deltaSq[k]+=(av-bv)*(av-bv); maxDelta=Math.max(maxDelta, Math.abs(av-bv));
 						}
 					}
 					seen++;
@@ -178,23 +192,35 @@ public final class CellNetWeightBitsEval {
 				}
 			}catch(Throwable t){failure=t;}
 		}
-		final CellNet ref,cand;
-		final String x,y;
-		final int start,end;
+		/** Borrowed seed networks, copied before per-worker inference state mutates. */
+		final CellNet ref, cand;
+		/** Input and label NPY paths opened privately by this worker. */
+		final String x, y;
+		/** Half-open row interval to seek and read from both NPY matrices. */
+		final int start, end;
+		/** Whether to clamp/RNE-normalized input values to bf16 before feed-forward. */
 		final boolean bf16;
-		final double[] refSq=new double[2],candSq=new double[2],deltaSq=new double[2];
+		/** Sum of squared errors for the first two value outputs. */
+		final double[] refSq=new double[2], candSq=new double[2], deltaSq=new double[2];
+		/** Count of rows successfully evaluated by this worker. */
 		long seen;
+		/** Largest absolute difference between paired value-output predictions. */
 		double maxDelta;
+		/** First thrown failure; main propagates it after joining all workers. */
 		Throwable failure;
 	}
 
-	/** Strict NPY v1/v2 reader for only the pinned uncompressed C-order <f4 matrices. */
-	static final class Npy implements AutoCloseable {
-		Npy(String path) throws IOException{
-			file=new RandomAccessFile(path,"r");
+	/**
+	 * Strict NPY v1/v2 reader for pinned uncompressed C-order {@code <f4} two-dimensional matrices.
+	 * Instances are reusable within one owner thread; callers size row and batch buffers to the declared shape.
+	 */
+	public static final class Npy implements AutoCloseable{
+		/** Opens {@code path}, checks header shape/endian/order/payload length and allocates one row buffer. */
+		public Npy(String path) throws IOException{
+			file=new RandomAccessFile(path, "r");
 			try{
 				final byte[] magic=new byte[6]; file.readFully(magic);
-				if(!Arrays.equals(magic,new byte[]{(byte)0x93,'N','U','M','P','Y'})){throw new IOException("Not NPY: "+path);}
+				if(!Arrays.equals(magic, new byte[]{(byte)0x93,'N','U','M','P','Y'})){throw new IOException("Not NPY: "+path);}
 				final int major=file.readUnsignedByte(), minor=file.readUnsignedByte();
 				if((major!=1 && major!=2) || minor!=0){throw new IOException("Unsupported NPY version");}
 				final int size=major==1 ? Short.toUnsignedInt(Short.reverseBytes(file.readShort())) : Integer.reverseBytes(file.readInt());
@@ -211,11 +237,13 @@ public final class CellNetWeightBitsEval {
 				bytes=new byte[cols*4]; buffer=ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN);
 			}catch(Throwable t){file.close(); throw t;}
 		}
-		void seek(int row) throws IOException{
+		/** Seeks to the start of one row in the fixed-width matrix payload. */
+		public void seek(int row) throws IOException{
 			if(row<0 || row>=rows){throw new IllegalArgumentException("NPY row outside matrix");}
 			file.seek(offset+4L*row*cols);
 		}
-		void read(float[] values) throws IOException{
+		/** Reads one complete row into a {@code values} buffer exactly as wide as the matrix and rejects nonfinite cells. */
+		public void read(float[] values) throws IOException{
 			assert(values.length==cols) : "NPY row buffer must match the declared matrix width";
 			file.readFully(bytes); buffer.position(0);
 			for(int i=0; i<cols; i++){
@@ -223,7 +251,10 @@ public final class CellNetWeightBitsEval {
 				if(!Float.isFinite(values[i])){throw new IOException("Nonfinite NPY value at column="+i);}
 			}
 		}
-		/** Reads consecutive rows with one bounded bulk read, avoiding one system read per row. */
+		/**
+		 * Reads consecutive two-column rows into a buffer at least {@code rowCount*cols} wide, avoiding one
+		 * system read per row.
+		 */
 		void readBatch(float[] values, int rowCount) throws IOException{
 			assert(cols==2) : "Batch path is currently for two-column truth matrices";
 			if(batchBytes==null){
@@ -240,12 +271,18 @@ public final class CellNetWeightBitsEval {
 				if(!Float.isFinite(values[i])){throw new IOException("Nonfinite NPY value at batch index="+i);}
 			}
 		}
+		/** Closes the underlying random-access file. */
 		@Override public void close() throws IOException{file.close();}
+		/** Private random-access reader for seeks into row offsets. */
 		final RandomAccessFile file;
-		final int rows,cols;
+		/** Declared two-dimensional matrix shape. */
+		public final int rows, cols;
+		/** Byte offset of the first float32 payload cell. */
 		final long offset;
+		/** Reusable one-row byte buffer and little-endian float view. */
 		final byte[] bytes;
 		final ByteBuffer buffer;
+		/** Lazily allocated batch byte buffer and little-endian float view for two-column truth rows. */
 		byte[] batchBytes;
 		ByteBuffer batchBuffer;
 	}

@@ -7,4 +7,4 @@ if [[ -f "$DIR/bbtools.jar" ]]; then CP=$DIR/bbtools.jar; else CP=$DIR/current/;
 source "$DIR/javasetup.sh" || exit 1
 parseJavaArgs --xmx=1g --xms=64m --mode=fixed "$@" || exit 1
 setEnvironment || exit 1
-exec java $EA $EOOM $SIMD $XMX $XMS $PROXY -cp "$CP" ml.CellNetInputNormalizationTest
+exec java $EA $EOOM $SIMD $XMX $XMS $PROXY -cp "$CP" test.ml.CellNetInputNormalizationTest

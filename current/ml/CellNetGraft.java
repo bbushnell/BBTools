@@ -8,13 +8,14 @@ import fileIO.ByteStreamWriter;
 import structures.ByteBuilder;
 
 /** Evaluates new private nodes and heads from a completed, unchanged base forward pass.
- * All three networks are private inference workers. The base's topology, parameters
- * and activations are read-only here. Serving preserves FP32 activations; the
- * trainer's reduced-precision cache is not part of inference.
+ * The three borrowed networks are mutable inference workers used serially by one
+ * owner of this graft object. The base's topology, parameters and activations are
+ * read-only here. Serving preserves FP32 activations; the trainer's reduced-precision
+ * cache is not part of inference.
  * @author Brian Bushnell, Yoimiya */
-public final class CellNetGraft {
+public final class CellNetGraft{
 
-	/** Validates the declared bypass and ownership before allocating reusable scratch. */
+	/** Validates geometry and per-head private edge partitions before allocating reusable scratch. */
 	public CellNetGraft(final CellNet base_, final CellNet private_, final CellNet heads_,
 			final int upstreamLayer_, final int shared_, final int privatePerHead_, final String activation){
 		require(base_!=null && private_!=null && heads_!=null, "Graft requires three private inference workers");
@@ -56,7 +57,7 @@ public final class CellNetGraft {
 		}
 	}
 
-	/** Appends only the new heads after the caller has completed and copied the base outputs. */
+	/** Requires the caller to complete the base pass and copy base outputs first; writes only suffix heads. */
 	public void appendAfterBase(final float[] output, final int offset){
 		require(output!=null && offset==base.numOutputs() && output.length>=offset+heads.numOutputs(),
 			"Graft outputs must follow all original base heads");
@@ -75,8 +76,9 @@ public final class CellNetGraft {
 		}
 	}
 
-	/** Writes one developer-requested snapshot without repeating or changing inference arithmetic.
+	/** Writes the last completed inference snapshot for the matching caller-supplied raw input.
 	 * The destination must be new, so repeated bin IDs or accidental reruns fail loudly.
+	 * Freshness is the caller's responsibility; no inference is repeated or verified here.
 	 * Each float has a round-trip decimal value and its exact signed integer bit pattern. */
 	public void writeActivationTrace(final String destination, final float[] raw){
 		require(destination!=null && raw!=null && raw.length==base.numInputs(),
@@ -98,7 +100,7 @@ public final class CellNetGraft {
 		if(writer.poisonAndWait()){throw new IllegalStateException("Could not write activation trace: "+destination);}
 	}
 
-	/** Keeps the exact FP32 representation visible beside human-readable activation values. */
+	/** Appends one traced activation vector with both decimal and exact FP32 bit text. */
 	private static void appendTrace(final ByteBuilder out, final String stage, final float[] values){
 		assert(values!=null) : "Completed graft inference owns every traced activation array";
 		for(int i=0; i<values.length; i++){
@@ -107,13 +109,17 @@ public final class CellNetGraft {
 		}
 	}
 
-	/** Invalid external geometry is rejected even with assertions disabled. */
+	/** Rejects invalid external geometry even with assertions disabled. */
 	private static void require(final boolean condition, final String message){
 		if(!condition){throw new IllegalArgumentException(message);}
 	}
 
+	/** Borrowed mutable inference networks; this graft serially reuses their activation arrays. */
 	private final CellNet base, privateNodes, heads;
+	/** Layer and prefix widths defining the base-to-private bypass geometry. */
 	private final int upstreamLayer, shared;
+	/** Activation applied between private affine nodes and endpoint heads. */
 	private final Function hidden;
+	/** Reusable per-call scratch; this object is not thread-safe. */
 	private final float[] upstream, joined;
 }

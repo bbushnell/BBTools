@@ -19,7 +19,7 @@ for arg in "$@"; do
     selftest=*)
       [[ -z $SELFTEST ]] || exit 2
       SELFTEST=${arg#*=}
-      case ${SELFTEST,,} in t|true) CLASS=ml.CellNetWeightBitsTest;; f|false) ;; *) exit 2;; esac;;
+      case ${SELFTEST,,} in t|true) CLASS=test.ml.CellNetWeightBitsTest;; f|false) ;; *) exit 2;; esac;;
     -xmx*|-xms*|-ea|-da|ea|da|eoom|-eoom|simd=t|simd=f) JVM_ARGS+=("$arg");;
     *) ARGS+=("$arg");;
   esac

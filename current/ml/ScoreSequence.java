@@ -22,13 +22,16 @@ import tracker.PalindromeTracker;
 /**
  * Scores DNA sequences using neural network classifiers.
  * Processes FASTA/FASTQ files to generate sequence-level confidence scores
- * from trained CellNet models. Supports filtering, annotation, and histogram generation.
+ * from trained CellNet models. Passing reads are written as FASTA, optionally with
+ * a score appended to the identifier; input qualities are not written.
+ * Supports filtering and score histograms, with optional truth labels parsed from identifiers.
  *
  * @author Brian Bushnell
  * @date Oct 6, 2014
  */
 public class ScoreSequence {
 
+	/** Runs the command-line scorer and closes its redirected diagnostic stream. */
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
 		Timer t=new Timer();
@@ -43,6 +46,7 @@ public class ScoreSequence {
 		Shared.closeStream(x.outstream);
 	}
 	
+	/** Parses arguments, creates format descriptors and loads the scoring network. */
 	public ScoreSequence(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -112,6 +116,7 @@ public class ScoreSequence {
 		else {assert(width==(net.numInputs()-4)/4) : width+", "+net.numInputs();}
 	}
 	
+	/** Scores input reads and mates, writes passing FASTA records and reports counts. */
 	void process(Timer t){
 		
 		final ConcurrentReadInputStream cris;
@@ -183,6 +188,7 @@ public class ScoreSequence {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Scores one non-null read, updates histograms and optionally writes a passing record. */
 	private boolean processRead(Read r, ByteBuilder bb, ByteStreamWriter bsw, float[] vec) {
 		if(r==null) {return false;}
 		float result=(parseHeader ? Parse.parseFloat(r.id, "result=", '\t') : 0);
@@ -199,6 +205,16 @@ public class ScoreSequence {
 		return pass;
 	}
 	
+	/** Scores the forward sequence and optionally its reverse complement, returning the larger score.
+	 * Rebuilds the caller's feature buffer for each orientation. On normal return the bases
+	 * have their original orientation; the buffer and network retain the last orientation's state.
+	 * The supplied buffer and network must not be used concurrently by another scorer.
+	 * @param bases Sequence to score; temporarily reversed when rcomp is true
+	 * @param vec Reusable feature buffer with the network input width
+	 * @param k Encoding k; values below one select raw base encoding
+	 * @param net Mutable scoring network
+	 * @param rcomp Whether to score both orientations
+	 * @return Forward score, or the maximum score from both orientations */
 	public static float score(byte[] bases, float[] vec, int k, CellNet net, boolean rcomp) {
 		SequenceToVector.fillVector(bases, vec, k);
 		net.applyInput(vec);
@@ -214,6 +230,12 @@ public class ScoreSequence {
 		return Tools.max(r, f);
 	}
 	
+	/** Replaces vec with forward-sequence features and returns the network's primary output.
+	 * @param bases Sequence to encode
+	 * @param vec Reusable network-width feature buffer
+	 * @param k Encoding k; values below one select raw base encoding
+	 * @param net Mutable scoring network
+	 * @return Primary network output */
 	public static float score(byte[] bases, float[] vec, int k, CellNet net) {
 		assert(vec!=null);
 		SequenceToVector.fillVector(bases, vec, k);
@@ -222,6 +244,14 @@ public class ScoreSequence {
 		return f;
 	}
 	
+	/** Encodes an inclusive sequence span into vec and scores it without changing base order.
+	 * @param bases Sequence containing the span
+	 * @param vec Reusable network-width feature buffer
+	 * @param k Encoding k; values below one select raw base encoding
+	 * @param net Mutable scoring network
+	 * @param from First included base index
+	 * @param to Last included base index
+	 * @return Primary network output */
 	public static float score(byte[] bases, float[] vec, int k, CellNet net, int from, int to) {
 		SequenceToVector.fillVector(bases, vec, k, from, to);
 		net.applyInput(vec);

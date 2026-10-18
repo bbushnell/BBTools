@@ -8,12 +8,23 @@ import java.nio.file.Paths;
 import fileIO.ByteStreamWriter;
 import structures.ByteBuilder;
 
-/** Explicit native weight-precision conversion, preserving biases and topology.
+/**
+ * Converts a native CellNet image to an explicit reduced-precision or full-float
+ * weight representation while preserving biases and topology. The CLI accepts
+ * exact in=, out= and bits= keys; bits=32 preserves decoded weights but cannot
+ * recover precision already lost in a reduced-precision input.
  * @author Brian, Yoimiya
  */
-public final class CellNetWeightBits {
+public final class CellNetWeightBits{
 
-	/** Loads a complete native network and atomically publishes a fresh output file. */
+	/**
+	 * Loads a complete native network, requires a fresh destination path, applies
+	 * the requested 18/24/32-bit weight policy, enables A48 coding and clears the
+	 * forced dense/sparse output overrides, retaining the parsed representation.
+	 * These three global flag changes are not restored; other writer flags remain
+	 * inherited. Writes a sibling .partial file, checks the writer's completion
+	 * result, then creates a hard link at the destination and removes the temporary name.
+	 */
 	public static void main(String[] args) throws IOException{
 		String in=null, out=null;
 		int bits=-1;
@@ -33,6 +44,7 @@ public final class CellNetWeightBits {
 			throw new IllegalArgumentException("Normalize the declared affine prefix to input headers before truncating trained edges; affine normalization must remain float32");
 		}
 		net.setWeightBits(bits);
+		//Possible Bug: Same-JVM callers can inherit stale CellNet writer flags not reset here.
 		CellNet.codingA48Out=true;
 		CellNet.OUT_DENSE=false; CellNet.OUT_SPARSE=false;
 		final ByteBuilder bytes=net.toBytes();

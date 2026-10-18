@@ -8,6 +8,7 @@ import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import fileIO.ByteFile;
+import fileIO.ByteStreamWriter;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
 import parse.Parse;
@@ -22,31 +23,30 @@ import stream.ConcurrentReadOutputStream;
 import stream.FASTQ;
 import stream.FastaReadInputStream;
 import stream.Read;
+import structures.ByteBuilder;
 import structures.ListNum;
 import structures.LongList;
 import template.Accumulator;
 import template.ThreadWaiter;
+import tracker.PalindromeTracker;
 import tracker.ReadStats;
 
 /**
- * Filters genomic sequences using neural network-based scoring and classification.
- * Processes input sequence files through a pre-trained neural network, scoring and
- * optionally filtering sequences based on network predictions with support for
- * both single-end and paired-end sequence processing.
- *
+ * Scores FASTQ/FASTA/SAM/BAM reads with a native {@link CellNet}, optionally filters
+ * by the selected score cutoff, and routes failed reads to unmatched outputs.
  * @author Brian Bushnell
  * @date November 1, 2023
  */
-public class NetFilter implements Accumulator<NetFilter.ProcessThread> {
+public class NetFilter implements Accumulator<NetFilter.ProcessThread>{
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Program entry point for neural network-based sequence filtering.
-	 * Initializes timer, creates NetFilter instance, processes data, and closes output streams.
-	 * @param args Command line arguments for configuration
+	 * Creates one configured filter run, processes the input streams, and closes
+	 * the diagnostic stream on normal return if the preparser redirected it.
+	 * @param args Command-line arguments for this run
 	 */
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
@@ -58,15 +58,15 @@ public class NetFilter implements Accumulator<NetFilter.ProcessThread> {
 		//Run the object
 		x.process(t);
 		
-		//Close the print stream if it was redirected
+		//Close the print stream after normal processing if it was redirected
 		Shared.closeStream(x.outstream);
 	}
 	
 	/**
-	 * Constructs NetFilter with command-line arguments.
-	 * Parses arguments, validates parameters, configures file I/O, loads neural network,
-	 * and initializes processing parameters including width, cutoff, and step size.
-	 * @param args Command line arguments for configuration
+	 * Parses CLI arguments, prepares file-format metadata, loads the scoring
+	 * network, and derives any unset frame width, score cutoff, or step size from
+	 * that network.
+	 * @param args Command-line arguments for this run
 	 */
 	public NetFilter(String[] args){
 		
@@ -114,18 +114,23 @@ public class NetFilter implements Accumulator<NetFilter.ProcessThread> {
 		ffout2=FileFormat.testOutput(out2, FileFormat.FASTQ, extout, true, overwrite, append, ordered);
 		ffoutu1=FileFormat.testOutput(outu1, FileFormat.FASTQ, extout, true, overwrite, append, ordered);
 		ffoutu2=FileFormat.testOutput(outu2, FileFormat.FASTQ, extout, true, overwrite, append, ordered);
+		ffhist=FileFormat.testOutput(histFile, FileFormat.TXT, null, true, overwrite, append, false);
 
 		//Create input FileFormat objects
 		ffin1=FileFormat.testInput(in1, FileFormat.FASTQ, extin, true, true);
 		ffin2=FileFormat.testInput(in2, FileFormat.FASTQ, extin, true, true);
 		
+		//TODO: ffnet is unused; CellNetParser.load reopens netFile via ByteFile.
 		ffnet=FileFormat.testOutput(netFile, FileFormat.BBNET, null, true, true, false, false);
 		net0=CellNetParser.load(netFile);
 		assert(net0!=null) : netFile;
-		if(width<0) {width=(net0.numInputs()-4)/4;}
-		else {assert(width==(net0.numInputs()-4)/4) : width+", "+net0.numInputs();}
-		if(autoCutoff) {cutoff=net0.cutoff;}
-		if(stepsize==Integer.MIN_VALUE) {stepsize=width-overlap;}
+		if(width<0){width=(net0.numInputs()-4)/4;}
+		else{assert(width==(net0.numInputs()-4)/4) : width+", "+net0.numInputs();}
+		if(autoCutoff){cutoff=net0.cutoff;}
+		if(stepsize==Integer.MIN_VALUE){
+			stepsize=width-overlap;
+			assert(stepsize>0) : "stepsize must be greater than 0: s="+stepsize+", o="+overlap+", w="+width;
+		}
 	}
 	
 	/*--------------------------------------------------------------*/
@@ -133,12 +138,10 @@ public class NetFilter implements Accumulator<NetFilter.ProcessThread> {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Parses command-line arguments into configuration parameters.
-	 * Handles neural network file, scoring parameters, filtering options,
-	 * and standard file I/O arguments.
-	 *
-	 * @param args Command line arguments to parse
-	 * @return Configured Parser object with standard settings
+	 * Handles NetFilter-specific arguments first, then delegates ordinary I/O
+	 * arguments to {@link Parser}.
+	 * @param args Command-line arguments to parse
+	 * @return Parser containing the delegated shared I/O settings
 	 */
 	private Parser parse(String[] args){
 		
@@ -179,9 +182,9 @@ public class NetFilter implements Accumulator<NetFilter.ProcessThread> {
 			}else if(a.equals("parse")){
 				parseHeader=Parse.parseBoolean(b);
 			}else if(a.equals("cutoff")){
-				if("auto".equalsIgnoreCase(b)) {
+				if("auto".equalsIgnoreCase(b)){
 					autoCutoff=true;
-				}else {
+				}else{
 					autoCutoff=false;
 					cutoff=Float.parseFloat(b);
 				}
@@ -238,10 +241,10 @@ public class NetFilter implements Accumulator<NetFilter.ProcessThread> {
 			out1=out1.replace("#", "1");
 		}
 
-		//Do output file # replacement
+		//Do unmatched output file # replacement
 		if(outu1!=null && outu2==null && outu1.indexOf('#')>-1){
-			outu2=out1.replace("#", "2");
-			outu1=out1.replace("#", "1");
+			outu2=outu1.replace("#", "2");
+			outu1=outu1.replace("#", "1");
 		}
 		
 		//Ensure there is an input file
@@ -268,9 +271,13 @@ public class NetFilter implements Accumulator<NetFilter.ProcessThread> {
 	 */
 	private void checkFileExistence(){
 		//Ensure output files can be written
-		if(!Tools.testOutputFiles(overwrite, append, false, out1, out2)){
-			outstream.println((out1==null)+", "+(out2==null)+", "+out1+", "+out2);
-			throw new RuntimeException("\n\noverwrite="+overwrite+"; Can't write to output files "+out1+", "+out2+"\n");
+		if(!Tools.testOutputFiles(overwrite, append, false, out1, out2, outu1, outu2, histFile)){
+			outstream.println((out1==null)+", "+(out2==null)+", "+(outu1==null)+", "+
+				(outu2==null)+", "+(histFile==null)+", "+out1+", "+out2+", "+
+				outu1+", "+outu2+", "+histFile);
+			throw new RuntimeException("\n\noverwrite="+overwrite+
+				"; Can't write to output files "+out1+", "+out2+", "+outu1+", "+
+				outu2+", "+histFile+"\n");
 		}
 		
 		//Ensure input files can be read
@@ -279,7 +286,7 @@ public class NetFilter implements Accumulator<NetFilter.ProcessThread> {
 		}
 		
 		//Ensure that no file was specified multiple times
-		if(!Tools.testForDuplicateFiles(true, in1, in2, out1, out2)){
+		if(!Tools.testForDuplicateFiles(true, in1, in2, out1, out2, outu1, outu2, histFile)){
 			throw new RuntimeException("\nSome file names were specified multiple times.\n");
 		}
 	}
@@ -312,8 +319,10 @@ public class NetFilter implements Accumulator<NetFilter.ProcessThread> {
 		}
 	}
 	
-	/** Adjusts static file processing settings for optimal performance.
-	 * Forces BF2 mode for multi-threaded environments and validates FASTA settings. */
+	/**
+	 * Selects BF2 only when neither ByteFile backend is already forced and several
+	 * threads are available, then assertion-checks FASTA static configuration.
+	 */
 	private static void checkStatics(){
 		//Adjust the number of threads for input file reading
 		if(!ByteFile.FORCE_MODE_BF1 && !ByteFile.FORCE_MODE_BF2 && Shared.threads()>2){
@@ -324,12 +333,13 @@ public class NetFilter implements Accumulator<NetFilter.ProcessThread> {
 	}
 	
 	/**
-	 * Validates that processing parameters are within acceptable ranges.
-	 * Ensures step size is greater than 0 for sliding window processing.
-	 * @return true if all parameters are valid
+	 * Assertion-checks that either an explicit positive step or overlap-driven
+	 * deferred step calculation was requested.
+	 * @return always true after assertion validation
 	 */
 	private boolean validateParams(){
-		assert(stepsize>0) : "stepsize must be greater than 0: s="+stepsize+", o="+overlap+", w="+width;
+		assert(stepsize>0 || (stepsize==Integer.MIN_VALUE && overlap!=Integer.MIN_VALUE)) :
+			"stepsize must be greater than 0: s="+stepsize+", o="+overlap+", w="+width;
 		return true;
 	}
 	
@@ -338,12 +348,12 @@ public class NetFilter implements Accumulator<NetFilter.ProcessThread> {
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Main processing method that executes neural network-based sequence filtering.
-	 * Creates input/output streams, spawns processing threads, accumulates results,
-	 * and reports comprehensive statistics including true/false positive rates.
-	 * @param t Timer for tracking execution performance
+	 * Starts input/output streams, spawns worker threads, performs normal-path
+	 * cleanup by writing ReadStats, closing streams, and then writing the optional
+	 * histogram, and finally reports aggregate score and throughput stats.
+	 * @param t Timer for this run
 	 */
-	void process(Timer t){
+	public void process(Timer t){
 		
 		//Turn off read validation in the input threads to increase speed
 		final boolean vic=Read.VALIDATE_IN_CONSTRUCTOR;
@@ -371,6 +381,7 @@ public class NetFilter implements Accumulator<NetFilter.ProcessThread> {
 		errorState|=ReadStats.writeAll();
 		//Close the read streams
 		errorState|=ReadWrite.closeStreams(cris, ros, rosu);
+		errorState|=writeHistogram();
 		
 		//Reset read validation
 		Read.VALIDATE_IN_CONSTRUCTOR=vic;
@@ -380,15 +391,15 @@ public class NetFilter implements Accumulator<NetFilter.ProcessThread> {
 		float mult=100f/readsProcessed;
 		outstream.println();
 		outstream.println(String.format("Average Score:    \t%.4f", scoreSum/scoreCount));
-		if(parseHeader) {
+		if(parseHeader){
 			outstream.println(String.format("Average Positive: \t%.4f\t\t%.4f%%", scoreSumPositive/scoreCountPositive, scoreCountPositive*mult));
 			outstream.println(String.format("Average Negative: \t%.4f\t\t%.4f%%", scoreSumNegative/scoreCountNegative, scoreCountNegative*mult));
 		}
-		if(filter || true) {
+		if(filter || true){
 			outstream.println(String.format("Average Pass:     \t%.4f\t\t%.4f%%", scoreSumPass/scoreCountPass, scoreCountPass*mult));
 			outstream.println(String.format("Average Fail:     \t%.4f\t\t%.4f%%", scoreSumFail/scoreCountFail, scoreCountFail*mult));
 		}
-		if(parseHeader) {
+		if(parseHeader){
 			outstream.println(String.format("True Positive:    \t%d\t\t%.4f%%", tpCount, tpCount*mult));
 			outstream.println(String.format("True Negative:    \t%d\t\t%.4f%%", tnCount, tnCount*mult));
 			outstream.println(String.format("False Positive:   \t%d\t\t%.4f%%", fpCount, fpCount*mult));
@@ -404,6 +415,7 @@ public class NetFilter implements Accumulator<NetFilter.ProcessThread> {
 		}
 	}
 	
+	/** Creates and starts the input stream, then reports detected FASTQ pairing. */
 	private ConcurrentReadInputStream makeCris(){
 		ConcurrentReadInputStream cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ffin1, ffin2, qfin1, qfin2);
 		cris.start(); //Start the stream
@@ -413,6 +425,18 @@ public class NetFilter implements Accumulator<NetFilter.ProcessThread> {
 		return cris;
 	}
 	
+	/** Writes the optional histogram, waits for completion, and returns true on error. */
+	private boolean writeHistogram(){
+		if(ffhist==null){return false;}
+		final ByteBuilder bb=new ByteBuilder();
+		PalindromeTracker.append(bb, "#count\tneg\tpos", new LongList[] {mhist, phist}, 101);
+		final ByteStreamWriter bsw=new ByteStreamWriter(ffhist);
+		bsw.start();
+		bsw.print(bb);
+		return bsw.poisonAndWait();
+	}
+
+	/** Creates and starts one ordered or unordered matched/unmatched output stream, or returns null without {@code ff1}. */
 	private ConcurrentReadOutputStream makeCros(boolean pairedInput, FileFormat ff1, FileFormat ff2, String qf1, String qf2){
 		if(ff1==null){return null;}
 
@@ -464,14 +488,14 @@ public class NetFilter implements Accumulator<NetFilter.ProcessThread> {
 	}
 	
 	/**
-	 * Accumulates processing statistics from completed threads.
-	 * Thread-safe aggregation of read counts, scores, and classification metrics
-	 * including true/false positive rates and score distributions.
-	 * @param pt ProcessThread containing results to accumulate
+	 * Accumulates one worker's counters into this instance.
+	 * Synchronizes on the worker while merging; {@link ThreadWaiter} serializes
+	 * calls so the destination counters are not concurrently updated.
+	 * @param pt completed ProcessThread containing results to accumulate
 	 */
 	@Override
 	public final void accumulate(ProcessThread pt){
-		synchronized(pt) {
+		synchronized(pt){
 			readsProcessed+=pt.readsProcessedT;
 			basesProcessed+=pt.basesProcessedT;
 			readsOut+=pt.readsOutT;
@@ -500,7 +524,7 @@ public class NetFilter implements Accumulator<NetFilter.ProcessThread> {
 		}
 	}
 	
-	/** Returns whether processing completed without errors */
+	/** Returns whether the aggregate error latch is clear. */
 	@Override
 	public final boolean success(){return !errorState;}
 	
@@ -514,7 +538,7 @@ public class NetFilter implements Accumulator<NetFilter.ProcessThread> {
 	
 //	/** This class is static to prevent accidental writing to shared variables.
 //	 * It is safe to remove the static modifier. */
-	class ProcessThread extends Thread {
+	class ProcessThread extends Thread{
 		
 		//Constructor
 		ProcessThread(final ConcurrentReadInputStream cris_, final ConcurrentReadOutputStream ros_, 
@@ -582,6 +606,7 @@ public class NetFilter implements Accumulator<NetFilter.ProcessThread> {
 			}
 		}
 		
+		/** Scores, filters, and writes one borrowed read batch, nulling failed matched reads in-place. */
 		void processList(ListNum<Read> ln){
 
 			//Grab the actual read list from the ListNum
@@ -614,7 +639,7 @@ public class NetFilter implements Accumulator<NetFilter.ProcessThread> {
 						basesOutT+=r1.pairLength();
 					}else{
 						reads.set(idx, null);
-						if(ureads!=null) {ureads.add(r1);}
+						if(ureads!=null){ureads.add(r1);}
 					}
 				}
 			}
@@ -625,13 +650,14 @@ public class NetFilter implements Accumulator<NetFilter.ProcessThread> {
 		}
 		
 		/**
-		 * Processes a read pair through neural network scoring and filtering.
-		 * Computes scores for both reads, combines based on pair mode,
-		 * and determines whether pair passes filtering criteria.
+		 * Scores both mates and applies the pair-mode score only to retention.
+		 * Per-read score statistics and histograms are already recorded before
+		 * the average, min, or max pair score decides whether the pair passes.
 		 *
 		 * @param r1 First read in pair
 		 * @param r2 Second read in pair (may be null for single-end)
-		 * @return true if read pair should be retained, false to discard
+		 * @return true when filtering is disabled or the pair passes:
+		 *         {@code score>=cutoff} for highpass, its negation for lowpass
 		 */
 		boolean processReadPair(final Read r1, final Read r2){
 			float score1=processRead(r1, vec);
@@ -644,8 +670,13 @@ public class NetFilter implements Accumulator<NetFilter.ProcessThread> {
 			return pass;
 		}
 		
-		private float processRead(Read r, float[] vec) {
-			if(r==null) {return -1;}
+		/**
+		 * Scores one read with this worker's borrowed scratch vector and network,
+		 * updates per-read statistics, and optionally annotates the read id.
+		 * @return score, or -1 for a null mate
+		 */
+		private float processRead(Read r, float[] vec){
+			if(r==null){return -1;}
 			float result=(parseHeader ? Parse.parseFloat(r.id, "result=", '\t') : 0);
 			float score=score(r.bases, vec, k, net, rcomp);
 
@@ -655,30 +686,30 @@ public class NetFilter implements Accumulator<NetFilter.ProcessThread> {
 			scoreSumT+=score;
 			scoreCountT++;
 			
-			if(positive) {
+			if(positive){
 				scoreSumPositiveT+=score;
 				scoreCountPositiveT++;
 				tpCountT+=(correct ? 1 : 0);
 				fnCountT+=(correct ? 0 : 1);
-			}else {
+			}else{
 				scoreSumNegativeT+=score;
 				scoreCountNegativeT++;
 				tnCountT+=(correct ? 1 : 0);
 				fpCountT+=(correct ? 0 : 1);
 			}
 			
-			if(pass) {
+			if(pass){
 				scoreSumPassT+=score;
 				scoreCountPassT++;
-			}else {
+			}else{
 				scoreSumFailT+=score;
 				scoreCountFailT++;
 			}
 			
 			int iscore=Tools.mid(0, Math.round(score*100), 100);
-			if(result<0.5f) {mhistT.increment(iscore);}
-			else {phistT.increment(iscore);}
-			if(annotate) {r.id+=String.format("\tscore=%.4f", score);}
+			if(result<0.5f){mhistT.increment(iscore);}
+			else{phistT.increment(iscore);}
+			if(annotate){r.id+=String.format("\tscore=%.4f", score);}
 			return score;
 		}
 
@@ -720,25 +751,32 @@ public class NetFilter implements Accumulator<NetFilter.ProcessThread> {
 	
 	/*--------------------------------------------------------------*/
 	
-	float score(byte[] bases, float[] vec, int k, CellNet net, boolean rcomp) {
+	/**
+	 * Scores the forward strand and optionally the reverse complement, returning
+	 * the larger score. Reverse-complement scoring mutates {@code bases}
+	 * in-place, then restores it on normal return.
+	 */
+	float score(byte[] bases, float[] vec, int k, CellNet net, boolean rcomp){
 		final float f=score(bases, vec, k, net), r;
-		if(rcomp) {
+		if(rcomp){
 			Vector.reverseComplementInPlaceFast(bases);
 			r=score(bases, vec, k, net);
 			Vector.reverseComplementInPlaceFast(bases);
-		}else {r=f;}
+		}else{r=f;}
 		return Tools.max(r, f);
 	}
 	
-	float score(byte[] bases, float[] vec, int k, CellNet net) {
-		if(SCORE_MODE==SINGLE) {
+	/** Dispatches a borrowed read and scratch vector through the selected scoring mode. */
+	float score(byte[] bases, float[] vec, int k, CellNet net){
+		if(SCORE_MODE==SINGLE){
 			return scoreSingle(bases, vec, k, net);
-		}else {
+		}else{
 			return scoreFrames(bases, vec, k, net, SCORE_MODE, stepsize, width);
 		}
 	}
 	
-	public static float scoreSingle(byte[] bases, float[] vec, int k, CellNet net) {
+	/** Fills {@code vec}, mutates {@code net} with one complete span, and returns its score. */
+	public static float scoreSingle(byte[] bases, float[] vec, int k, CellNet net){
 		assert(vec!=null);
 		SequenceToVector.fillVector(bases, vec, k);
 		net.applyInput(vec);
@@ -746,14 +784,22 @@ public class NetFilter implements Accumulator<NetFilter.ProcessThread> {
 		return f;
 	}
 	
-	public static float scoreFrames(byte[] bases, float[] vec, int k, CellNet net, int SCORE_MODE, int stepsize, int width) {
+	/**
+	 * Aggregates configured-width framed scores using the requested average,
+	 * minimum, or maximum mode. Scores complete windows at the configured stride,
+	 * including an exact terminal window; reads shorter than one complete window
+	 * are scored once across the whole read.
+	 */
+	public static float scoreFrames(byte[] bases, float[] vec, int k, CellNet net, int SCORE_MODE, int stepsize, int width){
 		assert(vec!=null);
 		assert(SCORE_MODE>=0 && SCORE_MODE!=SINGLE) : SCORE_MODE;
+		assert(bases.length>0) : bases.length;
+		final int maxStart=Tools.max(0, bases.length-width);
 		float min=9999, max=-9999;
 		double sum=0;
-		long frames=1;
-		int start=0, stop=width;
-		do {
+		long frames=0;
+		for(int start=0; start<=maxStart; start+=stepsize){
+			final int stop=Tools.min(start+width, bases.length)-1;
 			SequenceToVector.fillVector(bases, vec, k, start, stop);
 			net.applyInput(vec);
 			final float f=net.feedForward();
@@ -761,22 +807,22 @@ public class NetFilter implements Accumulator<NetFilter.ProcessThread> {
 			sum+=f;
 			min=Tools.min(min, f);
 			max=Tools.max(max, f);
-			start+=stepsize;
-			stop+=stepsize;
-		}while(stop<bases.length-1);
+		}
 		return SCORE_MODE==AVERAGE ? (float)(sum/frames) : SCORE_MODE==MIN ? min : max;
 	}
 	
-	public static float score(byte[] bases, float[] vec, int k, CellNet net, int from, int to) {
+	/** Fills {@code vec}, mutates {@code net}, and scores one explicit inclusive span. */
+	public static float score(byte[] bases, float[] vec, int k, CellNet net, int from, int to){
 		SequenceToVector.fillVector(bases, vec, k, from, to);
 		net.applyInput(vec);
 		final float f=net.feedForward();
 		return f;
 	}
 	
-	private static int parseMode(String b) {
+	/** Maps a CLI score-mode token to its internal constant. */
+	private static int parseMode(String b){
 		int x=Tools.find(b.toLowerCase(), MODES);
-		if(x<0) {throw new RuntimeException("Unknown mode "+b+"; must be one of "+Arrays.toString(MODES));}
+		if(x<0){throw new RuntimeException("Unknown mode "+b+"; must be one of "+Arrays.toString(MODES));}
 		return x;
 	}
 	
@@ -805,17 +851,26 @@ public class NetFilter implements Accumulator<NetFilter.ProcessThread> {
 	/** Whether interleaved mode was explicitly set on the command line */
 	private boolean setInterleaved=false;
 	
+	/** Required serialized CellNet input path. */
 	private String netFile=null;
+	/** Optional merged 0..100 score histogram output path. */
 	private String histFile=null;
+	/** Checked BBNET metadata for {@link #netFile}; load reopens {@code netFile}. */
 	private final FileFormat ffnet;
+	/** Optional checked output destination for the merged score histogram. */
+	private final FileFormat ffhist;
 
+	/** Positive-label score histogram, indexed by rounded score percent 0..100. */
 	private LongList phist=new LongList(101);
+	/** Negative-label score histogram, indexed by rounded score percent 0..100. */
 	private LongList mhist=new LongList(101);
 	
 	/*--------------------------------------------------------------*/
 	
 
+	/** Whether to parse {@code result=} labels from read ids for diagnostics. */
 	private boolean parseHeader=false;
+	/** Loaded source network; each worker receives a private copy. */
 	private final CellNet net0;
 	
 	/** Whether to score reverse complement of sequences */
@@ -824,42 +879,56 @@ public class NetFilter implements Accumulator<NetFilter.ProcessThread> {
 	
 	/** K-mer size for sequence encoding */
 	private int k=0;
+	/** Parsed but otherwise unused {@code dims=} value retained for CLI compatibility. */
 	private int dims; //asdf//TODO
 	
+	/** Whether failing reads are removed from the primary output stream. */
 	private boolean filter=true;
+	/** true keeps {@code score>=cutoff}; false keeps its negation, including NaN comparisons. */
 	private boolean highpass=true;
+	/** Whether to append each per-read score to the read id. */
 	private boolean annotate=false;
+	/** Score threshold shared by single-read stats and pair-mode retention. */
 	private float cutoff=0.5f;
+	/** Whether to replace {@link #cutoff} with the loaded network cutoff. */
 	private boolean autoCutoff=true;
+	/** Sliding-window advance for framed scoring. */
 	private int stepsize=1;
+	/** Temporary sentinel or requested overlap used to derive {@link #stepsize}. */
 	private int overlap=Integer.MIN_VALUE;
 
+	/** Per-read scoring mode: single frame or aggregate across sliding windows. */
 	private int SCORE_MODE=SINGLE;
+	/** Pair-retention score mode: first mate only, average, max, or min. */
 	private int PAIR_MODE=AVERAGE;
-	/** Constant for minimum aggregation mode */
-	/** Constant for maximum aggregation mode */
-	/** Constant for average aggregation mode */
+	/** Scoring and pair-mode constants. */
 	private static final int SINGLE=0, AVERAGE=1, MAX=2, MIN=3;
+	/** Accepted lowercase CLI tokens for {@link #SCORE_MODE} and {@link #PAIR_MODE}. */
 	private static final String[] MODES= {"single", "average", "max", "min"};
 	
 	/*--------------------------------------------------------------*/
 
+	/** Input reads and bases after pair validation, counted per mate. */
 	protected long readsProcessed=0;
 	protected long basesProcessed=0;
 
+	/** Retained reads and bases after pair-mode filtering, counted per mate. */
 	protected long readsOut=0;
 	protected long basesOut=0;
 	
+	/** Per-read score sums for all, labeled, and cutoff-sided reads. */
 	double scoreSum=0;
 	double scoreSumPositive=0;
 	double scoreSumNegative=0;
 	double scoreSumPass=0;
 	double scoreSumFail=0;
+	/** Per-read counts matching the score-sum buckets. */
 	long scoreCount=0;
 	long scoreCountPositive=0;
 	long scoreCountNegative=0;
 	long scoreCountPass=0;
 	long scoreCountFail=0;
+	/** Per-read confusion counts from parsed labels, or from synthetic zero labels without {@link #parseHeader}. */
 	long fpCount=0;
 	long fnCount=0;
 	long tpCount=0;
@@ -880,9 +949,9 @@ public class NetFilter implements Accumulator<NetFilter.ProcessThread> {
 	private final FileFormat ffoutu1;
 	private final FileFormat ffoutu2;
 	
-	/** Returns the internal read/write lock used to coordinate threaded output */
+	/** Returns this accumulator's read/write lock. */
 	@Override
-	public final ReadWriteLock rwlock() {return rwlock;}
+	public final ReadWriteLock rwlock(){return rwlock;}
 	private final ReadWriteLock rwlock=new ReentrantReadWriteLock();
 	
 	/*--------------------------------------------------------------*/

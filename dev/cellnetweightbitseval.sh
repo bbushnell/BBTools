@@ -19,7 +19,7 @@ ARGS=()
 JVM_ARGS=()
 for arg in "$@"; do
   case ${arg,,} in
-    selftest=t|selftest=true) CLASS=ml.CellNetWeightBitsEvalTest;;
+    selftest=t|selftest=true) CLASS=test.ml.CellNetWeightBitsEvalTest;;
     -xmx*|-xms*|-ea|-da|ea|da|eoom|-eoom|simd=t|simd=f) JVM_ARGS+=("$arg");;
     *) ARGS+=("$arg");;
   esac

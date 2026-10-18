@@ -17,19 +17,21 @@ import shared.Tools;
  * comparator that consumes both files.
  *
  * <p>Packaged copy of bbtools-dev {@code magqc_gpu_sweep/BBNetApply.java} (default
- * package, SHA-256 {@code 90c10fdd...} at bbtools-dev {@code c26965b}), renamed so it
- * does not collide with {@link BBNetApply} (the {@code #dims}-TSV runner). Behavior on
- * valid input is identical byte for byte; the only changes are the package, the
- * usage failure (throws instead of {@code System.exit}), an unreadable-file preflight
- * (throws instead of the parser's hard exit), a reader {@code finally}, and a stdout
- * error check at the end.</p>
+ * package at bbtools-dev {@code c26965b}), renamed so it does not collide with
+ * {@link BBNetApply} (the {@code #dims}-TSV runner). Behavior on valid input is
+ * identical byte for byte; the BBTools-specific changes are the package, the usage
+ * failure (throws instead of {@code System.exit}), an unreadable-file preflight
+ * (throws instead of the parser's hard exit), a reader {@code finally}, stdout error
+ * checking, trim-before-skip parsing for blank/comment rows, and explicit row
+ * validation for network width and finite values.</p>
  *
  * <p>Usage: {@code java -ea ml.BBNetApplyRaw <net.bbnet> <raw_rows.tsv>}</p>
  *
  * @author Ady (bbtools-dev, 2026-09), UMP45 (packaging, 2026-09-08)
  */
-public class BBNetApplyRaw {
+public class BBNetApplyRaw{
 
+	/** Loads a BBNet, applies it to raw float rows, and prints rounded predictions. */
 	public static void main(String[] args) throws Exception{
 		if(args.length!=2){
 			throw new IllegalArgumentException("Usage: java -ea ml.BBNetApplyRaw <net.bbnet> <raw_rows.tsv>");
@@ -45,10 +47,21 @@ public class BBNetApplyRaw {
 		int row=0;
 		try{
 			for(String line=br.readLine(); line!=null; line=br.readLine()){
+				line=line.trim();
 				if(line.isEmpty() || line.charAt(0)=='#'){continue;}
-				final String[] parts=line.trim().split("\\s+");
+				final String[] parts=line.split("\\s+");
+				if(parts.length!=net.numInputs()){
+					throw new IllegalArgumentException(args[1]+": row "+row+" input width "+parts.length+
+						" != network input width "+net.numInputs());
+				}
 				final float[] vec=new float[parts.length];
-				for(int i=0; i<parts.length; i++){vec[i]=Float.parseFloat(parts[i]);}
+				for(int i=0; i<parts.length; i++){
+					vec[i]=Float.parseFloat(parts[i]);
+					if(!Float.isFinite(vec[i])){
+						throw new IllegalArgumentException(args[1]+": row "+row+
+							" column "+i+" non-finite value: "+parts[i]);
+					}
+				}
 				net.applyInput(vec);
 				net.feedForward();
 				final float[] out=net.getOutput();
@@ -60,7 +73,7 @@ public class BBNetApplyRaw {
 				}
 				final StringBuilder sb=new StringBuilder();
 				sb.append(row);
-				for(float v : out){sb.append('\t').append(Tools.format("%.8f", v));}
+				for(float v:out){sb.append('\t').append(Tools.format("%.8f", v));}
 				System.out.println(sb);
 				row++;
 			}

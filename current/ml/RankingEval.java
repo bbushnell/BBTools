@@ -3,26 +3,30 @@ package ml;
 import java.util.ArrayList;
 
 import fileIO.ByteFile;
+import shared.KillSwitch;
 
 /**
- * Evaluate ranking nets against compositeScore on benchmark data.
+ * Evaluates ranking nets against compositeScore on benchmark data.
+ * <p>
  * Reports top-1 selection accuracy, position-weighted ranking score (WDCG),
  * and within-query concordance, for each net and the composite baseline.
- *
- * Usage: java ml.RankingEval vectors=<ranking_vectors.tsv> nets=<dir_of_bbnets>
- *
- * The vector file is RankingVectorizer output (#dims 33 1).
- * Rows are grouped by query (maxemit=10 consecutive rows per query).
- * Dim 29 (0-indexed 28) = 0.1 * min(nHits, 10); a change in this value OR
- * reaching 10 consecutive rows marks a query boundary.
- * Dim 27 (0-indexed 26) = normalized composite; the net re-ranks by its own score.
- * The label (column 34, 0-indexed 33) = LCA depth truth (1.0=exact, 0=life).
+ * <p>
+ * Usage: {@code java ml.RankingEval vectors=<ranking_vectors.tsv> nets=<dir_of_bbnets>}
+ * <p>
+ * The vector file is RankingVectorizer output, such as {@code #dims 33 1};
+ * rows with too few columns are skipped. The default input width is 33 but
+ * follows {@code #dims}. Rows are grouped by query (maxemit=10 consecutive
+ * rows per query). Fixed zero-based feature 28 stores
+ * {@code 0.1 * min(nHits, 10)}; a change in this value OR reaching ten
+ * consecutive rows marks a query boundary. Fixed zero-based feature 26 stores
+ * the normalized composite score. The label is read from {@code f[NI]}.
  *
  * @author Neptune
  * @date July 2026
  */
 public class RankingEval{
 
+	/** Parses ranking-vector and net-directory arguments, then prints all metrics. */
 	public static void main(String[] args) throws Exception{
 		String vecFile=null, netDir=null;
 		for(String arg : args){
@@ -36,13 +40,13 @@ public class RankingEval{
 			throw new IllegalArgumentException("required: vectors=<file> nets=<dir>");
 		}
 
-		// Load vectors and labels
+		// Load vectors and labels.
 		final ArrayList<float[]> inputs=new ArrayList<>();
 		final ArrayList<Float> labels=new ArrayList<>();
 		final ArrayList<Float> composites=new ArrayList<>();
 		final ArrayList<Integer> qstarts=new ArrayList<>();
 
-		int NI=33; // default, overridden by #dims header
+		int NI=33; // Default, overridden by #dims header.
 		final ByteFile bf=ByteFile.makeByteFile(vecFile, true);
 		byte[] line;
 		int rowInQuery=0;
@@ -54,6 +58,8 @@ public class RankingEval{
 				if(h.startsWith("#dims")){
 					final String[] hf=h.split("\t");
 					if(hf.length>=2){NI=Integer.parseInt(hf[1].trim());}
+					assert(NI>=29) : KillSwitch.assertDie(
+						"#dims must declare at least 29 inputs for the fixed query-boundary feature x[28]; got "+NI);
 				}
 				continue;
 			}
@@ -63,10 +69,10 @@ public class RankingEval{
 			final float[] x=new float[NI];
 			for(int i=0; i<NI; i++){x[i]=Float.parseFloat(f[i]);}
 			final float label=Float.parseFloat(f[NI]);
-			final float dim29=x[28]; // 0.1 * nHits (same position in both 33 and 35 dim vectors)
-			final float comp=x[26]; // normalized composite
+			final float dim29=x[28]; // 0.1 * nHits (same position in both 33 and 35-dim vectors)
+			final float comp=x[26]; // Normalized composite.
 
-			// Detect query boundary: dim29 changes or we hit 10 rows
+			// Detect a query boundary when dim29 changes or the row count reaches 10.
 			if(inputs.isEmpty() || rowInQuery>=10 || (dim29!=prevDim29 && !inputs.isEmpty())){
 				qstarts.add(inputs.size());
 				rowInQuery=0;
@@ -77,28 +83,28 @@ public class RankingEval{
 			prevDim29=dim29;
 			rowInQuery++;
 		}
-		bf.close();
+		if(bf.close()){throw new RuntimeException("Error reading or closing "+vecFile);}
 
 		final int n=inputs.size();
 		final int nq=qstarts.size();
 		System.err.println("Loaded "+n+" hits, "+nq+" queries from "+vecFile);
 
-		// Load all .bbnet files from netDir
+		// Load all .bbnet files from netDir.
 		final java.io.File dir=new java.io.File(netDir);
-		final java.io.File[] netFiles=dir.listFiles((d,name)->name.endsWith(".bbnet"));
+		final java.io.File[] netFiles=dir.listFiles((d, name)->name.endsWith(".bbnet"));
 		if(netFiles==null || netFiles.length==0){
 			throw new IllegalArgumentException("no .bbnet files in "+netDir);
 		}
 		java.util.Arrays.sort(netFiles);
 
-		// Print net sizes
+		// Print net sizes.
 		System.err.println("\n=== NET SIZES ===");
 		for(java.io.File nf : netFiles){
 			System.err.println(String.format("%-24s %8d bytes  (%,.1f KB)",
-				nf.getName().replace(".bbnet",""), nf.length(), nf.length()/1024.0));
+				nf.getName().replace(".bbnet", ""), nf.length(), nf.length()/1024.0));
 		}
 
-		// Run inference for all nets
+		// Run inference for all nets.
 		final ArrayList<String> netNames=new ArrayList<>();
 		final ArrayList<double[]> netPreds=new ArrayList<>();
 		for(java.io.File nf : netFiles){
@@ -108,7 +114,7 @@ public class RankingEval{
 				net.applyInput(inputs.get(i));
 				preds[i]=net.feedForward();
 			}
-			netNames.add(nf.getName().replace(".bbnet",""));
+			netNames.add(nf.getName().replace(".bbnet", ""));
 			netPreds.add(preds);
 		}
 
@@ -121,10 +127,8 @@ public class RankingEval{
 		}
 		evalSelection("ORACLE", null, null, labels, qstarts, n);
 
-		// === POSITION-WEIGHTED RANKING SCORE (WDCG) ===
-		// Weights: position 1 gets 10, position i gets 10/i.
-		// Re-ranks hits by each ranker's score, then sums truth[rank_i] * 10/i.
-		// Normalized by the oracle's score so 1.0 = perfect ranking.
+		// WDCG ranks each query by score, then sums truth[rank_i] * 10/i.
+		// Normalizes by the oracle's score so 1.0 is a perfect ranking.
 		System.err.println("\n=== POSITION-WEIGHTED SCORE (10/i weights, normalized by oracle) ===");
 		System.err.println(String.format("%-24s %10s %12s %12s", "ranker", "nWDCG", "rawWDCG", "oracleWDCG"));
 		evalWDCG("composite(incumbent)", null, composites, labels, qstarts, n);
@@ -156,6 +160,7 @@ public class RankingEval{
 		}
 	}
 
+	/** Prints top-1 exact/genus/mean-depth results for one ranker. */
 	static void evalSelection(String name, double[] preds, ArrayList<Float> composites,
 			ArrayList<Float> labels, ArrayList<Integer> qstarts, int n){
 		int exact=0, genus=0, queries=0;
@@ -180,10 +185,11 @@ public class RankingEval{
 			queries++;
 		}
 		System.err.println(String.format("%-24s %10.2f %10.2f %12.4f",
-			name, 100.0*exact/Math.max(queries,1), 100.0*genus/Math.max(queries,1),
-			sumDepth/Math.max(queries,1)));
+			name, 100.0*exact/Math.max(queries, 1), 100.0*genus/Math.max(queries, 1),
+			sumDepth/Math.max(queries, 1)));
 	}
 
+	/** Prints weighted discounted cumulative gain normalized to the oracle score. */
 	static void evalWDCG(String name, double[] preds, ArrayList<Float> composites,
 			ArrayList<Float> labels, ArrayList<Integer> qstarts, int n){
 		double sumScore=0, sumOracle=0;
@@ -193,18 +199,18 @@ public class RankingEval{
 			final int e=(qi+1<qstarts.size() ? qstarts.get(qi+1) : n);
 			if(s>=n || e<=s){continue;}
 			final int len=e-s;
-			// Get indices sorted by ranker score (descending)
+			// Get indices sorted by ranker score, descending.
 			final Integer[] idx=new Integer[len];
 			for(int i=0; i<len; i++){idx[i]=i;}
-			java.util.Arrays.sort(idx, (a,b)->{
+			java.util.Arrays.sort(idx, (a, b)->{
 				final double va=(preds!=null ? preds[s+a] : composites.get(s+a));
 				final double vb=(preds!=null ? preds[s+b] : composites.get(s+b));
 				return Double.compare(vb, va);
 			});
-			// Get indices sorted by truth (descending) for oracle
+			// Get indices sorted by truth, descending, for the oracle.
 			final Integer[] oidx=new Integer[len];
 			for(int i=0; i<len; i++){oidx[i]=i;}
-			java.util.Arrays.sort(oidx, (a,b)->Float.compare(labels.get(s+b), labels.get(s+a)));
+			java.util.Arrays.sort(oidx, (a, b)->Float.compare(labels.get(s+b), labels.get(s+a)));
 
 			double score=0, oracle=0;
 			for(int i=0; i<len; i++){
@@ -218,9 +224,10 @@ public class RankingEval{
 		}
 		final double norm=(sumOracle>0) ? sumScore/sumOracle : 0;
 		System.err.println(String.format("%-24s %10.4f %12.4f %12.4f",
-			name, norm, sumScore/Math.max(queries,1), sumOracle/Math.max(queries,1)));
+			name, norm, sumScore/Math.max(queries, 1), sumOracle/Math.max(queries, 1)));
 	}
 
+	/** Returns a one-element array containing the mean selected top-1 depth. */
 	static double[] getTop1Depths(double[] preds, ArrayList<Float> composites,
 			ArrayList<Float> labels, ArrayList<Integer> qstarts, int n){
 		int queries=0;
@@ -238,9 +245,10 @@ public class RankingEval{
 			sumDepth+=labels.get(pick);
 			queries++;
 		}
-		return new double[]{sumDepth/Math.max(queries,1)};
+		return new double[]{sumDepth/Math.max(queries, 1)};
 	}
 
+	/** Returns concordance pooled over non-label-tie pairs, counting score ties as half. */
 	static double getConcordance(double[] preds, ArrayList<Float> composites,
 			ArrayList<Float> labels, ArrayList<Integer> qstarts, int n){
 		long conc=0, disc=0, tiePred=0;
@@ -260,9 +268,10 @@ public class RankingEval{
 			}
 		}
 		final double total=conc+disc+tiePred;
-		return (conc+0.5*tiePred)/Math.max(total,1);
+		return (conc+0.5*tiePred)/Math.max(total, 1);
 	}
 
+	/** Prints pooled within-query concordance with label ties excluded. */
 	static void evalConcordance(String name, double[] preds, ArrayList<Float> composites,
 			ArrayList<Float> labels, ArrayList<Integer> qstarts, int n){
 		long conc=0, disc=0, tiePred=0;
@@ -282,9 +291,9 @@ public class RankingEval{
 			}
 		}
 		final double total=conc+disc+tiePred;
-		final double withTies=(conc+0.5*tiePred)/Math.max(total,1);
-		final double noTies=conc/Math.max((double)(conc+disc),1);
+		final double withTies=(conc+0.5*tiePred)/Math.max(total, 1);
+		final double noTies=conc/Math.max((double)(conc+disc), 1);
 		System.err.println(String.format("%-24s %10.4f %10.4f %7.1f%% %10d",
-			name, withTies, noTies, 100.0*tiePred/Math.max(total,1), (long)total));
+			name, withTies, noTies, 100.0*tiePred/Math.max(total, 1), (long)total));
 	}
 }

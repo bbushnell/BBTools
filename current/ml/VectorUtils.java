@@ -26,9 +26,12 @@ import structures.ByteBuilder;
  * and positive/negative balance. The '#dims' header is carried through correctly (never shuffled into
  * the body), which is why this exists: a plain `shuf` corrupts the header. If no input carried one and
  * none was declared with dims=, the output gets none either and a warning explains the risk — a header
- * is never invented, because whether the second-to-last column is a weight or an input is unrecoverable
+ * is never invented, because whether a column is a weight or an input is unrecoverable
  * from the data, and guessing it wrong feeds a weight into the feature vector without tripping any
- * assertion. A weighted or multi-output set must be declared with dims=.
+ * assertion. Weighted or multi-output layouts require an input header or an explicit dims= declaration.
+ * Without an explicit dims= override, all supplied headers must agree on input count,
+ * output count and the presence of a weight column. With assertions enabled, conflicts stop
+ * before output creation. All rows are held in memory; byte arrays are reused when balanced.
  *
  * Example:
  *   vectorutils.sh a.tsv b.tsv c.tsv out=training.tsv:0.9,validation.tsv:0.1 shuffle samplerate=0.5 balance=0.3
@@ -40,19 +43,20 @@ import structures.ByteBuilder;
  *   shuffle             Randomly shuffle rows (needed for a meaningful random partition).
  *   samplerate=X        Keep a random fraction X of rows (subsample). Default 1.
  *   balance=X           Upsample the MINORITY class (label = last column >= 0.5) with random duplicates
- *                       until it is fraction X of that output's total (Brian's default; X~0.25-0.3).
+ *                       toward fraction X of that output's total using an integer target (X~0.25-0.3).
  *                       Applied to EACH output independently, after partition. Default 0 (off).
  *   deduplicate (dedupe) Remove exact-duplicate rows (sort-based). Default off.
- *   dims=28,1,1         Write this '#dims' header, overriding whatever the inputs had. Required when
- *                       the set is WEIGHTED (third field = 1) or has multiple outputs, since neither
- *                       can be inferred from the data. Default: carry the inputs' header, or infer.
+ *   dims=28,1,1         Write this '#dims' header, overriding whatever the inputs had. Needed without
+ *                       an input header for a WEIGHTED (third value = 1) or multi-output layout, since neither
+ *                       can be inferred from the data. Default: carry the inputs' header, or omit it.
  *   seed=N              RNG seed (>=0 deterministic; -1 random). Default 1.
  *   ow=t                Overwrite outputs.
  *
  * @author Noire, Brian Bushnell
  */
-public class VectorUtils {
+public class VectorUtils{
 
+	/** Parses options, processes the in-memory data, and closes the diagnostic stream on normal return. */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		VectorUtils x=new VectorUtils(args);
@@ -60,6 +64,7 @@ public class VectorUtils {
 		Shared.closeStream(x.outstream);
 	}
 
+	/** Parses input/output lists and transforms; also configures process-wide compression settings. */
 	public VectorUtils(String[] args){
 		{
 			PreParser pp=new PreParser(args, getClass(), false);
@@ -124,15 +129,22 @@ public class VectorUtils {
 		}
 	}
 
+	/** Parses Java float syntax, including nonfinite values; returns null for malformed text. */
 	private static Float tryFloat(String s){
 		try{return Float.valueOf(s);}catch(NumberFormatException e){return null;}
 	}
 
-	/** Fill unspecified fractions and normalize the set to sum 1. */
+	/** Fills finite negative/unspecified fractions from remaining mass, then normalizes by the total.
+	 * Assertions require finite fractions and positive total mass. Uses a double total only
+	 * when finite fractions overflow the float sum, preserving ordinary float rounding. */
 	private void normalizeFractions(){
 		int n=outFracs.size();
 		float sumSpec=0; int nUnspec=0;
-		for(float f : outFracs){if(f<0){nUnspec++;}else{sumSpec+=f;}}
+		for(float f : outFracs){
+			assert(!Float.isNaN(f) && !Float.isInfinite(f)) :
+				"Output fraction must be finite for partition boundaries: "+f;
+			if(f<0){nUnspec++;}else{sumSpec+=f;}
+		}
 		if(nUnspec>0){
 			float rem=Math.max(0, 1f-sumSpec);
 			float each=rem/nUnspec;
@@ -141,34 +153,52 @@ public class VectorUtils {
 		float total=0;
 		for(float f : outFracs){total+=f;}
 		assert(total>0) : "Output fractions sum to 0.";
-		for(int i=0; i<n; i++){outFracs.set(i, outFracs.get(i)/total);}
+		if(Float.isInfinite(total)){
+			double wideTotal=0;
+			for(float f : outFracs){wideTotal+=f;}
+			for(int i=0; i<n; i++){outFracs.set(i, (float)(outFracs.get(i)/wideTotal));}
+		}else{
+			for(int i=0; i<n; i++){outFracs.set(i, outFracs.get(i)/total);}
+		}
 	}
 
 	/*--------------------------------------------------------------*/
 
-	void process(Timer t){
+	/** Loads all rows, checks header agreement, applies transforms, writes each partition,
+	 * and reports totals. Recorded reader/writer close errors are thrown after output processing. */
+	public void process(Timer t){
 		Random randy=(seed>=0) ? new Random(seed) : new Random();
 
 		//Read every input; capture the first #dims header; keep body rows only.
 		ArrayList<byte[]> rows=new ArrayList<byte[]>();
+		final ArrayList<byte[]> laterHeaders=new ArrayList<byte[]>();
 		for(String f : inFiles){
 			FileFormat ff=FileFormat.testInput(f, FileFormat.TXT, null, true, true);
 			ByteFile bf=ByteFile.makeByteFile(ff);
 			for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()){
 				if(line.length==0){continue;}
 				if(line[0]=='#'){
-					if(dimsHeader==null && Tools.startsWith(line, "#dims")){dimsHeader=line.clone();}
+					if(Tools.startsWith(line, "#dims")){
+						if(dimsHeader==null){dimsHeader=line.clone();}
+						else if(dims0==null){laterHeaders.add(line.clone());}
+					}
 					continue;//skip all header/comment lines
 				}
 				rows.add(line);
 			}
 			errorState|=bf.close();
 		}
+		//Check only after input readers close, before any output writer starts.
+		for(byte[] header : laterHeaders){
+			assert(sameLayout(dimsHeader, header)) : "Conflicting #dims headers: '"+
+				new String(dimsHeader)+"' and '"+new String(header)+
+				"'. DataLoader uses these counts to separate features, weights and outputs; use dims= only for an intentional override.";
+		}
 		long nIn=rows.size();
 
-		//An explicit dims= is authoritative: it is the only way to state a weighted or multi-output
-		//layout, which cannot be recovered from the data (a weighted set's third '#dims' field is what
-		//tells ml.DataLoader the last column is a weight, not an input).
+		//An explicit dims= overrides input headers. Without either declaration, weighted or multi-output
+		//layout cannot be recovered from rows. DataLoader uses the optional weight flag to read
+		//inputs first, then one weight, then outputs.
 		if(dims0!=null){
 			final byte[] explicit=dimsHeaderBytes(dims0);
 			if(dimsHeader!=null && !Arrays.equals(dimsHeader, explicit)){
@@ -178,7 +208,7 @@ public class VectorUtils {
 			dimsHeader=explicit;
 		}else if(dimsHeader==null && !rows.isEmpty()){
 			//No input carried a header and none was declared.  Deliberately DO NOT invent one.
-			//Whether the second-to-last column is a weight or an input cannot be recovered from the
+			//Whether a column is a weight or an input cannot be recovered from the
 			//data (ml.DataLoader parses inputs, then the weight, then the output -- parseDataLine),
 			//and guessing wrong is not a labeling error but a DATA error: a weighted row read as
 			//unweighted feeds the weight into the feature vector, and DataLoader's
@@ -220,7 +250,7 @@ public class VectorUtils {
 		if(errorState){throw new RuntimeException(getClass().getName()+" terminated in an error state.");}
 	}
 
-	/** Sort-based exact-duplicate removal. */
+	/** Returns lexicographically sorted unique row references, leaving the input list unchanged. */
 	private ArrayList<byte[]> deduplicate(ArrayList<byte[]> rows){
 		byte[][] arr=rows.toArray(new byte[0][]);
 		Arrays.sort(arr, BYTE_CMP);
@@ -231,12 +261,14 @@ public class VectorUtils {
 		return out;
 	}
 
+	/** Independently retains each row with probability rate, preserving survivor order and byte arrays. */
 	private ArrayList<byte[]> subsample(ArrayList<byte[]> rows, float rate, Random randy){
 		ArrayList<byte[]> out=new ArrayList<byte[]>((int)(rows.size()*rate)+16);
 		for(byte[] r : rows){if(randy.nextFloat()<rate){out.add(r);}}
 		return out;
 	}
 
+	/** Copies contiguous ranges into new lists using rounded cumulative fractions; the last gets the remainder. */
 	private ArrayList<ArrayList<byte[]>> partition(ArrayList<byte[]> rows){
 		int n=rows.size();
 		ArrayList<ArrayList<byte[]>> parts=new ArrayList<ArrayList<byte[]>>();
@@ -251,7 +283,9 @@ public class VectorUtils {
 		return parts;
 	}
 
-	/** Upsample the minority class (label = last column >= 0.5) to fraction 'balance' of the total. */
+	/** Adds random references from the initially smaller class (positive on ties) toward
+	 * the configured fraction. Uses a truncated integer target, never removes rows,
+	 * and leaves single-class partitions unchanged. Classification uses the last column. */
 	private void balance(ArrayList<byte[]> rows, Random randy){
 		ArrayList<byte[]> pos=new ArrayList<byte[]>(), neg=new ArrayList<byte[]>();
 		for(byte[] r : rows){(isPositive(r) ? pos : neg).add(r);}
@@ -271,6 +305,19 @@ public class VectorUtils {
 		return terms>0 && lp.parseFloat(terms-1)>=0.5f;
 	}
 
+	/** Compares the input/output counts and optional weight flag interpreted by DataLoader.
+	 * An absent weight flag and zero both mean unweighted; extra fields are ignored by the loader. */
+	private boolean sameLayout(byte[] first, byte[] second){
+		lp.set(first);
+		assert(lp.terms()>=3) : "DataLoader requires input and output counts in #dims: "+new String(first);
+		final int inputs=lp.parseInt(1), outputs=lp.parseInt(2);
+		final boolean weighted=lp.terms()>3 && lp.parseInt(3)==1;
+		lp.set(second);
+		assert(lp.terms()>=3) : "DataLoader requires input and output counts in #dims: "+new String(second);
+		return inputs==lp.parseInt(1) && outputs==lp.parseInt(2)
+			&& weighted==(lp.terms()>3 && lp.parseInt(3)==1);
+	}
+
 	/** Renders a dims array as a TAB-delimited '#dims' header line.  ml.DataLoader requires tabs. */
 	private static byte[] dimsHeaderBytes(int[] dims){
 		StringBuilder sb=new StringBuilder(32).append("#dims");
@@ -278,6 +325,7 @@ public class VectorUtils {
 		return sb.toString().getBytes();
 	}
 
+	/** Writes the retained/explicit header and rows in buffered batches, latching the shutdown error flag. */
 	private void write(String name, ArrayList<byte[]> rows){
 		FileFormat ff=FileFormat.testOutput(name, FileFormat.TXT, null, true, overwrite, false, false);
 		ByteStreamWriter bsw=new ByteStreamWriter(ff);
@@ -294,16 +342,21 @@ public class VectorUtils {
 
 	/*--------------------------------------------------------------*/
 
+	/** Input filenames in read order. */
 	private final ArrayList<String> inFiles=new ArrayList<String>();
+	/** Output filenames in partition order. */
 	private final ArrayList<String> outNames=new ArrayList<String>();
+	/** Output fractions aligned with outNames; normalized after parsing. */
 	private final ArrayList<Float> outFracs=new ArrayList<Float>();
 	private boolean shuffle=false, dedupe=false, overwrite=true;
 	private float samplerate=1f, balance=0f;
 	private long seed=1;
+	/** First retained header, later replaced by an explicit dims declaration when present. */
 	private byte[] dimsHeader=null;
-	/** Explicit '#dims' from dims=; authoritative, and the only way to declare a weight column. */
+	/** Explicit '#dims' from dims=; overrides retained input headers. */
 	private int[] dims0=null;
 
+	/** Reusable tab parser; this instance is used serially. */
 	private final LineParser1 lp=new LineParser1('\t');
 	private PrintStream outstream=System.err;
 	public boolean errorState=false;

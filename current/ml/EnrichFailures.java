@@ -4,25 +4,30 @@ import java.util.ArrayList;
 
 import fileIO.ByteFile;
 import fileIO.ByteStreamWriter;
+import shared.KillSwitch;
 import structures.ByteBuilder;
 
 /**
- * Enriches a ranking vector file by duplicating queries where the net's
- * top-1 pick is not the best available hit. Outputs a new vector file
- * with the hard cases duplicated N times.
- *
- * Usage: java ml.EnrichFailures vectors=<file> net=<bbnet> out=<file>
- *          [copies=3] [threshold=0.1]
- *
- * A query is a "failure" when the best available LCA depth minus the
- * net's top-1 pick's LCA depth exceeds threshold. The query's rows
- * are written (copies+1) times: once normally plus N duplicates.
+ * Duplicates ranking-vector queries whose network top hit is worse than the
+ * best available row by more than the configured label gap.
+ * <p>
+ * Usage: {@code java ml.EnrichFailures vectors=<file> net=<bbnet> out=<file>
+ * [copies=3] [threshold=0.1]}
+ * <p>
+ * Input rows must contain the {@code #dims} input count plus one label column;
+ * rows with too few columns are skipped. Query boundaries are inferred from
+ * zero-based feature 28, the fixed {@code 0.1*min(nHits, 10)} column in
+ * RankingVectorizer output, or after ten consecutive rows. The final comment
+ * line is preserved as the output header. Each failure query is emitted once
+ * normally plus {@code copies} extra times, assuming the requested copy count
+ * is nonnegative.
  *
  * @author Neptune
  * @date July 2026
  */
 public class EnrichFailures{
 
+	/** Parses arguments, scores all vector rows, and writes enriched failures. */
 	public static void main(String[] args) throws Exception{
 		String vecFile=null, netFile=null, outFile=null;
 		int copies=3;
@@ -43,7 +48,7 @@ public class EnrichFailures{
 
 		final CellNet net=CellNetParser.load(netFile);
 
-		// Load all rows, detect query boundaries, score with net
+		// Load rows, detect query boundaries, score with net.
 		final ArrayList<String> lines=new ArrayList<>();
 		final ArrayList<Float> labels=new ArrayList<>();
 		final ArrayList<Double> scores=new ArrayList<>();
@@ -63,6 +68,8 @@ public class EnrichFailures{
 				if(s.startsWith("#dims")){
 					final String[] hf=s.split("\t");
 					if(hf.length>=2){NI=Integer.parseInt(hf[1].trim());}
+					assert(NI>=29) : KillSwitch.assertDie(
+						"#dims must declare at least 29 inputs for the fixed query-boundary feature x[28]; got "+NI);
 				}
 				continue;
 			}
@@ -87,19 +94,19 @@ public class EnrichFailures{
 			prevDim29=dim29;
 			rowInQuery++;
 		}
-		bf.close();
+		if(bf.close()){throw new RuntimeException("Error reading or closing "+vecFile);}
 
 		final int n=lines.size();
 		final int nq=qstarts.size();
 
-		// Find failure queries
+		// Mark queries where the selected row is not close enough to the oracle row.
 		int failures=0;
 		final boolean[] isFailure=new boolean[nq];
 		for(int qi=0; qi<nq; qi++){
 			final int s=qstarts.get(qi);
 			final int e=(qi+1<nq ? qstarts.get(qi+1) : n);
 
-			// Find net's top pick and best available
+			// Find the net's top pick and the best available row in this query.
 			int netPick=s;
 			float bestLabel=labels.get(s);
 			for(int i=s; i<e; i++){
@@ -113,7 +120,7 @@ public class EnrichFailures{
 			}
 		}
 
-		// Write output: all rows, with failure queries duplicated
+		// Write all rows, with failure queries duplicated.
 		final ByteStreamWriter bsw=new ByteStreamWriter(outFile, true, false, true);
 		bsw.start();
 		if(header!=null){bsw.println(header);}
@@ -131,7 +138,8 @@ public class EnrichFailures{
 				}
 			}
 		}
-		bsw.poisonAndWait();
+		final boolean writeError=bsw.poisonAndWait();
+		assert(!writeError) : KillSwitch.assertDie("Could not write enriched failures output: "+outFile);
 
 		System.err.println("Queries: "+nq+"  failures: "+failures
 			+" ("+String.format("%.1f", 100.0*failures/nq)+"%)"

@@ -1,7 +1,20 @@
 package ml;
 
+/** Worker result envelope containing a processed network copy plus per-job counters. */
 public class JobResults implements Comparable<JobResults>{
 	
+	/** Constructs a result for one WorkerThread job.
+	 * @param net_ processed network copy, or null when no network should be accumulated
+	 * @param epoch_ epoch that produced this result
+	 * @param numProcessed_ number of samples processed by the job
+	 * @param tid_ worker thread ID
+	 * @param jid_ job ID within the epoch
+	 * @param errorSum_ sum of raw sample error magnitudes
+	 * @param weightedErrorSum_ sum of weighted sample error magnitudes
+	 * @param tpSum_ true-positive count
+	 * @param tnSum_ true-negative count
+	 * @param fpSum_ false-positive count
+	 * @param fnSum_ false-negative count */
 	JobResults(final CellNet net_, final int epoch_, final int numProcessed_, int tid_, int jid_,
 			final double errorSum_, final double weightedErrorSum_,
 			final int tpSum_, final int tnSum_, final int fpSum_, final int fnSum_){
@@ -46,10 +59,9 @@ public class JobResults implements Comparable<JobResults>{
 	
 	final double errorSum;
 	final double weightedErrorSum;
-	/** Total false negatives counted during this job. */
-	/** Total false positives counted during this job. */
-	/** Total true negatives counted during this job. */
+	/** Confusion-matrix counts from this job, in TP/TN/FP/FN order. */
 	final int tpSum, tnSum, fpSum, fnSum;
 	
+	/** Sentinel result for future queue consumers that need an explicit terminator. */
 	static final JobResults POISON=new JobResults(null, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1);
 }

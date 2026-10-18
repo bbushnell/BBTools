@@ -6,12 +6,20 @@ import json.JsonObject;
 import json.JsonParser;
 import structures.ByteBuilder;
 
-/** Preserves output ownership when ModifyNN appends hidden nodes and heads.
+/**
+ * Preserves output ownership metadata when {@link ModifyNN} appends hidden nodes and heads.
+ * Existing heads keep their declared shared/private inputs; new heads receive the shared set
+ * plus either all appended hidden nodes or a {@code privateperhead} slice.
  * @author Nilou
  */
-final class ModifyNNPartition {
+public final class ModifyNNPartition{
 
-	static ModifyNNPartition grow(CellNet parent, int[] dims, int privatePerHead){
+	/**
+	 * Parses parent partition metadata and expands it to nonshrinking same-depth {@code dims}, rejecting
+	 * forbidden live edges first.  The caller rejects negative {@code privatePerHead}; absent metadata
+	 * returns null when no private nodes are requested.
+	 */
+	public static ModifyNNPartition grow(CellNet parent, int[] dims, int privatePerHead){
 		final String text=parent.getTag("output_partition");
 		if(text==null){
 			if(privatePerHead!=0){throw new IllegalArgumentException("privateperhead requires output_partition metadata");}
@@ -79,6 +87,7 @@ final class ModifyNNPartition {
 		return new ModifyNNPartition(shared, allowed);
 	}
 
+	/** Records one expanded ownership matrix whose rows are heads and whose columns are last-hidden nodes. */
 	private ModifyNNPartition(boolean[] shared_, boolean[][] allowed_){
 		assert(allowed_.length>0 && shared_.length>0) : "Validated output partition must cover heads and last-hidden nodes";
 		shared=shared_; allowed=allowed_;
@@ -102,11 +111,13 @@ final class ModifyNNPartition {
 		}
 	}
 
+	/** Returns a JSON array value or rejects absent and scalar members. */
 	private static Object[] array(Object value){
 		if(!(value instanceof Object[])){throw new IllegalArgumentException("Partition index/count list must be an array");}
 		return (Object[])value;
 	}
 
+	/** Returns a nonnegative JSON integer that fits a Java array index. */
 	private static int integer(Object value){
 		if(!(value instanceof Long)){throw new IllegalArgumentException("Partition dimensions and indexes must be JSON integers: "+value);}
 		final long n=((Long)value).longValue();
@@ -114,6 +125,7 @@ final class ModifyNNPartition {
 		return (int)n;
 	}
 
+	/** Reads a strictly increasing ownership-index array, adding its members without clearing the mask first. */
 	private static void readIndexes(Object value, boolean[] membership){
 		int previous=-1;
 		for(Object item : array(value)){
@@ -124,7 +136,7 @@ final class ModifyNNPartition {
 	}
 
 	/** One-line metadata matches GPU modified_explicit_v1 ownership semantics. */
-	String metadata(){
+	public String metadata(){
 		final ByteBuilder out=new ByteBuilder();
 		out.append("{\"allowed_inputs\":[");
 		for(int h=0; h<allowed.length; h++){
@@ -137,9 +149,11 @@ final class ModifyNNPartition {
 		return out.append('}').toString();
 	}
 
+	/** Appends true indexes as a sorted compact JSON array in deterministic metadata order. */
 	private static void appendIndexes(ByteBuilder out, boolean[] membership){
 		assert(out!=null) : "Partition metadata appends indexes into one shared output buffer";
-		out.append('['); boolean comma=false;
+		out.append('[');
+		boolean comma=false;
 		for(int i=0; i<membership.length; i++){
 			if(membership[i]){
 				if(comma){out.append(',');}
@@ -149,6 +163,8 @@ final class ModifyNNPartition {
 		out.append(']');
 	}
 
+	/** Nodes shared by every output head in the final last-hidden layer. */
 	final boolean[] shared;
+	/** Per-head allowed input mask for final-layer edges. */
 	final boolean[][] allowed;
 }

@@ -13,10 +13,11 @@ import fileIO.ByteStreamWriter;
  * Trained weights and biases are copied without folding or quantization.
  * @author Ganyu
  */
-public final class CellNetAffineInput {
+public final class CellNetAffineInput{
 
+	/** Converts one native BBNet and verifies exact parity on the requested NPY rows. */
 	public static void main(String[] args) throws IOException{
-		String in=null,out=null,x=null;
+		String in=null, out=null, x=null;
 		int rows=1000;
 		for(String arg:args){
 			if(arg.startsWith("in=") && in==null){in=arg.substring(3);}
@@ -28,15 +29,15 @@ public final class CellNetAffineInput {
 		if(in==null || out==null || x==null || rows<1){throw new IllegalArgumentException("Require in= out=fresh x=NPY rows=1000");}
 		final Path destination=Paths.get(out);
 		if(Files.exists(destination)){throw new IllegalArgumentException("Fresh output required: "+out);}
-		final CellNet source=CellNetParser.load(in,false), converted=convert(source);
+		final CellNet source=CellNetParser.load(in, false), converted=convert(source);
 		CellNet.codingA48Out=true; CellNet.OUT_DENSE=false; CellNet.OUT_SPARSE=false;
-		final Path temporary=Files.createTempFile(destination.toAbsolutePath().getParent(),".affine-input-",".partial");
+		final Path temporary=Files.createTempFile(destination.toAbsolutePath().getParent(), ".affine-input-", ".partial");
 		double maximum=0;
 		try{
-			final ByteStreamWriter writer=new ByteStreamWriter(temporary.toString(),true,false,false);
+			final ByteStreamWriter writer=new ByteStreamWriter(temporary.toString(), true, false, false);
 			writer.start();
 			try{writer.print(converted.toBytes());}finally{if(writer.poisonAndWait()){throw new IOException("Affine conversion output failed");}}
-			final CellNet reloaded=CellNetParser.load(temporary.toString(),false);
+			final CellNet reloaded=CellNetParser.load(temporary.toString(), false);
 			try(CellNetWeightBitsEval.Npy data=new CellNetWeightBitsEval.Npy(x)){
 				if(data.cols!=source.numInputs() || data.rows<rows){throw new IllegalArgumentException("Parity matrix shape/row count mismatch");}
 				final float[] input=new float[data.cols];
@@ -58,8 +59,10 @@ public final class CellNetAffineInput {
 		System.out.println("AFFINE_INPUT_PASS rows="+rows+" outputs="+source.numOutputs()+" maxAbs="+maximum+" trainedEdges="+converted.countEdges());
 	}
 
-	/** Only the explicitly documented diagonal subtract-then-scale representation is accepted. */
-	static CellNet convert(CellNet source){
+	/** Accepts only two diagonal LINEAR subtract/scale prefix layers and no existing
+	 * input headers; builds a fresh suffix net with cloned trained weights/indices,
+	 * moves subtract/scale values to input headers, and reuses stateless functions. */
+	public static CellNet convert(CellNet source){
 		if(!"explicit-affine".equals(source.tags.get("normalization")) || !"2".equals(source.tags.get("affine_prefix_layers"))
 				|| source.hasInputNormalization() || source.dims.length<4 || source.dims[0]!=source.dims[1] || source.dims[0]!=source.dims[2]){
 			throw new IllegalArgumentException("Require declared two-layer explicit-affine input normalization and no existing input headers");
@@ -68,21 +71,22 @@ public final class CellNetAffineInput {
 		final float[] mean=new float[width], inv=new float[width];
 		for(int i=0; i<width; i++){
 			final Cell subtract=source.net[1][i], scale=source.net[2][i];
-			final float first=diagonal(subtract,i,width), second=diagonal(scale,i,width);
+			final float first=diagonal(subtract, i, width), second=diagonal(scale, i, width);
 			if(first!=1f || Float.floatToRawIntBits(scale.bias())!=0 || !Float.isFinite(subtract.bias()) || !Float.isFinite(second) || second<=0){
 				throw new IllegalArgumentException("Unexpected affine bias/scale at input="+i);
 			}
 			mean[i]=-subtract.bias(); inv[i]=second;
 		}
 		final int[] dims=new int[source.dims.length-2]; dims[0]=width;
-		System.arraycopy(source.dims,3,dims,1,dims.length-1);
-		final CellNet target=new CellNet(dims,source.seed,source.density,source.density1,source.edgeBlockSize,source.commands);
+		System.arraycopy(source.dims, 3, dims, 1, dims.length-1);
+		final CellNet target=new CellNet(dims, source.seed, source.density, source.density1,
+			source.edgeBlockSize, source.commands, source.dense);
 		target.tags=new LinkedHashMap<String,String>(source.tags);
-		target.tags.put("normalization","explicit-input");
+		target.tags.put("normalization", "explicit-input");
 		target.tags.remove("affine_prefix_layers"); target.tags.remove("affine_prefix_semantics");
-		target.tags.put("native_affine_conversion","two diagonal LINEAR layers to exact float32 input headers");
+		target.tags.put("native_affine_conversion", "two diagonal LINEAR layers to exact float32 input headers");
 		target.epochsTrained=source.epochsTrained;
-		target.setInputNormalization(mean,inv);
+		target.setInputNormalization(mean, inv);
 		for(int layer=1; layer<target.net.length; layer++){
 			for(int i=0; i<target.net[layer].length; i++){
 				final Cell from=source.net[layer+2][i], to=target.net[layer][i];
@@ -92,13 +96,13 @@ public final class CellNetAffineInput {
 			}
 		}
 		// CellNet.toBytes/countEdges require matrix references; sparse copies also need reverse connectivity.
-		if(!CellNet.DENSE){CellNet.makeOutputSets(target.net);}
+		if(!target.dense){CellNet.makeOutputSets(target.net);}
 		target.makeWeightMatrices();
 		return target;
 	}
 
-	/** Validates a diagonal LINEAR cell without assuming dense/sparse serialization. */
-	private static float diagonal(Cell cell,int index,int width){
+	/** Validates a dense or sparse LINEAR diagonal cell and rejects off-diagonal edges. */
+	private static float diagonal(Cell cell, int index, int width){
 		if(!"LINEAR".equalsIgnoreCase(cell.function.name())){throw new IllegalArgumentException("Affine prefix must be LINEAR");}
 		if(cell.inputs!=null){
 			if(cell.inputs.length!=1 || cell.weights.length!=1 || cell.inputs[0]!=index){throw new IllegalArgumentException("Non-diagonal sparse affine prefix");}

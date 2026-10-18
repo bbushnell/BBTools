@@ -23,4 +23,4 @@ for arg in "$@"; do
 done
 parseJavaArgs --xmx=4g --xms=64m --mode=fixed "${JVM_ARGS[@]}" || exit 1
 setEnvironment || exit 1
-exec java $EA $EOOM $SIMD $XMX $XMS $PROXY -cp "$CP" ml.CellNetInferenceBenchmark "${ARGS[@]}"
+exec java $EA $EOOM $SIMD $XMX $XMS $PROXY -cp "$CP" test.ml.CellNetInferenceBenchmark "${ARGS[@]}"

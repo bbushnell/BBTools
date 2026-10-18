@@ -2,13 +2,14 @@ package ml;
 
 /**
  * Collection of activation functions and their derivatives for machine learning.
- * Includes sigmoid, tanh, swish, Gaussian, and specialized variants with optimized implementations.
- * All functions provide both forward evaluation and derivative calculation methods.
+ * Includes sigmoid, tanh, swish, Gaussian and mirrored activations. Some output-only
+ * derivative overloads are unsupported; their individual contracts describe rejection
+ * or legacy assertion behavior. Arithmetic generally propagates non-finite values.
  *
  * @author Brian Bushnell
  * @date 2025
  */
-public class Functions {
+public class Functions{
 	
 	/*--------------------------------------------------------------*/
 	/*----------------           Sigmoid            ----------------*/
@@ -16,11 +17,11 @@ public class Functions {
 	
 	/**
 	 * Standard sigmoid activation function.
-	 * Computes 1/(1+e^(-x)) with output range (0,1).
+	 * Computes 1/(1+e^(-x)); finite-input output may round to either endpoint of [0,1].
 	 * @param x Input value
 	 * @return Sigmoid of x
 	 */
-	public static double sigmoid(double x) {return 1.0/(1.0+Math.exp(-x));}
+	public static double sigmoid(double x){return 1.0/(1.0+Math.exp(-x));}
 	
 	/**
 	 * Computes the derivative of sigmoid function at x.
@@ -28,25 +29,25 @@ public class Functions {
 	 * @param x Input value
 	 * @return Derivative of sigmoid at x
 	 */
-	static final double sigmoidDerivativeX(double x) {return sigmoidDerivativeFX(sigmoid(x));}
+	static final double sigmoidDerivativeX(double x){return sigmoidDerivativeFX(sigmoid(x));}
 	
 	/**
 	 * Computes sigmoid derivative given sigmoid output.
-	 * More efficient when sigmoid value is already available.
+	 * Uses the supplied activation without recomputing sigmoid.
 	 * @param fx Already computed sigmoid(x) value
 	 * @return Derivative of sigmoid
 	 */
-	static final double sigmoidDerivativeFX(double fx) {return fx*(1-fx);}
+	static final double sigmoidDerivativeFX(double fx){return fx*(1-fx);}
 	
 	/**
 	 * Computes sigmoid derivative given both input and sigmoid output.
-	 * Uses the fx value for efficiency, ignoring x parameter.
+	 * Uses the supplied activation, ignoring x.
 	 *
 	 * @param x Input value (unused)
 	 * @param fx Already computed sigmoid(x) value
 	 * @return Derivative of sigmoid
 	 */
-	static final double sigmoidDerivativeXFX(double x, double fx) {return fx*(1-fx);}
+	static final double sigmoidDerivativeXFX(double x, double fx){return fx*(1-fx);}
 	
 	/*--------------------------------------------------------------*/
 	/*----------------       Extended Sigmoid       ----------------*/
@@ -54,11 +55,11 @@ public class Functions {
 	
 	/**
 	 * Extended sigmoid activation function.
-	 * Computes 2*sigmoid(x)-1 with output range (-1,1) instead of (0,1).
+	 * Computes 2*sigmoid(x)-1, with finite-input output in [-1,1] including saturation.
 	 * @param x Input value
 	 * @return Extended sigmoid of x
 	 */
-	public static double eSigmoid(double x) {
+	public static double eSigmoid(double x){
 		return 2*sigmoid(x)-1;
 	}
 	
@@ -68,17 +69,17 @@ public class Functions {
 	 * @param x Input value
 	 * @return Derivative of extended sigmoid at x
 	 */
-	static final double eSigmoidDerivativeX(double x) {
+	static final double eSigmoidDerivativeX(double x){
 		return 2*sigmoidDerivativeX(x);
 	}
 	
 	/**
 	 * Computes extended sigmoid derivative given function output.
-	 * Uses optimized formula 0.5*(fx+1)*(2-fx-1) for efficiency.
+	 * Sets t=fx+1, then evaluates 0.5*t*(2-t).
 	 * @param fx Already computed eSigmoid(x) value
 	 * @return Derivative of extended sigmoid
 	 */
-	static final double eSigmoidDerivativeFX(double fx) {
+	static final double eSigmoidDerivativeFX(double fx){
 		final double fx2=fx+1;
 //		final double sfx=fx2*0.5;
 //		final double d=2*sigmoidDerivativeFX(sfx); //This should be correct
@@ -89,13 +90,13 @@ public class Functions {
 	
 	/**
 	 * Computes extended sigmoid derivative given both input and output.
-	 * Uses the fx value for efficiency, ignoring x parameter.
+	 * Uses the supplied activation, ignoring x.
 	 *
 	 * @param x Input value (unused)
 	 * @param fx Already computed eSigmoid(x) value
 	 * @return Derivative of extended sigmoid
 	 */
-	static final double eSigmoidDerivativeXFX(double x, double fx) {
+	static final double eSigmoidDerivativeXFX(double x, double fx){
 		return eSigmoidDerivativeFX(fx);//TODO: Change to x if x is faster
 	}
 	
@@ -104,17 +105,17 @@ public class Functions {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Hyperbolic tangent activation function with optimized implementation.
+	 * Hyperbolic tangent evaluated in double arithmetic and rounded to float.
 	 * Computes (e^x - e^(-x))/(e^x + e^(-x)) with clamping for extreme values.
-	 * Returns -1 for x < -20 and 1 for x > 20 to prevent overflow.
+	 * Returns -1 for {@code x < -20} and 1 for {@code x > 20} to prevent overflow.
 	 *
 	 * @param x Input value
 	 * @return Hyperbolic tangent of x as float
 	 */
-	public static float tanh(double x) {
+	public static float tanh(double x){
 //		return (float)Math.tanh(x); //This is slower and gives the same results
-		if(x<-20) {return -1;}
-		if(x>20) {return 1;}
+		if(x<-20){return -1;}
+		if(x>20){return 1;}
 		
 		double ex=Math.exp(x);
 		double emx=Math.exp(-x);
@@ -131,29 +132,29 @@ public class Functions {
 	 * @param x Input value
 	 * @return Derivative of tanh at x
 	 */
-	static final double tanhDerivativeX(double x) {
+	static final double tanhDerivativeX(double x){
 		return tanhDerivativeFX(tanh(x));
 	}
 	
 	/**
 	 * Computes tanh derivative given tanh output.
-	 * More efficient when tanh value is already available.
+	 * Uses the supplied activation without recomputing tanh.
 	 * @param fx Already computed tanh(x) value
 	 * @return Derivative of tanh
 	 */
-	static final double tanhDerivativeFX(double fx) {
+	static final double tanhDerivativeFX(double fx){
 		return 1-fx*fx;
 	}
 	
 	/**
 	 * Computes tanh derivative given both input and tanh output.
-	 * Uses the fx value for efficiency, ignoring x parameter.
+	 * Uses the supplied activation, ignoring x.
 	 *
 	 * @param x Input value (unused)
 	 * @param fx Already computed tanh(x) value
 	 * @return Derivative of tanh
 	 */
-	static final double tanhDerivativeXFX(double x, double fx) {
+	static final double tanhDerivativeXFX(double x, double fx){
 		return 1-fx*fx;
 	}
 	
@@ -167,7 +168,7 @@ public class Functions {
 	 * @param x Input value
 	 * @return Swish activation of x
 	 */
-	public static double swish(double x) {
+	public static double swish(double x){
 //		double b=1;
 //		return x*sigmoidD(b*x);
 //		return x*sigmoidD(x);
@@ -182,7 +183,7 @@ public class Functions {
 	 * @param x Input value
 	 * @return Derivative of swish at x
 	 */
-	public static double swishDerivativeX(double x) {
+	public static double swishDerivativeX(double x){
 		double sigx=sigmoid(x);
 		double fx=x*sigx;
 		//double fx=swish(x);
@@ -194,10 +195,10 @@ public class Functions {
 	 * Currently unimplemented - throws RuntimeException.
 	 *
 	 * @param fx Already computed swish(x) value
-	 * @return Derivative of swish
+	 * @return Never returns normally
 	 * @throws RuntimeException Always thrown as this method is unimplemented
 	 */
-	static final double swishDerivativeFX(double fx) {
+	static final double swishDerivativeFX(double fx){
 		throw new RuntimeException("Unimplemented.");
 	}
 	
@@ -209,20 +210,20 @@ public class Functions {
 	 * @param fx Already computed swish(x) value
 	 * @return Derivative of swish
 	 */
-	public static double swishDerivativeXFX(double x, double fx) {
+	public static double swishDerivativeXFX(double x, double fx){
 		double sigx=sigmoid(x);
 		return swishDerivativeFXSIGX(fx, sigx);
 	}
 	
 	/**
 	 * Computes swish derivative given swish output and sigmoid input.
-	 * Uses formula fx + sigmoid(x) * (1 - fx) for efficient calculation.
+	 * Evaluates fx + sigx * (1 - fx) using both supplied values.
 	 *
 	 * @param fx Already computed swish(x) value
 	 * @param sigx Already computed sigmoid(x) value
 	 * @return Derivative of swish
 	 */
-	public static double swishDerivativeFXSIGX(double fx, double sigx) {
+	public static double swishDerivativeFXSIGX(double fx, double sigx){
 		return fx+sigx*(1-fx);
 	}
 	
@@ -233,13 +234,13 @@ public class Functions {
 	/**
 	 * Reverse-symmetric logarithm activation function.
 	 * Computes log(|x|+1) while preserving sign: -rslog(-x) for negative x.
-	 * Provides smooth activation that handles negative inputs gracefully.
+	 * Uses Math.log(x+1) for nonnegative inputs and negates the positive branch for negatives.
 	 *
 	 * @param x Input value
 	 * @return Reverse-symmetric log of x
 	 */
-	public static double rslog(double x) {
-		if(x<0) {return -rslog(-x);}
+	public static double rslog(double x){
+		if(x<0){return -rslog(-x);}
 		return Math.log(x+1);
 	}
 	
@@ -249,22 +250,23 @@ public class Functions {
 	 * @param x Input value
 	 * @return Derivative of rslog at x
 	 */
-	static final double rslogDerivativeX(double x) {
-		if(x<0) {x=-x;}
+	static final double rslogDerivativeX(double x){
+		if(x<0){x=-x;}
 		return 1/(x+1);
 	}
 	
 	/**
 	 * Computes rslog derivative given rslog output.
-	 * Contains assertion failure - likely unfinished implementation.
-	 * Attempts to recover x from fx using inverse log operation.
+	 * Asserts unconditionally when assertions are enabled. Otherwise reconstructs
+	 * an input magnitude with exp(abs(fx))-1 and uses the input-aware derivative.
 	 *
 	 * @param fx Already computed rslog(x) value
-	 * @return Derivative of rslog
+	 * @return Reconstructed derivative when assertions are disabled
+	 * @throws AssertionError Always thrown when assertions are enabled
 	 */
-	static final double rslogDerivativeFX(double fx) {
+	static final double rslogDerivativeFX(double fx){
 		assert(false);
-		if(fx<0) {fx=-fx;}
+		if(fx<0){fx=-fx;}
 		//if fx=10 then log(x+1)=10 so e^10=x+1
 		double x=Math.exp(fx)-1;
 		return rslogDerivativeX(x);
@@ -272,13 +274,13 @@ public class Functions {
 	
 	/**
 	 * Computes rslog derivative given both input and rslog output.
-	 * Uses the x value for efficiency, ignoring fx parameter.
+	 * Uses x and ignores the supplied activation.
 	 *
 	 * @param x Input value
 	 * @param fx Already computed rslog(x) value (unused)
 	 * @return Derivative of rslog
 	 */
-	static final double rslogDerivativeXFX(double x, double fx) {
+	static final double rslogDerivativeXFX(double x, double fx){
 		return rslogDerivativeX(x);
 	}
 	
@@ -295,32 +297,32 @@ public class Functions {
 	 */
 	private static final double MSIG_X_MULT=2; //Useful if you design around a 0-1 range
 	/**
-	 * Y-axis multiplier for mirrored sigmoid, normalizes output to be slightly above 1
+	 * Reciprocal of sigmoid(MSIG_X_OFFSET), normalizing the mirrored peak to 1.
 	 */
 	private static final double MSIG_Y_MULT=1.0/sigmoid(MSIG_X_OFFSET);//Should be very slightly higher than 1.
 	
 	/**
 	 * Mirrored sigmoid activation function.
 	 * Creates a symmetric bell-shaped curve using two sigmoid functions.
-	 * For x < 0: uses sigmoid(2x + 5), for x >= 0: uses sigmoid(-2x + 5).
-	 * Provides peak activation at x=0 with symmetric decay.
+	 * For {@code x < 0}: uses sigmoid(2x+5)/sigmoid(5); otherwise uses
+	 * sigmoid(-2x+5)/sigmoid(5). The normalized peak is at zero, with symmetric decay.
 	 *
 	 * @param x Input value
 	 * @return Mirrored sigmoid of x
 	 */
-	public static double mSig(double x) {
+	public static double mSig(double x){
 		final double offset=MSIG_X_OFFSET;
 		final double xmult=MSIG_X_MULT;
 		final double ymult=MSIG_Y_MULT;
 		
 		//sigmoid:  1.0/(1.0+Math.exp(-x));
-		if(x<0) {
+		if(x<0){
 			//=1/(1+EXP(-(2*C7+$E$5)))
 			double y=1.0/(1.0+Math.exp(-(xmult*x+offset)));
 //			double y2=sigmoid(mult*x+offset);
 //			assert(y2==y) : y+", "+y2+", "+x;
 			return ymult*y;
-		}else {
+		}else{
 			double y=1.0/(1.0+Math.exp(xmult*x-offset));
 //			double y2=sigmoid(-(mult*x-offset));
 //			assert(y2==y) : y+", "+y2+", "+x;
@@ -334,7 +336,7 @@ public class Functions {
 	 * @param x Input value
 	 * @return Derivative of mirrored sigmoid at x
 	 */
-	static final double mSigDerivativeX(double x) {
+	static final double mSigDerivativeX(double x){
 		double fx=mSig(x);
 		return mSigDerivativeXFX(x, fx);
 	}
@@ -344,24 +346,26 @@ public class Functions {
 	 * Cannot be calculated without x value - throws RuntimeException.
 	 *
 	 * @param fx Already computed mSig(x) value
-	 * @return Derivative of mirrored sigmoid
+	 * @return Never returns normally
 	 * @throws RuntimeException Always thrown as calculation requires x value
 	 */
-	static final double mSigDerivativeFX(double fx) {
+	static final double mSigDerivativeFX(double fx){
 		throw new RuntimeException("Cannot be calculated.");
 	}
 	
 	/**
 	 * Computes mirrored sigmoid derivative given both input and output.
-	 * Uses x to determine sign and applies appropriate multiplier to sigmoid derivative.
+	 * Uses x to determine sign and accounts for the activation's output normalization.
+	 * Returns zero at the nondifferentiable peak, preserving the training convention.
 	 *
 	 * @param x Input value
 	 * @param fx Already computed mSig(x) value
 	 * @return Derivative of mirrored sigmoid
 	 */
-	static final double mSigDerivativeXFX(double x, double fx) {
+	static final double mSigDerivativeXFX(double x, double fx){
 		final double xmult=MSIG_X_MULT;
-		double d=sigmoidDerivativeFX(fx);
+		if(x==0){return -0.0;}//The existing peak convention also covers negative zero.
+		double d=fx*(1-fx/MSIG_Y_MULT);
 		if(x<0){return xmult*d;}
 		return -xmult*d;
 	}
@@ -372,11 +376,11 @@ public class Functions {
 	
 	/**
 	 * Extended mirrored sigmoid activation function.
-	 * Computes 2*mSig(x)-1 to shift output range from (0,1) to (-1,1).
+	 * Computes 2*mSig(x)-1, mapping finite inputs to [-1,1] with a peak at zero.
 	 * @param x Input value
 	 * @return Extended mirrored sigmoid of x
 	 */
-	public static double emSig(double x) {
+	public static double emSig(double x){
 		return 2*mSig(x)-1;
 	}
 	
@@ -386,7 +390,7 @@ public class Functions {
 	 * @param x Input value
 	 * @return Derivative of extended mirrored sigmoid at x
 	 */
-	static final double emSigDerivativeX(double x) {
+	static final double emSigDerivativeX(double x){
 		return 2*mSigDerivativeX(x);
 	}
 	
@@ -395,10 +399,10 @@ public class Functions {
 	 * Cannot be calculated without x value - throws RuntimeException.
 	 *
 	 * @param fx Already computed emSig(x) value
-	 * @return Derivative of extended mirrored sigmoid
+	 * @return Never returns normally
 	 * @throws RuntimeException Always thrown as calculation requires x value
 	 */
-	static final double emSigDerivativeFX(double fx) {
+	static final double emSigDerivativeFX(double fx){
 		throw new RuntimeException("Cannot be calculated.");
 	}
 	
@@ -410,7 +414,7 @@ public class Functions {
 	 * @param fx Already computed emSig(x) value (unused)
 	 * @return Derivative of extended mirrored sigmoid
 	 */
-	static final double emSigDerivativeXFX(double x, double fx) {
+	static final double emSigDerivativeXFX(double x, double fx){
 		return 2*mSigDerivativeX(x); //Possibly slow, but simple.
 	}
 	
@@ -421,12 +425,12 @@ public class Functions {
 	/**
 	 * Gaussian bell curve activation function.
 	 * Computes e^(-x^2) providing symmetric activation centered at x=0.
-	 * Output range is (0,1] with maximum at x=0.
+	 * Finite-input output is in [0,1], including zero after underflow, with a maximum at x=0.
 	 *
 	 * @param x Input value
 	 * @return Gaussian bell curve of x
 	 */
-	public static double bell(double x) {
+	public static double bell(double x){
 		return Math.exp(-(x*x));
 	}
 	
@@ -436,7 +440,7 @@ public class Functions {
 	 * @param x Input value
 	 * @return Derivative of Gaussian bell at x
 	 */
-	static final double bellDerivativeX(double x) {
+	static final double bellDerivativeX(double x){
 		return -2*x*Math.exp(-x*x); //i.e. -2*x*fx
 	}
 	
@@ -445,22 +449,22 @@ public class Functions {
 	 * Cannot be calculated without x value - throws RuntimeException.
 	 *
 	 * @param fx Already computed bell(x) value
-	 * @return Derivative of Gaussian bell
+	 * @return Never returns normally
 	 * @throws RuntimeException Always thrown as calculation requires x value
 	 */
-	static final double bellDerivativeFX(double fx) {
+	static final double bellDerivativeFX(double fx){
 		throw new RuntimeException("Cannot be calculated.");
 	}
 	
 	/**
 	 * Computes Gaussian bell derivative given both input and output.
-	 * Uses efficient -2x * fx formula where fx is the bell function value.
+	 * Evaluates -2*x*fx using the supplied bell activation.
 	 *
 	 * @param x Input value
 	 * @param fx Already computed bell(x) value
 	 * @return Derivative of Gaussian bell
 	 */
-	static final double bellDerivativeXFX(double x, double fx) {
+	static final double bellDerivativeXFX(double x, double fx){
 		return -2*x*fx;
 	}
 	
@@ -472,17 +476,19 @@ public class Functions {
 	/**
 	 * Computes mean squared error between target and actual values.
 	 * Used for evaluating multiple predictions against expected outputs.
-	 * Calculates sum of squared differences divided by array length.
+	 * Differences and squared differences use float arithmetic, then accumulate
+	 * into a double sum and divide by the array length. Inputs must be nonnull
+	 * and equally sized; the length assertion is active only with assertions enabled.
 	 *
 	 * @param target Expected values array
 	 * @param actual Predicted values array
-	 * @return Mean squared error between the arrays
+	 * @return Mean squared error, or NaN when both arrays are empty
 	 */
-	public static double mse(float[] target, float[] actual) {
+	public static double mse(float[] target, float[] actual){
 		assert(target.length==actual.length);
 		double sum=0;
 		final int len=target.length;
-		for(int i=0; i<len; i++) {
+		for(int i=0; i<len; i++){
 			float t=target[i], a=actual[i];
 			float dif=t-a;
 			sum+=(dif*dif);

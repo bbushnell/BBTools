@@ -3,6 +3,7 @@ package ml;
 import fileIO.ByteFile;
 import fileIO.ByteStreamWriter;
 import parse.PreParser;
+import shared.KillSwitch;
 import shared.Timer;
 import shared.Tools;
 import structures.FloatList;
@@ -20,8 +21,8 @@ import structures.FloatList;
  *                         header set), pairing the net output with the vector's
  *                         first target column -> (rawScore, label).
  *   in=pairs.tsv        : read (score,label) straight from two columns (default
- *                         col 0 and col 1); no net. Works for any floats and
- *                         booleans (label parsed as >=0.5 -> 1).
+ *                         col 0 and col 1); no net. Numeric labels are
+ *                         thresholded at >=0.5 -> 1.
  *
  * Scales to any row count: raw scores are streamed into a fixed histogram
  * (fitbins buckets), so the fit cost is O(iterations*bins), independent of N.
@@ -34,25 +35,26 @@ import structures.FloatList;
  * empirical rate, gap). A scalar ECE can look excellent while the tail is badly
  * miscalibrated; the table is what makes that visible.
  *
- * And it fits a nonparametric alternative -- an isotonic (pool-adjacent-
- * violators) monotone lookup table -- then compares it against the 4-parameter
+ * And it fits a nonparametric alternative -- a pool-adjacent-violators lookup
+ * table with Jeffreys-smoothed knots -- then compares it against the 4-parameter
  * form on HELD-OUT rows, so the comparison is not biased toward the model with
- * more free parameters. The 4-parameter form is what CladeConfidence already
- * implements, so it stays the default; the LUT is there to show what is being
- * given up, and can be dumped with lutout= if a level needs it.
- *
- * Crashes loudly on malformed input rather than emitting a silent wrong fit.
+ * more free parameters. Shipped params and LUT knots are still fit from all rows;
+ * metrics score occupied-bin mean predictions, not each source row independently.
+ * The 4-parameter form is what CladeConfidence already implements, so it stays
+ * the default; the LUT can be dumped with lutout= if a level needs it.
  *
  * @author Noire
  */
-public class Calibrate {
+public class Calibrate{
 
+	/** Program entry point. */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		Calibrate x=new Calibrate(args);
 		x.process(t);
 	}
 
+	/** Parses arguments and validates required input, bin counts, holdout, restarts, and pair-column settings. */
 	public Calibrate(String[] args){
 		{
 			PreParser pp=new PreParser(args, getClass(), false);
@@ -83,8 +85,14 @@ public class Calibrate {
 		if(in==null){throw new RuntimeException("Required: in=<vectors-or-score/label-pairs.tsv>");}
 		if(bins<1 || fitBins<16){throw new RuntimeException("bins>=1 and fitbins>=16 required");}
 		if(holdout<0 || holdout==1){throw new RuntimeException("holdout must be 0 (disabled) or >=2 (use every Nth row for evaluation)");}
+		if(restarts<1){throw new IllegalArgumentException("restarts must be >=1: "+restarts);}
+		if(netFile==null && (scoreCol<0 || labelCol<0)){
+			throw new IllegalArgumentException("scorecol and labelcol must be nonnegative in pair mode: scorecol="
+					+scoreCol+", labelcol="+labelCol);
+		}
 	}
 
+	/** Fits shipped parametric and LUT calibrators from all rows, then writes occupied-bin metrics and reports. */
 	public void process(Timer t){
 		final Accum[] acc=(netFile!=null) ? loadFromNet() : loadFromPairs();
 		final Accum accFit=acc[0], accEval=acc[1];
@@ -114,8 +122,9 @@ public class Calibrate {
 			ByteStreamWriter bsw=new ByteStreamWriter(out, true, false, false);
 			bsw.start();
 			bsw.print((calLine+"\n").getBytes());
-			bsw.poisonAndWait();
-			outstream.println("Wrote "+out);
+			final boolean writeError=bsw.poisonAndWait();
+			assert(!writeError) : KillSwitch.assertDie("Error writing "+out);
+			if(!writeError){outstream.println("Wrote "+out);}
 		}
 		if(relOut!=null){
 			ByteStreamWriter bsw=new ByteStreamWriter(relOut, true, false, false);
@@ -123,8 +132,9 @@ public class Calibrate {
 			if(label!=null){bsw.print(("#dataset\t"+label+"\n").getBytes());}
 			bsw.print((calLine+"\n").getBytes());
 			bsw.print((table+"\n").getBytes());
-			bsw.poisonAndWait();
-			outstream.println("Wrote "+relOut);
+			final boolean writeError=bsw.poisonAndWait();
+			assert(!writeError) : KillSwitch.assertDie("Error writing "+relOut);
+			if(!writeError){outstream.println("Wrote "+relOut);}
 		}
 		if(lutOut!=null){
 			final Lut lut=buildLut(hAll);
@@ -134,17 +144,17 @@ public class Calibrate {
 			for(int i=0; i<lut.x.length; i++){
 				bsw.print((lut.x[i]+"\t"+lut.y[i]+"\n").getBytes());
 			}
-			bsw.poisonAndWait();
-			outstream.println("Wrote "+lutOut+" ("+lut.x.length+" knots)");
+			final boolean writeError=bsw.poisonAndWait();
+			assert(!writeError) : KillSwitch.assertDie("Error writing "+lutOut);
+			if(!writeError){outstream.println("Wrote "+lutOut+" ("+lut.x.length+" knots)");}
 		}
 		t.stop();
 		outstream.println("Time: "+t);
 	}
 
 	/**
-	 * Fits BOTH models on the fit split and scores BOTH on the held-out split.
-	 * In-sample the isotonic table always wins (it has one free value per occupied
-	 * bin against four parameters); only a holdout says whether that is real.
+	 * Fits both models on the fit split and scores both on the held-out split.
+	 * The comparison only runs when both split partitions have at least four rows.
 	 */
 	private void compare(Accum accFit, Accum accEval){
 		if(holdout<2){return;}
@@ -190,11 +200,14 @@ public class Calibrate {
 			for(int j=0; j<nIn; j++){fl.add(Float.parseFloat(cols[j]));}
 			net.applyInput(fl);
 			final float raw=net.feedForward();
+			if(!Float.isFinite(raw)){
+				throw closeAndWrap(bf, new IllegalArgumentException("Non-finite raw score "+raw+" on row "+row+" in "+in));
+			}
 			final boolean lab=Float.parseFloat(cols[nIn])>=0.5f;
 			if(holdout>=2 && row%holdout==0){evalAcc.add(raw, lab);}else{fitAcc.add(raw, lab);}
 			row++;
 		}
-		bf.close();
+		if(bf.close()){throw new RuntimeException("Error reading or closing "+in);}
 		return new Accum[]{fitAcc, evalAcc};
 	}
 
@@ -213,20 +226,30 @@ public class Calibrate {
 						+" (scorecol="+scoreCol+", labelcol="+labelCol+"). For net mode, pass net=.");
 			}
 			final float raw=Float.parseFloat(cols[scoreCol]);
+			if(!Float.isFinite(raw)){
+				throw closeAndWrap(bf, new IllegalArgumentException("Non-finite raw score "+raw+" on row "+row+" in "+in));
+			}
 			final boolean lab=Float.parseFloat(cols[labelCol])>=0.5f;
 			if(holdout>=2 && row%holdout==0){evalAcc.add(raw, lab);}else{fitAcc.add(raw, lab);}
 			row++;
 		}
-		bf.close();
+		if(bf.close()){throw new RuntimeException("Error reading or closing "+in);}
 		return new Accum[]{fitAcc, evalAcc};
+	}
+
+	/** Closes an input stream before rejecting one row; preserves a reported close failure as suppressed context. */
+	private RuntimeException closeAndWrap(final ByteFile bf, final RuntimeException error){
+		if(bf.close()){error.addSuppressed(new RuntimeException("Error reading or closing "+in));}
+		return error;
 	}
 
 	/*---------- histogram of (rawScore -> count,positives) ----------*/
 
-	/** Fills fixed [0,1) bins while streaming; finish() compacts to non-empty bins. */
-	private static final class Accum {
+	/** Owns fixed [0,1) streaming bins; finish() snapshots them to non-empty Hist bins. */
+	private static final class Accum{
 		Accum(int b){B=b; count=new long[b]; pos=new long[b]; sumRaw=new double[b];}
 		void add(float raw, boolean label){
+			assert(Float.isFinite(raw)) : "Calibrate loaders must reject non-finite raw scores before histogram accumulation: "+raw;
 			double r=Math.min(0.9999999, Math.max(0, raw));
 			int bi=(int)(r*B); if(bi>=B){bi=B-1;}
 			count[bi]++; sumRaw[bi]+=raw; totalN++;
@@ -248,8 +271,8 @@ public class Calibrate {
 		final int B; final long[] count, pos; final double[] sumRaw; long totalN, totalPos;
 	}
 
-	/** Compacted histogram: one entry per non-empty bin (meanRaw, count, positives), ascending in meanRaw. */
-	private static final class Hist {
+	/** Compacted histogram that owns one occupied raw-score bin per entry, ascending in meanRaw. */
+	private static final class Hist{
 		Hist(int B, long[] c, long[] p, double[] s, long tN, long tP){
 			int m=0; for(int i=0; i<B; i++){if(c[i]>0){m++;}}
 			meanRaw=new float[m]; count=new long[m]; pos=new long[m];
@@ -274,8 +297,8 @@ public class Calibrate {
 
 	/*---------- nonparametric alternative: isotonic (PAV) lookup table ----------*/
 
-	/** Monotone lookup table over raw score, linearly interpolated between knots. */
-	static final class Lut {
+	/** Lookup table over raw score that borrows smoothed knot arrays and interpolates between them. */
+	public static final class Lut{
 		Lut(float[] x_, float[] y_){x=x_; y=y_;}
 		float apply(float raw){
 			final int last=x.length-1;
@@ -290,13 +313,14 @@ public class Calibrate {
 			final float f=(dx<=0 ? 0 : (raw-x[lo])/dx);
 			return y[lo]+f*(y[hi]-y[lo]);
 		}
-		final float[] x, y;
+		public final float[] x, y;
 	}
 
 	/**
-	 * Pool-adjacent-violators isotonic regression of empirical rate on raw score.
-	 * Hist bins are already ascending in meanRaw, so a single left-to-right pass
-	 * with backward pooling gives the least-squares monotone fit.
+	 * Pool-adjacent-violators isotonic regression of smoothed rate on raw score.
+	 * Hist bins are already ascending in meanRaw; first pool empirical rates, add one
+	 * Jeffreys prior per empirical block, then run weighted PAV over the smoothed
+	 * blocks so the final lookup table is monotone after smoothing.
 	 */
 	private static Lut buildLut(Hist h){
 		final int m=h.meanRaw.length;
@@ -312,14 +336,30 @@ public class Calibrate {
 				end[nb-2]=end[nb-1]; nb--;
 			}
 		}
+		//Jeffreys smoothing: a block that happened to observe zero positives means
+		//"very unlikely", never "impossible". An exact 0 or 1 asserts certainty that
+		//finite data cannot support, and downstream it prints as a 0.0% confidence
+		//that no amount of contrary evidence can move. Negligible for large blocks.
+		//The pseudocounts can make adjacent empirical blocks reverse order, so run
+		//one more weighted PAV pass over the smoothed block rates.
+		for(int b=0; b<nb; b++){
+			sPos[b]+=0.5;
+			sCnt[b]+=1.0;
+		}
+		int nb2=0;
+		for(int b=0; b<nb; b++){
+			sPos[nb2]=sPos[b]; sCnt[nb2]=sCnt[b]; end[nb2]=end[b]; nb2++;
+			while(nb2>1 && sPos[nb2-2]/sCnt[nb2-2] > sPos[nb2-1]/sCnt[nb2-1]){
+				sPos[nb2-2]+=sPos[nb2-1]; sCnt[nb2-2]+=sCnt[nb2-1];
+				end[nb2-2]=end[nb2-1]; nb2--;
+			}
+		}
+		nb=nb2;
+
 		final float[] xs=new float[m], ys=new float[m];
 		int start=0;
 		for(int b=0; b<nb; b++){
-			//Jeffreys smoothing: a block that happened to observe zero positives means
-			//"very unlikely", never "impossible". An exact 0 or 1 asserts certainty that
-			//finite data cannot support, and downstream it prints as a 0.0% confidence
-			//that no amount of contrary evidence can move. Negligible for large blocks.
-			final float v=(float)((sPos[b]+0.5)/(sCnt[b]+1.0));
+			final float v=(float)(sPos[b]/sCnt[b]);
 			for(int k=start; k<=end[b]; k++){xs[k]=h.meanRaw[k]; ys[k]=v;}
 			start=end[b]+1;
 		}
@@ -328,7 +368,7 @@ public class Calibrate {
 
 	/*---------- fit (Nelder-Mead on log-loss, in unconstrained space) ----------*/
 
-	/** Fits [K,a,b,c]. Optimizes unconstrained z=[logit(K),ln(a),b,ln(c)] so K in (0,1), a>0, c>0. */
+	/** Fits [K,a,b,c] from the requested starts; returns null only when no start improves the initial loss. */
 	private float[] fit(Hist h){
 		float[] best=null;
 		double bestLoss=Double.MAX_VALUE;
@@ -344,6 +384,8 @@ public class Calibrate {
 		return best;
 	}
 
+	/** Maps unconstrained optimizer parameters to calibration constants; floating
+	 * saturation can still reach exact 0/1 or infinities at extreme values. */
 	private static float[] toParams(double[] z){
 		final double K=1.0/(1.0+Math.exp(-z[0]));
 		return new float[]{(float)K, (float)Math.exp(z[1]), (float)z[2], (float)Math.exp(z[3])};
@@ -406,18 +448,21 @@ public class Calibrate {
 
 	/*---------- predictions (one probability per occupied histogram bin) ----------*/
 
+	/** @return Raw occupied-bin mean scores, one per compacted Hist bin. */
 	private static double[] predictRaw(Hist h){
 		final double[] p=new double[h.meanRaw.length];
 		for(int k=0; k<p.length; k++){p[k]=h.meanRaw[k];}
 		return p;
 	}
 
+	/** @return Four-parameter calibrated probabilities, one per compacted Hist bin. */
 	private static double[] predictCal(Hist h, float[] cal){
 		final double[] p=new double[h.meanRaw.length];
 		for(int k=0; k<p.length; k++){p[k]=calibrate(h.meanRaw[k], cal);}
 		return p;
 	}
 
+	/** @return LUT-interpolated probabilities, one per compacted Hist bin. */
 	private static double[] predictLut(Hist h, Lut lut){
 		final double[] p=new double[h.meanRaw.length];
 		for(int k=0; k<p.length; k++){p[k]=lut.apply(h.meanRaw[k]);}
@@ -441,7 +486,7 @@ public class Calibrate {
 		return sum/h.totalN;
 	}
 
-	/** Count-weighted mean negative log-likelihood of an arbitrary per-bin prediction. */
+	/** Count-weighted mean negative log-likelihood of an arbitrary occupied-bin prediction. */
 	private static double logLoss(Hist h, double[] pred){
 		double sum=0;
 		for(int k=0; k<h.meanRaw.length; k++){
@@ -451,7 +496,7 @@ public class Calibrate {
 		return sum/h.totalN;
 	}
 
-	/** Expected calibration error over equal-width probability bins, count-weighted. */
+	/** Expected calibration error over equal-width predicted-probability bins, count-weighted. */
 	private double ece(Hist h, double[] pred){
 		final double[] sp=new double[bins], sl=new double[bins];
 		final long[] cnt=new long[bins];
@@ -502,18 +547,32 @@ public class Calibrate {
 
 	/*---------- fields ----------*/
 
+	/** Input vectors or score/label pairs */
 	private String in=null;
+	/** Optional .bbnet path for scoring input vectors */
 	private String netFile=null;
+	/** Optional destination for the #cal line */
 	private String out=null;
+	/** Optional destination for the reliability table */
 	private String relOut=null;
+	/** Optional destination for the isotonic lookup table */
 	private String lutOut=null;
+	/** Optional dataset label emitted in text outputs */
 	private String label=null;
+	/** Score column in direct pair mode */
 	private int scoreCol=0;
+	/** Label column in direct pair mode */
 	private int labelCol=1;
+	/** Probability bins used for ECE and the reliability table */
 	private int bins=20;
+	/** Raw-score bins used while fitting */
 	private int fitBins=4096;
+	/** Hold out row 0 and every Nth row after it for comparison; 0 disables the split */
 	private int holdout=5;
+	/** Nelder-Mead iteration limit per restart */
 	private int maxIters=2000;
+	/** Number of optimizer starting points tried */
 	private int restarts=5;
+	/** Diagnostic and report stream */
 	private java.io.PrintStream outstream=System.err;
 }

@@ -30,8 +30,9 @@ import tracker.EntropyTracker;
  * @author Brian Bushnell
  * @date Oct 6, 2023
  */
-public class SequenceToVector {
+public class SequenceToVector{
 
+	/** Runs the converter and closes its diagnostic stream on normal completion. */
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
 		Timer t=new Timer();
@@ -46,6 +47,8 @@ public class SequenceToVector {
 		Shared.closeStream(x.outstream);
 	}
 	
+	/** Parses CLI options and initializes process-global spectrum maps. Spectrum mode
+	 * requires a supported k in 1..kMax; raw mode uses width base positions. */
 	public SequenceToVector(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -71,7 +74,7 @@ public class SequenceToVector {
 				width=Integer.parseInt(b);
 			}else if(a.equals("dimensions") || a.equals("dims")){
 				d_=Integer.parseInt(b);
-				if(d_<1) {d_=Integer.MAX_VALUE;}
+				if(d_<1){d_=Integer.MAX_VALUE;}
 			}else if(a.equals("rcomp")){
 				rcomp=Parse.parseBoolean(b);
 			}else if(a.equals("parse") || a.equals("parseheader")){
@@ -104,13 +107,13 @@ public class SequenceToVector {
 		
 
 		setDimensions(d_);
-		if(mode==SPECTRUM) {
+		if(mode==SPECTRUM){
 			assert(k_>0) : "k must be in range 1-8 in spectrum mode: "+k_;
 			k=k_;
 			fullSpace=(1<<(2*k));
 			kSpace=calcKSpace(k);
 			kmap=kmap(k, maxDimensions);
-		}else {
+		}else{
 			k=fullSpace=kSpace=0;
 			kmap=null;
 		}
@@ -120,6 +123,9 @@ public class SequenceToVector {
 		assert(result0!=-1 || parseHeader);
 	}
 	
+	/** Writes a #dims header and vectors for both mates, using the first mate's label.
+	 * Optional reverse complements produce additional rows. Closes streams on the normal
+	 * path and reports recorded close failures through an assertion. */
 	void process(Timer t){
 		
 		final ConcurrentReadInputStream cris;
@@ -184,31 +190,37 @@ public class SequenceToVector {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Emits a non-null read and optionally its reverseComplementFast result,
+	 * reusing and clearing the builder after each row. A null writer suppresses output. */
 	private static void toVector(Read r, ByteBuilder bb, ByteStreamWriter bsw, int width, int k,
-			float result, float[] buffer, boolean rcomp) {
-		if(r==null) {return;}
+			float result, float[] buffer, boolean rcomp){
+		if(r==null){return;}
 		toVector(r.bases, bb, width, k, result, buffer);
-		if(bsw!=null) {bsw.println(bb);}
+		if(bsw!=null){bsw.println(bb);}
 		bb.clear();
-		if(!rcomp) {return;}
+		if(!rcomp){return;}
 		toVector(r.reverseComplementFast(), bb, bsw, width, k, result, buffer, false);
 	}
 	
-	private static ByteBuilder toVector(byte[] bases, ByteBuilder bb, int width, int k, float result, float[] buffer) {
+	/** Appends four summary features, raw bases or spectrum bins, and the supplied label.
+	 * Raw length uses bases.length/(width+5); spectrum length uses valid k-mer count.
+	 * Nonempty reads shorter than 16 bases use the 16-base tracker's partial-window
+	 * normalization. Spectrum mode requires a reusable bin buffer. */
+	private static ByteBuilder toVector(byte[] bases, ByteBuilder bb, int width, int k, float result, float[] buffer){
 		float len=bases.length/(float)(width+5);
 		float gc=Tools.calcGC(bases);
 		EntropyTracker[] eTrackers=localETrackers.get();
-		final int tnum=Tools.min(bases.length, eTrackers.length-1);
+		final int tnum=Tools.mid(minWindow, bases.length, eTrackers.length-1);
 		EntropyTracker eTracker=eTrackers[tnum];
 		assert(eTracker!=null) : tnum+", "+eTrackers.length;
 		float entropy=eTracker.averageEntropy(bases, true);
 		float poly=Read.longestHomopolymer(bases);
 		poly=poly/(poly+5);
 		
-		if(k<1) {
+		if(k<1){
 			bb.append(len, 4).tab().append(gc, 4).tab().append(entropy, 4).tab().append(poly, 4);
 			appendRaw(bases, bb, width);
-		}else {
+		}else{
 			Arrays.fill(buffer, 0);
 //			int lim=Tools.min(width, bases.length);
 			int count=fillSpectrum(bases, buffer, 4, 0, bases.length, k);
@@ -217,27 +229,30 @@ public class SequenceToVector {
 			appendSpectrum(bb, buffer);
 		}
 		
-		if(result==(int)result) {
+		if(result==(int)result){
 			bb.tab().append((int)result);
-		}else {
+		}else{
 			bb.tab().append(result, 4);
 		}
 		return bb;
 	}
 	
-	private static void appendRaw(byte[] bases, ByteBuilder bb, int width) {
-		for(int i=0; i<bases.length && i<width; i++) {
+	/** Appends up to width four-field base codes and pads missing positions with zeros. */
+	private static void appendRaw(byte[] bases, ByteBuilder bb, int width){
+		for(int i=0; i<bases.length && i<width; i++){
 			byte b=bases[i];
 			int n=AminoAcid.baseToNumber4[b];
 			bb.tab().append(hotCodes[n]);
 		}
-		for(int i=bases.length; i<width; i++) {//Pad with zeros
+		for(int i=bases.length; i<width; i++){//Pad with zeros
 			bb.tab().append("0\t0\t0\t0");
 		}
 	}
 	
-	private static void appendSpectrum(ByteBuilder bb, float[] vec) {
-		for(float f : vec) {
+	/** Appends every formatted spectrum entry and removes the final tab.
+	 * Requires a nonempty vector. */
+	private static void appendSpectrum(ByteBuilder bb, float[] vec){
+		for(float f : vec){
 			bb.append(f, 5, true).tab();
 		}
 		bb.length--;
@@ -245,19 +260,26 @@ public class SequenceToVector {
 	
 	/*--------------------------------------------------------------*/
 
-	public static float[] fillVector(byte[] bases, float[] vec, int k) {
+	/** Fills an existing vector from the full sequence; does not append a target label. */
+	public static float[] fillVector(byte[] bases, float[] vec, int k){
 		assert(vec!=null);
 		return fillVector(bases, vec, k, 0, bases.length-1);
 	}
 	
-	public static float[] fillVector(byte[] bases, float[] vec, int k, int from, int to) {//To is inclusive
+	/** Clears and fills vec for an inclusive sequence span. The first four entries are
+	 * encoded length, GC, entropy and scaled homopolymer length. Raw mode encodes up to
+	 * width=(vec.length-4)/4 bases and stores span length/(width+5). Spectrum mode counts
+	 * the complete span and stores validCount*0.25/kspaceArray[k], matching toVector.
+	 * Requires valid nonempty coordinates. Spans shorter than 16 bases use the 16-base
+	 * tracker's partial-window entropy normalization. */
+	public static float[] fillVector(byte[] bases, float[] vec, int k, int from, int to){//To is inclusive
 		assert(vec!=null);
 		final int len=(to-from+1);
 		final int width=(vec.length-4)/4;
 		float flen=len/(float)(width+5);
 		float gc=Tools.calcGC(bases, from, to);
 		EntropyTracker[] eTrackers=localETrackers.get();
-		EntropyTracker eTracker=eTrackers[Tools.min(len, eTrackers.length-1)];
+		EntropyTracker eTracker=eTrackers[Tools.mid(minWindow, len, eTrackers.length-1)];
 		float entropy=eTracker.averageEntropy(bases, true, from, to);
 		float poly=Read.longestHomopolymer(bases, from, to);
 		poly=poly/(poly+5);
@@ -268,27 +290,35 @@ public class SequenceToVector {
 		vec[3]=poly;
 //		System.err.println(Arrays.toString(vec));
 		
-		int lim=Tools.min(to+1, from+width, bases.length);
-		if(k<1) {
+		if(k<1){
+			final int lim=Tools.min(to+1, from+width, bases.length);
 			fillRaw(bases, vec, 4, from, lim);//To is exclusive
 			assert(vec.length==width*4+4);
-		}else {
-			fillSpectrum(bases, vec, 4, from, lim, k);
+		}else{
+			final int count=fillSpectrum(bases, vec, 4, from, to+1, k);
+			vec[0]=(count*0.25f)/kspaceArray[k];
 		}
 		
 //		vec[width*4+4]=result;
 		return vec;
 	}
 	
-	public static void fillRaw(byte[] bases, float[] vec, int offset, int from, int to) {
-		for(int i=from, j=offset; i<to; i++, j+=4) {
+	/** Writes mapped one-hot entries from [from,to) at offset, without clearing other slots.
+	 * The caller supplies a zeroed, sufficiently large destination for a fresh encoding. */
+	public static void fillRaw(byte[] bases, float[] vec, int offset, int from, int to){
+		for(int i=from, j=offset; i<to; i++, j+=4){
 			byte b=bases[i];
 			int n=AminoAcid.baseToNumber0[b];
 			vec[j+n]=1;
 		}
 	}
 	
-	public static int fillSpectrum(byte[] bases, float[] vec, int offset, int from, int to, int k) {
+	/** Accumulates mapped k-mer bins for [from,to), then scales every destination entry
+	 * from offset to the array end by (capped-bin-count*0.25)/valid-count.
+	 * With no valid k-mers, clears those bins and returns zero.
+	 * Uses process-global dimension maps; the caller supplies suitable zeroed bins.
+	 * @return number of fully defined k-mers counted */
+	public static int fillSpectrum(byte[] bases, float[] vec, int offset, int from, int to, int k){
 		final int[] map=kmapArray[k];
 
 //		assert(false) : maxDimensions+", "+Arrays.toString(map);
@@ -296,7 +326,7 @@ public class SequenceToVector {
 		int count=0, len=0;
 		int kmer=0;
 		int mask=~((-1)<<(2*k));
-		for(int i=from; i<to; i++) {
+		for(int i=from; i<to; i++){
 			byte b=bases[i];
 			int x=AminoAcid.baseToNumber0[b];
 			kmer=((kmer<<2)|x)&mask;
@@ -306,31 +336,42 @@ public class SequenceToVector {
 				count++;
 			}
 		}
+		if(count==0){
+			Arrays.fill(vec, offset, vec.length, 0);
+			return 0;
+		}
 		float mult=(kspace*0.25f)/count;//Relative fractions with an average of 0.25.
-		for(int i=offset; i<vec.length; i++) {vec[i]*=mult;}
+		for(int i=offset; i<vec.length; i++){vec[i]*=mult;}
 		return count;
 	}
 	
-	public static float score(byte[] bases, float[] vec, CellNet net, boolean rcomp) {
+	/** Scores the supplied vector and optionally repeats inference while bases are reversed.
+	 * The vector is not rebuilt for the second orientation; see the retained issue note.
+	 * Returns the larger prediction and restores bases only on the normal return path. */
+	public static float score(byte[] bases, float[] vec, CellNet net, boolean rcomp){
 		net.applyInput(vec);
 		final float r, f=net.feedForward();
-		if(rcomp) {
+		if(rcomp){
 			Vector.reverseComplementInPlaceFast(bases);
+			//TODO: Probable bug - vec is not rebuilt after reversing bases, so
+			//the second inference still receives the original feature vector.
 			net.applyInput(vec);
 			r=net.feedForward();
 			Vector.reverseComplementInPlaceFast(bases);
-		}else {r=f;}
+		}else{r=f;}
 		return Tools.max(r, f);
 	}
 	
 	/*--------------------------------------------------------------*/
 	
-	public static int calcKSpace(int k) {
+	/** Counts reverse-complement equivalence classes by enumeration and checks the closed form.
+	 * Requires {@code 0<=k && k<16}; large values have exponential enumeration cost. */
+	public static int calcKSpace(int k){
 		assert(k<16 && k>=0) : k;
 		final int fullSpace=1<<(2*k);
 //		if((k&1)==1) {return fullSpace/2;}
 		int count=0;
-		for(int kmer=0; kmer<fullSpace; kmer++) {//This is slow; a closed-form solution could be used.
+		for(int kmer=0; kmer<fullSpace; kmer++){//This is slow; a closed-form solution could be used.
 			int rcomp=AminoAcid.reverseComplementBinaryFast(kmer, k);
 			count+=(rcomp>=kmer ? 1 : 0);
 		}
@@ -340,37 +381,43 @@ public class SequenceToVector {
 		return closedForm;
 	}
 	
-	public static int[] kmap(int k, int maxDims) {
+	/** Builds a map sharing bins between reverse complements. Once maxDims unique bins
+	 * are occupied, later classes use a deterministic random bin seeded by k.
+	 * Requires {@code 0<=k && k<16} and a positive maxDims. */
+	public static int[] kmap(int k, int maxDims){
 		assert(k<16 && k>=0) : k;
 		final int fullSpace=1<<(2*k);
 		final int[] map=new int[fullSpace];
 		
 		int count=0;
 		final Random randy=(maxDims<fullSpace ? shared.Shared.random(k) : null);
-		for(int kmer=0; kmer<fullSpace; kmer++) {
+		for(int kmer=0; kmer<fullSpace; kmer++){
 			int rcomp=AminoAcid.reverseComplementBinaryFast(kmer, k);
-			if(kmer<=rcomp) {
-				if(count<maxDims) {
+			if(kmer<=rcomp){
+				if(count<maxDims){
 					map[kmer]=count;
-				}else {
+				}else{
 					map[kmer]=randy.nextInt(maxDims);
 				}
 				count++;
-			}else {
+			}else{
 				map[kmer]=map[rcomp];
 			}
 		}
 		return map;
 	}
 	
-	public static void setDimensions(int maxDims) {
-		if(maxDimensions==maxDims) {return;}
+	/** Updates process-global spectrum dimensions and rebuilds maps when the value changes.
+	 * Configure this before concurrent vector generation; maps are updated in place. */
+	public static void setDimensions(int maxDims){
+		if(maxDimensions==maxDims){return;}
 		maxDimensions=maxDims;
 		fillArrays(maxDimensions);
 	}
 	
-	private static void fillArrays(int maxDims) {
-		for(int k=1; k<=kMax; k++) {
+	/** Rebuilds full-space sizes, condensed sizes and maps for supported k values 1..kMax. */
+	private static void fillArrays(int maxDims){
+		for(int k=1; k<=kMax; k++){
 			fullspaceArray[k]=(1<<(2*k));
 			kspaceArray[k]=calcKSpace(k);
 			kmapArray[k]=kmap(k, maxDims);
@@ -386,15 +433,16 @@ public class SequenceToVector {
 	private final FileFormat ffin1;
 	private final FileFormat ffout1;
 
+	/** Per-thread tracker cache; callers clamp short spans to minWindow. */
 	private static final ThreadLocal<EntropyTracker[]> localETrackers=new ThreadLocal<EntropyTracker[]>(){
-        @Override protected EntropyTracker[] initialValue() {
-        	EntropyTracker[] array=new EntropyTracker[maxWindow+1];
-        	for(int i=minWindow; i<array.length; i++) {
-        		array[i]=new EntropyTracker(ke, i, false);
-        	}
-        	return array;
-        }
-    };
+		@Override protected EntropyTracker[] initialValue(){
+			EntropyTracker[] array=new EntropyTracker[maxWindow+1];
+			for(int i=minWindow; i<array.length; i++){
+				array[i]=new EntropyTracker(ke, i, false);
+			}
+			return array;
+		}
+	};
 //	public EntropyTracker eTracker=new EntropyTracker(3, 20, false);
 	
 	/*--------------------------------------------------------------*/
@@ -420,10 +468,11 @@ public class SequenceToVector {
 	private static final int[] kspaceArray;
 	private static final int[][] kmapArray;
 	
+	/** Process-global cap used to build spectrum-bin maps. */
 	private static int maxDimensions=Integer.MAX_VALUE;
 	private static final int kMax=8;
 	
-	static {
+	static{
 		fullspaceArray=new int[kMax+1];
 		kspaceArray=new int[kMax+1];
 		kmapArray=new int[kMax+1][];
@@ -443,7 +492,7 @@ public class SequenceToVector {
 	
 	/*--------------------------------------------------------------*/
 	
-	public static final String[] hotCodes=new String[] {"1\t0\t0\t0", "0\t1\t0\t0", "0\t0\t1\t0", "0\t0\t0\t1", "1\t0\t0\t0"};
+	public static final String[] hotCodes=new String[]{"1\t0\t0\t0", "0\t1\t0\t0", "0\t0\t1\t0", "0\t0\t0\t1", "1\t0\t0\t0"};
 	
 	/*--------------------------------------------------------------*/
 	

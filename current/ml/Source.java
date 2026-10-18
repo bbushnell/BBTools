@@ -1,37 +1,35 @@
 package ml;
 
-/**
- * Abstract base class defining fundamental properties for machine learning data sources.
- * Provides a lightweight template for data sources with basic value, ID, and bias
- * tracking capabilities.
- * Subclasses must implement validation and terminal status checking functionality.
+/** Base value slot for objects that expose a scalar to downstream cells.
+ * Cell overrides id(), bias(), check() and terminal() for neurons with identity,
+ * bias and topology; these base accessors only manage the stored value.
  *
  * @author Brian Bushnell
- * @date June 3, 2025
- */
+ * @date June 3, 2025 */
 public abstract class Source {
 	
 	public Source() {}
 	
+	/** Returns the scalar value visible to downstream cells. */
 	public float value(){return value;}
-	public int id() {return 0;}
-	public float bias() {return 0;}
+	/** Returns the source ID; the base implementation has none. */
+	public int id(){return 0;}
+	/** Returns the additive bias; the base implementation has none. */
+	public float bias(){return 0;}
 	
-	/** Computational result value stored by the data source */
+	/** Scalar value consumed by downstream cells. */
 	protected float value=0f;
 	
-	/** Sets the computational result value for this data source.
-	 * @param v The value to store */
-	void setValue(float v) {
+	/** Sets the scalar value visible to downstream cells.
+	 * @param v value to store */
+	void setValue(float v){
 		value=v;
 	}
 	
-	/**
-	 * Validates the state or content of this data source, implementation-dependent
-	 */
+	/** Validates implementation-specific cell state. */
 	public abstract boolean check();
 	
-	/** True only if this has no inputs */
+	/** True only if this source has no inputs. */
 	public abstract boolean terminal();
 
 }

@@ -5,18 +5,25 @@ import java.util.Random;
 
 import fileIO.ByteFile;
 import fileIO.ByteStreamWriter;
+import shared.KillSwitch;
 
 /**
  * Subsamples a training vector file by prediction error: keep 100% of the
  * highest-error rows and taper down to a floor fraction for the lowest-error rows.
  * Produces a training set enriched for hard cases without duplicating any row.
+ * Infers the input width from {@code #dims} headers when present; otherwise,
+ * expects the default 33 inputs followed by one label. Skips short or empty
+ * rows and holds every accepted row in memory while scoring.
  *
- * Usage: java ml.ErrorTaper vectors=<file> net=<bbnet> out=<file>
+ * Usage: java ml.ErrorTaper vectors=&lt;file&gt; net=&lt;bbnet&gt; out=&lt;file&gt;
  *          [floor=0.1] [seed=42]
  *
- * The taper is linear: row i (sorted by descending error) is kept with probability
- * 1.0 - (1.0 - floor) * i / n. The hardest row is always kept; the easiest is
- * kept with probability floor.
+ * The taper is linear: row i (sorted by descending error) is kept with
+ * probability 1.0 - (1.0 - floor) * i / (n-1). When n>=2 and floor is finite
+ * in [0, 1], the hardest row is always kept, the easiest is kept with
+ * probability floor, and output is emitted in descending-error order. With one
+ * accepted row, that row is retained. With zero accepted rows, only the last
+ * comment header is retained when one was present.
  *
  * @author Neptune
  * @date July 2026
@@ -75,7 +82,7 @@ public class ErrorTaper{
 			lines.add(s);
 			errors.add(err);
 		}
-		bf.close();
+		if(bf.close()){throw new RuntimeException("Error reading or closing "+vecFile);}
 
 		final int n=lines.size();
 		System.err.println("Loaded "+n+" rows, NI="+NI);
@@ -83,9 +90,9 @@ public class ErrorTaper{
 		// Sort indices by error descending
 		final Integer[] idx=new Integer[n];
 		for(int i=0; i<n; i++){idx[i]=i;}
-		java.util.Arrays.sort(idx, (a,b)->Float.compare(errors.get(b), errors.get(a)));
+		java.util.Arrays.sort(idx, (a, b)->Float.compare(errors.get(b), errors.get(a)));
 
-		// Taper: row at rank i kept with prob 1.0 - (1.0-floor)*i/n
+		// Taper: row at rank i kept with prob 1.0 - (1.0-floor)*i/(n-1)
 		final Random rnd=new Random(seed);
 		final ByteStreamWriter bsw=new ByteStreamWriter(outFile, true, false, true);
 		bsw.start();
@@ -93,17 +100,25 @@ public class ErrorTaper{
 
 		int kept=0;
 		for(int rank=0; rank<n; rank++){
-			final float prob=1.0f-(1.0f-floor)*rank/(float)(n-1);
+			final float prob=(n==1 ? 1.0f : 1.0f-(1.0f-floor)*rank/(float)(n-1));
 			if(rnd.nextFloat()<prob){
 				bsw.println(lines.get(idx[rank]));
 				kept++;
 			}
 		}
-		bsw.poisonAndWait();
+		final boolean writeError=bsw.poisonAndWait();
+		assert(!writeError) : KillSwitch.assertDie("Could not write tapered vector output: "+outFile);
 
-		final float topErr=errors.get(idx[0]), botErr=errors.get(idx[n-1]);
-		final float medErr=errors.get(idx[n/2]);
-		System.err.println(String.format("Kept %d of %d (%.1f%%). floor=%.2f. Error range: %.4f - %.4f (median %.4f)",
-			kept, n, 100.0*kept/n, floor, botErr, topErr, medErr));
+		if(n<1){
+			System.err.println(String.format(
+				"Kept %d of %d (%.1f%%). floor=%.2f. Error range: NA - NA (median NA)",
+				kept, n, 0.0, floor));
+		}else{
+			final float topErr=errors.get(idx[0]), botErr=errors.get(idx[n-1]);
+			final float medErr=errors.get(idx[n/2]);
+			System.err.println(String.format(
+				"Kept %d of %d (%.1f%%). floor=%.2f. Error range: %.4f - %.4f (median %.4f)",
+				kept, n, 100.0*kept/n, floor, botErr, topErr, medErr));
+		}
 	}
 }

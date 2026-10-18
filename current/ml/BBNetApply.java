@@ -20,27 +20,27 @@ import structures.ByteBuilder;
  * <p>Usage: {@code bbnetapply net=<file.bbnet> in=<vectors.tsv>
  * out=<predictions.tsv> rows=<n>}</p>
  *
- * <p>Failure contract (crash loud, never a silent partial): every malformed input
- * (missing or mismatched {@code #dims}, short row, non-finite input or output,
- * unknown or malformed flag, non-positive {@code rows=}, unreadable net/input file,
- * missing output directory) throws before or during the row loop;
- * an I/O error latched by the reader ({@link ByteFile#close()}) or the writer
- * ({@link ByteStreamWriter#poisonAndWait()}) throws AFTER both are closed, so an
- * exception thrown inside the loop is never masked by the close path; zero data
- * rows throws. Note that with BBTools 54b62510 a flush/close-time write failure is
- * still dropped UPSTREAM ({@code ReadWrite.finishWriting} discards {@code close()}'s
- * return; mag-qc {@code records/BBTOOLS_BUGS_FOUND_v1.md} row 13) - the one-line
- * upstream fix makes this runner reject it, as {@link BBNetApplyTest} shows when run
- * with {@code -Dmagqc.readwrite=patched}.</p>
+ * <p>Failure contract: malformed flags and paths are rejected before opening output;
+ * malformed headers, short rows and non-finite inputs are rejected before the first
+ * affected row is emitted; non-finite outputs are rejected after output has opened
+ * for that row. Reader and writer close latches are checked after normal cleanup
+ * and converted to an {@code I/O error} exception, but unchecked cleanup failures
+ * may abort that path. Queued write {@code IOException}s are fatal inside
+ * {@link ByteStreamWriter}; this runner cannot convert those into caught
+ * exceptions.</p>
  *
  * @author Sayu (2026-09-03), UMP45 (error propagation, 2026-09-08)
  */
-public class BBNetApply {
+public class BBNetApply{
 
+	/**
+	 * Parses flags, validates the network/header/first input row before opening output,
+	 * then applies the network to bounded TSV rows and writes predictions.
+	 */
 	public static void main(String[] args){
 		String netFile=null, inFile=null, outFile=null;
 		int rows=Integer.MAX_VALUE;
-		for(String arg : args){
+		for(String arg:args){
 			final int eq=arg.indexOf('=');
 			if(eq<1){throw new IllegalArgumentException("Malformed argument (expected key=value): '"+arg+"'\n"+usage());}
 			final String key=arg.substring(0, eq).toLowerCase();
@@ -108,8 +108,8 @@ public class BBNetApply {
 				net.applyInput(input);
 				net.feedForward();
 				if(bsw==null){
-					//Opened at the first VALID data row, so a malformed header or first row never
-					//leaves an output file behind.
+					//Opened after header/input checks and the first inference.
+					//Output-finiteness checks below can still fail with the file open.
 					bsw=new ByteStreamWriter(outFile, true, false, true);
 					bsw.start();
 				}
@@ -127,12 +127,9 @@ public class BBNetApply {
 				written++;
 			}
 		}finally{
-			//Close both ends and LATCH their error flags. Nothing is thrown from here, so an
-			//exception raised inside the loop propagates unmasked; the latched flags are
-			//judged after the block. ByteFile1.close() returns its read-error latch
-			//(ByteFile1.java:134-144); poisonAndWait() returns the writer's errorState
-			//(ByteStreamWriter.java:281-285), which is set from ReadWrite.finishWriting
-			//(:148) -- see the class javadoc for the upstream row-13 caveat.
+			//Close both ends and latch normal close flags, checked after the block.
+			//Unchecked cleanup failures can still abort; queued write IOExceptions
+			//can exit through KillSwitch before poisonAndWait() returns.
 			ioError=bf.close();
 			if(bsw!=null){ioError=bsw.poisonAndWait()|ioError;}
 		}
@@ -151,6 +148,7 @@ public class BBNetApply {
 		System.err.println("BBNetApply: wrote "+written+" rows to "+outFile);
 	}
 
+	/** Returns accepted key-value flags for argument diagnostics. */
 	private static String usage(){
 		return "Usage: bbnetapply net=<file.bbnet> in=<vectors.tsv> out=<predictions.tsv> rows=<n>";
 	}

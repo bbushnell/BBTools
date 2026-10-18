@@ -3,28 +3,29 @@ package ml;
 import java.util.ArrayList;
 
 /**
- * Builds a BBNet-format CellNet from plain weight arrays (one hidden tanh
- * layer, configurable output activation), folding input standardization
- * ((x-mean)/sd) into layer 1 so the exported net takes raw inputs.  Lives in
- * the ml package because CellNet/Cell internals are package-private.
- *
- * Used by cardinality.BigNetToBBNet to serialize ComplexityFarm.BigNet
- * window-complexity nets into standard BBTools ml format.
+ * Builds a BBNet-format {@link CellNet} from one hidden layer of plain weight
+ * arrays, replacing the allocated random weights and functions with
+ * deterministic caller-supplied parameters.  Input standardization
+ * {@code (x-mean)/sd} is folded into the hidden weights and biases, so the
+ * resulting net consumes raw inputs.
  *
  * @author Amber
  * @date July 2026
  */
-public class BBNetExporter {
+public class BBNetExporter{
 
 	/**
-	 * @param w1 hidden weights [H][D]
-	 * @param b1 hidden biases [H]
-	 * @param w2 output weights [H]
+	 * Exports a dense {@code D-H-1} network with TANH hidden cells and the
+	 * requested output activation type.
+	 *
+	 * @param w1 rectangular hidden weight matrix, [H][D]
+	 * @param b1 hidden biases, [H]
+	 * @param w2 output weights, [H]
 	 * @param b2 output bias
-	 * @param mean per-feature means [D] (folded into layer 1)
-	 * @param sd per-feature sds [D] (folded into layer 1)
-	 * @param finalType Function type constant for the output cell (e.g.
-	 *        Function.RSLOG); hidden cells are TANH.
+	 * @param mean per-feature means to fold into the hidden layer, [D]
+	 * @param sd per-feature standard deviations to fold into the hidden layer, [D]
+	 * @param finalType {@link Function} type constant for the output cell
+	 * @return a fresh dense network whose first layer accepts unnormalized inputs
 	 */
 	public static CellNet export(double[][] w1, double[] b1, double[] w2,
 			double b2, double[] mean, double[] sd, int finalType){
@@ -33,11 +34,7 @@ public class BBNetExporter {
 		assert(mean.length==D && sd.length==D) : "mean="+mean.length+" sd="+sd.length+" D="+D;
 		final int[] dims={D, H, 1};
 		final CellNet net=new CellNet(dims, 1, 1.0f, 0f, 1, new ArrayList<>());
-		// randomize() consults activation-rate tables that ml.Trainer normally
-		// initializes; every cell's function is assigned explicitly below, so
-		// zero the rates (skips random selection, satisfies the assertion).
-		java.util.Arrays.fill(Function.TYPE_RATES, 0f);
-		net.randomize();   // allocates dense edge topology + weight arrays
+		net.randomizeEdgesAndWeights(); //allocates dense edge topology + weight arrays
 		final Cell[] hid=net.net[1];
 		for(int h=0; h<H; h++){
 			final Cell c=hid[h];

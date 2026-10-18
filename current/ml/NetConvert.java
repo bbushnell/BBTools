@@ -6,22 +6,24 @@ import fileIO.ByteStreamWriter;
 import fileIO.FileFormat;
 import parse.Parse;
 import parse.PreParser;
+import shared.KillSwitch;
 import shared.Tools;
 import structures.ByteBuilder;
 
-/**
- * Reads a neural network (.bbnet) and writes it back out, purely to convert its
- * on-disk format.  The output coding follows {@link CellNet#codingA48Out} (A48 by
- * default), so an old decimal network becomes A48 -- lossless for the stored
- * weights and roughly 30% smaller.  The weights themselves are never altered;
- * this is a format round-trip, not a re-training.
- *
- * Usage:  netconvert.sh in=&lt;old.bbnet&gt; out=&lt;new.bbnet&gt;
+/** Converts a .bbnet file to the currently selected network writer format.
+ * Input coding is autodetected from {@code #coding} headers, or falls back to
+ * decimal parsing for legacy headerless networks.  Output uses the process-wide
+ * {@link CellNet} writer flags, defaulting to lossless A48 unless they were
+ * changed earlier in the same JVM or overridden by this command.  Writer-flag
+ * parsing mutates those globals; the weights themselves are not retrained or
+ * otherwise transformed.
+ * <p>Usage: {@code netconvert.sh in=<old.bbnet> out=<new.bbnet>}
  *
  * @author UMP45
  */
-public class NetConvert {
+public class NetConvert{
 
+	/** Parses writer-format flags, loads one network and writes it in the selected format. */
 	public static void main(String[] args){
 		PreParser pp=new PreParser(args, NetConvert.class, false);
 		args=pp.args;
@@ -53,17 +55,18 @@ public class NetConvert {
 			throw new RuntimeException("Can't write to "+out+" (overwrite="+overwrite+").");
 		}
 
-		// Read (coding auto-detected from the #coding header, or decimal for old headerless nets).
+		// Input coding auto-detected from #coding, or decimal for old headerless nets.
 		CellNet net=CellNetParser.load(in);
 		assert(net!=null) : "Failed to load network: "+in;
 
-		// Write (coding = CellNet.codingA48Out, A48 by default).
+		// Output coding and dense/sparse/index flags are CellNet's current static writer policy.
 		FileFormat ffout=FileFormat.testOutput(out, FileFormat.BBNET, null, true, overwrite, false, false);
 		ByteStreamWriter bsw=new ByteStreamWriter(ffout);
 		bsw.start();
 		ByteBuilder bb=net.toBytes();
 		bsw.println(bb);
-		bsw.poisonAndWait();
+		final boolean writeError=bsw.poisonAndWait();
+		assert(!writeError) : KillSwitch.assertDie("Could not write converted network output: "+out);
 
 		outstream.println("Converted "+in+" -> "+out
 				+"  (coding="+(CellNet.codingA48Out ? "A48" : "decimal")+", "+bb.length()+" bytes)");

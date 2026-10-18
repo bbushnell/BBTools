@@ -8,12 +8,13 @@ import java.util.ArrayList;
  * Strict acceptance comparator for the BBNet export round-trip gate. Requirements,
  * each fatal: equal row counts; exact row IDs in exact order; exact, uniform value
  * widths in BOTH files; every value finite (NaN/Infinity rejected at parse); maximum
- * absolute difference within the given tolerance. The worst cell is reported either way.
+ * absolute difference within the given tolerance. Numeric tolerance PASS/FAIL
+ * results report the worst inspected cell.
  *
  * <p>Written for Yoimiya's review of bbtools-dev {@code 23a1245}: the earlier Python
  * comparator discarded row IDs, zip-truncated width mismatches, and let NaN evade
  * {@code max()}. Packaged copy of bbtools-dev {@code magqc_gpu_sweep/BBNetCompare.java}
- * (default package, SHA-256 {@code e4cbc429...} at bbtools-dev {@code c26965b}); behavior on
+ * (default package at bbtools-dev {@code c26965b}); behavior on
  * valid input is identical byte for byte; the only changes are the package, the usage
  * failure (throws instead of {@code System.exit}) and a reader {@code finally}.</p>
  *
@@ -23,8 +24,9 @@ import java.util.ArrayList;
  *
  * @author Ady (bbtools-dev, 2026-09), UMP45 (packaging, 2026-09-08)
  */
-public class BBNetCompare {
+public class BBNetCompare{
 
+	/** Validates two prediction TSVs and prints PASS when every numeric difference fits tolerance. */
 	public static void main(String[] args) throws Exception{
 		if(args.length!=3){
 			throw new IllegalArgumentException("Usage: java -ea ml.BBNetCompare <expected.tsv> <actual.tsv> <tolerance>");
@@ -65,6 +67,7 @@ public class BBNetCompare {
 			+" worst_col="+worstCol+" tol="+tol);
 	}
 
+	/** Reads non-comment rows; width, row-id and value validation stay in main for role diagnostics. */
 	private static ArrayList<String[]> read(String path) throws Exception{
 		final ArrayList<String[]> rows=new ArrayList<String[]>();
 		final BufferedReader br=new BufferedReader(new FileReader(path));

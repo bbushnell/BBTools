@@ -24,18 +24,18 @@ import structures.IntList;
  * @date October 25, 2013
  * @documentation Eru
  */
-public class CellNet implements Cloneable, Comparable<CellNet> {
+public class CellNet implements Cloneable, Comparable<CellNet>{
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Creates an empty dummy neural network with null fields.
-	 * Used as placeholder during construction or for testing purposes.
-	 * All parameters are set to safe default values indicating an uninitialized state.
+	 * Creates an uninitialized placeholder with null topology and scratch arrays.
+	 * Normal inference, training and serialization require a constructed network.
 	 */
 	public CellNet(){
+		dense=true;
 		seed=0;
 		dims=null;
 		density=1;
@@ -53,24 +53,35 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 	}
 	
 	/**
-	 * Creates multi-layer feedforward neural network with specified topology.
-	 * Initializes network structure, allocates memory for activations and gradients,
-	 * and sets up layer connectivity patterns based on density parameters.
-	 * 
-	 * Network uses dims[0] input neurons, dims[dims.length-1] output neurons,
-	 * and dims.length-2 hidden layers. Connection density controls sparsity:
-	 * density=1.0 creates fully connected layers, lower values create sparse connections.
-	 * Edge block size enables structured sparsity for better memory locality.
-	 * 
-	 * @param dims_ Neurons per layer array (must have at least 2 layers)
-	 * @param seed_ Random seed for weight initialization (negative uses system time)
-	 * @param density_ Connection density for hidden layers (0.0-1.0, typically 0.1-1.0)
-	 * @param density1_ First hidden layer density override (0 uses density_ value)
-	 * @param edgeBlockSize_ Connectivity block size for structured sparsity (power of 2)
-	 * @param commands_ Command line arguments used to create network (for reproducibility)
+	 * Creates dense node and scratch arrays; weights and connectivity are initialized
+	 * separately by randomization or loading. Dimension values are copied, while
+	 * creation-command metadata is borrowed.
+	 * @param dims_ Neurons per layer, including input and output layers
+	 * @param seed_ Initialization seed; negative requests a generated nonnegative seed
+	 * @param density_ Hidden-layer connection density
+	 * @param density1_ First hidden-layer density override; nonpositive uses density_
+	 * @param edgeBlockSize_ Number of adjacent inputs selected together
+	 * @param commands_ Borrowed creation-command metadata
 	 */
 	public CellNet(int[] dims_, long seed_, float density_, float density1_, 
-			int edgeBlockSize_, ArrayList<String> commands_) {
+			int edgeBlockSize_, ArrayList<String> commands_){
+		this(dims_, seed_, density_, density1_, edgeBlockSize_, commands_, true);
+	}
+
+	/**
+	 * Creates a network whose dense/sparse representation is fixed at construction.
+	 * Later model loads cannot change its allocation, inference or training mode.
+	 * @param dims_ Neurons per layer.
+	 * @param seed_ Initialization seed; a negative value chooses a random seed.
+	 * @param density_ Hidden-layer connection density.
+	 * @param density1_ First hidden-layer density override; zero uses density_.
+	 * @param edgeBlockSize_ Edge selection block size.
+	 * @param commands_ Creation command metadata.
+	 * @param dense_ True for dense weight arrays, false for indexed sparse arrays.
+	 */
+	public CellNet(int[] dims_, long seed_, float density_, float density1_,
+			int edgeBlockSize_, ArrayList<String> commands_, boolean dense_){
+		dense=dense_;
 		seed=(seed_>=0 ? seed_ : shared.Shared.random().nextLong()&Long.MAX_VALUE);
 		commands=commands_; //Store creation parameters for reproducibility
 		dims=dims_.clone(); //Deep copy to prevent external modification
@@ -84,7 +95,7 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 		int cells=(int) simd.Vector.sum(dims); //Total neurons across all layers
 		list=new ArrayList<Cell>(cells+1); //Global cell list (index 0 unused)
 		transposeCounter=new int[cells+1]; //Sparse matrix transpose tracking
-		net=makeNodes(dims, list, values, eOverNet); //Create network topology
+		net=makeNodes(dims, list, values, eOverNet, dense); //Create network topology
 		finalLayer=net[layers-1]; //Cache output layer for efficiency
 		layerStart=new int[dims.length]; //Global cell ID offset per layer
 		layerStart[0]=1; //Skip index 0 (reserved)
@@ -97,14 +108,15 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 	}
 	
 	/**
-	 * Creates optimized weight matrix structures for training performance.
-	 * Builds input and output weight matrices plus edge connectivity arrays
-	 * for both forward propagation and backpropagation computations.
+	 * Builds training matrices once after row weights and connectivity are installed.
+	 * Incoming arrays are shared with cells; outgoing weight arrays are newly allocated
+	 * and require transpose() before hidden-layer backpropagation. Also caches output
+	 * row indexing mode. Sparse outgoing connectivity must already be available.
 	 */
-	void makeWeightMatrices(){
+	public void makeWeightMatrices(){
 //		assert(check());
 		assert(weightsIn==null); //Ensure not already initialized
-		for(Cell cell:finalLayer){cell.prepareOutputGradient(dims[layers-2]);}
+		for(Cell cell : finalLayer){cell.prepareOutputGradient(dims[layers-2]);}
 		weightsIn=makeWeightsInMatrix(); //Input weight matrix for forward pass
 		weightsOut=makeWeightsOutMatrix(); //Output weight matrix for backprop
 		edgesIn=makeEdgesInMatrix(); //Input connectivity for sparse networks
@@ -162,7 +174,7 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 			Cell[] current=net[layer];
 			Cell[] next=net[layer+1];
 			float[][] y=x[layer]=new float[current.length][];
-			if(DENSE){
+			if(dense){
 				for(int i=0; i<y.length; i++){
 					y[i]=new float[next.length]; //Full connectivity
 				}
@@ -201,19 +213,8 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 	 * mixed probability distributions, and optionally randomizes activation functions.
 	 * Uses seeded random number generation for reproducible network initialization.
 	 */
-	public void randomize() {
-		{
-			Random randy=Shared.threadLocalRandom(seed); //Thread-safe RNG
-			if(DENSE){
-				makeEdgesDense(net, randy, density, density1, edgeBlockSize); //Full topology
-//				check();
-			}else{
-				makeEdgesSparse(net, randy, density, density1, edgeBlockSize); //Sparse topology
-//				check();
-			}
-			makeWeightMatrices(); //Optimize for training
-//			check();
-		}
+	public void randomize(){
+		randomizeEdgesAndWeights();
 		assert((Function.TYPE_RATES_CUM!=null)==(simd.Vector.sum(Function.TYPE_RATES)>0)) : Arrays.toString(Function.TYPE_RATES);
 		if(Function.TYPE_RATES_CUM!=null || Cell.randomTypeRate>0){
 			Random randy=Shared.threadLocalRandom(seed); //Same RNG for consistency
@@ -224,16 +225,35 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 			}
 		}
 	}
+
+	/**
+	 * Initializes seeded edge topology, weights and training matrices without
+	 * consulting activation-selection rates. Existing cell functions are retained;
+	 * exporters can assign their explicit functions after this initialization.
+	 */
+	void randomizeEdgesAndWeights(){
+		{
+			Random randy=Shared.threadLocalRandom(seed); //Thread-safe RNG
+			if(dense){
+				makeEdgesDense(net, randy, density, density1, edgeBlockSize); //Full topology
+//				check();
+			}else{
+				makeEdgesSparse(net, randy, density, density1, edgeBlockSize); //Sparse topology
+//				check();
+			}
+			makeWeightMatrices(); //Optimize for training
+//			check();
+		}
+	}
 	
 	/**
-	 * Randomizes activation functions using cumulative distribution weights.
-	 * Applies weighted random selection to hidden layer neurons only.
-	 * Input and output layers retain their default activation functions.
-	 * 
-	 * @param net Network layer structure
-	 * @param list Global cell list (unused but kept for signature compatibility)
-	 * @param randy Random number generator (seeded for reproducibility)
-	 * @param cumRate Cumulative probability distribution for function types
+	 * Replaces hidden-row functions using Function's global cumulative rates.
+	 * Input and output functions remain unchanged. The supplied cumRate is checked
+	 * by assertions, but selection uses Function.TYPE_RATES_CUM.
+	 * @param net Network layers
+	 * @param list Unused legacy parameter
+	 * @param randy Random source
+	 * @param cumRate Distribution checked for a final cumulative probability of one
 	 */
 	static void randomizeActivationA(Cell[][] net, ArrayList<Cell> list, Random randy, float[] cumRate){
 		assert(cumRate!=null && cumRate[cumRate.length-1]==1) : Arrays.toString(cumRate);
@@ -304,9 +324,10 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 	 * @param list Global cell list for neuron storage
 	 * @param values Shared activation value arrays per layer
 	 * @param eOverNext Shared error gradient arrays per layer
+	 * @param dense Network representation shared by every created cell.
 	 * @return 2D network structure [layer][neuron]
 	 */
-	private static Cell[][] makeNodes(int[] dims, ArrayList<Cell> list, float[][] values, float[][] eOverNext){
+	private static Cell[][] makeNodes(int[] dims, ArrayList<Cell> list, float[][] values, float[][] eOverNext, boolean dense){
 		final Cell[][] net=new Cell[dims.length][];
 		assert(list.isEmpty()); //Must start with empty list
 		list.add(null); //Reserve index 0
@@ -327,7 +348,7 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 			assert(lvals.length==width) : layerNum+", "+lvals.length+", "+width;
 			for(int i=0; i<width; i++){
 				Cell c=new Cell(list.size(), type, i, layerNum, dims.length-1, 
-						prevLayerStart, nextLayerStart, width, lvals, eons); //Complete initialization
+						prevLayerStart, nextLayerStart, width, lvals, eons, dense); //Complete initialization
 				layer[i]=c;
 				list.add(c); //Add to global list
 			}
@@ -336,15 +357,14 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 	}
 	
 	/**
-	 * Calculates effective connection density for a specific layer.
-	 * First hidden layer can use special density1 parameter for different sparsity.
-	 * Output layer is always fully connected (density=1.0).
-	 * 
-	 * @param density Default connection density for hidden layers
-	 * @param density1 Special density for first hidden layer (0 uses default)
-	 * @param layer Layer number being processed (1-based for hidden layers)
-	 * @param layers Total number of layers in network
-	 * @return Effective density (0.0-1.0) for this layer
+	 * Returns the configured hidden-layer density or first-layer override.
+	 * The intended final-layer branch is ineffective; both edge generators separately
+	 * force full output connectivity. See the retained source TODO below.
+	 * @param density Default hidden-layer density
+	 * @param density1 Positive first-layer override
+	 * @param layer Destination layer index
+	 * @param layers Total number of layers
+	 * @return Selected density
 	 */
 	private static final float layerDensity(float density, float density1, int layer, int layers){
 		//TODO: Possible bug [ml/CellNet#001] - 'layer>=layers+1' is a dead condition (layer is always <=layers-1),
@@ -412,17 +432,15 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 	}
 	
 	/**
-	 * Creates sparse network connectivity with explicit edge lists.
-	 * Stores only non-zero connections to minimize memory usage.
-	 * Output layer remains fully connected, hidden layers use density pruning.
-	 * Must call makeOutputSets() afterward to build reverse connectivity.
-	 * 
-	 * @param net Network layer structure to initialize
-	 * @param randy Random number generator for edge selection
-	 * @param density Base connection probability for hidden layers
-	 * @param density1 Special density for first hidden layer
-	 * @param edgeBlockSize Block size for structured connectivity patterns
-	 * @return Total number of edges created
+	 * Initializes indexed incoming edges, weights and deltas, then builds outgoing
+	 * connectivity with makeOutputSets(). Hidden layers select blocks by density;
+	 * the final layer receives every preceding input.
+	 * @param net Network layers with uninitialized weights
+	 * @param randy Random source
+	 * @param density Hidden-layer connection density
+	 * @param density1 Positive first-layer override
+	 * @param edgeBlockSize Adjacent input block size
+	 * @return Number of selected connections
 	 */
 	private static long makeEdgesSparse(Cell[][] net, Random randy, 
 			float density, float density1, int edgeBlockSize){
@@ -516,7 +534,7 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 	 * Essential for backpropagation gradient computation in sparse networks.
 	 * @param net Network structure to process
 	 */
-	static void makeOutputSets(Cell[][] net){
+	public static void makeOutputSets(Cell[][] net){
 		final int cells; //Total neuron count
 		{
 			Cell[] lastLayer=net[net.length-1];
@@ -611,14 +629,13 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 	}
 	
 	/**
-	 * Processes single training sample through complete forward/backward pass.
-	 * Applies input, computes forward propagation, calculates error, and
-	 * optionally performs backpropagation to update weights. Handles both
-	 * dense and sparse network architectures automatically.
-	 * 
-	 * @param s Training sample with input, target, and metadata
-	 * @param backProp Whether to perform backpropagation weight updates
-	 * @param weightMult Learning rate multiplier for this sample
+	 * Copies and optionally normalizes input, computes predictions and reporting
+	 * errors, then optionally accumulates backpropagation deltas. Dense backpropagation
+	 * can also apply the separately enabled normalization policy. The sample result
+	 * and error fields are overwritten; its input array is retained unchanged.
+	 * @param s Sample containing input, target, weight and mutable result fields
+	 * @param backProp Whether to accumulate gradients and apply training-only input noise
+	 * @param weightMult Error-weighting factor multiplied by the sample weight
 	 */
 	public void processSample(Sample s, boolean backProp, float weightMult){
 		//assert(check());
@@ -629,7 +646,7 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 			final float[] v=values[0];
 			for(int i=0; i<v.length; i++){v[i]+=inputNoise*(noiseRandy.nextFloat()-noiseRandy.nextFloat());}
 		}
-		if(DENSE){
+		if(dense){
 			feedForwardDense(); //Dense forward pass
 		}else{
 			feedForwardSparse(); //Sparse forward pass
@@ -654,7 +671,7 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 		
 //		errorSum+=s.errorMagnitude;
 //		weightedErrorSum+=s.weightedErrorMagnitude;
-		if(DENSE){
+		if(dense){
 			backPropDense(s.goal, weightMult); //Dense backpropagation
 		}else{
 			backPropSparse(s.goal, weightMult); //Sparse backpropagation
@@ -663,13 +680,12 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 	}
 	
 	/**
-	 * Apply input values to the network's input layer.
-	 * Copies values into the first layer's value array for processing.
-	 * 
-	 * @param valuesIn Input values as FloatList (size must match input layer)
-	 * @return This network for chaining
+	 * Copies the logical input prefix and applies configured standardization in private
+	 * scratch. The assertion checks logical size against the input width.
+	 * @param valuesIn Input list whose logical size matches the input layer
+	 * @return This network
 	 */
-	public CellNet applyInput(FloatList valuesIn) {
+	public CellNet applyInput(FloatList valuesIn){
 		//assert(check());
 		assert(valuesIn.size==dims[0]) : KillSwitch.assertDie(inputMismatch(valuesIn.size));
 		Vector.copy(values[0], valuesIn.array); // Copy to input layer
@@ -678,12 +694,12 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 	}
 	
 	/**
-	 * Apply input values to the network's input layer.
-	 * 
-	 * @param valuesIn Input values as float array (length must match input layer)
-	 * @return This network for chaining
+	 * Copies input into private scratch and applies configured standardization.
+	 * The assertion checks array length against the input width.
+	 * @param valuesIn Input array; not modified
+	 * @return This network
 	 */
-	public CellNet applyInput(float[] valuesIn) {
+	public CellNet applyInput(float[] valuesIn){
 		//assert(check());
 		assert(valuesIn.length==dims[0]) : KillSwitch.assertDie(inputMismatch(valuesIn.length));
 		Vector.copy(values[0], valuesIn); // Copy to input layer
@@ -756,7 +772,7 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 	 * file infers its width from the column count, so a weight column read as an input widens every row
 	 * by one and lands here.
 	 * @param given Number of input values supplied
-	 * @return Never returns; the return type exists only to sit in an assertion's message slot
+	 * @return Diagnostic string; the caller passes it to KillSwitch.assertDie on assertion failure
 	 */
 	private String inputMismatch(int given){
 		return "Network input width mismatch: got "+given+" values, but this network takes "+dims[0]
@@ -770,27 +786,25 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 	}
 	
 	/**
-	 * Perform forward propagation through the network.
-	 * Automatically selects dense or sparse implementation based on network type.
-	 * 
-	 * @return Output value from the final layer
+	 * Dispatches using this network's fixed dense/sparse representation.
+	 * All output activations are updated; the return value is the first output.
+	 * @return First output activation
 	 */
-	public float feedForward() {
-		return (CellNet.DENSE ? feedForwardDense() : feedForwardSparse()); // Delegate to appropriate implementation
+	public float feedForward(){
+		return (dense ? feedForwardDense() : feedForwardSparse()); // Delegate to appropriate implementation
 	}
 	
 	/**
-	 * Forward propagation for sparse networks.
-	 * Processes only active connections to improve performance.
-	 * 
-	 * @return Output value from the final layer
+	 * Computes all output activations using indexed sparse rows.
+	 * Requires initialized sparse weights and input indices.
+	 * @return First output activation
 	 */
 	public float feedForwardSparse(){
 		//assert(check());
 		for(int lnum=1; lnum<layers; lnum++){ // Process each layer
 			final float[] valuesIn=values[lnum-1]; // Previous layer outputs
 			Cell[] layer=net[lnum]; // Current layer cells
-			for(int cnum=0; cnum<layer.length; cnum++) {
+			for(int cnum=0; cnum<layer.length; cnum++){
 				Cell c=layer[cnum];
 				//				//assert(c.check());
 				c.summateSparse(valuesIn, edgeBlockSize); // Sparse summation
@@ -801,20 +815,19 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 	}
 	
 	/**
-	 * Forward propagation for dense networks.
-	 * Processes all connections with optional vectorized optimizations.
-	 * Uses SPECIAL_FMA flag to enable fused multiply-add operations.
-	 * @return Output value from the final layer
+	 * Computes all output activations using dense rows. SPECIAL_FMA selects the
+	 * batched kernel; its simdFF argument controls per-network SIMD eligibility.
+	 * @return First output activation
 	 */
 	public float feedForwardDense(){
 		//assert(check());
 		for(int lnum=1; lnum<layers; lnum++){ // Process each layer
 			final float[] valuesIn=values[lnum-1]; // Previous layer outputs
 			Cell[] layer=net[lnum]; // Current layer cells
-			if(SPECIAL_FMA) { // Use fused multiply-add optimization
+			if(SPECIAL_FMA){ // Use fused multiply-add optimization
 				Vector.feedForwardDense(layer, valuesIn, simdFF); //Per-job SIMD-FF flag (worker-set; false for inference)
-			}else {
-				for(int cnum=0; cnum<layer.length; cnum++) {
+			}else{
+				for(int cnum=0; cnum<layer.length; cnum++){
 					Cell c=layer[cnum];
 					//				//assert(c.check());
 					c.summateDense(valuesIn); // Standard dense summation
@@ -826,13 +839,11 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 	}
 	
 	/**
-	 * Performs backpropagation for sparse networks using gradient descent.
-	 * Computes gradients from output layer backwards through hidden layers,
-	 * updating weight deltas for later batch application. Uses sparse connectivity
-	 * to skip non-existent edges for computational efficiency.
-	 * 
-	 * @param truth Target output values for error computation
-	 * @param weightMult Learning rate multiplier for gradient scaling
+	 * Accumulates output and hidden-row deltas using sparse connectivity.
+	 * Requires current activations and transposed outgoing weights. Output rows use
+	 * indexed or positional source access according to their cached topology.
+	 * @param truth Target values in output order
+	 * @param weightMult Configured error-weighting factor
 	 */
 	public void backPropSparse(float[] truth, float weightMult){
 		//assert(check());
@@ -865,13 +876,11 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 	}
 	
 	/**
-	 * Performs backpropagation for dense networks with optional optimizations.
-	 * Uses vectorized operations when SPECIAL_FMA enabled for faster computation.
-	 * Includes optional weight/bias normalization to prevent gradient explosion
-	 * and improve training stability through standardization.
-	 * 
-	 * @param truth Target output values for error computation
-	 * @param weightMult Learning rate multiplier for gradient scaling
+	 * Accumulates output and hidden-row deltas using current activations and
+	 * transposed outgoing weights. The optional normalization policy directly changes
+	 * biases or weights, then decays its shared normalization factor per call.
+	 * @param truth Target values in output order
+	 * @param weightMult Configured error-weighting factor
 	 */
 	public void backPropDense(float[] truth, float weightMult){
 		//assert(check());
@@ -993,7 +1002,7 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 	 * after weight updates or normalization.
 	 */
 	void transpose(){
-		if(DENSE){transposeDense();} //Dense matrix transpose
+		if(dense){transposeDense();} //Dense matrix transpose
 		else{transposeSparse();} //Sparse matrix transpose
 	}
 	
@@ -1046,18 +1055,18 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 	}
 	
 	/**
-	 * Apply accumulated weight changes after a training batch.
-	 * Updates all network weights using the specified learning rate and sample count.
-	 * 
-	 * @param samples Number of samples processed in this batch
-	 * @param alpha Learning rate for weight updates
+	 * Applies and clears accumulated cell deltas using alpha divided by samples,
+	 * then advances epochsTrained and samplesTrained. Does not refresh outgoing
+	 * transpose weights; training callers must do so before the next backward pass.
+	 * @param samples Positive sample count used to average deltas
+	 * @param alpha Learning rate
 	 */
-	public void applyChanges(int samples, float alpha) {
+	public void applyChanges(int samples, float alpha){
 		//assert(check());
 		float invSamples=1f/samples; // Average gradients over batch
 		assert(invSamples<=1) : samples+", "+invSamples;
-		for(Cell c : list) {
-			if(c!=null) {
+		for(Cell c : list){
+			if(c!=null){
 				c.applyUpdates(invSamples, alpha); // Update weights and biases
 			}
 		}
@@ -1077,27 +1086,23 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 	}
 	
 	/**
-	 * Get all output values from the final layer.
-	 * 
-	 * @return Array containing activation values of all output neurons
+	 * Copies current final-layer activations into a new array.
+	 * @return Independent array in output-neuron order
 	 */
 	public float[] getOutput(){
 		Cell[] outLayer=net[layers-1]; // Final layer reference
 		float[] out=new float[outLayer.length];
-		for(int i=0; i<outLayer.length; i++) {
+		for(int i=0; i<outLayer.length; i++){
 			out[i]=outLayer[i].value(); // Copy each output value
 		}
 		return out;
 	}
 	
 	/**
-	 * Calculates total network error using legacy method.
-	 * Computes sum of squared errors between predictions and targets.
-	 * Deprecated in favor of Sample.calcError() for better error weighting.
-	 * 
-	 * @param truth Target output values
-	 * @return Total squared error across all outputs
-	 * @deprecated Use Sample.calcError() for weighted error computation
+	 * Sums half squared error across output neurons using their current activations.
+	 * @param truth Target values in output order
+	 * @return Sum of 0.5*(target-output)^2
+	 * @deprecated Use Sample.calcError() for sample reporting and configured weighting
 	 */
 	@Deprecated
 	public double calcError(float[] truth){
@@ -1152,7 +1157,7 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 		if(nodeRows && (OUT_DENSE || OUT_HEX || !CONCISE || !codingA48Out)){
 			throw new IllegalStateException("Node rows require concise A48 sparse output without dense/hex overrides");
 		}
-		final boolean outputDense=!nodeRows && (OUT_DENSE || (DENSE && !OUT_SPARSE));
+		final boolean outputDense=!nodeRows && (OUT_DENSE || (dense && !OUT_SPARSE));
 		if(OUT_DELTA_A48 && !outputDense && OUT_HEX){
 			throw new IllegalStateException("Sparse delta-A48 input encoding is mutually exclusive with H-line bitset encoding");
 		}
@@ -1249,7 +1254,7 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 		return encoded;
 	}
 
-	/** Counts live edges in the serialized representation selected by DENSE/OUT_DENSE/OUT_SPARSE. */
+	/** Counts live edges in the serialized representation selected by dense/OUT_DENSE/OUT_SPARSE. */
 	private long outputLiveEdges(final boolean outputDense, final boolean outputZeroAbsent){
 		long sum=0;
 		for(int layer=1; layer<net.length; layer++){
@@ -1299,15 +1304,17 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 		return input;
 	}
 
-	/** Store a custom tag under BOTH its original case and lowercase (same value), so getTag() is
-	 *  case-insensitive by construction; on serialization only the lowercase key is written. */
+	/** Stores original-case and lowercase tag entries; older aliases may remain stale after updates.
+	 * Serialization emits only lowercase entries. */
 	public void setTag(String key, String value){
+		//TODO: Probable bug - changing a tag through another case leaves older original-case aliases stale;
+		//getTag checks the exact alias first, so differently cased lookups can disagree. Source-only; no caller repair.
 		if(key==null){return;}
 		tags.put(key, value);
 		String lk=key.toLowerCase();
 		if(!lk.equals(key)){tags.put(lk, value);}
 	}
-	/** Case-insensitive custom-tag lookup; returns null if absent. */
+	/** Looks up the exact key first, then its lowercase form; returns null if neither has a value. */
 	public String getTag(String key){
 		if(key==null){return null;}
 		String v=tags.get(key);
@@ -1315,12 +1322,10 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 	}
 	
 	/**
-	 * Serializes complete network to binary format with weights and structure.
-	 * Outputs network in BBTools format with header, layer definitions,
-	 * connectivity patterns, and weight values. Supports both dense and
-	 * sparse representations with optional hexadecimal encoding.
-	 * 
-	 * @return ByteBuilder containing complete serialized network
+	 * Builds a textual BBTools network image using current global encoding choices.
+	 * Includes topology, parameters and metadata, but not transient training scratch.
+	 * Updates lastLinesWritten as a legacy estimate rather than an exact line count.
+	 * @return New builder containing the serialized network
 	 */
 	public ByteBuilder toBytes(){
 		return toBytes(false);
@@ -1332,8 +1337,8 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 	public ByteBuilder toBytes(final boolean nodeRows){
 		
 		ByteBuilder bb=header(nodeRows); //Include metadata header
-		final boolean outputDense=!nodeRows && (OUT_DENSE || (DENSE && !OUT_SPARSE));
-		final boolean outputZeroAbsent=outputDense && (DENSE ? zeroAbsent : hasAbsentSparseInputs());
+		final boolean outputDense=!nodeRows && (OUT_DENSE || (dense && !OUT_SPARSE));
+		final boolean outputZeroAbsent=outputDense && (dense ? zeroAbsent : hasAbsentSparseInputs());
 		final long liveEdges=outputLiveEdges(outputDense, outputZeroAbsent);
 		if(outputZeroAbsent){
 			bb.append("#zeroabsent true").nl();
@@ -1355,7 +1360,7 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 					lastLinesWritten++;
 					continue;
 				}
-				if(DENSE){ //Dense network format
+				if(dense){ //Dense network format
 					if(OUT_SPARSE){ //Force sparse output
 						lastLinesWritten+=2;
 						
@@ -1379,7 +1384,7 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 						bb.nl();
 
 						bb.append('W').append(c.id()).space().append(c.typeString()); //Weight line
-						if(codingA48Out){ bb.space().appendFloatA48(c.bias()); } else { bb.space().append(c.bias(), 6, true); } //Bias value
+						if(codingA48Out){bb.space().appendFloatA48(c.bias());}else{bb.space().append(c.bias(), 6, true);} //Bias value
 						for(int i=0; i<c.weights.length; i++){
 							if(c.weights[i]!=0 || !zeroAbsent){
 								appendWeight(bb, c.weights[i]); //Weight values
@@ -1390,7 +1395,7 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 					}else{ //Dense output format
 						lastLinesWritten++;
 						bb.append('C').append(c.id()).space().append(c.typeString()); //Complete line
-						if(codingA48Out){ bb.space().appendFloatA48(c.bias()); } else { bb.space().append(c.bias(), 6, true); } //Bias
+						if(codingA48Out){bb.space().appendFloatA48(c.bias());}else{bb.space().append(c.bias(), 6, true);} //Bias
 						for(int i=0; i<c.weights.length; i++){
 							appendWeight(bb, c.weights[i]);
 						} //All weights
@@ -1404,7 +1409,7 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 						}
 						lastLinesWritten++;
 						bb.append('C').append(c.id()).space().append(c.typeString());
-						if(codingA48Out){ bb.space().appendFloatA48(c.bias()); } else { bb.space().append(c.bias(), 6, true); }
+						if(codingA48Out){bb.space().appendFloatA48(c.bias());}else{bb.space().append(c.bias(), 6, true);}
 //						for(int idx=0, nextInput=0; idx<c.inputs.length; idx++) {
 //							for(int inum=c.inputs[idx]; nextInput<inum; nextInput++) {
 //								bb.space().append(0);
@@ -1440,7 +1445,7 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 						bb.nl();
 
 						bb.append('W').append(c.id()).space().append(c.typeString()); //Weight line
-						if(codingA48Out){ bb.space().appendFloatA48(c.bias()); } else { bb.space().append(c.bias(), 6, true); } //Bias
+						if(codingA48Out){bb.space().appendFloatA48(c.bias());}else{bb.space().append(c.bias(), 6, true);} //Bias
 						for(int i=0; i<c.weights.length; i++){
 							appendWeight(bb, c.weights[i]);
 						} //Weights
@@ -1495,13 +1500,12 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 	}
 	
 	/**
-	 * Converts BitSet to hexadecimal string representation.
-	 * Encodes BitSet bytes as hex digits for compact storage.
-	 * Note: Current implementation only uses digits 0-9, not full hex.
-	 * 
-	 * @param bs BitSet to convert
-	 * @param bb ByteBuilder to append hex string to
-	 * @return ByteBuilder with appended hex representation
+	 * Appends the historical H-line byte encoding, low nibble first. Nibbles use
+	 * characters '0' through '?', not standard hexadecimal A-F; an empty BitSet
+	 * appends nothing. Preserve compatibility with fromHex().
+	 * @param bs Bits to encode
+	 * @param bb Destination builder
+	 * @return The supplied builder
 	 */
 	static ByteBuilder toHex(BitSet bs, ByteBuilder bb){
 		byte[] bytes=bs.toByteArray(); //Convert BitSet to bytes
@@ -1539,16 +1543,17 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 	}
 	
 	/**
-	 * Creates deep copy of network with identical architecture and state.
-	 * Copies weights, biases, training statistics, and configuration parameters.
-	 * Thread-safe operation for concurrent model evaluation and training.
-	 * 
-	 * @param copyDelta Whether to copy accumulated gradients (for training)
-	 * @return New CellNet instance with copied state
+	 * Creates a same-representation network with copied row parameters, selected
+	 * training metadata, tags and normalization arrays. Command metadata remains
+	 * shared. Activation/gradient scratch and outgoing transpose weights are freshly
+	 * allocated, not a snapshot of a running forward/backward pass. Synchronizing
+	 * on this object does not protect it from unsynchronized mutation.
+	 * @param copyDelta Whether to copy accumulated bias and weight deltas
+	 * @return New network; transpose before hidden-layer backpropagation
 	 */
 	public synchronized CellNet copy(boolean copyDelta){
 //		assert(check());
-		CellNet copy=new CellNet(dims, seed, density, density1, edgeBlockSize, commands); //Create structure
+		CellNet copy=new CellNet(dims, seed, density, density1, edgeBlockSize, commands, dense); //Preserve source representation
 		ArrayList<Cell> list2=copy.list;
 		for(int i=1; i<list.size(); i++){ //Copy all neurons
 			Cell c=list.get(i);
@@ -1587,11 +1592,11 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 	}
 
 	/**
-	 * Copies only inference state into dense weight arrays, without changing DENSE.
+	 * Copies only inference state into a new dense network without changing the source mode.
 	 * Sparse serialized edges are placed at their original input indices; absent
 	 * edges receive zero weight. Biases and activation functions are unchanged.
 	 * The returned network owns all mutable arrays and always uses dense inference,
-	 * even if another model load changes the legacy global dispatch flag.
+	 * independently of other networks or model loads.
 	 * Create this copy once inside the owning worker's run method and reuse it.
 	 * This representation can change floating-point reduction order; it is not a
 	 * promise of bit-identical sparse arithmetic. It is not a training copy.
@@ -1599,12 +1604,12 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 	 */
 	public CellNet copyDenseForInference(){
 		assert(dims!=null && dims.length>=2) : "Dense inference requires a constructed network topology";
-		final CellNet copy=new DenseInferenceNet(dims,seed,density,density1,edgeBlockSize);
+		final CellNet copy=new DenseInferenceNet(dims, seed, density, density1, edgeBlockSize);
 		copy.setInputNormalization(inputMean, inputInverseStd);
 		for(int layer=1; layer<layers; layer++){
 			final int width=dims[layer-1];
 			for(int i=0; i<net[layer].length; i++){
-				final Cell source=net[layer][i],dest=copy.net[layer][i];
+				final Cell source=net[layer][i], dest=copy.net[layer][i];
 				if(source.weights==null || source.function==null){
 					throw new IllegalStateException("Missing inference state at layer "+layer+", cell "+i);
 				}
@@ -1613,7 +1618,7 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 				dest.weights=new float[width];
 				if(source.inputs==null){
 					if(source.weights.length!=width){throw new IllegalStateException("Dense input width mismatch at layer "+layer);}
-					System.arraycopy(source.weights,0,dest.weights,0,width);
+					System.arraycopy(source.weights, 0, dest.weights, 0, width);
 				}else{
 					if(source.inputs.length!=source.weights.length){throw new IllegalStateException("Sparse weight/index count mismatch");}
 					final boolean[] seen=new boolean[width];
@@ -1629,24 +1634,27 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 		return copy;
 	}
 
-	/** Dense inference dispatch is instance-local; legacy parser globals cannot change it. */
-	private static final class DenseInferenceNet extends CellNet {
-		private DenseInferenceNet(int[] dims,long seed,float density,float density1,int blockSize){
-			super(dims,seed,density,density1,blockSize,new ArrayList<String>());
+	/** Dense inference dispatch is fixed for this inference-only copy. */
+	private static final class DenseInferenceNet extends CellNet{
+		private DenseInferenceNet(int[] dims, long seed, float density, float density1, int blockSize){
+			super(dims, seed, density, density1, blockSize, new ArrayList<String>(), true);
 		}
 		@Override public float feedForward(){return feedForwardDense();}
 	}
 	
 	/**
-	 * Copies state from another network of identical architecture.
-	 * Updates weights, biases, training statistics, and configuration
-	 * parameters. Used for model checkpointing and population-based training.
-	 * 
-	 * @param cn Source network to copy from
-	 * @param copyWeight2 Whether to copy accumulated gradients (deltas)
-	 * @return This network after copying
+	 * Copies row parameters and selected metadata into an existing compatible network.
+	 * Architecture and indexed topology must match because matrices are reused.
+	 * Command metadata is shared; tags and normalization arrays are copied. Shared
+	 * activation/gradient scratch and transpose weights are not refreshed.
+	 * @param cn Stable source network with the same representation and layout
+	 * @param copyWeight2 Whether to copy accumulated deltas; otherwise clear them
+	 * @return This network
 	 */
 	public CellNet setFrom(CellNet cn, boolean copyWeight2){
+		assert(dense==cn.dense) : KillSwitch.assertDie(
+			"CellNet.setFrom reuses weight/index matrices and requires the same representation: destination dense="+
+			dense+", source dense="+cn.dense);
 		//assert(cn.check());
 		//assert(check());
 		ArrayList<Cell> list2=cn.list;
@@ -1682,11 +1690,9 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 	}
 	
 	/**
-	 * Validates internal network consistency and state.
-	 * Checks all neurons for valid weights, connectivity, and data integrity.
-	 * Used for debugging and ensuring network correctness.
-	 * 
-	 * @return true if network passes all consistency checks
+	 * Runs each cell's assertion-backed structural check, returning false for a
+	 * reported mismatch. This is a diagnostic check, not comprehensive validation.
+	 * @return Whether all cell checks returned true
 	 */
 	public boolean check(){
 		for(int i=1; i<list.size(); i++){ //Check all neurons
@@ -1698,11 +1704,9 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 	}
 	
 	/**
-	 * Accumulates error gradients from another network.
-	 * Adds gradient values from parallel training threads or batches.
-	 * Used in distributed training and gradient accumulation.
-	 * 
-	 * @param net2 Source network containing gradients to add
+	 * Adds per-cell accumulated reporting errors from a matching network.
+	 * Does not accumulate bias or weight deltas.
+	 * @param net2 Source network with matching cell order
 	 */
 	public void addError(CellNet net2){
 //		errorSum+=net2.errorSum;
@@ -1715,11 +1719,10 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 	}
 	
 	/**
-	 * Thread-safe gradient accumulation from another network.
-	 * Synchronizes access to prevent race conditions during parallel training.
-	 * Used for multi-threaded batch processing and gradient aggregation.
-	 * 
-	 * @param net2 Source network containing gradients to accumulate
+	 * Adds reporting errors and bias/weight deltas from a matching network while
+	 * locking destination then source. Callers must avoid opposite lock ordering and
+	 * unsynchronized concurrent mutation of either network.
+	 * @param net2 Stable source network with matching cell and edge layout
 	 */
 	public void accumulate(CellNet net2){
 		synchronized(this){ //Lock this network
@@ -1736,9 +1739,9 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 	}
 	
 	/**
-	 * Thread-safe clearing of temporary training data.
-	 * Resets accumulated gradients and temporary variables.
-	 * Called between training batches to prepare for next iteration.
+	 * Clears accumulated cell errors and bias/weight deltas while holding this
+	 * network's monitor. Parameters, activations and gradient scratch remain; callers
+	 * must coordinate any other access that does not acquire this monitor.
 	 */
 	synchronized public void clear(){
 //		errorSum=0;
@@ -1773,37 +1776,41 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 	 * Compares networks based on performance metrics for ranking.
 	 * Uses configurable comparison criteria (error rate, FPR, FNR, etc.)
 	 * with fallback hierarchy for model selection and population sorting.
-	 * Lower error rates are considered better (return 1).
+	 * Lower error rates are considered better (return 1). NaN metrics rank below
+	 * all non-NaN values; two NaNs or signed zeros tie at that metric. Ties use
+	 * weighted error, error, false-negative rate, then false-positive rate.
 	 * 
 	 * @param b Network to compare against
 	 * @return 1 if this network is better, -1 if worse, 0 if equal
 	 */
 	@Override
 	public int compareTo(CellNet b){
-		if(b==null){
-			return 1; //Non-null is better than null
-		}else if(compareCode==compareWER && weightedErrorRate!=b.weightedErrorRate){
-			return weightedErrorRate<b.weightedErrorRate ? 1 : -1; //Lower WER is better
-		}else if(compareCode==compareERR && errorRate!=b.errorRate){
-			return errorRate<b.errorRate ? 1 : -1; //Lower error is better
-		}else if(compareCode==compareFNR && fnRate!=b.fnRate){
-			return fnRate<b.fnRate ? 1 : -1; //Lower FNR is better
-		}else if(compareCode==compareFPR && fpRate!=b.fpRate){
-			return fpRate<b.fpRate ? 1 : -1; //Lower FPR is better
+		if(b==null){return 1;}//Non-null is better than null
+		int comparison=0;
+		if(compareCode==compareWER){
+			comparison=compareMetric(weightedErrorRate, b.weightedErrorRate);
+		}else if(compareCode==compareERR){
+			comparison=compareMetric(errorRate, b.errorRate);
+		}else if(compareCode==compareFNR){
+			comparison=compareMetric(fnRate, b.fnRate);
+		}else if(compareCode==compareFPR){
+			comparison=compareMetric(fpRate, b.fpRate);
 		}
+		if(comparison!=0){return comparison;}
 		
 		//Fallback hierarchy for tie-breaking
-		if(weightedErrorRate!=b.weightedErrorRate){
-			return weightedErrorRate<b.weightedErrorRate ? 1 : -1;
-		}else if(errorRate!=b.errorRate){
-			return errorRate<b.errorRate ? 1 : -1;
-		}else if(fnRate!=b.fnRate){
-			return fnRate<b.fnRate ? 1 : -1;
-		}else if(fpRate!=b.fpRate){
-			return fpRate<b.fpRate ? 1 : -1;
-		}
-		
-		return 0; //Networks are equivalent
+		comparison=compareMetric(weightedErrorRate, b.weightedErrorRate);
+		if(comparison!=0){return comparison;}
+		comparison=compareMetric(errorRate, b.errorRate);
+		if(comparison!=0){return comparison;}
+		comparison=compareMetric(fnRate, b.fnRate);
+		if(comparison!=0){return comparison;}
+		return compareMetric(fpRate, b.fpRate);
+	}
+
+	/** Ranks lower values higher, ties signed zeros, and ranks NaNs last. */
+	private static int compareMetric(final float a, final float b){
+		return a==b ? 0 : Float.compare(b, a);
 	}
 	
 	/**
@@ -1850,11 +1857,9 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 	}
 	
 	/**
-	 * Sets classification threshold for binary prediction decisions.
-	 * Values above cutoff are classified as positive, below as negative.
-	 * Critical parameter for balancing precision/recall tradeoffs.
-	 * 
-	 * @param f New cutoff threshold value (typically 0.0-1.0)
+	 * Stores the classification cutoff metadata without validating or applying it.
+	 * Consumers decide how equality and threshold comparisons are handled.
+	 * @param f Cutoff value
 	 */
 	public void setCutoff(float f){
 //		System.err.println("Set cutoff from "+cutoff+" to "+f);
@@ -1893,14 +1898,14 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Current classification error rate (0.0-1.0) */
-	float errorRate=999;
-	/** Weighted classification error rate accounting for class imbalance */
-	float weightedErrorRate=999;
+	/** Stored reporting error metric; initialized to the unset sentinel 999. */
+	public float errorRate=999;
+	/** Stored weighted reporting error metric; initialized to the unset sentinel 999. */
+	public float weightedErrorRate=999;
 	/** False positive rate - incorrectly classified as positive */
-	float fpRate=999;
+	public float fpRate=999;
 	/** False negative rate - incorrectly classified as negative */
-	float fnRate=999;
+	public float fnRate=999;
 	/** True positive rate - correctly classified as positive */
 	float tpRate=-999;
 	/** True negative rate - correctly classified as negative */
@@ -1911,12 +1916,9 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 	float annealStrength=-1;
 	/** Classification threshold for binary decisions */
 	public float cutoff=-1;
-	/** Arbitrary custom header tags: the ##key value lines the parser did not recognize, for open-ended
-	 *  per-network metadata the ml layer does not interpret (platform, feature-format version, etc.).
-	 *  Keys are case-insensitive: each is DOUBLED UP (original case AND lowercase, both -> the same value)
-	 *  so getTag() hits regardless of query case; on serialization ONLY the lowercase key is emitted (the
-	 *  original-case duplicate is skipped) for canonical, deterministic output. Insertion-ordered so saved
-	 *  nets stay byte-reproducible. Set/read via setTag()/getTag(). */
+	/** Insertion-ordered custom header metadata. setTag stores original-case and lowercase entries;
+	 * getTag tries the exact spelling first. Serialization emits only lowercase keys.
+	 * Direct map mutation and differently cased updates need not keep aliases synchronized. */
 	public LinkedHashMap<String,String> tags=new LinkedHashMap<String,String>();
 	/** Current training epoch number */
 	int epoch=-1;
@@ -1935,27 +1937,29 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Immutable weight representation: dense arrays or indexed sparse arrays. */
+	public final boolean dense;
 	/** Random seed for reproducible weight initialization */
 	final long seed;
 	/** Number of layers in network (including input and output) */
-	final int layers;
+	public final int layers;
 	/** Neuron count per layer [input, hidden1, hidden2, ..., output] */
-	final int[] dims; //Stores widths of layers
+	public final int[] dims; //Stores widths of layers
 	/** Connection density for hidden layers (0.0-1.0) */
-	final float density;
+	public final float density;
 	/** Special connection density for first hidden layer */
-	final float density1;
+	public final float density1;
 	/** Block size for structured sparsity patterns */
-	final int edgeBlockSize;
+	public final int edgeBlockSize;
 	/** 2D network structure [layer][neuron] */
-	final Cell[][] net;
+	public final Cell[][] net;
 	/** Direct reference to output layer for efficiency */
-	final Cell[] finalLayer;
+	public final Cell[] finalLayer;
 	/** Global list of all neurons (index 0 reserved) */
 	final ArrayList<Cell> list;
 	
 	/** Activation values per layer [layer][neuron] */
-	final float[][] values;
+	public final float[][] values;
 	/** Optional private float32 standardization; absent for historical networks. */
 	private float[] inputMean, inputInverseStd;
 	/** Error gradients per layer [layer][neuron] */
@@ -1980,8 +1984,8 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 	 */
 	public ArrayList<String> commands;
 	
-	/** Number of lines written during last serialization operation */
-	long lastLinesWritten=0;
+	/** Legacy serialization line estimate; does not count the actual variable-length header. */
+	public long lastLinesWritten=0;
 
 	/** Per-job SIMD feed-forward flag for THIS net; consulted by feedForwardDense. Defaults TRUE so inference
 	 * uses batched SIMD feed-forward when Shared.SIMD_FEED_FORWARD is on; the training worker overrides it
@@ -1992,7 +1996,7 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Enable vectorized fused multiply-add operations for ~20% speedup */
+	/** Selects batched dense forward/backward kernels; the inline timing note is historical. */
 	public static final boolean SPECIAL_FMA=true; //~20% faster when true, but needs ml.Cell class
 	/** Input-noise augmentation magnitude (command-line "noise="); when >0, training adds
 	 * noise*(rand()-rand()) to each input dimension before forward prop. Default 0 (off). */
@@ -2003,7 +2007,7 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 	public static boolean NORMALIZE_WEIGHTS=false;
 	/** Strength of normalization applied (0.0-1.0) */
 	public static float normalization_factor=0.125f;
-	/** Rate of normalization strength decay per epoch */
+	/** Factor applied after each dense backward pass while normalization_factor exceeds its cutoff. */
 	public static float normalization_shrink_rate=0.999f;
 	/** Use compact serialization format */
 	public static boolean CONCISE=true;
@@ -2019,8 +2023,6 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 	private int weightBits=32;
 	/** Dense zero weights encode absent edges, guarded by #zeroabsent and #liveedges on disk. */
 	private boolean zeroAbsent=true;
-	/** Network type: true=dense connectivity, false=sparse */
-	public static boolean DENSE=true;
 	/** Output format: use hexadecimal encoding */
 	public static boolean OUT_HEX=false;
 	/** Output format: encode sparse I-line input IDs as A48 deltas. */
@@ -2044,9 +2046,9 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 	public static float RAND_WEIGHT_CAP=2.0f;
 	
 	/** Current comparison metric for network sorting (0=WER, 1=ERR, 2=FNR, 3=FPR) */
-	static int compareCode=0;
+	public static int compareCode=0;
 	/** Comparison codes for different error metrics */
-	final static int compareWER=0, compareERR=1, compareFNR=2, compareFPR=3;
+	public final static int compareWER=0, compareERR=1, compareFNR=2, compareFPR=3;
 	
 	/*--------------------------------------------------------------*/
 	

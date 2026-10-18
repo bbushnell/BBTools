@@ -31,7 +31,7 @@ import structures.IntList;
  *
  * @author Yelan, Nilou
  */
-public final class ModifyNN {
+public final class ModifyNN{
 
 	public static void main(String[] args){
 		final PreParser pp=new PreParser(args, ModifyNN.class, false);
@@ -40,7 +40,7 @@ public final class ModifyNN {
 
 	ModifyNN(String[] args, PrintStream outstream_){
 		outstream=outstream_;
-		for(String arg:args){
+		for(String arg : args){
 			final String[] split=arg.split("=", 2);
 			final String key=split[0].toLowerCase();
 			final String value=split.length>1 ? split[1] : null;
@@ -73,6 +73,7 @@ public final class ModifyNN {
 		}
 	}
 
+	/** Loads, validates and either byte-copies a no-op parent or publishes a grown child network. */
 	private void process(){
 		final byte[] parentBytes=readFile(in);
 		final String parentSha80=sha80(parentBytes);
@@ -107,15 +108,15 @@ public final class ModifyNN {
 		}
 	}
 
+	/** Builds the child topology, copies retained rows and appends or prunes edges under the requested policy. */
 	private CellNet grow(final CellNet old, final int[] newDims, final Report report, final ModifyNNPartition partition){
 		assert(newDims.length==old.dims.length) : "grow preserves layer count validated by parseDims: new="+
 			dimsString(newDims)+" old="+dimsString(old.dims);
-		final boolean sourceDense=old.net[1][0].inputs==null;
+		final boolean sourceDense=old.dense;
 		final boolean sourceZeroAbsent=sourceDense && old.zeroAbsent();
 		final boolean outputDense=sourceDense && pruneAbs==0 && partition==null;
-		CellNet.DENSE=outputDense;
 		final CellNet grown=new CellNet(newDims, old.seed, old.density, old.density1,
-			old.edgeBlockSize, new ArrayList<String>(old.commands));
+			old.edgeBlockSize, new ArrayList<String>(old.commands), outputDense);
 		grown.cutoff=old.cutoff;
 		grown.setZeroAbsent(outputDense && sourceZeroAbsent);
 		grown.tags=new LinkedHashMap<String,String>(old.tags);
@@ -271,10 +272,12 @@ public final class ModifyNN {
 		dest.deltas=new float[dest.weights.length];
 	}
 
+	/** Returns the next deterministic nonzero weight for an appended or revived edge. */
 	private float newRandomWeight(EdgeRandom random){
 		return random.nextWeight(newWeight);
 	}
 
+	/** Copies scalar training statistics into parent_* metadata on the child. */
 	private static void archiveParentStats(final CellNet old, final CellNet grown){
 		grown.tags.put("parent_error_rate", Float.toString(old.errorRate));
 		grown.tags.put("parent_weighted_error_rate", Float.toString(old.weightedErrorRate));
@@ -286,6 +289,7 @@ public final class ModifyNN {
 		if(old.lastStats!=null){grown.tags.put("parent_last_stats", old.lastStats);}
 	}
 
+	/** Moves child-specific metadata keys out of the active namespace. */
 	private static void archiveStaleChildTags(final CellNet grown){
 		final LinkedHashMap<String,String> archive=new LinkedHashMap<String,String>();
 		for(Map.Entry<String,String> entry : grown.tags.entrySet()){
@@ -301,6 +305,7 @@ public final class ModifyNN {
 		grown.tags.putAll(archive);
 	}
 
+	/** Returns true for metadata that describes the parent layout rather than the grown child. */
 	private static boolean staleChildTag(final String key){
 		if(key.startsWith("magqc_")){return true;}
 		for(String stale : STALE_CHILD_TAGS){
@@ -328,7 +333,7 @@ public final class ModifyNN {
 	/** Returns a single old activation for new neurons, rejecting mixed activations in grown layers. */
 	private static Function unambiguousFunction(final Cell[] layer){
 		Function f=layer[0].function;
-		for(Cell cell:layer){
+		for(Cell cell : layer){
 			if(cell.function!=f){
 				throw new IllegalArgumentException("New neurons require an unambiguous old activation per layer");
 			}
@@ -336,6 +341,7 @@ public final class ModifyNN {
 		return f;
 	}
 
+	/** Parses append-only dimensions, preserving the parent arity and rejecting shrinkage. */
 	private static int[] parseDims(String text, int[] oldDims){
 		if(text==null || text.equalsIgnoreCase("null")){return oldDims.clone();}
 		String[] split=text.split(",");
@@ -352,10 +358,12 @@ public final class ModifyNN {
 		return dims;
 	}
 
+	/** Rejects negative and non-finite floating-point numeric options. */
 	private static void checkFiniteNonnegative(float value, String name){
 		if(!Float.isFinite(value) || value<0){throw new IllegalArgumentException(name+" must be finite and nonnegative");}
 	}
 
+	/** Serializes dimensions with the comma syntax accepted by the dims option. */
 	private static String dimsString(int[] dims){
 		ByteBuilder bb=new ByteBuilder();
 		for(int i=0; i<dims.length; i++){
@@ -365,12 +373,12 @@ public final class ModifyNN {
 		return bb.toString();
 	}
 
-	/** Validates finite weights and row topology before a no-op copy or in-place growth. */
+	/** Validates finite weights and row topology before a no-op copy or child growth. */
 	private static void validate(final CellNet net){
 		final boolean dense=net.net[1][0].inputs==null;
 		for(int layer=1; layer<net.net.length; layer++){
 			final int prev=net.dims[layer-1];
-			for(Cell cell:net.net[layer]){
+			for(Cell cell : net.net[layer]){
 				if(cell==null || cell.function==null){throw new IllegalArgumentException("Missing cell at layer "+layer);}
 				if(!Float.isFinite(cell.bias())){throw new IllegalArgumentException("Nonfinite bias at cell "+cell.id());}
 				if(cell.weights==null){throw new IllegalArgumentException("Missing weights at cell "+cell.id());}
@@ -405,7 +413,7 @@ public final class ModifyNN {
 		final boolean dense=net.net[1][0].inputs==null;
 		final boolean zeroAbsent=dense && net.zeroAbsent();
 		for(int layer=1; layer<net.net.length; layer++){
-			for(Cell cell:net.net[layer]){
+			for(Cell cell : net.net[layer]){
 				final int count=countLiveIncoming(cell, dense, zeroAbsent);
 				for(int i=0; i<count; i++){report.retained(layer);}
 			}
@@ -413,11 +421,12 @@ public final class ModifyNN {
 		countDisconnected(net, report);
 	}
 
+	/** Counts rows with no structurally live incoming edges after growth or validation. */
 	private static void countDisconnected(final CellNet net, final Report report){
 		final boolean dense=net.net[1][0].inputs==null;
 		final boolean zeroAbsent=dense && net.zeroAbsent();
 		for(int layer=1; layer<net.net.length; layer++){
-			for(Cell cell:net.net[layer]){
+			for(Cell cell : net.net[layer]){
 				if(countLiveIncoming(cell, dense, zeroAbsent)==0){report.disconnected[layer-1]++;}
 			}
 		}
@@ -433,6 +442,7 @@ public final class ModifyNN {
 		return count;
 	}
 
+	/** Writes a grown network to a sibling staging file before the final rename. */
 	private void publishNet(CellNet net, String path){
 		final File temp=tempFile(path);
 		boolean moved=false;
@@ -471,15 +481,17 @@ public final class ModifyNN {
 		}
 	}
 
+	/** Creates a private staging directory and returns a path named after the final output. */
 	private static File tempFile(String path){
 		return tempFile(path, new File(path).getAbsoluteFile().getName());
 	}
 
+	/** Creates an output-private staging directory and returns a path named after the input. */
 	private static File tempInputFile(String inputPath, String outputPath){
 		return tempFile(outputPath, new File(inputPath).getAbsoluteFile().getName());
 	}
 
-	/** Allocates a private staging path under the final output directory. */
+	/** Creates a private staging directory under the final output directory and returns the staged path. */
 	private static File tempFile(String path, String stagedName){
 		final File target=new File(path).getAbsoluteFile();
 		final File parent=target.getParentFile();
@@ -507,7 +519,7 @@ public final class ModifyNN {
 		}
 	}
 
-	/** Deletes only the private directory family created by tempFile. */
+	/** Best-effort removal for the private directory family created by tempFile. */
 	private static void deleteStagingDirectory(final File temp){
 		final File dir=temp.getParentFile();
 		if(dir==null){return;}
@@ -518,7 +530,7 @@ public final class ModifyNN {
 		dir.delete();
 	}
 
-	/** Reads a stable raw byte image for exact no-op copies and parent provenance. */
+	/** Reads a raw byte image for exact no-op copies and parent provenance. */
 	private static byte[] readFile(final String path){
 		try{
 			final FileInputStream in=new FileInputStream(path);
@@ -568,6 +580,7 @@ public final class ModifyNN {
 		}catch(Exception e){throw new RuntimeException(e);}
 	}
 
+	/** Writes a CellNet through ByteStreamWriter so compressed outputs report close failures. */
 	private static void writeNet(CellNet net, String path){
 		FileFormat ff=FileFormat.testOutput(path, FileFormat.BBNET, null, true, true, false, false);
 		ByteStreamWriter bsw=new ByteStreamWriter(ff);
@@ -631,6 +644,7 @@ public final class ModifyNN {
 	private static final class EdgeRandom{
 		EdgeRandom(long seed_){state=seed_;}
 
+		/** Returns a signed magnitude in [0.5*epsilon, epsilon]. */
 		float nextWeight(final float epsilon){
 			final long word=Tools.splitMix64(state+=GAMMA);
 			final float u=(word&0xFFFFFFL)*0x1p-24f;

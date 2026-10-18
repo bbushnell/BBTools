@@ -6,6 +6,7 @@ import fileIO.FileFormat;
 import fileIO.ReadWrite;
 import parse.Parser;
 import parse.PreParser;
+import shared.KillSwitch;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
@@ -16,15 +17,17 @@ import stream.Read;
 import structures.ListNum;
 
 /**
- * Processes BBMerge output headers to extract merge statistics for machine learning analysis.
- * Parses read headers containing overlap statistics, insert size predictions, and quality metrics
- * from BBMerge output and reformats them into structured tabular data suitable for analysis.
+ * Processes BBMerge output reads to extract merge statistics for machine learning analysis.
+ * Replaces BBMerge read IDs containing overlap statistics, insert size predictions, and
+ * quality metrics with tabular IDs, and prepends one synthetic column-header read. The output
+ * still uses the requested read format rather than becoming a plain TSV file automatically.
  *
  * @author Brian Bushnell
  * @date June 1, 2016
  */
-public class ProcessBBMergeHeaders {
+public class ProcessBBMergeHeaders{
 
+	/** Program entry point. */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		ProcessBBMergeHeaders x=new ProcessBBMergeHeaders(args);
@@ -34,6 +37,8 @@ public class ProcessBBMergeHeaders {
 		Shared.closeStream(x.outstream);
 	}
 	
+	/** Parses input/output arguments, resets FASTQ interleaving probes before Parser may
+	 * override them, and constructs file formats. */
 	public ProcessBBMergeHeaders(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -75,7 +80,8 @@ public class ProcessBBMergeHeaders {
 		ffin1=FileFormat.testInput(in1, FileFormat.FASTQ, null, true, true);
 	}
 	
-	void process(Timer t){
+	/** Streams reads, replacing accepted BBMerge metric IDs with tabular IDs and closing normal-path streams. */
+	public void process(Timer t){
 		
 		final ConcurrentReadInputStream cris;
 		{
@@ -104,7 +110,7 @@ public class ProcessBBMergeHeaders {
 				assert((ffin1==null || ffin1.samOrBam()) || (r.mate!=null)==cris.paired());
 			}
 			
-			ArrayList<Read> keep=new ArrayList<Read>(reads.size());
+			ArrayList<Read> keep=new ArrayList<Read>(reads==null ? 1 : reads.size()+1);
 			keep.add(new Read(null, null, headerString(), 0));
 
 			while(ln!=null && reads!=null && reads.size()>0){//ln!=null prevents a compiler potential null access warning
@@ -130,11 +136,15 @@ public class ProcessBBMergeHeaders {
 				ln=cris.nextList();
 				reads=(ln!=null ? ln.list : null);
 			}
+			if(ln!=null && !keep.isEmpty() && ros!=null){ros.add(keep, ln.id);}
 			if(ln!=null){
 				cris.returnList(ln.id, ln.list==null || ln.list.isEmpty());
 			}
 		}
-		ReadWrite.closeStreams(cris, ros);
+		final boolean readError=ReadWrite.closeStream(cris);
+		final boolean writeError=ReadWrite.closeStream(ros);
+		if(readError){throw new RuntimeException("Error closing input stream "+in1);}
+		assert(!writeError) : KillSwitch.assertDie("Error closing output stream "+out1);
 		if(verbose){outstream.println("Finished.");}
 		
 		t.stop();
@@ -146,6 +156,8 @@ public class ProcessBBMergeHeaders {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** @return A parsed BBMerge header row, or null when the prefix, mo= token or
+	 * parsed value set is not accepted; malformed metric tokens may still throw. */
 	private Header makeHeader(String line){
 		if(!line.startsWith("insert=")){return null;}
 		if(!line.contains(" mo=")){return null;}
@@ -153,15 +165,18 @@ public class ProcessBBMergeHeaders {
 		return h.valid ? h : null;
 	}
 	
+	/** @return Tabular header for BBMerge correctness and overlap/error metrics */
 	public String headerString(){
 		return "#Correct\tminOverlap\tbestOverlap\tbestBadInt\tsecondBestOverlap\tsecondBestBadInt\t"
 				+ "expectedErrors\tbestExpectedErrors\tbestRatio\tbestBad\tsecondBestRatio\tsecondBestBad\tprobability";
 	}
 	
-	private class Header {
+	/** Parsed fields from one BBMerge detail header. */
+	private class Header{
 	
 		//mo=14_r1ee=5.2728_r2ee=3.4856_bi=202_bo=98_bb=5.3063_br=0.0598_bbi=6_sbi=270_sbo=30_sbb=12.4775_sbr=0.4343_sbbi=14_be=6.5990_pr=0.0007
 		
+		/** Parses the insert-size and metrics tokens in one BBMerge read ID. */
 		Header(String line_){
 			line=line_;
 			String[] split=line.split(" ");
@@ -218,49 +233,67 @@ public class ProcessBBMergeHeaders {
 							expectedErrors1+expectedErrors2, bestExpected, bestRatio, bestBad, secondBestRatio, secondBestBad, probability);
 		}
 		
+		/** True insert size from the first read-ID token */
 		int trueInsert;
 		
+		/** Minimum overlap reported by BBMerge */
 		int minOverlap;
+		/** Expected errors in the first read */
 		float expectedErrors1;
+		/** Expected errors in the second read */
 		float expectedErrors2;
 		
+		/** Expected errors for BBMerge's best candidate */
 		float bestExpected;
+		/** BBMerge probability for the selected candidate */
 		float probability;
 		
+		/** Best insert and overlap plus disagreement metrics */
 		int bestInsert;
 		int bestOverlap;
 		float bestRatio;
 		float bestBad;
 		int bestBadInt;
 		
+		/** Second-best insert and overlap plus disagreement metrics */
 		int secondBestInsert;
 		int secondBestOverlap;
 		float secondBestRatio;
 		float secondBestBad;
 		int secondBestBadInt;
 
+		/** Whether BBMerge's best insert matches the true insert */
 		boolean correct;
+		/** Whether exactly 15 metric tokens and positive best/second-best inserts were parsed */
 		boolean valid=false;
 		
+		/** Original read ID */
 		String line;
 		
 	}
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Input reads from BBMerge */
 	private String in1=null;
+	/** Optional output reads with tabular IDs */
 	private String out1=null;
 	
+	/** Parsed input format */
 	private final FileFormat ffin1;
+	/** Parsed output format */
 	private final FileFormat ffout1;
 	
 	/*--------------------------------------------------------------*/
 
+	/** Maximum CRIS fragments to process; negative means unbounded */
 	private long maxReads=-1;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Diagnostic stream */
 	private java.io.PrintStream outstream=System.err;
+	/** Verbose stream/list lifecycle logging */
 	public static boolean verbose=false;
 	
 }

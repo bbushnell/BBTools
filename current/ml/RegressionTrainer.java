@@ -32,8 +32,8 @@ import structures.DoubleList;
  * Differences from ml.Trainer: pure MSE regression (no balancing, cutoffs, FPR/FNR
  * machinery), Adam optimizer with cosine learning-rate decay, mini-batches, and input
  * standardization learned from the data and FOLDED INTO the first layer's weights at
- * export, so the saved net takes raw inputs.  Hidden layers are tanh; the output
- * activation is rslog (default), linear, or sigmoid, selected with final=.  Sigmoid
+ * export, so the saved net takes raw inputs. Hidden layers default to tanh; the output
+ * activation is rslog (default), linear, or sigmoid, selected with final=. Sigmoid
  * requires targets in [0,1]; normalize upstream as '#dims N 1' data always is.
  * After writing, the net is reloaded through CellNetParser and checked against the
  * in-memory model (round-trip verification).
@@ -62,12 +62,14 @@ import structures.DoubleList;
  * min(5, max(1, epochs/20)), so a short run (e.g. epochs=20) prints every epoch while a long
  * run stays capped at one line per 5 epochs. Set explicitly to override either way.
  *
- * hidden= sets the hidden-layer activations: one name is uniform, several are drawn per cell
- * at random from that set (seeded, so reproducible). Names: tanh sig rslog msig swish esig
- * emsig bell linear. Default 'tanh' keeps the hard-coded fast path and is bit-identical to
- * results recorded before this option existed. Derivatives use derivativeXFX(x,fx) because
- * derivativeFX alone is unimplemented for some functions (Swish), so pre-activations are
- * retained during the forward pass -- but only when a non-default activation is in use.
+ * hidden= sets the hidden-layer activations: tanh alone keeps the legacy hard-coded
+ * fast path, one non-tanh name is uniform through hiddenFunc, and several names are
+ * drawn per cell at random from that set (seeded, so reproducible). Names: tanh sig
+ * rslog msig swish esig emsig bell linear. Default 'tanh' is bit-identical to
+ * results recorded before this option existed. Derivatives use derivativeXFX(x,fx)
+ * because derivativeFX alone is unimplemented for some functions (Swish), so
+ * pre-activations are retained during the forward pass -- but only when a non-default
+ * activation is in use.
  * Output activation is separate and stays under final=.
  *
  * netin= continues training from an existing net instead of random initialization. In that
@@ -84,8 +86,8 @@ import structures.DoubleList;
  * epochsTrained+1, instead of restarting it at full strength on an already-trained net (which
  * was observed in production to knock a converged net backward for many epochs). startepoch=
  * overrides the auto-detected value -- use it when the header is missing/stale, or to force a
- * deliberate schedule reset. Resuming does NOT restore Adam's moment estimates (not persisted
- * in the .bbnet format), so the first resumed step is still a smaller, LR-scaled kick.
+ * deliberate schedule reset. Resuming restores the model and epoch only: Adam moments and
+ * RNG state are not persisted in the .bbnet format.
  *
  * Input format: same as train.sh — '#dims &lt;in&gt; &lt;out&gt;' header, then tab-delimited
  * floats, inputs first, then &lt;out&gt; target columns. An optional third header
@@ -93,13 +95,13 @@ import structures.DoubleList;
  * Weighted losses and batch gradients are normalized by weight mass, not row count.
  * MULTIPLE OUTPUTS are supported: the
  * last dims entry sets the output width, loss is summed squared error across outputs, and
- * every output is checked on the round trip.  One output remains the common case and its
+ * every output is checked on the round trip. One output remains the common case and its
  * behaviour is unchanged.
  *
  * @author Amber (for Brian), with final= modes by Neptune
  * @date July 2026
  */
-public class RegressionTrainer {
+public class RegressionTrainer{
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
@@ -261,8 +263,8 @@ public class RegressionTrainer {
 			throw new IllegalArgumentException("vsimd=t requires simd=t (weightsF/biasF are only "
 				+"populated when useSimd=true).");
 		}
-		if(dims==null){return;}//remaining checks run after the net supplies dims
-		if(dims.length<2){
+		//netin may supply dimensions later; scalar settings still require validation now.
+		if(dims!=null && dims.length<2){
 			throw new IllegalArgumentException("dims needs at least an input and output layer");
 		}
 		if(epochs<1){throw new IllegalArgumentException("epochs must be positive: "+epochs);}
@@ -271,7 +273,7 @@ public class RegressionTrainer {
 		if(printEvery<0){throw new IllegalArgumentException("printevery must be >=0 (0 means "
 			+"auto: min(5, max(1, epochs/20))): "+printEvery);}
 		if(batch<1){throw new IllegalArgumentException("batch must be positive: "+batch);}
-		if(padLayers){
+		if(padLayers && dims!=null){
 			//Round hidden layers up to whole SIMD lanes so the vector kernels have no scalar
 			//tail.  Input and output widths are fixed by the data and are left alone; the
 			//added neurons are real and train normally, so this changes the model, not just
@@ -316,7 +318,7 @@ public class RegressionTrainer {
 	 * Loads data, trains the network, exports it, and verifies the round trip.
 	 * @param t Timer for tracking execution time
 	 */
-	void process(Timer t){
+	public void process(Timer t){
 		if(netIn!=null){loadInitialNet();}
 		loadData();
 		standardize();
@@ -497,7 +499,8 @@ public class RegressionTrainer {
 		}
 	}
 
-	/** Computes per-column mean and standard deviation of the inputs. */
+	/** Computes unweighted per-column mean and standard deviation across all in= rows,
+	 * before the internal validation split; netin= instead sets mean=0/sd=1. */
 	private void standardize(){
 		mean=new double[numInputs];
 		sd=new double[numInputs];
@@ -619,10 +622,11 @@ public class RegressionTrainer {
 	}
 
 	/**
-	 * Assigns hidden-layer activations.  A single name leaves hiddenFunc null so the
+	 * Assigns hidden-layer activations.  The tanh default leaves hiddenFunc null so the
 	 * hard-coded tanh path runs — that keeps the default both fast and bit-identical to
-	 * every result recorded before this option existed.  Several names mean each hidden cell
-	 * draws one at random from the set, seeded, so a mixed net is reproducible.
+	 * every result recorded before this option existed.  A single non-tanh name is uniform
+	 * through hiddenFunc; several names make each hidden cell draw one at random from the
+	 * seeded set, so a mixed net is reproducible.
 	 * <p>
 	 * Output-layer activation is NOT touched here; it stays under final=.
 	 */
@@ -679,12 +683,13 @@ public class RegressionTrainer {
 
 	/**
 	 * Confirms the weights were extracted correctly, by checking that this trainer's own
-	 * forward pass reproduces the loaded net's output on real samples.
+	 * forward pass reproduces the loaded net's output on the first min(1000,numSamples)
+	 * training samples within tolerance 1e-3.
 	 * <p>
 	 * This is the check that matters for netin, and it is NOT the same as the export
 	 * round-trip: that one compares the written net against the in-memory model, so if both
-	 * are wrong in the same way it passes anyway. This one compares against an INDEPENDENT
-	 * implementation — CellNet's own feedForward — so a bad extraction cannot hide.
+	 * are wrong in the same way it passes anyway. This bounded prefix compares against an
+	 * INDEPENDENT implementation -- CellNet's own feedForward.
 	 */
 	private void verifyLoadedNet(){
 		final int n=Math.min(1000, numSamples);
@@ -717,13 +722,11 @@ public class RegressionTrainer {
 	 */
 	private void buildNetAndMask(){
 		if(netIn==null){
-			//randomize() consults the activation-rate tables that ml.Trainer normally
-			//initializes; every cell's function is assigned explicitly at export, so zero
-			//the rates (skips random activation selection and satisfies the assertion).
-			Arrays.fill(Function.TYPE_RATES, 0f);
+			//Export assigns each cell's function explicitly. Initialize only topology
+			//and weights so another trainer's global activation rates remain untouched.
 			net=new CellNet(dims, Math.max(0, seed), density, density1, edgeBlockSize,
-				new ArrayList<String>());
-			net.randomize();//allocates edge topology + weight arrays
+				new ArrayList<String>(), true);
+			net.randomizeEdgesAndWeights();
 		}//else the net was already loaded by loadInitialNet(), and IS the export target
 
 		//With netin, any weight the source net left at exactly 0 is a pruned edge and must
@@ -954,7 +957,9 @@ public class RegressionTrainer {
 		}
 	}
 
-	/** Allocates a fixed worker pool and one private scratch/gradient set per worker. */
+	/** Allocates a fixed worker pool.  Worker 0 aliases the master's SIMD scratch and
+	 * gradient arrays, additional workers own distinct arrays, and each task gets exclusive
+	 * access to its assigned worker while Adam/model updates remain serial. */
 	private void setupGradientWorkers(){
 		gradientThreadCount=Math.min(threads, Math.min(batch, numTrain));
 		if(gradientThreadCount<=1){return;}
@@ -1063,7 +1068,7 @@ public class RegressionTrainer {
 	/**
 	 * Vectorized forward and backward pass for one sample.
 	 * @param sample Index of the sample
-	 * @return Squared error for this sample
+	 * @return Possibly weighted sum of squared output errors for this sample
 	 */
 	private double accumulateGradientF(final int sample, final float[][] actLocal,
 			final float[][] preActLocal, final float[][] deltaLocal,
@@ -1184,7 +1189,7 @@ public class RegressionTrainer {
 		}
 	}
 
-	/** Stops the reusable pool on normal completion and every failure path. */
+	/** Requests worker interruption after the epoch loop exits or throws. */
 	private void shutdownGradientWorkers(){
 		if(gradientPool!=null){
 			gradientPool.shutdownNow();
@@ -1322,7 +1327,7 @@ public class RegressionTrainer {
 	/**
 	 * Forward and backward pass for one sample, accumulating into gW and gB.
 	 * @param sample Index of the sample
-	 * @return Squared error for this sample
+	 * @return Possibly weighted sum of squared output errors for this sample
 	 */
 	private double accumulateGradient(final int sample){
 		final float[] vector=trainingData.inputs[sample];
@@ -1409,13 +1414,14 @@ public class RegressionTrainer {
 		}
 	}
 
-	/** @return Mean squared error over the validation split.
+	/** @return Weighted mean of summed squared output errors over all validation rows.
 	 * Dispatches across the existing gradient worker pool when available (phase-1 acceleration,
 	 * 2026-08-31 -- validate() was previously a single-threaded, non-SIMD bottleneck that
 	 * dominated per-epoch wall time regardless of batch/thread configuration; see
 	 * mag-qc results/regressiontrainer_validate_singlethreaded_finding_v1.md). Falls back to
-	 * sumSquaredErrorRange(0, numValid, ...) whenever no pool exists (useSimd=false or
-	 * threads<=1) -- the loop body there is a direct extraction of the original inline code (same
+	 * sumSquaredErrorRange(0, numValid, ...) whenever no pool exists and vsimd is false
+	 * (useSimd=false or threads&lt;=1), or to the float/SIMD sumSquaredErrorRangeF when vsimd=true.
+	 * The double loop body is a direct extraction of the original inline code (same
 	 * sample-to-index mapping, same per-sample computation, same accumulation order), so this
 	 * path preserves the original's exact behavior and numerics, though the source itself was
 	 * refactored into a separate method and is no longer byte-for-byte the same source text. */
@@ -1625,7 +1631,7 @@ public class RegressionTrainer {
 	}
 
 	/**
-	 * Builds a CellNet from the trained weights and writes it in BBNet format,
+	 * Mutates the existing export CellNet from the trained weights and writes it in BBNet format,
 	 * folding input standardization into the first layer so the saved net takes
 	 * raw inputs.
 	 */
@@ -1679,8 +1685,9 @@ public class RegressionTrainer {
 	}
 
 	/**
-	 * Reloads the written net and compares it against the in-memory model, which
-	 * catches export and serialization errors that training metrics cannot.
+	 * Reloads the written net and compares it against the in-memory model on the first
+	 * min(1000,numSamples) training samples with tolerance 1e-3, catching many export and
+	 * serialization errors that training metrics cannot.
 	 */
 	private void roundTripCheck(){
 		final CellNet check=CellNetParser.load(out);
@@ -1740,7 +1747,7 @@ public class RegressionTrainer {
 	}
 
 	/** Row-oriented regression inputs and targets from one source file. */
-	private static final class RegressionData {
+	private static final class RegressionData{
 
 		RegressionData(ArrayList<float[]> inputList, ArrayList<float[]> targetList){
 			this(inputList, targetList, null);
@@ -1761,14 +1768,17 @@ public class RegressionTrainer {
 
 		int size(){return inputs.length;}
 
+		/** Input vectors, one row per sample */
 		final float[][] inputs;
+		/** Target vectors, aligned one-to-one with inputs */
 		final float[][] targets;
 		/** Null preserves the legacy unweighted calculation without an allocated unit-weight vector. */
 		final double[] rowWeights;
 	}
 
-	/** Reusable task with private forward/backward scratch and gradient buffers. */
-	private final class GradWorker implements Callable<Void> {
+	/** Reusable task with borrowed forward/backward scratch and gradient buffers.
+	 * Worker 0 borrows the master's arrays; other workers receive distinct arrays. */
+	private final class GradWorker implements Callable<Void>{
 
 		GradWorker(float[][] act_, float[][] preAct_, float[][] delta_,
 				float[][][] gw_, float[][] gb_){
@@ -1793,16 +1803,22 @@ public class RegressionTrainer {
 			return null;
 		}
 
+		/** Worker-private activation, pre-activation and delta scratch */
 		private final float[][] actLocal, preActLocal, deltaLocal;
+		/** Worker-private weight gradients */
 		private final float[][][] gw;
+		/** Worker-private bias gradients */
 		private final float[][] gb;
+		/** Shared shuffled-row order for the current batch */
 		private int[] order;
+		/** Half-open order range for the current task */
 		private int start, end;
+		/** Possibly weighted sum of squared errors accumulated by the worker */
 		private double sqErr;
 	}
 
 	/** Reusable task with private forward-pass scratch buffers, for parallel validation. */
-	private final class ValidateWorker implements Callable<Void> {
+	private final class ValidateWorker implements Callable<Void>{
 
 		ValidateWorker(){
 			curBuf=new double[maxDim()];
@@ -1822,9 +1838,13 @@ public class RegressionTrainer {
 			return null;
 		}
 
+		/** Worker-private double-path current/next activation buffers */
 		private final double[] curBuf, nextBuf;
+		/** Worker-private float/SIMD activation buffers; null unless vsimd=true */
 		private float[][] actBufF;
+		/** Half-open validation range for the current task */
 		private int start, end;
+		/** Sum of squared errors accumulated by the worker */
 		private double sqErr;
 	}
 
@@ -1832,27 +1852,31 @@ public class RegressionTrainer {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Training-vector path */
 	private String in=null;
 	/** Optional external validation vectors; never included in normalization or training */
 	private String valIn=null;
+	/** Destination .bbnet path */
 	private String out=null;
 	/** Existing .bbnet to continue training from, instead of random initialization */
 	private String netIn=null;
 	/** Comma-separated hidden activations; one name is uniform, several are drawn per cell */
 	private String hiddenSpec="tanh";
-	/** Per-cell hidden activation, indexed [activationLayer][cell]; null means uniform tanh */
+	/** Per-cell hidden activation, indexed [activationLayer][cell]; null means default tanh */
 	private Function[][] hiddenFunc;
 	/** Type code per cell, parallel to hiddenFunc, for export */
 	private int[][] hiddenType;
+	/** Network architecture, including input width, hidden-layer widths, and output width */
 	private int[] dims=null;
 
+	/** Last epoch number in the cosine learning-rate schedule */
 	private int epochs=60;
 	/**
 	 * Epoch to resume the cosine LR schedule and checkpoint numbering from; 0 means
 	 * auto-detect. With netin=, auto-detect reads the loaded net's own #epochs header
-	 * (CellNet.epochsTrained, set by CellNetParser) and resumes at epochsTrained+1, so a
-	 * job killed and resumed with the identical command line just continues correctly. Set
-	 * explicitly to override that (a stale/absent header, or a deliberate LR-schedule reset).
+	 * (CellNet.epochsTrained, set by CellNetParser) and resumes at epochsTrained+1, preserving
+	 * the model/epoch schedule but not Adam moments or RNG state. Set explicitly to override
+	 * a stale/absent header, or to force a deliberate LR-schedule reset.
 	 */
 	private int startEpoch=0;
 	/**
@@ -1863,16 +1887,23 @@ public class RegressionTrainer {
 	 * where every epoch's trend matters and there are few enough of them that spam isn't a risk.
 	 */
 	private int printEvery=0;
+	/** Rows per gradient update */
 	private int batch=8192;
+	/** Initial learning rate before cosine decay */
 	private double lr=0.003;
+	/** Coupled L2 weight-decay term added to weight gradients before Adam moments */
 	private double wd=1e-4;
+	/** Random seed for row shuffling, initialization, topology, and hidden-function assignment */
 	private long seed=1;
+	/** Fraction of shuffled input rows held out for validation when valin= is absent */
 	private double vfraction=0.1;
 	/** Whether vfraction was supplied explicitly, for rejecting ambiguous valin combinations */
 	private boolean vfractionSet=false;
+	/** Output activation selector: FINAL_RSLOG, FINAL_LINEAR, or FINAL_SIGMOID */
 	private int finalType=FINAL_RSLOG;
+	/** Allow an existing out= file to be overwritten */
 	private boolean overwrite=true;
-	/** Fraction of hidden-layer edges to keep; 1 is fully connected.  The output layer is always dense. */
+	/** Fraction of hidden-layer edges to keep; 1 is fully connected. The output layer is always dense. */
 	private float density=1f;
 	/** Density override for the first hidden layer; 0 uses density */
 	private float density1=0f;
@@ -1925,25 +1956,37 @@ public class RegressionTrainer {
 	private RegressionData trainingData;
 	/** Separate held-out rows when valin is supplied */
 	private RegressionData validationData;
+	/** Number of input rows available before the train/validation split */
 	private int numSamples;
+	/** Input feature width */
 	private int numInputs;
 	/** Output width; 1 is the classic scalar case */
 	private int numOutputs;
+	/** Available training rows after validation is reserved; sort/setsize may visit fewer */
 	private int numTrain;
+	/** Number of rows evaluated by validate() */
 	private int numValid;
 	/** Shuffled training indices; the suffix is internal validation only when valin is absent */
 	private int[] perm;
 
+	/** Unweighted per-input mean learned from all in= rows and folded into exported weights */
 	private double[] mean;
+	/** Unweighted per-input standard deviation; zero-variance inputs use 1 */
 	private double[] sd;
 
+	/** Number of weight/bias transitions between layers */
 	private int layers;
 	/** Per-layer weights, flat row-major, indexed [i*cols+j] */
 	private double[][] weights;
+	/** Per-layer biases */
 	private double[][] bias;
+	/** Adam first and second moments for weights and biases */
 	private double[][] mW, vW, mB, vB;
+	/** Mini-batch gradient accumulators for weights and biases */
 	private double[][] gW, gB;
+	/** Deep copies of the lowest-validation weights and biases */
 	private double[][] bestWeights, bestBias;
+	/** Lowest validation error seen so far */
 	private double bestValid=Double.MAX_VALUE;
 	/** Set once exportNet's #CL line has been recorded, so mid-training checkpoint
 	 * writes (one per improving epoch) don't duplicate it on every call. */
@@ -1954,28 +1997,36 @@ public class RegressionTrainer {
 	/** Per-layer edge mask, flat row-major; null when fully connected */
 	private boolean[][] edgeMask;
 
+	/** Double-path forward activations */
 	private double[][] act;
 	/** Pre-activation values; kept only when a hidden function needs them for its derivative */
 	private double[][] preAct;
+	/** Double-path backpropagation deltas */
 	private double[][] delta;
+	/** Prediction scratch; predict() returns one of these borrowed buffers */
 	private double[] scratchA, scratchB;
 	/** Phase-2 float/SIMD validation scratch, allocated only when vsimd=true */
 	private float[][] scratchActF;
 
+	/** Deterministic source for shuffling, topology and hidden-function choices */
 	private Random randy;
 
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Parsed input format */
 	private final FileFormat ffin;
+	/** Parsed external-validation format; null when valin is absent */
 	private final FileFormat ffval;
+	/** Parsed output format */
 	private final FileFormat ffout;
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Output activation constants stored in finalType */
 	static final int FINAL_LINEAR=0, FINAL_RSLOG=1, FINAL_SIGMOID=2;
 
 	/** Float mirrors used only by the vectorized path; each neuron's weights are contiguous */
@@ -1984,13 +2035,21 @@ public class RegressionTrainer {
 	private float[][][] wT;
 	/** Sparse views used when a density mask is present: values plus the index sets they gather through */
 	private float[][][] spW, spT;
+	/** Gather indices for sparse forward and transposed backward views */
 	private int[][][] spWIdx, spTIdx;
+	/** Float bias mirrors, gradients and Adam moments */
 	private float[][] biasF, gbF, mBF, vBF;
+	/** Float forward activations and backpropagation deltas */
 	private float[][] actF, deltaF;
+	/** Float pre-activation values, kept only when a hidden function needs them */
 	private float[][] preActF;
+	/** Active worker count after capping by threads, batch size and numTrain */
 	private int gradientThreadCount=1;
+	/** Reusable gradient workers, each with private scratch and gradient buffers */
 	private ArrayList<GradWorker> gradientWorkers;
+	/** Reusable validation workers sharing the gradient pool */
 	private ArrayList<ValidateWorker> validateWorkers;
+	/** Fixed pool for reusable gradient and validation tasks */
 	private ExecutorService gradientPool;
 
 	/** Most recent absolute error per sample; null unless sorting */
@@ -2001,11 +2060,14 @@ public class RegressionTrainer {
 	/** Float lanes in a 256-bit vector; the pad8 rounding unit */
 	private static final int LANE=8;
 
+	/** Adam decay constants and epsilon */
 	private static final double BETA1=0.9, BETA2=0.999, EPS=1e-8;
 	/** Epoch decay in the sort priority, matching ml.Sample.EPOCH_MULT */
 	private static final float EPOCH_MULT=1/256f;
 
+	/** Diagnostic and progress stream */
 	private PrintStream outstream=System.err;
+	/** Fatal parse or processing state, following BBTools tool convention */
 	public boolean errorState=false;
 
 }

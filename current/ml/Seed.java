@@ -1,19 +1,19 @@
 package ml;
 
 /**
- * Represents a deterministic seed configuration for neural network training.
- * Provides a comparable representation of network initialization states and performance metrics.
- * Used to ensure reproducible random states and facilitate seed comparison during model training.
+ * Seed-scan result carrying a network seed and validation pivot.
+ * ScannerThread returns these to Trainer, which sorts them by pivot and netSeed
+ * before training the winning seeds.
  * @author Brian Bushnell
  */
 public class Seed implements Comparable<Seed>{
 
 	/**
-	 * Constructs a Seed with network seed and performance pivot.
-	 * @param netSeed_ The network initialization seed value
-	 * @param pivot_ The performance pivot value for comparison
+	 * Constructs a seed-scan result.
+	 * @param netSeed_ network initialization seed
+	 * @param pivot_ validation pivot used for ordering
 	 */
-	Seed(long netSeed_, float pivot_){
+	public Seed(long netSeed_, float pivot_){
 		netSeed=netSeed_;
 		pivot=pivot_;
 	}
@@ -24,43 +24,56 @@ public class Seed implements Comparable<Seed>{
 //		pivot=pivot_;
 //	}
 	
+	/**
+	 * Orders finite pivots ascending, with NaN pivots after all non-NaN values
+	 * including infinities; signed-zero ties and both-NaN ties fall through to
+	 * ascending network seed order.
+	 */
 	@Override
-	public int compareTo(Seed s) {
-		if(pivot!=s.pivot) {
-			return pivot>s.pivot ? 1 : -1;
+	public int compareTo(Seed s){
+		if(pivot!=s.pivot){
+			final boolean nan=Float.isNaN(pivot), sNan=Float.isNaN(s.pivot);
+			if(nan || sNan){
+				if(!nan){return -1;}
+				if(!sNan){return 1;}
+			}else{
+				return pivot>s.pivot ? 1 : -1;
+			}
 		}
-		if(netSeed!=s.netSeed) {
+		if(netSeed!=s.netSeed){
 			return netSeed>s.netSeed ? 1 : -1;
 		}
-//		if(annealSeed!=s.annealSeed) {
+//		if(annealSeed!=s.annealSeed){
 //			return annealSeed>s.annealSeed ? 1 : -1;
 //		}
 		return 0;
 	}
 
 	@Override
-	public boolean equals(Object o) {
+	public boolean equals(Object o){
+		//TODO: This throws for null and non-Seed objects.
 		return equals((Seed)o);
 	}
 	
 	/**
-	 * Checks equality with another Seed based on network seed only.
-	 * @param s The Seed to compare against
-	 * @return true if network seeds are equal, false otherwise
+	 * Checks equality with another Seed by network seed only.
+	 * TODO: This ignores pivot, though compareTo orders same-seed Seeds by pivot.
+	 * TODO: This value equality also lacks a matching hashCode().
 	 */
-	public boolean equals(Seed s) {
-		return s.netSeed==netSeed;// && s.annealSeed==annealSeed;
+	public boolean equals(Seed s){
+		return s.netSeed==netSeed;
 	}
 	
+	/** Returns the network seed and pivot separated by a comma. */
 	@Override
-	public String toString() {
-		return netSeed+/*", "+annealSeed+*/", "+pivot;
+	public String toString(){
+		return netSeed+", "+pivot;
 	}
 	
-	/** The network initialization seed value used for reproducible random states */
+	/** Network initialization seed returned from ScannerThread. */
 	final long netSeed;
 //	final long annealSeed;
-	/** The performance pivot value used for seed comparison and sorting */
+	/** Validation pivot used for seed comparison and sorting. */
 	final float pivot;
 	
 }

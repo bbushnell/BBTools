@@ -3,31 +3,37 @@ package ml;
 import fileIO.ByteFile;
 import fileIO.ByteStreamWriter;
 import parse.LineParser1;
+import shared.KillSwitch;
 import shared.Timer;
 import shared.Tools;
 import structures.IntList;
 import structures.ListNum;
 
 /**
- * Command-line utility for extracting specific columns from tab-delimited text files
- * with efficient memory management. Processes input files by selectively extracting
- * user-specified columns, writing results to a new output file with low memory overhead.
- * Useful for column extraction from large tabular data files and data preprocessing
- * for machine learning datasets.
+ * Rewrites tab-delimited matrix rows with only selected columns.
+ * <p>
+ * Header lines beginning with {@code '#'} are skipped.  The first data row
+ * resolves the last supplied open-ended {@code N+} column range and appends
+ * that expansion after all explicit selections, then emits a BBTools
+ * {@code #dims} header where the last selected column is the single output
+ * column and every earlier selected column is treated as input.
  *
  * @author Brian Bushnell, Chloe
  * @date June 3, 2025
  */
-public class ReduceColumns {
+public class ReduceColumns{
 
 	/**
-	 * Main entry point for the column reduction utility.
-	 * Expects input file path, output file path, followed by column specs to extract.
-	 * Supports individual columns (5), ranges (0-8), and open-ended ranges (17+).
+	 * Parses {@code in out colspec...}, then streams selected columns to the
+	 * destination.  Column specs may be individual zero-based indexes or closed
+	 * inclusive ranges such as {@code 0-8}; they preserve the listed order and
+	 * duplicates.  At most one open range is retained: the last {@code N+} spec
+	 * expands against the first data row's column count after all explicit
+	 * selections.  Every selected index must exist in every data row.
 	 *
-	 * @param args Command line arguments: [input_file] [output_file] [colspec] [colspec] ...
+	 * @param args input path, output path, and one or more column specs
 	 */
-	public static void main(String[] args) {
+	public static void main(String[] args){
 
 		Timer t=new Timer();
 		String in=args[0];
@@ -81,7 +87,8 @@ public class ReduceColumns {
 				}
 			}
 		}
-		bsw.poisonAndWait();
+		final boolean writeError=bsw.poisonAndWait();
+		assert(!writeError) : KillSwitch.assertDie("Could not write reduced columns output: "+out);
 
 		t.stop();
 		System.err.println(Tools.timeLinesBytesProcessed(t, linesIn, bytesIn, 8));

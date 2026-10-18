@@ -9,13 +9,14 @@ import shared.Tools;
  * Abstract base class for defining activation functions in neural network architectures.
  * Provides a standardized interface for implementing various activation function
  * transformations and their derivatives in machine learning models.
- * Supports multiple built-in activation function types including Sigmoid, Tanh,
- * Swish, RSLog, MSig, ExtendedSigmoid, ExtendedMSig, and Bell functions.
+ * Built-in implementations are shared singleton instances. Their available
+ * derivative forms differ; an output-only derivative is not supported by every
+ * function. The shared type-rate arrays configure random function selection.
  *
  * @author Brian Bushnell
  * @date December 16, 2013
  */
-public abstract class Function {
+public abstract class Function{
 	
 	/*--------------------------------------------------------------*/
 	/*----------------           Methods            ----------------*/
@@ -38,7 +39,8 @@ public abstract class Function {
 	
 	/**
 	 * Calculates the derivative given the function's output value.
-	 * More efficient than derivativeX when the function output is already known.
+	 * Implementations that cannot recover the derivative from output alone may reject
+	 * this operation; consult the concrete function's contract.
 	 * @param fx The pre-computed activation function output
 	 * @return Derivative value corresponding to fx
 	 */
@@ -68,54 +70,55 @@ public abstract class Function {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Converts a string representation to a function type integer with validation.
-	 * @param b String representation of function type
+	 * Resolves a short or long function name, ignoring case, with assertion validation.
+	 * Numeric names are rejected independently of assertion settings.
+	 * @param b Function name
 	 * @return Function type integer constant
 	 */
-	static final int toType(String b) {
+	static final int toType(String b){
 		return toType(b, true);
 	}
 
 	/**
-	 * Converts string representation to function type integer with optional validation.
-	 * Searches both short and long type name arrays for matching function names.
+	 * Resolves a short or long function name, ignoring case, with optional assertion validation.
+	 * Numeric strings are parsed and then rejected; this method does not accept numeric types.
 	 *
 	 * @param b String representation of function type
 	 * @param assertValid Whether to assert that the type is valid
-	 * @return Function type integer constant
+	 * @return Function type constant, or -1 for an unknown alphabetic name when validation is disabled
 	 */
-	static final int toType(String b, boolean assertValid) {
-			int type;
-			if(Tools.startsWithLetter(b)) {
-				type=Tools.findIC(b, TYPES);
-				if(type<0) {type=Tools.findIC(b, TYPES_LONG);}
-			}else{
-				type=Integer.parseInt(b);
-				throw new RuntimeException("Numbers are not allowed for defining types: "+b);
-			}
-			assert(!assertValid || type>=0 && type<TYPES.length) : type;
-	//		System.err.println(b+" -> "+type);
-			return type;
+	static final int toType(String b, boolean assertValid){
+		int type;
+		if(Tools.startsWithLetter(b)){
+			type=Tools.findIC(b, TYPES);
+			if(type<0){type=Tools.findIC(b, TYPES_LONG);}
+		}else{
+			type=Integer.parseInt(b);
+			throw new RuntimeException("Numbers are not allowed for defining types: "+b);
 		}
+		assert(!assertValid || type>=0 && type<TYPES.length) : type;
+//		System.err.println(b+" -> "+type);
+		return type;
+	}
 
 	/**
-	 * Normalizes the TYPE_RATES array to sum to 1.0 and computes cumulative rates.
-	 * Creates the TYPE_RATES_CUM array for weighted random function selection.
-	 * Must be called before using randomFunction() method.
-	 * @return void
+	 * Normalizes positive-total TYPE_RATES in place and builds cumulative rates.
+	 * The cumulative array must initially be null. A zero total leaves it null,
+	 * so randomFunction() still cannot be used until positive rates are configured.
+	 * Callers must coordinate changes to the shared arrays with their readers.
 	 */
-	public static synchronized final void normalizeTypeRates() {
+	public static synchronized final void normalizeTypeRates(){
 		assert(TYPE_RATES_CUM==null);
 		double sum=simd.Vector.sum(TYPE_RATES);
 		assert(sum>=0) : sum;
 		
-		if(sum<=0) {
+		if(sum<=0){
 			TYPE_RATES_CUM=null;
 			return;
 		}
 		if(Tools.absdif(sum, 1)>0.000001){
 			final double mult=1.0/sum;
-			for(int i=0; i<TYPE_RATES.length; i++) {
+			for(int i=0; i<TYPE_RATES.length; i++){
 				double r=TYPE_RATES[i];
 				assert(r>=0) : i+": "+r;
 				TYPE_RATES[i]=(float)(r*mult);
@@ -124,7 +127,7 @@ public abstract class Function {
 		
 		TYPE_RATES_CUM=new float[TYPE_RATES.length];
 		double c=0;
-		for(int i=0; i<TYPE_RATES.length; i++) {
+		for(int i=0; i<TYPE_RATES.length; i++){
 			double r=TYPE_RATES[i];
 			assert(r>=0) : i+": "+r;
 			c+=r;
@@ -141,7 +144,7 @@ public abstract class Function {
 	 * @param type Function type constant
 	 * @return Function instance for the specified type
 	 */
-	public static final Function getFunction(int type) {
+	public static final Function getFunction(int type){
 		return functions[type];
 	}
 	
@@ -151,7 +154,7 @@ public abstract class Function {
 	 * Validates that each function has correct type and name assignments.
 	 * @return Array of Function instances indexed by type
 	 */
-	private static final Function[] makeFunctions() {
+	private static final Function[] makeFunctions(){
 		assert(functions==null);
 		Function[] array=new Function[TYPES.length];
 		array[SIG]=Sigmoid.instance;
@@ -163,7 +166,7 @@ public abstract class Function {
 		array[EMSIG]=ExtendedMSig.instance;
 		array[BELL]=Bell.instance;
 		array[LINEAR]=Linear.instance;
-		for(int i=0; i<array.length; i++) {
+		for(int i=0; i<array.length; i++){
 			Function f=array[i];
 			assert(f!=null) : i+", "+TYPES[i]+", "+f;
 			assert(f.type()==i) : i+", "+TYPES[i]+", "+f;
@@ -176,11 +179,11 @@ public abstract class Function {
 	
 	/**
 	 * Selects a random activation function based on weighted probabilities.
-	 * Uses the TYPE_RATES_CUM array for weighted selection.
+	 * Requires a non-null TYPE_RATES_CUM built from positive-total rates.
 	 * @param randy Random number generator
 	 * @return Randomly selected Function instance
 	 */
-	static final Function randomFunction(Random randy) {
+	static final Function randomFunction(Random randy){
 		final int type=randomType(randy, TYPE_RATES_CUM);
 		return functions[type];
 	}
@@ -188,13 +191,13 @@ public abstract class Function {
 	/**
 	 * Selects a random type index based on cumulative probability distribution.
 	 * @param randy Random number generator
-	 * @param cumRate Cumulative probability array
+	 * @param cumRate Non-null cumulative probabilities, ending at 1
 	 * @return Selected type index
 	 */
-	static final int randomType(Random randy, float[] cumRate) {
+	static final int randomType(Random randy, float[] cumRate){
 		float f=randy.nextFloat();
-		for(int i=0; i<cumRate.length; i++) {
-			if(cumRate[i]>=f) {return i;}
+		for(int i=0; i<cumRate.length; i++){
+			if(cumRate[i]>=f){return i;}
 		}
 		assert(false) : f+", "+Arrays.toString(cumRate);
 		return cumRate.length-1;
@@ -215,11 +218,11 @@ public abstract class Function {
 	/** Array of singleton Function instances indexed by type */
 	private static final Function[] functions=makeFunctions();
 	
-	/** Probability weights for random function selection */
+	/** Mutable shared probability weights, normalized in place by normalizeTypeRates(). */
 	public static final float[] TYPE_RATES=new float[TYPES.length];
 	//tanh=.4 sig=.6 msig=.02 rslog=.02 swish=0
 	
-	/** Cumulative probability distribution for weighted random selection */
+	/** Shared cumulative distribution; null until positive-total rates are normalized. */
 	public static float[] TYPE_RATES_CUM=null;
 
 	static {

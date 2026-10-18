@@ -8,31 +8,41 @@ package ml;
  *
  * @author Brian Bushnell
  */
-public class RSLog extends Function {
+public class RSLog extends Function{
 	
 	/*--------------------------------------------------------------*/
 	/*----------------            Methods           ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	private RSLog() {}
+	/** Creates the shared stateless activation instance. */
+	private RSLog(){}
 
+	/** Evaluates the sign-symmetric logarithm through Functions.rslog. */
 	@Override
-	public double activate(double x) {return Functions.rslog(x);}
+	public double activate(double x){return Functions.rslog(x);}
 
+	/** Evaluates 1/(abs(x)+1) from the input. */
 	@Override
-	public double derivativeX(double x) {return Functions.rslogDerivativeX(x);}
+	public double derivativeX(double x){return Functions.rslogDerivativeX(x);}
 
+	/** Legacy output-only path: asserts under {@code -ea}, otherwise uses inverse-log arithmetic.
+	 * @param fx Precomputed activation value
+	 * @return Derivative reconstructed from the activation when assertions are disabled
+	 * @throws AssertionError Always thrown when assertions are enabled */
 	@Override
-	public double derivativeFX(double fx) {return Functions.rslogDerivativeFX(fx);} //Possible bug: Functions.rslogDerivativeFX contains assert(false)
+	public double derivativeFX(double fx){return Functions.rslogDerivativeFX(fx);} //Possible bug: Functions.rslogDerivativeFX contains assert(false)
 
+	/** Uses the input-aware derivative; the supplied activation is ignored. */
 	@Override
-	public double derivativeXFX(double x, double fx) {return Functions.rslogDerivativeXFX(x, fx);}
+	public double derivativeXFX(double x, double fx){return Functions.rslogDerivativeXFX(x, fx);}
 
+	/** Returns the registered RSLOG type index. */
 	@Override
-	public int type() {return type;}
+	public int type(){return type;}
 
+	/** Returns the serialized activation name RSLOG. */
 	@Override
-	public String name() {return name;}
+	public String name(){return name;}
 	
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/

@@ -5,48 +5,40 @@ import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
- * Encapsulates configuration and state for parallel ML job processing with thread safety.
- * Thread-safe container for neural network training jobs, managing sample subsets,
- * network references, and job parameters during distributed learning.
+ * Encapsulates one parallel ML job submitted by TrainerThread or ScannerThread.
+ * A normal job carries either a per-job sample list or a shared sample array plus
+ * strided job coordinates; POISON leaves both sample sources null. Callers that
+ * set doCopy false attach mutableNet before the job runs.
  *
  * @author Brian Bushnell
  * @date 2025
  */
-public class JobData {
+public class JobData{
 	
 	/**
-	 * Constructs a JobData instance with complete training configuration parameters.
-	 * Initializes job settings including network references, queue connections, and
-	 * processing parameters.
+	 * Constructs a worker job with its network source, sample source, and result queue.
 	 *
-	 * @param net_ The immutable neural network to use for this job
+	 * @param net_ source network copied by the worker or loaded into mutableNet;
+	 *              null when the caller attaches a ready mutableNet after construction
 	 * @param jrq_ Queue for submitting job results after processing
 	 * @param epoch_ Current training epoch number
-	 * @param maxSamples_ Maximum number of samples to process in this job
+	 * @param maxSamples_ maximum list samples to process, or exclusive set index limit
 	 * @param alpha_ Learning rate for gradient updates
 	 * @param backprop_ Whether to perform backpropagation during training
-	 * @param weightMult_ Weight multiplication factor for regularization
+	 * @param weightMult_ Weighting multiplier forwarded to CellNet.processSample
 	 * @param sort_ Whether to sort samples before processing
-	 * @param doCopy_ Whether to copy the network for thread safety
-	 * @param list_ List of samples specific to this job
-	 * @param set_ Complete set of all available samples
-	 * @param setLock_ Thread synchronization lock for the sample set
-	 * @param jid_ Unique job identifier (-1 for non-tracked jobs)
-	 * @param jpe_ Number of jobs per epoch for coordination
+	 * @param doCopy_ Whether the worker should copy net_ instead of using mutableNet
+	 * @param list_ samples specific to this job; null for shared-array jobs and POISON
+	 * @param set_ complete array of all available samples; null for list jobs and POISON
+	 * @param setLock_ optional lock acquired by WorkerThread before sample processing
+	 * @param jid_ unique job identifier; -1 for non-tracked jobs and POISON
+	 * @param jpe_ number of jobs per epoch for coordination
 	 */
-	JobData(final CellNet net_, final ArrayBlockingQueue<JobResults> jrq_, 
+	public JobData(final CellNet net_, final ArrayBlockingQueue<JobResults> jrq_,
 			final int epoch_, final int maxSamples_, final double alpha_,
 			boolean backprop_, final float weightMult_, final boolean sort_, final boolean doCopy_,
 			ArrayList<Sample> list_, Sample[] set_, ReentrantReadWriteLock setLock_, final int jid_, final int jpe_){
 
-//		if(jid_>-1) {
-//			System.err.println("Called  new JobData("+(net_==null ? "null" : ""+net_.dims)+", "+
-//					jrq_+", "+epoch_+", "+maxSamples_+", "+alpha_+", "+backprop_+", "+
-//					sort_+", "+(list_==null ? "null" : ""+list_.size())+", "+set_+", "+jid_+")");
-//
-//			System.err.println("JD: maxSamples_="+maxSamples_+", list_="+
-//					(list_==null ? "null" : ""+list_.size()));
-//		}
 		immutableNet=net_;
 		jobResultsQueue=jrq_;
 		
@@ -66,51 +58,51 @@ public class JobData {
 			maxSamples+", "+(list_==null ? "null" : ""+list_.size())+", "+epoch+", "+jid_;
 	}
 	
-	/** Returns a string representation of key job parameters for debugging.
-	 * @return String containing epoch, max samples, list size, backprop, and sort settings */
-	public String toString() {
-		return "jD: epoch="+epoch+", max="+maxSamples+", len="+list.size()+", back="+backprop+", sort="+sort;
+	/** Returns key job parameters for debugging. The len field is the list
+	 * size, shared set length, or zero when no sample source is attached.
+	 * @return epoch, max samples, sample-source length, backprop flag, and sort flag */
+	public String toString(){
+		final int len=(list!=null ? list.size() : set==null ? 0 : set.length);
+		return "jD: epoch="+epoch+", max="+maxSamples+", len="+len+", back="+backprop+", sort="+sort;
 	}
 	
-	/** Immutable reference to the neural network used for this job */
-	final CellNet immutableNet;
-	/** Optional mutable network copy for thread-safe modifications */
+	/** Source network copied or loaded by workers; may be null with a caller-supplied mutableNet. */
+	public final CellNet immutableNet;
+	/** Caller-supplied mutable network used when doCopy is false. */
 	CellNet mutableNet;//Optional and mutable
-	/** Per-job feed-forward SIMD toggle, stamped by the TrainerThread after construction. Only
-	 * consulted inside the Shared.SIMD && Shared.SIMD_FEED_FORWARD gate, so a batch can choose
-	 * scalar vs SIMD feed-forward (noise / SIMD_FF-robustness experiment). Default false. */
+	/** Per-job feed-forward SIMD toggle stamped by TrainerThread after construction. Only
+	 * consulted inside the Shared.SIMD &amp;&amp; Shared.SIMD_FEED_FORWARD gate, so a batch can
+	 * choose scalar versus SIMD feed-forward for the SIMD_FF robustness experiment. */
 	boolean simdFF=false;//Optional and mutable
-	/** Thread-safe queue for submitting completed job results */
+	/** Queue for submitting completed job results; null only for POISON. */
 	final ArrayBlockingQueue<JobResults> jobResultsQueue;
 
 	/** Current training epoch number for this job */
-	final int epoch;
-	/** Maximum number of samples to process in this job */
-	final int maxSamples;
+	public final int epoch;
+	/** Maximum list samples to process, or exclusive index limit for the shared set. */
+	public final int maxSamples;
 	/** Learning rate for gradient descent updates */
-	final double alpha;
+	public final double alpha;
 	/** Whether to perform backpropagation during sample processing */
-	final boolean backprop;
-	/** Weight multiplication factor applied during training for regularization */
-	final float weightMult;
+	public final boolean backprop;
+	/** Weighting multiplier forwarded to CellNet.processSample */
+	public final float weightMult;
 	/** Whether to sort samples by error or other criteria before processing */
-	final boolean sort;
-	/** Whether to create a mutable copy of the network for thread safety */
+	public final boolean sort;
+	/** Whether the worker should copy immutableNet instead of using mutableNet */
 	final boolean doCopy;
 	/** Unique job identifier, -1 for non-tracked jobs */
-	final int jid;
+	public final int jid;
 	/** Total number of jobs per epoch for coordination and progress tracking */
-	final int jobsPerEpoch;
+	public final int jobsPerEpoch;
 
-	/** List of samples assigned specifically to this job for processing */
-	final ArrayList<Sample> list;//Only samples for this job
-	/** Complete array of all available samples in the dataset */
-	final Sample[] set;//All samples
-	/** Thread synchronization lock for safe access to the complete sample set */
-	final ReentrantReadWriteLock setLock;
+	/** Samples assigned specifically to this job; null for shared-array jobs and POISON. */
+	public final ArrayList<Sample> list;//Only samples for this job
+	/** Complete array of all available samples; null for list jobs and POISON. */
+	public final Sample[] set;//All samples
+	/** Optional lock acquired by WorkerThread before processing. */
+	public final ReentrantReadWriteLock setLock;
 	
-	/**
-	 * Sentinel job instance used to signal thread termination in producer-consumer patterns
-	 */
-	static final JobData POISON=new JobData(null, null, -1, -1, -1, false, 0.0f, false, false, null, null, null, -1, -1);
+	/** Sentinel job instance used to signal thread termination in producer-consumer patterns. */
+	public static final JobData POISON=new JobData(null, null, -1, -1, -1, false, 0.0f, false, false, null, null, null, -1, -1);
 }

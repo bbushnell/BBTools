@@ -3,19 +3,23 @@ package ml;
 import java.util.Comparator;
 
 /**
- * Reverses the natural ordering of CellNet neural networks for sorting purposes.
- * When used with sorting algorithms, this comparator arranges networks so that
- * the best performing networks appear first (in descending order of quality).
- * Since CellNet.compareTo() returns positive values for better networks,
- * this reversal creates standard best-first ordering.
+ * Reverses {@link CellNet#compareTo(CellNet)} for best-first sorting.
+ * Uses that method's selected metric, tie breakers and invalid-metric behavior;
+ * this wrapper does not impose a separate ordering policy.
  *
  * @author Brian Bushnell
  * @date October 25, 2013
  */
 public class CellNetReverseComparator implements Comparator<CellNet>{
 
+	/**
+	 * Negates the first network's natural comparison result.
+	 * @param a Non-null first network
+	 * @param b Second network, passed unchanged to the natural comparator
+	 * @return Negative when a ranks better, positive when b ranks better, or zero for a tie
+	 */
 	@Override
-	public int compare(CellNet a, CellNet b) {
+	public int compare(CellNet a, CellNet b){
 		return -a.compareTo(b);
 	}
 

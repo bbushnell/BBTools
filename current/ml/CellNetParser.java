@@ -14,32 +14,40 @@ import structures.FloatList;
 import structures.IntList;
 
 /**
- * Parser for loading CellNet neural network configurations from text files.
- * Supports both dense and sparse weight representations with various metadata.
+ * Stateful parser for text {@link CellNet} images. Header rows are parsed first,
+ * then exactly one edge representation is loaded into a newly allocated network:
+ * dense C/W rows, sparse I/H plus C/W rows, or A48 N rows. Several newer
+ * headers and row formats use exceptions; some legacy parse paths still keep
+ * their original assertion-backed or last-setting behavior.
  * @author Brian Bushnell
  */
-public class CellNetParser {
+public class CellNetParser{
 
 	/**
-	 * Parses a CellNet configuration from the specified file.
-	 * @param fname Path to the CellNet configuration file
-	 * @param nullOnFailure If true, returns null when file doesn't exist instead of throwing exception
-	 * @return Parsed CellNet object or null if file doesn't exist and nullOnFailure is true
+	 * Loads a training-capable network from a file path. The returned network has
+	 * transpose arrays allocated for callers to populate before backpropagation.
+	 * @param fname Path to the text network image
+	 * @param nullOnFailure If true, return null when the file path is absent
+	 * @return Parsed network, or null for an absent file when requested
 	 */
-	static CellNet parse(String fname, boolean nullOnFailure) {
-		if(nullOnFailure && !new File(fname).exists()) {return null;}
+	static CellNet parse(String fname, boolean nullOnFailure){
+		if(nullOnFailure && !new File(fname).exists()){return null;}
 		CellNetParser cnp=new CellNetParser(fname);
 		return cnp.net;
 	}
 
-	public static CellNet loadFromLines(ArrayList<byte[]> lines) {
+	/**
+	 * Loads a training-capable network from borrowed text rows that must remain
+	 * stable for the duration of parsing.
+	 */
+	public static CellNet loadFromLines(ArrayList<byte[]> lines){
 		return new CellNetParser(lines).net;
 	}
 
 	/**
-	 * Parses inference state without changing the legacy global DENSE flag.
-	 * The returned network dispatches by its own header mode and has no training
-	 * matrices. Use for lazy loads that may overlap unrelated legacy inference;
+	 * Parses inference state with the instance-owned representation declared in
+	 * the header. The returned network dispatches by that header mode and has no
+	 * training matrices. Use for lazy loads that may overlap unrelated inference;
 	 * do not train, serialize, or use the generic copy() method on this instance.
 	 */
 	public static CellNet loadInferenceFromLines(ArrayList<byte[]> lines){
@@ -47,23 +55,22 @@ public class CellNetParser {
 	}
 
 	/**
-	 * Loads a CellNet from the specified file.
-	 * @param fname Path to the CellNet configuration file
-	 * @return Loaded CellNet object
+	 * Loads a network from the specified file, returning null when absent.
+	 * @param fname Path to the text network image
+	 * @return Loaded network, or null for an absent file
 	 */
-	public static CellNet load(String fname) {return load(fname, true);}
+	public static CellNet load(String fname){return load(fname, true);}
 	/**
-	 * Loads a CellNet from the specified file with optional null handling.
-	 * @param fname Path to the CellNet configuration file
-	 * @param nullOnFailure If true, returns null when file doesn't exist instead of throwing exception
-	 * @return Loaded CellNet object or null if file doesn't exist and nullOnFailure is true
+	 * Loads a network from the specified file with optional absent-file null handling.
+	 * @param fname Path to the text network image
+	 * @param nullOnFailure If true, return null when the file path is absent
+	 * @return Loaded network, or null for an absent file when requested
 	 */
-	public static CellNet load(String fname, boolean nullOnFailure) {
+	public static CellNet load(String fname, boolean nullOnFailure){
 		return parse(fname, nullOnFailure);
 	}
 
-	/** Constructs a parser for the specified CellNet file.
-	 * @param fname_ Path to the CellNet configuration file */
+	/** Reads all rows from a file and tags the parsed net with this path as transient metadata. */
 	private CellNetParser(String fname_){
 		this(ByteFile.toLines(fname_));
 		fname=fname_;
@@ -71,13 +78,16 @@ public class CellNetParser {
 	}
 
 	/**
-	 * Constructs a parser from pre-loaded file lines.
-	 * Parses header information and creates the CellNet with appropriate edge parsing.
-	 * @param lines_ List of file lines as byte arrays
+	 * Loads pre-read rows as an ordinary training-capable network, then allocates
+	 * transpose arrays for callers to populate before backpropagation.
 	 */
 	private CellNetParser(ArrayList<byte[]> lines_){this(lines_, false);}
 
-	/** Selects legacy training construction or isolated inference construction. */
+	/**
+	 * Owns one parse pass: parse headers, validate cross-header contracts, allocate
+	 * a matching network, populate metadata, load edge rows and then build training
+	 * matrices unless the caller requested an isolated inference net.
+	 */
 	private CellNetParser(ArrayList<byte[]> lines_, boolean inferenceOnly_){
 		lines=lines_; inferenceOnly=inferenceOnly_;
 
@@ -98,10 +108,8 @@ public class CellNetParser {
 		if("explicit-input".equals(tags.get("normalization")) && (inputMean==null || inputInverseStd==null)){
 			throw new IllegalArgumentException("explicit-input normalization requires both critical input headers");
 		}
-		if(!inferenceOnly){CellNet.DENSE=dense;}
-
 		net=inferenceOnly ? new ParsedInferenceNet(dims, seed, density, density1, edgeBlockSize, commands, dense) :
-			new CellNet(dims, seed, density, density1, edgeBlockSize, commands);
+			new CellNet(dims, seed, density, density1, edgeBlockSize, commands, dense);
 		net.setInputNormalization(inputMean, inputInverseStd);
 		net.setWeightBits(weightBits);
 		net.setZeroAbsent(zeroAbsent);
@@ -109,26 +117,29 @@ public class CellNetParser {
 		net.samplesTrained=samples;
 //		net.annealSeed=annealSeed;
 		net.setCutoff(cutoff);
-		for(Map.Entry<String,String> e : tags.entrySet()){net.setTag(e.getKey(), e.getValue());} //Round-trip custom tags
+		for(Map.Entry<String,String> e:tags.entrySet()){net.setTag(e.getKey(), e.getValue());} //Round-trip custom tags
 		net.fpRate=fpr; net.fnRate=fnr; net.errorRate=err; net.weightedErrorRate=wer; net.lastStats=stats; //Round-trip the stored stats
 		assert(layers==net.layers);
 		posFirstEdge=pos;
 		if(nodeRows){
 			parseNodeRows();
-		}else if(dense) {
+		}else if(dense){
 			parseEdgesDense();
-		}else {
+		}else{
 			parseEdgesSparse();
 		}
 		if(!inferenceOnly){net.makeWeightMatrices();}
 	}
 
-	/** Parses header lines containing network metadata and configuration.
-	 * Processes version, layers, seed, density, dimensions, and other parameters. */
-	public void parseHeader() {
+	/**
+	 * Consumes single-# configuration headers, ## metrics/custom tags and #CL
+	 * command rows until the first edge row. Newer headers guard malformed or
+	 * duplicate rows explicitly; unsupported single-# rows remain assertion-only.
+	 */
+	public void parseHeader(){
 
 		//TODO: This should really use LineParser instead.
-		while(pos<lines.size()) {
+		while(pos<lines.size()){
 			byte[] line=lines.get(pos);
 
 			if(line.length<1){
@@ -204,7 +215,7 @@ public class CellNetParser {
 					commands.add(new String(line));
 				}else if(Tools.startsWith(line, "#edges")){
 					edgeHeader=line; edgeHeaderCount++;
-					if(line.length>7) {edges=parseInt(line);}
+					if(line.length>7){edges=parseInt(line);}
 				}else if(Tools.startsWith(line, "#zeroabsent")){
 					if(zeroAbsentSeen || line.length<12 || line[11]!=' '){
 						throw new IllegalArgumentException("Duplicate or malformed #zeroabsent header");
@@ -230,6 +241,7 @@ public class CellNetParser {
 					if(!bits.equals("18") && !bits.equals("24") && !bits.equals("32")){throw new IllegalArgumentException("Supported #weightbits values are18,24 and32");}
 					weightBitsSeen=true; weightBits=Integer.parseInt(bits);
 				}else if(Tools.startsWith(line, "#")){
+					//Assertion-only validation: unsupported single-# headers reach this check.
 					assert(false) : "\nUnexpected header line: '"+new String(line)+"'"
 							+ "\nComments should start with ##\n";
 				}
@@ -241,9 +253,12 @@ public class CellNetParser {
 //		assert(false) : pos+", "+new String(lines.get(pos));
 	}
 
-	/** Parses dense weight representation where all connections are stored.
-	 * Each cell line contains bias and all weights in sequential order. */
-	private void parseEdgesDense() {
+	/**
+	 * Reads one dense C/W row per non-input cell. Each row owns the destination
+	 * cell's activation type, bias, complete previous-layer weight array and
+	 * freshly allocated deltas.
+	 */
+	private void parseEdgesDense(){
 		assert(concise);
 		pos=posFirstEdge;
 		long numEdges=0;
@@ -252,7 +267,7 @@ public class CellNetParser {
 		LineParser2 lp=new LineParser2(delimiter);
 		FloatList weights=new FloatList();
 
-		while(pos<lines.size()) {
+		while(pos<lines.size()){
 			byte[] line=lines.get(pos);
 
 			if(line.length<1){
@@ -277,7 +292,7 @@ public class CellNetParser {
 				if(weightBits<32 && !Float.isFinite(bias)){throw new IllegalArgumentException("Nonfinite bias in a reduced-precision network");}
 				c.setBias(bias, true);
 				weights.clear();
-				while(lp.hasMore()) {
+				while(lp.hasMore()){
 					weights.add(weightBits<32 ? lp.parseFloatA48Truncated(weightBits) : a48 ? lp.parseFloatA48() : lp.parseFloat());
 				}
 				c.weights=weights.toArray();
@@ -286,8 +301,9 @@ public class CellNetParser {
 				assert(c.weights.length==c.id()-c.lpos-c.prevLayerStart) : new String(line)+"\n"+
 						c.weights.length+", "+c.layer+", "+c.id()+", "+c.lpos+", "+c.prevLayerStart+", "+
 						(c.id()-c.lpos-c.prevLayerStart);
-			}else {
+			}else{
 				if(line[0]=='N'){throw new IllegalArgumentException("N records require #noderows biasfirst");}
+				//Assertion-only validation: unsupported dense edge rows reach this check.
 				assert(false) : new String(line);
 			}
 			pos++;
@@ -298,9 +314,13 @@ public class CellNetParser {
 		assert(!inferenceOnly || checkInference()) : "Parsed inference cells must match their local dense/sparse header";
 	}
 
-	/** Parses sparse weight representation with explicit input indices.
-	 * Uses separate lines for cell weights (C/W) and input connections (I/H). */
-	private void parseEdgesSparse() {
+	/**
+	 * Reads sparse C/W weight rows plus I literal or delta-A48 index rows, or H
+	 * historical nibble bitsets. Weight rows own activation type, bias, weight
+	 * arrays and deltas; input rows own indexed connectivity. Reverse output sets
+	 * are rebuilt after all rows.
+	 */
+	private void parseEdgesSparse(){
 		assert(concise);
 		pos=posFirstEdge;
 		long numEdges=0;
@@ -310,7 +330,7 @@ public class CellNetParser {
 		FloatList weights=new FloatList();
 		IntList inputs=new IntList();
 
-		while(pos<lines.size()) {
+		while(pos<lines.size()){
 			byte[] line=lines.get(pos);
 
 			if(line.length<1){
@@ -327,6 +347,7 @@ public class CellNetParser {
 				int type=Tools.find(s, Function.TYPES);
 				assert(type>=0) : type+", "+s+"\n'"+new String(line)+"'";
 				Cell c=net.list.get(cid);
+				//Assertion-only validation: duplicate sparse weight rows reach this check.
 				assert(c.weights==null);
 				c.function=Function.getFunction(type);
 				assert(c.function.type()==type);
@@ -335,7 +356,7 @@ public class CellNetParser {
 				if(weightBits<32 && !Float.isFinite(bias)){throw new IllegalArgumentException("Nonfinite bias in a reduced-precision network");}
 				c.setBias(bias, true);
 				weights.clear();
-				while(lp.hasMore()) {
+				while(lp.hasMore()){
 					weights.add(weightBits<32 ? lp.parseFloatA48Truncated(weightBits) : a48 ? lp.parseFloatA48() : lp.parseFloat());
 				}
 				c.weights=weights.toArray();
@@ -347,6 +368,7 @@ public class CellNetParser {
 				lp.setBounds(0, 0);
 				int cid=lp.parseInt();
 				Cell c=net.list.get(cid);
+				//Assertion-only validation: duplicate sparse input rows reach this check.
 				assert(c.inputs==null);
 				inputs.clear();
 				if(sparseEncoding==SPARSE_DELTA_A48){
@@ -367,12 +389,14 @@ public class CellNetParser {
 				lp.setBounds(0, 0);
 				int cid=lp.parseInt();
 				Cell c=net.list.get(cid);
+				//Assertion-only validation: duplicate sparse hex input rows reach this check.
 				assert(c.inputs==null);
 				lp.advance();
 				c.inputs=CellNet.fromHex(line, lp.a());
 				assert(c.weights==null || c.inputs.length==c.weights.length);
-			}else {
+			}else{
 				if(line[0]=='N'){throw new IllegalArgumentException("N records require #noderows biasfirst");}
+				//Assertion-only validation: unsupported sparse edge rows reach this check.
 				assert(false) : new String(line);
 			}
 			pos++;
@@ -381,7 +405,11 @@ public class CellNetParser {
 		assert(inferenceOnly ? checkInference() : net.check()) : "Parsed cells must match their network representation";
 	}
 
-	/** Reads one complete sparse node per row, validating its paired bias/index/value groups. */
+	/**
+	 * Reads A48 node rows containing one bias sentinel, sorted input indices and
+	 * paired weights. These rows deliberately use exceptions for malformed fields
+	 * so a bad reduced-precision model cannot depend on assertions being enabled.
+	 */
 	private void parseNodeRows(){
 		final LineParser2 lp=new LineParser2(delimiter);
 		long observedEdges=0;
@@ -436,7 +464,7 @@ public class CellNetParser {
 		assert(checkInference()) : "Complete node records must satisfy sparse layer geometry";
 	}
 
-	/** Node IDs and literal inputs must not rely on assertions to reject malformed digits. */
+	/** Parses nonnegative decimal node IDs/inputs with digit and overflow exceptions. */
 	private static int parseNodeInteger(final LineParser2 lp){
 		lp.advance();
 		if(lp.currentFieldLength()<1){throw new IllegalArgumentException("Empty node integer");}
@@ -449,7 +477,7 @@ public class CellNetParser {
 		return value;
 	}
 
-	/** Finite A48 node values have bounded unsigned payloads, including exact signed zero. */
+	/** Parses finite A48 node weights/biases with bounded unsigned payloads. */
 	private static float parseNodeFloat(final LineParser2 lp, final int precision){
 		lp.advance();
 		final int length=lp.currentFieldLength();
@@ -466,7 +494,10 @@ public class CellNetParser {
 		return value;
 	}
 
-	/** Cell.check() reads global DENSE, so isolated loading checks local geometry directly. */
+	/**
+	 * Asserts that every parsed row matches this parser's header mode and local
+	 * geometry for isolated inference or complete node-row loads.
+	 */
 	private boolean checkInference(){
 		for(int layer=1; layer<net.layers; layer++){
 			for(Cell cell:net.net[layer]){
@@ -480,24 +511,21 @@ public class CellNetParser {
 		return true;
 	}
 
-	/** Instance dispatch prevents future unrelated legacy parser calls from changing this net. */
-	private static final class ParsedInferenceNet extends CellNet {
+	/** Instance dispatch preserves this net's dense/sparse header mode. */
+	private static final class ParsedInferenceNet extends CellNet{
 		ParsedInferenceNet(int[] dims, long seed, float density, float density1, int blockSize,
 				ArrayList<String> commands, boolean dense_){
-			super(dims, seed, density, density1, blockSize, commands); dense=dense_;
+			super(dims, seed, density, density1, blockSize, commands, dense_);
 		}
 		@Override public float feedForward(){return dense ? feedForwardDense() : feedForwardSparse();}
-		private final boolean dense;
 	}
 
-	/** Checks if more lines are available for parsing.
-	 * @return true if more lines exist, false otherwise */
+	/** Checks whether another input row remains at the current parser position. */
 	boolean hasMore(){
 		return pos<lines.size();
 	}
 
-	/** Returns the next line for parsing and advances the position.
-	 * @return Next line as byte array or null if no more lines */
+	/** Returns the next input row and advances, or null at EOF. */
 	byte[] nextLine(){
 		if(pos>=lines.size()){return null;}
 		byte[] line=lines.get(pos);
@@ -612,7 +640,7 @@ public class CellNetParser {
 	/** Counts nonzero edge weights for #zeroabsent/#liveedges validation. */
 	private static int countNonzero(final float[] weights){
 		int sum=0;
-		for(float w : weights){sum+=(w==0 ? 0 : 1);}
+		for(float w:weights){sum+=(w==0 ? 0 : 1);}
 		return sum;
 	}
 
@@ -702,14 +730,14 @@ public class CellNetParser {
 		int a=0, b=0;
 		IntList list=new IntList(3);
 
-		if(parseTitle) {
+		if(parseTitle){
 			while(b<line.length && line[b]!=delimiter){b++;}
 			assert(b>a) : "Missing Title: "+new String(line);
 			b++;
 			a=b;
 		}
 
-		while(a<line.length) {
+		while(a<line.length){
 			while(b<line.length && line[b]!=delimiter){b++;}
 			assert(b>a) : "Missing element "+list.size+": '"+new String(line)+"'";
 			int x=Parse.parseInt(line, a, b);
