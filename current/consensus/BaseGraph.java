@@ -6,6 +6,7 @@ import java.util.Arrays;
 import aligner.Aligner;
 import aligner.AlignmentResult;
 import aligner.FlatAligner2;
+import dna.AminoAcid;
 import prok.GeneCaller;
 import shared.KillSwitch;
 import shared.Tools;
@@ -157,6 +158,9 @@ public class BaseGraph extends ConsensusObject implements Serializable {
 				qualSum+=q;
 			}else if(m=='D'){
 				next=(rpos<0 ? null : del[rpos]);
+				//TODO: Probable bug - qpos is the next read base; the loop only asserts
+				//qpos<bases.length, so qpos+1 can exceed quals before the final read base.
+				//Check flanking-quality semantics/boundaries with an exact SAM fixture.
 				q=(quals==null ? fakeQuality : (quals[qpos]+quals[qpos+1])/2);
 
 				rpos++;
@@ -670,7 +674,8 @@ public class BaseGraph extends ConsensusObject implements Serializable {
 			
 //			System.err.println(i+"\t"+dw+"\t"+rw+"\t"+iw);
 			
-			if(rw>=dw || daf<MAF_del || noIndels){//Common case
+			//Deletion nodes have no reference pseudocount: dc counts supporting observations.
+			if(rw>=dw || daf<MAF_del || dc<minDepth || noIndels){//Common case
 				{
 					rnode.consensus(temp);
 					byte b=temp[0];
@@ -700,6 +705,10 @@ public class BaseGraph extends ConsensusObject implements Serializable {
 					inode.consensus(temp);
 					byte b=temp[0];
 					byte q=temp[1];
+					final int allele=AminoAcid.baseToNumber[b];
+					assert(allele>=0) : "BaseNode.consensus must select an A/C/G/T insertion before indexing allele support: "+b;
+					//Do not pool different inserted bases to satisfy the minimum allele depth.
+					if(inode.acgtCount[allele]<minDepth){break;}
 					assert(b!='.') : inode+", "+inode.weightSum+", "+weightSum;
 					bb.append(b);
 					depthList.add(depth);

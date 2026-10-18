@@ -7,6 +7,7 @@ import java.util.Map.Entry;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
+import dna.AminoAcid;
 import fileIO.ByteFile;
 import fileIO.ByteStreamWriter;
 import fileIO.FileFormat;
@@ -740,7 +741,6 @@ public class ConsensusMaker extends ConsensusObject implements Accumulator<Conse
 			if(bg==null){bg=refMap2.get(Tools.trimToWhitespace(rname));}
 			assert(bg!=null) : "Can't find graph for "+rname;
 			float identity;
-			float score=0;//unused
 
 //			assert(false) : r;
 			if(sl==null){
@@ -757,6 +757,32 @@ public class ConsensusMaker extends ConsensusObject implements Accumulator<Conse
 				identity=sl.calcIdentity();
 			}
 			assert(r.match!=null && identity>0) : identity+", "+r;
+			// SamLine restores original-read orientation by default, whereas the graph
+			// traverses CIGAR and reference coordinates from left to right on both strands.
+			// Keep the parser's global policy and the caller's shared arrays unchanged.
+			final boolean flip=(sl!=null && SamLine.FLIP_ON_LOAD && sl.strand()==Shared.MINUS);
+			if(flip){reverseBasesAndQualities(r);}
+			try{
+				processReferenceOrientedRead(r, bg, identity);
+			}finally{
+				if(flip){reverseBasesAndQualities(r);}
+			}
+		}
+
+		/** Changes only query orientation; CIGAR order, coordinates and strand metadata remain intact. */
+		private void reverseBasesAndQualities(final Read r){
+			assert(r.bases!=null && (r.quality==null || r.quality.length==r.bases.length)) :
+				"Reference-oriented graph traversal needs corresponding base and quality positions.";
+			AminoAcid.reverseComplementBasesInPlace(r.bases);
+			if(r.quality!=null){Tools.reverseInPlace(r.quality);}
+		}
+
+		/** Scores and accumulates the read after parser-dependent orientation has been normalized. */
+		private void processReferenceOrientedRead(final Read r, final BaseGraph bg, final float identity){
+			assert(r.match!=null && bg!=null && identity>0) :
+				"Filtering and match resolution must finish before any graph mutation.";
+			final SamLine sl=r.samline;
+			float score=0;
 			
 			if(inModel!=null){
 

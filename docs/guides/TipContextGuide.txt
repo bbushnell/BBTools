@@ -1,0 +1,103 @@
+Experimental contig-tip polishing
+================================
+
+This selected-target research workflow is OFF in ordinary Tadpole, TadPipe and
+consensus runs: none calls these dev tools. Invoke them explicitly to experiment.
+It is not an automatic or scalable whole-assembly polisher. Assembly defaults,
+including mincountextend, remain unchanged.
+
+Validation covers ONE biological genome: Spirulina, assembled from simulated
+10x Q30 paired 150bp reads at K32 with mce=1. Three of fourteen residual
+substitutions had qualifying overlaps and were repaired; eleven remained.
+No newly wrong bases were detected. Contig count, assembly length, aligned
+bases, genome fraction, NGA50 and global/local misassemblies were unchanged.
+Additional designed allele/repeat controls are not additional genomes.
+
+Important limitations
+---------------------
+Use originalkmers= for the mapping-independent safeguard. Without it, four
+designed genuine minority/repeat cases were wrongly homogenized even though
+their libraries contained two or four supporting reads: whole-assembly mapping
+had diverted the support elsewhere. The kmer safeguard prevented these four
+changes while retaining the three biological repairs.
+
+A true one-read allele can STILL be overwritten: its observed evidence can be
+identical to an error. End-overlap uniqueness within the tested bounds is not
+genomic uniqueness. Kmer counts are occurrences, not independent deduplicated
+molecules. Shared words can conservatively prevent legitimate repairs. No
+metagenome safety claim is made. Broader independent validation remains needed.
+
+The associated ordinary consensus fixes normalize reverse-strand bases and
+qualities before accumulation and enforce mindepth for deletions and the
+selected insertion allele. These correctness fixes are not optional polishing.
+A separately annotated potential deletion-quality boundary issue remains unfixed.
+
+Workflow (run from the BBTools installation directory)
+-----------------------------------------------------
+Keep the original assembly and reads immutable. Use unique whitespace-free
+FASTA names. selected.bed contains exact target names in its first tab-separated
+column; coordinates are ignored. Both ends are scanned without truth bases.
+
+bash dev/tipcontextpanel.sh mode=prepare in=assembly.fa targets=selected.bed dir=panel
+
+The directory must be new. targets.tsv gives case names, lengths, roles and
+left/right offsets; -1 means no qualifying context. Unique first-level donors
+are included as controls. Each case contains original.fa, target.bed and any
+left.context.fa/right.context.fa. This scan retains whole contigs in memory.
+
+For each case with a context:
+1. Map reads to the WHOLE original assembly. Extract that target's primary
+   alignments, for example with samstreamer.sh bed=target.bed. Run consensus.sh
+   on those alignments against original.fa with outm=original.alm.
+   Do not use isolated-target mapping as the original support evidence.
+2. Map the same reads separately to the context FASTA and make its own .alm.
+   Use unpadded references and mafsub=0.5 mindepth=2 noindels=t trimdepth=0
+   trimns=f for both consensus calls. Use -Xss64m if graph serialization needs
+   a larger stack. Only load trusted locally generated .alm files; these are
+   serialized Java objects, not a safe untrusted interchange format.
+3. Query original-allele 32mers directly from the original reads. For a target
+   named contigA of length632, a complete query is:
+
+   bash dev/kmerwindowdepth.sh in=reads.fq.gz ref=panel/case001/original.fa scaffold=contigA regions=32-632 k=32 out=original.kmers.tsv t=4 -Xmx8g
+
+   Use in2= for split pairs or interleaved=t for interleaved pairs. regions=
+   specifies one-based inclusive KMER ENDS. The query FASTA contributes no
+   counts. Querying the full target ensures complete evidence; selected end
+   ranges are also possible. Unknown bases in queried windows are rejected.
+4. Apply the guard explicitly. For a right context with offset0:
+
+   bash dev/tipcontextguard.sh originalmodel=original.alm contextmodel=right.alm assembly=assembly.fa originalkmers=original.kmers.tsv offset=0 side=right out=right.guarded.fa report=right.decisions.tsv
+
+   Replace paths with the case paths. For a left context use side=left and
+   its left_offset from targets.tsv. Each model must contain one graph. The
+   original target must be unchanged at offset within the context reference.
+   Output files must be new. Per-context remapping can be expensive.
+
+Guard defaults: side=right, minoverlap=60, maxoverlap=200; offset is required.
+The fixed policy requires one compatible end placement, at most one mismatch
+with16 exact bases on each side, donor agreement, context support>=2 and
+original mapped support<2. The reference pseudocount is excluded.
+
+With originalkmers=, any overlapping original32mer at depth>=2 preserves the
+base. Otherwise every overlapping query must be present before a change is
+allowed. Missing evidence abstains; measured zero is not missing. Omitting
+originalkmers= is only for reproducing the weaker alignment-only comparison.
+
+Write each prepared side to panel/caseNNN/left.guarded.fa or right.guarded.fa,
+including donor controls. Then reconstruct the complete unchanged-length assembly:
+
+bash dev/tipcontextpanel.sh mode=merge in=assembly.fa dir=panel out=guarded.fa report=edits.tsv
+
+All records, names and order are retained. Opposing substitutions abstain.
+Compare full original/guarded assemblies against the same truth, if available.
+The optional audit accepts native QUAST substitution-coordinate files:
+
+bash dev/tipcontextpanel.sh mode=grade in=edits.tsv before=original.used_snps after=guarded.used_snps out=summary.tsv
+
+Indels and unexplained mismatch-locus changes are rejected. Report repairs and
+new damage separately alongside missing sequence and structural metrics.
+This audit is not a general QUAST identifier-conversion utility.
+
+Deterministic tests:
+bash dev/tipcontextguardtest.sh
+bash dev/tipcontextpaneltest.sh
