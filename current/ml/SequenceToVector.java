@@ -347,8 +347,13 @@ public class SequenceToVector{
 	
 	/** Scores the supplied vector and optionally repeats inference while bases are reversed.
 	 * The vector is not rebuilt for the second orientation; see the retained issue note.
-	 * Returns the larger prediction and restores bases only on the normal return path. */
+	 * Returns the larger prediction and restores bases only on the normal return path.
+	 * @deprecated Reverse-complement scoring reuses the forward vector and is rejected
+	 * with assertions enabled. Rebuild each orientation's vector before scoring it. */
+	@Deprecated
 	public static float score(byte[] bases, float[] vec, CellNet net, boolean rcomp){
+		assert(!rcomp) : "SequenceToVector.score does not rebuild vec after reverse complementation; "+
+			"rebuild and score each orientation separately to avoid repeating the forward prediction";
 		net.applyInput(vec);
 		final float r, f=net.feedForward();
 		if(rcomp){

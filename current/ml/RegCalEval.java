@@ -36,6 +36,7 @@ public class RegCalEval{
 
 	/** Loads at most maxrows accepted rows, scores matching network files, and prints rankings.
 	 * A model absent at load time is skipped; parsing or inference exceptions otherwise propagate.
+	 * If no model loads successfully, stops with a diagnostic before printing a ranking.
 	 * @param args Required nets=/val= paths and optional manifest=/bins=/maxrows= settings */
 	public static void main(String[] args){
 		String dir=null, val=null, manifest=null;
@@ -135,6 +136,10 @@ public class RegCalEval{
 			final String id=nf.getName().replace("net_", "").replace(".bbnet", "");
 			results.add(new Result(id, dimsById.getOrDefault(id, "?"), sse/n, ece));
 		}
+		if(results.isEmpty()){
+			throw new IllegalStateException("No models successfully loaded from "+dir+
+				"; all "+nets.length+" listed net_*.bbnet paths were absent at load time");
+		}
 
 		//--- rank by ECE; report MSE-rank vs ECE-rank divergence ---
 		results.sort((a, b)->Double.compare(a.ece, b.ece));
@@ -156,7 +161,6 @@ public class RegCalEval{
 		final int pairs=results.size()*(results.size()-1)/2;
 		out.println(String.format("%nMSE-rank vs ECE-rank inversions: %d/%d (%.1f%%) -- high = MSE is a poor proxy for calibration",
 				inversions, pairs, 100.0*inversions/Math.max(pairs, 1)));
-		//TODO: Probable bug (ML046) - if every listed model disappears before loading, no best result remains to index.
 		out.println("BEST by ECE: net_"+results.get(0).id+" ("+results.get(0).dims+")  ECE="+String.format("%.5f", results.get(0).ece));
 	}
 

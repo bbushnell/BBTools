@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.BitSet;
 import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.Map;
 import shared.Random;
 
@@ -357,9 +358,8 @@ public class CellNet implements Cloneable, Comparable<CellNet>{
 	}
 	
 	/**
-	 * Returns the configured hidden-layer density or first-layer override.
-	 * The intended final-layer branch is ineffective; both edge generators separately
-	 * force full output connectivity. See the retained source TODO below.
+	 * Returns full output-layer density, first-hidden-layer override, or the
+	 * configured hidden-layer density.
 	 * @param density Default hidden-layer density
 	 * @param density1 Positive first-layer override
 	 * @param layer Destination layer index
@@ -367,11 +367,7 @@ public class CellNet implements Cloneable, Comparable<CellNet>{
 	 * @return Selected density
 	 */
 	private static final float layerDensity(float density, float density1, int layer, int layers){
-		//TODO: Possible bug [ml/CellNet#001] - 'layer>=layers+1' is a dead condition (layer is always <=layers-1),
-		//so the intended "output layer -> dense (1f)" case never fires here; likely a typo for 'layers-1'.
-		//Behaviorally inert today: makeEdgesDense/Sparse handle the final layer via an explicit if(finalLayer)
-		//branch and discard this returned value for it. Left as-is pending Brian's review (topology generator).
-		return layer>=layers+1 ? 1f : (layer==1 && density1>0) ? density1 : density; //Output always dense
+		return layer>=layers-1 ? 1f : (layer==1 && density1>0) ? density1 : density; //Output always dense
 	}
 	
 	/**
@@ -1199,9 +1195,11 @@ public class CellNet implements Cloneable, Comparable<CellNet>{
 		bb.append("##err ").append(errorRate, 6).nl();
 		bb.append("##wer ").append(weightedErrorRate, 6).nl();
 		bb.append("##ctf ").append(cutoff, 6).nl();
-		for(Map.Entry<String,String> e : tags.entrySet()){ //Custom tags; emit only lowercase keys (skip the doubled-up original-case duplicates)
-			String k=e.getKey();
-			if(k.equals(k.toLowerCase())){bb.append("##").append(k).space().append(e.getValue()).nl();}
+		canonicalizeTags();
+		for(Map.Entry<String,String> e : tags.entrySet()){ //Custom tags; one canonical value with the latest requested spelling
+			final String canonical=e.getKey();
+			final String name=tagNames.get(canonical);
+			bb.append("##").append(name==null ? canonical : name).space().append(e.getValue()).nl();
 		}
 		if(OUT_DELTA_A48 && !outputDense){bb.append("#indexencoding deltaa48").nl();}
 		bb.append(codingA48Out ? "#coding A48" : "#coding decimal").nl();
@@ -1304,22 +1302,58 @@ public class CellNet implements Cloneable, Comparable<CellNet>{
 		return input;
 	}
 
-	/** Stores original-case and lowercase tag entries; older aliases may remain stale after updates.
-	 * Serialization emits only lowercase entries. */
+	/** Stores one value per locale-stable lowercase tag key and the latest output spelling. */
 	public void setTag(String key, String value){
-		//TODO: Probable bug - changing a tag through another case leaves older original-case aliases stale;
-		//getTag checks the exact alias first, so differently cased lookups can disagree. Source-only; no caller repair.
 		if(key==null){return;}
-		tags.put(key, value);
-		String lk=key.toLowerCase();
-		if(!lk.equals(key)){tags.put(lk, value);}
+		final String canonical=canonicalTagKey(key);
+		tags.put(canonical, value);
+		tagNames.put(canonical, key);
 	}
-	/** Looks up the exact key first, then its lowercase form; returns null if neither has a value. */
+	/** Looks up a tag by its locale-stable lowercase form. */
 	public String getTag(String key){
 		if(key==null){return null;}
-		String v=tags.get(key);
-		return v!=null ? v : tags.get(key.toLowerCase());
+		final String canonical=canonicalTagKey(key);
+		return tags.get(canonical);
 	}
+
+	/** Canonicalizes the public tag map after direct whole-map replacement or legacy alias copies. */
+	private void canonicalizeTags(){
+		if(tags==null || tags.isEmpty()){return;}
+		boolean canonical=true;
+		for(String key : tags.keySet()){
+			if(key==null || !key.equals(canonicalTagKey(key))){
+				canonical=false;
+				break;
+			}
+		}
+		if(canonical){return;}
+		copyTagsFromMaps(tags, tagNames);
+	}
+
+	/** Copies tags while collapsing any legacy aliases to one value per canonical key. */
+	private void copyTagsFrom(CellNet cn){
+		copyTagsFromMaps(cn.tags, cn.tagNames);
+	}
+
+	/** Copies raw tag maps before replacing fields, preserving self-copy and lowercase direct writes. */
+	private void copyTagsFromMaps(final LinkedHashMap<String,String> sourceTags,
+			final LinkedHashMap<String,String> sourceNames){
+		tags=new LinkedHashMap<String,String>();
+		tagNames=new LinkedHashMap<String,String>();
+		if(sourceTags==null){return;}
+		for(Map.Entry<String,String> e : sourceTags.entrySet()){
+			final String key=e.getKey();
+			if(key==null){continue;}
+			final String canonical=canonicalTagKey(key);
+			if(!key.equals(canonical) && sourceTags.containsKey(canonical)){continue;}
+			tags.put(canonical, e.getValue());
+			final String name=(sourceNames==null ? null : sourceNames.get(canonical));
+			tagNames.put(canonical, name==null ? key : name);
+		}
+	}
+
+	/** Returns this tag key's canonical lookup form. */
+	private static String canonicalTagKey(final String key){return key.toLowerCase(Locale.ROOT);}
 	
 	/**
 	 * Builds a textual BBTools network image using current global encoding choices.
@@ -1574,7 +1608,7 @@ public class CellNet implements Cloneable, Comparable<CellNet>{
 		copy.tpRate=tpRate;
 		copy.tnRate=tnRate;
 		copy.cutoff=cutoff; //Copy configuration
-		copy.tags=new LinkedHashMap<String,String>(tags); //Copy custom tags
+		copy.copyTagsFrom(this); //Copy custom tags
 		copy.fname=fname; //Preserve source-file metadata
 		copy.setInputNormalization(inputMean, inputInverseStd);
 		copy.weightBits=weightBits;
@@ -1674,7 +1708,7 @@ public class CellNet implements Cloneable, Comparable<CellNet>{
 		tpRate=cn.tpRate;
 		tnRate=cn.tnRate;
 		cutoff=cn.cutoff; //Copy classification threshold
-		tags=new LinkedHashMap<String,String>(cn.tags); //Copy custom tags
+		copyTagsFrom(cn); //Copy custom tags
 		fname=cn.fname; //Copy source-file metadata
 		setInputNormalization(cn.inputMean, cn.inputInverseStd);
 		weightBits=cn.weightBits;
@@ -1916,10 +1950,10 @@ public class CellNet implements Cloneable, Comparable<CellNet>{
 	float annealStrength=-1;
 	/** Classification threshold for binary decisions */
 	public float cutoff=-1;
-	/** Insertion-ordered custom header metadata. setTag stores original-case and lowercase entries;
-	 * getTag tries the exact spelling first. Serialization emits only lowercase keys.
-	 * Direct map mutation and differently cased updates need not keep aliases synchronized. */
+	/** Insertion-ordered custom header metadata; direct map writes must use lowercase keys. */
 	public LinkedHashMap<String,String> tags=new LinkedHashMap<String,String>();
+	/** Canonical tag key to latest caller-supplied output spelling. */
+	private LinkedHashMap<String,String> tagNames=new LinkedHashMap<String,String>();
 	/** Current training epoch number */
 	int epoch=-1;
 	/** Display counter for printing progress */

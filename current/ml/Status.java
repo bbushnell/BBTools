@@ -3,6 +3,8 @@ package ml;
 /**
  * Network-status holder retained for older priority queues.
  * TODO: This class has no live constructor references.
+ * TODO: Its equals(Object) remains null/type-unsafe for this dormant holder,
+ * and equals/hashCode use epoch while compareTo delegates to CellNet ordering.
  *
  * @author Brian Bushnell
  * @date June 3, 2025
@@ -45,7 +47,6 @@ class Status implements Comparable<Status>{
 	
 	@Override
 	public boolean equals(Object b){return equals((Status)b);}
-	//TODO: equals(Object) throws for null and non-Status objects.
 	/** Checks equality by epoch only, matching hashCode but not compareTo. */
 	public boolean equals(Status b){return epoch==b.epoch;} //For hashing only
 	

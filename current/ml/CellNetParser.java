@@ -161,7 +161,11 @@ public class CellNetParser{
 					//Unrecognized ##key value -> custom tag (applied to the net after construction, since
 					//the net does not exist yet here). A bare "##" with no value is ignored as a comment.
 					int sp=Tools.indexOf(line, delimiter);
-					if(sp>2){tags.put(new String(line, 2, sp-2), new String(line, sp+1, line.length-sp-1));}
+					if(sp>2){
+						String key=new String(line, 2, sp-2);
+						tags.remove(key); //Preserve final-occurrence order for repeated exact spellings
+						tags.put(key, new String(line, sp+1, line.length-sp-1));
+					}
 				}else if(Tools.startsWith(line, "#version")){
 					version=parseInt(line);
 				}else if(Tools.startsWith(line, "#layers")){

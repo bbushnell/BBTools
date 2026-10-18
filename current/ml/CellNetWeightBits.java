@@ -21,9 +21,10 @@ public final class CellNetWeightBits{
 	 * Loads a complete native network, requires a fresh destination path, applies
 	 * the requested 18/24/32-bit weight policy, enables A48 coding and clears the
 	 * forced dense/sparse output overrides, retaining the parsed representation.
-	 * These three global flag changes are not restored; other writer flags remain
-	 * inherited. Writes a sibling .partial file, checks the writer's completion
-	 * result, then creates a hard link at the destination and removes the temporary name.
+	 * Uses concise rows and explicit decimal input indices, restoring all six writer
+	 * settings even if serialization fails. Calls must be serialized with other users
+	 * of CellNet's global writer settings. Writes a sibling .partial file, checks the writer's
+	 * completion result, then creates a hard link at the destination and removes the temporary name.
 	 */
 	public static void main(String[] args) throws IOException{
 		String in=null, out=null;
@@ -44,10 +45,7 @@ public final class CellNetWeightBits{
 			throw new IllegalArgumentException("Normalize the declared affine prefix to input headers before truncating trained edges; affine normalization must remain float32");
 		}
 		net.setWeightBits(bits);
-		//Possible Bug: Same-JVM callers can inherit stale CellNet writer flags not reset here.
-		CellNet.codingA48Out=true;
-		CellNet.OUT_DENSE=false; CellNet.OUT_SPARSE=false;
-		final ByteBuilder bytes=net.toBytes();
+		final ByteBuilder bytes=encode(net);
 		Files.createDirectories(destination.getParent());
 		final Path temporary=Files.createTempFile(destination.getParent(), ".weight-bits-", ".partial");
 		try{
@@ -57,6 +55,23 @@ public final class CellNetWeightBits{
 			Files.createLink(destination, temporary);
 		}finally{Files.deleteIfExists(temporary);}
 		System.out.println("WEIGHT_BITS_PASS bits="+bits+" edges="+net.countEdges()+" bytes="+bytes.length());
+	}
+
+	/** Encodes a stable native layout without leaking temporary global writer settings. */
+	private static ByteBuilder encode(final CellNet net){
+		final boolean a48=CellNet.codingA48Out, concise=CellNet.CONCISE;
+		final boolean dense=CellNet.OUT_DENSE, sparse=CellNet.OUT_SPARSE;
+		final boolean hex=CellNet.OUT_HEX, delta=CellNet.OUT_DELTA_A48;
+		try{
+			CellNet.codingA48Out=true; CellNet.CONCISE=true;
+			CellNet.OUT_DENSE=false; CellNet.OUT_SPARSE=false;
+			CellNet.OUT_HEX=false; CellNet.OUT_DELTA_A48=false;
+			return net.toBytes();
+		}finally{
+			CellNet.codingA48Out=a48; CellNet.CONCISE=concise;
+			CellNet.OUT_DENSE=dense; CellNet.OUT_SPARSE=sparse;
+			CellNet.OUT_HEX=hex; CellNet.OUT_DELTA_A48=delta;
+		}
 	}
 
 	private CellNetWeightBits(){}

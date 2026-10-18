@@ -1323,8 +1323,7 @@ public class Trainer implements Accumulator<WorkerThread>{
 	public static long fullyConnectedEdges(int[] dims){
 		long sum=0;
 		for(int i=1; i<dims.length; i++){
-			//TODO: Probable bug (ML049) - int multiplication may overflow before widening to long.
-			long edges=dims[i-1]*dims[i];
+			long edges=(long)dims[i-1]*dims[i];
 			sum+=edges;
 		}
 		return sum;

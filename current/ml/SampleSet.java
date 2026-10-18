@@ -274,6 +274,9 @@ public class SampleSet implements Cloneable{
 			else{ncount++;}
 			//TODO: Probable bug (ML048) - bin may advance past roc.length when small negative counts repeat rounded targets.
 			while(ncount>=target){
+				assert(bin<roc.length) : "calcROC output-bin overrun; repeated rounded "+
+					"targets can advance bin past length (ML048): bin="+bin+
+					", length="+roc.length+", ncount="+ncount+", target="+target;
 				roc[bin]=(float)(1-pcount*invPositive);
 //				System.err.println("i="+i+", bin="+bin+", target="+target+", val="+roc[bin]+", pred="+s.result[0]);
 				bin++;

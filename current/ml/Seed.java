@@ -3,7 +3,8 @@ package ml;
 /**
  * Seed-scan result carrying a network seed and validation pivot.
  * ScannerThread returns these to Trainer, which sorts them by pivot and netSeed
- * before training the winning seeds.
+ * before training the winning seeds. Equality and hash codes are seed-only for
+ * any hash owner; natural ordering intentionally differs and includes pivot.
  * @author Brian Bushnell
  */
 public class Seed implements Comparable<Seed>{
@@ -51,17 +52,19 @@ public class Seed implements Comparable<Seed>{
 
 	@Override
 	public boolean equals(Object o){
-		//TODO: This throws for null and non-Seed objects.
-		return equals((Seed)o);
+		return o instanceof Seed && equals((Seed)o);
 	}
+
+	/** Returns a seed-only hash matching {@link #equals(Object)}. */
+	@Override
+	public int hashCode(){return Long.hashCode(netSeed);}
 	
 	/**
-	 * Checks equality with another Seed by network seed only.
-	 * TODO: This ignores pivot, though compareTo orders same-seed Seeds by pivot.
-	 * TODO: This value equality also lacks a matching hashCode().
+	 * Checks seed-only equality; this intentionally differs from
+	 * {@link #compareTo(Seed)}, which orders by pivot before seed.
 	 */
 	public boolean equals(Seed s){
-		return s.netSeed==netSeed;
+		return s!=null && s.netSeed==netSeed;
 	}
 	
 	/** Returns the network seed and pivot separated by a comma. */
