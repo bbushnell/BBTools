@@ -1,17 +1,73 @@
 Experimental contig-tip polishing
 ================================
 
-This selected-target research workflow is OFF in ordinary Tadpole, TadPipe and
-consensus runs: none calls these dev tools. Invoke them explicitly to experiment.
-It is not an automatic or scalable whole-assembly polisher. Assembly defaults,
-including mincountextend, remain unchanged.
+This experimental workflow is OFF in ordinary Tadpole, TadPipe and consensus
+runs. tippolish.sh is an explicit standalone driver; it scans every contig and
+runs the guarded workflow without truth labels or a reference genome. Assembly
+defaults, including mincountextend, remain unchanged. It is a targeted tip repair
+method, not a general whole-assembly consensus replacement.
 
-Validation covers ONE biological genome: Spirulina, assembled from simulated
-10x Q30 paired 150bp reads at K32 with mce=1. Three of fourteen residual
-substitutions had qualifying overlaps and were repaired; eleven remained.
-No newly wrong bases were detected. Contig count, assembly length, aligned
-bases, genome fraction, NGA50 and global/local misassemblies were unchanged.
-Additional designed allele/repeat controls are not additional genomes.
+Standalone driver
+-----------------
+tippolish.sh assembly=contigs.fa in=paired.fq.gz interleaved=t out=polished.fa
+tippolish.sh assembly=contigs.fa in=R1.fq.gz in2=R2.fq.gz out=polished.fa
+tippolish.sh assembly=contigs.fa in=single.fq.gz out=polished.fa -Xmx8g t=8
+
+Use adapter-trimmed, filtered, quality-calibrated, preferably deduplicated reads
+BEFORE correction/merging/extension. The driver does not deduplicate. Inferred
+extension bases and multiple PCR copies are not independent evidence. Omitting
+in2 and interleaved=t selects single-end input, unlike TadPipe's paired default.
+
+The assembly must have unique whitespace-free names. Inputs are left unchanged;
+the supplied assembly is the retained unpolished version. Output is a new FASTA
+(.gz supported) and report= defaults to <out>.edits.tsv. Existing outputs are
+refused unless overwrite=t; input/output aliases remain forbidden. Inputs must
+be files, not streams or comma lists. Standard input/output aliases and t=auto
+use the native Parser; unsupported child-tool options are rejected explicitly.
+temp= selects an existing parent for a unique work directory. Commands, logs,
+timings, models and all evidence are retained on success and failure. The driver
+does not automatically remove potentially useful failed-run evidence.
+
+The driver defaults to minoverlap=33 maxoverlap=200 indexed=t. It retains the
+16bp anchors and mandatory original32mer veto. Targets with ambiguous bases
+are retained unchanged because their complete original-kmer evidence cannot be
+queried. No-context assemblies pass through without read mapping/counting.
+
+Each stage runs in a separate JVM, sequentially, with t= threads and -Xmx per
+child (8g by default). The coordinator uses256MB. childheap= can also be placed
+in config= files. Whole-assembly mapping is shared once, but context references
+are deliberately mapped separately to preserve the tested mapping competition.
+This first driver still counts read kmers per eligible target and rescans the
+whole mapping for each target. Large numbers of contexts can be expensive;
+it is not yet a scalable metagenome polisher. The lower-level commands below
+remain available for inspecting or reproducing individual cases.
+
+Initial validation on Spirulina used simulated 10x Q30 paired 150bp reads at
+K32 with mce=1: three of fourteen residual substitutions were repaired.
+A subsequent frozen panel covered 12 other bacterial genomes at 10x/20x/40x,
+using the same read-error and assembly settings. All contigs were inspected,
+not only known errors. Six ends in two 10x libraries had qualifying contexts;
+three substitutions were repaired, reducing 101 errors to 98, with zero newly
+wrong bases. The 24 libraries at 20x/40x already had zero reported substitutions.
+Contig count, assembly length, aligned bases, genome fraction, NGA50 and
+global/local misassemblies were unchanged. The benefit is small, not a general
+polishing solution. Designed allele/repeat controls are not additional genomes.
+
+An exploratory rerun of the same36 libraries lowered only minoverlap to33,
+retaining16bp mismatch anchors and all read/kmer safeguards. It repaired27
+substitutions (101->74), including the original three, with zero newly wrong
+bases. Every other paired QUAST field was unchanged. Two designed minority
+controls at newly repaired sites retained both original alleles. This reused
+panel motivated the setting; it is not independent confirmation of it.
+
+A separate confirmation froze12 different bacterial genera and read seeds
+before generating their10x libraries. Without changing the33bp rule, it repaired
+18 substitutions (97->79), with zero newly wrong bases. Every other paired
+QUAST field was unchanged. These genomes were disjoint from the first12 but
+had appeared in an earlier assembly benchmark; independence here concerns the
+polishing rule, not the entire assembler. Across the two panels there were45
+repairs and no observed new errors. Both panels use synthetic isolate reads;
+this does not establish safety for natural mixed-strain libraries.
 
 Important limitations
 ---------------------
@@ -25,12 +81,19 @@ A true one-read allele can STILL be overwritten: its observed evidence can be
 identical to an error. End-overlap uniqueness within the tested bounds is not
 genomic uniqueness. Kmer counts are occurrences, not independent deduplicated
 molecules. Shared words can conservatively prevent legitimate repairs. No
-metagenome safety claim is made. Broader independent validation remains needed.
+metagenome safety claim is made. Two additional designed tests added distinct
+minority-allele read pairs at the newly repaired Gilvibacter sites in its full
+read background; both original alleles were preserved. These targeted controls
+do not establish a false-correction rate in natural mixed-strain libraries.
+Broader real-library and mixed-genome validation remains needed.
 
 The associated ordinary consensus fixes normalize reverse-strand bases and
 qualities before accumulation and enforce mindepth for deletions and the
 selected insertion allele. These correctness fixes are not optional polishing.
-A separately annotated potential deletion-quality boundary issue remains unfixed.
+Deletion quality now uses the actual previous/next query bases, avoiding an
+overrun before the final base. Accepted leading deletions use the first quality.
+Match strings ending in a deletion remain unsupported by the identity parser;
+this repair does not change that existing input restriction.
 
 Workflow (run from the BBTools installation directory)
 -----------------------------------------------------
@@ -44,6 +107,22 @@ The directory must be new. targets.tsv gives case names, lengths, roles and
 left/right offsets; -1 means no qualifying context. Unique first-level donors
 are included as controls. Each case contains original.fa, target.bed and any
 left.context.fa/right.context.fa. This scan retains whole contigs in memory.
+
+Preparation accepts minoverlap=60 maxoverlap=200 and indexed=f by default.
+To experiment with the33bp minimum, pass minoverlap=33 to BOTH prepare and
+tipcontextguard.sh. Mismatch anchors remain fixed at16bp each. The optional
+indexed=t preparation mode uses exact oriented16mer donor prefixes to avoid
+impossible comparisons; complete-overlap verification and physical duplicate
+placement counting are unchanged. It produced byte-identical metadata and
+original/context sequences on all36 libraries. It adds primitive prefix lists
+and a lazy reverse-complement cache, not another read kmer table.
+
+On a2944-contig four-copy scaling fixture, exhaustive/indexed preparation took
+152.30/32.53 wall seconds and127.37/2.48 user CPU seconds, respectively. This is
+one same-host t=1 pair including output I/O, not a universal speedup claim.
+Both methods passed at16/32/64/128MB heaps on a separate655-contig assembly;
+16MB is the lowest tested success, not a universal or exact minimum. Repeated
+read mapping and original-kmer counting remain separate pipeline costs.
 
 For each case with a context:
 1. Map reads to the WHOLE original assembly. Extract that target's primary
@@ -101,3 +180,4 @@ This audit is not a general QUAST identifier-conversion utility.
 Deterministic tests:
 bash dev/tipcontextguardtest.sh
 bash dev/tipcontextpaneltest.sh
+bash dev/tipcontextpanelboundstest.sh

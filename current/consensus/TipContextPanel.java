@@ -8,11 +8,14 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.Locale;
 
+import dna.AminoAcid;
 import fileIO.ByteFile;
 import fileIO.ByteStreamWriter;
 import fileIO.FileFormat;
+import map.LongHashMap;
 import parse.LineParser1;
 import parse.Parser;
+import parse.Parse;
 import parse.PreParser;
 import shared.Shared;
 import shared.Tools;
@@ -56,9 +59,14 @@ public final class TipContextPanel {
 			else if(a.equals("report")){report=b;}
 			else if(a.equals("before")){before=b;}
 			else if(a.equals("after")){after=b;}
+			else if(a.equals("minoverlap")){minOverlap=Integer.parseInt(b);}
+			else if(a.equals("maxoverlap")){maxOverlap=Integer.parseInt(b);}
+			else if(a.equals("indexed")){indexed=Parse.parseBoolean(b);}
 			else if(!parser.parse(arg, a, b)){throw new IllegalArgumentException("Unknown argument: "+arg);}
 		}
 		check(!parser.append, "Panel artifacts must not mix executions through append mode.");
+		check(minOverlap>=33 && maxOverlap>=minOverlap,
+				"Overlap bounds must allow two16bp anchors and a mismatch; require33<=minoverlap<=maxoverlap.");
 		if("prepare".equals(mode)){
 			check(input!=null && targets!=null && directory!=null, "prepare requires in=assembly targets=BED dir=NEW");
 			check(Tools.testInputFiles(false, true, input, targets), "Unreadable preparation inputs.");
@@ -100,9 +108,10 @@ public final class TipContextPanel {
 		}
 		check(!selected.isEmpty(), "An empty selected population cannot validate a polisher.");
 		final LinkedHashSet<String> all=new LinkedHashSet<String>(selected);
+		final PrefixIndex prefixIndex=indexed ? new PrefixIndex(assembly) : null;
 		final LinkedHashMap<String, Match[]> cache=new LinkedHashMap<String, Match[]>();
 		for(String name : selected){
-			final Match[] matches=matches(assembly.get(name), assembly);
+			final Match[] matches=matches(assembly.get(name), assembly, prefixIndex);
 			cache.put(name, matches);
 			for(Match match : matches){if(match.set.count==1){all.add(match.donor);}}
 		}
@@ -113,7 +122,7 @@ public final class TipContextPanel {
 		for(String name : all){
 			final Read target=assembly.get(name);
 			Match[] matches=cache.get(name);
-			if(matches==null){matches=matches(target, assembly);}
+			if(matches==null){matches=matches(target, assembly, prefixIndex);}
 			final String id=String.format(Locale.ROOT, "case%03d", ++index), dir=directory+"/"+id;
 			check(new File(dir).mkdir(), "Case directory must be new: "+dir);
 			writeFasta(dir+"/original.fa", target.id, target.bases);
@@ -214,17 +223,21 @@ public final class TipContextPanel {
 	/*--------------------------------------------------------------*/
 
 	/** Searches the frozen assembly, excluding only the target's own physical record. */
-	private static Match[] matches(final Read target, final LinkedHashMap<String, Read> assembly){
+	private Match[] matches(final Read target, final LinkedHashMap<String, Read> assembly, final PrefixIndex index){
 		assert(target!=null && assembly.containsKey(target.id)) : "Context discovery requires a target from the candidate universe.";
 		final Match[] result={new Match(), new Match()};
 		for(int side=0; side<2; side++){
 			final byte[] query=side==0 ? TipContextGuard.reverse(target.bases) : target.bases;
 			final Match match=result[side];
+			if(index!=null){
+				index.match(query, target, minOverlap, maxOverlap, match);
+				continue;
+			}
 			for(Read donor : assembly.values()){
 				if(donor==target){continue;}
 				final int prior=match.set.count;
-				TipContextGuard.scan(query, donor.bases, 60, 200, match.set);
-				TipContextGuard.scan(query, TipContextGuard.reverse(donor.bases), 60, 200, match.set);
+				TipContextGuard.scan(query, donor.bases, minOverlap, maxOverlap, match.set);
+				TipContextGuard.scan(query, TipContextGuard.reverse(donor.bases), minOverlap, maxOverlap, match.set);
 				if(prior==0 && match.set.count==1){match.donor=donor.id;}
 			}
 		}
@@ -319,5 +332,82 @@ public final class TipContextPanel {
 		String donor;
 	}
 
+	/** Exact oriented16mer prefix buckets; physical duplicate donors remain separate.
+	 * TipContextGuard.scan requires its first16 overlap bases to match, even when
+	 * one interior mismatch is allowed. The index only removes impossible pairs;
+	 * that unchanged method still verifies every candidate's complete overlap.
+	 */
+	private static final class PrefixIndex {
+
+		/** Stores two primitive linked entries per donor; reverse sequences are lazy. */
+		PrefixIndex(final LinkedHashMap<String, Read> assembly){
+			assert(!assembly.isEmpty()) : "Panel FASTA validation guarantees at least one donor.";
+			reads=assembly.values().toArray(new Read[0]);
+			reverses=new byte[reads.length][];
+			next=new int[Math.multiplyExact(2, reads.length)];
+			Arrays.fill(next, -1);
+			for(int i=0; i<next.length; i++){
+				final long key=prefix(reads[i>>>1].bases, (i&1)!=0);
+				if(key<0){continue;}
+				final int head=heads.get(key);
+				if(head<0){check(heads.put(key, i), "A missing prefix bucket must be newly inserted.");}
+				else{
+					// LongHashMap.put is insert-only. Keep its head and splice after it.
+					next[i]=next[head]; next[head]=i;
+				}
+			}
+		}
+
+		/** Rolls exact16mer keys over every eligible target-overlap start. */
+		void match(final byte[] query, final Read target, final int min, final int max, final Match match){
+			assert(min>=33 && max>=min) : "The first16 bases are guaranteed exact only by the guard's anchored-overlap contract.";
+			if(query.length<=min){return;}
+			final int start=Math.max(1, query.length-max), end=query.length-min+16;
+			long key=0;
+			int valid=0;
+			for(int pos=start; pos<end; pos++){
+				final int base=AminoAcid.baseToNumber[query[pos]];
+				if(base<0){key=0; valid=0; continue;}
+				key=((key<<2)|base)&0xFFFFFFFFL;
+				if(++valid<16){continue;}
+				final int overlap=query.length-pos+15;
+				for(int entry=heads.get(key); entry>=0; entry=next[entry]){
+					final int id=entry>>>1;
+					final Read donor=reads[id];
+					if(donor==target || donor.length()<=overlap){continue;}
+					byte[] bases=donor.bases;
+					if((entry&1)!=0){
+						if(reverses[id]==null){reverses[id]=TipContextGuard.reverse(bases);}
+						bases=reverses[id];
+					}
+					final int prior=match.set.count;
+					TipContextGuard.scan(query, bases, overlap, overlap, match.set);
+					if(prior==0 && match.set.count==1){match.donor=donor.id;}
+				}
+			}
+		}
+
+		/** Nonnegative32bit encoding keeps all defined16mers distinct, including all-A. */
+		private static long prefix(final byte[] bases, final boolean reverse){
+			assert(bases!=null) : "Loaded assembly records have sequence storage.";
+			if(bases.length<16){return -1;}
+			long key=0;
+			for(int i=0; i<16; i++){
+				final byte letter=reverse ? AminoAcid.baseToComplementExtended[bases[bases.length-1-i]] : bases[i];
+				final int base=AminoAcid.baseToNumber[letter];
+				if(base<0){return -1;}
+				key=(key<<2)|base;
+			}
+			return key;
+		}
+
+		final Read[] reads;
+		final byte[][] reverses;
+		final int[] next;
+		final LongHashMap heads=new LongHashMap();
+	}
+
 	private String mode, input, targets, directory, output, report, before, after;
+	private int minOverlap=60, maxOverlap=200;
+	private boolean indexed=false;
 }

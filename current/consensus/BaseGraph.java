@@ -127,6 +127,8 @@ public class BaseGraph extends ConsensusObject implements Serializable {
 		final byte[] bases=r.bases;
 		final byte[] quals=r.quality;
 		assert(match!=null && bases!=null) : r;
+		assert(bases.length>0 && (quals==null || quals.length==bases.length)) :
+			"Graph accumulation requires query bases and corresponding qualities for deletion flanks.";
 		final int start=r.start;
 		int qpos=0, rpos=start;
 		byte prevState='?';
@@ -158,10 +160,7 @@ public class BaseGraph extends ConsensusObject implements Serializable {
 				qualSum+=q;
 			}else if(m=='D'){
 				next=(rpos<0 ? null : del[rpos]);
-				//TODO: Probable bug - qpos is the next read base; the loop only asserts
-				//qpos<bases.length, so qpos+1 can exceed quals before the final read base.
-				//Check flanking-quality semantics/boundaries with an exact SAM fixture.
-				q=(quals==null ? fakeQuality : (quals[qpos]+quals[qpos+1])/2);
+				q=deletionQuality(quals, qpos);
 
 				rpos++;
 				delSum++;
@@ -225,6 +224,14 @@ public class BaseGraph extends ConsensusObject implements Serializable {
 			delTotal+=delSum;
 			qualTotal+=qualSum;
 		}
+	}
+
+	/** Uses the two query bases flanking a deletion, or the first base for an accepted leading deletion. */
+	private static int deletionQuality(final byte[] quals, final int next){
+		if(quals==null){return fakeQuality;}
+		assert(quals.length>0 && next>=0 && next<quals.length) :
+			"BaseGraph.add requires a next query base; trailing-D match strings remain unsupported: "+next+" / "+quals.length;
+		return (quals[Math.max(0, next-1)]+quals[next])/2;
 	}
 	
 	/** 
