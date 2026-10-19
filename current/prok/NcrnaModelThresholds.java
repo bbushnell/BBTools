@@ -12,7 +12,7 @@ import parse.LineParser1;
  * @author Raiden
  */
 public final class NcrnaModelThresholds {
-	NcrnaModelThresholds(String[] names_,float[] pass_,float[] borderline_){
+	public NcrnaModelThresholds(String[] names_,float[] pass_,float[] borderline_){
 		require(names_!=null && pass_!=null && borderline_!=null && names_.length>0 && names_.length==pass_.length && names_.length==borderline_.length,"Each model requires both identity cutoffs");
 		names=names_.clone();pass=pass_.clone();borderline=borderline_.clone();final map.ObjectSet<String> seen=new map.ObjectSet<String>(String.class);
 		for(int i=0;i<names.length;i++){
@@ -49,6 +49,6 @@ public final class NcrnaModelThresholds {
 	static void require(boolean ok,String why){if(!ok){throw new IllegalArgumentException(why);}}
 	private final String[] names;
 	private final float[] pass,borderline;
-	float pass(int model){return pass[model];}
-	float borderline(int model){return borderline[model];}
+	public float pass(int model){return pass[model];}
+	public float borderline(int model){return borderline[model];}
 }

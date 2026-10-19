@@ -14,16 +14,16 @@ import structures.LongList;
  * hit out to every downstream family without changing family-local window,
  * shortlist, alignment, or acceptance logic.</p>
  */
-final class ConservedRnaSeedIndex {
+public final class ConservedRnaSeedIndex {
 
-	static final int K=17;
+	public static final int K=17;
 	static final int MAX_SLOTS=32;
 
-	ConservedRnaSeedIndex(LongHashSet[] seedSets){
+	public ConservedRnaSeedIndex(LongHashSet[] seedSets){
 		this(seedSets, null);
 	}
 
-	ConservedRnaSeedIndex(LongHashSet[] seedSets, boolean[] retainKeys_){
+	public ConservedRnaSeedIndex(LongHashSet[] seedSets, boolean[] retainKeys_){
 		if(seedSets==null){throw new IllegalArgumentException("Conserved-RNA seed sets are null");}
 		if(retainKeys_!=null && retainKeys_.length!=seedSets.length){
 			throw new IllegalArgumentException("Conserved-RNA retain-key length mismatch: "+retainKeys_.length+" != "+seedSets.length);
@@ -54,7 +54,7 @@ final class ConservedRnaSeedIndex {
 		}
 	}
 
-	ScanResult scan(byte[] bases){
+	public ScanResult scan(byte[] bases){
 		if(bases==null || bases.length<K){return new ScanResult(new int[slotCount][], anyRetainedKeys ? new long[slotCount][] : null);}
 		final IntList[] lists=new IntList[slotCount];
 		final LongList[] keyLists=(anyRetainedKeys ? new LongList[slotCount] : null);
@@ -93,17 +93,17 @@ final class ConservedRnaSeedIndex {
 		return new ScanResult(hits, keys);
 	}
 
-	int slotCount(){return slotCount;}
+	public int slotCount(){return slotCount;}
 
-	static final class ScanResult {
+	public static final class ScanResult {
 		ScanResult(int[][] hits_, long[][] keys_){hits=hits_; keys=keys_;}
-		int[] hits(int slot){
+		public int[] hits(int slot){
 			if(slot<0 || slot>=hits.length){
 				throw new IllegalArgumentException("Invalid conserved-RNA seed slot "+slot+" for "+hits.length+" slots");
 			}
 			return hits[slot]==null ? EMPTY : hits[slot];
 		}
-		long[] keys(int slot){
+		public long[] keys(int slot){
 			if(slot<0 || slot>=hits.length){throw new IllegalArgumentException("Invalid conserved-RNA seed slot "+slot);}
 			return keys==null || keys[slot]==null ? EMPTY_LONG : keys[slot];
 		}

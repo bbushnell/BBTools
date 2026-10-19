@@ -49,7 +49,7 @@ public class StatsContainer {
 	 * Frame statistics must be set separately using setter methods.
 	 * @param type_ Element type identifier from ProkObject
 	 */
-	StatsContainer(int type_){
+	public StatsContainer(int type_){
 		type=type_;
 		name=ProkObject.typeStrings[type];
 	}

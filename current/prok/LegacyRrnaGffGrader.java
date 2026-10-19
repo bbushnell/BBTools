@@ -114,8 +114,8 @@ public class LegacyRrnaGffGrader {
 	/*----------------            Grading            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	static final class FamilyCounts {
-		long tp, fn, fp, dup;
+	public static final class FamilyCounts {
+		public long tp, fn, fp, dup;
 	}
 
 	/** One row of the per-locus audit trail -- either a truth locus or a query call. */
@@ -136,11 +136,11 @@ public class LegacyRrnaGffGrader {
 	 * TP/FN/FP. auditRows (truth rows then call rows, each input-order-stable) backs the
 	 * per-locus .rawcalls.tsv output and is sufficient on its own to reconstruct every
 	 * field below by scanning/grouping. */
-	static final class GradeResult {
-		final Map<String, FamilyCounts> byFamily=new LinkedHashMap<>();
-		long unionTP, unionFN, unionFP;
-		long negFP;
-		final Map<String, Long> crossLabelCounts=new LinkedHashMap<>();
+	public static final class GradeResult {
+		public final Map<String, FamilyCounts> byFamily=new LinkedHashMap<>();
+		public long unionTP, unionFN, unionFP;
+		public long negFP;
+		public final Map<String, Long> crossLabelCounts=new LinkedHashMap<>();
 		final ArrayList<AuditRow> auditRows=new ArrayList<>();
 		GradeResult(){
 			for(String f : IN_SCOPE_FAMILIES){byFamily.put(f, new FamilyCounts()); crossLabelCounts.put(f, 0L);}
@@ -149,7 +149,7 @@ public class LegacyRrnaGffGrader {
 
 	/** Pure, file-I/O-free grading core -- directly fixture-testable, mirroring
 	 * NcrnaGffFamilyGrader.grade's own "pure so it can be fixture-tested" design. */
-	static GradeResult grade(List<Locus> truth, List<Locus> calls, Set<String> negSeqids){
+	public static GradeResult grade(List<Locus> truth, List<Locus> calls, Set<String> negSeqids){
 		final GradeResult r=new GradeResult();
 
 		for(Locus t : truth){
@@ -333,7 +333,7 @@ public class LegacyRrnaGffGrader {
 	 * Accepts family in {5S, 16S, 23S, 18S} (18S allowed here so a truth manifest may
 	 * legitimately carry any scored legacy rRNA family).
 	 * Rejects an exact-duplicate truth row (identical seqid+family+start+stop+strand). */
-	static ArrayList<Locus> loadTruthTsv(String path) throws Exception {
+	public static ArrayList<Locus> loadTruthTsv(String path) throws Exception {
 		final ArrayList<Locus> out=new ArrayList<>();
 		final HashSet<String> seenKeys=new HashSet<>();
 		final ByteFile bf=ByteFile.makeByteFile(FileFormat.testInput(path, FileFormat.TEXT, null, true, true));
@@ -376,7 +376,7 @@ public class LegacyRrnaGffGrader {
 	 * silent-skip (safe there because an unmatched RNA-typed row legitimately belongs to
 	 * a different tracked-elsewhere family), there is no such legitimate other family for
 	 * an rRNA-typed row in this grader's scope. */
-	static ArrayList<Locus> loadCallsFromGff(String path) throws Exception {
+	public static ArrayList<Locus> loadCallsFromGff(String path) throws Exception {
 		final ArrayList<Locus> out=new ArrayList<>();
 		final ByteFile bf=ByteFile.makeByteFile(FileFormat.testInput(path, FileFormat.TEXT, null, true, true));
 		byte[] lineBytes=bf.nextLine();
@@ -416,7 +416,7 @@ public class LegacyRrnaGffGrader {
 	 * attribute's first token specifically -- matching that method's real behavior, not a
 	 * stricter reading of its intent. The 5S length gate (MAX_5S_LEN=300) is carried
 	 * forward unchanged, not re-derived. */
-	static String extractLegacyFamily(String attrs, int length){
+	public static String extractLegacyFamily(String attrs, int length){
 		if(attrs.contains("16S")){return FAM_16S;}
 		else if(attrs.contains("23S")){return FAM_23S;}
 		else if(attrs.contains("18S")){return FAM_18S;}
@@ -426,7 +426,7 @@ public class LegacyRrnaGffGrader {
 
 	/** Writes the .rawcalls.tsv/.summary.tsv split with the same reconstructability
 	 * guarantee as NcrnaGffFamilyGrader.writeReport. */
-	static void writeReport(String out, GradeResult r) throws Exception {
+	public static void writeReport(String out, GradeResult r) throws Exception {
 		final PrintStream rawOut=new PrintStream(out+".rawcalls.tsv");
 		rawOut.println("locusId\tseqid\tfamily\tstart\tstop\tstrand\trole\tsubtypeOutcome\tsubtypeMatchId"
 			+"\tunionOutcome\tunionMatchId\tcrossLabelOutcome\tcrossLabelMatchId");

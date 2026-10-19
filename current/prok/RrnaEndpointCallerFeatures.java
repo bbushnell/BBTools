@@ -54,10 +54,10 @@ public final class RrnaEndpointCallerFeatures {
 				if(fiveNets!=null){validateNet(fiveNets[i],inputs,sites);validateNet(threeNets[i],inputs,sites);}
 			}
 		}
-		final String family;final int radius,sites,inputs;final boolean acceptedVerifierIdentity;
-		final boolean[] raw;
-		final String[] names;final byte[][] refs;final RrnaPositionalKmerTable.Table[] five,three;
-		final CellNet[] fiveNets,threeNets;
+		final String family;public final int radius,sites,inputs;public final boolean acceptedVerifierIdentity;
+		public final boolean[] raw;
+		public final String[] names;public final byte[][] refs;public final RrnaPositionalKmerTable.Table[] five,three;
+		public final CellNet[] fiveNets,threeNets;
 		static void validateNet(CellNet net,int inputs,int sites){require(net!=null && net.numInputs()==inputs && net.numOutputs()==sites,"Endpoint network dimensions must match the family's table radius and three extras");}
 		static void validateNet(CellNet net){validateNet(net,28,25);}
 		static boolean supportsAcceptedIdentity(String family){return "16S".equals(family) || "23S".equals(family) || "prok5S".equals(family);}
@@ -68,25 +68,25 @@ public final class RrnaEndpointCallerFeatures {
 		void capture(String contig,int strand,int model,int rawStart,int rawStop,
 			float[] five,boolean fiveUsable,float[] three,boolean threeUsable);
 	}
-	RrnaEndpointCallerFeatures(Resources resources_,Sink sink_){
+	public RrnaEndpointCallerFeatures(Resources resources_,Sink sink_){
 		require(resources_!=null && (sink_!=null || resources_.fiveNets!=null),"Endpoint processing requires explicit observation or inference");resources=resources_;sink=sink_;
 		fiveNets=copyNets(resources.fiveNets);threeNets=copyNets(resources.threeNets);
 		scratch=new float[resources.sites];five=new float[resources.inputs];three=new float[resources.inputs];
 	}
-	void capture(Orf candidate,byte[] bases,int model,float contigGC){
+	public void capture(Orf candidate,byte[] bases,int model,float contigGC){
 		capture(candidate,bases,model,contigGC,1,Integer.MAX_VALUE);
 	}
-	void capture(Orf candidate,byte[] bases,int model,float contigGC,int minLen,int maxLen){
+	public void capture(Orf candidate,byte[] bases,int model,float contigGC,int minLen,int maxLen){
 		capture(candidate,bases,model,contigGC,minLen,maxLen,Float.NaN);
 	}
-	void capture(Orf candidate,byte[] bases,int model,float contigGC,int minLen,int maxLen,float acceptedIdentity){
+	public void capture(Orf candidate,byte[] bases,int model,float contigGC,int minLen,int maxLen,float acceptedIdentity){
 		capture(candidate,bases,model,contigGC,minLen,maxLen,acceptedIdentity,0);
 	}
 	/** Fixed endpoints are in the current strand-oriented frame: bit1 is5prime,
 	 * bit2 is3prime. Disabled ends are neither scored nor predicted. The caller
 	 * supplies its already-established partial length floor; training reference
 	 * length and accepted-verifier identity retain their original definitions. */
-	void capture(Orf candidate,byte[] bases,int model,float contigGC,int minLen,int maxLen,float acceptedIdentity,int fixedMask){
+	public void capture(Orf candidate,byte[] bases,int model,float contigGC,int minLen,int maxLen,float acceptedIdentity,int fixedMask){
 		require((fixedMask&~3)==0,"Endpoint fixed mask permits only oriented5prime/3prime bits");
 		require(candidate!=null && resources.family.equals(candidate.ncrnaFamily) && model>=0 && model<resources.refs.length && resources.names[model].equals(candidate.trnaModel),"Raw candidate must belong to the configured family and winning model");
 		if(fixedMask==3){return;}// No endpoint features, identity realignment, inference or observation.
@@ -110,7 +110,7 @@ public final class RrnaEndpointCallerFeatures {
 	}
 	/** Independent argmax at each raw end; a jointly invalid span keeps both raw ends.
 	 * The pre-refinement detection score remains unchanged, as in the older NN path. */
-	static boolean apply(Orf candidate,int start,int stop,int length,int minLen,int maxLen){
+	public static boolean apply(Orf candidate,int start,int stop,int length,int minLen,int maxLen){
 		assert(minLen>0 && maxLen>=minLen):shared.KillSwitch.assertDie("Endpoint fallback uses the caller's valid length interval");
 		final long span=stop-start+1L;
 		if(start<0 || stop>=length || span<minLen || span>maxLen){return false;}
@@ -120,6 +120,6 @@ public final class RrnaEndpointCallerFeatures {
 	static CellNet[] copyNets(CellNet[] templates){if(templates==null){return null;}final CellNet[] copies=new CellNet[templates.length];for(int i=0;i<copies.length;i++){copies[i]=templates[i]==null?null:templates[i].copy(false);}return copies;}
 	static void require(boolean ok,String why){if(!ok){throw new IllegalArgumentException(why);}}
 	final Resources resources;final Sink sink;final AlignmentStats stats=new AlignmentStats(true);
-	final CellNet[] fiveNets,threeNets;
-	final float[] scratch,five,three;
+	public final CellNet[] fiveNets,threeNets;
+	public final float[] scratch,five,three;
 }

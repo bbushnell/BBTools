@@ -303,7 +303,7 @@ public class MergeRibo implements Accumulator<MergeRibo.ProcessThread> {
 	/*--------------------------------------------------------------*/
 
 	/** Create read streams and process all data */
-	void process(Timer t){
+	public void process(Timer t){
 
 		loadReferences();
 

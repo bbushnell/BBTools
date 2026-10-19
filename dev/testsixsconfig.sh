@@ -21,7 +21,8 @@ pushd . > /dev/null
 DIR="${BASH_SOURCE[0]}"
 while [ -h "$DIR" ]; do
   cd "$(dirname "$DIR")"
-  DIR="$(readlink "$(basename "$DIR")")"
+  script_target="$(readlink "$(basename "$DIR")")"
+  DIR="$script_target"
 done
 cd "$(dirname "$DIR")"
 DIR="$(pwd)/"
@@ -38,7 +39,8 @@ resolveSymlinks(){
 setEnv(){
 	#DIR must be reassigned to the BBTools ROOT before sourcing javasetup.sh -- see the fix note in
 	#testtrnakmerindex.sh (javasetup.sh reads DIR itself to find memdetect.sh).
-	DIR="$DIR""../"
+	bbtools_root="${DIR}../"
+	DIR="$bbtools_root"
 	. "$DIR""javasetup.sh"
 
 	parseJavaArgs "--xmx=1g" "--xms=1g" "--mode=fixed" "$@"
@@ -46,8 +48,8 @@ setEnv(){
 }
 
 launch() {
-	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP prok.CallGenesSixsConfigTest $@"
-	java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" prok.CallGenesSixsConfigTest "$@"
+	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP test.prok.CallGenesSixsConfigTest $@"
+	java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" test.prok.CallGenesSixsConfigTest "$@"
 }
 
 resolveSymlinks

@@ -112,7 +112,7 @@ public final class SeedOffsetTable {
 
 	/** One immutable resource record; count zero means the seed casts no vote. */
 	public static final class KmerInfo {
-		KmerInfo(double leftOffset_, double rightOffset_, double leftSD_, double rightSD_, long count_){
+		public KmerInfo(double leftOffset_, double rightOffset_, double leftSD_, double rightSD_, long count_){
 			leftOffset=leftOffset_; rightOffset=rightOffset_; leftSD=leftSD_; rightSD=rightSD_; count=count_;
 		}
 		public boolean trained(){return count>0;}

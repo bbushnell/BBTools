@@ -12,8 +12,8 @@ import parse.Parse;
  * Substitution costs stay at the existing constants until the owner selects them.
  * @author Raiden
  */
-final class Euk18sRuntimeConfig {
-	boolean parse(String key,String value){
+public final class Euk18sRuntimeConfig {
+	public boolean parse(String key,String value){
 		final String k=key.toLowerCase(Locale.ROOT);
 		if(k.equals("euk18s")){enabled=Parse.parseBoolean(value);return true;}
 		if(!k.startsWith("euk18s")){return false;}
@@ -70,7 +70,7 @@ final class Euk18sRuntimeConfig {
 	}
 
 	/** Validate and construct privately; no partial family is published on failure. */
-	void apply(ArrayList<NcrnaFamily> families){
+	public void apply(ArrayList<NcrnaFamily> families){
 		require(families!=null,"18S registration requires the caller family list");
 		if(!enabled){require(!configured,"euk18S resource/control options require euk18s=t");return;}
 		for(NcrnaFamily f:families){require(!FAMILY.equals(f.name)&&!"18S".equals(f.name),"Duplicate 18S registration; choose euk18s=t or the historical rrna17 profile");}
@@ -169,13 +169,13 @@ final class Euk18sRuntimeConfig {
 	private static int integer(String value,int minimum,String key){final int x=Parse.parseIntKMG(value);require(x>=minimum,key+" must be >="+minimum);return x;}
 	private static float number(String value,float lo,float hi,String key){final float x=Float.parseFloat(value);require(Float.isFinite(x)&&x>=lo&&x<=hi,key+" outside ["+lo+","+hi+"]");return x;}
 	private static void require(boolean ok,String why){if(!ok){throw new IllegalArgumentException(why);}}
-	static final String FAMILY="euk18S";
+	public static final String FAMILY="euk18S";
 	private static final String[] DEFAULT_MODEL_NAMES={"euk18S_universal", "euk18S_fungi", "euk18S_plant",
 		"euk18S_invertebrate", "euk18S_vertebrate_other", "euk18S_vertebrate_mammalian",
 		"euk18S_mitochondria", "euk18S_protist", "euk18S_protozoa_component_001", "euk18S_protozoa_component_003"};
 	/** Explicit D48 package variant; review its manifest before building. */
 	static final boolean DEFAULT_JOINED=true;
-	boolean enabled=false;
+	public boolean enabled=false;
 	private boolean configured=false,voteWindows=true,voteEnds=false,infer=false,voteBeforePadding=true;
 	private boolean seedDistinct=true;
 	private boolean modelClip=false;

@@ -495,17 +495,19 @@ r58lsu=f        Add the bundled eukaryotic 5.8S and LSU families.  This implies
                 ncrna=t; the pair remains off unless r58lsu=t or euk=t is specified.
                 Resources: resources/callgenes_5.8S/ and resources/callgenes_eukLSU/.
                 Explicit resource overrides below remain available.
-                Boundary networks and tables are not bundled.
+                5.8S includes a boundary network and 7-mer endpoint tables.
                 The global ncrnaboundarynet gate remains incompatible with this
                 pair; use the R58-specific endpoint gate below.
-r58ncrnaboundarynet=f  Refine only R58 endpoints with its boundary network and
-                9-mer tables.  Requires r58lsu=t; LSU remains boundary-NN-off.
+r58ncrnaboundarynet=t  Refine 5.8S endpoints when that family is enabled.
+                Set f to retain alignment endpoints. LSU remains boundary-NN-off.
+r58boundarystartrange=-11,56  Inclusive 5' correction range, containing zero.
+r58boundarystoprange=-46,37   Inclusive 3' correction range, containing zero.
+r58boundaryraw=t  Also refine retained verifier endpoints when trimming is rejected.
 r58ncrnaboundary3primeonly=f  Hold the aligned R58 5' coordinate fixed and
                 refine only the 3' endpoint.  Requires r58ncrnaboundarynet=t.
 r58ncrnaboundarymarginstop=0  Require this confidence improvement before moving
-                the R58 3' endpoint.  The validated candidate value is 0.01.
-r58ncrnaboundarymarginstart=0  Corresponding 5' confidence margin.  The current
-                validated 3'-only configuration leaves this unused.
+                the R58 3' endpoint.
+r58ncrnaboundarymarginstart=0  Corresponding 5' confidence margin.
 its=f           Derive ITS1, ITS2, and combined ITS annotations from compatible
                 18S, 5.8S, and LSU calls. Automatically enabled with euk18s=t
                 r58lsu=t, including through euk=t; euk5S is not required.
@@ -578,9 +580,9 @@ r58consensus=/r58models=  Optional R58 consensus/HBM overrides; require r58lsu=t
 lsuconsensus=/lsumodels=  Optional LSU consensus/HBM overrides; require r58lsu=t.
 r58boundarynet=           Optional R58 boundary-network override; requires
                           r58ncrnaboundarynet=t.
-r58boundarystarttable=    Optional R58 start 9-mer table override; requires the
+r58boundarystarttable=    Optional R58 start endpoint table override; requires the
                           R58-specific boundary gate.
-r58boundarystoptable=     Optional R58 stop 9-mer table override; requires the
+r58boundarystoptable=     Optional R58 stop endpoint table override; requires the
                           R58-specific boundary gate.
 s18kmers=       Explicit 18S development 17-mer fasta; requires ncrna=t and s18=t.
 s18consensus=/s18models=  Explicit 18S development consensus/HBM; require s18=t.
@@ -591,6 +593,11 @@ tmrnamodels=    Explicit aligned tmRNA HBM models; requires ncrna=t and tmrna=t.
 ncrnaidpass=    Alignment identity that accepts without HBM rescue.
 ncrnaidborderline=  Lowest identity eligible for HBM rescue.
 ncrnahbmpass=   HBM score needed to rescue a borderline alignment.
+tmrnarescueidmargin=0.005  Additive identity margin for tmRNA rescue.
+tmrnarescuehbmmargin=0.005 Additive HBM margin for tmRNA rescue.
+                Explicit nonzero overrides require ncrna=t and tmrna=t. Primary acceptance
+                is unchanged; rescue still accepts identity OR HBM. Effective
+                rescue cutoffs must be finite in [0,1]. Set both to zero for legacy rescue.
 ncrnascorea=    Constant A in A+B*length*identity^2.
 ncrnascoreb=    Multiplier B in A+B*length*identity^2.
 rnasepscorea/b= Per-family A/B overrides; require ncrna=t.

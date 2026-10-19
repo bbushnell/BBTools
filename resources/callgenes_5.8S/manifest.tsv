@@ -3,3 +3,6 @@ role	model	end	path	format	bytes	sha80
 consensus	.	.	consensus.fa	fasta	174	4a03b5c3249cf590dd54
 models	.	.	models.hbmc.gz	hbm	412	0df4d0cf9b46c8e8511c
 seeds	.	.	seeds.fa.gz	fasta	603	a520aa121058447d80bb
+boundary	.	.	boundary.bbnet	bbnet	2444	0cd3b4fe134c272c7db6
+boundary_start	.	.	tables/start.tsv	tsv	968	e0491bd13bf59f889337
+boundary_stop	.	.	tables/stop.tsv	tsv	1038	739b69c05a8457f57aa0

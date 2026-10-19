@@ -63,7 +63,7 @@ public class NcrnaBoundaryScorer {
 	 * prof0-2, isStop, fuzz0-2, lengthRatio, contigGC) -- no stem, no optional
 	 * cross-boundary-enrichment variant, unlike TrnaBoundaryScorer's 11-or-14. */
 	public static final int NUM_FEATURES=10;
-	static final int FEATURES_V1=1,FEATURES_V2=2,FEATURES_V3=3;
+	public static final int FEATURES_V1=1,FEATURES_V2=2,FEATURES_V3=3;
 
 	static int parseFeatureVersion(String value){
 		if(value.equalsIgnoreCase("v1") || value.equals("1") || value.equalsIgnoreCase("current")){return FEATURES_V1;}
@@ -240,7 +240,7 @@ public class NcrnaBoundaryScorer {
 	}
 
 	/** Refinement result plus the measured number of sweep sites evaluated for each endpoint. */
-	static final class RefinementResult{
+	public static final class RefinementResult{
 		RefinementResult(int startOffset_, int stopOffset_, int startSitesScored_, int stopSitesScored_,
 				float startChosenScore_, float stopChosenScore_){
 			startOffset=startOffset_; stopOffset=stopOffset_;
@@ -248,12 +248,12 @@ public class NcrnaBoundaryScorer {
 			startChosenScore=startChosenScore_; stopChosenScore=stopChosenScore_;
 		}
 		int[] offsets(){return new int[]{startOffset, stopOffset};}
-		final int startOffset, stopOffset, startSitesScored, stopSitesScored;
+		public final int startOffset, stopOffset, startSitesScored, stopSitesScored;
 		final float startChosenScore, stopChosenScore;
 	}
 
 	/** Same exhaustive refinement with explicit contig-edge state for the G16 radius proof. */
-	static RefinementResult refineBoundariesWithCounts(CellNet startNet, CellNet stopNet, byte[] window, int s, int e,
+	public static RefinementResult refineBoundariesWithCounts(CellNet startNet, CellNet stopNet, byte[] window, int s, int e,
 			byte[] modelConsensus, BaseGraph model,
 			TrnaBoundaryFeatures.NinemerTable startTable, TrnaBoundaryFeatures.NinemerTable stopTable,
 			int startInside, int startOutside, int stopInside, int stopOutside, float contigGC, float meanLen,
@@ -266,7 +266,7 @@ public class NcrnaBoundaryScorer {
 
 	/** V2 shares one Quantum identity across the locus and reads fixed HBM endpoint
 	 * constants. V3 shares the identity but replaces those constants with zero spares. */
-	static RefinementResult refineBoundariesWithCounts(CellNet startNet, CellNet stopNet, byte[] window, int s, int e,
+	public static RefinementResult refineBoundariesWithCounts(CellNet startNet, CellNet stopNet, byte[] window, int s, int e,
 			byte[] modelConsensus, BaseGraph model,
 			TrnaBoundaryFeatures.NinemerTable startTable, TrnaBoundaryFeatures.NinemerTable stopTable,
 			int startInside, int startOutside, int stopInside, int stopOutside, float contigGC, float meanLen,
@@ -281,7 +281,7 @@ public class NcrnaBoundaryScorer {
 	/** V3 inference with the same independently normalized 50/50 family/consensus
 	 * profile blend used by NcrnaBoundaryVectorGen. Null family tables preserve the
 	 * historical single-table path byte-for-byte. */
-	static RefinementResult refineBoundariesWithCounts(CellNet startNet, CellNet stopNet, byte[] window, int s, int e,
+	public static RefinementResult refineBoundariesWithCounts(CellNet startNet, CellNet stopNet, byte[] window, int s, int e,
 			byte[] modelConsensus, BaseGraph model,
 			TrnaBoundaryFeatures.NinemerTable startTable, TrnaBoundaryFeatures.NinemerTable stopTable,
 			int startInside, int startOutside, int stopInside, int stopOutside, float contigGC, float meanLen,
@@ -298,7 +298,7 @@ public class NcrnaBoundaryScorer {
 
 	/** A physically missing end is neither scored nor moved. The other end keeps
 	 * the family's normal feature definition and sweep with its anchor fixed. */
-	static RefinementResult refineBoundariesWithCounts(CellNet startNet, CellNet stopNet, byte[] window, int s, int e,
+	public static RefinementResult refineBoundariesWithCounts(CellNet startNet, CellNet stopNet, byte[] window, int s, int e,
 			byte[] modelConsensus, BaseGraph model,
 			TrnaBoundaryFeatures.NinemerTable startTable, TrnaBoundaryFeatures.NinemerTable stopTable,
 			int startInside, int startOutside, int stopInside, int stopOutside, float contigGC, float meanLen,

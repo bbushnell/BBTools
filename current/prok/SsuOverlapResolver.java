@@ -14,8 +14,8 @@ import structures.ByteBuilder;
  * admitted 16S full-model fit. Candidate scores and boundaries are never changed.
  * Worker-local; caches are reset between contigs and strands.
  * @author Raiden */
-final class SsuOverlapResolver {
-	SsuOverlapResolver(boolean trace_, boolean verify_){trace=trace_;verify=verify_;}
+public final class SsuOverlapResolver {
+	public SsuOverlapResolver(boolean trace_, boolean verify_){trace=trace_;verify=verify_;}
 
 	static boolean hasClippedMito(ArrayList<Orf>[] lists){
 		assert(lists!=null):"SSU admission comparison follows RNA candidate generation";
@@ -24,7 +24,7 @@ final class SsuOverlapResolver {
 	}
 
 	/** Lists and bases use genomic coordinates after GeneCaller.makeRnas restores the input. */
-	void apply(ArrayList<Orf>[] lists, byte[] bases){
+	public void apply(ArrayList<Orf>[] lists, byte[] bases){
 		assert(lists!=null && lists.length==2 && bases!=null):KillSwitch.assertDie("SSU arbitration requires both genomic-strand candidate lists and the restored input");
 		assert(decisions.isEmpty()):KillSwitch.assertDie("Final-path audit must consume the preceding contig's SSU decisions before reuse");
 		for(int strand=0; strand<2; strand++){
@@ -60,7 +60,7 @@ final class SsuOverlapResolver {
 	}
 
 	/** Direct reciprocal-half overlap; never forms connected components or changes a neighbor. */
-	static boolean overlap(Orf a, Orf b){
+	public static boolean overlap(Orf a, Orf b){
 		assert(a!=null && b!=null):"Overlap applies to actual admitted candidates";
 		if(a.strand!=b.strand || !a.scafName.equals(b.scafName)){return false;}
 		final long overlap=(long)Tools.min(a.stop,b.stop)-Tools.max(a.start,b.start)+1;
@@ -86,7 +86,7 @@ final class SsuOverlapResolver {
 
 	/** Audit actual final output. Verification runs fail on neither-SSU; production does not
 	 * silently add an unmeasured rollback or force a locally preferred candidate into the path. */
-	void finish(ArrayList<Orf> path){
+	public void finish(ArrayList<Orf> path){
 		assert(path!=null):"Final SSU outcomes require the actual shared-DP result";
 		int missing=0,lost=0;
 		for(Decision d:decisions){
@@ -118,7 +118,7 @@ final class SsuOverlapResolver {
 		final Orf ssu,mito;final int start,stop;final float ssuIdentity,mitoIdentity;
 	}
 	final boolean trace,verify;
-	long alignmentCount,alignedBases,pairsCompared,vetoCount,preferredRetained,preferredLost,neitherRetained;
+	public long alignmentCount,alignedBases,pairsCompared,vetoCount,preferredRetained,preferredLost,neitherRetained;
 	private Euk18sPacBioAligner aligner;
 	private final ObjectMap<byte[],LongIntMap> cache=new ObjectMap<byte[],LongIntMap>(byte[].class,LongIntMap.class);
 	private final ArrayList<Decision> decisions=new ArrayList<Decision>();

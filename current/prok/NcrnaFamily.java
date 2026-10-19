@@ -189,7 +189,7 @@ public class NcrnaFamily {
 		return copy;
 	}
 
-	static final int[] LEGACY_START_OFFSETS={-3,-2,-1,0,1,2};
+	public static final int[] LEGACY_START_OFFSETS={-3,-2,-1,0,1,2};
 	/** Explicit experimental feature observation. Null resources in every ordinary
 	 * constructor keep this path off; real endpoint refinement is a separate step. */
 	public void setRrnaEndpointFeatures(RrnaPositionalKmerTable.Table[] five,
@@ -197,14 +197,14 @@ public class NcrnaFamily {
 		if(sink==null){throw new IllegalArgumentException("Explicit family feature consumer required");}
 		 rrnaEndpointFeatures=new RrnaEndpointCallerFeatures.Resources(name,modelNames,library,five,three);rrnaEndpointFeatureSink=sink;
 	}
-	RrnaEndpointCallerFeatures.Resources rrnaEndpointFeatures=null;
+	public RrnaEndpointCallerFeatures.Resources rrnaEndpointFeatures=null;
 	/** Explicit default-off inference bundle; ordinary construction never loads it. */
 	public void setRrnaEndpointInference(RrnaEndpointCallerFeatures.Resources resources,RrnaEndpointCallerFeatures.Sink sink){
 		if(resources==null || !name.equals(resources.family) || resources.fiveNets==null){throw new IllegalArgumentException("Explicit family-matched endpoint networks required");}
 		rrnaEndpointFeatures=resources;rrnaEndpointFeatureSink=sink;
 	}
 	RrnaEndpointCallerFeatures.Sink rrnaEndpointFeatureSink=null;
-	static final int[] LEGACY_STOP_OFFSETS={-4,-3,-2,-1,0,1};
+	public static final int[] LEGACY_STOP_OFFSETS={-4,-3,-2,-1,0,1};
 
 	public final String name;
 	public final byte[][] library;
@@ -229,7 +229,7 @@ public class NcrnaFamily {
 	public final float idPass;
 	public final float idBorderline;
 	/** Optional immutable model-name-bound overrides; null retains family scalars. */
-	NcrnaModelThresholds modelThresholds=null;
+	public NcrnaModelThresholds modelThresholds=null;
 	public final float hbmPass;
 	public final float collapseFrac;
 
@@ -246,65 +246,65 @@ public class NcrnaFamily {
 	public final int boundaryStopInside;
 	public final int boundaryStopOutside;
 	public final float boundaryMeanLen;
-	final int[] boundaryStartOffsets;
-	final int[] boundaryStopOffsets;
+	public final int[] boundaryStartOffsets;
+	public final int[] boundaryStopOffsets;
 	final float boundaryMarginStart;
 	final float boundaryMarginStop;
-	SeedOffsetTable voteTable=null;
-	boolean voteWindows=false, voteEnds=false;
+	public SeedOffsetTable voteTable=null;
+	public boolean voteWindows=false, voteEnds=false;
 	/** Experimental window grouping on unpadded seed predictions; false preserves legacy geometry. */
-	boolean voteBeforePadding=false;
+	public boolean voteBeforePadding=false;
 	/** Opt-in containment correction; a clipped subset cannot shrink its containing proposal. */
-	boolean preserveContainingWindows=false;
-	int voteSlack=60;
-	float voteEndsMaxSd=5f;
+	public boolean preserveContainingWindows=false;
+	public int voteSlack=60;
+	public float voteEndsMaxSd=5f;
 	/** Optional production model-dispatched endpoint resources. Null preserves the
 	 * family-wide endpoint path. Arrays are index-aligned with library/modelNames. */
 	CellNet[] boundaryNetsByModel=null;
 	TrnaBoundaryFeatures.NinemerTable[] boundaryStartTablesByModel=null;
 	TrnaBoundaryFeatures.NinemerTable[] boundaryStopTablesByModel=null;
 	int boundaryFeatureVersion=NcrnaBoundaryScorer.FEATURES_V1;
-	boolean boundaryOnRawEndpoints=false;
+	public boolean boundaryOnRawEndpoints=false;
 	boolean nnCentre5Vote=false, nnCentre3Vote=false;
 	float nnCutoff=Float.NaN;
 
 	/** Production controls that historically lived only in RrnaScavengerHarness.
 	 * Defaults preserve every existing generic-ncRNA family. */
-	int outputType=ProkObject.RNA;
-	int seedMinHits=1;
+	public int outputType=ProkObject.RNA;
+	public int seedMinHits=1;
 	/** Count distinct matching keys only for the post-window seed gate; diagnostics remain occurrences. */
-	boolean seedDistinct=false;
+	public boolean seedDistinct=false;
 	/** Inclusive alignment-span cap; unlimited unless explicitly selected. */
-	int maxLen=Integer.MAX_VALUE;
+	public int maxLen=Integer.MAX_VALUE;
 	int quantumThresh=120;
-	boolean scavengePass2=true;
-	boolean rankedModelFallback=false;
-	boolean strictIndexCutoff=false;
+	public boolean scavengePass2=true;
+	public boolean rankedModelFallback=false;
+	public boolean strictIndexCutoff=false;
 	/** Inclusive shared-kmer score distance below the best model; -1 keeps topN. */
 	int indexScoreMargin=-1;
-	boolean trimAlignmentExtent=true;
+	public boolean trimAlignmentExtent=true;
 	/** When true, every shortlisted consensus is Quantum-aligned once with
 	 * traceback, and that result supplies detection, coordinates, and HBM input. */
-	boolean reuseConsensusAlignment=false;
+	public boolean reuseConsensusAlignment=false;
 	/** Per-call Quantum cap; the production23S family alone selects a wider search. */
-	int quantumCapMultiplier=1;
+	public int quantumCapMultiplier=1;
 	/** Default-off unchanged PacBio MSA primary; only the experimental euk18S profile sets this. */
-	boolean pacBioConsensusAlignment=false;
-	boolean pacBioRolling=false;
+	public boolean pacBioConsensusAlignment=false;
+	public boolean pacBioRolling=false;
 	/** Experimental frozen joined-window geometry; null leaves every ordinary path unchanged. */
 	Euk18sJoinedProposals joinedProposals=null;
-	SeedModelPositionTable joinedPositions=null;
-	int joinedSideSupport=1;
+	public SeedModelPositionTable joinedPositions=null;
+	public int joinedSideSupport=1;
 	/** Immutable experimental costs; all omitted controls retain native defaults. */
 	align2.PacBioScoreParameters pacBioCosts=align2.PacBioScoreParameters.DEFAULT;
 	/** Experimental local alignment with free model ends; never enabled implicitly. */
-	boolean modelEndClipping=false;
+	public boolean modelEndClipping=false;
 	/** Try local model clipping only after the unchanged Quantum window rejects. */
-	boolean modelClipRescue=false;
+	public boolean modelClipRescue=false;
 	/** Physical-edge-only retry, distinct from experimental unrestricted model clipping. */
-	int physicalEdgeMinLen=0;
+	public int physicalEdgeMinLen=0;
 	/** Historical field name: explicit16S/23S physical-edge floor; zero disables it. */
-	int prok16sPartialMinLen=0;
+	public int prok16sPartialMinLen=0;
 	/** NaN retains each model's cutoff; an explicit value applies only to clipped rescue. */
-	float modelClipRescueId=Float.NaN;
+	public float modelClipRescueId=Float.NaN;
 }

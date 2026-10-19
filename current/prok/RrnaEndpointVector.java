@@ -41,10 +41,10 @@ public final class RrnaEndpointVector {
 		new RrnaEndpointVector(model,reference(consensus,model),five,three,distributions(histogram,model,five.radius),seed,samples,acceptedIdentity).run(in,prefix,expected);
 	}
 
-	RrnaEndpointVector(String model_,byte[] consensus_,RrnaPositionalKmerTable.Table five,RrnaPositionalKmerTable.Table three,Distribution[] hist,long seed,int samples_){
+	public RrnaEndpointVector(String model_,byte[] consensus_,RrnaPositionalKmerTable.Table five,RrnaPositionalKmerTable.Table three,Distribution[] hist,long seed,int samples_){
 		this(model_,consensus_,five,three,hist,seed,samples_,false);
 	}
-	RrnaEndpointVector(String model_,byte[] consensus_,RrnaPositionalKmerTable.Table five,RrnaPositionalKmerTable.Table three,Distribution[] hist,long seed,int samples_,boolean acceptedIdentity_){
+	public RrnaEndpointVector(String model_,byte[] consensus_,RrnaPositionalKmerTable.Table five,RrnaPositionalKmerTable.Table three,Distribution[] hist,long seed,int samples_,boolean acceptedIdentity_){
 		acceptedVerifierIdentity=acceptedIdentity_;
 		require(consensus_!=null&&consensus_.length>0&&hist.length==2&&samples_>0&&seed>=0,"Explicit reference, two measured histograms and reproducible samples required");
 		require(five!=null&&three!=null&&five.radius==three.radius&&five.model.equals(model_)&&three.model.equals(model_)&&five.end.equals("5prime")&&three.end.equals("3prime"),"One model and one family geometry must bind both training ends");
@@ -89,7 +89,7 @@ public final class RrnaEndpointVector {
 		stats.clear();stats.doTrace=true;final float id=QuantumAligner.alignAndTraceStatic(query,target,stats);require(Float.isFinite(id)&&id>=0&&id<=1,"Quantum candidate identity must be finite and fractional");return id;
 	}
 
-	void run(String in,String prefix,long expected){
+	public void run(String in,String prefix,long expected){
 		RrnaResourceIO.fresh(prefix,".5prime.tsv.gz",".3prime.tsv.gz",".audit.tsv.gz",".stats.tsv");
 		final ByteStreamWriter[] writers={RrnaResourceIO.writer(prefix+".5prime.tsv.gz"),RrnaResourceIO.writer(prefix+".3prime.tsv.gz")};
 		final ByteStreamWriter audit=RrnaResourceIO.writer(prefix+".audit.tsv.gz");final ByteBuilder b=new ByteBuilder();
@@ -139,7 +139,7 @@ public final class RrnaEndpointVector {
 		for(int i=0;i<refs.length;i++){if(RrnaResourceIO.first(names[i]).equals(model)){require(selected==null,"Consensus names must be unique");selected=refs[i];}}
 		require(selected!=null&&selected.length>0,"Assigned consensus must exist in the explicit reference library");return selected;
 	}
-	static Distribution[] distributions(String path,String model){return distributions(path,model,RADIUS);}
+	public static Distribution[] distributions(String path,String model){return distributions(path,model,RADIUS);}
 	static Distribution[] distributions(String path,String model,int radius){
 		final Distribution[] out={new Distribution(radius),new Distribution(radius)};final ByteFile bf=RrnaResourceIO.open(path);final LineParser1 p=new LineParser1('\t');
 		try{RrnaResourceIO.header(bf,"model\tend\tsigned_error\tcount",path);
@@ -148,22 +148,22 @@ public final class RrnaEndpointVector {
 		}finally{require(!bf.close(),"Measured histogram read failed");}
 		require(out[0].total>0&&out[1].total>0,"Missing measured model/end histogram: no pooled, uniform or residual-model fallback");return out;
 	}
-	static final class Distribution{
-		Distribution(){this(RADIUS);}
-		Distribution(int radius_){radius=radius_;sites=RrnaPositionalKmerTable.sitesForRadius(radius);weights=new long[sites];}
-		void add(int error,long count){require(count>0&&(!seen||error>last),"Per-model/end signed-error bins must have positive counts and be strictly increasing (no duplicate rows)");seen=true;last=error;total=Math.addExact(total,count);
+	public static final class Distribution{
+		public Distribution(){this(RADIUS);}
+		public Distribution(int radius_){radius=radius_;sites=RrnaPositionalKmerTable.sitesForRadius(radius);weights=new long[sites];}
+		public void add(int error,long count){require(count>0&&(!seen||error>last),"Per-model/end signed-error bins must have positive counts and be strictly increasing (no duplicate rows)");seen=true;last=error;total=Math.addExact(total,count);
 			final int d=Math.max(-radius,Math.min(radius,error));weights[d+radius]=Math.addExact(weights[d+radius],count);if(error<-radius){low=Math.addExact(low,count);}if(error>radius){high=Math.addExact(high,count);}}
-		int draw(Random rng){require(total>0,"Never sample an empty measured histogram");long bits,value;do{bits=rng.nextLong()>>>1;value=bits%total;}while(bits-value+(total-1)<0);long sum=0;
+		public int draw(Random rng){require(total>0,"Never sample an empty measured histogram");long bits,value;do{bits=rng.nextLong()>>>1;value=bits%total;}while(bits-value+(total-1)<0);long sum=0;
 			for(int i=0;i<sites;i++){sum+=weights[i];if(value<sum){return i-radius;}}throw new IllegalStateException("Histogram draw must land in a conserved count bin");}
-		final int radius,sites;final long[] weights;long total,low,high;int last;boolean seen;
+		final int radius,sites;public final long[] weights;public long total,low,high;int last;boolean seen;
 	}
 	static long fieldRange(String header,String key){
 		final String token=key+'=';int at=header.indexOf(token);while(at>=0&&at>0&&!Character.isWhitespace(header.charAt(at-1))){at=header.indexOf(token,at+1);}
 		require(at>=0,"Missing required extraction field: "+key);final int start=at+token.length();int end=start;while(end<header.length()&&!Character.isWhitespace(header.charAt(end))){end++;}
 		require(end>start,"Empty extraction field: "+key);return ((long)start<<32)|(end&0xffffffffL);
 	}
-	static int integerField(String h,String key){final long r=fieldRange(h,key);return Parse.parseInt(h,(int)(r>>>32),(int)r);}
-	static float floatField(String h,String key){final long r=fieldRange(h,key);return Parse.parseFloat(h,(int)(r>>>32),(int)r);}
+	public static int integerField(String h,String key){final long r=fieldRange(h,key);return Parse.parseInt(h,(int)(r>>>32),(int)r);}
+	public static float floatField(String h,String key){final long r=fieldRange(h,key);return Parse.parseFloat(h,(int)(r>>>32),(int)r);}
 	static void require(boolean ok,String why){if(!ok){throw new IllegalArgumentException(why);}}
 	/** Compatibility geometry for historical euk5S callers of the old overloads only. */
 	public static final int RADIUS=12,SITES=25,INPUTS=28;

@@ -226,7 +226,7 @@ public abstract class ProkObject {
 	//CallGenes.loadNcrnaKmerSet needs this to load ncRNA family kmer sets (rnasep/srp_*_17mers.fa)
 	//the same way ProkObject's own tRNA/rRNA kmer sets load. Visibility-only change, no behavior
 	//difference for any existing caller.
-	static LongHashSet loadLongKmersByType(int k, String prefix){
+	public static LongHashSet loadLongKmersByType(int k, String prefix){
 		if(k==17 && "tRNA".equalsIgnoreCase(prefix)){
 			return NcrnaFamilyLoader.loadSeedKeys("tRNA", k, new FamilyResourceResolver());
 		}
@@ -258,7 +258,7 @@ public abstract class ProkObject {
 	//is bound to. Reusing this method directly guarantees byte-for-byte parity with production
 	//loading instead of a second reimplementation that could silently drift from it.
 	//Visibility-only change, no behavior difference for any existing caller.
-	static LongHashSet loadLongKmers(String fname, int k){//TODO: Consider making this a LongHashSet.  No reason not to...
+	public static LongHashSet loadLongKmers(String fname, int k){//TODO: Consider making this a LongHashSet.  No reason not to...
 		FileFormat ff=FileFormat.testInput(fname, FileFormat.FA, null, false, false);
 		ConcurrentReadInputStream cris=ConcurrentReadInputStream.getReadInputStream(-1, false, ff, null);
 		cris.start(); //Start the stream
@@ -418,12 +418,12 @@ public abstract class ProkObject {
 	public static float min5SIdentity=0.60f;
 	public static float min18SIdentity=0.60f;
 	
-	static int ssuStartSlop=200;
-	static int ssuStopSlop=0;
-	static int lsuStartSlop=220;
-	static int lsuStopSlop=0;
-	static int r5SStartSlop=50;
-	static int r5SStopSlop=50;
+	public static int ssuStartSlop=200;
+	public static int ssuStopSlop=0;
+	public static int lsuStartSlop=220;
+	public static int lsuStopSlop=0;
+	public static int r5SStartSlop=50;
+	public static int r5SStopSlop=50;
 
 	public static boolean callCDS=true;
 	public static boolean calltRNA=true;

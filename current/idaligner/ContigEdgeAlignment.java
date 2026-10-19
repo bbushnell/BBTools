@@ -27,7 +27,7 @@ public final class ContigEdgeAlignment {
 
 	/** Remove only columns outside the real reference interval. Real genomic Ns
 	 * stay in the trace and retain the caller's explicit half-identity credit. */
-	static EndClippedAligner.Result observed(final AlignmentStats raw, final int modelLength,
+	public static EndClippedAligner.Result observed(final AlignmentStats raw, final int modelLength,
 			final int paddingLeft, final int referenceLength, final boolean leftEdge, final boolean rightEdge){
 		assert(raw!=null && modelLength>0 && paddingLeft>=0 && referenceLength>0)
 			:"Virtual-to-genomic conversion requires the exact padded reference geometry";

@@ -131,7 +131,7 @@ public class NcrnaGffFamilyGrader {
 	/*----------------        Core Data Types        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	static final String FAM_A="RF00013", FAM_B="RF01685";
+	public static final String FAM_A="RF00013", FAM_B="RF01685";
 	static final String MODEL_PREFIX_A="6S_RF00013", MODEL_PREFIX_B="6S_RF01685";
 	static final float MIN_OVERLAP_FRAC=0.5f;
 	static final String NA="."; //no-match / not-applicable marker in audit output
@@ -140,11 +140,11 @@ public class NcrnaGffFamilyGrader {
 	 * inclusive [start,stop], matching GFF convention throughout this codebase. Input
 	 * validation, not an internal invariant -- IllegalArgumentException, not assert, so
 	 * malformed data fails loud regardless of -ea/-da. */
-	static final class Locus {
-		final String seqid, family;
-		final int start, stop;
-		final char strand;
-		Locus(String seqid_, String family_, int start_, int stop_, char strand_){
+	public static final class Locus {
+		public final String seqid, family;
+		public final int start, stop;
+		public final char strand;
+		public Locus(String seqid_, String family_, int start_, int stop_, char strand_){
 			if(start_<1){
 				throw new IllegalArgumentException("Invalid locus (start<1, coordinates must be "
 					+"positive 1-based): "+seqid_+" "+start_+"-"+stop_);
@@ -230,8 +230,8 @@ public class NcrnaGffFamilyGrader {
 		return false;
 	}
 
-	static final class MatchResult {
-		int matched=0;
+	public static final class MatchResult {
+		public int matched=0;
 		final boolean[] callConsumed;
 		final boolean[] truthConsumed;
 		final boolean[] callIsDuplicate;
@@ -269,11 +269,11 @@ public class NcrnaGffFamilyGrader {
 	 * for truth in input-list order, "C0..Cm-1" for calls in input-list order --
 	 * assigned before any filtering/partitioning, so it never depends on family or
 	 * neg-seqid membership. */
-	static final class AuditRow {
-		final String locusId;
-		final Locus locus;
-		final String role; //TRUTH or CALL
-		String subtypeOutcome=NA, subtypeMatchId=NA;
+	public static final class AuditRow {
+		public final String locusId;
+		public final Locus locus;
+		public final String role; //TRUTH or CALL
+		public String subtypeOutcome=NA, subtypeMatchId=NA;
 		String unionOutcome=NA, unionMatchId=NA;
 		/** Round-2b correction (Citan's review): a single locus can legitimately
 		 * cross-relate to MORE than one locus of the other family/role (e.g. one
@@ -284,8 +284,8 @@ public class NcrnaGffFamilyGrader {
 		 * run, never re-sorted -- no extra sort needed for determinism since the
 		 * source lists are themselves already stable/ordered). Formatted as a
 		 * comma-joined list at write time ("." if empty). */
-		String crossLabelOutcome="NONE";
-		final ArrayList<String> crossLabelMatchIds=new ArrayList<>();
+		public String crossLabelOutcome="NONE";
+		public final ArrayList<String> crossLabelMatchIds=new ArrayList<>();
 		AuditRow(String locusId_, Locus locus_, String role_){locusId=locusId_; locus=locus_; role=role_;}
 	}
 
@@ -307,7 +307,7 @@ public class NcrnaGffFamilyGrader {
 	 * loci with identical field values are still distinct list entries) and then filled
 	 * in by each pass -- so a row NOT touched by some pass keeps its NA/NONE defaults,
 	 * never a stale or fabricated value. */
-	static GradeResult grade(List<Locus> truth, List<Locus> calls, Set<String> negSeqids){
+	public static GradeResult grade(List<Locus> truth, List<Locus> calls, Set<String> negSeqids){
 		final GradeResult r=new GradeResult();
 
 		for(Locus t : truth){
@@ -471,13 +471,13 @@ public class NcrnaGffFamilyGrader {
 	 * auditRows (truth rows then call rows, each input-order-stable) backs the
 	 * per-locus .rawcalls.tsv output and is sufficient on its own to reconstruct every
 	 * field below by scanning/grouping -- see the class javadoc. */
-	static final class GradeResult {
-		long tpA, fpA, fnA, dupA;
-		long tpB, fpB, fnB, dupB;
-		long unionTP, unionFP, unionFN;
-		long crossAasB, crossBasA;
-		long negFP;
-		final ArrayList<AuditRow> auditRows=new ArrayList<>();
+	public static final class GradeResult {
+		public long tpA, fpA, fnA, dupA;
+		public long tpB, fpB, fnB, dupB;
+		public long unionTP, unionFP, unionFN;
+		public long crossAasB, crossBasA;
+		public long negFP;
+		public final ArrayList<AuditRow> auditRows=new ArrayList<>();
 	}
 
 	/*--------------------------------------------------------------*/
@@ -521,7 +521,7 @@ public class NcrnaGffFamilyGrader {
 	 * line, and is skipped. Rejects an exact-duplicate truth row (identical
 	 * seqid+family+start+stop+strand) -- virtually certainly a data/extraction bug,
 	 * not a genuine feature of biology; fails loud rather than silently double-counting. */
-	static ArrayList<Locus> loadTruthTsv(String path) throws Exception {
+	public static ArrayList<Locus> loadTruthTsv(String path) throws Exception {
 		final ArrayList<Locus> out=new ArrayList<>();
 		final HashSet<String> seenKeys=new HashSet<>();
 		final ByteFile bf=ByteFile.makeByteFile(FileFormat.testInput(path, FileFormat.TEXT, null, true, true));
@@ -583,7 +583,7 @@ public class NcrnaGffFamilyGrader {
 	 * sixS family (with a valid token boundary -- see extractFamily) is silently
 	 * skipped -- it belongs to a different generic-ncRNA family (rnasep/srp_small/
 	 * srp_large/tmrna) this grader does not track, not an error. */
-	static ArrayList<Locus> loadCallsFromGff(String path) throws Exception {
+	public static ArrayList<Locus> loadCallsFromGff(String path) throws Exception {
 		final ArrayList<Locus> out=new ArrayList<>();
 		final ByteFile bf=ByteFile.makeByteFile(FileFormat.testInput(path, FileFormat.TEXT, null, true, true));
 		byte[] lineBytes=bf.nextLine();
@@ -627,7 +627,7 @@ public class NcrnaGffFamilyGrader {
 	 * e.g. "6S_RF00013_unknown_c1113") or ',' (end of this comma-joined attribute
 	 * field). Anything else (a digit, a letter) means the prefix match was coincidental,
 	 * not a real family identifier -- rejected. */
-	static String extractFamily(String attrs, int modelIdx){
+	public static String extractFamily(String attrs, int modelIdx){
 		final int valStart=modelIdx+"model:".length();
 		final String fam=matchPrefixWithBoundary(attrs, valStart, MODEL_PREFIX_A) ? FAM_A
 			: matchPrefixWithBoundary(attrs, valStart, MODEL_PREFIX_B) ? FAM_B : null;
@@ -654,7 +654,7 @@ public class NcrnaGffFamilyGrader {
 	 * rawcalls.tsv (one row per input RECORD -- that unit doesn't exist here, since
 	 * this grader works at genome/coordinate scale, not pre-flanked-single-locus-record
 	 * scale), the natural unit is one row per LOCUS. */
-	static void writeReport(String out, GradeResult r) throws Exception {
+	public static void writeReport(String out, GradeResult r) throws Exception {
 		final PrintStream rawOut=new PrintStream(out+".rawcalls.tsv");
 		rawOut.println("locusId\tseqid\tfamily\tstart\tstop\tstrand\trole\tsubtypeOutcome\tsubtypeMatchId"
 			+"\tunionOutcome\tunionMatchId\tcrossLabelOutcome\tcrossLabelMatchId");
@@ -702,11 +702,11 @@ public class NcrnaGffFamilyGrader {
 	/** Ordered, validated family-to-model-prefix configuration for development
 	 * benchmarks.  The legacy two-6S-family behavior above intentionally remains
 	 * byte-for-byte independent when familymap is omitted. */
-	static final class FamilyMap {
+	public static final class FamilyMap {
 		final LinkedHashMap<String, String> prefixByFamily=new LinkedHashMap<>();
 	}
 
-	static FamilyMap loadFamilyMap(String path) throws Exception {
+	public static FamilyMap loadFamilyMap(String path) throws Exception {
 		final FamilyMap out=new FamilyMap();
 		final HashSet<String> prefixes=new HashSet<>();
 		final ByteFile bf=ByteFile.makeByteFile(FileFormat.testInput(path, FileFormat.TEXT, null, true, true));
@@ -726,7 +726,7 @@ public class NcrnaGffFamilyGrader {
 		return out;
 	}
 
-	static ArrayList<Locus> loadTruthTsv(String path, FamilyMap families) throws Exception {
+	public static ArrayList<Locus> loadTruthTsv(String path, FamilyMap families) throws Exception {
 		final ArrayList<Locus> out=new ArrayList<>();
 		final HashSet<String> seenKeys=new HashSet<>();
 		final ByteFile bf=ByteFile.makeByteFile(FileFormat.testInput(path, FileFormat.TEXT, null, true, true));
@@ -750,7 +750,7 @@ public class NcrnaGffFamilyGrader {
 		return out;
 	}
 
-	static ArrayList<Locus> loadCallsFromGff(String path, FamilyMap families) throws Exception {
+	public static ArrayList<Locus> loadCallsFromGff(String path, FamilyMap families) throws Exception {
 		final ArrayList<Locus> out=new ArrayList<>();
 		final ByteFile bf=ByteFile.makeByteFile(FileFormat.testInput(path, FileFormat.TEXT, null, true, true));
 		for(byte[] lineBytes=bf.nextLine(); lineBytes!=null; lineBytes=bf.nextLine()){
@@ -776,7 +776,7 @@ public class NcrnaGffFamilyGrader {
 		return out;
 	}
 
-	static final class FamilyCounts { long tp, fp, fn, dup; }
+	public static final class FamilyCounts { public long tp, fp, fn, dup; }
 
 	/** One matched TP pair with strand-aware boundary offsets (G11, 2026-09-05; ncrna
 	 * skill: detection and boundary accuracy are separate reports). Offsets are in
@@ -785,9 +785,9 @@ public class NcrnaGffFamilyGrader {
 	 * truth end (toward the 3' direction). Plus strand: d5=call.start-truth.start,
 	 * d3=call.stop-truth.stop; minus strand: d5=truth.stop-call.stop,
 	 * d3=truth.start-call.start. */
-	static final class MatchedPair {
-		final String family; final Locus truth, call; final int d5, d3;
-		MatchedPair(String family_, Locus t, Locus c){
+	public static final class MatchedPair {
+		final String family; final Locus truth, call; public final int d5, d3;
+		public MatchedPair(String family_, Locus t, Locus c){
 			family=family_; truth=t; call=c;
 			final boolean minus=(t.strand=='-');
 			d5=(minus ? t.stop-c.stop : c.start-t.start);
@@ -795,15 +795,15 @@ public class NcrnaGffFamilyGrader {
 		}
 	}
 
-	static final class GenericGradeResult {
+	public static final class GenericGradeResult {
 		final FamilyMap families;
-		final LinkedHashMap<String, FamilyCounts> counts=new LinkedHashMap<>();
+		public final LinkedHashMap<String, FamilyCounts> counts=new LinkedHashMap<>();
 		final ArrayList<MatchedPair> pairs=new ArrayList<>();//per-family TP pairs, load order
-		long unionTP, unionFP, unionFN, negFP;
+		public long unionTP, unionFP, unionFN, negFP;
 		GenericGradeResult(FamilyMap f){families=f; for(String family : f.prefixByFamily.keySet()){counts.put(family, new FamilyCounts());}}
 	}
 
-	static GenericGradeResult gradeGeneric(List<Locus> truth, List<Locus> calls, Set<String> negSeqids, FamilyMap families){
+	public static GenericGradeResult gradeGeneric(List<Locus> truth, List<Locus> calls, Set<String> negSeqids, FamilyMap families){
 		final GenericGradeResult r=new GenericGradeResult(families);
 		for(Locus t : truth){if(negSeqids.contains(t.seqid)){throw new IllegalStateException("Truth locus present on negseqids seqid: "+t.seqid);}}
 		final ArrayList<Locus> posCalls=new ArrayList<>();
@@ -830,7 +830,7 @@ public class NcrnaGffFamilyGrader {
 		return r;
 	}
 
-	static void writeGenericReport(String out, GenericGradeResult r) throws Exception {
+	public static void writeGenericReport(String out, GenericGradeResult r) throws Exception {
 		final PrintStream sumOut=new PrintStream(out+".summary.tsv");
 		sumOut.println("scope\tTP\tFN\tFP\tprecision\trecall");
 		for(Map.Entry<String, FamilyCounts> e : r.counts.entrySet()){

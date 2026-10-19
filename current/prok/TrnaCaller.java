@@ -978,7 +978,7 @@ public class TrnaCaller extends ProkObject {
 	 * of surviving segments through every claim so a claim strictly inside a window correctly produces
 	 * TWO output windows (left + right), not zero or one. */
 	//Package-private (not private) so TrnaCallerSubtractClaimedTest can exercise it directly.
-	static ArrayList<int[]> subtractClaimed(ArrayList<int[]> windows, ArrayList<int[]> claimed){
+	public static ArrayList<int[]> subtractClaimed(ArrayList<int[]> windows, ArrayList<int[]> claimed){
 		ArrayList<int[]> result=new ArrayList<>();
 		for(int[] w : windows){
 			ArrayList<int[]> segments=new ArrayList<>();
@@ -1030,7 +1030,7 @@ public class TrnaCaller extends ProkObject {
 		}
 	}
 
-	void alignWindow(String name, byte[] bases, int strand, int wStart, int wStop, ArrayList<Orf> output){
+	public void alignWindow(String name, byte[] bases, int strand, int wStart, int wStop, ArrayList<Orf> output){
 		final int wLen=wStop-wStart+1;
 		if(wLen<MIN_TRNA){return;}
 		byte[] seq=Arrays.copyOfRange(bases, wStart, wStop+1);
@@ -1444,7 +1444,7 @@ public class TrnaCaller extends ProkObject {
 	}
 
 	static boolean SCAVENGE=false;
-	static boolean SCAVENGE_ONLY=true;
+	public static boolean SCAVENGE_ONLY=true;
 	static boolean SCAVENGE_PASS2=true;
 	static int SCAV_PAD=83;
 	static int SCAV_QUANTUM_THRESH=120;
@@ -1457,6 +1457,9 @@ public class TrnaCaller extends ProkObject {
 	static boolean earlyExit=true;
 	//Raised 10->20 to the measured-best scavenger eval config (Brian, 2026-08-16); flag patience= overrides.
 	static int earlyExitPatience=20;
+	//TODO: Probable bug - per-worker TrnaCaller instances increment this shared
+	//counter without synchronization; CallGenes.printStats can undercount parallel
+	//alignments. It is diagnostic only and must not be used as an exact parity oracle.
 	static long alignmentCount=0;
 	/** Debug trace (flag trnadebug=): dumps findRegions regions + long-candidate INNER_THRESH
 	 * decisions to stderr to pin which sub-gate rejects intron-bearing candidates. Zero-cost off. */

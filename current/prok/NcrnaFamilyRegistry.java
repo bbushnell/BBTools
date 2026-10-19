@@ -6,7 +6,7 @@ package prok;
 public final class NcrnaFamilyRegistry {
 
 	/** Preserve existing family floors; introducing edge rescue does not tune length. */
-	static void enablePhysicalEdges(NcrnaFamily family){
+	public static void enablePhysicalEdges(NcrnaFamily family){
 		final Entry entry=get(family.name);
 		if("tRNA".equals(entry.id) || family.modelEndClipping){
 			throw new IllegalArgumentException("Physical-edge policy requires a generic registered caller without primary model clipping: "+family.name);
@@ -85,7 +85,7 @@ public final class NcrnaFamilyRegistry {
 		final ResourcePolicy resources;
 		final boolean packagedEndpoints;
 		public final String member;
-		final Group group;
+		public final Group group;
 		final String[] models;
 		final String[] rawEndpointModels;
 		final String[] coreRoles={"consensus", "seeds"};
@@ -103,6 +103,7 @@ public final class NcrnaFamilyRegistry {
 		/** An explicit custom consensus may change the roster and default shortlist size. */
 		final boolean modelCutoffs, dynamicModels;
 		int[] boundaryOffsets(boolean start){
+			if(id.equals("r58")){return R58BoundaryConfig.defaultOffsets(start);}
 			if(boundary!=null && boundary.trna){return start ? TrnaBoundaryVectorGen.START_OFFSETS : TrnaBoundaryVectorGen.STOP_OFFSETS;}
 			if(boundary!=null){return start ? NcrnaFamily.LEGACY_START_OFFSETS : boundary.stopOffsets;}
 			if(boundaryRadius<0){return start ? NcrnaFamily.LEGACY_START_OFFSETS : NcrnaFamily.LEGACY_STOP_OFFSETS;}

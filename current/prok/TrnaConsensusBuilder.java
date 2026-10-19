@@ -672,7 +672,7 @@ public class TrnaConsensusBuilder {
 	// it directly with a hand-built centroid list containing byte-identical (exact-tie) centroids —
 	// a case greedy clustering never produces (it would merge them), so it is unreachable via process().
 	// No behavioral effect.
-	void bestCentroidMatch(final byte[] seq, final ArrayList<byte[]> centroids,
+	public void bestCentroidMatch(final byte[] seq, final ArrayList<byte[]> centroids,
 			final float[] out){
 		final int n=centroids.size();
 		final int configured=Tools.max(1, Shared.threads());
@@ -1202,14 +1202,14 @@ public class TrnaConsensusBuilder {
 	/** Scores an existing consensus-as-query alignment against its parallel HBM.
 	 * This method performs no alignment; callers retain the Quantum traceback that
 	 * already supplied detection identity and genomic coordinates. */
-	static float scoreAlignedAgainstModel(byte[] candidate, AlignmentStats stats, BaseGraph model){
+	public static float scoreAlignedAgainstModel(byte[] candidate, AlignmentStats stats, BaseGraph model){
 		if(model==null || candidate==null || stats==null || stats.matchString==null){return -999;}
 		final Read r=invertToModelFrame(candidate, stats);
 		return r==null ? -999 : model.score(r, false, true);
 	}
 
 	/** Physical-edge traces retain their original model origin; no realignment. */
-	static float scoreAlignedAgainstModel(byte[] candidate, AlignmentStats stats, BaseGraph model, int modelStart){
+	public static float scoreAlignedAgainstModel(byte[] candidate, AlignmentStats stats, BaseGraph model, int modelStart){
 		if(model==null || candidate==null || stats==null || stats.matchString==null){return -999;}
 		if(modelStart<0 || modelStart>=model.original.length){throw new IllegalArgumentException("HBM model start outside original consensus: "+modelStart);}
 		final Read r=invertToModelFrame(candidate, stats, modelStart);
@@ -1227,12 +1227,12 @@ public class TrnaConsensusBuilder {
 	 * glocal alignment, so model coverage always spans the whole model.
 	 * @return The inverted Read, or null if the alignment is unusable.
 	 */
-	static Read invertToModelFrame(byte[] candidate, AlignmentStats stats){
+	public static Read invertToModelFrame(byte[] candidate, AlignmentStats stats){
 		return invertToModelFrame(candidate, stats, 0);
 	}
 
 	/** The old glocal callers retain origin zero; clipped callers supply qStart. */
-	static Read invertToModelFrame(byte[] candidate, AlignmentStats stats, int modelStart){
+	public static Read invertToModelFrame(byte[] candidate, AlignmentStats stats, int modelStart){
 		assert(modelStart>=0):"Model origin is qStart for clipped traces and zero for full-model glocal traces";
 		final byte[] match=stats.matchString;
 		if(stats.rStart<0 || stats.rStop<stats.rStart || stats.rStop>=candidate.length){return null;}

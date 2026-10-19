@@ -17,7 +17,8 @@ pushd . > /dev/null
 DIR="${BASH_SOURCE[0]}"
 while [ -h "$DIR" ]; do
   cd "$(dirname "$DIR")"
-  DIR="$(readlink "$(basename "$DIR")")"
+  script_target="$(readlink "$(basename "$DIR")")"
+  DIR="$script_target"
 done
 cd "$(dirname "$DIR")"
 DIR="$(pwd)/"
@@ -38,7 +39,8 @@ setEnv(){
 	#dev/, so javasetup.sh's internal memdetect.sh sourcing would still silently fail (caught non-
 	#fatally, exits 0 anyway -- the same bug dev/testhbm.sh has; see the TODO left there, since fixing
 	#that file is out of this change's scope).
-	DIR="$DIR""../"
+	bbtools_root="${DIR}../"
+	DIR="$bbtools_root"
 	. "$DIR""javasetup.sh"
 
 	parseJavaArgs "--xmx=1g" "--xms=1g" "--mode=fixed" "$@"
@@ -46,8 +48,8 @@ setEnv(){
 }
 
 launch() {
-	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP prok.TrnaKmerIndexBoundTest $@"
-	java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" prok.TrnaKmerIndexBoundTest "$@"
+	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP test.prok.TrnaKmerIndexBoundTest $@"
+	java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" test.prok.TrnaKmerIndexBoundTest "$@"
 }
 
 resolveSymlinks

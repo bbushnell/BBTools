@@ -42,7 +42,7 @@ import structures.IntList;
  *
  * @author Noire, Raiden
  */
-final class TrnaKmerIndex {
+public final class TrnaKmerIndex {
 
 	/** Shortlist index k-mer length (INDEX_K).  numKmers=1<<(2*indexK). */
 	private final int indexK;
@@ -93,7 +93,7 @@ final class TrnaKmerIndex {
 	private long queries=0, totalShortlisted=0;
 	private int lastMaxShared=0;
 
-	TrnaKmerIndex(byte[][] library, int indexK_, boolean adaptive_, float floor_, float topFrac_,
+	public TrnaKmerIndex(byte[][] library, int indexK_, boolean adaptive_, float floor_, float topFrac_,
 			float qFrac_, int fixedMinHits_){
 		validateConfiguration(indexK_, floor_, topFrac_, qFrac_, fixedMinHits_);
 		indexK=indexK_;
@@ -107,7 +107,7 @@ final class TrnaKmerIndex {
 	}
 
 	/** Validate before the int key-space shift/allocation; k>=16 wraps that shift. */
-	static void validateConfiguration(int k, float floor, float topFrac, float qFrac, int minHits){
+	public static void validateConfiguration(int k, float floor, float topFrac, float qFrac, int minHits){
 		if(k<1 || 2L*k>=Integer.SIZE){throw new IllegalArgumentException("indexK must be in [1,15]: "+k);}
 		if(!Float.isFinite(floor) || floor<0){throw new IllegalArgumentException("adaptFloor must be finite and >=0: "+floor);}
 		if(!Float.isFinite(topFrac) || topFrac<0){throw new IllegalArgumentException("adaptTopFrac must be finite and >=0: "+topFrac);}
@@ -174,14 +174,14 @@ final class TrnaKmerIndex {
 	 * the keep-top-1 fallback. Ordering rule is unchanged from the original shortlistByKmer; COUNT VALUES
 	 * are not bit-identical to it for queries with repeated k-mers -- see the class javadoc and the
 	 * unique-query-k-mer block below. */
-	int[] shortlist(byte[] seq, int topN){
+	public int[] shortlist(byte[] seq, int topN){
 		return shortlist(seq,topN,-1);
 	}
 
 	/** A nonnegative scoreMargin replaces the topN cap with an inclusive distance
 	 * below this window's best score. Existing absolute/adaptive cutoffs still apply;
 	 * zero-score models are never admitted. -1 preserves the legacy policy exactly. */
-	int[] shortlist(byte[] seq, int topN, int scoreMargin){
+	public int[] shortlist(byte[] seq, int topN, int scoreMargin){
 		validateTopN(topN);
 		if(scoreMargin < -1){throw new IllegalArgumentException("indexScoreMargin must be -1 (disabled) or >=0: "+scoreMargin);}
 		queries++;
@@ -317,10 +317,10 @@ final class TrnaKmerIndex {
 
 	/*-- Accessors for TrnaCaller instrumentation + reporting --*/
 	/** Shared k-mer count of a model with the LAST query (valid until the next shortlist call). */
-	int lastSharedCount(int model){return (model>=0 && model<nModels) ? counts[model] : 0;}
+	public int lastSharedCount(int model){return (model>=0 && model<nModels) ? counts[model] : 0;}
 	int lastMaxShared(){return lastMaxShared;}
 	int lastDistinctRefs(){return touched.size;}
-	long queriesProcessed(){return queries;}
+	public long queriesProcessed(){return queries;}
 	/** Total models placed on shortlists = upper bound on alignments issued (the true align count is
 	 * TrnaCaller.alignmentCount, which the borderline early-exit can make smaller). */
 	long totalShortlisted(){return totalShortlisted;}

@@ -591,7 +591,7 @@ public class Orf extends PFeature {
 	public String trnaModel;
 	/** Model ends absent beyond physical contig boundaries: bit1=5-prime, bit2=3-prime.
 	 * Sense-oriented provenance remains unchanged when genomic coordinates flip. */
-	int ncrnaPartial;
+	public int ncrnaPartial;
 	/** Anticodon triplet extracted structurally from the called sequence, or null */
 	public String trnaAnticodon;
 	/** Explicit generic-ncRNA family identity (e.g. "s18", "r58", "lsu"), set by
@@ -602,12 +602,12 @@ public class Orf extends PFeature {
 	public String ncrnaFamily;
 	/** Selected16S/23S verifier identity before endpoint refinement; NaN means unavailable.
 	 * Diagnostic provenance only: never reconstructed from rounded scores or used by DP. */
-	float acceptedRrnaIdentity=Float.NaN;
+	public float acceptedRrnaIdentity=Float.NaN;
 	/** Immutable accepted consensus provenance for SSU competition, independent of GFF annotation. */
-	byte[] ssuFullModel;
-	String ssuFullModelName;
+	public byte[] ssuFullModel;
+	public String ssuFullModelName;
 	/** Only the euk18S mitochondrial model accepted through modelClipRescue sets this. */
-	boolean ssuClippedMitoRescue;
+	public boolean ssuClippedMitoRescue;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Static Fields        ----------------*/

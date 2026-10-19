@@ -5,8 +5,8 @@ import java.util.Locale;
 
 /** Run-local 16S window controls and physical-edge rescue overrides.
  * @author Brian, Raiden */
-final class Prok16sWindowConfig {
-	boolean parse(String key, String value){
+public final class Prok16sWindowConfig {
+	public boolean parse(String key, String value){
 		if(key.equalsIgnoreCase("rrna16spartialminlen")){
 			partialMinLen=CallGenes.parseSweepInt(key, value, 0, 1400);configured=true;return true;
 		}
@@ -21,7 +21,7 @@ final class Prok16sWindowConfig {
 		return false;
 	}
 
-	void apply(ArrayList<NcrnaFamily> families){
+	public void apply(ArrayList<NcrnaFamily> families){
 		if(!configured){return;}
 		if(!CallGenes.seededRrnaFamily(ProkObject.r16S)){
 			throw new IllegalArgumentException("rrna16swindow requires rrna17=16s or rrna17=prok");

@@ -50,7 +50,7 @@ public final class RrnaPositionalKmerTable {
 		});require(five.records==expected&&three.records==expected,"Assigned training partition count changed");five.finish();three.finish();five.write(prefix+".5prime.tsv.gz");three.write(prefix+".3prime.tsv.gz");
 		System.err.println("RRNA_POSITIONAL_TABLE_BUILD_PASS model="+model+" records="+expected+" k="+(k5==k3?""+k5:k5+","+k3)+" radius="+radius+" pseudocount="+alpha);
 	}
-	static void checkModel(String header,String model){final String assignment=RrnaResourceIO.optionalField(header,"model");require(assignment==null||assignment.equals(model),"Header consensus assignment differs from declared input partition");}
+	public static void checkModel(String header,String model){final String assignment=RrnaResourceIO.optionalField(header,"model");require(assignment==null||assignment.equals(model),"Header consensus assignment differs from declared input partition");}
 	public static final class Table{
 		public Table(String model_,String end_,int k_,int offset_,double alpha_){this(model_,end_,k_,offset_,alpha_,RADIUS);}
 		public Table(String model_,String end_,int k_,int offset_,double alpha_,int radius_){
@@ -126,7 +126,7 @@ public final class RrnaPositionalKmerTable {
 			}finally{RrnaResourceIO.finish(out);}
 		}
 		public final String model,end;public final int k,offset,space,radius,sites,inputs;public final double alpha;public long records;
-		final long[][] counts;final long[] valid,clipped,ambiguous;double[] scores;boolean finished;
+		public final long[][] counts;public final long[] valid,clipped,ambiguous;public double[] scores;boolean finished;
 	}
 	public static Table load(String path,String expectedModel){
 		final ByteFile in=RrnaResourceIO.open(path);final LineParser1 p=new LineParser1('\t');
@@ -187,7 +187,7 @@ public final class RrnaPositionalKmerTable {
 	static void writeTotals(ByteStreamWriter out,ByteBuilder b,String name,long[] counts){assert(counts.length>=3 && (counts.length&1)==1):"One denominator per candidate offset";b.clear().append('#').append(name);for(long n:counts){b.tab().append(n);}out.print(b.nl());}
 	/** Double.toString in write() can emit exponents. Keep native parsing for
 	 * ordinary numbers and use the native slow fallback only at exponent fields. */
-	static double savedDouble(LineParser1 p,int term){
+	public static double savedDouble(LineParser1 p,int term){
 		p.setBounds(term);final byte[] row=p.line();
 		assert(p.a()<p.b()) : "Saved table numeric fields must be nonempty";
 		for(int i=p.a();i<p.b();i++){if(row[i]=='E'||row[i]=='e'){return Parse.parseDoubleSlow(row,p.a(),p.b());}}
@@ -196,7 +196,7 @@ public final class RrnaPositionalKmerTable {
 	static void readTotals(ByteFile in,LineParser1 p,String name,long[] counts){p.set(in.nextLine());require(p.terms()==counts.length+1&&p.termEquals("#"+name,0),"Missing per-offset observation denominators: "+name);for(int i=0;i<counts.length;i++){counts[i]=p.parseLong(i+1);require(counts[i]>=0,"Negative observation denominator");}}
 	static String rowHeader(){return rowHeader(RADIUS);}
 	static String rowHeader(int radius){final int sites=sitesForRadius(radius);final ByteBuilder b=new ByteBuilder().append("kmer\tanchor_count\tother_count\tlog_score");for(int site=0;site<sites;site++){b.tab().append("count_").append(site-radius);}return b.toString();}
-	static int encode(byte[] bases,int from,int k){assert(from>=0&&(long)from+k<=bases.length):"Bounds are checked before encoding a candidate position";int word=0;for(int i=from;i<from+k;i++){final int n=RrnaResourceIO.base(bases[i]);if(n<0){return -1;}word=(word<<2)|n;}return word;}
+	public static int encode(byte[] bases,int from,int k){assert(from>=0&&(long)from+k<=bases.length):"Bounds are checked before encoding a candidate position";int word=0;for(int i=from;i<from+k;i++){final int n=RrnaResourceIO.base(bases[i]);if(n<0){return -1;}word=(word<<2)|n;}return word;}
 	static void appendKmer(ByteBuilder b,int word,int k){for(int shift=2*(k-1);shift>=0;shift-=2){b.append(BASES[(word>>>shift)&3]);}}
 	static void require(boolean ok,String why){if(!ok){throw new IllegalArgumentException(why);}}
 	/** Compatibility defaults for older euk5S builders; loaded resources never use these. */

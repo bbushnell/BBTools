@@ -10,7 +10,7 @@ import prot.ProteinFamilyAssigner;
 /** Optional, roster-bound selected labels; public search tools are build-time only.
  * @author Keqing
  */
-final class FamilyLabels {
+public final class FamilyLabels {
 
 	static FamilyLabels load(final String path, final ProteinFamilyAssigner library){
 		final int n=library.familyCount(); final int[] ids=new int[n]; final String[] reps=new String[n];
@@ -19,7 +19,7 @@ final class FamilyLabels {
 	}
 
 	/** Small metadata-only entry point also permits tests without loading a model. */
-	static FamilyLabels load(final String path, final int[] ids, final String[] representatives,
+	public static FamilyLabels load(final String path, final int[] ids, final String[] representatives,
 			final String identityPin, final String consensusPin){
 		require(ids!=null && representatives!=null && ids.length==representatives.length, "Label reference dimensions differ");
 		final HashMap<String,String> meta=new HashMap<String,String>();
@@ -92,7 +92,7 @@ final class FamilyLabels {
 	}
 
 	private FamilyLabels(String version_, Label[] labels_){version=version_; labels=labels_;}
-	Label get(int rank){return labels[rank];}
+	public Label get(int rank){return labels[rank];}
 	private static String parseUtf8(final LineParser1 lp, final int column){
 		return new String(lp.parseByteArray(column), StandardCharsets.UTF_8);
 	}
@@ -100,7 +100,7 @@ final class FamilyLabels {
 		return decision.equals("provisional_full") || decision.equals("weak_provisional")
 			|| decision.equals("weak_provisional_placeholder");
 	}
-	static final class Label {
+	public static final class Label {
 		Label(String decision_, String product_, String display_, String source_, String support_,
 				String coverage_, String score_, String productText_, String review_,
 				String hit_){
@@ -115,7 +115,7 @@ final class FamilyLabels {
 			review=review_;
 			hit=hit_;
 		}
-		final String decision, product;
+		public final String decision, product;
 		final String display, source, support, coverage, score, productText, review, hit;
 	}
 	private static void require(boolean ok, String reason){if(!ok){throw new IllegalArgumentException(reason);}}

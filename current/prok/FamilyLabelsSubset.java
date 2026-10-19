@@ -75,7 +75,7 @@ public final class FamilyLabelsSubset {
 	}
 
 	/** Output must be reopenable for validation; special streams and codecs are unsupported. */
-	static void validateOutput(final Path output){
+	public static void validateOutput(final Path output){
 		final String name=output.toString();
 		// ReadWrite.getRawOutputStream redirects stderr and rewrites '|', beyond FileFormat's classification.
 		require(!name.equals("stderr") && !name.startsWith("stderr.") && name.indexOf('|')<0,
@@ -109,7 +109,7 @@ public final class FamilyLabelsSubset {
 	}
 
 	/** Rewrites only two binding headers and active_index, preserving all other bytes. */
-	static int write(final Path labels, final Path output, final int families, final String identityPin,
+	public static int write(final Path labels, final Path output, final int families, final String identityPin,
 			final String consensusPin, final int[] local){
 		require(families>0 && local!=null, "Label subset writer needs a nonempty validated mapping");
 		final ByteFile reader=ByteFile.makeByteFile(labels.toString(), false);

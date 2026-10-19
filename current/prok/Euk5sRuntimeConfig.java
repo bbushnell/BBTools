@@ -9,7 +9,7 @@ import parse.Parse;
  * their historical meaning unless an explicit model table is supplied.
  * @author Raiden
  */
-final class Euk5sRuntimeConfig {
+public final class Euk5sRuntimeConfig {
 	boolean parse(String key,String value){
 		if(key.equalsIgnoreCase("euk5sendpoint")){
 			infer=Parse.parseBoolean(value);inferExplicit=true;
@@ -25,7 +25,7 @@ final class Euk5sRuntimeConfig {
 		return true;
 	}
 
-	void apply(ArrayList<NcrnaFamily> families){
+	public void apply(ArrayList<NcrnaFamily> families){
 		require(families!=null,"Runtime configuration requires the registered caller families");
 		NcrnaFamily selected=null;
 		for(NcrnaFamily f:families){if(f.name.equals("euk5S")){

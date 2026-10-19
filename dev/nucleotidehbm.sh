@@ -15,7 +15,7 @@ source "$DIR/javasetup.sh"
 ARGS=(); JVM_ARGS=(); CLASS=prok.NucleotideHbmCodec
 for arg in "$@"; do
  case ${arg,,} in
-  selftest=t|verify=t) CLASS=prok.NucleotideHbmCodecTest;;
+  selftest=t|verify=t) CLASS=test.prok.NucleotideHbmCodecTest;;
   -xmx*|-xms*|-ea|-da|-eoom|eoom|simd=*|nosimd) JVM_ARGS+=("$arg");;
   *) ARGS+=("$arg");;
  esac

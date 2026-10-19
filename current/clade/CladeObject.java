@@ -495,9 +495,9 @@ public class CladeObject {
 	static CellNet net0mid=null;
 	static CellNet net0large=null;
 
-	static int entropyK=4;
-	static int entropyWindow=150;
-	static boolean calcCladeEntropy=false;//Currently this just affects queries, not ref. (Clade.add L191: when false, seqEntropy=0 so Clade.entropy decays to ~0 -- intended; entdif at Comparison:113 then derives from ~0 on both query+ref.)
+	public static int entropyK=4;
+	public static int entropyWindow=150;
+	public static boolean calcCladeEntropy=false;//Currently this just affects queries, not ref. (Clade.add L191: when false, seqEntropy=0 so Clade.entropy decays to ~0 -- intended; entdif at Comparison:113 then derives from ~0 on both query+ref.)
 	static int MIN_LINEAGE_LEVEL_E=0;
 
 	/** When true, the few-files query loader (CladeLoaderAuto.loadFewFiles) 2x-overprovisions

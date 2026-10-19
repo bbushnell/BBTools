@@ -5,15 +5,15 @@ import parse.Parse;
 
 /** Run-local loading of the measured16S endpoint resources; disabled families do no I/O.
  * @author Brian, Raiden */
-final class Prok16sEndpointConfig {
-	boolean parse(String key,String value){
+public final class Prok16sEndpointConfig {
+	public boolean parse(String key,String value){
 		if(key.equalsIgnoreCase("rrna16sendpoint")){infer=Parse.parseBoolean(value);explicit=true;}
 		else if(key.equalsIgnoreCase("rrna16sendpointtables")){tables=path(key,value);}
 		else if(key.equalsIgnoreCase("rrna16sendpointnets")){nets=path(key,value);}
 		else{return false;}
 		return true;
 	}
-	void apply(ArrayList<NcrnaFamily> families){
+	public void apply(ArrayList<NcrnaFamily> families){
 		require(families!=null,"Endpoint configuration requires the registered caller families");
 		NcrnaFamily selected=null;
 		for(NcrnaFamily family:families){if(family.name.equals("16S")){

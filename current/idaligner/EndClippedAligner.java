@@ -229,7 +229,7 @@ public final class EndClippedAligner {
 	/** Query/model bounds are inclusive and refer to the original full model.
 	 * matchString covers only these bounds, never the clipped terminal sequence. */
 	public static final class Result extends AlignmentStats {
-		Result(){super(true);}
+		public Result(){super(true);}
 		public int qStart, qStop;
 		public int optimizationScore;
 		/** Physical model truncations before any optional interior-facing crop. */

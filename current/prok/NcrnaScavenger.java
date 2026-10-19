@@ -226,12 +226,12 @@ public class NcrnaScavenger {
 
 	/** Runs the unchanged family-local scavenger using a hit stream produced by
 	 * the shared 17-mer front end. */
-	ArrayList<Orf> scavenge(String name, byte[] bases, int strand, ArrayList<int[]> called,
+	public ArrayList<Orf> scavenge(String name, byte[] bases, int strand, ArrayList<int[]> called,
 			int[] hitPositions){
 		return scavenge(name, bases, strand, called, hitPositions, null);
 	}
 
-	ArrayList<Orf> scavenge(String name, byte[] bases, int strand, ArrayList<int[]> called,
+	public ArrayList<Orf> scavenge(String name, byte[] bases, int strand, ArrayList<int[]> called,
 			int[] hitPositions, long[] hitKeys){
 		ArrayList<Orf> results=new ArrayList<>();
 		validate16sPartialRescue();
@@ -796,6 +796,11 @@ public class NcrnaScavenger {
 			diagnoseWindow(name,bases,strand,pass,wStart,wStop,"ACCEPT_IDPASS",khits,shortlist.length,bestModel,bestId,0f,0f,orf.start,orf.stop,trimmed);
 			return orf;
 		}else{
+			// Calibrated tmRNA margins apply only after the unchanged primary
+			// identity gate failed. Zero margins preserve the original rescue policy.
+			final boolean marginTarget="tmrna".equals(family);
+			final float rescueIdPass=idPass+(marginTarget ? tmrnaRescueIdMargin : 0f);
+			final float rescueHbmPass=hbmPass+(marginTarget ? tmrnaRescueHbmMargin : 0f);
 			byte[] orfSeq=copyRegionUpper(bases, orfStart, orfStop+1);
 			if(DEBUG){System.err.println("DEBUG rescue orfStart="+orfStart+" orfStop="+orfStop
 				+" orfSeq.length="+orfSeq.length+" (from Quantum pos bestStart="+bestStart+" bestStop="+bestStop+")");}
@@ -808,7 +813,7 @@ public class NcrnaScavenger {
 				alignmentCount++;
 				if(DEBUG){System.err.println("DEBUG   rescue-scrabble model="+m+" modelLen="+library[m].length+" id="+id);}
 				if(id>bestReId){bestReId=id; bestReModel=m; bestReRank=j;}
-				if(!mappingOracleExhaustive && id>=idPass){break;}
+				if(!mappingOracleExhaustive && id>=rescueIdPass){break;}
 				if(models!=null && m<models.length && id>=idBorderline){
 					final float hbm=TrnaConsensusBuilder.scoreAgainstModel(orfSeq, models[m]);
 					hbmScoreCalls++; hbmBasesScored+=orfSeq.length;
@@ -817,8 +822,8 @@ public class NcrnaScavenger {
 				}
 			}
 			if(DEBUG){System.err.println("DEBUG rescue result: bestReId="+bestReId+" bestReModel="+bestReModel
-				+" bestHbm="+bestHbm+" bestHbmModel="+bestHbmModel+" idPass="+idPass+" hbmPass="+hbmPass);}
-			if(bestReId>=idPass && bestReModel>=0){
+				+" bestHbm="+bestHbm+" bestHbmModel="+bestHbmModel+" rescueIdPass="+rescueIdPass+" rescueHbmPass="+rescueHbmPass);}
+			if(bestReId>=rescueIdPass && bestReModel>=0){
 				boolean trimmed=false;
 				if(annotate && modelNames!=null && bestReModel<modelNames.length){
 					orf.trnaModel=modelNames[bestReModel];
@@ -827,7 +832,7 @@ public class NcrnaScavenger {
 				}else{applyVotedEnds(orf, hitPositions, hitKeys, wStart, wStop, bases.length);}
 				diagnoseWindow(name,bases,strand,pass,wStart,wStop,"ACCEPT_RESCUE",khits,shortlist.length,bestReModel,bestId,bestReId,bestHbm,orf.start,orf.stop,trimmed);
 				return orf;
-			}else if(bestHbm>=hbmPass && bestHbmModel>=0){
+			}else if(bestHbm>=rescueHbmPass && bestHbmModel>=0){
 				boolean trimmed=false;
 				if(annotate && modelNames!=null && bestHbmModel<modelNames.length){
 					orf.trnaModel=modelNames[bestHbmModel];
@@ -1061,7 +1066,7 @@ public class NcrnaScavenger {
 
 	/** Preserves the selected anchor order explicitly: alignment trim, optional
 	 * hybrid5 voting, then NN refinement around the resulting per-endpoint anchor. */
-	private boolean finishAcceptedBoundary(Orf orf, byte[] bases, int model, int wStart, int wStop,
+	public boolean finishAcceptedBoundary(Orf orf, byte[] bases, int model, int wStart, int wStop,
 			int windowSource, float acceptedIdentity, int alignedLength, float locusAni, boolean locusAniFromQuantum,
 			int[] hitPositions, long[] hitKeys){
 		return finishAcceptedBoundary(orf,bases,model,wStart,wStop,windowSource,acceptedIdentity,alignedLength,
@@ -1089,7 +1094,7 @@ public class NcrnaScavenger {
 			alignmentCount++;alignedBases+=Tools.min(bases.length-1,orf.stop+trimExt)-Tools.max(0,orf.start-trimExt)+1;
 			final idaligner.ContigEdgeAlignment.Bounds ends=idaligner.ContigEdgeAlignment.refineInterior(library[model],bases,partial,trimExt,wStart);
 			orf.start=ends.start;orf.stop=ends.stop;trimSucceeded=ends.changed;
-		}else if(trimAlignmentExtent){trimSucceeded=trimToAlignmentExtent(orf, bases, model, wStart, wStop);}
+		}else if(trimAlignmentExtent){trimSucceeded=trimToAlignmentExtent(orf, bases, model, wStart, wStop, acceptedIdentity);}
 		else{trimSucceeded=false;}
 		final boolean hasBoundaryNets=(boundaryNetsByModel!=null || (boundary5Net!=null && boundary3Net!=null));
 		final boolean nnInvoked=(trimSucceeded || boundaryOnRawEndpoints || fixedMask!=0) && hasBoundaryNets;
@@ -1127,7 +1132,10 @@ public class NcrnaScavenger {
 	 * the trim-no-op case (extended window shorter than the model) without needing to coax it
 	 * out of the full scavenge() pipeline's alignment dynamics -- deterministic and fast versus
 	 * fragile fixture engineering for the same real code path. */
-	boolean trimToAlignmentExtent(Orf orf, byte[] bases, int model, int wStart, int wStop){
+	public boolean trimToAlignmentExtent(Orf orf, byte[] bases, int model, int wStart, int wStop, float acceptedIdentity){
+		if(!Float.isFinite(acceptedIdentity) || acceptedIdentity<0f || acceptedIdentity>1f){
+			throw new IllegalArgumentException("Endpoint trimming requires the actual pre-trim verifier identity");
+		}
 		final int xFrom=Tools.max(0, orf.start-trimExt);
 		final int xTo=Tools.min(bases.length-1, orf.stop+trimExt);
 		byte[] seqX=copyRegionUpper(bases, xFrom, xTo+1);
@@ -1150,6 +1158,13 @@ public class NcrnaScavenger {
 		if(stats.matchString!=null && seqX.length>=cons.length){
 			final int rStart=stats.rStart, rStop=stats.rStop;
 			if(rStart>=0 && rStop>rStart && rStop<seqX.length){
+				// A second alignment must not destroy the verified span. The 5.8S
+				// LOCUS48706/48637 replay shortened161bp to121/105bp with lower
+				// identity; minLen was checked only before this call (alignWindowPrimary).
+				// Keep the original coordinates unless the new span clears the same
+				// family identity/length gates and does not lower accepted identity.
+				if(rStop-rStart+1<minLen || !Float.isFinite(stats.identity)
+						|| stats.identity<idPass || stats.identity<acceptedIdentity){return false;}
 				orf.start=xFrom+rStart;
 				orf.stop=xFrom+rStop;
 				trimSucceeded=true;
@@ -1462,42 +1477,42 @@ public class NcrnaScavenger {
 	//tRNA config. Mutable instance fields (not static): unlike windowPad/minLen/kLong, these
 	//don't yet have measured per-family values, but must stay per-instance since coexisting
 	//scavengers for different families will eventually need different ones.
-	int indexK=7;
-	int indexTopN=60;
+	public int indexK=7;
+	public int indexTopN=60;
 	int indexMinHitsDefault=12;
 	boolean adaptiveMinHits=true;
-	float adaptFloor=11;
-	float adaptTopFrac=0.48f;
-	float adaptQFrac=0.072f;
-	int minKmerHits=1;
+	public float adaptFloor=11;
+	public float adaptTopFrac=0.48f;
+	public float adaptQFrac=0.072f;
+	public int minKmerHits=1;
 	/** Opt-in gate policy; raw occurrence diagnostics and window construction are unchanged. */
-	boolean seedDistinct=false;
+	public boolean seedDistinct=false;
 	/** Private scratch reused across candidate windows; absent while distinct mode is unused. */
 	private LongHashSet distinctSeedKeys=null;
 	private int lastSeedOccurrences=0;
-	int maxLen=Integer.MAX_VALUE;
+	public int maxLen=Integer.MAX_VALUE;
 	/** Production controls; claimed-window refresh prevents duplicate calls from stale window geometry. */
-	boolean refreshClaimedWindows=true;
-	boolean rankedModelFallback=false;
-	boolean strictIndexCutoff=false;
+	public boolean refreshClaimedWindows=true;
+	public boolean rankedModelFallback=false;
+	public boolean strictIndexCutoff=false;
 	/** -1 preserves topN; otherwise retain every positive score within this gap. */
 	int indexScoreMargin=-1;
-	boolean trimAlignmentExtent=true;
-	int outputType=ProkObject.RNA;
+	public boolean trimAlignmentExtent=true;
+	public int outputType=ProkObject.RNA;
 	/** Explicit experiment-only permission to refine QuantumAligner endpoints when
 	 * traceback trimming is disabled. Default false preserves every existing caller. */
 	boolean boundaryOnRawEndpoints=false;
 	boolean nnCentre5Vote=false, nnCentre3Vote=false;
 	float nnCutoff=Float.NaN;
-	SeedOffsetTable voteTable=null;
-	boolean voteWindows=false, voteEnds=false;
-	boolean voteBeforePadding=false;
+	public SeedOffsetTable voteTable=null;
+	public boolean voteWindows=false, voteEnds=false;
+	public boolean voteBeforePadding=false;
 	boolean preserveContainingWindows=false;
 	private SeedVoteWindowBuilder voteWindowBuilder=null;
 	private int fallbackCoreLength;
-	int voteSlack=60;
+	public int voteSlack=60;
 	float voteEndsMaxSd=5f;
-	long votedWindows=0, voteWindowFallbacks=0, votedStarts=0, votedStops=0;
+	public long votedWindows=0, voteWindowFallbacks=0, votedStarts=0, votedStops=0;
 	long voteEndFallbackStart=0, voteEndFallbackStop=0, voteEndInvalidSpans=0;
 	private final double[] voteScratch=new double[4], topLeftValues=new double[10], topLeftWeights=new double[10];
 	private final double[] topRightValues=new double[10], topRightWeights=new double[10];
@@ -1506,10 +1521,10 @@ public class NcrnaScavenger {
 	//for the 8-arg and 15-arg delegating overloads) -- previously mutable with the same
 	//defaults but never actually reassigned outside a constructor, so this is a safety
 	//tightening, not a behavior change for any existing caller.
-	final float idPass;
+	public final float idPass;
 	final float idBorderline;
 	private NcrnaModelThresholds modelThresholds=null;
-	void setModelThresholds(NcrnaModelThresholds thresholds){
+	public void setModelThresholds(NcrnaModelThresholds thresholds){
 		if(thresholds==null || !reuseConsensusAlignment){throw new IllegalArgumentException("Model cutoffs require the single-alignment path");}
 		thresholds.validate(modelNames);modelThresholds=thresholds;
 	}
@@ -1517,26 +1532,40 @@ public class NcrnaScavenger {
 	//constants -- see the 15-arg constructor's javadoc for the full rationale.
 	final float scoreA;
 	final float scoreB;
-	float hbmPass=0.75f;
-	int quantumThresh=120;
+	public float hbmPass=0.75f;
+	/** Configured before scanning; margins affect only failed-primary tmRNA rescue. */
+	private float tmrnaRescueIdMargin=0f,tmrnaRescueHbmMargin=0f;
+	public void setTmrnaRescueMargins(float identityMargin,float hbmMargin){
+		if(!"tmrna".equals(family)){throw new IllegalArgumentException("tmRNA rescue margins require the tmRNA family");}
+		validateTmrnaRescueMargins(idPass,hbmPass,identityMargin,hbmMargin);
+		tmrnaRescueIdMargin=identityMargin;tmrnaRescueHbmMargin=hbmMargin;
+	}
+	/** Validate effective thresholds during CLI setup, not only if rescue is reached. */
+	public static void validateTmrnaRescueMargins(float identity,float hbm,float identityMargin,float hbmMargin){
+		if(!Float.isFinite(identity) || !Float.isFinite(hbm) || !Float.isFinite(identityMargin) || !Float.isFinite(hbmMargin)
+			|| identity<0f || hbm<0f || identityMargin<0f || hbmMargin<0f || identity+identityMargin>1f || hbm+hbmMargin>1f){
+			throw new IllegalArgumentException("tmRNA effective rescue identity/HBM cutoffs must be finite in [0,1]: "+identity+"+"+identityMargin+", "+hbm+"+"+hbmMargin);
+		}
+	}
+	public int quantumThresh=120;
 	int nearbyPad=200;
-	float collapseFrac=0.9f;
+	public float collapseFrac=0.9f;
 	int trimExt=10;
-	boolean scavengePass2=true;
-	boolean reuseConsensusAlignment=false;
+	public boolean scavengePass2=true;
+	public boolean reuseConsensusAlignment=false;
 	int quantumCapMultiplier=1;
-	boolean pacBioConsensusAlignment=false;
-	boolean pacBioRolling=false;
+	public boolean pacBioConsensusAlignment=false;
+	public boolean pacBioRolling=false;
 	align2.PacBioScoreParameters pacBioCosts=align2.PacBioScoreParameters.DEFAULT;
 	private Euk18sPacBioAligner pacBioAligner;
 	boolean modelEndClipping=false;
-	boolean modelClipRescue=false;
+	public boolean modelClipRescue=false;
 	/** Explicit physical-edge-only retry; zero leaves legacy behavior intact. */
-	int physicalEdgeMinLen=0;
+	public int physicalEdgeMinLen=0;
 	/** Historical field name: explicit16S/23S failed physical-edge floor; zero disables it. */
-	int prok16sPartialMinLen=0;
+	public int prok16sPartialMinLen=0;
 	/** NaN preserves the per-model pass cutoff; Quantum never consumes this override. */
-	float modelClipRescueId=Float.NaN;
+	public float modelClipRescueId=Float.NaN;
 	private boolean suppressRejectedWindow=false;
 	private EndClippedAligner endClippedAligner;
 	/** Zero evidence at non-N identity .54; N stays neutral. Prevent chance extensions winning on length.
@@ -1550,7 +1579,7 @@ public class NcrnaScavenger {
 	 * GeneCaller.makeRnas() from NcrnaFamily.name -- mirrors the existing hbmPass/
 	 * collapseFrac post-construction assignment pattern above. Propagated onto every
 	 * generic ncRNA Orf this scavenger creates (Ganyu/Qiqi design, 2026-09-17). */
-	String family;
+	public String family;
 	CmRnaVerifier cmVerifier;
 
 	private long alignmentCount=0;
@@ -1585,7 +1614,7 @@ public class NcrnaScavenger {
 	private IdentityHashMap<Orf,InstrumentationCapture> pendingInstrumentation=null;
 	private BoundaryScoreSink boundaryScoreSink=null;
 	private RrnaEndpointCallerFeatures rrnaEndpointFeatures=null;
-	void setRrnaEndpointFeatures(RrnaEndpointCallerFeatures.Resources resources,RrnaEndpointCallerFeatures.Sink sink){
+	public void setRrnaEndpointFeatures(RrnaEndpointCallerFeatures.Resources resources,RrnaEndpointCallerFeatures.Sink sink){
 		if(resources==null || !Arrays.equals(modelNames,resources.names) || library.length!=resources.refs.length){throw new IllegalArgumentException("Endpoint feature library must match the caller model order");}
 		for(int i=0;i<library.length;i++){if(!Arrays.equals(library[i],resources.refs[i])){throw new IllegalArgumentException("Endpoint consensus bases differ from caller model "+i);}}
 		if(!family.equals(resources.family) || !reuseConsensusAlignment || trimAlignmentExtent || ((voteEnds || voteWindows) && voteTable==null)
@@ -1595,8 +1624,8 @@ public class NcrnaScavenger {
 		rrnaEndpointFeatures=new RrnaEndpointCallerFeatures(resources,sink);
 	}
 	/** Test-visible caller seam; no work or validation occurs while observation is off. */
-	void captureRrnaEndpointFeatures(Orf orf,byte[] bases,int model){captureRrnaEndpointFeatures(orf,bases,model,Float.NaN);}
-	void captureRrnaEndpointFeatures(Orf orf,byte[] bases,int model,float acceptedIdentity){
+	public void captureRrnaEndpointFeatures(Orf orf,byte[] bases,int model){captureRrnaEndpointFeatures(orf,bases,model,Float.NaN);}
+	public void captureRrnaEndpointFeatures(Orf orf,byte[] bases,int model,float acceptedIdentity){
 		captureRrnaEndpointFeatures(orf,bases,model,acceptedIdentity,0,minLen);
 	}
 	private void captureRrnaEndpointFeatures(Orf orf,byte[] bases,int model,float acceptedIdentity,int fixedMask,int minimumLength){
@@ -1626,7 +1655,7 @@ public class NcrnaScavenger {
 	private NcrnaVoteDiagnostics voteTrace;
 	/** Calibration-only exhaustive verifier arm: bypass mapping filters and early exits,
 	 * retaining seed/window/identity/HBM gates. Model traversal is library order, not rank. */
-	void setMappingOracleExhaustive(boolean value){mappingOracleExhaustive=value;}
+	public void setMappingOracleExhaustive(boolean value){mappingOracleExhaustive=value;}
 
 	/** Arms (or disarms, via null) B4 workload instrumentation capture. Package-visible: only an
 	 * evaluation driver in this package should call this, mirroring setInstrumentSink's scoping
@@ -1634,7 +1663,7 @@ public class NcrnaScavenger {
 	 * arm-time validation needed here (unlike setInstrumentSink's modelNames-length assert) --
 	 * seedHits/scheduledWindow never index into modelNames, so there is no equivalent silent-skip
 	 * hazard to guard against at arm time. */
-	void setWorkloadSink(NcrnaWorkloadInstrumentSink sink){workloadSink=sink;}
+	public void setWorkloadSink(NcrnaWorkloadInstrumentSink sink){workloadSink=sink;}
 	void setModelAttemptSink(NcrnaModelAttemptInstrumentSink sink){modelAttemptSink=sink;}
 	void setBoundaryScoreSink(BoundaryScoreSink sink){boundaryScoreSink=sink;}
 

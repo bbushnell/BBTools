@@ -47,7 +47,7 @@ public class GeneCaller extends ProkObject {
 	 * @param minAvgScore_ Minimum score per base
 	 * @param pgm_ Gene model containing probability matrices
 	 */
-	GeneCaller(int minLen_, int maxOverlapSameStrand_, int maxOverlapOppositeStrand_,
+	public GeneCaller(int minLen_, int maxOverlapSameStrand_, int maxOverlapOppositeStrand_,
 			float minStartScore_, float minStopScore_, float minInnerScore_,
 			float minOrfScore_, float minAvgScore_, GeneModel pgm_){
 		this(minLen_, maxOverlapSameStrand_, maxOverlapOppositeStrand_, minStartScore_, minStopScore_,
@@ -55,7 +55,7 @@ public class GeneCaller extends ProkObject {
 	}
 
 	/** The run's code is independent of replaceable PGM statistics; null preserves legacy starts/stops. */
-	GeneCaller(int minLen_, int maxOverlapSameStrand_, int maxOverlapOppositeStrand_,
+	public GeneCaller(int minLen_, int maxOverlapSameStrand_, int maxOverlapOppositeStrand_,
 			float minStartScore_, float minStopScore_, float minInnerScore_,
 			float minOrfScore_, float minAvgScore_, GeneModel pgm_, GeneticCode geneticCode_){
 		geneticCode=geneticCode_;
@@ -329,7 +329,7 @@ public class GeneCaller extends ProkObject {
 	 * There IS overlap between frames.
 	 * All Orfs come out flipped to + orientation. 
 	 * */
-	ArrayList<Orf>[] makeRnas(String name, byte[] bases){
+	public ArrayList<Orf>[] makeRnas(String name, byte[] bases){
 		@SuppressWarnings("unchecked")
 		ArrayList<Orf>[] array=new ArrayList[2];
 		array[0]=new ArrayList<Orf>();
@@ -444,14 +444,17 @@ public class GeneCaller extends ProkObject {
 		return array;
 	}
 
-	static void applyNcrnaProductionControls(NcrnaScavenger scavenger){
+	public static void applyNcrnaProductionControls(NcrnaScavenger scavenger){
 		scavenger.refreshClaimedWindows=CallGenes.NCRNA_REFRESH_CLAIMED_WINDOWS;
 	}
 
-	static void applyNcrnaFamilyControls(NcrnaScavenger scavenger, NcrnaFamily family){
+	public static void applyNcrnaFamilyControls(NcrnaScavenger scavenger, NcrnaFamily family){
 		scavenger.hbmPass=family.hbmPass;
 		scavenger.collapseFrac=family.collapseFrac;
 		scavenger.family=family.name;
+		if("tmrna".equals(family.name)){
+			scavenger.setTmrnaRescueMargins(CallGenes.TMRNA_RESCUE_ID_MARGIN,CallGenes.TMRNA_RESCUE_HBM_MARGIN);
+		}
 		scavenger.voteTable=family.voteTable; scavenger.voteWindows=family.voteWindows; scavenger.voteEnds=family.voteEnds;
 		scavenger.voteBeforePadding=family.voteBeforePadding;
 		scavenger.preserveContainingWindows=family.preserveContainingWindows;
@@ -500,7 +503,7 @@ public class GeneCaller extends ProkObject {
 	/** Builds the single shared 17-mer index after all requested resources have loaded and
 	 * before worker threads start. Non-17-mer experimental/legacy paths retain their existing
 	 * scanners. */
-	static synchronized void initializeConservedRnaSeedIndex(){
+	public static synchronized void initializeConservedRnaSeedIndex(){
 		final ArrayList<LongHashSet> seedSets=new ArrayList<>();
 		final ArrayList<Boolean> retainKeys=new ArrayList<>();
 		ncrnaSeedSlots=new int[ncrnaFamilies.size()];
@@ -527,7 +530,7 @@ public class GeneCaller extends ProkObject {
 		}
 	}
 
-	static int conservedRnaSeedSlotCount(){return conservedRnaSeedIndex==null ? 0 : conservedRnaSeedIndex.slotCount();}
+	public static int conservedRnaSeedSlotCount(){return conservedRnaSeedIndex==null ? 0 : conservedRnaSeedIndex.slotCount();}
 
 	private static void verifySeedHits(String contig, String family, int strand, int[] unified, int[] legacy){
 		if(!Arrays.equals(unified, legacy)){
@@ -889,7 +892,7 @@ public class GeneCaller extends ProkObject {
 	}
 
 	/** Enumerates selected-code stops and starts; edge/gap provenance survives later start selection. */
-	static ArrayList<Orf> makeOrfsForFrame(String name, byte[] bases, int startFrame, int strand, int minlen, GeneticCode geneticCode){
+	public static ArrayList<Orf> makeOrfsForFrame(String name, byte[] bases, int startFrame, int strand, int minlen, GeneticCode geneticCode){
 //		assert(false) : "TODO";
 		// TODO: Probable CLI-validation bug - CallGenes accepts minlen=1 or 2,
 		// then worker threads fail here instead of rejecting the parameter up front.
@@ -1326,7 +1329,7 @@ public class GeneCaller extends ProkObject {
 	 * @param sc Statistics container with consensus data
 	 * @return true if successful alignment found
 	 */
-	boolean refineByAlignment(Orf orf, byte[] bases, int strand, StatsContainer sc){
+	public boolean refineByAlignment(Orf orf, byte[] bases, int strand, StatsContainer sc){
 		if(sc.type==r16S){orf.ssuFullModel=null;orf.ssuFullModelName=null;}
 		rrnaRefineByAlignmentCalls[sc.type]++;
 		if(verbose){System.err.println("ALIGN");}
@@ -1985,11 +1988,11 @@ public class GeneCaller extends ProkObject {
 	private long[] ncrnaOutByFamily;
 	/** Per-worker shared 17-mer scans, including the optional tRNA slot; never per family. */
 	private long sharedSweepPasses=0;
-	long sharedSweepPasses(){return sharedSweepPasses;}
+	public long sharedSweepPasses(){return sharedSweepPasses;}
 
 	/** Returns completed alignment counts in the same order as ncrnaFamilies.
 	 * Called only after this GeneCaller's worker thread has terminated. */
-	long[] ncrnaAlignmentCounts(){
+	public long[] ncrnaAlignmentCounts(){
 		long[] counts=new long[ncrnaFamilies.size()];
 		if(ncrnaScavengers!=null){
 			assert(ncrnaScavengers.size()==counts.length);
@@ -2005,9 +2008,9 @@ public class GeneCaller extends ProkObject {
 
 	long[] ncrnaOutputCounts(){return ncrnaOutByFamily==null ? new long[ncrnaFamilies.size()] : ncrnaOutByFamily;}
 
-	long[] ncrnaAlignedBases(){return ncrnaCostCounts(0);}
-	long[] ncrnaHbmScoreCalls(){return ncrnaCostCounts(1);}
-	long[] ncrnaHbmBasesScored(){return ncrnaCostCounts(2);}
+	public long[] ncrnaAlignedBases(){return ncrnaCostCounts(0);}
+	public long[] ncrnaHbmScoreCalls(){return ncrnaCostCounts(1);}
+	public long[] ncrnaHbmBasesScored(){return ncrnaCostCounts(2);}
 	/** Read only after this worker terminates, in the same family order as alignment counts. */
 	private long[] ncrnaCostCounts(int kind){
 		assert(kind>=0 && kind<=2) : "Cost selector must name aligned bases, HBM calls, or HBM bases";
@@ -2026,7 +2029,7 @@ public class GeneCaller extends ProkObject {
 	}
 
 	/** Family-local seed occurrences after input/minLen guards; read after worker termination. */
-	long[] ncrnaKmerHitCounts(){
+	public long[] ncrnaKmerHitCounts(){
 		final long[] counts=new long[ncrnaFamilies.size()];
 		if(ncrnaScavengers!=null){
 			assert(ncrnaScavengers.size()==counts.length) : "Family registry changed before seed-count aggregation; per-family statistics would be misattributed";
@@ -2036,7 +2039,7 @@ public class GeneCaller extends ProkObject {
 	}
 
 	/** Scheduled windows across both passes, including windows rejected before alignment. */
-	long[] ncrnaWindowCounts(){
+	public long[] ncrnaWindowCounts(){
 		final long[] counts=new long[ncrnaFamilies.size()];
 		if(ncrnaScavengers!=null){
 			assert(ncrnaScavengers.size()==counts.length) : "Family registry changed before window-count aggregation; per-family statistics would be misattributed";
@@ -2342,20 +2345,20 @@ public class GeneCaller extends ProkObject {
 	long[] rrnaRefineByAlignmentCalls=new long[8];
 	long[] rrnaGateScoreFail=new long[8], rrnaGateGoodFail=new long[8], rrnaGateBothFail=new long[8], rrnaGateAdmitted=new long[8];
 	long[] rrnaG5Reject=new long[8], rrnaG6Reject=new long[8];
-	long[] rrnaCandidatesEnteringRefinement=new long[8];
+	public long[] rrnaCandidatesEnteringRefinement=new long[8];
 	/** The universal (first, i==0) consensus entry is attempted exactly once per candidate
 	 * that reaches the loop, in BOTH rrnafallback=f and =t modes. See field-group javadoc
 	 * above for why this is currently always equal to rrnaCandidatesEnteringRefinement. */
-	long[] rrnaUniversalAttempts=new long[8];
+	public long[] rrnaUniversalAttempts=new long[8];
 	/** A fallback (i>0) attempt is only possible when rrnafallback=t AND the universal
 	 * attempt failed. */
-	long[] rrnaFallbackAttempts=new long[8];
+	public long[] rrnaFallbackAttempts=new long[8];
 	/** Incremented once per candidate whose FINAL accepted attempt had index>0 -- i.e. the
 	 * universal entry failed but a later fallback entry rescued it. */
-	long[] rrnaFallbackOnlyRescues=new long[8];
+	public long[] rrnaFallbackOnlyRescues=new long[8];
 	/** Incremented once per candidate where every attempted consensus entry failed (the
 	 * loop exited with refined==false). */
-	long[] rrnaRejectedCandidates=new long[8];
+	public long[] rrnaRejectedCandidates=new long[8];
 	/** Per-type histogram of attempts-made-per-candidate (index = attempt count) -- lets a
 	 * downstream wrapper compute EXACT mean/median/p95 attempts-per-candidate per type
 	 * from the merged histogram, not an estimate. Each row is GROWABLE, not fixed-size
@@ -2363,7 +2366,7 @@ public class GeneCaller extends ProkObject {
 	 * growHistRow/Arrays.copyOf only as far as an actually-observed attempt count
 	 * requires, so a future resource with a longer consensus shortlist than any type
 	 * ships today still gets exact (not clamped/lossy) p95 data. */
-	long[][] rrnaAttemptCountHist=new long[8][];
+	public long[][] rrnaAttemptCountHist=new long[8][];
 
 	/** Grows (never shrinks) a histogram row so index `idx` is valid, preserving existing
 	 * counts and zero-filling new slots. `row` may be null (treated as length 0). */
@@ -2455,7 +2458,7 @@ public class GeneCaller extends ProkObject {
 
 	/** Test-only, null-by-default observer for ordered rRNA consensus attempts. */
 	private RefinementAttemptSink attemptSink=null;
-	void setAttemptSink(RefinementAttemptSink sink){attemptSink=sink;}
+	public void setAttemptSink(RefinementAttemptSink sink){attemptSink=sink;}
 	private NcrnaStageDiagSink ncrnaDiagSink=null;
 	void setNcrnaDiagSink(NcrnaStageDiagSink sink){
 		ncrnaDiagSink=sink;
