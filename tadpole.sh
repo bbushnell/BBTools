@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified October 17, 2026
+Last modified October 19, 2026
 
 Description:  Uses kmer counts to assemble contigs, extend sequences,
 or error-correct reads.  Tadpole has no upper bound for kmer length.
@@ -16,7 +16,7 @@ etc.) and silently rounds down otherwise.
 Please read bbmap/docs/guides/TadpoleGuide.txt for more information.
 
 Usage (Assembly):  tadpole.sh k=62 in=<reads> out=<contigs>
-Multi-K assembly:  tadpole.sh k=96,124,64,32 in=<reads> out=<contigs>
+Multi-K assembly:  tadpole.sh k=64,224,124,96,32 assemblek=64 in=<reads> out=<contigs>
 Custom phases:     tadpole.sh assemblek=96 fusek=64 bridgek=128,96,64,32 graphk=96 in=<reads> out=<contigs>
 Extension:    tadpole.sh k=62 in=<reads> out=<extended> mode=extend
 Correction:   tadpole.sh k=62 in=<reads> out=<corrected> mode=correct
@@ -32,8 +32,19 @@ and cannot use stdin.
 
 Assembly defaults include the bundled branch postpass and Multi-K fusion NN,
 with coverage and branch safeguards. No preset or tuning-flag list is required:
-tadpole.sh in=reads.fq.gz out=contigs.fa k=96,124,64,32
-Choose K for your reads; the example does not change the default K=31.
+
+Recommended starting recipes for bacterial isolates:
+
+Unamplified high-quality 2x150bp libraries with >250bp mean insert size:
+tadpole.sh in=assembly_reads.fq.gz out=contigs.fa k=124,300,96,64,32 assemblek=124
+
+Generic safe settings:
+tadpole.sh in=assembly_reads.fq.gz out=contigs.fa k=64,224,124,96,32 assemblek=64
+
+These examples use reads after correction, merging and extension; include
+residual unmerged reads as evidence. Use tadpipe.sh to run those stages.
+Long-K passes require sufficiently long reads. Choose K for your reads;
+these recommendations do not change the default K=31.
 Individual flags override defaults. assemblydefaults=f restores the previous
 CLI defaults for comparisons. Correction, extension and graph-only modes are
 unchanged. Washing remains optional; see its time/quality tradeoff below.

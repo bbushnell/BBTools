@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified October 17, 2026
+Last modified October 19, 2026
 
 Description:  Assembles preprocessed paired Illumina reads with deduplication,
 overlap/Clumpify/Tadpole correction, staged merging, extension, and ordered
@@ -15,8 +15,19 @@ shorter reads or unusual coverage require adjusted stage parameters.
 Usage:
 tadpipe.sh in=reads_R1.fq.gz in2=reads_R2.fq.gz out=contigs.fa -Xmx16g t=8
 tadpipe.sh in=interleaved.fq.gz out=contigs.fa -Xmx16g t=8
-tadpipe.sh in=interleaved.fq.gz out=contigs.fa k=96,124,300,64,32 assemblek=96
 
+Recommended starting recipes for bacterial isolates:
+
+Unamplified high-quality 2x150bp libraries with >250bp mean insert size:
+tadpipe.sh in=interleaved.fq.gz out=contigs.fa k=124,300,96,64,32 assemblek=124
+
+Generic safe settings:
+tadpipe.sh in=interleaved.fq.gz out=contigs.fa k=64,224,124,96,32 assemblek=64
+
+These examples change only the final assembly K schedule, not preprocessing.
+The first recipe matches the current final-assembly defaults. Set both k and
+assemblek when choosing the second; changing k alone retains assemblek=124.
+TadPipe performs correction, merging and extension before either recipe.
 
 Parameters:
 in=<file>           Paired input reads; interleaved when in2 is omitted.
