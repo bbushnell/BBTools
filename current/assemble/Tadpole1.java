@@ -858,6 +858,7 @@ public class Tadpole1 extends Tadpole {
 
 	/** Marks assembled bridge-k kmers invalid, then claims only unique eligible contig tips. */
 	private void initializeCrossKContigs(ArrayList<Contig> contigs){
+		assert(contigs!=null) : "Cross-K ownership must be rebuilt from the current contigs before graph traversal.";
 		final int invalidOwner=contigs.size();
 		int eligible=0;
 		for(int i=0; i<contigs.size(); i++){contigs.get(i).id=i;}
@@ -894,10 +895,11 @@ public class Tadpole1 extends Tadpole {
 		for(Contig c : contigs){
 			if(c.length()<k){continue;}
 			final long left=c.leftKmer(k), right=c.rightKmer(k);
-			c.leftBridgeEndpoint&=(tables.findOwner(left)==c.id);
-			c.rightBridgeEndpoint&=(tables.findOwner(right)==c.id);
-			if(c.leftBridgeEndpoint){unique++;}
-			if(c.rightBridgeEndpoint){unique++;}
+			// Ownership is specific to this K, not permanent endpoint eligibility.
+			// In particular, an absent long-K word must not disable a supported shorter-K tip.
+			// ProcessContigLeft/Right independently reject missing or ambiguous current owners.
+			if(c.leftBridgeEndpoint && tables.findOwner(left)==c.id){unique++;}
+			if(c.rightBridgeEndpoint && tables.findOwner(right)==c.id){unique++;}
 		}
 		if(verbose){
 			outstream.println("Cross-k endpoints: eligible="+eligible+", unique="+unique+

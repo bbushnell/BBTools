@@ -79,6 +79,10 @@ public class TadPipe {
 				for(Path path : intermediates){Files.deleteIfExists(path);}
 			}
 			outstream.println("TadPipe complete: "+config.out+"; logs retained in "+work);
+			if(config.polish){
+				outstream.println("Unpolished assembly retained: "+unpolishedAssembly);
+				outstream.println("Polishing edit report: "+work.resolve("polish.edits.tsv"));
+			}
 		}catch(IOException | InterruptedException | RuntimeException e){
 			outstream.println("TadPipe failed; intermediates and logs retained in "+work);
 			throw e;
@@ -139,10 +143,21 @@ public class TadPipe {
 		if(config.dedupe){first.defaults("dedupe=t", "optical=f", "ecc=f", "passes=1", "unpair=f", "repair=t");}
 		first.defaults("interleaved="+(config.in2==null));
 		first.overrides(config);
+		if(config.polish && config.dedupe){
+			for(String option : Arrays.asList("ecc", "correct", "ecco", "mergefirst")){
+				final String value=first.args.get(option);
+				if(value!=null && Parse.parseBoolean(value)){
+					throw new IllegalArgumentException("polish=t requires uncorrected deduplication evidence; disable dedupe_"+option+".");
+				}
+			}
+		}
 		first.io("in", config.in);
 		if(config.in2!=null){first.io("in2", config.in2);}
 		first.output("out", paired);
 		stages.add(first);
+		// Retain this immutable first-stage result, never the later corrected or
+		// extended stream. Managed FASTQ cleanup runs only after polishing succeeds.
+		final Path polishReads=paired;
 		if(config.ecco){
 			paired=pairedStage(stages, "02_ecco", "bbmerge.sh", "ecco", paired,
 					"ecco=t", "mix=t", "kfilter=1", "k=31", "ordered=t");
@@ -216,6 +231,19 @@ public class TadPipe {
 		finalAssembly=work.resolve(config.out.toString().endsWith(".gz") ? "assembly.fa.gz" : "assembly.fa");
 		assembly.output("out", finalAssembly);
 		stages.add(assembly);
+		if(config.polish){
+			unpolishedAssembly=finalAssembly;
+			final Stage polish=stage("11_polish", "tippolish.sh", "polish");
+			polish.overrides(config);
+			polish.io("assembly", unpolishedAssembly);
+			polish.io("in", polishReads);
+			polish.defaults("interleaved=t");
+			polish.io("temp", work);
+			finalAssembly=work.resolve(config.out.toString().endsWith(".gz") ? "polished.fa.gz" : "polished.fa");
+			polish.output("out", finalAssembly);
+			polish.output("report", work.resolve("polish.edits.tsv"));
+			stages.add(polish);
+		}
 		for(Stage stage : stages){stage.finish(config);}
 		return stages;
 	}
@@ -255,7 +283,8 @@ public class TadPipe {
 	private Stage stage(final String name, final String tool, final String... groups){
 		assert(groups.length>0) : "Every stage has a documented override group.";
 		final Stage stage=new Stage(name, tool, groups);
-		stage.defaults("t="+config.threads, "zl="+config.zipLevel, "overwrite=f");
+		if(tool.equals("tippolish.sh")){stage.defaults("t="+config.threads, "overwrite=f");}
+		else{stage.defaults("t="+config.threads, "zl="+config.zipLevel, "overwrite=f");}
 		if(tool.equals("tadpole.sh")){stage.defaults("prealloc=f", "prefilter=f", "hashkmers=explicit");}
 		return stage;
 	}
@@ -361,6 +390,7 @@ public class TadPipe {
 				else if(key.equals("extendu") || key.equals("extendunmerged")){extendUnmerged=Parse.parseBoolean(value);}
 				else if(key.equals("qtrim")){qtrim=Parse.parseBoolean(value);}
 				else if(key.equals("nn")){nn=Parse.parseBoolean(value);}
+				else if(key.equals("polish")){polish=Parse.parseBoolean(value);}
 				else if(key.equals("interleaved") || key.equals("int")){
 					interleaved=Parse.parseBoolean(value);
 				}else if(key.indexOf('_')>0){addOverride(key, value);}
@@ -467,7 +497,8 @@ public class TadPipe {
 		private void addOverride(final String key, final String value){
 			final int split=key.indexOf('_');
 			String group=key.substring(0, split);
-			final String option=key.substring(split+1);
+			String option=key.substring(split+1);
+			if(group.equals("polish") && option.equals("threads")){option="t";}
 			if(group.equals("correct")){group="ecc";}
 			if(group.equals("clumpify")){group="clump";}
 			if(group.equals("extend1")){group="extend";}
@@ -475,10 +506,14 @@ public class TadPipe {
 			if(mergeGroup){group="merge"+Integer.parseInt(group.substring(5));}
 			if(remGroup){group="rem"+Integer.parseInt(group.substring(3));}
 			if(!mergeGroup && !remGroup && !Arrays.asList("dedupe", "ecco", "clump", "ecc", "merge",
-					"qtrim", "extend", "extendm", "extendu", "assemble").contains(group)){
+					"qtrim", "extend", "extendm", "extendu", "assemble", "polish").contains(group)){
 				throw new IllegalArgumentException("Unknown phase: "+group+"; inputs must already be adapter-trimmed, filtered and calibrated.");
 			}
-			if(option.isEmpty() || (option.startsWith("in") && !option.equals("initialmergecoverageratio"))
+			if(group.equals("polish")){
+				if(!Arrays.asList("minoverlap", "maxoverlap", "indexed", "t").contains(option)){
+					throw new IllegalArgumentException("Polishing overrides support minoverlap, maxoverlap, indexed and t only; TadPipe owns evidence paths: "+key);
+				}
+			}else if(option.isEmpty() || (option.startsWith("in") && !option.equals("initialmergecoverageratio"))
 					|| option.startsWith("out") || option.equals("extra")
 					|| option.equals("config") || option.equals("append") || option.equals("ow") || option.equals("overwrite")
 					|| option.equals("interleaved") || option.equals("int") || option.equals("gfa") || option.equals("dot")){
@@ -503,6 +538,7 @@ public class TadPipe {
 		Boolean interleaved=null;
 		boolean dedupe=true, ecco=true, clump=true, ecc=true, merge=true, rem=true, extend=true, qtrim=true, nn=true;
 		boolean extendMerged=true, extendUnmerged=true;
+		boolean polish=false;
 		int[] remKs={124,145,93};
 		int[] remExtends=null;
 		final Map<String,Map<String,String>> overrides=new LinkedHashMap<String,Map<String,String>>();
@@ -573,5 +609,5 @@ public class TadPipe {
 	private final PrintStream outstream;
 	private final ArrayList<Path> intermediates=new ArrayList<Path>();
 	Path work;
-	private Path finalAssembly;
+	private Path finalAssembly, unpolishedAssembly;
 }

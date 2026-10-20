@@ -15,6 +15,7 @@ shorter reads or unusual coverage require adjusted stage parameters.
 Usage:
 tadpipe.sh in=reads_R1.fq.gz in2=reads_R2.fq.gz out=contigs.fa -Xmx16g t=8
 tadpipe.sh in=interleaved.fq.gz out=contigs.fa -Xmx16g t=8
+tadpipe.sh in=interleaved.fq.gz out=contigs.fa polish=t -Xmx16g t=8
 
 Recommended starting recipes for bacterial isolates:
 
@@ -61,6 +62,28 @@ extendu=t           Extend unmerged reads; requires extend=t.
 nn=t                Use the bundled assembly NNs: fusion cutoff 0.667098 and
                     branch-postpass cutoff 0.7. nn=f disables both; explicit
                     assemble_ overrides can enable either independently.
+
+Optional final polishing (default OFF):
+polish=f            Run tippolish.sh after final assembly. Repairs supported
+                    tip substitutions only; does not join/extend contigs or edit
+                    indels. Experimental; not validated for mixed-strain data.
+                    Uses paired reads retained immediately after deduplication,
+                    BEFORE correction, merging or extension. With dedupe=f,
+                    evidence is paired but NOT deduplicated; PCR copies can
+                    overstate support. Do not enable correction/mergefirst in
+                    dedupe_ overrides with polish=t.
+polish_minoverlap=33  Minimum context overlap; at least 33.
+polish_maxoverlap=200 Maximum context overlap.
+polish_indexed=t      Use the exact prefix index for candidate discovery.
+polish_t=<t>          Threads per polishing child (polish_threads is an alias).
+The same per-child heap budget applies; coordinators remain at 256 MB.
+The unpolished assembly, polish.edits.tsv, logs and polishing evidence remain
+in the printed TadPipe work directory. Final output is published only after
+polishing succeeds; failure retains intermediate reads and the assembly.
+delete=t removes pipeline FASTQs only after that success, not polishing evidence.
+Whole-assembly mapping is shared, but separate context mapping and per-target
+kmer counting can be expensive. No minimum-depth or allele-support guard is
+relaxed. Polishing overrides do not change preprocessing or assembly settings.
 
 REM schedule controls (do not change ECC, extension, or final assembly K):
 remk=124,145,93      Ordered REM K list; arbitrary positive K values and repeats.
@@ -138,7 +161,7 @@ Valid prefixes:
 
 dedupe_, ecco_, clump_ (clumpify_), ecc_ (correct_),
 merge_, merge0_ (overlap), merge<K>_, rem<N>_, qtrim_,
-extend_ (extend1_), extendm_, extendu_, assemble_.
+extend_ (extend1_), extendm_, extendu_, assemble_, polish_.
 
 Stage-specific overrides follow group-wide overrides. TadPipe owns filenames
 and pairing; phase-prefixed in/out/extra/config/overwrite options are rejected.
