@@ -3,21 +3,25 @@ package clump;
 import java.util.ArrayList;
 
 import bloom.KCountArray;
+import fileIO.FileFormat;
 import fileIO.ReadWrite;
 import shared.Shared;
+import shared.Tools;
 import stream.ConcurrentCollectionReadInputStream;
 import stream.Read;
 
 /**
- * Utility class for managing k-mer count arrays and retrieving statistical tables
- * for genomic read data.
- * Provides synchronized methods for creating, caching, and managing global k-mer count tables
- * from different input sources including read collections and input files.
+ * Shared pivot-count cache for clump sorting. File-backed requests reuse a table
+ * only when both filenames, k and minimum count match; collection requests always
+ * rebuild. Filenames are cache keys, not content fingerprints, so callers must
+ * clear the cache when replacing a file in place or changing other counting policy.
+ * Builds and clearing are synchronized; table() relies on build-before-worker-use
+ * publication. Returned tables are shared, not defensive copies.
  *
  * @author Brian Bushnell
  * @date Nov 12, 2015
  */
-public class ClumpTools {
+public class ClumpTools{
 	
 	/** Returns the cached table. NOTE: unsynchronized read of the static (build/clear ARE synchronized);
 	 * fine for clump's build-then-use flow where the table is set before workers read it. */
@@ -25,6 +29,13 @@ public class ClumpTools {
 		return table;
 	}
 	
+	/** Builds from borrowed reads and closes the collection stream after counting.
+	 * Pivot hashing may set each read's object metadata. Replaces the shared cache.
+	 * @param reads Reads to count; their contents must remain stable during counting
+	 * @param k Pivot length
+	 * @param minCount Count threshold used to size counting cells
+	 * @return Newly built shared table
+	 */
 	//Reads-overload: ALWAYS rebuilds (nulls fname1 first), so it never reuses the file-overload's cache and
 	//leaves fname1==null -> a later file-overload call rebuilds too. No cross-overload stale-reuse.
 	public static synchronized KCountArray getTable(ArrayList<Read> reads, int k, int minCount){
@@ -36,7 +47,29 @@ public class ClumpTools {
 		ReadWrite.closeStream(cris);
 		return table;
 	}
+
+	/** Recounts current grouped files using legacy CRIS input into one shared table.
+	 * Always rebuilds: group contents and comparator seed/border can change between
+	 * outer passes. A failed build leaves no reusable cache entry.
+	 * @param first Expanded primary group descriptors
+	 * @param second Aligned optional mate descriptors, or null
+	 * @param k Pivot length
+	 * @param minCount Count threshold used to size counting cells
+	 * @return Newly completed shared pivot-count table */
+	public static synchronized KCountArray getTable(FileFormat[] first, FileFormat[] second,
+			int k, int minCount){
+		clearTable();
+		table=PivotSet.makeKcaStatic(first, second, k, minCount, Shared.AMINO_IN);
+		return table;
+	}
 	
+	/** Returns the cached file-backed table or builds one for the requested key.
+	 * @param fname1_ Primary input filename
+	 * @param fname2_ Mate input filename, or null
+	 * @param k_ Pivot length
+	 * @param minCount_ Count threshold used to size counting cells
+	 * @return Shared pivot-count table
+	 */
 	//[clump/ClumpTools#001] FIXED (Brian-approved 2026-06-24): the cache key now compares ALL params
 	//(fname1_, fname2_, k_, minCount_), not just fname1_. The old key ignored k/minCount/fname2, so reusing
 	//the same fname1 with different k/minCount/fname2 (no clearTable between - the table is static and persists
@@ -49,6 +82,9 @@ public class ClumpTools {
 	public static synchronized KCountArray getTable(String fname1_, String fname2_, int k_, int minCount_){
 		final boolean fname2Same=(fname2==null ? fname2_==null : fname2.equals(fname2_));
 		if(fname1==null || !fname1.equals(fname1_) || k!=k_ || minCount!=minCount_ || !fname2Same || table==null){
+			//TODO: Probable bug - the new key is published before makeSet succeeds. If a caller catches
+			//a build exception and retries this key, the previous non-null table can be returned for it.
+			//Normal successful builds are unaffected; no recovering caller has been established here.
 			fname1=fname1_;
 			fname2=fname2_;
 			k=k_;
@@ -59,18 +95,35 @@ public class ClumpTools {
 		return table;
 	}
 
-	public static synchronized void clearTable() {
+	/** Drops the cache reference and key; does not invalidate tables held by callers. */
+	public static synchronized void clearTable(){
 		fname1=fname2=null;
 		k=minCount=-1;
 		table=null;
 	}
 
+	/** Rejects repeated expanded input/output names before streams are started.
+	 * Uses Tools' case-insensitive name comparison and standard-output exceptions;
+	 * does not resolve filesystem aliases such as symlinks or relative path variants. */
+	static void validateFileNames(FileFormat[]... groups){
+		final ArrayList<String> names=new ArrayList<String>();
+		for(FileFormat[] group : groups){
+			if(group!=null){
+				for(FileFormat ff : group){
+					if(ff!=null){names.add(ff.name());}
+				}
+			}
+		}
+		Tools.testForDuplicateFiles(true, names.toArray(new String[names.size()]));
+	}
+
 	/**
-	 * Cached secondary input file name (paired mate), if provided for the table.
+	 * Cached primary and optional secondary input filenames.
 	 */
 	private static String fname1=null, fname2=null;
 	/** Cached k and minCount the current table was built with (part of the cache key, see #001) */
 	private static int k=-1, minCount=-1;
+	/** Shared table, or null before a successful build or after clearing. */
 	private static KCountArray table=null;
 	
 }

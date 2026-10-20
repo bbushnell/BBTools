@@ -16,7 +16,7 @@ import structures.ByteBuilder;
  * @date Nov 7, 2015
  *
  */
-public class Clump extends ArrayList<Read> implements Comparable<Clump> {
+public class Clump extends ArrayList<Read> implements Comparable<Clump>{
 	
 	/**
 	 * Factory method to create a new Clump with memory error protection.
@@ -25,9 +25,9 @@ public class Clump extends ArrayList<Read> implements Comparable<Clump> {
 	 * @return New Clump instance for the specified k-mer
 	 */
 	public static Clump makeClump(long kmer){
-		try {
+		try{
 			return new Clump(kmer);
-		} catch (OutOfMemoryError e) {
+		}catch(OutOfMemoryError e){
 			KillSwitch.memKill(e);
 			throw new RuntimeException();
 		}
@@ -170,8 +170,8 @@ public class Clump extends ArrayList<Read> implements Comparable<Clump> {
 				assert(bases[i]!='N');
 			}
 		}
-		Read leftmost=this.get(0);//TODO:  Actually rightmost!
-		Read r=new Read(bases, quals, leftmost.numericID+" size="+size(), 0);
+		Read rightmost=this.get(0);
+		Read r=new Read(bases, quals, rightmost.numericID+" size="+size(), 0);
 		//TODO: Attach the long pair, and make sure the kmer location is correct.
 //		assert(false) : "\n"+r.toFastq()+"\nCheck kmer location.";
 //		assert(size()==1) : "\n"+r.toFastq()+"\n"+get(0).toFastq()+"\n"+get(size()-1).toFastq()+"\n";
@@ -302,7 +302,13 @@ public class Clump extends ArrayList<Read> implements Comparable<Clump> {
 //						if(optical && keyA.lane!=keyB.lane){break;} //Already in equals method
 //						if(breakOnTile && keyA.tile!=keyB.tile){break;} //Already in equals method
 						if(optical && xySorted && !keyA.nearXY(keyB, dist)){break;}
-						if(compareUMI && !keyA.umiMatches(keyB, umiSubs)) {break;}
+						//FIXED [clump/Clump#002]: UMI mismatches are unequal non-duplicates, not key boundaries.
+						//ReadKey and KmerComparator do not order by UMI, so count the mismatch against the
+						//existing scan limit and keep looking for a later same-key read with a matching UMI.
+						if(compareUMI && !keyA.umiMatches(keyB, umiSubs)){
+							unequals++;
+							continue;
+						}
 //						if(System.nanoTime()-start>200000000000L){
 //							TextStreamWriter tsw=new TextStreamWriter("foo.fq", true, false, false);
 //							tsw.start();
@@ -318,12 +324,10 @@ public class Clump extends ArrayList<Read> implements Comparable<Clump> {
 									System.out.println(a.toFasta());
 									System.out.println(b.toFasta());
 								}
-								//KEPT-READ DECISION (resolves the carry-forward Q from KmerComparator.compare's
-								//higher-error-first sort). markAll -> discard BOTH. containment -> discard b (a is the
-								//container: equals()==contains(a,b)). else keep the lower-expected-error read: errB>=errA
-								//discards b, else discards a. The survivor always holds min(errA,errB), and since that min
-								//propagates transitively across pairwise comparisons, the representative is the clump's
-								//lowest-error read INDEPENDENT of scan/sort order. Survivor absorbs the other's copies.
+								//KEPT-READ DECISION: markAll -> discard BOTH. containment -> discard b (a is
+								//the container: equals()==contains(a,b)). Otherwise, this pair keeps the
+								//lower-expected-error read: errB>=errA discards b, else discards a. Survivor
+								//absorbs the other's copies.
 								float errA=a.expectedErrorsIncludingMate(true);
 								float errB=b.expectedErrorsIncludingMate(true);
 								if(markAll){
@@ -428,12 +432,12 @@ public class Clump extends ArrayList<Read> implements Comparable<Clump> {
 //						if(optical && keyA.lane!=keyB.lane){break;} //Already in equals method
 //						if(breakOnTile && keyA.tile!=keyB.tile){break;} //Already in equals method
 						if(optical && xySorted && !keyA.nearXY(keyB, dist)){break;}
-						//QUESTION [clump/Clump#001] (output-sensitive, NOT fixed): the forward pass
-						//(removeDuplicates_inner) has a `compareUMI && !umiMatches -> break` guard here that this
-						//backward containment pass OMITS. With containment+compareUMI both on, backward absorption can
-						//merge reads across a UMI mismatch that the forward pass would block -> asymmetric dedup. Note
-						//equals()==contains() never checks UMI either way, so the forward break is the only UMI gate.
-						//Likely a latent gap (containment+UMI is a rare combo); flagged to confirm intent, not changed.
+						//FIXED [clump/Clump#001/#002]: mirror the forward UMI gate before equality. Mismatches
+						//remain bounded by scanLimit so a later matching-UMI container can still be found.
+						if(compareUMI && !keyA.umiMatches(keyB, umiSubs)){
+							unequals++;
+							continue;
+						}
 //						if(System.nanoTime()-start>200000000000L){
 //							TextStreamWriter tsw=new TextStreamWriter("foo.fq", true, false, false);
 //							tsw.start();
@@ -449,12 +453,10 @@ public class Clump extends ArrayList<Read> implements Comparable<Clump> {
 									System.out.println(a.toFasta());
 									System.out.println(b.toFasta());
 								}
-								//KEPT-READ DECISION (resolves the carry-forward Q from KmerComparator.compare's
-								//higher-error-first sort). markAll -> discard BOTH. containment -> discard b (a is the
-								//container: equals()==contains(a,b)). else keep the lower-expected-error read: errB>=errA
-								//discards b, else discards a. The survivor always holds min(errA,errB), and since that min
-								//propagates transitively across pairwise comparisons, the representative is the clump's
-								//lowest-error read INDEPENDENT of scan/sort order. Survivor absorbs the other's copies.
+								//KEPT-READ DECISION: markAll -> discard BOTH. containment -> discard b (a is
+								//the later container and scan bounds still apply). Otherwise, this pair keeps
+								//the lower-expected-error read: errB>=errA discards b, else discards a.
+								//Survivor absorbs the other's copies.
 								float errA=a.expectedErrorsIncludingMate(true);
 								float errB=b.expectedErrorsIncludingMate(true);
 								if(markAll){
@@ -921,7 +923,8 @@ public class Clump extends ArrayList<Read> implements Comparable<Clump> {
 			return this;
 		}
 		
-		ArrayList<Clump> clumps=Splitter.splitOnPivot(this);//TODO: Really, this should return null if there is no pivot
+		//Historical proposal preserved: splitOnPivot could return null when no pivot is found.
+		ArrayList<Clump> clumps=Splitter.splitOnPivot(this);
 
 		ArrayList<Read> list=new ArrayList<Read>(clumps.size());
 		for(Clump c : clumps){
@@ -1157,7 +1160,7 @@ public class Clump extends ArrayList<Read> implements Comparable<Clump> {
 	}
 
 	@Override
-	public int compareTo(Clump o) {
+	public int compareTo(Clump o){
 		int x=Long.compare(kmer, o.kmer);
 		return x!=0 ? x : o.size()-size();
 	}
@@ -1250,7 +1253,7 @@ public class Clump extends ArrayList<Read> implements Comparable<Clump> {
 			maxQAdjust=(byte)Integer.parseInt(b);
 		}else if(a.equals("maxqi") || a.equals("maxqincorrect") || a.equals("maxqualityincorrect")){
 			maxQIncorrect=Integer.parseInt(b);
-			if(maxCIncorrect<0){maxQIncorrect=Integer.MAX_VALUE;}
+			if(maxQIncorrect<0){maxQIncorrect=Integer.MAX_VALUE;}
 		}else if(a.equals("maxci") || a.equals("maxcincorrect") || a.equals("maxcountincorrect")){
 			maxCIncorrect=Integer.parseInt(b);
 			if(maxCIncorrect<0){maxCIncorrect=Integer.MAX_VALUE;}
@@ -1291,9 +1294,9 @@ public class Clump extends ArrayList<Read> implements Comparable<Clump> {
 		}else if(a.equals("dupesubs") || a.equals("duplicatesubs") || a.equals("dsubs") || a.equals("subs") || a.equals("s")){
 			maxSubstitutions=Integer.parseInt(b);
 		}else if(a.equals("dupedist") || a.equals("duplicatedistance") || a.equals("ddist") || a.equals("dist") || a.equals("opticaldist") || a.equals("distance")){
-			try {
+			try{
 				maxOpticalDistance=Float.parseFloat(b);
-			} catch (NumberFormatException e) {
+			}catch(NumberFormatException e){
 				maxOpticalDistance=Parse.parseKMG(b);
 			}
 			opticalOnly=maxOpticalDistance>=0;
@@ -1376,7 +1379,7 @@ public class Clump extends ArrayList<Read> implements Comparable<Clump> {
 
 	/** Enables X/Y coordinate sorting based on tile spanning configuration.
 	 * Sets sortX and sortY flags based on ReadKey tile spanning settings. */
-	public static void setXY() {
+	public static void setXY(){
 		if(ReadKey.spanTilesX){sortX=true;}
 		if(ReadKey.spanTilesY){sortY=true;}
 	}

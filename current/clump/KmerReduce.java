@@ -3,8 +3,6 @@ package clump;
 import java.io.File;
 import java.io.PrintStream;
 import java.util.ArrayList;
-import shared.Random;
-
 import assemble.AbstractRemoveThread;
 import dna.AminoAcid;
 import fileIO.ByteFile;
@@ -28,18 +26,22 @@ import structures.ListNum;
 import tracker.ReadStats;
 
 /**
- * Reduces reads to their feature k-mers for downstream analysis.
- * Processes reads by hashing each read to a representative k-mer and outputting that k-mer as a FASTA sequence.
- * Supports multi-threaded processing with configurable k-mer length and optional overlap-based error correction.
+ * Emits one representative k-base pivot sequence per input root read. Linked mates
+ * can participate in overlap correction but are not emitted or counted separately.
+ * Output reads have the constant name "1", the original numeric ID, and no quality
+ * array; the requested output format controls their serialization.
+ * Instances and shared parser/comparator settings require serialized configuration.
  * @author Brian Bushnell
  * @date Nov 10, 2015
  */
-public class KmerReduce {
+public class KmerReduce{
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Static Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Parses and processes files, restoring pigz/unpigz flags on normal return.
+	 * Other shared parser settings and exceptional exits are not restored. */
 	public static void main(String[] args){
 		final boolean pigz=ReadWrite.USE_PIGZ, unpigz=ReadWrite.USE_UNPIGZ;
 		Timer t=new Timer();
@@ -54,7 +56,9 @@ public class KmerReduce {
 	
 	/**
 	 * Extracts valid k-mers from a read file by processing reads through KmerReduce.
-	 * Creates a temporary output file of representative k-mers, then builds and filters a KmerTableSet.
+	 * This unfinished entry point writes a temporary pivot file, then deliberately
+	 * asserts before building the table. Do not use with assertions enabled.
+	 * The assertion is retained as a historical unfinished-work guard.
 	 * @param fname0 Input filename of reads
 	 * @param k K-mer length
 	 * @param cutoff Minimum count to retain in the final table
@@ -122,7 +126,8 @@ public class KmerReduce {
 	
 	/**
 	 * Parses command-line arguments and initializes processing parameters.
-	 * Sets up input/output file formats, validates configuration, and prepares read streams.
+	 * Sets up file descriptors and mutates shared parser/compression settings.
+	 * Streams are created and started only by process().
 	 * @param args Command line arguments
 	 */
 	public KmerReduce(String[] args){
@@ -222,6 +227,8 @@ public class KmerReduce {
 		
 		ffin1=FileFormat.testInput(in1, FileFormat.FASTQ, extin, true, true);
 		ffin2=FileFormat.testInput(in2, FileFormat.FASTQ, extin, true, true);
+		//Fixed [clump/KmerReduce#001]: reject either input as output before starting the reader.
+		ClumpTools.validateFileNames(new FileFormat[] {ffin1, ffin2, ffout1});
 	}
 	
 	
@@ -248,11 +255,6 @@ public class KmerReduce {
 		if(out1!=null){
 			final int buff=Tools.max(4, Shared.threads());
 
-			//TODO: Possible bug [clump/KmerReduce#001] - SAME duplicate-clause defect as KmerSplit/KmerSort2/KmerSort3
-			//#001 (the family anomaly is now 4 files; KmerSort1 is single-clause/correct). Both clauses are out1 vs
-			//in1; the second should be in2 -> out1==in2 not caught. LOW/latent (assert + user-error) -> Brian.
-			assert(!out1.equalsIgnoreCase(in1) && !out1.equalsIgnoreCase(in1)) : "Input file and output file have same name.";
-			
 			ros=ConcurrentReadOutputStream.getStream(ffout1, null, buff, null, false);
 			ros.start();
 		}else{ros=null;}
@@ -280,9 +282,10 @@ public class KmerReduce {
 	
 	/**
 	 * Manages multi-threaded processing using HashThread workers.
-	 * Creates and coordinates worker threads, then aggregates per-thread read and base counts.
-	 * @param cris Concurrent input stream for reading data
-	 * @param ros Concurrent output stream for writing results
+	 * Creates and joins workers, then aggregates root-read and root-base counts.
+	 * Does not start or close the supplied streams; process() owns that lifecycle.
+	 * @param cris Already-started input stream
+	 * @param ros Already-started unordered output stream, or null to discard pivots
 	 */
 	public void processInner(final ConcurrentReadInputStream cris, final ConcurrentReadOutputStream ros){
 		if(verbose){outstream.println("Making comparator.");}
@@ -302,9 +305,9 @@ public class KmerReduce {
 			
 			/* Wait for a thread to die */
 			while(ht.getState()!=Thread.State.TERMINATED){
-				try {
+				try{
 					ht.join();
-				} catch (InterruptedException e) {
+				}catch(InterruptedException e){
 					e.printStackTrace();
 				}
 			}
@@ -317,6 +320,7 @@ public class KmerReduce {
 	/*----------------         Inner Classes        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Consumes borrowed batches, emits new pivot reads, and returns every consumed list. */
 	private class HashThread extends Thread{
 
 		HashThread(ConcurrentReadInputStream cris_, ConcurrentReadOutputStream ros_, KmerComparator kc_){
@@ -325,6 +329,7 @@ public class KmerReduce {
 			kc=kc_;
 		}
 
+		/** Processes root reads only; optional overlap correction can mutate both mates. */
 		@Override
 		public void run(){
 			
@@ -369,6 +374,7 @@ public class KmerReduce {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Allocates and decodes exactly k bases from the low 2*k bits of a packed pivot. */
 	public byte[] toBytes(final long kmer){
 		byte[] dest=KillSwitch.allocByte1D(k);
 		fill(kmer, dest, 0);
@@ -378,6 +384,8 @@ public class KmerReduce {
 	//Decodes a 2-bit-packed kmer back to ACGT bases, high-order 2 bits first (i=k-1 down to 0) so dest[0] is the
 	//leftmost base - the inverse of the kmer-building shift in KmerComparator. Used to emit each read's pivot kmer
 	//as a FASTA sequence (the whole point of KmerReduce: reduce a read to its representative kmer).
+	/** Writes k A/C/G/T bytes at pos, most-significant selected base first.
+	 * The caller must supply room for all k bytes; no terminator is written. */
 	public void fill(final long kmer, final byte[] dest, int pos){
 		for(int i=k-1; i>=0; i--, pos++){
 			int x=(int)((kmer>>(2*i))&3);
@@ -389,7 +397,9 @@ public class KmerReduce {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Pivot length, limited by the packed 2-bit representation to 1 through 31. */
 	private int k=31;
+	/** Whether getValidKmers uses a count prefilter when cutoff exceeds one. */
 	static boolean prefilter=true;
 	
 	/*--------------------------------------------------------------*/
@@ -406,10 +416,14 @@ public class KmerReduce {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Processed root reads; linked mates are excluded. */
 	protected long readsProcessed=0;
+	/** Processed root-read bases; linked mates are excluded. */
 	protected long basesProcessed=0;
 	
+	/** Input fragment limit, or a negative value for no configured limit. */
 	private long maxReads=-1;
+	/** Whether to perform strict overlap-based correction before choosing each pivot. */
 	protected boolean ecco=false;
 	
 	/*--------------------------------------------------------------*/

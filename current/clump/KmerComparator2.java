@@ -6,9 +6,8 @@ import shared.Tools;
 import stream.Read;
 
 /**
- * Lightweight k-mer comparator for sorting DNA reads without heavyweight hashing methods.
- * Provides a minimal implementation for k-mer-based read comparison with multi-stage
- * comparison strategy including ReadKey comparison, sequence comparison, and quality fallbacks.
+ * Base comparator for optical duplicate passes on reads that already have
+ * {@link ReadKey} objects attached.
  *
  * @author Brian Bushnell
  * @date June 3, 2025
@@ -16,21 +15,21 @@ import stream.Read;
 public abstract class KmerComparator2 implements Comparator<Read>{
 
 	/**
-	 * Compares two reads using a multi-stage comparison strategy.
-	 * First compares ReadKey objects, then sequences, and finally read IDs as tiebreaker.
+	 * Compares attached ReadKeys, then read sequence, quality, then read ID.
 	 *
-	 * @param a First read to compare
-	 * @param b Second read to compare
-	 * @return Negative if a < b, positive if a > b, zero if equal
+	 * @param a first read to compare
+	 * @param b second read to compare
+	 * @return negative if a &lt; b, positive if a &gt; b, zero if equal
 	 */
 	@Override
-	public final int compare(Read a, Read b) {
-		//a.obj/b.obj are ReadKeys populated during hashing (KmerComparator.hash). The cast is unguarded because
-		//the X/Y subclass comparators only run AFTER keys are set (Clump.sort, post-hash) -> obj!=null invariant.
+	public final int compare(Read a, Read b){
+		// a.obj/b.obj are ReadKeys populated during hashing
+		// (KmerComparator.hash). The cast is unguarded because the X/Y
+		// subclass comparators only run after keys are set.
 		final ReadKey keyA=(ReadKey)a.obj;
 		final ReadKey keyB=(ReadKey)b.obj;
 
-		//subclass pivot/coordinate compare (X/Y) first; on a tie fall to sequence then id -> total, stable order
+		// The X/Y comparator runs first; sequence, quality, and ID break ties.
 		int x=compare(keyA, keyB);
 		if(x==0){
 			x=compareSequence(a, b, 0);
@@ -38,13 +37,20 @@ public abstract class KmerComparator2 implements Comparator<Read>{
 		return x==0 ? a.id.compareTo(b.id) : x;
 	}
 	
-	//This gets overriden
+	/** Compares two attached read keys on the X or Y optical axis. */
 	public abstract int compare(ReadKey a, ReadKey b);
 	
-	//`depth` is an unused vestige (every call passes 0). Sequence-level tiebreak used on the dedup ordering path:
-	//bases, then mate bases, then quality-sum. L<below> reads b.mate.bases guarded only by a.mate!=null, so it
-	//would NPE if a is paired but b is not; safe under clumpify's homogeneous-stream invariant (a batch is all-
-	//paired or all-single), latent-LOW otherwise (same trust-valid-state pattern as ReadKey). Output-sensitive.
+	/**
+	 * Breaks key ties by bases, then mate bases, then quality-sum.
+	 *
+	 * @param a first read to compare
+	 * @param b second read to compare
+	 * @param depth unused recursion vestige
+	 * @return sequence comparison, or quality comparison if bases tie
+	 */
+	// The mate comparison is guarded only by a.mate!=null. Callers must pass
+	// reads with a consistent mate convention; mixed paired/unpaired reads
+	// can still dereference b.mate here.
 	public static final int compareSequence(Read a, Read b, int depth){
 		int x=compareSequence(a.bases, b.bases);
 		if(x!=0){return x;}
@@ -53,9 +59,13 @@ public abstract class KmerComparator2 implements Comparator<Read>{
 		return compareQuality(a, b);
 	}
 	
-	//CLEVER [verified]: total order = longer-first (L<below> b.length-a.length) then byte-ascending (a[i]-b[i],
-	//byte->int promotion bounded -255..255, no overflow). The length compare short-circuits the O(n) byte loop for
-	//the common unequal-length case. Deterministic -> reproducible within-clump ordering. null sorts last.
+	//CLEVER [verified]: total order = longer-first (L<below> b.length-a.length),
+	//then byte-ascending (a[i]-b[i], byte->int promotion bounded -255..255,
+	//no overflow). The length compare short-circuits the O(n) byte loop for the
+	//common unequal-length case. Deterministic -> reproducible within-clump
+	//ordering. null sorts last.
+	/** Orders null arrays last, then longer arrays first, then signed byte values
+	 * in ascending order. Equal lengths and bytes compare equal. */
 	public static final int compareSequence(final byte[] a, final byte[] b){
 		if(a==null || b==null){
 			if(a==null && b!=null){return 1;}
@@ -72,11 +82,23 @@ public abstract class KmerComparator2 implements Comparator<Read>{
 		return 0;
 	}
 	
-	//Final fallback among byte-identical reads: higher total-quality sorts EARLIER (qb-qa; qa>qb -> negative -> a
-	//first), so the highest-quality read becomes the representative. Asymmetric null handling BOTH ways: if only a
-	//is null it returns 0 (non-antisymmetric vs the reverse call); if only b is null it NPEs at sumInt(b.quality).
-	//Both unreachable - quality presence is stream-uniform (FASTQ vs FASTA per stream) -> latent-LOW. Output-sensitive.
-	//Not optimal, but fast.  This function is probably not very important.
+	//Final ordering fallback among byte-identical reads: higher first-read
+	//total quality sorts EARLIER (qb-qa; qa>qb -> negative -> a first), before
+	//the final ID tie-break. Duplicate retention is decided later by Clump's
+	//expected-error, containment, and scan policy. Asymmetric null handling
+	//BOTH ways: if only a is null it returns 0 (non-antisymmetric vs the
+	//reverse call); if only b is null it NPEs at sumInt(b.quality).
+	/**
+	 * Breaks byte-identical sequence ties by total quality.
+	 *
+	 * @param a first read to compare
+	 * @param b second read to compare
+	 * @return negative when a has higher quality, positive when b has higher
+	 *         quality, or zero when a has no quality scores
+	 */
+	// Callers must pass reads with a consistent quality convention; mixed
+	// quality/no-quality reads can give an asymmetric zero or dereference
+	// b.quality here.
 	public static final int compareQuality(Read a, Read b){
 		if(a.quality==null){return 0;}
 		int qa=Tools.sumInt(a.quality);

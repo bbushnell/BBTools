@@ -14,22 +14,32 @@ import stream.Read;
 import structures.LongM;
 
 /**
- * A list of clumps for managing sets of reads with identical k-mers.
- * Groups reads by k-mer identity, enabling consensus generation, error correction,
- * and duplicate removal. Supports both single-threaded and multi-threaded processing
- * for scalable clump creation from large read sets.
- * Input reads must be pre-sorted by k-mer for correct grouping.
+ * Groups k-mer-sorted reads into Clump objects and runs per-clump operations.
+ * Input reads must already have {@link ReadKey} instances attached and must be
+ * sorted by pivot k-mer before construction. Process modes may emit consensus
+ * reads, apply error correction, or remove duplicates; these operations consume
+ * the current clumps.
  *
  * @author Brian Bushnell
  * @date Nov 9, 2015
  */
-public class ClumpList extends ArrayList<Clump> {
+public class ClumpList extends ArrayList<Clump>{
 
+	/** Creates an empty ClumpList for the specified pivot k-mer length. */
 	public ClumpList(int k_){
 		this(null, k_, false);
 	}
 	
 	//TODO: Add flag to remove duplicates, and remove optical duplicates
+	/**
+	 * Creates a one-shot ClumpList and optionally groups an initial sorted read list.
+	 * Current KmerSort callers pass the complete sorted group at construction time.
+	 *
+	 * @param list k-mer-sorted reads with attached ReadKeys, or null
+	 * @param k_ pivot k-mer length
+	 * @param makeSimpleConsensus_ true to precompute and retain simple
+	 *        consensus reads while grouping
+	 */
 	public ClumpList(ArrayList<Read> list, int k_, boolean makeSimpleConsensus_){
 		k=k_;
 		makeSimpleConsensus=makeSimpleConsensus_;
@@ -37,6 +47,7 @@ public class ClumpList extends ArrayList<Clump> {
 //		Shared.sort(this);//Does nothing since reads are already sorted by kmer.
 	}
 	
+	/** Groups one k-mer-sorted read list into consecutive same-kmer clumps. */
 	public void addReads(ArrayList<Read> list){
 		assert(list.getClass()!=Clump.class) : list.getClass();
 		if(list.size()<100000 || Shared.threads()<2){addReadsST(list);}
@@ -45,6 +56,8 @@ public class ClumpList extends ArrayList<Clump> {
 //		System.err.println(addedR+", "+addedC+", "+list.size());
 	}
 	
+	/** Groups mate-linked clumps together for output locality.
+	 * Marks clumps as added and should be called only once per unchanged list. */
 	public void reorderPaired(){//More efficient but requires unpair and repair, and paired reads.
 		ArrayList<Clump> temp=new ArrayList<Clump>(size());
 		for(Clump c : this){
@@ -85,6 +98,8 @@ public class ClumpList extends ArrayList<Clump> {
 		}
 	}
 	
+	/** Groups clumps connected by consensus k-mers for output locality.
+	 * Builds a cached map and should be called only once per unchanged list. */
 	public void reorder(){//Less efficient but works with unpaired reads
 		ArrayList<Clump> temp=new ArrayList<Clump>(size());
 //		temp.addAll(this);
@@ -135,6 +150,12 @@ public class ClumpList extends ArrayList<Clump> {
 		this.addAll(temp);
 	}
 	
+	/** Groups a k-mer-sorted read list using multiple fixed slice workers. */
+	//QUESTION [clump/ClumpList#002] (latent-LOW, NOT fixed): rAdded is
+	//cumulative for this ClumpList, but the assert below compares it only to the
+	//current input list size. This matches current one-shot construction;
+	//reusing one ClumpList for repeated addReadsMT calls would assert after the
+	//second append under -ea. Flagged to confirm, not changed.
 	public void addReadsMT(ArrayList<Read> list){
 		int threads=Tools.mid(2, Shared.threads()/2, 16);
 //		assert(false) : threads;
@@ -157,9 +178,9 @@ public class ClumpList extends ArrayList<Clump> {
 			
 			/* Wait for a thread to die */
 			while(ct.getState()!=Thread.State.TERMINATED){
-				try {
+				try{
 					ct.join();
-				} catch (InterruptedException e) {
+				}catch(InterruptedException e){
 					e.printStackTrace();
 				}
 			}
@@ -189,6 +210,7 @@ public class ClumpList extends ArrayList<Clump> {
 //		return true;
 //	}
 	
+	/** Groups a k-mer-sorted read list on the current thread. */
 	public void addReadsST(ArrayList<Read> list){
 		Clump currentClump=null;
 		long currentKmer=-1;
@@ -220,6 +242,18 @@ public class ClumpList extends ArrayList<Clump> {
 //		for(int i=0; i<list.size(); i++){assert(list.get(i).doscarded()) : i;}
 	}
 	
+	/**
+	 * Runs the requested per-clump operation and returns surviving output reads.
+	 *
+	 * @param threads worker count
+	 * @param mode one of {@link #CONDENSE}, {@link #CORRECT}, or
+	 *        {@link #DEDUPE}
+	 * @param rvector cumulative correction, duplicate, and duplicate-base counts
+	 * @return output reads from all processed clumps
+	 */
+	// Requires threads>0 and rvector.length>=3. This is a consuming call:
+	// each worker clears its Clumps and set(i, null) clears list slots.
+	// ptr is advanced and must be reset before another process pass.
 	public ArrayList<Read> process(final int threads, final int mode, final long[] rvector){
 		final ArrayList<ProcessThread> alct=new ArrayList<ProcessThread>(threads);
 		for(int i=0; i<threads; i++){alct.add(new ProcessThread(mode));}
@@ -237,9 +271,9 @@ public class ClumpList extends ArrayList<Clump> {
 
 			/* Wait for a thread to die */
 			while(ct.getState()!=Thread.State.TERMINATED){
-				try {
+				try{
 					ct.join();
-				} catch (InterruptedException e) {
+				}catch(InterruptedException e){
 					e.printStackTrace();
 				}
 			}
@@ -264,8 +298,8 @@ public class ClumpList extends ArrayList<Clump> {
 		return list;
 	}
 	
-	/** Clears all clumps and resets internal state.
-	 * Resets thread pointer and invalidates cached k-mer map. */
+	/** Removes clumps, resets the process pointer, and invalidates the k-mer map.
+	 * Does not reset cumulative grouping counters or per-clump added flags. */
 	@Override
 	public void clear(){
 		super.clear();
@@ -273,6 +307,8 @@ public class ClumpList extends ArrayList<Clump> {
 		map=null;
 	}
 	
+	// The cached map assumes no inherited ArrayList mutation between build and
+	// use; call after all grouping and before reordering, on one thread.
 	//QUESTION [clump/ClumpList#001] (latent-LOW, NOT fixed): this is double-checked locking on the NON-volatile
 	//field `map`. It is safe ONLY because the sole caller chain (reorder/reorderPaired <- KmerSort1.processInner)
 	//runs single-threaded on the main thread. Under a genuinely concurrent first-call it would misbehave: a second
@@ -390,7 +426,7 @@ public class ClumpList extends ArrayList<Clump> {
 		private final int mode;
 	}
 	
-	private static class ClumpThread extends Thread {
+	private static class ClumpThread extends Thread{
 		
 		public ClumpThread(ArrayList<Read> input_, int startIndex_, int stopIndex_, int k, boolean makeSimpleConsensus_){
 			input=input_;

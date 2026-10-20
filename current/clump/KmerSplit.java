@@ -3,6 +3,7 @@ package clump;
 import java.io.File;
 import java.io.PrintStream;
 import java.util.ArrayList;
+import java.util.Locale;
 
 import bloom.KCountArray;
 import fileIO.ByteFile;
@@ -26,15 +27,16 @@ import structures.Quantizer;
 import tracker.ReadStats;
 
 /**
- * Implements a parallel k-mer based read splitting and distribution utility
- * for bioinformatics sequencing data processing. Splits input sequencing reads
- * into multiple groups based on k-mer hash values, enabling parallel processing
- * and data partitioning of large genomic datasets.
+ * Initial pivot-based partitioning stage for Clumpify. Chooses a pivot for each
+ * root read and writes it, with its linked mate, to hash(pivot)%groups. Unpairing
+ * instead separates the mates before pivot selection. Output order is unspecified.
+ * Owns its input/output streams and worker threads; configuration changes shared
+ * parser/comparator settings and must be serialized with other clump invocations.
  *
  * @author Brian Bushnell
  * @date June 20, 2014
  */
-public class KmerSplit {
+public class KmerSplit{
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
@@ -42,7 +44,9 @@ public class KmerSplit {
 	
 	/**
 	 * Code entrance from the command line. Initializes KmerSplit instance,
-	 * processes input data, and restores system settings after completion.
+	 * processes input data, and restores the saved compression/interleaving settings
+	 * on normal return. Other parser/comparator globals and exceptional exits are
+	 * not restored.
 	 * @param args Command line arguments
 	 */
 	//CLEVER (the most complete save/restore in the clump family): saves+restores BOTH the ReadWrite zip statics AND
@@ -73,8 +77,8 @@ public class KmerSplit {
 	
 	/**
 	 * Constructor that parses command line arguments and configures the KmerSplit
-	 * instance. Sets up input/output streams, k-mer parameters, grouping options,
-	 * and file format handlers.
+	 * instance. Resolves input/output descriptors and expanded group filenames;
+	 * process() subsequently creates and starts the streams.
 	 * @param args Command line arguments
 	 */
 	public KmerSplit(String[] args){
@@ -100,6 +104,8 @@ public class KmerSplit {
 
 			if(parser.parse(arg, a, b)){
 				//do nothing
+			}else if(a.equals("phasetimers")){
+				KmerSort.phaseTimers=Parse.parseBoolean(b);
 			}else if(a.equals("verbose")){
 				verbose=KmerComparator.verbose=Parse.parseBoolean(b);
 			}else if(a.equals("parse_flag_goes_here")){
@@ -273,6 +279,8 @@ public class KmerSplit {
 
 		ffin1=FileFormat.testInput(in1, FileFormat.FASTQ, extin, true, true);
 		ffin2=FileFormat.testInput(in2, FileFormat.FASTQ, extin, true, true);
+		//Fixed [clump/KmerSplit#001]: check actual expanded output names against both inputs before startup.
+		ClumpTools.validateFileNames(new FileFormat[] {ffin1, ffin2}, ffout);
 	}
 	
 	
@@ -296,7 +304,9 @@ public class KmerSplit {
 	 */
 	void process(Timer t){
 		
+		long phaseStart=KmerSort.phaseTimers ? System.nanoTime() : 0;
 		preprocess();
+		if(KmerSort.phaseTimers){preprocessNanos=System.nanoTime()-phaseStart; phaseStart=System.nanoTime();}
 		
 		final ConcurrentReadInputStream cris;
 		{
@@ -311,20 +321,14 @@ public class KmerSplit {
 		}
 
 		final ConcurrentReadOutputStream ros[]=new ConcurrentReadOutputStream[groups];
-		try {
+		try{
 			for(int i=0; i<groups; i++){
 				final int buff=8;
 
-				//TODO: Possible bug [clump/KmerSplit#001] - SAME duplicate-clause defect as KmerSort2#001/KmerSort3#001
-				//(now a 3-file family anomaly: KmerSplit/KmerSort2/KmerSort3 all have it; KmerSort1 is single-clause/
-				//correct). Both clauses are out1 vs in1; the second should be in2, so out1==in2 (output over a paired
-				//input) isn't caught. LOW/latent (assert + user-error), output-affecting to fix -> flagged for Brian.
-				assert(!out1.equalsIgnoreCase(in1) && !out1.equalsIgnoreCase(in1)) : "Input file and output file have same name.";
-				
 				ros[i]=ConcurrentReadOutputStream.getStream(ffout[i], null, null, null, buff, null, false);
 				ros[i].start();
 			}
-		} catch (OutOfMemoryError e) {
+		}catch(OutOfMemoryError e){
 			KillSwitch.memKill(e);
 		}
 		
@@ -332,7 +336,9 @@ public class KmerSplit {
 		basesProcessed=0;
 		
 		//Process the read stream
+		if(KmerSort.phaseTimers){startupNanos=System.nanoTime()-phaseStart;}
 		processInner(cris, ros);
+		printPhaseTimers();
 		
 		errorState|=ReadStats.writeAll();
 		
@@ -347,10 +353,10 @@ public class KmerSplit {
 	}
 	
 	/**
-	 * Collect and sort the reads using k-mer comparator and distribute them
-	 * to output streams through multi-threaded splitting.
-	 * @param cris Concurrent read input stream
-	 * @param ros Array of concurrent read output streams
+	 * Hashes and distributes reads without sorting. Records the processed memory
+	 * estimate after splitReads closes the supplied streams.
+	 * @param cris Already-started input stream, owned by this processing call
+	 * @param ros Already-started unordered output streams, owned by this call
 	 */
 	void processInner(final ConcurrentReadInputStream cris, final ConcurrentReadOutputStream[] ros){
 		if(verbose){outstream.println("Making comparator.");}
@@ -364,7 +370,11 @@ public class KmerSplit {
 		if(verbose){outstream.println("Done!");}
 	}
 	
+	/** Starts workers, joins them, aggregates counts and closes all supplied streams.
+	 * The output count must match groups. Worker batches are independently buffered;
+	 * their list IDs are not an ordering contract for the output streams. */
 	public void splitReads(final ConcurrentReadInputStream cris, final ConcurrentReadOutputStream[] ros, final KmerComparator kc){
+		final long phaseStart=KmerSort.phaseTimers ? System.nanoTime() : 0;
 		Timer t=new Timer();
 		if(verbose){t.start("Making hash threads.");}
 		final int threads=Shared.threads();
@@ -381,9 +391,9 @@ public class KmerSplit {
 			
 			/* Wait for a thread to die */
 			while(ht.getState()!=Thread.State.TERMINATED){
-				try {
+				try{
 					ht.join();
-				} catch (InterruptedException e) {
+				}catch(InterruptedException e){
 					e.printStackTrace();
 				}
 			}
@@ -391,10 +401,17 @@ public class KmerSplit {
 			basesProcessed+=ht.basesProcessedT;
 			diskProcessed+=ht.diskProcessedT;
 			memProcessed+=ht.memProcessedT;
+			workerNanos+=ht.elapsedNanos;
+			readNanos+=ht.readNanos;
+			hashNanos+=ht.hashNanos;
+			submitNanos+=ht.submitNanos;
 		}
 		
 		if(verbose){outstream.println("Closing streams.");}
+		final long drainStart=KmerSort.phaseTimers ? System.nanoTime() : 0;
+		if(KmerSort.phaseTimers){workersNanos=drainStart-phaseStart;}
 		errorState=ReadWrite.closeStreams(cris, ros)|errorState;
+		if(KmerSort.phaseTimers){drainNanos=System.nanoTime()-drainStart;}
 		if(verbose){t.stop("Split time: ");}
 	}
 	
@@ -406,6 +423,7 @@ public class KmerSplit {
 	/*----------------         Inner Classes        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Applies first-pass transformations and owns one buffer per destination group. */
 	private class HashThread extends Thread{
 
 		HashThread(int id_, ConcurrentReadInputStream cris_, ConcurrentReadOutputStream[] ros_, KmerComparator kc_){
@@ -422,9 +440,16 @@ public class KmerSplit {
 		 */
 		@Override
 		public void run(){
+			final long start=profile ? System.nanoTime() : 0;
+			runInner();
+			if(profile){elapsedNanos=System.nanoTime()-start;}
+		}
+
+		/** Processes the same batches while optional timers observe coarse boundaries. */
+		private void runInner(){
 
 			final boolean paired=cris.paired();
-			ListNum<Read> ln=cris.nextList();
+			ListNum<Read> ln=nextBatch();
 			ArrayList<Read> reads=(ln!=null ? ln.list : null);
 			
 			ArrayList<Read>[] array=new ArrayList[groups];
@@ -480,7 +505,9 @@ public class KmerSplit {
 				//KmerSort's first comparator -> identical pivots -> identical group. %groups is safe from a negative
 				//index because kc.hash masks &Long.MAX_VALUE (see KmerComparator.hash); the assert guards it anyway.
 				//Per-group 200-read buffers flush to ros only when full -> far fewer ros.add calls than per-read.
+				final long hashStart=profile ? System.nanoTime() : 0;
 				kc.hash(hashList, table, minCount, true);
+				if(profile){hashNanos+=System.nanoTime()-hashStart;}
 				for(Read r : hashList){
 					long kmer=((ReadKey)r.obj).kmer;
 					long code=kc.hash(kmer);
@@ -488,12 +515,12 @@ public class KmerSplit {
 					assert(code2>=0 && code2<array.length) : code2+", "+groups+", "+array.length+", "+kmer+", "+r.obj+"\n"+r;
 					array[code2].add(r);
 					if(array[code2].size()>=buffer){
-						ros[code2].add(array[code2], 0);
+						submit(code2, array[code2]);
 						array[code2]=new ArrayList<Read>(buffer);
 					}
 				}
 				cris.returnList(ln);
-				ln=cris.nextList();
+				ln=nextBatch();
 				reads=(ln!=null ? ln.list : null);
 			}
 			if(ln!=null){
@@ -501,11 +528,29 @@ public class KmerSplit {
 			}
 			for(int i=0; i<groups; i++){
 				if(!array[i].isEmpty()){
-					ros[i].add(array[i], 0);
+					submit(i, array[i]);
 				}
 			}
 		}
 
+		/** Measures input waiting at batch boundaries, never per read. */
+		private ListNum<Read> nextBatch(){
+			final long start=profile ? System.nanoTime() : 0;
+			final ListNum<Read> batch=cris.nextList();
+			if(profile){readNanos+=System.nanoTime()-start;}
+			return batch;
+		}
+
+		/** Includes queue waiting or caller-driven output, according to the backend. */
+		private void submit(int destination, ArrayList<Read> reads){
+			final long start=profile ? System.nanoTime() : 0;
+			ros[destination].add(reads, 0);
+			if(profile){submitNanos+=System.nanoTime()-start;}
+		}
+
+		/** Thread-local elapsed measurements, read only after joining this worker. */
+		private long elapsedNanos, readNanos, hashNanos, submitNanos;
+		private final boolean profile=KmerSort.phaseTimers;
 		final int id;
 		final ConcurrentReadInputStream cris;
 		final ConcurrentReadOutputStream[] ros;
@@ -522,10 +567,37 @@ public class KmerSplit {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Reports coordinator wall totals and overlapping worker elapsed sums.
+	 * Hash is a subset of transform/hash/route time, not an additional phase. */
+	private void printPhaseTimers(){
+		if(!KmerSort.phaseTimers){return;}
+		phase("coord_preprocess", preprocessNanos);
+		phase("coord_stream_startup", startupNanos);
+		phase("coord_workers", workersNanos);
+		phase("coord_stream_drain", drainNanos);
+		phase("worker_input_wait_elapsed_sum", readNanos);
+		phase("worker_transform_hash_route_elapsed_sum", workerNanos-readNanos-submitNanos);
+		phase("worker_hash_elapsed_sum", hashNanos);
+		phase("worker_submit_elapsed_sum", submitNanos);
+	}
+
+	/** Formats one optional elapsed measurement in seconds. */
+	private void phase(String name, long nanos){
+		outstream.printf(Locale.ROOT, "PhaseTimer\t%s\t%s\t%.6f%n", getClass().getSimpleName(), name, nanos*1e-9);
+	}
+
+	/** Coordinator-owned measurements; worker sums are collected after joins. */
+	private long preprocessNanos, startupNanos, workersNanos, drainNanos;
+	private long workerNanos, readNanos, hashNanos, submitNanos;
+
+	/** Pivot length, between 1 and 31 inclusive. */
 	private int k=31;
+	/** Number of output partitions. */
 	int groups=16;
+	/** Minimum count used when selecting pivots from the optional count table. */
 	int minCount=0;
 	
+	/** Shared pivot-count table; absent when minCount is at most one. */
 	KCountArray table=null;
 	
 	/*--------------------------------------------------------------*/
@@ -543,13 +615,19 @@ public class KmerSplit {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Input reads, including linked mates, before optional unpairing. */
 	protected long readsProcessed=0;
+	/** Input bases, including linked mates, before transformations. */
 	protected long basesProcessed=0;
+	/** Estimated FASTQ bytes before name/quality transformations. */
 	protected long diskProcessed=0;
+	/** Estimated in-memory input bytes, including key overhead per root. */
 	protected long memProcessed=0;
 	
+	/** Memory estimate from the last completed split, used by the next sorter pass. */
 	protected static long lastMemProcessed=0;
 	
+	/** Fragment limit supplied to the reader; negative means no configured limit. */
 	private long maxReads=-1;
 //	private boolean addName=false;
 	boolean shortName=false;

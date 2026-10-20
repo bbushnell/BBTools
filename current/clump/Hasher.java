@@ -6,14 +6,16 @@ import shared.Tools;
 import stream.Read;
 
 /**
- * Provides robust hashing and comparison utilities for genetic sequence data.
- * Generates deterministic hash codes using randomized lookup tables with rotation-based
- * mixing to minimize collisions while maintaining consistency across runs.
+ * Sequence hashes used as duplicate-detection hints, plus exact byte comparisons.
+ * Hashing normalizes ASCII letter case; equality does not. Hash matches therefore
+ * require an equality check. Read names, qualities and other metadata are ignored.
+ * The initialized lookup table is read-only; callers must not mutate read bases
+ * or mate links concurrently with these operations.
  *
  * @author Brian Bushnell
  * @date 2014
  */
-public class Hasher {
+public class Hasher{
 
 	/**
 	 * Creates hash code lookup tables for 128 ASCII characters with case normalization.
@@ -39,8 +41,8 @@ public class Hasher {
 	 * @param modes Number of different hash modes per character
 	 * @return 2D array of random long values for hash computation
 	 */
-	//CLEVER [verified]: seed=1 is FIXED, so the lookup table is identical every run -> hashing is
-	//deterministic across runs/JVMs. That reproducibility matters for clump (same input -> same clumping).
+	//CLEVER: seed=1 fixes this table for a given Shared.random implementation. Shared.random currently
+	//selects FastRandomXoshiro; changing that generator can change hashes despite the unchanged seed.
 	private static synchronized long[][] makeCodes(int symbols, int modes){
 		Random randy=shared.Shared.random(1);
 		long[][] r=new long[symbols][modes];
@@ -56,7 +58,7 @@ public class Hasher {
 	 * Computes deterministic hash code for genetic sequence using length-seeded approach.
 	 * Each base contributes to hash using mode-specific lookup value with left rotation
 	 * for bit mixing. Mode selection cycles based on current hash state.
-	 * @param bases Sequence bytes to hash
+	 * @param bases Non-null ASCII sequence bytes (0 through 127); not modified
 	 * @return Hash code incorporating sequence length and base-specific randomized values
 	 */
 	//Tabulation hash seeded by length: per base, pick mode=code&31 (in [0,31]; hashcodes has 32 modes),
@@ -79,7 +81,7 @@ public class Hasher {
 	
 	/**
 	 * Computes hash code for a single sequencing read.
-	 * @param r Read to hash
+	 * @param r Non-null read with non-null ASCII bases
 	 * @return Hash code of the read's base sequence
 	 */
 	public static final long hash(Read r){
@@ -90,7 +92,7 @@ public class Hasher {
 	 * Computes combined hash code for paired-end reads using XOR and rotation.
 	 * For single reads returns individual hash; for pairs combines mate hashes
 	 * with left rotation to maintain hash distribution properties.
-	 * @param r Primary read (mate accessed via r.mate)
+	 * @param r Non-null primary read; it and any mate require non-null ASCII bases
 	 * @return Combined hash for read pair or single read hash if unpaired
 	 */
 	//a^rotateLeft(b,1) is intentionally ASYMMETRIC (read1 vs read2 have fixed roles), so the pair hash
@@ -107,6 +109,7 @@ public class Hasher {
 	 * @param a First read pair
 	 * @param b Second read pair
 	 * @return true if both primary reads and their mates are sequence-identical
+	 * @throws NullPointerException If both primary read references are null
 	 */
 	public static final boolean equalsPaired(Read a, Read b){
 		return equals(a, b) && equals(a.mate, b.mate);
@@ -114,7 +117,9 @@ public class Hasher {
 	
 	/**
 	 * Tests sequence equality between two reads using byte-level comparison.
-	 * Handles null reads and length mismatches with early termination for efficiency.
+	 * Two null references are equal; one null reference is unequal. Zero-length
+	 * reads compare equal even if one has null base storage and the other an empty
+	 * array. Nonempty sequences are compared byte-for-byte, including case.
 	 * @param a First read to compare
 	 * @param b Second read to compare
 	 * @return true if reads have identical base sequences

@@ -19,8 +19,9 @@ import structures.LongList;
  * @author Brian Bushnell
  * @date September 26, 2016
  */
-class Splitter {
+class Splitter{
 	
+	/** Returns every terminal or degenerate-pivot subclump after recursive splitting. */
 	static ArrayList<Clump> splitOnPivot(Clump c){
 		ArrayList<Clump> list=new ArrayList<Clump>(3);
 		list.add(c);
@@ -31,6 +32,7 @@ class Splitter {
 		return splitOnPivot(list);
 	}
 	
+	/** Consumes and recursively extends a work list until no clump should split again. */
 	static ArrayList<Clump> splitOnPivot(ArrayList<Clump> list){
 		ArrayList<Clump> out=new ArrayList<Clump>();
 		
@@ -46,33 +48,22 @@ class Splitter {
 				assert(pivots.size==1 || pivots.size==2) : pivot+", "+pivots.size+", "+pivots;
 				assert(pivots.get(0)==pivot);
 				int added=splitAndAdd(clump, pivots.get(0), (pivots.size>1 ? pivots.get(1) : -1), list);
-				if(added<2) {//Rare case that caused an assertion once
-					//QUESTION [clump/Splitter#001] (output-sensitive=error-correction, NOT fixed): degenerate split -
-					//all reads landed on one side (reachable via the correlated var1|var2 path when the two variants
-					//cover every read). The non-empty side was appended to `list` AND the original is added to `out`,
-					//so the appended copy must be skipped. The i++ does that ONLY when `list` has no pending siblings
-					//(e.g. list==[clump], the case Brian hit): then the append is at i+1 and i++ skips it. But if a
-					//prior 2-way split left pending sub-clumps after i (append goes to the END, not i+1), this i++
-					//skips a REAL pending sub-clump instead, and the degenerate copy gets reprocessed. Consequence is
-					//quality-only: the skipped sub-clump's reads MISS targeted per-allele correction - they are NOT
-					//lost from output (ClumpList CORRECT mode emits the ORIGINAL clump via storage.addAll(c), and the
-					//corrections are applied in-place to shared Read objects). Rare (degenerate split + pending
-					//siblings); the simple single-var path provably can't reach added==1 (major=consensus is always
-					//non-empty) - only the correlated var1|var2 path can (major empty when the two variants cover
-					//every read). Adversarially verified (Sonnet, derived cold). Cleanest fix (needs Brian, speed-
-					//first): when one side is empty don't append the degenerate copy at all - keep the original (it's
-					//already added to out here) and drop this i++; removes both the mis-skip and the reprocessing.
-					//Flagged to confirm, not changed.
+				if(added<2){//Rare case that caused an assertion once
+					//FIXED [clump/Splitter#001]: degenerate split - all reads landed on one side. This is reachable
+					//through the correlated var1|var2 path when the two variants cover every read; the simple
+					//single-var path cannot reach it because major=consensus is non-empty. splitAndAdd now leaves
+					//one-sided splits unappended so the original advances to out here without a looping copy or a
+					//work-list index skip that can skip a real pending sibling.
 					assert(added==1);
 					out.add(clump);
-					i++;
 				}
 			}
 		}
 		return out;
 	}
 	
-	static int splitAndAdd(Clump c, final int var1, final int var2, ArrayList<Clump> list) {
+	/** Appends both sides only when a split is non-degenerate; returns the non-empty side count. */
+	static int splitAndAdd(Clump c, final int var1, final int var2, ArrayList<Clump> list){
 		final int maxLeft=c.maxLeft();
 		
 		final Clump major=Clump.makeClump(c.kmer), minor=Clump.makeClump(c.kmer);
@@ -106,13 +97,16 @@ class Splitter {
 		
 		
 		int added=(major.size()>0 ? 1 : 0)+(minor.size()>0 ? 1 : 0);
-		if(major.size()>0) {list.add(major);}
-		if(minor.size()>0) {list.add(minor);}
+		if(added>1){
+			if(major.size()>0){list.add(major);}
+			if(minor.size()>0){list.add(minor);}
+		}
 		assert(added>0) : c.size()+", "+major.size()+", "+minor.size();
 		return added;
 	}
 	
-	//Returns the c
+	/** Collects supported non-consensus alleles by packed position/base and
+	 * returns the highest minor-allele read count. */
 	static int countVariants(Clump c, LongList varCounts){
 		varCounts.clear();
 		final int[][] bcounts=c.baseCounts();
@@ -134,6 +128,8 @@ class Splitter {
 		return (int)(varCounts.get(0)>>>32);
 	}
 	
+	/** Finds reads carrying supported non-consensus alleles.
+	 * When requested, also maps each packed allele to reads containing it. */
 	static LinkedHashMap<Integer, ArrayList<Read>> findReadVariants(Clump c, boolean makeMap){
 		if(c.size()<5){return null;} //Not really needed with tiny clumps
 //		assert(c.size()>3); //TODO
@@ -189,6 +185,7 @@ class Splitter {
 		return map==null || map.isEmpty() ? null : map;
 	}
 	
+	/** Finds the best correlated variant pair and appends both packed alleles to pivots. */
 	static int findBestPivot_Correlated(Clump c, IntList pivots){
 		assert(pivots.size==0);
 		LinkedHashMap<Integer, ArrayList<Read>> map=findReadVariants(c, true);
@@ -288,6 +285,7 @@ class Splitter {
 		return -1;
 	}
 	
+	/** Tests whether a read carries a packed allele at its clump-aligned column. */
 	static boolean containsVar(final int var, final Read r, final int maxLeft){
 		final int varPos=var>>2;
 		final int varAllele=var&alleleMask;
@@ -300,6 +298,7 @@ class Splitter {
 		return readAllele==varAllele;
 	}
 	
+	/** Tests whether a read covers a packed allele's column with another base. */
 	static boolean hasDifferentAllele(final int var, final Read r/*, final Clump c*/){
 		final int varPos=var>>2;
 		final int varAllele=var&alleleMask;
@@ -319,6 +318,7 @@ class Splitter {
 		return readAllele!=varAllele;
 	}
 	
+	/** Counts reads that cover a packed allele's column with another base. */
 	static int countDifferentAlleles(final int var, ArrayList<Read> list){
 		if(list==null){return 0;}
 		int sum=0;
@@ -328,6 +328,7 @@ class Splitter {
 		return sum;
 	}
 	
+	/** Chooses the best partner for var and returns partner metrics in rvector. */
 	static int examineVar(final int var, final ArrayList<Read> list, final IntList collection, final int[] rvector, LinkedHashMap<Integer, ArrayList<Read>> map){
 		collection.clear();
 		
@@ -385,7 +386,7 @@ class Splitter {
 		rvector[0]=var;
 		rvector[1]=list.size();
 		rvector[2]=bestVar2;
-		rvector[3]=sharedCount;
+		rvector[3]=bestSharedCount;
 		rvector[4]=bestDifferent;
 		
 		return bestVar2;
@@ -406,6 +407,7 @@ class Splitter {
 		return clumpLocation;
 	}
 	
+	/** Finds a split pivot, appending either one packed allele or a correlated pair. */
 	static int findBestPivots(Clump c, boolean findCorrelations, IntList pivots){
 		pivots.clear();
 		final int size=c.size();

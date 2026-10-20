@@ -10,14 +10,16 @@ import stream.Read;
 import structures.IntList;
 
 /**
- * Key for identifying and comparing reads during clumping operations.
- * Contains k-mer signatures, positional information, and flowcell coordinates
- * to enable optical duplicate detection and sequence clustering.
+ * Mutable pivot and optical metadata stored in a read's {@link Read#obj} field.
+ * Positions identify the zero-based rightmost pivot base in the current read
+ * orientation. Comparison and equality consult Clump's shared optical settings;
+ * callers must keep those settings stable while sorting or comparing keys.
+ * Key mutations and associated read mutations require exclusive ownership.
  *
  * @author Brian Bushnell
  * @date 2013
  */
-class ReadKey implements Serializable, Comparable<ReadKey> {
+class ReadKey implements Serializable, Comparable<ReadKey>{
 	
 //	public static ReadKey makeKeyIfNeeded(Read r){
 //		if(r.obj==null){
@@ -27,8 +29,8 @@ class ReadKey implements Serializable, Comparable<ReadKey> {
 //	}
 	
 	/**
-	 * Creates a ReadKey from a read with memory safety handling.
-	 * Optionally sets the key as the read's object reference.
+	 * Creates metadata for a read whose object slot is unused and whose orientation
+	 * has not been swapped. Allocation failure terminates through KillSwitch.
 	 *
 	 * @param r The read to create a key for
 	 * @param setObject Whether to store the key in r.obj
@@ -36,11 +38,11 @@ class ReadKey implements Serializable, Comparable<ReadKey> {
 	 */
 	public static ReadKey makeKey(Read r, boolean setObject){
 		assert(r.obj==null);
-		try {
+		try{
 			ReadKey rk=new ReadKey(r);
 			if(setObject){r.obj=rk;}
 			return rk;
-		} catch (OutOfMemoryError e) {
+		}catch(OutOfMemoryError e){
 			KillSwitch.memKill(e);
 			throw new RuntimeException(e);
 		}
@@ -58,7 +60,7 @@ class ReadKey implements Serializable, Comparable<ReadKey> {
 	 *
 	 * @param r The read to create a key for
 	 * @param kmer_ K-mer signature value
-	 * @param position_ Position of k-mer in read
+	 * @param position_ Zero-based rightmost pivot-base position in the read
 	 * @param plus_ True if k-mer is from forward strand
 	 */
 	private ReadKey(Read r, long kmer_, int position_, boolean plus_){
@@ -89,9 +91,9 @@ class ReadKey implements Serializable, Comparable<ReadKey> {
 	protected ReadKey(){}
 	
 	/**
-	 * Updates the k-mer signature and position information.
+	 * Updates pivot, position and strand without clearing other metadata.
 	 * @param kmer_ New k-mer value
-	 * @param position_ New position value
+	 * @param position_ New zero-based rightmost pivot-base position
 	 * @param minus_ True if k-mer is from minus strand
 	 */
 	public void set(long kmer_, int position_, boolean minus_){
@@ -138,7 +140,8 @@ class ReadKey implements Serializable, Comparable<ReadKey> {
 		return flipped=flipped_;
 	}
 	
-	/** Resets all key values to default states */
+	/** Clears pivot, position, clump and pivot-strand state. Retains flipped,
+	 * optical coordinates, UMI, variants and the general-purpose flag. */
 	public void clear(){
 		setKmer(0);
 		setPosition(0);
@@ -148,7 +151,9 @@ class ReadKey implements Serializable, Comparable<ReadKey> {
 	
 	/**
 	 * Flips the read to its reverse complement and updates position accordingly.
-	 * Maintains consistency between read orientation and key state.
+	 * Toggles the read's swapped bit and this key's flipped bit. For a full pivot,
+	 * transforms its rightmost-base position; the pivot value and strand flag remain
+	 * unchanged. Short reads retain their position.
 	 * @param r The read to flip
 	 * @param k K-mer length for position adjustment
 	 */
@@ -161,6 +166,9 @@ class ReadKey implements Serializable, Comparable<ReadKey> {
 		assert(r.swapped()==flipped);
 	}
 	
+	/** Orders by descending pivot, plus before minus, then descending position.
+	 * Optical mode also uses lane, optionally tile, and optionally early Y order.
+	 * This ordering can distinguish keys that {@link #equals(ReadKey)} considers equal. */
 	@Override
 	public int compareTo(ReadKey b){
 		if(kmer!=b.kmer){return kmer>b.kmer ? -1 : 1;} //Bigger kmers first...
@@ -181,9 +189,9 @@ class ReadKey implements Serializable, Comparable<ReadKey> {
 		return 0;
 	}
 	
+	/** Uses non-containment key equality. Null returns false; a foreign non-null
+	 * type throws ClassCastException. Intended for homogeneous ReadKey collections. */
 	@Override
-	//equals(Object) casts without a null/type guard (NPE on null, CCE on foreign type) - the usual BBTools
-	//speed choice; safe under homogeneous use (ReadKey-only clump collections). Latent.
 	public boolean equals(Object b){
 		return equals((ReadKey)b, false);
 	}
@@ -191,12 +199,13 @@ class ReadKey implements Serializable, Comparable<ReadKey> {
 	@Override
 	//Consistent with equals (non-containment): hashes kmer+position+strand. Optical fields (lane/tile) are in
 	//equals-under-opticalOnly but not here - fine, they only ADD inequality so equal->same-hash still holds.
-	public int hashCode() {
+	public int hashCode(){
 		int x=(int)((kmer^position)&0xFFFFFFFFL);
 		return kmerMinusStrand ? -x : x;
 	}
 
-	/** True if this physically contains b (ignoring mismatches) */
+	/** Tests geometric containment at equal pivot values, ignoring base mismatches
+	 * and strand flags. Lengths and positions must describe the compared orientation. */
 	public boolean physicallyContains(ReadKey b, int aLen, int bLen){
 		if(bLen>aLen){return false;}
 		if(kmer!=b.kmer){return false;}
@@ -215,10 +224,12 @@ class ReadKey implements Serializable, Comparable<ReadKey> {
 		return (bStart==0 || bStop==aLen) && bStart>=0 && bStop<=aLen;
 	}
 	
-	/** Note that this is different than compareTo()==0
-	 * That's to prevent sortYEarly comparison making things unequal.
-	 * @param b
-	 * @return True if equal
+	/** Compares pivot and, outside containment mode, position and strand.
+	 * Optical mode additionally requires matching lane and, unless tile spanning
+	 * is enabled, tile. X/Y ordering, UMI and clump membership are not compared.
+	 * @param b Other key; null is unequal
+	 * @param containment Whether to ignore position and strand
+	 * @return Whether the selected key fields match; not necessarily compareTo()==0
 	 */
 	public boolean equals(ReadKey b, boolean containment){
 		if(b==null){return false;}
@@ -233,9 +244,9 @@ class ReadKey implements Serializable, Comparable<ReadKey> {
 		return true;
 	}
 	/**
-	 * Tests strict equality between ReadKeys.
+	 * Tests non-containment equality under the current optical settings.
 	 * @param b ReadKey to compare with
-	 * @return True if ReadKeys are strictly equal
+	 * @return Whether pivot, position, strand and applicable optical fields match
 	 */
 	public boolean equals(ReadKey b){
 		return equals(b, false);
@@ -276,8 +287,8 @@ class ReadKey implements Serializable, Comparable<ReadKey> {
 	/**
 	 * Tests if another ReadKey is within specified distance.
 	 * @param rkb ReadKey to test proximity to
-	 * @param dist Maximum distance threshold
-	 * @return True if ReadKeys are within distance threshold
+	 * @param dist Exclusive distance threshold
+	 * @return True if distance(rkb) is strictly below dist
 	 */
 	public boolean near(ReadKey rkb, float dist){
 		return distance(rkb)<dist;
@@ -285,7 +296,8 @@ class ReadKey implements Serializable, Comparable<ReadKey> {
 	
 	/**
 	 * Tests proximity using minimum of X or Y coordinate differences.
-	 * More permissive than regular distance calculation.
+	 * Requires equal lanes but ignores tile restrictions and accepts equality at
+	 * the threshold. This differs from {@link #near(ReadKey, float)}.
 	 *
 	 * @param rkb ReadKey to test proximity to
 	 * @param dist Maximum distance threshold
@@ -295,7 +307,7 @@ class ReadKey implements Serializable, Comparable<ReadKey> {
 		if(lane!=rkb.lane){return false;}
 		
 		long a=Tools.absdif(x, rkb.x), b=Tools.absdif(y, rkb.y);
-		return Tools.min(a,b)<=dist;
+		return Tools.min(a, b)<=dist;
 	}
 	
 	/**
@@ -304,8 +316,8 @@ class ReadKey implements Serializable, Comparable<ReadKey> {
 	 * @param maxSubs Maximum allowed substitutions
 	 * @return True if UMIs match within substitution threshold
 	 */
-	public boolean umiMatches(ReadKey rkb, int maxSubs) {
-		if(umi==null || rkb.umi==null) {return false;}
+	public boolean umiMatches(ReadKey rkb, int maxSubs){
+		if(umi==null || rkb.umi==null){return false;}
 		int hdist=Barcode.hdist(umi, rkb.umi);
 		return hdist<=maxSubs;
 	}
@@ -315,7 +327,7 @@ class ReadKey implements Serializable, Comparable<ReadKey> {
 	
 	/** K-mer signature value for this read */
 	public long kmer;
-	/** Position of rightmost base of kmer */
+	/** Zero-based position of the rightmost pivot base in the current orientation. */
 	public int position;
 	/** True if the associated read has been reverse-complemented */
 	public boolean flipped;
@@ -327,16 +339,17 @@ class ReadKey implements Serializable, Comparable<ReadKey> {
 	public IntList vars;
 //	public float expectedErrors;
 	
+	/** Flowcell coordinates, populated only when optical or UMI comparison needs them. */
 	public int lane, tile, x, y;
 	/** Unique molecular identifier sequence */
 	public String umi;
 	
-	/** Memory overhead in bytes for a ReadKey instance */
+	/** Historical approximate storage estimate used for clump memory planning. */
 	public static final int overhead=overhead();
 	/**
-	 * Calculates memory overhead for ReadKey instances.
-	 * Accounts for object header, fields, and flowcell coordinate data.
-	 * @return Memory overhead in bytes
+	 * Returns the historical fixed estimate, not a measured JVM object size.
+	 * Does not include storage reachable through variants, UMI or clump references.
+	 * @return Estimated bytes per key
 	 */
 	private static int overhead(){
 		return 16+ //self
@@ -357,9 +370,7 @@ class ReadKey implements Serializable, Comparable<ReadKey> {
 	/** Whether to limit tile spanning to adjacent tiles only */
 	public static boolean spanAdjacentOnly=false;
 	
-	/**
-	 * 
-	 */
-	private static final long serialVersionUID = 1L;
+	/** Serialization compatibility identifier. */
+	private static final long serialVersionUID=1L;
 	
 }

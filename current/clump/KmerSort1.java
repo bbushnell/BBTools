@@ -20,21 +20,24 @@ import stream.Read;
 import tracker.ReadStats;
 
 /**
- * K-mer based read sorting and clustering tool for sequencing data preprocessing.
- * Extends KmerSort to provide concrete implementation of k-mer based read processing including deduplication, error correction, and consensus generation.
- * Supports multi-pass processing with configurable comparison strategies.
+ * Sorter used by clump mode when each input group can be processed in memory.
+ * Loads each group, hashes reads by pivot kmer, sorts them into clumps, then
+ * optionally deduplicates, condenses, corrects, name-sorts or re-pairs them
+ * before writing the single final output stream.
+ *
  * @author Brian Bushnell
  * @date June 20, 2014
  */
-public class KmerSort1 extends KmerSort {
+public class KmerSort1 extends KmerSort{
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Command line entry point for the k-mer sorting tool.
-	 * Preserves compression settings and initializes processing timer.
+	 * Command-line entry point that saves and, on normal completion, restores
+	 * zip statics around one in-JVM sorter invocation.
+	 *
 	 * @param args Command line arguments for configuration
 	 */
 	public static void main(String[] args){
@@ -61,9 +64,9 @@ public class KmerSort1 extends KmerSort {
 	}
 	
 	/**
-	 * Constructs KmerSort1 instance with command line argument parsing.
-	 * Configures k-mer parameters, processing modes, I/O settings, and validation.
-	 * Sets up file formats for input and output streams with group handling.
+	 * Parses one sorter invocation, resolves input and output file formats, and
+	 * configures the shared kmer, clump and read-normalization options.
+	 *
 	 * @param args Command line arguments containing processing parameters
 	 */
 	public KmerSort1(String[] args){
@@ -212,10 +215,12 @@ public class KmerSort1 extends KmerSort {
 		
 		assert(FastaReadInputStream.settingsOK());
 		
+		//Accept paired-input shorthand unless a literal input with '#' exists.
 		if(in1!=null && in2==null && in1.indexOf('#')>-1 && !new File(in1).exists()){
 			in2=in1.replace("#", "2");
 			in1=in1.replace("#", "1");
 		}
+		//Two explicit inputs carry mates in parallel files, not as interleaved records.
 		if(in2!=null){
 			if(FASTQ.FORCE_INTERLEAVED){outstream.println("Reset INTERLEAVED to false because paired input files were specified.");}
 			FASTQ.FORCE_INTERLEAVED=FASTQ.TEST_INTERLEAVED=false;
@@ -227,6 +232,7 @@ public class KmerSort1 extends KmerSort {
 		}
 
 		if(out1!=null && out1.equalsIgnoreCase("null")){out1=null;}
+		//Expand paired-output shorthand before creating final output descriptors.
 		if(out1!=null && out2==null && out1.indexOf('#')>-1){
 			out2=out1.replace("#", "2");
 			out1=out1.replace("#", "1");
@@ -240,6 +246,7 @@ public class KmerSort1 extends KmerSort {
 		ffout1=FileFormat.testOutput(out1, FileFormat.FASTQ, extout, true, overwrite, append, false);
 		ffout2=FileFormat.testOutput(out2, FileFormat.FASTQ, extout, true, overwrite, append, false);
 		
+		//Grouped callers pass a '%' template naming files split by KmerSplit.
 		if(groups>1 && in1.contains("%") && (splitInput || !new File(in1).exists())){
 			ffin1=new FileFormat[groups];
 			ffin2=new FileFormat[groups];
@@ -248,6 +255,7 @@ public class KmerSort1 extends KmerSort {
 				ffin2[i]=in2==null ? null : FileFormat.testInput(in2.replaceFirst("%", ""+i), FileFormat.FASTQ, extin, true, true);
 			}
 		}else{
+			//Ordinary single-group mode reads one input stream and all reads stay in memory.
 			assert(!in1.contains("%") && groups==1) : "The % symbol must only be present in the input filename if groups>1.";
 			ffin1=new FileFormat[1];
 			ffin1[0]=FileFormat.testInput(in1, FileFormat.FASTQ, extin, true, true);
@@ -277,9 +285,9 @@ public class KmerSort1 extends KmerSort {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Main processing pipeline that orchestrates read sorting and clustering.
-	 * Executes preprocessing, creates output streams, and delegates to processInner.
-	 * Prints final statistics upon completion.
+	 * Builds optional pivot counts, opens the single final output stream, and
+	 * processes all configured input groups before printing stats.
+	 *
 	 * @param t Timer for tracking execution performance
 	 */
 	@Override
@@ -305,9 +313,10 @@ public class KmerSort1 extends KmerSort {
 	}
 	
 	/**
-	 * Core processing logic for k-mer based read manipulation.
-	 * Creates k-mer comparator, fetches and sorts reads, forms clumps, and applies processing modes (deduplication, condensing, error correction).
-	 * Supports multi-pass processing with adaptive parameters and optional read reordering.
+	 * Processes each input group fully in memory: fetch and hash reads, globally
+	 * sort by pivot kmer, build clumps, apply the selected clump operation and
+	 * optionally run same-list passes before final name ordering or mate repair.
+	 *
 	 * @param ros Output stream for processed reads (may be null)
 	 */
 	void processInner(final ConcurrentReadOutputStream ros){
@@ -468,7 +477,7 @@ public class KmerSort1 extends KmerSort {
 				}else{
 					if(namesort){
 						if(verbose){t.start("Name-sorting.");}
-						reads=idSort(reads, repair);
+						reads=nameSortById(reads, repair && unpair);
 						if(verbose){t.stop("Sort time: ");}
 					}else{
 						reads=read1Only(reads);
@@ -518,10 +527,17 @@ public class KmerSort1 extends KmerSort {
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Primary input descriptor per group; one element in unsplit mode. */
 	private final FileFormat ffin1[];
+
+	/** Optional mate input descriptor per group; null elements mean interleaved
+	 * or unpaired input. */
 	private final FileFormat ffin2[];
 
+	/** Primary final output descriptor. */
 	private final FileFormat ffout1;
+
+	/** Optional mate final output descriptor. */
 	private final FileFormat ffout2;
 	
 }

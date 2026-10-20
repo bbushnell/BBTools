@@ -4,6 +4,7 @@ import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.Locale;
 
 import bloom.KCountArray;
 import fileIO.ReadWrite;
@@ -22,11 +23,14 @@ import structures.Quantizer;
 import tracker.ReadStats;
 
 /**
+ * Shared per-group sorter state and helper logic for KmerSort1, KmerSort2
+ * and KmerSort3. Owns pivot counting, clump processing, hash-and-split
+ * repartitioning and the counters printed after each sorter invocation.
+ *
  * @author Brian Bushnell
  * @date June 20, 2014
- *
  */
-public abstract class KmerSort {
+public abstract class KmerSort{
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
@@ -37,22 +41,47 @@ public abstract class KmerSort {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Count kmers */
+	/** Builds the shared pivot-count table when minCount filtering is enabled. */
 	final void preprocess(){
 		if(minCount>1){
 			if(groups>1){
-				table=ClumpTools.table();
-				assert(table!=null);
+				table=countGroupedFilePivots();
 			}else{
 				Timer ctimer=new Timer();
 				if(verbose){ctimer.start("Counting pivots.");}
-				table=ClumpTools.getTable(in1, in2, k, minCount);
+				table=countInitialFilePivots();
 				if(verbose){ctimer.stop("Count time: ");}
 			}
 		}
 	}
 
-	/** Create read streams and process all data */
+	/** Counts pivots from the initial one-group input. */
+	protected KCountArray countInitialFilePivots(){
+		return ClumpTools.getTable(in1, in2, k, minCount);
+	}
+
+	/**
+	 * Reuses the split-time table for the first grouped pass, then asks grouped
+	 * sorters to recount their current temp descriptors after printStats()
+	 * clears the shared ClumpTools cache.
+	 */
+	protected KCountArray countGroupedFilePivots(){
+		final KCountArray cached=ClumpTools.table();
+		if(cached!=null){return cached;}
+		final KCountArray counted=countCurrentGroupedFilePivots();
+		//With minCount enabled, the comparator must filter counted pivots rather
+		//than silently falling back to probability-based pivot selection.
+		assert(counted!=null) : "Grouped minCount requires a pivot-count table";
+		return counted;
+	}
+
+	/** Recounts pivots from the current grouped temp files. */
+	protected KCountArray countCurrentGroupedFilePivots(){
+		throw new UnsupportedOperationException(getClass().getName()+
+				" needs grouped file descriptors to recount pivots");
+	}
+
+	/** Creates streams, processes all input groups and writes requested output. */
 	abstract void process(Timer t);
 	
 	/**
@@ -89,6 +118,7 @@ public abstract class KmerSort {
 		while(epstring.length()<12){epstring=" "+epstring;}
 		while(efstring.length()<12){efstring=" "+efstring;}
 		while(dpstring.length()<12){dpstring=" "+dpstring;}
+		//TODO CLP-034: grouped multi-pass runs divide cumulative duplicates by current-pass reads.
 		dpstring+=String.format("\t%.3f%%", ((duplicatesTotal + entryFiltered)*100.0)/readsProcessed);
 
 		while(rostring.length()<12){rostring=" "+rostring;}
@@ -116,6 +146,20 @@ public abstract class KmerSort {
 			throw new RuntimeException(getClass().getName()+" terminated in an error state; the output may be corrupt.");
 		}
 	}
+
+	/** Prints an optional phase timer in a stable tabular format for profiling. */
+	final void printPhaseTimer(String metric, long nanos){
+		if(phaseTimers){
+			outstream.printf(Locale.ROOT, "PhaseTimer\t%s\t%s\t%.6f%n",
+					getClass().getSimpleName(), metric, nanos*0.000000001);
+		}
+	}
+
+	/** Returns a nanosecond timestamp when phase timing is enabled. */
+	static long phaseStart(){return phaseTimers ? System.nanoTime() : 0;}
+
+	/** Returns elapsed nanoseconds from a phase timestamp. */
+	static long phaseElapsed(long start){return phaseTimers ? System.nanoTime()-start : 0;}
 	
 	/**
 	 * Executes one complete pass of kmer-based read processing.
@@ -131,7 +175,7 @@ public abstract class KmerSort {
 		table=null;
 		if(minCount>1){
 			if(verbose){t.start("Counting pivots.");}
-			table=ClumpTools.getTable(reads, k, minCount);
+			table=countListPivots(reads);
 			if(verbose){t.stop("Count time: ");}
 		}
 		
@@ -163,6 +207,11 @@ public abstract class KmerSort {
 		}
 		
 		return reads;
+	}
+
+	/** Counts pivots from an in-memory same-JVM pass. */
+	protected KCountArray countListPivots(ArrayList<Read> reads){
+		return ClumpTools.getTable(reads, k, minCount);
 	}
 	
 	/**
@@ -198,7 +247,22 @@ public abstract class KmerSort {
 				}
 			}
 		}
+		if(prev!=null){list2.add(prev);}
 		return list2;
+	}
+
+	/**
+	 * Restores detached mates by numericID when needed, then sorts the top-level
+	 * roots by read name. This avoids name-based mate repair for reads whose
+	 * names are duplicate, arbitrary, or otherwise unsafe for pair detection.
+	 * @param list Reads to sort
+	 * @param pair Whether detached mates need numeric-ID repair before sorting
+	 * @return Name-sorted roots, with matching mates reattached when requested
+	 */
+	static final ArrayList<Read> nameSortById(ArrayList<Read> list, boolean pair){
+		if(pair){list=idSort(list, true);}
+		Shared.sort(list, ReadComparatorName.comparator);
+		return list;
 	}
 	
 	/**
@@ -234,6 +298,7 @@ public abstract class KmerSort {
 				}
 			}
 		}
+		if(prev!=null){list2.add(prev);}
 		return list2;
 	}
 	
@@ -308,9 +373,9 @@ public abstract class KmerSort {
 			
 			/* Wait for a thread to die */
 			while(ht.getState()!=Thread.State.TERMINATED){
-				try {
+				try{
 					ht.join();
-				} catch (InterruptedException e) {
+				}catch(InterruptedException e){
 					e.printStackTrace();
 				}
 			}
@@ -348,9 +413,9 @@ public abstract class KmerSort {
 			
 			/* Wait for a thread to die */
 			while(ht.getState()!=Thread.State.TERMINATED){
-				try {
+				try{
 					ht.join();
-				} catch (InterruptedException e) {
+				}catch(InterruptedException e){
 					e.printStackTrace();
 				}
 			}
@@ -695,21 +760,21 @@ public abstract class KmerSort {
 	boolean shrinkName=false;
 	/** Whether to consider reverse complement kmers during processing. */
 	boolean rcomp=false;
-	/** Whether to condense output by removing null entries. */
+	/** Whether to emit consensus reads instead of original clump members. */
 	boolean condense=false;
 	/** Whether to perform error correction on reads. */
 	boolean correct=false;
 	/** Whether to perform duplicate removal. */
 	boolean dedupe=false;
-	/** Whether to split input processing across multiple groups. */
+	/** Whether this sorter was invoked on already partitioned temp files. */
 	boolean splitInput=false;
-	/** Whether to use ECCO (Error Correction and Consensus from Overlaps) mode. */
+	/** Whether to correct paired reads by overlap before pivot selection. */
 	boolean ecco=false;
-	/** Whether to unpair reads during processing. */
+	/** Whether to split linked mates into independent reads. */
 	boolean unpair=false;
-	/** Whether to repair read pairing after processing. */
+	/** Whether to restore mate links after sorting; Clumpify coordinates grouped global restoration. */
 	boolean repair=false;
-	/** Whether to sort reads by name during processing. */
+	/** Whether final output should be sorted by read name. */
 	boolean namesort=false;
 	/** Whether to filter duplicate entries during input processing. */
 	boolean entryfilter=false;
@@ -734,7 +799,7 @@ public abstract class KmerSort {
 	/** Number of bases output from the last processing run. */
 	public static long lastBasesOut=-1;
 	
-	/** Whether to quantize quality scores to reduce memory usage. */
+	/** Whether the initial temp-file writer should quantize quality scores. */
 	static boolean quantizeQuality=false;
 	static final int REORDER_FALSE=0, REORDER_CONSENSUS=1, REORDER_PAIRED=2, REORDER_AUTO=3;
 	
@@ -746,6 +811,8 @@ public abstract class KmerSort {
 	PrintStream outstream=System.err;
 	/** Whether to print verbose status and timing information. */
 	public static boolean verbose=true;
+	/** Whether to emit stable matched phase timers for sorter profiling. */
+	public static boolean phaseTimers=false;
 	/** Whether to use hash-and-split processing for large datasets. */
 	public static boolean doHashAndSplit=true;
 	/** Whether an error state has been encountered during processing. */

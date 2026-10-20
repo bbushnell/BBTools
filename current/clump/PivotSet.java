@@ -24,14 +24,16 @@ import structures.ListNum;
 import tracker.ReadStats;
 
 /**
- * Reduces reads to their feature k-mer for clumping analysis.
- * Creates a k-mer count array from input sequences to identify pivot k-mers
- * that can be used for sequence clustering and deduplication operations.
+ * Counts one selected pivot per read, including linked mates, into a shared
+ * approximate count array. The minimum count controls cell width and later pivot
+ * selection; it does not filter reads during this counting pass. Short or
+ * ambiguous reads use KmerComparator's synthesized fallback pivot.
+ * Configuration mutates shared parser/comparator settings and must be serialized.
  *
  * @author Brian Bushnell
  * @date August 19, 2016
  */
-public class PivotSet {
+public class PivotSet{
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Static Methods        ----------------*/
@@ -43,6 +45,8 @@ public class PivotSet {
 		makeSet(args);
 	}
 	
+	/** Builds and finalizes a table from command-line input settings. Restores only
+	 * the saved pigz/unpigz flags on normal return; returns the shared table object. */
 	public static KCountArray makeSet(String[] args){
 		final boolean pigz=ReadWrite.USE_PIGZ, unpigz=ReadWrite.USE_UNPIGZ;
 		Timer t=new Timer();
@@ -61,6 +65,7 @@ public class PivotSet {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Parses counting/input settings and resolves file descriptors without starting readers. */
 	public PivotSet(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -96,12 +101,9 @@ public class PivotSet {
 				//do nothing
 			}else if(a.equals("condense") || a.equals("consensus")){
 				//do nothing
-			//TODO: Possible bug [clump/PivotSet#001] - the second alias should be "mincr", not "consensus" (lone
-			//divergence: KmerSort1/2/3 + KmerSplit all use `equals("mincount") || equals("mincr")`). Two effects:
-			//(1) the "mincr" alias is broken here -> mincr=N hits the unknown-parameter branch; (2) "consensus" is
-			//DEAD here, already handled (do-nothing) at the earlier L97. LOW/latent: the live table-build path
-			//(ClumpTools.makeSet) passes "minCount", which works via the first clause. Flagged - fix is "mincr".
-			}else if(a.equals("mincount") || a.equals("consensus")){
+			//Fixed [clump/PivotSet#001]: accept mincr like the other clump tools. Consensus is handled above;
+			//the previous duplicate consensus branch left mincr unrecognized. ClumpTools uses minCount.
+			}else if(a.equals("mincount") || a.equals("mincr")){
 				minCount=Integer.parseInt(b);
 			}else if(a.equals("correct") || a.equals("ecc")){
 				//do nothing
@@ -154,6 +156,7 @@ public class PivotSet {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Estimates the number of cbits-wide cells fitting a fraction of usable heap. */
 	private static long getCells(double fraction, int cbits){
 		final long memory=Runtime.getRuntime().maxMemory();
 		final long usable=(long)Tools.max(((memory-96000000)*.73), memory*0.45);
@@ -164,11 +167,12 @@ public class PivotSet {
 	/**
 	 * Creates read streams and processes all data to generate k-mer count array.
 	 * Configures memory allocation, initializes concurrent processing threads,
-	 * and returns statistics about pivot k-mer identification.
+	 * reports counts, closes input, and returns the finalized count array.
 	 *
 	 * @param t Timer for tracking processing duration
-	 * @param amino Whether to process amino acid sequences instead of nucleotides
-	 * @return KCountArray containing k-mer counts from all processed reads
+	 * @param amino Passed to the count-array builder; pivot selection still uses
+	 * KmerComparator's nucleotide encoding
+	 * @return Approximate counts of selected pivots, including linked mates
 	 */
 	public KCountArray process(Timer t, boolean amino){
 		int cbits=2;
@@ -212,6 +216,15 @@ public class PivotSet {
 		return kca;
 	}
 	
+	/** Counts pivots from an already-started stream and finalizes the returned array.
+	 * Does not close cris or report its error state; the caller owns that lifecycle.
+	 * This entry point does not perform overlap correction or aggregate statistics.
+	 * @param cris Borrowed stream, consumed through its terminal list
+	 * @param k Nucleotide pivot length
+	 * @param minCount Threshold used to select counting-cell width
+	 * @param amino Count-array builder mode; does not change pivot encoding
+	 * @return Finalized approximate pivot-count table
+	 */
 	public static KCountArray makeKcaStatic(final ConcurrentReadInputStream cris, int k, int minCount, boolean amino){
 
 		KmerComparator kc=new KmerComparator(k, false, false);
@@ -237,9 +250,9 @@ public class PivotSet {
 			
 			/* Wait for a thread to die */
 			while(ht.getState()!=Thread.State.TERMINATED){
-				try {
+				try{
 					ht.join();
-				} catch (InterruptedException e) {
+				}catch(InterruptedException e){
 					e.printStackTrace();
 				}
 			}
@@ -248,10 +261,86 @@ public class PivotSet {
 		return kca;
 	}
 	
+	/** Recounts expanded groups with the current pivot policy, keeping legacy input.
+	 * Owns each CRIS and joins every started counting worker before closing it.
+	 * All groups accumulate into one table, finalized once after successful counting.
+	 * @param first Nonempty primary group descriptors
+	 * @param second Aligned optional mate descriptors, or null
+	 * @param k Nucleotide pivot length
+	 * @param minCount Threshold determining counting-cell width
+	 * @param amino Count-array builder mode, as in the legacy single-stream helper
+	 * @return One completed approximate table for all current groups */
+	public static KCountArray makeKcaStatic(FileFormat[] first, FileFormat[] second,
+			int k, int minCount, boolean amino){
+		if(first==null || first.length==0 || (second!=null && second.length!=first.length)){
+			throw new IllegalArgumentException("Grouped pivot counting requires aligned input arrays");
+		}
+		for(FileFormat input : first){
+			if(input==null){throw new IllegalArgumentException("A pivot-count group cannot be null");}
+		}
+		assert(k>0 && k<32) : "KmerComparator packs nucleotide pivots into 62 bits; k="+k;
+		assert(minCount>0) : "A pivot-count threshold must be positive; minCount="+minCount;
+		final KmerComparator comparator=new KmerComparator(k, false, false);
+		int bits=2;
+		while((1L<<bits)<=minCount){bits*=2;}
+		final long cells=getCells(0.1f, bits);
+		final ReadCounter counter=new ReadCounter(k, true, false, false, amino);
+		final KCountArray counts=counter.makeKca(null, null, null, bits, cells, 2,
+				0, -1, 1, 1, 1, null, 0);
+		for(int group=0; group<first.length; group++){
+			ConcurrentReadInputStream input=null;
+			Throwable failure=null;
+			boolean interrupted=false;
+			try{
+				input=ConcurrentReadInputStream.getReadInputStream(-1, true, first[group],
+						second==null ? null : second[group], null, null);
+				input.start();
+				final GroupHashThread[] workers=new GroupHashThread[Tools.max(1, Shared.threads())];
+				for(int i=0; i<workers.length; i++){
+					workers[i]=new GroupHashThread(input, comparator, counts);
+				}
+				int started=0;
+				try{
+					for(; started<workers.length; started++){workers[started].start();}
+				}catch(RuntimeException | Error e){failure=e;}
+				for(int i=0; i<started; i++){
+					while(workers[i].isAlive()){
+						try{workers[i].join();}catch(InterruptedException e){
+							interrupted=true;
+							failure=appendFailure(failure, e);
+						}
+					}
+					failure=appendFailure(failure, workers[i].failure);
+				}
+			}catch(RuntimeException | Error e){failure=appendFailure(failure, e);}
+			finally{
+				try{
+					if(input!=null && ReadWrite.closeStream(input)){
+						failure=appendFailure(failure,
+								new IllegalStateException("Error recounting pivot group "+first[group].name()));
+					}
+				}catch(RuntimeException | Error e){failure=appendFailure(failure, e);}
+				if(interrupted){Thread.currentThread().interrupt();}
+			}
+			if(failure instanceof Error){throw (Error)failure;}
+			if(failure!=null){throw new RuntimeException("Grouped pivot recount failed", failure);}
+		}
+		counts.shutdown();
+		return counts;
+	}
+
+	/** Keeps the first failure while preserving later independent cleanup errors. */
+	private static Throwable appendFailure(Throwable first, Throwable next){
+		if(first==null){return next;}
+		if(next!=null && next!=first){first.addSuppressed(next);}
+		return first;
+	}
+
 	/**
 	 * Manages thread creation and coordination for k-mer processing.
-	 * Creates hash threads, starts them, waits for completion, and aggregates results.
-	 * @param cris Input stream providing reads for processing
+	 * Creates hash threads, joins them, aggregates mate-inclusive statistics and
+	 * finalizes kca. The caller retains responsibility for closing cris.
+	 * @param cris Already-started input stream providing reads for processing
 	 * @param kca K-mer count array to populate with frequency data
 	 */
 	public void processInner(final ConcurrentReadInputStream cris, KCountArray kca){
@@ -272,9 +361,9 @@ public class PivotSet {
 			
 			/* Wait for a thread to die */
 			while(ht.getState()!=Thread.State.TERMINATED){
-				try {
+				try{
 					ht.join();
-				} catch (InterruptedException e) {
+				}catch(InterruptedException e){
 					e.printStackTrace();
 				}
 			}
@@ -288,6 +377,20 @@ public class PivotSet {
 	/*----------------         Inner Classes        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Captures failures for the grouped caller without changing legacy worker entry points. */
+	private static final class GroupHashThread extends HashThread{
+		GroupHashThread(ConcurrentReadInputStream input, KmerComparator comparator, KCountArray counts){
+			super(input, comparator, counts, false);
+		}
+		@Override
+		public void run(){
+			try{super.run();}catch(Throwable error){failure=error;}
+		}
+		/** Published to the grouped caller through Thread.join. */
+		Throwable failure;
+	}
+
+	/** Counts both mates while owning each borrowed input batch. */
 	private static class HashThread extends Thread{
 
 		HashThread(ConcurrentReadInputStream cris_, KmerComparator kc_, KCountArray kca_, boolean ecco_){
@@ -317,8 +420,8 @@ public class PivotSet {
 						if(r2!=null){BBMerge.findOverlapStrict(r1, r2, true);}//redundant inner null-check (already guarded above); harmless
 					}
 					{
-						//count the read's PIVOT kmer (table=null so the prob path picks it). hash returns -1 for reads
-						//shorter than k; the kmer>=0 guard skips those so KCountArray isn't polluted by a sentinel.
+						//Count the selected pivot, including fillShort's synthesized pivot for short or all-N reads.
+						//The nonnegative guard is retained; short reads are not skipped by this counting pass.
 						final long kmer=kc.hash(r1, null, 0, false);
 						if(kmer>=0){
 							kca.increment(kmer);
@@ -357,7 +460,9 @@ public class PivotSet {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Nucleotide pivot length, limited to 1 through 31 by the packed representation. */
 	private int k=31;
+	/** Threshold used to choose counting-cell width and report estimated abundant pivots. */
 	private int minCount=2;
 	
 	/*--------------------------------------------------------------*/
@@ -371,10 +476,14 @@ public class PivotSet {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Input reads counted, including linked mates. */
 	protected long readsProcessed=0;
+	/** Input bases counted, including linked mates. */
 	protected long basesProcessed=0;
 	
+	/** Reader fragment limit; negative means no configured limit. */
 	private long maxReads=-1;
+	/** Whether the file-processing path corrects overlapping pairs before counting. */
 	private boolean ecco=false;
 	
 	/*--------------------------------------------------------------*/

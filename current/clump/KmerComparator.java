@@ -20,7 +20,7 @@ import stream.Read;
  * @author Brian Bushnell
  * @date Nov 4, 2015
  */
-public class KmerComparator implements Comparator<Read> {
+public class KmerComparator implements Comparator<Read>{
 	
 	public KmerComparator(int k_, boolean addName_, boolean rcomp_){
 		this(k_, defaultSeed, defaultBorder, defaultHashes, addName_, rcomp_);
@@ -55,25 +55,29 @@ public class KmerComparator implements Comparator<Read> {
 			
 			/* Wait for a thread to die */
 			while(ht.getState()!=Thread.State.TERMINATED){
-				try {
+				try{
 					ht.join();
-				} catch (InterruptedException e) {
+				}catch(InterruptedException e){
 					e.printStackTrace();
 				}
 			}
 		}
 	}
 	
-	public void hash(ArrayList<Read> list, KCountArray table, int minCount, boolean setObject) {
+	/** Hashes each read and optionally stores a fresh or cleared ReadKey on it. */
+	public void hash(ArrayList<Read> list, KCountArray table, int minCount, boolean setObject){
 		for(Read r : list){hash(r, table, minCount, setObject);}
 	}
 	
+	/** Hashes one read, and its mate in containment mode, returning the first read's pivot;
+	 *  setObject=false uses a thread-local scratch ReadKey instead of attaching it. */
 	public long hash(Read r1, KCountArray table, int minCount, boolean setObject){
 		long x=hash_inner(r1, table, minCount, setObject);
 		if(Clump.containment && r1.mate!=null){hash_inner(r1.mate, table, minCount, setObject);}
 		return x;
 	}
 	
+	/** Hashes one read and returns its selected canonical pivot k-mer. */
 	private long hash_inner(Read r1, KCountArray table, int minCount, boolean setObject){
 		ReadKey key;
 		if(setObject){
@@ -106,7 +110,7 @@ public class KmerComparator implements Comparator<Read> {
 	 * @see java.util.Comparator#compare(java.lang.Object, java.lang.Object)
 	 */
 	@Override
-	public int compare(Read a, Read b) {
+	public int compare(Read a, Read b){
 		final ReadKey keyA, keyB;
 		if(a.obj==null){
 			keyA=ReadKey.makeKey(a, true);
@@ -123,9 +127,9 @@ public class KmerComparator implements Comparator<Read> {
 			x=KmerComparator2.compareSequence(a, b, 0);
 		}
 		if(x==0){
-			//tie-break among same-pivot reads by expected errors: ea>eb returns -1, so the HIGHER-error read
-			//sorts EARLIER (verified live). Net effect: the lowest-error read ends up LAST among equals - which
-			//dedup/consensus relies on for picking the representative (confirm the kept-read logic at Clump/KmerSort).
+			//With compareSequence=true, this expected-error fallback runs only after keys, bases, mate bases,
+			//and quality sums all tie. ea>eb returns -1, so the HIGHER-error read sorts EARLIER
+			//(verified live) before the final ID tie-break.
 			float ea=a.expectedErrorsIncludingMate(true);
 			float eb=b.expectedErrorsIncludingMate(true);
 			if(ea!=eb){return ea>eb ? -1 : 1;}
@@ -158,7 +162,7 @@ public class KmerComparator implements Comparator<Read> {
 		assert(minCount>0 || table==null) : minCount;
 		assert(table==null || minCount<=table.maxValue) : minCount;
 		
-		key.set(0, k-1, false); //TODO: Why is this k-1 rather than 0?
+		key.set(0, k-1, false); //Temporary pivot at the end of the first full k-mer.
 		final byte[] bases=r.bases, quals=r.quality;
 		long kmer=0;
 		long rkmer=0;
@@ -218,15 +222,9 @@ public class KmerComparator implements Comparator<Read> {
 				if(accept){
 					topCode=code;
 					topCount=count;
-					//QUESTION [clump/KmerComparator#001] (NOT a fix - output-sensitive; likely intentional):
-					//topProb is set to the THRESHOLD minProb, not the actual `prob`. Verified consequence: after
-					//the first accept, `topProb<minProb` is permanently false, so the PROB path can never upgrade
-					//to a lower-code-but-above-threshold k-mer (else-branch L205 becomes dead). The COUNT path
-					//stores the ACTUAL topCount, so its `topCount<minCount` escape stays live and CAN do that
-					//backward upgrade -> the two paths diverge. NO-OP at the default minProb=0 (then prob>=0 always,
-					//pure argmax-of-code); observable only when minProb>0. The teaching twin example3 stores
-					//topProb=minProb identically, so this is almost certainly by design - flagged to confirm, not fix.
-					topProb=minProb;
+					// Keep the actual selected quality probability so a later qualifying
+					// k-mer can replace a below-threshold fallback with a lower hash.
+					topProb=prob;
 					key.set(kmax, i, (kmax!=kmer));
 				}
 			}
@@ -270,7 +268,7 @@ public class KmerComparator implements Comparator<Read> {
 	/* For teaching */
 	public long example1(Read r){
 		//Handle degenerate reads shorter than kmer length
-		if(r.length()<k){return fillShort(r, null);}
+		if(r.length()<k){return fillShort(r, getLocalKey());}
 		
 		final byte[] bases=r.bases;
 		long kmer=0;//Stores the current kmer being built and analyzed
@@ -299,7 +297,7 @@ public class KmerComparator implements Comparator<Read> {
 		}
 		
 		//If for whatever reason it failed (e.g., Ns), use the short method
-		if(topCode==Long.MIN_VALUE){return fillShort(r, null);}
+		if(topCode==Long.MIN_VALUE){return fillShort(r, getLocalKey());}
 		
 		//Return the pivot kmer.
 		//It's also useful to store (and return) the position and orientation.
@@ -308,7 +306,7 @@ public class KmerComparator implements Comparator<Read> {
 	
 	/* For teaching */
 	public long example2(Read r){
-		if(r.length()<k){return fillShort(r, null);}
+		if(r.length()<k){return fillShort(r, getLocalKey());}
 		
 		final byte[] bases=r.bases;
 		long kmer=0;
@@ -342,7 +340,7 @@ public class KmerComparator implements Comparator<Read> {
 			}
 		}
 		if(topCode==Long.MIN_VALUE){
-			return fillShort(r, null);
+			return fillShort(r, getLocalKey());
 		}
 		
 		return topKmer;
@@ -350,7 +348,7 @@ public class KmerComparator implements Comparator<Read> {
 
 	/* For teaching */
 	public long example3(Read r){
-		if(r.length()<k){return fillShort(r, null);}
+		if(r.length()<k){return fillShort(r, getLocalKey());}
 		
 		final byte[] bases=r.bases, quals=r.quality;
 		long kmer=0;
@@ -400,17 +398,19 @@ public class KmerComparator implements Comparator<Read> {
 				if(accept){
 					topKmer=kmax;
 					topCode=code;
-					topProb=minProb;
+					topProb=prob;
 				}
 			}
 		}
 		if(topCode==Long.MIN_VALUE){
-			return fillShort(r, null);
+			return fillShort(r, getLocalKey());
 		}
 		
 		return topKmer;
 	}
 	
+	/** Synthesizes a pivot for reads shorter than k or without valid k-mers.
+	 * The caller must supply a non-null scratch key. */
 	public long fillShort(Read r, ReadKey key){
 		final byte[] bases=r.bases;
 		final int max=Tools.min(bases.length, k);

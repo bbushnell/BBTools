@@ -1,19 +1,21 @@
 package clump;
 
 /**
- * Y-coordinate focused k-mer comparator for optical duplicate detection.
- * Extends KmerComparator2 with specialized sorting that prioritizes Y-coordinate
- * over X-coordinate in optical mapping scenarios, optimizing for flowcell layout.
+ * Orders duplicate candidates by shared k-mer, read orientation, k-mer
+ * position, and Y-axis flowcell coordinate.
+ *
  * @author Brian Bushnell
  */
-public class KmerComparatorY extends KmerComparator2 {
+public class KmerComparatorY extends KmerComparator2{
 	
-	/** Private constructor prevents external instantiation */
+	/** Prevents construction outside the singleton instance. */
 	private KmerComparatorY(){}
 	
-	//Y-axis twin of KmerComparatorX: identical pivot prefix + optical logic, but the tail uses spanTilesY and a.y
-	//instead of spanTilesX/a.x (two-pass optical sort, one comparator per flowcell axis). lane/tile/y are bounded
-	//flowcell ints -> subtractions safe; opticalOnly=false -> returns 0 (stable no-op). Deliberate divergence, not a bug.
+	//Y-axis twin of KmerComparatorX: identical pivot prefix + optical logic,
+	//but the tail uses spanTilesY and a.y instead of spanTilesX/a.x
+	//(two-pass optical sort, one comparator per flowcell axis).
+	//opticalOnly=false skips only the coordinate tail; the shared
+	//kmer/strand/position prefix remains active.
 	@Override
 	public int compare(ReadKey a, ReadKey b){
 //		assert(FlowcellCoordinate.spanTiles || Clump.forceSortXY);
@@ -30,7 +32,7 @@ public class KmerComparatorY extends KmerComparator2 {
 		return 0;
 	}
 	
-	/** Singleton instance for efficient reuse across the application */
+	/** Singleton instance for Y-axis optical sorting. */
 	static final KmerComparatorY comparator=new KmerComparatorY();
 	
 }

@@ -306,9 +306,9 @@ public class SortByName {
 		ffin1=FileFormat.testInput(in1, FileFormat.FASTQ, extin, true, true);
 		ffin2=FileFormat.testInput(in2, FileFormat.FASTQ, extin, true, true);
 		
-		//Create output FileFormat objects
-		ffout1=FileFormat.testOutput(out1, FileFormat.FASTQ, extout, true, overwrite, append, false);
-		ffout2=FileFormat.testOutput(out2, FileFormat.FASTQ, extout, true, overwrite, append, false);
+		//Merge batches have dense ascending IDs; paired WriterFactory outputs require ordering.
+		ffout1=FileFormat.testOutput(out1, FileFormat.FASTQ, extout, true, overwrite, append, out2!=null);
+		ffout2=FileFormat.testOutput(out2, FileFormat.FASTQ, extout, true, overwrite, append, out2!=null);
 		
 		tempExt=Tools.getTempExt(ffin1, ffout1, extout);
 		
@@ -524,7 +524,7 @@ public class SortByName {
 			waitOnMemory(outstandingMem, 0);
 			outstream.println("Merging "+(dumps+1)+" files.");
 			ReadWrite.ZIPLEVEL=ziplevel0;
-			errorState|=mergeAndDump(outTemp, /*dumpCount, */useSharedHeader, false);//[SortByName#001]: capture merge errorState (was discarded)
+			errorState|=mergeAndDump(outTemp, /*dumpCount, */useSharedHeader, false, cris.paired());//[SortByName#001]: capture merge errorState (was discarded)
 		}
 		
 	}
@@ -665,7 +665,7 @@ public class SortByName {
 			waitOnMemory(outstandingMem, 0);
 			outstream.println("Merging "+(dumps+1)+" files.");
 			ReadWrite.ZIPLEVEL=ziplevel0;
-			errorState|=mergeAndDump(outTemp, /*dumpCount, */useSharedHeader, false);//[SortByName#001]: capture merge errorState (was discarded)
+			errorState|=mergeAndDump(outTemp, /*dumpCount, */useSharedHeader, false, cris.paired());//[SortByName#001]: capture merge errorState (was discarded)
 		}
 		
 	}
@@ -846,16 +846,28 @@ public class SortByName {
 	 * @param fnames List of sorted file names to merge
 	 * @param useHeader Whether to preserve SAM/BAM headers
 	 * @param allowSubprocess Whether subprocess execution is permitted
+	 * @param paired Whether the input stream supplied attached mates, stored interleaved in spills
 	 * @return true if errors occurred during merge operation
 	 */
-	private boolean mergeAndDump(ArrayList<String> fnames, /*IntList dumpCount, */boolean useHeader, boolean allowSubprocess) {
-		final long maxSizeObserved=maxSizeObserved();
-		final int limit=Tools.min(mergeFileLimit, maxMergeFiles(maxSizeObserved));
-		if(fnames.size()>limit){
-			outstream.println("Performing recursive merge to reduce open files.");
-			fnames=mergeRecursive(fnames, allowSubprocess);
+	private boolean mergeAndDump(ArrayList<String> fnames, /*IntList dumpCount, */boolean useHeader,
+			boolean allowSubprocess, boolean paired){
+		final boolean oldTest=FASTQ.TEST_INTERLEAVED, oldForce=FASTQ.FORCE_INTERLEAVED;
+		//Spills store attached mates in one file, even when the original inputs were separate.
+		//Use the actual input pairing mode throughout recursive merges, then restore caller settings.
+		FASTQ.TEST_INTERLEAVED=false;
+		FASTQ.FORCE_INTERLEAVED=paired;
+		try{
+			final long maxSizeObserved=maxSizeObserved();
+			final int limit=Tools.min(mergeFileLimit, maxMergeFiles(maxSizeObserved));
+			if(fnames.size()>limit){
+				outstream.println("Performing recursive merge to reduce open files.");
+				fnames=mergeRecursive(fnames, allowSubprocess);
+			}
+			return mergeAndDump(fnames, /*dumpCount,*/ ffout1, ffout2, delete, useHeader, allowSubprocess, outstream, maxSizeObserved);
+		}finally{
+			FASTQ.TEST_INTERLEAVED=oldTest;
+			FASTQ.FORCE_INTERLEAVED=oldForce;
 		}
-		return mergeAndDump(fnames, /*dumpCount,*/ ffout1, ffout2, delete, useHeader, allowSubprocess, outstream, maxSizeObserved);
 	}
 	
 	/**
@@ -1185,8 +1197,9 @@ public class SortByName {
 		public void run(){
 			try {
 				if(verbose){outstream.println("Started a WriteThread.");}
-				final FileFormat ffout1=FileFormat.testOutput(fname1, FileFormat.FASTQ, null, true, false, false, false);
-				final FileFormat ffout2=FileFormat.testOutput(fname2, FileFormat.FASTQ, null, true, false, false, false);
+				//This writer also submits dense ascending batch IDs, including the direct-output path.
+				final FileFormat ffout1=FileFormat.testOutput(fname1, FileFormat.FASTQ, null, true, false, false, fname2!=null);
+				final FileFormat ffout2=FileFormat.testOutput(fname2, FileFormat.FASTQ, null, true, false, false, fname2!=null);
 				final Writer ros;
 				if(ffout1!=null){
 					final int buff=4;

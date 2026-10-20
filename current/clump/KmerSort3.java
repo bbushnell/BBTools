@@ -7,6 +7,7 @@ import java.util.HashMap;
 import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import bloom.KCountArray;
 import fileIO.ByteFile;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
@@ -26,36 +27,38 @@ import structures.ListNum;
 import tracker.ReadStats;
 
 /**
- * Advanced k-mer sorting utility for processing and manipulating sequencing reads with
- * multiple pass and clustering capabilities. Extends KmerSort to provide multi-threaded
- * fetch operations and sophisticated memory management for large datasets.
+ * Threaded grouped sorter used by clump mode when input groups may need to
+ * overflow past memory. Fetch threads hash and sort individual groups, and the
+ * main thread clumps, corrects, deduplicates or condenses each group before
+ * writing to one output set or the next pass's split files.
  *
  * @author Brian Bushnell
  * @date June 20, 2014
  */
-public class KmerSort3 extends KmerSort {
+public class KmerSort3 extends KmerSort{
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Program entry point (disabled with assertion failure).
-	 * Delegates to overloaded main method with default parameters.
-	 * @param args Command line arguments
-	 */
 	//The no-arg main is intentionally disabled (assert(false)): KmerSort3 REQUIRES the fileMem/outerPass context
 	//that only Clumpify supplies via the 4-arg main below (Clumpify.java L468). The assert is the API guard;
 	//the delegating call is unreachable past it under -ea (and harmless if -ea were off).
+	/**
+	 * Disabled command-line entry point; KmerSort3 requires Clumpify to supply
+	 * outer-pass memory context.
+	 *
+	 * @param args Command-line arguments
+	 */
 	public static void main(String[] args){
 		assert(false);
 		main(-1, 1, 1, args);
 	}
 	
 	/**
-	 * Main entry point for k-mer sorting with memory and pass control.
-	 * Handles compression settings, creates KmerSort3 instance, processes data,
-	 * and restores original settings.
+	 * Command-line-style entry point from Clumpify. Saves and, on normal
+	 * completion, restores zip statics around one outer pass with explicit
+	 * memory context.
 	 *
 	 * @param fileMem Expected memory usage for input files
 	 * @param outerPassNum Current outer pass number
@@ -112,6 +115,8 @@ public class KmerSort3 extends KmerSort {
 
 			if(a.equals("verbose")){
 				verbose=KmerComparator.verbose=Parse.parseBoolean(b);
+			}else if(a.equals("phasetimers")){
+				phaseTimers=Parse.parseBoolean(b);
 			}else if(a.equals("parse_flag_goes_here")){
 				//Set a variable here
 			}else if(a.equals("k")){
@@ -220,10 +225,12 @@ public class KmerSort3 extends KmerSort {
 		
 		assert(FastaReadInputStream.settingsOK());
 		
+		//Accept paired-input shorthand unless a literal input with '#' exists.
 		if(in1!=null && in2==null && in1.indexOf('#')>-1 && !new File(in1).exists()){
 			in2=in1.replace("#", "2");
 			in1=in1.replace("#", "1");
 		}
+		//Two explicit inputs carry mates in parallel files, not as interleaved records.
 		if(in2!=null){
 			if(FASTQ.FORCE_INTERLEAVED){outstream.println("Reset INTERLEAVED to false because paired input files were specified.");}
 			FASTQ.FORCE_INTERLEAVED=FASTQ.TEST_INTERLEAVED=false;
@@ -235,6 +242,7 @@ public class KmerSort3 extends KmerSort {
 		}
 
 		if(out1!=null && out1.equalsIgnoreCase("null")){out1=null;}
+		//Expand paired-output shorthand before creating final output descriptors.
 		if(out1!=null && out2==null && out1.indexOf('#')>-1){
 			out2=out1.replace("#", "2");
 			out1=out1.replace("#", "1");
@@ -263,6 +271,7 @@ public class KmerSort3 extends KmerSort {
 			}
 		}
 		
+		//Grouped callers pass a '%' template naming files split by KmerSplit.
 		if(groups>1 && in1.contains("%") && (splitInput || !new File(in1).exists())){
 			ffin1=new FileFormat[groups];
 			ffin2=new FileFormat[groups];
@@ -271,6 +280,7 @@ public class KmerSort3 extends KmerSort {
 				ffin2[i]=in2==null ? null : FileFormat.testInput(in2.replaceFirst("%", ""+i), FileFormat.FASTQ, extin, true, true);
 			}
 		}else{
+			//Ordinary single-group mode reads one input stream and writes one output set.
 			assert(!in1.contains("%") && groups==1) : "The % symbol must only be present in the input filename if groups>1.";
 			ffin1=new FileFormat[1];
 			ffin1[0]=FileFormat.testInput(in1, FileFormat.FASTQ, extin, true, true);
@@ -301,6 +311,8 @@ public class KmerSort3 extends KmerSort {
 		fileSize=sizeSum;
 		fileMem=fileMem_<1 ? 40*fileSize : fileMem_;
 		memRatio=fileMem*1.0/Tools.max(1, fileSize);
+		//FIXED [clump/KmerSort3#001, alias clump/KmerSort2#001]: reject in/out aliases by expanded names before startup.
+		ClumpTools.validateFileNames(ffin1, ffin2, ffout1, ffout2);
 		
 //		if(groups>1){ReadWrite.USE_UNPIGZ=false;} //Not needed since they are not concurrent
 	}
@@ -311,8 +323,9 @@ public class KmerSort3 extends KmerSort {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Main processing pipeline that executes preprocessing and read processing.
-	 * Manages output streams, processes reads through inner pipeline, and prints statistics.
+	 * Builds optional pivot counts, opens one output stream per configured
+	 * group or final destination, processes each input group, and prints stats.
+	 *
 	 * @param t Timer for tracking execution time
 	 */
 	@Override
@@ -323,12 +336,6 @@ public class KmerSort3 extends KmerSort {
 		final ConcurrentReadOutputStream[] rosa=(ffout1==null ? null : new ConcurrentReadOutputStream[ffout1.length]);
 		for(int i=0; rosa!=null && i<rosa.length; i++){
 			final int buff=1;
-
-			//TODO: Possible bug [clump/KmerSort3#001] - SAME duplicate-clause defect as KmerSort2#001 (family
-			//anomaly: 2 of 3 siblings share it; KmerSort1's is single-clause/correct). Both clauses are out1 vs in1;
-			//the second should be in2, so out1==in2 (output over a paired input) is not caught. LOW/latent (assert +
-			//user-error), output-affecting to fix (would newly crash out1==in2) -> flagged for Brian, not changed.
-			assert(!out1.equalsIgnoreCase(in1) && !out1.equalsIgnoreCase(in1)) : "Input file and output file have same name.";
 			
 			rosa[i]=ConcurrentReadOutputStream.getStream(ffout1[i], ffout2[i], null, null, buff, null, false);
 			rosa[i].start();
@@ -344,11 +351,21 @@ public class KmerSort3 extends KmerSort {
 		
 		if(outerPassNum<outerPasses){outstream.println();}
 	}
+
+	/**
+	 * Counts the current grouped temp descriptors into one table using the
+	 * current comparator statics.
+	 */
+	@Override
+	protected KCountArray countCurrentGroupedFilePivots(){
+		return ClumpTools.getTable(ffin1, ffin2, k, minCount);
+	}
 	
 	/**
-	 * Core read processing pipeline with multi-threaded fetch operations.
-	 * Creates k-mer comparator, manages fetch threads, processes clumps for
-	 * deduplication/condensing/correction, and handles output streaming.
+	 * Starts fetchers for the current batch of groups, then consumes their
+	 * sorted lists to build clumps, apply the selected clump operation, handle
+	 * name sorting or mate repair, and route reads to the output array.
+	 *
 	 * @param rosa Array of concurrent read output streams for results
 	 */
 	void processInner(final ConcurrentReadOutputStream rosa[]){
@@ -372,6 +389,7 @@ public class KmerSort3 extends KmerSort {
 		for(int group=0; group<groups; group++){
 			
 			if(verbose){t.start("Fetching reads.");}
+			long phaseStartNanos=phaseStart();
 			ArrayList<Read> reads=null;
 
 			//TODO: There appears to be something unsafe here which could lead to this loop being skipped.
@@ -384,9 +402,9 @@ public class KmerSort3 extends KmerSort {
 			//AssertionError in fetchNext_inner from a subthread OOM), this loop and the L491 drain would HANG rather
 			//than crash - the crash-loud anti-pattern, but error-path-gated (needs another failure first).
 			while(poisonCount<fetchThreads && reads==null){
-				try {
+				try{
 					reads=listQ.take();
-				} catch (InterruptedException e) {
+				}catch(InterruptedException e){
 					// TODO Auto-generated catch block
 					e.printStackTrace();
 				}
@@ -397,6 +415,7 @@ public class KmerSort3 extends KmerSort {
 					reads=null;
 				}
 			}
+			coordFetchWaitNanos+=phaseElapsed(phaseStartNanos);
 			if(verbose){t.stop("Fetched "+(reads==null ? 0 : reads.size())+" reads: ");}
 			
 			//Done by FetchThread3
@@ -405,26 +424,34 @@ public class KmerSort3 extends KmerSort {
 //			if(verbose){t.stop("Sort time: ");}
 			
 			if(verbose){t.start("Making clumps.");}
+			phaseStartNanos=phaseStart();
 			readsProcessedThisPass=reads.size();
 			ClumpList cl=new ClumpList(reads, k, false);
 			clumpsProcessedThisPass=cl.size();
 			clumpsProcessedTotal+=clumpsProcessedThisPass;
+			coordClumpNanos+=phaseElapsed(phaseStartNanos);
 			if(verbose){t.stop("Clump time: ");}
 			
 			if(dedupe){
 				reads.clear();
+				phaseStartNanos=phaseStart();
 				if(verbose){t.start("Deduping.");}
 				reads=processClumps(cl, ClumpList.DEDUPE);
+				coordActionNanos+=phaseElapsed(phaseStartNanos);
 				if(verbose){t.stop("Dedupe time: ");}
 			}else if(condense){
 				reads.clear();
+				phaseStartNanos=phaseStart();
 				if(verbose){t.start("Condensing.");}
 				reads=processClumps(cl, ClumpList.CONDENSE);
+				coordActionNanos+=phaseElapsed(phaseStartNanos);
 				if(verbose){t.stop("Condense time: ");}
 			}else if(correct){
 				reads.clear();
+				phaseStartNanos=phaseStart();
 				if(verbose){t.start("Correcting.");}
 				reads=processClumps(cl, ClumpList.CORRECT);
+				coordActionNanos+=phaseElapsed(phaseStartNanos);
 				if(verbose){t.stop("Correct time: ");}
 				
 				if(verbose){outstream.println("Seed: "+kc.seed);}
@@ -470,6 +497,7 @@ public class KmerSort3 extends KmerSort {
 			}
 			
 			if(repair || namesort){
+				phaseStartNanos=phaseStart();
 				if(groups>1){
 					if(verbose){t.start("Name-sorting.");}
 					reads=nameSort(reads, false);
@@ -477,12 +505,13 @@ public class KmerSort3 extends KmerSort {
 				}else{
 					if(namesort){
 						if(verbose){t.start("Name-sorting.");}
-						reads=idSort(reads, repair);
+						reads=nameSortById(reads, repair && unpair);
 						if(verbose){t.stop("Sort time: ");}
 					}else{
 						reads=read1Only(reads);
 					}
 				}
+				coordNamesortNanos+=phaseElapsed(phaseStartNanos);
 			}
 			
 			for(Read r : reads){
@@ -497,7 +526,9 @@ public class KmerSort3 extends KmerSort {
 					ConcurrentReadOutputStream ros=rosa[group-1];
 					errorState|=ReadWrite.closeStream(ros);
 				}
+				phaseStartNanos=phaseStart();
 				rosa[group].add(reads, 0);
+				coordSubmitNanos+=phaseElapsed(phaseStartNanos);
 			}
 			reads=null;
 		}
@@ -505,9 +536,9 @@ public class KmerSort3 extends KmerSort {
 		if(verbose){outstream.println("Closing fetch threads.");}
 		while(poisonCount<fetchThreads){
 			ArrayList<Read> reads=null;
-			try {
+			try{
 				reads=listQ.take();
-			} catch (InterruptedException e) {
+			}catch(InterruptedException e){
 				// TODO Auto-generated catch block
 				e.printStackTrace();
 			}
@@ -521,12 +552,15 @@ public class KmerSort3 extends KmerSort {
 		
 		if(rosa!=null){
 			if(verbose){outstream.println("Waiting for writing to complete.");}
+			long phaseStartNanos=phaseStart();
 			for(ConcurrentReadOutputStream ros : rosa){
 				errorState=ReadWrite.closeStream(ros)|errorState;
 			}
+			coordWriterDrainNanos+=phaseElapsed(phaseStartNanos);
 			if(verbose){t.stop("Write time: ");}
 		}
 		
+		printPhaseTimers();
 		if(verbose && outerPassNum==outerPasses){outstream.println("Done!");}
 	}
 	
@@ -535,12 +569,18 @@ public class KmerSort3 extends KmerSort {
 		assert(rosa.length>0);
 		if(rosa.length==1){
 			if(verbose){t.start("Writing.");}
+			long phaseStartNanos=phaseStart();
 			rosa[0].add(list, 0);
+			coordSubmitNanos+=phaseElapsed(phaseStartNanos);
 			return;
 		}
+		//CLEVER [verified]: non-final V3 passes must match the ordinary KmerSort next-pass
+		//partition rule. Select the pivot with the incremented comparator, then bucket by
+		//hash(selectedPivot)%groups; StreamToOutput uses the same rule for overflow groups.
 		KmerComparator kc=new KmerComparator(old.k, old.seed+1, old.border-1, old.hashes, false, false);
 		final int div=rosa.length;
 		assert(div==groups);
+		long phaseStartNanos=phaseStart();
 		@SuppressWarnings("unchecked")
 		ArrayList<Read>[] array=new ArrayList[div];
 		for(int i=0; i<array.length; i++){
@@ -548,12 +588,15 @@ public class KmerSort3 extends KmerSort {
 		}
 		if(verbose){t.start("Splitting.");}
 		hashAndSplit(list, kc, array);
+		coordHashSplitNanos+=phaseElapsed(phaseStartNanos);
 		if(verbose){t.stop("Split time: ");}
 		if(verbose){t.start("Writing.");}
+		phaseStartNanos=phaseStart();
 		for(int i=0; i<div; i++){
 			rosa[i].add(array[i], 0);
 			array[i]=null;
 		}
+		coordSubmitNanos+=phaseElapsed(phaseStartNanos);
 		if(verbose){System.err.println("Sent writable reads.");}
 	}
 	
@@ -581,9 +624,9 @@ public class KmerSort3 extends KmerSort {
 
 			/* Wait for a thread to die */
 			while(ft.getState()!=Thread.State.TERMINATED){
-				try {
+				try{
 					ft.join();
-				} catch (InterruptedException e) {
+				}catch(InterruptedException e){
 					e.printStackTrace();
 				}
 			}
@@ -592,7 +635,13 @@ public class KmerSort3 extends KmerSort {
 			basesProcessed+=ft.basesProcessedT;
 			diskProcessed+=ft.diskProcessedT;
 			memThisPass+=ft.memProcessedT;
+			readsOut+=ft.readsOutT;
+			basesOut+=ft.basesOutT;
 			
+			fetchWorkerLoadHashPresortNanos+=ft.loadHashPresortNanos;
+			fetchWorkerSortNanos+=ft.sortNanos;
+			fetchWorkerCombineNanos+=ft.combineNanos;
+			fetchWorkerHandoffWaitNanos+=ft.handoffWaitNanos;
 			errorState|=ft.errorStateT;
 		}
 		entryFiltered+=entryFilteredThisPass;
@@ -628,25 +677,27 @@ public class KmerSort3 extends KmerSort {
 		@Override
 		public void run(){
 			for(ArrayList<Read> reads=fetchNext(); reads!=null; reads=fetchNext()){
+				final long phaseStartNanos=phaseStart();
 				boolean success=false;
 				while(!success){
-					try {
+					try{
 						listQ.put(reads);
 						success=true;
-					} catch (InterruptedException e) {
+					}catch(InterruptedException e){
 						// TODO Auto-generated catch block
 						e.printStackTrace();
 					}
 				}
+				handoffWaitNanos+=phaseElapsed(phaseStartNanos);
 			}
 			if(verbose){System.err.println("No more reads to fetch.");}
 			boolean success=false;
 			while(!success){
-				try {
+				try{
 					if(verbose){System.err.println("Adding poison.");}
 					listQ.put(POISON);
 					success=true;
-				} catch (InterruptedException e) {
+				}catch(InterruptedException e){
 					// TODO Auto-generated catch block
 					e.printStackTrace();
 				}
@@ -733,24 +784,22 @@ public class KmerSort3 extends KmerSort {
 		}
 		
 		private ArrayList<Read> streamNext_inner(ConcurrentReadInputStream cris){
-			StreamToOutput sto=new StreamToOutput(cris, rosa, kc, (repair || namesort), false);
+			StreamToOutput sto=new StreamToOutput(cris, rosa, kc, (repair || namesort), doHashAndSplit);
 			errorStateT|=sto.process();
-			//TODO: Possible bug [clump/KmerSort3#002] - data race: these four += target the SHARED enclosing-instance
-			//counters (KmerSort.readsProcessed/basesProcessed/readsOut/basesOut), but streamNext_inner runs on a
-			//FetchThread3, and there can be >1 of them (fetchThreads>=2) hitting the memory-imbalance fallback
-			//concurrently -> lost updates. Contrast fetchNext_inner, which correctly accumulates THREAD-LOCAL
-			//readsProcessedT/basesProcessedT and merges them single-threaded in closeFetchThread3s. Stats-only
-			//(the reads ARE written correctly by StreamToOutput; only the counters undercount) -> LOW, flagged.
-			readsProcessed+=sto.readsIn;
-			basesProcessed+=sto.basesIn;
-			readsOut+=sto.readsIn;
-			basesOut+=sto.basesIn;
+			//FIXED [clump/KmerSort3#002]: accumulate on this FetchThread3 and merge after
+			//closeFetchThread3s joins all fetchers; otherwise this overflow path can update
+			//the pass counters while the main thread accounts a normal fetched group.
+			readsProcessedT+=sto.readsIn;
+			basesProcessedT+=sto.basesIn;
+			readsOutT+=sto.readsIn;
+			basesOutT+=sto.basesIn;
 //			System.err.println(readsProcessed+", "+sto.readsIn);
 			return new ArrayList<Read>();
 		}
 		
 		private ArrayList<Read> fetchNext_inner(ConcurrentReadInputStream cris){
 			
+			long phaseStartNanos=phaseStart();
 //			Timer t=new Timer();
 //			if(verbose){t.start("Making hash threads.");}
 			final int subthreads=Tools.mid(1, Shared.threads()/2, 8);
@@ -767,9 +816,9 @@ public class KmerSort3 extends KmerSort {
 				
 				/* Wait for a thread to die */
 				while(ht.getState()!=Thread.State.TERMINATED){
-					try {
+					try{
 						ht.join();
-					} catch (InterruptedException e) {
+					}catch(InterruptedException e){
 						e.printStackTrace();
 					}
 				}
@@ -782,12 +831,14 @@ public class KmerSort3 extends KmerSort {
 			entryFilteredT+=entryFilteredThisGroup;
 			readsProcessedT+=readsThisGroup;
 			memProcessedT+=memThisGroup;
+			loadHashPresortNanos+=phaseElapsed(phaseStartNanos);
 
 //			if(verbose){t.stop("Hash time: ");}
 //			if(verbose){System.err.println("Closing input stream.");}
 			errorStateT=ReadWrite.closeStream(cris)|errorStateT;
 			
 //			if(verbose){t.start("Combining thread output.");}
+			phaseStartNanos=phaseStart();
 			long readsLeft=readsThisGroup-entryFilteredThisGroup;
 			long slotsLeft=cris.paired() && !unpair ? readsLeft/2 : readsLeft;
 			assert(slotsLeft<=Shared.MAX_ARRAY_LEN && readsProcessedT>=0);
@@ -797,10 +848,13 @@ public class KmerSort3 extends KmerSort {
 				list.addAll(ht.storage);
 			}
 			assert(list.size()==slotsLeft) : list.size()+", "+readsThisGroup+", "+slotsLeft+", "+cris.paired();
+			combineNanos+=phaseElapsed(phaseStartNanos);
 //			if(verbose){t.stop("Combine time: ");}
 			
 //			if(verbose){t.start("Sorting.");}
+			phaseStartNanos=phaseStart();
 			Shared.sort(list, kc);
+			sortNanos+=phaseElapsed(phaseStartNanos);
 			
 //			if(verbose){t.stop("Sort time: ");}
 			return list;
@@ -816,6 +870,9 @@ public class KmerSort3 extends KmerSort {
 		protected long basesProcessedT=0;
 		protected long diskProcessedT=0;
 		protected long memProcessedT=0;
+		protected long readsOutT=0;
+		protected long basesOutT=0;
+		protected long loadHashPresortNanos=0, sortNanos=0, combineNanos=0, handoffWaitNanos=0;
 		protected boolean errorStateT=false;
 		
 		
@@ -947,6 +1004,20 @@ public class KmerSort3 extends KmerSort {
 		
 	}
 	
+	private void printPhaseTimers(){
+		printPhaseTimer("coord_fetch_wait", coordFetchWaitNanos);
+		printPhaseTimer("coord_clump", coordClumpNanos);
+		printPhaseTimer("coord_action", coordActionNanos);
+		printPhaseTimer("coord_namesort", coordNamesortNanos);
+		printPhaseTimer("coord_hash_split", coordHashSplitNanos);
+		printPhaseTimer("coord_submit", coordSubmitNanos);
+		printPhaseTimer("coord_writer_drain", coordWriterDrainNanos);
+		printPhaseTimer("fetch_worker_load_hash_presort_elapsed_sum", fetchWorkerLoadHashPresortNanos);
+		printPhaseTimer("fetch_worker_sort_elapsed_sum", fetchWorkerSortNanos);
+		printPhaseTimer("fetch_worker_combine_elapsed_sum", fetchWorkerCombineNanos);
+		printPhaseTimer("fetch_worker_handoff_wait_elapsed_sum", fetchWorkerHandoffWaitNanos);
+	}
+
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
@@ -967,6 +1038,12 @@ public class KmerSort3 extends KmerSort {
 	private final int outerPasses;
 	
 	private final double memRatio;
+
+	private long coordFetchWaitNanos=0, coordClumpNanos=0, coordActionNanos=0;
+	private long coordNamesortNanos=0, coordHashSplitNanos=0, coordSubmitNanos=0;
+	private long coordWriterDrainNanos=0;
+	private long fetchWorkerLoadHashPresortNanos=0, fetchWorkerSortNanos=0;
+	private long fetchWorkerCombineNanos=0, fetchWorkerHandoffWaitNanos=0;
 	
 	/*--------------------------------------------------------------*/
 
@@ -977,10 +1054,17 @@ public class KmerSort3 extends KmerSort {
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Primary input descriptor per group; one element in unsplit mode. */
 	final FileFormat ffin1[];
+
+	/** Optional mate input descriptor per group; null elements mean interleaved
+	 * or unpaired input. */
 	final FileFormat ffin2[];
 
+	/** Primary final or grouped output descriptor per output stream. */
 	private final FileFormat ffout1[];
+
+	/** Optional mate final or grouped output descriptor per output stream. */
 	private final FileFormat ffout2[];
 	
 }

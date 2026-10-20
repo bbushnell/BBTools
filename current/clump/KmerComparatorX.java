@@ -1,25 +1,25 @@
 package clump;
 
 /**
- * Specialized k-mer comparator for X-coordinate-based optical duplicate detection.
- * Extends the base k-mer comparison with X-coordinate sorting for sequencing reads,
- * enabling precise optical duplicate identification in flowcell data.
+ * Orders duplicate candidates by shared k-mer, read orientation, k-mer
+ * position, and X-axis flowcell coordinate.
  *
  * @author Brian Bushnell
  * @date 2013
  */
-public class KmerComparatorX extends KmerComparator2 {
+public class KmerComparatorX extends KmerComparator2{
 	
-	/**
-	 * Private constructor enforces singleton pattern via static comparator instance
-	 */
+	/** Prevents construction outside the singleton instance. */
 	private KmerComparatorX(){}
 	
-	//Within-clump ordering for optical-duplicate detection (Clump.sort, opticalOnly pass). Shared pivot prefix
-	//(kmer desc, plus-strand first, position desc) matches ReadKey/KmerComparator. Optical tail: lane, then tile
-	//(skipped when spanTilesX - an X-run spans tiles), then x. The lane/tile/x subtractions are safe: all are
-	//bounded flowcell ints (ReadKey<-FlowcellCoordinate, Illumina header). opticalOnly=false -> returns 0 = stable
-	//no-op. Deliberate X-axis twin of KmerComparatorY (which uses spanTilesY/a.y) - two passes, one per axis.
+	//Within-clump ordering for optical-duplicate detection (Clump.sort,
+	//opticalOnly pass). Shared pivot prefix (kmer desc, plus-strand first,
+	//position desc) matches ReadKey/KmerComparator. Optical tail: lane, then
+	//tile (skipped when spanTilesX - an X-run spans tiles), then x.
+	//The lane/tile/x subtractions are safe for normal bounded flowcell ints
+	//(ReadKey<-FlowcellCoordinate, Illumina header). opticalOnly=false skips
+	//only this coordinate tail. Deliberate X-axis twin of KmerComparatorY
+	//(which uses spanTilesY/a.y) - two passes, one per axis.
 	@Override
 	public int compare(ReadKey a, ReadKey b){
 //		assert(FlowcellCoordinate.spanTiles || Clump.forceSortXY);
@@ -36,7 +36,7 @@ public class KmerComparatorX extends KmerComparator2 {
 		return 0;
 	}
 	
-	/** Singleton instance for efficient reuse across the application */
+	/** Singleton instance for X-axis optical sorting. */
 	static final KmerComparatorX comparator=new KmerComparatorX();
 	
 }

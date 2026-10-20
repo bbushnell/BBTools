@@ -3,6 +3,7 @@ package clump;
 import java.io.File;
 import java.util.ArrayList;
 
+import bloom.KCountArray;
 import fileIO.ByteFile;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
@@ -20,25 +21,23 @@ import stream.Read;
 import tracker.ReadStats;
 
 /**
- * K-mer based sequence sorting and clumping tool with multi-group processing support.
- * Extends KmerSort to provide enhanced capabilities for large-scale sequence processing
- * including deduplication, error correction, consensus generation, and paired-end repair.
- * Supports splitting input into multiple groups for memory-efficient processing of large datasets.
+ * Multi-group sorter used after KmerSplit has written partitioned temp files.
+ * Processes each group file into memory in sequence, clumps the reads, then
+ * either writes them to one output set or re-hashes them for the next pass.
  *
  * @author Brian Bushnell
  * @date June 20, 2014
  */
-public class KmerSort2 extends KmerSort {
+public class KmerSort2 extends KmerSort{
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Program entry point for KmerSort2.
-	 * Configures compression settings, processes command-line arguments, and executes
-	 * the sorting pipeline.
-	 * Restores original compression settings after completion.
+	 * Command-line entry point that saves and restores zip statics around one
+	 * in-JVM sorter invocation.
+	 *
 	 * @param args Command-line arguments specifying input files, parameters, and processing options
 	 */
 	public static void main(String[] args){
@@ -60,10 +59,10 @@ public class KmerSort2 extends KmerSort {
 	}
 	
 	/**
-	 * Constructs a KmerSort2 instance with the specified command-line arguments.
-	 * Parses arguments to configure k-mer length, processing modes, input/output files,
-	 * and various filtering and correction options. Validates file paths and initializes
-	 * FileFormat objects for input and output streams.
+	 * Parses one grouped sorter invocation, expands grouped input and output
+	 * file names, and configures shared kmer, clump and read-normalization
+	 * options before constructing per-group file formats.
+	 *
 	 * @param args Command-line arguments containing configuration parameters
 	 */
 	public KmerSort2(String[] args){
@@ -185,6 +184,7 @@ public class KmerSort2 extends KmerSort {
 			in2=parser.in2;
 
 			out1=parser.out1;
+			out2=parser.out2;
 			
 			extin=parser.extin;
 			extout=parser.extout;
@@ -192,10 +192,12 @@ public class KmerSort2 extends KmerSort {
 		
 		assert(FastaReadInputStream.settingsOK());
 		
+		//Accept paired-input shorthand unless a literal input with '#' exists.
 		if(in1!=null && in2==null && in1.indexOf('#')>-1 && !new File(in1).exists()){
 			in2=in1.replace("#", "2");
 			in1=in1.replace("#", "1");
 		}
+		//Two explicit inputs carry mates in parallel files, not as interleaved records.
 		if(in2!=null){
 			if(FASTQ.FORCE_INTERLEAVED){outstream.println("Reset INTERLEAVED to false because paired input files were specified.");}
 			FASTQ.FORCE_INTERLEAVED=FASTQ.TEST_INTERLEAVED=false;
@@ -207,27 +209,39 @@ public class KmerSort2 extends KmerSort {
 		}
 
 		if(out1!=null && out1.equalsIgnoreCase("null")){out1=null;}
-		
-		if(!Tools.testOutputFiles(overwrite, append, false, out1)){
-			outstream.println((out1==null)+", "+out1);
-			throw new RuntimeException("\n\noverwrite="+overwrite+"; Can't write to output files "+out1+"\n");
+		//Expand paired-output shorthand before creating final output descriptors.
+		if(out1!=null && out2==null && out1.indexOf('#')>-1){
+			out2=out1.replace("#", "2");
+			out1=out1.replace("#", "1");
+		}
+		if(out1==null && out2!=null){
+			throw new RuntimeException("Error - cannot define out2 without defining out1.");
 		}
 		
-		if(out1==null){ffout1=null;}
+		if(!Tools.testOutputFiles(overwrite, append, false, out1, out2)){
+			outstream.println((out1==null)+", "+(out2==null)+", "+out1+", "+out2);
+			throw new RuntimeException("\n\noverwrite="+overwrite+"; Can't write to output files "+out1+", "+out2+"\n");
+		}
+		
+		if(out1==null){ffout1=ffout2=null;}
 		else{
 			int g=out1.contains("%") ? groups : 1;
 			ffout1=new FileFormat[g];
+			ffout2=new FileFormat[g];
 			if(g==1){
 				ffout1[0]=FileFormat.testOutput(out1, FileFormat.FASTQ, extout, true, overwrite, append, false);
+				ffout2[0]=FileFormat.testOutput(out2, FileFormat.FASTQ, extout, true, overwrite, append, false);
 			}else{
 				ReadWrite.ZIPLEVEL=2;
 				ReadWrite.setZipThreadMult(Tools.min(0.5f, 2f/(g+1)));
 				for(int i=0; i<g; i++){
 					ffout1[i]=FileFormat.testOutput(out1.replaceFirst("%", ""+i), FileFormat.FASTQ, extout, (g<10), overwrite, append, false);
+					ffout2[i]=(out2==null ? null : FileFormat.testOutput(out2.replaceFirst("%", ""+i), FileFormat.FASTQ, extout, (g<10), overwrite, append, false));
 				}
 			}
 		}
 		
+		//Grouped callers pass a '%' template naming files split by KmerSplit.
 		if(groups>1 && in1.contains("%") && (splitInput || !new File(in1).exists())){
 			ffin1=new FileFormat[groups];
 			ffin2=new FileFormat[groups];
@@ -236,6 +250,7 @@ public class KmerSort2 extends KmerSort {
 				ffin2[i]=in2==null ? null : FileFormat.testInput(in2.replaceFirst("%", ""+i), FileFormat.FASTQ, extin, true, true);
 			}
 		}else{
+			//Ordinary single-group mode reads one input stream and writes one output set.
 			assert(!in1.contains("%") && groups==1) : "The % symbol must only be present in the input filename if groups>1.";
 			ffin1=new FileFormat[1];
 			ffin1[0]=FileFormat.testInput(in1, FileFormat.FASTQ, extin, true, true);
@@ -243,6 +258,8 @@ public class KmerSort2 extends KmerSort {
 			ffin2[0]=FileFormat.testInput(in2, FileFormat.FASTQ, extin, true, true);
 			groups=1;
 		}
+		//FIXED [clump/KmerSort2#001]: reject in/out aliases by expanded names before startup.
+		ClumpTools.validateFileNames(ffin1, ffin2, ffout1, ffout2);
 //		if(groups>1){ReadWrite.USE_UNPIGZ=false;} //Not needed since they are not concurrent
 	}
 	
@@ -252,9 +269,9 @@ public class KmerSort2 extends KmerSort {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Main processing pipeline that orchestrates the complete k-mer sorting workflow.
-	 * Performs preprocessing, creates output streams, processes reads through sorting
-	 * and clumping, and generates final statistics.
+	 * Builds optional pivot counts, opens one output stream per configured
+	 * group or final destination, processes each input group, and prints stats.
+	 *
 	 * @param t Timer for tracking execution performance
 	 */
 	@Override
@@ -265,14 +282,8 @@ public class KmerSort2 extends KmerSort {
 		final ConcurrentReadOutputStream[] rosa=(ffout1==null ? null : new ConcurrentReadOutputStream[ffout1.length]);
 		for(int i=0; rosa!=null && i<rosa.length; i++){
 			final int buff=1;
-
-			//TODO: Possible bug [clump/KmerSort2#001] - the two clauses are IDENTICAL (out1 vs in1 twice); the
-			//second was almost certainly meant to be in2. As written the guard never catches out1==in2, so writing
-			//output over a paired INPUT file (in2) slips through and silently corrupts. LOW/latent (assert + a
-			//user-error case), but output-affecting to "fix" (would newly crash out1==in2 runs) -> flagged for Brian.
-			assert(!out1.equalsIgnoreCase(in1) && !out1.equalsIgnoreCase(in1)) : "Input file and output file have same name.";
 			
-			rosa[i]=ConcurrentReadOutputStream.getStream(ffout1[i], null, null, null, buff, null, false);
+			rosa[i]=ConcurrentReadOutputStream.getStream(ffout1[i], ffout2[i], null, null, buff, null, false);
 			rosa[i].start();
 		}
 		
@@ -283,12 +294,21 @@ public class KmerSort2 extends KmerSort {
 		
 		printStats(t);
 	}
+
+	/**
+	 * Counts the current grouped temp descriptors into one table using the
+	 * current comparator statics.
+	 */
+	@Override
+	protected KCountArray countCurrentGroupedFilePivots(){
+		return ClumpTools.getTable(ffin1, ffin2, k, minCount);
+	}
 	
 	/**
-	 * Core processing method that handles k-mer sorting, clumping, and optional corrections.
-	 * Creates k-mer comparator, processes reads in groups, performs sorting and clumping,
-	 * applies deduplication/condensing/correction as configured, and handles paired-end repair.
-	 * Supports multi-pass processing for enhanced error correction accuracy.
+	 * Processes groups sequentially in memory: fetch and hash reads, sort by
+	 * pivot kmer, build clumps, apply the selected clump operation, optionally
+	 * run same-list passes, and route the surviving reads to the output array.
+	 *
 	 * @param rosa Array of output streams for writing processed reads
 	 */
 	void processInner(final ConcurrentReadOutputStream rosa[]){
@@ -394,7 +414,7 @@ public class KmerSort2 extends KmerSort {
 				}else{
 					if(namesort){
 						if(verbose){t.start("Name-sorting.");}
-						reads=idSort(reads, repair);
+						reads=nameSortById(reads, repair && unpair);
 						if(verbose){t.stop("Sort time: ");}
 					}else{
 						reads=read1Only(reads);
@@ -409,10 +429,10 @@ public class KmerSort2 extends KmerSort {
 			
 			//Two output models. NORMAL path (doHashAndSplit defaults true -> addToRos): each input group's reads are
 			//re-hashed and SPLIT across all output files rosa[] (multi-group memory-efficient writeout). The else
-			//path (one-group-per-output-file, streaming) progressively closes rosa[group-1] here AND the final loop
-			//below closes ALL rosa -> rosa[0..groups-2] get closed TWICE. Unreachable in normal KmerSort2 flow
-			//(doHashAndSplit is true unless Clumpify sets it false for the KmerSort3/V3 path), so latent; if it ever
-			//runs, the double-close depends on closeStream being idempotent. [clump/KmerSort2#002, latent]
+			//path (one-group-per-output-file, streaming) is reachable when Clumpify.runOnePass_v2 sets
+			//doHashAndSplit=false for externalSort before selecting KmerSort2 versus KmerSort3. It progressively
+			//closes rosa[group-1] here AND the final loop below closes ALL rosa, so rosa[0..groups-2] are closed
+			//twice; that relies on closeStream idempotence. [clump/KmerSort2#002, latent]
 			if(doHashAndSplit || groups==0){
 				addToRos(rosa, reads, t, kc);
 			}else{
@@ -487,9 +507,17 @@ public class KmerSort2 extends KmerSort {
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Primary input descriptor per group; one element in unsplit mode. */
 	private final FileFormat ffin1[];
+
+	/** Optional mate input descriptor per group; null elements mean interleaved
+	 * or unpaired input. */
 	private final FileFormat ffin2[];
 
+	/** Primary final or grouped output descriptor per output stream. */
 	private final FileFormat ffout1[];
+
+	/** Optional mate final or grouped output descriptor per output stream. */
+	private final FileFormat ffout2[];
 	
 }

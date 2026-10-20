@@ -13,28 +13,29 @@ import stream.Read;
 import structures.ListNum;
 
 /**
- * Streams reads from input to one or more output streams.
- * Supports single-stream pass-through and multi-stream distribution based on k-mer hashing.
- * Provides optional name-based sorting via temporary files.
+ * Drains a read stream into borrowed, already-started output streams. Owns input
+ * closure during processing; output closure remains the caller's responsibility.
+ * Supports optional name sorting through a temporary FASTQ file and distribution
+ * by pivot. Instances are single-use and require exclusive input consumption.
  *
  * @author Brian Bushnell
  * @date January 2025
  */
-public class StreamToOutput {
+public class StreamToOutput{
 	
 	/**
 	 * Creates a StreamToOutput from file format specifications.
-	 * Initializes input stream from file formats and configures output distribution.
+	 * Creates, retains and starts the input stream immediately.
 	 *
 	 * @param ffin1 Primary input file format
 	 * @param ffin2 Secondary input file format (may be null for single-end)
 	 * @param rosa_ Array of output streams for read distribution
 	 * @param old K-mer comparator for hashing (may be incremented)
 	 * @param sortByName_ Whether to sort reads by name before processing
-	 * @param incrementComparator Whether to increment the comparator seed
+	 * @param incrementComparator Whether to increment the seed and decrement the border
 	 */
 	public StreamToOutput(FileFormat ffin1, FileFormat ffin2, ConcurrentReadOutputStream[] rosa_, KmerComparator old, boolean sortByName_, boolean incrementComparator){
-		final ConcurrentReadInputStream cris=ConcurrentReadInputStream.getReadInputStream(-1, false, ffin1, ffin2, null, null);
+		cris=ConcurrentReadInputStream.getReadInputStream(-1, false, ffin1, ffin2, null, null);
 		cris.start();
 		rosa=rosa_;
 		kc=(incrementComparator ? new KmerComparator(old.k, old.seed+1, old.border-1, old.hashes, false, false) : old);
@@ -43,13 +44,13 @@ public class StreamToOutput {
 	
 	/**
 	 * Creates a StreamToOutput from an existing input stream.
-	 * Configures output distribution without creating new input streams.
+	 * Transfers input consumption/closure to this bridge without starting it.
 	 *
-	 * @param cris_ Existing input stream to process
+	 * @param cris_ Already-started input stream to process
 	 * @param rosa_ Array of output streams for read distribution
 	 * @param old K-mer comparator for hashing (may be incremented)
 	 * @param sortByName_ Whether to sort reads by name before processing
-	 * @param incrementComparator Whether to increment the comparator seed
+	 * @param incrementComparator Whether to increment the seed and decrement the border
 	 */
 	public StreamToOutput(ConcurrentReadInputStream cris_, ConcurrentReadOutputStream[] rosa_, KmerComparator old, boolean sortByName_, boolean incrementComparator){
 		cris=cris_;
@@ -62,46 +63,48 @@ public class StreamToOutput {
 	 * Main processing method that streams reads from input to outputs.
 	 * Optionally sorts reads by name using temporary files before distribution.
 	 * Routes to single or multi-stream processing based on output array size.
+	 * With no destinations, still consumes/counts reads and closes the input.
 	 * @return true if errors occurred during processing, false otherwise
 	 */
 	public boolean process(){
-		if(rosa==null || rosa.length==0){return errorState;}
-		
-		//Optional name-sort first: drain the input through SortByName into a temp .fq.gz, then reopen a cris on
-		//that sorted temp (deleted at the end). Lets the overflow-streamed group still come out name-ordered when
-		//repair/namesort was requested, without holding it in memory. NOTE: if createTempFile throws, the exception
-		//is only printed and `temp` stays null -> the next line NPEs - but that's an unrecoverable env failure (no
-		//temp dir), i.e. crash-loud territory rather than a silent-wrong path.
+		//The optional sort spills as needed and writes a temporary FASTQ. SortByName's
+		//legacy processInner accepts our input stream but does not close it.
 		File temp=null;
-		if(sortByName){
-			try {
-				temp=File.createTempFile("temp_namesort_", ".fq.gz");
-			} catch (IOException e) {
-				// TODO Auto-generated catch block
-				e.printStackTrace();
+		try{
+			if(sortByName){
+				try{
+					temp=File.createTempFile("temp_namesort_", ".fq.gz");
+				}catch(IOException e){
+					throw new RuntimeException("Could not create a temporary name-sort file", e);
+				}
+				//stdin.fq supplies required input metadata only: processInner consumes cris,
+				//so no stdin reader is created. Preserve its pairing in the temporary file reader.
+				SortByName sbn=new SortByName(new String[] {"in=stdin.fq", "out="+temp.getAbsolutePath(),
+						"overwrite=t", "interleaved="+cris.paired()});
+				sbn.processInner(cris);
+				errorState|=sbn.errorState;
+				errorState|=ReadWrite.closeStream(cris);
+				cris=null;
+				if(errorState){return true;}
+				FileFormat ff=FileFormat.testInput(temp.getAbsolutePath(), null, false);
+				cris=ConcurrentReadInputStream.getReadInputStream(-1, false, ff, null, null, null);
+				cris.start();
 			}
-			SortByName sbn=new SortByName(new String[] {"out="+temp.getAbsolutePath()});
-			sbn.processInner(cris);
-			FileFormat ff=FileFormat.testInput(temp.getAbsolutePath(), null, false);
-			cris=ConcurrentReadInputStream.getReadInputStream(-1, false, ff, null, null, null);
-		}
-		
-		if(rosa.length==1){
-			processSingle(cris);
-		}else{
-			processMulti(cris);
-		}
-		
-		errorState|=ReadWrite.closeStream(cris);
-		if(temp!=null){
-			temp.delete();
+			if(rosa==null || rosa.length<=1){
+				processSingle(cris);
+			}else{
+				processMulti(cris);
+			}
+		}finally{
+			errorState|=ReadWrite.closeStream(cris);
+			if(temp!=null){temp.delete();}
 		}
 		return errorState;
 	}
 	
 	/**
-	 * Processes reads for single output stream scenario.
-	 * Streams all reads directly to the single output without distribution logic.
+	 * Drains reads to one output stream, or counts them when no output is supplied.
+	 * Forwards whole batches without distribution when an output is present.
 	 * Tracks read and base counts during processing.
 	 * @param cris Input stream to read from
 	 */
@@ -111,7 +114,7 @@ public class StreamToOutput {
 		ArrayList<Read> reads=(ln!=null ? ln.list : null);
 		
 		while(ln!=null && reads!=null && reads.size()>0){//ln!=null prevents a compiler potential null access warning
-			if(rosa!=null){rosa[0].add(reads, ln.id);}
+			if(rosa!=null && rosa.length>0){rosa[0].add(reads, ln.id);}
 			
 			for(Read r : reads){
 				readsIn+=r.pairCount();
@@ -149,19 +152,11 @@ public class StreamToOutput {
 		
 		while(ln!=null && reads!=null && reads.size()>0){//ln!=null prevents a compiler potential null access warning
 			for(Read r : reads){
-				//QUESTION [clump/StreamToOutput#001] (output-sensitive, NOT fixed): this buckets by the RAW pivot
-				//kmer % groups, but every sibling distributor wraps it - KmerSort.HashSplitThread L579, KmerSplit
-				//L487, and KmerSort2/3.addToRos all use `kc.hash(key.kmer) % groups` (tabulation-hash the pivot
-				//first). Lone divergence. Two effects: (a) raw pivots carry base-composition bias -> uneven group
-				//sizes vs the uniform tabhash; (b) reads streamed here are grouped DIFFERENTLY from reads the normal
-				//addToRos path writes to the SAME output files (and addToRos uses seed+1, this uses the current
-				//seed), so in a re-clumping pass equal-pivot reads may not co-locate -> reduced clumping/EC
-				//completeness for overflow-streamed reads. Rare (memory-overflow fallback) + not data loss (every
-				//read is still written). Also note: unlike PivotSet/KmerReduce there's no `kmer>=0` guard - safe
-				//only because kc.hash is >=0 for valid reads (fillShort handles len<k; -1 needs bases==null,
-				//format-impossible). Flagged to confirm intent, not changed.
+				//Fixed [clump/StreamToOutput#001]: hash the selected pivot just as the normal
+				//KmerSort hash-and-split path does. KmerSort3 supplies next-pass comparator
+				//selection when repartitioning; raw-pivot modulo used different destinations.
 				long kmer=kc.hash(r, null, 0, false);
-				int group=(int)(kmer%groups);
+				int group=(int)(kc.hash(kmer)%groups);
 				out[group].add(r);
 				
 				readsIn+=r.pairCount();
@@ -183,9 +178,9 @@ public class StreamToOutput {
 		}
 	}
 	
-	/** Total number of reads processed through the stream */
+	/** Total number of reads transferred, including linked mates. */
 	long readsIn=0;
-	/** Total number of bases processed through the stream */
+	/** Total number of bases transferred, including linked mates. */
 	long basesIn=0;
 	
 //	final FileFormat ffin1;
