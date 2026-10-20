@@ -601,6 +601,16 @@ public class CallGenes extends ProkObject {
 				//parsed by helper
 			}else if(a.equalsIgnoreCase("ncrnaboundarynet")){
 				NCRNA_BOUNDARY_NN_ENABLED=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("rnasepboundarynn")){
+				RNASEP_BOUNDARY_NN_OVERRIDE=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("tmrnaboundarynn")){
+				TMRNA_BOUNDARY_NN_OVERRIDE=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("srpsmallboundarynn")){
+				SRPSMALL_BOUNDARY_NN_OVERRIDE=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("srplargeboundarynn")){
+				SRPLARGE_BOUNDARY_NN_OVERRIDE=Parse.parseBoolean(b);
+			}else if(SIXS_RF00013_BOUNDARY_CONFIG.parse(a, b) || SIXS_RF01685_BOUNDARY_CONFIG.parse(a, b)){
+				// Subtype resources and correction ranges resolve after all parent gates.
 			}else if(R58_BOUNDARY_CONFIG.parse(a, b)){
 				//Explicit 5.8S correction ranges and retained-anchor refinement.
 			}else if(a.equalsIgnoreCase("r58ncrnaboundarynet") || a.equalsIgnoreCase("r58boundarynn")){
@@ -745,6 +755,8 @@ public class CallGenes extends ProkObject {
 				RNASEP_PAD_OVERRIDE=parsePadOverride("rnaseppad", b);
 			}else if(a.equalsIgnoreCase("srpsmallpad")){
 				SRPSMALL_PAD_OVERRIDE=parsePadOverride("srpsmallpad", b);
+			}else if(a.equalsIgnoreCase("srpsmallcollapsedpad")){
+				SRPSMALL_COLLAPSED_PAD_OVERRIDE=parsePadOverride(a,b);
 			}else if(a.equalsIgnoreCase("srplargepad")){
 				SRPLARGE_PAD_OVERRIDE=parsePadOverride("srplargepad", b);
 			}else if(a.equalsIgnoreCase("tmrnapad")){
@@ -2929,8 +2941,9 @@ public class CallGenes extends ProkObject {
 	 * file) when NCRNA_BOUNDARY_NN_ENABLED (Gate B) is on -- see addNcrnaFamily. Gate B
 	 * is independent of and subordinate to Gate A: with Gate A off this method never
 	 * runs at all (and Gate B being on without Gate A is rejected loudly at parse time,
-	 * see the parse() assert); with Gate A on and Gate B off, families load with
-	 * boundary refinement structurally disabled (null templates). With BOTH on, Gate B
+	 * see the parse() assert). Accepted RNaseP/tmRNA boundary defaults now apply
+	 * independently of Gate B; explicit family flags override their defaults.
+	 * Other families inherit Gate B unless explicitly overridden. When selected, Gate B
 	 * is STRICT, not tolerant (Citan's correction, 2026-08-28): every loaded family must
 	 * have complete, index-aligned boundary resources, or addNcrnaFamily throws --
 	 * a silent per-family skip would let a run report "boundary NN enabled" while only
@@ -2969,7 +2982,7 @@ public class CallGenes extends ProkObject {
 		options.resources.seeds=effectiveNcrnaSeedOverride(name, seeds);
 		options.resources.consensus=explicitNcrnaResource(name, "consensus", consensus);
 		options.resources.models=explicitNcrnaResource(name, "models", models);
-		options.boundary=NCRNA_BOUNDARY_NN_ENABLED;
+		options.boundary=ncrnaBoundaryEnabled(name);
 		options.windowPad=resolveSweepPad(name, pad, p.windowPad);
 		options.scoreA=resolveFamilyScore(name, scoreA, NCRNA_SCORE_A_OVERRIDE, p.scoreA);
 		options.scoreB=resolveFamilyScore(name, scoreB, NCRNA_SCORE_B_OVERRIDE, p.weight);
@@ -2977,6 +2990,8 @@ public class CallGenes extends ProkObject {
 		options.idBorderline=resolveSweepFloat(name, NCRNA_ID_BORDERLINE_OVERRIDE, p.idBorderline);
 		options.hbmPass=resolveSweepFloat(name, NCRNA_HBM_PASS_OVERRIDE, p.hbmPass);
 		options.collapse=resolveSweepFloat(name, NCRNA_COLLAPSE_FRAC_OVERRIDE, p.collapse);
+		if("sixs_rf00013".equals(name)){SIXS_RF00013_BOUNDARY_CONFIG.apply(name, options, true);}
+		else if("sixs_rf01685".equals(name)){SIXS_RF01685_BOUNDARY_CONFIG.apply(name, options, true);}
 		return NcrnaFamilyLoader.load(name, options, new FamilyResourceResolver());
 	}
 
@@ -3170,6 +3185,7 @@ public class CallGenes extends ProkObject {
 		final IndexOverrides overrides=familyIndexOverrides(name);
 		final NcrnaFamilyLoader.Options options=new NcrnaFamilyLoader.Options();
 		options.endpoints=false;//Window controls still precede endpoint installation.
+		if(name.equals("srp_small")){options.collapsedWindowPad=SRPSMALL_COLLAPSED_PAD_OVERRIDE;}
 		options.indexK=resolveFamilyInt(name, overrides.k, NCRNA_INDEX_K_OVERRIDE, p.indexK);
 		options.topN=resolveFamilyInt(name, overrides.topN, NCRNA_INDEX_TOP_N_OVERRIDE, p.topN);
 		options.minHits=resolveFamilyInt(name, overrides.minHits, NCRNA_INDEX_MIN_HITS_OVERRIDE, p.minHits);
@@ -3499,10 +3515,8 @@ public class CallGenes extends ProkObject {
 		if(family.equals("rnasep") || family.equals("srp_small") || family.equals("srp_large") || family.equals("tmrna")){
 			return new int[]{-3,-2,-1,0,1,2};
 		}
-		// No sixS boundary models are shipped yet.  These candidate positions keep the
-		// family geometry explicit; Gate B remains strict and fails before use until its
-		// family-specific net and tables are released.
-		if(family.equals("sixs_rf00013") || family.equals("sixs_rf01685") || family.equals("r58") || family.equals("lsu") || family.equals("s18")){return new int[]{-3,-2,-1,0,1,2};}
+		if(family.equals("sixs_rf00013") || family.equals("sixs_rf01685")){return NcrnaFamilyRegistry.get(family).boundaryOffsets(true);}
+		if(family.equals("r58") || family.equals("lsu") || family.equals("s18")){return new int[]{-3,-2,-1,0,1,2};}
 		throw new IllegalArgumentException("No boundary-start offsets configured for ncRNA family: "+family);
 	}
 
@@ -3518,11 +3532,9 @@ public class CallGenes extends ProkObject {
 		if(family.equals("rnasep")){return new int[]{-1,0,1,2,3,4};}
 		if(family.equals("srp_small") || family.equals("srp_large")){return new int[]{-2,-1,0,1,2,3};}
 		if(family.equals("tmrna")){return new int[]{-3,-2,-1,0,1,2};}
-		// No sixS boundary models are shipped yet.  These candidate positions keep the
-		// family geometry explicit; Gate B remains strict and fails before use until its
-		// family-specific net and tables are released.
+		if(family.equals("sixs_rf00013") || family.equals("sixs_rf01685")){return NcrnaFamilyRegistry.get(family).boundaryOffsets(false);}
 		if(family.equals("lsu")){return new int[]{-4,-3,-2,-1,0,1,2,3,4};}
-		if(family.equals("sixs_rf00013") || family.equals("sixs_rf01685") || family.equals("r58") || family.equals("s18")){return new int[]{-3,-2,-1,0,1,2};}
+		if(family.equals("r58") || family.equals("s18")){return new int[]{-3,-2,-1,0,1,2};}
 		throw new IllegalArgumentException("No boundary-stop offsets configured for ncRNA family: "+family);
 	}
 
@@ -3989,6 +4001,10 @@ public class CallGenes extends ProkObject {
 		if(anyFamilyPad && !NCRNA_FAMILIES_ENABLED){
 			throw new IllegalArgumentException("family ncRNA pad overrides require ncrna=t");
 		}
+		if(SRPSMALL_COLLAPSED_PAD_OVERRIDE>0 && (!NCRNA_FAMILIES_ENABLED
+				|| NCRNA_FAMILY_FILTER!=null && !NCRNA_FAMILY_FILTER.equals("srp_small"))){
+			throw new IllegalArgumentException("srpsmallcollapsedpad requires the SRP-small caller to be enabled");
+		}
 		if(anyFamilyScores && !NCRNA_FAMILIES_ENABLED){
 			throw new IllegalArgumentException("family ncRNA score overrides require ncrna=t");
 		}
@@ -4385,6 +4401,9 @@ public class CallGenes extends ProkObject {
 	public static boolean TMRNA_ENABLED=true;
 	/** Default-on paired RF00013/RF01685 gate, subordinate to ncrna. */
 	public static boolean SIXS_ENABLED=true;
+	/** Calibrated default-on endpoint controls; explicit subtype false retains the opt-out. */
+	public static final SixsBoundaryConfig SIXS_RF00013_BOUNDARY_CONFIG=new SixsBoundaryConfig("sixs_rf00013");
+	public static final SixsBoundaryConfig SIXS_RF01685_BOUNDARY_CONFIG=new SixsBoundaryConfig("sixs_rf01685");
 	/** Packaged eukaryotic pair, selected explicitly by euk=t or r58lsu=t. */
 	public static boolean R58LSU_ENABLED=false;
 	/** Follows paired-family selection unless explicitly overridden. */
@@ -4421,13 +4440,28 @@ public class CallGenes extends ProkObject {
 	/** 18S generic-family pilot gate (default OFF; cont.53). */
 	static boolean S18_ENABLED=false;
 	/** Gate B (C3, Noire's spec plans/c3_ncrnaboundaryscorer_spec.md; G11, 2026-08-28):
-	 * ncRNA boundary-precision-NN refinement, subordinate to Gate A -- ncrna=t alone gives
-	 * plain scavenger calling with no boundary refinement; ncrnaboundarynet=t additionally
+	 * global ncRNA boundary refinement, subordinate to Gate A. RNaseP/tmRNA/SRP have
+	 * independently accepted default-on refinement; ncrnaboundarynet=t additionally
 	 * attempts to lazy-load each family's boundary net/tables/model (see addNcrnaFamily).
 	 * OFF by default. REQUIRES Gate A: ncrnaboundarynet=t with ncrna=f is
 	 * REJECTED LOUDLY at parse time (Citan's correction, 2026-08-28), not a silent no-op --
 	 * see the assert in parse(). */
 	public static boolean NCRNA_BOUNDARY_NN_ENABLED=false;
+	/** Null selects accepted default-on refinement; explicit opt-outs remain independent of the global switch. */
+	public static Boolean RNASEP_BOUNDARY_NN_OVERRIDE=null, TMRNA_BOUNDARY_NN_OVERRIDE=null;
+	/** Null selects accepted default-on SRP refinement; explicit opt-outs remain independent of the global switch. */
+	public static Boolean SRPSMALL_BOUNDARY_NN_OVERRIDE=null, SRPLARGE_BOUNDARY_NN_OVERRIDE=null;
+
+	public static boolean ncrnaBoundaryEnabled(String family){
+		assert(family!=null) : "Shared boundary selection must name the family passed to NcrnaFamilyLoader";
+		if("rnasep".equals(family)){return RNASEP_BOUNDARY_NN_OVERRIDE==null || RNASEP_BOUNDARY_NN_OVERRIDE;}
+		if("tmrna".equals(family)){return TMRNA_BOUNDARY_NN_OVERRIDE==null || TMRNA_BOUNDARY_NN_OVERRIDE;}
+		if("srp_small".equals(family)){return SRPSMALL_BOUNDARY_NN_OVERRIDE==null || SRPSMALL_BOUNDARY_NN_OVERRIDE;}
+		if("srp_large".equals(family)){return SRPLARGE_BOUNDARY_NN_OVERRIDE==null || SRPLARGE_BOUNDARY_NN_OVERRIDE;}
+		if("sixs_rf00013".equals(family)){return SIXS_RF00013_BOUNDARY_CONFIG.enabled(true);}
+		if("sixs_rf01685".equals(family)){return SIXS_RF01685_BOUNDARY_CONFIG.enabled(true);}
+		return NCRNA_BOUNDARY_NN_ENABLED;
+	}
 
 	/** P1 (Brian via Citan, 2026-08-28): per-family scavenger candidate-window padding
 	 * overrides. -1 means unset -- loadNcrnaResources() uses each family's shipped default
@@ -4439,6 +4473,8 @@ public class CallGenes extends ProkObject {
 	 * only the constant CallGenes has always passed into it. */
 	public static int RNASEP_PAD_OVERRIDE=-1;
 	public static int SRPSMALL_PAD_OVERRIDE=-1;
+	/** Padding of otherwise discarded intersections only; unset inherits the selected registry policy. */
+	public static int SRPSMALL_COLLAPSED_PAD_OVERRIDE=-1;
 	public static int SRPLARGE_PAD_OVERRIDE=-1;
 	public static int TMRNA_PAD_OVERRIDE=-1;
 	/** Calibrated failed-primary rescue margins; primary identity stays unchanged. */
@@ -4502,6 +4538,20 @@ public class CallGenes extends ProkObject {
 	 * a test can simply set the fields before calling. */
 	public static void validateNcrnaGateCombo(){
 		R58_BOUNDARY_CONFIG.validate(R58_BOUNDARY_NN_ENABLED);
+		SIXS_RF00013_BOUNDARY_CONFIG.validate(NCRNA_FAMILIES_ENABLED, SIXS_ENABLED, true);
+		SIXS_RF01685_BOUNDARY_CONFIG.validate(NCRNA_FAMILIES_ENABLED, SIXS_ENABLED, true);
+		if(Boolean.TRUE.equals(RNASEP_BOUNDARY_NN_OVERRIDE) && !NCRNA_FAMILIES_ENABLED){
+			throw new IllegalArgumentException("rnasepboundarynn=t requires ncrna=t");
+		}
+		if(Boolean.TRUE.equals(TMRNA_BOUNDARY_NN_OVERRIDE) && !(NCRNA_FAMILIES_ENABLED && TMRNA_ENABLED)){
+			throw new IllegalArgumentException("tmrnaboundarynn=t requires ncrna=t and tmrna=t");
+		}
+		if(Boolean.TRUE.equals(SRPSMALL_BOUNDARY_NN_OVERRIDE) && !NCRNA_FAMILIES_ENABLED){
+			throw new IllegalArgumentException("srpsmallboundarynn=t requires ncrna=t");
+		}
+		if(Boolean.TRUE.equals(SRPLARGE_BOUNDARY_NN_OVERRIDE) && !NCRNA_FAMILIES_ENABLED){
+			throw new IllegalArgumentException("srplargeboundarynn=t requires ncrna=t");
+		}
 		assert(!NCRNA_BOUNDARY_NN_ENABLED || NCRNA_FAMILIES_ENABLED) : "ncrnaboundarynet=t requires "
 			+"ncrna=t (or generalncrna=t) -- boundary refinement has no families to attach to "
 			+"when generic ncRNA calling itself is off.";

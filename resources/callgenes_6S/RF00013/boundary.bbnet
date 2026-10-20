@@ -1,0 +1,46 @@
+##bbnet
+#version 1
+##java 25.0.1
+##simd true
+##simd_ff true
+##simd_bp true
+#concise
+#dense
+#density 1
+#blocksize 1
+#seed 58
+#layers 3
+#epochs 2000
+#samples 20169778
+#dims 10 16 1
+#CL java -XX:ActiveProcessorCount=4 -ea -XX:+ExitOnOutOfMemoryError --add-modules=jdk.incubator.vector -Xmx4g -Xms4g ml.Trainer config=/clusterfs/jgi/groups/gentech/homes/bbushnell/Ganyu/ncrna_sixs_refit_20261020/53095203/RF00013/recipe.config in=/clusterfs/jgi/groups/gentech/homes/bbushnell/Ganyu/ncrna_sixs_refit_20261020/53095203/RF00013/vectors.tsv validate=/clusterfs/jgi/groups/gentech/homes/bbushnell/Ganyu/ncrna_sixs_refit_20261020/53095203/RF00013/vectors.tsv out=/clusterfs/jgi/groups/gentech/homes/bbushnell/Ganyu/ncrna_sixs_refit_20261020/53095203/RF00013/boundary.bbnet -Xmx4g -eoom
+##stats Batch 2000:	ERR= 0.107569	WER= 1.020385	FPR= 0.029979	FNR= 0.029754	TPR= 0.136912	TNR= 0.803355	CTF= 0.503398	ALP= 0.02857	ANN= 0.000000
+##fpr 0.029979
+##fnr 0.029754
+##err 0.107569
+##wer 1.020385
+##ctf 0.503398
+#coding A48
+#zeroabsent true
+#liveedges 176
+#edges 176
+##layer 1
+C11 TANH nHXGD lB@SZ oW9IJ oTO>n 2oZB^; moD4= 2n;ZJU l\7C` mi0h7 lGY?D mAgI8
+C12 TANH 2nfP5n mX;7h 2oH_2U 2oXCD< 10@WCP 2nfW1i 2oC;J0 2nTHL[ 2o5WHi 2o<N`] o8GW=
+C13 SIG 2nfg7j 2nc27H mGK8X 2mYn?P 2oa[OG 2nBY`_ 2no2cn 2nTe0C 2nff7D 2o6U5j nR:_3
+C14 SIG 2nQkF4 2o1nRl nWU_T nPeGP 2on`Ch m?\G< 2n?_hg 2nW[Ud 2n^n7T 2oMC:] 2neWJR
+C15 SIG 2o7YNH 2nCjGR nBn8H 2oN?O: 2n8j\e 2o?<U\ 2n6685 2n]4nh 2mE6BK 2ng_Y: 2o9LWT
+C16 TANH mm=Z= me^=a 2o6SLD o20@] n^oV@ m<I_i 2nTfMF 2noiBn 2oa@E_ m8DXh 2lG1GF
+C17 TANH naje^ mmG^2 2oT3aL nYA\g 2ni1aC 2o2\=` 2n3J3F l[Jih m8E94 n;;T1 mN=kU
+C18 SIG 2o:`S: 2nG[_S nTJ[I 2nUQff 2oGHQ1 2mmDJL 2n8Y;P 2nW::P 2n5]>Y 2oLM;^ 2nR;id
+C19 SIG 2nmWEb 2m3`QI o<6H[ oQ3WE 30QRi< 2nd_eF 2oG\A> 2nVjM[ 2o7EEO 2o5\If 2o0:2e
+C20 SIG 2no37P 2nYJ[Y 2kn2S= 2oO?f\ m:A@d 2o7dCf 2o5NDF 2nSaIa 2n?;P2 2o4hRD 2n?b]l
+C21 SIG 2o;f55 2nd8MU 2mIlGV 2o4ooG 2n9K0h mjWcl 2nMeUi 2o??O6 2o3:ZE 2o;Hm^ 2n[hUS
+C22 SIG 2nigBG 2o<H0F 2le`X= 2nGhB2 2o9]5h 2n[:>9 2n_6e; 2niVbl 2nB6`E 2o9^RI 2n5Ofi
+C23 SIG 2n]SEa 2oEZ?a m\1B] nR;fY 303ZgS 2n64[c 2n\Olo 2nOKO= lB6>E 2nkP]e 2nT[_K
+C24 SIG 2nk]^N 2nQ5gL nJ7ZF n5>G` 2oMgLd 2nkR]_ 2n:cWV 2oTf1n 2n0`MD 2nh7Ij 2nRM0^
+C25 SIG 2o2kIQ 2o0jIH lVY9F 2m`5eP 2o6mKH 2n:<9i 2o2`68 2oFSUL 2o1eeA 2o0K01 n1IAf
+C26 SIG 2o8j05 2o0UEN 2mH7@> 2o8T;O 2nHjQY 2o;o\: 2n[bL9 2nmX3M 2nEH=Z 2nl]3F 2m6=Ak
+##layer 2
+C27 RSLOG o5KnN m?8NM 2lS[=B nZjB: o<LKL 2n\63T 2lkgWA 2m73fd mnb]g oTOag 2ndY<1 2kiMUb n0]le o>3K] nWi@F mjRE4 2n:Nng
+

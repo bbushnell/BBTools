@@ -6,3 +6,9 @@ RF00013	seeds	.	.	seeds.fa.gz	fasta	9072	9ffde2dbc472f7ad1359
 RF01685	consensus	.	.	consensus.fa	fasta	2755	9d2196043ae3e0cfbf1b
 RF01685	models	.	.	models.hbmc.gz	hbm	2925	eb7144fda706f58d0cf8
 RF01685	seeds	.	.	seeds.fa	fasta	2652	d940ff5ca08f28fa4d5c
+RF00013	boundary	.	.	boundary.bbnet	bbnet	2513	52400073eeaf0a570733
+RF00013	boundary_start	.	.	tables/start.tsv	tsv	19088	8058fd19d8a7606e290c
+RF00013	boundary_stop	.	.	tables/stop.tsv	tsv	24632	198bcdddaed4bd399a58
+RF01685	boundary	.	.	boundary.bbnet	bbnet	2456	d75a5cb42619b1ff43f2
+RF01685	boundary_start	.	.	tables/start.tsv	tsv	96	4e23e5ebb02c5e74ca7f
+RF01685	boundary_stop	.	.	tables/stop.tsv	tsv	147	2f968d9fab7e63d7676b

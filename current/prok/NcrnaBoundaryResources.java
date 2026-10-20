@@ -10,6 +10,8 @@ final class NcrnaBoundaryResources {
 			FamilyResourceResolver resolver){
 		assert(library!=null && library.length>0 && resolver!=null)
 			: "Shared boundary length features require the already validated family consensus library";
+		// Every enabled boundary adapter requires all three roles, including6S.
+		// Family opt-outs are resolved before construction; missing selected resources fail loudly.
 		final String netPath=resolver.resolve(family, "boundary", overrides).path;
 		final String startPath=resolver.resolve(family, "boundary_start", overrides).path;
 		final String stopPath=resolver.resolve(family, "boundary_stop", overrides).path;

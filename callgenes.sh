@@ -522,6 +522,30 @@ ncrnaboundarynet=f  Refine generic ncRNA endpoints with the family-specific
                     When enabled, every loaded family must have complete,
                     index-aligned boundary resources; missing or misaligned
                     resources fail loudly.
+rnasepboundarynn=t  Refine RNase P endpoints by default; f disables refinement.
+tmrnaboundarynn=t   Refine tmRNA endpoints by default; f disables refinement.
+                    Defaults apply only when their caller is enabled.
+                    Explicit t requires ncrna=t (and tmrna=t for tmRNA).
+srpsmallboundarynn=t Refine small-SRP endpoints by default; f disables refinement.
+srplargeboundarynn=t Refine large-SRP endpoints by default; f disables refinement.
+                    Defaults apply only when ncrna=t.
+                    Explicit family t/f wins over the global switch in either order.
+                    Enabling requires ncrna=t and complete boundary resources.
+sixsrf00013boundarynn=t Refine RF00013 endpoints by default; f disables it.
+sixsrf01685boundarynn=t Corresponding RF01685 switch.
+                    Defaults apply when both parent callers are enabled.
+                    Explicit t/f wins over the global switch in either order.
+                    Explicit t requires ncrna=t and sixs=t.
+sixsrf00013boundarynet= Override the RF00013 shared 5'/3' boundary network.
+sixsrf00013boundarystarttable= Override its 5' enrichment table.
+sixsrf00013boundarystoptable= Override its 3' enrichment table.
+sixsrf00013boundarystartrange=-8,8 Inclusive 5' correction range.
+sixsrf00013boundarystoprange=-8,8  Inclusive 3' correction range.
+                    RF01685 accepts the same suffixes with prefix sixsrf01685;
+                    its default ranges are -1,1. Explicit paths/ranges require
+                    enabled refinement and both parent callers.
+                    Ranges include zero and contain at most 257 positions
+                    within -256..256. Missing resources fail loudly.
 ncrnafamily=    Select rnasep, srp_small, srp_large, tmrna, sixs_rf00013,
                 sixs_rf01685, r58, lsu, s18, or euk5S as the generic sweep
                 overrides below; requires ncrna=t (or generalncrna=t).  A tmrna
@@ -572,7 +596,7 @@ rnasepkmers=    Explicit RNase-P conserved-kmer fasta; requires ncrna=t.
 srpsmallkmers=  Explicit SRP-small conserved-kmer fasta; requires ncrna=t.
 srplargekmers=  Explicit SRP-large conserved-kmer fasta; requires ncrna=t.
 tmrnakmers=     Explicit tmRNA conserved-kmer fasta; requires ncrna=t and tmrna=t.
-sixsrf00013kmers=  Explicit RF00013 16-mer fasta; requires ncrna=t and sixs=t.
+sixsrf00013kmers=  Explicit RF00013 17-mer fasta; requires ncrna=t and sixs=t.
 sixsrf01685kmers=  Explicit RF01685 17-mer fasta; requires ncrna=t and sixs=t.
 r58kmers=       Optional R58 17-mer fasta override; requires r58lsu=t.
 lsukmers=       Optional LSU 17-mer fasta override; requires r58lsu=t.
@@ -611,6 +635,9 @@ ncrnacollapsefrac=  Overlap fraction used to collapse candidate windows.
 ncrnawindowpad= Candidate padding around conserved-kmer hits.
 rnaseppad=     RNase-P-only candidate padding override; requires ncrna=t.
 srpsmallpad=   SRP-small-only candidate padding override; requires ncrna=t.
+srpsmallcollapsedpad=75 Median-seed padding for intersections rejected
+               as too short. 75 restores a 168-base window; retained windows and
+               the accepted-gene length floor are unchanged. 0 disables it.
 srplargepad=   SRP-large-only candidate padding override; requires ncrna=t.
 tmrnapad=       tmRNA-only padding override (provisional shipped default 370);
                 requires ncrna=t and tmrna=t.

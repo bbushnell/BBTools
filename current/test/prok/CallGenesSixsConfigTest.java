@@ -155,6 +155,10 @@ public class CallGenesSixsConfigTest {
 		}
 		checkFloat(0f, f.scoreA); checkFloat(20f, f.scoreB); checkFloat(0.85f, f.collapseFrac);
 		checkFloat(idPass, f.idPass); checkFloat(idBorderline, f.idBorderline); checkFloat(hbmPass, f.hbmPass);
+		if(!Arrays.equals(selectedOffsets(f.name), f.boundaryStartOffsets)
+				|| !Arrays.equals(selectedOffsets(f.name), f.boundaryStopOffsets)){
+			throw new AssertionError("Selected6S correction radius did not reach the loaded family: "+f.name);
+		}
 	}
 
 	private static void assertOverrideRejected(){
@@ -163,11 +167,14 @@ public class CallGenesSixsConfigTest {
 	}
 
 	private static void checkOffsets(String family){
-		final int[] expected={-3,-2,-1,0,1,2};
+		final int[] expected=selectedOffsets(family);
 		if(!Arrays.equals(expected, CallGenes.boundaryStartOffsets(family))
 				|| !Arrays.equals(expected, CallGenes.boundaryStopOffsets(family))){
-			throw new AssertionError("Unexpected provisional 6S boundary offsets for "+family);
+			throw new AssertionError("Unexpected selected 6S boundary offsets for "+family);
 		}
+	}
+	private static int[] selectedOffsets(String family){
+		return family.equals("sixs_rf00013") ? new int[]{-8,-7,-6,-5,-4,-3,-2,-1,0,1,2,3,4,5,6,7,8} : new int[]{-1,0,1};
 	}
 
 	private static void assertBareSixsAliasRejected(String value){

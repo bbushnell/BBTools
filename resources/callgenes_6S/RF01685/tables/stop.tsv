@@ -1,0 +1,13 @@
+#boundary	stop
+#insidecount	6
+#outsidecount	1
+#k	7
+#kmer	count
+AAGTTTA	2
+GAGTTCA	4
+GAGTTCG	2
+GAGTTTA	243
+GAGTTTG	77
+GAGTTTT	17
+GGGTTTA	5
+GGGTTTG	6

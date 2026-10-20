@@ -370,10 +370,13 @@ public class Orf extends PFeature {
 	 * @param prev Candidate predecessor ORF. @param maxOverlap Max bases prev may overlap into this ORF.
 	 * @return True iff prev legally precedes this ORF. */
 	public boolean isValidPrev(Orf prev, int maxOverlap){
+		assert(prev!=null) : "GeneCaller path lists must supply a real predecessor for an edge";
 		//valid only if prev strictly precedes: ends before this ends, overlaps by <=maxOverlap, and starts earlier
 		if(prev.stop>=stop || prev.stop>=start+maxOverlap || prev.start>=start){return false;}
-		//and reject a same-frame, same-strand predecessor whose stop reaches into this ORF's start
-		if(prev.frame==frame && prev.strand==strand && prev.stop>=start){return false;}
+		//Reading-frame exclusion applies only to coding genes. NcrnaScavenger
+		//assigns RNA a placeholder frame0; applying this rule to RNA dropped two
+		//verified Tsukamurella SRPs after endpoint refinement introduced2bp CDS overlap.
+		if(type==CDS && prev.type==CDS && prev.frame==frame && prev.strand==strand && prev.stop>=start){return false;}
 		return true;
 	}
 

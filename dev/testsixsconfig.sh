@@ -3,14 +3,15 @@
 usage(){
 echo "
 Written by Citan
-Last modified September 2026
+Last modified October 2026
 
 Description:  Runs CallGenesSixsConfigTest -- focused configuration checks for the
-default-off paired 6S ncRNA bundle (sixs=/ssrs=/6s=, subordinate to ncrna=). Verifies
-default-off state, family-name aliasing, per-family idPass/idBorderline/hbmPass defaults,
+default-on paired 6S ncRNA bundle (sixs=/ssrs=/6s=, subordinate to ncrna=). Verifies
+default-on state, family-name aliasing, per-family idPass/idBorderline/hbmPass defaults,
 boundary offsets, gate subordination, and override-requires-gate behavior, plus a
-resource-backed constructed-family check (testShippedBundle()) that requires the six
-staged sixs_rf00013_*/sixs_rf01685_* resources and fails loudly if they are absent.
+resource-backed constructed-family check (testShippedBundle()) that requires
+resources/callgenes_6S/manifest.tsv and both subtype resource sets, failing loudly
+if they are absent. Boundary refinement remains separately controlled.
 Self-contained assertion-based test, no args.
 
 Usage:  testsixsconfig.sh

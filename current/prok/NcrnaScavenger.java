@@ -470,7 +470,11 @@ public class NcrnaScavenger {
 	}
 
 	/** One window preparation seam for both passes; opt-in changes no legacy family. */
-	ArrayList<int[]> prepareCandidateWindows(int[] positions, long[] keys, int seqLen){
+	public ArrayList<int[]> prepareCandidateWindows(int[] positions, long[] keys, int seqLen){
+		if(collapsedWindowPad<0 || collapsedWindowPad>0 && (voteWindows || voteBeforePadding
+				|| 2L*collapsedWindowPad+kLong<minLen)){
+			throw new IllegalArgumentException("Collapsed-window padding requires nonvoting windows and the unchanged gene-length floor: "+family);
+		}
 		if(voteBeforePadding){
 			if(!voteWindows || voteTable==null){throw new IllegalStateException("Vote-before-padding requires enabled window votes and a bound table: "+family);}
 			if(voteWindowBuilder==null){
@@ -491,7 +495,8 @@ public class NcrnaScavenger {
 		for(int center : hitPositions){
 			int start=(int)Math.max(0L, (long)center-windowPad);
 			int stop=(int)Math.min(seqLen-1L, (long)center+windowPad+kLong);
-			windows.add(new int[]{start, stop, WINDOW_COLLAPSE});
+			windows.add(collapsedWindowPad==0 ? new int[]{start, stop, WINDOW_COLLAPSE}
+				: new int[]{start, stop, WINDOW_COLLAPSE, center});
 		}
 		return windows;
 	}
@@ -504,6 +509,7 @@ public class NcrnaScavenger {
 		windows.sort((a, b)->a[0]-b[0]);
 		ArrayList<int[]> result=new ArrayList<>();
 		int[] current=windows.get(0);
+		int first=0;
 		for(int i=1; i<windows.size(); i++){
 			int[] next=windows.get(i);
 			// Borreliella prok16s_0: a neighboring fragment's edge-clipped [0,1856]
@@ -519,13 +525,30 @@ public class NcrnaScavenger {
 				current=new int[]{Tools.max(current[0], next[0]), Tools.min(current[1], next[1]), WINDOW_COLLAPSE};
 			}else{
 				if(retainWindow(current, seqLen)){result.add(current);}
-				else{diagnoseCollapsedDrop(current);}
+				else{retainPaddedCollapse(current,windows,first,i-1,seqLen,result);}
 				current=next;
+				first=i;
 			}
 		}
 		if(retainWindow(current, seqLen)){result.add(current);}
-		else{diagnoseCollapsedDrop(current);}
+		else{retainPaddedCollapse(current,windows,first,windows.size()-1,seqLen,result);}
 		return result;
+	}
+
+	/** Only an otherwise discarded intersection may use its original cluster's median seed.
+	 * No claim subtraction is repeated or undone; the existing gene floor still applies. */
+	private void retainPaddedCollapse(int[] discarded,ArrayList<int[]> originals,int first,int last,int seqLen,ArrayList<int[]> result){
+		assert(first>=0 && first<=last && last<originals.size()):"Median must belong to the exact seed cluster that collapsed";
+		if(collapsedWindowPad>0){
+			final int[] median=originals.get(first+(last-first)/2);
+			assert(median.length==4):"Opt-in seed windows retain their actual centers; intersections are never used to infer one";
+			final int center=median[3];
+			final int start=(int)Math.max(0L,(long)center-collapsedWindowPad);
+			final int stop=(int)Math.min(seqLen-1L,(long)center+collapsedWindowPad+kLong);
+			final int[] padded={start,stop,WINDOW_COLLAPSE};
+			if(retainWindow(padded,seqLen)){result.add(padded);return;}
+		}
+		diagnoseCollapsedDrop(discarded);
 	}
 
 	private void diagnoseCollapsedDrop(int[] window){
@@ -1562,6 +1585,8 @@ public class NcrnaScavenger {
 	public boolean modelClipRescue=false;
 	/** Explicit physical-edge-only retry; zero leaves legacy behavior intact. */
 	public int physicalEdgeMinLen=0;
+	/** Zero is the exact historical path; positive values pad only rejected collapsed clusters. */
+	public int collapsedWindowPad=0;
 	/** Historical field name: explicit16S/23S failed physical-edge floor; zero disables it. */
 	public int prok16sPartialMinLen=0;
 	/** NaN preserves the per-model pass cutoff; Quantum never consumes this override. */

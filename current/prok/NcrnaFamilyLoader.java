@@ -14,6 +14,7 @@ public final class NcrnaFamilyLoader {
 		require(options!=null && resolver!=null, "Explicit load options and resolver required");
 		if(!options.enabled){return null;}//A disabled selection never resolves or opens a resource.
 		final NcrnaFamilyRegistry.Entry p=NcrnaFamilyRegistry.get(familyId);
+		require(options.collapsedWindowPad>=-1, "Collapsed-window padding uses -1 only for the registry default");
 		final int seedK=options.seedK<0 ? p.seedK : options.seedK;
 		require(seedK==p.seedK || p.boundary!=null && p.boundary.trna,
 			"Only explicit legacy tRNA calling may select a different seed K: "+p.id);
@@ -93,6 +94,10 @@ public final class NcrnaFamilyLoader {
 		family.reuseConsensusAlignment=p.boundary==null;family.voteSlack=p.voteSlack;
 		family.prok16sPartialMinLen=p.partialMinLen;family.quantumCapMultiplier=p.quantumCap;
 		family.preserveContainingWindows=p.preserveContaining;
+		family.collapsedWindowPad=options.collapsedWindowPad<0 ? p.collapsedWindowPad : options.collapsedWindowPad;
+		require(family.collapsedWindowPad>=0 && (family.collapsedWindowPad==0
+			|| 2L*family.collapsedWindowPad+seedK>=minLen),
+			"Collapsed-window padding must be disabled or span the unchanged gene-length floor: "+p.id);
 		if(p.modelCutoffs && options.cutoffs){loadCutoffs(family, options.resources, resolver);}
 		if(options.endpoints && p.packagedEndpoints){family.setRrnaEndpointInference(loadEndpoints(family, options.resources, resolver), null);}
 		return family;
@@ -158,6 +163,7 @@ public final class NcrnaFamilyLoader {
 		public int indexK=-1, topN=-1, minHits=-1, seedMinHits=-1, windowPad=-1, minLen=-1;
 		public int seedK=-1;
 		public int longestPadFlank=-1;
+		public int collapsedWindowPad=-1;
 		public int[] boundaryStartOffsets, boundaryStopOffsets;
 		public float boundaryMarginStart=0f, boundaryMarginStop=0f;
 		public float floor=Float.NaN, topFrac=Float.NaN, qFrac=Float.NaN, weight=Float.NaN;

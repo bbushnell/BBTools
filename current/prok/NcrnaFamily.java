@@ -256,6 +256,8 @@ public class NcrnaFamily {
 	public boolean voteBeforePadding=false;
 	/** Opt-in containment correction; a clipped subset cannot shrink its containing proposal. */
 	public boolean preserveContainingWindows=false;
+	/** Zero preserves dropped short intersections; positive values pad their median seed. */
+	public int collapsedWindowPad=0;
 	public int voteSlack=60;
 	public float voteEndsMaxSd=5f;
 	/** Optional production model-dispatched endpoint resources. Null preserves the

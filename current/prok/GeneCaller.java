@@ -458,6 +458,7 @@ public class GeneCaller extends ProkObject {
 		scavenger.voteTable=family.voteTable; scavenger.voteWindows=family.voteWindows; scavenger.voteEnds=family.voteEnds;
 		scavenger.voteBeforePadding=family.voteBeforePadding;
 		scavenger.preserveContainingWindows=family.preserveContainingWindows;
+		scavenger.collapsedWindowPad=family.collapsedWindowPad;
 		scavenger.voteSlack=family.voteSlack; scavenger.voteEndsMaxSd=family.voteEndsMaxSd;
 		scavenger.outputType=family.outputType;
 		scavenger.minKmerHits=family.seedMinHits;

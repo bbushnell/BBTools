@@ -67,6 +67,7 @@ public final class NcrnaFamilyRegistry {
 				: "Grouped entries must name a declared member and the group's one resource root";
 			group=group_;member=member_;
 			minLen=minLen_;windowPad=windowPad_;indexK=indexK_;topN=topN_;minHits=minHits_;
+			collapsedWindowPad="srp_small".equals(id_) ? 75 : 0;
 			weight=weight_;idPass=idPass_;idBorderline=idBorderline_;hbmPass=hbmPass_;hasHbm=hasHbm_;
 			outputType=outputType_;pass2=pass2_;rankedFallback=ranked_;strictIndexCutoff=strict_;
 			partialMinLen=partialMinLen_;quantumCap=cap_;voteSlack=voteSlack_;boundaryRadius=boundaryRadius_;
@@ -93,6 +94,8 @@ public final class NcrnaFamilyRegistry {
 		final int seedK=17, seedMinHits;
 		final int minSeedKeys;
 		final int minLen, windowPad, indexK, topN, minHits, outputType;
+		/** Measured SRP-small fallback; all other families retain discarded intersections. */
+		public final int collapsedWindowPad;
 		final int partialMinLen, quantumCap, voteSlack, boundaryRadius;
 		final float scoreA;
 		final BoundaryPolicy boundary;
@@ -105,8 +108,11 @@ public final class NcrnaFamilyRegistry {
 		int[] boundaryOffsets(boolean start){
 			if(id.equals("r58")){return R58BoundaryConfig.defaultOffsets(start);}
 			if(boundary!=null && boundary.trna){return start ? TrnaBoundaryVectorGen.START_OFFSETS : TrnaBoundaryVectorGen.STOP_OFFSETS;}
-			if(boundary!=null){return start ? NcrnaFamily.LEGACY_START_OFFSETS : boundary.stopOffsets;}
-			if(boundaryRadius<0){return start ? NcrnaFamily.LEGACY_START_OFFSETS : NcrnaFamily.LEGACY_STOP_OFFSETS;}
+			// A measured centered radius overrides the shared adapter's historical geometry.
+			if(boundaryRadius<0){
+				if(boundary!=null){return start ? NcrnaFamily.LEGACY_START_OFFSETS : boundary.stopOffsets;}
+				return start ? NcrnaFamily.LEGACY_START_OFFSETS : NcrnaFamily.LEGACY_STOP_OFFSETS;
+			}
 			assert(boundaryRadius>0) : "Centered boundary offsets must bracket the accepted alignment";
 			final int[] offsets=new int[2*boundaryRadius+1];
 			for(int i=0; i<offsets.length; i++){offsets[i]=i-boundaryRadius;}return offsets;
@@ -160,14 +166,15 @@ public final class NcrnaFamilyRegistry {
 		new String[0], 60, 3500, 9, 4, 448, 1f, .60f, .54f, .54f, true, ProkObject.RNA,
 		true, false, false, 0, 1, 150, -1, false, new String[0], .85f, false, true, 1, null,
 		new BoundaryPolicy("lsu_consensus.fa", "lsu_models.hbm", 0f, false, 0f, 0f, 0f, new int[]{-4,-3,-2,-1,0,1,2,3,4}), null, "", "consensus");
-	private static final Group SIXS_GROUP=new Group("6S", "callgenes_6S", new String[]{"RF00013", "RF01685"});
+	private static final Group SIXS_GROUP=new Group("6S", "callgenes_6S", new String[]{"RF00013", "RF01685"},
+		new String[]{"consensus", "models", "seeds"}, new String[0], new String[]{"boundary", "boundary_start", "boundary_stop"});
 	private static final Entry SIXS_RF00013=new Entry("sixs_rf00013", "callgenes_6S", "ncrna=t sixs=t",
 		new String[0], 60, 250, 7, 60, 1, 20f, .70f, .60f, .64f, true, ProkObject.RNA,
-		true, false, false, 0, 1, 60, -1, false, new String[0], .85f, false, true, 1, null,
+		true, false, false, 0, 1, 60, 8, false, new String[0], .85f, false, true, 1, null,
 		new BoundaryPolicy("sixs_rf00013_consensus.fa", "sixs_rf00013_models.hbm", 0f, false, 0f, 0f, 0f, new int[]{-3,-2,-1,0,1,2}), SIXS_GROUP, "RF00013", "consensus");
 	private static final Entry SIXS_RF01685=new Entry("sixs_rf01685", "callgenes_6S", "ncrna=t sixs=t",
 		new String[0], 60, 125, 7, 60, 1, 20f, .70f, .70f, .75f, true, ProkObject.RNA,
-		true, false, false, 0, 1, 60, -1, false, new String[0], .85f, false, true, 1, null,
+		true, false, false, 0, 1, 60, 1, false, new String[0], .85f, false, true, 1, null,
 		new BoundaryPolicy("sixs_rf01685_consensus.fa", "sixs_rf01685_models.hbm", 0f, false, 0f, 0f, 0f, new int[]{-3,-2,-1,0,1,2}), SIXS_GROUP, "RF01685", "consensus");
 	private static final Group SRP_GROUP=new Group("SRP", "callgenes_SRP", new String[]{"small", "large"},
 		new String[]{"consensus", "models"}, new String[]{"seeds"}, new String[]{"boundary", "boundary_start", "boundary_stop"});
