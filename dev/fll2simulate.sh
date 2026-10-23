@@ -2,7 +2,7 @@
 
 usage(){
 echo "
-Written by Brian Bushnell and Chloe von Einzbern-Bushnell
+Written by Brian Bushnell and Chloe
 Last modified April 8, 2026
 
 Description:  Simulates a single FLL2 (FutureLogLog 2-bit) word to build

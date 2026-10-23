@@ -1,0 +1,678 @@
+package clump2;
+
+import java.io.File;
+import java.io.PrintStream;
+import java.util.ArrayList;
+import java.util.Locale;
+import java.util.concurrent.atomic.AtomicLongArray;
+
+import bloom.KCountArray;
+import fileIO.ByteFile;
+import fileIO.FileFormat;
+import fileIO.ReadWrite;
+import jgi.BBMerge;
+import parse.Parse;
+import parse.Parser;
+import parse.PreParser;
+import shared.KillSwitch;
+import shared.Shared;
+import shared.Timer;
+import shared.Tools;
+import stream.Streamer;
+import stream.StreamerFactory;
+import stream.Writer;
+import stream.WriterFactory;
+import stream.LightweightWriterFactory;
+import stream.MultiWriterPolicy;
+import stream.FASTQ;
+import stream.FastaReadInputStream;
+import stream.Read;
+import structures.ListNum;
+import structures.Quantizer;
+import tracker.ReadStats;
+
+/**
+ * Initial pivot-based partitioning stage for Clumpify. Chooses a pivot for each
+ * root read and writes it, with its linked mate, to hash(pivot)%groups. Unpairing
+ * instead separates the mates before pivot selection. Output order is unspecified.
+ * Owns its input/output streams and worker threads; configuration changes shared
+ * parser/comparator settings and must be serialized with other clump invocations.
+ *
+ * @author Brian Bushnell
+ * @date June 20, 2014
+ */
+public class KmerSplit{
+	
+	/*--------------------------------------------------------------*/
+	/*----------------        Initialization        ----------------*/
+	/*--------------------------------------------------------------*/
+	
+	/**
+	 * Code entrance from the command line. Initializes KmerSplit instance,
+	 * processes input data, and restores the saved compression/interleaving settings
+	 * on normal return. Other parser/comparator globals and exceptional exits are
+	 * not restored.
+	 * @param args Command line arguments
+	 */
+	//CLEVER (the most complete save/restore in the clump family): saves+restores BOTH the ReadWrite zip statics AND
+	//the FASTQ.FORCE_INTERLEAVED/TEST_INTERLEAVED flags around the in-JVM run (Clumpify calls this main() directly).
+	//Still part of the Clumpify#001 family in that the Clump/KmerComparator statics (defaultSeed/hashes/border/
+	//minProb set from args L170-176) are NOT restored - but this is the closest any family member gets.
+	public static void main(String[] args){
+		final boolean pigz=ReadWrite.USE_PIGZ, unpigz=ReadWrite.USE_UNPIGZ;
+		final boolean oldFInt=FASTQ.FORCE_INTERLEAVED, oldTInt=FASTQ.TEST_INTERLEAVED;
+		final int zl=ReadWrite.ZIPLEVEL;
+		final float ztd=ReadWrite.ZIP_THREAD_MULT();
+		final int mzt=ReadWrite.MAX_ZIP_THREADS();
+		Timer t=new Timer();
+		KmerSplit x=new KmerSplit(args);
+		ReadWrite.ZIPLEVEL=Tools.min(ReadWrite.ZIPLEVEL, maxZipLevel);
+		x.process(t);
+		ReadWrite.USE_PIGZ=pigz;
+		ReadWrite.USE_UNPIGZ=unpigz;
+		ReadWrite.ZIPLEVEL=zl;
+		ReadWrite.setZipThreadMult(ztd);
+		ReadWrite.setZipThreads(mzt);
+		FASTQ.FORCE_INTERLEAVED=oldFInt;
+		FASTQ.TEST_INTERLEAVED=oldTInt;
+		
+		//Close the print stream if it was redirected
+		Shared.closeStream(x.outstream);
+	}
+	
+	/**
+	 * Constructor that parses command line arguments and configures the KmerSplit
+	 * instance. Resolves input/output descriptors and expanded group filenames;
+	 * process() subsequently creates and starts the streams.
+	 * @param args Command line arguments
+	 */
+	public KmerSplit(String[] args){
+		
+		{//Preparse block for help, config files, and outstream
+			PreParser pp=new PreParser(args, getClass(), false);
+			args=pp.args;
+			outstream=pp.outstream;
+		}
+		
+		ReadWrite.USE_PIGZ=false;
+		ReadWrite.USE_UNPIGZ=true;
+		ReadWrite.setZipThreads(Shared.threads());
+
+		boolean setInterleaved=false; //Whether it was explicitly set.
+		Parser parser=new Parser();
+		
+		for(int i=0; i<args.length; i++){
+			String arg=args[i];
+			String[] split=arg.split("=");
+			String a=split[0].toLowerCase();
+			String b=split.length>1 ? split[1] : null;
+
+			if(parser.parse(arg, a, b)){
+				//do nothing
+			}else if(a.equals("phasetimers")){
+				KmerSort.phaseTimers=Parse.parseBoolean(b);
+			}else if(a.equals("verbose")){
+				verbose=KmerComparator.verbose=Parse.parseBoolean(b);
+			}else if(a.equals("parse_flag_goes_here")){
+				//Set a variable here
+			}else if(a.equals("k")){
+				k=Integer.parseInt(b);
+				assert(k>0 && k<32);
+			}else if(a.equals("mincount") || a.equals("mincr")){
+				minCount=Integer.parseInt(b);
+			}else if(a.equals("groups") || a.equals("g") || a.equals("sets") || a.equals("ways")){
+				groups=Integer.parseInt(b);
+			}else if(a.equals("rename") || a.equals("addname")){
+				//Do nothing
+//				addName=Parse.parseBoolean(b);
+			}else if(a.equals("shortname") || a.equals("shortnames")){
+				if(b!=null && b.equals("shrink")){
+					shrinkName=true;
+				}else{
+					shrinkName=false;
+					shortName=Parse.parseBoolean(b);
+				}
+			}else if(a.equals("rcomp") || a.equals("reversecomplement")){
+				//ignore rcomp=Parse.parseBoolean(b);
+			}else if(a.equals("condense") || a.equals("consensus") || a.equals("concensus")){//Note the last one is intentionally misspelled
+				//ignore
+			}else if(a.equals("correct") || a.equals("ecc")){
+				//ignore
+			}else if(a.equals("passes")){
+				int x=Integer.parseInt(b);
+//				if(x>1){outstream.println("Warning: KmerSplit does not support multiple passes.");}
+			}
+			
+			else if(a.equals("dedupe")){
+				//ignore
+			}else if(a.equals("entryfilter")){
+				//ignore
+			}else if(a.equals("markduplicates")){
+				//ignore
+			}else if(a.equals("markall")){
+				//ignore
+			}else if(a.equals("addcount") || a.equals("renamebycount")){
+				//ignore
+			}else if(a.equals("optical") || a.equals("opticalonly")){
+				//ignore
+			}else if(a.equals("dupesubs") || a.equals("duplicatesubs") || a.equals("dsubs") || a.equals("subs") || a.equals("s")){
+				//ignore
+			}else if(a.equals("dupedist") || a.equals("duplicatedistance") || a.equals("ddist") || a.equals("dist") || a.equals("opticaldist") || a.equals("distance")){
+				//ignore
+			}else if(a.equals("scanlimit") || a.equals("scan")){
+				//ignore
+			}else if(a.equals("removeallduplicates") || a.equals("allduplicates")){
+				//ignore
+			}else if(a.equals("allowns")){
+				//ignore
+			}else if(a.equals("containment") || a.equals("absorbcontainment") || a.equals("ac") || a.equals("contains")){
+				//ignore
+			}else if(a.equalsIgnoreCase("prefixOrSuffix") || a.equalsIgnoreCase("suffixOrPrefix") || a.equals("affix") || a.equals("pos")){
+				//ignore
+			}else if(a.equals("printduplicates")){
+				//ignore
+			}else if(a.equals("dupeidentity")){
+				//ignore
+			}else if(a.equals("dupesubrate") || a.equals("dsr") || a.equals("subrate")){
+				//ignore
+			}
+			
+			else if(a.equals("prefilter")){
+				KmerReduce.prefilter=Parse.parseBoolean(b);
+			}else if(a.equals("ecco")){
+				ecco=Parse.parseBoolean(b);
+			}else if(a.equals("seed")){
+				KmerComparator.defaultSeed=Long.parseLong(b);
+			}else if(a.equals("hashes")){
+				KmerComparator.setHashes(Integer.parseInt(b));
+			}else if(a.equals("border")){
+				KmerComparator.defaultBorder=Integer.parseInt(b);
+			}else if(a.equals("minprob")){
+				KmerComparator.minProb=Float.parseFloat(b);
+			}else if(a.equals("unpair")){
+				unpair=Parse.parseBoolean(b);
+			}else if(a.equals("repair")){
+				//Do nothing
+			}else if(a.equals("namesort") || a.equals("sort")){
+				//Do nothing
+			}else if(a.equals("fetchthreads")){
+				//Do nothing
+			}else if(a.equals("reorder") || a.equals("reorderclumps")){
+				//reorder=Parse.parseBoolean(b);
+			}else if(a.equals("reorderpaired") || a.equals("reorderclumpspaired")){
+//				reorderpaired=Parse.parseBoolean(b);
+			}
+			
+			
+			else if(Clump.parseStatic(arg, a, b)){
+				//Do nothing
+			}
+				
+			else{
+				outstream.println("Unknown parameter "+args[i]);
+				assert(false) : "Unknown parameter "+args[i];
+				//				throw new RuntimeException("Unknown parameter "+args[i]);
+			}
+		}
+		
+		{//Process parser fields
+			Parser.processQuality();
+			
+			maxReads=parser.maxReads;
+			
+			overwrite=ReadStats.overwrite=parser.overwrite;
+			append=ReadStats.append=parser.append;
+
+			setInterleaved=parser.setInterleaved;
+			
+			in1=parser.in1;
+			in2=parser.in2;
+
+			out1=parser.out1;
+			
+			extin=parser.extin;
+			extout=parser.extout;
+		}
+		
+		if(groups>2){ReadWrite.USE_PIGZ=false;}
+		
+		if(in1!=null && in2==null && in1.indexOf('#')>-1 && !new File(in1).exists()){
+			in2=in1.replace("#", "2");
+			in1=in1.replace("#", "1");
+		}
+		if(in2!=null){
+			if(FASTQ.FORCE_INTERLEAVED){outstream.println("Reset INTERLEAVED to false because paired input files were specified.");}
+			FASTQ.FORCE_INTERLEAVED=FASTQ.TEST_INTERLEAVED=false;
+		}
+		
+		assert(FastaReadInputStream.settingsOK());
+		
+		if(in1==null){throw new RuntimeException("Error - at least one input file is required.");}
+		if(!ByteFile.FORCE_MODE_BF1 && !ByteFile.FORCE_MODE_BF2 && Shared.threads()>2){
+			ByteFile.FORCE_MODE_BF2=true;
+		}
+		
+		if(!setInterleaved){
+			assert(in1!=null) : "\nin1="+in1+"\nin2="+in2+"\nout1="+out1+"\n";
+			if(in2!=null){ //If there are 2 input streams.
+				FASTQ.FORCE_INTERLEAVED=FASTQ.TEST_INTERLEAVED=false;
+				outstream.println("Set INTERLEAVED to "+FASTQ.FORCE_INTERLEAVED);
+			}
+		}
+
+		if(out1!=null && out1.equalsIgnoreCase("null")){out1=null;}
+		
+		if(out1!=null){
+			assert(out1.contains("%"));
+			outArray=new String[groups];
+			for(int i=0; i<groups; i++){
+				outArray[i]=out1.replaceFirst("%", ""+i);
+			}
+			if(!Tools.testOutputFiles(overwrite, append, false, outArray)){
+				outstream.println((out1==null)+", "+out1);
+				throw new RuntimeException("\n\noverwrite="+overwrite+"; Can't write to output files "+out1+"\n");
+			}
+			ffout=new FileFormat[groups];
+			if(groups>1){ReadWrite.setZipThreadMult(Tools.min(0.5f, 2f/(groups+1)));}
+			for(int i=0; i<groups; i++){
+				ffout[i]=FileFormat.testOutput(outArray[i], FileFormat.FASTQ, extout, groups<10, overwrite, append, false);
+			}
+		}else{
+			outArray=null;
+			throw new RuntimeException("out is a required parameter.");
+		}
+
+		ffin1=FileFormat.testInput(in1, FileFormat.FASTQ, extin, true, true);
+		ffin2=FileFormat.testInput(in2, FileFormat.FASTQ, extin, true, true);
+		//Fixed [clump/KmerSplit#001]: check actual expanded output names against both inputs before startup.
+		ClumpTools.validateFileNames(new FileFormat[] {ffin1, ffin2}, ffout);
+	}
+	
+	
+	/*--------------------------------------------------------------*/
+	/*----------------         Outer Methods        ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Count kmers by building a k-mer count table if minCount is greater than 1.
+	 * Uses ClumpTools to generate the table from input files. */
+	void preprocess(){
+		if(minCount>1){
+			table=ClumpTools.getTable(in1, in2, k, minCount);
+		}
+	}
+
+	/**
+	 * Create read streams and process all data. Main processing method that
+	 * preprocesses k-mers, creates input/output streams, and distributes reads
+	 * across multiple output groups based on k-mer hashing.
+	 * @param t Timer for tracking execution time
+	 */
+	void process(Timer t){
+		
+		long phaseStart=KmerSort.phaseTimers ? System.nanoTime() : 0;
+		preprocess();
+		if(KmerSort.phaseTimers){preprocessNanos=System.nanoTime()-phaseStart; phaseStart=System.nanoTime();}
+		
+		final Streamer cris;
+		{
+			cris=StreamerFactory.getReadInputStream(maxReads, true, ffin1, ffin2, null, null, -1);
+			cris.start();
+			if(verbose){outstream.println("Started cris");}
+		}
+		boolean paired=cris.paired();
+		if(!ffin1.samOrBam()){outstream.println("Input is being processed as "+(paired ? "paired" : "unpaired"));}
+		if(cris.paired() && (in1==null || !in1.contains(".sam") && !unpair)){
+			outstream.println("Writing interleaved.");
+		}
+
+		final Writer ros[]=new Writer[groups];
+		//Each shard has one physical output; lightweight compression uses that leaf's thread.
+		final int requestedMode=MultiWriterPolicy.DEFAULT_MODE;
+		final int writerMode=(requestedMode==MultiWriterPolicy.AUTO ?
+				(groups<=Shared.threads() ? MultiWriterPolicy.ST : MultiWriterPolicy.ZT) : requestedMode);
+		final LightweightWriterFactory writerFactory=new LightweightWriterFactory(writerMode, 8);
+		if(groups>1){
+			outstream.println("Clump shard writer mode: "+(writerMode==MultiWriterPolicy.ST ? "ST" : "ZT")+
+					" for "+groups+" physical outputs with t="+Shared.threads());
+		}
+		try{
+			for(int i=0; i<groups; i++){
+				ros[i]=(groups==1 ? WriterFactory.makeWriter(ffout[i])
+						: writerFactory.getStream(ffout[i], null, null, null, null, false));
+				ros[i].start();
+			}
+		}catch(OutOfMemoryError e){
+			KillSwitch.memKill(e);
+		}
+		
+		readsProcessed=0;
+		basesProcessed=0;
+		
+		//Process the read stream
+		if(KmerSort.phaseTimers){startupNanos=System.nanoTime()-phaseStart;}
+		processInner(cris, ros);
+		printPhaseTimers();
+		
+		errorState|=ReadStats.writeAll();
+		
+		t.stop();
+		
+		outstream.println(Tools.timeReadsBasesProcessed(t, readsProcessed, basesProcessed, 8));
+		
+		if(errorState){
+			Clumpify.sharedErrorState=true;
+			throw new RuntimeException(getClass().getName()+" terminated in an error state; the output may be corrupt.");
+		}
+	}
+	
+	/**
+	 * Hashes and distributes reads without sorting. Records the processed memory
+	 * estimate after splitReads closes the supplied streams.
+	 * @param cris Already-started input stream, owned by this processing call
+	 * @param ros Already-started unordered output streams, owned by this call
+	 */
+	void processInner(final Streamer cris, final Writer[] ros){
+		if(verbose){outstream.println("Making comparator.");}
+		KmerComparator kc=new KmerComparator(k, false, false);
+		if(verbose){outstream.println("Seed: "+kc.seed);}
+		
+		if(verbose){outstream.println("Splitting reads.");}
+		splitReads(cris, ros, kc);
+		lastMemProcessed=memProcessed;
+		
+		if(verbose){outstream.println("Done!");}
+	}
+	
+	/** Starts workers, joins them, aggregates counts and closes all supplied streams.
+	 * The output count must match groups. Worker batches are independently buffered;
+	 * their list IDs are not an ordering contract for the output streams. */
+	public void splitReads(final Streamer cris, final Writer[] ros, final KmerComparator kc){
+		final long phaseStart=KmerSort.phaseTimers ? System.nanoTime() : 0;
+		Timer t=new Timer();
+		if(verbose){t.start("Making hash threads.");}
+		final int threads=Shared.threads();
+		//Queued Writers require one dense batch-ID sequence per destination across all producers.
+		final AtomicLongArray outIds=new AtomicLongArray(ros.length);
+		ArrayList<HashThread> alht=new ArrayList<HashThread>(threads);
+		for(int i=0; i<threads; i++){alht.add(new HashThread(i, cris, ros, kc, outIds));}
+		
+		if(verbose){outstream.println("Starting threads.");}
+		for(HashThread ht : alht){ht.start();}
+		
+		
+		if(verbose){outstream.println("Waiting for threads.");}
+		/* Wait for threads to die */
+		for(HashThread ht : alht){
+			
+			/* Wait for a thread to die */
+			while(ht.getState()!=Thread.State.TERMINATED){
+				try{
+					ht.join();
+				}catch(InterruptedException e){
+					e.printStackTrace();
+				}
+			}
+			readsProcessed+=ht.readsProcessedT;
+			basesProcessed+=ht.basesProcessedT;
+			diskProcessed+=ht.diskProcessedT;
+			memProcessed+=ht.memProcessedT;
+			workerNanos+=ht.elapsedNanos;
+			readNanos+=ht.readNanos;
+			hashNanos+=ht.hashNanos;
+			submitNanos+=ht.submitNanos;
+		}
+		
+		if(verbose){outstream.println("Closing streams.");}
+		final long drainStart=KmerSort.phaseTimers ? System.nanoTime() : 0;
+		if(KmerSort.phaseTimers){workersNanos=drainStart-phaseStart;}
+		errorState=ReadWrite.closeStreams(cris, ros)|errorState;
+		if(KmerSort.phaseTimers){drainNanos=System.nanoTime()-drainStart;}
+		if(verbose){t.stop("Split time: ");}
+	}
+	
+	/*--------------------------------------------------------------*/
+	/*----------------         Inner Methods        ----------------*/
+	/*--------------------------------------------------------------*/
+	
+	/*--------------------------------------------------------------*/
+	/*----------------         Inner Classes        ----------------*/
+	/*--------------------------------------------------------------*/
+	
+	/** Applies first-pass transformations and owns one buffer per destination group. */
+	private class HashThread extends Thread{
+
+		HashThread(int id_, Streamer cris_, Writer[] ros_, KmerComparator kc_, AtomicLongArray outIds_){
+			id=id_;
+			cris=cris_;
+			ros=ros_;
+			kc=kc_;
+			outIds=outIds_;
+		}
+
+		/**
+		 * Main execution method for HashThread. Processes read batches by validating
+		 * reads, applying name transformations, computing k-mer hashes, and distributing
+		 * reads to output groups based on hash codes modulo group count.
+		 */
+		@Override
+		public void run(){
+			final long start=profile ? System.nanoTime() : 0;
+			runInner();
+			if(profile){elapsedNanos=System.nanoTime()-start;}
+		}
+
+		/** Processes the same batches while optional timers observe coarse boundaries. */
+		private void runInner(){
+
+			final boolean paired=cris.paired();
+			ListNum<Read> ln=nextBatch();
+			ArrayList<Read> reads=(ln!=null ? ln.list : null);
+			
+			ArrayList<Read>[] array=new ArrayList[groups];
+			for(int i=0; i<groups; i++){
+				array[i]=new ArrayList<Read>(buffer);
+			}
+			
+			while(ln!=null && reads!=null){//Streamer permits empty nonterminal batches.
+				
+				for(Read r : reads){
+					if(!r.validated()){
+						r.validate(true);
+						if(r.mate!=null){r.mate.validate(true);}
+					}
+					readsProcessedT+=1+r.mateCount();
+					basesProcessedT+=r.length()+r.mateLength();
+					diskProcessedT+=r.countFastqBytes()+r.countMateFastqBytes();
+					memProcessedT+=r.countBytes()+r.countMateBytes()+ReadKey.overhead;
+					if(shrinkName){
+						Clumpify.shrinkName(r);
+						Clumpify.shrinkName(r.mate);
+					}else if(shortName){
+						Clumpify.shortName(r);
+						Clumpify.shortName(r.mate);
+					}
+					
+					if(quantizeQuality){
+						Quantizer.quantize(r, r.mate);
+					}
+				}
+				
+				if(ecco){
+					for(Read r : reads){
+						if(r.mate!=null){BBMerge.findOverlapStrict(r, r.mate, true);}
+					}
+				}
+				
+				ArrayList<Read> hashList=reads;
+				if(paired && unpair){
+					hashList=new ArrayList<Read>(reads.size()*2);
+					for(Read r1 : reads){
+						Read r2=r1.mate;
+						hashList.add(r1);
+						hashList.add(r2);
+						r1.mate=null;
+						r2.mate=null;
+					}
+				}
+				
+				//Distribute each read to group = hash(pivot kmer) % groups. This is the INITIAL split that the
+				//KmerSort stage later reads back per-group; correctness requires all reads sharing a pivot to land in
+				//ONE group, which holds because the hash is deterministic and KmerSplit uses the same default seed as
+				//KmerSort's first comparator -> identical pivots -> identical group. %groups is safe from a negative
+				//index because kc.hash masks &Long.MAX_VALUE (see KmerComparator.hash); the assert guards it anyway.
+				//Per-group 200-read buffers flush to ros only when full -> far fewer ros.add calls than per-read.
+				final long hashStart=profile ? System.nanoTime() : 0;
+				kc.hash(hashList, table, minCount, true);
+				if(profile){hashNanos+=System.nanoTime()-hashStart;}
+				for(Read r : hashList){
+					long kmer=((ReadKey)r.obj).kmer;
+					long code=kc.hash(kmer);
+					int code2=(int)(code%groups);
+					assert(code2>=0 && code2<array.length) : code2+", "+groups+", "+array.length+", "+kmer+", "+r.obj+"\n"+r;
+					array[code2].add(r);
+					if(array[code2].size()>=buffer){
+						submit(code2, array[code2]);
+						array[code2]=new ArrayList<Read>(buffer);
+					}
+				}
+				cris.returnList(ln);
+				ln=nextBatch();
+				reads=(ln!=null ? ln.list : null);
+			}
+			if(ln!=null){
+				cris.returnList(ln.id, ln.list==null || ln.list.isEmpty());
+			}
+			for(int i=0; i<groups; i++){
+				if(!array[i].isEmpty()){
+					submit(i, array[i]);
+				}
+			}
+		}
+
+		/** Measures input waiting at batch boundaries, never per read. */
+		private ListNum<Read> nextBatch(){
+			final long start=profile ? System.nanoTime() : 0;
+			final ListNum<Read> batch=cris.nextList();
+			if(profile){readNanos+=System.nanoTime()-start;}
+			return batch;
+		}
+
+		/** Includes queue waiting or caller-driven output, according to the backend. */
+		private void submit(int destination, ArrayList<Read> reads){
+			final long start=profile ? System.nanoTime() : 0;
+			ros[destination].add(reads, outIds.getAndIncrement(destination));
+			if(profile){submitNanos+=System.nanoTime()-start;}
+		}
+
+		/** Thread-local elapsed measurements, read only after joining this worker. */
+		private long elapsedNanos, readNanos, hashNanos, submitNanos;
+		private final boolean profile=KmerSort.phaseTimers;
+		final int id;
+		final Streamer cris;
+		final Writer[] ros;
+		final KmerComparator kc;
+		final AtomicLongArray outIds;
+		static final int buffer=200;
+		
+		protected long readsProcessedT=0;
+		protected long basesProcessedT=0;
+		protected long diskProcessedT=0;
+		protected long memProcessedT=0;
+	}
+	
+	/*--------------------------------------------------------------*/
+	/*----------------            Fields            ----------------*/
+	/*--------------------------------------------------------------*/
+	
+	/** Reports coordinator wall totals and overlapping worker elapsed sums.
+	 * Hash is a subset of transform/hash/route time, not an additional phase. */
+	private void printPhaseTimers(){
+		if(!KmerSort.phaseTimers){return;}
+		phase("coord_preprocess", preprocessNanos);
+		phase("coord_stream_startup", startupNanos);
+		phase("coord_workers", workersNanos);
+		phase("coord_stream_drain", drainNanos);
+		phase("worker_input_wait_elapsed_sum", readNanos);
+		phase("worker_transform_hash_route_elapsed_sum", workerNanos-readNanos-submitNanos);
+		phase("worker_hash_elapsed_sum", hashNanos);
+		phase("worker_submit_elapsed_sum", submitNanos);
+	}
+
+	/** Formats one optional elapsed measurement in seconds. */
+	private void phase(String name, long nanos){
+		outstream.printf(Locale.ROOT, "PhaseTimer\t%s\t%s\t%.6f%n", getClass().getSimpleName(), name, nanos*1e-9);
+	}
+
+	/** Coordinator-owned measurements; worker sums are collected after joins. */
+	private long preprocessNanos, startupNanos, workersNanos, drainNanos;
+	private long workerNanos, readNanos, hashNanos, submitNanos;
+
+	/** Pivot length, between 1 and 31 inclusive. */
+	private int k=31;
+	/** Number of output partitions. */
+	int groups=16;
+	/** Minimum count used when selecting pivots from the optional count table. */
+	int minCount=0;
+	
+	/** Shared pivot-count table; absent when minCount is at most one. */
+	KCountArray table=null;
+	
+	/*--------------------------------------------------------------*/
+	/*----------------          I/O Fields          ----------------*/
+	/*--------------------------------------------------------------*/
+	
+	private String in1=null;
+	private String in2=null;
+
+	private String out1=null;
+	private String[] outArray=null;
+	
+	private String extin=null;
+	private String extout=null;
+	
+	/*--------------------------------------------------------------*/
+	
+	/** Input reads, including linked mates, before optional unpairing. */
+	protected long readsProcessed=0;
+	/** Input bases, including linked mates, before transformations. */
+	protected long basesProcessed=0;
+	/** Estimated FASTQ bytes before name/quality transformations. */
+	protected long diskProcessed=0;
+	/** Estimated in-memory input bytes, including key overhead per root. */
+	protected long memProcessed=0;
+	
+	/** Memory estimate from the last completed split, used by the next sorter pass. */
+	protected static long lastMemProcessed=0;
+	
+	/** Fragment limit supplied to the reader; negative means no configured limit. */
+	private long maxReads=-1;
+//	private boolean addName=false;
+	boolean shortName=false;
+	boolean shrinkName=false;
+	boolean ecco=false;
+	boolean unpair=false;
+	
+	static int maxZipLevel=2;
+
+	static boolean quantizeQuality=false;
+	
+	/*--------------------------------------------------------------*/
+	/*----------------         Final Fields         ----------------*/
+	/*--------------------------------------------------------------*/
+	
+	private final FileFormat ffin1;
+	private final FileFormat ffin2;
+	
+	private final FileFormat[] ffout;
+	
+	/*--------------------------------------------------------------*/
+	/*----------------        Common Fields         ----------------*/
+	/*--------------------------------------------------------------*/
+	
+	private PrintStream outstream=System.err;
+	public static boolean verbose=false;
+	public boolean errorState=false;
+	private boolean overwrite=true;
+	private boolean append=false;
+	
+}

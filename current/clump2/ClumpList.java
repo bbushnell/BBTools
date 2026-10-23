@@ -1,0 +1,534 @@
+package clump2;
+
+import java.io.PrintStream;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.LinkedList;
+import java.util.Map.Entry;
+import java.util.concurrent.atomic.AtomicInteger;
+
+import dna.AminoAcid;
+import shared.Shared;
+import shared.Tools;
+import stream.Read;
+import structures.LongM;
+
+/**
+ * Groups k-mer-sorted reads into Clump objects and runs per-clump operations.
+ * Input reads must already have {@link ReadKey} instances attached and must be
+ * sorted by pivot k-mer before construction. Process modes may emit consensus
+ * reads, apply error correction, or remove duplicates; these operations consume
+ * the current clumps.
+ *
+ * @author Brian Bushnell
+ * @date Nov 9, 2015
+ */
+public class ClumpList extends ArrayList<Clump>{
+
+	/** Creates an empty ClumpList for the specified pivot k-mer length. */
+	public ClumpList(int k_){
+		this(null, k_, false);
+	}
+	
+	//TODO: Add flag to remove duplicates, and remove optical duplicates
+	/**
+	 * Creates a one-shot ClumpList and optionally groups an initial sorted read list.
+	 * Current KmerSort callers pass the complete sorted group at construction time.
+	 *
+	 * @param list k-mer-sorted reads with attached ReadKeys, or null
+	 * @param k_ pivot k-mer length
+	 * @param makeSimpleConsensus_ true to precompute and retain simple
+	 *        consensus reads while grouping
+	 */
+	public ClumpList(ArrayList<Read> list, int k_, boolean makeSimpleConsensus_){
+		k=k_;
+		makeSimpleConsensus=makeSimpleConsensus_;
+		if(list!=null){addReads(list);}
+//		Shared.sort(this);//Does nothing since reads are already sorted by kmer.
+	}
+	
+	/** Groups one k-mer-sorted read list into consecutive same-kmer clumps. */
+	public void addReads(ArrayList<Read> list){
+		assert(list.getClass()!=Clump.class) : list.getClass();
+		if(list.size()<100000 || Shared.threads()<2){addReadsST(list);}
+		else{addReadsMT(list);}
+		
+//		System.err.println(addedR+", "+addedC+", "+list.size());
+	}
+	
+	/** Groups mate-linked clumps together for output locality.
+	 * Marks clumps as added and should be called only once per unchanged list. */
+	public void reorderPaired(){//More efficient but requires unpair and repair, and paired reads.
+		ArrayList<Clump> temp=new ArrayList<Clump>(size());
+		for(Clump c : this){
+			if(!c.added){
+				temp.add(c);
+				c.added=true;
+				addFriends(c, temp, 0);
+			}
+		}
+		assert(temp.size()==size());
+		super.clear();
+		this.addAll(temp);
+	}
+	
+	//CLEVER [verified]: groups mate-linked clumps together for output locality. The depth<100 guard makes q null
+	//past depth 100, which stops further queueing -> bounds recursion against a stack overflow on deeply mate-
+	//chained clumps. Correctness is unaffected: clumps reached at the limit are still added to temp+marked; any
+	//never-reached clump is swept up by reorderPaired's main loop (the assert temp.size()==size() guards no loss).
+	private void addFriends(Clump c, ArrayList<Clump> temp, int depth){
+		LinkedList<Clump> q=(depth<100 ? new LinkedList<Clump>() : null);
+		for(Read r : c){
+			Read r2=r.mate;
+			if(r2!=null){
+				ReadKey rk=(ReadKey)r2.obj;
+				Clump c2=rk.clump;
+				if(!c2.added){
+					temp.add(c2);
+					c2.added=true;
+					if(q!=null){
+						q.addFirst(c2);
+//						addFriends(c2, temp, depth+1);//Not as good.
+					}
+				}
+			}
+		}
+		while(q!=null && !q.isEmpty()){
+			addFriends(q.pollLast(), temp, depth+1);
+		}
+	}
+	
+	/** Groups clumps connected by consensus k-mers for output locality.
+	 * Builds a cached map and should be called only once per unchanged list. */
+	public void reorder(){//Less efficient but works with unpaired reads
+		ArrayList<Clump> temp=new ArrayList<Clump>(size());
+//		temp.addAll(this);
+		LinkedHashMap<LongM, ArrayList<Clump>> map=map();
+		LinkedList<Clump> q=new LinkedList<Clump>();
+		
+		final LongM key=new LongM();
+		for(Entry<LongM, ArrayList<Clump>> e : map.entrySet()){
+			ArrayList<Clump> list=e.getValue();
+			if(list.size()>1){
+				Clump c0=list.get(0);
+				if(!c0.added){
+					temp.add(c0);
+					c0.added=true;
+				}
+				for(int i=1; i<list.size(); i++){
+					Clump c=list.get(i);
+					if(!c.added){
+						q.addFirst(c);
+						c.added=true;
+					}
+				}
+				while(!q.isEmpty()){
+					Clump c=q.pollLast();
+					temp.add(c);
+					key.set(c.kmer);
+					ArrayList<Clump> list2=map.get(key);
+					if(list2.size()>1){
+						for(int i=1; i<list2.size(); i++){
+							Clump c2=list2.get(i);
+							if(!c2.added){
+								c2.added=true;
+								q.addFirst(c2);
+							}
+						}
+					}
+				}
+			}
+		}
+		for(Clump c : this){
+			if(!c.added){
+				c.added=true;
+				temp.add(c);
+			}
+		}
+		assert(temp.size()==size()) : temp.size()+", "+this.size();
+		this.clear();
+		this.addAll(temp);
+	}
+	
+	/** Groups a k-mer-sorted read list using multiple fixed slice workers. */
+	//QUESTION [clump/ClumpList#002] (latent-LOW, NOT fixed): rAdded is
+	//cumulative for this ClumpList, but the assert below compares it only to the
+	//current input list size. This matches current one-shot construction;
+	//reusing one ClumpList for repeated addReadsMT calls would assert after the
+	//second append under -ea. Flagged to confirm, not changed.
+	public void addReadsMT(ArrayList<Read> list){
+		int threads=Tools.mid(2, Shared.threads()/2, 16);
+//		assert(false) : threads;
+		final ArrayList<ClumpThread> alct=new ArrayList<ClumpThread>(threads);
+		int incr=((list.size()+threads-1)/threads);
+		//incr is already ceil(size/threads), so incr*threads>=size>size-1 always -> this incr++ is dead (never
+		//fires). Harmless; the assert below confirms the real invariant threads*incr>=size that slicing needs.
+		if(incr*threads<list.size()-1){incr++;}
+		assert(threads*incr>=list.size()) : threads+", "+incr+", "+list.size();
+		for(int i=0; i<threads; i++){
+			alct.add(new ClumpThread(list, i*incr, (i+1)*incr, k, makeSimpleConsensus));
+		}
+		
+		if(verbose){outstream.println("Starting clump threads.");}
+		for(ClumpThread ct : alct){ct.start();}
+		
+		if(verbose){outstream.println("Waiting for threads.");}
+		/* Wait for threads to die */
+		for(ClumpThread ct : alct){
+			
+			/* Wait for a thread to die */
+			while(ct.getState()!=Thread.State.TERMINATED){
+				try{
+					ct.join();
+				}catch(InterruptedException e){
+					e.printStackTrace();
+				}
+			}
+			addAll(ct.storage);
+			cAdded+=ct.cAddedT;
+			rAdded+=ct.rAddedT;
+		}
+		assert(list.size()==rAdded) : list.size()+"!="+rAdded;
+//		for(int i=0; i<list.size(); i++){assert(list.get(i).doscarded()) : i;}
+	}
+	
+//	long addedR=0, addedC=0;
+//
+//	@Override
+//	public boolean add(Clump c){
+//		assert(c!=null && c.size()>0);
+//		synchronized(this){
+//			addedR+=c.size();
+//			addedC++;
+//		}
+//		return super.add(c);
+//	}
+//
+//	@Override
+//	public boolean addAll(Collection<? extends Clump> cc){
+//		for(Clump c : cc){add(c);}
+//		return true;
+//	}
+	
+	/** Groups a k-mer-sorted read list on the current thread. */
+	public void addReadsST(ArrayList<Read> list){
+		Clump currentClump=null;
+		long currentKmer=-1;
+		for(final Read r : list){
+			final ReadKey key=(ReadKey)r.obj;
+			if(key.kmer!=currentKmer){
+				if(currentClump!=null){
+					if(makeSimpleConsensus){
+						currentClump.consensusRead();
+						currentClump.clearCounts();
+					}
+					add(currentClump);
+				}
+				currentKmer=key.kmer;
+				currentClump=Clump.makeClump(key.kmer);
+			}
+			currentClump.add(r);
+//			assert(!r.doscarded());
+//			r.setDoscarded(true);
+//			assert(r.doscarded());
+		}
+		if(currentClump!=null && !currentClump.isEmpty()){
+			if(makeSimpleConsensus){
+				currentClump.consensusRead();
+				currentClump.clearCounts();
+			}
+			add(currentClump);
+		}
+//		for(int i=0; i<list.size(); i++){assert(list.get(i).doscarded()) : i;}
+	}
+	
+	/**
+	 * Runs the requested per-clump operation and returns surviving output reads.
+	 *
+	 * @param threads worker count
+	 * @param mode one of {@link #CONDENSE}, {@link #CORRECT}, or
+	 *        {@link #DEDUPE}
+	 * @param rvector cumulative correction, duplicate, and duplicate-base counts
+	 * @return output reads from all processed clumps
+	 */
+	// Requires threads>0 and rvector.length>=3. This is a consuming call:
+	// each worker clears its Clumps and set(i, null) clears list slots.
+	// ptr is advanced and must be reset before another process pass.
+	public ArrayList<Read> process(final int threads, final int mode, final long[] rvector){
+		final ArrayList<ProcessThread> alct=new ArrayList<ProcessThread>(threads);
+		for(int i=0; i<threads; i++){alct.add(new ProcessThread(mode));}
+		
+		if(verbose){outstream.println("Starting condense/correction threads.");}
+		for(ProcessThread ct : alct){ct.start();}
+		
+		if(verbose){outstream.println("Waiting for threads.");}
+		long readsThisPass=0;
+		long corrections=0;
+		long duplicates=0;
+		long basesDup=0;
+		/* Wait for threads to die */
+		for(ProcessThread ct : alct){
+
+			/* Wait for a thread to die */
+			while(ct.getState()!=Thread.State.TERMINATED){
+				try{
+					ct.join();
+				}catch(InterruptedException e){
+					e.printStackTrace();
+				}
+			}
+			readsThisPass+=ct.storage.size();
+			corrections+=ct.corrections;
+			duplicates+=ct.duplicates;
+			basesDup+=ct.basesDuplicated;
+		}
+		
+		if(verbose){outstream.println("Gathering reads.");}
+		ArrayList<Read> list=new ArrayList<Read>((int)readsThisPass);
+		for(int i=0; i<threads; i++){
+			ProcessThread ct=alct.set(i, null);
+			list.addAll(ct.storage);
+		}
+
+		rvector[0]+=corrections;
+		rvector[1]+=duplicates;
+		rvector[2]+=basesDup;
+//		assert(false) : duplicates+", "+Arrays.toString(rvector);
+		assert(list.size()==readsThisPass);
+		return list;
+	}
+	
+	/** Removes clumps, resets the process pointer, and invalidates the k-mer map.
+	 * Does not reset cumulative grouping counters or per-clump added flags. */
+	@Override
+	public void clear(){
+		super.clear();
+		ptr.set(0);
+		map=null;
+	}
+	
+	// The cached map assumes no inherited ArrayList mutation between build and
+	// use; call after all grouping and before reordering, on one thread.
+	//QUESTION [clump/ClumpList#001] (latent-LOW, NOT fixed): this is double-checked locking on the NON-volatile
+	//field `map`. It is safe ONLY because the sole caller chain (reorder/reorderPaired <- KmerSort1.processInner)
+	//runs single-threaded on the main thread. Under a genuinely concurrent first-call it would misbehave: a second
+	//thread that read temp==null before blocking would, after the first sets map, hit `assert(map==null)` (fails
+	//under -ea) or clobber map=temp(=stale null). No concurrent caller exists today, so latent; if map() ever
+	//becomes concurrent, make `map` volatile and drop the assert. Flagged to confirm, not changed (no live trigger).
+	public LinkedHashMap<LongM, ArrayList<Clump>> map(){
+		LinkedHashMap<LongM, ArrayList<Clump>> temp=map;
+		if(temp==null){
+			synchronized(this){
+				if(map==null){
+					temp=makeMap();
+				}
+				assert(map==null);
+				map=temp;
+			}
+		}
+		return map;
+	}
+	
+	private synchronized LinkedHashMap<LongM, ArrayList<Clump>> makeMap(){
+		assert(this.map==null);
+		LinkedHashMap<LongM, ArrayList<Clump>> map=new LinkedHashMap<LongM, ArrayList<Clump>>(this.size());
+		for(Clump c : this){
+			ArrayList<Clump> list=new ArrayList<Clump>(4);
+			list.add(c);
+			map.put(new LongM(c.kmer), list);
+		}
+		fillMap(map);
+		assert(this.map==null);
+		return map;
+	}
+	
+	private void fillMap(LinkedHashMap<LongM, ArrayList<Clump>> map){
+		final int shift=2*k;
+		final int shift2=shift-2;
+		final long mask=(shift>63 ? -1L : ~((-1L)<<shift));
+		final LongM key=new LongM();
+		
+		for(Clump c : this){
+			Read r=c.consensusRead();
+			byte[] bases=r.bases;
+			long kmer=0, rkmer=0;
+			int len=0;
+			for(int i=0; i<bases.length; i++){
+				byte b=bases[i];
+				long x=AminoAcid.baseToNumber[b];
+				long x2=AminoAcid.baseToComplementNumber[b];
+				kmer=((kmer<<2)|x)&mask;
+				rkmer=((rkmer>>>2)|(x2<<shift2))&mask;
+
+				if(x<0){
+					len=0;
+					kmer=rkmer=0;
+				}else{len++;}
+
+				if(len>=k){
+					final long kmax=Tools.max(kmer, rkmer);
+					key.set(kmax);
+					if(kmax!=c.kmer){
+						//This assertion should be fine, but it fails on nt.
+//						assert(kmer!=c.kmer && rkmer!=c.kmer) : kmax+", "+kmer+", "+rkmer+", "+c.kmer+", "+r.length()+", "+(r.length()<10000 ? r.toString() : "");
+					}
+					ArrayList<Clump> list=map.get(key);
+					if(list!=null && !list.contains(c)){list.add(c);}
+				}
+			}
+		}
+	}
+	
+	private class ProcessThread extends Thread{
+		
+		public ProcessThread(int mode_){
+			mode=mode_;
+		}
+		
+		@Override
+		public void run(){
+			final int size=size();
+			for(int i=ptr.getAndIncrement(); i<size; i=ptr.getAndIncrement()){
+				Clump c=get(i);
+				if(mode==CONDENSE){
+					ArrayList<Read> list=c.makeConsensus();
+					storage.addAll(list);
+				}else if(mode==CORRECT){
+					corrections+=c.splitAndErrorCorrect();
+					if(UNRCOMP){
+						for(Read r : c){
+							if(r.swapped()){
+								ReadKey key=(ReadKey)r.obj;
+								key.flip(r, k);
+//								r.reverseComplement();
+//								r.setSwapped(false);
+//								key.position=r.length()-key.position+k-2;
+							}
+						}
+					}
+					storage.addAll(c);
+				}else if(mode==DEDUPE){
+					duplicates+=c.removeDuplicates();
+					basesDuplicated+=c.basesRemoved;
+					storage.addAll(c);
+				}else{
+					throw new RuntimeException("Unknown mode "+mode);
+				}
+				c.clear();
+				set(i, null);
+			}
+		}
+		
+		public long corrections=0;
+		public long duplicates=0;
+		public long basesDuplicated=0;
+		ArrayList<Read> storage=new ArrayList<Read>();
+		private final int mode;
+	}
+	
+	private static class ClumpThread extends Thread{
+		
+		public ClumpThread(ArrayList<Read> input_, int startIndex_, int stopIndex_, int k, boolean makeSimpleConsensus_){
+			input=input_;
+			startIndex=startIndex_;
+			stopIndex=Tools.min(input.size(), stopIndex_);
+//			outstream.println("Processing "+startIndex_+"-"+stopIndex_);
+			storage=new ClumpList(k);
+			makeSimpleConsensusT=makeSimpleConsensus_;
+		}
+		
+		/** Builds clumps from the pre-kmer-sorted input slice [startIndex, stopIndex).
+		 * BOUNDARY HANDLING (verified, the subtle part): a clump = a maximal run of equal-kmer reads. This thread
+		 * OWNS only clumps that START in its slice. It seeds currentKmer from input[startIndex-1], so any leading
+		 * reads sharing that prior kmer (a clump that started in the previous slice) are SKIPPED here. Conversely
+		 * the main loop's currentClump is finished by the tail loop below, which runs PAST stopIndex (bounded only
+		 * by input.size()) until the kmer changes - so a clump straddling the end (or spanning many slices) is
+		 * fully grabbed by its owning thread. Skip-leading + grab-trailing partition the reads with no loss or
+		 * double-count (validated by addReadsMT's assert list.size()==rAdded). NOTE: not the atomic-counter pattern
+		 * (that's ProcessThread); ClumpThread uses fixed disjoint slices. */
+		@Override
+		public void run(){
+			if(startIndex>=input.size()){return;}
+			int i=startIndex;
+
+			long currentKmer=-1;
+			if(startIndex>0){
+				Read r=input.get(i-1);
+				final ReadKey key=(ReadKey)r.obj;
+				currentKmer=key.kmer;
+			}
+			while(i<stopIndex){
+				Read r=input.get(i);
+				final ReadKey key=(ReadKey)r.obj;
+				if(key.kmer!=currentKmer){
+					if(currentClump!=null){
+						storage.add(currentClump);
+						cAddedT++;
+						rAddedT+=currentClump.size();
+					}
+					currentKmer=key.kmer;
+					currentClump=Clump.makeClump(key.kmer);
+				}
+				if(currentClump!=null){
+					currentClump.add(r);
+//					assert(!r.doscarded()) : +i+", "+startIndex;
+//					r.setDoscarded(true);
+				}
+//				if(i==0){assert(r.doscarded()) : currentClump;}
+				i++;
+			}
+			while(currentClump!=null && i<input.size()){
+				Read r=input.get(i);
+				final ReadKey key=(ReadKey)r.obj;
+				if(key.kmer!=currentKmer){
+					storage.add(currentClump);
+					cAddedT++;
+					rAddedT+=currentClump.size();
+					currentClump=null;
+					break;
+				}else{
+					currentClump.add(r);
+//					assert(!r.doscarded()) : +i+", "+startIndex;
+//					r.setDoscarded(true);
+				}
+				i++;
+			}
+			if(currentClump!=null && currentClump.size()>0){
+				cAddedT++;
+				rAddedT+=currentClump.size();
+				storage.add(currentClump);
+			}
+			if(makeSimpleConsensusT){
+				for(Clump c : storage){
+					c.consensusRead();
+					c.clearCounts();
+				}
+			}
+			currentClump=null;
+		}
+		
+		final boolean makeSimpleConsensusT;
+		final ArrayList<Read> input;
+		final int startIndex;
+		final int stopIndex;
+		ClumpList storage;
+		Clump currentClump;
+		long cAddedT=0, rAddedT=0;
+	}
+	
+	static final int CONDENSE=1, CORRECT=2, DEDUPE=3;
+	
+	private final boolean makeSimpleConsensus;
+	long cAdded=0, rAdded=0;
+	
+	final int k;
+	final AtomicInteger ptr=new AtomicInteger(0);
+	private LinkedHashMap<LongM, ArrayList<Clump>> map;
+
+	public static boolean UNRCOMP=true;
+	private static boolean verbose=false;
+	
+	private static final long serialVersionUID = 1L;
+	private static final PrintStream outstream=System.err;
+	
+}
