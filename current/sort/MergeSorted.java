@@ -26,9 +26,12 @@ import tracker.ReadStats;
 import var2.ScafMap;
 
 /**
- * Sorts reads by name, potentially from multiple input files.
+ * Merges already-sorted reads from one or more sorted input files into a sorted output.
  * Performs recursive merging to handle large numbers of input files efficiently.
- * Supports various sorting criteria including name, length, quality, position, taxa, flowcell, and random order.
+ * Supports several selectable comparators, but the caller must supply inputs already
+ * sorted with the selected comparator. Random mode is rejected because materialized files
+ * do not preserve random keys for merging; use shuffle2.sh to shuffle reads. With delete=t,
+ * successfully merged inputs are removed.
  * @author Brian Bushnell
  * @date September 21, 2016
  */
@@ -170,6 +173,9 @@ public class MergeSorted {
 		}
 		
 		comparator=comparator.getComparator(ascending);
+		if(SortByName.randomComparator(comparator)){
+			SortByName.throwRandomMergeUnsupported("MergeSorted");
+		}
 		SortByName.setComparator(comparator);//Propagate the selected sort mode to SortByName's static merge methods (fix for sort/MergeSorted#001)
 		SamLine.SET_FROM_OK=true;
 		
@@ -177,6 +183,13 @@ public class MergeSorted {
 			ListNum.setDeterministicRandomSeed(-1);
 			ListNum.setDeterministicRandom(true);
 		}
+		if(!Tools.isNullFileName(parser.qfout1) || !Tools.isNullFileName(parser.qfout2)){
+			throw new IllegalArgumentException("Separate quality output (qfout/qfout2) is not supported by MergeSorted; write FASTQ to retain qualities.");
+		}
+		if(!Tools.isNullFileName(parser.in2)){
+			throw new IllegalArgumentException("Separate in2 input is not supported by MergeSorted; use in= with comma-delimited interleaved sorted inputs.");
+		}
+		if(maxFiles<2){throw new IllegalArgumentException("maxfiles must be at least 2 so recursive merges make progress: "+maxFiles);}
 		
 		{//Process parser fields
 			Parser.processQuality();
@@ -201,7 +214,7 @@ public class MergeSorted {
 		assert(FastaReadInputStream.settingsOK());
 		
 		//Ensure there is an input file
-		if(in1==null){throw new RuntimeException("Error - at least one input file is required.");}
+		if(in1==null || in1.isEmpty()){throw new RuntimeException("Error - at least one input file is required.");}
 		
 		//Adjust the number of threads for input file reading
 		if(!ByteFile.FORCE_MODE_BF1 && !ByteFile.FORCE_MODE_BF2 && Shared.threads()>2){
@@ -228,13 +241,13 @@ public class MergeSorted {
 		}
 		
 		//Ensure that no file was specified multiple times
-		if(!Tools.testForDuplicateFiles(true, out1, out2)){
+		if(!Tools.testForDuplicateFilesALA(true, in1, null, out1, out2)){
 			throw new RuntimeException("\nSome file names were specified multiple times.\n");
 		}
 		
 		//Create output FileFormat objects
-		ffout1=FileFormat.testOutput(out1, FileFormat.FASTQ, extout, true, overwrite, append, false);
-		ffout2=FileFormat.testOutput(out2, FileFormat.FASTQ, extout, true, overwrite, append, false);
+		ffout1=FileFormat.testOutput(out1, FileFormat.FASTQ, extout, true, overwrite, append, out2!=null);
+		ffout2=FileFormat.testOutput(out2, FileFormat.FASTQ, extout, true, overwrite, append, out2!=null);
 		
 		if(comparator.getClass()==ReadComparatorPosition.class){
 			if(ReadComparatorPosition.scafMap==null){
@@ -334,9 +347,9 @@ public class MergeSorted {
 		String temp;
 		File dir=new File(".");//(Shared.tmpdir()==null ? null : new File(Shared.tmpdir()));
 		if(dir!=null && !dir.exists()){dir.mkdirs();}
-		try {
+		try{
 			temp=File.createTempFile("sort_temp_", tempExt, dir).toString();
-		} catch (IOException e) {
+		}catch(IOException e){
 			// TODO Auto-generated catch block
 			e.printStackTrace();
 			KillSwitch.kill(e.getMessage());
@@ -377,7 +390,7 @@ public class MergeSorted {
 	/** Maximum number of files merged in a single pass before recursive merging kicks in. */
 	private int maxFiles=16;
 
-	/** Whether to delete temporary files after merging. */
+	/** Whether to delete input files after a successful merge. */
 	private boolean delete=true;
 
 	/** Whether to preserve a shared SAM/BAM header in the output. */

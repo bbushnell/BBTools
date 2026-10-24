@@ -13,7 +13,7 @@ import shared.Tools;
  * @author Brian Bushnell
  * @date Jul 12, 2018
  */
-public final class ContigLengthComparator implements Comparator<Contig> {
+public final class ContigLengthComparator implements Comparator<Contig>{
 
 	/** Private constructor; use the ascending/descending singletons. */
 	private ContigLengthComparator(int mult_){mult=mult_;}
@@ -28,7 +28,7 @@ public final class ContigLengthComparator implements Comparator<Contig> {
 	 * @return Negative/zero/positive as first contig is less/equal/greater than second
 	 */
 	@Override
-	public int compare(Contig a, Contig b) {
+	public int compare(Contig a, Contig b){
 		int x=compareInner(a, b);
 		if(x==0){x=a.coverage>b.coverage ? 1 : a.coverage<b.coverage ? -1 : 0;}
 		if(x==0){x=compareVectors(a.bases, b.bases);}
@@ -42,7 +42,7 @@ public final class ContigLengthComparator implements Comparator<Contig> {
 	 * @param b Second contig (may be null)
 	 * @return Length difference (a.length - b.length) or null ordering
 	 */
-	private static int compareInner(Contig a, Contig b) {
+	private static int compareInner(Contig a, Contig b){
 		if(a==b){return 0;}
 		if(a==null){return 1;}
 		if(b==null){return -1;}

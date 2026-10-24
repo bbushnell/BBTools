@@ -3,9 +3,11 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified November 9, 2016
+Last modified October 24, 2026
 
 Description:  Reorders reads randomly, keeping pairs together.
+All retained reads must fit in memory. Use shuffle2.sh for external-memory
+shuffling or repeatable shuffling with a seed.
 
 Usage:  shuffle.sh in=<file> out=<file>
 
@@ -23,6 +25,9 @@ shuffle         Randomly reorders reads (default).
 name            Sort reads by name.
 coordinate      Sort reads by mapping location.
 sequence        Sort reads by sequence.
+id              Sort reads by numeric ID, then pair number and name.
+mode=shuffle    Alternative to the bare mode flags: shuffle, name, sequence,
+                coordinate, or id.
 
 
 Java Parameters:

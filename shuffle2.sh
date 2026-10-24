@@ -3,10 +3,11 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified August 11, 2021
+Last modified October 24, 2026
 
 Description:  Reorders reads randomly, keeping pairs together.
 Unlike Shuffle, Shuffle2 can write temp files to handle large datasets.
+Temporary files are created in the working directory.
 
 Usage:  shuffle2.sh in=<file> out=<file>
 
@@ -20,8 +21,14 @@ ziplevel=2      (zl) Set to 1 (lowest) through 9 (max) to change compression lev
 int=auto        (interleaved) Set to t or f to override interleaving autodetection.
 
 Processing parameters:
-shuffle         Randomly reorders reads (default).
-seed=-1         Set to a positive number for deterministic shuffling.
+seed=-1         A nonnegative seed gives repeatable shuffling for identical
+                input, heap size, and settings. Negative seeds use fresh randomness.
+deterministic=f Set to t as shorthand for seed=1, or f for seed=-1.
+allowtemp=t     Allow temporary files when the in-memory threshold is reached.
+memmult=0.35    Fraction of available memory used per input block; must be in (0,1].
+maxfiles=16     Maximum input files per merge; must be at least 2.
+delete=t        Delete successfully merged temporary files.
+minlen=0        Retain a pair when either mate reaches this minimum length.
 
 Java Parameters:
 -Xmx            This will set Java's memory usage, overriding autodetection.

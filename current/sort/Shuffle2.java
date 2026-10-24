@@ -4,8 +4,6 @@ import java.io.File;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.util.ArrayList;
-import java.util.Collections;
-import shared.Random;
 import java.util.concurrent.atomic.AtomicLong;
 
 import fileIO.ByteFile;
@@ -15,6 +13,7 @@ import parse.Parse;
 import parse.Parser;
 import parse.PreParser;
 import shared.KillSwitch;
+import shared.Random;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
@@ -31,13 +30,16 @@ import tracker.ReadStats;
 /**
  * Randomizes (shuffles) the order of reads, using external temp files when the
  * dataset exceeds memory: reads are spilled in shuffled blocks and recombined by
- * randomly selecting among the temp files.
+ * randomly selecting among the temp files. Mates remain attached to their primary
+ * reads. A nonnegative seed reproduces output for identical input, heap and settings;
+ * changing the spill layout can change the resulting order.
+ * Instances configure shared I/O settings and are not independent concurrent tools.
  *
  * @author Brian Bushnell
  * @date September 21, 2016
  *
  */
-public class Shuffle2 {
+public class Shuffle2{
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
@@ -129,6 +131,14 @@ public class Shuffle2 {
 			}
 		}
 		
+		//SRT-007: final writers omit quality sidecars, and FASTA temporary files do not retain qualities.
+		if(!Tools.isNullFileName(parser.qfout1) || !Tools.isNullFileName(parser.qfout2)){
+			throw new IllegalArgumentException("Separate quality output (qfout/qfout2) is not supported by Shuffle2; write FASTQ to retain qualities.");
+		}
+		if(maxFiles<2){throw new IllegalArgumentException("maxfiles must be at least 2 so recursive merges make progress: "+maxFiles);}
+		if(!(memMult>0 && memMult<=1)){
+			throw new IllegalArgumentException("memmult must be a finite fraction in (0, 1]: "+memMult);
+		}
 		randy=Shared.threadLocalRandom(seed);
 		SamLine.SET_FROM_OK=true;
 		
@@ -226,12 +236,9 @@ public class Shuffle2 {
 		ffout2=FileFormat.testOutput(out2, FileFormat.FASTQ, extout, true, overwrite, append, false);
 		
 		tempExt=".fq.gz";
-		if(extout==null){
-			if(ffout1!=null){
-				tempExt=ffout1.fasta() ? ".fa.gz" : ffout1.samOrBam() ? ".sam" : ".fq.gz";
-			}
-		}else{
-			tempExt=extout;
+		if(ffout1!=null){
+			// Use the resolved format, not a raw extout token that may lack a filename suffix.
+			tempExt=ffout1.fasta() ? ".fa.gz" : ffout1.samOrBam() ? ".sam" : ".fq.gz";
 		}
 		
 	}
@@ -389,11 +396,12 @@ public class Shuffle2 {
 			}
 		}else{
 //			dumpCount.add(storage.size());
-			shuffleAndDump(storage, currentMem, outstandingMem, null, false);
+			if(!storage.isEmpty()){shuffleAndDump(storage, currentMem, outstandingMem, null, false);}
 			storage=null;
 			waitOnMemory(outstandingMem, 0);
-			outstream.println("Merging "+(dumps+1)+" files.");
 			ReadWrite.ZIPLEVEL=ziplevel0;
+			if(errorState){return;}//Retain failed spill files; process() closes input and reports the error.
+			outstream.println("Merging "+outTemp.size()+" files.");
 			if(maxLengthObserved*(dumped+1)>200000000L){
 				outstream.println("Reduced buffer sizes prior to merging due to low memory.");
 				Shared.capBufferLen(4);
@@ -405,20 +413,20 @@ public class Shuffle2 {
 	}
 	
 	/**
-	 * Blocks until outstanding memory usage drops below target threshold.
-	 * Used for memory pressure management during multi-threaded processing.
-	 * @param outstandingMem Atomic counter tracking memory in use by background threads
-	 * @param target Maximum memory threshold to wait for
+	 * Waits until pending estimated bytes plus writer completion tokens are at most target.
+	 * A zero target waits for all registered writers to publish their output/error status.
+	 * @param outstandingMem Estimated pending bytes plus one token per unfinished writer
+	 * @param target Maximum pending count permitted on return
 	 */
 	private void waitOnMemory(AtomicLong outstandingMem, long target){
 		if(outstandingMem.get()>target){
 			if(verbose){outstream.println("Syncing; outstandingMem="+outstandingMem);}
 			while(outstandingMem.get()>target){
-				try {
+				try{
 					synchronized(outstandingMem){
 						outstandingMem.wait(2000);
 					}
-				} catch (InterruptedException e) {
+				}catch(InterruptedException e){
 					// TODO Auto-generated catch block
 					e.printStackTrace();
 				}
@@ -468,7 +476,7 @@ public class Shuffle2 {
 	}
 	
 	/**
-	 * Merges multiple sorted temporary files into output files.
+	 * Randomly combines temporary files into output files.
 	 * Adjusts buffer sizes for efficiency and delegates to mergeAndDump.
 	 *
 	 * @param inList List of temporary file paths to merge
@@ -490,17 +498,17 @@ public class Shuffle2 {
 	}
 	
 	/**
-	 * Creates a temporary file for storing sorted read batches.
-	 * Uses system temp directory and appropriate file extension.
+	 * Creates an empty temporary file for a shuffled batch in the current directory.
+	 * The suffix follows the resolved final sequence format.
 	 * @return Path to created temporary file
 	 */
 	private String getTempFile(){
 		String temp;
 		File dir=new File(".");//(Shared.tmpdir()==null ? null : new File(Shared.tmpdir()));
 		if(dir!=null && !dir.exists()){dir.mkdirs();}
-		try {
+		try{
 			temp=File.createTempFile("sort_temp_", tempExt, dir).toString();
-		} catch (IOException e) {
+		}catch(IOException e){
 			// TODO Auto-generated catch block
 			e.printStackTrace();
 			KillSwitch.kill(e.getMessage());
@@ -517,8 +525,8 @@ public class Shuffle2 {
 	 * @param useHeader Whether to preserve SAM/BAM headers
 	 * @return true if any errors occurred during merge
 	 */
-	private boolean mergeAndDump(ArrayList<String> fnames, /*IntList dumpCount, */boolean useHeader) {
-		if(fnames.size()*maxLengthObserved>2000000000 || fnames.size()>64){
+	private boolean mergeAndDump(ArrayList<String> fnames, /*IntList dumpCount, */boolean useHeader){
+		if(fnames.size()*maxLengthObserved>2000000000 || fnames.size()>maxFiles){
 			outstream.println("Performing recursive merge to reduce open files.");
 			fnames=mergeRecursive(fnames);
 		}
@@ -526,7 +534,7 @@ public class Shuffle2 {
 	}
 	
 	/**
-	 * Merges multiple sorted files using concurrent input containers.
+	 * Randomly combines files using concurrent input containers.
 	 * Adjusts buffer sizes, creates output stream, and manages file cleanup.
 	 * Uses randomized selection from input files to maintain shuffled order.
 	 *
@@ -538,7 +546,7 @@ public class Shuffle2 {
 	 * @param outstream Stream for progress messages
 	 * @return true if any errors occurred during merge
 	 */
-	public boolean mergeAndDump(ArrayList<String> fnames, /*IntList dumpCount, */FileFormat ffout1, FileFormat ffout2, boolean delete, boolean useHeader, PrintStream outstream) {
+	public boolean mergeAndDump(ArrayList<String> fnames, /*IntList dumpCount, */FileFormat ffout1, FileFormat ffout2, boolean delete, boolean useHeader, PrintStream outstream){
 		
 		final int oldBuffers=Shared.numBuffers();
 		final int oldBufferLen=Shared.bufferLen();
@@ -575,15 +583,16 @@ public class Shuffle2 {
 		}else{ros=null;}
 
 		ArrayList<CrisContainer> cclist=new ArrayList<CrisContainer>(fnames.size());
+		ArrayList<CrisContainer> cclist2=new ArrayList<CrisContainer>(fnames.size());
 		for(int i=0; i<fnames.size(); i++){
 			String fname=fnames.get(i);
 //			int size=(dumpCount==null ? -1 : dumpCount.get(i));
 			CrisContainer cc=new CrisContainer(fname, null, false);
+			cclist2.add(cc);//Even an initially empty stream owns resources and can report a read error.
 			if(cc.peek()!=null){
 				cclist.add(cc);
 			}
 		}
-		ArrayList<CrisContainer> cclist2=(ArrayList<CrisContainer>) cclist.clone();
 		
 		//TODO: Use the read counts, stored in dumpCount, to approximately restore random values for shuffling.
 		mergeAndDump(cclist, ros, outstream);
@@ -594,12 +603,12 @@ public class Shuffle2 {
 		for(CrisContainer cc : cclist2){
 			errorState|=cc.close();
 		}
-		if(delete){
+		if(ros!=null){errorState|=ReadWrite.closeStream(ros);}
+		if(delete && !errorState){
 			for(String fname : fnames){
 				new File(fname).delete();
 			}
 		}
-		if(ros!=null){errorState|=ReadWrite.closeStream(ros);}
 		
 		Shared.setBufferLen(oldBufferLen);
 		Shared.setBuffers(oldBuffers);
@@ -618,7 +627,7 @@ public class Shuffle2 {
 	 * @param ros Output stream for merged reads (may be null)
 	 * @param outstream Stream for progress messages
 	 */
-	private static void mergeAndDump(final ArrayList<CrisContainer> q, final ConcurrentReadOutputStream ros, PrintStream outstream) {
+	private void mergeAndDump(final ArrayList<CrisContainer> q, final ConcurrentReadOutputStream ros, PrintStream outstream){
 		
 //		for(CrisContainer cc : q){
 //			assert(!cc.cris().paired()) : FASTQ.TEST_INTERLEAVED+", "+FASTQ.FORCE_INTERLEAVED;
@@ -633,15 +642,13 @@ public class Shuffle2 {
 				CrisContainer cc=q.get(num);
 				if(verbose2){outstream.println("Polled a cc.");}
 				ArrayList<Read> list=cc.fetch();
+				assert(list!=null) : "Active shuffle cursors must hold a batch before fetch; check hasMore before reusing EOF";
 				if(verbose2){outstream.println("Grabbed "+list.size()+" reads.");}
-				if(list==null){
-					q.remove(num);
-				}else{
-					buffer.addAll(list);
-				}
+				if(!cc.hasMore()){q.remove(num);}
+				buffer.addAll(list);
 				if(verbose2){outstream.println("Buffer size: "+buffer.size());}
 			}
-			Collections.shuffle(buffer);
+			Shared.shuffle(buffer, randy);
 			if(verbose2){outstream.println("Shuffled buffer.");}
 			
 			ArrayList<Read> list=new ArrayList<Read>(buffer.size());
@@ -664,7 +671,7 @@ public class Shuffle2 {
 	 * @param fname Output file path (null for temporary file)
 	 * @param useHeader Whether to preserve SAM/BAM headers
 	 */
-	private void shuffleAndDump(final ArrayList<Read> storage, final long currentMem, final AtomicLong outstandingMem, String fname, boolean useHeader) {
+	private void shuffleAndDump(final ArrayList<Read> storage, final long currentMem, final AtomicLong outstandingMem, String fname, boolean useHeader){
 		String temp=fname;
 		if(temp==null){
 			synchronized(outTemp){
@@ -676,13 +683,23 @@ public class Shuffle2 {
 		}
 
 		if(verbose || true){outstream.println("Created a WriteThread for "+temp);}
-		WriteThread wt=new WriteThread(storage, currentMem, outstandingMem, temp, useHeader, outstream);
+		// Assign worker RNGs in input order so scheduling cannot change seeded output.
+		final Random workerRandom=Shared.threadLocalRandom(randy.nextLong()&Long.MAX_VALUE);
+		WriteThread wt=new WriteThread(storage, currentMem, outstandingMem, temp, useHeader, outstream,
+				fname!=null, workerRandom);
+		// A completion token keeps even an empty writer visible to waitOnMemory(..., 0).
+		outstandingMem.incrementAndGet();
 		//[sort/Shuffle2#002 FIXED]: WriteThread is now a NON-static inner class whose `errorState` IS this instance's
 		//errorState (its shadowing field removed, Shuffle2.errorState made volatile). A crashed WriteThread now sets the
-		//tool's errorState, which process()'s `if(errorState){throw}` checks after waitOnMemory joins all writers -> a failed
+		//tool's errorState, which process() checks after all writer completion tokens are released -> a failed
 		//background write becomes a LOUD "output may be corrupt" crash instead of silently dropping a partial temp file's
 		//reads at merge (CrisContainer.peek()==null skip). (Also un-swallows the closeStream error.)
-		wt.start();
+		try{
+			wt.start();
+		}catch(RuntimeException | Error e){
+			outstandingMem.addAndGet(-currentMem-1);
+			throw e;
+		}
 	}
 	
 	/*--------------------------------------------------------------*/
@@ -705,47 +722,54 @@ public class Shuffle2 {
 		 * @param fname_ Output file path
 		 * @param useHeader_ Whether to preserve SAM/BAM headers
 		 * @param outstream_ Stream for progress messages
+		 * @param finalOutput_ Whether to use the configured final output descriptors, including out2
+		 * @param random_ Independently owned RNG assigned before the worker starts
 		 */
-		public WriteThread(final ArrayList<Read> storage_, final long currentMem_, final AtomicLong outstandingMem_, String fname_, boolean useHeader_, PrintStream outstream_){
+		public WriteThread(final ArrayList<Read> storage_, final long currentMem_, final AtomicLong outstandingMem_,
+				String fname_, boolean useHeader_, PrintStream outstream_, boolean finalOutput_, Random random_){
 			storage=storage_;
 			currentMem=currentMem_;
 			outstandingMem=outstandingMem_;
 			fname=fname_;
 			useHeader=useHeader_;
 			outstream=outstream_;
+			finalOutput=finalOutput_;
+			random=random_;
 		}
 		
 		@Override
 		public void run(){
-			try {
-			if(verbose){outstream.println("Started a WriteThread.");}
-			final FileFormat ffout=FileFormat.testOutput(fname, FileFormat.FASTQ, null, true, false, false, false);
-			final ConcurrentReadOutputStream ros;
-			if(ffout!=null){
-				final int buff=4;
-				ros=ConcurrentReadOutputStream.getStream(ffout, null, null, null, buff, null, useHeader);
-				ros.start(); //Start the stream
-			}else{ros=null;}
+			try{
+				if(verbose){outstream.println("Started a WriteThread.");}
+				final FileFormat ffout=finalOutput ? ffout1 :
+						FileFormat.testOutput(fname, FileFormat.FASTQ, null, true, false, false, false);
+				final ConcurrentReadOutputStream ros;
+				if(ffout!=null){
+					final int buff=4;
+					ros=ConcurrentReadOutputStream.getStream(ffout, finalOutput ? ffout2 : null,
+							null, null, buff, null, useHeader);
+					ros.start(); //Start the stream
+				}else{ros=null;}
 
-			if(verbose){outstream.println("Started a ros.");}
-			Collections.shuffle(storage);
+				if(verbose){outstream.println("Started a ros.");}
+				Shared.shuffle(storage, random);
 			
-			if(verbose){outstream.println("Sorted reads.");}
+				if(verbose){outstream.println("Sorted reads.");}
 			
-			ArrayList<Read> buffer=new ArrayList<Read>(200);
-			long id=0;
-			for(int i=0, lim=storage.size(); i<lim; i++){
-				Read r=storage.set(i, null);
-				buffer.add(r);
-				if(buffer.size()>=200){
-					if(ros!=null){ros.add(buffer, id);}
-					id++;
-					buffer=new ArrayList<Read>(200);
+				ArrayList<Read> buffer=new ArrayList<Read>(200);
+				long id=0;
+				for(int i=0, lim=storage.size(); i<lim; i++){
+					Read r=storage.set(i, null);
+					buffer.add(r);
+					if(buffer.size()>=200){
+						if(ros!=null){ros.add(buffer, id);}
+						id++;
+						buffer=new ArrayList<Read>(200);
+					}
 				}
-			}
-			if(ros!=null && buffer.size()>0){ros.add(buffer, id);}
-			if(ReadWrite.closeStream(ros)){errorState=true;}//[Shuffle2#002]: monotonic (only ever SETS true) — a |= RMW on the shared volatile could let one WriteThread's success revert another's error (G11 catch)
-			if(verbose){outstream.println("Closed ros.");}
+				if(ros!=null && buffer.size()>0){ros.add(buffer, id);}
+				if(ReadWrite.closeStream(ros)){errorState=true;}//[Shuffle2#002]: monotonic (only ever SETS true) — a |= RMW on the shared volatile could let one WriteThread's success revert another's error (G11 catch)
+				if(verbose){outstream.println("Closed ros.");}
 			
 			}catch(Throwable e){
 				//Catching Throwable ensures we catch Assertions and RuntimeExceptions
@@ -755,7 +779,7 @@ public class Shuffle2 {
 			}finally{
 				//ALWAYS decrement memory and notify, even if we crashed
 				synchronized(outstandingMem){
-					outstandingMem.addAndGet(-currentMem);
+					outstandingMem.addAndGet(-currentMem-1);
 					if(verbose){outstream.println("Decremented outstandingMem: "+outstandingMem);}
 					outstandingMem.notify();
 					if(verbose){outstream.println("Notified outstandingMem.");}
@@ -767,7 +791,7 @@ public class Shuffle2 {
 		final ArrayList<Read> storage;
 		/** Memory usage of the read storage */
 		final long currentMem;
-		/** Atomic counter tracking memory used by background threads */
+		/** Estimated pending bytes plus one completion token per unfinished writer. */
 		final AtomicLong outstandingMem;
 		/** Output file path for WriteThread */
 		final String fname;
@@ -777,6 +801,10 @@ public class Shuffle2 {
 		//Shuffle2.errorState (volatile), propagating background-write failures to the tool instead of a dead field.
 		/** Output stream for WriteThread progress messages */
 		final PrintStream outstream;
+		/** True for the final destination; temporary spills always use one interleaved file. */
+		final boolean finalOutput;
+		/** Private seeded state; never shared with another worker or the merge coordinator. */
+		final Random random;
 		
 	}
 	
@@ -848,8 +876,8 @@ public class Shuffle2 {
 	/** Random seed for deterministic shuffling; -1 for random */
 	private long seed=-1;
 	
-	/** Thread-local random number generator for shuffling operations */
-	static Random randy=Shared.threadLocalRandom();
+	/** Coordinator RNG for merge choices and reproducible, independently owned worker seeds. */
+	private final Random randy;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
@@ -876,7 +904,7 @@ public class Shuffle2 {
 	/** Print verbose messages */
 	public static final boolean verbose2=false;
 	/** True if an error was encountered. Volatile [Shuffle2#002]: written by background WriteThreads (non-static inner
-	 * class) and read by process() after waitOnMemory joins them; volatile guarantees the failure is visible. */
+	 * class) and read by process() after writer completion; volatile guarantees the failure is visible. */
 	public volatile boolean errorState=false;
 	/** Overwrite existing output files */
 	private boolean overwrite=true;

@@ -8,8 +8,8 @@ import stream.Read;
 
 /**
  * Specialized comparator for sorting reads using a 5-bit topological encoding.
- * Compares reads based on k-mer, sequence content, length, and quality.
- * Generates 12-mer using 5-bit nucleotide encoding for efficient comparison.
+ * Compares reads by a 12-symbol 5-bit key, remaining primary bases and length,
+ * optional mate keys, quality, and string ID.
  *
  * @author Brian Bushnell
  * @date Oct 27, 2014
@@ -25,41 +25,42 @@ public class ReadComparatorTopological5Bit extends ReadComparator{
 	 *
 	 * @param r1 First read to compare
 	 * @param r2 Second read to compare
-	 * @return Negative if r1 < r2, positive if r1 > r2, zero if equal
+	 * @return Negative if {@code r1 < r2}, positive if {@code r1 > r2}, zero if equal
 	 */
 	@Override
-	public int compare(Read r1, Read r2) {
+	public int compare(Read r1, Read r2){
 		return mult*compare(r1, r2, true);
 	}
 
-	/** Compares two reads by their precomputed 12-mer key (stored in numericID by {@link #genKmer}),
-	 * then remaining bases, mate bases, lengths, quality (higher first), and finally string id. */
-	public int compare(Read r1, Read r2, boolean compareMates) {
+	/** Compares two reads by their precomputed 12-symbol key (stored in numericID by {@link #genKmer(Read)}),
+	 * then remaining primary bases, primary length, optional mate keys, quality, and string ID. */
+	public int compare(Read r1, Read r2, boolean compareMates){
 
 		if(r1.numericID!=r2.numericID){return r1.numericID>r2.numericID ? 1 : -1;}
 
 		int x=compareVectors(r1.bases, r2.bases, 12);
 		if(x!=0){return x;}
 
-		//TODO: Possible bug [sort/ReadComparatorTopological5Bit#001] - SAME defect as ReadComparatorTopological#001 (family-
-		//shared anomaly): the mate comparison runs ONLY when both mates are non-null, else it is SKIPPED. This can violate
-		//Comparator transitivity for reads sharing the 12-mer key (numericID) with identical bases/length/quality but MIXED
-		//mate-presence -> the id tiebreaker (line ~61) and mate compare disagree, and Java TimSort throws "violates its
-		//general contract". MASKED by homogeneous mate-presence. Contrast ReadComparatorClump, which routes mates through a
-		//null-handling compareInner (correct). Fix: give mate-presence a consistent order instead of skipping.
-		if(r1.mate!=null && r2.mate!=null){
-			x=compareVectors(r1.mate.bases, r2.mate.bases, 0);
-		}
-		if(x!=0){return x;}
-
 		if(r1.bases!=null && r2.bases!=null && r1.length()!=r2.length()){return r1.length()-r2.length();}
-		if(r1.mate!=null && r2.mate!=null && r1.mate.bases!=null && r2.mate.bases!=null
-				&& r1.mateLength()!=r2.mateLength()){return r1.mateLength()-r2.mateLength();}
+
+		//FIXED sort/ReadComparatorTopological5Bit#001: primary length precedes
+		//optional mate keys; mixed mate presence gets a total order.
+		if(compareMates){
+			if(r1.mate==null || r2.mate==null){
+				if(r1.mate==null && r2.mate!=null){return 1;}
+				if(r1.mate!=null && r2.mate==null){return -1;}
+			}else{
+				x=compareVectors(r1.mate.bases, r2.mate.bases, 0);
+				if(x!=0){return x;}
+				if(r1.mate.bases!=null && r2.mate.bases!=null
+						&& r1.mateLength()!=r2.mateLength()){return r1.mateLength()-r2.mateLength();}
+			}
+		}
 
 		x=compareVectors(r1.quality, r2.quality, 0);
 		if(x!=0){return 0-x;}
 
-		if(r1.mate!=null && r2.mate!=null){
+		if(compareMates && r1.mate!=null && r2.mate!=null){
 			x=compareVectors(r1.mate.quality, r2.mate.quality, 0);
 		}
 		if(x!=0){return 0-x;}
@@ -101,13 +102,14 @@ public class ReadComparatorTopological5Bit extends ReadComparator{
 	}
 
 	/** Computes the read's leading 12-mer key and stores it in the read's numericID for sorting. */
-	public static long genKmer(Read r) {
+	public static long genKmer(Read r){
 		long kmer=genKmer(r.bases);
 		r.numericID=kmer;
 		return kmer;
 	}
 
-	/** Builds a 12-symbol, 5-bits-per-symbol key from the leading bases (left-padded if shorter than 12). */
+	/** Builds a 12-symbol, 5-bits-per-symbol key from the leading bases,
+	 * right-padding low-order slots with zero symbols if shorter than 12. */
 	public static long genKmer(byte[] bases){
 		final byte[] lookup=AminoAcid.symbolTo5Bit;
 		final int k=12;
@@ -128,9 +130,9 @@ public class ReadComparatorTopological5Bit extends ReadComparator{
 	public ReadComparator getComparator(boolean asc){return asc ? ascending : descending;}
 
 	@Override
-	public final int ascendingMult() {return mult;}
+	public final int ascendingMult(){return mult;}
 	@Override
-	public final String name() {return "Topology5Bit";}
+	public final String name(){return "Topology5Bit";}
 
 	/** Sort direction multiplier: +1 for ascending, -1 for descending (immutable). */
 	private final int mult;

@@ -12,7 +12,7 @@ import stream.Read;
  * @author Brian Bushnell
  * @date Oct 27, 2014
  */
-public final class ReadComparatorFlowcell extends ReadComparator {
+public final class ReadComparatorFlowcell extends ReadComparator{
 
 	/** Private constructor; use the ascending/descending singletons. */
 	private ReadComparatorFlowcell(int mult_){mult=mult_;}
@@ -21,17 +21,17 @@ public final class ReadComparatorFlowcell extends ReadComparator {
 	 * Compares two reads based on flowcell coordinates with ascending/descending control.
 	 * @param r1 First read to compare
 	 * @param r2 Second read to compare
-	 * @return Negative if r1 < r2, positive if r1 > r2, zero if equal
+	 * @return Negative if {@code r1 < r2}, positive if {@code r1 > r2}, zero if equal
 	 */
 	@Override
-	public int compare(Read r1, Read r2) {
+	public int compare(Read r1, Read r2){
 		int x=compareInner(r1, r2);
 		return mult*x;
 	}
 
 	/** Compares two reads by flowcell coordinates parsed from their ids (lane, tile, x, y),
 	 * with pair number as a tiebreaker. Uses thread-local parse buffers. */
-	public int compareInner(Read r1, Read r2) {
+	public int compareInner(Read r1, Read r2){
 		if(r1.id==null && r2.id==null){return r1.pairnum()-r2.pairnum();}
 		if(r1.id==null){return -1;}
 		if(r2.id==null){return 1;}
@@ -55,9 +55,9 @@ public final class ReadComparatorFlowcell extends ReadComparator {
 	public ReadComparator getComparator(boolean asc){return asc ? ascending : descending;}
 
 	@Override
-	public final int ascendingMult() {return mult;}
+	public final int ascendingMult(){return mult;}
 	@Override
-	public final String name() {return "Flowcell Coordinate";}
+	public final String name(){return "Flowcell Coordinate";}
 
 	/** Sort direction multiplier: +1 for ascending, -1 for descending (immutable). */
 	private final int mult;

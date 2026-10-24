@@ -7,8 +7,8 @@ import stream.Read;
 
 /**
  * Comparator for Read objects that performs hierarchical topological ordering of
- * bases, mates, lengths, qualities, and identifiers. Supports ascending or
- * descending order and exposes a singleton comparator instance.
+ * primary bases and length, optional mates, qualities, and identifiers. Supports
+ * ascending or descending order and exposes a singleton comparator instance.
  *
  * @author Brian Bushnell
  * @date Oct 27, 2014
@@ -24,48 +24,48 @@ public class ReadComparatorTopological extends ReadComparator{
 	 *
 	 * @param r1 First read to compare
 	 * @param r2 Second read to compare
-	 * @return Negative if r1 < r2, zero if equal, positive if r1 > r2
+	 * @return Negative if {@code r1 < r2}, zero if equal, positive if {@code r1 > r2}
 	 */
 	@Override
-	public int compare(Read r1, Read r2) {
+	public int compare(Read r1, Read r2){
 		return mult*compare(r1, r2, true);
 	}
 
 	/**
-	 * Performs the full hierarchical comparison: primary bases, mate bases (optional),
-	 * lengths, mate lengths, quality scores (inverted), numeric ID, then string ID.
+	 * Performs the full hierarchical comparison: primary bases and length, optional
+	 * mate bases and length, quality scores (inverted), optional mate qualities
+	 * (inverted), numeric ID, then string ID.
 	 *
 	 * @param r1 First read to compare
 	 * @param r2 Second read to compare
-	 * @param compareMates Whether to include mate sequences in comparison
-	 * @return Negative if r1 < r2, zero if equal, positive if r1 > r2
+	 * @param compareMates Whether to include mate presence, bases, length, and qualities
+	 * @return Negative if {@code r1 < r2}, zero if equal, positive if {@code r1 > r2}
 	 */
-	public int compare(Read r1, Read r2, boolean compareMates) {
+	public int compare(Read r1, Read r2, boolean compareMates){
 
 		int x=compareVectors(r1.bases, r2.bases);
 		if(x!=0){return x;}
 
-		//TODO: Possible bug [sort/ReadComparatorTopological#001] - the mate comparison runs ONLY when BOTH mates are non-null;
-		//otherwise it is silently SKIPPED (x stays 0, falls through to length/quality/numericID). This conditional skip can
-		//VIOLATE Comparator transitivity for reads with identical primary bases/length/quality but MIXED mate-presence:
-		//given A,C identical-primary with A.mate.bases>C.mate.bases, and mateless B (identical primary, numericID between),
-		//A vs C compares mates (A>C) while A vs B and B vs C skip mates and use numericID (A<B<C) -> A<B<C yet A>C. Java's
-		//TimSort throws "Comparison method violates its general contract!" on detection. MASKED: normal input is homogeneous
-		//(all paired or all single -> mate compare always or never runs -> transitive). Fix: give mate-presence a consistent
-		//order like ReadComparatorPosition does for SamLines (e.g. mate!=null sorts before/after mate==null), not a skip.
-		if(r1.mate!=null && r2.mate!=null){
-			x=compareVectors(r1.mate.bases, r2.mate.bases);
-		}
-		if(x!=0){return x;}
-
 		if(r1.bases!=null && r2.bases!=null && r1.length()!=r2.length()){return r1.length()-r2.length();}
-		if(r1.mate!=null && r2.mate!=null && r1.mate.bases!=null && r2.mate.bases!=null
-				&& r1.mateLength()!=r2.mateLength()){return r1.mateLength()-r2.mateLength();}
+
+		//FIXED sort/ReadComparatorTopological#001: primary length precedes
+		//optional mate keys; mixed mate presence gets a total order.
+		if(compareMates){
+			if(r1.mate==null || r2.mate==null){
+				if(r1.mate==null && r2.mate!=null){return 1;}
+				if(r1.mate!=null && r2.mate==null){return -1;}
+			}else{
+				x=compareVectors(r1.mate.bases, r2.mate.bases);
+				if(x!=0){return x;}
+				if(r1.mate.bases!=null && r2.mate.bases!=null
+						&& r1.mateLength()!=r2.mateLength()){return r1.mateLength()-r2.mateLength();}
+			}
+		}
 
 		x=compareVectors(r1.quality, r2.quality);
 		if(x!=0){return 0-x;}
 
-		if(r1.mate!=null && r2.mate!=null){
+		if(compareMates && r1.mate!=null && r2.mate!=null){
 			x=compareVectors(r1.mate.quality, r2.mate.quality);
 		}
 		if(x!=0){return 0-x;}
@@ -81,7 +81,8 @@ public class ReadComparatorTopological extends ReadComparator{
 	 *
 	 * @param a First byte array to compare
 	 * @param b Second byte array to compare
-	 * @return Negative if a < b, zero if equal up to minimum length, positive if a > b
+	 * @return Negative if {@code a < b}, zero if equal up to minimum length,
+	 * positive if {@code a > b}
 	 */
 	public int compareVectors(final byte[] a, final byte[] b){
 		if(a==null || b==null){
@@ -103,7 +104,8 @@ public class ReadComparatorTopological extends ReadComparator{
 	 *
 	 * @param a First byte array to compare
 	 * @param b Second byte array to compare
-	 * @return Negative if a < b, zero if equal up to minimum length, positive if a > b
+	 * @return Negative if {@code a < b}, zero if equal up to minimum length,
+	 * positive if {@code a > b}
 	 */
 	public int compareVectorsN(final byte[] a, final byte[] b){
 		if(a==null || b==null){
@@ -125,9 +127,9 @@ public class ReadComparatorTopological extends ReadComparator{
 	public ReadComparator getComparator(boolean asc){return asc ? ascending : descending;}
 
 	@Override
-	public final int ascendingMult() {return mult;}
+	public final int ascendingMult(){return mult;}
 	@Override
-	public final String name() {return "Topology";}
+	public final String name(){return "Topology";}
 
 	/** Sort direction multiplier: +1 for ascending, -1 for descending (immutable). */
 	private final int mult;

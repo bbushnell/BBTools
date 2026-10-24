@@ -24,22 +24,22 @@ public class ReadComparatorCrispr extends ReadComparator{
 	private ReadComparatorCrispr(int mult_){mult=mult_;}
 
 	@Override
-	public int compare(Read r1, Read r2) {
+	public int compare(Read r1, Read r2){
 		return mult*compare(r1, r2, true);
 	}
 
 	/** Returns the read's {@link SeqCountM} score record, building it on first use: parses count= and
 	 * score= from the header, falling back to neural-network scoring when score is absent and a net is
 	 * loaded. The result is cached on the read's obj field. */
-	private SeqCountM getSCM(Read r) {
-		if(r.obj!=null) {return (SeqCountM)r.obj;}
+	private SeqCountM getSCM(Read r){
+		if(r.obj!=null){return (SeqCountM)r.obj;}
 		String id=r.id;
 		int x=id.indexOf("count=");
 		int count=(x>=0 ? Parse.parseInt(id, x+6) : 0);
 		int y=id.indexOf("score=");
 		float score=(y>=0 ? Parse.parseFloat(id, y+6) : -1);
-		if((y<0 || score==-1) && net!=null) {//TODO
-			synchronized(ReadComparatorCrispr.class) {
+		if((y<0 || score==-1) && net!=null){//TODO
+			synchronized(ReadComparatorCrispr.class){
 				score=ScoreSequence.score(r.bases, vec, 0, net);
 			}
 		}
@@ -55,13 +55,13 @@ public class ReadComparatorCrispr extends ReadComparator{
 	 * @param r1 First read
 	 * @param r2 Second read
 	 * @param compareMates Whether to include mate comparison (currently unused)
-	 * @return Negative if r1 < r2, positive if r1 > r2, zero if equal
+	 * @return Negative if {@code r1 < r2}, positive if {@code r1 > r2}, zero if equal
 	 */
-	public int compare(Read r1, Read r2, boolean compareMates) {
+	public int compare(Read r1, Read r2, boolean compareMates){
 		SeqCountM s1=getSCM(r1);
 		SeqCountM s2=getSCM(r2);
 		int x=s1.compareTo(s2);
-		if(x!=0) {return x;}
+		if(x!=0){return x;}
 //		if(r1.numericID!=r2.numericID){return r1.numericID>r2.numericID ? 1 : -1;}
 		return r1.id.compareTo(r2.id);
 	}
@@ -70,22 +70,22 @@ public class ReadComparatorCrispr extends ReadComparator{
 	public ReadComparator getComparator(boolean asc){return asc ? ascending : descending;}
 
 	@Override
-	public final int ascendingMult() {return mult;}
+	public final int ascendingMult(){return mult;}
 	@Override
-	public final String name() {return "Crispr";}
+	public final String name(){return "Crispr";}
 
 	/**
 	 * Loads the default CRISPR neural network if not already loaded; thread-safe.
 	 */
-	public static synchronized void loadNet() {
-		if(net!=null) {return;}
+	public static synchronized void loadNet(){
+		if(net!=null){return;}
 		setNet(CellNetParser.load(netFile));
 	}
 
 	/** Sets or clears the neural network used for sequence scoring; initializes input vector.
 	 * @param net_ Network to use, or null to clear */
-	public static synchronized void setNet(CellNet net_) {
-		if(net_==null) {
+	public static synchronized void setNet(CellNet net_){
+		if(net_==null){
 			net=null;
 			vec=null;
 			return;

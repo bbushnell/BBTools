@@ -20,15 +20,15 @@ public final class ReadComparatorRandom extends ReadComparator{
 	 *
 	 * @param r1 First read to compare
 	 * @param r2 Second read to compare
-	 * @return Negative if r1 < r2, positive if r1 > r2, zero if equal
+	 * @return Negative if {@code r1 < r2}, positive if {@code r1 > r2}, zero if equal
 	 */
 	@Override
-	public int compare(Read r1, Read r2) {
+	public int compare(Read r1, Read r2){
 		return compareInner(r1, r2)*mult;
 	}
 
 	/** Compares two reads by their assigned random value, producing a shuffled order. */
-	public static int compareInner(Read r1, Read r2) {
+	public static int compareInner(Read r1, Read r2){
 		if(r1.rand<r2.rand){return -1;}
 		if(r1.rand>r2.rand){return 1;}
 		return 0;
@@ -38,9 +38,9 @@ public final class ReadComparatorRandom extends ReadComparator{
 	public ReadComparator getComparator(boolean asc){return asc ? ascending : descending;}
 
 	@Override
-	public final int ascendingMult() {return mult;}
+	public final int ascendingMult(){return mult;}
 	@Override
-	public final String name() {return "Random";}
+	public final String name(){return "Random";}
 
 	/** Sort direction multiplier: +1 for ascending, -1 for descending (immutable). */
 	private final int mult;

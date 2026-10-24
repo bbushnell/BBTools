@@ -13,7 +13,8 @@ import stream.Read;
  * Comparator for sorting reads based on a predefined order list.
  * Orders reads according to their identifiers' positions in a reference list,
  * which can be loaded from a file or provided as a comma-separated string.
- * Reads not found in the list are sorted to the end.
+ * Reads not found in the list are sorted to the end in ascending order; descending
+ * reverses the absent-ID placement. Duplicate list entries keep the last index.
  *
  * Unlike the other comparators this is not a shared singleton (it carries a per-instance
  * order map), so direction is supplied via the constructor / {@link #getComparator}.
@@ -21,11 +22,12 @@ import stream.Read;
  * @author Brian Bushnell
  * @date Oct 27, 2014
  */
-public final class ReadComparatorList extends ReadComparator {
+public final class ReadComparatorList extends ReadComparator{
 
 	/**
 	 * Constructs an ascending comparator from a file or comma-separated list of read IDs.
 	 * If the path exists, reads one identifier per line; otherwise splits the string on commas.
+	 * Duplicate identifiers retain their last index.
 	 * @param fname File path or comma-separated identifier list
 	 */
 	public ReadComparatorList(String fname){
@@ -50,14 +52,14 @@ public final class ReadComparatorList extends ReadComparator {
 	}
 
 	@Override
-	public int compare(Read r1, Read r2) {
+	public int compare(Read r1, Read r2){
 		int x=compareInner(r1, r2);
 		return mult*x;
 	}
 
 	/** Compares two reads by their position in the predefined id list; ids absent from the list
-	 * sort to the end, with pair number as a tiebreaker. */
-	public int compareInner(Read r1, Read r2) {
+	 * sort to the end in ascending order, with pair number as a tiebreaker. */
+	public int compareInner(Read r1, Read r2){
 
 		Integer a=(r1.id==null ? null : map.get(r1.id));
 		Integer b=(r2.id==null ? null : map.get(r2.id));
@@ -77,9 +79,9 @@ public final class ReadComparatorList extends ReadComparator {
 	}
 
 	@Override
-	public final int ascendingMult() {return mult;}
+	public final int ascendingMult(){return mult;}
 	@Override
-	public final String name() {return "List";}
+	public final String name(){return "List";}
 
 	/** Sort direction multiplier: +1 for ascending, -1 for descending (immutable). */
 	private final int mult;

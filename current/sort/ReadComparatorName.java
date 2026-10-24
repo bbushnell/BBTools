@@ -9,7 +9,7 @@ import stream.Read;
  * Handles null IDs by treating them as less than non-null IDs.
  * @author Brian Bushnell
  */
-public final class ReadComparatorName extends ReadComparator {
+public final class ReadComparatorName extends ReadComparator{
 	
 	/** Private constructor; use the ascending/descending singletons. */
 	private ReadComparatorName(int mult_){mult=mult_;}
@@ -20,10 +20,10 @@ public final class ReadComparatorName extends ReadComparator {
 	 *
 	 * @param r1 First read to compare
 	 * @param r2 Second read to compare
-	 * @return Negative if r1 < r2, zero if equal, positive if r1 > r2
+	 * @return Negative if {@code r1 < r2}, zero if equal, positive if {@code r1 > r2}
 	 */
 	@Override
-	public int compare(Read r1, Read r2) {
+	public int compare(Read r1, Read r2){
 		int x=compareInner(r1, r2);
 		return mult*x;
 	}
@@ -33,9 +33,9 @@ public final class ReadComparatorName extends ReadComparator {
 	 * Always returns ascending-order result; caller applies sort direction.
 	 * @param r1 First read to compare
 	 * @param r2 Second read to compare
-	 * @return Negative if r1 < r2, zero if equal, positive if r1 > r2
+	 * @return Negative if {@code r1 < r2}, zero if equal, positive if {@code r1 > r2}
 	 */
-	public static int compareInner(Read r1, Read r2) {
+	public static int compareInner(Read r1, Read r2){
 		
 		if(r1.id==null && r2.id==null){return r1.pairnum()-r2.pairnum();}
 		if(r1.id==null){return -1;}
@@ -52,9 +52,9 @@ public final class ReadComparatorName extends ReadComparator {
 	public ReadComparator getComparator(boolean asc){return asc ? ascending : descending;}
 
 	@Override
-	public final int ascendingMult() {return mult;}
+	public final int ascendingMult(){return mult;}
 	@Override
-	public final String name() {return "Name";}
+	public final String name(){return "Name";}
 
 	/** Ascending-order singleton. */
 	public static final ReadComparatorName ascending=new ReadComparatorName(1);

@@ -5,20 +5,24 @@ echo "
 Written by Brian Bushnell
 Last modified September 12, 2018
 
-Description:  Sorts reads by name or other keys such as length,
-quality, mapping position, flowcell coordinates, or taxonomy.
-Intended to merge temp files produced by SortByName if the program
-ran out of time during merging.
+Description:  Merges files already sorted by the same selected key,
+such as name, length, quality, mapping position, or taxonomy.
+Does not sort individual input files.  Can merge temporary files
+left by SortByName after an interrupted merge.
 
 Usage:   mergesorted.sh sort_temp* out=<file>
 
 Input may be fasta, fastq, or sam, compressed or uncompressed.
+Paired inputs must already contain interleaved mates; use int=t.
+Use out2 to split paired output into two files.
 
 Parameters:
 
 in=<file,file,...>  Input files.  Files may be specified without in=.
 out=<file>          Output file.
-delete=t            Delete input files after merging.
+out2=<file>         Optional second mate output file.
+delete=t            Delete successfully merged input files; use delete=f to retain them.
+maxfiles=16         Maximum input files per merge pass; must be at least 2.
 name=t              Sort reads by name.
 length=f            Sort reads by length.
 quality=f           Sort reads by quality.
@@ -26,11 +30,10 @@ position=f          Sort reads by position (for mapped reads).
 taxa=f              Sort reads by taxonomy (for NCBI naming convention).
 sequence=f          Sort reads by sequence, alphabetically.
 flowcell=f          Sort reads by flowcell coordinates.
-shuffle=f           Shuffle reads randomly (untested).
+shuffle=f           Deprecated and unsupported; use shuffle2.sh instead.
+random=f            Alias for shuffle.
 list=<file>         Sort reads according to this list of names.
 ascending=t         Sort ascending.
-memmult=.35         Write a temp file when used memory drops below this
-                    fraction of total memory.
 
 Taxonomy-sorting parameters:
 tree=               Specify a taxtree file.  On Genepool, use 'auto'.

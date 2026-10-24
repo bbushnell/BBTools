@@ -13,7 +13,7 @@ import tax.TaxTree;
  * @author Brian Bushnell
  * @date Oct 27, 2014
  */
-public final class ReadComparatorTaxa extends ReadComparator {
+public final class ReadComparatorTaxa extends ReadComparator{
 
 	/** Private constructor; use the ascending/descending singletons. */
 	private ReadComparatorTaxa(int mult_){mult=mult_;}
@@ -27,14 +27,14 @@ public final class ReadComparatorTaxa extends ReadComparator {
 	 * @return Negative, zero, or positive integer for less than, equal, or greater than
 	 */
 	@Override
-	public int compare(Read r1, Read r2) {
+	public int compare(Read r1, Read r2){
 		int x=compareInner(r1, r2);
 		return mult*x;
 	}
 
 	/** Compares two reads by taxonomy parsed from their headers, climbing to the family (then genus,
 	 * then species) level to find a distinguishing rank; falls back to name order for equal/unknown taxa. */
-	private static int compareInner(Read r1, Read r2) {
+	private static int compareInner(Read r1, Read r2){
 		final TaxNode a0=tree.parseNodeFromHeader(r1.id, true);
 		final TaxNode b0=tree.parseNodeFromHeader(r2.id, true);
 		final int x=compareNodes(a0, b0, tree);
@@ -121,9 +121,9 @@ public final class ReadComparatorTaxa extends ReadComparator {
 	public ReadComparator getComparator(boolean asc){return asc ? ascending : descending;}
 
 	@Override
-	public final int ascendingMult() {return mult;}
+	public final int ascendingMult(){return mult;}
 	@Override
-	public final String name() {return "Taxa";}
+	public final String name(){return "Taxa";}
 
 	/** Sort direction multiplier: +1 for ascending, -1 for descending (immutable). */
 	private final int mult;

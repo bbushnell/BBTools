@@ -34,11 +34,13 @@ taxa=f          Sort reads by taxonomy (for NCBI naming convention).
 sequence=f      Sort reads by sequence, alphabetically.
 clump=f         Sort reads by shared kmers, like Clumpify.
 flowcell=f      Sort reads by flowcell coordinates.
-shuffle=f       Shuffle reads randomly (untested).
+shuffle=f       Deprecated random sorting; requires allowtemp=f.
+                Use shuffle2.sh for shuffling with temporary files.
+random=f        Alias for shuffle.
 list=<file>     Sort reads according to this list of names.
 ascending=t     Sort ascending.  This defaults to true except for length.
-descending=f    Sort descending instead of ascending.  Overrides ascending flag.
-maxfiles=12     Maximum number of temp files to use during external sort.
+descending=f    Sort descending instead of ascending.  The last direction flag wins.
+maxfiles=12     Maximum input files per merge batch (at least 2).
 crispr=f        Sort reads by CRISPR repeat quality score (requires neural network model).
 genkmer=t       Generate 5-bit kmers for topological/lexicographic sorting modes.
 deleteearly=f   Delete temp files as soon as they are merged, to save disk space.

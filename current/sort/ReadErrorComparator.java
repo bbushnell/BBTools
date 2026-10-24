@@ -26,16 +26,16 @@ public final class ReadErrorComparator extends ReadComparator{
 	 *
 	 * @param r1 First read to compare
 	 * @param r2 Second read to compare
-	 * @return negative if r1 < r2, positive if r1 > r2, zero if equal
+	 * @return negative if {@code r1 < r2}, positive if {@code r1 > r2}, zero if equal
 	 */
 	@Override
-	public int compare(Read r1, Read r2) {
+	public int compare(Read r1, Read r2){
 		return compareInner(r1, r2)*mult;
 	}
 
 	/** Compares two reads (including mates) by total error count ascending, then total length
 	 * descending, then total expected errors ascending, then numericID, then string id. */
-	public int compareInner(Read r1, Read r2) {
+	public int compareInner(Read r1, Read r2){
 
 		int a=(r1.errors+(r1.mate==null ? 0 : r1.mate.errors));
 		int b=(r2.errors+(r2.mate==null ? 0 : r2.mate.errors));
@@ -60,9 +60,9 @@ public final class ReadErrorComparator extends ReadComparator{
 	public ReadComparator getComparator(boolean asc){return asc ? ascending : descending;}
 
 	@Override
-	public final int ascendingMult() {return mult;}
+	public final int ascendingMult(){return mult;}
 	@Override
-	public final String name() {return "Error";}
+	public final String name(){return "Error";}
 
 	/** Sort direction multiplier: +1 for ascending, -1 for descending (immutable). */
 	private final int mult;

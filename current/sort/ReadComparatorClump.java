@@ -13,7 +13,7 @@ import stream.Read;
  * @author Brian Bushnell
  * @date Oct 5, 2022
  */
-public final class ReadComparatorClump extends ReadComparator {
+public final class ReadComparatorClump extends ReadComparator{
 
 	/** Private constructor; use the ascending/descending singletons. */
 	private ReadComparatorClump(int mult_){mult=mult_;}
@@ -22,10 +22,10 @@ public final class ReadComparatorClump extends ReadComparator {
 	 * Compares two reads using k-mer signature, strand, start, and mates (if present), then ID.
 	 * @param a First read
 	 * @param b Second read
-	 * @return Negative if a < b, positive if a > b, zero if equal
+	 * @return Negative if {@code a < b}, positive if {@code a > b}, zero if equal
 	 */
 	@Override
-	public int compare(Read a, Read b) {
+	public int compare(Read a, Read b){
 		int x=compareInner(a, b);
 		if(x==0){x=compareInner(a.mate, b.mate);}
 		if(x==0){x=a.id.compareTo(b.id);}
@@ -34,7 +34,7 @@ public final class ReadComparatorClump extends ReadComparator {
 
 	/** Compares two reads by their k-mer signature (stored in numericID by {@link #set}), then strand,
 	 * then start position; null sorts after non-null. */
-	private static int compareInner(Read a, Read b) {
+	private static int compareInner(Read a, Read b){
 		if(a==b){return 0;}
 		if(a==null){return 1;}
 		if(b==null){return -1;}
@@ -130,9 +130,9 @@ public final class ReadComparatorClump extends ReadComparator {
 	public ReadComparator getComparator(boolean asc){return asc ? ascending : descending;}
 
 	@Override
-	public final int ascendingMult() {return mult;}
+	public final int ascendingMult(){return mult;}
 	@Override
-	public final String name() {return "Clump";}
+	public final String name(){return "Clump";}
 
 //	public void setK(int k_){
 //		k=k_;

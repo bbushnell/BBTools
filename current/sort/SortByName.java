@@ -36,7 +36,11 @@ import tracker.ReadStats;
 import var2.ScafMap;
 
 /**
- * Sorts reads by name, potentially from multiple input files.
+ * Sorts reads by name or another selected comparator, spilling to sorted temp files when
+ * needed and merging those spills into final output. Random mode is limited to bounded
+ * in-memory runs because merge inputs do not serialize random keys. The static merge entry
+ * points also merge sorted inputs for MergeSorted; in that mode, delete=t removes
+ * successfully merged original inputs as well as SortByName's ordinary temp spills.
  * 
  * @author Brian Bushnell
  * @date September 21, 2016
@@ -207,12 +211,13 @@ public class SortByName {
 		
 		clump=(comparator.getClass()==ReadComparatorClump.class);
 		
-		if(setAscending || comparator.getClass()!=ReadLengthComparator.class) {
+		if(setAscending || comparator.getClass()!=ReadLengthComparator.class){
 			comparator=comparator.getComparator(ascending);
 		}
 		SamLine.SET_FROM_OK=true;
 		
 		if(comparator.getClass()==ReadComparatorRandom.class){
+			if(allowTempFiles){throwRandomMergeUnsupported("SortByName temp-file mode");}
 			ListNum.setDeterministicRandomSeed(-1);
 			ListNum.setDeterministicRandom(true);
 		}
@@ -238,6 +243,17 @@ public class SortByName {
 			extout=parser.extout;
 			
 			minlen=parser.minReadLength;
+		}
+		if(!Tools.isNullFileName(parser.qfout1) || !Tools.isNullFileName(parser.qfout2)){
+			throw new IllegalArgumentException("Separate quality output (qfout/qfout2) is not supported by SortByName; write FASTQ to retain qualities.");
+		}
+		if(maxFiles<2){throw new IllegalArgumentException("maxfiles must be at least 2 so recursive merges make progress: "+maxFiles);}
+		//SRT-113: invalid memory fractions can create impossible spill and wait thresholds.
+		if(!(memBlockMult>0 && memBlockMult<=1)){
+			throw new IllegalArgumentException("memmult must be a finite fraction in (0, 1]: "+memBlockMult);
+		}
+		if(!(memTotalMult>=0 && memTotalMult<Float.POSITIVE_INFINITY)){
+			throw new IllegalArgumentException("memlimit must be finite and nonnegative: "+memTotalMult);
 		}
 		
 //		assert(false) : setInterleaved+", "+FASTQ.FORCE_INTERLEAVED+", "+FASTQ.TEST_INTERLEAVED;
@@ -426,18 +442,18 @@ public class SortByName {
 			ArrayList<byte[]> header=SamReadInputStream.getSharedHeader(true);
 			if(verbose){outstream.println("Fetched header.");}
 
-			if(header!=null) {
+			if(header!=null){
 				byte[] hd;
-				if(comparator.getClass()==ReadComparatorPosition.class) {
+				if(comparator.getClass()==ReadComparatorPosition.class){
 					hd="@HD\tVN:1.4\tSO:coordinate".getBytes();
-				}else if(comparator.getClass()==ReadComparatorName.class) {
+				}else if(comparator.getClass()==ReadComparatorName.class){
 					hd="@HD\tVN:1.4\tSO:queryname".getBytes();
-				}else {
+				}else{
 					hd="@HD\tVN:1.4\tSO:unsorted".getBytes();
 				}
 				if(header.size()>0 && Tools.startsWith(header.get(0), "@HD")){
 					header.set(0, hd);
-				}else {
+				}else{
 					header.add(0, hd);
 				}
 			}
@@ -559,18 +575,18 @@ public class SortByName {
 		if(useSharedHeader && ffout1!=null && ffout1.samOrBam()){
 			ArrayList<byte[]> header=SamReadInputStream.getSharedHeader(true);
 
-			if(header!=null) {
+			if(header!=null){
 				byte[] hd;
-				if(comparator.getClass()==ReadComparatorPosition.class) {
+				if(comparator.getClass()==ReadComparatorPosition.class){
 					hd="@HD\tVN:1.4\tSO:coordinate".getBytes();
-				}else if(comparator.getClass()==ReadComparatorName.class) {
+				}else if(comparator.getClass()==ReadComparatorName.class){
 					hd="@HD\tVN:1.4\tSO:queryname".getBytes();
-				}else {
+				}else{
 					hd="@HD\tVN:1.4\tSO:unsorted".getBytes();
 				}
 				if(header.size()>0 && Tools.startsWith(header.get(0), "@HD")){
 					header.set(0, hd);
-				}else {
+				}else{
 					header.add(0, hd);
 				}
 			}
@@ -682,11 +698,11 @@ public class SortByName {
 		if(outstandingMem.get()>target){
 			if(verbose){outstream.println("Syncing; outstandingMem="+outstandingMem);}
 			while(outstandingMem.get()>target){
-				try {
+				try{
 					synchronized(outstandingMem){
 						outstandingMem.wait(2000);
 					}
-				} catch (InterruptedException e) {
+				}catch(InterruptedException e){
 					// TODO Auto-generated catch block
 					e.printStackTrace();
 				}
@@ -733,8 +749,13 @@ public class SortByName {
 	 */
 	private static int maxMergeFiles(long maxSizeObserved){
 		final long memAvailable=Shared.memAvailableAdvanced();
-		int files=(int)Tools.max(3, memAvailable/Tools.max(maxSizeObserved, 500))-1;
-		return Tools.min(files, 10000);
+		return maxMergeFiles(maxSizeObserved, memAvailable);
+	}
+
+	/** Returns the per-pass merge fan-in for the observed read size and available memory. */
+	private static int maxMergeFiles(long maxSizeObserved, long memAvailable){
+		final long files=Math.max(3, memAvailable/Math.max(maxSizeObserved, 500))-1;
+		return (int)Math.min(files, 10000);
 	}
 	/**
 	 * Reduces buffer sizes when memory is insufficient for merge operations.
@@ -773,7 +794,7 @@ public class SortByName {
 		final int oldZL=ReadWrite.ZIPLEVEL;
 		final boolean deleteAfterMerge=(delete && deleteEarly);
 		final int limit=Tools.min(mergeFileLimit, maxFiles, maxMergeFiles(maxSizeObserved()));
-		while(currentList.size()>maxFiles){
+		while(currentList.size()>limit){
 			ReadWrite.ZIPLEVEL=Tools.min(ReadWrite.ZIPLEVEL, 4);
 			final int size=currentList.size();
 			final int groups=(size+limit-1)/limit;
@@ -828,9 +849,9 @@ public class SortByName {
 		String temp;
 		File dir=new File(".");//(Shared.tmpdir()==null ? null : new File(Shared.tmpdir()));
 		if(dir!=null && !dir.exists()){dir.mkdirs();}
-		try {
+		try{
 			temp=File.createTempFile("sort_temp_", tempExt, dir).toString();
-		} catch (IOException e) {
+		}catch(IOException e){
 			// TODO Auto-generated catch block
 			e.printStackTrace();
 			KillSwitch.kill(e.getMessage());
@@ -858,7 +879,7 @@ public class SortByName {
 		FASTQ.FORCE_INTERLEAVED=paired;
 		try{
 			final long maxSizeObserved=maxSizeObserved();
-			final int limit=Tools.min(mergeFileLimit, maxMergeFiles(maxSizeObserved));
+			final int limit=Tools.min(mergeFileLimit, maxFiles, maxMergeFiles(maxSizeObserved));
 			if(fnames.size()>limit){
 				outstream.println("Performing recursive merge to reduce open files.");
 				fnames=mergeRecursive(fnames, allowSubprocess);
@@ -884,10 +905,12 @@ public class SortByName {
 	 * @param outstream Print stream for status messages
 	 * @param maxSizeObserved Maximum read size for memory calculations
 	 * @return true if errors occurred during merge operation
+	 * @throws IllegalArgumentException if random/shuffle mode is selected
 	 */
 	public static boolean mergeAndDump(ArrayList<String> fnames, FileFormat ffout1, FileFormat ffout2, 
-			boolean deleteAfterMerge, boolean useHeader, boolean allowSubprocess, PrintStream outstream, final long maxSizeObserved) {
+			boolean deleteAfterMerge, boolean useHeader, boolean allowSubprocess, PrintStream outstream, final long maxSizeObserved){
 		
+		if(randomComparator(comparator)){throwRandomMergeUnsupported("merge");}
 		final int oldBuffers=Shared.numBuffers();
 		final int oldBufferLen=Shared.bufferLen();
 		if(!FileFormat.isFastaFile(fnames.get(0))){
@@ -911,7 +934,7 @@ public class SortByName {
 			final int buff=1;
 			ros=WriterFactory.getStream(ffout1, ffout2, null, null, buff, null, useHeader, -1);
 			ros.start(); //Start the stream
-			if(verbose) {System.err.println("Made ros.");}
+			if(verbose){System.err.println("Made ros.");}
 		}else{ros=null;}
 		
 		ArrayList<CrisContainer> cclist=new ArrayList<CrisContainer>(fnames.size());
@@ -920,13 +943,12 @@ public class SortByName {
 			String fname=fnames.get(i);
 //			int size=(dumpCount==null ? -1 : dumpCount.get(i));
 			CrisContainer cc=new CrisContainer(fname, /*size, */comparator, allowSubprocess);
+			cclist.add(cc);
 			if(cc.peek()!=null){
-				cclist.add(cc);
 				q.add(cc);
 			}
 		}
 		
-		//TODO: Use the read counts, stored in dumpCount, to approximately restore random values for shuffling.
 		mergeAndDump(q, ros, outstream);
 		if(verbose){
 			outstream.println("Finished processing "+fnames);
@@ -935,12 +957,12 @@ public class SortByName {
 		for(CrisContainer cc : cclist){
 			errorState|=cc.close();
 		}
-		if(deleteAfterMerge){
+		if(ros!=null){errorState|=ros.poisonAndWait();}
+		if(deleteAfterMerge && !errorState){
 			for(String fname : fnames){
 				new File(fname).delete();
 			}
 		}
-		if(ros!=null){errorState|=ros.poisonAndWait();}
 		
 		Shared.setBufferLen(oldBufferLen);
 		Shared.setBuffers(oldBuffers);
@@ -952,6 +974,16 @@ public class SortByName {
 	 * (e.g. MergeSorted) can choose the sort order that mergeAndDump applies. */
 	public static void setComparator(ReadComparator c){comparator=c;}
 
+	/** Returns true when the selected comparator uses transient random keys. */
+	static boolean randomComparator(ReadComparator c){return c.getClass()==ReadComparatorRandom.class;}
+
+	/** Throws for random/shuffle paths that would merge materialized reads without random keys. */
+	static void throwRandomMergeUnsupported(String mode){
+		throw new IllegalArgumentException(
+				"Random/shuffle mode is not supported for "+mode+
+				" because random keys are not preserved in merged files; use shuffle2.sh.");
+	}
+
 	/**
 	 * Core k-way merge algorithm using priority queue of read containers.
 	 * Continuously polls lowest reads from queue, sorts batches, and outputs
@@ -961,13 +993,13 @@ public class SortByName {
 	 * @param ros Concurrent read output stream for writing results
 	 * @param outstream Print stream for debug and status messages
 	 */
-	private static void mergeAndDump(final PriorityQueue<CrisContainer> q, final Writer ros, PrintStream outstream) {
+	private static void mergeAndDump(final PriorityQueue<CrisContainer> q, final Writer ros, PrintStream outstream){
 		
 //		for(CrisContainer cc : q){
 //			assert(!cc.cris().paired()) : FASTQ.TEST_INTERLEAVED+", "+FASTQ.FORCE_INTERLEAVED+
 //				", "+cc.cris().fname()+", "+cc.cris().getClass();
 //		}
-		if(verbose) {System.err.println("Merge And Dump.");}
+		if(verbose){System.err.println("Merge And Dump.");}
 		
 		long maxLen=0;
 		long id=0;
@@ -1009,7 +1041,8 @@ public class SortByName {
 			long listBases=0;//[sort/SortByName#002]
 			for(int index=0; index<maxIndex; index++){
 				Read r=buffer.get(index);
-				assert(peek==null || comparator.compare(peek, r)>0) : "\n"+peek+"\n"+r;
+				assert(peek==null || comparator.compare(peek, r)>=0) :
+					"\nEmitted read should sort before or tie with the next queued pivot.\n"+peek+"\n"+r;
 				list.add(r);
 				listBases+=r.length()+r.mateLength();//[sort/SortByName#002]
 				maxLen=Tools.max(maxLen, r.length());
@@ -1033,7 +1066,7 @@ public class SortByName {
 		synchronized(SortByName.class){
 			maxLengthObservedStatic=Tools.max(maxLengthObservedStatic, maxLen);
 		}
-		if(verbose) {System.err.println("Finished Merge And Dump.");}
+		if(verbose){System.err.println("Finished Merge And Dump.");}
 	}
 
 //
@@ -1074,55 +1107,23 @@ public class SortByName {
 	 * @return Index of first read greater than pivot
 	 */
 	private static final int indexOfLowestAbovePivot(final ArrayList<Read> list, final Read pivot){
-		final int size=list.size();
-		final int maxIndex=binarySearch(list, pivot);
-		if(maxIndex<0){return 0;}
-		if(maxIndex>=size){return size;}
-		Read r=list.get(maxIndex);
-		final int x=comparator.compare(pivot, r);
-		assert(x<=0) : x+"\n"+pivot.id+"\n"+r.id;
-		final int ret=(x==0 ? maxIndex+1 : maxIndex);
-		assert(ret==size || comparator.compare(pivot, list.get(ret))<0);
-		assert(ret==0 || comparator.compare(pivot, list.get(ret-1))>=0);
-		return ret;
-	}
-	
-	/** Returns highest index of an equal value, or the insert position */
-	private static final int binarySearch(final ArrayList<Read> list, final Read pivot){
-		int a=0, b=list.size()-1;
-		while(b>a){
-			final int mid=(a+b)/2;
+		int low=0, high=list.size();
+		while(low<high){
+			final int mid=(low+high)>>>1;
 			final Read r=list.get(mid);
 			final int x=comparator.compare(pivot, r);
-			if(x<0){b=mid;}
-			else if(x>0){a=mid+1;}
-			else{return mid;}
+			if(x<0){high=mid;}
+			else{low=mid+1;}
 		}
-		
-//		for(int i=1; i<list.size(); i++){
-//			assert(comparator.compare(list.get(i-1), list.get(i))<=0) : i+"\n"+list.get(i-1)+"\n"+ list.get(i)+"\n";
-//		}
-//
-//		assert(a>=list.size() || comparator.compare(pivot, list.get(a))<=0) :
-//			comparator.compare(pivot, list.get(a))+"\n"+
-//					a+", "+b+", "+list.size()+"\n"+pivot.id+"\n"+list.get(a).id;
-//			comparator.compare(pivot, list.get(a))+", "+a+", "+b+", "+list.size()+"\n"+pivot.id+"\n"+list.get(a-1).id+"\n"+list.get(a).id+"\n"+list.get(a+1).id;
-		while(a>=0 && a<list.size()-1){
-			final int x=comparator.compare(pivot, list.get(a+1));
-			assert(x<=0) : x+", "+a+", "+b+", "+list.size()+"\n"+pivot.id+"\n"+list.get(a).id;
-			if(x<0){break;}
-			a++;
-		}
-		
-		if(a>=0 && a==list.size()-1){//Corner case; insert after last element was not handled
-			if(comparator.compare(pivot, list.get(a))>0){a++;}
-		}
-		
-		assert(a>=list.size() || comparator.compare(pivot, list.get(a))<=0) :
-			comparator.compare(pivot, list.get(a))+"\n"+
-					a+", "+b+", "+list.size()+"\n"+pivot.id+"\n"+list.get(a).id;
-		
-		return a;
+		assert(low>=list.size() || comparator.compare(pivot, list.get(low))<0) :
+			"mergeAndDump needs the first remaining read to sort after the pivot: "+
+			comparator.compare(pivot, list.get(low))+"\n"+
+			low+", "+list.size()+"\n"+pivot.id+"\n"+list.get(low).id;
+		assert(low==0 || comparator.compare(pivot, list.get(low-1))>=0) :
+			"mergeAndDump may emit only reads that sort before or tie with the pivot: "+
+			comparator.compare(pivot, list.get(low-1))+"\n"+
+			low+", "+list.size()+"\n"+pivot.id+"\n"+list.get(low-1).id;
+		return low;
 	}
 	
 	/**
@@ -1137,7 +1138,11 @@ public class SortByName {
 	 * @param fname2 Secondary output file name (null for temp file)
 	 * @param useHeader Whether to preserve SAM/BAM headers
 	 */
-	private void sortAndDump(final ArrayList<Read> storage, final long currentMem, final AtomicLong outstandingMem, String fname1, String fname2, boolean useHeader) {
+	private void sortAndDump(final ArrayList<Read> storage, final long currentMem, final AtomicLong outstandingMem, String fname1, String fname2, boolean useHeader){
+		assert(currentMem>=0 && currentMem<Long.MAX_VALUE) :
+			"sortAndDump adds one completion token to the caller's byte reservation; currentMem="+currentMem;
+		final FileFormat wtffout1=(fname1==null ? null : ffout1);
+		final FileFormat wtffout2=(fname1==null ? null : ffout2);
 		String temp1=fname1;
 		String temp2=fname2;
 		if(temp1==null){
@@ -1150,13 +1155,27 @@ public class SortByName {
 		}
 
 		if(verbose || true){outstream.println("Created a WriteThread for "+temp1+(temp2==null ? "" : ", "+temp2));}
-		WriteThread wt=new WriteThread(storage, currentMem, outstandingMem, temp1, temp2, useHeader, outstream);
-		//[sort/SortByName#001 FIXED]: WriteThread is now a NON-static inner class whose `errorState` IS this instance's
-		//errorState (its shadowing field removed, and SortByName.errorState made volatile). So a crashed WriteThread (disk
-		//full / IO error / sort assertion) now sets the tool's errorState, which process()'s `if(errorState){throw}` checks
-		//after waitOnMemory has joined all writers -> a failed background write becomes a LOUD "output may be corrupt" crash
-		//instead of silently dropping the reads of a partial/missing temp file. (Also un-swallows the poisonAndWait error.)
-		wt.start();
+		final long releaseMem=currentMem+1;
+		outstandingMem.incrementAndGet();
+		boolean started=false;
+		try{
+			WriteThread wt=new WriteThread(storage, releaseMem, outstandingMem, temp1, temp2,
+					wtffout1, wtffout2, useHeader, outstream);
+			//[sort/SortByName#001 FIXED]: WriteThread is now a NON-static inner class whose `errorState` IS this instance's
+			//errorState (its shadowing field removed, and SortByName.errorState made volatile). So a crashed WriteThread (disk
+			//full / IO error / sort assertion) now sets the tool's errorState, which process()'s `if(errorState){throw}` checks
+			//after waitOnMemory has observed all writer accounting releases -> a failed background write becomes a LOUD "output may be corrupt" crash
+			//instead of silently dropping the reads of a partial/missing temp file. (Also un-swallows the poisonAndWait error.)
+			wt.start();
+			started=true;
+		}finally{
+			if(!started){
+				synchronized(outstandingMem){
+					outstandingMem.addAndGet(-releaseMem);
+					outstandingMem.notify();
+				}
+			}
+		}
 	}
 	
 	/*--------------------------------------------------------------*/
@@ -1175,35 +1194,42 @@ public class SortByName {
 		 * Initializes thread state for background sorting and file output operations.
 		 *
 		 * @param storage_ List of reads to be sorted and written
-		 * @param currentMem_ Current memory usage in bytes
+		 * @param currentMem_ Memory plus completion token to release
 		 * @param outstandingMem_ Atomic counter for memory tracking
 		 * @param fname1_ Primary output file name
 		 * @param fname2_ Secondary output file name
+		 * @param ffout1_ Primary output descriptor for direct output, null for a temp spill
+		 * @param ffout2_ Secondary output descriptor for direct output, null for a temp spill
 		 * @param useHeader_ Whether to preserve SAM/BAM headers
 		 * @param outstream_ Print stream for status messages
 		 */
-		public WriteThread(final ArrayList<Read> storage_, final long currentMem_, final AtomicLong outstandingMem_, 
-				String fname1_, String fname2_, boolean useHeader_, PrintStream outstream_){
+		public WriteThread(final ArrayList<Read> storage_, final long currentMem_,
+				final AtomicLong outstandingMem_, String fname1_, String fname2_,
+				FileFormat ffout1_, FileFormat ffout2_, boolean useHeader_, PrintStream outstream_){
 			storage=storage_;
 			currentMem=currentMem_;
 			outstandingMem=outstandingMem_;
 			fname1=fname1_;
 			fname2=fname2_;
+			ffout1=ffout1_;
+			ffout2=ffout2_;
 			useHeader=useHeader_;
 			outstream=outstream_;
 		}
 		
 		@Override
 		public void run(){
-			try {
+			try{
 				if(verbose){outstream.println("Started a WriteThread.");}
 				//This writer also submits dense ascending batch IDs, including the direct-output path.
-				final FileFormat ffout1=FileFormat.testOutput(fname1, FileFormat.FASTQ, null, true, false, false, fname2!=null);
-				final FileFormat ffout2=FileFormat.testOutput(fname2, FileFormat.FASTQ, null, true, false, false, fname2!=null);
+				final FileFormat ff1=(ffout1==null ?
+					FileFormat.testOutput(fname1, FileFormat.FASTQ, null, true, false, false, fname2!=null) : ffout1);
+				final FileFormat ff2=(ffout2==null ?
+					FileFormat.testOutput(fname2, FileFormat.FASTQ, null, true, false, false, fname2!=null) : ffout2);
 				final Writer ros;
-				if(ffout1!=null){
+				if(ff1!=null){
 					final int buff=4;
-					ros=WriterFactory.getStream(ffout1, ffout2, null, null, buff, null, useHeader, -1);
+					ros=WriterFactory.getStream(ff1, ff2, null, null, buff, null, useHeader, -1);
 					ros.start(); //Start the stream
 				}else{ros=null;}
 
@@ -1231,13 +1257,13 @@ public class SortByName {
 				if(ros!=null && buffer.size()>0){ros.add(buffer, id);}
 				if(ros.poisonAndWait()){errorState=true;}//[SortByName#001]: monotonic (only ever SETS true) — a |= RMW on the shared volatile could let one WriteThread's success revert another's error (G11 catch)
 				if(verbose){outstream.println("Closed ros.");}
-			} catch (Throwable e) {
+			}catch(Throwable e){
 				// Catching Throwable ensures we catch Assertions and RuntimeExceptions
 				System.err.println("Error in WriteThread:");
 				e.printStackTrace();
 				errorState=true;
-			} finally {
-				// ALWAYS decrement memory and notify, even if we crashed
+			}finally{
+				// ALWAYS release memory/completion accounting and notify, even if we crashed
 				synchronized(outstandingMem){
 					outstandingMem.addAndGet(-currentMem);
 					if(verbose){outstream.println("Decremented outstandingMem: "+outstandingMem);}
@@ -1249,7 +1275,7 @@ public class SortByName {
 		
 		/** List of reads to be sorted by this thread */
 		final ArrayList<Read> storage;
-		/** Current memory usage in bytes for this sorting operation */
+		/** Memory plus completion token released by this thread */
 		final long currentMem;
 		/** Atomic counter tracking outstanding memory across all threads */
 		final AtomicLong outstandingMem;
@@ -1257,6 +1283,10 @@ public class SortByName {
 		final String fname1;
 		/** Secondary output file name for this sorting thread */
 		final String fname2;
+		/** Primary direct-output descriptor, or null to create a temp-spill descriptor */
+		final FileFormat ffout1;
+		/** Secondary direct-output descriptor, or null to create a temp-spill descriptor */
+		final FileFormat ffout2;
 		/** Whether to preserve SAM/BAM headers in output */
 		final boolean useHeader;
 		//[SortByName#001]: WriteThread's own errorState field REMOVED so `errorState` in run() resolves to the outer
@@ -1322,7 +1352,7 @@ public class SortByName {
 	/** Quit after processing this many input reads; -1 means no limit */
 	private long maxReads=-1;
 
-	/** Whether to delete temporary files after sorting */
+	/** Whether to delete successful merge inputs, normally temporary spills */
 	private boolean delete=true;
 	/** Whether to delete temporary files immediately after use */
 	private boolean deleteEarly=false;
@@ -1391,7 +1421,7 @@ public class SortByName {
 	/** Print verbose messages */
 	public static final boolean verbose2=false;
 	/** True if an error was encountered. Volatile [SortByName#001]: written by background WriteThreads (non-static inner
-	 * class) and read by process() after waitOnMemory joins them; volatile guarantees the failure is visible. */
+	 * class) and read by process() after waitOnMemory observes accounting release; volatile guarantees the failure is visible. */
 	public volatile boolean errorState=false;
 	/** Overwrite existing output files */
 	private boolean overwrite=true;

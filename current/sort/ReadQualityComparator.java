@@ -10,7 +10,7 @@ import stream.Read;
  * @author Brian Bushnell
  * @date Nov 9, 2016
  */
-public final class ReadQualityComparator extends ReadComparator {
+public final class ReadQualityComparator extends ReadComparator{
 
 	/** Private constructor; use the ascending/descending singletons. */
 	private ReadQualityComparator(int mult_){mult=mult_;}
@@ -21,17 +21,17 @@ public final class ReadQualityComparator extends ReadComparator {
 	 *
 	 * @param a First read to compare
 	 * @param b Second read to compare
-	 * @return Negative if a < b, positive if a > b, zero if equal
+	 * @return Negative if {@code a < b}, positive if {@code a > b}, zero if equal
 	 */
 	@Override
-	public int compare(Read a, Read b) {
+	public int compare(Read a, Read b){
 		int x=compareInner(a, b);
 		return mult*x;
 	}
 
 	/** Compares two reads (plus mates) by combined expected-error rate ascending, then total
 	 * length descending, then string id, then numericID. Lower error rate sorts first. */
-	private static int compareInner(Read a, Read b) {
+	private static int compareInner(Read a, Read b){
 		if(a==b){return 0;}
 		if(a==null){return 1;}
 		if(b==null){return -1;}
@@ -60,9 +60,9 @@ public final class ReadQualityComparator extends ReadComparator {
 	public ReadComparator getComparator(boolean asc){return asc ? ascending : descending;}
 
 	@Override
-	public final int ascendingMult() {return mult;}
+	public final int ascendingMult(){return mult;}
 	@Override
-	public final String name() {return "Quality";}
+	public final String name(){return "Quality";}
 
 	/** Sort direction multiplier: +1 for ascending, -1 for descending (immutable). */
 	private final int mult;

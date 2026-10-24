@@ -32,10 +32,12 @@ import tracker.ReadStats;
 /**
  * Randomizes or sorts the order of reads based on different criteria.
  * Supports shuffling, sorting by name, coordinates, sequence, or numeric ID while preserving read pairing.
+ * All retained reads are held in memory. Command-line instances configure shared
+ * I/O state; the worker-count API limits launches but does not isolate that state.
  * @author Brian Bushnell
  * @date Oct 27, 2014
  */
-public class Shuffle {
+public class Shuffle{
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
@@ -125,6 +127,10 @@ public class Shuffle {
 			}
 		}
 		
+		//SRT-007: the ByteStreamWriter path does not implement separate quality output.
+		if(!Tools.isNullFileName(parser.qfout1) || !Tools.isNullFileName(parser.qfout2)){
+			throw new IllegalArgumentException("Separate quality output (qfout/qfout2) is not supported by Shuffle; write FASTQ to retain qualities.");
+		}
 		mode=mode_;
 		assert(mode>=1 && mode<=5) : "mode must be shuffle, name, coordinate, sequence, or id.";
 		
@@ -338,8 +344,10 @@ public class Shuffle {
 	/*----------------         Inner Classes        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Runs one in-memory shuffle/sort and publishes failures for a caller to inspect after joining. */
 	public static class ShuffleThread extends Thread{
 		
+		/** Stores paths and a mode from SHUFFLE through SORT_ID; processing begins at start(). */
 		public ShuffleThread(String in1_, String in2_, String out1_, String out2_, int mode_, boolean ow_){
 			in1=in1_;
 			in2=in2_;
@@ -349,10 +357,16 @@ public class Shuffle {
 			ow=ow_;
 		}
 		
+		/** Reserves a worker slot, rolling it back if Thread.start rejects the launch. */
 		@Override
 		public synchronized void start(){
 			addThread(1);
-			super.start();
+			try{
+				super.start();
+			}catch(RuntimeException | Error e){
+				addThread(-1);
+				throw e;
+			}
 		}
 		
 		/**
@@ -360,27 +374,34 @@ public class Shuffle {
 		 */
 		@Override
 		public void run(){
-			ArrayList<String> list=new ArrayList<String>();
-			if(in1!=null){list.add("in1="+in1);}
-			if(in2!=null){list.add("in2="+in2);}
-			if(out1!=null){list.add("out1="+out1);}
-			if(out2!=null){list.add("out2="+out2);}
-			list.add("mode="+MODES[mode-1]);//mode constants are 1-based; MODES is 0-based
-			list.add("ow="+ow);
 			try{
+				ArrayList<String> list=new ArrayList<String>();
+				if(in1!=null){list.add("in1="+in1);}
+				if(in2!=null){list.add("in2="+in2);}
+				if(out1!=null){list.add("out1="+out1);}
+				if(out2!=null){list.add("out2="+out2);}
+				list.add("mode="+MODES[mode-1]);//mode constants are 1-based; MODES is 0-based
+				list.add("ow="+ow);
 				Shuffle.main(list.toArray(new String[0]));
 			}catch(Throwable e){
+				errorState=true;
 				System.err.println("Failed to shuffle "+in1+"\nException:"+e+"\n");
+			}finally{
+				addThread(-1);
 			}
-			addThread(-1);
 		}
 		
-		/** Secondary input file path for this thread */
+		/** Returns true after join() if argument preparation or Shuffle.main() threw.
+		 * SYN024: Jean's worker-status repair lets callers distinguish failure from completion. */
+		public boolean errorState(){return errorState;}
+
+		/** Primary and optional mate input paths. */
 		final String in1, in2;
-		/** Secondary output file path for this thread */
+		/** Primary and optional mate output paths. */
 		final String out1, out2;
 		final int mode;
 		final boolean ow;
+		private boolean errorState=false;
 		
 	}
 	
@@ -431,9 +452,10 @@ public class Shuffle {
 	
 	/** Sets the maximum number of concurrent shuffle threads (thread-safe). */
 	public static void setMaxThreads(final int x){
-		assert(x>0);
+		if(x<1){throw new IllegalArgumentException("Shuffle thread limit must be positive: "+x);}
 		synchronized(SHUFFLE_LOCK){
 			maxShuffleThreads=x;
+			SHUFFLE_LOCK.notifyAll();
 		}
 	}
 	
@@ -442,25 +464,26 @@ public class Shuffle {
 	public static int addThread(final int x){
 		synchronized(SHUFFLE_LOCK){
 			while(x>0 && currentShuffleThreads>=maxShuffleThreads){
-				try {
+				try{
 					SHUFFLE_LOCK.wait(2000);
-				} catch (InterruptedException e) {
+				}catch(InterruptedException e){
 					e.printStackTrace();
 				}
 			}
 			currentShuffleThreads+=x;
-			if(currentShuffleThreads<maxShuffleThreads){SHUFFLE_LOCK.notify();}
+			assert(currentShuffleThreads>=0) : "Unbalanced shuffle startup/completion would invalidate waiting; active="+currentShuffleThreads;
+			if(currentShuffleThreads<maxShuffleThreads){SHUFFLE_LOCK.notifyAll();}
 			return currentShuffleThreads;
 		}
 	}
 	
-	/** Blocks until the number of active shuffle threads drops below the maximum. */
+	/** Waits until all registered shuffle workers have completed; does not collect their error states. */
 	public static void waitForFinish(){
 		synchronized(SHUFFLE_LOCK){
-			while(currentShuffleThreads>=maxShuffleThreads){
-				try {
+			while(currentShuffleThreads>0){
+				try{
 					SHUFFLE_LOCK.wait(2000);
-				} catch (InterruptedException e) {
+				}catch(InterruptedException e){
 					e.printStackTrace();
 				}
 			}
@@ -468,7 +491,7 @@ public class Shuffle {
 	}
 	
 	/** Monitor object guarding the shuffle-thread counters. */
-	private static String SHUFFLE_LOCK=new String("SHUFFLE_LOCK");
+	private static final Object SHUFFLE_LOCK=new Object();
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
