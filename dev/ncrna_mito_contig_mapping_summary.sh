@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Summarize native tiled-SAM evidence using original query-contig denominators.
+set -euo pipefail
+root=$(cd "$(dirname "$0")/.." && pwd)
+exec java -ea --add-modules jdk.incubator.vector -XX:ActiveProcessorCount=1 -XX:+ExitOnOutOfMemoryError -Xmx4g -cp "$root/current" prok.NcrnaMitoContigMappingSummary "$@"

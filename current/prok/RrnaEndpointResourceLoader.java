@@ -51,5 +51,5 @@ public final class RrnaEndpointResourceLoader {
 		return new RrnaEndpointCallerFeatures.Resources(family,names,refs,five,three,null,null,raw);
 	}
 	static void require(boolean ok,String why){if(!ok){throw new IllegalArgumentException(why);}}
-	static final String HEADER="model\tend\tk\tradius\toffset\tpseudocount\tmembers\ttable_sha80";
+	public static final String HEADER="model\tend\tk\tradius\toffset\tpseudocount\tmembers\ttable_sha80";
 }

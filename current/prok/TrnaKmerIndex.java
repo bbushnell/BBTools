@@ -189,6 +189,7 @@ public final class TrnaKmerIndex {
 		final int[] cnt=counts;
 		for(int t=0, ts=touched.size; t<ts; t++){cnt[touched.get(t)]=0;}
 		touched.clear();
+		queryKmers.clear();
 		//A zero fixed cutoff is the explicit direct-alignment control for a one-model library:
 		//there is no ranking decision, and bypassing the set establishes whether filtering loses loci.
 		if(scoreMargin<0 && singleModelKmers!=null && !adaptive && fixedMinHits==0){
@@ -318,7 +319,9 @@ public final class TrnaKmerIndex {
 	/*-- Accessors for TrnaCaller instrumentation + reporting --*/
 	/** Shared k-mer count of a model with the LAST query (valid until the next shortlist call). */
 	public int lastSharedCount(int model){return (model>=0 && model<nModels) ? counts[model] : 0;}
-	int lastMaxShared(){return lastMaxShared;}
+	public int lastMaxShared(){return lastMaxShared;}
+	/** Actual unique query keys; zero when the explicit one-model bypass did not count. */
+	public int lastUniqueQueryKmers(){return queryKmers.size;}
 	int lastDistinctRefs(){return touched.size;}
 	public long queriesProcessed(){return queries;}
 	/** Total models placed on shortlists = upper bound on alignments issued (the true align count is

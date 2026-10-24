@@ -59,17 +59,22 @@ public class CallGenes extends ProkObject {
 	 * @param args Command line arguments
 	 */
 	public static void main(String[] args){
+		final CallGenesTimeline timeline=CallGenesTimeline.start();
 		//Start a timer immediately upon code entrance.
 		Timer t=new Timer();
 		
 		//Create an instance of this class
 		CallGenes x=new CallGenes(args);
+		x.timeline=timeline;
 		
 		//Run the object
-		try{x.process(t);}finally{if(x.proteinReference!=null){x.proteinReference.close();}}
+		try{x.process(t);}finally{
+			try{MitoSsuTierLog.closeConfigured();}finally{if(x.proteinReference!=null){x.proteinReference.close();}}
+		}
 		
 		//Close the print stream if it was redirected
 		Shared.closeStream(x.outstream);
+		if(timeline!=null){timeline.event("OUTPUT_FLUSHED");}
 	}
 	
 	/**
@@ -864,6 +869,9 @@ public class CallGenes extends ProkObject {
 		prok23sEndpoints.apply(GeneCaller.ncrnaFamilies);
 		prok5sEndpoints.apply(GeneCaller.ncrnaFamilies);
 		if(physicalNcrnaEdges){for(NcrnaFamily family:GeneCaller.ncrnaFamilies){NcrnaFamilyRegistry.enablePhysicalEdges(family);}}
+		for(NcrnaFamily family:GeneCaller.ncrnaFamilies){if(MitoSsuModelPolicy.coverage(family.name,family.modelNames)){
+			MitoSsuTierPolicy.configured();// Reject malformed experiment controls before workers or output streams.
+		}}
 		// Resolve omitted small-family defaults only after parsing; explicit choices
 		// are order-independent. D50 limits production CM verification to tRNA/5S.
 		if(!cmLocalSet){cmLocal=cmEnabled;}
@@ -1081,6 +1089,9 @@ public class CallGenes extends ProkObject {
 	
 	/** Create read streams and process all data */
 	void process(Timer t){
+		if(timeline!=null && !useFileWorkers()){timeline.singleInput(fnaList.size());}
+		NcrnaCpuProfile.checkOutput();
+		ncrnaCpuTotals=NcrnaCpuProfile.create(GeneCaller.ncrnaFamilies.size());
 
 		//Default/fallback model (respects the user pgm=/model= list).  With taxonomy=t, per-phylum PGMs are
 		//now selected PER FILE inside the processing loop (classify -> cached per-phylum PGM), so ONE JVM
@@ -1119,6 +1130,7 @@ public class CallGenes extends ProkObject {
 			}finally{load5Skmers=old5sKmers;load5SSequence=old5sSequence;load23SSequence=old23sSequence;load16SSequence=old16sSequence;}
 		}
 		GeneCaller.initializeConservedRnaSeedIndex();
+		if(timeline!=null){timeline.event("RESOURCES_LOADED");}
 		final QuantumAligner quantumCounter=new QuantumAligner();
 		final ScrabbleAligner scrabbleCounter=new ScrabbleAligner();
 		final long quantumCells0=quantumCounter.loops(), scrabbleCells0=scrabbleCounter.loops();
@@ -1203,6 +1215,7 @@ public class CallGenes extends ProkObject {
 			//Create a read input stream
 			final GeneModel pgm=(proteinReference!=null && passes==2 ? makeProteinGuidedModel(pgm0, fna)
 				: makeMultipassModel(pgm0, fna, gffIn, passes, geneticCode));
+			if(timeline!=null){timeline.event("TAXONOMY_PGM_DONE");}
 			
 			final ConcurrentReadInputStream cris=makeCris(fna);
 			
@@ -1217,6 +1230,7 @@ public class CallGenes extends ProkObject {
 		}
 		}
 		
+		if(timeline!=null){timeline.finishContigs();}
 		//Close the input stream
 		errorState|=ReadWrite.closeStreams(null, rosAmino, ros16S, ros18S, rosIts);
 		
@@ -1271,6 +1285,7 @@ public class CallGenes extends ProkObject {
 		if(errorState){
 			throw new RuntimeException(getClass().getName()+" terminated in an error state; the output may be corrupt.");
 		}
+		if(ncrnaCpuTotals!=null){ncrnaCpuTotals.write(NcrnaCpuProfile.OUTPUT, GeneCaller.ncrnaFamilies);}
 		
 		if(compareToGff!=null){
 			if(compareToGff.equals("auto")){
@@ -1474,6 +1489,11 @@ public class CallGenes extends ProkObject {
 			bsw.println("ncRNA Aligned Cells:  \t "+Tools.padLeft(ncrnaAlignedCells, 12));
 			bsw.println("RNA Out:              \t "+Tools.padLeft(rnaOut, 12));
 		}
+		if((extendedStats || verbose) && hasMitoCoverageLibrary()){
+			bsw.println("ncRNA Original16S Alignments:\t "+Tools.padLeft(mitoTierCounts[0],12));
+			bsw.println("ncRNA Mito Alignments:\t "+Tools.padLeft(mitoTierCounts[1],12));
+			bsw.println("ncRNA Mito Prealignment Length Skips:\t "+Tools.padLeft(mitoTierCounts[2],12));
+		}
 		
 		if(extendedStats || verbose) {
 			if(callCDS){
@@ -1626,6 +1646,11 @@ public class CallGenes extends ProkObject {
 				jo.add("ncRNA Aligned Cells", ncrnaAlignedCells);
 				jo.add("RNA Out", rnaOut);
 			}
+			if((extendedStats || verbose) && hasMitoCoverageLibrary()){
+				jo.add("ncRNA Original16S Alignments",mitoTierCounts[0]);
+				jo.add("ncRNA Mito Alignments",mitoTierCounts[1]);
+				jo.add("ncRNA Mito Prealignment Length Skips",mitoTierCounts[2]);
+			}
 			outer.add("Overall", jo);
 		}
 		
@@ -1650,6 +1675,14 @@ public class CallGenes extends ProkObject {
 		bsw.poisonAndWait();
 	}
 	
+	/** Reporting selection depends on the loaded roster, including zero-work inputs. */
+	private static boolean hasMitoCoverageLibrary(){
+		for(NcrnaFamily family:GeneCaller.ncrnaFamilies){
+			if(MitoSsuModelPolicy.coverage(family.name,family.modelNames)){return true;}
+		}
+		return false;
+	}
+
 	/**
 	 * Writes gene length histogram to specified file with summary statistics.
 	 * Includes mean, median, and standard deviation of gene lengths.
@@ -1729,6 +1762,7 @@ public class CallGenes extends ProkObject {
 			}
 			ThreadWaiter.startAndWait(workers);failure.check();
 		}
+		if(timeline!=null){timeline.event("FILE_TAXONOMY_DONE");}
 		final FileJob[] jobs=new FileJob[fnaList.size()];
 		for(int i=0; i<jobs.length; i++){
 			final String fna=fnaList.get(i);
@@ -1763,6 +1797,7 @@ public class CallGenes extends ProkObject {
 			final ConcurrentReadOutputStream[] sequence={null, rosAmino, ros16S, ros18S, rosIts};
 			final long[] outputIDs=new long[5];
 			final ArrayList<ProcessThread> completed=new ArrayList<ProcessThread>(1);
+			if(timeline!=null){timeline.workers(threads);timeline.event("TAXONOMY_PGM_DONE");}
 			outstream.println("File workers: "+threads);
 			outstream.println("File output chunks per worker: "+outputChunks);
 			for(int i=0; i<threads; i++){
@@ -1953,6 +1988,7 @@ public class CallGenes extends ProkObject {
 		
 		//Determine how many threads may be used
 		final int threads=Shared.threads();
+		if(timeline!=null){timeline.workers(threads);}
 		
 		//Fill a list with ProcessThreads
 		ArrayList<ProcessThread> alpt=new ArrayList<ProcessThread>(threads);
@@ -2082,7 +2118,12 @@ public class CallGenes extends ProkObject {
 				ncrnaWindows[i]+=threadNcrnaWindows[i];
 			}
 			accumulateNcrnaVoteStats(pt.caller);
+			pt.caller.accumulateMitoTierCounts(mitoTierCounts);
 			ncrnaSharedSweepPasses+=pt.caller.sharedSweepPasses();
+			if(ncrnaCpuTotals!=null){
+				final NcrnaCpuProfile workerCpu=pt.caller.completedCpuProfile();
+				if(workerCpu!=null){ncrnaCpuTotals.merge(workerCpu);}
+			}
 			long[] threadNcrnaCalls=pt.caller.ncrnaOutputCounts();
 			if(ncrnaCalls==null){ncrnaCalls=new long[threadNcrnaCalls.length];}
 			assert(ncrnaCalls.length==threadNcrnaCalls.length) : "ncRNA output-count family width changed during one run";
@@ -2505,6 +2546,17 @@ public class CallGenes extends ProkObject {
 		 * @return True if the reads should be kept, false if they should be discarded.
 		 */
 		ArrayList<Orf> processRead(final Read r, ArrayList<RrnaItsDeriver.Derived> itsOut){
+			if(timeline==null){return processReadInner(r, itsOut);}
+			timeline.enter();
+			boolean completed=false;
+			try{
+				final ArrayList<Orf> result=processReadInner(r, itsOut);
+				completed=true;
+				return result;
+			}finally{timeline.leave(completed);}
+		}
+
+		private ArrayList<Orf> processReadInner(final Read r, ArrayList<RrnaItsDeriver.Derived> itsOut){
 				emittedSequences=0;
 			ArrayList<Orf> list=caller.callGenes(r, pgm, true);
 			if(proteinReference!=null && list!=null){for(Orf orf : list){if(orf.proteinBonus>0){
@@ -3733,12 +3785,12 @@ public class CallGenes extends ProkObject {
 	}
 
 	/** Gate B's fail-loud resource-completeness+alignment check (Citan's corrections,
-	 * 2026-08-28), factored out of addNcrnaFamily into its own package-visible, directly
+	 * 2026-08-28), factored out of addNcrnaFamily into its own directly
 	 * testable method: given the already-resolved net/table existence flags and the loaded
 	 * library/models/modelNames, throws a RuntimeException naming the family and every
 	 * failing check if boundary resources are incomplete OR the library/model pairing is
 	 * uncheckable/misaligned; returns silently (no exception) if everything is complete and
-	 * verified aligned. Package-visible (not public) purely for CallGenesNcrnaGateTest --
+	 * verified aligned. Public to support the relocated CallGenesNcrnaGateTest --
 	 * not part of any public API contract.
 	 *
 	 * <p>Checks, in order: (1) net/start-table/stop-table files exist; (2) models and
@@ -3753,7 +3805,7 @@ public class CallGenes extends ProkObject {
 	 * models[i].name (the HBM parser doesn't go through Read parsing at all) -- see the call
 	 * site's original comment history for the full trace, preserved here rather than
 	 * duplicated at both the call site and this method. */
-	static void requireCompleteBoundaryResources(String name, String netPath, String startTablePath,
+	public static void requireCompleteBoundaryResources(String name, String netPath, String startTablePath,
 			String stopTablePath, boolean netOk, boolean startOk, boolean stopOk,
 			consensus.BaseGraph[] models, byte[][] library, String[] modelNames,
 			String libPath, String modelPath){
@@ -4185,15 +4237,20 @@ public class CallGenes extends ProkObject {
 	 * !GeneCaller.ncrnaFamilies.isEmpty(), matching tRNAOut's own calltRNA gate). */
 	long rnaOut=0;
 	/** Completed generic-ncRNA alignments, in GeneCaller.ncrnaFamilies order. */
-	long[] ncrnaAlignments;
+	public long[] ncrnaAlignments;
+	/** Final-worker original16S/mito alignment calls and prealignment length skips.
+	 * Multipass training work is excluded, as in the existing family counters. */
+	private final long[] mitoTierCounts=new long[3];
+	private NcrnaCpuProfile ncrnaCpuTotals;
+	private CallGenesTimeline timeline;
 	/** Family-local seed occurrences and scheduled pre-filter windows, merged after join. */
-	long[] ncrnaKmerHits, ncrnaWindows;
+	public long[] ncrnaKmerHits, ncrnaWindows;
 	/** Generated voted/fallback windows before claimed subtraction, not scheduled ncRNA Windows. */
 	long[] ncrnaGeneratedVotedWindows, ncrnaGeneratedFallbackWindows;
 	/** Actual shared 17-mer strand scans, not multiplied by the number of registered families. */
 	long ncrnaSharedSweepPasses=0;
 	/** Committed output calls in GeneCaller.ncrnaFamilies order. */
-	long[] ncrnaCalls;
+	public long[] ncrnaCalls;
 	/** Quantum+Scrabble dynamic-programming cells during this CallGenes invocation. */
 	long ncrnaAlignedCells=0;
 	/** Count of 16S rRNA genes identified and output */
@@ -4352,10 +4409,10 @@ public class CallGenes extends ProkObject {
 	static boolean RRNA17_EXPLICIT=false;
 	static int DEFAULT_RRNA17_MASK=0;
 	public static String RRNA17_PROFILE=null;
-	static String RRNA17_LOADED_PROFILE=null;
+	public static String RRNA17_LOADED_PROFILE=null;
 	/** Measured caller occurrence threshold for the packaged285 forward17-mers. */
-	static int RRNA16S_SEED_MIN_HITS=2;
-	static boolean RRNA16S_SEED_MIN_HITS_EXPLICIT=false;
+	public static int RRNA16S_SEED_MIN_HITS=2;
+	public static boolean RRNA16S_SEED_MIN_HITS_EXPLICIT=false;
 	static int RRNA23S_SEED_MIN_HITS=2;
 	static float RRNA23S_ID_PASS=.60f;
 	static boolean RRNA23S_ID_EXPLICIT=false;
@@ -4379,13 +4436,13 @@ public class CallGenes extends ProkObject {
 		EUK5S_ENABLED=Parse.parseBoolean(value);
 		return true;
 	}
-	static final int RRNA23S_ENDPOINT_OFF=0, RRNA23S_ENDPOINT_G28=1, RRNA23S_ENDPOINT_G16=2;
+	public static final int RRNA23S_ENDPOINT_OFF=0, RRNA23S_ENDPOINT_G28=1, RRNA23S_ENDPOINT_G16=2;
 	/** No 23S endpoint network is shipped; the discarded G28/G16-C modes are not defaults. */
-	static int RRNA23S_ENDPOINT_MODE=RRNA23S_ENDPOINT_OFF;
-	static boolean RRNA23S_ENDPOINT_EXPLICIT=false;
+	public static int RRNA23S_ENDPOINT_MODE=RRNA23S_ENDPOINT_OFF;
+	public static boolean RRNA23S_ENDPOINT_EXPLICIT=false;
 	/** Default-on matched ablation gate for prok5S HBM detection rescue. */
-	static boolean RRNA17_PROK5S_HBM=true;
-	static boolean RRNA17_PROK5S_HBM_EXPLICIT=false;
+	public static boolean RRNA17_PROK5S_HBM=true;
+	public static boolean RRNA17_PROK5S_HBM_EXPLICIT=false;
 	/** Seeded prok5S initial path-score multiplier; positive-overlap CDS rescoring is unchanged. */
 	static float RRNA17_PROK5S_WEIGHT=3f;
 	static boolean RRNA17_PROK5S_WEIGHT_EXPLICIT=false;
@@ -4499,7 +4556,7 @@ public class CallGenes extends ProkObject {
 	private static final IndexOverrides NO_INDEX_OVERRIDES=new IndexOverrides();
 	static String RNASEP_KMERS_OVERRIDE=null;
 	static String SRPSMALL_KMERS_OVERRIDE=null;
-	static String SRPLARGE_KMERS_OVERRIDE=null;
+	public static String SRPLARGE_KMERS_OVERRIDE=null;
 	public static String TMRNA_KMERS_OVERRIDE=null;
 	public static String SIXS_RF00013_KMERS_OVERRIDE=null;
 	public static String SIXS_RF01685_KMERS_OVERRIDE=null;
@@ -4638,7 +4695,7 @@ public class CallGenes extends ProkObject {
 	static void setRrna23sIdentity(String value){
 		RRNA23S_ID_PASS=parseUnitFloat("rrna23sidpass",value);RRNA23S_ID_EXPLICIT=true;
 	}
-	static void setRrna17Prok5sHbm(String value){
+	public static void setRrna17Prok5sHbm(String value){
 		RRNA17_PROK5S_HBM=Parse.parseBoolean(value);
 		RRNA17_PROK5S_HBM_EXPLICIT=true;
 	}
@@ -4655,7 +4712,7 @@ public class CallGenes extends ProkObject {
 		EUK5S_WEIGHT=weight;EUK5S_WEIGHT_EXPLICIT=true;
 	}
 
-	static void setRrna23SEndpointMode(String value){
+	public static void setRrna23SEndpointMode(String value){
 		if(value==null){throw new IllegalArgumentException("rrna23sendpoint requires g28, g16, or off");}
 		if(value.equalsIgnoreCase("g28") || value.equalsIgnoreCase("alignmentfree") || value.equalsIgnoreCase("alignment-free")){
 			RRNA23S_ENDPOINT_MODE=RRNA23S_ENDPOINT_G28;
@@ -4682,7 +4739,7 @@ public class CallGenes extends ProkObject {
 	}
 
 	/** Existing *only selectors suppress newly default-on generic families unless explicitly requested. */
-	static boolean isSingleFamilyFlag(String key){
+	public static boolean isSingleFamilyFlag(String key){
 		assert(key!=null):"PGMTools.parseStatic supplied a parsed option name";
 		return key.equals("cdsonly") || key.equals("callcdsonly") || key.equals("trnaonly") || key.equals("calltrnaonly")
 			|| key.equals("16sonly") || key.equals("call16sonly") || key.equals("23sonly") || key.equals("call23sonly")
@@ -4690,13 +4747,13 @@ public class CallGenes extends ProkObject {
 	}
 
 	/** Group selections follow argument order; later individual family switches still override them. */
-	static void setEukFamilies(boolean enabled, Euk18sRuntimeConfig config){
+	public static void setEukFamilies(boolean enabled, Euk18sRuntimeConfig config){
 		assert(config!=null):"The euk convenience flag must configure the same18S runtime that parse applies";
 		config.enabled=enabled;EUK5S_ENABLED=enabled;setR58LsuEnabled(enabled);
 	}
 
 	/** Preserve explicit contradictions for validateNcrnaGateCombo; only omitted child defaults follow the umbrella. */
-	static void resolveNcrnaDefaults(boolean tmrnaExplicit, boolean sixsExplicit, boolean eukRequested, boolean singleFamily){
+	public static void resolveNcrnaDefaults(boolean tmrnaExplicit, boolean sixsExplicit, boolean eukRequested, boolean singleFamily){
 		//An enabled paired family explicitly implies its infrastructure; a later euk=f does not.
 		if(singleFamily && !R58LSU_ENABLED){NCRNA_FAMILIES_ENABLED=false;}
 		if(eukRequested && R58LSU_ENABLED){NCRNA_FAMILIES_ENABLED=true;}
@@ -4707,7 +4764,7 @@ public class CallGenes extends ProkObject {
 	}
 
 	/** ITS follows the final18S+5.8S+LSU selection; explicit its=f wins over automatic triggers and outits. */
-	static boolean resolveIts(Boolean explicit, boolean outputRequested, boolean s18, boolean r58Lsu){
+	public static boolean resolveIts(Boolean explicit, boolean outputRequested, boolean s18, boolean r58Lsu){
 		return explicit!=null ? explicit.booleanValue() : outputRequested || (s18 && r58Lsu);
 	}
 

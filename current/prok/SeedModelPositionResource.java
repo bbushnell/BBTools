@@ -21,11 +21,21 @@ public final class SeedModelPositionResource {
 		final ObjectMap<String,String> flags=new ObjectMap<String,String>(String.class,String.class);
 		for(String arg:pp.args){final int eq=arg.indexOf('=');require(eq>0,"Expected flag=value");final String key=arg.substring(0,eq).toLowerCase(Locale.ROOT);
 			require(KNOWN.contains("|"+key+"|") && flags.put(key,arg.substring(eq+1))==null,"Unknown or repeated binding: "+key);}
-		for(String key:KNOWN.substring(1,KNOWN.length()-1).split("\\|")){require(flags.get(key)!=null,"Missing resource binding: "+key);}
+		final boolean subset=flags.get("subsetmodels")!=null;
+		final String required=subset ? "positions|models|seeds|out|subsetmodels|subsetconsensussha80" : BINDING_FLAGS;
+		for(String key:required.split("\\|")){require(flags.get(key)!=null,"Missing resource binding: "+key);}
+		require(subset || flags.get("subsetconsensussha80")==null,"A subset consensus binding requires subsetmodels");
 		Shared.setThreads(1);final ArrayList<String> names=new ArrayList<String>();final ArrayList<byte[]> sequences=new ArrayList<byte[]>();
 		RrnaResourceIO.stream(flags.get("models"),r->{names.add(RrnaResourceIO.first(r.id));sequences.add(r.bases.clone());});
 		final String[] ids=names.toArray(new String[0]);final byte[][] bases=sequences.toArray(new byte[0][]);final int[] lengths=lengths(bases);
-		final LongHashSet seeds=ProkObject.loadLongKmers(flags.get("seeds"),17);final int clen=Integer.parseInt(flags.get("clen"));final int[] sites=sites(flags.get("sites"));
+		final LongHashSet seeds=ProkObject.loadLongKmers(flags.get("seeds"),17);
+		if(subset){
+			for(String key:new String[]{"clen","sites","seedfastasha80","consensussha80","anchorssha80","cmsha80"}){
+				require(flags.get(key)==null,"Subset mode preserves the original envelope bindings; do not also supply "+key);
+			}
+			subset(flags, seeds, ids, bases);Shared.closeStream(pp.outstream);return;
+		}
+		final int clen=Integer.parseInt(flags.get("clen"));final int[] sites=sites(flags.get("sites"));
 		final String[] hashes=new String[4];for(int i=0;i<hashes.length;i++){hashes[i]=flags.get(SeedModelPositionTable.BINDINGS[i].toLowerCase(Locale.ROOT));}
 		final SeedModelPositionTable table=SeedModelPositionTable.load(flags.get("positions"),seeds,ids,lengths,clen,sites,hashes);
 		write(flags.get("out"),table,bases);
@@ -33,7 +43,26 @@ public final class SeedModelPositionResource {
 		require(reread.seedCount()==seeds.size(),"Round-trip must retain every mapped and unmapped caller key");
 		System.err.println("SEED_POSITION_RESOURCE_PASS models="+ids.length+" seeds="+seeds.size()+" unchanged_annotations=true exact_consensus_binding=true");Shared.closeStream(pp.outstream);
 	}
-	static SeedModelPositionTable load(String path,LongHashSet seeds,String[] names,byte[][] sequences){
+	/** Subset only exact unchanged consensus records; never infer new seed positions. */
+	private static void subset(final ObjectMap<String,String> flags, final LongHashSet seeds, final String[] names, final byte[][] bases){
+		final SeedModelPositionTable source=load(flags.get("positions"), seeds, names, bases);
+		final ArrayList<String> selectedNames=new ArrayList<String>();final ArrayList<byte[]> selectedBases=new ArrayList<byte[]>();
+		RrnaResourceIO.stream(flags.get("subsetmodels"), r->{selectedNames.add(RrnaResourceIO.first(r.id));selectedBases.add(r.bases.clone());});
+		final int[] retained=new int[selectedNames.size()];int prior=-1;
+		for(int i=0; i<retained.length; i++){
+			int index=prior+1;while(index<names.length && !names[index].equals(selectedNames.get(i))){index++;}
+			require(index<names.length && java.util.Arrays.equals(bases[index], selectedBases.get(i)),
+				"Subset models must preserve original order, unique names and exact bases: "+selectedNames.get(i));
+			retained[i]=index;prior=index;
+		}
+		final SeedModelPositionTable selected=source.subset(retained, flags.get("subsetconsensussha80"));
+		final byte[][] sequences=selectedBases.toArray(new byte[0][]);write(flags.get("out"), selected, sequences);
+		final SeedModelPositionTable reread=load(flags.get("out"), seeds, selectedNames.toArray(new String[0]), sequences);
+		require(reread.seedCount()==source.seedCount() && reread.modelCount()==retained.length,
+			"Subset serialization must conserve discovery keys and retain exactly the selected model roster");
+		System.err.println("SEED_POSITION_SUBSET_PASS models="+retained.length+" seeds="+seeds.size()+" unchanged_annotations=true exact_consensus_binding=true");
+	}
+	public static SeedModelPositionTable load(String path,LongHashSet seeds,String[] names,byte[][] sequences){
 		require(names!=null && sequences!=null && names.length==sequences.length,"Runtime model names and complete sequences must stay index-aligned");
 		final int[] lengths=lengths(sequences);final ByteFile in=RrnaResourceIO.open(path);final LineParser1 p=new LineParser1('\t');
 		try{
@@ -50,7 +79,7 @@ public final class SeedModelPositionResource {
 			validatePositions(table,sequences);return table;
 		}finally{require(!in.close(),"Bound position resource read failed");}
 	}
-	static void write(String path,SeedModelPositionTable table,byte[][] sequences){
+	public static void write(String path,SeedModelPositionTable table,byte[][] sequences){
 		require(table!=null && sequences!=null && table.modelCount()==sequences.length,"Envelope preserves the existing annotation model order");
 		RrnaResourceIO.fresh(path,"");final ByteStreamWriter out=RrnaResourceIO.writer(path);final ByteBuilder b=new ByteBuilder();
 		try{
@@ -72,5 +101,6 @@ public final class SeedModelPositionResource {
 	}
 	static int[] sites(String value){final String[] words=value.split(",");final int[] sites=new int[words.length];for(int i=0;i<sites.length;i++){sites[i]=Integer.parseInt(words[i]);}return sites;}
 	static void require(boolean ok,String why){if(!ok){throw new IllegalArgumentException(why);}}
-	static final String KNOWN="|positions|models|seeds|clen|sites|seedfastasha80|consensussha80|anchorssha80|cmsha80|out|";
+	static final String BINDING_FLAGS="positions|models|seeds|clen|sites|seedfastasha80|consensussha80|anchorssha80|cmsha80|out";
+	static final String KNOWN="|"+BINDING_FLAGS+"|subsetmodels|subsetconsensussha80|";
 }

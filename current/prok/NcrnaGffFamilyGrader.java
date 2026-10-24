@@ -34,7 +34,7 @@ import fileIO.FileFormat;
  * <p><b>Matching is MAXIMUM-CARDINALITY bipartite matching (Kuhn's augmenting-path
  * algorithm), not greedy highest-overlap-first</b> (Citan's review correction,
  * round 1): a first draft used greedy weighted assignment, which can under-count true
- * matches. Counterexample (now {@link NcrnaGffFamilyGraderTest#
+ * matches. Counterexample (now {@link test.prok.NcrnaGffFamilyGraderTest#
  * testMaximumCardinalityCounterexample}, coordinates hand-verified before writing the
  * fixture): call C1 has edges to T1(overlap8) and T2(overlap7); call C2 has an edge
  * ONLY to T1(overlap5). Greedy assigns the single highest-overlap pair first (C1-T1),
@@ -59,7 +59,7 @@ import fileIO.FileFormat;
  * {@code *MatchId} columns linking a matched pair) -- every aggregate number in
  * {@code .summary.tsv} is mechanically reconstructable by scanning {@code .rawcalls.tsv}
  * alone (grouping by role/family/outcome), not just human-eyeballable. Verified
- * end-to-end, not just claimed: {@link NcrnaGffFamilyGraderTest#
+ * end-to-end, not just claimed: {@link test.prok.NcrnaGffFamilyGraderTest#
  * testEndToEndReconstruction} writes real {@code .rawcalls.tsv}/{@code .summary.tsv}
  * files, re-reads them from disk, and reconstructs every subtype/union/neg/dup/cross
  * aggregate purely from the parsed file content. {@code subtypeMatchId}/
@@ -172,7 +172,15 @@ public class NcrnaGffFamilyGrader {
 	 * subtraction. Exposes the actual pairing ({@link MatchResult#callMatchedTruthIdx}/
 	 * {@link MatchResult#truthMatchedCallIdx}), not just consumed/duplicate flags, so
 	 * callers can build stable match-ID links for the audit trail. */
-	static MatchResult matchOneToOne(List<Locus> calls, List<Locus> truth, float minOverlapFrac){
+	public static MatchResult matchOneToOne(List<Locus> calls, List<Locus> truth, float minOverlapFrac){
+		return matchOneToOne(calls, truth, minOverlapFrac, 0);
+	}
+
+	/** Optional circular geometry; zero preserves the original linear matching contract.
+	 * Positive length requires caller-validated circular topology and intervals no longer
+	 * than one circumference. Original list indices and one-to-one ownership are retained. */
+	static MatchResult matchOneToOne(List<Locus> calls, List<Locus> truth, float minOverlapFrac, int circularLength){
+		if(circularLength<0){throw new IllegalArgumentException("Circular circumference must be positive, or zero for linear matching");}
 		final int nc=calls.size(), nt=truth.size();
 		final MatchResult mr=new MatchResult(nc, nt);
 
@@ -185,7 +193,8 @@ public class NcrnaGffFamilyGrader {
 			for(int ti=0; ti<nt; ti++){
 				final Locus t=truth.get(ti);
 				if(!c.seqid.equals(t.seqid) || c.strand!=t.strand){continue;}
-				final int overlap=Math.min(c.stop, t.stop)-Math.max(c.start, t.start)+1;
+				final int overlap=circularLength==0 ? Math.min(c.stop, t.stop)-Math.max(c.start, t.start)+1
+					: circularOverlap(c, t, circularLength);
 				if(overlap<=0){continue;}
 				if(overlap>=minOverlapFrac*c.length() && overlap>=minOverlapFrac*t.length()){
 					edges.add(new int[]{ti, overlap});
@@ -209,6 +218,22 @@ public class NcrnaGffFamilyGrader {
 			if(mr.truthMatchedCallIdx[ti]>=0){mr.truthConsumed[ti]=true;}
 		}
 		return mr;
+	}
+
+	/** Sum physical overlap across adjacent unrolled copies, without duplicating a locus.
+	 * Each interval covers at most one turn, so the sum cannot exceed either length. */
+	public static int circularOverlap(Locus c, Locus t, int length){
+		if(length<=0 || c.start>length || t.start>length || c.length()>length || t.length()>length){
+			throw new IllegalArgumentException("Circular loci must start within one positive circumference and span at most one turn");
+		}
+		if(c.stop<=length && t.stop<=length){return Math.max(0, Math.min(c.stop,t.stop)-Math.max(c.start,t.start)+1);}
+		long overlap=0;
+		for(int turn=-1; turn<=1; turn++){
+			final long shift=(long)turn*length;
+			overlap+=Math.max(0L, Math.min((long)c.stop, t.stop+shift)-Math.max((long)c.start, t.start+shift)+1L);
+		}
+		assert(overlap<=c.length() && overlap<=t.length()):"One-turn circular overlap cannot count a physical base twice";
+		return (int)overlap;
 	}
 
 	/** One augmenting-path step of Kuhn's algorithm: try to give call `ci` a match,
@@ -238,8 +263,8 @@ public class NcrnaGffFamilyGrader {
 		/** callMatchedTruthIdx[ci] = index into the TRUTH list passed to matchOneToOne
 		 * that call ci is matched to, or -1. truthMatchedCallIdx is the mirror. Exposed
 		 * (not just consumed booleans) so callers can build stable audit-trail match IDs. */
-		final int[] callMatchedTruthIdx;
-		final int[] truthMatchedCallIdx;
+		public final int[] callMatchedTruthIdx;
+		public final int[] truthMatchedCallIdx;
 		MatchResult(int nc, int nt){
 			callConsumed=new boolean[nc];
 			truthConsumed=new boolean[nt];

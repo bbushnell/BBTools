@@ -37,7 +37,7 @@ final class FamilyResourceManifest {
 					require(model.equals(".") && end.equals("."), "Only table roles have model/end bindings");
 					require(role.equals("consensus") || role.equals("models") || role.equals("seeds") || role.equals("tables") || role.equals("endpoints") || role.equals("cutoffs")
 						|| role.equals("boundary") || role.equals("boundary_start") || role.equals("boundary_stop") || role.equals("legacy_consensus")
-						|| role.equals("vote_offsets") || role.equals("joined_model_positions"),
+						|| role.equals("vote_offsets") || role.equals("joined_model_positions") || role.equals("length_bounds"),
 						"Unknown resource role for "+family.id+": "+role);
 				}
 				final String key=key(member, role, model, end);

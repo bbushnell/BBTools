@@ -159,10 +159,11 @@ public final class Euk18sRuntimeConfig {
 			+" msaSubScale="+msaSubScale+" msaSub="+costs.sub+" msaSubR="+costs.subR+" msaSub2="+costs.sub2+" msaSub3="+costs.sub3
 			+" msaEngine="+(rolling ? "rolling" : "native")+" joined="+useJoined+" joinedSupport="+joinedSupport);
 	}
-	static void validateDefaultNames(String[] names){
-		require(names!=null && names.length==DEFAULT_MODEL_NAMES.length, "Default euk18S library requires all ten declared models");
+	public static void validateDefaultNames(String[] names){
+		final String[] expected=NcrnaFamilyRegistry.get(FAMILY).models;
+		require(names!=null && names.length==expected.length, "Default euk18S library requires its complete declared roster of "+expected.length+" models");
 		for(int i=0; i<names.length; i++){
-			require(DEFAULT_MODEL_NAMES[i].equals(names[i]), "Default euk18S model roster mismatch at "+i+": expected="+DEFAULT_MODEL_NAMES[i]+" observed="+names[i]);
+			require(expected[i].equals(names[i]), "Default euk18S model roster mismatch at "+i+": expected="+expected[i]+" observed="+names[i]);
 		}
 	}
 	private static String path(String key,String value){require(value!=null&&!value.isEmpty(),key+" requires a path");return value;}
@@ -170,9 +171,6 @@ public final class Euk18sRuntimeConfig {
 	private static float number(String value,float lo,float hi,String key){final float x=Float.parseFloat(value);require(Float.isFinite(x)&&x>=lo&&x<=hi,key+" outside ["+lo+","+hi+"]");return x;}
 	private static void require(boolean ok,String why){if(!ok){throw new IllegalArgumentException(why);}}
 	public static final String FAMILY="euk18S";
-	private static final String[] DEFAULT_MODEL_NAMES={"euk18S_universal", "euk18S_fungi", "euk18S_plant",
-		"euk18S_invertebrate", "euk18S_vertebrate_other", "euk18S_vertebrate_mammalian",
-		"euk18S_mitochondria", "euk18S_protist", "euk18S_protozoa_component_001", "euk18S_protozoa_component_003"};
 	/** Explicit D48 package variant; review its manifest before building. */
 	static final boolean DEFAULT_JOINED=true;
 	public boolean enabled=false;

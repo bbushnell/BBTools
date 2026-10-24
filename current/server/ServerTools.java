@@ -36,129 +36,127 @@ import structures.ByteBuilder;
 import structures.StringNum;
 
 /**
- * Utilities for HTTP client and server operations in BBTools.
- * Provides methods for sending requests, receiving responses, reading web pages,
- * and handling HTTP exchanges. Supports both Java 8 URLConnection and Java 11+ HttpClient.
+ * Utilities for small BBTools HTTP clients and HttpExchange response helpers.
  *
  * @author Brian Bushnell
  * @date June 3, 2025
  */
 public class ServerTools {
-	
-	/** Test client that sends messages to a server and measures response times.
-	 * @param args Command-line arguments: [address] [rounds] [message] */
+
+	/**
+	 * Diagnostic client that sends the same optional message several times.
+	 * Prints each request duration in nanoseconds, the final response body,
+	 * the mean duration, throughput for timed sends excluding reporting,
+	 * and the upper median duration.
+	 * @param args {@code <address> [rounds] [message]}
+	 */
 	public static void main(String[] args){
-		String address=args[0];
+		if(args.length<1 || args.length>3){
+			throw new IllegalArgumentException("Usage: ServerTools <address> [rounds] [message]");
+		}
 		int rounds=1;
-		String message="";
+		final String address=args[0];
 		if(args.length>1){rounds=Integer.parseInt(args[1]);}
-		if(args.length>2){message=args[2];}
-		byte[] messageBytes=message.getBytes();
-		
-		long[] times=new long[rounds];
+		if(rounds<1){throw new IllegalArgumentException("rounds must be positive: "+rounds);}
+		final String message=args.length>2 ? args[2] : "";
+		final byte[] messageBytes=message.getBytes();
+
+		final long[] times=new long[rounds];
 		StringNum response=null;
-		long prevTime=System.nanoTime();
 		for(int i=0; i<rounds; i++){
+			final long start=System.nanoTime();
 			response=sendAndReceive(messageBytes, address);
-			long currentTime=System.nanoTime();
-			times[i]=currentTime-prevTime;
-			prevTime=currentTime;
+			times[i]=System.nanoTime()-start;
 			System.out.println(times[i]);
 		}
-		
+
 		System.out.println(response.s);
-		
+
 		Arrays.sort(times);
-		long sum=simd.Vector.sum(times);
-		System.out.println("Avg:    \t"+sum/1000000.0+" ms");
-		System.out.println("QPS:    \t"+(rounds*1000000000/sum)+" ms");
+		long sum=0;
+		for(long time : times){sum+=time;}
+		System.out.println("Avg:    \t"+(sum/(rounds*1000000.0))+" ms");
+		System.out.println("QPS:    \t"+(rounds*1000000000.0/sum)+" qps");
 		System.out.println("Median: \t"+(times[rounds/2]/1000000.0)+" ms");
-		
 	}
-	
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Client Helpers        ----------------*/
+	/*--------------------------------------------------------------*/
+
 	/**
-	 * Reads the content of a web page into a ByteBuilder.
-	 * Retries up to 10 times on failure with 1-second delays.
+	 * Reads one URL into a ByteBuilder, opening and closing each retry's
+	 * stream. Failed attempts clear partial bytes before the next retry.
 	 *
-	 * @param address URL to read from
-	 * @param convert Whether to apply percent encoding to the address
-	 * @return ByteBuilder containing the page content, empty if all attempts failed
+	 * @param address URL to read; optionally percent-encoded before opening
+	 * @param convert true to convert common symbols to percent escapes first
+	 * @return page bytes, or an empty builder if all ten attempts fail
 	 */
 	public static ByteBuilder readPage(String address, boolean convert){
-    	if(convert){address=PercentEncoding.commonSymbolToCode(address);}
-//    	assert(false) : address;
-		ByteBuilder bb=new ByteBuilder(256);
+		if(convert){address=PercentEncoding.commonSymbolToCode(address);}
+		final ByteBuilder bb=new ByteBuilder(256);
 		boolean success=false;
 		for(int i=0; i<10 && !success; i++){
-			try {
-				URL url=new URL(address);
-				InputStream is=url.openStream();
-
-				byte[] buffer=new byte[4096];
-				for(int len=is.read(buffer); len>0; len=is.read(buffer)){
-					bb.append(buffer, 0, len);
+			//FIXED [server/ServerTools#005]: read failures now close the URL stream before retrying.
+			try{
+				try(InputStream is=new URL(address).openStream()){
+					byte[] buffer=new byte[4096];
+					for(int len=is.read(buffer); len>0; len=is.read(buffer)){
+						bb.append(buffer, 0, len);
+					}
 				}
-				is.close();
 				success=true;
-			} catch (MalformedURLException e) {
+			}catch(MalformedURLException e){
 				e.printStackTrace();
 				bb.clear();
 				Tools.pause(1000);
 				System.err.println("Retrying; attempt "+(i+1)+", URL "+address);
-			} catch (IOException e) {
+			}catch(IOException e){
 				e.printStackTrace();
 				bb.clear();
 				Tools.pause(1000);
 				System.err.println("Retrying; attempt "+(i+1)+", URL "+address);
 			}
 		}
-        return bb;
-    }
-	
-	/** Send a message to a remote URL, and return the response.
-	 * Set message to null if there is no message. */
+		return bb;
+	}
+
+	/** Sends one message with the Java 11 client when available, otherwise via the legacy Java 8 URLConnection path. */
 	public static StringNum sendAndReceive(byte[] message, String address){
-		//This may or may not work since the client is statically initialized.
-		if(Shared.javaVersion>=11) {
+		if(Shared.javaVersion>=11){
 			return sendAndReceive_httpClient(message, address);
 		}
 		return sendAndReceive_httpUrlConnection(message, address);
 	}
-	
-	
-	/** Send a message to a remote URL, and return the response.
-	 * Set message to null if there is no message. */
+
+
+	/** Legacy Java 8 HTTP POST path; a null message sends no body and status 1 means no HTTP response was read. */
 	public static StringNum sendAndReceive_httpUrlConnection(byte[] message, String address){
-    	address=PercentEncoding.commonSymbolToCode(address);
+		address=PercentEncoding.commonSymbolToCode(address);
 		URL url=null;
 		InputStream is=null;
 		HttpURLConnection connection=null;
 		OutputStream os=null;
-		try {
+		try{
 			url=new URL(address);
 			connection=(HttpURLConnection) url.openConnection();
 			connection.setDoOutput(true);
 			connection.setConnectTimeout(40000); //For testing
 			os=connection.getOutputStream();
-		} catch (IOException e1) {
-//			System.err.println("A:\t"+address+" -> "+url+" -> "+connection+" -> "+os);
-			// TODO Auto-generated catch block
+		}catch(IOException e1){
 			if(!suppressErrors){e1.printStackTrace();}
 		}
-		
+
 		if(os!=null){
-			try {
+			try{
 				//TODO: It may be useful to set a timeout here.
 				if(message!=null){os.write(message);}
-			} catch (IOException e) {
-//				System.err.println("B:\t"+connection+" -> "+os);
-				// TODO Auto-generated catch block
+			}catch(IOException e){
 				if(!suppressErrors){e.printStackTrace();}
 			}
-			try {
+			try{
 				os.close();
-			} catch (IOException e) {
-				// TODO Auto-generated catch block
+			}catch(IOException e){
 				e.printStackTrace();
 			}
 		}
@@ -167,371 +165,328 @@ public class ServerTools {
 		int responseCode=1;
 		if(connection!=null){
 			IOException noInputStream=null;
-			try {
+			try{
 				is=connection.getInputStream();
-			} catch (IOException e) {
+			}catch(IOException e){
 				noInputStream=e;
 			}
 			if(is==null){is=connection.getErrorStream();}
-			
-			try {
+
+			try{
 				responseCode=connection.getResponseCode();
 				if(!suppressErrors && (responseCode<200 || responseCode>299)){
 					System.err.println("Error: Server returned response code "+responseCode);
-//					System.err.println(connection.getRequestProperties());//Can't do this - throws exception while connected
-//					System.err.println(connection.getResponseMessage());
 					new Exception().printStackTrace();
 				}
-			} catch (IOException e) {
-				if(!suppressErrors) {
-					e.printStackTrace();
-				}
+			}catch(IOException e){
+				if(!suppressErrors){e.printStackTrace();}
 			}
-			
+
 			if(is!=null){
 				result=readStream(is);
-				try {
-//					System.err.println("C:\t"+connection+" -> "+os+" -> "+is+" -> "+(result!=null));
+				try{
 					is.close();
-				} catch (IOException e) {
+				}catch(IOException e){
 					e.printStackTrace();
 				}
 			}else if(noInputStream!=null && !suppressErrors){
 				noInputStream.printStackTrace();
 			}
 		}
-		if(result!=null && result.length()<1) {result=null;}
+		if(result!=null && result.length()<1){result=null;}
 		return new StringNum(result, responseCode);
 	}
-	
-	/** Send a message to a remote URL, and return the response.
-	 * Set message to null if there is no message. */
+
+	/** Modern Java 11 HTTP POST path; retries I/O and non-2xx responses but preserves interrupt cancellation. */
 	public static StringNum sendAndReceive_httpClient(byte[] message, String address){
-    	address=PercentEncoding.commonSymbolToCode(address);
-    	
-		HttpRequest request = HttpRequest.newBuilder()
+		address=PercentEncoding.commonSymbolToCode(address);
+
+		//FIXED [server/ServerTools#006]: null means no request body, as documented and as the Java 8 path already allowed.
+		final HttpRequest.BodyPublisher body=message==null ?
+				HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofByteArray(message);
+		final HttpRequest request=HttpRequest.newBuilder()
 				  .uri(URI.create(address))
-//				  .header("Accept-Encoding", "gzip")
-				  .POST(HttpRequest.BodyPublishers.ofByteArray(message))
+				  .POST(body)
 				  .build();
 		HttpResponse<String> response=null;
-		
+
 		int responseCode=-1;
 		String result=null;
-		
-		for(int i=0; i<14 && (result==null || responseCode<200 || responseCode>299); i++) {
-			try {
-				if(i>0) {Tools.sleep(40*i*i);}
-				response = client.send(request, HttpResponse.BodyHandlers.ofString());
+
+		for(int i=0; i<14 && (result==null || responseCode<200 || responseCode>299); i++){
+			try{
+				if(i>0){Tools.sleep(40*i*i);}
+				response=client.send(request, HttpResponse.BodyHandlers.ofString());
 				result=response.body();
 				responseCode=response.statusCode();
-			} catch (IOException | InterruptedException e2) {
+			}catch(InterruptedException e2){
+				//FIXED [server/ServerTools#007]: preserve cancellation and do not retry an interrupted send as ordinary I/O.
+				Thread.currentThread().interrupt();
 				e2.printStackTrace();
-//				return null;
+				break;
+			}catch(IOException e2){
+				e2.printStackTrace();
 			}
 			if(!suppressErrors && (responseCode<200 || responseCode>299) && i>0){
 				System.err.println("Warning: Server returned response code "+responseCode);
 				new Exception().printStackTrace();
 			}
 		}
-		if(result!=null && result.length()<1) {result=null;}
+		if(result!=null && result.length()<1){result=null;}
 		return new StringNum(result, responseCode);
 	}
-	
-	/**
-	 * Compresses data using GZIP compression.
-	 * @param data Raw bytes to compress
-	 * @return GZIP-compressed byte array
-	 */
-	public static byte[] gzipCompress(byte[] data) {
+
+	/** Compresses all input bytes and returns a complete GZIP member. */
+	public static byte[] gzipCompress(byte[] data){
 		//FIXED [server/ServerTools#001]: GZIPOutputStream is now closed (try-with-resources) before toByteArray(), flushing the deflater's buffered body + gzip trailer.  Was never finish()/close()d -> truncated/invalid gzip.
-		ByteArrayOutputStream bos = new ByteArrayOutputStream();
-		try(GZIPOutputStream gzip = new GZIPOutputStream(bos)) {
+		final ByteArrayOutputStream bos=new ByteArrayOutputStream();
+		try(GZIPOutputStream gzip=new GZIPOutputStream(bos)){
 			gzip.write(data);
-		} catch (IOException e) {
+		}catch(IOException e){
 			e.printStackTrace();
 		}
-        return bos.toByteArray();
-    }
-	
-	/**
-	 * Extracts Content-Encoding header from HTTP response.
-	 * @param httpResponse HTTP response to examine
-	 * @return Content-Encoding value or empty string if not present
-	 */
-	public static String determineContentEncoding(
-	        HttpResponse<?> httpResponse) {
-	    return httpResponse.headers().firstValue("Content-Encoding").orElse("");
+		return bos.toByteArray();
 	}
-	
-	
-	/** Send a message to a remote URL, and return the response.
-	 * Set message to null if there is no message. */
-	public static StringNum sendAndReceive(ArrayList<byte[]> messages, String address, 
+
+	/** Returns the first Content-Encoding header value from a Java 11 response, or empty string if absent. */
+	public static String determineContentEncoding(HttpResponse<?> httpResponse){
+		return httpResponse.headers().firstValue("Content-Encoding").orElse("");
+	}
+
+
+	/** Legacy URLConnection POST path for chunked request bodies; consumes and closes the server response. */
+	public static StringNum sendAndReceive(ArrayList<byte[]> messages, String address,
 			boolean verbose){
-    	address=PercentEncoding.commonSymbolToCode(address);
+		address=PercentEncoding.commonSymbolToCode(address);
 		URL url=null;
 		InputStream is=null;
 		HttpURLConnection connection=null;
 		OutputStream os=null;
-		try {
+		try{
 			url=new URL(address);
 			connection=(HttpURLConnection) url.openConnection();
 			connection.setDoOutput(true);
 			connection.setConnectTimeout(1600000); //For testing
 			os=connection.getOutputStream();
-		} catch (IOException e1) {
-//			System.err.println("A:\t"+address+" -> "+url+" -> "+connection+" -> "+os);
-			// TODO Auto-generated catch block
+		}catch(IOException e1){
 			if(!suppressErrors){e1.printStackTrace();}
 		}
-		
+
 		long sent=0, received=0;
-		Timer t=new Timer();
+		final Timer t=new Timer();
 		if(os!=null){
-			try {
+			try{
 				//TODO: It may be useful to set a timeout here.
-				for(byte[] message : messages) {
+				for(byte[] message : messages){
 					if(message!=null){
 						os.write(message);
 						sent+=message.length;
 					}
 				}
-			} catch (IOException e) {
-//				System.err.println("B:\t"+connection+" -> "+os);
-				// TODO Auto-generated catch block
+			}catch(IOException e){
 				if(!suppressErrors){e.printStackTrace();}
 			}
-			try {
+			try{
 				os.close();
-			} catch (IOException e) {
-				// TODO Auto-generated catch block
+			}catch(IOException e){
 				e.printStackTrace();
 			}
 		}
-		if(verbose) {t.stopAndStart("Sent "+sent+" bytes in ");}
+		if(verbose){t.stopAndStart("Sent "+sent+" bytes in ");}
 
 		String result=null;
 		int responseCode=1;
 		if(connection!=null){
 			IOException noInputStream=null;
-			try {
+			try{
 				is=connection.getInputStream();
-			} catch (IOException e) {
+			}catch(IOException e){
 				noInputStream=e;
 			}
 			if(is==null){is=connection.getErrorStream();}
-			
-			try {
+
+			try{
 				responseCode=connection.getResponseCode();
 				if(!suppressErrors && (responseCode<200 || responseCode>299)){
 					System.err.println("Error: Server returned response code "+responseCode);
-//					System.err.println(connection.getRequestProperties());//Can't do this - throws exception while connected
-//					System.err.println(connection.getResponseMessage());
 					new Exception().printStackTrace();
 				}
-			} catch (IOException e) {
-				if(!suppressErrors) {
-					e.printStackTrace();
-				}
+			}catch(IOException e){
+				if(!suppressErrors){e.printStackTrace();}
 			}
-			
+
 			if(is!=null){
 				result=readStream(is);
 				received+=(result==null ? 0 : result.length());
-				try {
-//					System.err.println("C:\t"+connection+" -> "+os+" -> "+is+" -> "+(result!=null));
+				try{
 					is.close();
-				} catch (IOException e) {
+				}catch(IOException e){
 					e.printStackTrace();
 				}
 			}else if(noInputStream!=null && !suppressErrors){
 				noInputStream.printStackTrace();
 			}
 		}
-		if(verbose) {t.stop("Recieved "+received+" bytes in ");}
-		
+		if(verbose){t.stop("Recieved "+received+" bytes in ");}
+
 		return new StringNum(result, responseCode);
 	}
-	
-	
-	/** Send a message to a remote URL, and return the response.
-	 * Set message to null if there is no message. */
+
+
+	/** Legacy FTP URLConnection send/read helper retained for historical callers; it always returns status 400. */
 	public static StringNum sendAndReceiveFTP(byte[] message, String address){
-    	address=PercentEncoding.commonSymbolToCode(address);
+		address=PercentEncoding.commonSymbolToCode(address);
 		URL url=null;
 		InputStream is=null;
 		URLConnection connection=null;
 		OutputStream os=null;
-		try {
+		try{
 			url=new URL(address);
 			connection=url.openConnection();
 			connection.setDoOutput(true);
 			connection.setConnectTimeout(40000); //For testing
 			os=connection.getOutputStream();
-		} catch (IOException e1) {
-//			System.err.println("A:\t"+address+" -> "+url+" -> "+connection+" -> "+os);
-			// TODO Auto-generated catch block
+		}catch(IOException e1){
 			if(!suppressErrors){e1.printStackTrace();}
 		}
-		
+
 		if(os!=null){
-			try {
+			try{
 				//TODO: It may be useful to set a timeout here.
 				if(message!=null){os.write(message);}
-			} catch (IOException e) {
-//				System.err.println("B:\t"+connection+" -> "+os);
-				// TODO Auto-generated catch block
+			}catch(IOException e){
 				if(!suppressErrors){e.printStackTrace();}
 			}
-			try {
+			try{
 				os.close();
-			} catch (IOException e) {
-				// TODO Auto-generated catch block
+			}catch(IOException e){
 				e.printStackTrace();
 			}
 		}
 
 		String result=null;
-//		int responseCode=1;
 		if(connection!=null){
 			IOException noInputStream=null;
-			try {
+			try{
 				is=connection.getInputStream();
-			} catch (IOException e) {
+			}catch(IOException e){
 				noInputStream=e;
 			}
-			
-//			try {
-				//responseCode=connection.getResponseCode();
-//				if(!suppressErrors && (responseCode<200 || responseCode>299)){
-//					System.err.println("Error: Server returned response code "+responseCode);
-//				}
-//			} 
-//			catch (IOException e) {
-//				if(!suppressErrors) {
-//					e.printStackTrace();
-//				}
-//			}
-			
+
 			if(is!=null){
 				result=readStream(is);
-				try {
-//					System.err.println("C:\t"+connection+" -> "+os+" -> "+is+" -> "+(result!=null));
+				try{
 					is.close();
-				} catch (IOException e) {
+				}catch(IOException e){
 					e.printStackTrace();
 				}
 			}else if(noInputStream!=null && !suppressErrors){
 				noInputStream.printStackTrace();
 			}
 		}
-		
+
 		return new StringNum(result, 400);
 	}
 
-	/** Read the body of an incoming HTTP session */
+	/*--------------------------------------------------------------*/
+	/*----------------  Stream and Response Helpers ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Consumes and closes the body of an incoming HTTP session. */
 	public static String receive(HttpExchange t){
-		InputStream is=t.getRequestBody();
-		String s=readStream(is);
-		return s;
+		return readStream(t.getRequestBody());
 	}
-	
-	/** Completely read an InputStream into a String */
+
+	/** Consumes and closes an InputStream using the default charset; returns null on read or close failure. */
 	public static String readStream(InputStream is){
 		if(is==null){return null;}
-		try {
+		//FIXED [server/ServerTools#008]: close even when a read throws.
+		try(InputStream in=is){
 			byte[] buffer=new byte[256];
-			int count=is.read(buffer);
+			int count=in.read(buffer);
 			int next=0;
 			while(count>-1){
 				next+=count;
 				if(next>=buffer.length){
 					buffer=Arrays.copyOf(buffer, buffer.length*2);
 				}
-				count=is.read(buffer, next, buffer.length-next);
+				count=in.read(buffer, next, buffer.length-next);
 			}
-			is.close();
 			return new String(buffer, 0, next);
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
+		}catch(IOException e){
 			e.printStackTrace();
 		}
 		return null;
 	}
-	
-	/** Completely read an InputStream into a String */
+
+	/** Consumes and closes an InputStream, returning byte chunks of at most about 8 MB or null on read or close failure. */
 	public static ArrayList<byte[]> readStreamToList(InputStream is){
 		if(is==null){return null;}
 		ArrayList<byte[]> list=new ArrayList<byte[]>();
 		ByteBuilder bb=new ByteBuilder();
 		long next=0;
 		final byte[] buffer=new byte[4096];
-		try {
-			int count=is.read(buffer);
+		//FIXED [server/ServerTools#009]: close even when a chunk read throws.
+		try(InputStream in=is){
+			int count=in.read(buffer);
 			while(count>-1){
 				next+=count;
 				bb.append(buffer, count);
-				if(bb.length()>8000000) {
+				if(bb.length()>8000000){
 					list.add(bb.toBytes());
 					bb.clear();
 				}
-				count=is.read(buffer);
+				count=in.read(buffer);
 			}
-			if(bb.length()>0) {
+			if(bb.length()>0){
 				list.add(bb.toBytes());
 				bb.clear();
 			}
 			System.err.println("Read "+next+" bytes into "+list.size()+" chunks.");
-			is.close();
 			return list;
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
+		}catch(IOException e){
 			e.printStackTrace();
 		}
 		return null;
 	}
-	
-	/** Write to the body of an incoming HTTP session */
+
+	/** Writes a String response using the platform-default charset. */
 	public static boolean reply(String response, String type, HttpExchange t, boolean verbose, int code, boolean close){
 		if(verbose){System.err.println("Sending: "+response);}
 
 		return reply(response.getBytes(), type, t, false, code, close);
 	}
-	
-	/** Write to the body of an incoming HTTP session */
+
+	/** Writes a file response, substituting an empty 400 response if the file read fails. */
 	public static boolean replyWithFile(String path, String type, HttpExchange t, boolean verbose, int code, boolean close){
 		if(verbose){System.err.println("Sending: "+path);}
-		
+
 		byte[] response=null;
-		try {
+		try{
 			response=ReadWrite.readRaw(path);
-		} catch (IOException e1) {
-			// TODO Auto-generated catch block
+		}catch(IOException e1){
 			e1.printStackTrace();
 			response=new byte[0];
-			code=400; //Node sure about this
+			code=400; //Kept as the historical read-failure status.
 		}
-		
+
 		return reply(response, type, t, false, code, close);
 	}
-	
-	/** Write to the body of an incoming HTTP session */
+
+	/** Writes exactly response.length bytes, closes the body on success and closes the exchange if requested. */
 	public static boolean reply(byte[] response, String type, HttpExchange t, boolean verbose, int code, boolean close){
 		if(verbose){System.err.println("Sending: "+response);}
-		
+
 		{
-			Headers h = t.getResponseHeaders();
-//			String type="text/plain";
+			final Headers h=t.getResponseHeaders();
 			h.add("Content-Type", type);
 		}
-		try {
+		try{
 			t.sendResponseHeaders(code, response.length);
-			OutputStream os = t.getResponseBody();
+			final OutputStream os=t.getResponseBody();
 			os.write(response);
 			os.close();
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
+		}catch(IOException e){
 			e.printStackTrace();
 			if(close){t.close();}
 			return false;
@@ -539,86 +494,74 @@ public class ServerTools {
 		if(close){t.close();}
 		return true;
 	}
-	
-	
-	/**
-	 * Wait for a set amount of time
-	 * @param millis Time to wait
-	 */
+
+	/*--------------------------------------------------------------*/
+	/*----------------       Address Helpers        ----------------*/
+	/*--------------------------------------------------------------*/
+
+
+	/** Waits until the requested interval elapses, printing interruptions but preserving the full wait. */
 	public static void pause(long millis){
 		String lock=new String("1");
 		synchronized(lock){
 			final long time=System.currentTimeMillis()+millis;
 			while(System.currentTimeMillis()<time){
-				try {
+				try{
 					lock.wait(Tools.max(100, time-System.currentTimeMillis()));
-				} catch (InterruptedException e) {
-					// TODO Auto-generated catch block
+				}catch(InterruptedException e){
 					e.printStackTrace();
 				}
 			}
 		}
 	}
-	
-	/**
-	 * Extracts the real client IP address from HTTP exchange.
-	 * Checks X-Forwarded-For header for proxied connections from localhost.
-	 * @param t HTTP exchange containing client information
-	 * @return Client IP address string, preferring X-Forwarded-For when available
-	 */
-	public static String getClientAddress(HttpExchange t) {
-		
-		InetSocketAddress client=t.getRemoteAddress();
-//		InetSocketAddress server=t.getLocalAddress();
-		
+
+	/** Returns X-Forwarded-For for loopback proxies, otherwise the remote socket address string. */
+	public static String getClientAddress(HttpExchange t){
+
+		final InetSocketAddress client=t.getRemoteAddress();
+
 		//This is for IPv4, class A.  Probably extends outside of Berkeley.
 		String clientAddress=client.toString();
-//		String ls=server.toString();
-		
+
 		if(clientAddress.contains("127.0.0.1")){
-			Headers clientRequestHeaders=t.getRequestHeaders();
-//			Headers resh=t.getResponseHeaders();
-	
-			String xff=clientRequestHeaders.getFirst("X-forwarded-for");
+			final Headers clientRequestHeaders=t.getRequestHeaders();
+
+			final String xff=clientRequestHeaders.getFirst("X-forwarded-for");
 			if(xff!=null){clientAddress=xff;}
-			
-//			System.err.println("\nRequest: ");
-//			for(Entry<String, List<String>> entry : reqh.entrySet()){
-//				System.err.println(entry.getKey()+" -> "+entry.getValue());
-//			}
 		}
 		return clientAddress;
 	}
-	
+
 	/**
-	 * Determines if HTTP request originates from internal network.
-	 * Checks client/server IP prefixes and handles X-Forwarded-For headers.
-	 * Uses simple subnet matching by comparing addresses up to first delimiter.
+	 * Applies the current internal-address policy. Loopback requests may be
+	 * allowed directly, or may inherit X-Forwarded-For. Non-loopback requests
+	 * are accepted on a literal prefix match. Finally, the client and server
+	 * socket strings may match through a '.' or ':' delimiter.
 	 *
 	 * @param t HTTP exchange to examine
-	 * @param prefix IP prefix for internal networks (e.g., "192.168.")
-	 * @param allowLocalHost Whether to allow localhost (127.0.0.1) connections
-	 * @param printIP Whether to print client and server addresses
-	 * @param printHeaders Whether to print all request/response headers
+	 * @param prefix IP prefix for internal networks
+	 * @param allowLocalHost whether to accept loopback with no X-Forwarded-For
+	 * @param printIP whether to print client and server addresses
+	 * @param printHeaders whether to print all request/response headers
 	 * @return true if request is from internal network, false otherwise
 	 */
-	public static boolean isInternalQuery(HttpExchange t, 
+	public static boolean isInternalQuery(HttpExchange t,
 			String prefix, boolean allowLocalHost, boolean printIP, boolean printHeaders){
-		
-		InetSocketAddress client=t.getRemoteAddress();
-		InetSocketAddress server=t.getLocalAddress();
-		
+
+		final InetSocketAddress client=t.getRemoteAddress();
+		final InetSocketAddress server=t.getLocalAddress();
+
 		if(printIP){System.err.println(client+"\t"+server);}
-		
+
 		//This is for IPv4, class A.  Probably extends outside of Berkeley.
 		String clientAddress=client.toString();
 		String serverAddress=server.toString();
-		
+
 		if(clientAddress.contains("127.0.0.1")){//TODO: contains versus startsWith?
-			Headers requestHeaders=t.getRequestHeaders();
-			
+			final Headers requestHeaders=t.getRequestHeaders();
+
 			if(printHeaders){
-				Headers responseHeaders=t.getResponseHeaders();
+				final Headers responseHeaders=t.getResponseHeaders();
 				System.err.println("\nRequest: ");
 				for(Entry<String, List<String>> entry : requestHeaders.entrySet()){
 					System.err.println(entry.getKey()+" -> "+entry.getValue());
@@ -628,7 +571,7 @@ public class ServerTools {
 					System.err.println(entry.getKey()+" -> "+entry.getValue());
 				}
 			}
-			
+
 			final String xff=requestHeaders.getFirst("X-forwarded-for");
 			if(xff!=null){
 				if(xff.startsWith(prefix)){return true;}
@@ -639,65 +582,63 @@ public class ServerTools {
 		}else{
 			if(clientAddress.startsWith(prefix)){return true;}
 		}
-		
+
 		//Makes sure they match up to the first delimiter
 		//FIXED [server/ServerTools#004]: was Tools.max -> charAt(i) on the shorter address could throw StringIndexOutOfBounds when the two differ in length and share a prefix with no './:' in it; now Tools.min (compare only the overlapping region).
 		for(int i=0, min=Tools.min(clientAddress.length(), serverAddress.length()); i<min; i++){
-			char cc=clientAddress.charAt(i), sc=serverAddress.charAt(i);
+			final char cc=clientAddress.charAt(i), sc=serverAddress.charAt(i);
 			if(cc!=sc){break;}
 			if(cc=='.'){//IPv4
-				return true; 
+				return true;
 			}else if(cc==':'){//IPv6; probably depends on how long the mask is
 				return true;
 			}
 		}
-	
+
 		return false;
 	}
-	
+
+	/*--------------------------------------------------------------*/
+	/*----------------         FTP Helpers          ----------------*/
+	/*--------------------------------------------------------------*/
+
 	/**
-	 * Lists directory contents via FTP using ";type=d" suffix.
-	 * Retries with exponential backoff on failure up to specified retry count.
-	 *
-	 * @param baseAddress FTP directory URL (trailing slashes removed)
-	 * @param retries Maximum number of retry attempts on failure
-	 * @return List of full file paths in the directory, empty on failure
+	 * Lists an FTP directory via ";type=d", retrying and returning only a fully
+	 * read listing. Each raw line is prefixed with the parent URL of baseAddress;
+	 * FetchProks consumes those full paths recursively. This assumes JDK FTP
+	 * directory listings return names relative to that parent path.
 	 */
 	public static ArrayList<String> listDirectory(String baseAddress, final int retries){
-//		System.err.println("listDirectory '"+baseAddress+"'");
 		while(baseAddress.endsWith("/")){baseAddress=baseAddress.substring(0, baseAddress.length()-1);}
-		String baseAddress2=baseAddress.substring(0, baseAddress.lastIndexOf('/')+1);
-		String address=baseAddress+";type=d";
-		ArrayList<String> list=new ArrayList<String>();
+		final String baseAddress2=baseAddress.substring(0, baseAddress.lastIndexOf('/')+1);
+		final String address=baseAddress+";type=d";
+		final ArrayList<String> list=new ArrayList<String>();
 		boolean success=false;
-		for(int i=Tools.min(0, retries); !success && i<=retries; i++) {
-			try {
-				//			System.err.println("URL '"+address+"'");
-				URL url=new URL(address);
-				URLConnection connection=url.openConnection();
-				InputStream is=connection.getInputStream();
-				BufferedReader br=new BufferedReader(new InputStreamReader(is));
-
-				String line=null;
-				while((line=br.readLine())!=null) {
-					list.add(baseAddress2+line);
+		for(int i=Tools.min(0, retries); !success && i<=retries; i++){
+			try{
+				final URL url=new URL(address);
+				final URLConnection connection=url.openConnection();
+				//FIXED [server/ServerTools#010]: close the FTP directory reader on read failure.
+				try(BufferedReader br=new BufferedReader(new InputStreamReader(connection.getInputStream()))){
+					for(String line=br.readLine(); line!=null; line=br.readLine()){
+						list.add(baseAddress2+line);
+					}
 				}
 
-				is.close();
 				success=true;
-			} catch (IOException e) {
+			}catch(IOException e){
 				e.printStackTrace();
+				//FIXED [server/ServerTools#011]: a final failed attempt must not return partial entries.
+				list.clear();
 				if(i<retries){
-					try {
-						int x=Tools.mid(30000, i*1000, 1000);
+					try{
+						final int x=Tools.mid(30000, i*1000, 1000);
 						System.err.println("Sleeping for "+x+"ms...");
 						Thread.sleep(x);
-					} catch (InterruptedException e1) {
-						// TODO Auto-generated catch block
+					}catch(InterruptedException e1){
 						e1.printStackTrace();
 					}
 					System.err.println("** Retrying ** "+address);
-					list.clear();
 				}else{
 					System.err.println("*** Gave up ***");
 				}
@@ -705,32 +646,32 @@ public class ServerTools {
 		}
 		return list;
 	}
-	
+
+	/** Reads a percent-encoded FTP URL into one line per list element. */
 	public static ArrayList<String> readFTPFile(String address) throws Exception{
 		//FIXED [server/ServerTools#002]: reader now closed via try-with-resources (was leaked on every call, even on success; cf. the sibling listDirectory which closes).
-    	address=PercentEncoding.commonSymbolToCode(address);
-		URL url = new URL(address);
-		URLConnection conn = url.openConnection();
+		address=PercentEncoding.commonSymbolToCode(address);
+		final URL url=new URL(address);
+		final URLConnection conn=url.openConnection();
 
-		ArrayList<String> list=new ArrayList<String>();
-		try(BufferedReader reader = new BufferedReader(new InputStreamReader(conn.getInputStream()))){
+		final ArrayList<String> list=new ArrayList<String>();
+		try(BufferedReader reader=new BufferedReader(new InputStreamReader(conn.getInputStream()))){
 			for(String s=reader.readLine(); s!=null; s=reader.readLine()){
 				list.add(s);
 			}
 		}
 		return list;
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------    Server-Side Utilities     ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Parse a FASTA-formatted string into Read objects in memory.
-	 * Sequences without a header are silently skipped. */
+	/** Parses FASTA text into Reads, skipping sequence before the first header and using default-charset bases. */
 	public static ArrayList<Read> parseFastaBody(String fastaBody){
-		ArrayList<Read> reads=new ArrayList<>();
-		String[] lines=fastaBody.split("\n");
-		StringBuilder seqBuilder=new StringBuilder();
+		final ArrayList<Read> reads=new ArrayList<Read>();
+		final String[] lines=fastaBody.split("\n");
+		final StringBuilder seqBuilder=new StringBuilder();
 		String currentName=null;
 		int id=0;
 		for(String line : lines){
@@ -751,9 +692,9 @@ public class ServerTools {
 		return reads;
 	}
 
-	/** Escape a string for safe inclusion in a JSON value.
-	 * Handles quotes, backslashes, newlines, and tabs. */
+	/** Appends a JSON-string-safe ASCII encoding of a UTF-16 Java String. */
 	//FIXED [server/ServerTools#003]: now escapes carriage-return/backspace/form-feed and all other control chars below 0x20 as backslash-u hex escapes (was only quote/backslash/newline/tab -> could emit malformed JSON via ddl/SSUServer).  Matches json/JsonObject completeness.
+	//FIXED [server/ServerTools#012]: non-ASCII UTF-16 code units are now written as ASCII backslash-u escapes rather than being truncated by ByteBuilder.append(char).
 	public static void escapeJson(ByteBuilder bb, String s){
 		for(int i=0; i<s.length(); i++){
 			char c=s.charAt(i);
@@ -765,17 +706,23 @@ public class ServerTools {
 			else if(c=='\b'){bb.append('\\').append('b');}
 			else if(c=='\f'){bb.append('\\').append('f');}
 			else if(c<0x20){//Remaining C0 control chars -> \\u00XX
-				bb.append('\\').append('u').append('0').append('0');
-				final int hi=(c>>4)&0xF, lo=c&0xF;
-				bb.append((char)(hi<10 ? '0'+hi : 'A'+hi-10));
-				bb.append((char)(lo<10 ? '0'+lo : 'A'+lo-10));
+				appendJsonUnicode(bb, c);
 			}
+			else if(c>0x7F){appendJsonUnicode(bb, c);}
 			else{bb.append(c);}
 		}
 	}
 
-	/** Add CORS headers to an HTTP response.
-	 * @param domain Allowed origin, or null for wildcard (*) */
+	/** Append one UTF-16 code unit as an ASCII JSON Unicode escape. */
+	private static void appendJsonUnicode(ByteBuilder bb, char c){
+		bb.append('\\').append('u');
+		for(int shift=12; shift>=0; shift-=4){
+			final int x=(c>>shift)&0xF;
+			bb.append((char)(x<10 ? '0'+x : 'A'+x-10));
+		}
+	}
+
+	/** Adds permissive CORS headers, using '*' when domain is null. */
 	public static void addCorsHeaders(HttpExchange t, String domain){
 		Headers h=t.getResponseHeaders();
 		h.add("Access-Control-Allow-Origin", domain!=null ? domain : "*");
@@ -783,38 +730,36 @@ public class ServerTools {
 		h.add("Access-Control-Allow-Headers", "Content-Type");
 	}
 
-	/** Don't print caught exceptions */
+	/*--------------------------------------------------------------*/
+	/*----------------            Fields            ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Suppresses some legacy caught-exception diagnostics. */
 	public static boolean suppressErrors=false;
-	
-	/**
-	 * Shared HttpClient instance for Java 11+ HTTP operations with daemon thread pool
-	 */
+
+	/** Shared Java 11+ HTTP client whose executor uses daemon threads so diagnostics can exit. */
 	private static HttpClient client;
 	static{
-		try {
+		try{
 
-			//Without make the threads Daemons the process won't terminate
-			ThreadFactory daemonThreadFactory = new ThreadFactory() {
-				public Thread newThread(Runnable r) {
-					Thread t = new Thread(r);
+			//Without daemon threads the process won't terminate after the shared client starts.
+			final ThreadFactory daemonThreadFactory=new ThreadFactory(){
+				public Thread newThread(Runnable r){
+					final Thread t=new Thread(r);
 					t.setDaemon(true);
 					return t;
 				}
 			};
 
-			ExecutorService executor = Executors.newFixedThreadPool(4, daemonThreadFactory);
-//			ExecutorService executor = Executors.newFixedThreadPool(8);
-			client = HttpClient.newBuilder()
+			final ExecutorService executor=Executors.newFixedThreadPool(4, daemonThreadFactory);
+			client=HttpClient.newBuilder()
 				.version(HttpClient.Version.HTTP_2)
-//				.version(HttpClient.Version.HTTP_1_1)
 				.executor(executor)
 				.build();
-			
-//			client=HttpClient.newHttpClient();
-		} catch (Throwable e) {
+		}catch(Throwable e){
 			System.err.println("You may need a more recent version of Java, specifically, 11 or higher.  Your version: "+Shared.javaVersion);
 			e.printStackTrace();
 		}
 	}
-	
+
 }

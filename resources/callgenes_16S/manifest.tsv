@@ -1,7 +1,7 @@
 #ncrna_family	1	16S
 role	model	end	path	format	bytes	sha80
-consensus	.	.	consensus.fa	fasta	7854	7f3c2113f072ce2d185f
-seeds	.	.	seeds.fa.gz	fasta	495	1ba6638d6cf944e0cbf2
+consensus	.	.	consensus.fa	fasta	209020	87416474a4ac5fcb1231
+seeds	.	.	seeds.fa.gz	fasta	1545	eee37b332d8e0e46847c
 endpoints	.	.	endpoints.bbnets.gz	bbnets	474312	fa3e0a795898c4e610e2
 tables	.	.	tables/TABLES.tsv	tsv	599	e7a132acf7eeba4ace2b
 table	universal	5prime	tables/universal.5prime.tsv.gz	tsv	49037	701e370a40d5fc83cb79
@@ -12,3 +12,4 @@ table	archaea	5prime	tables/archaea.5prime.tsv.gz	tsv	33868	797fb41c0ffa6375710e
 table	archaea	3prime	tables/archaea.3prime.tsv.gz	tsv	21056	fec98b0fc28ecf4d40ae
 table	plastid	5prime	tables/plastid.5prime.tsv.gz	tsv	16896	a521ec83e2301fa1a03b
 table	plastid	3prime	tables/plastid.3prime.tsv.gz	tsv	8654	e068dbed37e0403796e8
+length_bounds	.	.	length_bounds.tsv	tsv	9859	4d52c37ee93529e9170f

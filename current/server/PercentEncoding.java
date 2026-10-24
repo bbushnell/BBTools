@@ -1,18 +1,21 @@
 package server;
 
+import java.nio.charset.StandardCharsets;
 import java.util.BitSet;
 import java.util.HashMap;
 
-import structures.ByteBuilder;
-
 /**
- * Handles URL percent-encoding and decoding for special characters.
- * Provides encoding/decoding of reserved and common symbols according to RFC 3986.
- * Supports both full encoding of special symbols and targeted encoding of common symbols.
+ * Handles targeted percent-encoding and decoding for server URL fragments.
+ * Escapes selected reserved/common ASCII symbols while leaving non-ASCII text unchanged.
+ * Decodes percent-encoded ASCII and UTF-8 bytes while preserving malformed percent syntax.
  * @author Brian Bushnell
  */
 public class PercentEncoding {
 	
+/*--------------------------------------------------------------*/
+/*----------------        Static Methods        ----------------*/
+/*--------------------------------------------------------------*/
+
 	/**
 	 * Checks if a string contains any special symbols that require percent-encoding.
 	 * Special symbols include both reserved URI characters and common problematic characters.
@@ -23,11 +26,8 @@ public class PercentEncoding {
 		if(s==null){return false;}
 		for(int i=0, max=s.length(); i<max; i++){
 			char c=s.charAt(i);
-			if(isSpecial.get(c)){
-//				System.err.print("b");
-				return true;}
+			if(isSpecial.get(c)){return true;}
 		}
-//		System.err.print("c");
 		return false;
 	}
 	
@@ -48,69 +48,61 @@ public class PercentEncoding {
 	
 	/**
 	 * Converts all special symbols in a string to their percent-encoded equivalents.
+	 * Leaves non-ASCII characters unchanged.
 	 * Returns the original string unchanged if no special symbols are found.
 	 * @param s The string to encode
 	 * @return The percent-encoded string with special symbols converted to %XX format
 	 */
 	public static String symbolToCode(String s){
-//		System.err.print("a");
 		if(!containsSpecialSymbol(s)){return s;}
-//		System.err.print("d");
-		ByteBuilder bb=new ByteBuilder();
+		StringBuilder sb=new StringBuilder(s.length());
 		for(int i=0, max=s.length(); i<max; i++){
 			char c=s.charAt(i);
-			//TODO: Possible bug [server/PercentEncoding#003] - symbolToCodeArray has length 128 but c is a Java char (0-65535);
-			//this indexes it UNGUARDED, so any non-ASCII char (c>=128) present alongside a special ASCII symbol (which makes
-			//containsSpecialSymbol true, so we don't return early) throws ArrayIndexOutOfBounds. The sibling commonSymbolToCode
-			//guards the SAME access with isCommon.get(c) first -> symbolToCode is the lone unguarded divergence. For a server
-			//path an uncaught AIOOBE crashes the handler instead of passing the char through. MASKED for pure-ASCII input.
-			//Fix: guard like the sibling, e.g. String code=(c<128 ? symbolToCodeArray[c] : null);
-			String code=symbolToCodeArray[c];
+			//FIXED [server/PercentEncoding#003]: symbolToCodeArray is ASCII-sized, so the unguarded lookup
+			//crashed on any non-ASCII char that appeared with an encodable ASCII symbol.
+			String code=(c<128 ? symbolToCodeArray[c] : null);
 			if(code!=null){
-//				System.err.print("e("+code+")");
-				bb.append(code);
+				sb.append(code);
 			}else{
-//				System.err.print("f");
-				bb.append(c);
+				sb.append(c);
 			}
 		}
-//		System.err.println("g");
-//		System.err.println(bb);
-		return bb.toString();
+		return sb.toString();
 	}
 	
 	/**
 	 * Converts only common symbols in a string to their percent-encoded equivalents.
+	 * Leaves non-ASCII characters unchanged.
 	 * Returns the original string unchanged if no common symbols are found.
 	 * @param s The string to encode
 	 * @return The percent-encoded string with common symbols converted to %XX format
 	 */
 	public static String commonSymbolToCode(String s){
 		if(!containsCommonSymbol(s)){return s;}
-		ByteBuilder bb=new ByteBuilder();
+		StringBuilder sb=new StringBuilder(s.length());
 		for(int i=0, max=s.length(); i<max; i++){
 			char c=s.charAt(i);
 			if(isCommon.get(c)){
 				String code=symbolToCodeArray[c];
-				assert(code!=null);
-				bb.append(code);
+				assert(code!=null) : "isCommon and symbolToCodeArray both derive from commonSymbol; missing code for "+(int)c;
+				sb.append(code);
 			}else{
-				bb.append(c);
+				sb.append(c);
 			}
 		}
-		return bb.toString();
+		return sb.toString();
 	}
 	
 	/**
 	 * Parses a percent-encoded character sequence (%XX) into its numeric value.
-	 * Expects a percent sign followed by two hexadecimal digits.
 	 *
 	 * @param s The string containing the percent-encoded sequence
 	 * @param start The index of the percent sign in the string
-	 * @return The decoded numeric value, or -1 if parsing fails
+	 * @return The decoded byte value, or -1 unless start points to %XX with two hex digits
 	 */
 	private static int parseCode(String s, int start){
 		if(s==null || start+2>=s.length()){return -1;}
+		if(s.charAt(start)!='%'){return -1;}
 		assert(s.charAt(start)=='%');
 		int sum=0;
 		for(int i=start+1; i<=start+2; i++){
@@ -132,8 +124,11 @@ public class PercentEncoding {
 	}
 	
 	/**
-	 * Converts percent-encoded sequences in a string back to their original symbols.
-	 * Decodes all valid %XX sequences found in the string.
+	 * Converts targeted percent-encoded byte sequences back to symbols.
+	 * Decodes ASCII escapes directly, decodes contiguous percent-byte runs that
+	 * begin with a high byte as UTF-8,
+	 * and leaves malformed UTF-8 replacement to the Java UTF-8 decoder.
+	 * Preserves malformed percent syntax as literal characters.
 	 * Returns the original string unchanged if no percent-encoded sequences are found.
 	 *
 	 * @param s The string containing percent-encoded sequences
@@ -143,19 +138,32 @@ public class PercentEncoding {
 		int idx=s.indexOf('%');
 		if(idx<0){return s;}
 		
-		ByteBuilder bb=new ByteBuilder(s.length());
+		StringBuilder sb=new StringBuilder(s.length());
 		for(int i=0; i<s.length(); i++){
 			char c=s.charAt(i);
 			if(c=='%'){
 				int sym=parseCode(s, i);
-				if(sym<0){bb.append(c);}
-				else{
-					bb.append((char)sym);
+				if(sym<0){sb.append(c);}
+				else if(sym<128){
+					sb.append((char)sym);
 					i+=2;//Skip next 2 characters
+				}else{
+					int start=i;
+					int len=0;
+					while(i<s.length() && s.charAt(i)=='%' && (sym=parseCode(s, i))>=0){
+						len++;
+						i+=3;
+					}
+					byte[] bytes=new byte[len];
+					for(int j=0; j<len; j++){
+						bytes[j]=(byte)parseCode(s, start+j*3);
+					}
+					sb.append(new String(bytes, StandardCharsets.UTF_8));
+					i--;//Unskip the first invalid triplet or non-percent character
 				}
-			}else{bb.append(c);}
+			}else{sb.append(c);}
 		}
-		return (bb.length()==s.length() ? s : bb.toString());
+		return (sb.length()==s.length() ? s : sb.toString());
 	}
 	
 	/**
@@ -163,7 +171,7 @@ public class PercentEncoding {
 	 * Combines both reserved and common symbol mappings into a single HashMap.
 	 * @return HashMap mapping percent codes to original symbols
 	 */
-	private static HashMap<String, String> makeCodeToSymbolMap() {
+	private static HashMap<String, String> makeCodeToSymbolMap(){
 		HashMap<String, String> map=new HashMap<String, String>(129);
 		assert(reservedSymbol.length==reservedCode.length);
 		assert(commonSymbol.length==commonCode.length);
@@ -181,7 +189,7 @@ public class PercentEncoding {
 	 * Combines both reserved and common symbol mappings into a single HashMap.
 	 * @return HashMap mapping original symbols to percent codes
 	 */
-	private static HashMap<String, String> makeSymbolToCodeMap() {
+	private static HashMap<String, String> makeSymbolToCodeMap(){
 		HashMap<String, String> map=new HashMap<String, String>(257);
 		assert(reservedSymbol.length==reservedCode.length);
 		assert(commonSymbol.length==commonCode.length);
@@ -199,7 +207,7 @@ public class PercentEncoding {
 	 * Uses character values as array indices for O(1) lookup performance.
 	 * @return Array where array[c] contains the percent code for character c, or null
 	 */
-	private static String[] makeSymbolToCodeArray() {
+	private static String[] makeSymbolToCodeArray(){
 		final String[] array=new String[128];
 		for(int i=0; i<reservedSymbol.length; i++){
 			String s=reservedSymbol[i];
@@ -230,6 +238,10 @@ public class PercentEncoding {
 		}
 		return bs;
 	}
+
+/*--------------------------------------------------------------*/
+/*----------------          Constants           ----------------*/
+/*--------------------------------------------------------------*/
 
 	//See https://en.wikipedia.org/wiki/Percent-encoding
 	/**

@@ -116,7 +116,7 @@ public final class RrnaEndpointCallerFeatures {
 		if(start<0 || stop>=length || span<minLen || span>maxLen){return false;}
 		candidate.start=start;candidate.stop=stop;return true;
 	}
-	static int predict(CellNet net,float[] features){net.applyInput(features);net.feedForward();return RrnaResourceIO.argmax(net.getOutput());}
+	public static int predict(CellNet net,float[] features){net.applyInput(features);net.feedForward();return RrnaResourceIO.argmax(net.getOutput());}
 	static CellNet[] copyNets(CellNet[] templates){if(templates==null){return null;}final CellNet[] copies=new CellNet[templates.length];for(int i=0;i<copies.length;i++){copies[i]=templates[i]==null?null:templates[i].copy(false);}return copies;}
 	static void require(boolean ok,String why){if(!ok){throw new IllegalArgumentException(why);}}
 	final Resources resources;final Sink sink;final AlignmentStats stats=new AlignmentStats(true);

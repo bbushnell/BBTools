@@ -85,11 +85,12 @@ public final class FamilyResourceResolver {
 		/** Root names one family directory (the group root for grouped members), not the global resources directory. */
 		public String root, consensus, models, seeds, tables, endpoints, cutoffs;
 		public String boundary, boundary3, boundaryStart, boundaryStop;
-		public String voteOffsets, joinedModelPositions;
+		public String voteOffsets, joinedModelPositions, lengthBounds;
 		private String path(String role){
 			if(role.equals("consensus")){return consensus;}if(role.equals("models")){return models;}
 			if(role.equals("seeds")){return seeds;}if(role.equals("endpoints")){return endpoints;}
 			if(role.equals("cutoffs")){return cutoffs;}
+			if(role.equals("length_bounds")){return lengthBounds;}
 			if(role.equals("vote_offsets")){return voteOffsets;}
 			if(role.equals("joined_model_positions")){return joinedModelPositions;}
 			if(role.equals("boundary")){return boundary;}

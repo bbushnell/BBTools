@@ -142,9 +142,9 @@ public final class NcrnaFamilyRegistry {
 		null, "", "legacy_consensus");
 	private static final Entry EUK18S=new Entry("euk18S", "callgenes_18S", "euk18s=t",
 		new String[]{"euk18S_universal", "euk18S_fungi", "euk18S_plant", "euk18S_invertebrate",
-			"euk18S_vertebrate_other", "euk18S_vertebrate_mammalian", "euk18S_mitochondria",
+			"euk18S_vertebrate_other", "euk18S_vertebrate_mammalian",
 			"euk18S_protist", "euk18S_protozoa_component_001", "euk18S_protozoa_component_003"},
-		916, 3109, 9, 10, 96, 1f, 1f, 1f, 1.01f, false, ProkObject.r18S,
+		916, 3109, 9, 9, 96, 1f, 1f, 1f, 1.01f, false, ProkObject.r18S,
 		false, true, true, 0, 1, 60, -1, false, new String[0], .9f, true, true, 2, null, null, null, "", "legacy_consensus",
 		new ResourcePolicy(false,
 			new String[]{"consensus", "seeds", "cutoffs", "vote_offsets", "joined_model_positions"},

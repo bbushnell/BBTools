@@ -18,7 +18,7 @@ public final class SeedModelPositionTable {
 	/** Build from ALL existing caller keys and every bound consensus. A shared
 	 * key can have positions in several models; repeats within one model remain
 	 * separate postings and are marked ambiguous by the coverage report. */
-	static SeedModelPositionTable build(LongHashSet seeds, String[] names, byte[][] sequences,
+	public static SeedModelPositionTable build(LongHashSet seeds, String[] names, byte[][] sequences,
 			CovarianceModelConsensusMap[] maps, int[] sites, String[] hashes){
 		require(seeds!=null && seeds.size()>0 && names!=null && names.length>0 && sequences.length==names.length
 			&& maps.length==names.length && maps[0]!=null, "Seed positions require the full nonempty seed set and index-aligned consensus maps");
@@ -102,7 +102,7 @@ public final class SeedModelPositionTable {
 			require(keyIndex+1==t.keys.length, "Trailing unmapped keys cannot disappear from a position resource");
 		}return t;
 	}
-	void write(String path){
+	public void write(String path){
 		RrnaResourceIO.fresh(path, "");final ByteStreamWriter out=RrnaResourceIO.writer(path);
 		try{write(out);}finally{RrnaResourceIO.finish(out);}
 	}
@@ -126,6 +126,37 @@ public final class SeedModelPositionTable {
 		}
 	}
 	public Entry get(long key){return index.get(key);}
+	/** Retain an ordered subset of unchanged models. Seed membership, CM coordinates
+	 * and projected site intervals stay fixed; keys losing all postings stay unmapped. */
+	public SeedModelPositionTable subset(final int[] retained, final String consensusSha80){
+		require(retained!=null && retained.length>0 && retained.length<=names.length
+			&& SeedOffsetTable.validSha80(consensusSha80),
+			"A model subset requires nonempty ordered indices and the new consensus FASTA sha80");
+		final int[] remap=new int[names.length];Arrays.fill(remap, -1);
+		final String[] selectedNames=new String[retained.length];final int[] selectedLengths=new int[retained.length];
+		for(int i=0; i<retained.length; i++){
+			final int old=retained[i];
+			require(old>=0 && old<names.length && (i==0 || old>retained[i-1]),
+				"Subset indices must be unique and preserve source order so posting order remains valid: "+old);
+			remap[old]=i;selectedNames[i]=names[old];selectedLengths[i]=lengths[old];
+		}
+		final LongHashSet seeds=new LongHashSet(Math.max(16, keys.length*2));for(long key:keys){seeds.add(key);}
+		final String[] selectedHashes=hashes.clone();selectedHashes[1]=consensusSha80;
+		final SeedModelPositionTable selected=new SeedModelPositionTable(seeds, selectedNames, selectedLengths, clen, sites, selectedHashes);
+		for(int i=0; i<retained.length; i++){
+			System.arraycopy(siteLow[retained[i]], 0, selected.siteLow[i], 0, sites.length);
+			System.arraycopy(siteHigh[retained[i]], 0, selected.siteHigh[i], 0, sites.length);
+		}
+		for(long key:keys){
+			final Entry old=index.get(key), dest=selected.index.get(key);
+			for(int i=0; i<old.size(); i++){
+				final Position p=old.get(i);final int model=remap[p.model];if(model<0){continue;}
+				dest.add(new Position(model, p.start, p.rfStartLow, p.rfStartHigh, p.rfEndLow, p.rfEndHigh), selectedLengths, clen);
+			}
+		}
+		assert(selected.seedCount()==seedCount()):"Removing models must not remove discovery keys, even when their only posting was removed";
+		return selected;
+	}
 	public int seedCount(){return keys.length;}
 	public int modelCount(){return names.length;}
 	public String modelName(int model){return names[model];}
@@ -158,9 +189,9 @@ public final class SeedModelPositionTable {
 	}
 	static void require(boolean ok, String why){if(!ok){throw new IllegalArgumentException(why);}}
 	static final int K=17;
-	static final long MASK=(1L<<(2*K))-1;
-	static final String[] BINDINGS={"seedFastaSha80","consensusSha80","anchorsSha80","cmSha80"};
-	static final String HEADER="seedA48\tmodel\tconsensusStart0\tconsensusStop0\tcmStartBoundaryLow\tcmStartBoundaryHigh\tcmEndBoundaryLow\tcmEndBoundaryHigh";
+	public static final long MASK=(1L<<(2*K))-1;
+	public static final String[] BINDINGS={"seedFastaSha80","consensusSha80","anchorsSha80","cmSha80"};
+	public static final String HEADER="seedA48\tmodel\tconsensusStart0\tconsensusStop0\tcmStartBoundaryLow\tcmStartBoundaryHigh\tcmEndBoundaryLow\tcmEndBoundaryHigh";
 	final long[] keys;
 	final String[] names, hashes;
 	final int[] lengths, sites;

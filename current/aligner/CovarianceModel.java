@@ -8,7 +8,7 @@ import map.ObjectMap;
  */
 public final class CovarianceModel {
 
-	CovarianceModel(String name_, String accession_, int clen_, int window_, int states, int nodes,
+	public CovarianceModel(String name_, String accession_, int clen_, int window_, int states, int nodes,
 			ObjectMap<String,String> headers_, float[] null_){
 		assert(states>0 && nodes>0 && clen_>0):"CM arrays require positive declared dimensions";
 		name=name_;accession=accession_;clen=clen_;window=window_;headers=headers_;nullModel=null_;
@@ -38,14 +38,14 @@ public final class CovarianceModel {
 	public final String name, accession;
 	public final int clen, window;
 	private final ObjectMap<String,String> headers;
-	final float[] nullModel;
-	final byte[] type, nodeType, consLeft, consRight, rfLeft, rfRight;
-	final int[] node, parentLast, parentCount, childFirst, childCount, nodeState;
-	final int[] mapLeft, mapRight, consensusLeft, consensusRight;
-	final int[][] qdb;
-	final float[][] transition, emission, transitionScore, emissionScore;
-	static final byte D=0, MP=1, ML=2, MR=3, IL=4, IR=5, S=6, E=7, B=8, EL=9;
-	static final byte BIF=0, MATP=1, MATL=2, MATR=3, BEGL=4, BEGR=5, ROOT=6, END=7;
+	public final float[] nullModel;
+	public final byte[] type, nodeType, consLeft, consRight, rfLeft, rfRight;
+	public final int[] node, parentLast, parentCount, childFirst, childCount, nodeState;
+	public final int[] mapLeft, mapRight, consensusLeft, consensusRight;
+	public final int[][] qdb;
+	public final float[][] transition, emission, transitionScore, emissionScore;
+	public static final byte D=0, MP=1, ML=2, MR=3, IL=4, IR=5, S=6, E=7, B=8, EL=9;
+	public static final byte BIF=0, MATP=1, MATL=2, MATR=3, BEGL=4, BEGR=5, ROOT=6, END=7;
 	static final String[] STATE_NAMES={"D", "MP", "ML", "MR", "IL", "IR", "S", "E", "B", "EL"};
 	static final String[] NODE_NAMES={"BIF", "MATP", "MATL", "MATR", "BEGL", "BEGR", "ROOT", "END"};
 }

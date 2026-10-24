@@ -21,14 +21,15 @@ public final class NcrnaFamilyLoader {
 		final String lib=resolver.resolve(p.id, "consensus", options.resources).path;
 		final byte[][] library=TrnaConsensusBuilder.loadLibrary(lib);
 		final String[] names=TrnaConsensusBuilder.lastLoadedNames;
+		final boolean expandedMito=MitoSsuModelPolicy.extended(p.id, names);
 		final boolean ordered=p.models.length>0 && (!p.dynamicModels || options.resources.consensus==null);
 		require(library!=null && names!=null && library.length>0 && names.length==library.length
-			&& (!ordered || library.length==p.models.length),
+			&& (!ordered || library.length==p.models.length || expandedMito),
 			"Incompatible "+p.id+" consensus resource: require its complete ordered model roster: "+lib);
 		final map.ObjectSet<String> seen=new map.ObjectSet<String>(String.class);
 		for(int i=0; i<names.length; i++){
 			final String token=RrnaResourceIO.first(names[i]);
-			require(!token.isEmpty() && seen.add(token) && (!ordered || p.models[i].equals(token))
+			require(!token.isEmpty() && seen.add(token) && (!ordered || (expandedMito && i>=p.models.length) || p.models[i].equals(token))
 				&& library[i]!=null && library[i].length>=(p.dynamicModels ? p.seedK : 1),
 				"Incompatible "+p.id+" consensus resource: model order, unique names or sequence length at "+i+": "+lib);
 		}
@@ -99,6 +100,9 @@ public final class NcrnaFamilyLoader {
 			|| 2L*family.collapsedWindowPad+seedK>=minLen),
 			"Collapsed-window padding must be disabled or span the unchanged gene-length floor: "+p.id);
 		if(p.modelCutoffs && options.cutoffs){loadCutoffs(family, options.resources, resolver);}
+		if(MitoSsuModelPolicy.coverage(p.id,names)){
+			NcrnaModelThresholds.loadLengths(resolver.resolve(p.id,"length_bounds",options.resources).path,family);
+		}
 		if(options.endpoints && p.packagedEndpoints){family.setRrnaEndpointInference(loadEndpoints(family, options.resources, resolver), null);}
 		return family;
 	}
@@ -108,7 +112,7 @@ public final class NcrnaFamilyLoader {
 	}
 	/** Core and boundary selections are independent. Null core arrays are valid for
 	 * the public boundary-only API; this carrier must never enter the generic caller list. */
-	static NcrnaFamily loadTrnaBoundary(byte[][] library, BaseGraph[] models, String[] names, LongHashSet keys, int seedK,
+	public static NcrnaFamily loadTrnaBoundary(byte[][] library, BaseGraph[] models, String[] names, LongHashSet keys, int seedK,
 			FamilyResourceResolver.Overrides resources, FamilyResourceResolver resolver){
 		require(resources!=null && resolver!=null, "tRNA boundary selection requires explicit override state and a resolver");
 		final NcrnaFamilyRegistry.Entry p=NcrnaFamilyRegistry.get("tRNA");
@@ -146,7 +150,8 @@ public final class NcrnaFamilyLoader {
 		require(family!=null, "Endpoint resources require an initialized registered family");
 		final NcrnaFamilyRegistry.Entry p=NcrnaFamilyRegistry.get(family.name);
 		final FamilyResourceResolver.Handle tables=resolver.tables(family.name, overrides);
-		final RrnaEndpointCallerFeatures.Resources loaded=RrnaEndpointResourceLoader.load(tables, family.modelNames, family.library, p.rawEndpointModels);
+		final RrnaEndpointCallerFeatures.Resources loaded=RrnaEndpointResourceLoader.load(tables, family.modelNames, family.library,
+			MitoSsuModelPolicy.rawNames(family, p.rawEndpointModels));
 		final RrnaEndpointCallerFeatures.Resources inference=RrnaEndpointNetworkLoader.load(resolver.resolve(family.name, "endpoints", overrides), loaded);
 		require(inference.acceptedVerifierIdentity==RrnaEndpointCallerFeatures.Resources.supportsAcceptedIdentity(p.id),
 			p.id+" nets must preserve their trained identity feature; euk5S uses candidate-span identity");

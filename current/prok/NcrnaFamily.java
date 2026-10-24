@@ -203,7 +203,7 @@ public class NcrnaFamily {
 		if(resources==null || !name.equals(resources.family) || resources.fiveNets==null){throw new IllegalArgumentException("Explicit family-matched endpoint networks required");}
 		rrnaEndpointFeatures=resources;rrnaEndpointFeatureSink=sink;
 	}
-	RrnaEndpointCallerFeatures.Sink rrnaEndpointFeatureSink=null;
+	public RrnaEndpointCallerFeatures.Sink rrnaEndpointFeatureSink=null;
 	public static final int[] LEGACY_STOP_OFFSETS={-4,-3,-2,-1,0,1};
 
 	public final String name;
@@ -248,8 +248,8 @@ public class NcrnaFamily {
 	public final float boundaryMeanLen;
 	public final int[] boundaryStartOffsets;
 	public final int[] boundaryStopOffsets;
-	final float boundaryMarginStart;
-	final float boundaryMarginStop;
+	public final float boundaryMarginStart;
+	public final float boundaryMarginStop;
 	public SeedOffsetTable voteTable=null;
 	public boolean voteWindows=false, voteEnds=false;
 	/** Experimental window grouping on unpadded seed predictions; false preserves legacy geometry. */
@@ -262,7 +262,7 @@ public class NcrnaFamily {
 	public float voteEndsMaxSd=5f;
 	/** Optional production model-dispatched endpoint resources. Null preserves the
 	 * family-wide endpoint path. Arrays are index-aligned with library/modelNames. */
-	CellNet[] boundaryNetsByModel=null;
+	public CellNet[] boundaryNetsByModel=null;
 	TrnaBoundaryFeatures.NinemerTable[] boundaryStartTablesByModel=null;
 	TrnaBoundaryFeatures.NinemerTable[] boundaryStopTablesByModel=null;
 	int boundaryFeatureVersion=NcrnaBoundaryScorer.FEATURES_V1;
@@ -283,7 +283,7 @@ public class NcrnaFamily {
 	public boolean rankedModelFallback=false;
 	public boolean strictIndexCutoff=false;
 	/** Inclusive shared-kmer score distance below the best model; -1 keeps topN. */
-	int indexScoreMargin=-1;
+	public int indexScoreMargin=-1;
 	public boolean trimAlignmentExtent=true;
 	/** When true, every shortlisted consensus is Quantum-aligned once with
 	 * traceback, and that result supplies detection, coordinates, and HBM input. */
@@ -298,7 +298,7 @@ public class NcrnaFamily {
 	public SeedModelPositionTable joinedPositions=null;
 	public int joinedSideSupport=1;
 	/** Immutable experimental costs; all omitted controls retain native defaults. */
-	align2.PacBioScoreParameters pacBioCosts=align2.PacBioScoreParameters.DEFAULT;
+	public align2.PacBioScoreParameters pacBioCosts=align2.PacBioScoreParameters.DEFAULT;
 	/** Experimental local alignment with free model ends; never enabled implicitly. */
 	public boolean modelEndClipping=false;
 	/** Try local model clipping only after the unchanged Quantum window rejects. */

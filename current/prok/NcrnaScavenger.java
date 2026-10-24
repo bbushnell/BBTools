@@ -177,6 +177,10 @@ public class NcrnaScavenger {
 	}
 
 	public long alignmentCount(){return alignmentCount;}
+	/** Counts only real verifications; a length rejection is not an alignment. */
+	public long mitoLengthSkips(){return mitoLengthSkips;}
+	public long mitoAlignmentCount(){return mitoAlignmentCount;}
+	public long original16sAlignmentCount(){return original16sAlignmentCount;}
 	/** Sum of candidate input spans at actual alignment calls, including endpoint trimming. */
 	public long alignedBases(){return alignedBases;}
 	/** HBM evaluations count separately; reusing a traceback is not another alignment. */
@@ -187,7 +191,7 @@ public class NcrnaScavenger {
 	/** Windows scheduled across both passes, before the seed-count and model filters. */
 	public long windowCount(){return windowCount;}
 	public long boundaryNanos(){return boundaryNanos;}
-	boolean hasPerModelBoundaryResources(){return boundaryNetsByModel!=null;}
+	public boolean hasPerModelBoundaryResources(){return boundaryNetsByModel!=null;}
 	boolean endpointUsesPerSiteScrabble(){return NcrnaBoundaryScorer.usesPerSiteScrabble(boundaryFeatureVersion);}
 
 	/** Development-harness support for model-dispatched V3 endpoint resources.
@@ -338,15 +342,15 @@ public class NcrnaScavenger {
 		return group;
 	}
 	/** Same acceptance and score as the fast caller, with tagged span/core handling. */
-	Orf alignJoinedWindow(String name,byte[] bases,int strand,int start,int stop,int model,int[] hitPositions,long[] hitKeys){
+	public Orf alignJoinedWindow(String name,byte[] bases,int strand,int start,int stop,int model,int[] hitPositions,long[] hitKeys){
 		if(cmVerifier!=null || !pacBioConsensusAlignment || !pacBioRolling || start<0 || stop>=bases.length || start>stop){throw new IllegalArgumentException("Joined fast window must be physical, rolling and CM-free");}
 		final byte[] seq=copyRegionUpper(bases,start,stop+1);
-		if(modelAttemptSink!=null){kmerIndex.shortlist(seq,indexTopN,indexScoreMargin);}// Diagnostic counts must not reuse the preceding ordinary window's counts.
+		if(modelAttemptSink!=null || attemptLog!=null){kmerIndex.shortlist(seq,indexTopN,indexScoreMargin);}// Diagnostic counts must not reuse the preceding ordinary window's counts.
 		return alignWindowOnce(name,bases,strand,1,start,stop,WINDOW_JOINED,hitPositions,hitKeys,seq,new int[]{model},countHits(hitPositions,start+8,stop-8),false,true);
 	}
 
 	/** Commits only snapshot-resolver winners and emits capture for those returned calls. */
-	void commitSnapshotCandidates(ArrayList<Orf> candidates,ArrayList<int[]> called,ArrayList<Orf> results){
+	public void commitSnapshotCandidates(ArrayList<Orf> candidates,ArrayList<int[]> called,ArrayList<Orf> results){
 		final ArrayList<Orf> selected=selectBestNonOverlapping(candidates);
 		for(Orf orf:selected){
 			called.add(new int[]{orf.start,orf.stop});results.add(orf);emitInstrumentation(orf);
@@ -357,7 +361,7 @@ public class NcrnaScavenger {
 	/** Keeps the maximum-score call in each reciprocal-half-overlap conflict component.
 	 * Low-overlap adjacent same-family genes remain distinct; this is required for the
 	 * Pneumocystis LSU repeat pair that shares only 277 bp of roughly 3.4 kb. */
-	static ArrayList<Orf> selectBestNonOverlapping(ArrayList<Orf> candidates){
+	public static ArrayList<Orf> selectBestNonOverlapping(ArrayList<Orf> candidates){
 		final ArrayList<Orf> sorted=new ArrayList<Orf>(candidates);
 		sorted.sort((a,b)->compareSnapshotCandidates(a,b));
 		final int n=sorted.size();if(n<2){return sorted;}
@@ -371,7 +375,7 @@ public class NcrnaScavenger {
 		return selected;
 	}
 
-	static boolean snapshotConflict(Orf a,Orf b){
+	public static boolean snapshotConflict(Orf a,Orf b){
 		if(a.strand!=b.strand||!a.scafName.equals(b.scafName)||compareNullable(a.ncrnaFamily,b.ncrnaFamily)!=0){return false;}
 		final int overlap=Tools.min(a.stop,b.stop)-Tools.max(a.start,b.start)+1;
 		return overlap>0&&2L*overlap>=a.stop-a.start+1L&&2L*overlap>=b.stop-b.start+1L;
@@ -471,6 +475,7 @@ public class NcrnaScavenger {
 
 	/** One window preparation seam for both passes; opt-in changes no legacy family. */
 	public ArrayList<int[]> prepareCandidateWindows(int[] positions, long[] keys, int seqLen){
+		initializeMitoMinimums();
 		if(collapsedWindowPad<0 || collapsedWindowPad>0 && (voteWindows || voteBeforePadding
 				|| 2L*collapsedWindowPad+kLong<minLen)){
 			throw new IllegalArgumentException("Collapsed-window padding requires nonvoting windows and the unchanged gene-length floor: "+family);
@@ -596,15 +601,18 @@ public class NcrnaScavenger {
 	private boolean physical16sEdge(int start, int stop, int seqLen){
 		return prok16sPartialMinLen>0 && (start==0 || stop==seqLen-1);
 	}
-	private int inputMinLength(){return prok16sPartialMinLen>0 ? Tools.min(minLen, prok16sPartialMinLen) : minLen;}
+	private int inputMinLength(){return schedulingMinimum(prok16sPartialMinLen>0 ? Tools.min(minLen, prok16sPartialMinLen) : minLen);}
+	private int schedulingMinimum(final int ordinary){return mitoMinimum>0 ? Tools.min(ordinary, mitoMinimum) : ordinary;}
 	private boolean retainWindow(int[] window, int seqLen){
 		assert(window[0]>=0 && window[1]<seqLen) : "Physical-edge rescue requires original-contig coordinates after claim subtraction";
 		// Preserve the historical internal-window filter, including its documented inclusive-length TODO.
-		return window[1]-window[0]>=minLen || (physicalEdgeMinLen>0 && (window[0]==0 || window[1]==seqLen-1)
+		return window[1]-window[0]>=minLen || (mitoMinimum>0 && window[1]-window[0]+1>=mitoMinimum)
+			|| (physicalEdgeMinLen>0 && (window[0]==0 || window[1]==seqLen-1)
 			&& window[1]-window[0]+1>=physicalEdgeMinLen) || (physical16sEdge(window[0], window[1], seqLen)
 			&& window[1]-window[0]+1>=prok16sPartialMinLen);
 	}
 	private void validate16sPartialRescue(){
+		initializeMitoMinimums();
 		if(physicalEdgeMinLen>0 && !annotate){
 			throw new IllegalStateException("Physical-edge policy requires named models so partials cannot enter the unannotated endpoint-voting path: "+family);
 		}
@@ -620,12 +628,46 @@ public class NcrnaScavenger {
 		}
 	}
 	/** Only proven model clipping qualifies for the shorter span; touching an edge alone does not. */
-	private int alignmentMinLength(AlignmentStats stats, boolean clipModel){
+	private int alignmentMinLength(AlignmentStats stats, boolean clipModel, int model){
+		if(mitoMinLengths!=null && mitoMinLengths[model]>0){return mitoMinLengths[model];}
 		if((prok16sPartialMinLen>0 || physicalEdgeMinLen>0) && clipModel && stats instanceof EndClippedAligner.Result){
 			final EndClippedAligner.Result clipped=(EndClippedAligner.Result)stats;
 			if(clipped.qStart>0 || clipped.qStop<clipped.qLen-1){return prok16sPartialMinLen>0 ? prok16sPartialMinLen : physicalEdgeMinLen;}
 		}
 		return minLen;
+	}
+	private int alignmentMaxLength(final int model){
+		return modelThresholds==null ? maxLen : Math.min(maxLen,modelThresholds.maximum(model));
+	}
+	/** Window bounds include flanks. Only absence of any feasible gene span can
+	 * reject before alignment; the observed reference span supplies the upper gate. */
+	private boolean mitoLengthFeasible(final int model, final int windowLength){
+		assert(windowLength>0):"Alignment windows must retain at least one reference base";
+		return mitoMinLengths==null || mitoMinLengths[model]==0 || modelThresholds==null || modelThresholds.minimum(model)==0
+			|| mitoMinLengths[model]<=Math.min(windowLength,alignmentMaxLength(model));
+	}
+	private void initializeMitoMinimums(){
+		if(mitoMinimumsInitialized){return;}
+		if(!MitoSsuModelPolicy.extended(family, modelNames)){return;}
+		if(outputType!=ProkObject.r16S || !reuseConsensusAlignment || trimAlignmentExtent || models!=null
+			|| modelEndClipping || modelClipRescue || pacBioConsensusAlignment || voteWindows || voteEnds
+			|| voteBeforePadding || hasJoinedRoute() || cmVerifier!=null || boundaryNetsByModel!=null
+			|| boundary5Net!=null || boundary3Net!=null){
+			throw new IllegalStateException("Extended mitochondrial16S models require reused Quantum, raw model-specific endpoints and no HBM/voting/alternative verifier");
+		}
+		mitoMinLengths=new int[library.length];mitoMinimum=Integer.MAX_VALUE;
+		for(int i=NcrnaFamilyRegistry.get("16S").models.length; i<library.length; i++){
+			mitoMinLengths[i]=MitoSsuModelPolicy.minimumLength(library[i].length, modelThresholds==null ? idPass : modelThresholds.pass(i));
+			if(modelThresholds!=null){mitoMinLengths[i]=Math.max(mitoMinLengths[i],modelThresholds.minimum(i));}
+			mitoMinimum=Tools.min(mitoMinimum, mitoMinLengths[i]);
+		}
+		mitoMinimumsInitialized=true;
+		mitoOriginalFirst=MitoSsuModelPolicy.coverage(family,modelNames);
+		if(mitoOriginalFirst && (indexK!=9 || indexTopN!=1 || adaptiveMinHits || indexMinHitsDefault!=1 || indexScoreMargin!=-1)){
+			throw new IllegalStateException("Original-first mitochondrial tiers preserve the existing K9/top1/fixed1 original-model ranking; unsupported policy: "+family);
+		}
+		if(mitoOriginalFirst){try{mitoTierPolicy=MitoSsuTierPolicy.configured();mitoTierLog=MitoSsuTierLog.configured();}
+			catch(RuntimeException | AssertionError e){shared.KillSwitch.assertDie("Mito tier initialization failed on caller worker: "+e);throw e;}}
 	}
 
 	private int[] findNearbyUnclaimed(int[] allHits, ArrayList<int[]> claimed, int seqLen){
@@ -687,7 +729,7 @@ public class NcrnaScavenger {
 		}
 		final int wLen=wStop-wStart+1;
 		final boolean rescue16s=physical16sEdge(wStart, wStop, bases.length);
-		if(wLen<(rescue16s ? prok16sPartialMinLen : minLen)){
+		if(wLen<schedulingMinimum(rescue16s ? prok16sPartialMinLen : minLen)){
 			diagnoseWindow(name,bases,strand,pass,wStart,wStop,"REJECT_WLEN",-1,-1,-1,0f,0f,0f,-1,-1,false);
 			return null;
 		}
@@ -702,6 +744,9 @@ public class NcrnaScavenger {
 			return null;
 		}
 		if(workloadSink!=null){workloadSink.postSeedWindow(name, strand, pass, wStart, wStop, khits);}
+		if(mitoOriginalFirst && !mappingOracleExhaustive){
+			return alignMitoTiers(name,bases,strand,pass,wStart,wStop,windowSource,hitPositions,hitKeys,seq,khits,rescue16s);
+		}
 		int[] shortlist=shortlistByKmer(seq, indexTopN);
 		if(DEBUG){System.err.println("DEBUG shortlist.length="+shortlist.length+" shortlist="+Arrays.toString(shortlist));}
 		if(!mappingOracleExhaustive && strictIndexCutoff && kmerIndex!=null && kmerIndex.lastMaxShared()<indexMinHitsDefault){
@@ -712,7 +757,7 @@ public class NcrnaScavenger {
 			if(rescue16s){
 				assert(!suppressRejectedWindow) : "16S edge rescue must not inherit diagnostic suppression from another window";
 				Orf accepted=null;
-				if(wLen>=minLen){
+				if(wLen>=schedulingMinimum(minLen)){
 					suppressRejectedWindow=true;
 					try{accepted=alignWindowOnce(name,bases,strand,pass,wStart,wStop,windowSource,hitPositions,hitKeys,seq,shortlist,khits,false);}
 					finally{suppressRejectedWindow=false;}
@@ -870,6 +915,69 @@ public class NcrnaScavenger {
 		return null;
 	}
 
+	/** Preserve the original top1 candidate, including its physical-edge retry,
+	 * before any added model. One counting pass gives per-model counts independent
+	 * of other postings; fixed1 and count-desc/id-asc ordering make restriction to
+	 * the original prefix identical to its standalone TrnaKmerIndex shortlist.
+	 * Each mito model gets full verification before proceeding to the next rank. */
+	private Orf alignMitoTiers(String name,byte[] bases,int strand,int pass,int start,int stop,int source,
+			int[] hits,long[] keys,byte[] seq,int khits,boolean edge){
+		assert(mitoOriginalFirst && reuseConsensusAlignment && !mappingOracleExhaustive):
+			"Original-first policy is only for the explicit coverage library; exhaustive diagnostics remain exhaustive";
+		final int originalCount=NcrnaFamilyRegistry.get("16S").models.length;
+		final int[] ranked=kmerIndex.shortlist(seq,library.length);
+		final int[] one=new int[1];
+		int top=0,second=0,third=0,rankedMito=0;
+		for(int model:ranked){if(model>=originalCount){final int count=kmerIndex.lastSharedCount(model);
+			if(rankedMito==0){top=count;}else if(rankedMito==1){second=count;}else if(rankedMito==2){third=count;}rankedMito++;}}
+		final int queryUnique=kmerIndex.lastUniqueQueryKmers();
+		final long alignmentsBefore=mitoAlignmentCount,skipsBefore=mitoLengthSkips;
+		int attempts=0,acceptedModel=-1,acceptedRank=-1,acceptedShared=0;
+		long firstTwoCalls=0;
+		boolean entered=false;String outcome="REJECT_VERIFY";
+		final boolean previous=suppressRejectedWindow;
+		assert(modelAttemptRankOffset==0):"A previous tier must not leak diagnostic rank into the next window";
+		suppressRejectedWindow=true;
+		try{
+			for(int model:ranked){if(model<originalCount){
+				one[0]=model;
+				Orf accepted=seq.length>=minLen ? alignWindowOnce(name,bases,strand,pass,start,stop,source,hits,keys,seq,one,khits,false) : null;
+				if(accepted==null && edge && seq.length>=prok16sPartialMinLen){accepted=alignWindowOnce(name,bases,strand,pass,start,stop,source,hits,keys,seq,one,khits,true);}
+				if(accepted!=null){return accepted;}
+				break;//The original tier remains top1, not a newly widened original shortlist.
+			}}
+			entered=true;
+			final boolean entryAllowed=top>=mitoTierPolicy.entryFloor(queryUnique);
+			if(!entryAllowed){outcome="REJECT_ENTRY";}
+			int mitoRank=0;
+			for(int model:ranked){if(model>=originalCount){
+				if(!entryAllowed){break;}
+				modelAttemptRankOffset=mitoRank++;//Rank is local to the independently ordered mito tier.
+				if(attempts>=mitoTierPolicy.maxModels){outcome="REJECT_CAP";break;}
+				final int required=attempts==0 ? mitoTierPolicy.entryFloor(queryUnique) : mitoTierPolicy.subsequentFloor(top,queryUnique);
+				if(kmerIndex.lastSharedCount(model)<required){
+					outcome=attempts==0 ? "REJECT_ENTRY" : "REJECT_RELATIVE";break;
+				}
+				// An impossible model spends no alignment and no model-attempt budget.
+				if(!mitoLengthFeasible(model,seq.length)){mitoLengthSkips+=edge ? 2 : 1;continue;}
+				attempts++;
+				one[0]=model;
+				Orf accepted=alignWindowOnce(name,bases,strand,pass,start,stop,source,hits,keys,seq,one,khits,false);
+				if(accepted==null && edge){accepted=alignWindowOnce(name,bases,strand,pass,start,stop,source,hits,keys,seq,one,khits,true);}
+				if(attempts<=2){firstTwoCalls=mitoAlignmentCount-alignmentsBefore;}
+				if(accepted!=null){acceptedModel=model;acceptedRank=mitoRank;acceptedShared=kmerIndex.lastSharedCount(model);outcome="ACCEPT";return accepted;}
+			}}
+		}finally{
+			suppressRejectedWindow=previous;modelAttemptRankOffset=0;
+			if(entered && mitoTierLog!=null){try{mitoTierLog.record(name,strand,pass,start,stop,queryUnique,top,second,third,
+				attempts,mitoAlignmentCount-alignmentsBefore,mitoLengthSkips-skipsBefore,acceptedModel,acceptedRank,
+				acceptedModel<0 ? 0 : attempts,acceptedShared,outcome,firstTwoCalls);}
+				catch(RuntimeException | AssertionError e){shared.KillSwitch.assertDie("Mito tier observation failed: "+e);throw e;}}
+		}
+		diagnoseWindow(name,bases,strand,pass,start,stop,"REJECT_MITO_TIERS",khits,ranked.length,-1,0f,0f,0f,-1,-1,false);
+		return null;
+	}
+
 	/** Reused-alignment path: retain each model's verifier trace for detection,
 	 * coordinates, endpoint features and optional HBM rescue. Physical partials
 	 * may additionally use the family's normal interior-end refinement. */
@@ -898,7 +1006,9 @@ public class NcrnaScavenger {
 			final float modelBorderline=modelThresholds==null?idBorderline:modelThresholds.borderline(m);
 			if(aligned[m]){throw new IllegalStateException("Consensus aligned more than once at one locus: family="+family+", model="+m);}
 			aligned[m]=true;
+			if(!mitoLengthFeasible(m,seq.length)){mitoLengthSkips++;continue;}
 			final AlignmentStats stats;
+			final AlignmentStats observedStats;
 			//TODO: Probable endpoint bug - Quantum can lose a better 3-prime path even when the
 			//window contains the full locus: euk18S NW_026953564.1 and NC_009907.1 were 155/199bp
 			//short; same-model full GlocalAligner on the same containing windows restores both
@@ -914,7 +1024,8 @@ public class NcrnaScavenger {
 						physicalEdgeMinLen>0 ? EDGE_MATCH_REWARD : 1, physicalEdgeMinLen>0 ? EDGE_NONMATCH_PENALTY : 1)
 					: endClippedAligner.align(library[m], seq);
 				stats=clipped;
-				if(diagSink!=null){diagSink.modelClip(family,name,strand,pass,wStart,wStop,m,clipped,alignmentMinLength(clipped,true));}
+				observedStats=clipped;
+				if(diagSink!=null){diagSink.modelClip(family,name,strand,pass,wStart,wStop,m,clipped,alignmentMinLength(clipped,true,m));}
 				id=stats==null ? 0f : stats.identity;
 			}else if(pacBioConsensusAlignment){
 				if(pacBioAligner==null){pacBioAligner=new Euk18sPacBioAligner(pacBioCosts, pacBioRolling);}
@@ -923,16 +1034,19 @@ public class NcrnaScavenger {
 				}
 				final Euk18sPacBioAligner.Result r=pacBioAligner.align(library[m], seq, diagSink!=null);
 				id=r.identity;stats=r.validBounds ? r : null;
+				observedStats=r;
 				if(r.comparedQuantum){alignmentCount++;alignedBases+=seq.length;}
 				if(diagSink!=null){diagSink.modelPacBio(family,name,strand,pass,wStart,wStop,m,r,modelPass,joined?seq.length:maxLen);}
 			}else{
 				stats=new AlignmentStats(true);
+				observedStats=stats;
 				id=quantumCapMultiplier==1 ? QuantumAligner.alignAndTraceStatic(library[m], seq, stats)
 					: QuantumAligner.alignAndTraceStatic(library[m], seq, stats, quantumCapMultiplier);
 			}
 			diagnoseModel(name,bases.length,strand,pass,wStart,wStop,m,id);
 			alignedBases+=seq.length;
 			alignmentCount++;
+			if(mitoMinLengths!=null){if(mitoMinLengths[m]>0){mitoAlignmentCount++;}else{original16sAlignmentCount++;}}
 			// New retries require actual missing model sequence, not a second
 			// full-model verifier. Historical16S/23S behavior remains unchanged.
 			boolean genuineClip=true;
@@ -942,12 +1056,22 @@ public class NcrnaScavenger {
 			}
 			final int alignedLength=stats==null ? 0 : quantumAlignedLength(stats,seq.length);
 			final boolean edgeMargin=!(clipModel && physicalEdgeMinLen>0) || id>=EDGE_IDENTITY_FLOOR;
-			final boolean spanAllowed=genuineClip && (joined ? joinedLengthAllowed(stats,seq.length) : stats!=null && alignedLength<=maxLen && (!clipModel || alignedLength>=alignmentMinLength(stats,true)));
+			final boolean spanAllowed=genuineClip && (joined ? joinedLengthAllowed(stats,seq.length) : stats!=null && alignedLength<=alignmentMaxLength(m)
+				&& (!(clipModel || mitoMinLengths!=null) || alignedLength>=alignmentMinLength(stats,clipModel,m)));
 			final boolean lengthAllowed=edgeMargin && spanAllowed;
 			if(spanAllowed && !edgeMargin && id>bestEdgeRejectedId){bestEdgeRejectedId=id;bestEdgeRejectedModel=m;}
 			if(modelAttemptSink!=null){
-				modelAttemptSink.modelAttempt(name,strand,pass,wStart,wStop,j+1,m,
+				modelAttemptSink.modelAttempt(name,strand,pass,wStart,wStop,j+1+modelAttemptRankOffset,m,
 					kmerIndex.lastSharedCount(m),id,alignedLength,id>=modelPass && lengthAllowed);
+			}
+			if(attemptLog!=null){
+				try{
+					attemptLog.attempt(family,name,strand,pass,wStart,wStop,bases.length,joined,clipModel,j+1,m,
+						modelNames[m],kmerIndex,library.length,id,observedStats,stats!=null,modelPass,
+						lengthAllowed && alignedLength>=alignmentMinLength(stats,clipModel,m));
+				}catch(RuntimeException | AssertionError e){
+					shared.KillSwitch.assertDie("18S attempted-model logging failed on worker: "+e);throw e;
+				}
 			}
 			// An overlong high-identity model must not suppress a later valid model.
 			if(!lengthAllowed){continue;}
@@ -977,7 +1101,7 @@ public class NcrnaScavenger {
 			return null;
 		}
 		final int orfStart=wStart+stats.rStart, orfStop=wStart+stats.rStop;
-		if(orfStop-orfStart+1<alignmentMinLength(stats,clipModel)){
+		if(orfStop-orfStart+1<alignmentMinLength(stats,clipModel,model)){
 			diagnoseWindow(name,bases,strand,pass,wStart,wStop,"REJECT_LEN",khits,shortlist.length,model,bestId,0f,bestHbm,orfStart,orfStop,false);
 			return null;
 		}
@@ -1016,12 +1140,12 @@ public class NcrnaScavenger {
 		}else{applyVotedEnds(orf,hitPositions,hitKeys,wStart,wStop,bases.length);}
 		assert(physicalEdgeMinLen==0 || ((orf.ncrnaPartial&1)==0 || orf.start==0) && ((orf.ncrnaPartial&2)==0 || orf.stop==bases.length-1))
 			:"Interior endpoint refinement must preserve every original physical truncation coordinate before path selection";
-		if(physicalEdgeMinLen>0 && orf.ncrnaPartial!=0 && orf.stop-orf.start+1<alignmentMinLength(stats,true)){
+		if(physicalEdgeMinLen>0 && orf.ncrnaPartial!=0 && orf.stop-orf.start+1<alignmentMinLength(stats,true,model)){
 			if(pendingInstrumentation!=null){pendingInstrumentation.remove(orf);}
 			diagnoseWindow(name,bases,strand,pass,wStart,wStop,"REJECT_REFINED_PARTIAL_LEN",khits,shortlist.length,model,bestId,0f,bestHbm,orf.start,orf.stop,trimmed);
 			return null;
 		}
-		if(!joined && orf.stop-orf.start+1>maxLen){
+		if(!joined && orf.stop-orf.start+1>alignmentMaxLength(model)){
 			if(pendingInstrumentation!=null){pendingInstrumentation.remove(orf);}
 			diagnoseWindow(name,bases,strand,pass,wStart,wStop,"REJECT_MAXLEN",khits,shortlist.length,
 				model,bestId,0f,bestHbm,orf.start,orf.stop,trimmed);
@@ -1039,7 +1163,7 @@ public class NcrnaScavenger {
 			khits,shortlist.length,model,bestId,0f,bestHbm,orf.start,orf.stop,trimmed);
 		return orf;
 	}
-	static boolean joinedLengthAllowed(AlignmentStats stats,int windowLength){
+	public static boolean joinedLengthAllowed(AlignmentStats stats,int windowLength){
 		if(!(stats instanceof Euk18sPacBioAligner.Result)){return false;}
 		return JoinedRnaTrace.valid((Euk18sPacBioAligner.Result)stats,windowLength);
 	}
@@ -1108,7 +1232,7 @@ public class NcrnaScavenger {
 			// Resource-sized endpoint nets observe the selected raw anchor. Voting
 			// must happen before features/NN, never overwrite an NN-refined result.
 			applyVotedEnds(orf,hitPositions,hitKeys,wStart,wStop,bases.length,fixedMask);
-			captureRrnaEndpointFeatures(orf,bases,model,acceptedIdentity,fixedMask,partial==null?minLen:alignmentMinLength(partial,true));
+			captureRrnaEndpointFeatures(orf,bases,model,acceptedIdentity,fixedMask,alignmentMinLength(partial,partial!=null,model));
 			if(instrumentSink!=null){captureInstrumentation(orf,bases,model,wStart,wStop,false,false,windowSource,acceptedIdentity,alignedLength);}
 			return false;
 		}
@@ -1200,7 +1324,7 @@ public class NcrnaScavenger {
 	 * NcrnaBoundaryInstrumentSink's thread-safety javadoc) and invokes the sink. Split out of
 	 * trimToAlignmentExtent so the hot (instrumentation-off) path is a single null-check with
 	 * no other cost. */
-	void captureInstrumentation(Orf orf, byte[] bases, int model, int wStart, int wStop,
+	public void captureInstrumentation(Orf orf, byte[] bases, int model, int wStart, int wStop,
 			boolean trimSucceeded, boolean nnInvoked, int windowSource, float acceptedIdentity, int alignedLength){
 		final int copyFrom=Tools.max(0, orf.start-INSTRUMENT_CAPTURE_PAD);
 		final int copyTo=Tools.min(bases.length-1, orf.stop+INSTRUMENT_CAPTURE_PAD);
@@ -1489,7 +1613,7 @@ public class NcrnaScavenger {
 	private final TrnaKmerIndex kmerIndex;
 
 	private static final int[] EMPTY=new int[0];
-	static final int WINDOW_COLLAPSE=0, WINDOW_VOTED=1, WINDOW_FALLBACK=2, WINDOW_JOINED=3;
+	public static final int WINDOW_COLLAPSE=0, WINDOW_VOTED=1, WINDOW_FALLBACK=2, WINDOW_JOINED=3;
 	Euk18sJoinedProposals joinedProposals=null;
 	SeedModelPositionTable joinedPositions=null;
 	int joinedSideSupport=1;
@@ -1502,8 +1626,8 @@ public class NcrnaScavenger {
 	//scavengers for different families will eventually need different ones.
 	public int indexK=7;
 	public int indexTopN=60;
-	int indexMinHitsDefault=12;
-	boolean adaptiveMinHits=true;
+	public int indexMinHitsDefault=12;
+	public boolean adaptiveMinHits=true;
 	public float adaptFloor=11;
 	public float adaptTopFrac=0.48f;
 	public float adaptQFrac=0.072f;
@@ -1519,7 +1643,7 @@ public class NcrnaScavenger {
 	public boolean rankedModelFallback=false;
 	public boolean strictIndexCutoff=false;
 	/** -1 preserves topN; otherwise retain every positive score within this gap. */
-	int indexScoreMargin=-1;
+	public int indexScoreMargin=-1;
 	public boolean trimAlignmentExtent=true;
 	public int outputType=ProkObject.RNA;
 	/** Explicit experiment-only permission to refine QuantumAligner endpoints when
@@ -1547,9 +1671,16 @@ public class NcrnaScavenger {
 	public final float idPass;
 	final float idBorderline;
 	private NcrnaModelThresholds modelThresholds=null;
+	private int[] mitoMinLengths=null;
+	private int mitoMinimum=0;
+	private boolean mitoMinimumsInitialized=false;
+	private boolean mitoOriginalFirst=false;
+	private MitoSsuTierPolicy mitoTierPolicy;
+	private MitoSsuTierLog mitoTierLog;
+	private int modelAttemptRankOffset=0;
 	public void setModelThresholds(NcrnaModelThresholds thresholds){
 		if(thresholds==null || !reuseConsensusAlignment){throw new IllegalArgumentException("Model cutoffs require the single-alignment path");}
-		thresholds.validate(modelNames);modelThresholds=thresholds;
+		thresholds.validate(modelNames);modelThresholds=thresholds;mitoMinimumsInitialized=false;
 	}
 	//Forward-ported from Noire's tree (2026-08-28, C3 merge): per-family orfScore formula
 	//constants -- see the 15-arg constructor's javadoc for the full rationale.
@@ -1605,9 +1736,10 @@ public class NcrnaScavenger {
 	 * collapseFrac post-construction assignment pattern above. Propagated onto every
 	 * generic ncRNA Orf this scavenger creates (Ganyu/Qiqi design, 2026-09-17). */
 	public String family;
-	CmRnaVerifier cmVerifier;
+	public CmRnaVerifier cmVerifier;
 
 	private long alignmentCount=0;
+	private long mitoLengthSkips=0,mitoAlignmentCount=0,original16sAlignmentCount=0;
 	private long alignedBases=0, hbmScoreCalls=0, hbmBasesScored=0;
 	private long kmerHitCount=0, windowCount=0;
 	private long boundaryNanos=0;
@@ -1651,7 +1783,9 @@ public class NcrnaScavenger {
 	/** Test-visible caller seam; no work or validation occurs while observation is off. */
 	public void captureRrnaEndpointFeatures(Orf orf,byte[] bases,int model){captureRrnaEndpointFeatures(orf,bases,model,Float.NaN);}
 	public void captureRrnaEndpointFeatures(Orf orf,byte[] bases,int model,float acceptedIdentity){
-		captureRrnaEndpointFeatures(orf,bases,model,acceptedIdentity,0,minLen);
+		if(rrnaEndpointFeatures==null){return;}
+		initializeMitoMinimums();
+		captureRrnaEndpointFeatures(orf,bases,model,acceptedIdentity,0,alignmentMinLength(null,false,model));
 	}
 	private void captureRrnaEndpointFeatures(Orf orf,byte[] bases,int model,float acceptedIdentity,int fixedMask,int minimumLength){
 		if(rrnaEndpointFeatures==null){return;}
@@ -1668,13 +1802,22 @@ public class NcrnaScavenger {
 	//different consumer (a B4/B5 family evaluator driver, not boundary-NN training).
 	private NcrnaWorkloadInstrumentSink workloadSink=null;
 	private NcrnaModelAttemptInstrumentSink modelAttemptSink=null;
+	private Euk18sAttemptLog attemptLog=null;
+	public void setAttemptLog(Euk18sAttemptLog sink){
+		if(sink!=null && (!Euk18sRuntimeConfig.FAMILY.equals(family) || indexK!=9 || kmerIndex==null
+			|| !reuseConsensusAlignment || !pacBioConsensusAlignment || models!=null || cmVerifier!=null
+			|| modelNames==null || modelNames.length!=library.length || library.length<2)){
+			throw new IllegalArgumentException("Attempt logger requires the multi-model K9, reused PacBio 18S path without HBM/CM");
+		}
+		attemptLog=sink;
+	}
 	private NcrnaStageDiagSink diagSink=null;
 	private String diagFamily=null;
 	private boolean mappingOracleExhaustive=false;
 
-	void setStageDiagSink(NcrnaStageDiagSink sink,String familyName){diagSink=sink;diagFamily=familyName;}
+	public void setStageDiagSink(NcrnaStageDiagSink sink,String familyName){diagSink=sink;diagFamily=familyName;}
 	/** Independent generated-window observer; null leaves the scientific path unchanged. */
-	void setVoteDiagSink(NcrnaVoteDiagSink sink, String familyName){voteDiagSink=sink;voteDiagFamily=familyName;}
+	public void setVoteDiagSink(NcrnaVoteDiagSink sink, String familyName){voteDiagSink=sink;voteDiagFamily=familyName;}
 	private NcrnaVoteDiagSink voteDiagSink;
 	private String voteDiagFamily;
 	private NcrnaVoteDiagnostics voteTrace;
@@ -1689,7 +1832,7 @@ public class NcrnaScavenger {
 	 * seedHits/scheduledWindow never index into modelNames, so there is no equivalent silent-skip
 	 * hazard to guard against at arm time. */
 	public void setWorkloadSink(NcrnaWorkloadInstrumentSink sink){workloadSink=sink;}
-	void setModelAttemptSink(NcrnaModelAttemptInstrumentSink sink){modelAttemptSink=sink;}
+	public void setModelAttemptSink(NcrnaModelAttemptInstrumentSink sink){modelAttemptSink=sink;}
 	void setBoundaryScoreSink(BoundaryScoreSink sink){boundaryScoreSink=sink;}
 
 	/** Development-only endpoint-sweep evidence, two rows per refined locus. */
@@ -1716,7 +1859,7 @@ public class NcrnaScavenger {
 	 * cannot leave anything else silently hung -- the textbook case for a plain assert per the
 	 * assertions skill. Sink-off (sink==null) never runs this check -- zero change to production
 	 * arming behavior (there is none) or cost. */
-	void setInstrumentSink(NcrnaBoundaryInstrumentSink sink){
+	public void setInstrumentSink(NcrnaBoundaryInstrumentSink sink){
 		if(sink!=null){
 			assert(modelNames!=null && modelNames.length==library.length) : "Cannot arm boundary-NN "
 				+"instrumentation: modelNames is "+(modelNames==null ? "null" : "length "+modelNames.length)

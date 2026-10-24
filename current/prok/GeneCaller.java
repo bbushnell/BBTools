@@ -198,6 +198,7 @@ public class GeneCaller extends ProkObject {
 		if(proteinSupport!=null && !breakOrfs){throw new IllegalArgumentException("Protein support requires candidate start enumeration");}
 		if(proteinFateSink!=null && proteinSupport==null){throw new IllegalStateException("Protein fate diagnostics require the actual protein-support search");}
 		proteinFates=proteinFateSink==null ? null : new ArrayList<ProteinSupportFate.Entry>();
+		if(ncrnaCpuProfile==null && NcrnaCpuProfile.enabled()){ncrnaCpuProfile=NcrnaCpuProfile.create(ncrnaFamilies.size());}
 		pgm=pgm_;
 		assert(pgm!=null);
 
@@ -222,7 +223,9 @@ public class GeneCaller extends ProkObject {
 		final int rlen=r.length();
 		if(calltRNA || (call16S && rlen>800) || (call23S && rlen>1500) || call5S || (call18S && rlen>1000) || !ncrnaFamilies.isEmpty()){
 			rnaLists=makeRnas(name, bases);
-			applySsuCompetition(rnaLists, bases);
+			if(ncrnaCpuProfile!=null){ncrnaCpuProfile.begin(ncrnaFamilies.size(), NcrnaCpuProfile.SSU_APPLY);}
+			try{applySsuCompetition(rnaLists, bases);}
+			finally{if(ncrnaCpuProfile!=null){ncrnaCpuProfile.end();}}
 			if(NcrnaScavenger.DEBUG){
 				for(ArrayList<Orf> list : rnaLists){for(Orf o : list){
 					System.err.println("DEBUG rnaList candidate: "+o.start+"-"+o.stop+" strand="+o.strand+" type="+o.type+" score="+o.orfScore);
@@ -274,14 +277,19 @@ public class GeneCaller extends ProkObject {
 		if(ncrnaDiagSink!=null){
 			for(ArrayList<Orf> list : brokenLists){recordNcrnaPath(list, name, rlen, false);}
 		}
-		ArrayList<Orf> path=findPath(brokenLists, bases);
+		final ArrayList<Orf> path;
+		if(ncrnaCpuProfile!=null){ncrnaCpuProfile.begin(ncrnaFamilies.size(), NcrnaCpuProfile.PATH);}
+		try{path=findPath(brokenLists, bases);}
+		finally{if(ncrnaCpuProfile!=null){ncrnaCpuProfile.end();}}
 		if(proteinFateSink!=null){
 			proteinFateSink.write(proteinFates, path, maxOverlapSameStrand, maxOverlapOppositeStrand);
 			proteinFates=null;
 		}
 		if(ssuCompetition!=null){
+			if(ncrnaCpuProfile!=null){ncrnaCpuProfile.begin(ncrnaFamilies.size(), NcrnaCpuProfile.SSU_FINISH);}
 			try{ssuCompetition.finish(path);}
 			catch(RuntimeException | AssertionError e){KillSwitch.assertDie("SSU final-path verification failed: "+e);throw e;}
+			finally{if(ncrnaCpuProfile!=null){ncrnaCpuProfile.end();}}
 		}
 		if(ncrnaDiagSink!=null){recordNcrnaPath(path, name, rlen, true);}
 //		geneStartsOut+=path.size();
@@ -330,6 +338,7 @@ public class GeneCaller extends ProkObject {
 	 * All Orfs come out flipped to + orientation. 
 	 * */
 	public ArrayList<Orf>[] makeRnas(String name, byte[] bases){
+		if(ncrnaCpuProfile==null && NcrnaCpuProfile.enabled()){ncrnaCpuProfile=NcrnaCpuProfile.create(ncrnaFamilies.size());}
 		@SuppressWarnings("unchecked")
 		ArrayList<Orf>[] array=new ArrayList[2];
 		array[0]=new ArrayList<Orf>();
@@ -341,6 +350,8 @@ public class GeneCaller extends ProkObject {
 		if(ncrnaScavengers==null && !ncrnaFamilies.isEmpty()){
 			ncrnaScavengers=new ArrayList<>(ncrnaFamilies.size());
 			for(NcrnaFamily fam : ncrnaFamilies){
+				if(ncrnaCpuProfile!=null){ncrnaCpuProfile.begin(ncrnaScavengers.size(), NcrnaCpuProfile.INIT);}
+				try{
 				NcrnaScavenger scavenger=new NcrnaScavenger(fam.library, fam.models, fam.modelNames,
 					fam.kmerSet, fam.kLong, fam.minLen, fam.windowPad,
 					fam.indexK, fam.indexTopN, fam.adaptive,
@@ -356,7 +367,9 @@ public class GeneCaller extends ProkObject {
 				scavenger.cmVerifier=(fam.outputType!=r18S && cmVerifier!=null && cmVerifier.supports(fam.outputType) ? cmVerifier : null);
 				scavenger.setStageDiagSink(ncrnaDiagSink,fam.name);
 				scavenger.setVoteDiagSink(ncrnaVoteDiagSink, fam.name);
+				scavenger.setAttemptLog(Euk18sAttemptLog.forFamily(fam.name));
 				ncrnaScavengers.add(scavenger);
+				}finally{if(ncrnaCpuProfile!=null){ncrnaCpuProfile.end();}}
 			}
 		}
 		//The existing in-place flip at the end of each iteration makes bases
@@ -365,8 +378,13 @@ public class GeneCaller extends ProkObject {
 		//a second reverse-complement copy would retain another whole contig per worker.
 		for(int strand=0; strand<2; strand++){
 			final byte[] strandBases=bases;
-			final ConservedRnaSeedIndex.ScanResult sharedSeedHits=(conservedRnaSeedIndex==null
-				? null : conservedRnaSeedIndex.scan(strandBases));
+			final ConservedRnaSeedIndex.ScanResult sharedSeedHits;
+			if(conservedRnaSeedIndex==null){sharedSeedHits=null;}
+			else{
+				if(ncrnaCpuProfile!=null){ncrnaCpuProfile.begin(ncrnaFamilies.size(), NcrnaCpuProfile.SHARED_SCAN);}
+				try{sharedSeedHits=conservedRnaSeedIndex.scan(strandBases);}
+				finally{if(ncrnaCpuProfile!=null){ncrnaCpuProfile.end();}}
+			}
 			//Count actual base-loop scans, including no-hit and family-minLen-rejected
 			//strands. The shared index returns before scanning inputs shorter than K.
 			if(sharedSeedHits!=null && strandBases.length>=ConservedRnaSeedIndex.K){sharedSweepPasses++;}
@@ -379,6 +397,8 @@ public class GeneCaller extends ProkObject {
 					final NcrnaScavenger scavenger=ncrnaScavengers.get(fi);
 					final int seedSlot=ncrnaSeedSlots[fi];
 					ArrayList<Orf> found;
+					if(ncrnaCpuProfile!=null){ncrnaCpuProfile.begin(fi, NcrnaCpuProfile.SCAVENGE);}
+					try{
 					if(seedSlot>=0){
 						if(sharedSeedHits==null){throw new IllegalStateException("Missing shared 17-mer scan for "+ncrnaFamilies.get(fi).name);}
 						final int[] hits=sharedSeedHits.hits(seedSlot);
@@ -387,6 +407,7 @@ public class GeneCaller extends ProkObject {
 					}else{
 						found=scavenger.scavenge(name, strandBases, strand, calledPos);
 					}
+					}finally{if(ncrnaCpuProfile!=null){ncrnaCpuProfile.end();}}
 					if(strand==1 && found!=null){
 						for(Orf orf : found){orf.flip();}
 					}
@@ -873,7 +894,7 @@ public class GeneCaller extends ProkObject {
 	/** Eligibility of this proposed immediate DP predecessor edge, not a search
 	 * for nearby RNA across other retained genes. Genomic inclusive coordinates
 	 * apply on both strands; overlapping calls never receive the diagnostic bonus. */
-	static boolean euk5sArrayEdge(Orf prev,Orf next,int maxGap){
+	public static boolean euk5sArrayEdge(Orf prev,Orf next,int maxGap){
 		assert(prev!=null && next!=null && maxGap>=0) : "A proposed DP edge needs two real candidates and a nonnegative genomic gap limit";
 		// addEuk5sFamily configures outputType=r5S, shared with legacy5S;
 		// the explicit family tag, not the numeric output type, defines eligibility.
@@ -1985,6 +2006,17 @@ public class GeneCaller extends ProkObject {
 	 * TrnaKmerIndex is per-thread-mutable, so each GeneCaller instance needs its own,
 	 * built from the SHARED read-only family bundle). Null until first use. */
 	private ArrayList<NcrnaScavenger> ncrnaScavengers;
+	private NcrnaCpuProfile ncrnaCpuProfile;
+	/** Read only after this worker joins; return scalar counters, never retain its models. */
+	NcrnaCpuProfile completedCpuProfile(){
+		if(ncrnaCpuProfile!=null && ncrnaScavengers!=null){
+			for(int i=0; i<ncrnaScavengers.size(); i++){
+				final NcrnaScavenger s=ncrnaScavengers.get(i);
+				ncrnaCpuProfile.activity(i, s.alignmentCount(), s.alignedBases(), s.hbmScoreCalls(), s.hbmBasesScored(), s.kmerHitCount(), s.windowCount());
+			}
+		}
+		return ncrnaCpuProfile;
+	}
 	private SsuOverlapResolver ssuCompetition;
 	private long[] ncrnaOutByFamily;
 	/** Per-worker shared 17-mer scans, including the optional tRNA slot; never per family. */
@@ -2008,6 +2040,23 @@ public class GeneCaller extends ProkObject {
 	}
 
 	long[] ncrnaOutputCounts(){return ncrnaOutByFamily==null ? new long[ncrnaFamilies.size()] : ncrnaOutByFamily;}
+
+	/** Merge only after worker termination. Slots are original16S alignments,
+	 * mitochondrial alignments and prealignment mitochondrial length skips.
+	 * These are additional counters; ordinary family alignment totals are untouched. */
+	public void accumulateMitoTierCounts(long[] totals){
+		assert(totals!=null && totals.length==3) : "Mitochondrial work totals require original/mito/length-skip slots";
+		if(ncrnaScavengers==null){return;}
+		assert(ncrnaScavengers.size()==ncrnaFamilies.size()) : "Family order must remain stable until joined-worker work aggregation";
+		for(int i=0; i<ncrnaScavengers.size(); i++){
+			final NcrnaFamily family=ncrnaFamilies.get(i);
+			if(!MitoSsuModelPolicy.coverage(family.name,family.modelNames)){continue;}
+			final NcrnaScavenger s=ncrnaScavengers.get(i);
+			totals[0]=Math.addExact(totals[0],s.original16sAlignmentCount());
+			totals[1]=Math.addExact(totals[1],s.mitoAlignmentCount());
+			totals[2]=Math.addExact(totals[2],s.mitoLengthSkips());
+		}
+	}
 
 	public long[] ncrnaAlignedBases(){return ncrnaCostCounts(0);}
 	public long[] ncrnaHbmScoreCalls(){return ncrnaCostCounts(1);}
@@ -2512,11 +2561,11 @@ public class GeneCaller extends ProkObject {
 	/** Measurement-only JVM switch. Default false preserves production path scores.
 	 * Applies to incoming RNA edges only; incoming CDS rules, predecessor selection,
 	 * run lengths, overlaps and candidate generation are unchanged. */
-	static final boolean FLAT_RNA_TRANSITIONS=Boolean.getBoolean("bbtools.diagnostic.flatRnaTransitions");
+	public static final boolean FLAT_RNA_TRANSITIONS=Boolean.getBoolean("bbtools.diagnostic.flatRnaTransitions");
 	/** G11-approved measurement only: +30 on adjacent same-strand euk5S edges.
 	 * Static false removes the predicate from ordinary production scoring. */
-	static final boolean EUK5S_ARRAY_BONUS=Boolean.getBoolean("bbtools.diagnostic.euk5sArrayBonus");
-	static final int EUK5S_ARRAY_MAX_GAP=Integer.parseInt(System.getProperty("bbtools.diagnostic.euk5sArrayMaxGap","1000"));
+	public static final boolean EUK5S_ARRAY_BONUS=Boolean.getBoolean("bbtools.diagnostic.euk5sArrayBonus");
+	public static final int EUK5S_ARRAY_MAX_GAP=Integer.parseInt(System.getProperty("bbtools.diagnostic.euk5sArrayMaxGap","1000"));
 	static{
 		if(EUK5S_ARRAY_MAX_GAP<0 || (EUK5S_ARRAY_BONUS && FLAT_RNA_TRANSITIONS)){
 			throw new IllegalArgumentException("Array-gap limit must be nonnegative; array and global flat-RNA experiments cannot be combined");

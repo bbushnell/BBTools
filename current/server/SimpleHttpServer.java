@@ -3,90 +3,113 @@ package server;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
-import java.util.HashMap;
+import java.nio.charset.StandardCharsets;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
-import com.sun.net.httpserver.Headers;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
 
-import shared.Tools;
-
 /**
- * Simple HTTP server for handling RESTful requests with JSON responses.
- * Creates a basic web service that parses URL paths as key/value pairs
- * and returns JSON-formatted data for bioinformatics applications.
+ * Demonstration HTTP server returning one requested key/value plus fixed mock data.
+ * This is not a taxonomy lookup service. It preserves raw URI text, including
+ * percent escapes and query text, and returns status 200 with an error object
+ * when the URI does not supply exactly two slash-separated components.
  *
  * @author Shijie Yao
  * @date Dec 13, 2016
  */
 public class SimpleHttpServer {
-	public static int port = 8321;
 
-	public static void main(String[] args) throws Exception {
-		HttpServer server = HttpServer.create(new InetSocketAddress(SimpleHttpServer.port), 0);
+	/*--------------------------------------------------------------*/
+	/*----------------        Initialization        ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Starts the demonstration listener on {@link #port}; arguments are unused. */
+	public static void main(String[] args) throws IOException{
+		final HttpServer server=HttpServer.create(new InetSocketAddress(port), 0);
 		server.createContext("/", new GetHandler());
-		server.setExecutor(null); // creates a default executor
+		server.setExecutor(null);
 		server.start();
 	}
 
+	/*--------------------------------------------------------------*/
+	/*----------------           Handler            ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Stateless handler; all response data belongs to the current request. */
 	static class GetHandler implements HttpHandler {
+
 		/**
-		 * Handles incoming HTTP GET requests and generates JSON responses.
-		 * Parses URL path as key/value pairs, adds mock data, and returns JSON.
-		 * Expects URLs in format "/key/value" and responds with JSON object.
-		 *
-		 * @param t The HTTP exchange containing request and response information
-		 * @throws IOException If response writing fails
+		 * Writes a UTF-8 JSON object and closes the exchange even if writing fails.
+		 * The historical handler accepts any HTTP method and does not read its body.
+		 * @param exchange Incoming exchange owned and closed by this handler
+		 * @throws IOException If sending headers or the response body fails
 		 */
 		@Override
-		public void handle(HttpExchange t) throws IOException {
-			Headers h = t.getResponseHeaders();
-			h.add("Content-Type", "application/json");
-			//String query = t.getRequestURI().getQuery(); //the KEY=VAL&KEY=VAL params in URL
-			String rparam = t.getRequestURI().toString();   //restful style params, KEY/VAL in URL
-			if (rparam.startsWith("/")){
-				rparam = rparam.substring(1);
+		public void handle(HttpExchange exchange) throws IOException{
+			try{
+				String paramsText=exchange.getRequestURI().toString();
+				if(paramsText.startsWith("/")){paramsText=paramsText.substring(1);}
+				// Fixed [server/SimpleHttpServer#001]: remove the final slash, not the prefix.
+				if(paramsText.endsWith("/")){paramsText=paramsText.substring(0, paramsText.length()-1);}
+				final String[] params=paramsText.split("/");
+				final Map<String,String> fields=new LinkedHashMap<String,String>();
+				if(params.length==2){
+					fields.put(params[0], params[1]);
+					// Deliberate mock values; preserve replacement of these requested keys.
+					fields.put("tax_id", "654321");
+					fields.put("organism", "e. coli");
+				}else{
+					fields.put("error", "need restful-style param like gi/123456");
+				}
+
+				final StringBuilder json=new StringBuilder(128);
+				json.append('{');
+				boolean first=true;
+				for(Map.Entry<String,String> entry : fields.entrySet()){
+					// Fixed [server/SimpleHttpServer#001]: separate every JSON member.
+					if(!first){json.append(',');}
+					appendQuoted(json, entry.getKey());
+					json.append(':');
+					appendQuoted(json, entry.getValue());
+					first=false;
+				}
+				json.append('}');
+				final byte[] response=json.toString().getBytes(StandardCharsets.UTF_8);
+				exchange.getResponseHeaders().set("Content-Type", "application/json; charset=UTF-8");
+				exchange.sendResponseHeaders(200, response.length);
+				try(OutputStream output=exchange.getResponseBody()){
+					output.write(response);
+				}
+			}finally{
+				exchange.close();
 			}
-			if (rparam.endsWith("/")){
-				//TODO: Possible bug [server/SimpleHttpServer#001] - substring(length-1) returns the LAST char (the "/"), so
-				//rparam becomes "/" instead of having its trailing slash removed; should be substring(0, length-1). (Also
-				//lines ~76-79 concat JSON entries with NO comma separators -> invalid JSON output.) Demo server (author's
-				//mock data, "fill in other data here"), so low impact - but both are real defects.
-				rparam = rparam.substring(rparam.length()-1);
-			}
-			System.out.println(rparam);
-
-
-
-			String[] params = rparam.split("/");
-			Map<String,String> map = new HashMap<String,String>();  //should be <String, Object>
-
-			if (params.length == 2){
-				map.put(params[0], params[1]);
-				// fill in other data here
-
-				map.put("tax_id", "654321");
-				map.put("organism", "e. coli");
-
-
-			} else {
-				map.put("error", "need restful-style param like gi/123456");
-			}
-
-			String response = "{";
-
-			for (Map.Entry<String, String> entry : map.entrySet()){
-				response+=Tools.format("\"%s\":\"%s\"", entry.getKey(), entry.getValue());
-			}
-			response+="}";
-
-			//String response = "{\"name\": \"a json string\"}";
-			t.sendResponseHeaders(200, response.length());
-			OutputStream os = t.getResponseBody();
-			os.write(response.getBytes());
-			os.close();
 		}
 	}
+
+	/** Quotes JSON string text without the ASCII-only conversion of ByteBuilder. */
+	private static void appendQuoted(StringBuilder out, String value){
+		assert(value!=null) : "Demo response fields must have values before JSON serialization";
+		out.append('"');
+		for(int i=0; i<value.length(); i++){
+			final char c=value.charAt(i);
+			if(c=='"' || c=='\\'){
+				out.append('\\').append(c);
+			}else if(c<0x20){
+				out.append("\\u00").append(HEX[c>>>4]).append(HEX[c&15]);
+			}else{out.append(c);}
+		}
+		out.append('"');
+	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------            Fields            ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Demonstration listener port, set before calling main. */
+	public static int port=8321;
+	/** Hexadecimal digits for JSON control-character escapes. */
+	private static final char[] HEX="0123456789abcdef".toCharArray();
 }
