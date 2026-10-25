@@ -20,8 +20,8 @@ Estimator types (type= or loglogtype=):
 Parameters:
 card=5000       Maximum true cardinality (number of unique values).
 ddls=128        Number of estimator instances with varied seeds.
-buckets=2048    Buckets per estimator. Must be a multiple of 256.
-iter=0          Iterations as a multiplier of cardinality. 0=stop on saturation.
+buckets=2048    Buckets per estimator; rounded up to a power of 2.
+iter=4          Iterations as a multiplier of cardinality. 0=stop on saturation.
 threads=4       Number of parallel threads.
 seed=1          Master seed for value array and estimator seeds.
 reportfrac=0.01 Reporting fraction for cardinality checkpoints.

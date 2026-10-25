@@ -49,7 +49,7 @@ entropy=f       Use depth entropy in merge decisions -
                 prioritize low-entropy samples.
 negcos=f        Invert the cosine function to prioritize dissimilar samples.
 magpower=1.0    Raise sample volume to this power to alter its strength.
-entpower=1.0    Raise entropy to this power.
+entpower=0.25   Raise entropy to this power.
 compare=100k    Only compare this many largest contigs when calculating 
                 pairwise depth similarity.
 lognorm=f       Use logs of normalized depth, instead of raw depth,

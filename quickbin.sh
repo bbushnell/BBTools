@@ -80,7 +80,7 @@ normal          Default stringency is 'normal'.  All settings, in order of
                 add that flag without an = sign.  Acceptable shorthand is
                 xs,hs,us,vs,s,n,l,vl,ul,hl,xl. Plus y,z,i for extreme values.
 strictness=1.0  Stringency can alternatively be set finely with this flag,
-                where normal=1.0, xs=0.6, s=0.9, l=1.1, and xl=1.5.
+                where normal=1.0, xs=0.6, s=0.9, l=1.125, and xl=1.5.
                 Lower is stricter; this is an unbounded cutoff multiplier.
 
 Depth parameters:
@@ -182,8 +182,8 @@ perfectoracle=f Decide every merge from the labels instead of by
 Edge-processing parameters:
 e1=0            Edge-first clustering passes; may increase speed
                 at the cost of purity.
-e2=4            Later edge-based clustering passes.
-maxEdges=3      Follow up to this many edges per contig.
+e2=5            Later edge-based clustering passes.
+maxEdges=2      Follow up to this many edges per contig.
 minmapq=20      When loading sam files, do not make edges from reads
                 with map lower than this.  Setting it to 0 will allow
                 ambigiously-mapped reads and may improve completeness.
@@ -195,7 +195,7 @@ edgeStringency1=0.25  Stringency for edge-first clustering;
 edgeStringency2=1.1    Stringency for later edge-based clustering.
 minEdgeWeight=2       Ignore edges made from fewer read pairs.
 minEdgeRatio=0.4      Ignore edges under this fraction of max edge weight.
-goodEdgeMult=1.4      Merge stringency multiplier for contigs joined by
+goodEdgeMult=1.35     Merge stringency multiplier for contigs joined by
                       an edge; lower is more stringent.
 
 Quantization parameters:

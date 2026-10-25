@@ -116,6 +116,9 @@ public class CallITS {
 	/*--------------------------------------------------------------*/
 
 	public void process(Timer t){
+		if(verbose){
+			outstream.println("Flank patterns: 18S="+pattern18S+", 5.8S="+pattern58S+", LSU="+patternLSU);
+		}
 		//Load flank rows. types=null: type filtering is by attribute pattern, since legacy
 		//18S rows and generic-RNA rows use different type strings across caller versions.
 		ArrayList<GffLine> lines=GffLine.loadGffFile(gffIn, null, false);
@@ -147,6 +150,11 @@ public class CallITS {
 		Collections.sort(keys);
 		for(String key : keys){
 			ArrayList<Flank> group=groups.get(key);
+			if(verbose){
+				final Flank first=group.get(0);
+				outstream.println("Resolving "+group.size()+" flank rows on "+first.seqid+
+					", strand "+(first.strand==GffLine.PLUS ? '+' : '-'));
+			}
 			Collections.sort(group);
 			markOverlaps(group, reportRows);
 			resolveGroup(group, regions, reportRows);

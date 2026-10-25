@@ -52,8 +52,7 @@ public final class LiveBranchObserverTest {
 			final String sequence=sequences.get(r);
 			for(int p=0; p+k<=sequence.length(); p++){
 				final String word=canonical(sequence.substring(p, p+k));
-				// Explicit absent-key handling: ObjectIntMap.increment currently adds
-				// to resize()'s -1 sentinel on first insertion, rather than to zero.
+				// Keep this literal count oracle independent of ObjectIntMap.increment.
 				expected.put(word, Math.max(0, expected.get(word))+1);
 			}
 		}

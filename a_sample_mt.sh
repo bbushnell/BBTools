@@ -65,9 +65,9 @@ setEnv(){
 }
 
 launch() {
-	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP templates.A_SampleMT $@"
+	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP template.A_SampleMT $@"
 	echo "$CMD" >&2
-	java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" templates.A_SampleMT "$@"
+	java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" template.A_SampleMT "$@"
 }
 
 resolveSymlinks

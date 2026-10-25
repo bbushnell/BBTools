@@ -141,10 +141,12 @@ public class BedSet{
 
 		final Bed[] beds=new Bed[ffin1.length];
 		for(int i=0; i<beds.length; i++){
+			if(verbose){outstream.println("Loading intervals from "+ffin1[i].name());}
 			beds[i]=new Bed(ffin1[i], pad, multiallelicOnly);
 			linesProcessed+=beds[i].rawIntervals;
 		}
 
+		if(verbose){outstream.println("Applying "+modeName(mode)+" to "+beds.length+" interval sets");}
 		final Bed result=op(beds, mode);
 
 		if(ffout1!=null){writeBed(result, ffout1);}
@@ -559,7 +561,7 @@ public class BedSet{
 
 	/** Diagnostic destination chosen by PreParser. */
 	private PrintStream outstream=System.err;
-	/** Parsed compatibility flag; no processing branch currently reads it here. */
+	/** Enables input-loading and operation progress messages on the diagnostic stream. */
 	public static boolean verbose=false;
 	/** Accumulated normal writer-close error; reader errors are not folded into it. */
 	public boolean errorState=false;

@@ -10,6 +10,7 @@ import parse.Parse;
 import parse.Parser;
 import parse.PreParser;
 import rand.FastRandomXoshiro;
+import shared.KillSwitch;
 import shared.Shared;
 import shared.Tools;
 
@@ -34,6 +35,8 @@ public class DDLCalibrationDriver2 {
 	/*--------------------------------------------------------------*/
 
 	static boolean TRI_SWEEP=false;
+	// M16h_* File 1 columns are retained as stable schema placeholders.
+	// M16_SWEEP remains false, so their error metrics intentionally emit zeros.
 	static final boolean M16_SWEEP=false;
 	static final int NUM_EST=DDLCalibrationDriver.NUM_EST;
 	static final String[] ESTIMATOR_NAMES=DDLCalibrationDriver.ESTIMATOR_NAMES;
@@ -144,6 +147,8 @@ public class DDLCalibrationDriver2 {
 			}else if(a.equals("trisweep") || a.equals("tri")){
 				TRI_SWEEP=Parse.parseBoolean(b);
 				if(TRI_SWEEP){
+					// Trisweep File 1 columns are reserved in deterministic order;
+					// the current driver keeps their error metrics as zero placeholders.
 					NUM_EXTENDED_TYPES=BASE_EXTENDED_NAMES.length+TRI_SWEEP_COUNT;
 					EXTENDED_NAMES=new String[NUM_EXTENDED_TYPES];
 					System.arraycopy(BASE_EXTENDED_NAMES, 0, EXTENDED_NAMES, 0, BASE_EXTENDED_NAMES.length);
@@ -175,7 +180,14 @@ public class DDLCalibrationDriver2 {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Runs calibration, retaining unchecked failures for callers that catch them. */
 	void process(final long t0){
+		try{processInner(t0);}
+		catch(RuntimeException | Error failure){errorState=true; throw failure;}
+	}
+
+	/** Joins all workers before publishing complete aggregate tables. */
+	private void processInner(final long t0){
 		{
 			final CardinalityTracker tmp=DDLCalibrationDriver.makeInstance(loglogtype, buckets, k, 0, 0);
 			System.err.println("terminalMeanCF="+tmp.terminalMeanCF()+" terminalMeanPlusCF="+tmp.terminalMeanPlusCF());
@@ -183,10 +195,24 @@ public class DDLCalibrationDriver2 {
 		final int numThreads=Math.min(threads, numDDLs);
 		final int numThresholds=thresholds.length;
 		final CalThread[] calThreads=spawnThreads(numThreads);
+		InterruptedException interrupted=null;
+		Throwable failure=null;
+		boolean success=true;
 		for(CalThread ct : calThreads){
-			try{ct.join();}catch(InterruptedException e){Thread.currentThread().interrupt();}
-			if(!ct.success){System.err.println("Warning: a calibration thread did not complete successfully.");}
+			for(;;){
+				try{ct.join(); break;}
+				catch(InterruptedException e){interrupted=e;}
+			}
+			success&=ct.success;
+			errorState|=ct.errorState || !ct.success;
+			if(failure==null){failure=ct.failure;}
 		}
+		if(interrupted!=null){
+			errorState=true;
+			Thread.currentThread().interrupt();
+			throw new RuntimeException("Interrupted calibration; parent tables were not written.", interrupted);
+		}
+		if(!success){throw new RuntimeException("Calibration worker failed; partial tables were not written.", failure);}
 		final MergedResults merged=accumulate(calThreads, numThresholds);
 		final ArrayList<DDLCalibrationDriver.ReportRow> mergedRows=buildRows(merged, numThresholds);
 		printSummary(mergedRows, merged, numThresholds, t0);
@@ -398,43 +424,71 @@ public class DDLCalibrationDriver2 {
 
 	private void writeFile1(ArrayList<DDLCalibrationDriver.ReportRow> mergedRows,
 			MergedResults m, int numThresholds){
-		final ByteStreamWriter bsw=new ByteStreamWriter(out1, true, false, false);
+		final ByteStreamWriter bsw;
+		try{bsw=new ByteStreamWriter(out1, true, false, false);}
+		catch(RuntimeException | Error e){
+			errorState=true;
+			if(e.getCause() instanceof java.io.IOException){
+				assert(false) : KillSwitch.assertDie("Could not open calibration output "+out1+": "+e);
+			}
+			throw e;
+		}
 		bsw.start();
-		{
+		try{
 			final StringBuilder hdr=new StringBuilder(DDLCalibrationDriver.header1());
 			for(int e=0; e<NUM_EXTENDED_TYPES; e++){
 				hdr.append('\t').append(EXTENDED_NAMES[e]).append("_err");
 				hdr.append('\t').append(EXTENDED_NAMES[e]).append("_abs");
 			}
 			bsw.println(hdr.toString());
-		}
-		int finalTi=0;
-		for(DDLCalibrationDriver.ReportRow row : mergedRows){
-			final StringBuilder sb=new StringBuilder(DDLCalibrationDriver.formatRow1(row));
-			for(int e=0; e<NUM_EXTENDED_TYPES; e++){
-				final int ni=row.n;
-				sb.append('\t').append(String.format("%.6f", m.ldlcErr[finalTi][e]/ni));
-				sb.append('\t').append(String.format("%.6f", m.ldlcAbsErr[finalTi][e]/ni));
+			int finalTi=0;
+			for(DDLCalibrationDriver.ReportRow row : mergedRows){
+				final StringBuilder sb=new StringBuilder(DDLCalibrationDriver.formatRow1(row));
+				for(int e=0; e<NUM_EXTENDED_TYPES; e++){
+					final int ni=row.n;
+					sb.append('\t').append(String.format("%.6f", m.ldlcErr[finalTi][e]/ni));
+					sb.append('\t').append(String.format("%.6f", m.ldlcAbsErr[finalTi][e]/ni));
+				}
+				bsw.println(sb.toString());
+				finalTi++;
 			}
-			bsw.println(sb.toString());
-			finalTi++;
+		}finally{
+			//TODO: ByteStreamWriter queued-write IOExceptions still halt under -da.
+			//This driver can gate the flush/close failures returned at completion.
+			checkOutput(bsw.poisonAndWait(), out1);
 		}
-		bsw.poisonAndWait();
 	}
 
 	private void writeFile3(ArrayList<DDLCalibrationDriver.ReportRow> mergedRows){
-		try(PrintStream ps=new PrintStream(new FileOutputStream(out3))){
+		PrintStream ps=null;
+		boolean failed=false;
+		try{
+			ps=new PrintStream(new FileOutputStream(out3));
 			DDLCalibrationDriver.printHistogramV5(mergedRows, ps,
 				loglogtype, buckets, numDDLs, maxTrue,
 				CorrectionFactor.USE_CORRECTION,
 				DynamicLogLog3.EARLY_PROMOTE,
 				DynamicLogLog3.PROMOTE_THRESHOLD,
 				notes);
-			System.err.println("V5 CF table written to "+out3);
-		}catch(Exception e){
+		}catch(java.io.IOException e){
+			failed=true;
 			System.err.println("Error writing CF file: "+e.getMessage());
+		}finally{
+			if(ps!=null){ps.close(); failed|=ps.checkError();}
+			checkOutput(failed, out3);
 		}
+		if(!failed){System.err.println("V5 CF table written to "+out3);}
 	}
+
+	/** Records output failure even when assertions bypass whole-JVM termination. */
+	private void checkOutput(final boolean failed, final String path){
+		errorState|=failed;
+		if(failed){System.err.println("Calibration output failed: "+path);}
+		assert(!failed) : KillSwitch.assertDie("Calibration output failed: "+path+"; results may be incomplete.");
+	}
+
+	/** Returns latched failure state after process() returns or throws. */
+	public boolean errorState(){return errorState;}
 
 	/*--------------------------------------------------------------*/
 	/*----------------         Inner Classes        ----------------*/
@@ -456,368 +510,386 @@ public class DDLCalibrationDriver2 {
 				// Ensures visibility of all global state set before thread creation on NUMA
 			}
 			synchronized(this){
-				final int nt=thresholds.length;
-				n=new int[nt]; occSum=new double[nt];
-				sumErr=new double[nt][NUM_EST]; sumAbsErr=new double[nt][NUM_EST]; sumSqErr=new double[nt][NUM_EST];
-				ldlcSumErr=new double[nt][NUM_EXTENDED_TYPES]; ldlcSumAbsErr=new double[nt][NUM_EXTENDED_TYPES]; ldlcSumSqErr=new double[nt][NUM_EXTENDED_TYPES];
-				if(UltraDynamicLogLog36.VW_STATE_TABLE!=null && ternSweep==null){initTernSweep();}
-				if(ternSweep!=null){ternSumWtAbsErr=new double[ternSweep.length]; ternSumWt=new double[ternSweep.length];}
-				try{runInner(); success=true;}
-				catch(Exception e){e.printStackTrace();}
+				try{
+					final int nt=thresholds.length;
+					n=new int[nt]; occSum=new double[nt];
+					sumErr=new double[nt][NUM_EST]; sumAbsErr=new double[nt][NUM_EST]; sumSqErr=new double[nt][NUM_EST];
+					ldlcSumErr=new double[nt][NUM_EXTENDED_TYPES]; ldlcSumAbsErr=new double[nt][NUM_EXTENDED_TYPES]; ldlcSumSqErr=new double[nt][NUM_EXTENDED_TYPES];
+					if(UltraDynamicLogLog36.VW_STATE_TABLE!=null && ternSweep==null){initTernSweep();}
+					if(ternSweep!=null){ternSumWtAbsErr=new double[ternSweep.length]; ternSumWt=new double[ternSweep.length];}
+					runInner();
+					success=true;
+				}catch(Throwable e){failure=e; e.printStackTrace();}
 			}
 		}
 
 		void runInner(){
 			final FastRandomXoshiro rng=new FastRandomXoshiro(0);
-			java.io.PrintWriter out4Pw=null;
-			if(out4!=null){try{out4Pw=new java.io.PrintWriter(new java.io.FileOutputStream(out4));}catch(Exception e){e.printStackTrace();}}
 			long di;
 			while((di=nextDDL.getAndIncrement())<totalDDLs){
 				rng.setSeed(masterSeed+di);
 				final long ddlSeed=rng.nextLong()&Long.MAX_VALUE;
 				final CardinalityTracker ddl=DDLCalibrationDriver.makeInstance(loglogtype, buckets, k, ddlSeed, 0);
-				int ti=0;
-				if(lcMode){
-					runLC(ddl, ddlSeed, ti, (int)di, out4Pw);
-					continue;
+				java.io.PrintWriter out4Pw=null;
+				if(di==0 && out4!=null){
+					try{out4Pw=new java.io.PrintWriter(new FileOutputStream(out4));}
+					catch(Exception e){
+						errorState=true;
+						e.printStackTrace();
+						assert(false) : KillSwitch.assertDie("Could not open calibration diagnostic output "+out4+": "+e);
+					}
 				}
-				for(long trueCard=1; trueCard<=maxTrue; trueCard++){
-					{final long val=rng.nextLong(); for(int d=0; d<dupFactor; d++){ddl.add(val);}}
-					if(trueCard>=thresholds[ti]){
-						final double occ=ddl.occupancy();
-						final double[] est=ddl.rawEstimates();
-						occSum[ti]+=occ; n[ti]++;
-						if(di==0 && out4Pw!=null){
-							int[] raw=null, corr=null; int mz=0;
-							if(ddl.getClass()==DynamicLogLog3.class){
-								final DynamicLogLog3 d=(DynamicLogLog3)ddl; raw=d.lastRawNlz; corr=d.lastCorrNlz; mz=d.getMinZeros();
-							}else if(ddl.getClass()==DynamicLogLog4.class){
-								final DynamicLogLog4 d=(DynamicLogLog4)ddl; raw=d.lastRawNlz; corr=d.lastCorrNlz; mz=d.getMinZeros();
+				try{
+					int ti=0;
+					if(lcMode){
+						runLC(ddl, ddlSeed, ti, (int)di, out4Pw);
+						continue;
+					}
+					for(long trueCard=1; trueCard<=maxTrue; trueCard++){
+						{final long val=rng.nextLong(); for(int d=0; d<dupFactor; d++){ddl.add(val);}}
+						if(trueCard>=thresholds[ti]){
+							final double occ=ddl.occupancy();
+							final double[] est=ddl.rawEstimates();
+							occSum[ti]+=occ; n[ti]++;
+							if(out4Pw!=null){
+								int[] raw=null, corr=null; int mz=0;
+								if(ddl.getClass()==DynamicLogLog3.class){
+									final DynamicLogLog3 d=(DynamicLogLog3)ddl; raw=d.lastRawNlz; corr=d.lastCorrNlz; mz=d.getMinZeros();
+								}else if(ddl.getClass()==DynamicLogLog4.class){
+									final DynamicLogLog4 d=(DynamicLogLog4)ddl; raw=d.lastRawNlz; corr=d.lastCorrNlz; mz=d.getMinZeros();
+								}
+								if(raw!=null){
+									out4Pw.print(trueCard+"\t"+mz);
+									for(int tt=0; tt<20; tt++){out4Pw.print("\t"+raw[tt]);}
+									for(int tt=0; tt<20; tt++){out4Pw.print("\t"+corr[tt]);}
+									out4Pw.println();
+								}
 							}
-							if(raw!=null){
-								out4Pw.print(trueCard+"\t"+mz);
-								for(int tt=0; tt<20; tt++){out4Pw.print("\t"+raw[tt]);}
-								for(int tt=0; tt<20; tt++){out4Pw.print("\t"+corr[tt]);}
-								out4Pw.println();
+							for(int e=0; e<Math.min(NUM_EST, est.length); e++){
+								final double v=CardinalityTracker.clampToAdded ? Math.min(est[e], trueCard) : est[e];
+								final double err=(v-trueCard)/(double)trueCard;
+								sumErr[ti][e]+=err; sumAbsErr[ti][e]+=Math.abs(err); sumSqErr[ti][e]+=err*err;
 							}
+							if(ddl.getClass()==UltraDynamicLogLog6.class){
+								final UltraDynamicLogLog6 u=(UltraDynamicLogLog6)ddl;
+								accumulateCardStatsLdlc(u.consumeLastSummarized(), u.fgraEstimate(), trueCard, ti, ddl.hldlcWeight());
+							}else if(ddl.getClass()==UltraDynamicLogLog6m.class){
+								final UltraDynamicLogLog6m u=(UltraDynamicLogLog6m)ddl;
+								accumulateCardStatsLdlc(u.consumeLastSummarized(), u.fgraEstimate(), trueCard, ti, ddl.hldlcWeight());
+							}else if(ddl.getClass()==UltraDynamicLogLog36.class){
+								final UltraDynamicLogLog36 u36=(UltraDynamicLogLog36)ddl;
+								final CardStats cs36=u36.consumeLastSummarized();
+								accumulateCardStatsLdlc(cs36, 0, trueCard, ti, ddl.hldlcWeight());
+								accumulateVWMean(cs36, trueCard, ti, ddl.hldlcWeight());
+							}else if(ddl.getClass()==CompressedDynamicLogLog4.class){
+								accumulateCardStatsLdlc(((CompressedDynamicLogLog4)ddl).consumeLastSummarized(), 0, trueCard, ti, ddl.hldlcWeight());
+							}else if(ddl.getClass()==BankedDynamicLogLog4.class){
+								accumulateCardStatsLdlc(((BankedDynamicLogLog4)ddl).consumeLastSummarized(), 0, trueCard, ti, ddl.hldlcWeight());
+							}else if(ddl.getClass()==BankedDynamicLogLog5.class){
+								accumulateCardStatsLdlc(((BankedDynamicLogLog5)ddl).consumeLastSummarized(), 0, trueCard, ti, ddl.hldlcWeight());
+							}else if(ddl.getClass()==CompressedDynamicLogLog5.class){
+								accumulateCardStatsLdlc(((CompressedDynamicLogLog5)ddl).consumeLastSummarized(), 0, trueCard, ti, ddl.hldlcWeight());
+							}else if(ddl.getClass()==BankedCompressedDynamicLogLog5.class){
+								accumulateCardStatsLdlc(((BankedCompressedDynamicLogLog5)ddl).consumeLastSummarized(), 0, trueCard, ti, ddl.hldlcWeight());
+							}else if(ddl.getClass()==ArithmeticCompressedDynamicLogLog5.class){
+								accumulateCardStatsLdlc(((ArithmeticCompressedDynamicLogLog5)ddl).consumeLastSummarized(), 0, trueCard, ti, ddl.hldlcWeight());
+							}else if(ddl.getClass()==VariableCompressedDynamicLogLog4.class){
+								accumulateCardStatsLdlc(((VariableCompressedDynamicLogLog4)ddl).consumeLastSummarized(), 0, trueCard, ti, ddl.hldlcWeight());
+							}else if(ddl.getClass()==ArithmeticCompressedDynamicLogLog4.class){
+								accumulateCardStatsLdlc(((ArithmeticCompressedDynamicLogLog4)ddl).consumeLastSummarized(), 0, trueCard, ti, ddl.hldlcWeight());
+							}else if(ddl.getClass()==HalfCappedDynamicLogLog4.class){
+								accumulateCardStatsLdlc(((HalfCappedDynamicLogLog4)ddl).consumeLastSummarized(), 0, trueCard, ti, ddl.hldlcWeight());
+							}else if(ddl.getClass()==ExpandedDynamicLogLog8.class){
+								accumulateCardStatsLdlc(((ExpandedDynamicLogLog8)ddl).consumeLastSummarized(), 0, trueCard, ti, ddl.hldlcWeight());
+							}else if(ddl.getClass()==ArithmeticUltraDynamicLogLog32.class){
+								accumulateCardStatsLdlc(((ArithmeticUltraDynamicLogLog32)ddl).consumeLastSummarized(), 0, trueCard, ti, ddl.hldlcWeight());
+							}else if(ddl.getClass()==ArithmeticUltraDynamicLogLog33.class){
+								accumulateCardStatsLdlc(((ArithmeticUltraDynamicLogLog33)ddl).consumeLastSummarized(), 0, trueCard, ti, ddl.hldlcWeight());
+							}else if(ddl.getClass()==ArithmeticVariableDynamicLogLog32.class){
+								accumulateCardStatsLdlc(((ArithmeticVariableDynamicLogLog32)ddl).consumeLastSummarized(), 0, trueCard, ti, ddl.hldlcWeight());
+							}else if(ddl.getClass()==ArithmeticVariableDynamicLogLog36.class){
+								accumulateCardStatsLdlc(((ArithmeticVariableDynamicLogLog36)ddl).consumeLastSummarized(), 0, trueCard, ti, ddl.hldlcWeight());
+							}else if(ddl.getClass()==ArithmeticVariableDynamicLogLog34.class){
+								final CardStats csA34=((ArithmeticVariableDynamicLogLog34)ddl).consumeLastSummarized();
+								accumulateCardStatsLdlc(csA34, 0, trueCard, ti, ddl.hldlcWeight());
+								accumulateVWMean(csA34, trueCard, ti, ddl.hldlcWeight());
+							}else if(ddl.getClass()==ArithmeticVariableDynamicLogLog64.class){
+								final CardStats csA64=((ArithmeticVariableDynamicLogLog64)ddl).consumeLastSummarized();
+								accumulateCardStatsLdlc(csA64, 0, trueCard, ti, ddl.hldlcWeight());
+								accumulateVWMean(csA64, trueCard, ti, ddl.hldlcWeight());
+							}else if(ddl.getClass()==ArithmeticVariableLogLog2.class){
+								final CardStats csAVLL2=((ArithmeticVariableLogLog2)ddl).consumeLastSummarized();
+								accumulateCardStatsLdlc(csAVLL2, 0, trueCard, ti, ddl.hldlcWeight());
+								accumulateVWMean(csAVLL2, trueCard, ti, ddl.hldlcWeight());
+							}else if(ddl.getClass()==ArithmeticVariableLogLog.class){
+								final ArithmeticVariableLogLog avll=(ArithmeticVariableLogLog)ddl;
+								avll.consumeLastSummarized();
+								final double[] avllEst=avll.estimate();
+								accumulateInternalEstimate(avllEst[5], trueCard, ti, 0);           // LDLC
+								accumulateInternalEstimate(avllEst[3], trueCard, ti, 5);           // Mean+H
+								accumulateInternalEstimate(avllEst[4], trueCard, ti, 6);           // Hybrid+2
+								accumulateInternalEstimate(avllEst[2], trueCard, ti, MEANTC_IDX);  // Mean → MeanTC slot
+								accumulateInternalEstimate(avllEst[0], trueCard, ti, VLDLC_IDX);
+								accumulateInternalEstimate(avllEst[1], trueCard, ti, HLDLC_IDX);
+								accumulateInternalEstimate(avllEst[6], trueCard, ti, VWMEAN_IDX);
+								accumulateInternalEstimate(avllEst[7], trueCard, ti, DUALLC_IDX); // dlcRaw → DualLC slot
+							accumulateInternalEstimate(avllEst[8], trueCard, ti, 2);           // HC
+							accumulateInternalEstimate(avllEst[9], trueCard, ti, 3);           // SBS → FGRA slot
+							}else if(ddl.getClass()==ExpandedDynamicLogLog9.class){
+								accumulateCardStatsLdlc(((ExpandedDynamicLogLog9)ddl).consumeLastSummarized(), 0, trueCard, ti, ddl.hldlcWeight());
+							}else if(ddl.getClass()==CompressedDynamicLogLog3.class){
+								accumulateCardStatsLdlc(((CompressedDynamicLogLog3)ddl).consumeLastSummarized(), 0, trueCard, ti, ddl.hldlcWeight());
+							}else if(ddl.getClass()==BankedCompressedDynamicLogLog3.class){
+								accumulateCardStatsLdlc(((BankedCompressedDynamicLogLog3)ddl).consumeLastSummarized(), 0, trueCard, ti, ddl.hldlcWeight());
+							}else if(ddl.getClass()==ProtoLogLog16c.class){
+								final ProtoLogLog16c p=(ProtoLogLog16c)ddl;
+								final double[] ldlcR=p.ldlcEstimate();
+								if(ldlcR!=null){accumulateLdlcEstimate(ldlcR, trueCard, ti);}
+							}else if(ddl.getClass()==TwinTailLogLog.class){
+								final TwinTailLogLog t=(TwinTailLogLog)ddl;
+								final double[] ldlcR=t.ldlcEstimate();
+								accumulateLdlcEstimate(ldlcR, trueCard, ti);
+								{
+									final float hw=ddl.hldlcWeight(); final double hldlc=hw*ldlcR[0]+(1-hw)*ldlcR[7];
+									final double lerr=(hldlc>0 ? (hldlc-trueCard)/(double)trueCard : -1.0);
+									ldlcSumErr[ti][HLDLC_IDX]+=lerr; ldlcSumAbsErr[ti][HLDLC_IDX]+=Math.abs(lerr); ldlcSumSqErr[ti][HLDLC_IDX]+=lerr*lerr;
+								}
+								{
+									final double mean16=ldlcR[8];
+									final double lerr=(mean16>0 ? (mean16-trueCard)/(double)trueCard : -1.0);
+									ldlcSumErr[ti][MEAN16_IDX]+=lerr; ldlcSumAbsErr[ti][MEAN16_IDX]+=Math.abs(lerr); ldlcSumSqErr[ti][MEAN16_IDX]+=lerr*lerr;
+								}
+								if(ldlcR.length>9){
+									final double dualLC=ldlcR[9];
+									final double lerr=(dualLC>0 ? (dualLC-trueCard)/(double)trueCard : -1.0);
+									ldlcSumErr[ti][DUALLC_IDX]+=lerr; ldlcSumAbsErr[ti][DUALLC_IDX]+=Math.abs(lerr); ldlcSumSqErr[ti][DUALLC_IDX]+=lerr*lerr;
+								}
+								{
+									final double m16=ldlcR[8];
+									final float hw=ddl.hldlcWeight();
+									final double hldlc=hw*ldlcR[0]+(1-hw)*ldlcR[7];
+									if(m16>0 && hldlc>0){
+										if(M16_SWEEP) for(int si=0; si<M16_SWEEP_COUNT; si++){
+											final double w=M16_SWEEP_START+si*M16_SWEEP_STEP;
+											final double v=w*m16+(1-w)*hldlc;
+											final double lerr=(v-trueCard)/(double)trueCard;
+											ldlcSumErr[ti][M16_SWEEP_BASE+si]+=lerr;
+											ldlcSumAbsErr[ti][M16_SWEEP_BASE+si]+=Math.abs(lerr);
+											ldlcSumSqErr[ti][M16_SWEEP_BASE+si]+=lerr*lerr;
+										}
+									}
+								}
+							}else if(ddl.getClass()==TwinTailLogLog3.class){
+								final TwinTailLogLog3 t=(TwinTailLogLog3)ddl;
+								final double[] ldlcR=t.ldlcEstimate();
+								accumulateLdlcEstimate(ldlcR, trueCard, ti);
+								{
+									final float hw=ddl.hldlcWeight(); final double hldlc=hw*ldlcR[0]+(1-hw)*ldlcR[7];
+									final double lerr=(hldlc>0 ? (hldlc-trueCard)/(double)trueCard : -1.0);
+									ldlcSumErr[ti][HLDLC_IDX]+=lerr; ldlcSumAbsErr[ti][HLDLC_IDX]+=Math.abs(lerr); ldlcSumSqErr[ti][HLDLC_IDX]+=lerr*lerr;
+								}
+								{
+									final double mean16=ldlcR[8];
+									final double lerr=(mean16>0 ? (mean16-trueCard)/(double)trueCard : -1.0);
+									ldlcSumErr[ti][MEAN16_IDX]+=lerr; ldlcSumAbsErr[ti][MEAN16_IDX]+=Math.abs(lerr); ldlcSumSqErr[ti][MEAN16_IDX]+=lerr*lerr;
+								}
+								if(ldlcR.length>9){
+									final double dualLC=ldlcR[9];
+									final double lerr=(dualLC>0 ? (dualLC-trueCard)/(double)trueCard : -1.0);
+									ldlcSumErr[ti][DUALLC_IDX]+=lerr; ldlcSumAbsErr[ti][DUALLC_IDX]+=Math.abs(lerr); ldlcSumSqErr[ti][DUALLC_IDX]+=lerr*lerr;
+								}
+								{
+									final double m16=ldlcR[8];
+									final float hw=ddl.hldlcWeight();
+									final double hldlc=hw*ldlcR[0]+(1-hw)*ldlcR[7];
+									if(m16>0 && hldlc>0){
+										if(M16_SWEEP) for(int si=0; si<M16_SWEEP_COUNT; si++){
+											final double w=M16_SWEEP_START+si*M16_SWEEP_STEP;
+											final double v=w*m16+(1-w)*hldlc;
+											final double lerr=(v-trueCard)/(double)trueCard;
+											ldlcSumErr[ti][M16_SWEEP_BASE+si]+=lerr;
+											ldlcSumAbsErr[ti][M16_SWEEP_BASE+si]+=Math.abs(lerr);
+											ldlcSumSqErr[ti][M16_SWEEP_BASE+si]+=lerr*lerr;
+										}
+									}
+								}
+							}else if(ddl.getClass()==TwinTailLogLog4.class){
+								final TwinTailLogLog4 t=(TwinTailLogLog4)ddl;
+								final double[] ldlcR=t.ldlcEstimate();
+								accumulateLdlcEstimate(ldlcR, trueCard, ti);
+								{
+									final float hw=ddl.hldlcWeight(); final double hldlc=hw*ldlcR[0]+(1-hw)*ldlcR[7];
+									final double lerr=(hldlc>0 ? (hldlc-trueCard)/(double)trueCard : -1.0);
+									ldlcSumErr[ti][HLDLC_IDX]+=lerr; ldlcSumAbsErr[ti][HLDLC_IDX]+=Math.abs(lerr); ldlcSumSqErr[ti][HLDLC_IDX]+=lerr*lerr;
+								}
+								{
+									final double mean16=ldlcR[8];
+									final double lerr=(mean16>0 ? (mean16-trueCard)/(double)trueCard : -1.0);
+									ldlcSumErr[ti][MEAN16_IDX]+=lerr; ldlcSumAbsErr[ti][MEAN16_IDX]+=Math.abs(lerr); ldlcSumSqErr[ti][MEAN16_IDX]+=lerr*lerr;
+								}
+								if(ldlcR.length>9){
+									final double dualLC=ldlcR[9];
+									final double lerr=(dualLC>0 ? (dualLC-trueCard)/(double)trueCard : -1.0);
+									ldlcSumErr[ti][DUALLC_IDX]+=lerr; ldlcSumAbsErr[ti][DUALLC_IDX]+=Math.abs(lerr); ldlcSumSqErr[ti][DUALLC_IDX]+=lerr*lerr;
+								}
+								{
+									final double m16=ldlcR[8];
+									final float hw=ddl.hldlcWeight();
+									final double hldlc=hw*ldlcR[0]+(1-hw)*ldlcR[7];
+									if(m16>0 && hldlc>0){
+										if(M16_SWEEP) for(int si=0; si<M16_SWEEP_COUNT; si++){
+											final double w=M16_SWEEP_START+si*M16_SWEEP_STEP;
+											final double v=w*m16+(1-w)*hldlc;
+											final double lerr=(v-trueCard)/(double)trueCard;
+											ldlcSumErr[ti][M16_SWEEP_BASE+si]+=lerr;
+											ldlcSumAbsErr[ti][M16_SWEEP_BASE+si]+=Math.abs(lerr);
+											ldlcSumSqErr[ti][M16_SWEEP_BASE+si]+=lerr*lerr;
+										}
+									}
+								}
+							}else if(ddl.getClass()==CompressedTwinTailLogLog.class){
+								final CompressedTwinTailLogLog t=(CompressedTwinTailLogLog)ddl;
+								final double[] ldlcR=t.ldlcEstimate();
+								accumulateLdlcEstimate(ldlcR, trueCard, ti);
+								{
+									final float hw=ddl.hldlcWeight(); final double hldlc=hw*ldlcR[0]+(1-hw)*ldlcR[7];
+									final double lerr=(hldlc>0 ? (hldlc-trueCard)/(double)trueCard : -1.0);
+									ldlcSumErr[ti][HLDLC_IDX]+=lerr; ldlcSumAbsErr[ti][HLDLC_IDX]+=Math.abs(lerr); ldlcSumSqErr[ti][HLDLC_IDX]+=lerr*lerr;
+								}
+								{
+									final double mean16=ldlcR[8];
+									final double lerr=(mean16>0 ? (mean16-trueCard)/(double)trueCard : -1.0);
+									ldlcSumErr[ti][MEAN16_IDX]+=lerr; ldlcSumAbsErr[ti][MEAN16_IDX]+=Math.abs(lerr); ldlcSumSqErr[ti][MEAN16_IDX]+=lerr*lerr;
+								}
+								if(ldlcR.length>9){
+									final double dualLC=ldlcR[9];
+									final double lerr=(dualLC>0 ? (dualLC-trueCard)/(double)trueCard : -1.0);
+									ldlcSumErr[ti][DUALLC_IDX]+=lerr; ldlcSumAbsErr[ti][DUALLC_IDX]+=Math.abs(lerr); ldlcSumSqErr[ti][DUALLC_IDX]+=lerr*lerr;
+								}
+								{
+									final double m16=ldlcR[8];
+									final float hw=ddl.hldlcWeight();
+									final double hldlc=hw*ldlcR[0]+(1-hw)*ldlcR[7];
+									if(m16>0 && hldlc>0){
+										if(M16_SWEEP) for(int si=0; si<M16_SWEEP_COUNT; si++){
+											final double w=M16_SWEEP_START+si*M16_SWEEP_STEP;
+											final double v=w*m16+(1-w)*hldlc;
+											final double lerr=(v-trueCard)/(double)trueCard;
+											ldlcSumErr[ti][M16_SWEEP_BASE+si]+=lerr;
+											ldlcSumAbsErr[ti][M16_SWEEP_BASE+si]+=Math.abs(lerr);
+											ldlcSumSqErr[ti][M16_SWEEP_BASE+si]+=lerr*lerr;
+										}
+									}
+								}
+							}else if(ddl.getClass()==CompressedQuadTailLogLog.class){
+								final CompressedQuadTailLogLog t=(CompressedQuadTailLogLog)ddl;
+								final double[] ldlcR=t.ldlcEstimate();
+								accumulateLdlcEstimate(ldlcR, trueCard, ti);
+								{
+									final float hw=ddl.hldlcWeight(); final double hldlc=hw*ldlcR[0]+(1-hw)*ldlcR[7];
+									final double lerr=(hldlc>0 ? (hldlc-trueCard)/(double)trueCard : -1.0);
+									ldlcSumErr[ti][HLDLC_IDX]+=lerr; ldlcSumAbsErr[ti][HLDLC_IDX]+=Math.abs(lerr); ldlcSumSqErr[ti][HLDLC_IDX]+=lerr*lerr;
+								}
+								{
+									final double mean16=ldlcR[8];
+									final double lerr=(mean16>0 ? (mean16-trueCard)/(double)trueCard : -1.0);
+									ldlcSumErr[ti][MEAN16_IDX]+=lerr; ldlcSumAbsErr[ti][MEAN16_IDX]+=Math.abs(lerr); ldlcSumSqErr[ti][MEAN16_IDX]+=lerr*lerr;
+								}
+								if(ldlcR.length>9){
+									final double dualLC=ldlcR[9];
+									final double lerr=(dualLC>0 ? (dualLC-trueCard)/(double)trueCard : -1.0);
+									ldlcSumErr[ti][DUALLC_IDX]+=lerr; ldlcSumAbsErr[ti][DUALLC_IDX]+=Math.abs(lerr); ldlcSumSqErr[ti][DUALLC_IDX]+=lerr*lerr;
+								}
+								{
+									final double m16=ldlcR[8];
+									final float hw=ddl.hldlcWeight();
+									final double hldlc=hw*ldlcR[0]+(1-hw)*ldlcR[7];
+									if(m16>0 && hldlc>0){
+										if(M16_SWEEP) for(int si=0; si<M16_SWEEP_COUNT; si++){
+											final double w=M16_SWEEP_START+si*M16_SWEEP_STEP;
+											final double v=w*m16+(1-w)*hldlc;
+											final double lerr=(v-trueCard)/(double)trueCard;
+											ldlcSumErr[ti][M16_SWEEP_BASE+si]+=lerr;
+											ldlcSumAbsErr[ti][M16_SWEEP_BASE+si]+=Math.abs(lerr);
+											ldlcSumSqErr[ti][M16_SWEEP_BASE+si]+=lerr*lerr;
+										}
+									}
+								}
+							}else if(ddl.getClass()==ExpandedTwinTailLogLog5.class){
+								final ExpandedTwinTailLogLog5 t=(ExpandedTwinTailLogLog5)ddl;
+								final double[] ldlcR=t.ldlcEstimate();
+								accumulateLdlcEstimate(ldlcR, trueCard, ti);
+								{
+									final float hw=ddl.hldlcWeight(); final double hldlc=hw*ldlcR[0]+(1-hw)*ldlcR[7];
+									final double lerr=(hldlc>0 ? (hldlc-trueCard)/(double)trueCard : -1.0);
+									ldlcSumErr[ti][HLDLC_IDX]+=lerr; ldlcSumAbsErr[ti][HLDLC_IDX]+=Math.abs(lerr); ldlcSumSqErr[ti][HLDLC_IDX]+=lerr*lerr;
+								}
+								{
+									final double mean16=ldlcR[8];
+									final double lerr=(mean16>0 ? (mean16-trueCard)/(double)trueCard : -1.0);
+									ldlcSumErr[ti][MEAN16_IDX]+=lerr; ldlcSumAbsErr[ti][MEAN16_IDX]+=Math.abs(lerr); ldlcSumSqErr[ti][MEAN16_IDX]+=lerr*lerr;
+								}
+								if(ldlcR.length>9){
+									final double dualLC=ldlcR[9];
+									final double lerr=(dualLC>0 ? (dualLC-trueCard)/(double)trueCard : -1.0);
+									ldlcSumErr[ti][DUALLC_IDX]+=lerr; ldlcSumAbsErr[ti][DUALLC_IDX]+=Math.abs(lerr); ldlcSumSqErr[ti][DUALLC_IDX]+=lerr*lerr;
+								}
+								{
+									final double m16=ldlcR[8];
+									final float hw=ddl.hldlcWeight();
+									final double hldlc=hw*ldlcR[0]+(1-hw)*ldlcR[7];
+									if(m16>0 && hldlc>0){
+										if(M16_SWEEP) for(int si=0; si<M16_SWEEP_COUNT; si++){
+											final double w=M16_SWEEP_START+si*M16_SWEEP_STEP;
+											final double v=w*m16+(1-w)*hldlc;
+											final double lerr=(v-trueCard)/(double)trueCard;
+											ldlcSumErr[ti][M16_SWEEP_BASE+si]+=lerr;
+											ldlcSumAbsErr[ti][M16_SWEEP_BASE+si]+=Math.abs(lerr);
+											ldlcSumSqErr[ti][M16_SWEEP_BASE+si]+=lerr*lerr;
+										}
+									}
+								}
+							}else if(ddl.getClass()==ErtlULL.class){
+								final ErtlULL u=(ErtlULL)ddl;
+								// Only FGRA applies to ULL; other LDLC slots stay 0 → sentinel -1.0
+								final double fgra=u.fgraEstimatePublic();
+								final double lerr=(fgra>0 ? (fgra-trueCard)/(double)trueCard : -1.0);
+								ldlcSumErr[ti][3]+=lerr; ldlcSumAbsErr[ti][3]+=Math.abs(lerr); ldlcSumSqErr[ti][3]+=lerr*lerr;
+							}
+							{
+								final int[] extraIdx={AbstractCardStats.LC_NOMICRO_IDX, AbstractCardStats.SBS_NOMICRO_IDX};
+								for(int e=0; e<extraIdx.length; e++){
+									final double v=(extraIdx[e]<est.length ? est[extraIdx[e]] : 0);
+									final double lerr=(v>0 ? (v-trueCard)/(double)trueCard : -1.0);
+									ldlcSumErr[ti][7+e]+=lerr; ldlcSumAbsErr[ti][7+e]+=Math.abs(lerr); ldlcSumSqErr[ti][7+e]+=lerr*lerr;
+								}
+							}
+							if(ddl.getClass()==DynamicLogLog4.class && DynamicLogLog4.wordTable!=null){
+								// Pull CF-corrected WordEst from rawEstimates() array
+								final int wIdx=DDLCalibrationDriver.WORDEST_RAW_IDX;
+								final double wEst=(wIdx<est.length ? est[wIdx] : 0);
+								final double wEstCV=(wIdx+1<est.length ? est[wIdx+1] : 0);
+								final double[] wVals={wEst, wEstCV};
+								for(int e=0; e<2; e++){
+									final double v=wVals[e];
+									final double lerr=(v>0 ? (v-trueCard)/(double)trueCard : -1.0);
+									ldlcSumErr[ti][9+e]+=lerr; ldlcSumAbsErr[ti][9+e]+=Math.abs(lerr); ldlcSumSqErr[ti][9+e]+=lerr*lerr;
+								}
+							}
+							ti++;
+							if(ti>=thresholds.length){break;}
 						}
-						for(int e=0; e<Math.min(NUM_EST, est.length); e++){
-							final double v=CardinalityTracker.clampToAdded ? Math.min(est[e], trueCard) : est[e];
-							final double err=(v-trueCard)/(double)trueCard;
-							sumErr[ti][e]+=err; sumAbsErr[ti][e]+=Math.abs(err); sumSqErr[ti][e]+=err*err;
-						}
-						if(ddl.getClass()==UltraDynamicLogLog6.class){
-							final UltraDynamicLogLog6 u=(UltraDynamicLogLog6)ddl;
-							accumulateCardStatsLdlc(u.consumeLastSummarized(), u.fgraEstimate(), trueCard, ti, ddl.hldlcWeight());
-						}else if(ddl.getClass()==UltraDynamicLogLog6m.class){
-							final UltraDynamicLogLog6m u=(UltraDynamicLogLog6m)ddl;
-							accumulateCardStatsLdlc(u.consumeLastSummarized(), u.fgraEstimate(), trueCard, ti, ddl.hldlcWeight());
-						}else if(ddl.getClass()==UltraDynamicLogLog36.class){
-							final UltraDynamicLogLog36 u36=(UltraDynamicLogLog36)ddl;
-							final CardStats cs36=u36.consumeLastSummarized();
-							accumulateCardStatsLdlc(cs36, 0, trueCard, ti, ddl.hldlcWeight());
-							accumulateVWMean(cs36, trueCard, ti, ddl.hldlcWeight());
-						}else if(ddl.getClass()==CompressedDynamicLogLog4.class){
-							accumulateCardStatsLdlc(((CompressedDynamicLogLog4)ddl).consumeLastSummarized(), 0, trueCard, ti, ddl.hldlcWeight());
-						}else if(ddl.getClass()==BankedDynamicLogLog4.class){
-							accumulateCardStatsLdlc(((BankedDynamicLogLog4)ddl).consumeLastSummarized(), 0, trueCard, ti, ddl.hldlcWeight());
-						}else if(ddl.getClass()==BankedDynamicLogLog5.class){
-							accumulateCardStatsLdlc(((BankedDynamicLogLog5)ddl).consumeLastSummarized(), 0, trueCard, ti, ddl.hldlcWeight());
-						}else if(ddl.getClass()==CompressedDynamicLogLog5.class){
-							accumulateCardStatsLdlc(((CompressedDynamicLogLog5)ddl).consumeLastSummarized(), 0, trueCard, ti, ddl.hldlcWeight());
-						}else if(ddl.getClass()==BankedCompressedDynamicLogLog5.class){
-							accumulateCardStatsLdlc(((BankedCompressedDynamicLogLog5)ddl).consumeLastSummarized(), 0, trueCard, ti, ddl.hldlcWeight());
-						}else if(ddl.getClass()==ArithmeticCompressedDynamicLogLog5.class){
-							accumulateCardStatsLdlc(((ArithmeticCompressedDynamicLogLog5)ddl).consumeLastSummarized(), 0, trueCard, ti, ddl.hldlcWeight());
-						}else if(ddl.getClass()==VariableCompressedDynamicLogLog4.class){
-							accumulateCardStatsLdlc(((VariableCompressedDynamicLogLog4)ddl).consumeLastSummarized(), 0, trueCard, ti, ddl.hldlcWeight());
-						}else if(ddl.getClass()==ArithmeticCompressedDynamicLogLog4.class){
-							accumulateCardStatsLdlc(((ArithmeticCompressedDynamicLogLog4)ddl).consumeLastSummarized(), 0, trueCard, ti, ddl.hldlcWeight());
-						}else if(ddl.getClass()==HalfCappedDynamicLogLog4.class){
-							accumulateCardStatsLdlc(((HalfCappedDynamicLogLog4)ddl).consumeLastSummarized(), 0, trueCard, ti, ddl.hldlcWeight());
-						}else if(ddl.getClass()==ExpandedDynamicLogLog8.class){
-							accumulateCardStatsLdlc(((ExpandedDynamicLogLog8)ddl).consumeLastSummarized(), 0, trueCard, ti, ddl.hldlcWeight());
-						}else if(ddl.getClass()==ArithmeticUltraDynamicLogLog32.class){
-							accumulateCardStatsLdlc(((ArithmeticUltraDynamicLogLog32)ddl).consumeLastSummarized(), 0, trueCard, ti, ddl.hldlcWeight());
-						}else if(ddl.getClass()==ArithmeticUltraDynamicLogLog33.class){
-							accumulateCardStatsLdlc(((ArithmeticUltraDynamicLogLog33)ddl).consumeLastSummarized(), 0, trueCard, ti, ddl.hldlcWeight());
-						}else if(ddl.getClass()==ArithmeticVariableDynamicLogLog32.class){
-							accumulateCardStatsLdlc(((ArithmeticVariableDynamicLogLog32)ddl).consumeLastSummarized(), 0, trueCard, ti, ddl.hldlcWeight());
-						}else if(ddl.getClass()==ArithmeticVariableDynamicLogLog36.class){
-							accumulateCardStatsLdlc(((ArithmeticVariableDynamicLogLog36)ddl).consumeLastSummarized(), 0, trueCard, ti, ddl.hldlcWeight());
-						}else if(ddl.getClass()==ArithmeticVariableDynamicLogLog34.class){
-							final CardStats csA34=((ArithmeticVariableDynamicLogLog34)ddl).consumeLastSummarized();
-							accumulateCardStatsLdlc(csA34, 0, trueCard, ti, ddl.hldlcWeight());
-							accumulateVWMean(csA34, trueCard, ti, ddl.hldlcWeight());
-						}else if(ddl.getClass()==ArithmeticVariableDynamicLogLog64.class){
-							final CardStats csA64=((ArithmeticVariableDynamicLogLog64)ddl).consumeLastSummarized();
-							accumulateCardStatsLdlc(csA64, 0, trueCard, ti, ddl.hldlcWeight());
-							accumulateVWMean(csA64, trueCard, ti, ddl.hldlcWeight());
-						}else if(ddl.getClass()==ArithmeticVariableLogLog2.class){
-							final CardStats csAVLL2=((ArithmeticVariableLogLog2)ddl).consumeLastSummarized();
-							accumulateCardStatsLdlc(csAVLL2, 0, trueCard, ti, ddl.hldlcWeight());
-							accumulateVWMean(csAVLL2, trueCard, ti, ddl.hldlcWeight());
-						}else if(ddl.getClass()==ArithmeticVariableLogLog.class){
-							final ArithmeticVariableLogLog avll=(ArithmeticVariableLogLog)ddl;
-							avll.consumeLastSummarized();
-							final double[] avllEst=avll.estimate();
-							accumulateInternalEstimate(avllEst[5], trueCard, ti, 0);           // LDLC
-							accumulateInternalEstimate(avllEst[3], trueCard, ti, 5);           // Mean+H
-							accumulateInternalEstimate(avllEst[4], trueCard, ti, 6);           // Hybrid+2
-							accumulateInternalEstimate(avllEst[2], trueCard, ti, MEANTC_IDX);  // Mean → MeanTC slot
-							accumulateInternalEstimate(avllEst[0], trueCard, ti, VLDLC_IDX);
-							accumulateInternalEstimate(avllEst[1], trueCard, ti, HLDLC_IDX);
-							accumulateInternalEstimate(avllEst[6], trueCard, ti, VWMEAN_IDX);
-							accumulateInternalEstimate(avllEst[7], trueCard, ti, DUALLC_IDX); // dlcRaw → DualLC slot
-						accumulateInternalEstimate(avllEst[8], trueCard, ti, 2);           // HC
-						accumulateInternalEstimate(avllEst[9], trueCard, ti, 3);           // SBS → FGRA slot
-						}else if(ddl.getClass()==ExpandedDynamicLogLog9.class){
-							accumulateCardStatsLdlc(((ExpandedDynamicLogLog9)ddl).consumeLastSummarized(), 0, trueCard, ti, ddl.hldlcWeight());
-						}else if(ddl.getClass()==CompressedDynamicLogLog3.class){
-							accumulateCardStatsLdlc(((CompressedDynamicLogLog3)ddl).consumeLastSummarized(), 0, trueCard, ti, ddl.hldlcWeight());
-						}else if(ddl.getClass()==BankedCompressedDynamicLogLog3.class){
-							accumulateCardStatsLdlc(((BankedCompressedDynamicLogLog3)ddl).consumeLastSummarized(), 0, trueCard, ti, ddl.hldlcWeight());
-						}else if(ddl.getClass()==ProtoLogLog16c.class){
-							final ProtoLogLog16c p=(ProtoLogLog16c)ddl;
-							final double[] ldlcR=p.ldlcEstimate();
-							if(ldlcR!=null){accumulateLdlcEstimate(ldlcR, trueCard, ti);}
-						}else if(ddl.getClass()==TwinTailLogLog.class){
-							final TwinTailLogLog t=(TwinTailLogLog)ddl;
-							final double[] ldlcR=t.ldlcEstimate();
-							accumulateLdlcEstimate(ldlcR, trueCard, ti);
-							{
-								final float hw=ddl.hldlcWeight(); final double hldlc=hw*ldlcR[0]+(1-hw)*ldlcR[7];
-								final double lerr=(hldlc>0 ? (hldlc-trueCard)/(double)trueCard : -1.0);
-								ldlcSumErr[ti][HLDLC_IDX]+=lerr; ldlcSumAbsErr[ti][HLDLC_IDX]+=Math.abs(lerr); ldlcSumSqErr[ti][HLDLC_IDX]+=lerr*lerr;
-							}
-							{
-								final double mean16=ldlcR[8];
-								final double lerr=(mean16>0 ? (mean16-trueCard)/(double)trueCard : -1.0);
-								ldlcSumErr[ti][MEAN16_IDX]+=lerr; ldlcSumAbsErr[ti][MEAN16_IDX]+=Math.abs(lerr); ldlcSumSqErr[ti][MEAN16_IDX]+=lerr*lerr;
-							}
-							if(ldlcR.length>9){
-								final double dualLC=ldlcR[9];
-								final double lerr=(dualLC>0 ? (dualLC-trueCard)/(double)trueCard : -1.0);
-								ldlcSumErr[ti][DUALLC_IDX]+=lerr; ldlcSumAbsErr[ti][DUALLC_IDX]+=Math.abs(lerr); ldlcSumSqErr[ti][DUALLC_IDX]+=lerr*lerr;
-							}
-							{
-								final double m16=ldlcR[8];
-								final float hw=ddl.hldlcWeight();
-								final double hldlc=hw*ldlcR[0]+(1-hw)*ldlcR[7];
-								if(m16>0 && hldlc>0){
-									if(M16_SWEEP) for(int si=0; si<M16_SWEEP_COUNT; si++){
-										final double w=M16_SWEEP_START+si*M16_SWEEP_STEP;
-										final double v=w*m16+(1-w)*hldlc;
-										final double lerr=(v-trueCard)/(double)trueCard;
-										ldlcSumErr[ti][M16_SWEEP_BASE+si]+=lerr;
-										ldlcSumAbsErr[ti][M16_SWEEP_BASE+si]+=Math.abs(lerr);
-										ldlcSumSqErr[ti][M16_SWEEP_BASE+si]+=lerr*lerr;
-									}
-								}
-							}
-						}else if(ddl.getClass()==TwinTailLogLog3.class){
-							final TwinTailLogLog3 t=(TwinTailLogLog3)ddl;
-							final double[] ldlcR=t.ldlcEstimate();
-							accumulateLdlcEstimate(ldlcR, trueCard, ti);
-							{
-								final float hw=ddl.hldlcWeight(); final double hldlc=hw*ldlcR[0]+(1-hw)*ldlcR[7];
-								final double lerr=(hldlc>0 ? (hldlc-trueCard)/(double)trueCard : -1.0);
-								ldlcSumErr[ti][HLDLC_IDX]+=lerr; ldlcSumAbsErr[ti][HLDLC_IDX]+=Math.abs(lerr); ldlcSumSqErr[ti][HLDLC_IDX]+=lerr*lerr;
-							}
-							{
-								final double mean16=ldlcR[8];
-								final double lerr=(mean16>0 ? (mean16-trueCard)/(double)trueCard : -1.0);
-								ldlcSumErr[ti][MEAN16_IDX]+=lerr; ldlcSumAbsErr[ti][MEAN16_IDX]+=Math.abs(lerr); ldlcSumSqErr[ti][MEAN16_IDX]+=lerr*lerr;
-							}
-							if(ldlcR.length>9){
-								final double dualLC=ldlcR[9];
-								final double lerr=(dualLC>0 ? (dualLC-trueCard)/(double)trueCard : -1.0);
-								ldlcSumErr[ti][DUALLC_IDX]+=lerr; ldlcSumAbsErr[ti][DUALLC_IDX]+=Math.abs(lerr); ldlcSumSqErr[ti][DUALLC_IDX]+=lerr*lerr;
-							}
-							{
-								final double m16=ldlcR[8];
-								final float hw=ddl.hldlcWeight();
-								final double hldlc=hw*ldlcR[0]+(1-hw)*ldlcR[7];
-								if(m16>0 && hldlc>0){
-									if(M16_SWEEP) for(int si=0; si<M16_SWEEP_COUNT; si++){
-										final double w=M16_SWEEP_START+si*M16_SWEEP_STEP;
-										final double v=w*m16+(1-w)*hldlc;
-										final double lerr=(v-trueCard)/(double)trueCard;
-										ldlcSumErr[ti][M16_SWEEP_BASE+si]+=lerr;
-										ldlcSumAbsErr[ti][M16_SWEEP_BASE+si]+=Math.abs(lerr);
-										ldlcSumSqErr[ti][M16_SWEEP_BASE+si]+=lerr*lerr;
-									}
-								}
-							}
-						}else if(ddl.getClass()==TwinTailLogLog4.class){
-							final TwinTailLogLog4 t=(TwinTailLogLog4)ddl;
-							final double[] ldlcR=t.ldlcEstimate();
-							accumulateLdlcEstimate(ldlcR, trueCard, ti);
-							{
-								final float hw=ddl.hldlcWeight(); final double hldlc=hw*ldlcR[0]+(1-hw)*ldlcR[7];
-								final double lerr=(hldlc>0 ? (hldlc-trueCard)/(double)trueCard : -1.0);
-								ldlcSumErr[ti][HLDLC_IDX]+=lerr; ldlcSumAbsErr[ti][HLDLC_IDX]+=Math.abs(lerr); ldlcSumSqErr[ti][HLDLC_IDX]+=lerr*lerr;
-							}
-							{
-								final double mean16=ldlcR[8];
-								final double lerr=(mean16>0 ? (mean16-trueCard)/(double)trueCard : -1.0);
-								ldlcSumErr[ti][MEAN16_IDX]+=lerr; ldlcSumAbsErr[ti][MEAN16_IDX]+=Math.abs(lerr); ldlcSumSqErr[ti][MEAN16_IDX]+=lerr*lerr;
-							}
-							if(ldlcR.length>9){
-								final double dualLC=ldlcR[9];
-								final double lerr=(dualLC>0 ? (dualLC-trueCard)/(double)trueCard : -1.0);
-								ldlcSumErr[ti][DUALLC_IDX]+=lerr; ldlcSumAbsErr[ti][DUALLC_IDX]+=Math.abs(lerr); ldlcSumSqErr[ti][DUALLC_IDX]+=lerr*lerr;
-							}
-							{
-								final double m16=ldlcR[8];
-								final float hw=ddl.hldlcWeight();
-								final double hldlc=hw*ldlcR[0]+(1-hw)*ldlcR[7];
-								if(m16>0 && hldlc>0){
-									if(M16_SWEEP) for(int si=0; si<M16_SWEEP_COUNT; si++){
-										final double w=M16_SWEEP_START+si*M16_SWEEP_STEP;
-										final double v=w*m16+(1-w)*hldlc;
-										final double lerr=(v-trueCard)/(double)trueCard;
-										ldlcSumErr[ti][M16_SWEEP_BASE+si]+=lerr;
-										ldlcSumAbsErr[ti][M16_SWEEP_BASE+si]+=Math.abs(lerr);
-										ldlcSumSqErr[ti][M16_SWEEP_BASE+si]+=lerr*lerr;
-									}
-								}
-							}
-						}else if(ddl.getClass()==CompressedTwinTailLogLog.class){
-							final CompressedTwinTailLogLog t=(CompressedTwinTailLogLog)ddl;
-							final double[] ldlcR=t.ldlcEstimate();
-							accumulateLdlcEstimate(ldlcR, trueCard, ti);
-							{
-								final float hw=ddl.hldlcWeight(); final double hldlc=hw*ldlcR[0]+(1-hw)*ldlcR[7];
-								final double lerr=(hldlc>0 ? (hldlc-trueCard)/(double)trueCard : -1.0);
-								ldlcSumErr[ti][HLDLC_IDX]+=lerr; ldlcSumAbsErr[ti][HLDLC_IDX]+=Math.abs(lerr); ldlcSumSqErr[ti][HLDLC_IDX]+=lerr*lerr;
-							}
-							{
-								final double mean16=ldlcR[8];
-								final double lerr=(mean16>0 ? (mean16-trueCard)/(double)trueCard : -1.0);
-								ldlcSumErr[ti][MEAN16_IDX]+=lerr; ldlcSumAbsErr[ti][MEAN16_IDX]+=Math.abs(lerr); ldlcSumSqErr[ti][MEAN16_IDX]+=lerr*lerr;
-							}
-							if(ldlcR.length>9){
-								final double dualLC=ldlcR[9];
-								final double lerr=(dualLC>0 ? (dualLC-trueCard)/(double)trueCard : -1.0);
-								ldlcSumErr[ti][DUALLC_IDX]+=lerr; ldlcSumAbsErr[ti][DUALLC_IDX]+=Math.abs(lerr); ldlcSumSqErr[ti][DUALLC_IDX]+=lerr*lerr;
-							}
-							{
-								final double m16=ldlcR[8];
-								final float hw=ddl.hldlcWeight();
-								final double hldlc=hw*ldlcR[0]+(1-hw)*ldlcR[7];
-								if(m16>0 && hldlc>0){
-									if(M16_SWEEP) for(int si=0; si<M16_SWEEP_COUNT; si++){
-										final double w=M16_SWEEP_START+si*M16_SWEEP_STEP;
-										final double v=w*m16+(1-w)*hldlc;
-										final double lerr=(v-trueCard)/(double)trueCard;
-										ldlcSumErr[ti][M16_SWEEP_BASE+si]+=lerr;
-										ldlcSumAbsErr[ti][M16_SWEEP_BASE+si]+=Math.abs(lerr);
-										ldlcSumSqErr[ti][M16_SWEEP_BASE+si]+=lerr*lerr;
-									}
-								}
-							}
-						}else if(ddl.getClass()==CompressedQuadTailLogLog.class){
-							final CompressedQuadTailLogLog t=(CompressedQuadTailLogLog)ddl;
-							final double[] ldlcR=t.ldlcEstimate();
-							accumulateLdlcEstimate(ldlcR, trueCard, ti);
-							{
-								final float hw=ddl.hldlcWeight(); final double hldlc=hw*ldlcR[0]+(1-hw)*ldlcR[7];
-								final double lerr=(hldlc>0 ? (hldlc-trueCard)/(double)trueCard : -1.0);
-								ldlcSumErr[ti][HLDLC_IDX]+=lerr; ldlcSumAbsErr[ti][HLDLC_IDX]+=Math.abs(lerr); ldlcSumSqErr[ti][HLDLC_IDX]+=lerr*lerr;
-							}
-							{
-								final double mean16=ldlcR[8];
-								final double lerr=(mean16>0 ? (mean16-trueCard)/(double)trueCard : -1.0);
-								ldlcSumErr[ti][MEAN16_IDX]+=lerr; ldlcSumAbsErr[ti][MEAN16_IDX]+=Math.abs(lerr); ldlcSumSqErr[ti][MEAN16_IDX]+=lerr*lerr;
-							}
-							if(ldlcR.length>9){
-								final double dualLC=ldlcR[9];
-								final double lerr=(dualLC>0 ? (dualLC-trueCard)/(double)trueCard : -1.0);
-								ldlcSumErr[ti][DUALLC_IDX]+=lerr; ldlcSumAbsErr[ti][DUALLC_IDX]+=Math.abs(lerr); ldlcSumSqErr[ti][DUALLC_IDX]+=lerr*lerr;
-							}
-							{
-								final double m16=ldlcR[8];
-								final float hw=ddl.hldlcWeight();
-								final double hldlc=hw*ldlcR[0]+(1-hw)*ldlcR[7];
-								if(m16>0 && hldlc>0){
-									if(M16_SWEEP) for(int si=0; si<M16_SWEEP_COUNT; si++){
-										final double w=M16_SWEEP_START+si*M16_SWEEP_STEP;
-										final double v=w*m16+(1-w)*hldlc;
-										final double lerr=(v-trueCard)/(double)trueCard;
-										ldlcSumErr[ti][M16_SWEEP_BASE+si]+=lerr;
-										ldlcSumAbsErr[ti][M16_SWEEP_BASE+si]+=Math.abs(lerr);
-										ldlcSumSqErr[ti][M16_SWEEP_BASE+si]+=lerr*lerr;
-									}
-								}
-							}
-						}else if(ddl.getClass()==ExpandedTwinTailLogLog5.class){
-							final ExpandedTwinTailLogLog5 t=(ExpandedTwinTailLogLog5)ddl;
-							final double[] ldlcR=t.ldlcEstimate();
-							accumulateLdlcEstimate(ldlcR, trueCard, ti);
-							{
-								final float hw=ddl.hldlcWeight(); final double hldlc=hw*ldlcR[0]+(1-hw)*ldlcR[7];
-								final double lerr=(hldlc>0 ? (hldlc-trueCard)/(double)trueCard : -1.0);
-								ldlcSumErr[ti][HLDLC_IDX]+=lerr; ldlcSumAbsErr[ti][HLDLC_IDX]+=Math.abs(lerr); ldlcSumSqErr[ti][HLDLC_IDX]+=lerr*lerr;
-							}
-							{
-								final double mean16=ldlcR[8];
-								final double lerr=(mean16>0 ? (mean16-trueCard)/(double)trueCard : -1.0);
-								ldlcSumErr[ti][MEAN16_IDX]+=lerr; ldlcSumAbsErr[ti][MEAN16_IDX]+=Math.abs(lerr); ldlcSumSqErr[ti][MEAN16_IDX]+=lerr*lerr;
-							}
-							if(ldlcR.length>9){
-								final double dualLC=ldlcR[9];
-								final double lerr=(dualLC>0 ? (dualLC-trueCard)/(double)trueCard : -1.0);
-								ldlcSumErr[ti][DUALLC_IDX]+=lerr; ldlcSumAbsErr[ti][DUALLC_IDX]+=Math.abs(lerr); ldlcSumSqErr[ti][DUALLC_IDX]+=lerr*lerr;
-							}
-							{
-								final double m16=ldlcR[8];
-								final float hw=ddl.hldlcWeight();
-								final double hldlc=hw*ldlcR[0]+(1-hw)*ldlcR[7];
-								if(m16>0 && hldlc>0){
-									if(M16_SWEEP) for(int si=0; si<M16_SWEEP_COUNT; si++){
-										final double w=M16_SWEEP_START+si*M16_SWEEP_STEP;
-										final double v=w*m16+(1-w)*hldlc;
-										final double lerr=(v-trueCard)/(double)trueCard;
-										ldlcSumErr[ti][M16_SWEEP_BASE+si]+=lerr;
-										ldlcSumAbsErr[ti][M16_SWEEP_BASE+si]+=Math.abs(lerr);
-										ldlcSumSqErr[ti][M16_SWEEP_BASE+si]+=lerr*lerr;
-									}
-								}
-							}
-						}else if(ddl.getClass()==ErtlULL.class){
-							final ErtlULL u=(ErtlULL)ddl;
-							// Only FGRA applies to ULL; other LDLC slots stay 0 → sentinel -1.0
-							final double fgra=u.fgraEstimatePublic();
-							final double lerr=(fgra>0 ? (fgra-trueCard)/(double)trueCard : -1.0);
-							ldlcSumErr[ti][3]+=lerr; ldlcSumAbsErr[ti][3]+=Math.abs(lerr); ldlcSumSqErr[ti][3]+=lerr*lerr;
-						}
-						{
-							final int[] extraIdx={AbstractCardStats.LC_NOMICRO_IDX, AbstractCardStats.SBS_NOMICRO_IDX};
-							for(int e=0; e<extraIdx.length; e++){
-								final double v=(extraIdx[e]<est.length ? est[extraIdx[e]] : 0);
-								final double lerr=(v>0 ? (v-trueCard)/(double)trueCard : -1.0);
-								ldlcSumErr[ti][7+e]+=lerr; ldlcSumAbsErr[ti][7+e]+=Math.abs(lerr); ldlcSumSqErr[ti][7+e]+=lerr*lerr;
-							}
-						}
-						if(ddl.getClass()==DynamicLogLog4.class && DynamicLogLog4.wordTable!=null){
-							// Pull CF-corrected WordEst from rawEstimates() array
-							final int wIdx=DDLCalibrationDriver.WORDEST_RAW_IDX;
-							final double wEst=(wIdx<est.length ? est[wIdx] : 0);
-							final double wEstCV=(wIdx+1<est.length ? est[wIdx+1] : 0);
-							final double[] wVals={wEst, wEstCV};
-							for(int e=0; e<2; e++){
-								final double v=wVals[e];
-								final double lerr=(v>0 ? (v-trueCard)/(double)trueCard : -1.0);
-								ldlcSumErr[ti][9+e]+=lerr; ldlcSumAbsErr[ti][9+e]+=Math.abs(lerr); ldlcSumSqErr[ti][9+e]+=lerr*lerr;
-							}
-						}
-						ti++;
-						if(ti>=thresholds.length){break;}
+					}
+				}finally{
+					if(out4Pw!=null){
+						out4Pw.close();
+						final boolean failed=out4Pw.checkError();
+						errorState|=failed;
+						if(failed){System.err.println("Calibration diagnostic output failed: "+out4);}
+						assert(!failed) : KillSwitch.assertDie("Calibration diagnostic output failed: "+out4+"; output may be incomplete.");
 					}
 				}
 			}
-			if(out4Pw!=null){out4Pw.close();}
 
 		}
 
@@ -997,6 +1069,10 @@ public class DDLCalibrationDriver2 {
 		double[][] ldlcSumErr, ldlcSumAbsErr, ldlcSumSqErr;
 		double[] ternSumWtAbsErr, ternSumWt;
 		volatile boolean success=false;
+		/** Diagnostic output failed; the parent reads this only after joining. */
+		boolean errorState=false;
+		/** First uncaught worker failure, retained for the parent exception cause. */
+		Throwable failure;
 
 		static double[][] ternSweep;
 		static final double TERN_STEP=Double.parseDouble(System.getProperty("tern.step", "0.02"));
@@ -1059,5 +1135,7 @@ public class DDLCalibrationDriver2 {
 	boolean lcMode=false;
 	long maxTrue;
 	long[] thresholds;
+	/** Latched output/completion failure; inspect after process() completes. */
+	private boolean errorState=false;
 
 }

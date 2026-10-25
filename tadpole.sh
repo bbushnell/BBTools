@@ -575,7 +575,7 @@ markquality=0       (mq) Set quality scores for marked bases to this.
                     A level of 0 will also convert the base to an N.
 errormult1=16       (em1) Min ratio between kmer depths to call an error.
 errormult2=2.6      (em2) Alternate ratio between low-depth kmers.
-errorlowerconst=3   (elc) Use mult2 when the lower kmer is at most this deep.
+errorlowerconst=4   (elc) Use mult2 when the lower kmer is at most this deep.
 mincountcorrect=3   (mcc) Don't correct to kmers with count under this.
 pathsimilarityfraction=0.45(psf) Max difference ratio considered similar.
                            Controls whether a path appears to be continuous.

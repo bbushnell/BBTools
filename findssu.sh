@@ -21,7 +21,7 @@ Usage:  findssu.sh ssu1.fa [ssu2.fa ...] [records=5]
     or: findssu.sh ssu.fa ref16s=<16S.tsv> ref18s=<18S.tsv>
 
 Required resource files are loaded automatically from BBTools/resources/:
-  ssuSketchDDL.tsv.gz          SSU DDL reference sketches (276k organisms)
+  riboSketchDDL.tsv.gz         Combined SSU/ITS DDL reference sketches
   itsSketchDDL.tsv.gz          ITS DDL reference sketches (35k organisms)
   all_prok_16S_best_taxsorted.fa.gz   16S rRNA sequences (for alignment ANI)
   all_euk_18S_best_taxsorted.fa.gz    18S rRNA sequences (for alignment ANI)
@@ -42,7 +42,7 @@ Each SSU found is individually sketched and classified.
 
 Parameters:
 ref=<file>      Pre-built SSU DDL reference file (TSV format).
-                Default: resources/ssuSketchDDL.tsv.gz
+                Default: resources/riboSketchDDL.tsv.gz
 ref16s=<file>   Separate 16S reference file.
 ref18s=<file>   Separate 18S reference file.
 refits=<file>   Separate ITS reference file.

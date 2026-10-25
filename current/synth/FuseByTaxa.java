@@ -1,5 +1,6 @@
 package synth;
 
+import java.io.File;
 import java.io.PrintStream;
 
 import fileIO.ByteStreamWriter;
@@ -112,6 +113,7 @@ public class FuseByTaxa {
 	 * @throws RuntimeException If stream completion reports an input or output error
 	 */
 	void process(Timer t){
+		checkOutputWritable();
 		//Ordered batches and the single-reader hint preserve adjacency; the factory selects the concrete reader.
 		Streamer st=StreamerFactory.makeStreamer(ffin1, null, true, -1L, false, true, 1);
 		st.start();
@@ -162,6 +164,15 @@ public class FuseByTaxa {
 		outstream.println("Taxa kept:    \t"+taxaKept);
 		outstream.println("Taxa dropped: \t"+taxaDropped+" (below floor="+floor+")");
 		outstream.println("Sequences out:\t"+seqsOut+"  ("+basesOut+" bp)");
+	}
+
+	/** Fails unwritable output before starting an input streamer that could block on a full queue. */
+	private void checkOutputWritable(){
+		if(ffout1==null || ffout1.canWrite()){return;}
+		final File f=new File(ffout1.name());
+		throw new RuntimeException("File "+ffout1.name()+" exists "+(f.canWrite() ?
+				("and overwrite="+overwrite+".\nPlease add the flag ow to overwrite the file.") :
+				"and is read-only."));
 	}
 
 	/** Counts a nonempty chunk meeting floor and queues its FASTA record when a writer exists.

@@ -2,6 +2,7 @@ package cardinality;
 
 import java.util.ArrayList;
 import java.util.BitSet;
+import java.util.Locale;
 import rand.FastRandomXoshiro;
 import parse.Parse;
 import parse.Parser;
@@ -39,7 +40,7 @@ public class LowComplexityCalibrationDriver {
 		for(String arg : args){
 			final String[] split=arg.split("=");
 			if(split.length!=2){continue;}
-			final String a=split[0].toLowerCase();
+			final String a=split[0].toLowerCase(Locale.ROOT);
 			final String b=split[1];
 			if(a.equals("cardinality") || a.equals("card") || a.equals("maxcard")){cardinality=Parse.parseIntKMG(b);}
 			else if(a.equals("iterations") || a.equals("iter")){iterations=Float.parseFloat(b);}
@@ -52,11 +53,11 @@ public class LowComplexityCalibrationDriver {
 			else if(a.equals("cffile")){cffile=b; CorrectionFactor.USE_CORRECTION=true;}
 			else if(a.equals("minrand") || a.equals("skew")){minRand=Parse.parseBoolean(b);}
 			else if(CardinalityParser.parse(arg, a, b)){}
-			else if(a.equals("loglogtype") || a.equals("type")){Parser.loglogType=b.toLowerCase();}
+			else if(a.equals("loglogtype") || a.equals("type")){Parser.loglogType=b.toLowerCase(Locale.ROOT);}
 			else if(a.startsWith("hsbtable")){}
 			else{throw new RuntimeException("Unknown parameter '"+arg+"'");}
 		}
-		loglogtype=Parser.loglogType;
+		loglogtype=Parser.loglogType.toLowerCase(Locale.ROOT);
 		if(threads<1){threads=Shared.threads();}
 
 		final int NUM_EST=DDLCalibrationDriver.NUM_EST;

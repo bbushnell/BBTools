@@ -75,6 +75,7 @@ Occupancy       Fraction of DDL buckets with any data (averaged across all DDLs)
 *_err           Signed relative error: (estimate - true) / true.  Zero = unbiased.
 *_abs           Mean absolute relative error.  Zero = perfectly accurate.
 *_std           Population stdev of relative error across DDL instances.  Zero = no variance.
+M16h_*, M*L*P*  Reserved placeholder columns; zero means not computed.
 
 File 3 output columns (out3=, v4 CF table):
 TrueCard        Integer ground-truth cardinality (key for CF lookup).

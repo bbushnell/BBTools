@@ -67,13 +67,14 @@ skipreads=0             Set to a number N to skip the first N reads (or pairs),
 Mapping Parameters:
 fast=f                  This flag is a macro which sets other paramters to run 
                         faster, at reduced sensitivity.  Bad for RNA-seq.
-slow=f                  This flag is a macro which sets other paramters to run 
-                        slower, at greater sensitivity.  'vslow' is even slower.
+slow=f                  Increase seed density and retain more frequent kmers.
+                        The remaining slow preset is unfinished in BBMapAcc;
+                        vslow applies a more extensive sensitivity preset.
 maxindel=16000          Don't look for indels longer than this. Lower is faster.
                         Set to >=100k for RNAseq with long introns like mammals.
 strictmaxindel=f        When enabled, do not allow indels longer than 'maxindel'.
                         By default these are not sought, but may be found anyway.
-tipsearch=100           Look this far for read-end deletions with anchors
+tipsearch=200           Look this far for read-end deletions with anchors
                         shorter than K, using brute force.
 minid=0.76              Approximate minimum alignment identity to look for. 
                         Higher is faster and less sensitive.
@@ -171,7 +172,7 @@ sssr=0.95               (secondarysitescoreratio) Print only secondary alignment
                         with score of at least this fraction of primary.
 ssao=f                  (secondarysiteasambiguousonly) Only print secondary 
                         alignments for ambiguously-mapped reads.
-maxsites=5              Maximum number of total alignments to print per read.
+maxsites=8              Maximum number of total alignments to print per read.
                         Only relevant when secondary=t.
 quickmatch=f            Generate cigar strings more quickly.
 trimreaddescriptions=f  (trd) Truncate read and ref names at the first whitespace,

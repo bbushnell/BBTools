@@ -176,12 +176,12 @@ public class FakeTreeLeafTaxonomy {
 		final Parent agreement=deepestAgreement(ssuTid, qcTid);
 		final Parent proposed;
 		final String source, decision;
-		if(srow!=null && ssuAni>=0.800){
+		if(srow!=null && ssuAni>=0.800 && ssuParent.tid>0){
 			proposed=ssuParent;
 			source="findssu";
 			decision=(agreement.tid>0 && !"domain".equals(agreement.rank) ? 
 				"ssu_with_qc_real_lineage_support" : qrow!=null ? "ssu_with_qc_conflict" : "ssu_only");
-		}else if(qrow!=null && qcParent.tid!=TaxTree.LIFE_ID){
+		}else if(qrow!=null && qcParent.tid>0 && qcParent.tid!=TaxTree.LIFE_ID){
 			proposed=qcParent;
 			source="quickclade";
 			decision="quickclade_only";

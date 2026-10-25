@@ -18,9 +18,7 @@ final class SameKExportTest {
 			final String read=text(c.bases);
 			for(int p=0; p+k<=read.length(); p++){
 				final String key=canonical(read.substring(p, p+k));
-				//TODO: Probable bug in ObjectIntMap.increment: resize initializes empty
-				//values to -1, so its oldV+1 inserts zero instead of the documented one.
-				//Use explicit absent-key insertion here; the general map fix is separate.
+				//Keep this literal count oracle independent of ObjectIntMap.increment.
 				final int old=counts.get(key);
 				counts.put(key, old<0 ? 1 : old+1);
 			}

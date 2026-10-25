@@ -203,8 +203,8 @@ public final class MagQCAssemblyBatch {
 		publishSummaries();
 		if(timings){printTimings(bindingNanos,callerSetupNanos,networkNanos,elapsed(processStart));}
 		if(verbose){
-			//TODO: Probable bug - errorfitset=NA names calibration provenance, not missing numeric error predictions.
-			System.err.println("ProkCC completed "+jobs.size()+" bins with "+threads+" workers; error estimates are "+required("errorfitset"));
+			// The fit set identifies calibration provenance, not the predicted error values.
+			System.err.println("ProkCC completed "+jobs.size()+" bins with "+threads+" workers; error calibration fit set: "+required("errorfitset"));
 		}
 	}
 

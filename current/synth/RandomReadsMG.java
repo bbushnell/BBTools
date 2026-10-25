@@ -478,6 +478,7 @@ public class RandomReadsMG{
 
 		setPlatformDefaults();
 		if(randomPriming){RandomHexamer.initialize(Shared.threadLocalRandom(seed));}
+		varyDepthPerContig=(depthVariance>0);
 
 		//Turn off read validation in the input threads to increase speed
 		final boolean vic=Read.VALIDATE_IN_CONSTRUCTOR;
@@ -1355,9 +1356,7 @@ public class RandomReadsMG{
 
 				for(Read c : ln){
 					float depthRatio=1f;
-					if(varyDepthPerContig){
-						depthRatio=1f+(depthVariance*(randy.nextFloat()+randy.nextFloat()))-depthVariance;
-					}
+					if(varyDepthPerContig && readsPerContig<1){depthRatio=contigDepthRatio(randy);}
 					float contigDepth=depthRatio*fileDepth;
 					final int taxID=fileTaxID>0 ? fileTaxID : TaxTree.parseHeaderStatic2(c.id, tree);
 					processContig(c, contigDepth, taxID, fnum, fname);
@@ -1422,6 +1421,12 @@ public class RandomReadsMG{
 
 			readsOutT+=readsGenerated;
 			basesOutT+=basesGenerated;
+		}
+
+		/** Draws a triangular multiplier centered on 1, spanning 1 +/- depthVariance.
+		 * Uses two random draws per contig, outside the read-generation loop. */
+		private float contigDepthRatio(Random randy){
+			return 1f+(depthVariance*(randy.nextFloat()+randy.nextFloat()))-depthVariance;
 		}
 
 		/**

@@ -73,7 +73,10 @@ public class SSUServer {
 			else if(a.equals("ref16s") || a.equals("ref16")){ref16sFile=b;}
 			else if(a.equals("ref18s") || a.equals("ref18")){ref18sFile=b;}
 			else if(a.equals("k")){k=Integer.parseInt(b);}
-			else if(a.equals("exponent") || a.equals("ebits")){DynamicDemiLog.setExponent(Integer.parseInt(b));}
+			else if(a.equals("exponent") || a.equals("ebits")){
+				exponent=Integer.parseInt(b);
+				DynamicDemiLog.setExponent(exponent);
+			}
 			else if(a.equals("buckets")){buckets=Integer.parseInt(b);}
 			else if(a.equals("csr") || a.equals("ddlcsr") || a.equals("packedindex")){DDLIndexBase.USE_CSR=Parse.parseBoolean(b);}
 			else if(a.equals("csr2") || a.equals("index2") || a.equals("packed2")){DDLIndexBase.USE_CSR2=Parse.parseBoolean(b);}
