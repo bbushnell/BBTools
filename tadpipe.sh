@@ -33,7 +33,7 @@ TadPipe performs correction, merging and extension before either recipe.
 Parameters:
 in=<file>           Paired input reads; interleaved when in2 is omitted.
 in2=<file>          Optional read 2, if reads are in two files.
-out=contigs.fa      Output file name.
+out=contigs.fa      Output FASTA (scaffolds by default; scaffold=f for contigs).
 temp=<directory>    Parent for a unique work directory (default Java tmpdir).
 delete=t            Delete pipeline FASTQs only after successful assembly.
                     Commands and per-stage logs are always retained.
@@ -63,6 +63,25 @@ nn=t                Use the bundled assembly NNs: fusion cutoff 0.667098 and
                     branch-postpass cutoff 0.7. nn=f disables both; explicit
                     assemble_ overrides can enable either independently.
 
+Final scaffolding (default ON):
+scaffold=t          Link contigs using endpoint-indexed Hollow224 evidence from
+                    the same processed reads used for assembly. Runs AFTER
+                    optional polishing; no additional preprocessing.
+                    Each accepted link inserts exactly10 Ns between complete
+                    input contigs, including predicted overlaps. Ns mark unknown
+                    sequence, not a10bp distance estimate. No overlap trimming.
+scaffold_fillgaps=f  Set t for experimental read-voted filling/overlap trimming.
+scaffold_k=224      Hollow span; independent of the assembly K schedule.
+scaffold_tipmin=10  Minimum inland seed distance; scaffold_tipmax=160 maximum.
+scaffold_slide=0    Optional sliding veto, disabled by default.
+scaffold_flankcheck=t Check supporting read flanks outside the selected span.
+scaffold_minsupport=3 Minimum evidence; scaffold_gapratio=4 contrast requirement.
+Other scaffold_ controls: tipbases, flankbases, flankmin, t (or threads).
+The unscaffolded assembly and scaffold.candidates.tsv/scaffold.joins.tsv remain
+in the work directory. Scaffold links can still be wrong; evaluate contig-level
+accuracy separately. A failed scaffolding stage never publishes a fallback.
+Set scaffold=f to retain the previous contig-only workflow.
+
 Optional final polishing (default OFF):
 polish=f            Run tippolish.sh after final assembly. Repairs supported
                     tip substitutions only; does not join/extend contigs or edit
@@ -79,8 +98,8 @@ polish_t=<t>          Threads per polishing child (polish_threads is an alias).
 The same per-child heap budget applies; coordinators remain at 256 MB.
 The unpolished assembly, polish.edits.tsv, logs and polishing evidence remain
 in the printed TadPipe work directory. Final output is published only after
-polishing succeeds; failure retains intermediate reads and the assembly.
-delete=t removes pipeline FASTQs only after that success, not polishing evidence.
+all enabled stages, including scaffolding, succeed; failure retains reads and
+the assembly. delete=t then removes pipeline FASTQs, not polishing evidence.
 Whole-assembly mapping is shared, but separate context mapping and per-target
 kmer counting can be expensive. No minimum-depth or allele-support guard is
 relaxed. Polishing overrides do not change preprocessing or assembly settings.
@@ -161,7 +180,7 @@ Valid prefixes:
 
 dedupe_, ecco_, clump_ (clumpify_), ecc_ (correct_),
 merge_, merge0_ (overlap), merge<K>_, rem<N>_, qtrim_,
-extend_ (extend1_), extendm_, extendu_, assemble_, polish_.
+extend_ (extend1_), extendm_, extendu_, assemble_, polish_, scaffold_.
 
 Stage-specific overrides follow group-wide overrides. TadPipe owns filenames
 and pairing; phase-prefixed in/out/extra/config/overwrite options are rejected.

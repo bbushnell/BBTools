@@ -661,6 +661,14 @@ public class BBMerge {
 				extendRight2=Parse.parseIntKMG(b);
 			}else if(a.equals("extenditerations") || a.equals("iterations") || a.equals("ei") || a.equals("iters")){
 				extendIterations=Tools.max(1, (int)Parse.parseKMG(b));
+			}else if(a.equals("hollow")){
+				hollow=Parse.parseBoolean(b);
+			}else if(a.equals("hollowbranchstop")){
+				hollowBranchStop=Parse.parseBoolean(b);
+			}else if(a.equals("hollowbranchratio")){
+				hollowBranchRatio=Parse.parseIntKMG(b);
+			}else if(a.equals("hollowbranchsupport")){
+				hollowBranchSupport=Parse.parseIntKMG(b);
 			}else if(a.equals("ecctadpole") || a.equals("ecct")){
 				eccTadpole=Parse.parseBoolean(b);
 			}else if(a.equals("eccbloom") || a.equals("eccb") || a.equals("ecccms")){
@@ -767,6 +775,21 @@ public class BBMerge {
 		if(kmerBridge && (bridgeDistance<1 || bridgeTargetWindow!=0 || bridgeMinHits!=1)){
 			throw new RuntimeException("Exact-tip kmer bridging requires distance>0, targetWindow=0, and minHits=1: distance="+
 					bridgeDistance+", targetWindow="+bridgeTargetWindow+", minHits="+bridgeMinHits);
+		}
+		//Only the ordinary read-extension consumer has defined Hollow semantics.
+		//Other consumers may reconstruct solid keys or interpret counts differently.
+		if(hollowBranchRatio<1 || hollowBranchSupport<1){
+			throw new IllegalArgumentException("hollowbranchratio and hollowbranchsupport must be positive.");
+		}
+		if(hollowBranchStop && (!hollow || kmerLength<67)){
+			throw new IllegalArgumentException("hollowbranchstop=t requires hollow=t and k>=67.");
+		}
+		if(hollow && (kmerLength<=64 || extendRight1>0 || extendRight2<1
+				|| kmerBridge || eccTadpole || eccBloom || ecco || useKFilter || testMerge
+				|| shave || rinse || prefilter>0 || hashKmerMode==0 || hashKmerMode==2)){
+			throw new IllegalArgumentException("BBMerge hollow=t requires single-k extend2/REM at k>64 with extend=0, "
+					+"hashkmers=auto or pair, prefilter=0, shave=f, rinse=f, bridge=f, "
+					+"ecct=f, eccb=f, ecco=f, kfilter=0 and testmerge=f.");
 		}
 		
 		if(ecco && !setMix){
@@ -888,6 +911,14 @@ public class BBMerge {
 			list.add("mincountextend="+minCountExtend);
 			list.add("minprob="+minProb);
 			list.add("k="+kmerLength);
+			if(hollow){
+				//BBMerge only loads the table, but Tadpole validates its consumer mode.
+				list.add("mode=extend");
+				list.add("hollow=t");
+				list.add("hollowbranchstop="+hollowBranchStop);
+				list.add("hollowbranchratio="+hollowBranchRatio);
+				list.add("hollowbranchsupport="+hollowBranchSupport);
+			}
 			final int hashMode=effectiveHashMode();
 			list.add("hashkmers="+(hashMode==2 ? "fixed" : hashMode==1 ? "pair" : "f"));
 			list.add("seedfromtable=f");
@@ -1928,6 +1959,12 @@ public class BBMerge {
 				processReads();
 			} catch (Throwable t) {
 				failure=t;
+				//TODO: Probable bug - legacy ordered output can wait for this worker's
+				//missing batch before runPhase reaches its final failure check.
+				if(hollow){
+					t.printStackTrace(outstream);
+					KillSwitch.kill("Experimental Hollow BBMerge worker failed; incomplete outputs must not be used.");
+				}
 			}
 		}
 		
@@ -2252,6 +2289,10 @@ public class BBMerge {
 			if(qtrim){qtrim(r1, r2, 0);}
 			
 			if(tadpole!=null && extendRight1>0){
+				//TODO: Probable bug - r2 is still in sequencer orientation here,
+				//but extendAndMerge assumes the genomic-forward orientation supplied
+				//by processReadPair's later extend2 call. This extends R2's wrong end.
+				//Hollow rejects extend= until this legacy caller has a truth fixture.
 				extendAndMerge(r1, r2, extendRight1, 1, false, extendRvec);
 			}
 
@@ -2936,6 +2977,9 @@ public class BBMerge {
 		}
 		
 		private void restoreQualities(Read r1, Read r2, byte[] qual1, byte[] qual2){
+			//TODO: Probable bug - usequality=f with FASTA supplies null qual arrays;
+			//the length checks below dereference them. Extension fill loops also
+			//start at the new length, so newly appended qualities remain zero.
 			final int len1=r1.length(), len2=r2.length();
 			r1.quality=qual1;
 			r2.quality=qual2;
@@ -3236,6 +3280,11 @@ public class BBMerge {
 	private int extendRight2=0;
 	private int extendIterations=1;
 	private boolean eccTadpole=false;
+	/** Experimental endpoint-only counts, restricted to read extension. */
+	private boolean hollow=false;
+	/** Reject alternate-span conflicts before appending an extension base. */
+	private boolean hollowBranchStop=false;
+	private int hollowBranchRatio=4, hollowBranchSupport=3;
 	private boolean shave=false;
 	private boolean rinse=false;
 	private boolean kmerBridge=false;
@@ -3253,6 +3302,8 @@ public class BBMerge {
 	}
 
 	private int effectiveHashMode(){
+		//Hollow lookup requires both full hashcodes, even when prealloc=t.
+		if(hollow){return 1;}
 		if(shave || rinse){
 			if(hashKmerMode>0){throw new RuntimeException("hashkmers requires shave=f and rinse=f because graph cleaning enumerates kmers.");}
 			return 0;

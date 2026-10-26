@@ -17,6 +17,7 @@ public final class TadPipePolishTest {
 		check(args.length==1, "Specify the BBTools installation directory.");
 		final TadPipePolishTest test=new TadPipePolishTest(Paths.get(args[0]).toAbsolutePath());
 		test.run();
+		test.runScaffolds();
 		System.out.println("TADPIPE_POLISH_TEST_PASS checks="+checks+" dir="+test.root);
 	}
 
@@ -40,6 +41,44 @@ public final class TadPipePolishTest {
 				"test ! -e \"$(dirname \"$0\")/fail-polish\" || exit 7\n"+
 				"printf '>polished\\nACGA\\n' > \"$out\"\nprintf 'edits\\n' > \"$report\"\n";
 		Files.write(tools.resolve("tippolish.sh"), polish.getBytes(StandardCharsets.UTF_8));
+		Files.createDirectory(tools.resolve("dev"));
+		final String scaffold="#!/bin/bash\nset -eu\nprintf 'ARG:<%s>\\n' \"$@\"\n"+
+				"contigs= out= joins= candidates=\nfor arg in \"$@\"; do case $arg in contigs=*) contigs=${arg#*=};; outassembly=*) out=${arg#*=};; outjoins=*) joins=${arg#*=};; out=*) candidates=${arg#*=};; in=*|extra=*) test -s \"${arg#*=}\";; esac; done\n"+
+				"test -s \"$contigs\"\ntest ! -e \"$(dirname \"$0\")/fail-scaffold\" || exit 9\n"+
+				"printf '>scaffold\\nACGTNNNNNNNNNNACGA\\n' > \"$out\"\nprintf 'links\\n' > \"$joins\"\nprintf 'candidates\\n' > \"$candidates\"\n";
+		Files.write(tools.resolve("dev/hollowbridge.sh"), scaffold.getBytes(StandardCharsets.UTF_8));
+	}
+
+	/** Scaffolding defaults on, runs last, retains contigs and never publishes a failed-stage fallback. */
+	private void runScaffolds() throws Exception{
+		Files.delete(tools.resolve("fail-polish"));
+		final Path on=launchInternal("scaffold_default", true, false, "delete=f");
+		check(text(root.resolve("scaffold_default.fa")).contains("NNNNNNNNNN"), "The default pipeline must publish scaffold output.");
+		check(text(on.resolve("assembly.fa")).contains("unpolished"), "Scaffolding must retain original contigs.");
+		final String log=text(on.resolve("12_scaffold.log"));
+		for(String option : Arrays.asList("k=224", "fillgaps=f", "slide=0", "flankcheck=t", "join=t", "interleaved=f", "t=1", "-Xmx256m")){
+			check(log.contains("ARG:<"+option+">"), "Scaffolding lost a default or resource limit: "+option);
+		}
+		check(log.contains("ARG:<extra="), "Merged and residual unmerged reads must both support scaffolding.");
+		check(text(on.resolve("10_assemble.log")).contains("ARG:<scaffold=f>"), "Assembly must not scaffold before the final pipeline stage.");
+		final Path polished=launchInternal("scaffold_polished", true, false, "polish=t", "scaffold_threads=3", "scaffold_t=1");
+		check(text(polished.resolve("12_scaffold.log")).contains("ARG:<contigs="+polished.resolve("polished.fa")+">"),
+				"Scaffolding must use the polished assembly, not stale prepolish contigs.");
+		check(!text(polished.resolve("12_scaffold.log")).contains("ARG:<t=3>"), "Thread aliases must use the last value.");
+		final Path unmerged=launchInternal("scaffold_unmerged", true, false, "merge=f", "extend=f", "scaffold_fillgaps=t");
+		final String unmergedLog=text(unmerged.resolve("12_scaffold.log"));
+		check(!unmergedLog.contains("ARG:<extra=") && unmergedLog.contains("ARG:<fillgaps=t>"),
+				"An unmerged-only pipeline must not duplicate evidence and must honor explicit filling.");
+		final Path off=launchInternal("scaffold_disabled", true, false, "scaffold=f");
+		check(!Files.exists(off.resolve("12_scaffold.log")), "scaffold=f must restore the unscaffolded workflow.");
+		for(String option : Arrays.asList("scaffold_in=x", "scaffold_outassembly=x", "scaffold_ow=t", "assemble_scaffold=t")){
+			launchInternal("scaffold_invalid"+(++invalid), false, false, option);
+		}
+		Files.write(tools.resolve("dev/fail-scaffold"), Arrays.asList("fail"), StandardCharsets.UTF_8);
+		final Path failed=launchInternal("scaffold_failed", false, false);
+		check(!Files.exists(root.resolve("scaffold_failed.fa")), "Failed scaffolding must not publish an unscaffolded fallback.");
+		check(Files.exists(failed.resolve("assembly.fa")) && Files.exists(failed.resolve("paired.fq.gz")),
+				"Failed scaffolding must preserve contigs and read evidence.");
 	}
 
 	/** Default off, success, failure and bounded override cases have independent outputs. */
@@ -81,10 +120,16 @@ public final class TadPipePolishTest {
 
 	/** Runs the real launcher and finds only its explicitly printed unique work path. */
 	private Path launch(final String name, final boolean success, final String... extras) throws Exception{
+		return launchInternal(name, success, true, extras);
+	}
+
+	/** Uses native defaults when requested, while legacy polishing fixtures explicitly disable scaffolding. */
+	private Path launchInternal(final String name, final boolean success, final boolean disableScaffold, final String... extras) throws Exception{
 		assert(name!=null) : "Every test execution needs a distinct output and diagnostic log.";
 		final Path log=root.resolve(name+".log");
 		final List<String> command=new ArrayList<String>(Arrays.asList("bash", code.resolve("tadpipe.sh").toString(),
 				"in="+reads, "out="+root.resolve(name+".fa"), "bbtools="+tools, "temp="+root, "t=1", "-Xmx256m"));
+		if(disableScaffold){command.add("scaffold=f");}
 		command.addAll(Arrays.asList(extras));
 		final Process child=new ProcessBuilder(command).redirectErrorStream(true).redirectOutput(log.toFile()).start();
 		child.getOutputStream().close();

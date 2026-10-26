@@ -17,7 +17,7 @@ import structures.ByteBuilder;
 public class Kmer implements Cloneable {
 	
 	public Kmer(Kmer o){
-		this(o.k, o.mult, o.kbig);
+		this(o.k, o.mult, o.kbig, o.hollow);
 		setFrom(o);
 	}
 
@@ -29,9 +29,14 @@ public class Kmer implements Cloneable {
 	 * represents every kbig_&gt;0 exactly, no rounding.
 	 */
 	public Kmer(int kbig_){
+		this(kbig_, false);
+	}
+
+	/** Retains the full rolling span, but optionally hashes only its outer 32-base arms. */
+	public Kmer(int kbig_, boolean hollow_){
 		this(PACKED ? FULL_WORD_K : getK(kbig_),
 			PACKED ? getMultPacked(kbig_) : getMult(kbig_),
-			PACKED ? kbig_ : getK(kbig_)*getMult(kbig_));
+			PACKED ? kbig_ : getK(kbig_)*getMult(kbig_), hollow_);
 	}
 
 	/** Creates and returns a copy of this Kmer.
@@ -62,6 +67,15 @@ public class Kmer implements Cloneable {
 	 * no-op change for every existing (non-packed) caller.
 	 */
 	private Kmer(int k_, int mult_, int kbig_){
+		this(k_, mult_, kbig_, false);
+	}
+
+	/** Instance-local hash geometry prevents a hollow invocation changing later solid callers. */
+	private Kmer(int k_, int mult_, int kbig_, boolean hollow_){
+		if(hollow_ && (k_!=FULL_WORD_K || kbig_<=64)){
+			throw new IllegalArgumentException("Hollow kmers require packed storage and a span greater than 64 bases.");
+		}
+		hollow=hollow_;
 		k=k_;
 		mult=mult_;
 		maxindex=mult-1;
@@ -201,6 +215,8 @@ public class Kmer implements Cloneable {
 	}
 
 	public Kmer setFrom(Kmer o){
+		assert(hollow==o.hollow && kbig==o.kbig && k==o.k) :
+			"Copying rolling state must preserve span, packing and hollow hash semantics.";
 		for(int i=0; i<mult; i++){
 			array1[i]=o.array1[i];
 			array2[i]=o.array2[i];
@@ -626,6 +642,15 @@ public class Kmer implements Cloneable {
 		corePalindrome=false;
 		key=array1;
 		if(!rcomp){return;}
+		if(hollow){
+			// Interior bases cannot choose the strand: that would leak masked errors
+			// back into both fingerprints when the selected arms are unchanged.
+			int c=Long.compareUnsigned(array1[0], array2[0]);
+			if(c==0){c=Long.compareUnsigned(rightArm(array1), rightArm(array2));}
+			if(c<0){key=array2;}
+			corePalindrome=(c==0);
+			return;
+		}
 		for(int i=0; i<mult; i++){
 			final long cm=coreMaskFor(i);
 			final long a=array1[i]&cm, b=array2[i]&cm;
@@ -736,7 +761,8 @@ public class Kmer implements Cloneable {
 	public long xor2(){
 		update();
 		if(lastXor2Incarnation!=incarnation){
-			lastXor2=xor2(key);
+			lastXor2=hollow ? Tools.splitMix64(Long.rotateRight(Tools.splitMix64(key[0]), 23)
+					^rightArm(key)^Tools.splitMix64(kbig))&mask63 : xor2(key);
 			lastXor2Incarnation=incarnation;
 		}
 		return lastXor2;
@@ -771,7 +797,19 @@ public class Kmer implements Cloneable {
 	}
 	
 	private long xor0(){
+		if(hollow){
+			return (Long.rotateLeft(Tools.hash64shift(key[0]), 25)
+					^Tools.hash64shift(rightArm(key))^Tools.hash64shift(kbig))&mask63;
+		}
 		return xor(key, firstWordCoreMask, lastWordCoreMask);
+	}
+
+	/** Extracts exactly 32 suffix bases even when the packed last word is partial. */
+	private long rightArm(final long[] strand){
+		assert(hollow && k==FULL_WORD_K && mult>=3) :
+			"Hollow suffix extraction needs nonoverlapping full-width arms.";
+		if(lastWordK==FULL_WORD_K){return strand[maxindex];}
+		return (strand[maxindex-1]<<(2*lastWordK))|strand[maxindex];
 	}
 	
 	public String arraysToString() {
@@ -809,6 +847,8 @@ public class Kmer implements Cloneable {
 	private long[] array2;
 	public final int kbig;
 	public final int k;
+	/** True only for an end-anchor key; explicit sequence arrays still retain the entire span. */
+	public final boolean hollow;
 	/** Maximum valid index in the storage arrays (mult - 1) */
 	final int mult, maxindex;
 	

@@ -19,6 +19,7 @@ Usage (Assembly):  tadpole.sh k=62 in=<reads> out=<contigs>
 Multi-K assembly:  tadpole.sh k=64,224,124,96,32 assemblek=64 in=<reads> out=<contigs>
 Custom phases:     tadpole.sh assemblek=96 fusek=64 bridgek=128,96,64,32 graphk=96 in=<reads> out=<contigs>
 Extension:    tadpole.sh k=62 in=<reads> out=<extended> mode=extend
+Hollow extension: tadpole.sh k=128 hollow=t mode=extend in=<reads> out=<extended>
 Correction:   tadpole.sh k=62 in=<reads> out=<corrected> mode=correct
 Graph only:   tadpole.sh in=<reads> contigs=<assembly.fa> mode=graph k=31 dot=<graph.dot> pretty
 PacBio HiFi:  tadpole.sh in=<reads> out=<corrected> k=62 ecc pacbio
@@ -48,6 +49,129 @@ these recommendations do not change the default K=31.
 Individual flags override defaults. assemblydefaults=f restores the previous
 CLI defaults for comparisons. Correction, extension and graph-only modes are
 unchanged. Washing remains optional; see its time/quality tradeoff below.
+
+Final Hollow scaffolding (separate from ordinary resolved joins):
+scaffold=f         Run a final read-backed scaffolding postpass after assembly.
+                   Requires named, rereadable inputs and one named out=FASTA.
+                   All in/in2/extra files are reread as independent read evidence.
+                   Original contigs and candidate/link reports are retained in a
+                   sibling tadpole-scaffold-* directory. Failed scaffolding does
+                   not publish a fallback assembly. TadPipe enables this by default.
+scaffold_fillgaps=f Insert exactly 10 Ns between full contigs, even for predicted
+                   overlaps; no input sequence is trimmed. Ns mark unknown length,
+                   not an estimated 10-base gap. Set t for experimental read-voted
+                   sequence filling/overlap trimming. Links can still be incorrect.
+scaffold_k=224     Hollow span; unrelated to the assembly K schedule.
+scaffold_tipmin=10 Minimum anchor distance inland from a contig end.
+scaffold_tipmax=160 Maximum anchor distance inland from a contig end.
+scaffold_slide=0   Optional branch checking by sliding the selected anchor pair.
+scaffold_flankcheck=t Check contradictory read flanks outside the anchor span.
+scaffold_minsupport=3 Minimum independent supporting read records.
+scaffold_gapratio=4 Required winning gap-vote and confirmed/conflicting ratios.
+                   Other controls: scaffold_tipbases=192, scaffold_flankbases=128,
+                   scaffold_flankmin=16, scaffold_t=<threads>. Uses all named reads;
+                   assembly read limits and quality filters do not filter this pass.
+
+Experimental hollow read extension and assembly:
+hollow=f           Count only the first and last 32 bases of each full K span.
+                   The middle is retained for rolling extension but is ignored
+                   by both hashes and canonical strand selection. K is the span,
+                   not the number of counted bases; e.g. K128 skips 64 middle bases.
+                   Requires packed=t. Read extension requires K>64 and selects
+                   hashkmers=pair; simultaneous correction/merging is unsupported.
+                   In assembly, initial contigging stays solid. Later K>64 fusion
+                   evidence, bridging, tip washing and graph phases use Hollow;
+                   K<=64 stays solid. One count table is live at a time, with no
+                   supplementary solid table. Exact endpoint spelling is checked.
+                   Hollow auxiliary tables disable prefiltering; explicit/fixed
+                   tables are unsupported. The automatic solid-trained fusion NN
+                   abstains on Hollow phases. Extension still requires wash=f.
+                   Reads still need a full K-long ACGT window; Ns invalidate it.
+                   Existing quality filtering and branch/count thresholds remain.
+                   Ignores middle substitutions, NOT indel-induced spacing errors.
+                   Equal anchors can conceal repeats or different interiors:
+                   experimental, not a validated accuracy or default upgrade.
+hollowk=all        Assembly only: restrict Hollow counts to these K spans, e.g.
+                   hollow=t hollowk=96,224. All other spans stay solid; contigging
+                   always stays solid. Values must occur in the assembly schedule.
+                   Requires hollow=t; none selects a matched all-solid control.
+                   K<=64 remains solid even when listed. Does not reorder phases.
+hollowbranchstop=f  Optional pre-append stop at supported alternate-span branches.
+                   Requires hollow=t, K>=67, and markbadbases=0. Uses observed
+                   K+1 and K-1 spans with the SAME loaded Hollow count table.
+                   Stops at a supported competing branch or strong contradiction;
+                   never chooses a replacement base, edits the seed or adds counts.
+                   Missing K+1 context (K-only seed or preceding N) skips only
+                   that spacing until one more base has been accepted.
+                   Applies to right extension and reverse-complemented left extension.
+                   Existing extendrollback still trims partially extended reads;
+                   use extendrollback=0 when comparing exact stopping positions.
+                   Also available for BBMerge single-K extension/REM; see bbmerge.sh.
+hollowbranchratio=4 Alternate-span contradiction/ambiguity ratio (positive integer).
+hollowbranchrollback=f Experimental alternative to hollowbranchstop (not both).
+                   Remembers the first K+/-1 hard contradiction within each call.
+                   Rolls back only if ordinary extension later stops short of its
+                   requested length; complete extensions ignore these warnings.
+                   Rejects a seed rescue after such a rollback. A failed rescue
+                   trial restores its seed edit and original stopping endpoint.
+                   Uses the same Hollow table, ratio and support settings.
+                   Can withhold genuine repairs; not an accuracy/default upgrade.
+                   Requires hollow=t, K>=67 and markbadbases=0. For exact lengths
+                   use extendrollback=0. No checkpoint persists between calls.
+hollowbranchsupport=3 Minimum context and competing-branch support (positive integer).
+hollowrescue=f     Experimental substitution recovery after ordinary extension stops.
+                   Requires hollow=t and markbadbases=0. Reuses the Hollow table;
+                   no supplemental solid table. Tries all16 incoming-anchor pairs
+                   only when current depth>=4 and all ordinary choices<=1 and
+                   below mce. Requires a unique 4-fold winner within 2-fold of
+                   current depth. Can change the interior base entering the left
+                   anchor; changed bases receive Q0 when qualities are present.
+                   Retains at most one correction per oriented extension call.
+                   No added base or renewed support collapse restores the edit
+                   and truncates back to its original stopping endpoint.
+                   Not general indel repair; repeats can still give false support.
+                   Default off; effectiveness and cost are under investigation.
+hollowrescuecompetitor=f Optional competing-allele veto; requires hollowrescue=t.
+                   Rejects a rescue if any different incoming-anchor allele has
+                   a next-base count>=4, even when the winner passes its ratio.
+                   Alternative next bases for the winning ingress are excluded.
+                   Reuses the existing16 counts, with no new table or read pass.
+                   Can withhold genuine repairs; experimental and default off.
+hollowseedguard=null Optional original-read file for experimental seed protection.
+                   Requires hollowrescue=t, el=0, er>0 and extendrollback=0.
+                   Loads an additional exact Solid96 table from this file alone,
+                   with no quality filtering, prefiltering, trimming or merging.
+                   Supply the original evidence reads, not altered seeds or
+                   extended output. Requires one rereadable file, not a list.
+                   Vetoes a proposed edit when EVERY overlapping Solid96 window
+                   entirely inside the original seed has depth>=2. Missing solid
+                   support does not block ordinary Hollow extension or recovery.
+                   No second correction, leftward pass or automatic activation.
+                   Adds read-loading time and memory; broad safety is unvalidated.
+hollowseedguardrelative=f Optional exception requiring hollowseedguard=<file>.
+                   Releases its veto only if EVERY proposed seed-contained
+                   Solid96 window has at least four times the depth of the
+                   strongest original window. Uses the same extra table;
+                   no additional table or read pass. Never edits the query.
+                   Ordinary rescue and rollback checks still apply.
+                   Experimental; off preserves the absolute-depth veto.
+hollowseedguardpartial=f Experimental partial-support protection. Requires
+                   hollowseedguard=<file> and hollowseedguardrelative=f.
+                   Fully supported original windows always protect the seed.
+                   If only some original windows reach depth2, reject unless
+                   every proposed window reaches 4x the original maximum.
+                   Can withhold genuine repairs. No extra evidence table.
+                   Combine with hollowseedguardproposed=t to reject unsupported
+                   proposals even when all original windows have low support.
+hollowseedguardproposed=f Optional veto requiring hollowseedguard=<file>.
+                   Rejects a seed correction if ANY overlapping, seed-contained
+                   proposed Solid96 window has zero support in the original reads.
+                   Depth one is sufficient. Undefined windows cannot support it.
+                   Applies even when the original seed has unsupported windows;
+                   combines with the original/relative veto and ordinary rollback.
+                   Does not restrict ordinary extension or edits to appended bases.
+                   Uses the SAME guard table, no extra table or read pass.
+                   Experimental, default off; broad safety is not validated.
 
 Extension and correction may be done simultaneously.  Error correction on 
 multiple files may be done like this:

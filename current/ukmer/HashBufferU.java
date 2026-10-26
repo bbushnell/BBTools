@@ -22,9 +22,21 @@ public class HashBufferU extends AbstractKmerTableU {
 	/*--------------------------------------------------------------*/
 	
 	public HashBufferU(AbstractKmerTableU[] tables_, int buflen_, int kbig_, boolean initValues){
+		this(tables_, buflen_, kbig_, initValues, false);
+	}
+
+	/** Preserves hash geometry when buffered sequence keys are reconstructed during flushing. */
+	public HashBufferU(AbstractKmerTableU[] tables_, int buflen_, int kbig_, boolean initValues, boolean hollow){
 		tables=tables_;
 		buflen=buflen_;
-		kmer=new Kmer(kbig_);
+		kmer=new Kmer(kbig_, hollow);
+		if(hollow){
+			for(AbstractKmerTableU table : tables){
+				if(!(table instanceof HashArrayH1D) || ((HashArrayH1D)table).fingerprintOnly()){
+					throw new IllegalArgumentException("Hollow buffers require two-hash tables.");
+				}
+			}
+		}
 		mult=kmer.mult;
 		buflen2=buflen*mult;
 		halflen2=((buflen+1)/2)*mult;
@@ -63,6 +75,7 @@ public class HashBufferU extends AbstractKmerTableU {
 	@Override
 	public int incrementAndReturnNumCreated(Kmer kmer) {
 		assert(kmer.mult==mult) : kmer.mult+"!="+mult+", kbig="+kmer.kbig+", k="+kmer.k;
+		assert(kmer.hollow==this.kmer.hollow) : "Buffered keys and their reconstruction must use identical hash geometry.";
 		final int way=getWay(kmer);
 		KmerBufferU buffer=buffers[way];
 		final int size=buffer.add(kmer);

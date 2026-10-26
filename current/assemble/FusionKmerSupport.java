@@ -27,8 +27,8 @@ final class FusionKmerSupport {
 			throw new IllegalArgumentException("Fusion support needs counts, K>=2, depth>=1 and flank>=0.");
 		}
 		counts=counts_;
-		key=new Kmer(k_);
-		neighbor=new Kmer(k_);
+		key=new Kmer(k_, counts.hollow());
+		neighbor=new Kmer(k_, counts.hollow());
 		k=key.kbig;
 		minDepth=minDepth_;
 		flank=Math.max(k, minFlank_);

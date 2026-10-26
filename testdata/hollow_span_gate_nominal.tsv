@@ -1,0 +1,2 @@
+id	length	k	query_span	left_anchor	right_anchor	depth
+fixture	128	128	128	ACGTACGTACGTACGTACGTACGTACGTACGT	ACGTACGTACGTACGTACGTACGTACGTACGT	10

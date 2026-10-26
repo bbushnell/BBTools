@@ -12,6 +12,7 @@ import shared.Shared;
 import shared.Timer;
 import shared.Tools;
 import stream.ConcurrentReadInputStream;
+import stream.FASTQ;
 import stream.Read;
 import structures.ByteBuilder;
 import structures.IntList;
@@ -128,7 +129,35 @@ public class Tadpole2 extends Tadpole {
 	@Override
 	public long loadKmers(Timer t){
 		tables.process(t);
+		if(hollowSeedGuardReads!=null){loadSeedGuardCounts();}
 		return tables.kmersLoaded;
+	}
+
+	/** Loads raw original reads separately; no seed, extension or reference contributes.
+	 * The support loader's unpaired counting must not change the primary input's
+	 * pairing policy. This extra table is allocated only for the explicit option. */
+	private void loadSeedGuardCounts(){
+		assert(hollowRescue && extendLeft==0 && extensionRollback==0) :
+				"The seed-protection experiment needs one rightward transaction with unchanged original coordinates.";
+		final boolean force=FASTQ.FORCE_INTERLEAVED, test=FASTQ.TEST_INTERLEAVED;
+		try{
+			FASTQ.FORCE_INTERLEAVED=false;
+			FASTQ.TEST_INTERLEAVED=false;
+			if(hollowSeedGuardTables==null){
+				final String[] args={"in="+hollowSeedGuardReads, "k=96", "hollow=f", "hashonly=f",
+						"packed=t", "rcomp=t", "prefilter=f", "prealloc=f", "minprob=0", "minprobmain=f",
+						"qtrim=f", "maq=0", "ecco=f", "merge=f", "reads=-1", "onepass=f", "interleaved=f",
+						"ways="+tables.ways, "t="+THREADS};
+				hollowSeedGuardTables=new KmerTableSetU(args, 0);
+			}
+			outstream.println("Loading original-read Solid96 seed protection counts.");
+			hollowSeedGuardTables.process(new Timer());
+			assert(!hollowSeedGuardTables.hollow && hollowSeedGuardTables.kbig==96) :
+					"Original-seed protection must never query the primary Hollow table as solid evidence.";
+		}finally{
+			FASTQ.FORCE_INTERLEAVED=force;
+			FASTQ.TEST_INTERLEAVED=test;
+		}
 	}
 	
 	/*--------------------------------------------------------------*/
@@ -676,9 +705,9 @@ public class Tadpole2 extends Tadpole {
 		/*--------------------------------------------------------------*/
 		
 		/** Thread-local k-mer object for assembly operations */
-		private final Kmer myKmer=new Kmer(kbig);
+		private final Kmer myKmer=new Kmer(kbig, hollow);
 		/** Second thread-local k-mer object for paired operations */
-		private final Kmer myKmer2=new Kmer(kbig);
+		private final Kmer myKmer2=new Kmer(kbig, hollow);
 		
 	}
 	
@@ -696,7 +725,7 @@ public class Tadpole2 extends Tadpole {
 	public void initializeContigs(ArrayList<Contig> contigs){
 		tables.clearOwnership();
 		tables.initializeOwnership();
-		final Kmer kmer=new Kmer(kbig);
+		final Kmer kmer=new Kmer(kbig, hollow);
 		if(crossKGraph){
 			initializeCrossKContigs(contigs, kmer);
 			return;
@@ -732,7 +761,19 @@ public class Tadpole2 extends Tadpole {
 			}else if(kmer.len>=kbig){
 				final int owner=tables.findOwner(kmer);
 				if(owner>=0 && owner<resolver.contigCount()
-						&& (path.size==0 || path.array[path.size-1]!=owner)){path.add(owner);}
+						&& (path.size==0 || path.array[path.size-1]!=owner)){
+					if(hollow){
+						final Contig target=contigForOwner(owner);
+						final Kmer scratch=getLocalKmer2();
+						if(incomingHollowEnd(target, kmer, scratch)<0){
+							kmer.rcomp();
+							final boolean match=incomingHollowEnd(target, kmer, scratch)>=0;
+							kmer.rcomp();
+							if(!match){continue;}
+						}
+					}
+					path.add(owner);
+				}
 			}
 		}
 		if(path.size>2){resolver.observePath(path, seen);}
@@ -741,6 +782,22 @@ public class Tadpole2 extends Tadpole {
 
 	@Override
 	boolean crossKGraph(){return crossKGraph;}
+
+	/**
+	 * Resolves an incoming Hollow hit using every stored base, not just its arms.
+	 * Ownership can alias different interiors; accepting such an alias would splice
+	 * incompatible sequences. Return the incoming left end (0), right end (2), or -1.
+	 * No supplemental count table is needed; scratch is reused by the caller.
+	 */
+	public static int incomingHollowEnd(final Contig dest, final Kmer incoming, final Kmer scratch){
+		assert(dest!=null && incoming.hollow && scratch.hollow && incoming.kbig==scratch.kbig) :
+				"Hollow graph endpoint verification needs full rolling words with matching geometry.";
+		if(dest.length()<incoming.kbig){return -1;}
+		dest.leftKmer(scratch);
+		if(Tools.equals(scratch.array1(), incoming.array1())){return 0;}
+		dest.rightKmer(scratch);
+		return Tools.equals(scratch.array2(), incoming.array1()) ? 2 : -1;
+	}
 
 	/** Marks assembled bridge-k kmers invalid, then claims only unique eligible contig tips. */
 	private void initializeCrossKContigs(ArrayList<Contig> contigs, Kmer kmer){
@@ -830,10 +887,10 @@ public class Tadpole2 extends Tadpole {
 		 */
 		ProcessContigThread(ArrayList<Contig> contigs_, AtomicInteger next_){
 			super(contigs_, next_);
-			kmerA=new Kmer(kbig);
-			kmerB=new Kmer(kbig);
-			kmerC=new Kmer(kbig);
-			kmerD=new Kmer(kbig);
+			kmerA=new Kmer(kbig, hollow);
+			kmerB=new Kmer(kbig, hollow);
+			kmerC=new Kmer(kbig, hollow);
+			kmerD=new Kmer(kbig, hollow);
 			localShaver=(compactLocalWashEnabled() ? new Shaver2(tables, 1, 1, maxShaveDepth, 1,
 					minCountExtend, branchMult2, Tools.max(minContigLen, shaveDiscardLen), shaveExploreDist,
 					shaveEnabled(), rinseEnabled()) : null);
@@ -1076,6 +1133,15 @@ public class Tadpole2 extends Tadpole {
 			if(owner>=0){
 				lastExitCondition=SUCCESS;
 				Contig dest=contigs.get(owner);
+				if(hollow){
+					lastOrientation=incomingHollowEnd(dest, kmer, temp);
+					if(lastOrientation<0){
+						lastExitCondition=BAD_OWNER;
+						lastTarget=-1;
+						return -1;
+					}
+					return owner;
+				}
 				dest.leftKmer(temp);
 				
 //				if(temp.equals(kmer)){
@@ -1198,7 +1264,7 @@ public class Tadpole2 extends Tadpole {
 		bb.append(r.bases);
 		Kmer temp=tables.rightmostKmer(bb, kmer);
 		if(temp==null){return 0;}
-		final int extension=extendToRight2_inner(bb, leftCounts, rightCounts, distance, true, kmer);
+		final int extension=extendWithHollowRescue(bb, leftCounts, rightCounts, distance, true, kmer);
 		if(extension>0){
 			r.bases=bb.toBytes();
 			if(r.quality!=null){
@@ -1206,6 +1272,10 @@ public class Tadpole2 extends Tadpole {
 				r.quality=KillSwitch.copyOf(r.quality, r.bases.length);
 				for(int i=initialLen; i<r.quality.length; i++){
 					r.quality[i]=q;
+				}
+				if(hollowRescue){
+					final int corrected=getHollowAnchorRescue().correctedPosition;
+					if(corrected>=0){r.quality[corrected]=0;}
 				}
 			}
 		}
@@ -1481,7 +1551,80 @@ public class Tadpole2 extends Tadpole {
 		if(kmer==null || kmer.len<kbig){return 0;}
 		assert(kmer.len==kbig);
 		
-		return extendToRight2_inner(bb, leftCounts, rightCounts, distance, includeJunctionBase, kmer);
+		return extendWithHollowRescue(bb, leftCounts, rightCounts, distance, includeJunctionBase, kmer);
+	}
+
+	/** Adds one bounded recovery transaction around the unchanged extension engine.
+	 * ECC calls the inner engine directly and never reaches this wrapper. The
+	 * original stopping endpoint and edited byte are retained; a second collapse
+	 * restores both, even when its alternatives are ambiguous. At most one edit
+	 * is retained per oriented call. Existing branch and alternate-span guards
+	 * remain authoritative when extension resumes after the tentative edit. */
+	private int extendWithHollowRescue(final ByteBuilder bb, final int[] leftCounts,
+			final int[] rightCounts, final int distance, final boolean includeJunctionBase, final Kmer kmer){
+		if(!hollowRescue && !hollowBranchRollback){return extendToRight2_inner(bb, leftCounts, rightCounts, distance, includeJunctionBase, kmer);}
+		assert(hollow && processingMode==extendMode && bb.length()>=kbig) :
+				"Interior recovery is read-extension-only; ECC's empty builder must use the original inner engine.";
+		final HollowAnchorRescue rescue=hollowRescue ? getHollowAnchorRescue() : null;
+		if(rescue!=null){rescue.correctedPosition=-1;}
+		final HollowExtensionGuard delayed=hollowBranchRollback ? getHollowExtensionGuard() : null;
+		if(delayed!=null){delayed.clearWarning();}
+		final int initial=bb.length();
+		final int limit=(int)Math.max(initial, Math.min((long)maxContigLen, (long)initial+distance));
+		extendToRight2_inner(bb, leftCounts, rightCounts, distance, includeJunctionBase, kmer);
+		final int checkpoint=bb.length();
+		if(delayed!=null){
+			final int retained=delayed.retainedLength(checkpoint, limit);
+			if(retained<checkpoint){
+				assert(retained>=initial) : "Alternate-span checkpoints must never discard original seed bases.";
+				bb.setLength(retained);
+				tables.rightmostKmer(bb, kmer);
+				return retained-initial;
+			}
+		}
+		if(rescue==null){return checkpoint-initial;}
+		if(checkpoint>=limit){return checkpoint-initial;}
+		// The inner engine may have inspected one unappended junction base.
+		// Rebuild from retained bytes before consulting or changing the window.
+		if(tables.rightmostKmer(bb, kmer)==null){return checkpoint-initial;}
+		final int replacement=rescue.propose(bb.array, checkpoint, minCountExtend);
+		if(replacement<0){return checkpoint-initial;}
+		final int position=checkpoint-kbig+32;
+		if(hollowSeedGuardReads!=null){
+			final HollowSeedGuard guard=getHollowSeedGuard();
+			final boolean protectedSeed;
+			if(hollowSeedGuardPartial){protectedSeed=guard.protectsPartial(bb.array, initial, position, replacement);}
+			else if(hollowSeedGuardRelative){protectedSeed=guard.protects(bb.array, initial, position, replacement);}
+			else{protectedSeed=guard.protects(bb.array, initial, position);}
+			// Reject before changing the seed or resuming the trial. Appended
+			// bases never supply solid confirmation for an original seed edit.
+			if(protectedSeed){return checkpoint-initial;}
+			if(hollowSeedGuardProposed && guard.rejectsProposal(bb.array, initial, position, replacement)){
+				return checkpoint-initial;
+			}
+		}
+		final byte original=bb.array[position];
+		bb.array[position]=AminoAcid.numberToBase[replacement];
+		kmer.substituteBase(32, replacement);
+		if(delayed!=null){delayed.clearWarning();}
+		final int added=extendToRight2_inner(bb, leftCounts, rightCounts, limit-checkpoint, includeJunctionBase, kmer);
+		// A failed trial restores the edit AND the original stopping endpoint;
+		// never keep a corrected seed while trimming only its speculative suffix.
+		boolean rollback=added<1 || (delayed!=null && delayed.retainedLength(bb.length(), limit)<bb.length());
+		if(!rollback){
+			// Test the next boundary even at the requested length. No extra base
+			// is emitted and a recurrent collapse is not repaired a second time.
+			rescue.propose(bb.array, bb.length(), minCountExtend);
+			rollback=rescue.collapsed;
+		}
+		if(rollback){
+			bb.array[position]=original;
+			bb.setLength(checkpoint);
+		}else{rescue.correctedPosition=position;}
+		final Kmer restored=tables.rightmostKmer(bb, kmer);
+		assert(restored!=null && bb.length()>=initial) :
+				"Recovery only substitutes a defined interior base and appends bases; rollback must preserve the original seed.";
+		return bb.length()-initial;
 	}
 	
 	/**
@@ -1537,8 +1680,20 @@ public class Tadpole2 extends Tadpole {
 		}
 		
 		final int maxLen=Tools.min(bb.length()+distance, maxContigLen);
+		HollowExtensionGuard guard=null;
+		if((hollowBranchStop || hollowBranchRollback) && bb.length()<maxLen){
+			assert(hollow && processingMode==extendMode && bb.length()>=kbig) :
+					"Hollow guard is read-extension-only; ECC callers supply an empty builder and must never enter this path.";
+			guard=getHollowExtensionGuard();
+			guard.reset(bb.array, bb.length());
+		}
 		
 		while(bb.length()<maxLen){
+			// Veto before rolling the nominal Kmer or appending a junction base.
+			if(guard!=null){
+				if(hollowBranchRollback){guard.observe(bb.array, bb.length(), rightMaxPos);}
+				else if(guard.reject(bb.array, bb.length(), rightMaxPos)){break;}
+			}
 			
 			//Generate the new kmer
 			final byte b=AminoAcid.numberToBase[rightMaxPos];
@@ -2495,11 +2650,56 @@ public class Tadpole2 extends Tadpole {
 	 * hi-lo is odd (see errorCorrectSubstitute's span-geometry comment). */
 	private final ThreadLocal<Kmer> substituteKmerCeilMid=new ThreadLocal<Kmer>();
 
+	/** Allocated only for opted-in read extension, independently of generic ECC scratch. */
+	private final ThreadLocal<HollowExtensionGuard> hollowExtensionGuards=
+			hollowBranchStop || hollowBranchRollback ? new ThreadLocal<HollowExtensionGuard>() : null;
+	/** Allocated only for opted-in workers; no additional read-count table. */
+	private final ThreadLocal<HollowAnchorRescue> hollowAnchorRescues=
+			hollowRescue ? new ThreadLocal<HollowAnchorRescue>() : null;
+	/** One rolling solid query per opted-in worker; the read-count table is shared. */
+	private final ThreadLocal<HollowSeedGuard> hollowSeedGuards=
+			hollowSeedGuardReads!=null ? new ThreadLocal<HollowSeedGuard>() : null;
+
+	/** Lazily borrows the completed immutable evidence table at the first proposal. */
+	private HollowSeedGuard getHollowSeedGuard(){
+		assert(hollowSeedGuards!=null && hollowSeedGuardTables!=null) :
+				"Seed protection must be configured and its independent table loaded before extension starts.";
+		HollowSeedGuard guard=hollowSeedGuards.get();
+		if(guard==null){
+			guard=new HollowSeedGuard(hollowSeedGuardTables, 2);
+			hollowSeedGuards.set(guard);
+		}
+		return guard;
+	}
+
+	/** Lazily retains one matrix and count view per extension worker. */
+	private HollowAnchorRescue getHollowAnchorRescue(){
+		assert(hollowRescue && hollowAnchorRescues!=null) : "The default extension path must not allocate rescue state.";
+		HollowAnchorRescue rescue=hollowAnchorRescues.get();
+		if(rescue==null){
+			rescue=new HollowAnchorRescue(tables, hollowRescueCompetitor);
+			hollowAnchorRescues.set(rescue);
+		}
+		return rescue;
+	}
+
+	/** Reuses one rolling guard per worker; table counts are already loaded and immutable. */
+	private HollowExtensionGuard getHollowExtensionGuard(){
+		assert((hollowBranchStop || hollowBranchRollback) && hollowExtensionGuards!=null) :
+				"Only opted-in read extension may retain a view of the loaded Hollow counts.";
+		HollowExtensionGuard guard=hollowExtensionGuards.get();
+		if(guard==null){
+			guard=new HollowExtensionGuard(tables, hollowBranchRatio, hollowBranchSupport);
+			hollowExtensionGuards.set(guard);
+		}
+		return guard;
+	}
+
 	/** Returns this thread's scratch Kmer for errorCorrectSubstitute's "hi" span, creating it
 	 * (one `new Kmer(kbig)`) on this thread's first call only. */
 	private Kmer getSubstituteKmerHi(){
 		Kmer k=substituteKmerHi.get();
-		if(k==null){k=new Kmer(kbig); substituteKmerHi.set(k);}
+		if(k==null){k=new Kmer(kbig, hollow); substituteKmerHi.set(k);}
 		return k;
 	}
 
@@ -2507,7 +2707,7 @@ public class Tadpole2 extends Tadpole {
 	 * (one `new Kmer(kbig)`) on this thread's first call only. */
 	private Kmer getSubstituteKmerMid(){
 		Kmer k=substituteKmerMid.get();
-		if(k==null){k=new Kmer(kbig); substituteKmerMid.set(k);}
+		if(k==null){k=new Kmer(kbig, hollow); substituteKmerMid.set(k);}
 		return k;
 	}
 
@@ -2515,7 +2715,7 @@ public class Tadpole2 extends Tadpole {
 	 * creating it (one `new Kmer(kbig)`) on this thread's first call only. */
 	private Kmer getSubstituteKmerCeilMid(){
 		Kmer k=substituteKmerCeilMid.get();
-		if(k==null){k=new Kmer(kbig); substituteKmerCeilMid.set(k);}
+		if(k==null){k=new Kmer(kbig, hollow); substituteKmerCeilMid.set(k);}
 		return k;
 	}
 

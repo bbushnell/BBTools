@@ -53,6 +53,8 @@ launch() {
 		CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP jgi.BBMerge $@"
 	fi
 	echo "$CMD" >&2
+	# TODO: Probable bug - the multi-K CMD above is only printed; this launch
+	# still gives the parent the full heap and omits bbmerge.child.xm properties.
 	java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" jgi.BBMerge "$@"
 }
 

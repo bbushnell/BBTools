@@ -60,7 +60,9 @@ final class TadpoleAssemblyPolicy implements TadpoleMulti.InitialAssembly, AutoC
 			throw new IllegalArgumentException("Branch rescue and initial merge coverage apply only to contig assembly.");
 		}
 		rescueRequested=assembly && (rescue==1 || (rescue<0 && (defaults || modelSet))) && postModel!=null;
-		multi=forceMulti || TadpoleMulti.hasMultipleK(explicit.toArray(new String[0]));
+		boolean hollow=false;
+		for(String arg : explicit){if(key(arg).equals("hollow")){hollow=Parse.parseBoolean(value(arg));}}
+		multi=forceMulti || (assembly && hollow) || TadpoleMulti.hasMultipleK(explicit.toArray(new String[0]));
 		final ArrayList<String> resolved=new ArrayList<String>();
 		if(assembly && (defaults || rescueRequested)){
 			resolved.addAll(Arrays.asList("retainshortcontigs=t", "trimends=0", "trimcircular=f",
@@ -104,6 +106,7 @@ final class TadpoleAssemblyPolicy implements TadpoleMulti.InitialAssembly, AutoC
 
 	/** Runs public single/multi-K entry points without changing lower-level callers. */
 	static void run(final String[] input, final boolean forceMulti){
+		if(TadpoleScaffold.dispatch(input, forceMulti)){return;}
 		try(TadpoleAssemblyPolicy policy=new TadpoleAssemblyPolicy(input, forceMulti)){
 			if(forceMulti || policy.multi){
 				if(TadpoleGraph.requested(policy.args)){

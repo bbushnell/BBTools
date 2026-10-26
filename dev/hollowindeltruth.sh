@@ -1,0 +1,36 @@
+#!/bin/bash
+set -eo pipefail
+DIR="$(cd "$(dirname "$0")/.." && pwd)"
+if [[ $# == 0 || "$1" == --help || "$1" == -h ]]; then
+  echo "Controlled Hollow indel benchmark inputs and origin-local Scrabble MSDI scoring."
+  echo "mode=delete in=clean250.fa out=deleted249.fa details=deletions.tsv seed=429002"
+  echo "  Deletes exactly one base, uniformly among zero-based positions25..224."
+  echo "mode=insert or mode=substitute injects exactly one corresponding edit at the same positions."
+  echo "mode=readindels in=q20.fq.gz out=indels.fq.gz details=input_stats.tsv seed=429002"
+  echo "  insrate=0.001 delrate=0.001; set either rate to0 for a single-type read-indel treatment."
+  echo "mode=grade ref=genome.fa shreds=input.fa in=extended.fa deletions=0 maxextension=100"
+  echo "  out=summary.tsv details=errors.tsv hist=histogram.tsv label=arm"
+  echo "  deletions=1, insertions=1 or substitutions=1 declares the seed edit; all default0."
+  echo "  Total S/I/D include the seed edit; deviation histograms/fractions compare to that baseline."
+  echo "  All query bases must align; prefixes remain unchanged."
+  echo "mode=audit uses the same ref/shreds/in/seed-edit flags with out=summary.tsv details=suffixes.tsv."
+  echo "  Compares only new bases at fixed source coordinates; no alignment or seed-error subtraction."
+  echo "  Reports internal disagreements and reference overruns separately. Circular-compatible"
+  echo "  means the suffix matches a wrapped reference, not that chromosome topology was proven."
+  echo "  seedchanges=t permits altered prefixes and grades every changed seed with Glocal"
+  echo "  against its exact250bp origin, separately from fixed-coordinate suffix errors."
+  echo "  Adds seed-change/improvement/worsening/MSDI columns; default remains prefix-preserving."
+  echo "mode=diagnose in=one_seed.fa ref=exact_window.fa insertions=1 out=scores.tsv details=pair.fa"
+  echo "  Validates the seed edit, compares Scrabble/Glocal/Quantum and writes details.matrix Scrabble bands."
+  echo "mode=test runs deterministic scoring fixtures. Outputs must be new."
+  echo "mode=compare shreds=original.fa in=baseline.fa in2=treatment.fa maxextension=100"
+  echo "  out=selected_seeds.fa out2=selected_baseline.fa details=changes.tsv"
+  echo "  Ordered, unpaired FASTA comparison: exact IDs and original prefixes must match."
+  echo "  Treatment must be a prefix of baseline; growth or changed sequence fails loudly."
+  echo "  Selects EVERY shortened suffix, whether correct or wrong; no reference-based selection."
+  exit
+fi
+. "$DIR/javasetup.sh"
+parseJavaArgs --xmx=1g --xms=32m --mode=fixed "$@"
+setEnvironment
+java $EA $EOOM $SIMD $XMX $XMS -cp "$DIR/current/" test.assemble.HollowIndelTruth "$@"

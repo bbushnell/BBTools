@@ -94,6 +94,8 @@ public abstract class Tadpole extends ShaveObject{
 	 * @return Tadpole1 for short k-mers (≤31) or Tadpole2 for long k-mers (>31)
 	 */
 	public static Tadpole makeTadpole(String[] args, boolean setDefaults){
+		//TODO: Probable bug - setDefaults is ignored below: even BBMerge's false
+		//request constructs with true and resets shared defaults. Audit callers before changing this legacy behavior.
 		args=expandConfigArgs(args);
 		final int k=preparseK(args);
 		if(k>31 || FORCE_TADPOLE2){
@@ -207,6 +209,7 @@ public abstract class Tadpole extends ShaveObject{
 	 */
 	public Tadpole(String[] args, boolean setDefaults){
 		args=expandConfigArgs(args);
+		checkSeedGuardPaths(args);
 		
 		{//Preparse block for help, config files, and outstream
 			PreParser pp=new PreParser(args, getClass(), true);
@@ -564,6 +567,30 @@ public abstract class Tadpole extends ShaveObject{
 			}else if(a.equals("hashkmers") || a.equals("kmerhash")){
 				hashKmerModeRequested=parseHashMode(b);
 				hashKmerModeSpecified=true;
+			}else if(a.equals("hollow")){
+				hollow=Parse.parseBoolean(b);
+			}else if(a.equals("hollowbranchstop")){
+				hollowBranchStop=Parse.parseBoolean(b);
+			}else if(a.equals("hollowbranchrollback")){
+				hollowBranchRollback=Parse.parseBoolean(b);
+			}else if(a.equals("hollowrescue")){
+				hollowRescue=Parse.parseBoolean(b);
+			}else if(a.equals("hollowrescuecompetitor")){
+				hollowRescueCompetitor=Parse.parseBoolean(b);
+			}else if(a.equals("hollowseedguard")){
+				if(b==null && arg.indexOf('=')<0){throw new IllegalArgumentException("hollowseedguard requires an original-read file, or null to disable.");}
+				// PreParser normalizes literal null to an empty value before this loop.
+				hollowSeedGuardReads=b==null || b.equalsIgnoreCase("null") ? null : b;
+			}else if(a.equals("hollowseedguardrelative")){
+				hollowSeedGuardRelative=Parse.parseBoolean(b);
+			}else if(a.equals("hollowseedguardpartial")){
+				hollowSeedGuardPartial=Parse.parseBoolean(b);
+			}else if(a.equals("hollowseedguardproposed")){
+				hollowSeedGuardProposed=Parse.parseBoolean(b);
+			}else if(a.equals("hollowbranchratio")){
+				hollowBranchRatio=Parse.parseIntKMG(b);
+			}else if(a.equals("hollowbranchsupport")){
+				hollowBranchSupport=Parse.parseIntKMG(b);
 			}else if(a.equals("seedfromtable")){
 				seedFromTable=Parse.parseBoolean(b);
 			}else if(a.equals("tipseededwash")){
@@ -960,6 +987,48 @@ public abstract class Tadpole extends ShaveObject{
 				if(!setEcc_){ecc_=false;}
 			}
 		}
+		if(hollow){
+			final boolean auxiliary=processingMode==graphMode || (processingMode==contigMode && !seedFromTable);
+			if((processingMode!=extendMode && !auxiliary) || !Kmer.PACKED || kbig<=64 || prefilter>0
+					|| ((!auxiliary || !tipSeededWash) && (removeDeadEnds || removeBubbles))
+					|| ecc_ || ecco_ || merge_ || markErrors_ || hpIndel_ || localEdit_
+					|| (!auxiliary && setUseOwnership_ && useOwnership_)){
+				throw new IllegalArgumentException("Hollow requires packed K>64, no prefilter/correction/merging, and read extension or a non-seeding assembly/graph phase; washing requires contig-tip seeds.");
+			}
+		}
+		if(hollowBranchRatio<1 || hollowBranchSupport<1){
+			throw new IllegalArgumentException("hollowbranchratio and hollowbranchsupport must be positive.");
+		}
+		if((hollowBranchStop || hollowBranchRollback) && (!hollow || processingMode!=extendMode || kbig<67 || MARK_BAD_BASES>0)){
+			throw new IllegalArgumentException("Hollow branch guards require hollow=t, mode=extend, k>=67 and markbadbases=0.");
+		}
+		if(hollowBranchStop && hollowBranchRollback){
+			throw new IllegalArgumentException("Choose either hollowbranchstop or hollowbranchrollback, not both.");
+		}
+		if(hollowRescue && (!hollow || processingMode!=extendMode || MARK_BAD_BASES>0 || minCountExtend<1)){
+			throw new IllegalArgumentException("hollowrescue=t requires hollow=t, mode=extend, mce>=1 and markbadbases=0.");
+		}
+		if(hollowRescueCompetitor && !hollowRescue){
+			throw new IllegalArgumentException("hollowrescuecompetitor=t requires hollowrescue=t.");
+		}
+		if(hollowSeedGuardRelative && hollowSeedGuardReads==null){
+			throw new IllegalArgumentException("hollowseedguardrelative=t requires hollowseedguard=<original-read file>.");
+		}
+		if(hollowSeedGuardPartial && (hollowSeedGuardReads==null || hollowSeedGuardRelative)){
+			throw new IllegalArgumentException("hollowseedguardpartial=t requires hollowseedguard=<original-read file> and hollowseedguardrelative=f.");
+		}
+		if(hollowSeedGuardProposed && hollowSeedGuardReads==null){
+			throw new IllegalArgumentException("hollowseedguardproposed=t requires hollowseedguard=<original-read file>.");
+		}
+		if(hollowSeedGuardReads!=null){
+			if(!hollowRescue || extendLeft!=0 || extendRight<1 || extensionRollback!=0){
+				throw new IllegalArgumentException("hollowseedguard requires hollowrescue=t, el=0, er>0 and extendrollback=0; only one rightward transaction is supported.");
+			}
+			if(FileFormat.isStdio(hollowSeedGuardReads) || hollowSeedGuardReads.indexOf(',')>=0){
+				throw new IllegalArgumentException("hollowseedguard requires one rereadable original-read file, not a stream or file list.");
+			}
+			Tools.testInputFiles(true, true, hollowSeedGuardReads);
+		}
 		hashKmerMode=resolveHashMode();
 		
 		{//Process parser fields
@@ -1105,6 +1174,21 @@ public abstract class Tadpole extends ShaveObject{
 				outd2.add(a+2+b);
 			}
 		}
+		if(hollowSeedGuardReads!=null){
+			// Recheck resolved mate/discard filenames: the early check sees raw
+			// # placeholders and cannot recognize links reached after expansion.
+			final ArrayList<String> outputs=new ArrayList<String>(out1);
+			outputs.addAll(out2);
+			outputs.addAll(outd1);
+			outputs.addAll(outd2);
+			outputs.add(outKmers);
+			outputs.add(outHist);
+			outputs.add(outInsert);
+			outputs.add(outDot);
+			outputs.add(outGfa);
+			TadpoleGraph.checkPaths(hollowSeedGuardReads, new ArrayList<String>(),
+					outputs.toArray(new String[outputs.size()]));
+		}
 
 		nextTable=new AtomicInteger[contigPasses];
 		nextVictims=new AtomicInteger[contigPasses];
@@ -1133,6 +1217,39 @@ public abstract class Tadpole extends ShaveObject{
 	/*--------------------------------------------------------------*/
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
+
+	/** Protects optional evidence even from PreParser's early outstream opening.
+	 * Normal output checks happen too late for that stream; canonical paths and
+	 * same-file checks also catch relative aliases, symlinks and hard links. */
+	private static void checkSeedGuardPaths(final String[] args){
+		assert(args!=null) : "Evidence path checking follows config expansion and precedes any output stream creation.";
+		String evidence=null;
+		for(String arg : args){
+			final String[] pair=Parse.splitOnFirst(arg, '=');
+			if(seedGuardKey(pair[0]).equals("hollowseedguard")){
+				evidence=pair.length<2 || "null".equalsIgnoreCase(pair[1]) ? null : pair[1];
+			}
+		}
+		if(evidence==null || evidence.length()==0){return;}
+		final ArrayList<String> empty=new ArrayList<String>();
+		for(String arg : args){
+			final String[] pair=Parse.splitOnFirst(arg, '=');
+			if(pair.length<2 || "null".equalsIgnoreCase(pair[1])){continue;}
+			final String key=seedGuardKey(pair[0]);
+			if(key.startsWith("out") || key.equals("dot") || key.equals("gfa") || key.equals("dump")
+					|| key.equals("hist") || key.equals("khist") || key.equals("ihist") || key.equals("inserthistogram")){
+				for(String output : pair[1].split(",")){TadpoleGraph.checkPaths(evidence, empty, output);}
+			}
+		}
+	}
+
+	/** Mirrors PreParser's leading-hyphen normalization without opening its streams. */
+	private static String seedGuardKey(final String key){
+		assert(key!=null) : "Parse.splitOnFirst supplies the key before PreParser consumes it.";
+		int start=0;
+		while(start<key.length() && key.charAt(start)=='-'){start++;}
+		return key.substring(start).toLowerCase(java.util.Locale.ROOT);
+	}
 	
 	
 	/**
@@ -1231,6 +1348,7 @@ public abstract class Tadpole extends ShaveObject{
 	public final void clearData(){
 		allContigs=null;
 		tables().clear();
+		if(hollowSeedGuardTables!=null){hollowSeedGuardTables.clear();}
 	}
 
 	/** Detaches the current contigs so another kmer pass can consume them. */
@@ -1242,6 +1360,13 @@ public abstract class Tadpole extends ShaveObject{
 
 	/** Installs externally built contigs for graph processing. */
 	final void setContigs(ArrayList<Contig> contigs){allContigs=contigs;}
+
+	/** Resolves a live ownership ID without exposing the mutable contig list to subclasses. */
+	protected final Contig contigForOwner(final int owner){
+		assert(allContigs!=null && owner>=0 && owner<allContigs.size()) :
+				"Read-threaded endpoint verification must use a current graph ownership ID: "+owner;
+		return allContigs.get(owner);
+	}
 
 	/** Captures independent bridge and fusion eligibility before clearing assembly-K edges. */
 	final void markBridgeEndpoints(){
@@ -1282,6 +1407,9 @@ public abstract class Tadpole extends ShaveObject{
 	 * @param mode Processing mode: contigMode, extendMode, correctMode, insertMode, or discardMode
 	 */
 	public final void process2(int mode){
+		if(hollow && mode==contigMode){
+			throw new IllegalStateException("Hollow tables cannot seed contigs; construct solid contigs before auxiliary traversal.");
+		}
 		if(mode==graphMode){
 			final ArrayList<String> inputs=new ArrayList<String>(tables().in1);
 			inputs.addAll(tables().in2);
@@ -1293,6 +1421,8 @@ public abstract class Tadpole extends ShaveObject{
 			loadKmers(new Timer());
 			final TadpoleGraph graph=new TadpoleGraph(TadpoleGraph.readContigs(graphContigs),
 					new TadpoleGraph.Counts(){
+						@Override
+						public boolean hollow(){return hollow;}
 						@Override
 						public int count(final Kmer key){return bridgeCount(key);}
 					}, kbig, minCountExtend, graphMaxDistance, graphMaxStates);
@@ -2016,7 +2146,7 @@ public abstract class Tadpole extends ShaveObject{
 		final float depthCutoff=Tools.min(lowDepthContigMaxCov, relativeCutoff);
 		final long[] counts=new long[4], bases=new long[4], lowTips=new long[4];
 		long live=0, shortCount=0, absoluteLow=0, relativeLow=0, depthLow=0, topologyEligible=0;
-		final Kmer kmer=new Kmer(kbig);
+		final Kmer kmer=new Kmer(kbig, hollow);
 		for(Contig c : result.live){
 			live++;
 			final boolean shortEnough=c.length()<=maxLen;
@@ -2925,11 +3055,12 @@ public abstract class Tadpole extends ShaveObject{
 		
 		@Override
 		public void run(){
-			if(!hpIndel && !localEdit){runInner(); return;}
+			if(!hpIndel && !localEdit && !hollowBranchStop && !hollowBranchRollback && !hollowRescue){runInner(); return;}
 			try{runInner();}
 			catch(Throwable failure){
 				failure.printStackTrace(outstream);
-				KillSwitch.kill(hpIndel ? "Experimental homopolymer worker failed; incomplete outputs must not be used."
+				KillSwitch.kill(hollowBranchStop || hollowBranchRollback || hollowRescue ? "Experimental Hollow extension worker failed; incomplete outputs must not be used."
+					: hpIndel ? "Experimental homopolymer worker failed; incomplete outputs must not be used."
 					: "Experimental fixindels worker failed; incomplete outputs must not be used.");
 			}
 		}
@@ -3309,8 +3440,8 @@ public abstract class Tadpole extends ShaveObject{
 		private final ErrorTracker trackerT=new ErrorTracker();
 		private final ByteBuilder builderT=new ByteBuilder();
 		private final ByteBuilder builderT2=new ByteBuilder();
-		private final Kmer kmerT=new Kmer(kbig);
-		private final Kmer kmerT2=new Kmer(kbig);
+		private final Kmer kmerT=new Kmer(kbig, hollow);
+		private final Kmer kmerT2=new Kmer(kbig, hollow);
 		private final BitSet bitsetT=new BitSet(300);
 		private final BitSet mergeOKBitsetT=new BitSet(300);
 		private final LongList kmerList=new LongList();
@@ -4126,6 +4257,15 @@ public abstract class Tadpole extends ShaveObject{
 		printPlanLine("mode", modeName());
 		if(extras.length()>0){printPlanLine("extra", extras.toString());}
 		printPlanLine(processingMode==contigMode ? "assemblek" : "k", kbig);
+		if(hollow){printPlanLine("hollow", "32-base outer arms");}
+		if(hollowBranchStop){printPlanLine("hollowstop", "K+/-1 branch veto; ratio="+hollowBranchRatio+", support="+hollowBranchSupport);}
+		if(hollowBranchRollback){printPlanLine("hollowrollback", "Deferred K+/-1 hard conflict; ratio="+hollowBranchRatio+", support="+hollowBranchSupport);}
+		if(hollowRescue){printPlanLine("hollowrescue", "experimental16-choice ingress recovery; one correction, rollback on renewed collapse");}
+		if(hollowRescueCompetitor){printPlanLine("rescuecompetitor", "veto a rescue when another ingress allele has support>=4");}
+		if(hollowSeedGuardReads!=null){printPlanLine("seedguard", "original-read Solid96, all overlapping seed windows depth>=2; right-only");}
+		if(hollowSeedGuardRelative){printPlanLine("seedratio", "release veto only when proposed minimum >= 4 * original maximum");}
+		if(hollowSeedGuardPartial){printPlanLine("seedpartial", "full original support is absolute; partial support requires proposed minimum >= 4 * original maximum");}
+		if(hollowSeedGuardProposed){printPlanLine("seedproposal", "veto a correction if any proposed seed-contained Solid96 window has zero support");}
 		if(hashKmerMode>0){printPlanLine("hashkmers", hashModeName(hashKmerMode));}
 		outstream.println();
 	}
@@ -4166,6 +4306,12 @@ public abstract class Tadpole extends ShaveObject{
 
 	private int resolveHashMode(){
 		final boolean compatible=hashCompatible();
+		if(hollow){
+			if(!compatible || (hashKmerModeRequested!=HASH_AUTO && hashKmerModeRequested!=HASH_PAIR)){
+				throw new IllegalArgumentException("hollow=t requires hashkmers=auto or pair, without explicit-key enumeration.");
+			}
+			return HASH_PAIR;
+		}
 		if(!compatible){
 			if(hashKmerModeRequested>0){
 				throw new RuntimeException("hashkmers="+hashModeName(hashKmerModeRequested)+
@@ -4299,6 +4445,27 @@ public abstract class Tadpole extends ShaveObject{
 	protected int processingMode=-1;
 	/** Resolved compact-kmer storage: explicit, resizable hash pair, or fixed fingerprint. */
 	protected int hashKmerMode=HASH_EXPLICIT;
+	/** Experimental full-span extension with two outer 32-base count anchors. */
+	protected boolean hollow=false;
+	/** Opt-in pre-append branch veto using the same immutable Hollow table. */
+	protected boolean hollowBranchStop=false;
+	/** Experimental call-local checkpoint; complete extensions ignore alternate-span warnings. */
+	protected boolean hollowBranchRollback=false;
+	/** Opt-in stop-boundary interior substitution recovery, with transaction rollback. */
+	protected boolean hollowRescue=false;
+	/** Opt-in competing-ingress veto using the existing16-choice rescue matrix. */
+	protected boolean hollowRescueCompetitor=false;
+	/** Optional raw read library for an independent exact Solid96 seed-edit veto. */
+	protected String hollowSeedGuardReads=null;
+	/** Opt-in fourfold proposed-minimum/original-maximum exception to the seed veto. */
+	protected boolean hollowSeedGuardRelative=false;
+	/** Optional partial-support protection; full original support remains absolute. */
+	protected boolean hollowSeedGuardPartial=false;
+	/** Opt-in positive support requirement for every proposed seed-contained solid window. */
+	protected boolean hollowSeedGuardProposed=false;
+	/** Owned by this run and cleared with the primary table; never populated from seeds. */
+	protected KmerTableSetU hollowSeedGuardTables;
+	protected int hollowBranchRatio=4, hollowBranchSupport=3;
 	private int hashKmerModeRequested=HASH_AUTO;
 	private boolean hashKmerModeSpecified=false, preallocRequested=false, seedFromTable=true, tipSeededWash=false;
 	
@@ -4604,8 +4771,8 @@ public abstract class Tadpole extends ShaveObject{
 		localByteBuilder.set(new ByteBuilder());
 		localByteBuilder2.set(new ByteBuilder());
 		localBitSet.set(new BitSet(300));
-		localKmer.set(new Kmer(kbig));
-		localKmer2.set(new Kmer(kbig));
+		localKmer.set(new Kmer(kbig, hollow));
+		localKmer2.set(new Kmer(kbig, hollow));
 		localTracker.set(new ErrorTracker());
 	}
 	

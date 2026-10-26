@@ -40,6 +40,8 @@ final class TadpoleGraph {
 	/** Supplies canonical DNA counts while search keys retain exact orientation. */
 	interface Counts {
 		int count(Kmer kmer);
+		/** Query keys must share the count owner's geometry, not an implicit solid default. */
+		default boolean hollow(){return false;}
 	}
 
 	/** Creates an explorer without modifying contig sequences, names, or ordering. */
@@ -132,7 +134,7 @@ final class TadpoleGraph {
 
 	/** Indexes every incoming end, retaining all contigs that share an anchor. */
 	private void indexEnds(){
-		final Kmer key=new Kmer(k);
+		final Kmer key=new Kmer(k, counts.hollow());
 		assert(key.kbig==k) : "Graph index and count table must use the same effective K.";
 		for(int i=0; i<contigs.size(); i++){
 			final Contig c=contigs.get(i);
@@ -183,8 +185,8 @@ final class TadpoleGraph {
 		/** Allocates scratch only; the endpoint index and counts remain shared/read-only. */
 		Worker(final TadpoleGraph graph_){
 			graph=graph_;
-			key=new Kmer(graph.k);
-			next=new Kmer(graph.k);
+			key=new Kmer(graph.k, graph.counts.hollow());
+			next=new Kmer(graph.k, graph.counts.hollow());
 			probe=new Key(next.array1());
 		}
 

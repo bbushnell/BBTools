@@ -122,8 +122,8 @@ public final class FusionJoinDiagnostic {
 		tables=null;
 		counts=counts_;
 		k=k_;
-		key=new Kmer(k);
-		neighbor=new Kmer(k);
+		key=new Kmer(k, counts.hollow());
+		neighbor=new Kmer(k, counts.hollow());
 	}
 
 	/*--------------------------------------------------------------*/

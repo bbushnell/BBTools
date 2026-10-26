@@ -98,8 +98,7 @@ public class ReadCounter extends KmerCountAbstract {
 		try {
 			rc.count(fname1, fname2, counts);
 		} catch (Exception e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
+			throw new RuntimeException("Kmer counting failed; no complete count array is available.", e);
 		}
 		counts.shutdown();
 		
@@ -285,6 +284,27 @@ public class ReadCounter extends KmerCountAbstract {
 			int cbits, long cells, int hashes, int minqual,
 			long maxreads, int passes, int thresh1, int thresh2,
 			KCountArray prefilter, int prefilterLimit_){
+		final boolean oldsplit=FastaReadInputStream.SPLIT_READS;
+		final long oldmax=maxReads;
+		final byte oldq=minQuality;
+		try{
+			return makeKcaInner(fname1, fname2, extraFiles, cbits, cells, hashes,
+					minqual, maxreads, passes, thresh1, thresh2, prefilter, prefilterLimit_);
+		}catch(Exception e){
+			throw new RuntimeException("Kmer counting failed; refusing to return incomplete counts for "+fname1, e);
+		}finally{
+			minQuality=oldq;
+			maxReads=oldmax;
+			FastaReadInputStream.SPLIT_READS=oldsplit;
+		}
+	}
+
+	/** Builds the array; the public wrapper restores counting settings on every exit. */
+	private KCountArray makeKcaInner(String fname1, String fname2, Iterable<String> extraFiles,
+			int cbits, long cells, int hashes, int minqual,
+			long maxreads, int passes, int thresh1, int thresh2,
+			KCountArray prefilter, int prefilterLimit_) throws Exception{
+		assert(passes>0) : "At least one complete input pass is required before returning kmer counts: "+passes;
 //		verbose=true;
 		if(verbose){System.err.println("Making kca from ("+fname1+", "+fname2+")\nk="+k+", cells="+Tools.toKMG(cells)+", cbits="+cbits);}
 		
@@ -292,9 +312,6 @@ public class ReadCounter extends KmerCountAbstract {
 			return KCountArray.makeNew(cells, cbits, hashes, prefilter, prefilterLimit_);
 		}
 		
-		boolean oldsplit=FastaReadInputStream.SPLIT_READS;
-		long oldmax=maxReads;
-		byte oldq=minQuality;
 		maxReads=maxreads;
 		minQuality=(byte)minqual;
 		//	System.out.println("kbits="+(kbits)+" -> "+(1L<<kbits)+", matrixbits="+(matrixbits)+" -> "+(1L<<matrixbits)+", cbits="+cbits+", gap="+gap+", hashes="+hashes);
@@ -339,22 +356,12 @@ public class ReadCounter extends KmerCountAbstract {
 		if(passes==1){
 //			System.out.println("c1");
 			if(fname1!=null){
-				try {
-					count(fname1, fname2, kca);
-				} catch (Exception e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
-				}
+				count(fname1, fname2, kca);
 			}
 			if(extraFiles!=null){
 				maxReads=-1;
 				for(String s : extraFiles){
-					try {
-						count(s, null, kca);
-					} catch (Exception e) {
-						// TODO Auto-generated catch block
-						e.printStackTrace();
-					}
+					count(s, null, kca);
 				}
 			}
 			kca.shutdown();
@@ -369,21 +376,11 @@ public class ReadCounter extends KmerCountAbstract {
 //				//			if(!conservative){step=(step+3)/4;}
 //				if(!conservative){step=Tools.min(3, (step+3)/4);}
 
-				try {
-					count(fname1, fname2, cbits, kca, trusted, maxreads, thresh1, conservative);
-				} catch (Exception e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
-				}
+				count(fname1, fname2, cbits, kca, trusted, maxreads, thresh1, conservative);
 				if(extraFiles!=null){
 					maxReads=-1;
 					for(String s : extraFiles){
-						try {
-							count(s, null, cbits, kca, trusted, maxreads, thresh1, conservative);
-						} catch (Exception e) {
-							// TODO Auto-generated catch block
-							e.printStackTrace();
-						}
+						count(s, null, cbits, kca, trusted, maxreads, thresh1, conservative);
 					}
 				}
 				kca.shutdown();
@@ -394,31 +391,15 @@ public class ReadCounter extends KmerCountAbstract {
 
 			}
 
-			try {
-				count(fname1, fname2, cbits, kca, trusted, maxreads, thresh2, true);
-			} catch (Exception e) {
-				// TODO Auto-generated catch block
-				e.printStackTrace();
-			}
+			count(fname1, fname2, cbits, kca, trusted, maxreads, thresh2, true);
 			if(extraFiles!=null){
 				maxReads=-1;
 				for(String s : extraFiles){
-					try {
-						count(s, null, cbits, kca, trusted, maxreads, thresh2, true);
-					} catch (Exception e) {
-						// TODO Auto-generated catch block
-						e.printStackTrace();
-					}
+					count(s, null, cbits, kca, trusted, maxreads, thresh2, true);
 				}
 			}
 			kca.shutdown();
 		}
-//		System.out.println("d");
-		minQuality=oldq;
-		maxReads=oldmax;
-		FastaReadInputStream.SPLIT_READS=oldsplit;
-		
-		
 		return kca;
 	}
 	
@@ -490,12 +471,12 @@ public class ReadCounter extends KmerCountAbstract {
 		}
 //		System.out.println("~6");
 
-		ReadWrite.closeStream(cris);
+		errorState|=ReadWrite.closeStream(cris);
 		if(verbose){System.err.println("Closed stream");}
 		if(verbose){System.err.println("Processed "+readsProcessed+" reads.");}
 
 		if(errorState){
-			throw new RuntimeException("A CountThread failed while counting "+reads1+"; kmer counts are incomplete.");
+			throw new RuntimeException("Input or CountThread failure while counting "+reads1+"; kmer counts are incomplete.");
 		}
 		return counts;
 	}
@@ -568,11 +549,11 @@ public class ReadCounter extends KmerCountAbstract {
 			errorState|=ct.errorState;
 		}
 
-		cris.close();
+		errorState|=ReadWrite.closeStream(cris);
 		if(verbose){System.err.println("Closed stream");}
 
 		if(errorState){
-			throw new RuntimeException("A CountThread failed while counting "+reads1+"; kmer counts are incomplete.");
+			throw new RuntimeException("Input or CountThread failure while counting "+reads1+"; kmer counts are incomplete.");
 		}
 //		System.out.println("*** after ***");
 //		System.out.println("\ntrusted=\n"+trusted);
@@ -647,13 +628,13 @@ public class ReadCounter extends KmerCountAbstract {
 			//loud, reported failure instead of quietly-wrong counts.
 			try{
 				count(cris);
+				//The final partial buffer contributes counts too; its failure must reach the caller.
+				if(BUFFERED){dumpBufferT();}
 			}catch(Throwable e){
 				e.printStackTrace();
 				errorState=true;
 			}
 //			System.out.println("Finished: "+readsProcessedLocal);
-
-			if(BUFFERED){dumpBufferT();}
 
 			synchronized(getClass()){
 				keysCounted+=keysCountedLocal;

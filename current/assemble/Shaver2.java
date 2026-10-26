@@ -186,7 +186,7 @@ public class Shaver2 extends Shaver {
 		private final ArrayList<Contig> contigs;
 		private final AtomicInteger nextTip;
 		private final boolean crossK;
-		private final Kmer main=new Kmer(kbig), candidate=new Kmer(kbig);
+		private final Kmer main=new Kmer(kbig, tables.hollow), candidate=new Kmer(kbig, tables.hollow);
 		private final int[] scanCounts=new int[4], reverseCounts=new int[4], leftCounts=new int[4], rightCounts=new int[4];
 		private final ByteBuilder builder=new ByteBuilder();
 		private final long[][] countMatrix=new long[MAX_CODE+1][MAX_CODE+1];

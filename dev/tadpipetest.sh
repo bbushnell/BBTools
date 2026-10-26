@@ -6,4 +6,4 @@ CP="${TADPIPE_TEST_CLASSPATH:-$DIR/current/}"
 . "$DIR/javasetup.sh"
 parseJavaArgs --xmx=256m --xms=32m --mode=fixed "$@"
 setEnvironment
-java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" assemble.TadPipeTest "$@"
+java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" test.assemble.TadPipeTest "$@"

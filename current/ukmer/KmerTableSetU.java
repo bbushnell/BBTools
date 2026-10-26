@@ -93,6 +93,7 @@ public class KmerTableSetU extends AbstractKmerTableSet {
 		int filterMax_=2;
 		boolean ecco_=false, merge_=false;
 		int hashMode_=0;
+		boolean hollow_=false;
 		boolean rcomp_=true;
 		double minProb_=defaultMinprob;
 		
@@ -214,6 +215,8 @@ public class KmerTableSetU extends AbstractKmerTableSet {
 			}else if(a.equals("hashonly") || a.equals("hashedkmers")){
 				if(b!=null && (b.equalsIgnoreCase("fixed") || b.equalsIgnoreCase("fingerprint"))){hashMode_=2;}
 				else{hashMode_=Parse.parseBoolean(b) ? 1 : 0;}
+			}else if(a.equals("hollow")){
+				hollow_=Parse.parseBoolean(b);
 			}
 			
 			else if(a.equalsIgnoreCase("filterMemoryOverride") || a.equalsIgnoreCase("filterMemory") || 
@@ -285,6 +288,10 @@ public class KmerTableSetU extends AbstractKmerTableSet {
 
 		prealloc=prealloc_;
 		hashMode=hashMode_;
+		hollow=hollow_;
+		if(hollow && (!Kmer.PACKED || kbig<=64 || hashMode!=1 || prefilter)){
+			throw new IllegalArgumentException("Hollow counting requires packed=t, k>64, hashonly=t and prefilter=f.");
+		}
 		if(hashMode==2 && !prealloc){
 			throw new RuntimeException("hashonly=fixed requires prealloc=t because placement hashes are not stored for resizing.");
 		}
@@ -484,14 +491,14 @@ public class KmerTableSetU extends AbstractKmerTableSet {
 		 */
 		public LoadThread(Streamer cris_){
 			cris=cris_;
-			table=new HashBufferU(tables, buflen, kbig, false);
+			table=new HashBufferU(tables, buflen, kbig, false, hollow);
 			//Constructed via kbig (not the k,mult 2-arg form) so this Kmer picks
 			//up the PACKED layout when active -- Amber's audit found this was
 			//the only real production call site still using Kmer(k,mult)
 			//directly, which bypasses the PACKED flag. Verified k==getK(kbig)
 			//and mult==getMult(kbig) here (lines 266-267), so this is behavior-
 			//neutral today (PACKED defaults false) and only matters once it's on.
-			kmer=new Kmer(kbig);
+			kmer=new Kmer(kbig, hollow);
 		}
 		
 		@Override
@@ -1675,6 +1682,7 @@ public class KmerTableSetU extends AbstractKmerTableSet {
 	 * @return Table index (0 to ways-1)
 	 */
 	public final int kmerToWay(final Kmer kmer){
+		assert(kmer.hollow==hollow) : "Queries must use the same hollow/solid keys as the loaded table.";
 		final int way=(int)(kmer.xor()%ways);
 		return way;
 	}
@@ -1694,6 +1702,8 @@ public class KmerTableSetU extends AbstractKmerTableSet {
 	private final int bytesPerKmer;
 	/** 0=explicit kmer, 1=resizable hash pair, 2=fixed xor2 fingerprint. */
 	private final int hashMode;
+	/** Selected anchors must be identical in loaders, buffers and read-extension workers. */
+	public final boolean hollow;
 
 	/** Available system memory for k-mer storage */
 	private final long usableMemory;

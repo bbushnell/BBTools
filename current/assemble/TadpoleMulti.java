@@ -36,6 +36,10 @@ public class TadpoleMulti {
 
 	void process(){
 		final Tadpole longest=Tadpole.makeTadpole(makeArgs(config.assembleK, true), true);
+		// Tadpole's constructor re-enables graph processing for pop/sweep/classification.
+		// Keep those policies, but execute them only after the Hollow owner takes over;
+		// otherwise solid edges survive into the replacement graph and are added twice.
+		if(config.hollowPhase(config.assembleK)){longest.processContigs=false;}
 		if(initialAssembly!=null){initialAssembly.prepare(longest, config);}
 		fusionNeural=makeNeuralGate(longest);
 		try(FusionJoinCollector collector=makeCollector(longest)){
@@ -66,7 +70,7 @@ public class TadpoleMulti {
 	/** The bundled model abstains outside its supported K range; custom bindings stay explicit. */
 	private FusionNeuralGate neuralForK(final int k){
 		assert(k>0) : "Fusion evidence must belong to a resolved positive phase K.";
-		return config.neuralKAllowed(k) ? fusionNeural : null;
+		return config.neuralKAllowed(k) && !(config.automaticFusion && config.hollowPhase(k)) ? fusionNeural : null;
 	}
 
 	/** Creates optional evidence sidecars, protecting all source files and final graph outputs. */
@@ -80,7 +84,7 @@ public class TadpoleMulti {
 	}
 
 	/** Constructs initial contigs, then applies the selected multi-K schedule. */
-	private void processInner(final Tadpole longest){
+	private void processInner(Tadpole longest){
 		assert(longest!=null) : "The initial assembler owns source arguments and original contigs.";
 		config.printExecutionPlan(longest);
 		if(!Tools.testOutputFiles(Tadpole.overwrite, Tadpole.append, false, config.out)){
@@ -89,6 +93,7 @@ public class TadpoleMulti {
 		try{
 			longest.process2(Tadpole.contigMode);
 			checkErrorState(longest);
+			longest=finishInitialHollowGraph(longest);
 			if(initialAssembly!=null){initialAssembly.finish(longest);}
 		}finally{
 			longest.liveBranchGate=null;
@@ -119,6 +124,37 @@ public class TadpoleMulti {
 		if(config.showStats && FileFormat.isFastaExt(ReadWrite.rawExtension(config.out)) && !FileFormat.isStdio(config.out)){
 			System.err.println();
 			jgi.AssemblyStats2.main(new String[] {"in="+config.out, "printextended"});
+		}
+	}
+
+	/**
+	 * Replaces the initial solid table only after its contigs have been constructed.
+	 * The same-K graph still runs here, before any later K, rather than silently
+	 * moving its bubble popping and repeat resolution to the final graph span.
+	 */
+	private Tadpole finishInitialHollowGraph(final Tadpole solid){
+		assert(solid!=null && !solid.hollow) : "Only the initial solid contig owner can hand off its graph.";
+		if(!config.hollowPhase(config.assembleK)){return solid;}
+		final ArrayList<Contig> contigs=solid.detachContigs();
+		solid.tables().clear();
+		System.gc();
+		final ArrayList<String> args=new ArrayList<String>(Arrays.asList(makeArgs(config.assembleK, true)));
+		args.addAll(Arrays.asList("hollow=t", "hashkmers=pair", "seedfromtable=f",
+				"tipseededwash=t", "prefilter=f"));
+		final Tadpole graph=Tadpole.makeTadpole(args.toArray(new String[args.size()]), true);
+		System.err.println("Loading Hollow initial graph at k="+config.assembleK+" after releasing solid contig counts.");
+		try{
+			graph.loadKmers(new Timer());
+			graph.pruneLoadedKmers();
+			graph.setContigs(contigs);
+			graph.cleanLoadedKmers(contigs);
+			graph.refreshGraphEndpoints=true;
+			graph.processContigs();
+			checkErrorState(graph);
+			return graph;
+		}catch(RuntimeException | Error failure){
+			graph.tables().clear();
+			throw failure;
 		}
 	}
 
@@ -209,7 +245,8 @@ public class TadpoleMulti {
 				if(owner==null && (evidence || finish || (bridge && countBridgeEndpoints(contigs, k)>=2))){
 					owner=Tadpole.makeTadpole(evidence ? makeFusionSupportArgs(k) : makeArgs(k, false), true);
 					System.err.println("Loading ordered phase "+(i+1)+" at k="+k+
-							(evidence ? " (explicit fusion evidence shared with bridging)." : "."));
+							(config.hollowPhase(k) ? " (Hollow counts shared by auxiliary phases)." :
+							 evidence ? " (explicit fusion evidence shared with bridging)." : "."));
 					owner.loadKmers(new Timer());
 					checkErrorState(owner);
 				}
@@ -470,6 +507,8 @@ public class TadpoleMulti {
 		}
 		return new TadpoleGraph.Counts(){
 			@Override
+			public boolean hollow(){return evidence.hollow;}
+			@Override
 			public int count(final Kmer word){return evidence.bridgeCount(word);}
 		};
 	}
@@ -482,6 +521,8 @@ public class TadpoleMulti {
 		}
 		fusionSupport=new FusionKmerSupport(new FusionKmerSupport.Evidence(){
 			@Override
+			public boolean hollow(){return evidence.hollow;}
+			@Override
 			public int count(final Kmer key){return evidence.bridgeCount(key);}
 			@Override
 			public boolean isJunction(final int max, final int second){return evidence.isJunction(max, second);}
@@ -493,7 +534,7 @@ public class TadpoleMulti {
 		assert((config.fusePath || config.fusionVectorPrefix!=null || config.fuseNet!=null) && k<config.assembleK) :
 				"Only a shorter-K support or collection pass may load a separate, sole evidence table.";
 		final ArrayList<String> args=new ArrayList<String>(Arrays.asList(makeArgs(k, false)));
-		args.add("hashkmers=explicit");
+		args.add("hashkmers="+(config.hollowPhase(k) ? "pair" : "explicit"));
 		args.add("prefilter=f");
 		args.add("prepasses=1");
 		return args.toArray(new String[args.size()]);
@@ -526,6 +567,9 @@ public class TadpoleMulti {
 		final ArrayList<String> list=new ArrayList<String>(config.common.size()+6);
 		list.addAll(config.common);
 		final int hashMode=(longest ? Tadpole.HASH_EXPLICIT : config.hashMode(k));
+		final boolean hollow=!longest && config.hollowPhase(k);
+		list.add("hollow="+hollow);
+		if(hollow){list.add("prefilter=f");}
 		list.add("hashkmers="+Tadpole.hashModeName(hashMode));
 		list.add("seedfromtable="+longest);
 		if(!longest){list.add("tipseededwash=t");}
@@ -533,7 +577,7 @@ public class TadpoleMulti {
 		list.add("out=null");
 		list.add("mode=contig");
 		list.add("showstats=f");
-		list.add("processcontigs="+(longest ? "t" : "f"));
+		list.add("processcontigs="+(longest && !config.hollowPhase(k) ? "t" : "f"));
 		/* Sweep once after initial contig construction; bridge tables never discard contigs. */
 		list.add("sweeplen="+(longest ? config.sweepContigLen : 0));
 		if(longest && config.evictLowDepthContigs){
@@ -577,7 +621,7 @@ public class TadpoleMulti {
 					|| a.equals("graphbranchguard") || a.equals("graphoverlapguard") || a.equals("fuseshortevidence")
 					|| a.equals("fusepath") || a.equals("fusepathdepth") || a.equals("fusepathflank")
 					|| a.equals("fusetrim") || a.equals("fusesupportk") || a.equals("fusionvectors")
-					|| a.equals("fusenet") || a.equals("fusencutoff") || a.equals("korder")){return true;}
+					|| a.equals("fusenet") || a.equals("fusencutoff") || a.equals("korder") || a.equals("hollowk")){return true;}
 			if(a.equals("lowdepthcontigdiagstage") || a.equals("ldcdstage")){return true;}
 			if((a.equals("lowdepthcontigdiag") || a.equals("diagnoselowdepthcontigs") || a.equals("ldcd"))
 					&& isLowDepthDiagStage(b)){return true;}
@@ -588,7 +632,8 @@ public class TadpoleMulti {
 	static class Config {
 
 		Config(String[] args){
-			String kList=null, assembleText=null, fuseText=null, bridgeText=null;
+			String kList=null, assembleText=null, fuseText=null, bridgeText=null, hollowText="all";
+			boolean hollowSelectionSet=false;
 			boolean assembleExplicit=false, fuseExplicit=false, bridgeExplicit=false, graphExplicit=false;
 			for(String arg : args){
 				final int equals=arg.indexOf('=');
@@ -602,6 +647,8 @@ public class TadpoleMulti {
 				final String b=(equals<0 ? null : arg.substring(equals+1));
 				while(a.startsWith("-")){a=a.substring(1);}
 				if(a.equals("k")){kList=b;}
+				else if(a.equals("hollow")){hollow=Parse.parseBoolean(b);}
+				else if(a.equals("hollowk")){hollowText=b; hollowSelectionSet=true;}
 				else if(a.equals("korder")){
 					if("input".equalsIgnoreCase(b)){ordered=true;}
 					else if("legacy".equalsIgnoreCase(b)){ordered=false;}
@@ -753,6 +800,14 @@ public class TadpoleMulti {
 					common.add(arg);
 				}
 			}
+			hollowKs="all".equalsIgnoreCase(hollowText) ? null : parseKList(hollowText, "hollowk", false);
+			if(hollowSelectionSet && !hollow){
+				throw new IllegalArgumentException("hollowk restricts Hollow assembly spans and requires hollow=t.");
+			}
+			if(hollow && (!Kmer.PACKED || explicitTableRequired ||
+					(hashModeRequested!=Tadpole.HASH_AUTO && hashModeRequested!=Tadpole.HASH_PAIR))){
+				throw new IllegalArgumentException("Hollow assembly requires packed=t, hashkmers=auto or pair, and no explicit-key enumeration.");
+			}
 			final int[] shorthand=parseKList(kList, "k", true);
 			if(assembleExplicit){assembleK=parseK(assembleText, "assemblek");}
 			else if(shorthand.length>0){assembleK=shorthand[0];}
@@ -811,6 +866,13 @@ public class TadpoleMulti {
 				}
 			}else if(graphExplicit){throw new RuntimeException("graphk requires graph operations, graph classification, or lowDepthContigDiag=t.");}
 			else{graphK=assembleK;}
+			if(hollowKs!=null){
+				for(int k : hollowKs){
+					if(!contains(phaseKs, k) && !(finalGraphNeeded() && k==graphK)){
+						throw new IllegalArgumentException("hollowk span "+k+" is absent from the assembly schedule.");
+					}
+				}
+			}
 		}
 
 		private static int parseK(final String text, final String name){
@@ -888,7 +950,7 @@ public class TadpoleMulti {
 		boolean earlyLowDepthDiag(){return lowDepthContigDiag && (lowDepthContigDiagStage&DIAG_EARLY)!=0;}
 		boolean finalLowDepthDiag(){return lowDepthContigDiag && (lowDepthContigDiagStage&DIAG_FINAL)!=0;}
 		boolean finalGraphNeeded(){
-			return graphOperations() || finalLowDepthDiag() || graphClassificationRequested()
+			return hollow || graphOperations() || finalLowDepthDiag() || graphClassificationRequested()
 					|| graphMergeCoverageRatio>0 || graphMergeBranchGuard || graphMergeOverlapGuard;
 		}
 		boolean explicitGraphClassificationRequested(){
@@ -905,7 +967,10 @@ public class TadpoleMulti {
 		}
 		boolean useHashBridgeTables(){return hashModeForAny(bridgeKs)>0;}
 		int bridgeHashMode(){return hashModeForAny(bridgeKs);}
+		/** Short spans have no masked middle and retain the native solid representation. */
+		boolean hollowPhase(final int k){return hollow && k>64 && (hollowKs==null || contains(hollowKs, k));}
 		int hashMode(final int k){
+			if(hollowPhase(k)){return Tadpole.HASH_PAIR;}
 			if(explicitTableRequired || k<64){return Tadpole.HASH_EXPLICIT;}
 			if(hashModeRequested>=0){return hashModeRequested;}
 			if(k==64 && !preallocRequested){return Tadpole.HASH_EXPLICIT;}
@@ -1037,6 +1102,8 @@ public class TadpoleMulti {
 				Tadpole.printPlanLine("fusepathdepth", fusePathDepth);
 				Tadpole.printPlanLine("fusepathflank", fusePathFlank==0 ? "auto" : ""+fusePathFlank);
 			}
+			if(hollow){Tadpole.printPlanLine("hollow", "solid contigging; Hollow auxiliary K>64; no supplementary table");}
+			if(hollow && hollowKs!=null){Tadpole.printPlanLine("hollowk", hollowKs.length==0 ? "none" : toKList(hollowKs));}
 			if(bridgeKs.length>0){Tadpole.printPlanLine("bridgek", toKList(bridgeKs));}
 			final int displayedHashMode=displayedHashMode();
 			if(displayedHashMode>0){
@@ -1065,8 +1132,10 @@ public class TadpoleMulti {
 		final ArrayList<String> common=new ArrayList<String>();
 		final int assembleK;
 		final int[] fuseKs, bridgeKs, phaseKs;
+		/** Null selects every eligible span; an empty list selects none for matched controls. */
+		final int[] hollowKs;
 		final boolean bridgeInitial;
-		boolean ordered=true;
+		boolean ordered=true, hollow=false;
 		String out, outGfa;
 		String fusionVectorPrefix;
 		String fuseNet;

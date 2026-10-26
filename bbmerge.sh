@@ -171,6 +171,19 @@ extend2=0            Extend reads this much only after a failed merge attempt,
                      or in rem/rsem mode.
 iterations=1         (ei) Iteratively attempt to extend by extend2 distance
                      and merge up to this many times.
+hollow=f             Experimental single-K extension using only the outer32bp
+                     at each end of a k>64 span. Requires extend2 or REM;
+                     pre-merge extend= is not supported (must remain 0).
+                     Not supported with multi-K/target bridging, ecct, eccb,
+                     ecco, kfilter, testmerge, shaving, rinsing or prefiltering.
+                     Uses resizable hash pairs even with prealloc=t;
+                     explicit/fixed hash overrides are rejected. Solid remains
+                     available with hollow=f (default).
+hollowbranchstop=f   Stop Hollow extension before a supported conflicting or
+                     ambiguous branch at an observed span of k+1 or k-1.
+                     Requires hollow=t and k>=67. Does not correct read bases.
+hollowbranchratio=4  Alternate-span count-ratio threshold (positive integer).
+hollowbranchsupport=3 Minimum alternate-span context/branch support (>0).
 rem=f                (requireextensionmatch) Do not merge if the predicted
                      insert size differs before and after extension.
                      However, if only the extended reads overlap, then that
@@ -285,6 +298,8 @@ launch() {
 		CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP jgi.BBMerge $@"
 	fi
 	echo "$CMD" >&2
+	# TODO: Probable bug - the multi-K CMD above is only printed; this launch
+	# still gives the parent the full heap and omits bbmerge.child.xm properties.
 	java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" jgi.BBMerge "$@"
 }
 

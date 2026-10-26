@@ -42,7 +42,7 @@ public class TadPipe {
 	/*--------------------------------------------------------------*/
 
 	/** Keeps pipeline state private to this invocation, never in tool statics. */
-	TadPipe(final Config config_, final PrintStream outstream_){
+	public TadPipe(final Config config_, final PrintStream outstream_){
 		assert(config_!=null && outstream_!=null) : "A pipeline needs configuration and a progress stream.";
 		config=config_;
 		outstream=outstream_;
@@ -53,7 +53,7 @@ public class TadPipe {
 	/*--------------------------------------------------------------*/
 
 	/** Publishes an assembly only after every child succeeds; failure retains evidence. */
-	void process() throws IOException, InterruptedException{
+	public void process() throws IOException, InterruptedException{
 		config.validate();
 		Files.createDirectories(config.temp);
 		work=Files.createTempDirectory(config.temp, "tadpipe-").toRealPath();
@@ -83,6 +83,10 @@ public class TadPipe {
 				outstream.println("Unpolished assembly retained: "+unpolishedAssembly);
 				outstream.println("Polishing edit report: "+work.resolve("polish.edits.tsv"));
 			}
+			if(config.scaffold){
+				outstream.println("Unscaffolded assembly retained: "+unscaffoldedAssembly);
+				outstream.println("Scaffold evidence: "+work.resolve("scaffold.joins.tsv"));
+			}
 		}catch(IOException | InterruptedException | RuntimeException e){
 			outstream.println("TadPipe failed; intermediates and logs retained in "+work);
 			throw e;
@@ -90,7 +94,7 @@ public class TadPipe {
 	}
 
 	/** Compressed headers alone are nonzero bytes, but are not an assembly. */
-	static boolean hasSequence(final Path path) throws IOException{
+	public static boolean hasSequence(final Path path) throws IOException{
 		assert(path!=null) : "Publication validation needs the exact final stage output.";
 		final ByteFile input=ByteFile.makeByteFile(FileFormat.testInput(path.toString(), FileFormat.FASTA, null, true, true));
 		boolean header=false, sequence=false;
@@ -134,7 +138,7 @@ public class TadPipe {
 	}
 
 	/** Constructs the complete dataflow before launching any expensive processing. */
-	ArrayList<Stage> plan(){
+	public ArrayList<Stage> plan(){
 		assert(work!=null) : "The unique work directory must exist before stage paths are assigned.";
 		final ArrayList<Stage> stages=new ArrayList<Stage>();
 		Path paired=reads("paired");
@@ -219,7 +223,7 @@ public class TadPipe {
 		}
 		final Stage assembly=stage("10_assemble", "tadpole.sh", "assemble");
 		assembly.defaults("assemblek=124", "k=124,300,96,64,32", "minprob=0", "minprobmain=f",
-				"fusecoverageratio=1.75", "graphmergecoverageratio=1.75");
+				"fusecoverageratio=1.75", "graphmergecoverageratio=1.75", "scaffold=f");
 		// Keep bundled-model domain selection in Tadpole; a literal path is a custom binding.
 		assembly.defaults("fusenet="+(config.nn ? "auto" : "null"));
 		if(!config.nn){assembly.defaults("branchrescue=f");}
@@ -243,6 +247,22 @@ public class TadPipe {
 			polish.output("out", finalAssembly);
 			polish.output("report", work.resolve("polish.edits.tsv"));
 			stages.add(polish);
+		}
+		if(config.scaffold){
+			unscaffoldedAssembly=finalAssembly;
+			final Stage scaffold=stage("12_scaffold", "dev/hollowbridge.sh", "scaffold");
+			scaffold.defaults("k=224", "tipbases=192", "tipmin=10", "tipmax=160", "slide=0",
+					"flankcheck=t", "flankbases=128", "flankmin=16", "minsupport=3", "gapratio=4", "fillgaps=f");
+			scaffold.overrides(config);
+			scaffold.defaults("join=t", "interleaved=f");
+			scaffold.io("contigs", unscaffoldedAssembly);
+			scaffold.io("in", merged==null ? unmerged : merged);
+			if(merged!=null){scaffold.io("extra", unmerged);}
+			finalAssembly=work.resolve(config.out.toString().endsWith(".gz") ? "scaffolds.fa.gz" : "scaffolds.fa");
+			scaffold.output("outassembly", finalAssembly);
+			scaffold.output("out", work.resolve("scaffold.candidates.tsv"));
+			scaffold.output("outjoins", work.resolve("scaffold.joins.tsv"));
+			stages.add(scaffold);
 		}
 		for(Stage stage : stages){stage.finish(config);}
 		return stages;
@@ -355,8 +375,8 @@ public class TadPipe {
 	/*--------------------------------------------------------------*/
 
 	/** Per-invocation options; prefixes configure tools but cannot redirect pipeline files. */
-	static final class Config {
-		Config(final String[] args){
+	public static final class Config {
+		public Config(final String[] args){
 			assert(args!=null) : "PreParser supplies a nonnull argument array.";
 			for(String arg : args){
 				final String[] split=Parse.splitOnFirst(arg, '=');
@@ -391,6 +411,7 @@ public class TadPipe {
 				else if(key.equals("qtrim")){qtrim=Parse.parseBoolean(value);}
 				else if(key.equals("nn")){nn=Parse.parseBoolean(value);}
 				else if(key.equals("polish")){polish=Parse.parseBoolean(value);}
+				else if(key.equals("scaffold")){scaffold=Parse.parseBoolean(value);}
 				else if(key.equals("interleaved") || key.equals("int")){
 					interleaved=Parse.parseBoolean(value);
 				}else if(key.indexOf('_')>0){addOverride(key, value);}
@@ -419,7 +440,7 @@ public class TadPipe {
 		}
 
 		/** Resolves the extension limit for one REM pass; automatic values preserve the old recipe. */
-		int remExtension(final int pass){
+		public int remExtension(final int pass){
 			assert(pass>=0 && pass<remKs.length) : "REM extension limits must align with the ordered REM K list.";
 			if(remExtends!=null){return remExtends[remExtends.length==1 ? 0 : pass];}
 			final int k=remKs[pass];
@@ -458,7 +479,7 @@ public class TadPipe {
 		}
 
 		/** Fails before processing on invalid resources, missing inputs, or output aliases. */
-		void validate() throws IOException{
+		public void validate() throws IOException{
 			if(in==null || out==null || bbtools==null || temp==null){throw new IllegalArgumentException("Specify in, out, a temp directory and the BBTools installation.");}
 			if(in2==null && Boolean.FALSE.equals(interleaved)){
 				throw new IllegalArgumentException("Single-file input must be interleaved pairs; otherwise specify in2.");
@@ -498,7 +519,10 @@ public class TadPipe {
 			final int split=key.indexOf('_');
 			String group=key.substring(0, split);
 			String option=key.substring(split+1);
-			if(group.equals("polish") && option.equals("threads")){option="t";}
+			if(group.equals("assemble") && (option.equals("scaffold") || option.startsWith("scaffold_"))){
+				throw new IllegalArgumentException("Use TadPipe scaffold/scaffold_ controls; scaffolding runs once after optional polishing.");
+			}
+			if((group.equals("polish") || group.equals("scaffold")) && option.equals("threads")){option="t";}
 			if(group.equals("correct")){group="ecc";}
 			if(group.equals("clumpify")){group="clump";}
 			if(group.equals("extend1")){group="extend";}
@@ -506,10 +530,15 @@ public class TadPipe {
 			if(mergeGroup){group="merge"+Integer.parseInt(group.substring(5));}
 			if(remGroup){group="rem"+Integer.parseInt(group.substring(3));}
 			if(!mergeGroup && !remGroup && !Arrays.asList("dedupe", "ecco", "clump", "ecc", "merge",
-					"qtrim", "extend", "extendm", "extendu", "assemble", "polish").contains(group)){
+					"qtrim", "extend", "extendm", "extendu", "assemble", "polish", "scaffold").contains(group)){
 				throw new IllegalArgumentException("Unknown phase: "+group+"; inputs must already be adapter-trimmed, filtered and calibrated.");
 			}
-			if(group.equals("polish")){
+			if(group.equals("scaffold")){
+				if(!Arrays.asList("k", "span", "tipbases", "tipmin", "tipmax", "slide", "minsupport",
+						"gapratio", "flankcheck", "flankbases", "flankmin", "fillgaps", "t").contains(option)){
+					throw new IllegalArgumentException("TadPipe owns scaffold paths and pairing; unsupported override: "+key);
+				}
+			}else if(group.equals("polish")){
 				if(!Arrays.asList("minoverlap", "maxoverlap", "indexed", "t").contains(option)){
 					throw new IllegalArgumentException("Polishing overrides support minoverlap, maxoverlap, indexed and t only; TadPipe owns evidence paths: "+key);
 				}
@@ -530,22 +559,24 @@ public class TadPipe {
 			return Paths.get(value).toAbsolutePath().normalize();
 		}
 
-		Path in, in2;
-		Path out=path("contigs.fa"), bbtools=path("."), temp=path(System.getProperty("java.io.tmpdir"));
+		Path in;
+		public Path in2, out=path("contigs.fa");
+		Path bbtools=path("."), temp=path(System.getProperty("java.io.tmpdir"));
 		String heap="14g";
 		int threads=Shared.threads(), zipLevel=4;
 		boolean delete=true, gz=true, overwrite=false, dryrun=false;
-		Boolean interleaved=null;
+		public Boolean interleaved=null;
 		boolean dedupe=true, ecco=true, clump=true, ecc=true, merge=true, rem=true, extend=true, qtrim=true, nn=true;
 		boolean extendMerged=true, extendUnmerged=true;
 		boolean polish=false;
-		int[] remKs={124,145,93};
+		boolean scaffold=true;
+		public int[] remKs={124,145,93};
 		int[] remExtends=null;
-		final Map<String,Map<String,String>> overrides=new LinkedHashMap<String,Map<String,String>>();
+		public final Map<String,Map<String,String>> overrides=new LinkedHashMap<String,Map<String,String>>();
 	}
 
 	/** One fresh process, with explicit outputs checked before consumers are launched. */
-	static final class Stage {
+	public static final class Stage {
 		Stage(final String name_, final String tool_, final String[] groups_){
 			assert(name_!=null && tool_.endsWith(".sh")) : "Stages execute BBTools launchers, never raw tool main methods.";
 			name=name_;
@@ -594,11 +625,11 @@ public class TadPipe {
 			for(Map.Entry<String,String> entry : args.entrySet()){command.add(entry.getKey()+"="+entry.getValue());}
 		}
 
-		final String name, tool;
+		public final String name, tool;
 		final String[] groups;
-		final LinkedHashMap<String,String> args=new LinkedHashMap<String,String>();
+		public final LinkedHashMap<String,String> args=new LinkedHashMap<String,String>();
 		final ArrayList<Path> outputs=new ArrayList<Path>();
-		final ArrayList<String> command=new ArrayList<String>();
+		public final ArrayList<String> command=new ArrayList<String>();
 	}
 
 	/*--------------------------------------------------------------*/
@@ -608,6 +639,6 @@ public class TadPipe {
 	private final Config config;
 	private final PrintStream outstream;
 	private final ArrayList<Path> intermediates=new ArrayList<Path>();
-	Path work;
-	private Path finalAssembly, unpolishedAssembly;
+	public Path work;
+	private Path finalAssembly, unpolishedAssembly, unscaffoldedAssembly;
 }
