@@ -8,6 +8,11 @@ import map.ObjectIntMap;
 import map.SeqMap;
 import map.SeqPos;
 import map.SeqPosM;
+import map.IntListHashMap3;
+import structures.IntList;
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+import java.lang.reflect.InvocationTargetException;
 
 /** Small independent edge cases discovered during the map package review.
  * @author Shinobu
@@ -26,6 +31,8 @@ public final class MapEdgeTest{
 		else if(name.equals("double-fetch")){doubleFetch(fixed);}
 		else if(name.equals("gc-copy")){gcCopy(fixed);}
 		else if(name.equals("double-fetch-gc")){doubleFetchGc(fixed);}
+		else if(name.equals("null-equals")){nullEquals(fixed);}
+		else if(name.equals("terminal-capacity")){terminalCapacity(fixed);}
 		else{throw new IllegalArgumentException(name);}
 		System.out.println("PASS\t"+name+"\tfixed="+fixed);
 	}
@@ -120,6 +127,66 @@ public final class MapEdgeTest{
 		final int count=found==null ? 0 : found.size();
 		check(count==(fixed ? 1 : 0), "Second-region GC filter must be considered for a shared kmer: "+count);
 		if(found!=null){check(found.get(0).pos()==0, "Shared-key candidate stays first-region relative");}
+	}
+
+	/** Both overloads reject null, while wrong-type misuse retains its existing failure. */
+	private static void nullEquals(final boolean fixed){
+		final SeqMap map=new SeqMap(1, 0, 0);
+		map.add(bytes("A"), 1, 1);
+		final SeqPos a=map.get(0).get(0), b=new SeqPos(a);
+		final SeqPosM c=new SeqPosM(bytes("A"), 0), d=new SeqPosM(c);
+		check(a.equals(b) && a.equals((Object)b) && c.equals(d) && c.equals((Object)d), "Equal controls");
+		d.setPos(1);
+		check(!c.equals(d), "Different position control");
+		int nullThrows=0, typeThrows=0;
+		try{check(!a.equals((Object)null), "Object-null SeqPos");}catch(NullPointerException e){nullThrows++;}
+		try{check(!a.equals((SeqPos)null), "Typed-null SeqPos");}catch(NullPointerException e){nullThrows++;}
+		try{check(!c.equals((Object)null), "Object-null SeqPosM");}catch(NullPointerException e){nullThrows++;}
+		try{check(!c.equals((SeqPosM)null), "Typed-null SeqPosM");}catch(NullPointerException e){nullThrows++;}
+		try{a.equals("wrong");}catch(ClassCastException e){typeThrows++;}
+		try{c.equals("wrong");}catch(ClassCastException e){typeThrows++;}
+		check(nullThrows==(fixed ? 0 : 4) && typeThrows==2, "Null policy and unchanged wrong-type contract");
+		System.out.println("null-equals\tnullThrows="+nullThrows+"\ttypeThrows="+typeThrows);
+	}
+
+	/** Exercises no-growth handling on a real small table, without a giant allocation.
+	 * Reflection requests the same physical size to simulate the capped resize result. */
+	private static void terminalCapacity(final boolean fixed){
+		try{
+			final IntListHashMap3 map=new IntListHashMap3(64);
+			final IntList value=new IntList(1);
+			value.add(7);
+			for(int i=0; i<20; i++){map.put(i, value);}
+			final int[] keys=map.keys();
+			final IntList[] values=map.values();
+			final Method resize=IntListHashMap3.class.getDeclaredMethod("resize", long.class);
+			resize.setAccessible(true);
+			resize.invoke(map, 64L);
+			check((map.keys()==keys)==fixed, "No-growth must retain key storage");
+			check((map.values()==values)==fixed, "No-growth must retain value storage");
+			for(int i=0; i<20; i++){check(map.get(i)==value, "Retained value alias");}
+			if(fixed){
+				final Field limit=IntListHashMap3.class.getDeclaredField("sizeLimit");
+				limit.setAccessible(true);
+				final int ceiling=keys.length*95/100;
+				check(limit.getInt(map)==ceiling, "Terminal threshold is 95 percent of physical cells");
+				for(int i=20; i<ceiling; i++){map.put(i, value);}
+				check(map.keys()==keys && map.size()==ceiling, "Fill to terminal threshold without allocation");
+				map.put(0, value);
+				check(map.keys()==keys && map.size()==ceiling, "Existing-key replacement at threshold");
+				//The small table could really grow; suppress that automatic request and explicitly
+				//request the same capped size after inserting the first over-limit entry.
+				limit.setInt(map, keys.length);
+				map.put(ceiling, value);
+				boolean failed=false;
+				try{resize.invoke(map, 64L);}catch(InvocationTargetException e){
+					failed=e.getCause() instanceof IllegalStateException && e.getCause().getMessage().contains("95%");
+				}
+				check(failed && map.keys()==keys && map.values()==values, "Loud terminal failure without allocation");
+				for(int i=0; i<=ceiling; i++){check(map.get(i)==value, "Failure must not corrupt existing keys");}
+				System.out.println("terminal-capacity\tcells="+keys.length+"\tlimit="+ceiling+"\tfailedAt="+map.size());
+			}else{System.out.println("terminal-capacity\treallocated=true");}
+		}catch(ReflectiveOperationException e){throw new AssertionError(e);}
 	}
 
 	private static byte[] bytes(final String text){return text.getBytes(StandardCharsets.US_ASCII);}

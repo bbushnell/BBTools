@@ -17,26 +17,27 @@ import shared.Tools;
  * Uses open addressing with linear probing for collision resolution.
  * Caches hash codes to avoid expensive equals() calls during probing.
  * Uses power-of-2 sizing for fast modulo via bitwise AND.
- * 
- * More memory-efficient than {@code HashMap<K, V>} by:
- * - Using arrays instead of Entry objects
- * - Avoiding per-entry object overhead
- * - Better cache locality with linear probing
- * 
- * Null keys are unsupported; null values are allowed, so use contains() to
+ *
+ * Parallel arrays retain keys and values without allocating per-entry objects.
+ *
+ * Null keys cannot be stored; null lookups/removals behave as absent keys.
+ * Null values are allowed, so use contains() to
  * distinguish absence from a stored null. Keys must retain stable hashes and
  * equality while stored. Not thread-safe; synchronize accesses that overlap a mutation.
- * 
+ *
  * @author Isla
  * @date November 2, 2025
- * 
+ *
  * @param <K> Key type - must properly implement hashCode() and equals()
  * @param <V> Value type
  */
 public final class ObjectMap<K, V> implements Serializable{
 
+	/** Serialization version for this map layout. */
 	private static final long serialVersionUID=1L;
 
+	/** Runs a legacy correctness comparison and allocation/timing benchmark on random strings.
+	 * @param args Optional positional nonnegative key count and positive repetition count */
 	public static void main(String[] args){
 		int size=args.length>0 ? Integer.parseInt(args[0]) : 1000000;
 		int repeats=args.length>1 ? Integer.parseInt(args[1]) : 1;
@@ -45,6 +46,11 @@ public final class ObjectMap<K, V> implements Serializable{
 		bench(list, repeats);
 	}
 
+	/** Generates reproducible uppercase A-Z strings without ensuring uniqueness.
+	 * @param size Nonnegative number of strings
+	 * @param minLen Nonnegative minimum string length
+	 * @param maxLen Inclusive maximum length, at least minLen; range must fit an int
+	 * @return Newly allocated list and strings */
 	private static ArrayList<String> randomStrings(int size, int minLen, int maxLen){
 		// Generate random strings
 		Shared.printMemory();
@@ -65,8 +71,10 @@ public final class ObjectMap<K, V> implements Serializable{
 	}
 
 	/**
-	 * Tests correctness by comparing ObjectMap against HashMap.
-	 * Creates random list, inserts them in both maps, and validates all values match.
+	 * Compares insertion/lookup with HashMap using each list element as both key and value.
+	 * Reports mismatches to stderr and exits with status one; the size check also
+	 * requires assertions. The supplied list is not modified.
+	 * @param list Non-null list of non-null keys with stable equality and hash codes
 	 */
 	private static void test(ArrayList<? extends Object> list){
 		System.err.println("\n*** Testing Correctness ***");
@@ -110,6 +118,10 @@ public final class ObjectMap<K, V> implements Serializable{
 
 	/**
 	 * Benchmarks performance against {@code HashMap<Object, Object>}.
+	 * Reconstructs each map per repetition, inserts/looks up/removes the supplied keys,
+	 * prints timings and requests GC. This is an ad hoc benchmark, not a throughput oracle.
+	 * @param list Non-null list of non-null stable keys; not modified
+	 * @param repeats Positive number of cycles per map implementation
 	 */
 	private static void bench(ArrayList<? extends Object> list, int repeats){
 		System.gc();
@@ -172,10 +184,9 @@ public final class ObjectMap<K, V> implements Serializable{
 
 	/**
 	 * Creates a new map with default initial capacity (256) and load factor (0.7).
-	 * @param typeK Component class of the KEYS (e.g. String.class, byte[].class) — for a real K[] backing.
-	 * @param typeV Component class of the VALUES — for a real V[] backing. Both let keys()/values() return genuine
-	 *        typed arrays instead of an Object[] that CCEs at the call site. Pass class literals; they are cheap
-	 *        cached constants. [map/ObjectMap#002]
+	 * Uses the component classes to create typed arrays returned by keys()/values().
+	 * @param typeK Non-null reference component class assignable from every stored key
+	 * @param typeV Non-null reference component class assignable from every stored value
 	 */
 	public ObjectMap(Class<K> typeK, Class<V> typeV){
 		this(256, typeK, typeV);
@@ -183,7 +194,7 @@ public final class ObjectMap<K, V> implements Serializable{
 
 	/**
 	 * Creates a new map with specified initial capacity and default load factor (0.7).
-	 * @param initialSize Initial capacity (will be rounded up to next power of 2)
+	 * @param initialSize Positive minimum logical table size, rounded up to a power of two
 	 * @param typeK Component class of the keys (see {@link #ObjectMap(Class, Class)}).
 	 * @param typeV Component class of the values (see {@link #ObjectMap(Class, Class)}).
 	 */
@@ -193,7 +204,7 @@ public final class ObjectMap<K, V> implements Serializable{
 
 	/**
 	 * Creates a new map with specified initial capacity and load factor.
-	 * @param initialSize Initial capacity (will be rounded up to next power of 2)
+	 * @param initialSize Positive minimum logical table size, rounded up to a power of two
 	 * @param loadFactor_ Requested load factor in (0,1), clamped to [0.25,0.90]
 	 * @param typeK Component class of the keys (see {@link #ObjectMap(Class, Class)}).
 	 * @param typeV Component class of the values (see {@link #ObjectMap(Class, Class)}).
@@ -213,7 +224,7 @@ public final class ObjectMap<K, V> implements Serializable{
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Removes all entries from the map.
+	 * Removes all entries and releases key/value references without shrinking the arrays.
 	 */
 	public void clear(){
 		if(size<1){return;}
@@ -225,8 +236,8 @@ public final class ObjectMap<K, V> implements Serializable{
 
 	/**
 	 * Gets the value associated with the given key.
-	 * @param key Key to look up
-	 * @return Value associated with key, or null if key not found
+	 * @param key Lookup key; null is treated as absent
+	 * @return Stored value, or null when absent; contains() distinguishes a stored null
 	 */
 	public V get(K key){
 		int cell=findCell(key);
@@ -235,7 +246,7 @@ public final class ObjectMap<K, V> implements Serializable{
 
 	/**
 	 * Checks if the map contains the given key.
-	 * @param key Key to check
+	 * @param key Lookup key; null is treated as absent
 	 * @return true if key is present
 	 */
 	public boolean contains(K key){
@@ -245,9 +256,9 @@ public final class ObjectMap<K, V> implements Serializable{
 	/**
 	 * Associates the specified value with the specified key.
 	 * If the key already exists, updates its value.
-	 * @param key Key to insert/update
-	 * @param value Value to associate with key
-	 * @return Previous value associated with key, or null if key was not present
+	 * @param key Non-null key compatible with the constructor's key component type
+	 * @param value Value compatible with the value component type, or null
+	 * @return Previous value, or null for either an absent key or a stored null
 	 */
 	public V put(K key, V value){
 		return set(key, value);
@@ -255,7 +266,9 @@ public final class ObjectMap<K, V> implements Serializable{
 
 	/**
 	 * Copies all entries from another map into this map.
-	 * @param map Source map to copy from
+	 * Shared keys take the source value; destination-only keys remain. Key/value objects
+	 * are shared, not cloned. A distinct source is preserved; self-copy is a no-op.
+	 * @param map Non-null source stable during this call, with compatible key/value types
 	 */
 	public void putAll(ObjectMap<K, V> map){
 		for(int i=0; i<map.keys.length; i++){
@@ -270,7 +283,7 @@ public final class ObjectMap<K, V> implements Serializable{
 	 * If the key already exists, updates its value.
 	 * @param key Key to insert/update (must not be null)
 	 * @param value Value to associate with key (may be null)
-	 * @return Previous value associated with key, or null if key was not present
+	 * @return Previous value, or null for either an absent key or a stored null
 	 */
 	public V set(K key, V value){
 		assert(key!=null) : "Null keys not supported";
@@ -290,6 +303,10 @@ public final class ObjectMap<K, V> implements Serializable{
 	/**
 	 * Internal set method that takes pre-computed hash.
 	 * Used during resize to avoid recomputing hashes.
+	 * @param key Non-null key compatible with the backing array's component type
+	 * @param value Compatible value, or null
+	 * @param hash Precomputed Tools.hash32plus(key.hashCode()), not the raw hashCode()
+	 * @return Previous value, or null for either an absent key or a stored null
 	 */
 	private V set(K key, V value, int hash){
 		assert(key!=null) : "Null keys not supported";
@@ -307,8 +324,8 @@ public final class ObjectMap<K, V> implements Serializable{
 
 	/**
 	 * Removes the entry with the specified key.
-	 * @param key Key to remove
-	 * @return Previous value associated with key, or null if key was not found
+	 * @param key Key to remove; null is treated as absent
+	 * @return Previous value, or null for either an absent key or a stored null
 	 */
 	public V remove(K key){
 		if(key==null){return null;}
@@ -349,8 +366,9 @@ public final class ObjectMap<K, V> implements Serializable{
 	}
 
 	/**
-	 * Attempts to move an entry to its ideal position.
-	 * @param cell Position of entry to rehash
+	 * Moves an entry to the first reachable hole after deletion, preserving its cached
+	 * hash and value. Clears the vacated cell without changing the number of entries.
+	 * @param cell Occupied cell index
 	 * @return true if entry was moved
 	 */
 	private boolean rehashCell(final int cell){
@@ -375,7 +393,7 @@ public final class ObjectMap<K, V> implements Serializable{
 	 * Finds the cell containing the given key.
 	 * Uses linear probing to resolve collisions.
 	 * Checks hash code equality before calling expensive equals().
-	 * @param key Key to search for
+	 * @param key Lookup key; null is treated as absent
 	 * @return Cell index if found, -1 if not found
 	 */
 	private int findCell(final K key){
@@ -401,17 +419,16 @@ public final class ObjectMap<K, V> implements Serializable{
 	/**
 	 * Finds the cell containing the key, or an empty cell where it can be inserted.
 	 * Checks hash code equality before calling expensive equals().
-	 * @param key Key to search for
-	 * @param hash Pre-computed hash code of key
+	 * @param key Non-null key to search for
+	 * @param hash Precomputed Tools.hash32plus(key.hashCode()), not the raw hashCode()
 	 * @return Cell index (either containing key or empty)
+	 * @throws RuntimeException If no matching or empty cell exists
 	 */
 	private int findCellOrEmpty(final K key, final int hash){
 		assert(key!=null) : "Null keys not supported";
 
-		//CLEVER [verified]: hashes[] caches each key's hash so the probe compares cheap ints first
-		//(hashes[cell]==hash) and only calls equals() on a hash match. initial=hash&mask is in range for ANY mask:
-		//hash=Tools.hash32plus(...) is CAPPED in [0, 0x7FFFF800) < SAFE_ARRAY_LEN, so even at the top tier
-		//(mask=Integer.MAX_VALUE after the 2x-growth fix) hash&mask == hash is a valid index (see hash32plus javadoc).
+		//Cached hashes avoid equals() calls on mismatches. Tools.hash32plus caps the initial
+		//index below SAFE_ARRAY_LEN even at the terminal, physically capped table size.
 		final int limit=keys.length;
 		final int initial=hash&mask;
 
@@ -431,16 +448,18 @@ public final class ObjectMap<K, V> implements Serializable{
 	 */
 	private final void resize(){
 		assert(size>=sizeLimit);
-		//grow 2x: double the LOGICAL pow2 capacity (keys.length-extra==pow2), not keys.length (=pow2+extra).
-		//keys.length*2L overshot the power-of-2 boundary -> rounded up to 4*pow2 (same family bug as the pow2 maps,
-		//anchor [map/IntLongHashMap2#002]); fixed to true 2x growth. Output unchanged; ~2x less memory.
+		//Double logical capacity, excluding slack; doubling the full array would round
+		//ordinary growth up to four times the logical capacity. [map/IntLongHashMap2#002]
 		resize((keys.length-extra)*2L);
 	}
 
 	/**
-	 * Resizes the map to at least the specified size and rehashes all entries.
-	 * Actual size will be rounded up to the next power of 2.
-	 * @param size2 Minimum new size
+	 * Rebuilds all three arrays, preserving entries and cached hashes.
+	 * Rounds the logical request up to a power of two, adds slack and caps physical
+	 * length at Shared.SAFE_ARRAY_LEN. The final capped allocation uses load factor 0.85.
+	 * Borrowed array identities are replaced; referenced key/value objects are retained.
+	 * @param size2 Positive requested logical size, strictly greater than the entry count
+	 * @throws RuntimeException If the capped allocation cannot grow the existing table
 	 */
 	private final void resize(final long size2){
 		assert(size2>size) : size+", "+size2;
@@ -489,23 +508,17 @@ public final class ObjectMap<K, V> implements Serializable{
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Returns the internal key array (the live backing array; null entries mark empty cells).
-	 * This is a GENUINE K[] (e.g. String[], byte[][]) because the backing is allocated via Array.newInstance(typeK,...)
-	 * from the key component class passed to the constructor [map/ObjectMap#002] — usable directly (assigned to K[],
-	 * iterated, .length) without the ClassCastException a plain Object[] backing would cause at the call site.
-	 * WARNING: live array, contains nulls for empty cells. Use with caution.
-	 * @return Internal key array (a real K[])
+	 * Borrows the live typed key array; null entries mark empty cells.
+	 * Do not modify its entries or retain it across resizing. Stored keys must retain
+	 * stable hashes/equality even when callers never write directly to this array.
+	 * @return Map-owned array with the constructor-supplied key component type
 	 */
 	public K[] keys(){return keys;}
 
 	/**
-	 * Returns the internal value array. Null may indicate an empty slot or a stored
-	 * null value; use the parallel key array to distinguish them.
-	 * This is a GENUINE V[] (e.g. String[], byte[][]) because the backing is allocated via Array.newInstance(typeV,...)
-	 * from the value component class passed to the constructor [map/ObjectMap#002] — usable directly (assigned to V[],
-	 * iterated, .length) without the ClassCastException a plain Object[] backing would cause at the call site.
-	 * WARNING: live array, contains nulls for empty cells. Use with caution.
-	 * @return Internal value array (a real V[])
+	 * Borrows the live typed value array. Null can mean an empty slot or a stored null;
+	 * test the parallel key for occupancy. Resizing replaces the backing array.
+	 * @return Map-owned array with the constructor-supplied value component type
 	 */
 	public V[] values(){return values;}
 
@@ -537,14 +550,18 @@ public final class ObjectMap<K, V> implements Serializable{
 	private int mask;
 	/** Size threshold for triggering resize (capacity * loadFactor) */
 	private int sizeLimit;
-	/** Load factor (fraction of capacity before resize) */
+	/** Requested load clamped to [0.25,0.90]; terminal allocation uses 0.85 instead. */
 	private final float loadFactor;
 	/** Component class of K, for allocating a real K[] backing via reflection (Array.newInstance). [map/ObjectMap#002] */
 	private final Class<K> typeK;
 	/** Component class of V, for allocating a real V[] backing via reflection (Array.newInstance). [map/ObjectMap#002] */
 	private final Class<V> typeV;
 
-	/** Extra space beyond power-of-2 size to reduce wrap-around collisions */
+	/*--------------------------------------------------------------*/
+	/*----------------           Constants          ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Extra physical probe cells beyond the power-of-two logical capacity. */
 	private static final int extra=10;
 
 }

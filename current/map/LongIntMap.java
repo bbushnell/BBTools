@@ -14,29 +14,26 @@ import shared.Tools;
  * Hash map with primitive long keys and int values.
  * Uses open addressing with linear probing for collision resolution.
  * Uses power-of-2 sizing and hash mixing for fast, well-distributed hashing.
- * 
+ *
  * Ideal for kmer counting where keys are kmers (long) and values are counts (int).
- * 
- * More memory-efficient than {@code HashMap<Long, Integer>} by:
- * - Storing primitive int values instead of Integer objects
- * - Storing primitive long keys instead of Long objects
- * - Using arrays instead of Entry objects
- * - Avoiding per-entry object overhead
- * - Better cache locality with linear probing
- * 
+ *
+ * Parallel primitive arrays avoid boxed keys, boxed values and per-entry objects.
+ *
  * Supports every long key and int value; an absent lookup returns -1, so use
  * contains() when that sentinel can also be a stored value.
  * Not thread-safe; publish an immutable map for concurrent reads or synchronize
  * access externally. Backing arrays are borrowed and may change during resizing.
- * 
+ *
  * @author Isla
  * @date November 2, 2025
  */
 public final class LongIntMap implements Serializable{
 
+	/** Serialization version for this map layout. */
 	private static final long serialVersionUID=1L;
 
-	/** Runs the legacy put/get comparison; positional arguments are key count and repetitions. */
+	/** Runs the legacy allocation/put/get comparison and prints timings to stderr.
+	 * @param args Optional positional nonnegative key count and positive repetition count */
 	public static void main(String[] args){
 		int size=args.length>0 ? Integer.parseInt(args[0]) : 1000000;
 		int repeats=args.length>1 ? Integer.parseInt(args[1]) : 1;
@@ -46,7 +43,7 @@ public final class LongIntMap implements Serializable{
 		Random randy=shared.Shared.random(12345);
 		long[] keys=new long[size];
 		for(int i=0; i<size; i++){
-			long x=randy.nextLong() & Long.MAX_VALUE;
+			long x=randy.nextLong()&Long.MAX_VALUE;
 			keys[i]=(long)Math.sqrt(x);
 		}
 		System.err.println("Keys generated.");
@@ -54,7 +51,10 @@ public final class LongIntMap implements Serializable{
 		bench(keys, repeats);
 	}
 
-	/** Compares repeated construction and lookup with a boxed HashMap. */
+	/** Compares repeated construction and lookup with a boxed HashMap.
+	 * Duplicate keys overwrite earlier indices in both maps; keys are not modified.
+	 * @param keys Non-null input keys, retained only for the duration of this call
+	 * @param repeats Positive number of construction/lookup cycles for each map */
 	private static void bench(long[] keys, int repeats){
 		final int size=keys.length;
 		System.gc();
@@ -120,7 +120,7 @@ public final class LongIntMap implements Serializable{
 
 	/**
 	 * Creates a new map with specified initial capacity and default load factor (0.7).
-	 * @param initialSize Initial capacity (will be rounded up to next power of 2)
+	 * @param initialSize Positive minimum logical table size, rounded up to a power of two
 	 */
 	public LongIntMap(int initialSize){
 		this(initialSize, 0.7f);
@@ -128,7 +128,7 @@ public final class LongIntMap implements Serializable{
 
 	/**
 	 * Creates a new map with specified initial capacity and load factor.
-	 * @param initialSize Initial capacity (will be rounded up to next power of 2)
+	 * @param initialSize Positive minimum logical table size, rounded up to a power of two
 	 * @param loadFactor_ Requested load factor in (0,1), clamped to [0.25,0.90]
 	 */
 	public LongIntMap(int initialSize, float loadFactor_){
@@ -145,7 +145,7 @@ public final class LongIntMap implements Serializable{
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Removes all entries from the map.
+	 * Removes all entries without changing allocated capacity or the sentinel.
 	 */
 	public void clear(){
 		if(size<1){return;}
@@ -202,7 +202,9 @@ public final class LongIntMap implements Serializable{
 
 	/**
 	 * Copies all entries from another map into this map.
-	 * @param map Source map to copy from
+	 * Shared keys take the source value; destination-only entries remain. The source
+	 * is neither retained nor modified, and copying this map onto itself is a no-op.
+	 * @param map Non-null source, stable for the duration of this operation
 	 */
 	public void putAll(LongIntMap map){
 		for(int i=0; i<map.keys.length; i++){
@@ -237,6 +239,7 @@ public final class LongIntMap implements Serializable{
 	/**
 	 * Increments the value associated with the key by 1.
 	 * If key is not present, inserts it with value 1.
+	 * An existing Integer.MAX_VALUE count remains saturated.
 	 * @param key Key to increment
 	 * @return New value after increment
 	 */
@@ -257,8 +260,7 @@ public final class LongIntMap implements Serializable{
 		if(key==invalid){resetInvalid();}
 		final int cell=findCellOrEmpty(key);
 		final long oldV=values[cell];
-		//CLEVER [verified]: oldV is read as a LONG (widening the int value), so oldV+incr is a long add that can't
-		//wrap before the clamp to Integer.MAX_VALUE. absent key -> oldV=0 so a present key starts at incr.
+		//Widen before addition so upper overflow is detected before narrowing; absent slots start at zero.
 		final int value=(int)Tools.min(Integer.MAX_VALUE, oldV+incr);
 		values[cell]=value;
 		if(keys[cell]==invalid){
@@ -272,7 +274,9 @@ public final class LongIntMap implements Serializable{
 	/**
 	 * Increments all entries in this map by corresponding values from another map.
 	 * Keys not present in this map are inserted with their values from the source map.
-	 * @param map Source map containing increment values
+	 * Uses increment(long,int)'s upper saturation and lower wrapping behavior.
+	 * A distinct source is preserved; using this map doubles each value with those rules.
+	 * @param map Non-null source, externally stable unless it is this map itself
 	 */
 	public void incrementAll(LongIntMap map){
 		for(int i=0; i<map.keys.length; i++){
@@ -286,14 +290,15 @@ public final class LongIntMap implements Serializable{
 	 * For each key in the source map, sets this map's value to the maximum
 	 * of the current value and the source value.
 	 * Keys absent from this map copy the source value exactly, including negative values.
-	 * @param map Source map to compare against
+	 * Destination-only keys remain; a distinct source is preserved and self-merging is a no-op.
+	 * @param map Non-null source, stable for the duration of this operation
 	 */
 	public void setToMax(LongIntMap map){
 		for(int i=0; i<map.keys.length; i++){
 			final long key=map.keys[i];
 			if(key!=map.invalid){
 				final int value=map.values[i];
-				if(key==invalid){put(key, value);continue;}
+				if(key==invalid){put(key, value); continue;}
 				final int cell=findCellOrEmpty(key);
 				if(keys[cell]==invalid){
 					keys[cell]=key;
@@ -347,8 +352,9 @@ public final class LongIntMap implements Serializable{
 	}
 
 	/**
-	 * Attempts to move an entry to its ideal position.
-	 * @param cell Position of entry to rehash
+	 * Moves an entry to the first reachable hole in its probe sequence after deletion.
+	 * Preserves its value and the entry count; the vacated slot becomes empty.
+	 * @param cell Occupied cell index
 	 * @return true if entry was moved
 	 */
 	private boolean rehashCell(final int cell){
@@ -367,7 +373,8 @@ public final class LongIntMap implements Serializable{
 	}
 
 	/**
-	 * Resets the invalid sentinel when it collides with a real key.
+	 * Chooses a different negative sentinel absent from the map and rewrites empty keys.
+	 * Existing entries, values and size are unchanged; borrowed key-array contents change.
 	 */
 	private void resetInvalid(){
 		final long old=invalid;
@@ -385,7 +392,7 @@ public final class LongIntMap implements Serializable{
 	/**
 	 * Finds the cell containing the given key.
 	 * Uses linear probing with hash mixing for collision resolution.
-	 * Hash mixing ensures adjacent kmers distribute evenly.
+	 * Stops at the first empty cell and wraps at the physical array end.
 	 * @param key Key to search for
 	 * @return Cell index if found, -1 if not found
 	 */
@@ -412,18 +419,18 @@ public final class LongIntMap implements Serializable{
 
 	/**
 	 * Finds the cell containing the key, or an empty cell where it can be inserted.
-	 * @param key Key to search for
+	 * Requires at least one empty cell and preserves all map state.
+	 * @param key Key to search for, unequal to the current empty-cell sentinel
 	 * @return Cell index (either containing key or empty)
+	 * @throws RuntimeException If a full table contains neither the key nor an empty cell
 	 */
 	private int findCellOrEmpty(final long key){
 		assert(key!=invalid) : "Collision - this should have been intercepted.";
 
 		final int limit=keys.length;
 		final long hash=Tools.hash64plus(key);
-		//initial=(int)(hash&mask). hash=Tools.hash64plus(key) is CAPPED in [0, 0x7FFFF800) < SAFE_ARRAY_LEN, so
-		//initial is a valid in-range index for ANY mask - even mask=-1 at the 2^32 tier (hash & -1 == hash). See
-		//#002. loadFactor<1 guarantees >=1 empty cell, so the wrap-around probe halts and the RuntimeException is
-		//unreachable under the size invariant.
+		//Tools.hash64plus caps the initial index below SAFE_ARRAY_LEN, including at the terminal tier.
+		//The load threshold leaves an empty cell, so an intact table always terminates its probe.
 		final int initial=(int)(hash&mask);
 
 		for(int cell=initial; cell<limit; cell++){
@@ -442,30 +449,25 @@ public final class LongIntMap implements Serializable{
 	 */
 	private final void resize(){
 		assert(size>=sizeLimit);
-		//grow 2x: double the LOGICAL pow2 capacity (keys.length-extra==pow2), not keys.length (=pow2+extra).
-		//keys.length*2L overshot the power-of-2 boundary -> rounded up to 4*pow2; fixed (shared pow2-family
-		//over-allocation, anchor [map/IntLongHashMap2#002]). Output unchanged; ~2x less memory. With 2x growth the
-		//top operational tier is now pow2=2^31 (not 2^32) - see the mask note in resize(long) below.
+		//Exclude slack before doubling; otherwise power-of-two rounding can quadruple capacity.
+		//This preserves ordinary twofold growth. [map/IntLongHashMap2#002]
 		resize((keys.length-extra)*2L);
 	}
 
 	/**
-	 * Resizes the map to at least the specified size and rehashes all entries.
-	 * Actual size will be rounded up to the next power of 2.
-	 * @param size2 Minimum new size
+	 * Rebuilds the arrays, preserving entries and replacing borrowed-array identities.
+	 * Rounds the requested logical size up to a power of two, adds slack, then caps
+	 * the physical length at Shared.SAFE_ARRAY_LEN. At the cap, the load factor is 0.85.
+	 * @param size2 Positive requested logical size, strictly greater than the current entry count
+	 * @throws RuntimeException If the capped allocation cannot grow the existing table
 	 */
 	private final void resize(final long size2){
 		assert(size2>size) : size+", "+size2;
 
 		long size3=Long.highestOneBit(size2);
 		if(size3<size2){size3<<=1;}
-		//RESOLVED non-bug [map/LongIntMap#002] - twin of LongLongHashMap2#001 (long->int; byte-identical resize).
-		//With the 2x-growth fix the top operational tier is pow2=2^31, clamped to SAFE_ARRAY_LEN below, so
-		//mask=(int)(2^31-1)=Integer.MAX_VALUE (POSITIVE); the next resize throws before mask could reach -1. SAFE
-		//either way: findCell uses hash=Tools.hash64plus(key), CAPPED in [0, 0x7FFFF800) < SAFE_ARRAY_LEN (see
-		//hash64plus javadoc), so (int)(hash&mask) == hash is ALWAYS a valid in-range index. The HASH guarantees the
-		//range; the mask never needs capping. NOT a bug; escalation RETRACTED. (My AIOOBE claim assumed the hash could
-		//be negative - it cannot.)
+		//Keep the logical mask when physical length is capped: hash64plus already limits
+		//the initial index below SAFE_ARRAY_LEN. The mask need not be capped. [map/LongIntMap#002]
 		mask=(int)(size3-1);
 		size3=Math.min(size3+extra, Shared.SAFE_ARRAY_LEN);
 		if((keys!=null && size3<=keys.length) || size3>Shared.SAFE_ARRAY_LEN){
@@ -497,8 +499,8 @@ public final class LongIntMap implements Serializable{
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Returns array of all keys currently in the map.
-	 * @return Array containing all keys (no invalid sentinels)
+	 * Copies keys into a new dense array in backing-table order, which is not sorted.
+	 * @return Independently owned array of size() keys, with no empty-cell sentinels
 	 */
 	public long[] toArray(){
 		long[] x=KillSwitch.allocLong1D(size);
@@ -528,7 +530,7 @@ public final class LongIntMap implements Serializable{
 
 	/**
 	 * Returns the invalid sentinel value used for empty cells.
-	 * @return Invalid sentinel (always negative)
+	 * @return Current negative sentinel; it may change when that long is inserted as a key
 	 */
 	public long invalid(){return invalid;}
 
@@ -558,12 +560,16 @@ public final class LongIntMap implements Serializable{
 	private long invalid;
 	/** Bit mask for fast modulo (always power of 2 minus 1) */
 	private int mask;
-	/** Size threshold for triggering resize (capacity * loadFactor) */
+	/** Maximum entry count before growth; derived from logical capacity and effective load. */
 	private int sizeLimit;
-	/** Load factor (fraction of capacity before resize) */
+	/** Requested load fraction clamped to [0.25, 0.90]; the terminal allocation uses 0.85. */
 	private final float loadFactor;
 
-	/** Extra space beyond power-of-2 size to reduce wrap-around collisions */
+	/*--------------------------------------------------------------*/
+	/*----------------           Constants          ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Extra physical probe cells beyond the power-of-two logical capacity. */
 	private static final int extra=10;
 	/** Mask to ensure invalid sentinel is negative */
 	private static final long MINMASK=Long.MIN_VALUE;

@@ -11,16 +11,37 @@ import shared.Tools;
 import structures.IntList;
 
 /**
- * Abstract base class for integer-to-integer hash maps.
- * Provides common operations for hash maps with integer keys and values.
- * Concrete implementations handle the underlying storage strategy and collision resolution.
- * Includes extensive testing capabilities and utility methods for data analysis.
+ * Shared base for mutable int-to-int maps backed by raw key/value tables.
+ * Subclasses own storage, collision resolution, absent-value defaults, overflow policy,
+ * and sentinel remapping; this class supplies membership wrappers, dense snapshots,
+ * string views, whole-map aggregation, histogramming, and structural verification.
+ * Instances are unsynchronized. The raw key array returned by {@link #keys()}
+ * encodes probe structure; external key writes can break lookup and rehash invariants.
+ * The raw value array returned by {@link #values()} is direct storage indexed by
+ * the key table, so value writes change mappings at occupied key cells.
  *
  * @author Brian Bushnell
  * @date June 8, 2017
  */
 public abstract class AbstractIntHashMap implements IntHashMapInterface{
-	
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Initialization        ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Constructs an empty abstract map base. */
+	public AbstractIntHashMap(){}
+
+	/*--------------------------------------------------------------*/
+	/*----------------           Testing            ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/**
+	 * Exercises an initially empty int map against {@link HashMap} and then runs a
+	 * destructive set/lookup/remove microbenchmark.
+	 * @param set Non-null empty map to refill, drain, and finally leave populated
+	 *        with the last benchmark cycle's keys and values
+	 */
 	public static final void test(AbstractIntHashMap set){
 		Random randy2=Shared.threadLocalRandom();
 		HashMap<Integer, Integer> set2=new HashMap<Integer, Integer>(20, 0.7f);
@@ -28,7 +49,7 @@ public abstract class AbstractIntHashMap implements IntHashMapInterface{
 		ArrayList<Integer> klist2=new ArrayList<Integer>();
 		ArrayList<Integer> vlist=new ArrayList<Integer>();
 		ArrayList<Integer> vlist2=new ArrayList<Integer>();
-		
+
 		for(int i=0; i<1000; i++){
 			assert(!set.contains(i));
 			assert(!set2.containsKey(i));
@@ -40,8 +61,8 @@ public abstract class AbstractIntHashMap implements IntHashMapInterface{
 			klist2.add(r);
 			vlist2.add(randy2.nextInt()&Integer.MAX_VALUE);
 		}
-		
-		
+
+
 		for(int i=0; i<klist.size(); i++){
 			int k=klist.get(i), v=vlist.get(i);
 			set.put(k, v);
@@ -53,13 +74,13 @@ public abstract class AbstractIntHashMap implements IntHashMapInterface{
 		assert(!set.isEmpty());
 		assert(!set2.isEmpty());
 		assert(set.size()==set2.size());
-		
+
 		for(int i=0; i<klist.size(); i++){
 			int k=klist.get(i), v=vlist.get(i);
 			assert(set.get(k)==v);
 			assert(set2.get(k)==v);
 		}
-		
+
 		for(int i=0; i<klist.size(); i++){
 			int k=klist.get(i), v=vlist.get(i);
 			set.increment(k);
@@ -67,7 +88,7 @@ public abstract class AbstractIntHashMap implements IntHashMapInterface{
 			set.increment(k, -1);
 			assert(set.get(k)==v);
 		}
-		
+
 		for(int i=0; i<klist.size(); i++){
 			int k=klist.get(i), v=vlist.get(i);
 			assert(set.get(k)==v);
@@ -81,8 +102,8 @@ public abstract class AbstractIntHashMap implements IntHashMapInterface{
 		assert(set.isEmpty());
 		assert(set2.isEmpty());
 		assert(set.size()==set2.size());
-		
-		
+
+
 		for(int i=0; i<klist2.size(); i++){
 			int k=klist2.get(i), v=vlist2.get(i);
 			set.put(k, v);
@@ -94,13 +115,13 @@ public abstract class AbstractIntHashMap implements IntHashMapInterface{
 		assert(!set.isEmpty());
 		assert(!set2.isEmpty());
 		assert(set.size()==set2.size());
-		
+
 		for(int i=0; i<klist2.size(); i++){
 			int k=klist2.get(i), v=vlist2.get(i);
 			assert(set.get(k)==v);
 			assert(set2.get(k)==v);
 		}
-		
+
 		for(int i=0; i<klist2.size(); i++){
 			int k=klist2.get(i), v=vlist2.get(i);
 			assert(set.get(k)==v);
@@ -114,8 +135,8 @@ public abstract class AbstractIntHashMap implements IntHashMapInterface{
 		assert(set.isEmpty());
 		assert(set2.isEmpty());
 		assert(set.size()==set2.size());
-		
-		
+
+
 		int count=4000000;
 		int runs=32;
 		IntList kil=new IntList(count);
@@ -154,7 +175,7 @@ public abstract class AbstractIntHashMap implements IntHashMapInterface{
 			t.stop();
 			System.err.println(t);
 			Shared.printMemory();
-			
+
 //			System.err.println("HashMap:");
 //			t.start();
 //			for(int i=0; i<runs; i++){
@@ -173,61 +194,81 @@ public abstract class AbstractIntHashMap implements IntHashMapInterface{
 		}
 		t.stop();
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Public Methods        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
+	/** Removes every mapping while preserving the map's allocated storage. */
 	public abstract void clear();
-	
+
+	/**
+	 * Tests whether the key is currently mapped.
+	 * @param key Key to look up
+	 * @return true if {@code key} is live in this map
+	 */
 	public final boolean contains(int key){
 		return findCell(key)>=0;
 	}
-	
+
+	/**
+	 * Tests whether the key is currently mapped.
+	 * @param key Key to look up
+	 * @return true if {@code key} is live in this map
+	 */
 	public final boolean containsKey(int key){
 		return findCell(key)>=0;
 	}
-	
-	public abstract int get(int key);
-	
+
 	/**
-	 * Associates the specified value with the specified key in this map.
-	 * If the key was previously mapped, the old value is replaced.
+	 * Returns the value mapped from a key.
+	 * @param key Key to look up
+	 * @return Mapped value, or the subclass-specific absent default
+	 */
+	public abstract int get(int key);
+
+	/**
+	 * Sets a key to a value, inserting the key if absent and replacing its old value if present.
 	 *
-	 * @param key The key to associate with the value
-	 * @param value The value to associate with the key
-	 * @return The previous value associated with the key, or implementation-defined default if none
+	 * @param key Key to insert or overwrite
+	 * @param value Value to store
+	 * @return Previous mapped value, or the subclass-specific absent default
 	 */
 	public abstract int put(int key, int value);
-	
+
 	/**
-	 * Associates the specified value with the specified key in this map.
-	 * Functionally identical to put().
+	 * Sets a key to a value, inserting the key if absent and replacing its old value if present.
 	 *
-	 * @param key The key to associate with the value
-	 * @param value The value to associate with the key
-	 * @return The previous value associated with the key, or implementation-defined default if none
+	 * @param key Key to insert or overwrite
+	 * @param value Value to store
+	 * @return Previous mapped value, or the subclass-specific absent default
 	 */
 	public abstract int set(int key, int value);
-	
+
 	/**
-	 * Increments the value associated with the specified key by 1.
-	 * If the key does not exist, it is created with value 1.
-	 * @param key The key whose value should be incremented
-	 * @return The new value after incrementing
+	 * Adds one to a key's value, inserting the key when absent.
+	 * @param key Key to insert or update
+	 * @return New value after the subclass-specific overflow policy
 	 */
 	public abstract int increment(int key);
-	
+
 	/**
-	 * Increments the value associated with the specified key by the specified amount.
-	 * If the key does not exist, it is created with the increment value.
+	 * Adds a signed delta to a key's value, inserting the key when absent.
 	 *
-	 * @param key The key whose value should be incremented
-	 * @param incr The amount to increment by (may be negative)
-	 * @return The new value after incrementing
+	 * @param key Key to insert or update
+	 * @param incr Signed increment to apply
+	 * @return New value after the subclass-specific overflow and underflow policy
 	 */
 	public abstract int increment(int key, int incr);
 
+	/**
+	 * Adds all live values from another int map into this map.
+	 * Iterates the source's borrowed raw arrays and calls {@link #increment(int, int)}
+	 * for every key not equal to the source's current sentinel. If {@code map} is
+	 * this map, each value is doubled as its occupied cell is visited; distinct
+	 * sources must remain structurally stable while their raw arrays are scanned.
+	 * @param map Source map to scan for increments; may be this map
+	 */
 	public final void incrementAll(AbstractIntHashMap map){
 		final int[] keys=map.keys();
 		final int[] values=map.values();
@@ -239,32 +280,47 @@ public abstract class AbstractIntHashMap implements IntHashMapInterface{
 			}
 		}
 	}
-	
+
 	/**
-	 * Removes the mapping for the specified key from this map if present.
-	 * @param key The key whose mapping is to be removed
-	 * @return true if the key was present and removed, false otherwise
+	 * Removes a key if present and rehashes any dependent probe cluster cells.
+	 * @param key Key to remove
+	 * @return true if a live mapping was removed
 	 */
 	public abstract boolean remove(int key);
-	
+
+	/**
+	 * Returns the number of live mappings.
+	 * @return Number of live mappings
+	 */
 	public final int cardinality(){return size();}
+	/**
+	 * Returns the number of live mappings.
+	 * @return Number of live mappings
+	 */
 	public abstract int size();
+	/**
+	 * Tests whether the map has no live mappings.
+	 * @return true when the map has no live mappings
+	 */
 	public abstract boolean isEmpty();
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        String Methods        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
-	 * Returns a string representation of this map in list view format.
-	 * Shows key-value pairs as (key,value) tuples.
-	 * @return String representation of the map
+	 * Returns {@link #toStringListView()}.
+	 * @return Key/value tuple list in raw table order
 	 */
 	@Override
 	public final String toString(){
 		return toStringListView();
 	}
-	
+
+	/**
+	 * Formats occupied cells in raw table order as triples containing the cell index, key, and value.
+	 * @return List-like string containing {@code (cell, key, value)} triples
+	 */
 	public final String toStringSetView(){
 		final int size=size(), invalid=invalid();
 		final int[] keys=keys(), values=values();
@@ -280,7 +336,11 @@ public abstract class AbstractIntHashMap implements IntHashMapInterface{
 		sb.append(']');
 		return sb.toString();
 	}
-	
+
+	/**
+	 * Formats mappings in raw table order as key/value tuples.
+	 * @return List-like string containing {@code (key,value)} tuples
+	 */
 	public final String toStringListView(){
 		final int size=size(), invalid=invalid();
 		final int[] keys=keys(), values=values();
@@ -301,7 +361,11 @@ public abstract class AbstractIntHashMap implements IntHashMapInterface{
 		sb.append(']');
 		return sb.toString();
 	}
-	
+
+	/**
+	 * Copies all live keys into a dense new array.
+	 * @return Owned key snapshot in raw table iteration order
+	 */
 	public final int[] toKeyArray(){
 		final int size=size(), invalid=invalid();
 		final int[] keys=keys();
@@ -316,6 +380,10 @@ public abstract class AbstractIntHashMap implements IntHashMapInterface{
 		return x;
 	}
 
+	/**
+	 * Counts how often each stored value occurs.
+	 * @return New binary map from stored value to the number of live cells with that value
+	 */
 	public final IntHashMapBinary toCountHistogram(){
 		IntHashMapBinary counts=new IntHashMapBinary(Tools.mid(1, size(), 64));
 		final int[] keys=keys();
@@ -330,7 +398,11 @@ public abstract class AbstractIntHashMap implements IntHashMapInterface{
 		}
 		return counts;
 	}
-	
+
+	/**
+	 * Checks raw array shape, empty-cell clearing, lookup placement, and live size.
+	 * @return true if the current table satisfies the expected probe invariants
+	 */
 	public final boolean verify(){
 		final int size=size(), invalid=invalid();
 		final int[] keys=keys(), values=values();
@@ -353,21 +425,48 @@ public abstract class AbstractIntHashMap implements IntHashMapInterface{
 		}
 		return numValues==numFound && numValues==size;
 	}
-	
+
+	/**
+	 * Finds the raw cell holding a live key.
+	 * @param key Key to locate
+	 * @return Occupied cell index, or -1 if absent
+	 */
 	abstract int findCell(final int key);
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/**
+	 * Copies all live keys into a dense new array.
+	 * @return Owned key snapshot in raw table iteration order
+	 */
 	public abstract int[] toArray();
+
+	/**
+	 * Borrows the raw key array.
+	 * @return Borrowed raw key array with {@link #invalid()} in empty cells
+	 */
 	public abstract int[] keys();
+
+	/**
+	 * Borrows the raw value array.
+	 * @return Borrowed raw value array, index-aligned with {@link #keys()}
+	 */
 	public abstract int[] values();
+
+	/**
+	 * Returns the current empty-cell sentinel.
+	 * @return Current empty-cell sentinel for {@link #keys()}
+	 */
 	public abstract int invalid();
-	
+
+	/** Mask to clear the sign bit from a raw int hash or key. */
 	static final int MASK=Integer.MAX_VALUE;
+	/** Mask to isolate the sign bit from a raw int key. */
 	static final int MINMASK=Integer.MIN_VALUE;
-	
+
+	/** Physical overflow cells above the logical modulus for int-key prime tables. */
 	static final int extra=10;
-	
+
 }

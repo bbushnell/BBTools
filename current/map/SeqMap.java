@@ -22,20 +22,27 @@ import structures.Range;
  * Build and mutate with exclusive access, then publish for concurrent queries.
  * Stored sequence arrays are borrowed and must remain unchanged while indexed.
  * Each thread reuses its result list; copy the list before another query on the
- * same map and thread if the results need to be retained.
+ * same map and thread if the results need to be retained. Queries return candidate
+ * placements, not verified alignments: geometry and a GC heuristic filter the
+ * hits, but no base-by-base mismatch count is computed here. Forward kmers are
+ * indexed as supplied; reverse complements are added only when explicitly requested.
  * @author Brian Bushnell
  */
 public class SeqMap extends LongArrayListHashMap<SeqPos>{
 
-	/** Creates a SeqMap with default parameters: k=11, maskMiddle=1, minCount=0 */
+	/*--------------------------------------------------------------*/
+	/*----------------        Initialization        ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Creates an empty index with k=11, maskMiddle=1 and minCount=0. */
 	public SeqMap(){this(11, 1, 0);}
 	/**
 	 * Creates a SeqMap with specified k-mer parameters and middle-masking.
 	 * Computes a mask that gives the middle bases a common all-ones pattern.
 	 *
 	 * @param k_ Packed DNA kmer length, from 1 through 32
-	 * @param maskMiddle_ Number of middle bases to mask (0 disables masking)
-	 * @param minCount_ Minimum count threshold for sequences
+	 * @param maskMiddle_ Nonnegative number of middle bases to mask; positive values require k_&gt;maskMiddle_+1
+	 * @param minCount_ Nonnegative threshold recorded for loading; add() does not enforce it
 	 */
 	public SeqMap(int k_, int maskMiddle_, int minCount_){
 		super();
@@ -53,32 +60,35 @@ public class SeqMap extends LongArrayListHashMap<SeqPos>{
 		}
 		midMask=mask;
 	}
-	
+
+	/*--------------------------------------------------------------*/
+	/*----------------            Indexing          ----------------*/
+	/*--------------------------------------------------------------*/
+
 	/**
-	 * Adds a sequence to the map with all its k-mers using middle-masking.
-	 * Iterates through the sequence, computes k-mers via bit shifts,
-	 * and stores SeqPos objects for each valid k-mer position.
+	 * Adds one placement for every fully defined forward kmer, applying the middle mask.
+	 * Borrows the same sequence array for every placement. Undefined symbols reset the
+	 * valid-base run; no kmer spans one, even when that position would be masked.
+	 * Null or shorter-than-k sequences are ignored. Repeated calls add repeated entries;
+	 * minCount is not applied here. Requires exclusive access to the inherited map.
 	 *
-	 * @param s The sequence bytes to add
-	 * @param count Occurrence count for this sequence
-	 * @param score Quality or similarity score for this sequence
+	 * @param s Borrowed DNA bytes addressable by AminoAcid.baseToNumber, or null
+	 * @param count Nonnegative occurrence count for every indexed placement
+	 * @param score Ranking score; -1 conventionally denotes an unscored sequence
 	 */
-	//Concurrency model (resolves the parent LongArrayListHashMap#001 sync question): SeqMap is BUILD-then-
-	//concurrent-READ. The build (add()/load()) is serialized - load() wraps its loop in synchronized(map) and
-	//the sole user CrisprFinder builds once via SeqMap.load then only fetch()es (no add/put after load). Queries
-	//(fetch/doubleFetch) are read-only get() with per-thread ThreadLocal scratch, so concurrent reads of the
-	//frozen map need no locks. Thus the parent's synchronized resize/ctor is harmless leftover, not load-bearing.
+	//CrisprFinder builds once with load(), then queries the frozen index with per-thread scratch.
+	//Parent constructor/resize synchronization does not make concurrent mutation safe.
 	public void add(byte[] s, int count, final float score){
 		if(s==null || s.length<k){return;}
-		
+
 		final int shift=2*k;
 		final long mask=(shift>63 ? -1L : ~((-1L)<<shift));
 		long kmer=0;
 		int len=0;
-		
+
 		final int code=Tools.hash(s, 22);
 		final float gc=Tools.calcGC(s);
-		
+
 		/* Loop through s, maintaining a forward kmer via bitshifts */
 		for(int i=0; i<s.length; i++){
 			byte b=s[i];
@@ -94,30 +104,36 @@ public class SeqMap extends LongArrayListHashMap<SeqPos>{
 			}
 		}
 	}
-	
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Candidate Queries     ----------------*/
+	/*--------------------------------------------------------------*/
+
 	/**
-	 * Searches for sequences with k-mer overlap to the query region.
-	 * Uses k-mer lookup with overlap filtering, GC content validation,
-	 * and geometric constraints to find matching sequences.
+	 * Retrieves distinct sequence/start placements sharing a defined masked kmer with a region.
+	 * Requires a frozen index and valid inclusive bounds for a non-null, long-enough
+	 * query. Candidates must pass overlap, endpoint and GC filters; mismatches are not
+	 * counted. A GC difference times overlap must be strictly below max(2.8,maxMM+0.5).
+	 * Returned positions are projected sequence starts in the query array's coordinates,
+	 * possibly negative. Increments queries once after the null/short-input guards.
 	 *
-	 * @param query The query sequence bytes
-	 * @param a1 Start position of query region (inclusive)
-	 * @param b1 End position of query region (inclusive)
-	 * @param minOverlap0 Minimum absolute overlap required
-	 * @param maxMM Maximum mismatches allowed (used for GC filtering)
-	 * @param maxTrim Maximum bases that can be trimmed from alignment
-	 * @param maxLopsidedness Maximum asymmetry in alignment positions
-	 * @param minOverlapFractionQ Minimum overlap as fraction of query length
+	 * @param query DNA bytes addressable by the base lookup tables; null returns null
+	 * @param a1 Inclusive region start, at least zero
+	 * @param b1 Inclusive region end, at least a1 and less than query.length
+	 * @param minOverlap0 Nonnegative absolute overlap floor in bases
+	 * @param maxMM Mismatch-budget hint for the GC heuristic, not an alignment mismatch limit
+	 * @param maxTrim Maximum uncovered region-end length on either side, in bases
+	 * @param maxLopsidedness Maximum Range.lopsidedness of the region and clipped candidate
+	 * @param minOverlapFractionQ Fraction of region length; multiplied by region length and truncated to int
 	 * @param sort Whether to rank results by descending count and length
-	 * @return Borrowed thread-local result list, or null; the next query on this
-	 * map and thread reuses the list. Candidate objects share indexed sequence arrays.
+	 * @return Borrowed thread-local result list, or null for no matches/null/short input;
+	 * the next eligible query on this map/thread clears the list. Candidate objects
+	 * are distinct per result but share indexed sequence arrays
 	 */
 	public ArrayList<SeqPosM> fetch(byte[] query, final int a1, final int b1, final int minOverlap0, int maxMM,
 			final int maxTrim, final int maxLopsidedness, float minOverlapFractionQ, boolean sort){
 		final int qlen=b1-a1+1;
-		//TODO: Possible bug [map/SeqMap#001] FIXED - the null/length guard MUST precede calcGC(query,...),
-		//which dereferences query; it was below -> a null query NPE'd instead of returning null (the guard's
-		//own intent). Output-neutral for valid input; null/short query now returns null (and skips a wasted calcGC).
+		//Fixed guard ordering [map/SeqMap#001]: reject null/short input before calculating region GC.
 		if(query==null || query.length<k || qlen<k){return null;}
 		final float qgc=Tools.calcGC(query, a1, b1);
 		queries.incrementAndGet();
@@ -132,14 +148,13 @@ public class SeqMap extends LongArrayListHashMap<SeqPos>{
 		HashSet<SeqPosM> set=localSet.get();
 		ArrayList<SeqPosM> retList=localList.get();
 		SeqPosM temp=localSP.get();
-		
+
 		assert(set.isEmpty());
 		retList.clear();
 		final float maxGCO=Tools.max(2.8f, maxMM+0.5f); //gcdif*overlap, proxy for mismatches
-		
+
 		/* Loop through s, maintaining a forward kmer via bitshifts */
 		for(int i=a1; i<=b1; i++){
-//			System.err.println("i="+i);
 			byte b=query[i];
 			long x=symbolToNumber[b];
 			kmer=((kmer<<2)|x)&mask;
@@ -149,78 +164,45 @@ public class SeqMap extends LongArrayListHashMap<SeqPos>{
 			if(len>=k){
 				long mmKmer=kmer|midMask;
 				ArrayList<SeqPos> candidates=get(mmKmer);
-//				if(candidates!=null){
-//					for(SeqPos sp : candidates){
-//						final float gcdif=Tools.absdif(qgc, sp.gc);
-////						if(Tools.absdif(qgc, sp.gc)<0.24f){//Intended to increase speed, but not very useful
-//						final int rlen0=sp.seq().length, pos=sp.pos();
-//						int a2=i-pos;
-//						int b2=Tools.min(query.length-1, a2+rlen0-1);
-//						a2=Tools.max(0, a2);
-////						final int rlen=b2-a2+1;
-//						final int overlap=Range.overlap(a1, b1, a2, b2);
-//						final int lopsidedness=Range.lopsidedness(a1, b1, a2, b2);
-////						final int minOverlapR=Tools.max(minOverlap0, (int)(minOverlapFractionR*rlen));
-//						final int trim=Tools.max(a2-a1, b1-b2);
-////						System.err.println("rlen="+rlen+", minOverlapR="+minOverlapR+", overlap="+overlap+", "+
-////								new String(query, a2, rlen));
-////						System.err.println("("+a1+"-"+b1+", "+a2+"-"+b2);
-//
-//						if(overlap>=minOverlapQ && trim<=maxTrim && lopsidedness<=maxLopsidedness
-//								&& (gcdif*overlap<maxGCO)){
-////							assert(a2<=a1 && b2>=b1) : a1+"-"+b1+", "+a2+"-"+b2+"; trim="+trim+"; max="+maxTrim;
-//							temp.setFrom(sp);
-//							temp.setPos(i-pos);
-//							lookups++;
-//							if(!set.contains(temp)){
-//								SeqPosM clone=temp.clone();
-//								set.add(clone);
-//								retList.add(clone);
-//							}
-////							assert(a1==a2 && b1==b2) : "("+a1+"-"+b1+", "+a2+"-"+b2+"), "+
-////								overlap+", "+minOverlapQ+", "+minOverlapR;
-//						}
-////						}
-//					}
-//				}
-				if(candidates!=null){//More concise.  Probably same speed.
-					lookups+=addCandidates(candidates, query, a1, b1, qgc, 
+				if(candidates!=null){
+					lookups+=addCandidates(candidates, query, a1, b1, qgc,
 							minOverlapQ, maxTrim, maxLopsidedness, maxGCO, i, temp, set, retList);
 				}
 			}
 		}
-		
-//		ArrayList<SeqPosM> retList=null;
+
 		if(!set.isEmpty()){
 			assert(set.size()==retList.size());
-//			list=new ArrayList<SeqPosM>(set.size());
-//			list.addAll(set);
 			if(sort){Collections.sort(retList);}
 		}else{retList=null;}
 		set.clear();
-//		temp.seq=null;
 		setQueries.addAndGet(lookups);
 		return retList;
 	}
-	
+
 	/**
 	 * Scans two equal-length regions in lockstep on the calling thread, retrieving
 	 * candidates from either region. Returned positions remain relative to the
-	 * first region, so its caller can perform one subsequent alignment.
+	 * first region's coordinate system, so its caller can perform one subsequent alignment.
+	 * Each region supplies its own GC fraction; equal kmers skip duplicate work only
+	 * when both windows are valid and the GC filters agree. Bounds must be valid,
+	 * inclusive and equally long. Uses the same geometry/GC heuristics as fetch(),
+	 * without counting mismatches, and increments queries once after input guards.
 	 *
-	 * @param query The query sequence bytes
-	 * @param a1 Start position of first query region (inclusive)
-	 * @param b1 End position of first query region (inclusive)
-	 * @param a2 Start position of second query region (inclusive)
-	 * @param b2 End position of second query region (inclusive)
-	 * @param minOverlap0 Minimum absolute overlap required
-	 * @param maxMM Maximum mismatches allowed (used for GC filtering)
-	 * @param maxTrim Maximum bases that can be trimmed from alignment
-	 * @param maxLopsidedness Maximum asymmetry in alignment positions
-	 * @param minOverlapFractionQ Minimum overlap as fraction of query length
+	 * @param query DNA bytes addressable by the base lookup tables; null returns null
+	 * @param a1 Inclusive first-region start, at least zero
+	 * @param b1 Inclusive first-region end, at least a1 and less than query.length
+	 * @param a2 Inclusive second-region start, at least zero
+	 * @param b2 Inclusive second-region end below query.length, with b2-a2 equal to b1-a1
+	 * @param minOverlap0 Nonnegative absolute overlap floor in bases
+	 * @param maxMM Mismatch-budget hint for the GC heuristic, not an alignment mismatch limit
+	 * @param maxTrim Maximum uncovered first-region-end length on either side, in bases
+	 * @param maxLopsidedness Maximum Range.lopsidedness relative to the first region
+	 * @param minOverlapFractionQ Fraction of region length, converted to a truncated integer overlap floor
 	 * @param sort Whether to rank results by descending count and length
-	 * @return Borrowed thread-local result list, or null; another query on this map
-	 * and thread reuses it. Candidates are deduplicated by sequence and placement.
+	 * @return Borrowed thread-local result list, or null for no matches/null/short input;
+	 * another eligible query on this map/thread reuses it. Candidates are deduplicated
+	 * by sequence and projected placement, irrespective of which region found them
 	 */
 	public ArrayList<SeqPosM> doubleFetch(byte[] query, final int a1, final int b1, final int a2, final int b2,
 			final int minOverlap0, int maxMM,
@@ -244,14 +226,13 @@ public class SeqMap extends LongArrayListHashMap<SeqPos>{
 		HashSet<SeqPosM> set=localSet.get();
 		ArrayList<SeqPosM> retList=localList.get();
 		SeqPosM temp=localSP.get();
-		
+
 		assert(set.isEmpty());
 		retList.clear();
 		final float maxGCO=Tools.max(2.8f, maxMM+0.5f); //gcdif*overlap, proxy for mismatches
-		
+
 		/* Loop through s, maintaining a forward kmer via bitshifts */
 		for(int i=a1, j=a2; i<=b1; i++, j++){
-//			System.err.println("i="+i);
 			byte b=query[i], c=query[j];
 			long x=symbolToNumber[b], y=symbolToNumber[c];
 			kmer=((kmer<<2)|x)&mask;
@@ -262,7 +243,7 @@ public class SeqMap extends LongArrayListHashMap<SeqPos>{
 			if(len>=k){
 				ArrayList<SeqPos> candidates=get(mmKmer);
 				if(candidates!=null){
-					lookups+=addCandidates(candidates, query, a1, b1, qgc, 
+					lookups+=addCandidates(candidates, query, a1, b1, qgc,
 							minOverlapQ, maxTrim, maxLopsidedness, maxGCO, i, temp, set, retList);
 				}
 			}
@@ -270,31 +251,29 @@ public class SeqMap extends LongArrayListHashMap<SeqPos>{
 			if(len2>=k && (len<k || mmKmer!=mmKmer2 || !sameGC)){
 				ArrayList<SeqPos> candidates=get(mmKmer2);
 				if(candidates!=null){//This a1 and b1 is intentional, to keep pos left-relative
-					lookups+=addCandidates(candidates, query, a1, b1, qgc2, 
+					lookups+=addCandidates(candidates, query, a1, b1, qgc2,
 							minOverlapQ, maxTrim, maxLopsidedness, maxGCO, i, temp, set, retList);
 				}
 			}
 		}
-		
-//		ArrayList<SeqPosM> retList=null;
+
 		if(!set.isEmpty()){
 			assert(set.size()==retList.size());
-//			list=new ArrayList<SeqPosM>(set.size());
-//			list.addAll(set);
 			if(sort){Collections.sort(retList);}
 		}else{retList=null;}
 		set.clear();
-//		temp.seq=null;
 		setQueries.addAndGet(lookups);
 		return retList;
 	}
-	
+
 	/**
-	 * Processes candidate sequences from k-mer lookup, applying geometric and GC filters.
-	 * Validates overlap requirements, trimming constraints, and GC content similarity
-	 * before adding candidates to the result set.
+	 * Filters one kmer's candidates, then appends previously unseen sequence/start placements.
+	 * Projects each sequence start as qpos-sp.pos and clips the compared interval to
+	 * the query array. temp is mutated for membership tests but never inserted; only
+	 * its shallow clones are retained in set/list. Both containers must represent
+	 * the same accumulated results on entry and remain consistent on return.
 	 *
-	 * @param candidates List of candidate SeqPos objects to evaluate
+	 * @param candidates Non-null, stable list of indexed placements with non-null sequences
 	 * @param query The query sequence bytes
 	 * @param a1 Start position of query region (inclusive)
 	 * @param b1 End position of query region (inclusive)
@@ -303,14 +282,14 @@ public class SeqMap extends LongArrayListHashMap<SeqPos>{
 	 * @param maxTrim Maximum bases that can be trimmed
 	 * @param maxLopsidedness Maximum alignment asymmetry allowed
 	 * @param maxGCO Maximum GC difference times overlap (mismatch proxy)
-	 * @param qpos Current position in query being processed
-	 * @param temp Reusable SeqPosM object for comparisons
-	 * @param set Set to track unique candidates
-	 * @param retList List to store accepted candidates
-	 * @return Number of k-mer lookups performed
+	 * @param qpos Matched kmer end, projected into first-region coordinates for doubleFetch
+	 * @param temp Thread-confined scratch, not a live member of set
+	 * @param set Thread-confined deduplication set, mutated by adding new placements
+	 * @param retList Thread-confined result list, appended in discovery order
+	 * @return Candidate occurrences passing all filters before deduplication, not map lookups
 	 */
 	private int addCandidates(ArrayList<SeqPos> candidates, byte[] query, final int a1, final int b1, float qgc,
-			int minOverlapQ, int maxTrim, int maxLopsidedness, float maxGCO, int qpos, 
+			int minOverlapQ, int maxTrim, int maxLopsidedness, float maxGCO, int qpos,
 			SeqPosM temp, HashSet<SeqPosM> set, ArrayList<SeqPosM> retList){
 		int lookups=0;
 		//geometric+GC filter per candidate; temp (reused SeqPosM) is keyed into `set` to DEDUP by
@@ -339,13 +318,13 @@ public class SeqMap extends LongArrayListHashMap<SeqPos>{
 		}
 		return lookups;
 	}
-	
+
 	/**
 	 * Sorts indexed lists by count, length and score, then finds maximum count.
 	 * Mutates the indexed lists and therefore requires exclusive access.
 	 * Iterates through all stored sequence lists, sorts each by count/score,
 	 * and returns the highest count value found.
-	 * @return Maximum count value across all stored sequences
+	 * @return Maximum count across indexed placements, or zero for an empty index
 	 */
 	public int sort(){
 		int max=0;
@@ -354,19 +333,22 @@ public class SeqMap extends LongArrayListHashMap<SeqPos>{
 				Collections.sort(list);
 				max=Tools.max(max, list.get(0).count);
 			}
-//			assert(false) : max;
 		}
 		return max;
 	}
-	
+
+	/*--------------------------------------------------------------*/
+	/*----------------            Loading           ----------------*/
+	/*--------------------------------------------------------------*/
+
 	/**
 	 * Loads sequences from a FASTA file into a new SeqMap.
 	 * Convenience method that reads the file and delegates to the main load method.
 	 *
 	 * @param ref Path to reference FASTA file
-	 * @param k K-mer length for indexing
-	 * @param mm Middle masking length
-	 * @param minCount Minimum count threshold for sequences
+	 * @param k Packed kmer length in [1,32]
+	 * @param mm Nonnegative middle-mask width; positive widths require k&gt;mm+1
+	 * @param minCount Nonnegative explicit-header count threshold; see load(ArrayList,...)
 	 * @param rcomp Whether to include reverse complements
 	 * @param net Neural network for scoring sequences (may be null)
 	 * @return New SeqMap containing the loaded sequences
@@ -375,19 +357,25 @@ public class SeqMap extends LongArrayListHashMap<SeqPos>{
 		ArrayList<Read> reads=FastaReadInputStream.toReads(ref, FileFormat.FASTA, -1);
 		return load(reads, k, mm, minCount, rcomp, net);
 	}
-	
+
 	/**
 	 * Loads sequences from Read objects into a new SeqMap with k-mer indexing.
 	 * Parses count and score information from read headers, applies neural network
 	 * scoring if provided, and optionally includes reverse complements.
+	 * A missing count defaults to one and bypasses filtering. The highest observed
+	 * count, including rejected records, must reach minCount when assertions are enabled.
+	 * A missing score or score=-1 is replaced by a network score when a network is supplied;
+	 * this happens before count filtering. Forward arrays are borrowed; reverse complements
+	 * are new arrays. Read objects, their IDs and the list are not retained or modified.
+	 * The result is not sorted. Network scoring uses the supplied network on this thread.
 	 *
-	 * @param reads List of Read objects containing sequences and metadata
-	 * @param k K-mer length for indexing
-	 * @param mm Middle masking length (number of middle bases to ignore)
+	 * @param reads Non-null list of non-null reads with non-null IDs and score-compatible bases if net is used
+	 * @param k Packed kmer length in [1,32]
+	 * @param mm Nonnegative middle-mask width; positive widths require k&gt;mm+1
 	 * @param minCount Minimum explicit header count; records without count= are retained with count 1
 	 * @param rcomp Whether to include reverse complement sequences
 	 * @param net Neural network for sequence scoring (may be null)
-	 * @return New SeqMap containing indexed sequences meeting the count threshold
+	 * @return New index of accepted sequences' defined kmers, without an implicit sort
 	 */
 	public static SeqMap load(ArrayList<Read> reads, int k, int mm, int minCount, boolean rcomp, CellNet net){
 		SeqMap map=new SeqMap(k, mm, minCount);
@@ -415,22 +403,28 @@ public class SeqMap extends LongArrayListHashMap<SeqPos>{
 		"\nOnly set minRefCount if your ref headers have a 'count=X' term.";
 		return map;
 	}
-	
-	/** K-mer length used for sequence indexing */
+
+	/*--------------------------------------------------------------*/
+	/*----------------            Fields            ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Packed kmer width, expected in [1,32]. */
 	public final int k;
 	/** Number of middle bases to mask in k-mers for fuzzy matching */
 	public final int maskMiddle;
-	/** Minimum count threshold for sequences to be included */
+	/** Loader count threshold, retained as metadata; direct add() does not enforce it. */
 	public final int minCount;
 	/** Mask that replaces middle bases with an all-ones pattern via OR. */
 	private final long midMask;
-	/** Lookup table for converting DNA bases to numeric values */
+	/** Borrowed DNA symbol table: defined bases map to two-bit codes, undefined symbols to negatives. */
 	private static final byte[] symbolToNumber=AminoAcid.baseToNumber;
-	
+
 	/**
 	 * Reusable per-thread deduplication set; accepted candidate objects are still allocated.
 	 */
 	private final ThreadLocal<HashSet<SeqPosM>> localSet=new ThreadLocal<HashSet<SeqPosM>>(){
+		/** Creates this thread's empty deduplication set.
+		 * @return New set owned by this ThreadLocal/thread pair */
 		@Override
 		protected HashSet<SeqPosM> initialValue(){return new HashSet<SeqPosM>();}
 	};
@@ -438,6 +432,8 @@ public class SeqMap extends LongArrayListHashMap<SeqPos>{
 	 * Reusable per-thread result list; returned lists are borrowed until the next query.
 	 */
 	private final ThreadLocal<ArrayList<SeqPosM>> localList=new ThreadLocal<ArrayList<SeqPosM>>(){
+		/** Creates this thread's reusable result list.
+		 * @return New list owned by this ThreadLocal/thread pair */
 		@Override
 		protected ArrayList<SeqPosM> initialValue(){return new ArrayList<SeqPosM>();}
 	};
@@ -445,12 +441,14 @@ public class SeqMap extends LongArrayListHashMap<SeqPos>{
 	 * Thread-local storage for reusable SeqPosM object to avoid allocations during comparisons
 	 */
 	private final ThreadLocal<SeqPosM> localSP=new ThreadLocal<SeqPosM>(){
+		/** Creates an uninitialized scratch key whose fields are replaced before lookup.
+		 * @return New thread-confined scratch placement */
 		@Override
 		protected SeqPosM initialValue(){return new SeqPosM(null, 0);}
 	};
-	/** Counter for total number of search queries performed */
+	/** Atomic count of fetch/doubleFetch calls that passed null/short-input guards. */
 	public final AtomicLong queries=new AtomicLong(0);
-	/** Counter for total number of k-mer lookups performed during searches */
+	/** Atomic count of candidate occurrences passing filters, counted before deduplication. */
 	public final AtomicLong setQueries=new AtomicLong(0);
-	
+
 }

@@ -2,62 +2,89 @@ package map;
 
 import java.io.Serializable;
 
+/**
+ * Contract for mutable int-to-int maps that expose raw storage to package utilities.
+ * Entries equal to {@link #invalid()} in {@link #keys()} are empty cells. Instances are
+ * unsynchronized. The borrowed key array encodes probe structure; external key writes can
+ * break lookup and rehash invariants. The borrowed value array is direct int storage
+ * index-aligned with {@link #keys()} and should only be edited with occupancy from keys.
+ */
 public interface IntHashMapInterface extends Serializable{
 
+	/** Removes every live mapping while preserving reusable storage. */
 	public void clear();
 
+	/**
+	 * Tests whether a key is currently mapped.
+	 * @param key Key to look up
+	 * @return true if {@code key} is live in this map
+	 */
 	public boolean contains(int key);
 
+	/**
+	 * Tests whether a key is currently mapped.
+	 * @param key Key to look up
+	 * @return true if {@code key} is live in this map
+	 */
 	public boolean containsKey(int key);
 
+	/**
+	 * Returns the int value mapped from a key.
+	 * @param key Key to look up
+	 * @return Mapped value, or the implementation-specific absent default
+	 */
 	public int get(int key);
 
 	/**
-	 * Associates the specified value with the specified key in this map.
-	 * If the key was previously mapped, the old value is replaced.
+	 * Sets a key to a value, inserting the key if absent and replacing its old value if present.
 	 *
-	 * @param key The key to associate with the value
-	 * @param value The value to associate with the key
-	 * @return The previous value associated with the key, or implementation-defined default if none
+	 * @param key Key to insert or overwrite
+	 * @param value Value to store
+	 * @return Previous mapped value, or the implementation-specific absent default
 	 */
 	public int put(int key, int value);
 
 	/**
-	 * Associates the specified value with the specified key in this map.
-	 * Functionally identical to put().
+	 * Sets a key to a value, inserting the key if absent and replacing its old value if present.
 	 *
-	 * @param key The key to associate with the value
-	 * @param value The value to associate with the key
-	 * @return The previous value associated with the key, or implementation-defined default if none
+	 * @param key Key to insert or overwrite
+	 * @param value Value to store
+	 * @return Previous mapped value, or the implementation-specific absent default
 	 */
 	public int set(int key, int value);
 
 	/**
-	 * Increments the value associated with the specified key by 1.
-	 * If the key does not exist, it is created with value 1.
-	 * @param key The key whose value should be incremented
-	 * @return The new value after incrementing
+	 * Adds one to a key's value, inserting the key if absent.
+	 * @param key Key to insert or update
+	 * @return New value after the implementation-specific overflow policy
 	 */
 	public int increment(int key);
 
 	/**
-	 * Increments the value associated with the specified key by the specified amount.
-	 * If the key does not exist, it is created with the increment value.
+	 * Adds a signed delta to a key's value, inserting the key if absent.
 	 *
-	 * @param key The key whose value should be incremented
-	 * @param incr The amount to increment by (may be negative)
-	 * @return The new value after incrementing
+	 * @param key Key to insert or update
+	 * @param incr Signed increment to apply
+	 * @return New value after the implementation-specific overflow and underflow policy
 	 */
 	public int increment(int key, int incr);
 
 	/**
-	 * Removes the mapping for the specified key from this map if present.
-	 * @param key The key whose mapping is to be removed
-	 * @return true if the key was present and removed, false otherwise
+	 * Removes a key if present.
+	 * @param key Key to remove
+	 * @return true if a live mapping was removed
 	 */
 	public boolean remove(int key);
 
+	/**
+	 * Returns the number of live mappings.
+	 * @return Number of live mappings
+	 */
 	public int size();
+	/**
+	 * Tests whether the map has no live mappings.
+	 * @return true when the map has no live mappings
+	 */
 	public boolean isEmpty();
 
 	/*--------------------------------------------------------------*/
@@ -65,9 +92,8 @@ public interface IntHashMapInterface extends Serializable{
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Returns a string representation of this map in list view format.
-	 * Shows key-value pairs as (key,value) tuples.
-	 * @return String representation of the map
+	 * Formats the live mappings.
+	 * @return Implementation-defined string representation
 	 */
 	public String toString();
 
@@ -77,16 +103,28 @@ public interface IntHashMapInterface extends Serializable{
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Returns a compact snapshot of live keys. */
+	/**
+	 * Copies live keys into a dense array.
+	 * @return Owned key snapshot
+	 */
 	public abstract int[] toArray();
 
-	/** Returns the raw borrowed key array; entries equal to invalid() are empty cells. */
+	/**
+	 * Borrows the raw key array.
+	 * @return Borrowed raw key array; entries equal to {@link #invalid()} are empty cells
+	 */
 	public abstract int[] keys();
 
-	/** Returns the raw borrowed value array, index-aligned with keys(). */
+	/**
+	 * Borrows the raw int value array.
+	 * @return Borrowed raw int value array, index-aligned with {@link #keys()}
+	 */
 	public abstract int[] values();
 
-	/** Returns the current empty-cell sentinel for the raw key array. */
+	/**
+	 * Returns the current empty-cell sentinel.
+	 * @return Current empty-cell sentinel for {@link #keys()}
+	 */
 	public abstract int invalid();
 
 }

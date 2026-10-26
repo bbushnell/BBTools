@@ -15,18 +15,31 @@ import java.util.concurrent.atomic.AtomicIntegerArray;
  */
 public class AtomicBitSet extends AbstractBitSet{
 
-	/** Allocates logical bit capacity without spare backing cells. */
+	/*--------------------------------------------------------------*/
+	/*----------------        Initialization        ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Creates an empty atomic set; zero capacity leaves storage null.
+	 * @param capacity_ Nonnegative logical capacity; rounded cell count must fit an int */
 	public AtomicBitSet(long capacity_){
 		setCapacity(capacity_, 0);
 	}
 
-	/** Allocates logical capacity plus extra backing cells. */
+	/** Creates an empty atomic set with optional spare cells.
+	 * @param capacity_ Nonnegative logical bit capacity
+	 * @param extra Nonnegative spare cells; rounded active cells plus extra must fit an int */
 	public AtomicBitSet(long capacity_, int extra){
 		setCapacity(capacity_, extra);
 	}
 
-	//CLEVER [verified]: lock-free OR via CAS retry. `update!=old` short-circuits a no-op (mask adds no new
-	//bits) so no CAS is issued; on contention it re-reads and retries until the OR lands. 1-bit: OR==union.
+	/*--------------------------------------------------------------*/
+	/*----------------         Atomic Updates       ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Atomically ORs one word with retry on contention; an unchanged word needs no CAS.
+	 * Concurrent per-cell updates are supported while storage and capacity remain fixed.
+	 * @param cell Storage-cell index in [0, length())
+	 * @param mask Bits to set; padding outside logical capacity must remain zero */
 	@Override
 	public void addToCell(final int cell, final int mask){
 		int old=array.get(cell);
@@ -36,12 +49,18 @@ public class AtomicBitSet extends AbstractBitSet{
 			update=old|mask;
 		}
 	}
-	
+
+	/** Takes elementwise maxima by atomically ORing one word.
+	 * @param cell Storage-cell index in [0, length())
+	 * @param mask Bits to set; padding outside logical capacity must remain zero */
 	@Override
 	public void setToMax(final int cell, final int mask){
 		addToCell(cell, mask);
 	}
 
+	/** Atomically sets one bit; the amount does not matter beyond its positive precondition.
+	 * @param x Logical bit index in [0, capacity())
+	 * @param amt Positive increment; the count saturates at one */
 	@Override
 	public void increment(int x, int amt){
 		assert(amt>0);
@@ -61,7 +80,7 @@ public class AtomicBitSet extends AbstractBitSet{
 
 	/**
 	 * Returns the value of the bit at position x.
-	 * @param x The bit position to check (0-based)
+	 * @param x Logical bit index in [0, capacity())
 	 * @return 1 if the bit is set, 0 if clear
 	 */
 	@Override
@@ -74,8 +93,12 @@ public class AtomicBitSet extends AbstractBitSet{
 		return (value&mask)==mask ? 1 : 0;
 	}
 
-	/** Clears each active cell atomically. The entire clear is not one atomic action;
-	 * concurrent updates can be retained or overwritten depending on their ordering. */
+	/*--------------------------------------------------------------*/
+	/*----------------       Storage Lifecycle      ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Clears each active cell atomically, leaving spare cells untouched.
+	 * The whole clear is not atomic: concurrent updates can survive or be overwritten. */
 	@Override
 	public void clear(){
 		for(int i=0; i<length; i++){
@@ -85,7 +108,7 @@ public class AtomicBitSet extends AbstractBitSet{
 
 	/**
 	 * Returns the number of bits set to 1 in this bit set.
-	 * Counts set bits across all cells using Integer.bitCount().
+	 * Includes last-cell padding if callers have set it through the packed-cell API.
 	 * @return Count observed while visiting active cells; not a concurrent snapshot
 	 */
 	@Override
@@ -97,7 +120,7 @@ public class AtomicBitSet extends AbstractBitSet{
 		}
 		return sum;
 	}
-	
+
 	/**
 	 * Sets the capacity of the bit set and reallocates array if needed.
 	 * Calculates required array length as (capacity+31)/32 to accommodate all bits.
@@ -105,8 +128,9 @@ public class AtomicBitSet extends AbstractBitSet{
 	 * storage is not cleared; replacement storage starts empty. Requires exclusive
 	 * access and safe publication before concurrent readers or writers resume.
 	 *
-	 * @param capacity_ The new bit capacity
-	 * @param extra Additional cells to allocate beyond minimum required
+	 * Extra cells do not extend the reuse bound. A shrink does not clear hidden cells.
+	 * @param capacity_ Nonnegative logical bit capacity
+	 * @param extra Nonnegative spare cells; rounded active cells plus extra must fit an int
 	 */
 	@Override
 	public void setCapacity(long capacity_, int extra){
@@ -119,21 +143,33 @@ public class AtomicBitSet extends AbstractBitSet{
 		}
 	}
 
-	/** Returns the maximum number of bits this set can hold */
+	/*--------------------------------------------------------------*/
+	/*----------------           Accessors          ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Returns logical bit capacity, excluding spare storage.
+	 * @return Current logical bit capacity */
 	@Override
 	public long capacity(){return capacity;}
 
-	/** Returns the length of the underlying integer array */
+	/** Returns active cell count, which can be smaller than the backing array length.
+	 * @return Rounded-up logical capacity divided by 32 */
 	@Override
 	public int length(){return length;}
 
-	/** Returns the number of bits per element (always 1 for bit sets) */
+	/** Returns the number of bits per logical element.
+	 * @return One */
 	@Override
 	public final int bits(){return 1;}
-	
-	/** Returns borrowed backing storage, including spare cells; resizing may replace it. */
+
+	/** Returns borrowed atomic storage, including spare cells; resizing may replace it.
+	 * @return Backing array, or null before the first positive-capacity allocation */
 	public AtomicIntegerArray array(){return array;}
-	
+
+	/*--------------------------------------------------------------*/
+	/*----------------            Fields            ----------------*/
+	/*--------------------------------------------------------------*/
+
 	/** Logical bits covered by reusable storage, excluding extra cells. */
 	private long maxCapacity=0;
 	/** Current logical bit capacity. */

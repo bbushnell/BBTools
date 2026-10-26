@@ -13,30 +13,37 @@ import shared.Timer;
 import shared.Tools;
 
 /**
- * Hash map with primitive long keys and Object values.
+ * Hash map with primitive long keys and object values.
  * Uses open addressing with linear probing for collision resolution.
- * Uses power-of-2 sizing and hash mixing for fast, well-distributed hashing.
- * 
+ * Uses power-of-two sizing and {@link Tools#hash64plus(long)} for the
+ * initial probe cell.
+ *
  * Ideal for kmer to data structure mappings (e.g., kmer → IntList of positions).
- * Hash mixing ensures adjacent kmers (like AAAAAA vs AAAAAC) distribute evenly.
- * 
+ * {@link Tools#hash64plus(long)} scrambles neighboring long keys before
+ * masking selects the initial probe cell.
+ *
  * More memory-efficient than {@code HashMap<Long, V>} by:
  * - Storing primitive long keys instead of Long objects
  * - Using arrays instead of Entry objects
  * - Avoiding per-entry object overhead
  * - Better cache locality with linear probing
- * 
+ *
  * Thread-safety: Not thread-safe. External synchronization required for concurrent access.
- * 
+ *
  * @author Isla
  * @date November 2, 2025
- * 
+ *
  * @param <V> Value type
  */
 public final class LongObjectMap<V> implements Serializable{
 
+	/** Serialization version for Java object streams. */
 	private static final long serialVersionUID=1L;
 
+	/**
+	 * Runs an ad hoc comparison against {@link HashMap}.
+	 * @param args optional size and repeat count
+	 */
 	public static void main(String[] args){
 		int size=args.length>0 ? Integer.parseInt(args[0]) : 1000000;
 		int repeats=args.length>1 ? Integer.parseInt(args[1]) : 1;
@@ -66,6 +73,12 @@ public final class LongObjectMap<V> implements Serializable{
 		bench(keys, values, repeats);
 	}
 
+	/**
+	 * Times repeated fill and lookup loops over the supplied keys and values.
+	 * @param keys keys to insert and query
+	 * @param values values to store by key
+	 * @param repeats number of fill/query repetitions; must be positive
+	 */
 	private static void bench(long[] keys, ArrayList<String> values, int repeats){
 		final int size=keys.length;
 		System.gc();
@@ -136,7 +149,8 @@ public final class LongObjectMap<V> implements Serializable{
 
 	/**
 	 * Creates a new map with specified initial capacity and default load factor (0.7).
-	 * @param initialSize Initial capacity (will be rounded up to next power of 2)
+	 * @param initialSize requested minimum power-of-two capacity before adding
+	 *        overflow cells; asserted positive
 	 * @param type Component class of the values (see {@link #LongObjectMap(Class)}).
 	 */
 	public LongObjectMap(int initialSize, Class<V> type){
@@ -145,8 +159,10 @@ public final class LongObjectMap<V> implements Serializable{
 
 	/**
 	 * Creates a new map with specified initial capacity and load factor.
-	 * @param initialSize Initial capacity (will be rounded up to next power of 2)
-	 * @param loadFactor_ Load factor (0.25-0.90) - map resizes when size exceeds capacity*loadFactor
+	 * @param initialSize requested minimum power-of-two capacity before adding
+	 *        overflow cells; asserted positive
+	 * @param loadFactor_ requested resize threshold fraction; asserted in
+	 *        (0,1) before clamping to [0.25, 0.90]
 	 * @param type Component class of the values (see {@link #LongObjectMap(Class)}).
 	 */
 	public LongObjectMap(int initialSize, float loadFactor_, Class<V> type){
@@ -316,8 +332,7 @@ public final class LongObjectMap<V> implements Serializable{
 
 	/**
 	 * Finds the cell containing the given key.
-	 * Uses linear probing with hash mixing for collision resolution.
-	 * Hash mixing ensures adjacent kmers distribute evenly.
+	 * Starts from {@link Tools#hash64plus(long)} and searches by linear probing.
 	 * @param key Key to search for
 	 * @return Cell index if found, -1 if not found
 	 */
@@ -381,9 +396,9 @@ public final class LongObjectMap<V> implements Serializable{
 	}
 
 	/**
-	 * Resizes the map to at least the specified size and rehashes all entries.
-	 * Actual size will be rounded up to the next power of 2.
-	 * @param size2 Minimum new size
+	 * Rounds size2 up to a power of two, caps allocation length at
+	 * {@link Shared#SAFE_ARRAY_LEN}, and rehashes all entries.
+	 * @param size2 requested logical capacity, before overflow cells
 	 */
 	private final void resize(final long size2){
 		assert(size2>size) : size+", "+size2;
@@ -427,8 +442,8 @@ public final class LongObjectMap<V> implements Serializable{
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Returns array of all keys currently in the map.
-	 * @return Array containing all keys (no invalid sentinels)
+	 * Returns a newly allocated array of all mapped keys in backing-array order.
+	 * @return mapped keys
 	 */
 	public long[] toArray(){
 		long[] x=KillSwitch.allocLong1D(size);
@@ -443,19 +458,16 @@ public final class LongObjectMap<V> implements Serializable{
 	}
 
 	/**
-	 * Returns the internal key array.
-	 * WARNING: Contains invalid sentinel for empty cells. Use with caution.
-	 * @return Internal key array
+	 * Returns the borrowed backing key array; empty cells contain invalid().
+	 * @return borrowed backing key array
 	 */
 	public long[] keys(){return keys;}
 
 	/**
-	 * Returns the internal value array (the live backing array; use keys()[i]!=invalid() to find occupied cells).
-	 * This is a GENUINE V[] (e.g. String[], byte[][]) because the backing is allocated via Array.newInstance(type,...)
-	 * from the component class passed to the constructor [map/LongObjectMap#002] — so it can be used directly (assigned
-	 * to V[], iterated, .length) without the ClassCastException a plain Object[] backing would cause at the call site.
-	 * WARNING: live array. Null values may be stored in occupied cells, so occupancy must be checked with keys().
-	 * @return Internal value array (a real V[])
+	 * Returns the borrowed typed backing value array parallel to keys().
+	 * Null values may be stored in occupied cells, so occupancy must be checked
+	 * with keys().
+	 * @return borrowed typed backing value array
 	 */
 	public V[] values(){return values;}
 

@@ -13,16 +13,21 @@ import shared.Tools;
 import structures.LongList;
 
 /**
- * High-performance hash map optimized for long keys mapping to integer values.
- * Uses open addressing with linear probing for collision resolution.
- * Automatically resizes when load factor is exceeded to maintain performance.
- * Utilizes a random invalid marker to handle empty cells efficiently.
+ * Primitive long-to-int hash map backed by parallel key and value arrays.
+ * Uses open addressing with linear probing and a negative sentinel key to
+ * mark empty cells. Not synchronized; callers need external coordination
+ * for concurrent mutation. put(long,int) inserts only absent keys; existing
+ * mappings are unchanged.
  *
  * @author Brian Bushnell
  * @date August 3, 2017
  */
 public final class LongHashMap{
-	
+
+	/**
+	 * Legacy ad hoc stress benchmark against {@link HashMap}.
+	 * @param args ignored
+	 */
 	public static void main(String[] args){
 		Random randy2=Shared.threadLocalRandom();
 		LongHashMap map=new LongHashMap(20, 0.7f);
@@ -39,14 +44,14 @@ public final class LongHashMap{
 			long r=randy2.nextLong();
 			list2.add(r);
 		}
-		
+
 		for(long x : list){
 			map.put(x, (int)(2*x));
 			map2.put(x, (int)(2*x));
 			assert(map.get(x)==((int)(2*x)));
 			assert(map2.get(x)==((int)(2*x)));
 		}
-		
+
 		for(long x : list){
 			assert(map.get(x)==((int)(2*x)));
 			assert(map2.get(x)==((int)(2*x)));
@@ -57,14 +62,14 @@ public final class LongHashMap{
 		}
 		assert(map.isEmpty());
 		assert(map2.isEmpty());
-		
+
 		for(long x : list2){
 			map.put(x, (int)(2*x));
 			map2.put(x, (int)(2*x));
 			assert(map.get(x)==((int)(2*x)));
 			assert(map2.get(x)==((int)(2*x)));
 		}
-		
+
 		for(long x : list2){
 			assert(map.get(x)==((int)(2*x)));
 			assert(map2.get(x)==((int)(2*x)));
@@ -75,7 +80,7 @@ public final class LongHashMap{
 		}
 		assert(map.isEmpty());
 		assert(map2.isEmpty());
-		
+
 		int count=4000000;
 		int runs=32;
 		LongList ll=new LongList(count);
@@ -108,7 +113,7 @@ public final class LongHashMap{
 			t.stop();
 			System.err.println(t);
 			Shared.printMemory();
-			
+
 //			System.err.println("HashMap:");
 //			t.start();
 //			for(int i=0; i<runs; i++){
@@ -127,19 +132,32 @@ public final class LongHashMap{
 		}
 		t.stop();
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
+	/** Constructs a map with the default requested capacity and load factor. */
 	public LongHashMap(){
 		this(256);
 	}
-	
+
+	/**
+	 * Constructs a map with the default load factor.
+	 * @param initialSize requested minimum prime modulus before adding slack cells;
+	 * asserted positive
+	 */
 	public LongHashMap(int initialSize){
 		this(initialSize, 0.7f);
 	}
-	
+
+	/**
+	 * Constructs a map with a caller-supplied initial modulus and load factor.
+	 * @param initialSize requested minimum prime modulus before adding slack cells;
+	 * asserted positive
+	 * @param loadFactor_ requested resize threshold fraction; asserted in (0,1)
+	 * before clamping to [0.25, 0.90]
+	 */
 	public LongHashMap(int initialSize, float loadFactor_){
 		invalid=randy.nextLong()|MINMASK;
 		assert(invalid<0);
@@ -148,11 +166,12 @@ public final class LongHashMap{
 		loadFactor=Tools.mid(0.25f, loadFactor_, 0.90f);
 		resize(initialSize);
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Public Methods        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
+	/** Removes all mappings and resets every cell to empty. */
 	public void clear(){
 		if(size<1){return;}
 		Arrays.fill(keys, invalid);
@@ -160,16 +179,31 @@ public final class LongHashMap{
 		size=0;
 //		assert(verify()); //123
 	}
-	
+
+	/**
+	 * Tests whether key is present in the table.
+	 * @param key key to search for
+	 * @return true if key is mapped
+	 */
 	public boolean contains(long key){
 //		assert(verify()); //123
 		return key==invalid ? false : findCell(key)>=0;
 	}
-	
+
+	/**
+	 * Alias for contains(long), matching java.util.Map naming.
+	 * @param key key to search for
+	 * @return true if key is mapped
+	 */
 	public boolean containsKey(long key){
 		return contains(key);
 	}
-	
+
+	/**
+	 * Returns the value mapped from key.
+	 * @param key key to search for
+	 * @return stored value, or -1 when key is absent
+	 */
 	public int get(long key){
 //		assert(verify()); //123
 		int value=-1;
@@ -179,21 +213,21 @@ public final class LongHashMap{
 		}
 		return value;
 	}
-	
+
 	/**
-	 * Increments the value for this key by 1, creating a new mapping with value 1 if key does not exist.
-	 * @param key Key to increment
-	 * @return New value after incrementing
+	 * Increments a key's value by 1.
+	 * @param key key to increment
+	 * @return new value after wrapping int addition, or 1 for a newly inserted key
 	 */
 	public int add(long key){
 		return increment(key, 1);
 	}
-	
+
 	/**
-	 * Increments the value for this key by the specified amount, creating a new mapping with the increment value if key does not exist.
-	 * @param key Key to increment
-	 * @param incr Amount to increment by
-	 * @return New value after incrementing
+	 * Increments a key's value by incr.
+	 * @param key key to increment
+	 * @param incr amount to add; also the inserted value for a new key
+	 * @return new value after wrapping int addition, or incr for a newly inserted key
 	 */
 	public int increment(long key, int incr){
 //		assert(verify()); //123
@@ -213,12 +247,12 @@ public final class LongHashMap{
 			return values[cell];
 		}
 	}
-	
+
 	/**
-	 * Maps the specified key to the specified value if it is not already present.
-	 * @param key Key to map
-	 * @param value Value to associate with key
-	 * @return True if key was newly added, false if key already existed
+	 * Maps key to value when key is absent.
+	 * @param key key to map
+	 * @param value value to store for a new key
+	 * @return true if key was newly added, false if key was already present
 	 */
 	public boolean put(long key, int value){
 //		assert(verify()); //123
@@ -236,11 +270,11 @@ public final class LongHashMap{
 //		assert(verify()); //123
 		return false;
 	}
-	
+
 	/**
-	 * Removes the mapping for the specified key and rehashes following entries to maintain probe sequences.
-	 * @param key Key to remove
-	 * @return Previous value associated with key, or -1 if key not found
+	 * Removes a key and rehashes following cells to preserve probe chains.
+	 * @param key key to remove
+	 * @return previous value, or -1 when key was absent
 	 */
 	public int remove(long key){
 //		assert(verify()); //123
@@ -252,26 +286,41 @@ public final class LongHashMap{
 		final int value=values[cell];
 		values[cell]=0;
 		size--;
-		
+
 		rehashFrom(cell);
 //		assert(verify()); //123
 		return value;
 	}
-	
+
+	/**
+	 * Returns the number of mapped keys.
+	 * @return mapped-key count
+	 */
 	public int size(){return size;}
-	
+
+	/**
+	 * Returns true when no keys are mapped.
+	 * @return true if empty
+	 */
 	public boolean isEmpty(){return size==0;}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        String Methods        ----------------*/
 	/*--------------------------------------------------------------*/
-	
-	/** Returns string representation showing only the keys as a list. */
+
+	/**
+	 * Returns string representation showing only the keys as a list.
+	 * @return list-view string
+	 */
 	@Override
 	public String toString(){
 		return toStringListView();
 	}
-	
+
+	/**
+	 * Returns a list of occupied cells with cell index, key and value.
+	 * @return set-view string
+	 */
 	public String toStringSetView(){
 		StringBuilder sb=new StringBuilder();
 		sb.append('[');
@@ -285,7 +334,11 @@ public final class LongHashMap{
 		sb.append(']');
 		return sb.toString();
 	}
-	
+
+	/**
+	 * Returns a list of mapped keys.
+	 * @return list-view string
+	 */
 	public String toStringListView(){
 		StringBuilder sb=new StringBuilder();
 		sb.append('[');
@@ -299,7 +352,11 @@ public final class LongHashMap{
 		sb.append(']');
 		return sb.toString();
 	}
-	
+
+	/**
+	 * Returns a newly allocated array of all mapped keys in backing-array order.
+	 * @return mapped keys
+	 */
 	public long[] toArray(){
 		long[] x=KillSwitch.allocLong1D(size);
 		int i=0;
@@ -311,7 +368,15 @@ public final class LongHashMap{
 		}
 		return x;
 	}
-	
+
+	/**
+	 * Counts keys with values at or above thresh and returns their minimum key.
+	 * Asserts that all mapped keys are non-negative and all occupied values are
+	 * nonzero; thresh must be positive to exclude empty cells.
+	 * @param thresh positive minimum value to count
+	 * @return {@code [minimum key, count]}, or {@code [invalid(), 0]} if no
+	 * values qualify
+	 */
 	public long[] getMin(int thresh){
 		int found=0;
 		long min=Long.MAX_VALUE;
@@ -326,7 +391,14 @@ public final class LongHashMap{
 		}
 		return new long[] {found>0 ? min : invalid, found};
 	}
-	
+
+	/**
+	 * Returns keys with values at or above thresh in backing-array order.
+	 * Asserts that all mapped keys are non-negative and all occupied values are
+	 * nonzero.
+	 * @param thresh minimum value to include, clamped to at least 1
+	 * @return qualifying keys
+	 */
 	public long[] toArray(int thresh){
 		thresh=Tools.max(thresh, 1);
 		int len=0;
@@ -349,11 +421,15 @@ public final class LongHashMap{
 		}
 		return x;
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Private Methods       ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
+	/**
+	 * Development invariant check for positive-counting map uses.
+	 * @return true when size, empty-cell and positive-value invariants hold
+	 */
 	public boolean verify(){
 		//repOK-style dev checker (all callers are commented `assert(verify()); //123` -> off in production, must work
 		//when called). Uses findCell(key) -> CORRECT (index-vs-key family slip N/A; matches the Long* audit). Encodes
@@ -365,7 +441,7 @@ public final class LongHashMap{
 		for(int i=0; i<keys.length; i++){
 			final long key=keys[i];
 			final int value=values[i];
-			
+
 			if(key==invalid){
 				if(value!=0){
 					assert(false) : i+", "+key+", "+value;
@@ -390,7 +466,11 @@ public final class LongHashMap{
 		assert(pass) : numValues+", "+numFound+", "+size;
 		return pass;
 	}
-	
+
+	/**
+	 * Rehashes the contiguous probe chain after a removed cell.
+	 * @param initial just-emptied cell that begins the possible chain break
+	 */
 	private void rehashFrom(int initial){
 		if(size<1){return;}
 		final int limit=keys.length;
@@ -405,7 +485,12 @@ public final class LongHashMap{
 			rehashCell(cell);
 		}
 	}
-	
+
+	/**
+	 * Moves the key in cell to its earliest available probe-chain slot.
+	 * @param cell occupied cell to test
+	 * @return true if the key moved
+	 */
 	private boolean rehashCell(final int cell){
 		final long key=keys[cell];
 		final int value=values[cell];
@@ -420,7 +505,8 @@ public final class LongHashMap{
 		values[dest]=value;
 		return true;
 	}
-	
+
+	/** Chooses a new negative empty-cell sentinel and rewrites old empty cells. */
 	private void resetInvalid(){
 		final long old=invalid;
 		long x=invalid;
@@ -434,10 +520,15 @@ public final class LongHashMap{
 			}
 		}
 	}
-	
+
+	/**
+	 * Finds a key by linear probing from its hashed home cell.
+	 * @param key key to find
+	 * @return occupied cell index, or -1 if key is absent
+	 */
 	private int findCell(final long key){
 		if(key==invalid){return -1;}
-		
+
 		final int limit=keys.length, initial=(int)((key&MASK)%modulus);
 		for(int cell=initial; cell<limit; cell++){
 			final long x=keys[cell];
@@ -451,10 +542,15 @@ public final class LongHashMap{
 		}
 		return -1;
 	}
-	
+
+	/**
+	 * Finds a key or the first empty cell in its probe chain.
+	 * @param key key to find or insert; must not equal invalid()
+	 * @return matching or empty cell index
+	 */
 	private int findCellOrEmpty(final long key){
 		assert(key!=invalid) : "Collision - this should have been intercepted.";
-		
+
 		final int limit=keys.length, initial=(int)((key&MASK)%modulus);
 		for(int cell=initial; cell<limit; cell++){
 			final long x=keys[cell];
@@ -466,12 +562,17 @@ public final class LongHashMap{
 		}
 		throw new RuntimeException("No empty cells - size="+size+", limit="+limit);
 	}
-	
+
+	/** Expands the table and rehashes mapped keys into the new arrays. */
 	private final void resize(){
 		assert(size>=sizeLimit);
 		resize(keys.length*2L+1);
 	}
-	
+
+	/**
+	 * Rehashes all mapped keys into a prime-sized table.
+	 * @param size2 requested minimum modulus before adding slack cells
+	 */
 	private final void resize(final long size2){
 //		assert(verify()); //123
 		assert(size2>size) : size+", "+size2;
@@ -481,7 +582,7 @@ public final class LongHashMap{
 		}
 		assert(newPrime>modulus) : "Overflow: "+size+", "+size2+", "+modulus+", "+newPrime;
 		modulus=(int)newPrime;
-		
+
 		final int size3=(int)(newPrime+extra);
 		sizeLimit=(int)(modulus*loadFactor);
 		final long[] oldKeys=keys;
@@ -489,11 +590,11 @@ public final class LongHashMap{
 		keys=KillSwitch.allocLong1D(size3);
 		values=KillSwitch.allocInt1D(size3);
 		Arrays.fill(keys, invalid);
-		
+
 //		System.err.println("Resizing "+(old==null ? "null" : ""+old.length)+" to "+size3);
-		
+
 		if(size<1){return;}
-		
+
 		size=0;
 		for(int i=0; i<oldKeys.length; i++){
 			long key=oldKeys[i];
@@ -503,34 +604,60 @@ public final class LongHashMap{
 		}
 //		assert(verify()); //123
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------            Getters           ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/**
+	 * Returns the borrowed backing key array; empty cells contain invalid().
+	 * Mutating the borrowed array can break invariants, and resize() can
+	 * replace it while clear() mutates it in place.
+	 * @return borrowed backing key array
+	 */
 	public long[] keys(){return keys;}
 
+	/**
+	 * Returns the borrowed backing value array parallel to keys().
+	 * Mutating the borrowed array can break invariants, and resize() can
+	 * replace it while clear() mutates it in place.
+	 * @return borrowed backing value array
+	 */
 	public int[] values(){return values;}
 
+	/**
+	 * Returns the current negative empty-cell sentinel.
+	 * @return empty-cell sentinel
+	 */
 	public long invalid(){return invalid;}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Keys array; empty cells hold invalid. */
 	private long[] keys;
+	/** Values parallel to keys; empty cells hold zero. */
 	private int[] values;
+	/** Number of occupied cells. */
 	private int size=0;
 	/** Randomly generated marker value representing empty cells. */
 	private long invalid;
+	/** Prime modulus used for the initial probe cell. */
 	private int modulus;
+	/** Resize threshold in occupied cells. */
 	private int sizeLimit;
+	/** Effective load factor used to compute sizeLimit. */
 	private final float loadFactor;
-	
+
+	/** Deterministic generator for negative empty-cell sentinels. */
 	private static final Random randy=shared.Shared.random(1);
+	/** Mask that clears the sign bit before the modulus operation. */
 	private static final long MASK=Long.MAX_VALUE;
+	/** Mask that sets the sign bit when choosing empty-cell sentinels. */
 	private static final long MINMASK=Long.MIN_VALUE;
-	
+
+	/** Extra cells after the prime modulus to simplify wrapped probing. */
 	private static final int extra=10;
-	
+
 }

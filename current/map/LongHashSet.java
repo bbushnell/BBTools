@@ -16,12 +16,17 @@ import structures.LongList;
  * Hash set implementation optimized for long values with linear probing collision resolution.
  * Uses an invalid marker system for empty cells and supports dynamic resizing.
  * Provides O(1) average-case performance for add, remove, and contains operations.
+ * Not synchronized; callers need external coordination for concurrent mutation.
  *
  * @author Brian Bushnell
  * @date July 6, 2016
  */
 public final class LongHashSet{
-	
+
+	/**
+	 * Exercises the set against {@link HashSet} and runs an ad hoc timing loop.
+	 * @param args ignored
+	 */
 	public static void main(String[] args){
 		Random randy2=Shared.threadLocalRandom();
 		LongHashSet set=new LongHashSet(20, 0.7f);
@@ -37,14 +42,14 @@ public final class LongHashSet{
 			long r=randy2.nextLong();
 			list2.add(r);
 		}
-		
+
 		for(long x : list){
 			set.add(x);
 			set2.add(x);
 			assert(set.contains(x));
 			assert(set2.contains(x));
 		}
-		
+
 		for(long x : list){
 			assert(set.contains(x));
 			assert(set2.contains(x));
@@ -55,14 +60,14 @@ public final class LongHashSet{
 		}
 		assert(set.isEmpty());
 		assert(set2.isEmpty());
-		
+
 		for(long x : list2){
 			set.add(x);
 			set2.add(x);
 			assert(set.contains(x));
 			assert(set2.contains(x));
 		}
-		
+
 		for(long x : list2){
 			assert(set.contains(x));
 			assert(set2.contains(x));
@@ -73,7 +78,7 @@ public final class LongHashSet{
 		}
 		assert(set.isEmpty());
 		assert(set2.isEmpty());
-		
+
 		int count=4000000;
 		int runs=32;
 		LongList ll=new LongList(count);
@@ -106,7 +111,7 @@ public final class LongHashSet{
 			t.stop();
 			System.err.println(t);
 			Shared.printMemory();
-			
+
 //			System.err.println("HashSet:");
 //			t.start();
 //			for(int i=0; i<runs; i++){
@@ -125,19 +130,32 @@ public final class LongHashSet{
 		}
 		t.stop();
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
+	/** Constructs a set with the default requested capacity and load factor. */
 	public LongHashSet(){
 		this(256);
 	}
-	
+
+	/**
+	 * Constructs a set with the default load factor.
+	 * @param initialSize requested minimum prime modulus before adding slack
+	 *        cells; asserted positive
+	 */
 	public LongHashSet(int initialSize){
 		this(initialSize, 0.7f);
 	}
-	
+
+	/**
+	 * Constructs a set with a caller-supplied initial modulus and load factor.
+	 * @param initialSize requested minimum prime modulus before adding slack
+	 *        cells; asserted positive
+	 * @param loadFactor_ requested resize threshold fraction; asserted in
+	 *        (0,1) before clamping to [0.25, 0.90]
+	 */
 	public LongHashSet(int initialSize, float loadFactor_){
 		invalid=randy.nextLong()|MINMASK;
 		assert(invalid<0);
@@ -146,21 +164,27 @@ public final class LongHashSet{
 		loadFactor=Tools.mid(0.25f, loadFactor_, 0.90f);
 		resize(initialSize);
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Public Methods        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
+	/** Removes all values and resets every cell to empty. */
 	public void clear(){
 		if(size<1){return;}
 		Arrays.fill(array, invalid);
 		size=0;
 	}
-	
+
+	/**
+	 * Tests whether value is present in the table.
+	 * @param value value to search for
+	 * @return true if value is present
+	 */
 	public boolean contains(long value){
 		return value==invalid ? false : findCell(value)>=0;
 	}
-	
+
 	/**
 	 * Adds the specified value to the set if not already present.
 	 * Automatically resizes the hash table when load factor is exceeded.
@@ -179,7 +203,7 @@ public final class LongHashSet{
 		assert(array[cell]==value);
 		return false;
 	}
-	
+
 	/**
 	 * Removes the specified value from the set.
 	 * Performs rehashing of subsequent elements to maintain probe sequence integrity.
@@ -193,25 +217,40 @@ public final class LongHashSet{
 		assert(array[cell]==value);
 		array[cell]=invalid;
 		size--;
-		
+
 		rehashFrom(cell);
 		return true;
 	}
-	
+
+	/**
+	 * Returns the number of stored values.
+	 * @return stored-value count
+	 */
 	public int size(){return size;}
-	
+
+	/**
+	 * Returns true when no values are stored.
+	 * @return true if empty
+	 */
 	public boolean isEmpty(){return size==0;}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        String Methods        ----------------*/
 	/*--------------------------------------------------------------*/
-	
-	/** Returns a string representation of the set showing only the values */
+
+	/**
+	 * Returns a string representation of the set showing only the values.
+	 * @return list-view string
+	 */
 	@Override
 	public String toString(){
 		return toStringListView();
 	}
-	
+
+	/**
+	 * Returns a list of occupied cells with cell index and value.
+	 * @return set-view string
+	 */
 	public String toStringSetView(){
 		StringBuilder sb=new StringBuilder();
 		sb.append('[');
@@ -225,7 +264,11 @@ public final class LongHashSet{
 		sb.append(']');
 		return sb.toString();
 	}
-	
+
+	/**
+	 * Returns a list of stored values.
+	 * @return list-view string
+	 */
 	public String toStringListView(){
 		StringBuilder sb=new StringBuilder();
 		sb.append('[');
@@ -239,7 +282,11 @@ public final class LongHashSet{
 		sb.append(']');
 		return sb.toString();
 	}
-	
+
+	/**
+	 * Returns a newly allocated array of all stored values in backing-array order.
+	 * @return stored values
+	 */
 	public long[] toArray(){
 		//FIXED [map/LongHashSet#001]: was `new long[array.length]` copying EVERY cell, including invalid sentinels.
 		//That returned a capacity-length array of garbage instead of the set's elements, a lone divergence from the
@@ -255,11 +302,15 @@ public final class LongHashSet{
 		}
 		return x;
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Private Methods       ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
+	/**
+	 * Development invariant check for set contents and probe chains.
+	 * @return true when size and lookup invariants hold
+	 */
 	public boolean verify(){
 		//uses findCell(value) by VALUE -> CORRECT (this is the file that confirmed IntHashSet#001's findCell(i) slip).
 		//repOK-style dev checker: every present value is findable at its own cell, and the counts agree.
@@ -279,7 +330,11 @@ public final class LongHashSet{
 		}
 		return numValues==numFound && numValues==size;
 	}
-	
+
+	/**
+	 * Rehashes the contiguous probe chain after a removed cell.
+	 * @param initial just-emptied cell that begins the possible chain break
+	 */
 	private void rehashFrom(int initial){
 		if(size<1){return;}
 		final int limit=array.length;
@@ -294,7 +349,12 @@ public final class LongHashSet{
 			rehashCell(cell);
 		}
 	}
-	
+
+	/**
+	 * Moves the value in cell to its earliest available probe-chain slot.
+	 * @param cell occupied cell to test
+	 * @return true if the value moved
+	 */
 	private boolean rehashCell(final int cell){
 		final long value=array[cell];
 		assert(value!=invalid);
@@ -306,7 +366,8 @@ public final class LongHashSet{
 		array[dest]=value;
 		return true;
 	}
-	
+
+	/** Chooses a new negative empty-cell sentinel and rewrites old empty cells. */
 	private void resetInvalid(){
 		final long old=invalid;
 		long x=invalid;
@@ -317,10 +378,15 @@ public final class LongHashSet{
 			if(array[i]==old){array[i]=invalid;}
 		}
 	}
-	
+
+	/**
+	 * Finds a value by linear probing from its hashed home cell.
+	 * @param value value to find
+	 * @return occupied cell index, or -1 if value is absent
+	 */
 	private int findCell(final long value){
 		if(value==invalid){return -1;}
-		
+
 		final int limit=array.length, initial=(int)((value&MASK)%modulus);
 		for(int cell=initial; cell<limit; cell++){
 			final long x=array[cell];
@@ -334,10 +400,15 @@ public final class LongHashSet{
 		}
 		return -1;
 	}
-	
+
+	/**
+	 * Finds a value or the first empty cell in its probe chain.
+	 * @param value value to find or insert; must not equal invalid
+	 * @return matching or empty cell index
+	 */
 	private int findCellOrEmpty(final long value){
 		assert(value!=invalid) : "Collision - this should have been intercepted.";
-		
+
 		final int limit=array.length, initial=(int)((value&MASK)%modulus);
 		for(int cell=initial; cell<limit; cell++){
 			final long x=array[cell];
@@ -349,14 +420,19 @@ public final class LongHashSet{
 		}
 		throw new RuntimeException("No empty cells - size="+size+", limit="+limit);
 	}
-	
+
+	/** Expands the table and rehashes stored values into the new array. */
 	private final void resize(){
 		assert(size>=sizeLimit);
 		//PRIME sizing (Primes.primeAtLeast) -> clean ~2x growth; NOT the pow2 keys.length*2L that gave ObjectSet and
 		//the pow2 maps their 4x over-allocation. Core machinery (findCell/add/remove/rehash) is the IntHashSet twin.
 		resize(array.length*2L+1);
 	}
-	
+
+	/**
+	 * Rehashes all stored values into a prime-sized table.
+	 * @param size2 requested minimum modulus before adding slack cells
+	 */
 	private final void resize(final long size2){
 		assert(size2>size) : size+", "+size2;
 		long newPrime=Primes.primeAtLeast(size2);
@@ -365,17 +441,17 @@ public final class LongHashSet{
 		}
 		assert(newPrime>modulus) : "Overflow: "+size+", "+size2+", "+modulus+", "+newPrime;
 		modulus=(int)newPrime;
-		
+
 		final int size3=(int)(newPrime+extra);
 		sizeLimit=(int)(modulus*loadFactor);
 		final long[] old=array;
 		array=KillSwitch.allocLong1D(size3);
 		Arrays.fill(array, invalid);
-		
+
 //		System.err.println("Resizing "+(old==null ? "null" : ""+old.length)+" to "+size3);
-		
+
 		if(size<1){return;}
-		
+
 		size=0;
 		for(long value : old){
 			if(value!=invalid){
@@ -400,7 +476,7 @@ public final class LongHashSet{
 		array=null;
 		resize(newSize);
 	}
-	
+
 	/**
 	 * Returns the maximum number of values that can be stored without triggering a resize.
 	 * This is the size limit based on current capacity and load factor.
@@ -410,24 +486,33 @@ public final class LongHashSet{
 		return sizeLimit;
 	}
 
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
+	/** Backing value array; empty cells hold invalid. */
 	private long[] array;
+	/** Number of occupied cells. */
 	private int size=0;
 	/** Marker value used to indicate empty cells in the hash table */
 	private long invalid;
+	/** Prime modulus used for the initial probe cell. */
 	private int modulus;
+	/** Resize threshold in occupied cells. */
 	private int sizeLimit;
+	/** Effective load factor used to compute sizeLimit. */
 	private final float loadFactor;
-	
+
+	/** Deterministic generator for negative empty-cell sentinels. */
 	private static final Random randy=shared.Shared.random(1);
+	/** Mask that clears the sign bit before the modulus operation. */
 	private static final long MASK=Long.MAX_VALUE;
+	/** Mask that sets the sign bit when choosing empty-cell sentinels. */
 	private static final long MINMASK=Long.MIN_VALUE;
-	
+
+	/** Extra cells after the prime modulus to simplify wrapped probing. */
 	private static final int extra=10;
 
-	
+
 }

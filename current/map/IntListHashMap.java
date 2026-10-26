@@ -22,21 +22,26 @@ import structures.IntList;
  * @date June 2, 2025
  */
 public final class IntListHashMap implements Serializable{
-	
+
+	/** Serialization version for this map layout. */
 	private static final long serialVersionUID=1L;
-	
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Initialization        ----------------*/
+	/*--------------------------------------------------------------*/
+
 	/** Creates an IntListHashMap with default initial capacity and load factor. */
 	public IntListHashMap(){this(256);}
-	
+
 	/** Creates an IntListHashMap with specified initial capacity and default load factor.
-	 * @param initialSize Initial hash table capacity */
+	 * @param initialSize Positive minimum logical table size */
 	public IntListHashMap(int initialSize){this(initialSize, 0.7f);}
-	
+
 	/**
 	 * Creates an IntListHashMap with specified capacity and load factor, initializing
 	 * the backing arrays and key tracker.
-	 * @param initialSize Initial capacity for the hash table
-	 * @param loadFactor_ Maximum load factor before resizing
+	 * @param initialSize Positive minimum logical table size
+	 * @param loadFactor_ Requested fraction in (0,1), narrowed to float and clamped to [0.25,0.90]
 	 */
 	public IntListHashMap(int initialSize, double loadFactor_){
 		invalid=randy.nextInt()|MINMASK; // Ensure negative invalid key
@@ -47,9 +52,14 @@ public final class IntListHashMap implements Serializable{
 		keyList=new IntList(); // Track all valid keys
 		resize(initialSize);
 	}
-	
-	/** Clears the whole backing arrays when dense; sparse clear resolves keys to cells while the whole
-	 * table is still probeable, reusing keyList's soon-to-be-cleared array as scratch. */
+
+	/*--------------------------------------------------------------*/
+	/*----------------         Public Methods       ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Releases all list references without modifying the lists or shrinking capacity.
+	 * Dense maps clear whole backing arrays. Sparse maps resolve all tracked keys
+	 * before deleting any cell, reusing keyList as temporary cell-index storage. */
 	public void clear(){
 		if(size<1){return;}
 		if(size>0.25*sizeLimit){
@@ -72,25 +82,38 @@ public final class IntListHashMap implements Serializable{
 		keyList.clear();
 		size=0;
 	}
-	
+
+	/** Tests key occupancy, independently of whether its stored list is null.
+	 * @param key Key to query
+	 * @return True when key is present */
 	public final boolean contains(int key){return findCell(key)>=0;}
-	
+
+	/** Alias for contains(int).
+	 * @param key Key to query
+	 * @return True when key is present */
 	public final boolean containsKey(int key){return findCell(key)>=0;}
-	
-	/** Returns the borrowed, mutable list currently stored for key, or null if absent or stored-null. */
+
+	/** Borrows the currently stored mutable list.
+	 * @param key Key to query
+	 * @return Stored list reference, or null for either absence or a stored null */
 	public IntList get(int key){
 		int cell=findCell(key);
 		return cell<0 ? null : values[cell];
 	}
-	
-	/** Returns the stored list for key, or replaces an absent or stored-null value with a new list. */
+
+	/** Supplies a mutable list for key, allocating and storing one if absent or null.
+	 * @param key Key whose value is needed
+	 * @return Borrowed stored list, non-null on return */
 	public IntList getOrCreate(int key){
 		IntList list=get(key);
 		if(list==null){list=new IntList(2); put(key, list);} // Create new list
 		return list;
 	}
-	
-	/** Replaces key's stored list with value and returns the old borrowed list; value is stored by reference. */
+
+	/** Stores the supplied list reference without cloning or clearing either list.
+	 * @param key Key to insert or replace; every int is supported
+	 * @param value List reference to retain, or null
+	 * @return Previous list, or null for absence or a previously stored null */
 	public IntList put(int key, IntList value){
 		if(key==invalid){resetInvalid();} // Handle collision with invalid key
 		final int cell=findCellOrEmpty(key);
@@ -104,11 +127,17 @@ public final class IntListHashMap implements Serializable{
 		}
 		return oldV;
 	}
-	
-	/** Appends value to key's stored list, creating a new list if key is absent or stores null. */
+
+	/** Appends to the stored list, creating one for an absent or stored-null mapping.
+	 * Existing external aliases to the list observe this append.
+	 * @param key Key to insert or extend
+	 * @param value Integer to append, including duplicates */
 	public void put(int key, int value){getOrCreate(key).add(value);}
-	
-	/** Copies each non-null source list into this map, replacing the destination mapping; skips null source values. */
+
+	/** Replaces mappings with independent copies of the source's non-null lists.
+	 * Source-null values and destination-only mappings are skipped. A distinct source
+	 * is preserved; a self-copy replaces each non-null list with its copy.
+	 * @param map Non-null source stable during the call unless it is this map itself */
 	public void putAll(IntListHashMap map){
 		for(int i=0; i<map.keyList.size; i++){
 			int key=map.keyList.array[i];
@@ -116,14 +145,18 @@ public final class IntListHashMap implements Serializable{
 			if(list!=null){put(key, list.copy());} // Deep copy lists
 		}
 	}
-	
+
+	/** Removes a mapping without clearing its former list; repairs the probe cluster.
+	 * Scans the tracked-key list and swaps its last key into the removed position.
+	 * @param key Key to remove
+	 * @return True if the key was present, including when its stored value was null */
 	public boolean remove(int key){
 		if(key==invalid){return false;}
 		final int cell=findCell(key);
 		if(cell<0){return false;}
 		assert(keys[cell]==key);
 		keys[cell]=invalid; values[cell]=null; size--;
-		
+
 		// Remove from keyList efficiently
 		for(int i=0; i<keyList.size; i++){
 			if(keyList.array[i]==key){
@@ -134,11 +167,16 @@ public final class IntListHashMap implements Serializable{
 		rehashFrom(cell); // Maintain hash table integrity
 		return true;
 	}
-	
+
+	/*--------------------------------------------------------------*/
+	/*----------------         Private Methods      ----------------*/
+	/*--------------------------------------------------------------*/
+
 	/** After a removal blanks one cell, re-probe the rest of that cluster so no key is stranded
 	 * behind the new gap. Scans initial+1..limit-1 then wraps 0..initial-1, stopping at the first
 	 * pre-existing empty. rehashCell moves keys earlier in their probe sequence (possibly across the
-	 * array end) and never past the cursor, so nothing is orphaned. */
+	 * array end) and never past the cursor, so nothing is orphaned.
+	 * @param initial Cell just emptied by removal */
 	private void rehashFrom(int initial){
 		if(size<1){return;}
 		final int limit=keys.length;
@@ -155,7 +193,10 @@ public final class IntListHashMap implements Serializable{
 			rehashCell(cell);
 		}
 	}
-	
+
+	/** Moves a live key/list reference to an earlier available slot without changing size.
+	 * @param cell Occupied cell index
+	 * @return True when the entry moved and its old cell was cleared */
 	private boolean rehashCell(final int cell){
 		final int key=keys[cell]; final IntList value=values[cell];
 		assert(key!=invalid);
@@ -167,10 +208,8 @@ public final class IntListHashMap implements Serializable{
 		keys[dest]=key; values[dest]=value; // Set new position
 		return true;
 	}
-	
-	//CLEVER [verified]: keys may be any int, so a real key can equal the negative sentinel; when that
-	//happens on insert this regenerates the sentinel to an unused negative and rewrites every old marker,
-	//keeping "empty" distinguishable from data without reserving a key value (same trick as IntHashSet).
+
+	/** Chooses an unused negative sentinel and rewrites empty keys, preserving live entries. */
 	private void resetInvalid(){
 		final int old=invalid;
 		int x=invalid;
@@ -181,11 +220,13 @@ public final class IntListHashMap implements Serializable{
 			if(keys[i]==old){keys[i]=invalid;} // Update old invalid markers
 		}
 	}
-	
+
 	/** Probe for an existing key; -1 if absent (or if key==the current invalid sentinel).
 	 * key&amp;MASK strips the sign bit so negative keys map into [0,modulus); MASK==Integer.MAX_VALUE
 	 * so this initial index is IDENTICAL to findCellOrEmpty's -> a key placed on insert is always
-	 * found here (probe-consistency verified). Stops at the first invalid cell (open-addressing). */
+	 * found here. Stops at the first invalid cell.
+	 * @param key Key to query
+	 * @return Matching cell index, or -1 when absent */
 	int findCell(final int key){
 		if(key==invalid){return -1;}
 		final int limit=keys.length, initial=(int)((key&MASK)%modulus);
@@ -201,10 +242,11 @@ public final class IntListHashMap implements Serializable{
 		}
 		return -1;
 	}
-	
-	//CLEVER [verified]: initial index here uses (key&Integer.MAX_VALUE)%modulus, byte-identical to
-	//findCell's (key&MASK)%modulus since MASK==Integer.MAX_VALUE. The two MUST agree or an inserted key
-	//becomes unfindable; they do (a lone divergence would be the bug). Returns key's cell or first empty.
+
+	/** Finds the key or first empty cell using the same probe sequence as lookup.
+	 * @param key Key unequal to the current empty-cell sentinel
+	 * @return Matching or empty cell index
+	 * @throws RuntimeException If no matching or empty cell exists */
 	private int findCellOrEmpty(final int key){
 		assert(key!=invalid) : "Collision - this should have been intercepted.";
 		final int limit=keys.length, initial=(int)((key&Integer.MAX_VALUE)%modulus);
@@ -220,15 +262,17 @@ public final class IntListHashMap implements Serializable{
 		}
 		throw new RuntimeException("No empty cells - size="+size+", limit="+limit);
 	}
-	
-	//Prime-modulus growth: ~2x via primeAtLeast(keys.length*2+1). NOT the pow2 family's 4x bug
-	//(no highestOneBit round-up here). Re-insertion below can't trigger a nested resize: it re-adds
-	//`size` old entries (< the freshly-raised sizeLimit of the bigger table).
+
+	/** Requests a larger table after the size threshold is reached. */
 	private final void resize(){
 		assert(size>=sizeLimit);
 		resize(keys.length*2L+1);
 	}
-	
+
+	/** Rebuilds arrays with a prime modulus, retaining the same value-list references.
+	 * Caps the prime below Integer.MAX_VALUE-extra and asserts that the modulus grows.
+	 * Rebuilds keyList in old-table order, so tracked-key iteration order may change.
+	 * @param size2 Positive requested modulus, greater than the current entry count */
 	private final void resize(final long size2){
 		assert(size2>size) : size+", "+size2;
 		long newPrime=Primes.primeAtLeast(size2); // Use prime for better distribution
@@ -237,49 +281,83 @@ public final class IntListHashMap implements Serializable{
 		}
 		assert(newPrime>modulus) : "Overflow: "+size+", "+size2+", "+modulus+", "+newPrime;
 		modulus=(int)newPrime;
-		
+
 		final int size3=(int)(newPrime+extra);
 		sizeLimit=(int)(modulus*loadFactor);
 		final int[] oldK=keys; final IntList[] oldV=values;
 		keys=KillSwitch.allocInt1D(size3); values=new IntList[size3];
 		Arrays.fill(keys, invalid); // Initialize with invalid markers
-		
+
 		if(size<1){return;}
-		
+
 		size=0; keyList.clear(); // Reset for rehashing
 		for(int i=0; i<oldK.length; i++){
 			final int k=oldK[i]; final IntList v=oldV[i];
 			if(k!=invalid){put(k, v);} // Rehash all valid entries
 		}
 	}
-	
-	/** Valid keys only, no sentinels (snapshot of keyList). Use this, not keys(), to iterate keys. */
+
+	/*--------------------------------------------------------------*/
+	/*----------------           Accessors          ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Copies valid keys in tracked-key order, which removal and resizing can change.
+	 * @return Newly allocated dense key array without sentinels */
 	public int[] toArray(){return keyList.toArray();}
 
-	/** Raw backing array - contains the invalid() sentinel in empty cells. Callers must filter on
-	 * invalid() (or use toArray()); index alignment with values() is internal. No caller reads this today. */
+	/** Borrows mutable key storage; modifying it can break hashing and key tracking.
+	 * Resizing replaces the array; clear() mutates it in place.
+	 * @return Map-owned key array with invalid() in empty cells */
 	public int[] keys(){return keys;}
 
-	/** Raw backing array - null can mean an empty cell or a stored null value. Filter with keys()/invalid(). */
+	/** Borrows value storage parallel to keys(); null alone does not establish absence.
+	 * Resizing replaces the array; clear() releases its references but does not clear lists.
+	 * @return Map-owned array of borrowed list references */
 	public IntList[] values(){return values;}
-	
+
+	/** Returns the current empty-cell marker, which changes if inserted as a real key.
+	 * @return Negative sentinel absent from the key set */
 	public int invalid(){return invalid;}
-	
+
+	/** Returns the number of mapped keys, including stored-null mappings.
+	 * @return Entry count */
 	public int size(){return size;}
-	
+
+	/** Tests whether there are no mapped keys.
+	 * @return True when size() is zero */
 	public boolean isEmpty(){return size==0;}
-	
+
+	/*--------------------------------------------------------------*/
+	/*----------------            Fields            ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Key storage, with invalid in empty cells. */
 	private int[] keys;
+	/** List references parallel to keys; empty cells contain null. */
 	private IntList[] values;
+	/** Each live key once; also temporary cell-index scratch during sparse clear. */
 	private IntList keyList;
+	/** Number of occupied key cells. */
 	private int size=0;
+	/** Negative empty-cell marker, replaced when that key is inserted. */
 	private int invalid;
+	/** Prime modulus for the first probe cell; physical arrays include extra slack. */
 	private int modulus;
+	/** Entry count above which insertion requests growth. */
 	private int sizeLimit;
+	/** Requested load fraction narrowed to float and clamped to [0.25,0.90]. */
 	private final float loadFactor;
-	
+
+	/*--------------------------------------------------------------*/
+	/*----------------           Constants          ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Mask for the nonnegative portion of a key. */
 	static final int MASK=Integer.MAX_VALUE;
+	/** Sign-bit mask used when choosing an empty-cell sentinel. */
 	static final int MINMASK=Integer.MIN_VALUE;
+	/** Extra probe cells beyond the logical table size. */
 	private static final int extra=10;
+	/** Seeded generator for replacement empty-cell markers. */
 	private static final Random randy=shared.Shared.random(1);
 }

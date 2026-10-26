@@ -14,24 +14,23 @@ import structures.ByteBuilder;
  * Uses open addressing with linear probing for collision resolution.
  * Caches hash codes to avoid expensive equals() calls during probing.
  * Uses power-of-2 sizing for fast modulo via bitwise AND.
- * 
- * More memory-efficient than {@code HashMap<K, Double>} by:
- * - Storing primitive double values instead of Double objects
- * - Using arrays instead of Entry objects
- * - Avoiding per-entry object overhead
- * 
- * Null keys are unsupported; keys must retain stable equality and hash codes
- * while stored. All double values may be stored, including -1 and NaN.
+ *
+ * Parallel arrays avoid boxed values and per-entry objects; keys themselves are retained.
+ *
+ * Null keys cannot be stored; null lookups and removals behave as absent keys.
+ * Stored keys must retain stable equality and hash codes. All double values may
+ * be stored, including -1 and NaN; arithmetic follows Java floating-point rules.
  * Not thread-safe. External synchronization is required when mutations overlap
  * another access; safely published, immutable instances may be read concurrently.
- * 
+ *
  * @author Brian
  * @date Feb 14, 2026
- * 
+ *
  * @param <K> Key type - must properly implement hashCode() and equals()
  */
 public final class ObjectDoubleMap<K> implements Serializable{
 
+	/** Serialization version for this map layout. */
 	private static final long serialVersionUID=1L;
 
 	/*--------------------------------------------------------------*/
@@ -40,9 +39,8 @@ public final class ObjectDoubleMap<K> implements Serializable{
 
 	/**
 	 * Creates a new map with default initial capacity (256) and load factor (0.7).
-	 * @param type Component class of the keys (e.g. String.class, byte[].class) — used to allocate a real K[] backing
-	 *        array via reflection so keys() returns a genuine typed array (a plain Object[] backing CCEs at the call
-	 *        site under a concrete K). Pass a class literal; it is a cheap cached constant. [map/ObjectDoubleMap#002]
+	 * @param type Non-null reference component class assignable from every stored key;
+	 * used to allocate correctly typed arrays returned by keys() [map/ObjectDoubleMap#002]
 	 */
 	public ObjectDoubleMap(Class<K> type){
 		this(256, type);
@@ -50,7 +48,7 @@ public final class ObjectDoubleMap<K> implements Serializable{
 
 	/**
 	 * Creates a new map with specified initial capacity and default load factor (0.7).
-	 * @param initialSize Initial capacity (will be rounded up to next power of 2)
+	 * @param initialSize Positive minimum logical table size, rounded up to a power of two
 	 * @param type Component class of the keys (see {@link #ObjectDoubleMap(Class)}).
 	 */
 	public ObjectDoubleMap(int initialSize, Class<K> type){
@@ -59,7 +57,7 @@ public final class ObjectDoubleMap<K> implements Serializable{
 
 	/**
 	 * Creates a new map with specified initial capacity and load factor.
-	 * @param initialSize Initial capacity (will be rounded up to next power of 2)
+	 * @param initialSize Positive minimum logical table size, rounded up to a power of two
 	 * @param loadFactor_ Requested load factor in (0,1), clamped to [0.25,0.90]
 	 * @param type Component class of the keys (see {@link #ObjectDoubleMap(Class)}).
 	 */
@@ -77,7 +75,8 @@ public final class ObjectDoubleMap<K> implements Serializable{
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Removes all entries from the map.
+	 * Removes all entries and releases key references without shrinking the arrays.
+	 * Empty values become zero, unlike newly allocated arrays whose empty values are -1.
 	 */
 	public void clear(){
 		if(size<1){return;}
@@ -89,7 +88,7 @@ public final class ObjectDoubleMap<K> implements Serializable{
 
 	/**
 	 * Gets the value associated with the given key.
-	 * @param key Key to look up
+	 * @param key Lookup key; null is treated as absent
 	 * @return Stored value, or -1 when absent; contains() distinguishes a stored -1
 	 */
 	public double get(K key){
@@ -99,7 +98,7 @@ public final class ObjectDoubleMap<K> implements Serializable{
 
 	/**
 	 * Checks if the map contains the given key.
-	 * @param key Key to check
+	 * @param key Lookup key; null is treated as absent
 	 * @return true if key is present
 	 */
 	public boolean contains(K key){
@@ -109,7 +108,7 @@ public final class ObjectDoubleMap<K> implements Serializable{
 	/**
 	 * Associates the specified value with the specified key.
 	 * If the key already exists, updates its value.
-	 * @param key Key to insert/update
+	 * @param key Non-null key compatible with the constructor's component type
 	 * @param value Value to associate with key
 	 * @return Previous slot value: for absent keys this is -1 after allocation or
 	 * resizing, and 0 in cleared slots. Use contains() before insertion when
@@ -121,7 +120,9 @@ public final class ObjectDoubleMap<K> implements Serializable{
 
 	/**
 	 * Copies all entries from another map into this map.
-	 * @param map Source map to copy from
+	 * Shared keys take the source value; destination-only keys remain. Key references
+	 * are shared, not cloned. A distinct source is preserved; self-copy is a no-op.
+	 * @param map Non-null source stable during this operation, with keys compatible with this map's type
 	 */
 	public void putAll(ObjectDoubleMap<K> map){
 		for(int i=0; i<map.keys.length; i++){
@@ -187,9 +188,10 @@ public final class ObjectDoubleMap<K> implements Serializable{
 
 	/**
 	 * Increments the value associated with the key by the specified amount.
-	 * If key is not present, inserts it with the increment value.
-	 * @param key Key to increment
-	 * @param incr Amount to add (can be negative)
+	 * An absent key starts from positive zero. Uses ordinary double addition, including
+	 * infinity, NaN and signed-zero behavior; no overflow clamping is performed.
+	 * @param key Non-null key compatible with the constructor's component type
+	 * @param incr Signed amount to add, including non-finite values
 	 * @return New value after increment
 	 */
 	public double increment(K key, double incr){
@@ -210,8 +212,9 @@ public final class ObjectDoubleMap<K> implements Serializable{
 
 	/**
 	 * Increments all entries in this map by corresponding values from another map.
-	 * Keys not present in this map are inserted with their values from the source map.
-	 * @param map Source map containing increment values
+	 * Absent keys start from positive zero. Key references are shared, not cloned.
+	 * A distinct source is preserved; a self-merge doubles each value using double addition.
+	 * @param map Non-null source, stable during this call unless it is this map itself
 	 */
 	public void incrementAll(ObjectDoubleMap<K> map){
 		for(int i=0; i<map.keys.length; i++){
@@ -225,7 +228,10 @@ public final class ObjectDoubleMap<K> implements Serializable{
 	 * For each key in the source map, sets this map's value to the maximum
 	 * of the current value and the source value.
 	 * Keys absent from this map copy the source value exactly, including negative values.
-	 * @param map Source map to compare against
+	 * Shared keys use Math.max semantics: NaN propagates and positive zero wins over
+	 * negative zero. Destination-only keys remain. Key references are shared and a
+	 * distinct source is preserved; self-merging leaves values unchanged.
+	 * @param map Non-null source stable during this operation, with compatible key types
 	 */
 	public void setToMax(ObjectDoubleMap<K> map){
 		for(int i=0; i<map.keys.length; i++){
@@ -247,7 +253,7 @@ public final class ObjectDoubleMap<K> implements Serializable{
 
 	/**
 	 * Removes the entry with the specified key.
-	 * @param key Key to remove
+	 * @param key Key to remove; null is treated as absent
 	 * @return true if key was present and removed, false if key was not found
 	 */
 	public boolean remove(K key){
@@ -288,8 +294,9 @@ public final class ObjectDoubleMap<K> implements Serializable{
 	}
 
 	/**
-	 * Attempts to move an entry to its ideal position.
-	 * @param cell Position of entry to rehash
+	 * Moves an entry to the first reachable hole after deletion, preserving its cached
+	 * hash and value. Clears the vacated cell without changing the number of entries.
+	 * @param cell Occupied cell index
 	 * @return true if entry was moved
 	 */
 	private boolean rehashCell(final int cell){
@@ -314,7 +321,7 @@ public final class ObjectDoubleMap<K> implements Serializable{
 	 * Finds the cell containing the given key.
 	 * Uses linear probing to resolve collisions.
 	 * Checks hash code equality before calling expensive equals().
-	 * @param key Key to search for
+	 * @param key Lookup key; null is treated as absent
 	 * @return Cell index if found, -1 if not found
 	 */
 	private int findCell(final K key){
@@ -340,17 +347,16 @@ public final class ObjectDoubleMap<K> implements Serializable{
 	/**
 	 * Finds the cell containing the key, or an empty cell where it can be inserted.
 	 * Checks hash code equality before calling expensive equals().
-	 * @param key Key to search for
-	 * @param hash Pre-computed hash code of key
+	 * @param key Non-null key to search for
+	 * @param hash Precomputed Tools.hash32plus(key.hashCode()), not the raw hashCode()
 	 * @return Cell index (either containing key or empty)
+	 * @throws RuntimeException If no matching or empty cell exists
 	 */
 	private int findCellOrEmpty(final K key, final int hash){
 		assert(key!=null) : "Null keys not supported";
 
-		//CLEVER [verified]: hashes[] caches each key's hash so the probe compares cheap ints first
-		//(hashes[cell]==hash) and only calls equals() on a hash match. initial=hash&mask is in range for ANY mask:
-		//hash=Tools.hash32plus(...) is CAPPED in [0, 0x7FFFF800) < SAFE_ARRAY_LEN, so even at the top tier
-		//(mask=Integer.MAX_VALUE after the 2x-growth fix) hash&mask == hash is a valid index (see hash32plus javadoc).
+		//Cached hashes avoid equals() calls on mismatches. Tools.hash32plus caps the initial
+		//index below SAFE_ARRAY_LEN even at the terminal, physically capped table size.
 		final int limit=keys.length;
 		final int initial=hash&mask;
 
@@ -370,16 +376,18 @@ public final class ObjectDoubleMap<K> implements Serializable{
 	 */
 	private final void resize(){
 		assert(size>=sizeLimit);
-		//grow 2x: double the LOGICAL pow2 capacity (keys.length-extra==pow2), not keys.length (=pow2+extra).
-		//keys.length*2L overshot the power-of-2 boundary -> rounded up to 4*pow2 (same family bug as the pow2 maps,
-		//anchor [map/IntLongHashMap2#002]); fixed to true 2x growth. Output unchanged; ~2x less memory.
+		//Double logical capacity, excluding slack; doubling the full array would round
+		//ordinary growth up to four times the logical capacity. [map/IntLongHashMap2#002]
 		resize((keys.length-extra)*2L);
 	}
 
 	/**
-	 * Resizes the map to at least the specified size and rehashes all entries.
-	 * Actual size will be rounded up to the next power of 2.
-	 * @param size2 Minimum new size
+	 * Rebuilds all three arrays, preserving entries and cached hashes.
+	 * Rounds the logical request up to a power of two, adds slack and caps physical
+	 * length at Shared.SAFE_ARRAY_LEN. The final capped allocation uses load factor 0.85.
+	 * New empty values are -1; borrowed array references are replaced.
+	 * @param size2 Positive requested logical size, strictly greater than the entry count
+	 * @throws RuntimeException If the capped allocation cannot grow the existing table
 	 */
 	private final void resize(final long size2){
 		assert(size2>size) : size+", "+size2;
@@ -420,13 +428,21 @@ public final class ObjectDoubleMap<K> implements Serializable{
 			}
 		}
 	}
-	
+
+	/*--------------------------------------------------------------*/
+	/*----------------          Formatting          ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Formats occupied entries through toBytes(); key text is not escaped.
+	 * @return Brace-delimited key=value entries in backing-array order */
 	@Override
 	public String toString(){
 		return toBytes().toString();
 	}
-	
-	/** Renders occupied entries in backing-array order, with three fractional digits. */
+
+	/** Appends occupied entries with ByteBuilder's three-fractional-digit formatting.
+	 * Key text is not escaped; the result is diagnostic text, not a round-trip format.
+	 * @return Newly allocated builder containing brace-delimited key=value entries */
 	public ByteBuilder toBytes(){
 		ByteBuilder bb=new ByteBuilder();
 		bb.append('{');
@@ -445,12 +461,10 @@ public final class ObjectDoubleMap<K> implements Serializable{
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Returns the internal key array (the live backing array; null entries mark empty cells).
-	 * This is a GENUINE K[] (e.g. String[], byte[][]) because the backing is allocated via Array.newInstance(type,...)
-	 * from the component class passed to the constructor [map/ObjectDoubleMap#002] — so it can be used directly (assigned
-	 * to K[], iterated, .length) without the ClassCastException a plain Object[] backing would cause at the call site.
-	 * WARNING: live array, contains nulls for empty cells. Use with caution.
-	 * @return Internal key array (a real K[])
+	 * Borrows the live typed key array; null entries mark empty cells.
+	 * Do not modify its entries or retain it across resizing. Mutating a stored key's
+	 * equality/hash state invalidates the cached hashes even if the array is untouched.
+	 * @return Map-owned array with the constructor-supplied component type
 	 */
 	public K[] keys(){return keys;}
 
@@ -489,12 +503,16 @@ public final class ObjectDoubleMap<K> implements Serializable{
 	private int mask;
 	/** Size threshold for triggering resize (capacity * loadFactor) */
 	private int sizeLimit;
-	/** Load factor (fraction of capacity before resize) */
+	/** Requested load clamped to [0.25,0.90]; terminal allocation uses 0.85 instead. */
 	private final float loadFactor;
 	/** Component class of K, for allocating a real K[] backing via reflection (Array.newInstance). [map/ObjectDoubleMap#002] */
 	private final Class<K> type;
 
-	/** Extra space beyond power-of-2 size to reduce wrap-around collisions */
+	/*--------------------------------------------------------------*/
+	/*----------------           Constants          ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Extra physical probe cells beyond the power-of-two logical capacity. */
 	private static final int extra=10;
 
 }

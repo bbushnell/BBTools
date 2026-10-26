@@ -14,35 +14,45 @@ import simd.Vector;
 /**
  * Hash map with primitive int keys and long values.
  * Uses open addressing with linear probing for collision resolution.
- * Uses power-of-2 sizing and hash mixing for fast, well-distributed hashing.
- * Slightly slower than IntHashMap2 but greater max capacity (goes over 2^30).
- * 
- * Thread-safety: Not thread-safe. External synchronization required for concurrent access.
- * 
+ * Uses power-of-two logical sizing with a capped physical array and a capped hash
+ * mixer, supporting a final tier above 2^30 cells. Every int key and long value is
+ * supported; inserting the empty-cell marker replaces it. Increment saturates
+ * upward but wraps downward; getAndIncrement uses unchecked wrapping addition.
+ * Unsynchronized: mutations require exclusive access.
+ *
  * @author Isla, Amber
  * @date November 2, 2025
  */
 public final class IntLongHashMap3 implements Serializable{
 
+	/** Serialization version for this map layout. */
 	private static final long serialVersionUID=1L;
 
+	/** Runs legacy timing comparisons and then unconditional maximum-capacity stress tests.
+	 * Even tiny arguments lead to a near-maximum int-array allocation; this is not a smoke test.
+	 * @param args Optional positional nonnegative key count, positive repetitions and boolean removal flag */
 	public static void main(String[] args){
 		int size=args.length>0 ? Integer.parseInt(args[0]) : 1000000;
 		int repeats=args.length>1 ? Integer.parseInt(args[1]) : 1;
 		boolean remove=args.length>2 ? Boolean.parseBoolean(args[2]) : true;
-		
+
 		// Generate random keys with collisions
 		System.err.println("Generating "+size+" random keys...");
 		Random randy=shared.Shared.random(12345);
 		int[] keys=new int[size];
 		for(int i=0; i<size; i++){
-			keys[i]=(int)Math.sqrt(randy.nextLong() & Long.MAX_VALUE);
+			keys[i]=(int)Math.sqrt(randy.nextLong()&Long.MAX_VALUE);
 		}
 		System.err.println("Keys generated.");
-		
+
 		bench(keys, repeats, remove);
 	}
 
+	/** Times map variants, then attempts to fill each to capacity using a newly allocated huge key array.
+	 * The supplied array is read during timing but replaced locally before capacity testing.
+	 * @param keys Non-null input keys for the timing phase
+	 * @param repeats Positive number of fill/lookup cycles per implementation
+	 * @param remove Whether each timing cycle also removes its keys */
 	private static void bench(int[] keys, int repeats, boolean remove){
 		final int size=keys.length;
 		System.gc();
@@ -89,7 +99,7 @@ public final class IntLongHashMap3 implements Serializable{
 			map3=null;
 			System.gc();
 		}
-		
+
 		{
 			System.err.println("\n*** IntHashMap2 ***");
 			Shared.printMemory();
@@ -111,7 +121,7 @@ public final class IntLongHashMap3 implements Serializable{
 			map=null;
 			System.gc();
 		}
-		
+
 		{
 			System.err.println("\n*** IntHashMap3 ***");
 			Shared.printMemory();
@@ -177,7 +187,7 @@ public final class IntLongHashMap3 implements Serializable{
 			map=null;
 			System.gc();
 		}
-		
+
 		// Legacy dev capacity stress: this runs unconditionally after the small timing loops,
 		// so main() is not a smoke test even with tiny args.
 		keys=new int[Shared.MAX_ARRAY_LEN];
@@ -221,7 +231,7 @@ public final class IntLongHashMap3 implements Serializable{
 			System.err.println("IntHashMap2: capacity="+max);
 			t.stopAndPrint();
 		}
-		
+
 		{
 			long max=0;
 			t.start();
@@ -238,7 +248,7 @@ public final class IntLongHashMap3 implements Serializable{
 			System.err.println("IntHashMap3: capacity="+max);
 			t.stopAndPrint();
 		}
-		
+
 		{
 			long max=0;
 			t.start();
@@ -270,7 +280,7 @@ public final class IntLongHashMap3 implements Serializable{
 
 	/**
 	 * Creates a new map with specified initial capacity and default load factor (0.7).
-	 * @param initialSize Initial capacity (will be rounded down to a power-of-2 tier)
+	 * @param initialSize Positive logical capacity request, rounded down to a power-of-two tier
 	 */
 	public IntLongHashMap3(int initialSize){
 		this(initialSize, 0.7f);
@@ -278,8 +288,8 @@ public final class IntLongHashMap3 implements Serializable{
 
 	/**
 	 * Creates a new map with specified initial capacity and load factor.
-	 * @param initialSize Initial capacity (will be rounded down to a power-of-2 tier)
-	 * @param loadFactor_ Load factor (0.25-0.90) - map resizes when size exceeds capacity*loadFactor
+	 * @param initialSize Positive logical capacity request, rounded down to a power-of-two tier
+	 * @param loadFactor_ Requested fraction in (0,1), clamped to [0.25,0.90] and stored as float
 	 */
 	public IntLongHashMap3(int initialSize, double loadFactor_){
 		invalid=randy.nextInt()|MINMASK;
@@ -295,7 +305,7 @@ public final class IntLongHashMap3 implements Serializable{
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Removes all entries from the map.
+	 * Removes all mappings without shrinking capacity or changing the sentinel.
 	 */
 	public void clear(){
 		if(size<1){return;}
@@ -307,7 +317,7 @@ public final class IntLongHashMap3 implements Serializable{
 	/**
 	 * Gets the value associated with the given key.
 	 * @param key Key to look up
-	 * @return Value associated with key, or -1 if key not found
+	 * @return Stored value or -1 when absent; contains() disambiguates a stored -1
 	 */
 	public long get(int key){
 		int cell=findCell(key);
@@ -322,7 +332,10 @@ public final class IntLongHashMap3 implements Serializable{
 	public boolean contains(int key){
 		return findCell(key)>=0;
 	}
-	
+
+	/** Alias for contains(int).
+	 * @param key Integer key to query
+	 * @return True when key is present */
 	public boolean containsKey(int key){
 		return findCell(key)>=0;
 	}
@@ -341,7 +354,9 @@ public final class IntLongHashMap3 implements Serializable{
 
 	/**
 	 * Copies all entries from another map into this map.
-	 * @param map Source map to copy from
+	 * Shared keys take the source value; destination-only mappings remain.
+	 * A distinct source is preserved; self-copy is a no-op.
+	 * @param map Non-null source stable during this operation
 	 */
 	public void putAll(IntLongHashMap3 map){
 		for(int i=0; i<map.keys.length; i++){
@@ -375,6 +390,7 @@ public final class IntLongHashMap3 implements Serializable{
 	/**
 	 * Increments the value associated with the key by 1.
 	 * If key is not present, inserts it with value 1.
+	 * An existing Long.MAX_VALUE count remains saturated.
 	 * @param key Key to increment
 	 * @return New value after increment
 	 */
@@ -420,9 +436,9 @@ public final class IntLongHashMap3 implements Serializable{
 	}
 
 	/**
-	 * Optimization: Gets the current value and increments it by 1.
-	 * Avoids a double lookup (get + set).
-	 * Useful for filling PackedIndex.
+	 * Returns the old value and stores old+1 with a single lookup.
+	 * Unlike increment(), addition wraps at Long.MAX_VALUE rather than saturating.
+	 * An absent key starts from zero and is inserted with value one.
 	 * @param key Key to find
 	 * @return Old value associated with key, or 0 if key was not present (and is now inserted with value 1)
 	 */
@@ -430,11 +446,11 @@ public final class IntLongHashMap3 implements Serializable{
 		if(key==invalid){resetInvalid();}
 		final int cell=findCellOrEmpty(key);
 		final long oldV=values[cell];
-		
-		// Note: We don't clamp here because this is mainly for packed indices 
+
+		// Note: We don't clamp here because this is mainly for packed indices
 		// where we expect controlled incrementing.
-		values[cell]=oldV+1; 
-		
+		values[cell]=oldV+1;
+
 		if(keys[cell]==invalid){
 			keys[cell]=key;
 			size++;
@@ -446,7 +462,9 @@ public final class IntLongHashMap3 implements Serializable{
 	/**
 	 * Increments all entries in this map by corresponding values from another map.
 	 * Keys not present in this map are inserted with their values from the source map.
-	 * @param map Source map containing increment values
+	 * Uses upper-saturating/lower-wrapping increments. A distinct source is preserved;
+	 * self-merging doubles each value according to those arithmetic rules.
+	 * @param map Non-null source stable during this call unless it is this map itself
 	 */
 	public void incrementAll(IntLongHashMap3 map){
 		for(int i=0; i<map.keys.length; i++){
@@ -458,7 +476,8 @@ public final class IntLongHashMap3 implements Serializable{
 
 	/** Merges the source map by taking the maximum value for each shared key.
 	 * Keys absent here are inserted with their exact source values.
-	 * @param map Source map to compare against
+	 * Destination-only mappings remain. A distinct source is preserved; self-merging is a no-op.
+	 * @param map Non-null source stable during this operation
 	 */
 	public void setToMax(IntLongHashMap3 map){
 		for(int i=0; i<map.keys.length; i++){
@@ -519,8 +538,8 @@ public final class IntLongHashMap3 implements Serializable{
 	}
 
 	/**
-	 * Attempts to move an entry to its ideal position.
-	 * @param cell Position of entry to rehash
+	 * Moves an entry to the first reachable hole after deletion, preserving its value and size.
+	 * @param cell Occupied cell index
 	 * @return true if entry was moved
 	 */
 	private boolean rehashCell(final int cell){
@@ -538,7 +557,7 @@ public final class IntLongHashMap3 implements Serializable{
 		return true;
 	}
 
-	/** Resets the invalid sentinel when it collides with a real key. */
+	/** Chooses an unused negative sentinel and rewrites empty keys, preserving live entries. */
 	private void resetInvalid(){
 		final int old=invalid;
 		int x=invalid;
@@ -550,7 +569,7 @@ public final class IntLongHashMap3 implements Serializable{
 
 	/**
 	 * Finds the cell containing the given key.
-	 * Uses linear probing with hash mixing for collision resolution.
+	 * Starts from Tools.hash32plus(key) masked to the logical table, then probes linearly.
 	 * @param key Key to search for
 	 * @return Cell index if found, -1 if not found
 	 */
@@ -563,7 +582,7 @@ public final class IntLongHashMap3 implements Serializable{
 
 	/**
 	 * Finds the cell containing the key, or an empty cell where it can be inserted.
-	 * @param key Key to search for
+	 * @param key Integer key unequal to the current empty-cell sentinel
 	 * @return Cell index (either containing key or empty)
 	 */
 	private int findCellOrEmpty(final int key){
@@ -580,23 +599,22 @@ public final class IntLongHashMap3 implements Serializable{
 		assert(size>=sizeLimit);
 		resize(keys.length*2L);
 	}
-	
+
 	/**
-	 * Resizes the map to at least the specified size and rehashes all entries.
-	 * For sizes up to 2^30: uses power-of-2 sizing with user-specified load factor.
-	 * For sizes above 2^30: caps at SAFE_LIMIT with 0.85 load factor.
-	 * @param size2 Minimum new size
+	 * Rebuilds both arrays, rounding the logical request down to a power-of-two tier.
+	 * Adds slack and caps physical length at Shared.SAFE_ARRAY_LEN. The terminal tier
+	 * uses max(loadFactor,0.85), and a request that cannot grow the arrays is rejected.
+	 * Preserves mappings but replaces borrowed arrays and can change iteration order.
+	 * @param size2 Positive logical size request, greater than the current entry count
+	 * @throws RuntimeException If the resulting physical length does not exceed the old length
 	 */
 	private final void resize(final long size2){
 		assert(size2>size) : size+", "+size2;
-		
+
 		final long old=(keys==null ? 0 : keys.length);
 		long size3=Long.highestOneBit(size2);//round-DOWN (no round-up) -> clean 2x growth (unlike IntHashMap2/IntLongHashMap2's 4x)
-		//RESOLVED non-bug [map/IntLongHashMap3#001] - IDENTICAL to IntHashMap3#001 (its long-value twin): the mask
-		//from the UNCAPPED pow2 exceeds the SAFE_ARRAY_LEN-capped array at the 2^31 tier. SAFE, not a bug: findCell
-		//uses initial=Tools.hash32plus(key)&mask, and hash32plus is CAPPED below 0x7FFFF800 (< array length), so
-		//hash&mask==hash is ALWAYS a valid in-range index regardless of the over-wide mask. The HASH guarantees the
-		//range. Verdict reached with Brian; escalation RETRACTED alongside IntHashMap3#001.
+		//The logical mask can exceed capped physical length, but hash32plus keeps the initial
+		//probe below SAFE_ARRAY_LEN; the mask itself need not be capped. [map/IntLongHashMap3#001]
 		mask=(int)(size3-1);
 		size3=Math.min(size3+extra, Shared.SAFE_ARRAY_LEN);
 		if(size3<=old || size3>Shared.SAFE_ARRAY_LEN){//note: size3>SAFE_ARRAY_LEN is dead (Math.min just capped it)
@@ -605,13 +623,13 @@ public final class IntLongHashMap3 implements Serializable{
 		}
 		final float loadFactor2=(size3<Shared.SAFE_ARRAY_LEN ? loadFactor : Tools.max(loadFactor, 0.85f));
 		sizeLimit=(int)((size3-extra)*loadFactor2);
-		
+
 		final int[] oldK=keys;
 		final long[] oldV=values;
 		keys=KillSwitch.allocInt1D((int)size3);
 		values=KillSwitch.allocLong1D((int)size3);
 		Arrays.fill(keys, invalid);
-		
+
 		if(size<1){return;}
 		size=0;
 		for(int i=0; i<oldK.length; i++){
@@ -628,8 +646,8 @@ public final class IntLongHashMap3 implements Serializable{
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Returns array of all keys currently in the map.
-	 * @return Array containing all keys (no invalid sentinels)
+	 * Copies all stored keys into a dense array in backing-table order, which is not sorted.
+	 * @return New independent array of size() keys without empty-cell markers
 	 */
 	public int[] toArray(){
 		int[] x=KillSwitch.allocInt1D(size);
@@ -644,22 +662,22 @@ public final class IntLongHashMap3 implements Serializable{
 	}
 
 	/**
-	 * Returns the internal key array.
-	 * WARNING: Contains invalid sentinel for empty cells. Use with caution.
-	 * @return Internal key array
+	 * Borrows the mutable key array; external mutation can invalidate probe invariants.
+	 * Resizing replaces the array; clear() mutates the same array in place.
+	 * @return Map-owned keys with invalid() in empty cells
 	 */
 	public int[] keys(){return keys;}
 
 	/**
-	 * Returns the internal value array.
-	 * WARNING: Contains 0 for empty cells. Use with caution.
-	 * @return Internal value array
+	 * Borrows the mutable value array parallel to keys(); empty cells contain zero.
+	 * Resizing replaces the array; clear() mutates the same array in place.
+	 * @return Map-owned values; use the parallel keys to determine occupancy
 	 */
 	public long[] values(){return values;}
 
 	/**
 	 * Returns the invalid sentinel value used for empty cells.
-	 * @return Invalid sentinel (always negative)
+	 * @return Current negative marker, which changes if inserted as a real key
 	 */
 	public int invalid(){return invalid;}
 
@@ -691,10 +709,14 @@ public final class IntLongHashMap3 implements Serializable{
 	private int mask;
 	/** Size threshold for triggering resize (capacity * loadFactor) */
 	private int sizeLimit;
-	/** Load factor (fraction of capacity before resize) */
+	/** Requested load fraction clamped to [0.25,0.90]; the terminal tier uses at least 0.85. */
 	private final float loadFactor;
 
-	/** Extra space beyond power-of-2 size to reduce wrap-around collisions */
+	/*--------------------------------------------------------------*/
+	/*----------------           Constants          ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Extra physical probe cells beyond the power-of-two logical size. */
 	private static final int extra=10;
 	/** Mask to ensure invalid sentinel is negative */
 	private static final int MINMASK=Integer.MIN_VALUE;

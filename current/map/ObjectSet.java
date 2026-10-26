@@ -17,13 +17,12 @@ import shared.Tools;
  * Uses open addressing with linear probing for collision resolution.
  * Caches hash codes to avoid expensive equals() calls during probing.
  * Uses power-of-2 sizing for fast modulo via bitwise AND.
- * 
- * Memory-efficient replacement for {@code HashSet<T>} by:
- * - Using arrays instead of Entry objects
- * - Avoiding per-entry object overhead
- * - Better cache locality with linear probing
- * Null keys are unsupported. Equality and hashes must stay stable while a key
- * is stored. Not thread-safe; synchronize accesses that overlap a mutation.
+ *
+ * Parallel arrays retain keys without allocating per-entry objects. Null keys
+ * cannot be stored; null lookups/removals behave as absent keys. Equality and
+ * hashes must stay stable while a key is stored. Not thread-safe; synchronize
+ * accesses that overlap a mutation. Equal keys can have different identities:
+ * add/addIfAbsent preserve the existing representative, while addAndReturnOld replaces it.
  * @author Brian Bushnell
  * @contributor Isla, Amber
  * @date January 26, 2026
@@ -31,8 +30,11 @@ import shared.Tools;
  */
 public final class ObjectSet<T> implements Serializable{
 
+	/** Serialization version for this set layout. */
 	private static final long serialVersionUID=1L;
 
+	/** Runs a legacy presence comparison and allocation/timing benchmark on random strings.
+	 * @param args Optional positional nonnegative key count and positive repetition count */
 	public static void main(String[] args){
 		int size=args.length>0 ? Integer.parseInt(args[0]) : 1000000;
 		int repeats=args.length>1 ? Integer.parseInt(args[1]) : 1;
@@ -41,6 +43,11 @@ public final class ObjectSet<T> implements Serializable{
 		bench(list, repeats);
 	}
 
+	/** Generates reproducible uppercase A-Z strings without ensuring uniqueness.
+	 * @param size Nonnegative number of strings
+	 * @param minLen Nonnegative minimum string length
+	 * @param maxLen Inclusive maximum length, at least minLen; range must fit an int
+	 * @return Newly allocated list and strings */
 	private static ArrayList<String> randomStrings(int size, int minLen, int maxLen){
 		Shared.printMemory();
 		ArrayList<String> strings=new ArrayList<String>(size);
@@ -60,7 +67,9 @@ public final class ObjectSet<T> implements Serializable{
 	}
 
 	/**
-	 * Tests correctness by comparing ObjectSet against HashSet.
+	 * Compares insertion/presence with HashSet, reporting to stderr and exiting with
+	 * status one on a presence mismatch. The size comparison requires assertions.
+	 * @param list Non-null list of non-null keys with stable equality/hash codes; not modified
 	 */
 	private static void test(ArrayList<? extends Object> list){
 		System.err.println("\n*** Testing Correctness ***");
@@ -104,6 +113,10 @@ public final class ObjectSet<T> implements Serializable{
 
 	/**
 	 * Benchmarks performance against {@code HashSet<Object>}.
+	 * Reconstructs each set per repetition, inserts/looks up/removes all supplied keys,
+	 * prints timings and requests GC. This is an ad hoc benchmark, not a throughput oracle.
+	 * @param list Non-null list of non-null stable keys; not modified
+	 * @param repeats Positive number of cycles per set implementation
 	 */
 	private static void bench(ArrayList<? extends Object> list, int repeats){
 		System.gc();
@@ -165,20 +178,25 @@ public final class ObjectSet<T> implements Serializable{
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * @param type Component class of the keys (e.g. String.class, byte[].class) — used to allocate a real T[] backing
-	 *        array via reflection so keys() returns a genuine typed array (a plain Object[] backing CCEs at the call
-	 *        site under a concrete T). Pass a class literal; it is a cheap cached constant. [map/ObjectSet#002]
+	 * Creates an empty set with default logical capacity 256 and load factor 0.7.
+	 * @param type Non-null reference component class assignable from every stored key;
+	 * used to allocate correctly typed arrays returned by keys() [map/ObjectSet#002]
 	 */
 	public ObjectSet(Class<T> type){
 		this(256, 0.7f, type);
 	}
 
-	/** Allocates a typed set with requested initial capacity and default load factor. */
+	/** Allocates a typed set with requested initial capacity and default load factor 0.7.
+	 * @param initialSize Positive minimum logical size, rounded up to a power of two
+	 * @param type Non-null reference component class assignable from every stored key */
 	public ObjectSet(int initialSize, Class<T> type){
 		this(initialSize, 0.7f, type);
 	}
 
-	/** Allocates typed storage with a requested (0,1) load factor, clamped to [0.25,0.90]. */
+	/** Allocates typed storage for a new empty set.
+	 * @param initialSize Positive minimum logical size, rounded up to a power of two
+	 * @param loadFactor_ Requested fraction in (0,1), clamped to [0.25,0.90]
+	 * @param type Non-null reference component class assignable from every stored key */
 	public ObjectSet(int initialSize, float loadFactor_, Class<T> type){
 		assert(initialSize>0) : "Initial size must be positive";
 		assert(loadFactor_>0 && loadFactor_<1) : "Load factor must be between 0 and 1";
@@ -193,7 +211,7 @@ public final class ObjectSet<T> implements Serializable{
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Removes all entries from the set.
+	 * Removes all entries and releases key references without shrinking the arrays.
 	 */
 	public void clear(){
 		if(size<1){return;}
@@ -204,7 +222,7 @@ public final class ObjectSet<T> implements Serializable{
 
 	/**
 	 * Checks if the set contains the given key.
-	 * @param key Key to check
+	 * @param key Lookup key; null is treated as absent
 	 * @return true if key is present
 	 */
 	public boolean contains(T key){
@@ -212,8 +230,8 @@ public final class ObjectSet<T> implements Serializable{
 	}
 
 	/**
-	 * Adds the specified key to the set.
-	 * @param key Key to add
+	 * Adds a key if absent, preserving the stored representative when an equal key exists.
+	 * @param key Non-null key compatible with the constructor's component type
 	 * @return true if the set did not already contain the key
 	 */
 	public boolean add(T key){
@@ -223,7 +241,7 @@ public final class ObjectSet<T> implements Serializable{
 		final int hash=Tools.hash32plus(key.hashCode());
 		final int cell=findCellOrEmpty(key, hash);
 		if(keys[cell]!=null){return false;} // Already present
-		
+
 		keys[cell]=key;
 		hashes[cell]=hash;
 		size++;
@@ -233,8 +251,8 @@ public final class ObjectSet<T> implements Serializable{
 
 	/**
 	 * Finds the stored representative equal to the query key.
-	 * @param key Key to check
-	 * @return Stored key, or null when absent
+	 * @param key Lookup key; null is treated as absent
+	 * @return Borrowed stored representative, or null when absent; do not mutate its hash/equality state
 	 */
 	public T get(T key){
 		int cell=findCell(key);
@@ -242,9 +260,10 @@ public final class ObjectSet<T> implements Serializable{
 	}
 
 	/**
-	 * Adds the specified key to the set, replacing if present.
-	 * @param key Key to add
-	 * @return Old key
+	 * Adds a key, replacing an equal stored representative with this object reference.
+	 * Existing-key replacement preserves size; a new key increases size by one.
+	 * @param key Non-null key compatible with the constructor's component type
+	 * @return Previous stored representative, or null when newly inserted
 	 */
 	public T addAndReturnOld(T key){
 		assert(key!=null) : "Null keys not supported";
@@ -255,7 +274,7 @@ public final class ObjectSet<T> implements Serializable{
 			keys[cell]=key;
 			return old;
 		}
-		
+
 		keys[cell]=key;
 		hashes[cell]=hash;
 		size++;
@@ -265,8 +284,8 @@ public final class ObjectSet<T> implements Serializable{
 
 	/**
 	 * Adds the specified key to the set, only if not present.
-	 * @param key Key to add
-	 * @return Old key
+	 * @param key Non-null key compatible with the constructor's component type
+	 * @return Existing stored representative, or null when newly inserted
 	 */
 	public T addIfAbsent(T key){
 		assert(key!=null) : "Null keys not supported";
@@ -274,17 +293,19 @@ public final class ObjectSet<T> implements Serializable{
 		final int cell=findCellOrEmpty(key, hash);
 		T old=keys[cell];
 		if(old!=null){return old;}// Already present
-		
+
 		keys[cell]=key;
 		hashes[cell]=hash;
 		size++;
 		if(size>sizeLimit){resize();}
 		return null;
 	}
-	
+
 	/**
 	 * Copies all entries from another set into this set.
-	 * @param set Source set to copy from
+	 * Existing equal representatives are retained; added keys are shared, not cloned.
+	 * A distinct source is preserved; self-copy leaves the set unchanged.
+	 * @param set Non-null source stable during this operation, with compatible key types
 	 */
 	public void addAll(ObjectSet<T> set){
 		for(int i=0; i<set.keys.length; i++){
@@ -296,7 +317,7 @@ public final class ObjectSet<T> implements Serializable{
 
 	/**
 	 * Removes the specified key.
-	 * @param key Key to remove
+	 * @param key Key to remove; null is treated as absent
 	 * @return true if the set contained the key
 	 */
 	public boolean remove(T key){
@@ -304,7 +325,7 @@ public final class ObjectSet<T> implements Serializable{
 		final int cell=findCell(key);
 		if(cell<0){return false;}
 		assert(keys[cell].equals(key));
-		
+
 		keys[cell]=null;
 		hashes[cell]=0;
 		size--;
@@ -317,7 +338,8 @@ public final class ObjectSet<T> implements Serializable{
 	/*----------------        Private Methods       ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Repairs the probe cluster after deleting one occupied cell. */
+	/** Repairs the contiguous probe cluster after deletion, wrapping at the array end.
+	 * @param initial Cell just emptied; subsequent live entries may need rehoming */
 	private void rehashFrom(int initial){
 		if(size<1){return;}
 		final int limit=keys.length;
@@ -333,7 +355,9 @@ public final class ObjectSet<T> implements Serializable{
 		}
 	}
 
-	/** Moves one entry earlier in its probe chain when the deleted slot permits it. */
+	/** Moves one entry earlier in its probe chain, preserving its hash and the set size.
+	 * @param cell Occupied cell index
+	 * @return True if the entry moved and its old cell was cleared */
 	private boolean rehashCell(final int cell){
 		final T key=keys[cell];
 		final int hash=hashes[cell];
@@ -349,7 +373,9 @@ public final class ObjectSet<T> implements Serializable{
 		return true;
 	}
 
-	/** Returns a stored key's cell, or -1 for an absent/null key. */
+	/** Looks up a key without mutating storage, stopping at the first empty cell.
+	 * @param key Lookup key; null is treated as absent
+	 * @return Cell index containing an equal key, or -1 when absent */
 	private int findCell(final T key){
 		if(key==null){return -1;}
 
@@ -370,14 +396,16 @@ public final class ObjectSet<T> implements Serializable{
 		return -1;
 	}
 
-	/** Returns the equal key's cell or an empty slot using a pre-mixed hash. */
+	/** Finds an equal key or the first empty slot in its probe sequence.
+	 * @param key Non-null key to search for
+	 * @param hash Precomputed Tools.hash32plus(key.hashCode()), not the raw hashCode()
+	 * @return Matching or empty cell index
+	 * @throws RuntimeException If no matching or empty cell exists */
 	private int findCellOrEmpty(final T key, final int hash){
 		assert(key!=null) : "Null keys not supported";
 
-		//CLEVER [verified]: hashes[] caches each key's hash so the probe compares cheap ints first
-		//(hashes[cell]==hash) and only calls equals() on a hash match. initial=hash&mask is in range for ANY mask:
-		//hash=Tools.hash32plus(...) is CAPPED in [0, 0x7FFFF800) < SAFE_ARRAY_LEN, so even at the top tier
-		//(mask=Integer.MAX_VALUE after the 2x-growth fix) hash&mask == hash is a valid index (see hash32plus javadoc).
+		//Cached hashes avoid equals() calls on mismatches. Tools.hash32plus caps the initial
+		//index below SAFE_ARRAY_LEN even at the terminal, physically capped table size.
 		final int limit=keys.length;
 		final int initial=hash&mask;
 
@@ -395,13 +423,17 @@ public final class ObjectSet<T> implements Serializable{
 	/** Doubles logical capacity before rehashing all keys. */
 	private final void resize(){
 		assert(size>=sizeLimit);
-		//grow 2x: double the LOGICAL pow2 capacity (keys.length-extra==pow2), not keys.length (=pow2+extra).
-		//keys.length*2L overshot the power-of-2 boundary -> rounded up to 4*pow2 (same family bug as the pow2 maps,
-		//anchor [map/IntLongHashMap2#002]); fixed to true 2x growth. Output unchanged; ~2x less memory.
+		//Double logical capacity, excluding slack; doubling the full array would round
+		//ordinary growth up to four times the logical capacity. [map/IntLongHashMap2#002]
 		resize((keys.length-extra)*2L);
 	}
 
-	/** Allocates a power-of-two table plus spare cells, then rehomes existing keys. */
+	/** Rebuilds both arrays, preserving keys, cached hashes and size.
+	 * Rounds the logical request up to a power of two, adds slack and caps physical
+	 * length at Shared.SAFE_ARRAY_LEN. The terminal allocation uses load factor 0.85.
+	 * Borrowed array references are replaced; key objects themselves are retained.
+	 * @param size2 Positive requested logical size, strictly greater than the entry count
+	 * @throws RuntimeException If the capped allocation cannot grow the existing table */
 	private final void resize(final long size2){
 		assert(size2>size) : size+", "+size2;
 
@@ -446,19 +478,19 @@ public final class ObjectSet<T> implements Serializable{
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Returns the internal key array (the live backing array; null entries mark empty cells).
-	 * This is a GENUINE T[] (e.g. String[], byte[][]) because the backing is allocated via Array.newInstance(type,...)
-	 * from the component class passed to the constructor [map/ObjectSet#002] — so it can be used directly (assigned to
-	 * T[], iterated, .length) without the ClassCastException a plain Object[] backing would cause at the call site.
-	 * WARNING: live array, contains nulls for empty cells. Use with caution.
-	 * @return Internal key array (a real T[])
+	 * Borrows the live typed key array; null entries mark empty cells.
+	 * Do not modify its entries or retain it across resizing. Stored keys must retain
+	 * stable hashes/equality even when callers never write directly to the array.
+	 * @return Set-owned array with the constructor-supplied component type
 	 */
 	public T[] keys(){return keys;}
 
-	/** Returns occupied-key count. */
+	/** Returns occupied-key count.
+	 * @return Number of distinct stored keys */
 	public int size(){return size;}
 
-	/** Returns whether no keys are stored. */
+	/** Returns whether no keys are stored.
+	 * @return True when size() is zero */
 	public boolean isEmpty(){return size==0;}
 
 	/*--------------------------------------------------------------*/
@@ -475,12 +507,16 @@ public final class ObjectSet<T> implements Serializable{
 	private int mask;
 	/** Size threshold for triggering resize (capacity * loadFactor) */
 	private int sizeLimit;
-	/** Load factor (fraction of capacity before resize) */
+	/** Requested load clamped to [0.25,0.90]; terminal allocation uses 0.85 instead. */
 	private final float loadFactor;
 	/** Component class of T, for allocating a real T[] backing via reflection (Array.newInstance). [map/ObjectSet#002] */
 	private final Class<T> type;
 
-	/** Extra space beyond power-of-2 size to reduce wrap-around collisions */
+	/*--------------------------------------------------------------*/
+	/*----------------           Constants          ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Extra physical probe cells beyond the power-of-two logical capacity. */
 	private static final int extra=10;
 
 }

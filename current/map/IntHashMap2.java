@@ -11,41 +11,45 @@ import shared.Tools;
 import simd.Vector;
 
 /**
- * Hash map with primitive int keys and int values.
- * Uses open addressing with linear probing for collision resolution.
- * Uses power-of-2 sizing and hash mixing for fast, well-distributed hashing.
- * 
- * Significantly more memory-efficient than {@code HashMap<Integer, Integer>} by:
- * - Storing primitive int values instead of Integer objects
- * - Using arrays instead of Entry objects
- * - Avoiding per-entry object overhead
- * - Better cache locality with linear probing
- * 
- * Thread-safety: Not thread-safe. External synchronization required for concurrent access.
- * 
+ * Int-to-int map that mixes int keys into a power-of-two open-addressed table.
+ * Empty cells hold a rerollable negative sentinel, values in empty cells are zero,
+ * get() returns -1 on misses, and put()/set() return zero on fresh insertions.
+ * Positive increment overflow is capped at {@link Integer#MAX_VALUE}; negative
+ * underflow wraps through signed int truncation. Instances are unsynchronized.
+ *
  * @author Isla
  * @date November 2, 2025
  */
 public final class IntHashMap2 implements IntHashMapInterface{
 
+	/** Serialization version. */
 	private static final long serialVersionUID=1L;
 
+	/**
+	 * Runs a destructive timing comparison against {@link IntHashMap} and {@link HashMap}.
+	 * @param args Optional element count and repeat count
+	 */
 	public static void main(String[] args){
 		int size=args.length>0 ? Integer.parseInt(args[0]) : 1000000;
 		int repeats=args.length>1 ? Integer.parseInt(args[1]) : 1;
-		
+
 		// Generate random keys with collisions
 		System.err.println("Generating "+size+" random keys...");
 		Random randy=shared.Shared.random(12345);
 		int[] keys=new int[size];
 		for(int i=0; i<size; i++){
-			keys[i]=(int)Math.sqrt(randy.nextLong() & Long.MAX_VALUE);
+			keys[i]=(int)Math.sqrt(randy.nextLong()&Long.MAX_VALUE);
 		}
 		System.err.println("Keys generated.");
-		
+
 		bench(keys, repeats);
 	}
 
+	/**
+	 * Times repeated load/lookup/remove cycles on the supplied keys.
+	 * @param keys Randomized keys to insert and query
+	 * @param repeats Positive number of map construction cycles per implementation
+	 */
 	private static void bench(int[] keys, int repeats){
 		final int size=keys.length;
 		System.gc();
@@ -122,25 +126,24 @@ public final class IntHashMap2 implements IntHashMapInterface{
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/**
-	 * Creates a new map with default initial capacity (256) and load factor (0.7).
-	 */
+	/** Creates a map with the default initial size and load factor. */
 	public IntHashMap2(){
 		this(256);
 	}
 
 	/**
-	 * Creates a new map with specified initial capacity and default load factor (0.7).
-	 * @param initialSize Initial capacity (will be rounded up to next power of 2)
+	 * Creates a map with default load factor 0.7.
+	 * @param initialSize Positive requested logical minimum size, rounded up to the next power of two
 	 */
 	public IntHashMap2(int initialSize){
 		this(initialSize, 0.7f);
 	}
 
 	/**
-	 * Creates a new map with specified initial capacity and load factor.
-	 * @param initialSize Initial capacity (will be rounded up to next power of 2)
-	 * @param loadFactor_ Load factor (0.25-0.90) - map resizes when size exceeds capacity*loadFactor
+	 * Creates a map with caller-selected initial size and load factor.
+	 * The load factor is clamped to [0.25,0.90].
+	 * @param initialSize Positive requested logical minimum size, rounded up to the next power of two
+	 * @param loadFactor_ Requested load in (0,1), clamped to [0.25,0.90] after validation
 	 */
 	public IntHashMap2(int initialSize, float loadFactor_){
 		invalid=randy.nextInt()|MINMASK;
@@ -155,9 +158,7 @@ public final class IntHashMap2 implements IntHashMapInterface{
 	/*----------------        Public Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/**
-	 * Removes all entries from the map.
-	 */
+	/** Removes all mappings, resets values to zero, and preserves the allocated raw arrays. */
 	public void clear(){
 		if(size<1){return;}
 		Arrays.fill(keys, invalid);
@@ -166,9 +167,9 @@ public final class IntHashMap2 implements IntHashMapInterface{
 	}
 
 	/**
-	 * Gets the value associated with the given key.
+	 * Returns the value mapped from a key.
 	 * @param key Key to look up
-	 * @return Value associated with key, or -1 if key not found
+	 * @return Mapped value, or -1 if absent
 	 */
 	public int get(int key){
 		int cell=findCell(key);
@@ -176,21 +177,26 @@ public final class IntHashMap2 implements IntHashMapInterface{
 	}
 
 	/**
-	 * Checks if the map contains the given key.
+	 * Tests whether a key is currently mapped.
 	 * @param key Key to check
-	 * @return true if key is present
+	 * @return true if {@code key} is live in this map
 	 */
 	public boolean contains(int key){
 		return findCell(key)>=0;
 	}
-	
+
+	/**
+	 * Tests whether a key is currently mapped.
+	 * @param key Key to check
+	 * @return true if {@code key} is live in this map
+	 */
 	public boolean containsKey(int key){
 		return findCell(key)>=0;
 	}
-	
+
 	/**
 	 * Returns 1 if the key is found, else 0.
-	 * @param key
+	 * @param key Key to check
 	 * @return 1 if the key is present, 0 if not
 	 */
 	public int containsKeyBinary(int key){
@@ -200,10 +206,9 @@ public final class IntHashMap2 implements IntHashMapInterface{
 	}
 
 	/**
-	 * Associates the specified value with the specified key.
-	 * If the key already exists, updates its value.
-	 * @param key Key to insert/update
-	 * @param value Value to associate with key
+	 * Stores a key/value pair.
+	 * @param key Key to insert or overwrite
+	 * @param value Value to store
 	 * @return Previous value, or 0 if key was not present (empty cells hold 0;
 	 *         use contains() to disambiguate a stored 0). NOT -1.
 	 */
@@ -212,8 +217,8 @@ public final class IntHashMap2 implements IntHashMapInterface{
 	}
 
 	/**
-	 * Copies all entries from another map into this map.
-	 * @param map Source map to copy from
+	 * Copies all live mappings from another map, overwriting matching keys here.
+	 * @param map Source map to read without modifying
 	 */
 	public void putAll(IntHashMap2 map){
 		for(int i=0; i<map.keys.length; i++){
@@ -224,10 +229,9 @@ public final class IntHashMap2 implements IntHashMapInterface{
 	}
 
 	/**
-	 * Associates the specified value with the specified key.
-	 * If the key already exists, updates its value.
-	 * @param key Key to insert/update
-	 * @param value Value to associate with key
+	 * Stores a key/value pair, rerolling the sentinel if it collides with {@code key}.
+	 * @param key Key to insert or overwrite
+	 * @param value Value to store
 	 * @return Previous value, or 0 if key was not present (empty cells hold 0;
 	 *         use contains() to disambiguate a stored 0). NOT -1.
 	 */
@@ -245,22 +249,20 @@ public final class IntHashMap2 implements IntHashMapInterface{
 	}
 
 	/**
-	 * Increments the value associated with the key by 1.
-	 * If key is not present, inserts it with value 1.
-	 * @param key Key to increment
-	 * @return New value after increment
+	 * Adds one to a key's value, inserting 1 if absent.
+	 * @param key Key to insert or update
+	 * @return New value, capped at {@link Integer#MAX_VALUE} on positive overflow
 	 */
 	public int increment(int key){
 		return increment(key, 1);
 	}
 
 	/**
-	 * Increments the value associated with the key by the specified amount.
-	 * If key is not present, inserts it with the increment value.
-	 * Values are clamped to Integer.MAX_VALUE on overflow.
-	 * @param key Key to increment
-	 * @param incr Amount to add (can be negative)
-	 * @return New value after increment
+	 * Adds a signed delta to a key's value, inserting the delta if absent.
+	 * Positive overflow caps at {@link Integer#MAX_VALUE}; negative underflow wraps.
+	 * @param key Key to insert or update
+	 * @param incr Signed increment to add
+	 * @return New value after overflow handling
 	 */
 	public int increment(int key, int incr){
 		if(key==invalid){resetInvalid();}
@@ -277,9 +279,10 @@ public final class IntHashMap2 implements IntHashMapInterface{
 	}
 
 	/**
-	 * Increments all entries in this map by corresponding values from another map.
-	 * Keys not present in this map are inserted with their values from the source map.
-	 * @param map Source map containing increment values
+	 * Adds all live values from another map into this map.
+	 * If {@code map} is this map, each value is doubled as its occupied cell is visited;
+	 * distinct sources must remain structurally stable while their raw arrays are scanned.
+	 * @param map Source map to scan for increments; may be this map
 	 */
 	public void incrementAll(IntHashMap2 map){
 		for(int i=0; i<map.keys.length; i++){
@@ -291,7 +294,7 @@ public final class IntHashMap2 implements IntHashMapInterface{
 
 	/** Merges the source map by taking the maximum value for each shared key.
 	 * Keys absent here are inserted with their exact source values.
-	 * @param map Source map to compare against
+	 * @param map Source map to read without modifying
 	 */
 	public void setToMax(IntHashMap2 map){
 		for(int i=0; i<map.keys.length; i++){
@@ -311,9 +314,9 @@ public final class IntHashMap2 implements IntHashMapInterface{
 	}
 
 	/**
-	 * Removes the entry with the specified key.
+	 * Removes a key and closes the following probe cluster.
 	 * @param key Key to remove
-	 * @return true if key was present and removed, false if key was not found
+	 * @return true if a live mapping was removed
 	 */
 	public boolean remove(int key){
 		if(key==invalid){return false;}
@@ -333,8 +336,8 @@ public final class IntHashMap2 implements IntHashMapInterface{
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Rehashes entries after a removal to maintain probe sequence integrity.
-	 * @param initial Starting position of removed entry
+	 * Rehashes occupied cells after a deletion until the next empty cell.
+	 * @param initial Cell that was just emptied
 	 */
 	private void rehashFrom(int initial){
 		if(size<1){return;}
@@ -352,9 +355,9 @@ public final class IntHashMap2 implements IntHashMapInterface{
 	}
 
 	/**
-	 * Attempts to move an entry to its ideal position.
-	 * @param cell Position of entry to rehash
-	 * @return true if entry was moved
+	 * Reinserts one occupied cell if its key can move earlier in its probe sequence.
+	 * @param cell Occupied raw cell to test
+	 * @return true if the mapping moved to a different cell
 	 */
 	private boolean rehashCell(final int cell){
 		final int key=keys[cell];
@@ -370,8 +373,8 @@ public final class IntHashMap2 implements IntHashMapInterface{
 
 		return true;
 	}
-	
-	/** Resets the invalid sentinel when it collides with a real key. */
+
+	/** Rerolls the empty-cell sentinel and rewrites all cells holding the old sentinel. */
 	private void resetInvalid(){
 		final int old=invalid;
 		int x=invalid;
@@ -382,10 +385,9 @@ public final class IntHashMap2 implements IntHashMapInterface{
 	}
 
 	/**
-	 * Finds the cell containing the given key.
-	 * Uses linear probing with hash mixing for collision resolution.
+	 * Locates a key by probing from {@code Tools.hash32plus(key) & mask}.
 	 * @param key Key to search for
-	 * @return Cell index if found, -1 if not found
+	 * @return Raw cell index if found, or -1 if absent
 	 */
 	public int findCell(final int key){
 		if(key==invalid){return -1;}
@@ -395,9 +397,9 @@ public final class IntHashMap2 implements IntHashMapInterface{
 	}
 
 	/**
-	 * Finds the cell containing the key, or an empty cell where it can be inserted.
-	 * @param key Key to search for
-	 * @return Cell index (either containing key or empty)
+	 * Locates a key or the empty cell that would receive it.
+	 * @param key Non-sentinel key to search for
+	 * @return Raw cell containing {@code key}, or a raw cell holding {@link #invalid}
 	 */
 	private int findCellOrEmpty(final int key){
 		assert(key!=invalid) : "Collision - this should have been intercepted.";
@@ -408,9 +410,7 @@ public final class IntHashMap2 implements IntHashMapInterface{
 		return Vector.findKeyOrInvalidScalar(keys, key, initial, invalid);
 	}
 
-	/**
-	 * Doubles the map capacity and rehashes all entries.
-	 */
+	/** Doubles the logical power-of-two table size and rehashes live mappings. */
 	private final void resize(){
 		assert(size>=sizeLimit);
 		//grow 2x: double the LOGICAL pow2 capacity (keys.length-extra==pow2), not keys.length (=pow2+extra).
@@ -420,9 +420,9 @@ public final class IntHashMap2 implements IntHashMapInterface{
 	}
 
 	/**
-	 * Resizes the map to at least the specified size and rehashes all entries.
-	 * Actual size will be rounded up to the next power of 2.
-	 * @param size2 Minimum new size
+	 * Replaces raw storage with at least the specified logical size and rehashes live mappings.
+	 * Requests near the int-array ceiling crash loudly rather than silently truncating.
+	 * @param size2 Requested logical minimum size before power-of-two rounding
 	 */
 	private final void resize(final long size2){
 		assert(size2>size) : size+", "+size2;
@@ -462,8 +462,8 @@ public final class IntHashMap2 implements IntHashMapInterface{
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Returns array of all keys currently in the map.
-	 * @return Array containing all keys (no invalid sentinels)
+	 * Copies live keys into a dense new array.
+	 * @return Owned key snapshot in raw table iteration order
 	 */
 	public int[] toArray(){
 		int[] x=KillSwitch.allocInt1D(size);
@@ -478,34 +478,32 @@ public final class IntHashMap2 implements IntHashMapInterface{
 	}
 
 	/**
-	 * Returns the internal key array.
-	 * WARNING: Contains invalid sentinel for empty cells. Use with caution.
-	 * @return Internal key array
+	 * Borrows the raw key array.
+	 * @return Borrowed raw key array with {@link #invalid()} in empty cells
 	 */
 	public int[] keys(){return keys;}
 
 	/**
-	 * Returns the internal value array.
-	 * WARNING: Contains 0 for empty cells. Use with caution.
-	 * @return Internal value array
+	 * Borrows the raw value array.
+	 * @return Borrowed raw value array, index-aligned with {@link #keys()}
 	 */
 	public int[] values(){return values;}
 
 	/**
-	 * Returns the invalid sentinel value used for empty cells.
-	 * @return Invalid sentinel (always negative)
+	 * Returns the current empty-cell sentinel.
+	 * @return Current negative empty-cell sentinel
 	 */
 	public int invalid(){return invalid;}
 
 	/**
-	 * Returns the number of key-value pairs in the map.
-	 * @return Number of entries
+	 * Returns the number of live mappings.
+	 * @return Number of live mappings
 	 */
 	public int size(){return size;}
 
 	/**
-	 * Checks if the map is empty.
-	 * @return true if map contains no entries
+	 * Tests whether the map has no live mappings.
+	 * @return true when the map has no live mappings
 	 */
 	public boolean isEmpty(){return size==0;}
 
@@ -513,27 +511,27 @@ public final class IntHashMap2 implements IntHashMapInterface{
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Array of keys (invalid sentinel for empty cells) */
+	/** Raw key table; empty cells contain {@link #invalid}. */
 	private int[] keys;
-	/** Array of values (parallel to keys array) */
+	/** Raw int values, index-aligned with {@link #keys}. */
 	private int[] values;
-	/** Number of entries in the map */
+	/** Number of live mappings. */
 	private int size=0;
-	/** Invalid sentinel value for empty cells (always negative) */
+	/** Negative empty-cell sentinel absent from the live key set. */
 	private int invalid;
-	/** Bit mask for fast modulo (always power of 2 minus 1) */
+	/** Power-of-two mask applied to mixed key hashes. */
 	private int mask;
-	/** Size threshold for triggering resize (capacity * loadFactor) */
+	/** Resize threshold derived from the logical capacity and load factor. */
 	private int sizeLimit;
-	/** Load factor (fraction of capacity before resize) */
+	/** Clamped requested load factor. */
 	private final float loadFactor;
 
-	/** Extra space beyond power-of-2 size to reduce wrap-around collisions */
+	/** Physical overflow cells above the logical power-of-two mask range. */
 	private static final int extra=10;
-	/** Mask to ensure invalid sentinel is negative */
+	/** Mask that forces sentinel candidates negative. */
 	private static final int MINMASK=Integer.MIN_VALUE;
 
-	/** Random number generator for invalid sentinel */
+	/** Reproducible source for negative empty-cell sentinel candidates. */
 	private static final Random randy=shared.Shared.random(1);
 
 }

@@ -15,11 +15,12 @@ public class SeqPos implements Cloneable, Comparable<SeqPos>{
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Copies metadata and borrows the same sequence array. */
+	/** Copies metadata and borrows the same sequence array.
+	 * @param sp Non-null placement to copy */
 	public SeqPos(SeqPos sp){this(sp.seq, sp.pos, sp.count, sp.hashcode, sp.gc, sp.score);}
 
 	/** Constructs an indexed placement with precomputed sequence metadata.
-	 * @param seq_ Borrowed sequence bytes
+	 * @param seq_ Borrowed sequence bytes; must be non-null for ordering and indexing
 	 * @param pos_ Indexed kmer end position, or a caller-defined placement coordinate
 	 * @param count_ Nonnegative occurrence count
 	 * @param code_ Precomputed sequence hash
@@ -40,21 +41,30 @@ public class SeqPos implements Cloneable, Comparable<SeqPos>{
 	/*----------------           Methods            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Compares a homogeneous, non-null SeqPos key. Foreign/null keys are unsupported. */
+	/** Compares a homogeneous placement key; this implementation does not guard the cast.
+	 * @param o SeqPos to compare, or null
+	 * @return True when position, cached hash and sequence contents match; false for null
+	 * @throws ClassCastException If o is non-null and not a SeqPos */
 	@Override
 	public boolean equals(Object o){return equals((SeqPos)o);}
 
-	/** Tests position and sequence identity, independently of ranking metadata. */
+	/** Compares position and sequence contents, independently of ranking metadata.
+	 * Cached hashes must agree before sequence bytes are compared.
+	 * @param o Placement with a hash consistent with its sequence, or null
+	 * @return True when position, cached hash and sequence contents match; false for null */
 	public boolean equals(SeqPos o){
+		if(o==null){return false;}
 		if(pos!=o.pos || hashcode!=o.hashcode){return false;}
 		return Tools.equals(seq, o.seq);
 	}
 
-	/** Returns the cached sequence hash; different positions may share a hash. */
+	/** Returns the cached sequence hash; different positions may share a hash.
+	 * @return Constructor-supplied sequence hash */
 	@Override
 	public int hashCode(){return hashcode;}
 
-	/** Returns a shallow metadata copy sharing the borrowed sequence. */
+	/** Creates a shallow metadata copy sharing the borrowed sequence.
+	 * @return Distinct placement with the same metadata and sequence reference */
 	@Override
 	public SeqPos clone(){
 		try{
@@ -67,6 +77,9 @@ public class SeqPos implements Cloneable, Comparable<SeqPos>{
 	/** Ranks count, length and score descending. Signed zeros tie; NaN sorts before
 	 * numeric scores, following reversed Float ordering. This ranking intentionally
 	 * differs from the sequence/position identity used by equals and hashCode.
+	 * Both placements require nonnegative counts and non-null sequences.
+	 * @param o Non-null placement to rank against
+	 * @return Negative if this ranks first, positive if o ranks first, or zero for a rank tie
 	 */
 	@Override
 	public int compareTo(SeqPos o){
@@ -76,9 +89,11 @@ public class SeqPos implements Cloneable, Comparable<SeqPos>{
 		return 0;
 	}
 
-	/** Returns the borrowed sequence array. */
+	/** Returns the borrowed sequence array; its contents must remain stable.
+	 * @return Stored sequence reference, not a copy */
 	public final byte[] seq(){return seq;}
-	/** Returns the stored position. */
+	/** Returns the stored position.
+	 * @return Indexed kmer end coordinate for SeqMap entries */
 	public final int pos(){return pos;}
 
 	/*--------------------------------------------------------------*/
