@@ -18,7 +18,7 @@ import shared.Tools;
  * Ideal for kmer storage where adjacent keys (like AAAAAA vs AAAAAC) 
  * need to be distributed evenly across the table.
  * 
- * Significantly more memory-efficient than HashMap<Long, Long> by:
+ * Significantly more memory-efficient than {@code HashMap<Long, Long>} by:
  * - Storing primitive long values instead of Long objects
  * - Using arrays instead of Entry objects
  * - Avoiding per-entry object overhead
@@ -29,9 +29,9 @@ import shared.Tools;
  * @author Isla
  * @date November 2, 2025
  */
-public final class LongLongHashMap2 implements Serializable {
+public final class LongLongHashMap2 implements Serializable{
 
-	private static final long serialVersionUID = 1L;
+	private static final long serialVersionUID=1L;
 
 	public static void main(String[] args){
 		int size=args.length>0 ? Integer.parseInt(args[0]) : 1000000;
@@ -147,7 +147,7 @@ public final class LongLongHashMap2 implements Serializable {
 	/**
 	 * Creates a new map with specified initial capacity and load factor.
 	 * @param initialSize Initial capacity (will be rounded up to next power of 2)
-	 * @param loadFactor Load factor (0.25-0.90) - map resizes when size exceeds capacity*loadFactor
+	 * @param loadFactor_ Load factor (0.25-0.90) - map resizes when size exceeds capacity*loadFactor
 	 */
 	public LongLongHashMap2(int initialSize, float loadFactor_){
 		invalid=randy.nextLong()|MINMASK;
@@ -175,11 +175,11 @@ public final class LongLongHashMap2 implements Serializable {
 	/**
 	 * Gets the value associated with the given key.
 	 * @param key Key to look up
-	 * @return Value associated with key, or -1 if key not found
+	 * @return Value associated with key; -1 if absent or if -1 was stored
 	 */
 	public long get(long key){
 		int cell=findCell(key);
-		//miss -> -1 sentinel (legit: present values are >=1, so -1 never aliases a real value)
+		//-1 also can be stored; contains() distinguishes absence when values are unrestricted.
 		return cell<0 ? -1 : values[cell];
 	}
 
@@ -198,7 +198,7 @@ public final class LongLongHashMap2 implements Serializable {
 	 * @param key Key to insert/update
 	 * @param value Value to associate with key
 	 * @return Previous value associated with key, or 0 if key was not present.
-	 *         0 (not -1) means absent; present values are >=1 (counting invariant).
+	 *         Stored zero is indistinguishable from absence in this return value.
 	 */
 	public long put(long key, long value){
 		return set(key, value);
@@ -222,13 +222,12 @@ public final class LongLongHashMap2 implements Serializable {
 	 * @param key Key to insert/update
 	 * @param value Value to associate with key
 	 * @return Previous value associated with key, or 0 if key was not present.
-	 *         0 (not -1) means absent; present values are >=1 (counting invariant).
+	 *         Stored zero is indistinguishable from absence in this return value.
 	 */
 	public long set(long key, long value){
 		if(key==invalid){resetInvalid();}
 		final int cell=findCellOrEmpty(key);
-		//oldV==0 when the cell was empty (values[] is zeroed on clear/remove/resize), so set/put return 0
-		//(NOT -1) for an absent key; 0 is unambiguous since present values are >=1 (counting invariant).
+		//Empty slots contain zero after allocation, removal or clearing; key presence is separate from value.
 		final long oldV=values[cell];
 		values[cell]=value;
 		if(keys[cell]==invalid){
@@ -252,7 +251,8 @@ public final class LongLongHashMap2 implements Serializable {
 	/**
 	 * Increments the value associated with the key by the specified amount.
 	 * If key is not present, inserts it with the increment value.
-	 * Values are clamped to Long.MAX_VALUE on overflow.
+	 * Positive overflow is clamped to Long.MAX_VALUE. Negative underflow retains
+	 * the historical long wraparound behavior; this is not a lower-saturating counter.
 	 * @param key Key to increment
 	 * @param incr Amount to add (can be negative)
 	 * @return New value after increment
@@ -261,15 +261,15 @@ public final class LongLongHashMap2 implements Serializable {
 		if(key==invalid){resetInvalid();}
 		final int cell=findCellOrEmpty(key);
 		final long oldV=values[cell];
-		final long value=oldV+incr;
-		//clamp positive overflow to Long.MAX_VALUE; absent key -> oldV=0 so a present key starts at incr
-		values[cell]=Tools.min(Long.MAX_VALUE, value);
+		final long value=(incr>0 && oldV>Long.MAX_VALUE-incr) ? Long.MAX_VALUE : oldV+incr;
+		//Clamp positive overflow to Long.MAX_VALUE; absent key -> oldV=0 so a present key starts at incr.
+		values[cell]=value;
 		if(keys[cell]==invalid){
 			keys[cell]=key;
 			size++;
 			if(size>sizeLimit){resize();}
 		}
-		return values[cell];
+		return value;
 	}
 
 	/**
@@ -288,15 +288,22 @@ public final class LongLongHashMap2 implements Serializable {
 	/**
 	 * For each key in the source map, sets this map's value to the maximum
 	 * of the current value and the source value.
+	 * Keys absent from this map copy the source value exactly, including negative values.
 	 * @param map Source map to compare against
 	 */
 	public void setToMax(LongLongHashMap2 map){
 		for(int i=0; i<map.keys.length; i++){
 			final long key=map.keys[i];
-			//get(key) by KEY (not get(i)/index) -> correct; the lone index-vs-key slip was IntHashMap.setToMax.
-			//absent key -> get returns -1, and source value>=1, so max takes the source value. correct.
 			if(key!=map.invalid){
-				put(key, Tools.max(map.values[i], get(key)));
+				final long value=map.values[i];
+				if(key==invalid){put(key, value); continue;}
+				final int cell=findCellOrEmpty(key);
+				if(keys[cell]==invalid){
+					keys[cell]=key;
+					values[cell]=value;
+					size++;
+					if(size>sizeLimit){resize();}
+				}else{values[cell]=Tools.max(value, values[cell]);}
 			}
 		}
 	}
@@ -391,7 +398,7 @@ public final class LongLongHashMap2 implements Serializable {
 		final int limit=keys.length;
 		final long hash=Tools.hash64plus(key);
 		//two-segment wrap-around scan: [initial,limit) then [0,initial); returns -1 at the first invalid cell.
-		final int initial=(int)(hash & mask);
+		final int initial=(int)(hash&mask);
 
 		for(int cell=initial; cell<limit; cell++){
 			final long x=keys[cell];
@@ -416,11 +423,11 @@ public final class LongLongHashMap2 implements Serializable {
 
 		final int limit=keys.length;
 		final long hash=Tools.hash64plus(key);
-		//initial=(int)(hash & mask). hash=Tools.hash64plus(key) is CAPPED in [0, 0x7FFFF800) < SAFE_ARRAY_LEN, so
+		//initial=(int)(hash&mask). hash=Tools.hash64plus(key) is CAPPED in [0, 0x7FFFF800) < SAFE_ARRAY_LEN, so
 		//initial is a valid in-range index for ANY mask - even mask=-1 at the 2^32 tier (hash & -1 == hash). See
 		//#001. loadFactor<1 guarantees >=1 empty cell, so the wrap-around probe halts and the RuntimeException is
 		//unreachable under the size invariant.
-		final int initial=(int)(hash & mask);
+		final int initial=(int)(hash&mask);
 
 		for(int cell=initial; cell<limit; cell++){
 			final long x=keys[cell];
@@ -459,7 +466,7 @@ public final class LongLongHashMap2 implements Serializable {
 		//2x-growth fix the top operational tier is pow2=2^31, clamped to SAFE_ARRAY_LEN below, so mask=(int)(2^31-1)=
 		//Integer.MAX_VALUE (POSITIVE); the next resize throws (crash-loud) before mask could ever reach -1. Either way
 		//it is SAFE: findCell uses hash=Tools.hash64plus(key), CAPPED in [0, 0x7FFFF800) < SAFE_ARRAY_LEN (see
-		//hash64plus javadoc), so (int)(hash & mask) == hash is ALWAYS a valid in-range index for ANY mask. The HASH
+		//hash64plus javadoc), so (int)(hash&mask) == hash is ALWAYS a valid in-range index for ANY mask. The HASH
 		//guarantees the range; the mask never needs capping. Verdict reached with Brian; escalation RETRACTED. (My
 		//"AIOOBE" proof was circular - I seeded the skeptic with the false premise that the hash could be negative.)
 		mask=(int)(size3-1);

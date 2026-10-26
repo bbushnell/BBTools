@@ -18,12 +18,14 @@ import shared.Tools;
  * Caches hash codes to avoid expensive equals() calls during probing.
  * Uses power-of-2 sizing for fast modulo via bitwise AND.
  * 
- * More memory-efficient than HashMap<K, V> by:
+ * More memory-efficient than {@code HashMap<K, V>} by:
  * - Using arrays instead of Entry objects
  * - Avoiding per-entry object overhead
  * - Better cache locality with linear probing
  * 
- * Thread-safety: Not thread-safe. External synchronization required for concurrent access.
+ * Null keys are unsupported; null values are allowed, so use contains() to
+ * distinguish absence from a stored null. Keys must retain stable hashes and
+ * equality while stored. Not thread-safe; synchronize accesses that overlap a mutation.
  * 
  * @author Isla
  * @date November 2, 2025
@@ -31,9 +33,9 @@ import shared.Tools;
  * @param <K> Key type - must properly implement hashCode() and equals()
  * @param <V> Value type
  */
-public final class ObjectMap<K, V> implements Serializable {
+public final class ObjectMap<K, V> implements Serializable{
 
-	private static final long serialVersionUID = 1L;
+	private static final long serialVersionUID=1L;
 
 	public static void main(String[] args){
 		int size=args.length>0 ? Integer.parseInt(args[0]) : 1000000;
@@ -63,7 +65,7 @@ public final class ObjectMap<K, V> implements Serializable {
 	}
 
 	/**
-	 * Tests correctness by comparing ObjectObjectMap against HashMap.
+	 * Tests correctness by comparing ObjectMap against HashMap.
 	 * Creates random list, inserts them in both maps, and validates all values match.
 	 */
 	private static void test(ArrayList<? extends Object> list){
@@ -107,7 +109,7 @@ public final class ObjectMap<K, V> implements Serializable {
 	}
 
 	/**
-	 * Benchmarks performance against HashMap<Object, Object>.
+	 * Benchmarks performance against {@code HashMap<Object, Object>}.
 	 */
 	private static void bench(ArrayList<? extends Object> list, int repeats){
 		System.gc();
@@ -192,7 +194,7 @@ public final class ObjectMap<K, V> implements Serializable {
 	/**
 	 * Creates a new map with specified initial capacity and load factor.
 	 * @param initialSize Initial capacity (will be rounded up to next power of 2)
-	 * @param loadFactor Load factor (0.25-0.90) - map resizes when size exceeds capacity*loadFactor
+	 * @param loadFactor_ Requested load factor in (0,1), clamped to [0.25,0.90]
 	 * @param typeK Component class of the keys (see {@link #ObjectMap(Class, Class)}).
 	 * @param typeV Component class of the values (see {@link #ObjectMap(Class, Class)}).
 	 */
@@ -381,7 +383,7 @@ public final class ObjectMap<K, V> implements Serializable {
 
 		final int limit=keys.length;
 		final int hash=Tools.hash32plus(key.hashCode());
-		final int initial=hash & mask;
+		final int initial=hash&mask;
 
 		for(int cell=initial; cell<limit; cell++){
 			final K x=keys[cell];
@@ -407,11 +409,11 @@ public final class ObjectMap<K, V> implements Serializable {
 		assert(key!=null) : "Null keys not supported";
 
 		//CLEVER [verified]: hashes[] caches each key's hash so the probe compares cheap ints first
-		//(hashes[cell]==hash) and only calls equals() on a hash match. initial=hash & mask is in range for ANY mask:
+		//(hashes[cell]==hash) and only calls equals() on a hash match. initial=hash&mask is in range for ANY mask:
 		//hash=Tools.hash32plus(...) is CAPPED in [0, 0x7FFFF800) < SAFE_ARRAY_LEN, so even at the top tier
-		//(mask=Integer.MAX_VALUE after the 2x-growth fix) hash & mask == hash is a valid index (see hash32plus javadoc).
+		//(mask=Integer.MAX_VALUE after the 2x-growth fix) hash&mask == hash is a valid index (see hash32plus javadoc).
 		final int limit=keys.length;
-		final int initial=hash & mask;
+		final int initial=hash&mask;
 
 		for(int cell=initial; cell<limit; cell++){
 			final K x=keys[cell];
@@ -497,7 +499,8 @@ public final class ObjectMap<K, V> implements Serializable {
 	public K[] keys(){return keys;}
 
 	/**
-	 * Returns the internal value array (the live backing array; null entries mark empty cells).
+	 * Returns the internal value array. Null may indicate an empty slot or a stored
+	 * null value; use the parallel key array to distinguish them.
 	 * This is a GENUINE V[] (e.g. String[], byte[][]) because the backing is allocated via Array.newInstance(typeV,...)
 	 * from the value component class passed to the constructor [map/ObjectMap#002] — usable directly (assigned to V[],
 	 * iterated, .length) without the ClassCastException a plain Object[] backing would cause at the call site.

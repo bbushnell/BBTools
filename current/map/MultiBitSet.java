@@ -2,8 +2,15 @@ package map;
 
 import shared.Tools;
 
-public class MultiBitSet extends AbstractBitSet {
+/** Unsynchronized packed counters with two bits per logical element (values 0–3).
+ * Positive increments and packed additions saturate each element independently.
+ * Capacity changes may replace storage with an empty array; reused storage is
+ * not cleared. Callers own clearing and exclusive access during mutations.
+ * @author Brian Bushnell
+ */
+public class MultiBitSet extends AbstractBitSet{
 
+	/** Demonstrates per-element saturation; arguments are unused. */
 	public static void main(String[] args){
 		MultiBitSet mbs=new MultiBitSet(20);
 		System.err.println(mbs);
@@ -27,10 +34,12 @@ public class MultiBitSet extends AbstractBitSet {
 		System.err.println(mbs);
 	}
 	
+	/** Allocates the requested number of logical counters. */
 	MultiBitSet(long capacity_){
 		setCapacity(capacity_, 0);
 	}
 
+	/** Allocates counters with extra backing cells. */
 	MultiBitSet(long capacity_, int extra){
 		setCapacity(capacity_, extra);
 	}
@@ -85,7 +94,8 @@ public class MultiBitSet extends AbstractBitSet {
 //		System.err.println(contents);
 		final int currentValue=(contents&mask)>>>shift;
 //		System.err.println(currentValue);
-		final int newValue=Tools.min(currentValue+amt, elementMask);
+		//Compare remaining capacity before adding; a large positive amount must not overflow into adjacent elements.
+		final int newValue=(amt>=elementMask-currentValue ? elementMask : currentValue+amt);
 //		System.err.println(newValue);
 		if(newValue==currentValue){return;}
 		final int update=((contents&~mask)|(newValue<<shift));
@@ -147,9 +157,8 @@ public class MultiBitSet extends AbstractBitSet {
 //		assert(false) : (capacity+elementsPerCell-1)+", "+elementsPerCell+", "+((capacity+elementsPerCell-1)/elementsPerCell);
 		if(maxCapacity<capacity){
 			maxLength=length+extra;
-			//NOTE (latent LOW, NOT patched): length*elementsPerCell is int arithmetic -> overflows for
-			//capacity>~2.1e9 elements; should be (long)length*elementsPerCell. Unreachable for sketch sizes.
-			maxCapacity=length*elementsPerCell;
+			//Wide arithmetic preserves same-capacity reuse above Integer.MAX_VALUE logical elements.
+			maxCapacity=(long)length*elementsPerCell;
 			array=new int[maxLength];
 		}
 //		assert(false) : capacity+", "+length;
@@ -170,17 +179,27 @@ public class MultiBitSet extends AbstractBitSet {
 	@Override
 	public final int bits(){return bits;}
 	
+	/** Returns borrowed packed storage, including spare cells; resizing may replace it. */
 	public int[] array(){return array;}
 	
+	/** Logical elements covered by reusable storage, excluding extra cells. */
 	private long maxCapacity=0;
+	/** Current logical element capacity. */
 	private long capacity=0;
+	/** Allocated storage cells, including extra cells. */
 	private int maxLength=0;
+	/** Active cells for the current capacity. */
 	private int length=0;
+	/** Packed storage; null before the first positive allocation. */
 	private int[] array;
 	
+	/** Width of one saturating counter. */
 	public static final int bits=2;
+	/** Maximum counter value and mask for its low bits. */
 	public static final int elementMask=~((-1)<<bits);
+	/** Counters packed into one int. */
 	public static final int elementsPerCell=32/bits;
+	/** Mask selecting the counter index within a cell. */
 	public static final int modulus=elementsPerCell-1;
 
 }

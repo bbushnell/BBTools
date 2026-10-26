@@ -15,14 +15,14 @@ import simd.Vector;
 /**
  * Hash map implementation with integer keys and integer values.
  * Uses open addressing with linear probing for collision resolution.
- * Provides better memory efficiency than HashMap<Integer,Integer> for integer mappings.
+ * Provides better memory efficiency than {@code HashMap<Integer,Integer>} for integer mappings.
  *
  * @author Brian Bushnell
  * @date June 7, 2017
  */
-public final class IntHashMap extends AbstractIntHashMap implements Serializable {
+public final class IntHashMap extends AbstractIntHashMap implements Serializable{
 	
-	private static final long serialVersionUID = 5525726007591609843L;
+	private static final long serialVersionUID=5525726007591609843L;
 
 	public static void main(String[] args){
 //		IntHashMap set=new IntHashMap(20, 0.7f);
@@ -70,14 +70,20 @@ public final class IntHashMap extends AbstractIntHashMap implements Serializable
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Creates an empty map with default capacity. */
 	public IntHashMap(){
 		this(256);
 	}
 	
+	/** Creates an empty map with the specified initial capacity.
+	 * @param initialSize Initial hash table size */
 	public IntHashMap(int initialSize){
 		this(initialSize, 0.7f);
 	}
 	
+	/** Creates an empty map with the specified capacity and load factor.
+	 * @param initialSize Initial hash table size
+	 * @param loadFactor_ Load factor threshold for rehashing */
 	public IntHashMap(int initialSize, float loadFactor_){
 		invalid=randy.nextInt()|MINMASK;
 		assert(invalid<0);
@@ -108,9 +114,10 @@ public final class IntHashMap extends AbstractIntHashMap implements Serializable
 	@Override
 	public int put(int key, int value){return set(key, value);}
 	
-	public void putAll(IntHashMap map) {
-		for(int i=0; i<map.keys.length; i++) {
-			if(map.keys[i]!=map.invalid) {
+	/** Copies all mappings from another IntHashMap into this map. */
+	public void putAll(IntHashMap map){
+		for(int i=0; i<map.keys.length; i++){
+			if(map.keys[i]!=map.invalid){
 				put(map.keys[i], map.values[i]);
 			}
 		}
@@ -152,19 +159,31 @@ public final class IntHashMap extends AbstractIntHashMap implements Serializable
 		return value;
 	}
 	
-	public void incrementAll(IntHashMap map) {
-		for(int i=0; i<map.keys.length; i++) {
-			if(map.keys[i]!=map.invalid) {
+	/** Adds all values from another IntHashMap by key. */
+	public void incrementAll(IntHashMap map){
+		for(int i=0; i<map.keys.length; i++){
+			if(map.keys[i]!=map.invalid){
 				increment(map.keys[i], map.values[i]);
 			}
 		}
 	}
 	
-	public void setToMax(IntHashMap map) {
-		for(int i=0; i<map.keys.length; i++) {
+	/** Merges the source map by taking the maximum value for each shared key.
+	 * Keys absent here are inserted with their exact source values. */
+	public void setToMax(IntHashMap map){
+		for(int i=0; i<map.keys.length; i++){
 			final int key=map.keys[i];
-			if(key!=map.invalid) {
-				put(key, Tools.max(map.values[i], get(key)));//was get(i) - lone-divergence bug: all 9 setToMax siblings use get(key) (IntHashMap2:297, IntHashMap3:430, LongIntMap:268, ...); get(i) looked up the loop INDEX as a key. Unreached (no caller; bin/Cluster uses the correct IntHashMap2) -> latent LOW, output-neutral. [map/IntHashMap#001 FIXED]
+			if(key!=map.invalid){
+				final int value=map.values[i];
+				// [map/IntHashMap#001 FIXED] Probe by key, not by the source array index.
+				if(key==invalid){put(key, value); continue;}
+				final int cell=findCellOrEmpty(key);
+				if(keys[cell]==invalid){
+					values[cell]=value;
+					keys[cell]=key;
+					size++;
+					if(size>sizeLimit){resize();}
+				}else{values[cell]=Tools.max(value, values[cell]);}
 			}
 		}
 	}
@@ -187,6 +206,8 @@ public final class IntHashMap extends AbstractIntHashMap implements Serializable
 	/*----------------        Private Methods       ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Rehashes the contiguous probe cluster after a deletion.
+	 * @param initial Cell just emptied */
 	private void rehashFrom(int initial){
 		if(size<1){return;}
 		final int limit=keys.length;
@@ -202,6 +223,7 @@ public final class IntHashMap extends AbstractIntHashMap implements Serializable
 		}
 	}
 	
+	/** Moves one live cell to its preferred slot if the new gap makes that possible. */
 	private boolean rehashCell(final int cell){
 		final int key=keys[cell];
 		final int value=values[cell];
@@ -218,6 +240,7 @@ public final class IntHashMap extends AbstractIntHashMap implements Serializable
 		return true;
 	}
 	
+	/** Chooses a new empty-cell sentinel and rewrites old sentinels in the key array. */
 	private void resetInvalid(){
 		final int old=invalid;
 		int x=invalid;
@@ -235,22 +258,27 @@ public final class IntHashMap extends AbstractIntHashMap implements Serializable
 	 */
 	@Override
 	public int findCell(final int key){
-//		if(key==invalid){return -1;}
-		final int initial=((key&MASK)%modulus);
+		if(key==invalid){return -1;}
+		final int hash=key&MASK;
+		//Small IDs already name their home cell; only larger masked keys need division.
+		final int initial=(hash<modulus ? hash : hash%modulus);
 		return Vector.findKeyScalar(keys, key, initial, invalid);
 	}
 	
+	/** Finds the cell containing a key or the first empty cell in its probe sequence. */
 	private int findCellOrEmpty(final int key){
 		assert(key!=invalid) : "Collision - this should have been intercepted.";
 		final int initial=(int)((key&MASK)%modulus);
 		return Vector.findKeyOrInvalid(keys, key, initial, invalid);
 	}
 	
+	/** Doubles the backing table around the next prime capacity. */
 	private final void resize(){
 		assert(size>=sizeLimit);
 		resize(keys.length*2L+1);
 	}
 	
+	/** Rebuilds the backing arrays at at least the requested capacity. */
 	private final void resize(final long size2){
 		assert(size2>size) : size+", "+size2;
 		long newPrime=Primes.primeAtLeast(size2);
@@ -261,7 +289,7 @@ public final class IntHashMap extends AbstractIntHashMap implements Serializable
 		modulus=(int)newPrime;
 		
 		final int size3=(int)(newPrime+extra);
-		//near the size ceiling (size3>=~1.6e9) the next doubling would overflow Integer.MAX_VALUE, so raise loadFactor to >=0.80 to pack more entries before a resize that can no longer happen.
+		// Near the int-array ceiling, pack more entries before a resize that can no longer double safely.
 		final float lf=(size3<0x60000000 ? loadFactor : Math.max(loadFactor, 0.80f));
 		sizeLimit=(int)(modulus*lf);
 		final int[] oldK=keys;
@@ -300,12 +328,15 @@ public final class IntHashMap extends AbstractIntHashMap implements Serializable
 		return x;
 	}
 	
+	/** Returns the raw borrowed key array; entries equal to invalid() are empty cells. */
 	@Override
 	public int[] keys(){return keys;}
 	
+	/** Returns the raw borrowed value array, index-aligned with keys(). */
 	@Override
 	public int[] values(){return values;}
 	
+	/** Returns the current empty-cell sentinel for the raw key array. */
 	@Override
 	public int invalid(){return invalid;}
 	
@@ -322,7 +353,7 @@ public final class IntHashMap extends AbstractIntHashMap implements Serializable
 	private int[] keys;
 	private int[] values;
 	private int size=0;
-	/** Sentinel value marking empty cells in the keys array */
+	/** Empty-cell sentinel for the keys array. */
 	private int invalid;
 	private int modulus;
 	private int sizeLimit;

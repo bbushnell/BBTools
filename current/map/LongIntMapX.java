@@ -17,7 +17,7 @@ import shared.Tools;
  * 
  * Ideal for kmer counting where keys are kmers (long) and values are counts (int).
  * 
- * Significantly more memory-efficient than HashMap<Long, Integer> by:
+ * Significantly more memory-efficient than {@code HashMap<Long, Integer>} by:
  * - Storing primitive int values instead of Integer objects
  * - Storing primitive long keys instead of Long objects
  * - Using arrays instead of Entry objects
@@ -36,9 +36,9 @@ import shared.Tools;
  * @author Isla
  * @date November 2, 2025
  */
-public final class LongIntMapX implements Serializable {
+public final class LongIntMapX implements Serializable{
 
-	private static final long serialVersionUID = 1L;
+	private static final long serialVersionUID=1L;
 
 	public static void main(String[] args){
 		int size=args.length>0 ? Integer.parseInt(args[0]) : 1000000;
@@ -131,7 +131,7 @@ public final class LongIntMapX implements Serializable {
 	/**
 	 * Creates a new map with specified initial capacity and load factor.
 	 * @param initialSize Initial capacity (will be rounded up to next power of 2)
-	 * @param loadFactor Load factor (0.25-0.90) - map resizes when size exceeds capacity*loadFactor
+	 * @param loadFactor_ Load factor (0.25-0.90) - map resizes when size exceeds capacity*loadFactor
 	 */
 	public LongIntMapX(int initialSize, float loadFactor_){
 		invalid=randy.nextLong()|MINMASK;
@@ -159,11 +159,11 @@ public final class LongIntMapX implements Serializable {
 	/**
 	 * Gets the value associated with the given key.
 	 * @param key Key to look up
-	 * @return Value associated with key, or -1 if key not found
+	 * @return Value associated with key; -1 if absent or if -1 was stored
 	 */
 	public int get(long key){
 		int cell=findCell(key);
-		//miss -> -1 sentinel (legit: present values are >=1, so -1 never aliases a real value)
+		//-1 also can be stored; contains() distinguishes absence when values are unrestricted.
 		return cell<0 ? -1 : values[cell];
 	}
 
@@ -181,7 +181,7 @@ public final class LongIntMapX implements Serializable {
 	 * @param key Key to look up
 	 * @param hash Precomputed Tools.hash64plus2(key)>>>32 (see class doc; MUST match or the key may
 	 *        become unfindable after a later resize/remove).
-	 * @return Value associated with key, or -1 if key not found
+	 * @return Value associated with key; -1 if absent or if -1 was stored
 	 */
 	public int get(long key, long hash){
 		int cell=findCell(key, hash);
@@ -205,7 +205,7 @@ public final class LongIntMapX implements Serializable {
 	 * @param key Key to insert/update
 	 * @param value Value to associate with key
 	 * @return Previous value associated with key, or 0 if key was not present.
-	 *         0 (not -1) means absent; present values are >=1 (counting invariant).
+	 *         Stored zero is indistinguishable from absence in this return value.
 	 */
 	public int put(long key, int value){
 		return set(key, value);
@@ -229,13 +229,12 @@ public final class LongIntMapX implements Serializable {
 	 * @param key Key to insert/update
 	 * @param value Value to associate with key
 	 * @return Previous value associated with key, or 0 if key was not present.
-	 *         0 (not -1) means absent; present values are >=1 (counting invariant).
+	 *         Stored zero is indistinguishable from absence in this return value.
 	 */
 	public int set(long key, int value){
 		if(key==invalid){resetInvalid();}
 		final int cell=findCellOrEmpty(key);
-		//oldV==0 when the cell was empty (values[] zeroed on clear/remove/resize), so set/put return 0 (NOT -1)
-		//for an absent key; 0 is unambiguous since present values are >=1 (counting invariant).
+		//Empty slots contain zero after allocation, removal or clearing; key presence is separate from value.
 		final int oldV=values[cell];
 		values[cell]=value;
 		if(keys[cell]==invalid){
@@ -252,7 +251,7 @@ public final class LongIntMapX implements Serializable {
 	 * @param value Value to associate with key
 	 * @param hash Precomputed Tools.hash64plus2(key)>>>32 (see class doc; MUST match or the key may
 	 *        become unfindable after a later resize/remove).
-	 * @return Previous value, or 0 if key was not present (counting invariant: present values >=1).
+	 * @return Previous value, or 0 if key was not present; stored zero is indistinguishable from absence here
 	 */
 	public int set(long key, int value, long hash){
 		if(key==invalid){resetInvalid();}
@@ -299,7 +298,8 @@ public final class LongIntMapX implements Serializable {
 	/**
 	 * Increments the value associated with the key by the specified amount.
 	 * If key is not present, inserts it with the increment value.
-	 * Values are clamped to Integer.MAX_VALUE on overflow.
+	 * Positive overflow is clamped to Integer.MAX_VALUE. Negative underflow retains
+	 * the historical int narrowing behavior; this is not a lower-saturating counter.
 	 * @param key Key to increment
 	 * @param incr Amount to add (can be negative)
 	 * @return New value after increment
@@ -317,7 +317,7 @@ public final class LongIntMapX implements Serializable {
 			size++;
 			if(size>sizeLimit){resize();}
 		}
-		return values[cell];
+		return value;
 	}
 
 	/**
@@ -336,14 +336,22 @@ public final class LongIntMapX implements Serializable {
 	/**
 	 * For each key in the source map, sets this map's value to the maximum
 	 * of the current value and the source value.
+	 * Keys absent from this map copy the source value exactly, including negative values.
 	 * @param map Source map to compare against
 	 */
 	public void setToMax(LongIntMapX map){
 		for(int i=0; i<map.keys.length; i++){
 			final long key=map.keys[i];
-			//get(key) by KEY (not get(i)/index) -> correct; the lone index-vs-key slip was IntHashMap.setToMax.
 			if(key!=map.invalid){
-				put(key, Tools.max(map.values[i], get(key)));
+				final int value=map.values[i];
+				if(key==invalid){put(key, value); continue;}
+				final int cell=findCellOrEmpty(key);
+				if(keys[cell]==invalid){
+					keys[cell]=key;
+					values[cell]=value;
+					size++;
+					if(size>sizeLimit){resize();}
+				}else{values[cell]=Tools.max(value, values[cell]);}
 			}
 		}
 	}
@@ -454,7 +462,7 @@ public final class LongIntMapX implements Serializable {
 
 		final int limit=keys.length;
 		//two-segment wrap-around scan: [initial,limit) then [0,initial); returns -1 at the first invalid cell.
-		final int initial=(int)(hash & mask);
+		final int initial=(int)(hash&mask);
 
 		for(int cell=initial; cell<limit; cell++){
 			final long x=keys[cell];
@@ -488,11 +496,11 @@ public final class LongIntMapX implements Serializable {
 		assert(key!=invalid) : "Collision - this should have been intercepted.";
 
 		final int limit=keys.length;
-		//initial=(int)(hash & mask). The supplied hash is Tools.hash64plus2(key)>>>32, CAPPED in [0, 0x7FFFF800] <
+		//initial=(int)(hash&mask). The supplied hash is Tools.hash64plus2(key)>>>32, CAPPED in [0, 0x7FFFF800] <
 		//SAFE_ARRAY_LEN, so initial is a valid in-range index for ANY mask - even mask=-1 at the 2^32 tier
 		//(hash & -1 == hash). See #002. loadFactor<1 guarantees >=1 empty cell, so the wrap-around probe halts and
 		//the RuntimeException is unreachable under the size invariant.
-		final int initial=(int)(hash & mask);
+		final int initial=(int)(hash&mask);
 
 		for(int cell=initial; cell<limit; cell++){
 			final long x=keys[cell];
@@ -531,7 +539,7 @@ public final class LongIntMapX implements Serializable {
 		//With the 2x-growth fix the top operational tier is pow2=2^31, clamped to SAFE_ARRAY_LEN below, so
 		//mask=(int)(2^31-1)=Integer.MAX_VALUE (POSITIVE); the next resize throws before mask could reach -1. SAFE
 		//either way: this class buckets on hash=Tools.hash64plus2(key)>>>32, CAPPED in [0, 0x7FFFF800] < SAFE_ARRAY_LEN
-		//(see hash64plus2 javadoc), so (int)(hash & mask) == hash is ALWAYS a valid in-range index - even though
+		//(see hash64plus2 javadoc), so (int)(hash&mask) == hash is ALWAYS a valid in-range index - even though
 		//bbduk/Allocator + bbduk/BBDukIndexMask2 are real callers. The HASH guarantees the range; the mask never needs
 		//capping. NOT a bug; escalation RETRACTED. (My AIOOBE claim assumed the post->>>32 value could be negative - it
 		//cannot; >>>32 of a capped long stays in [0, 0x7FFFF800].)

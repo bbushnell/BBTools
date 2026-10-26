@@ -508,11 +508,11 @@ public final class LongHashMap{
 	/*----------------            Getters           ----------------*/
 	/*--------------------------------------------------------------*/
 
-	public long[] keys() {return keys;}
+	public long[] keys(){return keys;}
 
-	public int[] values() {return values;}
+	public int[] values(){return values;}
 
-	public long invalid() {return invalid;}
+	public long invalid(){return invalid;}
 	
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/

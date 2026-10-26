@@ -63,18 +63,18 @@ public class LongListSet{
 		Arrays.fill(nextCondense, 64);
 	}
 	
-	/** Adds a value, triggering sort/condense when the target partition hits its threshold.
+	/** Adds a value and compacts its partition when that partition hits its threshold.
 	 * @param x Value to add */
 	public void add(long x){
 		int y=(int)((x&Long.MAX_VALUE)%mod); //partition by sign-stripped value % mod (mod=3 LongLists -> >2B total)
 		LongList list=array[y];
 		list.add(x);
 		if(list.size>=nextCondense[y]){
-			//CLEVER [verified]: on hitting the threshold, sort+condense (drop duplicates) this partition, then
-			//RATCHET the threshold to mid(old, 2*post-condense-size, MAX). mid() keeps it monotonically
-			//non-decreasing (if condense reclaimed a lot, 2*size<old -> stays old), so condense amortizes to
-			//O(1)/element and can't thrash. This branch leaves the partition sorted; `sorted` stays as-is
-			//(if it was true, all partitions are still sorted -> correct; this re-sorted one).
+			//Compacts only the target partition: sort locally, drop duplicates, then move the next threshold
+			//toward 2x the post-condense size without lowering it. Duplicate-heavy streams may trigger repeated
+			//checks at the same threshold, but only this capped partition is resorted when the threshold is hit.
+			//This branch leaves that partition sorted; `sorted` stays as-is because a globally partition-sorted
+			//state remains partition-sorted after resorting one partition.
 			list.sort();
 			list.condense();
 			nextCondense[y]=(int)Tools.mid(nextCondense[y], list.size*2L, Shared.MAX_ARRAY_LEN);
@@ -83,6 +83,7 @@ public class LongListSet{
 		}
 	}
 	
+	/** Sorts each partition independently; iteration still walks partitions in modulo order. */
 	public void sort(){
 		if(sorted){return;}
 		for(LongList list : array){list.sort();}

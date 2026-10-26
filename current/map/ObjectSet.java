@@ -18,19 +18,20 @@ import shared.Tools;
  * Caches hash codes to avoid expensive equals() calls during probing.
  * Uses power-of-2 sizing for fast modulo via bitwise AND.
  * 
- * memory-efficient replacement for HashSet<T> by:
+ * Memory-efficient replacement for {@code HashSet<T>} by:
  * - Using arrays instead of Entry objects
  * - Avoiding per-entry object overhead
  * - Better cache locality with linear probing
- * Thread-safety: Not thread-safe. External synchronization required for concurrent access.
+ * Null keys are unsupported. Equality and hashes must stay stable while a key
+ * is stored. Not thread-safe; synchronize accesses that overlap a mutation.
  * @author Brian Bushnell
  * @contributor Isla, Amber
  * @date January 26, 2026
  * @param <T> Key type - must properly implement hashCode() and equals()
  */
-public final class ObjectSet<T> implements Serializable {
+public final class ObjectSet<T> implements Serializable{
 
-	private static final long serialVersionUID = 1L;
+	private static final long serialVersionUID=1L;
 
 	public static void main(String[] args){
 		int size=args.length>0 ? Integer.parseInt(args[0]) : 1000000;
@@ -102,7 +103,7 @@ public final class ObjectSet<T> implements Serializable {
 	}
 
 	/**
-	 * Benchmarks performance against HashSet<Object>.
+	 * Benchmarks performance against {@code HashSet<Object>}.
 	 */
 	private static void bench(ArrayList<? extends Object> list, int repeats){
 		System.gc();
@@ -172,10 +173,12 @@ public final class ObjectSet<T> implements Serializable {
 		this(256, 0.7f, type);
 	}
 
+	/** Allocates a typed set with requested initial capacity and default load factor. */
 	public ObjectSet(int initialSize, Class<T> type){
 		this(initialSize, 0.7f, type);
 	}
 
+	/** Allocates typed storage with a requested (0,1) load factor, clamped to [0.25,0.90]. */
 	public ObjectSet(int initialSize, float loadFactor_, Class<T> type){
 		assert(initialSize>0) : "Initial size must be positive";
 		assert(loadFactor_>0 && loadFactor_<1) : "Load factor must be between 0 and 1";
@@ -229,9 +232,9 @@ public final class ObjectSet<T> implements Serializable {
 	}
 
 	/**
-	 * Checks if the set contains the given key.
+	 * Finds the stored representative equal to the query key.
 	 * @param key Key to check
-	 * @return true if key is present
+	 * @return Stored key, or null when absent
 	 */
 	public T get(T key){
 		int cell=findCell(key);
@@ -314,6 +317,7 @@ public final class ObjectSet<T> implements Serializable {
 	/*----------------        Private Methods       ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Repairs the probe cluster after deleting one occupied cell. */
 	private void rehashFrom(int initial){
 		if(size<1){return;}
 		final int limit=keys.length;
@@ -329,6 +333,7 @@ public final class ObjectSet<T> implements Serializable {
 		}
 	}
 
+	/** Moves one entry earlier in its probe chain when the deleted slot permits it. */
 	private boolean rehashCell(final int cell){
 		final T key=keys[cell];
 		final int hash=hashes[cell];
@@ -344,12 +349,13 @@ public final class ObjectSet<T> implements Serializable {
 		return true;
 	}
 
+	/** Returns a stored key's cell, or -1 for an absent/null key. */
 	private int findCell(final T key){
 		if(key==null){return -1;}
 
 		final int limit=keys.length;
 		final int hash=Tools.hash32plus(key.hashCode());
-		final int initial=hash & mask;
+		final int initial=hash&mask;
 
 		for(int cell=initial; cell<limit; cell++){
 			final T x=keys[cell];
@@ -364,15 +370,16 @@ public final class ObjectSet<T> implements Serializable {
 		return -1;
 	}
 
+	/** Returns the equal key's cell or an empty slot using a pre-mixed hash. */
 	private int findCellOrEmpty(final T key, final int hash){
 		assert(key!=null) : "Null keys not supported";
 
 		//CLEVER [verified]: hashes[] caches each key's hash so the probe compares cheap ints first
-		//(hashes[cell]==hash) and only calls equals() on a hash match. initial=hash & mask is in range for ANY mask:
+		//(hashes[cell]==hash) and only calls equals() on a hash match. initial=hash&mask is in range for ANY mask:
 		//hash=Tools.hash32plus(...) is CAPPED in [0, 0x7FFFF800) < SAFE_ARRAY_LEN, so even at the top tier
-		//(mask=Integer.MAX_VALUE after the 2x-growth fix) hash & mask == hash is a valid index (see hash32plus javadoc).
+		//(mask=Integer.MAX_VALUE after the 2x-growth fix) hash&mask == hash is a valid index (see hash32plus javadoc).
 		final int limit=keys.length;
-		final int initial=hash & mask;
+		final int initial=hash&mask;
 
 		for(int cell=initial; cell<limit; cell++){
 			final T x=keys[cell];
@@ -385,6 +392,7 @@ public final class ObjectSet<T> implements Serializable {
 		throw new RuntimeException("No empty cells - size="+size+", limit="+limit);
 	}
 
+	/** Doubles logical capacity before rehashing all keys. */
 	private final void resize(){
 		assert(size>=sizeLimit);
 		//grow 2x: double the LOGICAL pow2 capacity (keys.length-extra==pow2), not keys.length (=pow2+extra).
@@ -393,6 +401,7 @@ public final class ObjectSet<T> implements Serializable {
 		resize((keys.length-extra)*2L);
 	}
 
+	/** Allocates a power-of-two table plus spare cells, then rehomes existing keys. */
 	private final void resize(final long size2){
 		assert(size2>size) : size+", "+size2;
 
@@ -446,8 +455,10 @@ public final class ObjectSet<T> implements Serializable {
 	 */
 	public T[] keys(){return keys;}
 
+	/** Returns occupied-key count. */
 	public int size(){return size;}
 
+	/** Returns whether no keys are stored. */
 	public boolean isEmpty(){return size==0;}
 
 	/*--------------------------------------------------------------*/

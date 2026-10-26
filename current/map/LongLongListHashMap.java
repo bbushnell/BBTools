@@ -15,6 +15,8 @@ import structures.LongList;
 /**
  * Hash map that maps long keys to lists of long values.
  * Uses open addressing with linear probing for collision resolution and is optimized for primitive longs to avoid boxing overhead.
+ * Value lists returned by get() and values() are live internal lists and may be cleared or reused after remove() or clear().
+ * This class is not thread-safe; use external synchronization around any overlapping reads and writes.
  * @author Brian Bushnell
  * @date August 29, 2023
  */
@@ -81,7 +83,7 @@ public final class LongLongListHashMap{
 		Shared.printMemory();
 		Timer t=new Timer();
 		for(int k=0; k<2; k++){
-			System.err.println("LongHashMap:");
+			System.err.println("LongLongListHashMap:");
 			t.start();
 			for(int i=0; i<runs; i++){
 //				for(long x : ll.array){
@@ -152,11 +154,11 @@ public final class LongLongListHashMap{
 	
 	public void clear(){
 		if(size<1){return;}
-		for(int i=0; i<values.length /*&& size>0*/; i++) {//TODO: Enable the early exit
-			if(keys[i]!=invalid) {
+		for(int i=0; i<values.length /*&& size>0*/; i++){//TODO: Enable the early exit
+			if(keys[i]!=invalid){
 				keys[i]=invalid;
 				values[i].clear();
-				if(values[i].capacity()>10) {values[i]=null;}//Recycle long lists
+				if(values[i].capacity()>10){values[i]=null;}//Release large lists; retain small lists as empty recycle slots.
 				size--;
 			}
 			assert(values[i]==null || values[i].isEmpty());
@@ -195,7 +197,7 @@ public final class LongLongListHashMap{
 		if(keys[cell]==invalid){ //new key
 			keys[cell]=key;
 			//reuse a recycled empty list if one is parked here (clear()/remove() keep small lists); else alloc
-			if(values[cell]==null) {
+			if(values[cell]==null){
 				values[cell]=new LongList(2);
 			}
 			values[cell].add(value);
@@ -209,9 +211,11 @@ public final class LongLongListHashMap{
 	
 	/**
 	 * Adds all values from the specified list to the key's mapped list.
-	 * Creates a new list if the key is not already present.
+	 * Creates a new live internal list if the key is not already present and
+	 * copies the caller-owned list into it; an empty input creates a present key
+	 * with an empty list.
 	 * @param key Key to map the values to
-	 * @param value List of values to add to the key's list
+	 * @param value List of values to copy into the key's list
 	 * @return true if the key was newly added, false if key already existed
 	 */
 	public boolean put(long key, LongList value){
@@ -220,7 +224,7 @@ public final class LongLongListHashMap{
 		int cell=findCellOrEmpty(key);
 		if(keys[cell]==invalid){
 			keys[cell]=key;
-			if(values[cell]==null) {
+			if(values[cell]==null){
 				values[cell]=new LongList(2);
 			}
 			values[cell].addAll(value);
@@ -234,7 +238,8 @@ public final class LongLongListHashMap{
 	
 	/**
 	 * Removes the specified key and its associated list from the map.
-	 * Clears the list and recycles it if it has large capacity.
+	 * Clears the list; large backing arrays are released while small empty lists
+	 * may be retained for reuse.
 	 * @param key Key to remove
 	 * @return true if the key was present and removed, false otherwise
 	 */
@@ -246,7 +251,7 @@ public final class LongLongListHashMap{
 		assert(keys[cell]==key);
 		keys[cell]=invalid;
 		values[cell].clear();
-		if(values[cell].capacity()>=10) {values[cell]=null;}
+		if(values[cell].capacity()>=10){values[cell]=null;}
 		size--;
 		
 		rehashFrom(cell);
@@ -313,9 +318,10 @@ public final class LongLongListHashMap{
 	/*--------------------------------------------------------------*/
 	
 	/** repOK-style dev invariant checker (assert(verify()) pattern; call sites currently //123-disabled).
-	 * VERIFIED CORRECT: looks up findCell(key) and requires it to equal the stored index i (the index-vs-key
-	 * family slip is absent here), and that empty cells have null/empty lists, occupied cells non-empty,
-	 * and numValues==numFound==size. Off in production by design, but works when called. */
+	 * TODO: Possible bug: Empty addAll inputs can create a present key with an empty list, which this
+	 * checker rejects because it requires occupied cells to be non-empty. It otherwise looks up
+	 * findCell(key) and requires it to equal the stored index i, requires empty cells to have null/empty
+	 * lists, and checks numValues==numFound==size. */
 	public boolean verify(){
 		if(keys==null){return true;}
 		int numValues=0;
@@ -479,14 +485,14 @@ public final class LongLongListHashMap{
 	/*--------------------------------------------------------------*/
 
 	/** Raw backing array - empty cells hold the invalid() sentinel; filter on invalid() (or use
-	 * toArray()). Index-aligned with values(). No caller reads this today. */
-	public long[] keys() {return keys;}
+	 * toArray()). Index-aligned with values(). */
+	public long[] keys(){return keys;}
 
-	/** Raw backing array - empty cells are null OR a recycled empty LongList; live cells align by index
-	 * with keys() and hold non-empty lists. No caller reads this today. */
-	public LongList[] values() {return values;}
+	/** Raw backing array - empty cells are null OR a retained empty LongList; live cells align by index
+	 * with keys(). Lists are borrowed and may be cleared or reused after remove() or clear(). */
+	public LongList[] values(){return values;}
 
-	public long invalid() {return invalid;}
+	public long invalid(){return invalid;}
 	
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/

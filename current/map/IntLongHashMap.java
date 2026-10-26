@@ -133,14 +133,20 @@ public final class IntLongHashMap{
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Creates an empty map with default capacity. */
 	public IntLongHashMap(){
 		this(256);
 	}
 	
+	/** Creates an empty map with the specified initial capacity.
+	 * @param initialSize Initial hash table size */
 	public IntLongHashMap(int initialSize){
 		this(initialSize, 0.7f);
 	}
 	
+	/** Creates an empty map with the specified capacity and load factor.
+	 * @param initialSize Initial hash table size
+	 * @param loadFactor_ Load factor threshold for rehashing */
 	public IntLongHashMap(int initialSize, float loadFactor_){
 		invalid=randy.nextInt()|MINMASK;
 		assert(invalid<0);
@@ -218,9 +224,10 @@ public final class IntLongHashMap{
 		}
 	}
 	
-	public void incrementAll(IntLongHashMap map) {
-		for(int i=0; i<map.keys.length; i++) {
-			if(map.keys[i]!=map.invalid) {
+	/** Adds all values from another IntLongHashMap by key. */
+	public void incrementAll(IntLongHashMap map){
+		for(int i=0; i<map.keys.length; i++){
+			if(map.keys[i]!=map.invalid){
 				increment(map.keys[i], map.values[i]);
 			}
 		}
@@ -326,9 +333,8 @@ public final class IntLongHashMap{
 	}
 	
 	public long[] toArray(long thresh){
-		//The ACTIVE asserts below encode the counting-map invariants (intended usage): present key => value!=0, and
-		//keys non-negative -> a stored 0/negative value or a negative key would assert-crash here under -ea. These are
-		//NOT enforced by put()/increment(); by-design for positive-count callers (e.g. bin/SpectraCounter sizeMap).
+		// Active asserts encode the positive-counting contract for this exporter:
+		// present non-negative key => value > 0. put()/increment() do not enforce it.
 		int len=0;
 //		assert(verify());
 		for(int i=0; i<values.length; i++){
@@ -355,10 +361,8 @@ public final class IntLongHashMap{
 	/*--------------------------------------------------------------*/
 	
 	public boolean verify(){
-		//repOK-style dev invariant-checker: every caller is a commented `assert(verify()); //123`, so it is OFF in
-		//production by design but must work when called. Uses findCell(key) (not findCell(i)) at the lookup below
-		//-> CORRECT: the index-vs-key family slip does NOT apply here (matches the Long* siblings). Encodes the
-		//counting-map invariant: present key => value>=1; empty cell (key==invalid) => value==0 (0 = empty marker).
+		// repOK-style dev checker for the positive-counting invariant: present key
+		// => value >= 1, empty cell => value == 0, and each key is reachable.
 		if(keys==null){return true;}
 		int numValues=0;
 		int numFound=0;
@@ -391,6 +395,8 @@ public final class IntLongHashMap{
 		return pass;
 	}
 	
+	/** Rehashes the contiguous probe cluster after a deletion.
+	 * @param initial Cell just emptied */
 	private void rehashFrom(int initial){
 		if(size<1){return;}
 		final int limit=keys.length;
@@ -406,6 +412,7 @@ public final class IntLongHashMap{
 		}
 	}
 	
+	/** Moves one live cell to its preferred slot if the new gap makes that possible. */
 	private boolean rehashCell(final int cell){
 		final int key=keys[cell];
 		final long value=values[cell];
@@ -421,6 +428,7 @@ public final class IntLongHashMap{
 		return true;
 	}
 	
+	/** Chooses a new empty-cell sentinel and rewrites old sentinels in the key array. */
 	private void resetInvalid(){
 		final int old=invalid;
 		int x=invalid;
@@ -435,6 +443,7 @@ public final class IntLongHashMap{
 		}
 	}
 	
+	/** Finds the cell containing a key, or -1 if the key is absent. */
 	private int findCell(final int key){
 		if(key==invalid){return -1;}
 		
@@ -452,6 +461,7 @@ public final class IntLongHashMap{
 		return -1;
 	}
 	
+	/** Finds the cell containing a key or the first empty cell in its probe sequence. */
 	private int findCellOrEmpty(final int key){
 		assert(key!=invalid) : "Collision - this should have been intercepted.";
 		
@@ -467,11 +477,13 @@ public final class IntLongHashMap{
 		throw new RuntimeException("No empty cells - size="+size+", limit="+limit);
 	}
 	
+	/** Doubles the backing table around the next prime capacity. */
 	private final void resize(){
 		assert(size>=sizeLimit);
 		resize(keys.length*2L+1);
 	}
 	
+	/** Rebuilds the backing arrays at at least the requested capacity. */
 	private final void resize(final long size2){
 //		assert(verify()); //123
 		assert(size2>size) : size+", "+size2;
@@ -508,16 +520,19 @@ public final class IntLongHashMap{
 	/*----------------            Getters           ----------------*/
 	/*--------------------------------------------------------------*/
 
-	public int[] keys() {return keys;}
+	/** Returns the raw borrowed key array; entries equal to invalid() are empty cells. */
+	public int[] keys(){return keys;}
 
-	public long[] values() {return values;}
+	/** Returns the raw borrowed value array, index-aligned with keys(). */
+	public long[] values(){return values;}
 
-	public int invalid() {return invalid;}
+	/** Returns the current empty-cell sentinel for the raw key array. */
+	public int invalid(){return invalid;}
 
-	public long sum() {
+	public long sum(){
 		long sum=0;
-		for(int i=0; i<keys.length; i++) {
-			if(keys[i]!=invalid) {
+		for(int i=0; i<keys.length; i++){
+			if(keys[i]!=invalid){
 				sum+=values[i];
 			}
 		}
@@ -531,7 +546,7 @@ public final class IntLongHashMap{
 	private int[] keys;
 	private long[] values;
 	private int size=0;
-	/** Sentinel value marking empty cells in the keys array */
+	/** Empty-cell sentinel for the keys array. */
 	private int invalid;
 	private int modulus;
 	private int sizeLimit;

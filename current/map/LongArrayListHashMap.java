@@ -12,15 +12,20 @@ import shared.Timer;
 import shared.Tools;
 
 /**
- * Hash map implementation that maps long keys to ArrayLists of values.
+ * Hash map implementation that maps long keys to mutable ArrayList values.
  * Provides high-performance storage for multi-valued mappings with primitive long keys.
  * Uses open addressing with linear probing for collision resolution.
  * Automatically resizes when load factor exceeds threshold.
  *
+ * Value lists returned by get() and values() are live internal lists; callers
+ * must keep occupied-key lists non-empty if verify() invariants matter.
+ * This class is not thread-safe; use external synchronization around any
+ * overlapping reads and writes.
+ *
  * @author Brian Bushnell
  * @date September 15, 2023
  */
-public class LongArrayListHashMap <X> {
+public class LongArrayListHashMap<X>{
 	
 	public static void main(String[] args){
 		Random randy2=Shared.threadLocalRandom();
@@ -42,12 +47,12 @@ public class LongArrayListHashMap <X> {
 		for(long x : list){
 			map.put(x, (2*x));
 			map2.put(x, (int)(2*x));
-			assert(map.get(x).contains((int)(2*x)));
+			assert(map.get(x).contains(2*x));
 			assert(map2.get(x)==((int)(2*x)));
 		}
 		
 		for(long x : list){
-			assert(map.get(x).contains((int)(2*x)));
+			assert(map.get(x).contains(2*x));
 			assert(map2.get(x)==((int)(2*x)));
 			map.remove(x);
 			map2.remove(x);
@@ -60,12 +65,12 @@ public class LongArrayListHashMap <X> {
 		for(long x : list2){
 			map.put(x, (2*x));
 			map2.put(x, (int)(2*x));
-			assert(map.get(x).contains((int)(2*x)));
+			assert(map.get(x).contains(2*x));
 			assert(map2.get(x)==((int)(2*x)));
 		}
 		
 		for(long x : list2){
-			assert(map.get(x).contains((int)(2*x)));
+			assert(map.get(x).contains(2*x));
 			assert(map2.get(x)==((int)(2*x)));
 			map.remove(x);
 			map2.remove(x);
@@ -83,7 +88,7 @@ public class LongArrayListHashMap <X> {
 		Shared.printMemory();
 		Timer t=new Timer();
 		for(int k=0; k<2; k++){
-			System.err.println("LongHashMap:");
+			System.err.println("LongArrayListHashMap:");
 			t.start();
 			for(int i=0; i<runs; i++){
 //				for(long x : ll.array){
@@ -139,7 +144,7 @@ public class LongArrayListHashMap <X> {
 	}
 	
 	public LongArrayListHashMap(int initialSize, float loadFactor_){
-		synchronized(this) {
+		synchronized(this){
 			invalid=randy.nextLong()|MINMASK;
 			assert(invalid<0);
 			assert(initialSize>0);
@@ -153,14 +158,15 @@ public class LongArrayListHashMap <X> {
 	/*----------------        Public Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Removes all mappings. Large value lists are released; smaller lists may be retained empty for reuse. */
 	public void clear(){
 		if(size<1){return;}
-		for(int i=0; i<values.length /*&& size>0*/; i++) {//TODO: Enable the early exit
-			if(keys[i]!=invalid) {
+		for(int i=0; i<values.length /*&& size>0*/; i++){//TODO: Enable the early exit
+			if(keys[i]!=invalid){
 				keys[i]=invalid;
 				int cap=values[i].size();
 				values[i].clear();
-				if(cap>10) {values[i]=null;}//Recycle long lists
+				if(cap>10){values[i]=null;}//Release large lists; retain small lists as empty recycle slots.
 				size--;
 			}
 			assert(values[i]==null || values[i].isEmpty());
@@ -201,7 +207,7 @@ public class LongArrayListHashMap <X> {
 		if(keys[cell]==invalid){ //new key
 			keys[cell]=key;
 			//reuse a recycled empty list if one is parked here (clear()/remove() keep small lists); else alloc
-			if(values[cell]==null) {
+			if(values[cell]==null){
 				values[cell]=new ArrayList<X>(2);
 			}
 			values[cell].add(value);
@@ -214,12 +220,13 @@ public class LongArrayListHashMap <X> {
 	}
 	
 	/**
-	 * Associates all values in the specified ArrayList with the specified key.
-	 * If the key already exists, adds all values to the existing ArrayList.
-	 * If the key is new, creates a new ArrayList and adds all values.
+	 * Copies all values from the specified caller-owned ArrayList into this map.
+	 * If the key already exists, appends all values to the existing live ArrayList.
+	 * If the key is new, creates a new ArrayList and adds all values; an empty
+	 * input therefore creates a present key with an empty list.
 	 *
 	 * @param key The key with which the values are to be associated
-	 * @param value The ArrayList of values to be associated with the key
+	 * @param value The ArrayList of values to be copied into the map
 	 * @return true if this was a new key, false if key already existed
 	 */
 	public boolean put(long key, ArrayList<X> value){
@@ -228,7 +235,7 @@ public class LongArrayListHashMap <X> {
 		int cell=findCellOrEmpty(key);
 		if(keys[cell]==invalid){
 			keys[cell]=key;
-			if(values[cell]==null) {
+			if(values[cell]==null){
 				values[cell]=new ArrayList<X>(2);
 			}
 			values[cell].addAll(value);
@@ -242,7 +249,8 @@ public class LongArrayListHashMap <X> {
 	
 	/**
 	 * Removes the mapping for the specified key from this map if present.
-	 * Clears the associated ArrayList and recycles it if it was large.
+	 * Clears the associated ArrayList; large backing arrays are released while
+	 * small empty lists may be retained for reuse.
 	 * Rehashes subsequent entries to maintain hash table integrity.
 	 *
 	 * @param key The key whose mapping is to be removed
@@ -257,7 +265,7 @@ public class LongArrayListHashMap <X> {
 		keys[cell]=invalid;
 		int cap=values[cell].size();
 		values[cell].clear();
-		if(cap>=10) {values[cell]=null;}//Recycle long lists
+		if(cap>=10){values[cell]=null;}//Release large lists; retain small lists as empty recycle slots.
 		size--;
 		
 		rehashFrom(cell);
@@ -328,8 +336,10 @@ public class LongArrayListHashMap <X> {
 	/*--------------------------------------------------------------*/
 	
 	/** repOK-style dev invariant checker (assert(verify()) pattern; call sites //123-disabled).
-	 * VERIFIED CORRECT: requires findCell(key)==stored index i (index-vs-key family slip absent), empty
-	 * cells null/empty, occupied non-empty, numValues==numFound==size. Works when called; off in prod. */
+	 * TODO: Possible bug: Empty addAll inputs can create a present key with an empty list,
+	 * which this checker rejects because it requires occupied cells to be non-empty. It
+	 * otherwise looks up findCell(key) and requires it to equal the stored index i, requires
+	 * empty cells to have null/empty lists, and checks numValues==numFound==size. */
 	public boolean verify(){
 		if(keys==null){return true;}
 		int numValues=0;
@@ -452,8 +462,7 @@ public class LongArrayListHashMap <X> {
 	//move would be O(1)/key since the new array is all-null. Same point as LongLongListHashMap.resize.
 	//TODO: Possible bug [map/LongArrayListHashMap#001] (QUESTION for Brian, NOT patched): only resize()
 	//and the ctor body are `synchronized`; put/get/remove/clear/contains are NOT -> this gives NO real
-	//thread-safety (a put() races its own resize()). Either harmless single-threaded dead weight, or a
-	//misleading half-measure. Sole user SeqMap extends this; check SeqMap's concurrency before deciding.
+	//thread-safety (a put() races its own resize()). The class contract now requires external synchronization.
 	private synchronized final void resize(){
 		assert(size>=sizeLimit);
 		resize(keys.length*2L+1);
@@ -498,13 +507,13 @@ public class LongArrayListHashMap <X> {
 
 	/** Raw backing array - empty cells hold the invalid() sentinel; filter on invalid() (or use toArray()).
 	 * Index-aligned with values(). Sole user is the SeqMap subclass. */
-	public long[] keys() {return keys;}
+	public long[] keys(){return keys;}
 
-	/** Raw backing array (genuinely ArrayList[] at runtime) - empty cells are null OR a recycled empty list;
-	 * live cells align by index with keys() and hold non-empty lists. */
-	public ArrayList<X>[] values() {return values;}
+	/** Raw backing array (genuinely ArrayList[] at runtime) - empty cells are null OR a retained empty list;
+	 * live cells align by index with keys(). Lists are borrowed and may be cleared or reused after remove() or clear(). */
+	public ArrayList<X>[] values(){return values;}
 
-	public long invalid() {return invalid;}
+	public long invalid(){return invalid;}
 	
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/

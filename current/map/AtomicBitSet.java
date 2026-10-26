@@ -6,14 +6,21 @@ import java.util.concurrent.atomic.AtomicIntegerArray;
 //override the base merge methods add(AbstractBitSet)/add(RawBitSet)/setToMax(AbstractBitSet). Those
 //dispatch only on RawBitSet/MultiBitSet (else throw "Bad class") and cast `this` to RawBitSet - so calling
 //them on an AtomicBitSet throws (RuntimeException or ClassCastException). The factory never returns this
-//type; it's constructed directly and currently unused. If wired up, either override merge here or document
-//that cross-set merge is unsupported for the atomic variant.
-public class AtomicBitSet extends AbstractBitSet {
+//type; whole-set merges inherited from AbstractBitSet are unsupported for this atomic variant.
+/** One-bit elements with atomic per-cell updates. Individual reads/ORs can overlap,
+ * but clear() and cardinality() are cellwise operations, not atomic snapshots.
+ * Construction, capacity changes and publication require external coordination.
+ * Whole-set AbstractBitSet merges are unsupported; use the cell-level methods.
+ * @author Brian Bushnell
+ */
+public class AtomicBitSet extends AbstractBitSet{
 
+	/** Allocates logical bit capacity without spare backing cells. */
 	public AtomicBitSet(long capacity_){
 		setCapacity(capacity_, 0);
 	}
 
+	/** Allocates logical capacity plus extra backing cells. */
 	public AtomicBitSet(long capacity_, int extra){
 		setCapacity(capacity_, extra);
 	}
@@ -36,7 +43,7 @@ public class AtomicBitSet extends AbstractBitSet {
 	}
 
 	@Override
-	public void increment(int x, int amt) {
+	public void increment(int x, int amt){
 		assert(amt>0);
 		//[map/AtomicBitSet#001] FIXED: was x<=capacity (off-by-one, shared family anomaly with Raw/MultiBitSet);
 		//valid indices are [0,capacity-1]. 1-bit so amt is ignored (set-bit). Unreached today (0 callers).
@@ -58,7 +65,7 @@ public class AtomicBitSet extends AbstractBitSet {
 	 * @return 1 if the bit is set, 0 if clear
 	 */
 	@Override
-	public int getCount(int x) {
+	public int getCount(int x){
 		assert(x>=0 && x<capacity); //[map/AtomicBitSet#001] FIXED: was x<=capacity (off-by-one, see increment)
 		final int cell=x/32;
 		final int bit=x&31;
@@ -67,8 +74,8 @@ public class AtomicBitSet extends AbstractBitSet {
 		return (value&mask)==mask ? 1 : 0;
 	}
 
-	/** Atomically clears all bits in the set to zero.
-	 * Sets each cell in the underlying array to 0. */
+	/** Clears each active cell atomically. The entire clear is not one atomic action;
+	 * concurrent updates can be retained or overwritten depending on their ordering. */
 	@Override
 	public void clear(){
 		for(int i=0; i<length; i++){
@@ -79,7 +86,7 @@ public class AtomicBitSet extends AbstractBitSet {
 	/**
 	 * Returns the number of bits set to 1 in this bit set.
 	 * Counts set bits across all cells using Integer.bitCount().
-	 * @return The count of set bits in the entire bit set
+	 * @return Count observed while visiting active cells; not a concurrent snapshot
 	 */
 	@Override
 	public long cardinality(){
@@ -94,7 +101,9 @@ public class AtomicBitSet extends AbstractBitSet {
 	/**
 	 * Sets the capacity of the bit set and reallocates array if needed.
 	 * Calculates required array length as (capacity+31)/32 to accommodate all bits.
-	 * Only reallocates if new capacity exceeds current maximum capacity.
+	 * Only reallocates if new capacity exceeds current maximum capacity. Reused
+	 * storage is not cleared; replacement storage starts empty. Requires exclusive
+	 * access and safe publication before concurrent readers or writers resume.
 	 *
 	 * @param capacity_ The new bit capacity
 	 * @param extra Additional cells to allocate beyond minimum required
@@ -105,7 +114,7 @@ public class AtomicBitSet extends AbstractBitSet {
 		length=(int)((capacity+31)/32);
 		if(maxCapacity<capacity){
 			maxLength=length+extra;
-			maxCapacity=length*32; //NOTE (latent LOW, =RawBitSet#002): int overflow for length>~67M; should be (long)length*32
+			maxCapacity=(long)length*32;//Wide arithmetic preserves reusable storage at large bit capacities.
 			array=new AtomicIntegerArray(maxLength);
 		}
 	}
@@ -122,12 +131,18 @@ public class AtomicBitSet extends AbstractBitSet {
 	@Override
 	public final int bits(){return 1;}
 	
+	/** Returns borrowed backing storage, including spare cells; resizing may replace it. */
 	public AtomicIntegerArray array(){return array;}
 	
+	/** Logical bits covered by reusable storage, excluding extra cells. */
 	private long maxCapacity=0;
+	/** Current logical bit capacity. */
 	private long capacity=0;
+	/** Allocated backing cells including extra cells. */
 	private int maxLength=0;
+	/** Active cells for the current capacity. */
 	private int length=0;
+	/** Atomic packed cells; null before the first positive allocation. */
 	private AtomicIntegerArray array;
 
 }

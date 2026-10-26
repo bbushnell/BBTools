@@ -13,14 +13,17 @@ import structures.IntList;
  * A specialized hash map that maps integer keys to IntList values.
  * Uses open addressing with linear probing for collision resolution.
  * Optimized for scenarios where each key maps to a collection of integers.
+ * Thread-safety: Not thread-safe. External synchronization required for concurrent access.
+ * Stored IntList values are borrowed: get() returns a live mutable list, and
+ * put(int, IntList) stores the supplied list by reference.
  *
  * @author Brian Bushnell
  * @contributor Isla
  * @date June 2, 2025
  */
-public final class IntListHashMap implements Serializable {
+public final class IntListHashMap implements Serializable{
 	
-	private static final long serialVersionUID = 1L;
+	private static final long serialVersionUID=1L;
 	
 	/** Creates an IntListHashMap with default initial capacity and load factor. */
 	public IntListHashMap(){this(256);}
@@ -45,12 +48,26 @@ public final class IntListHashMap implements Serializable {
 		resize(initialSize);
 	}
 	
+	/** Clears the whole backing arrays when dense; sparse clear resolves keys to cells while the whole
+	 * table is still probeable, reusing keyList's soon-to-be-cleared array as scratch. */
 	public void clear(){
 		if(size<1){return;}
-		for(int i=0; i<keyList.size; i++){
-			int key=keyList.array[i];
-			int cell=findCell(key);
-			if(cell>=0){keys[cell]=invalid; values[cell]=null;} // Clear found cells
+		if(size>0.25*sizeLimit){
+			Arrays.fill(keys, invalid);
+			Arrays.fill(values, null);
+		}else{
+			final int limit=keyList.size;
+			for(int i=0; i<limit; i++){
+				final int key=keyList.array[i];
+				final int cell=findCell(key);
+				assert(cell>=0) : "keyList tracks every live key before IntListHashMap.clear deletion; "+
+					"key="+key+", index="+i+", tracked="+keyList.size+", size="+size;
+				keyList.array[i]=cell;
+			}
+			for(int i=0; i<limit; i++){
+				final int cell=keyList.array[i];
+				keys[cell]=invalid; values[cell]=null; // Clear resolved cells
+			}
 		}
 		keyList.clear();
 		size=0;
@@ -60,17 +77,20 @@ public final class IntListHashMap implements Serializable {
 	
 	public final boolean containsKey(int key){return findCell(key)>=0;}
 	
+	/** Returns the borrowed, mutable list currently stored for key, or null if absent or stored-null. */
 	public IntList get(int key){
 		int cell=findCell(key);
 		return cell<0 ? null : values[cell];
 	}
 	
+	/** Returns the stored list for key, or replaces an absent or stored-null value with a new list. */
 	public IntList getOrCreate(int key){
 		IntList list=get(key);
 		if(list==null){list=new IntList(2); put(key, list);} // Create new list
 		return list;
 	}
 	
+	/** Replaces key's stored list with value and returns the old borrowed list; value is stored by reference. */
 	public IntList put(int key, IntList value){
 		if(key==invalid){resetInvalid();} // Handle collision with invalid key
 		final int cell=findCellOrEmpty(key);
@@ -85,8 +105,10 @@ public final class IntListHashMap implements Serializable {
 		return oldV;
 	}
 	
+	/** Appends value to key's stored list, creating a new list if key is absent or stores null. */
 	public void put(int key, int value){getOrCreate(key).add(value);}
 	
+	/** Copies each non-null source list into this map, replacing the destination mapping; skips null source values. */
 	public void putAll(IntListHashMap map){
 		for(int i=0; i<map.keyList.size; i++){
 			int key=map.keyList.array[i];
@@ -115,8 +137,8 @@ public final class IntListHashMap implements Serializable {
 	
 	/** After a removal blanks one cell, re-probe the rest of that cluster so no key is stranded
 	 * behind the new gap. Scans initial+1..limit-1 then wraps 0..initial-1, stopping at the first
-	 * pre-existing empty (verified: rehashCell only moves keys backward to dest<=cell, never past the
-	 * cursor, so nothing is orphaned and the just-vacated cell is never misread as the stop sentinel). */
+	 * pre-existing empty. rehashCell moves keys earlier in their probe sequence (possibly across the
+	 * array end) and never past the cursor, so nothing is orphaned. */
 	private void rehashFrom(int initial){
 		if(size<1){return;}
 		final int limit=keys.length;
@@ -161,7 +183,7 @@ public final class IntListHashMap implements Serializable {
 	}
 	
 	/** Probe for an existing key; -1 if absent (or if key==the current invalid sentinel).
-	 * key&MASK strips the sign bit so negative keys map into [0,modulus); MASK==Integer.MAX_VALUE
+	 * key&amp;MASK strips the sign bit so negative keys map into [0,modulus); MASK==Integer.MAX_VALUE
 	 * so this initial index is IDENTICAL to findCellOrEmpty's -> a key placed on insert is always
 	 * found here (probe-consistency verified). Stops at the first invalid cell (open-addressing). */
 	int findCell(final int key){
@@ -238,7 +260,7 @@ public final class IntListHashMap implements Serializable {
 	 * invalid() (or use toArray()); index alignment with values() is internal. No caller reads this today. */
 	public int[] keys(){return keys;}
 
-	/** Raw backing array - empty cells are null and live cells align by index with keys(). No caller reads this today. */
+	/** Raw backing array - null can mean an empty cell or a stored null value. Filter with keys()/invalid(). */
 	public IntList[] values(){return values;}
 	
 	public int invalid(){return invalid;}

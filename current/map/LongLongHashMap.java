@@ -176,7 +176,7 @@ public final class LongLongHashMap{
 			int cell=findCell(key);
 			if(cell>=0){value=values[cell];}
 		}
-		return value;//TODO: Should return invalid...
+		return value;//-1 is the missing-key sentinel under the positive-value invariant.
 	}
 	
 	/**
@@ -348,8 +348,8 @@ public final class LongLongHashMap{
 	public boolean verify(){
 		//repOK dev checker (commented //123 callers -> off in prod, must work when called). findCell(key) -> CORRECT
 		//(index-vs-key family slip N/A). Positive-counting invariant: present key=>value>=1, empty=>0 (also asserted
-		//in toArray(thresh) with keys>=0). By-design; put/increment don't enforce. (get() L179 has Brian's own TODO:
-		//return invalid not -1 on miss -- -1 is unambiguous only under the value>=1 invariant.)
+		//in toArray(thresh) with keys>=0). By-design; put/increment don't enforce. get() returns -1 on a
+		//miss, which is unambiguous only under the value>=1 invariant.
 		if(keys==null){return true;}
 		int numValues=0;
 		int numFound=0;
@@ -499,11 +499,11 @@ public final class LongLongHashMap{
 	/*----------------            Getters           ----------------*/
 	/*--------------------------------------------------------------*/
 
-	public long[] keys() {return keys;}
+	public long[] keys(){return keys;}
 
-	public long[] values() {return values;}
+	public long[] values(){return values;}
 
-	public long invalid() {return invalid;}
+	public long invalid(){return invalid;}
 	
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/

@@ -13,7 +13,7 @@ import structures.IntList;
  * Hash set that tracks newly added integers for optimized bulk clearing.
  * Extends IntHashSet with an internal list to record added elements, enabling
  * faster clearing when the set is sparse relative to its capacity.
- * Thread-safe for clear() operations but not for remove() operations.
+ * Not thread-safe; external synchronization is required for concurrent access.
  *
  * Add/clear only: the tracking list is maintained by add() and reset by clear(). remove() is NOT
  * supported -- it would desync the tracking list (which cannot be kept in sync without an O(n) scan),
@@ -160,16 +160,15 @@ public class IntHashSetList extends IntHashSet{
 	
 	@Override
 	public void clear(){
-		//assert the list-tracking invariant first (size==list.size); holds under add-only usage and would catch a
-		//remove()-induced desync loudly HERE (-ea always on). Dense -> full super.clear(); sparse -> remove only the
-		//tracked elements (cheaper than scanning the whole backing array). list.clear() resets tracking either way.
+		// Check the add-only tracking invariant before either clear path; a desynced
+		// list would corrupt both sparse clear and toArray().
 		assert(size()==list.size) : list.size+", "+size()+"\n"+list.toString()+"\n"+Arrays.toString(toArray())+"\n"+Arrays.toString(super.toArray())+"\n";
 		if(size()<1){return;}
 		if(size()>0.25*sizeLimit()){
 			super.clear();
 		}else{
 			for(int i=0; i<list.size; i++){
-				boolean b=remove(list.get(i));
+				boolean b=super.remove(list.get(i));
 				assert(b) : list.get(i)+", "+list.size+", "+size()+"\n"+list.toString()+"\n"+Arrays.toString(toArray())+"\n";
 			}
 		}
@@ -178,8 +177,8 @@ public class IntHashSetList extends IntHashSet{
 	
 	@Override
 	public boolean add(int value){
-		//list-tracking invariant: list mirrors the set 1:1 under add-only usage. super.add returns true ONLY for a
-		//genuinely new value, so list never gets a duplicate (verify() checks !containsDuplicates).
+		// super.add returns true only for a new value, so the tracking list mirrors
+		// the set exactly and never gains duplicates.
 //		boolean b=super.contains(value);
 		if(super.add(value)){
 //			assert(!b);
@@ -192,18 +191,17 @@ public class IntHashSetList extends IntHashSet{
 	
 	@Override
 	public boolean remove(int value){
-		//FIXED [map/IntHashSetList#001]: the inherited remove() would silently desync the tracking list (clear()/
-		//toArray()/verify() then corrupt). The list can't be kept in sync without an O(n) scan, and this subclass is
-		//add/clear-only by design (sole caller sketch/SketchIndex), so remove() is UNSUPPORTED -> crash loud, never
-		//corrupt (BBTools crash-loud-never-wrong). Brian-approved 2026-06-22.
+		// [map/IntHashSetList#001] The inherited remove() would silently desync
+		// list. Keeping it synchronized would make remove() O(n), and the sole
+		// caller sketch/SketchIndex is add/clear-only, so crash loud instead of
+		// corrupting clear()/toArray()/verify(). Brian-approved 2026-06-22.
 		throw new UnsupportedOperationException("IntHashSetList does not support remove() (it would desync the "
 			+"tracking list); use add/clear cycles, or a plain IntHashSet if you need remove().");
 	}
 
 	@Override
 	public int[] toArray(){
-		//returns the tracking list (O(size)), NOT a scan of the backing array like super.toArray(). Equals the set's
-		//contents because the list is kept in sync by add/clear and remove() is unsupported (throws). See #001.
+		// Return the tracking list in O(size) instead of scanning the whole backing array.
 		int[] r=list.toArray();
 		return r;
 	}
@@ -214,7 +212,7 @@ public class IntHashSetList extends IntHashSet{
 	
 	@Override
 	public boolean verify(){
-		//list must mirror the set exactly: same count, no duplicates, then the base set's own probe-integrity check.
+		// list must mirror the set exactly before the base probe-integrity check.
 		if(size()!=list.size){return false;}
 		if(list.containsDuplicates()){return false;}
 		return super.verify();
@@ -224,8 +222,7 @@ public class IntHashSetList extends IntHashSet{
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	//FIXED [map/IntHashSetList#001]: the inherited remove() would desync this list from the set; remove() is now
-	//overridden to throw UnsupportedOperationException (crash-loud, not silent corruption). add/clear keep it in sync.
+	/** Values added since the last clear; add()/clear() keep it synchronized with the set. */
 	private IntList list;
 	
 }

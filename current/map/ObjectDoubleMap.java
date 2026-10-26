@@ -2,14 +2,10 @@ package map;
 
 import java.io.Serializable;
 import java.lang.reflect.Array;
-import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HashMap;
-import shared.Random;
 
 import shared.KillSwitch;
 import shared.Shared;
-import shared.Timer;
 import shared.Tools;
 import structures.ByteBuilder;
 
@@ -19,21 +15,24 @@ import structures.ByteBuilder;
  * Caches hash codes to avoid expensive equals() calls during probing.
  * Uses power-of-2 sizing for fast modulo via bitwise AND.
  * 
- * Significantly more memory-efficient than HashMap<K, Double> by:
+ * More memory-efficient than {@code HashMap<K, Double>} by:
  * - Storing primitive double values instead of Double objects
  * - Using arrays instead of Entry objects
  * - Avoiding per-entry object overhead
  * 
- * Thread-safety: Not thread-safe. External synchronization required for concurrent access.
+ * Null keys are unsupported; keys must retain stable equality and hash codes
+ * while stored. All double values may be stored, including -1 and NaN.
+ * Not thread-safe. External synchronization is required when mutations overlap
+ * another access; safely published, immutable instances may be read concurrently.
  * 
  * @author Brian
  * @date Feb 14, 2026
  * 
  * @param <K> Key type - must properly implement hashCode() and equals()
  */
-public final class ObjectDoubleMap<K> implements Serializable {
+public final class ObjectDoubleMap<K> implements Serializable{
 
-	private static final long serialVersionUID = 1L;
+	private static final long serialVersionUID=1L;
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
@@ -61,7 +60,7 @@ public final class ObjectDoubleMap<K> implements Serializable {
 	/**
 	 * Creates a new map with specified initial capacity and load factor.
 	 * @param initialSize Initial capacity (will be rounded up to next power of 2)
-	 * @param loadFactor Load factor (0.25-0.90) - map resizes when size exceeds capacity*loadFactor
+	 * @param loadFactor_ Requested load factor in (0,1), clamped to [0.25,0.90]
 	 * @param type Component class of the keys (see {@link #ObjectDoubleMap(Class)}).
 	 */
 	public ObjectDoubleMap(int initialSize, float loadFactor_, Class<K> type){
@@ -91,7 +90,7 @@ public final class ObjectDoubleMap<K> implements Serializable {
 	/**
 	 * Gets the value associated with the given key.
 	 * @param key Key to look up
-	 * @return Value associated with key, or -1 if key not found
+	 * @return Stored value, or -1 when absent; contains() distinguishes a stored -1
 	 */
 	public double get(K key){
 		int cell=findCell(key);
@@ -112,7 +111,9 @@ public final class ObjectDoubleMap<K> implements Serializable {
 	 * If the key already exists, updates its value.
 	 * @param key Key to insert/update
 	 * @param value Value to associate with key
-	 * @return Previous value associated with key, or -1 if key was not present
+	 * @return Previous slot value: for absent keys this is -1 after allocation or
+	 * resizing, and 0 in cleared slots. Use contains() before insertion when
+	 * presence matters; the historical slot-dependent return is preserved.
 	 */
 	public double put(K key, double value){
 		return set(key, value);
@@ -135,7 +136,7 @@ public final class ObjectDoubleMap<K> implements Serializable {
 	 * If the key already exists, updates its value.
 	 * @param key Key to insert/update (must not be null)
 	 * @param value Value to associate with key
-	 * @return Previous value associated with key, or -1 if key was not present
+	 * @return Prior slot value, with the history-dependent absent return documented by put()
 	 */
 	public double set(K key, double value){
 		assert(key!=null) : "Null keys not supported";
@@ -157,8 +158,8 @@ public final class ObjectDoubleMap<K> implements Serializable {
 	 * If the key already exists, updates its value.
 	 * @param key Key to insert/update (must not be null)
 	 * @param value Value to associate with key
-	 * @param hash Hashcode of key
-	 * @return Previous value associated with key, or -1 if key was not present
+	 * @param hash Precomputed Tools.hash32plus(key.hashCode())
+	 * @return Prior slot value, with the history-dependent absent return documented by put()
 	 */
 	private double set(final K key, final double value, final int hash){
 		assert(key!=null) : "Null keys not supported";
@@ -195,7 +196,7 @@ public final class ObjectDoubleMap<K> implements Serializable {
 		assert(key!=null) : "Null keys not supported";
 		final int hash=Tools.hash32plus(key.hashCode());
 		final int cell=findCellOrEmpty(key, hash);
-		final double oldV=values[cell];
+		final double oldV=(keys[cell]==null ? 0 : values[cell]);
 		final double value=oldV+incr;
 		values[cell]=value;
 		if(keys[cell]==null){
@@ -204,7 +205,7 @@ public final class ObjectDoubleMap<K> implements Serializable {
 			size++;
 			if(size>sizeLimit){resize();}
 		}
-		return values[cell];
+		return value;//A resize can move the key away from the original cell.
 	}
 
 	/**
@@ -223,13 +224,23 @@ public final class ObjectDoubleMap<K> implements Serializable {
 	/**
 	 * For each key in the source map, sets this map's value to the maximum
 	 * of the current value and the source value.
+	 * Keys absent from this map copy the source value exactly, including negative values.
 	 * @param map Source map to compare against
 	 */
 	public void setToMax(ObjectDoubleMap<K> map){
 		for(int i=0; i<map.keys.length; i++){
 			final K key=map.keys[i];
 			if(key!=null){
-				put(key, Tools.max(map.values[i], get(key)));
+				final int hash=Tools.hash32plus(key.hashCode());
+				final int cell=findCellOrEmpty(key, hash);
+				final double value=map.values[i];
+				if(keys[cell]==null){
+					keys[cell]=key;
+					hashes[cell]=hash;
+					values[cell]=value;
+					size++;
+					if(size>sizeLimit){resize();}
+				}else{values[cell]=Tools.max(value, values[cell]);}
 			}
 		}
 	}
@@ -311,7 +322,7 @@ public final class ObjectDoubleMap<K> implements Serializable {
 
 		final int limit=keys.length;
 		final int hash=Tools.hash32plus(key.hashCode());
-		final int initial=hash & mask;
+		final int initial=hash&mask;
 
 		for(int cell=initial; cell<limit; cell++){
 			final K x=keys[cell];
@@ -337,11 +348,11 @@ public final class ObjectDoubleMap<K> implements Serializable {
 		assert(key!=null) : "Null keys not supported";
 
 		//CLEVER [verified]: hashes[] caches each key's hash so the probe compares cheap ints first
-		//(hashes[cell]==hash) and only calls equals() on a hash match. initial=hash & mask is in range for ANY mask:
+		//(hashes[cell]==hash) and only calls equals() on a hash match. initial=hash&mask is in range for ANY mask:
 		//hash=Tools.hash32plus(...) is CAPPED in [0, 0x7FFFF800) < SAFE_ARRAY_LEN, so even at the top tier
-		//(mask=Integer.MAX_VALUE after the 2x-growth fix) hash & mask == hash is a valid index (see hash32plus javadoc).
+		//(mask=Integer.MAX_VALUE after the 2x-growth fix) hash&mask == hash is a valid index (see hash32plus javadoc).
 		final int limit=keys.length;
-		final int initial=hash & mask;
+		final int initial=hash&mask;
 
 		for(int cell=initial; cell<limit; cell++){
 			final K x=keys[cell];
@@ -415,17 +426,18 @@ public final class ObjectDoubleMap<K> implements Serializable {
 		return toBytes().toString();
 	}
 	
-	public ByteBuilder toBytes() {
+	/** Renders occupied entries in backing-array order, with three fractional digits. */
+	public ByteBuilder toBytes(){
 		ByteBuilder bb=new ByteBuilder();
 		bb.append('{');
-		for(int i=0; i<keys.length; i++) {
+		for(int i=0; i<keys.length; i++){
 			K key=keys[i];
-			if(key!=null) {
-				if(bb.length>1) {bb.comma().space();}
+			if(key!=null){
+				if(bb.length>1){bb.comma().space();}
 				bb.append(key.toString()).equals().append(values[i], 3);
 			}
 		}
-		return bb;
+		return bb.append('}');
 	}
 
 	/*--------------------------------------------------------------*/
@@ -444,8 +456,8 @@ public final class ObjectDoubleMap<K> implements Serializable {
 
 	/**
 	 * Returns the internal value array.
-	 * WARNING: Contains 0 for empty cells corresponding to null keys.
-	 * @return Internal value array
+	 * Empty slots can contain -1 or 0; test the parallel key for occupancy.
+	 * @return Borrowed value array, which may be replaced during resizing
 	 */
 	public double[] values(){return values;}
 

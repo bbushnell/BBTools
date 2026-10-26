@@ -20,7 +20,7 @@ import shared.Tools;
  * Ideal for kmer to data structure mappings (e.g., kmer → IntList of positions).
  * Hash mixing ensures adjacent kmers (like AAAAAA vs AAAAAC) distribute evenly.
  * 
- * More memory-efficient than HashMap<Long, V> by:
+ * More memory-efficient than {@code HashMap<Long, V>} by:
  * - Storing primitive long keys instead of Long objects
  * - Using arrays instead of Entry objects
  * - Avoiding per-entry object overhead
@@ -33,9 +33,9 @@ import shared.Tools;
  * 
  * @param <V> Value type
  */
-public final class LongObjectMap<V> implements Serializable {
+public final class LongObjectMap<V> implements Serializable{
 
-	private static final long serialVersionUID = 1L;
+	private static final long serialVersionUID=1L;
 
 	public static void main(String[] args){
 		int size=args.length>0 ? Integer.parseInt(args[0]) : 1000000;
@@ -46,7 +46,7 @@ public final class LongObjectMap<V> implements Serializable {
 		Random randy=shared.Shared.random(12345);
 		long[] keys=new long[size];
 		for(int i=0; i<size; i++){
-			long x=randy.nextLong() & Long.MAX_VALUE;
+			long x=randy.nextLong()&Long.MAX_VALUE;
 			keys[i]=(long)Math.sqrt(x);
 		}
 
@@ -146,7 +146,7 @@ public final class LongObjectMap<V> implements Serializable {
 	/**
 	 * Creates a new map with specified initial capacity and load factor.
 	 * @param initialSize Initial capacity (will be rounded up to next power of 2)
-	 * @param loadFactor Load factor (0.25-0.90) - map resizes when size exceeds capacity*loadFactor
+	 * @param loadFactor_ Load factor (0.25-0.90) - map resizes when size exceeds capacity*loadFactor
 	 * @param type Component class of the values (see {@link #LongObjectMap(Class)}).
 	 */
 	public LongObjectMap(int initialSize, float loadFactor_, Class<V> type){
@@ -177,7 +177,7 @@ public final class LongObjectMap<V> implements Serializable {
 	/**
 	 * Gets the value associated with the given key.
 	 * @param key Key to look up
-	 * @return Value associated with key, or null if key not found
+	 * @return Value associated with key; null if key was not found or if null was stored
 	 */
 	public V get(long key){
 		int cell=findCell(key);
@@ -198,7 +198,7 @@ public final class LongObjectMap<V> implements Serializable {
 	 * If the key already exists, updates its value.
 	 * @param key Key to insert/update
 	 * @param value Value to associate with key (may be null)
-	 * @return Previous value associated with key, or null if key was not present
+	 * @return Previous value associated with key, or null if absent or previously mapped to null
 	 */
 	public V put(long key, V value){
 		return set(key, value);
@@ -221,7 +221,7 @@ public final class LongObjectMap<V> implements Serializable {
 	 * If the key already exists, updates its value.
 	 * @param key Key to insert/update
 	 * @param value Value to associate with key (may be null)
-	 * @return Previous value associated with key, or null if key was not present
+	 * @return Previous value associated with key, or null if absent or previously mapped to null
 	 */
 	public V set(long key, V value){
 		if(key==invalid){resetInvalid();}
@@ -239,7 +239,7 @@ public final class LongObjectMap<V> implements Serializable {
 	/**
 	 * Removes the entry with the specified key.
 	 * @param key Key to remove
-	 * @return Previous value associated with key, or null if key was not found
+	 * @return Previous value associated with key, or null if absent or previously mapped to null
 	 */
 	public V remove(long key){
 		if(key==invalid){return null;}
@@ -326,7 +326,7 @@ public final class LongObjectMap<V> implements Serializable {
 
 		final int limit=keys.length;
 		final long hash=Tools.hash64plus(key);
-		final int initial=(int)(hash & mask);
+		final int initial=(int)(hash&mask);
 
 		for(int cell=initial; cell<limit; cell++){
 			final long x=keys[cell];
@@ -356,7 +356,7 @@ public final class LongObjectMap<V> implements Serializable {
 		//old cells), so a real key can never alias an empty cell.
 		final int limit=keys.length;
 		final long hash=Tools.hash64plus(key);
-		final int initial=(int)(hash & mask);
+		final int initial=(int)(hash&mask);
 
 		for(int cell=initial; cell<limit; cell++){
 			final long x=keys[cell];
@@ -450,11 +450,11 @@ public final class LongObjectMap<V> implements Serializable {
 	public long[] keys(){return keys;}
 
 	/**
-	 * Returns the internal value array (the live backing array; null entries mark empty cells).
+	 * Returns the internal value array (the live backing array; use keys()[i]!=invalid() to find occupied cells).
 	 * This is a GENUINE V[] (e.g. String[], byte[][]) because the backing is allocated via Array.newInstance(type,...)
 	 * from the component class passed to the constructor [map/LongObjectMap#002] — so it can be used directly (assigned
 	 * to V[], iterated, .length) without the ClassCastException a plain Object[] backing would cause at the call site.
-	 * WARNING: live array, contains nulls for empty cells. Use with caution.
+	 * WARNING: live array. Null values may be stored in occupied cells, so occupancy must be checked with keys().
 	 * @return Internal value array (a real V[])
 	 */
 	public V[] values(){return values;}

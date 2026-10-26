@@ -128,14 +128,20 @@ public class IntHashSet{
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Creates an empty set with default capacity. */
 	public IntHashSet(){
 		this(256);
 	}
 	
+	/** Creates an empty set with the specified initial capacity.
+	 * @param initialSize Initial hash table size */
 	public IntHashSet(int initialSize){
 		this(initialSize, 0.7f);
 	}
 	
+	/** Creates an empty set with the specified capacity and load factor.
+	 * @param initialSize Initial hash table size
+	 * @param loadFactor_ Load factor threshold for rehashing */
 	public IntHashSet(int initialSize, float loadFactor_){
 		invalid=randy.nextInt()|MINMASK;
 		assert(invalid<0);
@@ -192,7 +198,9 @@ public class IntHashSet{
 		return added;
 	}
 	
-	//Does not get added to the list in an IntHashSetList.  For rehashing.  Cannot be overriden.
+	/** Re-adds a value while rebuilding a probe cluster without dispatching to IntHashSetList.add().
+	 * @param value Value to restore
+	 * @return true if the value was absent and added */
 	protected final boolean addSpecial(int value){
 		if(value==invalid){resetInvalid();}
 		int cell=findCellOrEmpty(value);
@@ -282,6 +290,7 @@ public class IntHashSet{
 	/*----------------        Private Methods       ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Checks that every live value is reachable by its own probe sequence. */
 	public boolean verify(){
 		int numValues=0;
 		int numFound=0;
@@ -289,7 +298,8 @@ public class IntHashSet{
 			final int value=array[i];
 			if(value!=invalid){
 				numValues++;
-				final int cell=findCell(value);//was findCell(i) - author-flagged latent bug, CONFIRMED via cross-family diff (LongHashSet:264 uses findCell(value)); verify() is dead (no caller) -> output-neutral. [map/IntHashSet#001 FIXED]
+				// findCell takes a value, not a backing-array index; matches LongHashSet.verify(). [map/IntHashSet#001 FIXED]
+				final int cell=findCell(value);
 				if(i==cell){
 					numFound++;
 				}else{
@@ -300,6 +310,8 @@ public class IntHashSet{
 		return numValues==numFound && numValues==size;
 	}
 	
+	/** Rehashes the contiguous probe cluster after a deletion.
+	 * @param initial Cell just emptied */
 	private void rehashFrom(int initial){
 		if(size<1){return;}
 		final int limit=array.length;
@@ -315,6 +327,7 @@ public class IntHashSet{
 		}
 	}
 	
+	/** Moves one live cell to its preferred slot if the new gap makes that possible. */
 	private boolean rehashCell(final int cell){
 		final int value=array[cell];
 		assert(value!=invalid);
@@ -327,6 +340,7 @@ public class IntHashSet{
 		return true;
 	}
 	
+	/** Chooses a new empty-cell sentinel and rewrites old sentinels in the backing array. */
 	private void resetInvalid(){
 		final int old=invalid;
 		int x=invalid;
@@ -338,6 +352,7 @@ public class IntHashSet{
 		}
 	}
 	
+	/** Finds the cell containing a value, or -1 if the value is absent. */
 	private int findCell(final int value){
 		if(value==invalid){return -1;}
 		
@@ -355,6 +370,7 @@ public class IntHashSet{
 		return -1;
 	}
 	
+	/** Finds the cell containing a value or the first empty cell in its probe sequence. */
 	private int findCellOrEmpty(final int value){
 		assert(value!=invalid) : "Collision - this should have been intercepted.";
 		
@@ -370,11 +386,13 @@ public class IntHashSet{
 		throw new RuntimeException("No empty cells - size="+size+", limit="+limit);
 	}
 	
+	/** Doubles the backing table around the next prime capacity. */
 	private final void resize(){
 		assert(size>=sizeLimit);
 		resize(array.length*2L+1);
 	}
 	
+	/** Rebuilds the backing table at at least the requested capacity. */
 	private final void resize(final long size2){
 		assert(size2>size) : size+", "+size2;
 		long newPrime=Primes.primeAtLeast(size2);
@@ -408,9 +426,7 @@ public class IntHashSet{
 	
 	private int[] array;
 	private int size=0;
-	/**
-	 * Sentinel value used to mark empty cells, always negative and regenerated if a user attempts to insert it
-	 */
+	/** Empty-cell sentinel, always negative and regenerated if a user attempts to insert it. */
 	private int invalid;
 	private int modulus;
 	private int sizeLimit;

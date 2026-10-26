@@ -22,9 +22,9 @@ import simd.Vector;
  * @author Isla, Amber
  * @date November 2, 2025
  */
-public final class IntLongHashMap3 implements Serializable {
+public final class IntLongHashMap3 implements Serializable{
 
-	private static final long serialVersionUID = 1L;
+	private static final long serialVersionUID=1L;
 
 	public static void main(String[] args){
 		int size=args.length>0 ? Integer.parseInt(args[0]) : 1000000;
@@ -70,7 +70,7 @@ public final class IntLongHashMap3 implements Serializable {
 					sum+=map2.get(i);
 					sum+=map3.get(i);
 				}
-				if(remove) {
+				if(remove){
 					for(int i=0; i<warmupCycles; i++){
 						map0.remove(i);
 						map1.remove(i);
@@ -100,7 +100,7 @@ public final class IntLongHashMap3 implements Serializable {
 				map=new IntHashMap2();
 				for(int i=0; i<size; i++){map.put(keys[i], 2*keys[i]);}
 				for(int i=0; i<size; i++){sum+=map.get(keys[i]);}
-				if(remove) {
+				if(remove){
 					for(int i=0; i<size; i++){map.remove(keys[i]);}
 				}
 			}
@@ -122,7 +122,7 @@ public final class IntLongHashMap3 implements Serializable {
 				map=new IntLongHashMap3();
 				for(int i=0; i<size; i++){map.put(keys[i], 2*keys[i]);}
 				for(int i=0; i<size; i++){sum+=map.get(keys[i]);}
-				if(remove) {
+				if(remove){
 					for(int i=0; i<size; i++){map.remove(keys[i]);}
 				}
 			}
@@ -144,7 +144,7 @@ public final class IntLongHashMap3 implements Serializable {
 				map=new IntHashMap();
 				for(int i=0; i<size; i++){map.put(keys[i], 2*keys[i]);}
 				for(int i=0; i<size; i++){sum+=map.get(keys[i]);}
-				if(remove) {
+				if(remove){
 					for(int i=0; i<size; i++){map.remove(keys[i]);}
 				}
 			}
@@ -166,7 +166,7 @@ public final class IntLongHashMap3 implements Serializable {
 				map=new HashMap<Integer, Integer>();
 				for(int i=0; i<size; i++){map.put(keys[i], 2*keys[i]);}
 				for(int i=0; i<size; i++){sum+=map.get(keys[i]);}
-				if(remove) {
+				if(remove){
 					for(int i=0; i<size; i++){map.remove(keys[i]);}
 				}
 			}
@@ -178,6 +178,8 @@ public final class IntLongHashMap3 implements Serializable {
 			System.gc();
 		}
 		
+		// Legacy dev capacity stress: this runs unconditionally after the small timing loops,
+		// so main() is not a smoke test even with tiny args.
 		keys=new int[Shared.MAX_ARRAY_LEN];
 		for(int i=0; i<keys.length; i++){keys[i]=i;}
 		Random randy=Shared.threadLocalRandom(1);
@@ -192,8 +194,8 @@ public final class IntLongHashMap3 implements Serializable {
 			t.start();
 			try{
 				IntHashMap map=new IntHashMap();
-				//for(long i=Integer.MAX_VALUE; i>=0; i--) {
-				for(int i : keys) {
+				//for(long i=Integer.MAX_VALUE; i>=0; i--){
+				for(int i : keys){
 					map.put((int)i, (int)(i*2));
 					max=map.size();
 				}
@@ -208,8 +210,8 @@ public final class IntLongHashMap3 implements Serializable {
 			t.start();
 			try{
 				IntHashMap2 map=new IntHashMap2();
-				//for(long i=Integer.MAX_VALUE; i>=0; i--) {
-				for(int i : keys) {
+				//for(long i=Integer.MAX_VALUE; i>=0; i--){
+				for(int i : keys){
 					map.put((int)i, (int)(i*2));
 					max=map.size();
 				}
@@ -225,8 +227,8 @@ public final class IntLongHashMap3 implements Serializable {
 			t.start();
 			try{
 				IntLongHashMap3 map=new IntLongHashMap3();
-				//for(long i=Integer.MAX_VALUE; i>=0; i--) {
-				for(int i : keys) {
+				//for(long i=Integer.MAX_VALUE; i>=0; i--){
+				for(int i : keys){
 					map.put((int)i, (int)(i*2));
 					max=map.size();
 				}
@@ -242,8 +244,8 @@ public final class IntLongHashMap3 implements Serializable {
 			t.start();
 			try{
 				HashMap<Integer, Integer> map=new HashMap<Integer, Integer>();
-				//for(long i=Integer.MAX_VALUE; i>=0; i--) {
-				for(int i : keys) {
+				//for(long i=Integer.MAX_VALUE; i>=0; i--){
+				for(int i : keys){
 					map.put((int)i, (int)(i*2));
 					max=map.size();
 				}
@@ -268,7 +270,7 @@ public final class IntLongHashMap3 implements Serializable {
 
 	/**
 	 * Creates a new map with specified initial capacity and default load factor (0.7).
-	 * @param initialSize Initial capacity (will be rounded up to next power of 2)
+	 * @param initialSize Initial capacity (will be rounded down to a power-of-2 tier)
 	 */
 	public IntLongHashMap3(int initialSize){
 		this(initialSize, 0.7f);
@@ -276,8 +278,8 @@ public final class IntLongHashMap3 implements Serializable {
 
 	/**
 	 * Creates a new map with specified initial capacity and load factor.
-	 * @param initialSize Initial capacity (will be rounded up to next power of 2)
-	 * @param loadFactor Load factor (0.25-0.90) - map resizes when size exceeds capacity*loadFactor
+	 * @param initialSize Initial capacity (will be rounded down to a power-of-2 tier)
+	 * @param loadFactor_ Load factor (0.25-0.90) - map resizes when size exceeds capacity*loadFactor
 	 */
 	public IntLongHashMap3(int initialSize, double loadFactor_){
 		invalid=randy.nextInt()|MINMASK;
@@ -377,13 +379,28 @@ public final class IntLongHashMap3 implements Serializable {
 	 * @return New value after increment
 	 */
 	public long increment(int key){
-		return increment(key, 1);
+		if(key==invalid){resetInvalid();}
+		final int cell=findCellOrEmpty(key);
+		if(keys[cell]==invalid){
+			values[cell]=1;
+			keys[cell]=key;
+			size++;
+			if(size>sizeLimit){resize();}
+			return 1;
+		}
+		final long oldV=values[cell];
+		final long sum=oldV+1;
+		//Valid only for +1: the single positive overflow is MAX_VALUE+1.
+		final long overflowMask=(sum&~oldV)>>63;
+		final long value=sum^overflowMask;
+		values[cell]=value;
+		return value;
 	}
 
 	/**
 	 * Increments the value associated with the key by the specified amount.
 	 * If key is not present, inserts it with the increment value.
-	 * Values are clamped to Long.MAX_VALUE on overflow.
+	 * Positive overflows clamp to Long.MAX_VALUE; negative underflows wrap unchanged.
 	 * @param key Key to increment
 	 * @param incr Amount to add (can be negative)
 	 * @return New value after increment
@@ -392,15 +409,14 @@ public final class IntLongHashMap3 implements Serializable {
 		if(key==invalid){resetInvalid();}
 		final int cell=findCellOrEmpty(key);
 		final long oldV=values[cell];
-		final long value=oldV+incr;
-		// FIXED: Was Integer.MAX_VALUE, changed to Long.MAX_VALUE
-		values[cell]=Tools.min(Long.MAX_VALUE, value);
+		final long value=(incr>0 && oldV>Long.MAX_VALUE-incr) ? Long.MAX_VALUE : oldV+incr;
+		values[cell]=value;
 		if(keys[cell]==invalid){
 			keys[cell]=key;
 			size++;
 			if(size>sizeLimit){resize();}
 		}
-		return values[cell];
+		return value;
 	}
 
 	/**
@@ -440,16 +456,23 @@ public final class IntLongHashMap3 implements Serializable {
 		}
 	}
 
-	/**
-	 * For each key in the source map, sets this map's value to the maximum
-	 * of the current value and the source value.
+	/** Merges the source map by taking the maximum value for each shared key.
+	 * Keys absent here are inserted with their exact source values.
 	 * @param map Source map to compare against
 	 */
 	public void setToMax(IntLongHashMap3 map){
 		for(int i=0; i<map.keys.length; i++){
 			final int key=map.keys[i];
 			if(key!=map.invalid){
-				put(key, Tools.max(map.values[i], get(key)));
+				final long value=map.values[i];
+				if(key==invalid){put(key, value); continue;}
+				final int cell=findCellOrEmpty(key);
+				if(keys[cell]==invalid){
+					values[cell]=value;
+					keys[cell]=key;
+					size++;
+					if(size>sizeLimit){resize();}
+				}else{values[cell]=Tools.max(value, values[cell]);}
 			}
 		}
 	}
@@ -534,7 +557,7 @@ public final class IntLongHashMap3 implements Serializable {
 	private int findCell(final int key){
 		if(key==invalid){return -1;}
 		final int hash=Tools.hash32plus(key);
-		final int initial=hash & mask;
+		final int initial=hash&mask;
 		return Vector.findKeyScalar(keys, key, initial, invalid);
 	}
 
@@ -546,7 +569,7 @@ public final class IntLongHashMap3 implements Serializable {
 	private int findCellOrEmpty(final int key){
 		assert(key!=invalid) : "Collision - this should have been intercepted.";
 		final int hash=Tools.hash32plus(key);
-		final int initial=hash & mask;
+		final int initial=hash&mask;
 		return Vector.findKeyOrInvalidScalar(keys, key, initial, invalid);
 	}
 
@@ -576,7 +599,7 @@ public final class IntLongHashMap3 implements Serializable {
 		//range. Verdict reached with Brian; escalation RETRACTED alongside IntHashMap3#001.
 		mask=(int)(size3-1);
 		size3=Math.min(size3+extra, Shared.SAFE_ARRAY_LEN);
-		if(size3<=old || size3>Shared.SAFE_ARRAY_LEN) {//note: size3>SAFE_ARRAY_LEN is dead (Math.min just capped it)
+		if(size3<=old || size3>Shared.SAFE_ARRAY_LEN){//note: size3>SAFE_ARRAY_LEN is dead (Math.min just capped it)
 			throw new RuntimeException("Map hit capacity at "+size+":"
 				+"\nkeys.length="+keys.length+"\nsize2="+size2+"\nsize3="+size3);
 		}

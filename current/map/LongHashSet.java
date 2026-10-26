@@ -241,10 +241,10 @@ public final class LongHashSet{
 	}
 	
 	public long[] toArray(){
-		//FIXED [map/LongHashSet#001]: was `new long[array.length]` copying EVERY cell incl. the invalid sentinels
-		//(returned a capacity-length array of garbage, not the set's elements) — a lone divergence from the IntHashSet
-		//twin. Now sizes to `size` and filters out invalid cells, matching IntHashSet.toArray + the rest of the family.
-		//Latent LOW: 0 callers of LongHashSet.toArray() in current/ (verified by grep), so output-neutral for live code.
+		//FIXED [map/LongHashSet#001]: was `new long[array.length]` copying EVERY cell, including invalid sentinels.
+		//That returned a capacity-length array of garbage instead of the set's elements, a lone divergence from the
+		//IntHashSet twin. Now this sizes to `size` and filters out invalid cells, matching IntHashSet.toArray and the
+		//rest of the family.
 		long[] x=new long[size];
 		int i=0;
 		for(long v : array){

@@ -15,7 +15,7 @@ import simd.Vector;
  * Uses open addressing with linear probing for collision resolution.
  * Uses power-of-2 sizing and hash mixing for fast, well-distributed hashing.
  * 
- * Significantly more memory-efficient than HashMap<Integer, Integer> by:
+ * Significantly more memory-efficient than {@code HashMap<Integer, Integer>} by:
  * - Storing primitive int values instead of Integer objects
  * - Using arrays instead of Entry objects
  * - Avoiding per-entry object overhead
@@ -26,9 +26,9 @@ import simd.Vector;
  * @author Isla
  * @date November 2, 2025
  */
-public final class IntHashMap2 implements IntHashMapInterface {
+public final class IntHashMap2 implements IntHashMapInterface{
 
-	private static final long serialVersionUID = 1L;
+	private static final long serialVersionUID=1L;
 
 	public static void main(String[] args){
 		int size=args.length>0 ? Integer.parseInt(args[0]) : 1000000;
@@ -61,7 +61,7 @@ public final class IntHashMap2 implements IntHashMapInterface {
 				map=new IntHashMap2();
 				for(int i=0; i<size; i++){map.put(keys[i], 2*keys[i]);}
 				for(int i=0; i<size; i++){sum+=map.get(keys[i]);}
-				if(remove) {
+				if(remove){
 					for(int i=0; i<size; i++){map.remove(keys[i]);}
 				}
 			}
@@ -83,7 +83,7 @@ public final class IntHashMap2 implements IntHashMapInterface {
 				map=new IntHashMap();
 				for(int i=0; i<size; i++){map.put(keys[i], 2*keys[i]);}
 				for(int i=0; i<size; i++){sum+=map.get(keys[i]);}
-				if(remove) {
+				if(remove){
 					for(int i=0; i<size; i++){map.remove(keys[i]);}
 				}
 			}
@@ -105,7 +105,7 @@ public final class IntHashMap2 implements IntHashMapInterface {
 				map=new HashMap<Integer, Integer>();
 				for(int i=0; i<size; i++){map.put(keys[i], 2*keys[i]);}
 				for(int i=0; i<size; i++){sum+=map.get(keys[i]);}
-				if(remove) {
+				if(remove){
 					for(int i=0; i<size; i++){map.remove(keys[i]);}
 				}
 			}
@@ -140,7 +140,7 @@ public final class IntHashMap2 implements IntHashMapInterface {
 	/**
 	 * Creates a new map with specified initial capacity and load factor.
 	 * @param initialSize Initial capacity (will be rounded up to next power of 2)
-	 * @param loadFactor Load factor (0.25-0.90) - map resizes when size exceeds capacity*loadFactor
+	 * @param loadFactor_ Load factor (0.25-0.90) - map resizes when size exceeds capacity*loadFactor
 	 */
 	public IntHashMap2(int initialSize, float loadFactor_){
 		invalid=randy.nextInt()|MINMASK;
@@ -273,7 +273,7 @@ public final class IntHashMap2 implements IntHashMapInterface {
 			size++;
 			if(size>sizeLimit){resize();}
 		}
-		return values[cell];
+		return value;
 	}
 
 	/**
@@ -289,16 +289,23 @@ public final class IntHashMap2 implements IntHashMapInterface {
 		}
 	}
 
-	/**
-	 * For each key in the source map, sets this map's value to the maximum
-	 * of the current value and the source value.
+	/** Merges the source map by taking the maximum value for each shared key.
+	 * Keys absent here are inserted with their exact source values.
 	 * @param map Source map to compare against
 	 */
 	public void setToMax(IntHashMap2 map){
 		for(int i=0; i<map.keys.length; i++){
 			final int key=map.keys[i];
 			if(key!=map.invalid){
-				put(key, Tools.max(map.values[i], get(key)));
+				final int value=map.values[i];
+				if(key==invalid){put(key, value); continue;}
+				final int cell=findCellOrEmpty(key);
+				if(keys[cell]==invalid){
+					values[cell]=value;
+					keys[cell]=key;
+					size++;
+					if(size>sizeLimit){resize();}
+				}else{values[cell]=Tools.max(value, values[cell]);}
 			}
 		}
 	}
@@ -383,7 +390,7 @@ public final class IntHashMap2 implements IntHashMapInterface {
 	public int findCell(final int key){
 		if(key==invalid){return -1;}
 		final int hash=Tools.hash32plus(key);
-		final int initial=hash & mask;
+		final int initial=hash&mask;
 		return Vector.findKeyScalar(keys, key, initial, invalid);
 	}
 
@@ -395,7 +402,7 @@ public final class IntHashMap2 implements IntHashMapInterface {
 	private int findCellOrEmpty(final int key){
 		assert(key!=invalid) : "Collision - this should have been intercepted.";
 		final int hash=Tools.hash32plus(key);
-		final int initial=hash & mask;
+		final int initial=hash&mask;
 		//probe (scalar, Java-8-safe) wraps [initial,len)->[0,initial); the extra=10 slots merely let
 		//most probes skip the wrap branch -> correctness rests on loadFactor<1, not on `extra`.
 		return Vector.findKeyOrInvalidScalar(keys, key, initial, invalid);

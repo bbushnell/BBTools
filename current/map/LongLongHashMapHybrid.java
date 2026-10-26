@@ -16,7 +16,8 @@ import structures.LongList;
  * Hybrid hash map for mapping long keys to single or multiple long values.
  * Acts as a LongLongHashMap for single values and LongLongListHashMap for multi-value keys.
  * Stores multi-value entries as negative codes (-(index+OFFSET)) pointing to separate lists.
- * Does not support negative values; raising the OFFSET could allow them but would obscure return semantics.
+ * Supports non-negative values only. A repeated inline value is ignored; once a key is promoted
+ * to a side list, subsequent values are appended even when they duplicate existing list entries.
  * @author Brian Bushnell
  * @date November 13, 2024
  */
@@ -83,7 +84,7 @@ public final class LongLongHashMapHybrid{
 		Shared.printMemory();
 		Timer t=new Timer();
 		for(int k=0; k<2; k++){
-			System.err.println("LongLongHashMapHbrid:");
+			System.err.println("LongLongHashMapHybrid:");
 			t.start();
 			for(int i=0; i<runs; i++){
 //				for(long x : ll.array){
@@ -155,6 +156,8 @@ public final class LongLongHashMapHybrid{
 	/*--------------------------------------------------------------*/
 	
 	public void clear(){
+		//Clear side lists even when size==0: removing only non-tail multi-value keys can leave null holes.
+		multivalues.clear();
 		if(size<1){return;}
 		Arrays.fill(keys, invalid);
 		Arrays.fill(values, 0);
@@ -193,8 +196,8 @@ public final class LongLongHashMapHybrid{
 //		assert(buffer.isEmpty());
 		buffer.clear();
 		long code=get(key);
-		if(code==NOTPRESENT) {return buffer;}
-		if(code>=0) {buffer.add(code); return buffer;}
+		if(code==NOTPRESENT){return buffer;}
+		if(code>=0){buffer.add(code); return buffer;}
 		return multivalues.get((int)(-code-OFFSET));
 	}
 	
@@ -202,9 +205,9 @@ public final class LongLongHashMapHybrid{
 //		assert(buffer.isEmpty());
 		buffer.clear();
 		long code=get(key);
-		if(code==NOTPRESENT) {return code;}
-		if(code>=0) {buffer.add(code);}
-		else {buffer.addAll(multivalues.get((int)(-code-OFFSET)));}
+		if(code==NOTPRESENT){return code;}
+		if(code>=0){buffer.add(code);}
+		else{buffer.addAll(multivalues.get((int)(-code-OFFSET)));}
 		return code;
 	}
 
@@ -213,7 +216,7 @@ public final class LongLongHashMapHybrid{
 	 * Validates that value is non-negative before storing.
 	 * @param key The key to map
 	 * @param value The non-negative value to associate with key
-	 * @return true if the value was added, false if already present
+	 * @return true if the value was added, false only if it matched the existing inline single value
 	 */
 	public boolean put(long key, long value){
 		//public contract: single values must be >=0. Internally values[] encodes multi-value keys as NEGATIVE
@@ -229,7 +232,7 @@ public final class LongLongHashMapHybrid{
 	 * Automatically resizes when size limit is exceeded.
 	 * @param key The key to map
 	 * @param value The value to associate with key
-	 * @return true if the value was added, false if already present
+	 * @return true if the value was added, false only if it matched the existing inline single value
 	 */
 	public boolean putInner(long key, long value){
 //		assert(verify()); //123
@@ -245,11 +248,11 @@ public final class LongLongHashMapHybrid{
 		}
 		assert(keys[cell]==key);
 		final long vCell=values[cell];
-		if(vCell==value) {return false;}
+		if(vCell==value){return false;}
 		//CLEVER [verified]: single->multi transition. vCell>=0 means one inline value; promote it to a side
 		//LongList and store the negative code in its place. Thereafter vCell<0 (a code) just appends to that list.
 		//No size++ here -- multi-value adds add a VALUE, not a KEY.
-		if(vCell>=0) {
+		if(vCell>=0){
 			int listIndex=multivalues.size();
 			LongList list=new LongList(4);
 			multivalues.add(list);
@@ -260,7 +263,7 @@ public final class LongLongHashMapHybrid{
 		}
 		int listIndex=(int)(-vCell-OFFSET);
 		LongList list=multivalues.get(listIndex);
-//		if(list.contains(value)) {return false;}//Slow and not really needed for indexing.
+//		if(list.contains(value)){return false;}//Slow and not really needed for indexing.
 		list.add(value);
 //		assert(verify()); //123
 		return true;
@@ -287,13 +290,13 @@ public final class LongLongHashMapHybrid{
 		final long value=values[cell];
 		values[cell]=0;
 		size--;
-		if(value<0) {
+		if(value<0){
 			//multi-value removal: null the side list (leaves a hole unless it was the last, then shrink). Safe:
 			//only the LAST listIndex is ever shrunk, and no other key holds a higher index, so no dangling code.
 			//A non-last removal leaves a null hole (documented; fine for indexing -- the key is gone, unreachable).
 			int idx=(int)(-value-OFFSET);
 			multivalues.set(idx, null);
-			if(idx+1==multivalues.size()) {multivalues.remove(idx);}
+			if(idx+1==multivalues.size()){multivalues.remove(idx);}
 		}
 		
 		rehashFrom(cell);
@@ -557,11 +560,11 @@ public final class LongLongHashMapHybrid{
 	/*----------------            Getters           ----------------*/
 	/*--------------------------------------------------------------*/
 
-	public long[] keys() {return keys;}
+	public long[] keys(){return keys;}
 
-	public long[] values() {return values;}
+	public long[] values(){return values;}
 
-	public long invalid() {return invalid;}
+	public long invalid(){return invalid;}
 	
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/

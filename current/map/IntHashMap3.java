@@ -16,7 +16,7 @@ import simd.Vector;
  * Uses power-of-2 sizing and hash mixing for fast, well-distributed hashing.
  * Slightly slower than IntHashMap2 but greater max capacity (goes over 2^30).
  * 
- * Significantly more memory-efficient than HashMap<Integer, Integer> by:
+ * Significantly more memory-efficient than {@code HashMap<Integer, Integer>} by:
  * - Storing primitive int values instead of Integer objects
  * - Using arrays instead of Entry objects
  * - Avoiding per-entry object overhead
@@ -27,9 +27,9 @@ import simd.Vector;
  * @author Isla
  * @date November 2, 2025
  */
-public final class IntHashMap3 implements IntHashMapInterface {
+public final class IntHashMap3 implements IntHashMapInterface{
 
-	private static final long serialVersionUID = 1L;
+	private static final long serialVersionUID=1L;
 
 	public static void main(String[] args){
 		int size=args.length>0 ? Integer.parseInt(args[0]) : 1000000;
@@ -75,7 +75,7 @@ public final class IntHashMap3 implements IntHashMapInterface {
 					sum+=map2.get(i);
 					sum+=map3.get(i);
 				}
-				if(remove) {
+				if(remove){
 					for(int i=0; i<warmupCycles; i++){
 						map0.remove(i);
 						map1.remove(i);
@@ -105,7 +105,7 @@ public final class IntHashMap3 implements IntHashMapInterface {
 				map=new IntHashMap2();
 				for(int i=0; i<size; i++){map.put(keys[i], 2*keys[i]);}
 				for(int i=0; i<size; i++){sum+=map.get(keys[i]);}
-				if(remove) {
+				if(remove){
 					for(int i=0; i<size; i++){map.remove(keys[i]);}
 				}
 			}
@@ -127,7 +127,7 @@ public final class IntHashMap3 implements IntHashMapInterface {
 				map=new IntHashMap3();
 				for(int i=0; i<size; i++){map.put(keys[i], 2*keys[i]);}
 				for(int i=0; i<size; i++){sum+=map.get(keys[i]);}
-				if(remove) {
+				if(remove){
 					for(int i=0; i<size; i++){map.remove(keys[i]);}
 				}
 			}
@@ -149,7 +149,7 @@ public final class IntHashMap3 implements IntHashMapInterface {
 				map=new IntHashMap();
 				for(int i=0; i<size; i++){map.put(keys[i], 2*keys[i]);}
 				for(int i=0; i<size; i++){sum+=map.get(keys[i]);}
-				if(remove) {
+				if(remove){
 					for(int i=0; i<size; i++){map.remove(keys[i]);}
 				}
 			}
@@ -171,7 +171,7 @@ public final class IntHashMap3 implements IntHashMapInterface {
 				map=new HashMap<Integer, Integer>();
 				for(int i=0; i<size; i++){map.put(keys[i], 2*keys[i]);}
 				for(int i=0; i<size; i++){sum+=map.get(keys[i]);}
-				if(remove) {
+				if(remove){
 					for(int i=0; i<size; i++){map.remove(keys[i]);}
 				}
 			}
@@ -183,6 +183,8 @@ public final class IntHashMap3 implements IntHashMapInterface {
 			System.gc();
 		}
 		
+		// Legacy dev capacity stress: this runs unconditionally after the small timing loops,
+		// so main() is not a smoke test even with tiny args.
 		keys=new int[Shared.MAX_ARRAY_LEN];
 		for(int i=0; i<keys.length; i++){keys[i]=i;}
 		Random randy=Shared.threadLocalRandom(1);
@@ -197,8 +199,8 @@ public final class IntHashMap3 implements IntHashMapInterface {
 			t.start();
 			try{
 				IntHashMap map=new IntHashMap();
-				//for(long i=Integer.MAX_VALUE; i>=0; i--) {
-				for(int i : keys) {
+				//for(long i=Integer.MAX_VALUE; i>=0; i--){
+				for(int i : keys){
 					map.put((int)i, (int)(i*2));
 					max=map.size();
 				}
@@ -213,8 +215,8 @@ public final class IntHashMap3 implements IntHashMapInterface {
 			t.start();
 			try{
 				IntHashMap2 map=new IntHashMap2();
-				//for(long i=Integer.MAX_VALUE; i>=0; i--) {
-				for(int i : keys) {
+				//for(long i=Integer.MAX_VALUE; i>=0; i--){
+				for(int i : keys){
 					map.put((int)i, (int)(i*2));
 					max=map.size();
 				}
@@ -230,8 +232,8 @@ public final class IntHashMap3 implements IntHashMapInterface {
 			t.start();
 			try{
 				IntHashMap3 map=new IntHashMap3();
-				//for(long i=Integer.MAX_VALUE; i>=0; i--) {
-				for(int i : keys) {
+				//for(long i=Integer.MAX_VALUE; i>=0; i--){
+				for(int i : keys){
 					map.put((int)i, (int)(i*2));
 					max=map.size();
 				}
@@ -247,8 +249,8 @@ public final class IntHashMap3 implements IntHashMapInterface {
 			t.start();
 			try{
 				HashMap<Integer, Integer> map=new HashMap<Integer, Integer>();
-				//for(long i=Integer.MAX_VALUE; i>=0; i--) {
-				for(int i : keys) {
+				//for(long i=Integer.MAX_VALUE; i>=0; i--){
+				for(int i : keys){
 					map.put((int)i, (int)(i*2));
 					max=map.size();
 				}
@@ -282,7 +284,7 @@ public final class IntHashMap3 implements IntHashMapInterface {
 	/**
 	 * Creates a new map with specified initial capacity and load factor.
 	 * @param initialSize Initial capacity (rounded DOWN to a power of 2 via highestOneBit) [map/IntHashMap3#003]
-	 * @param loadFactor Load factor (0.25-0.90) - map resizes when size exceeds capacity*loadFactor
+	 * @param loadFactor_ Load factor (0.25-0.90) - map resizes when size exceeds capacity*loadFactor
 	 */
 	public IntHashMap3(int initialSize, double loadFactor_){
 		invalid=randy.nextInt()|MINMASK;
@@ -404,7 +406,7 @@ public final class IntHashMap3 implements IntHashMapInterface {
 			size++;
 			if(size>sizeLimit){resize();}
 		}
-		return values[cell];
+		return value;
 	}
 
 	/**
@@ -420,16 +422,23 @@ public final class IntHashMap3 implements IntHashMapInterface {
 		}
 	}
 
-	/**
-	 * For each key in the source map, sets this map's value to the maximum
-	 * of the current value and the source value.
+	/** Merges the source map by taking the maximum value for each shared key.
+	 * Keys absent here are inserted with their exact source values.
 	 * @param map Source map to compare against
 	 */
 	public void setToMax(IntHashMap3 map){
 		for(int i=0; i<map.keys.length; i++){
 			final int key=map.keys[i];
 			if(key!=map.invalid){
-				put(key, Tools.max(map.values[i], get(key)));
+				final int value=map.values[i];
+				if(key==invalid){put(key, value); continue;}
+				final int cell=findCellOrEmpty(key);
+				if(keys[cell]==invalid){
+					values[cell]=value;
+					keys[cell]=key;
+					size++;
+					if(size>sizeLimit){resize();}
+				}else{values[cell]=Tools.max(value, values[cell]);}
 			}
 		}
 	}
@@ -514,7 +523,7 @@ public final class IntHashMap3 implements IntHashMapInterface {
 	private int findCell(final int key){
 		if(key==invalid){return -1;}
 		final int hash=Tools.hash32plus(key);
-		final int initial=hash & mask;
+		final int initial=hash&mask;
 		return Vector.findKeyScalar(keys, key, initial, invalid);
 	}
 
@@ -526,7 +535,7 @@ public final class IntHashMap3 implements IntHashMapInterface {
 	private int findCellOrEmpty(final int key){
 		assert(key!=invalid) : "Collision - this should have been intercepted.";
 		final int hash=Tools.hash32plus(key);
-		final int initial=hash & mask;
+		final int initial=hash&mask;
 		return Vector.findKeyOrInvalidScalar(keys, key, initial, invalid);
 	}
 
@@ -558,7 +567,7 @@ public final class IntHashMap3 implements IntHashMapInterface {
 		//described can never occur with a capped hash - hash itself is always < array length.)
 		mask=(int)(size3-1);
 		size3=Math.min(size3+extra, Shared.SAFE_ARRAY_LEN);
-		if(size3<=old || size3>Shared.SAFE_ARRAY_LEN) {//note: size3>SAFE_ARRAY_LEN is dead (Math.min just capped it)
+		if(size3<=old || size3>Shared.SAFE_ARRAY_LEN){//note: size3>SAFE_ARRAY_LEN is dead (Math.min just capped it)
 			throw new RuntimeException("Map hit capacity at "+size+":"
 				+"\nkeys.length="+keys.length+"\nsize2="+size2+"\nsize3="+size3);
 		}

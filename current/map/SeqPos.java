@@ -2,127 +2,99 @@ package map;
 
 import shared.Tools;
 
-/**
- * Represents a sequence position with associated count, GC content, and score metadata.
- * Immutable data structure used for sequence analysis and comparison operations.
- * Provides efficient comparison and hashing for sequence positioning applications.
- *
+/** Sequence placement with immutable metadata and a borrowed sequence array.
+ * Equality uses sequence content and position; natural ordering ranks count,
+ * length and score, so equal ranks need not identify the same placement.
+ * Callers must not modify the sequence while its cached hash/GC are in use.
  * @author Brian Bushnell
  * @date 2013
  */
 public class SeqPos implements Cloneable, Comparable<SeqPos>{
 
-//	public SeqPos(byte[] seq_, int pos_) {this(seq_, pos_, 1);}
-	/** Copy constructor that creates a new SeqPos from an existing instance.
-	 * @param sp The SeqPos instance to copy */
-	public SeqPos(SeqPos sp) {this(sp.seq, sp.pos, sp.count, sp.hashcode, sp.gc, sp.score);}
-//	public SeqPos(byte[] seq_, int pos_, int count_) {
-////		synchronized(this) {
-//			seq=seq_;
-//			pos=pos_;
-//			count=count_;
-//			hashcode=Tools.hash(seq, 22);
-//			gc=Tools.calcGC(seq);
-//			assert(count>=0);
-////		}
-//	}
-	/**
-	 * Package-private constructor that creates a SeqPos with all parameters.
-	 *
-	 * @param seq_ The sequence bytes
-	 * @param pos_ The position within the sequence
-	 * @param count_ The occurrence count (must be non-negative)
-	 * @param code_ The precomputed hash code
-	 * @param gc_ The GC content fraction
-	 * @param score_ The quality or alignment score
+	/*--------------------------------------------------------------*/
+	/*----------------        Initialization        ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Copies metadata and borrows the same sequence array. */
+	public SeqPos(SeqPos sp){this(sp.seq, sp.pos, sp.count, sp.hashcode, sp.gc, sp.score);}
+
+	/** Constructs an indexed placement with precomputed sequence metadata.
+	 * @param seq_ Borrowed sequence bytes
+	 * @param pos_ Indexed kmer end position, or a caller-defined placement coordinate
+	 * @param count_ Nonnegative occurrence count
+	 * @param code_ Precomputed sequence hash
+	 * @param gc_ Precomputed GC fraction
+	 * @param score_ Optional score; SeqMap uses -1 for an unscored sequence
 	 */
-	SeqPos(byte[] seq_, int pos_, int count_, int code_, float gc_, float score_) {
-//		synchronized(this) {
-			seq=seq_;
-			pos=pos_;
-			count=count_;
-			hashcode=code_;
-			gc=gc_;
-			score=score_;
-			assert(count>=0);
-//		}
+	SeqPos(byte[] seq_, int pos_, int count_, int code_, float gc_, float score_){
+		seq=seq_;
+		pos=pos_;
+		count=count_;
+		hashcode=code_;
+		gc=gc_;
+		score=score_;
+		assert(count>=0) : "Sequence occurrence counts must be nonnegative for descending count ranking: "+count;
 	}
-	
-//	public void setFrom(SeqPos sp) {
-//		synchronized(sp) {
-//			synchronized(sp.seq) {synchronized(this) {
-//			seq=sp.seq;
-//			pos=sp.pos;
-////			count=sp.count;
-//			hashcode=sp.hashcode;
-//			assert(count>0);
-//			}}
-//		}
-//	}
-	
-	//NOTE: equals/hashCode key on IDENTITY (pos, seq-hash, seq) while compareTo ranks by (count, length,
-	//score) - the INTENTIONAL dedup-key-vs-rank split Brian uses (dedup by identity, then sort by quality),
-	//NOT an equals/compareTo-inconsistency bug. equals(Object) casts without a null/type guard (NPE on null,
-	//CCE on a foreign type) - a deliberate speed choice; safe here since SeqPos is only compared to SeqPos
-	//(homogeneous use as SeqMap values). Latent only.
+
+	/*--------------------------------------------------------------*/
+	/*----------------           Methods            ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Compares a homogeneous, non-null SeqPos key. Foreign/null keys are unsupported. */
 	@Override
-	public boolean equals(Object o) {
-		return equals((SeqPos)o);
-	}
-	
-	/**
-	 * Compares this SeqPos with another for equality.
-	 * Uses position, hash code, and sequence content for comparison.
-	 * @param o The SeqPos to compare against
-	 * @return true if positions, hash codes, and sequences are equal
-	 */
-	public boolean equals(SeqPos o) {
-		if(pos!=o.pos || hashcode!=o.hashcode) {return false;}
+	public boolean equals(Object o){return equals((SeqPos)o);}
+
+	/** Tests position and sequence identity, independently of ranking metadata. */
+	public boolean equals(SeqPos o){
+		if(pos!=o.pos || hashcode!=o.hashcode){return false;}
 		return Tools.equals(seq, o.seq);
 	}
-	
+
+	/** Returns the cached sequence hash; different positions may share a hash. */
 	@Override
-	public int hashCode() {
-		return hashcode;
-	}
-	
+	public int hashCode(){return hashcode;}
+
+	/** Returns a shallow metadata copy sharing the borrowed sequence. */
 	@Override
-	public SeqPos clone() {
-		try {
-			return (SeqPos) super.clone();
-		} catch (CloneNotSupportedException e) {
+	public SeqPos clone(){
+		try{
+			return (SeqPos)super.clone();
+		}catch(CloneNotSupportedException e){
 			throw new RuntimeException(e);
 		}
 	}
-	
+
+	/** Ranks count, length and score descending. Signed zeros tie; NaN sorts before
+	 * numeric scores, following reversed Float ordering. This ranking intentionally
+	 * differs from the sequence/position identity used by equals and hashCode.
+	 */
 	@Override
-	public int compareTo(SeqPos o) {
-		if(count!=o.count) {return o.count-count;}
-		if(seq.length!=o.seq.length) {return o.seq.length-seq.length;}
-		if(score!=o.score) {return o.score>score ? 1 : -1;}
-//		if(gc!=o.gc) {
-//			return Tools.absdif((int)(gc*100),  50)<Tools.absdif((int)(o.gc*100), 50) ? -1 : 1;
-//		}//Neutral gc first
-//		return Tools.compare(seq, o.seq);
+	public int compareTo(SeqPos o){
+		if(count!=o.count){return o.count-count;}
+		if(seq.length!=o.seq.length){return o.seq.length-seq.length;}
+		if(score!=o.score){return Float.compare(o.score, score);}
 		return 0;
 	}
-	
-	/** Returns the sequence byte array */
-	public final byte[] seq() {return seq;}
-	/** Returns the position within the sequence */
-	public final int pos() {return pos;}
-	
-	/** The sequence data as byte array */
+
+	/** Returns the borrowed sequence array. */
+	public final byte[] seq(){return seq;}
+	/** Returns the stored position. */
+	public final int pos(){return pos;}
+
+	/*--------------------------------------------------------------*/
+	/*----------------            Fields            ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Borrowed sequence; its contents must remain stable while indexed. */
 	public final byte[] seq;
-	/** The position within the sequence */
+	/** Kmer end coordinate for SeqMap entries. */
 	public final int pos;
-	/** Precomputed hash code for efficient hashing operations */
+	/** Cached sequence-content hash. */
 	public final int hashcode;
-	/** Occurrence count or frequency of this sequence position */
+	/** Nonnegative occurrence count. */
 	public final int count;
-	/** GC content fraction of the sequence (0.0 to 1.0) */
+	/** GC fraction; may be NaN for sequences with no defined bases. */
 	public final float gc;
-	/** Quality or alignment score associated with this sequence position */
+	/** Optional rank score. */
 	public final float score;
-	
 }

@@ -1,15 +1,23 @@
 package map;
 
-public class RawBitSet extends AbstractBitSet {
+/** Unsynchronized, one-bit elements packed into an int array.
+ * Capacity changes reuse storage when possible and do not clear reused bits.
+ * A replacement allocation starts empty; callers must clear before logical reuse.
+ * @author Brian Bushnell
+ */
+public class RawBitSet extends AbstractBitSet{
 
+	/** Creates storage for the requested number of logical bits. */
 	RawBitSet(long capacity_){
 		setCapacity(capacity_, 0);
 	}
 
+	/** Creates storage with extra backing cells for later use. */
 	RawBitSet(long capacity_, int extra){
 		setCapacity(capacity_, extra);
 	}
 	
+	/** ORs a packed word into an active storage cell. */
 	@Override
 	public void addToCell(final int cell, final int mask){
 		int old=array[cell];
@@ -17,6 +25,7 @@ public class RawBitSet extends AbstractBitSet {
 		array[cell]=update;
 	}
 	
+	/** For one-bit elements, per-element maximum is a packed OR. */
 	@Override
 	public void setToMax(final int cell, final int mask){
 		addToCell(cell, mask);
@@ -92,10 +101,9 @@ public class RawBitSet extends AbstractBitSet {
 		length=(int)((capacity+31)/32); //cells = ceil(capacity/32)
 		if(maxCapacity<capacity){ //only (re)allocate when growing past what we've ever held
 			maxLength=length+extra;
-			//NOTE (latent LOW, NOT patched): length*32 is int arithmetic -> overflows for length>~67M
-			//(capacity>~2.1e9 bits); should be (long)length*32. Unreachable for sketch-sized bitsets, so
-			//documented not fixed. Also maxCapacity intentionally ignores `extra` (conservative reuse bound).
-			maxCapacity=length*32;
+			//Keep capacity arithmetic wide: int multiplication overflow previously forced needless reallocation.
+			//Extra cells remain outside this conservative reuse bound. [map/RawBitSet#002]
+			maxCapacity=(long)length*32;
 			array=new int[maxLength];
 		}
 		//NOTE: a shrink/same-size reuse does NOT clear stale bits - caller must clear() before reuse.
@@ -113,12 +121,18 @@ public class RawBitSet extends AbstractBitSet {
 	@Override
 	public final int bits(){return 1;}
 	
+	/** Returns borrowed backing storage, including spare cells; resizing may replace it. */
 	public int[] array(){return array;}
 	
+	/** Logical bits covered by reusable storage, excluding extra cells. */
 	private long maxCapacity=0;
+	/** Current logical bit capacity. */
 	private long capacity=0;
+	/** Allocated storage cells, including extra cells. */
 	private int maxLength=0;
+	/** Active storage cells for the current logical capacity. */
 	private int length=0;
+	/** Packed words; null until a positive capacity first allocates storage. */
 	private int[] array;
 
 }

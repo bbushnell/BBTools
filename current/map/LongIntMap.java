@@ -17,22 +17,26 @@ import shared.Tools;
  * 
  * Ideal for kmer counting where keys are kmers (long) and values are counts (int).
  * 
- * Significantly more memory-efficient than HashMap<Long, Integer> by:
+ * More memory-efficient than {@code HashMap<Long, Integer>} by:
  * - Storing primitive int values instead of Integer objects
  * - Storing primitive long keys instead of Long objects
  * - Using arrays instead of Entry objects
  * - Avoiding per-entry object overhead
  * - Better cache locality with linear probing
  * 
- * Thread-safety: Not thread-safe. External synchronization required for concurrent access.
+ * Supports every long key and int value; an absent lookup returns -1, so use
+ * contains() when that sentinel can also be a stored value.
+ * Not thread-safe; publish an immutable map for concurrent reads or synchronize
+ * access externally. Backing arrays are borrowed and may change during resizing.
  * 
  * @author Isla
  * @date November 2, 2025
  */
-public final class LongIntMap implements Serializable {
+public final class LongIntMap implements Serializable{
 
-	private static final long serialVersionUID = 1L;
+	private static final long serialVersionUID=1L;
 
+	/** Runs the legacy put/get comparison; positional arguments are key count and repetitions. */
 	public static void main(String[] args){
 		int size=args.length>0 ? Integer.parseInt(args[0]) : 1000000;
 		int repeats=args.length>1 ? Integer.parseInt(args[1]) : 1;
@@ -50,6 +54,7 @@ public final class LongIntMap implements Serializable {
 		bench(keys, repeats);
 	}
 
+	/** Compares repeated construction and lookup with a boxed HashMap. */
 	private static void bench(long[] keys, int repeats){
 		final int size=keys.length;
 		System.gc();
@@ -124,7 +129,7 @@ public final class LongIntMap implements Serializable {
 	/**
 	 * Creates a new map with specified initial capacity and load factor.
 	 * @param initialSize Initial capacity (will be rounded up to next power of 2)
-	 * @param loadFactor Load factor (0.25-0.90) - map resizes when size exceeds capacity*loadFactor
+	 * @param loadFactor_ Requested load factor in (0,1), clamped to [0.25,0.90]
 	 */
 	public LongIntMap(int initialSize, float loadFactor_){
 		invalid=randy.nextLong()|MINMASK;
@@ -156,15 +161,15 @@ public final class LongIntMap implements Serializable {
 	 */
 	public int get(long key){
 		int cell=findCell(key);
-		//miss -> -1 sentinel (legit: present values are >=1, so -1 never aliases a real value)
+		//-1 also can be stored; contains() distinguishes absence when values are unrestricted.
 		return cell<0 ? -1 : values[cell];
 	}
 
 	/**
 	 * Gets the value associated with {@code key}, returning the caller-supplied
-	 * default when the key is absent.  Unlike {@link #get(long)}, this overload
-	 * can safely store every possible int value, including -1.  That is useful
-	 * for bit vectors that may use all 32 bits.
+	 * default when the key is absent. All int values, including -1, may be stored;
+	 * this lets bit-vector callers choose zero as their absent value. A stored value
+	 * can still equal the default; use contains() when presence itself matters.
 	 * @param key Key to look up
 	 * @param defaultValue Value returned when the key is absent
 	 * @return Stored value, or {@code defaultValue} when absent
@@ -189,7 +194,7 @@ public final class LongIntMap implements Serializable {
 	 * @param key Key to insert/update
 	 * @param value Value to associate with key
 	 * @return Previous value associated with key, or 0 if key was not present.
-	 *         0 (not -1) means absent; present values are >=1 (counting invariant).
+	 *         Stored zero is indistinguishable from absence in this return value.
 	 */
 	public int put(long key, int value){
 		return set(key, value);
@@ -213,13 +218,12 @@ public final class LongIntMap implements Serializable {
 	 * @param key Key to insert/update
 	 * @param value Value to associate with key
 	 * @return Previous value associated with key, or 0 if key was not present.
-	 *         0 (not -1) means absent; present values are >=1 (counting invariant).
+	 *         Stored zero is indistinguishable from absence in this return value.
 	 */
 	public int set(long key, int value){
 		if(key==invalid){resetInvalid();}
 		final int cell=findCellOrEmpty(key);
-		//oldV==0 when the cell was empty (values[] is zeroed on clear/remove/resize), so set/put return 0
-		//(NOT -1) for an absent key; 0 is unambiguous since present values are >=1 (counting invariant).
+		//Empty slots contain zero after allocation, removal or clearing; key presence is separate from value.
 		final int oldV=values[cell];
 		values[cell]=value;
 		if(keys[cell]==invalid){
@@ -243,7 +247,8 @@ public final class LongIntMap implements Serializable {
 	/**
 	 * Increments the value associated with the key by the specified amount.
 	 * If key is not present, inserts it with the increment value.
-	 * Values are clamped to Integer.MAX_VALUE on overflow.
+	 * Positive overflow is clamped to Integer.MAX_VALUE. Negative underflow retains
+	 * the historical int narrowing behavior; this is not a lower-saturating counter.
 	 * @param key Key to increment
 	 * @param incr Amount to add (can be negative)
 	 * @return New value after increment
@@ -261,7 +266,7 @@ public final class LongIntMap implements Serializable {
 			size++;
 			if(size>sizeLimit){resize();}
 		}
-		return values[cell];
+		return value;//A resize can move the key away from the original cell.
 	}
 
 	/**
@@ -280,15 +285,22 @@ public final class LongIntMap implements Serializable {
 	/**
 	 * For each key in the source map, sets this map's value to the maximum
 	 * of the current value and the source value.
+	 * Keys absent from this map copy the source value exactly, including negative values.
 	 * @param map Source map to compare against
 	 */
 	public void setToMax(LongIntMap map){
 		for(int i=0; i<map.keys.length; i++){
 			final long key=map.keys[i];
-			//get(key) by KEY (not get(i)/index) -> correct; the lone index-vs-key slip was IntHashMap.setToMax.
-			//absent key -> get returns -1, and source value>=1, so max takes the source value. correct.
 			if(key!=map.invalid){
-				put(key, Tools.max(map.values[i], get(key)));
+				final int value=map.values[i];
+				if(key==invalid){put(key, value);continue;}
+				final int cell=findCellOrEmpty(key);
+				if(keys[cell]==invalid){
+					keys[cell]=key;
+					values[cell]=value;
+					size++;
+					if(size>sizeLimit){resize();}
+				}else{values[cell]=Tools.max(value, values[cell]);}
 			}
 		}
 	}
@@ -383,7 +395,7 @@ public final class LongIntMap implements Serializable {
 		final int limit=keys.length;
 		final long hash=Tools.hash64plus(key);
 		//two-segment wrap-around scan: [initial,limit) then [0,initial); returns -1 at the first invalid cell.
-		final int initial=(int)(hash & mask);
+		final int initial=(int)(hash&mask);
 
 		for(int cell=initial; cell<limit; cell++){
 			final long x=keys[cell];
@@ -408,11 +420,11 @@ public final class LongIntMap implements Serializable {
 
 		final int limit=keys.length;
 		final long hash=Tools.hash64plus(key);
-		//initial=(int)(hash & mask). hash=Tools.hash64plus(key) is CAPPED in [0, 0x7FFFF800) < SAFE_ARRAY_LEN, so
+		//initial=(int)(hash&mask). hash=Tools.hash64plus(key) is CAPPED in [0, 0x7FFFF800) < SAFE_ARRAY_LEN, so
 		//initial is a valid in-range index for ANY mask - even mask=-1 at the 2^32 tier (hash & -1 == hash). See
 		//#002. loadFactor<1 guarantees >=1 empty cell, so the wrap-around probe halts and the RuntimeException is
 		//unreachable under the size invariant.
-		final int initial=(int)(hash & mask);
+		final int initial=(int)(hash&mask);
 
 		for(int cell=initial; cell<limit; cell++){
 			final long x=keys[cell];
@@ -451,7 +463,7 @@ public final class LongIntMap implements Serializable {
 		//With the 2x-growth fix the top operational tier is pow2=2^31, clamped to SAFE_ARRAY_LEN below, so
 		//mask=(int)(2^31-1)=Integer.MAX_VALUE (POSITIVE); the next resize throws before mask could reach -1. SAFE
 		//either way: findCell uses hash=Tools.hash64plus(key), CAPPED in [0, 0x7FFFF800) < SAFE_ARRAY_LEN (see
-		//hash64plus javadoc), so (int)(hash & mask) == hash is ALWAYS a valid in-range index. The HASH guarantees the
+		//hash64plus javadoc), so (int)(hash&mask) == hash is ALWAYS a valid in-range index. The HASH guarantees the
 		//range; the mask never needs capping. NOT a bug; escalation RETRACTED. (My AIOOBE claim assumed the hash could
 		//be negative - it cannot.)
 		mask=(int)(size3-1);
@@ -503,14 +515,14 @@ public final class LongIntMap implements Serializable {
 	/**
 	 * Returns the internal key array.
 	 * WARNING: Contains invalid sentinel for empty cells. Use with caution.
-	 * @return Internal key array
+	 * @return Borrowed internal key array; do not mutate it or retain it across resizing
 	 */
 	public long[] keys(){return keys;}
 
 	/**
 	 * Returns the internal value array.
 	 * WARNING: Contains 0 for empty cells. Use with caution.
-	 * @return Internal value array
+	 * @return Borrowed values parallel to keys(); only occupied key slots are entries
 	 */
 	public int[] values(){return values;}
 

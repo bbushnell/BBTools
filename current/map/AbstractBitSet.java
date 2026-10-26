@@ -5,7 +5,7 @@ package map;
  * Provides factories and shared operations for RawBitSet and MultiBitSet implementations.
  * @author Brian Bushnell
  */
-public abstract class AbstractBitSet {
+public abstract class AbstractBitSet{
 	
 	/**
 	 * Factory that creates a RawBitSet (1-bit) or MultiBitSet (2-bit) based on bitsPerElement.
@@ -32,11 +32,12 @@ public abstract class AbstractBitSet {
 	}
 	
 //	public final void set(int x){increment(x);}
+	/** Increments one logical element, saturating at the implementation's maximum. */
 	public final void increment(int x){increment(x, 1);}
 	/**
 	 * Increments the count at position x by a specified amount.
 	 * @param x Position to increment
-	 * @param incr Amount to add
+	 * @param incr Positive amount to add; one-bit implementations simply set the bit
 	 */
 	public abstract void increment(int x, int incr);
 	
@@ -50,7 +51,8 @@ public abstract class AbstractBitSet {
 	
 	/**
 	 * Adds values from another AbstractBitSet of the same size, dispatching by implementation.
-	 * Clears the input set after addition.
+	 * Clears the distinct input set after addition. Source and destination must not
+	 * be the same object, and callers must provide exclusive access to both sets.
 	 * @param bs BitSet to add from (will be cleared)
 	 * @throws RuntimeException if the class is unsupported
 	 */
@@ -112,14 +114,14 @@ public abstract class AbstractBitSet {
 	 * at the sole caller (Sketch.mergeBitSets nulls indexBitSet right after), so latent; a future caller
 	 * that reuses a RawBitSet after setToMax would be surprised. Fix = a non-clearing OR for the Raw path,
 	 * OR document the contract; design call for Brian (the clear may be intended as a move-merge). */
-	public void setToMax(RawBitSet bs) {
+	public void setToMax(RawBitSet bs){
 		add(bs);
 	}
 	
 	/** Sets each position to the maximum of this set and a MultiBitSet of matching shape.
 	 * Unlike setToMax(RawBitSet), this does NOT clear the input (see #001 asymmetry note above).
 	 * @param bs MultiBitSet to merge (preserved) */
-	public void setToMax(MultiBitSet bs) {
+	public void setToMax(MultiBitSet bs){
 		assert(this.getClass()==bs.getClass()) : this.getClass()+", "+bs.getClass();
 		assert(bits()==bs.bits());
 		assert(capacity()==bs.capacity()) : capacity()+", "+bs.capacity();
@@ -149,7 +151,7 @@ public abstract class AbstractBitSet {
 	/**
 	 * Sets the capacity with optional extra space, reallocating if necessary.
 	 * @param capacity Target capacity in elements
-	 * @param extra Additional elements to allocate
+	 * @param extra Additional storage cells to allocate when replacing the backing array
 	 */
 	public abstract void setCapacity(long capacity, int extra);
 	/** Returns the number of positions with non-zero values.
@@ -158,6 +160,7 @@ public abstract class AbstractBitSet {
 	/** Returns the maximum number of elements this bit set can store.
 	 * @return Element capacity */
 	public abstract long capacity();
+	/** Returns the number of active 32-bit storage cells. */
 	public abstract int length();
 	/** Returns the number of bits used per element (1 or 2).
 	 * @return Bits per element */

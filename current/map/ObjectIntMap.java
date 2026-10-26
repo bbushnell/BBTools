@@ -19,7 +19,7 @@ import structures.ByteBuilder;
  * Caches hash codes to avoid expensive equals() calls during probing.
  * Uses power-of-2 sizing for fast modulo via bitwise AND.
  * 
- * Significantly more memory-efficient than HashMap<K, Integer> by:
+ * More memory-efficient than {@code HashMap<K, Integer>} by:
  * - Storing primitive int values instead of Integer objects
  * - Using arrays instead of Entry objects
  * - Avoiding per-entry object overhead
@@ -31,9 +31,9 @@ import structures.ByteBuilder;
  * 
  * @param <K> Key type - must properly implement hashCode() and equals()
  */
-public final class ObjectIntMap<K> implements Serializable {
+public final class ObjectIntMap<K> implements Serializable{
 
-	private static final long serialVersionUID = 1L;
+	private static final long serialVersionUID=1L;
 
 	public static void main(String[] args){
 		int size=args.length>0 ? Integer.parseInt(args[0]) : 1000000;
@@ -107,7 +107,7 @@ public final class ObjectIntMap<K> implements Serializable {
 	}
 
 	/**
-	 * Benchmarks performance against HashMap<Object, Integer>.
+	 * Benchmarks performance against {@code HashMap<Object, Integer>}.
 	 */
 	private static void bench(ArrayList<? extends Object> list, int repeats){
 		System.gc();
@@ -192,7 +192,7 @@ public final class ObjectIntMap<K> implements Serializable {
 	/**
 	 * Creates a new map with specified initial capacity and load factor.
 	 * @param initialSize Initial capacity (will be rounded up to next power of 2)
-	 * @param loadFactor Load factor (0.25-0.90) - map resizes when size exceeds capacity*loadFactor
+	 * @param loadFactor_ Requested load factor in (0,1), clamped to [0.25,0.90]
 	 * @param type Component class of the keys (see {@link #ObjectIntMap(Class)}).
 	 */
 	public ObjectIntMap(int initialSize, float loadFactor_, Class<K> type){
@@ -362,13 +362,22 @@ public final class ObjectIntMap<K> implements Serializable {
 	/**
 	 * For each key in the source map, sets this map's value to the maximum
 	 * of the current value and the source value.
+	 * Keys absent from this map copy the source value exactly, including negative values.
 	 * @param map Source map to compare against
 	 */
 	public void setToMax(ObjectIntMap<K> map){
 		for(int i=0; i<map.keys.length; i++){
 			final K key=map.keys[i];
 			if(key!=null){
-				put(key, Tools.max(map.values[i], get(key)));
+				final int hash=Tools.hash32plus(key.hashCode());
+				final int cell=findCellOrEmpty(key, hash), value=map.values[i];
+				if(keys[cell]==null){
+					keys[cell]=key;
+					hashes[cell]=hash;
+					values[cell]=value;
+					size++;
+					if(size>sizeLimit){resize();}
+				}else{values[cell]=Tools.max(value, values[cell]);}
 			}
 		}
 	}
@@ -450,7 +459,7 @@ public final class ObjectIntMap<K> implements Serializable {
 
 		final int limit=keys.length;
 		final int hash=Tools.hash32plus(key.hashCode());
-		final int initial=hash & mask;
+		final int initial=hash&mask;
 
 		for(int cell=initial; cell<limit; cell++){
 			final K x=keys[cell];
@@ -476,11 +485,11 @@ public final class ObjectIntMap<K> implements Serializable {
 		assert(key!=null) : "Null keys not supported";
 
 		//CLEVER [verified]: hashes[] caches each key's hash so the probe compares cheap ints first
-		//(hashes[cell]==hash) and only calls equals() on a hash match. initial=hash & mask is in range for ANY mask:
+		//(hashes[cell]==hash) and only calls equals() on a hash match. initial=hash&mask is in range for ANY mask:
 		//hash=Tools.hash32plus(...) is CAPPED in [0, 0x7FFFF800) < SAFE_ARRAY_LEN, so even at the top tier
-		//(mask=Integer.MAX_VALUE after the 2x-growth fix) hash & mask == hash is a valid index (see hash32plus javadoc).
+		//(mask=Integer.MAX_VALUE after the 2x-growth fix) hash&mask == hash is a valid index (see hash32plus javadoc).
 		final int limit=keys.length;
-		final int initial=hash & mask;
+		final int initial=hash&mask;
 
 		for(int cell=initial; cell<limit; cell++){
 			final K x=keys[cell];
@@ -554,17 +563,18 @@ public final class ObjectIntMap<K> implements Serializable {
 		return toBytes().toString();
 	}
 	
-	public ByteBuilder toBytes() {
+	/** Renders occupied entries in backing-array order. */
+	public ByteBuilder toBytes(){
 		ByteBuilder bb=new ByteBuilder();
 		bb.append('{');
-		for(int i=0; i<keys.length; i++) {
+		for(int i=0; i<keys.length; i++){
 			K key=keys[i];
-			if(key!=null) {
-				if(bb.length>1) {bb.comma().space();}
+			if(key!=null){
+				if(bb.length>1){bb.comma().space();}
 				bb.append(key.toString()).equals().append(values[i]);
 			}
 		}
-		return bb;
+		return bb.append('}');
 	}
 
 	/*--------------------------------------------------------------*/

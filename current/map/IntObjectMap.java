@@ -17,7 +17,7 @@ import shared.Tools;
  * Uses open addressing with linear probing for collision resolution.
  * Uses power-of-2 sizing and hash mixing for fast, well-distributed hashing.
  * 
- * More memory-efficient than HashMap<Integer, V> by:
+ * More memory-efficient than {@code HashMap<Integer, V>} by:
  * - Storing primitive int keys instead of Integer objects
  * - Using arrays instead of Entry objects
  * - Avoiding per-entry object overhead
@@ -30,9 +30,9 @@ import shared.Tools;
  * 
  * @param <V> Value type
  */
-public final class IntObjectMap<V> implements Serializable {
+public final class IntObjectMap<V> implements Serializable{
 	
-	private static final long serialVersionUID = 1L;
+	private static final long serialVersionUID=1L;
 	
 	public static void main(String[] args){
 		int size=args.length>0 ? Integer.parseInt(args[0]) : 1000000;
@@ -142,7 +142,7 @@ public final class IntObjectMap<V> implements Serializable {
 	/**
 	 * Creates a new map with specified initial capacity and load factor.
 	 * @param initialSize Initial capacity (will be rounded up to next power of 2)
-	 * @param loadFactor Load factor (0.25-0.90) - map resizes when size exceeds capacity*loadFactor
+	 * @param loadFactor_ Load factor (0.25-0.90) - map resizes when size exceeds capacity*loadFactor
 	 * @param type Component class of the values (see {@link #IntObjectMap(Class)}).
 	 */
 	public IntObjectMap(int initialSize, float loadFactor_, Class<V> type){
@@ -321,7 +321,7 @@ public final class IntObjectMap<V> implements Serializable {
 		
 		final int limit=keys.length;
 		final int hash=Tools.hash32plus(key);
-		final int initial=hash & mask;
+		final int initial=hash&mask;
 		
 		for(int cell=initial; cell<limit; cell++){
 			final int x=keys[cell];
@@ -345,13 +345,13 @@ public final class IntObjectMap<V> implements Serializable {
 		assert(key!=invalid) : "Collision - this should have been intercepted.";
 
 		//CLEVER [verified]: no separate occupancy array - empty cells hold the negative `invalid` sentinel and keys are
-		//compared directly (x==key || x==invalid), one int compare per cell. initial=hash & mask is in range for ANY
+		//compared directly (x==key || x==invalid), one int compare per cell. initial=hash&mask is in range for ANY
 		//mask: hash=Tools.hash32plus(key) is capped in [0, 0x7FFFF800) < SAFE_ARRAY_LEN, so even at the top tier
-		//(mask=Integer.MAX_VALUE after the 2x-growth fix) hash & mask == hash is a valid index. set() guards key==invalid
+		//(mask=Integer.MAX_VALUE after the 2x-growth fix) hash&mask == hash is a valid index. set() guards key==invalid
 		//via resetInvalid() (re-rolls the sentinel + remaps old cells), so a real key can never alias an empty cell.
 		final int limit=keys.length;
 		final int hash=Tools.hash32plus(key);
-		final int initial=hash & mask;
+		final int initial=hash&mask;
 		
 		for(int cell=initial; cell<limit; cell++){
 			final int x=keys[cell];
@@ -446,11 +446,12 @@ public final class IntObjectMap<V> implements Serializable {
 	public int[] keys(){return keys;}
 	
 	/**
-	 * Returns the internal value array (the live backing array; null entries mark empty cells).
+	 * Returns the live internal value array.
+	 * Stored null values are allowed, so inspect parallel keys() entries against invalid() for occupancy.
 	 * This is a GENUINE V[] (e.g. String[], byte[][]) because the backing is allocated via Array.newInstance(type,...)
 	 * from the component class passed to the constructor [map/IntObjectMap#002] — so it can be used directly (assigned
 	 * to V[], iterated, .length) without the ClassCastException a plain Object[] backing would cause at the call site.
-	 * WARNING: live array, contains nulls for empty cells. Use with caution.
+	 * WARNING: live array. Use with caution.
 	 * @return Internal value array (a real V[])
 	 */
 	public V[] values(){return values;}

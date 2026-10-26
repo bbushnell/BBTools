@@ -228,7 +228,7 @@ public abstract class AbstractIntHashMap implements IntHashMapInterface{
 	 */
 	public abstract int increment(int key, int incr);
 
-	public final void incrementAll(AbstractIntHashMap map) {
+	public final void incrementAll(AbstractIntHashMap map){
 		final int[] keys=map.keys();
 		final int[] values=map.values();
 		final int invalid=map.invalid();
@@ -316,12 +316,12 @@ public abstract class AbstractIntHashMap implements IntHashMapInterface{
 		return x;
 	}
 
-	public final IntHashMapBinary toCountHistogram() {
+	public final IntHashMapBinary toCountHistogram(){
 		IntHashMapBinary counts=new IntHashMapBinary(Tools.mid(1, size(), 64));
 		final int[] keys=keys();
 		final int[] values=values();
 		final int invalid=invalid();
-		for(int i=0; i<keys.length; i++) {
+		for(int i=0; i<keys.length; i++){
 			int a=keys[i];
 			int b=values[i];
 			if(a!=invalid){
