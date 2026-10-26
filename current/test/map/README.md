@@ -19,12 +19,16 @@ under `-da`, which supports checking both assertion settings.
 | `IntHashSetListClearTest` | `expect=fixed` | Sparse/dense clearing and the external-removal restriction |
 | `IntListHashMapClearTest` | `expect=fixed` | Collisions, wraparound, removal, sentinel insertion and clear/reuse |
 | `LongArrayListHashMapTest` | None | Boxed-Long values, copied input lists, removal and clearing |
+| `ListMapResizeTest` | `expect=fixed` | Copying insertion, no-copy adoption/replacement, growth-retained aliases, null/empty inputs, collision rehashing and recycled-list ownership in both long-key list maps |
 | `LongLongHashMapHybridTest` | `expect=fixed` | Inline duplicates, side-list appends and clearing retained lists/holes |
 | `BitSetCapacityTest` | `type=raw expect=fixed`, `type=multi expect=fixed`, or `type=atomic expect=fixed` | Same-capacity retention at 2^31 logical elements |
 | `MapEdgeTest` | `case=NAME expect=fixed` in that order | The cases listed below |
 
 `MapEdgeTest` cases are `double-count`, `render`, `bit-overflow`, `nan-order`,
-`double-fetch`, `double-fetch-gc`, and `gc-copy`. Run each case separately.
+`double-fetch`, `double-fetch-gc`, `gc-copy`, `null-equals`, and `terminal-capacity`.
+Run each case separately. The terminal-capacity fixture uses a small real table
+and reflected same-size resize requests to exercise the 95% no-growth policy
+without allocating a table at the physical array ceiling.
 The large bitset-capacity fixtures need more heap than the other finite checks;
 the review used a 2 GiB heap. These are bounded in-memory tests, not file-based
 bioinformatics workloads.
@@ -46,6 +50,13 @@ Record both wall and CPU time, and check correctness before interpreting speed.
 The process includes setup and warmup; the reported internal timed region does not.
 Fresh/growing-map modes intentionally include map allocation; existing-key modes
 reuse their populated maps.
+
+`ListMapResizeBenchmark type=array|long rounds=N keys=N values=N` repeatedly builds
+maps from scalar insertions, exercising resize without copying caller lists at
+insertion time. Defaults are 65,536 keys and eight values per key. Every stored
+value and its order are checked. Stdout reports type, rounds, timed wall/CPU seconds
+and a checksum; stderr reports main-thread allocated bytes for the timed region.
+Allocation volume measures churn, not live heap or minimum required heap size.
 
 `IntHashMapLookupBenchmark pattern=sequential` is the default: its existing keys
 occupy their home cells. `pattern=mixed` generates signed odd existing keys and

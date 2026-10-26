@@ -216,8 +216,8 @@ public class LongArrayListHashMap<X>{
 	/**
 	 * Returns the live value list mapped from key.
 	 * @param key key to search for
-	 * @return Borrowed value list, or null when absent; resize replaces internal lists,
-	 * so a previously borrowed list becomes detached after growth
+	 * @return Borrowed value list, or null when absent. Growth retains its identity;
+	 * removal, clear or putCopyFree replacement may end its association with this key
 	 */
 	public ArrayList<X> get(long key){
 //		assert(verify()); //123
@@ -278,6 +278,32 @@ public class LongArrayListHashMap<X>{
 			return true;
 		}
 		values[cell].addAll(value);
+		return false;
+	}
+
+	/** Adopts a list without copying elements, replacing rather than appending.
+	 * The caller transfers exclusive ownership: do not independently reuse or modify
+	 * the list, or share it with another key/map. Later append, remove and clear may
+	 * mutate or clear it; a small cleared list may be recycled for a different key.
+	 * Replacement detaches the old list without clearing it. Empty lists are permitted
+	 * for compatibility with bulk put, but verify() rejects occupied empty lists.
+	 * @param key Key whose mapping to store or replace
+	 * @param value Non-null list to adopt; its identity is preserved across map growth
+	 * @return True if this key was absent, false if its mapping was replaced
+	 * @throws NullPointerException If value is null, before modifying this map */
+	public final boolean putCopyFree(long key, final ArrayList<X> value){
+		if(value==null){throw new NullPointerException("Cannot adopt a null value list for key "+key);}
+		if(key==invalid){resetInvalid();}
+		final int cell=findCellOrEmpty(key);
+		assert(keys[cell]==invalid || keys[cell]==key) :
+			"findCellOrEmpty must select a matching or empty cell before transferring list ownership: "+key+", "+cell;
+		values[cell]=value;
+		if(keys[cell]==invalid){
+			keys[cell]=key;
+			size++;
+			if(size>sizeLimit){resize();}
+			return true;
+		}
 		return false;
 	}
 
@@ -532,9 +558,7 @@ public class LongArrayListHashMap<X>{
 	}
 
 	//Prime-modulus growth ~2x (primeAtLeast(keys.length*2+1)) -- NOT the pow2 family's 4x bug.
-	//NOTE (efficiency, output-neutral, NOT patched -- speed-first, Brian's call): re-insertion below calls
-	//put(key, oldValues[i]) which allocs a fresh ArrayList(2) and addAll-copies every element; a reference
-	//move would be O(1)/key since the new array is all-null. Same point as LongLongListHashMap.resize.
+	//Move already-owned lists into the new empty table; ordinary public put still copies caller lists.
 	//TODO: Possible bug [map/LongArrayListHashMap#001] (QUESTION for Brian, NOT patched): only resize()
 	//and the ctor body are `synchronized`; put/get/remove/clear/contains are NOT -> this gives NO real
 	//thread-safety (a put() races its own resize()). The class contract now requires external synchronization.
@@ -545,7 +569,7 @@ public class LongArrayListHashMap<X>{
 	}
 
 	/**
-	 * Rehashes all mapped keys into a prime-sized table.
+	 * Rehashes all mapped keys into a prime-sized table, moving owned lists without copying elements.
 	 * @param size2 requested minimum modulus before adding slack cells
 	 */
 	@SuppressWarnings("unchecked")
@@ -575,7 +599,7 @@ public class LongArrayListHashMap<X>{
 		for(int i=0; i<oldKeys.length; i++){
 			long key=oldKeys[i];
 			if(key!=invalid){
-				put(key, oldValues[i]);
+				putCopyFree(key, oldValues[i]);
 			}
 		}
 //		assert(verify()); //123

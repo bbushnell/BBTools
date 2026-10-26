@@ -37,20 +37,36 @@ primitive buffers where appropriate, while respecting their ownership contracts.
 Do not substitute a boxed map or a different primitive variant without checking
 absence, update, iteration and overflow semantics.
 
+## Adopting list values without copying
+
+`LongArrayListHashMap` and `LongLongListHashMap` provide `putCopyFree(key, list)`.
+It stores the exact supplied list and replaces an existing mapping. The return
+value is true for a new key and false for replacement. Ordinary `put(key, list)`
+continues to copy and append values.
+
+The map takes exclusive ownership of an adopted list. Do not independently reuse
+or modify it, or share it across mappings. Removal and clearing can clear the list
+and retain it for reuse under another key. Null is rejected before mutation.
+Empty lists remain insertable for compatibility, but `verify()` rejects them.
+
+Resizing now moves owned list references, preserving list identity across growth.
+The backing arrays returned by `keys()` and `values()` can still be replaced.
+
 ## Bit sets and sequence indexes
 
 `RawBitSet` stores one bit per element; `MultiBitSet` stores saturating two-bit
 counts. `AbstractBitSet.add` merges into the destination and clears the distinct
 source. Its current `setToMax` overloads differ: the RawBitSet source is cleared,
-whereas the MultiBitSet source is preserved. That compatibility question remains
-documented in the source; callers must not assume uniform source ownership.
+whereas the MultiBitSet source is preserved. This documented difference is retained;
+callers must not assume uniform source ownership.
 
 `SeqMap` indexes borrowed sequence arrays. Build and mutate it with exclusive
 access, then publish it for concurrent queries. Query results are candidate
 placements for subsequent validation, not completed alignments. Each thread
 reuses its result list, so retain a copy before another query on that map/thread.
-`SeqPos` and `SeqPosM` also borrow sequence arrays; their legacy equality methods
-expect compatible, non-null sequence-position objects.
+`SeqPos` and `SeqPosM` also borrow sequence arrays. Their equality methods return
+false for null; non-null arguments must be compatible sequence-position objects.
+Wrong-type comparisons remain unsupported and throw `ClassCastException`.
 
 ## Tests and known limits
 
