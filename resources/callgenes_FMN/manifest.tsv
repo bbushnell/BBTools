@@ -1,0 +1,5 @@
+#ncrna_family	1	fmn
+role	model	end	path	format	bytes	sha80
+consensus	.	.	consensus.fa.gz	fasta	4490	b0bb03b5a340f9116cf2
+models	.	.	models.hbmc.gz	hbm	33698	47ba3e3863395a812448
+seeds	.	.	seeds.fa.gz	fasta	1134	851253d157e318d7250e

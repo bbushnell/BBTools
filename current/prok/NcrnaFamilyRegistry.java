@@ -31,6 +31,7 @@ public final class NcrnaFamilyRegistry {
 		if("euk18S".equalsIgnoreCase(id)){return EUK18S;}
 		if("rnasep".equalsIgnoreCase(id)){return RNASEP;}
 		if("tmrna".equalsIgnoreCase(id)){return TMRNA;}
+		if("fmn".equalsIgnoreCase(id)){return FMN;}
 		if("cobalamin".equalsIgnoreCase(id) || "cobalamin_rf00174".equalsIgnoreCase(id)){return COBALAMIN_RF00174;}
 		if("cobalamin_rf01482".equalsIgnoreCase(id)){return COBALAMIN_RF01482;}
 		if("cobalamin_rf01689".equalsIgnoreCase(id)){return COBALAMIN_RF01689;}
@@ -86,7 +87,7 @@ public final class NcrnaFamilyRegistry {
 			assert(legacyRole_!=null) : "Legacy consumers must explicitly select their original reference role";
 			legacyConsensusRole=legacyRole_;
 			resources=resources_;packagedEndpoints=resources_==null ? boundary_==null : resources_.packagedEndpoints;
-			boundary=boundary_;seedMinHits=boundary==null || isCobalamin(id_) ? 2 : 1;scoreA=boundary==null ? 0f : boundary.scoreA;
+			boundary=boundary_;seedMinHits=boundary==null || isCobalamin(id_) || "fmn".equals(id_) ? 2 : 1;scoreA=boundary==null ? 0f : boundary.scoreA;
 		}
 		public final String id, directory, gate;
 		final String privateLegacyConsensus;
@@ -166,6 +167,12 @@ public final class NcrnaFamilyRegistry {
 		new String[0], 180, 370, 7, 60, 12, 3f, .62f, .60f, .62f, true, ProkObject.RNA,
 		true, false, false, 0, 1, 60, -1, false, new String[0], .85f, false, true, 1, null,
 		new BoundaryPolicy("tmrna_consensus.fa", "tmrna_models.hbm", 5f, true, 11f, .48f, .072f, new int[]{-3,-2,-1,0,1,2}), null, "", "consensus");
+	/** Measured FMN policy:84 models, two distinct17-mer seeds and68% identity.
+	 * Endpoint refinement remains a follow-up; model mapping uses7-mers. */
+	private static final Entry FMN=new Entry("fmn", "callgenes_FMN", "fmn=t",
+		new String[0], 100, 376, 7, 84, 1, 1f, .68f, .68f, 1.01f, true, ProkObject.RNA,
+		true, false, false, 0, 1, 60, -1, false, new String[0], .85f, false, true, 2, null,
+		new BoundaryPolicy("fmn_consensus.fa", "fmn_models.hbmc", 0f, false, 0f, 0f, 0f, new int[]{0}), null, "", "consensus");
 	private static final Group COBALAMIN_GROUP=new Group("cobalamin", "callgenes_cobalamin", new String[]{"RF00174", "RF01482", "RF01689"},
 		new String[]{"consensus", "models"}, new String[]{"seeds"}, new String[]{"boundary", "boundary_start", "boundary_stop", "cutoffs"});
 	/** Measured opt-in B12 policies; each member retains its independent length floor. */

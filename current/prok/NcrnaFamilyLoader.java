@@ -98,6 +98,7 @@ public final class NcrnaFamilyLoader {
 			options.boundaryStopOffsets==null ? p.boundaryOffsets(false) : options.boundaryStopOffsets,
 			options.boundaryMarginStart, options.boundaryMarginStop);
 		family.outputType=p.outputType;family.seedMinHits=seedMinHits;family.scavengePass2=p.pass2;
+		if("fmn".equals(p.id)){family.seedDistinct=seedMinHits>1;}//The direct loader also enforces FMN's distinct-key policy.
 		family.rankedModelFallback=p.rankedFallback;family.strictIndexCutoff=p.strictIndexCutoff;family.trimAlignmentExtent=p.boundary!=null;
 		family.reuseConsensusAlignment=p.boundary==null;family.voteSlack=p.voteSlack;
 		family.prok16sPartialMinLen=p.partialMinLen;family.quantumCapMultiplier=p.quantumCap;

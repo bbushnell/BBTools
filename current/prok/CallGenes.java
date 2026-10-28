@@ -154,7 +154,7 @@ public class CallGenes extends ProkObject {
 		Parser parser=new Parser();
 		Integer translationTable=null;
 		String codeFile=null;
-		boolean ncrnaExplicit=false, tmrnaExplicit=false, sixsExplicit=false, eukRequested=false, onlyMode=false;
+		boolean ncrnaExplicit=false, tmrnaExplicit=false, sixsExplicit=false, fmnExplicit=false, eukRequested=false, onlyMode=false;
 		Boolean itsExplicit=null;
 		for(int i=0; i<args.length; i++){
 			String arg=args[i];
@@ -653,6 +653,8 @@ public class CallGenes extends ProkObject {
 				SIXS_ENABLED=Parse.parseBoolean(b);sixsExplicit=true;
 			}else if(parseCobalaminFlag(a, b)){
 				// Opt-in B12 families; missing selected resources fail loudly.
+			}else if(parseFmnFlag(a, b)){
+				if(a.equalsIgnoreCase("fmn")){fmnExplicit=true;}
 			}else if(a.equalsIgnoreCase("r58lsu")){
 				setR58LsuEnabled(Parse.parseBoolean(b));
 			}else if(a.equalsIgnoreCase("s18")){
@@ -858,7 +860,7 @@ public class CallGenes extends ProkObject {
 				resources, new FamilyResourceResolver()));
 		}
 		//Resolve defaults and umbrella dependencies before validating/loading any family.
-		resolveNcrnaDefaults(tmrnaExplicit, sixsExplicit, eukRequested, onlyMode && !ncrnaExplicit);
+		resolveNcrnaDefaults(tmrnaExplicit, sixsExplicit, eukRequested, onlyMode && !ncrnaExplicit, fmnExplicit);
 		callIts=resolveIts(itsExplicit, outIts!=null, euk18sRuntime.enabled, R58LSU_ENABLED);
 		resolveRrnaDefaults();
 		validateNcrnaGateCombo();
@@ -3050,6 +3052,7 @@ public class CallGenes extends ProkObject {
 		}
 		if(SIXS_ENABLED){loadSixsResources();}
 		if(COBALAMIN_ENABLED){loadCobalaminResources();}
+		if(FMN_ENABLED){loadFmnResources();}
 		if(R58LSU_ENABLED){loadR58LsuResources();}
 		if(S18_ENABLED){loadS18DevelopmentResources();}
 	}
@@ -3074,6 +3077,11 @@ public class CallGenes extends ProkObject {
 			options.minLen=COBALAMIN_MIN_LEN;
 			options.seedMinHits=resolveSweepInt(name, NCRNA_SEED_MIN_HITS_OVERRIDE, p.seedMinHits);
 		}
+		if("fmn".equals(name)){
+			options.resources.root=FMN_RESOURCE_ROOT;
+			options.minLen=FMN_MIN_LEN;
+			options.seedMinHits=resolveSweepInt(name, NCRNA_SEED_MIN_HITS_OVERRIDE, p.seedMinHits);
+		}
 		options.boundary=ncrnaBoundaryEnabled(name);
 		options.windowPad=resolveSweepPad(name, pad, p.windowPad);
 		options.scoreA=resolveFamilyScore(name, scoreA, NCRNA_SCORE_A_OVERRIDE, p.scoreA);
@@ -3091,6 +3099,26 @@ public class CallGenes extends ProkObject {
 		// one key. A one-hit override keeps the existing allocation-free counter.
 		if(NcrnaFamilyRegistry.isCobalamin(name)){family.seedDistinct=family.seedMinHits>1;}
 		return family;
+	}
+
+	/** Selected FMN uses the existing generic caller and shared17mer scan. */
+	public static synchronized void loadFmnResources(){
+		if(!FMN_ENABLED){return;}
+		if(!NCRNA_FAMILIES_ENABLED){throw new IllegalArgumentException("fmn=t requires ncrna=t");}
+		for(NcrnaFamily existing:GeneCaller.ncrnaFamilies){
+			if("fmn".equals(existing.name)){throw new IllegalStateException("FMN resources are already loaded");}
+		}
+		final NcrnaFamily family=loadSharedBoundaryFamily("fmn", null, null, null, -1, Float.NaN, Float.NaN);
+		assert(family.kLong==ConservedRnaSeedIndex.K && family.seedDistinct==(family.seedMinHits>1))
+			: "FMN must enter the shared17mer pass and preserve distinct-key support before publication";
+		for(String model:family.modelNames){
+			if(model==null || !model.startsWith("FMN_")){throw new IllegalArgumentException("FMN models require their family-specific prefix: "+model);}
+		}
+		GeneCaller.ncrnaFamilies.add(family);
+		System.err.println("FMN controls: models="+family.library.length+" seedK="+family.kLong+" seedKeys="+family.kmerSet.size()
+			+" seedMinHits="+family.seedMinHits+" seedDistinct="+family.seedDistinct+" indexK="+family.indexK
+			+" topN="+family.indexTopN+" minHits="+family.fixedMinHits+" minLen="+family.minLen
+			+" windowPad="+family.windowPad+" idPass="+family.idPass+" idBorderline="+family.idBorderline+" hbmPass="+family.hbmPass);
 	}
 
 	/** Publishes the complete B12 group atomically; disabled selection performs no I/O. */
@@ -3983,13 +4011,14 @@ public class CallGenes extends ProkObject {
 		if(s.equals("euk5s")){return "euk5S";}
 		if(!s.equals("rnasep") && !s.equals("srp_small") && !s.equals("srp_large") && !s.equals("tmrna")
 				&& !s.equals("sixs_rf00013") && !s.equals("sixs_rf01685") && !s.equals("r58") && !s.equals("lsu")
-				&& !s.equals("s18") && !NcrnaFamilyRegistry.isCobalamin(s)){
-			throw new IllegalArgumentException("ncrnafamily must name rnasep, srp_small, srp_large, tmrna, sixs_rf00013, sixs_rf01685, r58, lsu, s18, cobalamin or one cobalamin_rf member, or euk5S: "+value);
+				&& !s.equals("s18") && !s.equals("fmn") && !NcrnaFamilyRegistry.isCobalamin(s)){
+			throw new IllegalArgumentException("ncrnafamily must name rnasep, srp_small, srp_large, tmrna, sixs_rf00013, sixs_rf01685, r58, lsu, s18, fmn, cobalamin or one cobalamin_rf member, or euk5S: "+value);
 		}
 		return s;
 	}
 
 	public static float defaultNcrnaIdPass(String family){
+		if("fmn".equals(family)){return NcrnaFamilyRegistry.get(family).idPass;}
 		if(NcrnaFamilyRegistry.isCobalamin(family)){return NcrnaFamilyRegistry.get(family).idPass;}
 		if(family.equals("euk5S")){return .68f;}
 		if(family.equals("rnasep")){return 0.65f;}
@@ -4001,6 +4030,7 @@ public class CallGenes extends ProkObject {
 	}
 
 	public static float defaultNcrnaIdBorderline(String family){
+		if("fmn".equals(family)){return NcrnaFamilyRegistry.get(family).idBorderline;}
 		if(NcrnaFamilyRegistry.isCobalamin(family)){return NcrnaFamilyRegistry.get(family).idBorderline;}
 		if(family.equals("euk5S")){return .68f;}
 		if(family.equals("rnasep")){return 0.58f;}
@@ -4092,9 +4122,10 @@ public class CallGenes extends ProkObject {
 			resolveSweepFloat("tmrna",NCRNA_HBM_PASS_OVERRIDE,tm.hbmPass),TMRNA_RESCUE_ID_MARGIN,TMRNA_RESCUE_HBM_MARGIN);
 		final boolean euk5s=ncrnaSweepTarget("euk5S");
 		final boolean cobalamin=NcrnaFamilyRegistry.isCobalamin(NCRNA_FAMILY_FILTER);
+		final boolean fmn="fmn".equals(NCRNA_FAMILY_FILTER);
 		if(NCRNA_SEED_MIN_HITS_OVERRIDE==0){throw new IllegalArgumentException("ncrnaseedminhits must be >=1");}
-		if(NCRNA_SEED_MIN_HITS_OVERRIDE>=0 && !euk5s && !cobalamin){
-			throw new IllegalArgumentException("ncrnaseedminhits requires ncrnafamily=euk5S or a cobalamin group/member");
+		if(NCRNA_SEED_MIN_HITS_OVERRIDE>=0 && !euk5s && !cobalamin && !fmn){
+			throw new IllegalArgumentException("ncrnaseedminhits requires ncrnafamily=euk5S, fmn or a cobalamin group/member");
 		}
 		final boolean eukControls=NCRNA_MAX_LEN_OVERRIDE>=0
 			|| NCRNA_STRICT_INDEX_OVERRIDE!=null || NCRNA_RANKED_FALLBACK_OVERRIDE!=null;
@@ -4147,6 +4178,7 @@ public class CallGenes extends ProkObject {
 		if(NcrnaFamilyRegistry.isCobalamin(NCRNA_FAMILY_FILTER) && !COBALAMIN_ENABLED){
 			throw new IllegalArgumentException("A cobalamin group or subfamily sweep requires cobalamin=t");
 		}
+		if(fmn && !FMN_ENABLED){throw new IllegalArgumentException("An FMN sweep requires fmn=t");}
 		if(NCRNA_FAMILY_FILTER!=null && (NCRNA_FAMILY_FILTER.equals("r58") || NCRNA_FAMILY_FILTER.equals("lsu")) && !R58LSU_ENABLED){
 			throw new IllegalArgumentException("an r58/lsu ncrnafamily requires r58lsu=t");
 		}
@@ -4573,6 +4605,22 @@ public class CallGenes extends ProkObject {
 	public static boolean COBALAMIN_ENABLED=false;
 	public static String COBALAMIN_RESOURCE_ROOT=null;
 	public static int COBALAMIN_MIN_LEN=-1;
+	/** Calibrated FMN calling follows the generic-RNA umbrella; explicit opt-out does no resource I/O. */
+	public static boolean FMN_ENABLED=true;
+	public static String FMN_RESOURCE_ROOT=null;
+	public static int FMN_MIN_LEN=-1;
+	public static boolean parseFmnFlag(final String key, final String value){
+		assert(key!=null) : "CallGenes option dispatch supplies a parsed nonnull key";
+		if(key.equalsIgnoreCase("fmn")){
+			FMN_ENABLED=Parse.parseBoolean(value);
+		}else if(key.equalsIgnoreCase("fmnroot")){
+			if(value==null || value.isEmpty()){throw new IllegalArgumentException("fmnroot requires a family resource directory");}
+			FMN_RESOURCE_ROOT=value;
+		}else if(key.equalsIgnoreCase("fmnminlen")){
+			FMN_MIN_LEN=parseSweepInt(key, value, 1, Integer.MAX_VALUE);
+		}else{return false;}
+		return true;
+	}
 
 	/** Explicit family root is a directory containing the canonical resource manifest. */
 	public static boolean parseCobalaminFlag(final String key, final String value){
@@ -4744,6 +4792,7 @@ public class CallGenes extends ProkObject {
 		assert(!TMRNA_ENABLED || NCRNA_FAMILIES_ENABLED) : "tmrna=t requires ncrna=t (or generalncrna=t)";
 		assert(!SIXS_ENABLED || NCRNA_FAMILIES_ENABLED) : "sixs=t requires ncrna=t (or generalncrna=t)";
 		if(COBALAMIN_ENABLED && !NCRNA_FAMILIES_ENABLED){throw new IllegalArgumentException("cobalamin=t requires ncrna=t");}
+		if(FMN_ENABLED && !NCRNA_FAMILIES_ENABLED){throw new IllegalArgumentException("fmn=t requires ncrna=t");}
 		assert(!R58LSU_ENABLED || NCRNA_FAMILIES_ENABLED) : "r58lsu=t requires ncrna=t (or generalncrna=t)";
 		assert(!S18_ENABLED || NCRNA_FAMILIES_ENABLED) : "s18=t requires ncrna=t (or generalncrna=t)";
 		assert(!R58LSU_ENABLED || !NCRNA_BOUNDARY_NN_ENABLED) : "r58lsu=t currently requires ncrnaboundarynet=f";
@@ -4884,8 +4933,14 @@ public class CallGenes extends ProkObject {
 
 	/** Preserve explicit contradictions for validateNcrnaGateCombo; only omitted child defaults follow the umbrella. */
 	public static void resolveNcrnaDefaults(boolean tmrnaExplicit, boolean sixsExplicit, boolean eukRequested, boolean singleFamily){
+		resolveNcrnaDefaults(tmrnaExplicit, sixsExplicit, eukRequested, singleFamily, false);
+	}
+	/** An omitted FMN default follows explicit umbrella/only selections; explicit
+	 * contradictions remain visible to validateNcrnaGateCombo, as for tmRNA/6S. */
+	public static void resolveNcrnaDefaults(boolean tmrnaExplicit, boolean sixsExplicit, boolean eukRequested, boolean singleFamily, boolean fmnExplicit){
+		if(!fmnExplicit && (singleFamily || !NCRNA_FAMILIES_ENABLED)){FMN_ENABLED=false;}
 		//An enabled paired family explicitly implies its infrastructure; a later euk=f does not.
-		if(singleFamily && !R58LSU_ENABLED && !COBALAMIN_ENABLED){NCRNA_FAMILIES_ENABLED=false;}
+		if(singleFamily && !R58LSU_ENABLED && !COBALAMIN_ENABLED && !FMN_ENABLED){NCRNA_FAMILIES_ENABLED=false;}
 		if(eukRequested && R58LSU_ENABLED){NCRNA_FAMILIES_ENABLED=true;}
 		if(!NCRNA_FAMILIES_ENABLED){
 			if(!tmrnaExplicit){TMRNA_ENABLED=false;}

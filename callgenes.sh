@@ -490,6 +490,12 @@ cobalaminroot=  Explicit group directory containing manifest.tsv, shared seeds,
 cobalaminminlen= Override all three minimum called lengths; positive integer.
                 Default minimum lengths: 109 bases for RF00174 and RF01482,
                 66 bases for RF01689.
+fmn=t           Call FMN riboswitches (RF00050), enabled by default.
+                Requires two distinct17-mer seeds and68% model identity.
+                Explicit fmn=f disables it; ncrna=f and existing *only selections
+                suppress the omitted FMN default. Endpoints are not yet NN-refined.
+fmnroot=        Optional FMN resource directory containing manifest.tsv.
+fmnminlen=      Override the FMN minimum called length (default100).
 sixs=t          Enable paired 6S/SsrS families (RF00013 and RF01685);
                 requires ncrna=t (or generalncrna=t).  Aliases: ssrs=, 6s=.
                 Resources: resources/callgenes_6S/manifest.tsv binds both members.
