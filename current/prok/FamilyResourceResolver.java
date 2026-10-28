@@ -35,7 +35,18 @@ public final class FamilyResourceResolver {
 		final Handle h=resolve(familyId, role, ".", ".", overrides);
 		if(role.equals("tables")){h.resolver=this;h.overrides=overrides;}return h;
 	}
+	/** Only an absent registered optional entry returns null. A declared missing,
+	 * malformed or incomplete payload still fails, including explicit overrides. */
+	public Handle optional(String familyId, String role, Overrides overrides){
+		final NcrnaFamilyRegistry.Entry family=NcrnaFamilyRegistry.get(familyId);
+		require(role.equals("length_bounds") || family.group!=null && family.group.optional(role),
+			"Optional resolution cannot weaken required family resources: "+family.id+"/"+role);
+		return resolve(familyId, role, ".", ".", overrides, false);
+	}
 	private Handle resolve(String familyId, String role, String model, String end, Overrides overrides){
+		return resolve(familyId, role, model, end, overrides, true);
+	}
+	private Handle resolve(String familyId, String role, String model, String end, Overrides overrides, boolean required){
 		final NcrnaFamilyRegistry.Entry family=NcrnaFamilyRegistry.get(familyId);
 		final Overrides o=overrides==null ? new Overrides() : overrides;
 		final String override=o.path(role);
@@ -57,6 +68,9 @@ public final class FamilyResourceResolver {
 		}
 		if(role.equals("table") && o.tables!=null){return checked(family.id, role, new File(o.tables, model+'.'+end+".tsv.gz").toString(), false);}
 		final String manifestPath=o.root==null ? Data.findPath("?"+family.directory+"/manifest.tsv", false) : new File(o.root, "manifest.tsv").toString();
+		// Fully explicit legacy resource overrides may never need a manifest.
+		// An optional new length profile must not add that requirement.
+		if(!required && role.equals("length_bounds") && (manifestPath==null || !new File(manifestPath).isFile())){return null;}
 		require(manifestPath!=null && new File(manifestPath).isFile(), "Missing required "+family.id+" manifest: "+manifestPath+" ("+family.directory+")");
 		final String identity=family.group==null ? "1:"+family.id : "2:"+family.group.id;
 		// Members share their group's cache; different families must still validate the header at an explicit root.
@@ -64,7 +78,8 @@ public final class FamilyResourceResolver {
 			manifest=new FamilyResourceManifest(manifestPath, family);cachedPath=manifestPath;cachedIdentity=identity;
 		}
 		final String member=family.group!=null && family.group.shared(role) ? "." : family.member;
-		final FamilyResourceManifest.Entry entry=manifest.get(member, role, model, end);
+		final FamilyResourceManifest.Entry entry=required ? manifest.get(member, role, model, end) : manifest.optional(member, role, model, end);
+		if(entry==null){return null;}
 		File directory=new File(manifestPath).getParentFile();
 		if(!entry.member.isEmpty() && !entry.member.equals(".")){directory=new File(directory, entry.member);}
 		final Handle handle=checked(family.id, role, new File(directory, entry.path).toString(), false);

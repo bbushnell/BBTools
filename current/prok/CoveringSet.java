@@ -23,6 +23,7 @@ import java.util.concurrent.Future;
 import dna.AminoAcid;
 import fileIO.FileFormat;
 import fileIO.ByteFile;
+import fileIO.ByteStreamWriter;
 import parse.LineParser1;
 import fileIO.ReadWrite;
 import map.LongHashSet;
@@ -42,6 +43,7 @@ import stream.StreamerFactory;
 import stream.Writer;
 import stream.WriterFactory;
 import structures.LongList;
+import structures.ByteBuilder;
 import structures.ListNum;
 
 /**
@@ -57,7 +59,7 @@ import structures.ListNum;
  * kmers shared between rare and common tRNAs rather than random sequence that
  * happens to be common among the rare stragglers.
  *
-	 * @author Neptune, Brian, Ganyu
+	 * @author Neptune, Brian, Ganyu, Raiden
  */
 public class CoveringSet {
 
@@ -335,6 +337,14 @@ public class CoveringSet {
 				k=Integer.parseInt(b);
 			}else if(a.equals("kdesign")){
 				kDesign=Integer.parseInt(b);
+			}else if(a.equals("seedset")){
+				seedSetPath=b;
+			}else if(a.equals("coveragek")){
+				coverageK=Integer.parseInt(b);
+			}else if(a.equals("targetremaining")){
+				targetRemaining=Parse.parseBoolean(b);
+			}else if(a.equals("outdesign")){
+				outDesign=b;
 			}else if(a.equals("step")){
 				step=(int)Parse.parseKMG(b);
 			}else if(a.equals("steps") || a.equals("stepschedule")){
@@ -352,8 +362,16 @@ public class CoveringSet {
 				maxKmers=(int)Parse.parseKMG(b);
 			}else if(a.equals("mincov") || a.equals("mincoverage") || a.equals("target")){
 				minCovFraction=Float.parseFloat(b);
+				targetDouble=Double.parseDouble(b);
 			}else if(a.equals("extra") || a.equals("extra1")){
 				extra=b;
+			}else if(a.equals("avoid")){
+				if(b==null || b.isEmpty()){throw new IllegalArgumentException("avoid requires one or more FASTA paths");}
+				avoidFiles=b.split(",", -1);
+				final map.ObjectSet<String> seen=new map.ObjectSet<String>(String.class);
+				for(String path:avoidFiles){if(path.isEmpty() || !seen.add(path)){throw new IllegalArgumentException("Empty or duplicate avoid FASTA path: "+path);}}
+			}else if(a.equals("avoidcount")){
+				avoidCount=Parse.parseIntKMG(b);avoidCountSet=true;
 			}else if(a.equals("copies")){
 				copies=Integer.parseInt(b);
 			}else if(a.equals("consensus")){
@@ -426,6 +444,9 @@ public class CoveringSet {
 			if(rcomp){throw new IllegalArgumentException("rcomp is valid only for alphabet=nt");}
 		}
 		if(families!=null && !proteinMode){throw new IllegalArgumentException("families= requires an amino alphabet");}
+		if(avoidCount<1){throw new IllegalArgumentException("avoidcount must be positive: "+avoidCount);}
+		if(avoidCountSet && avoidFiles==null){throw new IllegalArgumentException("avoidcount requires avoid= FASTA inputs");}
+		if(avoidFiles!=null && proteinMode){throw new IllegalArgumentException("avoid currently supports nucleotide covering sets only");}
 		if(consensusFile!=null && (families==null || copies<1)){
 			throw new IllegalArgumentException("consensus= requires families= and positive copies=");
 		}
@@ -437,8 +458,18 @@ public class CoveringSet {
 		}
 
 		if(kDesign<0){kDesign=k;}
+		if(coverageK<0){coverageK=kDesign;}
 		if(k<1 || k>31){throw new IllegalArgumentException("k must be 1..31: "+k);}
 		if(kDesign<k || kDesign>31){throw new IllegalArgumentException("kdesign must be in [k,31]: "+kDesign);}
+		if(coverageK<k || coverageK>kDesign){throw new IllegalArgumentException("coveragek must be in [k,kdesign]");}
+		if((seedSetPath!=null || targetRemaining || outDesign!=null || coverageK!=kDesign) && proteinMode){
+			throw new IllegalArgumentException("seedset, targetremaining, outdesign and coveragek require nucleotide mode");
+		}
+		if(targetRemaining && seedSetPath==null){throw new IllegalArgumentException("targetremaining requires seedset to define the fixed initial remainder");}
+		if(!Double.isFinite(targetDouble) || targetDouble<0 || targetDouble>1){throw new IllegalArgumentException("target must be in [0,1]");}
+		if((outDesign!=null && outDesign.equals(out)) || (summary!=null && (summary.equals(out) || summary.equals(outDesign)))){
+			throw new IllegalArgumentException("out, outdesign and summary must be separate files");
+		}
 		if(proteinMode && (long)kDesign*reducedAlphabet.bits()>62){
 			throw new IllegalArgumentException("Packed k-mer exceeds 62 bits: k="+kDesign+
 				" bits="+reducedAlphabet.bits()+" alphabet="+reducedAlphabet.symbols());
@@ -466,7 +497,7 @@ public class CoveringSet {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	void process(Timer t){
+	public void process(Timer t){
 		if(consensusCopiesFile!=null){consensusCopies=readConsensusCopies(consensusCopiesFile);}
 		if(consensusFile!=null){
 			consensusByFamily=new HashMap<String, byte[]>();
@@ -484,8 +515,11 @@ public class CoveringSet {
 	/** Original nucleotide implementation.  This branch is intentionally kept
 	 * separate so alphabet extensions cannot perturb the accepted nt bytes. */
 	private void processNucleotide(Timer t){
-		ArrayList<byte[]> pool=loadPool();
-		final int totalSeqs=pool.size();
+		try{processNucleotideInner(t);}
+		finally{if(execPool!=null){execPool.shutdown();}}
+	}
+
+	private void processNucleotideInner(Timer t){
 		//numPartitions unset (<=0) means "scale with available threads" -- resolved
 		//here rather than in field init since Shared.threads() reflects t= parsing
 		//that happens after this object is constructed. Default is ~2x the thread
@@ -495,6 +529,11 @@ public class CoveringSet {
 		//patterns of 2-bit-packed kmers -- an even modulus can route every kmer
 		//ending in the same base to the same parity of partitions (Brian, 2026-08-28).
 		if(numPartitions<=0){numPartitions=Tools.max(15, 2*Shared.threads())|1;}
+		// Count and release each avoidance corpus before retaining the construction pool.
+		avoidedKmers=loadAvoidedKmers();
+		ArrayList<byte[]> pool=loadPool();
+		final int totalSeqs=pool.size();
+		if(totalSeqs==0){throw new IllegalArgumentException("Nucleotide pool contains no sequences");}
 		outstream.println("Pool: "+totalSeqs+" sequences, k="+k+
 				(kDesign!=k ? " (design k="+kDesign+")" : "")+
 				(stepSchedule==null ? ", step="+step : ", steps="+Arrays.toString(stepSchedule))+
@@ -508,26 +547,35 @@ public class CoveringSet {
 		final long designMask=~((-1L)<<(2*kDesign));
 		//totalBases is a safe (if loose) upper bound on distinct kDesign-mers -- used
 		//only to pre-size the partition shards, never a correctness constraint.
-		final PartitionedCounter originalCounts=countKmersMT(pool, null, kDesign, designMask, totalBases);
-		outstream.println("Distinct "+kDesign+"-mers in pool: "+originalCounts.size());
-
 		LongList selectedKmers=new LongList();
 		LongHashSet selectedSet=new LongHashSet(maxKmers>0 ? maxKmers : 16384);
+		final LongHashSet coverageSet=(coverageK==kDesign ? selectedSet : new LongHashSet(16384));
+		final long coverageMask=~((-1L)<<(2*coverageK));
+		if(seedSetPath!=null){loadInitialSelection(selectedKmers,selectedSet,coverageSet);}
+		final int initialKeys=selectedKmers.size;
+		if(maxKmers>0 && initialKeys>maxKmers){throw new IllegalArgumentException("Fixed initial selection exceeds maxkmers; it may not be discarded");}
+		final PartitionedCounter originalCounts=countKmersMT(pool, null, kDesign, designMask, totalBases);
+		outstream.println("Distinct "+kDesign+"-mers in pool: "+originalCounts.size());
 		boolean[] alive=new boolean[pool.size()];
 		Arrays.fill(alive, true);
 		int aliveCount=totalSeqs;
+		if(initialKeys>0){aliveCount-=evictCoveredMT(pool,alive,coverageSet,coverageK,coverageMask);}
+		final int initialRemaining=aliveCount;
+		final int coverageDenominator=(targetRemaining ? initialRemaining : totalSeqs);
+		if(seedSetPath!=null){outstream.println("Initial selection: "+initialKeys+" design keys, coveragek="+coverageK+
+			", uncovered="+initialRemaining+" of "+totalSeqs+", targetremaining="+targetRemaining);}
 		int round=0;
 		int currentStep=step;
 		long exemptions=0, singletonExemptions=0;
 
 		while(aliveCount>0){
 			if(maxKmers>0 && selectedKmers.size>=maxKmers){break;}
-			float covFrac=1f-(aliveCount/(float)totalSeqs);
-			if(covFrac>=minCovFraction){break;}
+			float covFrac=1f-(aliveCount/(float)coverageDenominator);
+			if(targetRemaining ? remainderTargetMet(aliveCount,initialRemaining,targetDouble) : covFrac>=minCovFraction){break;}
 
 			//Retain the historical near-target reduction when adaptive sizing is off.
 			if(stepSchedule==null && stepFraction<=0){
-				final float gap=aliveCount/(float)totalSeqs;
+				final float gap=aliveCount/(float)coverageDenominator;
 				final float targetGap=1f-minCovFraction;
 				if(gap<=2*targetGap && currentStep>Math.max(1, step/2)){
 					currentStep=Math.max(1, step/2);
@@ -547,7 +595,7 @@ public class CoveringSet {
 			final int candidateLimit=(int)Tools.min(Integer.MAX_VALUE, 2L*roundStep);
 			//Exclude previously selected keys before bounded top-N truncation. If they
 			//occupy the heap, minhits>1 can see added==0 and stop before a second key.
-			long[] candidates=topNByCount(currentCounts, candidateLimit, selectedSet, originalCounts);
+			long[] candidates=topNByCount(currentCounts, candidateLimit, selectedSet, originalCounts, true);
 			if(candidates.length==0){
 				int best=0;
 				for(LongIntMap shard : currentCounts.shards){best=Tools.max(best, maxUnselectedCount(shard, selectedSet));}
@@ -559,8 +607,10 @@ public class CoveringSet {
 			int added=0;
 			for(long kmer : ranked){
 				if(selectedSet.contains(kmer)){continue;}
+				assert(!avoidedDesignWord(kmer)) : "topKFromShard must exclude every banned output word before bounded selection";
 				selectedSet.add(kmer);
 				selectedKmers.add(kmer);
+				if(coverageSet!=selectedSet){addProjected(kmer,kDesign,coverageK,rcomp,coverageSet);}
 				if(minInitial>0 && currentCounts.get(kmer)<minCount){
 					final int count=currentCounts.get(kmer), initial=originalCounts.get(kmer);
 					assert(initial>=minInitial) : "topKFromShard only admits a below-mincount key through Brian's initial-count exemption";
@@ -572,7 +622,7 @@ public class CoveringSet {
 			}
 			if(added==0){break;}
 
-			int evicted=evictCoveredMT(pool, alive, selectedSet, kDesign, designMask);
+			int evicted=evictCoveredMT(pool, alive, coverageSet, coverageK, coverageMask);
 			aliveCount-=evicted;
 			round++;
 
@@ -609,6 +659,11 @@ public class CoveringSet {
 			output=designToUseKmers(selectedKmers, kDesign, k);
 		}
 		outstream.println("Output: "+output.size()+" "+k+"-mer sequences");
+		if(outDesign!=null){
+			final FileFormat ff=FileFormat.testOutput(outDesign,FileFormat.FASTA,null,true,overwrite,false,false);
+			final Writer writer=WriterFactory.makeWriter(ff);writer.start();writer.add(kmersToReads(selectedKmers,kDesign),0);errorState|=writer.poisonAndWait();
+		}
+		if(summary!=null){writeNucleotideSummary(initialKeys,selectedKmers.size,output.size(),totalSeqs,initialRemaining,aliveCount,round);}
 
 		if(ffout!=null){
 			//Writer, not ConcurrentReadOutputStream -- CRIS/CROS are being phased
@@ -620,13 +675,82 @@ public class CoveringSet {
 			errorState|=writer.poisonAndWait();
 		}
 
-		if(execPool!=null){execPool.shutdown();}
-
 		t.stop();
 		outstream.println("Time:   "+t);
 		if(errorState){
 			throw new RuntimeException(getClass().getName()+" terminated in an error state.");
 		}
+	}
+
+	/** Restored from preserved f7f1f4e3 (2026-09-28); keep every initial key and its order.
+	 * A fixed key conflicting with avoidance is an input error, never silently dropped. */
+	private void loadInitialSelection(LongList ordered,LongHashSet selected,LongHashSet coverage){
+		assert(ordered.size==0 && selected.isEmpty() && coverage.isEmpty()) : "Preload must precede all greedy selection and eviction";
+		final ArrayList<byte[]> sequences=new ArrayList<byte[]>();loadFasta(seedSetPath,sequences);
+		final long mask=~((-1L)<<(2*kDesign));
+		for(byte[] bases:sequences){long word=0;int length=0;
+			for(byte b:bases){final int x=AminoAcid.baseToNumber[b&255];
+				if(x<0){word=0;length=0;continue;}word=((word<<2)|x)&mask;
+				if(++length>=kDesign){final long key=rcomp?Tools.max(word,AminoAcid.reverseComplementBinaryFast(word,kDesign)):word;
+					if(avoidedDesignWord(key)){throw new IllegalArgumentException("Fixed seedset key conflicts with avoid list: "+key);}
+					if(selected.add(key)){ordered.add(key);if(coverage!=selected){addProjected(key,kDesign,coverageK,rcomp,coverage);}}
+				}
+			}
+		}
+		if(ordered.size==0){throw new IllegalArgumentException("seedset contains no valid kdesign-mers");}
+	}
+	public static void addProjected(long word,int design,int use,boolean canonical,LongHashSet target){
+		assert(use>0 && use<=design && design<=31 && target!=null) : "Coverage projection must retain only valid constituent keys";
+		final long mask=~((-1L)<<(2*use));
+		for(int offset=0;offset<=design-use;offset++){
+			final long key=(word>>>(2*offset))&mask;
+			target.add(canonical?Tools.max(key,AminoAcid.reverseComplementBinaryFast(key,use)):key);
+		}
+	}
+	public static boolean remainderTargetMet(int remaining,int initial,double fraction){
+		assert(remaining>=0 && remaining<=initial && fraction>=0 && fraction<=1) : "Remaining coverage uses a fixed initial population, never a shrinking denominator";
+		return remaining<=Math.floor(initial*(1d-fraction)+1e-9);
+	}
+	private void writeNucleotideSummary(int initialKeys,int keys,int outputKeys,int members,int initialRemaining,int remaining,int rounds){
+		assert(initialRemaining>=remaining && initialKeys<=keys) : "Augmentation can only add keys and cover previously uncovered members";
+		final ByteStreamWriter writer=new ByteStreamWriter(summary,overwrite,false,false);writer.start();
+		writer.println("members\tinitialDesignKeys\tdesignKeys\taddedDesignKeys\toutputKeys\tcoverageK\tminHits\tinitialUncovered\tuncovered\ttargetRemaining\trounds");
+		writer.print(new ByteBuilder().append(members).tab().append(initialKeys).tab().append(keys).tab().append(keys-initialKeys).tab().append(outputKeys).tab()
+			.append(coverageK).tab().append(minHits).tab().append(initialRemaining).tab().append(remaining).tab().append(targetRemaining).tab().append(rounds).nl());
+		errorState|=writer.poisonAndWait();
+	}
+
+	/** Count each avoid FASTA independently at output k, then union its exact top-N words.
+	 * Occurrences and rcomp match fillRange; construction mincount/mininitial do not filter this rank.
+	 * These keys never enter selectedSet, so they cannot falsely evict construction members. */
+	private LongHashSet loadAvoidedKmers(){
+		if(avoidFiles==null){return null;}
+		assert(!proteinMode && k>0 && k<=31 && numPartitions>0 && avoidCount>0)
+			: "Avoidance must use the validated nucleotide output k and initialized counter partitions";
+		final LongHashSet banned=new LongHashSet();
+		final long mask=~((-1L)<<(2*k));
+		for(String path:avoidFiles){
+			final ArrayList<byte[]> sequences=new ArrayList<byte[]>();loadFasta(path,sequences);
+			long bases=0;for(byte[] seq:sequences){bases+=seq.length;}
+			final PartitionedCounter counts=countKmersMT(sequences,null,k,mask,bases);
+			final long[] top=topNByCount(counts,avoidCount,null,null,false);
+			for(long word:top){banned.add(word);}
+			outstream.println("Avoid FASTA: "+path+", k="+k+", distinct="+counts.size()+", top="+top.length+", union="+banned.size()+", counts=occurrences, ties=ascending_encoded_key");
+		}
+		return banned;
+	}
+
+	/** A design word is eligible only when every output-k projection is permitted. */
+	private boolean avoidedDesignWord(long word){
+		if(avoidedKmers==null || avoidedKmers.isEmpty()){return false;}
+		assert(kDesign>=k && k>0 && kDesign<=31) : "designToUseKmers projects exactly kDesign-k+1 output words";
+		final long mask=~((-1L)<<(2*k));
+		for(int offset=0;offset<=kDesign-k;offset++){
+			final long projected=(word>>>(2*offset))&mask;
+			final long key=rcomp ? Tools.max(projected,AminoAcid.reverseComplementBinaryFast(projected,k)) : projected;
+			if(avoidedKmers.contains(key)){return true;}
+		}
+		return false;
 	}
 
 	/** Single-pool arbitrary-alphabet mode.  The historical nt mode above remains
@@ -1409,21 +1533,21 @@ public class CoveringSet {
 	 * a bounded primitive heap, then the small shard results are merged. Numeric
 	 * kmer order breaks count ties reproducibly, independent of shard count. */
 	private long[] topNByCount(final PartitionedCounter counter, final int n, final LongHashSet excluded,
-			final PartitionedCounter original){
+			final PartitionedCounter original, final boolean selectionFilters){
 		if(n<=0 || counter.isEmpty()){return new long[0];}
 		final int limit=(int)Tools.min(n, counter.size());
 		final int ways=counter.shards.length;
 		final int threads=Tools.max(1, Shared.threads());
 		final TopKHeap merged=new TopKHeap(limit);
 		if(threads<=1 || ways<=1){
-			for(int way=0; way<ways; way++){merged.add(topKFromShard(counter.shards[way], limit, excluded, original));}
+			for(int way=0; way<ways; way++){merged.add(topKFromShard(counter.shards[way], limit, excluded, original, selectionFilters));}
 		}else{
 			final ArrayList<Future<TopKHeap>> futures=new ArrayList<>(ways);
 			for(int way=0; way<ways; way++){
 				final int w=way;
 				futures.add(pool().submit(new Callable<TopKHeap>(){
 					@Override
-					public TopKHeap call(){return topKFromShard(counter.shards[w], limit, excluded, original);}
+					public TopKHeap call(){return topKFromShard(counter.shards[w], limit, excluded, original, selectionFilters);}
 				}));
 			}
 			for(Future<TopKHeap> f : futures){
@@ -1434,16 +1558,18 @@ public class CoveringSet {
 	}
 
 	/** Scans one immutable shard into a bounded top-K heap. */
-	private TopKHeap topKFromShard(LongIntMap map, int limit, LongHashSet excluded, PartitionedCounter original){
-		assert(original!=null) : "The original map retained by processNucleotide supplies the mininitial exemption without recounting or changing units";
+	private TopKHeap topKFromShard(LongIntMap map, int limit, LongHashSet excluded, PartitionedCounter original, boolean selectionFilters){
+		assert(!selectionFilters || original!=null) : "Construction selection needs original counts for mininitial; independent avoidance ranks use raw counts";
 		final TopKHeap heap=new TopKHeap(Tools.min(limit, map.size()));
 		final long[] keys=map.keys();
 		final int[] counts=map.values();
 		final long invalid=map.invalid();
 		for(int cell=0; cell<keys.length; cell++){
 			final long key=keys[cell];
-			if(key!=invalid && (excluded==null || !excluded.contains(key))
-					&& (counts[cell]>=minCount || (minInitial>0 && original.get(key)>=minInitial))){heap.add(key, counts[cell], key);}
+			if(key==invalid){continue;}
+			if(counts[cell]<=0){throw new IllegalStateException("Nonpositive occurrence count; counter overflow would corrupt the top-k ranking: "+counts[cell]);}
+			if((excluded==null || !excluded.contains(key)) && (!selectionFilters || (!avoidedDesignWord(key)
+					&& (counts[cell]>=minCount || (minInitial>0 && original.get(key)>=minInitial))))){heap.add(key, counts[cell], key);}
 		}
 		return heap;
 	}
@@ -1462,7 +1588,8 @@ public class CoveringSet {
 	private void reportCountStop(String family, int rounds, int remaining, int best){
 		assert(rounds>=0 && remaining>0 && best>=0) : "Count-floor stop occurs before a greedy round with uncovered members still present";
 		outstream.println("Stopped before round "+(rounds+1)+" for "+family+": no eligible unselected kmer; mincount="
-			+minCount+", mininitial="+minInitial+", best remaining count="+best+", uncovered="+remaining);
+			+minCount+", mininitial="+minInitial+", best remaining count="+best+", uncovered="+remaining
+			+(avoidedKmers==null ? "" : ", avoided output-kmers="+avoidedKmers.size()));
 	}
 
 	/** From the candidate list, re-rank by original prevalence, keep top step. */
@@ -1711,6 +1838,10 @@ public class CoveringSet {
 	private String in;
 	private String out;
 	private String extra;
+	private String[] avoidFiles;
+	private int avoidCount=200;
+	private boolean avoidCountSet=false;
+	private LongHashSet avoidedKmers;
 	private String consensusFile;
 	private String consensusCopiesFile;
 	private HashMap<String, Integer> consensusCopies;
@@ -1718,6 +1849,10 @@ public class CoveringSet {
 	private String families;
 	private String exclude;
 	private String summary;
+	private String seedSetPath,outDesign;
+	private int coverageK=-1;
+	private boolean targetRemaining=false;
+	private double targetDouble=0.999;
 	private String alphabetSpec;
 	private String keySpec;
 	private String bbtoolsCommit="unknown";

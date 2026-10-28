@@ -31,6 +31,9 @@ public final class NcrnaFamilyRegistry {
 		if("euk18S".equalsIgnoreCase(id)){return EUK18S;}
 		if("rnasep".equalsIgnoreCase(id)){return RNASEP;}
 		if("tmrna".equalsIgnoreCase(id)){return TMRNA;}
+		if("cobalamin".equalsIgnoreCase(id) || "cobalamin_rf00174".equalsIgnoreCase(id)){return COBALAMIN_RF00174;}
+		if("cobalamin_rf01482".equalsIgnoreCase(id)){return COBALAMIN_RF01482;}
+		if("cobalamin_rf01689".equalsIgnoreCase(id)){return COBALAMIN_RF01689;}
 		if("r58".equalsIgnoreCase(id) || "5.8S".equalsIgnoreCase(id)){return R58;}
 		if("lsu".equalsIgnoreCase(id) || "eukLSU".equalsIgnoreCase(id)){return EUKLSU;}
 		if("sixs_rf00013".equalsIgnoreCase(id)){return SIXS_RF00013;}
@@ -38,6 +41,11 @@ public final class NcrnaFamilyRegistry {
 		if("srp_small".equalsIgnoreCase(id)){return SRP_SMALL;}
 		if("srp_large".equalsIgnoreCase(id)){return SRP_LARGE;}
 		throw new IllegalArgumentException("No unified ncRNA resource registration for family: "+id);
+	}
+	/** The group selector controls all three independently attributed caller slots. */
+	public static boolean isCobalamin(String id){
+		return "cobalamin".equalsIgnoreCase(id) || "cobalamin_rf00174".equalsIgnoreCase(id)
+			|| "cobalamin_rf01482".equalsIgnoreCase(id) || "cobalamin_rf01689".equalsIgnoreCase(id);
 	}
 
 	public static final class Entry {
@@ -78,7 +86,7 @@ public final class NcrnaFamilyRegistry {
 			assert(legacyRole_!=null) : "Legacy consumers must explicitly select their original reference role";
 			legacyConsensusRole=legacyRole_;
 			resources=resources_;packagedEndpoints=resources_==null ? boundary_==null : resources_.packagedEndpoints;
-			boundary=boundary_;seedMinHits=boundary==null ? 2 : 1;scoreA=boundary==null ? 0f : boundary.scoreA;
+			boundary=boundary_;seedMinHits=boundary==null || isCobalamin(id_) ? 2 : 1;scoreA=boundary==null ? 0f : boundary.scoreA;
 		}
 		public final String id, directory, gate;
 		final String privateLegacyConsensus;
@@ -158,6 +166,21 @@ public final class NcrnaFamilyRegistry {
 		new String[0], 180, 370, 7, 60, 12, 3f, .62f, .60f, .62f, true, ProkObject.RNA,
 		true, false, false, 0, 1, 60, -1, false, new String[0], .85f, false, true, 1, null,
 		new BoundaryPolicy("tmrna_consensus.fa", "tmrna_models.hbm", 5f, true, 11f, .48f, .072f, new int[]{-3,-2,-1,0,1,2}), null, "", "consensus");
+	private static final Group COBALAMIN_GROUP=new Group("cobalamin", "callgenes_cobalamin", new String[]{"RF00174", "RF01482", "RF01689"},
+		new String[]{"consensus", "models"}, new String[]{"seeds"}, new String[]{"boundary", "boundary_start", "boundary_stop", "cutoffs"});
+	/** Measured opt-in B12 policies; each member retains its independent length floor. */
+	private static final Entry COBALAMIN_RF00174=cobalamin("RF00174", 109);
+	private static final Entry COBALAMIN_RF01482=cobalamin("RF01482", 109);
+	private static final Entry COBALAMIN_RF01689=cobalamin("RF01689", 66);
+	private static Entry cobalamin(String member, int minLen){
+		assert(COBALAMIN_GROUP.hasMember(member) && minLen>=17) : "Each B12 caller must bind a declared member and a seed-length-compatible floor";
+		final float identity="RF00174".equals(member) ? .64f : .66f;
+		return new Entry("cobalamin_"+member.toLowerCase(java.util.Locale.ROOT), "callgenes_cobalamin", "ncrna=t cobalamin=t",
+		new String[0], minLen, 450, 9, 100, 1, 1f, identity, identity, 1.01f, true, ProkObject.RNA,
+		true, false, false, 0, 1, 60, -1, false, new String[0], .85f, false, true, 1, null,
+		new BoundaryPolicy("cobalamin_"+member+"_consensus.fa", "cobalamin_"+member+"_models.hbmc", 0f, false, 0f, 0f, 0f, new int[]{0}),
+		COBALAMIN_GROUP, member, "consensus");
+	}
 	private static final Entry R58=new Entry("r58", "callgenes_5.8S", "ncrna=t r58lsu=t",
 		new String[0], 140, 135, 7, 1, 2, 1f, .60f, .60f, .60f, true, ProkObject.RNA,
 		true, false, false, 0, 1, 60, -1, false, new String[0], .85f, false, true, 1, null,
@@ -227,9 +250,10 @@ public final class NcrnaFamilyRegistry {
 			for(String value:members){if(value.equals(member)){return true;}}return false;
 		}
 		boolean shared(String role){return contains(sharedRoles, role);}
+		boolean optional(String role){return role.equals("length_bounds") || contains(optionalRoles, role);}
 		boolean permits(String member, String role){
 			assert(role!=null) : "Grouped roles are constrained by the package's declared contract";
-			return member.equals(".") ? shared(role) : hasMember(member) && (contains(requiredRoles, role) || contains(optionalRoles, role));
+			return member.equals(".") ? shared(role) : hasMember(member) && (contains(requiredRoles, role) || optional(role));
 		}
 		private static boolean contains(String[] values, String role){
 			assert(values!=null && role!=null) : "Role matching requires a complete registration contract";

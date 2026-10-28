@@ -24,6 +24,14 @@ in=<file>       Input FASTA of pool sequences (e.g. all tRNAs).
 extra=<file>    Optional: additional sequences to weight the pool.
                 Typically the consensus models; added copies= times.
 copies=10       Number of copies of extra sequences to add to the pool.
+avoid=<files>  Optional comma-delimited nucleotide FASTAs or kmer FASTAs.
+                Count occurrences independently in each file at output k;
+                prohibit each file's top avoidcount words from selection.
+avoidcount=200  Number of most-common words to prohibit PER avoid file.
+                Ties use ascending encoded kmer order; fewer words means all.
+                rcomp applies to counting and prohibition. With kdesign>k,
+                reject design words containing any prohibited output-k word.
+                Prohibited words never count toward member coverage.
 rcomp=f         Canonicalize kmers: build the forward kmer and its reverse
                 complement in the same rolling pass and count/select/match
                 only the canonical (max) form, so a motif and its reverse
@@ -79,6 +87,15 @@ maxstepmult=2   Upper bound on adaptive step, as a multiple of initial step.
 step2boost=1    Multiplier applied only to the projected second-round step.
 maxkmers=       Maximum total kmers to select (0 = no limit).
 target=0.999    Stop when this fraction of pool sequences is covered.
+seedset=        Initial design-kmer FASTA (nucleotide mode). All its valid
+                kdesign-mers remain fixed selections, including absent keys.
+                A key conflicting with avoid= is an error, never silently dropped.
+coveragek=      Length used for distinct-hit coverage; defaults to kdesign.
+                coveragek=k counts projected caller keys when kdesign>k.
+targetremaining=f Apply target to the fixed remainder uncovered by seedset,
+                rather than the whole pool. Requires seedset.
+outdesign=      Optional FASTA of selected design keys before projection.
+summary=        In nucleotide mode, report initial/final key and coverage counts.
 mincount=1      Minimum kmer occurrences in the still-uncovered pool at the
                 start of each greedy round. Ineligible keys are excluded before
                 ranking; stop and report if no eligible unselected key remains.

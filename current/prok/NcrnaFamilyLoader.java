@@ -2,7 +2,9 @@ package prok;
 
 import java.util.ArrayList;
 import consensus.BaseGraph;
+import fileIO.ByteFile;
 import map.LongHashSet;
+import parse.LineParser1;
 
 /** Constructs the existing caller container without changing verification algorithms.
  * CallGenes uses core-only loading then its established endpoint configuration phase.
@@ -57,11 +59,16 @@ public final class NcrnaFamilyLoader {
 		TrnaKmerIndex.validateConfiguration(k, floor, topFrac, qFrac, hits);
 		TrnaKmerIndex.validateTopN(top);
 		final float weight=Float.isNaN(options.weight) ? p.weight : options.weight;
-		final float idPass=Float.isNaN(options.idPass) ? p.idPass : options.idPass;
-		final float idBorderline=Float.isNaN(options.idBorderline) ? p.idBorderline : options.idBorderline;
+		final boolean memberIdentity=NcrnaFamilyRegistry.isCobalamin(p.id);
+		final FamilyResourceResolver.Handle cutoff=memberIdentity && options.cutoffs ? resolver.optional(p.id, "cutoffs", options.resources) : null;
+		final MemberCutoffs member=cutoff==null ? null : loadMemberCutoffs(cutoff.path, p.id);
+		final float idPass=Float.isNaN(options.idPass) ? (member==null ? p.idPass : member.pass) : options.idPass;
+		final float idBorderline=Float.isNaN(options.idBorderline) ? (member==null ? p.idBorderline : member.borderline) : options.idBorderline;
 		final int seedMinHits=options.seedMinHits<0 ? p.seedMinHits : options.seedMinHits;
 		require(Float.isFinite(idPass) && idPass>=0 && idPass<=1 && Float.isFinite(idBorderline)
 			&& idBorderline>=0 && idBorderline<=1 && seedMinHits>0, "Invalid identity or seed gate for "+p.id);
+		require(!memberIdentity || idBorderline<=idPass,
+			"B12 borderline identity must not exceed pass identity after resource/CLI precedence: "+p.id);
 		require(Float.isFinite(weight) && weight>0, "Path weight must be finite and positive for "+p.id);
 		int pad=options.windowPad<0 ? p.windowPad : options.windowPad;
 		if(options.longestPadFlank>=0){
@@ -102,6 +109,12 @@ public final class NcrnaFamilyLoader {
 		if(p.modelCutoffs && options.cutoffs){loadCutoffs(family, options.resources, resolver);}
 		if(MitoSsuModelPolicy.coverage(p.id,names)){
 			NcrnaModelThresholds.loadLengths(resolver.resolve(p.id,"length_bounds",options.resources).path,family);
+		}else if(options.resources.consensus==null || options.resources.root!=null || options.resources.lengthBounds!=null){
+			final FamilyResourceResolver.Handle lengths=resolver.optional(p.id, "length_bounds", options.resources);
+			if(lengths!=null){
+				require(!"tRNA".equals(p.id), "The independent tRNA verifier does not consume generic model length bounds");
+				NcrnaModelThresholds.loadLengths(lengths.path, family);
+			}
 		}
 		if(options.endpoints && p.packagedEndpoints){family.setRrnaEndpointInference(loadEndpoints(family, options.resources, resolver), null);}
 		return family;
@@ -161,6 +174,30 @@ public final class NcrnaFamilyLoader {
 		require(family!=null && resolver!=null, "Model cutoffs require a loaded family and its resolver");
 		final ArrayList<NcrnaFamily> one=new ArrayList<NcrnaFamily>(1);one.add(family);
 		NcrnaModelThresholds.load(resolver.resolve(family.name, "cutoffs", overrides).path, one);
+	}
+	/** A generic member uses one scalar identity pair throughout its primary and
+	 * rescue paths, unlike the existing single-alignment per-model cutoff tables. */
+	private static MemberCutoffs loadMemberCutoffs(final String path, final String family){
+		final ByteFile in=RrnaResourceIO.open(path);
+		final LineParser1 parser=new LineParser1('\t');
+		try{
+			RrnaResourceIO.header(in, "family\tidpass\tidborderline", path);
+			final byte[] row=in.nextLine();
+			require(row!=null, "A declared member cutoff file requires one identity row: "+path);
+			parser.set(row);
+			require(parser.terms()==3 && parser.termEquals(family, 0),
+				"Member cutoffs must bind exactly the loaded family: "+family+" in "+path);
+			final float pass=(float)RrnaPositionalKmerTable.savedDouble(parser, 1);
+			final float borderline=(float)RrnaPositionalKmerTable.savedDouble(parser, 2);
+			require(Float.isFinite(pass) && Float.isFinite(borderline) && borderline>=0 && borderline<=pass && pass<=1,
+				"Member cutoffs require finite 0<=idborderline<=idpass<=1: "+path);
+			require(in.nextLine()==null, "One member cutoff file cannot silently override another family or repeat rows: "+path);
+			return new MemberCutoffs(pass, borderline);
+		}finally{require(!in.close(), "Member cutoff read failed: "+path);}
+	}
+	private static final class MemberCutoffs {
+		MemberCutoffs(float pass_, float borderline_){pass=pass_;borderline=borderline_;}
+		final float pass, borderline;
 	}
 	public static final class Options {
 		public boolean enabled=true, hbm=true, seeds=true, endpoints=true, cutoffs=true, boundary=false;

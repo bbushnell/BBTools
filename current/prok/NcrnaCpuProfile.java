@@ -15,8 +15,11 @@ public final class NcrnaCpuProfile {
 	public static final int INIT=0, SCAVENGE=1, SHARED_SCAN=2, SSU_APPLY=3, SSU_FINISH=4, PATH=5, STAGE_COUNT=6;
 	private static final Clock CLOCK=OUTPUT==null ? null : systemClock();
 	public static boolean enabled(){return OUTPUT!=null;}
+	/** Shared current-thread clock for disjoint kernel measurements inside a
+	 * scavenger span. These details are subdivisions, never added to SCAVENGE. */
+	public static long cpuNow(){return CLOCK==null ? -1 : CLOCK.cpu();}
 	public static NcrnaCpuProfile create(int families){return enabled() ? new NcrnaCpuProfile(families, CLOCK) : null;}
-	static void checkOutput(){if(enabled()){require(!OUTPUT.isEmpty(), "CPU profile output path must not be empty"); RrnaResourceIO.fresh(OUTPUT, "");}}
+	static void checkOutput(){if(enabled()){require(!OUTPUT.isEmpty(), "CPU profile output path must not be empty"); RrnaResourceIO.fresh(OUTPUT, "", ".verification.tsv");}}
 	private static Clock systemClock(){
 		final ThreadMXBean bean=ManagementFactory.getThreadMXBean();
 		require(bean.isCurrentThreadCpuTimeSupported(), "Requested ncRNA CPU profiling is unsupported by this JVM");
@@ -27,7 +30,7 @@ public final class NcrnaCpuProfile {
 	public interface Clock {long cpu();}
 	public NcrnaCpuProfile(int families_, Clock clock_){
 		require(families_>=0 && clock_!=null, "CPU profile requires a family count and supported clock");
-		families=families_; clock=clock_; times=new long[(families+1)*STAGE_COUNT*2]; counts=new long[families*6];
+		families=families_; clock=clock_; times=new long[(families+1)*STAGE_COUNT*2]; counts=new long[families*6]; details=new long[families*6];
 	}
 	public void begin(int family, int stage){
 		assert(!active && !merged && family>=0 && family<=families && stage>=0 && stage<STAGE_COUNT
@@ -55,7 +58,20 @@ public final class NcrnaCpuProfile {
 			"Merge each completed worker exactly once, preserving the family registry order");
 		for(int i=0; i<times.length; i++){times[i]=Math.addExact(times[i], other.times[i]);}
 		for(int i=0; i<counts.length; i++){counts[i]=Math.addExact(counts[i], other.counts[i]);}
+		for(int i=0; i<details.length; i++){details[i]=Math.addExact(details[i], other.details[i]);}
 		other.merged=true;
+	}
+	public void verification(int family, long alignmentCpu, long shortlistCpu, long hbmCpu, long lengthChecks, long lengthSkips, long spanRejects){
+		require(!active && !merged && family>=0 && family<families, "Read verifier subdivisions only after worker termination");
+		require(alignmentCpu>=0 && shortlistCpu>=0 && hbmCpu>=0 && lengthChecks>=lengthSkips && lengthSkips>=0 && spanRejects>=0,
+			"Measured kernel time and model-length counts must be nonnegative and conserve considered models");
+		final int i=family*6;details[i]=alignmentCpu;details[i+1]=shortlistCpu;details[i+2]=hbmCpu;
+		details[i+3]=lengthChecks;details[i+4]=lengthSkips;details[i+5]=spanRejects;
+	}
+	/** Joined-worker INIT is index construction, not shared resource loading. */
+	public long initializationCpu(int family){
+		require(!active && !merged && family>=0 && family<families, "Read lazy INIT after join and before aggregate merge");
+		return times[(family*STAGE_COUNT+INIT)*2];
 	}
 	void write(String path, ArrayList<NcrnaFamily> registry){
 		require(registry.size()==families, "Family registry must not change before CPU report emission");
@@ -64,7 +80,7 @@ public final class NcrnaCpuProfile {
 	}
 	public void write(String path, String[] names){
 		require(!active && !merged && names.length==families, "Only completed aggregate counters may be written");
-		RrnaResourceIO.fresh(path, "");
+		RrnaResourceIO.fresh(path, "", ".verification.tsv");
 		final ByteStreamWriter out=RrnaResourceIO.writer(path); final ByteBuilder b=new ByteBuilder();
 		try{
 			out.println("# Diagnostic current-thread total CPU nanoseconds, not process user time; excludes other threads (GC/JIT/I/O). Clock overhead remains included.");
@@ -83,11 +99,17 @@ public final class NcrnaCpuProfile {
 				}
 			}
 		}finally{RrnaResourceIO.finish(out);}
+		final ByteStreamWriter detail=RrnaResourceIO.writer(path+".verification.tsv");
+		try{
+			detail.println("# Current-thread kernel CPU subdivisions of SCAVENGE; do not add them to the outer span. Remaining time includes window construction, copying, decisions and diagnostic overhead.");
+			detail.println("family\talignment_cpu_ns\tshortlist_cpu_ns\thbm_cpu_ns\tlength_checked_models\tprealignment_length_skips\tpostalignment_span_rejects");
+			for(int f=0; f<families; f++){b.clear().append(names[f]);for(int j=0; j<6; j++){b.tab().append(details[f*6+j]);}detail.print(b.nl());}
+		}finally{RrnaResourceIO.finish(detail);}
 	}
 	static void require(boolean ok, String message){if(!ok){throw new IllegalArgumentException(message);}}
 	private static final String[] STAGES={"INIT", "SCAVENGE", "SHARED_SEED_SCAN", "SSU_APPLY", "SSU_FINISH", "FIND_PATH"};
 	final int families;
-	final long[] times, counts;
+	final long[] times, counts, details;
 	private final Clock clock;
 	private long owner, cpuStart;
 	private int slot;

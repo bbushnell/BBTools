@@ -483,6 +483,13 @@ v2refresh=f     Recheck claimed loci before each ncRNA window when enabled.
 tmrna=t         Enable tmRNA; requires ncrna=t (or
                 generalncrna=t).  Endpoint refinement follows the global
                 ncrnaboundarynet flag below.
+cobalamin=f     Enable B12 riboswitch calling (RF00174, RF01482, RF01689).
+                Default off; uses calibrated seed, ranking and identity settings.
+cobalaminroot=  Explicit group directory containing manifest.tsv, shared seeds,
+                and the three RF-named resource subdirectories.
+cobalaminminlen= Override all three minimum called lengths; positive integer.
+                Default minimum lengths: 109 bases for RF00174 and RF01482,
+                66 bases for RF01689.
 sixs=t          Enable paired 6S/SsrS families (RF00013 and RF01685);
                 requires ncrna=t (or generalncrna=t).  Aliases: ssrs=, 6s=.
                 Resources: resources/callgenes_6S/manifest.tsv binds both members.
@@ -547,11 +554,14 @@ sixsrf00013boundarystoprange=-8,8  Inclusive 3' correction range.
                     Ranges include zero and contain at most 257 positions
                     within -256..256. Missing resources fail loudly.
 ncrnafamily=    Select rnasep, srp_small, srp_large, tmrna, sixs_rf00013,
-                sixs_rf01685, r58, lsu, s18, or euk5S as the generic sweep
+                sixs_rf01685, r58, lsu, s18, cobalamin, cobalamin_rf00174,
+                cobalamin_rf01482, cobalamin_rf01689, or euk5S as the generic sweep
                 overrides below; requires ncrna=t (or generalncrna=t).  A tmrna
                 target also requires tmrna=t; a sixs_* target also requires
                 sixs=t; an r58 or lsu target also requires r58lsu=t; an s18
-                target requires s18=t.  euk5S instead requires euk5s=t,
+                target requires s18=t; cobalamin members require cobalamin=t.
+                ncrnafamily=cobalamin applies controls to all three B12 members.
+                euk5S instead requires euk5s=t,
                 rrna17=euk or rrna17=euk5s; it does not require ncrna=t.
                 Accepted aliases include rnase-p, rnase_p, srp-small, srpsmall,
                 srp-large, srplarge, tm-rna, tm_rna, and ssra (case-insensitive).
@@ -559,7 +569,11 @@ ncrnafamily=    Select rnasep, srp_small, srp_large, tmrna, sixs_rf00013,
                 normally; this is not an isolation switch.
 ncrnakmers=     Explicit conserved-kmer fasta for the selected ncrnafamily=;
                 requires that family's enabled profile and exactly one target.
-ncrnaseedminhits=2  euk5S conserved 17-mer occurrences required per window.
+ncrnaseedminhits=  Conserved 17-mer seed threshold for selected euk5S or B12.
+                B12 defaults to 1; values >1 require distinct seed keys per
+                window, so repeated occurrences of one key cannot satisfy 2.
+                Use a covering set generated for the requested seed minimum.
+                euk5S defaults to 2 occurrences per window.
                 Standalone euk5s=t requires at least 2; rrna17 profiles retain
                 explicit one-hit engineering controls for baseline comparisons.
 ncrnaindexk=    Targeted family mapping k (1-15); seed k remains unchanged. Larger values

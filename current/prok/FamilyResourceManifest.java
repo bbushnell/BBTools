@@ -64,9 +64,11 @@ final class FamilyResourceManifest {
 		return get("", role, model, end);
 	}
 	Entry get(String member, String role, String model, String end){
-		final Entry e=entries.get(key(member, role, model, end));
+		final Entry e=optional(member, role, model, end);
 		require(e!=null, "Missing required family manifest role: "+key(member, role, model, end));return e;
 	}
+	/** Absence is meaningful only to callers selecting a registered optional role. */
+	Entry optional(String member, String role, String model, String end){return entries.get(key(member, role, model, end));}
 	static String key(String member, String role, String model, String end){return (member.isEmpty() ? "" : member+'/')+key(role, model, end);}
 	static String key(String role, String model, String end){return role+":"+model+":"+end;}
 	static void validateRelative(String path){

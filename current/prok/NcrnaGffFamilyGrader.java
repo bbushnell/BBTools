@@ -220,6 +220,53 @@ public class NcrnaGffFamilyGrader {
 		return mr;
 	}
 
+	/** Add detection-only matches for explicitly partial references, preserving every
+	 * reciprocal match. The caller must supply one assembly/family view, as for the
+	 * existing matcher; partialInternal is frozen reference metadata, never inferred
+	 * from a short length. Newly matched reference ends are not gene endpoints.
+	 * @author Ganyu
+	 */
+	public static MatchResult matchPartialContained(List<Locus> calls, List<Locus> truth,
+			float minOverlapFrac, int circularLength, boolean[] partialInternal){
+		if(partialInternal==null || partialInternal.length!=truth.size()){
+			throw new IllegalArgumentException("One explicit partial flag per truth locus is required");
+		}
+		final MatchResult result=matchOneToOne(calls, truth, minOverlapFrac, circularLength);
+		@SuppressWarnings("unchecked")
+		final ArrayList<int[]>[] edges=new ArrayList[calls.size()];
+		for(int ci=0; ci<calls.size(); ci++){
+			edges[ci]=new ArrayList<int[]>();
+			if(result.callConsumed[ci]){continue;}
+			final Locus c=calls.get(ci);
+			for(int ti=0; ti<truth.size(); ti++){
+				if(result.truthConsumed[ti] || !partialInternal[ti]){continue;}
+				final Locus t=truth.get(ti);
+				if(!c.seqid.equals(t.seqid) || c.strand!=t.strand || !c.family.equals(t.family)){continue;}
+				final boolean contained=circularLength==0 ? c.start<=t.start && c.stop>=t.stop
+					: circularOverlap(c,t,circularLength)==t.length();
+				if(contained){edges[ci].add(new int[]{ti,t.length()});}
+			}
+			edges[ci].sort((x,y)->Integer.compare(y[1],x[1]));
+		}
+		for(int ci=0; ci<calls.size(); ci++){
+			if(result.callConsumed[ci]){continue;}
+			if(tryAugment(ci,edges,new boolean[truth.size()],result.truthMatchedCallIdx,result.callMatchedTruthIdx)){
+				result.matched++;result.partialContainedMatches++;
+			}
+		}
+		for(int ci=0; ci<calls.size(); ci++){
+			if(result.callMatchedTruthIdx[ci]>=0){
+				result.callPartialContained[ci]=!result.callConsumed[ci];
+				result.callConsumed[ci]=true;result.callIsDuplicate[ci]=false;
+			}else if(!edges[ci].isEmpty()){result.callIsDuplicate[ci]=true;}
+		}
+		for(int ti=0; ti<truth.size(); ti++){
+			if(result.truthMatchedCallIdx[ti]>=0){result.truthConsumed[ti]=true;}
+		}
+		assert(result.partialContainedMatches<=result.matched):"Containment adds matches; reciprocal matches remain locked";
+		return result;
+	}
+
 	/** Sum physical overlap across adjacent unrolled copies, without duplicating a locus.
 	 * Each interval covers at most one turn, so the sum cannot exceed either length. */
 	public static int circularOverlap(Locus c, Locus t, int length){
@@ -257,6 +304,9 @@ public class NcrnaGffFamilyGrader {
 
 	public static final class MatchResult {
 		public int matched=0;
+		/** Added detection matches; exclude their endpoints from accuracy metrics. */
+		public int partialContainedMatches=0;
+		public final boolean[] callPartialContained;
 		final boolean[] callConsumed;
 		final boolean[] truthConsumed;
 		final boolean[] callIsDuplicate;
@@ -266,6 +316,7 @@ public class NcrnaGffFamilyGrader {
 		public final int[] callMatchedTruthIdx;
 		public final int[] truthMatchedCallIdx;
 		MatchResult(int nc, int nt){
+			callPartialContained=new boolean[nc];
 			callConsumed=new boolean[nc];
 			truthConsumed=new boolean[nt];
 			callIsDuplicate=new boolean[nc];
@@ -732,6 +783,7 @@ public class NcrnaGffFamilyGrader {
 	}
 
 	public static FamilyMap loadFamilyMap(String path) throws Exception {
+		//TODO: Probable bug - this generic loader and the two below ignore ByteFile.close error flags; an I/O failure may appear successful.
 		final FamilyMap out=new FamilyMap();
 		final HashSet<String> prefixes=new HashSet<>();
 		final ByteFile bf=ByteFile.makeByteFile(FileFormat.testInput(path, FileFormat.TEXT, null, true, true));
@@ -856,6 +908,7 @@ public class NcrnaGffFamilyGrader {
 	}
 
 	public static void writeGenericReport(String out, GenericGradeResult r) throws Exception {
+		//TODO: Probable bug - closing these PrintStreams without checkError can hide failed summary/match writes; consumers must validate complete outputs.
 		final PrintStream sumOut=new PrintStream(out+".summary.tsv");
 		sumOut.println("scope\tTP\tFN\tFP\tprecision\trecall");
 		for(Map.Entry<String, FamilyCounts> e : r.counts.entrySet()){

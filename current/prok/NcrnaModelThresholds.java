@@ -7,7 +7,7 @@ import map.ObjectIntMap;
 import map.ObjectMap;
 import parse.LineParser1;
 
-/** Immutable, name-bound identity and optional length cutoffs for the single-alignment RNA path.
+/** Immutable, name-bound identity and optional length cutoffs for RNA verification.
  * Every model in a named family is explicit; omitted families keep scalar defaults.
  * @author Raiden
  */
@@ -50,29 +50,54 @@ public final class NcrnaModelThresholds {
 			q.result=new NcrnaModelThresholds(q.family.modelNames,q.pass,q.borderline,old==null ? null : old.minimum,old==null ? null : old.maximum);}
 		for(Pending q:order){q.family.modelThresholds=q.result;for(int i=0;i<q.pass.length;i++){System.err.println("ncRNA model cutoff: family="+q.family.name+" model="+q.result.names[i]+" idPass="+q.pass[i]+" idBorderline="+q.borderline[i]);}}
 	}
-	/** Coverage libraries require one ordered, sequence-length-bound row per added model.
-	 * Original models retain their scalar identities and unrestricted length metadata. */
+	/** General libraries bind every model. The historical mitochondrial coverage
+	 * format binds added models only; original models retain unrestricted lengths.
+	 * Bounds are already expanded by the resource producer, never scaled twice.
+	 * An optional identity column overrides direct acceptance for that model.
+	 * Its rescue floor is the smaller of the inherited floor and direct cutoff,
+	 * so lowering direct acceptance cannot leave an unreachable passing interval. */
 	public static void loadLengths(final String path, final NcrnaFamily family){
-		require(path!=null && family!=null && family.reuseConsensusAlignment
-			&& MitoSsuModelPolicy.coverage(family.name,family.modelNames),"Length profiles currently bind only explicit mitochondrial coverage libraries");
-		final String[] names=family.modelNames;final int n=names.length,first=NcrnaFamilyRegistry.get("16S").models.length;
+		require(path!=null && family!=null && family.modelNames!=null && family.library!=null
+			&& family.modelNames.length==family.library.length, "Length profiles require a complete loaded model roster");
+		final boolean coverage=MitoSsuModelPolicy.coverage(family.name,family.modelNames);
+		require(!coverage || family.reuseConsensusAlignment, "Mitochondrial coverage retains its single-alignment verifier");
+		final String[] names=family.modelNames;final int n=names.length,first=coverage ? NcrnaFamilyRegistry.get("16S").models.length : 0;
 		final int[] minimum=new int[n],maximum=new int[n];Arrays.fill(maximum,Integer.MAX_VALUE);
 		final float[] pass=new float[n],borderline=new float[n];
 		final NcrnaModelThresholds old=family.modelThresholds;if(old!=null){old.validate(names);}
 		for(int i=0; i<n; i++){pass[i]=old==null ? family.idPass : old.pass(i);borderline[i]=old==null ? family.idBorderline : old.borderline(i);}
 		final ByteFile in=RrnaResourceIO.open(path);final LineParser1 p=new LineParser1('\t');int model=first;
+		final boolean identities;
 		try{
-			RrnaResourceIO.header(in,"model\tmodel_length\tmin_length\tmax_length",path);
+			final byte[] header=in.nextLine();
+			require(header!=null, "A model profile requires its named column header: "+path);
+			p.set(header);
+			identities=p.terms()==5;
+			require((p.terms()==4 || identities) && p.termEquals("model", 0)
+				&& p.termEquals("model_length", 1) && p.termEquals("min_length", 2)
+				&& p.termEquals("max_length", 3) && (!identities || p.termEquals("identity", 4)),
+				"Expected model/model_length/min_length/max_length and optional identity: "+path);
 			for(byte[] row;(row=in.nextLine())!=null;model++){
-				p.set(row);require(p.terms()==4 && model<n,"Length profile must contain exactly one row per added model: "+path);
+				p.set(row);require(p.terms()==(identities ? 5 : 4) && model<n,"Model profile must contain exactly one complete row per selected model: "+path);
 				require(p.termEquals(names[model],0) && p.parseInt(1)==family.library[model].length,
 					"Length profile name/order/sequence length differs from caller model "+model+": "+path);
 				minimum[model]=p.parseInt(2);maximum[model]=p.parseInt(3);
 				require(minimum[model]>0 && maximum[model]>=minimum[model],"Positive ordered gene-length limits required for "+names[model]);
+				if(identities){
+					pass[model]=(float)RrnaPositionalKmerTable.savedDouble(p, 4);
+					require(Float.isFinite(pass[model]) && pass[model]>=0 && pass[model]<=1,
+						"Model acceptance identity must be finite in [0,1]: "+names[model]);
+					borderline[model]=Math.min(borderline[model], pass[model]);
+				}
 			}
 		}finally{require(!in.close(),"Model length profile read failed: "+path);}
 		require(model==n,"Missing model length rows: "+path);
 		family.modelThresholds=new NcrnaModelThresholds(names,pass,borderline,minimum,maximum);
+		if(identities){
+			float low=1, high=0;
+			for(int i=first; i<n; i++){low=Math.min(low, pass[i]);high=Math.max(high, pass[i]);}
+			System.err.println("ncRNA model identities: family="+family.name+" models="+(n-first)+" min="+low+" max="+high+" profile="+path);
+		}
 	}
 	void validate(String[] actual){require(Arrays.equals(names,actual),"Model cutoff order must exactly match the caller consensus library");}
 	static final class Pending{
@@ -88,4 +113,9 @@ public final class NcrnaModelThresholds {
 	public float borderline(int model){return borderline[model];}
 	public int minimum(int model){return minimum==null ? 0 : minimum[model];}
 	public int maximum(int model){return maximum==null ? Integer.MAX_VALUE : maximum[model];}
+	public boolean hasLengths(){return minimum!=null;}
+	/** A four-column length profile retains inherited identity thresholds exactly. */
+	public boolean sameIdentities(float scalarPass, float scalarBorderline){
+		for(int i=0; i<pass.length; i++){if(pass[i]!=scalarPass || borderline[i]!=scalarBorderline){return false;}}return true;
+	}
 }

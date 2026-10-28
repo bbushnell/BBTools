@@ -2013,6 +2013,7 @@ public class GeneCaller extends ProkObject {
 			for(int i=0; i<ncrnaScavengers.size(); i++){
 				final NcrnaScavenger s=ncrnaScavengers.get(i);
 				ncrnaCpuProfile.activity(i, s.alignmentCount(), s.alignedBases(), s.hbmScoreCalls(), s.hbmBasesScored(), s.kmerHitCount(), s.windowCount());
+				ncrnaCpuProfile.verification(i, s.alignmentCpuNanos(), s.shortlistCpuNanos(), s.hbmCpuNanos(), s.modelLengthChecks(), s.modelLengthSkips(), s.modelSpanRejects());
 			}
 		}
 		return ncrnaCpuProfile;

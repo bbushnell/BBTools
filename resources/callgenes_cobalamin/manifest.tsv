@@ -1,0 +1,12 @@
+#ncrna_family	2	cobalamin
+member	role	model	end	path	format	bytes	sha80
+.	seeds	.	.	seeds.fa.gz	fasta	7651	4308dcc1448d4ab382f7
+RF00174	consensus	.	.	consensus.fa	fasta	136227	70e605a3236a0ca2a9a3
+RF00174	models	.	.	models.hbmc.gz	hbm	455413	2828d30dedeb43ead0bc
+RF00174	cutoffs	.	.	cutoffs.tsv	tsv	55	b3f7996c1a3014649da6
+RF01482	consensus	.	.	consensus.fa	fasta	7223	d6b52b2c57a8f281578c
+RF01482	models	.	.	models.hbmc.gz	hbm	12938	cc2632ed10367c514ae1
+RF01482	cutoffs	.	.	cutoffs.tsv	tsv	55	260c8a1ad3e393e15cfb
+RF01689	consensus	.	.	consensus.fa	fasta	2094	cf647697f3d36ad75f9c
+RF01689	models	.	.	models.hbmc.gz	hbm	3614	7e5e7b730af1e24c66f0
+RF01689	cutoffs	.	.	cutoffs.tsv	tsv	55	6d2499e491e1cae1e885

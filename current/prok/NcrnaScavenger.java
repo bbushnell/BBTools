@@ -181,6 +181,13 @@ public class NcrnaScavenger {
 	public long mitoLengthSkips(){return mitoLengthSkips;}
 	public long mitoAlignmentCount(){return mitoAlignmentCount;}
 	public long original16sAlignmentCount(){return original16sAlignmentCount;}
+	public long modelLengthChecks(){return modelLengthChecks;}
+	public long modelLengthSkips(){return modelLengthSkips;}
+	public long modelSpanRejects(){return modelSpanRejects;}
+	public long alignmentCpuNanos(){return alignmentCpuNanos;}
+	public long shortlistCpuNanos(){return shortlistCpuNanos;}
+	public long hbmCpuNanos(){return hbmCpuNanos;}
+	private void alignmentTimed(long start){if(start>=0){alignmentCpuNanos+=NcrnaCpuProfile.cpuNow()-start;}}
 	/** Sum of candidate input spans at actual alignment calls, including endpoint trimming. */
 	public long alignedBases(){return alignedBases;}
 	/** HBM evaluations count separately; reusing a traceback is not another alignment. */
@@ -345,7 +352,10 @@ public class NcrnaScavenger {
 	public Orf alignJoinedWindow(String name,byte[] bases,int strand,int start,int stop,int model,int[] hitPositions,long[] hitKeys){
 		if(cmVerifier!=null || !pacBioConsensusAlignment || !pacBioRolling || start<0 || stop>=bases.length || start>stop){throw new IllegalArgumentException("Joined fast window must be physical, rolling and CM-free");}
 		final byte[] seq=copyRegionUpper(bases,start,stop+1);
-		if(modelAttemptSink!=null || attemptLog!=null){kmerIndex.shortlist(seq,indexTopN,indexScoreMargin);}// Diagnostic counts must not reuse the preceding ordinary window's counts.
+		if(modelAttemptSink!=null || attemptLog!=null){
+			final long startCpu=NcrnaCpuProfile.cpuNow();kmerIndex.shortlist(seq,indexTopN,indexScoreMargin);
+			if(startCpu>=0){shortlistCpuNanos+=NcrnaCpuProfile.cpuNow()-startCpu;}
+		}// Diagnostic counts must not reuse the preceding ordinary window's counts.
 		return alignWindowOnce(name,bases,strand,1,start,stop,WINDOW_JOINED,hitPositions,hitKeys,seq,new int[]{model},countHits(hitPositions,start+8,stop-8),false,true);
 	}
 
@@ -630,6 +640,7 @@ public class NcrnaScavenger {
 	/** Only proven model clipping qualifies for the shorter span; touching an edge alone does not. */
 	private int alignmentMinLength(AlignmentStats stats, boolean clipModel, int model){
 		if(mitoMinLengths!=null && mitoMinLengths[model]>0){return mitoMinLengths[model];}
+		if(modelThresholds!=null && modelThresholds.minimum(model)>0){return Math.max(minLen, modelThresholds.minimum(model));}
 		if((prok16sPartialMinLen>0 || physicalEdgeMinLen>0) && clipModel && stats instanceof EndClippedAligner.Result){
 			final EndClippedAligner.Result clipped=(EndClippedAligner.Result)stats;
 			if(clipped.qStart>0 || clipped.qStop<clipped.qLen-1){return prok16sPartialMinLen>0 ? prok16sPartialMinLen : physicalEdgeMinLen;}
@@ -638,6 +649,25 @@ public class NcrnaScavenger {
 	}
 	private int alignmentMaxLength(final int model){
 		return modelThresholds==null ? maxLen : Math.min(maxLen,modelThresholds.maximum(model));
+	}
+	/** A padded window can contain a shorter gene. Only its insufficient capacity
+	 * rejects before alignment; the upper bound applies to the observed gene span. */
+	public boolean modelLengthFeasible(final int model, final int windowLength){
+		assert(windowLength>0 && model>=0 && model<library.length) : "Length feasibility needs an actual model and positive candidate window";
+		if(modelThresholds==null || !modelThresholds.hasLengths()){return true;}
+		modelLengthChecks++;
+		final boolean ok=alignmentMinLength(null, false, model)<=Math.min(windowLength, alignmentMaxLength(model));
+		if(!ok){modelLengthSkips++;}return ok;
+	}
+	public boolean modelAlignedSpanAllowed(final int model, final int length){
+		assert(model>=0 && model<library.length) : "Observed length must bind the aligned consensus model";
+		return modelThresholds==null || !modelThresholds.hasLengths()
+			|| length>=alignmentMinLength(null, false, model) && length<=alignmentMaxLength(model);
+	}
+	private boolean acceptedLengthValid(Orf orf, int model){
+		if(mitoMinLengths!=null || modelAlignedSpanAllowed(model, orf.stop-orf.start+1)){return true;}
+		modelSpanRejects++;
+		if(pendingInstrumentation!=null){pendingInstrumentation.remove(orf);}return false;
 	}
 	/** Window bounds include flanks. Only absence of any feasible gene span can
 	 * reject before alignment; the observed reference span supplies the upper gate. */
@@ -780,6 +810,7 @@ public class NcrnaScavenger {
 		}
 		float bestId=0; int bestModel=-1;
 		int bestStart=0, bestStop=wLen-1;
+		boolean lengthRejected=false;
 		final boolean quantumUsed=wLen>quantumThresh;
 		final boolean quantumFeatures=(boundaryFeatureVersion==NcrnaBoundaryScorer.FEATURES_V2
 			|| boundaryFeatureVersion==NcrnaBoundaryScorer.FEATURES_V3);
@@ -788,38 +819,52 @@ public class NcrnaScavenger {
 			int[] pos=new int[4];
 			for(int j=0; j<shortlist.length; j++){
 				int m=shortlist[j];
+				if(!modelLengthFeasible(m, seq.length)){lengthRejected=true;continue;}
+				final long cpuStart=NcrnaCpuProfile.cpuNow();
 				float id=QuantumAligner.alignStatic(library[m], seq, pos);
+				alignmentTimed(cpuStart);
 				diagnoseModel(name,bases.length,strand,pass,wStart,wStop,m,id);
 				alignedBases+=seq.length;
 				if(shortlistIdentity!=null){shortlistIdentity[j]=id;}
 				alignmentCount++;
+				final boolean spanAllowed=modelAlignedSpanAllowed(m, pos[1]-pos[0]+1);
 				if(modelAttemptSink!=null){
 					final int alignedLength=quantumTraceAlignedLength(modelAttemptSink,pos,wLen);
 					modelAttemptSink.modelAttempt(name, strand, pass, wStart, wStop,
-						j+1, m, kmerIndex.lastSharedCount(m), id, alignedLength, id>=idPass);
+						j+1, m, kmerIndex.lastSharedCount(m), id, alignedLength, id>=modelPass(m) && spanAllowed);
 				}
+				if(!spanAllowed){modelSpanRejects++;lengthRejected=true;continue;}
 				if(DEBUG){System.err.println("DEBUG   quantum model="+m+" modelLen="+library[m].length+" id="+id+" pos="+Arrays.toString(pos));}
-				if(id>bestId){bestId=id; bestModel=m; bestStart=pos[0]; bestStop=pos[1];}
-				if(!mappingOracleExhaustive && rankedModelFallback && id>=idPass){break;}
+				if(betterPrimary(id, m, bestId, bestModel)){bestId=id; bestModel=m; bestStart=pos[0]; bestStop=pos[1];}
+				if(!mappingOracleExhaustive && rankedModelFallback && id>=modelPass(m)){break;}
 			}
 		}else{
 			for(int j=0; j<shortlist.length; j++){
 				int m=shortlist[j];
-				float id=ScrabbleAligner.alignStatic(seq, library[m], null);
+				if(!modelLengthFeasible(m, seq.length)){lengthRejected=true;continue;}
+				// Preserve Scrabble's legacy shorter-query direction while observing
+				// genomic reference endpoints only when the model is shorter.
+				final boolean observe=modelThresholds!=null && modelThresholds.hasLengths() && seq.length>library[m].length;
+				final int[] pos=observe ? lengthPositions : null;
+				final long cpuStart=NcrnaCpuProfile.cpuNow();
+				float id=observe ? ScrabbleAligner.alignStatic(library[m], seq, pos) : ScrabbleAligner.alignStatic(seq, library[m], null);
+				alignmentTimed(cpuStart);
 				diagnoseModel(name,bases.length,strand,pass,wStart,wStop,m,id);
 				alignedBases+=seq.length;
 				if(shortlistIdentity!=null){shortlistIdentity[j]=id;}
 				alignmentCount++;
+				final boolean spanAllowed=modelAlignedSpanAllowed(m, observe ? pos[1]-pos[0]+1 : seq.length);
 				if(modelAttemptSink!=null){modelAttemptSink.modelAttempt(name, strand, pass, wStart, wStop,
-					j+1, m, kmerIndex.lastSharedCount(m), id, -1, id>=idPass);}
+					j+1, m, kmerIndex.lastSharedCount(m), id, -1, id>=modelPass(m) && spanAllowed);}
+				if(!spanAllowed){modelSpanRejects++;lengthRejected=true;continue;}
 				if(DEBUG){System.err.println("DEBUG   scrabble model="+m+" modelLen="+library[m].length+" id="+id);}
-				if(id>bestId){bestId=id; bestModel=m;}
-				if(!mappingOracleExhaustive && rankedModelFallback && id>=idPass){break;}
+				if(betterPrimary(id, m, bestId, bestModel)){bestId=id; bestModel=m;if(observe){bestStart=pos[0];bestStop=pos[1];}else{bestStart=0;bestStop=wLen-1;}}
+				if(!mappingOracleExhaustive && rankedModelFallback && id>=modelPass(m)){break;}
 			}
 		}
 		if(DEBUG){System.err.println("DEBUG best: bestId="+bestId+" bestModel="+bestModel+" idBorderline="+idBorderline+" idPass="+idPass);}
-		if(bestId<idBorderline || bestModel<0){
-			diagnoseWindow(name,bases,strand,pass,wStart,wStop,"REJECT_ID",khits,shortlist.length,bestModel,bestId,0f,0f,-1,-1,false);
+		if(bestModel<0 || bestId<modelBorderline(bestModel)){
+			diagnoseWindow(name,bases,strand,pass,wStart,wStop,lengthRejected && bestModel<0 ? "REJECT_MODEL_LENGTH" : "REJECT_ID",khits,shortlist.length,bestModel,bestId,0f,0f,-1,-1,false);
 			return null;
 		}
 		final int orfStart=wStart+bestStart;
@@ -848,26 +893,27 @@ public class NcrnaScavenger {
 				trimmed=finishAcceptedBoundary(orf, bases, bestModel, wStart, wStop, windowSource, bestId, orfLen,
 					bestId, quantumUsed, hitPositions, hitKeys);
 			}else{applyVotedEnds(orf, hitPositions, hitKeys, wStart, wStop, bases.length);}
-			final boolean accepted=cmVerifier.verify(orf, bases, wStart, wStop, "ncrna_seed");
+			final boolean accepted=acceptedLengthValid(orf, bestModel) && cmVerifier.verify(orf, bases, wStart, wStop, "ncrna_seed");
 			if(!accepted && pendingInstrumentation!=null){pendingInstrumentation.remove(orf);}
 			diagnoseWindow(name,bases,strand,pass,wStart,wStop,accepted ? "ACCEPT_CM" : "REJECT_CM",
 				khits,shortlist.length,bestModel,bestId,0f,0f,orf.start,orf.stop,trimmed);
 			return accepted ? orf : null;
 		}
-		if(bestId>=idPass){
+		if(bestId>=modelPass(bestModel)){
 			boolean trimmed=false;
 			if(annotate && modelNames!=null && bestModel<modelNames.length){
 				orf.trnaModel=modelNames[bestModel];
 				trimmed=finishAcceptedBoundary(orf, bases, bestModel, wStart, wStop, windowSource, bestId, orfLen,
 					bestId, quantumUsed, hitPositions, hitKeys);
 			}else{applyVotedEnds(orf, hitPositions, hitKeys, wStart, wStop, bases.length);}
-			diagnoseWindow(name,bases,strand,pass,wStart,wStop,"ACCEPT_IDPASS",khits,shortlist.length,bestModel,bestId,0f,0f,orf.start,orf.stop,trimmed);
-			return orf;
+			final boolean accepted=acceptedLengthValid(orf, bestModel);
+			diagnoseWindow(name,bases,strand,pass,wStart,wStop,accepted ? "ACCEPT_IDPASS" : "REJECT_MODEL_LENGTH",khits,shortlist.length,bestModel,bestId,0f,0f,orf.start,orf.stop,trimmed);
+			return accepted ? orf : null;
 		}else{
 			// Calibrated tmRNA margins apply only after the unchanged primary
 			// identity gate failed. Zero margins preserve the original rescue policy.
 			final boolean marginTarget="tmrna".equals(family);
-			final float rescueIdPass=idPass+(marginTarget ? tmrnaRescueIdMargin : 0f);
+			final float rescueMargin=marginTarget ? tmrnaRescueIdMargin : 0f;
 			final float rescueHbmPass=hbmPass+(marginTarget ? tmrnaRescueHbmMargin : 0f);
 			byte[] orfSeq=copyRegionUpper(bases, orfStart, orfStop+1);
 			if(DEBUG){System.err.println("DEBUG rescue orfStart="+orfStart+" orfStop="+orfStop
@@ -876,30 +922,42 @@ public class NcrnaScavenger {
 			float bestHbm=-999, bestHbmIdentity=Float.NaN; int bestHbmModel=-1, bestHbmRank=-1;
 			for(int j=0; j<shortlist.length; j++){
 				final int m=shortlist[j];
-				final float id=ScrabbleAligner.alignStatic(orfSeq, library[m], null);
+				final float rescueIdPass=modelPass(m)+rescueMargin;
+				if(!modelLengthFeasible(m, orfSeq.length)){continue;}
+				final boolean observe=modelThresholds!=null && modelThresholds.hasLengths() && orfSeq.length>library[m].length;
+				final int[] pos=observe ? lengthPositions : null;
+				final long cpuStart=NcrnaCpuProfile.cpuNow();
+				final float id=observe ? ScrabbleAligner.alignStatic(library[m], orfSeq, pos) : ScrabbleAligner.alignStatic(orfSeq, library[m], null);
+				alignmentTimed(cpuStart);
 				alignedBases+=orfSeq.length;
 				alignmentCount++;
+				// Rescue retains the original candidate interval; a shorter local
+				// model hit must not certify an overlong interval that will be emitted.
+				if(!modelAlignedSpanAllowed(m, orfSeq.length) || !modelAlignedSpanAllowed(m, observe ? pos[1]-pos[0]+1 : orfSeq.length)){modelSpanRejects++;continue;}
 				if(DEBUG){System.err.println("DEBUG   rescue-scrabble model="+m+" modelLen="+library[m].length+" id="+id);}
-				if(id>bestReId){bestReId=id; bestReModel=m; bestReRank=j;}
+				if(betterRescue(id, m, bestReId, bestReModel, rescueMargin)){bestReId=id; bestReModel=m; bestReRank=j;}
 				if(!mappingOracleExhaustive && id>=rescueIdPass){break;}
-				if(models!=null && m<models.length && id>=idBorderline){
+				if(models!=null && m<models.length && id>=modelBorderline(m) && rescueHbmPass<=1f){
+					final long hbmStart=NcrnaCpuProfile.cpuNow();
 					final float hbm=TrnaConsensusBuilder.scoreAgainstModel(orfSeq, models[m]);
+					if(hbmStart>=0){hbmCpuNanos+=NcrnaCpuProfile.cpuNow()-hbmStart;}
 					hbmScoreCalls++; hbmBasesScored+=orfSeq.length;
 					if(DEBUG){System.err.println("DEBUG   rescue-hbm model="+m+" hbm="+hbm);}
 					if(hbm>bestHbm){bestHbm=hbm; bestHbmModel=m; bestHbmIdentity=id; bestHbmRank=j;}
 				}
 			}
 			if(DEBUG){System.err.println("DEBUG rescue result: bestReId="+bestReId+" bestReModel="+bestReModel
-				+" bestHbm="+bestHbm+" bestHbmModel="+bestHbmModel+" rescueIdPass="+rescueIdPass+" rescueHbmPass="+rescueHbmPass);}
-			if(bestReId>=rescueIdPass && bestReModel>=0){
+				+" bestHbm="+bestHbm+" bestHbmModel="+bestHbmModel+" rescueHbmPass="+rescueHbmPass);}
+			if(bestReModel>=0 && bestReId>=modelPass(bestReModel)+rescueMargin){
 				boolean trimmed=false;
 				if(annotate && modelNames!=null && bestReModel<modelNames.length){
 					orf.trnaModel=modelNames[bestReModel];
 					trimmed=finishAcceptedBoundary(orf, bases, bestReModel, wStart, wStop, windowSource, bestReId, orfLen,
 						(shortlistIdentity==null ? bestReId : shortlistIdentity[bestReRank]), quantumUsed, hitPositions, hitKeys);
 				}else{applyVotedEnds(orf, hitPositions, hitKeys, wStart, wStop, bases.length);}
-				diagnoseWindow(name,bases,strand,pass,wStart,wStop,"ACCEPT_RESCUE",khits,shortlist.length,bestReModel,bestId,bestReId,bestHbm,orf.start,orf.stop,trimmed);
-				return orf;
+				final boolean accepted=acceptedLengthValid(orf, bestReModel);
+				diagnoseWindow(name,bases,strand,pass,wStart,wStop,accepted ? "ACCEPT_RESCUE" : "REJECT_MODEL_LENGTH",khits,shortlist.length,bestReModel,bestId,bestReId,bestHbm,orf.start,orf.stop,trimmed);
+				return accepted ? orf : null;
 			}else if(bestHbm>=rescueHbmPass && bestHbmModel>=0){
 				boolean trimmed=false;
 				if(annotate && modelNames!=null && bestHbmModel<modelNames.length){
@@ -907,12 +965,37 @@ public class NcrnaScavenger {
 					trimmed=finishAcceptedBoundary(orf, bases, bestHbmModel, wStart, wStop, windowSource, bestHbmIdentity, orfLen,
 						(shortlistIdentity==null ? bestHbmIdentity : shortlistIdentity[bestHbmRank]), quantumUsed, hitPositions, hitKeys);
 				}else{applyVotedEnds(orf, hitPositions, hitKeys, wStart, wStop, bases.length);}
-				diagnoseWindow(name,bases,strand,pass,wStart,wStop,"ACCEPT_HBM",khits,shortlist.length,bestHbmModel,bestId,bestReId,bestHbm,orf.start,orf.stop,trimmed);
-				return orf;
+				final boolean accepted=acceptedLengthValid(orf, bestHbmModel);
+				diagnoseWindow(name,bases,strand,pass,wStart,wStop,accepted ? "ACCEPT_HBM" : "REJECT_MODEL_LENGTH",khits,shortlist.length,bestHbmModel,bestId,bestReId,bestHbm,orf.start,orf.stop,trimmed);
+				return accepted ? orf : null;
 			}
 			diagnoseWindow(name,bases,strand,pass,wStart,wStop,"REJECT_RESCUE",khits,shortlist.length,bestReModel,bestId,bestReId,bestHbm,orfStart,orfStop,false);
 		}
 		return null;
+	}
+
+	private float modelPass(final int model){return modelThresholds==null ? idPass : modelThresholds.pass(model);}
+	private float modelBorderline(final int model){return modelThresholds==null ? idBorderline : modelThresholds.borderline(model);}
+	/** With unequal cutoffs, an ineligible high identity cannot conceal a passing
+	 * model or a model eligible for rescue. Equal cutoffs retain the old ordering. */
+	private boolean betterPrimary(final float id, final int model, final float bestId, final int bestModel){
+		assert(model>=0 && model<library.length) : "Primary selection must use the aligned model's bound cutoff";
+		if(modelThresholds==null){return id>bestId;}
+		if(bestModel<0){return id>0;}
+		final int tier=identityTier(id, model), bestTier=identityTier(bestId, bestModel);
+		return tier>bestTier || tier==bestTier && id>bestId;
+	}
+	private int identityTier(final float id, final int model){
+		assert(model>=0 && model<library.length) : "Identity eligibility must bind the corresponding consensus";
+		return cmVerifier==null && id>=modelPass(model) ? 2 : id>=modelBorderline(model) ? 1 : 0;
+	}
+	/** Rescue remains first-passing unless exhaustive observation was requested. */
+	private boolean betterRescue(final float id, final int model, final float bestId, final int bestModel, final float margin){
+		assert(model>=0 && model<library.length && margin>=0) : "Rescue thresholds inherit the aligned model and a nonnegative family margin";
+		if(modelThresholds==null){return id>bestId;}
+		if(bestModel<0){return id>0;}
+		final boolean pass=id>=modelPass(model)+margin, bestPass=bestId>=modelPass(bestModel)+margin;
+		return pass!=bestPass ? pass : id>bestId;
 	}
 
 	/** Preserve the original top1 candidate, including its physical-edge retry,
@@ -925,7 +1008,9 @@ public class NcrnaScavenger {
 		assert(mitoOriginalFirst && reuseConsensusAlignment && !mappingOracleExhaustive):
 			"Original-first policy is only for the explicit coverage library; exhaustive diagnostics remain exhaustive";
 		final int originalCount=NcrnaFamilyRegistry.get("16S").models.length;
+		final long rankStart=NcrnaCpuProfile.cpuNow();
 		final int[] ranked=kmerIndex.shortlist(seq,library.length);
+		if(rankStart>=0){shortlistCpuNanos+=NcrnaCpuProfile.cpuNow()-rankStart;}
 		final int[] one=new int[1];
 		int top=0,second=0,third=0,rankedMito=0;
 		for(int model:ranked){if(model>=originalCount){final int count=kmerIndex.lastSharedCount(model);
@@ -1006,6 +1091,7 @@ public class NcrnaScavenger {
 			final float modelBorderline=modelThresholds==null?idBorderline:modelThresholds.borderline(m);
 			if(aligned[m]){throw new IllegalStateException("Consensus aligned more than once at one locus: family="+family+", model="+m);}
 			aligned[m]=true;
+			if(mitoMinLengths==null && !modelLengthFeasible(m, seq.length)){continue;}
 			if(!mitoLengthFeasible(m,seq.length)){mitoLengthSkips++;continue;}
 			final AlignmentStats stats;
 			final AlignmentStats observedStats;
@@ -1016,6 +1102,7 @@ public class NcrnaScavenger {
 			//seal e324e60215c630244495. No fallback here until its accuracy/cost is measured;
 			//window truncation is a separate loss and must not be attributed to the aligner.
 			final float id;
+			final long cpuStart=NcrnaCpuProfile.cpuNow();
 			if(clipModel){
 				if(endClippedAligner==null){endClippedAligner=new EndClippedAligner();}
 				// Explicit16S/23S floors restrict clipping to physical edges; preserve existing18S local rescue.
@@ -1043,6 +1130,7 @@ public class NcrnaScavenger {
 				id=quantumCapMultiplier==1 ? QuantumAligner.alignAndTraceStatic(library[m], seq, stats)
 					: QuantumAligner.alignAndTraceStatic(library[m], seq, stats, quantumCapMultiplier);
 			}
+			alignmentTimed(cpuStart);
 			diagnoseModel(name,bases.length,strand,pass,wStart,wStop,m,id);
 			alignedBases+=seq.length;
 			alignmentCount++;
@@ -1057,8 +1145,9 @@ public class NcrnaScavenger {
 			final int alignedLength=stats==null ? 0 : quantumAlignedLength(stats,seq.length);
 			final boolean edgeMargin=!(clipModel && physicalEdgeMinLen>0) || id>=EDGE_IDENTITY_FLOOR;
 			final boolean spanAllowed=genuineClip && (joined ? joinedLengthAllowed(stats,seq.length) : stats!=null && alignedLength<=alignmentMaxLength(m)
-				&& (!(clipModel || mitoMinLengths!=null) || alignedLength>=alignmentMinLength(stats,clipModel,m)));
+				&& (!(clipModel || mitoMinLengths!=null || modelThresholds!=null && modelThresholds.hasLengths()) || alignedLength>=alignmentMinLength(stats,clipModel,m)));
 			final boolean lengthAllowed=edgeMargin && spanAllowed;
+			if(stats!=null && !modelAlignedSpanAllowed(m, alignedLength)){modelSpanRejects++;}
 			if(spanAllowed && !edgeMargin && id>bestEdgeRejectedId){bestEdgeRejectedId=id;bestEdgeRejectedModel=m;}
 			if(modelAttemptSink!=null){
 				modelAttemptSink.modelAttempt(name,strand,pass,wStart,wStop,j+1+modelAttemptRankOffset,m,
@@ -1081,8 +1170,10 @@ public class NcrnaScavenger {
 			final float candidateFloor=cmVerifier==null ? modelPass : modelBorderline;
 			if(id>=candidateFloor && id>bestPassId){bestPassId=id;bestPassModel=m;bestPassStats=stats;}
 			if(cmVerifier==null && models!=null && m<models.length && id>=modelBorderline && hbmPass<=1f){
+				final long hbmStart=NcrnaCpuProfile.cpuNow();
 				final float hbm=clipModel ? TrnaConsensusBuilder.scoreAlignedAgainstModel(seq,stats,models[m],((EndClippedAligner.Result)stats).qStart)
 					: TrnaConsensusBuilder.scoreAlignedAgainstModel(seq,stats,models[m]);
+				if(hbmStart>=0){hbmCpuNanos+=NcrnaCpuProfile.cpuNow()-hbmStart;}
 				hbmScoreCalls++; hbmBasesScored+=alignedLength;
 				if(DEBUG){System.err.println("DEBUG   reused-quantum-hbm model="+m+" hbm="+hbm);}
 				if(hbm>bestHbm){bestHbm=hbm;bestHbmModel=m;bestHbmIdentity=id;bestHbmStats=stats;}
@@ -1149,6 +1240,10 @@ public class NcrnaScavenger {
 			if(pendingInstrumentation!=null){pendingInstrumentation.remove(orf);}
 			diagnoseWindow(name,bases,strand,pass,wStart,wStop,"REJECT_MAXLEN",khits,shortlist.length,
 				model,bestId,0f,bestHbm,orf.start,orf.stop,trimmed);
+			return null;
+		}
+		if(!acceptedLengthValid(orf, model)){
+			diagnoseWindow(name,bases,strand,pass,wStart,wStop,"REJECT_MODEL_LENGTH",khits,shortlist.length,model,bestId,0f,bestHbm,orf.start,orf.stop,trimmed);
 			return null;
 		}
 		if(cmVerifier!=null){
@@ -1239,7 +1334,9 @@ public class NcrnaScavenger {
 		final boolean trimSucceeded;
 		if(trimAlignmentExtent && partial!=null){
 			alignmentCount++;alignedBases+=Tools.min(bases.length-1,orf.stop+trimExt)-Tools.max(0,orf.start-trimExt)+1;
+			final long cpuStart=NcrnaCpuProfile.cpuNow();
 			final idaligner.ContigEdgeAlignment.Bounds ends=idaligner.ContigEdgeAlignment.refineInterior(library[model],bases,partial,trimExt,wStart);
+			alignmentTimed(cpuStart);
 			orf.start=ends.start;orf.stop=ends.stop;trimSucceeded=ends.changed;
 		}else if(trimAlignmentExtent){trimSucceeded=trimToAlignmentExtent(orf, bases, model, wStart, wStop, acceptedIdentity);}
 		else{trimSucceeded=false;}
@@ -1289,8 +1386,10 @@ public class NcrnaScavenger {
 		final byte[] cons=library[model];
 		AlignmentStats stats=new AlignmentStats(true);
 		stats.doTrace=true;
+		final long cpuStart=NcrnaCpuProfile.cpuNow();
 		if(seqX.length>=cons.length){ScrabbleAligner.alignAndTraceStatic(cons, seqX, stats);}
 		else{ScrabbleAligner.alignAndTraceStatic(seqX, cons, stats);}
+		alignmentTimed(cpuStart);
 		alignedBases+=seqX.length;
 		alignmentCount++;
 		//Citan, 2026-08-28: the original code `return`ed here on either guard, which ALSO
@@ -1310,8 +1409,8 @@ public class NcrnaScavenger {
 				// identity; minLen was checked only before this call (alignWindowPrimary).
 				// Keep the original coordinates unless the new span clears the same
 				// family identity/length gates and does not lower accepted identity.
-				if(rStop-rStart+1<minLen || !Float.isFinite(stats.identity)
-						|| stats.identity<idPass || stats.identity<acceptedIdentity){return false;}
+				if(rStop-rStart+1<minLen || !modelAlignedSpanAllowed(model, rStop-rStart+1) || !Float.isFinite(stats.identity)
+						|| stats.identity<modelPass(model) || stats.identity<acceptedIdentity){return false;}
 				orf.start=xFrom+rStart;
 				orf.stop=xFrom+rStop;
 				trimSucceeded=true;
@@ -1491,14 +1590,17 @@ public class NcrnaScavenger {
 	}
 
 	private int[] shortlistByKmer(byte[] seq, int topN){
-		if(mappingOracleExhaustive || kmerIndex==null || library==null){
-			//Refresh diagnostic shared-count scratch for this query, but discard its filtering.
-			if(mappingOracleExhaustive && kmerIndex!=null){kmerIndex.shortlist(seq,library.length);}
-			int[] all=new int[library.length];
-			for(int i=0; i<all.length; i++){all[i]=i;}
-			return all;
-		}
-		return kmerIndex.shortlist(seq, topN, indexScoreMargin);
+		final long cpuStart=NcrnaCpuProfile.cpuNow();
+		try{
+			if(mappingOracleExhaustive || kmerIndex==null || library==null){
+				//Refresh diagnostic shared-count scratch for this query, but discard its filtering.
+				if(mappingOracleExhaustive && kmerIndex!=null){kmerIndex.shortlist(seq,library.length);}
+				int[] all=new int[library.length];
+				for(int i=0; i<all.length; i++){all[i]=i;}
+				return all;
+			}
+			return kmerIndex.shortlist(seq, topN, indexScoreMargin);
+		}finally{if(cpuStart>=0){shortlistCpuNanos+=NcrnaCpuProfile.cpuNow()-cpuStart;}}
 	}
 
 	private boolean votingEnabled(){return voteTable!=null && (voteWindows || voteEnds);}
@@ -1679,7 +1781,9 @@ public class NcrnaScavenger {
 	private MitoSsuTierLog mitoTierLog;
 	private int modelAttemptRankOffset=0;
 	public void setModelThresholds(NcrnaModelThresholds thresholds){
-		if(thresholds==null || !reuseConsensusAlignment){throw new IllegalArgumentException("Model cutoffs require the single-alignment path");}
+		if(thresholds==null || !reuseConsensusAlignment && !thresholds.hasLengths()){
+			throw new IllegalArgumentException("Generic verification requires a complete model profile with length metadata");
+		}
 		thresholds.validate(modelNames);modelThresholds=thresholds;mitoMinimumsInitialized=false;
 	}
 	//Forward-ported from Noire's tree (2026-08-28, C3 merge): per-family orfScore formula
@@ -1740,6 +1844,9 @@ public class NcrnaScavenger {
 
 	private long alignmentCount=0;
 	private long mitoLengthSkips=0,mitoAlignmentCount=0,original16sAlignmentCount=0;
+	private long modelLengthChecks=0, modelLengthSkips=0, modelSpanRejects=0;
+	private final int[] lengthPositions=new int[2];
+	private long alignmentCpuNanos=0, shortlistCpuNanos=0, hbmCpuNanos=0;
 	private long alignedBases=0, hbmScoreCalls=0, hbmBasesScored=0;
 	private long kmerHitCount=0, windowCount=0;
 	private long boundaryNanos=0;

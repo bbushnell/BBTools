@@ -8,13 +8,13 @@ import structures.ByteBuilder;
  * The driver writes HEADER once and owns writer startup/shutdown.
  * @author G11, Raiden
  */
-final class NcrnaStageDiagLogSink implements NcrnaStageDiagSink {
+public final class NcrnaStageDiagLogSink implements NcrnaStageDiagSink {
 
-	NcrnaStageDiagLogSink(ByteStreamWriter writer){
+	public NcrnaStageDiagLogSink(ByteStreamWriter writer){
 		if(writer==null){throw new IllegalArgumentException("Stage diagnostics require an output writer");}
 		bsw=writer;
 	}
-	static final String HEADER="type\tfamily\tcontig\tstrand\tscaflen\tpass\twStart\twStop"
+	public static final String HEADER="type\tfamily\tcontig\tstrand\tscaflen\tpass\twStart\twStop"
 		+"\toutcome\tkhits\tshortlistSize\tmodelIndex\tmodelName\tbestId\tbestReId\tbestHbm"
 		+"\torfStart\torfStop\ttrimSucceeded\tseedCount\tseedPositions";
 
