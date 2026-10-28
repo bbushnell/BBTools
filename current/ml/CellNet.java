@@ -712,8 +712,18 @@ public class CellNet implements Cloneable, Comparable<CellNet>{
 	 * @param inverseStd Per-input positive finite float32 inverse deviations
 	 */
 	public void setInputNormalization(float[] mean, float[] inverseStd){
+		setInputNormalization(mean, inverseStd, 0);
+	}
+
+	/** Installs explicit preprocessing after layer functions are populated; zero disables clipping. */
+	public void setInputNormalization(float[] mean, float[] inverseStd, final float clip){
 		assert(dims!=null && dims.length>=2) : "Input normalization requires the constructed input width";
-		if(mean==null && inverseStd==null){inputMean=null; inputInverseStd=null; return;}
+		if(!Float.isFinite(clip) || clip<0){throw new IllegalArgumentException("Input clip must be finite and nonnegative");}
+		if(clip>0){validateInputClip();}
+		if(mean==null && inverseStd==null){
+			if(clip>0){throw new IllegalArgumentException("Input clipping requires explicit means and inverse deviations");}
+			inputMean=null; inputInverseStd=null; inputClip=0; return;
+		}
 		if(mean==null || inverseStd==null || mean.length!=dims[0] || inverseStd.length!=dims[0]){
 			throw new IllegalArgumentException("Input normalization requires two arrays of width "+dims[0]);
 		}
@@ -722,8 +732,22 @@ public class CellNet implements Cloneable, Comparable<CellNet>{
 				throw new IllegalArgumentException("Nonfinite mean or nonpositive inverse deviation at input "+i);
 			}
 		}
-		inputMean=mean.clone(); inputInverseStd=inverseStd.clone();
+		inputMean=mean.clone(); inputInverseStd=inverseStd.clone(); inputClip=clip==0 ? 0 : clip;
+		if(clip>0){setTag("normalization", "explicit-input");}
 	}
+
+	/** A clipped model must have a hidden layer whose every node uses native TANH. */
+	private void validateInputClip(){
+		if(layers<3 || net[1].length==0){throw new IllegalArgumentException("Input clipping requires a hidden TANH layer");}
+		for(Cell cell:net[1]){
+			if(cell.function!=Function.getFunction(Function.TANH)){
+				throw new IllegalArgumentException("Input clipping requires uniformly TANH first hidden nodes");
+			}
+		}
+	}
+
+	/** Per-network normalized-input bound; positive zero means legacy unclipped arithmetic. */
+	public float inputClip(){return inputClip;}
 
 	/** True only when an actual validated preprocessing pair is installed. */
 	public boolean hasInputNormalization(){return inputMean!=null;}
@@ -743,6 +767,13 @@ public class CellNet implements Cloneable, Comparable<CellNet>{
 		for(int i=0; i<input.length; i++){
 			input[i]-=inputMean[i];
 			input[i]*=inputInverseStd[i];
+		}
+		if(inputClip>0){
+			for(int i=0; i<input.length; i++){
+				final float value=input[i];
+				if(!Float.isFinite(value)){throw new IllegalArgumentException("Nonfinite normalized input before clipping at "+i);}
+				input[i]=value>inputClip ? inputClip : value< -inputClip ? -inputClip : value;
+			}
 		}
 	}
 
@@ -1149,6 +1180,7 @@ public class CellNet implements Cloneable, Comparable<CellNet>{
 
 	/** Node rows are explicit sparse records; legacy callers retain their selected layout. */
 	private ByteBuilder header(final boolean nodeRows){
+		if(inputClip>0){validateInputClip();}
 		if(weightBits<32 && !codingA48Out){throw new IllegalStateException("Reduced-precision edge output requires A48 coding");}
 		if(nodeRows && (OUT_DENSE || OUT_HEX || !CONCISE || !codingA48Out)){
 			throw new IllegalStateException("Node rows require concise A48 sparse output without dense/hex overrides");
@@ -1184,9 +1216,13 @@ public class CellNet implements Cloneable, Comparable<CellNet>{
 			// A48 preserves exact float32 bits without exponent parsing or field Strings.
 			bb.append("#inputmean_a48");
 			for(float value : inputMean){bb.space().appendFloatA48(value);}
-			bb.nl().append("#inputinversestd_a48");
+			if(inputClip>0){
+				bb.nl().append("#inputinversestd_clipped_a48").space().appendFloatA48(inputClip);
+			}else{bb.nl().append("#inputinversestd_a48");}
 			for(float value : inputInverseStd){bb.space().appendFloatA48(value);}
 			bb.nl();
+			// Older explicit-input readers must reject a missing inverse header even under -da.
+			if(inputClip>0){bb.append("##normalization explicit-input").nl();}
 		}
 		for(String s : commands){bb.append(s).nl();} //Creation commands
 		if(lastStats!=null){bb.append("##stats ").append(lastStats).nl();}
@@ -1198,6 +1234,7 @@ public class CellNet implements Cloneable, Comparable<CellNet>{
 		canonicalizeTags();
 		for(Map.Entry<String,String> e : tags.entrySet()){ //Custom tags; one canonical value with the latest requested spelling
 			final String canonical=e.getKey();
+			if(inputClip>0 && canonical.equals("normalization")){continue;}
 			final String name=tagNames.get(canonical);
 			bb.append("##").append(name==null ? canonical : name).space().append(e.getValue()).nl();
 		}
@@ -1610,7 +1647,7 @@ public class CellNet implements Cloneable, Comparable<CellNet>{
 		copy.cutoff=cutoff; //Copy configuration
 		copy.copyTagsFrom(this); //Copy custom tags
 		copy.fname=fname; //Preserve source-file metadata
-		copy.setInputNormalization(inputMean, inputInverseStd);
+		copy.setInputNormalization(inputMean, inputInverseStd, inputClip);
 		copy.weightBits=weightBits;
 		copy.zeroAbsent=zeroAbsent;
 		copy.alpha=alpha;
@@ -1639,7 +1676,6 @@ public class CellNet implements Cloneable, Comparable<CellNet>{
 	public CellNet copyDenseForInference(){
 		assert(dims!=null && dims.length>=2) : "Dense inference requires a constructed network topology";
 		final CellNet copy=new DenseInferenceNet(dims, seed, density, density1, edgeBlockSize);
-		copy.setInputNormalization(inputMean, inputInverseStd);
 		for(int layer=1; layer<layers; layer++){
 			final int width=dims[layer-1];
 			for(int i=0; i<net[layer].length; i++){
@@ -1665,6 +1701,7 @@ public class CellNet implements Cloneable, Comparable<CellNet>{
 				}
 			}
 		}
+		copy.setInputNormalization(inputMean, inputInverseStd, inputClip);
 		return copy;
 	}
 
@@ -1710,7 +1747,7 @@ public class CellNet implements Cloneable, Comparable<CellNet>{
 		cutoff=cn.cutoff; //Copy classification threshold
 		copyTagsFrom(cn); //Copy custom tags
 		fname=cn.fname; //Copy source-file metadata
-		setInputNormalization(cn.inputMean, cn.inputInverseStd);
+		setInputNormalization(cn.inputMean, cn.inputInverseStd, cn.inputClip);
 		weightBits=cn.weightBits;
 		zeroAbsent=cn.zeroAbsent;
 		alpha=cn.alpha; //Copy learning parameters
@@ -1996,6 +2033,7 @@ public class CellNet implements Cloneable, Comparable<CellNet>{
 	public final float[][] values;
 	/** Optional private float32 standardization; absent for historical networks. */
 	private float[] inputMean, inputInverseStd;
+	private float inputClip;
 	/** Error gradients per layer [layer][neuron] */
 	final float[][] eOverNet;
 	/** Input weight matrices [layer][neuron][input_weight] */

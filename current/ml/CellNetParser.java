@@ -108,6 +108,9 @@ public class CellNetParser{
 		if("explicit-input".equals(tags.get("normalization")) && (inputMean==null || inputInverseStd==null)){
 			throw new IllegalArgumentException("explicit-input normalization requires both critical input headers");
 		}
+		if(inputClip>0 && (normalizationDeclarations!=1 || !"explicit-input".equals(tags.get("normalization")))){
+			throw new IllegalArgumentException("Clipped normalization requires exactly one explicit-input declaration");
+		}
 		net=inferenceOnly ? new ParsedInferenceNet(dims, seed, density, density1, edgeBlockSize, commands, dense) :
 			new CellNet(dims, seed, density, density1, edgeBlockSize, commands, dense);
 		net.setInputNormalization(inputMean, inputInverseStd);
@@ -128,6 +131,8 @@ public class CellNetParser{
 		}else{
 			parseEdgesSparse();
 		}
+		// Activation validation must follow node loading, not the constructor's default functions.
+		if(inputClip>0){net.setInputNormalization(inputMean, inputInverseStd, inputClip);}
 		if(!inferenceOnly){net.makeWeightMatrices();}
 	}
 
@@ -162,7 +167,8 @@ public class CellNetParser{
 					//the net does not exist yet here). A bare "##" with no value is ignored as a comment.
 					int sp=Tools.indexOf(line, delimiter);
 					if(sp>2){
-						String key=new String(line, 2, sp-2);
+						final String key=new String(line, 2, sp-2);
+						if(key.equalsIgnoreCase("normalization")){normalizationDeclarations++;}
 						tags.remove(key); //Preserve final-occurrence order for repeated exact spellings
 						tags.put(key, new String(line, sp+1, line.length-sp-1));
 					}
@@ -207,11 +213,18 @@ public class CellNetParser{
 				}else if(Tools.startsWith(line, "#sparse")){
 					dense=false;
 				}else if(Tools.startsWith(line, "#inputmean_a48")){
+					if(line.length<=14 || line[14]!=' '){throw new IllegalArgumentException("Malformed #inputmean_a48 header");}
 					if(inputMean!=null){throw new IllegalArgumentException("Duplicate #inputmean header");}
 					inputMean=parseNormalization(line);
+				}else if(Tools.startsWith(line, "#inputinversestd_clipped_a48")){
+					if(inputInverseStd!=null){throw new IllegalArgumentException("Duplicate input inverse deviation policy");}
+					parseClippedNormalization(line);
 				}else if(Tools.startsWith(line, "#inputinversestd_a48")){
+					if(line.length<=20 || line[20]!=' '){throw new IllegalArgumentException("Malformed #inputinversestd_a48 header");}
 					if(inputInverseStd!=null){throw new IllegalArgumentException("Duplicate #inputinversestd header");}
 					inputInverseStd=parseNormalization(line);
+				}else if(Tools.startsWith(line, "#inputinversestd")){
+					throw new IllegalArgumentException("Unknown input inverse deviation policy header");
 				}else if(Tools.startsWith(line, "#dims")){
 					dims=parseIntArray(line, delimiter, true);
 					assert(layers==dims.length) : layers+", "+Arrays.toString(dims);
@@ -584,6 +597,8 @@ public class CellNetParser{
 	int[] dims;
 	/** Exact A48 input preprocessing, independent of edge-weight coding. */
 	private float[] inputMean, inputInverseStd;
+	private float inputClip;
+	private int normalizationDeclarations;
 	/** Current parsing position in the line list */
 	int pos=0;
 	/** Classification threshold cutoff value */
@@ -620,6 +635,38 @@ public class CellNetParser{
 	}
 
 	/** Reads a critical normalization array without allocating a String per field. */
+	private void parseClippedNormalization(final byte[] line){
+		final String key="#inputinversestd_clipped_a48";
+		if(line.length<=key.length() || line[key.length()]!=' '){
+			throw new IllegalArgumentException("Malformed clipped inverse deviation header");
+		}
+		final LineParser2 parser=new LineParser2(delimiter);
+		parser.set(line); parser.advance();
+		inputClip=parseNormalizationFloat(parser);
+		if(!Float.isFinite(inputClip) || inputClip<=0){throw new IllegalArgumentException("Clipped input bound must be finite and positive");}
+		final FloatList values=new FloatList();
+		while(parser.hasMore()){values.add(parseNormalizationFloat(parser));}
+		if(values.size==0){throw new IllegalArgumentException("Missing clipped input inverse deviations");}
+		inputInverseStd=values.toArray();
+	}
+
+	/** Checks the full unsigned32-bit A48 payload before converting it to float bits. */
+	private static float parseNormalizationFloat(final LineParser2 parser){
+		if(!parser.hasMore()){throw new IllegalArgumentException("Missing clipped normalization value");}
+		parser.advance();
+		final int length=parser.currentFieldLength();
+		if(length<1 || length>6){throw new IllegalArgumentException("Clipped normalization requires one to six A48 symbols");}
+		long bits=0;
+		for(int i=parser.a(); i<parser.b(); i++){
+			final int symbol=parser.line()[i]-48;
+			if(symbol<0 || symbol>63){throw new IllegalArgumentException("Invalid clipped normalization A48 symbol");}
+			bits=(bits<<6)|symbol;
+		}
+		if(bits>0xffffffffL){throw new IllegalArgumentException("Clipped normalization A48 value exceeds32 bits");}
+		return Float.intBitsToFloat((int)bits);
+	}
+
+	/** Reads a legacy critical normalization array without changing its parsing contract. */
 	private static float[] parseNormalization(byte[] line){
 		assert(line!=null && line.length>0) : "Normalization parser requires a nonempty header line";
 		final LineParser2 parser=new LineParser2(delimiter);
