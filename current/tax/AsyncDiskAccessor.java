@@ -8,32 +8,49 @@ import java.util.concurrent.*;
 
 /**
  * Async disk accessor — uses AsynchronousFileChannel to submit all
- * first-probe reads at once. Subsequent probes use the same channel
- * but are nearly always page-cache hits (12B slots, 4KB pages).
+ * first-probe reads at once. Sequential collision probes reuse the same channel.
+ *
  * @author Brian Bushnell, Chloe
  */
-public class AsyncDiskAccessor extends DiskAccessor {
+public class AsyncDiskAccessor extends DiskAccessor{
 
-	public AsyncDiskAccessor(String path) throws IOException {
+	/** Opens a disk accession table and reads its partition header.
+	 * The asynchronous channel remains open for lookup batches; the temporary
+	 * {@link RandomAccessFile} used for header loading is closed before return.
+	 *
+	 * @param path Path to the binary accession table
+	 * @throws IOException if the table or its header cannot be opened or read
+	 */
+	public AsyncDiskAccessor(String path) throws IOException{
 		afc=AsynchronousFileChannel.open(Paths.get(path), StandardOpenOption.READ);
+		boolean success=false;
+		RandomAccessFile raf=null;
+		try{
 
-		// Read header synchronously via a temporary channel
-		RandomAccessFile raf=new RandomAccessFile(path, "r");
-		long totalCapacity=raf.readLong();
-		entryCount=raf.readLong();
-		numPartitions=raf.readInt();
-		raf.readInt(); //reserved
+			// Read header synchronously via a temporary channel
+			raf=new RandomAccessFile(path, "r");
+			long totalCapacity=raf.readLong();
+			entryCount=raf.readLong();
+			numPartitions=raf.readInt();
+			raf.readInt(); //reserved
 
-		partCapacities=new long[numPartitions];
-		partOffsets=new long[numPartitions];
-		partMasks=new long[numPartitions];
-		for(int i=0; i<numPartitions; i++){
-			partCapacities[i]=raf.readLong();
-			partOffsets[i]=raf.readLong();
-			partMasks[i]=partCapacities[i]-1;
+			partCapacities=new long[numPartitions];
+			partOffsets=new long[numPartitions];
+			partMasks=new long[numPartitions];
+			for(int i=0; i<numPartitions; i++){
+				partCapacities[i]=raf.readLong();
+				partOffsets[i]=raf.readLong();
+				partMasks[i]=partCapacities[i]-1;
+			}
+			partitionBits=Integer.numberOfTrailingZeros(Integer.highestOneBit(numPartitions));
+			raf.close();
+			success=true;
+		}finally{
+			if(!success){
+				if(raf!=null){closeQuietly(raf);}
+				closeQuietly(afc);
+			}
 		}
-		partitionBits=Integer.numberOfTrailingZeros(Integer.highestOneBit(numPartitions));
-		raf.close();
 	}
 
 	@Override
@@ -66,6 +83,8 @@ public class AsyncDiskAccessor extends DiskAccessor {
 		for(int i=0; i<n; i++){
 			if(futures[i]==null){continue;}
 			try{
+				//TODO: Probable bug - asynchronous read failures are caught and
+				// converted to absent results in both first and collision probes.
 				futures[i].get();
 			}catch(Exception e){results[i]=-1; continue;}
 			bufs[i].flip();
@@ -96,15 +115,32 @@ public class AsyncDiskAccessor extends DiskAccessor {
 	@Override public String name(){return "Async (AsynchronousFileChannel)";}
 
 	@Override
-	public void close() throws IOException {
+	public void close() throws IOException{
 		afc.close();
 	}
 
+	/** Closes a partially constructed handle during constructor failure cleanup.
+	 *
+	 * @param c Handle to close
+	 */
+	private static void closeQuietly(final Closeable c){
+		try{
+			c.close();
+		}catch(IOException e){/* Failure is intentionally suppressed. */}
+	}
+
+	/** Asynchronous channel shared by all submitted slot reads */
 	private final AsynchronousFileChannel afc;
+	/** Slot count for each table partition, parsed from the file header */
 	private final long[] partCapacities;
+	/** Byte offset for the first slot of each partition */
 	private final long[] partOffsets;
+	/** Probe-mask for wrapping within each power-of-two partition */
 	private final long[] partMasks;
+	/** Number of accession entries recorded in the table header */
 	private final long entryCount;
+	/** Number of table partitions recorded in the table header */
 	private final int numPartitions;
+	/** High hash bits consumed to choose a partition */
 	private final int partitionBits;
 }

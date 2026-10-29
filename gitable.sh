@@ -3,15 +3,15 @@
 usage(){
 echo "
 Written by Brian Bushnell.
-Last modified February 25, 2026
+Last modified October 27, 2026
 
-Description:  Creates gitable.int1d from accession files:
+Description:  Creates gitable.int2d from accession files:
 ftp://ftp.ncbi.nih.gov/pub/taxonomy/accession2taxid/*.accession2taxid.gz
 This is for use of gi numbers, which are deprecated by NCBI, and are neither
 necessary nor recommended if accession numbers are present.
 See TaxonomyGuide and fetchTaxonomy.sh for more information.
 
-Usage:  gitable.sh *accession2taxid.gz gitable.int1d.gz
+Usage:  gitable.sh *accession2taxid.gz gitable.int2d.gz
 
 Java Parameters:
 -Xmx            This will set Java's memory usage, overriding autodetection.

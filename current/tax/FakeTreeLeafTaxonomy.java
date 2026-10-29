@@ -22,10 +22,12 @@ import structures.ByteBuilder;
 
 /**
  * Assigns real taxonomy parents for permanent FakeTree leaf nodes.
+ * Merges candidate parents from FindSSU and QuickClade evidence, emits proposal
+ * and node tables, and writes optional conflict-inspection and summary tables.
  * @author Brian Bushnell, Yelan
  * @date October 7, 2026
  */
-public class FakeTreeLeafTaxonomy {
+public class FakeTreeLeafTaxonomy{
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
@@ -40,6 +42,8 @@ public class FakeTreeLeafTaxonomy {
 		Shared.closeStream(x.outstream);
 	}
 
+	/** Parses parameters, validates file targets, and prepares input/output formats.
+	 * @param args Command-line arguments */
 	public FakeTreeLeafTaxonomy(String[] args){
 		{//Preparse block for help, config files, and outstream
 			PreParser pp=new PreParser(args, getClass(), false);
@@ -97,6 +101,7 @@ public class FakeTreeLeafTaxonomy {
 		ffSummary=FileFormat.testOutput(summaryFile, FileFormat.TEXT, null, true, overwrite, append, false);
 	}
 
+	/** Ensures all required tables and writable outputs are present and distinct. */
 	private void validateParams(){
 		if(leafMapFile==null){throw new RuntimeException("A leaf map is required: in=<file>");}
 		if(ssuFile==null){throw new RuntimeException("An SSU top-hit table is required: ssu=<file>");}
@@ -119,6 +124,8 @@ public class FakeTreeLeafTaxonomy {
 	/*----------------           Methods            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Loads the taxonomy, assigns every FakeTree leaf row, and writes all requested tables.
+	 * @param t Workflow timer */
 	void process(Timer t){
 		if(treeFile!=null){TaxTree.treeFile=treeFile;}
 		tree=TaxTree.loadTaxTree(treeFile, outstream, false, false);
@@ -165,6 +172,15 @@ public class FakeTreeLeafTaxonomy {
 		}
 	}
 
+	/** Assigns one proposal row from optional FindSSU and QuickClade evidence.
+	 * Eligible SSU evidence takes priority at species or genus parent rank.
+	 * Broader SSU parents, including the Life fallback for unresolved taxIDs,
+	 * yield to usable QuickClade evidence. Without usable QuickClade evidence,
+	 * the existing SSU eligibility and unresolved-row fallback still apply.
+	 * @param leaf Fake leaf map row
+	 * @param srow Matching FindSSU row, or null when absent
+	 * @param qrow Matching QuickClade row, or null when absent
+	 * @return Proposal row */
 	private Row makeRow(final Row leaf, final Row srow, final Row qrow){
 		final Integer ssuTid=taxid(srow==null ? "" : srow.get("hit_tid"));
 		final Integer qcTid=taxid(qrow==null ? "" : qrow.get("ref_taxid"));
@@ -174,14 +190,16 @@ public class FakeTreeLeafTaxonomy {
 		final String qcTarget=(qrow==null ? "" : qcRank(qrow));
 		final Parent qcParent=(qcTid==null ? Parent.EMPTY : parentAt(qcTid, qcTarget));
 		final Parent agreement=deepestAgreement(ssuTid, qcTid);
+		final boolean usableSsu=srow!=null && ssuAni>=0.800 && ssuParent.tid>0;
+		final boolean usableQc=qrow!=null && qcParent.tid>0 && qcParent.tid!=TaxTree.LIFE_ID;
 		final Parent proposed;
 		final String source, decision;
-		if(srow!=null && ssuAni>=0.800 && ssuParent.tid>0){
+		if(usableSsu && (!usableQc || "genus".equals(ssuParent.rank) || "species".equals(ssuParent.rank))){
 			proposed=ssuParent;
 			source="findssu";
-			decision=(agreement.tid>0 && !"domain".equals(agreement.rank) ? 
+			decision=(agreement.tid>0 && !"domain".equals(agreement.rank) ?
 				"ssu_with_qc_real_lineage_support" : qrow!=null ? "ssu_with_qc_conflict" : "ssu_only");
-		}else if(qrow!=null && qcParent.tid>0 && qcParent.tid!=TaxTree.LIFE_ID){
+		}else if(usableQc){
 			proposed=qcParent;
 			source="quickclade";
 			decision="quickclade_only";
@@ -240,6 +258,10 @@ public class FakeTreeLeafTaxonomy {
 		return out;
 	}
 
+	/** Converts a proposal into one TaxTree node row for the durable FakeTree leaf table.
+	 * @param leaf Fake leaf map row
+	 * @param proposal Chosen parent proposal
+	 * @return Node table row */
 	private Row makeNodeRow(final Row leaf, final Row proposal){
 		String rank=proposal.get("fake_node_rank");
 		Row out=new Row();
@@ -258,6 +280,10 @@ public class FakeTreeLeafTaxonomy {
 		return out;
 	}
 
+	/** Finds the first lineage parent at or above the target rank.
+	 * @param tid Starting taxID
+	 * @param targetRank Minimum accepted rank; must be in {@link #RANKS}
+	 * @return Selected lineage parent, or life for an unknown lineage or no qualifying tracked rank */
 	private Parent parentAt(int tid, String targetRank){
 		TaxNode tn=tree.getNode(tid);
 		if(tn==null){return Parent.LIFE;}
@@ -271,6 +297,12 @@ public class FakeTreeLeafTaxonomy {
 		return Parent.LIFE;
 	}
 
+	/** Finds the nearest tracked QuickClade ancestor present in the FindSSU lineage.
+	 * This compares the nearest FindSSU node per tracked rank against each tracked
+	 * QuickClade ancestor rather than doing a full LCA search.
+	 * @param ssuTid FindSSU hit taxID, or null
+	 * @param qcTid QuickClade reference taxID, or null
+	 * @return Matched tracked-rank parent, or {@link Parent#EMPTY} when none exists */
 	private Parent deepestAgreement(Integer ssuTid, Integer qcTid){
 		if(ssuTid==null || qcTid==null){return Parent.EMPTY;}
 		TaxNode ssuNode=tree.getNode(ssuTid), qcNode=tree.getNode(qcTid);
@@ -288,6 +320,9 @@ public class FakeTreeLeafTaxonomy {
 		return Parent.EMPTY;
 	}
 
+	/** Builds a ranked lineage map keyed by the rank names in {@link #RANKS}.
+	 * @param tn Starting node
+	 * @return First seen parent for every tracked rank */
 	private HashMap<String, Parent> makeLineage(TaxNode tn){
 		HashMap<String, Parent> map=new HashMap<String, Parent>();
 		while(tn!=null){
@@ -301,23 +336,49 @@ public class FakeTreeLeafTaxonomy {
 		return map;
 	}
 
+	/** Reads a tab-delimited table into named rows.
+	 * @param ff Input table format
+	 * @return All data rows after the header */
 	private static ArrayList<Row> readTable(FileFormat ff){
 		ArrayList<Row> rows=new ArrayList<Row>();
 		ByteFile bf=ByteFile.makeByteFile(ff);
-		byte[] line=bf.nextLine();
-		if(line==null){throw new RuntimeException("Empty table: "+ff.name());}
-		String[] header=new String(line).split("\t", -1);
-		for(line=bf.nextLine(); line!=null; line=bf.nextLine()){
-			String[] split=new String(line).split("\t", -1);
-			Row row=new Row();
-			for(int i=0; i<header.length; i++){row.put(header[i], i<split.length ? split[i] : "");}
-			rows.add(row);
+		Throwable failure=null;
+		try{
+			byte[] line=bf.nextLine();
+			if(line==null){throw new RuntimeException("Empty table: "+ff.name());}
+			String[] header=new String(line).split("\t", -1);
+			for(line=bf.nextLine(); line!=null; line=bf.nextLine()){
+				String[] split=new String(line).split("\t", -1);
+				Row row=new Row();
+				for(int i=0; i<header.length; i++){row.put(header[i], i<split.length ? split[i] : "");}
+				rows.add(row);
+			}
+		}catch(RuntimeException|Error t){
+			failure=t;
+			throw t;
+		}finally{
+			closeTable(bf, ff, failure);
 		}
-		boolean error=bf.close();
-		if(error){throw new RuntimeException("Error reading "+ff.name());}
 		return rows;
 	}
 
+	/** Closes a table reader and preserves any primary read failure.
+	 * @param bf Reader to close
+	 * @param ff Input table format
+	 * @param primary Primary read failure, or null if parsing finished */
+	private static void closeTable(final ByteFile bf, final FileFormat ff,
+			final Throwable primary){
+		try{
+			if(bf.close()){throw new RuntimeException("Error reading "+ff.name());}
+		}catch(RuntimeException|Error t){
+			if(primary==null){throw t;}
+			if(primary!=t){primary.addSuppressed(t);}
+		}
+	}
+
+	/** Reads a table keyed by fake_taxid.
+	 * @param ff Input table format
+	 * @return Last row seen for each fake_taxid */
 	private static HashMap<String, Row> readTableMap(FileFormat ff){
 		ArrayList<Row> rows=readTable(ff);
 		HashMap<String, Row> map=new HashMap<String, Row>();
@@ -327,6 +388,10 @@ public class FakeTreeLeafTaxonomy {
 		return map;
 	}
 
+	/** Writes selected row fields in tab-delimited order.
+	 * @param rows Rows to write
+	 * @param fields Output field order
+	 * @param ff Output table format */
 	private static void writeRows(ArrayList<Row> rows, String[] fields, FileFormat ff){
 		ByteStreamWriter bsw=ByteStreamWriter.makeBSW(ff);
 		ByteBuilder bb=new ByteBuilder(1<<16);
@@ -347,6 +412,10 @@ public class FakeTreeLeafTaxonomy {
 		if(error){throw new RuntimeException("Error writing "+ff.name());}
 	}
 
+	/** Writes the text summary of total, inspection, source, decision, and node-rank counts.
+	 * @param rows Number of input leaf rows
+	 * @param inspectRows Number of proposal rows needing manual inspection
+	 * @param ff Output summary format */
 	private void writeSummary(int rows, int inspectRows, FileFormat ff){
 		ByteStreamWriter bsw=ByteStreamWriter.makeBSW(ff);
 		ByteBuilder bb=new ByteBuilder();
@@ -362,6 +431,9 @@ public class FakeTreeLeafTaxonomy {
 		if(error){throw new RuntimeException("Error writing "+ff.name());}
 	}
 
+	/** Appends a tab-delimited header line.
+	 * @param bb Destination buffer
+	 * @param fields Header fields */
 	private static void appendHeader(ByteBuilder bb, String[] fields){
 		for(int i=0; i<fields.length; i++){
 			if(i>0){bb.tab();}
@@ -370,6 +442,8 @@ public class FakeTreeLeafTaxonomy {
 		bb.nl();
 	}
 
+	/** Increments one summary counter by name.
+	 * @param key Counter key */
 	private void increment(String key){
 		Long old=counters.get(key);
 		counters.put(key, old==null ? 1L : old+1);
@@ -379,15 +453,35 @@ public class FakeTreeLeafTaxonomy {
 	/*----------------        Static Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/**
+	 * Tests whether a rank is broad enough to require manual inspection.
+	 * @param rank Proposed parent rank
+	 * @return True for life or domain
+	 */
 	private static boolean domainOrHigher(String rank){return "life".equals(rank) || "domain".equals(rank);}
 
+	/**
+	 * Tests whether a table field contains a usable value.
+	 * @param s Field text
+	 * @return True when the field is neither empty nor a known missing-value token
+	 */
 	private static boolean known(String s){
 		return s!=null && s.length()>0 && !s.equals("NA") && !s.equals("None") && !s.equals(".") &&
 			!s.equals("-1") && !s.equals("unknown");
 	}
 
+	/**
+	 * Converts a boolean to the lowercase text used in proposal tables.
+	 * @param b Value to encode
+	 * @return {@code "true"} or {@code "false"}
+	 */
 	private static String boolString(boolean b){return b ? "true" : "false";}
 
+	/**
+	 * Parses a positive taxID from a digit-only field.
+	 * @param value Candidate taxID text
+	 * @return Positive parsed taxID, or null for blank, nonnumeric, and nonpositive input
+	 */
 	private static Integer taxid(String value){
 		if(value==null || value.length()<1){return null;}
 		for(int i=0; i<value.length(); i++){
@@ -398,6 +492,11 @@ public class FakeTreeLeafTaxonomy {
 		return tid>0 ? tid : null;
 	}
 
+	/**
+	 * Chooses the requested FindSSU parent rank from ANI thresholds.
+	 * @param ani FindSSU alignment ANI, or -1 when absent
+	 * @return Target parent rank
+	 */
 	private static String ssuRank(double ani){
 		if(ani>=0.985){return "genus";}
 		if(ani>=0.950){return "family";}
@@ -406,6 +505,11 @@ public class FakeTreeLeafTaxonomy {
 		return "domain";
 	}
 
+	/**
+	 * Chooses the requested QuickClade parent rank from sketch LCA or confidence text.
+	 * @param row QuickClade evidence row
+	 * @return Target parent rank, defaulting to phylum
+	 */
 	private static String qcRank(Row row){
 		String lca=row.get("sketch_lca");
 		if(rankIndex(lca)>=0){return lca;}
@@ -418,8 +522,20 @@ public class FakeTreeLeafTaxonomy {
 		return "phylum";
 	}
 
-	private static String fakeNodeRank(String parentRank){return "species".equals(parentRank) ? "subspecies" : "species";}
+	/**
+	 * Derives the emitted fake-node rank from the chosen parent rank.
+	 * @param parentRank Proposed parent rank
+	 * @return Subspecies below species parents, or species otherwise
+	 */
+	private static String fakeNodeRank(String parentRank){
+		return "species".equals(parentRank) ? "subspecies" : "species";
+	}
 
+	/**
+	 * Returns the tracked rank index for rank-comparison helpers.
+	 * @param rank Rank name
+	 * @return Index in {@link #RANKS}, or -1 when untracked
+	 */
 	private static int rankIndex(String rank){
 		for(int i=0; i<RANKS.length; i++){
 			if(RANKS[i].equals(rank)){return i;}
@@ -427,6 +543,11 @@ public class FakeTreeLeafTaxonomy {
 		return -1;
 	}
 
+	/**
+	 * Selects a safe fallback parent for unresolved rows.
+	 * @param domain Expected domain from the leaf map
+	 * @return Bacteria, Archaea, or life
+	 */
 	private static Parent fallbackParent(String domain){
 		if("Bacteria".equals(domain)){return BACTERIA;}
 		if("Archaea".equals(domain)){return ARCHAEA;}
@@ -437,17 +558,33 @@ public class FakeTreeLeafTaxonomy {
 	/*----------------        Nested Classes        ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** String-valued table row keyed by column name. */
 	private static class Row{
 
+		/** Constructs an empty named-field row. */
+		private Row(){}
+
+		/**
+		 * Fetches a field value.
+		 * @param key Column name
+		 * @return Field value, or an empty string when absent
+		 */
 		String get(String key){
 			String s=map.get(key);
 			return s==null ? "" : s;
 		}
 
+		/**
+		 * Stores one stringified field.
+		 * @param key Column name
+		 * @param value Field value
+		 */
 		void put(String key, Object value){map.put(key, value==null ? "" : value.toString());}
 
+		/** Field values keyed by column name. */
 		private final HashMap<String, String> map=new HashMap<String, String>();
 
+		/** Orders rows numerically by fake_taxid. */
 		static final Comparator<Row> FAKE_TAXID_COMPARATOR=new Comparator<Row>(){
 			@Override
 			public int compare(Row a, Row b){
@@ -457,20 +594,37 @@ public class FakeTreeLeafTaxonomy {
 
 	}
 
+	/** Candidate taxonomy parent with its table-ready display rank and name. */
 	private static class Parent{
 
+		/**
+		 * Constructs one parent record.
+		 * @param tid_ TaxID, or a nonpositive sentinel
+		 * @param rank_ Rank name
+		 * @param name_ Node name
+		 */
 		Parent(int tid_, String rank_, String name_){
 			tid=tid_;
 			rank=rank_;
 			name=name_;
 		}
 
+		/**
+		 * Formats the parent taxID for tabular output.
+		 * @return TaxID text, or an empty string for sentinel parents
+		 */
 		String tidString(){return tid<1 ? "" : Integer.toString(tid);}
 
+		/** Taxonomy ID, or a nonpositive sentinel for no parent. */
 		final int tid;
-		final String rank, name;
+		/** Rank name for tabular output. */
+		final String rank;
+		/** Node name for tabular output. */
+		final String name;
 
+		/** Empty parent used when no shared evidence parent exists. */
 		static final Parent EMPTY=new Parent(-1, "", "");
+		/** Life root fallback parent. */
 		static final Parent LIFE=new Parent(TaxTree.LIFE_ID, "life", "Life");
 
 	}
@@ -479,36 +633,64 @@ public class FakeTreeLeafTaxonomy {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Fake leaf map input path. */
 	private String leafMapFile=null;
+	/** FindSSU top-hit table input path. */
 	private String ssuFile=null;
+	/** QuickClade top-hit table input path. */
 	private String quickCladeFile=null;
+	/** Proposal table output path. */
 	private String outFile=null;
+	/** Optional manual-inspection table output path. */
 	private String inspectFile=null;
+	/** FakeTree node table output path. */
 	private String nodeFile=null;
+	/** Optional summary output path. */
 	private String summaryFile=null;
+	/** TaxTree input path. */
 	private String treeFile=TaxTree.defaultTreeFile();
 
+	/** Loaded taxonomy used to validate and climb evidence taxIDs. */
 	private TaxTree tree;
 
-	private FileFormat ffLeafMap, ffSSU, ffQuickClade;
-	private FileFormat ffOut, ffInspect, ffNodes, ffSummary;
+	/** Fake leaf map input format. */
+	private FileFormat ffLeafMap;
+	/** FindSSU top-hit table input format. */
+	private FileFormat ffSSU;
+	/** QuickClade top-hit table input format. */
+	private FileFormat ffQuickClade;
+	/** Proposal table output format. */
+	private FileFormat ffOut;
+	/** Optional manual-inspection table output format. */
+	private FileFormat ffInspect;
+	/** FakeTree node table output format. */
+	private FileFormat ffNodes;
+	/** Optional summary output format. */
+	private FileFormat ffSummary;
 
+	/** Whether existing outputs may be overwritten. */
 	private boolean overwrite=true;
+	/** Whether outputs should be appended to. */
 	private boolean append=false;
+	/** Reserved error flag checked after processing. */
 	private boolean errorState=false;
 
+	/** Summary counters keyed by decision/source/rank label. */
 	private final TreeMap<String, Long> counters=new TreeMap<String, Long>();
 
+	/** Diagnostic output stream from the preparser. */
 	private PrintStream outstream=System.err;
 
 	/*--------------------------------------------------------------*/
 	/*----------------          Constants           ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Tracked ranks from narrowest to broadest for parent selection. */
 	private static final String[] RANKS={
 		"species", "genus", "family", "order", "class", "phylum", "domain"
 	};
 
+	/** Proposal output columns in write order. */
 	private static final String[] PROPOSAL_FIELDS={
 		"fake_taxid", "collection", "origin", "source_id", "genome_id",
 		"existing_parent_taxid", "expected_domain", "expected_phylum",
@@ -524,15 +706,19 @@ public class FakeTreeLeafTaxonomy {
 		"evidence_source", "decision_class"
 	};
 
+	/** Node output columns in write order. */
 	private static final String[] NODE_FIELDS={
 		"fake_taxid", "parent_taxid", "rank", "level", "level_extended",
 		"name", "path_key", "collection", "origin", "source_id",
 		"evidence_source", "decision_class"
 	};
 
+	/** Bacteria fallback parent. */
 	private static final Parent BACTERIA=new Parent(TaxTree.BACTERIA_ID, "domain", "Bacteria");
+	/** Archaea fallback parent. */
 	private static final Parent ARCHAEA=new Parent(TaxTree.ARCHAEA_ID, "domain", "Archaea");
 
+	/** Enables verbose logging. */
 	public static boolean verbose=false;
 
 }

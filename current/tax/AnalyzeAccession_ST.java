@@ -26,13 +26,16 @@ import structures.ByteBuilder;
 import structures.StringNum;
 
 /**
- * Analyzes patterns in biological sequence accession numbers for efficient hashing.
- * Counts accession pattern frequencies, calculates combinatorial possibilities, and supports digitization for TaxID lookup systems.
+ * Single-threaded predecessor to {@link AnalyzeAccession}.  Counts accession
+ * pattern frequencies, calculates combinatorial possibilities, and keeps a
+ * minimal static pattern table for legacy disk-key digitization.
  * @author Brian Bushnell
  * @date May 9, 2018
  */
-public class AnalyzeAccession_ST {
+public class AnalyzeAccession_ST{
 	
+	/** Runs single-threaded accession-pattern analysis from the command line.
+	 * @param args Command-line arguments */
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
 		Timer t=new Timer();
@@ -47,6 +50,8 @@ public class AnalyzeAccession_ST {
 		Shared.closeStream(x.outstream);
 	}
 	
+	/** Parses command-line arguments and prepares input and output formats.
+	 * @param args Command-line arguments */
 	public AnalyzeAccession_ST(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -125,6 +130,9 @@ public class AnalyzeAccession_ST {
 		}
 	}
 	
+	/** Counts accession patterns from all inputs, optionally writes a sorted summary,
+	 * and throws if the reader or output writer reported an error.
+	 * @param t Runtime timer started by the caller */
 	void process(Timer t){
 
 		for(FileFormat ffin : ffina){
@@ -133,7 +141,10 @@ public class AnalyzeAccession_ST {
 		
 		if(ffout!=null){
 			ByteStreamWriter bsw=new ByteStreamWriter(ffout);
-			bsw.start();//FIXED [tax/AnalyzeAccession_ST#001] (twin of AnalyzeAccession#001): start() MUST precede any print. addJob asserts(started) (ByteStreamWriter:292) + ArrayBlockingQueue(5) put()-blocks; writing before start() crashes under -ea once buffered output reaches maxLen=32768. Latent (few distinct L/D/- shapes) but a real contract violation; matches the FindAncestor start()-first idiom.
+			/* FIXED [tax/AnalyzeAccession_ST#001]: start() must precede any
+			 * print; addJob requires a started writer once enough pattern
+			 * lines fill its internal buffer. */
+			bsw.start();
 			bsw.println("#Pattern\tCount\tCombos\tBits");
 			ArrayList<StringNum> list=new ArrayList<StringNum>();
 			list.addAll(countMap.values());
@@ -165,34 +176,52 @@ public class AnalyzeAccession_ST {
 		}
 	}
 	
+	/** Counts one input file sequentially, skipping the first accession header.
+	 * Always attempts to close the reader, suppressing close failures behind a
+	 * primary parse failure.
+	 * @param ffin Input file format descriptor */
 	void process_inner(FileFormat ffin){
 		
 		ByteFile bf=ByteFile.makeByteFile(ffin);
-		
-		byte[] line=bf.nextLine();
-		StringBuilder buffer=new StringBuilder(32);
-		
-		for(int lineNum=0; line!=null; lineNum++){
-			if(line.length>0){
-				if(maxLines>0 && linesProcessed>=maxLines){break;}
-				linesProcessed++;
-				bytesProcessed+=(line.length+1);
-				
-				assert((lineNum==0)==(Tools.startsWith(line, "accession"))) : "Line "+lineNum+": "+new String(line);
+		Throwable failure=null;
+		try{
+			byte[] line=bf.nextLine();
+			StringBuilder buffer=new StringBuilder(32);
+
+			for(int lineNum=0; line!=null; lineNum++){
+				if(line.length>0){
+					if(maxLines>0 && linesProcessed>=maxLines){break;}
+					linesProcessed++;
+					bytesProcessed+=(line.length+1);
+
+					assert((lineNum==0)==(Tools.startsWith(line, "accession"))) :
+						"Line "+lineNum+": "+new String(line);
 //				final boolean valid=(line[0]!='#');
-				
-				if(true){
-					linesOut++;
-					bytesOut+=(line.length+1);
-					increment(line, buffer);
+
+					if(lineNum>0 || !Tools.startsWith(line, "accession")){
+						linesOut++;
+						bytesOut+=(line.length+1);
+						increment(line, buffer);
+					}
 				}
+				line=bf.nextLine();
 			}
-			line=bf.nextLine();
+		}catch(RuntimeException | Error t){
+			failure=t;
+			throw t;
+		}finally{
+			try{
+				errorState|=bf.close();
+			}catch(RuntimeException | Error t){
+				if(failure==null){throw t;}
+				if(failure!=t){failure.addSuppressed(t);}
+			}
 		}
-		
-		errorState|=bf.close();
 	}
 	
+	/** Remaps one accession token into a pattern and increments its count.
+	 * @param line Input line beginning with the accession token
+	 * @param buffer Reused scratch buffer */
 	void increment(byte[] line, StringBuilder buffer){
 		buffer.setLength(0);
 		for(int i=0; i<line.length; i++){
@@ -213,6 +242,9 @@ public class AnalyzeAccession_ST {
 		else{countMap.put(key, new StringNum(key, 1));}
 	}
 	
+	/** Counts possible concrete accessions represented by a pattern.
+	 * @param s Pattern using {@code D} for digits and {@code L} for letters
+	 * @return Product of all variable positions, clamped to Long.MAX_VALUE */
 	public static long combos(String s){
 		double combos=1;
 		for(int i=0; i<s.length(); i++){
@@ -223,6 +255,9 @@ public class AnalyzeAccession_ST {
 		return (combos>=Long.MAX_VALUE ? Long.MAX_VALUE : (long)Math.ceil(combos));
 	}
 	
+	/** Counts possible concrete accessions represented by a byte pattern.
+	 * @param s Pattern using {@code D} for digits and {@code L} for letters
+	 * @return Product of all variable positions, or -1 if it overflows a long */
 	public static long combos(byte[] s){
 		double combos=1;
 		for(int i=0; i<s.length; i++){
@@ -235,14 +270,33 @@ public class AnalyzeAccession_ST {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Loads tab-delimited accession patterns and prepares legacy digitization
+	 * tables for this class' direct map lookup.  The pattern file is closed
+	 * before global table construction or publication; close failures identify
+	 * the file and are suppressed behind a primary read failure.
+	 * @param fname Pattern table path
+	 * @return Pattern to dense-index map, with -1 for overflow patterns */
 	public static HashMap<String, Integer> loadCodeMap(String fname){
 		assert(codeMap==null);
 		TextFile tf=new TextFile(fname);
 		ArrayList<String> list=new ArrayList<String>();
-		for(String line=tf.nextLine(); line!=null; line=tf.nextLine()){
-			if(!line.startsWith("#")){
-				String[] split=line.split("\t");
-				list.add(split[0]);
+		Throwable failure=null;
+		try{
+			for(String line=tf.nextLine(); line!=null; line=tf.nextLine()){
+				if(!line.startsWith("#")){
+					String[] split=line.split("\t");
+					list.add(split[0]);
+				}
+			}
+		}catch(RuntimeException | Error t){
+			failure=t;
+			throw t;
+		}finally{
+			try{
+				if(tf.close()){throw new RuntimeException("Error closing "+fname);}
+			}catch(RuntimeException | Error t){
+				if(failure==null){throw t;}
+				if(failure!=t){failure.addSuppressed(t);}
 			}
 		}
 
@@ -312,6 +366,10 @@ public class AnalyzeAccession_ST {
 		return map;
 	}
 	
+	/** Converts an ASCII accession string to this class' compact positive key
+	 * after {@link #loadCodeMap(String)} has initialized the pattern table.
+	 * @param s Accession string; parsing stops at space, tab, or '.'
+	 * @return Positive key, -1 for overflow patterns, or -2 for no matching pattern */
 	public static long digitize(String s){
 		String pattern=remap(s);
 		Integer idx=codeMap.get(pattern);
@@ -336,6 +394,10 @@ public class AnalyzeAccession_ST {
 		return number;
 	}
 
+	/** Converts ASCII accession bytes to this class' compact positive key after
+	 * {@link #loadCodeMap(String)} has initialized the pattern table.
+	 * @param s Accession bytes; parsing stops at space, tab, or '.'
+	 * @return Positive key, -1 for overflow patterns, or -2 for no matching pattern */
 	public static long digitize(byte[] s){
 		String pattern=remap(s);
 		Integer idx=codeMap.get(pattern);
@@ -360,6 +422,9 @@ public class AnalyzeAccession_ST {
 		return number;
 	}
 	
+	/** Converts an accession prefix into its D/L/-/?/NZ pattern.
+	 * @param s ASCII accession string; parsing stops at space, tab, or '.'
+	 * @return Remapped pattern */
 	public static String remap(String s){
 		ByteBuilder buffer=new ByteBuilder(s.length());
 		for(int i=0; i<s.length(); i++){
@@ -378,6 +443,9 @@ public class AnalyzeAccession_ST {
 		return result;
 	}
 
+	/** Converts accession bytes into their D/L/-/?/NZ pattern.
+	 * @param s ASCII accession bytes; parsing stops at space, tab, or '.'
+	 * @return Remapped pattern */
 	public static String remap(byte[] s){
 		ByteBuilder buffer=new ByteBuilder(s.length);
 		for(int i=0; i<s.length; i++){
@@ -398,33 +466,52 @@ public class AnalyzeAccession_ST {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Input filenames from {@code in=} or bare existing-file arguments. */
 	private ArrayList<String> in=new ArrayList<String>();
+	/** Optional summary output filename. */
 	private String out=null;
 	
 	/*--------------------------------------------------------------*/
 
+	/** Aggregated pattern counts. */
 	private HashMap<String, StringNum> countMap=new HashMap<String, StringNum>();
+	/** Pattern-to-index table populated by {@link #loadCodeMap(String)}. */
 	public static HashMap<String, Integer> codeMap;
+	/** Bits assigned to table-0 pattern codes. */
 	static int codeBits0=-1;
+	/** Bits assigned to table-1 pattern codes. */
 	static int codeBits1=-1;
+	/** Per-pattern bit shift used to leave room for the pattern code. */
 	static int[] patternShift;
+	/** Per-pattern low bits containing the pattern code and table flag. */
 	static int[] patternLowBits;
+	/** Longest loaded pattern length. */
 	private static int longestPattern=-1;
 	
+	/** Total nonempty input lines seen. */
 	private long linesProcessed=0;
+	/** Total nonempty rows counted as patterns. */
 	private long linesOut=0;
+	/** Approximate input bytes including line terminators. */
 	private long bytesProcessed=0;
+	/** Approximate counted bytes including line terminators. */
 	private long bytesOut=0;
 	
+	/** Maximum lines to process; nonpositive command-line values mean unlimited. */
 	private long maxLines=Long.MAX_VALUE;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Input file descriptors. */
 	private final FileFormat[] ffina;
+	/** Optional summary output descriptor. */
 	private final FileFormat ffout;
 	
+	/** ASCII byte-to-pattern remap table. */
 	private static final byte[] remap=makeRemap();
 	
+	/** Builds the ASCII byte-to-pattern lookup table used by the remap helpers.
+	 * @return Remap table for byte values below 128 */
 	private static byte[] makeRemap(){
 		byte[] array=new byte[128];
 		Arrays.fill(array, (byte)'?');
@@ -437,10 +524,15 @@ public class AnalyzeAccession_ST {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Status and progress output stream. */
 	private PrintStream outstream=System.err;
+	/** Enables verbose logging in this class and the delegated I/O classes. */
 	public static boolean verbose=false;
+	/** True once the reader or writer reports a failure. */
 	public boolean errorState=false;
+	/** Allow output files to be overwritten. */
 	private boolean overwrite=true;
+	/** Append to existing output files instead of replacing them. */
 	private boolean append=false;
 	
 }

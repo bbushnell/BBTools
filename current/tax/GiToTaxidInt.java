@@ -11,13 +11,20 @@ import shared.Tools;
 import structures.IntList;
 
 /**
- * Utility class for converting GenBank identifier (GI) numbers to NCBI taxonomy IDs.
- * Parses and maps GI numbers or NCBI taxonomy identifiers to corresponding taxonomy IDs using array-based lookup tables for efficient conversion.
+ * Legacy one-dimensional GI-to-TaxID lookup table.
+ * This predates {@link GiToTaxid}'s sparse two-dimensional arrays and keeps one
+ * int slot for every GI from zero through the largest observed ID. Header helpers
+ * can also pass explicit {@code ncbi|} or {@code tid|} TaxIDs through unchanged.
  * @author Brian Bushnell
  * @date Mar 10, 2015
  */
-public class GiToTaxidInt {
+public class GiToTaxidInt{
 	
+	/** Constructs a legacy dense GI-to-TaxID utility instance. */
+	public GiToTaxidInt(){}
+
+	/** Builds and writes a serialized dense GI table.
+	 * @param args Raw GI table path followed by the serialized output path */
 	public static void main(String[] args){
 		ReadWrite.USE_UNPIGZ=true;
 		ReadWrite.USE_PIGZ=true;
@@ -40,6 +47,9 @@ public class GiToTaxidInt {
 		}
 	}
 	
+	/** Manual smoke test for an already-initialized GI table.
+	 * @param args Optional taxonomy tree path in args[0], consulted only when
+	 *        {@code args.length>1} */
 	public static void test(String[] args){
 		System.err.println(getID(1000));
 		System.err.println(getID(10000));
@@ -87,7 +97,17 @@ public class GiToTaxidInt {
 		}
 	}
 	
+	/** Parses a GI header and returns its stored dense-table value using {@code |}.
+	 * @param s Header text, optionally beginning with {@code >}
+	 * @return Stored TaxID or missing sentinel for an in-range GI, or -1 under
+	 *         disabled assertions when the GI is absent or out of range */
 	public static int parseGiToTaxid(String s){return parseGiToTaxid(s, '|');}
+
+	/** Parses a GI header and returns its stored dense-table value.
+	 * @param s Header text, optionally beginning with {@code >}
+	 * @param delimiter Primary delimiter after {@code gi}
+	 * @return Stored TaxID or missing sentinel for an in-range GI, or -1 under
+	 *         disabled assertions when the GI is absent or out of range */
 	public static int parseGiToTaxid(String s, char delimiter){
 		int x=parseGiNumber(s, delimiter);
 		assert(x>=0) : s;
@@ -101,7 +121,17 @@ public class GiToTaxidInt {
 	}
 	
 
+	/** Parses a byte-form GI header and returns its stored dense-table value using {@code |}.
+	 * @param s Header bytes, optionally beginning with {@code >}
+	 * @return Stored value for an in-range GI, or -1 for an absent GI header;
+	 *         out-of-range GIs assert, or return -1 with assertions disabled */
 	public static int parseGiToTaxid(byte[] s){return parseGiToTaxid(s, '|');}
+
+	/** Parses a byte-form GI header and returns its stored dense-table value.
+	 * @param s Header bytes, optionally beginning with {@code >}
+	 * @param delimiter Primary delimiter after {@code gi}
+	 * @return Stored value for an in-range GI, or -1 for an absent GI header;
+	 *         out-of-range GIs assert, or return -1 with assertions disabled */
 	public static int parseGiToTaxid(byte[] s, char delimiter){
 		long x=parseGiNumber(s, delimiter);
 		if(x>=0 && x<array.length){return array[(int)x];}
@@ -110,10 +140,16 @@ public class GiToTaxidInt {
 		return -1;
 	}
 	
+	/** Parses a GI number from string headers.
+	 * @param s Header text, optionally beginning with {@code >}
+	 * @param delimiter Primary delimiter after {@code gi}
+	 * @return Parsed GI number, or -1 when no GI header is present */
 	static int parseGiNumber(String s, char delimiter){
 		if(s==null || s.length()<4){return -1;}
 //		System.err.println("a");
-		if(s.charAt(0)=='>'){return getID(s.substring(1), delimiter);}
+		// Strip one leading '>' and keep parsing a GI number; do not call
+		// getID(), which maps a parsed GI number through the table.
+		if(s.charAt(0)=='>'){return parseGiNumber(s.substring(1), delimiter);}
 //		System.err.println("b");
 		if(!s.startsWith("gi")){return -1;}
 //		System.err.println("c");
@@ -148,6 +184,14 @@ public class GiToTaxidInt {
 		return number;
 	}
 	
+	/** Parses an explicit {@code ncbi} or {@code tid} TaxID header.
+	 * @param s Header text, optionally beginning with {@code >}
+	 * @param delimiter Primary delimiter after the prefix
+	 * @return Parsed TaxID, or -1 for an unrecognized prefix, invalid first digit,
+	 *         or value above {@link Integer#MAX_VALUE}. Later invalid digits also
+	 *         return -1 when assertions are disabled.
+	 * @throws AssertionError If assertions are enabled and a non-digit is
+	 *         encountered after the first digit, before the field terminator */
 	public static int parseTaxidNumber(String s, char delimiter){
 		if(s==null || s.length()<5){return -1;}
 		if(s.charAt(0)=='>'){return parseTaxidNumber(s.substring(1), delimiter);}
@@ -161,25 +205,67 @@ public class GiToTaxidInt {
 		if(!Tools.isDigit(s.charAt(initial+1))){return -1;}
 		
 		int number=0;
-		for(int i=initial+1; i<s.length(); i++){
+		int i=initial+1;
+		final int safeStop=i+Tools.min(s.length()-i, INT_SAFE_DIGITS);
+		for(; i<safeStop; i++){
+			char c=s.charAt(i);
+			if(c==delimiter || c==' '){return number;}
+			assert(Tools.isDigit(c)) : c+"\n"+s;
+			if(!Tools.isDigit(c)){return -1;}
+			number=(number*10)+(c-'0');
+		}
+		return parseTaxidNumberTail(s, delimiter, i, number);
+	}
+
+	/** Continues explicit String TaxID parsing after the first safe int digits.
+	 * @param s Header text already accepted by {@link #parseTaxidNumber(String, char)}
+	 * @param delimiter Active delimiter, including fallback to {@code _}
+	 * @param i First unparsed digit offset
+	 * @param number Value accumulated before this tail
+	 * @return Parsed TaxID, or -1 for malformed digits under disabled assertions
+	 *         or values above {@link Integer#MAX_VALUE}
+	 * @throws AssertionError If assertions are enabled and a non-digit is
+	 *         encountered before the field terminator */
+	private static int parseTaxidNumberTail(String s, char delimiter,
+			int i, int number){
+		long longNumber=number;
+		for(; i<s.length(); i++){
 			char c=s.charAt(i);
 			if(c==delimiter || c==' '){break;}
 			assert(Tools.isDigit(c)) : c+"\n"+s;
-			number=(number*10)+(c-'0');
+			if(!Tools.isDigit(c)){return -1;}
+			longNumber=(longNumber*10)+(c-'0');
+			if(longNumber>Integer.MAX_VALUE){return -1;}
 		}
-		return number;
+		return longNumber>Integer.MAX_VALUE ? -1 : (int)longNumber;
 	}
 	
 
+	/** Returns the explicit TaxID or stored legacy GI value in a String header.
+	 * @param s Header text, optionally beginning with {@code >}
+	 * @return Explicit TaxID, stored TaxID or missing sentinel for an in-range GI,
+	 *         or -1 when neither prefix is present */
 	public static int getID(String s){return getID(s, '|');}
+
+	/** Returns the explicit TaxID or stored legacy GI value in a String header.
+	 * @param s Header text, optionally beginning with {@code >}
+	 * @param delimiter Primary delimiter after the header prefix
+	 * @return Explicit TaxID, stored TaxID or missing sentinel for an in-range GI,
+	 *         or -1 when neither prefix is present */
 	public static int getID(String s, char delimiter){
 		int x=parseTaxidNumber(s, delimiter);
 		if(x>=0){return x;}
 		x=parseGiNumber(s, delimiter);
+		//TODO: Confirm the intended range policy: this indexes the table directly,
+		// unlike parseGiToTaxid(), which returns -1 for oversized GIs under -da.
 		if(x>=0){return array[x];}
 		return -1;
 	}
 	
+	/** Parses a GI number from byte-form headers.
+	 * @param s Header bytes, optionally beginning with {@code >}
+	 * @param delimiter Primary delimiter after {@code gi}
+	 * @return Parsed GI number, or -1 when no GI header is present */
 	static int parseGiNumber(byte[] s, char delimiter){
 		if(s==null || s.length<4){return -1;}
 		if(!Tools.startsWith(s, "gi") && !Tools.startsWith(s, ">gi")){return -1;}
@@ -201,6 +287,14 @@ public class GiToTaxidInt {
 		return (int)number;
 	}
 	
+	/** Parses an explicit {@code ncbi} or {@code tid} TaxID from byte-form headers.
+	 * @param s Header bytes, optionally beginning with {@code >}
+	 * @param delimiter Primary delimiter after the prefix
+	 * @return Parsed TaxID, or -1 for an unrecognized prefix, invalid first digit,
+	 *         or value above {@link Integer#MAX_VALUE}. Later invalid digits also
+	 *         return -1 when assertions are disabled.
+	 * @throws AssertionError If assertions are enabled and a non-digit is
+	 *         encountered after the first digit, before the field terminator */
 	static int parseNcbiNumber(byte[] s, char delimiter){
 		if(s==null || s.length<3){return -1;}
 		if(!Tools.startsWith(s, "ncbi") && !Tools.startsWith(s, ">ncbi") && !Tools.startsWith(s, "tid") && !Tools.startsWith(s, ">tid")){return -1;}
@@ -213,27 +307,50 @@ public class GiToTaxidInt {
 		if(!Tools.isDigit(s[initial+1])){return -1;}
 		
 		int number=0;
-		for(int i=initial+1; i<s.length; i++){
+		int i=initial+1;
+		final int safeStop=i+Tools.min(s.length-i, INT_SAFE_DIGITS);
+		for(; i<safeStop; i++){
+			byte c=s[i];
+			if(c==delimiter){return number;}
+			assert(Tools.isDigit(c));
+			if(!Tools.isDigit(c)){return -1;}
+			number=(number*10)+(c-'0');
+		}
+		long longNumber=number;
+		for(; i<s.length; i++){
 			byte c=s[i];
 			if(c==delimiter){break;}
 			assert(Tools.isDigit(c));
-			number=(number*10)+(c-'0');
+			if(!Tools.isDigit(c)){return -1;}
+			longNumber=(longNumber*10)+(c-'0');
+			if(longNumber>Integer.MAX_VALUE){return -1;}
 		}
-		return number;
+		return longNumber>Integer.MAX_VALUE ? -1 : (int)longNumber;
 	}
 
+	/** Returns the stored legacy GI value or explicit TaxID in a byte-form header.
+	 * @param s Header bytes, optionally beginning with {@code >}
+	 * @return Stored TaxID or missing sentinel for an in-range GI, explicit TaxID,
+	 *         or -1 when neither prefix is present */
 	public static int getID(byte[] s){return getID(s, '|');}
+
+	/** Returns the stored legacy GI value or explicit TaxID in a byte-form header.
+	 * @param s Header bytes, optionally beginning with {@code >}
+	 * @param delimiter Primary delimiter after the header prefix
+	 * @return Stored TaxID or missing sentinel for an in-range GI, explicit TaxID,
+	 *         or -1 when neither prefix is present */
 	public static int getID(byte[] s, char delimiter){
 		int x=parseGiNumber(s, delimiter);
+		//TODO: Confirm the intended range policy: this indexes the table directly,
+		// unlike parseGiToTaxid(), which returns -1 for oversized GIs under -da.
 		if(x>=0){return array[x];}
 		return parseNcbiNumber(s, delimiter);
 	}
 	
 	/**
-	 * Get the taxID from a gi number.
-	 * Direct array lookup using GI number as index.
+	 * Looks up the stored value for one GI number by direct array index.
 	 * @param gi GI number to look up
-	 * @return Taxonomy ID from array lookup
+	 * @return Stored TaxID or missing sentinel from the dense table
 	 */
 	public static int getID(long gi){
 		assert(gi>=0) : gi;
@@ -242,31 +359,40 @@ public class GiToTaxidInt {
 		return array[(int)gi];
 	}
 	
+	/** Loads a serialized one-dimensional array or builds one from GI input rows.
+	 * Repeated calls with the same file name leave existing static state intact.
+	 * @param fname Serialized .int1d table or raw GI table input */
 	public static void initialize(String fname){
 		assert(fname!=null);
 		if(fileString==null || !fileString.equals(fname)){
+			//TODO: Probable bug - this locks GiToTaxid.class while publishing
+			// GiToTaxidInt's array, fileString and initialized state.
 			synchronized(GiToTaxid.class){
 				if(!initialized || fileString==null || !fileString.equals(fname)){
+					final int[] table=(fname.contains(".int1d") ?
+							ReadWrite.read(int[].class, fname, true) : makeArray(fname));
+					array=table;
 					fileString=fname;
-					if(fname.contains(".int1d")){
-						array=ReadWrite.read(int[].class, fname, true);
-					}else{
-						array=makeArray(fname);
-					}
 				}
 				initialized=true;
 			}
 		}
 	}
 	
+	/** Returns true after the dense GI table has been loaded.
+	 * @return True when a dense GI table is resident */
 	public static boolean isInitialized(){return initialized;}
 	
+	/** Clears the resident array and loader state. */
 	public static synchronized void unload(){
 		array=null;
 		fileString=null;
 		initialized=false;
 	}
 	
+	/** Builds a dense GI-indexed array from one or more raw mapping files.
+	 * @param fnames Single path, comma list, or relative wildcard using '#'
+	 * @return Dense GI-indexed TaxID array */
 	private static int[] makeArray(String fnames){
 		String[] split;
 		if(new File(fnames).exists()){split=new String[] {fnames};}
@@ -306,8 +432,14 @@ public class GiToTaxidInt {
 		return list.shrink().array;
 	}
 	
+	/** Adds valid GI rows from one raw mapping file into a dense IntList.
+	 * @param fname Input mapping file
+	 * @param list Destination indexed by GI number
+	 * @return Count of valid digit-ending rows seen before range filtering */
 	private static long addToList(String fname, IntList list){
 		boolean warned=false;
+		//TODO: Probable bug - this ByteFile is not closed if line parsing or
+		// IntList insertion fails before the loop reaches its explicit close.
 		ByteFile bf=ByteFile.makeByteFile(fname, true);
 		long count=0, invalid=0;
 		byte[] line=bf.nextLine();
@@ -321,8 +453,8 @@ public class GiToTaxidInt {
 				assert(tab3<line.length && line[tab3]=='\t') : tab2+", "+tab3+", '"+new String(line)+"'";
 //				assert(false) : tab2+", "+tab3+", '"+new String(line)+"'";
 				int tid=Parse.parseInt(line, tab2+1, tab3);
-				int gi=Parse.parseInt(line, tab3+1, line.length);
-				if(gi>=Shared.MAX_ARRAY_LEN || gi<0){//A gi over 2.5b was observed May 3, 2021.
+				int gi=parseRawGi(line, tab3+1, line.length);
+				if(gi<0){//A gi over 2.5b was observed May 3, 2021.
 					invalid++;
 				}else{
 				assert(gi>=0) : "tid="+tid+", gi="+gi+", line=\n'"+new String(line)+"'";
@@ -354,6 +486,32 @@ public class GiToTaxidInt {
 		if(verbose){System.err.println("Count: "+count+"; \tInvalid: "+invalid);}
 		bf.close();
 		return count;
+	}
+
+	/** Parses one raw-table GI field without allowing long overflow to wrap.
+	 * @param line Complete raw input row
+	 * @param start First GI digit offset
+	 * @param stop Offset after the final GI digit
+	 * @return GI value, or -1 if the value exceeds the dense table limit */
+	private static int parseRawGi(final byte[] line, final int start,
+			final int stop){
+		final int max=Shared.MAX_ARRAY_LEN-1;
+		int number=0;
+		int i=start;
+		final int safeStop=i+Tools.min(stop-i, INT_SAFE_DIGITS);
+		for(; i<safeStop; i++){
+			final byte c=line[i];
+			if(!Tools.isDigit(c)){return -1;}
+			number=(number*10)+(c-'0');
+		}
+		for(; i<stop; i++){
+			final byte c=line[i];
+			if(!Tools.isDigit(c)){return -1;}
+			final int digit=c-'0';
+			if(number>(max-digit)/10){return -1;}
+			number=(number*10)+digit;
+		}
+		return number>max ? -1 : number;
 	}
 	
 //	private static int[] makeArrayOld(String fnames){
@@ -423,9 +581,15 @@ public class GiToTaxidInt {
 //		return count;
 //	}
 	
+	/** Dense resident GI-indexed TaxID table. */
 	private static int[] array;
+	/** Path used to populate the resident table. */
 	private static String fileString;
 	
+	/** Enables verbose load counters. */
 	public static boolean verbose=false;
+	/** True after a successful table load and before unload. */
 	private static boolean initialized=false;
+	/** Longest decimal prefix that fits in an int without overflow checks. */
+	private static final int INT_SAFE_DIGITS=9;
 }

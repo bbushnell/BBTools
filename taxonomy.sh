@@ -31,7 +31,9 @@ gi=<file>       Specify a gitable file like gitable.int1d.gz. Only needed
 accession=      Specify one or more comma-delimited NCBI accession to taxid
                 files.  Only needed if accessions will be used; requires ~45GB
                 of memory.  On Genepool, use 'auto'.
-level=null      Set to a taxonomic level like phylum to just print that level.
+level=null      Requested rank for single-level output, such as phylum.
+                Best effort: missing ranks use the next broader ancestor.
+                A starting node already above the requested rank is retained.
 minlevel=-1     For multi-level printing, do not print levels below this.
 maxlevel=life   For multi-level printing, do not print levels above this.
 silva=f         Parse headers using Silva or semicolon-delimited syntax.

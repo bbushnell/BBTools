@@ -27,19 +27,20 @@ import structures.IntList;
 import template.ThreadWaiter;
 
 /**
- * Represents a taxonomic tree.
- * Usually just one of these needs to be created for a process.
- * Designed for NCBI's taxdmp.zip file contents.
+ * NCBI taxonomy topology, rank indexes, name lookup and mutable abundance counters.
+ * Durable TaxIDs normally index nodes directly; auxiliary IDs instead use a packed
+ * mapping, so clients must use getNode rather than indexing nodes by an arbitrary ID.
+ * Parent ranks need not increase monotonically. Counts and optional indexes are
+ * mutable: complete initialization before sharing read-only use, and externally
+ * coordinate mutations. The process-wide shared-tree cache reuses the first tree.
  * @author Brian Bushnell
  * @date Mar 6, 2015
  *
  */
 public class TaxTree implements Serializable{
 	
-	/**
-	 * 
-	 */
-	private static final long serialVersionUID = 5894416521711540017L;
+	/** Compatibility identifier for legacy serialized taxonomy resources. */
+	private static final long serialVersionUID=5894416521711540017L;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------              Main            ----------------*/
@@ -99,7 +100,9 @@ public class TaxTree implements Serializable{
 		}
 	}
 	
-	/** Parse arguments from the command line */
+	/** Parses shared flags while allowing the first four positional filenames.
+	 * @param args Original command-line arguments; optional flags follow the filenames
+	 * @return Parsed shared settings; tree-specific state is also updated */
 	private Parser parse(String[] args){
 		
 		//Create a parser object
@@ -152,14 +155,16 @@ public class TaxTree implements Serializable{
 	}
 	
 	/**
-	 * @param namesFile NCBI names.txt
-	 * @param nodesFile NCBI nodes.txt
-	 * @param mergedFile NCBI merged.txt
-	 * @param args
+	 * Builds a tree from NCBI dump files, then infers ranks and builds rank indexes.
+	 * Existing rank inversions can be reported without rejecting the entire tree.
+	 * @param namesFile NCBI names.dmp scientific-name records
+	 * @param nodesFile NCBI nodes.dmp parent and rank records
+	 * @param mergedFile NCBI merged.dmp old-to-current IDs, or null
+	 * @param args Optional shared command-line settings, or null
 	 */
 	private TaxTree(String namesFile, String nodesFile, String mergedFile, String[] args){
 		
-		if(args!=null) {
+		if(args!=null){
 			Parser parser=parse(args);
 		}
 		
@@ -190,7 +195,7 @@ public class TaxTree implements Serializable{
 		}
 		int errors=test(nodes);
 //		assert(errors==0); //Not possible since the tree is wrong.
-		if(errors>0) {
+		if(errors>0){
 			System.err.println("Found "+errors+" errors in tree.");
 		}
 		
@@ -198,16 +203,51 @@ public class TaxTree implements Serializable{
 
 	}
 
-	TaxTree(TaxNode[] nodes_, IntHashMap mergedMap_, int minValidTaxa_, boolean simplify_,
+	/** Adopts prepared native-ID nodes and builds rank indexes with one thread.
+	 * Parents, child counts and inferred bounds must already be populated. Non-null
+	 * nodes must occupy their TaxID slot and contain valid normal/extended ranks.
+	 * Arrays, nodes and the merge map are retained, not copied. Configuration flags
+	 * are recorded without rerunning simplification or inference.
+	 * @param nodes_ Prepared sparse node array
+	 * @param mergedMap_ Old-to-current TaxID mapping, or null
+	 * @param minValidTaxa_ Legacy minimum-count metadata
+	 * @param simplify_ Recorded simplification setting
+	 * @param reassign_ Recorded no-rank reassignment setting
+	 * @param skipNorank_ Recorded no-rank removal setting
+	 * @param inferRankLimit_ Recorded rank-inference limit */
+	public TaxTree(TaxNode[] nodes_, IntHashMap mergedMap_, int minValidTaxa_, boolean simplify_,
 			boolean reassign_, boolean skipNorank_, int inferRankLimit_){
 		this(nodes_, mergedMap_, minValidTaxa_, simplify_, reassign_, skipNorank_, inferRankLimit_, 1, null, nodes_.length);
 	}
 
+	/** Adopts prepared native-ID nodes with optional parallel rank indexing.
+	 * @param nodes_ Prepared sparse array, indexed by native TaxID
+	 * @param mergedMap_ Old-to-current TaxID mapping, or null
+	 * @param minValidTaxa_ Legacy minimum-count metadata
+	 * @param simplify_ Recorded simplification setting, not an instruction to simplify
+	 * @param reassign_ Recorded no-rank reassignment setting
+	 * @param skipNorank_ Recorded no-rank removal setting
+	 * @param inferRankLimit_ Recorded rank-inference limit
+	 * @param threads Requested indexing workers; small arrays use the serial path */
 	TaxTree(TaxNode[] nodes_, IntHashMap mergedMap_, int minValidTaxa_, boolean simplify_,
 			boolean reassign_, boolean skipNorank_, int inferRankLimit_, int threads){
 		this(nodes_, mergedMap_, minValidTaxa_, simplify_, reassign_, skipNorank_, inferRankLimit_, threads, null, nodes_.length);
 	}
 	
+	/** Adopts prepared topology, including optional packed auxiliary nodes.
+	 * Every non-null node must resolve back to its array position through nodeIndex.
+	 * Derived child/rank bounds are supplied by the caller; only rank lists/counts
+	 * are rebuilt here. Mutating retained nodes afterward can invalidate those indexes.
+	 * @param nodes_ Sparse native nodes followed by any packed auxiliary nodes
+	 * @param mergedMap_ Old-to-current native TaxID map, or null
+	 * @param minValidTaxa_ Legacy minimum-count metadata
+	 * @param simplify_ Recorded simplification setting
+	 * @param reassign_ Recorded no-rank reassignment setting
+	 * @param skipNorank_ Recorded no-rank removal setting
+	 * @param inferRankLimit_ Recorded rank-inference limit
+	 * @param threads Requested indexing workers
+	 * @param externalToInternalMap_ Auxiliary durable IDs to packed positions, or null
+	 * @param firstAuxIndex_ First private packed position; native-only trees use nodes_.length */
 	TaxTree(TaxNode[] nodes_, IntHashMap mergedMap_, int minValidTaxa_, boolean simplify_,
 			boolean reassign_, boolean skipNorank_, int inferRankLimit_, int threads,
 			IntHashMap externalToInternalMap_, int firstAuxIndex_){
@@ -223,6 +263,11 @@ public class TaxTree implements Serializable{
 		nodeCount=populateLevelData(threads);
 	}
 
+	/** Counts ranks and fills stable node lists, serially below 100,000 array slots.
+	 * Called once on zeroed index counts. Worker failures are rethrown after joining;
+	 * disjoint output ranges preserve increasing array-slot order within each rank.
+	 * @param threads Requested worker count, clamped to at least one
+	 * @return Number of non-null nodes */
 	private int populateLevelData(int threads){
 		final int threadCount=Tools.max(1, threads);
 		if(threadCount<2 || nodes.length<100000){return populateLevelData();}
@@ -267,13 +312,21 @@ public class TaxTree implements Serializable{
 		return count;
 	}
 
+	/** Rethrows a worker failure, preserving errors and runtime exceptions.
+	 * @param t Failure to propagate; null does nothing */
 	private static void rethrow(Throwable t){
 		if(t instanceof Error){throw (Error)t;}
 		if(t instanceof RuntimeException){throw (RuntimeException)t;}
 		if(t!=null){throw new RuntimeException(t);}
 	}
 
-	private static final class LevelCountThread extends Thread {
+	/** Validates node positions/ranks and counts one disjoint array range. */
+	private static final class LevelCountThread extends Thread{
+		/** Assigns a read-only node range and allocates per-worker rank counters.
+		 * @param nodes_ Shared prepared nodes
+		 * @param from_ Inclusive range start
+		 * @param to_ Exclusive range end
+		 * @param tree_ Tree resolving durable IDs to array positions */
 		LevelCountThread(TaxNode[] nodes_, int from_, int to_, TaxTree tree_){
 			nodes=nodes_;
 			from=from_;
@@ -305,16 +358,30 @@ public class TaxTree implements Serializable{
 			}catch(Throwable t){failure=t;}
 		}
 
+		/** Shared read-only node array. */
 		final TaxNode[] nodes;
+		/** Owning tree used for packed-ID resolution. */
 		final TaxTree tree;
+		/** Inclusive start and exclusive end of this worker's range. */
 		final int from, to;
+		/** Private counts indexed by normal and extended rank. */
 		final int[] counts, countsExtended;
+		/** Number of non-null nodes observed. */
 		int count=0;
+		/** Captured failure, read after joining the worker. */
 		Throwable failure=null;
+		/** True only after the entire assigned range was counted. */
 		boolean success=false;
 	}
 
-	private static final class LevelFillThread extends Thread {
+	/** Fills preassigned non-overlapping rank-list ranges from one input range. */
+	private static final class LevelFillThread extends Thread{
+		/** Adopts private offsets and shared output lists for this worker.
+		 * @param nodes_ Validated node array
+		 * @param from_ Inclusive input start
+		 * @param to_ Exclusive input end
+		 * @param levels_ Shared per-rank output arrays
+		 * @param offsets_ Private mutable write cursors, one per extended rank */
 		LevelFillThread(TaxNode[] nodes_, int from_, int to_, TaxNode[][] levels_, int[] offsets_){
 			nodes=nodes_;
 			from=from_;
@@ -334,14 +401,23 @@ public class TaxTree implements Serializable{
 			}catch(Throwable t){failure=t;}
 		}
 
+		/** Shared read-only node array. */
 		final TaxNode[] nodes;
+		/** Inclusive start and exclusive end of the input range. */
 		final int from, to;
+		/** Shared output arrays, with this worker's ranges disjoint from all others. */
 		final TaxNode[][] levels;
+		/** Private mutable write position for each extended rank. */
 		final int[] offsets;
+		/** Captured failure, read after joining. */
 		Throwable failure=null;
+		/** True only after the assigned range was filled. */
 		boolean success=false;
 	}
 
+	/** Serial rank-index construction from prepared nodes and zeroed rank counters.
+	 * Validates positions and rank bounds, but does not validate parent topology.
+	 * @return Number of non-null nodes */
 	private int populateLevelData(){
 		int count=0;
 		for(int i=0; i<nodes.length; i++){
@@ -372,6 +448,9 @@ public class TaxTree implements Serializable{
 		return count;
 	}
 
+	/** Detects auxiliary mappings or optional runtime indexes omitted by TaxTree2.
+	 * Node abundance counters are checked separately by the text writer.
+	 * @return Whether any unsupported map is present, even if empty */
 	final boolean hasTextExcludedState(){
 		return externalToInternalMap!=null || nameMap!=null || nameMapLower!=null || childMap!=null || refseqSizeMap!=null
 				|| refseqSizeMapC!=null || refseqSeqMap!=null || refseqSeqMapC!=null || nodeMapC!=null;
@@ -384,9 +463,11 @@ public class TaxTree implements Serializable{
 
 	/**
 	 * Load a tax tree from disk.
+	 * Uses the process-wide treeFile setting; null disables loading.
+	 * @param outstream Optional status destination
 	 * @param hashNames Hash nodes using names as keys
 	 * @param hashDotFormat Hash nodes using abbreviations, e.g. H.sapiens
-	 * @return
+	 * @return Loaded/shared tree, or null when treeFile is null
 	 */
 	public static final TaxTree loadTaxTree(PrintStream outstream, boolean hashNames, 
 			boolean hashDotFormat){
@@ -396,10 +477,11 @@ public class TaxTree implements Serializable{
 
 	/**
 	 * Load a tax tree from disk.
-	 * @param taxTreeFile Serialized TaxTree.
+	 * @param treeFile Portable TSV, legacy serialized tree, or auto; null disables loading
+	 * @param outstream Optional status destination
 	 * @param hashNames Hash nodes using names as keys
 	 * @param hashDotFormat Hash nodes using abbreviations, e.g. H.sapiens
-	 * @return
+	 * @return Loaded/shared tree, or null for a null treeFile
 	 */
 	public static final TaxTree loadTaxTree(String treeFile, PrintStream outstream, boolean hashNames, 
 			boolean hashDotFormat){
@@ -410,10 +492,14 @@ public class TaxTree implements Serializable{
 	/**
 	 * Load a tax tree from disk, either from a binary tree file,
 	 * or from NCBI text files.
-	 * @param taxTreeFile Binary representation; mutually exclusive with other files.
+	 * When sharing is enabled, an existing cached tree takes precedence over a new
+	 * filename. Direct dump construction uses names and nodes only when no tree file
+	 * is selected. Name hashing mutates the loaded tree before it is returned.
+	 * @param taxTreeFile Portable TSV or serialized representation, taking precedence over dumps
 	 * @param taxNameFile NCBI names.txt
 	 * @param taxNodeFile NCBI nodes.txt
 	 * @param taxMergedFile NCBI merged.txt
+	 * @param outstream Optional status destination
 	 * @param hashNames Hash nodes using names as keys
 	 * @param hashDotFormat Hash nodes using abbreviations, e.g. H.sapiens
 	 * @return The loaded tree
@@ -449,12 +535,18 @@ public class TaxTree implements Serializable{
 		return tree;
 	}
 
-	/** Load either the portable TSV representation or legacy Java serialization. */
+	/** Loads portable TSV or legacy serialization without using the shared-tree cache.
+	 * Applies the configured auxiliary overlay when LOAD_FAKE_TREE is enabled.
+	 * @param fname Tree path, optionally followed by a comma and an auxiliary path
+	 * @return Loaded tree, with any requested overlay */
 	public static TaxTree loadTaxTreeFile(String fname){
 		return loadTaxTreeFile(fname, LOAD_FAKE_TREE ? fakeTreeFile : null);
 	}
 	
-	/** Load the base tree and optionally overlay an auxiliary fake-TaxID table. */
+	/** Loads one base and applies an inline overlay before the optional global overlay.
+	 * @param fname Base path, optionally followed by a comma and an auxiliary path
+	 * @param auxFile Additional auxiliary path, or null
+	 * @return Loaded tree after overlays */
 	private static TaxTree loadTaxTreeFile(String fname, String auxFile){
 		int comma=fname==null ? -1 : fname.indexOf(',');
 		if(comma>=0){
@@ -471,20 +563,29 @@ public class TaxTree implements Serializable{
 		return auxFile==null ? tree : loadAuxTree(tree, auxFile);
 	}
 	
-	/** Overlay an auxiliary tree file, using BBTools resource-path semantics. */
+	/** Overlays an auxiliary file using BBTools resource-path semantics.
+	 * @param tree Base taxonomy
+	 * @param fname Auxiliary resource or filesystem path
+	 * @return Overlay tree, or the base tree when the auxiliary table has no rows */
 	private static TaxTree loadAuxTree(TaxTree tree, String fname){
 		String path=Data.findPath(fname);
 		if(path==null){throw new RuntimeException("Could not find auxiliary TaxTree file "+fname);}
 		return TaxTreeAux.apply(tree, path);
 	}
 
-	/** Write portable TSV or legacy Java serialization according to the filename extension. */
+	/** Writes portable TSV or legacy serialization according to the raw extension.
+	 * TSV serialization rejects runtime state that its format cannot preserve.
+	 * @param tree Tree to write
+	 * @param fname Destination path; a raw tsv extension selects portable text
+	 * @param overwrite Permit replacement of an existing destination */
 	public static void writeTaxTree(TaxTree tree, String fname, boolean overwrite){
 		if(isTextTreeFile(fname)){TaxTreeText.write(tree, fname, overwrite);}
 		else{ReadWrite.write(tree, fname, overwrite);}
 	}
 
-	/** True when the raw extension, after removing compression suffixes, is {@code tsv}. */
+	/** Tests whether the extension after removing compression suffixes is tsv.
+	 * @param fname Path to classify, or null
+	 * @return Whether the path selects portable taxonomy text */
 	public static boolean isTextTreeFile(String fname){
 		return fname!=null && "tsv".equals(ReadWrite.rawExtension(fname));
 	}
@@ -492,6 +593,8 @@ public class TaxTree implements Serializable{
 	/**
 	 * Parse a component-local tree flag while preserving legacy tree=path syntax.
 	 * Boolean values only control the caller; a path selects the shared source and enables the caller.
+	 * @param value Boolean token, path, null or empty
+	 * @return Whether the caller should enable its tree-dependent operation
 	 */
 	public static boolean parseTreeFlag(String value){
 		if(value==null || value.isEmpty()){return true;}
@@ -503,7 +606,9 @@ public class TaxTree implements Serializable{
 		return true;
 	}
 	
-	/** Parse the global auxiliary fake-TaxID tree flag. */
+	/** Parses the global auxiliary fake-TaxID tree flag, updating its enable flag/path.
+	 * @param value Boolean token, explicit path, null or empty for the default enabled path
+	 * @return Updated LOAD_FAKE_TREE value */
 	public static boolean parseFakeTreeFlag(String value){
 		if(value==null || value.isEmpty()){
 			LOAD_FAKE_TREE=true;
@@ -631,6 +736,7 @@ public class TaxTree implements Serializable{
 		ArrayList<TaxNode> list=new ArrayList<TaxNode>(200000);
 		int max=0;
 		
+		//TODO: Probable bug - this owned TextFile is never closed, omitting cleanup and close-status validation.
 		TextFile tf=new TextFile(fname, false);
 		for(String s=tf.nextLine(); s!=null; s=tf.nextLine()){
 			if(s.contains("scientific name")){
@@ -654,9 +760,11 @@ public class TaxTree implements Serializable{
 	}
 	
 	/**
-	 * Parses names file a second time to fill in additional information.
-	 * Should really be merged into getNames.
-	 * @TODO Merge into getNames
+	 * Adds parent IDs, rank values and canonical flags from NCBI node records.
+	 * TODO: Consider combining the two dump-loading passes where their inputs permit it.
+	 * @param fname NCBI nodes.dmp file, not the names file
+	 * @param nodes Mutable array previously populated from scientific names
+	 * @return The supplied array after node fields are filled
 	 */
 	private static TaxNode[] getNodes(String fname, TaxNode[] nodes){
 		
@@ -664,6 +772,7 @@ public class TaxTree implements Serializable{
 		
 		LinkedHashMap<String, int[]> oddNames=new LinkedHashMap<String, int[]>();
 		
+		//TODO: Probable bug - this owned TextFile is never closed, omitting cleanup and close-status validation.
 		TextFile tf=new TextFile(fname, false);
 		for(String s=tf.nextLine(); s!=null; s=tf.nextLine()){
 			String[] split=delimiter.split(s, 4);
@@ -671,9 +780,9 @@ public class TaxTree implements Serializable{
 			int id=-1, pid=-1, level=-1, levelExtended=-1;
 			
 			id=Integer.parseInt(split[0]);
-			try {
+			try{
 				pid=Integer.parseInt(split[1]);
-			} catch (NumberFormatException e) {
+			}catch(NumberFormatException e){
 				// TODO Auto-generated catch block
 				e.printStackTrace();
 				System.err.println("Bad line: "+s+"\n"+Arrays.toString(split));
@@ -683,8 +792,8 @@ public class TaxTree implements Serializable{
 				String key=split[2];
 				Integer obj0=levelMap.get(key);
 				Integer obj=levelMapExtended.get(key);
-				if(obj==null) {
-					if(key.equalsIgnoreCase("cellular root") || key.equalsIgnoreCase("acellular root")) {
+				if(obj==null){
+					if(key.equalsIgnoreCase("cellular root") || key.equalsIgnoreCase("acellular root")){
 						obj=DOMAIN_E;
 						obj0=DOMAIN;
 					}
@@ -758,7 +867,7 @@ public class TaxTree implements Serializable{
 	/**
 	 * Fill derived fields minParentLevelExtended and maxChildLevelExtended
 	 * by percolating information through the tree until a fixpoint is reached.
-	 * @TODO This could be finished in 2 passes using the childTable.
+	 * TODO: This could be finished in two passes using a child table.
 	 * @return Number of rounds required to reach fixpoint.
 	 */
 	private int percolate(){
@@ -917,9 +1026,10 @@ public class TaxTree implements Serializable{
 	}
 	
 	/**
-	 * Fetch this node's children.
-	 * @param parent Node in question
-	 * @return List of child nodes
+	 * Fetches this node's children, borrowing the cached list when available.
+	 * @param parent Non-null node whose children are requested
+	 * @return Child list, or null when the recorded child count is nonpositive or the cache
+	 * has no entry; without a cache, a new list is collected from the node array
 	 */
 	public ArrayList<TaxNode> getChildren(TaxNode parent){
 		if(parent.numChildren<1){return null;}
@@ -938,7 +1048,7 @@ public class TaxTree implements Serializable{
 	 * @param mergedFile NCBI merged.txt.
 	 * @return Map of old to new TaxIDs
 	 */
-	private static IntHashMap getMerged(String mergedFile) {
+	private static IntHashMap getMerged(String mergedFile){
 		if(mergedFile==null){return null;}
 		String[] lines=TextFile.toStringLines(mergedFile);
 		if(lines.length<1){return null;}
@@ -1119,7 +1229,7 @@ public class TaxTree implements Serializable{
 		for(final TaxNode n : nodes){
 			if(n!=null){
 				TaxNode parent=nodes[n.pid];
-				try {
+				try{
 					assert(n==parent || n.level<=parent.level || parent.level<1 || !parent.canonical()) : 
 						"\n"+n+" -> "+parent+", level="+n.level+", plevel="+parent.level+", pcanon="+parent.canonical()+"\n"
 								+ "levelE="+n.levelExtended+", plevelE="+parent.levelExtended;
@@ -1133,7 +1243,7 @@ public class TaxTree implements Serializable{
 //					failed++;
 					}
 					assert(n!=parent || n.id<=1) : n;
-				} catch (Throwable e) {
+				}catch(Throwable e){
 					// TODO Auto-generated catch block
 					e.printStackTrace();
 					failed++;
@@ -1153,6 +1263,7 @@ public class TaxTree implements Serializable{
 	 * "SK:Bacteria;P:Protobacteria;..."
 	 * @param tn0 Base node
 	 * @param skipNonCanonical Ignore noncanonical (aka "nonsimple") levels like Tribe.
+	 * @param mononomial Remove a matching parent-name prefix when rendering a node name
 	 * @return Resultant String
 	 */
 	public String toSemicolon(final TaxNode tn0, boolean skipNonCanonical, boolean mononomial){
@@ -1176,10 +1287,12 @@ public class TaxTree implements Serializable{
 	}
 	
 	/**
-	 * Return a list of TaxIDs of all ancestors.
-	 * @param tn0 Base node
-	 * @param skipNonCanonical Ignore noncanonical (aka "nonsimple") levels like Tribe.
-	 * @return List of TaxIDs.
+	 * Collects selected TaxIDs from the starting node toward the available root.
+	 * Omits the cellular-organisms node when it is an ancestor, and optionally
+	 * omits noncanonical ranks. If filtering removes every candidate, retains tn0.
+	 * @param tn0 Starting node, or null
+	 * @param skipNonCanonical Omit noncanonical ranks such as tribe
+	 * @return New list in start-to-root order, or null for a null starting node
 	 */
 	public IntList toAncestorIds(final TaxNode tn0, boolean skipNonCanonical){
 		if(tn0==null){return null;}
@@ -1198,10 +1311,12 @@ public class TaxTree implements Serializable{
 	}
 	
 	/**
-	 * Return a list of all ancestors.
-	 * @param tn0 Base node
-	 * @param skipNonCanonical Ignore noncanonical (aka "nonsimple") levels like Tribe.
-	 * @return List of ancestor nodes.
+	 * Collects selected nodes from the starting node toward the available root.
+	 * Omits the cellular-organisms node when it is an ancestor, and optionally
+	 * omits noncanonical ranks. If filtering removes every candidate, retains tn0.
+	 * @param tn0 Starting node, or null
+	 * @param skipNonCanonical Omit noncanonical ranks such as tribe
+	 * @return New list of borrowed nodes in start-to-root order, or null for null input
 	 */
 	public ArrayList<TaxNode> toAncestors(final TaxNode tn0, boolean skipNonCanonical){
 		if(tn0==null){return null;}
@@ -1222,6 +1337,7 @@ public class TaxTree implements Serializable{
 	/**
 	 * Generate a path to the genome of an organism on the filesystem;
 	 * used by ExplodeTree.  Intended for internal JGI use.
+	 * @param node Starting node; its ancestry must resolve to TaxID1
 	 * @param root Location of the exploded tree.
 	 * @return Path to a genome.
 	 */
@@ -1255,12 +1371,16 @@ public class TaxTree implements Serializable{
 	/**
 	 * Use various techniques to get a TaxID from an unknown byte[], such as parsing,
 	 * name lookups, and accession translation.
-	 * @param s String to process.
+	 * @param s Byte array to process.
 	 * @return Decoded TaxID.
 	 */
 	public static int getID(byte[] s){return GiToTaxid.getID(s);}
 	
-	/** Return the lowest ancestor of the named node with taxonomic level at least minLevel */
+	/** Resolves a header and ascends until the current extended rank meets the bound.
+	 * A root or missing ancestor also stops traversal.
+	 * @param s Header/name accepted by parseNodeFromHeader with best-effort lookup
+	 * @param minLevelExtended Minimum desired extended rank
+	 * @return First qualifying ancestor, stopping root, or null if unresolved */
 	public TaxNode getNode(String s, int minLevelExtended){
 		TaxNode tn=parseNodeFromHeader(s, true);
 		while(tn!=null && tn.levelExtended<minLevelExtended && tn.pid!=tn.id){
@@ -1306,17 +1426,19 @@ public class TaxTree implements Serializable{
 	}
 	
 	/**
-	 * Determine whether an organism is classified as X.
-	 * @param taxID taxID of organism.
-	 * @param ancestorID taxID of possible ancestor.
-	 * @return true if the organism is an X.
+	 * Tests lineage membership using the legacy walk that excludes a self-parent root.
+	 * Unlike descendsFrom(TaxNode, TaxNode), this never matches the root, even when
+	 * the starting ID is that root. The starting node and its parent chain must exist.
+	 * @param taxID Valid starting organism ID
+	 * @param ancestorID Non-root ancestor ID to seek
+	 * @return True if a non-root node on the lineage has ancestorID
 	 */
-	public boolean descendsFrom2(int taxID, final int ancestorID) {
+	public boolean descendsFrom2(int taxID, final int ancestorID){
 		TaxNode tn=getNode(taxID);
-		//NOTE [tax/TaxTree]: this never matches a self-parent (root) node — the id==ancestorID check runs BEFORE the
-		//root-exit, so the loop stops without testing the root. Thus descendsFrom2(x, LIFE_ID)==false for every x.
-		//Harmless as used: every is* caller (isPlant/isAnimal/isFungus/isEukaryote/isProkaryote) passes a NON-root
-		//ancestor. If you ever need a root ancestor, use descendsFrom(TaxNode,TaxNode) (which does match the root).
+		//NOTE [tax/TaxTree]: the loop's root guard runs before its equality check,
+		//so a self-parent root is never tested. descendsFrom2(x, LIFE_ID) is false.
+		//The four isPlant/isAnimal/isFungus/isEukaryote wrappers seek non-root IDs.
+		//For a root ancestor use descendsFrom(TaxNode,TaxNode), which includes it.
 		while(tn.id!=tn.pid){
 			if(tn.id==ancestorID){return true;}
 			tn=getNode(tn.pid);
@@ -1324,20 +1446,32 @@ public class TaxTree implements Serializable{
 		return false;
 	}
 	
-	/** Determine whether an organism is classified as a plant. */
-	public boolean isPlant(int taxID) {return descendsFrom2(taxID, VIRIDIPLANTAE_ID);}
+	/** Tests membership in the green-plant lineage.
+	 * @param taxID Resolving ID with an intact parent chain
+	 * @return True when the legacy lineage walk reaches VIRIDIPLANTAE_ID */
+	public boolean isPlant(int taxID){return descendsFrom2(taxID, VIRIDIPLANTAE_ID);}
 	
-	/** Determine whether an organism is classified as an animal. */
-	public boolean isAnimal(int taxID) {return descendsFrom2(taxID, METAZOA_ID);}
+	/** Tests membership in the animal lineage.
+	 * @param taxID Resolving ID with an intact parent chain
+	 * @return True when the legacy lineage walk reaches METAZOA_ID */
+	public boolean isAnimal(int taxID){return descendsFrom2(taxID, METAZOA_ID);}
 	
-	/** Determine whether an organism is classified as a fungus. */
-	public boolean isFungus(int taxID) {return descendsFrom2(taxID, FUNGI_ID);}
+	/** Tests membership in the fungal lineage.
+	 * @param taxID Resolving ID with an intact parent chain
+	 * @return True when the legacy lineage walk reaches FUNGI_ID */
+	public boolean isFungus(int taxID){return descendsFrom2(taxID, FUNGI_ID);}
 	
-	/** Determine whether an organism is classified as a eukaryote. */
-	public boolean isEukaryote(int taxID) {return descendsFrom2(taxID, EUKARYOTA_ID);}
+	/** Tests membership in the eukaryotic lineage.
+	 * @param taxID Resolving ID with an intact parent chain
+	 * @return True when the legacy lineage walk reaches EUKARYOTA_ID */
+	public boolean isEukaryote(int taxID){return descendsFrom2(taxID, EUKARYOTA_ID);}
 	
-	/** Determine whether an organism is classified as a prokaryote. */
-	public boolean isProkaryote(int taxID) {
+	/** Tests whether a lineage reaches Bacteria or Archaea before a self-parent root.
+	 * An unresolved in-range ID prints a warning and returns false. getNode's range
+	 * assertion still applies; resolved nodes must have intact parent chains.
+	 * @param taxID Starting TaxID
+	 * @return True when either prokaryotic domain is encountered */
+	public boolean isProkaryote(int taxID){
 		TaxNode tn=getNode(taxID);
 		if(tn==null){
 			System.err.println("*** Warning: Can't find node "+taxID+" ***");
@@ -1351,13 +1485,15 @@ public class TaxTree implements Serializable{
 	}
 	
 	/**
-	 * Calculate the taxLevel of the common ancestor of two nodes.
-	 * @param a TaxID of a node.
-	 * @param b TaxID of a node.
-	 * @return Common ancestor ID of a and b.
+	 * Returns the normal rank of the nearest shared ancestor.
+	 * Positive IDs must resolve to nodes in this tree; assertions diagnose missing
+	 * IDs or disconnected components. Parent chains must terminate at roots.
+	 * @param a First taxID, including an auxiliary/merged ID supported by getNode
+	 * @param b Second taxID
+	 * @return Normal rank, or -1 for a nonpositive ID or no ancestor with assertions disabled
 	 */
 	public int commonAncestorLevel(final int a, final int b){
-		if(a<1 || b<1) {return -1;} 
+		if(a<1 || b<1){return -1;}
 		TaxNode an=getNode(a), bn=getNode(b);
 		assert(an!=null) : "Invalid taxID: "+a;
 		assert(bn!=null) : "Invalid taxID: "+b;
@@ -1368,10 +1504,12 @@ public class TaxTree implements Serializable{
 	}
 	
 	/**
-	 * Calculate the common ancestor of two nodes.
-	 * @param a TaxID of a node.
-	 * @param b TaxID of a node.
-	 * @return Common ancestor ID of a and b.
+	 * Returns the taxID of the nearest shared ancestor of two valid IDs.
+	 * ID resolution follows getNode, including its auxiliary and merged-ID maps.
+	 * Assertions diagnose missing IDs and disconnected components.
+	 * @param a First valid taxID
+	 * @param b Second valid taxID
+	 * @return Shared ancestor ID, or -1 for disconnected components with assertions disabled
 	 */
 	public int commonAncestor(final int a, final int b){
 		TaxNode an=getNode(a), bn=getNode(b);
@@ -1384,31 +1522,62 @@ public class TaxTree implements Serializable{
 	}
 	
 	/**
-	 * Calculate the common ancestor of two nodes.
-	 * @param a A node.
-	 * @param b A node.
-	 * @return Common ancestor of a and b.
+	 * Finds the nearest shared node on two parent chains.
+	 * Strictly increasing ranks use the fast rank walk. Equal or inverted parent
+	 * ranks trigger an exact depth-aligned fallback, so unranked ancestors are not
+	 * skipped. This method allocates no per-call collection and does not mutate nodes.
+	 * Both inputs must be canonical node objects from this tree, with finite parent
+	 * chains ending at self-parent roots; topology must not change during a call.
+	 * @param a First non-null node
+	 * @param b Second non-null node
+	 * @return Nearest shared node, or null for separate rooted components; with
+	 * assertions disabled a null input returns the other input
 	 */
 	public TaxNode commonAncestor(TaxNode a, TaxNode b){
 		assert(a!=null && b!=null) : "Null parameters.";
 		if(a==null){return b;}
 		if(b==null){return a;}
-		
+		final TaxNode originalA=a, originalB=b;
 		while(a!=b){
 			if(a.levelExtended<b.levelExtended){
-				a=getNode(a.pid);
+				TaxNode parent=getNode(a.pid);
+				if(parent.levelExtended<=a.levelExtended){return commonAncestorByDepth(originalA, originalB);}
+				a=parent;
 			}else{
-				b=getNode(b.pid);
+				TaxNode parent=getNode(b.pid);
+				if(parent.levelExtended<=b.levelExtended){return commonAncestorByDepth(originalA, originalB);}
+				b=parent;
 			}
 		}
 		return a;
 	}
+
+	/** Finds the exact parent-chain intersection without assuming ordered ranks.
+	 * TAX-001: fallback must restart from the original inputs, since the rank walk
+	 * may already have passed the shared ancestor before seeing a non-increasing edge.
+	 * No per-call collections are allocated. Parent chains must terminate at roots.
+	 * Stops early when either input is an ancestor of the other.
+	 * @param a Original node from this tree
+	 * @param b Other original node from this tree
+	 * @return Nearest shared ancestor, or null for separate rooted components */
+	private TaxNode commonAncestorByDepth(TaxNode a, TaxNode b){
+		TaxNode rootA=a, rootB=b;
+		int depthA=0, depthB=0;
+		while(rootA!=b && rootA.pid!=rootA.id){rootA=getNode(rootA.pid); depthA++;}
+		if(rootA==b){return b;}
+		while(rootB!=a && rootB.pid!=rootB.id){rootB=getNode(rootB.pid); depthB++;}
+		if(rootB==a){return a;}
+		if(rootA!=rootB){return null;}
+		while(depthA>depthB){a=getNode(a.pid); depthA--;}
+		while(depthB>depthA){b=getNode(b.pid); depthB--;}
+		while(a!=b){a=getNode(a.pid); b=getNode(b.pid);}
+		return a;
+	}
 	
 	/**
-	 * Identify the highest ancestor of a node;
-	 * this will presumably be "Life".
-	 * @param a Node
-	 * @return Highest ancestor
+	 * Walks a finite parent chain to its self-parent root, normally Life.
+	 * @param a Non-null node whose complete parent chain exists in this tree
+	 * @return Borrowed root node
 	 */
 	public TaxNode highestAncestor(TaxNode a){
 		assert(a!=null);
@@ -1435,21 +1604,25 @@ public class TaxTree implements Serializable{
 		int idx2=header.indexOf('|', 4);
 		if(idx2<5){return -1;}
 		int id=-1;
-		try {
+		try{
 			id=Parse.parseInt(header, idx+1, idx2);
 //			System.err.println("d"+", "+header.substring(idx+1, idx2));
-		} catch (Throwable e) {
+		}catch(Throwable e){
 //			System.err.println("e"+", "+header.substring(idx+1, idx2));
 			//ignore
 		}
 		return id;
 	}
 	
-	/** New and improved.  Tree is optional. */
-	public static int parseHeaderStatic2(String header, TaxTree tree) {
-		if(header==null) {return -1;}
+	/** Extracts a literal taxID first, then optionally resolves other header forms.
+	 * A literal ID is returned without requiring that it exists in the tree.
+	 * @param header Sequence header or supported filename, or null
+	 * @param tree Optional tree for accession/name/header lookup
+	 * @return Parsed/resolved ID, or -1 when neither path resolves */
+	public static int parseHeaderStatic2(String header, TaxTree tree){
+		if(header==null){return -1;}
 		int tid=parseTaxID(header);
-		if(tid>=0 || tree==null) {return tid;}
+		if(tid>=0 || tree==null){return tid;}
 		TaxNode tn=tree.parseNodeFromHeader(header, true);
 		return tn==null ? tid : tn.id;
 	}
@@ -1459,6 +1632,9 @@ public class TaxTree implements Serializable{
 	 * Recognizes "tid|N", "tid_N", "ncbi|N", and "ncbi_N" formats.
 	 * Returns -1 if no valid (positive) taxid is found.
 	 * Retries on false substring matches (e.g. "plastid_" contains "tid_").
+	 * Prefix types are tried in the listed order, not their order within the input.
+	 * @param s Header or filename text, or null
+	 * @return First accepted ID for the preferred prefix type, or -1
 	 */
 	public static int parseTaxID(String s){
 		if(s==null){return -1;}
@@ -1469,38 +1645,51 @@ public class TaxTree implements Serializable{
 		return tid;
 	}
 
+	/** Searches successive occurrences of one prefix for a decimal ID.
+	 * @param s Non-null input text
+	 * @param prefix Literal marker preceding decimal digits
+	 * @return Accepted positive ID below Integer.MAX_VALUE, or -1 */
 	private static int parseTaxIDPrefix(String s, String prefix){
 		int pos=s.indexOf(prefix);
 		while(pos>=0){
 			int start=pos+prefix.length();
 			long id=0;
-			boolean found=false;
-			for(int i=start; i<s.length(); i++){
-				char c=s.charAt(i);
+			int end=start;
+			for(; end<s.length(); end++){
+				char c=s.charAt(end);
 				if(c<'0' || c>'9'){break;}
 				id=id*10+(c-'0');
-				found=true;
 			}
-			if(found && id>0 && id<Integer.MAX_VALUE){return (int)id;}
+			if(id>0 && id<Integer.MAX_VALUE){
+				if(end-start<=10){return (int)id;}
+				//Only long tokens need the leading-zero scan. Ten significant digits
+				//fit in long; larger spans reject even if accumulation wrapped.
+				while(start<end && s.charAt(start)=='0'){start++;}
+				if(end-start<=10){return (int)id;}
+			}
 			pos=s.indexOf(prefix, pos+1);
 		}
 		return -1;
 	}
 
-	/** Header should contain something like "tid|1234" somewhere;
-	 * delimiter is autodetected. */
-	private static int parseTaxIDLegacy(String header, String term) {
+	/** Parses the first legacy marker followed by one delimiter and a signed integer.
+	 * Delegates to Parse's unchecked int accumulator: digit values after an optional
+	 * leading minus are assertion-checked, and overflow is not checked.
+	 * @param header Header containing the marker
+	 * @param term Marker without its delimiter, such as tid
+	 * @return Parsed integer, or -1 when the marker/delimiter/digit pattern is absent */
+	private static int parseTaxIDLegacy(String header, String term){
 		int loc=header.indexOf(term);
-		if(loc<0) {return -1;}
+		if(loc<0){return -1;}
 		int start=loc+term.length();
-		if(header.length()<start+2) {return -1;}
+		if(header.length()<start+2){return -1;}
 		final char c=header.charAt(start);
-		if(Tools.isDigitOrSign(c)) {return -1;}
+		if(Tools.isDigitOrSign(c)){return -1;}
 		start++;
 		final char d=header.charAt(start);
-		if(!Tools.isDigitOrSign(d)) {return -1;}
+		if(!Tools.isDigitOrSign(d)){return -1;}
 		int stop=start+1;
-		while(stop<header.length() && Tools.isDigitOrSign(header.charAt(stop))) {stop++;}
+		while(stop<header.length() && Tools.isDigitOrSign(header.charAt(stop))){stop++;}
 		return Parse.parseInt(header, start, stop);
 	}
 	
@@ -1508,13 +1697,13 @@ public class TaxTree implements Serializable{
 	 * Determine the TaxID of a String.
 	 * @param header Typically a sequence header or file name
 	 * @param bestEffort In some cases, try certain substrings if the name is not found.
-	 * @return
+	 * @return Borrowed resolved node, or null if no supported lookup resolves
 	 */
 	public TaxNode parseNodeFromHeader(String header, boolean bestEffort){
 		if(header==null || header.length()<2){return null;}
 		if(header.charAt(0)=='>'){header=header.substring(1);}
-		if(header.endsWith(".gz")) {header=header.substring(0, header.lastIndexOf('.'));}
-		if(header.endsWith(".fa") || header.endsWith(".fna") || header.endsWith(".fasta") || header.endsWith(".faa")) {
+		if(header.endsWith(".gz")){header=header.substring(0, header.lastIndexOf('.'));}
+		if(header.endsWith(".fa") || header.endsWith(".fna") || header.endsWith(".fasta") || header.endsWith(".faa")){
 			header=header.substring(0, header.lastIndexOf('.'));
 		}
 		TaxNode tn;
@@ -1558,6 +1747,9 @@ public class TaxTree implements Serializable{
 	/**
 	 * Guess the delimiter character in a String;
 	 * typically assumed to be '|', '~', or ' '.
+	 * The first pipe, tilde or whitespace wins; absence defaults to a space.
+	 * @param header Non-null header
+	 * @return Pipe, tilde or space; a leading pipe/tilde triggers an assertion
 	 */
 	public static char ncbiHeaderDelimiter(String header){
 		for(int i=0; i<header.length(); i++){
@@ -1632,7 +1824,12 @@ public class TaxTree implements Serializable{
 		return null;
 	}
 	
-	/** Parses sequence headers using NCBI's old-style header system, prior to Accessions. */
+	/** Resolves a legacy delimited header by GI, literal taxID, IMG ID or fallback fields.
+	 * Failed GI parsing is rethrown only if accession/name fallback also fails.
+	 * IMG lookup requires the IMG map; name fallback requires initialized name indexes.
+	 * @param s Non-null header without a leading FASTA marker
+	 * @param delimiter Preferred separator; missing separators fall back to tilde then underscore
+	 * @return Resolved tree node, or null when no lookup resolves */
 	private TaxNode getNodeOldStyle(final String s, char delimiter){
 		{
 			int index=s.indexOf(delimiter);
@@ -1652,9 +1849,9 @@ public class TaxTree implements Serializable{
 //				System.err.println("Parsing gi number.");
 				
 				if(GiToTaxid.isInitialized()){
-					try {
+					try{
 						number=GiToTaxid.parseGiToTaxid(s, delimiter);
-					} catch (Throwable e2) {
+					}catch(Throwable e2){
 						e=e2;
 					}
 				}else{
@@ -1698,7 +1895,11 @@ public class TaxTree implements Serializable{
 		return null;
 	}
 	
-	/** Parse a delimited number from a header, or return -1 if formatted incorrectly. */
+	/** Parses an unsigned decimal after the first separator, stopping at separator, space or tab.
+	 * Subsequent characters are assertion-checked digits; arithmetic overflow is unchecked.
+	 * @param s Header text, or null
+	 * @param delimiter Separator preceding the number and optionally ending it
+	 * @return Parsed value, or -1 for null text, a missing number or a nondigit first character */
 	static long parseDelimitedNumber(String s, char delimiter){
 		if(s==null){return -1;}
 		int i=0;
@@ -1717,7 +1918,11 @@ public class TaxTree implements Serializable{
 		return number;
 	}
 	
-	/** Parses sequence headers using NCBI's current header system, with Accessions. */
+	/** Resolves an accession-first header, then tries its organism-name suffix.
+	 * An unresolved bare numeric header uses merged-ID lookup; underscore-only text
+	 * is retried with underscores changed to spaces.
+	 * @param s Non-null header text without a leading FASTA marker
+	 * @return Resolved tree node, or null when neither accession nor name resolves */
 	private TaxNode getNodeNewStyle(final String s){
 		
 		int space=s.indexOf(' ');
@@ -1744,9 +1949,9 @@ public class TaxTree implements Serializable{
 		return null;
 	}
 	
-	/**
-	 * For parsing old-style NCBI headers.
-	 */
+	/** Resolves the fourth field of a split legacy header as an accession.
+	 * @param split Non-null legacy header fields; lookup state must already be loaded
+	 * @return Accession lookup result, or -1 when fewer than four fields are present */
 	public int parseAccessionToTaxid(String[] split){
 		if(split.length<4){
 			return -1;
@@ -1755,9 +1960,9 @@ public class TaxTree implements Serializable{
 		return ncbi;
 	}
 	
-	/**
-	 * For parsing old-style NCBI headers.
-	 */
+	/** Resolves the fifth field of a split legacy header as an organism name.
+	 * @param split Non-null legacy header fields; name indexes must already be initialized
+	 * @return Unique name's TaxID, or -1 for a missing field, unknown name or ambiguity */
 	public int parseHeaderNameToTaxid(String[] split){
 		if(split.length<5){
 			return -1;
@@ -1767,10 +1972,9 @@ public class TaxTree implements Serializable{
 	
 	/**
 	 * Returns the TaxID from the organism's scientific name (e.g. "Homo sapiens").
-	 * If multiple nodes share the same name, returns the first; to get the full list,
-	 * use getNodesByNameExtended.
+	 * Ambiguous results are rejected; use getNodesByNameExtended to inspect them.
 	 * @param name Organism name.
-	 * @return Organism TaxID, or -1 if not found.
+	 * @return Unique organism TaxID, or -1 when missing or ambiguous
 	 */
 	public int parseNameToTaxid(String name){
 //		assert(false) : name+", "+(nameMap==null)+", "+(nameMap==null ? 0 : nameMap.size());
@@ -1802,51 +2006,43 @@ public class TaxTree implements Serializable{
 		if(split2.length>7){
 			String term=split2[0]+" "+split2[1]+" "+split2[2]+" "+split2[3]+" "+split2[4]+" "+split2[5]+" "+split2[6]+" "+split2[7];
 			list=getNodesByName(term);
-//			System.err.println("6:\n"+Arrays.toString(split)+"\n"+Arrays.toString(split2)+"\n"+term+" -> "+list);
 			if(list!=null){return list;}
 		}
 		
 		if(split2.length>6){
 			String term=split2[0]+" "+split2[1]+" "+split2[2]+" "+split2[3]+" "+split2[4]+" "+split2[5]+" "+split2[6];
 			list=getNodesByName(term);
-//			System.err.println("6:\n"+Arrays.toString(split)+"\n"+Arrays.toString(split2)+"\n"+term+" -> "+list);
 			if(list!=null){return list;}
 		}
 		
 		if(split2.length>5){
 			String term=split2[0]+" "+split2[1]+" "+split2[2]+" "+split2[3]+" "+split2[4]+" "+split2[5];
 			list=getNodesByName(term);
-//			System.err.println("6:\n"+Arrays.toString(split)+"\n"+Arrays.toString(split2)+"\n"+term+" -> "+list);
 			if(list!=null){return list;}
 		}
 		if(split2.length>4){
 			String term=split2[0]+" "+split2[1]+" "+split2[2]+" "+split2[3]+" "+split2[4];
 			list=getNodesByName(term);
-//			System.err.println("5:\n"+Arrays.toString(split)+"\n"+Arrays.toString(split2)+"\n"+term+" -> "+list);
 			if(list!=null){return list;}
 		}
 		if(split2.length>3){
 			String term=split2[0]+" "+split2[1]+" "+split2[2]+" "+split2[3];
 			list=getNodesByName(term);
-//			System.err.println("4:\n"+Arrays.toString(split)+"\n"+Arrays.toString(split2)+"\n"+term+" -> "+list);
 			if(list!=null){return list;}
 		}
 		if(split2.length>2){
 			String term=split2[0]+" "+split2[1]+" "+split2[2];
 			list=getNodesByName(term);
-//			System.err.println("3:\n"+Arrays.toString(split)+"\n"+Arrays.toString(split2)+"\n"+term+" -> "+list);
 			if(list!=null){return list;}
 		}
 		if(split2.length>1){
 			String term=split2[0]+" "+split2[1];
 			list=getNodesByName(term);
-//			System.err.println("2:\n"+Arrays.toString(split)+"\n"+Arrays.toString(split2)+"\n"+term+" -> "+list);
 			if(list!=null){return list;}
 		}
 		if(split2.length>0){
 			String term=split2[0];
 			list=getNodesByName(term);
-//			System.err.println("1:\n"+Arrays.toString(split)+"\n"+Arrays.toString(split2)+"\n"+term+" -> "+list);
 			if(list!=null){return list;}
 		}
 		
@@ -1858,11 +2054,11 @@ public class TaxTree implements Serializable{
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Return the TaxID of the lowest ancestor node at least the specified level,
-	 * including this node itself.  Level is the normal (non-extended) level.
-	 * @param taxID
-	 * @param taxLevel
-	 * @return
+	 * Ascends toward a normal rank without stepping beyond it or onto Life.
+	 * If the requested rank is absent, this may return a lower-ranked node.
+	 * @param taxID Starting TaxID; unresolved/nonpositive values are returned unchanged
+	 * @param taxLevel Desired normal rank, not an extended-rank index
+	 * @return Selected TaxID, or the input when no node resolves
 	 */
 	public int promote(final int taxID, int taxLevel){
 		TaxNode tn=null;
@@ -1872,12 +2068,12 @@ public class TaxTree implements Serializable{
 	}
 	
 	/**
-	 * Fetch the first node in this node's lineage of at least the indicated level.
-	 * This can be the node itself or an ancestor.
-	 * @see getNodeAtLevelExtended
+	 * Ascends while below the desired normal rank, stopping before an overshoot,
+	 * Life, a missing parent, or a self-parent. The result may remain below the target.
+	 * @see #getNodeAtLevelExtended(int, int)
 	 * @param tn Node in question
 	 * @param taxLevel Desired minimum level
-	 * @return A node at the desired level
+	 * @return Selected node, or null for a null input
 	 */
 	public TaxNode promote(TaxNode tn, int taxLevel){
 		while(tn!=null && tn.pid!=tn.id && tn.level<taxLevel){
@@ -1889,9 +2085,10 @@ public class TaxTree implements Serializable{
 	}
 	
 	/**
-	 * Determine the TaxID of the node's parent.
+	 * Resolves a native, auxiliary or merged ID and returns its stored parent ID.
+	 * The out-of-range assertion follows getNode; unresolved IDs return -1.
 	 * @param id TaxID of child node
-	 * @return Parent TaxID
+	 * @return Parent's durable TaxID, or -1 when no node resolves
 	 */
 	public int getParentID(int id){
 		final int idx=nodeIndex(id);
@@ -1904,9 +2101,11 @@ public class TaxTree implements Serializable{
 	}
 	
 	/**
-	 * Fetch the node with this TaxID.
-	 * @param id TaxID
-	 * @return Node
+	 * Resolves native IDs, durable auxiliary IDs and chains of merged aliases.
+	 * Private packed auxiliary slots are not accepted as public IDs. An ID beyond
+	 * the addressable native range triggers an assertion, or returns null under -da.
+	 * @param id External TaxID
+	 * @return Borrowed node, or null for a missing/unaddressable ID
 	 */
 	public TaxNode getNode(int id){
 		final int idx=nodeIndex(id);
@@ -1919,31 +2118,35 @@ public class TaxTree implements Serializable{
 	}
 	
 	/**
-	 * Get the taxonomic level of a TaxID.
+	 * Gets the normal taxonomic rank of a resolved ID.
 	 * @param id TaxID
 	 * @return Taxonomic level or -1 if not found
 	 */
-	public int toLevel(int id) {
+	public int toLevel(int id){
 		TaxNode tn=getNode(id);
 		return tn==null ? -1 : tn.level;
 	}
 	
 	/**
-	 * Resolve merged TaxID to current TaxID.
+	 * Applies one merged-ID mapping without validating that the target node exists.
+	 * Known durable auxiliary IDs are preserved. This does not recursively flatten
+	 * alias chains; getNode performs recursive resolution when fetching a node.
 	 * @param id TaxID to resolve
-	 * @return Current TaxID
+	 * @return Direct mapped ID, or the unchanged input when no mapping applies
 	 */
-	public int resolveID(int id) {
+	public int resolveID(int id){
 		if(externalToInternalMap!=null && externalToInternalMap.contains(id)){return id;}
-		if(mergedMap==null) {return id;}
+		if(mergedMap==null){return id;}
 		int x=mergedMap.get(id);
 		return x<0 ? id : x;
 	}
 	
 	/**
-	 * Fetch the node with this TaxID, but don't throw assertions upon failure.
-	 * @param id TaxID
-	 * @return Node
+	 * Resolves a node with optional suppression of the out-of-range assertion.
+	 * Missing slots follow merged-ID chains, suppressing that assertion on later hops.
+	 * @param id External TaxID
+	 * @param skipAssertion Permit a too-new/out-of-range ID to return null under -ea
+	 * @return Borrowed resolved node, or null when absent
 	 */	
 	public TaxNode getNode(int id, boolean skipAssertion){
 		final int idx=nodeIndex(id);
@@ -1955,7 +2158,11 @@ public class TaxTree implements Serializable{
 		return getNode(mergedMap.get(id), true);
 	}
 
-	/** Convert an external TaxID to an array slot. */
+	/** Maps durable auxiliary IDs to private slots while hiding those slots as IDs.
+	 * Native IDs otherwise pass through; this method does not resolve merged aliases
+	 * or check the upper array bound.
+	 * @param id External TaxID
+	 * @return Candidate array index, or -1 for a negative ID or exposed private slot */
 	int nodeIndex(int id){
 		if(id<0){return -1;}
 		if(externalToInternalMap!=null){
@@ -1967,32 +2174,32 @@ public class TaxTree implements Serializable{
 	}
 	
 	/**
-	 * Get node at specified minimum level.
+	 * Promotes toward a normal minimum rank, with DOMAIN as the ascent ceiling.
 	 * @param id TaxID
 	 * @param minLevel Minimum level
-	 * @return Node at appropriate level
+	 * @return Selected node, possibly below the requested minimum, or null
 	 */
 	public TaxNode getNodeAtLevel(int id, int minLevel){
 		return getNodeAtLevel(id, minLevel, DOMAIN);
 	}
 	
 	/**
-	 * Get node at specified minimum extended level.
+	 * Promotes toward an extended minimum rank, with DOMAIN_E as the ascent ceiling.
 	 * @param id TaxID
 	 * @param minLevelE Minimum extended level
-	 * @return Node at appropriate level
+	 * @return Selected node, possibly below the requested minimum, or null
 	 */
 	public TaxNode getNodeAtLevelExtended(int id, int minLevelE){
 		return getNodeAtLevelExtended(id, minLevelE, DOMAIN_E);
 	}
 	
 	/**
-	 * Get node at specified level range.
+	 * Converts normal rank indices to extended ranks and applies bounded promotion.
 	 *
 	 * @param id TaxID
-	 * @param minLevel Minimum level
-	 * @param maxLevel Maximum level
-	 * @return Node at appropriate level
+	 * @param minLevel Desired minimum normal rank, in the normal-rank index range
+	 * @param maxLevel Normal rank ceiling on parent steps
+	 * @return Selected node, possibly outside the requested interval, or null
 	 */
 	public TaxNode getNodeAtLevel(int id, int minLevel, int maxLevel){
 		final int minLevelExtended=levelToExtended(minLevel);
@@ -2001,12 +2208,15 @@ public class TaxTree implements Serializable{
 	}
 	
 	/**
-	 * Get node at specified extended level range.
+	 * Ascends while below the extended minimum, stopping before a parent exceeds
+	 * the maximum. Missing parents and self-parent roots also stop the walk. The
+	 * result can remain below the minimum; an initial node above the maximum is
+	 * returned unchanged. Parent chains must be finite.
 	 *
 	 * @param id TaxID
 	 * @param minLevelE Minimum extended level
 	 * @param maxLevelE Maximum extended level
-	 * @return Node at appropriate level
+	 * @return Last accepted node, or null when the starting ID does not resolve
 	 */
 	public TaxNode getNodeAtLevelExtended(int id, int minLevelE, int maxLevelE){
 		TaxNode tn=getNode(id);
@@ -2019,10 +2229,12 @@ public class TaxTree implements Serializable{
 	}
 	
 	/**
-	 * Get TaxID at specified extended level.
+	 * Ascends toward an extended rank without accepting an overshooting parent.
+	 * Negative rank limits return the input without lookup. Existing nodes must have
+	 * intact parent chains; unlike promote, this method does not guard missing parents.
 	 * @param taxID Starting TaxID
 	 * @param taxLevelExtended Desired extended level
-	 * @return TaxID at specified level
+	 * @return Last accepted ID, or the input when no step is accepted
 	 */
 	public int getIdAtLevelExtended(int taxID, int taxLevelExtended){
 		if(taxLevelExtended<0){return taxID;}
@@ -2036,10 +2248,11 @@ public class TaxTree implements Serializable{
 	}
 
 	/**
-	 * Fetch the node with this name.
-	 * Throw an assertion if there are multiple such nodes.
+	 * Looks up a name, trying original case before lowercase matching.
+	 * Multiple matches trigger an assertion; under -da the smallest
+	 * minAncestorLevelIncludingSelf value wins, retaining the first match on ties.
 	 * @param s Organism name.
-	 * @return Node with given name.
+	 * @return Borrowed matching node, or null when no match exists
 	 */
 	public TaxNode getNodeByName(String s){
 		List<TaxNode> list=getNodesByName(s, false);
@@ -2060,9 +2273,11 @@ public class TaxTree implements Serializable{
 	}
 	
 	/**
-	 * Fetch a list of all nodes with this name.
+	 * Looks up a name with original-case precedence and a lowercase fallback.
+	 * Underscores are normalized to spaces; multiword inputs can also match ancestry.
+	 * Returned lists may be shared with the name index and must not be modified.
 	 * @param s Organism name.
-	 * @return Nodes with given name.
+	 * @return Matching borrowed nodes in an existing or filtered list, or null
 	 */
 	public List<TaxNode> getNodesByName(String s){
 		List<TaxNode> list=getNodesByName(s, false);
@@ -2095,20 +2310,15 @@ public class TaxTree implements Serializable{
 		if(s==null){return null;}
 		if(s.indexOf('_')>=0){s=s.replace('_', ' ');}
 		if(lowercase){s=s.toLowerCase();}
-//		System.err.println("Searching for "+s);
 		final HashMap<String, ArrayList<TaxNode>> map=getMap(lowercase);
 		ArrayList<TaxNode> list=map.get(s);
 		if(list!=null){return list;}
-//		System.err.println("No matches for '"+s+"'");
 		
-//		assert(false) : nameMap.containsKey(s)+", "+nameMapLower.containsKey(s);
 		
 		if(s.indexOf('_')<0 && s.indexOf(' ')<0){return null;}
 		String[] split=delimiter2.split(lowercase ? s.toLowerCase() : s, 8);
-//		System.err.println("Array: "+Arrays.toString(split));
 		list=map.get(split[split.length-1]);
 		if(list==null){return list;}
-//		System.err.println(list==null ? "No matches for "+split[split.length-1] : "Found list( "+list.size()+")");
 		
 		int matchCount=0;
 		for(TaxNode tn : list){
@@ -2123,9 +2333,10 @@ public class TaxTree implements Serializable{
 		return hits;
 	}
 	/**
-	 * Get all ancestors of a node.
+	 * Collects the starting node and its ancestors in leaf-to-root order, excluding
+	 * the self-parent root. Missing IDs and the root itself produce an empty list.
 	 * @param id TaxID
-	 * @return List of ancestor nodes
+	 * @return Newly allocated list containing borrowed node references
 	 */
 	public ArrayList<TaxNode> getAncestors(int id){
 		TaxNode current=getNode(id);
@@ -2139,10 +2350,11 @@ public class TaxTree implements Serializable{
 	}
 	
 	/**
-	 * Increment counts for multiple TaxIDs.
-	 * @param ids List of TaxIDs
-	 * @param counts Corresponding counts
-	 * @param sync Use synchronization
+	 * Increments counts for multiple TaxIDs after sorting and deduplicating ids in place.
+	 * The two lists must be distinct and exclusively owned during this operation.
+	 * @param ids TaxIDs, replaced with their sorted unique values
+	 * @param counts Scratch list replaced with matching multiplicities
+	 * @param sync Synchronize raw counter updates on this tree
 	 */
 	public void increment(IntList ids, IntList counts, boolean sync){
 		
@@ -2202,7 +2414,11 @@ public class TaxTree implements Serializable{
 		}
 	}
 	
-	/** Add this amount to the node and all its ancestors. */
+	/** Adds a signed amount to countSum for this node and every ancestor, including root.
+	 * Nonzero updates require a complete, acyclic parent chain ending at a self-parent
+	 * root. Zero is a no-op without inspecting the node.
+	 * @param node Starting node, non-null for a nonzero update
+	 * @param amt Signed count adjustment, including negative subtraction */
 	public void percolateUp(TaxNode node, long amt){
 		if(amt==0){return;}
 		if(verbose){System.err.println("percolateUp("+amt+") node: "+node);}
@@ -2215,15 +2431,18 @@ public class TaxTree implements Serializable{
 	
 	/**
 	 * Gather nodes with count at least the limit.
+	 * Subtracts each selected node's cumulative count from its ancestors.
 	 * @param limit Minimum count threshold
 	 * @return List of qualifying nodes
 	 */
 	public ArrayList<TaxNode> gatherNodesAtLeastLimit(final long limit){
-		return gatherNodesAtLeastLimit(limit, 0, nodesPerLevelExtended.length-1);
+		return gatherNodesAtLeastLimit(limit, NO_RANK, LIFE);
 	}
 	
 	/**
 	 * Gather nodes with count at least the limit within level range.
+	 * Visits extended levels in ascending order and subtracts each selected node's
+	 * cumulative count from its ancestors; this mutates the tree's count state.
 	 *
 	 * @param limit Minimum count threshold
 	 * @param minLevel Minimum taxonomic level
@@ -2244,6 +2463,8 @@ public class TaxTree implements Serializable{
 	
 	/**
 	 * Gather nodes at extended level with count at least the limit.
+	 * Subtracts each selected node's cumulative count from its ancestors.
+	 * Mutates the tree's count state.
 	 * @param fromLevelExtended Extended level to gather from
 	 * @param limit Minimum count threshold
 	 * @return List of qualifying nodes
@@ -2268,10 +2489,9 @@ public class TaxTree implements Serializable{
 	/*----------------     Static Initializers      ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/**
-	 * Generate the name to level number map.
-	 */
-	private static HashMap<String, Integer> makeLevelMap() {
+	/** Builds normal-rank aliases in lowercase and uppercase, including clade as no-rank.
+	 * @return Newly allocated rank-name map */
+	private static HashMap<String, Integer> makeLevelMap(){
 		HashMap<String, Integer> map=new HashMap<String, Integer>(31);
 		for(int i=0; i<taxLevelNames.length; i++){
 			map.put(taxLevelNames[i], i);
@@ -2282,10 +2502,9 @@ public class TaxTree implements Serializable{
 		return map;
 	}
 
-	/**
-	 * Generate the name to level number map.
-	 */
-	private static HashMap<String, Integer> makeShortLevelMap() {
+	/** Builds lowercase and uppercase abbreviations for normal ranks.
+	 * @return Newly allocated short-name map */
+	private static HashMap<String, Integer> makeShortLevelMap(){
 		HashMap<String, Integer> map=new HashMap<String, Integer>(31);
 		for(int i=0; i<taxLevelNamesShort.length; i++){
 			map.put(taxLevelNamesShort[i], i);
@@ -2294,10 +2513,9 @@ public class TaxTree implements Serializable{
 		return map;
 	}
 
-	/**
-	 * Generate the name to extended level number map.
-	 */
-	private static HashMap<String, Integer> makeLevelMapExtended() {
+	/** Builds lowercase and uppercase extended-rank names, including clade as no-rank.
+	 * @return Newly allocated extended-rank map */
+	private static HashMap<String, Integer> makeLevelMapExtended(){
 		HashMap<String, Integer> map=new HashMap<String, Integer>(129);
 		for(int i=0; i<taxLevelNamesExtended.length; i++){
 			map.put(taxLevelNamesExtended[i], i);
@@ -2308,10 +2526,10 @@ public class TaxTree implements Serializable{
 		return map;
 	}
 
-	/**
-	 * I think this maps normal and extend names to normal level numbers.
-	 */
-	private static HashMap<String, Integer> makeAltLevelMap() {
+	/** Maps normal and intermediate rank names to their containing normal rank.
+	 * Includes lowercase and uppercase spellings and clade as no-rank.
+	 * @return Newly allocated full-name-to-normal-rank map */
+	private static HashMap<String, Integer> makeAltLevelMap(){
 		HashMap<String, Integer> map=new HashMap<String, Integer>(129);
 		for(int i=0; i<taxLevelNames.length; i++){
 			map.put(taxLevelNames[i], i);
@@ -2364,7 +2582,10 @@ public class TaxTree implements Serializable{
 	/*----------------             Size             ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Number of bp associated with this node in RefSeq */
+	/** Returns the loaded base count assigned directly to a node.
+	 * @param tn Node whose ID indexes the loaded size table, or null
+	 * @return Zero for null; -1 if the table is unloaded; otherwise the stored count,
+	 * with absent or negative values reported as zero */
 	public long toSize(TaxNode tn){
 		if(tn==null){return 0;}
 		if(refseqSizeMap==null){return -1L;}
@@ -2372,7 +2593,11 @@ public class TaxTree implements Serializable{
 		return Tools.max(0, x);
 	}
 	
-	/** Number of bp associated with this node and descendants in RefSeq */
+	/** Returns the loaded cumulative base count for a node and its descendants.
+	 * This reads the summary; it does not traverse or recompute ancestry.
+	 * @param tn Node whose ID indexes the loaded summary, or null
+	 * @return Zero for null; -1 if the table is unloaded; otherwise the stored count,
+	 * with absent or negative values reported as zero */
 	public long toSizeC(TaxNode tn){
 		if(tn==null){return 0;}
 		if(refseqSizeMapC==null){return -1L;}
@@ -2380,7 +2605,10 @@ public class TaxTree implements Serializable{
 		return Tools.max(0, x);
 	}
 	
-	/** Number of sequences associated with this node in RefSeq */
+	/** Returns the loaded sequence count assigned directly to a node.
+	 * @param tn Node whose ID indexes the loaded summary, or null
+	 * @return Zero for null; -1 if the table is unloaded; otherwise the stored count,
+	 * with absent or negative values reported as zero */
 	public int toSeqs(TaxNode tn){
 		if(tn==null){return 0;}
 		if(refseqSeqMap==null){return -1;}
@@ -2388,7 +2616,10 @@ public class TaxTree implements Serializable{
 		return Tools.max(0, x);
 	}
 	
-	/** Number of sequences associated with this node and descandants in RefSeq */
+	/** Returns the loaded cumulative sequence count for a node and its descendants.
+	 * @param tn Node whose ID indexes the loaded summary, or null
+	 * @return Zero for null; -1 if the table is unloaded; otherwise the stored count,
+	 * with absent or negative values reported as zero */
 	public long toSeqsC(TaxNode tn){
 		if(tn==null){return 0;}
 		if(refseqSeqMapC==null){return -1L;}
@@ -2396,7 +2627,10 @@ public class TaxTree implements Serializable{
 		return Tools.max(0, x);
 	}
 	
-	/** Number of descendants of this node */
+	/** Returns the loaded cumulative node count for a TaxID.
+	 * @param tn Node whose ID indexes the loaded summary, or null
+	 * @return Zero for null; -1 if the table is unloaded; otherwise the stored count,
+	 * with absent or negative values reported as zero */
 	public int toNodes(TaxNode tn){
 		if(tn==null){return 0;}
 		if(nodeMapC==null){return -1;}
@@ -2480,7 +2714,6 @@ public class TaxTree implements Serializable{
 	 */
 	public static int imgToTaxid(long img){
 		ImgRecord ir=imgMap.get(img);
-//		assert(false) : "\n"+img+"\n"+imgMap.get(img)+"\n"+562+"\n"+imgMap.get(562)+"\n"+imgMap.size()+"\n"+IMGHQ+"\n"+defaultImgFile()+"\n";
 		return ir==null ? -1 : ir.taxID;
 	}
 	
@@ -2494,17 +2727,6 @@ public class TaxTree implements Serializable{
 		return tid<1 ? null : getNode(tid);
 	}
 	
-//	public static int loadIMGOld(String fname, boolean storeName, PrintStream outstream){
-//		assert(imgMap==null);
-//		if(fname==null){return 0;}
-//		ImgRecord2.storeName=storeName;
-//		if(outstream!=null){System.err.println("Loading IMG.");}
-//		Timer t=new Timer(outstream, false);
-//		ImgRecord2[] array=ImgRecord2.toArray(fname);
-//		int x=loadIMG(array);
-//		t.stopAndPrint();
-//		return x;
-//	}
 	
 	/**
 	 * Load IMG mapping data from file.
@@ -2648,18 +2870,18 @@ public class TaxTree implements Serializable{
 		return levels;
 	}
 	
-	/** 
-	 * Generates the mononomial name for this taxonomic level based on the scientific name.
-	 * For example, "Homo sapiens" -> "Sapiens"
-	 * @param tid TaxID
-	 * @return Correct name for this node.
+	/** Removes a resolved node's parent-name prefix when followed by one space.
+	 * For example, "Homo sapiens" with parent "Homo" becomes "sapiens".
+	 * Case is preserved; a name without the exact parent prefix is unchanged.
+	 * @param tid TaxID resolved through getNode
+	 * @return Remaining name, unchanged name, or null if no node resolves
 	 */
 	public String mononomial(int tid){return mononomial(getNode(tid));}
 	/**
-	 * Generates the mononomial name for this taxonomic level based on the scientific name.
-	 * For example, "Homo sapiens" -> "Sapiens"
-	 * @param tn TaxNode
-	 * @return Correct name for this node
+	 * Removes an exact parent-name prefix and its following space, preserving case.
+	 * Missing parents and names without that prefix leave the name unchanged.
+	 * @param tn Node whose name is shortened, or null
+	 * @return Remaining name, unchanged name, or null for a null node
 	 */
 	public String mononomial(TaxNode tn){
 		if(tn==null){return null;}
@@ -2678,7 +2900,7 @@ public class TaxTree implements Serializable{
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** All nodes in the tree in a flat array, indexed by TaxiD */
+	/** Nodes indexed by native TaxID or private packed auxiliary slot; use getNode for IDs. */
 	public final TaxNode[] nodes;
 	
 	/** Number of nodes per normal level */
@@ -2708,7 +2930,9 @@ public class TaxTree implements Serializable{
 	HashMap<String, ArrayList<TaxNode>> nameMapLower;
 	/** Map of nodes to child nodes */
 	HashMap<TaxNode, ArrayList<TaxNode>> childMap;
-	/** Get the name map */
+	/** Returns the current name index without constructing it.
+	 * The returned map and its lists are borrowed mutable state.
+	 * @return Existing exact-name index, or null before names are hashed */
 	public HashMap<String, ArrayList<TaxNode>> nameMap(){return nameMap;}
 	
 	/** @deprecated Minimum valid taxa count */
@@ -2758,7 +2982,7 @@ public class TaxTree implements Serializable{
 	private static HashMap<Long, ImgRecord> imgMap;
 
 	/** Set to false if the tree is expected to be mutated.
-	 * @TODO Remove mutable fields from the tree (like counters).
+	 * TODO: Separate mutable fields such as counters from the shared topology.
 	 */
 	public static boolean ALLOW_SHARED_TREE=true;
 	
@@ -2774,18 +2998,26 @@ public class TaxTree implements Serializable{
 	/** Universal location of the shared TaxTree used by various classes */
 	private static TaxTree sharedTree;
 	
-	/** A simpler and probably less safe version of sharedTree(...) */
+	/** Returns the currently published shared tree without loading or hashing it.
+	 * @return Shared tree, or null before publication */
 	public static TaxTree getTree(){return sharedTree;}
 	
-	/** A simpler and probably less safe version of sharedTree(...) */
+	/** Loads or reuses the shared tree, requesting name and dot-format indexes.
+	 * @return Shared tree, or null when shared-tree caching is disabled */
 	public static TaxTree sharedTree(){return sharedTree(defaultTreeFile(), true, true, System.err);}
 	
 	/**
-	 * Fetch the shared tree, loading it from file if not present.
-	 * @return A tree.
-	 * @TODO: Check proper-construction of double-checked synchronize
+	 * Reuses the published shared tree or loads one when no tree is cached.
+	 * An existing tree takes precedence over fname. Name hashing is added only
+	 * when requested and the exact-name index is absent.
+	 * @param fname Initial tree path, auto for the default, or null to avoid loading
+	 * @param hashNames Request name indexes
+	 * @param hashDotFormat Include dot-format names when constructing those indexes
+	 * @param outstream Optional destination for loading/hash timing messages
+	 * @return Shared tree, or null when caching is disabled or none is loaded
+	 * TODO: Review safe publication of the lazily initialized shared tree and indexes.
 	 */
-	private static TaxTree sharedTree(String fname, boolean hashNames, boolean hashDotFormat, PrintStream outstream) {
+	private static TaxTree sharedTree(String fname, boolean hashNames, boolean hashDotFormat, PrintStream outstream){
 		if(!ALLOW_SHARED_TREE){return null;}
 		if(sharedTree==null && fname!=null){
 			if("auto".equalsIgnoreCase(fname)){fname=defaultTreeFile();}
@@ -2812,9 +3044,12 @@ public class TaxTree implements Serializable{
 		return sharedTree;
 	}
 	
-	/** 
-	 * For initialization.  Normally only one tree is needed by a process so it is set here.
-	 * If the tree is already set nothing will happen, unless additional hashing is needed.
+	/** Publishes the initial shared tree and optionally builds missing name indexes.
+	 * Requires shared caching enabled and no prior shared tree; assertions enforce
+	 * those preconditions. With assertions disabled, a prior tree is replaced.
+	 * @param tree Non-null tree to publish
+	 * @param hashNames Build name indexes if absent
+	 * @param hashDotFormat Include dot-format names when constructing the indexes
 	 */
 	private static synchronized void setSharedTree(TaxTree tree, boolean hashNames, boolean hashDotFormat){
 		assert(ALLOW_SHARED_TREE);
@@ -2830,10 +3065,10 @@ public class TaxTree implements Serializable{
 	}
 	
 	/**
-	 * Determine whether a taxonomic level is standard. e.g.:<br>
-	 * isSimple("phylum")=true<br>
-	 * isSimple("subphylum")=false<br>
-	 * isSimple("no-rank")=false
+	 * Tests whether an extended rank is the standard representative of its normal rank.
+	 * For example, {@code isSimple(PHYLUM_E)} is true, while
+	 * {@code isSimple(stringToLevelExtended("subphylum"))} and
+	 * {@code isSimple(NO_RANK_E)} are false.
 	 * @param levelExtended The extended level to test.
 	 * @return True if this level is not no-rank, and the names of the normal and extended levels match.
 	 */
@@ -2843,13 +3078,11 @@ public class TaxTree implements Serializable{
 	}
 	
 	/**
-	 * Determine whether a taxonomic level is standard, but allows substrain and lower. e.g.:<br>
-	 * isSimple("phylum")=true<br>
-	 * isSimple("substrain")=true<br>
-	 * isSimple("subphylum")=false<br>
-	 * isSimple("no-rank")=false
+	 * Tests standard ranks plus the explicit subspecies, strain and substrain ranks.
+	 * For example, {@code isSimple2(PHYLUM_E)} and {@code isSimple2(SUBSTRAIN_E)}
+	 * are true; {@code isSimple2(NO_RANK_E)} is false.
 	 * @param levelExtended The extended level to test.
-	 * @return True if this level is not no-rank, and the names of the normal and extended levels match.
+	 * @return True for a standard rank or one of those explicit additional ranks
 	 */
 	public static boolean isSimple2(int levelExtended){
 		int level=extendedToLevel(levelExtended);
@@ -2861,12 +3094,16 @@ public class TaxTree implements Serializable{
 	/*----------------          Constants           ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Get the number for the normal level of this name */
+	/** Maps an exact accepted full rank name to its normal rank group.
+	 * @param s Full rank name, including supported intermediate ranks
+	 * @return Normal rank number
+	 * @throws NullPointerException If the rank name is absent from the map */
 	public static final int stringToLevel(String s){return altLevelMap.get(s);}
 	/**
 	 * Get the number for the short level name.
 	 * @param s Short level name
 	 * @return Level number
+	 * @throws NullPointerException If the abbreviation is absent from the map
 	 */
 	public static final int shortStringToLevel(String s){return shortLevelMap.get(s);}
 	/**
@@ -2875,21 +3112,31 @@ public class TaxTree implements Serializable{
 	 * @return true if contained
 	 */
 	public static final boolean levelMapExtendedContains(String s){return levelMapExtended.containsKey(s);}
-	/** Get the number for the extended level of this name */
+	/** Maps an exact extended rank name to its extended rank number.
+	 * @param s Extended rank name
+	 * @return Extended rank number
+	 * @throws NullPointerException If the rank name is absent from the map */
 	public static final int stringToLevelExtended(String s){return levelMapExtended.get(s);}
-	/** Get the normal name for this normal level */
+	/** Returns the name of a normal rank.
+	 * @param x Normal rank index in the supported range
+	 * @return Corresponding normal rank name */
 	public static final String levelToString(int x){return taxLevelNames[x];}
-	/** Get the extended name for this extended level */
+	/** Returns the name of an extended rank.
+	 * @param x Extended rank index in the supported range
+	 * @return Corresponding extended rank name */
 	public static final String levelToStringExtended(int x){return taxLevelNamesExtended[x];}
-	/** Get the abbreviated name for this normal level */
+	/** Returns the short name of a normal rank, such as s for species.
+	 * @param x Normal rank index in the supported range
+	 * @return Corresponding rank abbreviation */
 	public static final String levelToStringShort(int x){return taxLevelNamesShort[x];}
 	
 	/** Normal, aka canonical, aka simple tax level names */
-	private static final String[] taxLevelNames=new String[] {
+	private static final String[] taxLevelNames=new String[]{
 		"no rank", "subspecies", "species", "genus",
 		"family", "order", "class", "phylum",
 		"kingdom", "superkingdom", "domain", "life"
 	};
+	/** Number of supported normal rank slots, including no-rank and Life. */
 	public static final int numTaxLevelNames=taxLevelNames.length;
 	
 	/** 
@@ -2897,10 +3144,9 @@ public class TaxTree implements Serializable{
 	 * All levels used by NCBI must be present here, or parsing a new NCBI tax tree will crash.
 	 * The first dimension maps normal ranks to extended ranks.
 	 * Both dimensions are ordered ascending.
-	 * @TODO Note! If this goes over 63 names it will cause a problem with getDefinedLevels().
+	 * TODO: More than 63 names would exceed the original-rank flag and level-bitmask capacity.
 	 */
-	//TODO See @TODO
-	private static final String[][] taxLevelNamesExtendedMatrix=new String[][] {
+	private static final String[][] taxLevelNamesExtendedMatrix=new String[][]{
 		{"no rank"},
 		{"subgenotype", "genotype", "substrain", "isolate", "strain", "pathotype", "pathogroup", 
 			"biotype", "serotype", "serogroup", "morph", "forma specialis", "forma", "subvariety", "varietas", 
@@ -2922,7 +3168,8 @@ public class TaxTree implements Serializable{
 	/** Number of extended tax levels */
 	public static final int numTaxLevelNamesExtended=taxLevelNamesExtended.length;
 	
-	/** Flatten the extended tax level names matrix to a 1D array */
+	/** Flattens rank groups in their declared order.
+	 * @return Newly allocated array of all extended rank names */
 	private static final String[] makeNamesExtended(){
 		ArrayList<String> list=new ArrayList<String>();
 		for(String[] s : taxLevelNamesExtendedMatrix){
@@ -2934,7 +3181,7 @@ public class TaxTree implements Serializable{
 	}
 	
 	/** Abbreviations of tax level names, mainly for semicolon form */
-	private static final String[] taxLevelNamesShort=new String[] {
+	private static final String[] taxLevelNamesShort=new String[]{
 			"nr", "ss", "s", "g",
 			"f", "o", "c", "p",
 			"k", "sk", "d", "l"
@@ -2988,7 +3235,7 @@ public class TaxTree implements Serializable{
 			LIFE_E=stringToLevelExtended("life");
 	
 	/** Map of normal to extended level numbers */
-	private static final int[] levelToExtended=new int[] {
+	private static final int[] levelToExtended=new int[]{
 			NO_RANK_E, SUBSPECIES_E, SPECIES_E, GENUS_E, FAMILY_E,
 			ORDER_E, CLASS_E, PHYLUM_E, KINGDOM_E, SUPERKINGDOM_E, DOMAIN_E, LIFE_E
 		};
@@ -2996,7 +3243,8 @@ public class TaxTree implements Serializable{
 	/** Map of extended to normal level numbers */
 	private static final int[] extendedToLevel=makeExtendedToLevel();
 	
-	/** Creates extendedToLevel from taxaNamesExtendedMatrix during initialization. */
+	/** Creates one normal-group index per extended rank during class initialization.
+	 * @return Newly allocated extended-to-normal mapping */
 	private static int[] makeExtendedToLevel(){
 		int len=0;
 		for(String[] array : taxLevelNamesExtendedMatrix){
@@ -3015,51 +3263,77 @@ public class TaxTree implements Serializable{
 		return ret;
 	}
 	
-	/** Convert a standard level number (like KINGDOM) to extended (like KINGDOM_E). */
+	/** Converts a normal rank to its corresponding extended rank.
+	 * @param level Normal rank index; negative values are returned unchanged
+	 * @return Extended rank, or the supplied negative sentinel */
 	public static final int levelToExtended(int level){
 		return level<0 ? level : levelToExtended[level];
 	}
 
-	/** Convert an extended level number (like PHYLUM_E) to extended (like PHYLUM).
-	 * Non-standard levels will be converted to the next higher standard level;
-	 * e.g., subphylum -> phylum */
+	/** Converts an extended rank to its normal rank group.
+	 * Intermediate ranks map to their containing normal group, for example
+	 * subphylum to phylum.
+	 * @param extended Extended rank index; any negative value is accepted
+	 * @return Normal rank, or -1 for a negative input */
 	public static final int extendedToLevel(int extended){
 		return extended<0 ? -1 : extendedToLevel[extended];
 	}
 	
-	/* Pre-compiled delimiters to save time when splitting lines */
+	/** Tab delimiter for legacy text records. */
 	private static final Pattern delimiterTab = Pattern.compile("\t");
+	/** Tab-pipe-tab separator used in NCBI dump records. */
 	private static final Pattern delimiter = Pattern.compile("\t\\|\t");
+	/** Literal pipe separator for legacy sequence headers. */
 	private static final Pattern delimiterPipe = Pattern.compile("\\|");
+	/** Literal tilde separator for alternate legacy headers. */
 	private static final Pattern delimiterTilde = Pattern.compile("\\~");
+	/** One or more whitespace or underscore characters used in name matching. */
 	private static final Pattern delimiter2 = Pattern.compile("[\\s_]+");
 	
+	/** Restrict IMG dump loading to records marked high quality when requested by callers. */
 	public static boolean IMG_HQ=false;
+	/** Configured main-tree path; auto requests the default resource lookup. */
 	public static String treeFile="auto";
 	
-	/* For these fields, see the corresponding functions, below.
-	 * They define the default paths to various data on NERSC. */
-
+	/** Default taxonomy directory on NERSC systems. */
 	private static final String defaultTaxPathNersc="/global/cfs/cdirs/bbtools/tax/latest";
+	/** Default taxonomy directory on the AWS installation. */
 	private static final String defaultTaxPathAws="/test1/tax/latest";
+	/** Default taxonomy directory on the IGB virtual-machine installation. */
 	private static final String defaultTaxPathIGBVM="/data/tax/latest";
+	/** Default taxonomy directory on Dori. */
 	private static final String defaultTaxPathDori="/clusterfs/jgi/groups/gentech/homes/bbushnell/tax/latest";
+	/** NERSC prokaryotic 16S consensus FASTA default. */
 	private static final String default16SFileNersc="/global/cfs/cdirs/bbtools/silva/16S_consensus_with_silva_maxns10_taxsorted.fa.gz";
+	/** Dori prokaryotic 16S consensus FASTA default. */
 	private static final String default16SFileDori="/clusterfs/jgi/groups/gentech/homes/bbushnell/ribo/all_prok_16S_consensus_species_maxns10_taxsorted.fa.gz";
+	/** AWS prokaryotic 16S consensus FASTA default. */
 	private static final String default16SFileAws="/test1/16S_consensus_with_silva_maxns10_taxsorted.fa.gz";
+	/** IGB virtual-machine prokaryotic 16S consensus FASTA default. */
 	private static final String default16SFileIGBVM="/data/sketch/silva/16S_consensus_with_silva_maxns10_taxsorted.fa.gz";
+	/** NERSC eukaryotic 18S consensus FASTA default. */
 	private static final String default18SFileNersc="/global/cfs/cdirs/bbtools/silva/18S_consensus_silva_maxns10_taxsorted.fa.gz";
+	/** Dori eukaryotic 18S consensus FASTA default. */
 	private static final String default18SFileDori="/clusterfs/jgi/groups/gentech/homes/bbushnell/ribo/all_euk_18S_consensus_species_maxns10_taxsorted.fa.gz";
+	/** AWS eukaryotic 18S consensus FASTA default. */
 	private static final String default18SFileAws="/test1/18S_consensus_silva_maxns10_taxsorted.fa.gz";
+	/** IGB virtual-machine eukaryotic 18S consensus FASTA default. */
 	private static final String default18SFileIGBVM="/data/sketch/silva/18S_consensus_with_silva_maxns10_taxsorted.fa.gz";
 	
+	/** IMG dump path template; TAX_PATH is replaced by the configured taxonomy directory. */
 	private static final String defaultImgFile="TAX_PATH/imgDump.txt";
+	/** Legacy one-dimensional GI table path template. */
 	private static final String defaultTableFileInt="TAX_PATH/gitable.int1d.gz";
+	/** Two-dimensional GI table path template. */
 	private static final String defaultTableFile="TAX_PATH/gitable.int2d.gz";
+	/** Serialized taxonomy tree fallback path template. */
 	private static final String defaultTreeFile="TAX_PATH/tree.taxtree.gz";
+	/** Accession digitization-pattern path template. */
 	private static final String defaultPatternFile="TAX_PATH/patterns.txt";
+	/** Per-taxID sequence-size table path template. */
 	private static final String defaultSizeFile="TAX_PATH/taxsize.tsv.gz";
 
+	/** Comma-separated accession mapping path templates, each rooted at TAX_PATH. */
 	private static final String defaultAccessionFile=
 		"TAX_PATH/shrunk.assembly_summary_genbank.txt.gz"
 		+ ",TAX_PATH/shrunk.assembly_summary_refseq.txt.gz"
@@ -3073,18 +3347,10 @@ public class TaxTree implements Serializable{
 		+ ",TAX_PATH/shrunk.prot.accession2taxid.gz"
 		+ ",TAX_PATH/shrunk.wgs.accession2taxid.gz";
 
-		//			//"TAX_PATH/shrunk.protF.accession2taxid.gz," +
-//			"TAX_PATH/shrunk.prot.accession2taxid.gz,"
-//			+ "TAX_PATH/shrunk.nucl_wgs.accession2taxid.gz,"
-//			+ "TAX_PATH/shrunk.nucl_gb.accession2taxid.gz,"
-//			+ "TAX_PATH/shrunk.dead_prot.accession2taxid.gz,"
-////			+ "TAX_PATH/shrunk.nucl_est.accession2taxid.gz,"
-//			+ "TAX_PATH/shrunk.dead_wgs.accession2taxid.gz,"
-////			+ "TAX_PATH/shrunk.nucl_gss.accession2taxid.gz,"
-//			+ "TAX_PATH/shrunk.dead_nucl.accession2taxid.gz,"
-//			+ "TAX_PATH/shrunk.pdb.accession2taxid.gz";
 
-	/** For setting TAX_PATH, the root to taxonomy files */
+	/** Selects a taxonomy root from host flags, falling back to bundled resources.
+	 * Priority is AWS outside NERSC, IGB VM, Dori, then Perlmutter/NERSC.
+	 * @return Default directory path; existence is not checked */
 	public static final String defaultTaxPath(){
 		String s=(Shared.AWS && !Shared.NERSC) ? 
 				defaultTaxPathAws : 
@@ -3095,13 +3361,15 @@ public class TaxTree implements Serializable{
 		return s;
 	}
 
-	/** 16S consensus sequences per TaxID */
+	/** Selects the host-specific prokaryotic 16S consensus path.
+	 * @return Dori, AWS, IGB VM or fallback NERSC path; existence is not checked */
 	public static final String default16SFile(){
 		return Shared.DORI ? default16SFileDori : (Shared.AWS && !Shared.NERSC)
 			? default16SFileAws : Shared.IGBVM ? default16SFileIGBVM : default16SFileNersc;
 	}
 
-	/** 18S consensus sequences per TaxID */
+	/** Selects the host-specific eukaryotic 18S consensus path.
+	 * @return Dori, AWS, IGB VM or fallback NERSC path; existence is not checked */
 	public static final String default18SFile(){
 		return Shared.DORI ? default18SFileDori : (Shared.AWS && !Shared.NERSC)
 			? default18SFileAws : Shared.IGBVM ? default18SFileIGBVM : default18SFileNersc;
@@ -3110,37 +3378,44 @@ public class TaxTree implements Serializable{
 	/** Path to all taxonomy files, substituted in to make specific file paths */
 	public static String TAX_PATH=defaultTaxPath();
 	
-	/** Location of gitable.int2d.gz for gi lookups */
+	/** Resolves the two-dimensional GI lookup table template.
+	 * @return GI table path under the configured TAX_PATH; existence is not checked */
 	public static final String defaultTableFile(){return defaultTableFile.replaceAll("TAX_PATH", TAX_PATH);}
 	
 	/** Location of taxtree.tsv.gz.
 	 * The tree now ships with BBTools, so resources/ wins; TAX_PATH is only a legacy fallback for
 	 * installations that predate the bundled tree.  The other taxonomy files (gitable, accession2taxid,
 	 * imgDump, ...) are far too large to bundle and still live under TAX_PATH -- this priority applies
-	 * to the TREE ALONE.*/
+	 * to the TREE ALONE.
+	 * @return First existing bundled text-tree path, otherwise the configured serialized
+	 * tree fallback path even when that fallback does not exist */
 	public static final String defaultTreeFile(){
 		String s2=Data.RESOURCES()+"taxtree.tsv.gz";
-		if(new File(s2).exists()) {return s2;}
+		if(new File(s2).exists()){return s2;}
 		s2=Data.ROOT()+"taxtree.tsv.gz";
-		if(new File(s2).exists()) {return s2;}
+		if(new File(s2).exists()){return s2;}
 		String s=defaultTreeFile.replaceAll("TAX_PATH", TAX_PATH);
-		if(new File(s).exists()) {return s;}
+		if(new File(s).exists()){return s;}
 		return s;
 	}
 	
-	//Use the prot.FULL.gz ncbi file.
+	/** Whether to prepend the full-protein accession table to the default input list. */
 	public static boolean protFull=false;
 	
-	/** Location of shrunk.*.accession2taxid.gz (all accession files, comma-delimited) */
+	/** Resolves the configured accession table list, optionally prepending full proteins.
+	 * @return Comma-separated paths under TAX_PATH; existence is not checked */
 	public static final String defaultAccessionFile(){
 		String s=(protFull ? "TAX_PATH/shrunk.protF.accession2taxid.gz," : "")+defaultAccessionFile;
 		return s.replaceAll("TAX_PATH", TAX_PATH);
 	}
-	/** Location of patterns.txt, which holds information about observed accession string formats */
+	/** Resolves the observed accession-pattern table path.
+	 * @return patterns.txt under TAX_PATH; existence is not checked */
 	public static final String defaultPatternFile(){return defaultPatternFile.replaceAll("TAX_PATH", TAX_PATH);}
-	/** Location of imgDump.txt, which translates IMG to NCBI IDs for internal JGI use */
+	/** Resolves the IMG-to-NCBI taxonomy dump path.
+	 * @return imgDump.txt under TAX_PATH; existence is not checked */
 	public static final String defaultImgFile(){return defaultImgFile.replaceAll("TAX_PATH", TAX_PATH);}
-	/** Location of taxsize.tsv, which indicates the amount of sequence associated with a TaxID */
+	/** Resolves the table of sequence amounts associated with each TaxID.
+	 * @return taxsize.tsv.gz under TAX_PATH; existence is not checked */
 	public static final String defaultSizeFile(){return defaultSizeFile.replaceAll("TAX_PATH", TAX_PATH);}
 	
 	/** Screen output gets printed here */

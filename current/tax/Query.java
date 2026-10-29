@@ -11,113 +11,68 @@ import shared.Timer;
 import shared.Tools;
 
 /**
- * Provides HTTP-based query interface for taxonomic database lookups and identifier resolution.
- * Handles communication with taxonomic servers to retrieve GI numbers and accession mappings.
- * Supports performance testing and throughput measurement for database queries.
+ * Legacy blocking URL client for GI/accession-to-taxID lookups and throughput probes.
+ * Unlike TaxClient, this class does not encode request payloads, retry transport
+ * failures, or validate response shape before parsing. Server configuration is
+ * global; individual calls allocate their own request and response storage.
  * @author Brian Bushnell
  */
-public class Query {
-	
-	/** For testing throughput */
-	public static void main(String[] args){
-		
-//		sun.net.http.errorstream.enableBuffering=true;
+public class Query{
 
-//		System.setProperty("sun.net.http.errorstream.enableBuffering", "true");
-//		System.setProperty("http.errorstream.enableBuffering", "true");
-//////		System.setProperty("", "");
-//		System.setProperty("http.keepAlive", "true");
-//		System.setProperty("http.maxConnections", "50");
-////		System.setProperty("", "");
-////		System.setProperty("", "");
-//
-//		System.out.println("sun.net.http.errorstream.enableBuffering="+System.getProperty("sun.net.http.errorstream.enableBuffering"));
-//		System.out.println("sun.net.http.errorstream.timeout="+System.getProperty("sun.net.http.errorstream.timeout"));
-//		System.out.println("sun.net.http.errorstream.bufferSize="+System.getProperty("sun.net.http.errorstream.bufferSize"));
-//		System.out.println("http.keepAlive="+System.getProperty("http.keepAlive"));
-//		System.out.println("http.maxConnections="+System.getProperty("http.maxConnections"));
-//		System.out.println(System.getProperties());
-//		System.out.println("="+System.getProperty(""));
-//		System.out.println("="+System.getProperty(""));
-//		System.out.println("="+System.getProperty(""));
-		
+	/** Constructs the stateless legacy client; all operations are static. */
+	public Query(){}
+
+	/** Times repeated reads of one complete URL, discarding the returned content.
+	 * Reports overall throughput and a second interval excluding the first request.
+	 * Transport failures are printed but do not stop the timing loop.
+	 * @param args Complete URL followed by an optional positive request count */
+	public static void main(String[] args){
 		String x=args[0];
 		int requests=(args.length>1 ? Integer.parseInt(args[1]) : 1);
-
 		Timer t=new Timer();
-		Timer t2=new Timer();
+		Timer t2=new Timer();//Retained legacy timer; not used by the reports.
 		Timer t3=new Timer();
-		
-//		URL url=toUrl(x);
 		for(int i=0; i<requests; i++){
 			String s=request(x);
-//			System.out.println(s);
 			if(i==0){t3.start();}
-			//t2.stop("");
-			//t2.start();
 		}
-		
 		t3.stop();
-		
 		t.stop("Time:  \t");
 		double qps=requests*1000000000.0/(t.elapsed);
 		System.err.println(Tools.format("Qps:   \t%.2f", qps));
-		
 		System.err.println("Time2: \t"+t3);
 		double qps2=(requests-1)*1000000000.0/(t3.elapsed);
 		System.err.println(Tools.format("Qps2:  \t%.2f", qps2));
-		
-//		System.out.println(s);
-		
-//		BufferedReader reader;
-//		try {
-//			reader = new BufferedReader(new InputStreamReader(url.openStream(), "UTF-8"));
-//
-//			for (String line; (line = reader.readLine()) != null;) {
-//				System.out.println(line);
-//			}
-//
-//		} catch (UnsupportedEncodingException e) {
-//			// TODO Auto-generated catch block
-//			e.printStackTrace();
-//		} catch (IOException e) {
-//			// TODO Auto-generated catch block
-//			e.printStackTrace();
-//		}
 	}
-	
-	/**
-	 * Retrieves GI numbers for given taxonomic identifiers.
-	 * @param args Variable number of taxonomic identifiers to query
-	 * @return Array of GI numbers corresponding to the input identifiers
-	 */
-	public static int[] getGi(String...args){
-		return get("pt_gi", args);
-	}
-	
-	/**
-	 * Retrieves accession numbers for given taxonomic identifiers.
-	 * @param args Variable number of taxonomic identifiers to query
-	 * @return Array of accession numbers corresponding to the input identifiers
-	 */
-	public static int[] getAccession(String...args){
-		return get("pt_accession", args);
-	}
-	
-	/**
-	 * Generic method for retrieving taxonomic data of specified type.
-	 * Constructs query URL and parses comma-separated response into integer array.
-	 *
-	 * @param type Query type identifier (e.g., "pt_gi", "pt_accession")
-	 * @param args Variable number of taxonomic identifiers to query
-	 * @return Array of integers parsed from server response
-	 */
-	public static int[] get(String type, String...args){
+
+	/*--------------------------------------------------------------*/
+	/*----------------         TaxID Queries        ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Resolves GI numbers through the configured taxonomy server.
+	 * @param args GI numbers, represented as strings
+	 * @return Parsed server taxonomy IDs in response order */
+	public static int[] getGi(String... args){return get("pt_gi", args);}
+
+	/** Resolves accession identifiers through the configured taxonomy server.
+	 * @param args Accession strings
+	 * @return Parsed server taxonomy IDs in response order */
+	public static int[] getAccession(String... args){return get("pt_accession", args);}
+
+	/** Builds a legacy query and parses its comma-separated integer response.
+	 * Payloads are appended literally; callers must supply URL-compatible values.
+	 * No response-count check or null transport-failure guard is performed here.
+	 * @param type Legacy route such as pt_gi or pt_accession
+	 * @param args Identifier strings to join with commas
+	 * @return Newly allocated array of server taxonomy IDs
+	 * @throws NumberFormatException If any response field is not a valid int
+	 * @throws NullPointerException If the transport returns null */
+	public static int[] get(String type, String... args){
 		String host=Shared.taxServer();
 		StringBuilder sb=new StringBuilder(host.length()+32);
 		sb.append(host);
 		sb.append(type);
-		sb.append('\t');
+		sb.append('/');
 		String comma="";
 		for(String arg : args){
 			sb.append(comma);
@@ -132,17 +87,22 @@ public class Query {
 		}
 		return ret;
 	}
-	
-	/**
-	 * Executes HTTP request and returns response as string.
-	 * Reads input stream into dynamically expanding buffer and handles IOException.
-	 * @param x URL string for the HTTP request
-	 * @return Response content as string, or null if request fails
-	 */
+
+	/*--------------------------------------------------------------*/
+	/*----------------           Transport          ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Reads an entire URL response, closing the stream on normal and handled I/O exits.
+	 * The byte buffer grows geometrically; the result uses the platform default
+	 * charset. On an IOException, prints the failure, attempts closure and returns
+	 * null. Other unchecked failures can bypass closure. No timeout or size limit
+	 * is configured by this method.
+	 * @param x Complete URL
+	 * @return Response text, an empty string for EOF, or null after a handled failure */
 	public static String request(String x){
 		InputStream is=toStream(x);
 		if(is==null){return null;}
-		try {
+		try{
 			byte[] buffer=new byte[256];
 			int count=is.read(buffer);
 			int next=0;
@@ -153,70 +113,37 @@ public class Query {
 				}
 				count=is.read(buffer, next, buffer.length-next);
 			}
-			is.close(); //TODO: Why am I not closing this stream?
+			is.close();
 			return new String(buffer, 0, next);
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
+		}catch(IOException e){
 			e.printStackTrace();
 		}
-		try {
+		try{
 			is.close();
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
+		}catch(IOException e){
 			e.printStackTrace();
 		}
 		return null;
 	}
-	
-	/**
-	 * Converts URL string to InputStream for reading HTTP response.
-	 * Handles MalformedURLException and IOException with error printing.
-	 * @param x URL string to convert
-	 * @return InputStream for reading response, or null if URL is invalid or connection fails
-	 */
+
+	/** Opens a URL stream, printing handled URL/connection failures.
+	 * The caller owns and must close a returned stream.
+	 * @param x Complete URL
+	 * @return Open stream, or null on MalformedURLException or IOException */
 	public static InputStream toStream(String x){
 		URL url=null;
-		
-		try {
-			url = new URL(x);
-		} catch (MalformedURLException e1) {
-			// TODO Auto-generated catch block
+		try{
+			url=new URL(x);
+		}catch(MalformedURLException e1){
 			e1.printStackTrace();
 			return null;
 		}
-		
-		try {
+		try{
 			InputStream is=url.openStream();
 			return is;
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
+		}catch(IOException e){
 			e.printStackTrace();
 		}
 		return null;
 	}
-	
-//	public static URL toUrl(String x){
-//		URL url=null;
-//		try {
-//			url = new URL(x);
-//		} catch (MalformedURLException e1) {
-//			// TODO Auto-generated catch block
-//			e1.printStackTrace();
-//		}
-//
-//		return url;
-//	}
-//
-//	public static URLConnection toUrlConnection(URL url, String x){
-//		URLConnection urlc=null;
-//
-//		try {
-//			urlc = url.openConnection();
-//		} catch (IOException e) {
-//			// TODO Auto-generated catch block
-//			e.printStackTrace();
-//		}
-//		return urlc;
-//	}
-	
 }

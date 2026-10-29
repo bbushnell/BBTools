@@ -23,61 +23,62 @@ import structures.ListNum;
 import tracker.ReadStats;
 
 /**
- * Filters sequences and prints taxonomy information based on sequence identifiers.
- * Accepts FASTA/FASTQ/SAM/text inputs labeled with gi numbers or NCBI taxIDs and can emit either entire hierarchies or a specific taxonomic level.
- * Supports column-based translation, direct name lists, or streamed reads while tracking per-node counts.
+ * Resolves command-line names, text columns, or read headers through local GI,
+ * accession, and taxonomy-tree data, then prints either full lineages or a
+ * selected taxonomy level.
+ * <p>
+ * Static helpers also format taxonomy lineages for sketch and clade tools.
+ *
  * @author Brian Bushnell
  * @date November 23, 2015
  */
-public class PrintTaxonomy {
-	
+public class PrintTaxonomy{
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
-	
-	/** Program entry point that constructs PrintTaxonomy, runs process(Timer), and closes shared streams.
-	 * @param args Command-line arguments */
+
+	/** Runs taxonomy printing with the supplied command-line options.
+	 * @param args BBTools-style {@code flag=value} arguments plus optional bare names or IDs */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		PrintTaxonomy x=new PrintTaxonomy(args);
 		x.process(t);
-		
+
 		//Close the print stream if it was redirected
 		Shared.closeStream(x.outstream);
 	}
-	
-	/**
-	 * Parses command-line arguments, loads taxonomy tables/trees, configures Parser overrides, and validates file formats.
-	 * Initializes optional gi/accession tables and builds the TaxTree used for lookups.
-	 * @param args Command-line arguments for configuration
-	 */
+
+	/** Parses arguments, initializes optional GI/accession tables, and loads the required {@link TaxTree}.
+	 * @param args BBTools-style {@code flag=value} arguments plus optional bare names or IDs
+	 * @throws IllegalArgumentException If the primary output destination is disabled */
 	public PrintTaxonomy(String[] args){
-		
+
 		{//Preparse block for help, config files, and outstream
 			PreParser pp=new PreParser(args, getClass(), false);
 			args=pp.args;
 			outstream=pp.outstream;
 		}
-		
+
 		//Set shared static variables
 		ReadWrite.USE_PIGZ=ReadWrite.USE_UNPIGZ=true;
 		ReadWrite.setZipThreads(Shared.threads());
-		
+
 		//Create a parser object
 		Parser parser=new Parser();
 		boolean useTree=true;
-		
+
 		int taxLevel=0, minLevel=0, maxLevel=TaxTree.LIFE;
-		
+
 		//Parse each argument
 		for(int i=0; i<args.length; i++){
 			String arg=args[i];
-			
+
 			//Break arguments into their constituent parts, in the form of "a=b"
 			String[] split=arg.split("=");
 			String a=split[0].toLowerCase();
 			String b=split.length>1 ? split[1] : null;
-			
+
 			if(a.equals("tree") || a.equals("usetree") || a.equals("taxtree")){
 				useTree=TaxTree.parseTreeFlag(b);
 			}else if(a.equals("out")){
@@ -118,14 +119,14 @@ public class PrintTaxonomy {
 				names.add(arg);
 			}
 		}
-		
+
 		if("auto".equalsIgnoreCase(giTableFile)){giTableFile=TaxTree.defaultTableFile();}
 		if("auto".equalsIgnoreCase(accessionFile)){accessionFile=TaxTree.defaultAccessionFile();}
-		
+
 		taxLevelExtended=TaxTree.levelToExtended(taxLevel);
 		minLevelExtended=TaxTree.levelToExtended(minLevel);
 		maxLevelExtended=TaxTree.levelToExtended(maxLevel);
-		
+
 		{//Process parser fields
 			overwrite=ReadStats.overwrite=parser.overwrite;
 			append=ReadStats.append=parser.append;
@@ -133,21 +134,24 @@ public class PrintTaxonomy {
 			in1=parser.in1;
 			maxReads=parser.maxReads;
 		}
-		
+
 		//Ensure output files can be written
 		if(!Tools.testOutputFiles(overwrite, append, false, out1)){
 			outstream.println((out1==null)+", "+out1);
 			throw new RuntimeException("\n\noverwrite="+overwrite+"; Can't write to output file "+out1+"\n");
 		}
-		
+
 		//Create output FileFormat objects
 		ffout1=FileFormat.testOutput(out1, FileFormat.TEXT, null, true, overwrite, append, false);
-		
+		if(ffout1==null){
+			throw new IllegalArgumentException("PrintTaxonomy requires out=<file> or out=stdout.txt; out=null is not supported.");
+		}
+
 		ffcount=FileFormat.testOutput(countFile, FileFormat.TEXT, null, true, overwrite, append, false);
-		
+
 		//Create input FileFormat objects
 		ffin1=FileFormat.testInput(in1, FileFormat.TEXT, null, true, false);
-		
+
 		if(giTableFile!=null){
 			outstream.println("Loading gi table.");
 			GiToTaxid.initialize(giTableFile);
@@ -165,36 +169,49 @@ public class PrintTaxonomy {
 		}
 		assert(tree.nameMap!=null);
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/**
-	 * Creates writers, dispatches to the appropriate processing path (reads, text input, or command-line names), and writes optional count summaries.
-	 * Closes writers, propagates error flags, and throws if any worker reported failure.
-	 * @param t Timer tracking the total execution time
-	 */
+	/** Dispatches to read, text-column, or command-line-name processing and writes optional count summaries.
+	 * Finishes the started primary writer even when processing fails, preserving
+	 * the processing exception if writer teardown also throws.
+	 * @param t active timer for the processing phase */
 	void process(Timer t){
-		
+
 		TextStreamWriter tsw=null;
 		if(ffout1!=null){
 			tsw=new TextStreamWriter(ffout1);
 			tsw.start();
 		}
-		
-		if(ffin1!=null){
-			if(ffin1.fasta() || ffin1.fastq() || ffin1.samOrBam() || ffin1.scarf()){
-				processReads(tsw);
+
+		Throwable failure=null;
+		try{
+			if(ffin1!=null){
+				if(ffin1.fasta() || ffin1.fastq() || ffin1.samOrBam() || ffin1.scarf()){
+					processReads(tsw);
+				}else{
+					processFile(new TextFile(ffin1), tsw);
+				}
 			}else{
-				processFile(new TextFile(ffin1), tsw);
+				processNames(tsw);
 			}
-		}else{
-			processNames(tsw);
+		}catch(RuntimeException | Error e){
+			failure=e;
+			throw e;
+		}finally{
+			if(tsw!=null){
+				try{
+					errorState|=tsw.poisonAndWait();
+				}catch(RuntimeException | Error e){
+					errorState=true;
+					if(failure==null){throw e;}
+					if(failure!=e){failure.addSuppressed(e);}
+				}
+			}
 		}
-		
-		if(tsw!=null){errorState|=tsw.poisonAndWait();}
-		
+
 		if(ffcount!=null){
 			TextStreamWriter tswc=new TextStreamWriter(ffcount);
 			tswc.start();
@@ -205,17 +222,17 @@ public class PrintTaxonomy {
 			}
 			errorState|=tswc.poisonAndWait();
 		}
-		
+
 		t.stop();
-		
-		//Throw an exception of there was an error in a thread
+
+		//Throw an exception if there was an error in a thread
 		if(errorState){
 			throw new RuntimeException(getClass().getName()+" terminated in an error state; the output may be corrupt.");
 		}
 	}
-	
-	/** Iterates over the collected name/id list from the CLI, printing either the full taxonomy or a single level per entry.
-	 * @param tsw Output writer for taxonomy results (may be null when writing to stdout) */
+
+	/** Prints taxonomy output for every name or ID collected from the command line.
+	 * @param tsw non-null output writer for taxonomy results */
 	void processNames(final TextStreamWriter tsw){
 		for(String name : names){
 			if(taxLevelExtended>0){
@@ -225,28 +242,45 @@ public class PrintTaxonomy {
 			}
 		}
 	}
-	
-	/**
-	 * Streams a tab-delimited text file, translating the configured keyColumn or printing taxonomy/level information per line.
-	 * @param tf Input text file containing names or identifiers
-	 * @param tsw Output writer for taxonomy results
-	 */
+
+	/** Streams text input, translating one tab-delimited column or resolving each full line as an identifier.
+	 * Closes the owned input on normal and exceptional exits, accumulating reported
+	 * close errors. A thrown close failure is suppressed behind a processing failure.
+	 * @param tf owned input text file containing names or identifiers
+	 * @param tsw output writer for taxonomy results */
 	void processFile(final TextFile tf, final TextStreamWriter tsw){
-		for(String name=tf.nextLine(); name!=null; name=tf.nextLine()){
-			
-			if(keyColumn>=0){
-				String result=translateLine(name, keyColumn);
-				tsw.print(result);
-			}else if(taxLevelExtended>0){
-				printTaxLevel(name, tsw);
-			}else{
-				printTaxonomy(name, tsw);
+		Throwable failure=null;
+		try{
+			for(String name=tf.nextLine(); name!=null; name=tf.nextLine()){
+				if(keyColumn>=0){
+					String result=translateLine(name, keyColumn);
+					tsw.print(result);
+				}else if(taxLevelExtended>0){
+					printTaxLevel(name, tsw);
+				}else{
+					printTaxonomy(name, tsw);
+				}
+			}
+		}catch(RuntimeException | Error e){
+			failure=e;
+			throw e;
+		}finally{
+			try{
+				errorState|=tf.close();
+			}catch(RuntimeException | Error e){
+				errorState=true;
+				if(failure==null){throw e;}
+				if(failure!=e){failure.addSuppressed(e);}
 			}
 		}
 	}
-	
-	/** Consumes sequence files through ConcurrentReadInputStream, resolves taxonomy from read headers, and prints hierarchy/level data per read.
-	 * @param tsw Output writer for taxonomy results */
+
+	/** Resolves taxonomy from read headers and prints hierarchy or level data per read.
+	 * Processes only first-mate headers from the input stream.
+	 * Returns the current borrowed batch before attempting input closure on every
+	 * exit after startup. Reported close errors accumulate in errorState; unchecked
+	 * cleanup failures are suppressed behind an earlier processing failure.
+	 * @param tsw output writer for taxonomy results */
 	void processReads(final TextStreamWriter tsw){
 		final ConcurrentReadInputStream cris;
 		{
@@ -254,49 +288,68 @@ public class PrintTaxonomy {
 			if(verbose){System.err.println("Started cris");}
 			cris.start();
 		}
-		
-		ListNum<Read> ln=cris.nextList();
-		ArrayList<Read> reads=(ln!=null ? ln.list : null);
-		
-		while(ln!=null && reads!=null && reads.size()>0){//ln!=null prevents a compiler potential null access warning
 
-			for(Read r1 : reads){
-				if(keyColumn>=0){
-					String result=translateLine(r1.id, keyColumn);
-					tsw.println(result);
-				}else if(taxLevelExtended>0){
-					printTaxLevel(r1.id, tsw);
-				}else{
-					printTaxonomy(r1.id, tsw);
+		ListNum<Read> ln=null;
+		Throwable failure=null;
+		try{
+			ln=cris.nextList();
+			ArrayList<Read> reads=(ln!=null ? ln.list : null);
+			while(ln!=null && reads!=null && reads.size()>0){
+				for(Read r1 : reads){
+					if(keyColumn>=0){
+						String result=translateLine(r1.id, keyColumn);
+						tsw.print(result);
+					}else if(taxLevelExtended>0){
+						printTaxLevel(r1.id, tsw);
+					}else{
+						printTaxonomy(r1.id, tsw);
+					}
+				}
+				final ListNum<Read> returned=ln;
+				ln=null;//Do not retry a batch return if returnList itself throws.
+				cris.returnList(returned);
+				ln=cris.nextList();
+				reads=(ln!=null ? ln.list : null);
+			}
+		}catch(RuntimeException | Error e){
+			failure=e;
+			throw e;
+		}finally{
+			try{
+				cris.returnList(ln);
+			}catch(RuntimeException | Error e){
+				errorState=true;
+				if(failure==null){failure=e; throw e;}
+				if(failure!=e){failure.addSuppressed(e);}
+			}finally{
+				try{
+					errorState|=ReadWrite.closeStreams(cris);
+				}catch(RuntimeException | Error e){
+					errorState=true;
+					if(failure==null){throw e;}
+					if(failure!=e){failure.addSuppressed(e);}
 				}
 			}
-			cris.returnList(ln);
-			ln=cris.nextList();
-			reads=(ln!=null ? ln.list : null);
 		}
-		cris.returnList(ln);
-		ReadWrite.closeStreams(cris);
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
-	
-	/**
-	 * Translates a tab-delimited line by replacing the specified column with formatted taxonomy text or appending NOT_FOUND markers.
-	 * @param line Input line containing tab-delimited tokens
-	 * @param col Column index that holds the sequence identifier
-	 * @return Line rebuilt with taxonomy strings in the requested column
-	 */
+
+	/** Replaces the selected tab-delimited column with a semicolon lineage or a {@code _***NOT_FOUND***} suffix.
+	 * @param line input line containing tab-delimited tokens
+	 * @param col zero-based column index holding the sequence identifier
+	 * @return line rebuilt with the selected column translated */
 	String translateLine(String line, int col){
 		StringBuilder sb=new StringBuilder();
 		String[] split=line.split("\t");
 		assert(split.length>col) : "Too few columns in line:\n"+line+"\n->\n"+Arrays.toString(split);
-		
+
 		if(col<split.length){
 			String name=split[col];
 			while(name.startsWith(">") || name.startsWith("@")){name=name.substring(1);}
-			
+
 			TaxNode tn=parseNodeFromHeader(name);
 			if(tn!=null){
 				String tl=makeTaxLine(tree, tn, minLevelExtended, maxLevelExtended, skipNonCanonical, reverseOrder).toString();
@@ -320,7 +373,7 @@ public class PrintTaxonomy {
 				}
 			}
 		}
-		
+
 		for(int i=0; i<split.length; i++){
 			if(i>0){sb.append('\t');}
 			sb.append(split[i]);
@@ -328,12 +381,11 @@ public class PrintTaxonomy {
 		sb.append('\n');
 		return sb.toString();
 	}
-	
-	/**
-	 * Resolves a sequence name to one or more TaxNodes and prints the complete hierarchy for each hit, including optional name headers.
-	 * @param name Sequence name or identifier stripped of FASTA/FASTQ markers
-	 * @param tsw Output writer that receives the formatted taxonomy
-	 */
+
+	/** Resolves a sequence name to one or more taxonomy nodes and prints a full hierarchy for each hit.
+	 * Unresolved names print a not-found message rather than using {@link #unknown}.
+	 * @param name sequence name or identifier, with or without FASTA/FASTQ prefix markers
+	 * @param tsw output writer that receives the formatted taxonomy */
 	void printTaxonomy(String name, final TextStreamWriter tsw){
 		while(name.startsWith(">") || name.startsWith("@")){name=name.substring(1);}
 		tsw.print("\n");
@@ -357,12 +409,11 @@ public class PrintTaxonomy {
 		tsw.println("Could not find node" + (printName ? "." : " for '"+name+"'"));
 		return;
 	}
-	
-	/**
-	 * Emits only the target taxonomy level for a sequence name, expanding multiple matches when necessary.
-	 * @param name Sequence name or identifier stripped of FASTA/FASTQ markers
-	 * @param tsw Output writer for taxonomy results
-	 */
+
+	/** Resolves a sequence name to one or more taxonomy nodes and prints the configured target level for each hit.
+	 * Unresolved names print a not-found message rather than using {@link #unknown}.
+	 * @param name sequence name or identifier, with or without FASTA/FASTQ prefix markers
+	 * @param tsw output writer for taxonomy results */
 	void printTaxLevel(String name, final TextStreamWriter tsw){
 		while(name.startsWith(">") || name.startsWith("@")){name=name.substring(1);}
 		tsw.print("\n");
@@ -383,26 +434,15 @@ public class PrintTaxonomy {
 		tsw.println("Could not find node" + (printName ? "." : " for '"+name+"'"));
 		return;
 	}
-	
-//	void printTaxCounts(String name, final TextStreamWriter tsw){
-//		TaxNode tn=null;
-//		tn=tree.getNode(name);
-//		if(tn==null){tn=tree.getNodeByName(name);}
-//		if(tn==null){tn=unknown;}
-//		while(tn!=null && tn.id!=tn.pid && tn.level<taxLevel){tn=tree.getNode(tn.pid);}
-//		if(tsw!=null)tsw.println(tn.name);
-//		tn.incrementRaw(1);
-//	}
-	
-	/**
-	 * Traverses upward from a resolved TaxNode, printing each node between min/max level constraints and incrementing raw counts for nodes at or under the target level.
-	 * @param tn Taxonomy node to print
-	 * @param tsw Output writer for taxonomy rows
-	 */
+
+
+	/** Traverses a node toward the root, printing nodes within the configured min/max levels.
+	 * Increments raw counts for every visited node at or below the target level,
+	 * independently of min/max and canonical-output filtering.
+	 * @param tn taxonomy node to print
+	 * @param tsw output writer for taxonomy rows */
 	void printTaxonomy(TaxNode tn, final TextStreamWriter tsw){
-//		assert(false) : tn.levelExtended+", "+taxLevelExtended+", "+minLevelExtended+", "+maxLevelExtended;
 		assert(tn!=null);
-//		tsw.print("\n");
 		do{
 			if(tn.levelExtended<=taxLevelExtended){tn.incrementRaw(1);}
 			if(tn.levelExtended>=minLevelExtended && tn.levelExtended<=maxLevelExtended){
@@ -413,22 +453,20 @@ public class PrintTaxonomy {
 			tn=tree.getNode(tn.pid);
 		}while(tn!=null && tn.id!=tn.pid);
 	}
-	
-	/**
-	 * Builds a semicolon-delimited taxonomy string with level prefixes (e.g., k__, p__) between the requested min/max levels, optionally reversing the order.
-	 * @param tree Taxonomy tree used for parent traversal
-	 * @param tn Starting taxonomy node
-	 * @param minLevelE Minimum extended taxonomy level to include
-	 * @param maxLevelE Maximum extended taxonomy level to include
-	 * @param skipNonCanonical If true, omit non-simple nodes
-	 * @param reverseOrder If true, emit levels from leaf to root
-	 * @return Mutable StringBuilder containing the taxonomy line
-	 */
+
+	/** Builds a semicolon-delimited lineage with short level prefixes such as {@code p__}.
+	 * @param tree taxonomy tree used for parent traversal
+	 * @param tn starting taxonomy node
+	 * @param minLevelE minimum extended taxonomy level to include
+	 * @param maxLevelE maximum extended taxonomy level to include
+	 * @param skipNonCanonical true to omit non-simple nodes
+	 * @param reverseOrder true to emit from root to leaf instead of leaf to root
+	 * @return mutable builder containing the lineage */
 	public static StringBuilder makeTaxLine(TaxTree tree, TaxNode tn, int minLevelE, int maxLevelE, boolean skipNonCanonical, boolean reverseOrder){
 //		assert(false) : tn+", "+minLevelE+", "+maxLevelE;
 		assert(tn!=null);
 		StringBuilder sb=new StringBuilder();
-		
+
 		if(reverseOrder){
 			ArrayList<TaxNode> list=new ArrayList<TaxNode>();
 			while(tn.levelExtended<=maxLevelE){
@@ -440,7 +478,7 @@ public class PrintTaxonomy {
 				if(tn.id==tn.pid){break;}
 				tn=tree.getNode(tn.pid);
 			}
-			
+
 			String semi="";
 			Collections.reverse(list);
 			for(TaxNode tn2 : list){
@@ -464,34 +502,25 @@ public class PrintTaxonomy {
 				tn=tree.getNode(tn.pid);
 			}
 		}
-		
+
 		return sb;
 	}
-	
-//	public static void printTaxonomy(TaxNode tn, final StringBuilder sb, final TaxTree tree, final int maxLevel, boolean skipNonCanonical){
-//		final int maxLevelE=maxLevel<0 ? maxLevel : TaxTree.levelToExtended(maxLevel);
-//		assert(tn!=null);
-////		tsw.print("\n");
-//		do{
-//			if(!tn.cellularOrganisms() && (!skipNonCanonical || tn.isSimple())){
-//				sb.append(tn.levelStringExtended(false)+"\t"+tn.id+"\t"+tn.name+"\n");
-//			}
-//			tn=tree.getNode(tn.pid);
-//		}while(tn!=null && tn.id!=tn.pid && tn.levelExtended<=maxLevelE);
-//	}
-	
+
+
 	/**
-	 * Appends a full taxonomy hierarchy to a ByteBuilder with tab-separated columns, honoring the maxLevel constraint and optional canonical filtering.
-	 * @param tn Starting taxonomy node
-	 * @param sb Buffer to append level/id/name triples
-	 * @param tree TaxTree instance used for parent lookups
-	 * @param maxLevel Highest taxonomy level to include (negative uses extended levels)
-	 * @param skipNonCanonical Whether to skip non-simple nodes
-	 */
+	 * Appends tab-delimited level, taxID, and name rows while traversing a node
+	 * toward the root. Always considers the starting node; {@code maxLevel}
+	 * bounds only parent traversal. This intentional best-effort exception keeps
+	 * the known starting classification even when it is already above the limit;
+	 * traversal cannot descend to infer a more specific classification.
+	 * @param tn starting taxonomy node
+	 * @param sb buffer to receive level/id/name triples
+	 * @param tree taxonomy tree used for parent lookups
+	 * @param maxLevel taxonomy level whose extended value bounds parent traversal; negative values stop after the starting node
+	 * @param skipNonCanonical true to omit non-simple nodes */
 	public static void printTaxonomy(TaxNode tn, final ByteBuilder sb, final TaxTree tree, final int maxLevel, boolean skipNonCanonical){
 		final int maxLevelE=maxLevel<0 ? maxLevel : TaxTree.levelToExtended(maxLevel);
 		assert(tn!=null);
-//		tsw.print("\n");
 		do{
 			if(!tn.cellularOrganisms() && (!skipNonCanonical || tn.isSimple())){
 				sb.append(tn.levelStringExtended(false)).append('\t').append(tn.id).append('\t').append(tn.name).append('\n');
@@ -499,141 +528,106 @@ public class PrintTaxonomy {
 			tn=tree.getNode(tn.pid);
 		}while(tn!=null && tn.id!=tn.pid && tn.levelExtended<=maxLevelE);
 	}
-	
-//	public static void printTaxonomy(TaxNode tn, final TextStreamWriter tsw, final TaxTree tree, final int maxLevel){
-//		final int maxLevelE=maxLevel<0 ? maxLevel : TaxTree.levelToExtended(maxLevel);
-//		assert(tn!=null);
-////		tsw.print("\n");
-//		do{
-//			if(!skipNonCanonical || tn.isSimple()){
-//				tsw.println(tn.levelStringExtended(false)+"\t"+tn.id+"\t"+tn.name);
-//			}
-//			tn=tree.getNode(tn.pid);
-//		}while(tn!=null && tn.id!=tn.pid && tn.levelExtended<=maxLevelE);
-//	}
-	
-	/**
-	 * Walks a taxonomy node up to the configured target level, prints the node name, and increments its raw count for downstream summaries.
-	 * @param tn Taxonomy node to resolve to the configured level (falls back to UNKNOWN)
-	 * @param tsw Destination writer for the selected level
-	 */
+
+
+	/** Prints and counts a best-effort match for the configured target level.
+	 * Walks toward the root until the first node at or above the requested rank,
+	 * or the root if no such node is found. Missing ranks in irregular lineages
+	 * therefore resolve to a broader ancestor. A starting node already at or above
+	 * the requested rank is retained; this method never descends the tree.
+	 * @param tn taxonomy node to resolve, or null from direct helper calls to count {@link #unknown}
+	 * @param tsw destination writer for the selected level */
 	void printTaxLevel(TaxNode tn, final TextStreamWriter tsw){
 		if(tn==null){tn=unknown;}
 		while(tn.id!=tn.pid && tn.levelExtended<taxLevelExtended){tn=tree.getNode(tn.pid);}
 		if(tsw!=null){tsw.println(tn.name);}
 		tn.incrementRaw(1);
 	}
-	
-//	void printTaxCounts(TaxNode tn, final TextStreamWriter tsw){
-//		if(tn==null){tn=unknown;}
-//		while(tn!=null && tn.id!=tn.pid && tn.level<taxLevel){tn=tree.getNode(tn.pid);}
-//		if(tsw!=null)tsw.println(tn.name);
-//		tn.incrementRaw(1);
-//	}
-	
-	/**
-	 * Delegates to the TaxTree to parse gi/taxid/accession data from a header string, returning the matching TaxNode when available.
-	 * @param header Sequence header containing taxonomy identifiers
-	 * @return Matching TaxNode or null if no match is found
-	 */
+
+
+	/** Delegates GI, taxID and accession extraction from a header string to the loaded taxonomy tree.
+	 * @param header sequence header containing a supported taxonomy identifier
+	 * @return matching taxonomy node, or null when no match is found */
 	public TaxNode parseNodeFromHeader(String header){
 		if(tree==null){return null;}
 		return tree.parseNodeFromHeader(header, true);
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Optional input file path for staged taxonomy translation */
+	/** Optional input file path for text or sequence-file taxonomy translation. */
 	private String in1=null;
 
-	/** Primary output file path (defaults to stdout.txt) */
+	/** Primary output file path; the default is an explicit stdout descriptor. */
 	private String out1="stdout.txt";
-	
-	/** Optional output path for aggregated taxonomy counts */
+
+	/** Optional output path for per-node raw count summaries. */
 	private String countFile=null;
 
-	/** Source file for gi-to-taxid mappings (auto uses TaxTree defaults) */
+	/** Source file for GI-to-taxID mappings; {@code auto} uses TaxTree defaults. */
 	private String giTableFile=null;
-	/** Source file for accession-to-taxid mappings (optional) */
+	/** Optional accession-to-taxID source path. */
 	private String accessionFile=null;
-	
-	/** Taxonomy tree instance used for all lookups and traversals */
+
+	/** Taxonomy tree used for all lookups and traversals. */
 	private final TaxTree tree;
-	
-//	/** Level to print */
-//	private int taxLevel=-1;//TaxTree.stringToLevel("phylum");
-//
-//	/** Min level to print */
-//	private int minLevel=-1;
-//
-//	/** Max level to print */
-//	private int maxLevel=TaxTree.stringToLevel("life");
-	
-	private final int taxLevelExtended, minLevelExtended, maxLevelExtended;
-	
-	/** Whether taxonomy strings are emitted in reverse (leaf-to-root) order */
+
+
+	/** Extended target level requested for output filtering. */
+	private final int taxLevelExtended;
+	/** Minimum extended level requested for output filtering. */
+	private final int minLevelExtended;
+	/** Maximum extended level requested for output filtering. */
+	private final int maxLevelExtended;
+
+	/** Emit semicolon lineages from root to leaf instead of leaf to root. */
 	private boolean reverseOrder=true;
-	
-	/**
-	 * Names or identifiers supplied via CLI to process when no input file is given
-	 */
+
+	/** Names or identifiers supplied on the command line when no input file is given. */
 	private ArrayList<String> names=new ArrayList<String>();
-	
-	/**
-	 * Maximum number of reads to process when streaming sequence files (-1 for unlimited)
-	 */
+
+	/** Maximum number of root fragments to request from CRIS, or -1 for unlimited. */
 	private long maxReads=-1;
-	
-	/** Whether to echo the original sequence name ahead of taxonomy output */
+
+	/** Echo the original sequence name ahead of taxonomy output. */
 	boolean printName=true;
-	/** Skip non-canonical (non-simple) taxonomy nodes when building hierarchies */
+	/** Skip non-canonical, non-simple taxonomy nodes when building hierarchies. */
 	boolean skipNonCanonical=false;
-	
-	/**
-	 * Zero-based column index for extracting taxonomy identifiers from tab-delimited inputs (-1 disables column mode)
-	 */
+
+	/** Zero-based column index for tab-delimited translation, or -1 to resolve each full line. */
 	int keyColumn=-1;
-//	Deprecated.  Description from shellscript:
-//	column=-1       If set to a non-negative integer, parse the taxonomy
-//            information from this column in a tab-delimited file.
-//            Example if column=1:
-//            read1 TAB gi|944259871|gb|KQL24128.1| TAB score:42
-//            becomes
-//            read1 TAB  k__Viridiplantae;p__Streptophyta;... TAB score:42
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
-	
-	/** Input file descriptor (null when reading from CLI names) */
+
+	/** Input file descriptor; null when reading command-line names. */
 	private final FileFormat ffin1;
-	
-	/** Primary output file descriptor for taxonomy text */
+
+	/** Primary taxonomy-text output descriptor. */
 	private final FileFormat ffout1;
-	
-	/** Writer descriptor for taxonomy count summaries (optional) */
+
+	/** Optional taxonomy-count output descriptor. */
 	private final FileFormat ffcount;
-	
-	/**
-	 * Fallback TaxNode used when a sequence cannot be resolved to any taxonomy entry
-	 */
+
+	/** Fallback node counted by direct null-node {@link #printTaxLevel(TaxNode, TextStreamWriter)} calls. */
 	private final TaxNode unknown=new TaxNode(-99, -99, TaxTree.LIFE, TaxTree.LIFE_E, "UNKNOWN");
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
-	
-	/** Output stream for status and logging messages */
+
+	/** Destination for status and logging messages. */
 	private PrintStream outstream=System.err;
-	/** Enable verbose logging during processing */
+	/** Enable verbose logging during processing. */
 	public static boolean verbose=false;
-	/** Set to true if any worker thread or writer failed */
+	/** True if a checked input or output close reported an error. */
 	public boolean errorState=false;
-	/** Overwrite behavior for output writers */
+	/** Overwrite existing output files. */
 	private boolean overwrite=true;
-	/** Whether to append to existing output files instead of truncating */
+	/** Append to existing output files instead of truncating them. */
 	private boolean append=false;
-	
+
 }

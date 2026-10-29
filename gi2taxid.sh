@@ -20,10 +20,10 @@ out=<file>      Destination for renamed sequences.
 invalid=<file>  Destination for headers with no taxid.
 keepall=t       Keep sequences with no taxid in normal output.
 prefix=t        Append the taxid as a prefix to the old header, but keep
-                the old header.
+                the old header.  GFF input requires prefix=t.
 title=tid       Set the title of the new number (e.g. ncbi, taxid, tid).
 ziplevel=2      (zl) Compression level for gzip output.
-pigz=t          Spawn a pigz (parallel gzip) process for faster 
+pigz=t          Spawn a pigz (parallel gzip) process for faster
                 compression than Java.  Requires pigz to be installed.
 silva=f         Parse headers in Silva format.
 shrinknames=f   Replace multiple concatenated headers with the first.

@@ -15,18 +15,15 @@ import shared.Tools;
 import stream.Read;
 
 /**
- * Creates a taxonomic tree from an identity matrix.
- * Reads tab-delimited input files containing identity values and generates
- * hierarchical trees in Newick format using distance-based clustering.
+ * Builds a greedy maximum-identity clustering tree from a tab-delimited matrix.
+ * Each non-comment row starts with a label, followed by identities to preceding
+ * rows. Values beyond that lower triangle are ignored. IDNode merges clusters
+ * using maximum similarities and emits a Newick tree; no taxonomy database is used.
  *
  * @author Brian Bushnell
  * @date July 1, 2016
  */
-public class IDTree {
-
-	/*--------------------------------------------------------------*/
-	/*----------------        Initialization        ----------------*/
-	/*--------------------------------------------------------------*/
+public class IDTree{
 	
 	/** Program entry point.
 	 * @param args Command-line arguments */
@@ -38,6 +35,10 @@ public class IDTree {
 		//Close the print stream if it was redirected
 		Shared.closeStream(x.outstream);
 	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Initialization        ----------------*/
+	/*--------------------------------------------------------------*/
 	
 	/**
 	 * Constructor that parses command-line arguments and initializes file formats.
@@ -126,28 +127,41 @@ public class IDTree {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Main processing method that builds taxonomic tree from identity matrix.
-	 * Reads tab-delimited input file, creates IDNode objects with distance arrays,
-	 * constructs hierarchical tree using IDNode.makeTree(), and outputs Newick format.
-	 * @param t Timer for tracking execution time
+	 * Reads lower-triangular identity rows, merges clusters and optionally writes Newick.
+	 * Lines beginning with # are skipped. maxLines limits accepted data rows, not
+	 * physical lines. Input closure is attempted before clustering, including on
+	 * parse failure. A close failure is thrown, or suppressed onto an earlier failure.
+	 * @param t Started timer stopped after output
 	 */
 	void process(Timer t){
 		
 		ArrayList<IDNode> list=new ArrayList<IDNode>();
 		TextFile tf=new TextFile(in1);
-		for(String line=tf.nextLine(); line!=null; line=tf.nextLine()){
-			if(maxLines>=0 && list.size()>=maxLines){break;}
-			if(!line.startsWith("#")){
-				String[] split=line.split("\t");
-				double[] array=new double[list.size()];
-				for(int i=0; i<array.length; i++){
-					array[i]=Double.parseDouble(split[i+1]);
+		Throwable failure=null;
+		try{
+			for(String line=tf.nextLine(); line!=null; line=tf.nextLine()){
+				if(maxLines>=0 && list.size()>=maxLines){break;}
+				if(!line.startsWith("#")){
+					String[] split=line.split("\t");
+					double[] array=new double[list.size()];
+					for(int i=0; i<array.length; i++){
+						array[i]=Double.parseDouble(split[i+1]);
+					}
+					IDNode n=new IDNode(array, list.size(), split[0]);
+					list.add(n);
 				}
-				IDNode n=new IDNode(array, list.size(), split[0]);
-				list.add(n);
+			}
+		}catch(RuntimeException | Error e){
+			failure=e;
+			throw e;
+		}finally{
+			try{
+				if(tf.close()){throw new RuntimeException("Failed to close input "+in1);}
+			}catch(RuntimeException | Error e){
+				if(failure==null){throw e;}
+				if(e!=failure){failure.addSuppressed(e);}
 			}
 		}
-		tf.close();
 		
 		IDNode[] nodes=list.toArray(new IDNode[0]);
 		IDNode head=IDNode.makeTree(nodes);
@@ -169,12 +183,12 @@ public class IDTree {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * FunctionUnclear - Method is unimplemented and throws RuntimeException.
-	 * Appears to be placeholder for potential read pair processing functionality.
+	 * Unused template placeholder; always throws without processing either read.
 	 *
 	 * @param r1 Read 1
 	 * @param r2 Read 2 (may be null)
-	 * @return True if reads should be kept, false if discarded
+	 * @return Never returns normally
+	 * @throws RuntimeException Always, because this placeholder is unimplemented
 	 */
 	boolean processReadPair(final Read r1, final Read r2){
 		throw new RuntimeException("TODO");
@@ -184,33 +198,43 @@ public class IDTree {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Input matrix path; required by the constructor. */
 	private String in1=null;
 
+	/** Optional Newick output path; null still builds the tree without writing it. */
 	private String out1=null;
 	
 	/*--------------------------------------------------------------*/
 
+	/** Reserved template counter; the current processing loop does not update it. */
 	protected long linesProcessed=0;
 	
+	/** Maximum accepted matrix rows, or a negative value for no limit. */
 	protected long maxLines=-1;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Validated input descriptor; processing currently opens in1 directly. */
 	private final FileFormat ffin1;
 	
-	/** Primary output file format */
+	/** Validated output descriptor; writing currently uses out1 directly. */
 	private final FileFormat ffout1;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Preparser-selected diagnostics stream, closed by main after normal completion. */
 	private PrintStream outstream=System.err;
+	/** Parsed verbosity flag; currently not consulted by processing. */
 	public static boolean verbose=false;
+	/** Reserved template failure flag; currently not updated or checked. */
 	public boolean errorState=false;
+	/** Whether an existing output is permitted by constructor validation. */
 	private boolean overwrite=true;
+	/** Append flag used for output validation; not forwarded to writeString. */
 	private boolean append=false;
 	
 }

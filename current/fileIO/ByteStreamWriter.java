@@ -83,13 +83,24 @@ public class ByteStreamWriter extends Thread{
 	}
 	
 	/** Opens unordered output with filename-based format detection and a TEXT fallback.
-	 * Does not start the worker; see {@link #ByteStreamWriter(FileFormat)}. */
+	 * Does not start the worker; see {@link #ByteStreamWriter(FileFormat)}.
+	 * @param fname_ Output path
+	 * @param overwrite_ Permission to replace an existing output file
+	 * @param append_ Whether to append to existing raw or gzip output
+	 * @param allowSubprocess_ Requested permission to use output subprocesses
+	 */
 	public ByteStreamWriter(String fname_, boolean overwrite_, boolean append_, boolean allowSubprocess_){
 		this(fname_, overwrite_, append_, allowSubprocess_, 0);
 	}
 	
 	/** Opens unordered output with an optional format override (zero means detect).
-	 * Does not start the worker; see {@link #ByteStreamWriter(FileFormat)}. */
+	 * Does not start the worker; see {@link #ByteStreamWriter(FileFormat)}.
+	 * @param fname_ Output path
+	 * @param overwrite_ Permission to replace an existing output file
+	 * @param append_ Whether to append to existing raw or gzip output
+	 * @param allowSubprocess_ Requested permission to use output subprocesses
+	 * @param format Optional FileFormat type override, or zero to autodetect
+	 */
 	public ByteStreamWriter(String fname_, boolean overwrite_, boolean append_, boolean allowSubprocess_, int format){
 		this(FileFormat.testOutput(fname_, FileFormat.TEXT, format, 0, allowSubprocess_, overwrite_, append_, false));
 	}
@@ -138,13 +149,24 @@ public class ByteStreamWriter extends Thread{
 		}
 	}
 	
-	/** Creates and starts a ByteStreamWriter unless fname is null */
+	/**
+	 * Creates and starts a ByteStreamWriter unless fname is null.
+	 * @param fname Output path
+	 * @param ow Permission to replace an existing output file
+	 * @param append Whether to append to existing raw or gzip output
+	 * @param allowSub Requested permission to use output subprocesses
+	 * @return Started writer, or null for a null path
+	 */
 	public static ByteStreamWriter makeBSW(String fname, boolean ow, boolean append, boolean allowSub){
 		FileFormat ff=FileFormat.testOutput(fname, FileFormat.TEXT, 0, 0, allowSub, ow, append, false);
 		return makeBSW(ff);
 	}
 
-	/** Creates and starts a ByteStreamWriter unless ff is null */
+	/**
+	 * Creates and starts a ByteStreamWriter unless ff is null.
+	 * @param ff Output description, or null
+	 * @return Started writer, or null if ff is null
+	 */
 	public static ByteStreamWriter makeBSW(FileFormat ff){
 		if(ff==null){return null;}
 		ByteStreamWriter bsw=new ByteStreamWriter(ff);
@@ -231,10 +253,15 @@ public class ByteStreamWriter extends Thread{
 	/*--------------------------------------------------------------*/
 	
 	
-	/** Starts the worker and waits for its startup handshake. Buffered writes must
-	 * not precede this call. Interrupted waits are logged and retried. */
+	/** Starts the worker and waits for its startup handshake.
+	 * A writer closed by closeBeforeStart is terminal and cannot be started.
+	 * Buffered writes must not precede this call. Interrupted waits are logged
+	 * and retried. */
 	@Override
 	public synchronized void start(){
+		if(closedBeforeStart){
+			throw new IllegalStateException("ByteStreamWriter cannot start after closeBeforeStart(): "+fname);
+		}
 		//ADDED [ByteStreamWriter start-guard]: catch the write-before-start bug class. Buffered print/println before start()
 		//force an addJob that asserts(started) (-> -ea crash once output>maxLen), or are lost if the writer is never started.
 		//forcePrint() writes straight to outstream and never touches buffer, so pre-start header writes stay exempt.
@@ -254,11 +281,45 @@ public class ByteStreamWriter extends Thread{
 		}
 	}
 
+	/**
+	 * Makes one terminal attempt to close constructor-opened output before the
+	 * worker starts. Repeated calls perform no cleanup and return the current error state.
+	 * This destructive close discards buffered print bytes, queued jobs and ordered
+	 * map entries. Callers must stop all producers and all direct forcePrint users
+	 * before closing; forcePrint bytes already handed to the backend are preserved
+	 * on successful backend cleanup. Unchecked cleanup failures are rethrown after
+	 * recording both the error and terminal state. Calling this after start() is invalid.
+	 * @return True if direct writes or backend cleanup reported an error
+	 * @throws IllegalStateException If the worker has already been started
+	 */
+	public synchronized boolean closeBeforeStart(){
+		if(closedBeforeStart){return errorState;}
+		if(started || getState()!=Thread.State.NEW){
+			throw new IllegalStateException("closeBeforeStart() requires a NEW, unstarted writer: state="+
+					getState()+", started="+started+", fname="+fname);
+		}
+		buffer=null;
+		queue.clear();
+		if(map!=null){map.clear();}
+		open=false;
+		try{
+			errorState=ReadWrite.finishWriting(null, outstream, fname, allowSubprocess)|errorState;
+		}catch(RuntimeException|Error e){
+			errorState=true;
+			throw e;
+		}finally{
+			closedBeforeStart=true;
+			notifyAll();
+		}
+		return errorState;
+	}
+
 	
 	/**
 	 * Queues the remaining buffered bytes and a terminal after all producers finish.
-	 * Requires a separately started worker; this method waits for startup and does
-	 * not start it. Normal return requests shutdown but does not wait for closure.
+	 * Requires a separately started worker unless closeBeforeStart already closed
+	 * output; this method waits for startup and returns immediately for a preclosed
+	 * writer. Normal return requests shutdown but does not wait for closure.
 	 * Ordered IDs must be complete: a detected gap marks errorState, discards the
 	 * unwritable suffix and queues shutdown before throwing. The accepted contiguous
 	 * prefix is still written; the incomplete output must not be treated as successful.
@@ -266,7 +327,7 @@ public class ByteStreamWriter extends Thread{
 	 */
 	public synchronized void poison(){
 		//Don't allow thread to shut down before it has started
-		while(!started || this.getState()==Thread.State.NEW){
+		while(!closedBeforeStart && (!started || this.getState()==Thread.State.NEW)){
 			try{
 				this.wait(20);
 			}catch(InterruptedException e){
@@ -275,7 +336,7 @@ public class ByteStreamWriter extends Thread{
 			}
 		}
 		
-		if(!open){return;}
+		if(closedBeforeStart || !open){return;}
 		
 		OrderedOutputException failure=null;
 		if(ordered){
@@ -301,11 +362,12 @@ public class ByteStreamWriter extends Thread{
 	
 	/** 
 	 * Waits for thread termination after a successful shutdown request.
-	 * Does not start or poison the worker. Interrupted joins are logged and retried;
-	 * the interrupted status is not restored here.
+	 * Returns immediately for output closed by closeBeforeStart. Does not start or
+	 * poison the worker. Interrupted joins are logged and retried; the interrupted
+	 * status is not restored here.
 	 */
 	public void waitForFinish(){
-		while(this.getState()!=Thread.State.TERMINATED){
+		while(!closedBeforeStart && this.getState()!=Thread.State.TERMINATED){
 			try{
 				this.join(1000);
 			}catch(InterruptedException e){
@@ -335,7 +397,10 @@ public class ByteStreamWriter extends Thread{
 	/** Identifies the gap failure thrown only after a terminal has been queued.
 	 * This permits poisonAndWait to join without catching unrelated pre-terminal failures. */
 	private static final class OrderedOutputException extends RuntimeException{
-		/** Captures the missing ID and buffered data-job count before the suffix is discarded. */
+		/** Captures the missing ID and buffered data-job count before the suffix is discarded.
+		 * @param missingID Next ordered job ID required for a contiguous prefix
+		 * @param bufferedJobs Number of out-of-order buffered jobs that will be discarded
+		 */
 		OrderedOutputException(final long missingID, final int bufferedJobs){
 			super("ByteStreamWriter: ordered output incomplete - jobID "+missingID+
 				" was never supplied (a producer failed or emitted nothing); "+bufferedJobs+
@@ -546,7 +611,10 @@ public class ByteStreamWriter extends Thread{
 	}
 	
 	/** Appends the low eight bits of each character, without charset encoding.
-	 * Prefer explicitly encoded bytes for text that is not ASCII. */
+	 * Prefer explicitly encoded bytes for text that is not ASCII.
+	 * @param x Characters to append
+	 * @return This ByteStreamWriter for method chaining
+	 */
 	public ByteStreamWriter print(CharSequence x){
 		if(verbose){System.err.println("Added line '"+x+"'");}
 		assert(open) : x;
@@ -571,7 +639,10 @@ public class ByteStreamWriter extends Thread{
 	}
 	
 	/** Appends the low eight bits of each character, without charset encoding.
-	 * Unlike forcePrint(String), this does not use the platform default charset. */
+	 * Unlike forcePrint(String), this does not use the platform default charset.
+	 * @param x String to append
+	 * @return This ByteStreamWriter for method chaining
+	 */
 	public ByteStreamWriter print(String x){
 		if(verbose){System.err.println("Added line '"+x+"'");}
 		assert(open) : x;
@@ -581,7 +652,10 @@ public class ByteStreamWriter extends Thread{
 	}
 	
 	/** Appends the low eight bits of each character followed by a tab.
-	 * Does not encode Unicode text; see {@link #print(String)}. */
+	 * Does not encode Unicode text; see {@link #print(String)}.
+	 * @param x String to append before the tab
+	 * @return This ByteStreamWriter for method chaining
+	 */
 	public ByteStreamWriter printt(String x){
 		if(verbose){System.err.println("Added line '"+x+"'");}
 		assert(open) : x;
@@ -591,9 +665,15 @@ public class ByteStreamWriter extends Thread{
 		return this;
 	}
 
-	/** Appends tab character to buffer */
+	/**
+	 * Appends tab character to buffer.
+	 * @return This ByteStreamWriter for method chaining
+	 */
 	public ByteStreamWriter tab(){return print('\t');}
-	/** Appends newline character to buffer */
+	/**
+	 * Appends newline character to buffer.
+	 * @return This ByteStreamWriter for method chaining
+	 */
 	public ByteStreamWriter nl(){return print('\n');}
 	
 	/**
@@ -948,7 +1028,10 @@ public class ByteStreamWriter extends Thread{
 	/*--------------------------------------------------------------*/
 	
 	
-	/** Appends newline character to buffer */
+	/**
+	 * Appends newline character to buffer.
+	 * @return This ByteStreamWriter for method chaining
+	 */
 	public ByteStreamWriter println(){return print('\n');}
 	/**
 	 * Appends CharSequence followed by newline to buffer.
@@ -1166,6 +1249,8 @@ public class ByteStreamWriter extends Thread{
 	private boolean open=true;
 	/** Whether the worker thread has started */
 	private volatile boolean started=false;
+	/** Whether closeBeforeStart made its terminal cleanup attempt. */
+	private volatile boolean closedBeforeStart=false;
 	
 	/** Accumulates direct-write, ordered-gap, finishWriting and caller-set errors. Read after joining.
 	 * Direct calls must finish before shutdown; queued write failures invoke KillSwitch. */

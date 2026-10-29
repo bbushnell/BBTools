@@ -28,42 +28,46 @@ import structures.IntList;
 import tracker.ReadStats;
 
 /**
+ * Renames FASTA or GFF sequence identifiers to taxonomy IDs.
+ * <p>
+ * Local mode resolves complete headers against a loaded {@link TaxTree}; server
+ * mode batches accessions, GI numbers, UNITE identifiers or full headers through
+ * {@link TaxClient} and rewrites FASTA headers, GFF seqids and matching
+ * {@code ##sequence-region} pragmas. GFF output always preserves the original
+ * feature columns, so GFF input rejects {@code prefix=f}.
+ *
  * @author Brian Bushnell
  * @date Mar 10, 2015
- *
  */
-public class RenameGiToTaxid {
-	
-	/** Program entry point for header renaming processing.
-	 * @param args Command-line arguments for input/output files and options */
+public class RenameGiToTaxid{
+
+	/** Runs taxonomy-ID header renaming with the supplied command-line options.
+	 * @param args BBTools-style {@code flag=value} arguments */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		RenameGiToTaxid x=new RenameGiToTaxid(args);
 		x.process(t);
-		
+
 		//Close the print stream if it was redirected
 		Shared.closeStream(x.outstream);
 	}
-	
-	/**
-	 * Constructs a RenameGiToTaxid instance with parsed command-line arguments.
-	 * Initializes file formats, loads taxonomy databases, and validates parameters.
-	 * @param args Command-line arguments containing file paths and processing options
-	 */
+
+	/** Parses arguments, configures I/O formats, and loads local taxonomy tables or the remote-server route.
+	 * @param args BBTools-style {@code flag=value} arguments */
 	public RenameGiToTaxid(String[] args){
-		
+
 		{//Preparse block for help, config files, and outstream
 			PreParser pp=new PreParser(args, getClass(), false);
 			args=pp.args;
 			outstream=pp.outstream;
 		}
-		
+
 		Shared.capBuffers(4);
 		ReadWrite.USE_PIGZ=ReadWrite.USE_UNPIGZ=true;
 		ReadWrite.USE_BGZIP=ReadWrite.USE_UNBGZIP=ReadWrite.PREFER_BGZIP=true;
 		ReadWrite.setZipThreads(Shared.threads());
 		FASTQ.TEST_INTERLEAVED=FASTQ.FORCE_INTERLEAVED=false;
-		
+
 		Parser parser=new Parser();
 		for(int i=0; i<args.length; i++){
 			String arg=args[i];
@@ -73,7 +77,7 @@ public class RenameGiToTaxid {
 
 			if(a.equals("prefix")){
 				prefix=Parse.parseBoolean(b);
-			
+
 			}else if(a.equals("server") || a.equals("useserver")){
 				if(b!=null && b.startsWith("http")){
 					useServer=true;
@@ -85,6 +89,7 @@ public class RenameGiToTaxid {
 				}
 			}else if(a.equals("title")){
 				title=(b==null ? ">" : (">"+b+"|")).getBytes();
+				//TODO: Probable bug - invalidTitle is not updated to match a custom title.
 			}else if(a.equals("table") || a.equals("gi") || a.equals("gitable")){
 				giTableFile=b;
 			}else if(a.equals("accession")){
@@ -108,7 +113,7 @@ public class RenameGiToTaxid {
 			}else if(a.equals("warn")){
 				warnBadHeaders=Parse.parseBoolean(b);
 			}
-			
+
 			else if(a.equals("maxpigzprocesses")){
 				AccessionToTaxid.maxPigzProcesses=Integer.parseInt(b);
 			}else if(a.equals("skipparse")){
@@ -116,7 +121,7 @@ public class RenameGiToTaxid {
 			}else if(a.equals("skiphash")){
 				AccessionToTaxid.skipHash=Parse.parseBoolean(b);
 			}
-			
+
 			else if(a.equals("mode")){
 				if(b!=null && Character.isDigit(b.charAt(0))){
 					mode=Integer.parseInt(b);
@@ -133,7 +138,7 @@ public class RenameGiToTaxid {
 					assert(false) : "Bad mode: "+b;
 				}
 			}
-			
+
 			else if(a.equals("verbose")){
 				verbose=Parse.parseBoolean(b);
 				ByteFile1.verbose=verbose;
@@ -158,34 +163,33 @@ public class RenameGiToTaxid {
 			}else{
 				outstream.println("Unknown parameter "+args[i]);
 				assert(false) : "Unknown parameter "+args[i];
-				//				throw new RuntimeException("Unknown parameter "+args[i]);
 			}
 		}
-		
+
 		if(useServer){
 			giTableFile=null;
 			accessionFile=null;
 			patternFile=null;
 			if(mode!=UNITE_MODE){useTree=false;}
 		}//else if taxpath!=null... set them
-		
+
 		{//Process parser fields
 			Parser.processQuality();
-			
+
 			maxReads=parser.maxReads;
-			
+
 			overwrite=ReadStats.overwrite=parser.overwrite;
 			append=ReadStats.append=parser.append;
 
 			out1=parser.out1;
 		}
-		
+
 		if("auto".equalsIgnoreCase(giTableFile)){giTableFile=TaxTree.defaultTableFile();}
 		if("auto".equalsIgnoreCase(accessionFile)){accessionFile=TaxTree.defaultAccessionFile();}
 		if("auto".equalsIgnoreCase(patternFile)){patternFile=TaxTree.defaultPatternFile();}
-		
+
 		assert(FastaReadInputStream.settingsOK());
-		
+
 		if(in1==null || in1.isEmpty()){throw new RuntimeException("Error - at least one input file is required.");}
 		if(!ByteFile.FORCE_MODE_BF1 && !ByteFile.FORCE_MODE_BF2){
 			ByteFile.FORCE_MODE_BF2=false;
@@ -194,13 +198,13 @@ public class RenameGiToTaxid {
 
 		if(out1!=null && out1.equalsIgnoreCase("null")){out1=null;}
 		assert(out1!=null) : "This program requires an output file.";
-		
+
 		if(!Tools.testOutputFiles(overwrite, append, false, out1)){
 			outstream.println((out1==null)+", "+out1);
 			throw new RuntimeException("\n\noverwrite="+overwrite+"; Can't write to output files "+out1+"\n");
 		}
 		if(!Tools.testInputFiles(false, true, in1.toArray(new String[0]))){
-			throw new RuntimeException("\nCan't read some input files.\n");  
+			throw new RuntimeException("\nCan't read some input files.\n");
 		}
 
 		ffout1=FileFormat.testOutput(out1, FileFormat.FA, null, true, overwrite, append, false);
@@ -210,11 +214,16 @@ public class RenameGiToTaxid {
 			FileFormat ff=FileFormat.testInput(s, FileFormat.FA, null, true, true);
 			ffin1.add(ff);
 		}
-		
+		if(!prefix){
+			for(FileFormat ff : ffin1){
+				if(ff.gff()){throw new RuntimeException(GFF_PREFIX_FALSE_MESSAGE);}
+			}
+		}
+
 		if(ffoutInvalid!=null){keepAll=false;}
-		
+
 		assert(giTableFile!=null || accessionFile!=null || TaxTree.SILVA_MODE || useServer) : "No gi or accession information loaded.";
-		
+
 		if(useTree){
 			tree=TaxTree.loadTaxTree(outstream, true, false);
 			assert(tree.nameMap!=null);
@@ -222,69 +231,66 @@ public class RenameGiToTaxid {
 			tree=null;
 			if(!useServer){throw new RuntimeException("No tree specified.");}
 		}
-		
+
 		if(giTableFile!=null){
 			GiToTaxid.initialize(giTableFile);
 		}
-		
+
 		if(patternFile!=null){
 			Timer t=new Timer();
 			AnalyzeAccession.loadCodeMap(patternFile);
 			outstream.println("Loading pattern table.");
 			t.stopAndPrint();
 		}
-		
+
 		if(accessionFile!=null){
 			AccessionToTaxid.tree=tree;
 			outstream.println("Loading accession table.");
 			AccessionToTaxid.load(accessionFile);
-//			System.gc();
 		}
 	}
-	
-	/**
-	 * Main processing method that renames headers in all input files.
-	 * Creates output streams, processes each input file, and reports statistics.
-	 * @param t Timer for tracking execution time
-	 */
+
+	/** Renames every input into the primary and optional invalid-header outputs, then reports FASTA or GFF totals.
+	 * @param t active timer for the processing phase */
 	void process(Timer t){
-		
+
 		ByteStreamWriter bsw=(ffout1==null ? null : new ByteStreamWriter(ffout1)); //Actually, this is required.
 		if(bsw!=null){bsw.start();}
-		
+
 		ByteStreamWriter bswInvalid=null;
 		if(ffoutInvalid!=null){
 			bswInvalid=new ByteStreamWriter(ffoutInvalid);
 			bswInvalid.start();
 		}
-		
+
 		ByteStreamWriter bswBadHeaders=null;
-		if(badHeaders!=null) {
+		if(badHeaders!=null){
 			bswBadHeaders=new ByteStreamWriter(badHeaders, overwrite, append, false);
 			bswBadHeaders.start();
 		}
-		
+
 		final HashArray1D counts=(countTable && !prefix) ? new HashArray1D(256000, -1L, true) : null;
-		
+
 		gffIn=false;
 		for(FileFormat ffin : ffin1){
+			//gffIn remains set after the first GFF input, selecting final line/byte reporting
+			//and GFF classification for later server-mode batches globally.
 			gffIn=gffIn||ffin.gff();
 			ByteFile bf=ByteFile.makeByteFile(ffin);
 			if(useServer){
 				processInner_server(bf, bsw, bswInvalid, bswBadHeaders, counts, ffin.format());
 			}else{
-//				IntList list=(useServer ? getIds(bf) : null);
 				processInner(bf, bsw, bswInvalid, bswBadHeaders, counts, null);
 			}
 		}
-		
+
 		if(bsw!=null){
 			errorState|=bsw.poisonAndWait();
 			if(deleteInvalid && invalidReads>0 && !ffout1.stdio()){
-				try {
+				try{
 					System.err.println("Deleting "+out1);
 					new File(out1).delete();
-				} catch (Exception e) {
+				}catch(Exception e){
 					System.err.println("An error occured while attempting to delete "+out1);
 					e.printStackTrace();
 				}
@@ -292,9 +298,9 @@ public class RenameGiToTaxid {
 		}
 		if(bswInvalid!=null){errorState|=bswInvalid.poisonAndWait();}
 		if(bswBadHeaders!=null){errorState|=bswBadHeaders.poisonAndWait();}
-		
+
 		t.stop();
-		if(!gffIn) {
+		if(!gffIn){
 			outstream.println(Tools.timeReadsBasesProcessed(t, readsProcessed, basesProcessed, 8));
 
 			outstream.println();
@@ -314,82 +320,24 @@ public class RenameGiToTaxid {
 		if(counts!=null){
 			outstream.println("Unique Taxa:       \t"+taxaCounted);
 		}
-		
+
 		if(errorState){
 			throw new RuntimeException(getClass().getName()+" terminated in an error state; the output may be corrupt.");
 		}
 	}
-	
-	//Unused; not efficient
-//	public IntList getIds(ByteFile bf){
-//		IntList ids=new IntList();
-//		
-//		int readsProcessedInner=0;
-//		
-//		byte[] line=bf.nextLine();
-//		ByteBuilder bb=new ByteBuilder();
-//		while(line!=null){
-//			if(line.length>0 && line[0]=='>'){
-//				readsProcessedInner++;
-//				if(maxReads>0 && readsProcessedInner>maxReads){break;}
-//				
-//				for(int i=1; i<line.length; i++){
-//					byte b=line[i];
-//					if(b==' ' || b=='.'){break;}
-//					else{bb.append(b);}
-//				}
-//				bb.append(',');
-//				if(bb.length()>100000){
-//					bb.setLength(bb.length()-1);
-//					int[] ret;
-//					if(mode==ACCESSION_MODE){
-//						ret=TaxClient.accessionToTaxidArray(bb.toString());
-//					}else if(mode==GI_MODE){
-//						ret=TaxClient.giToTaxidArray(bb.toString());
-//					}else{
-//						ret=TaxClient.headerToTaxidArray(bb.toString());
-//					}
-//					assert(ret!=null) : bb.toString();
-//					for(int i : ret){ids.add(i);}
-//					bb.clear();
-//				}
-//			}
-//			line=bf.nextLine();
-//		}
-//		if(bb.length()>0){
-//			bb.setLength(bb.length()-1);
-//			int[] ret;
-//			if(mode==ACCESSION_MODE){
-//				ret=TaxClient.accessionToTaxidArray(bb.toString());
-//			}else if(mode==GI_MODE){
-//				ret=TaxClient.giToTaxidArray(bb.toString());
-//			}else{
-//				ret=TaxClient.headerToTaxidArray(bb.toString());
-//			}
-//			assert(ret!=null) : bb.toString();
-//			for(int i : ret){ids.add(i);}
-//			bb.clear();
-//		}
-//		
-//		bf.reset();
-//		return ids;
-//	}
-	
-	/**
-	 * Processes a single input file by reading lines and renaming headers.
-	 * Parses taxonomy information from headers and replaces with taxonomy IDs.
-	 *
-	 * @param bf Input file reader
-	 * @param bsw Main output stream writer
-	 * @param bswInvalid Output stream for invalid sequences
-	 * @param bswBadHeaders Output stream for problematic headers
-	 * @param counts Hash table for counting occurrences of taxonomy IDs
-	 * @param ids Pre-computed taxonomy ID list (unused, for server mode compatibility)
-	 */
+
+
+	/** Processes one local FASTA stream, resolving each header against the loaded {@link TaxTree}.
+	 * @param bf input file reader, closed on normal return
+	 * @param bsw primary output stream receiving valid records and, when {@link #keepAll} is true, invalid records
+	 * @param bswInvalid optional output stream receiving invalid records when {@link #keepAll} is false
+	 * @param bswBadHeaders optional writer for raw headers that cannot be resolved
+	 * @param counts optional per-taxID occurrence counter used only when prefix output is disabled
+	 * @param ids optional precomputed taxID list aligned to FASTA headers */
 	private void processInner(ByteFile bf, ByteStreamWriter bsw, ByteStreamWriter bswInvalid, ByteStreamWriter bswBadHeaders, HashArray1D counts, IntList ids){
 
 		int readsProcessedInner=0;
-		
+
 		byte[] line=bf.nextLine();
 		boolean valid=false;
 		while(line!=null){
@@ -413,7 +361,12 @@ public class RenameGiToTaxid {
 								while(initial<=line.length && line[initial-1]!='|'){initial++;}
 							}
 						}
-						//FIXED [tax/RenameGiToTaxid#001]: base case ">tid|123"/">ncbi|123" with NO 2nd '|' — the seek loop ran initial past the end (line.length+1), so new String(line,initial,terminal-initial) became new String(line,len+1,-1) → StringIndexOutOfBounds. `initial` is dual-use (preserved-header start AND lookup start); decouple with lookupStart. No 2nd bar => preserve nothing (initial=terminal) and look up the whole "tid|123" (lookupStart=1) so parseNodeFromHeader->getNodeOldStyle resolves the tid directly.
+						// FIXED [tax/RenameGiToTaxid#001]: for ">tid|123" or
+						// ">ncbi|123" with no second '|', the seek loop advanced
+						// initial past the end and then sliced a negative-length
+						// header suffix. Decouple lookupStart from the preserved
+						// suffix start: preserve nothing, then look up the whole
+						// tid/ncbi token so parseNodeFromHeader resolves it.
 						final int lookupStart;
 						if(initial>line.length){initial=terminal; lookupStart=1;}
 						else{lookupStart=initial;}
@@ -433,7 +386,7 @@ public class RenameGiToTaxid {
 					number=(tn==null ? -1 : tn.id);
 				}else{
 					number=ids.get((int)(readsProcessedInner-1));
-					
+
 					if(shrinkNames){//This is for nr/nt
 						for(int i=initial; i<terminal; i++){
 							if(line[i]==1){//SOH
@@ -442,7 +395,7 @@ public class RenameGiToTaxid {
 						}
 					}
 				}
-				
+
 				valid=(number>=0);
 				if(valid){
 					validReads++;
@@ -505,16 +458,13 @@ public class RenameGiToTaxid {
 			}
 			line=bf.nextLine();
 		}
-		
+
 		errorState|=bf.close();
 	}
-	
-	/**
-	 * Heuristically determines if a header line contains a real accession number.
-	 * Checks format constraints like length, dot placement, and character types.
-	 * @param line Header line bytes to evaluate
-	 * @return true if the line appears to contain a valid accession format
-	 */
+
+	/** Returns whether a bad header's leading token looks like a plausible accession for warning output.
+	 * @param line header or GFF feature line to evaluate
+	 * @return {@code true} if the first token is 4-18 accession-like characters with an optional version suffix */
 	private static boolean looksLikeRealAccession(byte[] line){
 		int space=Tools.indexOf(line, ' ');
 		if(space<0){space=line.length;}
@@ -536,16 +486,13 @@ public class RenameGiToTaxid {
 		}
 		return true;
 	}
-	
-	/**
-	 * Extracts identifier from header line and appends to query builder.
-	 * Parsing behavior depends on the current processing mode (GI, accession, etc).
-	 * @param line Header line starting with '>' or '@'
-	 * @param bb ByteBuilder to append extracted identifier
-	 */
+
+	/** Appends the mode-selected server query token from a FASTA/FASTQ header, followed by a comma.
+	 * @param line header line beginning with {@code >} or {@code @}
+	 * @param bb destination for the extracted identifier and delimiter */
 	void appendHeaderLine(byte[] line, ByteBuilder bb){
 		assert(line[0]=='>' || line[0]=='@') : new String(line);
-		
+
 		if(mode==ACCESSION_MODE){
 			for(int i=1; i<line.length; i++){
 				byte b=line[i];
@@ -573,16 +520,12 @@ public class RenameGiToTaxid {
 		}
 		bb.append(',');
 	}
-	
-	/**
-	 * Updates headers in a batch of lines using server-based taxonomy lookup.
-	 * Delegates to format-specific methods based on file type.
-	 *
-	 * @param lines Batch of lines to process and modify
-	 * @param counts Hash table for counting taxonomy ID occurrences
-	 * @param bswBadHeaders Output stream for headers that cannot be resolved
-	 * @param format File format constant (FA, GFF, etc)
-	 */
+
+	/** Rewrites one buffered server-mode batch in place using the handler for its input format.
+	 * @param lines buffered FASTA or GFF lines
+	 * @param counts optional per-taxID occurrence counter used only when prefix output is disabled
+	 * @param bswBadHeaders optional writer for identifiers that cannot be resolved
+	 * @param format {@link FileFormat#FA} or {@link FileFormat#GFF} */
 	private void updateHeadersFromServer(ArrayList<byte[]> lines, HashArray1D counts, ByteStreamWriter bswBadHeaders, int format){
 		if(format==FileFormat.FA){
 			updateHeadersFromServer_fasta(lines, counts, bswBadHeaders);
@@ -592,15 +535,11 @@ public class RenameGiToTaxid {
 			assert(false) : "Unsupported type: "+format;
 		}
 	}
-	
-	/**
-	 * Processes FASTA format lines for server-based header updating.
-	 * Extracts identifiers, queries server for taxonomy IDs, and updates headers.
-	 *
-	 * @param lines FASTA format lines to process
-	 * @param counts Hash table for counting taxonomy occurrences
-	 * @param bswBadHeaders Output stream for unresolvable headers
-	 */
+
+	/** Replaces non-{@code >tid} FASTA headers in one server-mode batch.
+	 * @param lines FASTA lines to rewrite in place
+	 * @param counts optional per-taxID occurrence counter used only when prefix output is disabled
+	 * @param bswBadHeaders optional writer for unresolvable headers */
 	private void updateHeadersFromServer_fasta(ArrayList<byte[]> lines, HashArray1D counts, ByteStreamWriter bswBadHeaders){
 		ByteBuilder bb=new ByteBuilder();
 		ArrayList<String> names=new ArrayList<String>();
@@ -616,21 +555,20 @@ public class RenameGiToTaxid {
 			}
 		}
 		if(bb.length()<1){return;}
-		
+
 		assert(terms>0) : bb.count(',')+", "+terms+"\n"+bb+"\n";
 		assert(bb.endsWith(',')) : bb.count(',')+", "+terms+"\n"+bb+"\n";
 		assert(bb.count(',')==terms) : bb.count(',')+", "+terms+"\n"+bb+"\n";
 		bb.length--;//At this point bb contains something like "GHE08303,ABC123,KR99"
-		
-//		System.err.println("Sending '"+bb+"'");
-		
+
+
 		final int[] serverIds=translateToTaxIDs(bb, terms);
 		assert(serverIds!=null) : "Null response for '"+bb.toString()+"'";
 		assert(serverIds.length==terms) : "Incorrect response length for query."
 				+"\nQuery size "+terms+":\n"+bb
 				+"\nResponse size "+serverIds.length+":\n"+Arrays.toString(serverIds)+"\n";
 		bb.clear();
-		
+
 		if(!names.isEmpty()){
 			assert(tree!=null) : "Need to load a TaxTree.";
 			assert(names.size()==serverIds.length);
@@ -639,17 +577,12 @@ public class RenameGiToTaxid {
 				if(serverIds[i]<0){
 					TaxNode tn=tree.getNodeByName(name);
 					if(tn!=null){serverIds[i]=tn.id;}
-//					else {
-//						assert(false) : names.get(i);
-//					}
 				}else{
 					//Sometimes the species gets renamed.
-//					TaxNode tn=tree.getNodeByName(name);
-//					if(tn==null || tn.id==serverIds[i]) {System.err.println(name+", "+serverIds[i]+", "+tn+", "+tree.getNodesByName(name));}
 				}
 			}
 		}
-		
+
 		for(int lineNum=0, serverNum=0; lineNum<=lines.size(); lineNum++){
 			byte[] line=lines.get(lineNum);
 			if(line[0]=='>' && !Tools.startsWith(line, ">tid")){
@@ -665,7 +598,7 @@ public class RenameGiToTaxid {
 						System.err.println(tid+"\t"+looksLikeRealAccession(line)+"\t"+new String(line));
 					}
 				}
-				int initial=1, terminal=line.length; 
+				int initial=1, terminal=line.length;
 				if(shrinkNames){//This is for nr/nt
 					for(int i=initial; i<terminal; i++){
 						if(line[i]==1){//SOH
@@ -673,7 +606,7 @@ public class RenameGiToTaxid {
 						}
 					}
 				}
-				
+
 				bb.append(title);
 				bb.append(tid);
 				if(prefix){
@@ -687,32 +620,29 @@ public class RenameGiToTaxid {
 					bb.append(count);
 					if(count==1){taxaCounted++;}
 				}
-				
+
 				lines.set(lineNum, bb.toBytes());
-				
+
 				serverNum++;
 				if(serverNum>=serverIds.length){break;}
 			}
 		}
 		if(maxInvalidHeaders>=0 && invalidReads>maxInvalidHeaders){
+			//TODO: Probable bug - the current batch's invalid reads are counted later in dumpBuffer.
 			KillSwitch.kill("Maximum bad headers exceeded: "+maxInvalidHeaders);
 		}
 	}
-	
-	/**
-	 * Translates a comma-separated list of identifiers to taxonomy IDs via server.
-	 * Implements retry logic to handle network issues and incomplete responses.
-	 *
-	 * @param bb ByteBuilder containing comma-separated identifiers
-	 * @param terms Expected number of identifiers in the query
-	 * @return Array of taxonomy IDs corresponding to input identifiers
-	 */
-	private int[] translateToTaxIDs(ByteBuilder bb, int terms) {
+
+	/** Translates comma-separated identifiers through the selected server endpoint, retrying null or wrong-length replies.
+	 * @param bb comma-separated query terms
+	 * @param terms expected number of taxonomy IDs in the reply
+	 * @return aligned taxonomy IDs, or null after all retries fail */
+	private int[] translateToTaxIDs(ByteBuilder bb, int terms){
 		//This block was created due to mysterious crashes processing nr.faa.
 		//They seemed to be due to incomplete responses.
 		int[] response=null;
 		final String query=bb.toString();
-		for(int i=0; i<10 && response==null; i++) {
+		for(int i=0; i<10 && response==null; i++){
 			if(mode==ACCESSION_MODE || mode==UNITE_MODE){
 				response=TaxClient.accessionToTaxidArray(query);
 			}else if(mode==GI_MODE){
@@ -720,32 +650,29 @@ public class RenameGiToTaxid {
 			}else{
 				response=TaxClient.headerToTaxidArray(query);//TODO: Keep this as a ByteBuilder
 			}
-			if(response==null) {
+			if(response==null){
 				System.err.println("Retrying null response for length "+terms+" query: "+query);
-			}else if(response.length!=terms) {
+			}else if(response.length!=terms){
 				System.err.println("Retrying corrupt length "+response.length+" response for length "+terms+" query: "+query);
 				response=null;
 			}
-			if(response==null) {
-				try {
+			if(response==null){
+				try{
 					Thread.sleep(500*(i+2));
-				} catch (InterruptedException e) {
+				}catch(InterruptedException e){
 					e.printStackTrace();
 				}
 			}
 		}
 		return response;
 	}
-	
-	/**
-	 * Processes GFF format lines for server-based header updating.
-	 * Extracts identifiers from first column and replaces with taxonomy prefixes.
-	 *
-	 * @param lines GFF format lines to process
-	 * @param counts Hash table for counting taxonomy occurrences
-	 * @param bswBadHeaders Output stream for unresolvable identifiers
-	 */
+
+	/** Replaces GFF feature seqids and matching {@code ##sequence-region} seqids in one server-mode batch.
+	 * @param lines GFF lines to rewrite in place
+	 * @param counts optional per-taxID occurrence counter used only when prefix output is disabled
+	 * @param bswBadHeaders optional writer for unresolvable GFF seqids */
 	private void updateHeadersFromServer_gff(ArrayList<byte[]> lines, HashArray1D counts, ByteStreamWriter bswBadHeaders){
+		assert(prefix) : "Constructor rejects GFF input with prefix=f.";
 		ByteBuilder bb=new ByteBuilder();
 		int terms=0;
 		//[tax/RenameGiToTaxid#004] Query seqids from BOTH feature lines (column 1) AND ##sequence-region
@@ -772,7 +699,11 @@ public class RenameGiToTaxid {
 		}
 		if(bb.length()<1){return;}
 
-		//HARDENED [tax/RenameGiToTaxid#002]: was a single direct TaxClient.*ToTaxidArray with NO retry on a wrong-LENGTH server response (only null was handled) → a corrupt-length array would silently misalign every subsequent header. The FASTA path already retries via translateToTaxIDs; the taxserver goes flaky under load (Cloudflare) and returns corrupt-length responses, so route GFF through the same retry (same mode-dispatch). Persistent failure still returns null -> KillSwitch (loud).
+		// HARDENED [tax/RenameGiToTaxid#002]: a wrong-length GFF server
+		// response used to silently misalign subsequent seqids because only
+		// null was retried. FASTA already routes through translateToTaxIDs;
+		// use the same retry path for GFF, with persistent failure still
+		// returning null so the KillSwitch fires loudly.
 		int[] serverIds=translateToTaxIDs(bb, terms);
 		if(serverIds==null){
 			KillSwitch.kill("Null response for '"+bb.toString()+"'");
@@ -822,11 +753,14 @@ public class RenameGiToTaxid {
 			}
 		}
 		if(maxInvalidHeaders>=0 && invalidReads>maxInvalidHeaders){
+			//TODO: Probable bug - the current batch's invalid features are counted later in dumpBuffer.
 			KillSwitch.kill("Maximum bad headers exceeded: "+maxInvalidHeaders);
 		}
 	}
 
-	/** Returns the seqid from a "##sequence-region <seqid> <start> <end>" pragma line, or null if absent. */
+	/** Returns the seqid from a {@code ##sequence-region seqid start end} pragma line, or null if absent.
+	 * @param line raw GFF pragma line
+	 * @return parsed seqid, or null if the line has no seqid */
 	private static String sequenceRegionId(byte[] line){
 		int i=SEQREGION_PRAGMA.length();
 		while(i<line.length && (line[i]==' ' || line[i]=='\t')){i++;}
@@ -835,8 +769,13 @@ public class RenameGiToTaxid {
 		return i>a ? new String(line, a, i-a) : null;
 	}
 
-	/** Rewrites a ##sequence-region line's seqid to tid|<tid>|<seqid> (or tid|<tid> when prefix=false),
-	 * preserving the "##sequence-region" prefix and the trailing start/end coordinates. */
+	/** Rewrites a {@code ##sequence-region} line's seqid to {@code tid|tid|seqid}
+	 * (or {@code tid|tid} when {@link #prefix} is false), preserving the pragma
+	 * prefix and trailing start/end coordinates.
+	 * @param line raw GFF pragma line
+	 * @param sid seqid parsed from the pragma
+	 * @param tid taxonomy ID assigned to the seqid
+	 * @return renamed GFF pragma line */
 	private byte[] renameSeqRegion(byte[] line, String sid, int tid){
 		int i=SEQREGION_PRAGMA.length();
 		while(i<line.length && (line[i]==' ' || line[i]=='\t')){i++;}
@@ -849,28 +788,29 @@ public class RenameGiToTaxid {
 		bb.append(line, b, line.length-b);   //trailing start/end coordinates
 		return bb.toBytes();
 	}
-	
-	/**
-	 * Server-based processing mode that batches lines before taxonomy lookup.
-	 * Accumulates lines in memory buffer, then processes entire batches via server.
-	 *
-	 * @param bf Input file reader
-	 * @param bsw Main output stream writer
-	 * @param bswInvalid Output stream for invalid sequences
-	 * @param bswBadHeaders Output stream for problematic headers
-	 * @param counts Hash table for counting taxonomy ID occurrences
-	 * @param format File format constant for processing logic
-	 */
+
+	/** Processes one server-mode FASTA or GFF stream in triggered byte batches.
+	 * @param bf input file reader, closed on normal return
+	 * @param bsw primary output stream receiving valid records and, when {@link #keepAll} is true, invalid records
+	 * @param bswInvalid optional output stream receiving invalid records when {@link #keepAll} is false
+	 * @param bswBadHeaders optional writer for identifiers that cannot be resolved
+	 * @param counts optional per-taxID occurrence counter used only when prefix output is disabled
+	 * @param format {@link FileFormat#FA} or {@link FileFormat#GFF} */
 	private void processInner_server(ByteFile bf, ByteStreamWriter bsw, ByteStreamWriter bswInvalid, ByteStreamWriter bswBadHeaders, HashArray1D counts, int format){
-		
+
 		ArrayList<byte[]> lines=new ArrayList<byte[]>();
 		byte[] line=bf.nextLine();
 		boolean valid=false;
 		long storedBytes=0;
-		
+		long readsBuffered=readsProcessed;
+
 		while(line!=null){
-			
+
 			if(line.length>0){
+				if(format==FileFormat.FA && line[0]=='>'){
+					if(maxReads>0 && readsBuffered>=maxReads){break;}
+					readsBuffered++;
+				}
 				linesIn++;
 				lines.add(line);
 				storedBytes+=line.length;
@@ -880,66 +820,54 @@ public class RenameGiToTaxid {
 					lines=new ArrayList<byte[]>();
 					storedBytes=0;
 					if(deleteInvalid && invalidReads>0){
-							System.err.println("Invalid sequence detected; aborting.\n"
-									+ "Input file:  \t"+bf.name()+"\n"
-									+ "Output file: \t"+(bsw==null ? "null" : bsw.fname)+"\n"
-									+ "Line:        \t"+new String(line)+"\n");
+						System.err.println("Invalid sequence detected; aborting.\n"
+								+ "Input file:  \t"+bf.name()+"\n"
+								+ "Output file: \t"+(bsw==null ? "null" : bsw.fname)+"\n"
+								+ "Line:        \t"+new String(line)+"\n");
 						break;
 					}
 				}
 			}
 			line=bf.nextLine();
 		}
-		
+
 		if(storedBytes>0){
 			updateHeadersFromServer(lines, counts, bswBadHeaders, format);
 			valid=dumpBuffer(lines, valid, bsw, bswInvalid);
 			lines=new ArrayList<byte[]>();
 			storedBytes=0;
 		}
-		
+
 		errorState|=bf.close();
 	}
-	
-	/**
-	 * Writes buffered lines to appropriate output streams based on validity.
-	 * Tracks sequence counts and manages valid/invalid sequence routing.
-	 *
-	 * @param lines Buffered lines ready for output
-	 * @param valid Current validity state from previous processing
-	 * @param bsw Main output stream writer
-	 * @param bswInvalid Output stream for invalid sequences
-	 * @return Final validity state after processing all lines
-	 */
+
+	/** Emits a rewritten server-mode batch and updates valid/invalid FASTA or GFF counters.
+	 * @param lines rewritten batch to emit
+	 * @param valid validity state carried from the previous FASTA batch
+	 * @param bsw primary output stream receiving valid records and, when {@link #keepAll} is true, invalid records
+	 * @param bswInvalid optional output stream receiving invalid records when {@link #keepAll} is false
+	 * @return validity state to carry to the next FASTA batch */
 	private boolean dumpBuffer(ArrayList<byte[]> lines, boolean valid, ByteStreamWriter bsw, ByteStreamWriter bswInvalid){
-		
+
 		for(byte[] line : lines){
-		
+
 			if(line.length>0 && line[0]=='>'){
 				readsProcessed++;
 				if(maxReads>0 && readsProcessed>maxReads){break;}
-				
+
 				if(Tools.startsWith(line, invalidTitle)){
 					valid=false;
 					invalidReads++;
 					invalidLines++;
 					if(deleteInvalid){break;}
 				}else{
-					//Somehow this line is firing:
-//					Exception in thread "main" java.lang.AssertionError:
-//						line: '>WP_330397346.1 spore protease YyaC [Maledivibacter halophilus]SKC56058.1 putative sporulation protein YyaC [Maledivibacter halophilus]'
-//						title: '>tid|'
-//
-//						        at tax.RenameGiToTaxid.dumpBuffer(RenameGiToTaxid.java:790)
-//						        at tax.RenameGiToTaxid.processInner_server(RenameGiToTaxid.java:751)
-//						        at tax.RenameGiToTaxid.process(RenameGiToTaxid.java:262)
-//						        at tax.RenameGiToTaxid.main(RenameGiToTaxid.java:39)
 					assert(Tools.startsWith(line, title)) : "\nline: '"+new String(line)+"'\ntitle: '"+new String(title)+"'\n";
 					valid=true;
 					validReads++;
 					validLines++;
 				}
 			}else if(gffIn){
+				//TODO: Probable bug - after any prior GFF input, later server-mode FASTA sequence lines are classified as valid GFF lines.
 				basesProcessed+=line.length;
 				valid=!Tools.startsWith(line, invalidGffTitle);
 				if(valid){
@@ -965,7 +893,7 @@ public class RenameGiToTaxid {
 					invalidLines++;
 				}
 			}
-			
+
 			if(valid || keepAll){
 				if(bsw!=null){bsw.println(line);}
 			}else{
@@ -974,121 +902,121 @@ public class RenameGiToTaxid {
 		}
 		return valid;
 	}
-	
+
 	/*--------------------------------------------------------------*/
-	
-	
+	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
-	
-	/** Set of input file paths to process */
+
+	/** Input file paths to process, preserving command-line order and uniqueness. */
 	private LinkedHashSet<String> in1=new LinkedHashSet<String>();
-	/** Primary output file path for processed sequences */
+	/** Primary output path for renamed FASTA or GFF records. */
 	private String out1=null;
-	/** Output file path for sequences with invalid taxonomy information */
+	/** Optional output path for records that could not be assigned a valid taxID. */
 	private String outInvalid=null;
-	/**
-	 * Output file path for recording problematic headers that cannot be processed
-	 */
+	/** Optional output path for unresolved raw headers or GFF seqids. */
 	private String badHeaders=null;
 
-	/** Use tree file for taxonomic hierarchy information */
+	/** Load and query a local taxonomy tree. */
 	private boolean useTree=false;
-	/** Path to GI-to-taxonomy ID mapping table file */
+	/** Path to the local GI-to-taxID table. */
 	private String giTableFile=null;
-	/** Path to accession-to-taxonomy ID mapping file */
+	/** Path to local accession-to-taxID input. */
 	private String accessionFile=null;
-	/** Path to file containing accession parsing patterns */
+	/** Path to local accession parsing patterns. */
 	private String patternFile=null;
-	
+
 	/*--------------------------------------------------------------*/
 
-	/** Maximum number of reads to process, or -1 for unlimited */
+	/** Maximum number of FASTA records to process, or -1 for unlimited. */
 	private long maxReads=-1;
 
-	/** Count of sequences with successfully resolved taxonomy information */
+	/** Number of FASTA records with successfully resolved taxonomy information. */
 	private long validReads=0;
-	/** Total number of bases in sequences with valid taxonomy */
+	/** Total number of bases in valid FASTA records, or bytes in valid GFF lines. */
 	private long validBases=0;
-	/** Count of sequences that could not be assigned taxonomy information */
+	/** Number of FASTA records or GFF features with invalid or missing taxonomy information. */
 	private long invalidReads=0;
-	/** Total number of bases in sequences with invalid or missing taxonomy */
+	/** Total number of bases or bytes in invalid FASTA records or GFF lines. */
 	private long invalidBases=0;
-	/** Number of unique taxonomy IDs encountered during processing */
+	/** Number of unique taxIDs counted when output occurrence suffixes are enabled. */
 	private long taxaCounted=0;
 
-	/** Total number of input lines processed (used for GFF files) */
+	/** Number of nonempty input lines processed in server mode. */
 	private long linesIn=0;
-	/** Number of lines with successfully resolved taxonomy information */
+	/** Number of GFF or server-mode lines with valid taxonomy information. */
 	private long validLines=0;
-	/** Number of lines that could not be assigned valid taxonomy information */
+	/** Number of GFF or server-mode lines with invalid or missing taxonomy information. */
 	private long invalidLines=0;
-	
-	/** Maximum bytes to buffer before processing batch in server mode */
+
+	/** Buffered-byte trigger for server-mode batches; one appended line may exceed it. */
 	private long maxStoredBytes=10000000;
-	
-	/** Running count of sequence bases processed */
-	/** Running count of sequence records processed */
+
+	/** FASTA record counter and total FASTA bases or GFF bytes for elapsed-time reporting. */
 	private long readsProcessed=0, basesProcessed=0;
 
-	/** Whether to retain original header information after taxonomy ID */
+	/** Append original header or seqid content after the emitted taxID; required for GFF input. */
 	private boolean prefix=true;
-	/** Whether to maintain occurrence counts for taxonomy IDs */
+	/** Count per-taxID output occurrences instead of preserving the original header when {@link #prefix} is false. */
 	private boolean countTable=true;
-	/** Whether to retain sequences even without valid taxonomy assignment */
+	/** Retain invalid records in primary output unless an invalid-record output was requested. */
 	private boolean keepAll=true;
-	/** Whether to truncate headers at first SOH character for nr/nt databases */
+	/** Truncate FASTA headers at the first SOH character for nr/nt concatenated headers. */
 	private boolean shrinkNames=false;
-	/** Whether to print warnings for headers that cannot be processed */
+	/** Print unresolved identifier warnings when {@link #badHeaders} is absent. */
 	private boolean warnBadHeaders=true;
-	/** Whether to use remote server for taxonomy lookups instead of local files */
+	/** Query the configured remote tax server instead of local GI or accession tables. */
 	private boolean useServer=false;
-	/** Crash if the number of invalid headers exceeds this */
+	/** Maximum unresolved FASTA headers allowed before aborting, or -1 for unlimited. */
 	private long maxInvalidHeaders=-1;
-	/** Delete the output file if there are any invalid headers */
+	/** Delete the primary output after processing if any invalid record was observed. */
 	private boolean deleteInvalid=false;
-	
-	/** Processing mode determining how identifiers are parsed from headers */
+
+	/** Current identifier extraction mode for server requests. */
 	private int mode;
-	/** Mode constant for processing UNITE database format headers */
-	/** Mode constant for parsing entire headers for taxonomy lookup */
-	/** Mode constant for parsing GI numbers from headers */
-	/** Mode constant for parsing accession numbers from headers */
+	/** Server identifier modes: accession token, GI token, whole header, and UNITE token after the first pipe. */
 	private static final int ACCESSION_MODE=0, GI_MODE=1, HEADER_MODE=2, UNITE_MODE=3;
-	
-	/** Flag indicating if any input files are in GFF format */
+
+	/** Sticky flag set by any GFF input, selecting GFF line/byte reporting and server-batch classification. */
 	private boolean gffIn=false;
-	
+
 	/*--------------------------------------------------------------*/
-	
-	/** File format objects for all input files */
+
+	/** Input file formats matching {@link #in1}. */
 	private final ArrayList<FileFormat> ffin1;
-	/** File format object for primary output file */
+	/** Primary output file format. */
 	private final FileFormat ffout1;
-	/** File format object for invalid sequence output file */
+	/** Optional invalid-record output file format. */
 	private final FileFormat ffoutInvalid;
-	/** Taxonomy tree structure for hierarchical taxonomic information */
+	/** Optional local taxonomy tree used by non-server mode and UNITE server fallbacks. */
 	private final TaxTree tree;
-	
+
 	/*--------------------------------------------------------------*/
-	
-	/** Output stream for progress messages and statistics */
+
+	/** Destination for progress messages and final statistics. */
 	private PrintStream outstream=System.err;
-	/** Global flag controlling detailed logging output */
+	/** Enables verbose diagnostics in this tool and selected I/O dependencies. */
 	public static boolean verbose=false;
-	/** Flag indicating if processing encountered any errors */
+	/** True after an input or output stream reports a close error. */
 	public boolean errorState=false;
-	/** Whether to overwrite existing output files */
+	/** Overwrite existing output files. */
 	private boolean overwrite=true;
-	/** Whether to append to existing output files instead of overwriting */
+	/** Append to existing output files instead of overwriting. */
 	private boolean append=false;
 
-	/** Default header prefix for valid taxonomy assignments */
+	/*--------------------------------------------------------------*/
+	/*----------------          Constants           ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Mutable header prefix for valid taxonomy assignments. */
 	private static byte[] title=">tid|".getBytes();
-	/** Header prefix used to mark sequences with invalid taxonomy */
+	/** Header prefix used to mark invalid FASTA records in server mode. */
 	private static byte[] invalidTitle=">tid|-1".getBytes();
-	/** Prefix used to mark GFF lines with invalid taxonomy information */
+	/** Seqid prefix used to mark invalid GFF features in server mode. */
 	private static byte[] invalidGffTitle="tid|-1".getBytes();
 	/** GFF3 sequence-region pragma prefix; its seqid is renamed alongside feature seqids [#004]. */
 	private static final String SEQREGION_PRAGMA="##sequence-region";
-	
+	/** Exact construction-time rejection for GFF input that would drop feature columns. */
+	private static final String GFF_PREFIX_FALSE_MESSAGE=
+			"GFF input requires prefix=t; prefix=f would drop feature columns.";
+
 }

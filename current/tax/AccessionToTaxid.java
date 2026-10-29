@@ -32,16 +32,22 @@ import stream.FastaReadInputStream;
 import structures.StringNum;
 
 /**
- * New version loads with multiple threads per input file.
+ * Loads NCBI accession-to-TaxID tables into process-global lookup structures.
+ * Long or non-digitizable accessions are retained as strings in first-character
+ * map shards; short digitizable accessions may also be stored in packed numeric
+ * hash tables for faster lookup. Optional distributed loading keeps only the
+ * accessions assigned to one TaxServer shard.
+ *
  * @author Brian Bushnell
  * @date December 16, 2016
- *
  */
-public class AccessionToTaxid {
+public class AccessionToTaxid{
 	
-	/**
-	 * Convenience method to load accession mapping files.
-	 * Preserves original file handling settings and restores them after loading.
+	/** Loads one or more accession mapping files into the static lookup tables.
+	 * The loader mutates process-wide accession state and toggles {@link #LOADED}
+	 * when all files finish successfully. Return or throw restores file reading
+	 * mode flags; maps and packed tables already populated by this call remain
+	 * resident.
 	 * @param files Comma-separated list of accession mapping files to load
 	 */
 	public static void load(String files){
@@ -49,16 +55,17 @@ public class AccessionToTaxid {
 		final boolean oldBf1=ByteFile.FORCE_MODE_BF1;
 		final boolean oldUnpigz=ReadWrite.USE_UNPIGZ;
 		final boolean oldGunzip=ReadWrite.USE_GUNZIP;
-		
-		main(new String[] {"in="+files, "unpigz="+ReadWrite.USE_UNPIGZ, "gunzip="+ReadWrite.USE_GUNZIP});
-
-		ByteFile.FORCE_MODE_BF2=oldBf2;
-		ByteFile.FORCE_MODE_BF1=oldBf1;
-		ReadWrite.USE_UNPIGZ=oldUnpigz;
-		ReadWrite.USE_GUNZIP=oldGunzip;
+		try{
+			main(new String[] {"in="+files, "unpigz="+ReadWrite.USE_UNPIGZ, "gunzip="+ReadWrite.USE_GUNZIP});
+		}finally{
+			ByteFile.FORCE_MODE_BF2=oldBf2;
+			ByteFile.FORCE_MODE_BF1=oldBf1;
+			ReadWrite.USE_UNPIGZ=oldUnpigz;
+			ReadWrite.USE_GUNZIP=oldGunzip;
+		}
 	}
 	
-	/** Program entry point for loading accession-to-taxid mappings.
+	/** Loads accession inputs into static lookup tables and reports loading statistics.
 	 * @param args Command-line arguments specifying input files and options */
 	public static void main(String[] args){
 		Timer t=new Timer();
@@ -69,9 +76,11 @@ public class AccessionToTaxid {
 		Shared.closeStream(x.outstream);
 	}
 	
-	/**
-	 * Constructs AccessionToTaxid loader with command-line argument parsing.
-	 * Processes input files, sorts them by size, and configures loading options.
+	/** Parses loader arguments and builds input file descriptors.
+	 * Positional existing paths and {@code in=} comma lists are accepted. Input
+	 * paths are sorted by size so the later thread launcher can start from the
+	 * largest files; {@link ByteFile} instances open later in
+	 * {@link #spawnThreads(FileFormat[], int)}.
 	 * @param args Command-line arguments containing file paths and configuration
 	 */
 	public AccessionToTaxid(String[] args){
@@ -189,20 +198,22 @@ public class AccessionToTaxid {
 					s=s.substring(7);
 				}
 			}
-			FileFormat ff=FileFormat.testInput(s, FileFormat.TXT, null, true, false);
-			if(ff.gzip() && processes>maxPigzProcesses){
+			boolean allowSubprocess=true;
+			//TODO: Probable bug - FileFormat stores the requested subprocess permission
+			// but currently ignores it when deriving effective gzip subprocess policy.
+			if("gz".equals(ReadWrite.compressionType(s))){
+				allowSubprocess=processes<maxPigzProcesses;
 				processes++;
-//				if(processes>maxPigzProcesses){
-					ff=FileFormat.testInput(s, FileFormat.TXT, null, false, false);
-//				}
 			}
+			FileFormat ff=FileFormat.testInput(s, FileFormat.TXT, null, allowSubprocess, false);
 			ffin[i]=ff;
 		}
 	}
 	
-	/**
-	 * Main processing method that loads all accession mapping data.
-	 * Initializes hash maps and tables, spawns worker threads for parallel loading.
+	/** Allocates global stores and loads every configured input file.
+	 * Worker threads fill per-thread map buffers, merge into the static shards,
+	 * flush optional packed-table buffers, then close every ByteFile before this
+	 * method reports aggregate counters and marks the table loaded.
 	 * @param t Timer for tracking execution time and performance statistics
 	 */
 	@SuppressWarnings("unchecked")
@@ -301,7 +312,11 @@ public class AccessionToTaxid {
 		LOADED=true;
 	}
 	
-	/** Spawn process threads */
+	/** Starts and joins worker threads for this batch of input files.
+	 * Each live ByteFile is shared by one or more workers and closed after every
+	 * worker has terminated.
+	 * @param ffa Input formats to process; null entries are ignored
+	 * @param threadLimit Maximum number of HashThreads for this batch */
 	private void spawnThreads(FileFormat[] ffa, int threadLimit){
 		
 		//Do anything necessary prior to processing
@@ -335,10 +350,10 @@ public class AccessionToTaxid {
 			
 			//Wait until this thread has terminated
 			while(pt.getState()!=Thread.State.TERMINATED){
-				try {
+				try{
 					//Attempt a join operation
 					pt.join();
-				} catch (InterruptedException e) {
+				}catch(InterruptedException e){
 					//Potentially handle this, if it is expected to occur
 					e.printStackTrace();
 				}
@@ -379,8 +394,11 @@ public class AccessionToTaxid {
 	
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Loads disk-backed accession table for low-memory server mode.
+	/** Loads the disk-backed accession table used by low-memory server mode.
+	 * Successful loading enables disk mode and marks accession data loaded.
+	 * Disk lookups still require {@link AnalyzeAccession#codeMap}; callers that
+	 * only invoke this method can query any already loaded string maps but cannot
+	 * query the disk table.
 	 * @param path Path to the binary accession table file
 	 */
 	public static void loadDisk(String path){
@@ -394,11 +412,12 @@ public class AccessionToTaxid {
 		}
 	}
 
-	/**
-	 * Retrieves taxonomic ID for the given accession string.
-	 * Strips version suffixes and uses hash tables or maps for lookup.
+	/** Looks up a TaxID for one sequence accession.
+	 * A period, colon or comma terminates the lookup key for string-map and
+	 * base-37 hash lookups. In disk mode, digitizable keys are tried first and
+	 * non-digitizable keys fall back to resident string maps when present.
 	 * @param accession Sequence accession to look up
-	 * @return Taxonomic ID for the accession, or -1 if not found
+	 * @return TaxID for the accession, or -1 if not found
 	 */
 	public static int get(String accession){
 		if(accession==null){return -1;}
@@ -476,9 +495,9 @@ public class AccessionToTaxid {
 		return true;
 	}
 	
-	/**
-	 * Computes hash value for accession string using base-37 encoding.
-	 * Stops at version delimiter characters and handles various character types.
+	/** Encodes an accession prefix as a base-37 number.
+	 * Encoding stops at '.', ':' or ','. Digits map to 0-9, letters map
+	 * case-insensitively to 11-36, and '_' and '-' collide at digit 10.
 	 * @param accession Accession string to hash
 	 * @return Hash value for the accession
 	 */
@@ -499,9 +518,9 @@ public class AccessionToTaxid {
 		return number;
 	}
 	
-	/**
-	 * Computes hash value for accession bytes using base-37 encoding.
-	 * Optimized version that works directly on byte arrays.
+	/** Encodes an accession byte prefix as a base-37 number.
+	 * Encoding stops at '.', ':' or ','. Digits map to 0-9, letters map
+	 * case-insensitively to 11-36, and '_' and '-' collide at digit 10.
 	 *
 	 * @param line Byte array containing accession
 	 * @param limit Maximum number of bytes to process
@@ -524,9 +543,9 @@ public class AccessionToTaxid {
 		return number;
 	}
 	
-	/**
-	 * Parses 3-column line format to extract taxonomic ID.
-	 * Expected format: accession[tab]accession[tab]taxid
+	/** Extracts the TaxID from the third column of an NCBI accession2taxid line.
+	 * Expected prefix: accession, accession.version, taxid; trailing columns are
+	 * tolerated.
 	 *
 	 * @param line Byte array containing the line to parse
 	 * @param delimiter Field separator character
@@ -558,9 +577,8 @@ public class AccessionToTaxid {
 		return ncbi;
 	}
 	
-	/**
-	 * Parses 2-column line format to extract taxonomic ID.
-	 * Expected format: accession[tab]taxid
+	/** Extracts the TaxID from a two-column accession2taxid line.
+	 * Expected format: accession, taxid.
 	 *
 	 * @param line Byte array containing the line to parse
 	 * @param delimiter Field separator character
@@ -587,11 +605,13 @@ public class AccessionToTaxid {
 	
 	/*--------------------------------------------------------------*/
 	
-	public static class HashThread extends Thread {
+	/** Worker that consumes one shared {@link ByteFile} and merges local mappings. */
+	public static class HashThread extends Thread{
 		
-		/**
-		 * Constructs a worker thread for processing accession mapping file.
-		 * Initializes thread-local hash maps and tables for parallel loading.
+		/** Creates a worker that fetches synchronized line batches from one ByteFile.
+		 * Each worker stores strings in private map shards and, when enabled, buffers
+		 * packed numeric keys before flushing them to the shared KmerTableSet.
+		 *
 		 * @param bf_ ByteFile to process in this thread
 		 */
 		@SuppressWarnings("unchecked")
@@ -608,9 +628,7 @@ public class AccessionToTaxid {
 			bf=bf_;
 		}
 		
-		/**
-		 * Fetches a batch of lines from the input file for processing.
-		 * Thread-safe method that synchronizes access to the ByteFile.
+		/** Fetches a synchronized batch from this worker's shared ByteFile.
 		 * @param limit Maximum number of lines to fetch
 		 * @return List of byte arrays representing lines, or null if EOF
 		 */
@@ -812,9 +830,9 @@ public class AccessionToTaxid {
 			return true;
 		}
 		
-		/**
-		 * Parses accession mapping line and stores the mapping efficiently.
-		 * Optimized version that minimizes string creation and memory allocation.
+		/** Parses a NCBI accession2taxid row and stores the mapping.
+		 * The primary accession is truncated before '.', ':' or ','. Rows with
+		 * invalid TaxIDs or filtered distributed buckets are skipped without error.
 		 *
 		 * @param line Byte array containing the line to parse
 		 * @param delimiter Field separator character
@@ -902,7 +920,10 @@ public class AccessionToTaxid {
 			if(distributed){
 				String accession=new String(line, 0, dot);//slow
 				assert(accession.equals(accession.toUpperCase()));//TODO: Disable. (slow)
-				if(Math.floorMod(accession.hashCode(), serverCount)!=serverNum){return false;}//FIXED [tax/AccessionToTaxid + TaxServer#001]: was hashCode()%serverCount → negative bucket (serverNum always >=0) dropped ~half of accessions from EVERY server (silent data loss). floorMod is always [0,serverCount). MUST stay identical to TaxServer:1725 routing formula.
+				/* tax/AccessionToTaxid+TaxServer#001: floorMod must match
+				 * TaxServer routing; % would silently drop all accessions whose
+				 * hash maps to a negative server bucket. */
+				if(Math.floorMod(accession.hashCode(), serverCount)!=serverNum){return false;}
 			}
 			
 			if(USE_TABLES){
@@ -935,8 +956,11 @@ public class AccessionToTaxid {
 			return true;
 		}
 		
+		/** Nonempty input lines read by this worker */
 		private long linesProcessedT=0;
+		/** Valid accession-to-taxid rows accepted by this worker */
 		private long linesValidT=0;
+		/** Input bytes in nonempty lines, excluding line terminators */
 		private long bytesProcessedT=0;
 		
 		/** Input file being processed by this thread */
@@ -945,59 +969,62 @@ public class AccessionToTaxid {
 		ObjectIntMap<String>[] mapsT;
 		/** Thread-local hash buffer for efficient batch insertion into global tables */
 		HashBuffer table;
+		/** Set when this worker finishes its input and counter merge normally */
 		boolean success=false;
 		
+		/** Thread-local counts by accession prefix length */
 		private long[] lengthCountsT=null;//new AtomicLongArray(20);
+		/** Thread-local counts by first symbol */
 		private long[] symbolCountsT=null;//new AtomicLongArray(255);
+		/** Thread-local underscore counts by accession prefix length */
 		private long[] counts_underscoreT=null;//new AtomicLongArray(20);
+		/** Thread-local post-underscore symbol counts */
 		private long[] counts_underscore2T=null;//new AtomicLongArray(20);
 	}
 	
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Retrieves taxonomic ID for IMG (Integrated Microbial Genomes) identifier.
-	 * Uses caching to avoid repeated server requests.
+	/** Resolves an IMG genome ID through the shared cache and metadata service.
+	 * Successful nonnegative lookups are cached for later calls.
 	 * @param imgID IMG genome identifier
 	 * @return Taxonomic ID for the IMG genome, or -1 if not found
 	 */
-	public static int getImg(long imgID) {
+	public static int getImg(long imgID){
 		long ncbi=-1;
-		synchronized(imgCache) {
+		synchronized(imgCache){
 			long time=System.currentTimeMillis();
-			if(time-lastCacheClear>cacheClearInterval) {
+			if(time-lastCacheClear>cacheClearInterval){
 				imgCache.clear();
 				lastCacheClear=time;
 			}
 			ncbi=imgCache.get(imgID);
 		}
-		if(ncbi>-1) {return (int)ncbi;}
+		if(ncbi>-1){return (int)ncbi;}
 		ncbi=getImgFromServer(imgID);
-		if(ncbi<0) {return -1;}
-		synchronized(imgCache) {imgCache.put(imgID, ncbi);}
+		if(ncbi<0){return -1;}
+		synchronized(imgCache){imgCache.put(imgID, ncbi);}
 		return (int)ncbi;
 	}
 	
-	/**
-	 * Queries IMG server for taxonomic ID of the specified genome.
-	 * Makes HTTP request to IMG metadata service and parses JSON response.
+	/** Queries IMG metadata for an IMG genome ID.
+	 * Network, parsing and missing-response failures are converted to negative
+	 * sentinel values after the exception is logged.
 	 * @param imgID IMG genome identifier to query
-	 * @return Taxonomic ID from server response, or -1 if query failed
+	 * @return Taxonomic ID from server response, or a negative sentinel if query failed
 	 */
-	public static int getImgFromServer(long imgID) {
-		try {
+	public static int getImgFromServer(long imgID){
+		try{
 			byte[] message=null;
 			String path="https://img.jgi.doe.gov/cgi-bin/genomesMetadata.cgi?ids="+imgID;
 			StringNum sn=ServerTools.sendAndReceive(message, path);
-			if(sn==null) {return -1;}
+			if(sn==null){return -1;}
 			String response=sn.s;
-			if(response==null) {return 0-(int)sn.n;}
+			if(response==null){return 0-(int)sn.n;}
 			JsonObject all=JsonParser.parseJsonObjectStatic(response);
 			JsonObject body=all.getJson(""+imgID);
 			long ncbi=body.getLong("ncbi_taxon_id");
 			return (int)ncbi;
-		} catch (Exception e) {
-			// TODO Auto-generated catch block
+		}catch(Exception e){
 			e.printStackTrace();
 		}
 		return -1;
@@ -1009,7 +1036,7 @@ public class AccessionToTaxid {
 	private ArrayList<String> in=new ArrayList<String>();
 //	private String out=null;
 	
-	/** Maximum number of parallel pigz decompression processes allowed */
+	/** Intended maximum number of parallel pigz decompression processes */
 	static int maxPigzProcesses=12;
 	
 	/*--------------------------------------------------------------*/
@@ -1021,13 +1048,18 @@ public class AccessionToTaxid {
 	/** Total number of bytes processed from input files */
 	private long bytesProcessed=0;
 	
+	/** Optional global counts by accession prefix length */
 	private AtomicLongArray lengthCounts=null;//new AtomicLongArray(20);
+	/** Optional global counts by first symbol */
 	private AtomicLongArray symbolCounts=null;//new AtomicLongArray(255);
+	/** Optional global underscore counts by accession prefix length */
 	private AtomicLongArray counts_underscore=null;//new AtomicLongArray(20);
+	/** Optional global post-underscore symbol counts */
 	private AtomicLongArray counts_underscore2=null;//new AtomicLongArray(20);
 	
 	/*--------------------------------------------------------------*/
 
+	/** Input file descriptors, sorted by size for worker assignment */
 	private final FileFormat ffin[];
 //	private final FileFormat ffout;
 	
@@ -1050,7 +1082,9 @@ public class AccessionToTaxid {
 	private static KmerTableSet tables;
 	/** Cache for IMG ID to taxonomic ID mappings to reduce server queries */
 	private static LongLongHashMap imgCache;
+	/** Milliseconds between whole-cache IMG lookup clears */
 	private static final long cacheClearInterval=7L*24L*3600L*1000L;//millis
+	/** Wall-clock time when the IMG lookup cache was last cleared */
 	private static long lastCacheClear=0;
 	/** Taxonomic tree for validating taxonomic IDs during loading */
 	public static TaxTree tree=null;
@@ -1064,7 +1098,9 @@ public class AccessionToTaxid {
 	public static boolean skipHash=false;
 	/** Preallocation factor for hash table sizing (0 = no preallocation) */
 	public static float prealloc=0;
+	/** Base-37 offset that maps uppercase A-Z to digits 11-36 */
 	private static final long offset=-'A'+11;
+	/** Base-37 offset that maps lowercase a-z to digits 11-36 */
 	private static final long offsetLower=-'a'+11;
 	
 	/** Server number for distributed processing (0-based) */
@@ -1076,9 +1112,13 @@ public class AccessionToTaxid {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Destination for status and summary messages */
 	private PrintStream outstream=System.err;
+	/** Emit verbose diagnostics from this loader and its input helpers */
 	public static boolean verbose=false;
+	/** Set when worker failure or input close failure makes a load untrustworthy */
 	public boolean errorState=false;
+	/** Overwrite flag parsed for compatibility with common BBTools arguments */
 	private boolean overwrite=true;
 	
 }

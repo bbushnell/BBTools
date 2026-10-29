@@ -50,19 +50,25 @@ import structures.IntList;
 import structures.StringNum;
 
 /**
- * Server for taxonomy or Sketch queries.
+ * HTTP server for taxonomy lookups, accession/GI translation and SendSketch searches.
+ * Startup loads a TaxTree plus optional in-memory or disk-backed accession/GI
+ * indexes before registering request handlers. Each request is handled by the
+ * JDK HttpServer executor configured at construction time; shared counters are
+ * atomic and loaded taxonomy/sketch resources are read by concurrent handlers.
  * @author Shijie Yao, Brian Bushnell
  * @date Dec 13, 2016
  *
  */
-public class TaxServer {
+public class TaxServer{
 	
 	/*--------------------------------------------------------------*/
 	/*----------------            Startup           ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Command line entrance */
-	public static void main(String[] args) throws Exception {
+	/** Starts a listening server and returns after initialization is complete.
+	 * @param args Server resource paths, sketch options and listener options
+	 * @throws Exception if a required resource cannot be loaded or the port cannot bind */
+	public static void main(String[] args) throws Exception{
 		Timer t=new Timer();
 		@SuppressWarnings("unused")
 		TaxServer ts=new TaxServer(args);
@@ -74,8 +80,14 @@ public class TaxServer {
 		//ts.begin();
 	}
 	
-	/** Constructor */
-	public TaxServer(String[] args) throws Exception {
+	/** Parses options, loads configured indexes and starts the HTTP listener.
+	 * The constructor performs all startup side effects: it loads taxonomy, optional
+	 * accession/GI/IMG/pattern/size/sketch resources, optionally tells an older
+	 * instance to stop, registers URL contexts, installs the request executor and
+	 * starts accepting requests.
+	 * @param args Command-line options in BBTools key=value form
+	 * @throws Exception if resource loading or listener initialization fails */
+	public TaxServer(String[] args) throws Exception{
 		
 		{//Preparse block for help, config files, and outstream
 			PreParser pp=new PreParser(args, getClass(), false);
@@ -225,7 +237,7 @@ public class TaxServer {
 		if("auto".equalsIgnoreCase(patternFile)){patternFile=TaxTree.defaultPatternFile();}
 		if("auto".equalsIgnoreCase(sizeFile)){
 			sizeFile=TaxTree.defaultSizeFile();
-			if(!new File(sizeFile).canRead()) {sizeFile=null;}
+			if(!new File(sizeFile).canRead()){sizeFile=null;}
 		}
 		
 		serverNum=AccessionToTaxid.serverNum=serverNum_;
@@ -362,7 +374,8 @@ public class TaxServer {
 		httpServer=initializeServer(1000, 8, https);
 		assert(httpServer!=null);
 		
-		//Initialize handlers
+		//Initialize taxonomy handlers unless this process is sketch-only;
+		// stax/simpletax routes reuse TaxHandler with non-canonical ranks skipped.
 		if(!sketchOnly){
 			httpServer.createContext("/", new TaxHandler(false));
 			httpServer.createContext("/tax", new TaxHandler(false));
@@ -371,8 +384,10 @@ public class TaxServer {
 		}else{
 			httpServer.createContext("/", new SketchHandler());
 		}
+		//Sketch search remains available in combined taxonomy/sketch mode.
 		httpServer.createContext("/sketch", new SketchHandler());
 		if(killCode!=null){
+			//Register the kill endpoint only when a validation code was supplied.
 			httpServer.createContext("/kill", new KillHandler());
 		}
 
@@ -382,7 +397,8 @@ public class TaxServer {
 		httpServer.createContext("/favicon.ico", new IconHandler());
 		
 		handlerThreads=handlerThreads>0 ? handlerThreads : Tools.max(2, Shared.threads());
-		httpServer.setExecutor(java.util.concurrent.Executors.newFixedThreadPool(handlerThreads)); // Creates a multithreaded executor
+		//Use a fixed executor so HTTP request concurrency is explicit and bounded.
+		httpServer.setExecutor(java.util.concurrent.Executors.newFixedThreadPool(handlerThreads));
 //		httpServer.setExecutor(java.util.concurrent.Executors.newCachedThreadPool()); // Creates a multithreaded executor
 //		httpServer.setExecutor(null); // Creates a singlethreaded executor
 		
@@ -390,13 +406,13 @@ public class TaxServer {
 		httpServer.start();
 	}
 	
-	/** Kill a prior server instance */
+	/** Sends the configured old kill code to a previous server instance, if any.
+	 * Failed or unsuccessful remote kills are logged but do not abort this startup. */
 	private void killOldInstance(){
 		StringNum result=null;
-		try {
+		try{
 			result=ServerTools.sendAndReceive(oldKillCode.getBytes(), oldAddress);
-		} catch (Exception e) {
-			// TODO Auto-generated catch block
+		}catch(Exception e){
 			if(e!=null){e.printStackTrace();}
 			System.err.println("\nException suppressed; continuing.\n");
 			return;
@@ -408,25 +424,30 @@ public class TaxServer {
 		ServerTools.pause(1000);
 	}
 	
-	/** Iterative wait for server initialization */
+	/** Tries repeatedly to bind the configured port.
+	 * @param millis0 Initial delay after a bind or IO failure
+	 * @param iterations Maximum number of bind attempts
+	 * @param https Whether to allocate an HttpsServer rather than an HttpServer
+	 * @return Newly bound but not yet started server
+	 * @throws RuntimeException if all bind attempts fail */
 	private HttpServer initializeServer(int millis0, int iterations, boolean https){
 		HttpServer server=null;
 		InetSocketAddress isa=new InetSocketAddress(port);
 		Exception ee=null;
 		for(int i=0, millis=millis0; i<iterations && server==null; i++){
-			try {
+			try{
 				if(https){
 					server=HttpsServer.create(isa, 0);
 				}else{
 					server=HttpServer.create(isa, 0);
 				}
-			} catch (java.net.BindException e) {//Expected
+			}catch(java.net.BindException e){//Expected
 				System.err.println(e);
 				System.err.println("\nWaiting "+millis+" ms");
 				ee=e;
 				ServerTools.pause(millis);
 				millis=millis*2;
-			} catch (IOException e) {//Not sure when this would occur...  it would be unexpected
+			}catch(IOException e){//Not sure when this would occur...  it would be unexpected
 				System.err.println(e);
 				System.err.println("\nWaiting "+millis+" ms");
 				ee=e;
@@ -500,11 +521,14 @@ public class TaxServer {
 	/*----------------           Handlers           ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Handles queries for favicon.ico */
-	class IconHandler implements HttpHandler {
+	/** Replies with the resource favicon for /favicon.ico requests. */
+	class IconHandler implements HttpHandler{
+
+		/** Constructs a favicon request handler. */
+		IconHandler(){}
 		
 		@Override
-		public void handle(HttpExchange t) throws IOException {
+		public void handle(HttpExchange t) throws IOException{
 			if(verbose2){System.err.println("Icon handler");}
 			iconQueries.incrementAndGet();
 			ServerTools.reply(favIcon, "image/x-icon", t, verbose2, 200, true);
@@ -514,11 +538,14 @@ public class TaxServer {
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Handles queries that fall through other handlers */
-	class HelpHandler implements HttpHandler {
+	/** Replies with plain text or HTML usage for help and usage requests. */
+	class HelpHandler implements HttpHandler{
+
+		/** Constructs a help request handler. */
+		HelpHandler(){}
 		
 		@Override
-		public void handle(HttpExchange t) throws IOException {
+		public void handle(HttpExchange t) throws IOException{
 			if(verbose2){System.err.println("Help handler");}
 			final long startTime=System.nanoTime();
 			returnUsage(startTime, t);
@@ -528,11 +555,14 @@ public class TaxServer {
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Handles queries that fall through other handlers */
-	class StatsHandler implements HttpHandler {
+	/** Replies with current counter and timing statistics. */
+	class StatsHandler implements HttpHandler{
+
+		/** Constructs a statistics request handler. */
+		StatsHandler(){}
 		
 		@Override
-		public void handle(HttpExchange t) throws IOException {
+		public void handle(HttpExchange t) throws IOException{
 			if(verbose2){System.err.println("Http handler");}
 			final long startTime=System.nanoTime();
 			returnStats(startTime, t);
@@ -542,11 +572,14 @@ public class TaxServer {
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Handles requests to kill the server */
-	class KillHandler implements HttpHandler {
+	/** Handles authenticated requests to terminate this server process. */
+	class KillHandler implements HttpHandler{
+
+		/** Constructs an authenticated process-termination handler. */
+		KillHandler(){}
 		
 		@Override
-		public void handle(HttpExchange t) throws IOException {
+		public void handle(HttpExchange t) throws IOException{
 			if(verbose2){System.err.println("Kill handler");}
 			
 			//Parse the query from the URL
@@ -564,7 +597,10 @@ public class TaxServer {
 			ServerTools.reply(BAD_CODE, "text/plain", t, verbose2, 403, true);
 		}
 		
-		/** Determines whether kill code was correct */
+		/** Checks the kill code from the URL path or request body.
+		 * @param t Exchange used for body-mode kill requests
+		 * @param rparam URL path decoded by getRParam
+		 * @return Whether the supplied code matches this instance's kill code */
 		private boolean testCode(HttpExchange t, String rparam){
 			String[] params = rparam.split("/");
 			if(verbose2){System.err.println(Arrays.toString(params));}
@@ -573,11 +609,10 @@ public class TaxServer {
 				if(params.length>1){//URL mode
 					return (params[1].equals(killCode));
 				}else{//Body mode
-					try {
+					try{
 						String code=ServerTools.receive(t);
 						return (code!=null && code.equals(killCode));
-					} catch (Exception e) {
-						// TODO Auto-generated catch block
+					}catch(Exception e){
 						e.printStackTrace();
 					}
 				}
@@ -588,11 +623,14 @@ public class TaxServer {
 	
 	/*--------------------------------------------------------------*/
 
-	/** Listens for sketch comparison requests */
-	class SketchHandler implements HttpHandler {
+	/** Handles SendSketch request-body, local-file and reference-sketch searches. */
+	class SketchHandler implements HttpHandler{
+
+		/** Constructs a sketch-search request handler. */
+		SketchHandler(){}
 		
 		@Override
-		public void handle(HttpExchange t) throws IOException {
+		public void handle(HttpExchange t) throws IOException{
 			if(verbose2){outstream.println("Got a request.");}
 			SketchInstance si=new SketchInstance(t);
 			if(verbose2){outstream.println("Made si.");}
@@ -644,14 +682,17 @@ public class TaxServer {
 			return sketches;
 		}
 		
-		//Created in handle()
-		private class SketchInstance {
+		/** Per-exchange state for one sketch request. */
+		private class SketchInstance{
 			
+			/** Records the exchange and request start time.
+			 * @param t_ Active HTTP exchange */
 			SketchInstance(HttpExchange t_){
 				t=t_;
 				instanceStartTime=System.nanoTime();
 			}
 			
+			/** Parses the request, loads query sketches, compares them and replies. */
 			void handleInner(){
 				
 				if(!hasSketches){
@@ -694,11 +735,11 @@ public class TaxServer {
 					if((fileMode || refMode) && !body.startsWith("##")){
 						body="##"+body;
 					}
-					try {
+					try{
 						params=params.parseDoubleHeader(body);
 						if(verbose2){System.err.println("Passed parse params.");}
 						
-					} catch (Throwable e) {
+					}catch(Throwable e){
 						String s=Tools.toString(e);
 						ServerTools.reply("\nERROR: \n"+ s,
 								"text/plain", t, verbose2, 400, true);
@@ -724,14 +765,14 @@ public class TaxServer {
 				
 				if(fileMode){
 					assert(internal && allowRemoteFileAccess);
-					if(!allowRemoteFileAccess) {throw new RuntimeException("Bad access to "+rparam);}
+					if(!allowRemoteFileAccess){throw new RuntimeException("Bad access to "+rparam);}
 					File f=new File(rparam);
 					if(!f.exists() && !rparam.startsWith("/")){
 						String temp="/"+rparam;
 						f=new File(temp);
 						if(f.exists()){rparam=temp;}
 					}
-					if(!f.exists() || !f.canRead()) {
+					if(!f.exists() || !f.canRead()){
 						ServerTools.reply("\nERROR: This file cannot be read.\n", "text/plain", t, verbose2, 400, true);
 						return;
 					}
@@ -841,6 +882,12 @@ public class TaxServer {
 				}
 			}
 			
+			/** Parses the sketch URL and configures request-local DisplayParams.
+			 * Recognized leading path elements are consumed; the returned remainder is
+			 * either a filesystem path, a comma-delimited reference query or empty for a
+			 * request-body sketch.
+			 * @param t Active HTTP exchange
+			 * @return Residual query string, or null for usage/help */
 			private String parseRparamSketch(HttpExchange t){
 				//Parse the query from the URL
 				String rparam=getRParam(t, false);
@@ -900,10 +947,15 @@ public class TaxServer {
 				return rparam;
 			}
 			
+			/** Active HTTP exchange for this sketch request. */
 			private final HttpExchange t;
+			/** Request-specific output formatting and sketch-building parameters. */
 			private DisplayParams params;
+			/** Request start time for latency accounting. */
 			private final long instanceStartTime;
+			/** True when the request loads query sketches from a local file. */
 			private boolean fileMode=false;
+			/** True when the request compares a loaded reference sketch by TaxID. */
 			private boolean refMode=false;
 		}
 		
@@ -931,8 +983,8 @@ public class TaxServer {
 	
 	/*--------------------------------------------------------------*/
 
-	/** Handles taxonomy lookups */
-	class TaxHandler implements HttpHandler {
+	/** Handles taxonomy lookup requests over name, taxID, GI, accession, IMG and header routes. */
+	class TaxHandler implements HttpHandler{
 		
 		/** Constructs taxonomy query handler.
 		 * @param skipNonCanonical_ Whether to skip non-canonical taxonomic ranks */
@@ -941,7 +993,7 @@ public class TaxServer {
 		}
 		
 		@Override
-		public void handle(HttpExchange t) throws IOException {
+		public void handle(HttpExchange t) throws IOException{
 			if(verbose2){System.err.println("Tax handler");}
 			final long startTime=System.nanoTime();
 			
@@ -1023,7 +1075,7 @@ public class TaxServer {
 //			}
 //		}
 		
-		/** Only print nodes at canonical tax levels */
+		/** Default for whether unranked and uncommon taxonomy levels are omitted. */
 		public final boolean skipNonCanonical;
 	}
 	
@@ -1031,12 +1083,9 @@ public class TaxServer {
 	/*----------------            Helpers           ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Reads request body from HTTP exchange.
-	 * Extracts string content from input stream.
+	/** Reads the full request body from an HTTP exchange.
 	 * @param t HTTP exchange containing request
-	 * @return Request body as string
-	 */
+	 * @return Request body as a string */
 	static String getBody(HttpExchange t){
 		if(verbose2){System.err.println("getBody");}
 		InputStream is=t.getRequestBody();
@@ -1044,7 +1093,12 @@ public class TaxServer {
 		return s;
 	}
 	
-	/** Parse the query from the URL */
+	/** Parses the query from the request URL.
+	 * Leading and trailing slashes are stripped. If POST bodies are allowed,
+	 * /POST and /$POST sentinel paths use the request body as the query.
+	 * @param t Active exchange
+	 * @param allowPost Whether to accept body-backed query sentinels
+	 * @return Query path without leading or trailing slashes */
 	static String getRParam(HttpExchange t, boolean allowPost){
 		if(verbose2){System.err.println("getRParam");}
 		String rparam = t.getRequestURI().toString();
@@ -1072,7 +1126,11 @@ public class TaxServer {
 	/*----------------      Taxonomy Formatting     ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** All tax queries enter here from the handler */
+	/** Parses taxonomy query flags and dispatches to JSON, text or path formatters.
+	 * @param simple Whether uncommon ranks are omitted unless the request overrides it
+	 * @param params URL path components after legacy prefix trimming
+	 * @param t Active exchange, used for client classification
+	 * @return Complete response body */
 	String toResponse(boolean simple, String[] params, HttpExchange t){
 		if(verbose2){System.err.println("toResponse");}
 
@@ -1222,7 +1280,24 @@ public class TaxServer {
 		return j.toString();
 	}
 	
-	/** Look up common ancestor of terms */
+	/** Formats the common ancestor for a comma-delimited list of query terms.
+	 * @param type Raw query type code, including output-format bits
+	 * @param names Query terms
+	 * @param plaintext Whether to return only the common ancestor TaxID
+	 * @param semicolon Whether to return a semicolon-delimited lineage
+	 * @param path Whether to return the local FASTA path
+	 * @param query Original comma-delimited query string for error formatting
+	 * @param skipNonCanonical Whether to omit unranked and uncommon taxonomy levels
+	 * @param originalLevel Whether to print original taxonomy level names
+	 * @param printNumChildren Whether to include child counts
+	 * @param printChildren Whether to include child node objects
+	 * @param printPath Whether to include the local FASTA path
+	 * @param printSize Whether to include size and cumulative count fields
+	 * @param printRange Whether to include nearest ranked ancestor/descendant bounds
+	 * @param mononomial Whether to request corrected mononomial names; values are
+	 * currently evaluated unconditionally and written only when changed
+	 * @param source Local path source selector
+	 * @return Response body for the ancestor query */
 	String toAncestor(final int type, final String[] names, boolean plaintext, boolean semicolon, boolean path,
 			String query, final boolean skipNonCanonical, boolean originalLevel, boolean printNumChildren,
 			boolean printChildren, boolean printPath, boolean printSize, boolean printRange, boolean mononomial,
@@ -1274,9 +1349,7 @@ public class TaxServer {
 		return j.toString();
 	}
 	
-	/**
-	 * Retrieves child nodes for given taxonomic ID.
-	 *
+	/** Creates a JSON object containing direct children of one taxonomic node.
 	 * @param id Taxonomic ID to get children for
 	 * @param originalLevel Whether to use original taxonomy level names
 	 * @param printRange Whether to include taxonomic range information
@@ -1290,9 +1363,7 @@ public class TaxServer {
 		return makeChildrenObject(list, originalLevel, printRange, mononomial);
 	}
 	
-	/**
-	 * Converts list of tax nodes to JSON children object.
-	 *
+	/** Converts a list of tax nodes to a JSON child map keyed by TaxID.
 	 * @param list List of child tax nodes
 	 * @param originalLevel Whether to use original taxonomy level names
 	 * @param printRange Whether to include taxonomic range information
@@ -1322,7 +1393,13 @@ public class TaxServer {
 		return j;
 	}
 	
-	/** Format a reply as plaintext, comma-delimited, TaxID only */
+	/** Formats query terms as comma-delimited TaxIDs.
+	 * Malformed GI, TAXID and IMG numbers propagate NumberFormatException.
+	 * Missing GI, NAME, TAXID, HEADER or SILVAHEADER terms emit -1; missing
+	 * ACCESSION or IMG terms emit their negative lookup sentinel.
+	 * @param type Raw query type code, including output-format bits
+	 * @param names Query terms
+	 * @return Comma-delimited TaxIDs or unresolved sentinels */
 	String toText(final int type, final String[] names){
 		
 		StringBuilder sb=new StringBuilder();
@@ -1382,8 +1459,7 @@ public class TaxServer {
 		return sb.toString();
 	}
 	
-	/**
-	 * Converts identifier to TaxNode based on query type.
+	/** Converts an identifier to a TaxNode based on query type.
 	 * @param type Query type determining how to interpret the name
 	 * @param name Identifier string to convert
 	 * @return TaxNode if found, null otherwise
@@ -1411,7 +1487,13 @@ public class TaxServer {
 		return tn;
 	}
 	
-	/** Format a reply as paths, comma-delimited*/
+	/** Formats query terms as comma-delimited local paths.
+	 * Malformed GI, TAXID and IMG numbers propagate NumberFormatException.
+	 * Terms that do not resolve or resolve to missing files emit {@code null}.
+	 * @param type Raw query type code, including output-format bits
+	 * @param names Query terms
+	 * @param source Local path source selector
+	 * @return Comma-delimited file paths or {@code null} sentinels */
 	String toPath(final int type, final String[] names, final int source){
 		
 		StringBuilder sb=new StringBuilder();
@@ -1433,7 +1515,14 @@ public class TaxServer {
 		return sb.toString();
 	}
 	
-	/** Format a reply as plaintext, semicolon-delimited, full lineage */
+	/** Formats query terms as comma-delimited semicolon lineages.
+	 * Malformed GI, TAXID and IMG numbers propagate NumberFormatException.
+	 * Missing terms emit {@code Not found}.
+	 * @param type Raw query type code, including output-format bits
+	 * @param names Query terms
+	 * @param skipNonCanonical Whether to omit unranked and uncommon levels
+	 * @param mononomial Whether to include corrected mononomial names
+	 * @return Comma-delimited lineages or {@code Not found} sentinels */
 	String toSemicolon(final int type, final String[] names, boolean skipNonCanonical, boolean mononomial){
 		
 		StringBuilder sb=new StringBuilder();
@@ -1500,7 +1589,21 @@ public class TaxServer {
 		return sb.toString();
 	}
 	
-	/** Create a JsonObject from a String, including full lineage */
+	/** Creates a JsonObject from a query term, including its ancestor lineage.
+	 * Malformed GI, TAXID and IMG numbers propagate NumberFormatException.
+	 * @param type Raw query type code, excluding output-format bits
+	 * @param name Query term
+	 * @param skipNonCanonical Whether to omit unranked and uncommon levels
+	 * @param originalLevel Whether to print original taxonomy level names
+	 * @param printNumChildren Whether to include child counts
+	 * @param printChildren Whether to include child node objects
+	 * @param printPath Whether to include local FASTA paths
+	 * @param printSize Whether to include size and cumulative count fields
+	 * @param printRange Whether to include nearest ranked ancestor/descendant bounds
+	 * @param mononomial Whether to request corrected mononomial names; values are
+	 * currently evaluated unconditionally and written only when changed
+	 * @param source Local path source selector
+	 * @return JSON node object or a JSON error object */
 	JsonObject toJson(final int type, final String name, boolean skipNonCanonical, boolean originalLevel, 
 			boolean printNumChildren, boolean printChildren, boolean printPath, boolean printSize, 
 			boolean printRange, boolean mononomial, int source){
@@ -1575,7 +1678,21 @@ public class TaxServer {
 		}
 	}
 	
-	/** Create a JsonObject from a TaxNode, at that level only */
+	/** Creates a JsonObject from one TaxNode without climbing to ancestors.
+	 * Mononomial names are currently evaluated unconditionally and written only
+	 * when changed.
+	 * @param tn Tax node to serialize
+	 * @param originalLevel Whether to print original taxonomy level names; forwarded
+	 * to child objects
+	 * @param printNumChildren Whether to include child counts
+	 * @param printChildren Whether to include child node objects
+	 * @param printPath Whether to include local FASTA paths
+	 * @param printSize Whether to include size and cumulative count fields
+	 * @param printRange Whether to include nearest ranked ancestor/descendant bounds
+	 * @param mononomial Whether to request corrected mononomial names
+	 * @param source Local path source selector
+	 * @param img IMG database identifier for IMG paths
+	 * @return JSON node object */
 	JsonObject toJson(TaxNode tn, boolean originalLevel, boolean printNumChildren, 
 			boolean printChildren, boolean printPath, boolean printSize, boolean printRange, 
 			boolean mononomial, int source, long img){
@@ -1610,7 +1727,8 @@ public class TaxServer {
 	/**
 	 * Constructs file path for taxonomic node based on data source.
 	 * @param tn Tax node to generate path for
-	 * @param source Data source type (REFSEQ, SILVA, IMG)
+	 * @param source Data source type; REFSEQ and SILVA are supported here, while
+	 * IMG and unknown sources assert and return "null"
 	 * @return File path to sequence data, or "null" if not found
 	 */
 	String toPath(TaxNode tn, int source){
@@ -1646,7 +1764,14 @@ public class TaxServer {
 	/*----------------        Taxonomy Lookup       ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Convert a list of terms to a list of TaxIDs */
+	/** Converts query terms to TaxIDs, skipping unresolved terms.
+	 * Malformed GI, TAXID and IMG numbers propagate NumberFormatException;
+	 * GI, NAME, TAXID, HEADER and SILVAHEADER delegate missing-query accounting
+	 * to TaxNode helpers; ACCESSION and IMG count negative raw-converter
+	 * sentinels here.
+	 * @param type Raw query type code, including output-format bits
+	 * @param names Query terms
+	 * @return TaxIDs resolved from GI, NAME, TAXID, ACCESSION, IMG or HEADER terms */
 	IntList toIntList(final int type, final String[] names){
 		IntList list=new IntList(names.length);
 		int type2=type&15;
@@ -1654,25 +1779,27 @@ public class TaxServer {
 			for(String name : names){
 				TaxNode tn=getTaxNodeGi(Long.parseLong(name));
 				if(tn!=null){list.add(tn.id);}
-				else{notFound.incrementAndGet();}
 			}
 		}else if(type2==NAME){
 			for(String name : names){
 				TaxNode tn=getTaxNodeByName(name);
 				if(tn!=null){list.add(tn.id);}
-				else{notFound.incrementAndGet();}
 			}
 		}else if(type2==TAXID){
 			for(String name : names){
 				TaxNode tn=getTaxNodeTaxid(Integer.parseInt(name));
 				if(tn!=null){list.add(tn.id);}
-				else{notFound.incrementAndGet();}
 			}
 		}else if(type2==ACCESSION){
 			for(String name : names){
 				int ncbi=accessionToTaxid(name);
 				if(ncbi>=0){list.add(ncbi);}
 				else{notFound.incrementAndGet();}
+			}
+		}else if(type2==HEADER || type2==SILVAHEADER){
+			for(String name : names){
+				TaxNode tn=getTaxNodeHeader(name, type2==SILVAHEADER);
+				if(tn!=null){list.add(tn.id);}
 			}
 		}else if(type2==IMG){
 			for(String name : names){
@@ -1686,9 +1813,8 @@ public class TaxServer {
 		return list;
 	}
 	
-	/**
-	 * Removes version suffix from accession number.
-	 * Strips characters after dot or colon to get base accession.
+	/** Removes a version or server suffix from an accession.
+	 * The returned key is uppercase and stops before the first period or colon.
 	 * @param s Accession string with potential version suffix
 	 * @return Base accession without version, or original string if no suffix
 	 */
@@ -1702,41 +1828,42 @@ public class TaxServer {
 		return s;
 	}
 
-	/**
-	 * Converts IMG identifier string to NCBI taxonomic ID.
+	/** Converts an IMG identifier string to an NCBI TaxID.
 	 * @param imgID IMG database identifier as string
 	 * @return NCBI taxonomic ID, or -1 if not found
 	 */
-	private final int imgToTaxid(String imgID) {
+	private final int imgToTaxid(String imgID){
 		return imgToTaxid(Long.parseLong(imgID));
 	}
-	/**
-	 * Converts IMG identifier to NCBI taxonomic ID.
-	 * Searches both IMG file and accession databases.
+	/** Converts an IMG identifier to an NCBI TaxID.
+	 * Searches the IMG file first, then IMG metadata loaded by AccessionToTaxid.
 	 * @param imgID IMG database identifier
 	 * @return NCBI taxonomic ID, or -1 if not found
 	 */
-	private final int imgToTaxid(long imgID) {
+	private final int imgToTaxid(long imgID){
 		int ncbi=-1;
-		if(imgFile!=null) {
+		if(imgFile!=null){
 			ncbi=TaxTree.imgToTaxid(imgID);
-			if(ncbi>=0) {return ncbi;}
+			if(ncbi>=0){return ncbi;}
 		}
 		return AccessionToTaxid.getImg(imgID);
 	}
 	
-	/**
-	 * Resolves accession number to taxonomic ID.
-	 * Handles distributed server queries if needed.
-	 * @param accession Sequence accession number
-	 * @return NCBI taxonomic ID, or -1 if not found
+	/** Resolves an accession string to an NCBI TaxID.
+	 * Distributed primary servers ask the owning shard when the local table lacks
+	 * the normalized accession.
+	 * @param accession Sequence accession string
+	 * @return NCBI TaxID, or -1 if not found
 	 */
 	private int accessionToTaxid(String accession){
 		if(accession==null){return -1;}
 		int tid=AccessionToTaxid.get(accession);
 		if(tid<0 && distributed && serverNum==0){
 			accession=stripAccession(accession);
-			int slaveNum=Math.floorMod(accession.hashCode(), serverCount);//FIXED [tax/TaxServer#001]: was hashCode()%serverCount → negative for ~half of accessions (String.hashCode sign kept by %) → slaveAddress.get(neg) AIOOBE. floorMod is always [0,serverCount). MUST stay identical to AccessionToTaxid:870 partition formula or routing != loading.
+			/* tax/TaxServer#001: floorMod must match AccessionToTaxid
+			 * partitioning; % can produce a negative slave index for roughly
+			 * half of hashed accessions. */
+			int slaveNum=Math.floorMod(accession.hashCode(), serverCount);
 			if(slaveNum!=serverNum){
 				String path=slaveAddress.get(slaveNum);
 				tid=TaxClient.accessionToTaxidSpecificServer(path, accession);
@@ -1745,7 +1872,9 @@ public class TaxServer {
 		return tid;
 	}
 	
-	/** Look up a TaxNode by parsing the organism name */
+	/** Looks up the first TaxNode matching a name or configured common-name alias.
+	 * @param name Scientific name or common-name alias
+	 * @return First resolved node, or null if the name does not resolve */
 	TaxNode getTaxNodeByName(String name){
 		if(verbose2){System.err.println("Fetching node for "+name);}
 		List<TaxNode> list=tree.getNodesByNameExtended(name);
@@ -1760,31 +1889,38 @@ public class TaxServer {
 		return list==null ? null : list.get(0);
 	}
 	
-	/** Look up a TaxNode from the gi number */
+	/** Looks up a TaxNode from a GI number.
+	 * @param gi GI number
+	 * @return Node for the mapped TaxID, or null for a missing GI or TaxID */
 	TaxNode getTaxNodeGi(long gi){
 		int ncbi=-1;
-		try {
+		try{
 			ncbi=GiToTaxid.getID(gi);
-		} catch (Throwable e) {
+		}catch(Throwable e){
 			if(verbose){e.printStackTrace();}
 		}
 		if(ncbi<0){notFound.incrementAndGet();}
 		return ncbi<0 ? null : getTaxNodeTaxid(ncbi);
 	}
 	
-	/** Look up a TaxNode by parsing the full header */
+	/** Looks up a TaxNode by parsing a RefSeq/GenBank or SILVA header.
+	 * @param header Header text without the FASTA marker
+	 * @param silvaMode True to parse as SILVA/UNITE rather than NCBI
+	 * @return Parsed node, or null if the header does not resolve */
 	TaxNode getTaxNodeHeader(String header, boolean silvaMode){
 		TaxNode tn=silvaMode ? tree.getNodeSilva(header, true) : tree.parseNodeFromHeader(header, true);
 		if(tn==null){notFound.incrementAndGet();}
 		return tn;
 	}
 	
-	/** Look up a TaxNode from the ncbi TaxID */
+	/** Looks up a TaxNode from its NCBI TaxID.
+	 * @param ncbi NCBI TaxID
+	 * @return Node for that TaxID, or null if it is absent from the tree */
 	TaxNode getTaxNodeTaxid(int ncbi){
 		TaxNode tn=null;
-		try {
+		try{
 			tn=tree.getNode(ncbi);
-		} catch (Throwable e) {
+		}catch(Throwable e){
 			if(verbose){e.printStackTrace();}
 		}
 		if(tn==null){notFound.incrementAndGet();}
@@ -1800,7 +1936,7 @@ public class TaxServer {
 	 * Maps various query format strings to internal type constants.
 	 * @return HashMap mapping query strings to type integers
 	 */
-	private static HashMap<String, Integer> makeTypeMap() {
+	private static HashMap<String, Integer> makeTypeMap(){
 		HashMap<String, Integer> map=new HashMap<String, Integer>(63);
 		map.put("gi", GI);
 //		map.put("ngi", NGI);
@@ -1843,6 +1979,7 @@ public class TaxServer {
 		map.put("sc_header", SC_HEADER);
 		map.put("sc_header", SC_HEADER);
 		map.put("sc_accession", SC_ACCESSION);
+		map.put("sc_img", SC_IMG);
 		map.put("sc_silvaheader", SC_SILVAHEADER);
 	
 		return map;
@@ -2037,7 +2174,7 @@ public class TaxServer {
 		}else{
 			sb.append("JGI"+(SketchObject.defaultParams.dbName==null ? "" : " "+SketchObject.defaultParams.dbName)+" sketch server stats:\n\n");
 			
-			if(domain!=null) {sb.append("Domain: "+domain+"\n");}
+			if(domain!=null){sb.append("Domain: "+domain+"\n");}
 			if(SketchObject.useWhitelist()){
 				sb.append("This server is running in whitelist mode; for best results, use local queries.\n");
 				sb.append("Remote queries should specify a larger-than-normal sketch size.\n\n");
@@ -2071,7 +2208,10 @@ public class TaxServer {
 		{
 			sb.append("\nVersion\tCount\n");
 			ArrayList<String> list=new ArrayList<String>();
-			synchronized(versionMap){//FIXED [tax/TaxServer#002]: iteration must hold the same lock the writer (handleInner L767) holds, else CME/partial-read on /stats. Map is tiny (one entry per distinct client version) and this path is cold, so contention is negligible.
+			/* tax/TaxServer#002: iterate under the same lock as handleInner's
+			 * writer, or /stats can see partial versionMap state or throw
+			 * ConcurrentModificationException. */
+			synchronized(versionMap){
 				for(Entry<String, StringNum> e : versionMap.entrySet()){
 					list.add(e.getValue().toString());
 				}
@@ -2295,10 +2435,10 @@ public class TaxServer {
 
 				//Wait until this thread has terminated
 				while(ct.getState()!=Thread.State.TERMINATED){
-					try {
+					try{
 						//Attempt a join operation
 						ct.join();
-					} catch (InterruptedException e) {
+					}catch(InterruptedException e){
 						e.printStackTrace();
 					}
 				}
@@ -2321,8 +2461,15 @@ public class TaxServer {
 		}
 	}
 	
-	private class CompareThread extends Thread {
+	/** Runs sketch comparisons for one HTTP sketch request. */
+	private class CompareThread extends Thread{
 		
+		/** Constructs a sketch-comparison worker for one request.
+		 * @param inSketches_ Query sketches to compare
+		 * @param tid_ Worker ordinal within the request
+		 * @param nextSketch_ Shared index of the next sketch to process
+		 * @param out_ Output slots for per-query formatted results
+		 * @param params_ Output formatting and filtering options */
 		CompareThread(final ArrayList<Sketch> inSketches_, final int tid_, final AtomicInteger nextSketch_, ByteBuilder[] out_, DisplayParams params_){
 			inSketches=inSketches_;
 			tid=tid_;
@@ -2363,16 +2510,25 @@ public class TaxServer {
 			synchronized(this){success=true;}
 		}
 		
+		/** Query sketches shared among all comparison workers for this request. */
 		private final ArrayList<Sketch> inSketches;
+		/** This worker's ordinal index. */
 		private final int tid;
+		/** Scratch comparison state used only by this worker. */
 		private final CompareBuffer buffer=new CompareBuffer(false);
+		/** Output formatting and filtering options. */
 		private final DisplayParams params;
+		/** Per-query output slots indexed by query sketch number. */
 		private final ByteBuilder[] out;
 
+		/** Shared atomic index of the next query sketch to process. */
 		private final AtomicInteger nextSketch;
+		/** Incrementing fake reference ID generator for unregistered sketches. */
 		private final AtomicInteger fakeID=new AtomicInteger(SketchObject.minFakeID);
+		/** Per-worker comparison map passed to sketch search internals. */
 		private ConcurrentHashMap<Integer, Comparison> map=new ConcurrentHashMap<Integer, Comparison>(101);
 		
+		/** True if this worker completed without a thrown exception. */
 		boolean success=false;
 		
 	}
@@ -2389,78 +2545,128 @@ public class TaxServer {
 	/*----------------           Counters           ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Request counts by observed client version string. */
 	private HashMap<String, StringNum> versionMap=new HashMap<String, StringNum>();
+	/** Accumulated sketch-comparison nanoseconds binned by query size. */
 	private AtomicLongArray timesByCount=new AtomicLongArray(10000);
+	/** Query counts binned by sketch count. */
 	private AtomicLongArray queryCounts=new AtomicLongArray(10000);
 
+	/** Number of queries that produced no hit. */
 	private AtomicLong notFound=new AtomicLong(0);
+	/** Total query count. */
 	private AtomicLong queries=new AtomicLong(0);
-	/** Same IP address mask */
+	/** Queries from the same IP address mask. */
 	private AtomicLong internalQueries=new AtomicLong(0);
-	/** Local filesystem sketch */
+	/** Queries loading a sketch from the local filesystem. */
 	private AtomicLong localQueries=new AtomicLong(0);
+	/** Queries referencing a loaded reference sketch. */
 	private AtomicLong refQueries=new AtomicLong(0);
 
+	/** Total taxonomy depth requests. */
 	private AtomicLong depthQueries=new AtomicLong(0);
 	
+	/** Favicon requests. */
 	private AtomicLong iconQueries=new AtomicLong(0);
 
+	/** Sketch-search requests. */
 	private AtomicLong querySketches=new AtomicLong(0);
 
+	/** Unknown single-request chunks. */
 	private AtomicLong unknownChunkSingle=new AtomicLong(0);
+	/** Unknown bulk-request chunks. */
 	private AtomicLong unknownChunkMulti=new AtomicLong(0);
+	/** First single-request chunks. */
 	private AtomicLong firstChunkSingle=new AtomicLong(0);
+	/** First bulk-request chunks. */
 	private AtomicLong firstChunkMulti=new AtomicLong(0);
+	/** Follow-up single-request chunks. */
 	private AtomicLong nthChunkSingle=new AtomicLong(0);
+	/** Follow-up bulk-request chunks. */
 	private AtomicLong nthChunkMulti=new AtomicLong(0);
 	
+	/** Single-query requests. */
 	private AtomicLong singleQueries=new AtomicLong(0);
+	/** Bulk-query requests. */
 	private AtomicLong bulkQueries=new AtomicLong(0);
+	/** Total entries contained in bulk requests. */
 	private AtomicLong bulkCount=new AtomicLong(0);
 	
+	/** GI query count. */
 	private AtomicLong giQueries=new AtomicLong(0);
+	/** Name query count. */
 	private AtomicLong nameQueries=new AtomicLong(0);
+	/** TaxID query count. */
 	private AtomicLong taxidQueries=new AtomicLong(0);
+	/** Header query count. */
 	private AtomicLong headerQueries=new AtomicLong(0);
+	/** Accession query count. */
 	private AtomicLong accessionQueries=new AtomicLong(0);
+	/** IMG query count. */
 	private AtomicLong imgQueries=new AtomicLong(0);
+	/** Unclassified taxonomy query count. */
 	private AtomicLong unknownQueries=new AtomicLong(0);
+	/** SILVA header query count. */
 	private AtomicLong silvaHeaderQueries=new AtomicLong(0);
 	
+	/** Plaintext-response query count. */
 	private AtomicLong plaintextQueries=new AtomicLong(0);
+	/** Semicolon-delimited response query count. */
 	private AtomicLong semicolonQueries=new AtomicLong(0);
+	/** Path response query count. */
 	private AtomicLong pathQueries=new AtomicLong(0);
+	/** Printed-path response query count. */
 	private AtomicLong printPathQueries=new AtomicLong(0);
+	/** Printed-size response query count. */
 	private AtomicLong printSizeQueries=new AtomicLong(0);
+	/** Child-list response query count. */
 	private AtomicLong childrenQueries=new AtomicLong(0);
 	
+	/** Simple taxonomy query count. */
 	private AtomicLong simpleQueries=new AtomicLong(0);
+	/** Ancestor query count. */
 	private AtomicLong ancestorQueries=new AtomicLong(0);
 
+	/** Help/usage request count. */
 	private AtomicLong usageQueries=new AtomicLong(0);
+	/** Approximate request bytes received. */
 	private AtomicLong bytesIn=new AtomicLong(0);
+	/** Approximate response bytes sent. */
 	private AtomicLong bytesOut=new AtomicLong(0);
 
 //	private AtomicLong elapsedTime=new AtomicLong(0);
 //	private AtomicLong timeMeasurements=new AtomicLong(0);
 //	private AtomicLong lastTime=new AtomicLong(0);
 	
+	/** Total nanoseconds spent serving usage responses. */
 	private AtomicLong elapsedTimeUsage=new AtomicLong(0);
+	/** Number of timed usage responses. */
 	private AtomicLong timeMeasurementsUsage=new AtomicLong(0);
+	/** Nanoseconds spent serving the last timed usage response. */
 	private AtomicLong lastTimeUsage=new AtomicLong(0);
 	
+	/** Total nanoseconds spent serving remote sketch loads. */
 	private AtomicLong elapsedTimeRemote=new AtomicLong(0);
+	/** Number of timed remote sketch loads. */
 	private AtomicLong timeMeasurementsRemote=new AtomicLong(0);
+	/** Nanoseconds spent serving the last timed remote sketch load. */
 	private AtomicLong lastTimeRemote=new AtomicLong(0);
 	
+	/** Total nanoseconds spent serving local sketch loads. */
 	private AtomicLong elapsedTimeLocal=new AtomicLong(0);
+	/** Number of timed local sketch loads. */
 	private AtomicLong timeMeasurementsLocal=new AtomicLong(0);
+	/** Nanoseconds spent serving the last timed local sketch load. */
 	private AtomicLong lastTimeLocal=new AtomicLong(0);
 	
+	/** Total nanoseconds spent serving reference sketch queries. */
 	private AtomicLong elapsedTimeReference=new AtomicLong(0);
+	/** Number of timed reference sketch queries. */
 	private AtomicLong timeMeasurementsReference=new AtomicLong(0);
+	/** Nanoseconds spent serving the last timed reference sketch query. */
 	private AtomicLong lastTimeReference=new AtomicLong(0);
 
+	/** Malformed taxonomy query count. */
 	private AtomicLong malformedQueries=new AtomicLong(0);
 	
 	/*--------------------------------------------------------------*/
@@ -2523,25 +2729,32 @@ public class TaxServer {
 	/** Address of current server instance (optional) */
 	public String domain=null;
 
-	/** Maximum threads for concurrent sketch comparisons */
+	/** Maximum per-request threads for sketch comparisons, capped by Shared.threads(). */
 	public int maxConcurrentSketchCompareThreads=8;//TODO: This might be too high when lots of concurrent sessions are active
-	/** Maximum threads for concurrent sketch loading from files */
+	/** Maximum per-request threads for sketch loading from files, capped by Shared.threads(). */
 	public int maxConcurrentSketchLoadThreads=4;//TODO: This might be too high when lots of concurrent sessions are active
-	/** Number of HTTP request handler threads */
+	/** Number of fixed HTTP request handler threads; {@code <=0} uses a startup default. */
 	public int handlerThreads=-1;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** True when this instance is one shard in a distributed server group. */
 	private final boolean distributed;
+	/** Ordinal index of this server in a distributed group. */
 	private final int serverNum;
+	/** Number of servers in the distributed group. */
 	private final int serverCount;
+	/** Peer server addresses for distributed requests. */
 	private ArrayList<String> slaveAddress;
 	
+	/** Resource path for the favicon response. */
 	public final String favIconPath=Data.findPath("?favicon.ico");
+	/** Raw favicon bytes served by {@link IconHandler}. */
 	public final byte[] favIcon=ReadWrite.readRaw(favIconPath);
 	
+	/** Human-readable server startup time. */
 	private final String startTime=new Date().toString();
 	
 	/** Listen on this port */
@@ -2563,10 +2776,14 @@ public class TaxServer {
 	/** Plaintext-response query types */
 	public static final int PT_GI=GI+PT_BIT, PT_NAME=NAME+PT_BIT, PT_TAXID=TAXID+PT_BIT,
 			PT_HEADER=HEADER+PT_BIT, PT_ACCESSION=ACCESSION+PT_BIT, PT_IMG=IMG+PT_BIT, PT_SILVAHEADER=SILVAHEADER+PT_BIT;
+	/* tax/TaxServer#003: SC_SILVAHEADER must use SC_BIT like the rest of this
+	 * row; PT_BIT collides with plaintext SILVA and makes semicolon SILVA
+	 * return a TaxID response. */
 	/** Semicolon-response query types */
 	public static final int SC_GI=GI+SC_BIT, SC_NAME=NAME+SC_BIT, SC_TAXID=TAXID+SC_BIT,
-			SC_HEADER=HEADER+SC_BIT, SC_ACCESSION=ACCESSION+SC_BIT, SC_IMG=IMG+SC_BIT, SC_SILVAHEADER=SILVAHEADER+SC_BIT;//FIXED [tax/TaxServer#003]: was +PT_BIT (lone twin-deviation among the SC_* constants) → sc_silvaheader collided with pt_silvaheader (both 23) and toResponse set plaintext not semicolon → silently returned taxID instead of lineage.
+			SC_HEADER=HEADER+SC_BIT, SC_ACCESSION=ACCESSION+SC_BIT, SC_IMG=IMG+SC_BIT, SC_SILVAHEADER=SILVAHEADER+SC_BIT;
 	
+	/** Source families for taxonomic header resolution. */
 	public static final int SOURCE_REFSEQ=1, SOURCE_SILVA=2, SOURCE_IMG=3;
 	
 	/** Generic response when asking for tax advice */
@@ -2575,8 +2792,9 @@ public class TaxServer {
 	public static final String BAD_CODE="Incorrect code.";
 	/** Generic response for badly-formatted queries */
 	public final String USAGE;
-	/** HTML version */
+	/** HTML version of {@link #USAGE}. */
 //	public final String USAGE_HTML;
+	/** Raw HTML help page served when requested. */
 	public final String rawHtml;
 	
 	/** Tool for comparing query sketches to reference sketches */
@@ -2585,12 +2803,13 @@ public class TaxServer {
 	/** Whether server has sketch database loaded */
 	public final boolean hasSketches;
 
-	/** Whether to allow remote clients to access server filesystem */
+	/** Whether to allow remote clients to access server filesystem. */
 	final boolean allowRemoteFileAccess;
-	/** Whether to allow localhost connections */
+	/** Whether to allow localhost connections. */
 	final boolean allowLocalHost;
-	/** IP address prefix for internal network identification */
+	/** IP address prefix for internal network identification. */
 	final String addressPrefix;
+	/** Clear sketch-comparison scratch memory between queries. */
 	private boolean clearMem=true;
 	
 	/*--------------------------------------------------------------*/

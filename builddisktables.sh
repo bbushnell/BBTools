@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell and Chloe
-Last modified October 10, 2026
+Last modified October 27, 2026
 
 Description:   Builds binary disk-backed taxonomy tables for TaxServer.
 The accession table is a memory-mapped hash table used by disk-backed
@@ -25,7 +25,9 @@ gi=              Optional input GI table, such as gitable.int2d.gz.
                  This may also be set with table= or gitable=.
 giout=           Optional output path for the binary disk GI table.
 bufferentries=   Override the per-partition accession buffer size.
-tree=auto        Taxonomy tree.
+tree=null        Optional tree preload; it does not filter table entries.
+                 Use a filename to select a tree; t/auto or bare tree selects
+                 the default. Use f/none/null or an empty value to disable loading.
 taxpath=auto     Set the path to taxonomy files; auto only works at NERSC.
 
 Java Parameters:
