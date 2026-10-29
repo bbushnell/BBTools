@@ -655,6 +655,8 @@ public class CallGenes extends ProkObject {
 				// Opt-in B12 families; missing selected resources fail loudly.
 			}else if(parseFmnFlag(a, b)){
 				if(a.equalsIgnoreCase("fmn")){fmnExplicit=true;}
+			}else if(parseSam1Flag(a, b)){
+				// SAM-I remains opt-in under the selected accuracy/cost policy.
 			}else if(a.equalsIgnoreCase("r58lsu")){
 				setR58LsuEnabled(Parse.parseBoolean(b));
 			}else if(a.equalsIgnoreCase("s18")){
@@ -3053,6 +3055,7 @@ public class CallGenes extends ProkObject {
 		if(SIXS_ENABLED){loadSixsResources();}
 		if(COBALAMIN_ENABLED){loadCobalaminResources();}
 		if(FMN_ENABLED){loadFmnResources();}
+		if(SAM1_ENABLED){loadSam1Resources();}
 		if(R58LSU_ENABLED){loadR58LsuResources();}
 		if(S18_ENABLED){loadS18DevelopmentResources();}
 	}
@@ -3081,6 +3084,14 @@ public class CallGenes extends ProkObject {
 			options.resources.root=FMN_RESOURCE_ROOT;
 			options.minLen=FMN_MIN_LEN;
 			options.seedMinHits=resolveSweepInt(name, NCRNA_SEED_MIN_HITS_OVERRIDE, p.seedMinHits);
+		}
+		if("sam1".equals(name)){
+			validateSam1BoundaryConfig();
+			options.resources.root=SAM1_RESOURCE_ROOT;
+			options.minLen=SAM1_MIN_LEN;
+			options.seedMinHits=resolveSweepInt(name, NCRNA_SEED_MIN_HITS_OVERRIDE, p.seedMinHits);
+			options.boundaryStartOffsets=SAM1_BOUNDARY_START_OFFSETS==null ? null : SAM1_BOUNDARY_START_OFFSETS.clone();
+			options.boundaryStopOffsets=SAM1_BOUNDARY_STOP_OFFSETS==null ? null : SAM1_BOUNDARY_STOP_OFFSETS.clone();
 		}
 		options.boundary=ncrnaBoundaryEnabled(name);
 		options.windowPad=resolveSweepPad(name, pad, p.windowPad);
@@ -3116,6 +3127,27 @@ public class CallGenes extends ProkObject {
 		}
 		GeneCaller.ncrnaFamilies.add(family);
 		System.err.println("FMN controls: models="+family.library.length+" seedK="+family.kLong+" seedKeys="+family.kmerSet.size()
+			+" seedMinHits="+family.seedMinHits+" seedDistinct="+family.seedDistinct+" indexK="+family.indexK
+			+" topN="+family.indexTopN+" minHits="+family.fixedMinHits+" minLen="+family.minLen
+			+" windowPad="+family.windowPad+" idPass="+family.idPass+" idBorderline="+family.idBorderline+" hbmPass="+family.hbmPass);
+	}
+
+	/** Opt-in SAM-I uses the existing generic caller and shared 17-mer scan. */
+	public static synchronized void loadSam1Resources(){
+		validateSam1BoundaryConfig();
+		if(!SAM1_ENABLED){return;}
+		if(!NCRNA_FAMILIES_ENABLED){throw new IllegalArgumentException("sam1=t requires ncrna=t");}
+		for(NcrnaFamily existing:GeneCaller.ncrnaFamilies){
+			if("sam1".equals(existing.name)){throw new IllegalStateException("SAM-I resources are already loaded");}
+		}
+		final NcrnaFamily family=loadSharedBoundaryFamily("sam1", null, null, null, -1, Float.NaN, Float.NaN);
+		assert(family.kLong==ConservedRnaSeedIndex.K && family.seedDistinct==(family.seedMinHits>1))
+			: "SAM-I must enter the shared 17-mer pass with distinct-key support before publication";
+		for(String model:family.modelNames){
+			if(model==null || !model.startsWith("SAM1_")){throw new IllegalArgumentException("SAM-I models require their family-specific prefix: "+model);}
+		}
+		GeneCaller.ncrnaFamilies.add(family);
+		System.err.println("SAM-I controls: models="+family.library.length+" seedK="+family.kLong+" seedKeys="+family.kmerSet.size()
 			+" seedMinHits="+family.seedMinHits+" seedDistinct="+family.seedDistinct+" indexK="+family.indexK
 			+" topN="+family.indexTopN+" minHits="+family.fixedMinHits+" minLen="+family.minLen
 			+" windowPad="+family.windowPad+" idPass="+family.idPass+" idBorderline="+family.idBorderline+" hbmPass="+family.hbmPass);
@@ -4011,14 +4043,14 @@ public class CallGenes extends ProkObject {
 		if(s.equals("euk5s")){return "euk5S";}
 		if(!s.equals("rnasep") && !s.equals("srp_small") && !s.equals("srp_large") && !s.equals("tmrna")
 				&& !s.equals("sixs_rf00013") && !s.equals("sixs_rf01685") && !s.equals("r58") && !s.equals("lsu")
-				&& !s.equals("s18") && !s.equals("fmn") && !NcrnaFamilyRegistry.isCobalamin(s)){
-			throw new IllegalArgumentException("ncrnafamily must name rnasep, srp_small, srp_large, tmrna, sixs_rf00013, sixs_rf01685, r58, lsu, s18, fmn, cobalamin or one cobalamin_rf member, or euk5S: "+value);
+				&& !s.equals("s18") && !s.equals("fmn") && !s.equals("sam1") && !NcrnaFamilyRegistry.isCobalamin(s)){
+			throw new IllegalArgumentException("ncrnafamily must name rnasep, srp_small, srp_large, tmrna, sixs_rf00013, sixs_rf01685, r58, lsu, s18, fmn, sam1, cobalamin or one cobalamin_rf member, or euk5S: "+value);
 		}
 		return s;
 	}
 
 	public static float defaultNcrnaIdPass(String family){
-		if("fmn".equals(family)){return NcrnaFamilyRegistry.get(family).idPass;}
+		if("fmn".equals(family) || "sam1".equals(family)){return NcrnaFamilyRegistry.get(family).idPass;}
 		if(NcrnaFamilyRegistry.isCobalamin(family)){return NcrnaFamilyRegistry.get(family).idPass;}
 		if(family.equals("euk5S")){return .68f;}
 		if(family.equals("rnasep")){return 0.65f;}
@@ -4030,7 +4062,7 @@ public class CallGenes extends ProkObject {
 	}
 
 	public static float defaultNcrnaIdBorderline(String family){
-		if("fmn".equals(family)){return NcrnaFamilyRegistry.get(family).idBorderline;}
+		if("fmn".equals(family) || "sam1".equals(family)){return NcrnaFamilyRegistry.get(family).idBorderline;}
 		if(NcrnaFamilyRegistry.isCobalamin(family)){return NcrnaFamilyRegistry.get(family).idBorderline;}
 		if(family.equals("euk5S")){return .68f;}
 		if(family.equals("rnasep")){return 0.58f;}
@@ -4123,9 +4155,10 @@ public class CallGenes extends ProkObject {
 		final boolean euk5s=ncrnaSweepTarget("euk5S");
 		final boolean cobalamin=NcrnaFamilyRegistry.isCobalamin(NCRNA_FAMILY_FILTER);
 		final boolean fmn="fmn".equals(NCRNA_FAMILY_FILTER);
+		final boolean sam1="sam1".equals(NCRNA_FAMILY_FILTER);
 		if(NCRNA_SEED_MIN_HITS_OVERRIDE==0){throw new IllegalArgumentException("ncrnaseedminhits must be >=1");}
-		if(NCRNA_SEED_MIN_HITS_OVERRIDE>=0 && !euk5s && !cobalamin && !fmn){
-			throw new IllegalArgumentException("ncrnaseedminhits requires ncrnafamily=euk5S, fmn or a cobalamin group/member");
+		if(NCRNA_SEED_MIN_HITS_OVERRIDE>=0 && !euk5s && !cobalamin && !fmn && !sam1){
+			throw new IllegalArgumentException("ncrnaseedminhits requires ncrnafamily=euk5S, fmn, sam1 or a cobalamin group/member");
 		}
 		final boolean eukControls=NCRNA_MAX_LEN_OVERRIDE>=0
 			|| NCRNA_STRICT_INDEX_OVERRIDE!=null || NCRNA_RANKED_FALLBACK_OVERRIDE!=null;
@@ -4179,6 +4212,7 @@ public class CallGenes extends ProkObject {
 			throw new IllegalArgumentException("A cobalamin group or subfamily sweep requires cobalamin=t");
 		}
 		if(fmn && !FMN_ENABLED){throw new IllegalArgumentException("An FMN sweep requires fmn=t");}
+		if(sam1 && !SAM1_ENABLED){throw new IllegalArgumentException("A SAM-I sweep requires sam1=t");}
 		if(NCRNA_FAMILY_FILTER!=null && (NCRNA_FAMILY_FILTER.equals("r58") || NCRNA_FAMILY_FILTER.equals("lsu")) && !R58LSU_ENABLED){
 			throw new IllegalArgumentException("an r58/lsu ncrnafamily requires r58lsu=t");
 		}
@@ -4622,6 +4656,41 @@ public class CallGenes extends ProkObject {
 		return true;
 	}
 
+	/** SAM-I family activation is opt-in; endpoint refinement defaults on within it. */
+	public static boolean SAM1_ENABLED=false;
+	public static String SAM1_RESOURCE_ROOT=null;
+	public static int SAM1_MIN_LEN=-1;
+	/** Null selects accepted default-on refinement; explicit false disables it independently. */
+	public static Boolean SAM1_BOUNDARY_NN_OVERRIDE=null;
+	private static int[] SAM1_BOUNDARY_START_OFFSETS=null, SAM1_BOUNDARY_STOP_OFFSETS=null;
+	public static boolean parseSam1Flag(final String key, final String value){
+		assert(key!=null) : "CallGenes option dispatch supplies a parsed nonnull key";
+		if(key.equalsIgnoreCase("sam1") || key.equalsIgnoreCase("sami")){
+			SAM1_ENABLED=Parse.parseBoolean(value);
+		}else if(key.equalsIgnoreCase("sam1root")){
+			if(value==null || value.isEmpty()){throw new IllegalArgumentException("sam1root requires a family resource directory");}
+			SAM1_RESOURCE_ROOT=value;
+		}else if(key.equalsIgnoreCase("sam1minlen")){
+			SAM1_MIN_LEN=parseSweepInt(key, value, 1, Integer.MAX_VALUE);
+		}else if(key.equalsIgnoreCase("sam1boundarynn")){
+			SAM1_BOUNDARY_NN_OVERRIDE=Parse.parseBoolean(value);
+		}else if(key.equalsIgnoreCase("sam1boundarystartrange")){
+			SAM1_BOUNDARY_START_OFFSETS=R58BoundaryConfig.range(value);
+		}else if(key.equalsIgnoreCase("sam1boundarystoprange")){
+			SAM1_BOUNDARY_STOP_OFFSETS=R58BoundaryConfig.range(value);
+		}else{return false;}
+		return true;
+	}
+
+	/** Explicit SAM-I controls require the family; omitted ranges use its measured registry defaults. */
+	public static void validateSam1BoundaryConfig(){
+		final boolean ranges=SAM1_BOUNDARY_START_OFFSETS!=null || SAM1_BOUNDARY_STOP_OFFSETS!=null;
+		if((Boolean.TRUE.equals(SAM1_BOUNDARY_NN_OVERRIDE) || ranges) && !(SAM1_ENABLED && NCRNA_FAMILIES_ENABLED)){
+			throw new IllegalArgumentException("SAM-I boundary controls require sam1=t and ncrna=t");
+		}
+		// Explicit ranges may remain in an NN-off comparison; no boundary resources load.
+	}
+
 	/** Explicit family root is a directory containing the canonical resource manifest. */
 	public static boolean parseCobalaminFlag(final String key, final String value){
 		if(key.equalsIgnoreCase("cobalamin")){
@@ -4694,6 +4763,7 @@ public class CallGenes extends ProkObject {
 		if("srp_large".equals(family)){return SRPLARGE_BOUNDARY_NN_OVERRIDE==null || SRPLARGE_BOUNDARY_NN_OVERRIDE;}
 		if("sixs_rf00013".equals(family)){return SIXS_RF00013_BOUNDARY_CONFIG.enabled(true);}
 		if("sixs_rf01685".equals(family)){return SIXS_RF01685_BOUNDARY_CONFIG.enabled(true);}
+		if("sam1".equals(family)){return SAM1_BOUNDARY_NN_OVERRIDE==null || SAM1_BOUNDARY_NN_OVERRIDE;}
 		return NCRNA_BOUNDARY_NN_ENABLED;
 	}
 
@@ -4771,6 +4841,7 @@ public class CallGenes extends ProkObject {
 	 * gate fields directly (not parameterized) since parse() has no other state to pass and
 	 * a test can simply set the fields before calling. */
 	public static void validateNcrnaGateCombo(){
+		validateSam1BoundaryConfig();
 		R58_BOUNDARY_CONFIG.validate(R58_BOUNDARY_NN_ENABLED);
 		SIXS_RF00013_BOUNDARY_CONFIG.validate(NCRNA_FAMILIES_ENABLED, SIXS_ENABLED, true);
 		SIXS_RF01685_BOUNDARY_CONFIG.validate(NCRNA_FAMILIES_ENABLED, SIXS_ENABLED, true);
@@ -4793,6 +4864,7 @@ public class CallGenes extends ProkObject {
 		assert(!SIXS_ENABLED || NCRNA_FAMILIES_ENABLED) : "sixs=t requires ncrna=t (or generalncrna=t)";
 		if(COBALAMIN_ENABLED && !NCRNA_FAMILIES_ENABLED){throw new IllegalArgumentException("cobalamin=t requires ncrna=t");}
 		if(FMN_ENABLED && !NCRNA_FAMILIES_ENABLED){throw new IllegalArgumentException("fmn=t requires ncrna=t");}
+		if(SAM1_ENABLED && !NCRNA_FAMILIES_ENABLED){throw new IllegalArgumentException("sam1=t requires ncrna=t");}
 		assert(!R58LSU_ENABLED || NCRNA_FAMILIES_ENABLED) : "r58lsu=t requires ncrna=t (or generalncrna=t)";
 		assert(!S18_ENABLED || NCRNA_FAMILIES_ENABLED) : "s18=t requires ncrna=t (or generalncrna=t)";
 		assert(!R58LSU_ENABLED || !NCRNA_BOUNDARY_NN_ENABLED) : "r58lsu=t currently requires ncrnaboundarynet=f";
@@ -4940,7 +5012,7 @@ public class CallGenes extends ProkObject {
 	public static void resolveNcrnaDefaults(boolean tmrnaExplicit, boolean sixsExplicit, boolean eukRequested, boolean singleFamily, boolean fmnExplicit){
 		if(!fmnExplicit && (singleFamily || !NCRNA_FAMILIES_ENABLED)){FMN_ENABLED=false;}
 		//An enabled paired family explicitly implies its infrastructure; a later euk=f does not.
-		if(singleFamily && !R58LSU_ENABLED && !COBALAMIN_ENABLED && !FMN_ENABLED){NCRNA_FAMILIES_ENABLED=false;}
+		if(singleFamily && !R58LSU_ENABLED && !COBALAMIN_ENABLED && !FMN_ENABLED && !SAM1_ENABLED){NCRNA_FAMILIES_ENABLED=false;}
 		if(eukRequested && R58LSU_ENABLED){NCRNA_FAMILIES_ENABLED=true;}
 		if(!NCRNA_FAMILIES_ENABLED){
 			if(!tmrnaExplicit){TMRNA_ENABLED=false;}

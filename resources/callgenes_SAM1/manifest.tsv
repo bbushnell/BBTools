@@ -1,0 +1,8 @@
+#ncrna_family	1	sam1
+role	model	end	path	format	bytes	sha80
+consensus	.	.	consensus.fa	fasta	35165	ff7f7d2b008f78563b93
+models	.	.	models.hbmc	hbm	190409	5d24bc7af1b1bee18e67
+seeds	.	.	seeds.fa.gz	fasta	8646	7192f16bd99c01603a73
+boundary	.	.	boundary.bbnet	bbnet	2184	a7593efa2dca88a4df0b
+boundary_start	.	.	start.tsv	tsv	13212	ab7d71396dad640a66f1
+boundary_stop	.	.	stop.tsv	tsv	11937	0b19e77ba378b91e7cc8

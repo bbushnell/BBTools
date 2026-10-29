@@ -500,7 +500,8 @@ public class Orf extends PFeature {
 			bb.append(",anticodon:").append(trnaAnticodon);
 		}
 		if(ncrnaFamily!=null){
-			bb.append(",family:").append(ncrnaFamily);
+			// Keep the internal registry key stable while displaying the biological name.
+			bb.append(",family:").append(NcrnaFamilyRegistry.displayName(ncrnaFamily));
 		}
 		final int partial=partialMask();
 		if(partial!=0){

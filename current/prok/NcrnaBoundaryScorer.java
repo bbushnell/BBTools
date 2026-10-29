@@ -74,7 +74,7 @@ public class NcrnaBoundaryScorer {
 
 	/** V1 alone performs candidate-site Scrabble alignment. V2/V3 are structurally
 	 * alignment-free at endpoint sites and reuse the accepted whole-locus identity. */
-	static boolean usesPerSiteScrabble(int featureVersion){return featureVersion==FEATURES_V1;}
+	public static boolean usesPerSiteScrabble(int featureVersion){return featureVersion==FEATURES_V1;}
 
 	/** Loads a boundary net and fails loud if its declared input dimension isn't
 	 * exactly NUM_FEATURES (Citan's explicit requirement, fail-fast on dimension
@@ -133,7 +133,7 @@ public class NcrnaBoundaryScorer {
 			contigGC,meanLen,modelPlateau,FEATURES_V1,Float.NaN,null,null,null);
 	}
 
-	private static float score(CellNet net, byte[] window, int s, int e, boolean isStop,
+	static float score(CellNet net, byte[] window, int s, int e, boolean isStop,
 			byte[] modelConsensus, BaseGraph model, TrnaBoundaryFeatures.NinemerTable table,
 			int insideCount, int outsideCount, float contigGC, float meanLen, float modelPlateau,
 			int featureVersion, float locusAni, float[] startFuzz, float[] stopFuzz,
@@ -170,7 +170,9 @@ public class NcrnaBoundaryScorer {
 			? buildV3Input(prof,isStop,lengthRatio,contigGC,locusAni)
 			: buildInput(ani,prof,isStop,fuzz,lengthRatio,contigGC));
 		net.applyInput(in);
-		return net.feedForward();
+		final float value=net.feedForward();
+		if(!Float.isFinite(value)){throw new IllegalArgumentException("Nonfinite boundary score cannot participate in endpoint ranking: start="+s+" stop="+e+" isStop="+isStop+" score="+value);}
+		return value;
 	}
 
 	/** Builds the fixed 10-dim input vector. Exact order per NcrnaBoundaryVectorGen:143-144
@@ -183,7 +185,7 @@ public class NcrnaBoundaryScorer {
 
 	/** V3 order: profile[0..2], isStop, lengthRatio, contigGC, Quantum identity,
 	 * then three reserved zero slots. Package-visible for exact-layout fixtures. */
-	static float[] buildV3Input(float[] prof, boolean isStop, float lengthRatio, float contigGC, float locusIdentity){
+	public static float[] buildV3Input(float[] prof, boolean isStop, float lengthRatio, float contigGC, float locusIdentity){
 		if(!Float.isFinite(locusIdentity)){throw new IllegalArgumentException("boundaryfeatures=v3 requires finite locus identity from QuantumAligner");}
 		return new float[]{prof[0],prof[1],prof[2],(isStop ? 1f : 0f),lengthRatio,contigGC,locusIdentity,0f,0f,0f};
 	}
@@ -378,7 +380,7 @@ public class NcrnaBoundaryScorer {
 	 *   score AT offset=0 (0 is always one of the swept candidates for a valid base
 	 *   candidate), the correct "don't move" baseline for applyMargin's comparison.
 	 */
-	private static float[] bestOffset(CellNet net, byte[] window, int s0, int e0, boolean isStop,
+	static float[] bestOffset(CellNet net, byte[] window, int s0, int e0, boolean isStop,
 			byte[] modelConsensus, BaseGraph model, TrnaBoundaryFeatures.NinemerTable table,
 			int insideCount, int outsideCount, float contigGC, float meanLen, int[] offsets,
 			boolean touchesRelevantContigEnd, float modelPlateau, int featureVersion, float locusAni,
@@ -401,20 +403,26 @@ public class NcrnaBoundaryScorer {
 			+"scoreOffset should never return NaN for the unshifted span (window.length="+window.length
 			+", s0="+s0+", e0="+e0+", isStop="+isStop+")";
 		assertCompleteCenteredSweep(offsets, sitesScored, touchesRelevantContigEnd,
-			(isStop ? e0 : s0), isStop, window.length);
+			s0, e0, isStop, window.length);
 		return new float[]{bestOff, bestScore, zeroScore, sitesScored};
 	}
 
-	/** Brian via G11, 2026-09-22: every site in -r..+r must be scored.  This
+	/** Brian via G11, 2026-09-22: every valid site in -r..+r must be scored. This
 	 * plain assert follows the assertions skill because the sweep is synchronous
 	 * on the calling thread; failure cannot strand a producer/consumer pipeline.
 	 * It catches the fixed-PAD=10 regression that silently collapsed radii
-	 * 12/16/20/25. */
+	 * 12/16/20/25. Offsets crossing the opposite endpoint or leaving fewer than
+	 * 16bases are deliberately skipped in bestOffset, not missing padding.
+	 * Use this sweep's current span, including the first endpoint's prior move. */
 	static void assertCompleteCenteredSweep(int[] offsets, int sitesScored,
-			boolean touchesRelevantContigEnd, int position, boolean isStop, int windowLength){
+			boolean touchesRelevantContigEnd, int start, int stop, boolean isStop, int windowLength){
+		assert(start>=0 && stop<windowLength && stop-start>=15)
+			: "bestOffset requires a valid unchanged candidate of at least16bases before checking sweep completeness";
 		final int radius=centeredRadius(offsets);
-		assert(radius<0 || touchesRelevantContigEnd || sitesScored==2*radius+1) :
-			"Incomplete boundary sweep: r="+radius+" sitesScored="+sitesScored+" position="+position
+		final int expected=radius<0 ? -1 : radius+1+Math.min(radius,stop-start-15);
+		assert(radius<0 || touchesRelevantContigEnd || sitesScored==expected) :
+			"Incomplete boundary sweep: missing context for a valid candidate; r="+radius+" sitesScored="+sitesScored
+			+" expected="+expected+" start="+start+" stop="+stop
 			+" endpoint="+(isStop ? "stop" : "start")+" windowLength="+windowLength;
 	}
 

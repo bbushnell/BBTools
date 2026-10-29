@@ -76,7 +76,7 @@ public final class NcrnaTmrnaRescueMarginTest {
 			final NcrnaScavenger routed=scavenger("tmrna",QUERY);applyControls(routed,"tmrna");
 			check(run(routed,QUERY).isEmpty(),"Production family controls must deliver the HBM margin to the verifier");
 			final NcrnaScavenger other=scavenger("rnasep",QUERY);applyControls(other,"rnasep");
-			check(gff(base).equals(gff(run(other,QUERY)).replace("family:rnasep","family:tmrna")),"Global tmRNA margins must not affect another family");
+			check(gff(base).equals(gff(run(other,QUERY)).replace("family:RNase P","family:tmRNA")),"Global tmRNA margins must not affect another family");
 		}finally{CallGenes.TMRNA_RESCUE_ID_MARGIN=oldId;CallGenes.TMRNA_RESCUE_HBM_MARGIN=oldHbm;}
 	}
 	private static void testIdentityContinuation(){

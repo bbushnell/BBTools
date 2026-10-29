@@ -5,6 +5,24 @@ package prok;
  * @author Brian, Raiden */
 public final class NcrnaFamilyRegistry {
 
+	/** Scientific GFF labels selected for the default prokaryotic families.
+	 * Internal keys, subtype/model identities and out-of-scope families are unchanged. */
+	public static String displayName(String id){
+		assert(id!=null) : "Orf.appendGff checks for an assigned family before formatting its display name";
+		switch(id){
+			case "prok5S": return "5S";
+			case "rnasep": return "RNase P";
+			case "tmrna": return "tmRNA";
+			case "fmn": return "FMN";
+			case "sixs_rf00013": return "6S";
+			case "sixs_rf01685": return "6S-Flavo";
+			case "srp_small": return "SRP RNA (small)";
+			case "srp_large": return "SRP RNA (large)";
+			case "sam1": return "SAM-I";
+			default: return id;
+		}
+	}
+
 	/** Preserve existing family floors; introducing edge rescue does not tune length. */
 	public static void enablePhysicalEdges(NcrnaFamily family){
 		final Entry entry=get(family.name);
@@ -32,6 +50,7 @@ public final class NcrnaFamilyRegistry {
 		if("rnasep".equalsIgnoreCase(id)){return RNASEP;}
 		if("tmrna".equalsIgnoreCase(id)){return TMRNA;}
 		if("fmn".equalsIgnoreCase(id)){return FMN;}
+		if("sam1".equalsIgnoreCase(id)){return SAM1;}
 		if("cobalamin".equalsIgnoreCase(id) || "cobalamin_rf00174".equalsIgnoreCase(id)){return COBALAMIN_RF00174;}
 		if("cobalamin_rf01482".equalsIgnoreCase(id)){return COBALAMIN_RF01482;}
 		if("cobalamin_rf01689".equalsIgnoreCase(id)){return COBALAMIN_RF01689;}
@@ -87,7 +106,7 @@ public final class NcrnaFamilyRegistry {
 			assert(legacyRole_!=null) : "Legacy consumers must explicitly select their original reference role";
 			legacyConsensusRole=legacyRole_;
 			resources=resources_;packagedEndpoints=resources_==null ? boundary_==null : resources_.packagedEndpoints;
-			boundary=boundary_;seedMinHits=boundary==null || isCobalamin(id_) || "fmn".equals(id_) ? 2 : 1;scoreA=boundary==null ? 0f : boundary.scoreA;
+			boundary=boundary_;seedMinHits=boundary==null || isCobalamin(id_) || "fmn".equals(id_) || "sam1".equals(id_) ? 2 : 1;scoreA=boundary==null ? 0f : boundary.scoreA;
 		}
 		public final String id, directory, gate;
 		final String privateLegacyConsensus;
@@ -116,6 +135,7 @@ public final class NcrnaFamilyRegistry {
 		final boolean modelCutoffs, dynamicModels;
 		int[] boundaryOffsets(boolean start){
 			if(id.equals("r58")){return R58BoundaryConfig.defaultOffsets(start);}
+			if(id.equals("sam1")){return R58BoundaryConfig.range(start ? "-8,8" : "-12,12");}
 			if(boundary!=null && boundary.trna){return start ? TrnaBoundaryVectorGen.START_OFFSETS : TrnaBoundaryVectorGen.STOP_OFFSETS;}
 			// A measured centered radius overrides the shared adapter's historical geometry.
 			if(boundaryRadius<0){
@@ -173,6 +193,12 @@ public final class NcrnaFamilyRegistry {
 		new String[0], 100, 376, 7, 84, 1, 1f, .68f, .68f, 1.01f, true, ProkObject.RNA,
 		true, false, false, 0, 1, 60, -1, false, new String[0], .85f, false, true, 2, null,
 		new BoundaryPolicy("fmn_consensus.fa", "fmn_models.hbmc", 0f, false, 0f, 0f, 0f, new int[]{0}), null, "", "consensus");
+	/** Selected SAM-I policy:238 models, two distinct17-mer seeds and70% identity.
+	 * The all-eligible endpoint nets use start/stop radii8/12 and internal9-mers. */
+	private static final Entry SAM1=new Entry("sam1", "callgenes_SAM1", "sam1=t",
+		new String[0], 50, 378, 7, 238, 1, 1f, .70f, .70f, 1.01f, true, ProkObject.RNA,
+		true, false, false, 0, 1, 60, -1, false, new String[0], .85f, false, true, 2, null,
+		new BoundaryPolicy("sam1_consensus.fa", "sam1_models.hbmc", 0f, false, 0f, 0f, 0f, new int[]{0}), null, "", "consensus");
 	private static final Group COBALAMIN_GROUP=new Group("cobalamin", "callgenes_cobalamin", new String[]{"RF00174", "RF01482", "RF01689"},
 		new String[]{"consensus", "models"}, new String[]{"seeds"}, new String[]{"boundary", "boundary_start", "boundary_stop", "cutoffs"});
 	/** Measured opt-in B12 policies; each member retains its independent length floor. */

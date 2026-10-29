@@ -1,0 +1,43 @@
+##bbnet
+#version 1
+##java 25.0.1
+##simd false
+##simd_ff false
+##simd_bp false
+#concise
+#dense
+#density 1
+#blocksize 1
+#seed 58
+#layers 3
+#epochs 100
+#dims 10 16 1
+#CL java -XX:ActiveProcessorCount=1 -ea -XX:+ExitOnOutOfMemoryError -Xmx4g ml.RegressionTrainer config=/clusterfs/jgi/scratch/gentech/genome_analysis/Raiden/sam1_build_20261028/release_refit_20261029_r1/recipe.config in=stdin.txt valin=/clusterfs/jgi/scratch/gentech/genome_analysis/Raiden/sam1_build_20261028/release_refit_20261029_r1/all.vectors.tsv.gz out=/clusterfs/jgi/scratch/gentech/genome_analysis/Raiden/sam1_build_20261028/release_refit_20261029_r1/boundary.bbnet -Xmx4g -eoom
+##fpr 999
+##fnr 999
+##err 999
+##wer 999
+##ctf -1
+#coding A48
+#zeroabsent true
+#liveedges 176
+#edges 176
+##layer 1
+C11 TANH nQ79^ 2lY3FX k[lQ@ jfgXL 2mRGaW 2k9BAG kCib` 2k^djA 2kTLaV 2lHcA@ 2lb0TR
+C12 TANH o2;7< 2m;;a= l8DD4 k2TC0 2ml;65 2k_`1M k^XQn 2kbM?k 2kb;mL 2leZGA 2m6]i_
+C13 TANH nNUPV 2k\kGj jh30m j3[@< 2lWZGb 2jEPbZ jM0^@ 2jl_S9 2j\FWk 2kQkk\ 2kmOd[
+C14 TANH oMLC6 2o88h0 oEl>4 na8]b 30>9L? m9Jc[ 2o09dd nC^LE mmG:f 2o@0Cl o<QoG
+C15 TANH 2nYb>9 ljAC9 2kkWiR 2k253; m_8`R kI_TD 2kS=1T kibPi k_h2@ lVjo< m1D8d
+C16 TANH oGafe 2nG7ES n8_kT 2m4G1G 2nMkMQ 2mAO4W 2n03:_ m]WW] mL1WF 2n>=m: n>[<?
+C17 TANH oQ@dI 2nMQfX o6SVW 2n>4g< 2oX07k lVfj9 2o04FS lB94Y 2l6oOS 2miLJ7 nFJFM
+C18 TANH 2na^B5 m3RAO 2l3:]A 2k4j1b mg6Z; kT1L1 2kYH[I kl:D8 kdnc3 l^CUZ m5kXW
+C19 TANH n5?Ma 2ko]mM m3;oA l\YU3 2o3X2W l^ETW 2l`n<Z 2mJC?P 2mI\[X mV5V_ 2n7F1\
+C20 TANH oNDWa 2nOVJS nQWGl 2m_Y2R 2nMZ78 2m4OFN 2n;90] mJ4W9 lf4V0 2nR@W5 nLOl_
+C21 TANH 2o5l^6 2n<=Ak o07l0 2mjgn8 nVJ`? mWCW0 2o45K5 2l_VeM 2mEB35 2k0G`: n7dQ8
+C22 TANH 2o=S65 mUI6: m\^>` 2mIBWR nPG5d m1bIO 2meCU6 2m;g<o 2m4\6> m2H0b m5TUT
+C23 TANH nI4=_ mVDQ1 m0I:` mCG=D 2oH5BY mP>GZ 2mb@Z< 2n0MRA 2mhCWU n?48: 2n1V]O
+C24 TANH 307j4_ nPAf_ 2n^nD^ 2j5jen 10<RBG m4e=A n5U^M 2m\^FN 2mC9K` nPl:2 2n@CJ;
+C25 TANH 2nd2dH kI_Jc 2md2[j 2mONI: o6<_` n6iEk 2n[>N4 2n^fRk 2nST1i o2Cno 2o7eb6
+C26 TANH 2oQ>[T 2m[GCK lQUGF kTmQY oRQY@ 2n<@8K n^D?c nW^2T nM:<K 2o0kA\ o3:SQ
+##layer 2
+C27 RSLOG n`d85 lc47E mIM:h l1eE8 o<74h 2m3[E` n5gLO n`Li[ 2m;f?T mh;l< n:TgN 2n\^FU 2n8ab8 n:04b nmo7k 2nNLOJ 2nOcA?

@@ -496,6 +496,16 @@ fmn=t           Call FMN riboswitches (RF00050), enabled by default.
                 suppress the omitted FMN default. Endpoints are not yet NN-refined.
 fmnroot=        Optional FMN resource directory containing manifest.tsv.
 fmnminlen=      Override the FMN minimum called length (default100).
+sam1=f          Enable SAM-I riboswitch calling (RF00162). Alias: sami.
+                Requires ncrna=t. GFF family labels use SAM-I.
+                Uses 238 models, 70% identity and two distinct 17-mer seeds;
+                mapping uses 7-mers. HBM rescue is off; endpoint networks are on.
+sam1root=       Optional SAM-I resource directory containing manifest.tsv.
+sam1minlen=     Override the minimum called length (default 50 bases).
+sam1boundarynn=t Refine SAM-I endpoints with the packaged networks; f disables.
+sam1boundarystartrange=-8,8  Inclusive start-offset search range.
+sam1boundarystoprange=-12,12 Inclusive stop-offset search range.
+                Family-scoped tuning uses ncrnafamily=sam1 and the controls below.
 sixs=t          Enable paired 6S/SsrS families (RF00013 and RF01685);
                 requires ncrna=t (or generalncrna=t).  Aliases: ssrs=, 6s=.
                 Resources: resources/callgenes_6S/manifest.tsv binds both members.
