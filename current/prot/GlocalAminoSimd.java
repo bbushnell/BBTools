@@ -7,8 +7,9 @@ import shared.Shared;
  * gap, score only, no traceback. A drop-in for {@link GlocalAminoScoreOnly#scoreOnly} with
  * IDENTICAL results (same integer score, same first-maximum reference end) on every input;
  * the vector kernel ({@code simd.SIMDAminoGlocal}, striped along the query, 16 short lanes)
- * is used when {@code Shared.SIMD} is true AND the pair's scores provably fit 16-bit lanes;
- * otherwise the scalar scorer runs. Callers never see which path ran, except through
+ * is used when {@code Shared.SIMD} is true, 256-bit Vector lanes are available, and the
+ * pair's scores provably fit 16-bit lanes; otherwise the scalar scorer runs.
+ * Callers never see which path ran, except through
  * {@link #simdCalls}/{@link #scalarCalls} (diagnostics for the gate).
  *
  * <p>Usage shape for the family assigner: build one {@link Profile} per query (the striped
@@ -17,9 +18,9 @@ import shared.Shared;
  * discards a profile per call for tests and one-off use.</p>
  *
  * <p>Java-8 safety: this class imports nothing from {@code jdk.incubator.vector}; the kernel
- * class is linked lazily at the first call, which is guarded by {@code Shared.SIMD}
- * (false without AVX2 or without {@code --add-modules jdk.incubator.vector}), the same
- * pattern as {@code simd.Vector} → {@code simd.SIMD}.</p>
+ * class is linked lazily at the first call, which is guarded by {@code Shared.SIMD} and
+ * {@code simd.Vector.simd256}, matching the fixed 256-bit lane width used by
+ * {@code simd.SIMDAminoGlocal}.</p>
  *
  * <p>Design record: mag-qc {@code plans/AA_SIMD_ALIGNER_DESIGN_v1.md}; Brian's go and
  * answers 2026-09-09 06:00 PDT are recorded in that document's §6.</p>
@@ -110,7 +111,7 @@ public final class GlocalAminoSimd {
 	public static void scoreOnly(final Profile p, final byte[] rEnc, final int[] out){
 		assert(rEnc.length>0) : "empty reference";
 		assert(out.length>=2) : "out needs 2 slots";
-		if(Shared.SIMD && p.fits(rEnc.length)){
+		if(Shared.SIMD && simd.Vector.simd256 && p.fits(rEnc.length)){
 			final Scratch s=SCRATCH.get();
 			s.ensureCapacity(p.n);
 			simd.SIMDAminoGlocal.scoreStriped(p.profile, p.segLen, p.qEnc.length, rEnc, GAP, s.a, s.b, out);

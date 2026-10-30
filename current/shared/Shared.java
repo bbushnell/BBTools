@@ -124,7 +124,7 @@ public class Shared {
 	/** True if parallel sort is available */
 	public static boolean parallelSort=testParallelSort();
 	/** True if SIMD optimizations are enabled (master gate; also drives parsing/alignment, not just the NN) */
-	public static boolean SIMD=(Vector.simd256);
+	public static boolean SIMD=(Vector.simd128);
 	/** SIMD for the NN per-neuron dense fma (the Vector.fma dot-product used when batched feed-forward is off).
 	 * Decoupled from the master SIMD flag so the NN fma path can be toggled (simdfma=) WITHOUT disabling the
 	 * SIMD used for parsing/alignment. ON by default (preserves prior behavior, which gated only on Shared.SIMD);

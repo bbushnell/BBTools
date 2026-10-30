@@ -147,9 +147,10 @@ public class QuantumPlusAligner3 implements IDAligner{
 		// Create arrays for current and previous rows
 		long[] prev=new long[rLen+1], curr=new long[rLen+1];
 
-		// Create IntLists for tracking active positions
-		IntList activeList = new IntList(rLen+3);
-		IntList nextList = new IntList(rLen+3);
+		// Sorted unique transient columns may span 0..rLen+3 inclusive;
+		// columns above rLen are pruned at the start of the next row.
+		IntList activeList = new IntList(rLen+4);
+		IntList nextList = new IntList(rLen+4);
 
 		{// Initialize first row with starting position in the lower bits
 			final long mult=(GLOBAL ? DEL_INCREMENT : 1);
@@ -339,7 +340,7 @@ public class QuantumPlusAligner3 implements IDAligner{
 			final long q=query[i-1];
 
 			// Process all columns in top rows
-			if(Shared.SIMD) {
+			if(Shared.SIMD && simd.Vector.simd256) {
 				simd.SIMDAlign.alignBandVector(q, ref, 1, rLen, prev, curr);
 			}else {
 				for(int j=1; j<=rLen; j++) {

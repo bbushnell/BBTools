@@ -534,7 +534,7 @@ public class IndelFreeAligner2 implements Accumulator<IndelFreeAligner2.ProcessT
 	 * are ascending, or null if none pass. No scalar/SIMD equivalence is implied here.
 	 */
 	public static IntList alignAllPositions(byte[] query, byte[] ref, int maxSubs, int maxClips){
-		if(Shared.SIMD && (query.length<256 || maxSubs<256)){
+		if(Shared.SIMD && Vector.simd256 && (query.length<256 || maxSubs<256)){
 			return SIMDAlignByte.alignDiagonal(query, ref, maxSubs, maxClips);
 		}
 		if(query.length==0 || ref.length==0){return null;}

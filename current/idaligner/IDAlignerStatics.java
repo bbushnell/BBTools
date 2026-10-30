@@ -10,7 +10,7 @@ public class IDAlignerStatics{
 	 */
 	public static int countSubs(byte[] query, byte[] ref, int[] pos, int maxBandwidth){
 		assert(pos!=null && pos.length>=2);
-		if(Shared.SIMD){
+		if(Shared.SIMD && simd.Vector.simd256){
 			return simd.SIMDAlignByte.countSubs(query, ref, pos, maxBandwidth);
 		}
 		int offset=pos[0];
@@ -36,7 +36,7 @@ public class IDAlignerStatics{
 	public static int decideBandwidth(final byte[] query, final byte[] ref, 
 			final int[] pos, final int maxBandwidth){
 		assert(pos!=null && pos.length>=2);
-		if(Shared.SIMD){
+		if(Shared.SIMD && simd.Vector.simd256){
 			final int savedOffset=pos[0];
 			final int subs=simd.SIMDAlignByte.countSubs(query, ref, pos, maxBandwidth);
 			if(subs<maxBandwidth){

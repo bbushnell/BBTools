@@ -107,7 +107,7 @@ public class GlocalPlusAligner6 implements IDAligner{
 			curr[0]=i*INS;
 			final long q=query[i-1];
 
-			if(Shared.SIMD) {
+			if(Shared.SIMD && simd.Vector.simd256) {
 				simd.SIMDAlign.alignBandVectorDel(q, ref, bandStart, bandEnd, prev, curr);
 			}else {
 				for(int j=bandStart; j<=bandEnd; j++){
@@ -123,7 +123,7 @@ public class GlocalPlusAligner6 implements IDAligner{
 				}
 			}
 
-			if(!Shared.SIMD) {
+			if(!(Shared.SIMD && simd.Vector.simd256)) {
 				long leftCell=curr[bandStart-1];
 				for(int j=bandStart; j<=bandEnd; j++){
 					final long maxDiagUp=curr[j];
@@ -208,7 +208,7 @@ public class GlocalPlusAligner6 implements IDAligner{
 				trace.add(header);
 			}
 
-			if(Shared.SIMD) {
+			if(Shared.SIMD && simd.Vector.simd256) {
 				simd.SIMDAlign.alignBandVectorDel(q, ref, bandStart, bandEnd, prev, curr);
 			}else {
 				for(int j=bandStart; j<=bandEnd; j++){

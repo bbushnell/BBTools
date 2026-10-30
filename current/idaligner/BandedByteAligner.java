@@ -136,7 +136,7 @@ public class BandedByteAligner implements IDAligner{
 			//Cache the query
 			final byte q=query[i-1];
 			
-			if(Shared.SIMD) {
+			if(Shared.SIMD && simd.Vector.simd256) {
 				simd.SIMDAlignByte.alignBandVector(q, ref, bandStart, bandEnd, prev, curr);
 			}else {
 
@@ -168,7 +168,7 @@ public class BandedByteAligner implements IDAligner{
 				}
 			}
 			
-			if(Shared.SIMD) {
+			if(Shared.SIMD && simd.Vector.simd256) {
 				simd.SIMDAlignByte.processDeletionsTailVector(curr, bandStart, bandEnd);
 			}else {
 				//Tail loop for deletions

@@ -210,7 +210,7 @@ public class WobblePlusAligner5 implements IDAligner{
 			maxScore=BAD;
 			maxPos=0;
 			int posFromSimd=0;
-			if(Shared.SIMD) {
+			if(Shared.SIMD && simd.Vector.simd256) {
 				posFromSimd=simd.SIMDAlign.alignBandVectorAndReturnMaxPos2(q, ref, bandStart, bandEnd, prev, curr);
 			}else {
 				// Process only cells within the band
@@ -237,7 +237,7 @@ public class WobblePlusAligner5 implements IDAligner{
 			
 			//Tail loop for deletions
 			long leftCell=curr[bandStart-1];
-			if(Shared.SIMD) {
+			if(Shared.SIMD && simd.Vector.simd256) {
 				for(int j=bandStart; j<=bandEnd; j++){
 					final long maxDiagUp=curr[j];
 					final long leftScore=leftCell+DEL_INCREMENT;

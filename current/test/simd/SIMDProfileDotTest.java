@@ -6,7 +6,7 @@ import shared.Shared;
 import simd.Vector;
 
 /** Checks batched profile dot products and deterministic top-N selection.
- * Requires the optional Vector module and support for the fixed256-bit backend.
+ * Requires the optional Vector module and support for a 128/256-bit backend.
  * Temporarily changes process-wide SIMD flags and restores them on every exit;
  * run in an isolated JVM, not alongside other work using those flags.
  * The selected finite inputs are correctness controls, not a throughput benchmark.
@@ -16,8 +16,8 @@ public final class SIMDProfileDotTest{
 	/** Runs normalized and unnormalized dot-product cases plus literal ranking controls.
 	 * @param args Unused command-line arguments */
 	public static void main(final String[] args){
-		if(!Vector.simd256){
-			throw new IllegalStateException("Profile SIMD checks require the Vector module and 256-bit support");
+		if(!Vector.simd128){
+			throw new IllegalStateException("Profile SIMD checks require the Vector module and 128/256-bit support");
 		}
 		final boolean oldSimd=Shared.SIMD, oldFma=Shared.SIMD_FMA;
 		int cases=0;

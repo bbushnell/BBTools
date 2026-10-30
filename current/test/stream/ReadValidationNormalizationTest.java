@@ -21,7 +21,7 @@ public final class ReadValidationNormalizationTest{
 		try{
 			for(int mode=0; mode<2; mode++){
 				final boolean simd=(mode==1);
-				if(simd && !Vector.simd256){continue;}
+				if(simd && !Vector.simd128){continue;}
 				failures+=check("identity", simd, SEED, false, false, false, false,
 						false, Read.IGNORE_JUNK, false); cases++;
 				failures+=check("utot", simd, SEED, false, true, false, false,
@@ -72,7 +72,7 @@ public final class ReadValidationNormalizationTest{
 						false, false, false, false); cases++;
 			}
 			System.out.println("READ_VALIDATION_NORMALIZATION_RESULT cases="+cases+
-					" failures="+failures+" simd256="+Vector.simd256);
+					" failures="+failures+" simd_bits="+Vector.SIMD_BITS);
 			if(failures!=0){
 				throw new AssertionError("Read normalization failures="+failures);
 			}

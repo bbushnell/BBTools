@@ -1,5 +1,6 @@
 package test.simd;
 
+import parse.Parser;
 import shared.Shared;
 import simd.Vector;
 import structures.ByteBuilder;
@@ -33,11 +34,15 @@ public final class VectorDispatchTest{
 		try{
 			final boolean present=modulePresent();
 			check(present==module.equals("present"), "Unexpected Vector module availability: "+present);
+			check(oldSimd==Vector.simd128,
+					"Shared.SIMD default must follow 128-bit Vector availability; default="+
+					oldSimd+" simd128="+Vector.simd128);
 			if(!present){
 				check(!oldSimd && Vector.maxSimdWidth==0,
 						"Absent Vector module must leave default dispatch scalar: SIMD="+
 						oldSimd+" width="+Vector.maxSimdWidth);
 			}
+			checkSimdParserRoundTrip(oldSimd);
 			if(scalar){Shared.SIMD=false;}
 			final int[] values=new int[65];
 			for(int i=0; i<values.length; i++){values[i]=i+1;}
@@ -48,14 +53,45 @@ public final class VectorDispatchTest{
 			checkStringAppend();
 			System.out.println("VECTOR_DISPATCH_RESULT load="+load+" module="+module+
 					" scalar="+scalar+" default_simd="+oldSimd+" active_simd="+Shared.SIMD+
-					" width="+Vector.maxSimdWidth+" int_lanes="+Vector.INT_LANES+
-					" var_handles="+Vector.varHandles+" sum="+sum+" range="+range+" max="+max);
-			check(Vector.INT_LANES==(Vector.simd256 ? 8 : 1),
-					"The fixed 256-bit integer kernel has 8 lanes independently of initialization order; got "+Vector.INT_LANES);
+					" width="+Vector.maxSimdWidth+" simd_bits="+Vector.SIMD_BITS+
+					" int_lanes="+Vector.INT_LANES+" var_handles="+Vector.varHandles+
+					" sum="+sum+" range="+range+" max="+max);
+			final int expectedSimdBits=(Vector.simd256 ? 256 : (Vector.simd128 ? 128 : 0));
+			check(Vector.SIMD_BITS==expectedSimdBits,
+					"SIMD_BITS must report the selected public width; width="+
+					Vector.maxSimdWidth+" expected="+expectedSimdBits+
+					" actual="+Vector.SIMD_BITS);
+			final int expectedIntLanes=(Vector.simd256 ? 8 : (Vector.simd128 ? 4 : 1));
+			check(Vector.INT_LANES==expectedIntLanes,
+					"Integer lanes must follow the selected vector width; width="+
+					Vector.maxSimdWidth+" expected="+expectedIntLanes+
+					" actual="+Vector.INT_LANES);
+			check(Vector.simd256==(Vector.maxSimdWidth>=256) &&
+					Vector.simd128==(Vector.maxSimdWidth>=128) &&
+					Vector.simd64==(Vector.maxSimdWidth>=64),
+					"SIMD capability flags must follow maxSimdWidth="+Vector.maxSimdWidth+
+					" flags="+Vector.simd256+"/"+Vector.simd128+"/"+Vector.simd64);
 			if(expectedHandles!=null){
 				check(Vector.varHandles==expectedHandles.booleanValue(),
 						"Unexpected optional String access: expected="+expectedHandles+" actual="+Vector.varHandles);
 			}
+		}finally{
+			Shared.SIMD=oldSimd;
+		}
+	}
+
+	/** Checks that the common parser can force SIMD and restore width-based auto.
+	 * @param oldSimd Startup SIMD flag to restore after parser mutation */
+	private static void checkSimdParserRoundTrip(final boolean oldSimd){
+		try{
+			check(Parser.parseStatic("simd=f", "simd", "f"), "Parser rejected simd=f");
+			check(!Shared.SIMD, "simd=f must disable Shared.SIMD");
+			check(Parser.parseStatic("simd=t", "simd", "t"), "Parser rejected simd=t");
+			check(Shared.SIMD, "simd=t must enable Shared.SIMD");
+			check(Parser.parseStatic("simd=auto", "simd", "auto"), "Parser rejected simd=auto");
+			check(Shared.SIMD==Vector.simd128,
+					"simd=auto must follow 128-bit Vector availability; SIMD="+
+					Shared.SIMD+" simd128="+Vector.simd128);
 		}finally{
 			Shared.SIMD=oldSimd;
 		}

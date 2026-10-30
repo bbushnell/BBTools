@@ -22,8 +22,8 @@ public final class VectorFloatReductionTest{
 			else if(arg.equals("simd=f")){simd=false;}
 			else{throw new IllegalArgumentException("Unknown argument: "+arg);}
 		}
-		if(simd && !Vector.simd256){
-			throw new IllegalStateException("SIMD checks require 256-bit Vector support");
+		if(simd && !Vector.simd128){
+			throw new IllegalStateException("SIMD checks require 128/256-bit Vector support");
 		}
 		final boolean oldSimd=Shared.SIMD;
 		int cases=0, failures=0;

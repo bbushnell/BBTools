@@ -1,5 +1,7 @@
 package idaligner;
 
+import simd.Vector;
+
 /**
  * Exact score-only affine scorer with a candidate-centered band prepass.
  * The band supplies an achievable incumbent to the exact active-frontier
@@ -8,7 +10,7 @@ package idaligner;
  * Scoring enforces the conservative numeric/dimension contract of {@link AffineScore32}.
  *
  * <p>If the banded Vector backend is absent or has an unsupported class
- * version, the caller's achievable fallback is used directly. The requested
+ * version, or 256-bit vectors are unavailable, the caller's achievable fallback is used directly. The requested
  * mode still controls the exact scorer. Other backend defects propagate.</p>
  *
  * <p>The delegates use reusable linear-memory arrays. This first composition
@@ -85,6 +87,7 @@ public final class AffineScore32SeededHybrid {
 	public AffineScore32Hybrid.Route lastExactRoute() {return exact.lastRoute();}
 
 	private static boolean bandBackendPresent() {
+		if(!Vector.simd256){return false;}
 		try {
 			final ClassLoader loader=AffineScore32SeededHybrid.class.getClassLoader();
 			Class.forName("jdk.incubator.vector.IntVector", false, loader);

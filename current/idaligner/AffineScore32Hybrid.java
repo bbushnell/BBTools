@@ -1,5 +1,7 @@
 package idaligner;
 
+import simd.Vector;
+
 /**
  * Exact score-only dispatcher for the row-active and anti-diagonal SIMD
  * affine scorers. One instance is intended per worker thread and is not
@@ -7,7 +9,7 @@ package idaligner;
  * Scoring enforces the conservative numeric/dimension contract of {@link AffineScore32}.
  *
  * <p>AUTO falls back to row scoring when the Vector API or backend class is
- * absent or the backend class version is unsupported. FORCE_SIMD retains
+ * absent, 256-bit vectors are unavailable, or the backend class version is unsupported. FORCE_SIMD retains
  * loading failures. Other backend defects are not suppressed.</p>
  *
  * <p>The default query-length boundary is a provisional result from the
@@ -90,6 +92,7 @@ public final class AffineScore32Hybrid {
 	}
 
 	private static boolean vectorBackendPresent() {
+		if(!Vector.simd256){return false;}
 		try {
 			final ClassLoader loader=AffineScore32Hybrid.class.getClassLoader();
 			Class.forName("jdk.incubator.vector.IntVector", false, loader);

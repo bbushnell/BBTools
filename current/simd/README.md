@@ -10,8 +10,8 @@ is below the relevant length threshold. Individual method contracts still apply.
 | Component | Role |
 | --- | --- |
 | `Vector` | Public dispatch, scalar implementations and capability probes. |
-| `SIMD` | Fixed 256-bit numeric, neural-network and integer-table kernels. |
-| `SIMDByte256` | Live byte transforms and scans, using 256-bit vectors and smaller tails. |
+| `SIMD`, `SIMD128` | Fixed 256-bit and 128-bit numeric, neural-network and integer-table kernels. |
+| `SIMDByte256`, `SIMDByte128` | Live byte transforms and scans, using fixed 256-bit or 128-bit vectors and 64-bit tails. |
 | `SIMDByte256_only` | Historical single-width reference; not the live byte backend. Retained caveats are documented in its source. |
 | `SIMDLogLog` | Comparisons of packed DDL sketch buckets, including unsigned 16-bit values. |
 | `SIMDAminoGlocal`, `SIMDMSA*` | Amino-acid glocal and packed-state nucleotide alignment helpers; callers must honor each helper's encoding and layout. |
@@ -38,10 +38,24 @@ capability flag false.
   set them separately.
 - `simdcopy=`: control the optional vector copy path.
 
-Forcing `simd=t` does not provide missing runtime support. The implemented general
-backend dispatch uses 256-bit capability; the `simd128` and `simd64` probe results
-do not select alternate full backends. Smaller loads and tails within a kernel
-are separate implementation details.
+Forcing `simd=t` does not provide missing runtime support. At startup the facade
+selects the 256-bit primitive/byte backend when supported, otherwise the 128-bit
+backend, otherwise scalar code. `Vector.SIMD_BITS` records that immutable choice;
+`maxSimdWidth` reports the JVM preference, which can be wider than the selected
+backend. `INT_LANES` is eight, four, or one respectively. The master switch still
+controls each call, but species and loop widths stay fixed inside each backend.
+No per-record backend object or dynamic species is introduced.
+
+The same 128-bit Java kernels serve AArch64 Linux and Apple Silicon. Use a native
+JDK for the operating system and architecture, with its Vector API module enabled.
+The shell helpers recognize Linux `asimd` and macOS `hw.optional.neon`; Java then
+checks the available width. The Vector API is incubating, so compile and test
+against the intended JDK rather than assuming all JDK releases are interchangeable.
+
+Specialized alignment and DDL backends without a 128-bit port retain their scalar
+fallbacks on narrower runtimes. The explicitly SIMD-only `WobblePlusAligner4`
+rejects unsupported widths. Explicit forced policies on separate experimental
+affine scorers remain separate from this facade's automatic selection.
 
 ## Numeric and ownership contracts
 
@@ -79,3 +93,8 @@ so timed work cannot simply disappear; their reported workload and copy costs
 matter when interpreting results. A microbenchmark is not a whole-application
 throughput claim. Compile the complete affected packages and check downstream
 callers when changing a kernel.
+
+For development, HotSpot's `-XX:MaxVectorSize=16` can constrain a suitable x86 JVM
+to 128-bit vectors. Verify the detected and selected widths in
+`test.simd.VectorDispatchTest`; a JVM option alone is not execution evidence.
+Such testing checks the portable kernels but does not measure Mac/ARM performance.

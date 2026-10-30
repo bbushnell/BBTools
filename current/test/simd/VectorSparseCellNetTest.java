@@ -22,8 +22,8 @@ public final class VectorSparseCellNetTest{
 			else if(arg.equals("simd=f")){simd=false;}
 			else{throw new IllegalArgumentException("Unknown argument: "+arg);}
 		}
-		if(simd && !Vector.simd256){
-			throw new IllegalStateException("Sparse CellNet checks require 256-bit Vector support");
+		if(simd && !Vector.simd128){
+			throw new IllegalStateException("Sparse CellNet checks require 128/256-bit Vector support");
 		}
 
 		final boolean oldSimd=Shared.SIMD, oldSimdFma=Shared.SIMD_FMA;

@@ -531,7 +531,7 @@ public class IndelFreeAligner4 implements Accumulator<IndelFreeAligner4.ProcessT
 	 * @return Accepted offsets from the selected implementation
 	 */
 	public static IntList alignAllPositions(byte[] query, byte[] ref, int maxSubs, int maxClips){
-		if(Shared.SIMD && (query.length<256 || maxSubs<256)){
+		if(Shared.SIMD && Vector.simd256 && (query.length<256 || maxSubs<256)){
 			return SIMDAlignByte.alignDiagonal(query, ref, maxSubs, maxClips);
 		}
 		if(query.length==0 || ref.length==0){return null;}

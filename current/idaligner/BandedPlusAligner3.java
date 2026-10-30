@@ -148,7 +148,7 @@ public class BandedPlusAligner3 implements IDAligner{
 			//Cache the query
 			final long q=query[i-1];
 			
-			if(Shared.SIMD) {
+			if(Shared.SIMD && simd.Vector.simd256) {
 				simd.SIMDAlign.alignBandVectorDel(q, ref, bandStart, bandEnd, prev, curr);
 			}else {
 
@@ -177,7 +177,7 @@ public class BandedPlusAligner3 implements IDAligner{
 //				Test.print(curr, "Row "+i);
 			}
 			
-			if(!Shared.SIMD) {//Tail loop for deletions
+			if(!(Shared.SIMD && simd.Vector.simd256)) {//Tail loop for deletions
 				long leftCell=curr[bandStart-1];
 				for(int j=bandStart; j<=bandEnd; j++){
 					final long maxDiagUp=curr[j];

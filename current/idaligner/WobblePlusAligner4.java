@@ -117,6 +117,7 @@ public class WobblePlusAligner4 implements IDAligner{
 	 * @param posVector Optional array for returning {rStart, rStop} alignment coordinates.
 	 * If null, sequences may be swapped for optimal performance
 	 * @return Identity score (0.0-1.0)
+	 * @throws UnsupportedOperationException If enabled 256-bit Vector support is unavailable
 	 */
 	public static final float alignStatic(byte[] query0, byte[] ref0, int[] posVector) {
 		// Swap to ensure query is not longer than ref
@@ -125,7 +126,9 @@ public class WobblePlusAligner4 implements IDAligner{
 			query0=ref0;
 			ref0=temp;
 		}
-		assert(Shared.SIMD) : "This program requires the simd flag and AVX-256.";
+		if(!Shared.SIMD || !simd.Vector.simd256){
+			throw new UnsupportedOperationException("WobblePlusAligner4 requires enabled 256-bit Vector support");
+		}
 
 		final long[] query=Factory.encodeLong(query0, (byte)15);
 		final long[] ref=Factory.encodeLong(ref0, (byte)31);

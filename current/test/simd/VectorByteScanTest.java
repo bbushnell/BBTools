@@ -16,8 +16,8 @@ public final class VectorByteScanTest{
 	 */
 	public static void main(final String[] args){
 		final boolean simd=parseSimd(args);
-		if(simd && !Vector.simd256){
-			throw new IllegalStateException("SIMD test requires 256-bit Vector support");
+		if(simd && !Vector.simd128){
+			throw new IllegalStateException("SIMD test requires 128/256-bit Vector support");
 		}
 		final boolean oldSimd=Shared.SIMD;
 		int cases=0, failures=0;
@@ -66,6 +66,7 @@ public final class VectorByteScanTest{
 		Arrays.fill(buffer, (byte)'A');
 		if(from<to){buffer[from]='\n';}
 		if(from+7<to){buffer[from+7]='\n';}
+		if(from+15<to){buffer[from+15]='\n';}
 		if(from+31<to){buffer[from+31]='\n';}
 		if(to>from){buffer[to-1]='\n';}
 		if(to<length){buffer[to]='\n';}
@@ -83,6 +84,7 @@ public final class VectorByteScanTest{
 		Arrays.fill(buffer, (byte)'A');
 		placeBoundary(buffer, from);
 		placeBoundary(buffer, from+7);
+		placeBoundary(buffer, from+15);
 		placeBoundary(buffer, from+31);
 		placeBoundary(buffer, to-2);
 		if(to<length){buffer[to]='>';}
@@ -99,6 +101,7 @@ public final class VectorByteScanTest{
 		Arrays.fill(buffer, (byte)'A');
 		if(length>0){buffer[0]='\n';}
 		if(length>8){buffer[8]='\n';}
+		if(length>16){buffer[16]='\n';}
 		if(length>32){buffer[32]='\n';}
 		if(length>0){buffer[length-1]='\n';}
 		return buffer;
@@ -200,7 +203,8 @@ public final class VectorByteScanTest{
 	 */
 	private static int[] limits(final int length){
 		return new int[] {0, Math.min(1, length), Math.min(7, length), Math.min(8, length),
-				Math.min(9, length), Math.min(31, length), Math.min(32, length),
+				Math.min(9, length), Math.min(15, length), Math.min(16, length),
+				Math.min(17, length), Math.min(31, length), Math.min(32, length),
 				Math.min(33, length), length};
 	}
 
@@ -230,8 +234,9 @@ public final class VectorByteScanTest{
 	/** Prevents construction of this standalone test. */
 	private VectorByteScanTest(){}
 
-	/** Lengths spanning 8-byte, 32-byte and tail thresholds. */
-	private static final int[] LENGTHS={0, 1, 7, 8, 9, 31, 32, 33, 39, 40, 41, 65};
+	/** Lengths spanning 8-byte, 16-byte, 32-byte and tail thresholds. */
+	private static final int[] LENGTHS={0, 1, 7, 8, 9, 15, 16, 17, 23, 24, 25, 31,
+			32, 33, 39, 40, 41, 47, 48, 49, 65, 79, 80, 81};
 	/** Sentinel proving scan methods append without clearing caller state. */
 	private static final int SENTINEL=-1234567;
 }

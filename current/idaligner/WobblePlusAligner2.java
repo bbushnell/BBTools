@@ -195,7 +195,7 @@ public class WobblePlusAligner2 implements IDAligner{
 			maxScore=BAD;
 			maxPos=0;
 			
-			if(Shared.SIMD) {
+			if(Shared.SIMD && simd.Vector.simd256) {
 				simd.SIMDAlign.alignBandVector(q, ref, bandStart, bandEnd, prev, curr);
 			}else {
 				// Process only cells within the band

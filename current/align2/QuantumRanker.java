@@ -44,8 +44,8 @@ public class QuantumRanker{
 		return align(query, ref, refStart, refStop, expectedStart, false, false);
 	}
 
-	/** Score-only entry point. Caller must gate useSIMD on runtime SIMD availability;
-	 * SIMD classes are reached only through that flag, never through this API's types. */
+	/** Score-only entry point. useSIMD requests the fixed256 backend when supported;
+	 * narrower runtimes use scalar code. SIMD types stay out of this API's signatures. */
 	public Result align(final byte[] query, final byte[] ref, final int refStart,
 			final int refStop, final int expectedStart, final boolean useSIMD){
 		return align(query, ref, refStart, refStop, expectedStart, useSIMD, false,
@@ -77,7 +77,8 @@ public class QuantumRanker{
 	public Result align(final byte[] query, final byte[] ref, final int refStart,
 			final int refStop, final int expectedStart, final boolean useSIMD,
 			final boolean traceback, final int maxEdits){
-		return alignInternal(query, ref, refStart, refStop, expectedStart, useSIMD, traceback,
+		return alignInternal(query, ref, refStart, refStop, expectedStart,
+				useSIMD && simd.Vector.simd256, traceback,
 				maxEdits);
 	}
 
@@ -496,7 +497,7 @@ public class QuantumRanker{
 		/** Some explored query/reference symbols were non-ACGT, not necessarily on the winning trace. */
 		public boolean uncertain;
 		public boolean ambiguous;
-		/** Records the requested SIMD path on success, not whether every fill row used SIMD. */
+		/** Records the supported requested SIMD path on success, not whether every fill row used SIMD. */
 		public boolean vectorized;
 		public boolean editBudgetExceeded;
 		/** Reserved diagnostic; this implementation clears it and never sets it. */

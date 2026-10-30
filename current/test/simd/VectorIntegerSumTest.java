@@ -21,8 +21,8 @@ public final class VectorIntegerSumTest{
 			else if(arg.equals("simd=f")){simd=false;}
 			else{throw new IllegalArgumentException("Unknown argument: "+arg);}
 		}
-		if(simd && !Vector.simd256){
-			throw new IllegalStateException("SIMD test requires the optional Vector module and 256-bit support");
+		if(simd && !Vector.simd128){
+			throw new IllegalStateException("SIMD test requires the optional Vector module and 128/256-bit support");
 		}
 		final boolean oldSimd=Shared.SIMD;
 		int cases=0, failures=0;
@@ -91,5 +91,6 @@ public final class VectorIntegerSumTest{
 	private VectorIntegerSumTest(){}
 
 	/** Lengths spanning scalar thresholds, vector widths and residual tails. */
-	private static final int[] LENGTHS={0, 1, 7, 8, 9, 15, 16, 17, 31, 32, 33, 65};
+	private static final int[] LENGTHS={0, 1, 7, 8, 9, 15, 16, 17, 23, 24, 25, 31,
+			32, 33, 65, 79, 80, 81};
 }

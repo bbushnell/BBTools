@@ -18,8 +18,8 @@ public final class VectorByteTransformTest{
 	 */
 	public static void main(final String[] args){
 		final boolean simd=parseSimd(args);
-		if(simd && !Vector.simd256){
-			throw new IllegalStateException("SIMD test requires 256-bit Vector support");
+		if(simd && !Vector.simd128){
+			throw new IllegalStateException("SIMD test requires 128/256-bit Vector support");
 		}
 		final boolean oldSimd=Shared.SIMD;
 		int cases=0, failures=0;
@@ -294,8 +294,9 @@ public final class VectorByteTransformTest{
 	/** Prevents construction of this standalone test. */
 	private VectorByteTransformTest(){}
 
-	/** Lengths spanning 8-byte, 32-byte and tail thresholds. */
-	private static final int[] LENGTHS={0, 1, 7, 8, 9, 31, 32, 33, 39, 40, 41};
+	/** Lengths spanning 8-byte, 16-byte, 32-byte and tail thresholds. */
+	private static final int[] LENGTHS={0, 1, 7, 8, 9, 15, 16, 17, 23, 24, 25, 31,
+			32, 33, 39, 40, 41, 47, 48, 49};
 	/** Caps spanning ordinary values, byte boundaries and int extremes. */
 	private static final int[] GRID_CAPS={Integer.MIN_VALUE, -257, -256, -255, -129,
 			-128, -127, -1, 0, 1, 126, 127, 128, 254, 255, 256, 257, Integer.MAX_VALUE};

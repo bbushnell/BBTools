@@ -45,6 +45,10 @@ detectCPUVectorSupport() {
 		if grep -q "sve" /proc/cpuinfo; then
 			return 0
 		fi
+		# AArch64 Advanced SIMD (NEON) supports the fixed 128-bit backend.
+		if grep -qw "asimd" /proc/cpuinfo; then
+			return 0
+		fi
 	fi
 	
 	# macOS x86_64: Use sysctl for AVX2
@@ -52,7 +56,10 @@ detectCPUVectorSupport() {
 		if sysctl -a 2>/dev/null | grep -q "hw.optional.avx2.*: 1"; then
 			return 0
 		fi
-		# TODO: macOS ARM (Apple Silicon) - need to verify SVE support detection
+		# Apple Silicon uses 128-bit Advanced SIMD; SVE is not required.
+		if [ "$(sysctl -n hw.optional.neon 2>/dev/null)" = "1" ]; then
+			return 0
+		fi
 	fi
 	
 	return 1

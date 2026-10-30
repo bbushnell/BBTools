@@ -142,7 +142,7 @@ public class BandedPlusAlignerInt implements IDAligner{
 			//Cache the query
 			final int q=query[i-1];
 			
-			if(Shared.SIMD) {
+			if(Shared.SIMD && simd.Vector.simd256) {
 				simd.SIMDAlign.alignBandVectorInt(q, ref, bandStart, bandEnd, prev, curr, MATCH, N_SCORE, SUB, INS);
 			}else {
 

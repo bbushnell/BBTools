@@ -16,8 +16,8 @@ public final class VectorByteNormalizationTest{
 	 */
 	public static void main(final String[] args) throws Exception{
 		final boolean simd=parseSimd(args);
-		if(simd && !Vector.simd256){
-			throw new IllegalStateException("SIMD test requires 256-bit Vector support");
+		if(simd && !Vector.simd128){
+			throw new IllegalStateException("SIMD test requires 128/256-bit Vector support");
 		}
 		final Method oldIupacToN=method("iupacToN");
 		final boolean oldSimd=Shared.SIMD;
@@ -228,15 +228,17 @@ public final class VectorByteNormalizationTest{
 
 	/** Returns selected ASCII insertion positions.
 	 * @param length Sequence length
-	 * @return Positions that cover initial, 64-bit, 256-bit and scalar-tail lanes
+	 * @return Positions that cover initial, 64-bit, 128-bit, 256-bit and scalar-tail lanes
 	 */
 	private static int[] positions(final int length){
 		return new int[] {0, Math.min(7, length-1), Math.min(8, length-1),
+				Math.min(15, length-1), Math.min(16, length-1),
 				Math.min(31, length-1), Math.min(32, length-1), length-1};
 	}
 
-	/** Lengths around scalar, 64-bit, 256-bit and 256+64-bit tails. */
-	private static final int[] LENGTHS={1, 7, 8, 9, 31, 32, 33, 40, 41, 63, 64, 65};
+	/** Lengths around scalar, 64-bit, 128-bit, 256-bit and tail boundaries. */
+	private static final int[] LENGTHS={1, 7, 8, 9, 15, 16, 17, 23, 24, 25, 31, 32,
+			33, 40, 41, 47, 48, 49, 63, 64, 65, 79, 80, 81};
 	/** Baseline bytes for positions not under test. */
 	private static final byte[] CANONICAL_BASES={'A', 'c', 'G', 't', 'U', 'u', 'M',
 			'r', 'N', 'x', 'Z', '.', '-', '?', ' '};

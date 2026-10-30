@@ -34,8 +34,9 @@ threadsin=-1    Reader threads (-1 = auto).
 threadsout=-1   Writer threads (-1 = auto).
 
 Other parameters:
-simd            Add this flag for turbo speed. Requires Java 17+ and AVX2,
-                or other 256-bit vector instruction sets.
+simd=auto       Enable supported SIMD kernels with Java 17+ and the Vector API.
+                Selects fixed 256-bit or 128-bit kernels at startup.
+                Use simd=f to select scalar processing.
 
 Please contact Brian Bushnell at bbushnell@lbl.gov if you encounter any problems.
 "

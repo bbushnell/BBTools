@@ -16,8 +16,8 @@ public final class VectorDDLComparisonTest{
 	 */
 	public static void main(final String[] args){
 		final boolean simd=parseSimd(args);
-		if(simd && !Vector.simd256){
-			throw new IllegalStateException("SIMD test requires 256-bit Vector support");
+		if(simd && !Vector.simd128){
+			throw new IllegalStateException("SIMD test requires 128/256-bit Vector support");
 		}
 		final boolean oldSimd=Shared.SIMD;
 		int cases=0, failures=0, oracleChecksum=0;
@@ -117,8 +117,9 @@ public final class VectorDDLComparisonTest{
 	/** Prevents construction of this standalone test. */
 	private VectorDDLComparisonTest(){}
 
-	/** Lengths spanning scalar tails and 16-lane short vectors. */
-	private static final int[] LENGTHS={0, 1, 15, 16, 17, 31, 32, 33, 2048};
+	/** Lengths spanning scalar tails, 128-bit and 256-bit short-vector boundaries. */
+	private static final int[] LENGTHS={0, 1, 7, 8, 9, 15, 16, 17, 23, 24, 25, 31,
+			32, 33, 2048};
 	/** Values around empty buckets and signed-short boundaries. */
 	private static final int[] VALUES={0, 1, 32767, 32768, 40000, 65535};
 	/** Number of deterministic data patterns. */

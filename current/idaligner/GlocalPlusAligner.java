@@ -144,7 +144,7 @@ public class GlocalPlusAligner implements IDAligner{
 			//Cache the query
 			final long q=query[i-1];
 			
-			if(Shared.SIMD) {
+			if(Shared.SIMD && simd.Vector.simd256) {
 				simd.SIMDAlign.alignBandVector(q, ref, bandStart, bandEnd, prev, curr);
 			}else {
 

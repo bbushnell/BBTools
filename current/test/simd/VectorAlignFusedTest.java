@@ -13,8 +13,8 @@ public final class VectorAlignFusedTest{
 	 * @param args Optional simd=t or simd=f selector */
 	public static void main(final String[] args){
 		final boolean simd=parseSimd(args);
-		if(simd && !Vector.simd256){
-			throw new IllegalStateException("Fused alignment SIMD test requires 256-bit Vector support");
+		if(simd && !Vector.simd128){
+			throw new IllegalStateException("Fused alignment SIMD test requires 128/256-bit Vector support");
 		}
 		final boolean oldSimd=Shared.SIMD;
 		int cases=0, failures=0;
@@ -148,6 +148,10 @@ public final class VectorAlignFusedTest{
 	 * @return Six positions ordered across the vector and tail boundaries */
 	private static int[] anchors(final int length){
 		if(length==7){return new int[] {0, 1, 2, 3, 5, 6};}
+		if(length==16){return new int[] {0, 1, 7, 8, 14, 15};}
+		if(length==17){return new int[] {0, 7, 8, 15, 16};}
+		if(length==24){return new int[] {0, 7, 8, 15, 16, 23};}
+		if(length==25){return new int[] {0, 8, 15, 16, 23, 24};}
 		if(length==32){return new int[] {0, 7, 16, 23, 30, 31};}
 		if(length==41){return new int[] {0, 8, 31, 32, 39, 40};}
 		throw new IllegalArgumentException("Unexpected length: "+length);
@@ -177,8 +181,8 @@ public final class VectorAlignFusedTest{
 	/** Prevents construction of this standalone test. */
 	private VectorAlignFusedTest(){}
 
-	/** Short-scalar, 256-bit and 256-bit-plus-tail query lengths. */
-	private static final int[] LENGTHS={7, 32, 41};
+	/** Short-scalar, 128-bit, 256-bit and vector-plus-tail query lengths. */
+	private static final int[] LENGTHS={7, 16, 17, 24, 25, 32, 41};
 	/** Reference start offset used to catch accidental zero-offset assumptions. */
 	private static final int RSTART=3;
 	/** True-substitution budget. */
