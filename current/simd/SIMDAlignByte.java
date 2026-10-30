@@ -13,54 +13,24 @@ import jdk.incubator.vector.VectorSpecies;
 import shared.Shared;
 import structures.IntList;
 
-/** 
+/**
  * Holds SIMD methods for alignment.
  * @author Brian Bushnell
  * @author Isla
  * @contributor Zephy
  * @date May 12, 2025
- *
  */
-public class SIMDAlignByte {
+public class SIMDAlignByte{
+	/*--------------------------------------------------------------*/
+	/*----------------        Initialization        ----------------*/
+	/*--------------------------------------------------------------*/
 
-	//Example from https://medium.com/@Styp/java-18-vector-api-do-we-get-free-speed-up-c4510eda50d2
-	/** Vector species for 256-bit float vectors, used for SIMD float operations */
-	private static final VectorSpecies<Float> FSPECIES=FloatVector.SPECIES_256;//FloatVector.SPECIES_PREFERRED; //This needs to be final or performance drops.
-	/** Number of float elements that fit in a 256-bit vector (8 floats) */
-	private static final int FWIDTH=FSPECIES.length();
-	//		private static final int boundMask=~(FWIDTH-1);
+	/** Constructs an alignment helper instance. */
+	public SIMDAlignByte(){}
 
-	/** Vector species for 256-bit byte vectors, used for SIMD byte operations */
-	private static final VectorSpecies<Byte> BSPECIES=ByteVector.SPECIES_256;
-	/** Number of byte elements that fit in a 256-bit vector (32 bytes) */
-	private static final int BWIDTH=BSPECIES.length();
-
-	/**
-	 * Vector species for 256-bit integer vectors, used for SIMD integer operations
-	 */
-	private static final VectorSpecies<Integer> ISPECIES=IntVector.SPECIES_256;
-	/** Number of integer elements that fit in a 256-bit vector (8 integers) */
-	private static final int IWIDTH=ISPECIES.length();
-
-	/** Vector species for 256-bit short vectors, used for SIMD short operations */
-	private static final VectorSpecies<Short> SSPECIES=ShortVector.SPECIES_256;
-	/** Number of short elements that fit in a 256-bit vector (16 shorts) */
-	private static final int SWIDTH=SSPECIES.length();
-
-	/**
-	 * Vector species for 256-bit double vectors, used for SIMD double operations
-	 */
-	private static final VectorSpecies<Double> DSPECIES=DoubleVector.SPECIES_256;
-	/** Number of double elements that fit in a 256-bit vector (4 doubles) */
-	private static final int DWIDTH=DSPECIES.length();
-
-	/** Vector species for 256-bit long vectors, used for SIMD long operations */
-	private static final VectorSpecies<Long> LSPECIES=LongVector.SPECIES_256;
-	/** Number of long elements that fit in a 256-bit vector (4 longs) */
-	private static final int LWIDTH=LSPECIES.length();
-
-	/** Score awarded for matching bases in alignment (1 point) */
-	private static final byte MATCH=1, N_SCORE=0, SUB=-1, INS=-1, DEL=-1;
+	/*--------------------------------------------------------------*/
+	/*----------------        Static Methods        ----------------*/
+	/*--------------------------------------------------------------*/
 
 	/**
 	 * Performs vectorized alignment scoring for a single query base against a reference band.
@@ -74,103 +44,103 @@ public class SIMDAlignByte {
 	 * @param prev Previous row of alignment scores
 	 * @param curr Current row being computed
 	 */
-	public static void alignBandVector(byte q, byte[] ref, int bandStart, int bandEnd, 
-			byte[] prev, byte[] curr) {
+	public static void alignBandVector(byte q, byte[] ref, int bandStart, int bandEnd,
+			byte[] prev, byte[] curr){
 
 		// Calculate range size
-		final int rangeSize = bandEnd - bandStart + 1;
+		final int rangeSize=bandEnd-bandStart+1;
 
 		// Broadcast constants to vectors
-		final ByteVector vq = ByteVector.broadcast(BSPECIES, q);
-		final ByteVector vMATCH = ByteVector.broadcast(BSPECIES, MATCH);
-		final ByteVector vN_SCORE = ByteVector.broadcast(BSPECIES, N_SCORE);
-		final ByteVector vSUB = ByteVector.broadcast(BSPECIES, SUB);
-		final ByteVector vINS = vSUB;
-		final ByteVector v15 = ByteVector.broadcast(BSPECIES, (byte)15);
+		final ByteVector vq=ByteVector.broadcast(BSPECIES, q);
+		final ByteVector vMATCH=ByteVector.broadcast(BSPECIES, MATCH);
+		final ByteVector vN_SCORE=ByteVector.broadcast(BSPECIES, N_SCORE);
+		final ByteVector vSUB=ByteVector.broadcast(BSPECIES, SUB);
+		final ByteVector vINS=vSUB;
+		final ByteVector v15=ByteVector.broadcast(BSPECIES, (byte)15);
 
 		// If range is at least one vector wide
-		if(rangeSize >= BWIDTH) {
+		if(rangeSize>=BWIDTH){
 			// Process all complete vector blocks except the final one
-			for(int j=bandStart; j<bandEnd-(BWIDTH-2); j+=BWIDTH) {
+			for(int j=bandStart; j<bandEnd-(BWIDTH-2); j+=BWIDTH){
 				// Load reference values
-				ByteVector refVec = ByteVector.fromArray(BSPECIES, ref, j-1);
+				ByteVector refVec=ByteVector.fromArray(BSPECIES, ref, j-1);
 
 				// Match condition calculation
-				VectorMask<Byte> isMatchMask = vq.compare(VectorOperators.EQ, refVec);
+				VectorMask<Byte> isMatchMask=vq.compare(VectorOperators.EQ, refVec);
 
 				// Check for N values
-				VectorMask<Byte> hasNMask = vq.or(refVec).compare(VectorOperators.GE, v15);
+				VectorMask<Byte> hasNMask=vq.or(refVec).compare(VectorOperators.GE, v15);
 
 				// Combined blend operations
-				ByteVector scoreAddVec = vSUB.blend(vMATCH, isMatchMask).blend(vN_SCORE, hasNMask);
+				ByteVector scoreAddVec=vSUB.blend(vMATCH, isMatchMask).blend(vN_SCORE, hasNMask);
 
 				// Load previous scores
-				ByteVector prevJ1Vec = ByteVector.fromArray(BSPECIES, prev, j-1);
-				ByteVector prevJVec = ByteVector.fromArray(BSPECIES, prev, j);
+				ByteVector prevJ1Vec=ByteVector.fromArray(BSPECIES, prev, j-1);
+				ByteVector prevJVec=ByteVector.fromArray(BSPECIES, prev, j);
 
 				// Calculate scores and find max
-				ByteVector diagScoreVec = prevJ1Vec.add(scoreAddVec);
-				ByteVector upScoreVec = prevJVec.add(vINS);
-				ByteVector maxVec = diagScoreVec.max(upScoreVec);
+				ByteVector diagScoreVec=prevJ1Vec.add(scoreAddVec);
+				ByteVector upScoreVec=prevJVec.add(vINS);
+				ByteVector maxVec=diagScoreVec.max(upScoreVec);
 
 				// Store results
 				maxVec.intoArray(curr, j);
 			}
 
 			// Process the final block with a vector, aligned to include the last element
-			final int lastVectorStart = Math.max(bandStart, bandEnd+1-BWIDTH);
+			final int lastVectorStart=Math.max(bandStart, bandEnd+1-BWIDTH);
 
 			// Load reference values for final vector
-			ByteVector refVec = ByteVector.fromArray(BSPECIES, ref, lastVectorStart-1);
+			ByteVector refVec=ByteVector.fromArray(BSPECIES, ref, lastVectorStart-1);
 
 			// Match condition calculation
-			VectorMask<Byte> isMatchMask = vq.compare(VectorOperators.EQ, refVec);
+			VectorMask<Byte> isMatchMask=vq.compare(VectorOperators.EQ, refVec);
 
 			// Check for N values
-			VectorMask<Byte> hasNMask = vq.or(refVec).compare(VectorOperators.GE, v15);
+			VectorMask<Byte> hasNMask=vq.or(refVec).compare(VectorOperators.GE, v15);
 
 			// Combined blend operations
-			ByteVector scoreAddVec = vSUB.blend(vMATCH, isMatchMask).blend(vN_SCORE, hasNMask);
+			ByteVector scoreAddVec=vSUB.blend(vMATCH, isMatchMask).blend(vN_SCORE, hasNMask);
 
 			// Load previous scores
-			ByteVector prevJ1Vec = ByteVector.fromArray(BSPECIES, prev, lastVectorStart-1);
-			ByteVector prevJVec = ByteVector.fromArray(BSPECIES, prev, lastVectorStart);
+			ByteVector prevJ1Vec=ByteVector.fromArray(BSPECIES, prev, lastVectorStart-1);
+			ByteVector prevJVec=ByteVector.fromArray(BSPECIES, prev, lastVectorStart);
 
 			// Calculate scores and find max
-			ByteVector diagScoreVec = prevJ1Vec.add(scoreAddVec);
-			ByteVector upScoreVec = prevJVec.add(vINS);
-			ByteVector maxVec = diagScoreVec.max(upScoreVec);
+			ByteVector diagScoreVec=prevJ1Vec.add(scoreAddVec);
+			ByteVector upScoreVec=prevJVec.add(vINS);
+			ByteVector maxVec=diagScoreVec.max(upScoreVec);
 
 			// Store results
 			maxVec.intoArray(curr, lastVectorStart);
-		} else {
+		}else{
 			// Range too small for vector processing, use scalar code
-			for(int j=bandStart; j<=bandEnd; j++) {
-				final byte r = ref[j-1];
-				final boolean isMatch = (q==r);
-				final boolean hasN = ((q|r)>=15);
-				final byte scoreAdd = isMatch ? MATCH : (hasN ? N_SCORE : SUB);
+			for(int j=bandStart; j<=bandEnd; j++){
+				final byte r=ref[j-1];
+				final boolean isMatch=(q==r);
+				final boolean hasN=((q|r)>=15);
+				final byte scoreAdd=isMatch ? MATCH : (hasN ? N_SCORE : SUB);
 
-				final byte pj1 = prev[j-1], pj = prev[j];
-				final byte diagScore = (byte)(pj1+scoreAdd);
-				final byte upScore = (byte)(pj+INS);
+				final byte pj1=prev[j-1], pj=prev[j];
+				final byte diagScore=(byte)(pj1+scoreAdd);
+				final byte upScore=(byte)(pj+INS);
 
-				curr[j] = (byte)Math.max(diagScore, upScore);
+				curr[j]=(byte)Math.max(diagScore, upScore);
 			}
 		}
 	}
 
 //	/**
-//	 * Counts substitutions (mismatches) between a query sequence and multiple diagonals 
+//	 * Counts substitutions (mismatches) between a query sequence and multiple diagonals
 //	 * of a reference sequence using SIMD vectorization.
-//	 * 
-//	 * This function compares the query sequence against BWIDTH (32) different starting 
+//	 *
+//	 * This function compares the query sequence against BWIDTH (32) different starting
 //	 * positions in the reference sequence simultaneously, counting mismatches for each.
 //	 * It's designed for use in sequence alignment algorithms where multiple diagonal
 //	 * alignments need to be evaluated.
 //	 *
 //	 * @param query The query sequence as a byte array
-//	 * @param ref The reference sequence as a byte array  
+//	 * @param ref The reference sequence as a byte array
 //	 * @param pos Output parameter - will contain the lane index (0-31) with minimum mismatches
 //	 * @return The minimum number of mismatches found across all lanes, or qLen if all lanes overflow
 //	 */
@@ -232,13 +202,13 @@ public class SIMDAlignByte {
 //
 //			start+=processed;  // Only increment by positions actually processed
 //		}
-//		
+//
 //		// Handle remaining query positions
 //		if(start<qLen){
 //		    int remaining=qLen-start;
 //		    // Only need BWIDTH + remaining - 1 bytes for the slice
 //		    byte[] refSlice = new byte[BWIDTH + remaining - 1];
-//		    
+//
 //		    // Pre-fill the slice with reference data or 'X' for out-of-bounds
 //		    for(int j=0; j<refSlice.length; j++){
 //		        int refPos = start+j;
@@ -291,139 +261,118 @@ public class SIMDAlignByte {
 //		// Return the score, capping at qLen if overflow
 //		return minScore+128;
 //	}
-	
+
 	/**
-	 * Counts substitutions with Left Overhang support and a Smart Scalar Tail.
-	 * @param pos Input: pos[0] is the start offset (e.g. -6). 
-	 * Output: pos[0] becomes the best lane index (0-31).
+	 * Counts substitutions over the 32 offsets surrounding the expected diagonal.
+	 * @param query query bases to compare
+	 * @param ref reference bases to compare
+	 * @param pos input: pos[0] is the expected start offset; output: pos[0]
+	 *        becomes the absolute offset with the fewest substitutions
+	 * @param maxSubs maximum substitutions to count before an offset saturates
+	 * @return minimum substitutions found in the searched offset window
 	 */
 	public static final int countSubs(byte[] query, byte[] ref, int[] pos, int maxSubs){
 		final int qLen=query.length;
 		final int rLen=ref.length;
-		
-		// 0. Use scalar if SIMD is disabled for any reason
-		if(rLen<BWIDTH || qLen==0 || pos[0]==Integer.MIN_VALUE || !Shared.SIMD){
-			int subs=0;
-			// Scalar fallback now respects the minOffset slightly better by checking offset 0
-			// (Ideally this would scan, but for a fallback this is safe)
-			for(int i=0, minlen=Math.min(qLen, rLen); i<minlen && subs<maxSubs; i++){
-				subs+=(query[i]==ref[i] ? 0 : 1);
-			}
-			pos[0]=0; 
-			return subs;
-		}
-		
-		// 1. Set range to 8 before and 24 after expected diagonal
-		final int minOffset=pos[0]-8;
-
-		// 2. Prepare for Left Overhang (The Shifted Buffer)
-		final int overhang = -minOffset;
-		final int vecStart = Math.max(0, overhang);
-		ByteVector scores;
-
-		if(overhang > 0) {
-			byte[] buffer = new byte[BWIDTH + overhang];
-			// CRITICAL FIX: Initialize to -128 (0 mismatches)
-			java.util.Arrays.fill(buffer, (byte)-128);
-
-			// A. Initialize blind spots (insertions) with biased math
-			for(int i=0; i<overhang; i++) {
-				buffer[i] = (byte)(-128 + overhang - i);
-			}
-
-			// B. Vectorized Preamble
-			ByteVector ones = ByteVector.broadcast(BSPECIES, (byte)1);
-			for(int i=0; i<overhang && i<qLen; i++) {
-				ByteVector q = ByteVector.broadcast(BSPECIES, query[i]);
-				ByteVector r = ByteVector.fromArray(BSPECIES, ref, 0); 
-				VectorMask<Byte> mismatchMask = q.compare(VectorOperators.NE, r);
-
-				int bufferIdx = overhang - i;
-				// Load, Add, Store
-				ByteVector acc = ByteVector.fromArray(BSPECIES, buffer, bufferIdx);
-				acc = acc.add(ones, mismatchMask);
-				acc.intoArray(buffer, bufferIdx);
-			}
-			scores = ByteVector.fromArray(BSPECIES, buffer, 0);
-		} else {
-			scores = ByteVector.broadcast(BSPECIES, (byte)-128);
+		final int startOffset=pos[0];
+		final int minOffset=startOffset-8;
+		if(!Shared.SIMD || rLen<BWIDTH || qLen==0 || startOffset==Integer.MIN_VALUE || qLen>255){
+			return countSubsScalarWindow(query, ref, pos, maxSubs);
 		}
 
-		// 3. The Main SIMD Loop
-		ByteVector ones = ByteVector.broadcast(BSPECIES, (byte)1);
-		ByteVector minusOne = ByteVector.broadcast(BSPECIES, (byte)-1);
-		VectorMask<Byte> overflowMask = scores.maskAll(false);
-
-		int limit = Math.min(qLen, rLen - BWIDTH - minOffset + 1);
-		int start = vecStart;
-
-		while(start < limit){
-			int processed = 0;
-			for(int i=0; i<64 && (start+i)<limit; i++){
-				ByteVector q = ByteVector.broadcast(BSPECIES, query[start+i]);
-				ByteVector r = ByteVector.fromArray(BSPECIES, ref, start+i+minOffset);
-				VectorMask<Byte> mismatchMask = q.compare(VectorOperators.NE, r);
-				scores = scores.add(ones, mismatchMask);
-				processed++;
+		ByteVector scores=ByteVector.broadcast(BSPECIES, (byte)-128);
+		final ByteVector one=ByteVector.broadcast(BSPECIES, (byte)1);
+		if(minOffset>=0 && (long)minOffset+qLen+BWIDTH-1<=rLen){
+			for(int i=0; i<qLen; i++){
+				final ByteVector q=ByteVector.broadcast(BSPECIES, query[i]);
+				final ByteVector r=ByteVector.fromArray(BSPECIES, ref, minOffset+i);
+				final VectorMask<Byte> mismatchMask=q.compare(VectorOperators.NE, r);
+				scores=scores.add(one, mismatchMask);
 			}
-			// Overflow check: GT -1 means we wrapped past 255 mismatches
-			VectorMask<Byte> newOverflows = scores.compare(VectorOperators.GT, minusOne);
-			overflowMask = overflowMask.or(newOverflows);
-			if(overflowMask.trueCount() == BWIDTH){ 
-				// System.err.println("Overflow in SIMD at start="+start); 
-				return qLen; 
-			}
-			start += processed;
-		}
-
-		// 4. Reduce to Find the Best Lane
-		VectorMask<Byte> validLanes = overflowMask.not();
-		long minScoreLong = scores.reduceLanesToLong(VectorOperators.MIN, validLanes);
-
-		if(!validLanes.anyTrue()) return qLen;
-
-		byte currentMinScore = (byte)minScoreLong;
-
-		// Identify the winning lane index
-		ByteVector indices = ByteVector.broadcast(BSPECIES, (byte)0).addIndex(1);
-		VectorMask<Byte> minLanes = scores.compare(VectorOperators.EQ, currentMinScore);
-		VectorMask<Byte> validMinLanes = minLanes.and(validLanes);
-
-		ByteVector maskedIndices = indices.blend((byte)127, validMinLanes.not());
-		long firstMinIndexLong = maskedIndices.reduceLanesToLong(VectorOperators.MIN);
-		int bestLane = (int)(firstMinIndexLong & 0xFF);
-
-		// 5. Smart Scalar Tail and Return
-		// Score Unpacking
-		int finalScore = (int)(currentMinScore) + 128; // Un-bias to 0..255
-
-		// Calculate the ACTUAL offset relative to reference start
-		// Lane 0 corresponds to minOffset. Lane X corresponds to minOffset + X.
-		int finalOffset = minOffset + bestLane;
-
-		// Run the tail with the correct offset
-		for(int i=start; i<qLen && finalScore < maxSubs; i++) {
-			int rIdx = i + finalOffset;
-			if(rIdx >= 0 && rIdx < rLen) {
-				if(query[i] != ref[rIdx]) {
-					finalScore++;
-				}
-			} else {
-				// Off the end is a mismatch
-				finalScore++;
+		}else{
+			for(int i=0; i<qLen; i++){
+				final ByteVector q=ByteVector.broadcast(BSPECIES, query[i]);
+				final int refStart=minOffset+i;
+				final VectorMask<Byte> validMask=BSPECIES.indexInRange(refStart, rLen);
+				final ByteVector r=ByteVector.fromArray(BSPECIES, ref, refStart, validMask);
+				final VectorMask<Byte> mismatchMask=
+						q.compare(VectorOperators.NE, r).or(validMask.not());
+				scores=scores.add(one, mismatchMask);
 			}
 		}
+		if(maxSubs<qLen){
+			final ByteVector maxScore=ByteVector.broadcast(BSPECIES,
+					(byte)(-128+Math.min(maxSubs, 255)));
+			scores=scores.min(maxScore);
+		}
 
-		// CRITICAL FIX: Return the absolute offset, not the relative lane index!
-		pos[0] = finalOffset;
-
-		return finalScore;
+		final byte bestScore=(byte)scores.reduceLanesToLong(VectorOperators.MIN);
+		final VectorMask<Byte> bestMask=scores.compare(VectorOperators.EQ, bestScore);
+		final int bestLane=bestMask.firstTrue();
+		pos[0]=minOffset+bestLane;
+		return bestScore+128;
 	}
-	
+
+	/**
+	 * Scores the scalar countSubs offset window.
+	 * The caller owns {@code query} and {@code ref}; only {@code pos[0]} is updated
+	 * with the selected offset. Short references, empty queries and unknown input
+	 * offsets use one exact scalar score; other inputs scan a {@link #BWIDTH}-wide
+	 * window around {@code pos[0]}.
+	 * @param query query bases to compare
+	 * @param ref reference bases to compare
+	 * @param pos input/output offset holder with at least one element
+	 * @param maxSubs maximum substitutions to count before a single offset saturates
+	 * @return minimum substitutions found in the scalar offset window
+	 */
+	private static int countSubsScalarWindow(byte[] query, byte[] ref, int[] pos, int maxSubs){
+		final int startOffset=pos[0];
+		if(ref.length<BWIDTH || query.length==0 || startOffset==Integer.MIN_VALUE){
+			final int offset=(startOffset==Integer.MIN_VALUE ? 0 : startOffset);
+			pos[0]=offset;
+			return countSubsScalar(query, ref, offset, maxSubs);
+		}
+
+		final int minOffset=startOffset-8;
+		int bestOffset=minOffset, bestScore=Integer.MAX_VALUE;
+		for(int lane=0; lane<BWIDTH; lane++){
+			final int offset=minOffset+lane;
+			final int score=countSubsScalar(query, ref, offset, maxSubs);
+			if(score<bestScore){
+				bestScore=score;
+				bestOffset=offset;
+			}
+		}
+		pos[0]=bestOffset;
+		return bestScore;
+	}
+
+	/**
+	 * Scores one countSubs offset, charging out-of-reference query bases as mismatches.
+	 * The offset may be negative or extend past {@code ref}.
+	 * @param query query bases to compare
+	 * @param ref reference bases to compare
+	 * @param offset reference offset for query base zero
+	 * @param maxSubs maximum substitutions to count before early exit
+	 * @return substitutions at the selected offset
+	 */
+	private static int countSubsScalar(byte[] query, byte[] ref, int offset, int maxSubs){
+		int subs=0;
+		for(int i=0, rLen=ref.length; i<query.length && subs<maxSubs; i++){
+			final int r=i+offset;
+			if(r<0 || r>=rLen || query[i]!=ref[r]){subs++;}
+		}
+		return subs;
+	}
+
 	/**
 	 * Aligns a sequence to a reference, with no indels.
 	 * Returns all positions containing fewer than maxSubs mismatches.
 	 * Appears broken due to lack of residual handling and AOOB exceptions.
+	 * @param query query bases to align
+	 * @param ref reference bases to scan
+	 * @param maxSubs maximum accepted substitutions
+	 * @return accepted offsets, or null when no offsets are accepted
 	 */
 	@Deprecated
 	public static final IntList alignDiagonal(byte[] query, byte[] ref, int maxSubs){
@@ -431,20 +380,20 @@ public class SIMDAlignByte {
 	    final int qLen=query.length;
 	    final int rLen=ref.length;
 	    IntList results=null;
-	    
+
 	    // Only return things under limit
 	    ByteVector limitV=ByteVector.broadcast(BSPECIES, (byte)(-128+maxSubs));
 	    // Vector of ones for incrementing scores
 	    ByteVector oneV=ByteVector.broadcast(BSPECIES, (byte)1);
-	    
+
 	    // Outer loop - slide window across reference
 	    for(int start=0; start<=rLen-qLen; start+=BWIDTH){
 	        // Initialize scores for this window
 	        ByteVector scoreV=ByteVector.broadcast(BSPECIES, (byte)-128);
-	        
+
 	        // How many lanes are valid for this window
-	        int validLanes = Math.min(BWIDTH, rLen-qLen-start+1);
-	        
+	        int validLanes=Math.min(BWIDTH, rLen-qLen-start+1);
+
 	        // Inner loop - process query
 	        VectorMask<Byte> underLimitMask=null;
 	        for(int i=0; i<qLen; i++){
@@ -452,7 +401,7 @@ public class SIMDAlignByte {
 	            ByteVector r=ByteVector.fromArray(BSPECIES, ref, start+i);
 	            VectorMask<Byte> mismatchMask=q.compare(VectorOperators.NE, r);
 	            scoreV=scoreV.add(oneV, mismatchMask);
-	            
+
 	            // Early exit if all valid lanes exceeded limit
 	            // This is the key optimization - one compare, one mask operation
 	            underLimitMask=scoreV.compare(VectorOperators.LE, limitV);
@@ -460,50 +409,53 @@ public class SIMDAlignByte {
 	                break; // All lanes have too many mismatches
 	            }
 	        }
-	        
+
 	        // Collect results - positions with score <= limitV
 	        VectorMask<Byte> successMask=scoreV.compare(VectorOperators.LE, limitV);
-	        
+
 	        // Add successful positions to results
-	        if(underLimitMask!=null && underLimitMask.anyTrue()) {
-	        	if(results==null) {results=new IntList();}
+	        if(underLimitMask!=null && underLimitMask.anyTrue()){
+			if(results==null){results=new IntList();}
 	        	for(int lane=0; lane<validLanes; lane++){
-	        		if(successMask.laneIsSet(lane)){
-	        			results.add(start + lane);
-	        		}
+				if(successMask.laneIsSet(lane)){results.add(start+lane);}
 	        	}
 	        }
 	    }
-	    
+
 	    return results;
 	}
-	
+
 	/**
 	 * Aligns a sequence to a reference, with no indels, supporting clipped alignments.
 	 * Returns all positions containing fewer than maxSubs mismatches.
 	 * Uses scalar loops for boundary conditions and SIMD for bulk processing.
-	 * @TODO Pad short contigs to avoid spending time in scalar mode
+	 * TODO: Pad short contigs to avoid spending time in scalar mode.
+	 * @param query query bases to align
+	 * @param ref reference bases to scan
+	 * @param maxSubs maximum accepted substitutions or paid clips
+	 * @param maxClips free clipping allowance
+	 * @return accepted offsets, or null when no offsets are accepted
 	 */
 	public static final IntList alignDiagonal(byte[] query, byte[] ref, int maxSubs, int maxClips){
 		assert(maxSubs<256) : "This method can only handle up to 255 substitutions.";
 		assert(maxClips<128) : "This method can only handle up to 127 clips.";
 		final int qLen=query.length;
 		final int rLen=ref.length;
+		if(qLen<1 || rLen<1){return null;}
 		IntList results=null;
 
-		// Calculate alignment range
-		final int startPos=-maxClips;
-		final int endPos=rLen-qLen+maxClips;
+		// Calculate alignment range.
+		final long budget=(long)maxSubs+maxClips;
+		final int startPos=(int)Math.max(1L-qLen, -budget);
+		final int endPos=(int)Math.min((long)rLen-1, (long)rLen-qLen+budget);
 
-		// Vector constants
-		ByteVector subLimitV=ByteVector.broadcast(BSPECIES, (byte)(-128+maxSubs));
-		ByteVector clipLimitV=ByteVector.broadcast(BSPECIES, (byte)(-128+maxClips));
-		ByteVector oneV=ByteVector.broadcast(BSPECIES, (byte)1);
-		ByteVector nV=ByteVector.broadcast(BSPECIES, (byte)'N');
+		// Vector constants.
+		final ByteVector subLimitV=ByteVector.broadcast(BSPECIES, (byte)(-128+maxSubs));
+		final ByteVector oneV=ByteVector.broadcast(BSPECIES, (byte)1);
 
 		int pos=startPos;
 
-		// Scalar pre-loop for negative positions (left clips)
+		// Scalar pre-loop for negative positions (left clips).
 		while(pos<0 && pos<=endPos){
 			int subs=alignClippedScalar(query, ref, maxSubs, maxClips, pos);
 			if(subs<=maxSubs){
@@ -513,47 +465,41 @@ public class SIMDAlignByte {
 			pos++;
 		}
 
-		// SIMD main loop - only process when we have enough reference data
-		final int maxSimdPos=rLen-qLen-BWIDTH+1;
+		// SIMD main loop - only process ranges whose byte counters cannot wrap.
+		final int maxSimdPos=(qLen>255 ? startPos-1 : rLen-qLen-BWIDTH+1);
 		while(pos<=endPos && pos<=maxSimdPos){
 			int validLanes=Math.min(BWIDTH, endPos-pos+1);
 			if(validLanes<=0){break;}
 
 			ByteVector subsV=ByteVector.broadcast(BSPECIES, (byte)-128);
-			ByteVector clipsV=ByteVector.broadcast(BSPECIES, (byte)-128);
 			VectorMask<Byte> underLimitMask=null;
 
 			for(int i=0; i<qLen; i++){
-				ByteVector q=ByteVector.broadcast(BSPECIES, query[i]);
-				ByteVector r=ByteVector.fromArray(BSPECIES, ref, pos+i);
-				VectorMask<Byte> diffMask=q.compare(VectorOperators.NE, r);
-				VectorMask<Byte> nMask=r.compare(VectorOperators.EQ, nV);
-				VectorMask<Byte> subMask=diffMask.andNot(nMask);
+				final byte qBase=query[i];
+				VectorMask<Byte> subMask;
+				ByteVector q=ByteVector.broadcast(BSPECIES, qBase);
+				if(AminoAcid.baseToNumber[qBase]<0){
+					subMask=q.compare(VectorOperators.EQ, q);
+				}else{
+					ByteVector r=ByteVector.fromArray(BSPECIES, ref, pos+i);
+					subMask=q.compare(VectorOperators.NE, r);
+				}
 
 				subsV=subsV.add(oneV, subMask);
-				clipsV=clipsV.add(oneV, nMask);
-
-				VectorMask<Byte> subOK=subsV.compare(VectorOperators.LE, subLimitV);
-				VectorMask<Byte> clipOK=clipsV.compare(VectorOperators.LE, clipLimitV);
-				underLimitMask=subOK.and(clipOK);
-				if(!underLimitMask.anyTrue()){
-					break;
-				}
+				underLimitMask=subsV.compare(VectorOperators.LE, subLimitV);
+				if(!underLimitMask.anyTrue()){break;}
 			}
 
 			if(underLimitMask!=null && underLimitMask.anyTrue()){
-				VectorMask<Byte> successMask=subsV.compare(VectorOperators.LE, subLimitV)
-					.and(clipsV.compare(VectorOperators.LE, clipLimitV));
+				VectorMask<Byte> successMask=subsV.compare(VectorOperators.LE, subLimitV);
 				if(results==null){results=new IntList();}
 				for(int lane=0; lane<validLanes; lane++){
-					if(successMask.laneIsSet(lane)){
-						results.add(pos+lane);
-					}
+					if(successMask.laneIsSet(lane)){results.add(pos+lane);}
 				}
 			}
 			pos+=BWIDTH;
 		}
-		
+
 		// Scalar post-loop for remaining positions
 		while(pos<=endPos){
 			int subs=alignClippedScalar(query, ref, maxSubs, maxClips, pos);
@@ -564,45 +510,40 @@ public class SIMDAlignByte {
 //			System.err.println("C: pos="+pos+", subs="+subs);
 			pos++;
 		}
-		
+
 //		System.err.println("Returning "+results);
 		return results;
 	}
 
-	// Helper method for scalar alignment without clipping
 	/**
-	 * Helper method for scalar alignment without clipping support.
-	 * Counts mismatches between query and reference starting at specified position.
-	 *
-	 * @param query Query sequence
-	 * @param ref Reference sequence
-	 * @param maxSubs Maximum substitutions before early termination
-	 * @param rStart Starting position in reference sequence
-	 * @return Number of substitutions found
+	 * Counts mismatches against an unclipped reference interval.
+	 * The caller owns both arrays and must keep
+	 * {@code 0 <= rStart <= rStart+query.length <= ref.length}.
+	 * @param query query bases to align
+	 * @param ref reference bases to compare
+	 * @param maxSubs highest accepted substitution count
+	 * @param rStart starting reference index
+	 * @return observed substitutions, or {@code maxSubs+1} after early exit
 	 */
-	private static int alignScalar(byte[] query, byte[] ref, int maxSubs, int rStart) {
-	    int subs = 0;
-	    for(int i = 0, j = rStart; i < query.length && subs <= maxSubs; i++, j++) {
-	        final byte q = query[i], r = ref[j];
-	        if(q != r || AminoAcid.baseToNumber[q] < 0) {
-	            subs++;
-	        }
-	    }
-	    return subs;
+	private static int alignScalar(byte[] query, byte[] ref, int maxSubs, int rStart){
+		int subs=0;
+		for(int i=0, j=rStart; i<query.length && subs<=maxSubs; i++, j++){
+			final byte q=query[i], r=ref[j];
+			if(q!=r || AminoAcid.baseToNumber[q]<0){subs++;}
+		}
+		return subs;
 	}
 
-	// Helper method for scalar clipped alignment with proper clipping penalties
 	/**
-	 * Helper method for scalar clipped alignment with proper clipping penalties.
-	 * Handles alignments that extend beyond reference boundaries by applying
-	 * clipping penalties and counting excess clipping as substitutions.
-	 *
-	 * @param query Query sequence
-	 * @param ref Reference sequence
-	 * @param maxSubs Maximum substitutions allowed
-	 * @param maxClips Maximum clipping allowed before penalty
-	 * @param rStart Starting position in reference (may be negative for left clipping)
-	 * @return Total penalty score including substitutions and excess clipping
+	 * Counts mismatches for a clipped query/reference overlap.
+	 * Negative starts and right overhangs are supported; clipping beyond
+	 * {@code maxClips} is charged as substitutions.
+	 * @param query query bases to align
+	 * @param ref reference bases to compare
+	 * @param maxSubs maximum substitutions to count before early exit
+	 * @param maxClips free clipped bases before clipping starts scoring
+	 * @param rStart unclipped starting reference index
+	 * @return substitutions plus excess clipping, capped only by early exit
 	 */
 	private static int alignClippedScalar(byte[] query, byte[] ref, int maxSubs, int maxClips, int rStart){
 		final int rStop1=rStart+query.length;
@@ -612,7 +553,7 @@ public class SIMDAlignByte {
 		if(clips>=query.length){return query.length;}
 		int subs=Math.max(0, clips-maxClips); // Excess clipping counts as substitutions
 		int i=leftClip, j=rStart+leftClip;
-		
+
 		for(final int limit=Math.min(rStop1, ref.length); j<limit && subs<=maxSubs; i++, j++){
 			final byte q=query[i], r=ref[j];
 			final int incr=(q!=r || AminoAcid.baseToNumber[q]<0 ? 1 : 0);
@@ -623,7 +564,7 @@ public class SIMDAlignByte {
 
 	//	public static void processDeletionsTailVector(byte[] curr, int bandStart, int bandEnd) {
 	//	    final int maxDist = BWIDTH/2;
-	//	    
+	//
 	//	    // Initialize with scalar code up to the point where vector access is safe
 	//	    byte leftCell = curr[bandStart-1];
 	//	    for(int j = bandStart; j < bandStart+maxDist; j++) {
@@ -634,29 +575,29 @@ public class SIMDAlignByte {
 	//	            curr[j] = leftCell;
 	//	        }
 	//	    }
-	//	    
+	//
 	//	    // Main vector processing loop - only when we have safe access
 	//	    for(int j = bandStart+maxDist; j <= bandEnd-(BWIDTH-1); j += BWIDTH) {
 	//	        // Load the current vector
 	//	        ByteVector currVec = ByteVector.fromArray(BSPECIES, curr, j);
-	//	        
+	//
 	//	        // For each vector position, apply shell sort pattern of decreasing distances
 	//	        for(int dist = maxDist; dist > 0; dist /= 2) {
 	//	            // Load values from distance positions back
 	//	            ByteVector leftVec = ByteVector.fromArray(BSPECIES, curr, j-dist);
-	//	            
+	//
 	//	            // Add appropriate penalty (DEL*dist)
 	//	            ByteVector penaltyVec = ByteVector.broadcast(BSPECIES, (byte)(DEL*dist));
 	//	            ByteVector leftScoreVec = leftVec.add(penaltyVec);
-	//	            
+	//
 	//	            // Update current vector with maximums
 	//	            currVec = currVec.max(leftScoreVec);
 	//	        }
-	//	        
+	//
 	//	        // Store updated vector
 	//	        currVec.intoArray(curr, j);
 	//	    }
-	//	    
+	//
 	//	    // Handle remaining elements with scalar code
 	//	    for(int j = bandEnd-(bandEnd-bandStart+1)%BWIDTH+1; j <= bandEnd; j++) {
 	//	        // Apply the same shell sort approach to remaining elements
@@ -670,6 +611,7 @@ public class SIMDAlignByte {
 	//	    }
 	//	}
 
+	//TODO: Possible bug [simd/SIMDAlignByte#001] - SIMD shell-propagation (power-of-2 distances, non-progressive reads) diverges from the exact max-plus deletion scan used by BandedByteAligner's non-SIMD branch; empirically proven to under-propagate on realistic bands.  Benchmark-only reachability (BandedByteAligner -> AlignRandom; not used by production Factory aligners).  See bug_reports/simd/SIMDAlignByte.md.
 	/**
 	 * Processes deletion operations in alignment using vectorized shell sort approach.
 	 * Applies decreasing distance penalties to handle deletion gaps efficiently.
@@ -679,52 +621,94 @@ public class SIMDAlignByte {
 	 * @param bandStart Starting position of the alignment band
 	 * @param bandEnd Ending position of the alignment band
 	 */
-	//TODO: Possible bug [simd/SIMDAlignByte#001] - SIMD shell-propagation (power-of-2 distances, non-progressive reads) diverges from the exact max-plus deletion scan used by BandedByteAligner's non-SIMD branch; empirically proven to under-propagate on realistic bands.  Benchmark-only reachability (BandedByteAligner -> AlignRandom; not used by production Factory aligners).  See bug_reports/simd/SIMDAlignByte.md.
-	public static void processDeletionsTailVector(byte[] curr, int bandStart, int bandEnd) {
-		final int maxDist = BWIDTH/2;
+	public static void processDeletionsTailVector(byte[] curr, int bandStart, int bandEnd){
+		final int maxDist=BWIDTH/2;
 
 		// Initialize with scalar code for the boundary conditions
-		byte leftCell = curr[bandStart-1];
-		int lastProcessed = bandStart - 1;  // Track what we've processed
+		byte leftCell=curr[bandStart-1];
+		int lastProcessed=bandStart-1;  // Track what we've processed
 
-		for(int j = bandStart; j < bandStart+maxDist && j <= bandEnd; j++) {
-			final byte maxDiagUp = curr[j];
-			final byte leftScore = (byte)(leftCell + DEL);
-			leftCell = (byte)Math.max(maxDiagUp, leftScore);
-			curr[j] = leftCell;
-			lastProcessed = j;
+		for(int j=bandStart; j<bandStart+maxDist && j<=bandEnd; j++){
+			final byte maxDiagUp=curr[j];
+			final byte leftScore=(byte)(leftCell+DEL);
+			leftCell=(byte)Math.max(maxDiagUp, leftScore);
+			curr[j]=leftCell;
+			lastProcessed=j;
 		}
 
 		// Main vector processing loop
-		for(int j = bandStart; j <= bandEnd-(BWIDTH-1); j += BWIDTH) {
+		for(int j=bandStart; j<=bandEnd-(BWIDTH-1); j+=BWIDTH){
 			// Load the current vector
-			ByteVector currVec = ByteVector.fromArray(BSPECIES, curr, j);
+			ByteVector currVec=ByteVector.fromArray(BSPECIES, curr, j);
 
 			// For each vector position, apply shell sort pattern of decreasing distances
-			for(int dist = maxDist; dist > 0; dist /= 2) {
-				if(j-dist >= bandStart-1) {
-					ByteVector leftVec = ByteVector.fromArray(BSPECIES, curr, j-dist);
-					ByteVector penaltyVec = ByteVector.broadcast(BSPECIES, (byte)(DEL*dist));
-					ByteVector leftScoreVec = leftVec.add(penaltyVec);
-					currVec = currVec.max(leftScoreVec);
+			for(int dist=maxDist; dist>0; dist/=2){
+				if(j-dist>=bandStart-1){
+					ByteVector leftVec=ByteVector.fromArray(BSPECIES, curr, j-dist);
+					ByteVector penaltyVec=ByteVector.broadcast(BSPECIES, (byte)(DEL*dist));
+					ByteVector leftScoreVec=leftVec.add(penaltyVec);
+					currVec=currVec.max(leftScoreVec);
 				}
 			}
 
 			// Store updated vector
 			currVec.intoArray(curr, j);
-			lastProcessed = j + BWIDTH - 1;  // We processed up through here
+			lastProcessed=j+BWIDTH-1;  // We processed up through here
 		}
 
 		// Handle remaining elements with scalar code
-		for(int j = lastProcessed + 1; j <= bandEnd; j++) {
-			for(int dist = maxDist; dist > 0; dist /= 2) {
-				if(j-dist >= bandStart-1) {
-					byte leftValue = curr[j-dist];
-					byte leftScore = (byte)(leftValue + DEL*dist);
-					curr[j] = (byte)Math.max(curr[j], leftScore);
+		for(int j=lastProcessed+1; j<=bandEnd; j++){
+			for(int dist=maxDist; dist>0; dist/=2){
+				if(j-dist>=bandStart-1){
+					byte leftValue=curr[j-dist];
+					byte leftScore=(byte)(leftValue+DEL*dist);
+					curr[j]=(byte)Math.max(curr[j], leftScore);
 				}
 			}
 		}
 	}
 
+	/*--------------------------------------------------------------*/
+	/*----------------          Constants           ----------------*/
+	/*--------------------------------------------------------------*/
+
+
+	//Example from https://medium.com/@Styp/java-18-vector-api-do-we-get-free-speed-up-c4510eda50d2
+	/** Vector species for 256-bit float vectors, used for SIMD float operations */
+	private static final VectorSpecies<Float> FSPECIES=FloatVector.SPECIES_256;//FloatVector.SPECIES_PREFERRED; //This needs to be final or performance drops.
+	/** Number of float elements that fit in a 256-bit vector (8 floats) */
+	private static final int FWIDTH=FSPECIES.length();
+	//		private static final int boundMask=~(FWIDTH-1);
+
+	/** Vector species for 256-bit byte vectors, used for SIMD byte operations */
+	private static final VectorSpecies<Byte> BSPECIES=ByteVector.SPECIES_256;
+	/** Number of byte elements that fit in a 256-bit vector (32 bytes) */
+	private static final int BWIDTH=BSPECIES.length();
+
+	/**
+	 * Vector species for 256-bit integer vectors, used for SIMD integer operations
+	 */
+	private static final VectorSpecies<Integer> ISPECIES=IntVector.SPECIES_256;
+	/** Number of integer elements that fit in a 256-bit vector (8 integers) */
+	private static final int IWIDTH=ISPECIES.length();
+
+	/** Vector species for 256-bit short vectors, used for SIMD short operations */
+	private static final VectorSpecies<Short> SSPECIES=ShortVector.SPECIES_256;
+	/** Number of short elements that fit in a 256-bit vector (16 shorts) */
+	private static final int SWIDTH=SSPECIES.length();
+
+	/**
+	 * Vector species for 256-bit double vectors, used for SIMD double operations
+	 */
+	private static final VectorSpecies<Double> DSPECIES=DoubleVector.SPECIES_256;
+	/** Number of double elements that fit in a 256-bit vector (4 doubles) */
+	private static final int DWIDTH=DSPECIES.length();
+
+	/** Vector species for 256-bit long vectors, used for SIMD long operations */
+	private static final VectorSpecies<Long> LSPECIES=LongVector.SPECIES_256;
+	/** Number of long elements that fit in a 256-bit vector (4 longs) */
+	private static final int LWIDTH=LSPECIES.length();
+
+	/** Score awarded for matching bases in alignment (1 point) */
+	private static final byte MATCH=1, N_SCORE=0, SUB=-1, INS=-1, DEL=-1;
 }

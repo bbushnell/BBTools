@@ -10,75 +10,30 @@ import jdk.incubator.vector.VectorMask;
 import jdk.incubator.vector.VectorOperators;
 import jdk.incubator.vector.VectorSpecies;
 
-/** 
- * Holds SIMD methods for alignment.
+/**
+ * Vector-API alignment kernels and experiments for nucleotide band dynamic
+ * programming.
+ *
+ * <p>Most methods in this file are historical prototypes. Production callers
+ * should use only kernels with a named correctness record in the SIMD review.
+ * Score entries pack the DP score into the high bits of a {@code long}, while
+ * deletion-aware paths use the low bits to carry gap-extension state.</p>
+ *
  * @author Brian Bushnell
  * @contributor Isla
  * @date May 12, 2025
- *
  */
-public class SIMDAlign {
+public class SIMDAlign{
+	/*--------------------------------------------------------------*/
+	/*----------------        Initialization        ----------------*/
+	/*--------------------------------------------------------------*/
 
-	//Example from https://medium.com/@Styp/java-18-vector-api-do-we-get-free-speed-up-c4510eda50d2
-	/** Vector species for 256-bit Float operations */
-	@SuppressWarnings("restriction")
-	private static final VectorSpecies<Float> FSPECIES=FloatVector.SPECIES_256;//FloatVector.SPECIES_PREFERRED; //This needs to be final or performance drops.
-	/** Vector width (lane count) for Float operations */
-	private static final int FWIDTH=FSPECIES.length();
-	//		private static final int boundMask=~(FWIDTH-1);
+	/** Constructs an alignment helper instance. */
+	public SIMDAlign(){}
 
-	/** Vector species for 256-bit Byte operations */
-	@SuppressWarnings("restriction")
-	private static final VectorSpecies<Byte> BSPECIES=ByteVector.SPECIES_256;
-	/** Vector width (lane count) for Byte operations */
-	private static final int BWIDTH=BSPECIES.length();
-
-	/** Vector species for 256-bit Integer operations */
-	@SuppressWarnings("restriction")
-	private static final VectorSpecies<Integer> ISPECIES=IntVector.SPECIES_256;
-	/** Vector width (lane count) for Integer operations */
-	private static final int IWIDTH=ISPECIES.length();
-
-	/** Vector species for 256-bit Short operations */
-	@SuppressWarnings("restriction")
-	private static final VectorSpecies<Short> SSPECIES=ShortVector.SPECIES_256;
-	/** Vector width (lane count) for Short operations */
-	private static final int SWIDTH=SSPECIES.length();
-
-	/** Vector species for 256-bit Double operations */
-	@SuppressWarnings("restriction")
-	private static final VectorSpecies<Double> DSPECIES=DoubleVector.SPECIES_256;
-	/** Vector width (lane count) for Double operations */
-	private static final int DWIDTH=DSPECIES.length();
-
-	/** Vector species for 256-bit Long operations */
-	@SuppressWarnings("restriction")
-	private static final VectorSpecies<Long> LSPECIES=LongVector.SPECIES_256;
-	/** Vector width (lane count) for Long operations */
-	private static final int LWIDTH=LSPECIES.length();
-
-	/** Score penalty for insertions encoded in upper bits */
-	/** Score penalty for substitutions encoded in upper bits */
-	/** Score value for ambiguous nucleotide positions */
-	/** Score value for sequence matches encoded in upper bits */
-	private static final long MATCH=1L<<42, N_SCORE=0, SUB=(-1L)<<42, INS=(-1L)<<42;
-	/** Score penalty for deletions with gap extension tracking in lower bits */
-	private static final long DEL=((-1L)<<42)|((1L)<<21);
-	/** Bit mask for extracting score portion from encoded alignment values */
-	private static final long SCORE_MASK=((-1L)<<42);
-	/** Debug flag for verbose alignment tracing */
-	private static final boolean debug=false;
-	
-	/** Vectorized match score constant */
-	private static final LongVector vMATCH=LongVector.broadcast(LSPECIES, MATCH);
-	/** Vectorized N score constant */
-	private static final LongVector vN_SCORE=LongVector.broadcast(LSPECIES, N_SCORE);
-	/** Vectorized substitution penalty constant */
-	private static final LongVector vSUB=LongVector.broadcast(LSPECIES, SUB);
-	/** Vectorized insertion penalty constant */
-	private static final LongVector vINS=vSUB;//LongVector.broadcast(LSPECIES, INS);
-	/** Vectorized constant for N-base detection (value 15) */
-	private static final LongVector v15=LongVector.broadcast(LSPECIES, 15);
+	/*--------------------------------------------------------------*/
+	/*----------------        Static Methods        ----------------*/
+	/*--------------------------------------------------------------*/
 
 	//Comprehension (applies to the whole alignBandVector* family): the SIMD path scores match/N differently from this
 	//family's own scalar fallback, yet is equivalent under the fixed base encoding. SIMD uses isMatch=(q==r) and
@@ -88,12 +43,20 @@ public class SIMDAlign {
 	//If that encoding is ever violated (a 0/gap base, an IUPAC multi-bit base, or ref-N stored as 15), SIMD and the
 	//scalar tail would diverge on the same aligner call (band>=LWIDTH vs <LWIDTH). The processCrossCutDiagonal* family
 	//instead uses the simplified (q==r)/((q|r)>15) in BOTH its SIMD and scalar paths - consistent by construction.
-	/** Designed to eliminate scalar loop by reprocessing some final elements */
-	public static void alignBandVector(long q, long[] ref, int bandStart, int bandEnd, 
+	/**
+	 * Processes one DP row with a final overlapping vector instead of a scalar tail.
+	 * @param q encoded query base for this row
+	 * @param ref encoded reference bases
+	 * @param bandStart first band cell to write, inclusive
+	 * @param bandEnd last band cell to write, inclusive
+	 * @param prev previous DP row
+	 * @param curr current DP row to populate
+	 */
+	public static void alignBandVector(long q, long[] ref, int bandStart, int bandEnd,
 			long[] prev, long[] curr){
 
 		// Calculate range size
-		final int rangeSize = bandEnd - bandStart + 1;
+		final int rangeSize=bandEnd-bandStart+1;
 
 		// Broadcast constants to vectors
 		final LongVector vq=LongVector.broadcast(LSPECIES, q);
@@ -170,15 +133,20 @@ public class SIMDAlign {
 		}
 	}
 
-
-
-	/** Designed to eliminate scalar loop by reprocessing some final elements 
-	 * Handles deletions 
-	 * TODOL Fails on Glocal+5 with input "AAAA" "AAGAA" */
-	public static void alignBandVectorDel(long q, long[] ref, int bandStart, int bandEnd, 
+	/**
+	 * Processes one DP row with inline deletion propagation.
+	 * Fails on Glocal+5 with input "AAAA" "AAGAA".
+	 * @param q encoded query base for this row
+	 * @param ref encoded reference bases
+	 * @param bandStart first band cell to write, inclusive
+	 * @param bandEnd last band cell to write, inclusive
+	 * @param prev previous DP row
+	 * @param curr current DP row to populate
+	 */
+	public static void alignBandVectorDel(long q, long[] ref, int bandStart, int bandEnd,
 			long[] prev, long[] curr){
 		// Calculate range size
-		final int rangeSize = bandEnd - bandStart + 1;
+		final int rangeSize=bandEnd-bandStart+1;
 
 		// Broadcast constants to vectors
 		final LongVector vq=LongVector.broadcast(LSPECIES, q);
@@ -290,52 +258,63 @@ public class SIMDAlign {
 				final boolean hasN=(q==15 || r==31);
 				final long scoreAdd=isMatch?MATCH:(hasN?N_SCORE:SUB);
 
-				final long pj1 = prev[j-1], pj = prev[j], cj1=curr[j-1];
-				final long diagScore = pj1 + scoreAdd;
-				final long upScore = pj + INS;
-				final long leftScore = cj1+DEL;
+				final long pj1=prev[j-1], pj=prev[j], cj1=curr[j-1];
+				final long diagScore=pj1+scoreAdd;
+				final long upScore=pj+INS;
+				final long leftScore=cj1+DEL;
 
-				long score = Math.max(leftScore, Math.max(diagScore, upScore));
-				curr[j] = score;
+				long score=Math.max(leftScore, Math.max(diagScore, upScore));
+				curr[j]=score;
 			}
 		}
 	}
 
-	/** 
-	 * Vector implementation that also tracks and returns the position of maximum score
-	 * @return Position of the maximum score in the processed band
+	/**
+	 * Vector implementation that also tracks and returns the position of maximum score.
+	 * @param q encoded query base for this row
+	 * @param ref encoded reference bases
+	 * @param bandStart first band cell to write, inclusive
+	 * @param bandEnd last band cell to write, inclusive
+	 * @param prev previous DP row
+	 * @param curr current DP row to populate
+	 * @param MATCH match score
+	 * @param N_SCORE N-base score
+	 * @param SUB substitution penalty
+	 * @param INS insertion penalty
+	 * @param SCORE_MASK mask selecting packed score bits
+	 * @return position of the maximum score in the processed band
 	 */
-	public static int alignBandVectorAndReturnMaxPos(long q, long[] ref, int bandStart, int bandEnd, 
-			long[] prev, long[] curr, 
-			long MATCH, long N_SCORE, long SUB, long INS, long SCORE_MASK) {
+	public static int alignBandVectorAndReturnMaxPos(long q, long[] ref, int bandStart, int bandEnd,
+			long[] prev, long[] curr,
+			long MATCH, long N_SCORE, long SUB, long INS, long SCORE_MASK){
 
 		// Calculate range size
-		final int rangeSize = bandEnd - bandStart + 1;
+		final int rangeSize=bandEnd-bandStart+1;
 
 		// Initialize tracking vectors for max score and position
-		LongVector maxScoreVec = LongVector.broadcast(LSPECIES, Long.MIN_VALUE);
-		LongVector maxPosVec = LongVector.broadcast(LSPECIES, -1);
+		LongVector maxScoreVec=LongVector.broadcast(LSPECIES, Long.MIN_VALUE);
+		LongVector maxPosVec=LongVector.broadcast(LSPECIES, -1);
 
 		// Create initial position vector (0,1,2,3...)
-		long[] posInit = new long[LWIDTH];
-		for(int i=0; i<LWIDTH; i++) posInit[i] = i;
-		LongVector posTemplate = LongVector.fromArray(LSPECIES, posInit, 0);
+		long[] posInit=new long[LWIDTH];
+		for(int i=0; i<LWIDTH; i++){posInit[i]=i;}
+		LongVector posTemplate=LongVector.fromArray(LSPECIES, posInit, 0);
 
 		// Broadcast constants to vectors
-		final LongVector vq = LongVector.broadcast(LSPECIES, q);
-		final LongVector vMATCH = LongVector.broadcast(LSPECIES, MATCH);
-		final LongVector vN_SCORE = LongVector.broadcast(LSPECIES, N_SCORE);
-		final LongVector vSUB = LongVector.broadcast(LSPECIES, SUB);
-		final LongVector vINS = LongVector.broadcast(LSPECIES, INS);
-		final LongVector v15 = LongVector.broadcast(LSPECIES, 15);
-		final LongVector vSCORE_MASK = LongVector.broadcast(LSPECIES, SCORE_MASK);
+		final LongVector vq=LongVector.broadcast(LSPECIES, q);
+		final LongVector vMATCH=LongVector.broadcast(LSPECIES, MATCH);
+		final LongVector vN_SCORE=LongVector.broadcast(LSPECIES, N_SCORE);
+		final LongVector vSUB=LongVector.broadcast(LSPECIES, SUB);
+		final LongVector vINS=LongVector.broadcast(LSPECIES, INS);
+		final LongVector v15=LongVector.broadcast(LSPECIES, 15);
+		final LongVector vSCORE_MASK=LongVector.broadcast(LSPECIES, SCORE_MASK);
 
 		// If range is at least one vector wide
-		if(rangeSize >= LWIDTH) {
+		if(rangeSize>=LWIDTH){
 			// Process all complete vector blocks except the final one
-			for(int j=bandStart; j<bandEnd-(LWIDTH-2); j+=LWIDTH) {
+			for(int j=bandStart; j<bandEnd-(LWIDTH-2); j+=LWIDTH){
 				// Load reference values
-				LongVector refVec = LongVector.fromArray(LSPECIES, ref, j-1);
+				LongVector refVec=LongVector.fromArray(LSPECIES, ref, j-1);
 
 				// Match condition calculation
 				VectorMask<Long> isMatchMask=vq.compare(VectorOperators.EQ, refVec);
@@ -344,39 +323,39 @@ public class SIMDAlign {
 				VectorMask<Long> hasNMask=vq.or(refVec).compare(VectorOperators.GE, v15);
 
 				// Combined blend operations
-				LongVector scoreAddVec = vSUB.blend(vMATCH, isMatchMask).blend(vN_SCORE, hasNMask);
+				LongVector scoreAddVec=vSUB.blend(vMATCH, isMatchMask).blend(vN_SCORE, hasNMask);
 
 				// Load previous scores
-				LongVector prevJ1Vec = LongVector.fromArray(LSPECIES, prev, j-1);
-				LongVector prevJVec = LongVector.fromArray(LSPECIES, prev, j);
+				LongVector prevJ1Vec=LongVector.fromArray(LSPECIES, prev, j-1);
+				LongVector prevJVec=LongVector.fromArray(LSPECIES, prev, j);
 
 				// Calculate scores and find max
-				LongVector diagScoreVec = prevJ1Vec.add(scoreAddVec);
-				LongVector upScoreVec = prevJVec.add(vINS);
-				LongVector maxVec = diagScoreVec.max(upScoreVec);
+				LongVector diagScoreVec=prevJ1Vec.add(scoreAddVec);
+				LongVector upScoreVec=prevJVec.add(vINS);
+				LongVector maxVec=diagScoreVec.max(upScoreVec);
 
 				// Store results
 				maxVec.intoArray(curr, j);
 
 				// Extract score part for comparison (apply mask)
-				LongVector scorePart = maxVec.and(vSCORE_MASK);
+				LongVector scorePart=maxVec.and(vSCORE_MASK);
 
 				// Calculate position vector for this chunk (j, j+1, j+2...)
-				LongVector posVec = posTemplate.add(j);
+				LongVector posVec=posTemplate.add(j);
 
 				// Find elements where current scores > max scores
-				VectorMask<Long> betterMask = scorePart.compare(VectorOperators.GT, maxScoreVec);
+				VectorMask<Long> betterMask=scorePart.compare(VectorOperators.GT, maxScoreVec);
 
 				// Update tracking vectors where better scores found
-				maxScoreVec = maxScoreVec.blend(scorePart, betterMask);
-				maxPosVec = maxPosVec.blend(posVec, betterMask);
+				maxScoreVec=maxScoreVec.blend(scorePart, betterMask);
+				maxPosVec=maxPosVec.blend(posVec, betterMask);
 			}
 
 			// Process the final block with a vector, aligned to include the last element
-			final int lastVectorStart = Math.max(bandStart, bandEnd+1-LWIDTH);
+			final int lastVectorStart=Math.max(bandStart, bandEnd+1-LWIDTH);
 
 			// Load reference values for final vector
-			LongVector refVec = LongVector.fromArray(LSPECIES, ref, lastVectorStart-1);
+			LongVector refVec=LongVector.fromArray(LSPECIES, ref, lastVectorStart-1);
 
 			// Match condition calculation
 			VectorMask<Long> isMatchMask=vq.compare(VectorOperators.EQ, refVec);
@@ -385,49 +364,49 @@ public class SIMDAlign {
 			VectorMask<Long> hasNMask=vq.or(refVec).compare(VectorOperators.GE, v15);
 
 			// Combined blend operations
-			LongVector scoreAddVec = vSUB.blend(vMATCH, isMatchMask).blend(vN_SCORE, hasNMask);
+			LongVector scoreAddVec=vSUB.blend(vMATCH, isMatchMask).blend(vN_SCORE, hasNMask);
 
 			// Load previous scores
-			LongVector prevJ1Vec = LongVector.fromArray(LSPECIES, prev, lastVectorStart-1);
-			LongVector prevJVec = LongVector.fromArray(LSPECIES, prev, lastVectorStart);
+			LongVector prevJ1Vec=LongVector.fromArray(LSPECIES, prev, lastVectorStart-1);
+			LongVector prevJVec=LongVector.fromArray(LSPECIES, prev, lastVectorStart);
 
 			// Calculate scores and find max
-			LongVector diagScoreVec = prevJ1Vec.add(scoreAddVec);
-			LongVector upScoreVec = prevJVec.add(vINS);
-			LongVector maxVec = diagScoreVec.max(upScoreVec);
+			LongVector diagScoreVec=prevJ1Vec.add(scoreAddVec);
+			LongVector upScoreVec=prevJVec.add(vINS);
+			LongVector maxVec=diagScoreVec.max(upScoreVec);
 
 			// Store results
 			maxVec.intoArray(curr, lastVectorStart);
 
 			// Extract score part for comparison (apply mask)
-			LongVector scorePart = maxVec.and(vSCORE_MASK);
+			LongVector scorePart=maxVec.and(vSCORE_MASK);
 
 			// Calculate position vector for this chunk
-			LongVector posVec = posTemplate.add(lastVectorStart);
+			LongVector posVec=posTemplate.add(lastVectorStart);
 
 			// Find elements where current scores > max scores
-			VectorMask<Long> betterMask = scorePart.compare(VectorOperators.GT, maxScoreVec);
+			VectorMask<Long> betterMask=scorePart.compare(VectorOperators.GT, maxScoreVec);
 
 			// Update tracking vectors where better scores found
-			maxScoreVec = maxScoreVec.blend(scorePart, betterMask);
-			maxPosVec = maxPosVec.blend(posVec, betterMask);
-		} else {
+			maxScoreVec=maxScoreVec.blend(scorePart, betterMask);
+			maxPosVec=maxPosVec.blend(posVec, betterMask);
+		}else{
 			// Range too small for vector processing, use scalar code
-			long maxScore = Long.MIN_VALUE;
-			int maxPos = -1;
+			long maxScore=Long.MIN_VALUE;
+			int maxPos=-1;
 
-			for(int j=bandStart; j<=bandEnd; j++) {
-				final long r = ref[j-1];
-				final boolean isMatch = ((q&r)>0 && q==r);
-				final boolean hasN = (q==15 || r==31);
-				final long scoreAdd = isMatch ? MATCH : (hasN ? N_SCORE : SUB);
+			for(int j=bandStart; j<=bandEnd; j++){
+				final long r=ref[j-1];
+				final boolean isMatch=((q&r)>0 && q==r);
+				final boolean hasN=(q==15 || r==31);
+				final long scoreAdd=isMatch ? MATCH : (hasN ? N_SCORE : SUB);
 
-				final long pj1 = prev[j-1], pj = prev[j];
-				final long diagScore = pj1 + scoreAdd;
-				final long upScore = pj + INS;
+				final long pj1=prev[j-1], pj=prev[j];
+				final long diagScore=pj1+scoreAdd;
+				final long upScore=pj+INS;
 
-				long score = Math.max(diagScore, upScore);
-				curr[j] = score;
+				long score=Math.max(diagScore, upScore);
+				curr[j]=score;
 
 				// Track maximum score
 				final boolean better=((score&SCORE_MASK)>maxScore);
@@ -439,60 +418,64 @@ public class SIMDAlign {
 		}
 
 		// Now find position of max score in the tracking vectors
-		long[] maxScores = new long[LWIDTH];
-		long[] maxPositions = new long[LWIDTH];
+		long[] maxScores=new long[LWIDTH];
+		long[] maxPositions=new long[LWIDTH];
 		maxScoreVec.intoArray(maxScores, 0);
 		maxPosVec.intoArray(maxPositions, 0);
 
 		// Find max element in reduced vector
-		long globalMax = Long.MIN_VALUE;
-		int maxPos = -1;
+		long globalMax=Long.MIN_VALUE;
+		int maxPos=-1;
 
-		for(int i=0; i<LWIDTH; i++) {
-			if(maxScores[i] > globalMax) {
-				globalMax = maxScores[i];
-				maxPos = (int)maxPositions[i];
+		for(int i=0; i<LWIDTH; i++){
+			if(maxScores[i]>globalMax){
+				globalMax=maxScores[i];
+				maxPos=(int)maxPositions[i];
 			}
 		}
 
 		return maxPos;
 	}
 
-
-
-	/** 
-	 * Vector implementation that also tracks and returns the position of maximum score
-	 * @return Position of the maximum score in the processed band
+	/**
+	 * Vector implementation that also tracks and returns the position of maximum score.
+	 * @param q encoded query base for this row
+	 * @param ref encoded reference bases
+	 * @param bandStart first band cell to write, inclusive
+	 * @param bandEnd last band cell to write, inclusive
+	 * @param prev previous DP row
+	 * @param curr current DP row to populate
+	 * @return position of the maximum score in the processed band
 	 */
-	public static int alignBandVectorAndReturnMaxPos(long q, long[] ref, int bandStart, int bandEnd, 
-			long[] prev, long[] curr) {
+	public static int alignBandVectorAndReturnMaxPos(long q, long[] ref, int bandStart, int bandEnd,
+			long[] prev, long[] curr){
 
 		// Calculate range size
-		final int rangeSize = bandEnd - bandStart + 1;
+		final int rangeSize=bandEnd-bandStart+1;
 
 		// Initialize tracking vectors for max score and position
-		LongVector maxScoreVec = LongVector.broadcast(LSPECIES, Long.MIN_VALUE);
-		LongVector maxPosVec = LongVector.broadcast(LSPECIES, -1);
+		LongVector maxScoreVec=LongVector.broadcast(LSPECIES, Long.MIN_VALUE);
+		LongVector maxPosVec=LongVector.broadcast(LSPECIES, -1);
 
 		// Create initial position vector (0,1,2,3...)
-		long[] posInit = new long[LWIDTH];
-		for(int i=0; i<LWIDTH; i++) posInit[i] = i;
-		LongVector posTemplate = LongVector.fromArray(LSPECIES, posInit, 0);
+		long[] posInit=new long[LWIDTH];
+		for(int i=0; i<LWIDTH; i++){posInit[i]=i;}
+		LongVector posTemplate=LongVector.fromArray(LSPECIES, posInit, 0);
 
 		// Broadcast constants to vectors
-		final LongVector vq = LongVector.broadcast(LSPECIES, q);
-		final LongVector vMATCH = LongVector.broadcast(LSPECIES, MATCH);
-		final LongVector vN_SCORE = LongVector.broadcast(LSPECIES, N_SCORE);
-		final LongVector vSUB = LongVector.broadcast(LSPECIES, SUB);
-		final LongVector vINS = vSUB;
-		final LongVector v15 = LongVector.broadcast(LSPECIES, 15);
+		final LongVector vq=LongVector.broadcast(LSPECIES, q);
+		final LongVector vMATCH=LongVector.broadcast(LSPECIES, MATCH);
+		final LongVector vN_SCORE=LongVector.broadcast(LSPECIES, N_SCORE);
+		final LongVector vSUB=LongVector.broadcast(LSPECIES, SUB);
+		final LongVector vINS=vSUB;
+		final LongVector v15=LongVector.broadcast(LSPECIES, 15);
 
 		// If range is at least one vector wide
-		if(rangeSize >= LWIDTH) {
+		if(rangeSize>=LWIDTH){
 			// Process all complete vector blocks except the final one
-			for(int j=bandStart; j<bandEnd-(LWIDTH-2); j+=LWIDTH) {
+			for(int j=bandStart; j<bandEnd-(LWIDTH-2); j+=LWIDTH){
 				// Load reference values
-				LongVector refVec = LongVector.fromArray(LSPECIES, ref, j-1);
+				LongVector refVec=LongVector.fromArray(LSPECIES, ref, j-1);
 
 				// Match condition calculation
 				VectorMask<Long> isMatchMask=vq.compare(VectorOperators.EQ, refVec);
@@ -501,16 +484,16 @@ public class SIMDAlign {
 				VectorMask<Long> hasNMask=vq.or(refVec).compare(VectorOperators.GE, v15);
 
 				// Combined blend operations
-				LongVector scoreAddVec = vSUB.blend(vMATCH, isMatchMask).blend(vN_SCORE, hasNMask);
+				LongVector scoreAddVec=vSUB.blend(vMATCH, isMatchMask).blend(vN_SCORE, hasNMask);
 
 				// Load previous scores
-				LongVector prevJ1Vec = LongVector.fromArray(LSPECIES, prev, j-1);
-				LongVector prevJVec = LongVector.fromArray(LSPECIES, prev, j);
+				LongVector prevJ1Vec=LongVector.fromArray(LSPECIES, prev, j-1);
+				LongVector prevJVec=LongVector.fromArray(LSPECIES, prev, j);
 
 				// Calculate scores and find max
-				LongVector diagScoreVec = prevJ1Vec.add(scoreAddVec);
-				LongVector upScoreVec = prevJVec.add(vINS);
-				LongVector maxVec = diagScoreVec.max(upScoreVec);
+				LongVector diagScoreVec=prevJ1Vec.add(scoreAddVec);
+				LongVector upScoreVec=prevJVec.add(vINS);
+				LongVector maxVec=diagScoreVec.max(upScoreVec);
 
 				// Store results
 				maxVec.intoArray(curr, j);
@@ -519,21 +502,21 @@ public class SIMDAlign {
 				//	            LongVector scorePart = maxVec.and(vSCORE_MASK);
 
 				// Calculate position vector for this chunk (j, j+1, j+2...)
-				LongVector posVec = posTemplate.add(j);
+				LongVector posVec=posTemplate.add(j);
 
 				// Find elements where current scores > max scores
-				VectorMask<Long> betterMask = maxVec.compare(VectorOperators.GT, maxScoreVec);
+				VectorMask<Long> betterMask=maxVec.compare(VectorOperators.GT, maxScoreVec);
 
 				// Update tracking vectors where better scores found
-				maxScoreVec = maxScoreVec.blend(maxVec, betterMask);
-				maxPosVec = maxPosVec.blend(posVec, betterMask);
+				maxScoreVec=maxScoreVec.blend(maxVec, betterMask);
+				maxPosVec=maxPosVec.blend(posVec, betterMask);
 			}
 
 			// Process the final block with a vector, aligned to include the last element
-			final int lastVectorStart = Math.max(bandStart, bandEnd+1-LWIDTH);
+			final int lastVectorStart=Math.max(bandStart, bandEnd+1-LWIDTH);
 
 			// Load reference values for final vector
-			LongVector refVec = LongVector.fromArray(LSPECIES, ref, lastVectorStart-1);
+			LongVector refVec=LongVector.fromArray(LSPECIES, ref, lastVectorStart-1);
 
 			// Match condition calculation
 			VectorMask<Long> isMatchMask=vq.compare(VectorOperators.EQ, refVec);
@@ -542,16 +525,16 @@ public class SIMDAlign {
 			VectorMask<Long> hasNMask=vq.or(refVec).compare(VectorOperators.GE, v15);
 
 			// Combined blend operations
-			LongVector scoreAddVec = vSUB.blend(vMATCH, isMatchMask).blend(vN_SCORE, hasNMask);
+			LongVector scoreAddVec=vSUB.blend(vMATCH, isMatchMask).blend(vN_SCORE, hasNMask);
 
 			// Load previous scores
-			LongVector prevJ1Vec = LongVector.fromArray(LSPECIES, prev, lastVectorStart-1);
-			LongVector prevJVec = LongVector.fromArray(LSPECIES, prev, lastVectorStart);
+			LongVector prevJ1Vec=LongVector.fromArray(LSPECIES, prev, lastVectorStart-1);
+			LongVector prevJVec=LongVector.fromArray(LSPECIES, prev, lastVectorStart);
 
 			// Calculate scores and find max
-			LongVector diagScoreVec = prevJ1Vec.add(scoreAddVec);
-			LongVector upScoreVec = prevJVec.add(vINS);
-			LongVector maxVec = diagScoreVec.max(upScoreVec);
+			LongVector diagScoreVec=prevJ1Vec.add(scoreAddVec);
+			LongVector upScoreVec=prevJVec.add(vINS);
+			LongVector maxVec=diagScoreVec.max(upScoreVec);
 
 			// Store results
 			maxVec.intoArray(curr, lastVectorStart);
@@ -560,31 +543,31 @@ public class SIMDAlign {
 			//	        LongVector scorePart = maxVec.and(vSCORE_MASK);
 
 			// Calculate position vector for this chunk
-			LongVector posVec = posTemplate.add(lastVectorStart);
+			LongVector posVec=posTemplate.add(lastVectorStart);
 
 			// Find elements where current scores > max scores
-			VectorMask<Long> betterMask = maxVec.compare(VectorOperators.GT, maxScoreVec);
+			VectorMask<Long> betterMask=maxVec.compare(VectorOperators.GT, maxScoreVec);
 
 			// Update tracking vectors where better scores found
-			maxScoreVec = maxScoreVec.blend(maxVec, betterMask);
-			maxPosVec = maxPosVec.blend(posVec, betterMask);
-		} else {
+			maxScoreVec=maxScoreVec.blend(maxVec, betterMask);
+			maxPosVec=maxPosVec.blend(posVec, betterMask);
+		}else{
 			// Range too small for vector processing, use scalar code
-			long maxScore = Long.MIN_VALUE;
-			int maxPos = -1;
+			long maxScore=Long.MIN_VALUE;
+			int maxPos=-1;
 
-			for(int j=bandStart; j<=bandEnd; j++) {
-				final long r = ref[j-1];
-				final boolean isMatch = ((q&r)>0 && q==r);
-				final boolean hasN = (q==15 || r==31);
-				final long scoreAdd = isMatch ? MATCH : (hasN ? N_SCORE : SUB);
+			for(int j=bandStart; j<=bandEnd; j++){
+				final long r=ref[j-1];
+				final boolean isMatch=((q&r)>0 && q==r);
+				final boolean hasN=(q==15 || r==31);
+				final long scoreAdd=isMatch ? MATCH : (hasN ? N_SCORE : SUB);
 
-				final long pj1 = prev[j-1], pj = prev[j];
-				final long diagScore = pj1 + scoreAdd;
-				final long upScore = pj + INS;
+				final long pj1=prev[j-1], pj=prev[j];
+				final long diagScore=pj1+scoreAdd;
+				final long upScore=pj+INS;
 
-				long score = Math.max(diagScore, upScore);
-				curr[j] = score;
+				long score=Math.max(diagScore, upScore);
+				curr[j]=score;
 
 				// Track maximum score
 				// Track best score in row
@@ -596,7 +579,7 @@ public class SIMDAlign {
 			return maxPos;
 		}
 
-		if(true) {// Vector version of finding max position in final vectors
+		if(true){// Vector version of finding max position in final vectors
 			// Similar speed to scalar for AVX-256
 			long maxValue=maxScoreVec.reduceLanes(VectorOperators.MAX);
 			// Create a mask for positions equal to the max
@@ -605,12 +588,12 @@ public class SIMDAlign {
 			int firstMaxPos=maxMask.firstTrue();
 			// Get the corresponding position from the position vector
 			return (int)maxPosVec.lane(firstMaxPos);
-		} else {// Scalar version of finding max position in final vectors
+		}else{// Scalar version of finding max position in final vectors
 			long globalMax=Long.MIN_VALUE;
 			int maxPos=-1;
-			for(int i=0; i<LWIDTH; i++) {
+			for(int i=0; i<LWIDTH; i++){
 				long score=maxScoreVec.lane(i);
-				if(score>globalMax) {
+				if(score>globalMax){
 					globalMax=score;
 					maxPos=(int)maxPosVec.lane(i);
 				}
@@ -619,41 +602,45 @@ public class SIMDAlign {
 		}
 	}
 
-
-
-	/** 
-	 * Vector implementation that also tracks and returns the position of maximum score
-	 * Also handles deletions
-	 * @return Position of the maximum score in the processed band
+	/**
+	 * Vector implementation that also tracks and returns the position of maximum score.
+	 * Also handles deletions.
+	 * @param q encoded query base for this row
+	 * @param ref encoded reference bases
+	 * @param bandStart first band cell to write, inclusive
+	 * @param bandEnd last band cell to write, inclusive
+	 * @param prev previous DP row
+	 * @param curr current DP row to populate
+	 * @return position of the maximum score in the processed band
 	 */
-	public static int alignBandVectorAndReturnMaxPos2(long q, long[] ref, int bandStart, int bandEnd, 
-			long[] prev, long[] curr) {
+	public static int alignBandVectorAndReturnMaxPos2(long q, long[] ref, int bandStart, int bandEnd,
+			long[] prev, long[] curr){
 		// Calculate range size
-		final int rangeSize = bandEnd - bandStart + 1;
+		final int rangeSize=bandEnd-bandStart+1;
 
 		// Initialize tracking vectors for max score and position
-		LongVector maxScoreVec = LongVector.broadcast(LSPECIES, Long.MIN_VALUE);
-		LongVector maxPosVec = LongVector.broadcast(LSPECIES, -1);
+		LongVector maxScoreVec=LongVector.broadcast(LSPECIES, Long.MIN_VALUE);
+		LongVector maxPosVec=LongVector.broadcast(LSPECIES, -1);
 
 		// Create initial position vector (0,1,2,3...)
-		long[] posInit = new long[LWIDTH];
-		for(int i=0; i<LWIDTH; i++) posInit[i] = i;
-		LongVector posTemplate = LongVector.fromArray(LSPECIES, posInit, 0);
+		long[] posInit=new long[LWIDTH];
+		for(int i=0; i<LWIDTH; i++){posInit[i]=i;}
+		LongVector posTemplate=LongVector.fromArray(LSPECIES, posInit, 0);
 
 		// Broadcast constants to vectors
-		final LongVector vq = LongVector.broadcast(LSPECIES, q);
-		final LongVector vMATCH = LongVector.broadcast(LSPECIES, MATCH);
-		final LongVector vN_SCORE = LongVector.broadcast(LSPECIES, N_SCORE);
-		final LongVector vSUB = LongVector.broadcast(LSPECIES, SUB);
-		final LongVector vINS = vSUB;
-		final LongVector v15 = LongVector.broadcast(LSPECIES, 15);
+		final LongVector vq=LongVector.broadcast(LSPECIES, q);
+		final LongVector vMATCH=LongVector.broadcast(LSPECIES, MATCH);
+		final LongVector vN_SCORE=LongVector.broadcast(LSPECIES, N_SCORE);
+		final LongVector vSUB=LongVector.broadcast(LSPECIES, SUB);
+		final LongVector vINS=vSUB;
+		final LongVector v15=LongVector.broadcast(LSPECIES, 15);
 
 		// If range is at least one vector wide
-		if(rangeSize >= LWIDTH) {
+		if(rangeSize>=LWIDTH){
 			// Process all complete vector blocks except the final one
-			for(int j=bandStart; j<bandEnd-(LWIDTH-2); j+=LWIDTH) {
+			for(int j=bandStart; j<bandEnd-(LWIDTH-2); j+=LWIDTH){
 				// Load reference values
-				LongVector refVec = LongVector.fromArray(LSPECIES, ref, j-1);
+				LongVector refVec=LongVector.fromArray(LSPECIES, ref, j-1);
 
 				// Match condition calculation
 				VectorMask<Long> isMatchMask=vq.compare(VectorOperators.EQ, refVec);
@@ -662,16 +649,16 @@ public class SIMDAlign {
 				VectorMask<Long> hasNMask=vq.or(refVec).compare(VectorOperators.GE, v15);
 
 				// Combined blend operations
-				LongVector scoreAddVec = vSUB.blend(vMATCH, isMatchMask).blend(vN_SCORE, hasNMask);
+				LongVector scoreAddVec=vSUB.blend(vMATCH, isMatchMask).blend(vN_SCORE, hasNMask);
 
 				// Load previous scores
-				LongVector prevJ1Vec = LongVector.fromArray(LSPECIES, prev, j-1);
-				LongVector prevJVec = LongVector.fromArray(LSPECIES, prev, j);
+				LongVector prevJ1Vec=LongVector.fromArray(LSPECIES, prev, j-1);
+				LongVector prevJVec=LongVector.fromArray(LSPECIES, prev, j);
 
 				// Calculate scores and find max
-				LongVector diagScoreVec = prevJ1Vec.add(scoreAddVec);
-				LongVector upScoreVec = prevJVec.add(vINS);
-				LongVector maxVec = diagScoreVec.max(upScoreVec);
+				LongVector diagScoreVec=prevJ1Vec.add(scoreAddVec);
+				LongVector upScoreVec=prevJVec.add(vINS);
+				LongVector maxVec=diagScoreVec.max(upScoreVec);
 
 				// Store results
 				maxVec.intoArray(curr, j);
@@ -680,14 +667,14 @@ public class SIMDAlign {
 				//	            LongVector scorePart = maxVec.and(vSCORE_MASK);
 
 				// Calculate position vector for this chunk (j, j+1, j+2...)
-				LongVector posVec = posTemplate.add(j);
+				LongVector posVec=posTemplate.add(j);
 
 				// Find elements where current scores > max scores
-				VectorMask<Long> betterMask = maxVec.compare(VectorOperators.GT, maxScoreVec);
+				VectorMask<Long> betterMask=maxVec.compare(VectorOperators.GT, maxScoreVec);
 
 				// Update tracking vectors where better scores found
-				maxScoreVec = maxScoreVec.blend(maxVec, betterMask);
-				maxPosVec = maxPosVec.blend(posVec, betterMask);
+				maxScoreVec=maxScoreVec.blend(maxVec, betterMask);
+				maxPosVec=maxPosVec.blend(posVec, betterMask);
 
 				//	            if(SKIP_MASK) {
 				long left=curr[j-1];
@@ -709,10 +696,10 @@ public class SIMDAlign {
 			}
 
 			// Process the final block with a vector, aligned to include the last element
-			final int j = Math.max(bandStart, bandEnd+1-LWIDTH);
+			final int j=Math.max(bandStart, bandEnd+1-LWIDTH);
 
 			// Load reference values for final vector
-			LongVector refVec = LongVector.fromArray(LSPECIES, ref, j-1);
+			LongVector refVec=LongVector.fromArray(LSPECIES, ref, j-1);
 
 			// Match condition calculation
 			VectorMask<Long> isMatchMask=vq.compare(VectorOperators.EQ, refVec);
@@ -721,16 +708,16 @@ public class SIMDAlign {
 			VectorMask<Long> hasNMask=vq.or(refVec).compare(VectorOperators.GE, v15);
 
 			// Combined blend operations
-			LongVector scoreAddVec = vSUB.blend(vMATCH, isMatchMask).blend(vN_SCORE, hasNMask);
+			LongVector scoreAddVec=vSUB.blend(vMATCH, isMatchMask).blend(vN_SCORE, hasNMask);
 
 			// Load previous scores
-			LongVector prevJ1Vec = LongVector.fromArray(LSPECIES, prev, j-1);
-			LongVector prevJVec = LongVector.fromArray(LSPECIES, prev, j);
+			LongVector prevJ1Vec=LongVector.fromArray(LSPECIES, prev, j-1);
+			LongVector prevJVec=LongVector.fromArray(LSPECIES, prev, j);
 
 			// Calculate scores and find max
-			LongVector diagScoreVec = prevJ1Vec.add(scoreAddVec);
-			LongVector upScoreVec = prevJVec.add(vINS);
-			LongVector maxVec = diagScoreVec.max(upScoreVec);
+			LongVector diagScoreVec=prevJ1Vec.add(scoreAddVec);
+			LongVector upScoreVec=prevJVec.add(vINS);
+			LongVector maxVec=diagScoreVec.max(upScoreVec);
 
 			// Store results
 			maxVec.intoArray(curr, j);
@@ -739,14 +726,14 @@ public class SIMDAlign {
 			//	        LongVector scorePart = maxVec.and(vSCORE_MASK);
 
 			// Calculate position vector for this chunk
-			LongVector posVec = posTemplate.add(j);
+			LongVector posVec=posTemplate.add(j);
 
 			// Find elements where current scores > max scores
-			VectorMask<Long> betterMask = maxVec.compare(VectorOperators.GT, maxScoreVec);
+			VectorMask<Long> betterMask=maxVec.compare(VectorOperators.GT, maxScoreVec);
 
 			// Update tracking vectors where better scores found
-			maxScoreVec = maxScoreVec.blend(maxVec, betterMask);
-			maxPosVec = maxPosVec.blend(posVec, betterMask);
+			maxScoreVec=maxScoreVec.blend(maxVec, betterMask);
+			maxPosVec=maxPosVec.blend(posVec, betterMask);
 
 			//          if(SKIP_MASK) {
 			long left=curr[j-1];
@@ -765,24 +752,24 @@ public class SIMDAlign {
 			//          	left+=DEL;
 			//          	curr[j+3]=left=((left&MASK)>curr[j+3] ? left : curr[j+3]);
 			//          }
-		} else {
+		}else{
 			// Range too small for vector processing, use scalar code
-			long maxScore = Long.MIN_VALUE;
-			int maxPos = -1;
+			long maxScore=Long.MIN_VALUE;
+			int maxPos=-1;
 
-			for(int j=bandStart; j<=bandEnd; j++) {
-				final long r = ref[j-1];
-				final boolean isMatch = ((q&r)>0 && q==r);
-				final boolean hasN = (q==15 || r==31);
-				final long scoreAdd = isMatch ? MATCH : (hasN ? N_SCORE : SUB);
+			for(int j=bandStart; j<=bandEnd; j++){
+				final long r=ref[j-1];
+				final boolean isMatch=((q&r)>0 && q==r);
+				final boolean hasN=(q==15 || r==31);
+				final long scoreAdd=isMatch ? MATCH : (hasN ? N_SCORE : SUB);
 
-				final long pj1 = prev[j-1], pj = prev[j], cj1=curr[j-1];
-				final long diagScore = pj1 + scoreAdd;
-				final long upScore = pj + INS;
-				final long leftScore = cj1+DEL;
+				final long pj1=prev[j-1], pj=prev[j], cj1=curr[j-1];
+				final long diagScore=pj1+scoreAdd;
+				final long upScore=pj+INS;
+				final long leftScore=cj1+DEL;
 
-				long score = Math.max(leftScore, Math.max(diagScore, upScore));
-				curr[j] = score;
+				long score=Math.max(leftScore, Math.max(diagScore, upScore));
+				curr[j]=score;
 
 				// Track maximum score
 				// Track best score in row
@@ -794,7 +781,7 @@ public class SIMDAlign {
 			return maxPos;
 		}
 
-		if(true) {// Vector version of finding max position in final vectors
+		if(true){// Vector version of finding max position in final vectors
 			// Similar speed to scalar for AVX-256
 			long maxValue=maxScoreVec.reduceLanes(VectorOperators.MAX);
 			// Create a mask for positions equal to the max
@@ -803,12 +790,12 @@ public class SIMDAlign {
 			int firstMaxPos=maxMask.firstTrue();
 			// Get the corresponding position from the position vector
 			return (int)maxPosVec.lane(firstMaxPos);
-		} else {// Scalar version of finding max position in final vectors
+		}else{// Scalar version of finding max position in final vectors
 			long globalMax=Long.MIN_VALUE;
 			int maxPos=-1;
-			for(int i=0; i<LWIDTH; i++) {
+			for(int i=0; i<LWIDTH; i++){
 				long score=maxScoreVec.lane(i);
-				if(score>globalMax) {
+				if(score>globalMax){
 					globalMax=score;
 					maxPos=(int)maxPosVec.lane(i);
 				}
@@ -817,24 +804,34 @@ public class SIMDAlign {
 		}
 	}
 
-
-
-	/** Vector implementation of inner loop that tracks the maximum score.
+	/**
+	 * Vector implementation of inner loop that tracks the maximum score.
 	 * Max score is independent of the deletion tail loop since it only reduces scores.
-	 * @return Position of the maximum score in the processed band */
+	 * @param q encoded query base for this row
+	 * @param ref encoded reference bases
+	 * @param bandStart first band cell to write, inclusive
+	 * @param bandEnd last band cell to write, inclusive
+	 * @param prev previous DP row
+	 * @param curr current DP row to populate
+	 * @param MATCH match score
+	 * @param N_SCORE N-base score
+	 * @param SUB substitution penalty
+	 * @param INS insertion penalty
+	 * @return position of the maximum score in the processed band
+	 */
 	public static int alignBandVectorAndReturnMaxPosConcise(
-			long q, long[] ref, int bandStart, int bandEnd, long[] prev, long[] curr, 
-			long MATCH, long N_SCORE, long SUB, long INS) {
+			long q, long[] ref, int bandStart, int bandEnd, long[] prev, long[] curr,
+			long MATCH, long N_SCORE, long SUB, long INS){
 		final int rangeSize=bandEnd-bandStart+1;// Calculate range size
 
-		if(rangeSize<LWIDTH) {
+		if(rangeSize<LWIDTH){
 			return alignBandVectorAndReturnMaxPosScalar(
 					q, ref, bandStart, bandEnd, prev, curr, MATCH, N_SCORE, SUB, INS);}
 		// Initialize tracking vectors for max score and position
 		LongVector maxScoreVec=LongVector.broadcast(LSPECIES, Long.MIN_VALUE);
 		LongVector maxPosVec=LongVector.broadcast(LSPECIES, -1);
 		long[] posInit=new long[LWIDTH];// Initialize position vector to (0,1,2,3...)
-		for(int i=0; i<LWIDTH; i++) {posInit[i]=i;}
+		for(int i=0; i<LWIDTH; i++){posInit[i]=i;}
 		LongVector posTemplate=LongVector.fromArray(LSPECIES, posInit, 0);
 		// Broadcast constants to vectors
 		final LongVector vq=LongVector.broadcast(LSPECIES, q);
@@ -843,9 +840,9 @@ public class SIMDAlign {
 		final LongVector vSUB=LongVector.broadcast(LSPECIES, SUB);
 		final LongVector vINS=LongVector.broadcast(LSPECIES, INS);
 		final LongVector v15=LongVector.broadcast(LSPECIES, 15);
-		if(rangeSize>=LWIDTH) {// If range is at least one vector wide
+		if(rangeSize>=LWIDTH){// If range is at least one vector wide
 			// Process all complete vector blocks except the final one
-			for(int j=bandStart; j<bandEnd-(LWIDTH-2); j+=LWIDTH) {
+			for(int j=bandStart; j<bandEnd-(LWIDTH-2); j+=LWIDTH){
 				LongVector refVec=LongVector.fromArray(LSPECIES, ref, j-1);// Load reference
 				// Match condition calculation
 				VectorMask<Long> isMatchMask=vq.compare(VectorOperators.EQ, refVec);
@@ -894,11 +891,11 @@ public class SIMDAlign {
 			// Update tracking vectors where better scores found
 			maxScoreVec=maxScoreVec.blend(maxVec, betterMask);
 			maxPosVec=maxPosVec.blend(posVec, betterMask);
-		} else {
+		}else{
 			// Range too small for vector processing, use scalar code
 			long maxScore=Long.MIN_VALUE;
 			int maxPos=-1;
-			for(int j=bandStart; j<=bandEnd; j++) {
+			for(int j=bandStart; j<=bandEnd; j++){
 				final long r=ref[j-1];
 				final boolean isMatch=((q&r)>0 && q==r);
 				final boolean hasN=(q==15 || r==31);
@@ -925,16 +922,28 @@ public class SIMDAlign {
 		return (int)maxPosVec.lane(firstMaxPos);
 	}
 
-	/** Scalar implementation of inner loop for band shorter than LWIDTH.
-	 * @return Position of the maximum score in the processed band */
+	/**
+	 * Scalar implementation of inner loop for bands shorter than LWIDTH.
+	 * @param q encoded query base for this row
+	 * @param ref encoded reference bases
+	 * @param bandStart first band cell to write, inclusive
+	 * @param bandEnd last band cell to write, inclusive
+	 * @param prev previous DP row
+	 * @param curr current DP row to populate
+	 * @param MATCH match score
+	 * @param N_SCORE N-base score
+	 * @param SUB substitution penalty
+	 * @param INS insertion penalty
+	 * @return position of the maximum score in the processed band
+	 */
 	public static int alignBandVectorAndReturnMaxPosScalar(
-			long q, long[] ref, int bandStart, int bandEnd, long[] prev, long[] curr, 
-			long MATCH, long N_SCORE, long SUB, long INS) {
+			long q, long[] ref, int bandStart, int bandEnd, long[] prev, long[] curr,
+			long MATCH, long N_SCORE, long SUB, long INS){
 		final int rangeSize=bandEnd-bandStart+1;// Calculate range size
 		assert(rangeSize<LWIDTH);
 		long maxScore=Long.MIN_VALUE;
 		int maxPos=-1;
-		for(int j=bandStart; j<=bandEnd; j++) {
+		for(int j=bandStart; j<=bandEnd; j++){
 			final long r=ref[j-1];
 			final boolean isMatch=((q&r)>0 && q==r);
 			final boolean hasN=(q==15 || r==31);
@@ -1037,116 +1046,123 @@ public class SIMDAlign {
 		}
 	}
 
-	/**
-	 * Pure vector implementation of deletion tail loop based on exact pseudocode
-	 * TODO: Slow
-	 */
 	//TODO: Possible bug [simd/SIMDAlign#001] - SIMD region propagates only power-of-2 distances over LWIDTH and does not reproduce the exact max-plus deletion scan (only the scalar tail is exact); empirically proven to diverge (Pure 2991/3000, Unrolled 2829/3000 random bands).  Benchmark-only (GlocalPlusAligner3/DriftingPlus* -> AlignRandom).  See bug_reports/simd/SIMDAlign.md.
+	/**
+	 * Pure vector implementation of deletion tail loop based on exact pseudocode.
+	 * TODO: Slow.
+	 * @param curr current DP row to update in place
+	 * @param bandStart first band cell to update, inclusive
+	 * @param bandEnd last band cell to update, inclusive
+	 */
 	public static void processDeletionsTailVectorPure(
-			long[] curr, int bandStart, int bandEnd) {
+			long[] curr, int bandStart, int bandEnd){
 		//	    print(curr, "Initial");
 
 		// Calculate vector-aligned bounds
-		final int limit = bandStart + ((bandEnd - bandStart + 1)/LWIDTH)*LWIDTH;
+		final int limit=bandStart+((bandEnd-bandStart+1)/LWIDTH)*LWIDTH;
 
 		// Broadcast constant
-		final LongVector delIncrementVec = LongVector.broadcast(LSPECIES, DEL);
+		final LongVector delIncrementVec=LongVector.broadcast(LSPECIES, DEL);
 
 		// Process full LWIDTH chunks with exactly two passes as specified
 
 		//	    if(limit>bandStart) {System.err.println("Vector processing "+bandStart+" to "+(limit-1));}
-		for(int i=bandStart; i<limit; i+=LWIDTH) {
-			for(int pass=0, dist=LWIDTH/2; dist>0 && i-dist>=0; pass++, dist/=2) {
-				int k = i-dist;
+		for(int i=bandStart; i<limit; i+=LWIDTH){
+			for(int pass=0, dist=LWIDTH/2; dist>0 && i-dist>=0; pass++, dist/=2){
+				int k=i-dist;
 				// Load cells from distance 'dist' away
-				LongVector a = LongVector.fromArray(LSPECIES, curr, k);
-				LongVector b = LongVector.fromArray(LSPECIES, curr, i);
+				LongVector a=LongVector.fromArray(LSPECIES, curr, k);
+				LongVector b=LongVector.fromArray(LSPECIES, curr, i);
 				// Adjust DEL_INCREMENT for the distance
-				LongVector adjustedDelIncrement = LongVector.broadcast(LSPECIES, DEL * dist);
-				LongVector aPlus = a.add(adjustedDelIncrement);
-				b = b.max(aPlus);
+				LongVector adjustedDelIncrement=LongVector.broadcast(LSPECIES, DEL*dist);
+				LongVector aPlus=a.add(adjustedDelIncrement);
+				b=b.max(aPlus);
 				b.intoArray(curr, i);
 			}
 
 		}
 
 		// Handle remaining elements with scalar code
-		long leftCell = curr[limit-1];
+		long leftCell=curr[limit-1];
 		//	    if(bandEnd>=limit) {System.err.println("Scalar processing "+limit+" to "+bandEnd);}
-		for(int j=limit; j<=bandEnd; j++) {
-			final long maxDiagUp = curr[j];
-			final long leftScore = leftCell + DEL;
-			leftCell = (maxDiagUp >= leftScore) ? maxDiagUp : leftScore;
-			curr[j] = leftCell;
+		for(int j=limit; j<=bandEnd; j++){
+			final long maxDiagUp=curr[j];
+			final long leftScore=leftCell+DEL;
+			leftCell=(maxDiagUp>=leftScore) ? maxDiagUp : leftScore;
+			curr[j]=leftCell;
 		}
 		//	    print(curr, "Final");
 		//	    System.err.println();
 	}
 
 	/**
-	 * Pure vector implementation of deletion tail loop based on exact pseudocode
-	 * Inner loop unrolled
+	 * Pure vector implementation of deletion tail loop based on exact pseudocode.
+	 * Inner loop unrolled.
+	 * @param curr current DP row to update in place
+	 * @param bandStart first band cell to update, inclusive
+	 * @param bandEnd last band cell to update, inclusive
+	 * @param DEL_INCREMENT per-cell deletion penalty
 	 */
 	public static void processDeletionsTailVectorUnrolled(
-			long[] curr, int bandStart, int bandEnd, long DEL_INCREMENT) {
+			long[] curr, int bandStart, int bandEnd, long DEL_INCREMENT){
 		//	    print(curr, "Initial");
 
 		// Calculate vector-aligned bounds
-		final int limit = bandStart + ((bandEnd - bandStart + 1)/LWIDTH)*LWIDTH;
+		final int limit=bandStart+((bandEnd-bandStart+1)/LWIDTH)*LWIDTH;
 
 		// Broadcast constant
-		final LongVector delIncrementVec1 = LongVector.broadcast(LSPECIES, DEL_INCREMENT);
-		final LongVector delIncrementVec2 = LongVector.broadcast(LSPECIES, DEL_INCREMENT*2);
+		final LongVector delIncrementVec1=LongVector.broadcast(LSPECIES, DEL_INCREMENT);
+		final LongVector delIncrementVec2=LongVector.broadcast(LSPECIES, DEL_INCREMENT*2);
 
 		// Process full LWIDTH chunks with exactly two passes as specified
 
 		//	    if(limit>bandStart) {System.err.println("Vector processing "+bandStart+" to "+(limit-1));}
-		for(int i=bandStart; i<limit; i+=LWIDTH) {
+		for(int i=bandStart; i<limit; i+=LWIDTH){
 			//Dist=2
-			int k = Math.max(0, i-2);
+			int k=Math.max(0, i-2);
 			// Load cells from distance 'dist' away
-			LongVector a = LongVector.fromArray(LSPECIES, curr, k);
-			LongVector b = LongVector.fromArray(LSPECIES, curr, i);
+			LongVector a=LongVector.fromArray(LSPECIES, curr, k);
+			LongVector b=LongVector.fromArray(LSPECIES, curr, i);
 			// Adjust DEL_INCREMENT for the distance
-			LongVector aPlus = a.add(delIncrementVec2);
-			b = b.max(aPlus);
+			LongVector aPlus=a.add(delIncrementVec2);
+			b=b.max(aPlus);
 			b.intoArray(curr, i);
 
 			//Dist = 1
-			k = Math.max(0, i-1);
+			k=Math.max(0, i-1);
 			// Load cells from distance 'dist' away
-			a = LongVector.fromArray(LSPECIES, curr, k);
-			b = LongVector.fromArray(LSPECIES, curr, i);
+			a=LongVector.fromArray(LSPECIES, curr, k);
+			b=LongVector.fromArray(LSPECIES, curr, i);
 			// Adjust DEL_INCREMENT for the distance
-			aPlus = a.add(delIncrementVec1);
-			b = b.max(aPlus);
+			aPlus=a.add(delIncrementVec1);
+			b=b.max(aPlus);
 			b.intoArray(curr, i);
 		}
 
 		// Handle remaining elements with scalar code
-		long leftCell = curr[limit-1];
+		long leftCell=curr[limit-1];
 		//	    if(bandEnd>=limit) {System.err.println("Scalar processing "+limit+" to "+bandEnd);}
-		for(int j=limit; j<=bandEnd; j++) {
-			final long maxDiagUp = curr[j];
-			final long leftScore = leftCell + DEL_INCREMENT;
-			leftCell = (maxDiagUp >= leftScore) ? maxDiagUp : leftScore;
-			curr[j] = leftCell;
+		for(int j=limit; j<=bandEnd; j++){
+			final long maxDiagUp=curr[j];
+			final long leftScore=leftCell+DEL_INCREMENT;
+			leftCell=(maxDiagUp>=leftScore) ? maxDiagUp : leftScore;
+			curr[j]=leftCell;
 		}
 		//	    print(curr, "Final");
 		//	    System.err.println();
 	}
 
 	/**
-	 * Debug utility to print alignment scores and deletion counts.
-	 * Extracts and displays score and deletion information from encoded values.
-	 * @param curr Current alignment scores array
-	 * @param name Label for the output
+	 * Prints high-bit scores and 21-bit deletion fields from encoded row cells.
+	 * This debug helper reads caller-owned state without mutating it.
+	 * @param curr encoded alignment row to display
+	 * @param name label for the output
 	 */
-	private static final void print(long[] curr, String name) {
+	private static final void print(long[] curr, String name){
 		System.err.print(name+" Score:\t");
-		for(int i=0; i<curr.length; i++) {System.err.print((curr[i]>>42)+" ");}
+		for(int i=0; i<curr.length; i++){System.err.print((curr[i]>>42)+" ");}
 		System.err.print("\n"+name+" Dels: \t");
-		for(int i=0; i<curr.length; i++) {System.err.print((((curr[i]>>21)&0xFFFF)+" "));}
+		for(int i=0; i<curr.length; i++){System.err.print((((curr[i]>>21)&0xFFFF)+" "));}
 		System.err.println();
 	}
 
@@ -1179,46 +1195,46 @@ public class SIMDAlign {
 			long[] diag_km2, long[] diag_km1, long[] diag_k,
 			int km2DiagOffset, int km1DiagOffset,
 			int qLen, long MATCH, long N_SCORE, long SUB,
-			long INS, long DEL_INCREMENT, long SCORE_MASK) {
+			long INS, long DEL_INCREMENT, long SCORE_MASK){
 
 		// For now, just implement a scalar version that exactly matches the original
-		for(int i=innerMinI, offset=0, jm1=jm1Start; i<=innerMaxI; i++, offset++, jm1++) {
-			long q = revQuery[i];
-			long r = ref[jm1];
+		for(int i=innerMinI, offset=0, jm1=jm1Start; i<=innerMaxI; i++, offset++, jm1++){
+			long q=revQuery[i];
+			long r=ref[jm1];
 
-			boolean isMatch = (q == r);
-			boolean hasN = (q | r) > 15;
-			long scoreAdd = isMatch ? MATCH : (hasN ? N_SCORE : SUB);
+			boolean isMatch=(q==r);
+			boolean hasN=(q|r)>15;
+			long scoreAdd=isMatch ? MATCH : (hasN ? N_SCORE : SUB);
 
 			// Get adjacent cell values using incrementing indices
-			int upDiagIdx = offset + km2DiagOffset;
-			int leftIdx = offset + km1DiagOffset - 1;
+			int upDiagIdx=offset+km2DiagOffset;
+			int leftIdx=offset+km1DiagOffset-1;
 
-			long diagValue = diag_km2[upDiagIdx];
-			long upValue = diag_km1[upDiagIdx];
+			long diagValue=diag_km2[upDiagIdx];
+			long upValue=diag_km1[upDiagIdx];
 
 			// Handle first column special case
 			long leftValue;
-			if (leftIdx < 0) {
-				int currentRow = qLen - i;
-				leftValue = currentRow * INS;
-			} else {
-				leftValue = diag_km1[leftIdx];
+			if(leftIdx<0){
+				int currentRow=qLen-i;
+				leftValue=currentRow*INS;
+			}else{
+				leftValue=diag_km1[leftIdx];
 			}
 
 			// Calculate scores directly
-			long diagScore = diagValue + scoreAdd;
-			long upScore = upValue + INS;
-			long leftScore = leftValue + DEL_INCREMENT;
+			long diagScore=diagValue+scoreAdd;
+			long upScore=upValue+INS;
+			long leftScore=leftValue+DEL_INCREMENT;
 
 			// Find max using conditional expressions - exactly as original
-			final long maxDiagUp = Math.max(diagScore, upScore);
-			final long maxValue = ((maxDiagUp & SCORE_MASK) >= leftScore) ? maxDiagUp : leftScore;
+			final long maxDiagUp=Math.max(diagScore, upScore);
+			final long maxValue=((maxDiagUp&SCORE_MASK)>=leftScore) ? maxDiagUp : leftScore;
 
-			diag_k[offset] = maxValue;
+			diag_k[offset]=maxValue;
 
-			if(debug) {
-				int matrixRow = qLen - i;
+			if(debug){
+				int matrixRow=qLen-i;
 				System.err.println("Scalar Setting (" + matrixRow + "," + (jm1+1) + ") to " + maxValue);
 			}
 		}
@@ -1242,14 +1258,14 @@ public class SIMDAlign {
 	 */
 	@SuppressWarnings("restriction")
 	public static void processCrossCutDiagonalSIMD(
-			long[] revQuery, long[] ref, int k, 
+			long[] revQuery, long[] ref, int k,
 			int innerMinCol, int innerMaxCol, int qLen,
-			long[] diag_km2, long[] diag_km1, long[] diag_k) {
+			long[] diag_km2, long[] diag_km1, long[] diag_k){
 
-		if(debug) {System.err.print(".");}
+		if(debug){System.err.print(".");}
 
 		// Calculate range size
-		final int rangeSize = innerMaxCol - innerMinCol + 1;
+		final int rangeSize=innerMaxCol-innerMinCol+1;
 
 		// Create constant vectors once
 		final LongVector matchVector=LongVector.broadcast(LSPECIES, MATCH);
@@ -1261,9 +1277,9 @@ public class SIMDAlign {
 		final LongVector scoreMaskVector=LongVector.broadcast(LSPECIES, SCORE_MASK);
 
 		// Check if range is large enough for vector processing
-		if(rangeSize >= LWIDTH) {
+		if(rangeSize>=LWIDTH){
 			// Process all complete vector blocks except potentially the last one
-			for(int col=innerMinCol; col <= innerMaxCol - LWIDTH; col+=LWIDTH) {
+			for(int col=innerMinCol; col<=innerMaxCol-LWIDTH; col+=LWIDTH){
 				// Calculate base index for revQuery
 				final int queryBaseIdx=qLen+col-k;
 
@@ -1293,7 +1309,7 @@ public class SIMDAlign {
 				// Find maximum scores
 				final LongVector maxDiagUpVector=diagScoreVector.max(upScoreVector);
 
-				// Half-masked comparison 
+				// Half-masked comparison
 				final LongVector maskedMaxVector=maxDiagUpVector.and(scoreMaskVector);
 				final VectorMask<Long> comparisonMask=maskedMaxVector.compare(
 						VectorOperators.GE, leftScoreVector);
@@ -1304,11 +1320,11 @@ public class SIMDAlign {
 				// Store results directly
 				resultVector.intoArray(diag_k, col-1);
 
-				if(debug) {
-					for(int i=0; i<LWIDTH; i++) {
+				if(debug){
+					for(int i=0; i<LWIDTH; i++){
 						int currentCol=col+i;
 						int row=k-currentCol;
-						if(row >= 2 && row <= qLen && currentCol>=2 && currentCol<=innerMaxCol) {
+						if(row>=2 && row<=qLen && currentCol>=2 && currentCol<=innerMaxCol){
 							System.err.println("Cell ("+row+","+currentCol+") calculation (SIMD):");
 							System.err.println("*Setting ("+row+","+currentCol+") (diag_k["+(currentCol-1)+"]) to "+
 									resultVector.lane(i)+" ("+(resultVector.lane(i)>>42)+")");
@@ -1319,10 +1335,10 @@ public class SIMDAlign {
 
 			// Process the last elements with one final vector operation
 			// Position the vector to exactly include the last element
-			final int lastVectorStart = Math.max(innerMinCol, innerMaxCol + 1 - LWIDTH);
+			final int lastVectorStart=Math.max(innerMinCol, innerMaxCol+1-LWIDTH);
 
 			// Only do final vector if we haven't already processed these elements
-			if(lastVectorStart > innerMaxCol - LWIDTH) {
+			if(lastVectorStart>innerMaxCol-LWIDTH){
 				// Calculate base index for revQuery for last vector
 				final int queryBaseIdx=qLen+lastVectorStart-k;
 
@@ -1353,7 +1369,7 @@ public class SIMDAlign {
 				// Find maximum scores
 				final LongVector maxDiagUpVector=diagScoreVector.max(upScoreVector);
 
-				// Half-masked comparison 
+				// Half-masked comparison
 				final LongVector maskedMaxVector=maxDiagUpVector.and(scoreMaskVector);
 				final VectorMask<Long> comparisonMask=maskedMaxVector.compare(
 						VectorOperators.GE, leftScoreVector);
@@ -1364,12 +1380,12 @@ public class SIMDAlign {
 				// Store results directly
 				resultVector.intoArray(diag_k, lastVectorStart-1);
 
-				if(debug) {
-					for(int i=0; i<LWIDTH; i++) {
+				if(debug){
+					for(int i=0; i<LWIDTH; i++){
 						int currentCol=lastVectorStart+i;
-						if(currentCol <= innerMaxCol) { // Only debug output for columns in our range
+						if(currentCol<=innerMaxCol){ // Only debug output for columns in our range
 							int row=k-currentCol;
-							if(row >= 2 && row <= qLen && currentCol>=2) {
+							if(row>=2 && row<=qLen && currentCol>=2){
 								System.err.println("Cell ("+row+","+currentCol+") calculation (Final SIMD):");
 								System.err.println("*Setting ("+row+","+currentCol+") (diag_k["+(currentCol-1)+"]) to "+
 										resultVector.lane(i)+" ("+(resultVector.lane(i)>>42)+")");
@@ -1378,13 +1394,13 @@ public class SIMDAlign {
 					}
 				}
 			}
-		} else {
+		}else{
 			assert(innerMaxCol-innerMinCol<=4);
 			// Range too small for vector processing, use scalar code
-			for(int col=innerMinCol; col<=innerMaxCol; col++) {
+			for(int col=innerMinCol; col<=innerMaxCol; col++){
 				int row=k-col;
 
-				if(row < 2 || row > qLen) continue; // Skip invalid rows
+				if(row<2 || row>qLen){continue;} // Skip invalid rows
 
 				final long q=revQuery[qLen-row];
 				final long r=ref[col-1];
@@ -1406,14 +1422,14 @@ public class SIMDAlign {
 
 				diag_k[col-1]=maxValue;
 
-				if(debug) {
+				if(debug){
 					System.err.println("Cell ("+row+","+col+") calculation (scalar):");
 					System.err.println("*Setting ("+row+","+col+") (diag_k["+(col-1)+"]) to "+maxValue+" ("+(maxValue>>42)+")");
 				}
 			}
 		}
 	}
-	
+
 	/**
 	 * Legacy SIMD processing of cross-cut diagonal alignment with configurable scoring.
 	 * Previous version of diagonal-wise dynamic programming with explicit scoring parameters.
@@ -1437,16 +1453,16 @@ public class SIMDAlign {
 	 */
 	@SuppressWarnings("restriction")
 	public static void processCrossCutDiagonalSIMD_old(
-			long[] revQuery, long[] ref, int k, 
+			long[] revQuery, long[] ref, int k,
 			int innerMinCol, int innerMaxCol, int qLen,
 			long[] diag_km2, long[] diag_km1, long[] diag_k,
-			long MATCH, long SUB, long INS, long DEL_INCREMENT, 
-			long N_SCORE, long SCORE_MASK) {
+			long MATCH, long SUB, long INS, long DEL_INCREMENT,
+			long N_SCORE, long SCORE_MASK){
 
-		if(debug) {System.err.print(".");}
+		if(debug){System.err.print(".");}
 
 		// Calculate range size
-		final int rangeSize = innerMaxCol - innerMinCol + 1;
+		final int rangeSize=innerMaxCol-innerMinCol+1;
 
 		// Create constant vectors once
 		final LongVector matchVector=LongVector.broadcast(LSPECIES, MATCH);
@@ -1458,9 +1474,9 @@ public class SIMDAlign {
 		final LongVector scoreMaskVector=LongVector.broadcast(LSPECIES, SCORE_MASK);
 
 		// Check if range is large enough for vector processing
-		if(rangeSize >= LWIDTH) {
+		if(rangeSize>=LWIDTH){
 			// Process all complete vector blocks except potentially the last one
-			for(int col=innerMinCol; col <= innerMaxCol - LWIDTH; col+=LWIDTH) {
+			for(int col=innerMinCol; col<=innerMaxCol-LWIDTH; col+=LWIDTH){
 				// Calculate base index for revQuery
 				final int queryBaseIdx=qLen+col-k;
 
@@ -1491,7 +1507,7 @@ public class SIMDAlign {
 				// Find maximum scores
 				final LongVector maxDiagUpVector=diagScoreVector.max(upScoreVector);
 
-				// Half-masked comparison 
+				// Half-masked comparison
 				final LongVector maskedMaxVector=maxDiagUpVector.and(scoreMaskVector);
 				final VectorMask<Long> comparisonMask=maskedMaxVector.compare(
 						VectorOperators.GE, leftScoreVector);
@@ -1502,11 +1518,11 @@ public class SIMDAlign {
 				// Store results directly
 				resultVector.intoArray(diag_k, col-1);
 
-				if(debug) {
-					for(int i=0; i<LWIDTH; i++) {
+				if(debug){
+					for(int i=0; i<LWIDTH; i++){
 						int currentCol=col+i;
 						int row=k-currentCol;
-						if(row >= 2 && row <= qLen && currentCol>=2 && currentCol<=innerMaxCol) {
+						if(row>=2 && row<=qLen && currentCol>=2 && currentCol<=innerMaxCol){
 							System.err.println("Cell ("+row+","+currentCol+") calculation (SIMD):");
 							System.err.println("*Setting ("+row+","+currentCol+") (diag_k["+(currentCol-1)+"]) to "+
 									resultVector.lane(i)+" ("+(resultVector.lane(i)>>42)+")");
@@ -1517,10 +1533,10 @@ public class SIMDAlign {
 
 			// Process the last elements with one final vector operation
 			// Position the vector to exactly include the last element
-			final int lastVectorStart = Math.max(innerMinCol, innerMaxCol + 1 - LWIDTH);
+			final int lastVectorStart=Math.max(innerMinCol, innerMaxCol+1-LWIDTH);
 
 			// Only do final vector if we haven't already processed these elements
-			if(lastVectorStart > innerMaxCol - LWIDTH) {
+			if(lastVectorStart>innerMaxCol-LWIDTH){
 				// Calculate base index for revQuery for last vector
 				final int queryBaseIdx=qLen+lastVectorStart-k;
 
@@ -1551,7 +1567,7 @@ public class SIMDAlign {
 				// Find maximum scores
 				final LongVector maxDiagUpVector=diagScoreVector.max(upScoreVector);
 
-				// Half-masked comparison 
+				// Half-masked comparison
 				final LongVector maskedMaxVector=maxDiagUpVector.and(scoreMaskVector);
 				final VectorMask<Long> comparisonMask=maskedMaxVector.compare(
 						VectorOperators.GE, leftScoreVector);
@@ -1562,12 +1578,12 @@ public class SIMDAlign {
 				// Store results directly
 				resultVector.intoArray(diag_k, lastVectorStart-1);
 
-				if(debug) {
-					for(int i=0; i<LWIDTH; i++) {
+				if(debug){
+					for(int i=0; i<LWIDTH; i++){
 						int currentCol=lastVectorStart+i;
-						if(currentCol <= innerMaxCol) { // Only debug output for columns in our range
+						if(currentCol<=innerMaxCol){ // Only debug output for columns in our range
 							int row=k-currentCol;
-							if(row >= 2 && row <= qLen && currentCol>=2) {
+							if(row>=2 && row<=qLen && currentCol>=2){
 								System.err.println("Cell ("+row+","+currentCol+") calculation (Final SIMD):");
 								System.err.println("*Setting ("+row+","+currentCol+") (diag_k["+(currentCol-1)+"]) to "+
 										resultVector.lane(i)+" ("+(resultVector.lane(i)>>42)+")");
@@ -1576,13 +1592,13 @@ public class SIMDAlign {
 					}
 				}
 			}
-		} else {
+		}else{
 			assert(innerMaxCol-innerMinCol<=4);
 			// Range too small for vector processing, use scalar code
-			for(int col=innerMinCol; col<=innerMaxCol; col++) {
+			for(int col=innerMinCol; col<=innerMaxCol; col++){
 				int row=k-col;
 
-				if(row < 2 || row > qLen) continue; // Skip invalid rows
+				if(row<2 || row>qLen){continue;} // Skip invalid rows
 
 				final long q=revQuery[qLen-row];
 				final long r=ref[col-1];
@@ -1604,7 +1620,7 @@ public class SIMDAlign {
 
 				diag_k[col-1]=maxValue;
 
-				if(debug) {
+				if(debug){
 					System.err.println("Cell ("+row+","+col+") calculation (scalar):");
 					System.err.println("*Setting ("+row+","+col+") (diag_k["+(col-1)+"]) to "+maxValue+" ("+(maxValue>>42)+")");
 				}
@@ -1612,4 +1628,72 @@ public class SIMDAlign {
 		}
 	}
 
+	/*--------------------------------------------------------------*/
+	/*----------------          Constants           ----------------*/
+	/*--------------------------------------------------------------*/
+
+
+	//Example from https://medium.com/@Styp/java-18-vector-api-do-we-get-free-speed-up-c4510eda50d2
+	/** Vector species for 256-bit Float operations */
+	@SuppressWarnings("restriction")
+	private static final VectorSpecies<Float> FSPECIES=FloatVector.SPECIES_256;//FloatVector.SPECIES_PREFERRED; //This needs to be final or performance drops.
+	/** Vector width (lane count) for Float operations */
+	private static final int FWIDTH=FSPECIES.length();
+	//		private static final int boundMask=~(FWIDTH-1);
+
+	/** Vector species for 256-bit Byte operations */
+	@SuppressWarnings("restriction")
+	private static final VectorSpecies<Byte> BSPECIES=ByteVector.SPECIES_256;
+	/** Vector width (lane count) for Byte operations */
+	private static final int BWIDTH=BSPECIES.length();
+
+	/** Vector species for 256-bit Integer operations */
+	@SuppressWarnings("restriction")
+	private static final VectorSpecies<Integer> ISPECIES=IntVector.SPECIES_256;
+	/** Vector width (lane count) for Integer operations */
+	private static final int IWIDTH=ISPECIES.length();
+
+	/** Vector species for 256-bit Short operations */
+	@SuppressWarnings("restriction")
+	private static final VectorSpecies<Short> SSPECIES=ShortVector.SPECIES_256;
+	/** Vector width (lane count) for Short operations */
+	private static final int SWIDTH=SSPECIES.length();
+
+	/** Vector species for 256-bit Double operations */
+	@SuppressWarnings("restriction")
+	private static final VectorSpecies<Double> DSPECIES=DoubleVector.SPECIES_256;
+	/** Vector width (lane count) for Double operations */
+	private static final int DWIDTH=DSPECIES.length();
+
+	/** Vector species for 256-bit Long operations */
+	@SuppressWarnings("restriction")
+	private static final VectorSpecies<Long> LSPECIES=LongVector.SPECIES_256;
+	/** Vector width (lane count) for Long operations */
+	private static final int LWIDTH=LSPECIES.length();
+
+	/** Score value for sequence matches encoded in upper bits */
+	private static final long MATCH=1L<<42;
+	/** Score value for ambiguous nucleotide positions */
+	private static final long N_SCORE=0;
+	/** Score penalty for substitutions encoded in upper bits */
+	private static final long SUB=(-1L)<<42;
+	/** Score penalty for insertions encoded in upper bits */
+	private static final long INS=(-1L)<<42;
+	/** Score penalty for deletions with gap extension tracking in lower bits */
+	private static final long DEL=((-1L)<<42)|((1L)<<21);
+	/** Bit mask for extracting score portion from encoded alignment values */
+	private static final long SCORE_MASK=((-1L)<<42);
+	/** Debug flag for verbose alignment tracing */
+	private static final boolean debug=false;
+
+	/** Vectorized match score constant */
+	private static final LongVector vMATCH=LongVector.broadcast(LSPECIES, MATCH);
+	/** Vectorized N score constant */
+	private static final LongVector vN_SCORE=LongVector.broadcast(LSPECIES, N_SCORE);
+	/** Vectorized substitution penalty constant */
+	private static final LongVector vSUB=LongVector.broadcast(LSPECIES, SUB);
+	/** Vectorized insertion penalty constant */
+	private static final LongVector vINS=vSUB;//LongVector.broadcast(LSPECIES, INS);
+	/** Vectorized constant for N-base detection (value 15) */
+	private static final LongVector v15=LongVector.broadcast(LSPECIES, 15);
 }

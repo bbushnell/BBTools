@@ -395,7 +395,19 @@ public class CellNetParser{
 						inputs.add(prev);
 					}
 				}else{
-					while(lp.hasMore()){inputs.add(lp.parseInt());}
+					if(c.layer<1){throw new IllegalArgumentException("Sparse inputs cannot target input-layer cell "+cid);}
+					final int width=dims[c.layer-1];
+					int previous=-1;
+					while(lp.hasMore()){
+						final int input=lp.parseInt();
+						// Ordered unique inputs keep transposeSparse aligned and make full rows identity maps.
+						if(input<=previous || input>=width){
+							throw new IllegalArgumentException("Legacy sparse inputs must be strictly increasing within previous layer: cell="+
+									cid+", input="+input+", previous="+previous+", width="+width);
+						}
+						inputs.add(input);
+						previous=input;
+					}
 				}
 				c.inputs=inputs.toArray();
 //				for(int i=0; i<c.inputs.length; i++) {c.inputs[i]-=c.prevLayerStart;}

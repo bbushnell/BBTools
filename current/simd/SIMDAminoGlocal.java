@@ -48,13 +48,17 @@ import jdk.incubator.vector.VectorSpecies;
  * @author UMP45
  * @date 2026-09-09
  */
-public final class SIMDAminoGlocal {
+public final class SIMDAminoGlocal{
+	/*--------------------------------------------------------------*/
+	/*----------------        Initialization        ----------------*/
+	/*--------------------------------------------------------------*/
 
+	/** Prevents construction of this utility class. */
 	private SIMDAminoGlocal(){}
 
-	private static final VectorSpecies<Short> SS=ShortVector.SPECIES_256;
-	/** Lane count; the striped layout and the caller's profile stride are built on it. */
-	public static final int W=SS.length();
+	/*--------------------------------------------------------------*/
+	/*----------------        Static Methods        ----------------*/
+	/*--------------------------------------------------------------*/
 
 	/**
 	 * Scores one target against a striped query profile.
@@ -64,8 +68,8 @@ public final class SIMDAminoGlocal {
 	 * @param qLen Real query length (1..L*W).
 	 * @param rEnc Encoded target residues (each a valid profile row index), length >= 1.
 	 * @param gap Linear per-residue gap cost (positive).
-	 * @param hPrev Scratch, length >= n; overwritten.
-	 * @param hCur Scratch, length >= n; overwritten.
+	 * @param hPrev0 Scratch, length >= n; overwritten.
+	 * @param hCur0 Scratch, length >= n; overwritten.
 	 * @param out Receives {score, refEndPos (0-based inclusive)}; length >= 2.
 	 */
 	public static void scoreStriped(final short[] profile, final int segLen, final int qLen, final byte[] rEnc,
@@ -136,4 +140,13 @@ public final class SIMDAminoGlocal {
 		out[0]=best;
 		out[1]=bestJ;
 	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------          Constants           ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Vector species for 256-bit short lanes. */
+	private static final VectorSpecies<Short> SS=ShortVector.SPECIES_256;
+	/** Lane count; the striped layout and the caller's profile stride are built on it. */
+	public static final int W=SS.length();
 }

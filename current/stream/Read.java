@@ -347,10 +347,10 @@ public final class Read implements Comparable<Read>, Cloneable, Serializable{
 		
 		boolean problem=false;
 		boolean needCap=false;
-		if(IUPAC_TO_N || JUNK_MODE==FIX_JUNK_AND_IUPAC){Vector.iupacToN(bases); needCap=true;}
 		//Case conversion reports success; negate it before combining with nucleotide validity.
 		//Otherwise FLAG_JUNK marks clean converted reads as junk.
 		if(TO_UPPER_CASE || LOWER_CASE_TO_N || DOT_DASH_X_TO_N){problem=!fixCaseVec(); needCap=true;}
+		if(IUPAC_TO_N || JUNK_MODE==FIX_JUNK_AND_IUPAC){problem|=!Vector.iupacToN(bases); needCap=true;}
 		if(quality!=null && CHANGE_QUALITY && needCap){
 			Vector.capQuality(quality, bases);
 			needCap=false;
@@ -359,17 +359,57 @@ public final class Read implements Comparable<Read>, Cloneable, Serializable{
 		if(JUNK_MODE==IGNORE_JUNK){return true;}
 		problem=problem||!Vector.isNucleotide(bases);
 		if(!problem){return true;}
-		if(JUNK_MODE==FLAG_JUNK){setJunk(true);}else if(JUNK_MODE==FIX_JUNK){
-			Vector.iupacToN(bases);
-			Vector.capQuality(quality, bases);
+		if(JUNK_MODE==FLAG_JUNK){setJunk(true);}else if(JUNK_MODE==FIX_JUNK || JUNK_MODE==FIX_JUNK_AND_IUPAC){
+			fixJunkOnly();
 		}else if(JUNK_MODE==CRASH_JUNK){return validateCommonCase_branchless(true);}
 		return true;
+	}
+
+	/** Replaces true non-IUPAC junk bytes with N while preserving accepted letters.
+	 * Zeroes the corresponding quality byte when qualities are present. */
+	private void fixJunkOnly(){
+		final byte[] toNumE=AminoAcid.baseToNumberExtended;
+		for(int i=0; i<bases.length; i++){
+			final byte b=bases[i];
+			if(toNumE[b]<0){
+				bases[i]='N';
+				if(quality!=null){quality[i]=0;}
+			}
+		}
+	}
+
+	/** Selects the active scalar nucleotide map without allocating per read.
+	 * @return Configured map, or null when no scalar remapping is enabled */
+	private static byte[] nucleotideMap(){
+		if(DOT_DASH_X_TO_N){
+			return (IUPAC_TO_N || JUNK_MODE==FIX_JUNK_AND_IUPAC) ?
+				NucleotideMaps.DOT_DASH_IUPAC_TO_N : AminoAcid.dotDashXToNocall;
+		}
+		return (IUPAC_TO_N || JUNK_MODE==FIX_JUNK_AND_IUPAC) ? AminoAcid.iupacToNocall : null;
+	}
+
+	/** Lazily initialized composed nucleotide maps. */
+	private static final class NucleotideMaps{
+
+		/** Prevents construction of this static map holder. */
+		private NucleotideMaps(){}
+
+		/** Dot/dash/X/n mapping followed by ambiguity-only IUPAC masking. */
+		static final byte[] DOT_DASH_IUPAC_TO_N=makeDotDashIupacToN();
+
+		/** Builds the composed dot/dash and IUPAC map after AminoAcid maps are ready.
+		 * @return Composed map */
+		private static byte[] makeDotDashIupacToN(){
+			final byte[] map=AminoAcid.dotDashXToNocall.clone();
+			for(int i=0; i<map.length; i++){map[i]=AminoAcid.iupacToNocall[map[i]&0xFF];}
+			return map;
+		}
 	}
 
 	/** Normalizes configured nucleotide symbols/qualities, accumulating invalid-symbol sign bits.
 	 * Returns true for ignored, accepted or repaired input; flags junk and returns false when retained.
 	 * May terminate for rejected input when diagnostics are enabled. Requires compatible arrays
-	 * and table-indexable bytes/qualities. FIX_JUNK_AND_IUPAC rescans only after junk was detected. */
+	 * and table-indexable bytes/qualities. FIX_JUNK_AND_IUPAC masks IUPAC before junk repair. */
 	private boolean validateCommonCase_branchless(boolean processAssertions){
 
 		assert(!aminoacid());
@@ -377,14 +417,12 @@ public final class Read implements Comparable<Read>, Cloneable, Serializable{
 
 		if(TO_UPPER_CASE || LOWER_CASE_TO_N){fixCase();}
 
-		final byte nocall='N';
 		final byte[] toNum=AminoAcid.baseToNumber;
-		final byte[] map=(DOT_DASH_X_TO_N && IUPAC_TO_N ? AminoAcid.baseToACGTN : 
-			DOT_DASH_X_TO_N ? AminoAcid.dotDashXToNocall : IUPAC_TO_N ? AminoAcid.iupacToNocall : null);
+		final byte[] map=nucleotideMap();
 
 		if(JUNK_MODE==IGNORE_JUNK){
 			if(quality!=null && CHANGE_QUALITY){
-				if(DOT_DASH_X_TO_N || IUPAC_TO_N){
+				if(map!=null){
 					for(int i=0; i<bases.length; i++){
 						final byte b=map[bases[i]];
 						final byte q=quality[i];
@@ -400,7 +438,7 @@ public final class Read implements Comparable<Read>, Cloneable, Serializable{
 						quality[i]=(num>=0 ? qMap[q] : 0);
 					}
 				}
-			}else if(DOT_DASH_X_TO_N || IUPAC_TO_N){
+			}else if(map!=null){
 				for(int i=0; i<bases.length; i++){
 					byte b=map[bases[i]];
 					bases[i]=b;
@@ -415,7 +453,7 @@ public final class Read implements Comparable<Read>, Cloneable, Serializable{
 
 		//	asdf
 
-		if(DOT_DASH_X_TO_N || IUPAC_TO_N){
+		if(map!=null){
 			if(quality!=null && CHANGE_QUALITY){
 				for(int i=0; i<bases.length; i++){
 					final byte b=map[bases[i]];
@@ -471,25 +509,13 @@ public final class Read implements Comparable<Read>, Cloneable, Serializable{
 		//TODO: I could disable VALIDATE_BRANCHLESS here, if it's not final
 		//VALIDATE_BRANCHLESS=false;
 		if(JUNK_MODE==FIX_JUNK){
-			for(int i=0; i<bases.length; i++){
-				byte b=bases[i];
-				final int numE=toNumE[b];
-
-				if(numE<0){
-					bases[i]=nocall;
-					if(quality!=null){quality[i]=0;}
-				}
-			}
+			fixJunkOnly();
 			return true;
 		}else if(JUNK_MODE==FLAG_JUNK){
 			setJunk(true);
 			return false;
 		}else if(JUNK_MODE==FIX_JUNK_AND_IUPAC){
-			for(int i=0; i<bases.length; i++){
-				byte b=bases[i];
-				final byte c=AminoAcid.baseToACGTN[b];
-				bases[i]=c;
-			}
+			fixJunkOnly();
 			return true;
 		}else{
 			if(processAssertions){
@@ -4889,15 +4915,15 @@ public final class Read implements Comparable<Read>, Cloneable, Serializable{
 	public static final int IGNORE_JUNK=0;
 	/** Selects junk marking rather than replacement or a fatal junk diagnostic. */
 	public static final int FLAG_JUNK=1;
-	/** Selects junk replacement; the alphabet and active helper determine its conversions. */
+	/** Selects replacement of bytes rejected by the active alphabet; IUPAC masking is separate. */
 	public static final int FIX_JUNK=2;
 	/** Selects fatal junk diagnostics when the active helper enables them. */
 	public static final int CRASH_JUNK=3;
-	/** Selects additional nucleotide-to-ACGTN conversion; vector and branchless trigger conditions differ. */
+	/** Selects FIX_JUNK plus IUPAC masking; U-to-T and case conversion remain separate. */
 	public static final int FIX_JUNK_AND_IUPAC=4;
 	/** Process-wide junk-handling selector; see the active validation helper for exact behavior. */
 	public static int JUNK_MODE=CRASH_JUNK;
-	/** Requests IUPAC-to-N conversion in the active nucleotide validation paths. */
+	/** Requests IUPAC masking to N in active nucleotide validation paths. */
 	public static boolean IUPAC_TO_N=false;
 
 	/** Converts U/u before nucleotide validation unless SKIP_SLOW_VALIDATION bypasses that path. */

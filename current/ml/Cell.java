@@ -81,10 +81,11 @@ public class Cell extends Source{
 		setValue(v);
 	}
 
-	/** Dot-products indexed previous-layer values with sparse incoming weights and stores activation. */
+	/** Dot-products sorted-unique sparse inputs; full-width rows are identity maps and use dense FMA. */
 	public void summateSparse(float[] valuesIn, int edgeBlockSize){
 		sum=bias;
-		sum+=Vector.fma(weights, valuesIn, inputs, edgeBlockSize, Vector.SIMD_FMA_SPARSE);
+		sum+=(weights.length==valuesIn.length ? Vector.fma(weights, valuesIn) :
+			Vector.fma(weights, valuesIn, inputs, edgeBlockSize, Vector.SIMD_FMA_SPARSE));
 		final float v=(float)activation(sum);
 		setValue(v);
 	}
@@ -358,7 +359,7 @@ public class Cell extends Source{
 		//assert(check());
 	}
 
-	/** Backpropagates through a hidden sparse row and accumulates indexed incoming deltas. */
+	/** Backpropagates sorted-unique sparse rows; full-width rows are identity maps using dense overloads. */
 	public void updateEdgesHiddenLayerSparse(float[] valuesIn, float[] eOverNetNext,
 			float[] weightsOut, int edgeBlockSize){
 		//assert(check());
@@ -370,7 +371,8 @@ public class Cell extends Source{
 		outOverNet=(float)derivativeXFX(sum, v);
 
 		assert(!dense);
-		eTotalOverOut=Vector.fma(weightsOut, eOverNetNext, outputs, 1, false);
+		eTotalOverOut=(weightsOut.length==eOverNetNext.length ? Vector.fma(weightsOut, eOverNetNext) :
+			Vector.fma(weightsOut, eOverNetNext, outputs, 1, false));
 
 //		if(CellNet.SIMD && eOverNetNext.length>=16) {
 //			eTotalOverOut=shared.Vector.fma(weightsOut, eOverNetNext);
@@ -395,7 +397,8 @@ public class Cell extends Source{
 //
 //			deltas[source]-=eTotalOverWeight;
 //		}
-		Vector.addProduct(deltas, valuesIn, inputs, -eOverNet, edgeBlockSize);
+		if(deltas.length==valuesIn.length){Vector.addProduct(deltas, valuesIn, -eOverNet);
+		}else{Vector.addProduct(deltas, valuesIn, inputs, -eOverNet, edgeBlockSize);}
 
 //		if(layer>0){
 		{

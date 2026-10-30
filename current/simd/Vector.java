@@ -4,8 +4,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 
 import dna.AminoAcid;
-import jdk.incubator.vector.ByteVector;
-import jdk.incubator.vector.VectorMask;
 import ml.Cell;
 import shared.Shared;
 import shared.Timer;
@@ -14,23 +12,28 @@ import stream.Read;
 import structures.ByteBuilder;
 import structures.IntList;
 
-/** 
- * Protects normal classes from seeing SIMD in case it doesn't compile or is absent.
- * ...in theory.
+/** Java-8-compatible facade for optional vector kernels and scalar fallbacks.
+ * Capability probes avoid directly linking Vector API types into this class.
+ * Most methods select a fixed-width backend using {@link Shared#SIMD} and a
+ * length threshold; capability fields describe available hardware/API support,
+ * not whether a particular call will use that backend. The 128-bit and 64-bit
+ * capability flags do not select alternate implementations of 256-bit kernels.
+ * Arrays are borrowed unless a method explicitly returns a new copy. Callers
+ * must coordinate mutations and changes to process-wide execution flags.
  * @author Brian Bushnell
  * @date Sep 12, 2013
  *
  */
-public final class Vector {
+public final class Vector{
 
 	/**
 	 * Performance benchmark comparing scalar and SIMD implementations.
 	 * Tests sum and max operations on integer arrays using both execution paths.
 	 * @param args Command-line arguments (unused)
 	 */
-	public static void main(String[] args) {
+	public static void main(String[] args){
 		int[] array=new int[19999];
-		for(int i=0; i<array.length; i++) {
+		for(int i=0; i<array.length; i++){
 			array[i]=(byte)(i&127);
 		}
 		Timer t=new Timer();
@@ -38,11 +41,11 @@ public final class Vector {
 		int loops=80000;
 
 		long sum=0, sum2=0, max=0;
-		for(int outer=0; outer<4; outer++) {
+		for(int outer=0; outer<4; outer++){
 			t.start();
 			sum=0; sum2=0;
 			Shared.SIMD=false;
-			for(int i=0; i<loops; i++) {
+			for(int i=0; i<loops; i++){
 				sum=sum(array);
 				sum2+=sum;
 			}
@@ -52,7 +55,7 @@ public final class Vector {
 			t.start();
 			sum=0; sum2=0;
 			Shared.SIMD=true;
-			for(int i=0; i<loops; i++) {
+			for(int i=0; i<loops; i++){
 				sum=sum(array);
 				sum2+=sum;
 			}
@@ -60,11 +63,11 @@ public final class Vector {
 			t.stop("Vector: ");
 		}
 
-		for(int outer=0; outer<4; outer++) {
+		for(int outer=0; outer<4; outer++){
 			t.start();
 			max=0; sum=0; sum2=0;
 			Shared.SIMD=false;
-			for(int i=0; i<loops; i++) {
+			for(int i=0; i<loops; i++){
 				max=max(array);
 				sum2+=max;
 			}
@@ -74,7 +77,7 @@ public final class Vector {
 			t.start();
 			max=0; sum=0; sum2=0;
 			Shared.SIMD=true;
-			for(int i=0; i<loops; i++) {
+			for(int i=0; i<loops; i++){
 				max=max(array);
 				sum2+=max;
 			}
@@ -83,7 +86,18 @@ public final class Vector {
 		}
 	}
 
-	/** 
+	/*--------------------------------------------------------------*/
+	/*----------------        Initialization        ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Preserves the historical public no-argument constructor; operations are static. */
+	public Vector(){}
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Static Methods        ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/**
 	 * Returns "c+=a[i]*b[i]" where a and b are equal-length arrays.
 	 * @param a A vector to multiply.
 	 * @param b A vector to multiply.
@@ -91,9 +105,9 @@ public final class Vector {
 	 */
 	public static final float fma(final float[] a, final float[] b){
 		assert(a.length==b.length);
-		if(Shared.SIMD && Shared.SIMD_FMA && a.length>=MINLEN32) {return SIMD.fma(a, b);}
+		if(Shared.SIMD && Shared.SIMD_FMA && a.length>=MINLEN32){return SIMD.fma(a, b);}
 		float c=0;
-		for(int i=0; i<a.length; i++) {c+=a[i]*b[i];}
+		for(int i=0; i<a.length; i++){c+=a[i]*b[i];}
 		return c;
 	}
 
@@ -154,37 +168,40 @@ public final class Vector {
 		}
 	}
 
-	/** True when A belongs ahead of B in the deterministic top-N order. */
+	/** Tests whether A should displace B during the ascending-index top-N scan.
+	 * Two NaNs never displace one another, preserving their encounter order.
+	 * @param scoreA Candidate score
+	 * @param indexA Candidate index
+	 * @param scoreB Existing score
+	 * @param indexB Existing index
+	 * @return True for a better non-NaN score, or an earlier equal-score index */
 	private static boolean betterTop(final float scoreA, final int indexA, final float scoreB, final int indexB){
 		final boolean nanA=Float.isNaN(scoreA), nanB=Float.isNaN(scoreB);
 		return nanB ? !nanA : (!nanA && (scoreA>scoreB || (scoreA==scoreB && indexA<indexB)));
 	}
 
-	/** 
-	 * Returns "c+=a[i]*b[bSet[i]]".
-	 * @param a A vector to multiply.
-	 * @param b A vector to multiply.
-	 * @param bSet Subset of B's indices.
-	 * @param blockSize bSet should be in sets of consecutive indices of this length,
-	 * for example, blockSize=8 would allow AVX256 vector operations.
-	 * @return Sum of products of vector elements.
+	/**
+	 * Computes the indexed dot product a[i]*b[bSet[i]] without modifying the inputs.
+	 * Equal lengths alone do not imply an identity mapping. Callers that already
+	 * know the mapping is identity may use the dense overload.
+	 * @param a Multipliers, with the same length as bSet
+	 * @param b Indexed source values
+	 * @param bSet Valid indices into b
+	 * @param blockSize Positive contiguous index-block size; use one for arbitrary
+	 * mappings. Multiples of eight permit vector loads from each block's first index.
+	 * @param allowSimd Whether this call may use sparse SIMD; false preserves scalar order
+	 * @return Sum of products; SIMD fusion/reduction order can change rounding
 	 */
-	public static final float fma(final float[] a, final float[] b, final int[] bSet, 
-		final int blockSize, boolean allowSimd){
+	public static final float fma(final float[] a, final float[] b, final int[] bSet,
+		final int blockSize, final boolean allowSimd){
 		assert(a.length==bSet.length);
-		//Comprehension: this 5-arg (sparse) form is only reached from ml.Cell.summateSparse / updateEdgesHiddenLayerSparse,
-		//where bSet (inputs/outputs) is non-null (Cell.check: CellNet.DENSE==(inputs==null)). The dense shortcut below computes
-		//Sum(a[i]*b[i]), which equals the intended Sum(a[i]*b[bSet[i]]) ONLY if bSet is the identity permutation.
-		//TODO: Possible bug [simd/Vector#002] - dense shortcut ignores bSet when a.length==b.length (fires even when allowSimd=false,
-		//e.g. Cell.java:389). Wrong output for a fully-connected sparse cell whose edge ordering is a non-identity permutation.
-		//Latent/LOW: reachable only if the net builder ever produces such a cell (UNVERIFIED - check CellNet edge ordering).
-		//Crash-loud fix: assert bSet is identity here (or take the shortcut only when bSet==null) to turn silent-wrong into a loud crash.
-		if(Shared.SIMD && Shared.SIMD_FMA && a.length>=MINLEN32 && a.length==b.length) {return SIMD.fma(a, b);}
-		if(Shared.SIMD && Shared.SIMD_FMA && a.length>=MINLEN32 && allowSimd && ((blockSize&7)==0)) {//This ensures length-8 blocks
+		//FIXED [simd/Vector#002]: equal array lengths did not prove bSet was identity.
+		if(Shared.SIMD && Shared.SIMD_FMA && allowSimd && a.length>=MINLEN32
+				&& a.length<b.length && blockSize>0 && ((blockSize&7)==0)){
 			return SIMD.fmaSparse(a, b, bSet);
 		}
 		float c=0;
-		for(int i=0; i<a.length; i++) {c+=a[i]*b[bSet[i]];}
+		for(int i=0; i<a.length; i++){c+=a[i]*b[bSet[i]];}
 		return c;
 	}
 
@@ -196,12 +213,12 @@ public final class Vector {
 	 */
 	public static final void feedForward(Cell[] layer, float[] valuesIn){
 		//		assert(layer.length==valuesIn.length);
-		if(Shared.SIMD && Shared.SIMD_FEED_FORWARD && valuesIn.length>=MINLEN32) {
+		if(Shared.SIMD && Shared.SIMD_FEED_FORWARD && valuesIn.length>=MINLEN32){
 			SIMD.feedForward(layer, valuesIn);
 			return;
 		}
 
-		for(int cnum=0; cnum<layer.length; cnum++) {
+		for(int cnum=0; cnum<layer.length; cnum++){
 			Cell c=layer[cnum];
 			float[] weights=c.weights;
 			float sum=c.bias;
@@ -222,16 +239,20 @@ public final class Vector {
 		feedForwardDense(layer, valuesIn, true);//Back-compat: callers with no per-job control fall through to the global gate
 	}
 
-	/** As feedForwardDense(layer, valuesIn), but with a per-job simdFF flag ANDed into the gate,
-	 * so an individual training batch can force scalar feed-forward even when SIMD_FEED_FORWARD is on. */
+	/** Computes dense cell activations with a per-job gate for the batched kernel.
+	 * Disabling simdFF skips that kernel; individual fallback dot products still
+	 * honor the independent Shared.SIMD_FMA flag and may use SIMD.
+	 * @param layer Cells whose sums and output values are updated
+	 * @param valuesIn Inputs matching every cell's dense weight-array length
+	 * @param simdFF Whether this call may use the batched feed-forward kernel */
 	public static final void feedForwardDense(Cell[] layer, float[] valuesIn, boolean simdFF){
 		//		assert(layer.length==valuesIn.length);
-		if(simdFF && Shared.SIMD && Shared.SIMD_FEED_FORWARD && valuesIn.length>=MINLEN32) {//Per-job gate: job.simdFF && global SIMD_FEED_FORWARD. SIMD reductions can't bit-match scalar (validated 2026-06-15), so this stays opt-in.
+		if(simdFF && Shared.SIMD && Shared.SIMD_FEED_FORWARD && valuesIn.length>=MINLEN32){//Batched-kernel gate; fallback dot products separately honor SIMD_FMA.
 			SIMD.feedForward(layer, valuesIn);
 			return;
 		}
 
-		for(int cnum=0; cnum<layer.length; cnum++) {
+		for(int cnum=0; cnum<layer.length; cnum++){
 			Cell c=layer[cnum];
 			float[] weights=c.weights;
 			float sum=c.bias;
@@ -251,8 +272,8 @@ public final class Vector {
 	 * @param eOverNetNext Error derivatives from next layer
 	 * @param weightsOutLnum Weight matrix connecting this layer to next layer
 	 */
-	public static void backPropFma(Cell[] layer, float[] eOverNetNext, float[][] weightsOutLnum) {
-		if(Shared.SIMD && Shared.SIMD_BACKPROP && eOverNetNext.length>=MINLEN32) {
+	public static void backPropFma(Cell[] layer, float[] eOverNetNext, float[][] weightsOutLnum){
+		if(Shared.SIMD && Shared.SIMD_BACKPROP && eOverNetNext.length>=MINLEN32){
 			SIMD.backPropFma(layer, eOverNetNext, weightsOutLnum);
 			return;
 		}
@@ -262,15 +283,15 @@ public final class Vector {
 		}
 	}
 
-	/** 
+	/**
 	 * Performs "a+=incr" where a and incr are equal-length arrays.
 	 * @param a A vector to increment.
 	 * @param incr Increment amount.
 	 */
 	public static final void add(final float[] a, final float[] incr){
 		assert(a.length==incr.length);
-		if(Shared.SIMD && a.length>=MINLEN32) {SIMD.add(a, incr); return;}
-		for(int i=0; i<a.length; i++) {a[i]+=incr[i];}
+		if(Shared.SIMD && a.length>=MINLEN32){SIMD.add(a, incr); return;}
+		for(int i=0; i<a.length; i++){a[i]+=incr[i];}
 	}
 
 	/**
@@ -280,7 +301,7 @@ public final class Vector {
 	 * @return Sum of |a[i] - b[i]| for all elements
 	 */
 	public static final float absDifFloat(float[] a, float[] b){
-		if(Shared.SIMD && a.length>=MINLEN32) {return SIMD.absDifFloat(a, b);}
+		if(Shared.SIMD && a.length>=MINLEN32){return SIMD.absDifFloat(a, b);}
 		assert(a.length==b.length);
 		float sum=0;
 		for(int i=0; i<a.length; i++){
@@ -315,12 +336,11 @@ public final class Vector {
 	}
 
 	/**
-	 * Fully pre-converted SIMD DDL comparison: both arrays pre-converted to short[].
-	 * ~50% faster than char[]/char[] because both loads use fromArray (native)
-	 * instead of fromCharArray (internal conversion).
-	 * Pre-convert both query and refs once, then compare many times.
+	 * Compares pre-converted DDL arrays as unsigned 16-bit bucket values.
+	 * Both inputs retain char bit patterns in short storage. Pre-converted arrays
+	 * can be reused across comparisons; each call allocates its four-count result.
 	 * @param queryShort Pre-converted query maxArray
-	 * @param refShort Pre-converted reference maxArray
+	 * @param refShort Reference storage with at least queryShort.length elements
 	 * @return int[]{lower, equal, higher, bothEmpty}
 	 */
 	public static int[] compareDDL(short[] queryShort, short[] refShort){
@@ -328,10 +348,10 @@ public final class Vector {
 		return compareDDLScalarShort(queryShort, refShort);
 	}
 
-	/** Converts char[] DDL maxArray to short[] for SIMD comparison.
-	 *  Same bit pattern; only signedness interpretation changes.
-	 *  Call once per query/ref, then reuse across many comparisons. */
-	public static short[] toShortArray(char[] arr){
+	/** Copies DDL bucket bit patterns into new short storage for repeated comparisons.
+	 * @param arr Non-null source bucket array
+	 * @return New array of equal length with the same 16-bit patterns */
+	public static short[] toShortArray(final char[] arr){
 		final short[] out=new short[arr.length];
 		for(int i=0; i<arr.length; i++){
 			out[i]=(short)arr[i];
@@ -339,8 +359,11 @@ public final class Vector {
 		return out;
 	}
 
-	/** Scalar fallback for hybrid short[]/char[] DDL comparison. */
-	private static int[] compareDDLScalarHybrid(short[] a, char[] b){
+	/** Compares unsigned short patterns against char buckets, separating empty pairs.
+	 * @param a Query buckets
+	 * @param b Reference storage with at least a.length elements
+	 * @return New counts in lower, equal, higher, both-empty order */
+	private static int[] compareDDLScalarHybrid(final short[] a, final char[] b){
 		int lower=0, equal=0, higher=0, bothEmpty=0;
 		for(int i=0; i<a.length; i++){
 			final int ai=a[i]&0xFFFF, bi=b[i];
@@ -356,8 +379,11 @@ public final class Vector {
 		return new int[]{lower, equal, higher, bothEmpty};
 	}
 
-	/** Scalar fallback for fully pre-converted short[]/short[] DDL comparison. */
-	private static int[] compareDDLScalarShort(short[] a, short[] b){
+	/** Compares unsigned short patterns, excluding empty pairs from equality counts.
+	 * @param a Query buckets
+	 * @param b Reference storage with at least a.length elements
+	 * @return New counts in lower, equal, higher, both-empty order */
+	private static int[] compareDDLScalarShort(final short[] a, final short[] b){
 		int lower=0, equal=0, higher=0, bothEmpty=0;
 		for(int i=0; i<a.length; i++){
 			final int ai=a[i]&0xFFFF, bi=b[i]&0xFFFF;
@@ -373,8 +399,11 @@ public final class Vector {
 		return new int[]{lower, equal, higher, bothEmpty};
 	}
 
-	/** Scalar fallback for DDL bucket comparison. */
-	private static int[] compareDDLScalar(char[] a, char[] b){
+	/** Compares char buckets, excluding empty pairs from equality counts.
+	 * @param a Query buckets
+	 * @param b Reference storage with at least a.length elements
+	 * @return New counts in lower, equal, higher, both-empty order */
+	private static int[] compareDDLScalar(final char[] a, final char[] b){
 		int lower=0, equal=0, higher=0, bothEmpty=0;
 		for(int i=0; i<a.length; i++){
 			final int ai=a[i], bi=b[i];
@@ -399,21 +428,21 @@ public final class Vector {
 	 * @param gcmap GC content mapping for each k-mer
 	 * @return GC-compensated frequency array
 	 */
-	public static float[] compensate(long[] a, int k, int[] gcmap) {
+	public static float[] compensate(long[] a, int k, int[] gcmap){
 		final float[] aSum=new float[k+1];
 		final float inv=1f/(k+1);
 
-		for(int i=0; i<a.length; i++) {
+		for(int i=0; i<a.length; i++){
 			int gc=gcmap[i];
 			aSum[gc]+=a[i];
 		}
 
-		for(int i=0; i<aSum.length; i++) {
+		for(int i=0; i<aSum.length; i++){
 			aSum[i]=inv/Math.max(aSum[i], 1);
 		}
 
 		float[] comp=new float[a.length];
-		for(int i=0; i<a.length; i++) {
+		for(int i=0; i<a.length; i++){
 			int gc=gcmap[i];
 			comp[i]=a[i]*aSum[gc];
 		}
@@ -431,21 +460,21 @@ public final class Vector {
 	 * @param gcmap GC content mapping for each k-mer
 	 * @return GC-compensated frequency array
 	 */
-	public static float[] compensate(int[] a, int k, int[] gcmap) {
+	public static float[] compensate(int[] a, int k, int[] gcmap){
 		final float[] aSum=new float[k+1];
 		final float inv=1f/(k+1);
 
-		for(int i=0; i<a.length; i++) {
+		for(int i=0; i<a.length; i++){
 			int gc=gcmap[i];
 			aSum[gc]+=a[i];
 		}
 
-		for(int i=0; i<aSum.length; i++) {
+		for(int i=0; i<aSum.length; i++){
 			aSum[i]=inv/Math.max(aSum[i], 1);
 		}
 
 		float[] comp=new float[a.length];
-		for(int i=0; i<a.length; i++) {
+		for(int i=0; i<a.length; i++){
 			int gc=gcmap[i];
 			comp[i]=a[i]*aSum[gc];
 		}
@@ -466,7 +495,7 @@ public final class Vector {
 	 * @param gcmap GC content mapping for each k-mer
 	 * @return GC-compensated absolute difference (0-1 range)
 	 */
-	public static float absDifComp(long[] a, long[] b, int k, int[] gcmap) {
+	public static float absDifComp(long[] a, long[] b, int k, int[] gcmap){
 		//    	if(Shared.SIMD && a.length>Vector.MINLEN32) {return SIMD.absDifComp(a, b, k, gcmap);}
 		float[] af=compensate(a, k, gcmap);
 		float[] bf=compensate(b, k, gcmap);
@@ -480,7 +509,7 @@ public final class Vector {
 	 * @param b Second vector
 	 * @return Cosine difference value (0 = identical, higher = more different)
 	 */
-	public static float cosineDifference(int[] a, int[] b) {
+	public static float cosineDifference(int[] a, int[] b){
 		float inva=1f/Math.max(1, sum(a));
 		float invb=1f/Math.max(1, sum(b));
 		float ret=1-cosineSimilarity(a, b, inva, invb);
@@ -497,14 +526,14 @@ public final class Vector {
 	 * @param invb Inverse normalization factor for vector b
 	 * @return Cosine similarity (1 = identical, 0 = orthogonal)
 	 */
-	public static float cosineSimilarity(int[] a, int[] b, float inva, float invb) {
+	public static float cosineSimilarity(int[] a, int[] b, float inva, float invb){
 		assert(a.length==b.length);
-		if(Shared.SIMD && a.length>=MINLEN32) {return SIMD.cosineSimilarity(a, b, inva, invb);}
+		if(Shared.SIMD && a.length>=MINLEN32){return SIMD.cosineSimilarity(a, b, inva, invb);}
 		float dotProduct=0f;
 		float normVec1=0f;
 		float normVec2=0f;
 
-		for (int i=0; i<a.length; i++) {
+		for(int i=0; i<a.length; i++){
 			float ai=a[i]*inva, bi=b[i]*invb;
 			dotProduct+=ai*bi;
 			normVec1+=ai*ai;
@@ -524,7 +553,7 @@ public final class Vector {
 	 */
 	public static float cosineSimilarity(float[] a, float[] b){
 		assert(a.length==b.length);
-		if(Shared.SIMD && a.length>=MINLEN32) {return SIMD.cosineSimilarity(a, b);}
+		if(Shared.SIMD && a.length>=MINLEN32){return SIMD.cosineSimilarity(a, b);}
 		float dotProduct=0f;
 		float normVec1=0f;
 		float normVec2=0f;
@@ -540,7 +569,7 @@ public final class Vector {
 		return (float)(dotProduct/(Math.sqrt(normVec1)*Math.sqrt(normVec2)));
 	}
 
-	/** 
+	/**
 	 * Performs "a[i]+=b[i]*mult" where a and b are equal-length arrays.
 	 * @param a A vector to increment.
 	 * @param b Increment amount.
@@ -548,57 +577,73 @@ public final class Vector {
 	 */
 	public static final void addProduct(final float[] a, final float[] b, final float mult){
 		assert(a.length==b.length);
-		if(Shared.SIMD && a.length>=MINLEN32) {SIMD.addProduct(a, b, mult); return;}
-		for(int i=0; i<a.length; i++) {a[i]+=b[i]*mult;}
+		if(Shared.SIMD && a.length>=MINLEN32){SIMD.addProduct(a, b, mult); return;}
+		for(int i=0; i<a.length; i++){a[i]+=b[i]*mult;}
 	}
 
-	/** 
-	 * Performs "a[i]+=b[bSet[i]]*mult".
-	 * @param a A vector to increment.
-	 * @param b Increment amount.
-	 * @param bSet Subset of B's indices.
-	 * @param mult Increment multiplier.
+	/**
+	 * Adds b[bSet[i]]*mult into each destination entry.
+	 * Equal source and destination lengths do not imply identity indices. Callers
+	 * that know the mapping is identity may use the dense overload.
+	 * @param a Destination, with the same length as bSet
+	 * @param b Source values; must not alias destination writes that affect later reads
+	 * @param bSet Valid indices into b
+	 * @param mult Increment multiplier
+	 * @param blockSize Positive contiguous index-block size; use one for arbitrary mappings
 	 */
-	public static final void addProduct(final float[] a, final float[] b, int[] bSet, final float mult, int blockSize){
+	public static final void addProduct(final float[] a, final float[] b, final int[] bSet,
+			final float mult, final int blockSize){
 		assert(a.length==bSet.length);
-		//TODO: Possible bug [simd/Vector#002] - twin of the fma dense-shortcut above: this ignores bSet when a.length==b.length,
-		//computing a[i]+=b[i]*mult instead of a[i]+=b[bSet[i]]*mult. Only reached from Cell.updateEdgesHiddenLayerSparse (sparse,
-		//bSet!=null); correct only if a fully-connected sparse cell always has identity ordering (UNVERIFIED). Same crash-loud fix.
-		if(Shared.SIMD && a.length>=MINLEN32 && a.length==b.length) {SIMD.addProduct(a, b, mult); return;}
-		if(Shared.SIMD && a.length>=MINLEN32 && SIMD_MULT_SPARSE && ((blockSize&7)==0)) {SIMD.addProductSparse(a, b, bSet, mult); return;}
-		for(int i=0; i<a.length; i++) {a[i]+=b[bSet[i]]*mult;}
+		//FIXED [simd/Vector#002]: retain indexed semantics even for full-width rows.
+		if(Shared.SIMD && a.length>=MINLEN32 && SIMD_MULT_SPARSE && a.length<b.length
+				&& blockSize>0 && ((blockSize&7)==0)){
+			SIMD.addProductSparse(a, b, bSet, mult);
+			return;
+		}
+		for(int i=0; i<a.length; i++){a[i]+=b[bSet[i]]*mult;}
 	}
 
 	/**
-	 * Copies elements from source array to destination array.
-	 * Uses SIMD acceleration when enabled and arrays are large enough.
-	 * @param dest Destination array
-	 * @param source Source array
+	 * Copies the shorter array's length from source to destination.
+	 * Any remaining destination suffix is unchanged. Both arrays must be non-null;
+	 * passing the same array for both arguments is allowed.
+	 * @param dest Destination array, modified in place
+	 * @param source Source array, otherwise unchanged
 	 */
-	public static void copy(float[] dest, float[] source) {
+	public static void copy(final float[] dest, final float[] source){
 		//		assert(a.length==b.length);
-		if(SIMDCOPY && Shared.SIMD && dest.length>=MINLEN32) {SIMD.copy(dest, source); return;}
-		for(int i=0, max=Tools.min(dest.length, source.length); i<max; i++) {dest[i]=source[i];}
+		if(SIMDCOPY && Shared.SIMD && dest.length>=MINLEN32){SIMD.copy(dest, source); return;}
+		for(int i=0, max=Tools.min(dest.length, source.length); i<max; i++){dest[i]=source[i];}
 	}
 
 	/**
-	 * Copies elements from source array to destination array (integer version).
-	 * Currently uses scalar implementation only.
-	 * @param dest Destination array
-	 * @param source Source array
+	 * Copies the shorter array's length from source to destination using scalar code.
+	 * Any remaining destination suffix is unchanged. Both arrays must be non-null;
+	 * passing the same array for both arguments is allowed.
+	 * @param dest Destination array, modified in place
+	 * @param source Source array, otherwise unchanged
 	 */
-	public static void copy(int[] dest, int[] source) {
+	public static void copy(final int[] dest, final int[] source){
 		//		assert(a.length==b.length);
 		//		if(SIMDCOPY && Shared.SIMD && dest.length>=MINLEN32) {SIMD.copy(dest, source); return;}//TODO
-		for(int i=0, max=Tools.min(dest.length, source.length); i<max; i++) {dest[i]=source[i];}
+		for(int i=0, max=Tools.min(dest.length, source.length); i<max; i++){dest[i]=source[i];}
 	}
 
-	/** Returns number of matches */
-	public static final int countMatches(final byte[] s1, final byte[] s2, int a1, int b1, int a2, int b2){
+	/** Counts equal bytes in two valid, equally sized inclusive ranges.
+	 * Equality is literal; ambiguous bases are not treated as wildcards.
+	 * @param s1 First sequence
+	 * @param s2 Second sequence
+	 * @param a1 First index in s1, inclusive
+	 * @param b1 Last index in s1, inclusive
+	 * @param a2 First index in s2, inclusive
+	 * @param b2 Last index in s2, inclusive
+	 * @return Number of equal byte pairs; neither sequence is modified */
+	public static final int countMatches(final byte[] s1, final byte[] s2,
+			final int a1, final int b1, final int a2, final int b2){
 		assert(b1-a1==b2-a2) : a1+"-"+b1+", "+a2+"-"+b2+", len="+s1.length+", "+(b1-a1)+"!="+(b2-a2);
-		if(Shared.SIMD && b1-a1+1>=MINLEN8) {return SIMDByte256.countMatches(s1, s2, a1, b1, a2, b2);}
+		if(Shared.SIMD && b1-a1+1>=MINLEN8){return SIMDByte256.countMatches(s1, s2, a1, b1, a2, b2);}
 		int matches=0;
-		for(int i=a1, j=a2; j<=b2; i++, j++) {
+		for(int i=a1, j=a2; j<=b2; i++, j++){
 			final byte x=s1[i], y=s2[j];
 			final int m=((x==y) ? 1 : 0);//Does not take into account capitalization or undefined bases
 			matches+=m;
@@ -608,17 +653,19 @@ public final class Vector {
 	}
 
 	/**
-	 * Counts mismatches between two sequence regions.
+	 * Counts unequal bytes in two valid, equally sized inclusive ranges.
+	 * Equality is literal; ambiguous bases are not treated as wildcards.
 	 *
 	 * @param s1 First sequence
 	 * @param s2 Second sequence
 	 * @param a1 Start position in first sequence
-	 * @param b1 End position in first sequence
+	 * @param b1 End position in first sequence, inclusive
 	 * @param a2 Start position in second sequence
-	 * @param b2 End position in second sequence
+	 * @param b2 End position in second sequence, inclusive
 	 * @return Number of mismatching bases
 	 */
-	public static final int countMismatches(final byte[] s1, final byte[] s2, int a1, int b1, int a2, int b2){
+	public static final int countMismatches(final byte[] s1, final byte[] s2,
+			final int a1, final int b1, final int a2, final int b2){
 		return (b1-a1+1)-countMatches(s1, s2, a1, b1, a2, b2);
 	}
 
@@ -640,13 +687,16 @@ public final class Vector {
 
 
 	/**
-	 * Computes sum of all elements in float array.
+	 * Sums float elements, returning a double without modifying the input.
+	 * Scalar code accumulates in double. SIMD retains float-vector accumulation
+	 * for ordinary results and recomputes a nonfinite result in double. Finite
+	 * inputs cannot overflow the return value, but SIMD can round differently.
 	 * @param array Array to sum
 	 * @return Sum of all elements, or 0 if array is null
 	 */
-	public static double sum(float[] array){//
+	public static double sum(final float[] array){
 		if(array==null){return 0;}
-		if(Shared.SIMD && array.length>=MINLEN32) {return SIMD.sum(array, 0, array.length-1);}
+		if(Shared.SIMD && array.length>=MINLEN32){return SIMD.sum(array, 0, array.length-1);}
 		double x=0;
 		for(float y : array){x+=y;}
 		return x;
@@ -657,9 +707,9 @@ public final class Vector {
 	 * @param array Array to sum
 	 * @return Sum of all elements, or 0 if array is null
 	 */
-	public static long sum(byte[] array){
+	public static long sum(final byte[] array){
 		if(array==null){return 0;}
-		if(Shared.SIMD && array.length>=MINLEN8) {return SIMDByte256.sum(array, 0, array.length-1);}
+		if(Shared.SIMD && array.length>=MINLEN8){return SIMDByte256.sum(array, 0, array.length-1);}
 		long x=0;
 		for(byte y : array){x+=y;}
 		return x;
@@ -670,7 +720,7 @@ public final class Vector {
 	 * @param array Array to sum
 	 * @return Sum of all elements, or 0 if array is null
 	 */
-	public static long sum(char[] array){
+	public static long sum(final char[] array){
 		if(array==null){return 0;}
 		//		if(Shared.SIMD && array.length>=SMINLEN) {return SIMD.sum(array, 0, array.length-1);}
 		long x=0;
@@ -683,7 +733,7 @@ public final class Vector {
 	 * @param array Array to sum
 	 * @return Sum of all elements, or 0 if array is null
 	 */
-	public static long sum(short[] array){
+	public static long sum(final short[] array){
 		if(array==null){return 0;}
 		//		if(Shared.SIMD && array.length>=SMINLEN) {return SIMD.sum(array, 0, array.length-1);}
 		long x=0;
@@ -696,35 +746,36 @@ public final class Vector {
 	 * @param array Array to sum
 	 * @return Sum of all elements, or 0 if array is null
 	 */
-	public static long sum(int[] array){
+	public static long sum(final int[] array){
 		if(array==null){return 0;}
-		if(Shared.SIMD && array.length>=MINLEN32) {return SIMD.sum(array, 0, array.length-1);}
+		if(Shared.SIMD && array.length>=MINLEN32){return SIMD.sum(array, 0, array.length-1);}
 		long x=0;
 		for(int y : array){x+=y;}
 		return x;
 	}
 
 	/**
-	 * Computes sum of all elements in double array.
+	 * Sums double elements without modifying the array.
+	 * SIMD reduction order can change rounding or overflow behavior.
 	 * @param array Array to sum
 	 * @return Sum of all elements, or 0 if array is null
 	 */
-	public static double sum(double[] array){
+	public static double sum(final double[] array){
 		if(array==null){return 0;}
-		if(Shared.SIMD && array.length>=MINLEN64) {return SIMD.sum(array, 0, array.length-1);}
+		if(Shared.SIMD && array.length>=MINLEN64){return SIMD.sum(array, 0, array.length-1);}
 		double x=0;
 		for(double y : array){x+=y;}
 		return x;
 	}
 
 	/**
-	 * Computes sum of all elements in long array.
+	 * Sums all long elements with ordinary two's-complement overflow.
 	 * @param array Array to sum
 	 * @return Sum of all elements, or 0 if array is null
 	 */
-	public static long sum(long[] array){
+	public static long sum(final long[] array){
 		if(array==null){return 0;}
-		if(Shared.SIMD && array.length>=MINLEN64) {return SIMD.sum(array, 0, array.length-1);}
+		if(Shared.SIMD && array.length>=MINLEN64){return SIMD.sum(array, 0, array.length-1);}
 		long x=0;
 		for(long y : array){x+=y;}
 		return x;
@@ -738,73 +789,75 @@ public final class Vector {
 	 * @param to End index (inclusive)
 	 * @return Sum of elements in range, or 0 if array is null
 	 */
-	public static long sum(int[] array, int from, int to){
+	public static long sum(final int[] array, final int from, final int to){
 		if(array==null){return 0;}
-		if(Shared.SIMD && array.length>=MINLEN32) {return SIMD.sum(array, from, to);}//FIXED [simd/Vector#001]: SIMD path passed (0, array.length-1), ignoring from/to, so it silently summed the WHOLE array.  SIMD.sum(int[],from,to) honors arbitrary ranges.
+		if(Shared.SIMD && array.length>=MINLEN32){return SIMD.sum(array, from, to);}//FIXED [simd/Vector#001]: SIMD path passed (0, array.length-1), ignoring from/to, so it silently summed the WHOLE array.  SIMD.sum(int[],from,to) honors arbitrary ranges.
 		long x=0;
 		for(int i=from; i<=to; i++){x+=array[i];}
 		return x;
 	}
 
 	/**
-	 * Computes sum of elements in long array within specified range.
+	 * Sums an inclusive long range with ordinary two's-complement overflow.
 	 *
 	 * @param array Array to sum
 	 * @param from Start index (inclusive)
 	 * @param to End index (inclusive)
 	 * @return Sum of elements in range, or 0 if array is null
 	 */
-	public static long sum(long[] array, int from, int to){
+	public static long sum(final long[] array, final int from, final int to){
 		if(array==null){return 0;}
-		if(Shared.SIMD && array.length>=MINLEN64) {return SIMD.sum(array, from, to);}//FIXED [simd/Vector#001]: SIMD path passed (0, array.length-1), ignoring from/to, so it silently summed the WHOLE array.  SIMD.sum(long[],from,to) honors arbitrary ranges.
+		if(Shared.SIMD && array.length>=MINLEN64){return SIMD.sum(array, from, to);}//FIXED [simd/Vector#001]: SIMD path passed (0, array.length-1), ignoring from/to, so it silently summed the WHOLE array.  SIMD.sum(long[],from,to) honors arbitrary ranges.
 		long x=0;
 		for(int i=from; i<=to; i++){x+=array[i];}
 		return x;
 	}
 
 	/**
-	 * Finds maximum value in int array.
-	 * @param array Array to search
+	 * Finds the maximum signed integer without modifying the array.
+	 * @param array Array to search; may be null, but must otherwise be nonempty
 	 * @return Maximum value, or 0 if array is null
 	 */
-	public static final int max(int[] array){
+	public static final int max(final int[] array){
 		if(array==null){return 0;}
-		if(Shared.SIMD && array.length>=MINLEN32) {return SIMD.max(array, 0, array.length-1);}
+		if(Shared.SIMD && array.length>=MINLEN32){return SIMD.max(array, 0, array.length-1);}
 		int max=array[0];
 		for(int i=1; i<array.length; i++){
-			int x=array[i];
+			final int x=array[i];
 			max=(x>max ? x : max);
 		}
 		return max;
 	}
 
 	/**
-	 * Finds maximum value in float array.
-	 * @param array Array to search
+	 * Finds a float maximum using first-value scalar comparison semantics.
+	 * A first-element NaN is retained; later NaNs are ignored. Equal values retain
+	 * the earlier value, including the sign of a zero maximum. Input is unchanged.
+	 * @param array Array to search; may be null, but must otherwise be nonempty
 	 * @return Maximum value, or 0 if array is null
 	 */
-	public static final float max(float[] array){
+	public static final float max(final float[] array){
 		if(array==null){return 0;}
-		if(Shared.SIMD && array.length>=MINLEN32) {return SIMD.max(array, 0, array.length-1);}
+		if(Shared.SIMD && array.length>=MINLEN32){return SIMD.max(array, 0, array.length-1);}
 		float max=array[0];
 		for(int i=1; i<array.length; i++){
-			float x=array[i];
+			final float x=array[i];
 			max=(x>max ? x : max);
 		}
 		return max;
 	}
 
 	/**
-	 * Finds maximum value in long array.
-	 * @param array Array to search
+	 * Finds the maximum signed long without modifying the array.
+	 * @param array Array to search; may be null, but must otherwise be nonempty
 	 * @return Maximum value, or 0 if array is null
 	 */
-	public static final long max(long[] array){
+	public static final long max(final long[] array){
 		if(array==null){return 0;}
-		if(Shared.SIMD && array.length>=MINLEN32) {return SIMD.max(array, 0, array.length-1);}
+		if(Shared.SIMD && array.length>=MINLEN32){return SIMD.max(array, 0, array.length-1);}
 		long max=array[0];
 		for(int i=1; i<array.length; i++){
-			long x=array[i];
+			final long x=array[i];
 			max=(x>max ? x : max);
 		}
 		return max;
@@ -820,7 +873,7 @@ public final class Vector {
 	 */
 	public static int align(byte[] query, byte[] ref, final int maxSubs, final int rStart){
 		if(query==null){return 0;}
-		if(Shared.SIMD && query.length>=8) {return SIMDByte256.alignSIMD(query, ref, maxSubs, rStart);}
+		if(Shared.SIMD && query.length>=8){return SIMDByte256.alignSIMD(query, ref, maxSubs, rStart);}
 		int subs=0;
 		for(int i=0, j=rStart; i<query.length && subs<=maxSubs; i++, j++){
 			subs+=(query[i]!=ref[j] || query[i]=='N') ? 1 : 0;
@@ -828,19 +881,27 @@ public final class Vector {
 		return subs;
 	}
 
-	/**
-	 * Alignment for fused references. 
-	 * Reference 'N's are counted as Ns (padding/clips) against maxNs.
-	 * Mismatches are counted as Subs against maxSubs.
-	 */
-	public static int alignFused(byte[] query, byte[] ref, final int maxSubs, 
+	/** Conservatively filters fused-reference candidates without changing either array.
+	 * Reference uppercase N bases count separately as padding. Both paths permit
+	 * maxNs+maxSubs padding bases so potentially valid paid clipping survives.
+	 * The caller must still combine actual clipping cost and substitutions before
+	 * accepting an alignment; passing this prefilter is only a necessary condition.
+	 * @param query Query bytes; null returns zero
+	 * @param ref Reference containing the complete query-sized interval at rStart
+	 * @param maxSubs Nonnegative substitution/paid-clipping budget
+	 * @param maxNs Nonnegative free-padding allowance
+	 * @param rStart Nonnegative reference offset for query base zero
+	 * @return Substitutions, or maxSubs+1 when the selected path exceeds a budget */
+	public static int alignFused(byte[] query, byte[] ref, final int maxSubs,
 		final int maxNs, final int rStart){
 		if(query==null){return 0;}
-		if(Shared.SIMD && query.length>=8) {
+		if(Shared.SIMD && query.length>=8){
 			return SIMDByte256.alignFusedSIMD(query, ref, maxSubs, maxNs, rStart);
 		}
 
 		// Scalar Fallback
+		// Match the SIMD necessary-condition budget; widening prevents allowance overflow.
+		final long limitNs=(long)maxNs+maxSubs;
 		int subs=0;
 		int ns=0;
 		for(int i=0, j=rStart; i<query.length; i++, j++){
@@ -848,24 +909,23 @@ public final class Vector {
 			byte r=ref[j];
 			if(r=='N'){ns++;}
 			else if(q!=r){subs++;}
-			if(subs>maxSubs || ns>maxNs){return maxSubs+1;}
+			if(subs>maxSubs || ns>limitNs){return maxSubs+1;}
 		}
 		return subs;
 	}
 
-	/**
-	 * Find positions of the given symbol in a byte array.
-	 * @param buffer The byte array to search
-	 * @param from Starting position (inclusive)
-	 * @param to Ending position (exclusive)
-	 * @param symbol Character to find
-	 * @param positions IntList to store newline positions
-	 * @return Number of symbols found, including pre-existing ones
-	 */
-	public static final int findSymbols(final byte[] array, 
+	/** Appends every symbol position in the half-open range.
+	 * Null arrays leave positions unchanged. Range bounds are unchecked.
+	 * @param array Byte array to search
+	 * @param from First index to inspect, inclusive
+	 * @param to Stop index, exclusive
+	 * @param symbol Byte to find
+	 * @param positions Existing destination for matching indexes
+	 * @return Final size of positions, including pre-existing entries */
+	public static final int findSymbols(final byte[] array,
 		final int from, final int to, final byte symbol, final IntList positions){
 		if(array==null){return positions.size();}
-		if(Shared.SIMD && array.length>=MINLEN8) {
+		if(Shared.SIMD && array.length>=MINLEN8){
 			return SIMDByte256.findSymbols(array, from, to, symbol, positions);
 		}
 		for(int i=from; i<to; i++){
@@ -874,18 +934,17 @@ public final class Vector {
 		return positions.size();
 	}
 
-	/**
-	 * Find positions of the given symbol in a byte array.
-	 * @param buffer The byte array to search
-	 * @param from Starting position (inclusive)
-	 * @param to Ending position (exclusive)
-	 * @param symbol Character to find
-	 * @return Number of symbols found, including pre-existing ones
-	 */
-	public static final int countSymbols(final byte[] array, 
+	/** Counts occurrences of a byte in the half-open range.
+	 * Null arrays return zero. Range bounds are unchecked.
+	 * @param array Byte array to search
+	 * @param from First index to inspect, inclusive
+	 * @param to Stop index, exclusive
+	 * @param symbol Byte to count
+	 * @return Number of matching positions in the requested range */
+	public static final int countSymbols(final byte[] array,
 		final int from, final int to, final byte symbol){
 		if(array==null){return 0;}
-		if(Shared.SIMD && array.length>=MINLEN8) {
+		if(Shared.SIMD && array.length>=MINLEN8){
 			return SIMDByte256.countSymbols(array, from, to, symbol);
 		}
 		int positions=0;
@@ -895,16 +954,15 @@ public final class Vector {
 		return positions;
 	}
 
-	/**
-	 * Finds the last newline in buffer by scanning backwards.
+	/** Finds the last matching symbol before limit.
+	 * Null buffers return -1. The search range is [0, limit); limit is unchecked.
 	 * @param buffer Buffer to scan
-	 * @param limit Scan backwards from this position (exclusive)
-	 * @param symbol Symbol to find
-	 * @return Position of last newline, or -1 if none found
-	 */
+	 * @param limit Stop index, exclusive
+	 * @param symbol Byte to find
+	 * @return Last matching index before limit, or -1 if absent */
 	public static int findLastSymbol(final byte[] buffer, final int limit, final byte symbol){
 		if(buffer==null){return -1;}
-		if(Shared.SIMD && limit>=MINLEN8) {
+		if(Shared.SIMD && limit>=MINLEN8){
 			return SIMDByte256.findLastSymbol(buffer, limit, symbol);
 		}
 		for(int i=limit-1; i>=0; i--){
@@ -915,19 +973,19 @@ public final class Vector {
 		return -1;
 	}
 
-	/**
-	 * Find positions of FASTA record boundaries (\n>) in a byte array.
-	 * Stores the position of the \n character before each >.
-	 * @param buffer The byte array to search
-	 * @param from Starting position (inclusive)
-	 * @param to Ending position (exclusive)
-	 * @param positions IntList to store boundary positions (\n positions)
-	 * @return Number of boundaries found, including pre-existing ones
-	 */
-	public static final int findFastaHeaders(final byte[] array, 
+	/** Appends FASTA record-boundary newline positions.
+	 * A boundary is a newline immediately followed by {@code >}. Null arrays leave
+	 * positions unchanged. Range bounds are unchecked; the first tested header byte
+	 * is {@code from+1} so its preceding newline can be inspected.
+	 * @param array Byte array to search
+	 * @param from Lower bound for the preceding newline
+	 * @param to Stop index for the header marker, exclusive
+	 * @param positions Existing destination for boundary newline indexes
+	 * @return Final size of positions, including pre-existing entries */
+	public static final int findFastaHeaders(final byte[] array,
 		final int from, final int to, final IntList positions){
 		if(array==null){return positions.size();}
-		if(Shared.SIMD && array.length>=MINLEN8) {
+		if(Shared.SIMD && array.length>=MINLEN8){
 			return SIMDByte256.findFastaHeaders(array, from, to, positions);
 		}
 		for(int i=from+1; i<to; i++){
@@ -943,9 +1001,11 @@ public final class Vector {
 	 * @param record Byte array containing ">header\nsequence" (may span multiple lines)
 	 * @param readID Numeric ID for the read
 	 * @param pairnum Pair number (0 or 1)
+	 * @param bb Reusable sequence scratch, cleared and populated for this record
+	 * @param newlines Reusable newline offsets, cleared when the SIMD scan is used
 	 * @return Read object
 	 */
-	public static Read fastaRecordToRead(byte[] record, long readID, int pairnum, 
+	public static Read fastaRecordToRead(byte[] record, long readID, int pairnum,
 		ByteBuilder bb, IntList newlines){
 		if(record==null || record.length==0){return null;}
 
@@ -988,7 +1048,7 @@ public final class Vector {
 				if(record[i]!='\n'){
 					bb.array[bb.length++]=record[i];
 				}
-			}	
+			}
 		}
 		//		assert(false) : bb.length+", "+headerEnd+", "+record.length;
 		Read r=new Read(bb.toBytes(), null, new String(header, StandardCharsets.US_ASCII), readID);
@@ -996,22 +1056,33 @@ public final class Vector {
 		return r;
 	}
 
+	/** Adds delta to every byte in place; null arrays are no-ops.
+	 * @param array Mutable byte array
+	 * @param delta Value to add with byte overflow semantics */
 	public static void add(byte[] array, byte delta){
 		if(array==null){return;}
-		if(Shared.SIMD && array.length>=MINLEN8) {
+		if(Shared.SIMD && array.length>=MINLEN8){
 			SIMDByte256.add(array, delta);
 			return;
 		}
-		for(int i=0; i<array.length; i++) {array[i]+=delta;}
+		for(int i=0; i<array.length; i++){array[i]+=delta;}
 	}
 
+	/** Adds delta, stores each byte as {@code (byte)Math.max(cap, sum)},
+	 * and reports the smallest int sum with an initial cap of 127.
+	 * Stored bytes can wrap if the capped int sum is outside the byte range.
+	 * Null arrays return zero; empty arrays return 127.
+	 * @param array Mutable byte array
+	 * @param delta Value to add before capping
+	 * @param cap Minimum int value before the narrowed store
+	 * @return {@code (byte)Math.min(127, min(array[i]+delta))} */
 	public static byte addAndCapMin(final byte[] array, final byte delta, final int cap){
 		if(array==null){return 0;}
-		if(Shared.SIMD && array.length>=MINLEN8) {
+		if(Shared.SIMD && array.length>=MINLEN8){
 			return SIMDByte256.addAndCapMin(array, delta, cap);
 		}
 		int min=127;
-		for(int i=0; i<array.length; i++) {
+		for(int i=0; i<array.length; i++){
 			int b=array[i]+delta;
 			min=Math.min(min, b);
 			array[i]=(byte)Math.max(cap, b);
@@ -1019,13 +1090,23 @@ public final class Vector {
 		return (byte)min;
 	}
 
+	/** Applies a quality offset in place for supported uppercase A/C/G/T/N bases.
+	 * A/C/G/T qualities are offset and floored at two; uppercase N receives zero.
+	 * Vector lanes wrap byte addition before flooring, so A/C/G/T inputs must keep
+	 * {@code quals[i]+delta} within signed-byte range for scalar/SIMD equivalence.
+	 * Mixed-case, IUPAC and non-N undefined bases retain the legacy divergence:
+	 * vector blocks zero only uppercase N while scalar tails zero all undefined bases.
+	 * Base bytes must be nonnegative table indexes. Null quality arrays are no-ops.
+	 * @param quals Mutable quality array
+	 * @param bases Base array with at least quals.length entries
+	 * @param delta Offset to add to each quality */
 	public static void applyQualOffset(final byte[] quals, final byte[] bases, final int delta){
 		if(quals==null){return;}
-		if(Shared.SIMD && quals.length>=MINLEN8) {
+		if(Shared.SIMD && quals.length>=MINLEN8){
 			SIMDByte256.applyQualOffset(quals, bases, delta);
 			return;
 		}
-		for(int i=0; i<quals.length; i++) {
+		for(int i=0; i<quals.length; i++){
 			byte b=bases[i];
 			int q=quals[i]+delta;
 			q=(AminoAcid.baseToNumber[b]<0 ? 0 : Math.max(2, q));
@@ -1033,14 +1114,21 @@ public final class Vector {
 		}
 	}
 
+	/** Restricts supported uppercase A/C/G/T/N qualities to the called-base range in place.
+	 * A/C/G/T qualities are capped to 2..Read.MAX_CALLED_QUALITY; uppercase N receives zero.
+	 * Mixed-case, IUPAC and non-N undefined bases retain the legacy divergence:
+	 * vector blocks zero only uppercase N while scalar tails zero all undefined bases.
+	 * Base bytes must be nonnegative table indexes. Null quality arrays are no-ops.
+	 * @param quals Mutable quality array
+	 * @param bases Base array with at least quals.length entries */
 	public static void capQuality(final byte[] quals, final byte[] bases){
 		if(quals==null){return;}
 		final byte max=Read.MAX_CALLED_QUALITY;
-		if(Shared.SIMD && quals.length>=MINLEN8) {
+		if(Shared.SIMD && quals.length>=MINLEN8){
 			SIMDByte256.capQuality(quals, bases, max);
 			return;
 		}
-		for(int i=0; i<quals.length; i++) {
+		for(int i=0; i<quals.length; i++){
 			byte b=bases[i];
 			int q=quals[i];
 			q=(AminoAcid.baseToNumber[b]<0 ? 0 : Math.min(Math.max(2, q), max));
@@ -1048,9 +1136,11 @@ public final class Vector {
 		}
 	}
 
+	/** Converts U/u to T/t in place; null arrays are no-ops.
+	 * @param bases Mutable nonnegative table-index base array */
 	public static void uToT(byte[] bases){
 		if(bases==null){return;}
-		if(Shared.SIMD && bases.length>=MINLEN8) {
+		if(Shared.SIMD && bases.length>=MINLEN8){
 			SIMDByte256.uToT(bases);
 			return;
 		}
@@ -1059,10 +1149,14 @@ public final class Vector {
 		}
 	}
 
-	/** Returns false if there was a problem */
-	public static boolean dotDashXToN(byte[] array) {
+	/** Converts '.', '-', X, x, and n to N in place.
+	 * Bytes must be nonnegative table indexes. Null arrays are accepted. The current
+	 * implementation always reports success.
+	 * @param array Mutable byte array
+	 * @return true */
+	public static boolean dotDashXToN(byte[] array){
 		if(array==null){return true;}
-		if(Shared.SIMD && array.length>=MINLEN8) {
+		if(Shared.SIMD && array.length>=MINLEN8){
 			return SIMDByte256.dotDashXToN(array);
 		}
 		for(int i=0; i<array.length; i++){
@@ -1071,10 +1165,13 @@ public final class Vector {
 		return true;
 	}
 
-	/** Looks for common amino acids that are not IUPAC bases */
-	public static boolean isProtein(byte[] array) {
+	/** Checks whether the array contains an amino-acid byte that is not an IUPAC base.
+	 * Bytes must be nonnegative table indexes. Null arrays return true.
+	 * @param array Byte array to inspect
+	 * @return true if any byte is amino-only */
+	public static boolean isProtein(byte[] array){
 		if(array==null){return true;}
-		if(Shared.SIMD && array.length>=MINLEN8) {
+		if(Shared.SIMD && array.length>=MINLEN8){
 			return SIMDByte256.isProtein(array);
 		}
 		boolean protein=false;
@@ -1087,10 +1184,14 @@ public final class Vector {
 		return protein;
 	}
 
-	/** Returns false if there was a problem */
-	public static boolean lowerCaseToN(byte[] array) {
+	/** Converts lowercase ASCII letters to N in place.
+	 * Bytes must be nonnegative table indexes. Null arrays are accepted. The current
+	 * implementation always reports success.
+	 * @param array Mutable byte array
+	 * @return true */
+	public static boolean lowerCaseToN(byte[] array){
 		if(array==null){return true;}
-		if(Shared.SIMD && array.length>=MINLEN8) {
+		if(Shared.SIMD && array.length>=MINLEN8){
 			return SIMDByte256.lowerCaseToN(array);
 		}
 		for(int i=0; i<array.length; i++){
@@ -1099,10 +1200,14 @@ public final class Vector {
 		return true;
 	}
 
-	/** Returns false if there was a problem */
-	public static boolean toUpperCase(byte[] array) {
+	/** Uppercases lowercase ASCII letters in place and leaves other bytes unchanged.
+	 * Bytes must be nonnegative table indexes. Null arrays are accepted. The current
+	 * implementation always reports success.
+	 * @param array Mutable byte array
+	 * @return true */
+	public static boolean toUpperCase(byte[] array){
 		if(array==null){return true;}
-		if(Shared.SIMD && array.length>=MINLEN8) {
+		if(Shared.SIMD && array.length>=MINLEN8){
 			return SIMDByte256.toUpperCase(array);
 		}
 		boolean success=true;
@@ -1112,38 +1217,49 @@ public final class Vector {
 		return success;
 	}
 
-	/** Returns false if there are nonletters */
-	public static boolean allLetters(byte[] array) {
+	/** Checks whether every byte is an ASCII letter.
+	 * Null arrays return true.
+	 * @param array Byte array to inspect
+	 * @return true if every inspected byte is A-Z or a-z */
+	public static boolean allLetters(byte[] array){
 		if(array==null){return true;}
-		if(Shared.SIMD && array.length>=MINLEN8) {
+		if(Shared.SIMD && array.length>=MINLEN8){
 			return SIMDByte256.allLetters(array);
 		}
 		final byte A='A', Z='Z';
 		final byte mask=~32;
 		boolean success=true;
 		for(int i=0; i<array.length; i++){//Could do lookup instead
-			int b=(array[i] & mask);
+			int b=(array[i]&mask);
 			success&=(b>=A && b<=Z);
 		}
 		return success;
 	}
 
-	/** Returns false if there was a problem */
-	public static boolean iupacToN(byte[] array) {
+	/** Masks IUPAC ambiguity letters (B/D/H/K/M/N/R/S/V/W/X/Y in either case) to N.
+	 * Called bases A/C/G/T/U retain their case; other letters and nonletters are
+	 * unchanged. Uppercasing, U-to-T conversion and junk repair are separate policies.
+	 * Null arrays are accepted without mutation.
+	 * @param array Mutable nonnegative table-index base bytes
+	 * @return true on normal completion */
+	public static boolean iupacToN(byte[] array){
 		if(array==null){return true;}
-		if(Shared.SIMD && array.length>=MINLEN8) {
+		if(Shared.SIMD && array.length>=MINLEN8){
 			return SIMDByte256.iupacToN(array);
 		}
 		for(int i=0; i<array.length; i++){
-			array[i]=AminoAcid.baseToACGTN[array[i]];
+			array[i]=AminoAcid.iupacToNocall[array[i]];
 		}
 		return true;
 	}
 
-	/** Looks for common amino acids that are not IUPAC bases */
-	public static boolean isNucleotide(byte[] array) {
+	/** Checks whether every byte is an extended IUPAC nucleotide base.
+	 * Bytes must be nonnegative table indexes. Null arrays return true.
+	 * @param array Byte array to inspect
+	 * @return true if every byte maps through AminoAcid.baseToNumberExtended */
+	public static boolean isNucleotide(byte[] array){
 		if(array==null){return true;}
-		if(Shared.SIMD && array.length>=MINLEN8) {
+		if(Shared.SIMD && array.length>=MINLEN8){
 			return SIMDByte256.isNucleotide(array);
 		}
 		boolean success=true;
@@ -1153,10 +1269,14 @@ public final class Vector {
 		return success;
 	}
 
-	/** Scalar version: Add delta to each qual and append to ByteBuilder */
-	public static void addAndAppend(byte[] quals, ByteBuilder bb, int delta) {
+	/** Adds delta to each quality byte and appends the results.
+	 * Null quality arrays leave bb unchanged.
+	 * @param quals Quality bytes to append
+	 * @param bb Destination builder; length advances by quals.length
+	 * @param delta Value to add to each appended byte */
+	public static void addAndAppend(byte[] quals, ByteBuilder bb, int delta){
 		if(quals==null){return;}
-		if(Shared.SIMD && quals.length>=MINLEN8) {
+		if(Shared.SIMD && quals.length>=MINLEN8){
 			SIMDByte256.addAndAppend(quals, bb, delta);
 			return;
 		}
@@ -1169,10 +1289,14 @@ public final class Vector {
 		bb.length+=qlen;
 	}
 
-	/** Scalar version: Add delta to each qual and append to ByteBuilder */
-	public static void addAndAppendReversed(byte[] quals, ByteBuilder bb, int delta) {
+	/** Adds delta while appending quality bytes in reverse order.
+	 * Null quality arrays leave bb unchanged.
+	 * @param quals Quality bytes to append from end to start
+	 * @param bb Destination builder; length advances by quals.length
+	 * @param delta Value to add to each appended byte */
+	public static void addAndAppendReversed(byte[] quals, ByteBuilder bb, int delta){
 		if(quals==null){return;}
-		if(Shared.SIMD && quals.length>=MINLEN8) {
+		if(Shared.SIMD && quals.length>=MINLEN8){
 			SIMDByte256.addAndAppendReversed(quals, bb, delta);
 			return;
 		}
@@ -1185,10 +1309,16 @@ public final class Vector {
 		bb.length+=qlen;
 	}
 
-	/** Scalar version: Generate fake quals based on whether bases are defined */
-	public static void appendFake(byte[] bases, ByteBuilder bb, int qFake, int qUndef) {
+	/** Appends synthetic qualities selected from base definition status.
+	 * Fully defined bases append qFake; all others append qUndef. Base bytes must be
+	 * nonnegative table indexes. Null base arrays leave bb unchanged.
+	 * @param bases Base bytes to classify
+	 * @param bb Destination builder; length advances by bases.length
+	 * @param qFake Quality byte for fully defined bases
+	 * @param qUndef Quality byte for ambiguous or undefined bases */
+	public static void appendFake(byte[] bases, ByteBuilder bb, int qFake, int qUndef){
 		if(bases==null){return;}
-		if(Shared.SIMD && bases.length>=MINLEN8) {
+		if(Shared.SIMD && bases.length>=MINLEN8){
 			SIMDByte256.appendFake(bases, bb, qFake, qUndef);
 			return;
 		}
@@ -1201,10 +1331,14 @@ public final class Vector {
 		bb.length+=blen;
 	}
 
-	public static ByteBuilder append(ByteBuilder bb, String s) {
-		if(varHandles) {
+	/** Appends the low byte of each String UTF-16 code unit to a ByteBuilder.
+	 * @param bb Destination builder
+	 * @param s Non-null String to append
+	 * @return bb */
+	public static ByteBuilder append(ByteBuilder bb, String s){
+		if(varHandles){
 			return VarHandler.appendString(bb, s);
-		} else {
+		}else{
 			final int len=s.length();
 			bb.expand(len);
 			for(int i=0, j=bb.length; i<len; i++, j++){
@@ -1215,9 +1349,11 @@ public final class Vector {
 		}
 	}
 
-	public static void reverseInPlace(final byte[] array) {
+	/** Reverses the whole array in place; null arrays are no-ops.
+	 * @param array Mutable byte array */
+	public static void reverseInPlace(final byte[] array){
 		if(array==null){return;}
-		if(Shared.SIMD && array.length>=MINLEN8) {
+		if(Shared.SIMD && array.length>=MINLEN8){
 			SIMDByte256.reverseInPlace(array, array.length);
 			return;
 		}
@@ -1229,9 +1365,13 @@ public final class Vector {
 		}
 	}
 
-	public static void reverseInPlace(final byte[] array, final int length) {
+	/** Reverses a prefix in place; null arrays are no-ops.
+	 * Elements at or beyond length are left unchanged. Length is unchecked.
+	 * @param array Mutable byte array
+	 * @param length Prefix length */
+	public static void reverseInPlace(final byte[] array, final int length){
 		if(array==null){return;}
-		if(Shared.SIMD && array.length>=MINLEN8) {
+		if(Shared.SIMD && array.length>=MINLEN8){
 			SIMDByte256.reverseInPlace(array, length);
 			return;
 		}
@@ -1243,14 +1383,20 @@ public final class Vector {
 		}
 	}
 
-	public static void reverseComplementInPlace(final byte[] bases) {
+	/** Reverse-complements an entire nucleotide array in place.
+	 * @param bases Mutable base array */
+	public static void reverseComplementInPlace(final byte[] bases){
 		reverseComplementInPlace(bases, bases.length);
 	}
 
-	public static void reverseComplementInPlace(final byte[] bases, final int length) {
+	/** Reverse-complements a prefix using the extended IUPAC complement mapping.
+	 * Elements at or beyond length remain unchanged; null input is a no-op.
+	 * @param bases Mutable table-indexable base bytes
+	 * @param length Prefix length from zero through bases.length */
+	public static void reverseComplementInPlace(final byte[] bases, final int length){
 		if(true){reverseComplementInPlaceFast(bases, length); return;}//Superseded by reverseComplementInPlaceFast, which now self-detects non-ACGTN per block and falls back to scalar - yielding an identical proper complement without this method's separate up-front isACGTN scan.  Old body kept below for trivial revert.
 		if(bases==null){return;}
-		if(Shared.SIMD && bases.length>=MINLEN8 && SIMDByte256.isACGTN(bases, length)) {
+		if(Shared.SIMD && bases.length>=MINLEN8 && SIMDByte256.isACGTN(bases, length)){
 			SIMDByte256.reverseComplementInPlace(bases, length);
 			return;
 		}
@@ -1267,15 +1413,19 @@ public final class Vector {
 		}
 	}
 
-	/** Proper reverse-complement (IUPAC included). Faster than reverseComplementInPlace: skips the up-front isACGTN scan and instead lets the SIMD kernel detect non-ACGTN per block, falling back to scalar from the first impure base. */
-	public static void reverseComplementInPlaceFast(final byte[] bases) {
+	/** Reverse-complements an entire nucleotide array with extended IUPAC mappings.
+	 * @param bases Mutable table-indexable base bytes */
+	public static void reverseComplementInPlaceFast(final byte[] bases){
 		reverseComplementInPlaceFast(bases, bases.length);
 	}
 
-	/** Proper reverse-complement (IUPAC included); see no-arg overload. */
-	public static void reverseComplementInPlaceFast(final byte[] bases, final int length) {
+	/** Reverse-complements a prefix using the extended IUPAC complement mapping.
+	 * Elements at or beyond length remain unchanged; null input is a no-op.
+	 * @param bases Mutable table-indexable base bytes
+	 * @param length Prefix length from zero through bases.length */
+	public static void reverseComplementInPlaceFast(final byte[] bases, final int length){
 		if(bases==null){return;}
-		if(Shared.SIMD && bases.length>=MINLEN8) {
+		if(Shared.SIMD && bases.length>=MINLEN8){
 			SIMDByte256.reverseComplementInPlace(bases, length);
 			return;
 		}
@@ -1291,76 +1441,123 @@ public final class Vector {
 			bases[max]=AminoAcid.baseToComplementExtended[bases[max]];
 		}
 	}
-	
-	private static synchronized int intLanes() {
+
+	/** Probes the fixed backend's integer lane count.
+	 * @return Lane count, or one if loading or probing the backend fails */
+	private static synchronized int intLanes(){
 		try{return SIMD.intLanes();}
 		catch(Throwable e){return 1;}
 	}
 
-	public static void countErrorFreeKmersBatch(int[] errorBuffer, int[] results, int k, int queryLen, int step, int wildcardMask) {
-		if(Shared.SIMD && INT_LANES > 1) {
+	/** Counts error-free sampled k-mers independently in each fixed SIMD lane.
+	 * The caller supplies a scalar implementation when the backend is unavailable.
+	 * @param errorBuffer Zero/one error indicators, interleaved by position then lane;
+	 * must contain queryLen times INT_LANES entries
+	 * @param results At least INT_LANES output entries, overwritten with lane counts
+	 * @param k K-mer length from one through32
+	 * @param queryLen Nonnegative number of query positions
+	 * @param step Positive power-of-two spacing between sampled window starts
+	 * @param wildcardMask Bits requiring error-free positions; bit zero is the oldest base
+	 * @throws UnsupportedOperationException If SIMD is disabled or unavailable */
+	public static void countErrorFreeKmersBatch(int[] errorBuffer, int[] results, int k, int queryLen, int step, int wildcardMask){
+		if(Shared.SIMD && INT_LANES>1){
 			SIMD.countErrorFreeKmersBatch(errorBuffer, results, k, queryLen, step, wildcardMask);
-		} else {
+		}else{
 			// Scalar fallback logic not implemented here; calling class should check INT_LANES
 			throw new UnsupportedOperationException("Scalar fallback for countErrorFreeKmersBatch should be handled by caller");
 		}
 	}
 
+	/** Finds a key in a coherent linear-probing table.
+	 * Probes from initial to the end, then wraps to zero at most once. Stored keys
+	 * must precede the first empty cell in their probe chains; SIMD checks blocks.
+	 * @param keys Nonempty table that remains stable during the search
+	 * @param key Key to find; the empty marker is always reported absent
+	 * @param initial Initial cell in the range zero through keys.length-1
+	 * @param invalid Empty-cell marker
+	 * @return Matching cell index, or -1 when absent */
 	public static int findKey(final int[] keys, final int key, final int initial, final int invalid){
 		assert(keys!=null);
-		if(key==invalid) {return -1;}
-		if(Shared.SIMD && keys.length>=MINLEN32) {
+		if(key==invalid){return -1;}
+		if(Shared.SIMD && keys.length>=MINLEN32){
 			return SIMD.findKey(keys, key, initial, invalid);
 		}
 		final int limit=keys.length;
 		int cell=initial;
 		for(; cell<limit && keys[cell]!=key && keys[cell]!=invalid; cell++){}
-		if(cell<limit) {return keys[cell]==key ? cell : -1;}
+		if(cell<limit){return keys[cell]==key ? cell : -1;}
 		cell=0;
 		for(; cell<initial && keys[cell]!=key && keys[cell]!=invalid; cell++){}
 		return keys[cell]==key ? cell : -1;
 	}
 
+	/** Finds an existing key or the first empty cell in wrapped probe order.
+	 * The table must contain the key or an empty cell. Exhaustion returns -1 in
+	 * the SIMD backend; the scalar path first fails an assertion when enabled.
+	 * @param keys Nonempty table that remains stable during the search
+	 * @param key Key distinct from the empty marker
+	 * @param initial Initial cell in the range zero through keys.length-1
+	 * @param invalid Empty-cell marker
+	 * @return Matching or empty cell index, or -1 on untrapped exhaustion */
 	public static int findKeyOrInvalid(final int[] keys, final int key, final int initial, final int invalid){
 		assert(keys!=null);
 		assert(key!=invalid) : "Collision - this should have been intercepted.";
-		if(Shared.SIMD && keys.length>=MINLEN32) {
+		if(Shared.SIMD && keys.length>=MINLEN32){
 			return SIMD.findKeyOrInvalid(keys, key, initial, invalid);
 		}
 		final int limit=keys.length;
 		int cell=initial;
 		for(; cell<limit && keys[cell]!=key && keys[cell]!=invalid; cell++){}
-		if(cell<limit) {return cell;}
+		if(cell<limit){return cell;}
 		cell=0;
 		for(; cell<initial && keys[cell]!=key && keys[cell]!=invalid; cell++){}
 		assert(cell<initial) : "Overflow at size "+limit+": key="+key+", initial="+initial+", invalid="+invalid;
 		return cell<initial ? cell : -1;
 	}
 
+	/** Searches a wrapped linear-probing table without SIMD dispatch.
+	 * Unlike findKey, this helper does not reject key==invalid before searching.
+	 * @param keys Nonempty stable table
+	 * @param key Key to find; callers normally exclude the empty marker
+	 * @param initial Initial cell in the range zero through keys.length-1
+	 * @param invalid Empty-cell marker that terminates an unsuccessful search
+	 * @return Matching cell index, or -1 when absent */
 	public static int findKeyScalar(final int[] keys, final int key, final int initial, final int invalid){
 		final int limit=keys.length;
 		int cell=initial;
 		for(; cell<limit && keys[cell]!=key && keys[cell]!=invalid; cell++){}
-		if(cell<limit) {return keys[cell]==key ? cell : -1;}
+		if(cell<limit){return keys[cell]==key ? cell : -1;}
 		cell=0;
 		for(; cell<initial && keys[cell]!=key && keys[cell]!=invalid; cell++){}
 		return keys[cell]==key ? cell : -1;
 	}
 
+	/** Searches for a matching or empty cell without SIMD dispatch.
+	 * Exhausting a full table fails an assertion, or returns -1 without assertions.
+	 * @param keys Nonempty stable table containing the key or an empty cell
+	 * @param key Key to find
+	 * @param initial Initial cell in the range zero through keys.length-1
+	 * @param invalid Empty-cell marker
+	 * @return Matching or empty cell index */
 	public static int findKeyOrInvalidScalar(final int[] keys, final int key, final int initial, final int invalid){
 		final int limit=keys.length;
 		int cell=initial;
 		for(; cell<limit && keys[cell]!=key && keys[cell]!=invalid; cell++){}
-		if(cell<limit) {return cell;}
+		if(cell<limit){return cell;}
 		cell=0;
 		for(; cell<initial && keys[cell]!=key && keys[cell]!=invalid; cell++){}
 		assert(cell<initial) : "Overflow at size "+limit+": key="+key+", initial="+initial+", invalid="+invalid;
 		return cell<initial ? cell : -1;
 	}
 
-	public static void changeAll(int[] keys, int oldKey, int newKey){
+	/** Replaces every exact occurrence of one integer value in place.
+	 * This does not rehash a table; callers must preserve their own probe invariants.
+	 * @param keys Mutable array
+	 * @param oldKey Value to replace
+	 * @param newKey Replacement value */
+	public static void changeAll(final int[] keys, final int oldKey, final int newKey){
 		assert(keys!=null);
-		if(Shared.SIMD && keys.length>=MINLEN32) {
+		if(Shared.SIMD && keys.length>=MINLEN32){
 			SIMD.changeAll(keys, oldKey, newKey);
 			return;
 		}
@@ -1369,16 +1566,31 @@ public final class Vector {
 		}
 	}
 
-	private static synchronized boolean vectorLoaded() {
+	/** Checks whether the optional Vector API class is visible to this loader.
+	 * @return False when ByteVector cannot be found; other linkage errors propagate */
+	private static synchronized boolean vectorLoaded(){
 		try{Class.forName("jdk.incubator.vector.ByteVector");}
 		catch(ClassNotFoundException e){return false;}
 		return true;
 	}
 
-	private static synchronized int maxSimdWidth() {
+	/** Asks the optional backend for its preferred vector width.
+	 * @return Reported width in bits, or zero if backend initialization/probing fails */
+	private static synchronized int maxSimdWidth(){
 		try{return SIMD.maxVectorLength();}
 		catch(Throwable e){return 0;}
 	}
+
+	/** Probes the optional String backend without consulting partially initialized Shared fields.
+	 * @return True when the backend links and its private String lookup succeeds */
+	private static boolean varHandlesAvailable(){
+		try{return VarHandler.AVAILABLE;}
+		catch(LinkageError e){return false;}
+	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------         Static Fields        ----------------*/
+	/*--------------------------------------------------------------*/
 
 	/** Minimum array length for 8-bit SIMD operations */
 	public static final int MINLEN8=8;//Due to dual SIMD
@@ -1400,13 +1612,29 @@ public final class Vector {
 	 * Whether to use SIMD for sparse FMA operations (grants speedup, slightly different results)
 	 */
 	public static boolean SIMD_FMA_SPARSE=true;//Grants a speedup, slightly different results
+	/** Whether the optional Vector API probe can load in this JVM. */
 	private static final boolean vectorLoaded=vectorLoaded();
+	/** Maximum vector width reported by the probe, or zero when unavailable. */
 	public static final int maxSimdWidth=vectorLoaded ? maxSimdWidth() : 0;
+	/** Whether the probed width supports the fixed 256-bit kernels. */
 	public static final boolean simd256=maxSimdWidth>=256;
+	/** Whether the probed width is at least 128 bits; not a backend selector. */
 	public static final boolean simd128=maxSimdWidth>=128;
+	/** Whether the probed width is at least 64 bits; not a backend selector. */
 	public static final boolean simd64=maxSimdWidth>=64;
-	public static final int INT_LANES=(vectorLoaded && Shared.SIMD) ? intLanes() : 1;
-	public static final boolean varHandles=(Shared.javaVersion>=9 && VarHandler.AVAILABLE);
-	private final static byte slashr='\r', slashn='\n', carrot='>', plus='+', at='@';//, tab='\t';
+	/** Fixed-backend integer lanes, or one when unavailable; independent of the runtime SIMD switch. */
+	public static final int INT_LANES=simd256 ? intLanes() : 1;
+	/** Whether the optional backend can access String storage; false when unavailable or unlinked. */
+	public static final boolean varHandles=varHandlesAvailable();
+	/** Carriage-return delimiter used by record scanning. */
+	private static final byte slashr='\r';
+	/** Line-feed delimiter used by record scanning. */
+	private static final byte slashn='\n';
+	/** FASTA record marker. */
+	private static final byte carrot='>';
+	/** FASTQ quality-header marker. */
+	private static final byte plus='+';
+	/** FASTQ record marker. */
+	private static final byte at='@';
 
 }

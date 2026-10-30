@@ -1,19 +1,24 @@
-package simd;
+package test.simd;
 
 import java.util.Arrays;
 
 import shared.Shared;
+import simd.Vector;
 
-/** Correctness selftest for batched profile dot products and deterministic top-N selection. */
-public final class SIMDProfileDotTest {
+/** Checks batched profile dot products and deterministic top-N selection.
+ * Requires the optional Vector module and support for the fixed256-bit backend.
+ * Temporarily changes process-wide SIMD flags and restores them on every exit;
+ * run in an isolated JVM, not alongside other work using those flags.
+ * The selected finite inputs are correctness controls, not a throughput benchmark.
+ * @contributor Shinobu */
+public final class SIMDProfileDotTest{
 
-	private static final int[] DIMS={14,20,196,200,400,401,1000};
-	private static final int[] ROWS={1,7,4432};
-	private static final float ABSOLUTE_TOLERANCE=2e-5f;
-
-	private SIMDProfileDotTest(){}
-
+	/** Runs normalized and unnormalized dot-product cases plus literal ranking controls.
+	 * @param args Unused command-line arguments */
 	public static void main(final String[] args){
+		if(!Vector.simd256){
+			throw new IllegalStateException("Profile SIMD checks require the Vector module and 256-bit support");
+		}
 		final boolean oldSimd=Shared.SIMD, oldFma=Shared.SIMD_FMA;
 		int cases=0;
 		try{
@@ -21,7 +26,7 @@ public final class SIMDProfileDotTest {
 			for(int dim : DIMS){
 				for(int rows : ROWS){checkDotRows(dim, rows, true); cases++;}
 			}
-			for(int dim : new int[]{401,1000}){
+			for(int dim : new int[]{401, 1000}){
 				for(int rows : ROWS){checkDotRows(dim, rows, false); cases++;}
 			}
 			checkTopNTies();
@@ -32,6 +37,21 @@ public final class SIMDProfileDotTest {
 		}
 	}
 
+	/*--------------------------------------------------------------*/
+	/*----------------        Initialization        ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Prevents construction of this standalone test. */
+	private SIMDProfileDotTest(){}
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Static Methods        ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Compares scalar and vector scores within a norm-scaled error bound, then their top indices.
+	 * @param dim Positive query dimension
+	 * @param rows Positive matrix row count
+	 * @param normalize Whether query and rows are normalized to unit length */
 	private static void checkDotRows(final int dim, final int rows, final boolean normalize){
 		final int stride=((dim+7)/8)*8;
 		final float[] query=new float[dim];
@@ -69,36 +89,64 @@ public final class SIMDProfileDotTest {
 		}
 	}
 
+	/** Computes the Euclidean length with double products and accumulation.
+	 * @param values Finite input vector
+	 * @return Its Euclidean length */
 	private static double norm(final float[] values){
 		double sum=0;
 		for(float value : values){sum+=(double)value*value;}
 		return Math.sqrt(sum);
 	}
 
+	/** Computes the Euclidean length of one matrix row.
+	 * @param values Matrix storage
+	 * @param from Inclusive row start
+	 * @param length Number of row elements
+	 * @return Euclidean row length */
 	private static double norm(final float[] values, final int from, final int length){
 		double sum=0;
 		for(int i=from; i<from+length; i++){sum+=(double)values[i]*values[i];}
 		return Math.sqrt(sum);
 	}
 
+	/** Normalizes a vector using its previously computed positive length.
+	 * @param values Vector to modify
+	 * @param length Finite positive Euclidean length */
 	private static void scale(final float[] values, final double length){
 		final float inverse=(float)(1.0/length);
 		for(int i=0; i<values.length; i++){values[i]*=inverse;}
 	}
 
+	/** Normalizes one row while preserving its padding and neighboring rows.
+	 * @param values Matrix storage to modify
+	 * @param from Inclusive row start
+	 * @param length Number of row elements
+	 * @param norm Finite positive row length */
 	private static void scale(final float[] values, final int from, final int length, final double norm){
 		final float inverse=(float)(1.0/norm);
 		for(int i=from; i<from+length; i++){values[i]*=inverse;}
 	}
 
+	/** Checks descending score order, ascending index ties, NaN exclusion and zero selection. */
 	private static void checkTopNTies(){
-		final float[] scores={1f,2f,2f,Float.NaN,2f,-1f};
+		final float[] scores={1f, 2f, 2f, Float.NaN, 2f, -1f};
 		final int[] top=new int[5];
 		Vector.topN(scores, top.length, top);
-		final int[] expected={1,2,4,0,5};
+		final int[] expected={1, 2, 4, 0, 5};
 		if(!Arrays.equals(top, expected)){
 			throw new AssertionError("topN tie/NaN order mismatch: "+Arrays.toString(top));
 		}
 		Vector.topN(scores, 0, new int[0]);
 	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------          Constants           ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Dimensions spanning vector widths, padding and scalar tails. */
+	private static final int[] DIMS={14, 20, 196, 200, 400, 401, 1000};
+	/** Matrix shapes covering one row, a partial tile and many complete tiles. */
+	private static final int[] ROWS={1, 7, 4432};
+	/** Absolute score error allowance, multiplied by the two vector norms. */
+	private static final float ABSOLUTE_TOLERANCE=2e-5f;
 }

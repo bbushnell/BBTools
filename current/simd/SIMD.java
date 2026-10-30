@@ -13,53 +13,32 @@ import jdk.incubator.vector.VectorSpecies;
 import ml.Cell;
 import shared.Tools;
 
-/**
- * Holds SIMD methods.
+/** Fixed-width primitive kernels behind the Java-8-compatible Vector facade.
+ * Loading this implementation requires the optional Vector API. The facade owns
+ * capability and runtime-policy dispatch; these methods do not provide a general
+ * fallback for an unavailable backend. Inputs and output buffers belong to the
+ * caller, who must prevent overlapping writes from changing later reads.
  * @author Brian Bushnell
  * @date Sep 12, 2023?
  *
  */
 final class SIMD{
-	
-	private static int maxVectorLength=ByteVector.SPECIES_PREFERRED.vectorBitSize();
-	public static final int maxVectorLength() {return maxVectorLength;}
-	
-	/** Vector species for 256-bit float operations with 8 lanes */
-	private static final VectorSpecies<Float> FSPECIES=FloatVector.SPECIES_256;// FloatVector.SPECIES_PREFERRED; //This needs to be final or performance drops.
-	/** Number of float elements per vector (8 for 256-bit) */
-	private static final int FWIDTH=FSPECIES.length();
 
-	/** Vector species for 256-bit integer operations with 8 lanes */
-	private static final VectorSpecies<Integer> ISPECIES=IntVector.SPECIES_256;
-	/** Number of integer elements per vector (8 for 256-bit) */
-	private static final int IWIDTH=ISPECIES.length();
+	/*--------------------------------------------------------------*/
+	/*----------------        Initialization        ----------------*/
+	/*--------------------------------------------------------------*/
 
-	/** Vector species for 256-bit short operations with 16 lanes */
-	private static final VectorSpecies<Short> SSPECIES=ShortVector.SPECIES_256;
-	/** Number of short elements per vector (16 for 256-bit) */
-	private static final int SWIDTH=SSPECIES.length();
+	/** Preserves the historical package-private constructor; operations are static. */
+	SIMD(){}
 
-	/** Vector species for 256-bit double operations with 4 lanes */
-	private static final VectorSpecies<Double> DSPECIES=DoubleVector.SPECIES_256;
-	/** Number of double elements per vector (4 for 256-bit) */
-	private static final int DWIDTH=DSPECIES.length();
+	/*--------------------------------------------------------------*/
+	/*----------------        Static Methods        ----------------*/
+	/*--------------------------------------------------------------*/
 
-	/** Vector species for 256-bit long operations with 4 lanes */
-	private static final VectorSpecies<Long> LSPECIES=LongVector.SPECIES_256;
-	/** Number of long elements per vector (4 for 256-bit) */
-	private static final int LWIDTH=LSPECIES.length();
-	
-	private static final VectorShuffle<Integer> I_REVERSE_SHUFFLE;
-	static {
-		int vlen=ISPECIES.length();
-		int[] indices=new int[vlen];
-		for(int i=0; i<vlen; i++){
-			indices[i]=vlen-1-i;
-		}
-		I_REVERSE_SHUFFLE=VectorShuffle.fromArray(ISPECIES, indices, 0);
-	}
-	
-	
+	/** Returns the JVM's preferred byte-vector width captured at initialization.
+	 * @return Preferred width in bits, not the fixed width of every kernel */
+	public static final int maxVectorLength(){return maxVectorLength;}
+
 	/**
 	 * Vectorized version of "c+=a[i]*b[i]" where a and b are equal-length arrays.
 	 * @param a A vector to multiply.
@@ -67,7 +46,7 @@ final class SIMD{
 	 * @return Sum of products of vector elements.
 	 */
 	static final float fma(final float[] a, final float[] b){
-		assert (a.length==b.length);
+		assert(a.length==b.length);
 
 		// Note: FSPECIES=FloatVector.SPECIES_256 and FWIDTH=8
 		final int limit=FSPECIES.loopBound(a.length);
@@ -90,6 +69,11 @@ final class SIMD{
 	 * Computes dot products against a contiguous row-major matrix. Four rows are
 	 * tiled together so each query vector chunk is loaded once and reused by all
 	 * live row accumulators.
+	 * @param q Query values
+	 * @param mat Row-major matrix with storage for nRows times stride elements
+	 * @param stride Positive row spacing, at least q.length
+	 * @param nRows Nonnegative number of rows to score
+	 * @param out Destination for nRows scores; must not overwrite unread inputs
 	 */
 	static final void dotRows(final float[] q, final float[] mat, final int stride,
 			final int nRows, final float[] out){
@@ -129,16 +113,21 @@ final class SIMD{
 		}
 	}
 
-	
+
 	/**
-	 * Vectorized version of "c+=a[i]*b[bSet[i]]" where a and bSet are equal-length arrays, and bSet stores indices of b, in ascending contiguous blocks of 8.
-	 * @param a A vector to multiply.
-	 * @param b A vector to multiply.
-	 * @return Sum of products of vector elements.
+	 * Computes an indexed dot product with eight contiguous source values per vector block.
+	 * The facade must select the dense kernel for a full-width identity mapping.
+	 * Fused multiplication and tree reduction can round differently from scalar code.
+	 * @param a Multipliers, with the same length as bSet and shorter than b
+	 * @param b Indexed source values
+	 * @param bSet Valid indices into b; for each complete eight-entry block starting
+	 * at i, bSet[i+j] must equal bSet[i]+j for j from zero through seven.
+	 * Remaining tail indices may be arbitrary.
+	 * @return Sum of a[i]*b[bSet[i]], without modifying any input
 	 */
-	static final float fmaSparse(final float[] a, final float[] b, int[] bSet){
-		assert (a.length==bSet.length);
-		assert (a.length<b.length);// Otherwise should do normal fma
+	static final float fmaSparse(final float[] a, final float[] b, final int[] bSet){
+		assert(a.length==bSet.length);
+		assert(a.length<b.length);// Otherwise should do normal fma
 
 		// Note: FSPECIES=FloatVector.SPECIES_256 and FWIDTH=8
 		final int limit=FSPECIES.loopBound(bSet.length);
@@ -184,7 +173,7 @@ final class SIMD{
 	 * @return Sum of absolute differences between scaled elements
 	 */
 	static final float absDif(long[] a, long[] b, float inva, float invb){
-		assert (a.length==b.length);
+		assert(a.length==b.length);
 
 		final int length=a.length;
 		final int limit=LSPECIES.loopBound(length);
@@ -266,14 +255,14 @@ final class SIMD{
 			int currentIndex=0;
 			while(currentIndex<length){
 				// Find start of a chunk with this GC
-				while(currentIndex<length && gcmap[currentIndex]!=gc){ currentIndex++; }
+				while(currentIndex<length && gcmap[currentIndex]!=gc){currentIndex++;}
 
 				// If we found a starting point
 				if(currentIndex<length){
 					int chunkStart=currentIndex;
 
 					// Find end of the chunk
-					while(currentIndex<length && gcmap[currentIndex]==gc){ currentIndex++; }
+					while(currentIndex<length && gcmap[currentIndex]==gc){currentIndex++;}
 
 					int chunkEnd=currentIndex;
 					int chunkSize=chunkEnd-chunkStart;
@@ -320,10 +309,11 @@ final class SIMD{
 		return Tools.mid(0, 1, (Float.isFinite(sum) && sum>0 ? sum : 0));
 	}
 
-	/**
-	 * This is here to keep all the vector operations in a single loop, to prevent going in and out of SIMD mode too often... hopefully. ~20% measured speed increase compared to calling fma() for
-	 * ScoreSequence.
-	 */
+	/** Computes dense cell inputs, then applies biases, scalar tails and activations.
+	 * Separate passes keep vector accumulation apart from scalar activation calls.
+	 * Fused/tree reductions need not be bit-identical to scalar dot products.
+	 * @param layer Cells whose sums and output values are updated
+	 * @param b Input values; each cell must have a matching dense weights array */
 	static void feedForward(final Cell[] layer, final float[] b){
 		//[simd/SIMD#002] TWO SEPARATE issues — do not conflate: (1) a real tail-drop, fixed: the residual loop started at limit+FWIDTH, silently dropping the last (b.length % FWIDTH) dot-product terms; it now starts at limit, matching scalar Vector.fma.  (2) the original 'assert(false): incorrect results for nets made with simd=f and vice versa' was NOT the tail-drop — it is the fundamental cross-mode mismatch: this reduction (true-FMA + tree-reduce) cannot bit-match scalar c+=a[i]*b[i], and that ~1e-7 difference perturbs already-tuned NN training (validated 2026-06-15; bugfix-project reports/simd_feedforward_nn_validation).  That concern is REAL, so NN forward is gated ON by default via Shared.SIMD_FEED_FORWARD (validated 2026-06-15 as bit-transparent for eval, equivalent for training) — the fence is preserved as a flag, not removed.
 		final int limit=FSPECIES.loopBound(b.length);
@@ -353,10 +343,12 @@ final class SIMD{
 		}
 	}
 
-	/**
-	 * This is here to keep all the vector operations in a single loop, to prevent going in and out of SIMD mode too often... hopefully. ~20% measured speed increase compared to calling fma() for Train.
-	 */
-	static void backPropFma(Cell[] layer, float[] a, float[][] bb){
+	/** Stores one weighted error sum per cell using vector and residual passes.
+	 * Updates eTotalOverOut without changing a or bb. The facade owns policy gating.
+	 * @param layer Cells receiving the computed error sums
+	 * @param a Error terms shared by the dot products
+	 * @param bb One dense weights array per cell, each matching a.length */
+	static void backPropFma(final Cell[] layer, final float[] a, final float[][] bb){
 		final int limit=FSPECIES.loopBound(a.length);
 
 		for(int cnum=0; cnum<layer.length; cnum++){
@@ -372,7 +364,7 @@ final class SIMD{
 		}
 
 		//FIXED [simd/SIMD#001]: was 'if(limit+FWIDTH>=a.length)' which ALWAYS fired (a.length-limit is in [0,FWIDTH-1] < FWIDTH), paired with a residual loop starting at limit+FWIDTH - so the last (a.length % FWIDTH) fma terms were silently dropped from cell.eTotalOverOut, diverging from the scalar Vector.fma fallback whenever a.length was not a multiple of 8.  Now returns only when there is genuinely no tail; residual starts at limit (matching the add/addProduct/sum kernels).
-		if(limit>=a.length){ return; }// No tail when length is an exact multiple of the vector width.
+		if(limit>=a.length){return;}// No tail when length is an exact multiple of the vector width.
 
 		for(int cnum=0; cnum<layer.length; cnum++){
 			Cell cell=layer[cnum];
@@ -431,11 +423,13 @@ final class SIMD{
 	}
 
 	/**
-	 * Sparse vectorized scaled addition using indirect indexing.
-	 * Performs "a[i] += b[bSet[i]] * mult" with SIMD operations.
-	 * @param a Destination array to be modified
-	 * @param b Source array accessed via indices
-	 * @param bSet Index array mapping to b elements
+	 * Adds b[bSet[i]]*mult into each of the first bSet.length destination entries.
+	 * Each complete eight-entry index block must address eight contiguous source
+	 * values in order; only the scalar tail reads every index separately. Caller
+	 * aliasing must not let destination writes overwrite source values needed later.
+	 * @param a Destination array, with at least bSet.length entries
+	 * @param b Source values addressed by valid indices in bSet
+	 * @param bSet Indices with bSet[i+j]==bSet[i]+j within each complete vector block
 	 * @param mult Scalar multiplier for indexed b elements
 	 */
 	static final void addProductSparse(final float[] a, final float[] b, final int[] bSet,
@@ -480,34 +474,44 @@ final class SIMD{
 		}
 	}
 
-	
-	/**
-	 * Sums the array.
-	 * @param a A vector.
-	 * @return The sum.
-	 */
-	static final float sum(final float[] a, final int from, final int to){
+
+	/** Sums an inclusive float range with a nonfinite-result recovery pass.
+	 * Ordinary results retain the original float-vector accumulation and rounding.
+	 * A nonfinite reduction is recomputed in double, so finite float inputs cannot
+	 * overflow the returned result. This does not promise scalar rounding parity.
+	 * @param a Source values
+	 * @param from First included index
+	 * @param to Last included index, or from-1 for an empty range
+	 * @return Float-reduced sum widened to double, or the double recovery result */
+	static final double sum(final float[] a, final int from, final int to){
+		assert(from>=0 && from<=a.length && to>=from-1 && to<a.length) :
+			"Float reduction must stay inside its inclusive source range: "+from+"-"+to+" / "+a.length;
 		final int length=to-from+1;// Intentionally inclusive
 		final int limit0=FSPECIES.loopBound(length);
 		final int limit=from+limit0;
 
 		FloatVector sum=FloatVector.zero(FSPECIES);
 		int i=from;
-		for(; i<limit; i+=FWIDTH){// SIMD loop
-			FloatVector va=FloatVector.fromArray(FSPECIES, a, i);
-			sum=sum.add(va);
+		for(; i<limit; i+=FWIDTH){
+			final FloatVector values=FloatVector.fromArray(FSPECIES, a, i);
+			sum=sum.add(values);
 		}
 		float c=sum.reduceLanes(VectorOperators.ADD);
-		for(; i<=to; i++){ c+=a[i]; }// Residual scalar loop
-		return c;
+		for(; i<=to; i++){c+=a[i];}
+		if(Float.isFinite(c)){return c;}
+		//Include the entire range: overflow may have occurred in any vector lane,
+		//during the horizontal reduction, or while adding the scalar tail.
+		double wide=0;
+		for(int j=from; j<=to; j++){wide+=a[j];}
+		return wide;
 	}
 
-	
-	/**
-	 * Sums the array.
-	 * @param a A vector.
-	 * @return The sum.
-	 */
+
+	/** Sums an inclusive long range with Java's wrapping overflow behavior.
+	 * @param a Source values
+	 * @param from First included index
+	 * @param to Last included index, or from-1 for an empty range
+	 * @return Sum with the same long overflow semantics as scalar addition */
 	static final long sum(final long[] a, final int from, final int to){
 		final int length=to-from+1;
 		final int limit0=LSPECIES.loopBound(length);
@@ -520,37 +524,43 @@ final class SIMD{
 			sum=sum.add(va);
 		}
 		long c=sum.reduceLanes(VectorOperators.ADD);
-		for(; i<=to; i++){ c+=a[i]; }// Residual scalar loop
+		for(; i<=to; i++){c+=a[i];}// Residual scalar loop
 		return c;
 	}
 
-	
+
 	/**
-	 * Sums the array.
-	 * @param a A vector.
-	 * @return The sum.
+	 * Sums an inclusive integer range without intermediate int overflow.
+	 * @param a Input array
+	 * @param from Inclusive start
+	 * @param to Inclusive end, or from-1 for an empty range
+	 * @return Exact long sum of the selected integers
 	 */
-	static final long sum(final int[] a, final int from, final int to){// Tested as 1.5x scalar speed
+	static final long sum(final int[] a, final int from, final int to){
 		final int length=to-from+1;
 		final int limit0=ISPECIES.loopBound(length);
 		final int limit=from+limit0;
 
 		int i=from;
-		long c=0;
+		LongVector lower=LongVector.zero(LSPECIES), upper=LongVector.zero(LSPECIES);
 		for(; i<limit; i+=IWIDTH){// SIMD loop
 			IntVector va=IntVector.fromArray(ISPECIES, a, i);
-			c+=va.reduceLanesToLong(VectorOperators.ADD);// This is probably slow
+			//reduceLanesToLong reduces in int precision before casting; widen each half first.
+			lower=lower.add((LongVector)va.convertShape(VectorOperators.I2L, LSPECIES, 0));
+			upper=upper.add((LongVector)va.convertShape(VectorOperators.I2L, LSPECIES, 1));
 		}
-		for(; i<=to; i++){ c+=a[i]; }// Residual scalar loop
+		long c=lower.reduceLanes(VectorOperators.ADD)+upper.reduceLanes(VectorOperators.ADD);
+		for(; i<=to; i++){c+=a[i];}// Residual scalar loop
 		return c;
 	}
 
-	
-	/**
-	 * Sums the array.
-	 * @param a A vector.
-	 * @return The sum.
-	 */
+
+	/** Sums an inclusive double range using parallel lane accumulation.
+	 * Reduction order can round differently from left-to-right scalar addition.
+	 * @param a Source values
+	 * @param from First included index
+	 * @param to Last included index, or from-1 for an empty range
+	 * @return Double-precision sum */
 	static final double sum(final double[] a, final int from, final int to){
 		final int length=to-from+1;
 		final int limit0=DSPECIES.loopBound(length);
@@ -563,7 +573,7 @@ final class SIMD{
 			sum=sum.add(va);
 		}
 		double c=sum.reduceLanes(VectorOperators.ADD);
-		for(; i<=to; i++){ c+=a[i]; }// Residual scalar loop
+		for(; i<=to; i++){c+=a[i];}// Residual scalar loop
 		return c;
 	}
 
@@ -680,7 +690,7 @@ final class SIMD{
 	 * @return Cosine similarity between scaled vectors
 	 */
 	static float cosineSimilarity(int[] a, int[] b, float inva, float invb){
-		assert (a.length==b.length);
+		assert(a.length==b.length);
 
 		int length=a.length;
 		int upperBound=ISPECIES.loopBound(length);
@@ -726,13 +736,13 @@ final class SIMD{
 		return (float)(dotProduct/(Math.sqrt(normVec1)*Math.sqrt(normVec2)));
 	}
 
-	
-	/**
-	 * Finds the maximum value.
-	 * @param a A vector.
-	 * @return The max.
-	 */
-	static final int max(final int[] a, final int from, final int to){// Tested as 5x scalar speed
+
+	/** Finds the maximum signed integer in a nonempty inclusive range.
+	 * @param a Source values
+	 * @param from First included index
+	 * @param to Last included index, at least from
+	 * @return Maximum value */
+	static final int max(final int[] a, final int from, final int to){
 		final int length=to-from+1;
 		final int limit0=ISPECIES.loopBound(length);
 		final int limit=from+limit0;
@@ -751,12 +761,12 @@ final class SIMD{
 		return c;
 	}
 
-	
-	/**
-	 * Finds the maximum value.
-	 * @param a A vector.
-	 * @return The max.
-	 */
+
+	/** Finds the maximum signed long in a nonempty inclusive range.
+	 * @param a Source values
+	 * @param from First included index
+	 * @param to Last included index, at least from
+	 * @return Maximum value */
 	static final long max(final long[] a, final int from, final int to){
 		final int length=to-from+1;
 		final int limit0=LSPECIES.loopBound(length);
@@ -776,12 +786,14 @@ final class SIMD{
 		return c;
 	}
 
-	
-	/**
-	 * Finds the maximum value.
-	 * @param a A vector.
-	 * @return The max.
-	 */
+
+	/** Finds a maximum with the facade's first-value scalar comparison semantics.
+	 * A first NaN is retained, later NaNs are ignored, and signed-zero ties keep
+	 * the first selected zero. The range must be nonempty and inclusive.
+	 * @param a Source values
+	 * @param from First included index
+	 * @param to Last included index, at least from
+	 * @return Selected maximum value */
 	static final float max(final float[] a, final int from, final int to){
 		final int length=to-from+1;
 		final int limit0=FSPECIES.loopBound(length);
@@ -798,57 +810,70 @@ final class SIMD{
 			final float x=a[i];
 			c=(x>c ? x : c);
 		}
+		//Vector MAX follows Math.max for NaNs and signed zeros. The facade's
+		//scalar loop instead keeps the first tie and ignores later NaNs. Preserve
+		//that selection only on exceptional results, leaving ordinary vector work intact.
+		if(Float.isNaN(c) || c==0){
+			c=a[from];
+			for(int j=from+1; j<=to; j++){
+				final float x=a[j];
+				c=(x>c ? x : c);
+			}
+		}
 		return c;
 	}
 
-	static final int intLanes() {return IWIDTH;}
+	/** Returns the lane count of the fixed integer backend.
+	 * @return Integer lanes per vector */
+	static final int intLanes(){return IWIDTH;}
 
 	/**
 	 * Vectorized k-mer counting for Monte Carlo simulation.
 	 * Processes 'IWIDTH' simulations in parallel.
-	 * @param errorBuffer Interleaved error array of size [queryLen * IWIDTH]. 
+	 * @param errorBuffer Interleaved zero/one error indicators of size [queryLen * IWIDTH].
 	 * Layout: [Pos0_Sim0, Pos0_Sim1, ... Pos0_Sim7, Pos1_Sim0...]
-	 * @param results Output array of size [IWIDTH]. Holds the count of valid k-mers for each simulation lane.
-	 * @param k K-mer length
-	 * @param queryLen Length of the query sequence
-	 * @param step K-mer step
-	 * @param wildcardMask Bitmask for wildcard positions
+	 * @param results At least IWIDTH output slots, overwritten with one count per simulation
+	 * @param k K-mer length from 1 through 32
+	 * @param queryLen Nonnegative query length
+	 * @param step Positive power-of-two spacing between sampled window starts
+	 * @param wildcardMask Bits requiring error-free positions; bit zero denotes the oldest base
 	 */
-	static void countErrorFreeKmersBatch(int[] errorBuffer, int[] results, int k, int queryLen, int step, int wildcardMask) {
-		IntVector pattern = IntVector.zero(ISPECIES);
-		IntVector vCounts = IntVector.zero(ISPECIES);
-		final IntVector vOne = IntVector.broadcast(ISPECIES, 1);
-		final IntVector vWildcardMask = IntVector.broadcast(ISPECIES, wildcardMask);
+	static void countErrorFreeKmersBatch(final int[] errorBuffer, final int[] results,
+			final int k, final int queryLen, final int step, final int wildcardMask){
+		IntVector pattern=IntVector.zero(ISPECIES);
+		IntVector vCounts=IntVector.zero(ISPECIES);
+		final IntVector vOne=IntVector.broadcast(ISPECIES, 1);
+		final IntVector vWildcardMask=IntVector.broadcast(ISPECIES, wildcardMask);
 
-		final int stepMask = step - 1;
-		final int stepTarget = (k - 1) & stepMask;
+		final int stepMask=step-1;
+		final int stepTarget=(k-1)&stepMask;
 
 		// Unroll loop slightly? queryLen is small (30-60 usually), so JIT should handle it.
-		for(int i = 0; i < queryLen; i++) {
+		for(int i=0; i<queryLen; i++){
 			// Load error bits for this position across all 8 simulations
 			// errorBuffer must be interleaved!
-			IntVector vErr = IntVector.fromArray(ISPECIES, errorBuffer, i * IWIDTH);
+			IntVector vErr=IntVector.fromArray(ISPECIES, errorBuffer, i*IWIDTH);
 
 			// Shift pattern and OR in the new error bit
 			// pattern = (pattern >>> 1) | (vErr << (k-1))
-			pattern = pattern.lanewise(VectorOperators.LSHR, 1)
-				.lanewise(VectorOperators.OR, vErr.lanewise(VectorOperators.LSHL, k - 1));
+			pattern=pattern.lanewise(VectorOperators.LSHR, 1)
+				.lanewise(VectorOperators.OR, vErr.lanewise(VectorOperators.LSHL, k-1));
 
-			if(i >= k - 1) {
+			if(i>=k-1){
 				// Check step condition (scalar check, applies to all lanes equally since queryLen is constant)
-				if((i & stepMask) == stepTarget) {
+				if((i&stepMask)==stepTarget){
 					// Check wildcard validity: (pattern & mask) == 0
-					VectorMask<Integer> valid = pattern.lanewise(VectorOperators.AND, vWildcardMask)
+					VectorMask<Integer> valid=pattern.lanewise(VectorOperators.AND, vWildcardMask)
 						.compare(VectorOperators.EQ, 0);
 
 					// Increment counts where valid
-					vCounts = vCounts.add(vOne, valid);
+					vCounts=vCounts.add(vOne, valid);
 				}
 			}
 		}
 		vCounts.intoArray(results, 0);
 	}
-	
+
 	/**
 	 * SIMD search for key in hash table array starting at initial position.
 	 * @param keys Array of keys
@@ -880,20 +905,20 @@ final class SIMD{
 				return -1;
 			}
 		}
-		
+
 		// Scalar tail from where SIMD stopped to limit
 		for(int cell=(initial+(limit-initial)/IWIDTH*IWIDTH); cell<limit; cell++){
 			final int x=keys[cell];
 			if(x==key){return cell;}
 			if(x==invalid){return -1;}
 		}
-		
+
 		// Search from 0 to initial
 		for(int cell=0; cell<=initial-IWIDTH; cell+=IWIDTH){
 			IntVector v=IntVector.fromArray(ISPECIES, keys, cell);
 			VectorMask<Integer> matchKey=v.eq(vKey);
 			VectorMask<Integer> matchInvalid=v.eq(vInvalid);
-			
+
 			if(matchKey.anyTrue()){
 				return cell+matchKey.firstTrue();
 			}
@@ -901,14 +926,14 @@ final class SIMD{
 				return -1;
 			}
 		}
-		
+
 		// Scalar tail from where SIMD stopped to initial
 		for(int cell=(initial/IWIDTH*IWIDTH); cell<initial; cell++){
 			final int x=keys[cell];
 			if(x==key){return cell;}
 			if(x==invalid){return -1;}
 		}
-		
+
 		return -1;
 	}
 
@@ -924,42 +949,42 @@ final class SIMD{
 		final int limit=keys.length;
 		final IntVector vKey=IntVector.broadcast(ISPECIES, key);
 		final IntVector vInvalid=IntVector.broadcast(ISPECIES, invalid);
-		
+
 		// Search from initial to end
 		for(int cell=initial; cell<=limit-IWIDTH; cell+=IWIDTH){
 			IntVector v=IntVector.fromArray(ISPECIES, keys, cell);
 			VectorMask<Integer> match=v.eq(vKey).or(v.eq(vInvalid));
-			
+
 			if(match.anyTrue()){
 				return cell+match.firstTrue();
 			}
 		}
-		
+
 		// Scalar tail
 		for(int cell=(initial+(limit-initial)/IWIDTH*IWIDTH); cell<limit; cell++){
 			final int x=keys[cell];
 			if(x==key || x==invalid){return cell;}
 		}
-		
+
 		// Search from 0 to initial
 		for(int cell=0; cell<=initial-IWIDTH; cell+=IWIDTH){
 			IntVector v=IntVector.fromArray(ISPECIES, keys, cell);
 			VectorMask<Integer> match=v.eq(vKey).or(v.eq(vInvalid));
-			
+
 			if(match.anyTrue()){
 				return cell+match.firstTrue();
 			}
 		}
-		
+
 		// Scalar tail
 		for(int cell=(initial/IWIDTH*IWIDTH); cell<initial; cell++){
 			final int x=keys[cell];
 			if(x==key || x==invalid){return cell;}
 		}
-		
+
 		return -1;
 	}
-	
+
 	/**
 	 * SIMD replacement of all occurrences of oldKey with newKey.
 	 * Used when invalid sentinel collides with a real key.
@@ -967,13 +992,13 @@ final class SIMD{
 	 * @param oldKey Value to replace
 	 * @param newKey Replacement value
 	 */
-	static void changeAll(int[] keys, int oldKey, int newKey){
+	static void changeAll(final int[] keys, final int oldKey, final int newKey){
 		final int limit=keys.length;
 		final IntVector vOld=IntVector.broadcast(ISPECIES, oldKey);
 		final IntVector vNew=IntVector.broadcast(ISPECIES, newKey);
-		
+
 		int i=0;
-		
+
 		// SIMD loop
 		for(; i<=limit-IWIDTH; i+=IWIDTH){
 			IntVector v=IntVector.fromArray(ISPECIES, keys, i);
@@ -983,11 +1008,53 @@ final class SIMD{
 				replaced.intoArray(keys, i);
 			}
 		}
-		
+
 		// Scalar tail
 		for(; i<limit; i++){
 			if(keys[i]==oldKey){keys[i]=newKey;}
 		}
+	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------         Static Fields        ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Cached preferred width used by the facade capability probe. */
+	private static int maxVectorLength=ByteVector.SPECIES_PREFERRED.vectorBitSize();
+
+	/*--------------------------------------------------------------*/
+	/*----------------          Constants           ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Fixed 256-bit float species; keeping species final permits JIT specialization. */
+	private static final VectorSpecies<Float> FSPECIES=FloatVector.SPECIES_256;
+	/** Number of float lanes. */
+	private static final int FWIDTH=FSPECIES.length();
+	/** Fixed 256-bit integer species. */
+	private static final VectorSpecies<Integer> ISPECIES=IntVector.SPECIES_256;
+	/** Number of integer lanes. */
+	private static final int IWIDTH=ISPECIES.length();
+	/** Fixed 256-bit short species. */
+	private static final VectorSpecies<Short> SSPECIES=ShortVector.SPECIES_256;
+	/** Number of short lanes. */
+	private static final int SWIDTH=SSPECIES.length();
+	/** Fixed 256-bit double species. */
+	private static final VectorSpecies<Double> DSPECIES=DoubleVector.SPECIES_256;
+	/** Number of double lanes. */
+	private static final int DWIDTH=DSPECIES.length();
+	/** Fixed 256-bit long species. */
+	private static final VectorSpecies<Long> LSPECIES=LongVector.SPECIES_256;
+	/** Number of long lanes. */
+	private static final int LWIDTH=LSPECIES.length();
+	/** Permutation that reverses the integer lanes within a vector. */
+	private static final VectorShuffle<Integer> I_REVERSE_SHUFFLE;
+	static{
+		int vlen=ISPECIES.length();
+		int[] indices=new int[vlen];
+		for(int i=0; i<vlen; i++){
+			indices[i]=vlen-1-i;
+		}
+		I_REVERSE_SHUFFLE=VectorShuffle.fromArray(ISPECIES, indices, 0);
 	}
 
 }

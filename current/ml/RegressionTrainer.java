@@ -1002,10 +1002,9 @@ public class RegressionTrainer{
 	 * Only the VALUES change as training proceeds, so the indices are built here and only
 	 * refreshed values are copied afterwards.
 	 * <p>
-	 * Index sets are built in ascending order deliberately. simd/Vector#002 documents that
-	 * the sparse fma takes a dense shortcut ignoring bSet when a.length==b.length; with
-	 * ascending indices, equal lengths mean bSet is the identity permutation, which is
-	 * exactly the case where that shortcut is correct.
+	 * Index sets are built in ascending order deliberately. Sorted unique indices mean a
+	 * full-width sparse row is an identity map, so callers can route those rows directly
+	 * to dense Vector overloads while shorter rows retain indexed sparse semantics.
 	 */
 	private void buildSparse(){
 		spWIdx=new int[layers][][]; spTIdx=new int[layers][][];
@@ -1092,7 +1091,9 @@ public class RegressionTrainer{
 			}else{//gather only the live edges instead of multiplying through the pruned zeros
 				final float[][] sw=spW[l]; final int[][] si=spWIdx[l];
 				for(int i=0; i<rows; i++){
-					final float z=b[i]+simd.Vector.fma(sw[i], prev, si[i], edgeBlockSize, true);
+					final float[] swi=sw[i];
+					final float z=b[i]+(swi.length==prev.length ? simd.Vector.fma(swi, prev) :
+						simd.Vector.fma(swi, prev, si[i], edgeBlockSize, true));
 					if(hiddenFunc!=null){preActLocal[l+1][i]=z;}
 					next[i]=(l==layers-1) ? (float)fin(z, finalType)
 						: (float)(hiddenFunc==null ? Math.tanh(z) : hiddenFunc[l+1][i].activate(z));
@@ -1134,7 +1135,9 @@ public class RegressionTrainer{
 				}else{
 					final float[][] st=spT[l]; final int[][] si=spTIdx[l];
 					for(int j=0; j<cols; j++){
-						dCur[j]=(float)(simd.Vector.fma(st[j], dNext, si[j], edgeBlockSize, true)
+						final float[] stj=st[j];
+						dCur[j]=(float)((stj.length==dNext.length ? simd.Vector.fma(stj, dNext) :
+							simd.Vector.fma(stj, dNext, si[j], edgeBlockSize, true))
 							*(hiddenFunc==null ? (1-prev[j]*prev[j])
 								: hiddenFunc[l][j].derivativeXFX(preActLocal[l][j], prev[j])));
 					}
@@ -1486,7 +1489,9 @@ public class RegressionTrainer{
 			}else{
 				final float[][] sw=spW[l]; final int[][] si=spWIdx[l];
 				for(int i=0; i<rows; i++){
-					final float z=b[i]+simd.Vector.fma(sw[i], prev, si[i], edgeBlockSize, true);
+					final float[] swi=sw[i];
+					final float z=b[i]+(swi.length==prev.length ? simd.Vector.fma(swi, prev) :
+						simd.Vector.fma(swi, prev, si[i], edgeBlockSize, true));
 					next[i]=(l==layers-1) ? (float)fin(z, finalType)
 						: (float)(hiddenFunc==null ? Math.tanh(z) : hiddenFunc[l+1][i].activate(z));
 				}

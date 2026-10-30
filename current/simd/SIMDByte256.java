@@ -23,44 +23,150 @@ import structures.IntList;
  */
 final class SIMDByte256{
 
-	private static final VectorSpecies<Byte> BSPECIES256=ByteVector.SPECIES_256;
-	private static final int BWIDTH256=BSPECIES256.length(); //32
+	/** Runs a reverse-complement microbenchmark.
+	 * @param args Ignored
+	 */
+	public static void main(String[] args){
+		final int iterations=1000000000;
+		final int k=31;
+		final long mask=(1L<<(2*k))-1; // Mask for 31 bases (62 bits)
 
-	private static final VectorSpecies<Byte> BSPECIES64=ByteVector.SPECIES_64;
-	private static final int BWIDTH64=BSPECIES64.length(); //8
-
-	private static final VectorSpecies<Integer> ISPECIES256=IntVector.SPECIES_256;
-
-	private static final VectorSpecies<Long> LSPECIES64=LongVector.SPECIES_64;
-	private static final int LWIDTH64=LSPECIES64.length(); //8
-
-	private static final VectorShuffle<Byte> B_REVERSE_SHUFFLE_256;
-	private static final VectorShuffle<Byte> B_REVERSE_SHUFFLE_64;
-	private static final boolean[] ACGTN;
-
-	static {
-		//256-bit reverse shuffle
-		int vlen256=BSPECIES256.length();
-		int[] indices256=new int[vlen256];
-		for(int i=0; i<vlen256; i++){
-			indices256[i]=vlen256-1-i;
+		// Generate random k-mers
+		final int len=8192;
+		final int mod=len-1;
+		long[] kmers=new long[len];
+		shared.Random randy=shared.Shared.random(12345);
+		for(int i=0; i<kmers.length; i++){
+			kmers[i]=randy.nextLong()&mask;
 		}
-		B_REVERSE_SHUFFLE_256=VectorShuffle.fromArray(BSPECIES256, indices256, 0);
 
-		//64-bit reverse shuffle
-		int vlen64=BSPECIES64.length();
-		int[] indices64=new int[vlen64];
-		for(int i=0; i<vlen64; i++){
-			indices64[i]=vlen64-1-i;
+		// Warmup
+		for(int i=0; i<10000; i++){
+			AminoAcid.reverseComplementBinaryFast(kmers[i&mod], k);
+			reverseComplementBinaryFastBitwise2(kmers[i&mod], k);
 		}
-		B_REVERSE_SHUFFLE_64=VectorShuffle.fromArray(BSPECIES64, indices64, 0);
-		ACGTN=new boolean[128];
-		Arrays.fill(ACGTN, false);
-		ACGTN['A']=ACGTN['C']=ACGTN['G']=ACGTN['T']=ACGTN['N']=true;
-		ACGTN['a']=ACGTN['c']=ACGTN['g']=ACGTN['t']=ACGTN['n']=true;
+
+		// Test correctness on all test k-mers
+		for(int i=0; i<kmers.length; i++){
+			long result1=AminoAcid.reverseComplementBinaryFast(kmers[i], k);
+			long result2=reverseComplementBinaryFastBitwise2(kmers[i], k);
+			if(result1!=result2){
+				System.err.println("Results don't match for kmer "+i+"!");
+				System.err.println("Input:    "+kmers[i]);
+				System.err.println("Original: "+result1);
+				System.err.println("Bitwise:  "+result2);
+				return;
+			}
+		}
+		System.err.println("Correctness check passed on "+kmers.length+" k-mers");
+
+		// Benchmark original
+		long sum1=0;
+		long t1=System.nanoTime();
+		for(int i=0; i<iterations; i++){
+			sum1+=AminoAcid.reverseComplementBinaryFast(kmers[i&mod], k);
+		}
+		long t2=System.nanoTime();
+		System.err.println("Original: "+(t2-t1)/1000000+"ms, checksum="+sum1);
+
+		// Benchmark bitwise
+		long sum2=0;
+		long t3=System.nanoTime();
+		for(int i=0; i<iterations; i++){
+			sum2+=reverseComplementBinaryFastBitwise2(kmers[i&mod], k);
+		}
+		long t4=System.nanoTime();
+		System.err.println("Bitwise:  "+(t4-t3)/1000000+"ms, checksum="+sum2);
+
+		double speedup=(double)(t2-t1)/(t4-t3);
+		System.err.println("Speedup: "+String.format("%.2fx", speedup));
 	}
 
-	/** Returns number of matches */
+//	public static void main(String[] args){
+//		final int iterations=1000000000;
+//		final int k=15;
+//		final int mask=(1<<(2*k))-1; // Mask for 15 bases (30 bits)
+//
+//		// Generate random k-mers
+//		int[] kmers=new int[10000];
+//		shared.Random randy=shared.Shared.random(12345);
+//		for(int i=0; i<kmers.length; i++){
+//			kmers[i]=randy.nextInt()&mask;
+//		}
+//
+//		// Warmup
+//		for(int i=0; i<10000; i++){
+//			AminoAcid.reverseComplementBinaryFast(kmers[i%kmers.length], k);
+//			reverseComplementBinaryFastBitwise(kmers[i%kmers.length], k);
+//		}
+//
+//		// Test correctness on all test k-mers
+//		for(int i=0; i<kmers.length; i++){
+//			int result1=(int)AminoAcid.reverseComplementBinaryFast(kmers[i], k);
+//			int result2=reverseComplementBinaryFastBitwise(kmers[i], k);
+//			if(result1!=result2){
+//				System.err.println("Results don't match for kmer "+i+"!");
+//				System.err.println("Input:    "+kmers[i]);
+//				System.err.println("Original: "+result1);
+//				System.err.println("Bitwise:  "+result2);
+//				return;
+//			}
+//		}
+//		System.err.println("Correctness check passed on "+kmers.length+" k-mers");
+//
+//		// Benchmark original
+//		long sum1=0;
+//		long t1=System.nanoTime();
+//		for(int i=0; i<iterations; i++){
+//			sum1+=AminoAcid.reverseComplementBinaryFast(kmers[i%kmers.length], k);
+//		}
+//		long t2=System.nanoTime();
+//		System.err.println("Original: "+(t2-t1)/1000000+"ms, checksum="+sum1);
+//
+//		// Benchmark bitwise
+//		long sum2=0;
+//		long t3=System.nanoTime();
+//		for(int i=0; i<iterations; i++){
+//			sum2+=reverseComplementBinaryFastBitwise(kmers[i%kmers.length], k);
+//		}
+//		long t4=System.nanoTime();
+//		System.err.println("Bitwise:  "+(t4-t3)/1000000+"ms, checksum="+sum2);
+//
+//		double speedup=(double)(t2-t1)/(t4-t3);
+//		System.err.println("Speedup: "+String.format("%.2fx", speedup));
+//	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Initialization        ----------------*/
+	/*--------------------------------------------------------------*/
+	/** Constructs a dual-width byte-vector helper. */
+	SIMDByte256(){}
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Static Methods        ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Builds a 32-lane lookup table for ASCII nucleotide predicates.
+	 * @return Byte vector holding accepted uppercase bases at their low-5-bit indexes */
+	private static ByteVector makeNucleotideLookup(){
+		final byte[] lookup=new byte[BWIDTH256];
+		//0xFF has bit 5 set, so it cannot equal any byte folded with &~32.
+		Arrays.fill(lookup, (byte)0xFF);
+		final byte[] valid={'A', 'B', 'C', 'D', 'G', 'H', 'K', 'M', 'N',
+				'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y'};
+		for(final byte b : valid){lookup[b&31]=b;}
+		return ByteVector.fromArray(BSPECIES256, lookup, 0);
+	}
+
+	/** Returns number of matches.
+	 * @param s1 First sequence
+	 * @param s2 Second sequence
+	 * @param a1 First index in s1
+	 * @param b1 Last index in s1
+	 * @param a2 First index in s2
+	 * @param b2 Last index in s2
+	 * @return Number of equal positions
+	 */
 	static final int countMatches(final byte[] s1, final byte[] s2, int a1, int b1, int a2, int b2){
 		int i=a1, j=a2;
 		int matches=0;
@@ -92,7 +198,13 @@ final class SIMDByte256{
 		return matches;
 	}
 
-	/** Returns index of symbol */
+	/** Returns index of symbol.
+	 * @param a Array to search
+	 * @param symbol Byte to find
+	 * @param from First index, inclusive
+	 * @param to Last index, exclusive
+	 * @return First matching index, or {@code to}
+	 */
 	static final int find(final byte[] a, final byte symbol, final int from, final int to){
 		int pos=from;
 
@@ -119,13 +231,14 @@ final class SIMDByte256{
 		return pos;
 	}
 
-
 	/**
 	 * Sums the array.
 	 * Widens bytes to int before reducing to avoid signed byte overflow.
 	 * ByteVector.reduceLanesToLong(ADD) uses byte-precision arithmetic which
 	 * wraps at +/-127, producing incorrect results for quality sums.
 	 * @param a A byte array.
+	 * @param from First index, inclusive
+	 * @param to Last index, inclusive
 	 * @return The sum.
 	 */
 	static final long sum(final byte[] a, final int from, final int to){
@@ -163,7 +276,7 @@ final class SIMDByte256{
 	 * @param positions IntList to store newline positions
 	 * @return Number of symbols found, including pre-existing ones
 	 */
-	static final int findSymbols(final byte[] buffer, final int from, 
+	static final int findSymbols(final byte[] buffer, final int from,
 		final int to, final byte symbol, final IntList positions){
 		int i=from;
 
@@ -213,7 +326,7 @@ final class SIMDByte256{
 	 * @param symbol Character to find
 	 * @return Number of symbols found, including pre-existing ones
 	 */
-	static final int countSymbols(final byte[] buffer, final int from, 
+	static final int countSymbols(final byte[] buffer, final int from,
 		final int to, final byte symbol){
 		int positions=0;
 		int i=from;
@@ -250,7 +363,8 @@ final class SIMDByte256{
 	 * Find the last symbol in buffer by scanning backwards using SIMD.
 	 * @param buffer Buffer to scan
 	 * @param limit Scan backwards from this position (exclusive)
-	 * @return Position of last newline, or -1 if none found
+	 * @param symbol Symbol to find
+	 * @return Position of last symbol, or -1 if none found
 	 */
 	static int findLastSymbol(byte[] buffer, int limit, final byte symbol){
 		int i=limit;
@@ -299,7 +413,7 @@ final class SIMDByte256{
 	 * @param positions IntList to store \n positions before >
 	 * @return Number of boundaries found
 	 */
-	static final int findFastaHeaders(final byte[] buffer, final int from, 
+	static final int findFastaHeaders(final byte[] buffer, final int from,
 		final int to, final IntList positions){
 		int i=from+1; // Need to check i-1, so start at from+1
 
@@ -355,7 +469,6 @@ final class SIMDByte256{
 		return positions.size();
 	}
 
-
 	/**
 	 * Adds a constant delta to all bytes in an array using SIMD.
 	 * @param array The byte array to modify in-place.
@@ -391,13 +504,12 @@ final class SIMDByte256{
 		}
 	}
 
-
 	/**
-	 * Adds delta to all bytes, caps at minimum value, and returns the minimum encountered.
+	 * Adds in int precision, applies a lower bound, then stores byte casts.
 	 * @param array The byte array to modify in-place.
 	 * @param delta The value to add to each element.
-	 * @param cap The minimum allowed value after addition.
-	 * @return The minimum value encountered after addition (before capping).
+	 * @param cap Lower bound before narrowing each result to byte.
+	 * @return Byte cast of min(127, smallest pre-cap sum); 0 for null, 127 for empty.
 	 */
 	static final byte addAndCapMin(final byte[] array, final byte delta, final int cap){
 		if(array==null){return 0;}
@@ -405,37 +517,43 @@ final class SIMDByte256{
 		final int length=array.length;
 		int i=0;
 		int min=127;
+		final long threshold=(long)cap-delta;
+		final byte thresholdByte=(byte)Math.max(Byte.MIN_VALUE, Math.min(Byte.MAX_VALUE, threshold));
+		final byte outputDelta=(threshold>Byte.MAX_VALUE ? (byte)(cap-Byte.MAX_VALUE) : delta);
 
+		// max(x, cap-delta)+delta equals max(x+delta, cap) when the threshold is a byte.
+		// Thresholds at or below byte range make max an identity; thresholds above range
+		// clamp every lane to 127, then adjust outputDelta to produce (byte)cap.
 		{//256-bit loop
-			ByteVector vdelta256=ByteVector.broadcast(BSPECIES256, delta);
-			ByteVector vcap256=ByteVector.broadcast(BSPECIES256, (byte)cap);
+			ByteVector vdelta256=ByteVector.broadcast(BSPECIES256, outputDelta);
+			ByteVector vthreshold256=ByteVector.broadcast(BSPECIES256, thresholdByte);
 			ByteVector vmin=ByteVector.broadcast(BSPECIES256, (byte)127);
+			final int start=i;
 
 			for(; i<=length-BWIDTH256; i+=BWIDTH256){
 				ByteVector va=ByteVector.fromArray(BSPECIES256, array, i);
-				ByteVector vresult=va.add(vdelta256);
-				vmin=vmin.min(vresult);
-				ByteVector vcapped=vresult.max(vcap256);
-				vcapped.intoArray(array, i);
+				ByteVector vresult=va.max(vthreshold256).add(vdelta256);
+				vmin=vmin.min(va);
+				vresult.intoArray(array, i);
 			}
 
-			min=Math.min(min, vmin.reduceLanes(VectorOperators.MIN));
+			if(i>start){min=Math.min(min, vmin.reduceLanes(VectorOperators.MIN)+delta);}
 		}
 
 		{//64-bit loop
-			ByteVector vdelta64=ByteVector.broadcast(BSPECIES64, delta);
-			ByteVector vcap64=ByteVector.broadcast(BSPECIES64, (byte)cap);
+			ByteVector vdelta64=ByteVector.broadcast(BSPECIES64, outputDelta);
+			ByteVector vthreshold64=ByteVector.broadcast(BSPECIES64, thresholdByte);
 			ByteVector vmin=ByteVector.broadcast(BSPECIES64, (byte)127);
+			final int start=i;
 
 			for(; i<=length-BWIDTH64; i+=BWIDTH64){
 				ByteVector va=ByteVector.fromArray(BSPECIES64, array, i);
-				ByteVector vresult=va.add(vdelta64);
-				vmin=vmin.min(vresult);
-				ByteVector vcapped=vresult.max(vcap64);
-				vcapped.intoArray(array, i);
+				ByteVector vresult=va.max(vthreshold64).add(vdelta64);
+				vmin=vmin.min(va);
+				vresult.intoArray(array, i);
 			}
 
-			min=Math.min(min, vmin.reduceLanes(VectorOperators.MIN));
+			if(i>start){min=Math.min(min, vmin.reduceLanes(VectorOperators.MIN)+delta);}
 		}
 
 		//Scalar tail
@@ -447,7 +565,6 @@ final class SIMDByte256{
 
 		return (byte)min;
 	}
-
 
 	/**
 	 * Applies quality offset delta, zeros quality for N bases, caps others at 2.
@@ -509,11 +626,11 @@ final class SIMDByte256{
 		}
 	}
 
-
 	/**
 	 * Zeros quality for N bases, caps others between 2 and max.
 	 * @param quals Quality array to modify in-place.
 	 * @param bases Sequence bases array.
+	 * @param max Maximum quality
 	 */
 	static final void capQuality(final byte[] quals, final byte[] bases, final byte max){
 		if(quals==null){return;}
@@ -564,7 +681,6 @@ final class SIMDByte256{
 		}
 	}
 
-
 	/**
 	 * Converts U to T and u to t in a byte array using SIMD.
 	 * @param bases The base array to modify in-place.
@@ -613,12 +729,9 @@ final class SIMDByte256{
 		}
 	}
 
-
-	/**
-	 * Converts lowercase letters to N.
-	 * @param array The byte array to modify in-place.
-	 * @return Always true.
-	 */
+	/** Converts lowercase ASCII letters to N in-place.
+	 * @param array byte array to modify; null is accepted
+	 * @return true */
 	static final boolean lowerCaseToN(final byte[] array){
 		if(array==null){return true;}
 
@@ -662,23 +775,22 @@ final class SIMDByte256{
 		return true;
 	}
 
-
-	/**
-	 * Converts dot, dash, and X to N.
-	 * @param array The byte array to modify in-place.
-	 * @return Always true.
-	 */
+	/** Converts dot, dash, X/x, and lowercase n to N in-place.
+	 * @param array byte array to modify; null is accepted
+	 * @return true */
 	static final boolean dotDashXToN(final byte[] array){
 		if(array==null){return true;}
 
 		final int length=array.length;
 		int i=0;
-		final byte dot='.', dash='-', X='X', N='N';
+		final byte dot='.', dash='-', X='X', x='x', n='n', N='N';
 
 		{//256-bit loop
 			ByteVector vdot256=ByteVector.broadcast(BSPECIES256, dot);
 			ByteVector vdash256=ByteVector.broadcast(BSPECIES256, dash);
 			ByteVector vX256=ByteVector.broadcast(BSPECIES256, X);
+			ByteVector vx256=ByteVector.broadcast(BSPECIES256, x);
+			ByteVector vn256=ByteVector.broadcast(BSPECIES256, n);
 			ByteVector vN256=ByteVector.broadcast(BSPECIES256, N);
 
 			for(; i<=length-BWIDTH256; i+=BWIDTH256){
@@ -686,7 +798,9 @@ final class SIMDByte256{
 				VectorMask<Byte> maskDot=vb.eq(vdot256);
 				VectorMask<Byte> maskDash=vb.eq(vdash256);
 				VectorMask<Byte> maskX=vb.eq(vX256);
-				VectorMask<Byte> maskAny=maskDot.or(maskDash).or(maskX);
+				VectorMask<Byte> maskx=vb.eq(vx256);
+				VectorMask<Byte> maskn=vb.eq(vn256);
+				VectorMask<Byte> maskAny=maskDot.or(maskDash).or(maskX).or(maskx).or(maskn);
 				ByteVector vresult=vb.blend(vN256, maskAny);
 				vresult.intoArray(array, i);
 			}
@@ -696,6 +810,8 @@ final class SIMDByte256{
 			ByteVector vdot64=ByteVector.broadcast(BSPECIES64, dot);
 			ByteVector vdash64=ByteVector.broadcast(BSPECIES64, dash);
 			ByteVector vX64=ByteVector.broadcast(BSPECIES64, X);
+			ByteVector vx64=ByteVector.broadcast(BSPECIES64, x);
+			ByteVector vn64=ByteVector.broadcast(BSPECIES64, n);
 			ByteVector vN64=ByteVector.broadcast(BSPECIES64, N);
 
 			for(; i<=length-BWIDTH64; i+=BWIDTH64){
@@ -703,7 +819,9 @@ final class SIMDByte256{
 				VectorMask<Byte> maskDot=vb.eq(vdot64);
 				VectorMask<Byte> maskDash=vb.eq(vdash64);
 				VectorMask<Byte> maskX=vb.eq(vX64);
-				VectorMask<Byte> maskAny=maskDot.or(maskDash).or(maskX);
+				VectorMask<Byte> maskx=vb.eq(vx64);
+				VectorMask<Byte> maskn=vb.eq(vn64);
+				VectorMask<Byte> maskAny=maskDot.or(maskDash).or(maskX).or(maskx).or(maskn);
 				ByteVector vresult=vb.blend(vN64, maskAny);
 				vresult.intoArray(array, i);
 			}
@@ -717,31 +835,46 @@ final class SIMDByte256{
 		return true;
 	}
 
-
-	/**
-	 * Checks if array contains common amino acids (E or L).
-	 * @param array The byte array to check.
-	 * @return true if E or L found (likely protein).
-	 */
+	/** Checks for amino-acid symbols that are not IUPAC nucleotide bases.
+	 * Detects E/F/I/J/L/O/P/Q/Z case-insensitively, plus '*', '.', and '-'.
+	 * @param array byte array to check; null is accepted
+	 * @return true if any inspected byte is amino-only */
 	static final boolean isProtein(final byte[] array){
 		if(array==null){return false;}
 
 		final int length=array.length;
 		int i=0;
-		final byte E='E', L='L';
+		final byte mask=(byte)~32;
+		final byte E='E', F='F', I='I', J='J', L='L', O='O', P='P', Q='Q', Z='Z';
+		final byte star='*', dot='.', dash='-';
 
 		boolean protein=false;
 
 		{//256-bit loop
 			VectorMask<Byte> foundProtein=BSPECIES256.maskAll(false);
+			ByteVector vmask256=ByteVector.broadcast(BSPECIES256, mask);
 			ByteVector vE256=ByteVector.broadcast(BSPECIES256, E);
+			ByteVector vF256=ByteVector.broadcast(BSPECIES256, F);
+			ByteVector vI256=ByteVector.broadcast(BSPECIES256, I);
+			ByteVector vJ256=ByteVector.broadcast(BSPECIES256, J);
 			ByteVector vL256=ByteVector.broadcast(BSPECIES256, L);
+			ByteVector vO256=ByteVector.broadcast(BSPECIES256, O);
+			ByteVector vP256=ByteVector.broadcast(BSPECIES256, P);
+			ByteVector vQ256=ByteVector.broadcast(BSPECIES256, Q);
+			ByteVector vZ256=ByteVector.broadcast(BSPECIES256, Z);
+			ByteVector vstar256=ByteVector.broadcast(BSPECIES256, star);
+			ByteVector vdot256=ByteVector.broadcast(BSPECIES256, dot);
+			ByteVector vdash256=ByteVector.broadcast(BSPECIES256, dash);
 
 			for(; i<=length-BWIDTH256; i+=BWIDTH256){
 				ByteVector vb=ByteVector.fromArray(BSPECIES256, array, i);
-				VectorMask<Byte> isE=vb.eq(vE256);
-				VectorMask<Byte> isL=vb.eq(vL256);
-				foundProtein=isE.or(isL).or(foundProtein);
+				ByteVector vbUpper=vb.and(vmask256);
+				VectorMask<Byte> isProtein=vbUpper.eq(vE256).or(vbUpper.eq(vF256))
+						.or(vbUpper.eq(vI256)).or(vbUpper.eq(vJ256)).or(vbUpper.eq(vL256))
+						.or(vbUpper.eq(vO256)).or(vbUpper.eq(vP256)).or(vbUpper.eq(vQ256))
+						.or(vbUpper.eq(vZ256)).or(vb.eq(vstar256)).or(vb.eq(vdot256))
+						.or(vb.eq(vdash256));
+				foundProtein=isProtein.or(foundProtein);
 			}
 
 			protein=foundProtein.anyTrue();
@@ -749,14 +882,29 @@ final class SIMDByte256{
 
 		{//64-bit loop
 			VectorMask<Byte> foundProtein=BSPECIES64.maskAll(false);
+			ByteVector vmask64=ByteVector.broadcast(BSPECIES64, mask);
 			ByteVector vE64=ByteVector.broadcast(BSPECIES64, E);
+			ByteVector vF64=ByteVector.broadcast(BSPECIES64, F);
+			ByteVector vI64=ByteVector.broadcast(BSPECIES64, I);
+			ByteVector vJ64=ByteVector.broadcast(BSPECIES64, J);
 			ByteVector vL64=ByteVector.broadcast(BSPECIES64, L);
+			ByteVector vO64=ByteVector.broadcast(BSPECIES64, O);
+			ByteVector vP64=ByteVector.broadcast(BSPECIES64, P);
+			ByteVector vQ64=ByteVector.broadcast(BSPECIES64, Q);
+			ByteVector vZ64=ByteVector.broadcast(BSPECIES64, Z);
+			ByteVector vstar64=ByteVector.broadcast(BSPECIES64, star);
+			ByteVector vdot64=ByteVector.broadcast(BSPECIES64, dot);
+			ByteVector vdash64=ByteVector.broadcast(BSPECIES64, dash);
 
 			for(; i<=length-BWIDTH64; i+=BWIDTH64){
 				ByteVector vb=ByteVector.fromArray(BSPECIES64, array, i);
-				VectorMask<Byte> isE=vb.eq(vE64);
-				VectorMask<Byte> isL=vb.eq(vL64);
-				foundProtein=isE.or(isL).or(foundProtein);
+				ByteVector vbUpper=vb.and(vmask64);
+				VectorMask<Byte> isProtein=vbUpper.eq(vE64).or(vbUpper.eq(vF64))
+						.or(vbUpper.eq(vI64)).or(vbUpper.eq(vJ64)).or(vbUpper.eq(vL64))
+						.or(vbUpper.eq(vO64)).or(vbUpper.eq(vP64)).or(vbUpper.eq(vQ64))
+						.or(vbUpper.eq(vZ64)).or(vb.eq(vstar64)).or(vb.eq(vdot64))
+						.or(vb.eq(vdash64));
+				foundProtein=isProtein.or(foundProtein);
 			}
 
 			protein|=foundProtein.anyTrue();
@@ -773,30 +921,23 @@ final class SIMDByte256{
 		return protein;
 	}
 
-
-	/**
-	 * Converts to uppercase using bitmask. Returns false if non-letter found.
-	 * @param array The byte array to modify in-place.
-	 * @return false if any byte is outside A-Z range after conversion.
-	 */
+	/** Converts lowercase ASCII letters to uppercase in-place.
+	 * @param array byte array to modify; null is accepted
+	 * @return true */
 	static final boolean toUpperCase(final byte[] array){
-		if(array==null) {return true;}
+		if(array==null){return true;}
 
 		final int length=array.length;
 		int i=0;
 		final byte A='A', Z='Z';
 		final byte mask=(byte) ~32; // Cast needed as ~32 is int
 
-		boolean success=true;
-
-		// 256-bit loop
-		{
-			VectorMask<Byte> invalid=BSPECIES256.maskAll(false);
+		{//256-bit loop
 			ByteVector vmask256=ByteVector.broadcast(BSPECIES256, mask);
 			ByteVector vA256=ByteVector.broadcast(BSPECIES256, A);
 			ByteVector vZ256=ByteVector.broadcast(BSPECIES256, Z);
 
-			for (; i<=length-BWIDTH256; i+=BWIDTH256) {
+			for(; i<=length-BWIDTH256; i+=BWIDTH256){
 				ByteVector vb0=ByteVector.fromArray(BSPECIES256, array, i);
 				ByteVector vbMasked=vb0.and(vmask256); // Force potential uppercase
 
@@ -808,17 +949,10 @@ final class SIMDByte256{
 				// BLEND: If isLetter (Mask True) -> Take vbMasked.
 				//        If !isLetter (Mask False) -> Keep vb0 (original).
 				vb0.blend(vbMasked, isLetter).intoArray(array, i);
-
-				// Accumulate failures: if isLetter is false, that lane was invalid
-				invalid=invalid.or(isLetter.not());
 			}
-
-			if(invalid.anyTrue()){success=false;}
 		}
 
-		// 64-bit loop
-		{
-			VectorMask<Byte> invalid=BSPECIES64.maskAll(false);
+		{//64-bit loop
 			ByteVector vmask64=ByteVector.broadcast(BSPECIES64, mask);
 			ByteVector vA64=ByteVector.broadcast(BSPECIES64, A);
 			ByteVector vZ64=ByteVector.broadcast(BSPECIES64, Z);
@@ -831,11 +965,7 @@ final class SIMDByte256{
 					.and(vbMasked.compare(VectorOperators.LE, vZ64));
 
 				vb0.blend(vbMasked, isLetter).intoArray(array, i);
-
-				invalid=invalid.or(isLetter.not());
 			}
-
-			if(invalid.anyTrue()){success=false;}
 		}
 
 		//Scalar tail
@@ -843,15 +973,12 @@ final class SIMDByte256{
 			array[i]=AminoAcid.toUpperCase[array[i]];
 		}
 
-		return success;
+		return true;
 	}
 
-
-	/**
-	 * Checks if all bytes are letters (case-insensitive check via mask).
-	 * @param array The byte array to check.
-	 * @return false if any non-letter found.
-	 */
+	/** Checks if all bytes are ASCII letters.
+	 * @param array byte array to check; null is accepted
+	 * @return true if every byte is A-Z or a-z */
 	static final boolean allLetters(final byte[] array){
 		if(array==null){return true;}
 
@@ -900,90 +1027,98 @@ final class SIMDByte256{
 
 		//Scalar tail
 		for(; i<length; i++){
-			int b=(array[i] & mask);
+			int b=(array[i]&mask);
 			success&=(b>=A && b<=Z);
 		}
 
 		return success;
 	}
 
-
-	/**
-	 * Converts IUPAC ambiguity codes to N, preserves A/C/G/T/U (case-insensitive).
-	 * @param array The byte array to modify in-place.
-	 * @return Always true.
-	 */
+	/** Masks IUPAC ambiguity letters in-place.
+	 * B/D/H/K/M/N/R/S/V/W/X/Y in either case become N; A/C/G/T/U
+	 * and unrelated bytes remain unchanged.
+	 * @param array byte array to modify; null is accepted
+	 * @return true */
 	static final boolean iupacToN(final byte[] array){
 		if(array==null){return true;}
 
 		final int length=array.length;
 		int i=0;
-		final byte A='A', C='C', G='G', T='T', U='U', N='N';
+		final byte B='B', D='D', H='H', K='K', M='M', N='N';
+		final byte R='R', S='S', V='V', W='W', X='X', Y='Y';
 		final byte mask=~32;
 
 		{//256-bit loop
 			ByteVector vmask256=ByteVector.broadcast(BSPECIES256, mask);
-			ByteVector vA256=ByteVector.broadcast(BSPECIES256, A);
-			ByteVector vC256=ByteVector.broadcast(BSPECIES256, C);
-			ByteVector vG256=ByteVector.broadcast(BSPECIES256, G);
-			ByteVector vT256=ByteVector.broadcast(BSPECIES256, T);
-			ByteVector vU256=ByteVector.broadcast(BSPECIES256, U);
+			ByteVector vB256=ByteVector.broadcast(BSPECIES256, B);
+			ByteVector vD256=ByteVector.broadcast(BSPECIES256, D);
+			ByteVector vH256=ByteVector.broadcast(BSPECIES256, H);
+			ByteVector vK256=ByteVector.broadcast(BSPECIES256, K);
+			ByteVector vM256=ByteVector.broadcast(BSPECIES256, M);
 			ByteVector vN256=ByteVector.broadcast(BSPECIES256, N);
+			ByteVector vR256=ByteVector.broadcast(BSPECIES256, R);
+			ByteVector vS256=ByteVector.broadcast(BSPECIES256, S);
+			ByteVector vV256=ByteVector.broadcast(BSPECIES256, V);
+			ByteVector vW256=ByteVector.broadcast(BSPECIES256, W);
+			ByteVector vX256=ByteVector.broadcast(BSPECIES256, X);
+			ByteVector vY256=ByteVector.broadcast(BSPECIES256, Y);
 
 			for(; i<=length-BWIDTH256; i+=BWIDTH256){
 				ByteVector vb0=ByteVector.fromArray(BSPECIES256, array, i);
 				ByteVector vb=vb0.and(vmask256);
-				VectorMask<Byte> isA=vb.eq(vA256);
-				VectorMask<Byte> isC=vb.eq(vC256);
-				VectorMask<Byte> isG=vb.eq(vG256);
-				VectorMask<Byte> isT=vb.eq(vT256);
-				VectorMask<Byte> isU=vb.eq(vU256);
-				VectorMask<Byte> isValid=isA.or(isC).or(isG).or(isT).or(isU);
-				ByteVector vresult=vb0.blend(vN256, isValid.not());
-				vresult.intoArray(array, i);
+				VectorMask<Byte> isIupac=vb.eq(vB256).or(vb.eq(vD256))
+						.or(vb.eq(vH256)).or(vb.eq(vK256)).or(vb.eq(vM256))
+						.or(vb.eq(vN256)).or(vb.eq(vR256)).or(vb.eq(vS256))
+						.or(vb.eq(vV256)).or(vb.eq(vW256)).or(vb.eq(vX256))
+						.or(vb.eq(vY256));
+				vb0.blend(vN256, isIupac).intoArray(array, i);
 			}
 		}
 
 		{//64-bit loop
 			ByteVector vmask64=ByteVector.broadcast(BSPECIES64, mask);
-			ByteVector vA64=ByteVector.broadcast(BSPECIES64, A);
-			ByteVector vC64=ByteVector.broadcast(BSPECIES64, C);
-			ByteVector vG64=ByteVector.broadcast(BSPECIES64, G);
-			ByteVector vT64=ByteVector.broadcast(BSPECIES64, T);
-			ByteVector vU64=ByteVector.broadcast(BSPECIES64, U);
+			ByteVector vB64=ByteVector.broadcast(BSPECIES64, B);
+			ByteVector vD64=ByteVector.broadcast(BSPECIES64, D);
+			ByteVector vH64=ByteVector.broadcast(BSPECIES64, H);
+			ByteVector vK64=ByteVector.broadcast(BSPECIES64, K);
+			ByteVector vM64=ByteVector.broadcast(BSPECIES64, M);
 			ByteVector vN64=ByteVector.broadcast(BSPECIES64, N);
+			ByteVector vR64=ByteVector.broadcast(BSPECIES64, R);
+			ByteVector vS64=ByteVector.broadcast(BSPECIES64, S);
+			ByteVector vV64=ByteVector.broadcast(BSPECIES64, V);
+			ByteVector vW64=ByteVector.broadcast(BSPECIES64, W);
+			ByteVector vX64=ByteVector.broadcast(BSPECIES64, X);
+			ByteVector vY64=ByteVector.broadcast(BSPECIES64, Y);
 
 			for(; i<=length-BWIDTH64; i+=BWIDTH64){
 				ByteVector vb0=ByteVector.fromArray(BSPECIES64, array, i);
 				ByteVector vb=vb0.and(vmask64);
-				VectorMask<Byte> isA=vb.eq(vA64);
-				VectorMask<Byte> isC=vb.eq(vC64);
-				VectorMask<Byte> isG=vb.eq(vG64);
-				VectorMask<Byte> isT=vb.eq(vT64);
-				VectorMask<Byte> isU=vb.eq(vU64);
-				VectorMask<Byte> isValid=isA.or(isC).or(isG).or(isT).or(isU);
-				ByteVector vresult=vb0.blend(vN64, isValid.not());
-				vresult.intoArray(array, i);
+				VectorMask<Byte> isIupac=vb.eq(vB64).or(vb.eq(vD64))
+						.or(vb.eq(vH64)).or(vb.eq(vK64)).or(vb.eq(vM64))
+						.or(vb.eq(vN64)).or(vb.eq(vR64)).or(vb.eq(vS64))
+						.or(vb.eq(vV64)).or(vb.eq(vW64)).or(vb.eq(vX64))
+						.or(vb.eq(vY64));
+				vb0.blend(vN64, isIupac).intoArray(array, i);
 			}
 		}
 
 		//Scalar tail
 		for(; i<length; i++){
-			array[i]=AminoAcid.baseToACGTN[array[i]];
+			array[i]=AminoAcid.iupacToNocall[array[i]];
 		}
 
 		return true;
 	}
 
-	/**
-	 * SIMD-optimized alignment counting mismatches between query and reference.
-	 * Uses cascading vector widths (256→64→scalar) for short sequences.
-	 * @param query Query sequence bases
-	 * @param ref Reference sequence bases
-	 * @param maxSubs Maximum allowed substitutions (for early termination)
-	 * @param rStart Starting position in reference (0-based)
-	 * @return Number of substitutions found
-	 */
+	/** Counts query/reference mismatches from a reference offset.
+	 * A query N always counts as a mismatch, including when the reference is also N.
+	 * Stops after the vector or scalar block that brings {@code subs} above
+	 * {@code maxSubs}, so the returned count may exceed {@code maxSubs}.
+	 * @param query query bases
+	 * @param ref reference bases
+	 * @param maxSubs mismatch budget for early termination
+	 * @param rStart starting offset in {@code ref}
+	 * @return counted mismatches */
 	static int alignSIMD(byte[] query, byte[] ref, final int maxSubs, final int rStart){
 		int subs=0;
 		int i=0;
@@ -1018,55 +1153,58 @@ final class SIMDByte256{
 
 		return subs;
 	}
-	
-	/**
-	 * SIMD alignment for fused references.
-	 * Mismatches (q!=r) count against maxSubs.
-	 * N-padding (r=='N') counts against maxNs + maxSubs.
-	 * Fails if either threshold is exceeded.
-	 */
-	static int alignFusedSIMD(byte[] query, byte[] ref, final int maxSubs, 
+
+	/** Counts mismatches against a fused reference from a reference offset.
+	 * Reference N padding increments a separate N count; non-N differences
+	 * increment the substitution count.
+	 * @param query query bases
+	 * @param ref fused reference bases
+	 * @param maxSubs reject when substitutions exceed this budget
+	 * @param maxNs reject when N padding exceeds maxNs+maxSubs
+	 * @param rStart starting offset in {@code ref}
+	 * @return substitutions, or {@code maxSubs+1} if subs>maxSubs or ns>maxNs+maxSubs */
+	static int alignFusedSIMD(byte[] query, byte[] ref, final int maxSubs,
 			final int maxNs, final int rStart){
 		int subs=0;
 		int ns=0;
 		int i=0;
 		int j=rStart;
 		final int qlen=query.length;
-		final int limitNs=maxNs+maxSubs;
-		
+		final long limitNs=(long)maxNs+maxSubs;
+
 		// 256-bit loop
 		ByteVector vN256=ByteVector.broadcast(BSPECIES256, (byte)'N');
 		for(final int lim=qlen-BWIDTH256; i<=lim; i+=BWIDTH256, j+=BWIDTH256){
 			ByteVector qVec=ByteVector.fromArray(BSPECIES256, query, i);
 			ByteVector rVec=ByteVector.fromArray(BSPECIES256, ref, j);
-			
+
 			// Identify Ns (Padding) vs Real Mismatches
 			VectorMask<Byte> maskN=rVec.eq(vN256);
 			VectorMask<Byte> maskDiff=qVec.eq(rVec).not();
 			VectorMask<Byte> maskSub=maskDiff.and(maskN.not());
-			
+
 			ns+=maskN.trueCount();
 			subs+=maskSub.trueCount();
-			
+
 			if(subs>maxSubs || ns>limitNs){return maxSubs+1;}
 		}
-		
+
 		// 64-bit loop
 		ByteVector vN64=ByteVector.broadcast(BSPECIES64, (byte)'N');
 		for(final int lim=qlen-BWIDTH64; i<=lim; i+=BWIDTH64, j+=BWIDTH64){
 			ByteVector qVec=ByteVector.fromArray(BSPECIES64, query, i);
 			ByteVector rVec=ByteVector.fromArray(BSPECIES64, ref, j);
-			
+
 			VectorMask<Byte> maskN=rVec.eq(vN64);
 			VectorMask<Byte> maskDiff=qVec.eq(rVec).not();
 			VectorMask<Byte> maskSub=maskDiff.and(maskN.not());
-			
+
 			ns+=maskN.trueCount();
 			subs+=maskSub.trueCount();
-			
+
 			if(subs>maxSubs || ns>limitNs){return maxSubs+1;}
 		}
-		
+
 		// Scalar tail
 		for(; i<qlen; i++, j++){
 			byte q=query[i];
@@ -1074,83 +1212,60 @@ final class SIMDByte256{
 			if(r=='N'){ns++;}
 			else if(q!=r){subs++;}
 		}
-		
+
 		if(subs>maxSubs || ns>limitNs){return maxSubs+1;}
 		return subs;
 	}
 
-	/**
-	 * Checks if all letters and no E or L (nucleotide validation).
-	 * @param array The byte array to check.
-	 * @return true if valid nucleotide sequence.
-	 */
+	/** Checks if all bytes are ASCII nucleotide letters.
+	 * Allows IUPAC nucleotide letters including X/x and rejects amino-only
+	 * letters E/F/I/J/L/O/P/Q/Z, case-insensitively.
+	 * @param array byte array to check; null is accepted
+	 * @return true if every byte is an accepted nucleotide letter */
 	static final boolean isNucleotide(final byte[] array){
 		if(array==null){return true;}
 
 		final int length=array.length;
+		if(length<BWIDTH256){
+			boolean success=true;
+			for(int i=0; i<length; i++){
+				success&=(AminoAcid.baseToNumberExtended[array[i]]>=0);
+			}
+			return success;
+		}
+
 		int i=0;
-		final byte E='E', L='L';
-		final byte A='A', Z='Z';
-		final byte mask=~32;
+		VectorMask<Byte> invalid=BSPECIES256.maskAll(false);
+		final ByteVector caseMask=ByteVector.broadcast(BSPECIES256, (byte)~32);
+		final ByteVector indexMask=ByteVector.broadcast(BSPECIES256, (byte)31);
 
-		boolean success=true;
-
-		{//256-bit loop
-			VectorMask<Byte> invalid=BSPECIES256.maskAll(false);
-			ByteVector vmask256=ByteVector.broadcast(BSPECIES256, mask);
-			ByteVector vA256=ByteVector.broadcast(BSPECIES256, A);
-			ByteVector vZ256=ByteVector.broadcast(BSPECIES256, Z);
-			ByteVector vE256=ByteVector.broadcast(BSPECIES256, E);
-			ByteVector vL256=ByteVector.broadcast(BSPECIES256, L);
-
-			for(; i<=length-BWIDTH256; i+=BWIDTH256){
-				ByteVector vb0=ByteVector.fromArray(BSPECIES256, array, i);
-				ByteVector vb=vb0.and(vmask256);
-				VectorMask<Byte> validLow=vb.compare(VectorOperators.GE, vA256);
-				VectorMask<Byte> validHigh=vb.compare(VectorOperators.LE, vZ256);
-				VectorMask<Byte> isLetter=validLow.and(validHigh);
-				VectorMask<Byte> isE=vb.eq(vE256);
-				VectorMask<Byte> isL=vb.eq(vL256);
-				VectorMask<Byte> isProtein=isE.or(isL);
-				invalid=isLetter.not().or(isProtein).or(invalid);
-			}
-
-			success=!invalid.anyTrue();
+		for(; i<=length-BWIDTH256; i+=BWIDTH256){
+			final ByteVector folded=ByteVector.fromArray(BSPECIES256, array, i).and(caseMask);
+			final ByteVector indexes=folded.and(indexMask);
+			final VectorMask<Byte> valid=indexes.selectFrom(NUCLEOTIDE_LOOKUP_256).eq(folded);
+			invalid=valid.not().or(invalid);
 		}
 
-		{//64-bit loop
-			VectorMask<Byte> invalid=BSPECIES64.maskAll(false);
-			ByteVector vmask64=ByteVector.broadcast(BSPECIES64, mask);
-			ByteVector vA64=ByteVector.broadcast(BSPECIES64, A);
-			ByteVector vZ64=ByteVector.broadcast(BSPECIES64, Z);
-			ByteVector vE64=ByteVector.broadcast(BSPECIES64, E);
-			ByteVector vL64=ByteVector.broadcast(BSPECIES64, L);
-
-			for(; i<=length-BWIDTH64; i+=BWIDTH64){
-				ByteVector vb0=ByteVector.fromArray(BSPECIES64, array, i);
-				ByteVector vb=vb0.and(vmask64);
-				VectorMask<Byte> validLow=vb.compare(VectorOperators.GE, vA64);
-				VectorMask<Byte> validHigh=vb.compare(VectorOperators.LE, vZ64);
-				VectorMask<Byte> isLetter=validLow.and(validHigh);
-				VectorMask<Byte> isE=vb.eq(vE64);
-				VectorMask<Byte> isL=vb.eq(vL64);
-				VectorMask<Byte> isProtein=isE.or(isL);
-				invalid=isLetter.not().or(isProtein).or(invalid);
-			}
-
-			success&=!invalid.anyTrue();
+		if(i<length){
+			//Overlapping the final 32 bytes is safe for a read-only Boolean predicate.
+			final ByteVector folded=ByteVector.fromArray(BSPECIES256, array,
+					length-BWIDTH256).and(caseMask);
+			final ByteVector indexes=folded.and(indexMask);
+			final VectorMask<Byte> valid=indexes.selectFrom(NUCLEOTIDE_LOOKUP_256).eq(folded);
+			invalid=valid.not().or(invalid);
 		}
 
-		//Scalar tail
-		for(; i<length; i++){
-			success&=(AminoAcid.baseToNumberExtended[array[i]]>=0);
-		}
-
-		return success;
+		return !invalid.anyTrue();
 	}
 
-	/** Dual SIMD version: Add delta to each qual and append to ByteBuilder */
-	static void addAndAppend(byte[] quals, ByteBuilder bb, int delta) {
+	/**
+	 * Appends each quality byte plus {@code delta} to {@code bb}.
+	 * Bytes are cast after addition, matching the scalar FASTQ quality path.
+	 * @param quals source quality bytes
+	 * @param bb destination builder; capacity grows and length advances by {@code quals.length}
+	 * @param delta value to add to each source byte before the final byte cast
+	 */
+	static void addAndAppend(byte[] quals, ByteBuilder bb, int delta){
 		final int qlen=quals.length;
 		bb.ensureExtra(qlen);
 		final byte[] array=bb.array;
@@ -1184,8 +1299,14 @@ final class SIMDByte256{
 		bb.length+=qlen;
 	}
 
-	/** Dual SIMD version: Generate fake quals based on whether bases are defined */
-	static void appendFake(byte[] bases, ByteBuilder bb, int qFake, int qUndef) {
+	/**
+	 * Appends {@code qFake} for A/C/G/T/U bases, case-insensitively, and {@code qUndef} for all other bytes.
+	 * @param bases source bases to classify
+	 * @param bb destination builder; capacity grows and length advances by {@code bases.length}
+	 * @param qFake byte value to append for fully defined bases
+	 * @param qUndef byte value to append for ambiguous or invalid bases
+	 */
+	static void appendFake(byte[] bases, ByteBuilder bb, int qFake, int qUndef){
 		final int blen=bases.length;
 		bb.ensureExtra(blen);
 		final byte[] array=bb.array;
@@ -1251,7 +1372,13 @@ final class SIMDByte256{
 		bb.length+=blen;
 	}
 
-	/** Dual SIMD version: Add delta, reverse, and append to ByteBuilder */
+	/**
+	 * Appends qualities in reverse order after adding {@code delta} to each byte.
+	 * Bytes are cast after addition, matching {@link #addAndAppend(byte[], ByteBuilder, int)}.
+	 * @param quals source quality bytes
+	 * @param bb destination builder; capacity grows and length advances by {@code quals.length}
+	 * @param delta value to add to each source byte before the final byte cast
+	 */
 	static void addAndAppendReversed(byte[] quals, ByteBuilder bb, int delta){
 		final int qlen=quals.length;
 		bb.ensureExtra(qlen);
@@ -1294,7 +1421,11 @@ final class SIMDByte256{
 		bb.length+=qlen;
 	}
 
-	/** Dual SIMD version: Reverse array in-place */
+	/**
+	 * Reverses the first {@code len} bytes in place.
+	 * @param array array to mutate; null is ignored
+	 * @param len number of leading bytes to reverse
+	 */
 	static void reverseInPlace(final byte[] array, final int len){
 		if(array==null || len<2){return;}
 
@@ -1341,7 +1472,14 @@ final class SIMDByte256{
 		}
 	}
 
-	/** Dual SIMD version: Reverse-complement array in-place (ACGTacgt, others→N) */
+	/**
+	 * Reverse-complements the first {@code len} bytes in place.
+	 * A/C/G/T/N blocks are vectorized; the first non-ACGTN block transfers the
+	 * remaining inward region to the scalar path so IUPAC bases receive their
+	 * proper {@link AminoAcid#baseToComplementExtended} complements.
+	 * @param array array to mutate; null is ignored
+	 * @param len number of leading bases to reverse-complement
+	 */
 	static void reverseComplementInPlace(final byte[] array, final int len){
 		if(array==null || len<1){return;}
 		int left=0;
@@ -1457,10 +1595,10 @@ final class SIMDByte256{
 	}
 
 	/**
-	 * Check if array contains only uppercase A/C/G/T/N using SIMD.
-	 * @param array Byte array to check
-	 * @param length Number of elements to check
-	 * @return true if all bases are A/C/G/T/N (uppercase only), false otherwise
+	 * Checks whether the first {@code length} bytes are ASCII A/C/G/T/N, case-insensitively.
+	 * @param array byte array to check; null is accepted
+	 * @param length number of leading bytes to inspect
+	 * @return true if {@code array} is null, {@code length} is zero, or every inspected byte is A/C/G/T/N
 	 */
 	static boolean isACGTN(byte[] array, int length){
 		if(array==null || length==0){return true;}
@@ -1517,12 +1655,17 @@ final class SIMDByte256{
 		//Scalar tail
 		for(; i<length; i++){
 			byte b=array[i];
-			if(!ACGTN[b]) {return false;}
+			if(!ACGTN[b]){return false;}
 		}
 
 		return true;
 	}
 
+	/** Reverse-complements a binary kmer with SIMD byte reversal.
+	 * @param kmer Binary kmer
+	 * @param k Kmer length
+	 * @return Reverse-complemented kmer
+	 */
 	public static final long reverseComplementBinaryFastSIMD(long kmer, int k){
 		// Swap adjacent 2-bit pairs
 		long x=((kmer&0x3333333333333333L)<<2)|((kmer&0xCCCCCCCCCCCCCCCCL)>>2);
@@ -1546,6 +1689,11 @@ final class SIMDByte256{
 		return x;
 	}
 
+	/** Reverse-complements a binary kmer with fixed bitwise swaps.
+	 * @param kmer Binary kmer
+	 * @param k Kmer length
+	 * @return Reverse-complemented kmer
+	 */
 	public static final long reverseComplementBinaryFastBitwise(long kmer, int k){
 		// Complement first
 		long x=~kmer;
@@ -1570,160 +1718,116 @@ final class SIMDByte256{
 
 		return x;
 	}
-	
-	private static final long[] SWAP_MASKS = {
+
+	/** Reverse-complements a binary kmer with looped bitwise swaps.
+	 * @param kmer Binary kmer
+	 * @param k Kmer length
+	 * @return Reverse-complemented kmer
+	 */
+	public static final long reverseComplementBinaryFastBitwise2(long kmer, int k){
+		long x=~kmer;
+		int kmerBits=2*k;
+		int swapWidth=2;
+
+		for(int i=0; i<SWAP_MASKS.length && swapWidth<=kmerBits; i++){
+			int shift=1<<i; // 1, 2, 4, 8, 16
+			x=((x&SWAP_MASKS[i])<<shift)|((x&~SWAP_MASKS[i])>>>shift);
+			swapWidth<<=1;
+		}
+
+		if(k<32){x=x>>>(2*(32-k));}
+		return x;
+	}
+
+	/** Reverse-complements a 32-bit binary kmer.
+	 * @param kmer Binary kmer
+	 * @param k Kmer length
+	 * @return Reverse-complemented kmer
+	 */
+	public static final int reverseComplementBinaryFastBitwise(int kmer, int k){
+		// Complement first
+		int x=~kmer;
+
+		// Swap adjacent 2-bit pairs
+		x=((x&0x33333333)<<2)|((x&0xCCCCCCCC)>>>2);
+
+		// Swap nibbles
+		x=((x&0x0F0F0F0F)<<4)|((x&0xF0F0F0F0)>>>4);
+
+		// Swap bytes
+		x=((x&0x00FF00FF)<<8)|((x&0xFF00FF00)>>>8);
+
+		// Swap 16-bit words
+		x=(x<<16)|(x>>>16);
+
+		// Right-align for k<16
+		x=x>>>(2*(16-k));
+
+		return x;
+	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------          Constants           ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Preferred byte-vector species. */
+	private static final VectorSpecies<Byte> BSPECIES256=ByteVector.SPECIES_256;
+	/** Number of byte lanes in BSPECIES256. */
+	private static final int BWIDTH256=BSPECIES256.length(); //32
+
+	/** Tail byte-vector species. */
+	private static final VectorSpecies<Byte> BSPECIES64=ByteVector.SPECIES_64;
+	/** Number of byte lanes in BSPECIES64. */
+	private static final int BWIDTH64=BSPECIES64.length(); //8
+
+	/** Integer-vector species for widening byte reductions. */
+	private static final VectorSpecies<Integer> ISPECIES256=IntVector.SPECIES_256;
+
+	/** Single-lane long species for reinterpret-based byte shuffles. */
+	private static final VectorSpecies<Long> LSPECIES64=LongVector.SPECIES_64;
+	/** Number of long lanes in LSPECIES64. */
+	private static final int LWIDTH64=LSPECIES64.length(); //1
+
+	/** 256-bit byte reverse shuffle. */
+	private static final VectorShuffle<Byte> B_REVERSE_SHUFFLE_256;
+	/** 64-bit byte reverse shuffle. */
+	private static final VectorShuffle<Byte> B_REVERSE_SHUFFLE_64;
+	/** True for ASCII A/C/G/T/N in either case. */
+	private static final boolean[] ACGTN;
+	/** Low-5-bit lookup table for accepted IUPAC nucleotide ASCII letters. */
+	private static final ByteVector NUCLEOTIDE_LOOKUP_256;
+
+	static{
+		//256-bit reverse shuffle
+		int vlen256=BSPECIES256.length();
+		int[] indices256=new int[vlen256];
+		for(int i=0; i<vlen256; i++){
+			indices256[i]=vlen256-1-i;
+		}
+		B_REVERSE_SHUFFLE_256=VectorShuffle.fromArray(BSPECIES256, indices256, 0);
+
+		//64-bit reverse shuffle
+		int vlen64=BSPECIES64.length();
+		int[] indices64=new int[vlen64];
+		for(int i=0; i<vlen64; i++){
+			indices64[i]=vlen64-1-i;
+		}
+		B_REVERSE_SHUFFLE_64=VectorShuffle.fromArray(BSPECIES64, indices64, 0);
+		ACGTN=new boolean[128];
+		Arrays.fill(ACGTN, false);
+		ACGTN['A']=ACGTN['C']=ACGTN['G']=ACGTN['T']=ACGTN['N']=true;
+		ACGTN['a']=ACGTN['c']=ACGTN['g']=ACGTN['t']=ACGTN['n']=true;
+
+		NUCLEOTIDE_LOOKUP_256=makeNucleotideLookup();
+	}
+
+	/** Masks for progressively wider binary-kmer swaps. */
+	private static final long[] SWAP_MASKS={
 		0x3333333333333333L, // 2-bit pairs
 		0x0F0F0F0F0F0F0F0FL, // nibbles
 		0x00FF00FF00FF00FFL, // bytes
 		0x0000FFFF0000FFFFL, // 16-bit words
 		0x00000000FFFFFFFFL  // 32-bit dwords
 	};
-
-	public static final long reverseComplementBinaryFastBitwise2(long kmer, int k){
-		long x=~kmer;
-		int kmerBits=2*k;
-		int swapWidth=2;
-		
-		for(int i=0; i<SWAP_MASKS.length && swapWidth<=kmerBits; i++){
-			int shift=1<<i; // 1, 2, 4, 8, 16
-			x=((x&SWAP_MASKS[i])<<shift)|((x&~SWAP_MASKS[i])>>>shift);
-			swapWidth<<=1;
-		}
-		
-		if(k<32){x=x>>>(2*(32-k));}
-		return x;
-	}
-	
-	public static final int reverseComplementBinaryFastBitwise(int kmer, int k){
-		// Complement first
-		int x=~kmer;
-		
-		// Swap adjacent 2-bit pairs
-		x=((x&0x33333333)<<2)|((x&0xCCCCCCCC)>>>2);
-		
-		// Swap nibbles
-		x=((x&0x0F0F0F0F)<<4)|((x&0xF0F0F0F0)>>>4);
-		
-		// Swap bytes
-		x=((x&0x00FF00FF)<<8)|((x&0xFF00FF00)>>>8);
-		
-		// Swap 16-bit words
-		x=(x<<16)|(x>>>16);
-		
-		// Right-align for k<16
-		x=x>>>(2*(16-k));
-		
-		return x;
-	}
-
-//	public static void main(String[] args){
-//		final int iterations=1000000000;
-//		final int k=15;
-//		final int mask=(1<<(2*k))-1; // Mask for 15 bases (30 bits)
-//		
-//		// Generate random k-mers
-//		int[] kmers=new int[10000];
-//		shared.Random randy=shared.Shared.random(12345);
-//		for(int i=0; i<kmers.length; i++){
-//			kmers[i]=randy.nextInt()&mask;
-//		}
-//		
-//		// Warmup
-//		for(int i=0; i<10000; i++){
-//			AminoAcid.reverseComplementBinaryFast(kmers[i%kmers.length], k);
-//			reverseComplementBinaryFastBitwise(kmers[i%kmers.length], k);
-//		}
-//		
-//		// Test correctness on all test k-mers
-//		for(int i=0; i<kmers.length; i++){
-//			int result1=(int)AminoAcid.reverseComplementBinaryFast(kmers[i], k);
-//			int result2=reverseComplementBinaryFastBitwise(kmers[i], k);
-//			if(result1!=result2){
-//				System.err.println("Results don't match for kmer "+i+"!");
-//				System.err.println("Input:    "+kmers[i]);
-//				System.err.println("Original: "+result1);
-//				System.err.println("Bitwise:  "+result2);
-//				return;
-//			}
-//		}
-//		System.err.println("Correctness check passed on "+kmers.length+" k-mers");
-//		
-//		// Benchmark original
-//		long sum1=0;
-//		long t1=System.nanoTime();
-//		for(int i=0; i<iterations; i++){
-//			sum1+=AminoAcid.reverseComplementBinaryFast(kmers[i%kmers.length], k);
-//		}
-//		long t2=System.nanoTime();
-//		System.err.println("Original: "+(t2-t1)/1000000+"ms, checksum="+sum1);
-//		
-//		// Benchmark bitwise
-//		long sum2=0;
-//		long t3=System.nanoTime();
-//		for(int i=0; i<iterations; i++){
-//			sum2+=reverseComplementBinaryFastBitwise(kmers[i%kmers.length], k);
-//		}
-//		long t4=System.nanoTime();
-//		System.err.println("Bitwise:  "+(t4-t3)/1000000+"ms, checksum="+sum2);
-//		
-//		double speedup=(double)(t2-t1)/(t4-t3);
-//		System.err.println("Speedup: "+String.format("%.2fx", speedup));
-//	}
-
-	public static void main(String[] args){
-		final int iterations=1000000000;
-		final int k=31;
-		final long mask=(1L<<(2*k))-1; // Mask for 31 bases (62 bits)
-
-		// Generate random k-mers
-		final int len=8192;
-		final int mod=len-1;
-		long[] kmers=new long[len];
-		shared.Random randy=shared.Shared.random(12345);
-		for(int i=0; i<kmers.length; i++){
-			kmers[i]=randy.nextLong()&mask;
-		}
-
-		// Warmup
-		for(int i=0; i<10000; i++){
-			AminoAcid.reverseComplementBinaryFast(kmers[i&mod], k);
-			reverseComplementBinaryFastBitwise2(kmers[i&mod], k);
-		}
-
-		// Test correctness on all test k-mers
-		for(int i=0; i<kmers.length; i++){
-			long result1=AminoAcid.reverseComplementBinaryFast(kmers[i], k);
-			long result2=reverseComplementBinaryFastBitwise2(kmers[i], k);
-			if(result1!=result2){
-				System.err.println("Results don't match for kmer "+i+"!");
-				System.err.println("Input:    "+kmers[i]);
-				System.err.println("Original: "+result1);
-				System.err.println("Bitwise:  "+result2);
-				return;
-			}
-		}
-		System.err.println("Correctness check passed on "+kmers.length+" k-mers");
-
-		// Benchmark original
-		long sum1=0;
-		long t1=System.nanoTime();
-		for(int i=0; i<iterations; i++){
-			sum1+=AminoAcid.reverseComplementBinaryFast(kmers[i&mod], k);
-		}
-		long t2=System.nanoTime();
-		System.err.println("Original: "+(t2-t1)/1000000+"ms, checksum="+sum1);
-
-		// Benchmark bitwise
-		long sum2=0;
-		long t3=System.nanoTime();
-		for(int i=0; i<iterations; i++){
-			sum2+=reverseComplementBinaryFastBitwise2(kmers[i&mod], k);
-		}
-		long t4=System.nanoTime();
-		System.err.println("Bitwise:  "+(t4-t3)/1000000+"ms, checksum="+sum2);
-
-		double speedup=(double)(t2-t1)/(t4-t3);
-		System.err.println("Speedup: "+String.format("%.2fx", speedup));
-	}
 
 }

@@ -65,7 +65,8 @@ tuc=f                   (touppercase) Change lowercase letters in reads to upper
 uniquenames=f           Make duplicate names unique by appending _<number>.
 remap=                  A set of pairs: remap=CTGN will transform C>T and G>N.
                         Use remap1 and remap2 to specify read 1 or 2.
-iupacToN=f              (itn) Convert non-ACGTN symbols to N.
+iupacToN=f              (itn) After read validation, convert symbols other than
+                        A/C/G/T/U/N (either case) to N; zero their qualities.
 monitor=f               Kill this process if it crashes.  monitor=600,0.01 would kill after 600 seconds under 1% usage.
 crashjunk=t             Crash when encountering reads with invalid bases.
 tossjunk=f              Discard reads with invalid characters as bases.
