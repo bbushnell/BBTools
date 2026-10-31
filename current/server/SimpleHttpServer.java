@@ -20,13 +20,18 @@ import com.sun.net.httpserver.HttpServer;
  * @author Shijie Yao
  * @date Dec 13, 2016
  */
-public class SimpleHttpServer {
+public class SimpleHttpServer{
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Starts the demonstration listener on {@link #port}; arguments are unused. */
+	/** Constructs the stateless demonstration entry point; does not start a listener. */
+	public SimpleHttpServer(){}
+
+	/** Starts the demonstration listener on {@link #port}; arguments are unused.
+	 * @param args Unused command-line arguments
+	 * @throws IOException If binding the listener fails */
 	public static void main(String[] args) throws IOException{
 		final HttpServer server=HttpServer.create(new InetSocketAddress(port), 0);
 		server.createContext("/", new GetHandler());
@@ -39,7 +44,10 @@ public class SimpleHttpServer {
 	/*--------------------------------------------------------------*/
 
 	/** Stateless handler; all response data belongs to the current request. */
-	static class GetHandler implements HttpHandler {
+	static class GetHandler implements HttpHandler{
+
+		/** Creates a handler with no request-specific instance state. */
+		GetHandler(){}
 
 		/**
 		 * Writes a UTF-8 JSON object and closes the exchange even if writing fails.
@@ -55,7 +63,7 @@ public class SimpleHttpServer {
 				// Fixed [server/SimpleHttpServer#001]: remove the final slash, not the prefix.
 				if(paramsText.endsWith("/")){paramsText=paramsText.substring(0, paramsText.length()-1);}
 				final String[] params=paramsText.split("/");
-				final Map<String,String> fields=new LinkedHashMap<String,String>();
+				final Map<String, String> fields=new LinkedHashMap<String, String>();
 				if(params.length==2){
 					fields.put(params[0], params[1]);
 					// Deliberate mock values; preserve replacement of these requested keys.
@@ -68,7 +76,7 @@ public class SimpleHttpServer {
 				final StringBuilder json=new StringBuilder(128);
 				json.append('{');
 				boolean first=true;
-				for(Map.Entry<String,String> entry : fields.entrySet()){
+				for(Map.Entry<String, String> entry : fields.entrySet()){
 					// Fixed [server/SimpleHttpServer#001]: separate every JSON member.
 					if(!first){json.append(',');}
 					appendQuoted(json, entry.getKey());
@@ -89,7 +97,9 @@ public class SimpleHttpServer {
 		}
 	}
 
-	/** Quotes JSON string text without the ASCII-only conversion of ByteBuilder. */
+	/** Quotes JSON string text without the ASCII-only conversion of ByteBuilder.
+	 * @param out Destination builder, retaining its existing contents
+	 * @param value Non-null field text; control characters are escaped */
 	private static void appendQuoted(StringBuilder out, String value){
 		assert(value!=null) : "Demo response fields must have values before JSON serialization";
 		out.append('"');

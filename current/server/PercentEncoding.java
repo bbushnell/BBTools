@@ -8,19 +8,24 @@ import java.util.HashMap;
  * Handles targeted percent-encoding and decoding for server URL fragments.
  * Escapes selected reserved/common ASCII symbols while leaving non-ASCII text unchanged.
  * Decodes percent-encoded ASCII and UTF-8 bytes while preserving malformed percent syntax.
+ * Calls use local buffers; the public lookup tables must not be mutated concurrently
+ * or changed after the private membership tables have been initialized.
  * @author Brian Bushnell
  */
-public class PercentEncoding {
+public class PercentEncoding{
+
+	/** Constructs the stateless utility; methods may also be called statically. */
+	public PercentEncoding(){}
 	
-/*--------------------------------------------------------------*/
-/*----------------        Static Methods        ----------------*/
-/*--------------------------------------------------------------*/
+	/*--------------------------------------------------------------*/
+	/*----------------        Static Methods        ----------------*/
+	/*--------------------------------------------------------------*/
 
 	/**
 	 * Checks if a string contains any special symbols that require percent-encoding.
 	 * Special symbols include both reserved URI characters and common problematic characters.
 	 * @param s The string to check for special symbols
-	 * @return true if the string contains any special symbols, false otherwise
+	 * @return True if a selected symbol occurs; false for null or unchanged text
 	 */
 	public static boolean containsSpecialSymbol(String s){
 		if(s==null){return false;}
@@ -35,7 +40,7 @@ public class PercentEncoding {
 	 * Checks if a string contains any common symbols that require percent-encoding.
 	 * Common symbols are a subset of special symbols including newlines, spaces, quotes, etc.
 	 * @param s The string to check for common symbols
-	 * @return true if the string contains any common symbols, false otherwise
+	 * @return True if a selected common symbol occurs; false for null or unchanged text
 	 */
 	public static boolean containsCommonSymbol(String s){
 		if(s==null){return false;}
@@ -51,7 +56,7 @@ public class PercentEncoding {
 	 * Leaves non-ASCII characters unchanged.
 	 * Returns the original string unchanged if no special symbols are found.
 	 * @param s The string to encode
-	 * @return The percent-encoded string with special symbols converted to %XX format
+	 * @return Encoded text, the original unchanged string, or null for null input
 	 */
 	public static String symbolToCode(String s){
 		if(!containsSpecialSymbol(s)){return s;}
@@ -75,7 +80,7 @@ public class PercentEncoding {
 	 * Leaves non-ASCII characters unchanged.
 	 * Returns the original string unchanged if no common symbols are found.
 	 * @param s The string to encode
-	 * @return The percent-encoded string with common symbols converted to %XX format
+	 * @return Encoded text, the original unchanged string, or null for null input
 	 */
 	public static String commonSymbolToCode(String s){
 		if(!containsCommonSymbol(s)){return s;}
@@ -84,7 +89,8 @@ public class PercentEncoding {
 			char c=s.charAt(i);
 			if(isCommon.get(c)){
 				String code=symbolToCodeArray[c];
-				assert(code!=null) : "isCommon and symbolToCodeArray both derive from commonSymbol; missing code for "+(int)c;
+				assert(code!=null) : "isCommon and symbolToCodeArray both derive from commonSymbol; "+
+						"missing code for "+(int)c;
 				sb.append(code);
 			}else{
 				sb.append(c);
@@ -110,10 +116,12 @@ public class PercentEncoding {
 			final char c=s.charAt(i);
 			if(c>='0' && c<='9'){
 				sum=sum+(c-'0');
-			//FIXED [server/PercentEncoding#001]: was 'c<'F'' which excluded hex digit F, so %2F (/) and %3F (?) failed to decode (parseCode returned -1), breaking the encode/decode round-trip on the TaxClient->TaxServer path and dna/Data URL decode.  Now 'c<='F''.
+			// Fixed [server/PercentEncoding#001]: c<'F' excluded F, so %2F and %3F
+			// failed to decode on the TaxClient/TaxServer and dna/Data paths.
 			}else if(c>='A' && c<='F'){
 				sum=sum+(10+c-'A');
-			//FIXED [server/PercentEncoding#002]: also accept lowercase a-f (RFC 3986: decoders should accept both cases).  BBTools encodes uppercase, but external clients may send lowercase.
+			// Fixed [server/PercentEncoding#002]: accept lowercase a-f too.
+			// BBTools encodes uppercase, but external clients may send lowercase.
 			}else if(c>='a' && c<='f'){
 				sum=sum+(10+c-'a');
 			}else{
@@ -131,8 +139,9 @@ public class PercentEncoding {
 	 * Preserves malformed percent syntax as literal characters.
 	 * Returns the original string unchanged if no percent-encoded sequences are found.
 	 *
-	 * @param s The string containing percent-encoded sequences
+	 * @param s Non-null string containing percent-encoded sequences
 	 * @return The decoded string with %XX sequences converted back to original characters
+	 * @throws NullPointerException If s is null
 	 */
 	public static String codeToSymbol(String s){
 		int idx=s.indexOf('%');
@@ -239,30 +248,31 @@ public class PercentEncoding {
 		return bs;
 	}
 
-/*--------------------------------------------------------------*/
-/*----------------          Constants           ----------------*/
-/*--------------------------------------------------------------*/
+	/*--------------------------------------------------------------*/
+	/*----------------          Constants           ----------------*/
+	/*--------------------------------------------------------------*/
 
 	//See https://en.wikipedia.org/wiki/Percent-encoding
 	/**
 	 * Reserved URI characters that require percent-encoding according to RFC 3986
 	 */
-	public static final String[] reservedSymbol=new String[] {
+	public static final String[] reservedSymbol=new String[]{
 		"!", "#", "$", "&", "'", "(", ")", "*", "+", ",", "/", ":", ";", "=", "?", "@", "[", "]"
 	};
 	
 	/** Percent-encoded equivalents for reserved URI characters */
-	public static final String[] reservedCode=new String[] {
-		"%21", "%23", "%24", "%26", "%27", "%28", "%29", "%2A", "%2B", "%2C", "%2F", "%3A", "%3B", "%3D", "%3F", "%40", "%5B", "%5D"
+	public static final String[] reservedCode=new String[]{
+		"%21", "%23", "%24", "%26", "%27", "%28", "%29", "%2A", "%2B",
+		"%2C", "%2F", "%3A", "%3B", "%3D", "%3F", "%40", "%5B", "%5D"
 	};
 	
 	/** Common problematic characters that often need percent-encoding */
-	public static final String[] commonSymbol=new String[] {
+	public static final String[] commonSymbol=new String[]{
 		"\n", " ", "\"", "%", "<", ">", "\\", "|",
 	};
 	
 	/** Percent-encoded equivalents for common problematic characters */
-	public static final String[] commonCode=new String[] {
+	public static final String[] commonCode=new String[]{
 		"%0A", "%20", "%22", "%25", "%3C", "%3E", "%5C", "%7C"
 	};
 
@@ -276,7 +286,7 @@ public class PercentEncoding {
 	/** Array for fast lookup of percent codes by character value */
 	public static final String[] symbolToCodeArray=makeSymbolToCodeArray();
 	
-	/** Don't print caught exceptions */
+	/** Retained compatibility switch; current methods do not consult this flag. */
 	public static boolean suppressErrors=false;
 	
 }

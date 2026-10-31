@@ -41,7 +41,10 @@ import structures.StringNum;
  * @author Brian Bushnell
  * @date June 3, 2025
  */
-public class ServerTools {
+public class ServerTools{
+
+	/** Constructs a ServerTools helper; current helpers are static. */
+	public ServerTools(){}
 
 	/**
 	 * Diagnostic client that sends the same optional message several times.
@@ -121,7 +124,12 @@ public class ServerTools {
 		return bb;
 	}
 
-	/** Sends one message with the Java 11 client when available, otherwise via the legacy Java 8 URLConnection path. */
+	/**
+	 * Sends one message with the Java 11 client when available,
+	 * otherwise via the legacy Java 8 URLConnection path.
+	 * @param message request body, or null for no body
+	 * @param address target URL
+	 * @return response body and status code */
 	public static StringNum sendAndReceive(byte[] message, String address){
 		if(Shared.javaVersion>=11){
 			return sendAndReceive_httpClient(message, address);
@@ -130,7 +138,12 @@ public class ServerTools {
 	}
 
 
-	/** Legacy Java 8 HTTP POST path; a null message sends no body and status 1 means no HTTP response was read. */
+	/**
+	 * Legacy Java 8 HTTP POST path; a null message sends no body and
+	 * status 1 means no HTTP response was read.
+	 * @param message request body, or null for no body
+	 * @param address target URL
+	 * @return response body and status code */
 	public static StringNum sendAndReceive_httpUrlConnection(byte[] message, String address){
 		address=PercentEncoding.commonSymbolToCode(address);
 		URL url=null;
@@ -197,11 +210,17 @@ public class ServerTools {
 		return new StringNum(result, responseCode);
 	}
 
-	/** Modern Java 11 HTTP POST path; retries I/O and non-2xx responses but preserves interrupt cancellation. */
+	/**
+	 * Modern Java 11 HTTP POST path; retries I/O and non-2xx
+	 * responses but preserves interrupt cancellation.
+	 * @param message request body, or null for no body
+	 * @param address target URL
+	 * @return response body and status code */
 	public static StringNum sendAndReceive_httpClient(byte[] message, String address){
 		address=PercentEncoding.commonSymbolToCode(address);
 
-		//FIXED [server/ServerTools#006]: null means no request body, as documented and as the Java 8 path already allowed.
+		//FIXED [server/ServerTools#006]: null means no request body, as documented and as
+		//the Java 8 path already allowed.
 		final HttpRequest.BodyPublisher body=message==null ?
 				HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofByteArray(message);
 		final HttpRequest request=HttpRequest.newBuilder()
@@ -220,7 +239,8 @@ public class ServerTools {
 				result=response.body();
 				responseCode=response.statusCode();
 			}catch(InterruptedException e2){
-				//FIXED [server/ServerTools#007]: preserve cancellation and do not retry an interrupted send as ordinary I/O.
+				//FIXED [server/ServerTools#007]: preserve cancellation and do not retry an
+				//interrupted send as ordinary I/O.
 				Thread.currentThread().interrupt();
 				e2.printStackTrace();
 				break;
@@ -236,9 +256,12 @@ public class ServerTools {
 		return new StringNum(result, responseCode);
 	}
 
-	/** Compresses all input bytes and returns a complete GZIP member. */
+	/** Compresses all input bytes and returns a complete GZIP member.
+	 * @param data uncompressed bytes
+	 * @return GZIP-compressed bytes, or the bytes written before an unexpected compression error */
 	public static byte[] gzipCompress(byte[] data){
-		//FIXED [server/ServerTools#001]: GZIPOutputStream is now closed (try-with-resources) before toByteArray(), flushing the deflater's buffered body + gzip trailer.  Was never finish()/close()d -> truncated/invalid gzip.
+		//FIXED [server/ServerTools#001]: GZIPOutputStream is now closed before
+		//toByteArray(), flushing the deflater's buffered body and gzip trailer.
 		final ByteArrayOutputStream bos=new ByteArrayOutputStream();
 		try(GZIPOutputStream gzip=new GZIPOutputStream(bos)){
 			gzip.write(data);
@@ -248,13 +271,23 @@ public class ServerTools {
 		return bos.toByteArray();
 	}
 
-	/** Returns the first Content-Encoding header value from a Java 11 response, or empty string if absent. */
+	/**
+	 * Returns the first Content-Encoding header value from a Java 11
+	 * response, or empty string if absent.
+	 * @param httpResponse response to inspect
+	 * @return first Content-Encoding header, or an empty string if absent */
 	public static String determineContentEncoding(HttpResponse<?> httpResponse){
 		return httpResponse.headers().firstValue("Content-Encoding").orElse("");
 	}
 
 
-	/** Legacy URLConnection POST path for chunked request bodies; consumes and closes the server response. */
+	/**
+	 * Legacy URLConnection POST path for chunked request bodies; consumes
+	 * and closes the server response.
+	 * @param messages request body chunks; null chunks are skipped
+	 * @param address target URL
+	 * @param verbose true to print send and receive timings
+	 * @return response body and status code */
 	public static StringNum sendAndReceive(ArrayList<byte[]> messages, String address,
 			boolean verbose){
 		address=PercentEncoding.commonSymbolToCode(address);
@@ -333,7 +366,12 @@ public class ServerTools {
 	}
 
 
-	/** Legacy FTP URLConnection send/read helper retained for historical callers; it always returns status 400. */
+	/**
+	 * Legacy FTP URLConnection send/read helper retained for historical callers;
+	 * it always returns status 400.
+	 * @param message request body, or null for no body
+	 * @param address target URL
+	 * @return response body with a historical status code of 400 */
 	public static StringNum sendAndReceiveFTP(byte[] message, String address){
 		address=PercentEncoding.commonSymbolToCode(address);
 		URL url=null;
@@ -392,12 +430,18 @@ public class ServerTools {
 	/*----------------  Stream and Response Helpers ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Consumes and closes the body of an incoming HTTP session. */
+	/** Consumes and closes the body of an incoming HTTP session.
+	 * @param t HTTP exchange to read from
+	 * @return request body text, or null on read or close failure */
 	public static String receive(HttpExchange t){
 		return readStream(t.getRequestBody());
 	}
 
-	/** Consumes and closes an InputStream using the default charset; returns null on read or close failure. */
+	/**
+	 * Consumes and closes an InputStream using the default charset;
+	 * returns null on read or close failure.
+	 * @param is stream to consume
+	 * @return stream contents, or null on read or close failure */
 	public static String readStream(InputStream is){
 		if(is==null){return null;}
 		//FIXED [server/ServerTools#008]: close even when a read throws.
@@ -419,7 +463,11 @@ public class ServerTools {
 		return null;
 	}
 
-	/** Consumes and closes an InputStream, returning byte chunks of at most about 8 MB or null on read or close failure. */
+	/**
+	 * Consumes and closes an InputStream, returning byte chunks of at most
+	 * about 8 MB or null on read or close failure.
+	 * @param is stream to consume
+	 * @return non-empty byte chunks, or null on read or close failure */
 	public static ArrayList<byte[]> readStreamToList(InputStream is){
 		if(is==null){return null;}
 		ArrayList<byte[]> list=new ArrayList<byte[]>();
@@ -450,15 +498,31 @@ public class ServerTools {
 		return null;
 	}
 
-	/** Writes a String response using the platform-default charset. */
-	public static boolean reply(String response, String type, HttpExchange t, boolean verbose, int code, boolean close){
+	/** Writes a String response using the platform-default charset.
+	 * @param response response text
+	 * @param type Content-Type header value
+	 * @param t HTTP exchange to write
+	 * @param verbose true to print the response text
+	 * @param code HTTP status code
+	 * @param close true to close the exchange after writing or on failure
+	 * @return true if the response bytes were written successfully */
+	public static boolean reply(String response, String type, HttpExchange t, boolean verbose,
+			int code, boolean close){
 		if(verbose){System.err.println("Sending: "+response);}
 
 		return reply(response.getBytes(), type, t, false, code, close);
 	}
 
-	/** Writes a file response, substituting an empty 400 response if the file read fails. */
-	public static boolean replyWithFile(String path, String type, HttpExchange t, boolean verbose, int code, boolean close){
+	/** Writes a file response, substituting an empty 400 response if the file read fails.
+	 * @param path file to read into the response body
+	 * @param type Content-Type header value
+	 * @param t HTTP exchange to write
+	 * @param verbose true to print the source path
+	 * @param code HTTP status code for a successful file read
+	 * @param close true to close the exchange after writing or on failure
+	 * @return true if the response bytes were written successfully */
+	public static boolean replyWithFile(String path, String type, HttpExchange t, boolean verbose,
+			int code, boolean close){
 		if(verbose){System.err.println("Sending: "+path);}
 
 		byte[] response=null;
@@ -473,8 +537,18 @@ public class ServerTools {
 		return reply(response, type, t, false, code, close);
 	}
 
-	/** Writes exactly response.length bytes, closes the body on success and closes the exchange if requested. */
-	public static boolean reply(byte[] response, String type, HttpExchange t, boolean verbose, int code, boolean close){
+	/**
+	 * Writes exactly response.length bytes, closes the body on success
+	 * and closes the exchange if requested.
+	 * @param response response bytes
+	 * @param type Content-Type header value
+	 * @param t HTTP exchange to write
+	 * @param verbose true to print the response array identity
+	 * @param code HTTP status code
+	 * @param close true to close the exchange after writing or on failure
+	 * @return true if the response bytes were written successfully */
+	public static boolean reply(byte[] response, String type, HttpExchange t, boolean verbose,
+			int code, boolean close){
 		if(verbose){System.err.println("Sending: "+response);}
 
 		{
@@ -500,7 +574,10 @@ public class ServerTools {
 	/*--------------------------------------------------------------*/
 
 
-	/** Waits until the requested interval elapses, printing interruptions but preserving the full wait. */
+	/**
+	 * Waits until the requested interval elapses, printing interruptions
+	 * but preserving the full wait.
+	 * @param millis milliseconds to wait */
 	public static void pause(long millis){
 		String lock=new String("1");
 		synchronized(lock){
@@ -515,7 +592,9 @@ public class ServerTools {
 		}
 	}
 
-	/** Returns X-Forwarded-For for loopback proxies, otherwise the remote socket address string. */
+	/** Returns X-Forwarded-For for loopback proxies, otherwise the remote socket address string.
+	 * @param t HTTP exchange to inspect
+	 * @return forwarded client or remote socket address string */
 	public static String getClientAddress(HttpExchange t){
 
 		final InetSocketAddress client=t.getRemoteAddress();
@@ -584,7 +663,8 @@ public class ServerTools {
 		}
 
 		//Makes sure they match up to the first delimiter
-		//FIXED [server/ServerTools#004]: was Tools.max -> charAt(i) on the shorter address could throw StringIndexOutOfBounds when the two differ in length and share a prefix with no './:' in it; now Tools.min (compare only the overlapping region).
+		//FIXED [server/ServerTools#004]: was Tools.max; now compare only
+		//the overlapping region of the client and server address strings.
 		for(int i=0, min=Tools.min(clientAddress.length(), serverAddress.length()); i<min; i++){
 			final char cc=clientAddress.charAt(i), sc=serverAddress.charAt(i);
 			if(cc!=sc){break;}
@@ -607,6 +687,9 @@ public class ServerTools {
 	 * read listing. Each raw line is prefixed with the parent URL of baseAddress;
 	 * FetchProks consumes those full paths recursively. This assumes JDK FTP
 	 * directory listings return names relative to that parent path.
+	 * @param baseAddress FTP directory URL
+	 * @param retries number of retries after the first attempt
+	 * @return full child paths from the listing, or an empty list if all attempts fail
 	 */
 	public static ArrayList<String> listDirectory(String baseAddress, final int retries){
 		while(baseAddress.endsWith("/")){baseAddress=baseAddress.substring(0, baseAddress.length()-1);}
@@ -647,9 +730,12 @@ public class ServerTools {
 		return list;
 	}
 
-	/** Reads a percent-encoded FTP URL into one line per list element. */
+	/** Reads a percent-encoded FTP URL into one line per list element.
+	 * @param address FTP URL to read
+	 * @return file lines
+	 * @throws Exception if URL construction, opening, reading, or closing fails */
 	public static ArrayList<String> readFTPFile(String address) throws Exception{
-		//FIXED [server/ServerTools#002]: reader now closed via try-with-resources (was leaked on every call, even on success; cf. the sibling listDirectory which closes).
+		//FIXED [server/ServerTools#002]: reader now closed via try-with-resources.
 		address=PercentEncoding.commonSymbolToCode(address);
 		final URL url=new URL(address);
 		final URLConnection conn=url.openConnection();
@@ -667,7 +753,11 @@ public class ServerTools {
 	/*----------------    Server-Side Utilities     ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Parses FASTA text into Reads, skipping sequence before the first header and using default-charset bases. */
+	/**
+	 * Parses FASTA text into Reads, skipping sequence before the first
+	 * header and using default-charset bases.
+	 * @param fastaBody FASTA text
+	 * @return parsed reads with generated numeric ids */
 	public static ArrayList<Read> parseFastaBody(String fastaBody){
 		final ArrayList<Read> reads=new ArrayList<Read>();
 		final String[] lines=fastaBody.split("\n");
@@ -692,9 +782,12 @@ public class ServerTools {
 		return reads;
 	}
 
-	/** Appends a JSON-string-safe ASCII encoding of a UTF-16 Java String. */
-	//FIXED [server/ServerTools#003]: now escapes carriage-return/backspace/form-feed and all other control chars below 0x20 as backslash-u hex escapes (was only quote/backslash/newline/tab -> could emit malformed JSON via ddl/SSUServer).  Matches json/JsonObject completeness.
-	//FIXED [server/ServerTools#012]: non-ASCII UTF-16 code units are now written as ASCII backslash-u escapes rather than being truncated by ByteBuilder.append(char).
+	/** Appends a JSON-string-safe ASCII encoding of a UTF-16 Java String.
+	 * @param bb destination builder
+	 * @param s string to escape */
+	//FIXED [server/ServerTools#003]: now escapes every control char below 0x20.
+	//FIXED [server/ServerTools#012]: non-ASCII UTF-16 code units are now written
+	//as ASCII backslash-u escapes rather than being truncated by ByteBuilder.append(char).
 	public static void escapeJson(ByteBuilder bb, String s){
 		for(int i=0; i<s.length(); i++){
 			char c=s.charAt(i);
@@ -713,7 +806,9 @@ public class ServerTools {
 		}
 	}
 
-	/** Append one UTF-16 code unit as an ASCII JSON Unicode escape. */
+	/** Append one UTF-16 code unit as an ASCII JSON Unicode escape.
+	 * @param bb destination builder
+	 * @param c code unit to escape */
 	private static void appendJsonUnicode(ByteBuilder bb, char c){
 		bb.append('\\').append('u');
 		for(int shift=12; shift>=0; shift-=4){
@@ -722,7 +817,9 @@ public class ServerTools {
 		}
 	}
 
-	/** Adds permissive CORS headers, using '*' when domain is null. */
+	/** Adds permissive CORS headers, using '*' when domain is null.
+	 * @param t HTTP exchange to mutate
+	 * @param domain Access-Control-Allow-Origin value, or null for any origin */
 	public static void addCorsHeaders(HttpExchange t, String domain){
 		Headers h=t.getResponseHeaders();
 		h.add("Access-Control-Allow-Origin", domain!=null ? domain : "*");
@@ -757,7 +854,8 @@ public class ServerTools {
 				.executor(executor)
 				.build();
 		}catch(Throwable e){
-			System.err.println("You may need a more recent version of Java, specifically, 11 or higher.  Your version: "+Shared.javaVersion);
+			System.err.println("You may need a more recent version of Java, specifically, "+
+					"11 or higher.  Your version: "+Shared.javaVersion);
 			e.printStackTrace();
 		}
 	}

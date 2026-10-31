@@ -1,25 +1,28 @@
 package json;
 
 import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 
-import structures.ByteBuilder;
-
 /**
- * Simple JSON parser for reading JSON objects and arrays from text.
- * Parses JSON text into JsonObject instances or Object arrays.
- * Thread-safe when each thread uses its own instance.
+ * Reusable UTF-8 parser for JSON objects and arrays, with historical token extensions.
+ * Parsed integers use Long and fractional/exponent values use finite Double.
+ * Structural errors set an observable flag and may return partial data; check
+ * errorState() or validate() before trusting input from an external source.
+ * Each thread must own its parser. Byte-array input is borrowed and must remain
+ * unchanged while parsing; returned objects and strings belong to the caller.
  * @author Brian Bushnell
  */
-public class JsonParser {
+public class JsonParser{
 	
 	/*--------------------------------------------------------------*/
-	/*----------------        Initialization        ----------------*/
+	/*----------------          Entry Point         ----------------*/
 	/*--------------------------------------------------------------*/
 
 	/**
 	 * Test method demonstrating JSON parsing capabilities.
-	 * Parses sample JSON objects and arrays, printing original and regenerated forms.
+	 * Prints a sample containing a deliberately invalid bare token, its partial
+	 * parse, and a separate valid array. This is a demonstration, not a test oracle.
 	 * @param args Command-line arguments (unused)
 	 */
 	public static void main(String[] args){
@@ -66,8 +69,6 @@ public class JsonParser {
 			+"   }\n"
 			+"}";
 		
-//		s="{\"complex\": [\"a\", 1, {\"b\": 2}, [3, 4, 5]]\n}";
-		
 		System.out.println("Original:\n"+s);
 		JsonParser jp=new JsonParser(s);
 		JsonObject j=jp.parseJsonObject();
@@ -77,7 +78,7 @@ public class JsonParser {
 		s="[\"complex\", 1, {\"b\": 2}, [3, 4, 5]]";
 		
 		System.out.println("Original:\n"+s);
-		jp.set(s.getBytes());
+		jp.set(s.getBytes(StandardCharsets.UTF_8));
 		Object[] array=jp.parseJsonArray();
 		System.out.println("Original:\n"+s);
 		System.out.println("Regenerated:\n"+JsonObject.toString(array));
@@ -87,18 +88,27 @@ public class JsonParser {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Creates a parser with no input; set(byte[]) supplies or replaces it. */
 	public JsonParser(){}
 	
+	/** Copies String input to UTF-8 bytes.
+	 * @param s Non-null input text */
 	public JsonParser(String s){
-		set(s.getBytes());
+		set(s.getBytes(StandardCharsets.UTF_8));
 	}
 	
+	/** Borrows an input buffer without copying it.
+	 * @param s UTF-8 bytes, or null for no input */
 	public JsonParser(byte[] s){
 		set(s);
 	}
 	
+	/** Parses an object using a new parser; null/empty input returns null.
+	 * Use an instance when the caller needs its error flag or explicit validation.
+	 * @param s Input text, or null
+	 * @return Parsed object, possibly partial on malformed input, or null */
 	public static JsonObject parseJsonObjectStatic(String s){
-		if(s==null || s.length()<1) {return null;}
+		if(s==null || s.length()<1){return null;}
 		return new JsonParser(s).parseJsonObject();
 	}
 	
@@ -106,6 +116,9 @@ public class JsonParser {
 	/*----------------        Public Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Replaces borrowed input and clears position and error state.
+	 * @param s New UTF-8 input, or null
+	 * @return This parser for chaining */
 	public JsonParser set(byte[] s){
 		text=s;
 		pos=0;
@@ -113,35 +126,55 @@ public class JsonParser {
 		return this;
 	}
 	
+	/** Resets from a String and parses an object.
+	 * @param s Non-null UTF-8-compatible text
+	 * @return Object or partial object; null if input is empty or not an object */
 	public JsonObject parseJsonObject(String s){
-		set(s.getBytes());
+		set(s.getBytes(StandardCharsets.UTF_8));
 		return parseJsonObject();
 	}
 	
+	/** Resets from borrowed bytes and parses an object.
+	 * @param s UTF-8 input, or null
+	 * @return Object or partial object; null if input is absent or not an object */
 	public JsonObject parseJsonObject(byte[] s){
 		set(s);
 		return parseJsonObject();
 	}
 	
+	/** Resets from a String and parses an array.
+	 * @param s Non-null UTF-8-compatible text
+	 * @return Values or partial values; null if input is empty or not an array */
 	public Object[] parseJsonArray(String s){
-		set(s.getBytes());
+		set(s.getBytes(StandardCharsets.UTF_8));
 		return parseJsonArray();
 	}
 	
+	/** Resets from borrowed bytes and parses an array.
+	 * @param s UTF-8 input, or null
+	 * @return Values or partial values; null if input is absent or not an array */
 	public Object[] parseJsonArray(byte[] s){
 		set(s);
 		return parseJsonArray();
 	}
 	
+	/** Parses an object at the current position after optional whitespace.
+	 * Leaves position on the closing brace; use set to restart parsing. Does not
+	 * reject trailing input; validate checks a complete document from its start.
+	 * @return Object or partial object; null if input is absent or has the wrong root */
 	public JsonObject parseJsonObject(){
 		if(text==null || text.length<1){return null;}
-		// [json/JsonParser#001] FIXED: skip leading whitespace; fail gracefully (errorState) on non-object input instead of asserting under -ea
+		// Fixed [json/JsonParser#001]: skip leading whitespace and flag a wrong root,
+		// instead of depending on assertions to reject non-object input.
 		while(pos<text.length && isWhitespace(text[pos])){pos++;}
 		if(pos>=text.length || text[pos]!='{'){errorState=true; return null;}
 		JsonObject o=makeObject();
 		return o;
 	}
 	
+	/** Parses an array at the current position after optional whitespace.
+	 * Leaves position on the closing bracket; use set to restart parsing.
+	 * @return Values or partial values; null if input is absent or has the wrong root */
 	public Object[] parseJsonArray(){
 		if(text==null || text.length<1){return null;}
 		// [json/JsonParser#001] FIXED: skip leading whitespace; fail gracefully (errorState) on non-array input
@@ -151,54 +184,69 @@ public class JsonParser {
 		return array;
 	}
 	
+	/** Checks one complete value from the start of the saved input without consuming it.
+	 * Whitespace is allowed around the value; empty input and trailing data are invalid.
+	 * Requires standard JSON literals, number syntax and string escapes, unlike
+	 * the permissive parsing methods. Long/finite-Double representation limits
+	 * still apply. Updates the error flag; use set to clear it before another parse.
+	 * @return True when a complete value was read without syntax or conversion errors */
 	public boolean validate(){
-		if(text==null || text.length<1){return true;}
-		try {
-			if(text[0]=='['){
-				Object[] array=parseJsonArray();
-				return !errorState;
-			}else if(text[0]=='{'){
-				JsonObject o=parseJsonObject();
-				return !errorState;
+		final int savedPos=pos;
+		pos=0;
+		errorState=false;
+		strictValidation=true;
+		try{
+			if(text==null || text.length==0){errorState=true; return false;}
+			skipWhitespace();
+			readValue();
+			if(!errorState){
+				pos++;
+				skipWhitespace();
+				if(pos!=text.length){errorState=true;}
 			}
-		} catch (Throwable e) {}
-		return false;
+			return !errorState;
+		}catch(RuntimeException e){errorState=true; return false;}
+		finally{pos=savedPos; strictValidation=false;}
 	}
+
+	/** Reports whether the most recent parse or validation encountered an error.
+	 * @return Current error flag; set(byte[]) clears it */
+	public boolean errorState(){return errorState;}
 	
 	/*--------------------------------------------------------------*/
 	/*----------------       Private Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Converts an accumulated token buffer into a typed value: null, Boolean (via
+	 * Converts a bare token into a typed value: null, Boolean (via
 	 * parseBoolean, accepting t/f/true/false), Double (if it contains '.'/'e'/'E'),
 	 * else Long. On a parse failure sets errorState and returns the raw string.
-	 * @param bb The token buffer (cleared by this call)
+	 * @param s Token text without surrounding whitespace
 	 * @return The parsed value (Long/Double/Boolean/null), or the raw String on error
 	 */
-	private Object bufferToObject(ByteBuilder bb){
-		String s=bb.toString();
-		bb.clear();
+	private Object tokenToObject(String s){
+		if(strictValidation && !isStandardToken(s)){errorState=true; return s;}
 		final char firstLetter=s.length()>0 ? s.charAt(0) : 0;
 		Object value;
-		try {
+		try{
 			if(Character.isLetter(firstLetter)){
 				if(verbose){outstream.println("Letter");}
 				if(s.equalsIgnoreCase("null")){
 					value=null;
 				}else{
-//					value=Boolean.parseBoolean(s);
 					value=parseBoolean(s);
 				}
 			}else{
 				if(verbose){outstream.println("Number");}
 				if(s.indexOf('.')>=0 || s.indexOf('e')>=0 || s.indexOf('E')>=0){
-					value=Double.parseDouble(s);
+					final double number=Double.parseDouble(s);
+					if(!Double.isFinite(number)){throw new NumberFormatException("Non-finite JSON number: "+s);}
+					value=number;
 				}else{
 					value=Long.parseLong(s);
 				}
 			}
-		} catch (Exception e) {
+		}catch(Exception e){
 			//This handles an incorrectly formatted input file
 			errorState=true;
 			value=s;
@@ -206,6 +254,45 @@ public class JsonParser {
 		return value;
 	}
 	
+	/** Checks standard literal or number syntax without converting the token.
+	 * Numbers require an integer part, no leading zeros, and digits after a dot
+	 * or exponent marker. Conversion limits are enforced separately.
+	 * @param s Non-null bare token
+	 * @return True for lowercase true/false/null or a JSON number */
+	private static boolean isStandardToken(final String s){
+		if(s.equals("true") || s.equals("false") || s.equals("null")){return true;}
+		final int length=s.length();
+		int i=0;
+		if(i<length && s.charAt(i)=='-'){i++;}
+		if(i>=length){return false;}
+		final char first=s.charAt(i++);
+		if(first>='1' && first<='9'){
+			while(i<length && isDigit(s.charAt(i))){i++;}
+		}else if(first!='0'){return false;}
+		if(i<length && s.charAt(i)=='.'){
+			final int start=++i;
+			while(i<length && isDigit(s.charAt(i))){i++;}
+			if(i==start){return false;}
+		}
+		if(i<length && (s.charAt(i)=='e' || s.charAt(i)=='E')){
+			i++;
+			if(i<length && (s.charAt(i)=='+' || s.charAt(i)=='-')){i++;}
+			final int start=i;
+			while(i<length && isDigit(s.charAt(i))){i++;}
+			if(i==start){return false;}
+		}
+		return i==length;
+	}
+
+	/** Recognizes an ASCII decimal digit.
+	 * @param c Candidate character
+	 * @return True for 0 through 9 */
+	private static boolean isDigit(final char c){return c>='0' && c<='9';}
+
+	/** Recognizes the historical case-insensitive true/false and t/f tokens.
+	 * @param s Candidate token
+	 * @return Parsed boolean
+	 * @throws Exception If the token is not recognized */
 	private static boolean parseBoolean(String s) throws Exception{
 		if(s==null){throw INVALID_JSON;}
 		if(s.equalsIgnoreCase("true") || s.equalsIgnoreCase("t")){return true;}
@@ -213,17 +300,20 @@ public class JsonParser {
 		throw INVALID_JSON;
 	}
 
-	/** True for the four JSON whitespace bytes (space, tab, newline, carriage return). */
+	/** Recognizes the four JSON whitespace bytes.
+	 * @param b Candidate byte
+	 * @return True for space, tab, newline or carriage return */
 	private static boolean isWhitespace(byte b){return b==' ' || b=='\t' || b=='\n' || b=='\r';}
 
 	/**
 	 * Decodes a single-character JSON escape (the byte after a backslash) to its literal
-	 * byte. Recognizes " \\ / n r t b f; an unrecognized escape is returned as-is (lenient).
-	 * \\uXXXX is handled separately by appendUnicodeEscape.
+	 * byte. Recognizes " \\ / n r t b f; parsing returns an unknown escape character
+	 * unchanged after dropping its backslash, while validation also records an error.
+	 * Unicode escapes are handled separately by readQuotedString.
 	 * @param b The byte following the backslash
 	 * @return The decoded byte
 	 */
-	private static byte unescape(byte b){
+	private byte unescape(byte b){
 		switch(b){
 			case '"': return '"';
 			case '\\': return '\\';
@@ -233,34 +323,69 @@ public class JsonParser {
 			case 't': return '\t';
 			case 'b': return '\b';
 			case 'f': return '\f';
-			default: return b;
+			default: if(strictValidation){errorState=true;} return b;
 		}
 	}
 
-	/**
-	 * Decodes a \\uXXXX escape. On entry pos is at 'u'; reads the four hex digits at
-	 * pos+1..pos+4, appends the decoded character, and returns the index of the last hex
-	 * digit (so the caller's pos++ advances past it). On malformed hex, sets errorState,
-	 * appends 'u', and returns pos unchanged.
-	 * @param bb Buffer to append the decoded character to
-	 * @param pos Index of the 'u'
-	 * @return New pos (index of the last consumed hex digit), or pos on error
-	 */
-	private int appendUnicodeEscape(ByteBuilder bb, int pos){
-		if(pos+4<text.length){
-			final int d1=hexDigit(text[pos+1]), d2=hexDigit(text[pos+2]);
-			final int d3=hexDigit(text[pos+3]), d4=hexDigit(text[pos+4]);
-			if((d1|d2|d3|d4)>=0){
-				bb.append((char)((d1<<12)|(d2<<8)|(d3<<4)|d4));
-				return pos+4;
+	/** Reads quoted UTF-8 text, retaining escaped UTF-16 units without byte truncation.
+	 * Leaves pos at the closing quote, or at end of input on an unterminated string.
+	 * Unknown single-character escapes are accepted only outside validation.
+	 * @return Decoded text; malformed input sets errorState and may yield partial text */
+	private String readQuotedString(){
+		assert(text[pos]=='"') : "Quoted-string decoding requires the opening quote at pos="+pos;
+		int start=++pos;
+		StringBuilder out=null;
+		for(; pos<text.length; pos++){
+			final byte b=text[pos];
+			if(b=='"'){
+				final String tail=decodeUtf8(start, pos);
+				return out==null ? tail : out.append(tail).toString();
 			}
+			if(b=='\\'){
+				if(out==null){out=new StringBuilder();}
+				out.append(decodeUtf8(start, pos));
+				if(++pos>=text.length){errorState=true; return out.toString();}
+				if(text[pos]=='u'){
+					int value=-1;
+					if(pos+4<text.length){
+						final int a=hexDigit(text[pos+1]), c=hexDigit(text[pos+2]);
+						final int d=hexDigit(text[pos+3]), e=hexDigit(text[pos+4]);
+						if((a|c|d|e)>=0){value=(a<<12)|(c<<8)|(d<<4)|e;}
+					}
+					if(value>=0){out.append((char)value); pos+=4;}
+					else{errorState=true; out.append('u');}
+				}else{out.append((char)(unescape(text[pos])&255));}
+				start=pos+1;
+			}else if(b>=0 && b<0x20){errorState=true;}
 		}
 		errorState=true;
-		bb.append('u');
-		return pos;
+		final String tail=decodeUtf8(start, pos);
+		return out==null ? tail : out.append(tail).toString();
 	}
 
-	/** Returns the value 0-15 of a hex-digit byte, or -1 if not a hex digit. */
+	/** Decodes a raw span and checks ambiguous replacement characters by byte round trip.
+	 * A replacement character triggers a byte round trip, distinguishing valid U+FFFD
+	 * text from replacement of malformed input. Only that uncommon case allocates bytes.
+	 * @param from First byte, inclusive
+	 * @param to First byte after the span
+	 * @return Decoded span; malformed bytes set errorState */
+	private String decodeUtf8(final int from, final int to){
+		final String decoded=new String(text, from, to-from, StandardCharsets.UTF_8);
+		if(decoded.indexOf('\ufffd')>=0){
+			final byte[] encoded=decoded.getBytes(StandardCharsets.UTF_8);
+			if(encoded.length!=to-from){errorState=true;}
+			else{
+				for(int i=0; i<encoded.length; i++){
+					if(encoded[i]!=text[from+i]){errorState=true; break;}
+				}
+			}
+		}
+		return decoded;
+	}
+
+	/** Decodes one hexadecimal digit.
+	 * @param b Candidate ASCII byte
+	 * @return Value 0-15, or -1 if not a hexadecimal digit */
 	private static int hexDigit(byte b){
 		if(b>='0' && b<='9'){return b-'0';}
 		if(b>='a' && b<='f'){return b-'a'+10;}
@@ -268,202 +393,107 @@ public class JsonParser {
 		return -1;
 	}
 	
-	/**
-	 * Parses one JSON object beginning at the current '{' and advances pos past the
-	 * matching '}'. Recurses into nested objects (makeObject) and arrays (makeArray).
-	 * Both value and structural parse errors are graceful: errorState is set (see #001).
-	 * @return The parsed JsonObject. The outermost object is returned directly; nested
-	 *         objects are attached under their key in the enclosing object.
-	 */
+	/** Reads an object and leaves pos on its closing brace.
+	 * Preserves the closing-delimiter convention of [json/JsonParser#004].
+	 * Missing separators, keys or terminators set errorState rather than relying
+	 * on assertions, continuing the error handling of #001 and #003.
+	 * @return Parsed members, possibly partial on malformed input */
 	private JsonObject makeObject(){
-		assert(text[pos]=='{');
+		assert(text[pos]=='{') : "Object parser requires its opening brace at pos="+pos;
+		final JsonObject current=new JsonObject();
 		pos++;
-		
-		if(verbose){outstream.println("Entering makeObject.");}
-		
-		JsonObject current=new JsonObject();
-		ByteBuilder bb=new ByteBuilder();
-		boolean quoteMode=false;
-		boolean slashMode=false;
-		String key=null;
-		
-		for(; pos<text.length; pos++){
-			final byte b=text[pos];
-//			if(verbose){outstream.println(pos+"=\t"+(char)b);
-			
-			if(quoteMode){
-				// [json/JsonParser#002] FIXED: decode escapes (inverse of JsonObject.appendQuoted)
-				if(slashMode){
-					slashMode=false;
-					if(b=='u'){pos=appendUnicodeEscape(bb, pos);}
-					else{bb.append(unescape(b));}
-				}else if(b=='\\'){
-					slashMode=true;//consume backslash, do not append
-				}else if(b=='"'){
-					if(verbose){outstream.println(">Quote; quote mode="+quoteMode+", key="+key+", buffer="+bb);}
-					String s=bb.toString();
-					bb.clear();
-					if(key==null){
-						key=s;
-						if(verbose){outstream.println("Set key to \""+key+"\"");}
-					}else{
-						current.add(key, s);
-						if(verbose){outstream.println("Added \""+key+"\": \""+s+"\"");}
-						key=null;
-					}
-					quoteMode=!quoteMode;
-				}else{
-					bb.append(b);
-				}
-			}else if(b=='"'){
-				if(verbose){outstream.println(">Quote; quote mode="+quoteMode+", key="+key+", buffer="+bb);}
-				quoteMode=!quoteMode;
-			}else if(b==','){
-				if(verbose){outstream.println(">Comma; key="+key+", buffer=\""+bb+"\""/*+"\n"+new String(text, 0, pos)*/);}
-				if(key!=null){//number or boolean
-					final Object value=bufferToObject(bb);
-					current.add(key, value);
-					key=null;
-					if(verbose){outstream.println("Added "+value+"; current=\n"+current+"\n");}
-				}
-			}else if(b==':'){
-				if(verbose){outstream.println(">Colon");}
-				if(key==null){errorState=true;}// [json/JsonParser#001] FIXED: was assert(key!=null)
-			}else if(b=='{'){
-				if(verbose){outstream.println(">{, key="+key+", A) current object is:\n"+current+"\n");}
-				JsonObject j=makeObject();
-				if(key==null){//outermost?
-					if(verbose){outstream.println("Returning.");}
-					return j;
-				}else{
-					current.add(key, j);
-					if(verbose){outstream.println("Added new object:\n"+j+"\n");}
-					key=null;
-				}
-			}else if(b=='}'){
-				if(verbose){outstream.println(">}, key="+key+", B) current object is:\n"+current+"\n");}
-				if(key!=null){//number or boolean
-					final Object value=bufferToObject(bb);
-					current.add(key, value);
-					key=null;
-					if(verbose){outstream.println("Added "+value+"; current=\n"+current+"\n");}
-				}
-				// [json/JsonParser#004] FIXED: removed pos++ so makeObject leaves pos AT '}', symmetric with makeArray's ']' case (which has no pos++); the caller's loop pos++ then advances uniformly. The old double-advance skipped the char after a nested object, crashing (assert(false)) when an object was the last element of an array, and mis-exiting object-last-in-object via the fallthrough.
-				return current;
-			}else if(b=='['){
-				if(verbose){outstream.println(">[, C) current object is:\n"+current+"\n");}
-				Object[] array=makeArray();
-				if(key==null || bb.length()!=0){errorState=true;}// [json/JsonParser#001] FIXED: was asserts
-				current.add(key, array);
-				key=null;
-			}else if(b==']'){
-				if(verbose){outstream.println(">], D) current object is:\n"+current+"\n");}
-				errorState=true;// [json/JsonParser#001] FIXED: was assert(false) (']' inside object = malformed)
-			}else if(b==' ' || b=='\t' || b=='\n' || b=='\r'){
-				if(verbose){outstream.println(">Other");}
-				//ignore
-			}else{
-				if(verbose){outstream.println(">NormalMode, buffer="+bb);}
-				bb.append(b);
-			}
+		skipWhitespace();
+		if(pos<text.length && text[pos]=='}'){return current;}
+		while(pos<text.length){
+			if(text[pos]!='"'){errorState=true; return current;}
+			final String key=readQuotedString();
+			if(errorState){return current;}
+			pos++;
+			skipWhitespace();
+			if(pos>=text.length || text[pos]!=':'){errorState=true; return current;}
+			pos++;
+			skipWhitespace();
+			final Object value=readValue();
+			current.add(key, value);
+			if(errorState){return current;}
+			pos++;
+			skipWhitespace();
+			if(pos<text.length && text[pos]=='}'){return current;}
+			if(pos>=text.length || text[pos]!=','){errorState=true; return current;}
+			pos++;
+			skipWhitespace();
 		}
-		errorState=true;// [json/JsonParser#003] FIXED: reached only on unterminated input (no closing '}')
+		errorState=true;
 		return current;
 	}
 
-	/**
-	 * Parses one JSON array beginning at the current '[' and advances pos past the
-	 * matching ']'. Recurses into nested objects/arrays.
-	 * @return The array elements as an Object[] (String, Long, Double, Boolean, null,
-	 *         JsonObject, or nested Object[]).
-	 */
+	/** Reads an array and leaves pos on its closing bracket.
+	 * Elements retain their parsed types; structural failures set errorState.
+	 * @return Parsed values, possibly partial on malformed input */
 	private Object[] makeArray(){
-		assert(text[pos]=='[');
+		assert(text[pos]=='[') : "Array parser requires its opening bracket at pos="+pos;
+		final ArrayList<Object> current=new ArrayList<Object>();
 		pos++;
-		
-		if(verbose){outstream.println("Entering makeArray.");}
-		
-		ArrayList<Object> current=new ArrayList<Object>();
-		ByteBuilder bb=new ByteBuilder();
-		boolean quoteMode=false;
-		boolean slashMode=false;
-		
-		for(; pos<text.length; pos++){
-			final byte b=text[pos];
-			
-			if(quoteMode){
-				// [json/JsonParser#002] FIXED: decode escapes (inverse of JsonObject.appendQuoted)
-				if(slashMode){
-					slashMode=false;
-					if(b=='u'){pos=appendUnicodeEscape(bb, pos);}
-					else{bb.append(unescape(b));}
-				}else if(b=='\\'){
-					slashMode=true;//consume backslash, do not append
-				}else if(b=='"'){
-					if(verbose){outstream.println(">Quote; quote mode="+quoteMode+", buffer="+bb);}
-					String s=bb.toString();
-					bb.clear();
-					current.add(s);
-					quoteMode=!quoteMode;
-				}else{
-					bb.append(b);
-				}
-			}else if(b=='"'){
-				if(verbose){outstream.println(">Quote; quote mode="+quoteMode+", buffer="+bb);}
-				quoteMode=!quoteMode;
-			}else if(b==','){
-				if(verbose){outstream.println(">Comma; buffer=\""+bb+"\"");}
-				if(bb.length()>0){
-					final Object value=bufferToObject(bb);
-					current.add(value);
-					if(verbose){outstream.println("Added "+value+"; current=\n"+current+"\n");}
-				}
-			}else if(b==':'){
-				if(verbose){outstream.println(">Colon");}
-				errorState=true;// [json/JsonParser#001] FIXED: was assert(false) (':' inside array = malformed)
-			}else if(b=='{'){
-				if(verbose){outstream.println(">{, E) current object is:\n"+current+"\n");}
-				JsonObject j=makeObject();
-				current.add(j);
-				if(verbose){outstream.println("Added new object:\n"+j+"\n");}
-			}else if(b=='}'){
-				if(verbose){outstream.println(">}, current array is:\n"+current+"\n");}
-				errorState=true;// [json/JsonParser#001] FIXED: was assert(false) ('}' inside array = malformed)
-			}else if(b=='['){
-				if(verbose){outstream.println(">[, F) current object is:\n"+current+"\n");}
-				Object[] array=makeArray();
-				current.add(array);
-			}else if(b==']'){
-				if(verbose){outstream.println(">], G) current object is:\n"+current+"\n");}
-				if(bb.length()>0){
-					final Object value=bufferToObject(bb);
-					current.add(value);
-					if(verbose){outstream.println("Added "+value+"; current=\n"+current+"\n");}
-				}
-				if(verbose){outstream.println("Returning "+current+"; text="+new String(text, 0, pos));}
-				return current.toArray(); 
-			}else if(b==' ' || b=='\t' || b=='\n' || b=='\r'){
-				if(verbose){outstream.println(">Other");}
-				//ignore
-			}else{
-				if(verbose){outstream.println(">NormalMode, buffer="+bb);}
-				bb.append(b);
-			}
+		skipWhitespace();
+		if(pos<text.length && text[pos]==']'){return current.toArray();}
+		while(pos<text.length){
+			current.add(readValue());
+			if(errorState){return current.toArray();}
+			pos++;
+			skipWhitespace();
+			if(pos<text.length && text[pos]==']'){return current.toArray();}
+			if(pos>=text.length || text[pos]!=','){errorState=true; return current.toArray();}
+			pos++;
+			skipWhitespace();
 		}
-		errorState=true;// [json/JsonParser#003] FIXED: reached only on unterminated input (no closing ']')
+		errorState=true;
 		return current.toArray();
+	}
+
+	/** Reads one value, leaving pos on its final byte or closing delimiter.
+	 * Bare tokens retain the historical token extensions described by tokenToObject.
+	 * @return Parsed value; malformed values may return null or their raw token */
+	private Object readValue(){
+		if(pos>=text.length){errorState=true; return null;}
+		final byte first=text[pos];
+		if(first=='"'){return readQuotedString();}
+		if(first=='{'){return makeObject();}
+		if(first=='['){return makeArray();}
+		final int start=pos;
+		while(pos<text.length){
+			final byte b=text[pos];
+			if(isWhitespace(b) || b==',' || b==']' || b=='}'){break;}
+			pos++;
+		}
+		if(pos==start){errorState=true; return null;}
+		final String token=new String(text, start, pos-start, StandardCharsets.US_ASCII);
+		pos--;
+		return tokenToObject(token);
+	}
+
+	/** Skips only the four JSON whitespace bytes, without crossing end of input. */
+	private void skipWhitespace(){
+		while(pos<text.length && isWhitespace(text[pos])){pos++;}
 	}
 
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Borrowed UTF-8 input, or null before input is supplied. */
 	byte[] text;
+	/** Current byte index; completed container parses leave it on the closing delimiter. */
 	int pos=0;
+	/** Records syntax, encoding or unsupported numeric-range errors. */
 	boolean errorState;
+	/** Enabled only inside validate; finally restores permissive parsing mode. */
+	private boolean strictValidation;
 	
+	/** Compile-time token tracing switch. */
 	private static final boolean verbose=false;
+	/** Destination for optional token tracing. */
 	private static final PrintStream outstream=System.err;
+	/** Reused internal token-rejection marker, caught without exposing its stack trace. */
 	private static final Exception INVALID_JSON=new Exception("Invalid Json");
 	
 }

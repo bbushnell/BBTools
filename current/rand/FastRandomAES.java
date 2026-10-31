@@ -11,110 +11,143 @@ import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 
 /**
- * AES-based cryptographically secure pseudorandom number generator using counter mode.
- * Uses SIMD operations but performance is slower than other PRNGs.
- * May be useful for filling large arrays with cryptographically secure random data.
- * Extends Random and provides all standard PRNG methods using AES encryption as the source.
+ * AES/CTR-based deterministic pseudorandom generator implementing shared.Random.
+ * May be useful for filling large arrays from AES keystream bytes, but the
+ * time-derived default seed and explicit 64-bit seed do not make it suitable
+ * for secret generation.
+ * Numeric sequences depend on ByteOrder.nativeOrder() when AES output bytes are
+ * copied into longs.
+ * Mutable and not thread-safe; callers should give each thread its own instance
+ * or externally synchronize all access, including buffered values and Gaussian
+ * cache access.
  *
  * @author Brian Bushnell
  * @contributor Isla
  * @date May 21, 2025
  */
-public final class FastRandomAES implements Random {
-	private static final long serialVersionUID = 1L;
+public final class FastRandomAES implements Random{
 
-	// Buffer size in longs (512 bytes = 64 longs)
-	private static final int BUFFER_SIZE = 64;
+	/*--------------------------------------------------------------*/
+	/*----------------           Constants          ----------------*/
+	/*--------------------------------------------------------------*/
 
-	// Direct ByteBuffer for efficient native access
+	/** Retained version marker; this class does not implement Serializable. */
+	private static final long serialVersionUID=1L;
+
+	/** Buffered longs per AES refill. */
+	private static final int BUFFER_SIZE=64;
+
+	/*--------------------------------------------------------------*/
+	/*----------------            Fields            ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Native-endian view of outputBlock for efficient long access. */
 	private final ByteBuffer directBuffer;
-	private final long[] longBuffer = new long[BUFFER_SIZE];
-	private int bufferPos = BUFFER_SIZE; // Start empty
 
-	// AES internals
+	/** Reused copy of native-endian longs read from the current AES output block. */
+	private final long[] longBuffer=new long[BUFFER_SIZE];
+
+	/** Next unread index in longBuffer; BUFFER_SIZE means empty. */
+	private int bufferPos=BUFFER_SIZE; // Start empty
+
+	/** Cached second Box-Muller Gaussian sample, or NaN when empty. */
+	private double nextNextGaussian=Double.NaN;
+
+	/** AES/CTR cipher holding the internal counter state. */
 	private final Cipher cipher;
+
+	/** Zero plaintext encrypted to extract raw AES/CTR keystream bytes. */
 	private final byte[] counterBlock;
+
+	/** Reused AES/CTR keystream block. */
 	private final byte[] outputBlock;
 
-	public FastRandomAES() {
+	/*--------------------------------------------------------------*/
+	/*----------------        Initialization        ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Creates a FastRandomAES seeded from system time. */
+	public FastRandomAES(){
 		this(System.nanoTime());
 	}
 
-	public FastRandomAES(long seed) {
+	/** Creates a FastRandomAES with the specified seed.
+	 * @param seed Initial seed; negative seeds use system time */
+	public FastRandomAES(long seed){
 		// Initialize counter and output blocks
-		counterBlock = new byte[BUFFER_SIZE * 8];
-		outputBlock = new byte[BUFFER_SIZE * 8];
+		counterBlock=new byte[BUFFER_SIZE*8];
+		outputBlock=new byte[BUFFER_SIZE*8];
 
-		// Create direct buffer for efficient access
-		directBuffer = ByteBuffer.wrap(outputBlock).order(ByteOrder.nativeOrder());
+		// Create a ByteBuffer view for efficient access
+		directBuffer=ByteBuffer.wrap(outputBlock).order(ByteOrder.nativeOrder());
 
 		// Set up AES in counter mode
-		try {
-			cipher = Cipher.getInstance("AES/CTR/NoPadding");
-		} catch (NoSuchAlgorithmException | NoSuchPaddingException e) {
+		try{
+			cipher=Cipher.getInstance("AES/CTR/NoPadding");
+		}catch(NoSuchAlgorithmException | NoSuchPaddingException e){
 			throw new RuntimeException(e);
 		}
 		setSeed(seed);
 	}
-	
 
+	/*--------------------------------------------------------------*/
+	/*----------------           Methods            ----------------*/
+	/*--------------------------------------------------------------*/
 
-	// Default to NaN to indicate "empty"
-	private double nextNextGaussian=Double.NaN;
-
+	/** Returns a normally distributed value, caching the paired sample until
+	 * the next call or a reseed.
+	 * @return Pseudorandom Gaussian value with mean 0 and standard deviation 1 */
 	@Override
-	public double nextGaussian() {
-		// 1. Check if the cache is valid (not NaN)
+	public double nextGaussian(){
 		if(!Double.isNaN(nextNextGaussian)){
-			double temp=nextNextGaussian;
-			nextNextGaussian=Double.NaN; // Mark as empty
+			final double temp=nextNextGaussian;
+			nextNextGaussian=Double.NaN;
 			return temp;
 		}
 
-		// 2. Generate two new numbers
 		double v1, v2, s;
 		do{
-			v1=2*nextDouble()-1; 
-			v2=2*nextDouble()-1; 
+			v1=2*nextDouble()-1;
+			v2=2*nextDouble()-1;
 			s=v1*v1+v2*v2;
 		}while(s>=1 || s==0);
 
-		double multiplier=Math.sqrt(-2*Math.log(s)/s);
-
-		// 3. Store the second one
+		final double multiplier=Math.sqrt(-2*Math.log(s)/s);
 		nextNextGaussian=v2*multiplier;
-
-		// 4. Return the first one
 		return v1*multiplier;
 	}
 
-	private void refillBuffer() {
-		try {
-			//Comprehension: counterBlock is all-zero PLAINTEXT and is never incremented here - correct, because AES/CTR keeps the
-			//counter INTERNAL to the Cipher and advances it per update() call, so successive refills yield successive keystream
-			//blocks; encrypting zeros returns the raw keystream. (The "counter" naming is misleading: it's the zero plaintext.)
-			// Encrypt counter blocks to generate random bytes
+	/** Refills the buffered random longs from the next AES/CTR keystream block. */
+	private void refillBuffer(){
+		try{
+			// AES/CTR advances its internal counter on each update(); encrypting
+			// zero bytes returns successive raw keystream blocks.
 			cipher.update(counterBlock, 0, counterBlock.length, outputBlock);
 
 			// Convert bytes to longs efficiently using ByteBuffer
 			directBuffer.clear();
-			for (int i = 0; i < BUFFER_SIZE; i++) {
-				longBuffer[i] = directBuffer.getLong();
+			for(int i=0; i<BUFFER_SIZE; i++){
+				longBuffer[i]=directBuffer.getLong();
 			}
 
-			bufferPos = 0;
-		} catch (Exception e) {
+			bufferPos=0;
+		}catch(Exception e){
 			throw new RuntimeException("AES encryption failed", e);
 		}
 	}
 
-	protected int next(int bits) {
-		return (int)(nextLong() >>> (64 - bits));
+	/** Returns the requested high bits from the next long.
+	 * @param bits Number of high bits to return, from 1 through 32
+	 * @return Requested pseudorandom bits */
+	protected int next(int bits){
+		return (int)(nextLong()>>>(64-bits));
 	}
 
+	/** Returns the next native-endian buffered AES keystream word.
+	 * @return Signed pseudorandom long */
 	@Override
-	public long nextLong() {
-		if (bufferPos >= BUFFER_SIZE) {
+	public long nextLong(){
+		if(bufferPos>=BUFFER_SIZE){
 			refillBuffer();
 		}
 		return longBuffer[bufferPos++];
@@ -124,99 +157,118 @@ public final class FastRandomAES implements Random {
 	//     * Creates a new FastRandom with the specified seed.
 	//     * @param seed The initial seed
 	//     */
-	//    public FastRandomAES(long seed) {
+	//    public FastRandomAES(long seed){
 	//        setSeed(seed);
 	//    }
 
-	private static long mixSeed(long x) {
-		x += 0x9E3779B97F4A7C15L;
-		x = (x ^ (x >>> 30)) * 0xBF58476D1CE4E5B9L;
-		x = (x ^ (x >>> 27)) * 0x94D049BB133111EBL;
-		return x ^ (x >>> 31);
+	/** Mixes a seed via SplitMix64.
+	 * @param x Seed to mix
+	 * @return Mixed seed value */
+	private static long mixSeed(long x){
+		x+=0x9E3779B97F4A7C15L;
+		x=(x^(x>>>30))*0xBF58476D1CE4E5B9L;
+		x=(x^(x>>>27))*0x94D049BB133111EBL;
+		return x^(x>>>31);
 	}
 
+	/** Returns the low 32 bits of the next generated long.
+	 * @return Signed pseudorandom int */
 	@Override
-	public int nextInt() {
+	public int nextInt(){
 		return (int)nextLong();
 	}
 
+	/** Draws an int from [0, bound), rejecting remainder bias.
+	 * @param bound Positive exclusive upper bound
+	 * @return Pseudorandom int in range
+	 * @throws IllegalArgumentException If bound is nonpositive */
 	@Override
-	public int nextInt(int bound) {
-		if(bound<=0) {
-			throw new IllegalArgumentException("bound must be positive");
-		}
+	public int nextInt(int bound){
+		if(bound<=0){throw new IllegalArgumentException("bound must be positive");}
 
-		// Fast path for powers of 2
-		if((bound & (bound-1))==0) {
-			return (int)((bound * (nextLong() >>> 33)) >>> 31);
-		}
+		if((bound&(bound-1))==0){return (int)((bound*(nextLong()>>>33))>>>31);}
 
-		// General case for any bound
 		int bits, val;
-		do {
-			bits = (int)(nextLong() >>> 33);
-			val = bits % bound;
-		} while(bits-val+(bound-1)<0); // Reject to avoid modulo bias
+		do{
+			bits=(int)(nextLong()>>>33);
+			val=bits%bound;
+		}while(bits-val+(bound-1)<0);
 
 		return val;
 	}
 
+	/** Draws an int from [origin, bound), including widths larger than Integer.MAX_VALUE.
+	 * @param origin Inclusive lower bound
+	 * @param bound Exclusive upper bound, greater than origin
+	 * @return Pseudorandom int in range
+	 * @throws IllegalArgumentException If origin is not below bound */
 	@Override
-	public int nextInt(int origin, int bound) {
-		if(origin>=bound) {
-			throw new IllegalArgumentException("origin must be less than bound");
+	public int nextInt(int origin, int bound){
+		if(origin>=bound){throw new IllegalArgumentException("origin must be less than bound");}
+		final int n=bound-origin;
+		if(n>0){return origin+nextInt(n);}
+
+		int r=nextInt();
+		while(r<origin || r>=bound){
+			r=nextInt();
 		}
-		return origin + nextInt(bound-origin);
+		return r;
 	}
 
+	/** Draws a long from [0, bound), rejecting remainder bias.
+	 * @param bound Positive exclusive upper bound
+	 * @return Pseudorandom long in range
+	 * @throws IllegalArgumentException If bound is nonpositive */
 	@Override
-	public long nextLong(long bound) {
-		if(bound<=0) {
-			throw new IllegalArgumentException("bound must be positive");
-		}
+	public long nextLong(long bound){
+		if(bound<=0){throw new IllegalArgumentException("bound must be positive");}
 
-		// Fast path for powers of 2
-		if((bound & (bound-1))==0) {
-			return nextLong() & (bound-1);
-		}
+		if((bound&(bound-1))==0){return nextLong()&(bound-1);}
 
-		// General case for any bound
 		long bits, val;
-		do {
-			bits = nextLong() >>> 1;
-			val = bits % bound;
-		} while(bits-val+(bound-1)<0); // Reject to avoid modulo bias
+		do{
+			bits=nextLong()>>>1;
+			val=bits%bound;
+		}while(bits-val+(bound-1)<0);
 
 		return val;
 	}
 
+	/** Tests the low bit of the next generated long.
+	 * @return Pseudorandom boolean */
 	@Override
-	public boolean nextBoolean() {
-		return (nextLong() & 1)!=0;
+	public boolean nextBoolean(){
+		return (nextLong()&1)!=0;
 	}
 
+	/** Scales the high 24 bits of the next long into [0, 1).
+	 * @return Pseudorandom float less than one */
 	@Override
-	public float nextFloat() {
-		return (nextLong() >>> 40) * 0x1.0p-24f;
+	public float nextFloat(){
+		return (nextLong()>>>40)*0x1.0p-24f;
 	}
 
 	//    @Override
-	//    public float nextFloat() {//Not any faster
+	//    public float nextFloat(){//Not any faster
 	//        return Float.intBitsToFloat((int)(0x3f800000 | (nextLong() & 0x7fffff))) - 1.0f;
 	//    }
 
+	/** Scales the high 53 bits of the next long into [0, 1).
+	 * @return Pseudorandom double less than one */
 	@Override
-	public double nextDouble() {
-		return (nextLong() >>> 11) * 0x1.0p-53d;
+	public double nextDouble(){
+		return (nextLong()>>>11)*0x1.0p-53d;
 	}
 
+	/** Fills bytes in little-endian chunks from successive nextLong() values.
+	 * @param bytes Destination array */
 	@Override
-	public void nextBytes(byte[] bytes) {
+	public void nextBytes(byte[] bytes){
 		int i=0;
 		int len=bytes.length;
 
 		// Process 8 bytes at a time for efficiency
-		while(i<len-7) {
+		while(i<len-7){
 			long rnd=nextLong();
 			bytes[i++]=(byte)rnd;
 			bytes[i++]=(byte)(rnd>>8);
@@ -229,67 +281,76 @@ public final class FastRandomAES implements Random {
 		}
 
 		// Handle remaining bytes
-		if(i<len) {
+		if(i<len){
 			long rnd=nextLong();
-			do {
+			do{
 				bytes[i++]=(byte)rnd;
 				rnd>>=8;
-			} while(i<len);
+			}while(i<len);
 		}
 	}
 
+	/** Reinitializes the AES key and discards the first keystream block.
+	 * @param seed New seed; negative seeds use system time */
 	@Override
-	public void setSeed(long seed) {
-		if(cipher==null) {return;}
-		if(seed<0){seed=System.nanoTime();}// [rand negative-seed] FIXED: honor shared.Random.setSeed contract "negative for a random seed"
-		try {
+	public void setSeed(long seed){
+		if(cipher==null){return;}
+		if(seed<0){seed=System.nanoTime();}// [rand negative-seed] shared.Random uses negative seeds as system-time requests.
+		nextNextGaussian=Double.NaN;
+		try{
 			// Use seed to derive key
-			byte[] keyBytes = new byte[16];
+			byte[] keyBytes=new byte[16];
 			ByteBuffer.wrap(keyBytes).order(ByteOrder.LITTLE_ENDIAN)
-			.putLong(0, seed).putLong(8, ~seed);
-			SecretKeySpec key = new SecretKeySpec(keyBytes, "AES");
+					.putLong(0, seed).putLong(8, ~seed);
+			SecretKeySpec key=new SecretKeySpec(keyBytes, "AES");
 
 			cipher.init(Cipher.ENCRYPT_MODE, key, new IvParameterSpec(new byte[16]));
 
 			// Warm up
 			refillBuffer();
-			bufferPos = BUFFER_SIZE; // Discard first set
+			bufferPos=BUFFER_SIZE; // Discard first set
 			refillBuffer();
 
-		} catch (Exception e) {
+		}catch(Exception e){
 			throw new RuntimeException("Failed to initialize AES PRNG", e);
 		}
 	}
 
-	public static void main(String[] args) {
+	/*--------------------------------------------------------------*/
+	/*----------------        Static Methods        ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Benchmarks FastRandomAES against other random number generators.
+	 * @param args Optional iteration count (default 100,000,000) */
+	public static void main(String[] args){
 		int iterations=args.length>0 ? Integer.parseInt(args[0]) : 100_000_000;
 
 		// Test FastRandom
 		long startTime=System.nanoTime();
 		Random fastRandom=new FastRandom();
 		float sum=0;
-		for(int i=0; i<iterations; i++) {
+		for(int i=0; i<iterations; i++){
 			sum+=fastRandom.nextFloat();
 		}
 		long endTime=System.nanoTime();
 		System.out.println("FastRandom time: "+(endTime-startTime)/1_000_000+" ms, sum: "+sum);
 
-		// Test FastRandomSIMD
+		// Test FastRandomAES
 		startTime=System.nanoTime();
 		fastRandom=new FastRandomAES();
 		sum=0;
-		for(int i=0; i<iterations; i++) {
+		for(int i=0; i<iterations; i++){
 			sum+=fastRandom.nextFloat();
 		}
 		endTime=System.nanoTime();
 		System.out.println("FastRandomAES time: "+(endTime-startTime)/1_000_000+" ms, sum: "+sum);
-		//        for(int i=0; i<32; i++) {System.err.println(i+": "+fastRandom.nextFloat());}
+		//        for(int i=0; i<32; i++){System.err.println(i+": "+fastRandom.nextFloat());}
 
 		// Test java.util.Random
 		startTime=System.nanoTime();
 		java.util.Random random=new java.util.Random();
 		sum=0;
-		for(int i=0; i<iterations; i++) {
+		for(int i=0; i<iterations; i++){
 			sum+=random.nextFloat();
 		}
 		endTime=System.nanoTime();
@@ -299,7 +360,7 @@ public final class FastRandomAES implements Random {
 		startTime=System.nanoTime();
 		sum=0;
 		java.util.concurrent.ThreadLocalRandom randy=java.util.concurrent.ThreadLocalRandom.current();
-		for(int i=0; i<iterations; i++) {
+		for(int i=0; i<iterations; i++){
 			sum+=randy.nextFloat();
 		}
 		endTime=System.nanoTime();

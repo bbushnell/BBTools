@@ -3,18 +3,20 @@ package json;
 import shared.Tools;
 
 /**
- * Represents unquoted literal values in JSON output for precise numeric formatting.
- * Enables creation of JSON-compatible numeric literals that can be precisely formatted
- * without string quotation, supporting both pre-formatted strings and numeric values
- * with specific decimal precision.
+ * Immutable unquoted text for JSON output, including explicitly formatted numbers.
+ * The string constructor is a trusted escape hatch: it does not validate JSON,
+ * add quotes, or escape non-ASCII text. Supply an already escaped ASCII fragment.
  *
  * @author Brian Bushnell
  * @date 2013
  */
-public class JsonLiteral {
-	
-	/** Creates a JsonLiteral from a pre-formatted string.
-	 * @param s_ The string literal value to store */
+public class JsonLiteral{
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Initialization        ----------------*/
+	/*--------------------------------------------------------------*/
+	/** Borrows a preformatted literal without validation or escaping.
+	 * @param s_ ASCII JSON fragment; null is rendered as JSON null by JsonObject */
 	public JsonLiteral(String s_){
 		s=s_;
 	}
@@ -22,18 +24,29 @@ public class JsonLiteral {
 	/**
 	 * Creates a JsonLiteral from a double value with specified decimal precision.
 	 * Formats the numeric value using Tools.format with the specified number of
-	 * decimal places.
+	 * decimal places, using the locale-independent ROOT formatter.
+	 * NaN and either infinity are represented by JSON null.
 	 *
 	 * @param value The numeric value to format
-	 * @param decimals Number of decimal places to include in formatting
+	 * @param decimals Nonnegative number of decimal places
+	 * @throws IllegalArgumentException If the requested format is invalid
 	 */
 	public JsonLiteral(double value, int decimals){
-		s=Tools.format("%."+decimals+"f", value);
+		if(decimals<0){throw new IllegalArgumentException("Decimal places must be nonnegative: "+decimals);}
+		s=Double.isFinite(value) ? Tools.format("%."+decimals+"f", value) : "null";
 	}
-	
+
+	/*--------------------------------------------------------------*/
+	/*----------------           Methods            ----------------*/
+	/*--------------------------------------------------------------*/
+	/** Returns the stored fragment verbatim, including null when supplied by the caller.
+	 * @return Stored literal text */
 	@Override
 	public String toString(){return s;}
-	
+
+	/*--------------------------------------------------------------*/
+	/*----------------            Fields            ----------------*/
+	/*--------------------------------------------------------------*/
 	/** The formatted string representation of this literal value */
 	private final String s;
 	
