@@ -6,13 +6,24 @@ import shared.Tools;
 import structures.ByteBuilder;
 
 /** 
- * Interface for classes that parse delimited byte[] lines.
+ * Mutable field access for delimited lines, using byte indexes in byte parsers
+ * and UTF-16 indexes in {@link LineParserS} implementations. Field indexes are
+ * zero-based; bounds are half-open. Instances are not thread-safe and retain
+ * their input without copying it. Do not mutate borrowed byte arrays while parsing.
+ * Empty fields are retained; the reverse string variant returns null for an
+ * empty field where other variants return an empty string.
+ * Indexed variants retain delimiter positions for random access; variants 2
+ * scan forward with bounded auxiliary memory. Their indexed calls must not
+ * move backwards without reset. Numeric conversion delegates to {@link Parse}.
+ * Callers must provide an initialized line, existing field indexes and offsets
+ * inside the selected field. Assertions are diagnostics, not complete validation
+ * of malformed indexes or numeric input when assertions are disabled.
  * 
  * @author Brian Bushnell
  * @date May 24, 2023
  *
  */
-public interface LineParser {
+public interface LineParser{
 
 	/**
 	 * Designate the line of text to be parsed.
@@ -24,7 +35,8 @@ public interface LineParser {
 	/**
 	 * Designate the line of text to be parsed.
 	 * @param line Line to parse.
-	 * @param maxTerm Stop parsing after this term.
+	 * @param maxTerm Inclusive last term to index; it must exist for indexed variants.
+	 * Forward-only variants ignore the limit; the reverse variant rejects this overload.
 	 * @return this
 	 */
 	public LineParser set(byte[] line, int maxTerm);
@@ -36,7 +48,8 @@ public interface LineParser {
 	public LineParser clear();
 
 	/**
-	 * Reset state to the start of the current line.
+	 * Reset forward-only traversal to before the first field. Indexed variants
+	 * deliberately do nothing, including retaining their current bounds.
 	 * @return this
 	 */
 	public LineParser reset();
@@ -129,6 +142,7 @@ public interface LineParser {
 	/** True if the term starts with s */
 	public boolean termStartsWith(String s, int term);
 	
+	/** Tests the first byte of a nonempty field with Tools.isLetter. */
 	public default boolean termStartsWithLetter(int term){
 		return Tools.isLetter(parseByte(term, 0));
 	}
@@ -142,25 +156,29 @@ public interface LineParser {
 	/** True if the term equals c */
 	public boolean termEquals(byte c, int term);
 	
-	/** Length of this field. */
+	/** Length of this field. Indexed variants select it as the current field;
+	 * forward-only variants restore their prior position after measuring. */
 	public int length(int term);
 
 	/** Length of current field. */
 	public int currentFieldLength();
 	
-	/** Not recommended.  Secret method. */
+	/** Adjust the current start bound without updating field indexes or checking bounds.
+	 * The caller owns the resulting range; returns its new length. */
 	public int incrementA(int amt);
 
-	/** Not recommended. Secret method. */
+	/** Adjust the current exclusive end bound without updating indexes or checking bounds.
+	 * The caller owns the resulting range; returns its new length. */
 	public int incrementB(int amt);
 
-	/** True if there is a subsequent term */
+	/** Variant-specific cursor test, not a total-field count. Forward-only variants
+	 * use this before advancing; indexed variants reflect their most recent bound selection. */
 	public boolean hasMore();
 
 	/** Length of the line being parsed */
 	public int lineLength();
 	
-	/** LP1 and LP2 both can use this, but LP2 will fail if it's advancing backwards. */
+	/** Select a field and return its length. Forward-only variants cannot move backwards. */
 	int setBounds(int term);
 	
 	/** Line being parsed */
@@ -176,7 +194,8 @@ public interface LineParser {
 	public String toString();
 	
 	/**
-	 * Format the line as a list of Strings, one per field.
+	 * Materialize fields as strings. Indexed variants include all indexed fields;
+	 * forward-only variants consume remaining fields and require an unexhausted cursor.
 	 * @return A List.
 	 */
 	public ArrayList<String> toList();

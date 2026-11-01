@@ -4,7 +4,13 @@ import shared.Tools;
 import structures.ByteBuilder;
 import structures.LongList;
 
-public final class Parse {
+/**
+ * Shared scalar parsers and small command-line conversion helpers.
+ * <p>
+ * The byte-array numeric parsers expect ASCII numeric text, use half-open bounds,
+ * and favor speed over complete malformed-input or overflow validation.
+ */
+public final class Parse{
 	
 
 	/**
@@ -17,13 +23,15 @@ public final class Parse {
 	 */
 	public static int parseIntKMG(String b){
 		long x=parseKMG(b);
-		assert(x<=Integer.MAX_VALUE && x>Integer.MIN_VALUE) : "Value "+x+" is out of range for integers: "+b;
+		assert(x<=Integer.MAX_VALUE && x>=Integer.MIN_VALUE) :
+			"Value "+x+" is out of range for integers: "+b;
 		return (int)x;
 	}
 	
 	/**
 	 * Parses a string with optional KMG suffix into a long value.
 	 * Supports decimal numbers and special values like "inf", "max", "huge".
+	 * Decimal products are scaled as double precision values before truncating to long.
 	 * KMG suffixes: k=1000, m=million, g/b=billion, t=trillion, p/q=quadrillion,
 	 * e=quintillion, c/h=hundred, d=ten.
 	 *
@@ -40,7 +48,9 @@ public final class Parse {
 		if(!dot && !Tools.isLetter(c)){return Long.parseLong(b);}
 //		if(!Tools.isLetter(c) && !dot){return Long.parseLong(b);}
 		
-		if(b.equalsIgnoreCase("big") || b.equalsIgnoreCase("inf") || b.equalsIgnoreCase("infinity") || b.equalsIgnoreCase("max") || b.equalsIgnoreCase("huge")){
+		if(b.equalsIgnoreCase("big") || b.equalsIgnoreCase("inf") ||
+				b.equalsIgnoreCase("infinity") || b.equalsIgnoreCase("max") ||
+				b.equalsIgnoreCase("huge")){
 			return Long.MAX_VALUE;
 		}
 		
@@ -64,12 +74,15 @@ public final class Parse {
 		if(!dot){
 			long m=Long.parseLong(b);
 			long p=m*mult;
-			assert(p>=m) : p+", "+m+", "+b;
+			assert(m==0 || p/m==mult) : p+", "+m+", "+b;
 			return p;
 		}else{
 			double m=Double.parseDouble(b);
-			long p=(long)(m*mult);
-			assert(p>=m) : p+", "+m+", "+b;
+			final double product=m*mult;
+			assert(product>=Long.MIN_VALUE && product<0x1p63) :
+				"Scaled value is outside signed long bounds before truncation: "+product+
+				", multiplier="+mult+", input="+b0;
+			long p=(long)product;
 			return p;
 		}
 	}
@@ -92,7 +105,9 @@ public final class Parse {
 		if(!dot && !Tools.isLetter(c)){return Long.parseLong(b);}
 //		if(!Tools.isLetter(c) && !dot){return Long.parseLong(b);}
 		
-		if(b.equalsIgnoreCase("big") || b.equalsIgnoreCase("inf") || b.equalsIgnoreCase("infinity") || b.equalsIgnoreCase("max") || b.equalsIgnoreCase("huge")){
+		if(b.equalsIgnoreCase("big") || b.equalsIgnoreCase("inf") ||
+				b.equalsIgnoreCase("infinity") || b.equalsIgnoreCase("max") ||
+				b.equalsIgnoreCase("huge")){
 			return Long.MAX_VALUE;
 		}
 		
@@ -174,7 +189,8 @@ public final class Parse {
 	 */
 	public static boolean isBoolean(String s){
 		if(s==null || s.length()==0){return false;}
-		return "t".equalsIgnoreCase(s) || "f".equalsIgnoreCase(s) || "true".equalsIgnoreCase(s) || "false".equalsIgnoreCase(s);
+		return "t".equalsIgnoreCase(s) || "f".equalsIgnoreCase(s) ||
+			"true".equalsIgnoreCase(s) || "false".equalsIgnoreCase(s);
 	}
 	
 	/**
@@ -219,32 +235,87 @@ public final class Parse {
 		throw new RuntimeException(s);
 	}
 	
-	public static boolean eic(String a, String b) {//False when both null
+	/**
+	 * Alias for null-safe string equality ignoring case.
+	 * @param a First string
+	 * @param b Second string
+	 * @return true when both strings match ignoring case
+	 */
+	public static boolean eic(String a, String b){//False when both null
 		return a==null ? false : a.equalsIgnoreCase(b);
 	}
 	
-	public static boolean equalsIgnoreCase(String a, String b) {//false when both null
+	/**
+	 * Null-safe string equality ignoring case.
+	 * @param a First string
+	 * @param b Second string
+	 * @return true when both strings match ignoring case
+	 */
+	public static boolean equalsIgnoreCase(String a, String b){//false when both null
 		return a==null ? false : a.equalsIgnoreCase(b);
 	}
 	
-	public static boolean equalsIgnoreCase(byte[] a, String b) {//false when both null
-		if(a==null || b==null || a.length!=b.length()) {return false;}
-		for(int i=0; i<a.length; i++) {
-			char c=b.charAt(i);
-			if(a[i]!=c) {return false;}
+	/**
+	 * Null-safe ASCII-insensitive comparison between bytes and string characters.
+	 * Returns false if either input is null (including both null), lengths differ,
+	 * or either contains a non-ASCII value. Two empty non-null inputs match.
+	 * ASCII letters ignore case; other ASCII characters compare literally. Bytes
+	 * are not decoded as UTF-8 or Latin-1.
+	 *
+	 * @param a Bytes to compare
+	 * @param b String to compare
+	 * @return true when the inputs are equal under ASCII letter case-folding
+	 */
+	public static boolean equalsIgnoreCase(byte[] a, String b){//false when both null
+		if(a==null || b==null || a.length!=b.length()){return false;}
+		for(int i=0; i<a.length; i++){
+			if(a[i]!=b.charAt(i)){return equalsIgnoreCaseFoldedFrom(a, b, i);}
 		}
 		return true;
 	}
 	
-	public static boolean equalsIgnoreCase(String a, byte[] b) {return equalsIgnoreCase(b, a);}
-	
+	/**
+	 * Null-safe ASCII-insensitive comparison between string characters and bytes.
+	 * Returns false if either input is null (including both null), lengths differ,
+	 * or either contains a non-ASCII value. Two empty non-null inputs match.
+	 * ASCII letters ignore case; other ASCII characters compare literally. Bytes
+	 * are not decoded as UTF-8 or Latin-1.
+	 *
+	 * @param a String to compare
+	 * @param b Bytes to compare
+	 * @return true when the inputs are equal under ASCII letter case-folding
+	 */
+	public static boolean equalsIgnoreCase(String a, byte[] b){
+		return equalsIgnoreCase(b, a);
+	}
+
+	/** Table-folds after the caller found a mismatch in non-null, equal-length inputs. */
+	private static boolean equalsIgnoreCaseFoldedFrom(byte[] a, String b, int from){
+		for(int i=from; i<a.length; i++){
+			final int x=a[i];
+			final char c=b.charAt(i);
+			if(x<0 || c>127 || ASCII_CASE_FOLD[x]!=ASCII_CASE_FOLD[c]){return false;}
+		}
+		return true;
+	}
+
+	/** Creates the private ASCII letter fold table used by byte/String comparison. */
+	private static byte[] makeAsciiCaseFold(){
+		final byte[] table=new byte[128];
+		for(int i=0; i<table.length; i++){table[i]=(byte)i;}
+		for(int i='A'; i<='Z'; i++){table[i]=(byte)(i+32);}
+		return table;
+	}
+
 	/**
 	 * Parses a delimited string into a float array.
 	 * @param s String containing delimited float values
 	 * @param regex Delimiter pattern for splitting
 	 * @return Array of parsed float values, or null if input is null
 	 */
-	public static float[] parseFloatArray(String s, String regex){return parseFloatArray(s, regex, null);}
+	public static float[] parseFloatArray(String s, String regex){
+		return parseFloatArray(s, regex, null);
+	}
 	
 	/**
 	 * Parses a delimited string into a float array with wildcard support.
@@ -306,20 +377,32 @@ public final class Parse {
 		return array;
 	}
 	
+	/**
+	 * Parses a decimal integer or an integer with an index-0 base prefix.
+	 * Recognized prefixes are {@code 0x} for hexadecimal, {@code 0b} for binary,
+	 * and {@code 0o} for octal, with either case accepted for the prefix letter.
+	 * Leading signs are only supported for unprefixed decimal values.
+	 *
+	 * @param s Text to parse
+	 * @return Parsed integer, or 0 if the text is null or empty
+	 * @throws NumberFormatException if the digits are invalid or the result overflows
+	 */
 	public static int parseIntHexDecOctBin(final String s){
 		if(s==null || s.length()<1){return 0;}
 		int radix=10;
-		if(s.length()>1 && s.charAt(1)=='0'){
+		int start=0;
+		if(s.length()>2 && s.charAt(0)=='0'){
 			final char c=s.charAt(1);
-			if(c=='x' || c=='X'){radix=16;}
-			else if(c=='b' || c=='B'){radix=2;}
-			else if(c=='o' || c=='O'){radix=8;}
+			if(c=='x' || c=='X'){radix=16; start=2;}
+			else if(c=='b' || c=='B'){radix=2; start=2;}
+			else if(c=='o' || c=='O'){radix=8; start=2;}
 		}
-		return Integer.parseInt(s, radix);
+		return Integer.parseInt(start==0 ? s : s.substring(start), radix);
 	}
 	
 	/**
-	 * @param array Text
+	 * Parses a decimal float from ASCII bytes using the fast double parser.
+	 * @param array ASCII text
 	 * @param a Index of first digit
 	 * @param b Index after last digit (e.g., array.length)
 	 * @return Parsed number
@@ -329,6 +412,7 @@ public final class Parse {
 	}
 	
 	/**
+	 * Parses a decimal float from string text using the fast double parser.
 	 * @param array Text
 	 * @param a Index of first digit
 	 * @param b Index after last digit (e.g., array.length)
@@ -346,7 +430,7 @@ public final class Parse {
 	 * @param delimiter Character that terminates the number
 	 * @return Parsed float value
 	 */
-	public static float parseFloat(String s, String term, char delimiter) {
+	public static float parseFloat(String s, String term, char delimiter){
 		return (float)parseDouble(s, term, delimiter);
 	}
 
@@ -360,7 +444,7 @@ public final class Parse {
 	 * @return Parsed double value
 	 * @throws AssertionError if term is not found
 	 */
-	public static double parseDouble(String s, String term, char delimiter) {
+	public static double parseDouble(String s, String term, char delimiter){
 		int idx=s.indexOf(term);
 		assert(idx>=0) : "No "+term+" in String: '"+s+"'";
 		idx+=term.length();
@@ -378,10 +462,10 @@ public final class Parse {
 	 * @param delimiter Character that terminates the substring
 	 * @return Extracted substring, or null if term not found
 	 */
-	public static String parseString(String s, String term, char delimiter) {
+	public static String parseString(String s, String term, char delimiter){
 		int idx=s.indexOf(term);
 //		assert(idx>=0) : "No "+term+" in String: '"+s+"'";
-		if(idx<0) {return null;}
+		if(idx<0){return null;}
 		idx+=term.length();
 		int idx2=Tools.indexOf(s, delimiter, idx);
 		idx2=(idx2<0 ? s.length() : idx2);
@@ -389,10 +473,11 @@ public final class Parse {
 	}
 
 	/**
-	 * @param array Text
-	 * @param a Index of first digit
-	 * @param b Index after last digit (e.g., array.length)
-	 * @return Parsed number
+	 * Parses a decimal double through the Java library from ASCII bytes.
+	 * @param array ASCII text
+	 * @param a Index of first byte
+	 * @param b Index after last byte
+	 * @return Parsed double
 	 */
 	public static double parseDoubleSlow(byte[] array, int a, int b){
 		String s=new String(array, a, b-a);
@@ -410,7 +495,13 @@ public final class Parse {
 	}
 	
 	/**
-	 * @param array Text
+	 * Parses a decimal double from ASCII bytes.
+	 * Unless {@link Tools#FORCE_JAVA_PARSE_DOUBLE} is true, exponents are not
+	 * supported, overflow is not detected, and the shortcut path maps 2-4 byte
+	 * tokens beginning with {@code N} to {@code NaN}, tokens beginning with
+	 * {@code I} to positive infinity, and tokens beginning with {@code -I} to
+	 * {@code -Infinity}.
+	 * @param array ASCII text
 	 * @param a0 Index of first digit
 	 * @param b Index after last digit (e.g., array.length)
 	 * @return Parsed number
@@ -419,14 +510,15 @@ public final class Parse {
 		if(Tools.FORCE_JAVA_PARSE_DOUBLE){
 			return Double.parseDouble(new String(array, a0, b-a0));
 		}
-		if(b-a0>1 && b-a0<5) {
+		if(b-a0>1 && b-a0<5){
 			final byte x=array[a0];
 			if(!Tools.numericMap[x]){
-				if(x == 'N'){return Double.NaN;}
-				if(x == 'I'){return Double.POSITIVE_INFINITY;}
+				if(x=='N'){return Double.NaN;}
+				if(x=='I'){return Double.POSITIVE_INFINITY;}
 			}
-			if(x == '-' && array[a0+1] == 'I') 
+			if(x=='-' && array[a0+1]=='I'){
 				return Double.NEGATIVE_INFINITY;
+			}
 		}
 		int a=a0;
 		assert(b>a);
@@ -448,8 +540,12 @@ public final class Parse {
 		for(a++; a<b; a++){
 			final byte c=array[a];
 			final int x=(c-z);
-			assert(x<10 && x>=0) : x+" = "+(char)c+"\narray='"+new String(array)+"', start="+a+", stop="+b+", len="+array.length+" -> '"+new String(array, a, b-a)+"'"+
-				"\nThis function does not support exponents; if the input has an exponent, add the flag 'forceJavaParseDouble'.";
+			assert(x<10 && x>=0) :
+				x+" = "+(char)c+"\narray='"+new String(array)+"', start="+a+
+				", stop="+b+", len="+array.length+" -> '"+
+				new String(array, a, b-a)+"'\n"+
+				"This function does not support exponents; if the input has an exponent, "+
+				"add the flag 'forceJavaParseDouble'.";
 			lower=(lower*10)+x;
 			places++;
 		}
@@ -460,6 +556,9 @@ public final class Parse {
 	}
 	
 	/**
+	 * Parses a decimal double from a string.
+	 * Unless {@link Tools#FORCE_JAVA_PARSE_DOUBLE} is true, exponents, infinity
+	 * and NaN are not supported, and overflow is not detected.
 	 * @param array Text
 	 * @param a0 Index of first digit
 	 * @param b Index after last digit (e.g., array.length)
@@ -489,8 +588,11 @@ public final class Parse {
 		for(a++; a<b; a++){
 			final char c=array.charAt(a);
 			final int x=(c-z);
-			assert(x<10 && x>=0) : x+" = "+(char)c+"\narray='"+new String(array)+"', start="+a+", stop="+b+", len="+array.length()+" -> '"+array.substring(a, b)+"'"+
-				"\nThis function does not support exponents; if the input has an exponent, add the flag 'forceJavaParseDouble'.";
+			assert(x<10 && x>=0) :
+				x+" = "+(char)c+"\narray='"+new String(array)+"', start="+a+
+				", stop="+b+", len="+array.length()+" -> '"+array.substring(a, b)+
+				"'\nThis function does not support exponents; if the input has an exponent, "+
+				"add the flag 'forceJavaParseDouble'.";
 			lower=(lower*10)+x;
 			places++;
 		}
@@ -537,13 +639,11 @@ public final class Parse {
 	 * This function does NOT detect overflows, e.g., values over 2^31-1 (Integer.MAX_VALUE).
 	 * This function has no side-effects.
 	 * @param array byte array containing the text to parse.
-	 * @param a Index of the first digit of the number.
+	 * @param a0 Index of the first digit of the number.
 	 * @param b Index after the last digit (e.g., array.length).
 	 * @return int representation of the parsed number.
-	 * @throws Assertions rather than Exceptions for invalid input.
 	 * 
-	 * @TODO Correctly represent Integer.MIN_VALUE
-	 * @TODO Detect overflow.
+	 * TODO: Detect overflow outside the signed integer range.
 	 */
 	public static int parseInt(byte[] array, int a0, int b){
 		int a=a0;
@@ -590,10 +690,11 @@ public final class Parse {
 	}
 	
 	/**
+	 * Parses an int from decimal string text without detecting overflow.
 	 * @param array Text
 	 * @param a Index of first digit
 	 * @param b Index after last digit (e.g., array.length)
-	 * @return Parsed number
+	 * @return Parsed int
 	 */
 	public static int parseInt(String array, int a, int b){
 //		assert(false) : Character.toString(array.charAt(a));
@@ -604,16 +705,20 @@ public final class Parse {
 		if(array.charAt(a)=='-'){mult=-1; a++;}
 		for(; a<b; a++){
 			int x=(array.charAt(a)-z);
-			assert(x<10 && x>=0) : x+" = "+array.charAt(a)+"\narray="+new String(array)+", start="+a+", stop="+b;
+			assert(x<10 && x>=0) :
+				x+" = "+array.charAt(a)+"\narray="+new String(array)+", start="+a+
+				", stop="+b;
 			r=(r*10)+x;
 		}
 		return r*mult;
 	}
 	
 	/**
+	 * Parses an int from decimal string text without detecting overflow, stopping
+	 * at the first nondigit.
 	 * @param array Text
 	 * @param a Index of first digit
-	 * @return Parsed number
+	 * @return Parsed int
 	 */
 	public static int parseInt(String array, int a){
 		int r=0;
@@ -622,15 +727,15 @@ public final class Parse {
 		if(array.charAt(a)=='-'){mult=-1; a++;}
 		for(; a<array.length(); a++){
 			int x=(array.charAt(a)-z);
-			if(x<0 || x>9) {break;}//End of number
+			if(x<0 || x>9){break;}//End of number
 			r=(r*10)+x;
 		}
 		return r*mult;
 	}
 	
 	/**
-	 * Parses a double from a string starting at given position.
-	 * Automatically detects end of number.
+	 * Parses a decimal double from a string starting at given position.
+	 * Automatically detects the end of a simple non-exponent decimal number.
 	 *
 	 * @param array String containing digits
 	 * @param a Starting index
@@ -638,16 +743,16 @@ public final class Parse {
 	 */
 	public static double parseDouble(String array, int a){
 		int b=a;
-		while(b<array.length()) {
+		while(b<array.length()){
 			char c=array.charAt(b);
-			if((c<'0' || c>'9') && c!='.' && c!='-') {break;}
+			if((c<'0' || c>'9') && c!='.' && c!='-'){break;}
 			b++;
 		}
 		return parseDouble(array, a, b);
 	}
 	
 	/**
-	 * Parses a float from a string starting at given position.
+	 * Parses a decimal float from a string starting at given position.
 	 * @param array String containing digits
 	 * @param a Starting index
 	 * @return Parsed float value
@@ -669,13 +774,16 @@ public final class Parse {
 	 * @param start Starting index
 	 * @return Parsed long value
 	 */
-	public static long parseLong(byte[] array, int start){return parseLong(array, start, array.length);}
+	public static long parseLong(byte[] array, int start){
+		return parseLong(array, start, array.length);
+	}
 	
 	/**
-	 * @param array Text
+	 * Parses a long from ASCII bytes without detecting overflow.
+	 * @param array ASCII text
 	 * @param a Index of first digit
 	 * @param b Index after last digit (e.g., array.length)
-	 * @return Parsed number
+	 * @return Parsed long
 	 */
 	public static long parseLong(byte[] array, int a, int b){
 		assert(b>a);
@@ -685,7 +793,9 @@ public final class Parse {
 		if(array[a]=='-'){mult=-1; a++;}
 		for(; a<b; a++){
 			int x=(array[a]-z);
-			assert(x<10 && x>=0) : x+" = "+(char)array[a]+"\narray="+new String(array)+", start="+a+", stop="+b;
+			assert(x<10 && x>=0) :
+				x+" = "+(char)array[a]+"\narray="+new String(array)+", start="+a+
+				", stop="+b;
 			r=(r*10)+x;
 		}
 		return r*mult;
@@ -703,7 +813,7 @@ public final class Parse {
 	public static long parseLongA48(byte[] array, int a, int b){
 		if(array.length==0){return 0;}
 		long x=0;
-		for(; a<b; a++) {
+		for(; a<b; a++){
 			x<<=6;
 			x|=(((long)array[a])-48);
 		}
@@ -711,10 +821,11 @@ public final class Parse {
 	}
 	
 	/**
+	 * Parses a long from string text without detecting overflow.
 	 * @param array Text
 	 * @param a Index of first digit
 	 * @param b Index after last digit (e.g., array.length)
-	 * @return Parsed number
+	 * @return Parsed long
 	 */
 	public static long parseLong(String array, int a, int b){
 		assert(b>a);
@@ -724,7 +835,9 @@ public final class Parse {
 		if(array.charAt(a)=='-'){mult=-1; a++;}
 		for(; a<b; a++){
 			int x=(array.charAt(a)-z);
-			assert(x<10 && x>=0) : x+" = "+array.charAt(a)+"\narray="+new String(array)+", start="+a+", stop="+b;
+			assert(x<10 && x>=0) :
+				x+" = "+array.charAt(a)+"\narray="+new String(array)+", start="+a+
+				", stop="+b;
 			r=(r*10)+x;
 		}
 		return r*mult;
@@ -734,12 +847,13 @@ public final class Parse {
 	//Note: clen is optional, but allows poorly-formatted input like trailing whitespace
 	//Without clen ",,," would become {0,0,0,0} 
 	/**
-	 * Parses a string containing comma-separated numbers into a long array.
-	 * Handles malformed input like trailing whitespace.
-	 * @param sub String containing comma-separated numbers
+	 * Parses signed digit runs into a long array.
+	 * Every non-digit except a leading minus sign is a delimiter and emits the
+	 * current value, so empty fields and trailing delimiters emit zeros.
+	 * @param sub String containing digit runs and delimiters
 	 * @return Array of parsed long values, or null if input is null/empty
 	 */
-	public static long[] parseLongArray(String sub) {
+	public static long[] parseLongArray(String sub){
 		if(sub==null || sub.length()<1){return null;}
 		long current=0;
 		int sign=1;
@@ -766,7 +880,8 @@ public final class Parse {
 	 * Extracts ZMW (Zero Mode Waveguide) ID from PacBio read identifier.
 	 * Expected format: m54283_190403_183820/4194374/919_2614
 	 * @param id PacBio read identifier string
-	 * @return ZMW ID number, or -1 if format is invalid
+	 * @return ZMW ID number, or -1 if the read ID has no underscore or slash
+	 * @throws RuntimeException if a slash exists but the following token is malformed
 	 */
 	public static int parseZmw(String id){
 		//Example: m54283_190403_183820/4194374/919_2614
@@ -783,17 +898,19 @@ public final class Parse {
 	
 	/**
 	 * Splits a string on the first occurrence of a character.
-	 * Returns array with one or two elements depending on whether character is found.
+	 * Returns the text before and after the delimiter when a nonterminal delimiter
+	 * is found; returns only the leading text when the delimiter is absent or
+	 * terminal.
 	 *
 	 * @param s String to split
 	 * @param c Character to split on
 	 * @return Array containing parts before and after first occurrence of character
 	 */
-	public static String[] splitOnFirst(String s, char c) {
+	public static String[] splitOnFirst(String s, char c){
 		final int idx=s.indexOf(c);
-		if(idx<0) {return new String[] {s};}
+		if(idx<0){return new String[] {s};}
 		final String a=s.substring(0, idx);
-		if(idx>=s.length()-1) {return new String[] {a};}
+		if(idx>=s.length()-1){return new String[] {a};}
 		return new String[] {a, s.substring(idx+1)};
 	}
 	
@@ -920,5 +1037,12 @@ public final class Parse {
 	public static final int min(int x, int y){return x<y ? x : y;}
 	/** Returns the larger of two integers */
 	public static final int max(int x, int y){return x>y ? x : y;}
+
+/*--------------------------------------------------------------*/
+/*----------------            Constants         ----------------*/
+/*--------------------------------------------------------------*/
+
+	/** ASCII identity table with capital letters folded to lowercase. */
+	private static final byte[] ASCII_CASE_FOLD=makeAsciiCaseFold();
 
 }

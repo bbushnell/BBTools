@@ -5,9 +5,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
 
-import align2.AbstractMapThread;
-import align2.IndexMaker4;
-import align2.IndexMaker5;
 import align2.QualityTools;
 import aligner.SideChannel3;
 import aligner.SideChannel4;
@@ -15,7 +12,6 @@ import bloom.KCountArray;
 import bloom.KmerCountAbstract;
 import cardinality.CardinalityTracker;
 import cardinality.CorrectionFactor;
-import cardinality.LogLog16;
 import cardinality.LogLog2;
 import dna.AminoAcid;
 import dna.Data;
@@ -30,7 +26,6 @@ import jgi.CalcTrueQuality;
 import kmer.AbstractKmerTable;
 import shared.KillSwitch;
 import shared.Shared;
-import shared.SyncHeart;
 import shared.Tools;
 import shared.TrimRead;
 import simd.Vector;
@@ -62,11 +57,19 @@ import tracker.ReadStats;
 import var2.CallVariants;
 
 /**
+ * Shared command-line handlers and caller-owned option storage.
+ * Callers split arguments and normally lowercase names before dispatch. The static
+ * handlers run before instance handlers; a caller may consume its own options first.
+ * Recognition stores settings, not a promise that every tool implements the option.
+ * Instance handlers also change process-wide state. Configure before starting workers;
+ * separate Parser instances do not isolate concurrent programs or reset static defaults.
+ * Quality offsets require processQuality() after all arguments have been parsed.
+ *
  * @author Brian Bushnell
  * @date Mar 21, 2014
  *
  */
-public class Parser {
+public class Parser{
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
@@ -85,7 +88,7 @@ public class Parser {
 	 * in sequence until a match is found.
 	 *
 	 * @param arg The complete argument string (e.g., "qtrim=r")
-	 * @param a The parameter name portion (e.g., "qtrim")
+	 * @param a Lowercase parameter name (e.g., "qtrim")
 	 * @param b The parameter value portion (e.g., "r")
 	 * @return true if the argument was successfully parsed, false otherwise
 	 */
@@ -94,14 +97,16 @@ public class Parser {
 	}
 	
 	/**
-	 * Entry point for parsing static fields.
+	 * Tries JVM flags, writer policy, quality, compression, SAM, FASTA, common static
+	 * options, histograms and recalibration in that order, stopping at the first match.
+	 * Unrecognized input can still mark quality parsing as attempted.
 	 *
 	 * @param arg The complete argument string (e.g., "ziplevel=4")
 	 * @param a The parameter name portion (e.g., "ziplevel")
 	 * @param b The parameter value portion (e.g., "4")
 	 * @return true if the argument was successfully parsed, false otherwise
 	 */
-	public static boolean parseStatic(String arg, String a, String b) {
+	public static boolean parseStatic(String arg, String a, String b){
 		if(isJavaFlag(arg)){return true;}
 		if(MultiWriterPolicy.parse(a, b)){return true;}
 
@@ -116,7 +121,8 @@ public class Parser {
 	}
 	
 	/**
-	 * Entry point for parsing non-static fields.
+	 * Tries files, common options, trimming, interleaving, mapping and cardinality
+	 * in that order. These handlers can also mutate global settings. Does not call parseK.
 	 *
 	 * @param arg The complete argument string (e.g., "qtrim=r")
 	 * @param a The parameter name portion (e.g., "qtrim")
@@ -191,7 +197,7 @@ public class Parser {
 				try {
 					loglogk=Integer.parseInt(b);
 					loglog=loglogk>0;
-				} catch (NumberFormatException e) {
+				}catch(NumberFormatException e){
 					loglog=Parse.parseBoolean(b);
 				}
 			}else{
@@ -202,7 +208,7 @@ public class Parser {
 				try {
 					loglogk=Integer.parseInt(b);
 					loglogOut=loglogk>0;
-				} catch (NumberFormatException e) {
+				}catch(NumberFormatException e){
 					loglogOut=Parse.parseBoolean(b);
 				}
 			}else{
@@ -226,7 +232,7 @@ public class Parser {
 			}
 		}else if(a.equals("loglogseed")){
 			long x=Long.parseLong(b);
-			if(x!=0) {x=shared.Shared.threadLocalRandom(x).nextLong()&Long.MAX_VALUE;}
+			if(x!=0){x=shared.Shared.threadLocalRandom(x).nextLong()&Long.MAX_VALUE;}
 			CardinalityTracker.defaultSeed=loglogseed=x;
 		}else if(a.equals("loglogminprob")){
 			loglogMinprob=Float.parseFloat(b);
@@ -511,7 +517,7 @@ public class Parser {
 			maxNs=Integer.parseInt(b);
 		}else if(a.equals("maxnrate") || a.equals("maxnfraction")){
 			maxNRate=Float.parseFloat(b);
-			if(maxNRate>1) {maxNRate/=100;}
+			if(maxNRate>1){maxNRate/=100;}
 			assert(maxNRate<0 || maxNRate<=1) : "maxnrate should be a fraction (0-1) or percent: "+maxNRate;
 		}else if(a.equals("minconsecutivebases") || a.equals("mcb")){
 			minConsecutiveBases=Integer.parseInt(b);
@@ -546,8 +552,9 @@ public class Parser {
 	
 	/**
 	 * Parses quality trimming threshold values.
-	 * Supports single values or comma-separated arrays for position-specific thresholds.
-	 * @param a The parameter name
+	 * Stores one value or a comma-separated sequence; callers define how the sequence
+	 * is used (for example, successive trimming attempts in BBMerge).
+	 * @param a The parameter name; currently unused
 	 * @param b The parameter value (single number or comma-separated list)
 	 */
 	private void parseTrimq(String a, String b){
@@ -661,12 +668,17 @@ public class Parser {
 	/**
 	 * Processes configuration file arguments and expands them into parameter arrays.
 	 * Reads configuration files specified with "config=" parameter and inserts
-	 * their contents into the argument list.
+	 * their trimmed, nonempty, non-comment lines at that argument's position.
+	 * Commas separate configuration filenames; equals signs within a filename are
+	 * retained. Expansion is one level only. When no config argument exists the
+	 * original array is returned; otherwise null entries and the literal "null" are omitted.
 	 *
 	 * @param args Original command-line arguments
 	 * @return Expanded argument array with config file contents included
 	 */
 	public static String[] parseConfig(String[] args){
+		//TODO: ReformatStreamer.parse still splits expanded arguments on every '=';
+		//config paths are preserved here, but that caller can truncate in=a=b.fq later.
 		boolean found=false;
 		for(String s : args){
 			if(Tools.startsWithIgnoreCase(s, "config=")){
@@ -678,7 +690,7 @@ public class Parser {
 		ArrayList<String> list=new ArrayList<String>();
 		for(int i=0; i<args.length; i++){
 			final String arg=(args[i]==null ? "null" : args[i]);
-			final String[] split=arg.split("=");
+			final String[] split=Parse.splitOnFirst(arg, '=');
 			final String a=split[0].toLowerCase();
 			String b=split.length>1 ? split[1] : null;
 			if("null".equalsIgnoreCase(b)){b=null;}
@@ -789,18 +801,18 @@ public class Parser {
 //			Read.VALIDATE_BRANCHLESS=Parse.parseBoolean(b);
 		}else if(a.equalsIgnoreCase("bf1") || a.equalsIgnoreCase("bytefile1")){
 			ByteFile.FORCE_MODE_BF1=Parse.parseBoolean(b);
-			if(ByteFile.FORCE_MODE_BF1) {ByteFile.FORCE_MODE_BF2=ByteFile.FORCE_MODE_BF4=false;}
+			if(ByteFile.FORCE_MODE_BF1){ByteFile.FORCE_MODE_BF2=ByteFile.FORCE_MODE_BF3=ByteFile.FORCE_MODE_BF4=false;}
 		}else if(a.equals("bf1bufferlen")){
 			ByteFile1.bufferlen=(int)Parse.parseKMGBinary(b);
 		}else if(a.equalsIgnoreCase("bf2") || a.equalsIgnoreCase("bytefile2")){
 			ByteFile.FORCE_MODE_BF2=Parse.parseBoolean(b);
-			if(ByteFile.FORCE_MODE_BF2) {ByteFile.FORCE_MODE_BF1=ByteFile.FORCE_MODE_BF4=false;}
+			if(ByteFile.FORCE_MODE_BF2){ByteFile.FORCE_MODE_BF1=ByteFile.FORCE_MODE_BF3=ByteFile.FORCE_MODE_BF4=false;}
 		}else if(a.equalsIgnoreCase("bf3") || a.equalsIgnoreCase("bytefile3")){
 			ByteFile.FORCE_MODE_BF3=Parse.parseBoolean(b);
-			if(ByteFile.FORCE_MODE_BF3) {ByteFile.FORCE_MODE_BF1=ByteFile.FORCE_MODE_BF2=ByteFile.FORCE_MODE_BF4=false;}
+			if(ByteFile.FORCE_MODE_BF3){ByteFile.FORCE_MODE_BF1=ByteFile.FORCE_MODE_BF2=ByteFile.FORCE_MODE_BF4=false;}
 		}else if(a.equalsIgnoreCase("bf4") || a.equalsIgnoreCase("bytefile4")){
 			ByteFile.FORCE_MODE_BF4=Parse.parseBoolean(b);
-			if(ByteFile.FORCE_MODE_BF4) {ByteFile.FORCE_MODE_BF1=ByteFile.FORCE_MODE_BF2=false;}
+			if(ByteFile.FORCE_MODE_BF4){ByteFile.FORCE_MODE_BF1=ByteFile.FORCE_MODE_BF2=ByteFile.FORCE_MODE_BF3=false;}
 		}else if(a.equalsIgnoreCase("bf4threads") || a.equalsIgnoreCase("bfthreads")){
 			ByteFile4.DEFAULT_THREADS=Integer.parseInt(b);
 		}else if(a.equals("utot")){
@@ -926,7 +938,7 @@ public class Parser {
 		}
 		
 		else if(a.equalsIgnoreCase("simd")){
-			if(b!=null && b.equalsIgnoreCase("auto")) {
+			if(b!=null && b.equalsIgnoreCase("auto")){
 				Shared.SIMD=(Vector.simd128);
 			}else {
 				Shared.SIMD=Parse.parseBoolean(b);
@@ -944,7 +956,7 @@ public class Parser {
 		}else if(a.equalsIgnoreCase("simdcopy")){
 			Vector.SIMDCOPY=Parse.parseBoolean(b);
 		}
-//		else if(a.equalsIgnoreCase("simdminlen")) {//Disabled.
+//		else if(a.equalsIgnoreCase("simdminlen")){//Disabled.
 //			Vector.MINLEN=Integer.parseInt(b);
 //		}
 		
@@ -1351,7 +1363,7 @@ public class Parser {
 			Data.USE_SAMBAMBA=Parse.parseBoolean(b);
 		}else if(a.equals("samtools")){
 			Data.USE_SAMTOOLS=Parse.parseBoolean(b);
-		}else if(a.equalsIgnoreCase("printHeaderWait")) {
+		}else if(a.equalsIgnoreCase("printHeaderWait")){
 			SamReadInputStream.printHeaderWait=Parse.parseBoolean(b);
 		}
 
@@ -1607,7 +1619,7 @@ public class Parser {
 			}
 		}else if(a.equals("recaltile") || a.equals("recaltiles") || a.equals("usetiles")){
 			CalcTrueQuality.USE_TILES=Parse.parseBoolean(b);
-			if(CalcTrueQuality.USE_TILES) {
+			if(CalcTrueQuality.USE_TILES){
 				CalcTrueQuality.use_qpt[0]=true;
 				CalcTrueQuality.use_qpt[1]=false;
 				CalcTrueQuality.use_qbt[0]=false;
@@ -1647,7 +1659,11 @@ public class Parser {
 		return false;
 	}
 	
-	/** Return true if the user seems confused */
+	/** Recognizes absent arguments or a final help/version token.
+	 * Bare help/version are treated as filenames when a file with that name exists.
+	 * @param args Arguments, or null to request help
+	 * @param autoExit Print a short message and terminate when help/version is recognized
+	 * @return Whether help/version was requested */
 	static boolean parseHelp(String[] args, boolean autoExit){
 		if(args==null || args.length==0 || (args.length==1 && args[0]==null)){
 			if(autoExit){printHelp(1);}
@@ -1675,7 +1691,12 @@ public class Parser {
 		System.exit(exitCode);
 	}
 	
-	/** Set SamLine Readgroup Strings */
+	/** Stores read-group metadata in SamLine; a nonnull ID also sets its RG tag.
+	 * Other metadata does not imply an ID, and null ID currently leaves the stored tag.
+	 * @param arg Complete argument, unused
+	 * @param a Lowercase option name
+	 * @param b Metadata value, possibly null
+	 * @return Whether the option was recognized */
 	public static boolean parseReadgroup(String arg, String a, String b){
 		if(a.equals("readgroup") || a.equals("readgroupid") || a.equals("rgid")){
 			SamLine.READGROUP_ID=b;
@@ -1708,7 +1729,9 @@ public class Parser {
 		return true;
 	}
 	
-	/** Fix Readgroup Strings */
+	/** Replaces read-group metadata equal to "filename" with the input's stripped core.
+	 * Updates the RG tag when substituting its ID. Null input leaves all metadata alone.
+	 * @param fname Input path from which to derive the read-group values */
 	public static void postparseReadgroup(String fname){
 		if(fname==null){return;}
 		fname=ReadWrite.stripToCore(fname);
@@ -1764,7 +1787,7 @@ public class Parser {
 	
 	/**
 	 * Converts quality trimming thresholds to error probabilities.
-	 * Handles both single threshold and position-specific threshold arrays.
+	 * Preserves the configured threshold sequence, or uses the single threshold.
 	 * @return Array of error probabilities for quality trimming
 	 */
 	public float[] trimE2(){
@@ -1795,14 +1818,14 @@ public class Parser {
 	public int forceTrimModulo=-1;
 	/** Force trimming of bases from left end (-1 to disable) */
 	public int forceTrimLeft=-1;
-	/** Force trimming of bases from right end (-1 to disable) */
+	/** Rightmost base coordinate to retain, inclusive; negative means unset. */
 	public int forceTrimRight=-1;
-	/** Force trimming of bases from right end of read 2 (-1 to disable) */
+	/** Number of bases to remove from the right end of each read; negative means unset. */
 	public int forceTrimRight2=-1;
 	/** Genome build number for coordinate system */
 	public int build=1;
 
-	/** Maximum number of reads to process (-1 for unlimited) */
+	/** Input limit forwarded to the reader; normally counts fragments (pairs count once), negative for unlimited. */
 	public long maxReads=-1;
 	/** Fraction of reads to randomly sample (1.0 for all reads) */
 	public float samplerate=1f;
@@ -1813,7 +1836,7 @@ public class Parser {
 	public boolean qtrimLeft=false;
 	/** Enable quality trimming from right end of reads */
 	public boolean qtrimRight=false;
-	/** Enable adapter clipping during trimming */
+	/** Trim alignment-clipped ends when supported by the caller's trimming path. */
 	public boolean trimClip=false;
 	/** Minimum poly-A tail length to trim (0 to disable) */
 	public int trimPolyA=0;
@@ -1841,7 +1864,7 @@ public class Parser {
 
 	/** Quality threshold for trimming (Phred score) */
 	public float trimq=6;
-	/** Position-specific quality thresholds for trimming */
+	/** Optional threshold sequence; BBMerge uses it for successive trimming attempts. */
 	public float[] trimq2=null;
 	/** Minimum average quality score to retain read */
 	public float minAvgQuality=0;
@@ -1862,7 +1885,7 @@ public class Parser {
 	public int minReadLength=0;
 	/** Maximum read length allowed (-1 for unlimited) */
 	public int maxReadLength=-1;
-	/** Minimum length after trimming (-1 to use minReadLength) */
+	/** Caller-specific minimum trimmed length; negative means unset. */
 	public int minTrimLength=-1;
 	/** Minimum length as fraction of original read length */
 	public float minLenFraction=0;
@@ -1873,7 +1896,7 @@ public class Parser {
 	/** Use combined pair GC content for filtering rather than individual reads */
 	public boolean usePairGC=true;
 //	public boolean filterGC=false;
-	/** Restore original read length by padding with Ns */
+	/** Request restoration from saved trimming data in callers that support untrimming. */
 	public boolean untrim=false;
 	/** Discard reads flagged as junk by quality checks */
 	public boolean tossJunk=false;
@@ -1903,9 +1926,9 @@ public class Parser {
 	
 	/** Length threshold for breaking long reads into fragments */
 	public int breakLength=0;
-	/** Toss pair only if both reads are shorter than limit */
+	/** Request pair rejection only when both mates fail the applicable caller filter. */
 	public boolean requireBothBad=false;
-	/** Trim sequences identified as adapters or contaminants */
+	/** Request the caller's bad-sequence trimming, where supported. */
 	public boolean trimBadSequence=false;
 	/** Apply Illumina chastity filtering to remove low-quality reads */
 	public boolean chastityFilter=false;
@@ -1924,10 +1947,10 @@ public class Parser {
 	
 	/** Permission to append to existing files */
 	public boolean append=false;
-	/** Test and report file sizes without processing */
+	/** Request file-size-based throughput reporting in callers that implement it. */
 	public boolean testsize=false;
 	
-	/** Whether input file interleaving was explicitly set */
+	/** Whether an explicit interleaving choice/override was recorded; bare auto does not set this. */
 	public boolean setInterleaved=false;
 	
 	/** Primary input file path */
@@ -1962,9 +1985,14 @@ public class Parser {
 	/** K-mer length for sequence analysis */
 	public int k=31;
 
-	public int workers() {return workers<1 ? Shared.threads() : workers;}
+	/** Returns the explicit worker count, or the current global thread count when unset.
+	 * @return Effective worker count */
+	public int workers(){return workers<1 ? Shared.threads() : workers;}
+	/** Requested worker count; values below one defer to Shared.threads(). */
 	public int workers=-1;
+	/** Requested input thread count; negative leaves selection to the caller/factory. */
 	public int threadsIn=-1;
+	/** Requested output thread count; negative leaves selection to the caller/factory. */
 	public int threadsOut=-1;
 	
 	/*--------------------------------------------------------------*/
@@ -1985,8 +2013,9 @@ public class Parser {
 	/** Whether quality parameters have been parsed */
 	private static boolean parsedQuality=false;
 	
-	/** Sets the quality score ASCII offset for both input and output.
-	 * @param x The ASCII offset value (-1 for auto-detection) */
+	/** Stores the input offset only, preserving the previously stored output offset.
+	 * Marks quality settings pending when x is nonnegative; does not apply them to FASTQ.
+	 * @param x Input offset narrowed to byte; a negative value disables pending application */
 	public static void setQuality(int x){
 		qin=(byte)x;
 		parsedQuality=(x>-1);
@@ -2015,9 +2044,9 @@ public class Parser {
 	/**
 	 * Validates multiple file formats for standard input/output compatibility.
 	 * @param ffa Array of FileFormat objects to validate
-	 * @return true if all formats are valid for stdio, false otherwise
+	 * @return true; invalid descriptors are reported by assertions when enabled
 	 */
-	public boolean validateStdio(FileFormat... ffa) {
+	public boolean validateStdio(FileFormat... ffa){
 		boolean b=true;
 		for(FileFormat ff:ffa){
 			b=validateStdio(ff)&b;
@@ -2029,9 +2058,9 @@ public class Parser {
 	 * Validates a file format for standard input/output compatibility.
 	 * Checks that required format information is available when using stdin/stdout.
 	 * @param ff The FileFormat to validate
-	 * @return true if the format is valid for stdio, false otherwise
+	 * @return true, including null/non-stdio descriptors; failures are assertions, not false returns
 	 */
-	public boolean validateStdio(FileFormat ff) {
+	public boolean validateStdio(FileFormat ff){
 		if(ff==null || !ff.stdio()){return true;}
 		if(ff.fastq() && ff.stdin()){
 			assert(setInterleaved) : "\nERROR: When piping fastq data from stdin, interleaving must be explicitly stated\n"

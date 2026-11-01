@@ -13,62 +13,69 @@ import structures.IntList;
  * Each position in the parsing sequence uses a different delimiter character,
  * allowing flexible parsing of structured data with varying separators.
  *
+ * <p>Indexes UTF-16 fields using one delimiter per boundary, then NUL after the
+ * configured sequence is exhausted. Empty fields are retained. maxTerm is an
+ * inclusive existing field index. reset() does nothing, including preserving
+ * selected bounds. Input strings are retained; instances are not thread-safe.
+ *
  * @author Brian Bushnell
  * @date May 24, 2023
  */
-public final class LineParserS4 implements LineParserS {
-	
+public final class LineParserS4 implements LineParserS{
+
 	/*--------------------------------------------------------------*/
 	/*----------------             Main             ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	//For testing
 	//Syntax: LineParser fname/literal delimiter 
-	public static void main(String[] args) {
+	/** Demonstrates parsing a file or literal input with the supplied delimiter. */
+	public static void main(String[] args){
 		assert(args.length==2);
 		String fname=args[0];
 		String dstring=args[1];
 //		assert(dstring.length()==1);
-		
+
 		final String[] lines;
 		if(new File(fname).exists()){
 			lines=TextFile.toStringLines(fname);
 		}else{
 			lines=new String[] {fname};
 		}
-		
+
 		LineParserS lp=new LineParserS4(dstring);
-		for(String line : lines) {
+		for(String line : lines){
 			lp.set(line);
 			System.out.println(lp);
 		}
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------         Constructors         ----------------*/
 	/*--------------------------------------------------------------*/
 
-	public LineParserS4(String delimiters_) {
+	/** Creates a parser with an ordered UTF-16 delimiter sequence. */
+	public LineParserS4(String delimiters_){
 		delimiters=delimiters_;
 		maxDPos=delimiters.length()-1;
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
 	@Override
-	public LineParserS4 set(byte[] line_) {
+	public LineParserS4 set(byte[] line_){
 		assert(false) : "Use byte version.";
 		return set(new String(line_));
 	}
 
 	@Override
-	public LineParserS4 set(byte[] line_, int maxTerm) {
+	public LineParserS4 set(byte[] line_, int maxTerm){
 		assert(false) : "Use byte version.";
 		return set(new String(line_), maxTerm);
 	}
-	
+
 	/**
 	 * Sets the line to parse and identifies all field boundaries.
 	 * Uses the ordered delimiter sequence to separate fields, advancing through
@@ -78,118 +85,120 @@ public final class LineParserS4 implements LineParserS {
 	 * @return This parser instance for method chaining
 	 */
 	@Override
-	public LineParserS4 set(String line_) {
+	public LineParserS4 set(String line_){
 		clear();
 		line=line_;
-		for(int len=advance(); b<line.length(); len=advance()) {
+		for(int len=advance(); b<line.length(); len=advance()){
 			bounds.add(b);
 		}
 		bounds.add(b);
 		return this;
 	}
-	
+
 	/**
 	 * Sets the line to parse with a maximum number of terms.
 	 * Parses only up to the specified number of terms using ordered delimiters.
 	 *
 	 * @param line_ String containing the line to parse
-	 * @param maxTerm Maximum number of terms to parse
+	 * @param maxTerm Inclusive last existing field index to parse
 	 * @return This parser instance for method chaining
 	 */
 	@Override
-	public LineParserS4 set(String line_, int maxTerm) {
+	public LineParserS4 set(String line_, int maxTerm){
 		clear();
 		line=line_;
 		//TODO: test performance of presumably safer loop below
 //		for(int term=0; term<=maxTerm && b<line.length(); term++) {
-		for(int term=0; term<=maxTerm; term++) {
+		for(int term=0; term<=maxTerm; term++){
 			int len=advance();
 			bounds.add(b);
 		}
 		return this;
 	}
-	
+
 	/**
 	 * Clears the parser state and resets all internal variables.
 	 * Resets delimiter position, line reference, bounds, and indices.
 	 * @return This parser instance for method chaining
 	 */
 	@Override
-	public LineParserS4 clear() {
+	public LineParserS4 clear(){
 		delimiterPos=0;
 		line=null;
 		a=b=-1;
 		bounds.clear();
 		return this;
 	}
-	
+
 	/**
 	 * Resets the parser for reuse.
-	 * This implementation does nothing as the parser maintains no state to reset.
+	 * This indexed implementation deliberately retains both its index and selected bounds.
 	 * @return This parser instance for method chaining
 	 */
 	@Override
-	public LineParserS4 reset() {
+	public LineParserS4 reset(){
 		//Does nothing for this class
 		return this;
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------         Parse Methods        ----------------*/
 	/*--------------------------------------------------------------*/
-	
-	public int terms() {return bounds.size();}
-	
+
+	/** Number of indexed fields, including empty fields. */
+	public int terms(){return bounds.size();}
+
 	/**
 	 * Parses the specified term as an integer.
 	 * @param term Zero-based term index
 	 * @return Integer value of the term
 	 */
 	@Override
-	public int parseInt(int term) {
+	public int parseInt(int term){
 		setBounds(term);
 		return Parse.parseInt(line, a, b);
 	}
-	
-	public int parseInt(int term, int from, int to) {
+
+	/** Parses a half-open range relative to the selected field start. The upper bound is clipped to the LINE end, not field end; callers must supply the intended span. */
+	public int parseInt(int term, int from, int to){
 		setBounds(term);
 		return Parse.parseInt(line, a+from, Tools.min(line.length(), a+to));
 //		return Parse.parseInt(line, a+from, Tools.min(b, a+to));
 	}
-	
+
 	/**
 	 * Parses the specified term as a long integer.
 	 * @param term Zero-based term index
 	 * @return Long value of the term
 	 */
 	@Override
-	public long parseLong(int term) {
+	public long parseLong(int term){
 		setBounds(term);
 		return Parse.parseLong(line, a, b);
 	}
-	
+
 	@Override
-	public float parseFloat(int term) {
+	public float parseFloat(int term){
 		setBounds(term);
 		return Parse.parseFloat(line, a, b);
 	}
-	
+
 	/**
 	 * Parses the specified term as a double.
 	 * @param term Zero-based term index
 	 * @return Double value of the term
 	 */
 	@Override
-	public double parseDouble(int term) {
+	public double parseDouble(int term){
 		setBounds(term);
 		return Parse.parseDouble(line, a, b);
 	}
-	
+
 	@Override
-	public byte parseByte(int term, int offset) {
+	public byte parseByte(int term, int offset){
 		return (byte)parseChar(term, offset);
 	}
-	
+
 	/**
 	 * Parses a single character from the specified term at the given offset.
 	 * @param term Zero-based term index
@@ -197,13 +206,13 @@ public final class LineParserS4 implements LineParserS {
 	 * @return Character at the specified position
 	 */
 	@Override
-	public char parseChar(int term, int offset) {
+	public char parseChar(int term, int offset){
 		setBounds(term);
 		final int index=a+offset;
 		assert(index<b);
 		return line.charAt(index);
 	}
-	
+
 	/**
 	 * Parses the specified term as a byte array.
 	 * Each character in the term is converted to its byte representation.
@@ -211,33 +220,33 @@ public final class LineParserS4 implements LineParserS {
 	 * @return Byte array representation of the term
 	 */
 	@Override
-	public byte[] parseByteArray(int term) {
+	public byte[] parseByteArray(int term){
 		final int len=setBounds(term);
 		byte[] ret=new byte[len];
-		for(int i=0; i<len; i++) {ret[i]=(byte)line.charAt(a+i);}
+		for(int i=0; i<len; i++){ret[i]=(byte)line.charAt(a+i);}
 		return ret;
 	}
-	
+
 	/**
 	 * Parses the current field as a byte array.
 	 * Uses the currently set field boundaries (a and b indices).
 	 * @return Byte array representation of the current field
 	 */
 	@Override
-	public byte[] parseByteArrayFromCurrentField() {
+	public byte[] parseByteArrayFromCurrentField(){
 		int len=b-a;
 		byte[] ret=new byte[len];
-		for(int i=0; i<len; i++) {ret[i]=(byte)line.charAt(a+i);}
+		for(int i=0; i<len; i++){ret[i]=(byte)line.charAt(a+i);}
 		return ret;
 	}
-	
+
 	/**
 	 * Parses the specified term as a String.
 	 * @param term Zero-based term index
 	 * @return String value of the term
 	 */
 	@Override
-	public String parseString(int term) {
+	public String parseString(int term){
 		final int len=setBounds(term);
 		return line.substring(a, b);
 	}
@@ -251,68 +260,68 @@ public final class LineParserS4 implements LineParserS {
 	 * @return The ByteBuilder for method chaining
 	 */
 	@Override
-	public ByteBuilder appendTerm(ByteBuilder bb, int term) {
+	public ByteBuilder appendTerm(ByteBuilder bb, int term){
 		final int len=setBounds(term);
-		for(int i=a; i<b; i++) {bb.append(line.charAt(i));}
+		for(int i=a; i<b; i++){bb.append(line.charAt(i));}
 		return bb;
 	}
-	
+
 	/*--------------------------------------------------------------*/
-	
+
 	/**
 	 * Parses the current field as an integer.
 	 * Uses the currently set field boundaries (a and b indices).
 	 * @return Integer value of the current field
 	 */
 	@Override
-	public int parseIntFromCurrentField() {
+	public int parseIntFromCurrentField(){
 		return Parse.parseInt(line, a, b);
 	}
-	
+
 	/**
 	 * Parses the current field as a String.
 	 * Uses the currently set field boundaries (a and b indices).
 	 * @return String value of the current field
 	 */
 	@Override
-	public String parseStringFromCurrentField() {
+	public String parseStringFromCurrentField(){
 		return line.substring(a, b);
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------         Query Methods        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
 	 * Tests if the current line starts with the specified string.
 	 * @param s String to test for
 	 * @return true if the line starts with the string, false otherwise
 	 */
 	@Override
-	public boolean startsWith(String s) {
+	public boolean startsWith(String s){
 		return line.startsWith(s);
 	}
-	
+
 	/**
 	 * Tests if the current line starts with the specified character.
 	 * @param c Character to test for
 	 * @return true if the line starts with the character, false otherwise
 	 */
 	@Override
-	public boolean startsWith(char c) {
+	public boolean startsWith(char c){
 		return Tools.startsWith(line, c);
 	}
-	
+
 	/**
 	 * Tests if the current line starts with the specified byte.
 	 * @param b Byte to test for
 	 * @return true if the line starts with the byte, false otherwise
 	 */
 	@Override
-	public boolean startsWith(byte b) {
+	public boolean startsWith(byte b){
 		return Tools.startsWith(line, b);
 	}
-	
+
 	/**
 	 * Tests if the specified term starts with the given string.
 	 * @param s String to test for
@@ -320,16 +329,16 @@ public final class LineParserS4 implements LineParserS {
 	 * @return true if the term starts with the string, false otherwise
 	 */
 	@Override
-	public boolean termStartsWith(String s, int term) {
+	public boolean termStartsWith(String s, int term){
 		final int len=setBounds(term);
-		if(len<s.length()) {return false;}
-		for(int i=0; i<s.length(); i++) {
+		if(len<s.length()){return false;}
+		for(int i=0; i<s.length(); i++){
 			char c=s.charAt(i);
-			if(c!=line.charAt(a+i)) {return false;}
+			if(c!=line.charAt(a+i)){return false;}
 		}
 		return true;
 	}
-	
+
 	/**
 	 * Tests if the specified term equals the given string.
 	 * @param s String to compare against
@@ -337,16 +346,16 @@ public final class LineParserS4 implements LineParserS {
 	 * @return true if the term equals the string, false otherwise
 	 */
 	@Override
-	public boolean termEquals(String s, int term) {
+	public boolean termEquals(String s, int term){
 		final int len=setBounds(term);
-		if(len!=s.length()) {return false;}
-		for(int i=0; i<s.length(); i++) {
+		if(len!=s.length()){return false;}
+		for(int i=0; i<s.length(); i++){
 			char c=s.charAt(i);
-			if(c!=line.charAt(a+i)) {return false;}
+			if(c!=line.charAt(a+i)){return false;}
 		}
 		return true;
 	}
-	
+
 	/**
 	 * Tests if the specified term equals the given character.
 	 * @param c Character to compare against
@@ -354,11 +363,11 @@ public final class LineParserS4 implements LineParserS {
 	 * @return true if the term equals the character, false otherwise
 	 */
 	@Override
-	public boolean termEquals(char c, int term) {
+	public boolean termEquals(char c, int term){
 		final int len=setBounds(term);
 		return len==1 && line.charAt(a)==c;
 	}
-	
+
 	/**
 	 * Tests if the specified term equals the given byte.
 	 * @param c Byte to compare against
@@ -366,22 +375,22 @@ public final class LineParserS4 implements LineParserS {
 	 * @return true if the term equals the byte, false otherwise
 	 */
 	@Override
-	public boolean termEquals(byte c, int term) {
+	public boolean termEquals(byte c, int term){
 		final int len=setBounds(term);
 		return len==1 && line.charAt(a)==c;
 	}
-	
+
 	/**
 	 * Increments the start boundary (a) by the specified amount.
 	 * @param amt Amount to increment
 	 * @return New length of the current field (b-a)
 	 */
 	@Override
-	public int incrementA(int amt) {
+	public int incrementA(int amt){
 		a+=amt;
 		return b-a;
 	}
-	
+
 	/**
 	 * Increments the end position (right bound b) of the current field by the specified amount,
 	 * growing (or with negative amt, shrinking) the current field on the right.
@@ -389,7 +398,7 @@ public final class LineParserS4 implements LineParserS {
 	 * @return New length of the current field (b-a)
 	 */
 	@Override
-	public int incrementB(int amt) {
+	public int incrementB(int amt){
 		b+=amt;
 		return b-a;
 	}
@@ -400,45 +409,45 @@ public final class LineParserS4 implements LineParserS {
 	 * @return Length of the term in characters
 	 */
 	@Override
-	public int length(int term) {
+	public int length(int term){
 		return setBounds(term);
 	}
 
 	/** Returns the length of the current field (b-a) */
 	@Override
-	public int currentFieldLength() {
+	public int currentFieldLength(){
 		return b-a;
 	}
 
 	/** Tests if there are more characters to parse in the line.
 	 * @return true if the end boundary is before the line end, false otherwise */
 	@Override
-	public boolean hasMore() {
+	public boolean hasMore(){
 		return b<line.length();
 	}
 
 	/** Returns the total length of the current line */
 	@Override
-	public int lineLength() {
+	public int lineLength(){
 		return line.length();
 	}
 
 	/** Returns the current line being parsed */
 	@Override
-	public String line() {return line;}
-	
+	public String line(){return line;}
+
 	/** Returns the start boundary index of the current field */
 	@Override
-	public int a() {return a;}
-	
+	public int a(){return a;}
+
 	/** Returns the end boundary index of the current field */
 	@Override
-	public int b() {return b;}
-	
+	public int b(){return b;}
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Private Methods       ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
 	 * Sets the field boundaries (a and b) for the specified term.
 	 * Updates internal state to point to the requested term's boundaries.
@@ -451,8 +460,9 @@ public final class LineParserS4 implements LineParserS {
 		b=bounds.get(term);
 		return b-a;
 	}
-	
-	private int advance() {
+
+	/** Scans the next configured separator (NUL after the sequence), updating traversal bounds. */
+	private int advance(){
 		char delimiter=(delimiterPos<delimiters.length() ? delimiters.charAt(delimiterPos) : 0);
 		delimiterPos++;
 		b++;
@@ -460,18 +470,18 @@ public final class LineParserS4 implements LineParserS {
 		while(b<line.length() && delimiter!=line.charAt(b)){b++;}
 		return b-a;
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------            Methods           ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/** Returns a string representation of all parsed terms.
 	 * @return String representation as a list of terms */
 	@Override
-	public String toString() {
+	public String toString(){
 		return toList().toString();
 	}
-	
+
 	/** Converts all parsed terms to an ArrayList of strings.
 	 * @return ArrayList containing all terms as strings */
 	@Override
@@ -482,19 +492,26 @@ public final class LineParserS4 implements LineParserS {
 		}
 		return list;
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
+	/** Exclusive field ends, reused across lines; the final stored end is normally the line length. */
 	private final IntList bounds=new IntList();
-	
+
+	/** Start of the current field in native line units, inclusive; -1 before initialization. */
 	private int a=-1;
+	/** End of the current field in native line units, exclusive; -1 before initialization. */
 	private int b=-1;
+	/** Retained input string; null after clear and before set. */
 	private String line;
-	
+
+	/** Ordered delimiter sequence; stored reversed only in the reverse parser. */
 	public final String delimiters;
+	/** Historical last delimiter index; retained for layout/history, currently unused. */
 	private final int maxDPos;
+	/** Next separator in the ordered sequence; reset to zero by clear. */
 	private int delimiterPos=0;
-	
+
 }
