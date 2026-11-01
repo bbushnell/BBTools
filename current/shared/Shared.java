@@ -27,9 +27,9 @@ import simd.Vector;
  * @author Brian Bushnell
  * @contributor Isla
  * @date December 2010
- * @AI friendly
+ * AI-friendly.
  */
-public class Shared {
+public class Shared{
 
 	/*--------------------------------------------------------------*/
 	/*----------------      Configuration Data      ----------------*/
@@ -132,7 +132,7 @@ public class Shared {
 	public static boolean SIMD_FMA=true;
 	/** SIMD for NN feed-forward (inference + training). The SIMD reduction (true-FMA + tree-reduce) is more accurate
 	 * but cannot bit-match the scalar dot product, so a trained net scores slightly differently across regimes.
-	 * Validated harmless 2026-06-20: across scalar/fma/ff the giab net9b CROSSOVER differs by <=1 FP+FN over 35 nets,
+	 * Validated harmless 2026-06-20: across scalar/fma/ff the giab net9b CROSSOVER differs by at most 1 FP+FN over 35 nets,
 	 * and training quality is statistically equivalent. Default ON post-validation. Toggle with simdff=; ANDed with
 	 * the live Shared.SIMD and the per-job simdFF flag at each call site; recorded in the bbnet header. */
 	//NOTE (Brian, 2026-07): SIMD_FEED_FORWARD was validated safe AND accurate whenever SIMD is enabled, so it no longer needs to
@@ -143,7 +143,7 @@ public class Shared {
 	 * ~1.6x faster training -> more random starts -> better best-of-sweep net. Gated with the live SIMD flag at each
 	 * call site, so simd=f disables it too. NOTE: do NOT initialize this from SIMD — SIMD is mutated by a runtime
 	 * simd=f after class-load, which a static capture would miss; keep this an independent default and AND it with
-	 * live Shared.SIMD at the site. Recorded (effective value = SIMD && SIMD_BACKPROP) in the bbnet header. */
+	 * live Shared.SIMD at the site. Recorded as effective value = SIMD and SIMD_BACKPROP in the bbnet header. */
 	public static boolean SIMD_BACKPROP=true;
 
 	// Memory management
@@ -302,7 +302,8 @@ public class Shared {
 		Map<String, String> map=System.getenv();
 		String v=map.get(key);
 		if(value==null || v==null){return v==value;}
-		//FIXED [shared/Shared#001]: loose match previously lowercased only the needle (value), not the haystack (v), making it case-SENSITIVE on the env value despite the "case-insensitive" javadoc - so "Windows_NT".contains("win")==false caused WINDOWS to mis-detect as false on native Windows.  Now folds both sides.
+		//FIXED [shared/Shared#001]: loose match must fold both sides to be
+		//case-insensitive for values such as "Windows_NT".
 		return loose ? v.toLowerCase().contains(value.toLowerCase()) : value.equalsIgnoreCase(v);
 	}
 
@@ -322,14 +323,14 @@ public class Shared {
 	 */
 	public static String HOSTNAME(){
 		if(HOSTNAME==null){
-			try {
-				java.net.InetAddress localMachine = java.net.InetAddress.getLocalHost();
+			try{
+				java.net.InetAddress localMachine=java.net.InetAddress.getLocalHost();
 				HOSTNAME=localMachine.getHostName();
-			} catch (UnknownHostException e) {
+			}catch(UnknownHostException e){
 				HOSTNAME="unknown";
-			} catch (NullPointerException e) {
+			}catch(NullPointerException e){
 				HOSTNAME="unknown";
-			} catch (Throwable e) {
+			}catch(Throwable e){
 				HOSTNAME="unknown";
 			}
 		}
@@ -345,7 +346,7 @@ public class Shared {
 	 * @param t Maximum number of threads allowed
 	 * @return Previous thread count
 	 */
-	public static int capThreads(int t) {
+	public static int capThreads(int t){
 		assert(THREADS>0) : THREADS;
 		final int old=THREADS;
 		THREADS=Tools.mid(1, t, old);
@@ -377,7 +378,7 @@ public class Shared {
 	}
 
 	/**
-	 * Sets the number of threads to use for processing.
+	 * Sets the number of threads to use for processing and refreshes buffer counts.
 	 * @param x Number of threads, or negative for automatic detection
 	 * @return New thread count
 	 */
@@ -406,26 +407,26 @@ public class Shared {
 	public static int CALC_LOGICAL_PROCESSORS(){
 		final int procs=Tools.max(1, Runtime.getRuntime().availableProcessors());
 		int slots=procs;
-		if(PERLMUTTER && LOGIN) {slots=Tools.min(slots, 64);}
+		if(PERLMUTTER && LOGIN){slots=Tools.min(slots, 64);}
 		Map<String,String> env=System.getenv();
 		String s=env.get("NSLOTS");
 		boolean success=false;
 		if(s!=null){
 			int x=slots;
-			try {
+			try{
 				x=Tools.max(1, Integer.parseInt(s));
 				success=true;
-			} catch (NumberFormatException e) {}
+			}catch(NumberFormatException e){}
 			if(x<=16){slots=x;}
 		}
 		if(!success){
 			s=env.get("SLURM_CPUS_ON_NODE");
 			if(s!=null){
 				int x=slots;
-				try {
+				try{
 					x=Tools.max(1, Integer.parseInt(s));
 					success=true;
-				} catch (NumberFormatException e) {}
+				}catch(NumberFormatException e){}
 				slots=x;
 			}
 		}
@@ -449,7 +450,7 @@ public class Shared {
 	 * Gets the current number of read buffers.
 	 * @return Number of read buffers
 	 */
-	public static int READ_BUFFER_NUM_BUFFERS() {return READ_BUFFER_NUM_BUFFERS;}
+	public static int READ_BUFFER_NUM_BUFFERS(){return READ_BUFFER_NUM_BUFFERS;}
 
 	/**
 	 * Sets the buffer count based on current thread count.
@@ -479,16 +480,16 @@ public class Shared {
 	}
 
 	/** Gets the number of read buffers. @return Buffer count */
-	public static int numBuffers() {return READ_BUFFER_NUM_BUFFERS;}
+	public static int numBuffers(){return READ_BUFFER_NUM_BUFFERS;}
 
 	/** Gets the read buffer length. @return Buffer length */
-	public static int bufferLen() {return READ_BUFFER_LENGTH;}
+	public static int bufferLen(){return READ_BUFFER_LENGTH;}
 
 	/** Gets the maximum buffer data size. @return Maximum buffer data */
-	public static int bufferData() {return READ_BUFFER_MAX_DATA;}
+	public static int bufferData(){return READ_BUFFER_MAX_DATA;}
 
 	/** Gets the maximum buffer data size. @return Maximum buffer data */
-	public static int bufferSize() {return READ_BUFFER_MAX_DATA;}
+	public static int bufferSize(){return READ_BUFFER_MAX_DATA;}
 
 	/**
 	 * Caps the buffer length to a maximum value.
@@ -523,8 +524,8 @@ public class Shared {
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Calculates the ratio of initial heap size to maximum heap size.
-	 * @return Ratio of -Xms to -Xmx parameters
+	 * Calculates the current committed-heap to maximum-heap ratio.
+	 * @return Ratio of Runtime totalMemory to maxMemory
 	 */
 	public static final double xmsRatio(){
 		Runtime rt=Runtime.getRuntime();
@@ -547,13 +548,13 @@ public class Shared {
 	}
 
 	/** Gets total memory available to JVM. @return Maximum memory in bytes */
-	public static long memTotal() {return Runtime.getRuntime().maxMemory();}
+	public static long memTotal(){return Runtime.getRuntime().maxMemory();}
 
 	/** Gets currently free memory. @return Free memory in bytes */
-	public static long memFree() {return Runtime.getRuntime().freeMemory();}
+	public static long memFree(){return Runtime.getRuntime().freeMemory();}
 
 	/** Gets available memory (max - total + free). @return Available memory in bytes */
-	public static long memAvailable() {return Runtime.getRuntime().maxMemory()-Runtime.getRuntime().totalMemory()+Runtime.getRuntime().freeMemory();}
+	public static long memAvailable(){return Runtime.getRuntime().maxMemory()-Runtime.getRuntime().totalMemory()+Runtime.getRuntime().freeMemory();}
 
 	/**
 	 * Advanced memory availability calculation for preallocation.
@@ -571,8 +572,8 @@ public class Shared {
 		return (long)availableMemory;
 	}
 
-	/** Gets used memory (max - free). @return Used memory in bytes */
-	public static long memUsed() {return Runtime.getRuntime().maxMemory()-Runtime.getRuntime().freeMemory();}
+	/** Gets maxMemory minus freeMemory, including uncommitted capacity. @return max - free memory in bytes */
+	public static long memUsed(){return Runtime.getRuntime().maxMemory()-Runtime.getRuntime().freeMemory();}
 
 	/**
 	 * Prints current memory usage statistics to stderr.
@@ -602,65 +603,69 @@ public class Shared {
 	/*----------------       Utility Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	public static <T> void shuffle(ArrayList<T> list, Random randy) {
-		// Start from the end and swap with a random position 
-		// between 0 and the current position (inclusive).
-		for (int i=list.size(); i>1; i--) {
-			// Pick a random index from 0 to i-1
-			int x=randy.nextInt(i); 
+	/** Shuffles {@code list} in place using a Fisher-Yates pass and the supplied random source.
+	 * @param list List to shuffle
+	 * @param randy Random source
+	 */
+	public static <T> void shuffle(ArrayList<T> list, Random randy){
+		//Start from the end and swap with a random position
+		//between 0 and the current position, inclusive.
+		for(int i=list.size(); i>1; i--){
+			//Pick a random index from 0 to i-1.
+			int x=randy.nextInt(i);
 
-			// Fast swap (manually inlined)
-			// Swap element at (i-1) with element at x
+			//Fast swap, manually inlined: swap element i-1 with element x.
 			T temp=list.get(i-1);
 			list.set(i-1, list.get(x));
 			list.set(x, temp);
 		}
 	}
 
-	/** Gets thread-local random number generator. @return Random instance */
-	public static final Random random() {return threadLocalRandom(-1);}
+	/** Creates a new random number generator. @return Random instance */
+	public static final Random random(){return threadLocalRandom(-1);}
 
-	/** Gets thread-local random number generator. @return Random instance */
-	public static final Random random(long seed) {return threadLocalRandom(seed);}
+	/** Creates a new random number generator. @return Random instance */
+	public static final Random random(long seed){return threadLocalRandom(seed);}
 
-	/** Gets thread-local random number generator. @return Random instance */
-	public static final Random threadLocalRandom() {return threadLocalRandom(-1);}
+	/** Creates a new random number generator. @return Random instance */
+	public static final Random threadLocalRandom(){return threadLocalRandom(-1);}
 
 	/**
-	 * Gets thread-local random number generator with optional seed.
+	 * Creates a new FastRandomXoshiro with optional seed.
 	 * @param seed Random seed, or negative for default
 	 * @return Random instance
 	 */
-	public static final Random threadLocalRandom(long seed) {return new FastRandomXoshiro(seed);}
+	public static final Random threadLocalRandom(long seed){return new FastRandomXoshiro(seed);}
 
 	/** Gets JVM input arguments. @return List of JVM arguments */
-	public static List<String> JVM_ARGS() {return ManagementFactory.getRuntimeMXBean().getInputArguments();}
+	public static List<String> JVM_ARGS(){return ManagementFactory.getRuntimeMXBean().getInputArguments();}
 
-	/** Gets full command line with all options. @return Complete command line */
-	public static String fullCommandline() {return fullCommandline(true, true);}
+	/** Reconstructs the command line without shell quoting. @return Complete command line */
+	public static String fullCommandline(){return fullCommandline(true, true);}
 
-	/** Gets full command line with optional classpath. @return Command line string */
-	public static String fullCommandline(boolean includeCP) {return fullCommandline(includeCP, true);}
+	/** Reconstructs the command line without shell quoting. @return Command line string */
+	public static String fullCommandline(boolean includeCP){return fullCommandline(includeCP, true);}
 
 	/**
-	 * Constructs the full command line used to launch this application.
+	 * Reconstructs the launch command from initialized mainClass and COMMAND_LINE.
+	 * Appends arguments verbatim, without shell quoting.
 	 * @param includeCP Whether to include classpath in output
 	 * @param includeArgs Whether to include JVM arguments
 	 * @return Complete command line string
 	 */
 	public static String fullCommandline(boolean includeCP, boolean includeArgs){
 		StringBuilder sb=new StringBuilder();
-		if(includeArgs) {
+		if(includeArgs){
 			sb.append("java ");
-			for(String s : JVM_ARGS()) {
+			for(String s : JVM_ARGS()){
 				sb.append(s).append(' ');
 			}
 		}
-		if(includeCP) {
+		if(includeCP){
 			sb.append("-cp "+System.getProperty("java.class.path")+" ");
 		}
 		sb.append(mainClass.getCanonicalName()).append(' ');
-		for(String s : COMMAND_LINE) {
+		for(String s : COMMAND_LINE){
 			sb.append(s).append(' ');
 		}
 		sb.setLength(sb.length()-1);
@@ -679,7 +684,7 @@ public class Shared {
 	}
 
 	/** Gets temporary directory path. @return Temporary directory */
-	public static String tmpdir() {return TMPDIR;}
+	public static String tmpdir(){return TMPDIR;}
 
 	/**
 	 * Sets the temporary directory path.
@@ -711,7 +716,7 @@ public class Shared {
 	}
 
 	/** Gets assertion enablement status. @return True if assertions are enabled */
-	public static boolean EA() {return EA;}
+	public static boolean EA(){return EA;}
 
 	/*--------------------------------------------------------------*/
 	/*----------------        JNI Management        ----------------*/
@@ -719,14 +724,15 @@ public class Shared {
 
 	/**
 	 * Loads default JNI library (bbtoolsjni).
-	 * @return True if library loaded successfully
+	 * @return True if the cached JNI load state is successful
 	 */
-	public static synchronized boolean loadJNI() {return loadJNI("bbtoolsjni");}
+	public static synchronized boolean loadJNI(){return loadJNI("bbtoolsjni");}
 
 	/**
-	 * Loads specified JNI library with fallback mechanisms.
+	 * Loads specified JNI library with fallback mechanisms and caches the first outcome.
+	 * A failed first load prints an error and exits the process.
 	 * @param name Library name to load
-	 * @return True if library loaded successfully
+	 * @return True if the cached JNI load state is successful
 	 */
 	public static synchronized boolean loadJNI(String name){
 		if(loadedJNI<0){
@@ -783,7 +789,7 @@ public class Shared {
 	/*--------------------------------------------------------------*/
 
 	/** Sorts integer array using optimal algorithm. @param array Array to sort */
-	public static final void sort(int[] array) {sort(array, 0, array.length);}
+	public static final void sort(int[] array){sort(array, 0, array.length);}
 
 	/**
 	 * Sorts portion of integer array using parallel or sequential algorithm.
@@ -792,23 +798,21 @@ public class Shared {
 	 * @param to Ending index (exclusive)
 	 */
 	public static final void sort(int[] array, int from, int to){
-		try {
-			//FIXED [shared/Shared#002]: added "|| THREADS<2" (was missing here and in sort(float[])/sort(double[]), though
-			//sort(long[])/sort(T[])/sort(list) had it). Without it, at t=1 with length>parallelSortLength this called
-			//Arrays.parallelSort, which uses the common ForkJoinPool (all cores), NOT Shared.THREADS - oversubscribing a user's
-			//explicit t=1 (e.g. to share a cluster node). Not a correctness issue (result identical); a thread-contract fix.
+		try{
+			//FIXED [shared/Shared#002]: honor explicit t=1 by using Arrays.sort
+			//instead of Arrays.parallelSort's common ForkJoinPool.
 			if(!parallelSort || array.length<=parallelSortLength || THREADS<2){
 				Arrays.sort(array, from, to);
 				return;
 			}
 			Arrays.parallelSort(array, from, to);
-		} catch (OutOfMemoryError e) {
+		}catch(OutOfMemoryError e){
 			KillSwitch.memKill(e);
 		}
 	}
 
 	/** Sorts long array using optimal algorithm. @param array Array to sort */
-	public static final void sort(long[] array) {sort(array, 0, array.length);}
+	public static final void sort(long[] array){sort(array, 0, array.length);}
 
 	/**
 	 * Sorts portion of long array using parallel or sequential algorithm.
@@ -817,19 +821,19 @@ public class Shared {
 	 * @param to Ending index (exclusive)
 	 */
 	public static final void sort(long[] array, int from, int to){
-		try {
+		try{
 			if(!parallelSort || array.length<=parallelSortLength || THREADS<2){
 				Arrays.sort(array, from, to);
 				return;
 			}
 			Arrays.parallelSort(array, from, to);
-		} catch (OutOfMemoryError e) {
+		}catch(OutOfMemoryError e){
 			KillSwitch.memKill(e);
 		}
 	}
 
 	/** Sorts float array using optimal algorithm. @param array Array to sort */
-	public static final void sort(float[] array) {sort(array, 0, array.length);}
+	public static final void sort(float[] array){sort(array, 0, array.length);}
 
 	/**
 	 * Sorts portion of float array using parallel or sequential algorithm.
@@ -838,19 +842,19 @@ public class Shared {
 	 * @param to Ending index (exclusive)
 	 */
 	public static final void sort(float[] array, int from, int to){
-		try {
-			if(!parallelSort || array.length<=parallelSortLength || THREADS<2){//[shared/Shared#002] added || THREADS<2 to honor t=1
+		try{
+			if(!parallelSort || array.length<=parallelSortLength || THREADS<2){
 				Arrays.sort(array, from, to);
 				return;
 			}
 			Arrays.parallelSort(array, from, to);
-		} catch (OutOfMemoryError e) {
+		}catch(OutOfMemoryError e){
 			KillSwitch.memKill(e);
 		}
 	}
 
 	/** Sorts double array using optimal algorithm. @param array Array to sort */
-	public static final void sort(double[] array) {sort(array, 0, array.length);}
+	public static final void sort(double[] array){sort(array, 0, array.length);}
 
 	/**
 	 * Sorts portion of double array using parallel or sequential algorithm.
@@ -859,19 +863,19 @@ public class Shared {
 	 * @param to Ending index (exclusive)
 	 */
 	public static final void sort(double[] array, int from, int to){
-		try {
-			if(!parallelSort || array.length<=parallelSortLength || THREADS<2){//[shared/Shared#002] added || THREADS<2 to honor t=1
+		try{
+			if(!parallelSort || array.length<=parallelSortLength || THREADS<2){
 				Arrays.sort(array, from, to);
 				return;
 			}
 			Arrays.parallelSort(array, from, to);
-		} catch (OutOfMemoryError e) {
+		}catch(OutOfMemoryError e){
 			KillSwitch.memKill(e);
 		}
 	}
 
 	/** Sorts comparable object array using optimal algorithm. @param array Array to sort */
-	public static final <T extends Comparable<? super T>> void sort(T[] array) {sort(array, 0, array.length);}
+	public static final <T extends Comparable<? super T>> void sort(T[] array){sort(array, 0, array.length);}
 
 	/**
 	 * Sorts portion of comparable object array using parallel or sequential algorithm.
@@ -880,19 +884,19 @@ public class Shared {
 	 * @param to Ending index (exclusive)
 	 */
 	public static final <T extends Comparable<? super T>> void sort(T[] array, int from, int to){
-		try {
+		try{
 			if(!parallelSort || array.length<=parallelSortLength || THREADS<2){
 				Arrays.sort(array, from, to);
 				return;
 			}
 			Arrays.parallelSort(array, from, to);
-		} catch (OutOfMemoryError e) {
+		}catch(OutOfMemoryError e){
 			KillSwitch.memKill(e);
 		}
 	}
 
 	/** Sorts object array with comparator using optimal algorithm. @param array Array to sort @param comparator Comparison function */
-	public static final <T extends Comparable<? super T>> void sort(T[] array, Comparator<? super T> comparator) {sort(array, 0, array.length, comparator);}
+	public static final <T extends Comparable<? super T>> void sort(T[] array, Comparator<? super T> comparator){sort(array, 0, array.length, comparator);}
 
 	/**
 	 * Sorts portion of object array with comparator using parallel or sequential algorithm.
@@ -902,13 +906,13 @@ public class Shared {
 	 * @param comparator Comparison function
 	 */
 	public static final <T extends Comparable<? super T>> void sort(T[] array, int from, int to, Comparator<? super T> comparator){
-		try {
+		try{
 			if(!parallelSort || array.length<=parallelSortLength || THREADS<2){
 				Arrays.sort(array, from, to, comparator);
 				return;
 			}
 			Arrays.parallelSort(array, from, to, comparator);
-		} catch (OutOfMemoryError e) {
+		}catch(OutOfMemoryError e){
 			KillSwitch.memKill(e);
 		}
 	}
@@ -918,7 +922,7 @@ public class Shared {
 	 * @param list ArrayList to sort
 	 */
 	public static final <T extends Comparable<? super T>> void sort(ArrayList<T> list){
-		try {
+		try{
 			if(!parallelSort || list.size()<=parallelSortLength || THREADS<2){
 				Collections.sort(list);
 				return;
@@ -930,7 +934,7 @@ public class Shared {
 				Arrays.parallelSort(array);
 				for(T r : array){list.add(r);}
 			}
-		} catch (OutOfMemoryError e) {
+		}catch(OutOfMemoryError e){
 			KillSwitch.memKill(e);
 		}
 	}
@@ -941,7 +945,7 @@ public class Shared {
 	 * @param comparator Comparison function
 	 */
 	public static final <T> void sort(ArrayList<T> list, Comparator<? super T> comparator){
-		try {
+		try{
 			if(!parallelSort){
 				Collections.sort(list, comparator);
 				return;
@@ -957,7 +961,7 @@ public class Shared {
 				Arrays.parallelSort(array, comparator);
 				for(T r : array){list.add(r);}
 			}
-		} catch (OutOfMemoryError e) {
+		}catch(OutOfMemoryError e){
 			KillSwitch.memKill(e);
 		}
 	}
@@ -966,7 +970,7 @@ public class Shared {
 	 * Safely closes PrintStream if it's not stdout or stderr.
 	 * @param outstream PrintStream to close
 	 */
-	public static void closeStream(PrintStream outstream) {
+	public static void closeStream(PrintStream outstream){
 		if(outstream!=null){
 			synchronized(outstream){
 				if(outstream!=System.err && outstream!=System.out){
@@ -996,9 +1000,9 @@ public class Shared {
 	 */
 	private static boolean testParallelSort(){
 		Method m=null;
-		try {
+		try{
 			m=Arrays.class.getMethod("parallelSort", new Class[] {Object[].class, Comparator.class});
-		} catch (Throwable t) {
+		}catch(Throwable t){
 		}
 		return m!=null;
 	}
@@ -1022,43 +1026,49 @@ public class Shared {
 		return Double.parseDouble(sb.toString());
 	}
 
-	/** Gemini version */
-	public static void listThreads() {
-		// Get a map of all active threads and their stack traces
-		Map<Thread, StackTraceElement[]> allThreads = Thread.getAllStackTraces();
+	/** Prints a Thread.getAllStackTraces snapshot of live JVM threads to stderr.
+	 * Gemini version.
+	 */
+	public static void listThreads(){
+		//Get a map of all active threads and their stack traces.
+		Map<Thread, StackTraceElement[]> allThreads=Thread.getAllStackTraces();
 
-		// Get the set of Thread objects (keys of the map)
-		Set<Thread> threadSet = allThreads.keySet();
+		//Get the set of Thread objects, the keys of the map.
+		Set<Thread> threadSet=allThreads.keySet();
 
 		System.err.println("Active Threads in JVM:");
 		System.err.println("----------------------");
 
-		// Iterate over each Thread object and print its details
-		for (Thread t : threadSet) {
-			String name = t.getName();
-			Thread.State state = t.getState();
-			int priority = t.getPriority();
-			String type = t.isDaemon() ? "Daemon" : "Normal";
+		//Iterate over each Thread object and print its details.
+		for(Thread t : threadSet){
+			String name=t.getName();
+			Thread.State state=t.getState();
+			int priority=t.getPriority();
+			String type=t.isDaemon() ? "Daemon" : "Normal";
 
 			System.err.printf("Name: %-20s | State: %-10s | Priority: %d | Type: %s%n",
 				name, state, priority, type);
 		}
 	}
 
-	/** Isla version */
-	public static void listThreads2() {
-		ThreadGroup rootGroup = Thread.currentThread().getThreadGroup();
-		while(rootGroup.getParent() != null) {
-			rootGroup = rootGroup.getParent();
+	/** Prints an approximate ThreadGroup enumeration of live JVM threads to stderr.
+	 * The active count and enumerated list can be truncated or stale if threads race
+	 * with enumeration.
+	 * Isla version.
+	 */
+	public static void listThreads2(){
+		ThreadGroup rootGroup=Thread.currentThread().getThreadGroup();
+		while(rootGroup.getParent()!=null){
+			rootGroup=rootGroup.getParent();
 		}
-		int count = rootGroup.activeCount();
-		Thread[] threads = new Thread[count * 2];
+		int count=rootGroup.activeCount();
+		Thread[] threads=new Thread[count*2];
 		rootGroup.enumerate(threads);
 
-		System.err.println("Active Threads: " + count);
-		for(Thread t : threads) {
-			if(t != null) {
-				System.err.println("  " + t.getName() + " - " + t.getState());
+		System.err.println("Active Threads: "+count);
+		for(Thread t : threads){
+			if(t!=null){
+				System.err.println("  "+t.getName()+" - "+t.getState());
 			}
 		}
 	}

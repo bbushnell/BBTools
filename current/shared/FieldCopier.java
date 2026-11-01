@@ -7,101 +7,107 @@ import java.util.HashSet;
 import java.util.Map;
 
 /**
- * Utility to automatically copy matching fields from a source to a dest.
- * Designed to reduce boilerplate in constructors.
+ * Utility to automatically copy assignable, same-named fields from a source to
+ * a destination.  Designed to reduce boilerplate in constructors.  Object
+ * values are copied shallowly: arrays, lists, and other references are aliased
+ * rather than cloned.
  * 
  * @author Brian Bushnell
  * @contributor Sucrose
  * @date February 8, 2026
  */
-public class FieldCopier {
+public class FieldCopier{
 	
 	/** 
-	 * Copies primitives and Strings from source to dest. 
-	 * Ignores static fields and final fields in dest.
+	 * Copies primitive and String fields from source to destination.  This
+	 * default mode walks superclasses on both objects, skips static and final
+	 * destination fields, ignores object-valued fields, and returns 0 when
+	 * either input is null.
+	 * @param dest Object to receive values
+	 * @param source Object providing values
+	 * @return Number of fields set
 	 */
-	public static int copy(Object dest, Object source) {
+	public static int copy(Object dest, Object source){
 		return copy(dest, source, false, false, true);
 	}
 
 	/**
-	 * Copies values of fields from source to dest where name and type match.
-	 * @param dest The object to receive values
-	 * @param source The object providing values
+	 * Copies fields from source to destination when names match and the
+	 * destination type is assignable from the source type.  Reflection or access
+	 * failures on one field are swallowed, allowing a partial copy.  When
+	 * superclass walking is enabled, duplicate source names assert; with
+	 * assertions disabled, the most-derived source declaration wins.
+	 * @param dest Object to receive values
+	 * @param source Object providing values
 	 * @param includeObjects If true, copies complex Objects (Arrays, Lists, etc). 
 	 * If false, only copies Primitives and Strings.
 	 * @param includeStatics If true, also attempts to copy static fields.
+	 * @param includeSuperclass If true, walks parent classes on both objects.
 	 * @return Number of fields set
 	 */
 	public static int copy(Object dest, Object source, 
-			boolean includeObjects, boolean includeStatics, boolean includeSuperclass) {
-		if(dest==null || source==null) {return 0;}
+			boolean includeObjects, boolean includeStatics, boolean includeSuperclass){
+		if(dest==null || source==null){return 0;}
 		
-		// Map destination fields for O(1) lookup
+		// Map destination fields for O(1) lookup.
 		Map<String, Field> destFields=getAllFields(dest.getClass(), includeSuperclass);
 		Class<?> sourceClass=source.getClass();
 		int matches=0;
 		final HashSet<String> seenSourceNames=new HashSet<String>();//[FieldCopier#001] names already claimed by a more-derived declaration
 
-		while(sourceClass!=null && sourceClass!=Object.class) {
-			Field[] fields=sourceClass.getDeclaredFields();
+		while(sourceClass!=null && sourceClass!=Object.class){
+			final Field[] fields=sourceClass.getDeclaredFields();
 			
-			for(Field srcField : fields) {
-				try {
-					String name=srcField.getName();
-					//FIXED [shared/FieldCopier#001]: use only the most-derived (subclass) declaration of each name, so a SHADOWED field resolves "subclass wins" (consistent with getAllFields' dest-side dedup) and is counted once - previously the source walk re-set the dest field at every level, so the superclass value won and 'matches' double-counted.  NOTE: a shadowed SUPERCLASS field is therefore NOT copied; if BOTH shadowed fields genuinely need copying, this is insufficient.  Shadowed fields are a caller bug, so we also assert none exist (cheap - reuses the set).
+			for(Field srcField : fields){
+				try{
+					final String name=srcField.getName();
 					final boolean fresh=seenSourceNames.add(name);
-					assert(fresh) : "FieldCopier: shadowed field '"+name+"' in "+source.getClass()+" (same name declared at multiple hierarchy levels).";
+					assert(fresh) : "FieldCopier: shadowed field '"+name+"' in "+source.getClass()+
+						" (same name declared at multiple hierarchy levels).";
 					if(!fresh){continue;}
-					int srcMods=srcField.getModifiers();
+					final int srcMods=srcField.getModifiers();
 					
-					// 1. Source Filter: Skip Statics unless requested
-					if(Modifier.isStatic(srcMods) && !includeStatics) {continue;}
+					if(Modifier.isStatic(srcMods) && !includeStatics){continue;}
 					
-					// 2. Source Filter: Skip Complex Objects unless requested
-					Class<?> type=srcField.getType();
-					boolean isPrimOrString=(type.isPrimitive() || type==String.class);
-					if(!isPrimOrString && !includeObjects) {continue;}
+					final Class<?> type=srcField.getType();
+					final boolean isPrimOrString=(type.isPrimitive() || type==String.class);
+					if(!isPrimOrString && !includeObjects){continue;}
 					
-					// 3. Find Destination Field
-					Field destField=destFields.get(name);
-					if(destField==null) {continue;}
+					final Field destField=destFields.get(name);
+					if(destField==null){continue;}
 					
-					// 4. Destination Filter: SAFETY CHECK - Skip Final Fields
-					// We do not want to mess with JIT inlining or Definite Assignment rules.
-					if(Modifier.isFinal(destField.getModifiers())) {continue;}
+					final int destMods=destField.getModifiers();
+					if(Modifier.isFinal(destMods)){continue;}
+					if(Modifier.isStatic(destMods) && !includeStatics){continue;}
 
-					// 5. Compatibility Check
-					if(destField.getType().isAssignableFrom(type)) {
+					if(destField.getType().isAssignableFrom(type)){
+						if(!srcField.isAccessible()){srcField.setAccessible(true);}
+						if(!destField.isAccessible()){destField.setAccessible(true);}
 						
-						// Handle accessibility
-						if(!srcField.isAccessible()) {srcField.setAccessible(true);}
-						if(!destField.isAccessible()) {destField.setAccessible(true);}
-						
-						// The Copy
-						Object val=srcField.get(source);
+						final Object val=srcField.get(source);
 						destField.set(dest, val);
 						matches++;
 					}
-				} catch (Exception e) {
-					// Security exceptions or access violations are ignored
+				}catch(Exception e){
+					// Security exceptions or access violations are ignored.
 				}
 			}
-			sourceClass=sourceClass.getSuperclass();
+			sourceClass=(includeSuperclass ? sourceClass.getSuperclass() : null);
 		}
 		return matches;
 	}
 	
 	/**
-	 * Recursive helper to get all fields up the hierarchy.
+	 * Returns declared fields in a class, optionally walking up the hierarchy.
 	 * Handles shadowing by prioritizing the lowest class in the hierarchy.
+	 * @param clazz Initial class to inspect
+	 * @param recursive True to include ancestor classes
+	 * @return Field map by name
 	 */
 	private static Map<String, Field> getAllFields(Class<?> clazz, boolean recursive){
 		Map<String, Field> map=new HashMap<>();
-		while(clazz!=null && clazz!=Object.class) {
-			for(Field f : clazz.getDeclaredFields()) {
-				// putIfAbsent ensures that if a subclass shadows a field, 
-				// we keep the subclass version (which is usually what we want).
+		while(clazz!=null && clazz!=Object.class){
+			for(Field f : clazz.getDeclaredFields()){
 				map.putIfAbsent(f.getName(), f);
 			}
 			clazz=(recursive ? clazz.getSuperclass() : null);

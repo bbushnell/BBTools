@@ -4,6 +4,7 @@ import java.io.File;
 import java.io.PrintStream;
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.BitSet;
@@ -12,9 +13,6 @@ import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
-import shared.Random;
-import simd.Vector;
-
 import java.util.concurrent.atomic.AtomicIntegerArray;
 import java.util.concurrent.atomic.AtomicLongArray;
 import java.util.regex.Pattern;
@@ -26,6 +24,7 @@ import fileIO.FileFormat;
 import fileIO.ReadWrite;
 import map.IntHashSet;
 import parse.Parse;
+import simd.Vector;
 import stream.Read;
 import stream.ReadInputStream;
 import stream.SamLine;
@@ -42,7 +41,7 @@ import structures.Point;
  * and sequence processing functions used throughout BBTools.
  * @author Brian Bushnell
  */
-public final class Tools {
+public final class Tools{
 	
 	/**
 	 * Test method for weighted average calculations.
@@ -76,7 +75,7 @@ public final class Tools {
 	 * @param args Arguments to substitute into format string
 	 * @return Formatted string using ROOT locale
 	 */
-	public static final String format(String s, Object...args) {
+	public static final String format(String s, Object...args){
 		return String.format(Locale.ROOT, s, args);
 	}
 	
@@ -92,15 +91,22 @@ public final class Tools {
 		return count+" "+(count==1 ? s : s+"s");
 	}
 	
-	/** This function was written by a 2024 AI!  Mostly.  Just modified by me. */
-	public static double[] linearRegression(DoubleList xcoords, DoubleList ycoords) {
+	/** Fits y=intercept+slope*x over the populated x-coordinate prefix.
+	 * Does not mutate either list. Empty or zero-variance inputs have no unique
+	 * finite fit; the arithmetic may return NaN or infinity without rejecting them.
+	 * Historical note by Brian: this function was mostly written by a 2024 AI,
+	 * then modified by him.
+	 * @param xcoords Non-null x coordinates; size determines the sample count
+	 * @param ycoords Non-null y coordinates containing at least xcoords.size values
+	 * @return New two-element array containing intercept, then slope */
+	public static double[] linearRegression(DoubleList xcoords, DoubleList ycoords){
 		int n=xcoords.size;
 		double sumX=0;
 		double sumY=0;
 		double sumXY=0;
 		double sumXX=0;
 
-		for(int i=0; i<n; i++) {
+		for(int i=0; i<n; i++){
 			final double x=xcoords.get(i), y=ycoords.get(i);
 			sumX+=x;
 			sumY+=y;
@@ -114,9 +120,16 @@ public final class Tools {
 		return new double[] {a, b};
 	}
 	
-	/** More like the AI version I requested, but I added the limits. 
-	 * Useful when sorting to exclude outliers. Must be pre-sorted. */
-	public static double[] linearRegression(List<Point> list, double lowFraction, double highFraction) {
+	/** Fits y=intercept+slope*x over a fractional interval of the supplied order.
+	 * Uses indices [round(lowFraction*size),round(highFraction*size)); no sorting
+	 * or mutation occurs. Sort first if the interval is intended to exclude ordered
+	 * outliers. Empty selections or constant x values may yield NaN or infinity.
+	 * Historical note by Brian: based on the requested AI version, with his limits added.
+	 * @param list Non-null list of non-null points in the desired selection order
+	 * @param lowFraction Inclusive lower fraction, from zero through highFraction
+	 * @param highFraction Exclusive upper fraction, no greater than one
+	 * @return New two-element array containing intercept, then slope */
+	public static double[] linearRegression(List<Point> list, double lowFraction, double highFraction){
 		int n0=list.size();
 		double sumX=0;
 		double sumY=0;
@@ -128,7 +141,7 @@ public final class Tools {
 		maxIndex=(int)Math.round(highFraction*n0);
 		int n=maxIndex-minIndex;//FIXED [shared/Tools#001]: was +1, but the loop sums [minIndex,maxIndex) = (maxIndex-minIndex) points; n must equal that count for the least-squares formula.
 		
-		for(int i=minIndex; i<maxIndex; i++) {
+		for(int i=minIndex; i<maxIndex; i++){
 			final Point p=list.get(i);
 			final double x=p.x, y=p.y;
 			sumX+=x;
@@ -157,13 +170,12 @@ public final class Tools {
 		return set;
 	}
 	
-	/** 
-	 * Loads integers.
-	 * Can be comma-delimited, or a comma-delimited list of files.
-	 * Files should contain one integer per line.
-	 * @param numbers
-	 * @return
-	 */
+	/** Loads comma-separated nonnegative integer literals or existing file paths.
+	 * Files normally contain one integer per line; a line that fails integer
+	 * parsing is retried as a comma-separated specification. Retains duplicates
+	 * and input order. File read/close failures are reported to the caller.
+	 * @param numbers Specification, or null
+	 * @return New list containing the loaded values, or null for a null specification */
 	public static IntList loadIntegers(String numbers){
 		return loadIntegers(numbers, null);
 	}
@@ -186,14 +198,25 @@ public final class Tools {
 				list.add(x);
 			}else if(new File(s).exists()){
 				ByteFile tf=ByteFile.makeByteFile(s, false);
-				for(byte[] line=tf.nextLine(); line!=null; line=tf.nextLine()){
-					try {
-						list.add(Parse.parseInt(line, 0));
-					} catch (Throwable e) {//In case there is a comma-delimited line in the file
-						loadIntegers(new String(line), list);
+				Throwable failure=null;
+				try{
+					for(byte[] line=tf.nextLine(); line!=null; line=tf.nextLine()){
+						try{
+							list.add(Parse.parseInt(line, 0));
+						}catch(Throwable e){//In case there is a comma-delimited line in the file
+							loadIntegers(new String(line), list);
+						}
+					}
+				}catch(RuntimeException | Error e){
+					failure=e;
+					throw e;
+				}finally{
+					if(tf.close()){
+						final RuntimeException error=new RuntimeException("Error reading integer list from "+s);
+						if(failure!=null){failure.addSuppressed(error);}
+						else{throw error;}
 					}
 				}
-//				}
 			}else{
 				assert(false) : "Invalid number or file "+s;
 			}
@@ -207,7 +230,7 @@ public final class Tools {
 	 * @param fname Filename to check
 	 * @return true if file exists or is stdin, false otherwise
 	 */
-	public static boolean existsInput(String fname) {
+	public static boolean existsInput(String fname){
 		if(fname==null){return false;}
 		if(fname.equalsIgnoreCase("stdin") || fname.startsWith("stdin.")){return true;}
 		File f=new File(fname);
@@ -466,8 +489,8 @@ public final class Tools {
 	 * @param matrix 2D byte array to fill
 	 * @param b Value to fill matrix with
 	 */
-	public static void fill(byte[][] matrix, byte b) {
-		for(byte[] line : matrix) {Arrays.fill(line, b);}
+	public static void fill(byte[][] matrix, byte b){
+		for(byte[] line : matrix){Arrays.fill(line, b);}
 	}
 
 	/**
@@ -476,7 +499,7 @@ public final class Tools {
 	 * @param target Destination array to fill
 	 * @param source Source array to copy values from
 	 */
-	public static void fill(int[] target, int[] source) {
+	public static void fill(int[] target, int[] source){
 		for(int i=0; i<target.length; i++){
 			target[i]=source[i];
 		}
@@ -488,7 +511,7 @@ public final class Tools {
 	 * @param array Integer array to check
 	 * @return true if array is sorted ascending, false otherwise
 	 */
-	public static boolean isSorted(final int[] array) {
+	public static boolean isSorted(final int[] array){
 		if(array==null || array.length<2){return true;}
 		for(int i=1; i<array.length; i++){
 			if(array[i]<array[i-1]){return false;}
@@ -556,7 +579,7 @@ public final class Tools {
 	 * @param pad Minimum width of resulting string
 	 * @return Right-padded string representation of number
 	 */
-	public static String padRight(long number, int pad) {
+	public static String padRight(long number, int pad){
 		String s=number+"";
 		while(s.length()<pad){s=s+" ";}
 		return s;
@@ -568,7 +591,7 @@ public final class Tools {
 	 * @param pad Minimum width of resulting string
 	 * @return Right-padded string
 	 */
-	public static String padRight(String s, int pad) {
+	public static String padRight(String s, int pad){
 		while(s.length()<pad){s=s+" ";}
 		return s;
 	}
@@ -579,7 +602,7 @@ public final class Tools {
 	 * @param pad Minimum width of resulting string
 	 * @return Left-padded string representation of number
 	 */
-	public static String padLeft(long number, int pad) {
+	public static String padLeft(long number, int pad){
 		String s=number+"";
 		while(s.length()<pad){s=" "+s;}
 		return s;
@@ -591,7 +614,7 @@ public final class Tools {
 	 * @param pad Minimum width of resulting string
 	 * @return Left-padded string
 	 */
-	public static String padLeft(String s, int pad) {
+	public static String padLeft(String s, int pad){
 		while(s.length()<pad){s=" "+s;}
 		return s;
 	}
@@ -604,14 +627,14 @@ public final class Tools {
 	 * @param pad Minimum width of resulting string
 	 * @return Formatted and padded number string
 	 */
-	public static String padKMB(long number, int pad) {
+	public static String padKMB(long number, int pad){
 		String s;
 		if(Shared.OUTPUT_KMG){
-			if(number<1000000) {s=""+number;}
-			else if(number<100000000) {s=""+(number/1000)+"k";}
-			else if(number<100000000000L) {s=""+(number/1000000)+"m";}
-			else if(number<100000000000000L) {s=""+(number/1000000000)+"b";}
-			else if(number<100000000000000000L) {s=""+(number/1000000000000L)+"t";}
+			if(number<1000000){s=""+number;}
+			else if(number<100000000){s=""+(number/1000)+"k";}
+			else if(number<100000000000L){s=""+(number/1000000)+"m";}
+			else if(number<100000000000000L){s=""+(number/1000000000)+"b";}
+			else if(number<100000000000000000L){s=""+(number/1000000000000L)+"t";}
 			else{s=""+(number/1000000000000000L)+"q";}
 		}else{
 			s=""+number;
@@ -673,46 +696,57 @@ public final class Tools {
 		return ("Time:                         \t"+t);
 	}
 	
-	public static ByteBuilder typeReadsBases(String term, long reads, long bases, int pad1, int pad2) {
+	/** Formats labeled read/base counts in a new builder, supplying a colon if needed.
+	 * @param term Label preceding the counts
+	 * @param reads Read count to display
+	 * @param bases Base count to display
+	 * @param pad1 Minimum output width through the read count
+	 * @param pad2 Minimum width from the end of the read unit through the base count
+	 * @return New builder containing counts and singular/plural units */
+	public static ByteBuilder typeReadsBases(String term, long reads, long bases, int pad1, int pad2){
 		ByteBuilder bb=new ByteBuilder();
 		bb.append(term);
-		if(!Tools.endsWith(term, ':')) {bb.append(':');}
+		if(!Tools.endsWith(term, ':')){bb.append(':');}
 		int len1=Long.toString(reads).length();
 		int len2=Long.toString(bases).length();
-		while(bb.length+len1<pad1) {bb.space();}
+		while(bb.length+len1<pad1){bb.space();}
 		bb.append(reads).append(reads==1 ? " read " : " reads");
 		int len1b=bb.length;
-		while(bb.length-len1b+len2<pad2) {bb.space();}
+		while(bb.length-len1b+len2<pad2){bb.space();}
 		bb.append(bases).append(bases==1 ? " base" : " bases");
 		return bb;
 	}
 
-	public static ByteBuilder typeReadsBases(String term, long reads, long reads2, long bases, long bases2, int pad1, int pad2) {
-	    ByteBuilder bb=new ByteBuilder();
-	    bb.append(term);
-	    if(!Tools.endsWith(term, ':')) {bb.append(':');}
-	    
-	    // Calculate percentage strings (reads2/reads, bases2/bases)
-	    String readPct = (reads > 0) ? String.format(" (%.2f%%)", reads2 * 100.0 / reads) : "";
-	    String basePct = (bases > 0) ? String.format(" (%.2f%%)", bases2 * 100.0 / bases) : "";
-	    
-	    // For reads section - pad to align the NUMBER
-	    int len1 = Long.toString(reads2).length();
-	    while(bb.length + len1 < pad1) {bb.space();}
-	    bb.append(reads2);
-	    bb.append(reads2 == 1 ? " read" : " reads");
-	    int posAfterReads = bb.length;
-	    bb.append(readPct);
-	    
-	    
-	    // For bases section - pad RELATIVE to end of reads section
-	    int len2 = Long.toString(bases2).length();
-	    while(bb.length - posAfterReads + len2 < pad2) {bb.space();}
-	    bb.append(bases2);
-	    bb.append(bases2 == 1 ? " base" : " bases");
-	    bb.append(basePct);
-	    
-	    return bb;
+	/** Formats selected counts and percentages of positive totals in a new builder.
+	 * Omits a percentage when its total is nonpositive. Percentage formatting uses
+	 * the JVM default locale, unlike {@link #format(String, Object[])}.
+	 * @param term Label preceding the counts
+	 * @param reads Total reads, used as the percentage denominator
+	 * @param reads2 Selected reads to display
+	 * @param bases Total bases, used as the percentage denominator
+	 * @param bases2 Selected bases to display
+	 * @param pad1 Minimum output width through the selected read count
+	 * @param pad2 Width from the read unit through the base count, including read-percentage text
+	 * @return New builder containing selected counts and available percentages */
+	public static ByteBuilder typeReadsBases(String term, long reads, long reads2, long bases, long bases2, int pad1, int pad2){
+		ByteBuilder bb=new ByteBuilder();
+		bb.append(term);
+		if(!Tools.endsWith(term, ':')){bb.append(':');}
+		String readPct=(reads>0) ? String.format(" (%.2f%%)", reads2*100.0/reads) : "";
+		String basePct=(bases>0) ? String.format(" (%.2f%%)", bases2*100.0/bases) : "";
+		int len1=Long.toString(reads2).length();
+		while(bb.length+len1<pad1){bb.space();}
+		bb.append(reads2);
+		bb.append(reads2==1 ? " read" : " reads");
+		int posAfterReads=bb.length;
+		bb.append(readPct);
+		// Base padding starts at the read unit, before its percentage text.
+		int len2=Long.toString(bases2).length();
+		while(bb.length-posAfterReads+len2<pad2){bb.space();}
+		bb.append(bases2);
+		bb.append(bases2==1 ? " base" : " bases");
+		bb.append(basePct);
+		return bb;
 	}
 	
 	/**
@@ -1051,7 +1085,7 @@ public final class Tools {
 	
 	/**
 	 * Calculates and formats processing throughput for arbitrary items.
-	 * Automatically scales rate display (per second, per k-second, per m-second).
+	 * Scales the count to items, thousands of items, or millions of items per second.
 	 *
 	 * @param elapsed Elapsed time in nanoseconds
 	 * @param count Number of items processed
@@ -1062,20 +1096,20 @@ public final class Tools {
 	public static String thingsProcessed(long elapsed, long count, int pad, String name){
 		double tpnano=(count/(double)elapsed)*1000;
 		String rateString=null;
-		if(tpnano>=1) {
+		if(tpnano>=1){
 			rateString=Tools.format(" \t%.2fm %s/sec", tpnano, name.toLowerCase());
-		}else if(tpnano>=0.001) {
+		}else if(tpnano>=0.001){
 			tpnano*=1000;
 			rateString=Tools.format(" \t%.2fk %s/sec", tpnano, name.toLowerCase());
-		}else {
-			tpnano*=1000;
+		}else{
+			tpnano*=1000000;
 			rateString=Tools.format(" \t%.2f %s/sec", tpnano, name.toLowerCase());
 		}
 
 		String tstring=padKMB(count, pad);
 		StringBuilder sb=new StringBuilder();
 		sb.append(name).append(" Processed: ");
-		while(sb.length()<20) {sb.append(' ');}
+		while(sb.length()<20){sb.append(' ');}
 		sb.append(tstring).append(rateString);
 		return sb.toString();
 	}
@@ -1112,7 +1146,7 @@ public final class Tools {
 	 * @param delimiter Byte value to use as separator
 	 * @return ArrayList containing byte arrays for each split segment
 	 */
-	public static ArrayList<byte[]> split(byte[] line, int start, byte delimiter) {
+	public static ArrayList<byte[]> split(byte[] line, int start, byte delimiter){
 		if(line.length<start){return null;}
 		int a=start-1, b=start;
 		ArrayList<byte[]> list=new ArrayList<byte[]>(8);
@@ -1133,7 +1167,7 @@ public final class Tools {
 	 * Removes reads below minimum length and fragments reads above maximum length.
 	 *
 	 * @param list ArrayList of reads to process (modified in-place)
-	 * @param max Maximum read length (unlimited if <1)
+	 * @param max Maximum read length (unlimited when less than one)
 	 * @param min Minimum read length to retain
 	 * @param outstream Optional debug output stream for fragment coordinates
 	 */
@@ -1156,7 +1190,7 @@ public final class Tools {
 				final byte[] quals=r.quality;
 				final String name=r.id;
 				final int limit=bases.length-min;
-				for(int num=1, start=0, stop=max; start<limit; num++, start+=max, stop+=max){
+				for(int num=1, start=0, stop=max; start<bases.length && start<=limit; num++, start+=max, stop+=max){
 					if(outstream!=null){
 						outstream.println(bases.length+", "+start+", "+stop);
 						if(quals!=null){outstream.println(quals.length+", "+start+", "+stop);}
@@ -1205,7 +1239,7 @@ public final class Tools {
 	 *
 	 * @param list ArrayList of reads to check
 	 * @param min Minimum size threshold
-	 * @param max Maximum size threshold (unlimited if <=0)
+	 * @param max Maximum size threshold (unlimited when nonpositive)
 	 * @return true if any reads are outside size range, false otherwise
 	 */
 	private static boolean containsReadsOutsideSizeRange(ArrayList<Read> list, int min, int max){
@@ -1249,7 +1283,7 @@ public final class Tools {
 	 * @param s String to examine
 	 * @return Last character as int, or -1 if string is null/empty
 	 */
-	public static int lastChar(String s) {
+	public static int lastChar(String s){
 		return s==null || s.length()<1 ? -1 : s.charAt(s.length()-1);
 	}
 	
@@ -1330,7 +1364,7 @@ public final class Tools {
 	 * @param s String to test
 	 * @return true if string is numeric, false otherwise
 	 */
-	public static boolean isNumeric(String s) {
+	public static boolean isNumeric(String s){
 		if(s==null || s.length()<1){return false;}
 		char first=s.charAt(0);
 		int dots=0, signs=0, nums=0;
@@ -1353,7 +1387,7 @@ public final class Tools {
 	 * Modifies the original array.
 	 * @param s Byte array to convert (modified in-place)
 	 */
-	public static void toUpperCase(byte[] s) {
+	public static void toUpperCase(byte[] s){
 		Vector.toUpperCase(s);//Delegates to SIMD-accelerated Vector.toUpperCase (same AminoAcid.toUpperCase table; null-safe).
 	}
 
@@ -1363,9 +1397,9 @@ public final class Tools {
 	 * @param a String to count letters in
 	 * @return Number of letter characters found
 	 */
-	public static int countLetters(String a) {
+	public static int countLetters(String a){
 		int count=0;
-		for(int i=0; i<a.length(); i++) {
+		for(int i=0; i<a.length(); i++){
 			count+=(isLetter(a.charAt(i)) ? 1 : 0);
 		}
 		return count;
@@ -1377,68 +1411,68 @@ public final class Tools {
 	 * @param bound Threshold value for comparison
 	 * @return Number of elements greater than bound
 	 */
-	public static int countGreaterThan(int[] array, int bound) {
+	public static int countGreaterThan(int[] array, int bound){
 		int gt=0;
-		for(int x : array) {gt+=(x>bound ? 1 : 0);}
+		for(int x : array){gt+=(x>bound ? 1 : 0);}
 		return gt;
 	}
 	
 	/** Tests if character is digit or sign using lookup table */
-	public static boolean isDigitOrSign(int c) {return (c<0 || c>127) ? false : signOrDigitMap[c];}//[shared/Tools#002]
+	public static boolean isDigitOrSign(int c){return (c<0 || c>127) ? false : signOrDigitMap[c];}//[shared/Tools#002]
 	/** Tests if character is numeric using lookup table */
-	public static boolean isNumeric(int c) {return (c<0 || c>127) ? false : numericMap[c];}//[shared/Tools#002]
+	public static boolean isNumeric(int c){return (c<0 || c>127) ? false : numericMap[c];}//[shared/Tools#002]
 	/** Tests if character is digit (0-9) */
-	public static boolean isDigit(int c) {return c>='0' && c<='9';}
+	public static boolean isDigit(int c){return c>='0' && c<='9';}
 	/** Tests if character is letter using lookup table */
-	public static boolean isLetter(int c) {return (c<0 || c>127) ? false : letterMap[c];}//[shared/Tools#002]
+	public static boolean isLetter(int c){return (c<0 || c>127) ? false : letterMap[c];}//[shared/Tools#002]
 	/** Tests if character is letter or digit */
-	public static boolean isLetterOrDigit(int c) {return (c<0 || c>127) ? false : isDigit(c) || letterMap[c];}//[shared/Tools#002]
+	public static boolean isLetterOrDigit(int c){return (c<0 || c>127) ? false : isDigit(c) || letterMap[c];}//[shared/Tools#002]
 	/** Tests if character is uppercase (A-Z) */
-	public static boolean isUpperCase(int c) {return c>='A' && c<='Z';}
+	public static boolean isUpperCase(int c){return c>='A' && c<='Z';}
 	/** Tests if character is lowercase (a-z) */
-	public static boolean isLowerCase(int c) {return c>='a' && c<='z';}
+	public static boolean isLowerCase(int c){return c>='a' && c<='z';}
 	/** Converts character to uppercase, returns unchanged if not lowercase */
-	public static int toUpperCase(int c) {return c<'a' || c>'z' ? c : c-32;}//Lookup array may be faster but would need to deal with negatives
+	public static int toUpperCase(int c){return c<'a' || c>'z' ? c : c-32;}//Lookup array may be faster but would need to deal with negatives
 	/** Converts character to lowercase, returns unchanged if not uppercase */
-	public static int toLowerCase(int c) {return c<'A' || c>'Z' ? c : c+32;}
+	public static int toLowerCase(int c){return c<'A' || c>'Z' ? c : c+32;}
 	
 	/** Tests if byte value is digit or sign using lookup table */
-	public static boolean isDigitOrSign(byte c) {return c<0 ? false : signOrDigitMap[c];}
+	public static boolean isDigitOrSign(byte c){return c<0 ? false : signOrDigitMap[c];}
 	/** Tests if byte value is numeric using lookup table */
-	public static boolean isNumeric(byte c) {return c<0 ? false : numericMap[c];}
+	public static boolean isNumeric(byte c){return c<0 ? false : numericMap[c];}
 	/** Tests if byte value is digit (0-9) */
-	public static boolean isDigit(byte c) {return c>='0' && c<='9';}
+	public static boolean isDigit(byte c){return c>='0' && c<='9';}
 	/** Tests if byte value is letter using lookup table */
-	public static boolean isLetter(byte c) {return c<0 ? false : letterMap[c];}
+	public static boolean isLetter(byte c){return c<0 ? false : letterMap[c];}
 	/** Tests if byte value is letter or digit */
-	public static boolean isLetterOrDigit(byte c) {return c<0 ? false : isDigit(c) || letterMap[c];}
+	public static boolean isLetterOrDigit(byte c){return c<0 ? false : isDigit(c) || letterMap[c];}
 	/** Tests if byte value is uppercase (A-Z) */
-	public static boolean isUpperCase(byte c) {return c>='A' && c<='Z';}
+	public static boolean isUpperCase(byte c){return c>='A' && c<='Z';}
 	/** Tests if byte value is lowercase (a-z) */
-	public static boolean isLowerCase(byte c) {return c>='a' && c<='z';}
-	/** Converts byte to uppercase, returns unchanged if not lowercase */
-	public static byte toUpperCase(byte c) {return AminoAcid.toUpperCase[c];}
+	public static boolean isLowerCase(byte c){return c>='a' && c<='z';}
+	/** Converts ASCII lowercase to uppercase; preserves all other byte values. */
+	public static byte toUpperCase(byte c){return AminoAcid.toUpperCase[c&255];}
 	/** Converts byte to lowercase, returns unchanged if not uppercase */
-	public static byte toLowerCase(byte c) {return c<'A' || c>'Z' ? c : (byte)(c+32);}
+	public static byte toLowerCase(byte c){return c<'A' || c>'Z' ? c : (byte)(c+32);}
 	
 	/** Tests if char is digit or sign using lookup table */
-	public static boolean isDigitOrSign(char c) {return c>127 ? false : signOrDigitMap[c];}
+	public static boolean isDigitOrSign(char c){return c>127 ? false : signOrDigitMap[c];}
 	/** Tests if char is numeric using lookup table */
-	public static boolean isNumeric(char c) {return c>127 ? false : numericMap[c];}
+	public static boolean isNumeric(char c){return c>127 ? false : numericMap[c];}
 	/** Tests if char is digit (0-9) */
-	public static boolean isDigit(char c) {return c>='0' && c<='9';}
+	public static boolean isDigit(char c){return c>='0' && c<='9';}
 	/** Tests if char is letter using lookup table */
-	public static boolean isLetter(char c) {return c>127 ? false : letterMap[c];}
+	public static boolean isLetter(char c){return c>127 ? false : letterMap[c];}
 	/** Tests if char is letter or digit */
-	public static boolean isLetterOrDigit(char c) {return c>127 ? false : isDigit(c) || letterMap[c];}//FIXED [shared/Tools#002]: was c<0 (never true for char) - inconsistent with sibling char overloads; maps are size 128 so c>=128 would AIOOBE.
+	public static boolean isLetterOrDigit(char c){return c>127 ? false : isDigit(c) || letterMap[c];}//FIXED [shared/Tools#002]: was c<0 (never true for char) - inconsistent with sibling char overloads; maps are size 128 so c>=128 would AIOOBE.
 	/** Tests if char is uppercase (A-Z) */
-	public static boolean isUpperCase(char c) {return c>='A' && c<='Z';}
+	public static boolean isUpperCase(char c){return c>='A' && c<='Z';}
 	/** Tests if char is lowercase (a-z) */
-	public static boolean isLowerCase(char c) {return c>='a' && c<='z';}
+	public static boolean isLowerCase(char c){return c>='a' && c<='z';}
 	/** Converts char to uppercase, returns unchanged if not lowercase */
-	public static char toUpperCase(char c) {return c<'a' || c>'z' ? c : (char)(c-32);}
+	public static char toUpperCase(char c){return c<'a' || c>'z' ? c : (char)(c-32);}
 	/** Converts char to lowercase, returns unchanged if not uppercase */
-	public static char toLowerCase(char c) {return c<'A' || c>'Z' ? c : (char)(c+32);}
+	public static char toLowerCase(char c){return c<'A' || c>'Z' ? c : (char)(c+32);}
 	
 	//Taken from https://stackoverflow.com/questions/1149703/how-can-i-convert-a-stack-trace-to-a-string
 	/**
@@ -1533,12 +1567,18 @@ public final class Tools {
 		return (long)diskEstimate;
 	}
 	
-	/**
-	 * @param fname
-	 * @param readsToFetch
-	 * @param extraOverheadPerRead
-	 * @param earlyExit
-	 * @return {memEstimate, diskEstimate, memRatio, diskRatio, numReadsEstimate};
+	/** Estimates retained-read memory and uncompressed FASTQ size from file size and a sample.
+	 * Ratios are relative to the input's on-disk bytes, not measured peak heap usage.
+	 * Attached mates contribute separately to the sample's read count. An empty sample
+	 * produces zero size/count estimates and NaN ratios. No input contents are changed.
+	 * @param fname Input path; an unresolved descriptor or standard stream returns null
+	 * @param readsToFetch Sample limit forwarded to the input loader, raised to at least 200
+	 * @param extraOverheadPerRead Additional retained bytes per sampled read
+	 * @param earlyExit Permit a fixed-ratio estimate without reading when conservative
+	 * size/count checks pass; this shortcut ignores extraOverheadPerRead and lowComplexity
+	 * @param lowComplexity Assume more compressible bases in the compressed-sample model
+	 * @return {memory bytes, uncompressed FASTQ bytes, memory/input ratio,
+	 * FASTQ/input ratio, individual read count}, or null as described above
 	 */
 	public static double[] estimateFileMemory(String fname, int readsToFetch, double extraOverheadPerRead, boolean earlyExit, boolean lowComplexity){
 		
@@ -1722,7 +1762,7 @@ public final class Tools {
 	 * @param array Input array to invert
 	 * @return New array with reciprocal values
 	 */
-	public static float[] inverse(float[] array) {
+	public static float[] inverse(float[] array){
 		float[] out=new float[array.length];
 		for(int i=0; i<array.length; i++){
 //			out[i]=1/max(array[i], 1000000000f); //What was this line for?  Changed to to below line.
@@ -1737,7 +1777,7 @@ public final class Tools {
 	 * @param array Input array to invert
 	 * @return New array with reciprocal values
 	 */
-	public static double[] inverse(double[] array) {
+	public static double[] inverse(double[] array){
 		double[] out=new double[array.length];
 		for(int i=0; i<array.length; i++){
 			out[i]=1/array[i];
@@ -1785,7 +1825,7 @@ public final class Tools {
 	 * @param array Input array to search
 	 * @return Index position of second highest value
 	 */
-	public static int secondHighestPosition(int[] array) {
+	public static int secondHighestPosition(int[] array){
 		int maxP, maxP2;
 		if(array[0]>=array[1]){
 			maxP=0;
@@ -1808,37 +1848,49 @@ public final class Tools {
 		return maxP2;
 	}
 	
+	/** Expands a file/directory/comma specification into a new list.
+	 * Format flags filter directory children only; see the Collection overload. */
 	public static ArrayList<String> getFileOrFiles(String b, boolean fasta, boolean fastq, boolean sam, boolean any){
 		return (ArrayList<String>)getFileOrFiles(b, (Collection<String>)null, fasta, fastq, sam, any);
 	}
 	
+	/** Appends expanded paths to list, or allocates a new ArrayList when list is null.
+	 * Returns the same supplied list; format flags filter directory children only. */
 	public static ArrayList<String> getFileOrFiles(String b, ArrayList<String> list, boolean fasta, boolean fastq, boolean sam, boolean any){
 		return (ArrayList<String>)getFileOrFiles(b, (Collection<String>)list, fasta, fastq, sam, any);
 	}
 	
+	/** Expands each input specification into a new list without modifying in.
+	 * Null input returns null; individual entries must be non-null. */
 	public static ArrayList<String> getFileOrFiles(ArrayList<String> in, boolean fasta, boolean fastq, boolean sam, boolean any){
-		if(in==null) {return null;}
+		if(in==null){return null;}
 		ArrayList<String> out=new ArrayList<String>(in.size());
-		for(String path : in) {getFileOrFiles(path, out, fasta, fastq, sam, any);}
+		for(String path : in){getFileOrFiles(path, out, fasta, fastq, sam, any);}
 		return out;
 	}
 	
 	
 	/**
-	 * Returns this file name if it is a file, or all the files in the directory if it is a directory.
-	 * Splits comma-delimited lists.
-	 * @param b
-	 * @param fasta
-	 * @param fastq
-	 * @param sam
-	 * @param any
-	 * @return A list of files
+	 * Appends explicit paths or one level of matching directory children.
+	 * An existing file matching the entire specification takes precedence over
+	 * comma splitting. Tokens are not trimmed. Explicit files, nonexistent paths
+	 * and stream names are retained without extension filtering; directory children
+	 * must be regular files and pass a selected filter. Child paths are absolute,
+	 * in directory-listing order. No recursive traversal occurs; duplicate handling
+	 * follows the supplied collection.
+	 * @param b Non-null file, directory or comma-separated specification
+	 * @param list Destination collection, or null to allocate an ArrayList
+	 * @param fasta Accept FASTA extensions among directory children
+	 * @param fastq Accept FASTQ extensions among directory children
+	 * @param sam Accept SAM/BAM extensions among directory children
+	 * @param any Accept all regular directory children regardless of extension
+	 * @return Supplied collection, or the newly allocated ArrayList
 	 */
 	public static Collection<String> getFileOrFiles(String b, Collection<String> list, boolean fasta, boolean fastq, boolean sam, boolean any){
 		if(list==null){list=new ArrayList<String>();}
 		{
 			File f=new File(b);
-			if(f.exists() && f.isFile()) {
+			if(f.exists() && f.isFile()){
 				list.add(b);
 				return list;
 			}
@@ -1956,12 +2008,17 @@ public final class Tools {
 		return list==null ? null : list.toArray(new byte[list.size()][]);
 	}
 	
-	/** Add names to a collection.
-	 * This can be a literal name, or a text file with one name per line,
-	 * or a fastq, fasta, or sam file, in which case the read names will be added.
-	 * @param s
-	 * @param names
-	 * @return Number added
+	/** Adds a literal name or names extracted from an existing file.
+	 * Existing paths take precedence over literal names. Text contributes nonempty
+	 * lines; FASTA/FASTQ contributes headers without the first marker; SAM contributes
+	 * nonempty record names. This lightweight extraction does not validate complete
+	 * sequence records. File order and the destination's duplicate policy are retained.
+	 * Owned input is closed and reported input errors propagate. On failure, names
+	 * already inserted remain in the caller's collection; there is no rollback.
+	 * @param s Non-null literal name or input path
+	 * @param names Non-null mutable destination
+	 * @param allowSubprocess Whether the byte reader may use subprocess decompression
+	 * @return Number of successful Collection.add calls, excluding rejected duplicates
 	 */
 	public static final int addNames(String s, Collection<String> names, boolean allowSubprocess){
 		int added=0;
@@ -1969,39 +2026,47 @@ public final class Tools {
 
 			int[] vector=FileFormat.testFormat(s, false, false);
 			final int type=vector[0];
-			ByteFile bf=ByteFile.makeByteFile(s, allowSubprocess);
-			
-			if(type==FileFormat.FASTQ){
-				int num=0;
-				for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine(), num++){
-					if((num&3)==0 && line.length>0){
-						names.add(new String(line, 1, line.length-1));
+			final ByteFile bf=ByteFile.makeByteFile(s, allowSubprocess);
+			Throwable failure=null;
+			try{
+				if(type==FileFormat.FASTQ){
+					int num=0;
+					for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine(), num++){
+						if((num&3)==0 && line.length>0){
+							if(names.add(new String(line, 1, line.length-1))){added++;}
+						}
+					}
+				}else if(type==FileFormat.FASTA){
+					for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()){
+						if(line.length>0 && line[0]=='>'){
+							if(names.add(new String(line, 1, line.length-1))){added++;}
+						}
+					}
+				}else if(type==FileFormat.SAM){
+					for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()){
+						if(line.length>0 && line[0]!='@'){
+							final String name=SamLine.parseNameOnly(line);
+							if(name!=null && name.length()>0 && names.add(name)){added++;}
+						}
+					}
+				}else{
+					for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()){
+						if(line.length>0 && names.add(new String(line))){added++;}
 					}
 				}
-			}else if(type==FileFormat.FASTA){
-				for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()){
-					if(line.length>0 && line[0]=='>'){
-						names.add(new String(line, 1, line.length-1));
-					}
-				}
-			}else if(type==FileFormat.SAM){
-				for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()){
-					if(line.length>0 && line[0]!='@'){
-						String name=SamLine.parseNameOnly(line);
-						if(name!=null && name.length()>0){names.add(name);}
-					}
-				}
-			}else{
-				for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()){
-					if(line.length>0){
-						names.add(new String(line));
-					}
+			}catch(RuntimeException | Error e){
+				failure=e;
+				throw e;
+			}finally{
+				try{
+					if(bf.close()){throw new RuntimeException("Error reading names from "+s);}
+				}catch(RuntimeException | Error closing){
+					if(failure==null){throw closing;}
+					if(failure!=closing){failure.addSuppressed(closing);}
 				}
 			}
-			bf.close();
 		}else{
-			added++;
-			names.add(s);
+			added=names.add(s) ? 1 : 0;
 		}
 		return added;
 	}
@@ -2012,7 +2077,7 @@ public final class Tools {
 	 * @param minlen minimum length of reads to replicate
 	 * @return A list of reads with no ambiguity codes.
 	 */
-	public static ArrayList<Read> replicateAmbiguous(ArrayList<Read> reads, int minlen) {
+	public static ArrayList<Read> replicateAmbiguous(ArrayList<Read> reads, int minlen){
 		ArrayList<Read> out=new ArrayList<Read>();
 		for(Read r1 : reads){
 			final Read r2=r1.mate;
@@ -2043,7 +2108,7 @@ public final class Tools {
 	 * @param r A read to replicate
 	 * @return A list of reads with no ambiguity codes.
 	 */
-	public static ArrayList<Read> makeReplicates(final Read r) {
+	public static ArrayList<Read> makeReplicates(final Read r){
 //		System.err.println("\n***Called makeReplicates("+new String(r.bases)+")");
 		ArrayList<Read> temp=null;
 		if(!r.containsUndefined()){
@@ -2073,11 +2138,14 @@ public final class Tools {
 	}
 	
 	/**
-	 * @param r A read
-	 * @param pos The position of an ambiguous base
-	 * @param goal A list of replicates
+	 * Expands one ambiguous nucleotide into one read per permitted A/C/G/T base.
+	 * Copies each bases array; other reference fields follow Read.clone's shallow
+	 * copying. If present, the source quality at pos is first set to FAKE_QUAL.
+	 * @param r Source read with a supported ambiguous nucleotide at pos
+	 * @param pos Zero-based ambiguous-base position
+	 * @return New list of reads with independent bases and shared quality state
 	 */
-	private static ArrayList<Read> replicateAtPosition(final Read r, final int pos) {
+	private static ArrayList<Read> replicateAtPosition(final Read r, final int pos){
 //		System.err.println("Called replicateAtPosition("+new String(r.bases)+", "+pos+")");
 		if(r.quality!=null){
 			r.quality[pos]=Shared.FAKE_QUAL;
@@ -2100,13 +2168,20 @@ public final class Tools {
 		return out;
 	}
 	
-	/** Returns index of first matching location */
+	/** Searches the entire forward orientation before trying the reverse complement.
+	 * Returns the first qualifying offset in the chosen orientation, or -1. A forward
+	 * match takes precedence over any earlier reverse-complement match. Arrays must be
+	 * non-null and maxMismatches nonnegative; bytes compare literally, including Ns.
+	 * If reverse search is needed, small's bytes must be valid indices in
+	 * baseToComplementExtended, as required by containsReverse. */
 	public static final int locationOf(final byte[] big, final byte[] small, final int maxMismatches){
 		int x=containsForward(big, small, maxMismatches);
 		return x>=0 ? x : containsReverse(big, small, maxMismatches);
 	}
 	
-	/** Returns index of first matching location */
+	/** Finds the first full placement with at most maxMismatches unequal byte pairs.
+	 * Arrays must be non-null and maxMismatches nonnegative. Returns -1 if absent,
+	 * or zero for an empty query; the input arrays are neither changed nor copied. */
 	public static final int containsForward(final byte[] big, final byte[] small, final int maxMismatches){
 		final int ilimit=big.length-small.length;
 //		System.err.println("Entering: ilimit="+ilimit+", maxMismatches="+maxMismatches+", small.length="+small.length);
@@ -2125,7 +2200,10 @@ public final class Tools {
 		return -1;
 	}
 	
-	/** Returns index of first matching location */
+	/** Finds the first placement of small's reverse complement within big, or -1.
+	 * Arrays must be non-null, maxMismatches nonnegative, and small's bytes valid indices
+	 * in baseToComplementExtended. Complemented bytes compare literally; no ambiguity
+	 * wildcard expansion occurs. An empty query matches at zero. Inputs are unchanged. */
 	public static final int containsReverse(final byte[] big, final byte[] small, final int maxMismatches){
 		final int ilimit=big.length-small.length;
 		for(int i=0; i<=ilimit; i++){
@@ -2552,19 +2630,29 @@ public final class Tools {
 	
 
 	
-	/** Returns the number of sitescores in the list within "thresh" of the top score.  Assumes list is sorted descending.
-	 * This is used to determine whether a mapping is ambiguous. */
+	/** Counts eligible alternatives to the best mapping for ambiguity detection.
+	 * Requires non-null sites in descending score order and a nonnegative threshold;
+	 * the list and sites must remain stable during the call. Uses the inclusive
+	 * int cutoff best.score-thresh. Counts the best site, then each eligible site
+	 * unless it shares a start or stop with the best site on the same chromosome.
+	 * Strand is not distinguished by that heuristic; other alternatives are not
+	 * deduplicated against each other. Null or empty lists return zero. */
 	public static final int countTopScores(ArrayList<SiteScore> list, int thresh){
 		assert(thresh>=0) : thresh;
-		if(list==null || list.isEmpty()){return 0;}
+		if(list==null){return 0;}
+		final int size=list.size();
+		if(size<2){return size;}
 		int count=1;
 		final SiteScore ss=list.get(0);
 		final int limit=ss.score-thresh;
+		final int start=ss.start, stop=ss.stop, chrom=ss.chrom;
 		
-		for(int i=1; i<list.size(); i++){
-			SiteScore ss2=list.get(i);
+		for(int i=1; i<size; i++){
+			final SiteScore ss2=list.get(i);
 			if(ss2.score<limit){break;}
-			if(ss.start!=ss2.start && ss.stop!=ss2.stop){ //Don't count mappings to the same location
+			if(ss2.start==start || ss2.stop==stop){
+				if(ss2.chrom!=chrom){count++;}
+			}else{
 				count++;
 			}
 		}
@@ -2939,55 +3027,55 @@ public final class Tools {
 	 * @param toExclusive Ending index (exclusive)
 	 * @return True if substring regions match
 	 */
-	public static boolean equalsSubstring(String a, String b, int from, int toExclusive) {
-		if(a==null || b==null || a.length()<toExclusive || b.length()<toExclusive) {return false;}
+	public static boolean equalsSubstring(String a, String b, int from, int toExclusive){
+		if(a==null || b==null || a.length()<toExclusive || b.length()<toExclusive){return false;}
 		boolean equal=true;
-		for(int i=from; i<toExclusive && equal; i++) {
+		for(int i=from; i<toExclusive && equal; i++){
 			equal=(a.charAt(i)==b.charAt(i));
 		}
 		return equal;
 	}
 	
-	/**
-	 * @param a
-	 * @param b
-	 * @param start
-	 * @return True if a contains b starting at start.
+	/** Compares b at exactly start, without searching later offsets.
+	 * @param a Reference bytes
+	 * @param b Query bytes
+	 * @param start Nonnegative reference offset
+	 * @return True for a complete match or two null arrays; false for one null array
 	 */
 	public static boolean contains(byte[] a, byte[] b, int start){
 		if(a==null || b==null){
 			return (a==null && b==null);
 		}
-		if(a.length<b.length+start){return false;}
+		if(a.length-start<b.length){return false;}
 		for(int i=start, j=0; j<b.length; i++, j++){
 			if(a[i]!=b[j]){return false;}
 		}
 		return true;
 	}
 	
-	/**
-	 * @param a
-	 * @param b
-	 * @param start
-	 * @return True if a contains b starting at start.
+	/** Compares b at exactly start using UTF-16 code units, without searching later offsets.
+	 * @param a Reference string
+	 * @param b Query string
+	 * @param start Nonnegative reference offset
+	 * @return True for a complete match or two null strings; false for one null string
 	 */
 	public static boolean contains(String a, String b, int start){
 		if(a==null || b==null){
 			return (a==null && b==null);
 		}
-		if(a.length()<b.length()+start){return false;}
+		if(a.length()-start<b.length()){return false;}
 		for(int i=start, j=0; j<b.length(); i++, j++){
 			if(a.charAt(i)!=b.charAt(j)){return false;}
 		}
 		return true;
 	}
 	
-	/**
-	 * @param array
-	 * @param s
-	 * @return True if the array starts with the String.
+	/** Tests a string at the beginning of a byte array without decoding or case folding.
+	 * @param array Reference bytes; null returns false
+	 * @param s Query UTF-16 code units compared directly with signed bytes; null returns false
+	 * @return True for a complete prefix match, including an empty query in a non-null array
 	 */
-	public static boolean startsWith(byte[] array, String s) {
+	public static boolean startsWith(byte[] array, String s){
 		return startsWith(array, s, 0);
 	}
 
@@ -2997,25 +3085,25 @@ public final class Tools {
 	 * @param s String to compare
 	 * @return True if array and string have same length and matching characters
 	 */
-	public static boolean equals(byte[] array, String s) {
+	public static boolean equals(byte[] array, String s){
 		return array.length==s.length() && startsWith(array, s, 0);
 	}
 	
-	/**
-	 * @param array
-	 * @param s
-	 * @return True if the array starts with s.
+	/** Tests a byte prefix literally, without case folding.
+	 * @param array Reference bytes; null returns false
+	 * @param s Query bytes; null returns false
+	 * @return True if the complete prefix matches, including an empty query
 	 */
-	public static boolean startsWith(byte[] array, byte[] s) {
+	public static boolean startsWith(byte[] array, byte[] s){
 		return startsWith(array, s, 0);
 	}
 	
-	/**
-	 * @param array
-	 * @param s
-	 * @return True if the array starts with the String.
+	/** Tests a string suffix without decoding or case folding.
+	 * @param array Reference bytes; null returns false
+	 * @param s Query UTF-16 code units compared directly with signed bytes; null returns false
+	 * @return True if the complete suffix matches, including an empty query
 	 */
-	public static boolean endsWith(byte[] array, String s) {
+	public static boolean endsWith(byte[] array, String s){
 		if(s==null || array==null){return false;}
 		if(s.length()>array.length){return false;}
 		for(int i=s.length()-1, j=array.length-1; i>=0 && j>=0; i--, j--){
@@ -3029,13 +3117,14 @@ public final class Tools {
 	 * @param s String to test
 	 * @return True if string is non-empty and ends with letter
 	 */
-	public static boolean endsWithLetter(String s) {
-		if(s==null || s.length()==0) {return false;}
+	public static boolean endsWithLetter(String s){
+		if(s==null || s.length()==0){return false;}
 		return Character.isLetter(s.charAt(s.length()-1));
 	}
 	
-	public static boolean endsWith(String s, char c) {
-		if(s==null || s.length()==0) {return false;}
+	/** Tests the final UTF-16 code unit; null or empty strings return false. */
+	public static boolean endsWith(String s, char c){
+		if(s==null || s.length()==0){return false;}
 		return s.charAt(s.length()-1)==c;
 	}
 	
@@ -3044,79 +3133,84 @@ public final class Tools {
 	 * @param s Byte array to test
 	 * @return True if array is non-empty and ends with letter
 	 */
-	public static boolean endsWithLetter(byte[] s) {
-		if(s==null || s.length==0) {return false;}
+	public static boolean endsWithLetter(byte[] s){
+		if(s==null || s.length==0){return false;}
 		return Character.isLetter(s[s.length-1]);
 	}
 	
 	/**
-	 * @param array
-	 * @param b
-	 * @return True if the array starts with the character.
+	 * Tests the first UTF-16 character without changing the string.
+	 * @param s String to inspect; null or empty returns false
+	 * @param b Character to match
+	 * @return True if the first character equals b
 	 */
-	public static boolean startsWith(String s, char b) {
+	public static boolean startsWith(String s, char b){
 		return s!=null && s.length()>0 && s.charAt(0)==b;
 	}
 	
 	/**
-	 * @param array
-	 * @param b
-	 * @return True if the array starts with the character.
+	 * Compares the first UTF-16 character with the signed byte value.
+	 * @param s String to inspect; null or empty returns false
+	 * @param b Byte value to match; negative values cannot match a UTF-16 character
+	 * @return True if the first character equals b
 	 */
-	public static boolean startsWith(String s, byte b) {
+	public static boolean startsWith(String s, byte b){
 		return s!=null && s.length()>0 && s.charAt(0)==b;
 	}
 	
-	/**
-	 * @param array
-	 * @param b
-	 * @return True if the array starts with the character.
+	/** Tests the first byte after narrowing b to its low eight bits.
+	 * @param array Reference bytes; null or empty returns false
+	 * @param b Character narrowed to byte
+	 * @return True if the first byte equals the narrowed character
 	 */
-	public static boolean startsWith(byte[] array, char b) {
+	public static boolean startsWith(byte[] array, char b){
 		return startsWith(array, (byte)b, 0);
 	}
 	
-	/**
-	 * @param array
-	 * @param b
-	 * @return True if the array starts with the character.
+	/** Tests the first byte literally, without case folding.
+	 * @param array Reference bytes; null or empty returns false
+	 * @param b Byte to match
+	 * @return True if the first byte equals b
 	 */
-	public static boolean startsWith(byte[] array, byte b) {
+	public static boolean startsWith(byte[] array, byte b){
 		return startsWith(array, b, 0);
 	}
 	
-	/**
-	 * @param array
-	 * @param b
-	 * @return True if the array starts with the character.
+	/** Tests one byte at a nonnegative offset.
+	 * @param array Reference bytes; null returns false
+	 * @param b Byte to match
+	 * @param initialPos Nonnegative reference offset
+	 * @return True if a byte exists at the offset and equals b
 	 */
-	public static boolean startsWith(byte[] array, byte b, int initialPos) {
-		if(array==null || array.length+initialPos<1){return false;}
+	public static boolean startsWith(byte[] array, byte b, int initialPos){
+		if(array==null || array.length-initialPos<1){return false;}
 		return array[initialPos]==b;
 	}
 	
-	/**
-	 * @param array
-	 * @param s
-	 * @return True if the array starts with the String.
+	/** Tests a string at exactly the supplied offset without decoding or case folding.
+	 * @param array Reference bytes; null returns false
+	 * @param s Query UTF-16 code units compared directly with signed bytes; null returns false
+	 * @param initialPos Nonnegative reference offset
+	 * @return True if the complete query fits and matches; an empty query matches at the array end
 	 */
-	public static boolean startsWith(byte[] array, String s, int initialPos) {
+	public static boolean startsWith(byte[] array, String s, int initialPos){
 		//FIXED [shared/Tools.startsWith#001]: was `for(i=initialPos; i<s.length(); i++) array[i] vs s.charAt(i)` (same index into both) + guard `array.length+initialPos<s.length()`. That only matched the intended "does array AT initialPos begin with s" contract when initialPos==0; for initialPos>=s.length() the loop was empty → returned true unconditionally (var2 SN:/LN:/AD= asserts vacuous; FindAncestor mis-stripped non-gi| tokens). Now compares array[initialPos+i] vs s[i]; guard needs array long enough to hold s at initialPos.
-		if(array==null || s==null || array.length<initialPos+s.length()){return false;}
+		if(array==null || s==null || array.length-initialPos<s.length()){return false;}
 		for(int i=0; i<s.length(); i++){
 			if(array[initialPos+i]!=s.charAt(i)){return false;}
 		}
 		return true;
 	}
 	
-	/**
-	 * @param array
-	 * @param s
-	 * @return True if the array starts with the String.
+	/** Tests a byte query at exactly the supplied offset without case folding.
+	 * @param array Reference bytes; null returns false
+	 * @param s Query bytes; null returns false
+	 * @param initialPos Nonnegative reference offset
+	 * @return True if the complete query fits and matches; an empty query matches at the array end
 	 */
-	public static boolean startsWith(byte[] array, byte[] s, int initialPos) {
+	public static boolean startsWith(byte[] array, byte[] s, int initialPos){
 		//FIXED [shared/Tools.startsWith#001]: identical defect to the String twin above — same-index compare + wrong guard made initialPos>0 broken (empty loop → true). Now array[initialPos+i] vs s[i].
-		if(array==null || s==null || array.length<initialPos+s.length){return false;}
+		if(array==null || s==null || array.length-initialPos<s.length){return false;}
 		for(int i=0; i<s.length; i++){
 			if(array[initialPos+i]!=s[i]){return false;}
 		}
@@ -3125,7 +3219,8 @@ public final class Tools {
 
 	/**
 	 * Lexicographically compares two byte arrays.
-	 * Returns negative if a < b, zero if equal, positive if a > b.
+	 * Uses signed byte ordering, with null before non-null arrays. Returns a
+	 * negative value, zero, or a positive value for less than, equal, or greater than.
 	 * @param a First byte array
 	 * @param b Second byte array
 	 * @return Comparison result
@@ -3146,7 +3241,7 @@ public final class Tools {
 	 * @param matrix 3D array to fill
 	 * @param x Value to fill with
 	 */
-	public static void fill(long[][][] matrix, int x) {
+	public static void fill(long[][][] matrix, int x){
 		for(long[][] sub : matrix){
 			fill(sub, x);
 		}
@@ -3157,9 +3252,9 @@ public final class Tools {
 	 * @param matrix 2D array to fill
 	 * @param x Value to fill with
 	 */
-	public static void fill(long[][] matrix, int x) {
+	public static void fill(long[][] matrix, int x){
 		for(long[] sub : matrix){
-			if(sub!=null) {Arrays.fill(sub, x);}
+			if(sub!=null){Arrays.fill(sub, x);}
 		}
 	}
 
@@ -3176,35 +3271,46 @@ public final class Tools {
 		return (int)x;
 	}
 
-	public static int[] multiplyBy(int[] array, double mult) {
+	/** Scales in place, rounding each product to long and narrowing to int.
+	 * Int narrowing can wrap; Math.round's NaN/saturation rules apply first.
+	 * @return The supplied non-null array */
+	public static int[] multiplyBy(int[] array, double mult){
 		for(int i=0; i<array.length; i++){
 			array[i]=(int)Math.round(array[i]*mult);
 		}
 		return array;
 	}
 
-	public static float[] multiplyBy(float[] array, float mult) {
+	/** Scales in place with ordinary float arithmetic; returns the supplied array. */
+	public static float[] multiplyBy(float[] array, float mult){
 		for(int i=0; i<array.length; i++){
 			array[i]=array[i]*mult;
 		}
 		return array;
 	}
 
-	public static long[] multiplyBy(long[] array, double mult) {
+	/** Scales in place via double products and Math.round, including its saturation rules.
+	 * @return The supplied non-null array */
+	public static long[] multiplyBy(long[] array, double mult){
 		for(int i=0; i<array.length; i++){
 			array[i]=Math.round(array[i]*mult);
 		}
 		return array;
 	}
 
-	public static long[][] multiplyBy(long[][] matrix, double mult) {
+	/** Scales each row in place using the long-array rounding contract.
+	 * The matrix and all rows must be non-null. Shared rows are visited for each
+	 * occurrence; returns the supplied matrix. */
+	public static long[][] multiplyBy(long[][] matrix, double mult){
 		for(long[] array : matrix){
 			multiplyBy(array, mult);
 		}
 		return matrix;
 	}
 
-	public static long[][][] multiplyBy(long[][][] matrix, double mult) {
+	/** Scales all nested rows in place and returns the supplied matrix.
+	 * All nested arrays must be non-null; shared rows are visited for each occurrence. */
+	public static long[][][] multiplyBy(long[][][] matrix, double mult){
 		for(long[][] array : matrix){
 			multiplyBy(array, mult);
 		}
@@ -3216,13 +3322,14 @@ public final class Tools {
 	 * @param array Target array to modify
 	 * @param incr Array of values to add
 	 */
-	public static void add(int[] array, int[] incr) {
+	public static void add(int[] array, int[] incr){
 		for(int i=0; i<array.length; i++){
 			array[i]+=incr[i];
 		}
 	}
 
-	public static void add(float[] array,float incr) {
+	/** Adds incr to each element of the supplied non-null array in place. */
+	public static void add(float[] array, float incr){
 		for(int i=0; i<array.length; i++){
 			array[i]+=incr;
 		}
@@ -3233,7 +3340,7 @@ public final class Tools {
 	 * @param array Target atomic array to modify
 	 * @param incr Atomic array of values to add
 	 */
-	public static void add(AtomicLongArray array, AtomicLongArray incr) {
+	public static void add(AtomicLongArray array, AtomicLongArray incr){
 		for(int i=0; i<array.length(); i++){
 			array.addAndGet(i, incr.get(i));
 		}
@@ -3244,7 +3351,7 @@ public final class Tools {
 	 * @param array Target array to modify
 	 * @param incr Array of values to add
 	 */
-	public static void add(long[] array, long[] incr) {
+	public static void add(long[] array, long[] incr){
 		for(int i=0; i<array.length; i++){
 			array[i]+=incr[i];
 		}
@@ -3255,9 +3362,9 @@ public final class Tools {
 	 * @param array Target 2D array to modify
 	 * @param incr 2D array of values to add
 	 */
-	public static void add(long[][] array, long[][] incr) {
+	public static void add(long[][] array, long[][] incr){
 		for(int i=0; i<array.length; i++){
-			if(array[i]!=null) {add(array[i], incr[i]);}
+			if(array[i]!=null){add(array[i], incr[i]);}
 		}
 	}
 
@@ -3266,7 +3373,7 @@ public final class Tools {
 	 * @param array Target 3D array to modify
 	 * @param incr 3D array of values to add
 	 */
-	public static void add(long[][][] array, long[][][] incr) {
+	public static void add(long[][][] array, long[][][] incr){
 		for(int i=0; i<array.length; i++){
 			add(array[i], incr[i]);
 		}
@@ -3277,7 +3384,7 @@ public final class Tools {
 	 * @param array Target array to modify
 	 * @param incr Array of values to add
 	 */
-	public static void add(double[] array, double[] incr) {
+	public static void add(double[] array, double[] incr){
 		for(int i=0; i<array.length; i++){
 			array[i]+=incr[i];
 		}
@@ -3395,7 +3502,7 @@ public final class Tools {
 	 * @param a Int array
 	 * @return Inverse of sum
 	 */
-	public static float invSum(int[] a) {
+	public static float invSum(int[] a){
 		return 1f/Math.max(1, Vector.sum(a));
 	}
 	
@@ -3455,9 +3562,11 @@ public final class Tools {
 	
 	/**
 	 * Computes position-weighted average of array values.
-	 * Elements near center receive higher weights than edge elements.
-	 * @param array Long array to analyze
-	 * @return Weighted average based on position
+	 * Symmetric weights rise from one at each end toward the center. Does not sort
+	 * or modify the array; sort first if central values should receive more weight.
+	 * Floating-point accumulation avoids intermediate integer overflow.
+	 * @param array Non-null long values in the desired weighting order
+	 * @return Weighted mean, the sole value for a singleton, or zero for an empty array
 	 */
 	public static double weightedAverage(long[] array){
 		if(array.length<2){
@@ -3467,11 +3576,11 @@ public final class Tools {
 		long div=0;
 		final int mid=array.length/2;
 		for(int i=0; i<mid; i++){
-			wsum+=(i+1)*(array[i]+array[array.length-i-1]);
+			wsum+=(i+1)*((double)array[i]+array[array.length-i-1]);
 			div+=(i+1)*2;
 		}
 		if((array.length&1)==1){
-			wsum+=(mid+1)*array[mid];
+			wsum+=(mid+1)*(double)array[mid];
 			div+=(mid+1);
 		}
 		return wsum/div;
@@ -3572,8 +3681,10 @@ public final class Tools {
 	
 	/** 
 	 * Replaces the last instance of c with r.
-	 * @param array Byte array to reverse 
-	 * @return Modified String
+	 * @param s Input string, possibly null
+	 * @param c Character to replace
+	 * @param r Replacement character
+	 * @return New string when c is present, otherwise the original reference
 	 * */
 	public static String replaceLastInstanceOf(String s, char c, char r){
 		final int idx;
@@ -3620,8 +3731,9 @@ public final class Tools {
 		return new String(array);
 	}
 
-	/** Reverses characters.
-	 * @param s String to reverse */
+	/** Reverses UTF-16 code units; surrogate pairs are not kept together.
+	 * @param s String to reverse; null or fewer than two code units returns the input
+	 * @return Reversed string, or the unchanged input for those short cases */
 	public static String reverse(String s){
 		if(s==null || s.length()<2){return s;}
 		char[] array=s.toCharArray();
@@ -3827,8 +3939,8 @@ public final class Tools {
 	 * @param s Source string
 	 * @param bs Target byte array
 	 */
-	public static void copy(String s, byte[] bs) {
-		for(int i=0; i<s.length(); i++) {
+	public static void copy(String s, byte[] bs){
+		for(int i=0; i<s.length(); i++){
 			bs[i]=(byte)s.charAt(i);
 		}
 	}
@@ -4052,7 +4164,7 @@ public final class Tools {
 	 * @param buckets Number of histogram buckets
 	 * @return Histogram array showing length distribution
 	 */
-	public static int[] makeLengthHistogram(int[][] x, int buckets) {
+	public static int[] makeLengthHistogram(int[][] x, int buckets){
 		int[] lengths=new int[x.length];
 		long total=0;
 		for(int i=0; i<x.length; i++){
@@ -4109,7 +4221,7 @@ public final class Tools {
 	}
 	
 	/** Replace characters in the array with different characters according to the map */
-	public static int remapAndCount(byte[] remap, byte[] array) {
+	public static int remapAndCount(byte[] remap, byte[] array){
 		if(array==null){return 0;}
 		assert(remap!=null);
 		int swaps=0;
@@ -4125,7 +4237,7 @@ public final class Tools {
 	}
 	
 	/** Replace characters in a string with different characters according to the map */
-	public static String remap(byte[] remap, String in) {
+	public static String remap(byte[] remap, String in){
 		if(in==null){return in;}
 		byte[] array=in.getBytes();
 		int x=remapAndCount(remap, array);
@@ -4138,7 +4250,7 @@ public final class Tools {
 	 * @param buckets Number of histogram buckets
 	 * @return Histogram showing data distribution
 	 */
-	public static int[] makeHistogram(AtomicLongArray data, int buckets) {
+	public static int[] makeHistogram(AtomicLongArray data, int buckets){
 		long total=sum(data);
 		long increment=total/(buckets+1);
 		
@@ -4159,7 +4271,7 @@ public final class Tools {
 	}
 	
 	/** TODO:  This (temporarily) uses a lot of memory.  Could be reduced by making an array of length max(x) and counting occurrences. */
-	public static int[] makeLengthHistogram2(int[] x, int buckets, boolean verbose) {
+	public static int[] makeLengthHistogram2(int[] x, int buckets, boolean verbose){
 		int[] lengths=KillSwitch.copyOf(x, x.length);
 		long total=sum(x);
 		Shared.sort(lengths);
@@ -4201,7 +4313,7 @@ public final class Tools {
 	 * @param verbose Whether to print debugging information
 	 * @return Histogram array with length values at bucket boundaries
 	 */
-	public static int[] makeLengthHistogram3(int[] x, int buckets, boolean verbose) {
+	public static int[] makeLengthHistogram3(int[] x, int buckets, boolean verbose){
 		int max=max(x);
 		if(max>x.length){
 			Data.sysout.println("Reverted to old histogram mode.");
@@ -4222,7 +4334,7 @@ public final class Tools {
 	}
 	
 	/** Uses counts of occurrences of lengths rather than raw lengths */
-	public static int[] makeLengthHistogram4(int[] counts, int buckets, long total, boolean verbose) {
+	public static int[] makeLengthHistogram4(int[] counts, int buckets, long total, boolean verbose){
 		if(total<=0){
 			total=0;
 			for(int i=1; i<counts.length; i++){
@@ -4258,19 +4370,19 @@ public final class Tools {
 		return hist;
 	}
 	
-	/**
-	 * @param array
-	 * @return Array integer average 
+	/** Averages using a long sum and integer division, truncating toward zero.
+	 * @param array Values to average
+	 * @return Integer average, or zero for null/empty input
 	 */
-	public static int averageInt(short[] array) {
+	public static int averageInt(short[] array){
 		return (int)(array==null || array.length==0 ? 0 : sum(array)/array.length);
 	}
 	
-	/**
-	 * @param array
-	 * @return Array integer average 
+	/** Averages using a long sum and integer division, truncating toward zero.
+	 * @param array Values to average
+	 * @return Integer average, or zero for null/empty input
 	 */
-	public static int averageInt(int[] array) {
+	public static int averageInt(int[] array){
 		return (int)(array==null || array.length==0 ? 0 : sum(array)/array.length);
 	}
 
@@ -4279,7 +4391,7 @@ public final class Tools {
 	 * @param array Array to average
 	 * @return Double average, or 0.0 if array is null/empty
 	 */
-	public static double averageDouble(int[] array) {
+	public static double averageDouble(int[] array){
 		return (array==null || array.length==0 ? 0 : sum(array)/(double)array.length);
 	}
 
@@ -4288,7 +4400,7 @@ public final class Tools {
 	 * @param array Array to average
 	 * @return Double average, or 0.0 if array is null/empty
 	 */
-	public static double averageDouble(float[] array) {
+	public static double averageDouble(float[] array){
 		return (array==null || array.length==0 ? 0 : sum(array)/(double)array.length);
 	}
 	
@@ -4298,7 +4410,10 @@ public final class Tools {
 	/** Returns the median of a histogram */
 	public static int medianHistogram(long[] array){return percentileHistogram(array, .5);}
 	
-	/** Returns the percentile of a histogram */
+	/** Finds the first bin whose cumulative count reaches (long)(total*fraction).
+	 * Counts should be nonnegative and fraction in [0,1]. A zero target selects bin
+	 * zero even when it is empty; null/empty arrays return zero. If the target is never
+	 * reached, returns the last bin. Does not interpolate between bins. */
 	public static int percentileHistogram(int[] array, double fraction){
 		if(array==null || array.length<1){return 0;}
 		long target=(long)(sum(array)*fraction);
@@ -4312,16 +4427,54 @@ public final class Tools {
 		return array.length-1;
 	}
 	
-	/** Returns the percentile of a histogram */
+	/** Finds the first bin whose cumulative count reaches (long)(total*fraction).
+	 * Counts should be nonnegative and fraction in [0,1]. A zero target selects bin
+	 * zero even when it is empty; null/empty arrays return zero. If the target is never
+	 * reached, returns the last bin. Representable totals retain the long target and
+	 * cumulative calculation. Larger totals use exact integer counts and the floor of
+	 * the total times the supplied binary double fraction; only that fallback allocates. */
 	public static int percentileHistogram(long[] array, double fraction){
 		if(array==null || array.length<1){return 0;}
-		long target=(long)(sum(array)*fraction);
+		long total=0;
+		for(long count : array){
+			assert(count>=0) : "Percentile frequencies must be nonnegative for cumulative ranks: "+count;
+			if(count>Long.MAX_VALUE-total){return percentileHistogramWide(array, fraction);}
+			total+=count;
+		}
+		final long target=(long)(total*fraction);
 		long sum=0;
 		for(int i=0; i<array.length; i++){
 			sum+=array[i];
 			if(sum>=target){
 				return i;
 			}
+		}
+		return array.length-1;
+	}
+
+	/** Handles a nonnegative histogram whose total exceeds the long range.
+	 * Converts the fraction's significand/exponent to an exact integer target, avoiding
+	 * rounded cumulative doubles that could select the wrong bin near a boundary.
+	 * NaN/nonpositive fractions select zero; fractions above one select the last bin. */
+	private static int percentileHistogramWide(long[] array, double fraction){
+		if(!(fraction>0)){return 0;}
+		if(fraction>1){return array.length-1;}
+		BigInteger total=BigInteger.ZERO;
+		for(long count : array){
+			assert(count>=0) : "Percentile frequencies must be nonnegative for cumulative ranks: "+count;
+			total=total.add(BigInteger.valueOf(count));
+		}
+		final long bits=Double.doubleToLongBits(fraction);
+		final int exponent=(int)((bits>>>52)&0x7ff);
+		final long mantissa=(bits&0x000fffffffffffffL)|(exponent==0 ? 0 : 1L<<52);
+		final int shift=(exponent==0 ? 1074 : 1075-exponent);
+		final BigInteger target=total.multiply(BigInteger.valueOf(mantissa)).shiftRight(shift);
+		assert(target.signum()>=0 && target.compareTo(total)<=0) :
+				"A fraction in [0,1] must produce a rank within the histogram: "+fraction+", "+target+", "+total;
+		BigInteger sum=BigInteger.ZERO;
+		for(int i=0; i<array.length; i++){
+			sum=sum.add(BigInteger.valueOf(array[i]));
+			if(sum.compareTo(target)>=0){return i;}
 		}
 		return array.length-1;
 	}
@@ -4348,24 +4501,26 @@ public final class Tools {
 	}
 
 	/** Returns the absolute difference between two integers */
-	public static final int absdif(int a, int b) {
+	public static final int absdif(int a, int b){
 //		return a>b ? a-b : b-a;
 		return Math.abs(a-b);
 	}
 
 	/** Returns the absolute difference between two floats */
-	public static final float absdif(float a, float b) {
+	public static final float absdif(float a, float b){
 //		return a>b ? a-b : b-a;
 		return Math.abs(a-b); //Tested as 4x faster
 	}
 
 	/** Returns the absolute difference between two doubles */
-	public static final double absdif(double a, double b) {
+	public static final double absdif(double a, double b){
 //		return a>b ? a-b : b-a;
 		return Math.abs(a-b);
 	}
 	
-	/** Uses unsigned math */
+	/** Returns the absolute difference for same-sign inputs, or Integer.MAX_VALUE
+	 * whenever the signs differ. This is a conservative sign-boundary sentinel,
+	 * not a general unsigned-distance calculation. */
 	public static final int absdifUnsigned(int a, int b){
 		return (a<0 == b<0) ? a>b ? a-b : b-a : Integer.MAX_VALUE;
 	}
@@ -4418,9 +4573,9 @@ public final class Tools {
 	 * @param line String to examine
 	 * @return Number of digits at the end of the string
 	 */
-	public static int trailingDigits(String line) {
-		for(int x=line.length()-1; x>=0; x--) {
-			if(!isDigit(line.charAt(x))) {
+	public static int trailingDigits(String line){
+		for(int x=line.length()-1; x>=0; x--){
+			if(!isDigit(line.charAt(x))){
 				return line.length()-x-1;
 			}
 		}
@@ -4432,9 +4587,9 @@ public final class Tools {
 	 * @param line Byte array to examine
 	 * @return Number of digits at the end of the array
 	 */
-	public static int trailingDigits(byte[] line) {
-		for(int x=line.length-1; x>=0; x--) {
-			if(!isDigit(line[x])) {
+	public static int trailingDigits(byte[] line){
+		for(int x=line.length-1; x>=0; x--){
+			if(!isDigit(line[x])){
 				return line.length-x-1;
 			}
 		}
@@ -4484,8 +4639,11 @@ public final class Tools {
 		return (i==array.length() ? -1 : i);
 	}
 
-	/**
-	 * Finds the first occurrence of a character in a byte array starting from a position
+	/** Finds the first occurrence after narrowing the character to its low eight bits.
+	 * @param array Non-null byte array
+	 * @param b Character narrowed to byte before comparison
+	 * @param start Inclusive start in [0,array.length]
+	 * @return Matching index, or -1 if absent
 	 */
 	public static final int indexOf(final byte[] array, final char b, final int start){return indexOf(array, (byte)b, start);}
 	/**
@@ -4502,8 +4660,12 @@ public final class Tools {
 		return (i==array.length ? -1 : i);
 	}
 	
-	/**
-	 * Finds the nth occurrence of a character in a byte array starting from a position
+	/** Finds the nth occurrence after narrowing the character to its low eight bits.
+	 * @param array Non-null byte array
+	 * @param b Character narrowed to byte before comparison
+	 * @param n Positive one-based occurrence number
+	 * @param start Inclusive start in [0,array.length]
+	 * @return Matching index, or -1 if fewer than n occurrences remain
 	 */
 	public static final int indexOfNth(final byte[] array, final char b, final int n, final int start){
 		return indexOfNth(array, (byte)b, n, start);
@@ -4550,11 +4712,12 @@ public final class Tools {
 	
 	/**
 	 * Finds a string in a byte array that is preceded by a delimiter.
-	 * Checks for match at start position, then searches for delimiter+query.
+	 * Checks for a match at start, then searches for delimiter+query including a
+	 * delimiter at start itself. Neither input is changed or copied.
 	 *
-	 * @param ref Byte array to search
-	 * @param query String to find
-	 * @param start Starting index for search
+	 * @param ref Non-null byte array to search
+	 * @param query Non-null string whose UTF-16 units compare directly with signed bytes
+	 * @param start Nonnegative starting index, at most ref.length
 	 * @param delimiter Delimiter that must precede the query
 	 * @return Index of string match (after delimiter), or -1 if not found
 	 */
@@ -4562,7 +4725,7 @@ public final class Tools {
 //		assert(false) : query+", "+start+", "+new String(ref);
 		final int lim=ref.length-query.length();
 		if(matches(ref, query, start)){return start;}
-		for(int i=start+1; i<=lim; i++){
+		for(int i=start; i<lim; i++){
 			if(ref[i]==delimiter && matches(ref, query, i+1)){
 //				System.err.println("Returning "+(i+1));
 				return i+1;
@@ -4939,29 +5102,33 @@ public final class Tools {
 	
 	/**
 	 * Calculates the weighted average of a histogram.
-	 * @param histogram Array where histogram[i] contains count of values equal to i
-	 * @return Weighted average of the histogram values
+	 * Accumulates counts and weighted totals in double to avoid integer overflow.
+	 * Does not modify the supplied counts.
+	 * @param histogram Nonnegative counts, with histogram[i] counting values equal to i
+	 * @return Population mean, or zero when there are no observations
 	 */
 	public static final double averageHistogram(long[] histogram){
-		long sum=max(1, sum(histogram));
-		long sum2=0;
+		double sum=0, sum2=0;
 		for(int i=0; i<histogram.length; i++){
-			sum2+=(histogram[i]*i);
+			final double count=histogram[i];
+			sum+=count;
+			sum2+=count*i;
 		}
-		double avg=sum2/(double)sum;
+		double avg=sum2/max(1d, sum);
 		return avg;
 	}
 	
 	/**
 	 * Calculates the standard deviation of a char histogram.
-	 * @param histogram Array where histogram[i] contains count of values equal to i
-	 * @return Standard deviation of the histogram values
+	 * Uses population variance and floating-point weighted totals; leaves counts unchanged.
+	 * @param histogram Counts, with histogram[i] counting values equal to i
+	 * @return Population standard deviation, or zero when there are no observations
 	 */
 	public static final double standardDeviationHistogram(char[] histogram){
 		long sum=max(1, sum(histogram));
-		long sum2=0;
+		double sum2=0;
 		for(int i=0; i<histogram.length; i++){
-			sum2+=(histogram[i]*i);
+			sum2+=(double)histogram[i]*i;
 		}
 		double avg=sum2/(double)sum;
 		double sumdev2=0;
@@ -4975,14 +5142,15 @@ public final class Tools {
 	
 	/**
 	 * Calculates the standard deviation of an int histogram.
-	 * @param histogram Array where histogram[i] contains count of values equal to i
-	 * @return Standard deviation of the histogram values
+	 * Uses population variance and floating-point weighted totals; leaves counts unchanged.
+	 * @param histogram Nonnegative counts, with histogram[i] counting values equal to i
+	 * @return Population standard deviation, or zero when there are no observations
 	 */
 	public static final double standardDeviationHistogram(int[] histogram){
 		long sum=max(1, sum(histogram));
-		long sum2=0;
+		double sum2=0;
 		for(int i=0; i<histogram.length; i++){
-			sum2+=(histogram[i]*i);
+			sum2+=(double)histogram[i]*i;
 		}
 		double avg=sum2/(double)sum;
 		double sumdev2=0;
@@ -4996,16 +5164,20 @@ public final class Tools {
 	
 	/**
 	 * Calculates the standard deviation of a long histogram.
-	 * @param histogram Array where histogram[i] contains count of values equal to i
-	 * @return Standard deviation of the histogram values
+	 * Accumulates counts and weighted totals in double, then computes population
+	 * variance in a second pass. Does not modify the supplied counts.
+	 * @param histogram Nonnegative counts, with histogram[i] counting values equal to i
+	 * @return Population standard deviation, or zero when there are no observations
 	 */
 	public static final double standardDeviationHistogram(long[] histogram){
-		long sum=max(1, sum(histogram));
-		long sum2=0;
+		double sum=0, sum2=0;
 		for(int i=0; i<histogram.length; i++){
-			sum2+=(histogram[i]*i);
+			final double count=histogram[i];
+			sum+=count;
+			sum2+=count*i;
 		}
-		double avg=sum2/(double)sum;
+		sum=max(1d, sum);
+		double avg=sum2/sum;
 		double sumdev2=0;
 		for(int i=0; i<histogram.length; i++){
 			double dev=avg-i;
@@ -5015,12 +5187,16 @@ public final class Tools {
 		return Math.sqrt(sumdev2/sum);
 	}
 	
-	/** Special version that calculates standard deviation based on unique kmers rather than overall events */
+	/** Estimates depth dispersion after converting event counts to unique-kmer weights.
+	 * Bin i contributes histogram[i]/max(i,1) unique kmers; the event-count total
+	 * divided by max(unique total,1) supplies the mean depth. Bin zero contributes to
+	 * the totals but is excluded from the squared-deviation sum. Null is unsupported;
+	 * empty/all-zero input returns NaN. Totals use double accumulation to avoid long overflow. */
 	public static final double standardDeviationHistogramKmer(long[] histogram){
-		final long sum=sum(histogram);
-		double sumU=0;
+		double sum=0, sumU=0;
 		for(int i=0; i<histogram.length; i++){
 			long x=histogram[i];
+			sum+=x;
 			sumU+=(x/(double)max(i, 1));
 		}
 		double avg=sum/max(sumU, 1);
@@ -5036,16 +5212,20 @@ public final class Tools {
 	
 	/**
 	 * Calculates the standard deviation of an AtomicLongArray histogram.
+	 * Totals use double accumulation. Independent entry reads across passes do not
+	 * form a snapshot; callers must stabilize the counts for a final result.
 	 * @param histogram Array where histogram[i] contains count of values equal to i
 	 * @return Standard deviation of the histogram values
 	 */
 	public static final double standardDeviationHistogram(AtomicLongArray histogram){
-		long sum=max(1, sum(histogram));
-		long sum2=0;
+		double sum=0, sum2=0;
 		for(int i=0; i<histogram.length(); i++){
-			sum2+=(histogram.get(i)*i);
+			final long count=histogram.get(i);
+			sum+=count;
+			sum2+=(double)count*i;
 		}
-		double avg=sum2/(double)sum;
+		sum=max(1, sum);
+		double avg=sum2/sum;
 		double sumdev2=0;
 		for(int i=0; i<histogram.length(); i++){
 			double dev=avg-i;
@@ -5055,12 +5235,16 @@ public final class Tools {
 		return Math.sqrt(sumdev2/sum);
 	}
 	
-	/** Special version that calculates standard deviation based on unique kmers rather than overall events */
+	/** Atomic-array counterpart of the event-count to unique-kmer depth calculation.
+	 * Bin i has weight histogram[i]/max(i,1); bin zero affects totals but not squared
+	 * deviations. Empty/all-zero input returns NaN. Totals use double accumulation.
+	 * Multiple passes read the entries independently: concurrent updates do not yield
+	 * a consistent snapshot, so callers must stabilize the histogram for a final result. */
 	public static final double standardDeviationHistogramKmer(AtomicLongArray histogram){
-		final long sum=sum(histogram);
-		double sumU=0;
+		double sum=0, sumU=0;
 		for(int i=0; i<histogram.length(); i++){
 			long x=histogram.get(i);
+			sum+=x;
 			sumU+=(x/(double)max(i, 1));
 		}
 		double avg=sum/max(sumU, 1);
@@ -5096,13 +5280,14 @@ public final class Tools {
 	}
 
 	
-	/** Pauses execution for the specified number of milliseconds.
-	 * @param millis Number of milliseconds to sleep */
+	/** Sleeps once; interruption prints a stack trace and returns early with the
+	 * interrupt status cleared. Does not retry the remaining interval.
+	 * @param millis Nonnegative requested sleep duration in milliseconds */
 	public static final void pause(int millis){
-		try {
+		try{
 			Thread.sleep(millis);
-		} catch (InterruptedException e) {
-			// TODO Auto-generated catch block
+		}catch(InterruptedException e){
+			// Preserve this helper's diagnostic-and-return interruption policy.
 			e.printStackTrace();
 		}
 	}
@@ -5116,7 +5301,7 @@ public final class Tools {
 	 * @param extout Explicit extension override
 	 * @return File extension string including leading dot
 	 */
-	public static final String getTempExt(FileFormat ffin, FileFormat ffout, String extout) {
+	public static final String getTempExt(FileFormat ffin, FileFormat ffout, String extout){
 		String tempExt=".fq.gz";
 		if(extout==null){
 			if(ffout!=null){
@@ -5155,7 +5340,7 @@ public final class Tools {
 	 * @param z Third integer
 	 * @return The middle value of the three inputs
 	 */
-	public static final int mid(int x, int y, int z) {
+	public static final int mid(int x, int y, int z){
 	    return Math.max(Math.min(x, y), Math.min(Math.max(x, y), z));
 	}
 
@@ -5326,7 +5511,7 @@ public final class Tools {
 	 * @param array Array to search
 	 * @return Index of minimum element, or -1 if array is null/empty
 	 */
-	public static int minIndex(int[] array) {
+	public static int minIndex(int[] array){
 		if(array==null || array.length<1){return -1;}
 		int min=array[0];//FIXED [shared/Tools#007]: was 'float min' - int values above 2^24 lose precision as float, yielding the wrong min index; sibling maxIndex(int[]) correctly uses int.
 		int index=0;
@@ -5359,8 +5544,8 @@ public final class Tools {
 	 * @param s Byte array containing DNA bases
 	 * @return GC content as fraction (0.0 to 1.0)
 	 */
-	public static float calcGC(byte[] s) {
-		if(s==null) {return 0;}
+	public static float calcGC(byte[] s){
+		if(s==null){return 0;}
 		return calcGC(s, 0, s.length-1);
 	}
 	
@@ -5372,11 +5557,11 @@ public final class Tools {
 	 * @param to Ending index (inclusive)
 	 * @return GC content as fraction (0.0 to 1.0)
 	 */
-	public static float calcGC(byte[] s, int from, int to) {
-		if(s==null) {return 0;}
+	public static float calcGC(byte[] s, int from, int to){
+		if(s==null){return 0;}
 		int[] acgtn=localACGTN.get();
 		Arrays.fill(acgtn, 0);
-		for(int i=from; i<=to; i++) {
+		for(int i=from; i<=to; i++){
 			byte b=s[i];
 			int x=AminoAcid.baseToNumber4[b];
 			acgtn[x]++;
@@ -5387,16 +5572,16 @@ public final class Tools {
 	}
 
 	/** A quick hash function for byte arrays */
-	public static int hash(final byte[] s, final int affixLen) {
-		if(s==null) {return 0;}
+	public static int hash(final byte[] s, final int affixLen){
+		if(s==null){return 0;}
 		int code=s.length;
 		final int len=min(affixLen, s.length, (s.length+1)/2);
 		
-		for(int i=0; i<len; i++) {
+		for(int i=0; i<len; i++){
 			int x=baseToHashcode[s[i]];
 			code=Integer.rotateLeft(code, 5)^x;
 		}
-		for(int i=s.length-1, min=s.length-len; i>=min; i--) {
+		for(int i=s.length-1, min=s.length-len; i>=min; i--){
 			int x=baseToHashcode[s[i]];
 			code=Integer.rotateLeft(code, 5)^x;
 		}
@@ -5404,11 +5589,11 @@ public final class Tools {
 	}
 	
 	/** A quick way to determine if a sequence is canonical */
-	public static boolean canonical(byte[] s) {
-		for(int i=0, j=s.length-1; i<=j; i++, j--) {
+	public static boolean canonical(byte[] s){
+		for(int i=0, j=s.length-1; i<=j; i++, j--){
 			byte a=baseToNumberExtended[s[i]], b=baseToComplementNumberExtended[s[j]];
-			if(a<b) {return true;}
-			else if(a>b) {return false;}
+			if(a<b){return true;}
+			else if(a>b){return false;}
 		}
 		return true;
 	}
@@ -5419,8 +5604,8 @@ public final class Tools {
 	 * @param s DNA sequence as byte array (modified in-place)
 	 * @return true if sequence was reverse-complemented, false if already canonical
 	 */
-	public static boolean canonize(byte[] s) {
-		if(canonical(s)) {return false;}
+	public static boolean canonize(byte[] s){
+		if(canonical(s)){return false;}
 		Vector.reverseComplementInPlace(s);
 		return true;
 	}
@@ -5455,14 +5640,11 @@ public final class Tools {
 	}
 	
 	/**
-	 * Hashes a long key to a non-negative int safe for direct array indexing.
-	 * The result is always in [0, 0x7FFFF800) (= [0, 2147481600)), which is BELOW the
-	 * maximum safe array length Shared.SAFE_ARRAY_LEN (Integer.MAX_VALUE-60). Because of
-	 * this bound the result indexes in-bounds whether used directly OR via {@code hash&mask}
-	 * for ANY mask - including a degenerate mask that has overflowed to -1, since then
-	 * {@code hash & -1 == hash}, still below SAFE_ARRAY_LEN. This range guarantee (not the
-	 * table's mask) is what keeps the power-of-2 hash maps in bounds. Long-key form of
-	 * {@link #hash32plus(int)}.
+	 * Mixes a long key into a capped nonnegative int, folding the top 2048 values.
+	 * The range [0,0x7FFFF800) is below Shared.SAFE_ARRAY_LEN. This helps capped
+	 * maximum-size tables, but does not make the value a valid index for an arbitrary
+	 * smaller array. Callers still need an appropriate mask/modulus or sufficient
+	 * backing capacity. Long-key counterpart of {@link #hash32plus(int)}.
 	 *
 	 * @param key The key to hash.
 	 * @return A non-negative int in [0, 0x7FFFF800), below the max safe array length.
@@ -5481,13 +5663,10 @@ public final class Tools {
 	}
 	
 	/**
-	 * Hashes a long key to a non-negative long whose HIGH 32 bits form a safe array index.
-	 * Mixes with the MurmurHash3 finalizer, then caps the 64-bit result below
-	 * 0x7FFFF800FFFFFFFFL so that {@code (result >>> 32)} is always in [0, 0x7FFFF800] - at
-	 * or below 2147481600, under the max safe array length Shared.SAFE_ARRAY_LEN. Callers
-	 * take the high 32 bits as the bucket ({@code hash64plus2(key) >>> 32}); the cap makes
-	 * that index in-bounds for ANY mask, even one overflowed to -1 (then {@code idx & -1 ==
-	 * idx}). Wider-entropy long analogue of {@link #hash64plus(long)}.
+	 * Mixes a long key with the Murmur finalizer and caps the nonnegative result.
+	 * The high 32 bits lie in [0,0x7FFFF800], below Shared.SAFE_ARRAY_LEN. Those bits
+	 * still require mapping into the caller's actual table capacity. Wider-result
+	 * analogue of {@link #hash64plus(long)}; arithmetic wrapping in the mixer is intentional.
 	 *
 	 * @param key The key to hash.
 	 * @return A non-negative long whose top 32 bits lie in [0, 0x7FFFF800] (below max array length).
@@ -5513,6 +5692,7 @@ public final class Tools {
 		return key<0x7FFFF800FFFFFFFFL ? key : (key-0x7FFFF800FFFFFFFFL)*64;
 	}
 
+	/** Mixes an int with shifts, XORs and wrapping arithmetic; returns signed hash bits. */
 	public static int hash32shift(int key){
 		key=~key+(key<<15); // key=(key<<15) - key - 1;
 		key=key^(key>>>12);
@@ -5524,12 +5704,11 @@ public final class Tools {
 	}
 
 	/**
-	 * Hashes an int key to a non-negative int safe for direct array indexing.
-	 * The result is always in [0, 0x7FFFF800) (= [0, 2147481600)), BELOW the maximum safe
-	 * array length Shared.SAFE_ARRAY_LEN. So it indexes in-bounds directly or via
-	 * {@code hash & mask} for ANY mask, even one overflowed to -1 (then {@code hash & -1 ==
-	 * hash}). This range guarantee, not the table mask, keeps the power-of-2 maps in
-	 * bounds. See {@link #hash64plus(long)} for the long-key form.
+	 * Mixes an int into [0,0x7FFFF800), folding the top 2048 nonnegative values.
+	 * The cap is below Shared.SAFE_ARRAY_LEN, but a smaller backing array still
+	 * requires an appropriate mask/modulus. A mask of -1 leaves the hash unchanged
+	 * and is safe only when the actual capacity covers this range.
+	 * See {@link #hash64plus(long)} for the long-key form.
 	 *
 	 * @param key The key to hash.
 	 * @return A non-negative int in [0, 0x7FFFF800), below the max safe array length.
@@ -5547,11 +5726,11 @@ public final class Tools {
 	}
 
 	/**
-	 * Hashes an int key to a non-negative int below the max safe array length (Slow).
+	 * Hashes an int key to a nonnegative int using an integer scaling cap.
 	 * Variant of {@link #hash32plus(int)} that caps by scaling instead of folding:
 	 * {@code (key*4095)>>12} multiplies the non-negative key by 4095/4096, mapping
-	 * [0, 2^31) into [0, 2^31 - 2^19) - below Shared.SAFE_ARRAY_LEN. Same indexing
-	 * guarantee, marginally slower.
+	 * [0, 2^31) into [0, 2^31 - 2^19), below Shared.SAFE_ARRAY_LEN. The caller must
+	 * still map the result into its actual table capacity.
 	 *
 	 * @param key The key to hash.
 	 * @return A non-negative int below the max safe array length.
@@ -5569,10 +5748,11 @@ public final class Tools {
 	}
 
 	/**
-	 * Hashes an int key to a non-negative int below the max safe array length (Slow).
+	 * Hashes an int key to a nonnegative int using a floating-point scaling cap.
 	 * Variant of {@link #hash32plus(int)} that caps by floating-point scaling: multiplies
-	 * the non-negative key by hashMult (=16383/16384), mapping [0, 2^31) into
-	 * [0, 2^31 - 2^17) - below Shared.SAFE_ARRAY_LEN. Same indexing guarantee, slower.
+	 * the nonnegative key by hashMult (=16383/16384). Float rounding can include
+	 * the upper endpoint 2^31-2^17; it remains below Shared.SAFE_ARRAY_LEN.
+	 * The caller must still map the result into its actual table capacity.
 	 *
 	 * @param key The key to hash.
 	 * @return A non-negative int below the max safe array length.
@@ -5585,10 +5765,11 @@ public final class Tools {
 		key=key*2057;
 		key=key^(key>>>16);
 		key=key&(0x7FFFFFFF);//clear the sign bit -> non-negative, [0, 2^31)
-		//THE CAP: scale by hashMult (16383/16384) -> result in [0, 2^31 - 2^17), below SAFE_ARRAY_LEN
+		//Float rounding can reach 2^31-2^17; the result stays below SAFE_ARRAY_LEN.
 		return (int)(key*hashMult);
 	}
 
+	/** Applies the 64-bit Murmur finalizer, returning signed bits with intentional overflow. */
 	public static long murmur64(long key){
 		key^=key>>>33;
 		key*=0xff51afd7ed558ccdL;
@@ -5598,6 +5779,7 @@ public final class Tools {
 		return key;
 	}
 
+	/** Applies the 32-bit Murmur finalizer, returning signed bits with intentional overflow. */
 	public static int murmur32(int key){
 		key^=key>>>16;
 		key*=0x85ebca6b;
@@ -5607,6 +5789,8 @@ public final class Tools {
 		return key;
 	}
 
+	/** Mixes a long key and folds its low 31 bits into [0,0x7FFFF800).
+	 * This cap does not replace the caller's actual table-capacity check. */
 	public static int murmur64plus(long key){
 		key^=key>>>33;
 		key*=0xff51afd7ed558ccdL;
@@ -5617,12 +5801,15 @@ public final class Tools {
 		return ikey<0x7FFFF800 ? ikey : (ikey-0x7FFFF800)*64;
 	}
 
+	/** Mixes an int key and folds its low 31 bits into [0,0x7FFFF800).
+	 * This cap does not replace the caller's actual table-capacity check. */
 	public static int murmur32plus(int key){
 		key^=key>>>16;
 		key*=0x85ebca6b;
 		key^=key>>>13;
 		key*=0xc2b2ae35;
 		key^=key>>>16;
+		key&=0x7FFFFFFF;
 		return key<0x7FFFF800 ? key : (key-0x7FFFF800)*64;
 	}
 
@@ -5815,7 +6002,7 @@ public final class Tools {
 	 * @param a String to test
 	 * @return true if first character is a letter, false otherwise
 	 */
-	public static final boolean startsWithLetter(String a) {
+	public static final boolean startsWithLetter(String a){
 		return a!=null && a.length()>0 && Character.isLetter(a.charAt(0));
 	}
 
@@ -5824,7 +6011,7 @@ public final class Tools {
 	 * @param a Byte array to test
 	 * @return true if first byte is a letter, false otherwise
 	 */
-	public static final boolean startsWithLetter(byte[] a) {
+	public static final boolean startsWithLetter(byte[] a){
 		return a!=null && a.length>0 && Character.isLetter(a[0]);
 	}
 
@@ -5833,7 +6020,7 @@ public final class Tools {
 	 * @param a String to test
 	 * @return true if first character is a digit, false otherwise
 	 */
-	public static final boolean startsWithDigit(String a) {
+	public static final boolean startsWithDigit(String a){
 		return a!=null && a.length()>0 && Character.isDigit(a.charAt(0));
 	}
 
@@ -5843,8 +6030,8 @@ public final class Tools {
 	 * @param a String to test
 	 * @return true if first character is numeric, false otherwise
 	 */
-	public static final boolean startsWithNumeric(String a) {
-		if(a==null || a.length()<1) {return false;}
+	public static final boolean startsWithNumeric(String a){
+		if(a==null || a.length()<1){return false;}
 		char c=a.charAt(0);
 		return c=='.' || Character.isDigit(c);//Note: This does not handle '-' or 'e'.
 	}
@@ -5888,27 +6075,24 @@ public final class Tools {
 		return array.length-1; //No assertion
 	}
 
-	/** Returns index of the closest element */
-	public static int binarySearch(float[] array, float key) {
-		if(array.length<2) {return 0;}
-		else if(array.length==2) {
+	/** Returns the closest index in an ascending float array using absolute differences.
+	 * Returns zero for an empty or singleton array. A two-element tie selects the
+	 * lower index; longer-array ties select the upper search bracket. */
+	public static int binarySearch(float[] array, float key){
+		if(array.length<2){return 0;}else if(array.length==2){
 			return Math.abs(key-array[0])<=Math.abs(key-array[1]) ? 0 : 1;
 		}
 		int a=0, b=array.length-1;
 		while(b>a){
 			final int mid=(a+b)/2;
 			final float f=array[mid];
-			if(key<f){b=mid;}
-			else if(key>f){a=mid+1;}
-			else{return mid;}
+			if(key<f){b=mid;}else if(key>f){a=mid+1;}else{return mid;}
 		}
 		assert(a==b) : a+", "+b;
-		if(a==0 || a==array.length-1) {return a;}
+		if(a==0){return a;}
 		float dif1=Math.abs(key-array[a-1]);
 		float dif2=Math.abs(key-array[a]);
-		float dif3=Math.abs(key-array[a+1]);
-		if(dif1<dif2) {return a-1;}
-		if(dif3<dif2) {return a+1;}
+		if(dif1<dif2){return a-1;}
 		return a;
 	}
 
@@ -5917,7 +6101,7 @@ public final class Tools {
 	 * @param list ArrayList to get last element from
 	 * @return Last element, or null if list is empty
 	 */
-	public static final <X> X getLast(ArrayList<X> list) {
+	public static final <X> X getLast(ArrayList<X> list){
 		return (list.size()>0 ? list.get(list.size()-1) : null);
 	}
 	
@@ -5926,8 +6110,8 @@ public final class Tools {
 	 * @param s File path string
 	 * @return true if path exists and is a readable file
 	 */
-	public static boolean isReadableFile(String s) {
-		if(s==null) {return false;}
+	public static boolean isReadableFile(String s){
+		if(s==null){return false;}
 		File f=new File(s);
 		return f.canRead() && f.isFile();
 	}
@@ -5938,65 +6122,72 @@ public final class Tools {
 	 * @param arg Argument string to test
 	 * @return true if argument appears to be an input stream
 	 */
-	public static boolean looksLikeInputStream(String arg) {
-		if(arg==null || arg.indexOf('=')>=0) {return false;}
+	public static boolean looksLikeInputStream(String arg){
+		if(arg==null || arg.indexOf('=')>=0){return false;}
 		return arg.toLowerCase().startsWith("stdin") || isReadableFile(arg);
 	}
 	
-	public static boolean looksLikeOutputStream(String arg) {
-		if(arg==null || arg.indexOf('=')>=0) {return false;}
-		if(looksLikeFileWithExtension(arg)) {return true;}
+	/** Heuristically recognizes extension-bearing paths or stdout/stderr prefixes.
+	 * Rejects null and arguments containing '='; does not test writability. */
+	public static boolean looksLikeOutputStream(String arg){
+		if(arg==null || arg.indexOf('=')>=0){return false;}
+		if(looksLikeFileWithExtension(arg)){return true;}
 		String lc=arg.toLowerCase();
 		return lc.startsWith("stdout") || lc.startsWith("stderr");
 	}
 	
-	/**
-	 * @param path Term to test
-	 * @return true if this looks like a file with an extension
+	/** Tests for a nonleading, nonterminal dot in the final path component.
+	 * This is a naming heuristic, not a file-existence or format check.
+	 * @param path Term to test; null, short terms and '=' arguments return false
+	 * @return Whether the final component appears to have an extension
 	 */
-	public static boolean looksLikeFileWithExtension(String path) {
-		if(path==null || path.indexOf('=')>=0 || path.length()<3) {return false;}
+	public static boolean looksLikeFileWithExtension(String path){
+		if(path==null || path.indexOf('=')>=0 || path.length()<3){return false;}
 		int slash=Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
 		final int dot=path.lastIndexOf('.');
 		return dot>slash+1 && dot<path.length()-1;
 	}
 	
-	/**
-	 * @param path Term to test
-	 * @return true if this looks like a directory
+	/** Treats extensionless terms or existing directories as directory-like.
+	 * An extensionless result need not exist on disk.
+	 * @param path Term to test; null, empty and '=' arguments return false
+	 * @return Whether this naming/filesystem heuristic recognizes a directory
 	 */
-	public static boolean looksLikeDirectory(String path) {
-		if(path==null || path.indexOf('=')>=0 || path.length()<1) {return false;}
+	public static boolean looksLikeDirectory(String path){
+		if(path==null || path.indexOf('=')>=0 || path.length()<1){return false;}
 		int slash=Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
 		final int dot=path.lastIndexOf('.');
 		return dot<=slash || new File(path).isDirectory();
 	}
 	
-	public static boolean looksLikeInputSequenceStream(String arg) {
-		if(arg==null || arg.indexOf('=')>=0 || !FileFormat.isSequence(arg)) {return false;}
+	/** Requires a FileFormat-recognized sequence name and stdin prefix or readable file.
+	 * Rejects null and '=' arguments; does not validate the complete input contents. */
+	public static boolean looksLikeInputSequenceStream(String arg){
+		if(arg==null || arg.indexOf('=')>=0 || !FileFormat.isSequence(arg)){return false;}
 		return arg.toLowerCase().startsWith("stdin") || isReadableFile(arg);
 	}
 	
-	public static boolean looksLikeOutputSequenceStream(String arg) {
-		if(arg==null || arg.indexOf('=')>=0 || !FileFormat.isSequence(arg)) {return false;}
+	/** Recognizes sequence-format output names using stream prefixes or a nonterminal dot.
+	 * Rejects null and '=' arguments; does not open the output or test writability. */
+	public static boolean looksLikeOutputSequenceStream(String arg){
+		if(arg==null || arg.indexOf('=')>=0 || !FileFormat.isSequence(arg)){return false;}
 		String lc=arg.toLowerCase();
 		int dot=lc.indexOf('.');
 		return lc.startsWith("stdout") || lc.startsWith("stderr") || (dot>0 && dot<lc.length()-1);
 	}
 
-    /**
-     * Sleeps for the specified duration with retry on interruption.
-     * Continues sleeping until the full duration has elapsed.
-     * @param millis Number of milliseconds to sleep
-     */
-    public static void sleep(int millis){
+	/** Sleeps until a wall-clock deadline has passed, ignoring interruptions.
+	 * Each retry sleeps the full requested interval, so interruption or scheduling
+	 * can extend the delay. Interrupt status is consumed rather than restored.
+	 * @param millis Requested milliseconds; nonpositive values return immediately */
+	public static void sleep(int millis){
 		if(millis<1){return;}
 		
 		long until=System.currentTimeMillis()+millis;
 		while(System.currentTimeMillis()<until){
-			try {
+			try{
 				Thread.sleep(millis);
-			} catch (InterruptedException e) {}
+			}catch(InterruptedException e){/* Retry without restoring interrupt status. */}
 		}
 	}
 
@@ -6012,11 +6203,14 @@ public final class Tools {
 	private static final byte[] baseToNumberExtended=AminoAcid.baseToNumberExtended;
 	/** Reference to AminoAcid.baseToComplementNumberExtended array */
 	private static final byte[] baseToComplementNumberExtended=AminoAcid.baseToComplementNumberExtended;
+	/** Exactly 16383/16384, used by the floating-point hash cap. */
 	private static final float hashMult=0.99993896484375f;
 	
 	/** Thread-local storage for ACGTN count arrays used in GC calculations */
 	private static final ThreadLocal<int[]> localACGTN=new ThreadLocal<int[]>(){
-        @Override protected int[] initialValue() {return new int[5];}
-    };
+		/** Allocates zeroed scratch counts for this thread's first access. */
+		@Override
+		protected int[] initialValue(){return new int[5];}
+	};
 	
 }

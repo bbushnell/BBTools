@@ -4,32 +4,34 @@ import java.io.PrintStream;
 
 /**
  * High-precision timer utility for measuring elapsed time in nanoseconds.
- * Provides convenient methods for starting, stopping, and reporting execution times
- * with configurable output formatting and automatic printing capabilities.
+ * Provides methods for starting, stopping, and reporting the last stored
+ * elapsed duration with configurable output formatting.  The elapsed value is
+ * updated only by start/stop calls, so reads are not a live clock.  Instances
+ * are intended for single-threaded ownership.
  *
  * @author Brian Bushnell
  * @date December 15, 2010
  */
-public class Timer {
+public class Timer{
 	
-	/** Creates a Timer that outputs to System.err with tab formatting enabled. */
+	/** Creates a timer that outputs to System.err with tab formatting enabled. */
 	public Timer(){this(System.err, true);}
 	
-	/** Creates a Timer and immediately prints the specified message.
+	/** Creates a timer and immediately prints the specified message.
 	 * @param s Message to print upon creation */
 	public Timer(String s){
 		this(System.err, true);
 		if(outstream!=null){outstream.println(s);}
 	}
 	
-	/** Creates a Timer with custom output stream and tab formatting enabled.
+	/** Creates a timer with custom output stream and tab formatting enabled.
 	 * @param outstream_ Stream for timer output (null disables output) */
 	public Timer(PrintStream outstream_){
 		this(outstream_, true);
 	}
 	
 	/**
-	 * Creates a Timer with full configuration control and starts timing.
+	 * Creates a timer with full configuration control and starts timing.
 	 * @param outstream_ Stream for timer output (null disables output)
 	 * @param addTab_ Whether to append tab characters to output messages
 	 */
@@ -105,17 +107,18 @@ public class Timer {
 	}
 	
 	/**
-	 * Returns elapsed time as formatted string with specified decimal precision.
+	 * Returns the stored elapsed time, reset by start() and updated by stop(), as a
+	 * formatted string with specified decimal precision.
 	 * @param decimals Number of decimal places to display
 	 * @return Formatted time string
 	 */
-	public String timeInSeconds(int decimals) {
+	public String timeInSeconds(int decimals){
 		return Tools.format("%."+decimals+"f", timeInSeconds());
 	}
 	
-	/** Returns elapsed time converted from nanoseconds to seconds.
+	/** Returns the stored elapsed time, reset by start() and updated by stop(), in seconds.
 	 * @return Elapsed time in seconds as double */
-	public double timeInSeconds() {
+	public double timeInSeconds(){
 		return elapsed/1000000000d;
 	}
 

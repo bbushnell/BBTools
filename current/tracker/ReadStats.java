@@ -378,6 +378,8 @@ public class ReadStats {
 		byte[] quals=r.quality, bases=r.bases;
 		final Object obj=r.obj;
 		if(obj!=null && obj.getClass()==TrimRead.class){
+			//TODO: Probable bug; TrimRead 1/2 arrays mean original/trimmed, not pairnum.
+			// Limited known reachability: BBMap quality histograms are collected before TrimRead attachment.
 			quals=(pairnum==0 ? ((TrimRead)obj).qual1 : ((TrimRead)obj).qual2);
 			bases=(pairnum==0 ? ((TrimRead)obj).bases1 : ((TrimRead)obj).bases2);
 		}

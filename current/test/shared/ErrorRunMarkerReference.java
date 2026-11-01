@@ -1,28 +1,41 @@
-// TEST-ONLY frozen pre-gate oracle: original ErrorRunMarker SHA256 8f91c85e86e0a6b220b0e4131c7dc6129795280f7861d3e183807c804766f07d.
-package shared;
+// TEST-ONLY frozen pre-gate oracle: original ErrorRunMarker sha80 d3e183807c804766f07d.
+package test.shared;
 
 import java.util.BitSet;
+
+import shared.Tools;
 
 /**
  * Marks tightly bounded low-depth k-mer runs without attempting correction.
  * The caller supplies the tool-specific relative-depth error predicate.
+ * Mutates caller-owned bases and available qualities; counts are read-only.
+ * Calls share no internal mutable state, but callers must coordinate access to
+ * their arrays and predicate. This pre-gate oracle preserves the original algorithm.
  */
-public final class ErrorRunMarkerReference {
+public final class ErrorRunMarkerReference{
 
-	private ErrorRunMarkerReference() {}
+	/** Static utility; no instances are needed. */
+	private ErrorRunMarkerReference(){}
 
 	/** Tool-specific implementation of the existing high-vs-low error test. */
-	public interface ErrorPredicate {
+	public interface ErrorPredicate{
+		/** Returns whether high-depth support makes the supplied low depth erroneous. */
 		boolean isError(int high, int low);
 	}
 
 	/** Per-read marking and skip diagnostics. */
-	public static final class Result {
+	public static final class Result{
+		/** Number of non-N bases changed to N, including edge marks. */
 		public int marked;
+		/** Interior marks attributed to exactly k low-count kmers. */
 		public int exactKRuns;
+		/** Interior marks attributed to exactly k-1 low-count kmers. */
 		public int exactKMinus1Runs;
+		/** Marks attributed to accepted one-sided edge runs. */
 		public int edgeRunsMarked;
+		/** Qualified exact-length candidates without an accepted interior/edge mark. */
 		public int skippedEndRuns;
+		/** Qualified isolated runs longer than k that were skipped as merged. */
 		public int skippedMergedRuns;
 	}
 
@@ -32,9 +45,20 @@ public final class ErrorRunMarkerReference {
 	 * threshold is max(1, flankDepth/ratio), and both flank depths must pass
 	 * the caller's existing error predicate.  Runs longer than k are treated as
 	 * merged and skipped; runs lacking a two-kmer flank are treated as end runs.
+	 * Separately accepts one-sided runs of length 1..k at either read edge.
+	 * A left-edge run marks its last kmer index; a right-edge run marks its
+	 * first kmer index plus k-1. Existing N bases are not counted again.
+	 * @param bases Mutable read bases; null or fewer than k bases returns empty counters
+	 * @param quals Mutable qualities, nullable; only existing positions are zeroed
+	 * @param counts Borrowed kmer depths; null returns empty counters
+	 * @param countSize Populated count prefix, no greater than counts.length; below one returns empty counters
+	 * @param k Kmer length; below two returns empty counters
+	 * @param ratio Flank-to-low depth ratio, normalized by Tools.max(1f, ratio)
+	 * @param predicate Non-null relative-depth test when a candidate is examined
+	 * @return New independent counters for this call, even when no scan is needed
 	 */
 	public static Result mark(final byte[] bases, final byte[] quals, final int[] counts,
-			final int countSize, final int k, final float ratio, final ErrorPredicate predicate) {
+			final int countSize, final int k, final float ratio, final ErrorPredicate predicate){
 		final Result result=new Result();
 		if(bases==null || counts==null || countSize<1 || k<2 || bases.length<k){return result;}
 		final float safeRatio=Tools.max(1f, ratio);
@@ -74,7 +98,7 @@ public final class ErrorRunMarkerReference {
 
 		// At a read edge, an eligible run need not be exactly K long.  Mark the
 		// inferred error base for any run of length 1..K.  For a left-edge run
-		// starting at k-mer 0, that base is the rightmost low k-mer's right edge.
+		// starting at k-mer 0, the marked base index is the last low k-mer index.
 		boolean leftEdgeHandled=false;
 		for(int runLen=1; !leftEdgeHandled && runLen<=k && runLen<countSize; runLen++){
 			final int end=runLen-1;
@@ -120,6 +144,10 @@ public final class ErrorRunMarkerReference {
 		return result;
 	}
 
+	/** Tests inclusive kmer indices s..e against available two-kmer flanks.
+	 * Both flanks are mandatory when requireBoth is true; otherwise at least one
+	 * is required. Reads only the populated count prefix and invokes the predicate
+	 * for each low count against each available flank. */
 	private static boolean qualifies(final int[] counts, final int countSize, final int s, final int e,
 			final float ratio, final ErrorPredicate predicate, final boolean requireBoth){
 		if(s<0 || e>=countSize || e-s+1<1){return false;}

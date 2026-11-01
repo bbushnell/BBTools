@@ -1,8 +1,11 @@
-package shared;
+package test.shared;
+
+import shared.ErrorRunMarker;
 
 /** Behavioral checks for bounded low-depth run marking and future gate work. */
-public class ErrorRunMarkerTest {
+public class ErrorRunMarkerTest{
 
+	/** Runs finite profiles and sampled-gate counterexamples; arguments are unused. */
 	public static void main(String[] args){
 		testExactK();
 		testExactKMinusOne();
@@ -14,6 +17,7 @@ public class ErrorRunMarkerTest {
 		System.out.println("ErrorRunMarkerTest PASS: "+checks+" checks");
 	}
 
+	/** An isolated k-long plateau changes exactly one base and its quality. */
 	private static void testExactK(){
 		final int k=5, countSize=20, start=5;
 		final int[] counts=profile(countSize, 100);
@@ -27,6 +31,7 @@ public class ErrorRunMarkerTest {
 		checkQualityUnchangedExcept(qbefore, quals, start+k-1);
 	}
 
+	/** An isolated k-1 plateau uses the deletion-signature position with null qualities. */
 	private static void testExactKMinusOne(){
 		final int k=5, countSize=20, start=5;
 		final int[] counts=profile(countSize, 100);
@@ -38,6 +43,7 @@ public class ErrorRunMarkerTest {
 		checkUnchangedExcept(before, bases, start+k-2);
 	}
 
+	/** Left and right one-sided plateaus mark their literal edge positions. */
 	private static void testEdgeRuns(){
 		final int k=5, countSize=12;
 		final int[] left=profile(countSize, 100);
@@ -57,6 +63,7 @@ public class ErrorRunMarkerTest {
 		checkUnchangedExcept(rightBefore, rightBases, countSize-3+k-1);
 	}
 
+	/** A k+1 plateau is reported as merged without changing bases. */
 	private static void testMergedRun(){
 		final int k=5, countSize=25, start=8;
 		final int[] counts=profile(countSize, 100);
@@ -68,6 +75,7 @@ public class ErrorRunMarkerTest {
 		checkUnchangedExcept(before, bases, -1);
 	}
 
+	/** Uniform depth produces no changes to bases or qualities. */
 	private static void testFlatProfile(){
 		final int k=31, countSize=100;
 		final int[] counts=profile(countSize, 20);//Above a normal minCountCorrect threshold.
@@ -125,6 +133,7 @@ public class ErrorRunMarkerTest {
 		}
 	}
 
+	/** Runs the marker with the fixed fourfold-depth predicate used by these profiles. */
 	private static ErrorRunMarker.Result mark(final byte[] bases, final byte[] quals, final int[] counts, final int k){
 		return ErrorRunMarker.mark(bases, quals, counts, counts.length, k, 4f,
 			new ErrorRunMarker.ErrorPredicate(){
@@ -133,16 +142,19 @@ public class ErrorRunMarkerTest {
 			});
 	}
 
+	/** Creates an independent constant-depth profile. */
 	private static int[] profile(final int size, final int value){
 		final int[] out=new int[size];
 		for(int i=0; i<size; i++){out[i]=value;}
 		return out;
 	}
 
+	/** Overwrites the half-open interval [from,to) in the fixture profile. */
 	private static void setRange(final int[] values, final int from, final int to, final int value){
 		for(int i=from; i<to; i++){values[i]=value;}
 	}
 
+	/** Models an intentionally insufficient sampled gate to preserve its counterexamples. */
 	private static boolean sampledTransition(final int[] counts, final int k){
 		int prev=-1;
 		final int incr=Math.min(9, Math.max(1, k/2));
@@ -156,34 +168,40 @@ public class ErrorRunMarkerTest {
 		return count<3 || (prev>=0 && (count>=prev*4 || prev>=count*4));
 	}
 
+	/** Creates all-A bases so any N is attributable to marking. */
 	private static byte[] bases(final int length){
 		final byte[] out=new byte[length];
 		for(int i=0; i<length; i++){out[i]='A';}
 		return out;
 	}
 
+	/** Creates Phred-30 qualities so zeroed positions are observable. */
 	private static byte[] qualities(final int length){
 		final byte[] out=new byte[length];
 		for(int i=0; i<length; i++){out[i]=30;}
 		return out;
 	}
 
+	/** Checks every base; changed=-1 requires the entire array to remain unchanged. */
 	private static void checkUnchangedExcept(final byte[] before, final byte[] after, final int changed){
 		for(int i=0; i<before.length; i++){
 			check(i==changed ? after[i]=='N' : before[i]==after[i], "unexpected base change at "+i);
 		}
 	}
 
+	/** Checks every quality; changed=-1 requires the entire array to remain unchanged. */
 	private static void checkQualityUnchangedExcept(final byte[] before, final byte[] after, final int changed){
 		for(int i=0; i<before.length; i++){
 			check(i==changed ? after[i]==0 : before[i]==after[i], "unexpected quality change at "+i);
 		}
 	}
 
+	/** Counts and enforces an expectation even when JVM assertions are disabled. */
 	private static void check(final boolean condition, final String message){
 		checks++;
 		if(!condition){throw new RuntimeException(message);}
 	}
 
+	/** Number of expectations attempted by this process. */
 	private static long checks;
 }

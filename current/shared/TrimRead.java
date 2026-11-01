@@ -13,21 +13,25 @@ import structures.ByteBuilder;
 
 /**
  * Helper class for processes that do inline quality trimming.
+ * The reversible constructor retains original arrays and attaches its state to
+ * Read.obj; static fast methods replace arrays without retaining undo state.
+ * Read/SAM/match state is mutated in place and requires exclusive caller access.
+ * Global mode settings must be established before concurrent trimming begins.
  * @author Brian Bushnell
  * @date Mar 15, 2013
  *
  */
-public final class TrimRead implements Serializable {
-	
-	/**
-	 * 
-	 */
-	private static final long serialVersionUID = 8791743639124592480L;
-	
+public final class TrimRead implements Serializable{
+
+	/** Serialization identity for retained reversible-trimming state. */
+	private static final long serialVersionUID=8791743639124592480L;
+
 	/**
 	 * Test program for trimming functionality.
 	 * Takes command-line arguments: bases, qualities, match string, minimum quality.
 	 * Demonstrates trimming and untrimming operations with debug output.
+	 * Quality characters are decoded by subtracting 32, as in the historical demo.
+	 * Requires input that actually trims, because it unconditionally uses the undo object.
 	 * @param args Command-line arguments [bases, qualities, match, minq]
 	 */
 	public static void main(String[] args){
@@ -52,10 +56,10 @@ public final class TrimRead implements Serializable {
 		tr.untrim();
 		System.out.println("\nAfter untrim:\n"+r.toFastq()+(r.match==null ? "" : "\n"+new String(r.match)));
 	}
-	
+
 //	public static TrimRead trim(Read r, boolean trimLeft, boolean trimRight, float trimq, int minlen){
 //		if(r==null || r.bases==null){return null;}
-//		
+//
 //		final int a, b;
 //		if(optimalMode){
 //			long packed=testOptimal(r.bases, r.quality, QualityTools.PROB_ERROR[trimq]);
@@ -70,10 +74,12 @@ public final class TrimRead implements Serializable {
 //		}
 //		return (a+b==0 ? null : new TrimRead(r, a, b, trimq, minlen));
 //	}
-	
+
 	/**
 	 * Trims a read based on quality thresholds and creates a TrimRead object.
 	 * Uses optimal mode if enabled, otherwise falls back to window or simple thresholding.
+	 * Window mode trims only the right end. The returned object retains original
+	 * arrays by reference; the original arrays must not be modified before untrim.
 	 *
 	 * @param r Read to trim
 	 * @param trimLeft Whether to trim from the left end
@@ -83,10 +89,10 @@ public final class TrimRead implements Serializable {
 	 * @param minlen Minimum length after trimming
 	 * @return TrimRead object containing trimming information, or null if no trimming needed
 	 */
-	public static TrimRead trim(Read r, boolean trimLeft, boolean trimRight, 
+	public static TrimRead trim(Read r, boolean trimLeft, boolean trimRight,
 			float trimq, float avgErrorRate, int minlen){
 		if(r==null || r.bases==null){return null;}
-		
+
 		final int a, b;
 		if(optimalMode){
 			long packed=testOptimal(r.bases, r.quality, avgErrorRate);
@@ -101,53 +107,61 @@ public final class TrimRead implements Serializable {
 		}
 		return (a+b==0 ? null : new TrimRead(r, a, b, trimq, minlen));
 	}
-	
+
 	/**
+	 * Trims arrays directly without creating reversible state; clipping is not requested.
 	 * @param r Read to trim
 	 * @param trimLeft Trim left side
 	 * @param trimRight Trim right side
 	 * @param trimq Maximum quality to trim
+	 * @param avgErrorRate Error probability used by optimal mode
 	 * @param minResult Ensure trimmed read is at least this long
 	 * @return Number of bases trimmed
 	 */
-	public static int trimFast(Read r, boolean trimLeft, boolean trimRight, 
+	public static int trimFast(Read r, boolean trimLeft, boolean trimRight,
 			float trimq, float avgErrorRate, int minResult){
 		return trimFast(r, trimLeft, trimRight, trimq, avgErrorRate, minResult, false);
 	}
-	
+
 	/**
+	 * Trims arrays directly, optionally trimming existing alignment clips.
 	 * @param r Read to trim
 	 * @param trimLeft Trim left side
 	 * @param trimRight Trim right side
 	 * @param trimq Maximum quality to trim
+	 * @param avgErrorRate Error probability used by optimal mode
 	 * @param minResult Ensure trimmed read is at least this long
+	 * @param trimClip Include clipped match regions when trimming mapped reads
 	 * @return Number of bases trimmed
 	 */
-	public static int trimFast(Read r, boolean trimLeft, boolean trimRight, 
+	public static int trimFast(Read r, boolean trimLeft, boolean trimRight,
 			float trimq, float avgErrorRate, int minResult, boolean trimClip){
 		return trimFast(r, trimLeft, trimRight, trimq, avgErrorRate, minResult, 0, trimClip);
 	}
-	
+
 	/**
-	 * This method allows a "discardUnder" parameter, so that qtrim=r will still discard
-	 * reads that if left-trimmed, would be shorter than the desired minimum length.
-	 * It is not presently used.
+	 * Computes quality-based trim counts, then delegates to the array/match dispatcher.
+	 * In optimal mode, discardUnder can request full trimming on the selected side
+	 * when the two-sided result is too short; the normal minimum/mapped rules still
+	 * apply. This method does not set the read's discarded flag.
 	 * @param r Read to trim
 	 * @param trimLeft Trim left side
 	 * @param trimRight Trim right side
 	 * @param trimq Maximum quality to trim
+	 * @param avgErrorRate Error probability used by optimal mode
 	 * @param minResult Ensure trimmed read is at least this long
 	 * @param discardUnder Resulting reads shorter than this are not wanted
+	 * @param trimClip Include clipped match regions when trimming mapped reads
 	 * @return Number of bases trimmed
 	 */
-	public static int trimFast(Read r, boolean trimLeft, boolean trimRight, 
+	public static int trimFast(Read r, boolean trimLeft, boolean trimRight,
 			float trimq, float avgErrorRate, int minResult, int discardUnder, boolean trimClip){
 //		assert(avgErrorRate==(float)QualityTools.phredToProbError(trimq)) : trimq+", "+avgErrorRate+", "+(float)QualityTools.phredToProbError(trimq);
 		final byte[] bases=r.bases, qual=r.quality;
 		if(bases==null || bases.length<1){return 0;}
-		
+
 //		assert(false) : trimLeft+", "+trimRight+", "+trimq+", "+minResult+", "+discardUnder;
-		
+
 		final int len=r.length();
 		final int a0, b0;
 		final int a, b;
@@ -172,10 +186,11 @@ public final class TrimRead implements Serializable {
 		}
 		return trimByAmount(r, a, b, minResult, trimClip);
 	}
-	
+
 	/**
 	 * Untrim a read if it contains a TrimRead object.
-	 * Restores the read to its original state before trimming.
+	 * Restores saved arrays and extends current alignment state through the attached
+	 * object's untrim method. This is a one-shot operation, not an idempotent reset.
 	 * @param r Read to untrim
 	 * @return true if the read was successfully untrimmed, false otherwise
 	 */
@@ -185,15 +200,16 @@ public final class TrimRead implements Serializable {
 		TrimRead tr=(TrimRead)r.obj;
 		return tr.untrim();
 	}
-	
+
 //	public TrimRead(Read r_, boolean trimLeft, boolean trimRight, float trimq_, int minlen_){
 //		this(r_, (trimLeft ? testLeft(r_.bases, r_.quality, (byte)trimq_) : 0), (trimRight ? testRight(r_.bases, r_.quality, (byte)trimq_) : 0), trimq_, minlen_);
 //	}
-	
+
 	/**
 	 * Constructor that trims a read by specified amounts.
 	 * Stores original bases and qualities, then trims according to parameters.
-	 * Updates the read object with trimmed sequences and sets this object as the read's obj field.
+	 * When bases are actually removed, updates the read, overwrites Read.obj with
+	 * this object and discards existing match strings. Saved arrays are borrowed.
 	 *
 	 * @param r_ Read to trim
 	 * @param trimLeft Number of bases to trim from left
@@ -218,7 +234,7 @@ public final class TrimRead implements Serializable {
 			trimMatch(r);
 		}
 	}
-	
+
 //	/** Trim the left end of the read, from left to right */
 //	private int trim(final boolean trimLeft, final boolean trimRight, final int minlen){
 //		final int a, b;
@@ -232,8 +248,9 @@ public final class TrimRead implements Serializable {
 //		}
 //		return trim(a, b, minlen);
 //	}
-	
-	/** Trim the left end of the read, from left to right */
+
+	/** Prepares trimmed arrays and records counts, reducing left then right requests
+	 * as needed for minlen. A zero removal reuses the original arrays. */
 	private int trim(int trimLeft, int trimRight, final int minlen){
 		assert(trimLeft>=0 && trimRight>=0) : "trimLeft="+trimLeft+", trimRight="+trimRight+", minlen="+minlen+", len="+bases1.length;
 		assert(trimLeft>0 || trimRight>0) : "trimLeft="+trimLeft+", trimRight="+trimRight+", minlen="+minlen+", len="+bases1.length;
@@ -248,17 +265,17 @@ public final class TrimRead implements Serializable {
 				trimRight=Tools.max(0, trimRight-excess);
 				excess=trimLeft+trimRight-maxTrim;
 			}
-			
+
 		}
-		
+
 		leftTrimmed=trimLeft;
 		rightTrimmed=trimRight;
 		final int sum=leftTrimmed+rightTrimmed;
-		
+
 		if(verbose){
 			System.err.println("leftTrimmed="+leftTrimmed+", rightTrimmed="+rightTrimmed+", sum="+sum);
 		}
-		
+
 		if(sum==0){
 			bases2=bases1;
 			qual2=qual1;
@@ -268,14 +285,17 @@ public final class TrimRead implements Serializable {
 		}
 		return sum;
 	}
-	
-	/** Trim bases outside of leftLoc and rightLoc, excluding leftLoc and rightLoc */
+
+	/** Retains the inclusive zero-based interval [leftLoc,rightLoc], subject to minimum length.
+	 * Coordinates outside the read become nonnegative trim requests in trimByAmount. */
 	public static int trimToPosition(Read r, int leftLoc, int rightLoc, int minResultingLength){
 		final int len=r.length();
 		return trimByAmount(r, leftLoc, len-rightLoc-1, minResultingLength, false);
 	}
-	
-	/** Remove non-genetic-code from reads */
+
+	/** Removes the prefix through the last non-ACGTN symbol seen before 21 consecutive
+	 * genetic symbols. Replaces bases/qualities only; does not update alignment state.
+	 * @return Number of prefix bases removed, or zero for null bases */
 	public static int trimBadSequence(Read r){
 		final byte[] bases=r.bases, quals=r.quality;
 		if(bases==null){return 0;}
@@ -294,37 +314,47 @@ public final class TrimRead implements Serializable {
 		}
 		return lastNon+1;
 	}
-	
-	/** Trim this many bases from each end */
+
+	/** Delegates to trimByAmount without explicitly removing alignment clips. */
 	public static int trimByAmount(Read r, int leftTrimAmount, int rightTrimAmount, int minResultingLength){
 		return trimByAmount(r, leftTrimAmount, rightTrimAmount, minResultingLength, false);
 	}
-	
-	/** Trim this many bases from each end */
+
+	/** Trims bases and available qualities, dispatching mapped reads to match-aware paths.
+	 * Negative trim requests become zero. The plain-array path caps the minimum
+	 * to the input length; an excessive request is replaced by right-only trimming.
+	 * SiteScore lists are unsupported by this dispatcher. Other alignment metadata
+	 * may remain stale on the plain-array path; callers must honor that limitation.
+	 * @param r Non-null mutable read
+	 * @param leftTrimAmount Requested left-end bases to remove
+	 * @param rightTrimAmount Requested right-end bases to remove
+	 * @param minResultingLength Minimum retained length, clamped for the plain-array path
+	 * @param trimClip Include alignment clips when a detailed match is present
+	 * @return Removed base count, or a negative request count when the mapped path rejects full trimming */
 	public static int trimByAmount(Read r, int leftTrimAmount, int rightTrimAmount, int minResultingLength, boolean trimClip){
 
 		leftTrimAmount=Tools.max(leftTrimAmount, 0);
 		rightTrimAmount=Tools.max(rightTrimAmount, 0);
-		
+
 		//These assertions are unnecessary if the mapping information will never be used or output.
 //		assert(r.match==null) : "TODO: Handle trimming of reads with match strings.";
 		assert(r.sites==null) : "TODO: Handle trimming of reads with SiteScores.";
-		
+
 		if(r.match!=null){
 			return trimReadWithMatch(r, r.samline, leftTrimAmount, rightTrimAmount, minResultingLength, Integer.MAX_VALUE, trimClip);
 		}else if(r.samline!=null && r.samline.cigar!=null && r.samline.cigarContainsOnlyME()){
 			return trimReadWithMatchFast(r, r.samline, leftTrimAmount, rightTrimAmount, minResultingLength);
 		}
-		
+
 		final byte[] bases=r.bases, qual=r.quality;
 		final int len=(bases==null ? 0 : bases.length), qlen=(qual==null ? 0 : qual.length);
 		if(len<1){return 0;}
 		minResultingLength=Tools.min(len, Tools.max(minResultingLength, 0));
 		if(leftTrimAmount+rightTrimAmount+minResultingLength>len){
-			rightTrimAmount=Tools.max(1, len-minResultingLength);
+			rightTrimAmount=Tools.max(0, len-minResultingLength);
 			leftTrimAmount=0;
 		}
-		
+
 		final int total=leftTrimAmount+rightTrimAmount;
 //		System.err.println("D: L="+leftTrimAmount+", R="+rightTrimAmount+", len="+r.length()+", tot="+total);
 		if(total>0){
@@ -336,21 +366,27 @@ public final class TrimRead implements Serializable {
 				r.stop-=rightTrimAmount;
 			}
 		}
-		
+
 		if(verbose){
 			System.err.println("leftTrimmed="+leftTrimAmount+", rightTrimmed="+rightTrimAmount+
 					", sum="+total+", final length="+r.length());
 		}
 		return total;
 	}
-	
-	/** Count number of bases that need trimming on each side, and pack into a long */
+
+	/** Finds the highest-scoring retained interval under an error-probability threshold.
+	 * Equal positive scores prefer the longer interval. Null qualities use N-only
+	 * end scans unless the effective error threshold is one. Does not mutate arrays.
+	 * @param bases Read bases, nullable
+	 * @param qual Phred qualities of matching length, or null
+	 * @param avgErrorRate Error probability in (0,1], replaced by optimalBias when enabled
+	 * @return Left count in the high 32 bits and right count in the low 32 bits */
 	public static long testOptimal(byte[] bases, byte[] qual, float avgErrorRate){
 		if(optimalBias>=0){avgErrorRate=optimalBias;}//Override
 		assert(avgErrorRate>0 && avgErrorRate<=1) : "Average error rate ("+avgErrorRate+") must be between 0 (exclusive) and 1 (inclusive)";
 		if(bases==null || bases.length==0){return 0;}
 		if(qual==null){return avgErrorRate>=1 ? 0 : ((((long)testLeftN(bases))<<32) | (((long)testRightN(bases))&0xFFFFFFFFL));}
-		
+
 		//Comprehension: this is a Kadane maximum-subarray. delta=avgErrorRate-probError is >0 for a base BETTER than the
 		//average error rate, <0 for worse; the max-sum contiguous run [maxLoc-maxCount+1 .. maxLoc] is the highest-quality
 		//stretch to KEEP, and everything before it (left) and after it (right) is trimmed. All-bad read (no positive run) ->
@@ -360,9 +396,9 @@ public final class TrimRead implements Serializable {
 		int maxLoc=-1;
 		int maxCount=-1;
 		int count=0;
-		
+
 		final float nprob=Tools.max(Tools.min(avgErrorRate*1.1f, 1), NPROB);
-		
+
 		for(int i=0; i<bases.length; i++){
 			final byte b=bases[i];
 			byte q=qual[i];
@@ -373,9 +409,9 @@ public final class TrimRead implements Serializable {
 //			float probError=(b=='N' ? nprob : q==1 ? PROB1 : QualityTools.PROB_ERROR[q]);
 //			float probError=(b=='N' ? nprob : QualityTools.PROB_ERROR[q]);
 			float probError=((b=='N' || q<1) ? nprob : QualityTools.PROB_ERROR[q]);
-			
+
 //			assert(q>0 || b=='N') : "index "+i+": q="+q+", b="+(char)b+"\n"+new String(bases)+"\n"+Arrays.toString(qual)+"\n";
-			
+
 			float delta=avgErrorRate-probError;
 			score=score+delta;
 			if(score>0){
@@ -390,7 +426,7 @@ public final class TrimRead implements Serializable {
 				count=0;
 			}
 		}
-		
+
 		final int left, right;
 		if(maxScore>0){
 			assert(maxLoc>=0);
@@ -403,7 +439,7 @@ public final class TrimRead implements Serializable {
 			right=bases.length;
 		}
 		final long packed=((((long)left)<<32) | (((long)right)&0xFFFFFFFFL));
-		
+
 		if(verbose){
 			System.err.println(Arrays.toString(qual));
 			System.err.println("After testLocal: maxScore="+maxScore+", maxLoc="+maxLoc+", maxCount="+maxCount+
@@ -411,8 +447,9 @@ public final class TrimRead implements Serializable {
 		}
 		return packed;
 	}
-	
-	/** Count number of bases that need trimming on left side */
+
+	/** Scans from the left until minGoodInterval consecutive qualities exceed trimq.
+	 * Null qualities use the N-only scan for nonnegative trimq, otherwise return zero. */
 	private static int testLeft(byte[] bases, byte[] qual, final byte trimq){
 		if(bases==null || bases.length==0){return 0;}
 		if(qual==null){return trimq<0 ? 0 : testLeftN(bases);}
@@ -433,8 +470,11 @@ public final class TrimRead implements Serializable {
 		}
 		return lastBad+1;
 	}
-	
-	/** Count number of bases that need trimming on right side using a sliding window */
+
+	/** Returns the number of bases in the suffix beginning at the first low-average-quality window.
+	 * With null/short qualities, the historical fallback skips trimming for positive
+	 * trimq and otherwise uses the N-only scan; this differs from the simple mode.
+	 * Window length is a caller-supplied positive count. */
 	private static int testRightWindow(byte[] bases, byte[] qual, final byte trimq, final int window){
 		if(bases==null || bases.length==0){return 0;}
 		if(qual==null || qual.length<window){return trimq>0 ? 0 : testRightN(bases);}
@@ -452,8 +492,9 @@ public final class TrimRead implements Serializable {
 		}
 		return 0;
 	}
-	
-	/** Count number of bases that need trimming on right side */
+
+	/** Scans from the right until minGoodInterval consecutive qualities exceed trimq.
+	 * Null qualities use the N-only scan for nonnegative trimq, otherwise return zero. */
 	private static int testRight(byte[] bases, byte[] qual, final byte trimq){
 		if(bases==null || bases.length==0){return 0;}
 		if(qual==null){return trimq<0 ? 0 : testRightN(bases);}
@@ -472,7 +513,7 @@ public final class TrimRead implements Serializable {
 		}
 		return bases.length-lastBad;
 	}
-	
+
 	/** Count number of bases that need trimming on left side, considering only N as bad */
 	public static int testLeftN(byte[] bases){
 		if(bases==null || bases.length==0){return 0;}
@@ -486,7 +527,7 @@ public final class TrimRead implements Serializable {
 		}
 		return lastBad+1;
 	}
-	
+
 	/** Count number of bases that need trimming on right side, considering only N as bad */
 	public static int testRightN(byte[] bases){
 		if(bases==null || bases.length==0){return 0;}
@@ -500,17 +541,18 @@ public final class TrimRead implements Serializable {
 		}
 		return bases.length-lastBad;
 	}
-	
+
 	/**
-	 * Restores the read to its original pre-trimmed state.
-	 * Updates bases, qualities, match strings, and mapping coordinates.
-	 * Also handles SiteScore objects if present.
+	 * Restores original array references and adds clips to the current match strings.
+	 * Expands coordinates on the read and its SiteScores, accounting for strand.
+	 * Counts and Read.obj are retained, so calling twice repeats coordinate/clip
+	 * expansion. Callers must perform this operation once after mapping.
 	 * @return true if untrimming was performed, false if no trimming to undo
 	 */
 	public boolean untrim(){
 		if(leftTrimmed==0 && rightTrimmed==0){return false;}
 		r.setPerfect(false);
-		
+
 		final int lt, rt;
 		if(r.strand()==Shared.PLUS){
 			lt=leftTrimmed;
@@ -519,7 +561,7 @@ public final class TrimRead implements Serializable {
 			lt=rightTrimmed;
 			rt=leftTrimmed;
 		}
-		
+
 		boolean returnToShort=false;
 		if(verbose){System.err.println("Untrimming");}
 		if(r.match!=null){
@@ -547,14 +589,14 @@ public final class TrimRead implements Serializable {
 		if(returnToShort){
 			r.toShortMatchString(true);
 		}
-		
+
 		if(r.sites!=null){
 			for(SiteScore ss : r.sites){untrim(ss);}
 		}
-		
+
 		return true;
 	}
-	
+
 	/**
 	 * Untrim a SiteScore object by restoring its original coordinates and match string.
 	 * Updates the SiteScore to reflect the pre-trimmed state.
@@ -565,7 +607,7 @@ public final class TrimRead implements Serializable {
 		if(ss==null){return false;}
 		if(leftTrimmed==0 && rightTrimmed==0){return false;}
 		ss.perfect=ss.semiperfect=false;
-		
+
 		final int lt, rt;
 		if(ss.strand==Shared.PLUS){
 			lt=leftTrimmed;
@@ -574,16 +616,16 @@ public final class TrimRead implements Serializable {
 			lt=rightTrimmed;
 			rt=leftTrimmed;
 		}
-		
+
 		boolean returnToShort=false;
 		if(verbose){System.err.println("Untrimming ss "+ss);}
 		if(ss.match!=null){
-			
+
 			boolean shortmatch=false;
 			for(byte b : ss.match){
 				if(Tools.isDigit(b)){shortmatch=true; break;}
 			}
-			
+
 			if(shortmatch){
 				ss.match=Read.toLongMatchString(ss.match);
 				returnToShort=true;
@@ -605,7 +647,7 @@ public final class TrimRead implements Serializable {
 		if(returnToShort){ss.match=Read.toShortMatchString(ss.match);}
 		return true;
 	}
-	
+
 	/**
 	 * Adjusts match strings after trimming by setting them to null.
 	 * This is the "easy mode" implementation that discards alignment information.
@@ -616,7 +658,7 @@ public final class TrimRead implements Serializable {
 	 */
 	private static boolean trimMatch(Read r){
 		if(r.match==null && r.sites==null){return false;}
-		
+
 		//Easy mode!
 		r.match=null;
 		if(r.sites!=null){
@@ -625,7 +667,7 @@ public final class TrimRead implements Serializable {
 			}
 		}
 		return true;
-		
+
 		//TODO - need to adjust read start and stop based on this information.  Also check strand!
 //		byte[] match=r.match;
 //		if(r.shortmatch()){match=Read.toLongMatchString(match);}
@@ -640,13 +682,22 @@ public final class TrimRead implements Serializable {
 //		}
 	}
 
-	/** Special case of 100% match, or no match string */
+	/** Trims a perfect-match alignment or a simple SAM record without a match string.
+	 * Temporarily detaches mapping state to trim arrays, then rebuilds an all-match
+	 * string/CIGAR and updates SAM position, sequence and qualities. Keeps only PG,
+	 * RG and user-tag prefixes X/Y/Z from optional SAM fields.
+	 * @param r Non-null read with a match string or non-null sl
+	 * @param sl Optional SAM record; its strand determines array trim orientation
+	 * @param leftTrimAmount Nonnegative requested left trim in alignment orientation
+	 * @param rightTrimAmount Nonnegative requested right trim in alignment orientation
+	 * @param minFinalLength Minimum retained array length
+	 * @return Removed bases, zero for no change, or negative total request if it removes the entire read */
 	public static int trimReadWithMatchFast(final Read r, final SamLine sl, final int leftTrimAmount, final int rightTrimAmount, final int minFinalLength){
 		assert(r.match!=null || sl!=null);
 		if(r.bases==null){return 0;}
 		if(leftTrimAmount<1 && rightTrimAmount<1){return 0;}
 		if(leftTrimAmount+rightTrimAmount>=r.length()){return -leftTrimAmount-rightTrimAmount;}
-		
+
 		final boolean shortmatch=r.shortmatch();
 		final byte[] oldMatch=r.match;
 		r.match=null;
@@ -663,7 +714,7 @@ public final class TrimRead implements Serializable {
 			r.match=oldMatch;
 			return 0;
 		}
-		
+
 		final int len=r.length();
 		ByteBuilder bb=new ByteBuilder();
 		if(oldMatch!=null){
@@ -676,9 +727,13 @@ public final class TrimRead implements Serializable {
 			r.match=bb.toBytes();
 			bb.clear();
 		}
-		
+
 		if(sl!=null){
-			sl.pos+=leftTrimAmount;
+			// trimByAmount replaces an excessive request with array-right-only trimming.
+			// That removes alignment-left bases on reverse SAM, but alignment-right on forward SAM.
+			final int actualLeftTrim=(trimmed==leftTrimAmount+rightTrimAmount ? leftTrimAmount
+					: sl.strand()==Shared.MINUS ? trimmed : 0);
+			sl.pos+=actualLeftTrim;
 			if(sl.cigar!=null && sl.cigar.length()>0){
 				char c=sl.cigar.charAt(sl.cigar.length()-1);
 				assert(c=='M' || c=='=') : c+"; "+sl.cigar+"\n"+sl;
@@ -700,13 +755,13 @@ public final class TrimRead implements Serializable {
 		}
 		return trimmed;
 	}
-	
+
 //	//Should be unneeded, just use the above function
 //	public static int trimReadWithoutMatch(final Read r, final SamLine sl, final int leftTrimAmount, final int rightTrimAmount, final int minFinalLength){
 //		if(r.bases==null){return 0;}
 //		if(leftTrimAmount<1 && rightTrimAmount<1){return 0;}
 //		if(leftTrimAmount+rightTrimAmount>=r.length()){return -leftTrimAmount-rightTrimAmount;}
-//		
+//
 //		assert(r.match==null);
 //		final int trimmed;
 //		if(sl!=null && sl.strand()==Shared.MINUS){
@@ -715,7 +770,7 @@ public final class TrimRead implements Serializable {
 //			trimmed=trimByAmount(r, leftTrimAmount, rightTrimAmount, minFinalLength, false);
 //		}
 //		if(trimmed<1){return 0;}
-//		
+//
 //		if(sl!=null){
 //			sl.pos+=leftTrimAmount;
 //			assert(sl.cigar==null);
@@ -738,8 +793,9 @@ public final class TrimRead implements Serializable {
 	//TODO: Note, returns a negative number if the whole read is supposed to be trimmed
 	/**
 	 * Complex trimming for reads with detailed match strings containing indels and other variations.
-	 * Parses match strings character by character to maintain alignment accuracy.
-	 * Updates CIGAR strings and SAM line coordinates appropriately.
+	 * Parses match operations to choose boundaries outside indels and regenerate
+	 * alignment metadata. Hard clips are not handled. Mutates match representation
+	 * while evaluating a request; a rejected request need not preserve its encoding.
 	 *
 	 * @param r Read to trim
 	 * @param sl SAM line with alignment information
@@ -750,13 +806,13 @@ public final class TrimRead implements Serializable {
 	 * @param trimClip Whether to trim clipped regions
 	 * @return Number of bases trimmed, negative if entire read would be trimmed
 	 */
-	public static int trimReadWithMatch(final Read r, final SamLine sl, 
+	public static int trimReadWithMatch(final Read r, final SamLine sl,
 			int leftTrimAmount, int rightTrimAmount, int minFinalLength, long scafLen, boolean trimClip){
 		if(r.bases==null || (leftTrimAmount<1 && rightTrimAmount<1 && !trimClip)){return 0;}
 		if(!r.containsNonM() && !trimClip){//TODO: H not handled
 			return trimReadWithMatchFast(r, sl, leftTrimAmount, rightTrimAmount, minFinalLength);
 		}
-		
+
 //		if(r.match==null){
 //			assert(sl.cigar==null);
 //			int trimmed=trimByAmount(r, leftTrimAmount, rightTrimAmount, minFinalLength, false);
@@ -777,7 +833,7 @@ public final class TrimRead implements Serializable {
 //				}
 //			}
 //		}
-		
+
 		if(trimClip){
 			r.toLongMatchString(false);
 			byte[] match=r.match;
@@ -793,23 +849,23 @@ public final class TrimRead implements Serializable {
 			leftTrimAmount=Tools.max(leftTrimAmount, leftClip);
 			rightTrimAmount=Tools.max(rightTrimAmount, rightClip);
 		}
-		
+
 		if(leftTrimAmount<1 && rightTrimAmount<1){return 0;}
 		if(leftTrimAmount+rightTrimAmount>=r.length()){return -leftTrimAmount-rightTrimAmount;}
-		
+
 		final int oldPos=(sl==null ? 1 : sl.pos);
-		
+
 		r.toLongMatchString(false);
 		byte[] match=r.match;
-		
+
 		assert(!r.shortmatch());
 
 //		System.err.println("Q: "+sl);
 //		System.err.println(new String(match));
-		
+
 		ByteBuilder bb=new ByteBuilder(match.length);
 //		System.err.println("leftTrimAmount="+leftTrimAmount+", rightTrimAmount="+rightTrimAmount);
-		
+
 		int leftTrim=leftTrimAmount>0 ? r.length() : 0, rightTrim=rightTrimAmount>0 ? r.length() : 0;
 //		System.err.println("leftTrim="+leftTrim+", rightTrim="+rightTrim);
 		{
@@ -880,14 +936,14 @@ public final class TrimRead implements Serializable {
 //		System.err.println("S: "+sl);
 		match=bb.toBytes();
 		Tools.reverseInPlace(match);
-		
+
 //		System.err.println("leftTrim="+leftTrim+", rightTrim="+rightTrim);
-		
+
 		if(leftTrim+rightTrim>=r.length()){
 			if(sl!=null){sl.pos=oldPos;}
 			return -leftTrim-rightTrim;
 		}
-		
+
 //		System.err.println("T: "+sl);
 		r.match=null;
 		if(sl!=null && sl.strand()==Shared.MINUS){
@@ -898,7 +954,7 @@ public final class TrimRead implements Serializable {
 		final int trimmed=trimByAmount(r, leftTrim, rightTrim, minFinalLength, false);
 //		System.err.println("tba: "+leftTrim+", "+rightTrim+", "+minFinalLength);
 		r.match=match;
-		
+
 		if(sl!=null){
 			int start=sl.pos-1;
 			int stop=start+Read.calcMatchLength(match)-1;
@@ -920,34 +976,33 @@ public final class TrimRead implements Serializable {
 
 	/** Returns the total number of bases trimmed from both ends.
 	 * @return Sum of left and right trimmed base counts */
-	public int trimmed() {
+	public int trimmed(){
 		return leftTrimmed+rightTrimmed;
 	}
-	
+
 	/** The read object that was trimmed */
 	public final Read r;
-	
-	/** untrimmed bases */
+
+	/** Original bases retained by reference for the one-shot undo. */
 	public final byte[] bases1;
-	/** untrimmed qualities */
+	/** Original qualities retained by reference, possibly null. */
 	public final byte[] qual1;
-	/** trimmed bases */
+	/** Trimmed bases, or the original reference when nothing was removed. */
 	public byte[] bases2;
-	/** trimmed qualities */
+	/** Trimmed qualities, possibly null or the original reference. */
 	public byte[] qual2;
-	
-	
+
 	/** Quality threshold used for trimming decision */
 	public final float trimq;
 	/** Number of bases trimmed from the left end */
 	public int leftTrimmed;
 	/** Number of bases trimmed from the right end */
 	public int rightTrimmed;
-	
+
 	/** Require this many consecutive good bases to stop trimming.  Minimum is 1.
 	 * This is for the old trimming mode and not really used anymore */
 	public static int minGoodInterval=2;
-	
+
 	/** Enable verbose debug output */
 	public static boolean verbose=false;
 	/** Use optimal trimming algorithm instead of simple threshold-based trimming */
@@ -956,13 +1011,12 @@ public final class TrimRead implements Serializable {
 	public static boolean windowMode=false;
 	/** Override average error rate in optimal mode when >= 0 */
 	public static float optimalBias=-1f;
-	
+
 	/** Window size for sliding window trimming mode */
 	public static int windowLength=4;
-	
+
 	/** Probability assigned to N bases in optimal trimming calculations */
 	private static final float NPROB=0.75f;
 //	public static float PROB1=QualityTools.PROB_ERROR[1];
-	
-	
+
 }

@@ -19,13 +19,14 @@ import java.util.concurrent.atomic.AtomicIntegerArray;
  * processes, or -- as observed during testing -- many sibling JVMs/agents
  * on the same host) system load average can sit permanently elevated while
  * this particular JVM is completely hung, making a system-load-based monitor
- * never fire.  Per-process CPU time is immune to that.
+ * never fire.  Because the sum includes only live thread IDs at each sample,
+ * exited threads can disappear from the next interval.
  *
  * @author Brian Bushnell
  * @date Feb 25, 2015
  *
  */
-public final class KillSwitch extends Thread {
+public final class KillSwitch extends Thread{
 	
 	/** Entry point for standalone execution that launches KillSwitch monitoring.
 	 * @param args Command-line arguments: seconds (max duration) and load (minimum
@@ -44,13 +45,13 @@ public final class KillSwitch extends Thread {
 	 * @param seconds Maximum duration in seconds before shutdown if own-process CPU usage is too low
 	 * @param load Minimum own-process CPU utilization (fraction of one core) to remain active
 	 */
-	private KillSwitch(double seconds, double load) {
+	private KillSwitch(double seconds, double load){
 		maxSeconds=seconds;
 		minLoad=load;
 	}
 
 	/** Launches KillSwitch with default timeout of 600 seconds and CPU-utilization threshold 0.002.
-	 * @return false if already running, true if successfully started */
+	 * @return false after a previous launch attempt, true after start() is called */
 	public static boolean launch(){
 		return launch(600);
 	}
@@ -58,7 +59,7 @@ public final class KillSwitch extends Thread {
 	/**
 	 * Launches KillSwitch with specified timeout and default CPU-utilization threshold 0.002.
 	 * @param seconds Maximum duration in seconds before shutdown if own-process CPU usage is too low
-	 * @return false if already running, true if successfully started
+	 * @return false after a previous launch attempt, true after start() is called
 	 */
 	public static boolean launch(double seconds){
 		return launch(seconds, 0.002);
@@ -66,14 +67,17 @@ public final class KillSwitch extends Thread {
 
 	/**
 	 * Launches KillSwitch thread with custom timeout and CPU-utilization parameters.
-	 * Only one KillSwitch instance can run at a time.
+	 * Records at most one launch attempt per JVM.
 	 * @param seconds Maximum duration in seconds before shutdown if own-process CPU usage is too low
 	 * @param load Minimum own-process CPU utilization (fraction of one core) to remain active
-	 * @return false if already running, true if successfully started
+	 * @return false after a previous launch attempt, true after start() is called
 	 */
 	public static synchronized boolean launch(double seconds, double load){
 		if(count>0){return false;}
-		count++;//FIXED [shared/KillSwitch#001]: 'count' was never incremented anywhere, so this guard was dead - launch() could never return false and never enforced the documented single-instance contract.  Increment on successful launch.
+		//FIXED [shared/KillSwitch#001]: count was never incremented,
+		//so this guard was dead.  Claim the sole launch attempt before
+		//construction/start.
+		count++;
 		ks=new KillSwitch(seconds, load);
 		ks.setDaemon(true);//Crucial!  Allows termination when this is running.
 		ks.start();
@@ -105,8 +109,9 @@ public final class KillSwitch extends Thread {
 	 * <p>This measures the process itself, not the system: on a shared/busy
 	 * machine, system load average can stay elevated indefinitely from unrelated
 	 * processes even while this JVM is completely hung, which would prevent a
-	 * system-load-based monitor from ever firing.  Per-process CPU time has no
-	 * such blind spot.
+	 * system-load-based monitor from ever firing.  The summed live-thread CPU
+	 * counter is not monotonic process CPU: exited threads disappear, so very
+	 * short-lived work can be missed and a delta can be negative.
 	 *
 	 * @return false if timeout exceeded with low own-process CPU usage, true for normal shutdown
 	 */
@@ -124,9 +129,9 @@ public final class KillSwitch extends Thread {
 		long stop=System.currentTimeMillis()+buffer;
 		long prevCpu=totalThreadCpuNanos(tmx);
 		while(!shutdownFlag.get()){
-			try {
+			try{
 				sleep(pollMillis);
-			} catch (InterruptedException e) {
+			}catch(InterruptedException e){
 				e.printStackTrace();
 			}
 			final long curCpu=totalThreadCpuNanos(tmx);
@@ -213,7 +218,7 @@ public final class KillSwitch extends Thread {
 		shutdownFlag.set(true);
 	}
 	
-	/** Sets kill flag to trigger immediate termination on next monitoring cycle. */
+	/** Sets kill flag, checked after monitor() returns. */
 	public static void setKillFlag(){
 		killFlag.set(true);
 	}
@@ -325,7 +330,7 @@ public final class KillSwitch extends Thread {
 		}
 	}
 
-	/** Sum of CPU time (nanoseconds) consumed by all live threads in this JVM. */
+	/** Sum of CPU time (nanoseconds) for thread IDs currently live in this JVM. */
 	private static long totalThreadCpuNanos(ThreadMXBean tmx){
 		long total=0;
 		for(long id : tmx.getAllThreadIds()){
@@ -348,9 +353,9 @@ public final class KillSwitch extends Thread {
 	 */
 	public static final AtomicIntegerArray allocAtomicInt(int len){
 		AtomicIntegerArray ret=null;
-		try {
+		try{
 			ret=new AtomicIntegerArray(len);
-		} catch (OutOfMemoryError e) {
+		}catch(OutOfMemoryError e){
 			memKill(e);
 		}
 		return ret;
@@ -363,9 +368,9 @@ public final class KillSwitch extends Thread {
 	 */
 	public static final long[] allocLong1D(int len){
 		long[] ret=null;
-		try {
+		try{
 			ret=new long[len];
-		} catch (OutOfMemoryError e) {
+		}catch(OutOfMemoryError e){
 			memKill(e);
 		}
 		return ret;
@@ -381,9 +386,9 @@ public final class KillSwitch extends Thread {
 	@SuppressWarnings("unchecked")
 	public static final <K> K[] allocObject1D(int len, Class<K> kc){
 		K[] ret=null;
-		try {
+		try{
 			ret=(K[]) Array.newInstance(kc, len);
-		} catch (OutOfMemoryError e) {
+		}catch(OutOfMemoryError e){
 			memKill(e);
 		}
 		return ret;
@@ -396,9 +401,9 @@ public final class KillSwitch extends Thread {
 	 */
 	public static final int[] allocInt1D(int len){
 		int[] ret=null;
-		try {
+		try{
 			ret=new int[len];
-		} catch (OutOfMemoryError e) {
+		}catch(OutOfMemoryError e){
 			memKill(e);
 		}
 		return ret;
@@ -409,11 +414,11 @@ public final class KillSwitch extends Thread {
 	 * @param len Array length
 	 * @return New float array or triggers termination on memory error
 	 */
-	public static float[] allocFloat1D(int len) {
+	public static float[] allocFloat1D(int len){
 		float[] ret=null;
-		try {
+		try{
 			ret=new float[len];
-		} catch (OutOfMemoryError e) {
+		}catch(OutOfMemoryError e){
 			memKill(e);
 		}
 		return ret;
@@ -424,11 +429,11 @@ public final class KillSwitch extends Thread {
 	 * @param len Array length
 	 * @return New double array or triggers termination on memory error
 	 */
-	public static double[] allocDouble1D(int len) {
+	public static double[] allocDouble1D(int len){
 		double[] ret=null;
-		try {
+		try{
 			ret=new double[len];
-		} catch (OutOfMemoryError e) {
+		}catch(OutOfMemoryError e){
 			memKill(e);
 		}
 		return ret;
@@ -441,9 +446,9 @@ public final class KillSwitch extends Thread {
 	 */
 	public static final byte[] allocByte1D(int len){
 		byte[] ret=null;
-		try {
+		try{
 			ret=new byte[len];
-		} catch (OutOfMemoryError e) {
+		}catch(OutOfMemoryError e){
 			memKill(e);
 		}
 		return ret;
@@ -456,9 +461,9 @@ public final class KillSwitch extends Thread {
 	 */
 	public static final char[] allocChar1D(int len){
 		char[] ret=null;
-		try {
+		try{
 			ret=new char[len];
-		} catch (OutOfMemoryError e) {
+		}catch(OutOfMemoryError e){
 			memKill(e);
 		}
 		return ret;
@@ -473,9 +478,9 @@ public final class KillSwitch extends Thread {
 	 */
 	public static final int[][] allocInt2D(int x){
 		int[][] ret=null;
-		try {
+		try{
 			ret=new int[x][];
-		} catch (OutOfMemoryError e) {
+		}catch(OutOfMemoryError e){
 			memKill(e);
 		}
 		return ret;
@@ -490,9 +495,9 @@ public final class KillSwitch extends Thread {
 	 */
 	public static final int[][] allocInt2D(int x, int y){
 		int[][] ret=null;
-		try {
+		try{
 			ret=new int[x][y];
-		} catch (OutOfMemoryError e) {
+		}catch(OutOfMemoryError e){
 			ballast2=null;
 			System.err.print(x+","+y);
 			memKill(e);
@@ -507,9 +512,9 @@ public final class KillSwitch extends Thread {
 	 */
 	public static final float[][] allocFloat2D(int x){
 		float[][] ret=null;
-		try {
+		try{
 			ret=new float[x][];
-		} catch (OutOfMemoryError e) {
+		}catch(OutOfMemoryError e){
 			memKill(e);
 		}
 		return ret;
@@ -524,9 +529,9 @@ public final class KillSwitch extends Thread {
 	 */
 	public static final float[][] allocFloat2D(int x, int y){
 		float[][] ret=null;
-		try {
+		try{
 			ret=new float[x][y];
-		} catch (OutOfMemoryError e) {
+		}catch(OutOfMemoryError e){
 			ballast2=null;
 			System.err.print(x+","+y);
 			memKill(e);
@@ -541,9 +546,9 @@ public final class KillSwitch extends Thread {
 	 */
 	public static final long[][] allocLong2D(int x){
 		long[][] ret=null;
-		try {
+		try{
 			ret=new long[x][];
-		} catch (OutOfMemoryError e) {
+		}catch(OutOfMemoryError e){
 			memKill(e);
 		}
 		return ret;
@@ -557,9 +562,9 @@ public final class KillSwitch extends Thread {
 	 */
 	public static final long[][] allocLong2D(int x, int y){
 		long[][] ret=null;
-		try {
+		try{
 			ret=new long[x][y];
-		} catch (OutOfMemoryError e) {
+		}catch(OutOfMemoryError e){
 			memKill(e);
 		}
 		return ret;
@@ -572,11 +577,11 @@ public final class KillSwitch extends Thread {
 	 * @param x First dimension size
 	 * @return New int[][][] with null second/third dimension arrays
 	 */
-	public static int[][][] allocInt3D(int x) {
+	public static int[][][] allocInt3D(int x){
 		int[][][] ret=null;
-		try {
+		try{
 			ret=new int[x][][];
-		} catch (OutOfMemoryError e) {
+		}catch(OutOfMemoryError e){
 			memKill(e);
 		}
 		return ret;
@@ -588,11 +593,11 @@ public final class KillSwitch extends Thread {
 	 * @param y Second dimension size
 	 * @return New int[x][y][] with null third dimension arrays
 	 */
-	public static int[][][] allocInt3D(int x, int y) {
+	public static int[][][] allocInt3D(int x, int y){
 		int[][][] ret=null;
-		try {
+		try{
 			ret=new int[x][y][];
-		} catch (OutOfMemoryError e) {
+		}catch(OutOfMemoryError e){
 			memKill(e);
 		}
 		return ret;
@@ -605,11 +610,11 @@ public final class KillSwitch extends Thread {
 	 * @param z Third dimension size
 	 * @return New int[x][y][z] array or triggers termination on memory error
 	 */
-	public static int[][][] allocInt3D(int x, int y, int z) {
+	public static int[][][] allocInt3D(int x, int y, int z){
 		int[][][] ret=null;
-		try {
+		try{
 			ret=new int[x][y][z];
-		} catch (OutOfMemoryError e) {
+		}catch(OutOfMemoryError e){
 			memKill(e);
 		}
 		return ret;
@@ -618,70 +623,72 @@ public final class KillSwitch extends Thread {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Creates copy of byte array with new length, enforcing array size limits.
-	 * Terminates if requested length exceeds maximum array size.
+	 * Creates copy of byte array with new length, clamped to the array size limit.
+	 * For oversized requests, terminates only if the clamped maximum would not grow
+	 * the source array.
 	 * @param buffer Source array to copy
 	 * @param newLength Desired length of new array
 	 * @return New byte array copy or triggers termination on memory error
 	 */
-	public static byte[] copyOf(byte[] buffer, long newLength) {
+	public static byte[] copyOf(byte[] buffer, long newLength){
 		final int len=buffer.length;
 		final int len2=(int)Tools.min(newLength, Shared.MAX_ARRAY_LEN);
-		//Comprehension (pattern shared by all copyOf overloads): abort ONLY when the request was clamped (newLength>len2, i.e.
-		//newLength>MAX_ARRAY_LEN) AND the clamp yields nothing bigger than the current buffer (len2<=len) - i.e. growth is
-		//impossible, so copying would silently shrink/lose data -> crash loud instead. When len2>len (clamped but still grows),
-		//it proceeds with a MAX-sized array; the caller then sees capacity len2<newLength and fails loud downstream (AIOOBE), not silently.
+		//Abort only when the request was clamped to MAX_ARRAY_LEN and the
+		//clamped size would not grow the buffer.  That avoids silently
+		//shrinking the array when growth is impossible.
 		if(newLength>len2 && len2<=len){
 			exceptionKill(new Exception("Tried to create an array above length limit: "+len+"," +newLength));
 		}
 		byte[] copy=null;
-		try {
+		try{
 			copy=Arrays.copyOf(buffer, len2);
-		} catch (OutOfMemoryError e) {
+		}catch(OutOfMemoryError e){
 			memKill(e);
 		}
 		return copy;
 	}
 	
 	/**
-	 * Creates copy of float array with new length, enforcing array size limits.
-	 * Terminates if requested length exceeds maximum array size.
+	 * Creates copy of float array with new length, clamped to the array size limit.
+	 * For oversized requests, terminates only if the clamped maximum would not grow
+	 * the source array.
 	 * @param buffer Source array to copy
 	 * @param newLength Desired length of new array
 	 * @return New float array copy or triggers termination on memory error
 	 */
-	public static float[] copyOf(float[] buffer, long newLength) {
+	public static float[] copyOf(float[] buffer, long newLength){
 		final int len=buffer.length;
 		final int len2=(int)Tools.min(newLength, Shared.MAX_ARRAY_LEN);
 		if(newLength>len2 && len2<=len){
 			exceptionKill(new Exception("Tried to create an array above length limit: "+len+"," +newLength));
 		}
 		float[] copy=null;
-		try {
+		try{
 			copy=Arrays.copyOf(buffer, len2);
-		} catch (OutOfMemoryError e) {
+		}catch(OutOfMemoryError e){
 			memKill(e);
 		}
 		return copy;
 	}
 	
 	/**
-	 * Creates copy of double array with new length, enforcing array size limits.
-	 * Terminates if requested length exceeds maximum array size.
+	 * Creates copy of double array with new length, clamped to the array size limit.
+	 * For oversized requests, terminates only if the clamped maximum would not grow
+	 * the source array.
 	 * @param buffer Source array to copy
 	 * @param newLength Desired length of new array
 	 * @return New double array copy or triggers termination on memory error
 	 */
-	public static double[] copyOf(double[] buffer, long newLength) {
+	public static double[] copyOf(double[] buffer, long newLength){
 		final int len=buffer.length;
 		final int len2=(int)Tools.min(newLength, Shared.MAX_ARRAY_LEN);
 		if(newLength>len2 && len2<=len){
 			exceptionKill(new Exception("Tried to create an array above length limit: "+len+"," +newLength));
 		}
 		double[] copy=null;
-		try {
+		try{
 			copy=Arrays.copyOf(buffer, len2);
-		} catch (OutOfMemoryError e) {
+		}catch(OutOfMemoryError e){
 			memKill(e);
 		}
 		return copy;
@@ -695,73 +702,76 @@ public final class KillSwitch extends Thread {
 	 * @param fillValue Value to insert in extra cells
 	 * @return New array
 	 */
-	public static int[] copyAndFill(int[] buffer, long newLength, int fillValue) {
+	public static int[] copyAndFill(int[] buffer, long newLength, int fillValue){
 		final int[] copy=copyOf(buffer, newLength);
 		Arrays.fill(copy, buffer.length, copy.length, fillValue);
 		return copy;
 	}
 	
 	/**
-	 * Creates copy of int array with new length, enforcing array size limits.
-	 * Terminates if requested length exceeds maximum array size.
+	 * Creates copy of int array with new length, clamped to the array size limit.
+	 * For oversized requests, terminates only if the clamped maximum would not grow
+	 * the source array.
 	 * @param buffer Source array to copy
 	 * @param newLength Desired length of new array
 	 * @return New int array copy or triggers termination on memory error
 	 */
-	public static int[] copyOf(int[] buffer, long newLength) {
+	public static int[] copyOf(int[] buffer, long newLength){
 		final int len=buffer.length;
 		final int len2=(int)Tools.min(newLength, Shared.MAX_ARRAY_LEN);
 		if(newLength>len2 && len2<=len){
 			exceptionKill(new Exception("Tried to create an array above length limit: "+len+"," +newLength));
 		}
 		int[] copy=null;
-		try {
+		try{
 			copy=Arrays.copyOf(buffer, len2);
-		} catch (OutOfMemoryError e) {
+		}catch(OutOfMemoryError e){
 			memKill(e);
 		}
 		return copy;
 	}
 	
 	/**
-	 * Creates copy of 2D int array with new length, enforcing array size limits.
-	 * Terminates if requested length exceeds maximum array size.
+	 * Creates copy of 2D int array with new length, clamped to the array size limit.
+	 * For oversized requests, terminates only if the clamped maximum would not grow
+	 * the source array.
 	 * @param buffer Source 2D array to copy
 	 * @param newLength Desired length of new array
 	 * @return New int[][] copy or triggers termination on memory error
 	 */
-	public static int[][] copyOf(int[][] buffer, long newLength) {
+	public static int[][] copyOf(int[][] buffer, long newLength){
 		final int len=buffer.length;
 		final int len2=(int)Tools.min(newLength, Shared.MAX_ARRAY_LEN);
 		if(newLength>len2 && len2<=len){
 			exceptionKill(new Exception("Tried to create an array above length limit: "+len+"," +newLength));
 		}
 		int[][] copy=null;
-		try {
+		try{
 			copy=Arrays.copyOf(buffer, len2);
-		} catch (OutOfMemoryError e) {
+		}catch(OutOfMemoryError e){
 			memKill(e);
 		}
 		return copy;
 	}
 	
 	/**
-	 * Creates copy of long array with new length, enforcing array size limits.
-	 * Terminates if requested length exceeds maximum array size.
+	 * Creates copy of long array with new length, clamped to the array size limit.
+	 * For oversized requests, terminates only if the clamped maximum would not grow
+	 * the source array.
 	 * @param buffer Source array to copy
 	 * @param newLength Desired length of new array
 	 * @return New long array copy or triggers termination on memory error
 	 */
-	public static long[] copyOf(long[] buffer, long newLength) {
+	public static long[] copyOf(long[] buffer, long newLength){
 		final int len=buffer.length;
 		final int len2=(int)Tools.min(newLength, Shared.MAX_ARRAY_LEN);
 		if(newLength>len2 && len2<=len){
 			exceptionKill(new Exception("Tried to create an array above length limit: "+len+"," +newLength));
 		}
 		long[] copy=null;
-		try {
+		try{
 			copy=Arrays.copyOf(buffer, len2);
-		} catch (OutOfMemoryError e) {
+		}catch(OutOfMemoryError e){
 			memKill(e);
 		}
 		return copy;
@@ -774,29 +784,30 @@ public final class KillSwitch extends Thread {
 	 * @param fillValue Value to fill extra cells beyond original array length
 	 * @return New long array copy with filled extra cells
 	 */
-	public static long[] copyAndFill(long[] buffer, long newLength, int fillValue) {
+	public static long[] copyAndFill(long[] buffer, long newLength, int fillValue){
 		final long[] copy=copyOf(buffer, newLength);
 		Arrays.fill(copy, buffer.length, copy.length, fillValue);
 		return copy;
 	}
 	
 	/**
-	 * Creates copy of 2D long array with new length, enforcing array size limits.
-	 * Terminates if requested length exceeds maximum array size.
+	 * Creates copy of 2D long array with new length, clamped to the array size limit.
+	 * For oversized requests, terminates only if the clamped maximum would not grow
+	 * the source array.
 	 * @param buffer Source 2D array to copy
 	 * @param newLength Desired length of new array
 	 * @return New long[][] copy or triggers termination on memory error
 	 */
-	public static long[][] copyOf(long[][] buffer, long newLength) {
+	public static long[][] copyOf(long[][] buffer, long newLength){
 		final int len=buffer.length;
 		final int len2=(int)Tools.min(newLength, Shared.MAX_ARRAY_LEN);
 		if(newLength>len2 && len2<=len){
 			exceptionKill(new Exception("Tried to create an array above length limit: "+len+"," +newLength));
 		}
 		long[][] copy=null;
-		try {
+		try{
 			copy=Arrays.copyOf(buffer, len2);
-		} catch (OutOfMemoryError e) {
+		}catch(OutOfMemoryError e){
 			memKill(e);
 		}
 		return copy;
@@ -811,11 +822,11 @@ public final class KillSwitch extends Thread {
 	 * @param to Ending index (exclusive)
 	 * @return New byte array containing specified range
 	 */
-	public static byte[] copyOfRange(byte[] buffer, int from, int to) {
+	public static byte[] copyOfRange(byte[] buffer, int from, int to){
 		byte[] copy=null;
-		try {
+		try{
 			copy=Arrays.copyOfRange(buffer, from, to);
-		} catch (OutOfMemoryError e) {
+		}catch(OutOfMemoryError e){
 			memKill(e);
 		}
 		return copy;
@@ -828,11 +839,11 @@ public final class KillSwitch extends Thread {
 	 * @param limit Ending index (exclusive)
 	 * @return New int array containing specified range
 	 */
-	public static int[] copyOfRange(int[] buffer, int start, int limit) {
+	public static int[] copyOfRange(int[] buffer, int start, int limit){
 		int[] copy=null;
-		try {
+		try{
 			copy=Arrays.copyOfRange(buffer, start, limit);
-		} catch (OutOfMemoryError e) {
+		}catch(OutOfMemoryError e){
 			memKill(e);
 		}
 		return copy;
@@ -845,11 +856,11 @@ public final class KillSwitch extends Thread {
 	 * @param limit Ending index (exclusive)
 	 * @return New long array containing specified range
 	 */
-	public static long[] copyOfRange(long[] buffer, int start, int limit) {
+	public static long[] copyOfRange(long[] buffer, int start, int limit){
 		long[] copy=null;
-		try {
+		try{
 			copy=Arrays.copyOfRange(buffer, start, limit);
-		} catch (OutOfMemoryError e) {
+		}catch(OutOfMemoryError e){
 			memKill(e);
 		}
 		return copy;
@@ -858,7 +869,7 @@ public final class KillSwitch extends Thread {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Maximum duration in seconds before shutdown if system load stays below threshold.
+	 * Maximum duration in seconds before shutdown if own-process CPU stays below threshold.
 	 */
 	private final double maxSeconds;
 	/** Minimum own-process CPU utilization (fraction of one core) to keep the program running. */
@@ -867,10 +878,10 @@ public final class KillSwitch extends Thread {
 	/** Thread-safe flag to signal graceful shutdown of monitoring thread. */
 	private static AtomicBoolean shutdownFlag=new AtomicBoolean(false);
 	/**
-	 * Thread-safe flag to trigger immediate termination on next monitoring cycle.
+	 * Thread-safe flag checked after monitor() returns.
 	 */
 	private static AtomicBoolean killFlag=new AtomicBoolean(false);
-	/** Counter to ensure only one KillSwitch instance runs at a time. */
+	/** Counter to ensure only one KillSwitch launch attempt per JVM. */
 	private static int count=0;
 	/** Reference to the currently running KillSwitch instance. */
 	private static KillSwitch ks;
@@ -887,7 +898,7 @@ public final class KillSwitch extends Thread {
 
 	/** Allocates ballast memory arrays that can be released during out-of-memory conditions.
 	 * Creates two 20000-element int arrays to provide emergency memory for error handling. */
-	public static void addBallast() {
+	public static void addBallast(){
 		synchronized(KillSwitch.class){
 			ballast=new int[20000];
 			ballast2=new int[20000];

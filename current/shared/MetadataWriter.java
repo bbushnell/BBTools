@@ -11,17 +11,22 @@ import json.JsonObject;
 
 /**
  * Writes execution metadata for BBTools programs to files in TSV or JSON format.
- * Captures runtime information including timestamps, system details, version info,
- * command line parameters, and processing statistics for program execution tracking.
+ * Captures runtime information including timestamps, system details, version,
+ * command line parameters, approximate shell-script reconstruction, and processing
+ * statistics for program execution tracking.
  *
  * @author Brian Bushnell
  * @date 2013
  */
-public class MetadataWriter {
+public class MetadataWriter{
 	
 	/**
-	 * Writes execution metadata to a file in the configured format.
-	 * Uses the global jsonMode flag to determine output format (JSON or TSV).
+	 * Starts an asynchronous execution-metadata write in the configured format.
+	 * Uses the global {@link #jsonMode} flag to select JSON or TSV output.  A
+	 * null filename falls back to {@link #fnameStatic}; every resolved non-null
+	 * filename clears {@code fnameStatic}, including explicit filenames.  The
+	 * background writer has no joinable per-write receipt, so write failures kill
+	 * the process under assertions or escape the worker thread otherwise.
 	 *
 	 * @param fname Output filename, or null to use fnameStatic
 	 * @param readsIn Number of input reads processed
@@ -59,10 +64,9 @@ public class MetadataWriter {
 		StringBuilder sb=new StringBuilder();
 		
 		sb.append("Time\t").append(new Date()).append('\n');
-		try {
+		try{
 			sb.append("Host\t").append(InetAddress.getLocalHost().getHostName()).append('\n');
-		} catch (UnknownHostException e) {
-			// TODO Auto-generated catch block
+		}catch(UnknownHostException e){
 			e.printStackTrace();
 		}
 		sb.append("BBToolsVersion\t").append(Shared.BBTOOLS_VERSION_STRING).append('\n');
@@ -92,10 +96,9 @@ public class MetadataWriter {
 		JsonObject jo=new JsonObject();
 		
 		jo.add("Time", new Date().toString());
-		try {
+		try{
 			jo.add("Host", InetAddress.getLocalHost().getHostName());
-		} catch (UnknownHostException e) {
-			// TODO Auto-generated catch block
+		}catch(UnknownHostException e){
 			e.printStackTrace();
 		}
 //		jo.add("Host", env.get("HOSTNAME"));
@@ -113,15 +116,15 @@ public class MetadataWriter {
 	}
 	
 	/**
-	 * Translates Java class command line to equivalent shell script command.
-	 * Uses the shellMap to convert Java class names to their corresponding
-	 * shell script names (e.g., "jgi.BBDuk" becomes "bbduk.sh").
+	 * Translates a Java class command line to an approximate shell script
+	 * command.  Splits on literal spaces to find a mapped class name, so the
+	 * result does not preserve shell-quoting fidelity.
 	 *
 	 * @param command Full command line string starting with Java class name
 	 * @return Shell script equivalent command, or null if no mapping found
 	 */
-	private static String commandToShellscript(String command) {
-		if(command==null) {return null;}
+	private static String commandToShellscript(String command){
+		if(command==null){return null;}
 		final HashMap<String, String> map=shellMap();
 		String[] split=command.split(" ");
 		int pos=0;
@@ -142,7 +145,8 @@ public class MetadataWriter {
 	}
 	
 	/** Anything in this map will have the command line translated
-	 * to the equivalent shell script command for the "Script" key */
+	 * to the equivalent shell script command for the "Script" key.
+	 * @return Java main class to shell script map */
 	private static HashMap<String, String> shellMap(){
 		HashMap<String, String> map=new HashMap<String, String>();
 		map.put("bloom.BloomFilterCorrectorWrapper", "bbcms.sh");

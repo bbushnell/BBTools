@@ -3,319 +3,297 @@ package shared;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
- * Thread-safe synchronization utilities for mutable configuration values in BBTools.
- * Provides safe concurrent access to shared state with optimized read performance.
- * Uses ReadWriteLock to allow multiple concurrent readers while ensuring exclusive writes.
+ * Synchronized accessors for selected mutable configuration values in BBTools.
+ * The private ReadWriteLock allows multiple concurrent readers and exclusive
+ * writers among callers that use this class.  Direct access to the underlying
+ * Shared fields is outside this lock.
  * 
  * @author Brian Bushnell
  * @author Isla
  * @date June 18, 2025
  */
-public class SyncHeart {
+public class SyncHeart{
 	
-	/** ReadWriteLock for thread-safe access to configuration values */
-	private static final ReentrantReadWriteLock configLock = new ReentrantReadWriteLock();
+	/** ReadWriteLock for thread-safe access to configuration values. */
+	private static final ReentrantReadWriteLock configLock=new ReentrantReadWriteLock();
 	
-	/** Acquires read lock for safe concurrent read access */
-	private static final void readLock() {
+	/** Acquires read lock for concurrent access through SyncHeart. */
+	private static final void readLock(){
 		configLock.readLock().lock();
 	}
 	
-	/** Releases read lock */
-	private static final void readUnlock() {
+	/** Releases read lock. */
+	private static final void readUnlock(){
 		configLock.readLock().unlock();
 	}
 	
-	/** Acquires write lock for exclusive write access */
-	private static final void writeLock() {
+	/** Acquires write lock for access through SyncHeart. */
+	private static final void writeLock(){
 		configLock.writeLock().lock();
 	}
 	
-	/** Releases write lock */
-	private static final void writeUnlock() {
+	/** Releases write lock. */
+	private static final void writeUnlock(){
 		configLock.writeLock().unlock();
 	}
 	
 	// Threading and Performance Configuration
 	
-	/** Thread-safe setter for amino acid input mode */
-	public static void setAminoIn(boolean b) {
+	/** Locked setter for amino acid input mode. */
+	public static void setAminoIn(boolean b){
 		writeLock();
-		Shared.AMINO_IN = b;
-		writeUnlock();
+		try{Shared.AMINO_IN=b;}
+		finally{writeUnlock();}
 	}
 	
-	/** Thread-safe getter for amino acid input mode */
-	public static boolean aminoIn() {
+	/** Locked getter for amino acid input mode. */
+	public static boolean aminoIn(){
 		readLock();
-		boolean result = Shared.AMINO_IN;
-		readUnlock();
-		return result;
+		try{return Shared.AMINO_IN;}
+		finally{readUnlock();}
 	}
 	
-	/** Thread-safe setter for low memory mode */
-	public static void setLowMemory(boolean b) {
+	/** Locked setter for low memory mode. */
+	public static void setLowMemory(boolean b){
 		writeLock();
-		Shared.LOW_MEMORY = b;
-		writeUnlock();
+		try{Shared.LOW_MEMORY=b;}
+		finally{writeUnlock();}
 	}
 	
-	/** Thread-safe getter for low memory mode */
-	public static boolean lowMemory() {
+	/** Locked getter for low memory mode. */
+	public static boolean lowMemory(){
 		readLock();
-		boolean result = Shared.LOW_MEMORY;
-		readUnlock();
-		return result;
+		try{return Shared.LOW_MEMORY;}
+		finally{readUnlock();}
 	}
 	
-	/** Thread-safe setter for garbage collection before memory printing */
-	public static void setGcBeforePrintMemory(boolean b) {
+	/** Locked setter for garbage collection before memory printing. */
+	public static void setGcBeforePrintMemory(boolean b){
 		writeLock();
-		Shared.GC_BEFORE_PRINT_MEMORY = b;
-		writeUnlock();
+		try{Shared.GC_BEFORE_PRINT_MEMORY=b;}
+		finally{writeUnlock();}
 	}
 	
-	/** Thread-safe getter for garbage collection before memory printing */
-	public static boolean gcBeforePrintMemory() {
+	/** Locked getter for garbage collection before memory printing. */
+	public static boolean gcBeforePrintMemory(){
 		readLock();
-		boolean result = Shared.GC_BEFORE_PRINT_MEMORY;
-		readUnlock();
-		return result;
+		try{return Shared.GC_BEFORE_PRINT_MEMORY;}
+		finally{readUnlock();}
 	}
 	
-	/** Thread-safe setter for parallel sort usage */
-	public static void setParallelSort(boolean b) {
+	/** Locked setter for parallel sort usage. */
+	public static void setParallelSort(boolean b){
 		writeLock();
-		Shared.parallelSort = b;
-		writeUnlock();
+		try{Shared.parallelSort=b;}
+		finally{writeUnlock();}
 	}
 	
-	/** Thread-safe getter for parallel sort usage */
-	public static boolean parallelSort() {
+	/** Locked getter for parallel sort usage. */
+	public static boolean parallelSort(){
 		readLock();
-		boolean result = Shared.parallelSort;
-		readUnlock();
-		return result;
+		try{return Shared.parallelSort;}
+		finally{readUnlock();}
 	}
 	
-	/** Thread-safe setter for SIMD optimization usage */
-	public static void setSimd(boolean b) {
+	/** Locked setter for SIMD optimization usage. */
+	public static void setSimd(boolean b){
 		writeLock();
-		Shared.SIMD = b;
-		writeUnlock();
+		try{Shared.SIMD=b;}
+		finally{writeUnlock();}
 	}
 	
-	/** Thread-safe getter for SIMD optimization usage */
-	public static boolean simd() {
+	/** Locked getter for SIMD optimization usage. */
+	public static boolean simd(){
 		readLock();
-		boolean result = Shared.SIMD;
-		readUnlock();
-		return result;
+		try{return Shared.SIMD;}
+		finally{readUnlock();}
 	}
 	
 	// MPI Configuration
 	
-	/** Thread-safe setter for MPI usage */
-	public static void setUseMpi(boolean b) {
+	/** Locked setter for MPI usage. */
+	public static void setUseMpi(boolean b){
 		writeLock();
-		Shared.USE_MPI = b;
-		writeUnlock();
+		try{Shared.USE_MPI=b;}
+		finally{writeUnlock();}
 	}
 	
-	/** Thread-safe getter for MPI usage */
-	public static boolean useMpi() {
+	/** Locked getter for MPI usage. */
+	public static boolean useMpi(){
 		readLock();
-		boolean result = Shared.USE_MPI;
-		readUnlock();
-		return result;
+		try{return Shared.USE_MPI;}
+		finally{readUnlock();}
 	}
 	
-	/** Thread-safe setter for MPI keep all mode */
-	public static void setMpiKeepAll(boolean b) {
+	/** Locked setter for MPI keep all mode. */
+	public static void setMpiKeepAll(boolean b){
 		writeLock();
-		Shared.MPI_KEEP_ALL = b;
-		writeUnlock();
+		try{Shared.MPI_KEEP_ALL=b;}
+		finally{writeUnlock();}
 	}
 	
-	/** Thread-safe getter for MPI keep all mode */
-	public static boolean mpiKeepAll() {
+	/** Locked getter for MPI keep all mode. */
+	public static boolean mpiKeepAll(){
 		readLock();
-		boolean result = Shared.MPI_KEEP_ALL;
-		readUnlock();
-		return result;
+		try{return Shared.MPI_KEEP_ALL;}
+		finally{readUnlock();}
 	}
 	
-	/** Thread-safe setter for CRISMPI usage */
-	public static void setUseCrismpi(boolean b) {
+	/** Locked setter for CRISMPI usage. */
+	public static void setUseCrismpi(boolean b){
 		writeLock();
-		Shared.USE_CRISMPI = b;
-		writeUnlock();
+		try{Shared.USE_CRISMPI=b;}
+		finally{writeUnlock();}
 	}
 	
-	/** Thread-safe getter for CRISMPI usage */
-	public static boolean useCrismpi() {
+	/** Locked getter for CRISMPI usage. */
+	public static boolean useCrismpi(){
 		readLock();
-		boolean result = Shared.USE_CRISMPI;
-		readUnlock();
-		return result;
+		try{return Shared.USE_CRISMPI;}
+		finally{readUnlock();}
 	}
 	
-	/** Thread-safe setter for MPI rank */
-	public static void setMpiRank(int rank) {
+	/** Locked setter for MPI rank. */
+	public static void setMpiRank(int rank){
 		writeLock();
-		Shared.MPI_RANK = rank;
-		writeUnlock();
+		try{Shared.MPI_RANK=rank;}
+		finally{writeUnlock();}
 	}
 	
-	/** Thread-safe getter for MPI rank */
-	public static int mpiRank() {
+	/** Locked getter for MPI rank. */
+	public static int mpiRank(){
 		readLock();
-		int result = Shared.MPI_RANK;
-		readUnlock();
-		return result;
+		try{return Shared.MPI_RANK;}
+		finally{readUnlock();}
 	}
 	
-	/** Thread-safe setter for number of MPI ranks */
-	public static void setMpiNumRanks(int ranks) {
+	/** Locked setter for number of MPI ranks. */
+	public static void setMpiNumRanks(int ranks){
 		writeLock();
-		Shared.MPI_NUM_RANKS = ranks;
-		writeUnlock();
+		try{Shared.MPI_NUM_RANKS=ranks;}
+		finally{writeUnlock();}
 	}
 	
-	/** Thread-safe getter for number of MPI ranks */
-	public static int mpiNumRanks() {
+	/** Locked getter for number of MPI ranks. */
+	public static int mpiNumRanks(){
 		readLock();
-		int result = Shared.MPI_NUM_RANKS;
-		readUnlock();
-		return result;
+		try{return Shared.MPI_NUM_RANKS;}
+		finally{readUnlock();}
 	}
 	
 	// File and I/O Configuration
 	
-	/** Thread-safe setter for FASTA line wrap length */
-	public static void setFastaWrap(int wrap) {
+	/** Locked setter for FASTA line wrap length. */
+	public static void setFastaWrap(int wrap){
 		writeLock();
-		Shared.FASTA_WRAP = wrap;
-		writeUnlock();
+		try{Shared.FASTA_WRAP=wrap;}
+		finally{writeUnlock();}
 	}
 	
-	/** Thread-safe getter for FASTA line wrap length */
-	public static int fastaWrap() {
+	/** Locked getter for FASTA line wrap length. */
+	public static int fastaWrap(){
 		readLock();
-		int result = Shared.FASTA_WRAP;
-		readUnlock();
-		return result;
+		try{return Shared.FASTA_WRAP;}
+		finally{readUnlock();}
 	}
 	
-	/** Thread-safe setter for fake quality score */
-	public static void setFakeQual(byte qual) {
+	/** Locked setter for fake quality score. */
+	public static void setFakeQual(byte qual){
 		writeLock();
-		Shared.FAKE_QUAL = qual;
-		writeUnlock();
+		try{Shared.FAKE_QUAL=qual;}
+		finally{writeUnlock();}
 	}
 	
-	/** Thread-safe getter for fake quality score */
-	public static byte fakeQual() {
+	/** Locked getter for fake quality score. */
+	public static byte fakeQual(){
 		readLock();
-		byte result = Shared.FAKE_QUAL;
-		readUnlock();
-		return result;
+		try{return Shared.FAKE_QUAL;}
+		finally{readUnlock();}
 	}
 	
-	/** Thread-safe setter for file extension fixing */
-	public static void setFixExtensions(boolean b) {
+	/** Locked setter for file extension fixing. */
+	public static void setFixExtensions(boolean b){
 		writeLock();
-		Shared.FIX_EXTENSIONS = b;
-		writeUnlock();
+		try{Shared.FIX_EXTENSIONS=b;}
+		finally{writeUnlock();}
 	}
 	
-	/** Thread-safe getter for file extension fixing */
-	public static boolean fixExtensions() {
+	/** Locked getter for file extension fixing. */
+	public static boolean fixExtensions(){
 		readLock();
-		boolean result = Shared.FIX_EXTENSIONS;
-		readUnlock();
-		return result;
+		try{return Shared.FIX_EXTENSIONS;}
+		finally{readUnlock();}
 	}
 	
-	/** Thread-safe setter for read comment trimming */
-	public static void setTrimReadComments(boolean b) {
+	/** Locked setter for read comment trimming. */
+	public static void setTrimReadComments(boolean b){
 		writeLock();
-		Shared.TRIM_READ_DESCRIPTION = b;
-		writeUnlock();
+		try{Shared.TRIM_READ_DESCRIPTION=b;}
+		finally{writeUnlock();}
 	}
 	
-	/** Thread-safe getter for read comment trimming */
-	public static boolean trimReadComments() {
+	/** Locked getter for read comment trimming. */
+	public static boolean trimReadComments(){
 		readLock();
-		boolean result = Shared.TRIM_READ_DESCRIPTION;
-		readUnlock();
-		return result;
+		try{return Shared.TRIM_READ_DESCRIPTION;}
+		finally{readUnlock();}
 	}
 	
-	/** Thread-safe setter for RNAME trimming in SAM reads */
-	public static void setTrimRname(boolean b) {
+	/** Locked setter for RNAME trimming in SAM reads. */
+	public static void setTrimRname(boolean b){
 		writeLock();
-		Shared.TRIM_RNAME = b;
-		writeUnlock();
+		try{Shared.TRIM_RNAME=b;}
+		finally{writeUnlock();}
 	}
 	
-	/** Thread-safe getter for RNAME trimming in SAM reads */
-	public static boolean trimRname() {
+	/** Locked getter for RNAME trimming in SAM reads. */
+	public static boolean trimRname(){
 		readLock();
-		boolean result = Shared.TRIM_RNAME;
-		readUnlock();
-		return result;
+		try{return Shared.TRIM_RNAME;}
+		finally{readUnlock();}
 	}
 	
-	/** Thread-safe setter for KMG output formatting */
-	public static void setOutputKmg(boolean b) {
+	/** Locked setter for KMG output formatting. */
+	public static void setOutputKmg(boolean b){
 		writeLock();
-		Shared.OUTPUT_KMG = b;
-		writeUnlock();
+		try{Shared.OUTPUT_KMG=b;}
+		finally{writeUnlock();}
 	}
 	
-	/** Thread-safe getter for KMG output formatting */
-	public static boolean outputKmg() {
+	/** Locked getter for KMG output formatting. */
+	public static boolean outputKmg(){
 		readLock();
-		boolean result = Shared.OUTPUT_KMG;
-		readUnlock();
-		return result;
+		try{return Shared.OUTPUT_KMG;}
+		finally{readUnlock();}
 	}
 	
 	// Buffer Configuration
 	
-	/** Thread-safe setter for read buffer length */
-	public static void setBufferLen(int len) {
+	/** Locked setter for read buffer length. */
+	public static void setBufferLen(int len){
 		writeLock();
-		Shared.setBufferLen(len);
-		writeUnlock();
+		try{Shared.setBufferLen(len);}
+		finally{writeUnlock();}
 	}
-	//TODO: Possible bug [shared/SyncHeart#001] - lock/unlock without try-finally (whole class): if the guarded body ever throws
-	//(e.g. an assertion inside Shared.setBufferLen/setBufferData under -ea - the only bodies here that call a method rather than
-	//assign a field), writeUnlock() is skipped and the ReentrantReadWriteLock write lock LEAKS, deadlocking all future config
-	//access. LATENT: current bodies (field assigns + these two setters) don't throw, but per crash-loud-never-hang the safe form
-	//is `writeLock(); try{...}finally{writeUnlock();}`. Same applies to every read/write pair in this class.
 	
-	/** Thread-safe getter for read buffer length */
-	public static int bufferLen() {
+	/** Locked getter for read buffer length. */
+	public static int bufferLen(){
 		readLock();
-		int result = Shared.bufferLen();
-		readUnlock();
-		return result;
+		try{return Shared.bufferLen();}
+		finally{readUnlock();}
 	}
 	
-	/** Thread-safe setter for maximum buffer data */
-	public static void setBufferData(int data) {
+	/** Locked setter for maximum buffer data. */
+	public static void setBufferData(int data){
 		writeLock();
-		Shared.setBufferData(data);
-		writeUnlock();
+		try{Shared.setBufferData(data);}
+		finally{writeUnlock();}
 	}
 	
-	/** Thread-safe getter for maximum buffer data */
-	public static long bufferData() {
+	/** Locked getter for maximum buffer data. */
+	public static long bufferData(){
 		readLock();
-		long result = Shared.bufferData();
-		readUnlock();
-		return result;
+		try{return Shared.bufferData();}
+		finally{readUnlock();}
 	}
 }

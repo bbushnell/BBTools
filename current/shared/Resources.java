@@ -14,7 +14,7 @@ import dna.Data;
  * @author Noire, Brian Bushnell
  * @date May 19, 2026
  */
-public class Resources {
+public class Resources{
 
 	/** Resolves a known optional resource's download URL without opening files or exiting. */
 	public static String downloadURL(String filename){
@@ -44,11 +44,18 @@ public class Resources {
 	}
 
 	/** Locates a resource file.  If fname contains commas, tries each
-	 * candidate in order and returns the first one found. */
+	 * candidate in order and returns the first one found.
+	 * @param fname Resource name or comma-separated resource candidates
+	 * @return Resource path */
 	public static String find(String fname){
 		return find(fname, true);
 	}
 
+	/** Locates a resource file, optionally exiting when no candidate is present.
+	 * @param fname Resource name or comma-separated resource candidates
+	 * @param exit True to exit when missing; false still prints single-name instructions,
+	 * but returns null silently when no comma-separated candidate is found
+	 * @return Resource path, or null if missing and exit is false */
 	public static String find(String fname, boolean exit){
 		if(fname.indexOf(',')>=0){
 			String[] parts=fname.split(",");
@@ -60,11 +67,17 @@ public class Resources {
 	}
 
 	/** Tries each candidate in order, returns the first one found.
-	 * Only complains if ALL are missing. */
+	 * Only complains if all are missing.
+	 * @param fnames Resource candidates
+	 * @return Resource path */
 	public static String find(ArrayList<String> fnames){
 		return find(fnames, true);
 	}
 
+	/** Tries each candidate in order, optionally exiting when all are missing.
+	 * @param fnames Resource candidates
+	 * @param exit True to print instructions and exit when missing
+	 * @return Resource path, or null if missing and exit is false */
 	public static String find(ArrayList<String> fnames, boolean exit){
 		for(String f : fnames){
 			String path=Data.findPath(f, false);
