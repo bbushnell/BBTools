@@ -29,6 +29,21 @@ pacbio=f        Set to true to keep PacBio subreads together.  Only works in
                 count mode.
 int=f           (interleaved) Determines whether INPUT file is considered interleaved.
 zl=4            (ziplevel) Set compression level, 1 (low) to 9 (max).
+multiwritermode=auto
+                Multi-output writer policy: auto, st, or zt.  Auto permits at
+                most one writer thread per physical output only while the
+                requested primary/mate/QUAL file count fits the thread and
+                memory caps; zt writes shards on the caller thread to bound
+                thread count.
+multiwriterstmax=32
+                Maximum simultaneous physical outputs for auto to choose st.
+multiwriterstmemory=8m
+                Provisional heap allowance per st physical output.
+                Supported shard outputs are raw, gzip, BGZF, ZIP, SAM, and BAM.
+                .gz uses Java gzip; .bgz/.bgzip use native BGZF. Global MT or
+                external-compressor preferences do not spawn extra shard workers.
+                bzip2, xz, dsrc, and other external-compressor outputs are
+                rejected for partition shards.
 
 Mode parameters:
 mode=count      Partition by metric: count, bp, gc, hh, caga, length, depth

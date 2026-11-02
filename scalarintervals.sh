@@ -11,15 +11,18 @@ depth, and length for sequence intervals. Outputs data in TSV format for
 visualization with CloudPlot or external analysis tools.
 
 Output TSV Format:
-#Name   Length  GC      HH      CAGA    Depth   Start   TaxID   TaxID2
+#Name   Length  GC      HH      CAGA    Depth   Start   TaxID   TaxID2  End
 - Name: Sequence/contig name (printed only with printname=t)
-- Length: Interval length in bases
+- Length: Newly represented valid-base count (weight, not End-Start)
 - GC: GC content (0-1)
 - HH: Homopolymer-heteropolymer ratio (0-1, GC-independent)
 - CAGA: Compositional asymmetry (0-1, GC-independent)
 - Depth: Read coverage depth (from cov/depth file or header)
-- Start: Start position within contig (printed only with printpos=t)
-Note: Name and Start columns above appear only when their flag is set; the
+- Start/End: Zero-based, half-open bounds of retained dimers (printpos=t).
+  Interior ambiguity gaps are included; terminal ambiguities are excluded.
+  Both are -1 for no counted dimers or break=f, which can mix contigs.
+  End is appended after TaxID2; older tables without End load it as -1.
+Note: Name and coordinate columns appear only when their flag is set; the
 default data table is: #Length GC HH CAGA Depth TaxID TaxID2.  A per-file
 Mean/STDev summary is also printed to stderr (columns: label GC HH CAGA Depth
 TaxID Name) — a deliberately different, shorter layout than the data table.
@@ -56,16 +59,17 @@ depth=<file>    SAM/BAM file for depth calculation.
 Processing parameters:
 header=t        Print the #-prefixed TSV header line into the output table
                 (now on by default; set header=f to omit).
-window=50000    If nonzero, calculate metrics over sliding windows.
-                Otherwise calculate per contig. Larger has lower variance.
-interval=10000  Generate a data point every this many bp.
+window=50000    Number of valid dimers retained by the rolling window.
+                Zero accumulates without a window; break=t makes it per contig.
+interval=10000  Emit after this many new valid bases when the window is full.
+                A retained tail can emit a partial window. Length is that weight.
 shred=-1        If positive, set window and interval to the same size.
                 Example: shred=20k sets both window and interval to 20000.
 break=t         Reset metrics at contig boundaries.
-minlen=500      Minimum interval length to generate a point.
+minlen=500      Minimum contig length and trailing new-valid-base count.
 maxreads=-1     Maximum number of reads/contigs to process.
 printname=f     Print contig names in output.
-printpos=f      Print start position in output (same as Start column).
+printpos=f      Print Start and End, including with window=0 or interval=0.
 printtime=t     Print timing information to stderr.
 
 Taxonomy parameters:

@@ -33,14 +33,14 @@ import tax.TaxTree;
 
 /**
  * Visualizes 3D compositional metrics (GC, HH, CAGA) as 2D scatter plots with color encoding.
- * Supports TSV input with future expansion for FASTA format via Scalars integration.
+ * Supports TSV tables and sequence input through ScalarIntervals.
  * Generates PNG images with configurable scaling and point sizes.
  *
  * @author Brian Bushnell
  * @contributor G11, Neptune
  * @date October 6, 2025
  */
-public class CloudPlot {
+public class CloudPlot{
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
@@ -58,10 +58,8 @@ public class CloudPlot {
 		CloudPlot x=new CloudPlot(args);
 
 		//Run the object
-		x.process(t);
-
-		//Close the print stream if it was redirected
-		Shared.closeStream(x.outstream);
+		try{x.process(t);}
+		finally{Shared.closeStream(x.outstream);}
 	}
 
 	/**
@@ -82,6 +80,7 @@ public class CloudPlot {
 
 		{//Parse the arguments
 			final Parser parser=parse(args);
+			if(parser.in2!=null){throw new IllegalArgumentException("CloudPlot does not support in2; supply one input table or sequence file.");}
 			overwrite=parser.overwrite;
 			append=parser.append;
 
@@ -96,9 +95,9 @@ public class CloudPlot {
 
 		ffout1=FileFormat.testOutput(out1, FileFormat.PNG, null, true, overwrite, append, false);
 		ffin1=FileFormat.testInput(in1, FileFormat.TXT, null, true, true);
-		
-		if(legend && colorMetric==TAXONOMY) {useTree=true;}
-		if(useTree) {tree=TaxTree.sharedTree();}
+
+		if(legend && colorMetric==TAXONOMY){useTree=true;}
+		if(useTree){tree=TaxTree.sharedTree();}
 	}
 
 	/*--------------------------------------------------------------*/
@@ -116,10 +115,10 @@ public class CloudPlot {
 			String arg=args[i];
 
 			//Break arguments into their constituent parts, in the form of "a=b"
-			String[] split=arg.split("=");
+			String[] split=arg.split("=", 2);
 			String a=split[0].toLowerCase();
 			String b=split.length>1 ? split[1] : null;
-			if(b!=null && b.equalsIgnoreCase("null")){b=null;}
+			if(b!=null && (b.isEmpty() || b.equalsIgnoreCase("null"))){b=null;}
 
 			if(a.equals("xmin")){
 				xmin=Float.parseFloat(b);
@@ -183,7 +182,7 @@ public class CloudPlot {
 				autoscale=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("tree") || a.equalsIgnoreCase("usetree")){
 				useTree=Parse.parseBoolean(b);
-			}else if(a.equalsIgnoreCase("tax") || a.equalsIgnoreCase("colorbytax") || 
+			}else if(a.equalsIgnoreCase("tax") || a.equalsIgnoreCase("colorbytax") ||
 				a.equalsIgnoreCase("colorbytid")){
 				colorByTax=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("parsetid")){
@@ -249,18 +248,11 @@ public class CloudPlot {
 		if(in1==null){throw new RuntimeException("Error - at least one input file is required.");}
 	}
 
-	/** Ensure files can be read and written */
+	/** Validates files before rendering, including physical input/output aliases. */
 	private void checkFileExistence(){
-		//Ensure output files can be written
-		if(!Tools.testOutputFiles(overwrite, append, false, out1)){
-			outstream.println((out1==null)+", "+out1);
-			throw new RuntimeException("\n\noverwrite="+overwrite+"; Can't write to output file "+out1+"\n");
-		}
-
-		//Ensure input files can be read
-		if(!Tools.testInputFiles(false, true, in1)){
-			throw new RuntimeException("\nCan't read some input files.\n");
-		}
+		final ArrayList<String> inputs=new ArrayList<String>(1);
+		inputs.add(in1);
+		ScalarData.checkFiles(inputs, out1, overwrite, append);
 
 		//Ensure that no file was specified multiple times
 		if(!Tools.testForDuplicateFiles(true, in1, out1)){
@@ -307,13 +299,13 @@ public class CloudPlot {
 
 		return true;
 	}
-	
+
 	/**
 	 * Parse a single metric name to its index.
 	 * @param b Metric name like "gc", "depth", "taxonomy"
 	 * @return Metric index constant
 	 */
-	public static int parseMetric(String b) {
+	public static int parseMetric(String b){
 		if(b==null){return NONE;}
 		b=b.toLowerCase().trim();
 		switch(b){
@@ -334,12 +326,17 @@ public class CloudPlot {
 	 * @param b Order string like "gc,hh,caga" or "gc,hh,caga,depth"
 	 * @return Array of metric indices [x, y, z, size]
 	 */
-	public static int[] parseOrder(String b) {
-		String[] s=b.toLowerCase().split(",");
+	public static int[] parseOrder(String b){
+		if(b==null){throw new IllegalArgumentException("order requires three or four metrics");}
+		String[] s=b.split(",", -1);
+		if(s.length<3 || s.length>4){
+			throw new IllegalArgumentException("order requires three or four metrics: "+b);
+		}
 		int[] order=new int[4];  // Always return 4 elements: x, y, z, size
 
 		// Parse provided dimensions
-		for(int i=0; i<Math.min(s.length, 4); i++) {
+		for(int i=0; i<Math.min(s.length, 4); i++){
+			if(s[i].trim().isEmpty()){throw new IllegalArgumentException("Empty metric in order: "+b);}
 			order[i]=parseMetric(s[i]);
 		}
 
@@ -361,7 +358,7 @@ public class CloudPlot {
 		// Read input data
 		readData();
 
-		if(decorrelate) {decorrelate();}
+		if(decorrelate){decorrelate();}
 
 		// Apply autoscaling if needed
 		autoscale();
@@ -407,14 +404,16 @@ public class CloudPlot {
 		bytesProcessed+=(data.bytesProcessed+data.basesProcessed);
 	}
 
-	private FloatList decorrelate(FloatList xList, FloatList yList, float correlation, float strength) {
-		if(strength==0 || correlation==0) {return xList;}
+	/** Returns the original X column for a zero adjustment, otherwise a transformed copy. */
+	private FloatList decorrelate(FloatList xList, FloatList yList, float correlation, float strength){
+		if(strength==0 || correlation==0){return xList;}
 		return modify(xList, yList, -correlation*strength);
 	}
-	
-	private FloatList modify(FloatList xList, FloatList yList, float mult) {
+
+	/** Returns x+(y-0.5)*mult without modifying either equally sized source column. */
+	private FloatList modify(FloatList xList, FloatList yList, float mult){
 		FloatList zList=new FloatList(xList.size());
-		for(int i=0, lim=xList.size(); i<lim; i++) {
+		for(int i=0, lim=xList.size(); i<lim; i++){
 			float x=xList.get(i);
 			float y=yList.get(i);
 			float z=x+(y-0.5f)*mult;
@@ -422,12 +421,13 @@ public class CloudPlot {
 		}
 		return zList;
 	}
-	
-	void decorrelate() {
+
+	/** Replaces metric columns with affine adjustments, using the original source columns. */
+	void decorrelate(){
 		//System.err.println("decorrelate");
 		final FloatList gc0=data.gc, hh0=data.hh, caga0=data.caga;
 //		printMinMax(gc0, hh0, caga0);
-		
+
 		FloatList hh=decorrelate(hh0, gc0, gcHhCorrelation, gcHhStrength);
 //		printMinMax(gc0, hh, caga0);
 		FloatList caga=decorrelate(caga0, gc0, gcCagaCorrelation, gcCagaStrength);
@@ -436,21 +436,22 @@ public class CloudPlot {
 //		printMinMax(gc, hh, caga);
 		gc=decorrelate(gc, hh0, gcHhCorrelation, hhGcStrength);
 //		printMinMax(gc, hh, caga);
-		
+
 		data.gc=gc;
 		data.hh=hh;
 		data.caga=caga;
 	}
-	
-	private static final void printMinMax(FloatList...data) {
+
+	/** Prints the first three columns' ranges for manual diagnostics; not used in processing. */
+	private static final void printMinMax(FloatList...data){
 		final FloatList gc0=data[0], hh0=data[1], caga0=data[2];
 		System.err.println(gc0.min()+"-"+gc0.max()+", "+
 			hh0.min()+"-"+hh0.max()+", "+caga0.min()+"-"+caga0.max());
 	}
-	
+
 	/** Apply autoscaling to any axis with negative min/max values */
 	private void autoscale(){
-		if(!autoscale) {
+		if(!autoscale){
 			xmin=Tools.mid(xmin, 0, 1);
 			xmax=Tools.mid(xmax, 0, 1);
 			ymin=Tools.mid(ymin, 0, 1);
@@ -490,22 +491,26 @@ public class CloudPlot {
 			}
 		}
 	}
-	
+
+	/** Returns the lower sum-weighted percentile from a sorted copy; endpoints use the minimum.
+	 * Uses FloatList's value-weighted convention, not a positional fraction of points. */
 	private float min(FloatList list, float percentile){
-		if(percentile>=1 || percentile<=0) {return list.min();}
+		if(percentile>=1 || percentile<=0){return list.min();}
 		list=list.copy();
 		list.sort();
 		return list.percentile(1-percentile);
 	}
-	
+
+	/** Returns the upper sum-weighted percentile from a sorted copy; endpoints use the maximum. */
 	private float max(FloatList list, float percentile){
-		if(percentile>=1 || percentile<=0) {return list.max();}
+		if(percentile>=1 || percentile<=0){return list.max();}
 		list=list.copy();
 		list.sort();
 		return list.percentile(percentile);
 	}
 
-	/** Calculate min percentile - in log space for depth/length, linear for others */
+	/** Computes a value-weighted lower percentile in log space for depth/length,
+	 * then converts the selected value back; other metrics use their original values. */
 	private float minLog(FloatList list, float percentile, int metric){
 		if(metric==DEPTH || metric==LENGTH){
 			// Log-transform, get percentile, transform back
@@ -520,7 +525,7 @@ public class CloudPlot {
 		}
 	}
 
-	/** Calculate max percentile - in log space for depth/length, linear for others */
+	/** Computes a value-weighted upper percentile, with log transformation for depth/length. */
 	private float maxLog(FloatList list, float percentile, int metric){
 		if(metric==DEPTH || metric==LENGTH){
 			// Log-transform, get percentile, transform back
@@ -586,11 +591,7 @@ public class CloudPlot {
 		g.setRenderingHint(java.awt.RenderingHints.KEY_RENDERING, java.awt.RenderingHints.VALUE_RENDER_QUALITY);
 		g.setRenderingHint(java.awt.RenderingHints.KEY_STROKE_CONTROL, java.awt.RenderingHints.VALUE_STROKE_PURE);
 
-		//n [CloudPlot#001 cosmetic] the comment says "White background" but the fill is Color.BLACK — stale comment; the plot is
-		//n intentionally black-backed. Studied praise elsewhere: cagaToColor6 (L924-925) DOES guard out-of-range input (<0 / >1) —
-		//n the robust pattern that scalar/Scalars#001's histogram lacks; interpolateColor clamps RGB to [0,255]; legend %cutoffs
-		//n guard div-by-zero with Math.max(total,1). CloudPlot is fundamentally clean recent viz code (Brian/G11/Neptune, Oct-2025).
-		// White background
+		//CloudPlot#001: the plot intentionally uses a black background.
 		g.setColor(Color.BLACK);
 		g.fillRect(0, 0, width, height);
 
@@ -606,6 +607,21 @@ public class CloudPlot {
 		HashMap<Integer, String> legendNames=new HashMap<Integer, String>();
 		HashMap<Integer, Integer> legendCounts=new HashMap<Integer, Integer>();
 		HashMap<Integer, Long> legendBases=new HashMap<Integer, Long>();
+		//The table and axis limits are constant throughout rendering. Compute color
+		//percentiles once, rather than copying and sorting the full column per point.
+		float colorMin=0, colorMax=1;
+		if(colorMetric!=TAXONOMY){
+			if(colorMetric==order[0]){colorMin=xmin; colorMax=xmax;}
+			else if(colorMetric==order[1]){colorMin=ymin; colorMax=ymax;}
+			else if(colorMetric==order[2]){colorMin=zmin; colorMax=zmax;}
+			else{
+				final FloatList cList=getMetricList(colorMetric);
+				if(cList!=null){
+					colorMin=minLog(cList, cPercent, colorMetric);
+					colorMax=maxLog(cList, cPercent, colorMetric);
+				}
+			}
+		}
 
 //		System.err.println("zmin="+zmin+", zmax="+zmax);
 		for(int i=0; i<numPoints; i++){
@@ -624,13 +640,10 @@ public class CloudPlot {
 				float logX=(float)Math.log(x+logOffset)+logShift;
 				float logXmin=(float)Math.log(xmin+logOffset)+logShift;
 				float logXmax=(float)Math.log(xmax+logOffset)+logShift;
-				normX=(logX-logXmin)/(logXmax-logXmin);
+				normX=normalize(logX, logXmin, logXmax);
 			}else{
-				//NOTE [scalar/CloudPlot#002] LOW/edge: normX (and normY below) divide by (xmax-xmin) with NO degenerate guard,
-				//unlike normZ (L655/L660 guard `<0.001f` → 0.5). If xmax==xmin (single distinct X value, or bad params) → NaN →
-				//(int)(NaN*plotWidth)=0 → all points pinned to the left/bottom margin. Degenerate, not a crash. Same for the size
-				//normS=(s-dataMin)/(dataMax-dataMin) (L680). Cosmetic for a viz tool, but mirror the Z-guard for robustness.
-				normX=(x-xmin)/(xmax-xmin);
+				//scalar/CloudPlot#002: constant-valued columns stay visible at the center.
+				normX=normalize(x, xmin, xmax);
 			}
 
 			float normY;
@@ -638,9 +651,9 @@ public class CloudPlot {
 				float logY=(float)Math.log(y+logOffset)+logShift;
 				float logYmin=(float)Math.log(ymin+logOffset)+logShift;
 				float logYmax=(float)Math.log(ymax+logOffset)+logShift;
-				normY=(logY-logYmin)/(logYmax-logYmin);
+				normY=normalize(logY, logYmin, logYmax);
 			}else{
-				normY=(y-ymin)/(ymax-ymin);
+				normY=normalize(y, ymin, ymax);
 			}
 
 			// Normalize Z value to 0-1 range for rotation
@@ -651,7 +664,7 @@ public class CloudPlot {
 					normZ=0.5f;  // Default for unclassified
 				}else{
 					int rotTid=tid;
-					if(useTree && level>1) {rotTid=tree.getIdAtLevelExtended(tid, level);}
+					if(useTree && level>1){rotTid=tree.getIdAtLevelExtended(tid, level);}
 					long hash=Tools.hash64shift(rotTid);
 					normZ=((hash&1023L)/1024f);  // Extract 10 bits, normalize to 0-1
 				}
@@ -681,11 +694,11 @@ public class CloudPlot {
 					float logS=(float)Math.pow(Math.log(s+logOffset)+logShift, logPower);
 					float logMin=(float)Math.pow(Math.log(dataMin+logOffset)+logShift, logPower);
 					float logMax=(float)Math.pow(Math.log(dataMax+logOffset)+logShift, logPower);
-					float normS=(logS-logMin)/(logMax-logMin);
+					float normS=normalize(logS, logMin, logMax);
 					pixelSize=smin+normS*(smax-smin);
 				}else{
 					// Scaling for 0-1 metrics (GC, HH, CAGA) - apply power for emphasis
-					float normS=(s-dataMin)/(dataMax-dataMin);
+					float normS=normalize(s, dataMin, dataMax);
 					normS=(float)Math.pow(normS, logPower);  // Apply power to emphasize differences
 					pixelSize=smin+normS*(smax-smin);
 				}
@@ -699,7 +712,7 @@ public class CloudPlot {
 			int py=height-margin-(int)(normY*plotHeight);  // Flip Y-axis
 
 			// Convert normZ (0-1) to radians (0-2π)
-			float angle = normZ * (float)(2 * Math.PI);
+			float angle=normZ*(float)(2*Math.PI);
 
 			// Create elongated ellipse
 			float pointWidth=pixelSize*0.8f;
@@ -711,22 +724,21 @@ public class CloudPlot {
 				// Legacy behavior: length varies with Y position
 				pointLength=pixelSize*(3.2f+0.5f*normY);
 			}
-			Ellipse2D ellipse=new Ellipse2D.Float(px - pointWidth/2, py - pointLength/2, pointWidth, pointLength);
+			Ellipse2D ellipse=new Ellipse2D.Float(px-pointWidth/2, py-pointLength/2, pointWidth, pointLength);
 
 			// Rotate around center
-			AffineTransform rotation = AffineTransform.getRotateInstance(angle, px, py);
-			Shape rotatedEllipse = rotation.createTransformedShape(ellipse);
+			AffineTransform rotation=AffineTransform.getRotateInstance(angle, px, py);
+			Shape rotatedEllipse=rotation.createTransformedShape(ellipse);
 
 			// Determine color based on colorMetric
 			final Color c;
-			if(colorMetric==TAXONOMY) {
+			if(colorMetric==TAXONOMY){
 				// Color by taxonomy
-				if(tid<1) {c=new Color(200, 200, 200);}
-				else {
-					if(useTree && level>1) {tid=tree.getIdAtLevelExtended(tid, level);}
+				if(tid<1){c=new Color(200, 200, 200);}else{
+					if(useTree && level>1){tid=tree.getIdAtLevelExtended(tid, level);}
 					long hash=Tools.hash64shift(tid);
 					float[] rgb=new float[3];
-					for(int color=0; color<3; color++) {
+					for(int color=0; color<3; color++){
 						rgb[color]=(((hash&1023L)/1024f)*0.95f)+0.05f;
 						hash>>=10;
 					}
@@ -736,15 +748,15 @@ public class CloudPlot {
 					Tools.multiplyBy(rgb, mult);
 					c=new Color(rgb[0], rgb[1], rgb[2]);
 					// Collect legend data
-					if(legend) {
-						if(!legendColors.containsKey(tid)) {
+					if(legend){
+						if(!legendColors.containsKey(tid)){
 							legendColors.put(tid, c);
 							String tname=null;
-							if(tree!=null) {
+							if(tree!=null){
 								tax.TaxNode tn=tree.getNode(tid);
-								if(tn!=null) {tname=tn.name;}
+								if(tn!=null){tname=tn.name;}
 							}
-							if(tname==null && name!=null) {tname=name;}
+							if(tname==null && name!=null){tname=name;}
 							legendNames.put(tid, tname!=null ? tname : "TID_"+tid);
 						}
 						legendCounts.merge(tid, 1, Integer::sum);
@@ -755,23 +767,6 @@ public class CloudPlot {
 			}else{
 				// Color by metric gradient (GC, HH, CAGA, etc.)
 				float colorValue=getMetricValue(i, colorMetric);
-				float colorMin, colorMax;
-				// Get appropriate min/max for color metric
-				if(colorMetric==order[0]){colorMin=xmin; colorMax=xmax;}
-				else if(colorMetric==order[1]){colorMin=ymin; colorMax=ymax;}
-				else if(colorMetric==order[2]){colorMin=zmin; colorMax=zmax;}
-				else{
-					// Color metric not on any axis - use data range with percentile
-					FloatList cList=getMetricList(colorMetric);
-					if(cList!=null){
-						colorMin=minLog(cList, cPercent, colorMetric);
-						colorMax=maxLog(cList, cPercent, colorMetric);
-					}else{
-						colorMin=0;
-						colorMax=1;
-					}
-				}
-
 				// Apply log scaling to depth/length for color
 				float normColor;
 				if(colorMetric==DEPTH || colorMetric==LENGTH){
@@ -793,12 +788,17 @@ public class CloudPlot {
 		drawAxisLabels(g, width, height, margin);
 
 		// Draw legend if enabled and coloring by taxonomy
-		if(legend && colorMetric==TAXONOMY && !legendColors.isEmpty()) {
+		if(legend && colorMetric==TAXONOMY && !legendColors.isEmpty()){
 			drawLegend(g, width, height, margin, legendColors, legendNames, legendCounts, legendBases, numPoints);
 		}
 
 		g.dispose();
 		return img;
+	}
+
+	/** Maps a value to its range, using the center when both endpoints coincide. */
+	private static float normalize(float value, float min, float max){
+		return max==min ? 0.5f : (value-min)/(max-min);
 	}
 
 	/** Draw axis labels showing min/max values */
@@ -828,30 +828,30 @@ public class CloudPlot {
 	private void drawLegend(Graphics2D g, int width, int height, int margin,
 			LinkedHashMap<Integer, Color> legendColors, HashMap<Integer, String> legendNames,
 			HashMap<Integer, Integer> legendCounts, HashMap<Integer, Long> legendBases,
-			int totalPoints) {
+			int totalPoints){
 		// Sort by count descending
 		List<Map.Entry<Integer, Integer>> sorted=new ArrayList<>(legendCounts.entrySet());
 		Collections.sort(sorted, (a, b) -> b.getValue()-a.getValue());
 
 		// Calculate total bases
 		long totalBases=0;
-		for(long v : legendBases.values()) {totalBases+=v;}
+		for(long v : legendBases.values()){totalBases+=v;}
 
 		// Apply three cutoffs: top N, min dot%, min bp%
 		List<Map.Entry<Integer, Integer>> filtered=new ArrayList<>();
-		for(int i=0; i<sorted.size() && filtered.size()<maxLegendEntries; i++) {
+		for(int i=0; i<sorted.size() && filtered.size()<maxLegendEntries; i++){
 			Map.Entry<Integer, Integer> e=sorted.get(i);
 			int tid=e.getKey();
 			int count=e.getValue();
 			long bases=legendBases.getOrDefault(tid, 0L);
 			float dotPct=count*100f/Math.max(totalPoints, 1);
 			float bpPct=bases*100f/Math.max(totalBases, 1);
-			if(dotPct>=minLegendDotPct && bpPct>=minLegendBpPct) {
+			if(dotPct>=minLegendDotPct && bpPct>=minLegendBpPct){
 				filtered.add(e);
 			}
 		}
 
-		if(filtered.isEmpty()) {return;}
+		if(filtered.isEmpty()){return;}
 
 		int fontSize=(int)(legendFontSize*scale);
 		java.awt.Font font=new java.awt.Font("SansSerif", java.awt.Font.PLAIN, fontSize);
@@ -864,7 +864,7 @@ public class CloudPlot {
 		int legendWidth=0;
 
 		// Calculate max text width
-		for(Map.Entry<Integer, Integer> e : filtered) {
+		for(Map.Entry<Integer, Integer> e : filtered){
 			int tid=e.getKey();
 			String name=legendNames.get(tid);
 			int count=e.getValue();
@@ -887,7 +887,7 @@ public class CloudPlot {
 			(int)(8*scale), (int)(8*scale));
 
 		// Draw entries
-		for(int i=0; i<filtered.size(); i++) {
+		for(int i=0; i<filtered.size(); i++){
 			int tid=filtered.get(i).getKey();
 			Color c=legendColors.get(tid);
 			String name=legendNames.get(tid);
@@ -905,7 +905,7 @@ public class CloudPlot {
 			g.drawString(label, lx+swatchSize+padding, ey+swatchSize-2);
 		}
 
-		if(remaining>0) {
+		if(remaining>0){
 			int ey=ly+filtered.size()*lineHeight;
 			g.setColor(Color.GRAY);
 			g.drawString("...and "+remaining+" more", lx+swatchSize+padding, ey+swatchSize-2);
@@ -925,13 +925,14 @@ public class CloudPlot {
 		}
 	}
 
-	/** Map CAGA value to color: Red(0.0) → Blue(0.5) → Green(1.0) */
+	/** Maps a normalized value through red, purple, blue, cyan, green and yellow.
+	 * Values outside [0,1] receive distinct low/high sentinel colors. */
 	private Color cagaToColor6(float caga){
-		
+
 		//Handle out of range.
-		if(caga<0) {return new Color(255, 64, 64);}
-		if(caga>1) {return new Color(255, 255, 64);}
-		
+		if(caga<0){return new Color(255, 64, 64);}
+		if(caga>1){return new Color(255, 255, 64);}
+
 		if(caga<=0.2f){//Red → Purple
 			float t=caga*5.0f;
 			return interpolateColor(new Color(250, 0, 0), new Color(200, 0, 240), t);
@@ -978,6 +979,7 @@ public class CloudPlot {
 	/** Primary output file path */
 	private String out1=null;
 
+	/** Owned input table; optional decorrelation replaces its metric columns. */
 	private ScalarData data=null;
 
 	/** Dimension assignment: [x, y, z/rotation, size] */
@@ -990,71 +992,104 @@ public class CloudPlot {
 	/*----------------        Metric Constants      ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Metric selector values; NONE requests a fixed size/value rather than a data column. */
 	static final int GC=0, HH=1, CAGA=2, DEPTH=3, LENGTH=4, TAXONOMY=5, NONE=-1;
 
 	/*--------------------------------------------------------------*/
 
-	/** Axis range parameters (negative = autoscale) */
-	private float xmin=-1.0f;
-	private float xmax=-1.0f;
-	private float ymin=-1.0f;
-	private float ymax=-1.0f;
-	private float zmin=-1.0f;
-	private float zmax=-1.0f;
-	private float smin=-1.0f;  // Size min in pixels (autoscale if negative)
-	private float smax=-1.0f;  // Size max in pixels (autoscale if negative)
-	private float dataMin=-1.0f;  // Data range min for size dimension
-	private float dataMax=-1.0f;  // Data range max for size dimension
+	/** X-axis limits; negative values request autoscaling. */
+	private float xmin=-1.0f, xmax=-1.0f;
+	/** Y-axis limits; negative values request autoscaling. */
+	private float ymin=-1.0f, ymax=-1.0f;
+	/** Rotation-axis limits; negative values request autoscaling. */
+	private float zmin=-1.0f, zmax=-1.0f;
+	/** Minimum/maximum marker size in pixels; negative values use pointsize multipliers. */
+	private float smin=-1.0f, smax=-1.0f;
+	/** Source-value range used to scale the size dimension. */
+	private float dataMin=-1.0f, dataMax=-1.0f;
+	/** Upper retained percentile for X (lower is one minus this value). */
 	private float xPercent=0.998f;
+	/** Upper retained percentile for Y. */
 	private float yPercent=0.998f;
+	/** Upper retained percentile for rotation. */
 	private float zPercent=0.99f;
+	/** Upper retained percentile for marker size. */
 	private float sPercent=0.99f;  // Size percentile for autoscaling
+	/** Upper retained percentile for a color metric outside the plotted axes. */
 	private float cPercent=0.98f;  // Color percentile for autoscaling
-	
+
 	/** Rendering parameters */
 	private float scale=1.0f;
+	/** Base marker width in pixels before size/Y modulation. */
 	private float pointsize=3.5f;
 
 	/** FASTA processing parameters */
 	private int window=50000;
+	/** Valid-base spacing of sequence-derived samples. */
 	private int interval=10000;
+	/** Minimum retained sequence/tail size for ScalarIntervals. */
 	private int minlen=500;
+	/** Reset metric state between contigs. */
 	private boolean breakOnContig=true;
+	/** Maximum input fragments; negative is unlimited. */
 	private long maxReads=-1;
 
 	/** Depth/coverage support */
 	private String covFile=null;  // Coverage file (pileup or covmaker format)
+	/** Optional SAM/BAM depth source, secondary to covFile. */
 	private String depthFile=null;  // SAM/BAM file for depth calculation
 
 	/** Log scaling parameters for depth/length */
 	private float logOffset=0.25f;  // Add before log to handle zeros
+	/** Shift applied after natural-log transformation. */
 	private float logShift=2.0f;    // Add after log to avoid negatives
+	/** Power applied to the size channel only. */
 	private float logPower=2.0f;    // Power to apply (0.5=sqrt, 2.0=squared for emphasis)
-	
+
+	/** Infer negative axis limits from the retained data percentiles. */
 	boolean autoscale=true;
+	/** Apply the configured affine GC/HH/CAGA adjustments before plotting. */
 	boolean decorrelate=true;
+	/** GC/HH correlation coefficient and directional strengths. */
 	private float gcHhCorrelation=-0.5f;
+	/** Strength of GC adjustment to HH. */
 	private float gcHhStrength=0.20f;
+	/** Strength of HH adjustment to GC. */
 	private float hhGcStrength=1.40f;
-	
+
+	/** GC/CAGA correlation coefficient. */
 	private float gcCagaCorrelation=0.1f;
+	/** Strength of GC adjustment to CAGA. */
 	private float gcCagaStrength=0.5f;
+	/** Strength of CAGA adjustment to GC. */
 	private float cagaGcStrength=0.0f;
 
+	/** Legacy taxonomy option; enables ID parsing but colorMetric selects rendering. */
 	private boolean colorByTax=false;
+	/** Legacy name option; currently enables name retention, not a distinct color function. */
 	private boolean colorByName=false;
+	/** Draw taxonomy legend entries passing the three configured cutoffs. */
 	private boolean legend=false;
+	/** Maximum displayed legend taxa. */
 	private int maxLegendEntries=20;
+	/** Minimum percentage of points per legend entry. */
 	private float minLegendDotPct=0.1f;
+	/** Minimum percentage of recorded lengths per legend entry. */
 	private float minLegendBpPct=0.1f;
+	/** Legend font size before image scaling. */
 	private float legendFontSize=13f;
+	/** Extended taxonomic rank used for raising IDs when a tree is enabled. */
 	private int level=1;
+	/** Load/use the shared taxonomic tree for rank and name lookup. */
 	private boolean useTree=false;
+	/** Process-wide borrowed taxonomy tree; configure before concurrent use. */
 	private static TaxTree tree;
 
 	/*--------------------------------------------------------------*/
 
+	/** Points submitted to rendering, including points outside the displayed limits. */
 	private long pointsProcessed=0;
+	/** Parsed TSV bytes or sequence bases, depending on input kind. */
 	private long bytesProcessed=0;
 
 	/*--------------------------------------------------------------*/

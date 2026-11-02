@@ -23,7 +23,8 @@ import shared.Tools;
 import stream.Streamer;
 import stream.StreamerFactory;
 import stream.Writer;
-import stream.WriterFactory;
+import stream.LightweightWriterFactory;
+import stream.MultiWriterPolicy;
 import stream.FASTQ;
 import stream.FastaReadInputStream;
 import stream.Read;
@@ -42,7 +43,7 @@ import tracker.ReadStats;
  * @contributor Neptune
  * @date June 1, 2016
  */
-public class PartitionReads3 {
+public class PartitionReads3{
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
@@ -97,9 +98,11 @@ public class PartitionReads3 {
 			String arg=args[i];
 
 			//Break arguments into their constituent parts, in the form of "a=b"
-			String[] split=arg.split("=");
+			String[] split=arg.split("=", 2);
 			String a=split[0].toLowerCase();
-			String b=split.length>1 ? split[1] : null;
+			boolean hasKey=split.length>1;
+			String b=hasKey ? split[1] : null;
+			if(b!=null && b.length()<1){b=null;}
 
 			if(a.equals("verbose")){
 				verbose=Parse.parseBoolean(b);
@@ -163,6 +166,8 @@ public class PartitionReads3 {
 				if(requestedWays>0 && requestedWays!=ways){
 					outstream.println("Note: partitions="+requestedWays+" overridden by cutoff count; using "+ways+" partitions");
 				}
+			}else if(hasKey && parser.parse(arg, a, b)){//Parse standard key=value flags
+				//do nothing
 			}else if(parser.in1==null && new File(arg).exists() && Tools.canRead(arg)){
 				//First existing readable file becomes input
 				FileFormat ff=FileFormat.testInput(arg, FileFormat.FASTA, null, false, false);
@@ -175,13 +180,8 @@ public class PartitionReads3 {
 				}
 			}else if(parser.out1==null && (arg.contains("%") || arg.contains("#"))){
 				//First file with % or # becomes output pattern
-				String value=arg;
-				if(arg.contains("=")){
-					String[] parts=arg.split("=", 2);
-					value=parts[1];
-				}
-				parser.out1=value;
-				outstream.println("Using "+value+" as output pattern.");
+				parser.out1=arg;
+				outstream.println("Using "+arg+" as output pattern.");
 			}else if(new File(arg).exists() && Tools.canRead(arg)){
 				//Detect file type for depth sources
 				FileFormat ff=FileFormat.testInput(arg, FileFormat.SAM, null, false, false);
@@ -199,7 +199,7 @@ public class PartitionReads3 {
 				mode=Tools.find(a, modeNames);
 			}else if(a.equals("parse_flag_goes_here")){
 				//Set a variable here
-			}else if(parser.parse(arg, a, b)){//Parse standard flags in the parser
+			}else if(parser.parse(arg, a, b)){//Parse standard bare flags
 				//do nothing
 			}else{
 				outstream.println("Unknown parameter "+args[i]);
@@ -317,6 +317,8 @@ public class PartitionReads3 {
 			throw new RuntimeException("\nSome file names were specified multiple times.\n");
 		}
 
+		prevalidateOutputTemplates();
+
 		//Create output FileFormat objects
 		if(out1==null){
 			ffout1=ffout2=null;
@@ -326,15 +328,18 @@ public class PartitionReads3 {
 			ffout1=ffout2=null;
 			qfout1Array=qfout2Array=null;
 		}else{
+			writerMode=selectWriterMode(out1, out2, qfout1, qfout2, ways);
+
 			ffout1=new FileFormat[ways];
 			ffout2=new FileFormat[ways];
 			qfout1Array=new String[ways];
 			qfout2Array=new String[ways];
+			final boolean ordered=(writerMode==MultiWriterPolicy.ST);
 			for(int i=0; i<ways; i++){
 				String temp1=out1==null ? null : out1.replaceFirst("%", ""+i);
 				String temp2=out2==null ? null : out2.replaceFirst("%", ""+i);
-				ffout1[i]=FileFormat.testOutput(temp1, FileFormat.FASTQ, extout, true, overwrite, append, false);
-				ffout2[i]=FileFormat.testOutput(temp2, FileFormat.FASTQ, extout, true, overwrite, append, false);
+				ffout1[i]=FileFormat.testOutput(temp1, FileFormat.FASTQ, extout, true, overwrite, append, ordered);
+				ffout2[i]=FileFormat.testOutput(temp2, FileFormat.FASTQ, extout, true, overwrite, append, ordered);
 
 				qfout1Array[i]=qfout1==null ? null : qfout1.replaceFirst("%", ""+i);
 				qfout2Array[i]=qfout2==null ? null : qfout2.replaceFirst("%", ""+i);
@@ -345,7 +350,7 @@ public class PartitionReads3 {
 		ffin1=FileFormat.testInput(in1, FileFormat.FASTQ, extin, true, true);
 		ffin2=FileFormat.testInput(in2, FileFormat.FASTQ, extin, true, true);
 
-		useSharedHeader=(ffin1.samOrBam() && ffout1!=null && ffout1.length>0 && ffout1[0]!=null && ffout1[0].samOrBam());
+		recomputeSharedHeader();
 
 		//Set optimization flags based on mode
 		needDimers=(mode==GC || mode==HH || mode==CAGA);
@@ -365,6 +370,107 @@ public class PartitionReads3 {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
+
+	/**
+	 * Validates representative shard-0 outputs before input readers can start.
+	 * The lightweight writer factory repeats these checks for every shard, but
+	 * doing deterministic template checks here avoids starting a read streamer
+	 * before a known unsupported output codec or QUAL pairing is rejected.
+	 */
+	private void prevalidateOutputTemplates(){
+		final FileFormat first=representativeSequence(out1);
+		final FileFormat second=representativeSequence(out2);
+		if(first==null){return;}
+		validateLightweight(first, qfout1);
+		if(second==null){
+			if(qfout2!=null){throw new IllegalArgumentException("Mate QUAL requires a mate FASTA output");}
+		}else{
+			validateLightweight(second, qfout2);
+		}
+		final FileFormat qual1=representativeQual(qfout1);
+		final FileFormat qual2=representativeQual(qfout2);
+		if(qual1!=null){validateLightweightQual(first, qual1);}
+		if(qual2!=null){validateLightweightQual(second, qual2);}
+		final String[] names={name(first), name(second), name(qual1), name(qual2)};
+		for(int i=0; i<names.length; i++){
+			for(int j=0; j<i; j++){
+				if(names[i]!=null && names[i].equals(names[j])){
+					throw new IllegalArgumentException("Output filenames must be distinct: "+names[i]);
+				}
+			}
+		}
+	}
+
+	/** Creates a shard-0 descriptor for a sequence output template, if present. */
+	private FileFormat representativeSequence(final String pattern){
+		return pattern==null ? null : FileFormat.testOutput(pattern.replaceFirst("%", "0"),
+				FileFormat.FASTQ, extout, true, overwrite, append, false);
+	}
+
+	/** Creates a shard-0 descriptor for a QUAL output template, if present. */
+	private FileFormat representativeQual(final String pattern){
+		return pattern==null ? null : FileFormat.testOutput(pattern.replaceFirst("%", "0"),
+				FileFormat.QUAL, null, false, overwrite, append, false);
+	}
+
+	/** Mirrors the deterministic lightweight sequence writer checks. */
+	private static void validateLightweight(final FileFormat ff, final String qual){
+		if(ff==null || !(ff.fastq() || ff.fasta() || ff.header() || ff.scarf() || ff.samOrBam())){
+			throw new IllegalArgumentException("Unsupported lightweight sequence output: "
+					+descriptorLabel(ff));
+		}
+		validateLightweightCompression(ff);
+		if(qual!=null && !ff.fasta()){
+			throw new IllegalArgumentException("Separate QUAL output requires FASTA: "
+					+descriptorLabel(ff));
+		}
+	}
+
+	/** Mirrors the deterministic lightweight QUAL writer checks. */
+	private static void validateLightweightQual(final FileFormat parent, final FileFormat qual){
+		assert(qual!=null) : "QUAL descriptor must be non-null";
+		if(parent==null || !parent.fasta()){
+			throw new IllegalArgumentException("Separate QUAL output requires FASTA: "
+					+descriptorLabel(parent));
+		}
+		validateLightweightCompression(qual);
+	}
+
+	/** Rejects unsupported lightweight compression without opening or probing output paths. */
+	private static void validateLightweightCompression(final FileFormat ff){
+		assert(ff!=null) : "Output descriptor must be non-null";
+		final int compression=ff.compression();
+		if(ff.bam()){
+			if(compression!=FileFormat.RAW){
+				throw new IllegalArgumentException("BAM already supplies BGZF compression "
+						+compressionLabel(compression)+": "+ff.name());
+			}
+		}else if(compression!=FileFormat.RAW && compression!=FileFormat.GZIP
+				&& compression!=FileFormat.ZIP){
+			throw new IllegalArgumentException("No lightweight compression backend for "
+					+compressionLabel(compression)+": "+ff.name());
+		}
+		if(compression==FileFormat.ZIP && ff.append()){
+			throw new IllegalArgumentException("ZIP outputs cannot be reopened for append: "+ff.name());
+		}
+	}
+
+	/** Formats a bounded FileFormat compression code without probing the output. */
+	private static String compressionLabel(final int compression){
+		final String label=(compression>=0 && compression<FileFormat.COMPRESSION_ARRAY.length ?
+				FileFormat.COMPRESSION_ARRAY[compression] : FileFormat.COMPRESSION_ARRAY[FileFormat.UNKNOWN]);
+		return compression+"("+label+")";
+	}
+
+	/** Safely returns one descriptor name for duplicate checks. */
+	private static String name(final FileFormat ff){return ff==null ? null : ff.name();}
+
+	/** Formats deterministic descriptor diagnostics without probing a filesystem path. */
+	private static String descriptorLabel(final FileFormat ff){
+		return ff==null ? "null" : name(ff)+", format="+ff.format()+", compression="
+				+compressionLabel(ff.compression());
+	}
+
 	/**
 	 * Creates output FileFormat arrays after ways has been determined.
 	 * Used when autoPartition mode defers output creation until partition count is known.
@@ -372,20 +478,41 @@ public class PartitionReads3 {
 	private void createOutputFormats(){
 		if(out1==null){return;}
 		assert(ways>0) : "Ways must be determined before creating output formats";
+		writerMode=selectWriterMode(out1, out2, qfout1, qfout2, ways);
 
 		ffout1=new FileFormat[ways];
 		ffout2=new FileFormat[ways];
 		qfout1Array=new String[ways];
 		qfout2Array=new String[ways];
+		final boolean ordered=(writerMode==MultiWriterPolicy.ST);
 		for(int i=0; i<ways; i++){
 			String temp1=out1==null ? null : out1.replaceFirst("%", ""+i);
 			String temp2=out2==null ? null : out2.replaceFirst("%", ""+i);
-			ffout1[i]=FileFormat.testOutput(temp1, FileFormat.FASTQ, extout, true, overwrite, append, false);
-			ffout2[i]=FileFormat.testOutput(temp2, FileFormat.FASTQ, extout, true, overwrite, append, false);
+			ffout1[i]=FileFormat.testOutput(temp1, FileFormat.FASTQ, extout, true, overwrite, append, ordered);
+			ffout2[i]=FileFormat.testOutput(temp2, FileFormat.FASTQ, extout, true, overwrite, append, ordered);
 
 			qfout1Array[i]=qfout1==null ? null : qfout1.replaceFirst("%", ""+i);
 			qfout2Array[i]=qfout2==null ? null : qfout2.replaceFirst("%", ""+i);
 		}
+		recomputeSharedHeader();
+	}
+
+	/** Updates SAM/BAM header sharing after output FileFormats are available. */
+	private void recomputeSharedHeader(){
+		useSharedHeader=(ffin1.samOrBam() && ffout1!=null && ffout1.length>0 && ffout1[0]!=null && ffout1[0].samOrBam());
+	}
+
+	/** Selects one leaf writer policy from the maximum simultaneous physical outputs. */
+	private static int selectWriterMode(final String out1, final String out2,
+			final String qfout1, final String qfout2, final int ways){
+		assert(ways>0) : "Ways must be known before selecting writer policy";
+		final int outputsPerShard=(out1==null ? 0 : 1)+(out2==null ? 0 : 1)+
+			(qfout1==null ? 0 : 1)+(qfout2==null ? 0 : 1);
+		final long outputs=(long)ways*outputsPerShard;
+		if(outputs>Integer.MAX_VALUE){
+			throw new IllegalArgumentException("Too many simultaneous physical outputs: "+outputs);
+		}
+		return MultiWriterPolicy.snapshot().select((int)outputs);
 	}
 
 	/**
@@ -399,10 +526,10 @@ public class PartitionReads3 {
 
 		final int numWriters=ways;  //TODO: calculate from waysPerDimension for multidimensional
 		Writer[] ros=new Writer[numWriters];
-		final int buff=1;
+		final LightweightWriterFactory lwf=new LightweightWriterFactory(writerMode, 2);
 
 		for(int i=0; i<numWriters; i++){
-			ros[i]=WriterFactory.getStream(ffout1[i], ffout2[i], qfout1Array[i], qfout2Array[i], buff, null, useSharedHeader, 1);
+			ros[i]=lwf.getStream(ffout1[i], ffout2[i], qfout1Array[i], qfout2Array[i], null, useSharedHeader);
 			ros[i].start();
 		}
 		return ros;
@@ -547,7 +674,6 @@ public class PartitionReads3 {
 			}
 		}
 
-		//Do anything necessary after processing
 
 	}
 
@@ -618,7 +744,6 @@ public class PartitionReads3 {
 			}
 		}
 
-		//Do anything necessary after processing
 
 	}
 
@@ -626,12 +751,12 @@ public class PartitionReads3 {
 	 * Builds histogram of metric distribution for balanced partitioning.
 	 * @param cris Input stream (consumed during histogram building)
 	 * @param mode Metric mode to calculate
-	 * @return Histogram - long[1025] for bounded metrics (GC/HH/CAGA), SuperLongList for unbounded (LENGTH)
+	 * @return Histogram - long[1025] for GC/HH/CAGA, long[2048] for DEPTH, or SuperLongList for LENGTH
 	 */
 	private Object buildHistogram(final Streamer cris, int mode){
 		final boolean unbounded=(mode==LENGTH);
 		//1025 allows mapping 0.0-1.0 to 0-1024 without overflow
-		final int histSize=(mode==DEPTH ? 2048 : 1025); 
+		final int histSize=(mode==DEPTH ? 2048 : 1025);
 		long[] histogram=unbounded ? null : new long[histSize];
 		SuperLongList sll=unbounded ? new SuperLongList() : null;
 
@@ -719,6 +844,13 @@ public class PartitionReads3 {
 
 			for(Read r1 : reads){
 				final Read r2=r1.mate;
+				final int initialLength1=r1.length();
+				final int initialLength2=r1.mateLength();
+
+				if(customCutoffs!=null){
+					readsProcessed+=r1.pairCount();
+					basesProcessed+=initialLength1+initialLength2;
+				}
 
 				if(needDimers){
 					dimers.clearAll();
@@ -750,7 +882,7 @@ public class PartitionReads3 {
 	 * second pass routes reads to partitions for balanced base pair distribution.
 	 * @param cris Input stream for reading sequence data (consumed in pass 1)
 	 * @param rosIn Array of output streams for writing partitioned reads (may be null if autoPartition)
-	 * @param mode Metric mode: GC, HH, CAGA, or LENGTH
+	 * @param mode Metric mode: GC, HH, CAGA, LENGTH, or DEPTH
 	 */
 	Writer[] processInner_metric(final Streamer cris, Writer rosIn[], int mode){
 		if(verbose){outstream.println("[TRACE] Entering processInner_metric() - rosIn="+(rosIn==null?"null":"["+rosIn.length+"]"));}
@@ -818,6 +950,13 @@ public class PartitionReads3 {
 		if(verbose){outstream.println("[TRACE] partitionReads() complete");}
 		return ros;
 	}
+	/**
+	 * Placeholder for future multidimensional metric splitting.
+	 * Current process paths use only one metric dimension and never call this no-op.
+	 * @param dimensionNames requested metric dimension names
+	 * @param waysPerDimension requested partition counts per dimension
+	 * @param overlap requested fractional overlap between adjacent metric buckets
+	 */
 	void dimensionSplit(ArrayList<String> dimensionNames, IntList waysPerDimension, float overlap){
 		final int dims=dimensionNames.size();
 		//TODO:
@@ -831,8 +970,8 @@ public class PartitionReads3 {
 	 * @param r1 Primary read
 	 * @param r2 Mate read (may be null)
 	 * @param dimers KmerTracker for composition metrics (k=2); may be null for non-composition metrics
-	 * @param mode Metric mode: GC, HH, CAGA, LENGTH
-	 * @return Metric value (0.0-1.0 for composition metrics, unbounded for length)
+	 * @param mode Metric mode: GC, HH, CAGA, LENGTH, or DEPTH
+	 * @return metric value: 0.0-1.0 for composition, bases for LENGTH, or depth
 	 */
 	private float getMetricValue(Read r1, Read r2, KmerTracker dimers, int mode){
 		switch(mode){
@@ -866,7 +1005,7 @@ public class PartitionReads3 {
 	/**
 	 * Quantizes depth value using log transform for compact histogram storage.
 	 * @param depth Raw depth value
-	 * @return Quantized depth level (0-10000 range, ~1% resolution)
+	 * @return Quantized depth level capped near 2000 by the 65536 depth cap
 	 */
 	private static int quantizeDepth(float depth){
 		if(depth<=0){return 0;}
@@ -918,10 +1057,10 @@ public class PartitionReads3 {
 	}
 
 	/**
-	 * Calculates balanced partition boundaries from histogram to ensure equal base pairs per partition.
+	 * Calculates partition boundaries from a histogram to target balanced base pairs.
 	 * @param histogramObj Histogram - long[] for bounded metrics, SuperLongList for unbounded
 	 * @param ways Number of output partitions to create
-	 * @return Array of boundary values; partition i contains reads with metric < boundaries[i]
+	 * @return Array of boundary values; partition i contains reads with metric &lt; boundaries[i]
 	 */
 	private float[] calculateBalancedBoundaries(Object histogramObj, int ways, int mode){
 		if(histogramObj instanceof SuperLongList){
@@ -971,9 +1110,9 @@ public class PartitionReads3 {
 
 	/**
 	 * Finds the appropriate partition index for a given metric value.
-	 * @param metric Metric value in range 0.0-1.0
+	 * @param metric Metric value in the active mode's units
 	 * @param boundaries Array of partition boundaries
-	 * @return Partition index (0 to boundaries.length-1)
+	 * @return partition index from 0 through boundaries.length
 	 */
 	private int findPartitionIndex(float metric, float[] boundaries){
 		for(int i=0; i<boundaries.length; i++){
@@ -1014,6 +1153,9 @@ public class PartitionReads3 {
 		ByteFile bf=ByteFile.makeByteFile(fname, true);
 		byte[] firstLine=bf.nextLine();
 		bf.close();
+		if(firstLine==null){
+			throw new IllegalArgumentException("Coverage file is empty: "+fname);
+		}
 
 		String header=new String(firstLine);
 		if(header.startsWith("#ID")){
@@ -1179,7 +1321,6 @@ public class PartitionReads3 {
 	/**
 	 * Prints partition statistics table showing reads and bases per output file.
 	 * @param ros Array of output writers
-	 * @param mode Partitioning mode for determining boundary display
 	 */
 	private void printPartitionStatistics(Writer[] ros, int mode){
 		outstream.println("\nPartition Statistics:");
@@ -1194,21 +1335,20 @@ public class PartitionReads3 {
 		}
 	}
 
-	private static class Partition implements Comparable<Partition> {
-		public Partition(final int id_) {id=id_;}
-		/**
-		 * Compares partitions by base pair count for priority queue ordering.
-		 * Partitions with fewer base pairs have higher priority.
-		 * Uses partition ID as tiebreaker for consistent ordering.
-		 * @param o The partition to compare against
-		 * @return Negative if this partition has fewer base pairs, positive if more, or ID difference if base pairs are equal
-		 */
+	/** Tracks one output partition's current base-pair load for heap scheduling. */
+	private static class Partition implements Comparable<Partition>{
+		public Partition(final int id_){id=id_;}
+
+		/** Sorts by assigned bases ascending, then by partition id for deterministic ties. */
 		@Override
-		public int compareTo(Partition o) {
+		public int compareTo(Partition o){
 			long dif=bp-o.bp;
 			return (dif>0 ? 1 : dif<0 ? -1 : id-o.id);
 		}
+
+		/** Output partition index. */
 		public final int id;
+		/** Total bases assigned to this partition. */
 		public long bp=0;
 	}
 
@@ -1485,29 +1625,37 @@ public class PartitionReads3 {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Primary input file path */
 	private String in1=null;
 	/** Secondary input file path for paired-end reads */
 	private String in2=null;
 
+	/** Primary input quality file path */
 	private String qfin1=null;
+	/** Secondary input quality file path */
 	private String qfin2=null;
 
+	/** Primary output quality file path template */
 	private String qfout1=null;
+	/** Secondary output quality file path template */
 	private String qfout2=null;
 
-	/**
-	 * Primary output file path template with '%' placeholder for partition number
-	 */
+	/** Primary output path template with '%' placeholder for partition number */
 	private String out1=null;
-	/**
-	 * Secondary output file path template with '%' placeholder for partition number
-	 */
+	/** Secondary output path template with '%' placeholder for partition number */
 	private String out2=null;
 
+	/** Per-partition primary output quality paths derived from qfout1 */
 	private String[] qfout1Array=null;
+	/** Per-partition secondary output quality paths derived from qfout2 */
 	private String[] qfout2Array=null;
 
+	/** Resolved ST or ZT writer policy for all partition outputs */
+	private int writerMode=MultiWriterPolicy.ZT;
+
+	/** Input extension override */
 	private String extin=null;
+	/** Output extension override */
 	private String extout=null;
 
 	/*--------------------------------------------------------------*/
@@ -1529,7 +1677,7 @@ public class PartitionReads3 {
 	/** Balance partitions by base pairs instead of read count */
 	private boolean splitByBP=false;
 
-	/** Partitioning mode: COUNT (round-robin), BP (balanced by base pairs), or metric-based (GC, HH, CAGA) */
+	/** Partitioning mode: COUNT, BP, or metric-based GC, HH, CAGA, LENGTH, DEPTH */
 	private int mode=COUNT;
 
 	/** Coverage file path (pileup or covmaker format) for DEPTH mode */
@@ -1572,7 +1720,7 @@ public class PartitionReads3 {
 	private int maxPartitions=25;
 
 	/*--------------------------------------------------------------*/
-	/*----------------         Final Fields         ----------------*/
+	/*----------------        File Formats         ----------------*/
 	/*--------------------------------------------------------------*/
 
 	/** Primary input file format */
@@ -1589,7 +1737,9 @@ public class PartitionReads3 {
 	/*----------------        Mode Constants        ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Round-robin, base-count, and scalar metric partitioning modes. */
 	static final int COUNT=0, BP=1, GC=2, HH=3, CAGA=4, LENGTH=5, DEPTH=6;
+	/** Command-line spellings aligned with the mode constants. */
 	static final String[] modeNames=new String[]{"count", "bp", "gc", "hh", "caga", "length", "depth"};
 
 	/*--------------------------------------------------------------*/
@@ -1621,14 +1771,14 @@ public class PartitionReads3 {
 	 * Default sort is by center position (ascending).
 	 * Can optionally sort by volume (descending).
 	 */
-	private static class PeakComparator implements java.util.Comparator<Peak> {
+	private static class PeakComparator implements java.util.Comparator<Peak>{
 
 		PeakComparator(boolean volume_){
 			sortByVolume=volume_;
 		}
 
 		@Override
-		public int compare(Peak a, Peak b) {
+		public int compare(Peak a, Peak b){
 			if(sortByVolume){
 				//Sort by volume descending
 				long dif=b.volume-a.volume;
@@ -1646,6 +1796,7 @@ public class PartitionReads3 {
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Share one SAM/BAM header across partition writers */
 	private boolean useSharedHeader=false;
 	/** Output stream for status messages and logging */
 	private PrintStream outstream=System.err;
@@ -1653,6 +1804,7 @@ public class PartitionReads3 {
 	public static boolean verbose=false;
 	/** True if an error was encountered during processing */
 	public boolean errorState=false;
+	/** Overwrite existing output files */
 	private boolean overwrite=true;
 	/** Append to existing output files instead of overwriting */
 	private boolean append=false;

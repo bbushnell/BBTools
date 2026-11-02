@@ -42,13 +42,13 @@ maxdepth=-1     If positive, copy counts greater than this will be reported
                 cases of thousand+ copy repeats.
 preview=27      Print this many characters of the repeat per line.  Set to 0
                 to suppress (may save memory).
-mask=f          Write sequence with masked repeats to 'outs'. Possible values:
+mask=t          Write sequence with masked repeats to 'outs'. Possible values:
                    f: Do not mask.
                    t: Mask (by default, 't' or 'true' are the same as 'soft').
                    soft: Convert masked bases to lower case.
                    hard: Convert masked bases to 'N'.
                    Other characters: Convert masked bases to that character.
-print=t         (printrepeats) Print repeat sequence to outs.  'print' and
+print=f         (printrepeats) Print repeat sequence to outs.  'print' and
                 'mask' are mutually exclusive so enabling one will disable
                 the other.
 weak=f          (weaksubsumes) Ignore repeats that are weakly subsumed by 

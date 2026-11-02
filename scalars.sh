@@ -19,11 +19,12 @@ in=<file>       Primary input; fasta or fastq.
 out=stdout      Set to a file to redirect output.
 
 Processing parameters:
-header=f        Print a header line.
+header=t        Print a header line.
 rowheader=f     Print a row header.
-window=0        If nonzero, calculate and average over windows.
-break=f         Set to true to break data at contig bounds,
-                in windowed mode.
+window=0        If positive, retain this many valid dinucleotides per window
+                and report histogram means and standard deviations.
+break=f         Reset the rolling window between sequences (including mates).
+                Applies only in windowed mode; global totals are unchanged.
 
 Java Parameters:
 -Xmx            This will set Java's memory usage, overriding autodetection.

@@ -1329,6 +1329,7 @@ public class DataLoader extends BinObject {
 	/**
 	 * Loads coverage data from file into name-indexed map.
 	 * Collapses samples to a single depth per contig.
+	 * Closes its owned reader and propagates read or close failures.
 	 * @param fname Path to coverage file
 	 * @return Map of contig names to total depth
 	 */
@@ -1337,43 +1338,56 @@ public class DataLoader extends BinObject {
 		Timer t=new Timer(System.err, false);
 		LineParser1 lp=new LineParser1('\t');
 		ByteFile bf=ByteFile.makeByteFile(fname, true);
+		Throwable failure=null;
 
-		byte[] line=bf.nextLine();
-		int numDepths=0;
-		boolean looksLikeCovstats=false;
-		for(; Tools.startsWith(line, '#'); line=bf.nextLine()) {
-			if(Tools.startsWith(line, "#Depths")) {
-				numDepths=lp.set(line).parseInt(1);
-			}else if(Tools.startsWith(line, "#ID")) {
-				looksLikeCovstats=true;//e.g. pileup.sh/bbmap.sh covstats= output; wrong flag, not this method's format
+		try{
+			byte[] line=bf.nextLine();
+			int numDepths=0;
+			boolean looksLikeCovstats=false;
+			for(; Tools.startsWith(line, '#'); line=bf.nextLine()) {
+				if(Tools.startsWith(line, "#Depths")) {
+					numDepths=lp.set(line).parseInt(1);
+				}else if(Tools.startsWith(line, "#ID")) {
+					looksLikeCovstats=true;//e.g. pileup.sh/bbmap.sh covstats= output; wrong flag, not this method's format
+				}
+			}
+			assert(numDepths>0) : KillSwitch.assertDie("Coverage file "+fname+" is missing the required '#Depths' header line."+
+				(looksLikeCovstats ?
+					"\nThis looks like a covstats file (from pileup.sh/bbmap.sh covstats=); use covstats= "+
+					"instead of cov=/covin= for this file." :
+					"\nExpected the multi-sample format written by DataLoader.writeCov, not a generic coverage file."));
+			final int edgeStart=3+numDepths;
+			final int samples=numDepths;
+			int loaded=0;
+
+			ObjectDoubleMap<String> map=new ObjectDoubleMap<String>(String.class);
+			for(; line!=null; line=bf.nextLine()) {
+				lp.set(line);
+				String name=lp.parseString(0);
+				int id=lp.parseInt(1);
+				int size=lp.parseInt(2);
+				int edges=(lp.terms()-edgeStart)/2;
+				double depth=0;
+				for(int i=0; i<samples; i++) {
+					float f=lp.parseFloat(i+3);
+					depth+=f;
+				}
+				map.put(name, depth);
+				loaded++;
+			}
+			t.stopAndPrint();
+			return map;
+		}catch(RuntimeException | Error e){
+			failure=e;
+			throw e;
+		}finally{
+			try{
+				if(bf.close()){throw new RuntimeException("Error reading coverage from "+fname);}
+			}catch(RuntimeException | Error closing){
+				if(failure==null){throw closing;}
+				if(failure!=closing){failure.addSuppressed(closing);}
 			}
 		}
-		assert(numDepths>0) : KillSwitch.assertDie("Coverage file "+fname+" is missing the required '#Depths' header line."+
-			(looksLikeCovstats ?
-				"\nThis looks like a covstats file (from pileup.sh/bbmap.sh covstats=); use covstats= "+
-				"instead of cov=/covin= for this file." :
-				"\nExpected the multi-sample format written by DataLoader.writeCov, not a generic coverage file."));
-		final int edgeStart=3+numDepths;
-		final int samples=numDepths;
-		int loaded=0;
-
-		ObjectDoubleMap<String> map=new ObjectDoubleMap<String>(String.class);
-		for(; line!=null; line=bf.nextLine()) {
-			lp.set(line);
-			String name=lp.parseString(0);
-			int id=lp.parseInt(1);
-			int size=lp.parseInt(2);
-			int edges=(lp.terms()-edgeStart)/2;
-			double depth=0;
-			for(int i=0; i<samples; i++) {
-				float f=lp.parseFloat(i+3);
-				depth+=f;
-			}
-			map.put(name, depth);
-			loaded++;
-		}
-		t.stopAndPrint();
-		return map;
 	}
 	
 	/**
