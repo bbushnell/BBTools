@@ -1,4 +1,5 @@
 package dna;
+
 import java.util.Arrays;
 import java.util.HashMap;
 
@@ -8,18 +9,24 @@ import shared.Tools;
 import simd.Vector;
 import structures.ByteBuilder;
 
-
 /**
+ * Amino-acid descriptors, shared alphabet tables and sequence conversion kernels.
+ * Packed nucleotide codes use A=0, C=1, G=2, T/U=3 in either letter case. Most
+ * character/codon methods directly index 128-entry ASCII tables; their inputs must
+ * be valid indices unless the method explicitly guards signed bytes. The separate
+ * 256-entry byte-conversion tables are indexed with unsigned byte values.
+ * Public arrays/maps are shared mutable state; callers must not mutate them during
+ * concurrent use. Descriptor codon arrays are exposed too. Translation overloads
+ * retain different unknown-base behavior, documented below.
  * @author Brian Bushnell
  * @date July 1, 2010
  *
  */
-public final class AminoAcid {
-
+public final class AminoAcid{
 
 	/**
-	 * Test method for amino acid translation functionality.
-	 * Demonstrates basic DNA to amino acid sequence conversion.
+	 * Demonstrates translation and prints the complement table. Before printing,
+	 * replaces any nonpositive complement entry with its identity mapping in place.
 	 * @param args Command line arguments (not used)
 	 */
 	public static void main(String[] args){
@@ -31,16 +38,15 @@ public final class AminoAcid {
 		String acids=stringToAAs(bases);
 
 		System.out.println(bases+" -> "+acids);
-		for(int i=0; i<baseToComplementExtended.length; i++) {
-			if(baseToComplementExtended[i]<1) {baseToComplementExtended[i]=(byte)i;}
+		for(int i=0; i<baseToComplementExtended.length; i++){
+			if(baseToComplementExtended[i]<1){baseToComplementExtended[i]=(byte)i;}
 		}
 		System.out.println(new String(baseToComplementExtended));
 		System.out.println(Arrays.toString(baseToComplementExtended));
 	}
 
-
-	/** Private constructor to prevent instantiation.
-	 * This is a utility class with static methods only. */
+	/** Unused no-argument path; delegates null to the descriptor parser and fails there.
+	 * Normal descriptors are created by the other private constructors during initialization. */
 	private AminoAcid(){
 		this(null);
 		assert(false);
@@ -49,8 +55,8 @@ public final class AminoAcid {
 
 	/**
 	 * Constructor for creating amino acid from comma-separated string.
-	 * Parses format: "name, symbol, letter, codon1, codon2, ..."
-	 * @param line Comma-separated string containing amino acid data
+	 * Splits on the exact comma-space separator: name, symbol, letter, codon1, ...
+	 * @param line Nonnull descriptor with at least three fields and a nonempty letter field
 	 */
 	private AminoAcid(String line){
 		String[] s2=line.split(", ");
@@ -71,7 +77,7 @@ public final class AminoAcid {
 	 * @param n Full name of the amino acid
 	 * @param c3 Three-letter symbol code
 	 * @param c1 Single-letter code
-	 * @param bases Array of codon strings that code for this amino acid
+	 * @param bases Borrowed codon array, retained without copying
 	 */
 	private AminoAcid(String n, String c3, String c1, String[] bases){
 		name=n;
@@ -80,6 +86,7 @@ public final class AminoAcid {
 		codeStrings=bases;
 	}
 
+	/** Formats the name, symbol, letter and current codon-array contents. */
 	@Override
 	public String toString(){
 		return name+", "+symbol+", "+letter+", "+Arrays.toString(codeStrings);
@@ -106,8 +113,9 @@ public final class AminoAcid {
 	/**
 	 * Converts a DNA string to binary k-mer representation.
 	 * Each base is encoded in 2 bits: A=0, C=1, G=2, T=3.
-	 * @param s DNA sequence string
-	 * @return Binary k-mer representation
+	 * Does not reject unknown symbols or prevent shifts from discarding high bits.
+	 * @param s Up to 32 defined ASCII bases; accepts lowercase and U as T
+	 * @return Packed representation; a 32-base value may be negative
 	 */
 	public static long stringToKmer(String s){
 		long kmer=0;
@@ -120,7 +128,8 @@ public final class AminoAcid {
 
 	/**
 	 * Converts a binary amino acid k-mer to protein sequence string.
-	 * Each amino acid is encoded in 5 bits for 20 standard amino acids.
+	 * Uses five-bit indices into numberToAcid, which includes 20 residues and stop.
+	 * Every decoded index must be 0..20; this method does not decode extended amino codes.
 	 *
 	 * @param kmer Binary representation of amino acid k-mer
 	 * @param k Length of the amino acid k-mer
@@ -151,16 +160,14 @@ public final class AminoAcid {
 		return codeStrings==null || codeStrings.length<1 ? null : codeStrings[0];
 	}
 
-
 	/** Full name of the amino acid (e.g., "Alanine") */
 	public final String name;
 	/** Three-letter symbol code for the amino acid (e.g., "Ala") */
 	public final String symbol;
 	/** Single-letter code for the amino acid (e.g., 'A') */
 	public final char letter;
-	/** Array of codon strings that encode this amino acid */
+	/** Exposed mutable codon strings; standard descriptors are converted to DNA spelling during initialization. */
 	public final String[] codeStrings;
-
 
 	//a=1
 	//c=2
@@ -181,12 +188,12 @@ public final class AminoAcid {
 	//	X 	masked
 	//	- 	gap of indeterminate length
 
-	/** Array of canonical codons for each amino acid by index */
+	/** First-codon snapshot by amino index, captured in RNA spelling before codeStrings is converted to DNA. */
 	public static final String[] canonicalCodons=new String[21];
 
 	/** Converts base number (0-4) to ASCII character: A, C, G, T, N */
 	public static final byte[] numberToBase={
-		'A','C','G','T','N'
+		'A', 'C', 'G', 'T', 'N'
 	};
 
 	/** Converts amino acid number (0-20) to single-letter amino acid code */
@@ -194,40 +201,40 @@ public final class AminoAcid {
 
 	/** Converts base number (0-4) to complement ASCII character: T, G, C, A, N */
 	public static final byte[] numberToComplementaryBase={
-		'T','G','C','A','N'
+		'T', 'G', 'C', 'A', 'N'
 	};
 
 	/** Converts base number (0-4) to complement number: 3, 2, 1, 0, 4 */
 	public static final byte[] numberToComplement={
-		3,2,1,0,4
+		3, 2, 1, 0, 4
 	};
 
 	/** Extended base number to ASCII mapping including IUPAC ambiguity codes */
 	public static final byte[] numberToBaseExtended={
-		' ','A','C','M','G','R','S','V', //0-7
-		'T','W','Y','H','K','D','B','N', //8-15
-		'X',' ',' ',' ',' ',' ',' ',' ', //16-23
+		' ', 'A', 'C', 'M', 'G', 'R', 'S', 'V', //0-7
+		'T', 'W', 'Y', 'H', 'K', 'D', 'B', 'N', //8-15
+		'X', ' ', ' ', ' ', ' ', ' ', ' ', ' ', //16-23
 	};
 
 	/** Has 'N' in position 0.  Mainly for translating compressed arrays containing zeroes to bases. */
 	public static final byte[] numberToBaseExtended2={
-		'N','A','C','M','G','R','S','V', //0-7
-		'T','W','Y','H','K','D','B','N', //8-15
-		'X',' ',' ',' ',' ',' ',' ',' ', //16-23
+		'N', 'A', 'C', 'M', 'G', 'R', 'S', 'V', //0-7
+		'T', 'W', 'Y', 'H', 'K', 'D', 'B', 'N', //8-15
+		'X', ' ', ' ', ' ', ' ', ' ', ' ', ' ', //16-23
 	};
 
 	/** Mapping for IUPAC degenerate base codes representing multiple bases */
 	public static final byte[] degenerateBases={
-		' ',' ',' ','M',' ','R','S','V', //0-7
-		' ','W','Y','H','K','D','B',' ', //8-15
-		' ',' ',' ',' ',' ',' ',' ',' ', //16-23
+		' ', ' ', ' ', 'M', ' ', 'R', 'S', 'V', //0-7
+		' ', 'W', 'Y', 'H', 'K', 'D', 'B', ' ', //8-15
+		' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', //16-23
 	};
 
 	/** Extended complement mapping including IUPAC ambiguity codes */
 	public static final byte[] numberToComplementaryBaseExtended={
-		' ','T','G','K','C','Y','S','B', //0-7
-		'A','W','R','D','M','H','V','N', //8-15
-		'X',' ',' ',' ',' ',' ',' ',' ', //16-23
+		' ', 'T', 'G', 'K', 'C', 'Y', 'S', 'B', //0-7
+		'A', 'W', 'R', 'D', 'M', 'H', 'V', 'N', //8-15
+		'X', ' ', ' ', ' ', ' ', ' ', ' ', ' ', //16-23
 	};
 
 	/** Element i is: N-bit code for a symbol, -1 otherwise */
@@ -250,56 +257,58 @@ public final class AminoAcid {
 		return amino ? acidToNumber0 : baseToComplementNumber0;
 	}
 
-	/** Element i is: 5-bit alphabetical code for a symbol, -1 otherwise */
+	/** Amino-name-order index for standard residue letters in either case and stop; otherwise -1. */
 	public static final byte[] acidToNumber=new byte[128];
 
-	/** Element i is: 5-bit alphabetical code for a symbol other than stop, -1 otherwise */
+	/** Standard residue indices from acidToNumber, with stop and unsupported symbols mapped to -1. */
 	public static final byte[] acidToNumberNoStops=new byte[128];
 
-	/** Element i is: 5-bit alphabetical code for a symbol, 0 otherwise */
+	/** Standard residue/stop indices from acidToNumber, with unsupported ASCII entries mapped to zero. */
 	public static final byte[] acidToNumber0=new byte[128];//Rename acidToNumber0
 
-	/** Element i is: 5-bit alphabetical code for a symbol (plus X, B, J, Z, . and -), -1 otherwise */
+	/** Standard indices plus a shared unknown index for X/B/J/Z/U/O/dot and a separate dash index.
+	 * Letters accept either case; other unsupported ASCII entries are -1. */
 	public static final byte[] acidToNumberExtended=new byte[128];
 
-	/** Element i is: 5-bit alphabetical code for a symbol, -1 otherwise */
+	/** Uppercase amino grouping into eight classes 0..7; unsupported/lowercase symbols are -1. */
 	public static final byte[] acidToNumber8=new byte[128];
 
-	/** Element i is: 0 for 'A', 1 for 'C', 2 for 'G', 3 for 'T', -1 otherwise */
+	/** A/a=0, C/c=1, G/g=2, T/t/U/u=3; all other ASCII entries are -1. */
 	public static final byte[] baseToNumber=new byte[128];
 
-	/** Element i is: 0 for 'A', 1 for 'C', 2 for 'G', 3 for 'T', 0 otherwise */
+	/** A/a=0, C/c=1, G/g=2, T/t/U/u=3; unknown ASCII entries are zero. */
 	public static final byte[] baseToNumber0=new byte[128];
 
-	/** Element i is: 0 for 'A', 1 for 'C', 2 for 'G', 3 for 'T', 3 otherwise */
+	/** A/a=0, C/c=1, G/g=2, T/t/U/u=3; unknown ASCII entries are three. */
 	public static final byte[] baseToNumber3=new byte[128];
 
-	/** Element i is: 0 for 'A', 1 for 'C', 2 for 'G', 3 for 'T', 4 otherwise */
+	/** A/a=0, C/c=1, G/g=2, T/t/U/u=3; unknown ASCII entries are four. */
 	public static final byte[] baseToNumber4=new byte[128];
 
-	/** Element i is: 3 for 'A', 2 for 'C', 1 for 'G', 0 for 'T', -1 otherwise */
+	/** A/a=3, C/c=2, G/g=1, T/t/U/u=0; all other ASCII entries are -1. */
 	public static final byte[] baseToComplementNumber=new byte[128];
 
-	/** Element i is: 3 for 'A', 2 for 'C', 1 for 'G', 0 for 'T', 0 otherwise */
+	/** A/a=3, C/c=2, G/g=1, T/t/U/u=0; all other ASCII entries are zero. */
 	public static final byte[] baseToComplementNumber0=new byte[128];
 
-	/** Element i is: 0 for 'A', 1 for 'C', 2 for 'G', 3 for 'T', 4 for 'N', -1 otherwise */
+	/** A/a=0, C/c=1, G/g=2, T/t/U/u=3, N/n=4; all other ASCII entries are -1. */
 	public static final byte[] baseToNumberACGTN=new byte[128];
 
-	/** Element i is: 0 for 'A', 1 for 'C', 2 for 'G', 3 for 'T', 0 for 'N', -1 otherwise */
+	/** A/a/N/n=0, C/c=1, G/g=2, T/t/U/u=3; all other ASCII entries are -1. */
 	public static final byte[] baseToNumberACGTN2=new byte[128];
 
-	/** Element i is: 0 for 'A', 1 for 'C', 2 for 'G', 3 for 'T', 4 otherwise */
+	/** A/a=0, C/c=1, G/g=2, T/t/U/u=3; all other ASCII entries are four. */
 	public static final byte[] baseToNumberACGTother=new byte[128];
 
-	/** Element i is: Some 7-bit number for ACGT, 0 otherwise */
+	/** Seven-bit hash codes for A/C/G/T in either case; U/u uses T's code, others zero. */
 	public static final byte[] baseToHashcode=new byte[128];
 
-	/** Element i is: 0 for empty, 1-26 for A-Z, plus "*-"; otherwise, 31.
+	/** Letters in either case map to 1..26, star to 27 and dash to 28; all others to 31.
+	 * ASCII NUL also maps to 31; zero is unused by this lookup.
 	 * Allows fast alphabetical sorting of sequences. */
 	public static final byte[] symbolTo5Bit=new byte[128];
 
-	/** A>A, C>C, G>G, T/U>T, other>N */
+	/** Uppercases A/C/G/T, maps U/u to T, and maps all other supported ASCII entries to N. */
 	public static final byte[] baseToACGTN=new byte[128];
 
 	/**
@@ -314,9 +323,9 @@ public final class AminoAcid {
 	public static final byte[] uToT=new byte[256];
 	/** Thymine to Uracil, everything else unchanged */
 	public static final byte[] tToU=new byte[256];
-	/** . - X to N, everything else unchanged */
+	/** Dot, dash, X/x and lowercase n map to N; other byte values are unchanged. */
 	public static final byte[] dotDashXToNocall=new byte[256];
-	/** . - X to ., everything else unchanged */
+	/** Dot, dash and X/x map to X; other byte values are unchanged. */
 	public static final byte[] dotDashXToNocallAA=new byte[256];
 	/** Letters to uppercase, everything else unchanged */
 	public static final byte[] toUpperCase=new byte[256];
@@ -324,24 +333,25 @@ public final class AminoAcid {
 	public static final byte[] lowerCaseToNocall=new byte[256];
 	/** Lowercase to ., everything else unchanged */
 	public static final byte[] lowerCaseToNocallAA=new byte[256];
-	/** Non-acgtACGT alphabet letters to N */
+	/** Recognized non-defined extended symbols map to N, including N/n and X/x.
+	 * A/C/G/T/U in either case and unrecognized byte values remain unchanged. */
 	public static final byte[] iupacToNocall=new byte[256];
 
 	/** Element i is the bitwise OR of constituent IUPAC base numbers in baseToNumber.<br>
-	 * For example, baseToNumberExtended['M'] = ((1<<baseToNumber['A']) | (1<<baseToNumber['C'])) = (1 | 2) = 3 <br>
+	 * For example, {@code baseToNumberExtended['M'] = (1<<baseToNumber['A']) | (1<<baseToNumber['C']) = 3}.<br>
 	 * Invalid characters are -1 */
 	public static final byte[] baseToNumberExtended=new byte[128];
 	/** Extended base to complement number mapping for IUPAC codes */
 	public static final byte[] baseToComplementNumberExtended=new byte[128];
-	/** Array of amino acids in alphabetical order by single-letter code */
+	/** Twenty standard residues in alphabetical amino-acid name order, followed by END. */
 	public static final AminoAcid[] AlphabeticalAAs=new AminoAcid[21];
-	/** Maps codon numbers (0-65) to corresponding AminoAcid objects */
+	/** Standard codons 0..63, unused null slot 64 and ANY at 65. */
 	public static final AminoAcid[] codeToAA=new AminoAcid[66];
-	/** Maps codon numbers (0-65) to single-letter amino acid characters */
+	/** Standard codon letters 0..63, unused zero slot 64 and X at 65. */
 	public static final char[] codeToChar=new char[66];
-	/** Maps codon numbers (0-65) to single-letter amino acid bytes */
+	/** Byte counterpart of codeToChar, including the unused zero slot 64. */
 	public static final byte[] codeToByte=new byte[66];
-	/** Maps amino acid ASCII characters to their canonical codon numbers */
+	/** Canonical codon 0..63 by amino ASCII symbol; unresolved extensions use 65, others -1. */
 	public static final byte[] aminoToCode=new byte[128];
 	/**
 	 * Hash map for looking up AminoAcid objects by name, symbol, letter, or codon string
@@ -404,11 +414,10 @@ public final class AminoAcid {
 	/** Number of bits used to encode amino acids (5 bits for 20+ amino acids) */
 	public static int AMINO_SHIFT=5;
 
-
 	/**
 	 * Color-space encoding matrix for SOLiD sequencing technology base transitions
 	 */
-	public static final byte[][] COLORS=new byte[][] {
+	public static final byte[][] COLORS=new byte[][]{
 		{0, 1, 2, 3},
 		{1, 0, 3, 2},
 		{2, 3, 0, 1},
@@ -416,21 +425,23 @@ public final class AminoAcid {
 	};
 
 	/**
-	 * Checks if one sequence is the reverse complement of another.
+	 * Checks reverse-complement equality without regard to letter case.
+	 * Both arrays must be nonnull and contain ASCII symbols supported by the complement table.
 	 * @param bases First DNA sequence
 	 * @param bases2 Second DNA sequence
 	 * @return true if bases2 is the reverse complement of bases
 	 */
-	public static boolean equalsReverseComp(byte[] bases, byte[] bases2) {
-		if(bases.length!=bases2.length) {return false;}
-		for(int i=0, j=bases2.length-1; i<bases.length; i++, j--) {
-			byte a=Tools.toUpperCase(bases[i]), b=baseToComplementExtended[bases2[j]];
-			if(a!=b) {return false;}
+	public static boolean equalsReverseComp(byte[] bases, byte[] bases2){
+		if(bases.length!=bases2.length){return false;}
+		for(int i=0, j=bases2.length-1; i<bases.length; i++, j--){
+			byte a=Tools.toUpperCase(bases[i]), b=Tools.toUpperCase(baseToComplementExtended[bases2[j]]);
+			if(a!=b){return false;}
 		}
 		return true;
 	}
 
-	/** Returns a new reverse-complemented array in ASCII coding*/
+	/** Returns a new reverse-complemented array using the case-preserving ASCII table.
+	 * Requires nonnull input. Unsupported ASCII symbols retain their identity mapping. */
 	public static final byte[] reverseComplementBases(final byte[] in){
 		byte[] out=new byte[in.length];
 		final int last=in.length-1;
@@ -440,16 +451,15 @@ public final class AminoAcid {
 		return out;
 	}
 
-
 	/**
-	 * Extended base to number mapping using bitwise OR of constituent IUPAC base numbers, -1 for invalid
+	 * Reverse-complements the entire ASCII array in place; null is a no-op.
 	 */
 	public static final void reverseComplementBasesInPlace(final byte[] in){
 		if(in!=null){reverseComplementBasesInPlace(in, in.length);}
 	}
 	/**
 	 * Complements DNA sequence in place without reversing.
-	 * Changes A<->T and C<->G in the input array.
+	 * Changes {@code A<->T} and {@code C<->G} in the input array.
 	 * @param in DNA sequence to be complemented in place
 	 */
 	public static final void complementBasesInPlace(final byte[] in){
@@ -458,7 +468,7 @@ public final class AminoAcid {
 	}
 	/**
 	 * Complements specified length of DNA sequence in place.
-	 * Changes A<->T and C<->G for the first 'length' bases.
+	 * Changes {@code A<->T} and {@code C<->G} for the first 'length' bases.
 	 * @param in DNA sequence to be complemented
 	 * @param length Number of bases to complement
 	 */
@@ -558,6 +568,7 @@ public final class AminoAcid {
 		return out;
 	}
 
+	/** Reverse-complements the low 2*k bits using a four-base lookup, for k in 0..32. */
 	public static final long reverseComplementBinaryFastLookup(long kmer, int k){
 		long out=0;
 		int extra=k&3;
@@ -575,8 +586,9 @@ public final class AminoAcid {
 
 	//70% faster at K=31
 	/**
-	 * Fast reverse complement using lookup table for 4-base chunks.
-	 * 64-bit version for longer k-mers with table-based acceleration.
+	 * Reverses packed two-bit bases by fixed-width bit swaps after complementing.
+	 * This overload uses no lookup table. Requires k in 1..32: k=0 would trigger
+	 * Java's masked shift count and retain a full-width result instead of an empty k-mer.
 	 *
 	 * @param kmer Binary k-mer (64-bit long)
 	 * @param k Length of the k-mer
@@ -605,7 +617,8 @@ public final class AminoAcid {
 	 *
 	 * @param base1 First base
 	 * @param base2 Second base
-	 * @return Color code (0-3) or 'N' for invalid bases
+	 * Legacy behavior maps one undefined base to T; only two undefined bases return N.
+	 * @return Numeric color 0..3, or ASCII N when both bases are undefined
 	 */
 	public static final byte baseToColor(byte base1, byte base2){
 		byte a=baseToNumber[base1];
@@ -639,7 +652,8 @@ public final class AminoAcid {
 
 	/**
 	 * Converts three-character codon string to amino acid.
-	 * @param code Three-character codon string (e.g., "ATG")
+	 * Reads the first three characters; legacy character translation maps N to A.
+	 * @param code ASCII string with at least three characters
 	 * @return Corresponding AminoAcid object
 	 */
 	public static final AminoAcid toAA(String code){
@@ -648,7 +662,8 @@ public final class AminoAcid {
 
 	/**
 	 * Converts three-character codon string to amino acid single-letter code.
-	 * @param code Three-character codon string
+	 * Reads the first three characters; legacy character translation maps N to A.
+	 * @param code ASCII string with at least three characters
 	 * @return Single-letter amino acid code
 	 */
 	public static final char toChar(String code){
@@ -658,11 +673,15 @@ public final class AminoAcid {
 	/**
 	 * Splits IUPAC ambiguous base into constituent bases.
 	 * For example, 'M' (A or C) returns ['A', 'C'].
-	 * @param c IUPAC ambiguous base character
-	 * @return Array of constituent base characters
+	 * @param c ASCII base with extended mask 1..15, including U as T; excludes X
+	 * @return Constituent bases in A/C/G/T bit order, using the current numberToBase alphabet
+	 * @throws IllegalArgumentException if c is outside the table or its mask is outside 1..15
 	 */
 	public static final char[] splitBase(char c){
-		byte b=baseToNumberExtended[c];
+		//DNA-043: Only the four canonical-base bits can be expanded by the loop below.
+		final int b=(c<baseToNumberExtended.length ? baseToNumberExtended[c] : -1);
+		if(b<1 || b>15){throw new IllegalArgumentException("Cannot split character code "+(int)c+
+				": expected a nonempty four-base mask (1..15), found "+b);}
 		int len=Integer.bitCount(b);
 		char[] out=new char[len];
 
@@ -676,15 +695,12 @@ public final class AminoAcid {
 		return out;
 	}
 
-
-
-
 	/**
 	 * Converts integer code to n-length DNA sequence.
 	 * Each base occupies 2 bits in the integer representation.
 	 *
 	 * @param code Integer encoding of the sequence
-	 * @param n Length of sequence to generate
+	 * @param n Number of low-order two-bit bases to decode, normally 0..16
 	 * @return DNA sequence as byte array
 	 */
 	public static final byte[] numberToBases(int code, int n){
@@ -703,8 +719,8 @@ public final class AminoAcid {
 	/**
 	 * Converts DNA sequence to integer code.
 	 * Each base occupies 2 bits: A=0, C=1, G=2, T=3.
-	 * @param tuple DNA sequence as byte array
-	 * @return Integer encoding of sequence, or -1 if invalid bases present
+	 * @param tuple ASCII bases, at most 16 to avoid discarding high bits; accepts U as T
+	 * @return Packed code or -1 for an undefined base; a valid 16-base code may also equal -1
 	 */
 	public static final int baseTupleToNumber(byte[] tuple){
 
@@ -719,27 +735,27 @@ public final class AminoAcid {
 	}
 
 	/**
-	 * Checks if base character is fully defined (A, C, G, T only).
-	 * @param base Character to check
-	 * @return true if base is A, C, G, or T
+	 * Checks the defined-base table, accepting A/C/G/T/U in either case.
+	 * @param base ASCII table index
+	 * @return Whether the base maps to 0..3
 	 */
 	public static boolean isFullyDefined(char base){
 		return baseToNumber[base]>=0;
 	}
 
 	/**
-	 * Checks if base byte is fully defined (A, C, G, T only).
+	 * Checks the defined-base table, accepting A/C/G/T/U in either case.
 	 * @param base Byte to check
-	 * @return true if base is A, C, G, or T
+	 * @return Whether the base maps to 0..3; negative bytes return false
 	 */
 	public static boolean isFullyDefined(byte base){
 		return base>=0 && baseToNumber[base]>=0;
 	}
 
 	/**
-	 * Checks if amino acid byte represents a standard amino acid.
+	 * Checks whether a byte represents one of the 20 standard residues or stop.
 	 * @param acid Amino acid byte to check
-	 * @return true if acid is a standard 20 amino acid code
+	 * @return True for a defined residue in either case or '*'; negative bytes return false
 	 */
 	public static boolean isFullyDefinedAA(byte acid){
 		return acid>=0 && acidToNumber[acid]>=0;
@@ -755,52 +771,52 @@ public final class AminoAcid {
 	}
 
 	/**
-	 * Checks if string contains only ACGTN characters.
-	 * @param bases String to check
-	 * @return true if all characters are A, C, G, T, or N
+	 * Checks for A/C/G/T/U/N in either case; empty strings pass.
+	 * @param bases Nonnull ASCII string
+	 * @return Whether every character has a nonnegative ACGTN-table entry
 	 */
 	public static boolean isACGTN(String bases){
-		for(int i=0; i<bases.length(); i++) {
-			if(!isACGTN(bases.charAt(i))) {return false;}
+		for(int i=0; i<bases.length(); i++){
+			if(!isACGTN(bases.charAt(i))){return false;}
 		}
 		return true;
 	}
 
 	/**
-	 * Checks if byte array contains only ACGTN characters.
-	 * @param bases Byte array to check
-	 * @return true if all bytes are A, C, G, T, or N
+	 * Checks for A/C/G/T/U/N in either case; empty arrays pass, negative bytes fail.
+	 * @param bases Nonnull byte array
+	 * @return Whether every byte is accepted by the ACGTN table
 	 */
 	public static boolean isACGTN(byte[] bases){
-		for(int i=0; i<bases.length; i++) {
-			if(!isACGTN(bases[i])) {return false;}
+		for(int i=0; i<bases.length; i++){
+			if(!isACGTN(bases[i])){return false;}
 		}
 		return true;
 	}
 
 	/**
-	 * Checks if character is A, C, G, T, or N.
-	 * @param base Character to check
-	 * @return true if base is A, C, G, T, or N
+	 * Checks for A/C/G/T/U/N in either case.
+	 * @param base ASCII table index
+	 * @return Whether the table entry is nonnegative
 	 */
 	public static boolean isACGTN(char base){
 		return baseToNumberACGTN[base]>=0;
 	}
 
 	/**
-	 * Checks if byte is A, C, G, T, or N.
+	 * Checks for A/C/G/T/U/N in either case.
 	 * @param base Byte to check
-	 * @return true if base is A, C, G, T, or N
+	 * @return Whether the table entry is nonnegative; negative bytes return false
 	 */
 	public static boolean isACGTN(byte base){
 		return base>=0 && baseToNumberACGTN[base]>=0;
 	}
 
 	/**
-	 * Checks if string contains only valid ACGTN nucleotides.
+	 * Checks for A/C/G/T/U/N in either case.
 	 * Returns true for null or empty strings.
-	 * @param s String to validate
-	 * @return true if string is null, empty, or contains only ACGTN
+	 * @param s ASCII string to validate, or null
+	 * @return True for null/empty input or only accepted nucleotide symbols
 	 */
 	public static boolean containsOnlyACGTN(String s){
 		if(s==null || s.length()==0){return true;}
@@ -812,10 +828,9 @@ public final class AminoAcid {
 	}
 
 	/**
-	 * Checks if string contains only ACGTN characters plus question marks.
-	 * Question marks are treated as valid placeholders.
-	 * @param s String to validate
-	 * @return true if string contains only ACGTN and ? characters
+	 * Checks for A/C/G/T/U/N in either case, plus question-mark placeholders.
+	 * @param s ASCII string to validate, or null
+	 * @return True for null/empty input or only accepted symbols
 	 */
 	public static boolean containsOnlyACGTNQ(String s){
 		if(s==null || s.length()==0){return true;}
@@ -827,10 +842,10 @@ public final class AminoAcid {
 	}
 
 	/**
-	 * Checks if byte array contains only valid ACGTN nucleotides.
+	 * Checks for A/C/G/T/U/N in either case; negative bytes fail.
 	 * Returns true for null or empty arrays.
 	 * @param array Byte array to validate
-	 * @return true if array is null, empty, or contains only ACGTN
+	 * @return True for null/empty input or only accepted nucleotide symbols
 	 */
 	public static boolean containsOnlyACGTN(byte[] array){
 		if(array==null || array.length==0){return true;}
@@ -842,9 +857,9 @@ public final class AminoAcid {
 	}
 
 	/**
-	 * Checks if all characters in string are fully defined bases (ACGT only).
-	 * @param s String to check
-	 * @return true if all characters are A, C, G, or T
+	 * Checks for defined A/C/G/T/U bases in either case; empty strings pass.
+	 * @param s Nonnull ASCII string
+	 * @return Whether every character maps to 0..3
 	 */
 	public static boolean isFullyDefined(String s){
 		for(int i=0; i<s.length(); i++){
@@ -854,9 +869,9 @@ public final class AminoAcid {
 	}
 
 	/**
-	 * Checks if all bytes in array are fully defined bases (ACGT only).
-	 * @param s Byte array to check
-	 * @return true if all bytes are A, C, G, or T
+	 * Checks for defined A/C/G/T/U bases in either case; negative bytes fail.
+	 * @param s Nonnull byte array; empty arrays pass
+	 * @return Whether every byte maps to 0..3
 	 */
 	public static boolean isFullyDefined(byte[] s){
 		for(int i=0; i<s.length; i++){
@@ -867,8 +882,8 @@ public final class AminoAcid {
 
 	/**
 	 * Counts number of undefined bases in sequence.
-	 * Undefined bases are anything other than A, C, G, T.
-	 * @param s DNA sequence to analyze
+	 * Undefined means outside A/C/G/T/U in either case, including negative bytes.
+	 * @param s Nonnull sequence
 	 * @return Count of undefined bases
 	 */
 	public static int countUndefined(byte[] s){
@@ -881,7 +896,7 @@ public final class AminoAcid {
 
 	/**
 	 * Counts number of defined bases in sequence.
-	 * Defined bases are A, C, G, T only.
+	 * Defined bases are A/C/G/T/U in either case; negative bytes are undefined.
 	 * @param s DNA sequence to analyze
 	 * @return Count of defined bases, or 0 if array is null
 	 */
@@ -914,7 +929,7 @@ public final class AminoAcid {
 
 	/**
 	 * Converts three characters to numeric codon code.
-	 * More efficient than string-based conversion.
+	 * Unlike the String overload, this legacy method maps N to A; U maps to T.
 	 *
 	 * @param c1 First base character
 	 * @param c2 Second base character
@@ -929,7 +944,7 @@ public final class AminoAcid {
 
 	/**
 	 * Converts three base characters to corresponding amino acid.
-	 * Direct character-based codon translation.
+	 * Legacy ASCII character translation treats N as A and U as T, accepting either case.
 	 *
 	 * @param c1 First base character
 	 * @param c2 Second base character
@@ -943,7 +958,7 @@ public final class AminoAcid {
 	}
 
 	/**
-	 * Converts three base characters to amino acid single-letter code.
+	 * Converts three ASCII bases to a letter, treating N as A and U as T.
 	 *
 	 * @param c1 First base character
 	 * @param c2 Second base character
@@ -958,7 +973,8 @@ public final class AminoAcid {
 
 	/**
 	 * Converts three base bytes to amino acid byte code.
-	 * Returns 'X' for codons with invalid bases.
+	 * Returns X for undefined ASCII bases, including N; accepts U and either case.
+	 * Negative bytes are not valid table indices and are not guarded here.
 	 *
 	 * @param c1 First base byte
 	 * @param c2 Second base byte
@@ -995,7 +1011,8 @@ public final class AminoAcid {
 
 	/**
 	 * Translates DNA string to amino acid sequence string.
-	 * Processes sequence in triplets starting from position 2.
+	 * Processes complete triplets beginning at offset zero, ignoring trailing 1–2 bases.
+	 * Uses character translation, so N is treated as A rather than producing X.
 	 * @param bases DNA sequence string
 	 * @return Amino acid sequence string
 	 */
@@ -1010,7 +1027,8 @@ public final class AminoAcid {
 
 	/**
 	 * Translates DNA sequence to amino acids in all six reading frames.
-	 * Returns array with frames 0-2 for forward strand, 3-5 for reverse complement.
+	 * Returns frames 0–2 for the forward strand, 3–5 for its reverse complement.
+	 * Null/short input yields six null entries; frames with no complete codon are null.
 	 * @param bases DNA sequence to translate
 	 * @return Array of 6 amino acid sequences, one per reading frame
 	 */
@@ -1030,7 +1048,10 @@ public final class AminoAcid {
 
 	/**
 	 * Computes quality scores for six-frame amino acid translation.
-	 * Quality of each amino acid is product of constituent base qualities.
+	 * Converts the product of three base-correctness probabilities back to Phred.
+	 * Temporarily reverses quals in place for reverse frames, restoring on normal
+	 * completion; callers must exclude concurrent access. Offset addition uses byte
+	 * arithmetic without clamping. Null/short input yields six null entries.
 	 *
 	 * @param quals Quality scores for DNA bases
 	 * @param offset Quality score offset to apply to results
@@ -1068,7 +1089,7 @@ public final class AminoAcid {
 	 *
 	 * @param bases DNA sequence to translate
 	 * @param frame Reading frame (0, 1, or 2)
-	 * @return Amino acid sequence in the specified frame
+	 * @return New amino array, or null for null input or no complete codon in the frame
 	 */
 	public static final byte[] toAAs(byte[] bases, int frame){
 		assert(frame>=0 && frame<3);
@@ -1118,11 +1139,11 @@ public final class AminoAcid {
 
 	/**
 	 * Computes amino acid quality scores for specific reading frame.
-	 * Quality is product of three consecutive base quality probabilities.
+	 * Multiplies three correctness probabilities and converts the product back to Phred.
 	 *
-	 * @param quals Quality scores for DNA bases
+	 * @param quals Nonnull scores indexing QualityTools.PROB_CORRECT
 	 * @param frame Reading frame (0, 1, or 2)
-	 * @return Quality scores for amino acids in the specified frame
+	 * @return New quality array, or null if the frame contains no complete triplet
 	 */
 	public static final byte[] toAAQuality(byte[] quals, int frame){
 		assert(frame>=0 && frame<3);
@@ -1151,9 +1172,12 @@ public final class AminoAcid {
 
 	/**
 	 * Converts amino acid sequence back to canonical nucleotide codons.
-	 * Uses the canonical (first) codon for each amino acid.
-	 * @param aminos Amino acid sequence
-	 * @return DNA sequence using canonical codons
+	 * Uses the canonical (first) codon for each amino acid and NNN when no canonical
+	 * codon is assigned. This is a representative encoding, not recovery of the original DNA.
+	 * Uses cached standard DNA spellings when numberToBase is A/C/G/T. A caller's
+	 * nonstandard alphabet is read through a slower fallback, preserving table substitution.
+	 * @param aminos ASCII amino acid sequence, or null
+	 * @return Newly allocated DNA sequence using canonical codons, or null for null input
 	 */
 	public static final byte[] toNTs(final byte[] aminos){
 		if(aminos==null){return null;}
@@ -1161,30 +1185,48 @@ public final class AminoAcid {
 		final int blen=alen*3;
 
 		final byte[] out=KillSwitch.allocByte1D(blen);
+		if(numberToBase[0]!='A' || numberToBase[1]!='C' || numberToBase[2]!='G' || numberToBase[3]!='T'){
+			fillCodonsFromCurrentAlphabet(aminos, out);
+			return out;
+		}
 		for(int i=0, j=0; i<alen; i++, j+=3){
-			int code=aminoToCode[aminos[i]];
-			out[j+2]=numberToBase[(code&3)];
-			out[j+1]=numberToBase[((code>>2)&3)];
-			out[j]=numberToBase[((code>>4)&3)];
+			final int packed=PACKED_CODON_BASES[aminoToCode[aminos[i]]&255];
+			out[j]=(byte)(packed>>>16);
+			out[j+1]=(byte)(packed>>>8);
+			out[j+2]=(byte)packed;
 		}
 		return out;
 	}
 
+	/** Preserves public alphabet substitutions without putting their checks in the usual per-residue loop. */
+	private static void fillCodonsFromCurrentAlphabet(byte[] aminos, byte[] out){
+		assert(out.length==aminos.length*3) : "Backtranslation output must reserve three bytes per residue";
+		for(int i=0, j=0; i<aminos.length; i++, j+=3){
+			final int code=aminoToCode[aminos[i]];
+			if(code<0 || code>63){out[j]=out[j+1]=out[j+2]='N';}
+			else{
+				out[j]=numberToBase[(code>>>4)&3];
+				out[j+1]=numberToBase[(code>>>2)&3];
+				out[j+2]=numberToBase[code&3];
+			}
+		}
+	}
+
 	/**
-	 * Checks if binary k-mer represents a homopolymer sequence.
-	 * Uses bit-shifting patterns to detect repetitive sequences efficiently.
+	 * Tests for a repeating period up to maxRepeat bases, not just one-base homopolymers.
+	 * Requires a right-aligned nonnegative encoding with k in 1..15 for this int/shift method.
 	 *
 	 * @param kmer Binary k-mer representation
 	 * @param k Length of k-mer
 	 * @param maxRepeat Maximum repeat length to check for
 	 * @return true if k-mer contains repeats up to maxRepeat length
 	 */
-	public static final boolean isHomopolymer(int kmer, int k, int maxRepeat) {
-		if(maxRepeat<1) {return false;}
+	public static final boolean isHomopolymer(int kmer, int k, int maxRepeat){
+		if(maxRepeat<1){return false;}
 		final int mask=~((-1)<<(2*k));
 		final int inv=(~kmer)&mask;
 		boolean polymer=false;
-		for(int i=1; i<=maxRepeat && !polymer; i++) {
+		for(int i=1; i<=maxRepeat && !polymer; i++){
 			int shift=2*i;
 			polymer=(kmer==(kmer|(kmer>>shift))) && (inv==(inv|(inv>>shift)));
 		}
@@ -1209,7 +1251,7 @@ public final class AminoAcid {
 		return r;
 	}
 
-	static {
+	static{
 
 		for(int i=0; i<uToT.length; i++){uToT[i]=(byte)i;}
 		uToT['u']='t';
@@ -1236,11 +1278,10 @@ public final class AminoAcid {
 		dotDashXToNocallAA['x']='X';
 
 		for(int i=0; i<toUpperCase.length; i++){
-			toUpperCase[i]=(byte) ((i>='a' && i<='z') ? i-32 : i);
+			toUpperCase[i]=(byte)((i>='a' && i<='z') ? i-32 : i);
 			lowerCaseToNocall[i]=((i>='a' && i<='z') ? (byte)'N' : (byte)i);
 			lowerCaseToNocallAA[i]=((i>='a' && i<='z') ? (byte)'.' : (byte)i);
 		}
-
 
 		Arrays.fill(baseToACGTN, (byte)'N');
 		Arrays.fill(baseToNumberExtended, (byte)-1);
@@ -1330,7 +1371,6 @@ public final class AminoAcid {
 		baseToComplementExtended['-']=(byte)'-';
 		baseToComplementExtended['*']=(byte)'*';
 		baseToComplementExtended['.']=(byte)'.';
-
 
 		AlphabeticalAAs[0]=Alanine;
 		AlphabeticalAAs[1]=Arginine;
@@ -1463,5 +1503,21 @@ public final class AminoAcid {
 		baseToHashcode['T']=baseToHashcode['t']=0b1010010;
 		baseToHashcode['U']=baseToHashcode['u']=baseToHashcode['T'];
 	}
+
+	/** Snapshots canonical DNA spellings after the shared codon-string table is initialized.
+	 * Every unsigned byte code outside 0..63 maps to NNN, including -1 encoded as 255. */
+	private static int[] makePackedCodonBases(){
+		final int[] packed=new int[256];
+		Arrays.fill(packed, ('N'<<16)|('N'<<8)|'N');
+		for(int code=0; code<64; code++){
+			final String codon=codonToString[code];
+			assert(codon!=null && codon.length()==3) : "Packed backtranslation requires the initialized three-base codon spelling: code="+code;
+			packed[code]=(codon.charAt(0)<<16)|(codon.charAt(1)<<8)|codon.charAt(2);
+		}
+		return packed;
+	}
+
+	/** Immutable private snapshot of codon bases, initialized after the shared alphabet tables. */
+	private static final int[] PACKED_CODON_BASES=makePackedCodonBases();
 
 }

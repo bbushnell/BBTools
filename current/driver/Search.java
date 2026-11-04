@@ -137,6 +137,16 @@ public class Search {
 		return result;
 	}
 	
+	/**
+	 * Tests whether the inclusive interval [p-thresh, p+thresh] intersects any range.
+	 * Ranges must be nonnull, sorted and nonoverlapping; an empty array returns false.
+	 * Endpoint arithmetic is widened so thresholds can extend beyond signed int coordinates.
+	 * Only the containing/preceding range and its successor need to be examined.
+	 * @param p Query coordinate
+	 * @param array Sorted, nonoverlapping inclusive ranges; not modified
+	 * @param thresh Nonnegative distance on either side of p
+	 * @return true if any range is within the inclusive distance threshold
+	 */
 	public static boolean containsPointBinary(int p, Range[] array, int thresh){
 		assert(array!=null);
 		//n GOOD (studied praise / contrast to #001): THIS sibling guards empty correctly — returns false, never indexes.
@@ -144,7 +154,7 @@ public class Search {
 		if(array.length==0){return false;}
 		int rnum=findPointBinary(p, 0, max(0, array.length-1), array);
 		
-		int p1=p-thresh, p2=p+thresh;
+		final long p1=(long)p-thresh, p2=(long)p+thresh;
 		Range r=array[rnum];
 		if(p2>=r.a && p1<=r.b){return true;}
 		
@@ -155,7 +165,7 @@ public class Search {
 		
 		Range r2=array[rnum+1];
 		assert(r2.a>p) : "\n\n"+p+"\t"+rnum+"/"+array.length+"\t"+r+"\n\n"; //Otherwise, it violated the search contract.
-		return (p2>=r.a && p1<=r.b);
+		return (p2>=r2.a && p1<=r2.b);
 	}
 	
 	public static int findPointBinary(int p, int a, int b, Range[] array){
@@ -174,7 +184,8 @@ public class Search {
 			return a;
 		}
 		
-		int mid=(a+b)/2;
+		//Nonnegative array indices can overflow their signed sum; unsigned halving preserves the midpoint.
+		int mid=(a+b)>>>1;
 		Range r=array[mid];
 		
 		if(r.a>p){

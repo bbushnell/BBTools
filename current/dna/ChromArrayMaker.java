@@ -19,35 +19,44 @@ import stream.FastaReadInputStream;
 import stream.Read;
 
 /**
- * Replaces FastaToChromArrays with a more general solution that can handle fastq.
+ * Legacy FASTA/FASTQ-to-chromosome converter using a read-stream wrapper.
+ * Copies sequence bases into chromosome arrays; input qualities are not retained.
+ * Configuration and published metadata are shared static state, so callers must
+ * serialize use. Several temporary input settings are restored only on normal return.
  *
  * Note: this class currently has NO callers tree-wide (no .sh, no importers); the live
  * canonical reference indexer is {@link FastaToChromArrays2} (used by BBMap5, RefToIndex,
  * Data, AssemblyStats2, etc.). Its makeNextChrom is the un-hardened predecessor of
  * FastaToChromArrays2's and lacks that class's later oversize-scaffold guards (its #001
  * KillSwitch.kill on scaffolds &gt; MAX_SINGLE_SCAFFOLD, #002 minscaf on carried scaffolds,
- * #003 single-large-scaffold-own-chrom): here the oversize check is a bare assert (crash-loud
- * under -ea, but no KillSwitch and no MAX_SINGLE_SCAFFOLD). Prefer FastaToChromArrays2 for edits.
+ * #003 single-large-scaffold-own-chrom): here the oversize check is a bare assert.
+ * An assertion can leave already-started writers waiting; there is no KillSwitch
+ * or MAX_SINGLE_SCAFFOLD handling here. Preserve this legacy implementation separately
+ * from the live converter rather than assuming equivalent boundary behavior.
  * @author Brian Bushnell
  * @date Jul 18, 2014
  *
  */
-public class ChromArrayMaker {
-	
+public class ChromArrayMaker{
+
 //	Example:
 //	dna.ChromArrayMaker ecoli_K12.fa 1 writeinthread=false genscaffoldinfo=true retain waitforwriting=false
 //	gzip=true chromc=false maxlen=536670912 writechroms=true minscaf=1 midpad=300 startpad=8000 stoppad=8000 nodisk=false
-	
+
 	/** Program entry point that delegates to main2.
 	 * @param args Command-line arguments for chromosome array creation */
 	public static void main(String[] args){
 		main2(args);
 	}
-	
+
 	/**
 	 * Main processing method that parses arguments and creates chromosome arrays.
-	 * Handles argument parsing, validates inputs, and coordinates the conversion process.
-	 * Can optionally retain chromosome arrays in memory or write information files only.
+	 * Supports named options and legacy positional input/build/chromosome-count arguments.
+	 * NODISK redirects metadata into static lists; writechroms independently controls
+	 * chromosome-object output. RETAIN controls the returned list, including an empty
+	 * list in writeinfo mode. FASTQ pairing detection is disabled during conversion.
+	 * Shared path/compression/conversion options persist after the call; WRITE_IN_THREAD
+	 * and pairing flags are restored only when control reaches their normal cleanup.
 	 *
 	 * @param args Command-line arguments including input file, genome build, and options
 	 * @return ArrayList of ChromosomeArray objects if RETAIN=true, null otherwise
@@ -59,10 +68,10 @@ public class ChromArrayMaker {
 			args=pp.args;
 			//outstream=pp.outstream;
 		}
-		
+
 		boolean oldWIT=WRITE_IN_THREAD;
 		WRITE_IN_THREAD=true;
-		
+
 		String name=null;
 		int genome=-1;
 		int chroms=-1;
@@ -71,9 +80,9 @@ public class ChromArrayMaker {
 		boolean genScaffoldInfo=true;
 		boolean writeChroms=true;
 		boolean scafprefixes=Data.scaffoldPrefixes;
-		
+
 		for(int i=0; i<args.length; i++){
-			
+
 			final String arg=args[i];
 			final String[] split=arg.split("=");
 			String a=split[0].toLowerCase();
@@ -138,17 +147,17 @@ public class ChromArrayMaker {
 				}
 			}
 		}
-		
+
 		WAIT_FOR_WRITING=(WAIT_FOR_WRITING || ReadWrite.USE_GZIP || ReadWrite.USE_PIGZ);
-		
+
 		ArrayList<ChromosomeArray> r=RETAIN ? new ArrayList<ChromosomeArray>() : null;
-		
+
 //		assert(false) : Arrays.toString(args);
 //		assert(RETAIN);
-		
+
 		if(genome<0){genome=Integer.parseInt(args[1]);} //Legacy
 		if(genome<0){throw new RuntimeException("Please specify a genome build number.");}
-		
+
 		if(writeinfo){
 			if(chroms<0){chroms=Integer.parseInt(args[2]);} //Legacy
 			if(chroms<0){throw new RuntimeException("Please the number of chroms.");}
@@ -165,10 +174,12 @@ public class ChromArrayMaker {
 				}
 			}
 			String outRoot=Data.ROOT_GENOME+genome+"/";
-			
+
 			ChromArrayMaker ftca=new ChromArrayMaker();
-			
+
 			{
+				//TODO: Probable bug (DNA-018) - exceptions skip restoration of pairing and
+				//other temporary input settings. No production callers found; repair needs a bounded failure test.
 				boolean oldTI=FASTQ.TEST_INTERLEAVED;
 				boolean oldFI=FASTQ.FORCE_INTERLEAVED;
 				FASTQ.TEST_INTERLEAVED=false;
@@ -178,21 +189,22 @@ public class ChromArrayMaker {
 				FASTQ.FORCE_INTERLEAVED=oldFI;
 			}
 		}
-		
+
 		WRITE_IN_THREAD=oldWIT;
 		return r;
 	}
-	
+
 	/** Private constructor to prevent external instantiation */
 	private ChromArrayMaker(){}
-	
-	
+
 	/**
 	 * Analyzes a chromosome array to count contigs, bases, and padding information.
-	 * Scans through the array to identify defined vs undefined bases and contig boundaries.
+	 * Scans coordinates zero through the inclusive maximum. A new contig starts when
+	 * consecutive defined-base positions differ by more than contigTrigger. Fully
+	 * undefined arrays have zero contigs and zero reported terminal padding.
 	 *
 	 * @param ca The chromosome array to analyze
-	 * @return Array containing [chromosome, scaffolds, contigs, length, defined,
+	 * @return Array containing [chromosome, 1, contigs, length, defined,
 	 * undefined, startPad, stopPad]
 	 */
 	private static int[] countInfo(ChromosomeArray ca){
@@ -201,10 +213,10 @@ public class ChromArrayMaker {
 		int stopPad=0;
 		int undefined=0;
 		int defined=0;//=ca.countDefinedBases();
-		
+
 		int lastN=-1;
 		int lastDef=-1;
-		
+
 		for(int i=0; i<=ca.maxIndex; i++){
 			byte b=ca.get(i);
 			if(AminoAcid.isFullyDefined(b)){
@@ -217,57 +229,58 @@ public class ChromArrayMaker {
 				undefined++;
 			}
 		}
-		
+
 		if(contigs>0 && lastN==ca.maxIndex){
 			stopPad=lastN-lastDef;
 		}else{
 //			System.err.println(lastN+", "+lastDef+", "+ca.maxIndex);
 		}
-		
+
 		return new int[] {ca.chromosome, 1, contigs, (ca.maxIndex+1), defined, undefined, startPad, stopPad};
 	}
-	
+
 	/**
 	 * Writes chromosome information and summary files for an existing genome build.
-	 * Deprecated method that processes already-created chromosome arrays to generate metadata.
+	 * Replaces Data's genome build and chromosome cache, then reads existing arrays.
+	 * Each chromosome is counted as one scaffold. Joins the info writer on normal
+	 * completion, but currently does not check its retained error state.
 	 *
 	 * @param genome Genome build number
 	 * @param chroms Number of chromosomes to process
 	 * @param name Organism name for summary file
 	 * @param source Source file path for summary file
 	 * @param unload Whether to unload chromosome arrays after processing
-	 * @param scafNamePrefix Whether scaffold names include prefixes
+	 * @param scafNamePrefix Value recorded as the summary's scaffold-prefix flag
 	 * @deprecated Use makeChroms method instead for new conversions
 	 */
 	@Deprecated
 	public static void writeInfo(int genome, int chroms, String name, String source, boolean unload, boolean scafNamePrefix){
 		Data.GENOME_BUILD=genome;
 		Data.chromosomePlusMatrix=new ChromosomeArray[chroms+1];
-				
+
 		String outRoot=Data.ROOT_GENOME+genome+"/";
 		TextStreamWriter info=new TextStreamWriter(outRoot+"info.txt", true, false, false);
 		info.start();
 		info.print("#Chromosome sizes\n");
-		try {
+		try{
 			info.print("#Generated on\t"+new Date()+"\n");
-		} catch (Exception e) {
+		}catch(Exception e){
 			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
 		info.print("#Version\t"+VERSION+"\n");
 		info.print("#chrom\tscaffolds\tcontigs\tlength\tdefined\tundefined\tstartPad\tstopPad\n");
-		
-		
+
 		long bases=0;
 		long definedBases=0;
-		
+
 		long contigSum=0;
-		
+
 		for(int chrom=1; chrom<=chroms; chrom++){
 			ChromosomeArray ca=Data.getChromosome(chrom);
 			int[] v=countInfo(ca);
 			info.print(v[0]+"\t"+v[1]+"\t"+v[2]+"\t"+v[3]+"\t"+v[4]+"\t"+v[5]+"\t"+v[6]+"\t"+v[7]+"\n");
-			
+
 			bases+=v[3];
 			definedBases+=v[4];
 			contigSum+=v[2];
@@ -276,9 +289,9 @@ public class ChromArrayMaker {
 		info.poison();
 		StringBuilder sb=new StringBuilder();
 		sb.append("#Summary\n");
-		try {
+		try{
 			sb.append("#Generated on\t"+new Date()+"\n");
-		} catch (Exception e) {
+		}catch(Exception e){
 			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
@@ -295,25 +308,30 @@ public class ChromArrayMaker {
 		if(scafNamePrefix){sb.append("scafprefixes\t"+scafNamePrefix+"\n");}//else{assert(false);}
 		ReadWrite.writeString(sb, outRoot+"summary.txt", false);
 		info.waitForFinish();
+		//TODO: Probable bug (DNA-017) - joining does not propagate info.errorState.
 	}
-	
+
 	/**
 	 * Creates chromosome arrays from input FASTA/FASTQ file with configurable options.
 	 * Reads sequences, applies padding, merges scaffolds based on settings, and writes output files.
-	 * Generates info.txt, scaffolds.txt.gz, summary.txt, and individual chromosome files.
+	 * Metadata goes to files or static lists according to NODISK; writeChroms separately
+	 * requests background serialization. With overwrite enabled, existing chromosome
+	 * and selected index files are removed before conversion. The input wrapper closes
+	 * itself at exhaustion. Metadata writers are joined on normal completion, but
+	 * retained reader/writer errors are not currently checked before publishing summary.
 	 *
 	 * @param fname Input FASTA or FASTQ file path
-	 * @param outRoot Output directory root path
+	 * @param outRoot Output directory path ending in a separator
 	 * @param genomeName Organism name for metadata files
 	 * @param genScaffolds Whether to generate scaffold information file
 	 * @param writeChroms Whether to write individual chromosome array files
-	 * @param r ArrayList to store chromosome arrays if RETAIN=true
-	 * @param scafNamePrefix Whether to include scaffold name prefixes in output
+	 * @param r Mutable destination list, required when RETAIN=true
+	 * @param scafNamePrefix Flag recorded in summary metadata; does not rewrite read IDs
 	 * @return Number of chromosomes created
 	 */
 	private int makeChroms(String fname, String outRoot, String genomeName, boolean genScaffolds, boolean writeChroms, ArrayList<ChromosomeArray> r,
 			boolean scafNamePrefix){
-		
+
 		if(!NODISK){
 			File f=new File(outRoot);
 			if(!f.exists()){
@@ -327,7 +345,7 @@ public class ChromArrayMaker {
 					}
 				}
 			}
-			
+
 			f=new File(outRoot.replace("ref/genome/", "ref/index/"));
 			if(!f.exists()){
 				if(!NODISK){f.mkdirs();}
@@ -341,28 +359,27 @@ public class ChromArrayMaker {
 				}
 			}
 		}
-		
+
 		final FileFormat ffin=FileFormat.testInput(fname, FileFormat.FASTA, null, true, true);
-		
+
 		final boolean OLD_SPLIT_READS=FastaReadInputStream.SPLIT_READS;
 		FastaReadInputStream.SPLIT_READS=false;
 		final int oldNum=Shared.numBuffers();
 		Shared.setBuffers(4);
 		final CrisWrapper criswrapper=new CrisWrapper(-1, false, ffin, null, null, null);
 		Shared.setBuffers(oldNum);
-		
-		
+
 		int chrom=1;
-		
+
 		TextStreamWriter infoWriter=null, scafWriter=null;
 		ArrayList<String> infolist=null, scaflist=null;
 
 		if(NODISK){
 			infolist=new ArrayList<String>();
 			infolist.add("#Chromosome sizes");
-			try {
+			try{
 				infolist.add("#Generated on\t"+new Date());
-			} catch (Exception e1) {
+			}catch(Exception e1){
 				e1.printStackTrace();
 			}
 			infolist.add("#Version\t"+VERSION);
@@ -371,24 +388,24 @@ public class ChromArrayMaker {
 			infoWriter=new TextStreamWriter(outRoot+"info.txt", true, false, false);
 			infoWriter.start();
 			infoWriter.print("#Chromosome sizes\n");
-			try {
+			try{
 				//			System.err.println(new Date());
 				infoWriter.print("#Generated on\t"+new Date()+"\n");
-			} catch (Exception e1) {
+			}catch(Exception e1){
 				// TODO Auto-generated catch block
 				e1.printStackTrace();
 			}
 			infoWriter.print("#Version\t"+VERSION+"\n");
 			infoWriter.print("#chrom\tscaffolds\tcontigs\tlength\tdefined\tundefined\tstartPad\tstopPad\n");
 		}
-		
+
 		if(genScaffolds){
 			if(NODISK){
 				scaflist=new ArrayList<String>();
 				scaflist.add("#Scaffold names");
-				try {
+				try{
 					scaflist.add("#Generated on\t"+new Date());
-				} catch (Exception e) {
+				}catch(Exception e){
 					// TODO Auto-generated catch block
 					e.printStackTrace();
 				}
@@ -399,9 +416,9 @@ public class ChromArrayMaker {
 				scafWriter=new TextStreamWriter(outRoot+"scaffolds.txt.gz", true, false, false);
 				scafWriter.start();
 				scafWriter.print("#Scaffold names\n");
-				try {
+				try{
 					scafWriter.print("#Generated on\t"+new Date()+"\n");
-				} catch (Exception e) {
+				}catch(Exception e){
 					// TODO Auto-generated catch block
 					e.printStackTrace();
 				}
@@ -409,13 +426,12 @@ public class ChromArrayMaker {
 				scafWriter.print("#chrom\tid\tstart\tlength\tname\n");
 			}
 		}
-		
-		
+
 		for(ChromosomeArray ca=makeNextChrom(criswrapper, chrom, infoWriter, scafWriter, infolist, scaflist); ca!=null;
 				ca=makeNextChrom(criswrapper, chrom, infoWriter, scafWriter, infolist, scaflist)){
 			if(ca.array.length>ca.maxIndex+1){ca.resize(ca.maxIndex+1);}
 			if(RETAIN){r.add(ca);}
-			
+
 			if(writeChroms){
 				String x=outRoot+"chr"+chrom+Data.chromExtension();
 				if(new File(x).exists() && !overwrite){throw new RuntimeException("Tried to overwrite existing file "+x+", but overwrite=false.");}
@@ -424,20 +440,23 @@ public class ChromArrayMaker {
 			}
 			chrom++;
 		}
-		
+
+		//TODO: Probable bug (DNA-017) - CrisWrapper.errorState and the metadata writers'
+		//errorState are ignored, so close failures can still publish a completion summary.
+		//No production caller found; the live FastaToChromArrays2 repair is separate.
 		FastaReadInputStream.SPLIT_READS=OLD_SPLIT_READS;
-		
+
 		if(infoWriter!=null){infoWriter.poison();}
 		if(scafWriter!=null){
 			//System.err.println("*123 Killing ScafWriter; "+ReadWrite.countActiveThreads()+", "+ReadWrite.USE_GZIP+", "+ReadWrite.USE_PIGZ);
 			scafWriter.poison();
 		}
-		
+
 		StringBuilder sb=new StringBuilder();
 		sb.append("#Summary\n");
-		try {
+		try{
 			sb.append("#Generated on\t"+new Date()+"\n");
-		} catch (Exception e1) {
+		}catch(Exception e1){
 			// TODO Auto-generated catch block
 			e1.printStackTrace();
 		}
@@ -454,9 +473,9 @@ public class ChromArrayMaker {
 		if(fname!=null){
 			File f=new File(fname);
 			String cpath=null;
-			try {
+			try{
 				cpath=f.getCanonicalPath();
-			} catch (IOException e) {
+			}catch(IOException e){
 				cpath=f.getAbsolutePath();
 			}
 			sb.append("source\t"+cpath+"\n");
@@ -471,14 +490,14 @@ public class ChromArrayMaker {
 		}else{
 			ReadWrite.writeString(sb, outRoot+"summary.txt", false);
 		}
-		
+
 		if(infoWriter!=null){infoWriter.waitForFinish();}
 		if(scafWriter!=null){
 			//System.err.println("*123 Waiting For ScafWriter; "+ReadWrite.countActiveThreads()+", "+ReadWrite.USE_GZIP+", "+ReadWrite.USE_PIGZ);
 			scafWriter.waitForFinish();
 			//System.err.println("*123 ScafWriter Finished; "+ReadWrite.countActiveThreads()+", "+ReadWrite.USE_GZIP+", "+ReadWrite.USE_PIGZ);
 		}
-		
+
 		if(WAIT_FOR_WRITING && ReadWrite.countActiveThreads()>0){
 			System.err.println("Waiting for writing to finish.");
 			ReadWrite.waitForWritingToFinish();
@@ -494,15 +513,18 @@ public class ChromArrayMaker {
 			SCAF_LIST=scaflist;
 			LISTBUILD=Data.GENOME_BUILD;
 		}else{SCAF_LIST=null;}
-		
+
 		return chrom-1;
 	}
-	
+
 	/**
 	 * Creates a single chromosome array by reading and merging scaffolds from input.
 	 * Applies start padding, merges scaffolds based on length limits and settings,
 	 * and applies end padding.
-	 * Updates cumulative statistics and writes scaffold information.
+	 * Updates cumulative statistics and writes scaffold information. currentScaffold
+	 * carries one unconsumed read across calls when a packing boundary is reached.
+	 * The carried-read path does not apply MIN_SCAFFOLD, and a first oversized read
+	 * can return null before it is consumed; these are legacy limitations, not guarantees.
 	 *
 	 * @param criswrapper Input stream wrapper for reading sequences
 	 * @param chrom Chromosome number being created
@@ -517,14 +539,14 @@ public class ChromArrayMaker {
 		ChromosomeArray ca=new ChromosomeArray(chrom, (byte)Shared.PLUS, 0, 120000+START_PADDING);
 		ca.maxIndex=-1;
 		for(int i=0; i<START_PADDING; i++){ca.set(i, 'N');}
-		
+
 		if(verbose){System.err.println("chrom="+chrom+", currentScaffold="+(currentScaffold==null ? "null" : currentScaffold.id));}
-		
+
 		int scaffolds=0;
 		if(currentScaffold!=null && currentScaffold.length()>0){
 			assert(currentScaffold.length()>0);
 			assert(currentScaffold.length()+END_PADDING+ca.maxIndex<MAX_LENGTH);
-			
+
 			if(verbose){System.err.println("A: Writing a scaffold because currentScaffold = "+currentScaffold);}
 			scaffoldSum++;
 			if(scafWriter!=null){scafWriter.print(chrom+"\t"+scaffoldSum+"\t"+(ca.maxIndex+1)+"\t"+currentScaffold.length()+"\t"+currentScaffold.id+"\n");}
@@ -534,14 +556,14 @@ public class ChromArrayMaker {
 			}
 			ca.set(ca.maxIndex+1, currentScaffold.bases);
 			scaffolds++;
-			
+
 			currentScaffold=null;
 		}
-		
+
 		while((currentScaffold=criswrapper.next())!=null){
 			if(currentScaffold.length()+MID_PADDING+END_PADDING+ca.maxIndex>MAX_LENGTH){break;}
 			if(scaffolds>0 && !MERGE_SCAFFOLDS){break;}
-			
+
 			if(scaffolds>0){
 				for(int i=0; i<MID_PADDING; i++){
 					ca.set(ca.maxIndex+1, 'N');
@@ -560,11 +582,11 @@ public class ChromArrayMaker {
 			}
 			currentScaffold=null;
 		}
-		
+
 //		if(verbose){System.err.println("lastHeader="+lastHeader);}
-		
+
 		if(scaffolds==0){return null;}
-		
+
 		if(END_PADDING>0){
 			int terminalN=0;
 			for(int i=ca.maxIndex; i>=0 && terminalN<END_PADDING; i--){
@@ -579,7 +601,7 @@ public class ChromArrayMaker {
 			}
 //			System.err.println("\nAdded Ns: ref.length="+ca.maxIndex);
 		}
-		
+
 		int[] v=countInfo(ca);
 		v[6]=Tools.max(0, Tools.min(START_PADDING, v[6])); //In case input scaffolds had leading undefined bases
 		v[7]=Tools.max(0, Tools.min(END_PADDING, v[7])); //In case input scaffolds had trailing undefined bases
@@ -597,13 +619,13 @@ public class ChromArrayMaker {
 
 		assert((definedSum+undefinedSum)==lengthSum) : definedSum+", "+undefinedSum+", "+lengthSum+
 			"; "+ca.countDefinedBases()+", "+(ca.maxIndex+1)+"\n"+ca.getString(0, ca.maxIndex);
-		
+
 		return ca;
 	}
-	
+
 //	private String lastHeader;
 //	private String nextHeader;
-	/** Current scaffold being processed from input stream */
+	/** Pending input read, retained across chromosome boundaries; only its bases and ID are used. */
 	private Read currentScaffold;
 	/** Running total of scaffolds processed across all chromosomes */
 	private long scaffoldSum=0;
@@ -615,48 +637,49 @@ public class ChromArrayMaker {
 	private long undefinedSum=0;
 	/** Running total of contigs across all chromosomes */
 	private long contigSum=0;
-	
-	
+
 	/** Returns the current version number for chromosome array format */
 	public static final int currentVersion(){return VERSION;}
-	
+
 	/** Whether to merge multiple scaffolds into single chromosomes */
 	public static boolean MERGE_SCAFFOLDS=true;
-	/** Whether to write chromosome files in background threads */
+	/** Legacy parsed option; chromosome output uses the background writer regardless of this value. */
 	public static boolean WRITE_IN_THREAD=false;
 	/** Whether to overwrite existing output files */
 	public static boolean overwrite=true;
-	/** Whether to append to existing files instead of overwriting */
+	/** Legacy parsed option; not consulted by this implementation's output calls. */
 	public static boolean append=false;
 	/** Number of N bases to add at the start of each chromosome */
 	public static int START_PADDING=8000; //Always applied
 	/** Number of N bases to insert between merged scaffolds */
 	public static int MID_PADDING=300; //Applied when merging scaffolds
-	/** Minimum number of N bases to ensure at the end of each chromosome */
-	public static int END_PADDING=8000; //Only applied if not enough terminal Ns
-	/** Minimum scaffold length to include in chromosome arrays */
+	/** Legacy terminal-padding threshold; extension uses an inclusive comparison and a length cap. */
+	public static int END_PADDING=8000;
+	/** Minimum length for newly read scaffolds; the carried-over path currently bypasses this filter. */
 	public static int MIN_SCAFFOLD=1;
 	/** Gap size threshold for counting separate contigs within scaffolds */
 	public static int contigTrigger=10;
 	/** Version number for chromosome array format compatibility */
 	public static int VERSION=5;
-	/** Maximum allowed length for a single chromosome array */
+	/** Legacy packing threshold; not an unconditional bound for every input/parameter combination. */
 	public static int MAX_LENGTH=(1<<29)-200000;
-	
+
 	/** Whether to print detailed processing information */
 	public static boolean verbose=false;
 	/** Whether to keep chromosome arrays in memory after creation */
 	public static boolean RETAIN=false;
 	/**
-	 * Whether to wait for all file writing operations to complete before exiting
+	 * Whether to wait for the shared background object-writer counter after metadata output.
+	 * main2 also enables this when gzip or pigz output is enabled.
 	 */
 	public static boolean WAIT_FOR_WRITING=true;
-	/** Whether to skip disk operations and keep all data in memory */
+	/** Redirects metadata to memory and skips directory cleanup; writeChroms remains independent. */
 	public static boolean NODISK=false;
 	/** Genome build number associated with the in-memory lists */
 	public static int LISTBUILD=-1;
+	/** Shared metadata destinations; updated on normal completion and not thread-safe. */
 	public static ArrayList<String> INFO_LIST, SCAF_LIST, SUMMARY_LIST;
-	
+
 //	public static boolean GENERATE_SCAFFOLD_INFO=true;
-	
+
 }

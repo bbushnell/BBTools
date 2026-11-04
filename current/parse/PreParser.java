@@ -45,7 +45,7 @@ public class PreParser{
 	}
 	
 	/**
-	 * Primary constructor that pre-parses command line arguments.
+	 * Pre-parses command line arguments with legacy normalization defaults.
 	 * Handles leading hyphens, Java flags, output stream redirection, and help/version info.
 	 * Sets up JSON output mode if requested and initializes the filtered argument array.
 	 *
@@ -59,6 +59,27 @@ public class PreParser{
 	public PreParser(final String[] args0, PrintStream defaultPrintStream,
 			final Class<?> c, boolean printVersion, boolean removeKnown,
 			boolean autoExit){
+		this(args0, defaultPrintStream, c, printVersion, removeKnown, autoExit, false);
+	}
+
+	/**
+	 * Pre-parses options, optionally preserving signs on positional integers.
+	 * Existing constructors retain legacy leading-hyphen normalization. The opt-in
+	 * keeps a single minus followed by ASCII digits, including -0, without checking
+	 * numeric range. Other tokens still undergo normal option recognition and filtering.
+	 * Config expansion precedes this check, so retained numeric signs do not depend
+	 * on positional indices or on how many global options were removed.
+	 * @param args0 Original command line arguments
+	 * @param defaultPrintStream Print stream used unless overridden
+	 * @param c Caller class for identification
+	 * @param printVersion Whether to print the BBTools version
+	 * @param removeKnown Whether to remove options handled here when supported
+	 * @param autoExit Whether help/version handling may exit
+	 * @param preserveNumericSigns Whether bare minus-prefixed ASCII integers retain their sign
+	 */
+	public PreParser(final String[] args0, PrintStream defaultPrintStream,
+			final Class<?> c, boolean printVersion, boolean removeKnown,
+			boolean autoExit, boolean preserveNumericSigns){
 		original=args0;
 		if(Shared.COMMAND_LINE==null){Shared.COMMAND_LINE=(original==null ? null : original.clone());}
 		if(Shared.mainClass==null){Shared.mainClass=c;}
@@ -87,7 +108,8 @@ public class PreParser{
 //				while(a.charAt(0)=='-' && (a.indexOf('.')<0 || i>1 ||
 //						!new File(a).exists())){a=a.substring(1);} //Another possibility
 				
-				if(s.length()>0 && s.charAt(0)=='-'){
+				if(s.length()>0 && s.charAt(0)=='-' &&
+						!(preserveNumericSigns && isNegativeIntegerToken(s))){
 					int cnt=1;
 					while(cnt<s.length() && s.charAt(cnt)=='-'){cnt++;}
 					s=s.substring(cnt);
@@ -173,6 +195,16 @@ public class PreParser{
 		}
 	}
 	
+	/** True for a minus followed by one or more ASCII digits; does not parse a magnitude. */
+	private static boolean isNegativeIntegerToken(String s){
+		if(s.length()<2 || s.charAt(0)!='-'){return false;}
+		for(int i=1; i<s.length(); i++){
+			final char c=s.charAt(i);
+			if(c<'0' || c>'9'){return false;}
+		}
+		return true;
+	}
+
 	/**
 	 * Reports whether lowercase {@code amino} is explicitly enabled in an argument list.
 	 * Arguments with mixed-case names or names that merely start with {@code amino},

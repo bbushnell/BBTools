@@ -1,158 +1,151 @@
 package dna;
 
 /**
- * Abstract base class for sequence motif matching and analysis.
- * Provides methods for exact and extended motif matching in nucleotide sequences,
- * along with statistical analysis capabilities for motif strength evaluation.
+ * Base class for center-anchored sequence motif matching and scoring.
+ * A tested position identifies the motif's center; its start is position-center.
+ * Exact/extended matching and score interpretation depend on the subclass.
+ * Shared lookup/background arrays and the optional percentile array are mutable;
+ * this base class does not provide synchronization or universal thread safety.
  *
  * @author Brian Bushnell
  * @date 2013
  */
-public abstract class Motif {
-	
+public abstract class Motif{
+
 	/**
-	 * Constructs a Motif with specified parameters.
+	 * Stores the supplied geometry without validation and computes suffix=length-center-1.
 	 * @param name_ Name identifier for this motif
 	 * @param length_ Total length of the motif in bases
-	 * @param center_ Position of the central base (0-based indexing)
+	 * @param center_ Offset of the tested center from the motif start
 	 */
 	public Motif(String name_, int length_, int center_){
 		center=center_;
 		length=length_;
 		suffix=length-center-1;
 		name=name_;
-		
+
 //		assert(center>=0 && center<length);
 	}
-	
-	
+
 	/**
 	 * Counts exact matches of this motif in the entire string.
-	 * @param s The sequence string to search
+	 * @param s ASCII sequence converted using the default charset
 	 * @return Number of exact motif matches found
 	 */
 	public final int countExact(String s){
 		return countExact(s, 0, s.length());
 	}
-	
-	
+
 	/**
-	 * Counts exact matches of this motif within a substring range.
+	 * Counts exact matches using the byte-array method's center/right-edge bounds.
 	 *
-	 * @param s The sequence string to search
-	 * @param a Start position (inclusive)
-	 * @param b End position (exclusive)
+	 * @param s ASCII sequence converted using the default charset
+	 * @param a First candidate center, inclusive; the motif may start before a
+	 * @param b Inclusive rightmost sequence position allowed in a complete match
 	 * @return Number of exact motif matches found in the range
 	 */
 	public final int countExact(String s, int a, int b){
 		return countExact(s.getBytes(), a, b);
 	}
-	
-	
+
 	/**
 	 * Counts extended matches of this motif in the entire string.
-	 * Extended matching allows for ambiguous nucleotides and fuzzy matching.
-	 * @param s The sequence string to search
+	 * The subclass defines extended matching; it is not necessarily fuzzy matching.
+	 * @param s ASCII sequence converted using the default charset
 	 * @return Number of extended motif matches found
 	 */
 	public final int countExtended(String s){
 		return countExtended(s, 0, s.length());
 	}
-	
-	
+
 	/**
-	 * Counts extended matches of this motif within a substring range.
-	 * Extended matching allows for ambiguous nucleotides and fuzzy matching.
+	 * Counts extended matches using the byte-array method's center/right-edge bounds.
 	 *
-	 * @param s The sequence string to search
-	 * @param a Start position (inclusive)
-	 * @param b End position (exclusive)
+	 * @param s ASCII sequence converted using the default charset
+	 * @param a First candidate center, inclusive; the motif may start before a
+	 * @param b Inclusive rightmost sequence position allowed in a complete match
 	 * @return Number of extended motif matches found in the range
 	 */
 	public final int countExtended(String s, int a, int b){
 		return countExtended(s.getBytes(), a, b);
 	}
-	
-	
+
 	/**
 	 * Counts exact matches of this motif within a byte array range.
-	 * Scans through the specified range looking for positions where the motif
-	 * matches exactly at each position.
+	 * Tests centers from a through min(b, source.length-1)-length+1+center inclusive.
+	 * These are not half-open substring bounds: a is a center, while b bounds the
+	 * match's rightmost sequence position. Invalid left placements are delegated
+	 * to matchesExactly; supported concrete implementations reject them.
 	 *
 	 * @param source The sequence byte array to search
-	 * @param a Start position (inclusive)
-	 * @param b End position (exclusive)
+	 * @param a First candidate center, inclusive
+	 * @param b Inclusive right sequence boundary, clamped to the array's last index
 	 * @return Number of exact motif matches found in the range
 	 */
 	public final int countExact(byte[] source, int a, int b){
 
 		int max=min(b, source.length-1)-length+1+center; //+center: matchesExactly treats i as the center (start=i-center)
-		
+
 		int count=0;
-		
+
 		for(int i=a; i<=max; i++){
 			if(matchesExactly(source, i)){count++;}
 		}
-		
+
 		return count;
-		
+
 	}
-	
-	
+
 	/**
 	 * Counts extended matches of this motif within a byte array range.
-	 * Extended matching allows for ambiguous nucleotides and fuzzy matching.
-	 * Scans through the specified range looking for positions where the motif
-	 * matches in extended mode at each position.
+	 * Uses the same center/right-edge bounds as countExact; the subclass defines
+	 * extended-match semantics and must implement matchesExtended to support this.
 	 *
 	 * @param source The sequence byte array to search
-	 * @param a Start position (inclusive)
-	 * @param b End position (exclusive)
+	 * @param a First candidate center, inclusive
+	 * @param b Inclusive right sequence boundary, clamped to the array's last index
 	 * @return Number of extended motif matches found in the range
 	 */
 	public final int countExtended(byte[] source, int a, int b){
 
 		int max=min(b, source.length-1)-length+1+center; //+center: matchesExtended treats i as the center (start=i-center)
-		
+
 		int count=0;
-		
+
 		for(int i=a; i<=max; i++){
 			if(matchesExtended(source, i)){count++;}
 		}
-		
+
 		return count;
-		
+
 	}
-	
-	
+
 	/**
 	 * Tests if the motif matches exactly at a specific position.
-	 * Abstract method to be implemented by subclasses for exact matching logic.
+	 * Default implementation throws; subclasses override it when exact matching is supported.
 	 *
 	 * @param source The sequence byte array
-	 * @param a The position to test for a match
+	 * @param a Candidate center coordinate, not the match start
 	 * @return true if motif matches exactly at position a
 	 * @throws RuntimeException Always thrown in base class implementation
 	 */
 	public boolean matchesExactly(byte[] source, int a){
 		throw new RuntimeException();
 	}
-	
-	
+
 	/**
 	 * Tests if the motif matches in extended mode at a specific position.
-	 * Abstract method to be implemented by subclasses for extended matching logic.
-	 * Extended matching typically allows for ambiguous nucleotides.
+	 * Default implementation throws; subclasses override it when extended matching is supported.
 	 *
 	 * @param source The sequence byte array
-	 * @param a The position to test for a match
+	 * @param a Candidate center coordinate, not the match start
 	 * @return true if motif matches in extended mode at position a
 	 * @throws RuntimeException Always thrown in base class implementation
 	 */
 	public boolean matchesExtended(byte[] source, int a){
 		throw new RuntimeException();
 	}
-	
+
 	/**
 	 * Normalizes a strength value to a float.
 	 * Default implementation simply casts to float.
@@ -162,23 +155,22 @@ public abstract class Motif {
 	public float normalize(double strength){
 		return (float)strength;
 	}
-	
-	
+
 	/**
 	 * Calculates the match strength at a specific position.
 	 * Returns 1.0 for exact matches, 0.0 for no match.
 	 *
 	 * @param source The sequence byte array
-	 * @param a The position to evaluate
+	 * @param a Candidate center coordinate
 	 * @return Match strength (1.0 for exact match, 0.0 for no match)
 	 */
 	public float matchStrength(byte[] source, int a){
 		return(matchesExactly(source, a) ? 1 : 0);
 	}
-	
-	
+
 	/**
-	 * Finds the index of the minimum value in a float array.
+	 * Finds the first index reaching a strict minimum in a nonempty float array.
+	 * NaNs never win a comparison; a NaN at index zero keeps that index selected.
 	 * @param array The array to search
 	 * @return Index of the minimum value
 	 */
@@ -189,10 +181,10 @@ public abstract class Motif {
 		}
 		return pos;
 	}
-	
-	
+
 	/**
-	 * Finds the index of the maximum value in a float array.
+	 * Finds the first index reaching a strict maximum in a nonempty float array.
+	 * NaNs never win a comparison; a NaN at index zero keeps that index selected.
 	 * @param array The array to search
 	 * @return Index of the maximum value
 	 */
@@ -203,12 +195,12 @@ public abstract class Motif {
 		}
 		return pos;
 	}
-	
+
+	/** Formats the name, motif length and center offset. */
 	@Override
 	public String toString(){
 		return name+", "+length+", "+center;
 	}
-	
 
 	/** Name identifier for this motif */
 	public final String name;
@@ -222,7 +214,6 @@ public abstract class Motif {
 	 * Length of the suffix portion after the center position (length - center - 1)
 	 */
 	public final int suffix;
-	
 
 	/** Returns the smaller of two integers */
 	static final int min(int x, int y){return x<y ? x : y;}
@@ -232,7 +223,7 @@ public abstract class Motif {
 	static final float min(float x, float y){return x<y ? x : y;}
 	/** Returns the larger of two floats */
 	static final float max(float x, float y){return x>y ? x : y;}
-	
+
 	/** Array mapping numeric values to nucleotide bases */
 	static final byte[] numberToBase=AminoAcid.numberToBase;
 	/**
@@ -243,22 +234,22 @@ public abstract class Motif {
 	static final byte[] baseToNumber=AminoAcid.baseToNumberACGTN;
 	/** Array mapping extended nucleotide bases to numeric values */
 	static final byte[] baseToNumberExtended=AminoAcid.baseToNumberExtended;
-	
+
 	/** Base probability distribution for 4 standard nucleotides (A, C, G, T) */
 	static final float[] baseProb1={0.256614f, 0.226617f, 0.238012f, 0.278756f};
-	
+
 	//Within 200 of exon and gene ends only
 	/**
-	 * Base probability distribution for 16-element extended nucleotide set, calculated within 200bp of exon and gene ends
+	 * Background frequencies of the 16 packed A/C/G/T dimers, recorded within 200 bases of exon/gene ends
 	 */
 	static final float[] baseProb2={
 		0.076019f, 0.046405f, 0.071754f, 0.062437f, 0.067143f, 0.066057f, 0.020333f, 0.073085f,
 		0.060553f, 0.054897f, 0.068741f, 0.053822f, 0.052896f, 0.059260f, 0.077188f, 0.089412f
 	};
-	
+
 	//name: Overall Frequency MP3
 	/**
-	 * Base probability distribution for 64-element extended nucleotide set, overall frequency MP3
+	 * Background frequencies of the 64 packed A/C/G/T trimers, labeled overall frequency MP3
 	 */
 	static final float[] baseProb3={
 		0.027343f, 0.011857f, 0.018295f, 0.018524f, 0.015942f, 0.012337f, 0.003792f, 0.014333f,
@@ -270,7 +261,7 @@ public abstract class Motif {
 		0.016281f, 0.009609f, 0.011157f, 0.015849f, 0.017150f, 0.017284f, 0.003696f, 0.021130f,
 		0.018839f, 0.016316f, 0.021506f, 0.020527f, 0.017442f, 0.018720f, 0.018440f, 0.034811f
 	};
-	
+
 //	protected static final Hashtable<String, float[]> percentTable=makePercentTable();
 //
 //	private static final Hashtable<String, float[]> makePercentTable(){
@@ -299,23 +290,23 @@ public abstract class Motif {
 
 	/** Inverted base probabilities for baseProb1 (reciprocals) */
 	static final float[] invBaseProb1=invert(baseProb1);
-	
+
 	/** Inverted base probabilities for baseProb2 (reciprocals) */
 	static final float[] invBaseProb2=invert(baseProb2);
-	
+
 	/** Inverted base probabilities for baseProb3 (reciprocals) */
 	static final float[] invBaseProb3=invert(baseProb3);
-	
-	/** Array of base probability distributions indexed by nucleotide set size */
+
+	/** Background distributions indexed by tuple width 1..3; entry zero is null. */
 	static final float[][] baseProbN={
 		null,
 		baseProb1,
 		baseProb2,
 		baseProb3
 	};
-	
+
 	/**
-	 * Array of inverted base probability distributions indexed by nucleotide set size
+	 * Reciprocal background distributions indexed by tuple width 1..3; entry zero is null
 	 */
 	static final float[][] invBaseProbN={
 		null,
@@ -323,7 +314,7 @@ public abstract class Motif {
 		invBaseProb2,
 		invBaseProb3
 	};
-	
+
 	/**
 	 * Creates an inverted array where each element is the reciprocal of the input.
 	 * Used to convert probability arrays to inverse probability arrays.
@@ -337,40 +328,43 @@ public abstract class Motif {
 		}
 		return out;
 	}
-	
-	/** Percentile array for strength calculations specific to this motif */
+
+	/** Subclass-supplied percentile samples, borrowed and mutable; null means unavailable. */
 	protected float[] percentile;
 
 	/**
-	 * Returns the number of bases used by this motif type.
-	 * Abstract method to be implemented by subclasses.
-	 * @return Number of bases in the motif's alphabet
+	 * Returns the subclass's model size: motif length for MotifSimple, tuple width
+	 * for MotifProbsN, or the first child's result for MotifMulti.
+	 * @return Subclass-specific size, not a universal alphabet size
 	 */
 	public abstract int numBases();
-	
+
 	/**
 	 * Converts a raw strength value to a percentile using the motif's percentile array.
-	 * Performs linear interpolation between array values for smooth results.
+	 * Uses index=(int)(strength*sampleCount). Indices at or beyond the last sample
+	 * return one. Index zero interpolates from zero to sample zero; other indices
+	 * interpolate from sample[index] to sample[index+1]. This existing convention
+	 * can be discontinuous at the first-bin boundary. Inputs are not clamped or validated.
 	 *
 	 * @param strength Raw strength value to convert
-	 * @return Percentile value (0.0 to 1.0) corresponding to the strength
+	 * @return Interpolated sample value or one at the upper boundary; NaN can propagate
 	 * @throws RuntimeException if percentile array is null
 	 */
 	public float percentile(float strength){
 //		float[] array=percentiles[numBases()];
-		
+
 		if(percentile==null){
 			throw new RuntimeException("Can't find percentile array for "+this);
 		}
-		
+
 		float[] array=percentile;
-		
+
 		int index=(int)(strength*array.length);
-		
+
 //		System.out.print(" *** index = "+index+" -> "+array[index]+" -> "+array[index+1]+" *** ");
-		
+
 		if(index>=array.length-1){return 1;}
-		
+
 		float a, b;
 		if(index==0){
 			a=0;
@@ -379,11 +373,11 @@ public abstract class Motif {
 			a=array[index];
 			b=array[index+1];
 		}
-		
+
 		float ratio=strength*array.length-index; //fractional part of strength*array.length, in [0,1)
-		
+
 		return ratio*b+(1-ratio)*a;
-		
+
 	}
-	
+
 }

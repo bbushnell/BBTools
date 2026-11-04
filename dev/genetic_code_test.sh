@@ -1,5 +1,5 @@
 #!/bin/bash
-# Synthetic GeneticCode checks. Compile the full dna package first.
+# Synthetic GeneticCode checks. Compile the full dna and test/dna packages first.
 # Optional BBTOOLS_TEST_CLASSES names an absolute private compiled-class directory.
 set -eo pipefail
 
@@ -20,4 +20,4 @@ source "${DIR}javasetup.sh"
 parseJavaArgs --xmx=256m --xms=32m --mode=fixed "$@"
 setEnvironment
 set -u
-java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" dna.GeneticCodeTest
+java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" test.dna.GeneticCodeTest

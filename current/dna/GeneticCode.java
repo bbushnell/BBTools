@@ -9,7 +9,7 @@ import fileIO.ByteFile;
  * This object does not change AminoAcid's process-wide translation tables.
  * @author Keqing
  */
-public final class GeneticCode {
+public final class GeneticCode{
 
 	/** Copies validated tables; no mutable array escapes this object. */
 	private GeneticCode(final int id_, final String name_, final byte[] residues_, final boolean[] starts_){
@@ -39,9 +39,11 @@ public final class GeneticCode {
 
 	/** NCBI table ID, or 0 for a custom table (never a claimed NCBI code). */
 	public int id(){return id;}
+	/** Descriptive built-in name, or custom: followed by the loaded file path. */
 	public String name(){return name;}
 
-	/** Supported context-independent codes; unsupported IDs never fall back. */
+	/** Returns the shared immutable code for table 4, 11 or 25.
+	 * Unsupported IDs throw IllegalArgumentException rather than falling back. */
 	public static GeneticCode forTable(final int id){
 		switch(id){
 			case 11: return BACTERIAL;
@@ -51,17 +53,22 @@ public final class GeneticCode {
 		}
 	}
 
-	/** Elongation residue; -1 denotes an ambiguous codon and translates to X. */
+	/** Elongation residue; -1 denotes an ambiguous codon and translates to X.
+	 * Other indices must be in 0..63, using A/C/G/T packed order. */
 	public byte aminoAcid(final int codon){
 		checkCodon(codon);
 		return codon<0 ? (byte)'X' : residues[codon];
 	}
 
+	/** Whether the packed codon permits initiation; -1 returns false.
+	 * Other indices outside 0..63 throw IllegalArgumentException. */
 	public boolean isStart(final int codon){
 		checkCodon(codon);
 		return codon>=0 && starts[codon];
 	}
 
+	/** Whether the packed codon is an unconditional stop; -1 returns false.
+	 * Other indices outside 0..63 throw IllegalArgumentException. */
 	public boolean isStop(final int codon){
 		checkCodon(codon);
 		return codon>=0 && residues[codon]=='*';
@@ -76,7 +83,9 @@ public final class GeneticCode {
 		return (byte)'M';
 	}
 
-	/** Three DNA bases in biological orientation; ambiguous/non-DNA bytes yield -1. */
+	/** Packs three DNA bases in biological orientation, accepting either letter case.
+	 * Ambiguous/non-DNA bytes, including U, yield -1; invalid offsets or null arrays
+	 * throw IllegalArgumentException. The array is borrowed without mutation. */
 	public static int codon(final byte[] bases, final int offset){
 		if(bases==null || offset<0 || offset>bases.length-3){
 			throw new IllegalArgumentException("A codon needs three bases at offset "+offset+"; length="+(bases==null ? -1 : bases.length));
@@ -92,11 +101,13 @@ public final class GeneticCode {
 		return (a|b|c)<0 ? -1 : (a<<4)|(b<<2)|c;
 	}
 
+	/** Uses the shared A/C/G/T mapping after rejecting U and out-of-table values. */
 	private static int baseNumber(final int base){
 		// NCBI's published tables use DNA. Do not let U create a duplicate alias of T in custom tables.
 		return base<0 || base>=AminoAcid.baseToNumber.length || base=='U' || base=='u' ? -1 : AminoAcid.baseToNumber[base];
 	}
 
+	/** Accepts only the ambiguous sentinel -1 or a packed six-bit codon. */
 	private static void checkCodon(final int codon){
 		if(codon< -1 || codon>63){throw new IllegalArgumentException("Codon index must be -1 or 0..63, got "+codon);}
 	}
@@ -104,6 +115,9 @@ public final class GeneticCode {
 	/** Complete TSV: codon, amino_acid, start. Header required, '#' comments allowed.
 	 * Exactly 64 distinct DNA codons, one uppercase residue or '*', and 0/1 start.
 	 * Fixed-width data rows deliberately reject extra fields, whitespace and partial tables.
+	 * Empty lines and lines beginning with '#' are skipped. Input is closed on both
+	 * success and parse failure; a close error is thrown or suppressed onto the original
+	 * failure. The returned object owns copies of the parsed assignments.
 	 */
 	public static GeneticCode load(final String path){
 		if(path==null || path.isEmpty()){throw new IllegalArgumentException("Custom genetic-code path is required");}
@@ -149,6 +163,7 @@ public final class GeneticCode {
 		return new GeneticCode(0, "custom:"+path, residues, starts);
 	}
 
+	/** Adds the input path and one-based physical line number to a parse diagnostic. */
 	private static IllegalArgumentException invalid(final String path, final long line, final String reason){
 		return new IllegalArgumentException("Invalid genetic code "+path+" at line "+line+": "+reason);
 	}
@@ -171,21 +186,30 @@ public final class GeneticCode {
 		return new GeneticCode(id, name, residues, starts);
 	}
 
+	/** NCBI identifier, or zero for a custom table. */
 	private final int id;
+	/** Built-in description or custom input path label. */
 	private final String name;
+	/** Private elongation assignments indexed by packed codon. */
 	private final byte[] residues;
+	/** Private initiation permissions indexed by packed codon. */
 	private final boolean[] starts;
+	/** Allowed canonical residues plus the stop marker. */
 	private static final String RESIDUES="ACDEFGHIKLMNPQRSTVWY*";
+	/** Required literal header for a custom table. */
 	private static final byte[] HEADER="codon\tamino_acid\tstart".getBytes(java.nio.charset.StandardCharsets.US_ASCII);
 
 	// NCBI https://www.ncbi.nlm.nih.gov/Taxonomy/Utils/wprintgc.cgi, tables 11/4/25, read 2026-10-01.
 	// AAs are elongation; Starts 'M' permits methionine initiation and '*' marks unconditional stop.
+	/** Shared context-independent table 11. */
 	private static final GeneticCode BACTERIAL=fromNcbi(11, "Bacterial, Archaeal and Plant Plastid",
 		"FFLLSSSSYY**CC*WLLLLPPPPHHQQRRRRIIIMTTTTNNKKSSRRVVVVAAAADDEEGGGG",
 		"---M------**--*----M------------MMMM---------------M------------");
+	/** Shared context-independent table 4, with TGA assigned to tryptophan. */
 	private static final GeneticCode MYCOPLASMA=fromNcbi(4, "Mold, Protozoan, Coelenterate Mitochondrial and Mycoplasma/Spiroplasma",
 		"FFLLSSSSYY**CCWWLLLLPPPPHHQQRRRRIIIMTTTTNNKKSSRRVVVVAAAADDEEGGGG",
 		"--MM------**-------M------------MMMM---------------M------------");
+	/** Shared context-independent table 25, with TGA assigned to glycine. */
 	private static final GeneticCode GRACILIBACTERIA=fromNcbi(25, "Candidate Division SR1 and Gracilibacteria",
 		"FFLLSSSSYY**CCGWLLLLPPPPHHQQRRRRIIIMTTTTNNKKSSRRVVVVAAAADDEEGGGG",
 		"---M------**-----------------------M---------------M------------");

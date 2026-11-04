@@ -1,367 +1,118 @@
-# dna Package - DNA and Genomic Data Processing
-*Comprehensive utilities for genomic sequence manipulation, amino acid translation, and chromosome data management*
-
-## Package Overview
-The `dna` package provides essential classes for genomic data processing, including DNA/RNA sequence manipulation, amino acid translation, chromosome array management, gene modeling, motif analysis, and scaffold handling.
-
----
-
-## Core Classes
-
-### Sequence Processing and Translation
-
-#### AminoAcid (dna/AminoAcid.java)
-**Purpose**: Comprehensive utility class for amino acid and nucleotide sequence conversion and manipulation in bioinformatics.
-
-- **Core Function**: Provides advanced methods for translating between DNA, RNA, and amino acid representations, with robust encoding and decoding capabilities.
-
-- **Key Features**:
-  - **Nucleotide/Amino Acid Conversion**:
-    - `stringToAAs()`: Converts DNA/RNA sequence to amino acid sequence
-    - `toAAs()`: Translates byte arrays of nucleotides to amino acids
-    - `toNTs()`: Converts amino acid sequences back to nucleotide sequences
-    - `toAAQuality()`: Computes amino acid quality from nucleotide quality scores
-
-  - **Encoding Methods**:
-    - `kmerToString()`: Decodes bit-packed k-mer representations
-    - `stringToKmer()`: Encodes DNA/RNA sequences into bit-packed representations
-    - `kmerToStringAA()`: Decodes amino acid k-mer representations
-
-  - **Complementary Sequence Operations**:
-    - `reverseComplementBases()`: Generates reverse complement of DNA/RNA sequences
-    - `complementBasesInPlace()`: In-place base complementation
-    - `equalsReverseComp()`: Checks if sequences are reverse complements
-
-  - **Biochemical Utility Methods**:
-    - `codonToString()`: Converts numerical codon representations to nucleotide strings
-    - `toAA()`: Translates codons to specific amino acids
-    - `isFullyDefined()`: Validates base/amino acid definitions
-
-- **Usage**: Primarily used in bioinformatics and genomic sequence processing, particularly for:
-  - DNA/RNA sequence translation
-  - Codon and amino acid manipulation
-  - Sequence encoding and decoding
-  - Nucleotide sequence validation and transformation
-
----
-
-### Chromosome and Assembly Management
-
-#### ChromArrayMaker (ChromArrayMaker.java)
-**Purpose**: Creates chromosome arrays from genomic sequence files, supporting FASTA and FASTQ formats with advanced parsing and padding capabilities.
-
-- **Core Function**: Converts genomic input files into structured chromosome arrays with configurable padding and scaffold management
-  - Supports multiple input file formats (FASTA, FASTQ)
-  - Generates chromosome-level data structures
-  - Writes chromosome information to disk or memory
-
-- **Key Features**:
-  - Dynamic scaffold merging and padding strategies
-  - Flexible genome build and chromosome numbering
-  - Support for interchromosomal padding (start/mid/end padding)
-  - Detailed chromosome and scaffold metadata generation
-  - Configurable maximum chromosome length
-  - Optional disk or in-memory chromosome array retention
-
-- **Technical Implementation**:
-  - Uses `CrisWrapper` for input file stream processing
-  - Implements padding strategies with 'N' base insertions
-  - Generates comprehensive chromosome metadata
-  - Supports gzip compression for output files
-  - Handles large genomic files with memory-efficient processing
-
-- **Configuration Options**:
-  ```java
-  // Key configurable parameters
-  public static int START_PADDING = 8000;   // Padding at chromosome start
-  public static int MID_PADDING = 300;      // Padding between scaffolds
-  public static int END_PADDING = 8000;     // Padding at chromosome end
-  public static int MIN_SCAFFOLD = 1;       // Minimum scaffold length
-  public static boolean MERGE_SCAFFOLDS = true;  // Allow scaffold merging
-  ```
-
-#### ChromosomeArray (ChromosomeArray.java)
-**Purpose**: Central data structure for chromosome-level genomic information storage and retrieval with memory-efficient access patterns.
-
-- **Key Features**:
-  - Memory-efficient chromosome data structures
-  - Supports large genome builds with optimized access patterns
-  - Handles chromosome metadata and genomic coordinate management
-
-#### FastaToChromArrays2 (FastaToChromArrays2.java)
-**Purpose**: Converts FASTA files into chromosome arrays with efficient byte-level processing and configurable genome parsing strategies.
-
-- **Core Function**: Parses FASTA input files, transforms genomic sequences into ChromosomeArray objects with advanced padding and scaffold management capabilities.
-
-- **Key Features**:
-  - **High-Performance Parsing**: Uses ByteFile1 for faster and lower-memory FASTA processing
-  - **Flexible Scaffold Handling**: 
-    - Supports merging scaffolds
-    - Configurable padding strategies (start, mid, end padding)
-    - Minimum scaffold length filtering
-  - **Detailed Genome Metadata Generation**:
-    - Generates chromosome information files
-    - Tracks scaffold, contig, and base statistics
-    - Supports writing chromosome arrays to disk
-
-- **Command-Line Example**:
-  ```bash
-  java FastaToChromArrays2 ecoli_K12.fa 1 \
-    writeinthread=false \
-    genscaffoldinfo=true \
-    retain \
-    maxlen=536670912 \
-    writechroms=true \
-    minscaf=1 \
-    midpad=300 \
-    startpad=8000 \
-    stoppad=8000
-  ```
-
----
-
-### Gene and Genomic Annotation
-
-#### Gene (Gene.java)
-**Purpose**: Comprehensive representation of a genomic gene with detailed coordinate and transcriptional information.
-
-- **Core Function**: 
-  - Modeling detailed genomic features including transcription start/stop, coding regions, exons, and strand information
-  - Provides robust methods for comparing, intersecting, and analyzing gene structures
-
-- **Key Features**:
-  1. **Coordinate System**
-     - Tracks transcription start/stop positions (txStart, txStop)
-     - Tracks coding region start/stop positions (codeStart, codeStop)
-     - Supports both plus and minus strand representations
-
-  2. **Exon Management**
-     - Stores exon array with precise start/end coordinates
-     - Calculates exon lengths (exonLength, exonCodeLength)
-     - Supports strand-compensated exon access
-
-  3. **Genomic Metadata**
-     - Captures gene symbol, mRNA accession, protein accession
-     - Tracks gene status, completeness, and source
-     - Supports pseudogene and untranslated gene identification
-
-  4. **Intersection and Proximity Methods**
-     - Methods to check intersections with transcription, coding, and exon regions
-     - Calculates distances between genomic intervals
-     - Finds nearest splice sites and exons
-
-- **Notable Methods**:
-  - `merge()`: Combines gene information from multiple sources
-  - `intersectsTx()`, `intersectsCode()`: Check genomic region overlaps
-  - `toGeneRelativeOffset()`: Converts absolute to gene-relative coordinates
-  - `findClosestExon()`: Locates nearest exon to a given genomic region
-
-#### Exon (dna/Exon.java)
-**Purpose**: Represents a genomic exon with precise genomic coordinate tracking and gene structure modeling.
-
-- **Core Function**: Models individual exons within a chromosome, capturing critical genomic annotation details including start/end positions, chromosome, strand, and exon type (UTR/CDS).
-
-- **Key Features**:
-  - **Precise Coordinate Representation**: 
-    - Stores start (`a`) and end (`b`) positions as integers
-    - Supports chromosome identification via byte representation
-    - Tracks genomic strand (+/-) information
-
-  - **Exon Type Classification**:
-    - `utr` boolean flag for untranslated region exons
-    - `cds` boolean flag for coding sequence exons
-    - Enables fine-grained genomic annotation tracking
-
-  - **Spatial Relationship Methods**:
-    - `intersects()`: Checks if points or ranges overlap
-    - `crosses()`: Determines partial intersection
-    - `contains()`: Verifies complete containment
-    - `distToSpliceSite()`: Calculates proximity to splice sites
-
-  - **Exon Manipulation**:
-    - `merge()`: Combines overlapping exons
-    - `length()`: Calculates exon length
-    - Supports multiple constructor variations for flexible instantiation
-
-#### GeneSet (dna/GeneSet.java)
-**Purpose**: Represents a collection of genes with shared characteristics, providing comprehensive genomic set management and annotation capabilities.
-
-- **Core Function**: 
-  - Manages a group of genes sharing a common identifier, chromosome, and potentially other genomic properties
-  - Tracks transcript-level metadata such as genomic range, strand orientation, and gene type characteristics
-
-- **Key Features**:
-  - **Comprehensive Gene Collection Management**:
-    - Stores multiple genes in an ArrayList
-    - Tracks total number of transcripts
-    - Calculates minimum and maximum genomic coordinates
-
-  - **Genomic Annotation Handling**:
-    - Captures chromosome information
-    - Tracks strand orientation
-    - Identifies special gene types like pseudogenes and untranslated genes
-
-  - **Intersection and Range Detection**:
-    - Supports point and range intersection checks
-    - Enables precise genomic location queries
-
----
-
-### Motif Analysis and Pattern Matching
-
-#### Motif (Motif.java)
-**Purpose**: Abstract base class for DNA motif representation and pattern matching algorithms with advanced sequence analysis capabilities.
-
-- **Core Function**: Provides a flexible framework for identifying and counting DNA sequence motifs with exact and extended matching strategies.
-
-- **Key Features**:
-  - Abstract base class for motif matching implementations
-  - Supports exact and extended DNA sequence pattern matching
-  - Provides methods to count motif occurrences in byte arrays and strings
-  - Includes built-in base probability and inversion calculations
-  - Supports motif naming, length, and center position tracking
-
-- **Key Methods**:
-  - `countExact(String/byte[], int start, int end)`: Count exact motif matches
-  - `countExtended(String/byte[], int start, int end)`: Count extended (fuzzy) motif matches
-  - `matchStrength(byte[], int)`: Calculate match strength for a given position
-  - `percentile(float strength)`: Convert match strength to percentile score
-
-#### MotifMulti (dna/MotifMulti.java)
-**Purpose**: Implements a multi-motif pattern matching strategy for DNA sequence analysis, allowing flexible matching across multiple motif patterns.
-
-- **Core Function**: Extends the base `Motif` class to handle multiple motif patterns simultaneously, enabling complex sequence matching strategies
-  - Supports exact and extended pattern matching across a collection of motifs
-  - Dynamically selects the strongest matching motif in a given sequence region
-
-- **Key Features**:
-  - Multiple Motif Handling: Accepts an array of `Motif` objects during construction
-  - Flexible Matching Methods:
-    - `matchesExactly()`: Checks if any sub-motif matches exactly at a specific sequence position
-    - `matchesExtended()`: Performs extended (potentially more flexible) matching across sub-motifs
-    - `matchStrength()`: Determines the maximum normalized matching strength among sub-motifs
-
-#### MotifProbsN (dna/MotifProbsN.java)
-**Purpose**: Probabilistic motif analysis class for DNA/RNA sequence pattern matching with advanced N-base handling capabilities.
-
-- **Core Function**: 
-  - Implements probabilistic matching of sequence motifs with support for N-base variations
-  - Calculates match strengths and normalizes probabilities for sequence patterns
-  - Extends the base Motif class with enhanced probabilistic analysis
-
-- **Key Features**:
-  1. **Probabilistic Sequence Matching**
-     - Computes match strength for DNA/RNA sequences using position-specific probability matrices
-     - Handles variable-length motif patterns with configurable center positions
-     - Supports normalization of match probabilities
-
-  2. **N-Base Handling**
-     - Configurable N-base parameter allows flexible handling of ambiguous bases
-     - Uses `baseProb` array to manage base probabilities for N-base variations
-     - Adapts probability calculations to account for base uncertainties
-
-  3. **Position Importance Weighting**
-     - Implements `positionImportance()` method to calculate position-specific significance
-     - Dynamically adjusts motif probabilities based on position deviation from baseline
-
-#### MotifSimple (dna/MotifSimple.java)
-**Purpose**: Simple DNA motif matching class for exact and extended pattern recognition in byte-encoded sequences
-
-- **Core Function**: Provides efficient methods for matching DNA sequence patterns with support for both exact and extended (degenerate) base matching
-  - Extends the abstract `Motif` class
-  - Handles DNA base matching with case-insensitive and extended matching capabilities
-
-- **Key Features**:
-  - **Exact Matching**: `matchesExactly()` method for precise sequence comparisons
-  - **Extended Matching**: `matchesExtended()` method supporting degenerate base matching
-  - **Case-Insensitive Search**: Compares both uppercase and lowercase base representations
-  - **Flexible Initialization**: Constructor supports creating motifs with optional center positioning
-
----
-
-### Utility and Support Classes
-
-#### Data (Data.java)
-**Purpose**: Central utility class for managing genomic data processing and genome information in BBTools.
-
-- **Core Function**: Provides static methods and data structures for handling chromosome, gene, scaffold, and genome-related operations, including loading, unloading, and querying genomic information.
-
-- **Key Features**:
-  - **Genome Information Management**: 
-    - Tracks chromosome lengths, defined bases, scaffolds, and contigs
-    - Supports multiple genome builds (e.g., hg18, hg19)
-    - Dynamically loads and unloads chromosome and gene data
-
-  - **Chromosome and Scaffold Navigation**:
-    - Methods to retrieve chromosome and scaffold information
-    - Supports locating genes and gene sets on specific chromosomes
-    - Handles scaffold name and location mapping
-
-  - **Gene Processing**:
-    - Load and manage gene data for different chromosomes
-    - Generate gene range matrices for various genomic contexts
-    - Support for gene set and transcript lookups
-
-#### Matrix (Matrix.java)
-**Purpose**: A flexible genomic matrix management class for storing, retrieving, and manipulating float-based grid data associated with genomic operations.
-
-- **Core Function**: 
-  - Manages and provides access to genomic scoring matrices from various build versions and genomic contexts
-  - Supports dynamic loading of matrices from text files using a static HashMap for efficient retrieval
-  - Enables extraction of matrix sub-grids with configurable prefix and length parameters
-
-- **Key Features**:
-  - **Static Matrix Repository**: Maintains a global table of matrices loaded from multiple file sources
-  - **Flexible Matrix Retrieval**: 
-    - Static `get(String name)` method for accessing pre-loaded matrices
-    - Supports case-insensitive matrix name lookup
-  - **Sub-Grid Extraction**: 
-    - `subGrid(int prefixLength, int length)` method allows extracting specific sections of a matrix grid
-
-#### ScafLoc (ScafLoc.java)
-**Purpose**: Lightweight data structure for tracking genomic scaffold location with chromosome, name, and position.
-
-- **Core Function**: Stores and manages genomic coordinate information for scaffolds
-- **Key Features**:
-  - Tracks scaffold name as a String
-  - Stores chromosome number as an integer
-  - Captures precise location within chromosome as an integer
-- **Usage**: Used in genomic sequence mapping and coordinate tracking systems
-
-#### Scaffold (Scaffold.java)
-**Purpose**: Represents a genomic scaffold with metadata for sequence assembly and tracking.
-
-- **Core Function**: Manages genomic scaffold information, parsing SAM (Sequence Alignment/Map) format entries and providing essential metadata about genomic sequences.
-
-- **Key Features**:
-  - Multiple constructor strategies for parsing scaffold information from different input formats
-  - Captures scaffold name, length, and assembly information
-  - Implements `Comparable` for ordered scaffold handling
-  - Tracks various hit and base count statistics for genomic sequences
-
-- **Scaffold Metadata Fields**:
-  - `name`: Unique scaffold identifier
-  - `assembly`: Assembly build information
-  - `length`: Total scaffold sequence length
-  - `basecount`: Base composition array (A,C,G,T,N)
-  - `gc`: GC content percentage
-  - `basehits`, `readhits`, `fraghits`: Sequence hit tracking metrics
-
----
-
-## Package Usage
-The dna package serves as the foundation for genomic data processing in BBTools, providing essential utilities for:
-- DNA/RNA sequence manipulation and amino acid translation
-- Chromosome and assembly data management
-- Gene annotation and genomic feature modeling
-- DNA motif analysis and pattern matching
-- Genomic coordinate and scaffold tracking
-- Matrix-based scoring and analysis operations
-
-## Dependencies
-- Relies on BBTools core utilities for file I/O and data processing
-- Integrates with shared data structures and utility classes
-- Supports multiple genome builds and annotation formats
-
----
-*Documentation generated using evidence-based analysis of source code*
+# DNA sequences, references and legacy annotations
+
+The `dna` package supplies nucleotide/amino-acid conversions, reference storage,
+scaffold metadata, genetic codes and older gene/motif utilities. The classes have
+different ownership and coordinate contracts; a shared package name does not make
+their mutable state thread-safe.
+
+## Sequence and reference code
+
+| Class | Responsibility and important contract |
+|---|---|
+| [AminoAcid](AminoAcid.java) | Static alphabet tables, codon translation, reverse complements and packed k-mers. Most lookup helpers require table-supported ASCII inputs. Read each overload's treatment of ambiguity, case and U. |
+| [GeneticCode](GeneticCode.java) | Built-in translation tables 4, 11 and 25, plus validated custom TSV tables. Separates initiation from elongation without changing global AminoAcid tables. |
+| [ChromosomeArray](ChromosomeArray.java) | Mutable base storage with inclusive logical bounds and spare capacity. Setters normalize/copy input; padded accessors return N outside logical bounds while retaining stored bytes inside them. |
+| [Data](Data.java) | Process-wide reference and annotation caches, paths, scaffold lookup and external-tool probes. Initialize before publishing data to workers; coordinate resets and mutation of borrowed objects. |
+| [FastaToChromArrays2](FastaToChromArrays2.java) | Byte-oriented FASTA conversion used by reference indexing. Produces packed chromosomes and metadata with configurable padding and scaffold limits. |
+| [ChromArrayMaker](ChromArrayMaker.java) | Separate legacy FASTA/FASTQ converter using CrisWrapper. It has different boundary and error-handling behavior; it is not an interchangeable implementation of FastaToChromArrays2. |
+| [ChromToFasta](ChromToFasta.java) | Converts serialized chromosome arrays to whole-chromosome or N-run-split FASTA. Helpers borrowing a writer leave it open. Output line widths must be positive. |
+| [ScafLoc](ScafLoc.java) | Mutable scaffold name, chromosome number and start coordinate, also returned from Data's shared lookup map. |
+| [Scaffold](Scaffold.java) | Scaffold metadata and coverage counters. Counter units matter: `fraghits` is a doubled fragment accumulator for its CoveragePileup caller. |
+
+`AminoAcid.toNTs` chooses representative codons; it cannot reconstruct the original
+DNA from a protein. Unresolved amino acids produce NNN. The normal alphabet uses
+a packed codon table, with a fallback that preserves substitutions in the public
+nucleotide alphabet. Public lookup arrays remain mutable shared state: do not
+modify them concurrently with readers.
+`splitBase` expands supported nonempty four-base masks and rejects unsupported
+symbols or indices instead of returning partially filled character arrays.
+
+Chromosome positions are zero-based and inclusive. `ChromosomeArray.getBytes(a,b)`
+returns independent storage. Empty sequence writes leave bounds unchanged, and
+resizing rejects a capacity that would discard the base at `maxIndex`. Writes can
+leave zero-filled gaps inside logical bounds; those are distinct from N padding
+outside the bounds. Numeric packing helpers read storage directly, so they do not
+inherit padded-accessor behavior. Two bits per base fit at most 16 bases in an int;
+legacy oversized-input limitations are noted at the affected methods.
+
+Data's scaffold lookup selects a scaffold using its own padding convention.
+`scaffoldOverlapLength` counts overlap with one selected scaffold, not the sum over
+all scaffolds touched by a query. The volatile scaffold-name map publishes a fully
+constructed map; it does not protect later mutations or make every other cache safe.
+`unloadAll` does not return every static cache to its initial state; remaining
+legacy cache/reset limitations are documented in the source.
+The genome completion guard is assigned only after normal initialization return;
+failed attempts can leave partial state, and retries using in-memory metadata must
+supply fresh complete lists. `setPath(null)` follows the literal `"null"` reset,
+while an empty string remains a custom `/` prefix. Existing Windows selectors
+choose relative reference paths and `C:/workspace/tempdir/`.
+For nearest-gene lookup, interval queries select all overlapping padded merged
+ranges, or the closer bounding range in a gap (left on ties). The legacy point
+overload retains its containing-or-preceding selection instead.
+
+Reference conversion checks retained input and metadata-writer errors before
+publishing a new completion summary. This is not a transactional build: files
+written earlier can remain after failure. Exceptional cleanup and the deprecated
+`writeInfo` path have separately documented limitations. Conversion settings are
+shared static state and must not be changed by concurrent conversions.
+
+## Genes and motifs
+
+| Class | Contract |
+|---|---|
+| [Gene](Gene.java) | Legacy transcript annotation with inclusive coordinates and borrowed exons in ascending genomic order. Strand-aware offsets count exonic bases. The empty constructor creates a sentinel, not a valid annotation for every operation. |
+| [Exon](Exon.java) | Inclusive genomic interval and annotation flags. Shared interning requires coordinated access. |
+| [GeneSet](GeneSet.java) | Groups transcript records and derives aggregate bounds/flags. Member objects are shared; constructor and comparison preconditions are documented separately. |
+| [Matrix](Matrix.java) | Loads named float matrices and copies requested subgrids. Name lookup supports stored original/lowercase aliases, not arbitrary case-insensitive matching. |
+| [Motif](Motif.java) | Common motif geometry and scans. Candidate positions are motif centers; scan bounds account for both center and length. |
+| [MotifSimple](MotifSimple.java) | Exact and extended alphabet matching under its documented symbol/center preconditions. |
+| [MotifMulti](MotifMulti.java) | Combines component motifs with compatible geometry. |
+| [MotifProbsN](MotifProbsN.java) | Scores position-specific nucleotide tuples. N is tuple width (1, 2 or 3), not the ambiguous nucleotide symbol. Mutates and retains the supplied probability matrix and reuses scratch state. |
+
+Gene's `toBuild` removes `build`, `b` or `hg` prefixes and an optional equals sign,
+returning the numeric suffix. For example, `hg18` returns 18. A caller such as
+Translator2 separately maps UCSC build labels to its supported NCBI builds.
+
+Gene's legacy `translationStart/Stop` methods use the outer exon bounds when exons
+are present, which can include UTR sequence. Equal coding endpoints use a legacy
+zero-length convention; the `untranslated` flag remains caller-supplied. Structural
+identity and `equals` are different relations. Whole UTR exons count both inclusive
+endpoints; biological 5-prime/3-prime totals follow the strand and remain zero when
+`untranslated` is true. Merging preserves a missing receiver source instead of
+adopting the donor's source. Stored serialized annotations retain their saved
+derived lengths; regenerate them to adopt corrected constructor calculations.
+Other legacy annotation-range questions remain explicitly annotated.
+
+Motif scoring is not a general thread-safe service: some implementations retain
+mutable matrices or reusable scratch arrays. MotifProbsN rejects negative/nonfinite
+probabilities, wholly uninformative matrices and score ranges that cannot be
+normalized with finite float constants. Individual background-only rows and zero
+probabilities remain valid when the whole matrix has a usable range. Its direct
+normalization methods still require suitable input strengths; the logarithmic
+variant requires a positive minimum. Construction can modify supplied rows before
+rejecting them, and later mutation does not refresh cached extrema.
+Matrix loading publishes its registry only after
+all default files load and close successfully; a catchable failure can be retried.
+This does not make the mutable registry thread-safe. These older
+utilities should be used with the documented preconditions, not inferred guarantees
+from method names.
+
+## Developer checks
+
+Test classes live in [test/dna](../test/dna/). Build both `dna` and `test.dna` with
+their normal dependencies before running the developer wrappers:
+
+- [dev/genetic_code_test.sh](../../dev/genetic_code_test.sh) checks built-in/custom
+  translation, initiation, invalid inputs and isolation of shared tables.
+- [dev/resourcepathtest.sh](../../dev/resourcepathtest.sh) checks resource lookup.
+  It requires exclusive access to the actual runtime and the absence of its named
+  audit fixtures before execution. It creates small files under that runtime and
+  leaves them for the executing controller to preserve or remove. See
+  [DataResourcePathTest](../test/dna/DataResourcePathTest.java) for the full contract.
+
+Other finite harnesses cover alphabet conversion, chromosome bounds, scaffold
+coordinates, reference/output errors, subprocess exit-status handling, build
+prefixes, matrix/genome initialization retries, path selectors and gene annotations.
+Their checks remain active with assertions disabled as well as enabled.
+Performance measurements must use matched source, input, JVM settings and work
+counts; isolated kernel timings do not establish whole-program speed or heap needs.

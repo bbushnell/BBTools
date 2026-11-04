@@ -1,15 +1,19 @@
-package dna;
+package test.dna;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
 
+import dna.AminoAcid;
+import dna.GeneticCode;
+
 /** Synthetic genetic-code checks: biology, native indexing, isolation, malformed input.
  * @author Keqing
  */
-public final class GeneticCodeTest {
+public final class GeneticCodeTest{
 
+	/** Runs finite translation, initiation, parsing and shared-table isolation checks. */
 	public static void main(String[] args) throws Exception{
 		if(args.length!=0){throw new IllegalArgumentException("GeneticCodeTest takes no arguments");}
 		final byte[] legacy=AminoAcid.codeToByte.clone();
@@ -20,6 +24,7 @@ public final class GeneticCodeTest {
 		System.out.println("PASS GeneticCodeTest: 64-codon parity, tables 4/11/25, initiation, custom TSV and isolation");
 	}
 
+	/** Checks all built-in codons, reassigned stops, invalid indices and symbol handling. */
 	private static void testCodons(){
 		final GeneticCode bacterial=GeneticCode.forTable(11), four=GeneticCode.forTable(4), twentyFive=GeneticCode.forTable(25);
 		int stops11=0, stops4=0, stops25=0;
@@ -48,6 +53,7 @@ public final class GeneticCodeTest {
 		reject("three bases", ()->GeneticCode.codon(new byte[]{'A', 'T', 'G'}, Integer.MAX_VALUE));
 	}
 
+	/** Verifies literal start sets and the distinction between initiation and elongation. */
 	private static void testInitiation(){
 		final int gtg=GeneticCode.codon("GTG"), ctg=GeneticCode.codon("CTG");
 		final GeneticCode eleven=GeneticCode.forTable(11);
@@ -68,6 +74,7 @@ public final class GeneticCodeTest {
 		reject("Cannot initiate", ()->eleven.translateCodon(-1, true));
 	}
 
+	/** Loads temporary custom TSV tables and checks parsing, ownership and malformed inputs. */
 	private static void testCustom() throws Exception{
 		final Path file=Files.createTempFile("genetic-code-", ".tsv");
 		try{
@@ -123,11 +130,13 @@ public final class GeneticCodeTest {
 		return out.toString();
 	}
 
+	/** Replaces the owned temporary file and requires the specified loader diagnostic. */
 	private static void badFile(final Path path, final String content, final String diagnostic) throws Exception{
 		Files.write(path, content.getBytes(StandardCharsets.US_ASCII));
 		reject(diagnostic, ()->GeneticCode.load(path.toString()));
 	}
 
+	/** Requires an IllegalArgumentException containing the expected diagnostic fragment. */
 	private static void reject(final String diagnostic, final Runnable action){
 		try{action.run();}
 		catch(IllegalArgumentException e){
@@ -137,6 +146,7 @@ public final class GeneticCodeTest {
 		throw new AssertionError("Expected diagnostic: "+diagnostic);
 	}
 
+	/** Keeps test failures active independently of the JVM assertion setting. */
 	private static void check(final boolean condition, final String message){
 		if(!condition){throw new AssertionError(message);}
 	}
