@@ -9,7 +9,10 @@ gene-to-model support, optionally protects whole-genome detections, and can
 regenerate retained models with paired rollback. `reduce=f regenerate=t` rebuilds
 the complete supplied library without reduction, with caller verification on by
 default. Explicit `callerverify=f` produces a labeled, unverified fixed-library
-proposal using corpus retention alone. The full user guide is
+proposal using corpus retention alone. `graph=` reuses saved ORIGINAL or REDUCED
+support instead of repeating the initial alignments. `mode=restore callerverify=f`
+restores paired models from supplied GFF evidence without running a caller and
+labels the proposal as not caller-verified. The full user guide is
 `docs/guides/ReduceNcrnaModelsGuide.txt` in the BBTools release.
 
 `buildncrnaboundarynets.sh` learns endpoint features, compares native classifier

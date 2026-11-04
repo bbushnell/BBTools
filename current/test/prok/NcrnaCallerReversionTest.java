@@ -12,7 +12,7 @@ import parse.LineParser1;
 import parse.Parse;
 import parse.Parser;
 import parse.PreParser;
-import prok.NcrnaSequentialRegenerationExperiment;
+import prok.ReduceNcrnaModels;
 import prok.NcrnaSupport;
 import prok.NcrnaSupportIO;
 import prok.NcrnaTextIO.Input;
@@ -24,14 +24,12 @@ import stream.Read;
 import stream.Writer;
 import stream.WriterFactory;
 
-/** Literal saved-call controls for the development paired-model restoration step.
+/** Literal saved-call controls for public paired-model restoration.
  * Two lost references share one winner; restoration must occur once. A different
  * model remains regenerated, including its HBM counts. Zero-loss input is passed
  * through, while an already-original lost winner stops instead of repeating work.
  * These test saved-call transformation, not genomic calling or accuracy.
- * Preserved with the caller-free saved-GFF restoration mode. The normal public
- * reducer performs new caller passes and does not expose this standalone mode;
- * these controls remain useful when saved-call restoration is needed again.
+ * Runs mode=restore with an explicit callerverify=f opt-in and checks honest labeling.
  * @author Brian Bushnell, Raiden
  */
 public final class NcrnaCallerReversionTest{
@@ -82,7 +80,7 @@ public final class NcrnaCallerReversionTest{
 		summary(restored, 1, 2, 0, 1, 1);
 		final File passed=new File(root, "passed");
 		invoke(root, original, restored, "baseline.gff", "baseline.gff", passed,
-			"genes="+corpus, "graph="+graphPath, "expectedgenes=3", "cutoff=0.70", "t=2");
+			"in="+corpus, "graph="+graphPath, "cutoff=0.70", "t=2");
 		compare(new File(restored, "consensus.fa"), new File(passed, "consensus.fa"));
 		compare(new File(restored, "models.hbmc"), new File(passed, "models.hbmc"));
 		summary(passed, 3, 0, 1, 0, 1);
@@ -113,26 +111,30 @@ public final class NcrnaCallerReversionTest{
 			unknown=true;
 		}
 		check(unknown, "A missing model identity cannot be guessed or silently skipped");
+		boolean verificationRequired=false;
+		try{
+			invoke(root, original, current, "baseline.gff", "missing.gff", new File(root, "verified"), "callerverify=t");
+		}catch(IllegalArgumentException failure){
+			check(failure.getMessage().contains("explicit callerverify=f"), "Saved calls must not be labeled as a fresh caller verification");
+			verificationRequired=true;
+		}
+		check(verificationRequired, "Saved-call mode must reject callerverify=t");
+		check(!new File(restored, "caller_results.tsv").exists() && !new File(restored, "baseline").exists(),
+			"Restoration must not fabricate fresh caller reports or launch a baseline");
 		System.out.println("CALLER_REVERSION_TEST_PASS shared-winner paired-counts passthrough no-progress unknown-model support-loss");
 	}
 
-	/** Exercises the actual shared development entry point, including its mode dispatch. */
+	/** Exercises the public reducer's saved-call dispatch with explicit unverified consent. */
 	private static void invoke(final File root, final File original, final File current,
 			final String baseline, final String calls, final File out, final String... extra){
-		final ArrayList<String> args=new ArrayList<String>(Arrays.asList(new String[]{"mode=protect",
-			"in="+new File(current, "consensus.fa"), "hbm="+new File(current, "models.hbmc"),
-			"ref="+new File(original, "consensus.fa"), "originalhbm="+new File(original, "models.hbmc"),
+		final ArrayList<String> args=new ArrayList<String>(Arrays.asList(new String[]{"mode=restore", "callerverify=f",
+			"candidate="+new File(current, "consensus.fa"), "candidatehbm="+new File(current, "models.hbmc"),
+			"ref="+new File(original, "consensus.fa"), "hbm="+new File(original, "models.hbmc"),
 			"baseline="+new File(root, baseline), "calls="+new File(root, calls),
 			"truth="+new File(root, "truth.tsv"), "family=SAM-I", "truthfamily=RF00162",
-			"expectedmodels=2", "out="+out}));
+			"out="+out}));
 		for(String arg:extra){args.add(arg);}
-		try{
-			NcrnaSequentialRegenerationExperiment.main(args.toArray(new String[args.size()]));
-		}catch(RuntimeException failure){
-			throw failure;
-		}catch(Exception failure){
-			throw new IllegalStateException("Unexpected checked failure in saved-call restoration", failure);
-		}
+		ReduceNcrnaModels.main(args.toArray(new String[args.size()]));
 	}
 
 	/** Checks literal reference counts and deduplicated model-restoration counts. */
@@ -147,6 +149,8 @@ public final class NcrnaCallerReversionTest{
 				"Saved-call grading must preserve the literal model/reference population");
 			check(parser.parseInt(10)==before && parser.parseInt(11)==added && parser.parseInt(12)==after,
 				"Two missing references sharing a winner require only one paired restoration");
+			check(parser.termEquals("not caller-verified; metrics describe supplied calls", 13),
+				"Saved-GFF counts must not certify the unrun exported proposal");
 			check(input.reader.nextLine()==null, "Exactly one summary row describes this step");
 		}
 	}

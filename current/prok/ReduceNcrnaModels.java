@@ -2,21 +2,30 @@ package prok;
 
 import java.io.File;
 import java.io.PrintStream;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Locale;
 
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
+import map.ObjectIntMap;
 import parse.Parse;
 import parse.Parser;
 import parse.PreParser;
 import prok.NcrnaSupport.Graph;
 import prok.NcrnaSupport.Library;
+import prok.NcrnaBoundaryComparison.Result;
+import prok.NcrnaLocusComparison.Locus;
 import prok.NcrnaTextIO.Output;
+import shared.KillSwitch;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
 import structures.ByteBuilder;
+import structures.ListNum;
+import stream.Read;
+import stream.Streamer;
+import stream.StreamerFactory;
 
 /** Reduces or regenerates an ncRNA library, with optional caller protection.
  * Forked from template.A_SampleStreamerMT. The shared alignment worker stage is
@@ -69,11 +78,13 @@ public final class ReduceNcrnaModels{
 			in=Tools.fixExtension(in);
 			ref=Tools.fixExtension(ref);
 			hbm=Tools.fixExtension(hbm);
-			if(!Tools.testInputFiles(false, true, in, ref, hbm, genomes, truth, callerConfig)){
+			// Saved comparisons may legitimately compare a file with itself.
+			if(!Tools.testInputFiles(restore, true, in, ref, hbm, genomes, truth, callerConfig,
+					graphPath, candidate, candidateHbm, baselineGff, callsGff)){
 				throw new IllegalArgumentException("Cannot read a required reducer input");
 			}
-			ffin=FileFormat.testInput(in, FileFormat.FASTA, null, true, true);
-			if(!ffin.fasta()){throw new IllegalArgumentException("in= must contain sense-oriented gene FASTA");}
+			ffin=in==null ? null : FileFormat.testInput(in, FileFormat.FASTA, null, true, true);
+			if(ffin!=null && !ffin.fasta()){throw new IllegalArgumentException("in= must contain sense-oriented gene FASTA");}
 		}catch(RuntimeException | Error failure){
 			try{Shared.closeStream(outstream);}catch(RuntimeException | Error cleanup){
 				if(cleanup!=failure){failure.addSuppressed(cleanup);}
@@ -90,13 +101,27 @@ public final class ReduceNcrnaModels{
 			final String a=split[0].toLowerCase(Locale.ROOT);
 			String b=split.length>1 ? split[1] : null;
 			if(b!=null && b.equalsIgnoreCase("null")){b=null;}
-			if(a.equals("ref")){
+			if(a.equals("mode")){
+				if(!"restore".equalsIgnoreCase(b)){throw new IllegalArgumentException("The explicit mode must be restore");}
+				restore=true;
+			}else if(a.equals("candidate")){
+				candidate=b;
+			}else if(a.equals("candidatehbm")){
+				candidateHbm=b;
+			}else if(a.equals("baseline")){
+				baselineGff=b;
+			}else if(a.equals("calls")){
+				callsGff=b;
+			}else if(a.equals("graph")){
+				graphPath=b;
+			}else if(a.equals("ref")){
 				ref=b;
 			}else if(a.equals("hbm")){
 				hbm=b;
 			}else if(a.equals("cutoff")){
 				cutoff=NcrnaNumbers.floatValue(a, b);
 				requestedCutoff=NcrnaNumbers.doubleValue(a, b);
+				cutoffSet=true;
 			}else if(a.equals("target")){
 				target=NcrnaNumbers.doubleValue(a, b);
 			}else if(a.equals("genomes")){
@@ -136,6 +161,23 @@ public final class ReduceNcrnaModels{
 
 	/** Requires a fresh destination and the complete option set when caller protection is requested. */
 	private void validateParams(){
+		if(restore){
+			if(ref==null || hbm==null || candidate==null || candidateHbm==null || baselineGff==null
+					|| callsGff==null || truth==null || family==null || truthFamily==null || out==null){
+				throw new IllegalArgumentException("mode=restore requires ref/hbm/candidate/candidatehbm/baseline/calls/truth/family/truthfamily/out");
+			}
+			if(callerVerify || genomes!=null || callerConfig!=null || regenerate || !reduce || consensusConfig!=null){
+				throw new IllegalArgumentException("mode=restore requires explicit callerverify=f and no live-caller or regeneration request; its proposal is not caller-verified");
+			}
+			if((in==null)!=(graphPath==null) || (in==null && cutoffSet) || (in!=null && !(cutoff>=0 && cutoff<=1))){
+				throw new IllegalArgumentException("Optional restoration support checking requires in=genes.fa graph=original.support.tsv cutoff=[0,1] together");
+			}
+			if(new File(out).exists()){throw new IllegalArgumentException("out= must name a fresh directory: "+out);}
+			return;
+		}
+		if(candidate!=null || candidateHbm!=null || baselineGff!=null || callsGff!=null){
+			throw new IllegalArgumentException("Saved calls and candidate library inputs require mode=restore");
+		}
 		if(in==null || ref==null || out==null || !(cutoff>=0 && cutoff<=1) || !(target>0 && target<=1)){
 			throw new IllegalArgumentException("Require in=genes.fa ref=consensus.fa out=freshdir cutoff=[0,1] target=(0,1]");
 		}
@@ -167,6 +209,12 @@ public final class ReduceNcrnaModels{
 
 	/** Scans once, selects all models or a subset, then optionally protects and regenerates them. */
 	private void process(final Timer timer){
+		if(restore){
+			restoreSavedCalls();
+			timer.stop();
+			outstream.println("Time: "+timer);
+			return;
+		}
 		if(!callerVerify){
 			outstream.println("Regeneration proposal only: not caller-verified. Verify the resulting library with CallGenes before use.");
 		}
@@ -175,8 +223,10 @@ public final class ReduceNcrnaModels{
 		final NcrnaCallerProtection protection=genomes==null ? null : new NcrnaCallerProtection(callerConfig,
 			genomes, truth, family, truthFamily, threads, callerHeap, maxCalls);
 		final Library library=NcrnaSupport.loadLibrary(ref);
-		final NcrnaSupport.ScanResult scan=NcrnaSupport.scanWithStats(ffin, library, cutoff, threads, threadsIn);
-		final Graph original=scan.graph;
+		final NcrnaSupport.ScanResult scan=graphPath==null
+			? NcrnaSupport.scanWithStats(ffin, library, cutoff, threads, threadsIn) : null;
+		final Graph original=scan==null ? readSupportGraph(library) : scan.graph;
+		if(scan==null){outstream.println("Initial support loaded from graph; no fresh alignments performed for the initial scan.");}
 		final boolean[] proposal;
 		if(reduce){
 			proposal=NcrnaModelSubset.reduce(library.names.length, original.starts, original.models, target).kept;
@@ -212,6 +262,72 @@ public final class ReduceNcrnaModels{
 		outstream.println("Time: "+timer);
 	}
 
+	/** Restores paired records from saved evidence without constructing or invoking a caller. */
+	private void restoreSavedCalls(){
+		final Library original=NcrnaSupport.loadLibrary(ref);
+		final Library proposed=NcrnaSupport.loadLibrary(candidate);
+		if(!Arrays.equals(original.names, proposed.names)){
+			throw new IllegalArgumentException("Saved-call restoration requires identical ordered model identities");
+		}
+		final boolean[] all=new boolean[original.names.length];
+		Arrays.fill(all, true);
+		final NcrnaModelPairs baseline=new NcrnaModelPairs(original, hbm, all);
+		final NcrnaModelPairs current=new NcrnaModelPairs(proposed, candidateHbm, all);
+		final ArrayList<Locus> references=NcrnaLocusComparison.readTruth(truth, truthFamily);
+		final Result before=NcrnaBoundaryComparison.grade(references, NcrnaLocusComparison.readCalls(baselineGff, family), null);
+		final Result after=NcrnaBoundaryComparison.grade(references, NcrnaLocusComparison.readCalls(callsGff, family), before);
+		final File directory=new File(out).getAbsoluteFile();
+		outstream.println("Saved-call restoration proposal: not caller-verified. Run CallGenes on the proposal before use.");
+		final int lost=NcrnaSavedCallRestoration.restore(baseline, current, before, after, directory,
+			modelFilename(candidateHbm), outstream);
+		if(lost==0 && in!=null){
+			NcrnaSavedCallRestoration.measureSupport(ffin, readSupportGraph(original), current.library(),
+				directory, threads, threadsIn, outstream);
+		}
+	}
+
+	/** Checks named axes without recomputing scores or retaining another full sequence corpus. */
+	private Graph readSupportGraph(final Library library){
+		final Graph graph=NcrnaSupportIO.read(graphPath);
+		if(graph.cutoff!=cutoff || !Arrays.equals(graph.modelNames, library.names)){
+			throw new IllegalArgumentException("Saved support graph cutoff or ordered model identities differ from ref=");
+		}
+		assert(ffin!=null) : "Saved graph use retains the complete in= corpus for its named-axis check";
+		final ObjectIntMap<String> indices=new ObjectIntMap<String>(String.class);
+		for(int i=0; i<graph.queryNames.length; i++){indices.put(graph.queryNames[i], i);}
+		final boolean[] seen=new boolean[graph.queryNames.length];
+		final Streamer input=StreamerFactory.makeStreamer(ffin, null, true, -1, false, true, threadsIn);
+		int found=0;
+		String error=null;
+		try{
+			input.start();
+			for(ListNum<Read> batch=input.nextList(); batch!=null; batch=input.nextList()){
+				for(Read read:batch){
+					try{
+						if(read==null || read.bases==null || read.bases.length==0 || read.mate!=null){
+							throw new IllegalArgumentException("Saved graph input requires nonempty unpaired genes");
+						}
+						final String name=NcrnaSupport.recordName(read.id);
+						final int index=indices.get(name);
+						if(index<0 || seen[index]){
+							throw new IllegalArgumentException("Saved graph has a different or repeated corpus gene: "+name);
+						}
+						seen[index]=true;
+						found++;
+					}catch(IllegalArgumentException invalid){
+						// Drain the native producer before throwing a normal input error;
+						// close is not cancellation and must not strand unread batches.
+						if(error==null){error=invalid.getMessage();}
+					}
+				}
+			}
+		}catch(Throwable failure){KillSwitch.exceptionKill(failure);}
+		if(ReadWrite.closeStream(input)){throw new IllegalStateException("Saved graph corpus read failed: "+in);}
+		if(error!=null){throw new IllegalArgumentException(error);}
+		if(found!=seen.length){throw new IllegalArgumentException("Saved graph contains genes absent from the complete input corpus");}
+		return graph;
+	}
+
 	/** Exports a paired subset with original headers and HBM count data, and upper-case sequences.
 	 * Each HBM is checked against the same-position consensus before selection.
 	 * This is a library subset, not an installable family resource directory.
@@ -242,11 +358,13 @@ public final class ReduceNcrnaModels{
 		if(reduce){bb.append(target, 8, true);}
 		else{bb.append("NA");}
 		bb.nl();
-		bb.append("pair_alignments\t").append(scan.alignments+regenerationAlignments).nl();
-		bb.append("initial_pair_alignments\t").append(scan.alignments).nl();
+		final long initialAlignments=scan==null ? 0 : scan.alignments;
+		bb.append("pair_alignments\t").append(initialAlignments+regenerationAlignments).nl();
+		bb.append("initial_pair_alignments\t").append(initialAlignments).nl();
 		bb.append("regeneration_pair_alignments\t").append(regenerationAlignments).nl();
-		bb.append("input_batches\t").append(scan.batches).nl();
-		bb.append("active_workers\t").append(scan.activeWorkers).nl();
+		bb.append("input_batches\t").append(scan==null ? 0 : scan.batches).nl();
+		bb.append("active_workers\t").append(scan==null ? 0 : scan.activeWorkers).nl();
+		if(scan==null){bb.append("initial_support\tSaved graph; no fresh alignments performed for the initial scan.\n");}
 		bb.append("false_positive_rate\tUNMEASURED\n");
 		bb.append(reduce ? "method\tGreedy subset proposal; no global minimum claim.\n"
 			: "method\tFixed-library regeneration; no model reduction.\n");
@@ -272,6 +390,11 @@ public final class ReduceNcrnaModels{
 
 	/** Gene FASTA, consensus FASTA, optional paired HBM, and fresh output directory. */
 	private String in, ref, hbm, out;
+	/** Optional scored graph replacing only the initial exhaustive alignment scan. */
+	private String graphPath;
+	/** Explicit saved-call mode and its candidate paired library plus two saved GFFs. */
+	private boolean restore=false;
+	private String candidate, candidateHbm, baselineGff, callsGff;
 	/** Optional protection inputs: genome list, truth table, caller/truth labels and scientific config. */
 	private String genomes, truth, family, truthFamily, callerConfig;
 	/** Native JVM heap value for each sequential caller child, such as 2g. */
@@ -280,6 +403,8 @@ public final class ReduceNcrnaModels{
 	private float cutoff=Float.NaN;
 	/** Original double value for human reports; alignments retain native float semantics. */
 	private double requestedCutoff=Double.NaN;
+	/** Distinguishes absent optional restoration support settings from an explicit cutoff. */
+	private boolean cutoffSet=false;
 	/** Required supported fraction of ALL input genes, including initially unsupported genes. */
 	private double target=0.98;
 	/** Alignment-worker budget shared by support and caller stages. */

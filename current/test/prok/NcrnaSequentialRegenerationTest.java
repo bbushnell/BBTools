@@ -15,7 +15,7 @@ import parse.LineParser1;
 import parse.Parse;
 import parse.Parser;
 import parse.PreParser;
-import prok.NcrnaSequentialRegenerationExperiment;
+import prok.ReduceNcrnaModels;
 import prok.NcrnaSupport;
 import prok.NcrnaSupportIO;
 import prok.NcrnaTextIO.Input;
@@ -31,12 +31,10 @@ import stream.WriterFactory;
  * An ambiguous parent supports two disagreeing alleles; a majority allele must
  * be reverted if it strands the minority. Identical members instead keep the
  * regenerated allele. A short group exercises the public tool's no-model result.
-	 * A supporting alternative receives a migrated member and is regenerated later.
-	 * Empty models and pre-existing unsupported genes remain explicit.
+ * A supporting alternative receives a migrated member and is regenerated later.
+ * Empty models and pre-existing unsupported genes remain explicit.
  * These synthetic controls are not resource construction or accuracy estimates.
- * Preserved with the standalone fixed-library regeneration mode. Normal product
- * regeneration has its own tests, but does not replace that mode's CLI contract;
- * these controls remain useful if direct-library regeneration is needed again.
+ * Exercises the public fixed-library mode, including saved ORIGINAL/REDUCED support.
  * @author Brian Bushnell, Raiden
  */
 public final class NcrnaSequentialRegenerationTest{
@@ -48,35 +46,32 @@ public final class NcrnaSequentialRegenerationTest{
 		finally{Shared.closeStream(pp.outstream);}
 	}
 
-	/** Uses native a/b options; the launcher supplies its actual installation. */
+	/** Uses native a/b options and the installed public consensus-builder locator. */
 	private static void run(final String[] args) throws Exception{
 		final Parser parser=new Parser();
-		String installation=null;
 		for(final String arg:args){
 			final String[] split=Parse.splitOnFirst(arg, '=');
 			final String a=split[0].toLowerCase(Locale.ROOT), b=split.length>1 ? split[1] : null;
-			if(a.equals("installation")){installation=b;}
-			else if(!parser.parse(arg, a, b)){throw new IllegalArgumentException("Unknown fixture parameter: "+arg);}
+			if(!parser.parse(arg, a, b)){throw new IllegalArgumentException("Unknown fixture parameter: "+arg);}
 		}
-		check(parser.out1!=null && installation!=null, "Fixture requires out= and installation=");
+		check(parser.out1!=null, "Fixture requires out=");
 		final File root=new File(parser.out1).getAbsoluteFile();
 		check(root.mkdir(), "Fixture output directory must be fresh");
 		final File recipe=new File(root, "consensus.config");
 		try(Output output=new Output(recipe.getPath())){
-			output.writer.print("cluster=f\nmincluster=1\nmingroup=1\nprune=0\nrecruit=f\nreassignrounds=0\n"
-				+"passes=2\nminid=0.3\nendtrim=0\nlentilt=0\nstochastic=f\nconsensusprefix=regenerated_\n"
-				+"pigz=f\nunpigz=f\noverwrite=f\n");
+			output.writer.print("passes=2\nminid=0.3\nendtrim=0\nstochastic=f\n");
 		}
-		test(root, recipe, installation, "keep", 200, false);
-		test(root, recipe, installation, "revert", 200, true);
-		test(root, recipe, installation, "move", 200, true);
-		test(root, recipe, installation, "short", 40, false);
-		finalMigration(root, recipe, installation);
+		test(root, recipe, "keep", 200, false);
+		test(root, recipe, "revert", 200, true);
+		test(root, recipe, "move", 200, true);
+		test(root, recipe, "short", 40, false);
+		finalMigration(root, recipe);
+		graphControls(root);
 		System.out.println("SEQUENTIAL_REGENERATION_TEST_PASS keep/revert/move/short/final-move/reduced-input");
 	}
 
 	/** Each original ambiguous model has exactly 75% ungapped expected identity to either allele. */
-	private static void test(final File root, final File recipe, final String installation,
+	private static void test(final File root, final File recipe,
 			final String label, final int length, final boolean minority) throws Exception{
 		final File directory=new File(root, label);
 		check(directory.mkdir(), "Each control owns a fresh directory");
@@ -115,10 +110,19 @@ public final class NcrnaSequentialRegenerationTest{
 		final String corpus=new File(directory, "genes.fa").getPath();
 		writeFasta(corpus, genes);
 		final File result=new File(directory, "result");
-		NcrnaSequentialRegenerationExperiment.main(new String[]{"in="+corpus, "ref="+fasta, "hbm="+hbm,
-			"out="+result, "installation="+installation, "consensusconfig="+recipe,
-			"expectedgenes="+genes.size(), "expectedmodels=2", "cutoff=0.70", "childheapmib=512", "t=2"});
-		checkSummary(new File(result, "summary.tsv"), genes.size(), label);
+		ReduceNcrnaModels.main(new String[]{"in="+corpus, "ref="+fasta, "hbm="+hbm,
+			"out="+result, "consensusconfig="+recipe, "reduce=f", "regenerate=t", "callerverify=f",
+			"cutoff=0.70", "consensusheap=512m", "t=2"});
+		checkSummary(new File(result, "regeneration/summary.tsv"), genes.size(), label);
+		if(label.equals("short")){
+			try(Input input=new Input(new File(result, "regeneration/models.tsv").getPath())){
+				input.reader.nextLine();
+				final LineParser1 parser=new LineParser1('\t');
+				parser.set(input.reader.nextLine());
+				check(parser.termEquals("model0", 0) && parser.termEquals("NO_CANDIDATE_REVERTED", 1),
+					"The short member group must exercise the consensus builder's no-model branch");
+			}
+		}
 		final NcrnaSupport.Library written=NcrnaSupport.loadLibrary(new File(result, "consensus.fa").getPath());
 		check(Arrays.equals(written.names, new String[]{"model0", "model1"}), "Model names/order/count must remain fixed");
 		if(!label.equals("move")){check(Arrays.equals(written.bases[1], other), "Empty model remains unchanged");}
@@ -127,7 +131,9 @@ public final class NcrnaSequentialRegenerationTest{
 			check(!Arrays.equals(parent, allele), "The accepted control must actually change the original consensus");
 			if(label.equals("move")){check(Arrays.equals(written.bases[1], alternative), "A later model must regenerate from its newly arrived member");}
 		}else{
-			compare(fasta, new File(result, "consensus.fa").getPath());
+			final NcrnaSupport.Library original=NcrnaSupport.loadLibrary(fasta);
+			check(Arrays.deepEquals(original.bases, written.bases) && Arrays.equals(original.headers, written.headers),
+				"Rollback must retain both complete FASTA records regardless of line wrapping");
 			compare(hbm, new File(result, "models.hbmc").getPath());
 		}
 		System.out.println("SEQUENTIAL_CONTROL_PASS "+label);
@@ -137,7 +143,7 @@ public final class NcrnaSequentialRegenerationTest{
 	 * The probe stays with model0 during both steps and moves only in the final scan.
 	 * Supplying a native REDUCED graph also exercises the real runs' NONE/NA input path.
 	 */
-	private static void finalMigration(final File root, final File recipe, final String installation) throws Exception{
+	private static void finalMigration(final File root, final File recipe) throws Exception{
 		final File directory=new File(root, "final_move");
 		check(directory.mkdir(), "Final-migration control needs its own fresh directory");
 		final byte[] x=new byte[400];
@@ -173,15 +179,16 @@ public final class NcrnaSequentialRegenerationTest{
 		final String graphPath=new File(directory, "members.tsv").getPath();
 		NcrnaSupportIO.write(graph, graphPath);
 		final File result=new File(directory, "result");
-		NcrnaSequentialRegenerationExperiment.main(new String[]{"in="+corpus, "ref="+fasta, "hbm="+hbm,
-			"graph="+graphPath, "out="+result, "installation="+installation, "consensusconfig="+recipe,
-			"expectedgenes="+genes.size(), "expectedmodels=2", "cutoff=0.70", "childheapmib=512", "t=2"});
-		checkSummary(new File(result, "summary.tsv"), genes.size(), "final_move");
+		ReduceNcrnaModels.main(new String[]{"in="+corpus, "ref="+fasta, "hbm="+hbm,
+			"graph="+graphPath, "out="+result, "consensusconfig="+recipe,
+			"reduce=f", "regenerate=t", "callerverify=f", "cutoff=0.70", "consensusheap=512m", "t=2"});
+		checkSummary(new File(result, "regeneration/summary.tsv"), genes.size(), "final_move");
+		checkZeroInitialWork(result);
 		final NcrnaSupport.Library written=NcrnaSupport.loadLibrary(new File(result, "consensus.fa").getPath());
 		check(Arrays.equals(written.bases[0], z) && Arrays.equals(written.bases[1], y),
 			"Each full regenerated consensus must equal its identical majority");
 		boolean found=false;
-		try(Input input=new Input(new File(result, "assignments.tsv").getPath())){
+		try(Input input=new Input(new File(result, "regeneration/series.assignments.tsv").getPath())){
 			input.reader.nextLine();
 			final LineParser1 parser=new LineParser1('\t');
 			for(byte[] line=input.reader.nextLine(); line!=null; line=input.reader.nextLine()){
@@ -202,24 +209,86 @@ public final class NcrnaSequentialRegenerationTest{
 		try(Input input=new Input(file.getPath())){
 			final LineParser1 parser=new LineParser1('\t');
 			parser.set(input.reader.nextLine());
-			check(parser.termEquals("models", 0) && parser.termEquals("initial_supported", 2)
-				&& parser.termEquals("initial_unsupported", 3) && parser.termEquals("final_supported", 4)
-				&& parser.termEquals("kept", 8) && parser.termEquals("reverted", 9) && parser.termEquals("empty", 10)
-				&& parser.termEquals("final_migrations", 6) && parser.termEquals("no_candidate", 11)
-				&& parser.termEquals("member_migrations", 13),
+			check(parser.termEquals("models", 1) && parser.termEquals("initial_supported", 12)
+				&& parser.termEquals("initial_unsupported", 13) && parser.termEquals("candidate_supported", 14)
+				&& parser.termEquals("kept", 2) && parser.termEquals("reverted", 3) && parser.termEquals("empty", 4)
+				&& parser.termEquals("final_migrations", 6) && parser.termEquals("member_migrations", 5),
 				"Read the declared native summary schema");
 			parser.set(input.reader.nextLine());
-			check(parser.parseInt(0)==2 && parser.parseInt(1)==genes && parser.parseInt(2)==genes-1
-				&& parser.parseInt(3)==1 && parser.parseInt(4)==genes-1, "Retain every initially supported gene and separate the unsupported gene");
+			check(parser.parseInt(1)==2 && parser.parseInt(12)==genes-1
+				&& parser.parseInt(13)==1 && parser.parseInt(14)==genes-1, "Retain every initially supported gene and separate the unsupported gene");
 			final boolean move=label.equals("move"), finalMove=label.equals("final_move"), keep=label.equals("keep");
 			final boolean bothKept=move || finalMove;
-			check(parser.parseInt(8)==(bothKept ? 2 : keep ? 1 : 0) && parser.parseInt(9)==(bothKept || keep ? 0 : 1)
-				&& parser.parseInt(10)==(bothKept ? 0 : 1), "Expected the declared keep/revert/empty decisions");
-			check(parser.parseInt(11)==(label.equals("short") ? 1 : 0)
-				&& parser.parseInt(13)==(move ? 1 : 0) && parser.parseInt(6)==(finalMove ? 1 : 0),
-				"No-model, in-series and final-pass migration controls must exercise their intended branches");
+			check(parser.parseInt(2)==(bothKept ? 2 : keep ? 1 : 0) && parser.parseInt(3)==(bothKept || keep ? 0 : 1)
+				&& parser.parseInt(4)==(bothKept ? 0 : 1), "Expected the declared keep/revert/empty decisions");
+			check(parser.parseInt(5)==(move ? 1 : 0) && parser.parseInt(6)==(finalMove ? 1 : 0)
+				&& parser.parseInt(7)==0 && parser.parseString(0).contains("not caller-verified"),
+				"Preserve migration expectations and explicitly report zero fresh caller passes");
 			check(input.reader.nextLine()==null, "One summary row per completed experiment");
 		}
+	}
+
+	/** A loaded graph must produce the same subset while spending zero new initial alignments. */
+	private static void graphControls(final File root){
+		final File fixture=new File(root, "final_move");
+		final String corpus=new File(fixture, "genes.fa").getPath();
+		final NcrnaSupport.Library library=NcrnaSupport.loadLibrary(new File(fixture, "base.fa").getPath());
+		final NcrnaSupport.Graph original=NcrnaSupport.scan(FileFormat.testInput(corpus, FileFormat.FASTA,
+			null, true, true), library, .70f, 1, 1);
+		final String saved=new File(fixture, "original.support.tsv").getPath();
+		NcrnaSupportIO.write(original, saved);
+		final File fresh=new File(root, "fresh_subset");
+		reduce(fixture, null, .70f, fresh);
+		for(String graph:new String[]{saved, new File(fixture, "members.tsv").getPath()}){
+			final File loaded=new File(root, graph.equals(saved) ? "original_subset" : "reduced_subset");
+			reduce(fixture, graph, .70f, loaded);
+			compare(new File(fresh, "consensus.fa").getPath(), new File(loaded, "consensus.fa").getPath());
+			compare(new File(fresh, "members.tsv").getPath(), new File(loaded, "members.tsv").getPath());
+			checkZeroInitialWork(loaded);
+		}
+		fails(()->reduce(fixture, saved, .75f, new File(root, "bad_cutoff")), "cutoff");
+		final String oldModel=original.modelNames[0];
+		original.modelNames[0]="wrong_model";
+		final String wrongModel=new File(fixture, "wrong_model.tsv").getPath();
+		NcrnaSupportIO.write(original, wrongModel);
+		original.modelNames[0]=oldModel;
+		fails(()->reduce(fixture, wrongModel, .70f, new File(root, "bad_model")), "model identities");
+		original.queryNames[0]="wrong_gene";
+		final String wrongGene=new File(fixture, "wrong_gene.tsv").getPath();
+		NcrnaSupportIO.write(original, wrongGene);
+		fails(()->reduce(fixture, wrongGene, .70f, new File(root, "bad_gene")), "corpus gene");
+		final String malformed=new File(fixture, "malformed.tsv").getPath();
+		try(Output out=new Output(malformed)){out.writer.print("not a support graph\n");}
+		fails(()->reduce(fixture, malformed, .70f, new File(root, "bad_format")), "graph");
+		System.out.println("SAVED_SUPPORT_GRAPH_TEST_PASS original reduced parity zero-alignments wrong-model wrong-gene wrong-cutoff malformed");
+	}
+
+	private static void reduce(final File fixture, final String graph, final float cutoff, final File output){
+		final ArrayList<String> args=new ArrayList<String>(Arrays.asList("in="+new File(fixture, "genes.fa"),
+			"ref="+new File(fixture, "base.fa"), "cutoff="+cutoff, "target=0.8", "t=1", "out="+output));
+		if(graph!=null){args.add("graph="+graph);}
+		ReduceNcrnaModels.main(args.toArray(new String[args.size()]));
+	}
+
+	private static void checkZeroInitialWork(final File output){
+		boolean zero=false, labeled=false;
+		try(Input input=new Input(new File(output, "summary.txt").getPath())){
+			final LineParser1 parser=new LineParser1('\t');
+			for(byte[] line=input.reader.nextLine(); line!=null; line=input.reader.nextLine()){
+				parser.set(line);
+				if(parser.termEquals("initial_pair_alignments", 0)){zero=parser.parseLong(1)==0;}
+				if(parser.termEquals("initial_support", 0)){labeled=parser.parseString(1).contains("no fresh alignments performed");}
+			}
+		}
+		check(zero && labeled, "Loaded graph work must be zero and distinguished from fresh alignments");
+	}
+
+	private static void fails(final Runnable action, final String expected){
+		try{action.run();}catch(IllegalArgumentException failure){
+			check(failure.getMessage().contains(expected), "Graph rejection must explain the violated contract: "+failure);
+			return;
+		}
+		throw new AssertionError("Invalid saved graph was accepted: "+expected);
 	}
 
 	/** Compares independent original and rolled-back native records, including every HBM count. */

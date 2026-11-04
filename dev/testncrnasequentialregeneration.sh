@@ -6,4 +6,4 @@ source "$DIR/javasetup.sh"
 parseJavaArgs --xmx=1g --xms=64m --mode=fixed "$@"
 setEnvironment
 exec java $EA $EOOM $SIMD $XMX $XMS $XSS -cp "$DIR/current/" \
-	test.prok.NcrnaSequentialRegenerationTest installation="$DIR" "$@"
+	test.prok.NcrnaSequentialRegenerationTest "$@"

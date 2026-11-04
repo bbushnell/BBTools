@@ -7,6 +7,8 @@ then rebuilds the retained paired models while protecting support and detections
 Use reduce=f regenerate=t to rebuild the entire supplied library without model
 reduction. Regeneration requires caller protection by default. Explicit
 callerverify=f allows a fixed-library proposal without running the caller.
+Optional graph= reuses existing support for the initial scan. The separate
+mode=restore callerverify=f reconstructs a paired proposal from saved calls.
 The tool does not tune verification cutoffs or prove a globally smallest library.
 
 Requirements: Bash and java on PATH. BBTools supports Java 8 or later when built
@@ -198,6 +200,78 @@ label the result "not caller-verified". No caller runs, GFFs or caller-result
 tables are produced. Verify this proposal with CallGenes before using it as a
 replacement library; retained gene support does not establish genome detections.
 
+Reusing saved support
+---------------------
+
+Supply graph= with the same gene FASTA, ordered consensus library and cutoff that
+produced it. Both ORIGINAL and REDUCED version-2 graphs are accepted, including
+unsupported NONE/NA rows. The input must contain exactly the graph's unique gene
+IDs; order may differ. Model order and the native float cutoff must match exactly.
+These checks do not establish that a same-named sequence has unchanged bases.
+Use a graph made from the actual supplied sequence versions.
+
+This complete example makes one graph, then reuses it with no initial alignments:
+
+  mkdir "${TMPDIR:-/tmp}/ncrna-saved-support" &&
+  bash reducencrnamodels.sh in=testdata/ncrna_model_tools/genes.fa \
+    ref=resources/callgenes_6S/RF01685/consensus.fa cutoff=1 target=1 \
+    out="${TMPDIR:-/tmp}/ncrna-saved-support/fresh" t=2 -Xmx1g &&
+  bash reducencrnamodels.sh in=testdata/ncrna_model_tools/genes.fa \
+    ref=resources/callgenes_6S/RF01685/consensus.fa cutoff=1 target=1 \
+    graph="${TMPDIR:-/tmp}/ncrna-saved-support/fresh/original.support.tsv" \
+    out="${TMPDIR:-/tmp}/ncrna-saved-support/reused" t=2 -Xmx1g &&
+  cmp "${TMPDIR:-/tmp}/ncrna-saved-support/fresh/consensus.fa" \
+    "${TMPDIR:-/tmp}/ncrna-saved-support/reused/consensus.fa" &&
+  cmp "${TMPDIR:-/tmp}/ncrna-saved-support/fresh/members.tsv" \
+    "${TMPDIR:-/tmp}/ncrna-saved-support/reused/members.tsv"
+
+The reused run reports initial_pair_alignments=0 and states that no fresh
+alignments were performed for the initial scan. input_batches and active_workers
+count that alignment scan, so they are zero when graph= supplies its result.
+Regeneration's later member/final scans still perform and report real alignments.
+No fresh caller verification is replaced by graph=; callerverify defaults remain.
+
+Restoring pairs from saved calls
+-------------------------------
+
+For existing original and regenerated libraries with identical model identities
+and order, use their saved full-genome GFFs to propose paired restorations:
+
+  bash reducencrnamodels.sh mode=restore callerverify=f \
+    ref=original.fa hbm=original.hbmc \
+    candidate=regenerated.fa candidatehbm=regenerated.hbmc \
+    baseline=original.calls.gff calls=regenerated.calls.gff \
+    truth=truth.tsv family=SAM-I truthfamily=RF00162 out=restored_library
+
+This is an input template: replace the filenames with your own complete inputs.
+ref/hbm identify the original paired library; candidate/candidatehbm identify the
+library used for calls=. baseline= must describe calls from ref/hbm on the same
+genome panel and policy. In this mode family= is the exact emitted GFF label,
+such as SAM-I, while truthfamily= selects the reference-table label. Model IDs
+must be unique and every baseline call's model must exist in the original library.
+
+Every reference detected by the baseline but missing in the supplied candidate
+calls restores its baseline winner's complete FASTA/HBM pair. Shared winners are
+restored once. Other pairs, their descriptions and count arrays remain current.
+If losses remain but all winning pairs are already original, the tool reports
+no progress and does not export another purportedly useful proposal.
+
+This mode does not launch CallGenes or rebuild a consensus. callerverify still
+defaults to t; explicitly choosing callerverify=f is required. The summary and
+diagnostics label the output not caller-verified. summary.tsv grades the supplied
+calls, not the unrun proposal. Run ordinary CallGenes on the proposed library
+before deciding whether its restoration recovered detections. Rejecting live
+genome/caller configuration or regeneration options prevents mixing workflows.
+
+Output contains consensus.fa, paired models preserving the candidate HBM codec
+and compression, lost.tsv, and summary.tsv. Optional in=genes.fa
+graph=original.support.tsv cutoff=... requests one final support scan only when
+the supplied calls have zero baseline losses. It adds support.tsv,
+support.changes.tsv and support.summary.tsv. That report compares named genes:
+one lost gene and one gained gene are not retention merely because totals agree.
+It does not alter the proposal or establish caller accuracy. No support check is
+performed when the supplied calls still lose baseline detections.
+
 Regeneration after reduction
 ----------------------------
 
@@ -235,7 +309,8 @@ thread. consensusheap=1g sets that child's heap; alignment still uses t workers.
 Gene identifiers must not encode tRNA anticodon groups. Both regeneration routes
 require paired models. Regeneration after reduction always requires complete
 caller-protection inputs; fixed-library regeneration requires them by default.
-Only the explicit callerverify=f fixed-library option skips caller protection.
+Only the explicit callerverify=f fixed-library option skips regeneration's caller
+protection. The separate saved-call restoration mode also requires explicit f.
 
 A candidate is accepted only if all its current members still have a supporting
 model after competitive reassignment. Acceptance changes the complete pair and

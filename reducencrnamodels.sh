@@ -4,7 +4,7 @@ set -eo pipefail
 usage(){
 	cat <<'HELP'
 Written by Brian Bushnell and Raiden
-Last modified November 3, 2026
+Last modified November 4, 2026
 
 Usage: reducencrnamodels.sh in=genes.fa ref=consensus.fa cutoff=0.70 out=new_directory
 
@@ -22,6 +22,10 @@ out=            New directory beneath an existing parent; existing output refuse
 
 Options:
 hbm=            Index-aligned HBM/HBMC input; subset preserves its codec.
+graph=          Saved version-2 support graph for this exact library/corpus/cutoff.
+                Replaces only the initial alignment scan; ORIGINAL and REDUCED
+                graphs are accepted. Complete named axes are checked. No fresh
+                initial alignments are reported; later regeneration still aligns.
 reduce=t        Propose a smaller library; f keeps all models and requires regenerate=t.
 target=0.98     Fraction of ALL genes that must retain a supporter, in (0,1].
                 Applies only when reduce=t; fixed-library reports use NA.
@@ -43,9 +47,12 @@ regenerate=f   Rebuild selected models from their current members, in order.
                 With reduce=f, keep every supplied model and skip reduction.
                 Paired hbm= and consensusconfig= are required.
 callerverify=t  Require caller-protection inputs for regeneration (recommended).
-                f is an explicit unverified opt-in for reduce=f regenerate=t only.
-                Omit all caller-protection inputs in that mode. Corpus retention
-                still applies; no caller is run and output is not caller-verified.
+                f is an explicit unverified opt-in for reduce=f regenerate=t,
+                or the separate mode=restore described below.
+                For fixed-library regeneration, omit all caller-protection inputs;
+                corpus retention still applies. Saved-call restoration instead
+                requires truth/family inputs and offers optional support reporting.
+                Neither caller-free mode runs a caller; output is not caller-verified.
 consensusconfig=  Public consensus recipe: passes, minid, endtrim, stochastic,
                 stochasticseed. The stage owns grouping, files and threads.
 consensusheap=1g  Heap for the single consensus child, in addition to this JVM.
@@ -80,6 +87,27 @@ also write caller_results.tsv (including strand-aware exact ends),
 caller_restorations.tsv and exported.caller.tsv; caller-free runs write none of these.
 Rejected proposals remain diagnostic, never the top-level library.
 The output is a model library, not an installable family resource directory.
+
+Saved-call restoration (no new caller run):
+mode=restore callerverify=f ref=original.fa hbm=original.hbmc
+candidate=regenerated.fa candidatehbm=regenerated.hbmc
+baseline=original.calls.gff calls=regenerated.calls.gff
+truth=truth.tsv family=SAM-I truthfamily=RF00162 out=fresh_directory
+
+Restore the original paired model for each baseline-detected reference lost in
+the supplied candidate calls. Other pairs remain current; names/order must match.
+family= is the exact GFF label in this mode. Summary metrics describe the supplied
+calls, NOT the proposed library. Output is labeled not caller-verified; run
+CallGenes on it before use. Caller verification still defaults to t, so this mode
+requires explicit callerverify=f. Do not supply live-caller or regeneration inputs.
+Outputs: consensus.fa, paired models, lost.tsv and summary.tsv.
+
+Optional in=genes.fa graph=original.support.tsv cutoff=... requests a final
+corpus-support scan only when the supplied calls have zero baseline losses.
+support.summary.tsv reports named losses/gains separately; equal totals do not
+establish retention, and support checking does not verify genome calling.
+Saved graphs must come from the supplied sequence versions; names/cutoff alone
+cannot establish that the sequence contents used to create the graph were equal.
 
 Standard BBTools options use flag=value; config=, -Xmx and outstream= work normally.
 
