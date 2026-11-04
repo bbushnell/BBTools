@@ -6,7 +6,10 @@ BBTools prokaryotic package providing comprehensive tools for bacterial and arch
 
 `reducencrnamodels.sh` selects a compact consensus/HBM library using exhaustive
 gene-to-model support, optionally protects whole-genome detections, and can
-regenerate retained models with paired rollback. Its full user guide is
+regenerate retained models with paired rollback. `reduce=f regenerate=t` rebuilds
+the complete supplied library without reduction, with caller verification on by
+default. Explicit `callerverify=f` produces a labeled, unverified fixed-library
+proposal using corpus retention alone. The full user guide is
 `docs/guides/ReduceNcrnaModelsGuide.txt` in the BBTools release.
 
 `buildncrnaboundarynets.sh` learns endpoint features, compares native classifier

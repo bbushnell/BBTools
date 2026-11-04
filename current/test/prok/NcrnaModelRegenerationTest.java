@@ -58,12 +58,124 @@ public final class NcrnaModelRegenerationTest{
 			for(final String mode:new String[]{"keep", "revert", "move", "short"}){serial(root, mode);}
 			restoredSupportLoss(root);
 			integration(root);
+			fixedLibrary(root, true);
+			fixedLibrary(root, false);
 			fallback(root, 1, false);
 			fallback(root, 3, false);
 			fallback(root, 3, true);
 			System.out.println("MODEL_REGENERATION_TEST_PASS keep revert move short restored-support-loss original-graph caller-baseline per-end CLI budget no-progress inconsistent-input fallback-outputs");
 		}finally{
 			Shared.closeStream(pp.outstream);
+		}
+	}
+
+	/** Redundant and empty models must survive the public fixed-library path in order. */
+	private static void fixedLibrary(final File root, final boolean verified) throws Exception{
+		final File work=new File(root, verified ? "fixed_protected" : "fixed_unverified");
+		check(work.mkdir(), "Fixed-library fixture requires fresh output");
+		final File prior=new File(root, "cli");
+		final Library source=NcrnaSupport.loadLibrary(new File(prior, "base.fa").getPath());
+		final byte[] gene=source.bases[0], unused=new byte[gene.length];
+		Arrays.fill(unused, (byte)'T');
+		final String[] names={source.names[0], source.names[0]+"_redundant", source.names[0]+"_empty"};
+		final byte[][] bases={gene, gene, unused};
+		final File ref=new File(work, "base.fa"), hbm=new File(work, "base.hbmc"), out=new File(work, "result");
+		paired(ref, hbm, names, bases);
+		final ArrayList<String> args=new ArrayList<String>();
+		args.add("in="+new File(prior, "genes.fa"));
+		args.add("ref="+ref);
+		args.add("hbm="+hbm);
+		args.add("out="+out);
+		args.add("cutoff=0.95");
+		args.add("reduce=f");
+		args.add("regenerate=t");
+		args.add("consensusconfig="+new File(root, "consensus.config"));
+		args.add("consensusheap=512m");
+		args.add("t=2");
+		if(verified){callerOptions(args, prior);}
+		else{args.add("callerverify=f");}
+		ReduceNcrnaModels.main(args.toArray(new String[args.size()]));
+		final Library result=NcrnaSupport.loadLibrary(new File(out, "consensus.fa").getPath());
+		check(Arrays.equals(names, result.names) && Arrays.deepEquals(bases, result.bases),
+			"Fixed regeneration must retain all three literal model identities, order and sequences, including redundant and empty models");
+		final Graph graph=NcrnaSupportIO.read(new File(out, "members.tsv").getPath());
+		check(Arrays.equals(names, graph.modelNames) && graph.queryNames.length==2,
+			"The exported graph must retain the complete fixed model and gene axes");
+		check(contains(new File(out, "summary.txt"), "coverage_target\tNA"),
+			"Fixed regeneration must not imply that a greedy coverage target was applied");
+		if(verified){
+			check(lines(new File(out, "caller_results.tsv"))==2 && !new File(out, "candidate_1").exists(),
+				"The unchanged fixed library needs exactly one initial baseline call, not a duplicate subset call");
+			check(lines(new File(out, "regeneration/caller_results.tsv"))==3,
+				"Protected regeneration must make a fresh candidate call after its reused baseline");
+			check(contains(new File(out, "summary.txt"), "Regeneration passed caller and corpus retention"),
+				"Verified fixed regeneration must report both measured retention checks");
+			invalidFixedOptions(root, prior, ref, hbm);
+		}else{
+			check(contains(new File(out, "summary.txt"), "not caller-verified")
+				&& contains(new File(out, "regeneration/summary.tsv"), "not caller-verified"),
+				"Both exported and stage summaries must label caller-free regeneration as unverified");
+			for(final String path:new String[]{"baseline", "candidate_1", "caller_results.tsv",
+					"regeneration/caller_1", "regeneration/caller_results.tsv",
+					"regeneration/caller_restorations.tsv", "regeneration/exported.caller.tsv"}){
+				check(!new File(out, path).exists(), "Caller-free mode must not produce caller work or reports: "+path);
+			}
+		}
+		// Keep the codec's internal types private, as with the stage probes below.
+		final Class<?> readerClass=Class.forName("prok.NucleotideHbmCodec$Reader");
+		final Constructor<?> readerConstructor=readerClass.getDeclaredConstructor(String.class);
+		readerConstructor.setAccessible(true);
+		final Method next=readerClass.getDeclaredMethod("next");
+		next.setAccessible(true);
+		try(AutoCloseable before=(AutoCloseable)readerConstructor.newInstance(hbm.getPath());
+				AutoCloseable after=(AutoCloseable)readerConstructor.newInstance(new File(out, "models.hbmc").getPath())){
+			for(int model=0; model<names.length; model++){
+				final Object a=next.invoke(before), b=next.invoke(after);
+				check(a!=null && b!=null && Arrays.equals(bases[model], (byte[])field(b, "bases").get(b)),
+					"Every fixed model must retain a coherent consensus/HBM pair");
+				if(model==2){
+					check(Arrays.equals((byte[])field(a, "header").get(a), (byte[])field(b, "header").get(b))
+						&& Arrays.equals((int[])field(a, "counts").get(a), (int[])field(b, "counts").get(b)),
+						"Empty-assignment models must retain their original HBM metadata and counts");
+				}
+			}
+			check(next.invoke(after)==null, "Fixed regeneration must not append models");
+		}
+		System.out.println(verified ? "FIXED_LIBRARY_REGENERATION_TEST_PASS" : "UNVERIFIED_FIXED_LIBRARY_TEST_PASS");
+	}
+
+	private static void callerOptions(final ArrayList<String> args, final File prior){
+		args.add("genomes="+new File(prior, "genomes.txt"));
+		args.add("truth="+new File(prior, "truth.tsv"));
+		args.add("family=sixs_rf01685");
+		args.add("truthfamily=fixture");
+		args.add("callerconfig="+new File(prior, "caller.config"));
+		args.add("callerheap=1g");
+		args.add("maxcalls=1");
+	}
+
+	/** Invalid combinations must fail before creating a result directory or launching children. */
+	private static void invalidFixedOptions(final File root, final File prior, final File ref, final File hbm){
+		for(final String mode:new String[]{"no_regeneration", "no_hbm", "no_caller", "reduction_without_caller",
+				"unverified_reduction", "unverified_with_caller"}){
+			final File out=new File(root, "invalid_"+mode);
+			final ArrayList<String> args=new ArrayList<String>();
+			args.add("in="+new File(prior, "genes.fa"));
+			args.add("ref="+ref);
+			args.add("out="+out);
+			args.add("cutoff=0.95");
+			args.add("reduce="+(mode.equals("reduction_without_caller") || mode.equals("unverified_reduction") ? "t" : "f"));
+			if(mode.startsWith("unverified_")){args.add("callerverify=f");}
+			if(!mode.equals("no_regeneration")){args.add("regenerate=t");}
+			if(!mode.equals("no_hbm")){args.add("hbm="+hbm);}
+			args.add("consensusconfig="+new File(root, "consensus.config"));
+			if(!mode.equals("no_caller") && !mode.equals("reduction_without_caller") && !mode.equals("unverified_reduction")){
+				callerOptions(args, prior);
+			}
+			boolean rejected=false;
+			try{new ReduceNcrnaModels(args.toArray(new String[args.size()]));}
+			catch(IllegalArgumentException expected){rejected=true;}
+			check(rejected && !out.exists(), "Invalid regeneration options must fail before output: "+mode);
 		}
 	}
 
@@ -225,6 +337,14 @@ public final class NcrnaModelRegenerationTest{
 			"Production selection must retain baseline pairs, assignments and caller results together despite caller acceptance");
 		check(field(stage, "status").get(stage).toString().contains("regeneration lost corpus support"),
 			"Support loss must be identified as the fallback reason");
+		// Explicitly opting out of caller verification must not opt out of corpus retention.
+		field(stage, "status").set(stage, null);
+		select.invoke(stage, baseline, current, initial, candidate, null, true, before, after);
+		check(field(stage, "pairs").get(stage)==baseline && field(stage, "graph").get(stage)==initial
+			&& field(stage, "selectedCalls").get(stage)==null,
+			"Caller-free regeneration must retain the original pairs and graph when a supported gene is lost");
+		check(field(stage, "status").get(stage).toString().contains("not caller-verified"),
+			"Corpus fallback must not imply caller verification");
 	}
 
 	/** One known installed consensus provides intrinsic complete-locus truth, not a biological benchmark. */

@@ -4,6 +4,9 @@ ReduceNcrnaModels
 reducencrnamodels.sh proposes a smaller consensus library, then optionally tests
 that proposal through ordinary whole-genome CallGenes. Optional serial regeneration
 then rebuilds the retained paired models while protecting support and detections.
+Use reduce=f regenerate=t to rebuild the entire supplied library without model
+reduction. Regeneration requires caller protection by default. Explicit
+callerverify=f allows a fixed-library proposal without running the caller.
 The tool does not tune verification cutoffs or prove a globally smallest library.
 
 Requirements: Bash and java on PATH. BBTools supports Java 8 or later when built
@@ -143,8 +146,60 @@ before returning with interruption preserved. A JVM shutdown hook attempts the
 same group cleanup. Uncatchable SIGKILL or a JVM crash cannot run that hook and
 can leave descendants running.
 
-Serial regeneration
--------------------
+Regenerating a fixed library
+---------------------------
+
+Run from the installation root. This example retains all nineteen supplied models,
+including models with no assigned genes, and verifies them through CallGenes:
+
+  mkdir "${TMPDIR:-/tmp}/ncrna-fixed-protected" &&
+  printf '%s\n' "$PWD/testdata/ncrna_model_tools/panel.fa" > "${TMPDIR:-/tmp}/ncrna-fixed-protected/genomes.txt" &&
+  bash reducencrnamodels.sh config=testdata/ncrna_model_tools/protected.config \
+    genomes="${TMPDIR:-/tmp}/ncrna-fixed-protected/genomes.txt" reduce=f regenerate=t \
+    consensusconfig=testdata/ncrna_model_tools/consensus.config \
+    out="${TMPDIR:-/tmp}/ncrna-fixed-protected/regenerated" t=2 -Xmx1g &&
+  cat "${TMPDIR:-/tmp}/ncrna-fixed-protected/regenerated/caller_results.tsv" \
+    "${TMPDIR:-/tmp}/ncrna-fixed-protected/regenerated/regeneration/exported.caller.tsv"
+
+All nineteen models remain in their original order, and all twenty teaching
+genes must retain support. Unpopulated models keep their original consensus/HBM
+pairs. target= does not select or remove models in this mode; coverage_target is NA.
+reduce=f requires regenerate=t, paired hbm= and consensusconfig=. The default
+callerverify=t also requires the complete caller-protection inputs.
+
+This route makes one initial call with the original library, then calls the
+regenerated proposal. It does not spend a second initial call on an unchanged
+subset. maxcalls=1 is sufficient for its initial baseline; maxregencalls controls
+the later regeneration calls. The final paired library must retain both corpus
+support and baseline-detected reference loci or fall back to the original pairs.
+Neither route changes the default reduce=t behavior.
+
+Explicit caller-free proposal
+----------------------------
+
+Caller verification is recommended. To rebuild a fixed library using corpus
+support alone, explicitly set callerverify=f and omit genomes, truth, family,
+truthfamily and callerconfig. This option is rejected with reduction or without
+regeneration; it never silently disables verification for another workflow.
+Run this complete example from the installation root:
+
+  mkdir "${TMPDIR:-/tmp}/ncrna-fixed-unverified" &&
+  bash reducencrnamodels.sh in=testdata/ncrna_model_tools/genes.fa \
+    ref=resources/callgenes_6S/RF01685/consensus.fa \
+    hbm=resources/callgenes_6S/RF01685/models.hbmc.gz cutoff=1 \
+    reduce=f regenerate=t callerverify=f \
+    consensusconfig=testdata/ncrna_model_tools/consensus.config \
+    out="${TMPDIR:-/tmp}/ncrna-fixed-unverified/regenerated" t=2 -Xmx1g &&
+  cat "${TMPDIR:-/tmp}/ncrna-fixed-unverified/regenerated/summary.txt"
+
+All nineteen models remain, with all twenty teaching genes supported. Corpus
+support loss still restores the original library. Both summaries and diagnostics
+label the result "not caller-verified". No caller runs, GFFs or caller-result
+tables are produced. Verify this proposal with CallGenes before using it as a
+replacement library; retained gene support does not establish genome detections.
+
+Regeneration after reduction
+----------------------------
 
 Run this complete recipe from the installation root, independently of the
 protection example above. It performs protection before regeneration:
@@ -177,9 +232,10 @@ stochastic and stochasticseed. For example:
 The public consensus builder processes one model's current members at a time.
 The stage fixes one group, no clustering/recruitment/pruning, and one builder
 thread. consensusheap=1g sets that child's heap; alignment still uses t workers.
-Gene identifiers must not encode tRNA anticodon groups. Regeneration requires
-the complete paired-model and caller-protection inputs; it cannot silently run
-as an unprotected support-only operation.
+Gene identifiers must not encode tRNA anticodon groups. Both regeneration routes
+require paired models. Regeneration after reduction always requires complete
+caller-protection inputs; fixed-library regeneration requires them by default.
+Only the explicit callerverify=f fixed-library option skips caller protection.
 
 A candidate is accepted only if all its current members still have a supporting
 model after competitive reassignment. Acceptance changes the complete pair and
@@ -224,7 +280,7 @@ Protected runs also retain executed caller configurations, complete GFFs,
 caller_results.tsv and per-reference lost.tsv tables. Unmatched calls are
 reported against the supplied truth; they are not independently adjudicated FPs.
 The false-positive rate remains UNMEASURED without a defined negative population.
-These outputs are a library subset, not a complete installable family directory.
+These outputs are a model library, not a complete installable family directory.
 
 Shared support graph
 --------------------
@@ -240,6 +296,8 @@ REDUCED best is the best retained supporter, or NONE/NA when none remains. No
 additional alignment pass invents a below-cutoff reduced winner. Reduced indices
 refer to the exported library. Boundary-training coverage groups must use the
 ORIGINAL graph and original library, not the reduced graph.
+For fixed-library regeneration, REDUCED still denotes this exported-model graph;
+its model count is unchanged and no subset-selection step was performed.
 
 A48 preserves native float bits in graph data. Human-readable numeric summaries
 use fixed decimals. No file hashes or process receipts are

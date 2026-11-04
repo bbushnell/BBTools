@@ -24,7 +24,7 @@ import structures.ByteBuilder;
  */
 public final class NcrnaCallerProtection{
 
-	/** Loads the fixed caller policy, genome paths and reference loci for one reduction.
+	/** Loads the caller policy, genome paths and reference loci for one library workflow.
 	 * The caller validates positive thread and call budgets before construction.
 	 * @param family_ One registered member with paired-model override support
 	 * @param truthFamily Label selecting this family's rows in the supplied truth
@@ -55,17 +55,14 @@ public final class NcrnaCallerProtection{
 		for(int model=0; model<library.names.length; model++){
 			modelIndex.put(library.names[model], model);
 		}
-		final File baselineDir=fresh(directory, "baseline");
-		final ArrayList<Locus> baseline=call(ref, hbm, baselineDir);
-		final Result baselineResult=NcrnaBoundaryComparison.grade(references, baseline, null);
-		selectedResult=baselineResult;
+		final Result baselineResult=baseline(ref, hbm, directory);
+		final ArrayList<Locus> baseline=baselineResult.calls;
 		final int[] originalMatches=baselineResult.matches;
-		if(matched(originalMatches)==0){throw new IllegalArgumentException("No baseline references were detected; check family activation and truthfamily");}
 		final boolean[] kept=proposal.clone();
 		try(Output output=new Output(new File(directory, "caller_results.tsv").getPath())){
 			final ByteStreamWriter report=output.writer;
 			final ByteBuilder row=new ByteBuilder();
-			report.print("iteration\tmodels\tcalls\tmatched\tunmatched_calls\tmissed_references\tprotected_lost\tnewly_matched\tboth_ends_exact\texact_5prime\texact_3prime\n");
+			report.print(RESULT_HEADER);
 			writeResult(report, row, 0, library.names.length, baseline, originalMatches, originalMatches);
 			for(int iteration=1; iteration<maxCalls; iteration++){
 				final File run=fresh(directory, "candidate_"+iteration);
@@ -111,6 +108,30 @@ public final class NcrnaCallerProtection{
 			resultStatus="Original library retained: caller budget exhausted before a reduced set passed";
 			return original(library.names.length);
 		}
+	}
+
+	/** Establishes one fresh caller baseline without evaluating an unchanged subset twice. */
+	void verifyOriginal(final Library library, final String ref, final String hbm, final File directory){
+		final Result baseline=baseline(ref, hbm, directory);
+		assert(baseline==selectedResult) : "Regeneration must reuse this exact original-library matching through selectedResult";
+		try(Output output=new Output(new File(directory, "caller_results.tsv").getPath())){
+			output.writer.print(RESULT_HEADER);
+			writeResult(output.writer, new ByteBuilder(), 0, library.names.length,
+				baseline.calls, baseline.matches, baseline.matches);
+		}
+		resultStatus="Original library caller baseline verified";
+	}
+
+	/** Runs the original pairs and retains their exact matching for later protection. */
+	private Result baseline(final String ref, final String hbm, final File directory){
+		final ArrayList<Locus> calls=call(ref, hbm, fresh(directory, "baseline"));
+		final Result result=NcrnaBoundaryComparison.grade(references, calls, null);
+		assert(result.truth==references) : "Later caller grading reuses this reference identity in NcrnaBoundaryComparison.grade";
+		selectedResult=result;
+		if(matched(result.matches)==0){
+			throw new IllegalArgumentException("No baseline references were detected; check family activation and truthfamily");
+		}
+		return result;
 	}
 
 	String status(){return resultStatus;}
@@ -218,4 +239,6 @@ public final class NcrnaCallerProtection{
 	private String resultStatus="Caller protection not completed";
 	/** Verified matching belonging to the subset returned by protect. */
 	private Result selectedResult;
+	/** Same measurements for the initial baseline and each reduced proposal. */
+	private static final String RESULT_HEADER="iteration\tmodels\tcalls\tmatched\tunmatched_calls\tmissed_references\tprotected_lost\tnewly_matched\tboth_ends_exact\texact_5prime\texact_3prime\n";
 }

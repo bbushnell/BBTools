@@ -2,6 +2,7 @@ package prok;
 
 import java.io.File;
 import java.io.PrintStream;
+import java.util.Arrays;
 import java.util.Locale;
 
 import fileIO.FileFormat;
@@ -17,7 +18,7 @@ import shared.Timer;
 import shared.Tools;
 import structures.ByteBuilder;
 
-/** Proposes a smaller ncRNA consensus library and optionally protects caller detections.
+/** Reduces or regenerates an ncRNA library, with optional caller protection.
  * Forked from template.A_SampleStreamerMT. The shared alignment worker stage is
  * NcrnaSupport; this driver owns CLI parsing, proposal selection and output.
  * Original resources are never changed. A proposal without full-genome calling
@@ -114,6 +115,10 @@ public final class ReduceNcrnaModels{
 				maxCalls=NcrnaNumbers.intKMG(a, b);
 			}else if(a.equals("regenerate")){
 				regenerate=Parse.parseBoolean(b);
+			}else if(a.equals("reduce")){
+				reduce=Parse.parseBoolean(b);
+			}else if(a.equals("callerverify")){
+				callerVerify=Parse.parseBoolean(b);
 			}else if(a.equals("consensusconfig")){
 				consensusConfig=b;
 			}else if(a.equals("consensusheap")){
@@ -137,11 +142,21 @@ public final class ReduceNcrnaModels{
 		if((genomes==null)!=(truth==null)){
 			throw new IllegalArgumentException("genomes= and truth= must be supplied together for caller protection");
 		}
-		if(genomes!=null && (hbm==null || family==null || truthFamily==null || callerConfig==null || maxCalls<2)){
-			throw new IllegalArgumentException("Caller protection also requires hbm=, family=, truthfamily=, callerconfig= and maxcalls>=2");
+		if(!reduce && !regenerate){
+			throw new IllegalArgumentException("reduce=f requires regenerate=t to rebuild the supplied fixed library");
 		}
-		if(regenerate && (genomes==null || consensusConfig==null || consensusHeap<1 || maxRegenCalls<1)){
-			throw new IllegalArgumentException("regenerate=t requires caller protection, consensusconfig, positive consensusheap and maxregencalls");
+		if(!callerVerify && (reduce || !regenerate || genomes!=null || truth!=null || family!=null
+				|| truthFamily!=null || callerConfig!=null)){
+			throw new IllegalArgumentException("callerverify=f requires reduce=f regenerate=t and no caller-protection inputs; its output is not caller-verified");
+		}
+		if(genomes!=null && (hbm==null || family==null || truthFamily==null || callerConfig==null || maxCalls<(reduce ? 2 : 1))){
+			throw new IllegalArgumentException("Caller protection requires hbm, family, truthfamily, callerconfig and maxcalls>=2 for reduction or >=1 for a fixed library");
+		}
+		if(regenerate && (hbm==null || consensusConfig==null || consensusHeap<1 || maxRegenCalls<1)){
+			throw new IllegalArgumentException("regenerate=t requires hbm, consensusconfig, positive consensusheap and maxregencalls");
+		}
+		if(regenerate && callerVerify && genomes==null){
+			throw new IllegalArgumentException("Regeneration requires caller protection by default; only reduce=f callerverify=f explicitly opts out");
 		}
 		if(new File(out).exists()){throw new IllegalArgumentException("out= must name a fresh directory: "+out);}
 	}
@@ -150,8 +165,11 @@ public final class ReduceNcrnaModels{
 	/*----------------          Processing          ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Scans the full corpus once, proposes a subset, optionally restores detections and writes results. */
+	/** Scans once, selects all models or a subset, then optionally protects and regenerates them. */
 	private void process(final Timer timer){
+		if(!callerVerify){
+			outstream.println("Regeneration proposal only: not caller-verified. Verify the resulting library with CallGenes before use.");
+		}
 		final NcrnaModelRegeneration regeneration=regenerate ? new NcrnaModelRegeneration(consensusConfig,
 			consensusHeap, maxRegenCalls, threads) : null;
 		final NcrnaCallerProtection protection=genomes==null ? null : new NcrnaCallerProtection(callerConfig,
@@ -159,14 +177,21 @@ public final class ReduceNcrnaModels{
 		final Library library=NcrnaSupport.loadLibrary(ref);
 		final NcrnaSupport.ScanResult scan=NcrnaSupport.scanWithStats(ffin, library, cutoff, threads, threadsIn);
 		final Graph original=scan.graph;
-		final NcrnaModelSubset.Result proposal=NcrnaModelSubset.reduce(library.names.length, original.starts, original.models, target);
+		final boolean[] proposal;
+		if(reduce){
+			proposal=NcrnaModelSubset.reduce(library.names.length, original.starts, original.models, target).kept;
+		}else{
+			proposal=new boolean[library.names.length];
+			Arrays.fill(proposal, true);
+		}
 		final File directory=new File(out).getAbsoluteFile();
 		if(!directory.mkdir()){throw new IllegalArgumentException("Could not create fresh output directory: "+directory);}
 		NcrnaSupportIO.write(original, new File(directory, "original.support.tsv").getPath());
-		boolean[] kept=proposal.kept;
+		boolean[] kept=proposal;
 		String status="Proposal only; caller protection not run";
 		if(protection!=null){
-			kept=protection.protect(library, ref, hbm, kept, directory);
+			if(reduce){kept=protection.protect(library, ref, hbm, kept, directory);}
+			else{protection.verifyOriginal(library, ref, hbm, directory);}
 			status=protection.status();
 		}
 		Graph reduced=original.subset(kept);
@@ -213,14 +238,18 @@ public final class ReduceNcrnaModels{
 		bb.append("coverage_original\t").append(coverage(original), 8, true).nl();
 		bb.append("coverage_retained\t").append(coverage(reduced), 8, true).nl();
 		bb.append("identity_cutoff\t").append(requestedCutoff, 8, true).nl();
-		bb.append("coverage_target\t").append(target, 8, true).nl();
+		bb.append("coverage_target\t");
+		if(reduce){bb.append(target, 8, true);}
+		else{bb.append("NA");}
+		bb.nl();
 		bb.append("pair_alignments\t").append(scan.alignments+regenerationAlignments).nl();
 		bb.append("initial_pair_alignments\t").append(scan.alignments).nl();
 		bb.append("regeneration_pair_alignments\t").append(regenerationAlignments).nl();
 		bb.append("input_batches\t").append(scan.batches).nl();
 		bb.append("active_workers\t").append(scan.activeWorkers).nl();
 		bb.append("false_positive_rate\tUNMEASURED\n");
-		bb.append("method\tGreedy subset proposal; no global minimum claim.\n");
+		bb.append(reduce ? "method\tGreedy subset proposal; no global minimum claim.\n"
+			: "method\tFixed-library regeneration; no model reduction.\n");
 		if(genomes==null){bb.append("limitation\tNo full-genome caller protection was performed.\n");}
 		try(Output output=new Output(new File(directory, "summary.txt").getPath())){
 			output.writer.print(bb);
@@ -261,6 +290,10 @@ public final class ReduceNcrnaModels{
 	private int maxCalls=4;
 	/** Whether to rebuild retained models after the initial caller protection passes. */
 	private boolean regenerate=false;
+	/** Whether to select a smaller library before optional protection/regeneration. */
+	private boolean reduce=true;
+	/** Regeneration verifies caller retention unless fixed-library mode explicitly opts out. */
+	private boolean callerVerify=true;
 	/** Scientific consensus-builder recipe used only for regeneration. */
 	private String consensusConfig;
 	/** Consensus-builder child heap budget in MiB. */

@@ -21,7 +21,7 @@ import shared.Tools;
 import structures.ByteBuilder;
 import structures.IntList;
 
-/** Serial regeneration with atomic member-support acceptance and caller rollback.
+/** Serial regeneration with atomic member-support acceptance and optional caller rollback.
  * The reducer owns CLI parsing and the complete corpus. This stage owns candidate
  * pairs, assignments and output files; all alignment uses NcrnaSupport, all locus
  * grading uses NcrnaBoundaryComparison, and the public consensus builder owns
@@ -60,9 +60,10 @@ final class NcrnaModelRegeneration{
 	/*----------------          Processing          ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Returns verified pairs/graph, retaining the stage-entry baseline on a failed stage.
+	/** Returns support-preserving pairs/graph, retaining the baseline on a failed stage.
 	 * Original greedy coverage and stage-entry retention are separate populations.
-	 * The exact existing caller matching is borrowed, never reconstructed or rerun.
+	 * A nonnull caller lends its exact verified matching; null means an explicitly
+	 * unverified proposal with corpus checks only, never a reconstructed caller result.
 	 */
 	void process(final String input, final NcrnaModelPairs baseline, final Graph initial,
 			final NcrnaCallerProtection caller, final File directory, final PrintStream diagnostics){
@@ -83,9 +84,11 @@ final class NcrnaModelRegeneration{
 			if(owners[gene]!=seriesOwners[gene]){finalMigrations++;}
 		}
 		writeAssignments("series.assignments.tsv", genes.names, baseline.names, initialOwners, owners, seriesOwners);
-		final Result baselineCalls=caller.selectedResult();
-		if(baselineCalls==null){throw new IllegalStateException("Regeneration requires the verified caller result from reduction");}
-		final boolean callerPass=protect(current, baseline, caller, baselineCalls);
+		final Result baselineCalls=caller==null ? null : caller.selectedResult();
+		if(caller!=null && baselineCalls==null){
+			throw new IllegalStateException("Caller-protected regeneration requires a verified baseline caller result");
+		}
+		final boolean callerPass=caller==null || protect(current, baseline, caller, baselineCalls);
 		// Restored pairs can change support: scan once after restoration, otherwise reuse the series pass.
 		final Graph candidate=restoredPairs==0 ? series : scan(genes, null, current.library(), initial.cutoff);
 		final int[] finalOwners=assignments(candidate, geneIndex);
@@ -94,9 +97,11 @@ final class NcrnaModelRegeneration{
 			callerPass, initialOwners, finalOwners);
 		final int[] exportedOwners=assignments(graph, geneIndex);
 		writeAssignments("final.assignments.tsv", genes.names, baseline.names, initialOwners, initialOwners, exportedOwners);
-		try(Output output=new Output(path("exported.caller.tsv"))){
-			output.writer.print("new_call\tmatched\tunmatched\tmissed\texact_5prime\texact_3prime\tboth_exact\tlost\tgained\n");
-			writeCall(output, new ByteBuilder(), pairs==baseline ? 0 : newCalls, baselineCalls, selectedCalls);
+		if(caller!=null){
+			try(Output output=new Output(path("exported.caller.tsv"))){
+				output.writer.print("new_call\tmatched\tunmatched\tmissed\texact_5prime\texact_3prime\tboth_exact\tlost\tgained\n");
+				writeCall(output, new ByteBuilder(), pairs==baseline ? 0 : newCalls, baselineCalls, selectedCalls);
+			}
 		}
 		try(Output output=new Output(path("exported.models.tsv"))){
 			output.writer.print("model\tfinal_disposition\n");
@@ -117,7 +122,7 @@ final class NcrnaModelRegeneration{
 		diagnostics.println(status+"; new caller passes="+newCalls+", lost support="+retention.lost);
 	}
 
-	/** Selects pairs, graph and caller result together after both retention checks.
+	/** Selects pairs, graph and any caller result together after applicable retention checks.
 	 * Owner arrays were joined to the same named gene axis by assignments; counts
 	 * alone cannot substitute for retaining each initially supported gene.
 	 */
@@ -130,12 +135,14 @@ final class NcrnaModelRegeneration{
 			graph=initial;
 			selectedCalls=baselineCalls;
 			if(retention.lost>0){status=(status==null ? "Baseline retained" : status)+"; regeneration lost corpus support";}
+			if(baselineCalls==null){status+="; not caller-verified";}
 		}else{
 			pairs=current;
 			final boolean[] all=new boolean[baseline.names.length];
 			Arrays.fill(all, true);
 			graph=candidate.subset(all);
-			status="Regeneration passed caller and corpus retention";
+			status=baselineCalls==null ? "Regeneration proposal retained corpus support; not caller-verified"
+				: "Regeneration passed caller and corpus retention";
 		}
 		return retention;
 	}
@@ -401,9 +408,9 @@ final class NcrnaModelRegeneration{
 	private long memberMigrations, finalMigrations;
 	/** Total gene-to-model alignments across member and whole-corpus scans. */
 	private long alignments;
-	/** Verified caller matching corresponding to the selected exported pairs. */
+	/** Verified matching for the exported pairs, or null for a caller-free proposal. */
 	private Result selectedCalls;
-	/** Final paired library: accepted candidate or the unchanged protected baseline. */
+	/** Final paired library: accepted candidate or the unchanged stage-entry baseline. */
 	NcrnaModelPairs pairs;
 	/** Support graph belonging to pairs on the same gene/model axes. */
 	Graph graph;

@@ -39,9 +39,11 @@ import structures.ListNum;
  * This driver is not a production reducer stage or a genomic accuracy evaluator.
  * Preserved standalone experiment: created to regenerate a supplied fixed library
  * without first reducing it. ReduceNcrnaModels now owns the normal reduction,
- * protection and regeneration workflow, but has no equivalent standalone mode.
- * Retained pending disposition for future direct-library regeneration; unused in
- * the shipping caller and not evidence of a performance or accuracy advantage.
+ * protection and regeneration workflow, including fixed-library rebuilding with
+ * reduce=f regenerate=t and explicit callerverify=f for an unverified proposal.
+ * This development interface remains for optional saved-support-graph input and
+ * saved-GFF restoration until their public replacements are available. It is
+ * unused in the shipping caller and does not establish an accuracy advantage.
  * @author Brian Bushnell, Raiden
  */
 public final class NcrnaSequentialRegenerationExperiment{
