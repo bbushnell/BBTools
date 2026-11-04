@@ -571,7 +571,7 @@ public class TrnaNinemerTableBuilder {
 		public final TrnaBoundaryFeatures.BoundaryType type;
 		public final int insideCount, outsideCount;
 		public final TrnaBoundaryFeatures.NinemerTable table;
-		LoadedTable(int k, TrnaBoundaryFeatures.BoundaryType type, int insideCount, int outsideCount,
+		public LoadedTable(int k, TrnaBoundaryFeatures.BoundaryType type, int insideCount, int outsideCount,
 				TrnaBoundaryFeatures.NinemerTable table){
 			this.k=k; this.type=type; this.insideCount=insideCount; this.outsideCount=outsideCount; this.table=table;
 		}
@@ -608,6 +608,8 @@ public class TrnaNinemerTableBuilder {
 			assert(kmer.length()==k) : "Kmer length "+kmer.length()+" != declared insideCount+outsideCount="+k+" in "+path+": "+kmer;
 			counts.set(packKmerString(kmer), count);
 		}
+		//TODO: Probable bug - ignoring ByteFile.close() can hide a decompression/read
+		// failure and return an incomplete learned table. Propagate the error here.
 		bf.close();
 		assert(type!=null) : "No #boundary header found in "+path+" -- not a table written by this class's writeTable.";
 		assert(insideCount>=0 && outsideCount>=0) : "No #insidecount/#outsidecount header found in "+path;
@@ -634,6 +636,8 @@ public class TrnaNinemerTableBuilder {
 	}
 
 	private static void writeTable(String path, IntHashMap counts, String label, int insideCount, int outsideCount){
+		//TODO: Probable bug - this writer ignores compression suffixes and PrintStream error status.
+		//Use plain .tsv paths until standard checked BBTools output replaces it; .gz is not encoded.
 		final int k=insideCount+outsideCount;
 		final int[] keys=counts.toKeyArray();
 		java.util.Arrays.sort(keys);

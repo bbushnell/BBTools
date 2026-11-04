@@ -72,21 +72,43 @@ public class CallGenes extends ProkObject {
 			x.timeline=timeline;
 
 			//Run the object
-			try{x.process(t);}finally{
-				try{MitoSsuTierLog.closeConfigured();}finally{if(x.proteinReference!=null){x.proteinReference.close();}}
-			}
-
-			//Close the print stream if it was redirected
-			Shared.closeStream(x.outstream);
+			x.run(t);
 			if(timeline!=null){timeline.event("OUTPUT_FLUSHED");}
 		}finally{fileCost=null;if(costs!=null){costs.close();}}
 	}
 	
+	/** Runs this initialized caller and closes its owned resources, including on
+	 * failure. Experimental drivers may configure family factories after construction
+	 * and before this call; they do not duplicate calling or worker creation.
+	 * One invocation per caller; process-wide policy still requires a fresh JVM.
+	 */
+	public void run(final Timer timer){
+		run(timer, null);
+	}
+
+	/** Runs optional pre-worker configuration within the same owned cleanup scope
+	 * as processing. A setup failure closes constructor-acquired resources too. */
+	public void run(final Timer timer, final Runnable setup){
+		try{
+			if(setup!=null){setup.run();}
+			process(timer);
+		}
+		finally{
+			try{MitoSsuTierLog.closeConfigured();}
+			finally{
+				try{if(proteinReference!=null){proteinReference.close();}}
+				finally{Shared.closeStream(outstream);}
+			}
+		}
+	}
+
 	/**
 	 * Constructor.
 	 * @param args Command line arguments
 	 */
 	public CallGenes(String[] args){
+		NCRNA_BOUNDARY_NN_OVERRIDE=null;
+		NCRNA_FAMILY_ROOT=null;
 		
 		{//Preparse block for help, config files, and outstream
 			PreParser pp=new PreParser(args, (args.length>40 ? null : getClass()), false);
@@ -147,6 +169,7 @@ public class CallGenes extends ProkObject {
 	/*--------------------------------------------------------------*/
 	/*----------------    Initialization Helpers    ----------------*/
 	/*--------------------------------------------------------------*/
+
 	
 	/** Parse arguments from the command line */
 	private Parser parse(String[] args){
@@ -611,6 +634,7 @@ public class CallGenes extends ProkObject {
 				//parsed by helper
 			}else if(a.equalsIgnoreCase("ncrnaboundarynet")){
 				NCRNA_BOUNDARY_NN_ENABLED=Parse.parseBoolean(b);
+				NCRNA_BOUNDARY_NN_OVERRIDE=NCRNA_BOUNDARY_NN_ENABLED;
 			}else if(a.equalsIgnoreCase("rnasepboundarynn")){
 				RNASEP_BOUNDARY_NN_OVERRIDE=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("tmrnaboundarynn")){
@@ -665,6 +689,17 @@ public class CallGenes extends ProkObject {
 				S18_ENABLED=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("ncrnafamily")){
 				NCRNA_FAMILY_FILTER=parseNcrnaFamily(b);
+			}else if(a.equalsIgnoreCase("ncrnafamilyroot")){
+				if(b==null || b.isEmpty()){
+					throw new IllegalArgumentException("ncrnafamilyroot requires a directory containing manifest.tsv");
+				}
+				NCRNA_FAMILY_ROOT=b;
+			}else if(a.equalsIgnoreCase("ncrnaconsensus")){
+				if(b==null){throw new IllegalArgumentException(a+" requires a consensus FASTA path");}
+				NCRNA_CONSENSUS_OVERRIDE=b;
+			}else if(a.equalsIgnoreCase("ncrnamodels")){
+				if(b==null){throw new IllegalArgumentException(a+" requires an HBM model path");}
+				NCRNA_MODELS_OVERRIDE=b;
 			}else if(a.equalsIgnoreCase("ncrnakmers")){
 				NCRNA_KMERS_OVERRIDE=b;
 			}else if(a.equalsIgnoreCase("ncrnaseedminhits")){
@@ -742,7 +777,7 @@ public class CallGenes extends ProkObject {
 			}else if(a.equalsIgnoreCase("ncrnaidborderline")){
 				NCRNA_ID_BORDERLINE_OVERRIDE=parseUnitFloat(a, b);
 			}else if(a.equalsIgnoreCase("ncrnahbmpass")){
-				NCRNA_HBM_PASS_OVERRIDE=parseUnitFloat(a, b);
+				NCRNA_HBM_PASS_OVERRIDE=parseHbmThreshold(a, b);
 			}else if(a.equalsIgnoreCase("ncrnascorea")){
 				NCRNA_SCORE_A_OVERRIDE=parseFiniteFloat(a, b);
 			}else if(a.equalsIgnoreCase("ncrnascoreb")){
@@ -1150,6 +1185,9 @@ public class CallGenes extends ProkObject {
 		final ScrabbleAligner scrabbleCounter=new ScrabbleAligner();
 		final long quantumCells0=quantumCounter.loops(), scrabbleCells0=scrabbleCounter.loops();
 		
+		//TODO: TOOL_WRITER_CALLGENES - inherited outputs below close only on normal completion;
+		//later acquisition/body failure or a throwing close can strand earlier/remaining owners.
+		//Annotate/report only in the model-tool pass; no blanket legacy I/O rewrite.
 		ByteStreamWriter bsw=makeBSW(ffoutGff);
 		if(bsw!=null){
 			bsw.forcePrint("##gff-version 3\n");
@@ -1457,6 +1495,7 @@ public class CallGenes extends ProkObject {
 	 */
 	private void printStats(String fname){
 		if(fname==null){return;}
+		//TODO: Inherited output lacks protected cleanup and ignores poisonAndWait's error flag.
 		ByteStreamWriter bsw=new ByteStreamWriter(fname, overwrite, append, false);
 		bsw.start();
 		
@@ -1612,6 +1651,7 @@ public class CallGenes extends ProkObject {
 	 */
 	private void printStatsJson(String fname){
 		if(fname==null){return;}
+		//TODO: Inherited output lacks protected cleanup and ignores poisonAndWait's error flag.
 		
 		JsonObject outer=new JsonObject();
 		
@@ -1706,6 +1746,7 @@ public class CallGenes extends ProkObject {
 	 */
 	private void printHist(String fname){
 		if(fname==null || geneHist==null){return;}
+		//TODO: Inherited output lacks protected cleanup and ignores poisonAndWait's error flag.
 		ByteStreamWriter bsw=new ByteStreamWriter(fname, overwrite, append, false);
 		bsw.start();
 		long sum=simd.Vector.sum(geneHist);
@@ -2293,6 +2334,7 @@ public class CallGenes extends ProkObject {
 	 */
 	private static ByteStreamWriter makeBSW(FileFormat ff){
 		if(ff==null){return null;}
+		//TODO: A failed start loses the constructor-owned writer before the caller receives it.
 		ByteStreamWriter bsw=new ByteStreamWriter(ff);
 		bsw.start();
 		return bsw;
@@ -2306,6 +2348,7 @@ public class CallGenes extends ProkObject {
 	 */
 	private ConcurrentReadOutputStream makeCros(FileFormat ff){
 		if(ff==null){return null;}
+		//TODO: A failed start loses the constructed stream before the caller receives it.
 
 		//Select output buffer size based on whether it needs to be ordered
 		final int buff=(ordered ? Tools.mid(4, 64, (Shared.threads()*2)/3) : 4);
@@ -2676,7 +2719,7 @@ public class CallGenes extends ProkObject {
 			}
 		}
 		
-		/** Number of reads processed by this thread */
+		/** Number of reads processed by this thread, counting both mates. */
 		protected long readsInT=0;
 		private long listsProcessedT=0,lastListIdT=-1;
 		private final long outputListOffset;
@@ -3075,6 +3118,10 @@ public class CallGenes extends ProkObject {
 		options.resources.seeds=effectiveNcrnaSeedOverride(name, seeds);
 		options.resources.consensus=explicitNcrnaResource(name, "consensus", consensus);
 		options.resources.models=explicitNcrnaResource(name, "models", models);
+		if(name.equals(NCRNA_FAMILY_FILTER)){
+			if(NCRNA_CONSENSUS_OVERRIDE!=null){options.resources.consensus=explicitNcrnaResource(name,"consensus",NCRNA_CONSENSUS_OVERRIDE);}
+			if(NCRNA_MODELS_OVERRIDE!=null){options.resources.models=explicitNcrnaResource(name,"models",NCRNA_MODELS_OVERRIDE);}
+		}
 		if(NcrnaFamilyRegistry.isCobalamin(name)){
 			options.resources.root=COBALAMIN_RESOURCE_ROOT;
 			options.minLen=COBALAMIN_MIN_LEN;
@@ -3094,6 +3141,7 @@ public class CallGenes extends ProkObject {
 			options.boundaryStopOffsets=SAM1_BOUNDARY_STOP_OFFSETS==null ? null : SAM1_BOUNDARY_STOP_OFFSETS.clone();
 		}
 		options.boundary=ncrnaBoundaryEnabled(name);
+		options.boundaryOverride=ncrnaBoundaryOverride(name);
 		options.windowPad=resolveSweepPad(name, pad, p.windowPad);
 		options.scoreA=resolveFamilyScore(name, scoreA, NCRNA_SCORE_A_OVERRIDE, p.scoreA);
 		options.scoreB=resolveFamilyScore(name, scoreB, NCRNA_SCORE_B_OVERRIDE, p.weight);
@@ -3105,7 +3153,12 @@ public class CallGenes extends ProkObject {
 		options.collapse=resolveSweepFloat(name, NCRNA_COLLAPSE_FRAC_OVERRIDE, p.collapse);
 		if("sixs_rf00013".equals(name)){SIXS_RF00013_BOUNDARY_CONFIG.apply(name, options, true);}
 		else if("sixs_rf01685".equals(name)){SIXS_RF01685_BOUNDARY_CONFIG.apply(name, options, true);}
-		final NcrnaFamily family=NcrnaFamilyLoader.load(name, options, new FamilyResourceResolver());
+		final FamilyResourceResolver resolver=new FamilyResourceResolver();
+		if(NCRNA_FAMILY_ROOT!=null && name.equals(NCRNA_FAMILY_FILTER)){
+			options.resources.root=NCRNA_FAMILY_ROOT;
+			resolver.bindRoot(name, NCRNA_FAMILY_ROOT);
+		}
+		final NcrnaFamily family=NcrnaFamilyLoader.load(name, options, resolver);
 		// A stronger B12 seed gate uses independently selected keys, not repeats of
 		// one key. A one-hit override keeps the existing allocation-free counter.
 		if(NcrnaFamilyRegistry.isCobalamin(name)){family.seedDistinct=family.seedMinHits>1;}
@@ -3628,6 +3681,10 @@ public class CallGenes extends ProkObject {
 		options.resources.consensus=explicitNcrnaResource(name, "consensus", consensus);
 		options.resources.models=explicitNcrnaResource(name, "models", models);
 		options.windowPad=resolveSweepPad(name, -1, p.windowPad);
+		if(name.equals(NCRNA_FAMILY_FILTER)){
+			if(NCRNA_CONSENSUS_OVERRIDE!=null){options.resources.consensus=explicitNcrnaResource(name,"consensus",NCRNA_CONSENSUS_OVERRIDE);}
+			if(NCRNA_MODELS_OVERRIDE!=null){options.resources.models=explicitNcrnaResource(name,"models",NCRNA_MODELS_OVERRIDE);}
+		}
 		if(name.equals("r58") && R58_MINLEN_OVERRIDE>=0){options.minLen=R58_MINLEN_OVERRIDE;}
 		options.idPass=resolveSweepFloat(name, NCRNA_ID_PASS_OVERRIDE, p.idPass);
 		options.idBorderline=resolveSweepFloat(name, NCRNA_ID_BORDERLINE_OVERRIDE, p.idBorderline);
@@ -4087,6 +4144,14 @@ public class CallGenes extends ProkObject {
 		if(x<0 || x>1){throw new IllegalArgumentException(flagName+" must be in [0,1]: "+value);}
 		return x;
 	}
+	/** The generic family registry uses1.01 to disable HBM acceptance without changing identity gates. */
+	public static float parseHbmThreshold(String flagName, String value){
+		final float x=parseFiniteFloat(flagName, value);
+		if(x<0 || x>1 && x!=1.01f){
+			throw new IllegalArgumentException(flagName+" must be in [0,1], or1.01 to disable HBM acceptance: "+value);
+		}
+		return x;
+	}
 
 	static boolean ncrnaSweepTarget(String name){
 		return NCRNA_FAMILY_FILTER!=null && (NCRNA_FAMILY_FILTER.equals(name)
@@ -4147,8 +4212,35 @@ public class CallGenes extends ProkObject {
 			|| !Float.isNaN(floor) || !Float.isNaN(topFrac) || !Float.isNaN(qFrac);}
 	}
 
+	/** The additive root option is confined to the ordinary shared-boundary builder families.
+	 * Typed roots for unrelated families remain independent. Reject reuse of cached families
+	 * rather than silently ignoring an explicitly requested resource directory.
+	 */
+	private static void validateSelectedFamilyRoot(){
+		if(NCRNA_FAMILY_ROOT==null){return;}
+		if(NCRNA_FAMILY_FILTER==null){
+			throw new IllegalArgumentException("ncrnafamilyroot requires one shared-boundary ncrnafamily");
+		}
+		final String name=NcrnaFamilyRegistry.sharedBoundaryMember(NCRNA_FAMILY_FILTER).id;
+		final String typed=name.equals("fmn") ? FMN_RESOURCE_ROOT : name.equals("sam1") ? SAM1_RESOURCE_ROOT
+			: NcrnaFamilyRegistry.isCobalamin(name) ? COBALAMIN_RESOURCE_ROOT : null;
+		if(typed!=null){
+			throw new IllegalArgumentException("Do not combine ncrnafamilyroot with the typed resource root for "+name);
+		}
+		if(!GeneCaller.ncrnaFamilies.isEmpty()){
+			throw new IllegalStateException("ncrnafamilyroot requires loading fresh family resources, not reusing cached families");
+		}
+	}
+
 	/** Rejects ambiguous global overrides and logically inverted identity thresholds. */
 	public static void validateNcrnaSweepOverrides(){
+		validateSelectedFamilyRoot();
+		if(NCRNA_CONSENSUS_OVERRIDE!=null || NCRNA_MODELS_OVERRIDE!=null){
+			if(NCRNA_CONSENSUS_OVERRIDE==null || NCRNA_MODELS_OVERRIDE==null || NCRNA_FAMILY_FILTER==null){
+				throw new IllegalArgumentException("ncrnaconsensus and ncrnamodels require paired files and one ncrnafamily");
+			}
+			NcrnaFamilyRegistry.modelOverrideMember(NCRNA_FAMILY_FILTER);
+		}
 		final NcrnaFamilyRegistry.Entry tm=NcrnaFamilyRegistry.get("tmrna");
 		NcrnaScavenger.validateTmrnaRescueMargins(resolveSweepFloat("tmrna",NCRNA_ID_PASS_OVERRIDE,tm.idPass),
 			resolveSweepFloat("tmrna",NCRNA_HBM_PASS_OVERRIDE,tm.hbmPass),TMRNA_RESCUE_ID_MARGIN,TMRNA_RESCUE_HBM_MARGIN);
@@ -4750,6 +4842,8 @@ public class CallGenes extends ProkObject {
 	 * REJECTED LOUDLY at parse time (Citan's correction, 2026-08-28), not a silent no-op --
 	 * see the assert in parse(). */
 	public static boolean NCRNA_BOUNDARY_NN_ENABLED=false;
+	/** Only an explicitly parsed global flag overrides a packaged boundary default. */
+	public static Boolean NCRNA_BOUNDARY_NN_OVERRIDE=null;
 	/** Null selects accepted default-on refinement; explicit opt-outs remain independent of the global switch. */
 	public static Boolean RNASEP_BOUNDARY_NN_OVERRIDE=null, TMRNA_BOUNDARY_NN_OVERRIDE=null;
 	/** Null selects accepted default-on SRP refinement; explicit opt-outs remain independent of the global switch. */
@@ -4765,6 +4859,23 @@ public class CallGenes extends ProkObject {
 		if("sixs_rf01685".equals(family)){return SIXS_RF01685_BOUNDARY_CONFIG.enabled(true);}
 		if("sam1".equals(family)){return SAM1_BOUNDARY_NN_OVERRIDE==null || SAM1_BOUNDARY_NN_OVERRIDE;}
 		return NCRNA_BOUNDARY_NN_ENABLED;
+	}
+
+	/** Packaged defaults lose to per-family flags, then an explicitly supplied global flag.
+	 * Existing selection for families without a packaged configuration is unchanged.
+	 */
+	public static Boolean ncrnaBoundaryOverride(String family){
+		assert(family!=null) : "Boundary precedence must resolve the selected family";
+		final Boolean value;
+		if("rnasep".equals(family)){value=RNASEP_BOUNDARY_NN_OVERRIDE;}
+		else if("tmrna".equals(family)){value=TMRNA_BOUNDARY_NN_OVERRIDE;}
+		else if("srp_small".equals(family)){value=SRPSMALL_BOUNDARY_NN_OVERRIDE;}
+		else if("srp_large".equals(family)){value=SRPLARGE_BOUNDARY_NN_OVERRIDE;}
+		else if("sixs_rf00013".equals(family)){value=SIXS_RF00013_BOUNDARY_CONFIG.enabledOverride();}
+		else if("sixs_rf01685".equals(family)){value=SIXS_RF01685_BOUNDARY_CONFIG.enabledOverride();}
+		else if("sam1".equals(family)){value=SAM1_BOUNDARY_NN_OVERRIDE;}
+		else{value=null;}
+		return value==null ? NCRNA_BOUNDARY_NN_OVERRIDE : value;
 	}
 
 	/** P1 (Brian via Citan, 2026-08-28): per-family scavenger candidate-window padding
@@ -4788,9 +4899,14 @@ public class CallGenes extends ProkObject {
 	static int SIXS_RF00013_PAD_OVERRIDE=-1;
 	public static int SIXS_RF01685_PAD_OVERRIDE=-1;
 
+	/** Root of the selected family only; grouped members use the full group directory. */
+	private static String NCRNA_FAMILY_ROOT=null;
+
 	/** Engineering-sweep controls. The generic overrides deliberately require one explicit
 	 * family so a command cannot silently apply one value to biologically different callers. */
 	public static String NCRNA_FAMILY_FILTER=null;
+	/** Paired explicit models for a single generic family; other resource roles remain unchanged. */
+	public static String NCRNA_CONSENSUS_OVERRIDE=null,NCRNA_MODELS_OVERRIDE=null;
 	static String NCRNA_KMERS_OVERRIDE=null;
 	/** Targeted index controls and euk5S-only seed/length controls; unset preserves defaults. */
 	public static int NCRNA_SEED_MIN_HITS_OVERRIDE=-1, NCRNA_INDEX_K_OVERRIDE=-1;

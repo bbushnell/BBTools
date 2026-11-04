@@ -1,0 +1,201 @@
+BuildNcrnaBoundaryNets
+=====================
+
+buildncrnaboundarynets.sh learns endpoint tables and networks for a registered
+shared-boundary ncRNA family, tests them through ordinary whole-genome CallGenes,
+and exports a loadable family directory. It uses an already accepted consensus,
+paired HBM and forward 17-mer seed library. It does not select a seed set, reduce
+models, calibrate identity cutoffs, or independently establish biological truth.
+
+Requirements: Bash, java, Unix setsid with --wait, and a kill executable supporting
+process-group signals on PATH. BBTools supports Java 8 or later when built
+for that runtime; a newer compiler target requires a correspondingly newer Java.
+These examples were run with Java 25.0.1. Java 8 API compilation was checked, but
+these examples were not run on a Java 8 JVM. Default progress and child training
+diagnostics go to stderr; an empty stdout is normal. Results go to the named files.
+
+Quick example
+-------------
+
+Run from the BBTools installation directory containing the launchers/resources.
+The named temporary directory must be absent; mkdir stops the recipe if it exists.
+Inspect or remove your previous example output before rerunning. Both command
+blocks explicitly use /tmp/ncrna-boundary-example. To choose another location,
+replace that literal path in BOTH blocks; no inherited TMPDIR setting is needed.
+
+  mkdir "/tmp/ncrna-boundary-example" &&
+  printf '%s\n' "$PWD/testdata/ncrna_model_tools/panel.fa" > "/tmp/ncrna-boundary-example/genomes.txt" &&
+  bash buildncrnaboundarynets.sh config=testdata/ncrna_model_tools/builder.config \
+    truth=testdata/ncrna_model_tools/panel.truth.tsv \
+    genomes="/tmp/ncrna-boundary-example/genomes.txt" \
+    out="/tmp/ncrna-boundary-example/family" t=2 -Xmx3g &&
+  cat "/tmp/ncrna-boundary-example/family.work/summary.tsv" \
+    "/tmp/ncrna-boundary-example/family.work/comparison.tsv"
+
+The supplied example has twenty synthetic contexts and source records, an
+original support graph, and a synthetic genome panel containing nineteen shipped
+6S sequences, each embedded between 200-base random flanks. The panel is a teaching
+stand-in for genomes, not biological truth or independent validation data.
+Its deliberately huge movement margins prevent corrections, so expected status
+is OFF: all three comparisons retain 19 matched, 0 unmatched and 0 missed loci,
+with all 19 exact at both ends and no gained exact-boundary matches. In the output,
+tp means matched, fp means unmatched calls, and fn means missed references. These
+are matches against the supplied truth, not independently adjudicated biology.
+OFF is a successful result when neither
+network improves the baseline. The exported family still loads with refinement
+disabled. This short example exercises native training, caller comparison and
+export; it is not a realistic training recipe or an accuracy benchmark.
+See testdata/ncrna_model_tools/README.md for the synthetic inputs' provenance.
+
+Inputs and their separate roles
+------------------------------
+
+All options use flag=value. config= may contain the same native options, one per
+line. Required options are:
+
+  in=                 Sense-oriented context FASTA, with annotated flanks.
+  roster=             Complete original genome/source table.
+  loci=               Complete original locus table, including partial loci.
+  graph=              ORIGINAL support graph from reducencrnamodels.sh.
+  original=           Original consensus FASTA matching that graph's model axis.
+  ref=                Accepted consensus FASTA used for feature calculation/calling.
+  hbm=                Corresponding HBM/HBMC models, in exactly the same order.
+  seeds=              Accepted forward 17-mer FASTA for this family.
+  family=             Registered caller key, for example sixs_rf01685 or sam1.
+  truthfamily=        Exact family label in the reference table.
+  genomes=            One distinct absolute genome FASTA path per line.
+  truth=              seqid, family, start, stop, strand (tab-separated).
+  callerconfig=       Ordinary scientific CallGenes options.
+  classifierconfig=  Native classifier training recipe.
+  regressionconfig=  Native regression training recipe.
+  splitseed=          Nonnegative seed for whole-TaxID validation membership.
+  startradius=        Nonnegative candidate offset radius around the true start.
+  stopradius=         Nonnegative candidate offset radius around the true stop.
+  startinside=        Bases inside the true start for its enrichment word.
+  startoutside=       Bases outside that start; sum with startinside is 1..15.
+  stopinside=         Bases inside the true stop for its enrichment word.
+  stopoutside=        Bases outside that stop; sum with stopinside is 1..15.
+  out=                Fresh final family directory; out.work must also be absent.
+
+The original graph and original library define coverage groups before reduction.
+Do not substitute a REDUCED members.tsv graph. Accepted ref/hbm define the model
+axis used for features and inference; those axes have distinct purposes.
+
+Contexts contain the annotated gene and its actual available flanks, oriented
+5-prime to 3-prime. A header identifies the original locus and includes:
+
+  >gene_id source=source_name lflank=20 rflank=20 contig_gc=0.5
+
+Lengths must agree with loci=. contig_gc is the whole source contig's GC fraction,
+not the cropped context's GC. Missing geometry or GC is counted as unavailable;
+inconsistent identity/geometry fails. Every original locus must appear once.
+partial/excluded loci remain in the population and split, but do not teach nets.
+exclude= optionally lists original locus IDs to exclude from learning.
+
+The exact roster header is:
+index	genome	assembly	taxid	domain	phylum	gff	fasta	loci	genome_bases	contigs
+
+The exact locus header is:
+locus_id	genome	assembly	taxid	domain	phylum	seqid	strand	intervals1	length	source_line	source_ids	partial	pseudo	status	contig_length	edge	undefined_bases	lflank	rflank	source_lines
+
+Use real tab separators. Source indices are dense from zero. TaxIDs are positive;
+source names and locus IDs are unique on their respective axes. Counts and source
+identity must agree across roster, loci, graph and contexts. Locus status is
+ANNOTATION_FULL_COPY or SOURCE_PARTIAL. Resolve pseudogene status before training.
+The annotation extraction tools produce these table shapes; the example includes
+complete small tables that can be inspected directly.
+
+Reference coordinates are one-based inclusive with known + or - strand. Contig
+names must be unambiguous across the panel. A call matches one reference at most
+on family, contig, strand and at least half the shorter span. Extra calls remain
+unmatched. Endpoint results use the same matching and transcription orientation.
+
+Learning and selection
+----------------------
+
+Whole TaxIDs are indivisible. Validation targets one tenth of original TaxID
+groups, without exceeding one tenth in any phylum or original-model group.
+At least ten suitable groups are needed; infeasible splits fail explicitly.
+Eligibility filtering happens after that split. Never label an intentionally
+overlapping or synthetic panel as an independent holdout.
+
+features=v1 is the supported shared ten-input layout. Raw endpoint tables are
+learned from eligible training records. Training vectors use leave-one-record-out
+counts; validation uses unchanged training tables. shards=1 is the default;
+whole loci are assigned to shards by length. More shards need enough usable loci.
+
+Both native trainer recipes require dims=10,...,1, a nonnegative seed, positive
+epochs/batches, vfraction=0 and one net/cycle. The driver owns input/output paths
+and thread budgets. Classifier and regression examples are supplied beside the
+small dataset. For a real family, choose training parameters empirically.
+
+callerconfig contains scientific policy such as taxonomy and CDS choices, but
+must not replace the driver-owned genome/output routes, selected family resources,
+boundary options or registered mapping settings. Other enabled families still
+compete through the ordinary caller; the selected family is what gets graded.
+
+Defaults: maxlost=0, minprecision=0.95, tiepreference=regression,
+marginstart=0, marginstop=0. minprecision cannot be below 0.95. Each candidate must
+respect the loss limit and apparent precision floor and improve both-ends-exact.
+Compare gain first, then losses, matches, unmatched calls and the tie preference.
+cutoff= optionally sets the packaged scalar boundary score cutoff; omission leaves
+that additional cutoff disabled. Radii cannot exceed accepted upper-median length.
+
+If a candidate passes, it is refitted on every eligible locus and called once
+more. That refit must pass the same rule. Otherwise the export selects OFF.
+The all-eligible refit is coverage evidence, not independent generalization.
+Individual exact starts and stops remain visible even when their changes differ.
+
+Outputs and failures
+--------------------
+
+out contains the accepted FASTA/HBM/seeds, manifest and boundary.config. Enabled
+results also include the selected network and endpoint tables. An OFF result has
+no network or tables for the selected member. Grouped families preserve their
+manifest-listed siblings, including any sibling networks and tables. Existing
+installed resources are not overwritten.
+
+After completing the quick example, run this from the installation directory
+to call the supplied panel using the exported family. It uses the explicit output
+path above, so it also works in a new shell without setting TMPDIR:
+
+  bash callgenes.sh config=testdata/ncrna_model_tools/caller.config \
+    in=testdata/ncrna_model_tools/panel.fa out="/tmp/ncrna-boundary-example/calls.gff" \
+    ncrnafamily=sixs_rf01685 ncrnafamilyroot="/tmp/ncrna-boundary-example/family" \
+    ow=f t=2 -Xmx1g &&
+  cat "/tmp/ncrna-boundary-example/calls.gff"
+
+Expected: 19 feature rows, one for each synthetic panel locus. The export contains
+RF01685 and RF00013 subdirectories because the installed 6S resource is a grouped
+family: the requested RF01685 member is rebuilt, and its RF00013 sibling is retained
+unchanged. Retaining the sibling is not a claim that this example trained it.
+
+For this grouped export, manifest.tsv begins with the family/version header, then
+the tab-separated columns member, role, model, end, path, format, bytes, sha80.
+Ungrouped families omit the member column. Paths identify the packaged
+resources; '-' in bytes or sha80 means optional provenance metadata was not supplied.
+It is not a checksum or an asserted file size.
+
+The supplied caller.config disables taxonomy and CDS calling. The example's 6S
+caller is enabled by default, so no enabling flag is needed. Explicit family/global
+refinement flags take precedence over packaged defaults.
+
+out.work retains population/split membership, learning counts, vector shards,
+trainer outputs, caller configurations/GFFs, comparison.tsv, per-reference
+transitions and summary.tsv. refit.tsv appears only if a candidate was refitted.
+Status distinguishes OFF, an enabled method, and a refit rejected back to OFF.
+
+Unmatched calls are measured against the supplied truth, not adjudicated false
+positives. This tool does not supply genomic-negative evidence. Review detection,
+both individual endpoints and unmatched calls before choosing a real family recipe.
+
+Failure is loud for absent/mismatched resources, unknown IDs, inconsistent table
+counts, impossible splits, empty vector populations, malformed recipes or failed
+children. Outputs are fresh-only; keep a failed out.work for diagnosis and choose
+a new destination for a corrected run. Use standard -Xmx and t= settings. The parent
+and child heaps are separate; aggregate child heap is bounded by the parent's heap
+setting. Native scripts retain assertions and applicable SIMD/JVM options.
+Children run in owned Unix process groups and inherit stdout/stderr. Interruption
+terminates the owned group, then joins the child and any input feeder. The JVM
+shutdown hook attempts the same cleanup; SIGKILL or a JVM crash cannot run it and
+can leave descendants running.

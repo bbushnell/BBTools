@@ -133,7 +133,8 @@ public class NcrnaBoundaryScorer {
 			contigGC,meanLen,modelPlateau,FEATURES_V1,Float.NaN,null,null,null);
 	}
 
-	static float score(CellNet net, byte[] window, int s, int e, boolean isStop,
+	/** Scores a supplied feature policy; callers own the network's mutable state. */
+	public static float score(CellNet net, byte[] window, int s, int e, boolean isStop,
 			byte[] modelConsensus, BaseGraph model, TrnaBoundaryFeatures.NinemerTable table,
 			int insideCount, int outsideCount, float contigGC, float meanLen, float modelPlateau,
 			int featureVersion, float locusAni, float[] startFuzz, float[] stopFuzz,
@@ -243,7 +244,7 @@ public class NcrnaBoundaryScorer {
 
 	/** Refinement result plus the measured number of sweep sites evaluated for each endpoint. */
 	public static final class RefinementResult{
-		RefinementResult(int startOffset_, int stopOffset_, int startSitesScored_, int stopSitesScored_,
+		public RefinementResult(int startOffset_, int stopOffset_, int startSitesScored_, int stopSitesScored_,
 				float startChosenScore_, float stopChosenScore_){
 			startOffset=startOffset_; stopOffset=stopOffset_;
 			startSitesScored=startSitesScored_; stopSitesScored=stopSitesScored_;
@@ -251,7 +252,7 @@ public class NcrnaBoundaryScorer {
 		}
 		int[] offsets(){return new int[]{startOffset, stopOffset};}
 		public final int startOffset, stopOffset, startSitesScored, stopSitesScored;
-		final float startChosenScore, stopChosenScore;
+		public final float startChosenScore, stopChosenScore;
 	}
 
 	/** Same exhaustive refinement with explicit contig-edge state for the G16 radius proof. */
@@ -376,11 +377,11 @@ public class NcrnaBoundaryScorer {
 	 * position of the OTHER boundary (s0 for START sweeps, e0 for STOP sweeps --
 	 * whichever is held fixed here). See refineBoundaries' javadoc for the sequential-
 	 * refinement design.
-	 * @return {bestOffset, bestScore, zeroScore} -- zeroScore is this same sweep's own
+	 * @return {bestOffset, bestScore, zeroScore, sitesScored} -- zeroScore is this same sweep's own
 	 *   score AT offset=0 (0 is always one of the swept candidates for a valid base
 	 *   candidate), the correct "don't move" baseline for applyMargin's comparison.
 	 */
-	static float[] bestOffset(CellNet net, byte[] window, int s0, int e0, boolean isStop,
+	public static float[] bestOffset(CellNet net, byte[] window, int s0, int e0, boolean isStop,
 			byte[] modelConsensus, BaseGraph model, TrnaBoundaryFeatures.NinemerTable table,
 			int insideCount, int outsideCount, float contigGC, float meanLen, int[] offsets,
 			boolean touchesRelevantContigEnd, float modelPlateau, int featureVersion, float locusAni,

@@ -1214,19 +1214,18 @@ public class NcrnaScavenger {
 		boolean trimmed=false;
 		if(annotate && modelNames!=null && model<modelNames.length){
 			orf.trnaModel=modelNames[model];
-			//TODO: Probable bug - these finish calls label clipped/PacBio identity as Quantum.
-			// Explicit boundaryfeatures=v2/v3 require Quantum identity (refineBoundaryNN);
-			// shipped v1 and accepted-verifier endpoint features do not use that flag.
+			// V3 training uses full-model Quantum identity, not clipped/PacBio scores.
+			final boolean quantumIdentity=!clipModel && !pacBioConsensusAlignment;
 			if((prok16sPartialMinLen>0 || physicalEdgeMinLen>0) && clipModel && orf.ncrnaPartial!=0){
 				assert(((orf.ncrnaPartial&1)==0 || orf.start==0) && ((orf.ncrnaPartial&2)==0 || orf.stop==bases.length-1))
 					: "alignContigEdges partial provenance must reach the original contig boundary before GFF formatting";
 				if(physicalEdgeMinLen>0){
 					trimmed=finishAcceptedBoundary(orf,bases,model,wStart,wStop,windowSource,identity,orfLen,
-						identity,true,hitPositions,hitKeys,orf.ncrnaPartial,(EndClippedAligner.Result)stats);
+						identity,quantumIdentity,hitPositions,hitKeys,orf.ncrnaPartial,(EndClippedAligner.Result)stats);
 				}else if(instrumentSink!=null){captureInstrumentation(orf,bases,model,wStart,wStop,false,false,windowSource,identity,orfLen);}
 			}else{
 				trimmed=finishAcceptedBoundary(orf,bases,model,wStart,wStop,windowSource,identity,orfLen,
-					identity,true,hitPositions,hitKeys);
+					identity,quantumIdentity,hitPositions,hitKeys);
 			}
 		}else{applyVotedEnds(orf,hitPositions,hitKeys,wStart,wStop,bases.length);}
 		assert(physicalEdgeMinLen==0 || ((orf.ncrnaPartial&1)==0 || orf.start==0) && ((orf.ncrnaPartial&2)==0 || orf.stop==bases.length-1))
@@ -1322,6 +1321,25 @@ public class NcrnaScavenger {
 		if(fixedMask==3){
 			if(instrumentSink!=null){captureInstrumentation(orf,bases,model,wStart,wStop,false,false,windowSource,acceptedIdentity,alignedLength);}
 			return false;
+		}
+		// One coarse check after alignment/model selection, never inside either
+		// alignment loop. The ordinary null path does not compute GC or call out.
+		if(boundaryRefiner!=null && boundaryRefiner.applies(model)){
+			final long begin=System.nanoTime();
+			try{
+				boundaryRefiner.refine(orf, bases, model, contigGC(bases), locusAni,
+					locusAniFromQuantum, fixedMask, alignmentMinLength(partial, partial!=null, model),
+					alignmentMaxLength(model));
+			}catch(RuntimeException | AssertionError e){
+				shared.KillSwitch.assertDie("ncRNA boundary refinement failed on caller worker: "+e);
+				throw e;
+			}finally{boundaryNanos+=System.nanoTime()-begin;}
+			if(instrumentSink!=null){
+				captureInstrumentation(orf, bases, model, wStart, wStop, false,
+					fixedMask==0 && orf.ncrnaPartial==0 && locusAniFromQuantum,
+					windowSource, acceptedIdentity, alignedLength);
+			}
+			return false;// This return describes alignment trimming, not NN movement.
 		}
 		if(rrnaEndpointFeatures!=null){
 			// Resource-sized endpoint nets observe the selected raw anchor. Voting
@@ -1800,6 +1818,9 @@ public class NcrnaScavenger {
 	}
 	/** Validate effective thresholds during CLI setup, not only if rescue is reached. */
 	public static void validateTmrnaRescueMargins(float identity,float hbm,float identityMargin,float hbmMargin){
+		//TODO: Probable bug - this effective-range guard rejects the explicit1.01
+		//disabled-HBM sentinel accepted by CallGenes.parseHbmThreshold, even with
+		//zero margin. The SAM-I pilot is unaffected; tmRNA policy is a separate change.
 		if(!Float.isFinite(identity) || !Float.isFinite(hbm) || !Float.isFinite(identityMargin) || !Float.isFinite(hbmMargin)
 			|| identity<0f || hbm<0f || identityMargin<0f || hbmMargin<0f || identity+identityMargin>1f || hbm+hbmMargin>1f){
 			throw new IllegalArgumentException("tmRNA effective rescue identity/HBM cutoffs must be finite in [0,1]: "+identity+"+"+identityMargin+", "+hbm+"+"+hbmMargin);
@@ -1878,6 +1899,14 @@ public class NcrnaScavenger {
 	private IdentityHashMap<Orf,InstrumentationCapture> pendingInstrumentation=null;
 	private BoundaryScoreSink boundaryScoreSink=null;
 	private RrnaEndpointCallerFeatures rrnaEndpointFeatures=null;
+	/** Worker-confined; the family's factory supplies a separate instance. */
+	private NcrnaBoundaryRefiner boundaryRefiner=null;
+
+	/** Installs an explicitly configured refiner before this worker starts calling. */
+	public void setBoundaryRefiner(final NcrnaBoundaryRefiner refiner){
+		if(refiner==null){throw new IllegalArgumentException("An enabled boundary factory must return a worker-owned refiner");}
+		boundaryRefiner=refiner;
+	}
 	public void setRrnaEndpointFeatures(RrnaEndpointCallerFeatures.Resources resources,RrnaEndpointCallerFeatures.Sink sink){
 		if(resources==null || !Arrays.equals(modelNames,resources.names) || library.length!=resources.refs.length){throw new IllegalArgumentException("Endpoint feature library must match the caller model order");}
 		for(int i=0;i<library.length;i++){if(!Arrays.equals(library[i],resources.refs[i])){throw new IllegalArgumentException("Endpoint consensus bases differ from caller model "+i);}}

@@ -194,27 +194,44 @@ public class TrnaBoundaryFeatures {
 	 */
 	public static float[] enrichmentProfile(byte[] seq, int candidateBoundaryPos, int trueBoundaryPos,
 			BoundaryType type, int insideCount, int outsideCount, NinemerTable table){
-		return enrichmentProfileCore(seq, candidateBoundaryPos, trueBoundaryPos, type, insideCount, outsideCount, table);
+		return enrichmentProfileCore(seq, candidateBoundaryPos, trueBoundaryPos, type, insideCount, outsideCount, table, new float[3]);
 	}
 
 	/** Inference-mode overload: no ground truth, no leave-one-out. See the training
 	 * overload's javadoc for the full feature design. */
 	public static float[] enrichmentProfile(byte[] seq, int candidateBoundaryPos,
 			BoundaryType type, int insideCount, int outsideCount, NinemerTable table){
-		return enrichmentProfileCore(seq, candidateBoundaryPos, NO_TRUE_POS, type, insideCount, outsideCount, table);
+		return enrichmentProfileCore(seq, candidateBoundaryPos, NO_TRUE_POS, type, insideCount, outsideCount, table, new float[3]);
+	}
+
+	/** Fills the first three slots of caller-owned scratch with the inference profile.
+	 * Returns that same array, including when the table is absent. No scratch is
+	 * retained here; concurrent callers must use distinct output arrays.
+	 */
+	public static float[] enrichmentProfile(final byte[] seq, final int candidateBoundaryPos,
+			final BoundaryType type, final int insideCount, final int outsideCount,
+			final NinemerTable table, final float[] out){
+		return enrichmentProfileCore(seq, candidateBoundaryPos, NO_TRUE_POS, type, insideCount, outsideCount, table, out);
+	}
+
+	/** Caller-owned training profile with the existing true-position exclusion rule. */
+	public static float[] enrichmentProfile(final byte[] seq, final int candidateBoundaryPos, final int trueBoundaryPos,
+			final BoundaryType type, final int insideCount, final int outsideCount,
+			final NinemerTable table, final float[] out){
+		return enrichmentProfileCore(seq, candidateBoundaryPos, trueBoundaryPos, type, insideCount, outsideCount, table, out);
 	}
 
 	private static final double LOG2=Math.log(2);
 	private static final double MAGNITUDE_DIVISOR=8.0;
 
 	private static float[] enrichmentProfileCore(byte[] seq, int candidateBoundaryPos, int trueBoundaryPos,
-			BoundaryType type, int insideCount, int outsideCount, NinemerTable table){
+			BoundaryType type, int insideCount, int outsideCount, NinemerTable table, float[] out){
+		assert(out!=null && out.length>=3) : "Enrichment requires three output slots: length="+(out==null ? -1 : out.length);
 		if(table==null){
-			float[] out=new float[3];
-			java.util.Arrays.fill(out, PENDING_DORI);
+			Arrays.fill(out, 0, 3, PENDING_DORI);
 			return out;
 		}
-		final int[] raw=new int[5];
+		int center=0, bestOther=Integer.MIN_VALUE;
 		for(int i=-2; i<=2; i++){
 			final int pos=candidateBoundaryPos+i;
 			final int windowStart=kmerWindowStart(pos, type, insideCount, outsideCount);
@@ -235,17 +252,17 @@ public class TrnaBoundaryFeatures {
 				//-- the smaller smoke/regression fixtures never happened to hit this edge case.
 				c=c-1;
 			}
-			raw[i+2]=c;
+			if(i==0){center=c;}else{bestOther=Math.max(bestOther, c);}
 		}
-		final int C=raw[2];//candidate's own position (A,B,C,D,E = raw[0..4])
-		final int bestOther=Math.max(Math.max(raw[0], raw[1]), Math.max(raw[3], raw[4]));//max(A,B,D,E), C excluded
-		final int max=Math.max(C, bestOther);//max(A,B,C,D,E)
+		final int max=Math.max(center, bestOther);
+		//TODO: Probable bug - the three +1 additions below overflow at
+		// Integer.MAX_VALUE before conversion to float.
+		// Promote before adding; valid large counts must not produce negative F or NaN.
 		final float F=1+max;
-		return new float[]{
-			(float)(Math.log(F)/LOG2/MAGNITUDE_DIVISOR),
-			(C+1)/F,
-			(bestOther+1)/F
-		};
+		out[0]=(float)(Math.log(F)/LOG2/MAGNITUDE_DIVISOR);
+		out[1]=(center+1)/F;
+		out[2]=(bestOther+1)/F;
+		return out;
 	}
 
 	/**
@@ -453,20 +470,36 @@ public class TrnaBoundaryFeatures {
 	 * locus rather than rescanned for every endpoint candidate. */
 	static float[] aniAndFuzzinessFeature(byte[] candidate, byte[] consensus, BaseGraph model,
 			boolean useStart, float modelPlateau){
+		return aniAndFuzzinessFeature(candidate, consensus, model, useStart, modelPlateau, new float[4]);
+	}
+
+	/** Fills caller-owned ANI/fuzziness scratch; the first four slots are always
+	 * overwritten. Alignment implementation and fallback behavior are unchanged.
+	 * Candidate/model arrays are borrowed; the result may be reused after consumption.
+	 */
+	static float[] aniAndFuzzinessFeature(final byte[] candidate, final byte[] consensus, final BaseGraph model,
+			final boolean useStart, final float modelPlateau, final float[] out){
+		assert(out!=null && out.length>=4) : "ANI and three fuzziness values require four output slots: length="+(out==null ? -1 : out.length);
 		if(model==null || !Arrays.equals(consensus, model.original)){
 			final float ani=aniFeature(candidate, consensus);
 			final float[] fuzz=tipFuzzinessFeature(candidate, model, useStart);
-			return new float[]{ani,fuzz[0],fuzz[1],fuzz[2]};
+			out[0]=ani;
+			System.arraycopy(fuzz, 0, out, 1, 3);
+			return out;
 		}
 		final AlignmentStats stats=new AlignmentStats(true);
 		final Read r=alignToModelFrame(candidate, model, stats);
-		if(r==null){return new float[]{stats.identity,NO_MODEL_MATCH,NO_MODEL_MATCH,NO_MODEL_MATCH};}
+		out[0]=stats.identity;
+		if(r==null){
+			Arrays.fill(out, 1, 4, NO_MODEL_MATCH);
+			return out;
+		}
 		assert(modelPlateau>0) : "Full HBM model must have positive max coverage before boundary scoring; model="+model.name;
 		final int alignPos=(useStart ? r.start : r.stop);
-		return new float[]{stats.identity,
-			modelCoverage(model,alignPos-1)/modelPlateau,
-			modelCoverage(model,alignPos)/modelPlateau,
-			modelCoverage(model,alignPos+1)/modelPlateau};
+		out[1]=modelCoverage(model, alignPos-1)/modelPlateau;
+		out[2]=modelCoverage(model, alignPos)/modelPlateau;
+		out[3]=modelCoverage(model, alignPos+1)/modelPlateau;
+		return out;
 	}
 
 	public static float[] tipFuzzinessFeature(byte[] candidate, BaseGraph model, boolean useStart){

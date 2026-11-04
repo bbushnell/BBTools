@@ -519,6 +519,9 @@ public class GeneCaller extends ProkObject {
 				family.boundaryStartTablesByModel, family.boundaryStopTablesByModel);
 		}
 		if(family.rrnaEndpointFeatures!=null){scavenger.setRrnaEndpointFeatures(family.rrnaEndpointFeatures,family.rrnaEndpointFeatureSink);}
+		if(family.boundaryRefinerFactory!=null){
+			scavenger.setBoundaryRefiner(family.boundaryRefinerFactory.create(family));
+		}
 		applyNcrnaProductionControls(scavenger);
 	}
 
@@ -2202,7 +2205,9 @@ public class GeneCaller extends ProkObject {
 		return orfNet;
 	}
 
-	private static float calcContigGC(byte[] bases){
+	/** Shared with annotated-corpus extraction so boundary training uses inference's
+	 * complete-contig GC fraction, ambiguous-base convention and float rounding. */
+	static float calcContigGC(byte[] bases){
 		long gc=0, at=0;
 		for(byte b : bases){
 			int x=AminoAcid.baseToNumber[b];

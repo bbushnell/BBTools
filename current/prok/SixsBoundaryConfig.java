@@ -26,6 +26,8 @@ public final class SixsBoundaryConfig {
 	}
 
 	public boolean enabled(boolean global){return enabled==null?global:enabled.booleanValue();}
+	/** Null means no per-subtype flag was supplied, so packaged defaults may apply. */
+	public Boolean enabledOverride(){return enabled;}
 
 	/** Validate after all arguments, so resource and enable order is immaterial. */
 	public void validate(boolean ncrna, boolean sixs, boolean global){

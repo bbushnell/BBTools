@@ -6,16 +6,20 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Function;
 
 import dna.AminoAcid;
 import fileIO.ByteFile;
 import fileIO.ByteStreamWriter;
+import fileIO.FileFormat;
 import fileIO.ReadWrite;
 import map.ObjectMap;
 import map.ObjectSet;
 import parse.LineParser1;
 import parse.Parse;
 import parse.PreParser;
+import prok.NcrnaTextIO.Input;
+import prok.NcrnaTextIO.Output;
 import shared.Shared;
 import shared.Tools;
 import stream.Read;
@@ -25,20 +29,32 @@ import template.ThreadWaiter;
 
 /** Extracts a named Rfam family's complete annotated population using the survey's
  * Parent/interval reconstruction. Source flags are evidence, not independent truth.
+ * Optional gccontig metadata uses the complete source contig before locus extraction
+ * or reverse complementation. It matches GeneCaller's native GC fraction and float
+ * rounding: G/C over defined bases, U treated as T, ambiguous bases ignored, zero
+ * when no defined base exists. Only context FASTA headers gain the field; default
+ * false preserves the existing six output artifacts and their populations.
  * @author Brian Bushnell, Raiden */
 public final class NcrnaAnnotatedCorpus {
 
 	public static void main(final String[] args){
 		final PreParser pp=new PreParser(args, NcrnaAnnotatedCorpus.class, false);
+		try{run(pp.args);}finally{Shared.closeStream(pp.outstream);}
+	}
+
+	/** Main owns the selected log across argument validation and all corpus work. */
+	private static void run(final String[] args){
 		String roster=null, out=null, family=null;int expected=-1, limit=0, threads=8, flank=200, expectedLoci=-1;
-		for(String arg:pp.args){
+		boolean contigGc=false;// Opt-in metadata; never infer GC from an extracted window.
+		for(String arg:args){
 			final int eq=arg.indexOf('=');require(eq>0, "Expected flag=value: "+arg);
 			final String key=arg.substring(0, eq).toLowerCase(Locale.ROOT), value=arg.substring(eq+1);
 			if(key.equals("roster")){roster=value;}else if(key.equals("outprefix")){out=value;}
 			else if(key.equals("family")){family=value;}else if(key.equals("expectedgenomes")){expected=Parse.parseIntKMG(value);}
 			else if(key.equals("limit")){limit=Parse.parseIntKMG(value);}else if(key.equals("expectedloci")){expectedLoci=Parse.parseIntKMG(value);}
 			else if(key.equals("t") || key.equals("threads")){threads=Parse.parseIntKMG(value);}
-			else if(key.equals("flank")){flank=Parse.parseIntKMG(value);}else{throw new IllegalArgumentException(key);}
+			else if(key.equals("flank")){flank=Parse.parseIntKMG(value);}
+			else if(key.equals("gccontig")){contigGc=Parse.parseBoolean(value);}else{throw new IllegalArgumentException(key);}
 		}
 		require(roster!=null && out!=null && family!=null && family.matches("RF[0-9]{5}")
 			&& expected>0 && limit>=0 && threads>0 && flank>=0 && flank<=2000 && expectedLoci>=-1,
@@ -46,8 +62,14 @@ public final class NcrnaAnnotatedCorpus {
 		Shared.setThreads(threads);Shared.TRIM_READ_DESCRIPTION=false;Read.TO_UPPER_CASE=true;
 		ReadWrite.setZipThreads(1);ReadWrite.USE_UNPIGZ=false;
 		final NcrnaAnnotatedCorpus tool=new NcrnaAnnotatedCorpus();
-		tool.load(roster, expected, limit);tool.extract(family, flank, threads);tool.write(out, family, expectedLoci, flank);
-		Shared.closeStream(pp.outstream);
+		tool.load(roster, expected, limit);tool.extract(family, flank, threads, contigGc);tool.write(out, family, expectedLoci, flank, contigGc);
+	}
+
+	/** Normal construction uses the unchanged native writer backend and options. */
+	public NcrnaAnnotatedCorpus(){this(NcrnaAnnotatedCorpus::createWriter);}
+	/** Private per-instance factory permits bounded ownership-failure controls. */
+	private NcrnaAnnotatedCorpus(Function<String, ByteStreamWriter> factory){
+		require(factory!=null, "Output construction needs its owned native-writer factory");writerFactory=factory;
 	}
 
 	/*--------------------------------------------------------------*/
@@ -56,9 +78,10 @@ public final class NcrnaAnnotatedCorpus {
 
 	private void load(final String path, final int expected, final int limit){
 		assert(genomes.isEmpty()):"A corpus is bound to one immutable survey roster";
-		final ByteFile in=RrnaResourceIO.open(path);final LineParser1 p=new LineParser1('\t');
+		final LineParser1 p=new LineParser1('\t');
 		final ObjectSet<String> names=new ObjectSet<String>(String.class);int count=0;
-		try{
+		try(Input input=new Input(FileFormat.testInput(path, FileFormat.TEXT, null, true, true))){
+			final ByteFile in=input.reader;
 			RrnaResourceIO.header(in, "index\tdomain\tphylum\tgenome\tgff\tcompressed_bytes\tmtime_ms\tfeature_rows\tcds_rows\tretained_layers\tcounted_loci\texact_duplicate_components\tlayers_without_noncoding_branch", path);
 			for(byte[] row; (row=in.nextLine())!=null;){
 				p.set(row);require(p.terms()==13 && p.parseInt(0)==count, "Survey roster order/schema changed");
@@ -67,14 +90,14 @@ public final class NcrnaAnnotatedCorpus {
 				if(limit==0 || count<limit){genomes.add(new Genome(count, name, p.parseString(1), p.parseString(2), gff));}
 				count++;
 			}
-		}finally{require(!in.close(), "Survey roster read failed: "+path);}
+		}
 		require(count==expected && !genomes.isEmpty(), "Corpus membership must match the complete frozen survey, even in a pilot");
 	}
 
-	private void extract(final String family, final int flank, final int threads){
+	private void extract(final String family, final int flank, final int threads, final boolean contigGc){
 		assert(!genomes.isEmpty()):"Selection must precede genome workers";
 		final AtomicInteger next=new AtomicInteger();final ArrayList<Worker> workers=new ArrayList<Worker>();
-		for(int i=0; i<Math.min(threads, genomes.size()); i++){workers.add(new Worker(genomes, next, family, flank));}
+		for(int i=0; i<Math.min(threads, genomes.size()); i++){workers.add(new Worker(genomes, next, family, flank, contigGc));}
 		require(ThreadWaiter.startAndWait(workers), "All genome workers must finish before corpus publication");
 		for(Worker worker:workers){
 			if(worker.failure!=null){throw new IllegalStateException("Annotated corpus extraction failed", worker.failure);}
@@ -82,7 +105,10 @@ public final class NcrnaAnnotatedCorpus {
 		}
 	}
 
-	private static void extractGenome(final Genome g, final String family, final int flank){
+	/** Binds reconstructed loci to their original contig, then crops and orients copies.
+	 * The optional GC value is calculated once per target-bearing complete contig and
+	 * shared by all its loci, including edge, multipart and source-flagged records. */
+	private static void extractGenome(final Genome g, final String family, final int flank, final boolean contigGc){
 		assert(g.loci.isEmpty()):"A source genome must be extracted exactly once";
 		final long[] counts=new long[6];
 		for(NcrnaFamilySurvey.Locus locus:NcrnaFamilySurvey.readLoci(g.gff, counts)){
@@ -102,9 +128,13 @@ public final class NcrnaAnnotatedCorpus {
 		RrnaResourceIO.stream(g.fasta, r->{
 			g.bases+=r.length();g.contigs++;
 			final Genes list=targets.get(RrnaResourceIO.first(r.id));if(list==null){return;}
+			// Match inference's complete-contig statistic before extracting or orienting a locus.
+			final float gc=contigGc ? GeneCaller.calcContigGC(r.bases) : Float.NaN;
+			require(!contigGc || Float.isFinite(gc) && gc>=0f && gc<=1f,
+				"Boundary-vector contig_gc must match the finite complete-contig feature used by GeneCaller");
 			for(Gene gene:list){
 				require(gene.exact==null && gene.stop<=r.length(), "A locus must bind once within its original contig: "+g.name+"/"+gene.source.spans);
-				gene.contigLength=r.length();gene.edge=gene.start==1 || gene.stop==r.length();
+				gene.contigLength=r.length();gene.contigGC=gc;gene.edge=gene.start==1 || gene.stop==r.length();
 				gene.exact=new byte[gene.source.length];int offset=0;
 				for(int i=0; i<gene.intervals.length; i+=2){
 					final int a=gene.intervals[i]-1, length=gene.intervals[i+1]-a;
@@ -134,15 +164,27 @@ public final class NcrnaAnnotatedCorpus {
 	/*----------------            Output            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	private void write(final String prefix, final String family, final int expectedLoci, final int flank){
+	/** Writes the six existing artifacts in frozen source/locus order. Every acquired
+	 * writer is registered before startup and closed even if a later open/start/body
+	 * fails. The first failure stays primary; later cleanup failures are suppressed.
+	 * Native abrupt process exit and interrupt-clearing joins are outside this contract.
+	 * Fixed-decimal GC is appended only to context headers. It never changes exact
+	 * sequence, eligibility, coordinates or any table column.
+	 */
+	private void write(final String prefix, final String family, final int expectedLoci, final int flank, final boolean contigGc){
 		assert(!genomes.isEmpty()):"Output denominators come from the declared genome selection";
 		RrnaResourceIO.fresh(prefix, ".all.fa.gz", ".full.fa.gz", ".contexts.fa.gz", ".loci.tsv.gz", ".genomes.tsv", ".summary.tsv");
-		final ByteStreamWriter all=RrnaResourceIO.writer(prefix+".all.fa.gz"), full=RrnaResourceIO.writer(prefix+".full.fa.gz");
-		final ByteStreamWriter contexts=RrnaResourceIO.writer(prefix+".contexts.fa.gz"), rows=RrnaResourceIO.writer(prefix+".loci.tsv.gz");
-		final ByteStreamWriter roster=RrnaResourceIO.writer(prefix+".genomes.tsv"), summary=RrnaResourceIO.writer(prefix+".summary.tsv");
-		final ByteBuilder b=new ByteBuilder();int raw=0, eligible=0, partial=0, pseudo=0, multipart=0, positive=0, edges=0, ambiguous=0;long territory=0;
-		final IntList rawLengths=new IntList(), fullLengths=new IntList();
-		try{
+		int raw=0, eligible=0, partial=0, pseudo=0, multipart=0, positive=0, edges=0, ambiguous=0;long territory=0;
+		try(Output allOwner=new Output(writerFactory.apply(prefix+".all.fa.gz"));
+				Output fullOwner=new Output(writerFactory.apply(prefix+".full.fa.gz"));
+				Output contextOwner=new Output(writerFactory.apply(prefix+".contexts.fa.gz"));
+				Output rowOwner=new Output(writerFactory.apply(prefix+".loci.tsv.gz"));
+				Output rosterOwner=new Output(writerFactory.apply(prefix+".genomes.tsv"));
+				Output summaryOwner=new Output(writerFactory.apply(prefix+".summary.tsv"))){
+			final ByteStreamWriter all=allOwner.writer, full=fullOwner.writer;
+			final ByteStreamWriter contexts=contextOwner.writer, rows=rowOwner.writer;
+			final ByteStreamWriter roster=rosterOwner.writer, summary=summaryOwner.writer;
+			final ByteBuilder b=new ByteBuilder();final IntList rawLengths=new IntList(), fullLengths=new IntList();
 			rows.println("locus_id\tgenome\tassembly\ttaxid\tdomain\tphylum\tseqid\tstrand\tintervals1\tlength\tsource_line\tsource_ids\tpartial\tpseudo\tstatus\tcontig_length\tedge\tundefined_bases\tlflank\trflank\tsource_lines");
 			roster.println("index\tgenome\tassembly\ttaxid\tdomain\tphylum\tgff\tfasta\tloci\tgenome_bases\tcontigs");
 			for(Genome g:genomes){
@@ -159,9 +201,13 @@ public final class NcrnaAnnotatedCorpus {
 					b.clear().append('>').append(id).append(" source=").append(g.name).append(" family=").append(family)
 						.append(" status=").append(status).nl().append(gene.exact).nl();all.print(b);
 					if(status.equals("ANNOTATION_FULL_COPY")){full.print(b);fullLengths.add(l.length);}
-					contexts.print(b.clear().append('>').append(id).append(" source=").append(g.name).append(" contig=").append(l.contig)
+					b.clear().append('>').append(id).append(" source=").append(g.name).append(" contig=").append(l.contig)
 						.append(" strand=").append(l.strand).append(" start=").append(gene.start).append(" stop=").append(gene.stop)
-						.append(" lflank=").append(gene.left).append(" rflank=").append(gene.right).nl().append(gene.context).nl());
+						.append(" lflank=").append(gene.left).append(" rflank=").append(gene.right);
+					// Eighteen fractional places preserve float GC even for one defined
+					// GC base in a maximum-length Java contig, without exponent notation.
+					if(contigGc){b.append(" contig_gc=").append((double)gene.contigGC, 18);}
+					contexts.print(b.nl().append(gene.context).nl());
 					rows.print(b.clear().append(id).tab().append(g.name).tab().append(g.assembly).tab().append(g.taxid).tab().append(g.domain).tab().append(g.phylum)
 						.tab().append(l.contig).tab().append(l.strand).tab().append(l.spans).tab().append(l.length).tab().append(l.earliestSourceLine).tab().append(l.sourceIds)
 						.tab().append(l.partial).tab().append(l.pseudo).tab().append(status).tab().append(gene.contigLength).tab().append(gene.edge)
@@ -174,8 +220,12 @@ public final class NcrnaAnnotatedCorpus {
 			b.clear().append(genomes.size()).tab().append(positive).tab().append(family).tab().append(raw).tab().append(territory)
 				.tab().append(eligible).tab().append(partial).tab().append(pseudo).tab().append(multipart).tab().append(edges).tab().append(ambiguous).tab().append(flank);
 			appendLengths(b, rawLengths);appendLengths(b, fullLengths);summary.print(b.nl());
-		}finally{RrnaResourceIO.finish(all, full, contexts, rows, roster, summary);}
+		}
 		System.err.println("ANNOTATED_CORPUS_PASS genomes="+genomes.size()+" raw="+raw+" annotation_full="+eligible+" territory="+territory);
+	}
+	/** Matches RrnaResourceIO.writer construction exactly; startup stays with the caller. */
+	private static ByteStreamWriter createWriter(String path){
+		return new ByteStreamWriter(FileFormat.testOutput(path, FileFormat.TEXT, null, true, false, false, false));
 	}
 	/** P10/P90 use floor((n-1)*p); median averages the two middle lengths. */
 	private static void appendLengths(final ByteBuilder b, final IntList lengths){
@@ -192,18 +242,18 @@ public final class NcrnaAnnotatedCorpus {
 	/*--------------------------------------------------------------*/
 
 	private static final class Worker extends Thread{
-		Worker(final ArrayList<Genome> gs, final AtomicInteger n, final String f, final int pad){genomes=gs;next=n;family=f;flank=pad;}
+		Worker(final ArrayList<Genome> gs, final AtomicInteger n, final String f, final int pad, final boolean gc){genomes=gs;next=n;family=f;flank=pad;contigGc=gc;}
 		@Override
 		public void run(){
 			try{
 				for(int i; (i=next.getAndIncrement())<genomes.size();){
-					extractGenome(genomes.get(i), family, flank);
+					extractGenome(genomes.get(i), family, flank, contigGc);
 					if((i+1)%1000==0){System.err.println("CORPUS_PROGRESS genomes="+(i+1)+" total="+genomes.size());}
 				}
 				success=true;
 			}catch(Throwable t){failure=t;next.set(genomes.size());}
 		}
-		final ArrayList<Genome> genomes;final AtomicInteger next;final String family;final int flank;
+		final ArrayList<Genome> genomes;final AtomicInteger next;final String family;final int flank;final boolean contigGc;
 		Throwable failure;boolean success;
 	}
 	private static final class Genome{
@@ -230,8 +280,11 @@ public final class NcrnaAnnotatedCorpus {
 		String status(){return source.pseudo ? "PSEUDOGENE" : source.partial ? "SOURCE_PARTIAL" : intervals.length>2 ? "MULTIPART_UNRESOLVED" : "ANNOTATION_FULL_COPY";}
 		final NcrnaFamilySurvey.Locus source;final int[] intervals;final int start, stop;
 		byte[] exact, context;int contigLength, left, right, undefined;boolean edge;
+		/** Complete-contig inference feature; NaN means metadata was not requested. */
+		float contigGC=Float.NaN;
 	}
 	private static final class Genes extends ArrayList<Gene>{private static final long serialVersionUID=1L;}
 	private static void require(final boolean ok, final String why){if(!ok){throw new IllegalArgumentException(why);}}
 	private final ArrayList<Genome> genomes=new ArrayList<Genome>();
+	private final Function<String, ByteStreamWriter> writerFactory;
 }

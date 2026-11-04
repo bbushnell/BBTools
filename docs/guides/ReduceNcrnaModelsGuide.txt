@@ -1,0 +1,250 @@
+ReduceNcrnaModels
+=================
+
+reducencrnamodels.sh proposes a smaller consensus library, then optionally tests
+that proposal through ordinary whole-genome CallGenes. Optional serial regeneration
+then rebuilds the retained paired models while protecting support and detections.
+The tool does not tune verification cutoffs or prove a globally smallest library.
+
+Requirements: Bash and java on PATH. BBTools supports Java 8 or later when built
+for that runtime; an installation compiled for a newer Java requires that version
+or later. Caller protection and regeneration also require Unix setsid with --wait
+and a kill executable supporting process-group signals. These examples were run
+with Java 25.0.1; the tool sources also passed
+Java 8 API compilation, which is not a Java 8 runtime test. Use the launchers from
+your matching BBTools installation. By default, progress and child diagnostics go
+to stderr, so stdout can be empty; the requested result files hold the results.
+
+Quick example
+-------------
+
+Run from the BBTools installation directory, using a Java runtime supported by
+that installation and its normal shell launchers. Each recipe below uses its own
+named temporary directory and stops if that directory already exists. Inspect or
+remove your previous example output before rerunning. TMPDIR, when set, chooses
+the temporary parent; otherwise it is /tmp. No variables carry between recipes.
+
+  mkdir "${TMPDIR:-/tmp}/ncrna-reduction-quick" &&
+  bash reducencrnamodels.sh in=testdata/ncrna_model_tools/genes.fa \
+    ref=resources/callgenes_6S/RF01685/consensus.fa \
+    cutoff=1 target=1 out="${TMPDIR:-/tmp}/ncrna-reduction-quick/reduced" t=2 -Xmx1g &&
+  cat "${TMPDIR:-/tmp}/ncrna-reduction-quick/reduced/summary.txt"
+
+Expected: 19 original models, one retained model, 20 genes, retained coverage 1.
+This deliberately tiny corpus contains twenty named copies of one publicly
+shipped 6S consensus. cutoff=1 requests exact identity for this demonstration;
+it is not a recommended biological cutoff. No genome protection was requested,
+so the status correctly says proposal only and false-positive rate is unmeasured.
+Input provenance and companion boundary example: testdata/ncrna_model_tools/README.md.
+
+For real resource construction, supply the full eligible annotated gene corpus.
+Using a few examples or the consensus library itself only tests the program;
+it does not measure coverage of the biological population.
+
+Proposal example with paired HBM output (also run from the installation root):
+
+  mkdir "${TMPDIR:-/tmp}/ncrna-reduction-proposal" &&
+  bash reducencrnamodels.sh in=testdata/ncrna_model_tools/genes.fa \
+    ref=resources/callgenes_6S/RF01685/consensus.fa \
+    hbm=resources/callgenes_6S/RF01685/models.hbmc.gz cutoff=0.70 target=0.98 \
+    out="${TMPDIR:-/tmp}/ncrna-reduction-proposal/reduced" t=2 -Xmx1g &&
+  cat "${TMPDIR:-/tmp}/ncrna-reduction-proposal/reduced/summary.txt"
+
+Expected: one of nineteen models retained, all twenty genes supported, and a
+paired models.hbmc.gz beside consensus.fa. The cutoff demonstrates the option;
+it has not been calibrated for a biological population.
+
+Every sense-oriented input gene is aligned to every consensus with Quantum.
+Identity at or above cutoff is support. The program repeatedly removes the
+model with the fewest uniquely supported genes, updating support counts after
+each removal. The target denominator includes originally unsupported genes.
+An unattainable target fails with the attainable and required counts.
+
+The input FASTA identifiers must be unique within each axis. Their first
+whitespace-delimited token is the graph identifier. Headers must use printable
+ASCII. Original consensus descriptions are retained for FASTA export. If HBM
+input is supplied, its model order, names and sequences must match the consensus
+library. Output retains its dense or compact HBM codec and gzip container.
+
+Caller protection
+-----------------
+
+This complete example runs from the BBTools installation root:
+
+  mkdir "${TMPDIR:-/tmp}/ncrna-reduction-protection" &&
+  printf '%s\n' "$PWD/testdata/ncrna_model_tools/panel.fa" > "${TMPDIR:-/tmp}/ncrna-reduction-protection/genomes.txt" &&
+  bash reducencrnamodels.sh config=testdata/ncrna_model_tools/protected.config \
+    genomes="${TMPDIR:-/tmp}/ncrna-reduction-protection/genomes.txt" \
+    out="${TMPDIR:-/tmp}/ncrna-reduction-protection/protected" t=2 -Xmx1g &&
+  cat "${TMPDIR:-/tmp}/ncrna-reduction-protection/protected/summary.txt" \
+    "${TMPDIR:-/tmp}/ncrna-reduction-protection/protected/caller_results.tsv"
+
+protected.config supplies genes.fa, the shipped consensus FASTA and paired
+models.hbmc.gz, cutoff=1, target=1, family=sixs_rf01685, truthfamily=fixture,
+panel.truth.tsv, caller.config, callerheap=1g and maxcalls=4. The panel embeds each
+of the nineteen shipped consensuses between 200-base synthetic flanks. Its truth
+coordinates come from that construction, not from the caller. It is a tiny
+synthetic genome stand-in, not biological validation.
+
+Expected: the original library detects all 19 panel loci; the one-model proposal
+detects 4 and loses 15. Protection restores models and finishes with 16 models,
+19 matched, 0 unmatched and 0 missed, while retaining support for all 20 input
+genes. This illustrates why gene support alone does not protect genome calling.
+caller_results.tsv shows the intermediate loss; summary.txt describes the final
+protected result. These are specific teaching-fixture results, not accuracy claims
+for other genomes or libraries.
+
+genomes.txt contains one distinct absolute genome FASTA path per line.
+truth.tsv has five tab-separated columns: seqid, family, start, stop, strand.
+Coordinates are one-based inclusive; strands are + or -. The optional header
+starts with seqid and family. Contig identifiers must identify the intended
+contigs across the complete evaluation panel.
+
+family is the caller's registered key. truthfamily is the exact reference-table
+label; these need not be spelled alike. For example, sam1 emits SAM-I calls
+while the reference table can use RF00162.
+
+caller.config contains ordinary scientific CallGenes options, including family
+activation, fixed verification cutoffs and unchanged seed resources. The reducer
+owns genome inputs, GFF outputs and thread/heap budgets; do not put I/O aliases,
+sampling limits, output diagnostics or JVM flags in this configuration.
+
+The original library is called first. References detected by that baseline are
+protected. Calls and references match one-to-one on contig, strand and overlap
+of at least half the shorter span. The reduced library is then called against
+the same genomes and truth. Each lost reference restores its original winning
+model, with all additions made as one batch before another complete caller pass.
+An added model is never assumed to rescue a locus without that subsequent call.
+Matching prioritizes protected references before extending to maximum total
+matches, so reordering identical calls does not invent an avoidable loss.
+
+If no model can be added, or maxcalls is exhausted before a reduced set passes,
+the program exports the original library and explains why. maxcalls includes
+the baseline. Without both genomes and truth, the result is explicitly only a
+proposal. A zero-match baseline fails rather than claiming vacuous protection.
+
+Protection currently supports only families accepted by CallGenes' dynamic
+paired-model overrides: rnasep, tmrna, srp_small, srp_large, sixs_rf00013,
+sixs_rf01685, fmn, sam1, cobalamin_rf00174, cobalamin_rf01482, cobalamin_rf01689,
+r58 (5.8S) and lsu (eukaryotic LSU). Fixed rRNA and tRNA paths are not supported
+through that interface. Proposal generation has no caller-specific restriction.
+
+caller_results.tsv labels its counts matched, unmatched_calls, missed_references,
+exact_5prime, exact_3prime and both_ends_exact. Regeneration's caller tables use
+matched, unmatched, missed, exact_5prime, exact_3prime and both_exact for the same
+measurements; neither table adjudicates unmatched calls biologically.
+
+One child caller runs at a time. callerheap is additional to the parent JVM's
+heap. The child launcher uses its installation's own classpath; assertions, SIMD
+and an explicit stack setting follow the parent. Child stdout and stderr inherit
+the parent's streams. An interrupted wait terminates the owned Unix process group,
+including descendants in that group, and joins the child and any input feeder
+before returning with interruption preserved. A JVM shutdown hook attempts the
+same group cleanup. Uncatchable SIGKILL or a JVM crash cannot run that hook and
+can leave descendants running.
+
+Serial regeneration
+-------------------
+
+Run this complete recipe from the installation root, independently of the
+protection example above. It performs protection before regeneration:
+
+  mkdir "${TMPDIR:-/tmp}/ncrna-reduction-regeneration" &&
+  printf '%s\n' "$PWD/testdata/ncrna_model_tools/panel.fa" > "${TMPDIR:-/tmp}/ncrna-reduction-regeneration/genomes.txt" &&
+  bash reducencrnamodels.sh config=testdata/ncrna_model_tools/protected.config \
+    genomes="${TMPDIR:-/tmp}/ncrna-reduction-regeneration/genomes.txt" \
+    out="${TMPDIR:-/tmp}/ncrna-reduction-regeneration/regenerated" regenerate=t \
+    consensusconfig=testdata/ncrna_model_tools/consensus.config t=2 -Xmx1g &&
+  cat "${TMPDIR:-/tmp}/ncrna-reduction-regeneration/regenerated/regeneration/summary.tsv" \
+    "${TMPDIR:-/tmp}/ncrna-reduction-regeneration/regenerated/regeneration/exported.caller.tsv"
+
+Expected: 16 models remain, one populated model is regenerated, and the other
+15 have no assigned members in this deliberately repetitive teaching corpus.
+All 20 initially supported genes remain supported. The final caller still has
+19 matched, 0 unmatched and 0 missed loci, with all 19 exact at both ends; no
+caller restoration is needed after regeneration. The status reports that both
+caller and corpus retention passed. The example does not promise a boundary gain.
+
+The supplied consensus.config contains the literal recipe below.
+The recipe accepts passes, minid (or minidentity), endtrim (or endtrimfrac),
+stochastic and stochasticseed. For example:
+
+  passes=2
+  minid=0.3
+  endtrim=0
+  stochastic=f
+
+The public consensus builder processes one model's current members at a time.
+The stage fixes one group, no clustering/recruitment/pruning, and one builder
+thread. consensusheap=1g sets that child's heap; alignment still uses t workers.
+Gene identifiers must not encode tRNA anticodon groups. Regeneration requires
+the complete paired-model and caller-protection inputs; it cannot silently run
+as an unprotected support-only operation.
+
+A candidate is accepted only if all its current members still have a supporting
+model after competitive reassignment. Acceptance changes the complete pair and
+its assignments together; rejection changes neither. After visiting every model
+once, a whole-corpus pass resolves migrations. Model names, order and count stay
+fixed. The original pre-shrink graph stays untouched.
+
+The selected library's verified caller matching is reused as the baseline.
+maxregencalls=5 counts only NEW calls after regeneration, separately from maxcalls.
+Lost references restore each distinct baseline winner's pre-regeneration FASTA
+header, sequence and HBM counts. Each changed proposal gets a new ordinary caller
+pass. Exhaustion or no progress produces a reported baseline fallback, never an
+unverified final proposal. A final named-gene comparison must retain every gene
+supported by the selected library on entry to regeneration; equal totals are
+insufficient. This population is distinct from greedy target coverage against
+the original full corpus.
+
+The regeneration directory retains per-model decisions, gene assignments before
+and after the final pass, caller transitions and a summary. final.assignments.tsv
+and exported.caller.tsv live inside regenerated/regeneration/ in this example;
+they describe the library exported at regenerated/, including baseline fallback.
+candidate.assignments.tsv and caller_results.tsv retain trial evidence.
+Caller tables report
+matched, unmatched, missed, exact 5-prime, exact 3-prime and both-exact counts on
+the same strand-aware matching. Counts from a rejected trial remain diagnostic;
+the reported fallback exports the verified pre-regeneration baseline at top level.
+These engineering checks do not adjudicate unmatched calls biologically or imply
+independent holdout performance.
+
+Output files
+------------
+
+out must be a fresh directory beneath an existing parent. It contains:
+
+  consensus.fa              Retained consensus records.
+  models.hbm or models.hbmc  Optional paired HBM subset, optionally .gz.
+  original.support.tsv      Every original query on the original model axis.
+  members.tsv               Every original query on the retained model axis.
+  summary.txt               Coverage, model counts, scan work and result status.
+
+Protected runs also retain executed caller configurations, complete GFFs,
+caller_results.tsv and per-reference lost.tsv tables. Unmatched calls are
+reported against the supplied truth; they are not independently adjudicated FPs.
+The false-positive rate remains UNMEASURED without a defined negative population.
+These outputs are a library subset, not a complete installable family directory.
+
+Shared support graph
+--------------------
+
+Both graphs use version 2 with named model axes, explicit ORIGINAL/REDUCED scope,
+the Quantum aligner label, cutoff and query count. Data columns are query_id,
+best_model_index, best_identity_a48 and supporters. Scored supporters use
+comma-separated modelIndex:A48Identity pairs. Only the first colon separates
+the index from its score; later colons can be A48 digits. A dot means no support.
+
+ORIGINAL best is the best of all original models, including below-cutoff winners.
+REDUCED best is the best retained supporter, or NONE/NA when none remains. No
+additional alignment pass invents a below-cutoff reduced winner. Reduced indices
+refer to the exported library. Boundary-training coverage groups must use the
+ORIGINAL graph and original library, not the reduced graph.
+
+A48 preserves native float bits in graph data. Human-readable numeric summaries
+use fixed decimals. No file hashes or process receipts are
+part of the tool. Quantum's current implementation allocates its DP buffers per
+alignment; the support engine uses that public implementation without forking it.
+pair_alignments counts work in that support engine, split into initial and
+regeneration counts. The consensus builder and ordinary caller print their own
+work diagnostics; they are not included in this support-engine counter.

@@ -1,0 +1,96 @@
+NcrnaBoundaryVectorGen
+=====================
+
+dev/ncrna_boundary_vectors.sh is the low-level generator of labeled endpoint
+vectors. It reads annotated, sense-oriented flanked FASTA and learned endpoint
+count tables. It does not build those tables, train networks, select cutoffs or
+install resources. For the complete shared-boundary training/export workflow,
+use buildncrnaboundarynets.sh and BuildNcrnaBoundaryNetsGuide.txt.
+
+Input contract
+--------------
+
+Required flags are family=, fasta=, tablestart=, tablestop= and out=. A context
+header contains lflank=, rflank= and contig_gc=, for example:
+
+  >locus_1 source=assembly_1 lflank=20 rflank=20 contig_gc=0.5
+
+The flanks are bases actually present in this record, in transcription direction.
+The annotated gene spans from lflank to length-rflank-1, zero-based inclusive.
+contig_gc is the fraction of defined bases that are G or C in the whole source
+contig, not the extracted window. Missing flanks/GC and unusable model assignments
+are counted as skipped records. This tool loads the complete context FASTA into
+memory; size it accordingly. The current launcher fixes a 4 GB heap and one active
+processor and requires the JVM vector module. It does not accept config= files
+or command-line JVM overrides. Those launcher limits also apply to this guide.
+
+Named families use the registered caller's consensus/HBM resources and mapping
+settings. Existing r58consensus/r58models/r58kmers and lsuconsensus/lsumodels/lsukmers
+flags override those families' corresponding resources. Table headers must declare
+the correct endpoint and inside/outside counts; these determine the word geometry.
+
+Model assignment and candidate ranges
+------------------------------------
+
+By default each locus uses the family's shortlist and best alignment identity.
+singlemodel=t requires a library with exactly one consensus and selects index 0
+without shortlisting; it still computes alignment-derived features. It cannot be
+combined with fixedmodel=. fixedmodel= selects a named consensus and requires each
+context header's recorded model assignment to agree with that name.
+
+For family=r58, r58boundarystartrange=minimum,maximum and
+r58boundarystoprange=minimum,maximum override the inclusive candidate offsets for
+the corresponding end. Each range must include zero, stay within -256..256 and
+contain at most 257 positions. Omitted ranges retain the family's defaults. These
+are the same range controls used by the 5.8S caller; other families reject them.
+Contexts must contain the flanks needed by the chosen offsets. Out-of-window or
+shorter-than-16-base candidates are skipped and reported, not manufactured.
+
+meanlen= overrides length normalization; zero or a negative value selects the
+upper median of the loaded consensus lengths. leaveoneout=t (alias loo=t) is the
+default and subtracts the current locus's true-position count before smoothing.
+stoponly=t (alias 3primeonly=t) emits only stop candidates. countonly=t requires
+statsout= and performs candidate accounting without writing vector rows.
+
+Layouts and outputs
+-------------------
+
+boundaryfeatures=v1 is the default ten-feature layout. v2 requires
+boundaryfuzz= (alias boundaryfuzzconstants=), containing model/end constants and
+one HBM per consensus. v3 requires familytablestart= and familytablestop= in
+addition to the consensus tables; corresponding table geometries must match.
+It blends the independently normalized family and consensus profiles equally.
+These layouts are distinct contracts with the inference scorer, not automatically
+interchangeable improvements. Select a layout only with matching inference support.
+
+out= receives the vector matrix, beginning with #dims followed by ten inputs and
+one target. A true endpoint has target 1; shifted candidates have target 0.
+For each retained locus, start rows precede stop rows. trainerout= optionally
+receives the numeric training matrix too. modelcolumn=t requires fixedmodel= and
+trainerout=; it adds the model name before the target in out= while trainerout=
+remains purely numeric. statsout= is always a plain TSV of population/candidate
+counts and skip reasons; use a .tsv name, not a compressed suffix.
+
+locusout= writes a TSV with locus, assembly, model, start_rows and stop_rows.
+The locus is the first header token; assembly copies the header's source= value.
+Counts describe that locus's consecutive vector blocks. This optional sidecar
+requires emitted vectors for both ends: stoponly=t or countonly=t is rejected,
+and a retained locus with no candidates at either end fails. Use a fresh sidecar
+destination. The sidecar does not make biological accuracy claims.
+
+Native compression flags such as zl=, pigz=, bgzip= and unpigz= are passed to the
+BBTools compression settings. Vector outputs and the locus sidecar honor supported
+compressed filename suffixes. statsout is the plain-TSV exception noted above.
+
+Explicit external-family mode
+-----------------------------
+
+family=external bypasses the built-in family registry and requires every policy
+input explicitly: externalname, externalconsensus, externalmodels, externalseeds,
+externalk, externalseedminhits, externalminlen, externalwindowpad, externalindexk,
+externalfixedminhits, externaltopn, externalidpass, externalidborderline,
+externaladaptive=f, externalrankedfallback, externalstrictindexcutoff,
+externalstartoffsets and externalstopoffsets. Supply each as flag=value; offset
+arrays are comma-separated integers. Consensus/HBM counts and names must align.
+External settings cannot be combined with a named built-in family. This is an
+explicit resource experiment, not automatic calibration or registration.

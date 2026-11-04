@@ -1,0 +1,46 @@
+#ncrna_support_graph	2
+#scope	ORIGINAL
+#aligner	quantum
+#cutoff_a48	oP000
+#models	19
+#model	0	6S_RF01685_unknown_c0
+#model	1	6S_RF01685_unknown_c1
+#model	2	6S_RF01685_unknown_c2
+#model	3	6S_RF01685_unknown_c3
+#model	4	6S_RF01685_unknown_c5
+#model	5	6S_RF01685_unknown_c6
+#model	6	6S_RF01685_unknown_c8
+#model	7	6S_RF01685_unknown_c11
+#model	8	6S_RF01685_unknown_c12
+#model	9	6S_RF01685_unknown_c13
+#model	10	6S_RF01685_unknown_c14
+#model	11	6S_RF01685_unknown_c15
+#model	12	6S_RF01685_unknown_c16
+#model	13	6S_RF01685_unknown_c17
+#model	14	6S_RF01685_unknown_c18
+#model	15	6S_RF01685_unknown_c19
+#model	16	6S_RF01685_unknown_c20
+#model	17	6S_RF01685_unknown_c21
+#model	18	6S_RF01685_unknown_c23
+#queries	20
+query_id	best_model_index	best_identity_a48	supporters
+gene0	0	oP000	0:oP000
+gene1	0	oP000	0:oP000
+gene2	0	oP000	0:oP000
+gene3	0	oP000	0:oP000
+gene4	0	oP000	0:oP000
+gene5	0	oP000	0:oP000
+gene6	0	oP000	0:oP000
+gene7	0	oP000	0:oP000
+gene8	0	oP000	0:oP000
+gene9	0	oP000	0:oP000
+gene10	0	oP000	0:oP000
+gene11	0	oP000	0:oP000
+gene12	0	oP000	0:oP000
+gene13	0	oP000	0:oP000
+gene14	0	oP000	0:oP000
+gene15	0	oP000	0:oP000
+gene16	0	oP000	0:oP000
+gene17	0	oP000	0:oP000
+gene18	0	oP000	0:oP000
+gene19	0	oP000	0:oP000

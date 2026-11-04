@@ -39,6 +39,8 @@ import structures.ListNum;
 public class TrnaConsensusBuilder {
 
 	public static void main(String[] args){
+		//TODO: TOOL_WRITER_SINGLE_OUTPUTS - inherited constructor/process failures
+		//bypass closure of an owned PreParser log; annotate/report, not repaired here.
 		Timer t=new Timer();
 		TrnaConsensusBuilder x=new TrnaConsensusBuilder(args);
 		x.process(t);
@@ -313,6 +315,8 @@ public class TrnaConsensusBuilder {
 		writeAssignments(reads);
 
 		if(ffout!=null){
+			//TODO: TOOL_WRITER_SINGLE_OUTPUTS - inherited start/add failures bypass
+			//output cleanup because acquisition and use have no enclosing finally.
 			ConcurrentReadOutputStream ros=ConcurrentReadOutputStream.getStream(ffout, null, 4, null, false);
 			ros.start();
 			ros.add(consensusList, 0);
@@ -352,6 +356,9 @@ public class TrnaConsensusBuilder {
 	/*--------------------------------------------------------------*/
 
 	private LinkedHashMap<String, ArrayList<byte[]>> loadSeeds(String fname){
+		//TODO: TOOL_INHERITED_READER_CLEANUP - this loader, loadReads and loadLibrary
+		//close only normally and ignore the close error flag; exceptions can leak a
+		//reader and I/O errors may appear successful. Separate from output annotations.
 		LinkedHashMap<String, ArrayList<byte[]>> map=new LinkedHashMap<>();
 		FileFormat ff=FileFormat.testInput(fname, FileFormat.FASTA, null, true, true);
 		ConcurrentReadInputStream cris=ConcurrentReadInputStream.getReadInputStream(-1, true, ff, null);
@@ -668,7 +675,7 @@ public class TrnaConsensusBuilder {
 	 * merged in ascending order with the same strict-'&gt;' comparison, preserving
 	 * the serial first-index tie break.
 	 */
-	// Package-private (not private) ONLY so the adversarial tie-break fixture MtTieBreakTest can call
+	// Public so the relocated adversarial tie-break fixture MtTieBreakTest can call
 	// it directly with a hand-built centroid list containing byte-identical (exact-tie) centroids —
 	// a case greedy clustering never produces (it would merge them), so it is unreachable via process().
 	// No behavioral effect.
@@ -1157,7 +1164,7 @@ public class TrnaConsensusBuilder {
 	 * longest-member-as-its-own-pivot distinction is exactly the fix buildConsensusAndGraph
 	 * exists for. Mirrors buildBaseGraph's own alignment/add loop exactly, parameterized by ref
 	 * instead of internally picking the longest member as its own pivot. */
-	static BaseGraph buildGraphFromReference(ArrayList<Read> cluster, byte[] ref, String name){
+	public static BaseGraph buildGraphFromReference(ArrayList<Read> cluster, byte[] ref, String name){
 		final BaseGraph bg=new BaseGraph(name, ref, null, 0, 0);
 		final AlignmentStats stats=new AlignmentStats(true);
 		for(Read r : cluster){
@@ -1633,6 +1640,8 @@ public class TrnaConsensusBuilder {
 		}
 		assert(written==reads.size()) : "written="+written+" != reads.size()="+reads.size();
 		final fileIO.ByteStreamWriter bsw=new fileIO.ByteStreamWriter(outAssignments, overwrite, false, false);
+		//TODO: TOOL_WRITER_SINGLE_OUTPUTS - inherited start/print failures bypass
+		//poisonAndWait below; constructor-returned backend and worker need ownership.
 		bsw.start();
 		bsw.print(bb);
 		errorState|=bsw.poisonAndWait();

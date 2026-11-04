@@ -119,6 +119,7 @@ public class CutGff implements Accumulator<CutGff.ProcessThread>  {
 		parser.overwrite=overwrite;
 		for(int i=0; i<args.length; i++){
 			String arg=args[i];
+			//TODO: split truncates values containing '=', e.g. attributes=ID=foo becomes ID; split only at the first '='.
 			String[] split=arg.split("=");
 			String a=split[0].toLowerCase();
 			String b=split.length>1 ? split[1] : null;

@@ -22,6 +22,9 @@ public class AlignmentStats {
 	/*----------------           Methods            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Exposes trace normalization provenance without allowing diagnostic mutation. */
+	public final boolean opposingIndelsWereRepaired(){return opposingIndelsRepaired;}
+
 	// Reset method for reuse
 	public void clear() {
 		opposingIndelsRepaired=false;

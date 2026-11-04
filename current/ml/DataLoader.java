@@ -172,6 +172,8 @@ public class DataLoader{
 					}
 				}
 			}
+			//TODO: Probable bug - ByteFile.close() returns sticky read/decoder errors (ByteFile1.close,
+			//ByteFile2.close); ignoring it can accept corrupt training input. Propagate before using matrix.
 			bf.close();
 			if(validLines>=max){break;}
 		}

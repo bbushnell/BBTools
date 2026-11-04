@@ -97,6 +97,9 @@ public class QuantumAligner implements IDAligner{
 	@Override
 	public final float align(byte[] a, byte[] b, AlignmentStats stats){
 		if(stats!=null && stats.doTrace){return alignAndTraceStatic(a, b, stats);}
+		//TODO: Probable bug - nontrace stats discard this first fill and repeat it
+		//with positions below. The null-position fill may also swap the sequences.
+		//Avoid the redundant fill without changing the positional call's direction.
 		float id=alignStatic(a, b, null);
 		if(stats!=null){
 			// Quantum cannot do ordinary matrix traceback; fill stats from a fresh call

@@ -2,6 +2,34 @@
 
 BBTools prokaryotic package providing comprehensive tools for bacterial and archaeal genome annotation, gene prediction, ribosomal sequence processing, and statistical modeling of genomic features.
 
+## ncRNA resource development
+
+`reducencrnamodels.sh` selects a compact consensus/HBM library using exhaustive
+gene-to-model support, optionally protects whole-genome detections, and can
+regenerate retained models with paired rollback. Its full user guide is
+`docs/guides/ReduceNcrnaModelsGuide.txt` in the BBTools release.
+
+`buildncrnaboundarynets.sh` learns endpoint features, compares native classifier
+and regression networks through ordinary CallGenes, and exports the accepted
+family resources. Its guide is `docs/guides/BuildNcrnaBoundaryNetsGuide.txt`.
+
+Both guides contain complete short commands using
+`testdata/ncrna_model_tools/`, a small synthetic example derived from the shipped
+6S library. Run them from the BBTools installation directory containing the shell
+launchers and resources. The examples demonstrate program behavior; they are not
+biological accuracy estimates or recommended production training recipes.
+
+Experimental endpoint implementations can install an
+`NcrnaBoundaryRefiner.Factory` on a loaded `NcrnaFamily` before workers start.
+The factory creates independent worker state. The caller checks for a refiner
+after alignment and model selection, before path selection; no check is added
+inside the alignment loops. A null factory preserves ordinary endpoint handling.
+Use `CallGenes.run(timer, setup)` to configure the family inside the caller's
+resource-cleanup scope. Production code depends only on the generic interface.
+The preserved mitochondrial experiment and its driver live in `test/prok` and
+are invoked explicitly through `dev/mito_endpoint_callgenes.sh`; they are not
+enabled by ordinary CallGenes. Their class headers describe why they were kept.
+
 ## Core Gene Prediction
 
 ### CallGenes (CallGenes.java)

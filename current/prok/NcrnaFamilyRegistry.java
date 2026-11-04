@@ -68,6 +68,44 @@ public final class NcrnaFamilyRegistry {
 			|| "cobalamin_rf01482".equalsIgnoreCase(id) || "cobalamin_rf01689".equalsIgnoreCase(id);
 	}
 
+	/** Resolves one caller that accepts a replacement paired consensus/HBM library.
+	 * Reduction and its caller validation share this capability. Unlike boundary
+	 * training, paired model replacement also supports 5.8S and eukaryotic LSU.
+	 * Aggregate cobalamin selects several callers and cannot bind one model pair.
+	 * @param id Registered family ID or alias identifying one caller member
+	 * @return The registration, or an exception when model replacement is unsupported
+	 */
+	public static Entry modelOverrideMember(final String id){
+		if("cobalamin".equalsIgnoreCase(id)){
+			throw new IllegalArgumentException("Paired model overrides require one cobalamin_rf member, not the aggregate cobalamin selector");
+		}
+		final Entry entry=get(id);
+		if(!entry.dynamicModels || entry.boundary==null || entry.boundary.trna){
+			throw new IllegalArgumentException("Family does not support paired consensus/HBM overrides: "+id);
+		}
+		return entry;
+	}
+
+	/** Resolves one family supported by the shared v1 boundary-model tools.
+	 * Builder, evaluation, packaged defaults and export use this same contract.
+	 * Explicit cobalamin members are supported; the aggregate selector controls
+	 * several callers and cannot identify one learned model. Specialized rRNA/tRNA
+	 * adapters remain outside this contract. Generic model reduction has its own
+	 * broader override capability and does not use this boundary-training check.
+	 * @param id Registered family ID or alias, identifying one caller member
+	 * @return The resolved registration, or an exception for an unsupported family
+	 */
+	public static Entry sharedBoundaryMember(final String id){
+		if("cobalamin".equalsIgnoreCase(id)){
+			throw new IllegalArgumentException("Boundary models require one cobalamin_rf member, not the aggregate cobalamin selector");
+		}
+		final Entry entry=get(id);
+		if(entry.boundary==null || entry.boundary.trna || entry.id.equals("r58") || entry.id.equals("lsu")){
+			throw new IllegalArgumentException("Family does not use the shared v1 boundary-model adapter: "+id);
+		}
+		return entry;
+	}
+
 	public static final class Entry {
 		private Entry(String id_, String directory_, String gate_, String[] models_,
 				int minLen_, int windowPad_, int indexK_, int topN_, int minHits_,
@@ -193,7 +231,8 @@ public final class NcrnaFamilyRegistry {
 		new String[0], 100, 376, 7, 84, 1, 1f, .68f, .68f, 1.01f, true, ProkObject.RNA,
 		true, false, false, 0, 1, 60, -1, false, new String[0], .85f, false, true, 2, null,
 		new BoundaryPolicy("fmn_consensus.fa", "fmn_models.hbmc", 0f, false, 0f, 0f, 0f, new int[]{0}), null, "", "consensus");
-	/** Selected SAM-I policy:238 models, two distinct17-mer seeds and70% identity.
+	/** Selected SAM-I policy:two distinct17-mer seeds and70% identity.
+	 * The installed library has215 models; the historical shortlist cap remains238.
 	 * The all-eligible endpoint nets use start/stop radii8/12 and internal9-mers. */
 	private static final Entry SAM1=new Entry("sam1", "callgenes_SAM1", "sam1=t",
 		new String[0], 50, 378, 7, 238, 1, 1f, .70f, .70f, 1.01f, true, ProkObject.RNA,
@@ -283,7 +322,7 @@ public final class NcrnaFamilyRegistry {
 			for(String value:members){if(value.equals(member)){return true;}}return false;
 		}
 		boolean shared(String role){return contains(sharedRoles, role);}
-		boolean optional(String role){return role.equals("length_bounds") || contains(optionalRoles, role);}
+		boolean optional(String role){return role.equals("length_bounds") || role.equals("boundary_config") || contains(optionalRoles, role);}
 		boolean permits(String member, String role){
 			assert(role!=null) : "Grouped roles are constrained by the package's declared contract";
 			return member.equals(".") ? shared(role) : hasMember(member) && (contains(requiredRoles, role) || optional(role));

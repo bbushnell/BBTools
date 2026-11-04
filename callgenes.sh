@@ -583,8 +583,22 @@ ncrnafamily=    Select rnasep, srp_small, srp_large, tmrna, sixs_rf00013,
                 srp-large, srplarge, tm-rna, tm_rna, and ssra (case-insensitive).
                 Other resource-available families remain loaded and compete
                 normally; this is not an isolation switch.
+ncrnafamilyroot= Optional resource directory for the selected ncrnafamily only.
+                Requires manifest.tsv matching that family; explicit payload
+                paths still take precedence. Supports rnasep, tmrna, srp_small,
+                srp_large, sixs_rf00013, sixs_rf01685, fmn, sam1 and individual
+                cobalamin members. Other family selectors are not supported.
+                SRP, 6S and cobalamin members require the GROUP directory,
+                not its member subdirectory. Other members keep their usual
+                resources. Do not combine with a typed root for the same family.
 ncrnakmers=     Explicit conserved-kmer fasta for the selected ncrnafamily=;
                 requires that family's enabled profile and exactly one target.
+ncrnaconsensus= Consensus FASTA override, paired with ncrnamodels=.
+ncrnamodels=    Matching HBM or HBMC models, optionally compressed.
+                Supply both files and select one ncrnafamily supporting model
+                overrides (families listed for ncrnafamilyroot, plus r58 and lsu).
+                Consensus sequences and model records must agree in order.
+                Seeds and other family settings retain their usual defaults.
 ncrnaseedminhits=  Conserved 17-mer seed threshold for selected euk5S or B12.
                 B12 defaults to 1; values >1 require distinct seed keys per
                 window, so repeated occurrences of one key cannot satisfy 2.
@@ -647,6 +661,7 @@ tmrnamodels=    Explicit aligned tmRNA HBM models; requires ncrna=t and tmrna=t.
 ncrnaidpass=    Alignment identity that accepts without HBM rescue.
 ncrnaidborderline=  Lowest identity eligible for HBM rescue.
 ncrnahbmpass=   HBM score needed to rescue a borderline alignment.
+                Accepts [0,1], or 1.01 to disable HBM acceptance.
 tmrnarescueidmargin=0.005  Additive identity margin for tmRNA rescue.
 tmrnarescuehbmmargin=0.005 Additive HBM margin for tmRNA rescue.
                 Explicit nonzero overrides require ncrna=t and tmrna=t. Primary acceptance
@@ -734,8 +749,8 @@ setEnv(){
 }
 
 launch() {
-	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP prok.CallGenes $@"
-	java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" prok.CallGenes "$@"
+	CMD="java $EA $EOOM $SIMD $XMX $XMS $XSS -cp $CP prok.CallGenes $@"
+	exec java $EA $EOOM $SIMD $XMX $XMS $XSS -cp "$CP" prok.CallGenes "$@"
 }
 
 resolveSymlinks

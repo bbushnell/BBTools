@@ -7,20 +7,21 @@ import java.nio.file.Paths;
 import java.util.Arrays;
 
 import fileIO.ByteFile;
-import fileIO.ByteStreamWriter;
 import fileIO.FileFormat;
 import map.ObjectMap;
 import parse.LineParser1;
 import prok.CobalaminShredSampler;
 import prok.NcrnaCmLocusAudit;
 import prok.NcrnaCorpusSample;
+import prok.NcrnaTextIO.Input;
+import prok.NcrnaTextIO.Output;
 import prok.RrnaResourceIO;
 import structures.ByteBuilder;
 
 /** Independent extraction/mask checks, fixed-length conservation and source exclusion.
  * @author Raiden
  */
-public final class CobalaminShredSamplerTest {
+public final class CobalaminShredSamplerTest{
 
 	public static void main(String[] args)throws Exception{
 		check(args.length==1, "Supply a fresh fixture directory");final Path root=Paths.get(args[0]);Files.createDirectory(root);
@@ -49,6 +50,11 @@ public final class CobalaminShredSamplerTest {
 		}
 		check(Arrays.equals(Files.readAllBytes(root.resolve("a.lengths.tsv")), Files.readAllBytes(root.resolve("b.lengths.tsv"))), "Both arms must use the identical empirical-length schedule");
 		inspect(root, "a", "panel", bases, starts, stops);inspect(root, "b", "nonpanel", bases, starts, stops);
+		write(root.resolve("RF00162.tsv"), masks[0].toString().replace("RF00174_", "RF00162_"));
+		CobalaminShredSampler.main(new String[]{"genomes="+root.resolve("genomes.tsv"), "panel="+root.resolve("panel.tsv"), "lengths="+root.resolve("lengths.fa"),
+			"families=RF00162", "loci="+root.resolve("RF00162.tsv"), "outprefix="+root.resolve("single"), "arm=panel", "count=200", "genomecount=2",
+			"expectedgenomes=6", "expectedpanel=2", "expectedlengths=4", "expectedloci=6", "seed=20261026", "flank=30"});
+		inspect(root, "single", "panel", bases, new int[]{10}, new int[]{15});
 		final ByteBuilder impossible=new ByteBuilder();for(int n=0; n<4; n++){impossible.append('>').append(n).nl();for(int i=0; i<500; i++){impossible.append('A');}impossible.nl();}
 		write(root.resolve("impossible.fa"), impossible.toString());boolean failed=false;
 		try{run(root, "panel", "impossible", "impossible.fa");}catch(IllegalArgumentException expected){failed=true;}
@@ -62,22 +68,32 @@ public final class CobalaminShredSamplerTest {
 		final ObjectMap<String,byte[]> cores=new ObjectMap<String,byte[]>(String.class, byte[].class), contexts=new ObjectMap<String,byte[]>(String.class, byte[].class);
 		RrnaResourceIO.stream(root.resolve(prefix+".cores.fa.gz").toString(), r->{check(cores.put(r.id, r.bases)==null, "Core IDs must be unique");});
 		RrnaResourceIO.stream(root.resolve(prefix+".contexts.fa.gz").toString(), r->{check(contexts.put(r.id, r.bases)==null, "Context IDs must be unique");});
-		final ByteFile in=RrnaResourceIO.open(root.resolve(prefix+".shreds.tsv").toString());final LineParser1 p=new LineParser1('\t');int count=0, clipped=0;
-		try{RrnaResourceIO.header(in, CobalaminShredSampler.HEADER, "shreds");for(byte[] row; (row=in.nextLine())!=null; ){
-			p.set(row);count++;check(p.terms()==13 && p.termEquals(arm, 1), "Every selected core needs exact arm and coordinate provenance");
-			final String id=p.parseString(0), genome=p.parseString(2);check(arm.equals("panel")?genome.equals("g0") || genome.equals("g1"):genome.equals("g4") || genome.equals("g5"),
-				"Nonpanel must exclude panel paths, shared taxids and other versions of panel assemblies");
-			final int lo=p.parseInt(6), hi=p.parseInt(7), left=p.parseInt(8), right=p.parseInt(9), length=p.parseInt(12);
-			check(length==hi-lo+1 && (length==17 || length==18 || length==20 || length==23), "Core length must remain a draw from the empirical positive distribution");
-			check(left==Math.max(1, lo-30) && right==Math.min(200, hi+30) && p.parseInt(10)==lo-left+1 && p.parseInt(11)==hi-left+1,
-				"Padded contexts must clip at real contig edges and preserve core coordinates for CM-overlap exclusion");
-			if(left==1 || right==200){clipped++;}
-			for(int i=0; i<3; i++){check(hi<starts[i] || lo>stops[i], "Both strands and all three source families must mask background");}
-			check(hi<45 || lo>50, "Ambiguous bases must not enter core background");
-			check(Arrays.equals(cores.get(id), Arrays.copyOfRange(bases, lo-1, hi)) && Arrays.equals(contexts.get(id), Arrays.copyOfRange(bases, left-1, right)),
-				"Native FASTA output must match independent source-coordinate extraction");
-		}}finally{check(!in.close(), "Shred manifest read failed");}
+		final LineParser1 p=new LineParser1('\t');
+		int count=0, clipped=0, unselected=0;
+		try(Input owner=new Input(root.resolve(prefix+".shreds.tsv").toString())){
+			final ByteFile in=owner.reader;
+			RrnaResourceIO.header(in, CobalaminShredSampler.HEADER, "shreds");
+			for(byte[] row; (row=in.nextLine())!=null; ){
+				p.set(row);
+				count++;
+				check(p.terms()==13 && p.termEquals(arm, 1), "Every selected core needs exact arm and coordinate provenance");
+				final String id=p.parseString(0), genome=p.parseString(2);
+				check(arm.equals("panel") ? genome.equals("g0") || genome.equals("g1") : genome.equals("g4") || genome.equals("g5"),
+					"Nonpanel must exclude panel paths, shared taxids and other versions of panel assemblies");
+				final int lo=p.parseInt(6), hi=p.parseInt(7), left=p.parseInt(8), right=p.parseInt(9), length=p.parseInt(12);
+				check(length==hi-lo+1 && (length==17 || length==18 || length==20 || length==23), "Core length must remain a draw from the empirical positive distribution");
+				check(left==Math.max(1, lo-30) && right==Math.min(200, hi+30) && p.parseInt(10)==lo-left+1 && p.parseInt(11)==hi-left+1,
+					"Padded contexts must clip at real contig edges and preserve core coordinates for CM-overlap exclusion");
+				if(left==1 || right==200){clipped++;}
+				for(int i=0; i<starts.length; i++){check(hi<starts[i] || lo>stops[i], "Every selected source family must mask background");}
+				if(starts.length==1 && lo<=80 && hi>=70){unselected++;}
+				check(hi<45 || lo>50, "Ambiguous bases must not enter core background");
+				check(Arrays.equals(cores.get(id), Arrays.copyOfRange(bases, lo-1, hi)) && Arrays.equals(contexts.get(id), Arrays.copyOfRange(bases, left-1, right)),
+					"Native FASTA output must match independent source-coordinate extraction");
+			}
+		}
 		check(count==200 && cores.size()==200 && contexts.size()==200 && clipped>0, "All fixed schedule entries and clipped-edge cases must survive");
+		check(starts.length!=1 || unselected>0, "The single-family fixture must expose omitted-family territory rather than silently retain all three masks");
 	}
 	private static void run(Path root, String arm, String out, String lengths){
 		CobalaminShredSampler.main(new String[]{"genomes="+root.resolve("genomes.tsv"), "panel="+root.resolve("panel.tsv"), "lengths="+root.resolve(lengths),
@@ -86,8 +102,9 @@ public final class CobalaminShredSamplerTest {
 	}
 	/** Negative cases deliberately replace fixture inputs inside the fresh test root. */
 	private static void write(Path path, String text){
-		final ByteStreamWriter out=new ByteStreamWriter(FileFormat.testOutput(path.toString(), FileFormat.TEXT, null, true, true, false, false));out.start();
-		try{out.print(text);}finally{RrnaResourceIO.finish(out);}
+		try(Output owner=new Output(FileFormat.testOutput(path.toString(), FileFormat.TEXT, null, true, true, false, false))){
+			owner.writer.print(text);
+		}
 	}
 	private static void check(boolean ok, String why){if(!ok){throw new AssertionError(why);}}
 }

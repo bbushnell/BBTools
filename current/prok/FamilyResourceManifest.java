@@ -1,21 +1,24 @@
 package prok;
 
 import fileIO.ByteFile;
+import fileIO.FileFormat;
 import map.ObjectMap;
 import parse.LineParser1;
+import prok.NcrnaTextIO.Input;
 
-/** Versioned loose-resource bindings. Digests describe shipped bytes; callers validate
- * biological bindings, while release fixtures verify the payload digests.
+/** Versioned loose-resource bindings. Optional byte counts and digests are historical
+ * metadata, never payload-validation requirements. Biological readers validate content.
  * @author Brian, Raiden */
 final class FamilyResourceManifest {
 
 	FamilyResourceManifest(String path, NcrnaFamilyRegistry.Entry family){
 		assert(path!=null && family!=null) : "A manifest must bind one explicit registered family";
-		final ByteFile in=RrnaResourceIO.open(path);
+		source=path;
 		final LineParser1 p=new LineParser1('\t');
 		final NcrnaFamilyRegistry.Group group=family.group;
 		final int shift=group==null ? 0 : 1;
-		try{
+		try(Input input=new Input(FileFormat.testInput(path, FileFormat.TEXT, null, true, true))){
+			final ByteFile in=input.reader;
 			RrnaResourceIO.header(in, group==null ? "#ncrna_family\t1\t"+family.id : "#ncrna_family\t2\t"+group.id, path);
 			RrnaResourceIO.header(in, (group==null ? "" : "member\t")+"role\tmodel\tend\tpath\tformat\tbytes\tsha80", path);
 			for(byte[] row;(row=in.nextLine())!=null;){
@@ -23,12 +26,15 @@ final class FamilyResourceManifest {
 				final String member=group==null ? "" : p.parseString(0);
 				final String role=p.parseString(shift), model=p.parseString(shift+1), end=p.parseString(shift+2);
 				final String relative=p.parseString(shift+3), format=p.parseString(shift+4), digest=p.parseString(shift+6);
-				final long bytes=p.parseLong(shift+5);
+				final long bytes=p.termEquals("-", shift+5) ? -1 : p.parseLong(shift+5);
 				if(group!=null){
 					require(group.hasMember(member) || member.equals(".") && group.sharedRoles.length>0, "Unknown group member "+member+" in "+path);
 					require(group.permits(member, role), "Unsupported resource role "+role+" for group "+group.id+" member "+member);
 				}
-				require(bytes>0 && digest.matches("[0-9a-f]{20}"), "Resource provenance requires positive bytes and sha80: "+relative);
+				require(bytes>0 || p.termEquals("-", shift+5),
+					"Resource byte-count metadata must be positive or absent (-): "+relative);
+				require(digest.equals("-") || digest.matches("[0-9a-f]{20}"),
+					"Resource digest metadata must be sha80 or absent (-): "+relative);
 				validateRelative(relative);
 				if(role.equals("table")){
 					boolean known=false;for(String name:family.models){known|=name.equals(model);}
@@ -37,7 +43,8 @@ final class FamilyResourceManifest {
 					require(model.equals(".") && end.equals("."), "Only table roles have model/end bindings");
 					require(role.equals("consensus") || role.equals("models") || role.equals("seeds") || role.equals("tables") || role.equals("endpoints") || role.equals("cutoffs")
 						|| role.equals("boundary") || role.equals("boundary_start") || role.equals("boundary_stop") || role.equals("legacy_consensus")
-						|| role.equals("vote_offsets") || role.equals("joined_model_positions") || role.equals("length_bounds"),
+						|| role.equals("vote_offsets") || role.equals("joined_model_positions") || role.equals("length_bounds")
+						|| role.equals("boundary_config"),
 						"Unknown resource role for "+family.id+": "+role);
 				}
 				final String key=key(member, role, model, end);
@@ -46,9 +53,9 @@ final class FamilyResourceManifest {
 				require(!paths.contains(memberPath), "Two roles cannot silently alias one payload: "+memberPath);
 				paths.put(memberPath, 1);
 				validateFormat(role, relative, format);
-				entries.put(key, new Entry(member, relative, format, bytes, digest));
+				entries.put(key, new Entry(member, role, model, end, relative, format, bytes, digest));
 			}
-		}finally{require(!in.close(), "Family manifest read failed: "+path);}
+		}
 		if(group!=null){
 			for(String role:group.sharedRoles){
 				require(entries.get(key(".", role, ".", "."))!=null,
@@ -69,6 +76,8 @@ final class FamilyResourceManifest {
 	}
 	/** Absence is meaningful only to callers selecting a registered optional role. */
 	Entry optional(String member, String role, String model, String end){return entries.get(key(member, role, model, end));}
+	/** Borrows the immutable binding cells; null cells are empty. Never modify the array. */
+	Entry[] bindings(){return entries.values();}
 	static String key(String member, String role, String model, String end){return (member.isEmpty() ? "" : member+'/')+key(role, model, end);}
 	static String key(String role, String model, String end){return role+":"+model+":"+end;}
 	static void validateRelative(String path){
@@ -78,16 +87,27 @@ final class FamilyResourceManifest {
 	}
 	private static void validateFormat(String role, String path, String format){
 		final String expected=role.equals("consensus") || role.equals("legacy_consensus") || role.equals("seeds") ? "fasta" : role.equals("models") ? "hbm"
-			: role.equals("endpoints") ? "bbnets" : role.equals("boundary") ? "bbnet" : "tsv";
+			: role.equals("endpoints") ? "bbnets" : role.equals("boundary") ? "bbnet" : role.equals("boundary_config") ? "config" : "tsv";
 		require(format.equals(expected), "Unsupported format for "+role+": "+format);
 		if(role.equals("models")){require(path.endsWith(".hbm") || path.endsWith(".hbmc") || path.endsWith(".hbmc.gz"),
 			"HBM format dispatch depends on the native .hbm/.hbmc[.gz] suffix: "+path);}
 	}
 	static final class Entry {
-		Entry(String member_, String path_, String format_, long bytes_, String digest_){member=member_;path=path_;format=format_;bytes=bytes_;sha80=digest_;}
-		final String member, path, format, sha80;
+		Entry(String member_, String role_, String model_, String end_, String path_, String format_, long bytes_, String digest_){
+			member=member_;
+			role=role_;
+			model=model_;
+			end=end_;
+			path=path_;
+			format=format_;
+			bytes=bytes_;
+			sha80=digest_;
+		}
+		final String member, role, model, end, path, format, sha80;
 		final long bytes;
 	}
+	/** The resolver alone interprets member-relative paths against this source. */
+	final String source;
 	static void require(boolean ok, String why){if(!ok){throw new IllegalArgumentException(why);}}
 	private final ObjectMap<String, Entry> entries=new ObjectMap<String, Entry>(String.class, Entry.class);
 	private final map.ObjectIntMap<String> paths=new map.ObjectIntMap<String>(String.class);

@@ -3,10 +3,34 @@ package prok;
 import java.io.File;
 import dna.Data;
 
-/** Sole owner of family-directory and member paths. No I/O occurs until resolve.
+/** Sole owner of family-directory and member paths. I/O starts on resolution or explicit root binding.
  * Loose files only; a future jar backend must supply reader capabilities explicitly.
  * @author Brian, Raiden */
 public final class FamilyResourceResolver {
+
+	/** Bind an explicitly selected family directory before resolving any payload overrides.
+	 * Group members name the group directory, whose manifest declares every member.
+	 * This reads and caches only the manifest; payload loading remains lazy.
+	 */
+	public void bindRoot(String familyId, String root){
+		require(root!=null && !root.isEmpty(), "An explicit family root requires a directory");
+		loadManifest(NcrnaFamilyRegistry.get(familyId), new File(root, "manifest.tsv").toString());
+	}
+
+	/** Installed bindings for an export, excluding legacy working-directory overrides. */
+	FamilyResourceManifest installedManifest(String familyId){
+		final NcrnaFamilyRegistry.Entry family=NcrnaFamilyRegistry.get(familyId);
+		loadManifest(family, Data.findPath("?"+family.directory+"/manifest.tsv", false));
+		return manifest;
+	}
+
+	/** Resolves one already parsed binding; it neither reparses nor validates stored-byte metadata. */
+	Handle manifestPayload(String familyId, FamilyResourceManifest source, FamilyResourceManifest.Entry entry){
+		assert(source!=null && entry!=null) : "Manifest payload paths require an existing parsed binding";
+		File directory=new File(source.source).getParentFile();
+		if(!entry.member.isEmpty() && !entry.member.equals(".")){directory=new File(directory, entry.member);}
+		return checked(familyId, entry.role, new File(directory, entry.path).toString(), false);
+	}
 
 	/** Retain a declared private local reference for legacy tools; published installs
 	 * use the canonical family consensus. The production family loader never calls this. */
@@ -39,7 +63,7 @@ public final class FamilyResourceResolver {
 	 * malformed or incomplete payload still fails, including explicit overrides. */
 	public Handle optional(String familyId, String role, Overrides overrides){
 		final NcrnaFamilyRegistry.Entry family=NcrnaFamilyRegistry.get(familyId);
-		require(role.equals("length_bounds") || family.group!=null && family.group.optional(role),
+		require(role.equals("length_bounds") || role.equals("boundary_config") || family.group!=null && family.group.optional(role),
 			"Optional resolution cannot weaken required family resources: "+family.id+"/"+role);
 		return resolve(familyId, role, ".", ".", overrides, false);
 	}
@@ -70,21 +94,25 @@ public final class FamilyResourceResolver {
 		final String manifestPath=o.root==null ? Data.findPath("?"+family.directory+"/manifest.tsv", false) : new File(o.root, "manifest.tsv").toString();
 		// Fully explicit legacy resource overrides may never need a manifest.
 		// An optional new length profile must not add that requirement.
-		if(!required && role.equals("length_bounds") && (manifestPath==null || !new File(manifestPath).isFile())){return null;}
-		require(manifestPath!=null && new File(manifestPath).isFile(), "Missing required "+family.id+" manifest: "+manifestPath+" ("+family.directory+")");
-		final String identity=family.group==null ? "1:"+family.id : "2:"+family.group.id;
-		// Members share their group's cache; different families must still validate the header at an explicit root.
-		if(!manifestPath.equals(cachedPath) || !identity.equals(cachedIdentity)){
-			manifest=new FamilyResourceManifest(manifestPath, family);cachedPath=manifestPath;cachedIdentity=identity;
-		}
+		if(!required && (role.equals("length_bounds") || role.equals("boundary_config"))
+				&& (manifestPath==null || !new File(manifestPath).isFile())){return null;}
+		loadManifest(family, manifestPath);
 		final String member=family.group!=null && family.group.shared(role) ? "." : family.member;
 		final FamilyResourceManifest.Entry entry=required ? manifest.get(member, role, model, end) : manifest.optional(member, role, model, end);
 		if(entry==null){return null;}
-		File directory=new File(manifestPath).getParentFile();
-		if(!entry.member.isEmpty() && !entry.member.equals(".")){directory=new File(directory, entry.member);}
-		final Handle handle=checked(family.id, role, new File(directory, entry.path).toString(), false);
-		require(new File(handle.path).length()==entry.bytes, "Incomplete "+family.id+" resource "+role+": "+handle.path+"; expected "+entry.bytes+" bytes");
-		return handle;
+		return manifestPayload(family.id, manifest, entry);
+	}
+	/** Reuse a manifest only for the same path and registered family/group identity. */
+	private void loadManifest(NcrnaFamilyRegistry.Entry family, String path){
+		assert(family!=null) : "Manifest headers are interpreted against a registered family or group";
+		require(path!=null && new File(path).isFile(),
+			"Missing required "+family.id+" manifest: "+path+" ("+family.directory+")");
+		final String identity=family.group==null ? "1:"+family.id : "2:"+family.group.id;
+		if(!path.equals(cachedPath) || !identity.equals(cachedIdentity)){
+			manifest=new FamilyResourceManifest(path, family);
+			cachedPath=path;
+			cachedIdentity=identity;
+		}
 	}
 	public Handle tables(String familyId, Overrides overrides){
 		return resolve(familyId, "tables", overrides);

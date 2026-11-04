@@ -4,16 +4,24 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.PrintStream;
+import java.io.OutputStream;
+import java.util.Locale;
 import java.util.ArrayList;
+import java.util.function.Function;
 
 import consensus.BaseGraph;
 import fileIO.FileFormat;
+import fileIO.ByteStreamWriter;
 import idaligner.QuantumAligner;
 import map.LongHashSet;
 import parse.Parse;
+import parse.Parser;
+import fileIO.ReadWrite;
+import prok.NcrnaTextIO.Output;
 import shared.Shared;
 import stream.Read;
 import stream.ReadInputStream;
+import structures.ByteBuilder;
 
 /**
  * Training-vector generator for the ncRNA boundary-precision NN: reads a flanked
@@ -31,8 +39,14 @@ import stream.ReadInputStream;
 public class NcrnaBoundaryVectorGen {
 
 	public static void main(String[] args) throws IOException {
+		run(args, path->new ByteStreamWriter(path, false, false, true));
+	}
+	/** Per-invocation native factory; the optional locus scope owns startup and cleanup. */
+	private static void run(String[] args, Function<String, ByteStreamWriter> factory) throws IOException{
 		String fastaPath=null, outPath=null, tableStartPath=null, tableStopPath=null, familyTableStartPath=null, familyTableStopPath=null, familyName=null;
 		String statsPath=null, boundaryFuzzPath=null, fixedModelName=null, trainerOutPath=null;
+		String locusPath=null, r58StartRange=null, r58StopRange=null;
+		boolean singleModel=false;
 		int boundaryFeatureVersion=NcrnaBoundaryScorer.FEATURES_V1;
 		String r58Kmers=null, r58Consensus=null, r58Models=null;
 		String lsuKmers=null, lsuConsensus=null, lsuModels=null;
@@ -59,6 +73,10 @@ public class NcrnaBoundaryVectorGen {
 			else if(kv[0].equalsIgnoreCase("familytablestart")){familyTableStartPath=kv[1];}
 			else if(kv[0].equalsIgnoreCase("familytablestop")){familyTableStopPath=kv[1];}
 			else if(kv[0].equalsIgnoreCase("statsout")){statsPath=kv[1];}
+			else if(kv[0].equalsIgnoreCase("locusout")){locusPath=kv[1];}
+			else if(kv[0].equalsIgnoreCase("singlemodel")){singleModel=Parse.parseBoolean(kv[1]);}
+			else if(kv[0].equalsIgnoreCase("r58boundarystartrange")){r58StartRange=kv[1];}
+			else if(kv[0].equalsIgnoreCase("r58boundarystoprange")){r58StopRange=kv[1];}
 			else if(kv[0].equalsIgnoreCase("family")){familyName=kv[1];}
 			else if(kv[0].equalsIgnoreCase("boundaryfeatures")){boundaryFeatureVersion=NcrnaBoundaryScorer.parseFeatureVersion(kv[1]);}
 			else if(kv[0].equalsIgnoreCase("boundaryfuzz") || kv[0].equalsIgnoreCase("boundaryfuzzconstants")){boundaryFuzzPath=kv[1];}
@@ -96,6 +114,8 @@ public class NcrnaBoundaryVectorGen {
 				leaveOneOut=Parse.parseBoolean(kv[1]);
 			}else if(kv[0].equalsIgnoreCase("countonly")){
 				countOnly=Parse.parseBoolean(kv[1]);
+			}else if(Parser.parseZip(a, kv[0].toLowerCase(Locale.ROOT), kv[1])){
+				//Use the same compression controls as the native input/output backends.
 			}else{throw new IllegalArgumentException("Unknown vector option: "+kv[0]);}
 		}
 		if(fastaPath==null || outPath==null || tableStartPath==null || tableStopPath==null || familyName==null){
@@ -105,6 +125,15 @@ public class NcrnaBoundaryVectorGen {
 		}
 		if(countOnly && statsPath==null){
 			throw new IllegalArgumentException("countonly=t requires statsout= so the source-derived accounting is durable");
+		}
+		if(locusPath!=null && (stopOnly || countOnly)){
+			throw new IllegalArgumentException("locusout requires both-end emitted vectors, not stoponly/countonly");
+		}
+		if(singleModel && fixedModelName!=null){throw new IllegalArgumentException("singlemodel and fixedmodel are mutually exclusive assignment modes");}
+		if(r58StartRange!=null || r58StopRange!=null){
+			if(!familyName.equalsIgnoreCase("r58")){throw new IllegalArgumentException("5.8S ranges require family=r58");}
+			if(r58StartRange!=null){CallGenes.R58_BOUNDARY_CONFIG.parse("r58boundarystartrange", r58StartRange);}
+			if(r58StopRange!=null){CallGenes.R58_BOUNDARY_CONFIG.parse("r58boundarystoprange", r58StopRange);}
 		}
 		if(modelColumn && (fixedModelName==null || trainerOutPath==null)){
 			throw new IllegalArgumentException("modelcolumn=t requires fixedmodel= and trainerout=");
@@ -159,6 +188,7 @@ public class NcrnaBoundaryVectorGen {
 		if(meanLen<=0){meanLen=medianLength(fam.library);}
 
 		final byte[][] library=fam.library;
+		if(singleModel && library.length!=1){throw new IllegalArgumentException("singlemodel requires exactly one consensus, found "+library.length);}
 		final BaseGraph[] models=fam.models;
 		int fixedModel=-1;
 		if(fixedModelName!=null){for(int i=0;i<fam.modelNames.length;i++){if(firstToken(fam.modelNames[i]).equals(fixedModelName)){fixedModel=i;break;}}if(fixedModel<0){throw new IllegalArgumentException("fixedmodel is absent from consensus library: "+fixedModelName);}}
@@ -207,54 +237,66 @@ public class NcrnaBoundaryVectorGen {
 		final boolean quantumFeatures=(boundaryFeatureVersion==NcrnaBoundaryScorer.FEATURES_V2
 			|| boundaryFeatureVersion==NcrnaBoundaryScorer.FEATURES_V3);
 		final int[] quantumPos=(quantumFeatures ? new int[4] : null);
-		final PrintStream out;
-		final PrintStream trainerOut;
-		try{out=new PrintStream(new FileOutputStream(outPath));trainerOut=(trainerOutPath==null ? null : new PrintStream(new FileOutputStream(trainerOutPath)));}catch(IOException e){throw new RuntimeException("Could not open vector output",e);}
-		try{
-			if(!countOnly){out.println(modelColumn ? "#dims\t10\t1\tmodel" : "#dims\t10\t1");if(trainerOut!=null){trainerOut.println("#dims\t10\t1");}}
-			for(Read r : reads){
-				final int lf=TrnaNinemerTableBuilder.parseFlankValue(r.id, "lflank=");
-				final int rf=TrnaNinemerTableBuilder.parseFlankValue(r.id, "rflank=");
-				if(lf<0 || rf<0){noFlank++; continue;}
-				final byte[] bases=r.bases;
-				final int trueStart=lf;
-				final int trueStop=bases.length-rf-1;
-				if(trueStart<0 || trueStop>=bases.length || trueStop<=trueStart){malformed++; continue;}
-				final float contigGC=parseHeaderFloat(r.id, "contig_gc=");
-				if(Float.isNaN(contigGC)){noGC++; continue;}
+		try(VectorOutput vectorOutput=new VectorOutput(outPath);
+				VectorOutput trainerOutput=trainerOutPath==null ? null : new VectorOutput(trainerOutPath)){
+			final PrintStream out=vectorOutput.stream;
+			final PrintStream trainerOut=trainerOutput==null ? null : trainerOutput.stream;
+			try(Output locusOwner=locusPath==null ? null : new Output(factory.apply(locusPath))){
+				final ByteStreamWriter locusOut=locusOwner==null ? null : locusOwner.writer;
+				final ByteBuilder locusRow=new ByteBuilder();
+				if(locusOut!=null){locusOut.println("locus\tassembly\tmodel\tstart_rows\tstop_rows");}
+				if(!countOnly){out.println(modelColumn ? "#dims\t10\t1\tmodel" : "#dims\t10\t1");if(trainerOut!=null){trainerOut.println("#dims\t10\t1");}}
+				for(Read r : reads){
+					final int lf=TrnaNinemerTableBuilder.parseFlankValue(r.id, "lflank=");
+					final int rf=TrnaNinemerTableBuilder.parseFlankValue(r.id, "rflank=");
+					if(lf<0 || rf<0){noFlank++; continue;}
+					final byte[] bases=r.bases;
+					final int trueStart=lf;
+					final int trueStop=bases.length-rf-1;
+					if(trueStart<0 || trueStop>=bases.length || trueStop<=trueStart){malformed++; continue;}
+					final float contigGC=parseHeaderFloat(r.id, "contig_gc=");
+					if(Float.isNaN(contigGC)){noGC++; continue;}
 
-				final byte[] geneSeq=java.util.Arrays.copyOfRange(bases, trueStart, trueStop+1);
-				//Training must use the family's inference shortlist width. A hardcoded smaller
-				//value creates train/serve skew by assigning some loci a different consensus model.
-				final int[] shortlist=(fixedModel>=0 ? new int[]{fixedModel} : index.shortlist(geneSeq, fam.indexTopN));
-				if(shortlist.length==0){noModel++; continue;}
-				if(fixedModel>=0){final String tagged=NcrnaConsensusPartitioner.recordedModel(r.id);if(tagged==null||!tagged.equals(fixedModelName)){throw new IllegalArgumentException("fixedmodel/header assignment mismatch: fixed="+fixedModelName+" header="+r.id);}}
-				int bestModel=-1; float bestId=-1;
-				for(int m : shortlist){
-					final float id=(quantumFeatures
-						? QuantumAligner.alignStatic(library[m],bases,quantumPos)
-						: TrnaBoundaryFeatures.aniFeature(geneSeq, library[m]));
-					if(id>bestId){bestId=id; bestModel=m;}
-					if(quantumFeatures && externalMode
-							&& Boolean.TRUE.equals(externalRankedFallback) && id>=fam.idPass){break;}
-				}
-				if(bestModel<0){noModel++; continue;}
-				vectorStats.processedLoci++;
-				final BaseGraph model=(models!=null && bestModel<models.length ? models[bestModel] : null);
+					final byte[] geneSeq=java.util.Arrays.copyOfRange(bases, trueStart, trueStop+1);
+					//Training must use the family's inference shortlist width. A hardcoded smaller
+					//value creates train/serve skew by assigning some loci a different consensus model.
+					final int[] shortlist=(singleModel ? new int[]{0} : fixedModel>=0 ? new int[]{fixedModel} : index.shortlist(geneSeq, fam.indexTopN));
+					if(shortlist.length==0){noModel++; continue;}
+					if(fixedModel>=0){final String tagged=NcrnaConsensusPartitioner.recordedModel(r.id);if(tagged==null||!tagged.equals(fixedModelName)){throw new IllegalArgumentException("fixedmodel/header assignment mismatch: fixed="+fixedModelName+" header="+r.id);}}
+					int bestModel=-1; float bestId=-1;
+					for(int m : shortlist){
+						final float id=(quantumFeatures
+							? QuantumAligner.alignStatic(library[m],bases,quantumPos)
+							: TrnaBoundaryFeatures.aniFeature(geneSeq, library[m]));
+						if(id>bestId){bestId=id; bestModel=m;}
+						if(quantumFeatures && externalMode
+								&& Boolean.TRUE.equals(externalRankedFallback) && id>=fam.idPass){break;}
+					}
+					if(bestModel<0){noModel++; continue;}
+					vectorStats.processedLoci++;
+					final BaseGraph model=(models!=null && bestModel<models.length ? models[bestModel] : null);
 
-				if(!stopOnly){
-					written+=emitVectors(out, bases, trueStart, trueStop, true, library[bestModel],
-						startTable, startInside, startOutside, model, contigGC, meanLenFinal,
-						fam.boundaryStartOffsets, leaveOneOut, vectorStats, !countOnly,
-						boundaryFeatureVersion,bestId,(boundaryFuzz==null ? null : boundaryFuzz.values(bestModel,true)),familyStartTable,trainerOut,firstToken(fam.modelNames[bestModel]),modelColumn);
+					int startRows=0;
+					if(!stopOnly){
+						startRows=emitVectors(out, bases, trueStart, trueStop, true, library[bestModel],
+							startTable, startInside, startOutside, model, contigGC, meanLenFinal,
+							fam.boundaryStartOffsets, leaveOneOut, vectorStats, !countOnly,
+							boundaryFeatureVersion,bestId,(boundaryFuzz==null ? null : boundaryFuzz.values(bestModel,true)),familyStartTable,trainerOut,firstToken(fam.modelNames[bestModel]),modelColumn);
+					}
+					final int stopRows=emitVectors(out, bases, trueStart, trueStop, false, library[bestModel],
+						stopTable, stopInside, stopOutside, model, contigGC, meanLenFinal,
+						fam.boundaryStopOffsets, leaveOneOut, vectorStats, !countOnly,
+						boundaryFeatureVersion,bestId,(boundaryFuzz==null ? null : boundaryFuzz.values(bestModel,false)),familyStopTable,trainerOut,firstToken(fam.modelNames[bestModel]),modelColumn);
+					written+=startRows+stopRows;
+					if(locusOut!=null){
+						if(startRows<1 || stopRows<1){throw new IllegalStateException("Per-locus ranking requires both candidate blocks: "+r.id);}
+						locusOut.print(locusRow.clear().append(RrnaResourceIO.first(r.id)).tab().append(RrnaResourceIO.field(r.id, "source"))
+							.tab().append(firstToken(fam.modelNames[bestModel])).tab().append(startRows).tab().append(stopRows).nl());
+					}
 				}
-				written+=emitVectors(out, bases, trueStart, trueStop, false, library[bestModel],
-					stopTable, stopInside, stopOutside, model, contigGC, meanLenFinal,
-					fam.boundaryStopOffsets, leaveOneOut, vectorStats, !countOnly,
-					boundaryFeatureVersion,bestId,(boundaryFuzz==null ? null : boundaryFuzz.values(bestModel,false)),familyStopTable,trainerOut,firstToken(fam.modelNames[bestModel]),modelColumn);
+				if(out.checkError()||(trainerOut!=null&&trainerOut.checkError())){throw new IOException("Vector write error");}
 			}
-			if(out.checkError()||(trainerOut!=null&&trainerOut.checkError())){throw new IOException("Vector write error");}
-		}finally{out.close();if(trainerOut!=null){trainerOut.close();}}
+		}
 		vectorStats.noFlank=noFlank;
 		vectorStats.malformed=malformed;
 		vectorStats.noGC=noGC;
@@ -278,7 +320,28 @@ public class NcrnaBoundaryVectorGen {
 		}
 	}
 
-	static void validateFamilyConsensusTable(TrnaNinemerTableBuilder.LoadedTable consensus,
+	/** Keeps byte formatting unchanged while allowing native compressed output and
+	 * surfacing failures from flush, codec completion and external compressors. */
+	private static final class VectorOutput implements AutoCloseable{
+		VectorOutput(String path_){
+			assert(path_!=null && !path_.isEmpty()) : "Vector output must bind one explicit destination";
+			path=path_;raw=ReadWrite.getOutputStream(path, false, true, true);
+			stream=new PrintStream(raw);
+		}
+		@Override
+		public void close() throws IOException{
+			boolean error=stream.checkError();
+			if(raw==System.out || raw==System.err){stream.flush();}
+			else{error|=ReadWrite.finishWriting(null, stream, path, true);}
+			error|=stream.checkError();
+			if(error){throw new IOException("Could not complete vector output: "+path);}
+		}
+		final String path;
+		final OutputStream raw;
+		final PrintStream stream;
+	}
+
+	public static void validateFamilyConsensusTable(TrnaNinemerTableBuilder.LoadedTable consensus,
 			TrnaNinemerTableBuilder.LoadedTable family,
 			TrnaBoundaryFeatures.BoundaryType expectedType, String end){
 		if(consensus.type!=expectedType||family.type!=expectedType){
@@ -362,7 +425,7 @@ public class NcrnaBoundaryVectorGen {
 		return offsets;
 	}
 
-	static int emitVectors(PrintStream out, byte[] window, int trueStart, int trueStop,
+	public static int emitVectors(PrintStream out, byte[] window, int trueStart, int trueStop,
 			boolean varyStart, byte[] modelConsensus, TrnaBoundaryFeatures.NinemerTable table,
 			int insideCount, int outsideCount, BaseGraph model, float contigGC, float meanLen,
 			int[] offsets, boolean leaveOneOut, VectorStats stats, boolean writeVectors){
@@ -371,7 +434,7 @@ public class NcrnaBoundaryVectorGen {
 			NcrnaBoundaryScorer.FEATURES_V1,Float.NaN,null);
 	}
 
-	static int emitVectors(PrintStream out, byte[] window, int trueStart, int trueStop,
+	public static int emitVectors(PrintStream out, byte[] window, int trueStart, int trueStop,
 			boolean varyStart, byte[] modelConsensus, TrnaBoundaryFeatures.NinemerTable table,
 			int insideCount, int outsideCount, BaseGraph model, float contigGC, float meanLen,
 			int[] offsets, boolean leaveOneOut, VectorStats stats, boolean writeVectors,
@@ -380,7 +443,7 @@ public class NcrnaBoundaryVectorGen {
 			model,contigGC,meanLen,offsets,leaveOneOut,stats,writeVectors,featureVersion,locusAni,modelEndFuzz,null,null,null,false);
 	}
 
-	static int emitVectors(PrintStream out, byte[] window, int trueStart, int trueStop,
+	public static int emitVectors(PrintStream out, byte[] window, int trueStart, int trueStop,
 			boolean varyStart, byte[] modelConsensus, TrnaBoundaryFeatures.NinemerTable table,
 			int insideCount, int outsideCount, BaseGraph model, float contigGC, float meanLen,
 			int[] offsets, boolean leaveOneOut, VectorStats stats, boolean writeVectors,
@@ -459,7 +522,7 @@ public class NcrnaBoundaryVectorGen {
 
 	/** Brian's G28 joint-table rule: equal weight after each table independently
 	 * computes its own pseudocount-smoothed profile value. Mutates consensus. */
-	static void blendProfiles(float[] consensus,float[] family){
+	public static void blendProfiles(float[] consensus,float[] family){
 		if(consensus==null||family==null||consensus.length!=family.length){throw new IllegalArgumentException("Family/consensus profile width mismatch");}
 		for(int i=0;i<consensus.length;i++){consensus[i]=0.5f*consensus[i]+0.5f*family[i];}
 	}
@@ -467,8 +530,8 @@ public class NcrnaBoundaryVectorGen {
 	/** Exact candidate accounting for durable wrapper gates. Whole-locus skips and
 	 * per-offset skips are kept separate so a successful record scan cannot be
 	 * mistaken for a complete candidate matrix. */
-	static final class VectorStats {
-		long records, processedLoci;
+	public static final class VectorStats {
+		public long records, processedLoci;
 		long noFlank, malformed, noGC, noModel;
 		long candidates, startCandidates, stopCandidates;
 		long emitted, startEmitted, stopEmitted;
@@ -543,14 +606,20 @@ public class NcrnaBoundaryVectorGen {
 		return lens[lens.length/2];
 	}
 
+	/** Read the complete whitespace-delimited GC value; Float.toString may use an
+	 * exponent. Scanning digits alone silently turned 1.0E-4 into 1.0. */
 	private static float parseHeaderFloat(String header, String key){
-		final int idx=header.indexOf(key);
+		assert(header!=null && key!=null && !key.isEmpty()) : "Boundary GC comes from a named metadata field in the source header";
+		int idx=header.indexOf(key);
+		while(idx>0 && !Character.isWhitespace(header.charAt(idx-1))){idx=header.indexOf(key, idx+key.length());}
 		if(idx<0){return Float.NaN;}
 		final int start=idx+key.length();
 		int end=start;
-		while(end<header.length() && (Character.isDigit(header.charAt(end)) || header.charAt(end)=='.')){end++;}
-		if(end==start){return Float.NaN;}
-		try{return Float.parseFloat(header.substring(start, end));}
-		catch(NumberFormatException e){return Float.NaN;}
+		while(end<header.length() && !Character.isWhitespace(header.charAt(end))){end++;}
+		final String value=header.substring(start, end);final float gc;
+		try{gc=Float.parseFloat(value);}
+		catch(NumberFormatException e){throw new IllegalArgumentException("Invalid boundary GC field "+key+value, e);}
+		if(!Float.isFinite(gc) || gc<0f || gc>1f){throw new IllegalArgumentException("Boundary GC must be finite in [0,1]: "+key+value);}
+		return gc;
 	}
 }

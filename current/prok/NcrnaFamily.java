@@ -204,6 +204,9 @@ public class NcrnaFamily {
 		rrnaEndpointFeatures=resources;rrnaEndpointFeatureSink=sink;
 	}
 	public RrnaEndpointCallerFeatures.Sink rrnaEndpointFeatureSink=null;
+	/** Optional read-only factory; install before workers start. Null keeps the
+	 * ordinary boundary path and creates no refiner or inference state. */
+	public NcrnaBoundaryRefiner.Factory boundaryRefinerFactory=null;
 	public static final int[] LEGACY_STOP_OFFSETS={-4,-3,-2,-1,0,1};
 
 	public final String name;

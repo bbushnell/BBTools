@@ -3,8 +3,10 @@ package prok;
 import java.util.ArrayList;
 import consensus.BaseGraph;
 import fileIO.ByteFile;
+import fileIO.FileFormat;
 import map.LongHashSet;
 import parse.LineParser1;
+import prok.NcrnaTextIO.Input;
 
 /** Constructs the existing caller container without changing verification algorithms.
  * CallGenes uses core-only loading then its established endpoint configuration phase.
@@ -82,6 +84,14 @@ public final class NcrnaFamilyLoader {
 		final float scoreB=Float.isNaN(options.scoreB) ? weight : options.scoreB;
 		final float collapse=Float.isNaN(options.collapse) ? p.collapse : options.collapse;
 		final float hbmPass=useHbm ? (Float.isNaN(options.hbmPass) ? p.hbmPass : options.hbmPass) : 1.01f;
+		PackagedBoundaryConfig packagedBoundary=null;
+		if(p.boundary!=null && !p.boundary.trna){
+			final FamilyResourceResolver.Handle config=resolver.optional(p.id, "boundary_config", options.resources);
+			if(config!=null){
+				packagedBoundary=PackagedBoundaryConfig.read(config.path);
+				packagedBoundary.applyDefaults(p.id, options, library);
+			}
+		}
 		require(!options.boundary || p.boundary!=null, "Shared boundary loading requires a registered shared-end adapter: "+p.id);
 		require(!options.boundary || !p.boundary.trna,
 			"Independent tRNA boundary templates must use loadTrnaBoundary, never the generic10-input adapter");
@@ -96,7 +106,8 @@ public final class NcrnaFamilyLoader {
 			boundary==null ? 0f : boundary.meanLen,
 			options.boundaryStartOffsets==null ? p.boundaryOffsets(true) : options.boundaryStartOffsets,
 			options.boundaryStopOffsets==null ? p.boundaryOffsets(false) : options.boundaryStopOffsets,
-			options.boundaryMarginStart, options.boundaryMarginStop);
+			Float.isNaN(options.boundaryMarginStart) ? 0f : options.boundaryMarginStart,
+			Float.isNaN(options.boundaryMarginStop) ? 0f : options.boundaryMarginStop);
 		family.outputType=p.outputType;family.seedMinHits=seedMinHits;family.scavengePass2=p.pass2;
 		if("fmn".equals(p.id) || "sam1".equals(p.id)){family.seedDistinct=seedMinHits>1;}//Direct loads preserve riboswitch distinct-key support.
 		family.rankedModelFallback=p.rankedFallback;family.strictIndexCutoff=p.strictIndexCutoff;family.trimAlignmentExtent=p.boundary!=null;
@@ -118,6 +129,7 @@ public final class NcrnaFamilyLoader {
 			}
 		}
 		if(options.endpoints && p.packagedEndpoints){family.setRrnaEndpointInference(loadEndpoints(family, options.resources, resolver), null);}
+		if(packagedBoundary!=null){packagedBoundary.loaded(family);}
 		return family;
 	}
 	static LongHashSet loadSeedKeys(String family, int k, FamilyResourceResolver resolver){
@@ -179,9 +191,9 @@ public final class NcrnaFamilyLoader {
 	/** A generic member uses one scalar identity pair throughout its primary and
 	 * rescue paths, unlike the existing single-alignment per-model cutoff tables. */
 	private static MemberCutoffs loadMemberCutoffs(final String path, final String family){
-		final ByteFile in=RrnaResourceIO.open(path);
 		final LineParser1 parser=new LineParser1('\t');
-		try{
+		try(Input input=new Input(FileFormat.testInput(path, FileFormat.TEXT, null, true, true))){
+			final ByteFile in=input.reader;
 			RrnaResourceIO.header(in, "family\tidpass\tidborderline", path);
 			final byte[] row=in.nextLine();
 			require(row!=null, "A declared member cutoff file requires one identity row: "+path);
@@ -194,13 +206,15 @@ public final class NcrnaFamilyLoader {
 				"Member cutoffs require finite 0<=idborderline<=idpass<=1: "+path);
 			require(in.nextLine()==null, "One member cutoff file cannot silently override another family or repeat rows: "+path);
 			return new MemberCutoffs(pass, borderline);
-		}finally{require(!in.close(), "Member cutoff read failed: "+path);}
+		}
 	}
 	private static final class MemberCutoffs {
 		MemberCutoffs(float pass_, float borderline_){pass=pass_;borderline=borderline_;}
 		final float pass, borderline;
 	}
 	public static final class Options {
+		/** Explicit enable selection; null permits a packaged default. Absent packages keep boundary unchanged. */
+		public Boolean boundaryOverride;
 		public boolean enabled=true, hbm=true, seeds=true, endpoints=true, cutoffs=true, boundary=false;
 		public Boolean adaptive=null;
 		public int indexK=-1, topN=-1, minHits=-1, seedMinHits=-1, windowPad=-1, minLen=-1;
@@ -208,7 +222,8 @@ public final class NcrnaFamilyLoader {
 		public int longestPadFlank=-1;
 		public int collapsedWindowPad=-1;
 		public int[] boundaryStartOffsets, boundaryStopOffsets;
-		public float boundaryMarginStart=0f, boundaryMarginStop=0f;
+		/** NaN selects a packaged margin or the historical zero margin when no package supplies one. */
+		public float boundaryMarginStart=Float.NaN, boundaryMarginStop=Float.NaN;
 		public float floor=Float.NaN, topFrac=Float.NaN, qFrac=Float.NaN, weight=Float.NaN;
 		public float idPass=Float.NaN, idBorderline=Float.NaN, hbmPass=Float.NaN;
 		public float scoreA=Float.NaN, scoreB=Float.NaN, collapse=Float.NaN;

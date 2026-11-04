@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
-set -euo pipefail
-root=$(cd "$(dirname "$0")/.." && pwd)
-exec java -ea --add-modules jdk.incubator.vector -XX:+ExitOnOutOfMemoryError -XX:ActiveProcessorCount=3 -Xmx1g -cp "$root/current" test.prok.NcrnaAnnotatedCorpusTest "$@"
+set -eo pipefail
+DIR=$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)
+source "$DIR/javasetup.sh"
+source "$DIR/memdetect.sh"
+parseJavaArgs --xmx=1g --xms=64m --mode=fixed -eoom "$@"
+setEnvironment
+exec java $EA $EOOM $SIMD $XMX $XMS $XSS -cp "$DIR/current/" test.prok.NcrnaAnnotatedCorpusTest "$@"

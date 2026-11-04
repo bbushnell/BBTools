@@ -7,7 +7,7 @@ package prok;
  * Implementations shared by workers must serialize writes. ncrnadiag= opts into this hook.
  * @author G11, Raiden
  */
-interface NcrnaStageDiagSink {
+public interface NcrnaStageDiagSink {
 
 	/** One event after family input/minLen guards, including zero hits. The supplied array
 	 * is a private copy, so retaining or modifying it cannot change the caller's seed stream. */

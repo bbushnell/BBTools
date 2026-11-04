@@ -148,6 +148,9 @@ public final class NucleotideHbmCodec {
 	/** Uses the standard BBTools writer; filename controls the outer gzip container. */
 	static final class Writer implements AutoCloseable {
 		Writer(String path,boolean compact_,boolean overwrite){
+			//TODO: Probable bug - startup/header failure can escape before Writer returns,
+			//leaving its native output unclosed; caller resource scopes cannot own it yet.
+			//Inherited by convert/writeModels; shared repair is separate.
 			compact=compact_;output=new ByteStreamWriter(path,overwrite,false,false);output.start();
 			buffer.append(compact?COMPACT:DENSE).nl();flush();
 		}

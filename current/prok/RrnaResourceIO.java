@@ -20,20 +20,38 @@ public final class RrnaResourceIO {
 
 	public static ByteFile open(String path){return ByteFile.makeByteFile(FileFormat.testInput(path,FileFormat.TEXT,null,true,true));}
 	public static ByteStreamWriter writer(String path){
+		//TODO: Probable bug - startup failure can lose the constructor-opened writer before return.
+		//New model-tool callers must retain ownership before start; shared behavior unchanged.
 		final ByteStreamWriter w=new ByteStreamWriter(FileFormat.testOutput(path,FileFormat.TEXT,null,true,false,false,false));w.start();return w;
 	}
 	public static void header(ByteFile in,String expected,String path){
 		final byte[] h=in.nextLine();require(h!=null && new String(h,StandardCharsets.UTF_8).equals(expected),"Unexpected header: "+path);
 	}
-	static void fresh(String prefix,String... suffixes){for(String s:suffixes){require(!new File(prefix+s).exists(),"Output exists: "+prefix+s);}}
+	/** Rejects existing outputs before resource producers begin writing. */
+	public static void fresh(String prefix,String... suffixes){for(String s:suffixes){require(!new File(prefix+s).exists(),"Output exists: "+prefix+s);}}
 	public static void finish(ByteStreamWriter... writers){
+		//TODO: Probable bug - a thrown close skips later writers and can mask a caller's body failure.
+		//Reachable from multi-output model reports; their owned cleanup is repaired locally.
 		boolean error=false;for(ByteStreamWriter w:writers){error|=w.poisonAndWait();}require(!error,"Parity output failed");
 	}
 	public static void stream(String path,Consumer<Read> action){
 		final Streamer st=StreamerFactory.makeStreamer(FileFormat.testInput(path,FileFormat.FASTA,null,true,true),null,true,-1,false,true,1);
-		boolean done=false;st.start();
-		try{for(ListNum<Read> batch;(batch=st.nextList())!=null;){for(Read r:batch.list){action.accept(r);}st.returnList(batch);}require(!st.errorState(),"FASTA read failed: "+path);done=true;}
-		finally{if(!done){st.close();}}
+		st.start();
+		try{
+			for(ListNum<Read> batch; (batch=st.nextList())!=null;){
+				for(Read r:batch.list){action.accept(r);}
+				st.returnList(batch);
+			}
+			require(!st.errorState(), "FASTA read failed: "+path);
+		}catch(RuntimeException | Error failure){
+			//TODO: Probable bug - native close is not cancellation; unread queued input can still
+			//block cleanup after a consumer failure. This retains the inherited close
+			//policy while preserving the original failure if cleanup also throws.
+			try{st.close();}catch(RuntimeException | Error cleanup){
+				if(cleanup!=failure){failure.addSuppressed(cleanup);}
+			}
+			throw failure;
+		}
 	}
 	public static String first(String s){
 		require(s!=null && !s.isEmpty(),"Nonempty name required");int n=0;while(n<s.length() && !Character.isWhitespace(s.charAt(n))){n++;}return s.substring(0,n);

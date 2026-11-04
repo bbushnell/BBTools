@@ -8,10 +8,12 @@ import java.util.Random;
 
 import fileIO.ByteFile;
 import fileIO.ByteStreamWriter;
+import fileIO.FileFormat;
 import map.ObjectMap;
 import map.ObjectSet;
 import parse.LineParser1;
 import parse.PreParser;
+import prok.NcrnaTextIO.Input;
 import shared.Shared;
 import stream.Read;
 import structures.ByteBuilder;
@@ -37,10 +39,11 @@ public final class CobalaminShredSampler {
 			else if(k.equals("genomecount")){x.genomeCount=Integer.parseInt(v);}else if(k.equals("expectedgenomes")){x.expectedGenomes=Integer.parseInt(v);}
 			else if(k.equals("expectedpanel")){x.expectedPanel=Integer.parseInt(v);}else if(k.equals("expectedlengths")){x.expectedLengths=Integer.parseInt(v);}
 			else if(k.equals("expectedloci")){x.expectedLoci=Integer.parseInt(v);}else if(k.equals("seed")){x.seed=Long.parseLong(v);}
+			else if(k.equals("families")){x.families=parseFamilies(v);}
 			else{throw new IllegalArgumentException("Unknown option: "+k);}
 		}
 		require(genomes!=null && panel!=null && lengths!=null && loci!=null && out!=null && x.arm!=null,
-			"Bind whole genome roster, panel FASTA sha80 ledger, empirical-length FASTA, three source locus ledgers, output and arm");
+			"Bind whole genome roster, panel FASTA sha80 ledger, empirical-length FASTA, source locus ledgers, output and arm");
 		require((x.arm.equals("panel") || x.arm.equals("nonpanel")) && x.count>0 && x.flank>=0 && x.genomeCount>0 && x.count>=x.genomeCount
 			&& x.expectedGenomes>=x.genomeCount && x.expectedPanel>0 && x.expectedLengths>0 && x.expectedLoci>0 && x.seed!=Long.MIN_VALUE,
 			"Declare positive population/sample counts, nonnegative flank, seed and panel/nonpanel arm");
@@ -54,21 +57,28 @@ public final class CobalaminShredSampler {
 
 	private void roster(String path, String panelPath){
 		final ObjectSet<String> panelFiles=new ObjectSet<String>(String.class), panelAssemblies=new ObjectSet<String>(String.class), panelTaxids=new ObjectSet<String>(String.class);
-		final LineParser1 p=new LineParser1('\t');ByteFile in=RrnaResourceIO.open(panelPath);
-		try{for(byte[] row; (row=in.nextLine())!=null; ){
-			p.set(row);require(p.terms()==2 && p.parseString(0).matches("[0-9a-f]{20}") && p.parseString(1).startsWith("/") && panelFiles.add(p.parseString(1)),
-				"Panel paths must be unique absolute FASTA identities with sha80 provenance");
-		}}finally{require(!in.close(), "Panel ledger read failed");}
+		final LineParser1 p=new LineParser1('\t');
+		try(Input input=new Input(FileFormat.testInput(panelPath, FileFormat.TEXT, null, true, true))){
+			final ByteFile in=input.reader;
+			for(byte[] row; (row=in.nextLine())!=null; ){
+				p.set(row);require(p.terms()==2 && p.parseString(0).matches("[0-9a-f]{20}") && p.parseString(1).startsWith("/") && panelFiles.add(p.parseString(1)),
+					"Panel paths must be unique absolute FASTA identities with sha80 provenance");
+			}
+		}
 		require(panelFiles.size()==expectedPanel, "Panel population changed");
 		final ArrayList<Genome> all=new ArrayList<Genome>();final ObjectSet<String> seen=new ObjectSet<String>(String.class), paths=new ObjectSet<String>(String.class);
-		in=RrnaResourceIO.open(path);int matched=0;
-		try{RrnaResourceIO.header(in, NcrnaCorpusSample.GENOME_HEADER, path);for(byte[] row; (row=in.nextLine())!=null; ){
-			p.set(row);require(p.terms()==11, "Expected complete source genome roster schema");
-			final Genome g=new Genome(p.parseString(1), p.parseString(2), p.parseString(3), p.parseString(7));
-			require(g.fasta.startsWith("/") && seen.add(g.name) && paths.add(g.fasta), "Unique genome names and absolute FASTA paths are required");
-			g.panel=panelFiles.contains(g.fasta);all.add(g);
-			if(g.panel){matched++;panelAssemblies.add(stem(g.assembly));panelTaxids.add(g.taxid);}
-		}}finally{require(!in.close(), "Genome roster read failed");}
+		int matched=0;
+		try(Input input=new Input(FileFormat.testInput(path, FileFormat.TEXT, null, true, true))){
+			final ByteFile in=input.reader;
+			RrnaResourceIO.header(in, NcrnaCorpusSample.GENOME_HEADER, path);
+			for(byte[] row; (row=in.nextLine())!=null; ){
+				p.set(row);require(p.terms()==11, "Expected complete source genome roster schema");
+				final Genome g=new Genome(p.parseString(1), p.parseString(2), p.parseString(3), p.parseString(7));
+				require(g.fasta.startsWith("/") && seen.add(g.name) && paths.add(g.fasta), "Unique genome names and absolute FASTA paths are required");
+				g.panel=panelFiles.contains(g.fasta);all.add(g);
+				if(g.panel){matched++;panelAssemblies.add(stem(g.assembly));panelTaxids.add(g.taxid);}
+			}
+		}
 		require(all.size()==expectedGenomes && matched==expectedPanel, "Full roster and panel membership must match declared populations");
 		for(Genome g:all){
 			if(arm.equals("panel")?g.panel:!g.panel && !panelAssemblies.contains(stem(g.assembly)) && !panelTaxids.contains(g.taxid)){selected.add(g);}
@@ -90,31 +100,45 @@ public final class CobalaminShredSampler {
 		for(int i=0; i<count; i++){schedule[i]=lengths.get(random.nextInt(lengths.size));}
 	}
 	private void masks(String files){
-		final String[] paths=files.split(",");require(paths.length==3, "Supply RF00174, RF01482 and RF01689 source ledgers in that order");
+		final String[] paths=files.split(",");
+		require(paths.length==families.length, "Supply one source locus ledger per declared family, in the same order");
 		final LineParser1 p=new LineParser1('\t');final ObjectSet<String> ids=new ObjectSet<String>(String.class);int observed=0;
-		for(int f=0; f<3; f++){
-			final ByteFile in=RrnaResourceIO.open(paths[f]);
-			try{RrnaResourceIO.header(in, NcrnaCmLocusAudit.HEADER, paths[f]);for(byte[] row; (row=in.nextLine())!=null; ){
-				p.set(row);require(p.terms()==21, "All source masks need the original annotation schema");
-				final String id=p.parseString(0);require(id.startsWith(FAMILIES[f]+"_") && ids.add(id), "Source mask IDs must retain unique declared family provenance");observed++;
-				final Genome g=byGenome.get(p.parseString(1));if(g==null){continue;}
-				require(p.termEquals(g.assembly, 2) && p.termEquals(g.taxid, 3), "Mask source identity must match selected genome: "+id);
-				final String contig=p.parseString(6);Mask mask=g.masks.get(contig);
-				if(mask==null){mask=new Mask(p.parseInt(15));g.masks.put(contig, mask);g.maskNames.add(contig);}
-				require(mask.length==p.parseInt(15) && mask.length>0, "Source masks must agree on contig length: "+id);
-				// Mask the full annotation span, including any internal interval gaps.
-				int lo=Integer.MAX_VALUE, hi=-1;
-				for(String interval:p.parseString(8).split(",")){
-					final int dash=interval.indexOf('-');require(dash>0, "Source interval must contain inclusive bounds: "+id);
-					final int a=Integer.parseInt(interval.substring(0, dash)), z=Integer.parseInt(interval.substring(dash+1));
-					require(a>0 && z>=a && z<=mask.length, "Source mask must lie within its contig: "+id);lo=Math.min(lo, a);hi=Math.max(hi, z);
+		for(int f=0; f<families.length; f++){
+			try(Input input=new Input(FileFormat.testInput(paths[f], FileFormat.TEXT, null, true, true))){
+				final ByteFile in=input.reader;
+				RrnaResourceIO.header(in, NcrnaCmLocusAudit.HEADER, paths[f]);
+				for(byte[] row; (row=in.nextLine())!=null; ){
+					p.set(row);require(p.terms()==21, "All source masks need the original annotation schema");
+					final String id=p.parseString(0);require(id.startsWith(families[f]+"_") && ids.add(id), "Source mask IDs must retain unique declared family provenance");observed++;
+					final Genome g=byGenome.get(p.parseString(1));if(g==null){continue;}
+					require(p.termEquals(g.assembly, 2) && p.termEquals(g.taxid, 3), "Mask source identity must match selected genome: "+id);
+					final String contig=p.parseString(6);Mask mask=g.masks.get(contig);
+					if(mask==null){mask=new Mask(p.parseInt(15));g.masks.put(contig, mask);g.maskNames.add(contig);}
+					require(mask.length==p.parseInt(15) && mask.length>0, "Source masks must agree on contig length: "+id);
+					// Mask the full annotation span, including any internal interval gaps.
+					int lo=Integer.MAX_VALUE, hi=-1;
+					for(String interval:p.parseString(8).split(",")){
+						final int dash=interval.indexOf('-');require(dash>0, "Source interval must contain inclusive bounds: "+id);
+						final int a=Integer.parseInt(interval.substring(0, dash)), z=Integer.parseInt(interval.substring(dash+1));
+						require(a>0 && z>=a && z<=mask.length, "Source mask must lie within its contig: "+id);lo=Math.min(lo, a);hi=Math.max(hi, z);
+					}
+					mask.spans.add(new int[]{lo, hi});g.sourceLoci++;
 				}
-				mask.spans.add(new int[]{lo, hi});g.sourceLoci++;
-			}}finally{require(!in.close(), "Source mask read failed");}
+			}
 		}
-		require(observed==expectedLoci, "The complete three-family annotation mask population changed");
+		require(observed==expectedLoci, "The complete declared-family annotation mask population changed");
+	}
+	/** An explicit family list changes masks only; legacy three-family defaults remain exact. */
+	private static String[] parseFamilies(final String value){
+		assert(value!=null):"The families= option supplies an explicit ordered list matching loci=";
+		final String[] names=value.split(",", -1);final ObjectSet<String> seen=new ObjectSet<String>(String.class);
+		for(String name:names){require(name.matches("RF[0-9]{5}") && seen.add(name), "Family IDs must be unique Rfam accessions in source-ledger order: "+name);}
+		return names;
 	}
 	private void write(String prefix){
+		//TODO: Probable bug - output acquisition precedes the cleanup scope, and
+		// its throwing finally can mask a sampling failure. Migrate these legacy
+		// writers together; this reader-only repair does not cover output lifetime.
 		RrnaResourceIO.fresh(prefix, ".cores.fa.gz", ".contexts.fa.gz", ".shreds.tsv", ".genomes.tsv", ".lengths.tsv", ".summary.tsv");
 		final ByteStreamWriter rows=RrnaResourceIO.writer(prefix+".shreds.tsv"), genomes=RrnaResourceIO.writer(prefix+".genomes.tsv"), hist=RrnaResourceIO.writer(prefix+".lengths.tsv"), summary=RrnaResourceIO.writer(prefix+".summary.tsv");
 		final Euk18sShredSet.Output core=new Euk18sShredSet.Output(prefix+".cores.fa.gz", 0), context=new Euk18sShredSet.Output(prefix+".contexts.fa.gz", flank);
@@ -197,5 +221,6 @@ public final class CobalaminShredSampler {
 	private int count=-1, flank=-1, genomeCount=-1, expectedGenomes=-1, expectedPanel=-1, expectedLengths=-1, expectedLoci=-1, eligibleGenomes;
 	private long seed=Long.MIN_VALUE;
 	private static final String[] FAMILIES={"RF00174", "RF01482", "RF01689"};
+	private String[] families=FAMILIES;
 	public static final String HEADER="shred\tarm\tgenome\tassembly\ttaxid\tseqid\tcore_start1\tcore_stop1\tcontext_start1\tcontext_stop1\tcore_in_context_start1\tcore_in_context_stop1\tlength";
 }

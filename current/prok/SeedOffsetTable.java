@@ -106,7 +106,7 @@ public final class SeedOffsetTable {
 	public long trainingGenes(){return trainingGenes;}
 	public String seedSetSha80(){return seedSetSha80;}
 
-	static boolean validSha80(String value){return value!=null && value.matches("[0-9a-f]{20}");}
+	public static boolean validSha80(String value){return value!=null && value.matches("[0-9a-f]{20}");}
 	private static String ascii(byte[] bytes){return new String(bytes, StandardCharsets.US_ASCII);}
 	private static void fail(String message){throw new IllegalArgumentException("Invalid seed-offset table: "+message);}
 
@@ -121,7 +121,7 @@ public final class SeedOffsetTable {
 	}
 
 	static final int VERSION=1;
-	static final String HEADER="#Sequence\tLeftOffset\tRightOffset\tLeftSD\tRightSD\tCount";
+	public static final String HEADER="#Sequence\tLeftOffset\tRightOffset\tLeftSD\tRightSD\tCount";
 	private static final byte[] HEADER_BYTES=HEADER.getBytes(StandardCharsets.US_ASCII);
 	private final int k;
 	private final long trainingGenes;

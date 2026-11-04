@@ -61,6 +61,9 @@ public class NcrnaBoundaryNetEval {
 				for(int i=0; i<dims; i++){input[i]=Float.parseFloat(fields[i]);}
 				int label=Integer.parseInt(fields[dims]);
 				if(label!=0 && label!=1){throw new IllegalArgumentException("Boundary label must be 0/1: "+label);}
+				//TODO: Probable bug - this assumes V1/V2. NcrnaBoundaryVectorGen.emitVectors
+				//puts V3's endpoint flag at input[3] and lengthRatio at input[4]; this
+				//reader has no version dispatch. V3 evaluation reachability is unverified.
 				boolean isStop=input[4]>=0.5f;
 				if(!isStop && sawStop){finishLocus(start, stop, result); sawStop=false;}
 				if(isStop){sawStop=true;}

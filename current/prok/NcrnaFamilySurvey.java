@@ -1,10 +1,12 @@
 package prok;
 
 import java.io.File;
+import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Function;
 
 import fileIO.ByteFile;
 import fileIO.ByteStreamWriter;
@@ -15,47 +17,94 @@ import map.ObjectMap;
 import map.ObjectSet;
 import parse.LineParser1;
 import parse.Parse;
+import parse.Parser;
 import parse.PreParser;
+import prok.NcrnaTextIO.Output;
+import prok.NcrnaTextIO.Input;
 import shared.Shared;
 import structures.ByteBuilder;
 import structures.IntList;
 import structures.LongList;
-import template.ThreadWaiter;
 
 /** Surveys annotated RNA families without calling genes or treating missing annotations as absence.
+ * CLI setup changes native parser/thread globals; concurrent CLI invocations in one JVM are unsupported.
  * @author Brian Bushnell, Raiden */
-public final class NcrnaFamilySurvey {
+public final class NcrnaFamilySurvey{
 
 	public static void main(final String[] args){
 		final PreParser pp=new PreParser(args, NcrnaFamilySurvey.class, false);
-		String map=null, root=null, out=null;int expected=39979, limit=0, threads=8;boolean loci=false;
-		for(String arg:pp.args){
-			final int eq=arg.indexOf('=');require(eq>0, "Expected flag=value: "+arg);
-			final String k=arg.substring(0, eq).toLowerCase(Locale.ROOT), v=arg.substring(eq+1);
-			if(k.equals("map")){map=v;}else if(k.equals("root")){root=v;}else if(k.equals("outprefix")){out=v;}
-			else if(k.equals("expected")){expected=Integer.parseInt(v);}else if(k.equals("limit")){limit=Integer.parseInt(v);}
-			else if(k.equals("threads") || k.equals("t")){threads=Integer.parseInt(v);}
-			else if(k.equals("loci")){loci=Parse.parseBoolean(v);}else{throw new IllegalArgumentException("Unknown flag: "+k);}
+		try{run(pp.args, pp.outstream);}finally{Shared.closeStream(pp.outstream);}
+	}
+	/** Main owns the selected log; PreParser has already expanded config files once.
+	 * Nested configs are rejected, preserving the standard template's single expansion. */
+	private static void run(final String[] args, final PrintStream log){
+		String map=null, root=null, out=null;
+		int expected=39979, limit=0, threads=Shared.threads();
+		boolean loci=false;
+		final Parser parser=new Parser();
+		parser.overwrite=false;
+		parser.append=false;
+		for(final String arg:args){
+			final String[] split=Parse.splitOnFirst(arg, '=');
+			final String a=split[0].toLowerCase(Locale.ROOT), b=split.length>1 ? split[1] : null;
+			require(!a.isEmpty() && b!=null && !b.isEmpty(), "Nonempty flag=value required: "+arg);
+			if(a.equals("map")){
+				map=b;
+			}else if(a.equals("root")){
+				root=b;
+			}else if(a.equals("outprefix")){
+				out=b;
+			}else if(a.equals("expected")){
+				expected=Parse.parseIntKMG(b);
+			}else if(a.equals("limit")){
+				limit=Parse.parseIntKMG(b);
+			}else if(a.equals("threads") || a.equals("t")){
+				final long count=Parse.parseKMG(b);
+				require(count>0 && count<=Integer.MAX_VALUE, "Positive thread budget required: "+b);
+				require(parser.parse(arg, a, Long.toString(count)), "Native Parser must recognize survey threads");
+				threads=Shared.threads();
+			}else if(a.equals("loci")){
+				loci=Parse.parseBoolean(b);
+			}else if(a.equals("ow") || a.equals("overwrite") || a.equals("app") || a.equals("append")){
+				require(parser.parse(arg, a, b) && !parser.overwrite && !parser.append, "Survey outputs are always fresh; reject "+arg);
+			}else if(a.equals("config")){
+				throw new IllegalArgumentException("Nested config= is unsupported; put survey options in one configuration file");
+			}else{throw new IllegalArgumentException("Unknown flag: "+a);}
 		}
 		require(map!=null && root!=null && out!=null && expected>0 && limit>=0 && threads>0,
 			"Specify the complete phylum map, GFF root, expected corpus size and fresh output prefix");
-		Shared.setThreads(threads);ReadWrite.setZipThreads(1);ReadWrite.USE_UNPIGZ=false;
-		ByteFile.FORCE_MODE_BF1=true;ByteFile.FORCE_MODE_BF2=false;
+		Shared.setThreads(threads);
+		ReadWrite.setZipThreads(1);
+		ReadWrite.USE_UNPIGZ=false;
+		ByteFile.FORCE_MODE_BF1=true;
+		ByteFile.FORCE_MODE_BF2=false;
 		final NcrnaFamilySurvey tool=new NcrnaFamilySurvey();
-		tool.load(map, root, expected, limit);tool.process(out, threads, loci);
-		Shared.closeStream(pp.outstream);
+		tool.outstream=log;
+		tool.load(map, root, expected, limit);
+		tool.process(out, threads, loci);
 	}
+	public NcrnaFamilySurvey(){this(NcrnaFamilySurvey::createWriter);}
+	/** Private per-instance seam for native output-failure controls. */
+	private NcrnaFamilySurvey(final Function<String, ByteStreamWriter> factory){
+		require(factory!=null, "Survey output requires its native writer factory");writerFactory=factory;
+	}
+	private Output output(final String path){return new Output(writerFactory.apply(path));}
+	private static ByteStreamWriter createWriter(final String path){
+		return new ByteStreamWriter(FileFormat.testOutput(path, FileFormat.TEXT, null, true, false, false, false));
+	}
+	private PrintStream log(){return outstream==null ? System.err : outstream;}
 
 	/*--------------------------------------------------------------*/
 	/*----------------         Corpus Input         ----------------*/
 	/*--------------------------------------------------------------*/
 
 	private void load(final String path, final String root, final int expected, final int limit){
-		final ByteFile in=open(path);final LineParser1 p=new LineParser1('\t');
+		final LineParser1 p=new LineParser1('\t');
 		final ObjectSet<String> names=new ObjectSet<String>(String.class);
 		final ObjectMap<String, ArrayList<Genome>> pools=new ObjectMap<String, ArrayList<Genome>>(String.class, listClass());
 		int total=0;
-		try{
+		try(Input input=open(path)){
+			final ByteFile in=input.reader;
 			for(byte[] line; (line=in.nextLine())!=null;){
 				p.set(line);require(p.terms()==3, "Expected domain/phylum/basename map, no header");
 				final String domain=p.parseString(0), phylum=p.parseString(1), name=p.parseString(2);
@@ -66,7 +115,7 @@ public final class NcrnaFamilySurvey {
 				if(pool==null){pool=new ArrayList<Genome>();pools.put(key, pool);}
 				pool.add(new Genome(domain, phylum, name, root+"/"+domain+"/"+name+".gff.gz"));total++;
 			}
-		}finally{require(!in.close(), "Phylum map read failed: "+path);}
+		}
 		require(total==expected, "Corpus map count changed: "+total+" expected="+expected);
 		final ArrayList<String> keys=new ArrayList<String>();
 		for(String key:pools.keys()){if(key!=null){keys.add(key);}}
@@ -93,14 +142,20 @@ public final class NcrnaFamilySurvey {
 	private static Class<ArrayList<Genome>> listClass(){return (Class)ArrayList.class;}
 
 	private void process(final String prefix, final int threads, final boolean detailed){
+		try(NcrnaWorkers cohort=new NcrnaWorkers()){process(prefix, threads, detailed, cohort);}
+	}
+
+	/** The cohort scope outlives every output owner, preserving interruption through cleanup. */
+	private void process(final String prefix, final int threads, final boolean detailed, final NcrnaWorkers cohort){
 		RrnaResourceIO.fresh(prefix, ".families.tsv", ".phyla.tsv", ".genomes.tsv", ".loci.tsv", ".summary.tsv", ".aliases.tsv", ".excluded_regulatory.tsv");
-		final ByteStreamWriter detail=detailed ? RrnaResourceIO.writer(prefix+".loci.tsv") : null;
-		if(detail!=null){detail.println("genome\tfamily\tcontig\tstrand\tintervals1\tlength\tannotation_layers\tfirst_source_line\tlabel");}
 		final ArrayList<Worker> workers=new ArrayList<Worker>();
-		for(int i=0; i<Math.min(threads, genomes.size()); i++){workers.add(new Worker(detail));}
-		ThreadWaiter.startAndWait(workers);
-		if(detail!=null){RrnaResourceIO.finish(detail);}
-		for(Worker w:workers){require(w.failure==null && w.success, "GFF worker failed: "+w.failure);}
+		try(Output owned=detailed ? output(prefix+".loci.tsv") : null){
+			final ByteStreamWriter detail=owned==null ? null : owned.writer;
+			if(detail!=null){detail.println("genome\tfamily\tcontig\tstrand\tintervals1\tlength\tannotation_layers\tfirst_source_line\tlabel");}
+			for(int i=0; i<Math.min(threads, genomes.size()); i++){workers.add(new Worker(detail));}
+			cohort.startAndJoin(workers, null);
+			for(Worker w:workers){require(w.failure==null && w.success, "GFF worker failed: "+w.failure);}
+		}
 		final ObjectMap<String, Family> families=new ObjectMap<String, Family>(String.class, Family.class);
 		for(Worker w:workers){for(Family f:w.families.values()){
 			if(f==null){continue;}Family sum=families.get(f.key);
@@ -121,10 +176,11 @@ public final class NcrnaFamilySurvey {
 	}
 	private static ArrayList<Locus> readLoci(final String path, final long[] counters, final ObjectIntMap<String> excluded){
 		require(path!=null && counters!=null && counters.length==6, "A GFF scan must retain all six conservation counters");
-		final ByteFile in=open(path);final LineParser1 p=new LineParser1('\t');
+		final LineParser1 p=new LineParser1('\t');
 		final ObjectMap<String, Node> nodes=new ObjectMap<String, Node>(String.class, Node.class);
 		final ArrayList<Row> rows=new ArrayList<Row>();long lineNo=0;
-		try{
+		try(Input input=open(path)){
+			final ByteFile in=input.reader;
 			for(byte[] line; (line=in.nextLine())!=null;){
 				lineNo++;
 				if(line.length==0){continue;}
@@ -169,7 +225,7 @@ public final class NcrnaFamilySurvey {
 				if(label!=null && (node.ownLabel==null || label.compareTo(node.ownLabel)<0)){node.ownLabel=label;}
 				rows.add(new Row(node, p.parseString(0), p.parseString(6), start, stop, priority, rna, rfams, label, effectiveType, lineNo));
 			}
-		}finally{require(!in.close(), "GFF read failed: "+path);}
+		}
 		for(Node n:nodes.values()){if(n!=null){resolve(n);}}
 		for(Node n:nodes.values()){if(n!=null && n.primary){for(Node p0:n.parents){markAncestor(p0);}}}
 		final ObjectMap<Node, Component> groups=new ObjectMap<Node, Component>(Node.class, Component.class);
@@ -330,30 +386,32 @@ public final class NcrnaFamilySurvey {
 	/*--------------------------------------------------------------*/
 
 	private void write(final String prefix, final ObjectMap<String, Family> families, final ObjectIntMap<String> excluded){
-		final ByteStreamWriter aliases=RrnaResourceIO.writer(prefix+".aliases.tsv");
-		try{
+		try(Output owned=output(prefix+".aliases.tsv")){
+			final ByteStreamWriter aliases=owned.writer;
 			aliases.println("rfam\tshipped_family");
 			final ByteBuilder row=new ByteBuilder();
 			for(int i=0; i<SHIPPED_RFAM.length; i++){aliases.print(row.clear().append(SHIPPED_RFAM[i]).tab().append(SHIPPED_FAMILY[i]).nl());}
-		}finally{RrnaResourceIO.finish(aliases);}
-		final ByteStreamWriter exclusions=RrnaResourceIO.writer(prefix+".excluded_regulatory.tsv");
-		try{
+		}
+		try(Output owned=output(prefix+".excluded_regulatory.tsv")){
+			final ByteStreamWriter exclusions=owned.writer;
 			exclusions.println("regulatory_class\tfeatures_excluded_without_Rfam_or_RNA_evidence");
 			final ArrayList<String> keys=new ArrayList<String>();for(String key:excluded.keys()){if(key!=null){keys.add(key);}}Collections.sort(keys);
 			final ByteBuilder row=new ByteBuilder();
 			for(String key:keys){exclusions.print(row.clear().append(key).tab().append(excluded.get(key)).nl());}
-		}finally{RrnaResourceIO.finish(exclusions);}
+		}
 		final ArrayList<Family> sorted=new ArrayList<Family>();
 		for(Family f:families.values()){if(f!=null){sorted.add(f);}}
 		Collections.sort(sorted, (a,b)->{final int order=Integer.compare(a.block(), b.block());
 			if(order!=0){return order;}final int bp=Long.compare(b.bases, a.bases);return bp==0 ? a.key.compareTo(b.key) : bp;});
-		final ByteStreamWriter table=RrnaResourceIO.writer(prefix+".families.tsv");
-		final ByteStreamWriter byPhylum=RrnaResourceIO.writer(prefix+".phyla.tsv");
-		final ByteStreamWriter inputs=RrnaResourceIO.writer(prefix+".genomes.tsv");
-		final ByteStreamWriter summary=RrnaResourceIO.writer(prefix+".summary.tsv");
-		final ByteBuilder b=new ByteBuilder();long totalLoci=0, rows=0, cds=0, duplicates=0;
+		long totalLoci=0, rows=0, cds=0, duplicates=0;
 		int rfamKeys=0, textKeys=0, unknownKeys=0;
-		try{
+		try(Output tableOwner=output(prefix+".families.tsv");
+			Output phylumOwner=output(prefix+".phyla.tsv");
+			Output inputsOwner=output(prefix+".genomes.tsv");
+			Output summaryOwner=output(prefix+".summary.tsv")){
+			final ByteStreamWriter table=tableOwner.writer, byPhylum=phylumOwner.writer;
+			final ByteStreamWriter inputs=inputsOwner.writer, summary=summaryOwner.writer;
+			final ByteBuilder b=new ByteBuilder();
 			table.println("block\tfamily_key\tproduct_or_note\tshipped_family\tterritory_bp\tavg_bp_per_genome\tgenomes_present\tgenomes_total\traw_genome_fraction\tphylum_balanced_genome_fraction\tphyla_present\tphyla_total\tmedian_length\tcopies\tcopies_per_genome\tcopies_per_positive_genome");
 			byPhylum.println("family_key\tdomain_phylum\tgenomes_present\tgenomes_total\tpresence_fraction");
 			for(Family f:sorted){
@@ -389,8 +447,8 @@ public final class NcrnaFamilySurvey {
 			summary.print(b.clear().append(genomes.size()).tab().append(phyla.size()).tab().append(sorted.size()).tab().append(rows).tab().append(cds)
 				.tab().append(totalLoci).tab().append(duplicates).tab().append("ANNOTATION_SURVEY_NOT_BIOLOGICAL_ABSENCE;TERRITORY_SUM_OF_LOCUS_UNIONS;PHYLA_DOMAIN_QUALIFIED")
 				.tab().append(rfamKeys).tab().append(textKeys).tab().append(unknownKeys).nl());
-		}finally{RrnaResourceIO.finish(table, byPhylum, inputs, summary);}
-		System.err.println("NCRNA_SURVEY_PASS genomes="+genomes.size()+" phyla="+phyla.size()+" families="+sorted.size()+" loci="+totalLoci);
+		}
+		log().println("NCRNA_SURVEY_PASS genomes="+genomes.size()+" phyla="+phyla.size()+" families="+sorted.size()+" loci="+totalLoci);
 	}
 
 	public static String shipped(final String key, final String type, final String label){
@@ -413,7 +471,7 @@ public final class NcrnaFamilySurvey {
 		require(sum>0 && sum<=Integer.MAX_VALUE, "Exclusion counts must remain exact without integer overflow: "+key);
 		map.put(key, (int)sum);
 	}
-	private static ByteFile open(final String path){return ByteFile.makeByteFile(FileFormat.testInput(path, FileFormat.TEXT, null, false, true));}
+	private static Input open(final String path){return new Input(FileFormat.testInput(path, FileFormat.TEXT, null, false, true));}
 	private static void require(final boolean ok, final String why){if(!ok){throw new IllegalArgumentException(why);}}
 
 	/*--------------------------------------------------------------*/
@@ -437,14 +495,14 @@ public final class NcrnaFamilySurvey {
 						if(f==null){f=new Family(locus, phyla.size());families.put(f.key, f);}
 						f.add(locus, index, g.phylumIndex);
 						if(detail!=null){buffer.append(g.name).tab().append(locus.family).tab().append(locus.contig).tab().append(locus.strand)
-							.tab().append(locus.spans).tab().append(locus.length).tab().append(locus.layers).tab().append(locus.line).tab().append(locus.label).nl();}
+							.tab().append(locus.spans).tab().append(locus.length).tab().append(locus.layers).tab().append(locus.earliestSourceLine).tab().append(locus.label).nl();}
 					}
 					if(detail!=null){synchronized(detail){detail.print(buffer);}}
 					results[index]=result;
-					final int done=completed.incrementAndGet();if(done%1000==0){System.err.println("Genomes completed: "+done+"/"+genomes.size());}
+					final int done=completed.incrementAndGet();if(done%1000==0){log().println("Genomes completed: "+done+"/"+genomes.size());}
 				}
 				success=true;
-			}catch(Throwable t){failure=t;failed=true;t.printStackTrace(System.err);}
+			}catch(Throwable t){failure=t;failed=true;t.printStackTrace(log());}
 		}
 		final ObjectMap<String, Family> families=new ObjectMap<String, Family>(String.class, Family.class);
 		final ObjectIntMap<String> excluded=new ObjectIntMap<String>(String.class);
@@ -528,6 +586,9 @@ public final class NcrnaFamilySurvey {
 	private final AtomicInteger next=new AtomicInteger(), completed=new AtomicInteger();
 	private int[] denominators;private GenomeResult[] results;
 	private volatile boolean failed=false;
+	private final Function<String, ByteStreamWriter> writerFactory;
+	/** Borrowed from main until all workers/output finish; null retains dynamic stderr for direct use. */
+	private PrintStream outstream;
 
 	/*--------------------------------------------------------------*/
 	/*----------------          Constants           ----------------*/
