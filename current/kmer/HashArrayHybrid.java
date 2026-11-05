@@ -10,21 +10,23 @@ import shared.Tools;
 import structures.IntList2;
 
 /**
- * Stores k-mers in a long[] and counts in an int[], with a victim cache.
- * Hybrid hash array implementation that uses arrays for primary storage and
- * overflow handling through a victim cache. Values can be stored directly
- * in the values array or as references to lists when multiple values exist
- * for a single k-mer.
+ * Stores short k-mer keys with positive scalar values or arrays of multiple values.
+ * Primary cells hold one value directly or a negated index into an IntList2;
+ * overflow entries use a two-dimensional HashForest. Input arrays can be retained
+ * and returned as live storage. Callers coordinate mutation and exclude resizing
+ * during traversal/ownership use. Counting requires direct primary scalars and
+ * singleton victim values; it must not be mixed with multi-value associations.
  *
  * @author Brian Bushnell
  * @date Oct 25, 2013
  */
-public final class HashArrayHybrid extends HashArray {
-	
+public final class HashArrayHybrid extends HashArray{
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
+	/** Uses the borrowed resize schedule; reserves list indices zero/one to keep tags below -1. */
 	public HashArrayHybrid(int[] schedule_, long coreMask_){
 		super(schedule_, coreMask_, true);
 		values=allocInt1D(prime+extra);
@@ -32,7 +34,7 @@ public final class HashArrayHybrid extends HashArray {
 		setList.add(null, 0);
 		setList.add(null, 0);
 	}
-	
+
 //	public HashArrayHybrid(int initialSize, int maxSize, long mask, boolean autoResize_){
 //		super(initialSize, maxSize, mask, autoResize_, true);
 //		values=allocInt1D(prime+extra);
@@ -40,24 +42,26 @@ public final class HashArrayHybrid extends HashArray {
 //		setList.add(null);
 //		setList.add(null);
 //	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Public Methods        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
 	 * Increments the count for a k-mer by the specified amount.
 	 * Searches the primary array first, then falls back to victim cache if needed.
 	 * Creates new entry if k-mer not found. Triggers resize when size limit exceeded.
 	 *
+	 * Existing primary entries must be direct scalars, not list tags; victim entries
+	 * must contain one scalar count. Positive increments saturate at Integer.MAX_VALUE.
 	 * @param kmer The k-mer to increment
-	 * @param incr Amount to increment by
-	 * @return New count value after increment
+	 * @param incr Positive amount to add
+	 * @return Updated scalar count
 	 */
 	@Override
 	public final int increment(final long kmer, final int incr){
 		int cell=kmerToCell(kmer);
-		
+
 		for(final int max=cell+extra; cell<max; cell++){
 			long n=array[cell];
 			assert(n>-2);
@@ -74,24 +78,26 @@ public final class HashArrayHybrid extends HashArray {
 				return incr;
 			}
 		}
-		int x=victims.increment(kmer, incr);
+		final int x=incrementScalarVictim(kmer, incr, false);
 		if(autoResize && size+victims.size>sizeLimit){resize();}
 		return x;
 	}
-	
+
 	/**
 	 * Increments the count for a k-mer and returns number of new entries created.
 	 * Similar to increment but returns 1 if a new k-mer entry was created, 0 if existing
 	 * entry was incremented. Used for tracking unique k-mer additions.
 	 *
+	 * Existing primary entries must be direct scalars, not list tags; victim entries
+	 * must contain one scalar count. Positive increments saturate at Integer.MAX_VALUE.
 	 * @param kmer The k-mer to increment
-	 * @param incr Amount to increment by
+	 * @param incr Positive amount to add
 	 * @return 1 if new entry created, 0 if existing entry incremented
 	 */
 	@Override
 	public final int incrementAndReturnNumCreated(final long kmer, final int incr){
 		int cell=kmerToCell(kmer);
-		
+
 		for(final int max=cell+extra; cell<max; cell++){
 			long n=array[cell];
 			assert(n>-2);
@@ -108,45 +114,47 @@ public final class HashArrayHybrid extends HashArray {
 				return 1;
 			}
 		}
-		int x=victims.incrementAndReturnNumCreated(kmer, incr);
+		final int x=incrementScalarVictim(kmer, incr, true);
 		if(autoResize && size+victims.size>sizeLimit){resize();}
 		return x;
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------      Nonpublic Methods       ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
-	 * Reads the count value from a specific cell in the array.
-	 * Handles both direct values and references to setList arrays.
-	 * Values >= -1 are direct counts, values < -2 are indices into setList.
+	 * Reads the first value from a cell, following a list reference when needed.
+	 * Encodings {@code >= -1} are returned directly; encodings {@code <= -2}
+	 * are negated indices into setList, whose first element is returned.
 	 *
 	 * @param cell Array index to read from
-	 * @return Count value for the cell
+	 * @return First list value or raw direct value; unused primary slots initially contain zero
 	 */
 	@Override
-	protected final int readCellValue(int cell) {
+	protected final int readCellValue(int cell){
 		//Comprehension (clever, verified): values[cell] is a tagged union — >=0 is a direct single count; -1 is NOT_PRESENT
 		//(empty); <=-2 is the NEGATED index into setList holding a multi-value array (0-x recovers the index). This lets the
 		//common single-value case cost one int with no indirection, promoting to a setList array only when a kmer needs
-		//multiple values. insertValue(:210) asserts v>0 and resize(:361) asserts v<-1||v>0, so 0 is never a stored count.
+		//multiple values. Ordinary scalar set requires v>0; newly allocated unused value cells still contain zero.
+		//Key occupancy comes from array[], not from interpreting a raw value cell alone.
 		final int x=values[cell];
 		if(x>-2){return x;}
 		return setList.get(0-x)[0];
 	}
-	
+
 	/**
 	 * Reads all count values from a specific cell.
 	 * For single values, uses provided singleton array. For multiple values,
-	 * returns reference to array stored in setList.
+	 * returns the live array stored in setList, including spare sentinel slots.
+	 * Callers must not modify retained arrays independently.
 	 *
 	 * @param cell Array index to read from
 	 * @param singleton Reusable single-element array for efficiency
 	 * @return Array containing all values for the cell
 	 */
 	@Override
-	protected final int[] readCellValues(int cell, int[] singleton) {
+	protected final int[] readCellValues(int cell, int[] singleton){
 		final int x=values[cell];
 		if(x>-2){
 			singleton[0]=values[cell];
@@ -154,19 +162,21 @@ public final class HashArrayHybrid extends HashArray {
 		}
 		return setList.get(0-x);
 	}
-	
+
 	/**
 	 * Inserts an array of values for a k-mer at the specified cell.
-	 * Handles various cases: single values, existing arrays, and array creation.
-	 * Optimizes for the common case where only one value is being added.
+	 * A one-element input uses scalar insertion. Existing lists merge until -1;
+	 * a new list retains vals directly or copies it with an existing scalar prepended.
+	 * Retained input must remain stable. Initial retention/prepending does not deduplicate.
+	 * IntList2 ignores vlen, so it does not bound the merge or retained storage.
 	 *
 	 * @param kmer The k-mer these values belong to
-	 * @param vals Array of values to insert
+	 * @param vals Nonempty positive-value prefix with -1 padding, or a full positive array
 	 * @param cell Target cell location
-	 * @param vlen Number of valid values in vals array
+	 * @param vlen Compatibility length passed to IntList2, which ignores it
 	 */
 	@Override
-	protected final void insertValue(long kmer, int[] vals, int cell, int vlen) {
+	protected final void insertValue(long kmer, int[] vals, int cell, int vlen){
 		if(verbose){System.err.println("insertValue("+kmer+", "+Arrays.toString(vals)+", "+cell+"); old="+values[cell]);}
 		assert(array[cell]==kmer);
 		if(vals.length==1){
@@ -200,18 +210,18 @@ public final class HashArrayHybrid extends HashArray {
 			setList.add(temp, vlen);
 		}
 	}
-	
+
 	/**
 	 * Inserts a single value for a k-mer at the specified cell.
 	 * Handles transitions from no value to single value to multiple values.
 	 * Creates setList arrays when multiple values need to be stored.
 	 *
 	 * @param kmer The k-mer this value belongs to
-	 * @param v The value to insert
+	 * @param v Positive value; zero and negative values are not valid scalar set inputs
 	 * @param cell Target cell location
 	 */
 	@Override
-	protected final void insertValue(long kmer, int v, int cell) {
+	protected final void insertValue(long kmer, int v, int cell){
 		assert(array[cell]==kmer);
 		assert(v>0);
 		final int cc=values[cell];
@@ -226,21 +236,22 @@ public final class HashArrayHybrid extends HashArray {
 			values[cell]=v;
 		}
 	}
-	
+
+	/** Retained unused full-scan insertion variant; grows arrays with -1 padding. */
 	@Deprecated
 	private final int insertIntoListOld(final int v, final int loc){
-		
+
 		if(loc>=setList.size){
 			assert(loc==setList.size);
 			setList.add(null);
 		}
-			
+
 		int[] set=setList.get(loc);
 		if(set==null){
 			set=new int[] {-1, -1};
 			setList.set(loc, set);
 		}
-		
+
 		for(int i=0; i<set.length; i++){//This is the slow bit
 			if(set[i]==v){return 0;}
 			if(set[i]<0){set[i]=v;return 1;}
@@ -254,32 +265,35 @@ public final class HashArrayHybrid extends HashArray {
 		setList.set(loc, set);
 		return 1;
 	}
-	
+
+	/** Delegates full-prefix duplicate scanning and growth to IntList2; returns its added-value count. */
 	private final int insertIntoList(final int v, final int loc){
 		return setList.insertIntoList(v, loc);
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------   Resizing and Rebalancing   ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/** Returns false as this implementation does not support rebalancing */
 	@Override
-	public final boolean canRebalance() {return false;}
-	
+	public final boolean canRebalance(){return false;}
+
 	/**
 	 * Resizes the hash array when load factor exceeds threshold.
-	 * Creates new arrays with larger prime size, rehashes all existing k-mers
-	 * from both main array and victim cache. Preserves all stored values
-	 * and their associations. Synchronized to prevent concurrent modifications.
+	 * Rebuilds key/value arrays, list tags and overflow placement using the selected size.
+	 * Existing value arrays can remain shared. Exhausted schedules invoke memory-failure
+	 * handling; the legacy unscheduled branch can return without resizing.
+	 * The monitor serializes resize calls only. Callers exclude other access and
+	 * ownership use because owner markers are not remapped.
 	 */
 	@Override
 	protected synchronized void resize(){
-		
+
 		if(verbose){
 			System.err.println("Resizing from "+prime+"; load="+(size*1f/prime));
 		}
-		
+
 //		assert(TESTMODE);
 //		if(TESTMODE){
 //			for(int i=0; i<ll.size; i++){
@@ -287,14 +301,14 @@ public final class HashArrayHybrid extends HashArray {
 //				assert(!contains(ll.get(i), Integer.MAX_VALUE));
 //			}
 //		}
-		
+
 //		System.err.println("Resizing from "+prime+"; load="+(size*1f/prime));
 		if(prime>=maxPrime){
 //			sizeLimit=0xFFFFFFFFFFFFL;
 //			return;
 			KillSwitch.memKill(new OutOfMemoryError());
 		}
-		
+
 		final long oldSize=size, oldVSize=victims.size;
 		if(schedule!=null){
 			final long oldPrime=prime;
@@ -330,7 +344,7 @@ public final class HashArrayHybrid extends HashArray {
 			prime=prime2;
 			sizeLimit=(long)(maxLoadFactor*prime);
 		}
-		
+
 //		System.err.println("Resized to "+prime+"; load="+(size*1f/prime));
 		long[] oldKmers=array;
 		int[] oldValues=values;
@@ -349,7 +363,7 @@ public final class HashArrayHybrid extends HashArray {
 		Arrays.fill(oldVictims, null);
 		victims.size=0;
 		size=0;
-		
+
 //		long added=0;
 		for(int i=0; i<oldKmers.length; i++){
 			final long kmer=oldKmers[i];
@@ -359,9 +373,9 @@ public final class HashArrayHybrid extends HashArray {
 //				assert(old==null);
 				final int v=oldValues[i];
 //				added++;
-				
+
 //				System.err.println("Found "+kmer+"->"+v);
-				
+
 				assert(v<-1 || v>0);
 				if(v>=0){
 //					assert(!contains(kmer));
@@ -383,7 +397,7 @@ public final class HashArrayHybrid extends HashArray {
 			}
 		}
 //		assert(added==oldSize);
-		
+
 		final int[] singleton=new int[1];
 //		added=0;
 		for(KmerNode n : nodeList){
@@ -409,11 +423,11 @@ public final class HashArrayHybrid extends HashArray {
 			}
 		}
 //		assert(added==oldVSize);
-		
+
 		assert(oldSize+oldVSize==size+victims.size) : oldSize+" + "+oldVSize+" = "+(oldSize+oldVSize)+" -> "+size+" + "+victims.size+" = "+(size+victims.size);
-		
+
 		if(verbose){System.err.println("Resized to "+prime+". "+oldSize+" + "+oldVSize+" = "+(oldSize+oldVSize)+" -> "+size+" + "+victims.size+" = "+(size+victims.size));}
-		
+
 //		assert(TESTMODE);
 //		if(TESTMODE){
 //			for(int i=0; i<ll.size; i++){
@@ -424,7 +438,7 @@ public final class HashArrayHybrid extends HashArray {
 //			}
 //		}
 	}
-	
+
 	/**
 	 * Throws RuntimeException as rebalancing is not implemented for this hash array type
 	 */
@@ -433,7 +447,7 @@ public final class HashArrayHybrid extends HashArray {
 	public void rebalance(){
 		throw new RuntimeException("Unimplemented.");
 	}
-	
+
 	/**
 	 * Throws RuntimeException as regeneration is not supported.
 	 * @param limit Unused parameter
@@ -445,12 +459,14 @@ public final class HashArrayHybrid extends HashArray {
 	public long regenerate(final int limit){
 		throw new RuntimeException("Not supported.");
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
+	/** Direct positive values or negative list tags, aligned with key slots; unused slots start at zero. */
 	private int[] values;
+	/** Live multi-value arrays addressed by negated tags; indices zero and one are reserved. */
 	private IntList2 setList;
-	
+
 }

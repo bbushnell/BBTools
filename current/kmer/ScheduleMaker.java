@@ -8,54 +8,63 @@ import shared.Tools;
 import structures.IntList;
 
 /**
- * Calculates optimal memory allocation and resizing strategy for k-mer hash tables.
- * Generates prime-sized hash table schedule with intelligent memory management
- * based on available system memory, prefiltering requirements, and parallel processing needs.
+ * Plans prime-sized primary arrays for sharded k-mer tables without allocating them.
+ * Uses a caller-supplied bytes-per-entry estimate and a JVM-heap heuristic; this is
+ * not a measurement or guarantee of the complete tables' live memory requirement.
+ * Optional prefilter reservations and a caller-enforced bound on concurrent resizes
+ * reduce the primary-array budget. Returned schedules are independent mutable arrays.
  * @author Brian Bushnell
  */
-public class ScheduleMaker {
-	
+public class ScheduleMaker{
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Initialization        ----------------*/
+	/*--------------------------------------------------------------*/
+
 	/**
 	 * Creates a ScheduleMaker with basic memory allocation parameters.
 	 * Uses default values for advanced filtering options.
 	 *
-	 * @param ways_ Number of hash table shards for parallel processing (auto-calculated if <1)
-	 * @param bytesPerKmer_ Memory footprint per k-mer entry in bytes
+	 * @param ways_ Number of hash table shards for parallel processing (auto-calculated if {@code <1})
+	 * @param bytesPerKmer_ Caller-estimated bytes per primary entry; not measured heap usage
 	 * @param prealloc_ Whether to pre-allocate maximum size or allow dynamic resizing
-	 * @param memRatio_ Memory utilization ratio (1.0 = use all available calculated memory)
+	 * @param memRatio_ Multiplier on the calculated table budget; nonpositive selects 1
 	 */
 	public ScheduleMaker(int ways_, int bytesPerKmer_, boolean prealloc_, double memRatio_){
 		this(ways_, bytesPerKmer_, prealloc_, memRatio_, 0, 0, 0, 0);
 	}
-	
+
 	/**
 	 * Creates a ScheduleMaker with custom initial table size.
 	 * Extends basic constructor with control over starting hash table capacity.
 	 *
 	 * @param ways_ Number of hash table shards for parallel processing
-	 * @param bytesPerKmer_ Memory footprint per k-mer entry in bytes
+	 * @param bytesPerKmer_ Caller-estimated bytes per primary entry
 	 * @param prealloc_ Whether to pre-allocate maximum size or allow dynamic resizing
-	 * @param memRatio_ Memory utilization ratio
-	 * @param initialSize_ Starting size for hash tables before resizing
+	 * @param memRatio_ Multiplier on the calculated table budget; nonpositive selects 1
+	 * @param initialSize_ Positive lower ladder bound, rounded down to a prime; nonpositive uses the default,
+	 * and preallocation ignores this bound
 	 */
 	public ScheduleMaker(int ways_, int bytesPerKmer_, boolean prealloc_, double memRatio_, int initialSize_){
 		this(ways_, bytesPerKmer_, prealloc_, memRatio_, initialSize_, 0, 0, 0);
 	}
-	
+
 	/**
 	 * Full constructor with prefiltering and memory override capabilities.
 	 * Calculates memory allocation considering prefiltering passes and manual memory limits.
 	 *
 	 * @param ways_ Number of hash table shards for parallel processing
-	 * @param bytesPerKmer_ Memory footprint per k-mer entry in bytes
+	 * @param bytesPerKmer_ Caller-estimated bytes per primary entry
 	 * @param prealloc_ Whether to pre-allocate maximum size or allow dynamic resizing
-	 * @param memRatio_ Memory utilization ratio
-	 * @param initialSize_ Starting size for hash tables before resizing
-	 * @param prepasses_ Number of prefiltering passes (enables prefiltering if >0)
-	 * @param prefilterFraction_ Fraction of memory allocated to prefiltering vs main tables
-	 * @param filterMemoryOverride_ Manual override for filter memory allocation (0 = auto-calculate)
+	 * @param memRatio_ Multiplier on the calculated table budget; nonpositive selects 1
+	 * @param initialSize_ Positive lower ladder bound, rounded down to a prime; nonpositive uses the default,
+	 * and preallocation ignores this bound
+	 * @param prepasses_ Number of prefiltering passes; callers use -1 for automatic passes
+	 * @param prefilterFraction_ Fraction defining alternating filter budgets with its complement;
+	 * the smaller budget is subtracted when planning the main tables
+	 * @param filterMemoryOverride_ Requested bytes for each filter allocation; nonpositive selects automatic budgeting
 	 */
-	public ScheduleMaker(int ways_, int bytesPerKmer_, boolean prealloc_, double memRatio_, int initialSize_, 
+	public ScheduleMaker(int ways_, int bytesPerKmer_, boolean prealloc_, double memRatio_, int initialSize_,
 			int prepasses_, double prefilterFraction_, long filterMemoryOverride_){
 		this(ways_, bytesPerKmer_, prealloc_, memRatio_, initialSize_, prepasses_,
 				prefilterFraction_, filterMemoryOverride_, -1);
@@ -64,8 +73,10 @@ public class ScheduleMaker {
 	/**
 	 * Budgets old resize arrays for a caller-proven bound on concurrent resizers.
 	 * A negative bound retains the legacy all-shards assumption. Positive bounds
-	 * require the caller to enforce its writer fanout; preallocation is unchanged.
+	 * require the caller to enforce its writer fanout; preallocation needs no old arrays.
+	 * Other arguments follow the eight-argument constructor's contract.
 	 * @param maxConcurrentResizes_ Maximum simultaneously resizing shards, or -1
+	 * @see #ScheduleMaker(int, int, boolean, double, int, int, double, long)
 	 */
 	public ScheduleMaker(int ways_, int bytesPerKmer_, boolean prealloc_, double memRatio_, int initialSize_,
 			int prepasses_, double prefilterFraction_, long filterMemoryOverride_, int maxConcurrentResizes_){
@@ -75,11 +86,12 @@ public class ScheduleMaker {
 		prealloc=prealloc_;
 		memRatio=(float)(memRatio_<=0 ? 1 : memRatio_);
 		prepasses=prepasses_;
-		prefilter=(prepasses>0);
+		prefilter=(prepasses!=0);
 		prefilterFraction=prefilter ? prefilterFraction_ : 0;
+		filterMemoryOverride=filterMemoryOverride_;
 		assert(prefilter==prefilterFraction>0) : prefilter+", "+prefilterFraction_+", "+prefilterFraction;
 //		assert(false && prefilter==prefilterFraction>0) : prefilter+", "+prefilterFraction_+", "+prefilterFraction;
-		if(prepasses<1){
+		if(!prefilter){
 			filterMemory0=filterMemory1=0;
 		}else if(filterMemoryOverride>0){
 			filterMemory0=filterMemory1=filterMemoryOverride;
@@ -95,7 +107,7 @@ public class ScheduleMaker {
 			}
 		}
 		tableMemory=(long)(usableMemory*.95-Tools.min(filterMemory0, filterMemory1));
-		
+
 		if(ways_<1){
 			long maxKmers=(2*tableMemory)/bytesPerKmer;
 			long minWays=Tools.min(10000, maxKmers/Integer.MAX_VALUE);
@@ -106,29 +118,36 @@ public class ScheduleMaker {
 		}
 		ways=ways_;
 
-		final double maxSize0=(tableMemory*0.95*memRatio)/(bytesPerKmer*ways);
-		assert(maxPrime>1 && maxSize0>2) : 
+		maxConcurrentResizes=(maxConcurrentResizes_<0 ? ways : Tools.min(ways, maxConcurrentResizes_));
+		//Probe tails are fixed allocations, so reserve them after scaling the byte budget.
+		final double tailBytes=(ways+(prealloc ? 0L : maxConcurrentResizes))*(double)HashArray.extra*bytesPerKmer;
+		final double maxSize0=(tableMemory*0.95*memRatio-tailBytes)/((double)bytesPerKmer*ways);
+		assert(maxPrime>1 && maxSize0>2) :
 			"\nmaxPrime="+maxPrime+", maxSize0="+maxSize0+", tableMemory="+tableMemory+", usableMemory="+usableMemory+
 			", \nprepasses="+prepasses+", filterMemory0="+filterMemory0+", filterMemory1="+filterMemory1+", prefilterFraction="+prefilterFraction+
 			", \nmemRatio="+memRatio+", bytesPerKmer="+bytesPerKmer+", ways="+ways+
 			", \ninitialSize="+initialSize_+", initialSizeDefault="+initialSizeDefault+", prealloc="+prealloc;
-		
-		maxConcurrentResizes=(maxConcurrentResizes_<0 ? ways : Tools.min(ways, maxConcurrentResizes_));
+
 		//The last resize retains old arrays at approximately finalSize/5.
 		//Unknown callers reserve this for every shard. A bounded loader reserves
 		//it only for the shards its writers can resize simultaneously.
 		lastSizeFraction=prealloc ? 1.0 : (maxConcurrentResizes==ways ?
 				resizeMult/(1.0+resizeMult) : ways/(ways+maxConcurrentResizes/resizeMult));
+		if(!Double.isFinite(maxSize0) || maxSize0*lastSizeFraction<2){
+			throw new IllegalArgumentException("No feasible primary-array capacity after filter and probe-tail reservations: "+
+				"tableMemory="+tableMemory+", memRatio="+memRatio+", tailBytes="+tailBytes+
+				", ways="+ways+", bytesPerKmer="+bytesPerKmer);
+		}
 		maxSize=Primes.primeAtMost((int)Tools.min(maxPrime, maxSize0*lastSizeFraction));
 		initialSize=(prealloc ? maxSize : Primes.primeAtMost(initialSize_>0 ? initialSize_ : initialSizeDefault));
-		
+
 		estimatedKmerCapacity=(long)(maxSize*HashArray.maxLoadFactorFinal*0.97*ways);
-		
+
 //		System.err.println(Arrays.toString(makeSchedule()));
-		
+
 //		System.err.println("ways="+ways+", maxSize="+maxSize+", estimatedKmerCapacity="+estimatedKmerCapacity+", "+Arrays.toString(makeSchedule()));
-//		
-//		assert(false) : 
+//
+//		assert(false) :
 //			"\nmaxPrime="+maxPrime+", maxSize0="+maxSize0+", tableMemory="+tableMemory+", usableMemory="+usableMemory+
 //			", \nprepasses="+prepasses+", filterMemory0="+filterMemory0+", filterMemory1="+filterMemory1+", prefilterFraction="+prefilterFraction+
 //			", \nmemRatio="+memRatio+", bytesPerKmer="+bytesPerKmer+", ways="+ways+
@@ -137,18 +156,20 @@ public class ScheduleMaker {
 //			", \n"+Arrays.toString(makeSchedule());
 //		assert(false) : Arrays.toString(makeSchedule());
 	}
-	
+
+	/*--------------------------------------------------------------*/
+	/*----------------           Methods            ----------------*/
+	/*--------------------------------------------------------------*/
+
 	/**
-	 * Generates an array of prime-sized hash table capacities for progressive resizing.
-	 * Creates a schedule that starts at initialSize and grows to maxSize in geometric steps.
-	 * All sizes are converted to prime numbers for optimal hash distribution.
-	 * @return Array of prime table sizes in ascending order, or single maxSize if prealloc=true
+	 * Builds a nondecreasing capacity ladder ending at the budgeted maximum.
+	 * Descends by five for the last resize and by three for earlier resizes, then
+	 * reverses and rounds upward to primes (except capacity one). The requested
+	 * prime-rounded initial size is a lower stopping bound and need not appear in the result.
+	 * @return A new capacity array, or one maximum entry when preallocated or too small to resize
 	 */
 	public int[] makeSchedule(){
-		//Comprehension (verified): builds a geometric-descent size ladder then reverses to ascending. Starts at maxSize,
-		//drops 5x (invResizeMult) then 3x per step (invResizeMult2) down to initialSize, optionally appends initialSize,
-		//reverses, and rounds each up to a prime (Primes.primeAtLeast). primeAtLeast is monotonic so the sorted order the
-		//assert checks survives conversion; any resulting duplicate sizes are harmless (resize() no-ops when prime2<=prime).
+		//Prime rounding preserves order; duplicate capacities are harmless to table resizers.
 		if(prealloc || maxSize<2L*initialSize){return validateSchedule(new int[] {maxSize});}
 		IntList list=new IntList(10);
 		list.add(maxSize);
@@ -173,9 +194,9 @@ public class ScheduleMaker {
 	private int[] validateSchedule(final int[] array){
 		assert(array.length>0 && Tools.isSorted(array) && array[array.length-1]==maxSize) :
 			"HashArray.nextScheduleSize requires an ascending ladder ending at its budgeted maximum: "+Arrays.toString(array);
-		final long oldSize=(array.length>1 ? array[array.length-2]+20L : 0);
-		final double peakBytes=((maxSize+20.0)*ways+oldSize*maxConcurrentResizes)*bytesPerKmer;
-		//The inner 5% margin covers prime rounding and the 20 overflow cells.
+		final long oldSize=(array.length>1 ? array[array.length-2]+(long)HashArray.extra : 0);
+		final double peakBytes=((maxSize+(double)HashArray.extra)*ways+oldSize*maxConcurrentResizes)*bytesPerKmer;
+		//Probe tails were reserved explicitly; the inner 5% margin covers prime rounding.
 		assert(peakBytes<=tableMemory*(double)memRatio) :
 			"Prime-rounded table arrays plus bounded old arrays exceed the reserved table budget: peak="+
 			peakBytes+", budget="+(tableMemory*(double)memRatio)+", "+this;
@@ -191,7 +212,7 @@ public class ScheduleMaker {
 			", bytesPerKmer="+bytesPerKmer+", tableMemory="+tableMemory+
 			", maxSize="+maxSize+", estimatedKmerCapacity="+estimatedKmerCapacity;
 	}
-	
+
 //	public static int[] makeScheduleStatic(int initialSize, int maxSize, boolean autoResize){
 //		if(!autoResize || initialSize>=maxSize){return null;}
 //		IntList list=new IntList(10);
@@ -210,6 +231,10 @@ public class ScheduleMaker {
 //		return array;
 //	}
 
+	/*--------------------------------------------------------------*/
+	/*----------------            Fields            ----------------*/
+	/*--------------------------------------------------------------*/
+
 	/** Primary multiplier for hash table resizing (5.0x growth factor) */
 	final double resizeMult=5.0;
 	/** Secondary multiplier for intermediate resizing steps (3.0x growth factor) */
@@ -218,52 +243,51 @@ public class ScheduleMaker {
 	final double invResizeMult=1/resizeMult;
 	/** Inverse of secondary resize multiplier for intermediate size calculations */
 	final double invResizeMult2=1/resizeMult2;
-	/** Fraction of maximum size to use for final table capacity calculation */
+	/** Fraction of tail-free capacity left for final arrays after allowing concurrent old arrays. */
 	final double lastSizeFraction;
 	/** Caller-enforced maximum number of shards retaining old arrays at once. */
 	public final int maxConcurrentResizes;
-	
-	/** Total JVM heap memory available at runtime */
+
+	/** Configured maximum JVM heap, not currently free memory. */
 	final long memory=Runtime.getRuntime().maxMemory();
 	/** Ratio of initial heap size to maximum heap size from JVM configuration */
 	final double xmsRatio=Shared.xmsRatio();
-	
+
 	//TODO: Add term for JDK (Oracle/Open) and version.
-	/** Calculated usable memory after reserving space for JVM overhead and GC */
+	/** Heap heuristic after allowing space for other work and garbage collection. */
 	final long usableMemory=(long)Tools.max(((memory-96000000)*
 			(xmsRatio>0.97 ? 0.82 : 0.72)), memory*0.45);
-	
+
 	/**
-	 * Manual override for prefilter memory allocation (0 = use automatic calculation)
+	 * Requested bytes per filter allocation; nonpositive values select automatic budgeting.
 	 */
-	final long filterMemoryOverride=0;
-	
-	/** Memory allocated for second prefilter pass */
-	/** Memory allocated for first prefilter pass */
+	final long filterMemoryOverride;
+
+	/** Alternating filter allocation budgets; these describe planned bytes, not allocations. */
 	final long filterMemory0, filterMemory1;
 	/**
 	 * Memory available for main k-mer hash tables after reserving prefilter memory
 	 */
-	final long tableMemory;
-	/** Fraction of total memory allocated to prefiltering operations */
+	public final long tableMemory;
+	/** Fraction defining alternating filter budgets with its complement, or zero if disabled. */
 	final double prefilterFraction;
-	/** Number of prefiltering passes to perform before main table construction */
+	/** Requested pass count, zero for disabled or negative for automatic; this planner does not run passes. */
 	final int prepasses;
-	/** Whether prefiltering is enabled (true when prepasses > 0) */
+	/** Whether prefiltering is enabled; zero disables it and negative passes mean automatic. */
 	final boolean prefilter;
-	/** Memory footprint per k-mer entry in the hash tables */
-	final int bytesPerKmer;
+	/** Caller estimate of bytes per primary entry, excluding separately budgeted probe tails. */
+	public final int bytesPerKmer;
 	/** Estimated total k-mer capacity across all hash table shards */
 	public final long estimatedKmerCapacity;
-	
+
 	/** Number of hash table shards for parallel processing */
 	public final int ways;
 
-	/** Starting size for hash tables before any resizing operations */
+	/** Lower stopping bound for geometric descent; not necessarily the first returned size. */
 	final int initialSize;
 	/** Maximum size each hash table can grow to */
-	final int maxSize;
-	
+	public final int maxSize;
+
 	/**
 	 * Whether hash tables should pre-allocate maximum size or resize dynamically
 	 */
@@ -271,13 +295,17 @@ public class ScheduleMaker {
 	/**
 	 * Memory utilization ratio controlling how much calculated memory to actually use
 	 */
-	final float memRatio;
+	public final float memRatio;
+
+	/*--------------------------------------------------------------*/
+	/*----------------          Constants           ----------------*/
+	/*--------------------------------------------------------------*/
 
 	/** Default starting size for hash tables when no custom size is specified */
 	static final int initialSizeDefault=128000;
 	/**
-	 * Largest prime number that fits in a 32-bit integer, used as upper bound for table sizes
+	 * Conservative prime ceiling below the int limit, leaving room for probe tails.
 	 */
 	static final int maxPrime=(int)Primes.primeAtMost(Integer.MAX_VALUE-100-20);
-	
+
 }

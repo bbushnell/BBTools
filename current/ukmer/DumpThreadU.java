@@ -11,24 +11,32 @@ import shared.Tools;
 import structures.ByteBuilder;
 
 /**
- * Thread class for parallel dumping of k-mers from AbstractKmerTableU arrays.
- * Each thread processes multiple tables sequentially while coordinating with other threads
- * to ensure all tables are processed exactly once.
+ * Partitions stable long-k-mer tables among workers that submit unordered text blocks.
+ * Each worker owns its buffer; atomic counters distribute tables and an optional
+ * record allowance. The caller owns the started writer and must finish it and
+ * check its error state separately. Tables must not change during traversal.
  *
  * @author Brian Bushnell
  * @date Nov 16, 2015
  */
 public class DumpThreadU extends Thread{
-	
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Static Methods        ----------------*/
+	/*--------------------------------------------------------------*/
+
 	/**
-	 * Launches multiple DumpThreadU workers to dump k-mers with shared writer and atomic counters.
-	 * @param k K-mer length
-	 * @param mincount Minimum count threshold
-	 * @param maxcount Maximum count threshold
+	 * Starts and joins table workers; does not close or join the output writer.
+	 * Uses DumpThread.NUM_THREADS for the shared worker override. Output order depends
+	 * on scheduling; interrupted joins are logged and retried.
+	 * @param k Total k-mer length in bases, not the per-word width
+	 * @param mincount Inclusive minimum count forwarded to each table implementation
+	 * @param maxcount Inclusive maximum count forwarded to each table implementation
 	 * @param tables Tables to process
-	 * @param bsw Output writer
-	 * @param remaining Atomic remaining counter
-	 * @return true if all threads succeeded
+	 * @param bsw Already-started writer, borrowed without transferring lifecycle ownership
+	 * @param remaining Shared record allowance, or null for no limit; may become negative
+	 * @return Whether every worker returned normally, not whether asynchronous output succeeded;
+	 * delegated table return values are not accumulated
 	 */
 	public static boolean dump(final int k, final int mincount, final int maxcount, final AbstractKmerTableU[] tables, final ByteStreamWriter bsw, AtomicLong remaining){
 		final int threads=DumpThread.NUM_THREADS>0 ? DumpThread.NUM_THREADS : Tools.min(tables.length, (Tools.mid(1, Shared.threads()-1, 6)));
@@ -41,10 +49,10 @@ public class DumpThreadU extends Thread{
 		boolean success=true;
 		for(DumpThreadU t : list){
 			while(t.getState()!=Thread.State.TERMINATED){
-				try {
+				try{
 					t.join();
-				} catch (InterruptedException e) {
-					// TODO Auto-generated catch block
+				}catch(InterruptedException e){
+					//Preserve the existing policy of waiting for all workers despite interruption.
 					e.printStackTrace();
 				}
 			}
@@ -52,16 +60,20 @@ public class DumpThreadU extends Thread{
 		}
 		return success;
 	}
-	
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Initialization        ----------------*/
+	/*--------------------------------------------------------------*/
+
 	/**
-	 * Worker constructor wiring k-mer thresholds, shared table index, table array, writer, and remaining counter.
-	 * @param k_ K-mer length
+	 * Borrows tables, writer and shared counters; construction does not start the worker.
+	 * @param k_ Total k-mer length in bases, not the per-word width
 	 * @param mincount_ Minimum count
 	 * @param maxcount_ Maximum count
 	 * @param nextTable_ Atomic table index for coordination
 	 * @param tables_ Tables to dump
 	 * @param bsw_ Output writer
-	 * @param remaining_ Atomic remaining counter
+	 * @param remaining_ Shared record allowance, or null for unlimited output
 	 */
 	public DumpThreadU(final int k_, final int mincount_, final int maxcount_, final AtomicInteger nextTable_, final AbstractKmerTableU[] tables_, final ByteStreamWriter bsw_, AtomicLong remaining_){
 		k=k_;
@@ -72,14 +84,19 @@ public class DumpThreadU extends Thread{
 		bsw=bsw_;
 		remaining=remaining_;
 	}
-	
+
+	/*--------------------------------------------------------------*/
+	/*----------------           Methods            ----------------*/
+	/*--------------------------------------------------------------*/
+
 	/**
-	 * Thread execution method that dumps k-mers from assigned tables.
-	 * Uses atomic counter to claim tables sequentially and processes each table
-	 * by calling dumpKmersAsBytes_MT. Buffers output in ByteBuilder for efficiency.
+	 * Claims tables and delegates record formatting, then transfers its remaining buffer
+	 * to the writer. An uncaught failure leaves success false; the coordinator joins
+	 * this worker before reading that flag.
 	 */
 	@Override
 	public void run(){
+		//Table methods copy full blocks before reuse; this worker transfers its tail without reusing it.
 		final ByteBuilder bb=new ByteBuilder(16300);
 		for(int i=nextTable.getAndIncrement(); i<tables.length; i=nextTable.getAndIncrement()){
 			AbstractKmerTableU t=tables[i];
@@ -90,14 +107,26 @@ public class DumpThreadU extends Thread{
 		}
 		success=true;
 	}
-	
+
+	/*--------------------------------------------------------------*/
+	/*----------------            Fields            ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Total decoding length forwarded to table serializers. */
 	final int k;
+	/** Inclusive lower count bound forwarded to table implementations. */
 	final int mincount;
+	/** Inclusive upper count bound forwarded to table implementations. */
 	final int maxcount;
+	/** Next unclaimed table index; shared by this dump's workers. */
 	final AtomicInteger nextTable;
+	/** Shared allowance, or null for unlimited output. */
 	final AtomicLong remaining;
+	/** Borrowed tables, stable for the complete dump. */
 	final AbstractKmerTableU[] tables;
+	/** Caller-owned started writer. */
 	final ByteStreamWriter bsw;
+	/** Published by normal completion and read after thread termination. */
 	boolean success=false;
-	
+
 }

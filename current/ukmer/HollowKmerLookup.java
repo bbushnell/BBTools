@@ -6,9 +6,10 @@ import shared.Tools;
 /** Queries an already loaded Hollow table from two oriented 32-base anchors.
  * No full-span Kmer is allocated, reconstructed or changed by a query. The table
  * must remain immutable for the lifetime of this view. Observed anchor spacing
- * is chosen by the caller; fingerprints always use the loaded table's K salt.
+ * is chosen by the caller; retained fingerprints always use the loaded table's
+ * K salt, with the same collision limits as the backing two-hash Hollow table.
  * @author Brian Bushnell, Fischl */
-public final class HollowKmerLookup {
+public final class HollowKmerLookup{
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
@@ -68,10 +69,11 @@ public final class HollowKmerLookup {
 
 	/** Counts all right-shifted anchor pairs without trusting the interior ingress base.
 	 * Each old32-base anchor loses its first base and receives one A/C/G/T base.
-	 * counts[(leftBase<<2)|rightBase] uses forward sequence orientation, even when
-	 * the stored key is reverse-complement canonical. The caller supplies a reused
-	 * 16-element buffer; this method allocates nothing and does not change counts.
-	 * These are observations only, not permission to correct a base or extend a path. */
+	 * {@code counts[(leftBase<<2)|rightBase]} uses forward sequence orientation,
+	 * even when the stored key is reverse-complement canonical. The caller supplies
+	 * a reused 16-element buffer; this method allocates nothing and does not change
+	 * stored table counts. These are observations only, not permission to correct
+	 * a base or extend a path. */
 	public void fillRightCounts16(final long left, final long right, final int[] counts){
 		if(counts==null || counts.length!=16){
 			throw new IllegalArgumentException("Joint anchor successors require exactly16 count slots.");
@@ -86,7 +88,7 @@ public final class HollowKmerLookup {
 				"Endpoint count normalizes absent keys to zero; successor selection must never receive table sentinels.";
 	}
 
-	/** Rejects an unloaded or solid source before any endpoint can query incompatible counts. */
+	/** Rejects null or solid sources; loaded partitions are validated by the view constructor. */
 	private static AbstractKmerTableU[] requireHollow(final KmerTableSetU source){
 		if(source==null || !source.hollow){
 			throw new IllegalArgumentException("Endpoint-only lookup requires a Hollow table.");
@@ -98,7 +100,10 @@ public final class HollowKmerLookup {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** HashArrayH1D partitions from the loaded Hollow table, preserving original routing. */
 	private final HashArrayH1D[] tables;
+	/** Whether lookup canonicalizes queried endpoints before hashing. */
 	private final boolean rcomp;
+	/** Salts that keep endpoint-only hashing aligned with Hollow-mode Kmer.xor0()/xor2(). */
 	private final long placementSalt, fingerprintSalt;
 }

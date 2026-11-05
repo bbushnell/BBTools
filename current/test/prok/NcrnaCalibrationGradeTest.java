@@ -40,6 +40,21 @@ public final class NcrnaCalibrationGradeTest {
 			"unresolved="+root.resolve("empty.tsv"), "familymap="+root.resolve("families.tsv"), "outprefix="+root.resolve("adjacent_result")});
 		checkSummary(root.resolve("adjacent_result.source.summary.tsv"), 1, 1, 1);
 		checkSummary(root.resolve("adjacent_result.full.summary.tsv"), 1, 1, 1);
+		write(root.resolve("uncertain_source.tsv"), NcrnaCalibrationPrep.TRUTH_HEADER+"\nctg\tcobalamin\t100\t119\t+\n");
+		write(root.resolve("shifted_calls.gff"), call(100, 119)+call(101, 120)+call(119, 138));
+		NcrnaCalibrationGrade.main(new String[]{"in="+root.resolve("shifted_calls.gff"),
+			"source="+root.resolve("uncertain_source.tsv"), "full="+root.resolve("empty.tsv"),
+			"unresolved="+root.resolve("uncertain_source.tsv"), "familymap="+root.resolve("families.tsv"),
+			"outprefix="+root.resolve("shifted_result")});
+		checkSummary(root.resolve("shifted_result.source.summary.tsv"), 1, 2, 0);
+		checkSummary(root.resolve("shifted_result.full.summary.tsv"), 0, 2, 0);
+		final ByteFile shifted=RrnaResourceIO.open(root.resolve("shifted_result.accounting.tsv").toString());
+		try{
+			shifted.nextLine();
+			p.set(shifted.nextLine());
+			check(p.parseInt(0)==3 && p.parseInt(1)==2 && p.parseInt(2)==1 && p.parseInt(3)==2,
+				"One uncertain reference exempts one matched call; its shifted duplicate and one-base-overlap call remain apparent FPs");
+		}finally{check(!shifted.close(), "Shifted-call accounting read failed");}
 		System.out.println("NCRNA_CALIBRATION_GRADE_TEST_PASS");
 	}
 	private static String call(final int start, final int stop){return "ctg\tBBTools\tRNA\t"+start+'\t'+stop+"\t1\t+\t0\tRNA,model:cobalamin_0\n";}

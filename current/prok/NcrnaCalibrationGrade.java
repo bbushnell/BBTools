@@ -46,16 +46,25 @@ public final class NcrnaCalibrationGrade {
 		final ObjectSet<String> physical=new ObjectSet<String>(String.class);
 		int duplicates=0;
 		for(int i=0; i<query.size(); i++){
-			final Locus c=query.get(i);boolean fullEdge=false, unknownOverlap=false;
+			final Locus c=query.get(i);
 			duplicate[i]=!physical.add(c.seqid+'\t'+c.family+'\t'+c.strand+'\t'+c.start+'\t'+c.stop);
 			if(duplicate[i]){duplicates++;continue;}
 			unique.add(c);uniqueIndices.add(i);
-			for(Locus t:cores){if(NcrnaGffFamilyGrader.overlapsReciprocal(c, t, .5f)){fullEdge=true;break;}}
-			if(!fullEdge){for(Locus t:masks){if(c.seqid.equals(t.seqid) && c.strand==t.strand && c.start<=t.stop && c.stop>=t.start){unknownOverlap=true;break;}}}
-			unscored[i]=unknownOverlap;
-			if(!unknownOverlap){scored.add(c);indices.add(i);}
 		}
-		final MatchResult sourceMatch=NcrnaGffFamilyGrader.matchOneToOne(unique, original, .5f), coreMatch=NcrnaGffFamilyGrader.matchOneToOne(scored, cores, .5f);
+		// Match the complete source population first. One uncertain reference can
+		// exempt only its assigned call, never every nearby shifted prediction.
+		final MatchResult sourceMatch=NcrnaGffFamilyGrader.matchOneToOne(unique, original, .5f);
+		final boolean[] uncertain=uncertainReferences(original, masks);
+		for(int i=0; i<unique.size(); i++){
+			final int queryIndex=uniqueIndices.get(i);
+			final int reference=sourceMatch.callMatchedTruthIdx[i];
+			unscored[queryIndex]=reference>=0 && uncertain[reference];
+			if(!unscored[queryIndex]){
+				scored.add(unique.get(i));
+				indices.add(queryIndex);
+			}
+		}
+		final MatchResult coreMatch=NcrnaGffFamilyGrader.matchOneToOne(scored, cores, .5f);
 		final boolean[] sourceTp=new boolean[query.size()], coreTp=new boolean[query.size()];
 		for(int i=0; i<uniqueIndices.size; i++){sourceTp[uniqueIndices.get(i)]=sourceMatch.callConsumed[i];}
 		for(int i=0; i<indices.size; i++){coreTp[indices.get(i)]=coreMatch.callConsumed[i];}
@@ -71,6 +80,31 @@ public final class NcrnaCalibrationGrade {
 		NcrnaGffFamilyGrader.writeGenericReport(out+".full", fullGrade);
 		write(out, query, sourceTp, coreTp, unscored, duplicate, scored.size()+duplicates);Shared.closeStream(pp.outstream);
 	}
+
+	/** Marks exact source references; unresolved coordinates are source coordinates,
+	 * while corrected full-core coordinates may differ. Missing references fail loud.
+	 * Comparison uses retained loci without allocating a key for every comparison.
+	 */
+	private static boolean[] uncertainReferences(final ArrayList<Locus> original,
+			final ArrayList<Locus> unresolved){
+		assert(original!=null && unresolved!=null) : "Uncertainty must be assigned on the complete source-reference axis";
+		final boolean[] uncertain=new boolean[original.size()];
+		int found=0;
+		for(int i=0; i<original.size(); i++){
+			final Locus source=original.get(i);
+			for(final Locus mask:unresolved){
+				if(source.start==mask.start && source.stop==mask.stop && source.strand==mask.strand
+						&& source.seqid.equals(mask.seqid) && source.family.equals(mask.family)){
+					uncertain[i]=true;
+					found++;
+					break;
+				}
+			}
+		}
+		require(found==unresolved.size(), "Every unresolved locus must name one exact original reference: matched="
+			+found+", unresolved="+unresolved.size());
+		return uncertain;
+	}
 	private static void write(final String out, final ArrayList<Locus> query, final boolean[] sourceTp, final boolean[] coreTp,
 		final boolean[] unscored, final boolean[] duplicate, final int scored){
 		assert(query.size()==coreTp.length && query.size()==unscored.length):"Every emitted call needs a disposition in both coordinate views";
@@ -81,6 +115,8 @@ public final class NcrnaCalibrationGrade {
 			rows.println("call_id\tseqid\tfamily\tstart1\tstop1\tstrand\tsource_outcome\tfull_outcome\texact_duplicate\tindependent_review");novel.println("##gff-version 3");
 			for(int i=0; i<query.size(); i++){
 				final Locus c=query.get(i);if(unscored[i]){unknown++;}
+				// Keep the report token consumed by NcrnaReviewJoin; eligibility now
+				// means the one assigned overlapping call, never a blanket mask.
 				final String full=unscored[i]?"UNSCORED_UNRESOLVED_OVERLAP":coreTp[i]?"TP":"APPARENT_FP";
 				final boolean review=!duplicate[i] && (!sourceTp[i] || !unscored[i] && !coreTp[i]);
 				rows.print(b.clear().append("candidate_").append(i).tab().append(c.seqid).tab().append(c.family).tab().append(c.start).tab().append(c.stop)

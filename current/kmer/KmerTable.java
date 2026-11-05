@@ -15,17 +15,20 @@ import structures.SuperLongList;
 /**
  * Hash table implementation for storing k-mer counts using separate chaining.
  * Uses a prime-sized array with linked lists to handle collisions.
- * Supports dynamic resizing and provides thread-safe operations through locking.
+ * Ordinary methods do not acquire the provided table lock; callers coordinate
+ * concurrent access and exclude resizing while using live links. Keys must be
+ * nonnegative encoded values. Several legacy traversal operations remain unsupported.
  *
  * @author Brian Bushnell
  * @date Oct 23, 2013
  */
-public final class KmerTable extends AbstractKmerTable {
-	
+public final class KmerTable extends AbstractKmerTable{
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
+	/** Allocates empty buckets rounded upward to a prime, or one bucket for requests below two. */
 	public KmerTable(int initialSize, boolean autoResize_){
 		if(initialSize>1){
 			initialSize=(int)Tools.min(maxPrime, Primes.primeAtLeast(initialSize));
@@ -33,15 +36,18 @@ public final class KmerTable extends AbstractKmerTable {
 			initialSize=1;
 		}
 		prime=initialSize;
-		sizeLimit=(long) (initialSize*resizeMult);
+		sizeLimit=(long)(initialSize*resizeMult);
 		array=new KmerLink[prime];
 		autoResize=autoResize_;
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Public Methods        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
+	/** Updates count fields directly, clamping negative sums to Integer.MAX_VALUE.
+	 * Does not use the separate direct-link increment implementation.
+	 * @return Current count after insertion or update */
 	@Override
 	public int increment(final long kmer, final int incr){
 		final int cell=(int)(kmer%prime);
@@ -65,7 +71,7 @@ public final class KmerTable extends AbstractKmerTable {
 		}
 		return n.value;
 	}
-	
+
 	/**
 	 * Increments a k-mer count and returns the number of new entries created.
 	 * Used for tracking how many new k-mers are added during batch operations.
@@ -98,7 +104,7 @@ public final class KmerTable extends AbstractKmerTable {
 			return 0;
 		}
 	}
-	
+
 	/**
 	 * Sets the count for a k-mer to a specific value.
 	 * Creates a new entry if the k-mer is not present in the table.
@@ -120,7 +126,7 @@ public final class KmerTable extends AbstractKmerTable {
 		if(autoResize && size>sizeLimit){resize();}
 		return x;
 	}
-	
+
 	/**
 	 * Sets multiple values for a k-mer.
 	 * Currently unimplemented in this table type.
@@ -128,14 +134,14 @@ public final class KmerTable extends AbstractKmerTable {
 	 * @param kmer The k-mer to set
 	 * @param vals Array of values to set
 	 * @param vlen Number of valid values in the array
-	 * @return Number of entries created
+	 * @return Never returns normally
 	 * @throws RuntimeException Always thrown as method is unimplemented
 	 */
 	@Override
-	public int set(long kmer, int[] vals, int vlen) {
+	public int set(long kmer, int[] vals, int vlen){
 		throw new RuntimeException("Unimplemented.");
 	}
-	
+
 	/**
 	 * Sets the count for a k-mer only if it is not already present.
 	 * Does nothing if the k-mer already exists in the table.
@@ -157,44 +163,37 @@ public final class KmerTable extends AbstractKmerTable {
 		if(autoResize && size>sizeLimit){resize();}
 		return x;
 	}
-	
+
 	/**
 	 * Retrieves the count value for a k-mer.
 	 * @param kmer The k-mer to look up
-	 * @return The count value, or 0 if k-mer is not present
+	 * @return The stored count (including zero), or NOT_PRESENT if the key is absent
 	 */
 	@Override
 	public int getValue(long kmer){
-		//TODO: Possible bug [kmer/KmerTable#001] - returns 0 for an absent kmer, but the AbstractKmerTable.getValue contract
-		//(javadoc: "-1 means the kmer was not present") and the sibling impls (HashArray/HashForest.getValue) return
-		//NOT_PRESENT(-1). Largely benign for current callers (hit-tests use id>0; count-consumers clamp Tools.max(count,0) -
-		//both 0 and -1 collapse to 0), but a caller relying on the documented -1 absence sentinel (e.g. `if(count<0)`) would
-		//mis-treat an absent kmer as present-with-count-0. KmerTable IS reachable (jgi/CalcUniqueness; BBDuk usetable). LOW.
+		//KMR006 [kmer/KmerTable#001]: match the abstract absence sentinel without changing stored zero.
 		int cell=(int)(kmer%prime);
 		KmerLink n=array[cell];
 		while(n!=null && n.pivot!=kmer){n=n.next;}
-		return n==null ? 0 : n.value;
+		return n==null ? NOT_PRESENT : n.value;
 	}
-	
+
 	/**
-	 * Retrieves all values for a k-mer as an array.
-	 * For single-value tables, returns the value in the provided singleton array.
+	 * Copies getValue's scalar result into the supplied array, including NOT_PRESENT for absence.
 	 *
 	 * @param kmer The k-mer to look up
-	 * @param singleton Pre-allocated array of length 1 to store the result
+	 * @param singleton Nonnull caller-owned array with at least one element
 	 * @return The singleton array with the value filled in
 	 */
 	@Override
 	public int[] getValues(long kmer, int[] singleton){
-		//TODO: Possible bug [kmer/KmerTable#002] - this asserts array.length==0 (the HASH array is empty), which is never true
-		//for a constructed table (array=new KmerLink[prime], prime>=1) -> would ALWAYS AssertionError under -ea if reached.
-		//Almost certainly a copy-paste error for `assert(singleton.length==1)` (cf. KmerNode1D.values()). MASKED: KmerTable is
-		//1D and getValues (2D-oriented) is not called on it. Fix: assert(singleton.length==1).
-		assert(array.length==0);
+		//KMR005 [kmer/KmerTable#002]: validate the destination, not the nonempty bucket array.
+		assert(singleton!=null && singleton.length>0) : "getValues copies one scalar to singleton[0]; length="+
+			(singleton==null ? "null" : singleton.length);
 		singleton[0]=getValue(kmer);
 		return singleton;
 	}
-	
+
 	/**
 	 * Tests whether a k-mer is present in the table.
 	 * @param kmer The k-mer to check
@@ -205,20 +204,20 @@ public final class KmerTable extends AbstractKmerTable {
 		KmerLink node=get(kmer);
 		return node!=null;
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------          Ownership           ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/** Initializes ownership tracking data structures for all k-mers in the table.
-	 * Sets all ownership values to the default unowned state. */
+	 * Resets all owner markers to -1 without locking; callers exclude concurrent access. */
 	@Override
 	public final void initializeOwnership(){
 		for(KmerLink n : array){
 			if(n!=null){n.initializeOwnership();}
 		}
 	}
-	
+
 	/** Clears ownership information for all k-mers in the table.
 	 * Resets all ownership values to the unowned state. */
 	@Override
@@ -227,12 +226,11 @@ public final class KmerTable extends AbstractKmerTable {
 			if(n!=null){n.clearOwnership();}
 		}
 	}
-	
+
 	/**
-	 * Sets the thread owner for a specific k-mer.
-	 * Used for coordinating access in multi-threaded environments.
+	 * Delegates owner update to an existing link; bucket lookup does not acquire a lock.
 	 *
-	 * @param kmer The k-mer to set ownership for
+	 * @param kmer Existing k-mer whose owner is to be updated
 	 * @param newOwner Thread ID of the new owner
 	 * @return The actual owner ID after the operation
 	 */
@@ -243,12 +241,12 @@ public final class KmerTable extends AbstractKmerTable {
 		assert(n!=null);
 		return n.setOwner(kmer, newOwner);
 	}
-	
+
 	/**
-	 * Clears ownership of a k-mer if the caller is the current owner.
-	 * Provides thread-safe ownership release mechanism.
+	 * Clears an existing link's owner if it matches the supplied ID.
+	 * Comparison/replacement use the link monitor; lookup itself is unlocked.
 	 *
-	 * @param kmer The k-mer to clear ownership for
+	 * @param kmer Existing k-mer whose owner is to be cleared
 	 * @param owner Thread ID of the supposed owner
 	 * @return true if ownership was cleared, false if caller was not the owner
 	 */
@@ -259,10 +257,10 @@ public final class KmerTable extends AbstractKmerTable {
 		assert(n!=null);
 		return n.clearOwner(kmer, owner);
 	}
-	
+
 	/**
-	 * Returns the current thread owner of a k-mer.
-	 * @param kmer The k-mer to check ownership for
+	 * Reads an existing link's owner without synchronizing lookup or field access.
+	 * @param kmer Existing k-mer whose owner is requested
 	 * @return Thread ID of the owner, or -1 if unowned
 	 */
 	@Override
@@ -272,11 +270,11 @@ public final class KmerTable extends AbstractKmerTable {
 		assert(n!=null);
 		return n.getOwner(kmer);
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------      Nonpublic Methods       ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
 	 * Retrieves the KmerLink node containing a specific k-mer.
 	 * Used internally for direct node access.
@@ -290,7 +288,9 @@ public final class KmerTable extends AbstractKmerTable {
 		while(n!=null && n.pivot!=kmer){n=n.next;}
 		return n;
 	}
-	
+
+	/** Detaches a link from its successor and rehashes it without adjusting size.
+	 * Caller must first retain all chain nodes separately and preserve unique pivots. */
 	boolean insert(KmerLink n){
 		n.next=null;
 		int cell=(int)(n.pivot%prime);
@@ -300,38 +300,31 @@ public final class KmerTable extends AbstractKmerTable {
 		}
 		return array[cell].insert(n);
 	}
-	
-	/*--------------------------------------------------------------*/
-	/*----------------       Private Methods        ----------------*/
-	/*--------------------------------------------------------------*/
-	
-	/*--------------------------------------------------------------*/
-	/*----------------       Invalid Methods        ----------------*/
-	/*--------------------------------------------------------------*/
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------   Resizing and Rebalancing   ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/** Returns true as this table type supports dynamic resizing */
 	@Override
-	boolean canResize() {return true;}
-	
+	boolean canResize(){return true;}
+
+	/** Linked buckets have no supported rebalance operation. */
 	@Override
-	public boolean canRebalance() {return false;}
-	
-	/** Returns the number of k-mers stored in the table */
+	public boolean canRebalance(){return false;}
+
+	/** Returns the cached linked-entry count without filtering nonpositive values. */
 	@Override
-	public long size() {return size;}
-	
+	public long size(){return size;}
+
 	/** Returns the length of the internal hash array */
 	@Override
-	public int arrayLength() {return array.length;}
-	
+	public int arrayLength(){return array.length;}
+
 	/**
-	 * Resizes the hash table to maintain optimal load factor.
-	 * Rehashes all existing entries into a larger prime-sized array.
-	 * Uses load factor calculations to determine appropriate new size.
+	 * Selects a larger prime within load heuristics and relinks existing entries.
+	 * May leave capacity unchanged. The monitor serializes resize calls only;
+	 * callers must separately exclude ordinary access during relinking.
 	 */
 	@Override
 	synchronized void resize(){
@@ -343,15 +336,15 @@ public final class KmerTable extends AbstractKmerTable {
 		final long minAllowedByLoadFactor=(long)(size*maxLoadMult);
 		assert(maxAllowedByLoadFactor>=minAllowedByLoadFactor);
 		if(maxAllowedByLoadFactor<prime){return;}
-		
+
 		long x=10+(long)(prime*resizeMult);
 		x=Tools.max(x, minAllowedByLoadFactor);
 		x=Tools.min(x, maxAllowedByLoadFactor);
-		
+
 		int prime2=(int)Tools.min(maxPrime, Primes.primeAtLeast(x));
-		
+
 		if(prime2<=prime){return;}
-		
+
 		prime=prime2;
 //		System.err.println("Resized to "+prime+"; load="+(size*1f/prime));
 		KmerLink[] old=array;
@@ -366,9 +359,8 @@ public final class KmerTable extends AbstractKmerTable {
 		}
 		sizeLimit=Tools.max((long)(size*1.4), (long)(maxLoadFactor*prime));
 	}
-	
-	/** Rebalances the internal linked list structures to improve access performance.
-	 * Traverses each hash bucket and reorganizes the collision chains. */
+
+	/** Retained unsupported traversal: empty tables return, but the first nonempty chain throws. */
 	@Override
 	public void rebalance(){
 		ArrayList<KmerLink> list=new ArrayList<KmerLink>(1000);
@@ -376,11 +368,11 @@ public final class KmerTable extends AbstractKmerTable {
 			if(array[i]!=null){array[i]=array[i].rebalance(list);}
 		}
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------         Info Dumping         ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
 	 * Dumps k-mers as text format to a stream writer.
 	 *
@@ -388,7 +380,7 @@ public final class KmerTable extends AbstractKmerTable {
 	 * @param k Length of k-mers
 	 * @param mincount Minimum count threshold for output
 	 * @param maxcount Maximum count threshold for output
-	 * @return Success status
+	 * @return Never returns normally
 	 * @throws RuntimeException Method is deprecated and unimplemented
 	 */
 	@Deprecated
@@ -396,30 +388,33 @@ public final class KmerTable extends AbstractKmerTable {
 	public boolean dumpKmersAsText(TextStreamWriter tsw, int k, int mincount, int maxcount){
 		throw new RuntimeException("TODO");
 	}
-	
+
 	/**
-	 * Multi-threaded dump of k-mers as bytes to a stream writer.
-	 * Only outputs k-mers meeting the count threshold criteria.
+	 * Delegates byte-formatted output to bucket chains using a caller-owned buffer.
+	 * Starts no workers here. Visits every nonnull bucket head so a positive head
+	 * below mincount cannot suppress a qualifying tail (KMR007). Delegated links
+	 * retain their own count bounds and nonpositive-node pruning rules.
 	 *
 	 * @param bsw The byte stream writer to write to
-	 * @param bb Buffer for building output
+	 * @param bb Exclusive buffer; caller submits the final partial buffer
 	 * @param k Length of k-mers
 	 * @param mincount Minimum count threshold for output
 	 * @param maxcount Maximum count threshold for output
 	 * @param remaining Atomic counter for limiting output
-	 * @return true when operation completes
+	 * @return Always true; asynchronous writer completion/errors are not checked here
 	 */
 	@Override
 	public boolean dumpKmersAsBytes_MT(final ByteStreamWriter bsw, final ByteBuilder bb, final int k, final int mincount, int maxcount, AtomicLong remaining){
 		for(int i=0; i<array.length; i++){
 			KmerLink node=array[i];
-			if(node!=null && node.value>=mincount){
+			//KMR007: each link applies count bounds; a below-threshold head does not exclude its tail.
+			if(node!=null){
 				node.dumpKmersAsBytes_MT(bsw, bb, k, mincount, maxcount, remaining);
 			}
 		}
 		return true;
 	}
-	
+
 	/**
 	 * Dumps k-mers as bytes to a stream writer.
 	 *
@@ -428,7 +423,7 @@ public final class KmerTable extends AbstractKmerTable {
 	 * @param mincount Minimum count threshold for output
 	 * @param maxcount Maximum count threshold for output
 	 * @param remaining Atomic counter for limiting output
-	 * @return Success status
+	 * @return Never returns normally
 	 * @throws RuntimeException Method is deprecated and unimplemented
 	 */
 	@Deprecated
@@ -436,7 +431,7 @@ public final class KmerTable extends AbstractKmerTable {
 	public boolean dumpKmersAsBytes(ByteStreamWriter bsw, int k, int mincount, int maxcount, AtomicLong remaining){
 		throw new RuntimeException("TODO");
 	}
-	
+
 	/**
 	 * Fills a histogram array with k-mer count distribution.
 	 * @param ca Array to fill with histogram counts
@@ -448,13 +443,14 @@ public final class KmerTable extends AbstractKmerTable {
 	public void fillHistogram(long[] ca, int max){
 		throw new RuntimeException("TODO");
 	}
-	
+
+	/** Unsupported list histogram operation; always throws. */
 	@Deprecated
 	@Override
 	public void fillHistogram(SuperLongList sll){
 		throw new RuntimeException("TODO");
 	}
-	
+
 	/**
 	 * Counts GC content distribution across k-mers in the table.
 	 * @param gcCounts Array to store GC count results
@@ -466,42 +462,55 @@ public final class KmerTable extends AbstractKmerTable {
 	public void countGC(long[] gcCounts, int max){
 		throw new RuntimeException("TODO");
 	}
-	
+
 	/**
-	 * Fills a SuperLongList with k-mer count values for histogram generation.
-	 * @param sll The SuperLongList to populate
-	 * @throws RuntimeException Method is deprecated and unimplemented
+	 * Unsupported removal of entries at or below a count threshold.
+	 * @param limit Count threshold (unused)
+	 * @return Never returns normally
+	 * @throws RuntimeException Always; removal of links is not implemented
 	 */
 	@Deprecated
 	@Override
 	public long regenerate(final int limit){
 		throw new RuntimeException("TODO - remove zero-value links.");
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
+	/** Bucket heads; replaced on capacity growth. */
 	KmerLink[] array;
+	/** Current bucket-array length and modulus; one is permitted for a tiny table. */
 	int prime;
+	/** Cached count of linked entries, maintained by public insertion paths. */
 	long size=0;
+	/** Entry-count threshold for an automatic resize attempt. */
 	long sizeLimit;
+	/** Whether public insertion paths attempt growth above sizeLimit. */
 	final boolean autoResize;
+	/** Caller-managed coordination lock; ordinary methods do not acquire it. */
 	private final Lock lock=new ReentrantLock();
-	
-	/** Returns the ReentrantLock used for thread synchronization */
+
+	/** Returns the caller-managed coordination lock. */
 	@Override
 	final Lock getLock(){return lock;}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Static Fields         ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
+	/** Largest prime representable by the bucket-index type. */
 	final static int maxPrime=(int)Primes.primeAtMost(Integer.MAX_VALUE);
-	final static float resizeMult=2f; //Resize by a minimum of this much
-	final static float minLoadFactor=0.5f; //Resize by enough to get the load above this factor
-	final static float maxLoadFactor=0.98f; //Resize by enough to get the load under this factor
+	/** Preferred growth multiplier before load bounds are applied. */
+	final static float resizeMult=2f;
+	/** Target minimum entries per bucket after growth. */
+	final static float minLoadFactor=0.5f;
+	/** Target maximum entries per bucket after growth. */
+	final static float maxLoadFactor=0.98f;
+	/** Reciprocal minimum load, used to bound capacity above. */
 	final static float minLoadMult=1/minLoadFactor;
+	/** Reciprocal maximum load, used to bound capacity below. */
 	final static float maxLoadMult=1/maxLoadFactor;
-	
+
 }

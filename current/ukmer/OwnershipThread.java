@@ -8,36 +8,38 @@ import shared.Shared;
 import shared.Tools;
 
 /**
- * Thread management utility for k-mer table ownership operations.
- * Provides multi-threaded initialization and clearing of ownership data
- * across collections of AbstractKmerTableU instances.
+ * Initializes or clears ownership storage across distinct, stable long-k-mer tables.
+ * Static entry points join their workers and propagate failures to the caller;
+ * completed table mutations are not rolled back. The caller must exclude other
+ * table mutations and ownership users for the duration of the operation.
  * @author Brian Bushnell
  */
-public class OwnershipThread extends Thread {
-	
+public class OwnershipThread extends Thread{
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Static Methods        ----------------*/
+	/*--------------------------------------------------------------*/
+
 	/**
-	 * Clears ownership data from all tables using multi-threaded processing.
-	 * Distributes work across available threads for optimal performance.
+	 * Releases ownership storage and waits for all helper workers before returning.
 	 * @param tables Array of k-mer tables to clear ownership data from
 	 */
 	public static void clear(AbstractKmerTableU[] tables){
 		process(tables, CLEAR);
 	}
-	
+
 	/**
-	 * Initializes ownership data for all tables using multi-threaded processing.
-	 * Distributes work across available threads for optimal performance.
+	 * Initializes ownership storage; each table must satisfy its initialization preconditions.
 	 * @param tables Array of k-mer tables to initialize ownership data for
 	 */
 	public static void initialize(AbstractKmerTableU[] tables){
 		process(tables, INITIALIZE);
 	}
-	
+
 	/**
-	 * Processes ownership operations on k-mer tables using multi-threading.
-	 * For small table arrays (<2 elements), executes operations directly.
-	 * For larger arrays, spawns worker threads and distributes work using
-	 * atomic indexing for load balancing.
+	 * Processes zero or one table directly, otherwise starts up to Shared.threads()
+	 * workers. Joins all workers before rethrowing the first failure found in worker
+	 * order. Interrupted joins are logged and retried; successful mutations remain.
 	 *
 	 * @param tables Array of k-mer tables to process
 	 * @param mode Operation mode (INITIALIZE or CLEAR)
@@ -58,21 +60,38 @@ public class OwnershipThread extends Thread {
 		ArrayList<OwnershipThread> alpt=new ArrayList<OwnershipThread>(threads);
 		for(int i=0; i<threads; i++){alpt.add(new OwnershipThread(tables, mode, next));}
 		for(OwnershipThread pt : alpt){pt.start();}
-		
+
+		Throwable failure=null;
 		for(OwnershipThread pt : alpt){
 			while(pt.getState()!=Thread.State.TERMINATED){
-				try {
+				try{
 					pt.join();
-				} catch (InterruptedException e) {
-					// TODO Auto-generated catch block
+				}catch(InterruptedException e){
+					//Preserve the existing policy of waiting for all owned workers.
 					e.printStackTrace();
 				}
 			}
+			if(failure==null){failure=pt.failure;}
 		}
+		rethrowFailure(failure);
 	}
-	
+
+	/** Reports failure only after all workers finish; earlier table mutations are retained. */
+	private static void rethrowFailure(final Throwable failure){
+		if(failure==null){return;}
+		if(failure instanceof RuntimeException){throw (RuntimeException)failure;}
+		if(failure instanceof Error){throw (Error)failure;}
+		throw new RuntimeException("Long-k-mer ownership worker failed.", failure);
+	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Initialization        ----------------*/
+	/*--------------------------------------------------------------*/
+
 	/**
-	 * Constructs an OwnershipThread for processing k-mer table operations.
+	 * Borrows the tables and shared work counter without starting this worker.
+	 * Use initialize/clear for coordinated failure reporting; directly joining a
+	 * constructed worker does not itself rethrow its captured failure.
 	 * @param tables_ Array of k-mer tables to process
 	 * @param mode_ Operation mode (INITIALIZE or CLEAR)
 	 * @param next_ Atomic counter for work distribution across threads
@@ -82,30 +101,47 @@ public class OwnershipThread extends Thread {
 		mode=mode_;
 		next=next_;
 	}
-	
+
+	/*--------------------------------------------------------------*/
+	/*----------------           Methods            ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Claims table indices until exhausted or failed; publishes failure to the coordinator. */
 	@Override
 	public void run(){
-		for(int i=next.getAndIncrement(); i<tables.length; i=next.getAndIncrement()){
-			if(mode==INITIALIZE){
-				tables[i].initializeOwnership();
-			}else if(mode==CLEAR){
-				tables[i].clearOwnership();
-			}else{
-				KillSwitch.kill("Bad mode: "+mode);
+		try{
+			for(int i=next.getAndIncrement(); i<tables.length; i=next.getAndIncrement()){
+				if(mode==INITIALIZE){
+					tables[i].initializeOwnership();
+				}else if(mode==CLEAR){
+					tables[i].clearOwnership();
+				}else{
+					KillSwitch.kill("Bad mode: "+mode);
+				}
 			}
-		}
+		}catch(Throwable t){failure=t;}
 	}
-	
+
+	/*--------------------------------------------------------------*/
+	/*----------------            Fields            ----------------*/
+	/*--------------------------------------------------------------*/
+
 	/** Array of k-mer tables to process */
 	private final AbstractKmerTableU[] tables;
 	/** Atomic counter for thread-safe work distribution across tables */
 	private final AtomicInteger next;
 	/** Operation mode: INITIALIZE (0) or CLEAR (1) */
 	private final int mode;
+	/** Exception/error made visible to the coordinator after this worker finishes. */
+	private volatile Throwable failure;
+
+	/*--------------------------------------------------------------*/
+	/*----------------          Constants           ----------------*/
+	/*--------------------------------------------------------------*/
 
 	/** Mode constant for initializing k-mer table ownership data */
 	public static final int INITIALIZE=0;
 	/** Mode constant for clearing k-mer table ownership data */
 	public static final int CLEAR=1;
-	
+
 }

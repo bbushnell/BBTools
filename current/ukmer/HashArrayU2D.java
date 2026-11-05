@@ -16,40 +16,44 @@ import shared.Tools;
  * @author Brian Bushnell
  * @date Nov 7, 2014
  */
-public final class HashArrayU2D extends HashArrayU {
-	
+public final class HashArrayU2D extends HashArrayU{
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
 	 * Constructs a HashArrayU2D with the given resize schedule and k-mer parameters.
 	 * Initializes two-dimensional value storage and enables victim cache support.
 	 *
 	 * @param schedule_ Prime sizes for hash growth
-	 * @param k_ K-mer length
-	 * @param kbig_ Extended k-mer length for multi-part storage
+	 * @param k_ Bases packed into each full key word
+	 * @param kbig_ Full k-mer length
 	 */
 	public HashArrayU2D(int[] schedule_, int k_, int kbig_){
 		super(schedule_, k_, kbig_, true);
 		values=allocInt2D(prime+extra);
 	}
-	
+
 //	public HashArrayU2D(int initialSize, int k_, int kbig_, boolean autoResize_){
 //		super(initialSize, k_, kbig_, autoResize_, true);
 //		values=allocInt2D(prime+extra);
 //	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Public Methods        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
+	/**
+	 * Count-style increment is unsupported for multi-value cells.
+	 * @throws RuntimeException always
+	 */
 	@Deprecated
 	@Override
 	public int increment(final Kmer kmer){
 		throw new RuntimeException("Unsupported.");
 	}
-	
+
 	/**
 	 * Unsupported operation that throws RuntimeException.
 	 * HashArrayU2D does not support increment with creation counting.
@@ -64,11 +68,11 @@ public final class HashArrayU2D extends HashArrayU {
 	public int incrementAndReturnNumCreated(final Kmer kmer){
 		throw new RuntimeException("Unsupported.");
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------      Nonpublic Methods       ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
 	 * Reads the primary value from a hash table cell.
 	 * Returns the first value in the int array at the specified cell, or 0 if null.
@@ -76,11 +80,11 @@ public final class HashArrayU2D extends HashArrayU {
 	 * @return The first value in the cell's array, or 0 if cell is empty
 	 */
 	@Override
-	protected final int readCellValue(int cell) {
+	protected final int readCellValue(int cell){
 		int[] set=values[cell];
 		return set==null ? 0 : set[0];
 	}
-	
+
 	/**
 	 * Reads all values from a hash table cell.
 	 * Returns the complete int array stored at the specified cell.
@@ -90,17 +94,19 @@ public final class HashArrayU2D extends HashArrayU {
 	 * @return The int array stored at the cell, or null if cell is empty
 	 */
 	@Override
-	protected final int[] readCellValues(int cell, int[] singleton) {
+	protected final int[] readCellValues(int cell, int[] singleton){
 		return values[cell];
 	}
 
+	/** Returns true when the primary cell has no associated value list. */
 	@Override
 	protected final boolean cellEmpty(int cell){return values[cell]==null;}
-	
+
 	/**
 	 * Inserts a single value into the hash table at the specified cell.
-	 * Creates a new array if cell is empty, or extends existing array if value not found.
-	 * Automatically resizes arrays when capacity is reached.
+	 * Creates a two-slot list for an empty cell; the second distinct scalar
+	 * insertion fills that list. Later insertions reuse the first negative slot or
+	 * expand the cell-local live list when no free negative sentinel remains.
 	 *
 	 * @param kmer K-mer being stored (for verification)
 	 * @param v Value to insert
@@ -115,7 +121,7 @@ public final class HashArrayU2D extends HashArrayU {
 		}
 		int[] set=values[cell];
 		assert(set!=null);
-		
+
 		for(int i=0; i<set.length; i++){
 			if(set[i]==v){return;}
 			else if(set[i]<0){set[i]=v;return;}
@@ -128,11 +134,12 @@ public final class HashArrayU2D extends HashArrayU {
 		Arrays.fill(set, oldSize+1, newSize, NOT_PRESENT);
 		values[cell]=set;
 	}
-	
+
 	/**
 	 * Inserts multiple values into the hash table at the specified cell.
-	 * If cell is empty, stores the entire array directly.
-	 * Otherwise, inserts each non-negative value individually.
+	 * If the cell is empty, aliases the provided full or negative-padded prefix
+	 * array as the live cell storage. Otherwise, inserts the array's non-negative
+	 * prefix and stops at the first negative sentinel.
 	 *
 	 * @param kmer K-mer being stored (for verification)
 	 * @param vals Array of values to insert
@@ -150,16 +157,16 @@ public final class HashArrayU2D extends HashArrayU {
 			}
 		}
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------   Resizing and Rebalancing   ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/** Indicates that this hash table implementation cannot be rebalanced.
 	 * @return false, as HashArrayU2D does not support rebalancing operations */
 	@Override
-	public final boolean canRebalance() {return false;}
-	
+	public final boolean canRebalance(){return false;}
+
 //	@Override
 //	protected synchronized void resize(){
 ////		assert(false);
@@ -168,34 +175,34 @@ public final class HashArrayU2D extends HashArrayU {
 //			sizeLimit=0xFFFFFFFFFFFFL;
 //			return;
 //		}
-//		
+//
 //		final long oldSize=size, oldVSize=victims.size;
 //		final long totalSize=oldSize+oldVSize;
-//		
+//
 //		final long maxAllowedByLoadFactor=(long)(totalSize*minLoadMult);
 //		final long minAllowedByLoadFactor=(long)(totalSize*maxLoadMult);
 //
 ////		sizeLimit=Tools.min((long)(maxLoadFactor*prime), maxPrime);
-//		
+//
 //		assert(maxAllowedByLoadFactor>=minAllowedByLoadFactor);
 //		if(maxAllowedByLoadFactor<prime){
 //			sizeLimit=(long)(maxLoadFactor*prime);
 //			return;
 //		}
-//		
+//
 //		long x=10+(long)(prime*resizeMult);
 //		x=Tools.max(x, minAllowedByLoadFactor);
 //		x=Tools.min(x, maxAllowedByLoadFactor);
-//		
+//
 //		int prime2=(int)Tools.min(maxPrime, Primes.primeAtLeast(x));
-//		
+//
 //		if(prime2<=prime){
 //			sizeLimit=(long)(maxLoadFactor*prime);
 //			assert(prime2==prime) : "Resizing to smaller array? "+totalSize+", "+prime+", "+x;
 //			return;
 //		}
 ////		System.err.println("Resizing from "+prime+" to "+prime2+"; size="+size);
-//		
+//
 //		prime=prime2;
 ////		System.err.println("Resized to "+prime+"; load="+(size*1f/prime));
 //		long[][] oldk=arrays;
@@ -209,7 +216,7 @@ public final class HashArrayU2D extends HashArrayU {
 //		victims.clear();
 //		size=0;
 //		sizeLimit=Long.MAX_VALUE;
-//		
+//
 //		final int[] singleton=new int[] {NOT_PRESENT};
 //		final Kmer kmer=new Kmer(kbig);
 //		{
@@ -219,7 +226,7 @@ public final class HashArrayU2D extends HashArrayU {
 //				}
 //			}
 //		}
-//		
+//
 //		for(KmerNodeU n : list){
 //			if(n.pivot[0]>NOT_PRESENT){
 //				kmer.setFrom(n.pivot());
@@ -227,17 +234,18 @@ public final class HashArrayU2D extends HashArrayU {
 //			}
 //			else{assert(false);}
 //		}
-//		
+//
 //		assert(oldSize+oldVSize==size+victims.size) : oldSize+", "+oldVSize+" -> "+size+", "+victims.size;
-//		
+//
 //		sizeLimit=(long)(maxLoadFactor*prime);
 //	}
-	
-	
+
 	/**
-	 * Resizes the hash table when load factor exceeds threshold.
-	 * Creates new larger arrays, rehashes all existing k-mers, and transfers victim cache.
-	 * Uses either scheduled sizing or dynamic growth based on configuration.
+	 * Resizes the primary arrays after load growth exhausts the current limit.
+	 * Allocates larger scheduled or retained-fallback dynamic storage and rehashes
+	 * non-null primary value lists plus victim nodes. Callers must exclude all
+	 * concurrent table access, including readers, and ownership use because
+	 * {@code owners} is not remapped.
 	 */
 	@Override
 	protected synchronized void resize(){
@@ -251,7 +259,7 @@ public final class HashArrayU2D extends HashArrayU {
 		final int oldPrime=prime;
 		final long oldSize=size, oldVSize=victims.size;
 		final long totalSize=oldSize+oldVSize;
-		
+
 		if(schedule!=null){
 			prime=nextScheduleSize();
 			if(prime<=oldPrime){KillSwitch.memKill(new OutOfMemoryError());}
@@ -295,7 +303,7 @@ public final class HashArrayU2D extends HashArrayU {
 		ArrayList<KmerNodeU> list=victims.toList();
 		victims.clear();
 		size=0;
-		
+
 		final int[] singleton=new int[] {NOT_PRESENT};
 		final Kmer kmer=new Kmer(kbig);
 		{
@@ -313,10 +321,10 @@ public final class HashArrayU2D extends HashArrayU {
 			kmer.setFrom(n.pivot());
 			set(kmer, n.values(singleton));
 		}
-		
+
 		assert(oldSize+oldVSize==size+victims.size) : KillSwitch.assertDie(oldSize+", "+oldVSize+" -> "+size+", "+victims.size);
 	}
-	
+
 	/**
 	 * Unsupported operation that throws RuntimeException.
 	 * HashArrayU2D does not support rebalancing operations.
@@ -328,13 +336,16 @@ public final class HashArrayU2D extends HashArrayU {
 	public void rebalance(){
 		throw new RuntimeException("Unimplemented.");
 	}
-	
+
 	/**
-	 * Regenerates the hash table by removing entries with values below limit.
-	 * Clears ownership, removes low-count k-mers, and reinserts remaining entries.
+	 * Deprecated partial regeneration path.
+	 * Assertions stop this method before mutation when enabled. Without assertions,
+	 * {@code limit} is ignored entirely; non-null primary lists are reinserted, and
+	 * victim lists are retained only when their first value is positive. Callers
+	 * must already have cleared ownership.
 	 *
-	 * @param limit Minimum value threshold for k-mer retention
-	 * @return Number of k-mers removed during regeneration
+	 * @param limit ignored
+	 * @return Number of low-valued victim nodes removed under stable valid storage
 	 * @deprecated This method is not tested or intended for general use
 	 */
 	@Deprecated
@@ -359,7 +370,7 @@ public final class HashArrayU2D extends HashArrayU {
 				}
 			}
 		}
-		
+
 		ArrayList<KmerNodeU> nodes=victims.toList();
 		victims.clear();
 		for(KmerNodeU node : nodes){
@@ -371,17 +382,15 @@ public final class HashArrayU2D extends HashArrayU {
 				set(kmer, node.values(null));//TODO: Probably unsafe or unwise.  Should test for singletons, etc.
 			}
 		}
-		
+
 		return sum;
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
-	
-	/** Backing array of int value lists per hash cell (NOT_PRESENT-terminated). */
-	private int[][] values;
-	
 
-	
+	/** Backing array of per-cell value-list references; lists may be full or negative-padded. */
+	private int[][] values;
+
 }

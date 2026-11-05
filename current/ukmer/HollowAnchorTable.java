@@ -15,7 +15,7 @@ import shared.Tools;
  * This is not installed as a Tadpole count-table backend.
  * @author Brian Bushnell, Fischl
  */
-public final class HollowAnchorTable {
+public final class HollowAnchorTable{
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
@@ -59,7 +59,7 @@ public final class HollowAnchorTable {
 		return counts[cell];
 	}
 
-	/** Returns exact pair support; neither key word reserves a sentinel bit pattern. */
+	/** Returns exact pair support, or zero when absent; neither key word reserves a sentinel bit pattern. */
 	public int get(long a, long b){
 		final long ra=reverseComplement(a), rb=reverseComplement(b);
 		if(preferReverse(a, b, ra, rb)){a=rb; b=ra;}
@@ -103,15 +103,18 @@ public final class HollowAnchorTable {
 	/** Prevents subsequent writes; callers still provide safe publication between threads. */
 	public void freeze(){frozen=true;}
 
+	/** Returns the number of distinct canonical endpoint pairs stored. */
 	public int size(){return size;}
+	/** Returns the current open-addressing slot count. */
 	public int capacity(){return counts.length;}
+	/** Returns whether subsequent writes are rejected. */
 	public boolean frozen(){return frozen;}
 
 	/** Exact primitive-array payload only, not a measurement of JVM heap requirements. */
 	public long arrayBytes(){return 28L*counts.length;}
 
 	/** Callback receives the other literal32bp arm in the queried direction. */
-	public interface PartnerConsumer {
+	public interface PartnerConsumer{
 		void accept(long partner, int count);
 	}
 
@@ -188,11 +191,18 @@ public final class HollowAnchorTable {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Full span covered by both endpoint arms; arm starts are separated by span-32 bases. */
 	public final int span;
+	/** Canonical first and second endpoint arms for each occupied slot. */
 	private long[] first, second;
+	/** Per-slot support counts, reverse bucket heads and one-based reverse links. */
 	private int[] counts, reverseHeads, reverseNext;
+	/** Occupied slot count, growth threshold and power-of-two slot mask. */
 	private int size, sizeLimit, mask;
+	/** Mutation version used to reject partner-enumeration writes, including count updates. */
 	private long modifications;
+	/** True after writes are disabled. */
 	private boolean frozen;
+	/** Largest power-of-two slot array allowed by this exact table. */
 	private static final int MAX_CAPACITY=1<<29;
 }

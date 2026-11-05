@@ -15,53 +15,72 @@ import structures.ByteBuilder;
 import structures.SuperLongList;
 
 /**
+ * Shared long-kmer table contract and serialization helpers.
+ * Implementations store packed {@link Kmer} words or long-key hash pairs,
+ * optionally retain multiple positive values per key, expose optional owner
+ * arrays for parallel claiming, and use -1 as the missing value / list
+ * terminator sentinel.
+ *
  * @author Brian Bushnell
  * @date Oct 23, 2013
- *
  */
-public abstract class AbstractKmerTableU implements KmerTableInterface {
-	
+public abstract class AbstractKmerTableU implements KmerTableInterface{
+
 	/*--------------------------------------------------------------*/
 	/*----------------         Kmer methods         ----------------*/
 	/*--------------------------------------------------------------*/
-	
-	/** Returns count */
+
+	/**
+	 * Increments this k-mer's scalar count, inserting it if absent.
+	 * @param kmer canonical key to increment
+	 * @return updated count reported by the concrete table
+	 */
 	public abstract int increment(Kmer kmer);
-	
-	/** Returns number of entries created */
+
+	/**
+	 * Increments this k-mer and reports whether a new key was created.
+	 * @param kmer canonical key to increment
+	 * @return 1 when the key was inserted, 0 when it was already present
+	 */
 	public abstract int incrementAndReturnNumCreated(final Kmer kmer);
 
 	/**
 	 * Sets the value associated with a k-mer.
 	 * @param kmer The k-mer key
 	 * @param value The value to associate with the k-mer
-	 * @return Status code indicating success or failure
+	 * @return 1 when a new key was created, 0 when an existing key was updated
 	 */
 	public abstract int set(Kmer kmer, int value);
-	
+
 	/**
 	 * Sets multiple values associated with a k-mer.
 	 * @param kmer The k-mer key
 	 * @param vals Array of values to associate with the k-mer
-	 * @return Status code indicating success or failure
+	 * @return 1 when a new key was created, 0 when an existing key was updated
 	 */
 	public abstract int set(Kmer kmer, int[] vals);
-	
-	/** Returns number of kmers added */
+
+	/**
+	 * Stores a scalar value only when the k-mer is currently absent.
+	 * @param kmer The k-mer key
+	 * @param value The value to associate with a newly inserted k-mer
+	 * @return number of k-mers added
+	 */
 	public abstract int setIfNotPresent(Kmer kmer, int value);
 
 	/**
-	 * Fetch the value associated with a kmer.
-	 * @param kmer
-	 * @return A value.  -1 means the kmer was not present.
+	 * Fetches the primary scalar value associated with a k-mer.
+	 * @param kmer The k-mer key
+	 * @return value, or -1 when the k-mer is not present
 	 */
 	public abstract int getValue(Kmer kmer);
-	
+
 	/**
-	 * Fetch the values associated with a kmer.
-	 * @param kmer
-	 * @param singleton A blank array of length 1.
-	 * @return An array filled with values.  Values of -1 are invalid.
+	 * Fetches all values associated with a k-mer.
+	 * @param kmer The k-mer key
+	 * @param singleton single-element scratch space for scalar tables
+	 * @return null, singleton with slot 0 set to -1, or a value array with -1
+	 * marking unused tail slots; returned arrays may be borrowed live storage
 	 */
 	public abstract int[] getValues(Kmer kmer, int[] singleton);
 
@@ -71,16 +90,17 @@ public abstract class AbstractKmerTableU implements KmerTableInterface {
 	 * @return true if the k-mer is present, false otherwise
 	 */
 	public abstract boolean contains(Kmer kmer);
-	
+
 //	public abstract boolean contains(Kmer kmer, int v);
 //
 //	public abstract boolean contains(Kmer kmer, int[] vals);
 //
 //	public abstract Object get(Kmer kmer);
-	
+
 	/**
 	 * Compares two k-mer keys represented as long arrays.
-	 * Performs lexicographic comparison element by element.
+	 * Intends lexicographic comparison element by element; UKM106 documents the
+	 * signed-word ordering defect.
 	 *
 	 * @param key1 First k-mer key
 	 * @param key2 Second k-mer key
@@ -102,7 +122,7 @@ public abstract class AbstractKmerTableU implements KmerTableInterface {
 		}
 		return 0;
 	}
-	
+
 	/**
 	 * Tests equality of two k-mer keys represented as long arrays.
 	 * @param key1 First k-mer key
@@ -112,19 +132,19 @@ public abstract class AbstractKmerTableU implements KmerTableInterface {
 	public static final boolean equals(long[] key1, long[] key2){
 		return compare(key1, key2)==0;
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------       Abstract Methods       ----------------*/
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Fetches the value associated with a k-mer key using XOR transformation.
+	 * Fetches the value associated with a raw key and bucket-placement hash.
 	 * @param key The k-mer key array
-	 * @param xor XOR value for key transformation
+	 * @param xor placement hash used to choose the bucket or probe chain
 	 * @return The value associated with the k-mer, or -1 if not present
 	 */
 	public abstract int getValue(long[] key, long xor);
-	
+
 //	/** Returns count */
 //	public final int increment(long[] key){throw new RuntimeException();}
 //
@@ -154,7 +174,7 @@ public abstract class AbstractKmerTableU implements KmerTableInterface {
 //	public final int[] getValues(long[] key, int[] singleton){throw new RuntimeException();}
 //
 //	public final boolean contains(long[] key){throw new RuntimeException();}
-	
+
 	/**
 	 * Tests whether a k-mer contains a specific value.
 	 * Only active in test mode.
@@ -173,7 +193,7 @@ public abstract class AbstractKmerTableU implements KmerTableInterface {
 		}
 		return false;
 	}
-	
+
 	/**
 	 * Tests whether a k-mer contains all specified values.
 	 * Only active in test mode.
@@ -201,50 +221,51 @@ public abstract class AbstractKmerTableU implements KmerTableInterface {
 		return success;
 	}
 
-	/** Rebalances the hash table structure for optimal performance */
+	/** Rebalances the table when the implementation supports tree reshaping. */
 	public abstract void rebalance();
 
-	/** Returns the number of k-mers stored in the table */
+	/** Returns this implementation's occupied key count, which may exclude victims. */
 	public abstract long size();
-	/** Returns the length of the underlying storage arrays */
+	/** Returns the length of the implementation's primary storage. */
 	public abstract int arrayLength();
-	/** Returns true if the table supports rebalancing operations */
+	/** Returns true if the table supports rebalancing operations. */
 	public abstract boolean canRebalance();
 
 	/**
-	 * Dumps k-mers to a text stream writer within specified count range.
+	 * Emits k-mers to a text stream writer with representation-specific filtering.
 	 *
 	 * @param tsw Text stream writer for output
 	 * @param k K-mer length
 	 * @param mincount Minimum count threshold (inclusive)
 	 * @param maxcount Maximum count threshold (inclusive)
-	 * @return true if dump completed successfully
+	 * @return implementation-specific emission status, not writer completion proof
 	 */
 	public abstract boolean dumpKmersAsText(TextStreamWriter tsw, int k, int mincount, int maxcount);
 	/**
-	 * Dumps k-mers to a byte stream writer within specified count range.
+	 * Emits k-mers to a byte stream writer with representation-specific filtering.
 	 *
 	 * @param bsw Byte stream writer for output
 	 * @param k K-mer length
 	 * @param mincount Minimum count threshold (inclusive)
 	 * @param maxcount Maximum count threshold (inclusive)
 	 * @param remaining Atomic counter tracking remaining items to dump
-	 * @return true if dump completed successfully
+	 * @return implementation-specific emission status, not writer completion proof
 	 */
 	public abstract boolean dumpKmersAsBytes(ByteStreamWriter bsw, int k, int mincount, int maxcount, AtomicLong remaining);
 	/**
-	 * Multi-threaded version of k-mer dumping to byte stream.
+	 * Emits k-mers as byte records, appending through a caller-owned
+	 * thread-exclusive buffer.
 	 *
 	 * @param bsw Byte stream writer for output
-	 * @param bb Byte builder for constructing output
+	 * @param bb caller-thread-exclusive builder; the caller submits any final tail
 	 * @param k K-mer length
 	 * @param mincount Minimum count threshold (inclusive)
 	 * @param maxcount Maximum count threshold (inclusive)
 	 * @param remaining Atomic counter tracking remaining items to dump
-	 * @return true if dump completed successfully
+	 * @return implementation-specific emission status, not writer completion proof
 	 */
 	public abstract boolean dumpKmersAsBytes_MT(final ByteStreamWriter bsw, final ByteBuilder bb, final int k, final int mincount, final int maxcount, AtomicLong remaining);
-	
+
 	/**
 	 * Fills a histogram array with k-mer count frequencies.
 	 * @param ca Count array to fill with histogram data
@@ -260,7 +281,7 @@ public abstract class AbstractKmerTableU implements KmerTableInterface {
 	 * @param max Maximum GC count to track
 	 */
 	public abstract void countGC(long[] gcCounts, int max);
-	
+
 	/**
 	 * Calculates GC count in a k-mer represented as a long.
 	 * Counts bases with values 1 (C) or 2 (G).
@@ -277,7 +298,7 @@ public abstract class AbstractKmerTableU implements KmerTableInterface {
 //		}
 //		return gc;
 	}
-	
+
 	/**
 	 * Gets the object associated with a k-mer.
 	 * @param kmer The k-mer key
@@ -290,26 +311,28 @@ public abstract class AbstractKmerTableU implements KmerTableInterface {
 	 * @return Object associated with the key
 	 */
 	abstract Object get(long[] key);
-	/** Resizes the hash table to accommodate more entries */
+	/** Resizes the table to accommodate more entries. */
 	abstract void resize();
-	/** Returns true if the table supports resizing operations */
+	/** Returns true if the table supports resizing operations. */
 	abstract boolean canResize();
-	
+
 
 
 	/**
-	 * Removes entries with a value of zero or less.
+	 * Removes entries with a value of {@code limit} or less.
 	 * Rehashes the remainder.
 	 * @return Number removed.
 	 */
 	abstract long regenerate(final int limit);
 
-	/** Acquires the lock for this table */
+	/** Acquires this table's concrete lock. */
 	final void lock(){getLock().lock();}
-	/** Releases the lock for this table */
+	/** Releases this table's concrete lock. */
 	final void unlock(){getLock().unlock();}
-	/** Attempts to acquire the lock for this table without blocking.
-	 * @return true if lock was acquired, false otherwise */
+	/**
+	 * Attempts to acquire this table's concrete lock without blocking.
+	 * @return true if the lock was acquired, false otherwise
+	 */
 	final boolean tryLock(){return getLock().tryLock();}
 	/**
 	 * Gets the lock object for this table.
@@ -320,11 +343,11 @@ public abstract class AbstractKmerTableU implements KmerTableInterface {
 	Lock getLock(){
 		throw new RuntimeException("Unimplemented.");
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*---------------       Allocation Methods      ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
 	 * Allocates an AtomicIntegerArray with memory management.
 	 * @param len Length of the array to allocate
@@ -333,7 +356,7 @@ public abstract class AbstractKmerTableU implements KmerTableInterface {
 	final static AtomicIntegerArray allocAtomicInt(int len){
 		return KillSwitch.allocAtomicInt(len);
 	}
-	
+
 	/**
 	 * Allocates a one-dimensional long array with memory management.
 	 * @param len Length of the array to allocate
@@ -342,7 +365,7 @@ public abstract class AbstractKmerTableU implements KmerTableInterface {
 	final static long[] allocLong1D(int len){
 		return KillSwitch.allocLong1D(len);
 	}
-	
+
 	/**
 	 * Allocates a two-dimensional long array with memory management.
 	 * @param mult Number of sub-arrays
@@ -352,7 +375,7 @@ public abstract class AbstractKmerTableU implements KmerTableInterface {
 	final static long[][] allocLong2D(int mult, int len){
 		return KillSwitch.allocLong2D(mult, len);
 	}
-	
+
 	/**
 	 * Allocates a one-dimensional int array with memory management.
 	 * @param len Length of the array to allocate
@@ -361,7 +384,7 @@ public abstract class AbstractKmerTableU implements KmerTableInterface {
 	final static int[] allocInt1D(int len){
 		return KillSwitch.allocInt1D(len);
 	}
-	
+
 	/**
 	 * Allocates a two-dimensional int array with memory management.
 	 * @param len Number of sub-arrays to allocate
@@ -370,7 +393,7 @@ public abstract class AbstractKmerTableU implements KmerTableInterface {
 	final static int[][] allocInt2D(int len){
 		return KillSwitch.allocInt2D(len);
 	}
-	
+
 	/**
 	 * Allocates an array of KmerNodeU objects with out-of-memory handling.
 	 * @param len Length of the array to allocate
@@ -378,9 +401,9 @@ public abstract class AbstractKmerTableU implements KmerTableInterface {
 	 */
 	final static KmerNodeU[] allocKmerNodeArray(int len){
 		KmerNodeU[] ret=null;
-		try {
+		try{
 			ret=new KmerNodeU[len];
-		} catch (OutOfMemoryError e) {
+		}catch(OutOfMemoryError e){
 			synchronized(killMessage){
 				e.printStackTrace();
 				System.err.println(killMessage);
@@ -389,31 +412,44 @@ public abstract class AbstractKmerTableU implements KmerTableInterface {
 		}
 		return ret;
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*---------------       Ownership Methods       ----------------*/
 	/*--------------------------------------------------------------*/
-	
-	/** Set the thread owning this kmer.  Return the new owner.
-	 * Will only change the owner if newOwner is greater than current owner. */
+
+	/**
+	 * Claims this k-mer for a thread when {@code newOwner} exceeds its current owner.
+	 * @param kmer The k-mer key
+	 * @param newOwner candidate owner thread id
+	 * @return resulting owner id
+	 */
 	public abstract int setOwner(Kmer kmer, int newOwner);
-	
-	/** Reset owner to -1 if this is the current owner. */
+
+	/**
+	 * Clears the owner when it matches the supplied id.
+	 * @param kmer The k-mer key
+	 * @param owner owner id to clear
+	 * @return true when the owner was cleared
+	 */
 	public abstract boolean clearOwner(Kmer kmer, int owner);
-	
-	/** Return the thread ID owning this kmer, or -1. */
+
+	/**
+	 * Returns the owner thread id for this key.
+	 * @param kmer The k-mer key
+	 * @return owner id, or -1 when unowned
+	 */
 	public abstract int getOwner(Kmer kmer);
-	
-	/** Create data structures needed for ownership representation */
+
+	/** Creates any auxiliary storage needed for ownership tracking. */
 	public abstract void initializeOwnership();
-	
-	/** Eliminate ownership data structures or set them to -1. */
+
+	/** Clears or drops ownership storage; later lookups are implementation-defined. */
 	public abstract void clearOwnership();
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------           Methods            ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
 	 * Converts a k-mer to its text representation.
 	 * @param kmer The k-mer to convert
@@ -422,11 +458,11 @@ public abstract class AbstractKmerTableU implements KmerTableInterface {
 	public static final StringBuilder toText(Kmer kmer){
 		return toText(kmer.key(), kmer.kbig);
 	}
-	
+
 	/**
 	 * Converts a k-mer array to text representation.
 	 * @param array Long array containing k-mer data
-	 * @param k K-mer length
+	 * @param kbig K-mer length
 	 * @return StringBuilder containing the k-mer sequence
 	 */
 	//Gate-1 packed routing (Amber, 2026-08-19): the length parameter of every multi-word
@@ -499,7 +535,7 @@ public abstract class AbstractKmerTableU implements KmerTableInterface {
 		ByteBuilder bb=new ByteBuilder(k+10);
 		return toBytes(array, values, k, bb);
 	}
-	
+
 	/**
 	 * Converts k-mer array with count to text using provided StringBuilder.
 	 * Supports both FASTA and tabular output formats.
@@ -527,7 +563,7 @@ public abstract class AbstractKmerTableU implements KmerTableInterface {
 		}
 		return sb;
 	}
-	
+
 	/**
 	 * Converts k-mer array with values to text using provided StringBuilder.
 	 * Supports both FASTA and tabular output formats.
@@ -565,7 +601,7 @@ public abstract class AbstractKmerTableU implements KmerTableInterface {
 		}
 		return sb;
 	}
-	
+
 	/**
 	 * Appends a k-mer sequence to a StringBuilder.
 	 * Decodes bit-packed k-mer into nucleotide characters.
@@ -580,7 +616,7 @@ public abstract class AbstractKmerTableU implements KmerTableInterface {
 			sb.append((char)AminoAcid.numberToBase[x]);
 		}
 	}
-	
+
 	/**
 	 * Converts k-mer array with count to bytes using provided ByteBuilder.
 	 * Supports both FASTA and tabular output formats.
@@ -608,7 +644,7 @@ public abstract class AbstractKmerTableU implements KmerTableInterface {
 		}
 		return sb;
 	}
-	
+
 	/**
 	 * Converts k-mer array with values to bytes using provided ByteBuilder.
 	 * Supports both FASTA and tabular output formats.
@@ -646,7 +682,7 @@ public abstract class AbstractKmerTableU implements KmerTableInterface {
 		}
 		return sb;
 	}
-	
+
 	/**
 	 * Appends a k-mer sequence to a ByteBuilder.
 	 * Decodes bit-packed k-mer into nucleotide characters.
@@ -661,14 +697,14 @@ public abstract class AbstractKmerTableU implements KmerTableInterface {
 			sb.append((char)AminoAcid.numberToBase[x]);
 		}
 	}
-	
-	
+
+
 //	static void appendKmerText(long kmer, int count, int k, StringBuilder sb){
 //		sb.setLength(0);
 //		toText(kmer, count, k, sb);
 //		sb.append('\n');
 //	}
-	
+
 	/**
 	 * Appends k-mer text with count to ByteBuilder and adds newline.
 	 * Resets ByteBuilder length before appending.
@@ -683,24 +719,27 @@ public abstract class AbstractKmerTableU implements KmerTableInterface {
 		toBytes(array, count, k, bb);
 		bb.nl();
 	}
-	
-	
-	/** For buffered tables. */
+
+
+	/** Unsupported base hook for flushing buffered inserts into this table. */
 	long flush(){
 		throw new RuntimeException("Unsupported.");
 	}
-	
+
 	/**
-	 * This allocates the data structures in multiple threads.  Unfortunately, it does not lead to any speedup, at least for ARRAY type.
-	 * @param ways
-	 * @param tableType
-	 * @param schedule
-	 * @return Preallocated tables.
+	 * This allocates the data structures in multiple threads.  Unfortunately,
+	 * it does not lead to any speedup, at least for ARRAY type.
+	 * @param ways number of tables to allocate
+	 * @param tableType implementation constant to instantiate
+	 * @param schedule size schedule for every table
+	 * @param k standard k-mer length
+	 * @param kbig extended k-mer length for long-key tables
+	 * @return preallocated tables
 	 */
 	public static final AbstractKmerTableU[] preallocate(int ways, int tableType, int[] schedule, int k, int kbig){
 
 		final AbstractKmerTableU[] tables=new AbstractKmerTableU[ways];
-		
+
 		{
 			final int t=Tools.max(1, Tools.min(Shared.threads(), 2, ways));
 			final AllocThread[] allocators=new AllocThread[t];
@@ -710,16 +749,16 @@ public abstract class AbstractKmerTableU implements KmerTableInterface {
 			for(AllocThread at : allocators){at.start();}
 			for(AllocThread at : allocators){
 				while(at.getState()!=Thread.State.TERMINATED){
-					try {
+					try{
 						at.join();
-					} catch (InterruptedException e) {
+					}catch(InterruptedException e){
 						// TODO Auto-generated catch block
 						e.printStackTrace();
 					}
 				}
 			}
 		}
-		
+
 		synchronized(tables){
 			for(int i=0; i<tables.length; i++){
 				final AbstractKmerTableU akt=tables[i];
@@ -728,21 +767,21 @@ public abstract class AbstractKmerTableU implements KmerTableInterface {
 				}
 			}
 		}
-		
+
 		return tables;
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Nested Classes        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
 	 * Worker thread for parallel allocation of k-mer tables.
 	 * Each thread allocates a subset of tables based on modulo assignment.
 	 * Supports different table types including arrays, forests, and hybrid structures.
 	 */
 	private static class AllocThread extends Thread{
-		
+
 		/**
 		 * Creates an allocation thread for k-mer table creation.
 		 *
@@ -766,7 +805,7 @@ public abstract class AbstractKmerTableU implements KmerTableInterface {
 			k=k_;
 			kbig=kbig_;
 		}
-		
+
 		@Override
 		public void run(){
 			for(int i=mod; i<tables.length; i+=div){
@@ -804,7 +843,7 @@ public abstract class AbstractKmerTableU implements KmerTableInterface {
 //				System.err.println("T"+i+" allocated "+i);
 			}
 		}
-		
+
 		/** Table type constant for this allocation thread */
 		private final int type;
 		/** Size schedule array defining table growth parameters */
@@ -823,51 +862,46 @@ public abstract class AbstractKmerTableU implements KmerTableInterface {
 		private final boolean growable;
 		/** Array to store the allocated k-mer tables */
 		final AbstractKmerTableU[] tables;
-		
+
 	}
-	
+
 	/**
 	 * Creates a walker for iterating through table contents.
 	 * Default implementation throws RuntimeException.
 	 * @return WalkerU for table iteration
 	 * @throws RuntimeException if not implemented by subclass
 	 */
-	public WalkerU walk() {
+	public WalkerU walk(){
 		throw new RuntimeException("Unimplemented");
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
-	
-	/** Controls whether k-mer output uses FASTA format instead of tabular */
+
+	/** Controls whether k-mer output uses FASTA format instead of tabular output. */
 	public static boolean FASTA_DUMP=true;
-	/** Controls whether k-mer output includes numeric data */
+	/** Legacy dump flag; serializers in this class ignore it. */
 	public static boolean NUMERIC_DUMP=false;
-	
-	/** Enables verbose output mode (impacts performance) */
+
+	/** Enables verbose output mode. */
 	public static final boolean verbose=false; //slow
-	/** Enables test mode with additional validation (impacts performance) */
+	/** Enables test-mode assertion checks. */
 	public static final boolean TESTMODE=false; //slow
-	
-	/** Table type constant for hybrid array implementation */
-	/** Table type constant for two-dimensional node implementation */
-	/** Table type constant for two-dimensional forest implementation */
-	/** Table type constant for two-dimensional array implementation */
-	/** Table type constant for one-dimensional node implementation */
-	/** Table type constant for one-dimensional forest implementation */
-	/** Table type constant for one-dimensional array implementation */
-	/** Table type constant for unknown table type */
+
+	/**
+	 * Table type constants: unknown, one-dimensional array/forest/node,
+	 * two-dimensional array/forest/node, hybrid array, and long-key hash-pair arrays.
+	 */
 	public static final int UNKNOWN=0, ARRAY1D=1, FOREST1D=2, NODE1D=4, ARRAY2D=5, FOREST2D=6, NODE2D=8,
 			ARRAYH=9, ARRAYHASH1D=10, ARRAYHASH1D_FIXED=11;
-	
-	/** Return value indicating a hash collision occurred */
-	/** Return value indicating k-mer is not present in table */
+
+	/** Sentinel return values for absent keys and primary hash collisions. */
 	public static final int NOT_PRESENT=-1, HASH_COLLISION=-2;
-	/** Constant indicating no thread owns the k-mer */
+	/** Sentinel owner id used when no thread owns the k-mer. */
 	public static final int NO_OWNER=-1;
-	
+
 	/** Error message displayed when program runs out of memory */
 	private static final String killMessage=new String("\nThis program ran out of memory.  Try increasing the -Xmx flag and setting prealloc.");
-	
+
 }

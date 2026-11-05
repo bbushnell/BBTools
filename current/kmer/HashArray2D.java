@@ -12,30 +12,35 @@ import shared.Tools;
  * Stores k-mers in a long[] and values in a 2D int[][] array, supporting multiple
  * integer values per k-mer with dynamic array growth. Uses linear probing for
  * collision resolution and a victim cache for overflow handling.
+ * Main cells retain packed value arrays and scan their full used prefixes for
+ * duplicates. Overflow nodes have a distinct bounded duplicate scan; this class
+ * does not establish a global uniqueness guarantee across both storage paths.
+ * Counting increments are unsupported. Shared mutations require caller coordination.
  *
  * @author Brian Bushnell
  * @date Nov 7, 2014
  */
-public final class HashArray2D extends HashArray {
-	
+public final class HashArray2D extends HashArray{
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
+	/** Allocates primary value slots using the borrowed resize schedule and a 2D victim forest. */
 	public HashArray2D(int[] schedule_, long coreMask_){
 		super(schedule_, coreMask_, true);
 		values=allocInt2D(prime+extra);
 	}
-	
+
 //	public HashArray2D(int initialSize, int maxSize, long mask, boolean autoResize_){
 //		super(initialSize, maxSize, mask, autoResize_, true);
 //		values=allocInt2D(prime+extra);
 //	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Public Methods        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
 	 * Deprecated increment operation; not supported for 2D value storage.
 	 * Always throws RuntimeException to prevent misuse.
@@ -44,14 +49,14 @@ public final class HashArray2D extends HashArray {
 	 * @param incr Increment amount (ignored)
 	 * @return never returns
 	 * @throws RuntimeException always thrown
-	 * @deprecated Use insertValue instead of incrementing
+	 * @deprecated Use set to store values; counting is unsupported
 	 */
 	@Deprecated
 	@Override
 	public int increment(final long kmer, final int incr){
 		throw new RuntimeException("Unsupported.");
 	}
-	
+
 	/**
 	 * Deprecated increment operation; not supported for 2D value storage.
 	 * Always throws RuntimeException to prevent misuse.
@@ -60,44 +65,46 @@ public final class HashArray2D extends HashArray {
 	 * @param incr Increment amount (ignored)
 	 * @return never returns
 	 * @throws RuntimeException always thrown
-	 * @deprecated Use insertValue instead of incrementing
+	 * @deprecated Use set to store values; counting is unsupported
 	 */
 	@Deprecated
 	@Override
 	public int incrementAndReturnNumCreated(final long kmer, final int incr){
 		throw new RuntimeException("Unsupported.");
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------      Nonpublic Methods       ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
 	 * Reads the first stored value for the given cell, or 0 if no values exist.
 	 * @param cell Array index
 	 * @return First integer value or 0 if empty
 	 */
 	@Override
-	protected final int readCellValue(int cell) {
+	protected final int readCellValue(int cell){
 		int[] set=values[cell];
 		return set==null ? 0 : set[0];
 	}
-	
+
 	/**
-	 * Returns the full value array stored in the cell (may be null).
+	 * Returns the live value array stored in the cell, including unused negative padding.
+	 * May return null; callers must not mutate retained storage.
 	 * @param cell Array index
 	 * @param singleton Ignored placeholder to match superclass signature
 	 * @return Value array or null
 	 */
 	@Override
-	protected final int[] readCellValues(int cell, int[] singleton) {
+	protected final int[] readCellValues(int cell, int[] singleton){
 		return values[cell];
 	}
-	
+
 	/**
-	 * Inserts a single integer value into the specified cell, expanding storage as needed while avoiding duplicates.
+	 * Inserts a nonnegative value into the specified cell, expanding storage as needed.
+	 * Scans the full used prefix for an existing value before insertion.
 	 * @param kmer The k-mer key (must match array[cell])
-	 * @param v The integer value to insert
+	 * @param v Nonnegative value; negative values are reserved for unused slots
 	 * @param cell Array index where the k-mer is stored
 	 */
 	@Override
@@ -126,16 +133,18 @@ public final class HashArray2D extends HashArray {
 		Arrays.fill(set, oldSize+1, newSize, NOT_PRESENT);
 		values[cell]=set;
 	}
-	
+
 	/**
 	 * Inserts multiple integer values into the specified cell for the given k-mer.
-	 * If cell is empty, directly assigns the values array. Otherwise, inserts
-	 * each valid value (non-negative) individually to prevent duplicates.
+	 * If cell is empty, retains the values array without copying or deduplicating it.
+	 * The caller must supply a packed nonnegative prefix and not mutate retained storage.
+	 * Otherwise, scans until the first
+	 * negative value and inserts each preceding value individually.
 	 *
 	 * @param kmer The k-mer key (must match array[cell])
 	 * @param vals Array of integer values to insert
 	 * @param cell Array index where the k-mer is stored
-	 * @param vlen Length of valid values in the array
+	 * @param vlen Logical value count supplied by the caller; this implementation does not inspect it
 	 */
 	@Override
 	protected final void insertValue(final long kmer, final int[] vals, final int cell, final int vlen){
@@ -149,20 +158,22 @@ public final class HashArray2D extends HashArray {
 			}
 		}
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------   Resizing and Rebalancing   ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/** Returns false as 2D arrays do not support rebalancing operations */
 	@Override
-	public final boolean canRebalance() {return false;}
-	
+	public final boolean canRebalance(){return false;}
+
 	/**
-	 * Resizes the hash table when load factor exceeds limits or memory pressure occurs.
-	 * Allocates new arrays with larger prime-sized capacity, then rehashes all k-mers
-	 * from both main array and victim cache. Uses schedule-based or multiplicative
-	 * growth depending on configuration. Kills process if maximum size exceeded.
+	 * Grows according to the schedule or legacy load heuristics, rehashing primary and victim keys.
+	 * Primary reinsertion retains value arrays directly; only overflow insertion scans
+	 * their used prefixes (KMR001). Unscheduled growth can return without resizing;
+	 * exhausted scheduled growth invokes memory-failure handling. This is not triggered
+	 * by a memory-pressure monitor. Callers exclude ordinary access and ownership use;
+	 * the resize monitor does not protect other methods or remap owner markers.
 	 */
 	@Override
 	protected synchronized void resize(){
@@ -173,7 +184,7 @@ public final class HashArray2D extends HashArray {
 //			return;
 			KillSwitch.memKill(new OutOfMemoryError());
 		}
-		
+
 		final long oldSize=size, oldVSize=victims.size;
 		if(schedule!=null){
 			final long oldPrime=prime;
@@ -225,18 +236,34 @@ public final class HashArray2D extends HashArray {
 		Arrays.fill(oldv, null);
 		victims.size=0;
 		size=0;
-		
+
 		final int[] singleton=new int[] {NOT_PRESENT};
-		
+
 		for(int i=0; i<oldk.length; i++){
-			if(oldk[i]>NOT_PRESENT){
+			final long key=oldk[i];
+			if(key>NOT_PRESENT){
 //				assert(!contains(oldk[i]));
-				set(oldk[i], oldc[i], -1);
+				final int[] vals=oldc[i];
+				final int cell=findKmerOrEmpty(key);
+				if(cell==HASH_COLLISION){
+					//KMR001: only a new victim node needs the used prefix length; primary cells retain the array directly.
+					int vlen=0;
+					if(vals!=null){while(vlen<vals.length && vals[vlen]>=0){vlen++;}}
+					victims.set(key, vals, vlen);
+				}else{
+					assert(array[cell]==NOT_PRESENT) : "Old primary keys are unique during resize; an occupied target would double-count size: key="+
+						key+", cell="+cell+", existing="+array[cell];
+					array[cell]=key;
+					values[cell]=vals;
+					size++;
+				}
+				//Retain set()'s growth check, including schedules that require another resize during reinsertion.
+				if(autoResize && size+victims.size>sizeLimit){resize();}
 //				assert(contains(oldk[i]));
 //				assert(Tools.equals(getValues(oldk[i], singleton), oldc[i]));
 			}
 		}
-		
+
 		for(KmerNode n : list){
 			if(n.pivot>NOT_PRESENT){
 //				assert(!contains(n.pivot));
@@ -245,10 +272,10 @@ public final class HashArray2D extends HashArray {
 //				assert(Tools.equals(getValues(n.pivot, singleton), n.values(singleton)));
 			}
 		}
-		
+
 		assert(oldSize+oldVSize==size+victims.size) : oldSize+", "+oldVSize+" -> "+size+", "+victims.size;
 	}
-	
+
 	/**
 	 * Deprecated rebalance method; unimplemented for 2D value storage and always throws.
 	 * @throws RuntimeException Always thrown
@@ -259,12 +286,16 @@ public final class HashArray2D extends HashArray {
 	public void rebalance(){
 		throw new RuntimeException("Unimplemented.");
 	}
-	
+
 	/**
-	 * Deprecated rebalance operation - not implemented for 2D arrays.
-	 * 2D hash arrays do not support rebalancing due to complexity of value management.
-	 * @throws RuntimeException Always thrown as operation is unimplemented
-	 * @deprecated 2D arrays do not support rebalancing
+	 * Unsupported experimental regeneration, rejected immediately when assertions are enabled.
+	 * With assertions disabled, reinserts nonnull primary value arrays and all victims;
+	 * it ignores limit and counts only removed null-valued primary entries.
+	 * This retained code is not an implemented count-threshold filter.
+	 * @param limit Ignored by this experimental implementation
+	 * @return Removed null-valued primary entries if the unsupported path completes
+	 * @throws AssertionError Always with assertions enabled
+	 * @deprecated Not tested or intended for use
 	 */
 	@Deprecated
 	@Override
@@ -287,22 +318,23 @@ public final class HashArray2D extends HashArray {
 				}
 			}
 		}
-		
+
 		ArrayList<KmerNode> nodes=victims.toList();
 		victims.clear();
 		for(KmerNode node : nodes){
 			set(node.pivot, node.values(null), node.numValues());//TODO: Probably unsafe or unwise.  Should test for singletons, etc.
 		}
-		
+
 		return sum;
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
-	
-	private int[][] values;
-	
 
-	
+	/** Primary value arrays aligned with key cells; references can be borrowed from callers. */
+	private int[][] values;
+
+
+
 }

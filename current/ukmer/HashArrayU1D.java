@@ -10,35 +10,37 @@ import structures.SuperLongList;
 
 /**
  * Single-value hash table for storing k-mer counts using parallel arrays.
- * Uses a long[] for k-mer storage and int[] for count values, with victim cache for collisions.
+ * Uses long[][] packed key-word storage and int[] count storage, with victim cache for collisions.
  * Provides memory-efficient k-mer counting with automatic resizing capabilities.
  * @author Brian Bushnell
  * @date Oct 25, 2013
  */
-public final class HashArrayU1D extends HashArrayU {
-	
+public final class HashArrayU1D extends HashArrayU{
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
+	/** Creates a scheduled table with one count per retained k-mer; one-prime schedules cannot grow. */
 	public HashArrayU1D(int[] schedule_, int k_, int kbig_){
 		super(schedule_, k_, kbig_, false);
 		values=allocInt1D(prime+extra);
 	}
-	
+
 //	public HashArrayU1D(int initialSize, int k_, int kbig_, boolean autoResize_){
 //		super(initialSize, k_, kbig_, autoResize_, false);
 //		values=allocInt1D(prime+extra);
 //	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Public Methods        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
+	/** Increments the stored count for {@code kmer}, creating it at 1 or saturating overflow to Integer.MAX_VALUE. */
 	@Override
 	public final int increment(final Kmer kmer){
 		final int cell=findKmerOrEmpty(kmer);
-		
+
 		if(cell==HASH_COLLISION){
 			int x=victims.increment(kmer);
 			if(autoResize && size+victims.size>sizeLimit){resize();}
@@ -55,7 +57,7 @@ public final class HashArrayU1D extends HashArrayU {
 			return values[cell];
 		}
 	}
-	
+
 	/**
 	 * Increments k-mer count and returns number of new entries created.
 	 * Returns 1 for new k-mers, 0 for existing k-mers that were incremented.
@@ -116,11 +118,11 @@ public final class HashArrayU1D extends HashArrayU {
 			return 0;
 		}
 	}
-	
+
 	/**
-	 * Populates a histogram with all count values from this hash array.
-	 * Includes counts from both main array and victim cache.
-	 * @param sll The SuperLongList to fill with count values
+	 * Adds positive primary-array counts to {@code sll} and delegates victim
+	 * pruning to {@link HashForestU#fillHistogram(SuperLongList)}.
+	 * @param sll destination histogram
 	 */
 	@Override
 	public final void fillHistogram(SuperLongList sll){
@@ -132,7 +134,7 @@ public final class HashArrayU1D extends HashArrayU {
 			victims.fillHistogram(sll);
 		}
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------      Nonpublic Methods       ----------------*/
 	/*--------------------------------------------------------------*/
@@ -143,10 +145,10 @@ public final class HashArrayU1D extends HashArrayU {
 	 * @return The count value at the specified cell
 	 */
 	@Override
-	public final int readCellValue(int cell) {
+	public final int readCellValue(int cell){
 		return values[cell];
 	}
-	
+
 	/**
 	 * Reads cell value into a provided array for consistent interface.
 	 * Used by superclass methods that expect array format.
@@ -155,14 +157,15 @@ public final class HashArrayU1D extends HashArrayU {
 	 * @return The singleton array with value at index 0
 	 */
 	@Override
-	protected final int[] readCellValues(int cell, int[] singleton) {
+	protected final int[] readCellValues(int cell, int[] singleton){
 		singleton[0]=values[cell];
 		return singleton;
 	}
 
+	/** Returns true when no count is stored at this primary-array cell. */
 	@Override
 	protected final boolean cellEmpty(int cell){return values[cell]==0;}
-	
+
 	/**
 	 * Inserts a single count value at the specified cell.
 	 * Used during resizing and rehashing operations.
@@ -171,12 +174,12 @@ public final class HashArrayU1D extends HashArrayU {
 	 * @param cell The target cell index
 	 */
 	@Override
-	protected final void insertValue(long[] kmer, int v, int cell) {
+	protected final void insertValue(long[] kmer, int v, int cell){
 		assert(matches(kmer, cell));
 		assert(v>0) : "HashArrayU1D reserves value 0 for empty cells: "+v;
 		values[cell]=v;
 	}
-	
+
 	/**
 	 * Inserts count value from array format at the specified cell.
 	 * Array must contain exactly one element.
@@ -185,13 +188,13 @@ public final class HashArrayU1D extends HashArrayU {
 	 * @param cell The target cell index
 	 */
 	@Override
-	protected final void insertValue(long[] kmer, int[] vals, int cell) {
+	protected final void insertValue(long[] kmer, int[] vals, int cell){
 		assert(matches(kmer, cell));
 		assert(vals.length==1);
 		assert(vals[0]>0) : "HashArrayU1D reserves value 0 for empty cells: "+vals[0];
 		values[cell]=vals[0];
 	}
-	
+
 	/**
 	 * Converts a cell's k-mer data to array format.
 	 * Creates array by copying from all k-mer storage arrays.
@@ -204,16 +207,16 @@ public final class HashArrayU1D extends HashArrayU {
 		for(int i=0; i<mult; i++){r[i]=arrays[i][cell];}
 		return r;
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------   Resizing and Rebalancing   ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/** Indicates whether this hash array supports rebalancing operations.
 	 * @return false as this implementation does not support rebalancing */
 	@Override
-	public final boolean canRebalance() {return false;}
-	
+	public final boolean canRebalance(){return false;}
+
 //	@Override
 //	protected synchronized void resize(){
 //		if(verbose){System.err.println("Resizing from "+prime+"; load="+(size*1f/prime));}
@@ -222,44 +225,43 @@ public final class HashArrayU1D extends HashArrayU {
 //			sizeLimit=0xFFFFFFFFFFFFL;
 //			return;
 //		}
-//		
+//
 //		final long oldSize=size, oldVSize=victims.size;
 //		final long totalSize=oldSize+oldVSize;
-//		
+//
 //		final long maxAllowedByLoadFactor=(long)(totalSize*minLoadMult);
 //		final long minAllowedByLoadFactor=(long)(totalSize*maxLoadMult);
 //
 ////		sizeLimit=Tools.min((long)(maxLoadFactor*prime), maxPrime);
-//		
+//
 //		assert(maxAllowedByLoadFactor>=minAllowedByLoadFactor);
 //		if(maxAllowedByLoadFactor<prime){
 //			sizeLimit=(long)(maxLoadFactor*prime);
 //			return;
 //		}
-//		
+//
 //		long x=10+(long)(prime*resizeMult);
 //		x=Tools.max(x, minAllowedByLoadFactor);
 //		x=Tools.min(x, maxAllowedByLoadFactor);
-//		
+//
 //		int prime2=(int)Tools.min(maxPrime, Primes.primeAtLeast(x));
-//		
+//
 //		if(prime2<=prime){
 //			sizeLimit=(long)(maxLoadFactor*prime);
 //			assert(prime2==prime) : "Resizing to smaller array? "+totalSize+", "+prime+", "+x;
 //			return;
 //		}
-//		
+//
 //		prime=prime2;
-//		
+//
 //	}
-	
 
-	
 	/**
-	 * Resizes the hash table when load factor limits are exceeded.
-	 * Allocates larger arrays, rehashes existing entries, and migrates victim cache.
-	 * Uses scheduled sizing if available, otherwise calculates optimal size.
-	 * Terminates program if maximum table size is exceeded.
+	 * Resizes after scheduled load growth exhausts the current limit.
+	 * Live constructors use scheduled sizing; dynamic sizing remains a retained
+	 * fallback. Rehashing replaces arrays, so callers must exclude all concurrent
+	 * table access, including readers, and clear ownership first because
+	 * {@code owners} is not remapped.
 	 */
 	@Override
 	protected synchronized void resize(){
@@ -273,7 +275,7 @@ public final class HashArrayU1D extends HashArrayU {
 		final int oldPrime=prime;
 		final long oldSize=size, oldVSize=victims.size;
 		final long totalSize=oldSize+oldVSize;
-		
+
 		if(schedule!=null){
 			prime=nextScheduleSize();
 			if(prime<=oldPrime){KillSwitch.memKill(new OutOfMemoryError());}
@@ -305,8 +307,6 @@ public final class HashArrayU1D extends HashArrayU {
 			prime=prime2;
 			sizeLimit=(long)(maxLoadFactor*prime);
 		}
-		
-		
 
 //		System.err.println("Resized to "+prime+"; load="+(size*1f/prime));
 		long[][] oldk=arrays;
@@ -340,9 +340,9 @@ public final class HashArrayU1D extends HashArrayU {
 					}
 					assert(temp!=null) : i+", "+kmer+", "+oldk[0][i];
 					set(temp, oldc[i]);
-					
+
 //					assert(getValue(temp)==oldc[i]); //123
-					
+
 					if(verbose){
 						System.err.println("prime="+prime+", xor="+kmer.xor()+", mod="+(kmer.xor()%prime));
 						System.err.println("After set: kmer "+kmer+"; key="+Arrays.toString(kmer.key())+"; " +
@@ -362,14 +362,14 @@ public final class HashArrayU1D extends HashArrayU {
 			set(kmer, n.value());
 //			assert(getValue(kmer)==n.value()); //123 slow
 		}
-		
+
 		assert(oldSize+oldVSize==size+victims.size) : KillSwitch.assertDie(oldSize+", "+oldVSize+" -> "+size+", "+victims.size+"; totalSize="+totalSize+", new total="+(size+victims.size)+
 			"\noldPrime="+oldPrime+", prime="+prime+(prime<1000 ? (
 			"\noldArray:"+Arrays.toString(oldk[0])+
 			"\nnewArray:"+Arrays.toString(arrays[0])
 			) : ""));
 	}
-	
+
 	/**
 	 * Rebalancing operation is not supported in this implementation.
 	 * @throws RuntimeException Always thrown as rebalancing is unimplemented
@@ -380,12 +380,13 @@ public final class HashArrayU1D extends HashArrayU {
 	public void rebalance(){
 		throw new RuntimeException("Unimplemented.");
 	}
-	
+
 	/**
 	 * Removes k-mers with counts at or below the specified limit.
 	 * Processes both main arrays and victim cache, keeping only high-count k-mers.
-	 * Includes entries whose counts were zeroed by a caller before regeneration.
-	 * @param limit Count threshold; k-mers with counts <= limit are removed
+	 * Requires clear ownership because primary entries may move; includes entries
+	 * whose counts were zeroed by a caller before regeneration.
+	 * @param limit Count threshold; k-mers with counts {@code <=} limit are removed
 	 * @return Number of k-mers that were removed
 	 */
 	@Override
@@ -419,7 +420,7 @@ public final class HashArrayU1D extends HashArrayU {
 				}
 			}
 		}
-		
+
 		ArrayList<KmerNodeU> nodes=victims.toList();
 		victims.clear();
 		for(KmerNodeU node : nodes){
@@ -431,42 +432,45 @@ public final class HashArrayU1D extends HashArrayU {
 				set(kmer, node.value());
 			}
 		}
-		
+
 		assert(oldTotal==sum+size+victims.size) :
 			KillSwitch.assertDie("Regeneration must conserve surviving plus removed entries, including pre-zeroed counts: before="+
 			oldTotal+", removed="+sum+", array="+size+", victims="+victims.size);
 		return sum;
 	}
-	
-	public WalkerU1D walk(){
-		return new WalkerU1D();
-	}
-	
+
+	/** Returns a walker over current primary and victim entries. */
+	public WalkerU1D walk(){return new WalkerU1D();}
+
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
+	/** Count storage parallel to the primary key arrays; zero is the empty-cell sentinel. */
 	private int[] values;
-	
+
+	/** Returns borrowed primary count storage; external zeroing requires regeneration before normal lookup or walking. */
 	public int[] values(){return values;}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------            Walker            ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
 	 * Iterator for traversing all k-mer entries in the hash array.
-	 * Walks through both main arrays and victim cache sequentially.
-	 * Concurrent modification during iteration is not recommended.
+	 * Walks through current primary arrays and a victim node-reference snapshot.
+	 * Concurrent modification during iteration is unsupported.
 	 */
-	public class WalkerU1D extends WalkerU {
-		
+	public class WalkerU1D extends WalkerU{
+
+		/** Snapshots victim node references and prepares a reusable k-mer for primary traversal. */
 		WalkerU1D(){
 			kmer=new Kmer(kbig);
 			ha=HashArrayU1D.this;
 			victims=ha.victims().toList();
 		}
-		
+
+		/** Advances to the next stored primary or snapshotted victim entry. */
 		public boolean next(){
 			while(i<values.length && values[i]<=EMPTY_VALUE){i++;}
 			if(i<values.length){
@@ -494,21 +498,29 @@ public final class HashArrayU1D extends HashArrayU {
 			value=EMPTY_VALUE;
 			return false;
 		}
-		
+
+		/** Returns the current key object, which is reused by later {@link #next()} calls. */
 		public Kmer kmer(){return kmer;}
+
+		/** Returns the current entry's positive count, or zero after exhaustion. */
 		public int value(){return value;}
-		
+
+		/** Parent table being traversed. */
 		private HashArrayU1D ha;
+		/** Victim nodes snapshotted when this walker was constructed. */
 		private ArrayList<KmerNodeU> victims;
-		
+
+		/** Reusable key populated from each primary or victim entry. */
 		private final Kmer kmer;
+		/** Current entry value, or {@link #EMPTY_VALUE} before the first entry and after exhaustion. */
 		private int value;
 
-		/** Current index in main arrays during iteration; may point to an empty cell */
+		/** Current index in main arrays during iteration; may point to an empty cell. */
 		private int i=0;
+		/** Current index in the snapshotted victim-node list. */
 		private int i2=0;
 	}
-	
+
 	/** Value arrays use zero as the authoritative empty-cell marker. */
 	private static final int EMPTY_VALUE=0;
 }

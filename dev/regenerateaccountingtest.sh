@@ -6,4 +6,4 @@ CP="${REGENERATE_TEST_CLASSPATH:-$DIR/current/}"
 . "$DIR/javasetup.sh"
 parseJavaArgs --xmx=128m --xms=32m --mode=fixed "$@"
 setEnvironment
-java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" ukmer.HashArrayU1DRegenerateTest "$@"
+java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" test.ukmer.HashArrayU1DRegenerateTest "$@"

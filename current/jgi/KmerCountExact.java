@@ -100,7 +100,7 @@ public class KmerCountExact {
 			String b=split.length>1 ? split[1] : null;
 			
 			if(Parser.parseCommonStatic(arg, a, b)){
-				//do nothing
+				if(a.equals("threads") || a.equals("t")){THREADS=Shared.threads();}
 			}else if(Parser.parseZip(arg, a, b)){
 				//do nothing
 			}else if(Parser.parseQuality(arg, a, b)){
@@ -141,8 +141,6 @@ public class KmerCountExact {
 				useArray_=Parse.parseBoolean(b);
 				if(useArray_){useTable_=useForest_=false;}
 				assert(false) : a+" is deprecated.";
-			}else if(a.equals("threads") || a.equals("t")){
-				THREADS=(b==null || b.equalsIgnoreCase("auto") ? Shared.threads() : Integer.parseInt(b));
 			}else if(a.equals("verbose")){
 				assert(false) : "Verbose flag is currently static final; must be recompiled to change.";
 //				verbose=Parse.parseBoolean(b);
@@ -945,8 +943,8 @@ public class KmerCountExact {
 		if(THREADS>1 && (outHist!=null || outPeaks!=null) && outKmers!=null){
 			Timer tout=new Timer();
 			tout.start();
-			Thread a=new DumpKmersThread();
-			Thread b=new MakeKhistThread();
+			DumpKmersThread a=new DumpKmersThread();
+			MakeKhistThread b=new MakeKhistThread();
 			a.start();
 			b.start();
 			while(a.getState()!=Thread.State.TERMINATED){
@@ -965,6 +963,8 @@ public class KmerCountExact {
 					e.printStackTrace();
 				}
 			}
+			errorState|=!a.success;
+			errorState|=!b.success;
 			tout.stop();
 			outstream.println("Write Time:                 \t"+tout);
 		}else{
@@ -973,7 +973,7 @@ public class KmerCountExact {
 			}
 			if(outKmers!=null){
 				//			tables.dumpKmersAsText(outKmers, minToDump, true);
-				tables.dumpKmersAsBytes_MT(outKmers, minToDump, maxToDump, true, null);
+				errorState|=tables.dumpKmersAsBytes_MT(outKmers, minToDump, maxToDump, true, null);
 			}
 		}
 	}
@@ -994,9 +994,11 @@ public class KmerCountExact {
 		
 		@Override
 		public void run(){
-			tables.dumpKmersAsBytes_MT(outKmers, minToDump, maxToDump, false, null);
+			success=!tables.dumpKmersAsBytes_MT(outKmers, minToDump, maxToDump, false, null);
 		}
-		
+
+		/** Whether the dump returned normally without reporting an error; read after thread termination. */
+		boolean success=false;
 	}
 	
 	/**
@@ -1012,7 +1014,11 @@ public class KmerCountExact {
 		@Override
 		public void run(){
 			makeKhist(outHist, outPeaks, histColumns, histMax, histHeader, histZeros, false, smoothKhist, smoothPeaks);
+			success=true;
 		}
+
+		/** Whether makeKhist returned normally; read after thread termination. */
+		boolean success=false;
 	}
 	
 	/*--------------------------------------------------------------*/

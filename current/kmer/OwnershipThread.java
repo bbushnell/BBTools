@@ -8,31 +8,36 @@ import shared.Shared;
 import shared.Tools;
 
 /**
- * Thread for parallel processing of ownership operations on k-mer tables.
- * Coordinates initialization and clearing of ownership data structures
- * across multiple AbstractKmerTable instances using worker threads.
+ * Initializes or clears ownership storage across distinct, stable k-mer tables.
+ * Static entry points join their workers and propagate failures to the caller;
+ * completed table mutations are not rolled back. The caller must exclude other
+ * table mutations and ownership users for the duration of the operation.
  *
  * @author Brian Bushnell
  * @date December 5, 2024
  */
-public class OwnershipThread extends Thread {
-	
-	/** Clears ownership data structures from all tables using parallel processing.
+public class OwnershipThread extends Thread{
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Static Methods        ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Releases ownership storage and waits for all helper workers before returning.
 	 * @param tables Array of k-mer tables to clear ownership data from */
 	public static void clear(AbstractKmerTable[] tables){
 		process(tables, CLEAR);
 	}
-	
-	/** Initializes ownership data structures in all tables using parallel processing.
+
+	/** Initializes ownership storage; each table must satisfy its initialization preconditions.
 	 * @param tables Array of k-mer tables to initialize ownership data for */
 	public static void initialize(AbstractKmerTable[] tables){
 		process(tables, INITIALIZE);
 	}
-	
+
 	/**
-	 * Core processing method that coordinates parallel ownership operations.
-	 * Creates worker threads and manages their execution across table array.
-	 * For single table arrays, processes directly without threading overhead.
+	 * Processes zero or one table directly, otherwise starts up to Shared.threads()
+	 * workers. Joins all workers before rethrowing the first failure found in worker
+	 * order. Interrupted joins are logged and retried; successful mutations remain.
 	 *
 	 * @param tables Array of k-mer tables to process
 	 * @param mode Operation mode: INITIALIZE or CLEAR
@@ -53,21 +58,38 @@ public class OwnershipThread extends Thread {
 		ArrayList<OwnershipThread> alpt=new ArrayList<OwnershipThread>(threads);
 		for(int i=0; i<threads; i++){alpt.add(new OwnershipThread(tables, mode, next));}
 		for(OwnershipThread pt : alpt){pt.start();}
-		
+
+		Throwable failure=null;
 		for(OwnershipThread pt : alpt){
 			while(pt.getState()!=Thread.State.TERMINATED){
-				try {
+				try{
 					pt.join();
-				} catch (InterruptedException e) {
-					// TODO Auto-generated catch block
+				}catch(InterruptedException e){
+					//Preserve the existing policy of waiting for all owned workers.
 					e.printStackTrace();
 				}
 			}
+			if(failure==null){failure=pt.failure;}
 		}
+		rethrowFailure(failure);
 	}
-	
+
+	/** Reports failure only after all workers finish; earlier table mutations are retained. */
+	private static void rethrowFailure(final Throwable failure){
+		if(failure==null){return;}
+		if(failure instanceof RuntimeException){throw (RuntimeException)failure;}
+		if(failure instanceof Error){throw (Error)failure;}
+		throw new RuntimeException("K-mer ownership worker failed.", failure);
+	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Initialization        ----------------*/
+	/*--------------------------------------------------------------*/
+
 	/**
-	 * Constructs a worker thread for processing ownership operations.
+	 * Borrows the tables and shared work counter without starting this worker.
+	 * Use initialize/clear for coordinated failure reporting; directly joining a
+	 * constructed worker does not itself rethrow its captured failure.
 	 * @param tables_ Array of k-mer tables to process
 	 * @param mode_ Operation mode: INITIALIZE or CLEAR
 	 * @param next_ Atomic counter for work distribution among threads
@@ -77,30 +99,47 @@ public class OwnershipThread extends Thread {
 		mode=mode_;
 		next=next_;
 	}
-	
+
+	/*--------------------------------------------------------------*/
+	/*----------------           Methods            ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Claims table indices until exhausted or failed; publishes failure to the coordinator. */
 	@Override
 	public void run(){
-		for(int i=next.getAndIncrement(); i<tables.length; i=next.getAndIncrement()){
-			if(mode==INITIALIZE){
-				tables[i].initializeOwnership();
-			}else if(mode==CLEAR){
-				tables[i].clearOwnership();
-			}else{
-				KillSwitch.kill("Bad mode: "+mode);
+		try{
+			for(int i=next.getAndIncrement(); i<tables.length; i=next.getAndIncrement()){
+				if(mode==INITIALIZE){
+					tables[i].initializeOwnership();
+				}else if(mode==CLEAR){
+					tables[i].clearOwnership();
+				}else{
+					KillSwitch.kill("Bad mode: "+mode);
+				}
 			}
-		}
+		}catch(Throwable t){failure=t;}
 	}
-	
+
+	/*--------------------------------------------------------------*/
+	/*----------------            Fields            ----------------*/
+	/*--------------------------------------------------------------*/
+
 	/** Array of k-mer tables this thread will process */
 	private final AbstractKmerTable[] tables;
 	/** Atomic counter for distributing work among threads */
 	private final AtomicInteger next;
 	/** Operation mode: INITIALIZE or CLEAR */
 	private final int mode;
+	/** Exception/error made visible to the coordinator after this worker finishes. */
+	private volatile Throwable failure;
+
+	/*--------------------------------------------------------------*/
+	/*----------------          Constants           ----------------*/
+	/*--------------------------------------------------------------*/
 
 	/** Mode constant for initializing ownership data structures */
 	public static final int INITIALIZE=0;
 	/** Mode constant for clearing ownership data structures */
 	public static final int CLEAR=1;
-	
+
 }

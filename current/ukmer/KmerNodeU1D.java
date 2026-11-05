@@ -6,69 +6,68 @@ import fileIO.ByteStreamWriter;
 import structures.ByteBuilder;
 
 /**
- * Single-dimensional k-mer node for optimized linear storage structures.
- * Provides k-mer node implementation optimized for single-dimensional storage arrays
- * with minimal memory overhead and cache-efficient access patterns.
- * This specialized node type stores only a single integer value per k-mer.
+ * HashForestU count node that stores one scalar value for a long-kmer pivot.
+ * Child creation keeps the 1D node family, list insertion is unsupported while
+ * singleton retrieval works, and dump methods emit self/left/right from each
+ * positive-count root when count thresholds pass.
  *
  * @author Brian Bushnell
  * @date Oct 22, 2013
  */
-public class KmerNodeU1D extends KmerNodeU {
-	
+public class KmerNodeU1D extends KmerNodeU{
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
+	/** Creates a count node with no positive count yet. */
 	public KmerNodeU1D(long[] pivot_){
 		super(pivot_);
 	}
-	
+
+	/** Creates a count node with an initial value. */
 	public KmerNodeU1D(long[] pivot_, int value_){
 		super(pivot_);
 		value=value_;
 	}
-	
+
+	/** Creates a same-family child node for one value. */
 	@Override
 	public final KmerNodeU makeNode(long[] pivot_, int value_){
 		return new KmerNodeU1D(pivot_, value_);
 	}
-	
+
+	/** Rejects multi-value child creation for this one-value node type. */
 	@Override
 	public final KmerNodeU makeNode(long[] pivot_, int[] values_){
 		throw new RuntimeException("Unimplemented");
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Public Methods        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
-	 * Sets multiple values for a k-mer.
-	 * This method is not implemented for single-dimensional nodes.
-	 *
-	 * @param kmer The k-mer to set values for
-	 * @param vals Array of values to set
-	 * @return Never returns - throws RuntimeException
-	 * @throws RuntimeException Always thrown as this operation is not supported
+	 * Rejects value-list insertion; 1D forest nodes store one scalar count.
+	 * @throws RuntimeException always, because this node family is scalar-only
 	 */
 	@Override
-	public final int set(long[] kmer, int[] vals) {
+	public final int set(long[] kmer, int[] vals){
 		throw new RuntimeException("Unimplemented.");
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------      Nonpublic Methods       ----------------*/
 	/*--------------------------------------------------------------*/
-	
-	/** Gets the integer value stored in this node */
+
+	/** Returns the stored scalar count. */
 	@Override
 	public int value(){return value;}
-	
+
 	/**
-	 * Fills a singleton array with this node's value.
-	 * @param singleton Single-element array to fill with the node's value
-	 * @return The same array passed as parameter, now containing the node's value
+	 * Returns the supplied singleton scratch after storing this node's count in slot zero.
+	 * @param singleton one-element scratch array
+	 * @return the supplied singleton array
 	 */
 	@Override
 	protected int[] values(int[] singleton){
@@ -76,104 +75,85 @@ public class KmerNodeU1D extends KmerNodeU {
 		singleton[0]=value;
 		return singleton;
 	}
-	
+
 	/**
-	 * Sets the value for this node.
-	 * @param value_ The new value to set
-	 * @return The newly set value
+	 * Stores one scalar count.
+	 * @param value_ new count
+	 * @return the stored count
 	 */
 	@Override
 	public int set(int value_){return value=value_;}
-	
+
 	/**
-	 * Sets multiple values for this node.
-	 * This method is not implemented for single-dimensional nodes.
-	 *
-	 * @param values_ Array of values to set
-	 * @return Never returns - throws RuntimeException
-	 * @throws RuntimeException Always thrown as this operation is not supported
+	 * Rejects value-list replacement; 1D nodes cannot hold association lists.
+	 * @throws RuntimeException always, because this node family is scalar-only
 	 */
 	@Override
 	protected int set(int[] values_){
 		throw new RuntimeException("Unimplemented");
 	}
-	
-	/** Gets the number of values stored (0 if value < 1, otherwise 1) */
+
+	/** Gets the number of values stored (0 if {@code value<1}, otherwise 1). */
 	@Override
 	int numValues(){return value<1 ? 0 : 1;}
-	
-	/*--------------------------------------------------------------*/
-	/*----------------       Private Methods        ----------------*/
-	/*--------------------------------------------------------------*/
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------   Resizing and Rebalancing   ----------------*/
 	/*--------------------------------------------------------------*/
-	
-	/** Indicates whether this node type supports resizing (always false) */
+
+	/** This tree node cannot resize a backing array. */
 	@Override
-	boolean canResize() {
+	boolean canResize(){
 		return false;
 	}
-	
-	/** Indicates whether this node type supports rebalancing (always true) */
+
+	/** This tree node can be rebalanced by materializing and rebuilding links. */
 	@Override
-	public boolean canRebalance() {
+	public boolean canRebalance(){
 		return true;
 	}
-	
+
 	/**
-	 * Gets the array length for this node type.
-	 * This method is deprecated and not supported.
-	 *
-	 * @return Never returns - throws RuntimeException
-	 * @throws RuntimeException Always thrown as this operation is not supported
-	 * @deprecated This method is not supported for this node type
+	 * Array length is unsupported for tree nodes.
+	 * @throws RuntimeException always
+	 * @deprecated this node has no backing hash array
 	 */
 	@Deprecated
 	@Override
-	public int arrayLength() {
+	public int arrayLength(){
 		throw new RuntimeException("Unsupported.");
 	}
-	
+
 	/**
-	 * Resizes the node's internal storage.
-	 * This method is deprecated and not supported.
-	 * @throws RuntimeException Always thrown as this operation is not supported
-	 * @deprecated This method is not supported for this node type
+	 * Resize is unsupported for tree nodes.
+	 * @throws RuntimeException always
+	 * @deprecated this node has no backing hash array
 	 */
 	@Deprecated
 	@Override
-	void resize() {
+	void resize(){
 		throw new RuntimeException("Unsupported.");
 	}
-	
+
 	/**
-	 * Rebalances the node structure.
-	 * This method is deprecated - use the ArrayList version instead.
-	 * @throws RuntimeException Always thrown with instruction to use ArrayList version
-	 * @deprecated Use rebalance(ArrayList<KmerNode>) instead
+	 * Parameterless rebalance is unsupported; callers must pass reusable scratch storage.
+	 * @throws RuntimeException always
+	 * @deprecated use the package-private ArrayList overload instead
 	 */
 	@Deprecated
 	@Override
-	public void rebalance() {
+	public void rebalance(){
 		throw new RuntimeException("Please call rebalance(ArrayList<KmerNode>) instead, with an empty list.");
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------         Info Dumping         ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
-	 * Dumps k-mers as bytes to a ByteStreamWriter with filtering by count thresholds.
-	 * Recursively processes left and right child nodes in tree traversal order.
-	 *
-	 * @param bsw The ByteStreamWriter to write k-mer data to
-	 * @param k The k-mer length for output formatting
-	 * @param mincount Minimum count threshold for k-mer inclusion
-	 * @param maxcount Maximum count threshold for k-mer inclusion
-	 * @param remaining Atomic counter for limiting total k-mers dumped
-	 * @return Always returns true
+	 * Emits self/left/right text-byte scalar records using total kbig length {@code k};
+	 * a nonpositive value prunes the whole current subtree, {@code true} may include
+	 * quota early-stop and writer completion is caller-owned.
 	 */
 	@Override
 	public final boolean dumpKmersAsBytes(ByteStreamWriter bsw, int k, int mincount, int maxcount, AtomicLong remaining){
@@ -186,19 +166,13 @@ public class KmerNodeU1D extends KmerNodeU {
 		if(right!=null){right.dumpKmersAsBytes(bsw, k, mincount, maxcount, remaining);}
 		return true;
 	}
-	
+
 	/**
-	 * Multi-threaded version of k-mer dumping using ByteBuilder for buffering.
-	 * Uses synchronized block for thread-safe ByteStreamWriter access and automatic
-	 * buffer flushing when buffer exceeds 16000 bytes.
-	 *
-	 * @param bsw The ByteStreamWriter for final output
-	 * @param bb The ByteBuilder buffer for accumulating k-mer data
-	 * @param k The k-mer length for output formatting
-	 * @param mincount Minimum count threshold for k-mer inclusion
-	 * @param maxcount Maximum count threshold for k-mer inclusion
-	 * @param remaining Atomic counter for limiting total k-mers dumped
-	 * @return Always returns true
+	 * Appends self/left/right text-byte scalar records to the caller-thread-exclusive
+	 * buffer, submitting jobs when it reaches or exceeds 16000 bytes; a nonpositive
+	 * value prunes the whole current subtree, {@code true} may include quota
+	 * early-stop, and final-tail
+	 * submission plus writer completion are caller-owned.
 	 */
 	@Override
 	public final boolean dumpKmersAsBytes_MT(final ByteStreamWriter bsw, final ByteBuilder bb, final int k, final int mincount, int maxcount, AtomicLong remaining){
@@ -217,17 +191,8 @@ public class KmerNodeU1D extends KmerNodeU {
 		if(right!=null){right.dumpKmersAsBytes_MT(bsw, bb, k, mincount, maxcount, remaining);}
 		return true;
 	}
-	
-	/**
-	 * Dumps k-mers as text to a StringBuilder with count filtering.
-	 * Creates StringBuilder if null is passed and recursively processes child nodes.
-	 *
-	 * @param sb The StringBuilder to append k-mer text to (created if null)
-	 * @param k The k-mer length for text conversion
-	 * @param mincount Minimum count threshold for k-mer inclusion
-	 * @param maxcount Maximum count threshold for k-mer inclusion
-	 * @return The StringBuilder containing k-mer text data
-	 */
+
+	/** Appends self/left/right text records, pruning this subtree at nonpositive roots. */
 	@Override
 	protected final StringBuilder dumpKmersAsText(StringBuilder sb, int k, int mincount, int maxcount){
 		if(value<1){return sb;}
@@ -237,17 +202,8 @@ public class KmerNodeU1D extends KmerNodeU {
 		if(right!=null){right.dumpKmersAsText(sb, k, mincount, maxcount);}
 		return sb;
 	}
-	
-	/**
-	 * Dumps k-mers as text to a ByteBuilder with count filtering.
-	 * Creates ByteBuilder if null is passed and recursively processes child nodes.
-	 *
-	 * @param bb The ByteBuilder to append k-mer data to (created if null)
-	 * @param k The k-mer length for text conversion
-	 * @param mincount Minimum count threshold for k-mer inclusion
-	 * @param maxcount Maximum count threshold for k-mer inclusion
-	 * @return The ByteBuilder containing k-mer text data
-	 */
+
+	/** Appends self/left/right text bytes, pruning this subtree at nonpositive roots. */
 	@Override
 	protected final ByteBuilder dumpKmersAsText(ByteBuilder bb, int k, int mincount, int maxcount){
 		if(value<1){return bb;}
@@ -257,19 +213,16 @@ public class KmerNodeU1D extends KmerNodeU {
 		if(right!=null){right.dumpKmersAsText(bb, k, mincount, maxcount);}
 		return bb;
 	}
-	
-	/** Indicates this is not a two-dimensional node (always returns false) */
+
+	/** Indicates this is not a two-dimensional node. */
 	@Override
 	final boolean TWOD(){return false;}
-	
-	/*--------------------------------------------------------------*/
-	/*----------------       Invalid Methods        ----------------*/
-	/*--------------------------------------------------------------*/
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
+	/** Single stored count; values below one mark a logically empty node. */
 	int value;
-	
+
 }

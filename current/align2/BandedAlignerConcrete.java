@@ -585,6 +585,64 @@ public class BandedAlignerConcrete extends BandedAligner{
 		return edits;
 	}
 
+	/** Fixed-span edit distance for saved-overlap validation. Reuses the two band
+	 * rows without copying sequences or changing the ordinary extension kernels.
+	 * On success lastQueryLoc/lastRefLoc are the supplied stops, lastRow counts the
+	 * shorter span minus one, and lastOffset is query-span minus reference-span.
+	 * On failure lastRow and both locations are -1, and lastEdits is above the limit.
+	 * All substitutions and terminal gaps cost one; off-center extension penalties
+	 * do not apply because both ends are fixed and every gap is already charged.
+	 * The band permits abs(consumedQuery-consumedReference)<=min(maxWidth/2,maxEdits).
+	 * Rejection is relative to that band, not a claim of unrestricted distance. */
+	@Override
+	public int alignFixed(final byte[] query, final byte[] ref, final int qstart, final int rstart,
+		final int qstop, final int rstop, final int maxEdits, final boolean exact, final boolean complementQuery){
+		assert(qstart>=0 && qstart<query.length && qstop>=0 && qstop<query.length
+			&& rstart>=0 && rstart<ref.length && rstop>=0 && rstop<ref.length)
+			: "Saved-overlap validation must consume valid inclusive source spans";
+		assert(maxEdits>=0 && maxEdits<big) : "Edit limit must fit the banded DP sentinel: "+maxEdits;
+		lastRow=-1;
+		lastQueryLoc=-1;
+		lastRefLoc=-1;
+		lastOffset=0;
+		lastEdits=maxEdits+1;
+		final int qstep=qstop>=qstart ? 1 : -1, rstep=rstop>=rstart ? 1 : -1;
+		final int qlen=Math.abs(qstop-qstart)+1, rlen=Math.abs(rstop-rstart)+1;
+		final int half=Tools.min(maxWidth/2, maxEdits), center=half+1;
+		if(Math.abs(qlen-rlen)>half){return lastEdits;}
+		int[] prev=array1, curr=array2;
+		Arrays.fill(prev, big);
+		for(int j=0; j<=Tools.min(half, rlen); j++){prev[center+j]=j;}
+		for(int i=1, qi=qstart; i<=qlen; i++, qi+=qstep){
+			Arrays.fill(curr, big);
+			final int from=Tools.max(0, i-half), to=Tools.min(rlen, i+half);
+			final byte q=complementQuery ? AminoAcid.baseToComplementExtended[query[qi]] : query[qi];
+			int minimum=big;
+			for(int j=from; j<=to; j++){
+				final int slot=center+j-i;
+				if(j==0){curr[slot]=i;}
+				else{
+					final byte r=ref[rstart+(j-1)*rstep];
+					final boolean match=q==r || (!exact && (!AminoAcid.isFullyDefined(q) || !AminoAcid.isFullyDefined(r)));
+					curr[slot]=Tools.min(prev[slot]+(match ? 0 : 1), prev[slot+1]+1, curr[slot-1]+1);
+				}
+				minimum=Tools.min(minimum, curr[slot]);
+			}
+			if(minimum>maxEdits){return lastEdits;}
+			final int[] temp=prev;
+			prev=curr;
+			curr=temp;
+		}
+		final int distance=prev[center+rlen-qlen];
+		if(distance>maxEdits){return lastEdits;}
+		lastEdits=distance;
+		lastRow=Tools.min(qlen, rlen)-1;
+		lastOffset=qlen-rlen;
+		lastQueryLoc=qstop;
+		lastRefLoc=rstop;
+		return distance;
+	}
+
 	/** First working array for dynamic programming matrix calculations */
 	private final int[] array1;
 	/** Second working array for dynamic programming matrix calculations */

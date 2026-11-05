@@ -32,15 +32,22 @@ import structures.LongList;
 import tracker.ReadStats;
 import ukmer.Kmer;
 
-
 /**
- * Loads and holds kmers for Tadpole
+ * Loads sharded short-key count tables for assembly and k-mer counting. DNA loading
+ * uses two-bit keys; amino loading uses five-bit symbols with k capped at twelve.
+ * Construction parses configuration and validates filenames but does not allocate
+ * shards or load reads. Processing/allocation lifecycle is inherited from
+ * AbstractKmerTableSet. Helpers for sequence ends, extension counts and ownership
+ * are DNA-specific; several accessors require HashArray1D rather than arbitrary table types.
+ * Configuration mutates shared parser/quality/output settings. Complete loading
+ * before querying or claiming ownership, and exclude structural changes during
+ * traversal. Worker error propagation remains incomplete (KMR011).
  * @author Brian Bushnell
  * @date Jun 22, 2015
  *
  */
-public class KmerTableSet extends AbstractKmerTableSet {
-	
+public class KmerTableSet extends AbstractKmerTableSet{
+
 	/**
 	 * Code entrance from the command line.
 	 * @param args Command line arguments
@@ -52,27 +59,28 @@ public class KmerTableSet extends AbstractKmerTableSet {
 		KmerTableSet set=new KmerTableSet(args);
 		t2.stop();
 		outstream.println("Initialization Time:      \t"+t2);
-		
+
 		///And run it
 		set.process(t);
-		
+
 		//Close the print stream if it was redirected
 		Shared.closeStream(outstream);
 	}
-	
-	
+
 	/**
-	 * Constructor.
+	 * Creates the command-line loader using the default twelve-byte capacity estimate.
 	 * @param args Command line arguments
 	 */
 	private KmerTableSet(String[] args){
 		this(args, 12);//+5 if using ownership and building contigs
 	}
-	
-	
+
 	/**
-	 * Constructor.
-	 * @param args Command line arguments
+	 * Parses options, computes budget estimates and validates input paths without loading.
+	 * Expands a missing filename containing # into mate names; an existing literal
+	 * filename is retained. Extra mate names become separate extra inputs.
+	 * @param args Command line arguments, including shared parser options
+	 * @param bytesPerKmer_ Positive bytes-per-key estimate used for budgeting, not a measured allocation
 	 */
 	public KmerTableSet(String[] args, final int bytesPerKmer_){
 		{//Preparse block for help, config files, and outstream
@@ -80,7 +88,7 @@ public class KmerTableSet extends AbstractKmerTableSet {
 			args=pp.args;
 			outstream=pp.outstream;
 		}//TODO - no easy way to close outstream
-		
+
 		/* Initialize local variables with defaults */
 		Parser parser=new Parser();
 		boolean prealloc_=false;
@@ -98,7 +106,7 @@ public class KmerTableSet extends AbstractKmerTableSet {
 			String[] split=arg.split("=");
 			String a=split[0].toLowerCase();
 			String b=split.length>1 ? split[1] : null;
-			
+
 			if(Parser.parseCommonStatic(arg, a, b)){
 				//do nothing
 			}else if(Parser.parseZip(arg, a, b)){
@@ -209,41 +217,40 @@ public class KmerTableSet extends AbstractKmerTableSet {
 			}else if(a.equals("tabletype")){
 				tableType_=Integer.parseInt(b);
 			}
-			
-			else if(a.equalsIgnoreCase("filterMemoryOverride") || a.equalsIgnoreCase("filterMemory") || 
+
+			else if(a.equalsIgnoreCase("filterMemoryOverride") || a.equalsIgnoreCase("filterMemory") ||
 					a.equalsIgnoreCase("prefilterMemory") || a.equalsIgnoreCase("filtermem")){
 				filterMemoryOverride=Parse.parseKMG(b);
 			}
-			
+
 			else if(IGNORE_UNKNOWN_ARGS){
 				//Do nothing
 			}else{
 				throw new RuntimeException("Unknown parameter "+args[i]);
 			}
 		}
-		
+
 		{//Process parser fields
 			Parser.processQuality();
-			
+
 			qtrimLeft=parser.qtrimLeft;
 			qtrimRight=parser.qtrimRight;
 			trimq=parser.trimq;
 			trimE=parser.trimE();
-			
+
 			minAvgQuality=parser.minAvgQuality;
 			minAvgQualityBases=parser.minAvgQualityBases;
 			amino=Shared.AMINO_IN;
 			if(amino){k_=Tools.min(k_, 12);}
 		}
-		
+
 		if(prepasses==0 || !prefilter){
 			prepasses=0;
 			prefilter=false;
 		}
-		
 
 //		assert(false) : prepasses+", "+onePass+", "+prefilter;
-		
+
 		{
 			long memory=Runtime.getRuntime().maxMemory();
 			double xmsRatio=Shared.xmsRatio();
@@ -278,9 +285,9 @@ public class KmerTableSet extends AbstractKmerTableSet {
 			assert(ways_>0);
 //			System.err.println("ways="+ways_);
 		}
-		
+
 		/* Set final variables; post-process and validate argument combinations */
-		
+
 		onePass=onePass&prefilter;
 		ways=ways_;
 		filterMax=Tools.min(filterMax_, 0x7FFFFFFF);
@@ -290,7 +297,7 @@ public class KmerTableSet extends AbstractKmerTableSet {
 		rcomp=rcomp_;
 //		assert(false) : tableMemory+", "+bytesPerKmer+", "+prealloc+", "+preallocFraction;
 		estimatedKmerCapacity=(long)((tableMemory*1.0/bytesPerKmer)*((prealloc ? preallocFraction : 0.81))*(HashArray.maxLoadFactorFinal*0.97));
-		
+
 //		System.err.println("tableMemory="+tableMemory+", bytesPerKmer="+bytesPerKmer+", estimatedKmerCapacity="+estimatedKmerCapacity);
 		KmerCountAbstract.minProb=(minProbPrefilter ? minProb : 0);
 		k=k_;
@@ -298,12 +305,13 @@ public class KmerTableSet extends AbstractKmerTableSet {
 		int bitsPerBase=(amino ? 5 : 2);
 		int mask=(amino ? 31 : 3);
 		coreMask=(AbstractKmerTableSet.MASK_CORE ? ~(((-1L)<<(bitsPerBase*(k_-1)))|mask) : -1L);
-		
+
 		middleMask=AbstractKmerTableSet.MASK_MIDDLE ? AbstractKmerTable.makeMiddleMask(k, amino) : -1L;
 		cmMask=coreMask&middleMask;
-		
+
 		if(k<1 || k>31){throw new RuntimeException("\nk needs an integer value from 1 to 31, such as k=27.  Default is 31.\n");}
-		
+
+		requestedInitialSize=initialSize;
 		if(initialSize<1){
 			final long memOverWays=tableMemory/(bytesPerKmer*ways);
 			final double mem2=(prealloc ? preallocFraction : 1)*tableMemory;
@@ -312,15 +320,15 @@ public class KmerTableSet extends AbstractKmerTableSet {
 				System.err.println("Initial size set to "+initialSize);
 			}
 		}
-		
+
 		/* Adjust I/O settings and filenames */
-		
+
 		assert(FastaReadInputStream.settingsOK());
-		 
+
 		if(in1.isEmpty()){
 			//throw new RuntimeException("Error - at least one input file is required.");
 		}
-		
+
 		for(int i=0; i<in1.size(); i++){
 			String s=in1.get(i);
 			if(s!=null && s.contains("#") && !new File(s).exists()){
@@ -331,7 +339,7 @@ public class KmerTableSet extends AbstractKmerTableSet {
 				in2.add(a+2+b);
 			}
 		}
-		
+
 		if(!extra.isEmpty()){
 			ArrayList<String> temp=(ArrayList<String>) extra.clone();
 			extra.clear();
@@ -340,21 +348,21 @@ public class KmerTableSet extends AbstractKmerTableSet {
 					int pound=s.lastIndexOf('#');
 					String a=s.substring(0, pound);
 					String b=s.substring(pound+1);
-					extra.add(a);
-					extra.add(b);
+					extra.add(a+1+b);
+					extra.add(a+2+b);
 				}else{
 					extra.add(s);
 				}
 			}
 		}
-		
+
 		{
 			boolean allowDuplicates=true;
 			if(!Tools.testInputFiles(allowDuplicates, true, in1, in2, extra)){
-				throw new RuntimeException("\nCan't read some input files.\n");  
+				throw new RuntimeException("\nCan't read some input files.\n");
 			}
 		}
-		
+
 		if(DISPLAY_PROGRESS){
 //			assert(false);
 			outstream.println("Initial:");
@@ -363,51 +371,70 @@ public class KmerTableSet extends AbstractKmerTableSet {
 			outstream.println();
 		}
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
+	/** Drops the shard reference only; inherited allocation flags/counters are not reset. */
 	@Override
 	public void clear(){
 		tables=null;
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
+	/** Builds a growth schedule and allocates shards; requires no current table array.
+	 * Uses the parsed initial-size request as a schedule lower bound; nonpositive requests
+	 * keep the scheduler default, and preallocation selects its maximum instead.
+	 * Uses the core mask captured for this table set's alphabet; does not load reads. */
 	@Override
 	public void allocateTables(){
 		assert(tables==null);
 		tables=null;
-		final long coreMask=(MASK_CORE ? ~(((-1L)<<(2*(k-1)))|3) : -1L);
-		
-		ScheduleMaker scheduleMaker=new ScheduleMaker(ways, bytesPerKmer, prealloc, 
-				(prealloc ? preallocFraction : 1.0), -1, (prefilter ? prepasses : 0), prefilterFraction, filterMemoryOverride);
+		//KMR015: backend cell geometry uses the table set's captured DNA or amino core mask.
+		final long coreMask=this.coreMask;
+
+		//KMR024: forward the raw request, not the separate fallback computed for reporting.
+		ScheduleMaker scheduleMaker=new ScheduleMaker(ways, bytesPerKmer, prealloc,
+				(prealloc ? preallocFraction : 1.0), requestedInitialSize, (prefilter ? prepasses : 0), prefilterFraction, filterMemoryOverride);
 		int[] schedule=scheduleMaker.makeSchedule();
 		//assert(false) : preallocFraction+", "+ways+", "+Arrays.toString(schedule);
 //		System.err.println("DEBUG "+preallocFraction+", "+ways+", "+Arrays.toString(schedule));
 		tables=AbstractKmerTable.preallocate(ways, tableType, schedule, coreMask);
-		
+
 //		tables=AbstractKmerTable.preallocate(ways, tableType, initialSize, coreMask, (!prealloc || preallocFraction<1));
 	}
-	
+
 	/**
-	 * Load reads into tables, using multiple LoadThread.
+	 * Loads one file or pair through Shared.threads() workers and joins every worker.
+	 * Closes input and propagates recorded startup, worker or join failures before merging counters (KMR011).
+	 * Restores caller interruption after cleanup. Partial table writes are not rolled back or retried.
+	 * Other workers may finish their input; blocked backend reads, writes or close calls must return
+	 * before cleanup can finish. This method does not force cancellation of those operations.
+	 * @return Newly inserted keys reported by worker buffers; not the number of input windows
 	 */
 	@Override
 	public long loadKmers(String fname1, String fname2){
-		
-		/* Create read input stream */
-		final Streamer cris;
-		{
+
+		final int THREADS=Shared.threads();
+		final ArrayList<LoadThread> alpt=new ArrayList<LoadThread>(THREADS);
+		Streamer cris=null;
+		Throwable failure=null;
+		boolean interrupted=false;
+		try{
+			if(Thread.interrupted()){
+				interrupted=true;
+				throw new InterruptedException("Interrupted before loading k-mers");
+			}
+			/* Create read input stream */
 			FileFormat ff1=FileFormat.testInput(fname1, FileFormat.FASTQ, null, true, true);
 			FileFormat ff2=FileFormat.testInput(fname2, FileFormat.FASTQ, null, true, true);
 			cris=StreamerFactory.getReadInputStream(maxReads, false, ff1, ff2, -1);
 			cris.start();
-		}
-		
+
 //		/* Optionally skip the first reads, since initial reads may have lower quality */
 //		if(skipreads>0){
 //			long skipped=0;
@@ -430,28 +457,52 @@ public class KmerTableSet extends AbstractKmerTableSet {
 //			}
 //		}
 
-		final int THREADS=Shared.threads();
-//		System.err.println("Creating "+THREADS+" LoadThreads.");
-		
-		/* Create ProcessThreads */
-		ArrayList<LoadThread> alpt=new ArrayList<LoadThread>(THREADS);
-		for(int i=0; i<THREADS; i++){alpt.add(new LoadThread(cris));}
-		for(LoadThread pt : alpt){pt.start();}
-		
-		long added=0;
-		
-		/* Wait for threads to die, and gather statistics */
-		for(LoadThread pt : alpt){
-			while(pt.getState()!=Thread.State.TERMINATED){
-				try {
-					pt.join();
-				} catch (InterruptedException e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
+			/* Construct before starting; cleanup also handles a partially started list. */
+			for(int i=0; i<THREADS; i++){alpt.add(new LoadThread(cris));}
+			for(LoadThread pt : alpt){pt.start();}
+		}catch(Throwable t){
+			failure=t;
+		}finally{
+			/* NEW workers never started; terminated workers have published their failure. */
+			for(LoadThread pt : alpt){
+				while(pt.isAlive()){
+					try{
+						pt.join();
+					}catch(InterruptedException e){
+						interrupted=true;
+						if(failure==null){failure=e;}
+					}
 				}
+				if(failure==null){failure=pt.failure;}
 			}
+			if(Thread.interrupted()){
+				interrupted=true;
+				if(failure==null){failure=new InterruptedException("Interrupted while loading k-mers");}
+			}
+			try{
+				if(cris!=null){errorState|=ReadWrite.closeStreams(cris);}
+			}catch(Throwable t){
+				if(failure==null){failure=t;}
+			}finally{
+				if(Thread.interrupted()){
+					interrupted=true;
+					if(failure==null){failure=new InterruptedException("Interrupted while loading k-mers");}
+				}
+				if(failure!=null){errorState=true;}
+				if(interrupted){Thread.currentThread().interrupt();}
+			}
+		}
+		if(failure!=null){
+			if(failure instanceof Error){throw (Error)failure;}
+			if(failure instanceof RuntimeException){throw (RuntimeException)failure;}
+			throw new RuntimeException("Failed to load k-mers", failure);
+		}
+
+		/* No recorded failure may reach the counter reduction. Stream error flags remain in errorState. */
+		long added=0;
+		for(LoadThread pt : alpt){
 			added+=pt.added;
-			
+
 			readsIn+=pt.readsInT;
 			basesIn+=pt.basesInT;
 			lowqReads+=pt.lowqReadsT;
@@ -460,136 +511,141 @@ public class KmerTableSet extends AbstractKmerTableSet {
 			basesTrimmed+=pt.basesTrimmedT;
 			kmersIn+=pt.kmersInT;
 		}
-		
-		/* Shut down I/O streams; capture error status */
-		errorState|=ReadWrite.closeStreams(cris);
+
 		return added;
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------         Inner Classes        ----------------*/
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Loads kmers.
+	 * Consumes shared input batches, preprocesses mates and counts into a private HashBuffer.
+	 * Flushes on normal completion and records any failure, including the final flush, for the coordinator.
 	 */
 	private class LoadThread extends Thread{
-		
+
 		/**
 		 * Constructor
-		 * @param cris_ Read input stream
+		 * @param cris_ Started shared input stream; coordinator owns closure after all workers terminate
 		 */
 		public LoadThread(Streamer cris_){
 			cris=cris_;
-			table=new HashBuffer(tables, buflen, k, false, true);
+			table=new HashBuffer(tables, buflen, k, false, true, KmerTableSet.this.amino);
 			//TODO: handle MASK_MIDDLE in this thread.
 		}
-		
+
+		/** Processes batches and final flush, recording failure for the coordinator after termination.
+		 * Read counters include individual mates. */
 		@Override
 		public void run(){
-			ListNum<Read> ln=cris.nextList();
-			ArrayList<Read> reads=(ln!=null ? ln.list : null);
-			
-			//While there are more reads lists...
-			while(ln!=null && reads!=null){//ln!=null prevents a compiler potential null access warning
-				
-				//For each read (or pair) in the list...
-				for(int i=0; i<reads.size(); i++){
-					Read r1=reads.get(i);
-					Read r2=r1.mate;
-					
-					if(!r1.validated()){r1.validate(true);}
-					if(r2!=null && !r2.validated()){r2.validate(true);}
-					
-					if(verbose){System.err.println("Considering read "+r1.id+" "+new String(r1.bases));}
-					
-					readsInT++;
-					basesInT+=r1.length();
-					if(r2!=null){
-						readsInT++;
-						basesInT+=r2.length();
-					}
-					
-					if(maxNs<Integer.MAX_VALUE){
-						if(r1!=null && r1.countUndefined()>maxNs){r1.setDiscarded(true);}
-						if(r2!=null && r2.countUndefined()>maxNs){r2.setDiscarded(true);}
-					}
-					
-					//Determine whether to discard the reads based on average quality
-					if(minAvgQuality>0){
-						if(r1!=null && r1.quality!=null && r1.avgQuality(false, minAvgQualityBases)<minAvgQuality){r1.setDiscarded(true);}
-						if(r2!=null && r2.quality!=null && r2.avgQuality(false, minAvgQualityBases)<minAvgQuality){r2.setDiscarded(true);}
-					}
-					
-					if(r1!=null){
-						if(qtrimLeft || qtrimRight){
-							int x=TrimRead.trimFast(r1, qtrimLeft, qtrimRight, trimq, trimE, 1, false);
-							basesTrimmedT+=x;
-							readsTrimmedT+=(x>0 ? 1 : 0);
-						}
-						if(r1.length()<k){r1.setDiscarded(true);}
-					}
-					if(r2!=null){
-						if(qtrimLeft || qtrimRight){
-							int x=TrimRead.trimFast(r2, qtrimLeft, qtrimRight, trimq, trimE, 1, false);
-							basesTrimmedT+=x;
-							readsTrimmedT+=(x>0 ? 1 : 0);
-						}
-						if(r2.length()<k){r2.setDiscarded(true);}
-					}
-					
-					if((ecco || merge) && r1!=null && r2!=null && !r1.discarded() && !r2.discarded()){
-						if(merge){
-							final int insert=BBMerge.findOverlapStrict(r1, r2, false);
-							if(insert>0){
-								r2.reverseComplementFast();
-								r1=r1.joinRead(insert);
-								r2=null;
-							}
-						}else if(ecco){
-							BBMerge.findOverlapStrict(r1, r2, true);
-						}
-					}
-					
-					if(minLen>0){
-						if(r1!=null && r1.length()<minLen){r1.setDiscarded(true);}
-						if(r2!=null && r2.length()<minLen){r2.setDiscarded(true);}
-					}
+			try{
+				ListNum<Read> ln=cris.nextList();
+				ArrayList<Read> reads=(ln!=null ? ln.list : null);
 
-					if(r1!=null){
-						if(r1.discarded()){
-							lowqBasesT+=r1.length();
-							lowqReadsT++;
-						}else{
-							long temp=addKmersToTable(r1);
-							added+=temp;
-							if(verbose){System.err.println("A: Added "+temp);}
+				//While there are more reads lists...
+				while(ln!=null && reads!=null){//ln!=null prevents a compiler potential null access warning
+
+					//For each read (or pair) in the list...
+					for(int i=0; i<reads.size(); i++){
+						Read r1=reads.get(i);
+						Read r2=r1.mate;
+
+						if(!r1.validated()){r1.validate(true);}
+						if(r2!=null && !r2.validated()){r2.validate(true);}
+
+						if(verbose){System.err.println("Considering read "+r1.id+" "+new String(r1.bases));}
+
+						readsInT++;
+						basesInT+=r1.length();
+						if(r2!=null){
+							readsInT++;
+							basesInT+=r2.length();
+						}
+
+						if(maxNs<Integer.MAX_VALUE){
+							if(r1!=null && r1.countUndefined()>maxNs){r1.setDiscarded(true);}
+							if(r2!=null && r2.countUndefined()>maxNs){r2.setDiscarded(true);}
+						}
+
+						//Determine whether to discard the reads based on average quality
+						if(minAvgQuality>0){
+							if(r1!=null && r1.quality!=null && r1.avgQuality(false, minAvgQualityBases)<minAvgQuality){r1.setDiscarded(true);}
+							if(r2!=null && r2.quality!=null && r2.avgQuality(false, minAvgQualityBases)<minAvgQuality){r2.setDiscarded(true);}
+						}
+
+						if(r1!=null){
+							if(qtrimLeft || qtrimRight){
+								int x=TrimRead.trimFast(r1, qtrimLeft, qtrimRight, trimq, trimE, 1, false);
+								basesTrimmedT+=x;
+								readsTrimmedT+=(x>0 ? 1 : 0);
+							}
+							if(r1.length()<k){r1.setDiscarded(true);}
+						}
+						if(r2!=null){
+							if(qtrimLeft || qtrimRight){
+								int x=TrimRead.trimFast(r2, qtrimLeft, qtrimRight, trimq, trimE, 1, false);
+								basesTrimmedT+=x;
+								readsTrimmedT+=(x>0 ? 1 : 0);
+							}
+							if(r2.length()<k){r2.setDiscarded(true);}
+						}
+
+						if((ecco || merge) && r1!=null && r2!=null && !r1.discarded() && !r2.discarded()){
+							if(merge){
+								final int insert=BBMerge.findOverlapStrict(r1, r2, false);
+								if(insert>0){
+									r2.reverseComplementFast();
+									r1=r1.joinRead(insert);
+									r2=null;
+								}
+							}else if(ecco){
+								BBMerge.findOverlapStrict(r1, r2, true);
+							}
+						}
+
+						if(minLen>0){
+							if(r1!=null && r1.length()<minLen){r1.setDiscarded(true);}
+							if(r2!=null && r2.length()<minLen){r2.setDiscarded(true);}
+						}
+
+						if(r1!=null){
+							if(r1.discarded()){
+								lowqBasesT+=r1.length();
+								lowqReadsT++;
+							}else{
+								long temp=addKmersToTable(r1);
+								added+=temp;
+								if(verbose){System.err.println("A: Added "+temp);}
+							}
+						}
+						if(r2!=null){
+							if(r2.discarded()){
+								lowqBasesT+=r2.length();
+								lowqReadsT++;
+							}else{
+								long temp=addKmersToTable(r2);
+								added+=temp;
+								if(verbose){System.err.println("B: Added "+temp);}
+							}
 						}
 					}
-					if(r2!=null){
-						if(r2.discarded()){
-							lowqBasesT+=r2.length();
-							lowqReadsT++;
-						}else{
-							long temp=addKmersToTable(r2);
-							added+=temp;
-							if(verbose){System.err.println("B: Added "+temp);}
-						}
-					}
+					ln=cris.nextList();
+					reads=(ln!=null ? ln.list : null);
 				}
-				ln=cris.nextList();
-				reads=(ln!=null ? ln.list : null);
+				long temp=table.flush();
+				if(verbose){System.err.println("Flush: Added "+temp);}
+				added+=temp;
+			}catch(Throwable t){
+				failure=t;
 			}
-			long temp=table.flush();
-			if(verbose){System.err.println("Flush: Added "+temp);}
-			added+=temp;
 		}
-		
+
 		/**
 		 * Adds amino acid k-mers from a read to the hash tables.
 		 * Handles protein sequences with 5-bit encoding per amino acid.
 		 * @param r Read containing amino acid sequence
-		 * @return Number of k-mers successfully added
+		 * @return New keys reported by the buffer; zero for null data, -1 for a sequence shorter than k
 		 */
 		private final int addKmersToTableAA(final Read r){
 			if(r==null || r.bases==null){return 0;}
@@ -601,9 +657,9 @@ public class KmerTableSet extends AbstractKmerTableSet {
 			long kmer=0;
 			int created=0;
 			int len=0;
-			
+
 			if(bases==null || bases.length<k){return -1;}
-			
+
 			/* Loop through the bases, maintaining a forward and reverse kmer via bitshifts */
 			float prob=1;
 			for(int i=0; i<bases.length; i++){
@@ -639,15 +695,15 @@ public class KmerTableSet extends AbstractKmerTableSet {
 					}
 				}
 			}
-			
+
 			return created;
 		}
-		
+
 		/**
 		 * Adds DNA k-mers from a read to the hash tables.
 		 * Dispatches to appropriate method based on processing mode (amino/onePass/normal).
 		 * @param r Read containing DNA sequence
-		 * @return Number of k-mers successfully added
+		 * @return New keys reported by the buffer; zero for null data, -1 for a sequence shorter than k
 		 */
 		private final int addKmersToTable(final Read r){
 			if(amino){return addKmersToTableAA(r);}
@@ -663,9 +719,9 @@ public class KmerTableSet extends AbstractKmerTableSet {
 			long rkmer=0;
 			int created=0;
 			int len=0;
-			
+
 			if(bases==null || bases.length<k){return -1;}
-			
+
 			/* Loop through the bases, maintaining a forward and reverse kmer via bitshifts */
 			float prob=1;
 			for(int i=0; i<bases.length; i++){
@@ -703,22 +759,25 @@ public class KmerTableSet extends AbstractKmerTableSet {
 					}
 				}
 			}
-			
+
 			return created;
 		}
-		
-		
+
 		/**
 		 * Adds k-mers using single-pass prefiltering mode.
-		 * Updates prefilter array and adds k-mers that exceed threshold simultaneously.
+		 * Prefilter support and main-table counting obey independent probability flags.
+		 * Counts main-quality-accepted input k-mers before rejecting insufficient depth.
 		 * @param r Read to process
-		 * @return Number of k-mers successfully added to main tables
+		 * @return Number of new main-table keys, or -1 for a read shorter than k
 		 */
 		private final int addKmersToTable_onePass(final Read r){
 			assert(prefilter);
 			if(r==null || r.bases==null){return 0;}
 			final byte[] bases=r.bases;
 			final byte[] quals=r.quality;
+			//As in the normal loader, use one configured probability policy throughout this read.
+			final boolean checkFilter=minProbPrefilter, checkMain=minProbMain;
+			final boolean updateProb=minProb>0 && (checkFilter || checkMain) && quals!=null;
 			final int shift=2*k;
 			final int shift2=shift-2;
 			final long mask=(shift>63 ? -1L : ~((-1L)<<shift));
@@ -728,7 +787,7 @@ public class KmerTableSet extends AbstractKmerTableSet {
 			int len=0;
 
 			if(bases==null || bases.length<k){return -1;}
-			
+
 			/* Loop through the bases, maintaining a forward and reverse kmer via bitshifts */
 			float prob=1;
 			for(int i=0; i<bases.length; i++){
@@ -740,7 +799,7 @@ public class KmerTableSet extends AbstractKmerTableSet {
 				kmer=((kmer<<2)|x)&mask;
 				rkmer=((rkmer>>>2)|(x2<<shift2))&mask;
 
-				if(minProb>0 && quals!=null){//Update probability
+				if(updateProb){//Update probability
 					prob=prob*PROB_CORRECT[quals[i]];
 					if(len>=k){
 						byte oldq=quals[i-k];
@@ -756,61 +815,72 @@ public class KmerTableSet extends AbstractKmerTableSet {
 				}else{len++;}
 
 				if(verbose){System.err.println("Scanning i="+i+", len="+len+", kmer="+kmer+", rkmer="+rkmer+"\t"+new String(bases, Tools.max(0, i-k2), Tools.min(i+1, k)));}
-				//TODO: Possible bug [kmer/KmerTableSet#002] - onePass computes prob (above) but does NOT gate on prob>=minProb here, unlike addKmersToTable (len>=k && prob>=minProb2). minprob silently ignored in onePass, or prob computation is vestigial. QUESTION - verify intent.
 				if(len>=k){
+					final boolean filterAccepted=(!checkFilter || prob>=minProb);
+					final boolean mainAccepted=(!checkMain || prob>=minProb);
+					if(!filterAccepted && !mainAccepted){continue;}
 					final long key=toValue(kmer, rkmer);
-					int count=prefilterArray.incrementAndReturnUnincremented(key, 1);
-					if(count>=filterMax2){
-						int temp=table.incrementAndReturnNumCreated(key, 1);
-						created+=temp;
-						if(verbose){System.err.println("D: Added "+temp);}
+					//Increment returns old support; a skipped increment must already exceed the threshold.
+					final boolean supported=(filterAccepted ?
+						prefilterArray.incrementAndReturnUnincremented(key, 1)>=filterMax2 :
+						prefilterArray.read(key)>filterMax2);
+					if(mainAccepted){
+						kmersInT++;
+						if(supported){
+							int temp=table.incrementAndReturnNumCreated(key, 1);
+							created+=temp;
+							if(verbose){System.err.println("D: Added "+temp);}
+						}
 					}
 				}
 			}
 			return created;
 		}
-		
+
 		/*--------------------------------------------------------------*/
-		
+
 		/** Input read stream */
 		private final Streamer cris;
-		
+
 		/** Hash buffer for distributing k-mers across tables */
 		private final HashBuffer table;
-		
-		/** Total number of k-mers added by this thread */
+
+		/** Written by this worker; read only after the coordinator observes its termination. */
+		private Throwable failure;
+
+		/** Newly created table keys reported by this worker, including its final buffer flush. */
 		public long added=0;
-		
+
 		/** Number of reads processed by this thread */
 		private long readsInT=0;
 		/** Total bases processed by this thread */
 		private long basesInT=0;
-		/** Number of low-quality reads discarded by this thread */
+		/** Individual reads discarded for any configured quality/length/undefined-base reason. */
 		private long lowqReadsT=0;
-		/** Total bases in low-quality reads discarded by this thread */
+		/** Post-trimming bases in discarded individual reads. */
 		private long lowqBasesT=0;
 		/** Number of reads that were quality trimmed by this thread */
 		private long readsTrimmedT=0;
 		/** Total bases removed by quality trimming in this thread */
 		private long basesTrimmedT=0;
-		/** Total k-mers processed (before filtering) by this thread */
+		/** Valid main-quality-accepted windows before prefilter-depth rejection, including repeats. */
 		private long kmersInT=0;
-		
+
 	}
-	
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------          Convenience         ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
-	 * Regenerates k-mers and their counts from sequence bases starting at position a.
-	 * Updates the provided lists with new k-mer values and corresponding counts.
+	 * Recomputes the next at-most-k forward DNA windows after an existing window at a.
+	 * Uses kmers[a] as the seed, leaves that entry unchanged and updates both lists
+	 * through min(counts.size-1,a+k). Undefined windows become key -1/count zero.
 	 *
 	 * @param bases Sequence bases
 	 * @param kmers List to store generated k-mers
 	 * @param counts List to store k-mer counts
-	 * @param a Starting position in the sequence
+	 * @param a Valid start index of the seed k-mer in already populated lists
 	 */
 	public void regenerateKmers(byte[] bases, LongList kmers, IntList counts, final int a){
 		final int loc=a+k;
@@ -821,9 +891,9 @@ public class KmerTableSet extends AbstractKmerTableSet {
 		long kmer=kmers.get(a);
 		long rkmer=rcomp(kmer);
 		int len=k;
-		
+
 //		assert(false) : a+", "+loc+", "+lim;
-		
+
 		/* Loop through the bases, maintaining a forward and reverse kmer via bitshifts */
 		for(int i=loc, j=a+1; j<lim; i++, j++){
 			final byte b=bases[i];
@@ -835,7 +905,7 @@ public class KmerTableSet extends AbstractKmerTableSet {
 				len=0;
 				kmer=rkmer=0;
 			}else{len++;}
-			
+
 			if(len>=k){
 				assert(kmers.get(j)!=kmer);
 				kmers.set(j, kmer);
@@ -847,7 +917,10 @@ public class KmerTableSet extends AbstractKmerTableSet {
 			}
 		}
 	}
-	
+
+	/** Recomputes DNA counts overlapping the nonempty changed-base bitset.
+	 * Keeps unaffected entries; invalid windows become zero. dummy is unused.
+	 * @return Number of valid recomputed windows, not total count-list length */
 	@Override
 	public int regenerateCounts(byte[] bases, IntList counts, final Kmer dummy, BitSet changed){
 		assert(!changed.isEmpty());
@@ -857,30 +930,30 @@ public class KmerTableSet extends AbstractKmerTableSet {
 		final int firstCount=Tools.max(firstBase-k+1, 0), lastCount=Tools.min(counts.size-1, lastBase); //count limit
 //		System.err.println("ca="+ca+", b="+b+", lim="+lim);
 //		System.err.println("Regen from count "+(ca+1)+"-"+lim);
-		
+
 		final int shift=2*k;
 		final int shift2=shift-2;
 		final long mask=(shift>63 ? -1L : ~((-1L)<<shift));
 		long kmer=0, rkmer=0;
 		int len=0;
 		int valid=0;
-		
+
 //		System.err.println("ca="+ca+", b="+b+", lim="+lim+", "+counts);
-		
+
 		for(int i=Tools.max(0, firstBase-k+1), lim=Tools.min(lastBase+k-1, bases.length-1); i<=lim; i++){
 			final byte base=bases[i];
 			final long x=AminoAcid.baseToNumber[base];
 			final long x2=AminoAcid.baseToComplementNumber[base];
 			kmer=((kmer<<2)|x)&mask;
 			rkmer=((rkmer>>>2)|(x2<<shift2))&mask;
-			
+
 			if(x<0){
 				len=0;
 				kmer=rkmer=0;
 			}else{
 				len++;
 			}
-			
+
 			final int c=i-k+1;
 			if(i>=firstBase){
 				if(len>=k){
@@ -892,10 +965,13 @@ public class KmerTableSet extends AbstractKmerTableSet {
 				}
 			}
 		}
-		
+
 		return valid;
 	}
-	
+
+	/** Clears/refills DNA counts through the last selected window (all windows if positions is null).
+	 * Unselected or invalid windows become zero; absent keys are clamped to zero.
+	 * @return Number of valid selected windows; dummy is unused */
 	@Override
 	public int fillSpecificCounts(byte[] bases, IntList counts, BitSet positions, final Kmer dummy){
 		final int b=k-1;
@@ -906,23 +982,23 @@ public class KmerTableSet extends AbstractKmerTableSet {
 		long kmer=0, rkmer=0;
 		int len=0;
 		int valid=0;
-		
+
 		counts.clear();
-		
+
 		for(int i=0, j=-b; i<lim; i++, j++){
 			final byte base=bases[i];
 			final long x=AminoAcid.baseToNumber[base];
 			final long x2=AminoAcid.baseToComplementNumber[base];
 			kmer=((kmer<<2)|x)&mask;
 			rkmer=((rkmer>>>2)|(x2<<shift2))&mask;
-			
+
 			if(x<0){
 				len=0;
 				kmer=rkmer=0;
 			}else{
 				len++;
 			}
-			
+
 			if(j>=0){
 				if(len>=k && (positions==null || positions.get(j))){
 					valid++;
@@ -940,17 +1016,17 @@ public class KmerTableSet extends AbstractKmerTableSet {
 
 //		assert((counts.size==0 && bases.length<k) || counts.size==bases.length-k+1) : bases.length+", "+k+", "+counts.size;
 		assert((counts.size==0 && bases.length<k) || counts.size==lim-k+1) : bases.length+", "+k+", "+counts.size;
-		
+
 		return valid;
 	}
-	
+
 	/**
 	 * Regenerates counts for k-mers in a specific region around position ca.
 	 * Updates existing counts list without changing its size.
 	 *
 	 * @param bases Sequence bases
 	 * @param counts List to update with new counts
-	 * @param ca Central position for regeneration window
+	 * @param ca First k-mer start index to recompute; nonnegative with existing count storage
 	 * @return Number of valid k-mers processed
 	 */
 	public int regenerateCounts(byte[] bases, IntList counts, final int ca){
@@ -962,9 +1038,9 @@ public class KmerTableSet extends AbstractKmerTableSet {
 		long kmer=0, rkmer=0;
 		int len=0;
 		int valid=0;
-		
+
 		final int clen=counts.size;
-		
+
 		/* Loop through the bases, maintaining a forward and reverse kmer via bitshifts.
 		 * i is an index in the base array, j is an index in the count array. */
 		for(int i=b-k+1; i<lim; i++){
@@ -973,14 +1049,14 @@ public class KmerTableSet extends AbstractKmerTableSet {
 			final long x2=AminoAcid.baseToComplementNumber[base];
 			kmer=((kmer<<2)|x)&mask;
 			rkmer=((rkmer>>>2)|(x2<<shift2))&mask;
-			
+
 			if(x<0){
 				len=0;
 				kmer=rkmer=0;
 			}else{
 				len++;
 			}
-			
+
 			if(i>=b){
 				if(len>=k){
 					valid++;
@@ -994,14 +1070,17 @@ public class KmerTableSet extends AbstractKmerTableSet {
 
 		assert((counts.size==0 && bases.length<k) || counts.size==bases.length-k+1) : bases.length+", "+k+", "+counts.size;
 		assert(clen==counts.size);
-		
+
 		return valid;
 	}
-	
-	/** Returns number of valid kmers */
+
+	/** Fills forward DNA windows and -1 invalid markers, returning the valid-window count.
+	 * Replaces the destination's logical contents; input shorter than k leaves it empty.
+	 * Unused backing-array entries are retained. */
 	public int fillKmers(byte[] bases, LongList kmers){
 		final int blen=bases.length;
-		if(blen<k){return 0;}
+		//KMR010: even a short input replaces the previous logical window list.
+		if(blen<k){kmers.clear(); return 0;}
 		final int min=k-1;
 		final int shift=2*k;
 		final long mask=(shift>63 ? -1L : ~((-1L)<<shift));
@@ -1032,10 +1111,11 @@ public class KmerTableSet extends AbstractKmerTableSet {
 		}
 		return valid;
 	}
-	
+
 	/**
 	 * Retrieves counts for each k-mer in the input list, considering reverse complements.
-	 * Populates counts list with corresponding frequency values.
+	 * Clears and refills counts; invalid negative keys yield zero. Absent nonnegative
+	 * keys retain the selected table's absence sentinel instead of being clamped.
 	 * @param kmers List of k-mers to query
 	 * @param counts List to populate with k-mer counts
 	 */
@@ -1052,12 +1132,12 @@ public class KmerTableSet extends AbstractKmerTableSet {
 			}
 		}
 	}
-	
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Helper Methods        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
+	/** Delegates threshold removal to each shard and sums removals; caller clears ownership first. */
 	@Override
 	public long regenerate(final int limit){
 		long sum=0;
@@ -1071,43 +1151,48 @@ public class KmerTableSet extends AbstractKmerTableSet {
 	 * Returns the specific table that should contain the given k-mer key.
 	 * Uses hash distribution to determine the appropriate table index.
 	 * @param key K-mer key value
-	 * @return HashArray1D table containing this key
+	 * @return The assigned HashArray1D shard; the key need not be present
+	 * @throws ClassCastException If a different table family was configured
 	 */
 	public HashArray1D getTableForKey(long key){
 		return (HashArray1D) tables[kmerToWay(key)];
 	}
-	
+
+	/** Returns the indexed live shard cast to HashArray1D; requires that configured family. */
 	@Override
 	public HashArray1D getTable(int tnum){
 		return (HashArray1D) tables[tnum];
 	}
-	
+
+	/** Builds the count histogram through HistogramMaker, including its worker-error handling. */
 	@Override
-	public long[] fillHistogram(int histMax) {
+	public long[] fillHistogram(int histMax){
 		return HistogramMaker.fillHistogram(tables, histMax);
 	}
-	
+
+	/** Initializes shard ownership through joined workers after loading; caller excludes mutation. */
 	@Override
 	public void initializeOwnership(){
 		OwnershipThread.initialize(tables);
 	}
-	
+
+	/** Clears shard ownership through joined workers; caller excludes concurrent claims. */
 	@Override
 	public void clearOwnership(){
 		OwnershipThread.clear(tables);
 	}
-	
+
 	/**
-	 * Generates frequency histogram of k-mer counts across all tables.
-	 * @param histMax Maximum count value for histogram bins
-	 * @return Array where index represents count and value represents frequency
+	 * Extracts the forward k-mer from the final k bases of a sequence buffer.
+	 * @param bb Sequence buffer; only its logical length is examined
+	 * @return Forward k-mer, or -1 if the sequence is too short or its suffix is undefined
 	 */
 	public long rightmostKmer(final ByteBuilder bb){
 		return rightmostKmer(bb.array, bb.length());
 	}
-	
+
 	/**
-	 * Extracts the rightmost valid k-mer from a sequence array.
+	 * Encodes the final k bases of the logical DNA sequence, without scanning earlier windows.
 	 * Processes the last k bases to generate the terminal k-mer.
 	 *
 	 * @param bases Sequence bases
@@ -1138,23 +1223,23 @@ public class KmerTableSet extends AbstractKmerTableSet {
 				if(verbose){outstream.println("Scanning i="+i+", len="+len+", kmer="+kmer+", rkmer="+rkmer+"\t"+new String(bases, Tools.max(0, i-k2), Tools.min(i+1, k)));}
 			}
 		}
-		
+
 		if(len<k){return -1;}
 		else{assert(len==k);}
 		return kmer;
 	}
-	
+
 	/**
-	 * Extracts the leftmost valid k-mer from a ByteBuilder sequence.
+	 * Encodes the first k bases of the logical DNA buffer, without scanning later windows.
 	 * @param bb ByteBuilder containing sequence data
 	 * @return Leftmost k-mer value, or -1 if no valid k-mer found
 	 */
 	public long leftmostKmer(final ByteBuilder bb){
 		return leftmostKmer(bb.array, bb.length());
 	}
-	
+
 	/**
-	 * Extracts the leftmost valid k-mer from a sequence array.
+	 * Encodes the first k bases of the logical DNA sequence, without scanning later windows.
 	 * Processes the first k bases to generate the initial k-mer.
 	 *
 	 * @param bases Sequence bases
@@ -1185,12 +1270,12 @@ public class KmerTableSet extends AbstractKmerTableSet {
 				if(verbose){outstream.println("Scanning i="+i+", len="+len+", kmer="+kmer+", rkmer="+rkmer+"\t"+new String(bases, Tools.max(0, i-k2), Tools.min(i+1, k)));}
 			}
 		}
-		
+
 		if(len<k){return -1;}
 		else{assert(len==k);}
 		return kmer;
 	}
-	
+
 	/**
 	 * Attempts to claim ownership of all k-mers in sequence twice with different IDs.
 	 * @param bb ByteBuilder containing sequence data
@@ -1200,8 +1285,9 @@ public class KmerTableSet extends AbstractKmerTableSet {
 	public boolean doubleClaim(final ByteBuilder bb, final int id){
 		return doubleClaim(bb.array, bb.length(), id);
 	}
-	
-	/** Ensures there can be only one owner. */
+
+	/** Makes two best-effort claim passes, first with id then id+CLAIM_OFFSET.
+	 * Failure leaves earlier claims intact; this is not an atomic whole-sequence claim. */
 	public boolean doubleClaim(final byte[] bases, final int blength, final int id){
 		boolean success=claim(bases, blength, id, true);
 		if(verbose){outstream.println("success1="+success+", id="+id+", blength="+blength);}
@@ -1210,7 +1296,7 @@ public class KmerTableSet extends AbstractKmerTableSet {
 		if(verbose){outstream.println("success2="+success+", id="+id+", blength="+blength);}
 		return success;
 	}
-	
+
 	/**
 	 * Attempts to claim ownership of all k-mers in the ByteBuilder sequence.
 	 *
@@ -1222,10 +1308,11 @@ public class KmerTableSet extends AbstractKmerTableSet {
 	public boolean claim(final ByteBuilder bb, final int id, final boolean exitEarly){
 		return claim(bb.array, bb.length(), id, exitEarly);
 	}
-	
+
 	/**
-	 * Calculates average k-mer coverage for the given sequence.
-	 * Sums all k-mer counts and divides by number of valid k-mers.
+	 * Calculates average k-mer coverage for the requested sequence prefix.
+	 * Absent k-mers contribute zero and remain in the valid-window denominator.
+	 * Windows containing undefined bases are skipped; the input is unchanged.
 	 *
 	 * @param bases Sequence bases
 	 * @param blength Length of sequence to analyze
@@ -1239,7 +1326,7 @@ public class KmerTableSet extends AbstractKmerTableSet {
 		int len=0;
 		long sum=0, max=0;
 		int kmers=0;
-		
+
 		/* Loop through the bases, maintaining a forward and reverse kmer via bitshifts */
 		for(int i=0; i<blength; i++){
 			final byte b=bases[i];
@@ -1252,7 +1339,9 @@ public class KmerTableSet extends AbstractKmerTableSet {
 				kmer=rkmer=0;
 			}else{len++;}
 			if(len>=k){
-				int count=getCount(kmer, rkmer);
+				final int rawCount=getCount(kmer, rkmer);
+				//Signed shift makes the mask zero for negative counts, all ones otherwise.
+				final int count=rawCount&~(rawCount>>31);
 				sum+=count;
 				max=Tools.max(count, max);
 				kmers++;
@@ -1260,12 +1349,15 @@ public class KmerTableSet extends AbstractKmerTableSet {
 		}
 		return sum==0 ? 0 : sum/(float)kmers;
 	}
-	
+
 	/**
 	 * Calculates k-mer coverage statistics for a contig sequence.
-	 * Updates the contig's coverage, maxCov, and minCov fields.
+	 * Updates coverage/maxCov/minCov unless the contig is shorter than k (early return).
+	 * Absent k-mers contribute zero and remain in the valid-window denominator.
+	 * Windows containing undefined bases are skipped. For contigs of at least k bases,
+	 * no valid windows means all three statistics are zero. The base array is unchanged.
 	 * @param contig Contig object to analyze and update
-	 * @return Average k-mer coverage for the contig
+	 * @return Average coverage, or zero if no valid k-mers or the contig is shorter than k
 	 */
 	public float calcCoverage(final Contig contig){
 		final byte[] bases=contig.bases;
@@ -1278,7 +1370,7 @@ public class KmerTableSet extends AbstractKmerTableSet {
 		long sum=0;
 		int max=0, min=Integer.MAX_VALUE;
 		int kmers=0;
-		
+
 		/* Loop through the bases, maintaining a forward and reverse kmer via bitshifts */
 		for(int i=0; i<bases.length; i++){
 			final byte b=bases[i];
@@ -1291,12 +1383,10 @@ public class KmerTableSet extends AbstractKmerTableSet {
 				kmer=rkmer=0;
 			}else{len++;}
 			if(len>=k){
-				//TODO: Possible bug [kmer/KmerTableSet#003] - getCount returns NOT_PRESENT(-1) for an absent kmer, but this
-				//is summed/min'd UNCLAMPED, unlike every sibling count-consumer (fillSpecificCounts:~932, fillRightCounts_safe:~1648,
-				//fillLeftCounts_safe:~1814) which all use Tools.max(count,0). An absent contig kmer would drag sum down and set
-				//minCov=-1. MASKED if contigs only ever contain present kmers (true in normal assembly-from-this-table). Lone
-				//divergence from the clamp pattern. QUESTION for Brian: can a contig reach here with an absent kmer? If so, clamp.
-				int count=getCount(kmer, rkmer);
+				//KMR022 [kmer/KmerTableSet#003]: absent keys have zero coverage, not the lookup sentinel -1.
+				final int rawCount=getCount(kmer, rkmer);
+				//Signed shift makes the mask zero for negative counts, all ones otherwise.
+				final int count=rawCount&~(rawCount>>31);
 				sum+=count;
 				max=Tools.max(count, max);
 				min=Tools.min(count, min);
@@ -1308,10 +1398,11 @@ public class KmerTableSet extends AbstractKmerTableSet {
 		contig.minCov=sum==0 ? 0 : min;
 		return contig.coverage;
 	}
-	
+
 	/**
 	 * Attempts to claim ownership of all k-mers in the sequence for the given thread ID.
-	 * Can exit early on first failure or continue through all k-mers.
+	 * With exitEarly=true, stops at the first conflicting owner without rollback.
+	 * With exitEarly=false, visits every valid window and returns true even if a claim failed.
 	 *
 	 * @param bases Sequence bases
 	 * @param blength Length of sequence
@@ -1346,14 +1437,14 @@ public class KmerTableSet extends AbstractKmerTableSet {
 		}
 		return success;
 	}
-	
+
 	/**
 	 * Attempts to claim ownership of a specific k-mer/reverse-complement pair.
 	 *
 	 * @param kmer Forward k-mer
 	 * @param rkmer Reverse complement k-mer
 	 * @param id Thread/owner ID
-	 * @return true if ownership was successfully claimed
+	 * @return true if the key is absent or its observed owner equals id
 	 */
 	public boolean claim(final long kmer, final long rkmer, final int id/*, final long rid, final int pos*/){
 		//TODO: rid and pos are just for debugging.
@@ -1370,7 +1461,7 @@ public class KmerTableSet extends AbstractKmerTableSet {
 //		assert(owner==id) : id+", "+owner+", "+rid+", "+pos;
 		return owner==id;
 	}
-	
+
 	/**
 	 * Releases ownership of all k-mers in the ByteBuilder sequence.
 	 * @param bb ByteBuilder containing sequence data
@@ -1379,7 +1470,7 @@ public class KmerTableSet extends AbstractKmerTableSet {
 	public void release(ByteBuilder bb, final int id){
 		release(bb.array, bb.length(), id);
 	}
-	
+
 	/**
 	 * Releases ownership of all k-mers in the sequence for the given thread ID.
 	 * @param bases Sequence bases
@@ -1410,24 +1501,24 @@ public class KmerTableSet extends AbstractKmerTableSet {
 			}
 		}
 	}
-	
+
 	/**
 	 * Releases ownership of a specific k-mer/reverse-complement pair.
 	 *
 	 * @param kmer Forward k-mer
 	 * @param rkmer Reverse complement k-mer
 	 * @param id Thread/owner ID
-	 * @return true if ownership was successfully released
+	 * @return true if the count is below one or the matching owner was cleared
 	 */
 	public boolean release(final long kmer, final long rkmer, final int id){
 		return release(toValue(kmer, rkmer), id);
 	}
-	
+
 	/**
 	 * Releases ownership of a k-mer key for the specified thread ID.
 	 * @param key Canonical k-mer key
 	 * @param id Thread/owner ID
-	 * @return true if ownership was successfully released
+	 * @return true if the count is below one or the matching owner was cleared
 	 */
 	public boolean release(final long key, final int id){
 		final int way=kmerToWay(key);
@@ -1437,17 +1528,17 @@ public class KmerTableSet extends AbstractKmerTableSet {
 		if(count<1){return true;}
 		return table.clearOwner(key, id);
 	}
-	
+
 	/**
 	 * Finds the maximum owner ID among all k-mers in the ByteBuilder sequence.
 	 * @param bb ByteBuilder containing sequence data
 	 * @param id Reference ID (stops searching if owner exceeds this)
-	 * @return Maximum owner ID found, or -1 if no owners
+	 * @return Highest owner observed before any early exit, or -1 if none
 	 */
 	public int findOwner(ByteBuilder bb, final int id){
 		return findOwner(bb.array, bb.length(), id);
 	}
-	
+
 	/**
 	 * Finds the maximum owner ID among all k-mers in the sequence.
 	 * Stops early if any owner ID exceeds the reference ID parameter.
@@ -1455,7 +1546,7 @@ public class KmerTableSet extends AbstractKmerTableSet {
 	 * @param bases Sequence bases
 	 * @param blength Length of sequence
 	 * @param id Reference ID for early termination
-	 * @return Maximum owner ID found, or -1 if no valid k-mers
+	 * @return Maximum owner observed before termination, or -1 if none; not a whole-sequence maximum after early exit
 	 */
 	public int findOwner(final byte[] bases, final int blength, final int id){
 		final int shift=2*k;
@@ -1484,7 +1575,7 @@ public class KmerTableSet extends AbstractKmerTableSet {
 		}
 		return maxOwner;
 	}
-	
+
 	/**
 	 * Finds the owner of a k-mer, considering its reverse complement.
 	 * @param kmer K-mer to query
@@ -1493,7 +1584,7 @@ public class KmerTableSet extends AbstractKmerTableSet {
 	public int findOwner(final long kmer){
 		return findOwner(kmer, rcomp(kmer));
 	}
-	
+
 	/**
 	 * Finds the owner of a specific k-mer/reverse-complement pair.
 	 * @param kmer Forward k-mer
@@ -1514,28 +1605,28 @@ public class KmerTableSet extends AbstractKmerTableSet {
 	 * Retrieves the count for a k-mer/reverse-complement pair.
 	 * @param kmer Forward k-mer
 	 * @param rkmer Reverse complement k-mer
-	 * @return K-mer count from the appropriate table
+	 * @return Stored count or the table's absence sentinel; negative results are not clamped
 	 */
 	public int getCount(long kmer, long rkmer){
 		long key=toValue(kmer, rkmer);
 		int way=kmerToWay(key);
 		return tables[way].getValue(key);
 	}
-	
+
 	/**
 	 * Retrieves the count for a canonical k-mer key.
 	 * @param key Canonical k-mer key
-	 * @return K-mer count from the appropriate table
+	 * @return Stored count or the table's absence sentinel; negative results are not clamped
 	 */
 	public int getCount(long key){
 		int way=kmerToWay(key);
 		return tables[way].getValue(key);
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------          Fill Counts         ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
 	 * Fills counts array for k-mers extending to the right (3' direction).
 	 * Uses fast implementation when core masking is enabled, otherwise uses safe version.
@@ -1545,7 +1636,7 @@ public class KmerTableSet extends AbstractKmerTableSet {
 	 * @param counts Array to store counts for each possible extension (A,C,G,T)
 	 * @param mask Bit mask for k-mer length
 	 * @param shift2 Bit shift value for reverse complement operations
-	 * @return Index of extension with maximum count
+	 * @return Index of the first maximum in A,C,G,T order (zero when all counts are zero)
 	 */
 	public int fillRightCounts(long kmer, long rkmer, int[] counts, long mask, int shift2){
 		if(FAST_FILL && MASK_CORE && k>2/*((k&1)==1)*/){
@@ -1554,17 +1645,18 @@ public class KmerTableSet extends AbstractKmerTableSet {
 			return fillRightCounts_safe(kmer, rkmer, counts, mask, shift2);
 		}
 	}
-	
+
 	/**
 	 * Fast implementation for filling right extension counts using core masking optimization.
-	 * Directly accesses hash table cells when possible to avoid hash lookups.
+	 * Reuses a primary probe start for four extensions; requires compatible HashArray
+	 * shards and canonical DNA/core-mask configuration. Equal cores use the safe path.
 	 *
 	 * @param kmer0 Original forward k-mer
 	 * @param rkmer0 Original reverse complement k-mer
 	 * @param counts Array to store counts for each possible extension
 	 * @param mask Bit mask for k-mer length
 	 * @param shift2 Bit shift value for reverse complement operations
-	 * @return Index of extension with maximum count
+	 * @return Index of the first maximum in A,C,G,T order (zero when all counts are zero)
 	 */
 	public int fillRightCounts_fast(final long kmer0, final long rkmer0, int[] counts,
 			long mask, int shift2){
@@ -1617,20 +1709,20 @@ public class KmerTableSet extends AbstractKmerTableSet {
 		}
 		return maxPos;
 	}
-	
+
 	//TODO: Change this to take advantage of coreMask
 	//Requires special handling of core palindromes.
 	//Thus it would be easiest to just handle odd kmers, and K is normally 31 anyway.
 	/**
 	 * Safe implementation for filling right extension counts.
-	 * Works with all k-mer configurations but may be slower than fast version.
+	 * Computes each DNA extension key separately and clamps absent counts to zero.
 	 *
 	 * @param kmer Forward k-mer
 	 * @param rkmer Reverse complement k-mer
 	 * @param counts Array to store counts for each possible extension
 	 * @param mask Bit mask for k-mer length
 	 * @param shift2 Bit shift value for reverse complement operations
-	 * @return Index of extension with maximum count
+	 * @return Index of the first maximum in A,C,G,T order (zero when all counts are zero)
 	 */
 	public int fillRightCounts_safe(long kmer, long rkmer, int[] counts, long mask, int shift2){
 		assert(kmer==rcomp(rkmer));
@@ -1638,7 +1730,7 @@ public class KmerTableSet extends AbstractKmerTableSet {
 		kmer=(kmer<<2)&mask;
 		rkmer=(rkmer>>>2);
 		int max=-1, maxPos=0;
-		
+
 		for(int i=0; i<=3; i++){
 			long kmer2=kmer|((long)i);
 			long rkmer2=rkmer|(((long)AminoAcid.numberToComplement[i])<<shift2);
@@ -1659,15 +1751,16 @@ public class KmerTableSet extends AbstractKmerTableSet {
 		}
 		return maxPos;
 	}
-	
-	/** For KmerCompressor. */
+
+	/** Fills four DNA right-extension counts using only reverse-complement keys.
+	 * For KmerCompressor; bypasses canonical selection and returns the first maximum index. */
 	public int fillRightCountsRcompOnly(long kmer, long rkmer, int[] counts, long mask, int shift2){
 		assert(kmer==rcomp(rkmer));
 		if(verbose){outstream.println("fillRightCounts:   "+toText(kmer)+",   "+toText(rkmer));}
 		kmer=(kmer<<2)&mask;
 		rkmer=(rkmer>>>2);
 		int max=-1, maxPos=0;
-		
+
 		for(int i=0; i<=3; i++){
 			long kmer2=kmer|((long)i);
 			long rkmer2=rkmer|(((long)AminoAcid.numberToComplement[i])<<shift2);
@@ -1688,7 +1781,7 @@ public class KmerTableSet extends AbstractKmerTableSet {
 		}
 		return maxPos;
 	}
-	
+
 	/**
 	 * Fills counts array for k-mers extending to the left (5' direction).
 	 * Uses fast implementation when core masking is enabled, otherwise uses safe version.
@@ -1698,7 +1791,7 @@ public class KmerTableSet extends AbstractKmerTableSet {
 	 * @param counts Array to store counts for each possible extension (A,C,G,T)
 	 * @param mask Bit mask for k-mer length
 	 * @param shift2 Bit shift value for reverse complement operations
-	 * @return Index of extension with maximum count
+	 * @return Index of the first maximum in A,C,G,T order (zero when all counts are zero)
 	 */
 	public int fillLeftCounts(long kmer, long rkmer, int[] counts, long mask, int shift2){
 		if(FAST_FILL && MASK_CORE && k>2/*((k&1)==1)*/){
@@ -1707,17 +1800,18 @@ public class KmerTableSet extends AbstractKmerTableSet {
 			return fillLeftCounts_safe(kmer, rkmer, counts, mask, shift2);
 		}
 	}
-	
+
 	/**
 	 * Fast implementation for filling left extension counts using core masking optimization.
-	 * Directly accesses hash table cells when possible to avoid hash lookups.
+	 * Reuses a primary probe start for four extensions; requires compatible HashArray
+	 * shards and canonical DNA/core-mask configuration. Equal cores use the safe path.
 	 *
 	 * @param kmer0 Original forward k-mer
 	 * @param rkmer0 Original reverse complement k-mer
 	 * @param counts Array to store counts for each possible extension
 	 * @param mask Bit mask for k-mer length
 	 * @param shift2 Bit shift value for reverse complement operations
-	 * @return Index of extension with maximum count
+	 * @return Index of the first maximum in A,C,G,T order (zero when all counts are zero)
 	 */
 	public int fillLeftCounts_fast(final long kmer0, final long rkmer0, int[] counts,
 			long mask, int shift2){
@@ -1726,13 +1820,13 @@ public class KmerTableSet extends AbstractKmerTableSet {
 		final long rkmer=(rkmer0<<2)&mask;
 		final long kmer=(kmer0>>>2);
 		final long a=kmer&coreMask, b=rkmer&coreMask;
-		
+
 		int max=-1, maxPos=0;
 		if(a==b){
 			return fillLeftCounts_safe(kmer0, rkmer0, counts, mask, shift2);
 		}else if(a>b){
 //			return fillLeftCounts_safe(kmer0, rkmer0, counts, mask, shift2);
-			
+
 			final long core=a;
 			final int way=kmerToWay(core);
 //			final AbstractKmerTable table=tables[way];
@@ -1747,7 +1841,7 @@ public class KmerTableSet extends AbstractKmerTableSet {
 //				int way2=kmerToWay(key2);
 //				int count2=tables[way2].getValue(key2);
 //				count2=Tools.max(count2, 0);
-				
+
 				final long key=kmer|j;
 				final int count=Tools.max(0, table.getValue(key, cell));
 //				int count=Tools.max(0, table.getValue(key));
@@ -1757,7 +1851,7 @@ public class KmerTableSet extends AbstractKmerTableSet {
 //					Long.toBinaryString(key)+", "+Long.toBinaryString(key2)+
 //					", "+Long.toBinaryString(j)+", "+Long.toBinaryString(incr);
 //				assert(count==count2) : i+", "+count+", "+count2;
-				
+
 				counts[i]=count;
 				if(count>max){
 					max=count;
@@ -1776,7 +1870,7 @@ public class KmerTableSet extends AbstractKmerTableSet {
 				final long key=rkmer|j;
 				final int count=Tools.max(0, table.getValue(key, cell));
 //				final int count=Tools.max(0, table.getValue(key));
-				
+
 				counts[i]=count;
 				if(count>max){
 					max=count;
@@ -1786,17 +1880,17 @@ public class KmerTableSet extends AbstractKmerTableSet {
 			return maxPos;
 		}
 	}
-	
+
 	/**
-	 * Safe implementation for filling left extension counts.
-	 * Works with all k-mer configurations but may be slower than fast version.
+	 * Computes left-extension counts separately and clamps absent counts to zero.
+	 * Selects the forward extension when rcomp is false, or its canonical key otherwise.
 	 *
 	 * @param kmer0 Forward k-mer
 	 * @param rkmer0 Reverse complement k-mer
 	 * @param counts Array to store counts for each possible extension
 	 * @param mask Bit mask for k-mer length
 	 * @param shift2 Bit shift value for reverse complement operations
-	 * @return Index of extension with maximum count
+	 * @return Index of the first maximum in A,C,G,T order (zero when all counts are zero)
 	 */
 	public int fillLeftCounts_safe(final long kmer0, final long rkmer0, int[] counts, long mask, int shift2){
 		assert(kmer0==rcomp(rkmer0));
@@ -1812,7 +1906,8 @@ public class KmerTableSet extends AbstractKmerTableSet {
 			assert(kmer2==(kmer2&mask));
 			assert(rkmer2==(rkmer2&mask));
 			assert(kmer2==rcomp(rkmer2)) : "\n"+"kmer:      \t"+toText(rcomp(rkmer2))+", "+toText(rcomp(kmer2));
-			long key=toValue(rkmer2, kmer2);
+			//KMR023: forward first preserves strand-specific lookup; canonical selection remains symmetric.
+			long key=toValue(kmer2, rkmer2);
 			int way=kmerToWay(key);
 			int count=tables[way].getValue(key);
 			assert(count==NOT_PRESENT || count>=0);
@@ -1825,46 +1920,52 @@ public class KmerTableSet extends AbstractKmerTableSet {
 		}
 		return maxPos;
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------       Printing Methods       ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
+	/** Emits formatted records sequentially and finishes the writer on normal traversal completion.
+	 * @return Writer error state (true means error), or false for a null filename */
 	@Override
 	public boolean dumpKmersAsBytes(String fname, int mincount, int maxcount, boolean printTime, AtomicLong remaining){
 		if(fname==null){return false;}
 		Timer t=new Timer();
-		
+
 		ByteStreamWriter bsw=new ByteStreamWriter(fname, overwrite, append, true);
 		bsw.start();
 		for(AbstractKmerTable set : tables){
 			set.dumpKmersAsBytes(bsw, k, mincount, maxcount, remaining);
 		}
 		bsw.poisonAndWait();
-		
+
 		t.stop();
 		if(printTime){outstream.println("Kmer Dump Time:             \t"+t);}
 		return bsw.errorState;
 	}
-	
+
+	/** Uses dump workers when at least three shards/threads are available and NUM_THREADS is not one.
+	 * Otherwise delegates to the sequential path. Joins workers and finishes the writer.
+	 * @return True for reported worker/writer error, false for success or a null filename */
 	@Override
 	public boolean dumpKmersAsBytes_MT(String fname, int mincount, int maxcount, boolean printTime, AtomicLong remaining){
 		final int threads=Tools.min(Shared.threads(), tables.length);
 		if(threads<3 || DumpThread.NUM_THREADS==1){return dumpKmersAsBytes(fname, mincount, maxcount, printTime, remaining);}
-		
+
 		if(fname==null){return false;}
 		Timer t=new Timer();
-		
+
 		ByteStreamWriter bsw=new ByteStreamWriter(fname, overwrite, append, true);
 		bsw.start();
-		DumpThread.dump(k, mincount, maxcount, tables, bsw, remaining);
+		final boolean success=DumpThread.dump(k, mincount, maxcount, tables, bsw, remaining);
+		//KMR118: finish the writer before combining independent worker and writer failure states.
 		bsw.poisonAndWait();
-		
+
 		t.stop();
 		if(printTime){outstream.println("Kmer Dump Time:             \t"+t);}
-		return bsw.errorState;
+		return !success || bsw.errorState;
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Recall Methods        ----------------*/
 	/*--------------------------------------------------------------*/
@@ -1873,13 +1974,15 @@ public class KmerTableSet extends AbstractKmerTableSet {
 	private final long rcomp(long kmer){return AminoAcid.reverseComplementBinaryFast(kmer, k);}
 	/** Converts k-mer to readable text representation */
 	private final StringBuilder toText(long kmer){return AbstractKmerTable.toText(kmer, k);}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Static Methods        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
-	 * Transforms a kmer into a canonical value stored in the table.  Expected to be inlined.
+	 * Selects a stored key using the configured orientation and masks. With rcomp off,
+	 * returns the middle-masked forward argument. Otherwise compares combined-mask
+	 * cores, breaking ties with the larger middle-masked full key.
 	 * @param kmer Forward kmer
 	 * @param rkmer Reverse kmer
 	 * @return Canonical value
@@ -1893,32 +1996,42 @@ public class KmerTableSet extends AbstractKmerTableSet {
 		rkmer&=middleMask;
 		return a>b ? kmer : a<b ? rkmer : Tools.max(kmer, rkmer);
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------       Final Primitives       ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Returns the configured symbol count k. */
 	@Override
 	public int kbig(){return k;}
+	/** Returns the planned byte budget for the even/odd prefilter pass. */
 	@Override
 	public long filterMemory(int pass){return ((pass&1)==0) ? filterMemory0 : filterMemory1;}
+	/** Returns whether overlap correction was requested. */
 	@Override
 	public boolean ecco(){return ecco;}
+	/** Returns whether left quality trimming was requested. */
 	@Override
 	public boolean qtrimLeft(){return qtrimLeft;}
+	/** Returns whether right quality trimming was requested. */
 	@Override
 	public boolean qtrimRight(){return qtrimRight;}
+	/** Returns the pre-trimming average-quality threshold. */
 	@Override
 	public float minAvgQuality(){return minAvgQuality;}
+	/** Returns the constructor table-budget estimate in bytes. */
 	@Override
 	public long tableMemory(){return tableMemory;}
+	/** Returns the constructor capacity estimate, not a measured live limit. */
 	@Override
 	public long estimatedKmerCapacity(){return estimatedKmerCapacity;}
+	/** Returns the number of table shards, independently of worker count. */
 	@Override
 	public int ways(){return ways;}
+	/** Returns whether key selection considers reverse complements. */
 	@Override
 	public boolean rcomp(){return rcomp;}
-	
+
 	/**
 	 * Maps a k-mer to its assigned table partition using modular arithmetic.
 	 * Uses core mask to ensure consistent distribution.
@@ -1929,54 +2042,57 @@ public class KmerTableSet extends AbstractKmerTableSet {
 		final int way=(int)((kmer&cmMask)%ways);
 		return way;
 	}
-	
-	/** Hold kmers.  A kmer X such that X%WAYS=Y will be stored in tables[Y] */
+
+	/** Live shards selected by {@code (key&cmMask)%ways}; null before allocation or after clear. */
 	private AbstractKmerTable[] tables;
-	
-	/** Returns array of all k-mer hash tables */
+
+	/** Returns live shard storage; callers must not replace elements during active work. */
 	public AbstractKmerTable[] tables(){return tables;}
-	
+
 	/** Manual override for prefilter memory allocation in bytes */
 	public long filterMemoryOverride=0;
-	
+
 	/** Hash table implementation type (e.g., ARRAY1D) */
 	public final int tableType; //AbstractKmerTable.ARRAY1D;
-	
-	/** Memory bytes allocated per k-mer for capacity calculations */
+
+	/** Assumed bytes per key for capacity estimates; not measured heap use. */
 	private final int bytesPerKmer;
 
-	/** Total usable memory for k-mer processing after system reserves */
+	/** Parsed schedule lower bound, retained before initialSize is replaced with a reporting fallback. */
+	private final int requestedInitialSize;
+
+	/** Constructor heuristic for usable heap budget after reserves. */
 	private final long usableMemory;
-	/** Memory allocated for prefiltering pass 0 (and even passes) */
+	/** Planned byte budget for even-numbered prefilter passes. */
 	private final long filterMemory0;
-	/** Memory allocated for prefiltering pass 1 (and odd passes) */
+	/** Planned byte budget for odd-numbered prefilter passes. */
 	private final long filterMemory1;
-	/** Memory allocated specifically for k-mer hash tables */
+	/** Constructor estimate of table byte budget, separate from actual allocation. */
 	private final long tableMemory;
 	/** Estimated maximum number of k-mers that can be stored */
 	private final long estimatedKmerCapacity;
-	
-	/** Number of tables (and threads, during loading) */
+
+	/** Whether allocation starts from the requested preallocated fraction. */
 	private final boolean prealloc;
-	
-	/** Number of tables (and threads, during loading) */
+
+	/** Number of table shards; loader thread count is selected separately. */
 	public final int ways;
-	
+
 	/** Normal kmer length */
 	public final int k;
 	/** k-1; used in some expressions */
 	public final int k2;
-	
+
 	/** Bit mask for core k-mer region excluding terminal bases */
 	public final long coreMask;
 	/** Bit mask for middle region of k-mers if enabled */
 	public final long middleMask;
 	/** Combined core and middle mask for k-mer processing */
 	public final long cmMask;
-	
+
 	/** Look for reverse-complements as well as forward kmers.  Default: true */
 	private final boolean rcomp;
-	
+
 	/** Quality-trim the left side */
 	public final boolean qtrimLeft;
 	/** Quality-trim the right side */
@@ -1985,40 +2101,42 @@ public class KmerTableSet extends AbstractKmerTableSet {
 	public final float trimq;
 	/** Error rate for trimming (derived from trimq) */
 	private final float trimE;
-	
-	/** Throw away reads below this average quality after trimming.  Default: 0 */
+
+	/** Minimum average quality checked before trimming; zero disables this filter. */
 	public final float minAvgQuality;
 	/** If positive, calculate average quality from the first X bases only.  Default: 0 */
 	public final int minAvgQualityBases;
-	
+
 	/** Ignore kmers with probability of correctness less than this */
 	public final float minProb;
-	
+
 	/** Correct via overlap */
 	private final boolean ecco;
-	
+
 	/** Attempt to merge via overlap prior to counting kmers */
 	private final boolean merge;
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------            Walker            ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/** Creates a Walker for iterating through all k-mers across all tables.
-	 * @return WalkerKST instance for k-mer iteration */
+	 * @return A walker borrowing live shards; each table must support walking and structure must remain stable */
 	public Walker walk(){
 		return new WalkerKST();
 	}
-	
+
 	/** Iterator for traversing all k-mers across all tables in the KmerTableSet.
-	 * Advances through tables sequentially when current table is exhausted. */
-	public class WalkerKST extends Walker {
-		
+	 * Advances through tables sequentially when current table is exhausted.
+	 * Read key/value only after next() returns true; after exhaustion the delegate is null. */
+	public class WalkerKST extends Walker{
+
+		/** Starts at shard zero; requires a nonempty allocated table array. */
 		WalkerKST(){
 			w=tables[0].walk();
 		}
-		
-		/** 
+
+		/**
 		 * Fills this object with the next key and value.
 		 * @return True if successful.
 		 */
@@ -2030,17 +2148,17 @@ public class KmerTableSet extends AbstractKmerTableSet {
 			}
 			return false;
 		}
-		
+
 		/** Returns the current k-mer from the active table walker */
 		public long kmer(){return w.kmer();}
 		/** Returns the current k-mer count from the active table walker */
 		public int value(){return w.value();}
-		
+
 		/** Current table walker being used for iteration */
 		private Walker w=null;
 
 		/** current table number */
 		private int tnum=0;
 	}
-	
+
 }

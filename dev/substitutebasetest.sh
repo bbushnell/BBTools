@@ -14,7 +14,7 @@ both PACKED=true (k=32,33,63,64,95,127) and a representative PACKED=false (legac
 symmetric layout) subset (kbig=62,93), since the primitive derives its geometry from the
 live object's k/perWordK/kbig fields rather than assuming a fixed word width.
 
-This is a committed regression harness (current/ukmer/SubstituteBaseTest.java), pending
+This is a committed regression harness (current/test/ukmer/SubstituteBaseTest.java), pending
 Brian's decision on whether it becomes permanent -- not a scratch-only file. Exits
 non-zero on any failure (the test itself throws), so the shell exit status is
 authoritative.
@@ -56,9 +56,9 @@ setEnv(){
 }
 
 launch() {
-	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP ukmer.SubstituteBaseTest"
+	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP test.ukmer.SubstituteBaseTest"
 	echo "$CMD" >&2
-	java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" ukmer.SubstituteBaseTest
+	java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" test.ukmer.SubstituteBaseTest
 }
 
 resolveSymlinks

@@ -9,49 +9,54 @@ import shared.Tools;
 import structures.ByteBuilder;
 
 /**
- * Binary tree node for k-mer storage supporting multiple values per k-mer.
- * Extends KmerNodeU to provide two-dimensional value storage where each k-mer
- * can be associated with an array of integer values rather than a single value.
- * Supports dynamic array resizing and duplicate value prevention.
+ * HashForestU association node that stores a borrowed live value list per
+ * long-kmer pivot. Child creation keeps the 2D node family, scalar sets require
+ * initialized nonempty storage and skip already-present values, and dump methods
+ * emit self/left/right lists without count-threshold filtering.
  *
  * @author Brian Bushnell
  * @date Nov 7, 2014
  */
-public class KmerNodeU2D extends KmerNodeU {
-	
+public class KmerNodeU2D extends KmerNodeU{
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Creates a multi-value node with no value list yet. */
 	public KmerNodeU2D(long[] pivot_){
 		super(pivot_);
 	}
-	
+
+	/** Creates a multi-value node containing one value and a -1 terminator. */
 	public KmerNodeU2D(long[] pivot_, int value_){
 		super(pivot_);
 		assert(value_>=0 || value_==-1);
 		values=new int[] {value_, -1};
 	}
-	
+
+	/** Creates a multi-value node that borrows the supplied live value list. */
 	public KmerNodeU2D(long[] pivot_, int[] vals_){
 		super(pivot_);
 		values=vals_;
 	}
-	
+
+	/** Creates a same-family child node for a single initial value. */
 	@Override
 	public final KmerNodeU makeNode(long[] pivot_, int value_){
 		return new KmerNodeU2D(pivot_, value_);
 	}
-	
+
+	/** Creates a same-family child node that borrows an existing value list. */
 	@Override
 	public final KmerNodeU makeNode(long[] pivot_, int[] values_){
 		return new KmerNodeU2D(pivot_, values_);
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Public Methods        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 //	public final int set_Test(final long[] kmer, final int v[]){
 //		assert(TESTMODE);
 //		final int x;
@@ -70,7 +75,8 @@ public class KmerNodeU2D extends KmerNodeU {
 //		}
 //		return x;
 //	}
-	
+
+	/** Inserts a borrowed value list by current tree order, merging until negative on equality. */
 	@Override
 	public int set(long[] kmer, int vals[]){
 		final int cmp=compare(kmer, pivot);
@@ -85,41 +91,45 @@ public class KmerNodeU2D extends KmerNodeU {
 		}
 		return 0;
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------      Nonpublic Methods       ----------------*/
 	/*--------------------------------------------------------------*/
-	
-	/** Gets the first value from the values array.
-	 * @return First value in array, or 0 if values array is null */
+
+	/**
+	 * Returns the first stored value.
+	 * @return first value in the list, or 0 when this node has no value list
+	 */
 	@Override
 	protected int value(){return values==null ? 0 : values[0];}
-	
+
 	/**
-	 * Gets the complete values array for this node.
-	 * @param singleton Unused parameter for compatibility with parent class
-	 * @return The values array associated with this k-mer
+	 * Returns the borrowed live value list backing this node; callers must not
+	 * mutate adopted or returned arrays independently.
+	 * @param singleton unused scratch array for interface compatibility
+	 * @return the direct value array associated with this k-mer
 	 */
 	@Override
 	protected int[] values(int[] singleton){
 		return values;
 	}
-	
+
 	/**
-	 * Inserts a single value into this node's values array.
-	 * @param value_ Value to insert
-	 * @return The inserted value
+	 * Attempts to add one distinct value to initialized nonempty storage.
+	 * @param value_ value to insert
+	 * @return the supplied value, even when it was already present
 	 */
 	@Override
 	public int set(int value_){
 		insertValue(value_);
 		return value_;
 	}
-	
+
 	/**
-	 * Sets the values array for this node.
-	 * @param values_ Array of values to set
-	 * @return 1 if values was null before setting, 0 otherwise
+	 * Directly adopts this node's first value list without deduplication, or merges
+	 * values until the first negative entry.
+	 * @param values_ array of values to insert
+	 * @return 1 if this node did not yet have a value list, 0 otherwise
 	 */
 	@Override
 	protected int set(int[] values_){
@@ -127,12 +137,8 @@ public class KmerNodeU2D extends KmerNodeU {
 		insertValue(values_);
 		return ret;
 	}
-	
-	/**
-	 * Counts the number of valid values in the values array.
-	 * Values are valid until the first -1 terminator is encountered.
-	 * @return Number of valid values (non-negative values before first -1)
-	 */
+
+	/** Counts entries before -1, returns the full length when unterminated, or 0 for null. */
 	@Override
 	int numValues(){
 		if(values==null){return 0;}
@@ -141,16 +147,16 @@ public class KmerNodeU2D extends KmerNodeU {
 		}
 		return values.length;
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------       Private Methods        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
-	 * Inserts a value into the values array, preventing duplicates.
-	 * If array is full, doubles its size. Uses -1 as array terminator.
-	 * @param v Value to insert
-	 * @return 1 if value was added, 0 if duplicate found
+	 * Inserts one value if absent, requiring initialized nonempty storage and growing
+	 * full lists that have no -1 terminator.
+	 * @param v value to insert
+	 * @return 1 if value was added, 0 if it was already present
 	 */
 	private int insertValue(int v){
 		for(int i=0; i<values.length; i++){
@@ -165,14 +171,12 @@ public class KmerNodeU2D extends KmerNodeU {
 		Arrays.fill(values, oldSize+1, newSize, -1);
 		return 1;
 	}
-	
+
 	/**
-	 * Inserts multiple values from an array into this node's values array.
-	 * If values array is null, assigns the input array directly.
-	 * Otherwise, inserts each value individually until -1 terminator.
-	 *
-	 * @param vals Array of values to insert
-	 * @return 1 if values array was null and assigned, 0 otherwise
+	 * Directly adopts the first value list for this node without deduplication, or
+	 * merges values until the first negative entry.
+	 * @param vals array of values to insert
+	 * @return 1 if the input list was adopted, 0 if it was merged
 	 */
 	private int insertValue(int[] vals){
 		if(values==null){
@@ -185,75 +189,64 @@ public class KmerNodeU2D extends KmerNodeU {
 		}
 		return 0;
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------   Resizing and Rebalancing   ----------------*/
 	/*--------------------------------------------------------------*/
-	
-	/** Indicates whether this node type supports resizing operations.
-	 * @return false, as KmerNodeU2D does not support resizing */
+
+	/** This tree node cannot resize a backing array. */
 	@Override
-	boolean canResize() {
+	boolean canResize(){
 		return false;
 	}
-	
-	/** Indicates whether this node type supports rebalancing operations.
-	 * @return true, as KmerNodeU2D supports tree rebalancing */
+
+	/** This tree node can be rebalanced by materializing and rebuilding links. */
 	@Override
-	public boolean canRebalance() {
+	public boolean canRebalance(){
 		return true;
 	}
 
 	/**
-	 * Gets the array length for this node type.
-	 * This method is deprecated and not supported.
-	 * @throws RuntimeException Always thrown as operation is unsupported
-	 * @deprecated This operation is not supported for KmerNodeU2D
+	 * Array length is unsupported for tree nodes.
+	 * @throws RuntimeException always
+	 * @deprecated this node has no backing hash array
 	 */
 	@Deprecated
 	@Override
-	public int arrayLength() {
+	public int arrayLength(){
 		throw new RuntimeException("Unsupported.");
 	}
 
 	/**
-	 * Resizes the internal data structures of this node.
-	 * This method is deprecated and not supported.
-	 * @throws RuntimeException Always thrown as operation is unsupported
-	 * @deprecated This operation is not supported for KmerNodeU2D
+	 * Resize is unsupported for tree nodes.
+	 * @throws RuntimeException always
+	 * @deprecated this node has no backing hash array
 	 */
 	@Deprecated
 	@Override
-	void resize() {
+	void resize(){
 		throw new RuntimeException("Unsupported.");
 	}
 
 	/**
-	 * Rebalances the tree structure for this node.
-	 * This method is deprecated; use rebalance(ArrayList) instead.
-	 * @throws RuntimeException Always thrown with instruction to use alternative method
-	 * @deprecated Use rebalance(ArrayList<KmerNode>) with empty list instead
+	 * Parameterless rebalance is unsupported; callers must pass reusable scratch storage.
+	 * @throws RuntimeException always
+	 * @deprecated use the package-private ArrayList overload instead
 	 */
 	@Deprecated
 	@Override
-	public void rebalance() {
+	public void rebalance(){
 		throw new RuntimeException("Please call rebalance(ArrayList<KmerNode>) instead, with an empty list.");
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------         Info Dumping         ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
-	 * Dumps k-mers and their values as bytes to output stream in single-threaded mode.
-	 * Performs in-order traversal of the tree structure.
-	 *
-	 * @param bsw Output stream writer for k-mer data
-	 * @param k Length of k-mers being dumped
-	 * @param mincount Minimum count threshold (unused in this implementation)
-	 * @param maxcount Maximum count threshold (unused in this implementation)
-	 * @param remaining Counter for remaining k-mers to process (may be null)
-	 * @return true when dumping completes successfully
+	 * Emits self/left/right text-byte value-list records using total kbig length
+	 * {@code k}; a null value list prunes the whole current subtree, {@code true}
+	 * may include quota early-stop and writer completion is caller-owned.
 	 */
 	@Override
 	public final boolean dumpKmersAsBytes(ByteStreamWriter bsw, int k, int mincount, int maxcount, AtomicLong remaining){
@@ -264,18 +257,13 @@ public class KmerNodeU2D extends KmerNodeU {
 		if(right!=null){right.dumpKmersAsBytes(bsw, k, mincount, maxcount, remaining);}
 		return true;
 	}
-	
+
 	/**
-	 * Dumps k-mers and their values as bytes to output stream in multi-threaded mode.
-	 * Uses ByteBuilder for buffering and submits jobs to writer when buffer reaches 16KB.
-	 *
-	 * @param bsw Thread-safe output stream writer
-	 * @param bb Byte buffer for accumulating output before submission
-	 * @param k Length of k-mers being dumped
-	 * @param mincount Minimum count threshold (unused in this implementation)
-	 * @param maxcount Maximum count threshold (unused in this implementation)
-	 * @param remaining Counter for remaining k-mers to process (may be null)
-	 * @return true when dumping completes successfully
+	 * Appends self/left/right text-byte value-list records to the caller-thread-
+	 * exclusive buffer, submitting jobs when it reaches or exceeds 16000 bytes; a
+	 * null value list prunes
+	 * the whole current subtree, {@code true} may include quota early-stop, and
+	 * final-tail submission plus writer completion are caller-owned.
 	 */
 	@Override
 	public final boolean dumpKmersAsBytes_MT(final ByteStreamWriter bsw, final ByteBuilder bb, final int k, final int mincount, int maxcount, AtomicLong remaining){
@@ -292,17 +280,8 @@ public class KmerNodeU2D extends KmerNodeU {
 		if(right!=null){right.dumpKmersAsBytes_MT(bsw, bb, k, mincount, maxcount, remaining);}
 		return true;
 	}
-	
-	/**
-	 * Dumps k-mers and their values as text using StringBuilder.
-	 * Performs in-order traversal and appends formatted k-mer data.
-	 *
-	 * @param sb StringBuilder to append output to (created if null)
-	 * @param k Length of k-mers being dumped
-	 * @param mincount Minimum count threshold (unused in this implementation)
-	 * @param maxcount Maximum count threshold (unused in this implementation)
-	 * @return StringBuilder containing the formatted k-mer output
-	 */
+
+	/** Appends self/left/right text records, pruning this subtree at null list roots. */
 	@Override
 	protected final StringBuilder dumpKmersAsText(StringBuilder sb, int k, int mincount, int maxcount){
 		if(values==null){return sb;}
@@ -312,17 +291,8 @@ public class KmerNodeU2D extends KmerNodeU {
 		if(right!=null){right.dumpKmersAsText(sb, k, mincount, maxcount);}
 		return sb;
 	}
-	
-	/**
-	 * Dumps k-mers and their values as text using ByteBuilder.
-	 * Performs in-order traversal and appends formatted k-mer data.
-	 *
-	 * @param bb ByteBuilder to append output to (created if null)
-	 * @param k Length of k-mers being dumped
-	 * @param mincount Minimum count threshold (unused in this implementation)
-	 * @param maxcount Maximum count threshold (unused in this implementation)
-	 * @return ByteBuilder containing the formatted k-mer output
-	 */
+
+	/** Appends self/left/right text bytes, pruning this subtree at null list roots. */
 	@Override
 	protected final ByteBuilder dumpKmersAsText(ByteBuilder bb, int k, int mincount, int maxcount){
 		if(values==null){return bb;}
@@ -332,20 +302,16 @@ public class KmerNodeU2D extends KmerNodeU {
 		if(right!=null){right.dumpKmersAsText(bb, k, mincount, maxcount);}
 		return bb;
 	}
-	
-	/** Identifies this as a two-dimensional k-mer node type.
-	 * @return true, indicating this node supports multiple values per k-mer */
+
+	/** Identifies this as a two-dimensional node storing lists of values. */
 	@Override
 	final boolean TWOD(){return true;}
-	
-	/*--------------------------------------------------------------*/
-	/*----------------       Invalid Methods        ----------------*/
-	/*--------------------------------------------------------------*/
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
+	/** Borrowed live values; may be full without a terminator. Do not mutate independently. */
 	int[] values;
-	
+
 }

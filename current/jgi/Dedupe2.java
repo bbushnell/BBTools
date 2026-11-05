@@ -26,6 +26,7 @@ import parse.Parse;
 import parse.Parser;
 import parse.PreParser;
 import shared.Shared;
+import shared.KillSwitch;
 import shared.Timer;
 import shared.Tools;
 import shared.TrimRead;
@@ -701,6 +702,8 @@ public final class Dedupe2 {
 	 * @param t Timer for performance monitoring
 	 */
 	private void findOverlaps(Timer t){
+		//HashThread terminates the JVM on failure, so terminated workers cannot
+		//silently contribute partial counters or let this method publish partial groups.
 		
 		ArrayList<Read> list=new ArrayList<Read>((int)addedToMain);
 		for(ArrayList<Unit> alu : codeMap.values()){
@@ -3040,6 +3043,16 @@ public final class Dedupe2 {
 		
 		@Override
 		public void run(){
+			try{
+				runInner();
+			}catch(Throwable failure){
+				//Main joins these workers before output. A bare worker assertion used
+				//to look like successful termination and publish incomplete groups.
+				KillSwitch.throwableKill(failure);
+			}
+		}
+
+		private void runInner(){
 			
 			ConcurrentReadInputStream cris=crisq.poll();
 			
@@ -3965,34 +3978,39 @@ public final class Dedupe2 {
 		}
 
 		public boolean test(BandedAligner bandy, int editLimit){
-			final int last1=u1.length()-1, last2=u2.length()-1;
-			if(verbose){System.err.println("Testing "+OVERLAP_TYPE_NAMES[type]+", "+start1+", "+start2);}
-			if(type==FORWARD){
-				assert(start1==0 || start2==0) : "start1="+start1+", stop1="+stop1+", last1="+last1+", start2="+start2+", stop2="+stop2+", last2="+last2;
-				if(start2==0){
-					if(verbose){System.err.println("A");}
-					return u1.overlapsForward(u2, start1, start2, bandy, false, editLimit);}
-				else{
-					if(verbose){System.err.println("B");}
-					return u2.overlapsForward(u1, start2, start1, bandy, false, editLimit);}
-			}
-			if(type==FORWARDRC){
-				assert(start1==0 || start2==last2) : "start1="+start1+", stop1="+stop1+", last1="+last1+", start2="+start2+", stop2="+stop2+", last2="+last2;
-				if(start2==last2){return u1.overlapsForwardRC(u2, start1, start2, bandy, false, editLimit);}
-				else{return u2.overlapsReverseRC(u1, start2, start1, bandy, false, editLimit);}
-			}
-			if(type==REVERSE){
-				assert(start1==last1 || start2==last2) : "start1="+start1+", stop1="+stop1+", last1="+last1+", start2="+start2+", stop2="+stop2+", last2="+last2;
-				if(start2==last2){return u1.overlapsReverse(u2, start1, start2, bandy, false, editLimit);}
-				else{return u2.overlapsReverse(u1, start2, start1, bandy, false, editLimit);}
-			}
-			if(type==REVERSERC){
-				assert(start1==last1 || start2==0) : "start1="+start1+", stop1="+stop1+", last1="+last1+", start2="+start2+", stop2="+stop2+", last2="+last2;
-				if(start2==0){return u1.overlapsReverseRC(u2, start1, start2, bandy, false, editLimit);}
-				else{return u2.overlapsForwardRC(u1, start2, start1, bandy, false, editLimit);}
-			}
-			throw new RuntimeException();
+			return testRecordedOverlap(u1.bases(), u2.bases(), start1, start2,
+				stop1, stop2, type, bandy, editLimit);
 		}
+
+		/** Rechecks the saved terminal bounds, never the unaligned sequence tails. */
+		private boolean testRecordedOverlap(final byte[] a, final byte[] b,
+			final int astart, final int bstart, final int astop, final int bstop,
+			final int direction, final BandedAligner bandy, final int editLimit){
+			assert(direction>=FORWARD && direction<=REVERSERC)
+				: "Overlap revalidation requires a known orientation: "+direction;
+			final int astep=(direction==FORWARD || direction==FORWARDRC ? 1 : -1);
+			final int bstep=(direction==FORWARD || direction==REVERSERC ? 1 : -1);
+			final boolean complement=(astep!=bstep);
+			final int alen=(astop-astart)*astep+1, blen=(bstop-bstart)*bstep+1;
+			assert(alen>0 && blen>0 && astart>=0 && astart<a.length && astop>=0 && astop<a.length
+				&& bstart>=0 && bstart<b.length && bstop>=0 && bstop<b.length)
+				: "Saved overlap endpoints must remain inside their source sequences: "+this;
+			final int length=Tools.min(alen, blen);
+			final int allowed=calcMaxEdits(maxSubs, minIdentityMult, direction==FORWARD ? length : b.length);
+			int substitutions=0;
+			for(int n=0, i=astart, j=bstart; n<length; n++, i+=astep, j+=bstep){
+				final byte aa=a[i], bb=complement ? baseToComplementExtended[b[j]] : b[j];
+				if(aa!=bb && (exact || (AminoAcid.isFullyDefined(aa) && AminoAcid.isFullyDefined(bb)))){
+					substitutions++;
+					if(substitutions>allowed){break;}
+				}
+			}
+			if(alen==blen && substitutions<=allowed){return true;}
+			if(bandy==null || editLimit<1){return false;}
+			final int distance=bandy.alignFixed(b, a, bstart, astart, bstop, astop, editLimit, exact, complement);
+			return distance<=editLimit && bandy.score()>2*distance;
+		}
+
 		
 		@Override
 		public boolean equals(Object o){

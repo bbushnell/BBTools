@@ -44,9 +44,9 @@ setEnv(){
 }
 
 launch(){
-	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP ukmer.KmerHash2Test"
+	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP test.ukmer.KmerHash2Test"
 	echo "$CMD" >&2
-	java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" ukmer.KmerHash2Test
+	java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" test.ukmer.KmerHash2Test
 }
 
 resolveSymlinks

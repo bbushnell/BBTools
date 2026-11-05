@@ -107,6 +107,15 @@ public abstract class BandedAligner{
 	/** Traverses complemented query toward higher coordinates and reference toward lower coordinates. */
 	public abstract int alignReverseRC(final byte[] query, final byte[] ref, final int qstart, final int rstart, final int maxEdits, final boolean exact);
 
+	/** Scores both complete inclusive spans within this aligner's diagonal band.
+	 * Traversal follows start toward stop; complementQuery complements query bases.
+	 * Unlike extension, neither end is free. Returns a value above maxEdits when
+	 * no path within the band passes. Implementations without support fail loudly. */
+	public int alignFixed(byte[] query, byte[] ref, int qstart, int rstart,
+		int qstop, int rstop, int maxEdits, boolean exact, boolean complementQuery){
+		throw new UnsupportedOperationException("Fixed-span alignment is unsupported");
+	}
+
 	/**
 	 * Fills array interior elements with large sentinel values.
 	 * Preserves first and last elements while setting middle values to 'big'.
