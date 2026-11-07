@@ -1,0 +1,75 @@
+NcrnaOccurrenceInputs: prepare admitted occurrence extraction and learning
+========================================================================
+
+The input is the complete occurrences.tsv from NcrnaOccurrences and the full
+eleven-column NcrnaAnnotatedCorpus genome roster. This program prepares metadata;
+CutGff reads the genomic sequences. No subset, biological label or admission
+threshold is introduced. expected= is a required population-count check.
+
+Example (choose the actual admitted count and desired flank):
+  ncrnaoccurrenceinputs.sh in=occurrences.tsv roster=corpus.genomes.tsv \
+    expected=43013 flank=50 out=prepared
+  cutgff.sh config=prepared/sources.config types=ncRNA flank=50 \
+    banpartial=f minlen=1 maxns=-1 maxnfraction=-1 align=f \
+    gccontig=caller filename=f t=16 out=contexts.fa ow=f
+  cutgff.sh in=contexts.fa gff=prepared/core.gff types=ncRNA flank=0 \
+    banpartial=f minlen=1 maxns=-1 maxnfraction=-1 align=f \
+    gccontig=f filename=f t=1 out=cores.fa ow=f
+
+Do not change flank between metadata preparation and extraction. Output must
+be fresh. Preserve full headers (trd=f when passing the FASTAs to other tools).
+The paired source/GFF lists ensure that identical contig names in different
+genomes do not cross-join. The preparer validates absolute paths and metadata;
+CutGff owns actual file-access checks when extraction starts.
+
+Each output genome GFF uses CutGff's native attribute-to-header convention:
+ID=<occurrence> source=<genome> tid_<taxid>. The first FASTA token is therefore
+ID=<occurrence>, not the bare occurrence name. Bare tid_N metadata supports
+TrnaConsensusBuilder assignment provenance. The complete source roster retains
+its original path metadata, with only locus counts replaced by admitted counts;
+sources.config names the separately generated extraction GFFs. Zero-locus sources
+remain in genomes.tsv and do not cause unnecessary genome reads.
+
+core.gff addresses the sense-oriented extracted records. Its coordinates use the
+actual clipped left flank plus one through left flank plus occurrence length.
+On minus-strand loci, genomic-right flank becomes the record's left flank. Core
+coordinates do not rescan or relabel the original annotations.
+
+occurrence_loci.tsv has fifteen columns:
+  record_id occurrence_id genome assembly taxid domain phylum seqid strand
+  start1 stop1 length contig_length lflank rflank
+
+start1/stop1 are inclusive genomic coordinates; lflank/rflank are in the output
+record's sense orientation. record_id is ID= followed by occurrence_id. Every
+row must join the exact source assembly/TaxID/domain/phylum. Identifiers used in
+GFF/header tokens must be printable ASCII without whitespace, ';', '=' or '%'.
+
+NcrnaLearningPopulation recognizes this header separately from its historical
+21-column annotation header. Occurrences carry observed coordinate truth; they
+do not assert historical FULL or PARTIAL annotation status, nor pseudogene status.
+All admitted occurrence records remain teaching-eligible unless an explicit
+exclusion file names them. Sequence/feature limitations still receive explicit
+accounting in NcrnaLearningContext, NcrnaLearningTables and NcrnaLearningVectors;
+admission does not guarantee every candidate offset has usable features.
+Historical SOURCE_PARTIAL handling and other annotation checks remain unchanged
+when the historical header is supplied. Preserve historical flags in the accepted
+original-annotation and event/occurrence provenance tables, not invented columns.
+
+coverage_split.tsv uses NcrnaSeedCoverage's existing seven-column schema:
+  locus_id genome source_group stratum representative_id fold pilot_exposed_group
+Every record is its own representative; source_group is tid_N, stratum is
+ALL_ADMITTED_IN_CORPUS and fold is TRAIN. Use fold=ALL or fold=TRAIN with
+representatives=f. The compatibility column pilot_exposed_group is NA, explicitly
+unreported rather than a claim that these sources were never previously examined.
+This is an all-admitted training population, not an independent holdout.
+
+summary.tsv reports occurrence count, positive and total source counts, requested
+flank and expected context bases. The last value comes from coordinate geometry;
+it is not evidence that extraction ran. Check actual CutGff completion, counts and
+the downstream complete-ID joins before consuming a resource generation.
+
+Developer fixture:
+  dev/testncrnaoccurrenceinputs.sh out=fresh_fixture_directory
+It runs actual CutGff extraction on a literal small genome, checks exact bases and
+both-strand clipped flanks, passes the actual contexts through the learner, and
+rejects malformed joins. It is not a biological training corpus.

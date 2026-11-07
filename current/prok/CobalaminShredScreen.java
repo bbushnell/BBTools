@@ -7,31 +7,66 @@ import fileIO.ByteFile;
 import fileIO.ByteStreamWriter;
 import map.ObjectMap;
 import parse.LineParser1;
+import parse.Parse;
 import parse.PreParser;
 import shared.Shared;
 import stream.Read;
 import structures.ByteBuilder;
 import structures.IntList;
 
-/** Excludes random cores overlapping full-span, GA-passing clan CM hits.
+/** Excludes random cores overlapping full-span, GA-passing declared CM hits.
  * Consumes explicitly selected padded contexts, preserves all raw hit evidence,
  * and distinguishes scanned zero-hit cores from unadjudicated background.
+ * Defaults retain the original three-family cobalamin screen and its output labels.
  * @author Raiden
  */
 public final class CobalaminShredScreen {
 	public static void main(String[] args){
 		final PreParser pp=new PreParser(args, CobalaminShredScreen.class, false);
-		String manifest=null, cores=null, models=null, out=null, scanned=null;int expected=-1, expectedScanned=-1;
+		String manifest=null, cores=null, models=null, out=null, scanned=null, familySpec=null;
+		int expected=-1, expectedScanned=-1;
 		for(String arg:pp.args){
-			final int eq=arg.indexOf('=');require(eq>0, "Use flag=value");final String k=arg.substring(0, eq).toLowerCase(Locale.ROOT), v=arg.substring(eq+1);
-			if(k.equals("manifest")){manifest=v;}else if(k.equals("in")){cores=v;}else if(k.equals("models")){models=v;}else if(k.equals("outprefix")){out=v;}
-			else if(k.equals("scanned")){scanned=v;}else if(k.equals("expectedscanned")){expectedScanned=Integer.parseInt(v);}
-			else if(k.equals("expected")){expected=Integer.parseInt(v);}else{throw new IllegalArgumentException("Unknown option: "+k);}
+			final String[] split=Parse.splitOnFirst(arg, '=');
+			require(split.length==2 && !split[0].isEmpty(), "Use flag=value");
+			final String a=split[0].toLowerCase(Locale.ROOT), b=split[1];
+			if(a.equals("manifest")){manifest=b;}
+			else if(a.equals("in")){cores=b;}
+			else if(a.equals("models")){models=b;}
+			else if(a.equals("outprefix")){out=b;}
+			else if(a.equals("scanned")){scanned=b;}
+			else if(a.equals("expectedscanned")){expectedScanned=Integer.parseInt(b);}
+			else if(a.equals("expected")){expected=Integer.parseInt(b);}
+			else if(a.equals("families")){familySpec=b;}
+			else{throw new IllegalArgumentException("Unknown option: "+a);}
 		}
 		require(manifest!=null && cores!=null && models!=null && out!=null && scanned!=null && expected>0 && expectedScanned>=0 && expectedScanned<=expected,
-			"Bind all cores, coordinate manifest, explicit scanned subset, three CM tables and both denominators");
-		Shared.setThreads(1);Shared.TRIM_READ_DESCRIPTION=false;
-		try{final CobalaminShredScreen x=new CobalaminShredScreen();x.load(manifest, expected);x.scanned(scanned, expectedScanned);x.scan(models);x.write(cores, out);}finally{Shared.closeStream(pp.outstream);}
+			"Bind all cores, coordinate manifest, explicit scanned subset, declared CM tables and both denominators");
+		Shared.setThreads(1);
+		Shared.TRIM_READ_DESCRIPTION=false;
+		try{
+			final CobalaminShredScreen x=new CobalaminShredScreen();
+			if(familySpec!=null){x.setFamilies(familySpec);}
+			x.load(manifest, expected);
+			x.scanned(scanned, expectedScanned);
+			x.scan(models);
+			x.write(cores, out);
+		}finally{Shared.closeStream(pp.outstream);}
+	}
+
+	/** The manifest must contain exactly these unique Rfam models, in this order.
+	 * At most32 models fit the per-core exclusion bit mask. */
+	private void setFamilies(final String value){
+		assert(value!=null) : "families= is parsed before any manifest or output is opened";
+		final String[] selected=value.split(",", -1);
+		require(selected.length>0 && selected.length<=32, "Declare one to32 ordered Rfam families");
+		for(int i=0; i<selected.length; i++){
+			require(selected[i].matches("RF[0-9]{5}"), "Expected an exact Rfam accession: "+selected[i]);
+			for(int j=0; j<i; j++){
+				require(!selected[i].equals(selected[j]), "Duplicate declared family: "+selected[i]);
+			}
+		}
+		families=selected;
+		explicitFamilies=true;
 	}
 	private void load(String path, int expected){
 		final ByteFile in=RrnaResourceIO.open(path);final LineParser1 p=new LineParser1('\t');
@@ -56,7 +91,9 @@ public final class CobalaminShredScreen {
 	private void scan(String path){
 		final ByteFile in=RrnaResourceIO.open(path);final LineParser1 p=new LineParser1('\t');int models=0;
 		try{RrnaResourceIO.header(in, MODEL_HEADER, path);for(byte[] row; (row=in.nextLine())!=null; ){
-			p.set(row);require(p.terms()==5 && models<3 && p.termEquals(FAMILIES[models], 0), "Screen must include all three clan models in canonical order");
+			p.set(row);
+			require(p.terms()==5 && models<families.length && p.termEquals(families[models], 0),
+				"Screen must include every declared model in order; expected "+java.util.Arrays.toString(families));
 			final String model=p.parseString(0), table=p.parseString(3), hash=p.parseString(4);final int clen=p.parseInt(1);final double ga=Double.parseDouble(p.parseString(2));
 			require(clen>0 && Double.isFinite(ga), "Bind explicit CM length and GA");
 			if(scannedCount==0){require(table.equals(".") && hash.equals("NA"), "An empty selected subset must explicitly record no CM scan, not a fabricated empty hit table");models++;continue;}
@@ -73,7 +110,7 @@ public final class CobalaminShredScreen {
 			}
 			models++;
 		}}finally{require(!in.close(), "CM model/table manifest read failed");}
-		require(models==3, "An unscanned model cannot be silently labeled negative");
+		require(models==families.length, "An unscanned declared model cannot be silently labeled negative");
 	}
 	private void write(String fasta, String prefix){
 		RrnaResourceIO.fresh(prefix, ".cores.fa.gz", ".shreds.tsv", ".disposition.tsv", ".hits.tsv", ".lengths.tsv", ".summary.tsv");
@@ -89,10 +126,21 @@ public final class CobalaminShredScreen {
 			});
 			require(counted[0]==members.size(), "No missing core can disappear from the screened denominator");
 			kept.println(CobalaminShredSampler.HEADER);disposition.println("shred\tlength\tstatus\texcluding_models\traw_hits\tcore_overlap_hits");
+			final String excludedLabel=explicitFamilies ? "EXCLUDED_FULL_TARGET_CM_CORE_OVERLAP" : "EXCLUDED_FULL_CLAN_CM_CORE_OVERLAP";
 			for(Member m:members){
 				if(m.excludedBy==0){kept.println(m.row);}
-				b.clear().append(m.id).tab().append(m.length).tab().append(m.excludedBy!=0?"EXCLUDED_FULL_CLAN_CM_CORE_OVERLAP":m.scanned?"RETAINED_CM_SCREENED_BACKGROUND":"SOURCE_MASKED_BACKGROUND_NOT_CM_ADJUDICATED").tab();
-				int labels=0;if(m.excludedBy==0){b.append('.');}else{for(int i=0; i<3; i++){if((m.excludedBy&(1<<i))!=0){if(labels++>0){b.append(',');}b.append(FAMILIES[i]);}}}
+				final String status=m.excludedBy!=0 ? excludedLabel : m.scanned ? "RETAINED_CM_SCREENED_BACKGROUND" : "SOURCE_MASKED_BACKGROUND_NOT_CM_ADJUDICATED";
+				b.clear().append(m.id).tab().append(m.length).tab().append(status).tab();
+				int labels=0;
+				if(m.excludedBy==0){b.append('.');}
+				else{
+					for(int i=0; i<families.length; i++){
+						if((m.excludedBy&(1<<i))!=0){
+							if(labels++>0){b.append(',');}
+							b.append(families[i]);
+						}
+					}
+				}
 				disposition.print(b.tab().append(m.hits).tab().append(m.overlaps).nl());
 			}
 			hits.println("shred\tmodel\ttable_line\tmodel_from\tmodel_to\tcontext_from\tcontext_to\tstrand\ttrunc\tbits\tevalue\tcm_status\tcore_overlap\texcludes_core");
@@ -104,8 +152,10 @@ public final class CobalaminShredScreen {
 				if(before.get(i)>0){lengths.print(b.clear().append(i).tab().append(before.get(i)).tab().append(after.get(i)).tab().append(before.get(i)-after.get(i)).nl());}
 			}
 			summary.println("candidates\tcandidate_bases\tretained\tretained_bases\texcluded\traw_cm_hits\tscanned\tunadjudicated\tinterpretation");
+			final String interpretation=scannedCount==0 ? "CM_NOT_RUN_EMPTY_SELECTION" : explicitFamilies
+				? "DECLARED_FAMILY_CM_FULL_SPAN_GA_NO_TRUNC_CORE_OVERLAP_SCREEN" : "TARGETED_THREE_CM_FULL_SPAN_GA_NO_TRUNC_CORE_OVERLAP_SCREEN";
 			summary.print(b.clear().append(counted[0]).tab().append(counted[1]).tab().append(counted[2]).tab().append(counted[3]).tab().append(counted[0]-counted[2]).tab().append(evidence.size())
-				.tab().append(scannedCount).tab().append(members.size()-scannedCount).tab().append(scannedCount==0?"CM_NOT_RUN_EMPTY_SELECTION":"TARGETED_THREE_CM_FULL_SPAN_GA_NO_TRUNC_CORE_OVERLAP_SCREEN")
+				.tab().append(scannedCount).tab().append(members.size()-scannedCount).tab().append(interpretation)
 				.append("_NOT_PROVEN_BIOLOGICAL_NEGATIVES\n"));
 		}finally{final boolean failed=output.close();RrnaResourceIO.finish(kept, disposition, hits, lengths, summary);require(!failed, "Screened FASTA output failed");}
 		System.err.println("COBALAMIN_SHRED_SCREEN_PASS candidates="+counted[0]+" retained="+counted[2]+" excluded="+(counted[0]-counted[2]));
@@ -122,6 +172,9 @@ public final class CobalaminShredScreen {
 	private final ArrayList<Member> members=new ArrayList<Member>();private final ObjectMap<String,Member> byId=new ObjectMap<String,Member>(String.class, Member.class);
 	private final ArrayList<Evidence> evidence=new ArrayList<Evidence>();
 	private int scannedCount;
+	/** Explicit selection changes labels; omission preserves the legacy three-family output. */
+	private boolean explicitFamilies;
+	private String[] families=FAMILIES;
 	private static final String[] FAMILIES={"RF00174", "RF01482", "RF01689"};
 	public static final String MODEL_HEADER="model\tclen\tga_bits\ttblout\ttblout_sha80";
 }

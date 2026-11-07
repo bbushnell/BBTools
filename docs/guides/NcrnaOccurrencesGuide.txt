@@ -1,0 +1,104 @@
+NcrnaOccurrences: resolve primary ncRNA observations into occurrences
+===================================================================
+
+Usage:
+  ncrnaoccurrences.sh in=accepted_census primary=RF00504 out=occurrences
+
+This tool reads five existing census tables: originals.tsv, searches.tsv,
+hits.tsv, events.tsv and overlaps.tsv. Their headers and source/model/count
+joins must match NcrnaObservationCensus. Physical IDs are unique and dense from
+one; each physical interval has at least one event. The primary model must have
+exactly one declared version. Input row order does not determine output IDs.
+The output directory must not exist and its parent must already exist.
+
+Meaning of an occurrence
+------------------------
+Within one genome, assembly, contig, strand and model/version, a child physical
+interval collapses into a parent if the parent contains its inclusive genomic
+bounds and EVERY child event's model span is contained by ONE actual event of
+that parent. Different child events may have different parent witnesses. Two
+parent events may not be unioned to cover one child event. Representative
+coordinates are the maximal parent's original bounds, never a synthetic union.
+
+Nested parents resolve to one maximum. If a child has two incomparable maximal
+containers, the tool fails before creating output. Partial, edge and overlapping
+primary intervals remain distinct whenever this containment rule does not apply.
+Two overlapping full-model alignments may therefore remain two occurrences.
+There is no new score, coverage, length, completeness or spacing threshold.
+
+Other model IDs are evidence only. Their same-strand overlaps with primary
+representatives are linked, but never create occurrences, extend coordinates or
+bridge neighboring occurrences. An unmatched secondary interval is explicitly
+unmapped. The primary argument is a model identity, not a biological classifier.
+
+Output tables
+-------------
+All coordinates are one-based inclusive. Every table has a header.
+
+occurrences.tsv:
+  occurrence_id genome assembly taxid seqid strand start1 stop1 model_id
+  model_sha80 representative_physical_id contig_length
+  IDs are MODEL_occurrence_N, starting at one, ordered by full source, strand
+  and genomic bounds. Text order uses BBTools Tools.compare byte ordering.
+  IDs are stable for reordered rows of the same census; adding observations
+  may renumber them. Do not use them as cross-generation biological identities.
+
+physical_links.tsv:
+  physical_id occurrence_id relation
+  Each primary interval has one REPRESENTATIVE or CONTAINED row. Each secondary
+  interval has one SECONDARY_OVERLAP row per overlapping occurrence, or one
+  UNMAPPED_SECONDARY row with occurrence_id='.'. Link rows are not gene counts.
+
+event_links.tsv:
+  table_id table_line physical_id occurrence_id relation witness_table
+  witness_line context_id origin_genome origin_id
+  Every raw event survives. Secondary events may have several link rows.
+  Primary witnesses identify actual representative events containing the model
+  span, chosen by table ID then numeric line. Representatives also receive a
+  real containing witness from their own events. Secondary witnesses are '.'.
+  Join table_id/table_line to input events.tsv for the untouched raw spans,
+  scores, truncation and inclusion fields; searches.tsv identifies the model.
+
+original_links.tsv:
+  genome original_id physical_id occurrence_id overlap_bases same_strand relation
+  Every input annotation overlap survives. Primary annotation overlaps transfer
+  to the representative occurrence. A secondary annotation overlap retains '.'
+  as its occurrence and SECONDARY_ANNOTATION_EVIDENCE as its relation: an
+  annotation overlapping one end of a broad secondary hit must not automatically
+  link to every primary occurrence at the other end. Use physical_links.tsv for
+  the separate secondary-to-primary evidence relationship. Opposite-strand
+  annotation links remain explicit via same_strand=false, not silently removed.
+
+original_status.tsv:
+  genome original_id observed_physical_overlaps occurrences_with_primary_overlap
+  All original annotations survive, including zeros. The last column counts
+  distinct representative occurrences reached through primary annotation links,
+  not raw events or repeated physical links. Zero does not mean biological absence.
+
+summary.tsv:
+  metric count
+  Original/search/physical/event/annotation counts; primary physical intervals,
+  collapsed intervals and occurrences; secondary/unmapped intervals; event links.
+
+Scope and operational limits
+----------------------------
+The accepted census remains the provenance authority. This exporter validates
+the required identities, spans and count joins; it does not rerun the search or
+re-adjudicate original annotation geometry. Preserve input tables and raw search
+outputs alongside the output generation. A successful run does not validate a
+biological score threshold or prove that every exported occurrence is functional.
+
+One metadata thread owns retained records and primitive indices. A source-local
+sweep compares live maximal containers; it does not build all cross-genome pairs.
+Extremely dense overlapping intervals can still require quadratic comparisons
+within that region. All five metadata tables are retained in memory; t= does not
+parallelize resolution. Output uses checked native writers. Semantic errors fail
+before output creation; an I/O failure during writing may leave incomplete files.
+Require the successful exit and NCRNA_OCCURRENCES_PASS message before consumption.
+
+Developer check:
+  dev/testncrnaoccurrences.sh out=fresh_fixture_directory
+The finite suite preserves literal inputs/results and compares all tables after
+reversing input rows. It covers per-event witnesses, ambiguity, nested/crossing
+hits, partials, gaps, source/strand separation, secondary bridges, zero hits and
+malformed joins. It is a software test, not a product resource corpus.

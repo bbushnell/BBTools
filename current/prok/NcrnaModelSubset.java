@@ -28,6 +28,31 @@ public final class NcrnaModelSubset{
 	 */
 	public static Result reduce(final int models, final int[] starts,
 			final int[] supporters, final double target){
+		return reduce(models, starts, supporters, target, Integer.MAX_VALUE);
+	}
+
+	/** Adds a per-deletion loss cap to the existing total-coverage target.
+	 * Loss means genes that become unsupported now, not all genes a model supports.
+	 * Incremental counts are updated after every drop, including zero-loss drops.
+	 * @param maxModelLoss Maximum newly uncovered genes permitted for one deletion
+	 */
+	public static Result reduce(final int models, final int[] starts,
+			final int[] supporters, final double target, final int maxModelLoss){
+		return reduce(models, starts, supporters, target, maxModelLoss, 0);
+	}
+
+	/** Stops the same greedy trajectory before fewer than minModels remain.
+	 * Coverage and per-deletion loss limits may stop it earlier with more models.
+	 * A zero floor preserves the original reduction behavior.
+	 * @param minModels Minimum retained model count, in [0, models]
+	 */
+	public static Result reduce(final int models, final int[] starts,
+			final int[] supporters, final double target, final int maxModelLoss,
+			final int minModels){
+		if(maxModelLoss<0){throw new IllegalArgumentException("maxmodelloss must be nonnegative");}
+		if(minModels<0 || minModels>models){
+			throw new IllegalArgumentException("minmodels must be between zero and the input model count: "+minModels+", "+models);
+		}
 		validate(models, starts, supporters, target);
 		final int genes=starts.length-1;
 		final int required=minimumCovered(genes, target);
@@ -64,13 +89,15 @@ public final class NcrnaModelSubset{
 		Arrays.fill(kept, true);
 		final IntList removed=new IntList(models);
 		final int originalCovered=covered;
-		while(true){
+		int retained=models;
+		while(retained>minModels){
 			final int victim=leastUnique(kept, unique);
-			if(victim<0 || covered-unique[victim]<required){break;}
+			if(victim<0 || unique[victim]>maxModelLoss || covered-unique[victim]<required){break;}
 			final int expectedLoss=unique[victim];
 			int lost=0;
 			kept[victim]=false;
 			removed.add(victim);
+			retained--;
 			for(int edge=modelStarts[victim]; edge<modelStarts[victim+1]; edge++){
 				final int gene=modelGenes[edge];
 				assert(remaining[gene]>0) : "A kept edge must contribute to its gene's supporter count; gene="+gene;
@@ -88,6 +115,8 @@ public final class NcrnaModelSubset{
 			covered-=lost;
 		}
 		assert(covered>=required) : "A proposal must preserve the requested corpus coverage before caller testing";
+		assert(retained>=minModels && retained+removed.size==models)
+			: "Each greedy deletion removes exactly one model and must preserve the requested model-count floor";
 		return new Result(kept, removed.toArray(), genes, originalCovered, covered);
 	}
 

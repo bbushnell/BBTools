@@ -49,6 +49,16 @@ public final class NcrnaLearningSplitTest {
 		fails(()->NcrnaLearningSplit.split(missingTaxid, p30, new int[30], 1, 1, 0));
 		for(int i=0; i<30; i++){m30[i]=i;}
 		fails(()->NcrnaLearningSplit.split(t30, p30, m30, 1, 30, 0));
+		final int[] smallTaxa={9, 2, 9};
+		final Result all=NcrnaLearningSplit.all(smallTaxa, new int[]{1, 0, 1}, new int[]{0, 1, 1}, 2, 2);
+		assert(Arrays.equals(all.taxids, new int[]{2, 9}) && Arrays.equals(all.groupByGene, new int[]{1, 0, 1})
+			&& Arrays.equals(all.phylumByGroup, new int[]{0, 1}) && all.target==0 && all.selected==0)
+			: "All-data grouping preserves sorted TaxIDs and exact source mapping without minimum-group quotas";
+		assert(Arrays.equals(all.validationByGene, new boolean[3]) && Arrays.equals(smallTaxa, new int[]{9, 2, 9}))
+			: "All-data grouping withholds no locus and does not reorder its input";
+		fails(()->NcrnaLearningSplit.all(new int[]{9, 9}, new int[]{0, 1}, new int[]{0, 0}, 2, 1));
+		fails(()->NcrnaLearningSplit.all(new int[]{0}, new int[]{0}, new int[]{0}, 1, 1));
+		fails(()->NcrnaLearningSplit.all(new int[]{9}, new int[]{0}, new int[]{1}, 1, 1));
 		System.out.println("Learning split passed: whole TaxIDs, rare phyla/bins, word boundary, underfill and invalid populations");
 	}
 

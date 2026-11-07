@@ -1,0 +1,107 @@
+StegoFast -- version 1 (development format)
+
+Purpose
+Embed arbitrary files or UTF-8 text in synthetic DNA reads. Each sequence is
+authoritative; headers are readable labels and qualities are placeholders (Q30).
+This is an encoding, not encryption. The format is still under development.
+
+Examples
+  stegofast.sh in=metadata.tar,publication.pdf out=encoded.fq.gz len=150
+  stegofast.sh literal="This is some metadata" appendto=reads.fq.gz out=combined.fq.gz
+  stegofast.sh in=mystery.fq.gz decode out=/path/to/extracted/
+  stegofast.sh in=metadata.tar out=r1.fq.gz out2=r2.fq.gz
+  stegofast.sh in=r1.fq.gz in2=r2.fq.gz decode out=/path/to/extracted/
+
+Files are embedded byte-for-byte. A .gz attachment is not decompressed. Only
+the basename is retained; paths, permissions and timestamps are not stored.
+Use an archive attachment when those attributes matter. Input filenames are
+comma-separated; comma-bearing filenames are not supported by this interface.
+Literal text defaults to metadata.txt; name= overrides that basename.
+
+Per-read sequence format
+  20 bases: ACGTTGCACTGATCGATGCA (magic)
+   2 bases: version, currently AC (integer 1)
+  variable: nonnegative 63-bit random group ID, one group per attachment
+  variable: zero-based part number
+  variable: payload byte count
+  4 bases per payload byte
+  zero or more A bases padding to the requested len
+  16 bases: CRC32 of the uppercase ASCII bases preceding the CRC field
+
+Base values are A=0, C=1, G=2, T=3. Fields are big-endian. A byte is four bases,
+most significant two bits first. Each variable integer begins with three bases
+encoding (digit count minus one), followed by that many base-4 digits. Canonical
+shortest encoding is required, including one digit for zero. Values are limited
+to 0..2^63-1, so at most 32 digits are valid. CRC uses java.util.zip.CRC32.
+Padding is included in the CRC and must consist only of A. No byte alignment
+between envelope fields is required. len must be 128..1000000, default 150.
+
+The group ID is random to allow datasets to be combined. An ID collision remains
+possible; conflicting parts cause an error. Group IDs are not authentication.
+Payload capacity varies when integer widths change. All reads in one group
+have the same sequence length. The encoder calculates part counts by integer
+width intervals before streaming the attachment.
+
+Reconstructed attachment stream
+  4 bytes: unsigned UTF-8 basename byte length (1..65535)
+  filename bytes
+  8 bytes: number of distinct parts (positive signed long)
+  8 bytes: raw file byte length (nonnegative signed long)
+  raw file bytes
+  4 bytes: CRC32 of raw file bytes
+All byte integers are big-endian. Manifest fields may span any number of reads.
+The complete stream must end immediately after the file checksum.
+
+Pairing and headers
+Unpaired: metadata_group_<hexID>_part_<part>
+Paired:   metadata_group_<hexID>_part_<first>-<second> 1:
+          metadata_group_<hexID>_part_<first>-<second> 2:
+For an odd number of parts, the final mate duplicates the final part and the
+header lists that single part number. Both records are independently decodable.
+SAM/BAM uses the same whitespace-free stem as both mates' QNAME, with mate
+identity in the alignment flags. The space-and-colon suffix is for FASTA/FASTQ.
+paired=auto follows append input or out2; otherwise standalone output is single.
+For appended SAM/BAM, any paired-template flag selects paired metadata; the
+alignment reader does not need to link or bring those mates together.
+appendto/appendto2 copy existing records before emitting complete metadata pairs.
+Separate mate output requires paired input when appending.
+SAM/BAM append accepts one alignment input, including coordinate-sorted records;
+it preserves alignment fields through the SamLine/Writer APIs. Its output header
+retains dictionaries and other records but declares SO:unsorted and removes SS/GO.
+Decoding reads the stored sequence directly and does not require MD tags or a
+reference genome. Both mate outputs must be alignment formats or both sequence
+formats; mixed FASTQ/BAM mate outputs are not supported.
+
+Decoding and failure behavior
+Scans each record independently; no header matching, qualities, mate adjacency,
+or input ordering is required. Both orientations and lowercase ACGT are accepted.
+Ordinary reads are ignored. A matching magic with invalid framing or CRC causes
+an error. Damage to the magic can make a read unrecognizable; missing parts are
+detected if other parts of its group survive. Complete loss of a group cannot
+be detected without an external inventory.
+
+Parts are assembled in random-access temporary files under the output directory.
+Identical duplicate parts are accepted; conflicting copies fail. maxfiles=128
+limits open attachment spools. Memory holds batches and per-file state, not whole
+attachments. Missing parts, inconsistent lengths, bad UTF-8, or failed file CRCs
+fail extraction. Every group is validated before any recovered file is published.
+Extraction never overwrites existing files or symlinks. A basename may not contain
+slash, backslash, colon, NUL, or equal dot/dot-dot. Duplicate basenames fail.
+Publication of multiple files is not a filesystem transaction: an I/O failure
+during final moves may leave some already-validated files published. On failure,
+the temporary directory is retained and its path is reported. On success, spools
+are removed after publication. No embedded archive is automatically unpacked.
+
+Compatibility boundary
+Survives header changes, quality removal, record reordering, reverse complements,
+and sequence-preserving FASTQ/FASTA/SAM/BAM conversions. Mapping must retain full
+sequence and unmapped records. Arbitrary trimming/filtering is not supported.
+Metadata-aware bypasses in other BBTools programs are future work. There is no
+error-correcting code or cryptographic authenticity in version 1.
+
+Development
+Compile affected packages on Dori per the BBTools skill. Run
+  bash dev/stegofast_test.sh
+for isolated codec, assembly and CLI round-trip/adversarial tests. The runner
+prints its retained artifact directory. Tests use shell launchers, assertions,
+and small inputs; they are correctness tests, not performance measurements.

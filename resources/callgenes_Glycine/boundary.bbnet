@@ -1,0 +1,43 @@
+##bbnet
+#version 1
+##java 25.0.1
+##simd false
+##simd_ff false
+##simd_bp false
+#concise
+#dense
+#density 1
+#blocksize 1
+#seed 58
+#layers 3
+#epochs 100
+#dims 10 16 1
+#CL java -XX:ActiveProcessorCount=16 -ea -XX:+ExitOnOutOfMemoryError -Xmx8192m ml.RegressionTrainer dims=10,16,1 seed=58 epochs=100 batch=8192 lr=0.003 wd=0.0001 vfraction=0 final=rslog hidden=tanh simd=f t=1 printevery=10 ow=t in=stdin.txt valin=/clusterfs/jgi/scratch/gentech/genome_analysis/Raiden/glycine_build_20261106/reduced_adaptive_refit_01/family.work/refit/vectors.train.0.tsv.gz out=/clusterfs/jgi/scratch/gentech/genome_analysis/Raiden/glycine_build_20261106/reduced_adaptive_refit_01/family.work/refit/boundary.bbnet t=1 vfraction=0 -Xmx8192m -Xms64m -ea eoom
+##fpr 999
+##fnr 999
+##err 999
+##wer 999
+##ctf -1
+#coding A48
+#zeroabsent true
+#liveedges 176
+#edges 176
+##layer 1
+C11 TANH 2o?N:< 2klN[? 2loe6X o<70S 2o:0Ak lg5^A oB6dN 2n06EY oNR4Q nKa^N n5^aJ
+C12 TANH ol<B9 2mSDV\ oZAhj 2nhGml 2n]JF8 2l9;5O 2noacX 2n]A;[ 2oC^4n 2naQCj 2n3Q8l
+C13 TANH o=]JP o4Pi0 oS;Ln 2o9Dba mg<SL 2n?51K 2mfTMJ nIEg4 mY4_L 2o?=6j 2o4lo9
+C14 TANH 2oIVYN 2mcPIE 2oTHgb 2nk@8^ nKZ[e m>K12 nmM[7 nM>P` nZoCe ocUc8 2nPlJG
+C15 TANH 2oQoR: nUaoS oJgY0 nTCXK 2oeEPj 2nL1E^ 2nm2eC n:Hf= 2neFRb o:]Wo l^nV8
+C16 TANH 2o0l97 oQ3GX 2oAD1h m5@@n 2o9Ukj 2m:<<K 2o2LRW nY0I\ nR>QW nfHfj ml>nL
+C17 TANH nG@X1 o5MWD naAEd 2nf?[\ nLPL_ 2nIOQh 2mj5>Z n3DZ< n0jji 2nX5=5 2o^boj
+C18 TANH 30;>0N o]R^k o5Ef8 2ni[:0 o7JYo 2mFWmT o_igG 2n;A>T o[DPL 2oA8Ve 2n_21X
+C19 TANH oYO9O 2o]0=< 2o=WiA nR9^M oI:hY 2lC_QJ 2o\?go mbQ2: 2o^G_E oCd[P ncK6U
+C20 TANH 2e64G` d=4LQ 2ajf\i b621Z ccVDV 2cU@3b 2cP8fA bVg_i 2c>`<^ a3Alj deebe
+C21 TANH 2oVkNK 2nOoR1 o<n:Q 2m^8UV 2mEF5d nme8g 2n@K;f lX<K9 oHSQd mOTGW 2mQO<7
+C22 TANH kUeKl 2mZ0NA 2oCC95 n]lEf og9V< nCcl1 2n?\gf 2m]fec 2mNAFB 2o1OHo 2o0V;@
+C23 TANH 105_Al n8oVG nj;G5 2lHNf@ 2ocOML 2n1_;b 2nX0`J 2nDOAB 2m?9JS 2oZ39: o201K
+C24 TANH o4XcE nI\\j 2n4U^9 mZRKL 2nNGSQ 2mhIdd 2m9V4D n`TnE mY9hc 2mZ7T3 2oL[Q2
+C25 TANH 2o`Qnc o=GWl 2niN1d o;Se[ n\=Ii 2nP]Q^ 2l>]>g 2nFOZ3 nE=l^ nWJUZ 2nS05>
+C26 TANH 2oj>9_ 2o<om2 ncn_l 2nA^;e o^56@ 2mUYM] 2m\4n1 2l=>JQ lh`\U o=OjL neE`3
+##layer 2
+C27 RSLOG kTGTT nm7Ze n\QS1 nO>GH 2n]=3= o3aF@ nFH[K 2nB]JH 2o5JW< 2o62?R aEidI 2nU:Dj naX0d 2nYd[A mc`93 2nF;5_ nAFaW

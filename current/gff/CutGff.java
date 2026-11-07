@@ -18,6 +18,7 @@ import fileIO.ReadWrite;
 import parse.Parse;
 import parse.Parser;
 import parse.PreParser;
+import prok.GeneCaller;
 import prok.PGMTools;
 import prok.ProkObject;
 import shared.Shared;
@@ -190,7 +191,8 @@ public class CutGff implements Accumulator<CutGff.ProcessThread>  {
 			}else if(a.equals("flank") || a.equals("pad")){
 				flank=Integer.parseInt(b);
 			}else if(a.equalsIgnoreCase("gccontig")){
-				appendGC=Parse.parseBoolean(b);
+				callerGC="caller".equalsIgnoreCase(b);
+				appendGC=callerGC || Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("filename")){
 				appendFilename=Parse.parseBoolean(b);
 			}
@@ -541,6 +543,7 @@ public class CutGff implements Accumulator<CutGff.ProcessThread>  {
 	private ArrayList<Read> processLines(ArrayList<GffLine> lines, HashMap<String, Read> map, boolean invertSelection,
 			HashMap<String, Float> gcCache, String sourceBasename){
 		ArrayList<Read> list=null; 
+		final ByteBuilder header=callerGC ? new ByteBuilder() : null;
 		for(GffLine gline : lines){
 			if(hasAttributes(gline)){
 				Read scaf=map.get(gline.seqid);
@@ -587,7 +590,14 @@ public class CutGff implements Accumulator<CutGff.ProcessThread>  {
 								id=id+" lflank="+lflank+" rflank="+rflank;
 							}
 							if(appendGC){
-								id=id+" contig_gc="+String.format("%.4f", contigGC(scaf, gcCache));
+								final float gc=contigGC(scaf, gcCache, callerGC);
+								if(callerGC){
+									// Fixed decimal remains compatible with legacy digits/dot parsers.
+									// Eighteen places round-trip even 1/Integer.MAX_VALUE as a float.
+									id=header.clear().append(id).append(" contig_gc=").append((double)gc, 18).toString();
+								}else{
+									id=id+" contig_gc="+String.format("%.4f", gc);
+								}
 							}
 							if(appendFilename){
 								id=id+" source="+sourceBasename;
@@ -636,12 +646,15 @@ public class CutGff implements Accumulator<CutGff.ProcessThread>  {
 	 * the whole source contig, not the extracted/flanked region.
 	 * @param scaf Full scaffold Read (its .bases is the untrimmed contig)
 	 * @param cache Per-contig-id cache, filled lazily
-	 * @return GC fraction (0.0 to 1.0)
+	 * @param caller Use the exact inference calculation; false preserves legacy arithmetic
+	 * @return GC fraction; legacy mode returns NaN when the contig has no defined bases
 	 */
-	private static float contigGC(Read scaf, HashMap<String, Float> cache){
+	private static float contigGC(Read scaf, HashMap<String, Float> cache, final boolean caller){
+		assert(scaf!=null && scaf.bases!=null && cache!=null)
+			: "GC metadata must use an intact source contig and its file-local cache before extraction";
 		Float f=cache.get(scaf.id);
 		if(f==null){
-			f=Tools.calcGC(scaf.bases);
+			f=caller ? GeneCaller.calcContigGC(scaf.bases) : Tools.calcGC(scaf.bases);
 			cache.put(scaf.id, f);
 		}
 		return f;
@@ -918,6 +931,8 @@ public class CutGff implements Accumulator<CutGff.ProcessThread>  {
 	private int flank=0;
 	/** If true, append contig_gc=X.XXXX (GC fraction of the FULL source contig, pre-trim/flank) to each output record's header */
 	private boolean appendGC=false;
+	/** Explicit gccontig=caller shares inference arithmetic and retains its full float precision. */
+	private boolean callerGC=false;
 	/** If true, append source=<basename of input fna> to each output record's header (recovers tid without requiring seqid to carry it) */
 	private boolean appendFilename=false;
 

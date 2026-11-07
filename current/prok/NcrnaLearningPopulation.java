@@ -9,13 +9,19 @@ import map.ObjectIntMap;
 import parse.LineParser1;
 import prok.NcrnaSupport.Graph;
 
-/** Complete original-locus population for boundary learning.
+/** Complete original-locus or admitted-occurrence population for boundary learning.
  * Joins the scored original graph, genome roster and locus ledger before
- * splitting TaxIDs. Partial and explicitly excluded loci retain their original
+ * grouping TaxIDs. Tuning partitions groups; fixed refit withholds none and
+ * requires no feasible validation quota. Partial/excluded loci retain their original
  * model bins and split membership; eligibility only controls subsequent learning.
  * This input-only helper uses the ByteFile/LineParser idiom from the text template.
  * It retains primitive locus columns, not the original TSV lines or gene objects.
  * Returned arrays are owned here and must be treated as read-only by consumers.
+ * A distinct occurrence-ledger header supplies observed coordinates without
+ * historical annotation flags. Its admitted records remain eligible unless an
+ * explicit exclusions file names them; unavailable sequence features are reported
+ * separately by the downstream tables/vector tools. Legacy annotation behavior
+ * is unchanged when the original 21-column header is supplied.
  * @author Brian Bushnell, Raiden
  */
 public final class NcrnaLearningPopulation{
@@ -34,13 +40,27 @@ public final class NcrnaLearningPopulation{
 	 */
 	public static NcrnaLearningPopulation load(final Graph graph, final String[] originalNames,
 			final String roster, final String loci, final String exclusions, final long seed){
+		return load(graph, originalNames, roster, loci, exclusions, seed, false);
+	}
+
+	/** Loads all eligible records without requesting a validation partition.
+	 * Source identity/count checks and explicit partial/exclusion handling remain
+	 * identical to tuning, including corpora with fewer than ten TaxID groups.
+	 */
+	public static NcrnaLearningPopulation loadForRefit(final Graph graph, final String[] originalNames,
+			final String roster, final String loci, final String exclusions){
+		return load(graph, originalNames, roster, loci, exclusions, 0, true);
+	}
+
+	private static NcrnaLearningPopulation load(final Graph graph, final String[] originalNames,
+			final String roster, final String loci, final String exclusions, final long seed, final boolean refit){
 		if(graph==null || graph.reduced || !Arrays.equals(graph.modelNames, originalNames)){
 			throw new IllegalArgumentException("Coverage bins require an ORIGINAL graph on the supplied original library axis");
 		}
 		final NcrnaLearningPopulation population=new NcrnaLearningPopulation(graph);
 		population.readRoster(roster);
 		population.readLoci(loci);
-		population.partition(seed);
+		population.partition(seed, refit);
 		population.readExclusions(exclusions);
 		return population;
 	}
@@ -102,34 +122,39 @@ public final class NcrnaLearningPopulation{
 	private void readLoci(final String path){
 		final int[] observed=new int[sources.length];
 		int count=0;
-		try(Input input=new Input(path, LOCUS_HEADER, 21)){
+		try(Input input=new Input(path, LOCUS_HEADER, 21, true)){
 			while(input.next()){
 				final LineParser1 p=input.parser;
 				final String id=input.text(0);
-				final int gene=byLocus.get(id), genome=bySource.get(input.text(1));
+				final int shift=input.occurrenceRows ? 1 : 0;
+				final int gene=byLocus.get(id), genome=bySource.get(input.text(1+shift));
 				if(gene<0 || genome<0 || source[gene]>=0){throw input.bad("Unknown or duplicate original locus/source: "+id);}
 				final Source s=sources[genome];
-				if(!p.termEquals(s.assembly, 2) || input.number(3)!=s.taxid
-						|| !p.termEquals(s.domain, 4) || !p.termEquals(s.phylum, 5)){
+				if(!p.termEquals(s.assembly, 2+shift) || input.number(3+shift)!=s.taxid
+						|| !p.termEquals(s.domain, 4+shift) || !p.termEquals(s.phylum, 5+shift)){
 					throw input.bad("Locus identity disagrees with its original source: "+id);
 				}
-				partial[gene]=p.termEquals("SOURCE_PARTIAL", 14);
-				if(!partial[gene] && !p.termEquals("ANNOTATION_FULL_COPY", 14)){
-					throw input.bad("Unknown annotation status for "+id);
+				if(input.occurrenceRows){
+					readOccurrence(input, gene, id);
+				}else{
+					partial[gene]=p.termEquals("SOURCE_PARTIAL", 14);
+					if(!partial[gene] && !p.termEquals("ANNOTATION_FULL_COPY", 14)){
+						throw input.bad("Unknown annotation status for "+id);
+					}
+					if(!p.termEquals(partial[gene] ? "true" : "false", 12)){
+						throw input.bad("Partial flag disagrees with annotation status for "+id);
+					}
+					if(!p.termEquals("false", 13)){throw input.bad("Resolve pseudogene status in the corpus before learning: "+id);}
+					if(!p.termEquals("+", 7) && !p.termEquals("-", 7)){throw input.bad("Locus needs an explicit strand: "+id);}
+					length[gene]=input.number(9);
+					final int contig=input.number(15), ambiguous=input.number(17);
+					leftFlank[gene]=input.number(18);
+					rightFlank[gene]=input.number(19);
+					if(length[gene]==0 || length[gene]>contig || ambiguous>length[gene]){
+						throw input.bad("Gene length or ambiguity count does not fit the contig: "+id);
+					}
+					if(!p.termEquals("true", 16) && !p.termEquals("false", 16)){throw input.bad("Invalid physical-edge flag: "+id);}
 				}
-				if(!p.termEquals(partial[gene] ? "true" : "false", 12)){
-					throw input.bad("Partial flag disagrees with annotation status for "+id);
-				}
-				if(!p.termEquals("false", 13)){throw input.bad("Resolve pseudogene status in the corpus before learning: "+id);}
-				if(!p.termEquals("+", 7) && !p.termEquals("-", 7)){throw input.bad("Locus needs an explicit strand: "+id);}
-				length[gene]=input.number(9);
-				final int contig=input.number(15), ambiguous=input.number(17);
-				leftFlank[gene]=input.number(18);
-				rightFlank[gene]=input.number(19);
-				if(length[gene]==0 || length[gene]>contig || ambiguous>length[gene]){
-					throw input.bad("Gene length or ambiguity count does not fit the contig: "+id);
-				}
-				if(!p.termEquals("true", 16) && !p.termEquals("false", 16)){throw input.bad("Invalid physical-edge flag: "+id);}
 				source[gene]=genome;
 				observed[genome]++;
 				count++;
@@ -144,8 +169,32 @@ public final class NcrnaLearningPopulation{
 		}
 	}
 
-	/** Eligibility is deliberately unavailable until the whole-population split exists. */
-	private void partition(final long seed){
+	/** Admitted occurrences have their own coordinate contract, not invented annotation flags.
+	 * Every admitted record stays eligible unless an explicit exclusions file names it.
+	 * Original annotation partial/pseudogene evidence stays in the admission provenance.
+	 */
+	private void readOccurrence(final Input input, final int gene, final String id){
+		assert(source[gene]<0) : "Occurrence identity is unique and is assigned to its source after this validation";
+		final LineParser1 p=input.parser;
+		final String occurrence=input.text(1);
+		if(!id.equals("ID="+occurrence)){throw input.bad("Record ID must match the admitted occurrence's CutGff identifier: "+id);}
+		if(!p.termEquals("+", 8) && !p.termEquals("-", 8)){throw input.bad("Occurrence needs an explicit strand: "+id);}
+		final int start=input.number(9), stop=input.number(10), contig=input.number(12);
+		length[gene]=input.number(11);
+		leftFlank[gene]=input.number(13);
+		rightFlank[gene]=input.number(14);
+		if(start<1 || stop<start || stop>contig || (long)stop-start+1!=length[gene]){
+			throw input.bad("Occurrence length and coordinates disagree: "+id);
+		}
+		final boolean minus=p.termEquals("-", 8);
+		final int availableLeft=minus ? contig-stop : start-1, availableRight=minus ? start-1 : contig-stop;
+		if(leftFlank[gene]>availableLeft || rightFlank[gene]>availableRight){
+			throw input.bad("Sense-oriented occurrence flanks exceed the source contig: "+id);
+		}
+	}
+
+	/** Establishes source groups before eligibility; refit deliberately withholds none. */
+	private void partition(final long seed, final boolean refit){
 		final int[] taxa=new int[ids.length], phyla=new int[ids.length];
 		for(int gene=0; gene<ids.length; gene++){
 			assert(source[gene]>=0) : "Every original query must join a source before forming coverage quotas";
@@ -153,12 +202,13 @@ public final class NcrnaLearningPopulation{
 			taxa[gene]=s.taxid;
 			phyla[gene]=s.bin;
 		}
-		split=NcrnaLearningSplit.split(taxa, phyla, originalModel, phylumCount, models.length, seed);
+		split=refit ? NcrnaLearningSplit.all(taxa, phyla, originalModel, phylumCount, models.length)
+			: NcrnaLearningSplit.split(taxa, phyla, originalModel, phylumCount, models.length, seed);
 	}
 
 	/** Exclusions remove teaching examples, never original population members. */
 	private void readExclusions(final String path){
-		assert(split!=null) : "Learning exclusions cannot change the population used for validation quotas";
+		assert(split!=null) : "Learning exclusions follow complete source grouping and cannot alter its population";
 		if(path==null){return;}
 		try(Input input=new Input(path, null, 1)){
 			while(input.next()){
@@ -183,8 +233,12 @@ public final class NcrnaLearningPopulation{
 	/** Serial byte reader with reusable field offsets; close preserves parse failures. */
 	private static final class Input implements AutoCloseable{
 		Input(final String path_, final String header, final int terms_){
+			this(path_, header, terms_, false);
+		}
+		Input(final String path_, final String header, final int terms_, final boolean allowOccurrences_){
 			path=path_;
 			terms=terms_;
+			allowOccurrences=allowOccurrences_;
 			owner=new NcrnaTextIO.Input(path);
 			file=owner.reader;
 			// Constructor cannot throw after opening: header parsing is deferred to next().
@@ -195,7 +249,11 @@ public final class NcrnaLearningPopulation{
 			if(pendingHeader!=null){
 				final byte[] header=file.nextLine();
 				line++;
-				if(header==null || !pendingHeader.equals(new String(header, StandardCharsets.UTF_8))){
+				final String text=header==null ? null : new String(header, StandardCharsets.UTF_8);
+				if(allowOccurrences && OCCURRENCE_HEADER.equals(text)){
+					occurrenceRows=true;
+					terms=15;
+				}else if(!pendingHeader.equals(text)){
 					throw bad("Unexpected metadata header");
 				}
 				pendingHeader=null;
@@ -232,7 +290,9 @@ public final class NcrnaLearningPopulation{
 		}
 
 		final String path;
-		final int terms;
+		int terms;
+		final boolean allowOccurrences;
+		boolean occurrenceRows;
 		final NcrnaTextIO.Input owner;
 		final ByteFile file;
 		final LineParser1 parser=new LineParser1('\t');
@@ -261,7 +321,10 @@ public final class NcrnaLearningPopulation{
 
 	public final String[] ids, models;
 	public final int[] originalModel, source, length, leftFlank, rightFlank;
-	public final boolean[] partial, excluded;
+	/** Historical SOURCE_PARTIAL exclusion flag; occurrence metadata makes no such annotation claim. */
+	public final boolean[] partial;
+	/** Explicit caller-supplied teaching exclusions, preserving the complete population. */
+	public final boolean[] excluded;
 	private final ObjectIntMap<String> byLocus=new ObjectIntMap<String>(String.class);
 	private final ObjectIntMap<String> bySource=new ObjectIntMap<String>(String.class);
 	private Source[] sources;
@@ -270,4 +333,5 @@ public final class NcrnaLearningPopulation{
 
 	public static final String ROSTER_HEADER="index\tgenome\tassembly\ttaxid\tdomain\tphylum\tgff\tfasta\tloci\tgenome_bases\tcontigs";
 	public static final String LOCUS_HEADER="locus_id\tgenome\tassembly\ttaxid\tdomain\tphylum\tseqid\tstrand\tintervals1\tlength\tsource_line\tsource_ids\tpartial\tpseudo\tstatus\tcontig_length\tedge\tundefined_bases\tlflank\trflank\tsource_lines";
+	public static final String OCCURRENCE_HEADER="record_id\toccurrence_id\tgenome\tassembly\ttaxid\tdomain\tphylum\tseqid\tstrand\tstart1\tstop1\tlength\tcontig_length\tlflank\trflank";
 }

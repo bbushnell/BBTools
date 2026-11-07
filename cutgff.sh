@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified August 19, 2026
+Last modified November 5, 2026
 
 Description:  Cuts out features defined by a gff file, and writes them
 to a new fasta.  Features are output in their sense strand.
@@ -56,9 +56,13 @@ maxns=-1            If non-negative, ignore features with more than this many
 maxnfraction=-1.0   If non-negative, ignore features with more than this
                     fraction of undefined bases (Ns or IUPAC symbols).
                     Should be 0.0 to 1.0.
-gccontig=f          Append 'contig_gc=X.XXXX' to each output header: the GC
+gccontig=f          t appends legacy 'contig_gc=X.XXXX' to each output header: the GC
                     fraction of the FULL source contig, computed before any
                     trimming or flanking (not local to the extracted feature).
+                    caller uses CallGenes' exact GC calculation and preserves the
+                    resulting float in fixed decimal form for boundary training.
+                    It ignores ambiguous bases, treats U as T, and returns zero
+                    for an all-undefined contig. Existing t/f behavior is unchanged.
 filename=f          Append 'source=<name>' to each output header, where <name>
                     is the basename of the input fna file. Useful for recovering
                     the source genome/tid when the contig seqid alone doesn't.
@@ -74,8 +78,12 @@ resolveSymlinks(){
 	SCRIPT="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 	while [ -h "$SCRIPT" ]; do
 		DIR="$(dirname "$SCRIPT")"
-		SCRIPT="$(readlink "$SCRIPT")"
-		[ "${SCRIPT#/}" = "$SCRIPT" ] && SCRIPT="$DIR/$SCRIPT"
+		RESOLVED_SCRIPT="$(readlink "$SCRIPT")"
+		SCRIPT="$RESOLVED_SCRIPT"
+		if [ "${SCRIPT#/}" = "$SCRIPT" ]; then
+			RESOLVED_SCRIPT="$DIR/$SCRIPT"
+			SCRIPT="$RESOLVED_SCRIPT"
+		fi
 	done
 	DIR="$(cd "$(dirname "$SCRIPT")" && pwd)"
 	if [ -f "$DIR/bbtools.jar" ]; then

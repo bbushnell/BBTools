@@ -79,7 +79,7 @@ public final class ReduceNcrnaModels{
 			ref=Tools.fixExtension(ref);
 			hbm=Tools.fixExtension(hbm);
 			// Saved comparisons may legitimately compare a file with itself.
-			if(!Tools.testInputFiles(restore, true, in, ref, hbm, genomes, truth, callerConfig,
+			if(!Tools.testInputFiles(restore || compareOnly, true, in, ref, hbm, genomes, truth, callerConfig,
 					graphPath, candidate, candidateHbm, baselineGff, callsGff)){
 				throw new IllegalArgumentException("Cannot read a required reducer input");
 			}
@@ -101,9 +101,27 @@ public final class ReduceNcrnaModels{
 			final String a=split[0].toLowerCase(Locale.ROOT);
 			String b=split.length>1 ? split[1] : null;
 			if(b!=null && b.equalsIgnoreCase("null")){b=null;}
+			if(scanConflict(a)){incompatibleScanOption=a;}
+			if(compareConflict(a)){incompatibleCompareOption=a;}
 			if(a.equals("mode")){
-				if(!"restore".equalsIgnoreCase(b)){throw new IllegalArgumentException("The explicit mode must be restore");}
-				restore=true;
+				if(!"restore".equalsIgnoreCase(b) && !"scan".equalsIgnoreCase(b) && !"compare".equalsIgnoreCase(b)){
+					throw new IllegalArgumentException("The explicit mode must be restore, scan or compare");
+				}
+				restore="restore".equalsIgnoreCase(b);
+				scanOnly="scan".equalsIgnoreCase(b);
+				compareOnly="compare".equalsIgnoreCase(b);
+			}else if(a.equals("rcomp")){
+				rcomp=Parse.parseBoolean(b);
+				rcompSet=true;
+			}else if(a.equals("reportcuts")){
+				final String[] values=NcrnaNumbers.value(a, b).split(",", -1);
+				reportCuts=new float[values.length];
+				for(int i=0; i<values.length; i++){
+					reportCuts[i]=NcrnaNumbers.floatValue(a, values[i]);
+					if(!(reportCuts[i]>=0 && reportCuts[i]<=1)){
+						throw new IllegalArgumentException("reportcuts requires finite identities in [0,1]");
+					}
+				}
 			}else if(a.equals("candidate")){
 				candidate=b;
 			}else if(a.equals("candidatehbm")){
@@ -124,6 +142,12 @@ public final class ReduceNcrnaModels{
 				cutoffSet=true;
 			}else if(a.equals("target")){
 				target=NcrnaNumbers.doubleValue(a, b);
+			}else if(a.equals("maxmodelloss")){
+				maxModelLoss=NcrnaNumbers.intKMG(a, b);
+				if(maxModelLoss<0){throw new IllegalArgumentException("maxmodelloss must be nonnegative when supplied");}
+			}else if(a.equals("minmodels")){
+				minModels=NcrnaNumbers.intKMG(a, b);
+				if(minModels<0){throw new IllegalArgumentException("minmodels must be nonnegative when supplied");}
 			}else if(a.equals("genomes")){
 				genomes=b;
 			}else if(a.equals("truth")){
@@ -159,8 +183,60 @@ public final class ReduceNcrnaModels{
 		return parser;
 	}
 
+	/** Identifies explicit non-scan requests; ordinary reducer defaults are not conflicts. */
+	private static boolean scanConflict(final String a){
+		switch(a){
+			case "candidate": case "candidatehbm": case "baseline": case "calls":
+			case "graph": case "target": case "maxmodelloss": case "minmodels": case "genomes": case "truth":
+			case "family": case "truthfamily": case "callerconfig": case "callerheap":
+			case "maxcalls": case "regenerate": case "reduce": case "callerverify":
+			case "consensusconfig": case "consensusheap": case "maxregencalls":
+				return true;
+			default: return false;
+		}
+	}
+
+	/** Comparison consumes only saved calls and truth; reject explicit work from other modes. */
+	private static boolean compareConflict(final String a){
+		switch(a){
+			case "baseline": case "calls": case "truth": case "family": case "truthfamily":
+				return false;
+			case "in": case "in1": case "ref": case "hbm": case "cutoff": case "rcomp": case "reportcuts":
+				return true;
+			default: return scanConflict(a);
+		}
+	}
+
 	/** Requires a fresh destination and the complete option set when caller protection is requested. */
 	private void validateParams(){
+		if(compareOnly){
+			if(incompatibleCompareOption!=null || in!=null){
+				throw new IllegalArgumentException("mode=compare accepts saved calls and truth only; incompatible option: "+incompatibleCompareOption);
+			}
+			if(baselineGff==null || callsGff==null || truth==null || family==null || truthFamily==null || out==null){
+				throw new IllegalArgumentException("mode=compare requires baseline/calls/truth/family/truthfamily/out");
+			}
+			if(new File(out).exists()){throw new IllegalArgumentException("out= must name a fresh directory: "+out);}
+			return;
+		}
+		if(scanOnly){
+			if(incompatibleScanOption!=null){
+				throw new IllegalArgumentException("mode=scan does not accept "+incompatibleScanOption+"; no reduction, regeneration or caller runs in this mode");
+			}
+			if(in==null || ref==null || out==null || !(cutoff>=0 && cutoff<=1)){
+				throw new IllegalArgumentException("mode=scan requires in=queries.fa ref=consensus.fa out=freshdir cutoff=[0,1]");
+			}
+			if(reportCuts==null){reportCuts=new float[]{cutoff};}
+			if(new File(out).exists()){throw new IllegalArgumentException("out= must name a fresh directory: "+out);}
+			return;
+		}
+		if(rcompSet || reportCuts!=null){throw new IllegalArgumentException("rcomp and reportcuts require mode=scan");}
+		if(maxModelLoss>=0 && (restore || !reduce)){
+			throw new IllegalArgumentException("maxmodelloss applies only to model reduction, not restoration or fixed-library regeneration");
+		}
+		if(minModels>=0 && (restore || !reduce)){
+			throw new IllegalArgumentException("minmodels applies only to model reduction, not restoration or fixed-library regeneration");
+		}
 		if(restore){
 			if(ref==null || hbm==null || candidate==null || candidateHbm==null || baselineGff==null
 					|| callsGff==null || truth==null || family==null || truthFamily==null || out==null){
@@ -209,6 +285,18 @@ public final class ReduceNcrnaModels{
 
 	/** Scans once, selects all models or a subset, then optionally protects and regenerates them. */
 	private void process(final Timer timer){
+		if(compareOnly){
+			compareSavedCalls();
+			timer.stop();
+			outstream.println("Time: "+timer);
+			return;
+		}
+		if(scanOnly){
+			scanWindows();
+			timer.stop();
+			outstream.println("Time: "+timer);
+			return;
+		}
 		if(restore){
 			restoreSavedCalls();
 			timer.stop();
@@ -229,7 +317,8 @@ public final class ReduceNcrnaModels{
 		if(scan==null){outstream.println("Initial support loaded from graph; no fresh alignments performed for the initial scan.");}
 		final boolean[] proposal;
 		if(reduce){
-			proposal=NcrnaModelSubset.reduce(library.names.length, original.starts, original.models, target).kept;
+			proposal=NcrnaModelSubset.reduce(library.names.length, original.starts, original.models, target,
+				maxModelLoss<0 ? Integer.MAX_VALUE : maxModelLoss, minModels<0 ? 0 : minModels).kept;
 		}else{
 			proposal=new boolean[library.names.length];
 			Arrays.fill(proposal, true);
@@ -260,6 +349,94 @@ public final class ReduceNcrnaModels{
 		outstream.println("Models retained: "+reduced.modelNames.length+" of "+original.modelNames.length);
 		outstream.println("Result: "+status);
 		outstream.println("Time: "+timer);
+	}
+
+	/** Scores every requested orientation, without proposing or exporting a model library. */
+	private void scanWindows(){
+		assert(scanOnly && reportCuts!=null) : "Scan validation must establish threshold reporting before any alignment";
+		final Library library=NcrnaSupport.loadLibrary(ref);
+		if(hbm!=null){
+			final boolean[] all=new boolean[library.names.length];
+			Arrays.fill(all, true);
+			new NcrnaModelPairs(library, hbm, all);
+		}
+		final NcrnaSupport.ScanResult scan=NcrnaSupport.scanWithStats(ffin, library, cutoff, threads, threadsIn, rcomp);
+		final File directory=new File(out).getAbsoluteFile();
+		if(!directory.mkdir()){throw new IllegalArgumentException("Could not create fresh output directory: "+directory);}
+		NcrnaSupportIO.write(scan.graph, new File(directory, "original.support.tsv").getPath());
+		writeScanReports(directory, scan);
+		outstream.println("Exhaustive Quantum scan: "+scan.alignments+" pair alignments; identity only, no caller or HBM rescue.");
+	}
+
+	/** Maps every oriented query to its physical input and counts each window once per threshold. */
+	private void writeScanReports(final File directory, final NcrnaSupport.ScanResult scan){
+		final Graph graph=scan.graph;
+		final int orientations=rcomp ? 2 : 1;
+		if(graph.reduced || graph.queryNames.length%orientations!=0){
+			throw new IllegalStateException("Scan reports require a complete ORIGINAL orientation population");
+		}
+		final int windows=graph.queryNames.length/orientations;
+		final long[] passed=new long[reportCuts.length];
+		final ByteBuilder bb=new ByteBuilder();
+		try(Output output=new Output(new File(directory, "window_queries.tsv").getPath())){
+			output.writer.print("window_id\tquery_id\tstrand\tbest_model_index\tbest_identity_a48\n");
+			for(int first=0; first<graph.queryNames.length; first+=orientations){
+				final int nameLength=windowNameLength(graph, first);
+				float best=graph.bestIdentities[first];
+				for(int strand=0; strand<orientations; strand++){
+					final int query=first+strand;
+					best=Math.max(best, graph.bestIdentities[query]);
+					bb.clear();
+					// Copy only the original identifier prefix into the reused byte buffer.
+					for(int i=0; i<nameLength; i++){bb.append(graph.queryNames[first].charAt(i));}
+					bb.tab().append(graph.queryNames[query]).tab().append(strand==0 ? '+' : '-').tab();
+					bb.append(graph.bestModels[query]).tab().appendFloatA48(graph.bestIdentities[query]).nl();
+					output.writer.print(bb);
+				}
+				for(int i=0; i<reportCuts.length; i++){
+					if(best>=reportCuts[i]){passed[i]++;}
+				}
+			}
+		}
+		assert(windows>0 && scan.alignments==(long)graph.queryNames.length*graph.modelNames.length)
+			: "FPR denominator counts physical inputs; exhaustive work counts every orientation-model pair";
+		try(Output output=new Output(new File(directory, "scan.summary.tsv").getPath())){
+			output.writer.print("cutoff\tcutoff_a48\twindows\toriented_queries\tmodels\tpassing_windows\tpassing_fraction\tpair_alignments\tactive_workers\tinput_batches\trcomp\n");
+			for(int i=0; i<reportCuts.length; i++){
+				bb.clear();
+				bb.append(reportCuts[i], 9, true).tab().appendFloatA48(reportCuts[i]).tab();
+				bb.append(windows).tab().append(graph.queryNames.length).tab().append(graph.modelNames.length).tab();
+				bb.append(passed[i]).tab().append(passed[i]/(double)windows, 9, true).tab();
+				bb.append(scan.alignments).tab().append(scan.activeWorkers).tab().append(scan.batches).tab().append(rcomp).nl();
+				output.writer.print(bb);
+			}
+		}
+	}
+
+	/** Pair adjacency follows NcrnaSupport.ProcessThread; suffixes keep source IDs collision-safe. */
+	private int windowNameLength(final Graph graph, final int first){
+		final String forward=graph.queryNames[first];
+		if(!rcomp){return forward.length();}
+		final String reverse=graph.queryNames[first+1];
+		final int length=forward.length()-2;
+		if(length<1 || !forward.endsWith("/+") || !reverse.endsWith("/-")
+				|| reverse.length()!=forward.length() || !forward.regionMatches(0, reverse, 0, length)){
+			throw new IllegalStateException("Missing or inconsistent strand pair for physical window: "+forward);
+		}
+		return length;
+	}
+
+	/** Compares saved detections on one reference axis without touching models or invoking callers. */
+	private void compareSavedCalls(){
+		assert(compareOnly) : "Saved-call comparison dispatch must bypass alignment, restoration and regeneration";
+		final ArrayList<Locus> references=NcrnaLocusComparison.readTruth(truth, truthFamily);
+		final Result before=NcrnaBoundaryComparison.grade(references, NcrnaLocusComparison.readCalls(baselineGff, family), null);
+		final Result after=NcrnaBoundaryComparison.grade(references, NcrnaLocusComparison.readCalls(callsGff, family), before);
+		final File directory=new File(out).getAbsoluteFile();
+		if(!directory.mkdir()){throw new IllegalArgumentException("Could not create fresh output directory: "+directory);}
+		NcrnaBoundaryComparison.writeSavedSummary(new File(directory, "half_shorter.summary.tsv").getPath(), before, after);
+		NcrnaBoundaryComparison.writeTransitions(new File(directory, "half_shorter.transitions.tsv").getPath(), before, after);
+		outstream.println("Saved calls compared with half-shorter overlap; no caller run or library change. Unmatched calls are not adjudicated false positives.");
 	}
 
 	/** Restores paired records from saved evidence without constructing or invoking a caller. */
@@ -358,6 +535,11 @@ public final class ReduceNcrnaModels{
 		if(reduce){bb.append(target, 8, true);}
 		else{bb.append("NA");}
 		bb.nl();
+		if(maxModelLoss>=0){
+			bb.append("max_model_loss\t").append(maxModelLoss).nl();
+			bb.append("exported_support_queries_lost\t").append(writeLostQueries(directory, original, reduced)).nl();
+		}
+		if(minModels>=0){bb.append("min_models\t").append(minModels).nl();}
 		final long initialAlignments=scan==null ? 0 : scan.alignments;
 		bb.append("pair_alignments\t").append(initialAlignments+regenerationAlignments).nl();
 		bb.append("initial_pair_alignments\t").append(initialAlignments).nl();
@@ -372,6 +554,27 @@ public final class ReduceNcrnaModels{
 		try(Output output=new Output(new File(directory, "summary.txt").getPath())){
 			output.writer.print(bb);
 		}
+	}
+
+	/** Lists input-supported genes with no supporter in the exported graph.
+	 * Caller restoration and optional regeneration may alter the original proposal.
+	 * These are support losses, not claims about whole-genome caller detections.
+	 */
+	private static int writeLostQueries(final File directory, final Graph original, final Graph reduced){
+		assert(Arrays.equals(original.queryNames, reduced.queryNames))
+			: "Support-loss reporting compares the same complete gene axis before and after export";
+		int lost=0;
+		final ByteBuilder row=new ByteBuilder();
+		try(Output output=new Output(new File(directory, "lost_queries.tsv").getPath())){
+			output.writer.print("query_id\n");
+			for(int gene=0; gene<original.queryNames.length; gene++){
+				if(original.starts[gene+1]>original.starts[gene] && reduced.starts[gene+1]==reduced.starts[gene]){
+					output.writer.print(row.clear().append(original.queryNames[gene]).nl());
+					lost++;
+				}
+			}
+		}
+		return lost;
 	}
 
 	/** Fraction of all input genes having at least one retained model meeting the alignment cutoff. */
@@ -394,6 +597,16 @@ public final class ReduceNcrnaModels{
 	private String graphPath;
 	/** Explicit saved-call mode and its candidate paired library plus two saved GFFs. */
 	private boolean restore=false;
+	/** Read-only saved-GFF comparison using the existing half-shorter matcher. */
+	private boolean compareOnly=false;
+	private String incompatibleCompareOption;
+	/** Pure exhaustive window assay; ordinary reducer/regenerator behavior is unchanged. */
+	private boolean scanOnly=false;
+	private boolean rcomp=true;
+	private boolean rcompSet=false;
+	private float[] reportCuts;
+	/** Explicit irrelevant option, independent of default values in other modes. */
+	private String incompatibleScanOption;
 	private String candidate, candidateHbm, baselineGff, callsGff;
 	/** Optional protection inputs: genome list, truth table, caller/truth labels and scientific config. */
 	private String genomes, truth, family, truthFamily, callerConfig;
@@ -407,6 +620,10 @@ public final class ReduceNcrnaModels{
 	private boolean cutoffSet=false;
 	/** Required supported fraction of ALL input genes, including initially unsupported genes. */
 	private double target=0.98;
+	/** Unset (-1) preserves the legacy total-target-only policy; explicit zero forbids per-drop loss. */
+	private int maxModelLoss=-1;
+	/** Unset (-1) preserves legacy reduction; an explicit floor may stop zero-loss drops early. */
+	private int minModels=-1;
 	/** Alignment-worker budget shared by support and caller stages. */
 	private int threads=1;
 	/** Native input-reader worker setting, separate from alignment workers. */

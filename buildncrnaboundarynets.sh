@@ -4,7 +4,7 @@ set -eo pipefail
 usage(){
 	cat <<'HELP'
 Written by Brian Bushnell and Raiden
-Last modified November 1, 2026
+Last modified November 6, 2026
 
 Usage: buildncrnaboundarynets.sh config=learning.config out=new_family_directory
 
@@ -12,6 +12,8 @@ Learns and compares classifier/regression boundary corrections, then retrains an
 eligible winner on every eligible locus. If neither candidate, or its final
 retraining, improves both ends without violating detection/precision limits,
 the output family explicitly disables boundary refinement.
+Use mode=refit to train an already chosen method once, without caller evaluation
+or method selection. That export is labeled REFIT_UNEVALUATED.
 
 Required learning inputs:
 in=                 Sense-oriented flanked FASTA; exact locus IDs with source=,
@@ -45,6 +47,26 @@ stopoutside=        Corresponding stop-end geometry.
 out=                Fresh final family directory; its parent must exist.
 
 Options:
+familyroot=         Optional source family/group directory for manifest bindings.
+                    Core ref/hbm/seeds still override its corresponding payloads.
+                    Omission preserves installed-resource lookup. Export is checked
+                    before training, including retained sibling/cutoff resources.
+mode=build          Normal learn/evaluate/refit workflow.
+mode=evaluate       Evaluate saved tuning products only; never train or refit.
+learned=            Required with mode=evaluate: existing directory containing
+                    classifier.bbnet, regression.bbnet, start.tsv and stop.tsv.
+                    Use the original corpus, split, library and geometry settings.
+                    Output is labeled TUNING_ONLY, not an all-data release refit.
+mode=refit          Train one frozen method on all eligible loci and export it.
+method=             Required only for refit: classifier or regression. Supply
+                    only its classifierconfig= or regressionconfig= recipe.
+                    Uses one training shard and monitors that same input.
+                    No caller, selection or acceptance fallback runs; evaluate
+                    the exported network with the intended inference policy.
+                    Refit needs no truthfamily/genomes/truth/callerconfig,
+                    splitseed or shards, and rejects those explicit controls,
+                    plus learned/maxlost/minprecision/tiepreference and the
+                    other trainer's config. No minimum TaxID-group count.
 exclude=            Optional original locus IDs excluded only from learning.
 shards=1            Length-balanced whole-locus training shards; one validation file.
 features=v1         Ten shared inference features; currently the only feature set.
@@ -52,7 +74,9 @@ marginstart=0       Minimum score improvement needed to move the start.
 marginstop=0        Minimum score improvement needed to move the stop.
 cutoff=             Optional finite endpoint score cutoff; absent means no cutoff.
 maxlost=0           Maximum baseline-detected reference losses.
-minprecision=0.95   Minimum candidate precision, in [0.95,1].
+minprecision=0.95   Minimum candidate precision, in [0,1]. Explicit 0 removes
+                    the precision floor; maxlost and positive endpoint gain
+                    still apply. The default remains 0.95.
 tiepreference=regression  Final tie choice: classifier or regression.
 t=auto             Worker budget; up to three caller trials run concurrently.
 -Xmx4g             Parent heap. Aggregate concurrent child heaps use the same
@@ -64,6 +88,9 @@ out itself is loadable with callgenes.sh ncrnafamily=... ncrnafamilyroot=out.
 Grouped families export the whole group while preserving siblings and shared seeds.
 No resources are installed or staged. Final retraining consumes former validation
 loci: its evaluation is coverage evidence, not independent holdout performance.
+Fixed refit records all source groups with withheld=0, table/vector counts and
+any exclusions, missing context or model-selection failures. Its network is
+loadable with refinement enabled; REFIT_UNEVALUATED is not release approval.
 
 Please contact Brian Bushnell at bbushnell@lbl.gov if you encounter any problems.
 HELP

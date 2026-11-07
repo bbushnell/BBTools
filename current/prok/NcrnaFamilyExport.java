@@ -14,7 +14,7 @@ import structures.ByteBuilder;
 /** Writes a fresh installable directory for one shared-boundary family.
  * The builder supplies already validated, immutable accepted-library inputs and
  * learned products. Files are copied once; generated output is never reread here.
- * Group exports preserve manifest-listed siblings and the installed shared seeds.
+ * Group exports preserve the source manifest's siblings and shared seeds.
  * The manifest is written last. Failure leaves an incomplete directory for diagnosis;
  * existing destinations are never overwritten. No global caller state is changed.
  * Text output follows the ByteFile template's native byte reader/writer idioms.
@@ -36,12 +36,21 @@ public final class NcrnaFamilyExport{
 	 */
 	public static void write(final NcrnaFamily accepted, final String consensus,
 			final String models, final String seeds, final Boundary boundary, final File output){
-		final NcrnaFamilyExport export=new NcrnaFamilyExport(accepted, consensus, models, seeds, boundary, output);
+		write(accepted, consensus, models, seeds, boundary, output, null);
+	}
+
+	/** Uses an explicit source family/group directory for retained bindings.
+	 * Core inputs and the selected boundary policy still replace their manifest roles.
+	 * A null sourceRoot preserves the installed-resource behavior of the original API.
+	 */
+	public static void write(final NcrnaFamily accepted, final String consensus,
+			final String models, final String seeds, final Boundary boundary, final File output, final String sourceRoot){
+		final NcrnaFamilyExport export=new NcrnaFamilyExport(accepted, consensus, models, seeds, boundary, output, sourceRoot);
 		export.write();
 	}
 
 	private NcrnaFamilyExport(final NcrnaFamily accepted_, final String consensus_, final String models_,
-			final String seeds_, final Boundary boundary_, final File output){
+			final String seeds_, final Boundary boundary_, final File output, final String sourceRoot){
 		if(accepted_==null || boundary_==null || output==null || output.exists()){
 			throw new IllegalArgumentException("Family export needs a loaded family, boundary policy and fresh output directory");
 		}
@@ -67,9 +76,9 @@ public final class NcrnaFamilyExport{
 			readable(boundary.startTable);
 			readable(boundary.stopTable);
 		}
-		installed=resolver.installedManifest(family.id);
+		sourceManifest=resolver.exportManifest(family.id, sourceRoot);
 		sharedSeeds=family.group!=null && family.group.shared("seeds");
-		for(FamilyResourceManifest.Entry entry:installed.bindings()){
+		for(FamilyResourceManifest.Entry entry:sourceManifest.bindings()){
 			if(entry==null || !entry.member.equals(family.member)){continue;}
 			if(entry.role.equals("length_bounds")){
 				throw new IllegalArgumentException("Selected per-model length bounds need reconciliation with the accepted library before export");
@@ -79,15 +88,15 @@ public final class NcrnaFamilyExport{
 			}
 		}
 		if(sharedSeeds){
-			final FamilyResourceManifest.Entry binding=installed.get(".", "seeds", ".", ".");
-			final String path=resolver.manifestPayload(family.id, installed, binding).path;
+			final FamilyResourceManifest.Entry binding=sourceManifest.get(".", "seeds", ".", ".");
+			final String path=resolver.manifestPayload(family.id, sourceManifest, binding).path;
 			final LongHashSet original=ProkObject.loadLongKmers(path, 17);
 			if(original.size()!=accepted_.kmerSet.size()){
-				throw new IllegalArgumentException("Accepted seeds differ from installed shared seeds; group-wide evaluation is required");
+				throw new IllegalArgumentException("Accepted seeds differ from source shared seeds; group-wide evaluation is required");
 			}
 			for(long key:original.toArray()){
 				if(!accepted_.kmerSet.contains(key)){
-					throw new IllegalArgumentException("Accepted seeds differ from installed shared seeds; group-wide evaluation is required");
+					throw new IllegalArgumentException("Accepted seeds differ from source shared seeds; group-wide evaluation is required");
 				}
 			}
 		}
@@ -104,9 +113,9 @@ public final class NcrnaFamilyExport{
 			manifest.append(family.group==null ? 1 : 2).tab().append(family.group==null ? family.id : family.group.id).nl();
 			if(family.group!=null){manifest.append("member\t");}
 			manifest.append("role\tmodel\tend\tpath\tformat\tbytes\tsha80\n");
-			for(FamilyResourceManifest.Entry entry:installed.bindings()){
+			for(FamilyResourceManifest.Entry entry:sourceManifest.bindings()){
 				if(entry==null || (entry.member.equals(family.member) && replaced(entry.role))){continue;}
-				final String source=resolver.manifestPayload(family.id, installed, entry).path;
+				final String source=resolver.manifestPayload(family.id, sourceManifest, entry).path;
 				if(entry.role.equals("boundary_config")){portableSiblingConfig(source, entry.member);}
 				copy(source, entry.member, entry.path);
 				row(manifest, entry.member, entry.role, entry.model, entry.end, entry.path, entry.format);
@@ -157,12 +166,12 @@ public final class NcrnaFamilyExport{
 
 	/** Input packages with external sibling dependencies cannot become portable by copying one directory. */
 	private void portableSiblingConfig(final String path, final String member){
-		final FamilyResourceManifest.Entry[] entries=installed.bindings();
+		final FamilyResourceManifest.Entry[] entries=sourceManifest.bindings();
 		final String[] bindings=new String[entries.length];
 		for(int i=0; i<entries.length; i++){
 			final FamilyResourceManifest.Entry entry=entries[i];
 			if(entry!=null && entry.member.equals(member)){
-				bindings[i]=resolver.manifestPayload(family.id, installed, entry).path;
+				bindings[i]=resolver.manifestPayload(family.id, sourceManifest, entry).path;
 			}
 		}
 		requirePortableConfiguration(path, bindings);
@@ -297,5 +306,5 @@ public final class NcrnaFamilyExport{
 	private final int upperMedianLength;
 	private final boolean sharedSeeds;
 	private final FamilyResourceResolver resolver=new FamilyResourceResolver();
-	private final FamilyResourceManifest installed;
+	private final FamilyResourceManifest sourceManifest;
 }

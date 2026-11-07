@@ -207,6 +207,9 @@ public class NcrnaFamily {
 	/** Optional read-only factory; install before workers start. Null keeps the
 	 * ordinary boundary path and creates no refiner or inference state. */
 	public NcrnaBoundaryRefiner.Factory boundaryRefinerFactory=null;
+	/** Optional pre-path CDS context for constrained stop searches; install before
+	 * workers start. Null leaves every ordinary family unchanged. */
+	public NcrnaCdsStopConstraint.Factory cdsStopConstraintFactory=null;
 	public static final int[] LEGACY_STOP_OFFSETS={-4,-3,-2,-1,0,1};
 
 	public final String name;

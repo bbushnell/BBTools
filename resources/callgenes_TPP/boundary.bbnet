@@ -1,0 +1,43 @@
+##bbnet
+#version 1
+##java 25.0.1
+##simd false
+##simd_ff false
+##simd_bp false
+#concise
+#dense
+#density 1
+#blocksize 1
+#seed 58
+#layers 3
+#epochs 100
+#dims 10 16 1
+#CL java -XX:ActiveProcessorCount=16 -ea -XX:+ExitOnOutOfMemoryError -Xmx8192m ml.RegressionTrainer dims=10,16,1 seed=58 epochs=100 batch=8192 lr=0.003 wd=0.0001 vfraction=0 final=rslog hidden=tanh simd=f t=1 printevery=10 ow=t in=stdin.txt valin=/clusterfs/jgi/scratch/gentech/genome_analysis/Raiden/tpp_build_20261105/release_boundary_refit_01/family.work/refit/vectors.train.0.tsv.gz out=/clusterfs/jgi/scratch/gentech/genome_analysis/Raiden/tpp_build_20261105/release_boundary_refit_01/family.work/refit/boundary.bbnet t=1 vfraction=0 -Xmx8192m -Xms64m -ea eoom
+##fpr 999
+##fnr 999
+##err 999
+##wer 999
+##ctf -1
+#coding A48
+#zeroabsent true
+#liveedges 176
+#edges 176
+##layer 1
+C11 TANH 2oQkQb 2nZ\QU oZ8H< 2lSY@U 2l:I4e n79MO oBS:@ nEPK: n<<c7 2oCo?d o9K;Y
+C12 TANH o2lTg 2nha]? nYjmR nh==k 2oLb@5 n<Xj@ oSA]R nfeO1 ng54P 2oZ;mB o@?3H
+C13 TANH 2nkT65 nh`0U mh8CE 2nANk` mh<gX 2nMeNM 2l=f0f mm4TP 2nWMaU 2oR?RJ 103aQH
+C14 TANH 2o4T4j oCISa oj8]e nL<[9 2oXo1; 2nNo<> n_HC3 ncLN; 2mahAA 2oif?N ok[<]
+C15 TANH bne9e 2bg0P< aZX:j 2``bPO bT0_D 2ak?i_ b>QZg b<_`> bK3h8 2bJ<a7 bP^`]
+C16 TANH 2lTG1d o3d5M njP<= nSVj< 2mQ>EL 2n;?2S 2oA?c] 2o::0? 2nRF_l oK46V 2o9=_F
+C17 TANH 2o<lEV o^n>[ o;6>b 2n_?NO 2oVgn\ 2n46VC o`]dO nf=HU oQa=R 2olQ[6 nanWX
+C18 TANH 30?D4< 1013;] nGY>R 2n?4I> nnEG< 2nX9]g mQ?XY 2n7MMm 2mPdSQ o4h8Y oZNX4
+C19 TANH nm__N 2n_dWV o9_gU 2nm8=> oYD^c laGJH 2ni:]h 2nA:9k m\OjU o34:\ 308IGe
+C20 TANH 100:6= 2o^aX; 2nmGaW o6]aN 2nV<Ua n7jWV 2oaH^P 2n]J1m 2oRM9; oneaB 2nlBgc
+C21 TANH n]o<5 o>eRb omKSn 2nVXRV m<PW: 2n?8VF n^]^[ nXQ0@ mSRMV 305Gno oXR[;
+C22 TANH 109l_e 2mnHEW oUE^M nb?[m 2o]83C 2n>U>2 2o9\j: 2nANJP 2ncm8a 2mb^:@ 2nP>[U
+C23 TANH 2oFjS= 2lEb7P 2o^h_> nRUPG 2n[CGA n5k8h oA>[9 n9Gd2 n0k^c 2nZhha oc8\H
+C24 TANH oBbBY 2od`bi 2o3\o6 n`?mP o79=2 nZ1n0 meUnP 2n9ALj nkJkc n^1ih 3046Ei
+C25 TANH omg4d oEMf_ oQZA< 2nmh7\ 305Did 2me9I> lZanT nE27g lb9h; 2oMK8: m_99e
+C26 TANH 2ob8S9 o5835 2oT:UP nko:4 2o?PFo m3HAh oBe0= nYf`M na42a 2o4L5[ oQ]:]
+##layer 2
+C27 RSLOG 2n?kYn 2n`1^U n^n\O 2nXYE3 n\<CM 2a<<do nYL]f o71M= 2nIad> 2nZQ2c o:GFM nQ\Zd 2o0TI: 2n^2_M 2nRb9S 2nb?O[ 2nac_4

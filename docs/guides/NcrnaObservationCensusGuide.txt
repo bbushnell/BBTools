@@ -1,0 +1,117 @@
+NcrnaObservationCensus
+=====================
+
+Purpose
+-------
+Describe already projected covariance-model observations without making an
+admission, subtype, tandem, fusion or biological-negative decision. No sequence
+extraction, alignment or model scoring occurs. A model's individual raw events
+remain available even if another model overlaps them or has a higher score.
+
+Inputs
+------
+Run ncrnacmhitprojector.sh first. Supply its output directory as in=, its original
+21-column locus table as originals= and its ten-column context map as contexts=.
+queryfiles= is a two-column TSV with the literal header:
+
+table_id	query_fasta
+
+Each searches.tsv table must appear exactly once, including zero-hit tables.
+The path must equal that table's recorded Infernal '# Target file:' value.
+The native sequence reader reads each distinct path once, verifies unique ASCII
+query identifiers against the context map and checks actual sequence lengths.
+Membership is preserved independently of event presence. Shared files are cached
+by their exact path; path aliases are not assumed identical.
+
+Example:
+  ncrnaobservationcensus.sh in=projection originals=original.loci.tsv \
+    contexts=crosswalk.tsv queryfiles=query_files.tsv out=census -Xmx1g t=1
+
+Output must not exist. A successful run ends with NCRNA_OBSERVATION_CENSUS_PASS;
+a failed run may leave partial outputs, which must not be interpreted as complete.
+There is one metadata worker; t= controls native I/O/compression resources, not
+parallel interval analysis. The tool is intended for locus-context observations,
+not for importing every whole-genome base into memory.
+
+Retained evidence
+-----------------
+originals.tsv, context_map.tsv, hits.tsv, events.tsv, overlaps.tsv, queries.tsv,
+historical_neighbors.tsv, searches.tsv and query_files.tsv preserve input row
+bytes and order. Their headers remain unchanged. All original flags survive.
+The original projector neighbors.tsv becomes historical_neighbors.tsv so it
+cannot be confused with observed-hit neighbors.
+
+Physical identity includes genome, assembly, contig, strand, model/version and
+exact genomic bounds. IDs are dense integers from the frozen projector output;
+adding observations upstream may renumber them. The complete tuple in hits.tsv
+is the identity to use across different projections. Equal bounds from different
+models remain distinct. Events link to physical intervals and their original
+search table/line/context; events are never an expanded pairwise cross-product.
+
+Four related output groups
+--------------------------
+1. physical_pairs.tsv emits each overlapping unordered physical pair once.
+   Pair A/B order is unsigned-byte lexical strand/model/version, then numeric
+   start/stop, within the common full source key. It reports inclusive overlap,
+   each interval's own overlap fraction, and B-minus-A genomic endpoint offsets.
+   These are observed boundary differences, not merged coordinates or gene calls.
+
+2. annotations.tsv preserves each complete original row and adds context count,
+   search-origin event count, physical-overlap count and nonoverlapping child-pair
+   count. Search origin and actual overlap are distinct. annotation_relations.tsv
+   gives every original/physical overlap and its coverage relationship key.
+   annotation_child_pairs.tsv keeps every pair of children of an original,
+   including overlapping, disjoint and opposite-strand children. A positive
+   nonoverlap count is geometry only, not a tandem or corrected truth label.
+
+3. observed_neighbors.tsv gives the nearest nonoverlapping physical intervals on
+   each genomic side, separately for same/opposite strand. It retains all ties.
+   Missing neighbors use NA and UNRESOLVED_NO_OBSERVED_NEIGHBOR, not absence.
+   Historical relations remain in historical_neighbors.tsv, with model-specific
+   coverage keys in historical_neighbor_coverage.tsv (one-based data-row numbers,
+   excluding the header). A neighbor is nearest within OBSERVED search coverage;
+   these searches do not establish whole-genome absence or completeness.
+
+4. relation_contexts.tsv lists actual relevant searched contexts intersecting each
+   relationship span. It distinguishes containment of A/B from actual membership
+   for each model. Joint coverage is true only if ONE context contains BOTH
+   intervals and was actually searched for BOTH relevant models. It separately
+   records true contig edges and artificial context boundaries inside the span.
+   relation_coverage.tsv reports the actual context union for each relevant model;
+   coverage_gaps.tsv retains every uncovered inclusive segment. SINGLE_CONTEXT_COVERED,
+   UNION_ONLY_COVERED and UNRESOLVED_CONTEXT_LIMITED describe coverage only.
+   They are not biological labels. A cross-model relation can have complete
+   per-model unions without a single context searched by both models.
+
+search_membership.tsv materializes every table/context membership, including
+zero-hit contexts, with source, bounds, original orientation and actual flanks.
+event_geometry.tsv adds per-event model span/CLEN, genomic bounds, verified
+origin containment and context/contig edge contact. Raw truncation/inclusion,
+scores and E-values remain in events.tsv and bind through table_id/table_line.
+Scores from different model versions or search populations are not aggregated.
+
+summary.tsv supplies population and relationship counts. model_strand_counts.tsv
+separates events from physical intervals by model/version and genomic strand.
+original_flag_counts.tsv preserves exact partial/pseudo/status/edge combinations,
+with zero-overlap and nonoverlapping-child counts, without selecting thresholds.
+
+Coordinate conventions
+----------------------
+All genomic intervals are one-based inclusive. Span = stop-start+1.
+Overlap = max(0, min(stopA,stopB)-max(startA,startB)+1).
+Gap = right.start-left.stop-1, ordered by genomic start. Adjacency has gap0;
+negative gap means overlapping bounding intervals and is not, for a nested pair,
+a replacement for overlap_bases. Each overlap fraction uses its OWN span.
+
+Implementation and limits
+-------------------------
+Native ByteFile/LineParser1 and ByteStreamWriter/ByteBuilder handle text. Native
+Streamer handles existing query FASTA. Retained rows and unique byte symbols
+own their storage; lookups use a reused slice key in ObjectIntMap, primitive
+indices and source-qualified maps. Source-local sorted-start sweeps emit overlap
+pairs; binary searches retain all nearest-neighbor ties. Context prefix-end
+indices bound coverage searches, and union operations preserve internal gaps.
+Output grows with the number of actual relationships. A source with many mutually
+overlapping hits can legitimately have quadratic pair output; no global all-pairs
+comparison or event cross-product is created. No distance/identity/coverage/score
+threshold is hidden in the census.

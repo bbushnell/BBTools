@@ -6,14 +6,51 @@ import java.util.Random;
 import map.IntHashMap;
 import structures.IntList;
 
-/** TaxID-grouped validation split protecting rare phyla and original-model bins.
+/** TaxID grouping, with optional validation protecting rare phyla/model bins.
  * Input contains EVERY original locus, before partial/excluded learning filters.
- * Each TaxID is indivisible and belongs to one phylum. Validation targets one
+ * Each TaxID is indivisible and belongs to one phylum. split() targets one
  * tenth of groups, subject to the same cap in each phylum and model bin.
+ * all() retains the same source axis without withholding or minimum group quotas.
  * Arrays supplied by the caller are borrowed and never modified.
  * @author Brian Bushnell, Raiden
  */
 public final class NcrnaLearningSplit{
+
+	/** Groups the complete population without selecting or requiring validation.
+	 * Fixed-method refitting needs the source axis, but no withholding quotas or
+	 * minimum group count. Original-model bounds remain an input invariant.
+	 */
+	public static Result all(final int[] taxid, final int[] phylum, final int[] model,
+			final int phylumCount, final int modelCount){
+		if(taxid==null || phylum==null || model==null || taxid.length==0
+				|| phylum.length!=taxid.length || model.length!=taxid.length || phylumCount<1 || modelCount<1){
+			throw new IllegalArgumentException("Grouping requires aligned original-locus arrays and nonempty phylum/model axes");
+		}
+		final IntHashMap lookup=new IntHashMap();
+		final IntList unique=new IntList();
+		for(int gene=0; gene<taxid.length; gene++){
+			if(taxid[gene]<=0 || phylum[gene]<0 || phylum[gene]>=phylumCount || model[gene]<0 || model[gene]>=modelCount){
+				throw new IllegalArgumentException("Invalid original TaxID/phylum/model at locus "+gene);
+			}
+			final int previous=lookup.get(taxid[gene]);
+			if(previous<0){
+				lookup.put(taxid[gene], phylum[gene]);
+				unique.add(taxid[gene]);
+			}else if(previous!=phylum[gene]){
+				throw new IllegalArgumentException("One TaxID cannot cross phyla: "+taxid[gene]);
+			}
+		}
+		final int[] groups=unique.toArray();
+		Arrays.sort(groups);
+		final int[] groupPhylum=new int[groups.length], groupByGene=new int[taxid.length];
+		for(int group=0; group<groups.length; group++){
+			groupPhylum[group]=lookup.get(groups[group]);
+			lookup.put(groups[group], group);
+		}
+		for(int gene=0; gene<taxid.length; gene++){groupByGene[gene]=lookup.get(taxid[gene]);}
+		assert(groups.length>0) : "A nonempty original population retains at least one source group without withholding";
+		return new Result(groups, groupPhylum, groupByGene, new boolean[groups.length], new boolean[taxid.length], 0, 0);
+	}
 
 	/** Returns a nonempty feasible validation partition; underfilling the target is allowed. */
 	public static Result split(final int[] taxid, final int[] phylum, final int[] model, final int phylumCount, final int modelCount, final long seed){

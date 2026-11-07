@@ -20,7 +20,9 @@ public interface NcrnaStageDiagSink {
 	 * Counts/model indices not reached are -1; uncomputed scores are0 (an attempted
 	 * HBM maximum with no eligible score retains -999). bestReId is0 on the single-
 	 * alignment path. Rejects may retain an aligned span, otherwise coordinates are -1.
-	 * Accept coordinates include configured trim/voting/NN refinement. trimSucceeded
+	 * Accept coordinates normally include configured trim/voting/NN refinement.
+	 * Glycine instead records raw discovery/selection bounds; deferred reporting
+	 * endpoints appear in the final GFF only after selection. trimSucceeded
 	 * reports only an additional alignment trim, not voting or NN activity. */
 	void window(String family, String contig, int strand, int scaflen, int pass,
 		int wStart, int wStop, String outcome, int khits, int shortlistSize,
@@ -29,6 +31,7 @@ public interface NcrnaStageDiagSink {
 
 	/** Actual generic-RNA DP input or retained output, after scavenger resolution.
 	 * Coordinates retain the oriented, zero-based inclusive convention of window().
+	 * Glycine retained rows still use raw selection bounds, before deferred reporting.
 	 * Only primitive/immutable metadata crosses the observer boundary; no caller
 	 * candidate or mutable list is exposed. Existing observers may ignore this event. */
 	default void path(String family, String contig, int strand, int scaflen,

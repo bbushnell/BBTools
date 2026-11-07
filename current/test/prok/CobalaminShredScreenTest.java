@@ -60,7 +60,85 @@ public final class CobalaminShredScreenTest {
 		try{none.nextLine();p.set(none.nextLine());check(p.parseInt(2)==8 && p.parseInt(4)==0 && p.parseInt(5)==0 && p.parseInt(6)==0 && p.parseInt(7)==8
 			&& p.termStartsWith("CM_NOT_RUN_EMPTY_SELECTION", 8), "Empty selection must retain all inputs as unadjudicated and explicitly report that no CM ran");}
 		finally{check(!none.close(), "Empty-selection summary read failed");}
+		singleFamily(root, footer);
 		System.out.println("COBALAMIN_SHRED_SCREEN_TEST_PASS");
+	}
+
+	/** One explicitly selected model must preserve all hits and both-strand core attribution. */
+	private static void singleFamily(final Path root, final String footer){
+		final ByteBuilder manifest=new ByteBuilder(CobalaminShredSampler.HEADER+'\n');
+		for(int i=0; i<8; i++){
+			manifest.append('q').append(i).append("\tpanel\tg\tGCF_1.1\t1\tc\t151\t170\t101\t300\t51\t70\t20\n");
+		}
+		write(root.resolve("tpp.manifest.tsv"), manifest.toString());
+		final String hits=hit("q0", "RF00059", 1, 105, 90, 194, '+', "no", 80)
+			+hit("q0", "RF00059", 1, 105, 45, 149, '+', "no", 70)
+			+hit("q1", "RF00059", 1, 105, 150, 46, '-', "no", 70)
+			+hit("q2", "RF00059", 1, 105, 90, 194, '+', "no", 70)
+			+hit("q3", "RF00059", 2, 105, 51, 154, '+', "no", 70)
+			+hit("q4", "RF00059", 1, 105, 51, 155, '+', "no", 20)
+			+hit("q5", "RF00059", 1, 105, 51, 155, '+', "5'", 70)+footer;
+		write(root.resolve("tpp.tbl"), hits);
+		write(root.resolve("tpp.models.tsv"), CobalaminShredScreen.MODEL_HEADER+"\nRF00059\t105\t54.30\t"
+			+root.resolve("tpp.tbl")+"\t00000000000000000004\n");
+		runSingle(root, "tpp", "tpp.models.tsv", "RF00059");
+		final LineParser1 p=new LineParser1('\t');
+		final ByteFile disposition=RrnaResourceIO.open(root.resolve("tpp.disposition.tsv").toString());
+		int rows=0;
+		try{
+			disposition.nextLine();
+			for(byte[] row; (row=disposition.nextLine())!=null; ){
+				p.set(row);
+				check(p.terms()==6, "Single-family output retains the established disposition schema");
+				if(rows<2){
+					check(p.termEquals("EXCLUDED_FULL_TARGET_CM_CORE_OVERLAP", 2) && p.termEquals("RF00059", 3),
+						"Either strand of the declared target can exclude a core without clan relabeling");
+				}else if(rows==7){
+					check(p.termEquals("SOURCE_MASKED_BACKGROUND_NOT_CM_ADJUDICATED", 2), "Unscanned core must stay unadjudicated");
+				}else{
+					check(p.termEquals("RETAINED_CM_SCREENED_BACKGROUND", 2), "Flank-only, incomplete, low-score, truncated and zero-hit evidence must remain visible");
+				}
+				if(rows==0){check(p.parseInt(4)==2 && p.parseInt(5)==1, "A higher-scoring flank hit must not hide the second core-overlap hit");}
+				rows++;
+			}
+		}finally{check(!disposition.close(), "Single-family disposition read failed");}
+		check(rows==8, "Single-family screen must retain every original core in its ledger");
+		final ByteFile evidence=RrnaResourceIO.open(root.resolve("tpp.hits.tsv").toString());
+		int events=0, excluded=0;
+		try{
+			evidence.nextLine();
+			for(byte[] row; (row=evidence.nextLine())!=null; ){
+				p.set(row);
+				check(p.terms()==14 && p.termEquals("RF00059", 1), "All raw target events retain the declared accession");
+				if(p.termEquals("true", 13)){excluded++;}
+				events++;
+			}
+		}finally{check(!evidence.close(), "Single-family hit evidence read failed");}
+		check(events==7 && excluded==2, "Preserve all seven raw events with exactly two qualifying core overlaps");
+		final ByteFile summary=RrnaResourceIO.open(root.resolve("tpp.summary.tsv").toString());
+		try{
+			summary.nextLine();
+			p.set(summary.nextLine());
+			check(p.parseInt(0)==8 && p.parseInt(2)==6 && p.parseInt(4)==2 && p.parseInt(6)==7 && p.parseInt(7)==1
+				&& p.termStartsWith("DECLARED_FAMILY_CM_", 8), "Explicit target summary must conserve denominators and avoid a three-clan claim");
+		}finally{check(!summary.close(), "Single-family summary read failed");}
+		rejectSingle(root, "wrong_target", "models.tsv", "RF00059");
+		rejectSingle(root, "missing_target", "tpp.models.tsv", "RF00059,RF00174");
+		rejectSingle(root, "duplicate_target", "tpp.models.tsv", "RF00059,RF00059");
+		rejectSingle(root, "empty_target", "tpp.models.tsv", "RF00059,");
+	}
+
+	private static void runSingle(final Path root, final String out, final String models, final String families){
+		CobalaminShredScreen.main(new String[]{"manifest="+root.resolve("tpp.manifest.tsv"), "in="+root.resolve("cores.fa"),
+			"models="+root.resolve(models), "scanned="+root.resolve("scanned.txt"), "expectedscanned=7",
+			"outprefix="+root.resolve(out), "expected=8", "families="+families});
+	}
+
+	private static void rejectSingle(final Path root, final String out, final String models, final String families){
+		boolean failed=false;
+		try{runSingle(root, out, models, families);}
+		catch(IllegalArgumentException expected){failed=true;}
+		check(failed && !Files.exists(root.resolve(out+".summary.tsv")), "Invalid declared models must fail before disposition output");
 	}
 	private static String hit(String id, String model, int a, int z, int from, int to, char strand, String trunc, int bits){
 		return id+" - model "+model+" cm "+a+' '+z+' '+from+' '+to+' '+strand+' '+trunc+" 1 0.50 0.0 "+bits+" 1e-8 ! fixture\n";

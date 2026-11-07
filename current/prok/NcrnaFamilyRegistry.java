@@ -19,6 +19,8 @@ public final class NcrnaFamilyRegistry {
 			case "srp_small": return "SRP RNA (small)";
 			case "srp_large": return "SRP RNA (large)";
 			case "sam1": return "SAM-I";
+			case "tpp": return "TPP";
+			case "glycine": return "Glycine";
 			default: return id;
 		}
 	}
@@ -51,6 +53,8 @@ public final class NcrnaFamilyRegistry {
 		if("tmrna".equalsIgnoreCase(id)){return TMRNA;}
 		if("fmn".equalsIgnoreCase(id)){return FMN;}
 		if("sam1".equalsIgnoreCase(id)){return SAM1;}
+		if("tpp".equalsIgnoreCase(id)){return TPP;}
+		if("glycine".equalsIgnoreCase(id)){return GLYCINE;}
 		if("cobalamin".equalsIgnoreCase(id) || "cobalamin_rf00174".equalsIgnoreCase(id)){return COBALAMIN_RF00174;}
 		if("cobalamin_rf01482".equalsIgnoreCase(id)){return COBALAMIN_RF01482;}
 		if("cobalamin_rf01689".equalsIgnoreCase(id)){return COBALAMIN_RF01689;}
@@ -144,7 +148,10 @@ public final class NcrnaFamilyRegistry {
 			assert(legacyRole_!=null) : "Legacy consumers must explicitly select their original reference role";
 			legacyConsensusRole=legacyRole_;
 			resources=resources_;packagedEndpoints=resources_==null ? boundary_==null : resources_.packagedEndpoints;
-			boundary=boundary_;seedMinHits=boundary==null || isCobalamin(id_) || "fmn".equals(id_) || "sam1".equals(id_) ? 2 : 1;scoreA=boundary==null ? 0f : boundary.scoreA;
+			boundary=boundary_;
+			seedMinHits=boundary==null || isCobalamin(id_) || "fmn".equals(id_) || "sam1".equals(id_)
+				|| "tpp".equals(id_) || "glycine".equals(id_) ? 2 : 1;
+			scoreA=boundary==null ? 0f : boundary.scoreA;
 		}
 		public final String id, directory, gate;
 		final String privateLegacyConsensus;
@@ -238,6 +245,23 @@ public final class NcrnaFamilyRegistry {
 		new String[0], 50, 378, 7, 238, 1, 1f, .70f, .70f, 1.01f, true, ProkObject.RNA,
 		true, false, false, 0, 1, 60, -1, false, new String[0], .85f, false, true, 2, null,
 		new BoundaryPolicy("sam1_consensus.fa", "sam1_models.hbmc", 0f, false, 0f, 0f, 0f, new int[]{0}), null, "", "consensus");
+	/** Selected TPP policy: 425 models, two distinct 17-mers and 70% identity.
+	 * Keep the evaluated 232-base padding when replacing the model library;
+	 * adaptive 7-mer mapping retains all 5,763 baseline detections on 3,210 genomes
+	 * with 1,725,570 alignments. The model cap also applies to replacement libraries. */
+	private static final Entry TPP=new Entry("tpp", "callgenes_TPP", "tpp=t",
+		new String[0], 50, 232, 7, 361, 1, 1f, .70f, .70f, 1.01f, true, ProkObject.RNA,
+		true, false, false, 0, 1, 60, -1, false, new String[0], .85f, false, true, 1, null,
+		new BoundaryPolicy("tpp_consensus.fa", "tpp_models.hbmc", 0f, true, 5f, .1875f, 0f, new int[]{0}), null, "", "consensus");
+	/** Selected glycine policy for the 329-model library, disabled by default.
+	 * Two distinct 17-mer seeds enter the shared scan. Adaptive 7-mer mapping keeps
+	 * the measured 223 reference detections with 13,436 alignments on 198 genomes.
+	 * Keep the evaluated 222-base padding when replacing the model library.
+	 * The seed-length floor is not a completeness filter. HBM rescue is off. */
+	private static final Entry GLYCINE=new Entry("glycine", "callgenes_Glycine", "glycine=t",
+		new String[0], 17, 222, 7, 58, 1, 1f, .70f, .70f, 1.01f, true, ProkObject.RNA,
+		true, false, false, 0, 1, 60, -1, false, new String[0], .85f, false, true, 2, null,
+		new BoundaryPolicy("glycine_consensus.fa", "glycine_models.hbmc", 0f, true, 9f, .390625f, .030f, new int[]{0}), null, "", "consensus");
 	private static final Group COBALAMIN_GROUP=new Group("cobalamin", "callgenes_cobalamin", new String[]{"RF00174", "RF01482", "RF01689"},
 		new String[]{"consensus", "models"}, new String[]{"seeds"}, new String[]{"boundary", "boundary_start", "boundary_stop", "cutoffs"});
 	/** Measured opt-in B12 policies; each member retains its independent length floor. */

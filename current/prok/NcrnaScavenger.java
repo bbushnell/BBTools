@@ -242,6 +242,9 @@ public class NcrnaScavenger {
 		return scavenge(name, bases, strand, called, hitPositions, null);
 	}
 
+	/** Returns discovery candidates. Glycine retains raw bounds through selection;
+	 * a direct output consumer must call NcrnaReportedOrf.applyTo after selecting calls.
+	 */
 	public ArrayList<Orf> scavenge(String name, byte[] bases, int strand, ArrayList<int[]> called,
 			int[] hitPositions, long[] hitKeys){
 		ArrayList<Orf> results=new ArrayList<>();
@@ -1196,7 +1199,9 @@ public class NcrnaScavenger {
 			diagnoseWindow(name,bases,strand,pass,wStart,wStop,"REJECT_LEN",khits,shortlist.length,model,bestId,0f,bestHbm,orfStart,orfStop,false);
 			return null;
 		}
-		final Orf orf=new Orf(name,orfStart,orfStop,strand,0,bases,false,outputType);
+		final boolean reportOnly="glycine".equals(family);
+		final Orf orf=reportOnly ? new NcrnaReportedOrf(name, orfStart, orfStop, strand, bases)
+			: new Orf(name, orfStart, orfStop, strand, 0, bases, false, outputType);
 		orf.ncrnaFamily=family;
 		if("16S".equals(family) || "23S".equals(family) || "prok5S".equals(family)){orf.acceptedRrnaIdentity=identity;}
 		if(clipModel && (modelClipRescue || physicalEdgeMinLen>0) && Euk18sRuntimeConfig.FAMILY.equals(family)
@@ -1228,6 +1233,12 @@ public class NcrnaScavenger {
 					identity,quantumIdentity,hitPositions,hitKeys);
 			}
 		}else{applyVotedEnds(orf,hitPositions,hitKeys,wStart,wStop,bases.length);}
+		if(reportOnly){
+			// All acceptance, claims, snapshot resolution and final DP must see the
+			// original accepted alignment. NN movement belongs only to the report.
+			((NcrnaReportedOrf)orf).captureRefinement(orfStart, orfStop,
+				alignmentMinLength(stats, clipModel, model), alignmentMaxLength(model));
+		}
 		assert(physicalEdgeMinLen==0 || ((orf.ncrnaPartial&1)==0 || orf.start==0) && ((orf.ncrnaPartial&2)==0 || orf.stop==bases.length-1))
 			:"Interior endpoint refinement must preserve every original physical truncation coordinate before path selection";
 		if(physicalEdgeMinLen>0 && orf.ncrnaPartial!=0 && orf.stop-orf.start+1<alignmentMinLength(stats,true,model)){
@@ -1518,6 +1529,10 @@ public class NcrnaScavenger {
 			stopFuzz=boundaryFuzzConstants.values(model,false);
 		}else{startFuzz=null;stopFuzz=null;}
 		final NcrnaBoundaryScorer.RefinementResult result;
+		final int anchorStart=orf.start, anchorStop=orf.stop;
+		final int stopCeiling=cdsStopConstraint==null ? Integer.MAX_VALUE
+			: cdsStopConstraint.ceiling(orf.strand, anchorStart, anchorStop, bases.length);
+		final int windowCeiling=stopCeiling==Integer.MAX_VALUE ? Integer.MAX_VALUE : stopCeiling-winStart;
 		final long boundaryStartNanos=System.nanoTime();
 		try{
 			result=NcrnaBoundaryScorer.refineBoundariesWithCounts(
@@ -1527,11 +1542,13 @@ public class NcrnaScavenger {
 				contigGC, boundaryMeanLen, boundaryStartOffsets, boundaryStopOffsets,
 				boundaryMarginStart, boundaryMarginStop, winStart==0, winStop==bases.length-1,
 				boundaryFeatureVersion,locusAni,startFuzz,stopFuzz,
-				(dispatched ? boundaryStartTable : null), (dispatched ? boundaryStopTable : null),fixedMask);
+				(dispatched ? boundaryStartTable : null), (dispatched ? boundaryStopTable : null),fixedMask,windowCeiling);
 		}finally{boundaryNanos+=System.nanoTime()-boundaryStartNanos;}
-		final int anchorStart=orf.start, anchorStop=orf.stop;
 		final int startOffset=applyBoundaryScoreCutoff(result.startOffset,result.startChosenScore,nnCutoff);
 		final int stopOffset=applyBoundaryScoreCutoff(result.stopOffset,result.stopChosenScore,nnCutoff);
+		if(cdsStopConstraint!=null){
+			cdsStopConstraint.record(orf, model, anchorStart, anchorStop, stopCeiling, result, startOffset, stopOffset);
+		}
 		orf.start+=startOffset;
 		orf.stop+=stopOffset;
 		if(boundaryScoreSink!=null){boundaryScoreSink.scored(orf.scafName, orf.strand, model,
@@ -1901,6 +1918,18 @@ public class NcrnaScavenger {
 	private RrnaEndpointCallerFeatures rrnaEndpointFeatures=null;
 	/** Worker-confined; the family's factory supplies a separate instance. */
 	private NcrnaBoundaryRefiner boundaryRefiner=null;
+	/** Independent primitive index per scavenger, replaced at every contig. */
+	private NcrnaCdsStopConstraint cdsStopConstraint=null;
+
+	public void setCdsStopConstraint(final NcrnaCdsStopConstraint constraint){
+		if(constraint==null){throw new IllegalArgumentException("Enabled CDS constraint requires worker-owned state");}
+		cdsStopConstraint=constraint;
+	}
+
+	/** Called before strand flipping and before any RNA candidate is generated. */
+	public void prepareCdsStopConstraint(final ArrayList<Orf>[] candidates, final int length){
+		if(cdsStopConstraint!=null){cdsStopConstraint.prepare(candidates, length);}
+	}
 
 	/** Installs an explicitly configured refiner before this worker starts calling. */
 	public void setBoundaryRefiner(final NcrnaBoundaryRefiner refiner){

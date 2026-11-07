@@ -85,8 +85,25 @@ public final class BuildNcrnaBoundaryNets{
 			final String a=split[0].toLowerCase(Locale.ROOT);
 			String b=split.length>1 ? split[1] : null;
 			if(b!=null && b.equalsIgnoreCase("null")){b=null;}
+			if(refitConflict(a)){incompatibleRefitOption=a;}
 			if(a.equals("roster")){
 				roster=b;
+			}else if(a.equals("mode")){
+				if(!"build".equalsIgnoreCase(b) && !"evaluate".equalsIgnoreCase(b) && !"refit".equalsIgnoreCase(b)){
+					throw new IllegalArgumentException("mode must be build, evaluate or refit");
+				}
+				evaluateOnly="evaluate".equalsIgnoreCase(b);
+				refitOnly="refit".equalsIgnoreCase(b);
+			}else if(a.equals("method")){
+				try{
+					refitMethod=Method.valueOf(NcrnaNumbers.value(a, b).toUpperCase(Locale.ROOT));
+				}catch(IllegalArgumentException failure){
+					throw new IllegalArgumentException("method requires classifier or regression in mode=refit", failure);
+				}
+			}else if(a.equals("learned")){
+				learned=b;
+			}else if(a.equals("familyroot")){
+				familyRoot=b;
 			}else if(a.equals("loci")){
 				loci=b;
 			}else if(a.equals("exclude")){
@@ -113,8 +130,10 @@ public final class BuildNcrnaBoundaryNets{
 				callerConfig=b;
 			}else if(a.equals("classifierconfig")){
 				classifierConfig=b;
+				classifierConfigSet=true;
 			}else if(a.equals("regressionconfig")){
 				regressionConfig=b;
+				regressionConfigSet=true;
 			}else if(a.equals("splitseed")){
 				splitSeed=NcrnaNumbers.longValue(a, b);
 			}else if(a.equals("shards")){
@@ -156,18 +175,44 @@ public final class BuildNcrnaBoundaryNets{
 		return parser;
 	}
 
+	/** Explicit controls whose meaning requires withholding, comparison or a caller. */
+	private static boolean refitConflict(final String name){
+		switch(name){
+			case "learned": case "truthfamily": case "genomes": case "truth":
+			case "callerconfig": case "splitseed": case "shards": case "maxlost":
+			case "minprecision": case "tiepreference": return true;
+			default: return false;
+		}
+	}
+
 	/** Rejects malformed routes and geometry before creating files or generating vectors. */
 	private void validateParams(){
-		final String[] required={in, roster, loci, graph, original, ref, hbm, seeds, family,
-			truthFamily, genomes, truth, callerConfig, classifierConfig, regressionConfig, out};
+		if(refitOnly){
+			if(incompatibleRefitOption!=null){
+				throw new IllegalArgumentException("mode=refit does not accept "+incompatibleRefitOption+"; no withholding, selection or caller runs");
+			}
+			if(refitMethod==null){throw new IllegalArgumentException("mode=refit requires an explicit method=classifier|regression");}
+			if(refitMethod==Method.CLASSIFIER ? regressionConfigSet : classifierConfigSet){
+				throw new IllegalArgumentException("mode=refit accepts only the selected method's trainer config");
+			}
+			if(refitMethod==Method.CLASSIFIER ? classifierConfig==null : regressionConfig==null){
+				throw new IllegalArgumentException("mode=refit requires the selected method's trainer config");
+			}
+		}else if(refitMethod!=null){throw new IllegalArgumentException("method is valid only in mode=refit");}
+		final String[] required=refitOnly ? new String[]{in, roster, loci, graph, original, ref, hbm, seeds, family, out}
+			: new String[]{in, roster, loci, graph, original, ref, hbm, seeds, family, truthFamily, genomes, truth, callerConfig, out};
 		for(String value:required){
 			if(value==null || value.isEmpty()){throw new IllegalArgumentException("Supply all required learning, library, evaluation, recipe and output arguments; see launcher help");}
 		}
 		family=CallGenes.parseNcrnaFamily(family);
 		NcrnaFamilyRegistry.sharedBoundaryMember(family);
-		if(!"v1".equals(features) || splitSeed<0 || shards<1 || startRadius<0 || stopRadius<0
-				|| maxLost<0 || !Double.isFinite(minPrecision) || minPrecision<.95 || minPrecision>1){
-			throw new IllegalArgumentException("Require features=v1, splitseed>=0, shards>=1, nonnegative radii/maxlost, minprecision in [0.95,1]");
+		if(!refitOnly && (evaluateOnly ? learned==null || !new File(learned).isDirectory()
+				: learned!=null || classifierConfig==null || regressionConfig==null)){
+			throw new IllegalArgumentException("mode=evaluate requires learned=existing_tuning_directory; mode=build requires both trainer configs and no learned input");
+		}
+		if(!"v1".equals(features) || (!refitOnly && splitSeed<0) || shards<1 || startRadius<0 || stopRadius<0
+				|| maxLost<0 || !Double.isFinite(minPrecision) || minPrecision<0 || minPrecision>1){
+			throw new IllegalArgumentException("Require features=v1, splitseed>=0, shards>=1, nonnegative radii/maxlost, minprecision in [0,1]");
 		}
 		geometry(startInside, startOutside);
 		geometry(stopInside, stopOutside);
@@ -179,9 +224,13 @@ public final class BuildNcrnaBoundaryNets{
 				exclude, genomes, truth, callerConfig, classifierConfig, regressionConfig)){
 			throw new IllegalArgumentException("Cannot read a required boundary-builder input");
 		}
-		NcrnaCallerProcess.configurationPath(new File(callerConfig));
-		NcrnaCallerProcess.configurationPath(new File(classifierConfig));
-		NcrnaCallerProcess.configurationPath(new File(regressionConfig));
+		if(!refitOnly){NcrnaCallerProcess.configurationPath(new File(callerConfig));}
+		if(refitOnly){
+			NcrnaCallerProcess.configurationPath(new File(refitMethod==Method.CLASSIFIER ? classifierConfig : regressionConfig));
+		}else if(!evaluateOnly){
+			NcrnaCallerProcess.configurationPath(new File(classifierConfig));
+			NcrnaCallerProcess.configurationPath(new File(regressionConfig));
+		}
 		destination=new File(out).getAbsoluteFile();
 		work=new File(destination.getPath()+".work");
 		final String path=destination.getPath();
@@ -207,37 +256,52 @@ public final class BuildNcrnaBoundaryNets{
 
 	/** Keeps the original coverage axis separate from the accepted model/feature axis. */
 	private void process(final Timer timer){
-		final NcrnaCallerEvaluation evaluation=new NcrnaCallerEvaluation(callerConfig, genomes, truth, family, truthFamily);
-		requireRegisteredMapping(Parser.parseConfig(new String[]{"config="+callerConfig}));
+		final NcrnaCallerEvaluation evaluation=refitOnly ? null
+			: new NcrnaCallerEvaluation(callerConfig, genomes, truth, family, truthFamily);
+		if(!refitOnly){requireRegisteredMapping(Parser.parseConfig(new String[]{"config="+callerConfig}));}
 		final NcrnaFamilyLoader.Options options=new NcrnaFamilyLoader.Options();
 		options.resources.consensus=ref;
 		options.resources.models=hbm;
 		options.resources.seeds=seeds;
+		options.resources.root=familyRoot;
 		options.boundaryOverride=false;
 		options.endpoints=false;
 		// Ordinary CallGenes explicitly chooses registry topN, even for dynamic libraries.
 		options.topN=NcrnaFamilyRegistry.get(family).topN;
-		final NcrnaFamily accepted=NcrnaFamilyLoader.load(family, options, new FamilyResourceResolver());
+		final FamilyResourceResolver resolver=new FamilyResourceResolver();
+		if(familyRoot!=null){resolver.bindRoot(family, familyRoot);}
+		final NcrnaFamily accepted=NcrnaFamilyLoader.load(family, options, resolver);
 		final int median=PackagedBoundaryConfig.upperMedianLength(accepted.library);
 		if(startRadius>median || stopRadius>median){throw new IllegalArgumentException("Radii exceed accepted-library upper-median length: "+median);}
-		final NcrnaLearningPopulation population=NcrnaLearningPopulation.load(NcrnaSupportIO.read(graph),
-			NcrnaSupport.loadLibrary(original).names, roster, loci, exclude, splitSeed);
+		final NcrnaLearningPopulation population=refitOnly
+			? NcrnaLearningPopulation.loadForRefit(NcrnaSupportIO.read(graph), NcrnaSupport.loadLibrary(original).names, roster, loci, exclude)
+			: NcrnaLearningPopulation.load(NcrnaSupportIO.read(graph), NcrnaSupport.loadLibrary(original).names, roster, loci, exclude, splitSeed);
 		final String launcher=Data.findPath("?train.sh", false);
 		if(launcher==null){throw new IllegalStateException("Cannot locate the native train.sh launcher");}
 		final NcrnaNativeTrainer trainer=new NcrnaNativeTrainer(new File(launcher).getParentFile(), threads);
 		if(!work.mkdir()){throw new IllegalArgumentException("Could not create fresh work directory: "+work);}
+		final File[] roots={new File(work, "off_family"), new File(work, "classifier_family"), new File(work, "regression_family")};
+		final Boundary off=boundary(null, null);
+		// Exercise actual export prerequisites before any expensive learning. This
+		// is also the baseline caller's family, not a duplicate validation export.
+		export(accepted, off, roots[0]);
 		writePopulation(population);
-		final File tuning=fresh("tuning");
-		final NcrnaLearningVectors vectors=learn(population, accepted, tuning, false);
+		if(refitOnly){
+			refitFixed(population, accepted, trainer, timer);
+			return;
+		}
+		final File tuning=evaluateOnly ? new File(learned).getAbsoluteFile() : fresh("tuning");
 		final File classifier=new File(tuning, "classifier.bbnet");
 		final File regression=new File(tuning, "regression.bbnet");
-		trainer.train(Method.CLASSIFIER, classifierConfig, vectors.trainPaths, vectors.validationPath, classifier);
-		trainer.train(Method.REGRESSION, regressionConfig, vectors.trainPaths, vectors.validationPath, regression);
-		final Boundary off=boundary(null, null);
+		if(evaluateOnly){
+			validateLearned(tuning);
+		}else{
+			final NcrnaLearningVectors vectors=learn(population, accepted, tuning, false);
+			trainer.train(Method.CLASSIFIER, classifierConfig, vectors.trainPaths, vectors.validationPath, classifier);
+			trainer.train(Method.REGRESSION, regressionConfig, vectors.trainPaths, vectors.validationPath, regression);
+		}
 		final Boundary c=boundary(classifier, tuning);
 		final Boundary r=boundary(regression, tuning);
-		final File[] roots={new File(work, "off_family"), new File(work, "classifier_family"), new File(work, "regression_family")};
-		export(accepted, off, roots[0]);
 		export(accepted, c, roots[1]);
 		export(accepted, r, roots[2]);
 		final File[] calls=callTrials(evaluation, roots);
@@ -249,9 +313,13 @@ public final class BuildNcrnaBoundaryNets{
 		NcrnaBoundaryComparison.writeTransitions(new File(work, "regression_transitions.tsv").getPath(), baseline, regressionResult);
 		final Method selected=NcrnaBoundaryComparison.choose(baseline, classifierResult, regressionResult, maxLost, minPrecision, tiePreference);
 		Boundary product=off;
-		String status="OFF";
+		String status=evaluateOnly ? "TUNING_ONLY_OFF" : "OFF";
 		Result finalResult=baseline;
-		if(selected!=null){
+		if(selected!=null && evaluateOnly){
+			product=selected==Method.CLASSIFIER ? c : r;
+			finalResult=selected==Method.CLASSIFIER ? classifierResult : regressionResult;
+			status="TUNING_ONLY_"+selected.name();
+		}else if(selected!=null){
 			final File refit=fresh("refit");
 			final NcrnaLearningVectors all=learn(population, accepted, refit, true);
 			assert(all.trainPaths.length==1 && all.validationPath==null)
@@ -278,6 +346,46 @@ public final class BuildNcrnaBoundaryNets{
 		outstream.println("Boundary result: "+status);
 		outstream.println("Family directory: "+destination);
 		outstream.println("Learning and evaluation records: "+work);
+		outstream.println("Time: "+timer);
+	}
+
+	/** Trains the explicitly frozen method once, without invoking a caller or selection. */
+	private void refitFixed(final NcrnaLearningPopulation population, final NcrnaFamily accepted,
+			final NcrnaNativeTrainer trainer, final Timer timer){
+		assert(refitOnly && refitMethod!=null && population.split().selected==0)
+			: "Fixed refit uses an explicit method and no held-out source group";
+		final File refit=fresh("refit");
+		final NcrnaLearningVectors all=learn(population, accepted, refit, true);
+		assert(all.trainPaths.length==1 && all.validationPath==null)
+			: "Fixed refit trains and monitors the same complete eligible shard";
+		final File net=new File(refit, "boundary.bbnet");
+		trainer.train(refitMethod, refitMethod==Method.CLASSIFIER ? classifierConfig : regressionConfig,
+			all.trainPaths, all.trainPaths[0], net);
+		export(accepted, boundary(net, refit), destination);
+		int eligible=0, partial=0, excluded=0;
+		for(int gene=0; gene<population.ids.length; gene++){
+			if(population.eligible(gene)){eligible++;}
+			if(population.partial[gene]){partial++;}
+			if(population.excluded[gene]){excluded++;}
+		}
+		final ByteBuilder report=new ByteBuilder("status\tREFIT_UNEVALUATED\nmode\trefit\nmethod\t");
+		report.append(refitMethod.name()).append("\ntrainer_invocations\t1\nwithholding\tNONE\n");
+		report.append("monitoring\tSame all-eligible training input; not independent validation\n");
+		report.append("population_loci\t").append(population.ids.length).nl();
+		report.append("eligible_loci\t").append(eligible).nl();
+		report.append("partial_loci\t").append(partial).nl();
+		report.append("explicitly_excluded_loci\t").append(excluded).nl();
+		report.append("vector_records\t").append(all.records).nl();
+		report.append("vector_filtered\t").append(all.filtered).nl();
+		report.append("vector_unavailable\t").append(all.unavailable).nl();
+		report.append("vector_no_model\t").append(all.noModel).nl();
+		report.append("vector_processed\t").append(all.processed).nl();
+		report.append("caller_evaluation\tNOT_PERFORMED; exported refinement requires separate caller evaluation\n");
+		write(new File(work, "summary.tsv"), report);
+		timer.stop();
+		outstream.println("Boundary result: REFIT_UNEVALUATED");
+		outstream.println("Family directory: "+destination);
+		outstream.println("Learning records: "+work);
 		outstream.println("Time: "+timer);
 	}
 
@@ -323,6 +431,13 @@ public final class BuildNcrnaBoundaryNets{
 			}
 		}
 		write(new File(directory, "learning.tsv"), report);
+		if(refitOnly){
+			final ByteBuilder counts=new ByteBuilder("records\tlearning_loci\tstart_counted\tstart_missing\tstart_ambiguous\tstop_counted\tstop_missing\tstop_ambiguous\n");
+			counts.append(tables.records).tab().append(tables.learning).tab().append(tables.start.counted())
+				.tab().append(tables.start.missing()).tab().append(tables.start.ambiguous()).tab()
+				.append(tables.stop.counted()).tab().append(tables.stop.missing()).tab().append(tables.stop.ambiguous()).nl();
+			write(new File(directory, "table_counts.tsv"), counts);
+		}
 		return vectors;
 	}
 
@@ -332,9 +447,34 @@ public final class BuildNcrnaBoundaryNets{
 			directory==null ? null : new File(directory, "stop.tsv").getPath(), startRadius, stopRadius, startMargin, stopMargin, cutoff);
 	}
 
+	/** Reuses native readers to reject incompatible saved products before caller evaluation.
+	 * Corpus, split and accepted-library identity remain the user's explicit input contract;
+	 * geometry/dimensions cannot establish how a saved network was trained.
+	 */
+	private void validateLearned(final File directory){
+		assert(evaluateOnly) : "Saved-product validation belongs to the no-training evaluation mode";
+		for(String name:new String[]{"classifier.bbnet", "regression.bbnet", "start.tsv", "stop.tsv"}){
+			final File file=new File(directory, name);
+			if(!file.isFile() || !file.canRead()){
+				throw new IllegalArgumentException("Missing readable saved tuning product: "+file);
+			}
+		}
+		for(String name:new String[]{"classifier.bbnet", "regression.bbnet"}){
+			if(NcrnaBoundaryScorer.load(new File(directory, name).getPath()).numOutputs()!=1){
+				throw new IllegalArgumentException("Saved boundary network requires one scalar output: "+name);
+			}
+		}
+		final TrnaNinemerTableBuilder.LoadedTable start=TrnaNinemerTableBuilder.loadTable(new File(directory, "start.tsv").getPath());
+		final TrnaNinemerTableBuilder.LoadedTable stop=TrnaNinemerTableBuilder.loadTable(new File(directory, "stop.tsv").getPath());
+		if(start.type!=TrnaBoundaryFeatures.BoundaryType.START || start.insideCount!=startInside || start.outsideCount!=startOutside
+				|| stop.type!=TrnaBoundaryFeatures.BoundaryType.STOP || stop.insideCount!=stopInside || stop.outsideCount!=stopOutside){
+			throw new IllegalArgumentException("Saved endpoint table geometry differs from the requested start/stop geometry");
+		}
+	}
+
 	/** Copies the accepted library and boundary policy into a fresh loadable family directory. */
 	private void export(final NcrnaFamily accepted, final Boundary policy, final File root){
-		NcrnaFamilyExport.write(accepted, ref, hbm, seeds, policy, root);
+		NcrnaFamilyExport.write(accepted, ref, hbm, seeds, policy, root, familyRoot);
 	}
 
 	/** Creates one stage directory beneath this invocation's work directory. */
@@ -429,7 +569,8 @@ public final class BuildNcrnaBoundaryNets{
 	private void writePopulation(final NcrnaLearningPopulation population){
 		try(Output output=new Output(new File(work, "population.tsv").getPath())){
 			final ByteStreamWriter writer=output.writer;
-			writer.print("locus\tsource\ttaxid\toriginal_model\tvalidation\teligible\n");
+			writer.print(refitOnly ? "locus\tsource\ttaxid\toriginal_model\twithheld\teligible\n"
+				: "locus\tsource\ttaxid\toriginal_model\tvalidation\teligible\n");
 			final ByteBuilder row=new ByteBuilder();
 			final NcrnaLearningSplit.Result split=population.split();
 			for(int gene=0; gene<population.ids.length; gene++){
@@ -457,6 +598,8 @@ public final class BuildNcrnaBoundaryNets{
 	/** Records the tuning choice separately from the final post-refit acceptance result. */
 	private void writeDecision(final String status, final Method selected, final Result baseline, final Result result){
 		final ByteBuilder report=new ByteBuilder("status\t").append(status).nl();
+		report.append("mode\t").append(evaluateOnly ? "evaluate" : "build").nl();
+		if(evaluateOnly){report.append("learned_directory\t").append(new File(learned).getAbsolutePath()).nl();}
 		report.append("tuning_method\t").append(selected==null ? "OFF" : selected.name()).nl();
 		report.append("split_seed\t").append(splitSeed).nl();
 		report.append("max_lost\t").append(maxLost).nl();
@@ -464,7 +607,8 @@ public final class BuildNcrnaBoundaryNets{
 		report.append("tie_preference\t").append(tiePreference.name()).nl();
 		report.append("baseline_both_exact\t").append(baseline.exactBoth).nl();
 		report.append("final_both_exact\t").append(result.exactBoth).nl();
-		report.append("refit_evaluation\t").append(selected==null ? "Not performed; neither tuning candidate was eligible."
+		report.append("refit_evaluation\t").append(evaluateOnly ? "Not performed; evaluation-only mode never trains or refits."
+			: selected==null ? "Not performed; neither tuning candidate was eligible."
 			: "All-eligible coverage evidence, not independent holdout performance.").nl();
 		write(new File(work, "summary.tsv"), report);
 	}
@@ -486,6 +630,19 @@ public final class BuildNcrnaBoundaryNets{
 	private String roster, loci, exclude;
 	/** Original support graph/consensus and the accepted consensus/HBM/seed paths. */
 	private String graph, original, ref, hbm, seeds;
+	/** Optional explicit source manifest root; null preserves installed lookup. */
+	private String familyRoot;
+	/** Read-only native tuning products used only by mode=evaluate. */
+	private String learned;
+	/** Skips all table/vector generation and trainer/refit invocation when true. */
+	private boolean evaluateOnly=false;
+	/** Explicit fixed-method training; bypasses withholding, callers and acceptance selection. */
+	private boolean refitOnly=false;
+	/** Required only for refit; absent in the original build/evaluate modes. */
+	private Method refitMethod;
+	/** Tracks explicitly supplied controls that refit must not silently ignore. */
+	private String incompatibleRefitOption;
+	private boolean classifierConfigSet=false, regressionConfigSet=false;
 	/** Registered caller member and its label in the independent evaluation truth. */
 	private String family, truthFamily;
 	/** Evaluation genome list, truth table and native caller/trainer recipes. */

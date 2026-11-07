@@ -11,6 +11,51 @@ Optional graph= reuses existing support for the initial scan. The separate
 mode=restore callerverify=f reconstructs a paired proposal from saved calls.
 The tool does not tune verification cutoffs or prove a globally smallest library.
 
+Exhaustive window assay
+----------------------
+
+mode=scan scores each supplied FASTA window against every consensus with Quantum,
+without reducing, regenerating, calling genomes or exporting another library.
+For example, using your own explicitly defined input population:
+
+  bash reducencrnamodels.sh mode=scan in=windows.fa ref=consensus.fa \
+    cutoff=0.70 reportcuts=0.70,0.725,0.75 out=new_scan_directory t=8
+
+This syntax example is not a measured biological result. out= must be new and its
+parent must exist. rcomp=t is the default ONLY for scan mode: both orientations
+are scored. rcomp=f requests a supplied-orientation diagnostic. Optional hbm=
+checks that consensus names, order and sequences match the paired models; it does
+not enable HBM scoring or rescue. No discovery seed or shortlist filters the scan.
+Explicit reduction, regeneration, caller-protection and graph= options are invalid
+in this mode. Existing ordinary modes retain their previous behavior.
+
+The three outputs are:
+
+- original.support.tsv: the unchanged ORIGINAL Quantum graph format. Every
+  oriented query retains its winning model and native identity, even below cutoff.
+  cutoff controls stored supporter edges, not whether an alignment is attempted.
+- window_queries.tsv: original window ID, graph query ID, strand, best-model index
+  and exact A48-encoded best identity. With both strands, /+ and /- are appended to
+  the original ID. Appending preserves IDs already containing those suffixes.
+  With rcomp=f the query ID is unchanged and the mapping records the + strand.
+- scan.summary.tsv: one row per reportcuts threshold, reporting physical windows,
+  oriented queries, models, passing windows/fraction, pair alignments, participating
+  workers and input batches. Cutoffs include their exact native-float A48 identity.
+
+Each window passes once if either orientation's best identity meets the inclusive
+report threshold. Thus 10,000 windows searched on both strands produce 20,000
+oriented graph queries and 20,000 times the number of models alignments, while the
+acceptance denominator remains 10,000. Multiple thresholds use the same retained
+scores; no decimal rounding is applied before comparison. Worker-dependent row
+order is allowed; join by query/window ID rather than line number.
+
+A passing fraction is a false-positive rate only when the entire input population
+has independently established negative labels. Annotation absence is not a negative
+label. Positive-gene coverage, genomic-window acceptance and intact-genome caller
+precision are different measurements. The mode itself assigns none of those labels.
+The orientation-qualified graph is not interchangeable with a graph of original
+forward-only gene IDs when supplying graph= to another workflow.
+
 Requirements: Bash and java on PATH. BBTools supports Java 8 or later when built
 for that runtime; an installation compiled for a newer Java requires that version
 or later. Caller protection and regeneration also require Unix setsid with --wait
@@ -64,6 +109,32 @@ Identity at or above cutoff is support. The program repeatedly removes the
 model with the fewest uniquely supported genes, updating support counts after
 each removal. The target denominator includes originally unsupported genes.
 An unattainable target fails with the attainable and required counts.
+
+Optional maxmodelloss=N adds a second constraint: each model deletion may newly
+uncover at most N genes. The unique-support counts are updated after every drop,
+so deleting redundant models can make another model indispensable. Both this cap
+and target must pass. The value is not the model's total membership, a cumulative
+loss budget, or a measured caller-recall loss. Explicit maxmodelloss=0 permits only
+zero-loss deletions; maxmodelloss=1 permits at most one newly uncovered gene per
+drop. Omitting the option preserves the legacy target-only behavior and outputs.
+
+Optional minmodels=N stops the same greedy removal order before fewer than N
+models remain, including during a run of zero-support-loss deletions. The target
+and maxmodelloss constraints still apply and may stop reduction earlier with more
+models. N must be between zero and the supplied library count; omission or zero
+adds no count floor. This option applies only to reduction, not scan, comparison,
+restoration or fixed-library regeneration. An explicit floor is recorded as
+min_models in summary.txt. It specifies library size, not a caller-loss budget:
+measure each resulting proposal with ordinary CallGenes before comparing detection.
+Caller protection, when requested, still restores baseline winners and may increase
+the exported count. No existing caller-protection rule changes with this option.
+
+With an explicit cap, lost_queries.tsv lists genes supported on input but not by
+the exported library. Summary fields report the selected cap and final support
+loss. Caller restoration or regeneration can change final losses relative to the
+initial greedy proposal. Use a permissive target when the per-drop cap should be
+the effective stopping condition; target must still be in (0,1]. No caller
+preservation is inferred from a support-only proposal.
 
 The input FASTA identifiers must be unique within each axis. Their first
 whitespace-delimited token is the graph identifier. Headers must use printable
@@ -130,7 +201,7 @@ proposal. A zero-match baseline fails rather than claiming vacuous protection.
 
 Protection currently supports only families accepted by CallGenes' dynamic
 paired-model overrides: rnasep, tmrna, srp_small, srp_large, sixs_rf00013,
-sixs_rf01685, fmn, sam1, cobalamin_rf00174, cobalamin_rf01482, cobalamin_rf01689,
+sixs_rf01685, fmn, tpp, sam1, cobalamin_rf00174, cobalamin_rf01482, cobalamin_rf01689,
 r58 (5.8S) and lsu (eukaryotic LSU). Fixed rRNA and tRNA paths are not supported
 through that interface. Proposal generation has no caller-specific restriction.
 
@@ -230,6 +301,39 @@ alignments were performed for the initial scan. input_batches and active_workers
 count that alignment scan, so they are zero when graph= supplies its result.
 Regeneration's later member/final scans still perform and report real alignments.
 No fresh caller verification is replaced by graph=; callerverify defaults remain.
+
+Comparing saved calls without changing models
+--------------------------------------------
+
+Use mode=compare for two existing caller GFFs from the same genome panel and
+reference population. It does not need the libraries that produced those calls:
+
+  bash reducencrnamodels.sh mode=compare baseline=before.gff calls=after.gff \
+    truth=truth.tsv family=TPP truthfamily=RF00059 out=saved_comparison
+
+Replace the filenames with your own saved inputs. family= is the exact emitted
+GFF family label; truthfamily= selects the exact label in the five-column truth
+table described above. The same GFF may be supplied twice for a self-comparison.
+out= must be fresh. No caller, sequence alignment, restoration or training runs;
+no model resources are read or exported. Explicit options for other modes,
+including callerverify, are rejected. Existing modes and defaults are unchanged.
+
+This reuses the reducer's one-to-one HALF_SHORTER matcher: same contig and strand,
+overlap at least half the shorter span, with baseline-detected references
+prioritized before maximizing total matches. It is NOT reciprocal-half overlap;
+keep results from those rules separate. Input contig identifiers must identify
+the intended contigs across the complete panel. Matching ties retain the existing
+native assignment behavior, not a claim about which biological copy is correct.
+
+half_shorter.summary.tsv explicitly labels the rule and contains baseline and
+candidate rows: TP, unmatched calls (fp), FN, apparent precision/recall, exact
+5-prime/3-prime/both ends, reference losses/gains and both-exact count change.
+No uncertain-reference exclusion or independent FP adjudication is performed.
+half_shorter.transitions.tsv retains every reference, including misses, with the
+before/after coordinates, signed transcription-oriented end errors, detection
+transition and both-exact transition. Negative offsets are upstream at either
+end. Equal TP totals can hide individual losses and gains; inspect those columns.
+These reports evaluate supplied calls and do not certify an unexecuted library.
 
 Restoring pairs from saved calls
 -------------------------------

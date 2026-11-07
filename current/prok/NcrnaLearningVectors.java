@@ -213,7 +213,9 @@ public final class NcrnaLearningVectors{
 				if(outcome!=NcrnaBoundaryExamples.VALID){continue;}
 				if(buffers[shard]==null){buffers[shard]=new ByteBuilder(BLOCK_BYTES);}
 				final ByteBuilder b=buffers[shard];
-				for(float value:examples.values){b.append(value, 6).tab();}
+				// Preserve the bounded boundary-feature floats through native decimal readers.
+				// Six decimals rounded valid GC/enrichment/coverage values before training.
+				for(float value:examples.values){b.append(value, 18).tab();}
 				b.append(examples.label).nl();
 				rows[shard]++;
 				positives[shard]+=examples.label;

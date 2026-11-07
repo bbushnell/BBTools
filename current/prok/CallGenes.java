@@ -681,6 +681,10 @@ public class CallGenes extends ProkObject {
 				if(a.equalsIgnoreCase("fmn")){fmnExplicit=true;}
 			}else if(parseSam1Flag(a, b)){
 				// SAM-I remains opt-in under the selected accuracy/cost policy.
+			}else if(parseTppFlag(a, b)){
+				// Experimental TPP remains opt-in while its controls are calibrated.
+			}else if(parseGlycineFlag(a, b)){
+				// Glycine caller experiments remain explicitly selected.
 			}else if(a.equalsIgnoreCase("r58lsu")){
 				setR58LsuEnabled(Parse.parseBoolean(b));
 			}else if(a.equalsIgnoreCase("s18")){
@@ -3099,6 +3103,8 @@ public class CallGenes extends ProkObject {
 		if(COBALAMIN_ENABLED){loadCobalaminResources();}
 		if(FMN_ENABLED){loadFmnResources();}
 		if(SAM1_ENABLED){loadSam1Resources();}
+		if(TPP_ENABLED){loadTppResources();}
+		if(GLYCINE_ENABLED){loadGlycineResources();}
 		if(R58LSU_ENABLED){loadR58LsuResources();}
 		if(S18_ENABLED){loadS18DevelopmentResources();}
 	}
@@ -3139,6 +3145,16 @@ public class CallGenes extends ProkObject {
 			options.seedMinHits=resolveSweepInt(name, NCRNA_SEED_MIN_HITS_OVERRIDE, p.seedMinHits);
 			options.boundaryStartOffsets=SAM1_BOUNDARY_START_OFFSETS==null ? null : SAM1_BOUNDARY_START_OFFSETS.clone();
 			options.boundaryStopOffsets=SAM1_BOUNDARY_STOP_OFFSETS==null ? null : SAM1_BOUNDARY_STOP_OFFSETS.clone();
+		}
+		if("tpp".equals(name)){
+			options.resources.root=TPP_RESOURCE_ROOT;
+			options.minLen=TPP_MIN_LEN;
+			options.seedMinHits=resolveSweepInt(name, NCRNA_SEED_MIN_HITS_OVERRIDE, p.seedMinHits);
+		}
+		if("glycine".equals(name)){
+			options.resources.root=GLYCINE_RESOURCE_ROOT;
+			options.minLen=GLYCINE_MIN_LEN;
+			options.seedMinHits=resolveSweepInt(name, NCRNA_SEED_MIN_HITS_OVERRIDE, p.seedMinHits);
 		}
 		options.boundary=ncrnaBoundaryEnabled(name);
 		options.boundaryOverride=ncrnaBoundaryOverride(name);
@@ -3183,6 +3199,62 @@ public class CallGenes extends ProkObject {
 			+" seedMinHits="+family.seedMinHits+" seedDistinct="+family.seedDistinct+" indexK="+family.indexK
 			+" topN="+family.indexTopN+" minHits="+family.fixedMinHits+" minLen="+family.minLen
 			+" windowPad="+family.windowPad+" idPass="+family.idPass+" idBorderline="+family.idBorderline+" hbmPass="+family.hbmPass);
+	}
+
+	/** Opt-in TPP uses the shared 17-mer scan and packaged boundary refinement. */
+	public static synchronized void loadTppResources(){
+		if(!TPP_ENABLED){return;}
+		if(!NCRNA_FAMILIES_ENABLED){throw new IllegalArgumentException("tpp=t requires ncrna=t");}
+		for(NcrnaFamily existing:GeneCaller.ncrnaFamilies){
+			if("tpp".equals(existing.name)){throw new IllegalStateException("TPP resources are already loaded");}
+		}
+		final NcrnaFamily family=loadSharedBoundaryFamily("tpp", null, null, null, -1, Float.NaN, Float.NaN);
+		assert(family.kLong==ConservedRnaSeedIndex.K && family.seedDistinct==(family.seedMinHits>1))
+			: "TPP must use the shared 17-mer scan and distinct seed keys before registration";
+		for(String model:family.modelNames){
+			if(model==null || !model.startsWith("tpp_")){
+				throw new IllegalArgumentException("TPP models require their family-specific tpp_ prefix: "+model);
+			}
+		}
+		if(TPP_CDS_STOP){
+			if(family.boundaryNetsByModel==null
+					&& (family.boundary5NetTemplate==null || family.boundary3NetTemplate==null)){
+				throw new IllegalArgumentException("tppcdsstop=t requires loaded TPP endpoint networks");
+			}
+			family.cdsStopConstraintFactory=new NcrnaCdsStopConstraint.Factory(null);
+		}
+		GeneCaller.ncrnaFamilies.add(family);
+		System.err.println("TPP controls: models="+family.library.length
+			+" seedK="+family.kLong+" seedKeys="+family.kmerSet.size()+" seedMinHits="+family.seedMinHits
+			+" seedDistinct="+family.seedDistinct+" indexK="+family.indexK+" topN="+family.indexTopN
+			+" minHits="+family.fixedMinHits+" minLen="+family.minLen+" windowPad="+family.windowPad
+			+" idPass="+family.idPass+" idBorderline="+family.idBorderline+" hbmPass="+family.hbmPass);
+	}
+
+	/** Loads individual glycine aptamers without introducing a tandem subtype.
+	 * This factory adds no CDS-stop constraint or family-specific endpoint rule. */
+	public static synchronized void loadGlycineResources(){
+		if(!GLYCINE_ENABLED){return;}
+		if(!NCRNA_FAMILIES_ENABLED){throw new IllegalArgumentException("glycine=t requires ncrna=t");}
+		for(NcrnaFamily existing:GeneCaller.ncrnaFamilies){
+			if("glycine".equals(existing.name)){
+				throw new IllegalStateException("Glycine resources are already loaded");
+			}
+		}
+		final NcrnaFamily family=loadSharedBoundaryFamily("glycine", null, null, null, -1, Float.NaN, Float.NaN);
+		assert(family.kLong==ConservedRnaSeedIndex.K && family.seedDistinct==(family.seedMinHits>1))
+			: "Glycine must enter the shared 17-mer scan with its configured distinct-key gate";
+		for(String model:family.modelNames){
+			if(model==null || !model.startsWith("glycine_")){
+				throw new IllegalArgumentException("Glycine models require their family-specific glycine_ prefix: "+model);
+			}
+		}
+		GeneCaller.ncrnaFamilies.add(family);
+		System.err.println("Glycine experimental controls: models="+family.library.length
+			+" seedK="+family.kLong+" seedKeys="+family.kmerSet.size()+" seedMinHits="+family.seedMinHits
+			+" seedDistinct="+family.seedDistinct+" indexK="+family.indexK+" topN="+family.indexTopN
+			+" minHits="+family.fixedMinHits+" minLen="+family.minLen+" windowPad="+family.windowPad
+			+" idPass="+family.idPass+" idBorderline="+family.idBorderline+" hbmPass="+family.hbmPass);
 	}
 
 	/** Opt-in SAM-I uses the existing generic caller and shared 17-mer scan. */
@@ -4100,14 +4172,16 @@ public class CallGenes extends ProkObject {
 		if(s.equals("euk5s")){return "euk5S";}
 		if(!s.equals("rnasep") && !s.equals("srp_small") && !s.equals("srp_large") && !s.equals("tmrna")
 				&& !s.equals("sixs_rf00013") && !s.equals("sixs_rf01685") && !s.equals("r58") && !s.equals("lsu")
-				&& !s.equals("s18") && !s.equals("fmn") && !s.equals("sam1") && !NcrnaFamilyRegistry.isCobalamin(s)){
-			throw new IllegalArgumentException("ncrnafamily must name rnasep, srp_small, srp_large, tmrna, sixs_rf00013, sixs_rf01685, r58, lsu, s18, fmn, sam1, cobalamin or one cobalamin_rf member, or euk5S: "+value);
+				&& !s.equals("s18") && !s.equals("fmn") && !s.equals("sam1") && !s.equals("tpp")
+				&& !s.equals("glycine") && !NcrnaFamilyRegistry.isCobalamin(s)){
+			throw new IllegalArgumentException("ncrnafamily must name rnasep, srp_small, srp_large, tmrna, sixs_rf00013, sixs_rf01685, r58, lsu, s18, fmn, sam1, tpp, glycine, cobalamin or one cobalamin_rf member, or euk5S: "+value);
 		}
 		return s;
 	}
 
 	public static float defaultNcrnaIdPass(String family){
-		if("fmn".equals(family) || "sam1".equals(family)){return NcrnaFamilyRegistry.get(family).idPass;}
+		if("glycine".equals(family)){return NcrnaFamilyRegistry.get(family).idPass;}
+		if("fmn".equals(family) || "sam1".equals(family) || "tpp".equals(family)){return NcrnaFamilyRegistry.get(family).idPass;}
 		if(NcrnaFamilyRegistry.isCobalamin(family)){return NcrnaFamilyRegistry.get(family).idPass;}
 		if(family.equals("euk5S")){return .68f;}
 		if(family.equals("rnasep")){return 0.65f;}
@@ -4119,7 +4193,8 @@ public class CallGenes extends ProkObject {
 	}
 
 	public static float defaultNcrnaIdBorderline(String family){
-		if("fmn".equals(family) || "sam1".equals(family)){return NcrnaFamilyRegistry.get(family).idBorderline;}
+		if("glycine".equals(family)){return NcrnaFamilyRegistry.get(family).idBorderline;}
+		if("fmn".equals(family) || "sam1".equals(family) || "tpp".equals(family)){return NcrnaFamilyRegistry.get(family).idBorderline;}
 		if(NcrnaFamilyRegistry.isCobalamin(family)){return NcrnaFamilyRegistry.get(family).idBorderline;}
 		if(family.equals("euk5S")){return .68f;}
 		if(family.equals("rnasep")){return 0.58f;}
@@ -4223,6 +4298,7 @@ public class CallGenes extends ProkObject {
 		}
 		final String name=NcrnaFamilyRegistry.sharedBoundaryMember(NCRNA_FAMILY_FILTER).id;
 		final String typed=name.equals("fmn") ? FMN_RESOURCE_ROOT : name.equals("sam1") ? SAM1_RESOURCE_ROOT
+			: name.equals("tpp") ? TPP_RESOURCE_ROOT : name.equals("glycine") ? GLYCINE_RESOURCE_ROOT
 			: NcrnaFamilyRegistry.isCobalamin(name) ? COBALAMIN_RESOURCE_ROOT : null;
 		if(typed!=null){
 			throw new IllegalArgumentException("Do not combine ncrnafamilyroot with the typed resource root for "+name);
@@ -4248,9 +4324,11 @@ public class CallGenes extends ProkObject {
 		final boolean cobalamin=NcrnaFamilyRegistry.isCobalamin(NCRNA_FAMILY_FILTER);
 		final boolean fmn="fmn".equals(NCRNA_FAMILY_FILTER);
 		final boolean sam1="sam1".equals(NCRNA_FAMILY_FILTER);
+		final boolean tpp="tpp".equals(NCRNA_FAMILY_FILTER);
+		final boolean glycine="glycine".equals(NCRNA_FAMILY_FILTER);
 		if(NCRNA_SEED_MIN_HITS_OVERRIDE==0){throw new IllegalArgumentException("ncrnaseedminhits must be >=1");}
-		if(NCRNA_SEED_MIN_HITS_OVERRIDE>=0 && !euk5s && !cobalamin && !fmn && !sam1){
-			throw new IllegalArgumentException("ncrnaseedminhits requires ncrnafamily=euk5S, fmn, sam1 or a cobalamin group/member");
+		if(NCRNA_SEED_MIN_HITS_OVERRIDE>=0 && !euk5s && !cobalamin && !fmn && !sam1 && !tpp && !glycine){
+			throw new IllegalArgumentException("ncrnaseedminhits requires ncrnafamily=euk5S, fmn, sam1, tpp, glycine or a cobalamin group/member");
 		}
 		final boolean eukControls=NCRNA_MAX_LEN_OVERRIDE>=0
 			|| NCRNA_STRICT_INDEX_OVERRIDE!=null || NCRNA_RANKED_FALLBACK_OVERRIDE!=null;
@@ -4305,6 +4383,8 @@ public class CallGenes extends ProkObject {
 		}
 		if(fmn && !FMN_ENABLED){throw new IllegalArgumentException("An FMN sweep requires fmn=t");}
 		if(sam1 && !SAM1_ENABLED){throw new IllegalArgumentException("A SAM-I sweep requires sam1=t");}
+		if(tpp && !TPP_ENABLED){throw new IllegalArgumentException("A TPP sweep requires tpp=t");}
+		if(glycine && !GLYCINE_ENABLED){throw new IllegalArgumentException("A glycine sweep requires glycine=t");}
 		if(NCRNA_FAMILY_FILTER!=null && (NCRNA_FAMILY_FILTER.equals("r58") || NCRNA_FAMILY_FILTER.equals("lsu")) && !R58LSU_ENABLED){
 			throw new IllegalArgumentException("an r58/lsu ncrnafamily requires r58lsu=t");
 		}
@@ -4748,6 +4828,45 @@ public class CallGenes extends ProkObject {
 		return true;
 	}
 
+	/** TPP is disabled until explicitly selected; its packaged endpoints then default on. */
+	public static boolean TPP_ENABLED=false;
+	/** Opt-in ceiling prevents additional 3' extension across a downstream same-strand CDS start. */
+	public static boolean TPP_CDS_STOP=false;
+	public static String TPP_RESOURCE_ROOT=null;
+	public static int TPP_MIN_LEN=-1;
+	public static boolean parseTppFlag(final String a, final String b){
+		assert(a!=null) : "CallGenes option dispatch supplies a parsed nonnull name";
+		if(a.equalsIgnoreCase("tpp")){
+			TPP_ENABLED=Parse.parseBoolean(b);
+		}else if(a.equalsIgnoreCase("tppcdsstop")){
+			TPP_CDS_STOP=Parse.parseBoolean(b);
+		}else if(a.equalsIgnoreCase("tpproot")){
+			if(b==null || b.isEmpty()){throw new IllegalArgumentException("tpproot requires a family resource directory");}
+			TPP_RESOURCE_ROOT=b;
+		}else if(a.equalsIgnoreCase("tppminlen")){
+			TPP_MIN_LEN=parseSweepInt(a, b, 1, Integer.MAX_VALUE);
+		}else{return false;}
+		return true;
+	}
+
+	/** Experimental glycine calling stays off until explicitly selected. */
+	public static boolean GLYCINE_ENABLED=false;
+	public static String GLYCINE_RESOURCE_ROOT=null;
+	public static int GLYCINE_MIN_LEN=-1;
+	/** Parses activation and family-local input controls; generic sweep options remain shared. */
+	public static boolean parseGlycineFlag(final String a, final String b){
+		assert(a!=null) : "CallGenes dispatch supplies the parsed option name before family validation";
+		if(a.equalsIgnoreCase("glycine")){
+			GLYCINE_ENABLED=Parse.parseBoolean(b);
+		}else if(a.equalsIgnoreCase("glycineroot")){
+			if(b==null || b.isEmpty()){throw new IllegalArgumentException("glycineroot requires a family resource directory");}
+			GLYCINE_RESOURCE_ROOT=b;
+		}else if(a.equalsIgnoreCase("glycineminlen")){
+			GLYCINE_MIN_LEN=parseSweepInt(a, b, 1, Integer.MAX_VALUE);
+		}else{return false;}
+		return true;
+	}
+
 	/** SAM-I family activation is opt-in; endpoint refinement defaults on within it. */
 	public static boolean SAM1_ENABLED=false;
 	public static String SAM1_RESOURCE_ROOT=null;
@@ -4981,6 +5100,9 @@ public class CallGenes extends ProkObject {
 		if(COBALAMIN_ENABLED && !NCRNA_FAMILIES_ENABLED){throw new IllegalArgumentException("cobalamin=t requires ncrna=t");}
 		if(FMN_ENABLED && !NCRNA_FAMILIES_ENABLED){throw new IllegalArgumentException("fmn=t requires ncrna=t");}
 		if(SAM1_ENABLED && !NCRNA_FAMILIES_ENABLED){throw new IllegalArgumentException("sam1=t requires ncrna=t");}
+		if(TPP_ENABLED && !NCRNA_FAMILIES_ENABLED){throw new IllegalArgumentException("tpp=t requires ncrna=t");}
+		if(GLYCINE_ENABLED && !NCRNA_FAMILIES_ENABLED){throw new IllegalArgumentException("glycine=t requires ncrna=t");}
+		if(TPP_CDS_STOP && !TPP_ENABLED){throw new IllegalArgumentException("tppcdsstop=t requires tpp=t");}
 		assert(!R58LSU_ENABLED || NCRNA_FAMILIES_ENABLED) : "r58lsu=t requires ncrna=t (or generalncrna=t)";
 		assert(!S18_ENABLED || NCRNA_FAMILIES_ENABLED) : "s18=t requires ncrna=t (or generalncrna=t)";
 		assert(!R58LSU_ENABLED || !NCRNA_BOUNDARY_NN_ENABLED) : "r58lsu=t currently requires ncrnaboundarynet=f";
@@ -5128,7 +5250,8 @@ public class CallGenes extends ProkObject {
 	public static void resolveNcrnaDefaults(boolean tmrnaExplicit, boolean sixsExplicit, boolean eukRequested, boolean singleFamily, boolean fmnExplicit){
 		if(!fmnExplicit && (singleFamily || !NCRNA_FAMILIES_ENABLED)){FMN_ENABLED=false;}
 		//An enabled paired family explicitly implies its infrastructure; a later euk=f does not.
-		if(singleFamily && !R58LSU_ENABLED && !COBALAMIN_ENABLED && !FMN_ENABLED && !SAM1_ENABLED){NCRNA_FAMILIES_ENABLED=false;}
+		if(singleFamily && !R58LSU_ENABLED && !COBALAMIN_ENABLED && !FMN_ENABLED
+			&& !SAM1_ENABLED && !TPP_ENABLED && !GLYCINE_ENABLED){NCRNA_FAMILIES_ENABLED=false;}
 		if(eukRequested && R58LSU_ENABLED){NCRNA_FAMILIES_ENABLED=true;}
 		if(!NCRNA_FAMILIES_ENABLED){
 			if(!tmrnaExplicit){TMRNA_ENABLED=false;}

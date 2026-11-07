@@ -4,6 +4,13 @@ BBTools prokaryotic package providing comprehensive tools for bacterial and arch
 
 ## ncRNA resource development
 
+`samplegenomicbackground.sh` uses `CobalaminShredSampler` to select whole source
+groups and sample annotation-masked genomic windows. Optional lineage/GC quotas
+and nonoverlapping cores preserve a fixed empirical-length schedule; default
+cobalamin behavior remains available. These backgrounds are provisional until
+independently screened. See `docs/guides/SampleGenomicBackgroundGuide.txt` for
+input schemas, population semantics, outputs and failure handling.
+
 `reducencrnamodels.sh` selects a compact consensus/HBM library using exhaustive
 gene-to-model support, optionally protects whole-genome detections, and can
 regenerate retained models with paired rollback. `reduce=f regenerate=t` rebuilds
@@ -15,9 +22,43 @@ restores paired models from supplied GFF evidence without running a caller and
 labels the proposal as not caller-verified. The full user guide is
 `docs/guides/ReduceNcrnaModelsGuide.txt` in the BBTools release.
 
+`mode=scan` performs a pure exhaustive Quantum window assay. It scores both
+orientations by default in that mode (`rcomp=f` is an explicit diagnostic), retains
+the ORIGINAL scored graph with a window/strand mapping, and summarizes requested
+`reportcuts=` without repeating alignments. Acceptance is counted once per physical
+window. No model reduction, regeneration, caller or library export runs; an optional
+HBM validates pairing only. A background FPR claim still requires independently
+screened negative inputs. Ordinary reducer modes retain forward-only behavior.
+
 `buildncrnaboundarynets.sh` learns endpoint features, compares native classifier
 and regression networks through ordinary CallGenes, and exports the accepted
 family resources. Its guide is `docs/guides/BuildNcrnaBoundaryNetsGuide.txt`.
+
+`ncrnaendpointsummary.sh` summarizes existing nine-column matched-locus reports
+without calling or matching again. It reports signed/absolute endpoint errors,
+nearest-rank quantiles and joint both-end reachability for chosen radii. Supply
+the report's exact family label and overlap rule. These are coordinate diagnostics,
+not predicted neural-network recovery or caller-window containment.
+
+`ncrnagccomparison.sh` measures numerical differences through the actual native
+boundary vector writer, classifier/regression readers and Scavenger GC input.
+It selects at most 60 real contigs from an existing admitted training population,
+retaining empty bins and missing-model counts. `requireexact=t` checks every
+written/read feature against the raw values and scorer with matching leave-one-out
+counts; it does not equate those counts with ordinary full-count inference.
+No network is trained. The boundary writer uses eighteen fixed decimal places
+to preserve these features through native decimal readers; this is not an
+arbitrary-float encoding API or a measured accuracy improvement. Run the launcher
+without arguments for input schemas, sampling bins and output descriptions.
+
+`ncrnaendpointscreen.sh` screens endpoint word lengths and inside/outside
+compositions on the complete original population. Tables learn only the native
+internal training partition; training uses key-level leave-one-out and validation
+uses unchanged training counts. It reports smoothed count-decisiveness curves
+across valid nearby endpoints, with explicit ties, abstentions and missing/ambiguous
+denominators. It performs no HBM alignment, source-genome reread or training.
+These curves screen candidate geometries; final choices still require native
+classifier/regression endpoint results and whole-genome caller evaluation.
 
 Both guides contain complete short commands using
 `testdata/ncrna_model_tools/`, a small synthetic example derived from the shipped
@@ -35,6 +76,61 @@ resource-cleanup scope. Production code depends only on the generic interface.
 The preserved mitochondrial experiment and its driver live in `test/prok` and
 are invoked explicitly through `dev/mito_endpoint_callgenes.sh`; they are not
 enabled by ordinary CallGenes. Their class headers describe why they were kept.
+
+## Optional TPP and glycine riboswitch calling
+
+`callgenes.sh tpp=t` enables the packaged 425-model TPP riboswitch family.
+`tppcdsstop=t` separately limits additional three-prime endpoint extension across
+a downstream same-strand CDS start, preserving existing overlap. Both options
+are off by default. With both enabled on 3,210 genomes, the final family detected
+5,763 confirmed references, missed 101 and produced 500 unmatched scored calls;
+355 calls overlapping uncertain reference regions remained unscored. Both ends
+were exact for 2,362 matched calls. Compared with the initial 1,442-model library,
+two reference detections were lost and five gained: one lost locus stays shortened
+and bypasses refinement, and one is removed by gene-path selection. These are
+in-corpus measurements, and unmatched calls are not all established false positives.
+Adaptive shortlisting preserves all 5,763 detections while reducing reported
+model-verification alignments from 3,359,821 to 1,725,570 (49%). Both-exact remains
+2,362; one retained locus changes from offsets (0, -6) to (-1, -1) bases at its
+five-prime and three-prime ends. The selected mapping policy uses seven-base
+words, a minimum of five shared words, at least 0.1875 of the best model's count,
+and at most 361 models. The endpoint network was fitted against the 425-model
+library before this shortlist selection and evaluated with the selected policy.
+
+`callgenes.sh glycine=t` enables the packaged 329-model glycine riboswitch
+family. Its models represent individual aptamers, including separately supported
+adjacent aptamers; there is no composite tandem model. Calling is off by default.
+Within the enabled family, the packaged nine-base endpoint network refines the
+reported coordinates. Original alignment bounds govern acceptance, neighboring
+candidate discovery and final-path selection. Applying refinement only after
+selection prevents endpoint movement from suppressing neighboring detections.
+Reported intervals can consequently overlap. Glycine WINDOW/PATH diagnostics
+describe raw selection coordinates; final GFF and sequence output use reporting
+coordinates.
+
+On the 198-genome evaluation panel, the network refitted on all 43,013 eligible
+occurrences retained all 223 detected references out of 227 (98.24% recall), with
+four characterized misses, 33 unmatched calls and two unresolved calls unscored.
+With the reduced library, refinement improves both-exact endpoints from 74 to 122
+and leaves other families' calls unchanged. Mean absolute five-prime error increases
+from 2.06 to 2.36 bases; three-prime error decreases from 2.17 to 1.28. Maximum
+errors change from 46 to 36 bases and from 13 to 19 bases, respectively.
+
+The larger 1,075-model library and its network reached 131 both-exact calls:
+14 previously exact loci lose exactness and five become exact with the smaller
+library. Among those 14 losses, median/maximum absolute errors are 5/36 bases at
+the five-prime end and 0/18 bases at the three-prime end. All four separately added
+references remain detected, with one both-exact rather than the larger library's
+two. Adaptive mapping reduces reported model-verification alignments from 71,837
+to 13,436 (81%) relative to the reduced-library baseline. These counts exclude
+additional work inside boundary-feature calculation and are not wall-time speedups.
+These are all-corpus coverage measurements against covariance-model reference
+bounds, not independent generalization or physical transcript-end accuracy.
+Unmatched calls have not all been established to be false positives.
+
+Resources live in `resources/callgenes_TPP/` and `resources/callgenes_Glycine/`.
+Selecting a family with missing or incompatible resources fails loudly. Omitted
+options and explicit `tpp=f glycine=f` preserve ordinary production-family defaults.
 
 ## Core Gene Prediction
 

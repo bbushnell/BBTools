@@ -81,6 +81,53 @@ The original graph and original library define coverage groups before reduction.
 Do not substitute a REDUCED members.tsv graph. Accepted ref/hbm define the model
 axis used for features and inference; those axes have distinct purposes.
 
+familyroot= optionally supplies the source family/group directory for the
+manifest and retained sibling/cutoff payloads. The explicit ref/hbm/seeds still
+replace those core roles. Without familyroot, installed-resource lookup is
+unchanged. The baseline family is exported before learning, so missing or
+unsupported export dependencies fail before vector generation or training.
+
+To evaluate previously trained candidates without learning again, use
+mode=evaluate learned=/absolute/path/to/previous/family.work/tuning with the same
+original inputs, split, accepted library and geometry, and a fresh out=.
+The saved directory must contain classifier.bbnet, regression.bbnet, start.tsv
+and stop.tsv. Native readers check ten inputs, one output and matching endpoint
+geometry. These checks do not prove which corpus/library trained a network;
+the caller must supply the original inputs and preserve their provenance.
+This mode runs the ordinary three caller comparisons and selection, but invokes
+no trainer and performs no all-data refit. Its export is labeled TUNING_ONLY_OFF,
+TUNING_ONLY_CLASSIFIER or TUNING_ONLY_REGRESSION in summary.tsv. It is tuning
+evidence, not an all-data release refit. Trainer configs are optional in this mode.
+
+To refit a method whose architecture and recipe are already frozen, use
+mode=refit method=regression (or method=classifier). Supply the complete learning
+corpus, original graph/library, accepted library/seeds, family and feature geometry,
+plus ONLY the selected method's regressionconfig or classifierconfig. No second
+trainer is needed. This mode trains exactly once, using one all-eligible shard
+and the same input for monitoring. Regression streams that input to stdin rather
+than copying it merely to give training and monitoring different filenames.
+
+Do not supply genomes, truth, truthfamily, callerconfig, learned, splitseed,
+shards, maxlost, minprecision, tiepreference or the other trainer's config in
+refit mode. These explicit controls are rejected rather than ignored. method
+is invalid outside refit mode. Radii, word geometry, margins and cutoff still
+describe the exported inference policy; original build/evaluate defaults remain.
+
+Fixed refit validates source identity and preserves every original population
+member, but selects no holdout and has no minimum number of TaxID groups.
+Partial/excluded records do not teach the model; unavailable contexts and loci
+without a shortlisted model remain counted explicitly. Population output uses
+withheld=0. refit/table_counts.tsv and refit/learning.tsv report the actual table
+and vector contributions; complete input does not mean every locus yielded vectors.
+
+summary.tsv labels the result REFIT_UNEVALUATED. No ordinary caller, method
+comparison, acceptance decision or rejection fallback runs. The family export
+contains the trained network and enables its refinement policy when explicitly
+loaded. Evaluate that export with the intended production caller and any separate
+inference constraints before accepting it. This is not automatic installation,
+release approval or independent holdout performance. The original default build
+workflow and evaluation of saved tuning products are unchanged.
+
 Contexts contain the annotated gene and its actual available flanks, oriented
 5-prime to 3-prime. A header identifies the original locus and includes:
 
@@ -135,7 +182,9 @@ boundary options or registered mapping settings. Other enabled families still
 compete through the ordinary caller; the selected family is what gets graded.
 
 Defaults: maxlost=0, minprecision=0.95, tiepreference=regression,
-marginstart=0, marginstop=0. minprecision cannot be below 0.95. Each candidate must
+marginstart=0, marginstop=0. Explicit minprecision accepts any finite value in
+[0,1]; 0 removes only the precision floor, not the other eligibility checks.
+Omitting it retains the 0.95 default. Each candidate must
 respect the loss limit and apparent precision floor and improve both-ends-exact.
 Compare gain first, then losses, matches, unmatched calls and the tie preference.
 cutoff= optionally sets the packaged scalar boundary score cutoff; omission leaves

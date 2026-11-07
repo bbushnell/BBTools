@@ -222,7 +222,7 @@ public class GeneCaller extends ProkObject {
 		ArrayList<Orf>[] rnaLists=null;
 		final int rlen=r.length();
 		if(calltRNA || (call16S && rlen>800) || (call23S && rlen>1500) || call5S || (call18S && rlen>1000) || !ncrnaFamilies.isEmpty()){
-			rnaLists=makeRnas(name, bases);
+			rnaLists=makeRnas(name, bases, brokenLists);
 			if(ncrnaCpuProfile!=null){ncrnaCpuProfile.begin(ncrnaFamilies.size(), NcrnaCpuProfile.SSU_APPLY);}
 			try{applySsuCompetition(rnaLists, bases);}
 			finally{if(ncrnaCpuProfile!=null){ncrnaCpuProfile.end();}}
@@ -301,6 +301,9 @@ public class GeneCaller extends ProkObject {
 		if(call5S){st5s.add(path);}
 		if(call18S){st18s.add(path);}
 		
+		// Selection and its diagnostics use raw discovery bounds. Downstream GFF,
+		// sequence extraction and length reports consume the refined output bounds.
+		NcrnaReportedOrf.applyTo(path);
 		return path;
 	}
 
@@ -338,6 +341,11 @@ public class GeneCaller extends ProkObject {
 	 * All Orfs come out flipped to + orientation. 
 	 * */
 	public ArrayList<Orf>[] makeRnas(String name, byte[] bases){
+		return makeRnas(name, bases, null);
+	}
+
+	/** Supplies only pre-path CDS candidates; isolated RNA calls have no CDS context. */
+	private ArrayList<Orf>[] makeRnas(String name, byte[] bases, ArrayList<Orf>[] cdsCandidates){
 		if(ncrnaCpuProfile==null && NcrnaCpuProfile.enabled()){ncrnaCpuProfile=NcrnaCpuProfile.create(ncrnaFamilies.size());}
 		@SuppressWarnings("unchecked")
 		ArrayList<Orf>[] array=new ArrayList[2];
@@ -370,6 +378,11 @@ public class GeneCaller extends ProkObject {
 				scavenger.setAttemptLog(Euk18sAttemptLog.forFamily(fam.name));
 				ncrnaScavengers.add(scavenger);
 				}finally{if(ncrnaCpuProfile!=null){ncrnaCpuProfile.end();}}
+			}
+		}
+		if(ncrnaScavengers!=null){
+			for(NcrnaScavenger scavenger : ncrnaScavengers){
+				scavenger.prepareCdsStopConstraint(cdsCandidates, bases.length);
 			}
 		}
 		//The existing in-place flip at the end of each iteration makes bases
@@ -521,6 +534,12 @@ public class GeneCaller extends ProkObject {
 		if(family.rrnaEndpointFeatures!=null){scavenger.setRrnaEndpointFeatures(family.rrnaEndpointFeatures,family.rrnaEndpointFeatureSink);}
 		if(family.boundaryRefinerFactory!=null){
 			scavenger.setBoundaryRefiner(family.boundaryRefinerFactory.create(family));
+		}
+		if(family.cdsStopConstraintFactory!=null){
+			if(family.boundaryRefinerFactory!=null || family.rrnaEndpointFeatures!=null){
+				throw new IllegalArgumentException("CDS stop constraint requires the ordinary ncRNA boundary search: "+family.name);
+			}
+			scavenger.setCdsStopConstraint(family.cdsStopConstraintFactory.create());
 		}
 		applyNcrnaProductionControls(scavenger);
 	}
@@ -2205,9 +2224,11 @@ public class GeneCaller extends ProkObject {
 		return orfNet;
 	}
 
-	/** Shared with annotated-corpus extraction so boundary training uses inference's
-	 * complete-contig GC fraction, ambiguous-base convention and float rounding. */
-	static float calcContigGC(byte[] bases){
+	/** Shared with corpus extraction so boundary training uses inference's
+	 * complete-contig GC fraction, ambiguous-base convention and float rounding.
+	 * Borrows a nonnull sequence without changing it; zero defined bases returns zero.
+	 */
+	public static float calcContigGC(byte[] bases){
 		long gc=0, at=0;
 		for(byte b : bases){
 			int x=AminoAcid.baseToNumber[b];

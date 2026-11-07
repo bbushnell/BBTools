@@ -1,0 +1,9 @@
+#ncrna_family	1	glycine
+role	model	end	path	format	bytes	sha80
+consensus	.	.	consensus.fa	fasta	-	-
+models	.	.	models.hbmc	hbm	-	-
+seeds	.	.	seeds.fa.gz	fasta	-	-
+boundary	.	.	boundary.bbnet	bbnet	-	-
+boundary_start	.	.	tables/start.tsv	tsv	-	-
+boundary_stop	.	.	tables/stop.tsv	tsv	-	-
+boundary_config	.	.	boundary.config	config	-	-

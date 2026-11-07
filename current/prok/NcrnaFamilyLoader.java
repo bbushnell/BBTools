@@ -52,7 +52,7 @@ public final class NcrnaFamilyLoader {
 		require(!options.seeds || keys!=null && keys.size()>=p.minSeedKeys,
 			"Incompatible "+p.id+" seed resource: require at least "+p.minSeedKeys+" distinct forward k-mers: "+seeds);
 		final int k=options.indexK<0 ? p.indexK : options.indexK;
-		final int top=options.topN<0 ? (p.dynamicModels && p.models.length>0 ? library.length : p.topN) : options.topN;
+		final int top=options.topN<0 ? (p.topN<0 || p.dynamicModels && p.models.length>0 ? library.length : p.topN) : options.topN;
 		final int hits=options.minHits<0 ? p.minHits : options.minHits;
 		final boolean adaptive=options.adaptive==null ? p.boundary!=null && p.boundary.adaptive : options.adaptive;
 		final float floor=Float.isNaN(options.floor) ? (p.boundary==null ? 0f : p.boundary.floor) : options.floor;
@@ -73,11 +73,14 @@ public final class NcrnaFamilyLoader {
 			"B12 borderline identity must not exceed pass identity after resource/CLI precedence: "+p.id);
 		require(Float.isFinite(weight) && weight>0, "Path weight must be finite and positive for "+p.id);
 		int pad=options.windowPad<0 ? p.windowPad : options.windowPad;
-		if(options.longestPadFlank>=0){
+		// A negative registered pad derives the longest model length. Explicit
+		// window padding still wins unless longestPadFlank was separately requested.
+		final int longestFlank=options.longestPadFlank>=0 ? options.longestPadFlank : pad<0 ? 0 : -1;
+		if(longestFlank>=0){
 			int longest=0;for(byte[] ref:library){longest=Math.max(longest, ref.length);}
-			require(longest<=Integer.MAX_VALUE-options.longestPadFlank-p.seedK,
+			require(longest<=Integer.MAX_VALUE-longestFlank-p.seedK,
 				"Longest-model padding must leave room for the flank and seed span: "+p.id);
-			pad=longest+options.longestPadFlank;
+			pad=longest+longestFlank;
 		}
 		final int minLen=options.minLen<0 ? p.minLen : options.minLen;
 		final float scoreA=Float.isNaN(options.scoreA) ? p.scoreA : options.scoreA;
@@ -109,9 +112,21 @@ public final class NcrnaFamilyLoader {
 			Float.isNaN(options.boundaryMarginStart) ? 0f : options.boundaryMarginStart,
 			Float.isNaN(options.boundaryMarginStop) ? 0f : options.boundaryMarginStop);
 		family.outputType=p.outputType;family.seedMinHits=seedMinHits;family.scavengePass2=p.pass2;
-		if("fmn".equals(p.id) || "sam1".equals(p.id)){family.seedDistinct=seedMinHits>1;}//Direct loads preserve riboswitch distinct-key support.
+		if("fmn".equals(p.id) || "sam1".equals(p.id) || "tpp".equals(p.id) || "glycine".equals(p.id)){
+			family.seedDistinct=seedMinHits>1;//Direct loads preserve riboswitch distinct-key support.
+		}
 		family.rankedModelFallback=p.rankedFallback;family.strictIndexCutoff=p.strictIndexCutoff;family.trimAlignmentExtent=p.boundary!=null;
 		family.reuseConsensusAlignment=p.boundary==null;family.voteSlack=p.voteSlack;
+		if("glycine".equals(p.id)){
+			// Glycine verifies every window with Quantum and retains its endpoints;
+			// the legacy short-window and second endpoint alignments use Scrabble.
+			family.quantumThresh=0;
+			family.reuseConsensusAlignment=true;
+			family.trimAlignmentExtent=false;
+			// Shared endpoint nets must run on that retained Quantum anchor;
+			// finishAcceptedBoundary otherwise requires a successful second trim.
+			family.boundaryOnRawEndpoints=true;
+		}
 		family.prok16sPartialMinLen=p.partialMinLen;family.quantumCapMultiplier=p.quantumCap;
 		family.preserveContainingWindows=p.preserveContaining;
 		family.collapsedWindowPad=options.collapsedWindowPad<0 ? p.collapsedWindowPad : options.collapsedWindowPad;

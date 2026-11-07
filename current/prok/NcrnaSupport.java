@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import dna.AminoAcid;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
 import idaligner.QuantumAligner;
@@ -56,11 +57,21 @@ public final class NcrnaSupport{
 	/** Runs the same scan and retains coarse worker participation/work counters. */
 	public static ScanResult scanWithStats(final FileFormat input, final Library library,
 			final float cutoff, final int workers, final int threadsIn){
+		return scanWithStats(input, library, cutoff, workers, threadsIn, false);
+	}
+
+	/** Optionally scores both orientations of each owned streaming record.
+	 * Two-strand queries append /+ and /- to the original identifier, in that order.
+	 * Each pair remains adjacent through worker accumulation; ordinary callers retain
+	 * their original names and forward-only scores through the overload above.
+	 */
+	public static ScanResult scanWithStats(final FileFormat input, final Library library,
+			final float cutoff, final int workers, final int threadsIn, final boolean rcomp){
 		if(input==null || !input.fasta() || workers<1){
 			throw new IllegalArgumentException("Support scan requires FASTA and at least one worker");
 		}
 		final NcrnaSupport scan=new NcrnaSupport(library, cutoff);
-		final Graph graph=scan.process(input, workers, threadsIn);
+		final Graph graph=scan.process(input, workers, threadsIn, rcomp);
 		return new ScanResult(graph, scan.batches, scan.activeWorkers);
 	}
 
@@ -131,14 +142,14 @@ public final class NcrnaSupport{
 	/*--------------------------------------------------------------*/
 
 	/** Starts one shared reader and joins template-style alignment workers. */
-	private Graph process(final FileFormat input, final int workers, final int threadsIn){
+	private Graph process(final FileFormat input, final int workers, final int threadsIn, final boolean rcomp){
 		assert(workers>0) : "At least one consumer is needed to drain the sequence reader";
 		try(NcrnaWorkers cohort=new NcrnaWorkers();
 				SequenceInput owner=new SequenceInput(StreamerFactory.makeStreamer(input, null, false, -1, false, true, threadsIn))){
 			final Streamer st=owner.stream;
 			final ArrayList<ProcessThread> threads=new ArrayList<ProcessThread>(workers);
 			for(int i=0; i<workers; i++){
-				threads.add(new ProcessThread(st, library, cutoff));
+				threads.add(new ProcessThread(st, library, cutoff, rcomp));
 			}
 			st.start();
 			cohort.startAndJoin(threads, st);
@@ -162,23 +173,24 @@ public final class NcrnaSupport{
 
 	/** Owns its result columns and each fetched batch; library bytes are borrowed. */
 	static final class ProcessThread extends Thread{
-		ProcessThread(final Streamer input_, final Library library_, final float cutoff_){
-			this(input_, null, null, null, library_, cutoff_);
+		ProcessThread(final Streamer input_, final Library library_, final float cutoff_, final boolean rcomp_){
+			this(input_, null, null, null, library_, cutoff_, rcomp_);
 		}
 
 		ProcessThread(final Library genes_, final IntList members_, final AtomicInteger next_,
 				final Library library_, final float cutoff_){
-			this(null, genes_, members_, next_, library_, cutoff_);
+			this(null, genes_, members_, next_, library_, cutoff_, false);
 		}
 
 		private ProcessThread(final Streamer input_, final Library genes_, final IntList members_,
-				final AtomicInteger next_, final Library library_, final float cutoff_){
+				final AtomicInteger next_, final Library library_, final float cutoff_, final boolean rcomp_){
 			input=input_;
 			genes=genes_;
 			members=members_;
 			next=next_;
 			library=library_;
 			cutoff=cutoff_;
+			rcomp=rcomp_;
 		}
 
 		@Override
@@ -207,7 +219,17 @@ public final class NcrnaSupport{
 		/** Stores only accepted edges and one overall winner, including below cutoff. */
 		private void processRead(final Read read){
 			validateRead(read);
-			processSequence(recordName(read.id), read.bases);
+			final String name=recordName(read.id);
+			if(rcomp){
+				processSequence(name+"/+", read.bases);
+				// This worker exclusively owns this streamed Read. No copied reverse
+				// sequence or per-pair object is needed; borrowed memory inputs never
+				// enter this path and remain unchanged.
+				AminoAcid.reverseComplementBasesInPlace(read.bases);
+				processSequence(name+"/-", read.bases);
+			}else{
+				processSequence(name, read.bases);
+			}
 		}
 
 		/** Claims coarse index blocks; all sequence and name storage remains borrowed. */
@@ -251,6 +273,7 @@ public final class NcrnaSupport{
 		final AtomicInteger next;
 		final Library library;
 		final float cutoff;
+		final boolean rcomp;
 		final Columns columns=new Columns();
 		boolean success=false;
 		long batches=0;

@@ -62,7 +62,49 @@ public final class NcrnaFamilyExportTest {
 		checkOff(root, "cobalamin_rf00174", "RF00174", "cobalamin_rf01482");
 		checkOn(root);
 		checkChangedSharedSeeds(root);
+		checkExplicitRoot(root);
 		System.out.println("Family exports passed: ungrouped/grouped OFF, SAM-I ON, native loader geometry, tiny fixed decimals, gzip, sibling payloads and shared-seed rejection");
+	}
+
+	/** A new ungrouped family exports from its experiment, without installing it.
+	 * Borrowed FMN sequences are only a loader fixture, never TPP scientific data.
+	 */
+	private static void checkExplicitRoot(final Path root) throws IOException{
+		final FamilyResourceResolver resolver=new FamilyResourceResolver();
+		final String consensus=resolver.resolve("fmn", "consensus", null).path;
+		final String models=resolver.resolve("fmn", "models", null).path;
+		final String seeds=resolver.resolve("fmn", "seeds", null).path;
+		final Path source=Files.createDirectory(root.resolve("explicit tpp source"));
+		final ByteBuilder manifest=new ByteBuilder("#ncrna_family\t1\ttpp\nrole\tmodel\tend\tpath\tformat\tbytes\tsha80\n");
+		final String[] paths={consensus, models, seeds}, roles={"consensus", "models", "seeds"};
+		for(int i=0; i<paths.length; i++){
+			final String name=new File(paths[i]).getName();
+			Files.copy(new File(paths[i]).toPath(), source.resolve(name));
+			manifest.append(roles[i]).append("\t.\t.\t").append(name).tab()
+				.append(i==1 ? "hbm" : "fasta").append("\t-\t-\n");
+		}
+		try(Output output=new Output(source.resolve("manifest.tsv").toString())){output.writer.print(manifest);}
+		final NcrnaFamily original=NcrnaFamilyLoader.load("tpp", options(source), new FamilyResourceResolver());
+		final Boundary policy=new Boundary(null, null, null, 2, 3, 0, 0, Float.NaN);
+		final Path destination=root.resolve("explicit tpp export");
+		NcrnaFamilyExport.write(original, consensus, models, seeds, policy, destination.toFile(), source.toString());
+		final NcrnaFamily reloaded=NcrnaFamilyLoader.load("tpp", options(destination), new FamilyResourceResolver());
+		assert(Arrays.deepEquals(original.library, reloaded.library) && reloaded.boundary5NetTemplate==null)
+			: "Explicit-source export must load without an installed TPP manifest and retain its accepted library/OFF policy";
+		boolean rejected=false;
+		try{
+			NcrnaFamilyExport.write(original, consensus, models, seeds, policy, root.resolve("wrong origin").toFile(),
+				new File(consensus).getParent());
+		}catch(IllegalArgumentException expected){rejected=expected.getMessage().contains("header");}
+		assert(rejected && !Files.exists(root.resolve("wrong origin")))
+			: "A supplied FMN manifest must not be silently ignored or accepted as the TPP export origin";
+		rejected=false;
+		try{
+			NcrnaFamilyExport.write(original, consensus, models, seeds, policy, root.resolve("missing origin output").toFile(),
+				root.resolve("absent origin").toString());
+		}catch(IllegalArgumentException expected){rejected=expected.getMessage().contains("manifest");}
+		assert(rejected && !Files.exists(root.resolve("missing origin output")))
+			: "An absent explicit manifest must fail rather than fall back to installed resources";
 	}
 
 	private static void checkOff(final Path root, final String id, final String member, final String sibling) throws IOException{

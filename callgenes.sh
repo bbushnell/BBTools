@@ -506,6 +506,32 @@ sam1boundarynn=t Refine SAM-I endpoints with the packaged networks; f disables.
 sam1boundarystartrange=-8,8  Inclusive start-offset search range.
 sam1boundarystoprange=-12,12 Inclusive stop-offset search range.
                 Family-scoped tuning uses ncrnafamily=sam1 and the controls below.
+tpp=f           Enable TPP riboswitch calling (RF00059), off by default.
+                Requires resources/callgenes_TPP or an explicit tpproot directory.
+                Uses 425 models, two distinct 17-mer seeds, mapping K7,
+                minimum one shared mapping kmer, all-model shortlist capacity,
+                identity 0.70 and no HBM rescue. Zero-hit models remain filtered.
+                Padding is 232 bases. Packaged endpoint refinement searches
+                10 bases in either direction with 9-mer boundary features.
+tppcdsstop=f    Limit TPP 3' extension at the next same-strand CDS start.
+                Requires tpp=t and loaded endpoint networks. Existing overlap
+                at the raw aligned endpoint is preserved; this is opt-in.
+tpproot=        Optional TPP resource directory containing manifest.tsv.
+tppminlen=      Override the minimum called length (default 50 bases).
+                Family-scoped tuning uses ncrnafamily=tpp and the controls below.
+glycine=f      Glycine aptamer calling (RF00504), off by default.
+                Requires ncrna=t and a complete callgenes_Glycine resource package.
+                Uses two distinct 17-mer seeds,
+                7-mer mapping with at least one hit, all hit-bearing models ranked,
+                identity 0.70 and HBM rescue off.
+                Quantum supplies primary identity and coordinates for both short
+                and long windows. A packaged nine-base endpoint network refines
+                reported coordinates after raw discovery and gene-path selection.
+                Padding follows the longest model; the length floor is 17 bases.
+                See current/prok/README.md for measured accuracy and limitations.
+glycineroot=   Optional glycine resource directory containing manifest.tsv.
+glycineminlen= Override the minimum called length.
+                Family-scoped tuning uses ncrnafamily=glycine and shared controls.
 sixs=t          Enable paired 6S/SsrS families (RF00013 and RF01685);
                 requires ncrna=t (or generalncrna=t).  Aliases: ssrs=, 6s=.
                 Resources: resources/callgenes_6S/manifest.tsv binds both members.
@@ -570,7 +596,7 @@ sixsrf00013boundarystoprange=-8,8  Inclusive 3' correction range.
                     Ranges include zero and contain at most 257 positions
                     within -256..256. Missing resources fail loudly.
 ncrnafamily=    Select rnasep, srp_small, srp_large, tmrna, sixs_rf00013,
-                sixs_rf01685, r58, lsu, s18, cobalamin, cobalamin_rf00174,
+                sixs_rf01685, r58, lsu, s18, fmn, sam1, tpp, glycine, cobalamin, cobalamin_rf00174,
                 cobalamin_rf01482, cobalamin_rf01689, or euk5S as the generic sweep
                 overrides below; requires ncrna=t (or generalncrna=t).  A tmrna
                 target also requires tmrna=t; a sixs_* target also requires
@@ -586,7 +612,7 @@ ncrnafamily=    Select rnasep, srp_small, srp_large, tmrna, sixs_rf00013,
 ncrnafamilyroot= Optional resource directory for the selected ncrnafamily only.
                 Requires manifest.tsv matching that family; explicit payload
                 paths still take precedence. Supports rnasep, tmrna, srp_small,
-                srp_large, sixs_rf00013, sixs_rf01685, fmn, sam1 and individual
+                srp_large, sixs_rf00013, sixs_rf01685, fmn, sam1, tpp, glycine and individual
                 cobalamin members. Other family selectors are not supported.
                 SRP, 6S and cobalamin members require the GROUP directory,
                 not its member subdirectory. Other members keep their usual
@@ -599,8 +625,9 @@ ncrnamodels=    Matching HBM or HBMC models, optionally compressed.
                 overrides (families listed for ncrnafamilyroot, plus r58 and lsu).
                 Consensus sequences and model records must agree in order.
                 Seeds and other family settings retain their usual defaults.
-ncrnaseedminhits=  Conserved 17-mer seed threshold for selected euk5S or B12.
-                B12 defaults to 1; values >1 require distinct seed keys per
+ncrnaseedminhits=  Conserved 17-mer seed threshold for selected euk5S, B12,
+                FMN, SAM-I, TPP or glycine. Riboswitch defaults are 2 distinct keys;
+                values >1 require distinct seed keys per
                 window, so repeated occurrences of one key cannot satisfy 2.
                 Use a covering set generated for the requested seed minimum.
                 euk5S defaults to 2 occurrences per window.

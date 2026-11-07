@@ -1,0 +1,112 @@
+Genomic background sampling
+===========================
+
+samplegenomicbackground.sh uses prok.CobalaminShredSampler, the same backend as
+dev/cobalamin_shred_sampler.sh. The historical launcher and defaults remain
+available. There is no second sampler implementation.
+
+This tool selects source groups and draws real genomic windows. An annotation
+mask prevents sampling known loci; it cannot establish absence of an unannotated
+gene. Outputs remain provisional until independently screened. The tool does
+not establish sequence independence, perform CM screening or assign clean splits.
+Construct an eligible source roster before panel selection. Keep final evaluation
+sources and their aliases out of development-background selection.
+
+Input contracts
+---------------
+genomes= uses the original NcrnaCorpusSample eleven-column genome table, including
+its exact header. Relevant zero-based columns: genome ID 1, assembly 2, taxid 3,
+domain 4, phylum 5, absolute FASTA path 7. Preserve the original entire rows.
+
+groups= uses the header:
+genome assembly taxid fasta_sha80 source_group pilot_exposed_group
+(Tab separators.) Source IDs must be unique; assembly and taxid must exactly join
+the genome roster. The complete census ledger defines group membership. The input
+roster must contain all members of every included group. The fingerprint/exposure
+fields are retained census metadata, not instructions to hash sequences or a
+newly established independence claim.
+
+panelids= has one exact source ID per line, without a header. It selects explicit
+sources from genomes=. Legacy panel= instead accepts two tab-separated fields:
+sha80 and absolute FASTA path. These options are mutually exclusive. A panel arm
+uses every supplied panel source; it never selects a second random subset. The
+legacy nonpanel arm excludes panel FASTA paths, versionless assembly aliases and
+shared taxids, then chooses genomecount sources from the remaining roster.
+
+in=/lengths= is a FASTA of uniquely named, nonempty empirical positive sequences.
+Only lengths are used. They are sorted without removing multiplicity; count
+independent draws with replacement define the entire target schedule once.
+
+loci= contains one original 21-column NcrnaCmLocusAudit ledger per families= entry.
+Headers and Rfam ID prefixes are validated; record IDs must be globally unique.
+Selected sources must match assembly/taxid and actual contig name/length. Inclusive
+annotation spans are excluded, including gaps inside multi-interval annotations.
+All ambiguous source bases are also excluded from cores. Context flanks may
+include annotations or ambiguous bases and are clipped to their source contig.
+
+Declare exact expectedgenomes, expectedpanel, expectedlengths and expectedloci
+counts for sampling; panel selection requires expectedgenomes. Counts refer to
+the full supplied inputs, before selected-source filtering. Use fresh output
+prefixes beneath existing directories. Existing outputs cause failure.
+
+Panel allocation
+----------------
+mode=panel selects at most panelcount groups (default 1000). Each group has one
+lexically chosen source representative. Groups spanning multiple domain/phylum
+labels are excluded and reported. If a promised phylum then has no eligible
+group, or the cap cannot cover every promised phylum, selection fails loudly.
+
+Reserve one slot per phylum; allocate remaining slots proportional to each
+phylum's remaining group capacity (group count minus one), using largest integer
+remainders and lexical ties. Never exceed a phylum's available groups. Sort
+phyla/groups before seeded shuffling within each phylum. No FASTA is read here.
+Outputs include exact IDs, original representative roster rows, every included
+group's selection/exclusion reason, and a provisional-panel summary.
+
+Window allocation
+-----------------
+stratify=none nonoverlap=f is the historical path: balanced source quotas,
+shuffled source order and with-replacement eligible starts. Its output schemas
+and random-draw/traversal order are preserved.
+
+stratify=phylumgc requires arm=panel. A first sequence pass counts defined and GC
+bases across every selected source genome. gcbins=N defines bins [j/N,(j+1)/N),
+with 100% assigned to N-1. A source with no defined bases fails. GC is whole-genome
+composition, not the composition of an individual window.
+
+Allocate windows evenly across occupied domain/phylum/GC strata, then evenly
+across selected sources within each stratum; distribute remainders by seeded
+shuffling of sorted lists. Selected sources may receive zero windows, so selected
+and contributing sources are reported separately. The complete source/length
+schedule is saved before window generation. A second pass loads one source genome
+at a time; extended modes sort contigs before selecting starts.
+
+Within the assigned source, each currently eligible start has equal probability
+for that window's fixed length. nonoverlap=t adds each core to the prepared
+exclusion union. Cores cannot overlap, including different-length draws. Contexts
+may overlap. If a scheduled length no longer fits, the run fails with source,
+stratum, window and length; it does not redraw a length or substitute a source.
+Already opened outputs close and partial files remain for diagnosis. The original
+failure remains primary if cleanup also fails. Do not treat partial outputs as a
+completed background population.
+
+Outputs and interpretation
+--------------------------
+Default suffixes: .cores.fa.gz, .contexts.fa.gz, .shreds.tsv, .genomes.tsv,
+.lengths.tsv, .summary.tsv. Shred coordinates are one-based inclusive, including
+core coordinates relative to its clipped context. Length histograms retain both
+empirical-corpus and sampled counts.
+
+Either extended mode adds .schedule.tsv and .window_metadata.tsv. The latter
+reports exact GC base counts; unmeasured genome-GC fields are NA when not
+stratified. phylumgc also adds .strata.tsv with selected/contributing source and
+scheduled/written window counts. These balanced backgrounds do not estimate
+natural lineage prevalence. Count independently screened physical windows once
+when reporting FPR, even when several models or both orientations accept one.
+
+Execution is deliberately single-owner (t=1). Native BBTools readers/writers,
+byte parsing, primitive counts and interval lists own the data path. Heap must
+accommodate the largest selected source genome; there is no full-panel sequence
+cache. Sorting/seeded allocation makes the extended modes stable under equivalent
+metadata and contig reordering. Changing sequence content or parameters changes
+the experiment and requires a new output prefix and recorded recipe.

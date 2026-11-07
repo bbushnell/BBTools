@@ -19,8 +19,16 @@ public final class FamilyResourceResolver {
 
 	/** Installed bindings for an export, excluding legacy working-directory overrides. */
 	FamilyResourceManifest installedManifest(String familyId){
+		return exportManifest(familyId, null);
+	}
+
+	/** Explicit export origins preserve the selected manifest's sibling and cutoff bindings.
+	 * A null root retains installed-resource lookup; missing or malformed origins fail.
+	 */
+	FamilyResourceManifest exportManifest(String familyId, String root){
 		final NcrnaFamilyRegistry.Entry family=NcrnaFamilyRegistry.get(familyId);
-		loadManifest(family, Data.findPath("?"+family.directory+"/manifest.tsv", false));
+		loadManifest(family, root==null ? Data.findPath("?"+family.directory+"/manifest.tsv", false)
+			: new File(root, "manifest.tsv").getPath());
 		return manifest;
 	}
 

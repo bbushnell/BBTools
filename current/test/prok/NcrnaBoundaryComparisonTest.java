@@ -6,11 +6,15 @@ import java.util.ArrayList;
 import parse.Parse;
 import parse.Parser;
 import parse.PreParser;
+import parse.LineParser1;
 import prok.NcrnaBoundaryComparison;
 import prok.NcrnaBoundaryComparison.Change;
 import prok.NcrnaBoundaryComparison.Result;
 import prok.NcrnaLocusComparison.Locus;
 import prok.NcrnaNativeTrainer.Method;
+import prok.NcrnaTextIO.Input;
+import prok.NcrnaTextIO.Output;
+import prok.ReduceNcrnaModels;
 import shared.Shared;
 
 /** Literal detection, strand, eligibility and tie-order oracles; no biological data. */
@@ -67,6 +71,18 @@ public final class NcrnaBoundaryComparisonTest {
 		final Result duplicates=grade(truth, new int[][]{{100,199,0},{400,499,1},{700,799,0},{100,199,0}}, off);
 		assert(duplicates.matched==3 && duplicates.unmatched==1 && !new Change(off, duplicates).eligible(0, .95))
 			: "Duplicate predictions consume no second reference and lower precision";
+		final Change lowerPrecision=new Change(off, duplicates);
+		assert(lowerPrecision.eligible(0, 0) && lowerPrecision.eligible(0, .75)
+			&& !lowerPrecision.eligible(0, .750001))
+			: "Explicit lower precision limits apply exactly to the measured three-of-four candidate";
+		assert(!changed.eligible(0, 0) && !new Change(off, off).eligible(0, 0))
+			: "A zero precision floor must retain the detection-loss and positive endpoint-gain requirements";
+		for(final double invalid:new double[]{-.01, 1.01, Double.NaN, Double.POSITIVE_INFINITY}){
+			boolean rejected=false;
+			try{lowerPrecision.eligible(0, invalid);}
+			catch(IllegalArgumentException expected){rejected=expected.getMessage().contains("minprecision");}
+			assert(rejected) : "A selected precision floor must be finite and in [0,1]: "+invalid;
+		}
 		final Result empty=grade(truth, new int[0][], off);
 		assert(Double.isNaN(empty.precision()) && NcrnaBoundaryComparison.choose(off, empty, off, 0, .95, Method.REGRESSION)==null)
 			: "Undefined precision and zero exact gain cannot displace OFF";
@@ -79,7 +95,93 @@ public final class NcrnaBoundaryComparisonTest {
 		// Literal three-of-four, empty and complete calls exercise fractional/zero/unit report rates.
 		NcrnaBoundaryComparison.writeSummary(new File(root, "format.tsv").getPath(), off, empty, more);
 		NcrnaBoundaryComparison.writeTransitions(new File(root, "transitions.tsv").getPath(), off, loss);
+		savedComparison(root);
 		System.out.println("Boundary comparison passed: detection conservation, both strands, losses/gains, duplicates, precision boundary, OFF and tie selection");
+	}
+
+	/** The public saved mode must expose the existing rule without needing any sequence/model files. */
+	private static void savedComparison(final File root){
+		write(new File(root, "saved.truth.tsv"), "seqid\tfamily\tstart\tstop\tstrand\n"
+			+"chr\tfixture\t100\t199\t+\nchr\tfixture\t400\t499\t-\n"
+			+"chr\tfixture\t700\t799\t+\nchr\tfixture\t1000\t1099\t+\n");
+		write(new File(root, "saved.before.gff"), savedCall(98, 199, '+')
+			+savedCall(400, 502, '-')+savedCall(700, 799, '+'));
+		write(new File(root, "saved.after.gff"), savedCall(100, 399, '+')
+			+savedCall(400, 499, '-')+savedCall(1000, 1099, '+')+savedCall(1000, 1099, '+'));
+		final File compared=new File(root, "saved_comparison");
+		compareSaved(root, "saved.after.gff", compared);
+		checkSavedSummary(compared, new int[]{3, 1, 1, 3, 2, 2, 1, 1, 1});
+		final File same=new File(root, "saved_self");
+		compareSaved(root, "saved.before.gff", same);
+		checkSavedSummary(same, new int[]{3, 0, 1, 1, 3, 1, 0, 0, 0});
+		final LineParser1 lp=new LineParser1('\t');
+		try(Input input=new Input(new File(compared, "half_shorter.transitions.tsv").getPath())){
+			lp.set(input.reader.nextLine());
+			assert(lp.termEquals("after_3prime_offset", 12)) : "The saved comparison must retain the native transition schema";
+			lp.set(input.reader.nextLine());
+			assert(lp.parseInt(9)==-2 && lp.parseInt(11)==0 && lp.parseInt(12)==200 && lp.termEquals("retained", 13))
+				: "A long candidate matches half of the shorter span, with its actual 200-base 3-prime error";
+			int rows=1, lost=0, gained=0;
+			for(byte[] line=input.reader.nextLine(); line!=null; line=input.reader.nextLine()){
+				lp.set(line);
+				if(lp.termEquals("lost", 13)){lost++;}
+				if(lp.termEquals("gained", 13)){gained++;}
+				rows++;
+			}
+			assert(rows==4 && lost==1 && gained==1) : "Per-reference output must expose one loss and one gain despite equal TP totals";
+		}
+		for(final String option:new String[]{"target=0.98", "callerverify=f", "maxmodelloss=0", "ref=absent.fa", "rcomp=f"}){
+			final File rejected=new File(root, "saved_rejected");
+			boolean failed=false;
+			try{compareSaved(root, "saved.after.gff", rejected, option);}
+			catch(IllegalArgumentException expected){failed=expected.getMessage().contains("mode=compare accepts saved calls and truth only");}
+			assert(failed && !rejected.exists()) : "Saved mode must reject explicit unrelated work before creating output: "+option;
+		}
+		assert(compared.list().length==2 && same.list().length==2)
+			: "Read-only comparison produces only two reports, never a caller directory or model library";
+	}
+
+	/** Independent literal expected counts include a duplicate FP and one gain replacing a loss. */
+	private static void checkSavedSummary(final File root, final int[] expected){
+		final LineParser1 lp=new LineParser1('\t');
+		try(Input input=new Input(new File(root, "half_shorter.summary.tsv").getPath())){
+			lp.set(input.reader.nextLine());
+			assert(lp.termStartsWith("# overlap_rule=HALF_SHORTER", 0)) : "Saved reports must explicitly identify the native overlap rule";
+			input.reader.nextLine();
+			lp.set(input.reader.nextLine());
+			assert(lp.termEquals("method", 0) && lp.termEquals("both_exact_gain", 11)) : "Summary has the documented native count schema";
+			lp.set(input.reader.nextLine());
+			assert(lp.termEquals("baseline", 0) && lp.parseInt(1)==3 && lp.parseInt(2)==0 && lp.parseInt(3)==1)
+				: "Literal saved baseline detects three of four references without extras";
+			lp.set(input.reader.nextLine());
+			assert(lp.termEquals("candidate", 0)) : "Exactly one candidate row follows baseline";
+			final int[] columns={1, 2, 3, 6, 7, 8, 9, 10, 11};
+			for(int i=0; i<columns.length; i++){
+				assert(lp.parseInt(columns[i])==expected[i]) : "Saved-call literal oracle differs at column "+columns[i]+" in "+root;
+			}
+			assert(input.reader.nextLine()==null) : "Only baseline and candidate belong in a two-GFF comparison";
+		}
+	}
+
+	private static void compareSaved(final File root, final String candidate, final File out, final String... extra){
+		final ArrayList<String> args=new ArrayList<String>();
+		args.add("mode=compare");
+		args.add("baseline="+new File(root, "saved.before.gff"));
+		args.add("calls="+new File(root, candidate));
+		args.add("truth="+new File(root, "saved.truth.tsv"));
+		args.add("family=example");
+		args.add("truthfamily=fixture");
+		args.add("out="+out);
+		for(final String arg:extra){args.add(arg);}
+		ReduceNcrnaModels.main(args.toArray(new String[args.size()]));
+	}
+
+	private static String savedCall(final int start, final int stop, final char strand){
+		return "chr\tfixture\tRNA\t"+start+"\t"+stop+"\t.\t"+strand+"\t.\tfamily:example;model:fixture\n";
+	}
+
+	private static void write(final File path, final String text){
+		try(Output output=new Output(path.getPath())){output.writer.print(text);}
 	}
 
 	private static void precisionBoundary(){

@@ -4,7 +4,7 @@ set -eo pipefail
 usage(){
 	cat <<'HELP'
 Written by Brian Bushnell and Raiden
-Last modified November 4, 2026
+Last modified November 6, 2026
 
 Usage: reducencrnamodels.sh in=genes.fa ref=consensus.fa cutoff=0.70 out=new_directory
 
@@ -13,12 +13,32 @@ Input genes must be complete, sense-oriented FASTA records with distinct IDs.
 Quantum aligns every gene to every model. The original and reduced support
 graphs retain every gene, including genes with no supporting model.
 Use reduce=f regenerate=t to rebuild all supplied models without reducing them.
+Use mode=scan for an exhaustive window assay without changing the library.
+Use mode=compare to compare two saved caller GFFs without changing any library.
 
-Required:
+Required (ordinary reduction or mode=scan):
 in=             Gene FASTA, optionally compressed.
 ref=            Consensus FASTA.
 cutoff=         Inclusive identity threshold in [0,1]; no default.
 out=            New directory beneath an existing parent; existing output refused.
+
+Exhaustive window assay:
+mode=scan       Score every input window against every model with Quantum.
+rcomp=t         In scan mode, score both strands; f scores the supplied strand only.
+reportcuts=     Comma-separated inclusive identity thresholds; defaults to cutoff.
+                Reuses the same best scores without repeating alignments.
+hbm=            Optional paired-library validation only; no HBM rescue is performed.
+
+Scan outputs: original.support.tsv, window_queries.tsv, scan.summary.tsv.
+With rcomp=t, graph query IDs append /+ and /- to the original window ID;
+with rcomp=f, graph IDs are unchanged. The mapping records every query's original
+window and strand. Best identities below cutoff are retained in the ORIGINAL graph.
+Summary acceptance counts each physical window once if either strand passes.
+Windows, oriented queries and actual pair alignments are reported separately.
+No seeds, shortlist, reduction, regeneration, caller or library export runs.
+Explicit reduction/regeneration/caller options and graph= are rejected in this mode.
+Passing fractions become FPR only for a separately adjudicated negative population;
+they are not whole-genome caller precision. Ordinary modes remain forward-only.
 
 Options:
 hbm=            Index-aligned HBM/HBMC input; subset preserves its codec.
@@ -29,6 +49,17 @@ graph=          Saved version-2 support graph for this exact library/corpus/cuto
 reduce=t        Propose a smaller library; f keeps all models and requires regenerate=t.
 target=0.98     Fraction of ALL genes that must retain a supporter, in (0,1].
                 Applies only when reduce=t; fixed-library reports use NA.
+maxmodelloss=   Optional maximum genes newly uncovered by EACH model deletion.
+                Unset preserves the legacy target-only behavior. Explicit 0
+                permits only zero-loss drops; 1 permits at most one newly
+                uncovered gene per drop. Support is updated after every drop.
+                BOTH this cap and target must pass. This is not a model's total
+                member count, a cumulative loss budget, or caller recall loss.
+minmodels=     Optional minimum number of models to retain, including when
+                further deletions would lose no corpus support. Follows the same
+                greedy removal order; coverage or per-deletion limits may stop
+                earlier with more models. Unset or zero adds no count floor.
+                This does not guarantee a caller detection-retention level.
 t=auto          Alignment workers, using the standard BBTools thread option.
 
 Optional caller protection (supply all together, including hbm):
@@ -77,6 +108,9 @@ proposal. Regeneration requires those inputs unless callerverify=f explicitly
 selects the unverified fixed-library mode; it never silently disables protection.
 No global-minimum or false-positive-rate claim is made.
 
+Explicit maxmodelloss also writes lost_queries.tsv: input-supported genes with
+no support in the exported graph, after any caller restoration or regeneration.
+
 Outputs: consensus.fa, optional models.hbm/hbmc, original.support.tsv,
 members.tsv (reduced graph), summary.txt. Protected runs also retain full GFFs,
 executed caller configurations, caller_results.tsv and lost-reference tables.
@@ -108,6 +142,18 @@ support.summary.tsv reports named losses/gains separately; equal totals do not
 establish retention, and support checking does not verify genome calling.
 Saved graphs must come from the supplied sequence versions; names/cutoff alone
 cannot establish that the sequence contents used to create the graph were equal.
+
+Saved-call comparison (read-only; no new caller run or model inputs):
+mode=compare baseline=before.gff calls=after.gff truth=truth.tsv
+family=TPP truthfamily=RF00059 out=fresh_directory
+
+family= is the exact emitted GFF label. Matching is one-to-one, on the same contig
+and strand, with overlap at least half the SHORTER span. Baseline-detected references
+get priority before maximizing total matches. This is NOT reciprocal-half overlap.
+Writes half_shorter.summary.tsv and half_shorter.transitions.tsv with detection
+losses/gains and signed endpoint offsets. Unmatched calls are not adjudicated FPs.
+No models are read, restored or exported. No caller, alignment or training runs.
+Explicit options for other modes (including callerverify) are rejected.
 
 Standard BBTools options use flag=value; config=, -Xmx and outstream= work normally.
 

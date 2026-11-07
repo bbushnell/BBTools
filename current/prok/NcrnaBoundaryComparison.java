@@ -58,6 +58,19 @@ public final class NcrnaBoundaryComparison{
 		}
 	}
 
+	/** Writes two saved-call results with the overlap rule and unadjudicated-count limitation explicit. */
+	public static void writeSavedSummary(final String path, final Result before, final Result after){
+		requireSameTruth(before, after);
+		try(Output output=new Output(path)){
+			output.writer.print("# overlap_rule=HALF_SHORTER; one-to-one, same contig/strand, overlap>=half the shorter span; baseline references prioritized\n");
+			output.writer.print("# Saved calls only; fp means unmatched calls, not independently adjudicated false positives\n");
+			output.writer.print("method\ttp\tfp\tfn\tprecision\trecall\texact_5prime\texact_3prime\tboth_exact\tlost\tgained\tboth_exact_gain\n");
+			final ByteBuilder row=new ByteBuilder();
+			writeRow(output.writer, row, "baseline", before, before);
+			writeRow(output.writer, row, "candidate", before, after);
+		}
+	}
+
 	/** Writes one row per reference, including missed, gained and lost loci and signed end shifts. */
 	public static void writeTransitions(final String path, final Result before, final Result after){
 		requireSameTruth(before, after);
@@ -126,8 +139,8 @@ public final class NcrnaBoundaryComparison{
 	}
 
 	private static void validateLimits(final int maxLost, final double minPrecision){
-		if(maxLost<0 || !Double.isFinite(minPrecision) || minPrecision<.95 || minPrecision>1){
-			throw new IllegalArgumentException("Boundary selection requires maxlost>=0 and minprecision in [0.95,1]");
+		if(maxLost<0 || !Double.isFinite(minPrecision) || minPrecision<0 || minPrecision>1){
+			throw new IllegalArgumentException("Boundary selection requires maxlost>=0 and minprecision in [0,1]");
 		}
 	}
 

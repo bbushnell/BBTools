@@ -48,6 +48,11 @@ detectJavaVersion() {
 		return 1
 	fi
 	
+	# TODO: Confirmed detection bug: JAVA_TOOL_OPTIONS makes Java print a
+	# "Picked up JAVA_TOOL_OPTIONS" banner before its version. Reading only
+	# that line disables automatic SIMD even on a supported JDK/CPU. The
+	# current javasetup.sh version probe filters for the actual version line.
+	# Until this helper is repaired, controlled experiments must pin SIMD.
 	local version_output=$(java --version 2>&1 | head -n 1)
 	local major_version=0
 	
