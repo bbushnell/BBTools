@@ -7,7 +7,7 @@ CutGff reads the genomic sequences. No subset, biological label or admission
 threshold is introduced. expected= is a required population-count check.
 
 Example (choose the actual admitted count and desired flank):
-  ncrnaoccurrenceinputs.sh in=occurrences.tsv roster=corpus.genomes.tsv \
+  dev/ncrnaoccurrenceinputs.sh in=occurrences.tsv roster=corpus.genomes.tsv \
     expected=43013 flank=50 out=prepared
   cutgff.sh config=prepared/sources.config types=ncRNA flank=50 \
     banpartial=f minlen=1 maxns=-1 maxnfraction=-1 align=f \

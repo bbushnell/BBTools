@@ -5,7 +5,7 @@ usage(){
 	cat <<'HELP'
 Written by Brian Bushnell and Raiden
 
-Usage: ncrnaendpointscreen.sh in=contexts.fa.gz out=fresh_directory \
+Usage: dev/ncrnaendpointscreen.sh in=contexts.fa.gz out=fresh_directory \
   graph=original.support.tsv original=original_consensus.fa \
   roster=roster.tsv loci=loci.tsv splitseed=1 ks=7,9 radius=10
 
@@ -67,7 +67,7 @@ while [ -h "$SCRIPT" ]; do
 		SCRIPT="$RESOLVED_SCRIPT"
 	fi
 done
-DIR="$(cd "$(dirname "$SCRIPT")" && pwd)"
+DIR="$(cd "$(dirname "$SCRIPT")/.." && pwd)"
 if [ -f "$DIR/bbtools.jar" ]; then
 	CP="$DIR/bbtools.jar"
 else

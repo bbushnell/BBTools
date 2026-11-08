@@ -6,7 +6,7 @@ usage(){
 Written by Brian Bushnell and Raiden
 Last modified November 7, 2026
 
-Usage: ncrnaoccurrenceinputs.sh in=occurrences.tsv roster=genomes.tsv out=new_directory expected=43013 flank=50
+Usage: dev/ncrnaoccurrenceinputs.sh in=occurrences.tsv roster=genomes.tsv out=new_directory expected=43013 flank=50
 
 Prepares source-specific CutGff inputs, exact core coordinates and a distinct
 learning ledger for admitted occurrences. No sequence extraction or filtering.
@@ -46,7 +46,7 @@ while [ -h "$SCRIPT" ]; do
 		SCRIPT="$RESOLVED_SCRIPT"
 	fi
 done
-DIR="$(cd "$(dirname "$SCRIPT")" && pwd)"
+DIR="$(cd "$(dirname "$SCRIPT")/.." && pwd)"
 if [ -f "$DIR/bbtools.jar" ]; then CP="$DIR/bbtools.jar"; else CP="$DIR/current/"; fi
 source "$DIR/javasetup.sh"
 parseJavaArgs --xmx=1g --xms=64m --mode=fixed "$@"

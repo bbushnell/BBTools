@@ -5,7 +5,7 @@ usage(){
 	cat <<'HELP'
 Written by Brian Bushnell and Raiden
 
-Usage: ncrnaendpointsummary.sh in=grade.matches.tsv out=summary family=RF00059 overlap=reciprocal_half
+Usage: dev/ncrnaendpointsummary.sh in=grade.matches.tsv out=summary family=RF00059 overlap=reciprocal_half
 
 Reads the nine-column .matches.tsv report from NcrnaGffFamilyGrader or
 NcrnaCalibrationGrade. Selects one exact family label. Coordinates must share
@@ -46,7 +46,7 @@ while [ -h "$SCRIPT" ]; do
 		SCRIPT="$RESOLVED_SCRIPT"
 	fi
 done
-DIR="$(cd "$(dirname "$SCRIPT")" && pwd)"
+DIR="$(cd "$(dirname "$SCRIPT")/.." && pwd)"
 if [ -f "$DIR/bbtools.jar" ]; then
 	CP="$DIR/bbtools.jar"
 else

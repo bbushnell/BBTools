@@ -1,9 +1,10 @@
 Genomic background sampling
 ===========================
 
-samplegenomicbackground.sh uses prok.CobalaminShredSampler, the same backend as
-dev/cobalamin_shred_sampler.sh. The historical launcher and defaults remain
-available. There is no second sampler implementation.
+dev/samplegenomicbackground.sh uses prok.CobalaminShredSampler for panel selection
+and background sampling. It retains the historical cobalamin sampling defaults;
+the obsolete cobalamin-specific launcher has been retired. There is one sampler
+implementation and one launcher.
 
 This tool selects source groups and draws real genomic windows. An annotation
 mask prevents sampling known loci; it cannot establish absence of an unannotated

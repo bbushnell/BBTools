@@ -6,7 +6,7 @@ usage(){
 Written by Brian Bushnell and Raiden
 Last modified November 7, 2026
 
-Usage: ncrnaoccurrences.sh in=census primary=RF00504 out=new_directory
+Usage: dev/ncrnaoccurrences.sh in=census primary=RF00504 out=new_directory
 
 Resolves primary-model physical intervals into occurrences. An interval collapses
 only when a parent contains its genomic bounds AND every child model-span event
@@ -15,7 +15,7 @@ Other models supply overlap evidence only, never new or merged occurrences.
 There is no sequence search, score/coverage threshold, or completeness filter.
 
 in=          Accepted census directory: originals.tsv, searches.tsv, hits.tsv,
-             events.tsv and overlaps.tsv from ncrnaobservationcensus.sh.
+             events.tsv and overlaps.tsv from dev/ncrnaobservationcensus.sh.
 primary=     Required exact primary model ID, with one version in searches.tsv.
 out=         Fresh directory below an existing parent; no overwrite or append.
 
@@ -46,7 +46,7 @@ while [ -h "$SCRIPT" ]; do
 		SCRIPT="$RESOLVED_SCRIPT"
 	fi
 done
-DIR="$(cd "$(dirname "$SCRIPT")" && pwd)"
+DIR="$(cd "$(dirname "$SCRIPT")/.." && pwd)"
 if [ -f "$DIR/bbtools.jar" ]; then
 	CP="$DIR/bbtools.jar"
 else

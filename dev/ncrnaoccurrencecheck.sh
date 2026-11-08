@@ -6,7 +6,7 @@ usage(){
 Written by Brian Bushnell and Raiden
 Last modified November 7, 2026
 
-Usage: ncrnaoccurrencecheck.sh in=occurrence_loci.tsv contexts=contexts.fa cores=cores.fa expected=43013 out=summary.tsv
+Usage: dev/ncrnaoccurrencecheck.sh in=occurrence_loci.tsv contexts=contexts.fa cores=cores.fa expected=43013 out=summary.tsv
 
 Checks exact record-ID sets, source tags, actual context/core lengths, declared
 sense flanks and byte-for-byte agreement of every core with its actual context.
@@ -14,7 +14,7 @@ Context GC must be finite in [0,1] and identical for records from one source
 contig. GC comes from the native caller-compatible extractor; this does not
 independently recount whole genomes or establish biological annotation truth.
 
-in=        Fifteen-column ledger from ncrnaoccurrenceinputs.sh.
+in=        Fifteen-column ledger from dev/ncrnaoccurrenceinputs.sh.
 contexts=  Actual flanked FASTA with source/lflank/rflank/contig_gc headers.
 cores=     Actual exact-core FASTA with the same record IDs and source tags.
 expected=  Required full population count. Missing/duplicate/foreign IDs fail.
@@ -41,7 +41,7 @@ while [ -h "$SCRIPT" ]; do
 		SCRIPT="$RESOLVED_SCRIPT"
 	fi
 done
-DIR="$(cd "$(dirname "$SCRIPT")" && pwd)"
+DIR="$(cd "$(dirname "$SCRIPT")/.." && pwd)"
 if [ -f "$DIR/bbtools.jar" ]; then CP="$DIR/bbtools.jar"; else CP="$DIR/current/"; fi
 source "$DIR/javasetup.sh"
 parseJavaArgs --xmx=1g --xms=64m --mode=fixed "$@"

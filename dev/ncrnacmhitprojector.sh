@@ -6,7 +6,7 @@ usage(){
 Written by Brian Bushnell and Raiden
 Last modified November 6, 2026
 
-Usage: ncrnacmhitprojector.sh in=historical.tsv.gz contexts=crosswalk.tsv tables=searches.tsv out=new_directory
+Usage: dev/ncrnacmhitprojector.sh in=historical.tsv.gz contexts=crosswalk.tsv tables=searches.tsv out=new_directory
 
 Projects every Infernal 1.1.5 cmsearch hit into genomic coordinates. Reads existing
 tables only: no alignment, extraction, admission or SINGLE/TANDEM classification.
@@ -65,7 +65,7 @@ while [ -h "$SCRIPT" ]; do
 		SCRIPT="$RESOLVED_SCRIPT"
 	fi
 done
-DIR="$(cd "$(dirname "$SCRIPT")" && pwd)"
+DIR="$(cd "$(dirname "$SCRIPT")/.." && pwd)"
 if [ -f "$DIR/bbtools.jar" ]; then
 	CP="$DIR/bbtools.jar"
 else

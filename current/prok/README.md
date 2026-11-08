@@ -4,7 +4,7 @@ BBTools prokaryotic package providing comprehensive tools for bacterial and arch
 
 ## ncRNA resource development
 
-`samplegenomicbackground.sh` uses `CobalaminShredSampler` to select whole source
+`dev/samplegenomicbackground.sh` uses `CobalaminShredSampler` to select whole source
 groups and sample annotation-masked genomic windows. Optional lineage/GC quotas
 and nonoverlapping cores preserve a fixed empirical-length schedule; default
 cobalamin behavior remains available. These backgrounds are provisional until
@@ -34,13 +34,13 @@ screened negative inputs. Ordinary reducer modes retain forward-only behavior.
 and regression networks through ordinary CallGenes, and exports the accepted
 family resources. Its guide is `docs/guides/BuildNcrnaBoundaryNetsGuide.txt`.
 
-`ncrnaendpointsummary.sh` summarizes existing nine-column matched-locus reports
+`dev/ncrnaendpointsummary.sh` summarizes existing nine-column matched-locus reports
 without calling or matching again. It reports signed/absolute endpoint errors,
 nearest-rank quantiles and joint both-end reachability for chosen radii. Supply
 the report's exact family label and overlap rule. These are coordinate diagnostics,
 not predicted neural-network recovery or caller-window containment.
 
-`ncrnagccomparison.sh` measures numerical differences through the actual native
+`dev/ncrnagccomparison.sh` measures numerical differences through the actual native
 boundary vector writer, classifier/regression readers and Scavenger GC input.
 It selects at most 60 real contigs from an existing admitted training population,
 retaining empty bins and missing-model counts. `requireexact=t` checks every
@@ -51,7 +51,7 @@ to preserve these features through native decimal readers; this is not an
 arbitrary-float encoding API or a measured accuracy improvement. Run the launcher
 without arguments for input schemas, sampling bins and output descriptions.
 
-`ncrnaendpointscreen.sh` screens endpoint word lengths and inside/outside
+`dev/ncrnaendpointscreen.sh` screens endpoint word lengths and inside/outside
 compositions on the complete original population. Tables learn only the native
 internal training partition; training uses key-level leave-one-out and validation
 uses unchanged training counts. It reports smoothed count-decisiveness curves

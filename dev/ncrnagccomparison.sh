@@ -5,7 +5,7 @@ usage(){
 	cat <<'HELP'
 Written by Brian Bushnell and Raiden
 
-Usage: ncrnagccomparison.sh in=contexts.fa.gz out=fresh_directory family=tpp \
+Usage: dev/ncrnagccomparison.sh in=contexts.fa.gz out=fresh_directory family=tpp \
   graph=original.support.tsv original=original_consensus.fa roster=roster.tsv \
   loci=loci.tsv ref=accepted_consensus.fa hbm=accepted_models.hbmc \
   seeds=seeds.fa.gz splitseed=1
@@ -61,7 +61,7 @@ while [ -h "$SCRIPT" ]; do
 		SCRIPT="$RESOLVED_SCRIPT"
 	fi
 done
-DIR="$(cd "$(dirname "$SCRIPT")" && pwd)"
+DIR="$(cd "$(dirname "$SCRIPT")/.." && pwd)"
 if [ -f "$DIR/bbtools.jar" ]; then
 	CP="$DIR/bbtools.jar"
 else

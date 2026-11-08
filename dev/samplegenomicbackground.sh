@@ -6,11 +6,11 @@ usage(){
 Written by Raiden
 Last modified November 5, 2026
 
-Usage: samplegenomicbackground.sh mode=panel genomes=train.genomes.tsv
+Usage: dev/samplegenomicbackground.sh mode=panel genomes=train.genomes.tsv
        groups=source.groups.tsv expectedgenomes=28809 panelcount=1000 seed=47
        out=panel
 
-Usage: samplegenomicbackground.sh genomes=all.genomes.tsv panelids=panel.ids.txt
+Usage: dev/samplegenomicbackground.sh genomes=all.genomes.tsv panelids=panel.ids.txt
        in=train.fa.gz loci=corpus.loci.tsv.gz families=RF00059 arm=panel
        expectedgenomes=39979 expectedpanel=1000 genomecount=1000
        expectedlengths=58125 expectedloci=70671 count=10000 flank=50 seed=101
@@ -85,7 +85,7 @@ while [ -h "$SCRIPT" ]; do
 		SCRIPT="$RESOLVED_SCRIPT"
 	fi
 done
-DIR="$(cd "$(dirname "$SCRIPT")" && pwd)"
+DIR="$(cd "$(dirname "$SCRIPT")/.." && pwd)"
 if [ -f "$DIR/bbtools.jar" ]; then
 	CP="$DIR/bbtools.jar"
 else

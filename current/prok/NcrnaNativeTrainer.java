@@ -47,7 +47,7 @@ public final class NcrnaNativeTrainer{
 			throw new IllegalArgumentException("Native training needs a method, nonempty inputs and a fresh network path");
 		}
 		final String[] arguments=recipe(method, recipe);
-		final File script=new File(installation, method==Method.CLASSIFIER ? "train.sh" : "dev/regressiontrainer.sh");
+		final File script=new File(installation, method==Method.CLASSIFIER ? "train.sh" : "regressiontrainer.sh");
 		readable(script.getPath());
 		final String[] paths=new String[training.length];
 		for(int i=0; i<paths.length; i++){paths[i]=readable(training[i]);}

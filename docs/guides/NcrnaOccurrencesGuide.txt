@@ -2,7 +2,7 @@ NcrnaOccurrences: resolve primary ncRNA observations into occurrences
 ===================================================================
 
 Usage:
-  ncrnaoccurrences.sh in=accepted_census primary=RF00504 out=occurrences
+  dev/ncrnaoccurrences.sh in=accepted_census primary=RF00504 out=occurrences
 
 This tool reads five existing census tables: originals.tsv, searches.tsv,
 hits.tsv, events.tsv and overlaps.tsv. Their headers and source/model/count

@@ -40,7 +40,7 @@ EOF
 }
 if [[ $# -eq 0 || "$1" = -h || "$1" = --help ]];then usage;exit 0;fi
 set -eo pipefail
-DIR=$(cd "$(dirname "$(readlink -f "$0")")" && pwd)
+DIR=$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)
 source "$DIR/javasetup.sh"
 source "$DIR/memdetect.sh"
 parseJavaArgs --xmx=8g --xms=64m --mode=fixed -eoom "$@"

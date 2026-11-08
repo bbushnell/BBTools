@@ -6,7 +6,7 @@ usage(){
 Written by Brian Bushnell and Raiden
 Last modified November 6, 2026
 
-Usage: ncrnaobservationcensus.sh in=projection originals=loci.tsv contexts=crosswalk.tsv queryfiles=queries.tsv out=new_directory
+Usage: dev/ncrnaobservationcensus.sh in=projection originals=loci.tsv contexts=crosswalk.tsv queryfiles=queries.tsv out=new_directory
 
 Describes all saved observations from NcrnaCmHitProjector: physical overlaps,
 annotation relationships, observed neighbors and actual searched coverage.
@@ -15,7 +15,7 @@ One metadata worker; native byte I/O and primitive indices. All input population
 are complete. Output must be a fresh directory beneath an existing parent.
 
 in=          Directory containing events.tsv, hits.tsv, overlaps.tsv, queries.tsv,
-             neighbors.tsv and searches.tsv from ncrnacmhitprojector.sh.
+             neighbors.tsv and searches.tsv from dev/ncrnacmhitprojector.sh.
 originals=   Original 21-column annotated-corpus metadata, with all flags intact.
 contexts=    Original ten-column sense-context crosswalk used by the projector.
 queryfiles=  Tab-separated header table_id query_fasta; exactly one binding for
@@ -59,7 +59,7 @@ while [ -h "$SCRIPT" ]; do
 		SCRIPT="$RESOLVED_SCRIPT"
 	fi
 done
-DIR="$(cd "$(dirname "$SCRIPT")" && pwd)"
+DIR="$(cd "$(dirname "$SCRIPT")/.." && pwd)"
 if [ -f "$DIR/bbtools.jar" ]; then
 	CP="$DIR/bbtools.jar"
 else

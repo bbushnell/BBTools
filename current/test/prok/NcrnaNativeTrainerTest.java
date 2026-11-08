@@ -156,8 +156,8 @@ public final class NcrnaNativeTrainerTest{
 
 	private static Path mock(final Path root, final String name, final String body) throws Exception{
 		final Path directory=root.resolve(name);
-		Files.createDirectories(directory.resolve("dev"));
-		write(directory.resolve("dev/regressiontrainer.sh").toString(),
+		Files.createDirectories(directory);
+		write(directory.resolve("regressiontrainer.sh").toString(),
 			"#!/usr/bin/env bash\nprintf '%s\\n' \"$$\" > "+quote(directory.resolve("pid.txt").toString())+"\n"+
 			"printf '%s\\n' \"$@\" > "+quote(directory.resolve("args.txt").toString())+"\n"+
 			"for option in ${JAVA_TOOL_OPTIONS-}; do case \"$option\" in -Xss*) printf '%s\\n' \"$option\";; esac; done > "+

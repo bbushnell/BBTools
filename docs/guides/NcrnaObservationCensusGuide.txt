@@ -10,7 +10,7 @@ remain available even if another model overlaps them or has a higher score.
 
 Inputs
 ------
-Run ncrnacmhitprojector.sh first. Supply its output directory as in=, its original
+Run dev/ncrnacmhitprojector.sh first. Supply its output directory as in=, its original
 21-column locus table as originals= and its ten-column context map as contexts=.
 queryfiles= is a two-column TSV with the literal header:
 
@@ -24,7 +24,7 @@ Membership is preserved independently of event presence. Shared files are cached
 by their exact path; path aliases are not assumed identical.
 
 Example:
-  ncrnaobservationcensus.sh in=projection originals=original.loci.tsv \
+  dev/ncrnaobservationcensus.sh in=projection originals=original.loci.tsv \
     contexts=crosswalk.tsv queryfiles=query_files.tsv out=census -Xmx1g t=1
 
 Output must not exist. A successful run ends with NCRNA_OBSERVATION_CENSUS_PASS;
