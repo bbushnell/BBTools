@@ -27,21 +27,44 @@ import structures.LongList;
 import ukmer.Kmer;
 
 /**
+ * Builds packed counting tables from streamed sequence input using counting workers.
+ * Nucleotide paths support primitive short keys or multiword hashes; amino-acid
+ * counting uses a separate encoding. Short-key sampling, duplicate suppression,
+ * quality filtering and long-key counting have different option coverage.
+ * Paired-overlap processing requires nucleotide input.
+ * Amino dispatch counts only the root, although processed-read totals include mates.
+ * Short-key sampling bypasses quality, canonicalization and IDMASK rules. In
+ * unsampled short-key counting, IDMASK selects sorted occurrence indices with
+ * duplicate suppression and window-ending base indices otherwise. Long-key counting omits short-path sampling,
+ * duplicate suppression and minQuality filtering.
+ *
+ * Each invocation owns its reader and workers but borrows any destination or
+ * trusted table. Counting can mutate temporary reads through overlap processing
+ * or trusted-base masking. Caught counting/flush failures propagate after worker
+ * aggregation and reader closure; they do not roll back borrowed-table updates.
+ * Reader/worker construction and startup are not protected by cleanup finally blocks.
+ * Multiworker destinations must support concurrent increments; trusted tables and
+ * shared counting settings, including BUFFERED, must remain stable during counting.
+ * Inherited options/statistics are process-wide, so separate instances do not
+ * isolate concurrent invocations with different settings.
+ *
  * @author Brian Bushnell
  * @date Jul 5, 2012
  *
  */
-public class ReadCounter extends KmerCountAbstract {
+public class ReadCounter extends KmerCountAbstract{
 	
 	/**
 	 * Program entry point for standalone k-mer counting operations.
-	 * Parses command-line arguments and executes k-mer counting on specified files.
-	 * @param args Command-line arguments including input files and parameters
+	 * Uses positional input paths followed by counting options. A second positional
+	 * slot is reserved for the mate path; options are parsed starting at index two.
+	 * A case-insensitive literal null in the mate slot selects unpaired input with options.
+	 * @param args Primary path, optional/null mate placeholder, then named options
 	 */
 	public static void main(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
-			PreParser pp=new PreParser(args, new Object() { }.getClass().getEnclosingClass(), false);
+			PreParser pp=new PreParser(args, new Object(){}.getClass().getEnclosingClass(), false);
 			args=pp.args;
 //			outstream=pp.outstream;
 		}
@@ -49,7 +72,7 @@ public class ReadCounter extends KmerCountAbstract {
 		Timer t=new Timer();
 		
 		String fname1=args[0];
-		String fname2=(args.length>1 ? args[1] : null);
+		String fname2=(args.length>1 && !"null".equalsIgnoreCase(args[1]) ? args[1] : null);
 		int k=14;
 		int cbits=16;
 		int matrixbits=-1;
@@ -95,14 +118,12 @@ public class ReadCounter extends KmerCountAbstract {
 		
 		KCountArray counts=KCountArray.makeNew(1L<<matrixbits, cbits, hashes);
 		ReadCounter rc=new ReadCounter(k, true, false, false, false);
-		try {
+		try{
 			rc.count(fname1, fname2, counts);
-		} catch (Exception e) {
+		}catch(Exception e){
 			throw new RuntimeException("Kmer counting failed; no complete count array is available.", e);
 		}
 		counts.shutdown();
-		
-//		verbose=true;
 		
 		t.stop();
 		System.out.println("Finished counting; time = "+t);
@@ -111,17 +132,16 @@ public class ReadCounter extends KmerCountAbstract {
 		
 	}
 	
-	/** Defaults for nucleotides. */
+	/** Selects nucleotide counting with reverse-complement matching and no overlap processing. */
 	public ReadCounter(final int k_){this(k_, true, false, false, false);}
 	
 	/**
-	 * Creates a ReadCounter with specified configuration options.
-	 * Initializes bit manipulation constants and k-mer processing parameters.
+	 * Selects a representation and counting policy; does not open input or allocate a table.
 	 *
 	 * @param k_ K-mer length for counting
-	 * @param rcomp_ Whether to use reverse complement canonical k-mers
-	 * @param ecco_ Whether to enable error correction
-	 * @param merge_ Whether to merge overlapping paired reads
+	 * @param rcomp_ Canonicalize short nucleotide keys; long-key counting uses Kmer's own representation
+	 * @param ecco_ Correct paired overlaps when merge is not selected
+	 * @param merge_ Count a joined sequence when a positive paired insert is found
 	 * @param amino_ Whether to process amino acid sequences instead of nucleotides
 	 */
 	public ReadCounter(final int k_, final boolean rcomp_, 
@@ -129,7 +149,10 @@ public class ReadCounter extends KmerCountAbstract {
 		this(k_, rcomp_, ecco_, merge_, amino_, false);
 	}
 
-	/** Creates a ReadCounter with optional independent Bloom-lane hashes. */
+	/** Creates a counter with optional independent secondary hashes for Bloom lanes.
+	 * Requires positive k; amino-acid packed keys must fit below 64 bits and cannot
+	 * request reverse complements. Short rolling paths also check inherited CANONICAL.
+	 * Long keys use ukmer.Kmer geometry; constructor bit fields alone do not define it. */
 	public ReadCounter(final int k_, final boolean rcomp_, final boolean ecco_, final boolean merge_,
 			final boolean amino_, final boolean dualHash_){
 		k=k_;
@@ -152,15 +175,14 @@ public class ReadCounter extends KmerCountAbstract {
 	}
 
 	/**
-	 * Prints detailed k-mer frequency distribution statistics.
-	 * Displays frequency histogram, unique k-mer counts, and useful statistics.
-	 * @param counts The KCountArray containing k-mer frequency data
+	 * Prints a table-cell histogram and ratios using shared keysCounted.
+	 * The historical "Unique" label denotes occupied cells, not exact distinct keys
+	 * for a hashed table. Shared counters need not describe just this supplied table.
+	 * Empty occupied-cell statistics are reported as zero; histogram totals use longs.
+	 * @param counts Readable table whose cell-frequency histogram will be summarized
 	 */
 	public void printStatistics(KCountArray counts){
 		long[] freq=counts.transformToFrequency();
-
-//		System.out.println(count+"\n");
-//		System.out.println(Arrays.toString(freq)+"\n");
 		
 		long sum=sum(freq);
 		System.out.println("Kmer fraction:");
@@ -171,7 +193,7 @@ public class ReadCounter extends KmerCountAbstract {
 			System.out.println(prefix+"\t"+Tools.format("%.3f%%   ",(100l*freq[i]/(double)sum))+"\t"+freq[i]);
 		}
 		while(lim1<=freq.length){
-			int x=0;
+			long x=0;
 			for(int i=lim1; i<lim2; i++){
 				x+=freq[i];
 			}
@@ -188,16 +210,17 @@ public class ReadCounter extends KmerCountAbstract {
 		System.out.println();
 		System.out.println("Keys Counted:  \t         \t"+keysCounted);
 		System.out.println("Unique:        \t         \t"+sum2);
-		System.out.println("Avg Sites/Key: \t         \t"+Tools.format("%.3f    ",(keysCounted*1d/sum2)));
+		System.out.println("Avg Sites/Key: \t         \t"+Tools.format("%.3f    ",(sum2==0 ? 0 : keysCounted*1d/sum2)));
 		System.out.println();
-		System.out.println("Singleton:     \t"+Tools.format("%.3f%%   ",(100l*x/(double)sum2))+"\t"+x);
+		System.out.println("Singleton:     \t"+Tools.format("%.3f%%   ",(sum2==0 ? 0 : 100l*x/(double)sum2))+"\t"+x);
 		x=sum2-x;
-		System.out.println("Useful:        \t"+Tools.format("%.3f%%   ",(100l*x/(double)sum2))+"\t"+x);
+		System.out.println("Useful:        \t"+Tools.format("%.3f%%   ",(sum2==0 ? 0 : 100l*x/(double)sum2))+"\t"+x);
 	}
 	
 	/**
-	 * Creates a KCountArray from ArrayList inputs with comprehensive parameters.
-	 * Converts ArrayList inputs to standard format and delegates to makeKca.
+	 * Pairs only the first entry from each primary/mate list. Remaining entries from
+	 * both lists are appended as independent extra inputs, followed by extraFiles.
+	 * Does not modify the supplied lists; delegates table creation and error handling.
 	 *
 	 * @param fname1 Primary input files as ArrayList
 	 * @param fname2 Secondary input files as ArrayList (for paired reads)
@@ -206,7 +229,7 @@ public class ReadCounter extends KmerCountAbstract {
 	 * @param cells Total number of cells in the count array
 	 * @param hashes Number of hash functions to use
 	 * @param minqual Minimum quality score for k-mer inclusion
-	 * @param maxreads Maximum number of reads to process
+	 * @param maxreads Reader-dependent input limit; see the delegated makeKca overload
 	 * @param passes Number of processing passes for multi-pass counting
 	 * @param thresh1 Threshold for first pass filtering
 	 * @param thresh2 Threshold for final pass filtering
@@ -222,14 +245,12 @@ public class ReadCounter extends KmerCountAbstract {
 		ArrayList<String> list=new ArrayList<String>();
 		if(fname1!=null){
 			for(int i=0; i<fname1.size(); i++){
-				if(i==0){a=fname1.get(i);}
-				else{list.add(fname1.get(i));}
+				if(i==0){a=fname1.get(i);}else{list.add(fname1.get(i));}
 			}
 		}
 		if(fname2!=null){
 			for(int i=0; i<fname2.size(); i++){
-				if(i==0){b=fname2.get(i);}
-				else{list.add(fname2.get(i));}
+				if(i==0){b=fname2.get(i);}else{list.add(fname2.get(i));}
 			}
 		}
 		if(extraFiles!=null){
@@ -243,7 +264,8 @@ public class ReadCounter extends KmerCountAbstract {
 	}
 	
 	/**
-	 * Creates a KCountArray with default quality and read limits.
+	 * Creates a table with minimum quality zero, unlimited input and one counting pass.
+	 * Does not reset other inherited options such as minProb or duplicate policy.
 	 *
 	 * @param fname1 Primary input file
 	 * @param fname2 Secondary input file (for paired reads)
@@ -263,7 +285,12 @@ public class ReadCounter extends KmerCountAbstract {
 	
 	/**
 	 * Creates a KCountArray by processing input files with specified parameters.
-	 * Handles comma-separated file lists, multi-pass counting, and trusted k-mer filtering.
+	 * Handles comma-separated file lists, multi-pass counting and trusted-base masking.
+	 * A null primary path is skipped in every pass; extra inputs may supply all reads.
+	 * Saves/restores inherited minQuality, maxReads and FASTA split mode on every exit.
+	 * Other global options/counters remain shared. Exceptions reject incomplete results;
+	 * returned arrays are shut down after loading, except the all-null empty-table path.
+	 * Extra inputs are read completely in every pass, independent of the primary limit.
 	 *
 	 * @param fname1 Primary input file
 	 * @param fname2 Secondary input file (for paired reads)
@@ -272,7 +299,8 @@ public class ReadCounter extends KmerCountAbstract {
 	 * @param cells Total number of cells in the count array
 	 * @param hashes Number of hash functions to use
 	 * @param minqual Minimum quality score for k-mer inclusion
-	 * @param maxreads Maximum number of reads to process (-1 for unlimited)
+	 * @param maxreads Reader-dependent primary limit (-1 for unlimited): FASTQ roots/pairs
+	 * or SAM alignment records
 	 * @param passes Number of processing passes (1 for single-pass, >1 for multi-pass)
 	 * @param thresh1 Threshold for early pass filtering
 	 * @param thresh2 Threshold for final pass filtering
@@ -299,13 +327,14 @@ public class ReadCounter extends KmerCountAbstract {
 		}
 	}
 
-	/** Builds the array; the public wrapper restores counting settings on every exit. */
+	/** Builds successive tables; each completed table becomes the next pass's trusted set.
+	 * Extra inputs require a repeatable Iterable. The public wrapper restores its three
+	 * saved counting settings even if loading or finalization fails. */
 	private KCountArray makeKcaInner(String fname1, String fname2, Iterable<String> extraFiles,
 			int cbits, long cells, int hashes, int minqual,
 			long maxreads, int passes, int thresh1, int thresh2,
 			KCountArray prefilter, int prefilterLimit_) throws Exception{
 		assert(passes>0) : "At least one complete input pass is required before returning kmer counts: "+passes;
-//		verbose=true;
 		if(verbose){System.err.println("Making kca from ("+fname1+", "+fname2+")\nk="+k+", cells="+Tools.toKMG(cells)+", cbits="+cbits);}
 		
 		if(fname1==null && fname2==null && extraFiles==null){
@@ -314,10 +343,8 @@ public class ReadCounter extends KmerCountAbstract {
 		
 		maxReads=maxreads;
 		minQuality=(byte)minqual;
-		//	System.out.println("kbits="+(kbits)+" -> "+(1L<<kbits)+", matrixbits="+(matrixbits)+" -> "+(1L<<matrixbits)+", cbits="+cbits+", gap="+gap+", hashes="+hashes);
 		KCountArray kca=KCountArray.makeNew(cells, cbits, hashes, prefilter, prefilterLimit_);
 		
-//		System.out.println("a");
 		{//For processing input lists
 			ArrayList<String> extra2=null;
 			if(fname1!=null && fname1.contains(",")){
@@ -341,7 +368,6 @@ public class ReadCounter extends KmerCountAbstract {
 				extraFiles=extra2;
 			}
 		}
-//		System.out.println("b");
 		
 		if(extraFiles!=null){
 			for(String s : extraFiles){
@@ -351,10 +377,7 @@ public class ReadCounter extends KmerCountAbstract {
 			}
 		}
 		
-//		System.out.println("c");
-		
 		if(passes==1){
-//			System.out.println("c1");
 			if(fname1!=null){
 				count(fname1, fname2, kca);
 			}
@@ -367,7 +390,6 @@ public class ReadCounter extends KmerCountAbstract {
 			kca.shutdown();
 
 		}else{
-//			System.out.println("c2");
 			assert(passes>1);
 			KCountArray trusted=null;
 			for(int i=1; i<passes; i++){
@@ -376,11 +398,11 @@ public class ReadCounter extends KmerCountAbstract {
 //				//			if(!conservative){step=(step+3)/4;}
 //				if(!conservative){step=Tools.min(3, (step+3)/4);}
 
-				count(fname1, fname2, cbits, kca, trusted, maxreads, thresh1, conservative);
+				if(fname1!=null){count(fname1, fname2, cbits, kca, trusted, maxreads, thresh1, conservative);}
 				if(extraFiles!=null){
 					maxReads=-1;
 					for(String s : extraFiles){
-						count(s, null, cbits, kca, trusted, maxreads, thresh1, conservative);
+						count(s, null, cbits, kca, trusted, -1, thresh1, conservative);
 					}
 				}
 				kca.shutdown();
@@ -391,11 +413,11 @@ public class ReadCounter extends KmerCountAbstract {
 
 			}
 
-			count(fname1, fname2, cbits, kca, trusted, maxreads, thresh2, true);
+			if(fname1!=null){count(fname1, fname2, cbits, kca, trusted, maxreads, thresh2, true);}
 			if(extraFiles!=null){
 				maxReads=-1;
 				for(String s : extraFiles){
-					count(s, null, cbits, kca, trusted, maxreads, thresh2, true);
+					count(s, null, cbits, kca, trusted, -1, thresh2, true);
 				}
 			}
 			kca.shutdown();
@@ -404,17 +426,22 @@ public class ReadCounter extends KmerCountAbstract {
 	}
 	
 	/**
-	 * Counts k-mers from input files using multithreaded processing.
-	 * Handles file format detection, paired read processing, and automatic pound-sign expansion.
+	 * Opens/starts an owned Streamer, runs counting workers and closes it after joins.
+	 * Uses the inherited reader-dependent limit (FASTQ roots/pairs, SAM alignment records)
+	 * and at most MAX_COUNT_THREADS workers. Startup failures lack finally cleanup.
+	 * An absent primary path containing # expands to mate1/2 paths when reads2 is null.
+	 * Joins continue after interruption; the interrupted flag is not restored here.
+	 * The borrowed destination is mutated and not shut down. On failure discard its
+	 * partial contents; no successful return or rollback is promised.
 	 *
-	 * @param reads1 Primary input file path
+	 * @param reads1 Non-null primary input file path
 	 * @param reads2 Secondary input file path (null for single-end)
-	 * @param counts KCountArray to increment with k-mer counts
+	 * @param counts Borrowed destination supporting concurrent increments when multiple
+	 * workers run; shared counting settings must remain stable throughout the call
 	 * @return The updated KCountArray
 	 * @throws Exception If file I/O or processing errors occur
 	 */
 	public KCountArray count(String reads1, String reads2, KCountArray counts) throws Exception{
-//		System.err.println("countFastq...  making a new cris");
 		assert(counts!=null);
 		
 		{
@@ -442,34 +469,26 @@ public class ReadCounter extends KmerCountAbstract {
 		boolean paired=cris.paired();
 		if(verbose){System.err.println("Paired: "+paired);}
 		
-//		countFastq(cris, count);
-//		assert(false) : THREADS;
 		CountThread[] cta=new CountThread[Tools.min(Shared.threads(), MAX_COUNT_THREADS)];
 		for(int i=0; i<cta.length; i++){
 			cta[i]=new CountThread(cris, counts);
 			cta[i].start();
 		}
-//		System.out.println("~1");
 		boolean errorState=false;
 		for(int i=0; i<cta.length; i++){
-//			System.out.println("~2");
 			CountThread ct=cta[i];
 			synchronized(ct){
-//				System.out.println("~3");
 				while(ct.getState()!=State.TERMINATED){
-//					System.out.println("~4");
-					try {
+					try{
 						ct.join(2000);
-					} catch (InterruptedException e) {
-						// TODO Auto-generated catch block
+					}catch(InterruptedException e){
+						//Interruption is logged; joining continues without restoring interrupt status.
 						e.printStackTrace();
 					}
-//					System.out.println("~5");
 				}
 			}
 			errorState|=ct.errorState;
 		}
-//		System.out.println("~6");
 
 		errorState|=ReadWrite.closeStream(cris);
 		if(verbose){System.err.println("Closed stream");}
@@ -482,15 +501,20 @@ public class ReadCounter extends KmerCountAbstract {
 	}
 	
 	/**
-	 * Counts k-mers with trusted k-mer filtering for error correction.
-	 * Uses a trusted k-mer set to guide which k-mers to count or correct.
+	 * Opens an owned reader and counts after masking untrusted bases on temporary reads.
+	 * Uses the explicit reader-dependent limit and Shared.threads workers without the ordinary
+	 * overload's MAX_COUNT_THREADS cap. Reader closure follows worker joins; the borrowed
+	 * destination remains open for more increments. A failure leaves partial counts.
+	 * Startup failures lack finally cleanup; interrupted joins continue without restoring
+	 * interrupt status. Shared counting settings must remain stable throughout the call.
 	 *
 	 * @param reads1 Primary input file path
 	 * @param reads2 Secondary input file path (null for single-end)
 	 * @param cbits Bits per count cell (unused in this context)
-	 * @param counts KCountArray to increment with k-mer counts
-	 * @param trusted Reference KCountArray containing trusted k-mers
-	 * @param maxReads Maximum number of reads to process
+	 * @param counts Borrowed destination supporting concurrent increments when multiple workers run
+	 * @param trusted Optional completed trusted table, stable and safe for concurrent reads
+	 * @param maxReads Reader-dependent input limit: FASTQ roots/pairs or SAM alignment records;
+	 * negative means unlimited
 	 * @param thresh Minimum count threshold in trusted set
 	 * @param conservative Whether to use conservative error detection
 	 * @return The updated KCountArray
@@ -526,7 +550,6 @@ public class ReadCounter extends KmerCountAbstract {
 		boolean paired=cris.paired();
 		if(verbose){System.err.println("Paired: "+paired);}
 
-//		assert(false) : THREADS;
 		CountThread[] cta=new CountThread[Shared.threads()];
 		for(int i=0; i<cta.length; i++){
 			cta[i]=new CountThread(cris, counts, trusted, thresh, conservative);
@@ -538,10 +561,10 @@ public class ReadCounter extends KmerCountAbstract {
 			CountThread ct=cta[i];
 			synchronized(ct){
 				while(ct.isAlive()){
-					try {
+					try{
 						ct.join(1000);
-					} catch (InterruptedException e) {
-						// TODO Auto-generated catch block
+					}catch(InterruptedException e){
+						//Interruption is logged; joining continues without restoring interrupt status.
 						e.printStackTrace();
 					}
 				}
@@ -555,21 +578,18 @@ public class ReadCounter extends KmerCountAbstract {
 		if(errorState){
 			throw new RuntimeException("Input or CountThread failure while counting "+reads1+"; kmer counts are incomplete.");
 		}
-//		System.out.println("*** after ***");
-//		System.out.println("\ntrusted=\n"+trusted);
-//		System.out.println("\ncount=\n"+count);
 		
 		return counts;
 	}
 	
 	/**
-	 * Finds overlap between paired reads for merging or error correction.
-	 * Uses either strict or very strict overlap detection algorithms.
+	 * Delegates paired-overlap analysis to the selected strict or very-strict BBMerge path.
+	 * With ecc enabled, the overlap routine may modify the paired reads.
 	 *
 	 * @param r1 First read of the pair
 	 * @param r2 Second read of the pair
 	 * @param ecc Whether this is for error correction (affects algorithm choice)
-	 * @return Overlap length in bases, or negative if no suitable overlap found
+	 * @return Positive insert length on a suitable match, otherwise a nonpositive value
 	 */
 	private final int findOverlap(Read r1, Read r2, boolean ecc){
 		if(vstrict){
@@ -580,11 +600,13 @@ public class ReadCounter extends KmerCountAbstract {
 	}
 	
 	/**
-	 * Generate a kmer from specified start location
-	 * @param bases
-	 * @param start
-	 * @param klen kmer length
-	 * @return kmer
+	 * Packs a selected interval using Dedupe's permissive two-bit alphabet.
+	 * A/C/G/T/U and lowercase forms have explicit codes; other ASCII symbols map to
+	 * zero rather than an invalid-window sentinel. More than 32 bases lose high bits.
+	 * @param bases Non-null ASCII base array, read without modification
+	 * @param start Nonnegative start index
+	 * @param klen Number of characters within the array bounds
+	 * @return Low 64 bits of the packed interval, without canonicalization or quality filtering
 	 */
 	public static final long toKmer(final byte[] bases, final int start, final int klen){
 		final int stop=start+klen;
@@ -599,12 +621,15 @@ public class ReadCounter extends KmerCountAbstract {
 		return kmer;
 	}
 	
+	/** Owns scratch buffers while borrowing the shared reader and destination/trusted tables. */
 	private class CountThread extends Thread{
 		
+		/** Selects counting without a trusted table. */
 		CountThread(final Streamer cris_, final KCountArray counts_){
 			this(cris_, counts_, null, 2, true);
 		}
 		
+		/** Captures shared tables/reader and this worker's trusted-mask policy; does not start. */
 		CountThread(final Streamer cris_,
 				final KCountArray counts_, final KCountArray trusted_, final int thresh_,
 				final boolean conservative_){
@@ -615,9 +640,10 @@ public class ReadCounter extends KmerCountAbstract {
 			conservative=conservative_;
 		}
 		
+		/** Counts, flushes the final buffer, records failures and aggregates observed totals.
+		 * Totals may be partial on failure and do not certify a successful count table. */
 		@Override
 		public void run(){
-//			System.out.println("Running");
 			//2026-08-21 (Nepgear+Amber): count(cris) used to be able to throw an uncaught
 			//AssertionError from PairStreamer (a genuine R1/R2 desync bug, now fixed at its
 			//source -- see PairStreamer's carry-over buffer) and silently drop this thread's
@@ -634,7 +660,6 @@ public class ReadCounter extends KmerCountAbstract {
 				e.printStackTrace();
 				errorState=true;
 			}
-//			System.out.println("Finished: "+readsProcessedLocal);
 
 			synchronized(getClass()){
 				keysCounted+=keysCountedLocal;
@@ -649,6 +674,7 @@ public class ReadCounter extends KmerCountAbstract {
 		/** Set if count(cris) threw; checked by the caller after join() so a failure is reported, not silently dropped. */
 		boolean errorState=false;
 		
+		/** Buffers one selected key or immediately applies its update to the table. */
 		private void increment(final long key){
 			if(BUFFERED){
 				buffer.add(key);
@@ -660,6 +686,7 @@ public class ReadCounter extends KmerCountAbstract {
 			}
 		}
 
+		/** Applies a two-hash update directly; sketch mode instead uses the single-key path. */
 		private void increment(final long key, final long key2){
 			if(SKETCH_MODE){
 				incrementByAmountT(key, 1);
@@ -670,28 +697,25 @@ public class ReadCounter extends KmerCountAbstract {
 			}
 		}
 		
-		private void incrementOneKmer(Read r, int knum) {
-			if(r==null || r.length()<k) {return;}
+		/** Samples a forward interval chosen from numericID and knum, without ordinary
+		 * quality/canonicalization rules. Matches PlotFlowCell's raw sampled-key convention. */
+		private void incrementOneKmer(Read r, int knum){
+			if(r==null || r.length()<k){return;}
 			final long kmer=toKmer(r.bases, (int)((r.numericID+knum*k)%(r.length()-k2)), k);
 			if(kmer>=0){increment(kmer);}
 		}
 		
+		/** Sorts the worker buffer, combines equal keys, emits updates and clears the buffer. */
 		private void dumpBufferT(){
 			final int lim=buffer.size;
 			if(lim<1){return;}
 			final long[] array=buffer.array;
-//			if(SORT_SERIAL){
-//				buffer.sortSerial();
-//			}else{
-//				buffer.sort();
-//			}
 			buffer.sort();//Can be disabled via parallelsort flag but only affects arrays>10k
 			long kmer=array[0]-1;//Ensures a nonmatch
 			int streak=0;
 			for(int i=0; i<lim; i++){
 				long x=array[i];
-				if(x==kmer){streak++;}
-				else{
+				if(x==kmer){streak++;}else{
 					if(streak>0){incrementByAmountT(kmer, streak);}
 					kmer=x;
 					streak=1;
@@ -702,6 +726,8 @@ public class ReadCounter extends KmerCountAbstract {
 			buffer.clear();
 		}
 		
+		/** Applies an aggregate single-key update, honoring sketch selection/hash storage.
+		 * Counts accepted multiplicity in keysCountedLocal and one call in incrementsLocal. */
 		private void incrementByAmountT(final long key, int amt){
 			if(SKETCH_MODE){
 				final long code=SketchObject.hash(key);
@@ -716,6 +742,8 @@ public class ReadCounter extends KmerCountAbstract {
 			incrementsLocal++;
 		}
 		
+		/** Consumes batches, optionally merges/corrects/masks temporary reads, and selects
+		 * amino, short-key or long-key counting. The parent owns reader shutdown. */
 		private final void count(final Streamer cris){
 			
 			ListNum<Read> ln=cris.nextList();
@@ -725,7 +753,6 @@ public class ReadCounter extends KmerCountAbstract {
 			final Kmer kmer=(k>maxShortKmerLength ? new Kmer(k) : null);
 			
 			while(ln!=null && reads!=null){//ln!=null prevents a compiler potential null access warning
-				//System.err.println("reads.size()="+reads.size());
 				for(Read r1 : reads){
 					readsProcessedLocal+=r1.pairCount();
 					
@@ -750,7 +777,7 @@ public class ReadCounter extends KmerCountAbstract {
 						clearUntrustedBases(r2);
 					}
 
-					if(amino) {
+					if(amino){
 						addReadAmino(r1);
 					}else if(k<=maxShortKmerLength){
 						addRead_Advanced(r1, buffer);
@@ -759,7 +786,6 @@ public class ReadCounter extends KmerCountAbstract {
 						addReadBig(r1.mate, kmer);
 					}
 				}
-				//System.err.println("fetching list");
 				ln=cris.nextList();
 				reads=(ln!=null ? ln.list : null);
 			}
@@ -767,8 +793,10 @@ public class ReadCounter extends KmerCountAbstract {
 			if(verbose){System.err.println("Finished reading");}
 		}
 		
-		private int clearUntrustedBases(Read r) {
-			if(r==null || trusted==null) {return 0;}
+		/** Replaces uncovered bases with N and existing qualities with zero; null masks leave
+		 * the read unchanged. Returns the number of masked positions, not verified errors. */
+		private int clearUntrustedBases(Read r){
+			if(r==null || trusted==null){return 0;}
 			BitSet bs=(conservative ? ErrorCorrect.detectErrorsBulk(r, trusted, k, thresh, detectStepsize) :
 				ErrorCorrect.detectTrusted(r, trusted, k, thresh, detectStepsize));
 			if(bs==null){return 0;}
@@ -783,10 +811,11 @@ public class ReadCounter extends KmerCountAbstract {
 		
 		/**
 		 * Hash a read's kmers into the KCountArray.
-		 * Advanced mode processes paired reads together,
-		 * and sorts kmers to eliminate spurious duplicates.
-		 * @param r1
-		 * @param buffer
+		 * Chooses sampled, per-pair deduplicated or all-window short-key counting.
+		 * PREJOIN may reverse the mate in place and replace the local root with a join;
+		 * these reads are discarded after counting. Only duplicate suppression sorts keys.
+		 * @param r1 Temporary root with an optional linked mate
+		 * @param buffer Reusable pair-local key scratch, cleared on entry
 		 */
 		private final void addRead_Advanced(Read r1, final LongList buffer){
 			assert(k<=maxShortKmerLength);
@@ -802,15 +831,15 @@ public class ReadCounter extends KmerCountAbstract {
 			final int len1=Tools.max(0, r1.length()-k+1);
 			final int len2=(r2==null || r2.bases==null) ? 0 : Tools.max(0, r2.length()-k+1);
 			
-			if(KMERS_PER_READ>0) {
+			if(KMERS_PER_READ>0){
 				final int lim1=Tools.min(KMERS_PER_READ, r1.length()-k2);
 				final int lim2=Tools.min(KMERS_PER_READ, r1.mateLength()-k2);
-				for(int i=0; i<lim1; i++) {incrementOneKmer(r1, i);}
-				for(int i=0; i<lim2; i++) {incrementOneKmer(r2, i);}
+				for(int i=0; i<lim1; i++){incrementOneKmer(r1, i);}
+				for(int i=0; i<lim2; i++){incrementOneKmer(r2, i);}
 			}else if(!KEEP_DUPLICATE_KMERS){
 				fillKmerArray(r1, buffer);
 				if(r2!=null){fillKmerArray(r2, buffer);}
-				if(buffer.size()<1) {return;}
+				if(buffer.size()<1){return;}
 				
 				buffer.sort();
 				long prev=-1;
@@ -829,6 +858,11 @@ public class ReadCounter extends KmerCountAbstract {
 			}
 		}
 		
+		/** Counts multiword nucleotide windows with the table's one-/two-hash mode.
+		 * Uses minProb when qualities exist; short-path sampling, minQuality, duplicate
+		 * suppression and per-instance rcomp selection are not implemented here.
+		 * A qualifying quality suffix prevents permanent product underflow. Double
+		 * comparisons can differ from the historical float recurrence near the cutoff. */
 		private final void addReadBig(Read r, Kmer kmer){
 			if(r==null || r.bases==null){return;}
 			final byte[] bases=r.bases;
@@ -839,7 +873,10 @@ public class ReadCounter extends KmerCountAbstract {
 			kmer.clear();
 			
 			/* Loop through the bases, maintaining a forward and reverse kmer via bitshifts */
-			float prob=1;
+			final double cutoff=minProb;
+			final boolean useQuality=(cutoff>0 && quals!=null);
+			double prob=1;
+			int qualityStart=0;
 			for(int i=0; i<bases.length; i++){
 				final byte b=bases[i];
 				final long x=AminoAcid.baseToNumber[b];
@@ -847,33 +884,36 @@ public class ReadCounter extends KmerCountAbstract {
 				//Update kmers
 				kmer.addRight(b);
 				
-				if(minProb>0 && quals!=null){//Update probability
-					prob=prob*KmerTableSet.PROB_CORRECT[quals[i]];
-					if(len>=k){
-						byte oldq=quals[i-k];
-						prob=prob*KmerTableSet.PROB_CORRECT_INVERSE[oldq];
+				if(useQuality){
+					if(i-qualityStart>=k){prob/=KmerTableSet.PROB_CORRECT[quals[qualityStart++]];}
+					prob*=KmerTableSet.PROB_CORRECT[quals[i]];
+					//Factors are in (0,1]: adding bases cannot rescue a prefix already below cutoff.
+					//Each index enters/leaves once. Keeping a qualifying suffix also bounds the product
+					//above positive-float cutoff times the smallest quality factor, safely within double.
+					while(prob<cutoff && qualityStart<=i){
+						prob/=KmerTableSet.PROB_CORRECT[quals[qualityStart++]];
 					}
+					if(qualityStart>i){prob=1;}
 				}
 
 				//Handle Ns
 				if(x<0){
 					len=0;
 					prob=1;
+					qualityStart=i+1;
 				}else{len++;}
 				
 				assert(len==kmer.len);
 				
 				if(verbose){System.err.println("Scanning i="+i+", len="+len+", kmer="+kmer+"\t"+new String(bases, Tools.max(0, i-k), Tools.min(i+1, k)));}
-				if(len>=k && prob>=minProb){
-//					System.err.println("Incrementing xor()="+kmer.xor());
-					if(dualHash){increment(kmer.xor(), kmer.xor2());}
-					else{increment(kmer.xor());}
-//					counts.incrementAndReturnUnincremented(kmer.xor(), 1);
-//					keysCountedLocal++;
+				if(len>=k && prob>=cutoff && (!useQuality || i-qualityStart+1>=k)){
+					if(dualHash){increment(kmer.xor(), kmer.xor2());}else{increment(kmer.xor());}
 				}
 			}
 		}
 		
+		/** Appends eligible short keys for pair deduplication without clearing the list.
+		 * Applies quality/probability and strand selection; long/amino requests delegate. */
 		private final void fillKmerArray(Read r, final LongList list){
 			if(amino){
 				fillKmerArrayAmino(r, list);
@@ -931,10 +971,12 @@ public class ReadCounter extends KmerCountAbstract {
 			}
 		}
 		
+		/** Unimplemented amino-key collection: asserts under -ea and does nothing under -da. */
 		private final void fillKmerArrayAmino(Read r, final LongList array){
 			assert(false) : "TODO"; //TODO
 		}
 		
+		/** Counts all eligible short windows, applying quality/probability, strand and IDMASK rules. */
 		private final void addRead(Read r){
 			if(amino){
 				addReadAmino(r);
@@ -987,8 +1029,9 @@ public class ReadCounter extends KmerCountAbstract {
 			}
 		}
 		
+		/** Counts valid packed amino windows in this read only, ignoring quality and mate fields. */
 		private final void addReadAmino(Read r){
-			if(r==null) {return;}
+			if(r==null){return;}
 			assert(!PREJOIN || r.mate==null);
 
 			final byte[] bases=r.bases;
@@ -1015,6 +1058,8 @@ public class ReadCounter extends KmerCountAbstract {
 			}
 		}
 		
+		/** Appends canonical multiword hashes with quality/probability filtering; creates
+		 * one local Kmer object per call. This helper does not clear the destination. */
 		private final void fillKmerArrayLong(Read r, final LongList list){
 			assert(k>maxShortKmerLength) : k;
 			assert(!PREJOIN || r.mate==null);
@@ -1054,18 +1099,28 @@ public class ReadCounter extends KmerCountAbstract {
 			}
 		}
 		
+		/** Accepted update multiplicities, accumulated even if this worker later fails. */
 		private long keysCountedLocal=0;
+		/** Number of issued table-update calls after buffering/sketch selection. */
 		private long incrementsLocal=0;
+		/** Individual input reads, counting both mates before optional merging. */
 		private long readsProcessedLocal=0;
 		
+		/** Shared started reader; this worker consumes but does not close it. */
 		private final Streamer cris;
 		
+		/** Shared destination, mutated through its supported concurrent increment API. */
 		private final KCountArray counts;
+		/** Optional completed table used for trusted-base masks. */
 		private final KCountArray trusted;
+		/** Minimum trusted-table support. */
 		private final int thresh;
+		/** Selects bulk error detection instead of sampled trusted-window detection. */
 		private final boolean conservative;
+		/** Sketch hash cutoff captured when this worker is constructed. */
 		private final long sketchMinHashValue=SketchObject.minHashValue;
 		
+		/** Optional single-key update buffer; BUFFERED must remain stable during this worker's life. */
 		private final LongList buffer=(BUFFERED ? new LongList(BUFFERLEN) : null);
 	}
 	

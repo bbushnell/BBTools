@@ -4,6 +4,7 @@ import java.io.File;
 import java.io.PrintStream;
 import java.io.Serializable;
 import java.util.ArrayList;
+import java.util.Arrays;
 
 import dna.AminoAcid;
 import fileIO.ReadWrite;
@@ -21,23 +22,33 @@ import structures.LongList;
 import ukmer.Kmer;
 
 /**
- * Wraps a KCountArray and provides multithreaded reference loading.
- * 
+ * Owns a counting Bloom table loaded from reads or an existing BBMap index.
+ * Counts saturate at the table's cell limit and can be inflated by hash collisions;
+ * a positive count is evidence of support, not proof of an exact reference match.
+ *
+ * Primitive sequence queries use packed small-k windows. The kbig helpers can
+ * combine their depths by taking a minimum across constituent windows; this is
+ * distinct from querying a multiword ukmer.Kmer when the stored k itself exceeds
+ * thirty-one. Callers must use the query representation used during construction.
+ *
+ * Completed tables can be queried concurrently when callers supply separate
+ * scratch lists. The public table remains mutable; this class does not isolate
+ * construction or mutation from concurrent queries. Construction also uses
+ * process-wide counting, encoding and I/O settings.
+ *
  * @author Brian Bushnell
  * @date April 23, 2018
  *
  */
-public class BloomFilter implements Serializable {
-	
-	/**
-	 * 
-	 */
-	private static final long serialVersionUID = -3987955563503838492L;
-	
+public class BloomFilter implements Serializable{
+
+	/** Serialization identity retained for saved reference filters. */
+	private static final long serialVersionUID=-3987955563503838492L;
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
 	 * Code entrance from the command line.
 	 * @param args Command line arguments
@@ -45,34 +56,37 @@ public class BloomFilter implements Serializable {
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
 		Timer t=new Timer();
-		
+
 		//Create an instance of this class
 		BloomFilter x=new BloomFilter(args);
-		
+
 		System.err.println(x.filter.toShortString());
 		t.stop("Time: \t");
-		
+
 		//Close the print stream if it was redirected
 		Shared.closeStream(x.outstream);
 	}
-	
+
 	/**
-	 * Constructor.
+	 * Parses command-line settings and loads the reference table before returning.
+	 * Expands paired input templates and checks the primary inputs. Standard parser
+	 * input paths are copied here; other parser-owned fields are not automatically
+	 * forwarded to the reference loader.
 	 * @param args Command line arguments
 	 */
 	public BloomFilter(String[] args){
-		
+
 		{//Preparse block for help, config files, and outstream
 			PreParser pp=new PreParser(args, getClass(), false);
 			args=pp.args;
 			outstream=pp.outstream;
 		}
-		
+
 		//Set shared static variables
 		ReadWrite.USE_PIGZ=ReadWrite.USE_UNPIGZ=true;
 		ReadWrite.setZipThreads(Shared.threads());
 		KmerCountAbstract.CANONICAL=true;
-		
+
 		//Create a parser object
 		Parser parser=new Parser();
 
@@ -84,16 +98,16 @@ public class BloomFilter implements Serializable {
 		float memFraction=1;
 		boolean rcomp_=true;
 		boolean dualHash_=false;
-		
+
 		//Parse each argument
 		for(int i=0; i<args.length; i++){
 			String arg=args[i];
-			
-			//Break arguments into their constituent parts, in the form of "a=b"
-			String[] split=arg.split("=");
+
+			//Preserve '=' within values and the historical null value for empty options.
+			String[] split=arg.split("=", 2);
 			String a=split[0].toLowerCase();
-			String b=split.length>1 ? split[1] : null;
-			
+			String b=(split.length>1 && !split[1].isEmpty() ? split[1] : null);
+
 			if(a.equals("verbose")){
 				verbose=Parse.parseBoolean(b);
 			}else if(a.equals("k") || a.equals("ksmall")){
@@ -131,7 +145,7 @@ public class BloomFilter implements Serializable {
 				assert(false) : "Unknown parameter "+args[i];
 			}
 		}
-		
+
 		k=k_;
 		kbig=Tools.max(k_, kbig_);
 		smallPerBig=kbig-k+1;
@@ -140,47 +154,47 @@ public class BloomFilter implements Serializable {
 		minConsecutiveMatches=minConsecutiveMatches_;
 		rcomp=rcomp_;
 		dualHash=dualHash_ && hashes>1;
-		
+
 
 		assert(bits==1 || bits==2 || bits==4 || bits==8 || bits==16 || bits==32) : "Bits must be a power of 2.";
-		
+
 		{//Process parser fields
 			in1=parser.in1;
 			in2=parser.in2;
 		}
-		
+
 		//Do input file # replacement
 		if(in1!=null && in2==null && in1.indexOf('#')>-1 && !new File(in1).exists()){
 			in2=in1.replace("#", "2");
 			in1=in1.replace("#", "1");
 		}
-		
+
 		assert(FastaReadInputStream.settingsOK());
-		
+
 		//Ensure there is an input file
 		if(in1==null){throw new RuntimeException("Error - at least one input file is required.");}
-		
+
 		//Ensure input files can be read
 		if(!Tools.testInputFiles(false, true, in1, in2)){
-			throw new RuntimeException("\nCan't read some input files.\n");  
+			throw new RuntimeException("\nCan't read some input files.\n");
 		}
-		
+
 		//Ensure that no file was specified multiple times
 		if(!Tools.testForDuplicateFiles(true, in1, in2)){
 			throw new RuntimeException("\nSome file names were specified multiple times.\n");
 		}
-		
+
 		filterMemory=setMemory(memFraction);
-		
+
 		shift=bitsPerBase*k;
 		shift2=shift-bitsPerBase;
 		mask=(shift>63 ? -1L : ~((-1L)<<shift));
 		filter=load();
 	}
-	
+
 	/**
-	 * Constructor with direct parameter specification.
-	 * Creates a BloomFilter with specified k-mer parameters and memory allocation.
+	 * Allocates an empty table with the requested geometry, without independent
+	 * secondary hashes. No reference reads are loaded by this overload.
 	 *
 	 * @param k_ Small k-mer length
 	 * @param kbig_ Large k-mer length
@@ -196,7 +210,7 @@ public class BloomFilter implements Serializable {
 			int minConsecutiveMatches_, boolean rcomp_, boolean ecco_, boolean merge_, float memFraction){
 		this(null, null, null, k_, kbig_, bits_, hashes_, minConsecutiveMatches_, rcomp_, ecco_, merge_, memFraction, false);
 	}
-	
+
 	/**
 	 * Constructor with input files and parameter specification.
 	 * Creates a BloomFilter from specified input files with given parameters.
@@ -219,14 +233,32 @@ public class BloomFilter implements Serializable {
 		this(in1_, in2_, extra_, k_, kbig_, bits_, hashes_, minConsecutiveMatches_, rcomp_, ecco_, merge_, memFraction, false);
 	}
 
-	/** Constructor with optional independent secondary hashes for Bloom lanes. */
+	/**
+	 * Loads the supplied inputs, or creates an empty table if no primary or extra
+	 * input is supplied. Copies extra paths into an owned list. The memory fraction
+	 * scales a JVM-based estimate; a positive OVERRIDE_CELLS overrides that estimate
+	 * for the table size. Dual hashing is effective only with more than one lane.
+	 * @param in1_ Primary input path, or null
+	 * @param in2_ Mate input path, or null
+	 * @param extra_ Additional reference paths, or null
+	 * @param k_ Stored k-mer length
+	 * @param kbig_ Combined-window length, raised to k_ when smaller
+	 * @param bits_ Counter width in bits
+	 * @param hashes_ Number of table lanes
+	 * @param minConsecutiveMatches_ Required run of supported windows for matching
+	 * @param rcomp_ Select reverse-complement canonical keys when enabled
+	 * @param ecco_ Correct overlapping mates during reference counting
+	 * @param merge_ Merge overlapping mates during reference counting
+	 * @param memFraction Multiplier on the estimated available table memory
+	 * @param dualHash_ Request independent secondary hashes for lane selection
+	 */
 	public BloomFilter(String in1_, String in2_, ArrayList<String> extra_, int k_, int kbig_, int bits_, int hashes_,
 			int minConsecutiveMatches_, boolean rcomp_, boolean ecco_, boolean merge_, float memFraction, boolean dualHash_){
 		if(extra_!=null){
 			for(String s : extra_){extra.add(s);}
 		}
 		filterMemory=setMemory(memFraction);
-		
+
 		in1=in1_;
 		in2=in2_;
 		k=k_;
@@ -258,10 +290,10 @@ public class BloomFilter implements Serializable {
 	 * @param minConsecutiveMatches_ Minimum consecutive k-mer matches required
 	 * @param rcomp_ Use reverse complement matching
 	 */
-	public BloomFilter(boolean bbmapIndex_, int k_, int kbig_, int bits_, int hashes_, int minConsecutiveMatches_, boolean rcomp_) {
+	public BloomFilter(boolean bbmapIndex_, int k_, int kbig_, int bits_, int hashes_, int minConsecutiveMatches_, boolean rcomp_){
 		assert(bbmapIndex_);
 		filterMemory=setMemory(0.75);
-		
+
 		in1=null;
 		in2=null;
 		k=k_;
@@ -278,39 +310,40 @@ public class BloomFilter implements Serializable {
 		mask=(shift>63 ? -1L : ~((-1L)<<shift));
 		filter=loadFromIndex();
 	}
-	
+
 	/**
-	 * Calculates available memory for filter allocation.
-	 * Determines usable memory based on JVM settings and applies multiplier.
+	 * Estimates a table-memory budget from maximum heap, current used heap and
+	 * the initial-to-maximum heap ratio, then applies the requested multiplier.
+	 * This heuristic does not measure the minimum heap needed by the workload.
 	 * @param mult Fraction of available memory to allocate
 	 * @return Memory in bytes available for filter
 	 */
 	private static long setMemory(double mult){
-		if(printMem) {Shared.printMemory();}
-		
+		if(printMem){Shared.printMemory();}
+
 		Runtime rt=Runtime.getRuntime();
 		final long mmemory=rt.maxMemory();
 		final long tmemory=rt.totalMemory();
 		final long fmemory=rt.freeMemory();
 		final long umemory=tmemory-fmemory;
-		
+
 		double xmsRatio=Shared.xmsRatio();
 		double usableMemory=Tools.max(((mmemory-96000000)*(xmsRatio>0.97 ? 0.82 : 0.72)), mmemory*0.45);
 		double availableMemory=usableMemory-umemory;
 		double filterMemory=availableMemory*mult;
-		
+
 //		System.err.println((long)(usableMemory/1000000)+", "+(long)(availableMemory/1000000)+", "+(long)(filterMemory/1000000));
-		
+
 		return (long)filterMemory;
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Loads k-mer data from input files into a KCountArray.
-	 * Creates and populates the count array from reference sequences.
+	 * Loads reference counts through ReadCounter, or allocates an empty table.
+	 * Positive OVERRIDE_CELLS takes precedence over the memory-derived cell count.
 	 * @return Populated KCountArray7MTA with k-mer counts
 	 */
 	private KCountArray7MTA load(){
@@ -319,12 +352,12 @@ public class BloomFilter implements Serializable {
 		final long cells=(OVERRIDE_CELLS>0 ? OVERRIDE_CELLS : totalBits/cbits);
 		//		System.err.println("filterMemory="+filterMemory+", cells="+cells);
 		KCountArray7MTA kca;
-		if(in1!=null || (extra!=null && extra.size()>0)) {
+		if(in1!=null || (extra!=null && extra.size()>0)){
 			ReadCounter rc=new ReadCounter(k, rcomp, ecco, merge, Shared.AMINO_IN, dualHash);
 			kca=(KCountArray7MTA)rc.makeKca(in1, in2, extra==null || extra.isEmpty() ? null : extra,
 					cbits, cells, hashes, minq,
 					maxReads, 1, 1, 1, null, 0);
-		}else {
+		}else{
 			kca=(KCountArray7MTA) KCountArray.makeNew(cells, cbits, hashes, null, 0);
 		}
 		return kca;
@@ -333,6 +366,7 @@ public class BloomFilter implements Serializable {
 	/**
 	 * Loads k-mer data from an existing BBMap index.
 	 * Creates a KCountArray from pre-built index rather than raw sequences.
+	 * Uses memory-derived capacity; OVERRIDE_CELLS does not apply to this path.
 	 * @return KCountArray7MTA populated from index data
 	 */
 	private KCountArray7MTA loadFromIndex(){
@@ -345,11 +379,11 @@ public class BloomFilter implements Serializable {
 		KCountArray7MTA kca=(KCountArray7MTA)ic.makeKcaFromIndex(cells, cbits, hashes);
 		return kca;
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
 	 * Determines if both reads pass the filter threshold.
 	 * Both reads must individually pass for the pair to pass.
@@ -359,18 +393,20 @@ public class BloomFilter implements Serializable {
 	 * @param thresh Minimum k-mer count threshold
 	 * @return true if both reads pass, false otherwise
 	 */
-	public boolean passes(Read r1, Read r2, final int thresh) {
+	public boolean passes(Read r1, Read r2, final int thresh){
 		boolean pass=passes(r1, thresh);
 		return pass && passes(r2, thresh);
 	}
-	
+
 	/**
-	 * Calculates average k-mer count across a sequence.
-	 * Uses smoothing to reduce impact of hash collision spikes.
+	 * Averages smoothed depths over fully defined windows, for stored k at most 31.
+	 * Clips interior collision spikes to the maximum of the neighboring depths and
+	 * each endpoint to its sole neighbor. A singleton retains its original depth.
+	 * Smoothing state spans undefined runs; this is not a moving average.
 	 * @param bases Sequence bases to analyze
-	 * @return Average k-mer count, or 0 if sequence too short
+	 * @return Smoothed depth average, or zero for null input or no defined windows
 	 */
-	public float averageCount(final byte[] bases) {
+	public float averageCount(final byte[] bases){
 		assert(k<=31) : KillSwitch.assertDie("BloomFilter.averageCount is k<=31 only (primitive-long rolling); k="+k+" needs a ukmer.Kmer path.");
 		if(bases==null || bases.length<k-1){return 0;}
 
@@ -379,9 +415,9 @@ public class BloomFilter implements Serializable {
 		long sum=0;
 		int len=0;
 		int counted=0;
-		
+
 		int prev2=0, prev=0, count=0;
-		
+
 		for(int i=0; i<bases.length; i++){
 			byte b=bases[i];
 			long x=AminoAcid.baseToNumber[b];
@@ -402,17 +438,18 @@ public class BloomFilter implements Serializable {
 				counted++;
 			}
 		}
-		sum+=count; //Last kmer did not get counted; a 0 was used instead.
+		//The delayed final depth needs the same one-neighbor clipping as the first.
+		sum+=(counted>1 ? Tools.min(count, prev) : count);
 		return sum/Tools.max(counted, 1f);
 	}
-	
+
 	/**
 	 * Finds the minimum k-mer count in a read.
-	 * Useful for detecting contamination or low-coverage regions.
+	 * Ignores windows containing undefined bases and stops early at depth zero.
 	 * @param r Read to analyze
-	 * @return Minimum k-mer count, or -1 if read too short
+	 * @return Minimum defined-window depth, or -1 for null input or no defined windows
 	 */
-	public int minCount(Read r) {
+	public int minCount(Read r){
 		assert(k<=31) : KillSwitch.assertDie("BloomFilter.minCount is k<=31 only (primitive-long rolling); k="+k+" needs a ukmer.Kmer path.");
 		if(r==null || r.length()<k-1){return -1;}
 		final byte[] bases=r.bases;
@@ -422,7 +459,7 @@ public class BloomFilter implements Serializable {
 		int len=0;
 		int min=Integer.MAX_VALUE;
 		int counted=0;
-		
+
 		for(int i=0; i<bases.length; i++){
 			byte b=bases[i];
 			long x=AminoAcid.baseToNumber[b];
@@ -443,85 +480,120 @@ public class BloomFilter implements Serializable {
 //		assert(false) : counted+", "+min;
 		return counted>0 ? min : -1;
 	}
-	
+
 	/**
-	 * Tests if a read has sufficient high-count k-mers.
-	 * Determines if at least the specified fraction of k-mers exceed threshold.
+	 * Requires at least round(fraction*definedWindows) high-count windows.
+	 * Undefined windows are excluded from both counts. An input without a fully
+	 * defined window returns false even when the requested fraction is zero.
 	 *
 	 * @param r Read to evaluate
 	 * @param thresh Count threshold for "high" k-mers
-	 * @param fraction Minimum fraction of k-mers that must be high
-	 * @return true if read meets high-count fraction requirement
+	 * @param fraction Minimum fraction of defined k-mers that must be high, from zero to one
+	 * @return true if a defined window exists and the rounded required count is met
 	 */
-	public boolean hasHighCountFraction(Read r, final int thresh, final float fraction) {
-		if(r==null || r.length()<k-1){return false;}
+	public boolean hasHighCountFraction(Read r, final int thresh, final float fraction){
+		if(r==null || r.length()<k){return false;}
 		//k>31 primitive-long rolling would silently truncate the kmer to its last 32
 		//bases and query a key the filter was never built with (the filter is built via
 		//ukmer.Kmer.xor(); see ReadCounter.addReadBig). Roll a real ukmer.Kmer instead.
 		if(k>31){return hasHighCountFractionBig(r, thresh, fraction);}
 		final byte[] bases=r.bases;
 		final int kmers=r.length()-k+1;
-		
-		final int minHigh=Math.round(fraction*kmers);
-		final int maxLow=kmers-minHigh;
-
+		//Large float-rounded budgets need the exact final count, without early rejection.
+		if(kmers>0x1000000 || !(fraction>=0 && fraction<=1)){
+			final int maxLow=(kmers>0x1000000 ? Integer.MAX_VALUE : kmers-requiredHighCount(fraction, kmers));
+			return finishHighCountFraction(bases, thresh, fraction, maxLow, 0, 0, 0);
+		}
+		final int maxLow=kmers-requiredHighCount(fraction, kmers);
 		long kmer=0;
 		long rkmer=0;
-		int len=0;
-		int counted=0;
 		int low=0;
-		
 		for(int i=0; i<bases.length; i++){
-			byte b=bases[i];
-			long x=AminoAcid.baseToNumber[b];
-			long x2=AminoAcid.baseToComplementNumber[b];
+			final byte b=bases[i];
+			final long x=AminoAcid.baseToNumber[b];
+			if(x<0){
+				//The prefix has i defined bases. Continue after this separator without rereading it.
+				return finishHighCountFraction(bases, thresh, fraction, maxLow, i+1, low, Tools.max(0, i-k+1));
+			}
+			final long x2=AminoAcid.baseToComplementNumber[b];
 			kmer=((kmer<<bitsPerBase)|x)&mask;
 			rkmer=((rkmer>>>bitsPerBase)|(x2<<shift2))&mask;
-			if(x<0){len=0; rkmer=0;}else{len++;}
-			if(len>=k){
-				counted++;
-				int count=getCount(kmer, rkmer);
-				if(count<thresh){
-					low++;
-					if(low>maxLow){return false;}
-				}
+			if(i>=k-1 && getCount(kmer, rkmer)<thresh){
+				if(++low>maxLow){return false;}
 			}
 		}
 		return true;
 	}
-	
+
+	/** Continues after an undefined base, or scans from zero when early bounds are unsafe.
+	 * Prefix counts are carried in; no base or table query from the prefix is repeated. */
+	private boolean finishHighCountFraction(final byte[] bases, final int thresh, final float fraction,
+			final int maxLow, final int start, int low, int counted){
+		assert(start>=0 && start<=bases.length && counted>=low && low>=0) :
+				"Fraction continuation needs a valid separator boundary and prefix counts: start="+start+
+				" counted="+counted+" low="+low;
+		long kmer=0, rkmer=0;
+		int len=0;
+		for(int i=start; i<bases.length; i++){
+			final byte b=bases[i];
+			final long x=AminoAcid.baseToNumber[b];
+			if(x<0){len=0; kmer=rkmer=0; continue;}
+			final long x2=AminoAcid.baseToComplementNumber[b];
+			kmer=((kmer<<bitsPerBase)|x)&mask;
+			rkmer=((rkmer>>>bitsPerBase)|(x2<<shift2))&mask;
+			if(++len>=k){
+				counted++;
+				if(getCount(kmer, rkmer)<thresh && ++low>maxLow){return false;}
+			}
+		}
+		return counted>0 && low<=counted-requiredHighCount(fraction, counted);
+	}
+
+	/** Rounds the float product exactly as {@link Math#round(float)}.
+	 * The product must stay float; the double half-offset avoids premature float rounding.
+	 * Negative values and NaNs retain the standard-library path. */
+	private static int requiredHighCount(final float fraction, final int windows){
+		final float product=fraction*windows;
+		if(product>=0){return (int)(product+0.5d);}
+		return Math.round(product);
+	}
+
 	/**
 	 * Returns fraction of k-mers with count below threshold.
-	 * Complement of highCountFraction.
+	 * Complement of highCountFraction, including a result of one when there are
+	 * no defined windows or the read is null.
 	 *
 	 * @param r Read to examine
 	 * @param thresh Count threshold
 	 * @param smooth Apply count smoothing
 	 * @return Fraction of low-count k-mers
 	 */
-	public float lowCountFraction(final Read r, final int thresh, final boolean smooth) {
+	public float lowCountFraction(final Read r, final int thresh, final boolean smooth){
 		return 1-highCountFraction(r, thresh, smooth);
 	}
-	
+
 	/**
 	 * Return the fraction of kmers with count at least thresh.
 	 * @param r Read to examine.
 	 * @param thresh Minimum count to be 'high'.
-	 * @param smooth Reduce each count to min(count, prevCount).
+	 * @param smooth Require the previous defined window to be high too; the first has no such restriction
 	 * @return High count fraction, or zero if no valid kmers.
 	 */
-	public float highCountFraction(final Read r, final int thresh, final boolean smooth) {
+	public float highCountFraction(final Read r, final int thresh, final boolean smooth){
 		return r==null ? 0 : highCountFraction(r.bases, thresh, smooth);
 	}
-	
+
 	/**
-	 * Return the fraction of kmers with count at least thresh.
+	 * Returns the fraction of fully defined windows with depth at least thresh.
+	 * With smoothing, a high window following a low defined window contributes
+	 * zero; the first defined window is counted normally. This previous-window
+	 * state is retained across undefined-base runs.
 	 * @param bases Bases to examine.
 	 * @param thresh Minimum count to be 'high'.
-	 * @param smooth Reduce each count to min(count, prevCount).
+	 * @param smooth Require both current and previous defined windows to be high
 	 * @return High count fraction, or zero if no valid kmers.
 	 */
-	public float highCountFraction(final byte[] bases, final int thresh, boolean smooth) {
+	public float highCountFraction(final byte[] bases, final int thresh, boolean smooth){
 		assert(k<=31) : KillSwitch.assertDie("BloomFilter.highCountFraction is k<=31 only (primitive-long rolling); k="+k+" needs a ukmer.Kmer path.");
 		if(bases==null || bases.length<k-1){return 0;}
 
@@ -531,7 +603,7 @@ public class BloomFilter implements Serializable {
 		int counted=0;
 		int highCount=0;
 		int prevHigh=1;
-		
+
 		for(int i=0; i<bases.length; i++){
 			byte b=bases[i];
 			long x=AminoAcid.baseToNumber[b];
@@ -549,14 +621,16 @@ public class BloomFilter implements Serializable {
 		}
 		return counted<1 ? 0 : highCount/(float)counted;
 	}
-	
+
 	/**
-	 * Determines if a read pair represents junk/contamination.
-	 * Tests k-mer counts at read ends within specified range.
+	 * Applies a weak-end-support heuristic to a pair. Both left ends must have
+	 * minimum depth at most one, and either right end below three, to reject a
+	 * full-length pair. If a mate is absent or short, uses the single-read rule.
+	 * This depth heuristic does not establish contamination provenance.
 	 *
 	 * @param r1 First read
 	 * @param r2 Second read
-	 * @param range Number of bases from ends to examine
+	 * @param range Maximum number of window positions to inspect at each end; positive
 	 * @return true if reads appear to be junk/contamination
 	 */
 	public boolean isJunk(Read r1, Read r2, int range){
@@ -564,16 +638,16 @@ public class BloomFilter implements Serializable {
 		if(r2==null || r2.length()<k){return isJunk(r1, range);}
 		if(r1.length()<k){return isJunk(r2, range);}
 		if(getLeftCount(r1.bases, range)>1 || getLeftCount(r2.bases, range)>1){return false;}
-//		return getRightCount(r1.bases, range)<3 && getRightCount(r2.bases, range)<3; //&& is more correct; || allows for a fuller filter. 
+//		return getRightCount(r1.bases, range)<3 && getRightCount(r2.bases, range)<3; //&& is more correct; || allows for a fuller filter.
 		return getRightCount(r1.bases, range)<3 || getRightCount(r2.bases, range)<3;
 	}
-	
+
 	/**
-	 * Determines if a single read represents junk/contamination.
-	 * Tests k-mer counts at both ends within specified range.
+	 * Rejects a short read, or a read whose left and right minimum depths are both
+	 * below two. An end with no defined window has depth -1 for this comparison.
 	 *
 	 * @param r Read to evaluate
-	 * @param range Number of bases from ends to examine
+	 * @param range Maximum number of window positions to inspect at each end; positive
 	 * @return true if read appears to be junk/contamination
 	 */
 	public boolean isJunk(Read r, int range){
@@ -581,14 +655,14 @@ public class BloomFilter implements Serializable {
 		if(r.length()<k){return true;}
 		return getLeftCount(r.bases, range)<2 && getRightCount(r.bases, range)<2;
 	}
-	
+
 	/**
 	 * Gets minimum k-mer count from left end of sequence.
 	 * Examines k-mers within specified range from start.
 	 *
 	 * @param bases Sequence bases
-	 * @param range Number of bases from start to examine
-	 * @return Minimum k-mer count in left region, or -1 if too short
+	 * @param range Maximum window positions, spanning at most k+range-1 bases
+	 * @return Minimum defined-window depth in the left region, or -1 if none
 	 */
 	private int getLeftCount(byte[] bases, int range){
 		assert(range>0) : range;
@@ -617,14 +691,14 @@ public class BloomFilter implements Serializable {
 		}
 		return counted>0 ? min : -1;
 	}
-	
+
 	/**
 	 * Gets minimum k-mer count from right end of sequence.
 	 * Examines k-mers within specified range from end.
 	 *
 	 * @param bases Sequence bases
-	 * @param range Number of bases from end to examine
-	 * @return Minimum k-mer count in right region, or -1 if too short
+	 * @param range Maximum window positions, spanning at most k+range-1 bases
+	 * @return Minimum defined-window depth in the right region, or -1 if none
 	 */
 	private int getRightCount(byte[] bases, int range){
 		assert(range>0) : range;
@@ -663,9 +737,9 @@ public class BloomFilter implements Serializable {
 	//represent a k>31 kmer and would silently query the last-32-base truncation. Used
 	//only when this BloomFilter's k>31 (the BBCMS k>31 path, where ksmall==k); the
 	//small-k/kbig min-combine mechanism keeps its own k<=31 primitive path unchanged.
-	//A fresh Kmer is allocated per call (these run once per read on the filtering path,
-	//so the allocation is negligible, and it sidesteps thread-safety on a shared filter
-	//and the transient-field/serialization concerns of a ThreadLocal). new Kmer(k) picks
+	//A fresh Kmer is allocated per call to keep query state private without introducing
+	//a shared mutable cursor or transient ThreadLocal state. Its allocation cost must
+	//be measured on the relevant workload rather than assumed negligible. new Kmer(k) picks
 	//up the same process-global PACKED/FULL_MIX/MASK_CORE statics the build used.
 
 	/** k>31 counterpart of {@link #getLeftCount}. */
@@ -707,12 +781,14 @@ public class BloomFilter implements Serializable {
 		final byte[] bases=r.bases;
 		final int kmers=r.length()-k+1;
 		final int minHigh=Math.round(fraction*kmers);
-		final int maxLow=kmers-minHigh;
+		//Same conservative early-rejection bound as the primitive-window path.
+		final int maxLow=(kmers<=0x1000000 ? kmers-minHigh : Integer.MAX_VALUE);
 		final Kmer kmer=new Kmer(k);
-		int low=0;
+		int low=0, counted=0;
 		for(int i=0; i<bases.length; i++){
 			kmer.addRight(bases[i]);
 			if(kmer.len>=k){
+				counted++;
 				int count=readKmer(kmer);
 				if(count<thresh){
 					low++;
@@ -720,7 +796,7 @@ public class BloomFilter implements Serializable {
 				}
 			}
 		}
-		return true;
+		return counted>0 && low<=counted-Math.round(fraction*counted);
 	}
 
 	/**
@@ -729,9 +805,9 @@ public class BloomFilter implements Serializable {
 	 *
 	 * @param r Read to evaluate
 	 * @param thresh Count threshold for k-mer matches
-	 * @return true if read passes (not contaminated), false if rejected
+	 * @return true if no required run is found, including null or too-short reads; false for a match
 	 */
-	public boolean passes(Read r, final int thresh) {
+	public boolean passes(Read r, final int thresh){
 		assert(k<=31) : KillSwitch.assertDie("BloomFilter.passes is k<=31 only (primitive-long rolling); k="+k+" needs a ukmer.Kmer path.");
 		if(r==null || r.length()<k+minConsecutiveMatches-1){return true;}
 		final byte[] bases=r.bases;
@@ -740,14 +816,14 @@ public class BloomFilter implements Serializable {
 		long rkmer=0;
 		int len=0;
 		int streak=0;
-		
+
 		for(int i=0; i<bases.length; i++){
 			byte b=bases[i];
 			long x=AminoAcid.baseToNumber[b];
 			long x2=AminoAcid.baseToComplementNumber[b];
 			kmer=((kmer<<bitsPerBase)|x)&mask;
 			rkmer=((rkmer>>>bitsPerBase)|(x2<<shift2))&mask;
-			if(x<0){len=0; rkmer=0;}else{len++;}
+			if(x<0){len=0; rkmer=0; streak=0;}else{len++;}
 			if(len>=k){
 				boolean found=contains(kmer, rkmer, thresh);
 				if(found){
@@ -758,60 +834,62 @@ public class BloomFilter implements Serializable {
 		}
 		return true;
 	}
-	
+
 	/**
-	 * Tests if a read matches filter criteria using precomputed keys.
-	 * Inverse of passes() method.
+	 * Tests whether a read has the required consecutive supported windows.
+	 * Inverts passes(r, keys, thresh), which recomputes keys into the scratch list.
 	 *
 	 * @param r Read to test
-	 * @param keys Precomputed k-mer keys
+	 * @param keys Reusable scratch list; contents may be replaced
 	 * @param thresh Count threshold
 	 * @return true if read matches (should be filtered)
 	 */
-	public boolean matches(Read r, LongList keys, final int thresh) {
+	public boolean matches(Read r, LongList keys, final int thresh){
 		return !passes(r, keys, thresh);
 	}
-	
+
 	/**
 	 * Tests if either read in a pair matches filter criteria.
 	 * Returns true if at least one read matches.
 	 *
 	 * @param r1 First read
 	 * @param r2 Second read
-	 * @param keys Precomputed k-mer keys
+	 * @param keys Caller-owned scratch list, reused for each mate actually queried
 	 * @param thresh Count threshold
 	 * @return true if either read matches filter
 	 */
-	public boolean matchesEither(Read r1, Read r2, LongList keys, final int thresh) {
+	public boolean matchesEither(Read r1, Read r2, LongList keys, final int thresh){
 		boolean match=!passes(r1, keys, thresh);
 		return match || !passes(r2, keys, thresh);
 	}
-	
+
 	/**
-	 * Tests if both reads in a pair pass filter using precomputed keys.
+	 * Tests if both reads in a pair pass, recomputing their keys in shared scratch.
 	 * Both reads must pass for the pair to pass.
 	 *
 	 * @param r1 First read
 	 * @param r2 Second read
-	 * @param keys Precomputed k-mer keys
+	 * @param keys Caller-owned scratch list, reused for each mate actually queried
 	 * @param thresh Count threshold
 	 * @return true if both reads pass filter
 	 */
-	public boolean passes(Read r1, Read r2, LongList keys, final int thresh) {
+	public boolean passes(Read r1, Read r2, LongList keys, final int thresh){
 		boolean pass=passes(r1, keys, thresh);
 		return pass && passes(r2, keys, thresh);
 	}
-	
+
 	/**
-	 * Tests if a read passes filter using precomputed k-mer keys.
-	 * More efficient than recomputing k-mers for repeated testing.
+	 * Tests a read using a reusable list of encoded k-mer keys.
+	 * Recomputes valid keys and run separators in caller-owned scratch storage.
+	 * A minimum streak below two delegates to the direct query without changing scratch.
+	 * Null and too-short reads return true without clearing existing scratch contents.
 	 *
 	 * @param r Read to test
-	 * @param keys List to store/reuse k-mer keys
+	 * @param keys Non-null scratch when a sufficiently long read needs a streak of two or more
 	 * @param thresh Count threshold
 	 * @return true if read passes consecutive match filter
 	 */
-	public boolean passes(Read r, LongList keys, final int thresh) {
+	public boolean passes(Read r, LongList keys, final int thresh){
 		assert(k<=31) : KillSwitch.assertDie("BloomFilter.passes is k<=31 only (primitive-long rolling); k="+k+" needs a ukmer.Kmer path.");
 		if(r==null || r.length()<k+minConsecutiveMatches-1){return true;}
 		if(minConsecutiveMatches<2){return passes(r, thresh);}
@@ -821,7 +899,7 @@ public class BloomFilter implements Serializable {
 		long kmer=0;
 		long rkmer=0;
 		int len=0;
-		
+
 		for(int i=0; i<bases.length; i++){
 			byte b=bases[i];
 			long x=AminoAcid.baseToNumber[b];
@@ -839,16 +917,17 @@ public class BloomFilter implements Serializable {
 		}
 		return passes(keys, thresh);
 	}
-	
+
 	/**
 	 * Tests if precomputed k-mer keys pass consecutive match filter.
-	 * Core filtering logic using key array for efficiency.
+	 * Negative keys break runs. Requires minConsecutiveMatches greater than one;
+	 * the input list is not modified.
 	 *
 	 * @param keys List of k-mer keys to evaluate
 	 * @param thresh Count threshold for matches
 	 * @return true if keys pass consecutive match criteria
 	 */
-	public boolean passes(final LongList keys, final int thresh) {
+	public boolean passes(final LongList keys, final int thresh){
 		assert(minConsecutiveMatches>1);
 		final long[] array=keys.array;
 		final int len=keys.size;
@@ -881,20 +960,22 @@ public class BloomFilter implements Serializable {
 		}
 		return true;
 	}
-	
+
 	/*--------------------------------------------------------------*/
-	
-	/** Returns number of counts */
+
+	/** Replaces counts with one entry per small-k window; undefined windows have zero.
+	 * @param bases Non-null sequence, unchanged by this method
+	 * @param counts Reusable non-null destination, cleared even for short sequences
+	 * @return Number of fully defined windows, not the number of output entries */
 	public int fillCounts(byte[] bases, IntList counts){
 		assert(k<=31) : KillSwitch.assertDie("BloomFilter.fillCounts is k<=31 only (primitive-long rolling); k="+k+" needs a ukmer.Kmer path. (k>31 counts go through fillCountsFromKmers in the corrector.)");
+		counts.clear();
 		final int blen=bases.length;
 		if(blen<k){return 0;}
 		final int min=k-1;
 		long kmer=0, rkmer=0;
 		int len=0;
 		int valid=0;
-
-		counts.clear();
 
 		/* Loop through the bases, maintaining a forward kmer via bitshifts */
 		for(int i=0; i<blen; i++){
@@ -903,14 +984,14 @@ public class BloomFilter implements Serializable {
 			final long x2=AminoAcid.baseToComplementNumber[base];
 			kmer=((kmer<<bitsPerBase)|x)&mask;
 			rkmer=((rkmer>>>bitsPerBase)|(x2<<shift2))&mask;
-			
+
 			if(x<0){
 				len=0;
 				kmer=rkmer=0;
 			}else{
 				len++;
 			}
-			
+
 			if(i>=min){
 				if(len>=k){
 					int count=getCount(kmer, rkmer);
@@ -923,7 +1004,7 @@ public class BloomFilter implements Serializable {
 		}
 		return valid;
 	}
-	
+
 	/**
 	 * Gets count for a k-mer/reverse-complement pair.
 	 * Uses canonical k-mer representation if reverse complement enabled.
@@ -936,18 +1017,17 @@ public class BloomFilter implements Serializable {
 		final long key=toKey(kmer, rkmer);
 		return readKey(key);
 	}
-	
+
 	/**
-	 * Gets count for a canonical k-mer key.
-	 * Direct lookup in the count array.
-	 * @param key Canonical k-mer key
+	 * Looks up an already selected key without canonicalizing it again.
+	 * @param key Canonical key when rcomp is enabled, forward key otherwise
 	 * @return Count value from filter
 	 */
 	public int getCount(final long key){
 //		assert(key==toKey(key, AminoAcid.reverseComplementBinaryFast(key, k))); //slow
 		return readKey(key);
 	}
-	
+
 	/**
 	 * Tests if k-mer pair has count meeting threshold.
 	 * Convenience method combining getCount with threshold test.
@@ -961,30 +1041,49 @@ public class BloomFilter implements Serializable {
 		final long key=toKey(kmer, rkmer);
 		return readKey(key)>=thresh;
 	}
-	
+
 	/*--------------------------------------------------------------*/
-	
-	/** Returns number of counts */
+
+	/** Replaces counts with the minimum small-window count for each kbig window.
+	 * Undefined windows produce zero; sequences shorter than kbig clear the list.
+	 * @param bases Non-null sequence, unchanged by this method
+	 * @param counts Reusable non-null destination
+	 * @return Number of fully defined kbig windows, which may be less than counts.size */
 	public int fillCountsBig(byte[] bases, IntList counts){
 		assert(smallPerBig>1) : smallPerBig;
+		if(bases.length<kbig){counts.clear(); return 0;}
 		final int valid0=fillCounts(bases, counts);
-		if(valid0<smallPerBig){return 0;}
-//		System.err.println(counts.size);
-		for(int i=0, lim=counts.size()-smallPerBig+1; i<lim; i++){
+		final int bigWindows=bases.length-kbig+1;
+		final boolean allDefined=(valid0==counts.size);
+		if(valid0<smallPerBig){
+			//No full big window can exist, but the output still has one slot per position.
+			Arrays.fill(counts.array, 0, bigWindows, 0);
+			counts.size=bigWindows;
+			return 0;
+		}
+		for(int i=0; i<bigWindows; i++){
 			int count=smallToBig(counts, i);
 			counts.set(i, count);
 		}
-		counts.size-=(smallPerBig-1);
-//		System.err.println(counts.size+", "+k+", "+kbig+", "+smallPerBig);
-		return valid0-smallPerBig+1; //Normally correct
+		counts.size=bigWindows;
+		if(allDefined){return bigWindows;}
+		//Only ambiguous input needs this scan; total valid small windows cannot
+		//identify how many big windows fit wholly inside separate defined runs.
+		int valid=0, len=0;
+		for(byte base : bases){
+			if(AminoAcid.baseToNumber[base]<0){len=0;}
+			else if(++len>=kbig){valid++;}
+		}
+		return valid;
 	}
-	
-	
+
+
 	/**
-	 * Fills counts for precomputed big k-mers.
-	 * More efficient when k-mers are already available.
-	 * @param kmers List of big k-mers
-	 * @param counts List to fill with corresponding counts
+	 * Replaces counts with the minimum constituent small-window depth for each
+	 * packed kbig-mer. This overload consumes packed bases, not ukmer hash values;
+	 * it does not recognize negative values as undefined-window sentinels.
+	 * @param kmers Non-null list of fully defined, packed kbig-mers; unchanged
+	 * @param counts Non-null reusable destination, cleared before appending results
 	 */
 	public void fillCountsBig(LongList kmers, IntList counts){
 		assert(smallPerBig>1) : smallPerBig;
@@ -996,12 +1095,12 @@ public class BloomFilter implements Serializable {
 		}
 //		assert(false) : counts;
 	}
-	
+
 	/**
-	 * Converts small k-mer counts to big k-mer count.
-	 * Takes minimum count across constituent small k-mers.
+	 * Takes the minimum of smallPerBig adjacent counts, stopping early at zero.
+	 * The caller supplies a complete constituent window within the logical list.
 	 *
-	 * @param counts Array of small k-mer counts
+	 * @param counts List containing nonnegative small-window depths
 	 * @param start Starting position in counts array
 	 * @return Big k-mer count (minimum of small k-mer counts)
 	 */
@@ -1014,12 +1113,13 @@ public class BloomFilter implements Serializable {
 		}
 		return min;
 	}
-	
+
 	/**
-	 * Gets big k-mer count for k-mer/reverse-complement pair.
-	 * Delegates to single-parameter version.
+	 * Queries the constituent windows of the forward packed kbig-mer.
+	 * The supplied reverse complement is unused: each small window is separately
+	 * canonicalized according to this filter's strand setting.
 	 *
-	 * @param kmer Forward k-mer (unused)
+	 * @param kmer Forward packed kbig-mer
 	 * @param rkmer Reverse complement k-mer (unused)
 	 * @return Big k-mer count
 	 */
@@ -1027,11 +1127,13 @@ public class BloomFilter implements Serializable {
 	public int getCountBig(final long kmer, final long rkmer){
 		return getCountBig(kmer);
 	}
-	
+
 	/**
-	 * Gets big k-mer count by breaking into constituent small k-mers.
-	 * Returns minimum count across all small k-mers in the big k-mer.
-	 * @param kmer Big k-mer to analyze
+	 * Returns the minimum depth of the smallPerBig constituent windows in a
+	 * packed kbig-mer, canonicalizing each small window when rcomp is enabled.
+	 * Hash collisions can inflate these depths; the minimum is not an exact
+	 * observed count of the complete kbig-mer.
+	 * @param kmer Fully defined kbig-mer encoded in one long, not a ukmer hash
 	 * @return Minimum count among constituent small k-mers
 	 */
 	public int getCountBig(long kmer){
@@ -1045,25 +1147,28 @@ public class BloomFilter implements Serializable {
 		}
 		return min;
 	}
-	
+
 	/**
-	 * Tests if big k-mer meets count threshold.
-	 * Uses same logic as regular contains but for big k-mers.
+	 * Tests the selected key's raw table depth, exactly as contains does.
+	 * Despite its name, this method does not split a packed big k-mer into small
+	 * windows or call getCountBig. Callers needing that minimum must query it directly.
 	 *
-	 * @param kmer Forward k-mer
-	 * @param rkmer Reverse complement k-mer
+	 * @param kmer Forward key
+	 * @param rkmer Reverse-complement key
 	 * @param thresh Count threshold
-	 * @return true if big k-mer count >= threshold
+	 * @return true if the selected key's table count is at least thresh
 	 */
 	public boolean containsBig(final long kmer, final long rkmer, final int thresh){
 		final long key=toKey(kmer, rkmer);
 		return readKey(key)>=thresh;
 	}
 
+	/** Reads an already selected key, deriving a secondary lane hash only in dual-hash mode. */
 	private int readKey(final long key){
 		return dualHash ? filter.read(key, KCountArray.secondaryHash(key)) : filter.read(key);
 	}
 
+	/** Reads the supplied Kmer's primary and, when enabled, independent secondary hash. */
 	private int readKmer(final Kmer kmer){
 		return dualHash ? filter.read(kmer.xor(), kmer.xor2()) : filter.read(kmer.xor());
 	}
@@ -1077,9 +1182,9 @@ public class BloomFilter implements Serializable {
 	public int getCount(final Kmer kmer){
 		return readKmer(kmer);
 	}
-	
+
 	/*--------------------------------------------------------------*/
-	
+
 	/**
 	 * Converts k-mer to canonical key representation.
 	 * Uses reverse complement if enabled to get canonical form.
@@ -1089,7 +1194,7 @@ public class BloomFilter implements Serializable {
 	public long toKey(final long kmer){
 		return (rcomp ? toKey(kmer, AminoAcid.reverseComplementBinaryFast(kmer, k)) : kmer);
 	}
-	
+
 	/**
 	 * Converts k-mer pair to canonical key.
 	 * Uses maximum of forward/reverse if reverse complement enabled.
@@ -1101,14 +1206,17 @@ public class BloomFilter implements Serializable {
 	public long toKey(final long kmer, final long rkmer){
 		return (rcomp ? Tools.max(kmer, rkmer) : kmer);
 	}
-	
+
 	/**
-	 * Extracts k-mers from a read with quality filtering.
-	 * Only includes k-mers meeting quality and probability thresholds.
+	 * Appends qualifying packed windows without clearing the destination.
+	 * Undefined or low-quality bases break the current run. With qualities present,
+	 * the probability threshold applies to the product of per-base correctness
+	 * probabilities in each window. Missing qualities use quality fifty for the
+	 * minimum-quality check and probability one for the probability check.
 	 *
-	 * @param r Read to process
-	 * @param list List to fill with k-mer keys
-	 * @param k K-mer length
+	 * @param r Non-null read; null bases or fewer than k bases append nothing
+	 * @param list Non-null destination; existing entries are retained
+	 * @param k Packed DNA window length, from one through thirty-two
 	 * @param minQuality Minimum base quality required
 	 * @param minProb Minimum k-mer probability required
 	 * @param rcomp Use reverse complement canonical form
@@ -1116,21 +1224,21 @@ public class BloomFilter implements Serializable {
 	public static final void toKmers(Read r, final LongList list, int k, final int minQuality, final float minProb, final boolean rcomp){
 		assert(k<=32);
 		assert(list!=null);
-		
+
 		final byte[] bases=r.bases;
 		final byte[] quals=r.quality;
-		
+
 		if(bases==null || bases.length<k){return;}
-		
+
 		final int shift=bitsPerBase*k;
 		final int shift2=shift-bitsPerBase;
 		final long mask=(shift>63 ? -1L : ~((-1L)<<shift));
-		
+
 		long kmer=0;
 		long rkmer=0;
 		int len=0;
 		float prob=1;
-		
+
 		for(int i=0; i<bases.length; i++){
 			final byte b=bases[i];
 			long x=AminoAcid.baseToNumber[b];
@@ -1163,16 +1271,16 @@ public class BloomFilter implements Serializable {
 			}
 		}
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------         Inner Classes        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
-	
-	/** Maximum number of reads to process for filter construction */
+
+	/** Input-fragment limit passed to ReadCounter during construction; negative means unlimited. */
 	long maxReads=-1;
 	/** Enable error correction during k-mer counting */
 	boolean ecco=false;
@@ -1185,19 +1293,19 @@ public class BloomFilter implements Serializable {
 	private String in1=null;
 	/** Secondary input file path */
 	private String in2=null;
-	
+
 	/** Additional input file paths beyond primary and secondary */
 	private ArrayList<String> extra=new ArrayList<String>();
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/** The underlying k-mer count array for filtering operations */
 	public final KCountArray7MTA filter;
-	/** Small k-mer length for filtering */
+	/** Stored window length; primitive query methods require at most thirty-one bases. */
 	final int k;
-	/** Large k-mer length for enhanced specificity */
+	/** Combined-window length, at least k; constituent-minimum queries use this geometry. */
 	final int kbig;
 	/** Number of small k-mers per big k-mer (kbig-k+1) */
 	final int smallPerBig;
@@ -1207,7 +1315,7 @@ public class BloomFilter implements Serializable {
 	final int hashes;
 	/** Minimum consecutive k-mer matches required to trigger filtering */
 	final int minConsecutiveMatches;//Note this is similar to smallPerBig
-	
+
 	/** Bit shift amount for k-mer encoding (bitsPerBase * k) */
 	final int shift;
 	/** Secondary bit shift for reverse complement operations */
@@ -1220,28 +1328,28 @@ public class BloomFilter implements Serializable {
 	public final boolean dualHash;
 
 //	private final long usableMemory;
-	/** Memory allocated for the k-mer count array in bytes */
+	/** Estimated table-memory budget in bytes; OVERRIDE_CELLS can supersede it during read loading. */
 	private final long filterMemory;
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Static Fields         ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/** Override value for number of hash table cells (for testing) */
 	public static long OVERRIDE_CELLS=-1;
 	/** Number of bits used to encode each DNA base */
 	static final int bitsPerBase=2;
 	/** Whether to print memory usage information during initialization */
 	public static boolean printMem=true;
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/** Print status messages to this output stream */
 	private transient PrintStream outstream=System.err;
 	/** Print verbose messages */
 	public static boolean verbose=false;
-	/** True if an error was encountered */
+	/** Retained status field; this class does not currently assign it after initialization. */
 	public boolean errorState=false;
 }

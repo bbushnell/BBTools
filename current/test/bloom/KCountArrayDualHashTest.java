@@ -1,13 +1,16 @@
-package bloom;
+package test.bloom;
 
 import java.util.Random;
 
+import bloom.KCountArray;
+import bloom.KCountArray7MTA;
 import dna.AminoAcid;
 import ukmer.Kmer;
 
 /** Regression checks for independent secondary hashes in Bloom-filter lanes. */
-public class KCountArrayDualHashTest {
+public class KCountArrayDualHashTest{
 
+	/** Runs all finite dual-hash lane checks. */
 	public static void main(String[] args){
 		testZeroSecondaryParity();
 		testIndependentLanes();
@@ -18,6 +21,7 @@ public class KCountArrayDualHashTest {
 		System.out.println("KCountArrayDualHashTest PASS: "+checks+" checks");
 	}
 
+	/** Verifies that xor2=0 preserves the legacy single-key lane sequence. */
 	private static void testZeroSecondaryParity(){
 		final KCountArray7MTA array=new KCountArray7MTA(10007, 8, 4, null, 0);
 		final long[] keys={0, 1, -1L, Long.MIN_VALUE, Long.MAX_VALUE,
@@ -29,16 +33,17 @@ public class KCountArrayDualHashTest {
 		}
 		for(long key : keys){
 			check(array.read(key)==array.read(key, 0), "xor2=0 count parity failed for "+key);
-			long oldLane=array.hash(key, 0);
+			long oldLane=array.diagnosticHash(key, 0);
 			check(oldLane==array.hashForLane(key, 0, 0), "xor2=0 lane parity failed for "+key+", lane 0");
 			for(int lane=1; lane<4; lane++){
-				oldLane=array.hash(Long.rotateRight(oldLane, 6), lane);
+				oldLane=array.diagnosticHash(Long.rotateRight(oldLane, 6), lane);
 				check(oldLane==array.hashForLane(key, 0, lane),
 						"xor2=0 lane parity failed for "+key+", lane "+lane);
 			}
 		}
 	}
 
+	/** Verifies that primary and secondary keys control disjoint lane subsets. */
 	private static void testIndependentLanes(){
 		final KCountArray7MTA array=new KCountArray7MTA(1000003, 8, 4, null, 0);
 		final long xor1=0x123456789ABCDEFL;
@@ -63,6 +68,7 @@ public class KCountArrayDualHashTest {
 		check(array.read(xor1b, xor2a)==0, "Secondary collision overrode the primary hash");
 	}
 
+	/** Verifies that dual-key updates must satisfy both prefilter hashes. */
 	private static void testPrefilter(){
 		final long key=17, key2=29;
 		final KCountArray7MTA pre=new KCountArray7MTA(1009, 8, 3, null, 0);
@@ -73,6 +79,7 @@ public class KCountArrayDualHashTest {
 		check(main.read(key, key2+1)==0, "Prefilter admitted a primary-only collision");
 	}
 
+	/** Verifies deterministic secondary hashes for primitive long keys. */
 	private static void testPrimitiveKeys(){
 		final KCountArray7MTA array=new KCountArray7MTA(10007, 8, 3, null, 0);
 		final long[] keys={0, 1, 3, 0x3FFFFFFFL, 0x5555555555555555L, Long.MAX_VALUE};
@@ -86,6 +93,7 @@ public class KCountArrayDualHashTest {
 		}
 	}
 
+	/** Verifies that ukmer secondary hashes are canonical across reverse complements. */
 	private static void testReverseComplements(){
 		final Random randy=new Random(1);
 		for(int k : new int[] {32, 64, 95, 128, 300}){
@@ -100,6 +108,7 @@ public class KCountArrayDualHashTest {
 		}
 	}
 
+	/** Samples dual-hash distribution and finite-table false-positive behavior. */
 	private static void testDistributionAndFalsePositives(){
 		final KCountArray7MTA array=new KCountArray7MTA(20011, 1, 3, null, 0);
 		final Random randy=new Random(2);
@@ -127,12 +136,14 @@ public class KCountArrayDualHashTest {
 		check(rate<0.05, "Dual-hash false-positive rate was excessive: "+rate);
 	}
 
+	/** Builds a ukmer.Kmer from a concrete base array. */
 	private static Kmer makeKmer(byte[] bases){
 		final Kmer kmer=new Kmer(bases.length);
 		for(byte b : bases){kmer.addRight(b);}
 		return kmer;
 	}
 
+	/** Counts and enforces a required fixture invariant. */
 	private static void check(boolean condition, String message){
 		checks++;
 		if(!condition){throw new RuntimeException(message);}

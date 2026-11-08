@@ -13,23 +13,27 @@ import stream.Read;
 import structures.ListNum;
 
 /**
- * K-mer counting implementation optimized for k-mer sizes suitable for direct encoding into bit-packed keys.
- * Supports both standard k-mer counting and split k-mer counting with configurable gaps, using concurrent read streams for throughput.
+ * Direct-addressed short-kmer counter with optional split-kmer gap handling.
+ * Inherited static counters are cumulative until reset by the caller.
+ * readsProcessed counts input root fragments, while keysCounted counts complete
+ * windows from both mates and every requested strand pass.
+ *
  * @author Brian Bushnell
  * @date Jul 5, 2012
  */
-public class KmerCount4 extends KmerCountAbstract {
-	
+public class KmerCount4 extends KmerCountAbstract{
+
+	/** Counts kmers from command-line FASTQ inputs and prints a frequency summary. */
 	public static void main(String[] args){
-		
+
 		Timer t=new Timer();
-		
+
 		String fname1=args[0];
 		String fname2=(args.length>3 || args[1].contains(".") ? args[1] : null);
 		int k=14;
 		int cbits=16;
 		int gap=0;
-		
+
 		for(int i=(fname2==null ? 1 : 2); i<args.length; i++){
 			final String arg=args[i];
 			final String[] split=arg.split("=");
@@ -46,34 +50,35 @@ public class KmerCount4 extends KmerCountAbstract {
 				throw new RuntimeException("Unknown parameter "+args[i]);
 			}
 		}
-		
+
 		KCountArray2 count=null;
-		
+
 		if(fileIO.FileFormat.hasFastaExtension(fname1)){
 			assert(!FastaReadInputStream.SPLIT_READS);
 			FastaReadInputStream.MIN_READ_LEN=k;
 		}
-		
+
 		if(gap==0){
 			count=count(fname1, fname2, k, cbits, true);
 		}else{
 			count=countFastqSplit(fname1, fname2, (k+1)/2, k/2, gap, cbits, true, null);
 		}
-		
-		
+
+
 		t.stop();
 		System.out.println("Finished counting; time = "+t);
-		
+
 		printStatistics(count);
-		
+
 	}
 
+	/** Prints a coarse count histogram and singleton/useful-key summary, reporting zero occupied ratios for an empty table. */
 	public static void printStatistics(KCountArray2 count){
 		long[] freq=count.transformToFrequency();
 
 //		System.out.println(count+"\n");
 //		System.out.println(Arrays.toString(freq)+"\n");
-		
+
 		long sum=sum(freq);
 		System.out.println("Kmer fraction:");
 		int lim1=8, lim2=16;
@@ -83,7 +88,7 @@ public class KmerCount4 extends KmerCountAbstract {
 			System.out.println(prefix+"\t"+Tools.format("%.3f%%   ",(100l*freq[i]/(double)sum))+"\t"+freq[i]);
 		}
 		while(lim1<=freq.length){
-			int x=0;
+			long x=0;
 			for(int i=lim1; i<lim2; i++){
 				x+=freq[i];
 			}
@@ -94,34 +99,42 @@ public class KmerCount4 extends KmerCountAbstract {
 			lim1*=2;
 			lim2=min(lim2*2, freq.length);
 		}
-		
+
 		long sum2=sum-freq[0];
 		long x=freq[1];
 		System.out.println();
 		System.out.println("Keys Counted:  \t         \t"+keysCounted);
 		System.out.println("Unique:        \t         \t"+sum2);
-		System.out.println("Avg Sites/Key: \t         \t"+Tools.format("%.3f    ",(keysCounted*1d/sum2)));
+		System.out.println("Avg Sites/Key: \t         \t"+Tools.format("%.3f    ",(sum2==0 ? 0 : keysCounted*1d/sum2)));
 		System.out.println();
-		System.out.println("Singleton:     \t"+Tools.format("%.3f%%   ",(100l*x/(double)sum2))+"\t"+x);
+		System.out.println("Singleton:     \t"+Tools.format("%.3f%%   ",(sum2==0 ? 0 : 100l*x/(double)sum2))+"\t"+x);
 		x=sum2-x;
-		System.out.println("Useful:        \t"+Tools.format("%.3f%%   ",(100l*x/(double)sum2))+"\t"+x);
+		System.out.println("Useful:        \t"+Tools.format("%.3f%%   ",(sum2==0 ? 0 : 100l*x/(double)sum2))+"\t"+x);
 	}
-	
+
+	/** Opens, starts and closes FASTQ input while counting contiguous {@code 1<=k<20} kmers into a new dense array. */
 	public static KCountArray2 count(String reads1, String reads2, int k, int cbits, boolean rcomp){
 		return count(reads1, reads2, k, cbits, rcomp, null);
 	}
-	
+
+	/**
+	 * Opens, starts and closes FASTQ input while counting contiguous {@code 1<=k<20} kmers.
+	 * A null table creates an exact dense array with one cell for every possible kmer;
+	 * a supplied table receives increments directly and must match the same geometry.
+	 * Counts skip invalid bases and bases with quality less than {@link #minQuality};
+	 * rcomp performs a destructive in-place reverse-complement pass after the forward pass.
+	 */
 	public static KCountArray2 count(String reads1, String reads2, int k, int cbits, boolean rcomp, KCountArray2 count){
 		assert(k>=1 && k<20);
 		final int kbits=2*k;
 		final long mask=(kbits>63 ? -1L : ~((-1L)<<kbits));
-		
+
 		if(count==null){
 			final long cells=1L<<kbits;
 			if(verbose){System.err.println("k="+k+", kbits="+kbits+", cells="+cells+", mask="+Long.toHexString(mask));}
 			count=new KCountArray2(cells, cbits);
 		}
-		
+
 		final ConcurrentReadInputStream cris;
 		{
 			FileFormat ff1=FileFormat.testInput(reads1, FileFormat.FASTQ, null, true, true);
@@ -129,12 +142,12 @@ public class KmerCount4 extends KmerCountAbstract {
 			cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ff1, ff2);
 			cris.start(); //4567
 		}
-		
+
 		assert(cris!=null) : reads1;
 		System.err.println("Started cris");
 		boolean paired=cris.paired();
 		if(verbose){System.err.println("Paired: "+paired);}
-		
+
 		ListNum<Read> ln=cris.nextList();
 		ArrayList<Read> reads=(ln!=null ? ln.list : null);
 
@@ -167,18 +180,26 @@ public class KmerCount4 extends KmerCountAbstract {
 		if(verbose){System.err.println("Closed stream");}
 		if(verbose){System.err.println("Processed "+readsProcessed+" reads.");}
 
-		
+
 		return count;
 	}
-	
-	public static KCountArray2 countFastqSplit(String reads1, String reads2, int k1, int k2, int gap, int cbits, boolean rcomp, KCountArray2 count){
+
+	/**
+	 * Opens, starts and closes FASTQ input while counting split windows of k1 observed
+	 * bases, gap skipped bases and k2 observed bases into a table keyed by k1+k2 bases.
+	 * A null table creates a dense {@code 1L<<(2*(k1+k2))} table; a supplied table must
+	 * use the same split geometry.  TODO: revisit odd-arm/gap geometry before accepting
+	 * split-window behavior.
+	 */
+	public static KCountArray2 countFastqSplit(String reads1, String reads2, int k1, int k2,
+			int gap, int cbits, boolean rcomp, KCountArray2 count){
 		assert(k1+k2>=1 && k1+k2<20);
 		assert(gap>=0);
 		final int kbits1=2*k1;
 		final int kbits2=2*k2;
 		final long mask1=~((-1L)<<(kbits1));
 		final long mask2=~((-1L)<<(kbits2));
-		
+
 		if(count==null){
 			final long cells=1L<<(kbits1+kbits2);
 			if(verbose){System.err.println("k1="+k1+", k2="+k2+", kbits1="+kbits1+", kbits2="+kbits2+", cells="+cells+
@@ -186,7 +207,7 @@ public class KmerCount4 extends KmerCountAbstract {
 			count=new KCountArray2(cells, cbits, gap);
 		}
 		assert(count.gap==gap);
-		
+
 		final ConcurrentReadInputStream cris;
 		{
 			FileFormat ff1=FileFormat.testInput(reads1, FileFormat.FASTQ, null, true, true);
@@ -194,12 +215,12 @@ public class KmerCount4 extends KmerCountAbstract {
 			cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ff1, ff2);
 			cris.start(); //4567
 		}
-		
+
 		assert(cris!=null) : reads1;
 		System.err.println("Started cris");
 		boolean paired=cris.paired();
 		if(verbose){System.err.println("Paired: "+paired);}
-		
+
 		ListNum<Read> ln=cris.nextList();
 		ArrayList<Read> reads=(ln!=null ? ln.list : null);
 
@@ -232,11 +253,19 @@ public class KmerCount4 extends KmerCountAbstract {
 		if(verbose){System.err.println("Closed stream");}
 		if(verbose){System.err.println("Processed "+readsProcessed+" reads.");}
 
-		
+
 		return count;
 	}
-	
-	public static void addRead(final Read r, final KCountArray2 count, final int k, final long mask, boolean rcomp){
+
+	/**
+	 * Counts every complete contiguous valid kmer window.  Invalid bases reset the
+	 * window; low-quality bases reset it only when a quality array exists, so absent
+	 * qualities bypass {@link #minQuality}.  {@code mask} must cover exactly the low
+	 * 2*k bits.  When requested, {@code rcomp} reverses {@code r} in place and runs
+	 * a second strand pass rather than canonicalizing to one occurrence.
+	 */
+	public static void addRead(final Read r, final KCountArray2 count, final int k,
+			final long mask, boolean rcomp){
 		int len=0;
 		long kmer=0;
 		byte[] bases=r.bases;
@@ -267,19 +296,26 @@ public class KmerCount4 extends KmerCountAbstract {
 			addRead(r, count, k, mask, false);
 		}
 	}
-	
-	public static void addReadSplit(final Read r, final KCountArray2 count, final int k1, final int k2, final long mask1, final long mask2, final int gap, boolean rcomp){
+
+	/**
+	 * Counts split windows in a read using masks for the low 2*k1 and 2*k2 bits.
+	 * Invalid bases or low qualities reset both arms; rcomp reverse-complements the read
+	 * in place for the recursive second pass.  TODO: revisit odd-arm/gap geometry before
+	 * accepting split-window behavior.
+	 */
+	public static void addReadSplit(final Read r, final KCountArray2 count, final int k1,
+			final int k2, final long mask1, final long mask2, final int gap, boolean rcomp){
 		int len=0;
 		int shift=k2*2;
 		long kmer1=0;
 		long kmer2=0;
 		byte[] bases=r.bases;
 		byte[] quals=r.quality;
-		
+
 		assert(kmer1>=kmer2);
-		
+
 //		assert(false) : k1+", "+k2+", "+mask1+", "+mask2+", "+gap;
-		
+
 		for(int i=0, j=i+k1+gap; j<bases.length; i++, j++){
 			int x1=AminoAcid.baseToNumber[bases[i]];
 			int x2=AminoAcid.baseToNumber[bases[j]];
@@ -294,7 +330,7 @@ public class KmerCount4 extends KmerCountAbstract {
 				if(len>=k1){
 					keysCounted++;
 //					System.out.print("Incrementing "+Long.toHexString(kmer)+": "+count.read(kmer));
-					
+
 					long key=(kmer1<<shift)|kmer2;
 //					System.err.println(Long.toHexString(key));
 					count.increment(key, 1);
@@ -311,18 +347,27 @@ public class KmerCount4 extends KmerCountAbstract {
 			addReadSplit(r, count, k1, k2, mask1, mask2, gap, false);
 		}
 	}
-	
-	public static void addReadSplit(final byte[] bases, final KCountArray2 count, final int k1, final int k2, final long mask1, final long mask2, final int gap, boolean rcomp){
+
+	/**
+	 * Counts split windows over raw bases without qualities.  The masks must cover the
+	 * low 2*k1 and 2*k2 bits; each counted key emits kmer1, kmer2 and merged key hex
+	 * lines.  When requested, rcomp reverse-complements {@code bases} in place and
+	 * recurses for the second pass without restoring it.  TODO: revisit odd-arm/gap
+	 * geometry before accepting split-window behavior.
+	 */
+	public static void addReadSplit(final byte[] bases, final KCountArray2 count,
+			final int k1, final int k2, final long mask1, final long mask2, final int gap,
+			boolean rcomp){
 		int len=0;
 		int shift=k2*2;
 		long kmer1=0;
 		long kmer2=0;
 		byte[] quals=null;
-		
+
 		assert(kmer1>=kmer2);
-		
+
 //		assert(false) : k1+", "+k2+", "+mask1+", "+mask2+", "+gap;
-		
+
 		for(int i=0, j=i+k1+gap; j<bases.length; i++, j++){
 			int x1=AminoAcid.baseToNumber[bases[i]];
 			int x2=AminoAcid.baseToNumber[bases[j]];
@@ -337,7 +382,7 @@ public class KmerCount4 extends KmerCountAbstract {
 				if(len>=k1){
 					keysCounted++;
 //					System.out.print("Incrementing "+Long.toHexString(kmer)+": "+count.read(kmer));
-					
+
 					long key=(kmer1<<shift)|kmer2;
 					System.out.println(Long.toHexString(kmer1));
 					System.out.println(Long.toHexString(kmer2));
@@ -356,5 +401,5 @@ public class KmerCount4 extends KmerCountAbstract {
 			addReadSplit(bases, count, k1, k2, mask1, mask2, gap, false);
 		}
 	}
-	
+
 }

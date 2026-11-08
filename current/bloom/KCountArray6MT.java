@@ -10,15 +10,16 @@ import structures.ByteBuilder;
 
 
 /**
- * Multithreaded hash-based k-mer counting array with bloom filter characteristics.
- * Uses hash functions rather than direct mapping to support longer k-mers in compact memory and distributes work across multiple threads with separate hash arrays to enable parallel processing.
+ * Packed count array that assigns each raw key to one writer partition and lets
+ * that writer update every configured hash row for that key.
+ *
  * @author Brian Bushnell
  * @date Aug 17, 2012
  */
-public class KCountArray6MT extends KCountArray {
+public class KCountArray6MT extends KCountArray{
 	
-	/** Serialization version identifier */
-	private static final long serialVersionUID = -1524266549200637631L;
+	/** Serial version ID for serialization compatibility */
+	private static final long serialVersionUID=-1524266549200637631L;
 
 	public static void main(String[] args){
 		long cells=Long.parseLong(args[0]);
@@ -61,6 +62,14 @@ public class KCountArray6MT extends KCountArray {
 		
 	}
 		
+	/**
+	 * Constructs a single-partition-writer hashed count array.
+	 *
+	 * @param cells_ requested number of count cells
+	 * @param bits_ bits per packed count cell
+	 * @param gap_ retained legacy parameter; not used by this implementation
+	 * @param hashes_ number of hash rows to update per key
+	 */
 	public KCountArray6MT(long cells_, int bits_, int gap_, int hashes_){
 		super(cells_, bits_);
 //		verbose=false;
@@ -77,9 +86,10 @@ public class KCountArray6MT extends KCountArray {
 	}
 	
 	/**
-	 * Reads the count for a k-mer using multiple hash functions and returns the minimum count across all hash positions for bloom filter accuracy.
-	 * @param rawKey The k-mer key to look up
-	 * @return Minimum count across all hash functions for this key
+	 * Returns the minimum count in the partition chosen for the raw key.
+	 *
+	 * @param rawKey key to query
+	 * @return stored count estimate for {@code rawKey}
 	 */
 	@Override
 	public int read(final long rawKey){
@@ -101,6 +111,13 @@ public class KCountArray6MT extends KCountArray {
 		return min;
 	}
 	
+	/**
+	 * Reads one hashed cell from a specific matrix partition.
+	 *
+	 * @param key hashed key within {@code arrayNum}
+	 * @param arrayNum partition to read
+	 * @return count stored at the hashed position
+	 */
 	int readHashed(long key, int arrayNum){
 		if(verbose){System.err.print("Reading hashed key "+key);}
 //		System.out.println("key="+key);
@@ -124,10 +141,10 @@ public class KCountArray6MT extends KCountArray {
 	}
 	
 	/**
-	 * Write operation is not supported for this multithreaded implementation; use increment operations instead for thread-safe counting.
-	 * @param key The key (unused)
-	 * @param value The value (unused)
-	 * @throws RuntimeException Always thrown to indicate unsupported operation
+	 * Rejects direct writes; this implementation only accepts queued increments.
+	 *
+	 * @param key ignored key
+	 * @param value ignored value
 	 */
 	@Override
 	public void write(final long key, int value){
@@ -136,15 +153,21 @@ public class KCountArray6MT extends KCountArray {
 	
 	//Slow
 	/**
-	 * Increments the count for a k-mer by the specified amount by calling increment0 multiple times (slow approach).
-	 * @param rawKey The k-mer key to increment
-	 * @param amt Number of times to increment
+	 * Enqueues a raw key once for each requested count.
+	 *
+	 * @param rawKey key to increment
+	 * @param amt number of unit increments to enqueue
 	 */
 	@Override
 	public void increment(final long rawKey, int amt){
 		for(int i=0; i<amt; i++){increment0(rawKey);}
 	}
 	
+	/**
+	 * Enqueues a raw key to the writer partition selected by hash row three.
+	 *
+	 * @param rawKey key to increment
+	 */
 	public void increment0(final long rawKey){
 		if(verbose){System.err.println("\n*** Incrementing raw key "+rawKey+" ***");}
 
@@ -174,26 +197,32 @@ public class KCountArray6MT extends KCountArray {
 	}
 	
 	/**
-	 * Increment operation with return value is not supported because it cannot be efficiently implemented in the multithreaded context.
-	 * @param key The key (unused)
-	 * @param incr The increment (unused)
-	 * @return Never returns
-	 * @throws RuntimeException Always thrown to indicate unsupported operation
+	 * Rejects read-modify-write increments; queued writers do not return old counts.
+	 *
+	 * @param key ignored key
+	 * @param incr ignored increment
+	 * @return never returns normally
 	 */
 	@Override
 	public int incrementAndReturnUnincremented(long key, int incr){
 		throw new RuntimeException("Operation not supported.");
 	}
 	
-	/** Transforms count data to a frequency histogram by delegating to the parent class implementation using the matrix data.
-	 * @return Array where index i contains the number of k-mers with count i */
+	/**
+	 * Converts the packed count matrix into a histogram of observed count values.
+	 *
+	 * @return histogram indexed by stored count
+	 */
 	@Override
 	public long[] transformToFrequency(){
 		return transformToFrequency(matrix);
 	}
 	
-	/** Creates a string representation of all cell values in the counting array by iterating through all arrays and extracting individual cell values.
-	 * @return ByteBuilder containing comma-separated list of all cell values */
+	/**
+	 * Formats all packed count cells in matrix order.
+	 *
+	 * @return comma-separated cell dump enclosed in brackets
+	 */
 	@Override
 	public ByteBuilder toContentsString(){
 		ByteBuilder sb=new ByteBuilder();
@@ -215,24 +244,28 @@ public class KCountArray6MT extends KCountArray {
 		return sb;
 	}
 	
-	/** Calculates the fraction of cells that contain non-zero counts.
-	 * @return Ratio of used cells to total cells */
+	/**
+	 * Returns the fraction of hashed cells incremented from zero after shutdown.
+	 *
+	 * @return fraction of cells incremented from zero
+	 */
 	@Override
 	public double usedFraction(){return cellsUsed/(double)cells;}
 	
 	/**
-	 * Calculates the fraction of cells that contain counts at or above the threshold.
-	 * @param mindepth Minimum count threshold
-	 * @return Ratio of cells with count >= mindepth to total cells
+	 * Estimates the fraction of cells meeting a minimum stored count.
+	 *
+	 * @param mindepth positive minimum count to include
+	 * @return fraction of cells meeting the positive threshold
 	 */
 	@Override
 	public double usedFraction(int mindepth){return cellsUsed(mindepth)/(double)cells;}
 	
 	/**
-	 * Counts the number of cells with counts at or above the specified threshold.
-	 * Iterates through all matrix arrays and examines individual cell values.
-	 * @param mindepth Minimum count threshold
-	 * @return Number of cells with count >= mindepth
+	 * Counts packed cells whose stored value meets a positive minimum depth.
+	 *
+	 * @param mindepth positive minimum count to include
+	 * @return number of cells meeting the positive threshold
 	 */
 	@Override
 	public long cellsUsed(int mindepth){
@@ -240,10 +273,11 @@ public class KCountArray6MT extends KCountArray {
 		for(int[] array : matrix){
 			if(array!=null){
 				for(int word : array){
-					while(word>0){
-						int x=word&valueMask;
+					long word2=word&0xFFFFFFFFL;
+					while(word2!=0){
+						int x=(int)(word2&valueMask);
 						if(x>=mindepth){count++;}
-						word>>>=cellBits;
+						word2>>>=cellBits;
 					}
 				}
 			}
@@ -253,18 +287,18 @@ public class KCountArray6MT extends KCountArray {
 	
 	
 	/**
-	 * Applies hash function to a key using the specified hash row.
-	 * Uses double hashing for row 0 and XOR with precomputed masks for all rows.
-	 * @param key The key to hash
-	 * @param row Hash function index (0 to hashes-1)
-	 * @return Hashed key value
+	 * Applies one row's mask to a key for bloom-filter addressing.
+	 *
+	 * @param key key or rotated prior hash to mix
+	 * @param row hash row to apply
+	 * @return mixed key for row-specific lookup
 	 */
 	@Override
 	final long hash(long key, int row){
 		int cell=(int)((Long.MAX_VALUE&key)%(hashArrayLength-1));
 //		int cell=(int)(hashCellMask&(key));
 		
-		if(row==0){//Doublehash only first time
+		if(row==0){//Double-hash only first time
 			key=key^hashMasks[(row+4)%hashMasks.length][cell];
 			cell=(int)(hashCellMask&(key>>4));
 //			cell=(int)(hashCellMask&(key>>hashBits));
@@ -275,12 +309,13 @@ public class KCountArray6MT extends KCountArray {
 	}
 	
 	/**
-	 * Generates hash masks for the hash functions by creating random bit patterns with specific bit count constraints for each hash function.
-	 * @param rows Number of hash functions
-	 * @param cols Number of mask values per hash function
-	 * @return 2D array of hash masks
+	 * Creates randomized hash masks for a new instance.
+	 *
+	 * @param rows number of hash-function rows
+	 * @param cols number of masks per row
+	 * @return matrix of row-specific hash masks
 	 */
-	private static long[][] makeMasks(int rows, int cols) {
+	private static long[][] makeMasks(int rows, int cols){
 		
 		long seed;
 		synchronized(KCountArray6MT.class){
@@ -299,7 +334,13 @@ public class KCountArray6MT extends KCountArray {
 		return r;
 	}
 	
-	private static void fillMasks(long[] r, Random randy) {
+	/**
+	 * Fills one hash row with masks that have balanced low and high halves.
+	 *
+	 * @param r destination row
+	 * @param randy random source
+	 */
+	private static void fillMasks(long[] r, Random randy){
 //		for(int i=0; i<r.length; i++){
 //			long x=0;
 //			while(Long.bitCount(x&0xFFFFFFFF)!=16){
@@ -350,8 +391,9 @@ public class KCountArray6MT extends KCountArray {
 	}
 	
 	
-	/** Initializes and starts all writer threads for parallel processing.
-	 * Creates one WriteThread per array for independent processing. */
+	/**
+	 * Starts one writer thread for each matrix partition.
+	 */
 	@Override
 	public void initialize(){
 		for(int i=0; i<writers.length; i++){
@@ -365,9 +407,7 @@ public class KCountArray6MT extends KCountArray {
 	}
 	
 	/**
-	 * Gracefully shuts down all writer threads and finalizes counting.
-	 * Flushes remaining buffers, sends termination signals, and waits for completion.
-	 * Accumulates cell usage statistics from all threads.
+	 * Flushes queued keys, sends termination sentinels, and joins all writers.
 	 */
 	@Override
 	public void shutdown(){
@@ -401,10 +441,9 @@ public class KCountArray6MT extends KCountArray {
 //				System.out.println("wt"+wt.num+" is alive: "+wt.isAlive());
 				while(wt.isAlive()){
 //					System.out.println("wt"+wt.num+" is alive: "+wt.isAlive());
-					try {
+					try{
 						wt.join(10000);
-					} catch (InterruptedException e) {
-						// TODO Auto-generated catch block
+					}catch(InterruptedException e){
 						e.printStackTrace();
 					}
 					if(wt.isAlive()){System.err.println(wt.getClass().getCanonicalName()+" is taking a long time to die.");}
@@ -420,14 +459,17 @@ public class KCountArray6MT extends KCountArray {
 	
 	private class WriteThread extends Thread{
 		
+		/**
+		 * Constructs a writer for one matrix partition.
+		 *
+		 * @param tnum partition number
+		 */
 		public WriteThread(int tnum){
 			num=tnum;
 		}
 		
 		/**
-		 * Main thread execution loop for processing increment operations.
-		 * Initializes local array, processes key batches from queue until shutdown signal.
-		 * Allocates array on local NUMA node for optimal memory performance.
+		 * Allocates this partition's backing array and drains queued raw-key batches.
 		 */
 		@Override
 		public void run(){
@@ -441,10 +483,9 @@ public class KCountArray6MT extends KCountArray {
 
 				if(verbose){System.err.println(" - Reading keys for wt"+num+".");}
 				while(keys==null){
-					try {
+					try{
 						keys=writeQueue.take();
-					} catch (InterruptedException e) {
-						// TODO Auto-generated catch block
+					}catch(InterruptedException e){
 						e.printStackTrace();
 					}
 				}
@@ -468,6 +509,11 @@ public class KCountArray6MT extends KCountArray {
 			array=null;
 		}
 		
+		/**
+		 * Enqueues a batch of raw keys for this partition.
+		 *
+		 * @param keys raw keys or the poison sentinel
+		 */
 		void add(long[] keys){
 //			assert(isAlive());
 			assert(!shutdown);
@@ -476,17 +522,22 @@ public class KCountArray6MT extends KCountArray {
 			if(verbose){System.err.println(" + Adding keys to wt"+num+".");}
 			boolean success=false;
 			while(!success){
-				try {
+				try{
 					writeQueue.put(keys);
 					success=true;
-				} catch (InterruptedException e) {
-					// TODO Auto-generated catch block
+				}catch(InterruptedException e){
 					e.printStackTrace();
 				}
 			}
 			if(verbose){System.err.println(" ++ Added keys to wt"+num+". (success)");}
 		}
 		
+		/**
+		 * Increments every configured hash row for one raw key.
+		 *
+		 * @param rawKey raw key assigned to this partition
+		 * @return estimated post-increment count
+		 */
 		private int incrementRawLocal(long rawKey){
 //			verbose=(rawKey==32662670693L);
 			if(verbose){System.err.println("\n*** Incrementing raw key "+rawKey+" ***");}
@@ -523,6 +574,12 @@ public class KCountArray6MT extends KCountArray {
 			return min(min+1, maxValue);
 		}
 		
+		/**
+		 * Increments one hashed key in this writer's partition.
+		 *
+		 * @param key hashed key for this partition
+		 * @return updated cell value
+		 */
 		private int incrementHashedLocal(long key){
 //			assert((key&arrayMask)==num);
 			key=(key&Long.MAX_VALUE)%(cellMod);
@@ -548,6 +605,11 @@ public class KCountArray6MT extends KCountArray {
 	}
 	
 	
+	/**
+	 * Returns the running count of hashed cells incremented from zero.
+	 *
+	 * @return running nonzero hashed-cell count
+	 */
 	public long cellsUsed(){return cellsUsed;}
 	
 	private boolean finished=false;

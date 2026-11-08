@@ -35,38 +35,62 @@ import tracker.ReadStats;
 import ukmer.Kmer;
 
 /**
- * Wraps a BloomFilter to filter or correct reads.
- * fixindels=f is the opt-in general substitution/1bp insertion/deletion mode,
+ * Builds a count filter, then corrects, marks or filters read pairs in worker threads.
+ * The table is populated during construction and borrowed read-only by workers;
+ * Bloom support remains probabilistic. Correction precedes depth/junk filtering.
+ * Accepted overlap merges are temporary: corrected sequences are split back into mates.
+ * Marking disables substitution correction and overlap correction/merging.
+ *
+ * fixindels=t enables the opt-in general substitution/1bp insertion/deletion mode,
  * not a homopolymer-only algorithm. fixindelswindows=3 controls adjacent probe
  * windows and fixindelsmax=8 bounds sequential edits. localedit,
  * localeditwindows and localeditmax remain compatibility aliases. This mode
  * requires unpaired DNA FASTA/FASTQ, k>=5, ksmall=k, bits>=4, rcomp=t and
  * ecc=f merge=f ecco=f markerrors=f mincount=0 tossjunk=f paircorroborate=f.
- * The count table stays immutable; each accepted edit is fully verified.
+ * The count table stays immutable; each accepted local edit is checked over its affected windows.
+ *
+ * Instances represent one invocation, not a reusable or concurrently configurable service.
+ * Construction changes process-wide parsing/counting settings; run restores only the
+ * explicitly saved read flags under its documented conditions. process owns input/output
+ * streams, while workers borrow them and retain separate correction scratch/statistics.
+ * process closes acquired streams on return/throw and restores its saved validation flag;
+ * unsafe partial startup halts rather than joining unstarted workers. Retained-read
+ * counters do not imply files were requested.
  * 
  * @author Brian Bushnell
  * @date May 14, 2018
  *
  */
-public class BloomFilterCorrectorWrapper {
+public class BloomFilterCorrectorWrapper{
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Code entrance from the command line.
-	 * @param args Command line arguments
+	 * Runs one command-line invocation; processing failures propagate to the caller.
+	 * @param args BBTools flag=value arguments, including input and optional output paths
 	 */
 	public static void main(String[] args){
+		run(args);
+	}
+
+	/** Constructs and processes one invocation, returning the actual input pairing state.
+	 * Finally closes the diagnostic stream once construction succeeded. Restores
+	 * CHANGE_QUALITY/FIX_HEADER after construction failure or local-edit mode only;
+	 * other process-wide settings are not restored here. Does not catch processing failures.
+	 * @param args Command-line arguments
+	 * @return Pairing reported by the started input stream, used by multipass temporary routing */
+	static boolean run(String[] args){
 		//Start a timer immediately upon code entrance.
 		Timer t=new Timer();
 		
-		final boolean oldChangeQuality=Read.CHANGE_QUALITY,oldFixHeader=Read.FIX_HEADER;
+		final boolean oldChangeQuality=Read.CHANGE_QUALITY, oldFixHeader=Read.FIX_HEADER;
 		BloomFilterCorrectorWrapper x=null;
 		try{
 			x=new BloomFilterCorrectorWrapper(args);
 			x.process(t);
+			return x.pairedInput;
 		}finally{
 			//Multipass invokes main repeatedly in one JVM. This mode's byte-
 			//preservation policy must not change a later ordinary invocation.
@@ -76,8 +100,13 @@ public class BloomFilterCorrectorWrapper {
 	}
 	
 	/**
-	 * Constructor.
-	 * @param args Command line arguments
+	 * Parses flags, validates selected paths/mode combinations and builds the count table.
+	 * This performs input I/O and changes shared settings before process starts read workers.
+	 * Counter widths must be powers of two from 1 through 32, then may widen for mincount;
+	 * implicit widths are raised for correction/marking/local edits. Long k is normalized
+	 * to representable geometry and forces ksmall=k. Reference files replace ordinary
+	 * input as the table source; extra files are appended to whichever source is used.
+	 * @param args BBTools flag=value arguments; requires an input path
 	 */
 	public BloomFilterCorrectorWrapper(String[] args){
 		
@@ -111,7 +140,7 @@ public class BloomFilterCorrectorWrapper {
 		boolean ecc_=true;
 		boolean markErrors_=false;
 		boolean localEdit_=false;
-		int localEditWindows_=3,localEditMax_=8,localEditStride_=1;
+		int localEditWindows_=3, localEditMax_=8, localEditStride_=1;
 		boolean ecco_=false;
 		boolean merge_=true;
 		boolean testMerge_=true;
@@ -161,7 +190,6 @@ public class BloomFilterCorrectorWrapper {
 			}else if(a.equals("bits")){
 				setBits=true;
 				bits_=Integer.parseInt(b);
-				assert(bits_>0);
 			}else if(a.equals("mincount")){
 				minCount_=Integer.parseInt(b);
 			}else if(a.equals("minprob")){
@@ -266,6 +294,10 @@ public class BloomFilterCorrectorWrapper {
 			}
 		}
 		
+		//Validate before widening: masked shift distances can otherwise make this loop nonterminating (BLM209).
+		if(bits_<1 || bits_>32 || (bits_&(bits_-1))!=0){
+			throw new IllegalArgumentException("Unsupported counter width: "+bits_+"; expected 1, 2, 4, 8, 16, or 32.");
+		}
 		while(minCount_>0 && (1L<<bits_)-1<minCount_){bits_*=2;}
 		if(!setBits && (ecc_ || markErrors_ || localEdit_) && bits_<4){bits_=4;}
 		
@@ -410,8 +442,9 @@ public class BloomFilterCorrectorWrapper {
 			ByteFile.FORCE_MODE_BF2=true;
 		}
 		
-		//Ensure out2 is not set without out1
+		//Each second output requires its first output: process opens streams by the first path (BLM215).
 		if(out1==null && out2!=null){throw new RuntimeException("Error - cannot define out2 without defining out1.");}
+		if(outbad1==null && outbad2!=null){throw new RuntimeException("Error - cannot define outbad2 without defining outbad1.");}
 		
 		//Adjust interleaved settings based on number of output files
 		if(!setInterleaved){
@@ -429,18 +462,18 @@ public class BloomFilterCorrectorWrapper {
 		}
 		
 		//Ensure output files can be written
-		if(!Tools.testOutputFiles(overwrite, append, false, out1, out2, outbad1, outbad2)){
+		if(!Tools.testOutputFiles(overwrite, append, false, out1, out2, outbad1, outbad2, qfout1, qfout2)){
 			outstream.println((out1==null)+", "+(out2==null)+", "+out1+", "+out2);
 			throw new RuntimeException("\n\noverwrite="+overwrite+"; Can't write to output files "+out1+", "+out2+"\n");
 		}
 		
 		//Ensure input files can be read
-		if(!Tools.testInputFiles(false, true, in1, in2)){
+		if(!Tools.testInputFiles(false, true, in1, in2, qfin1, qfin2)){
 			throw new RuntimeException("\nCan't read some input files.\n");  
 		}
 		
 		//Ensure that no file was specified multiple times
-		if(!Tools.testForDuplicateFiles(true, in1, in2, out1, out2, outbad1, outbad2)){
+		if(!Tools.testForDuplicateFiles(true, in1, in2, qfin1, qfin2, out1, out2, outbad1, outbad2, qfout1, qfout2)){
 			throw new RuntimeException("\nSome file names were specified multiple times.\n");
 		}
 		
@@ -504,26 +537,39 @@ public class BloomFilterCorrectorWrapper {
 		}
 	}
 	
-	/** Package-visible for real-filter contract tests. Short keys must follow
-	 * ReadCounter's primitive canonical max and secondaryHash, not Kmer.xor2. */
-	static LocalEditEngine makeLocalEditEngine(final BloomFilter filter,final int windows){
-		return makeLocalEditEngine(filter,windows,1);
+	/** Creates a local-edit engine with unit probe stride over the borrowed filter.
+	 * Exposed for real-filter contract tests. Short keys must follow
+	 * ReadCounter's primitive canonical max and secondaryHash, not Kmer.xor2.
+	 * @param filter Immutable canonical count filter with exact k at least five and at least four bits
+	 * @param windows Number of adjacent probe windows
+	 * @return New engine with independent mutable editing scratch */
+	public static LocalEditEngine makeLocalEditEngine(final BloomFilter filter, final int windows){
+		return makeLocalEditEngine(filter, windows, 1);
 	}
-	static LocalEditEngine makeLocalEditEngine(final BloomFilter filter,final int windows,final int stride){
+	/** Creates an engine whose count adapter preserves the filter's short/long hash conventions.
+	 * Substitutions must also survive competing verified indels. Does not mutate the table.
+	 * @param filter Immutable canonical filter with equal small/big k and at least four bits
+	 * @param windows Adjacent probe-window count, validated by the engine
+	 * @param stride Probe stride, validated by the engine
+	 * @return New per-worker local-edit engine */
+	static LocalEditEngine makeLocalEditEngine(final BloomFilter filter, final int windows, final int stride){
 		if(filter==null || filter.k<5 || filter.k!=filter.kbig || filter.bits<4 || !filter.rcomp){
 			throw new IllegalArgumentException("Local-edit counts require exact K>=5, bits>=4 and canonical DNA.");
 		}
-		return new LocalEditEngine(filter.k,new LocalEditEngine.CountLookup(){
+		return new LocalEditEngine(filter.k, new LocalEditEngine.CountLookup(){
 			@Override public int count(final Kmer key){
 				assert(key.kbig==filter.k && key.len()>=filter.k) : "Correction must query the exact complete K used by ReadCounter during filter loading.";
-				return filter.k<=31 ? filter.getCount(key.array1()[0],key.array2()[0]) : filter.getCount(key);
+				return filter.k<=31 ? filter.getCount(key.array1()[0], key.array2()[0]) : filter.getCount(key);
 			}
 		//Bloom-supported substitutions must also survive competing verified indels.
 		//Existing exact-table/Tadpole callers retain their original constructor path.
-		},windows,true,stride);
+		}, windows, true, stride);
 	}
 
-	/** Parse a file specification, accepting existing paths or comma lists. */
+	/** Appends an existing literal path or comma-separated entries; null clears the list.
+	 * An existing path containing commas is retained intact. Does not validate split entries.
+	 * @param b File specification, or null to clear
+	 * @param list Mutable destination list */
 	private static void addFiles(String b, ArrayList<String> list){
 		if(b==null){list.clear();}
 		else{
@@ -538,70 +584,123 @@ public class BloomFilterCorrectorWrapper {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Create read streams and process all data */
+	/** Starts owned streams, joins workers, closes streams and reports aggregate results.
+	 * Counts individual mates and their bases, even when no output stream was requested.
+	 * Closes each acquired stream independently and restores VALIDATE_IN_CONSTRUCTOR in finally.
+	 * Preserves an original unchecked failure, suppressing cleanup failures on it. Normal
+	 * completion combines worker/statistics/stream flags into errorState and throws after
+	 * reporting. An acquired stream whose start fails is fatal: joining NEW workers is unsafe.
+	 * Resources hidden inside a constructor that never returns remain outside this ownership.
+	 * For ordinary local FASTQ/FASTA without separate qualities or MPI, opens/starts
+	 * ordinary FASTQ/FASTA outputs before acquiring input, after constructor preflight.
+	 * An output-open failure then cannot race an active FASTQ parser during cancellation.
+	 * Other modes retain input-first startup; the shared early-close race remains possible.
+	 * Intended for one call.
+	 * @param t Invocation timer started before construction, stopped after processing */
 	void process(Timer t){
 		
 		//Turn off read validation in the input threads to increase speed
 		final boolean vic=Read.VALIDATE_IN_CONSTRUCTOR;
 		Read.VALIDATE_IN_CONSTRUCTOR=Shared.threads()<4;
 		
-		//Create a read input stream
-		final ConcurrentReadInputStream cris;
-		{
-			cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ffin1, ffin2, qfin1, qfin2);
-			cris.start(); //Start the stream
-			if(verbose){outstream.println("Started cris");}
-		}
-		boolean paired=cris.paired();
-		if(!ffin1.samOrBam()){outstream.println("Input is being processed as "+(paired ? "paired" : "unpaired"));}
-		
-		//Optionally create read output streams
-		final ConcurrentReadOutputStream ros, rosb;
-		if(ffout1!=null){
-			//Select output buffer size based on whether it needs to be ordered
-			final int buff=(ordered ? Tools.mid(16, 128, (Shared.threads()*2)/3) : 8);
+		ConcurrentReadInputStream cris=null;
+		ConcurrentReadOutputStream ros=null, rosb=null;
+		boolean inputStarted=false, outputStarted=false, rejectedStarted=false;
+		Throwable primaryFailure=null;
+		Timer t2=null;
+		try{
+			final boolean outputFirst=!Shared.USE_MPI && qfin1==null && qfin2==null &&
+					qfout1==null && qfout2==null && qfoutbad1==null && qfoutbad2==null &&
+					localSequenceFile(ffin1, true) && localSequenceFile(ffin2, true) &&
+					localSequenceFile(ffout1, false) && localSequenceFile(ffout2, false) &&
+					localSequenceFile(ffoutm1, false) && localSequenceFile(ffoutm2, false);
+			if(!outputFirst){
+				cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ffin1, ffin2, qfin1, qfin2);
+				cris.start();
+				inputStarted=true;
+			}
 			
-			//Notify user of output mode
-			if(cris.paired() && out2==null && (in1!=null && !ffin1.samOrBam() && !ffout1.samOrBam())){
+			//Optionally create read output streams.
+			if(ffout1!=null){
+				final int buff=(ordered ? Tools.mid(16, 128, (Shared.threads()*2)/3) : 8);
+				ros=ConcurrentReadOutputStream.getStream(ffout1, ffout2, qfout1, qfout2, buff, null, false);
+				ros.start();
+				outputStarted=true;
+			}
+			if(ffoutm1!=null){
+				final int buff=(ordered ? Tools.mid(16, 128, (Shared.threads()*2)/3) : 8);
+				rosb=ConcurrentReadOutputStream.getStream(ffoutm1, ffoutm2, qfoutbad1, qfoutbad2, buff, null, false);
+				rosb.start();
+				rejectedStarted=true;
+			}
+			if(outputFirst){
+				//No input object exists if either output constructor/start failed (BLM214).
+				cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ffin1, ffin2, qfin1, qfin2);
+				cris.start();
+				inputStarted=true;
+			}
+			if(verbose){outstream.println("Started cris");}
+			final boolean paired=cris.paired();
+			pairedInput=paired;
+			if(!ffin1.samOrBam()){outstream.println("Input is being processed as "+(paired ? "paired" : "unpaired"));}
+			if(ffout1!=null && paired && out2==null && in1!=null && !ffin1.samOrBam() && !ffout1.samOrBam()){
 				outstream.println("Writing interleaved.");
 			}
 			
-			ros=ConcurrentReadOutputStream.getStream(ffout1, ffout2, qfout1, qfout2, buff, null, false);
-			ros.start(); //Start the stream
-		}else{ros=null;}
-		
-		if(ffoutm1!=null){
-			//Select output buffer size based on whether it needs to be ordered
-			final int buff=(ordered ? Tools.mid(16, 128, (Shared.threads()*2)/3) : 8);
-			
-			rosb=ConcurrentReadOutputStream.getStream(ffoutm1, ffoutm2, qfoutbad1, qfoutbad2, buff, null, false);
-			rosb.start(); //Start the stream
-		}else{rosb=null;}
-		
-		//Reset counters
-		readsProcessed=readsOut=0;
-		basesProcessed=basesOut=0;
-		
-		Timer t2=new Timer(outstream, true);
-		
-		//Process the reads in separate threads
-		spawnThreads(cris, ros, rosb);
-		
-		if(verbose){outstream.println("Finished; closing streams.");}
-		
-		//Write anything that was accumulated by ReadStats
-		errorState|=ReadStats.writeAll();
-		//Close the read streams
-		errorState|=ReadWrite.closeStreams(cris, ros, rosb);
-		
-		//Reset read validation
-		Read.VALIDATE_IN_CONSTRUCTOR=vic;
+			readsProcessed=readsOut=0;
+			basesProcessed=basesOut=0;
+			t2=new Timer(outstream, true);
+			spawnThreads(cris, ros, rosb);
+			if(verbose){outstream.println("Finished; closing streams.");}
+			errorState|=ReadStats.writeAll();
+		}catch(RuntimeException | Error failure){
+			primaryFailure=failure;
+			throw failure;
+		}finally{
+			try{
+				if((cris!=null && !inputStarted) || (ros!=null && !outputStarted) || (rosb!=null && !rejectedStarted)){
+					//A completed-start flag is needed: CROS.started is set before child start calls.
+					if(primaryFailure!=null){primaryFailure.printStackTrace(outstream);}
+					KillSwitch.kill("Correction stream failed to start completely; cannot safely join unstarted workers. Output is incomplete.");
+				}
+				//BLM214: one throwing close must not skip either of the other acquired streams.
+				boolean streamError=false;
+				Throwable cleanupFailure=null;
+				try{streamError|=ReadWrite.closeStream(cris);}
+				catch(RuntimeException | Error failure){cleanupFailure=failure;}
+				try{streamError|=ReadWrite.closeStream(ros);}
+				catch(RuntimeException | Error failure){
+					if(cleanupFailure==null){cleanupFailure=failure;}
+					else if(cleanupFailure!=failure){cleanupFailure.addSuppressed(failure);}
+				}
+				try{streamError|=ReadWrite.closeStream(rosb);}
+				catch(RuntimeException | Error failure){
+					if(cleanupFailure==null){cleanupFailure=failure;}
+					else if(cleanupFailure!=failure){cleanupFailure.addSuppressed(failure);}
+				}
+				errorState|=streamError || cleanupFailure!=null;
+				if(primaryFailure!=null && streamError){
+					primaryFailure.addSuppressed(new RuntimeException("Correction input/output stream failed during cleanup; output may be incomplete."));
+				}
+				if(cleanupFailure!=null){
+					if(primaryFailure!=null){
+						if(primaryFailure!=cleanupFailure){primaryFailure.addSuppressed(cleanupFailure);}
+					}else if(cleanupFailure instanceof RuntimeException){throw (RuntimeException)cleanupFailure;}
+					else{throw (Error)cleanupFailure;}
+				}
+			}finally{
+				Read.VALIDATE_IN_CONSTRUCTOR=vic;
+			}
+		}
 		
 		//Report timing and results
 		t.stop();
 		t2.stop("\nFiltering Time:  \t\t");
 		outstream.println(Tools.timeReadsBasesProcessed(t, readsProcessed, basesProcessed, 8));
-		outstream.println(Tools.readsBasesOut(readsProcessed, basesProcessed, readsOut, basesOut, 8, true));
+		//BLM216: empty denominators report zero percent; actual counters remain unchanged.
+		final long readDivisor=Tools.max(1L, readsProcessed), baseDivisor=Tools.max(1L, basesProcessed);
+		final long detectedDivisor=Tools.max(1L, readsDetected);
+		outstream.println(Tools.readsBasesOut(readDivisor, baseDivisor, readsOut, basesOut, 8, true));
 		if(loglogOut!=null){
 			outstream.println("Unique "+loglogOut.k+"-mers out:     \t"+loglogOut.cardinality());
 		}
@@ -642,24 +741,24 @@ public class BloomFilterCorrectorWrapper {
 				outstream.println(sb);
 			}
 			if(ecco || merge){outstream.println("Reads merged:               \t"+Tools.padRight(readsMerged, 7)+
-					Tools.format(" \t(%.2f%%)", readsMerged*200.0/readsProcessed));}
+					Tools.format(" \t(%.2f%%)", readsMerged*200.0/readDivisor));}
 			outstream.println("Reads with errors detected: \t"+Tools.padRight(readsDetected, 7)+
-					Tools.format(" \t(%.2f%%)", readsDetected*100.0/readsProcessed));
+					Tools.format(" \t(%.2f%%)", readsDetected*100.0/readDivisor));
 			outstream.println("Reads fully corrected:      \t"+Tools.padRight(readsFullyCorrected, 7)+
-					Tools.format(" \t(%.2f%% of detected)", readsFullyCorrected*100.0/readsDetected));
+					Tools.format(" \t(%.2f%% of detected)", readsFullyCorrected*100.0/detectedDivisor));
 			outstream.println("Reads partly corrected:     \t"+Tools.padRight(partial, 7)+
-					Tools.format(" \t(%.2f%% of detected)", partial*100.0/readsDetected));
+					Tools.format(" \t(%.2f%% of detected)", partial*100.0/detectedDivisor));
 			if(corrector.ECC_ROLLBACK || rollbacks>0){
 				outstream.println("Rollbacks:                  \t"+Tools.padRight(rollbacks, 7)+
-						Tools.format(" \t(%.2f%% of detected)", rollbacks*100.0/readsDetected));
+						Tools.format(" \t(%.2f%% of detected)", rollbacks*100.0/detectedDivisor));
 			}
 			
 		}else if(markErrors){
 			outstream.println();
 			outstream.println("Reads marked:               \t"+Tools.padRight(readsMarked, 7)+
-					Tools.format(" \t(%.2f%%)", readsMarked*100.0/readsProcessed));
+					Tools.format(" \t(%.2f%%)", readsMarked*100.0/readDivisor));
 			outstream.println("Bases marked:               \t"+Tools.padRight(basesMarked, 7)+
-					Tools.format(" \t(%.2f%%)", basesMarked*100.0/basesProcessed));
+					Tools.format(" \t(%.2f%%)", basesMarked*100.0/baseDivisor));
 			outstream.println("Exact-K runs marked:        \t"+markExactK);
 			outstream.println("Exact-K-minus-one runs:     \t"+markExactKMinus1);
 			outstream.println("Edge runs marked:           \t"+markEdgeRuns);
@@ -684,7 +783,24 @@ public class BloomFilterCorrectorWrapper {
 		}
 	}
 	
-	/** Spawn process threads */
+	/** Selects local sequence paths without standard streams, FIFOs or header-dependent formats.
+	 * This is a startup-order choice, not additional preflight or an atomic filesystem guarantee.
+	 * @param ff Optional input/output descriptor; null means that stream is absent
+	 * @param input Require an existing regular file; outputs may be nonexistent
+	 * @return True for absent streams or eligible FASTQ/FASTA file paths */
+	private static boolean localSequenceFile(final FileFormat ff, final boolean input){
+		if(ff==null){return true;}
+		if(ff.stdio() || (!ff.fastq() && !ff.fasta())){return false;}
+		final File file=new File(ff.name());
+		return input ? file.isFile() : !file.exists() || file.isFile();
+	}
+
+	/** Starts Shared.threads workers, joins each and accumulates its counters into this instance.
+	 * Streams remain caller-owned. Interrupted joins print and retry; a worker lacking its
+	 * success flag sets errorState. This is not an independent guarantee of deadlock recovery.
+	 * @param cris Started shared input stream
+	 * @param ros Started retained-output stream, or null
+	 * @param rosb Started rejected-output stream, or null */
 	private void spawnThreads(final ConcurrentReadInputStream cris, final ConcurrentReadOutputStream ros, final ConcurrentReadOutputStream rosb){
 		
 		//Do anything necessary prior to processing
@@ -709,10 +825,10 @@ public class BloomFilterCorrectorWrapper {
 			
 			//Wait until this thread has terminated
 			while(pt.getState()!=Thread.State.TERMINATED){
-				try {
+				try{
 					//Attempt a join operation
 					pt.join();
-				} catch (InterruptedException e) {
+				}catch(InterruptedException e){
 					//Potentially handle this, if it is expected to occur
 					e.printStackTrace();
 				}
@@ -774,13 +890,13 @@ public class BloomFilterCorrectorWrapper {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Determines overlap between paired reads using configured strictness settings.
-	 * Supports ultra-strict, very-strict, and standard overlap detection modes.
+	 * Estimates insert size from overlapping mates using configured strictness.
+	 * Ultra-strict takes priority over very-strict; otherwise uses strict detection.
 	 *
 	 * @param r1 First read in the pair
 	 * @param r2 Second read in the pair
 	 * @param ecc Whether to use error-correction mode for overlap detection
-	 * @return Overlap length in bases, or negative if no valid overlap found
+	 * @return Insert size in bases, or a negative result when no valid overlap is found
 	 */
 	final int findOverlap(Read r1, Read r2, boolean ecc){
 		if(ustrict){
@@ -797,11 +913,12 @@ public class BloomFilterCorrectorWrapper {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Worker thread for parallel read processing and error correction.
-	 * Handles read filtering, error correction, merging, and quality assessment.
-	 * Maintains per-thread statistics and coordinates with parent wrapper.
+	 * Borrows shared streams/filter and owns its mutable editing/corroboration scratch.
+	 * Corrector thread-local state is initialized on this worker, not in its constructor.
+	 * Statistics are read by the parent after join. Batch output preserves input list IDs,
+	 * including empty retained/rejected lists needed by ordered output.
 	 */
-	private class ProcessThread extends Thread {
+	private class ProcessThread extends Thread{
 		
 		//Constructor
 		/**
@@ -819,11 +936,12 @@ public class BloomFilterCorrectorWrapper {
 			tid=tid_;
 		}
 		
-		//Called by start()
+		/** Initializes worker scratch and processes batches. Local-edit failures halt loudly;
+		 * ordinary failures escape without setting success, for the parent's joined-worker check. */
 		@Override
 		public void run(){
 			if(localEdit){
-				try{localEditor=makeLocalEditEngine(filter,localEditWindows,localEditStride);processInner();success=true;}
+				try{localEditor=makeLocalEditEngine(filter, localEditWindows, localEditStride);processInner();success=true;}
 				catch(Throwable failure){failure.printStackTrace(outstream);KillSwitch.kill("BBCMS fixindels worker failed; incomplete outputs must not be used.");}
 				return;
 			}
@@ -848,7 +966,11 @@ public class BloomFilterCorrectorWrapper {
 			success=true;
 		}
 		
-		/** Iterate through the reads */
+		/** Consumes batches, edits reads, then routes whole pairs through depth and junk filters.
+		 * Merge mode temporarily joins overlapping pairs and restores mate-shaped output;
+		 * rollback selects original mates. Pair corroboration can rescue junk pairs only
+		 * after the depth filter passed. Returns input batches after output submission.
+		 * No finally returns a batch if processing or submission throws. */
 		void processInner(){
 			
 			//Grab the first ListNum of reads
@@ -887,7 +1009,7 @@ public class BloomFilterCorrectorWrapper {
 					basesProcessedT+=initialLength1+initialLength2;
 
 					final Read r1_0=r1, r2_0=r2;
-					if(localEdit){localEditor.correct(r1,localEditMax);}
+					if(localEdit){localEditor.correct(r1, localEditMax);}
 					else if(ecc){
 						if(r2!=null && (merge || ecco)){
 							final int insert=findOverlap(r1, r2, false);
@@ -1050,7 +1172,8 @@ public class BloomFilterCorrectorWrapper {
 			}
 		}
 
-		/** Marks isolated low-count k-mer runs on a single read. */
+		/** Marks one non-null read and adds the marker's counters to this worker; null is a no-op.
+		 * @param r Read with mutable bases and optional qualities */
 		void markErrors(Read r){
 			if(r==null){return;}
 			final BloomFilterCorrector.MarkErrorStats stats=corrector.markErrors(r);
@@ -1066,6 +1189,13 @@ public class BloomFilterCorrectorWrapper {
 		/**
 		 * Attempts to rescue an otherwise-junk pair using pair-local k-mer
 		 * multiplicity and smoothed global Bloom depths.
+		 * Rebuilds reusable scratch in first-mate then second-mate order, counting valid
+		 * occurrences rather than distinct keys. A depth strictly above pair multiplicity
+		 * supplies external support; both minimum number and fraction must pass.
+		 * Does not change read bases/qualities; updates candidate-detail counters.
+		 * @param r1 First candidate read
+		 * @param r2 Second candidate read
+		 * @return Whether enough valid occurrences retain external support; false for none
 		 */
 		boolean pairCorroborate(final Read r1, final Read r2){
 			pairLocalCounts.clear();
@@ -1100,7 +1230,9 @@ public class BloomFilterCorrectorWrapper {
 			return rescue;
 		}
 
-		/** Adds valid k-mer occurrences from one read to the pair-local map. */
+		/** Adds valid occurrences to the existing pair map without clearing it or changing the read.
+		 * Short keys follow filter strand policy; long keys use the primary canonical hash.
+		 * @param r Read to count; null/short reads contribute nothing */
 		private void addPairLocal(final Read r){
 			if(r==null || r.length()<k){return;}
 			final byte[] bases=r.bases;
@@ -1127,7 +1259,9 @@ public class BloomFilterCorrectorWrapper {
 			}
 		}
 
-		/** Appends raw global depths for valid occurrences in one read. */
+		/** Appends global depths in valid-window order, replacing depths below local multiplicity with zero.
+		 * Reuses rolling state and skips undefined windows; does not modify reads or the table.
+		 * @param r Read whose keys were already added to the pair-local map; null/short contributes nothing */
 		private void appendPairDepths(final Read r){
 			if(r==null || r.length()<k){return;}
 			final byte[] bases=r.bases;
@@ -1173,7 +1307,11 @@ public class BloomFilterCorrectorWrapper {
 			}
 		}
 
-		/** Rescans one read and classifies its valid occurrences. */
+		/** Rescans valid windows in the same order used to append depths and accumulates pair categories.
+		 * @param r Read to classify, or null
+		 * @param depths Smoothed concatenated profile, read without modification
+		 * @param pos First profile position for this read
+		 * @return First unused position after this read, unchanged for null/short input */
 		private int evaluatePairRead(final Read r, final int[] depths, int pos){
 			if(r==null || r.length()<k){return pos;}
 			final byte[] bases=r.bases;
@@ -1208,12 +1346,15 @@ public class BloomFilterCorrectorWrapper {
 			return pos;
 		}
 
+		/** Counts one occurrence as local-only unless smoothed global depth strictly exceeds multiplicity. */
 		private void classifyPairOccurrence(final int local, final int smoothed){
 			if(local>=smoothed){pairLocalOnlyThisPair++;}
 			else{pairSupportedThisPair++;}
 		}
 
+		/** Per-pair category totals, cleared after they are transferred to worker totals. */
 		private long pairLocalOnlyThisPair=0, pairSupportedThisPair=0;
+		/** Worker-owned local-edit engine, created only for opt-in local-edit mode. */
 		private LocalEditEngine localEditor;
 		
 		/** Number of reads processed by this thread */
@@ -1233,14 +1374,14 @@ public class BloomFilterCorrectorWrapper {
 		private final ConcurrentReadInputStream cris;
 		/** Shared output stream */
 		private final ConcurrentReadOutputStream ros;
-		/** Matched output stream */
+		/** Borrowed rejected-pair output stream, or null. */
 		private final ConcurrentReadOutputStream rosb;
 		/** Thread ID */
 		final int tid;
 		
-		/** Number of reads extended by this thread */
+		/** Compatibility counter; the current processing body does not extend reads. */
 		long readsExtendedT=0;
-		/** Number of bases extended by this thread */
+		/** Compatibility counter; the current processing body does not extend reads. */
 		long basesExtendedT=0;
 		/** Number of reads corrected by this thread */
 		long readsCorrectedT=0;
@@ -1262,15 +1403,20 @@ public class BloomFilterCorrectorWrapper {
 		long readsMarkedT=0;
 		/** Number of bases marked by this thread */
 		long basesMarkedT=0;
+		/** Interior bases marked from exact-k low-count runs, summed per read. */
 		long markExactKT=0;
+		/** Interior bases marked from exact-(k-1) low-count runs, summed per read. */
 		long markExactKMinus1T=0;
+		/** Bases marked by accepted one-sided edge runs. */
 		long markEdgeRunsT=0;
+		/** Qualified exact-length run candidates skipped without a mark. */
 		long markSkippedEndT=0;
+		/** Qualified isolated runs longer than k skipped by the marker. */
 		long markSkippedMergedT=0;
 
 		/** Number of read pairs merged by this thread */
 		long readsMergedT=0;
-		/** Number of reads corrected by overlap method in this thread */
+		/** Pair-level overlap events with positive corrections, despite the historical reads name. */
 		long readsCorrectedEccoT=0;
 		/** Number of bases corrected by overlap method in this thread */
 		long basesCorrectedEccoT=0; //These numbers are not necessarily correct in the case of rollbacks
@@ -1283,15 +1429,21 @@ public class BloomFilterCorrectorWrapper {
 		IntList counts;
 		/** Reusable pair-local multiplicity map */
 		LongHashMap pairLocalCounts;
-		/** Reusable concatenated raw Bloom-depth list */
+		/** Valid-occurrence depths concatenated across mates, then smoothed in place. */
 		IntList pairDepths;
 		/** Reusable long-k k-mer builder */
 		Kmer pairKmer;
+		/** Junk pairs submitted to corroboration after depth filtering passed. */
 		long pairCorroborateCandidatesT=0;
+		/** Candidate pairs accepted by both corroboration thresholds. */
 		long pairCorroborateRescuedT=0;
+		/** Valid occurrences with smoothed global depth no greater than pair multiplicity. */
 		long pairCorroborateLocalOnlyT=0;
+		/** Valid occurrences with smoothed global depth greater than pair multiplicity. */
 		long pairCorroborateSupportedT=0;
+		/** All valid occurrences considered, including repeated keys and both mates. */
 		long pairCorroborateKmersT=0;
+		/** Candidate pairs rejected because neither mate contributed a valid window. */
 		long pairCorroborateNoValidT=0;
 	}
 
@@ -1307,13 +1459,16 @@ public class BloomFilterCorrectorWrapper {
 	 * Width 1 (and 2) are intentionally treated as no smoothing; useful
 	 * smoothing begins at width 3.  The depth list is allowed to cross the
 	 * concatenated mate boundary, matching the existing rescue layout.
+	 * @param depths Mutable nonnegative depth array
+	 * @param size Populated prefix to smooth
+	 * @param width Maximum total interval width including the two flanks
 	 */
 	static void smoothPairDepths(final int[] depths, final int size, final int width){
 		if(size<3 || width<3){return;}
 		boolean changed;
 		do{
 			changed=false;
-				for(int span=0; span+3<=width; span++){
+			for(int span=0; span+3<=width; span++){
 				for(int left=1, right=left+span; right<size-1; left++, right++){
 					final int cap=Tools.max(depths[left-1], depths[right+1]);
 					int min=depths[left];
@@ -1377,14 +1532,14 @@ public class BloomFilterCorrectorWrapper {
 	/** Override output file extension */
 	private String extout=null;
 	
-	/** For calculating kmer cardinality in output */
+	/** Shared estimator fed retained reads and their mates, independently of requested output files. */
 	final CardinalityTracker loglogOut;
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Number of reads extended during processing */
+	/** Compatibility total; no read-extension path currently increments worker counters. */
 	long readsExtended=0;
-	/** Number of bases extended during processing */
+	/** Compatibility total; no read-extension path currently increments worker counters. */
 	long basesExtended=0;
 	/** Total number of reads that had errors corrected */
 	long readsCorrected=0;
@@ -1406,10 +1561,15 @@ public class BloomFilterCorrectorWrapper {
 	long readsMarked=0;
 	/** Number of bases marked during error detection */
 	long basesMarked=0;
+	/** Sum of worker exact-k interior marking counters. */
 	long markExactK=0;
+	/** Sum of worker exact-(k-1) interior marking counters. */
 	long markExactKMinus1=0;
+	/** Sum of worker one-sided edge marking counters. */
 	long markEdgeRuns=0;
+	/** Sum of worker unmarked exact-length candidate counters. */
 	long markSkippedEnd=0;
+	/** Sum of worker skipped isolated longer-run counters. */
 	long markSkippedMerged=0;
 	/** Number of junk pairs evaluated for pair-local corroboration */
 	long pairCorroborateCandidates=0;
@@ -1426,25 +1586,27 @@ public class BloomFilterCorrectorWrapper {
 	
 	/** Number of read pairs successfully merged */
 	long readsMerged=0;
-	/** Number of reads corrected during overlap-based correction */
+	/** Pair-level overlap events with positive corrections, accumulated from workers. */
 	long readsCorrectedEcco=0;
 	/** Number of bases corrected during overlap-based correction */
 	long basesCorrectedEcco=0;
 	
 	/*--------------------------------------------------------------*/
 
-	/** Number of reads processed */
+	/** Individual input reads, including both mates, accumulated after worker join. */
 	protected long readsProcessed=0;
-	/** Number of bases processed */
+	/** Input bases before editing, accumulated after worker join. */
 	protected long basesProcessed=0;
 
-	/** Number of reads retained */
+	/** Individual retained reads, whether or not an output destination was requested. */
 	protected long readsOut=0;
-	/** Number of bases retained */
+	/** Retained bases after editing, whether or not an output destination was requested. */
 	protected long basesOut=0;
 
-	/** Quit after processing this many input reads; -1 means no limit */
+	/** Root-record limit passed to the input stream; mates can increase displayed individual-read counts. */
 	private long maxReads=-1;
+	/** Pairing declared by the started input stream; used to route multipass temporary output. */
+	private boolean pairedInput;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
@@ -1460,20 +1622,20 @@ public class BloomFilterCorrectorWrapper {
 	/** Secondary output file */
 	private final FileFormat ffout2;
 	
-	/** Primary output file for matching reads */
+	/** Primary rejected-pair output descriptor, or null. */
 	private final FileFormat ffoutm1;
-	/** Secondary output file for matching reads */
+	/** Secondary rejected-mate output descriptor, or null. */
 	private final FileFormat ffoutm2;
 	
-	/** Bloom filter for k-mer membership testing */
+	/** Owned count filter, populated during construction and shared read-only during processing. */
 	final BloomFilter filter;
 	
-	/** Error corrector using Bloom filter for k-mer frequency analysis */
+	/** Shared corrector with per-thread scratch; attached to filter only for correction/marking modes. */
 	final BloomFilterCorrector corrector;
 
-	/** K-mer length for filtering and correction */
+	/** Effective correction-window length after long-k representability normalization. */
 	final int k;
-	/** Smaller k-mer size for initial filtering */
+	/** Filter-window length, forced equal to k for the long implementation. */
 	final int ksmall;
 	/** Number of hash functions in Bloom filter */
 	final int hashes;
@@ -1481,24 +1643,29 @@ public class BloomFilterCorrectorWrapper {
 	final int bits;
 	/** Whether to use reverse complement k-mers */
 	final boolean rcomp;
-	/** Require both reads in pair to pass filters */
+	/** Require both mates to pass depth filtering; junk filtering has its own pair rule. */
 	final boolean requireBothToPass;
 	/** Enable error correction */
 	final boolean ecc;
+	/** Enable the mutually exclusive unpaired local-edit path. */
 	final boolean localEdit;
-	final int localEditWindows,localEditMax,localEditStride;
-	long localInitialSkipped,localRolledBack;
-	private long localSubstitutions,localInsertions,localDeletions,localChangedReads,localCappedReads;
-	private long localProfileQueries,localProbeQueries,localVerificationQueries;
+	/** Probe-window count, sequential-edit limit and probe stride for each worker's engine. */
+	final int localEditWindows, localEditMax, localEditStride;
+	/** Engine-reported initial skips and rollbacks, accumulated after join. */
+	long localInitialSkipped, localRolledBack;
+	/** Engine-reported edit and changed/capped-read totals. */
+	private long localSubstitutions, localInsertions, localDeletions, localChangedReads, localCappedReads;
+	/** Engine-reported table-query totals by purpose. */
+	private long localProfileQueries, localProbeQueries, localVerificationQueries;
 	/** Mark bounded low-count k-mer runs instead of correcting. */
 	final boolean markErrors;
 	/** Enable overlap-based error correction */
 	final boolean ecco;
-	/** Enable read pair merging */
+	/** Enable temporary overlap merging before correction, followed by mate reconstruction. */
 	final boolean merge;
 	/** Test merged reads for k-mer correctness before accepting */
 	final boolean testMerge;
-	/** Filter out low-complexity junk sequences */
+	/** Apply the filter's low-support junk heuristic after depth filtering. */
 	final boolean tossjunk;
 	/** Enable pair-local corroboration for otherwise-junk pairs */
 	final boolean pairCorroborate;
@@ -1510,7 +1677,7 @@ public class BloomFilterCorrectorWrapper {
 	final int pairCorroborateSmoothWidth;
 	/** Minimum k-mer count required for retention */
 	final int minCount;
-	/** Fraction of k-mers that must meet minimum count threshold */
+	/** Requested supporting-window fraction delegated to the filter's depth policy. */
 	final float highCountFraction;
 	/** Use very strict overlap detection for read merging */
 	final boolean vstrict;
@@ -1520,7 +1687,7 @@ public class BloomFilterCorrectorWrapper {
 	final int junkWidth;
 	/** Fraction of available memory to use for filter construction */
 	float memFraction=1.0f;
-	/** Maximum filter load factor; crash if exceeded */
+	/** Maximum measured occupancy at depth two checked after table construction. */
 	float maxLoad=1.0f; //Crash if this is exceeded
 	
 	/** K-mer window width for testing merged read quality */

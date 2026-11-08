@@ -17,27 +17,24 @@ import structures.ByteBuilder;
 
 
 /**
- * 
- * Uses prime numbers for array lengths.
- * Uses atomic integers for concurrency control.
- * Allows an optional prefilter.
- * 
+ * Atomic prime-sized Bloom array with multi-lane hashing and optional prefilter gating.
+ * Occupancy describes physical main-table cells, not counts returned from the prefilter.
+ * No-argument occupancy methods cache their first scan; updates do not invalidate it.
+ * The first shutdown refreshes that cache for a completed table. Callers must finish
+ * writers before finalization and safely publish the table; shutdown neither stops
+ * writers nor prevents later updates. Later mutation can leave cached statistics stale.
+ * Positive-depth occupancy overloads rescan, but are not atomic snapshots during writes.
+ * The legacy decrement operation has an unresolved deletion/prefilter contract.
+ *
  * @author Brian Bushnell
  * @date Aug 17, 2012
- *
  */
-public final class KCountArray7MTA extends KCountArray {
+public final class KCountArray7MTA extends KCountArray{
 
-	/**
-	 * 
-	 */
-	private static final long serialVersionUID = 568264681638739631L;
+	/** Serialization identifier. */
+	private static final long serialVersionUID=568264681638739631L;
 	
-	/**
-	 * Test harness demonstrating basic increment and read operations.
-	 * Creates a KCountArray7MTA instance and performs increment/read cycles on test keys.
-	 * @param args Command line arguments: [cells] [bits] [hashes]
-	 */
+	/** Demonstrates basic increment and read operations for selected keys. */
 	public static void main(String[] args){
 		long cells=Long.parseLong(args[0]);
 		int bits=Integer.parseInt(args[1]);
@@ -79,15 +76,13 @@ public final class KCountArray7MTA extends KCountArray {
 	}
 	
 	/**
-	 * Constructs a multi-threaded atomic k-mer counting array with specified parameters.
-	 * Calculates optimal prime-sized cell counts and initializes atomic integer arrays.
-	 * Sets up locking mechanism if required based on cell bits and hash count.
+	 * Constructs a prime-partitioned atomic array with optional prefilter gating.
 	 *
-	 * @param cells_ Target number of cells (adjusted to prime multiples)
-	 * @param bits_ Bits per cell (determines maximum count value)
-	 * @param hashes_ Number of hash functions to use
-	 * @param prefilter_ Optional prefilter for two-stage counting
-	 * @param prefilterLimit_ Threshold for prefilter bypass
+	 * @param cells_ target number of cells, rounded down per partition to a prime
+	 * @param bits_ bits per packed count cell
+	 * @param hashes_ number of Bloom lanes
+	 * @param prefilter_ optional first-stage count array
+	 * @param prefilterLimit_ count below which the prefilter result is returned directly
 	 */
 	public KCountArray7MTA(long cells_, int bits_, int hashes_, KCountArray prefilter_, int prefilterLimit_){
 		super(getPrimeCells(cells_, bits_), bits_, getDesiredArrays(cells_, bits_));
@@ -117,14 +112,7 @@ public final class KCountArray7MTA extends KCountArray {
 		assert(hashes>0 && hashes<=hashMasks.length);
 	}
 	
-	/**
-	 * Calculates optimal number of arrays to avoid integer overflow in array sizing.
-	 * Ensures each array stays within Integer.MAX_VALUE word limit.
-	 *
-	 * @param desiredCells Target total number of cells
-	 * @param bits Bits per cell
-	 * @return Number of arrays needed to stay within size limits
-	 */
+	/** Returns the partition count needed to keep each AtomicIntegerArray addressable. */
 	private static int getDesiredArrays(long desiredCells, int bits){
 		
 		long words=Tools.max((desiredCells*bits+31)/32, minArrays);
@@ -137,14 +125,7 @@ public final class KCountArray7MTA extends KCountArray {
 //		return Tools.max(arrays, Data.LOGICAL_PROCESSORS*4);
 	}
 	
-	/**
-	 * Adjusts cell count to use prime numbers for better hash distribution.
-	 * Calculates prime number at or below optimal cells per array, then multiplies by array count.
-	 *
-	 * @param desiredCells Target number of cells
-	 * @param bits Bits per cell
-	 * @return Prime-adjusted total cell count
-	 */
+	/** Returns the largest prime-per-partition cell count not exceeding the target. */
 	private static long getPrimeCells(long desiredCells, int bits){
 		
 		int arrays=getDesiredArrays(desiredCells, bits);
@@ -210,6 +191,7 @@ public final class KCountArray7MTA extends KCountArray {
 		return min;
 	}
 	
+	/** Returns the four left-neighbor count sum, clamped at Integer.MAX_VALUE. */
 	@Override
 	public final int readLeft(final long key, final int k, boolean makeCanonical){
 		assert(k<=32);
@@ -223,9 +205,11 @@ public final class KCountArray7MTA extends KCountArray {
 		final int c=read(makeCanonical ? makeCanonical2(ckey, k) : ckey);
 		final int g=read(makeCanonical ? makeCanonical2(gkey, k) : gkey);
 		final int t=read(makeCanonical ? makeCanonical2(tkey, k) : tkey);
-		return a+c+g+t;
+		final long sum=(long)a+c+g+t;
+		return sum>Integer.MAX_VALUE ? Integer.MAX_VALUE : (int)sum;
 	}
 	
+	/** Returns the four right-neighbor count sum, clamped at Integer.MAX_VALUE. */
 	@Override
 	public final int readRight(final long key, final int k, boolean makeCanonical){
 		assert(k<=32);
@@ -239,7 +223,8 @@ public final class KCountArray7MTA extends KCountArray {
 		final int c=read(makeCanonical ? makeCanonical2(ckey, k) : ckey);
 		final int g=read(makeCanonical ? makeCanonical2(gkey, k) : gkey);
 		final int t=read(makeCanonical ? makeCanonical2(tkey, k) : tkey);
-		return a+c+g+t;
+		final long sum=(long)a+c+g+t;
+		return sum>Integer.MAX_VALUE ? Integer.MAX_VALUE : (int)sum;
 	}
 	
 	@Override
@@ -275,12 +260,7 @@ public final class KCountArray7MTA extends KCountArray {
 		return rvec;
 	}
 	
-	/**
-	 * Reads count from a pre-hashed key using bit operations to locate cell.
-	 * Extracts array number, cell index, and bit shift from the hashed key.
-	 * @param key Pre-hashed key
-	 * @return Count value stored at the key's location
-	 */
+	/** Returns the packed count for an already lane-hashed key. */
 	private final int readHashed(long key){
 		if(verbose){System.err.print("Reading hashed key "+key);}
 //		System.out.println("key="+key);
@@ -377,6 +357,19 @@ public final class KCountArray7MTA extends KCountArray {
 	}
 	*/
 	
+	/**
+	 * Legacy primitive-lane subtraction; its public deletion contract remains unresolved.
+	 * TODO: Resolve deletion semantics and the historical prefilter assertion before relying on this operation.
+	 * When enabled, the existing assertion requires a nonnull prefilter, although this method neither
+	 * consults nor changes it. That assertion is unresolved, not a validated precondition.
+	 * For positive amounts the body subtracts from main-table lanes with per-word CAS,
+	 * clamping each cell at zero. It does not take the increment stripe lock or refresh
+	 * cached occupancy. Reads below the prefilter threshold may still return unchanged
+	 * prefilter counts. Conservative increments, saturation and collisions prevent a
+	 * general inverse-of-insertion guarantee; concurrent multi-lane deletion is not atomic.
+	 * @param rawKey Primitive key whose main-table lanes are visited
+	 * @param amt Subtraction amount; valid public deletion semantics/range remain unresolved
+	 */
 	@Override
 	public final void decrement(final long rawKey, int amt){
 		if(verbose){System.err.println("\n*** Decrementing raw key "+rawKey+" ***");}
@@ -421,14 +414,7 @@ public final class KCountArray7MTA extends KCountArray {
 		return incrementAndReturnUnincrementedUnlocked(rawKey, rawKey2, incr);
 	}
 	
-	/**
-	 * Thread-safe increment using locks to ensure consistency across hash functions.
-	 * Reads current minimum, calculates new target, and updates all positions atomically.
-	 *
-	 * @param rawKey Raw k-mer key to increment
-	 * @param incr Amount to increment by
-	 * @return Count value before incrementing
-	 */
+	/** Raises every primitive-key lane to the locked saturated target and returns the previous minimum. */
 	private int incrementAndReturnUnincrementedLocked(final long rawKey, final int incr){
 		assert(incr>0) : incr;
 		final Lock lock=getLock(rawKey);
@@ -452,6 +438,7 @@ public final class KCountArray7MTA extends KCountArray {
 		return value;
 	}
 
+	/** Raises every dual-hash lane to the locked saturated target and returns the previous minimum. */
 	private int incrementAndReturnUnincrementedLocked(final long rawKey, final long rawKey2, final int incr){
 		assert(incr>0) : incr;
 		final Lock lock=getLock(rawKey);
@@ -472,14 +459,7 @@ public final class KCountArray7MTA extends KCountArray {
 		return value;
 	}
 	
-	/**
-	 * Unlocked increment using compare-and-swap operations for each hash position.
-	 * Returns minimum of pre-increment values across all hash positions.
-	 *
-	 * @param rawKey Raw k-mer key to increment
-	 * @param incr Amount to increment by
-	 * @return Minimum count value before incrementing across all positions
-	 */
+	/** Increments every primitive-key lane with CAS and returns the previous minimum. */
 	private int incrementAndReturnUnincrementedUnlocked(final long rawKey, final int incr){
 		long key2=rawKey;
 		int value=maxValue;
@@ -493,6 +473,7 @@ public final class KCountArray7MTA extends KCountArray {
 		return value;
 	}
 
+	/** Increments every dual-hash lane with CAS and returns the previous minimum. */
 	private int incrementAndReturnUnincrementedUnlocked(final long rawKey, final long rawKey2, final int incr){
 		long key=hash(rawKey, 0);
 		int value=incrementHashedLocalAndReturnUnincremented(key, incr);
@@ -509,8 +490,10 @@ public final class KCountArray7MTA extends KCountArray {
 		return hash(seed, row);
 	}
 
-	/** Package-private diagnostic hook for verifying lane independence. */
-	long hashForLane(final long rawKey, final long rawKey2, final int row){
+	/** Replays row 0 through {@code row} with raw primary and secondary inputs for
+	 * diagnostics. Valid rows satisfy 0&lt;={@code row}&lt;{@code hashes}; the returned
+	 * value is the mixed long before cell mapping and no table state is changed. */
+	public final long hashForLane(final long rawKey, final long rawKey2, final int row){
 		assert(row>=0 && row<hashes) : row;
 		long key=hash(rawKey, 0);
 		for(int i=1; i<=row; i++){key=nextHash(key, rawKey2, i);}
@@ -568,23 +551,32 @@ public final class KCountArray7MTA extends KCountArray {
 		return sb;
 	}
 	
+	/** Returns cached positive main-cell occupancy divided by logical cell capacity.
+	 * Shares the lifecycle and post-mutation limitations of {@link #cellsUsed()}. */
 	@Override
 	public double usedFraction(){return cellsUsed()/(double)cells;}
 	
+	/** Rescans main cells at or above a positive depth and divides by logical capacity.
+	 * Does not consult or refresh the no-argument cache; not a snapshot during writes. */
 	@Override
 	public double usedFraction(int mindepth){return cellsUsed(mindepth)/(double)cells;}
 	
+	/**
+	 * Rescans main-table cells at or above the requested positive depth on every call.
+	 * Ignores prefilter-visible counts and does not consult or update the no-argument
+	 * occupancy cache. Stop writers for a stable count; atomic word reads do not make
+	 * the multi-array scan a coherent snapshot during mutation.
+	 * @param mindepth Positive inclusive minimum stored count
+	 * @return Observed main-table cells meeting the threshold
+	 */
 	@Override
 	public long cellsUsed(int mindepth){
 		return cellsUsedMT(mindepth);
 	}
 	
-	/**
-	 * Multi-threaded implementation for counting used cells.
-	 * Creates one counting thread per array for parallel processing.
-	 * @param mindepth Minimum count threshold
-	 * @return Number of cells with counts ≥ mindepth
-	 */
+	/** Rescans cells at or above a positive threshold with one worker per array.
+	 * Joins scan workers before returning; callers separately coordinate writers.
+	 * Does not update cached occupancy or inspect the prefilter. */
 	public long cellsUsedMT(int mindepth){
 //		assert(false) : matrix.length;
 		ArrayList<CountUsedThread> list=new ArrayList<CountUsedThread>(matrix.length);
@@ -596,10 +588,9 @@ public final class KCountArray7MTA extends KCountArray {
 		long x=0;
 		for(CountUsedThread ctt : list){
 			while(ctt.getState()!=State.TERMINATED){
-				try {
+				try{
 					ctt.join();
-				} catch (InterruptedException e) {
-					// TODO Auto-generated catch block
+				}catch(InterruptedException e){
 					e.printStackTrace();
 				}
 			}
@@ -608,14 +599,9 @@ public final class KCountArray7MTA extends KCountArray {
 		return x;
 	}
 	
-	/** Worker thread for counting cells with counts above threshold.
-	 * Processes a single AtomicIntegerArray to count cells meeting criteria. */
+	/** Counts cells at or above a positive threshold in one AtomicIntegerArray row. */
 	private class CountUsedThread extends Thread{
-		/**
-		 * Constructs counting thread for specified array and threshold.
-		 * @param a_ AtomicIntegerArray to process
-		 * @param mindepth_ Minimum count threshold
-		 */
+		/** Binds this worker to one row and a positive count threshold. */
 		public CountUsedThread(AtomicIntegerArray a_, int mindepth_){
 			array=a_;
 			mindepth=mindepth_;
@@ -649,15 +635,20 @@ public final class KCountArray7MTA extends KCountArray {
 			}
 			count=temp;
 		}
-		/** Array to process for cell counting */
+		/** Row to scan for cell counting. */
 		private final AtomicIntegerArray array;
-		/** Minimum count threshold for inclusion */
+		/** Positive count threshold for inclusion. */
 		private final int mindepth;
-		/** Result count of cells meeting threshold criteria */
+		/** Number of cells that met the threshold. */
 		public long count;
 	}
 	
 	
+	/** Applies one raw diagnostic mix step without rotation or lane replay.
+	 * Row 0 performs an extra mix; valid rows follow {@code hashMasks.length}, not
+	 * the live {@code hashes} count. The returned value is not a cell index. */
+	public final long diagnosticHash(final long key, final int row){return hash(key, row);}
+
 	@Override
 	final long hash(long key, int row){
 		int cell=(int)((Long.MAX_VALUE&key)%(hashArrayLength-1));
@@ -689,12 +680,8 @@ public final class KCountArray7MTA extends KCountArray {
 //		return code;
 //	}
 	
-	/**
-	 * @param i
-	 * @param j
-	 * @return
-	 */
-	private static long[][] makeMasks(int rows, int cols) {
+	/** Returns randomized hash masks for lane-specific key mixing. */
+	private static long[][] makeMasks(int rows, int cols){
 		
 		long seed;
 		synchronized(KCountArray7MTA.class){
@@ -713,13 +700,8 @@ public final class KCountArray7MTA extends KCountArray {
 		return r;
 	}
 	
-	/**
-	 * Fills hash mask array with random values having specific bit count properties.
-	 * Ensures exactly 16 bits set in each 32-bit half and avoids hash collisions.
-	 * @param r Array to fill with hash masks
-	 * @param randy Random number generator
-	 */
-	private static void fillMasks(long[] r, Random randy) {
+	/** Fills a hash-mask row with 16-bit half-balanced masks and unique low/high slots. */
+	private static void fillMasks(long[] r, Random randy){
 //		for(int i=0; i<r.length; i++){
 //			long x=0;
 //			while(Long.bitCount(x&0xFFFFFFFF)!=16){
@@ -770,9 +752,17 @@ public final class KCountArray7MTA extends KCountArray {
 	}
 	
 	
+	/** No-op: construction initializes storage; this does not reset finalization or occupancy. */
 	@Override
 	public void initialize(){}
 	
+	/**
+	 * Refreshes cached positive-cell occupancy on the first call, then marks it finalized.
+	 * Later calls do not rescan, even after mutation. The caller must stop/join writers
+	 * first; this method does not stop them or make the table immutable. Subsequent
+	 * updates can change readable counts while leaving cached occupancy stale; use a
+	 * positive-depth scan for an uncached observation, with writers stopped for stability.
+	 */
 	@Override
 	public void shutdown(){
 		if(finished){return;}
@@ -790,25 +780,13 @@ public final class KCountArray7MTA extends KCountArray {
 		}
 	}
 	
-	/**
-	 * Selects appropriate lock for a given key to prevent concurrent modification.
-	 * Maps key to one of NUM_LOCKS available locks using key hash.
-	 * @param rawKey Key to determine lock for
-	 * @return Lock instance for the key
-	 */
+	/** Selects the striped lock for a raw primitive key. */
 	private final Lock getLock(long rawKey){
 		final Lock lock=locks[(int)((rawKey&Long.MAX_VALUE)%(NUM_LOCKS))];
 		return lock;
 	}
 	
-	/**
-	 * Atomically increments count at hashed location using compare-and-swap.
-	 * Handles bit packing/unpacking and ensures atomic updates without overflow.
-	 *
-	 * @param key Pre-hashed key location
-	 * @param amt Amount to increment by
-	 * @return New count value after increment
-	 */
+	/** Increments one lane's packed cell with CAS and returns the new saturated value. */
 	private int incrementHashedLocal(long key, int amt){
 		final int num=(int)(key&arrayMask);
 		final AtomicIntegerArray array=matrix[num];
@@ -847,14 +825,7 @@ public final class KCountArray7MTA extends KCountArray {
 //		return value;
 //	}
 	
-	/**
-	 * Atomically increments count to reach at least the specified minimum.
-	 * Only increments if current value is below target, ensuring minimum threshold.
-	 *
-	 * @param key Pre-hashed key location
-	 * @param newMin Target minimum value
-	 * @return Final count value (original if already ≥ newMin, otherwise incremented)
-	 */
+	/** Raises one lane's packed cell by one when it is below the locked target. */
 	private int incrementHashedLocal_toAtLeast(long key, final int newMin){
 		assert(newMin<=maxValue);
 		final int num=(int)(key&arrayMask);
@@ -875,14 +846,7 @@ public final class KCountArray7MTA extends KCountArray {
 		return value;
 	}
 	
-	/**
-	 * Atomically increments count and returns the original value before increment.
-	 * Uses compare-and-swap to ensure thread-safe operation with overflow protection.
-	 *
-	 * @param key Pre-hashed key location
-	 * @param incr Amount to increment by
-	 * @return Original count value before incrementing
-	 */
+	/** Increments one lane's packed cell with CAS and returns its previous value. */
 	private int incrementHashedLocalAndReturnUnincremented(long key, int incr){
 		assert(incr>=0);
 		final int num=(int)(key&arrayMask);
@@ -922,14 +886,7 @@ public final class KCountArray7MTA extends KCountArray {
 //		return value;
 //	}
 	
-	/**
-	 * Atomically sets count to at least the specified minimum and returns original value.
-	 * Only modifies value if current count is below target minimum.
-	 *
-	 * @param key Pre-hashed key location
-	 * @param newMin Target minimum count
-	 * @return Original count before any modification
-	 */
+	/** Raises one lane's packed cell to a target and returns its previous value. */
 	private int incrementHashedLocalAndReturnUnincremented_toAtLeast(long key, int newMin){
 		assert(newMin>0 && newMin<=maxValue) : newMin;
 		final int num=(int)(key&arrayMask);
@@ -950,14 +907,7 @@ public final class KCountArray7MTA extends KCountArray {
 		return value;
 	}
 	
-	/**
-	 * Atomically decrements count at hashed location with underflow protection.
-	 * Uses compare-and-swap to ensure count never goes below zero.
-	 *
-	 * @param key Pre-hashed key location
-	 * @param amt Amount to decrement by
-	 * @return New count value after decrement (minimum 0)
-	 */
+	/** Decrements one lane's packed cell with CAS and clamps it at zero. */
 	private int decrementHashedLocal(long key, int amt){
 		final int num=(int)(key&arrayMask);
 		final AtomicIntegerArray array=matrix[num];
@@ -977,9 +927,12 @@ public final class KCountArray7MTA extends KCountArray {
 	}
 	
 	/**
-	 * Returns cached count of used cells, computing if not yet calculated.
-	 * Thread-safe lazy initialization of cell usage statistics.
-	 * @return Number of cells with count ≥ 1
+	 * Returns the cached number of positive main-table cells, scanning lazily if unset.
+	 * An early call can cache a partial construction state. Updates never invalidate
+	 * this cache; the first shutdown explicitly refreshes it, but later shutdown calls
+	 * do not. usedFraction() and inherited no-depth summaries/estimates share it.
+	 * For a fresh scan use {@link #cellsUsed(int)} with depth1; neither scan provides
+	 * a coherent snapshot while writers mutate the table. Prefilter cells are excluded.
 	 */
 	public long cellsUsed(){
 		if(cellsUsed<0){
@@ -1002,11 +955,7 @@ public final class KCountArray7MTA extends KCountArray {
 		prefilter=null;
 	}
 	
-	/**
-	 * Sets random seed for hash mask generation.
-	 * Uses provided seed or generates random seed if negative value passed.
-	 * @param seed Random seed (negative values trigger random seed generation)
-	 */
+	/** Sets the hash-mask seed, or chooses a random seed when {@code seed} is negative. */
 	public static synchronized void setSeed(long seed){
 		if(seed>=0){SEEDMASK=seed;}
 		else{
@@ -1015,46 +964,46 @@ public final class KCountArray7MTA extends KCountArray {
 		}
 	}
 	
-	/** Flag indicating whether shutdown has been completed */
+	/** Whether the first shutdown finalized cached occupancy; not a mutation guard. */
 	private boolean finished=false;
 	
-	/** Cached count of cells with non-zero values (-1 if not calculated) */
+	/** Cached positive main-cell count, or -1 before scanning; updates do not invalidate it. */
 	private long cellsUsed=-1;
-	/** Array of atomic integer arrays storing the actual count data */
+	/** Atomic packed-count storage rows. */
 	private final AtomicIntegerArray[] matrix;
-	/** Number of hash functions used for k-mer placement */
+	/** Number of Bloom lanes. */
 	private final int hashes;
-	/** Number of 32-bit words in each array segment */
+	/** Number of 32-bit words in each row. */
 	private final int wordsPerArray;
-	/** Number of cells stored in each array segment */
+	/** Number of packed cells addressed by each row. */
 	private final long cellsPerArray;
-	/** Modulus for cell indexing within arrays */
+	/** Row-local cell-address modulus. */
 	private final long cellMod;
-	/** Pre-computed random masks for hash function operations */
+	/** Precomputed lane-mixing masks. */
 	private final long[][] hashMasks=makeMasks(8, hashArrayLength);
-	/** Threshold for prefilter bypass (0 if no prefilter) */
+	/** Prefilter result below which the main table is bypassed. */
 	private final int prefilterLimit;
 	
-	/** Bits used for hash cell indexing (value: 6) */
+	/** Bits used for hash-mask slot indexing. */
 	private static final int hashBits=6;
-	/** Length of hash arrays (2^hashBits = 64) */
+	/** Number of hash masks per row. */
 	private static final int hashArrayLength=1<<hashBits;
-	/** Mask for hash cell selection (hashArrayLength - 1) */
+	/** Mask for hash-mask slot selection. */
 	private static final int hashCellMask=hashArrayLength-1;
 	
-	/** Optional prefilter array for two-stage counting efficiency */
+	/** Optional first-stage count array. */
 	private KCountArray prefilter;
 	
-	/** Whether to use locks for higher precision increments */
+	/** Whether primitive-key increments raise every lane under a striped lock. */
 	private final transient boolean useLocks;
-	/** Array of locks for thread-safe increment operations */
+	/** Striped locks for multi-lane primitive-key updates. */
 	private final transient Lock[] locks;
-	/** Number of locks available for concurrent access control (value: 1999) */
+	/** Number of striped locks. */
 	private static final transient int NUM_LOCKS=1999;
 
-	/** Thread-safe counter for hash mask seed generation */
+	/** Seed counter for mask generation. */
 	private static long counter=0;
-	/** Seed mask for randomizing hash mask generation */
+	/** User-configurable seed xor mask. */
 	private static long SEEDMASK=0;
 	
 }

@@ -9,7 +9,7 @@ import stream.FastaReadInputStream;
 
 /** Ensures failed input passes cannot masquerade as complete prefilter counts.
  * @author Brian Bushnell, Fischl */
-public final class ReadCounterFailureTest {
+public final class ReadCounterFailureTest{
 
 	/** Covers every primary/extra pass, checked/runtime exceptions and Errors. */
 	public static void main(final String[] args){
@@ -74,7 +74,7 @@ public final class ReadCounterFailureTest {
 	/*--------------------------------------------------------------*/
 
 	/** Isolates makeKca's failure contract from filesystem and streamer behavior. */
-	private static final class InjectedCounter extends ReadCounter {
+	private static final class InjectedCounter extends ReadCounter{
 
 		/** Selects an input-call ordinal and the exception family to inject there. */
 		InjectedCounter(final int failAt_, final int kind){

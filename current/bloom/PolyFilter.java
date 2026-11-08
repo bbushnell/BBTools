@@ -37,13 +37,26 @@ import tracker.EntropyTracker;
 import tracker.ReadStats;
 
 /**
- * Filters reads with artificial homopolymers.
- * 
+ * Filters reads dominated by synthetic polymer sequence, optionally using a Bloom filter
+ * built from the same input or from supplied references to identify low-depth sequence.
+ *
+ * The polymer tests are tiered. Very long polymer windows, or exact/fuzzy polymer k-mers
+ * when kpoly is enabled, reject a read immediately. Medium-length polymer windows reject
+ * only when they coincide with low entropy, a high low-count Bloom-filter fraction, or low
+ * average quality. Separate strict entropy, quality and depth thresholds can reject reads
+ * without polymer support.
+ *
+ * Paired reads are evaluated as an original pair: either mate failing rejects both mates,
+ * and surviving pairs may still be rejected after end trimming if either retained mate is
+ * shorter than the post-trim length rule. Discarded reads can be written through outbad.
+ *
+ * Empty inputs report finite zero percentages by using local denominator clamps for
+ * reporting only; the underlying read and base counters remain unchanged.
+ *
  * @author Brian Bushnell
  * @date August 21, 2024
- *
  */
-public class PolyFilter implements Accumulator<PolyFilter.ProcessThread> {
+public class PolyFilter implements Accumulator<PolyFilter.ProcessThread>{
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
@@ -68,8 +81,10 @@ public class PolyFilter implements Accumulator<PolyFilter.ProcessThread> {
 	}
 	
 	/**
-	 * Constructor.
-	 * @param args Command line arguments
+	 * Parses command-line arguments, expands paired filename templates, validates primary and
+	 * rejected-output paths, builds the optional polymer-kmer set and constructs the optional
+	 * Bloom filter used by the depth tier.
+	 * @param args Command-line arguments
 	 */
 	public PolyFilter(String[] args){
 		
@@ -129,11 +144,11 @@ public class PolyFilter implements Accumulator<PolyFilter.ProcessThread> {
 				assert(bits_>0);
 			}
 			
-			else if(a.equals("kpoly") || a.equals("kset") || a.equals("polyk")) {
+			else if(a.equals("kpoly") || a.equals("kset") || a.equals("polyk")){
 				kpoly=Integer.parseInt(b);
-			}else if(a.equals("hdist")) {
+			}else if(a.equals("hdist")){
 				hdist=Integer.parseInt(b);
-			}else if(a.equals("mm") || a.equals("maskmiddle")) {
+			}else if(a.equals("mm") || a.equals("maskmiddle")){
 				maskMiddle=Parse.parseBoolean(b);
 			}
 			
@@ -335,12 +350,14 @@ public class PolyFilter implements Accumulator<PolyFilter.ProcessThread> {
 		if(!Tools.testForDuplicateFiles(true, in1, in2, out1, out2, outbad1, outbad2)){
 			throw new RuntimeException("\nSome file names were specified multiple times.\n");
 		}
+		//Separate mate writers require ordered batches.
+		if(out2!=null || outbad2!=null){ordered=true;}
 		
 		//Create output FileFormat objects
 		ffout1=FileFormat.testOutput(out1, FileFormat.FASTQ, extout, true, overwrite, append, ordered);
 		ffout2=FileFormat.testOutput(out2, FileFormat.FASTQ, extout, true, overwrite, append, ordered);
 		
-		//Create output FileFormat objects
+		//Create rejected-output FileFormat objects
 		ffoutm1=FileFormat.testOutput(outbad1, FileFormat.FASTQ, extout, true, overwrite, append, ordered);
 		ffoutm2=FileFormat.testOutput(outbad2, FileFormat.FASTQ, extout, true, overwrite, append, ordered);
 
@@ -348,7 +365,7 @@ public class PolyFilter implements Accumulator<PolyFilter.ProcessThread> {
 		ffin1=FileFormat.testInput(in1, FileFormat.FASTQ, extin, true, true);
 		ffin2=FileFormat.testInput(in2, FileFormat.FASTQ, extin, true, true);
 		
-		if(kpoly>0) {
+		if(kpoly>0){
 			kpoly=Tools.min(kpoly, 32);
 			midMask=makeMidMask(maskMiddle, kpoly);
 			kmerMask=(kpoly==32 ? -1L : ~((-1L)<<(2*kpoly)));//k==32 fills all 64 bits: mask must be a no-op (-1L). 0 would zero every kmer, silently disabling kmerScan.
@@ -396,8 +413,10 @@ public class PolyFilter implements Accumulator<PolyFilter.ProcessThread> {
 	}
 	
 	/**
-	 * Adds files to a list, parsing comma-separated file paths or clearing the list.
-	 * @param b File path string (single file or comma-separated list) or null to clear
+	 * Adds reference paths to a target list. A null value clears the list, an existing literal
+	 * path is added as one entry even if it contains commas, and any other value is split on
+	 * commas before insertion.
+	 * @param b File path string, comma-separated path list, or null to clear
 	 * @param list List to add files to or clear
 	 */
 	private static void addFiles(String b, ArrayList<String> list){
@@ -418,8 +437,8 @@ public class PolyFilter implements Accumulator<PolyFilter.ProcessThread> {
 	 * @param defaultFalse Value to return if parsing as false
 	 * @return Parsed integer or appropriate default value
 	 */
-	private static final int parseIntOrBool(String b, int defaultTrue, int defaultFalse) {
-		if(b==null || Tools.startsWithLetter(b)) {
+	private static final int parseIntOrBool(String b, int defaultTrue, int defaultFalse){
+		if(b==null || Tools.startsWithLetter(b)){
 			boolean x=Parse.parseBoolean(b);
 			return (x ? defaultTrue : defaultFalse);
 		}
@@ -434,8 +453,8 @@ public class PolyFilter implements Accumulator<PolyFilter.ProcessThread> {
 	 * @param k K-mer length
 	 * @return Bit mask with middle bases zeroed, or -1L if no masking
 	 */
-	public static long makeMidMask(boolean maskMiddle, int k) {
-		if(!maskMiddle) {return -1L;}
+	public static long makeMidMask(boolean maskMiddle, int k){
+		if(!maskMiddle){return -1L;}
 		int bitsPerBase=2;
 		int midMaskLen=2-(k&1);
 		assert(k>midMaskLen+1);
@@ -446,65 +465,67 @@ public class PolyFilter implements Accumulator<PolyFilter.ProcessThread> {
 	}
 	
 	/**
-	 * Creates a hash set of k-mers representing homopolymers with allowed mutations.
-	 * Generates all k-mers for each polymer base type within hamming distance.
+	 * Creates packed polymer k-mers and recursive hdist mutants for each configured base.
+	 * Each candidate is masked with midMask as it is inserted, allowing the middle base or
+	 * pair of bases to vary when maskMiddle is enabled.
 	 *
 	 * @param polymers Array of polymer bases to generate k-mers for
 	 * @param k K-mer length
-	 * @param hdist Maximum hamming distance for mutations
-	 * @param midMask Bit mask for middle-masking k-mers
-	 * @return Hash set containing all polymer k-mer variants
+	 * @param hdist Maximum Hamming distance for mutations
+	 * @param midMask Bit mask applied before insertion
+	 * @return Hash set containing masked polymer k-mer variants
 	 */
-	public static LongHashSet makeSet(byte[] polymers, int k, int hdist, long midMask) {
-		if(polymers==null || polymers.length<1) {return null;}
+	public static LongHashSet makeSet(byte[] polymers, int k, int hdist, long midMask){
+		if(polymers==null || polymers.length<1){return null;}
 		LongHashSet set=new LongHashSet(1024);
-		for(byte b : polymers) {
+		for(byte b : polymers){
 			long x=AminoAcid.baseToNumber[b];
 			long kmer=0;
-			for(int i=0; i<k; i++) {kmer=((kmer<<2)|x);}
+			for(int i=0; i<k; i++){kmer=((kmer<<2)|x);}
 			addToSet(kmer, k, midMask, hdist, set);
 		}
 		return set;
 	}
 	
 	/**
-	 * Recursively adds a k-mer and its mutations to the homopolymer set.
-	 * Generates all possible single-base mutations within specified hamming distance.
+	 * Recursively adds a k-mer and every mutant reachable within the remaining Hamming
+	 * distance. Duplicate paths are tolerated and collapse in the LongHashSet.
 	 *
 	 * @param kmer K-mer to add and mutate
 	 * @param k K-mer length
-	 * @param midMask Bit mask for middle-masking
-	 * @param hdist Remaining hamming distance for mutations
+	 * @param midMask Bit mask applied before insertion
+	 * @param hdist Remaining Hamming distance for mutations
 	 * @param set Hash set to add k-mers to
 	 */
 	public static void addToSet(final long kmer, final long k, final long midMask, final int hdist,
 			final LongHashSet set){
 		set.add(kmer&midMask);
-		if(hdist<1) {return;}
+		if(hdist<1){return;}
 		
-		for(int i=0; i<k; i++) {
+		for(int i=0; i<k; i++){
 			final int shift=2*i;
 			final long masked=kmer&~(3L<<shift);
-			for(long x=0; x<4; x++) {
+			for(long x=0; x<4; x++){
 				final long mutant=(masked|(x<<shift))&midMask;
-				if(mutant!=kmer) {addToSet(mutant, k, midMask, hdist-1, set);}
+				if(mutant!=kmer){addToSet(mutant, k, midMask, hdist-1, set);}
 			}
 		}
 	}
 	
 	/**
-	 * Scans a read for k-mers matching the homopolymer set.
-	 * Uses rolling k-mer generation with middle-masking for fuzzy matching.
+	 * Scans a read for an unbroken valid k-mer that matches the masked polymer-mutant set.
+	 * Undefined bases reset the valid-length counter; the rolling bits are left in place and
+	 * shifted past the mask before a later valid run can reach k bases.
 	 *
 	 * @param r Read to scan for homopolymer k-mers
 	 * @param k K-mer length
-	 * @param kmerMask Bit mask for k-mer bounds
-	 * @param midMask Bit mask for middle-masking
+	 * @param kmerMask Bit mask retaining the low 2*k bits
+	 * @param midMask Bit mask applied before the set lookup
 	 * @param set Hash set of target homopolymer k-mers
 	 * @return true if any k-mer in the read matches the homopolymer set
 	 */
-	public static boolean kmerScan(Read r, int k, long kmerMask, long midMask, LongHashSet set) {
-		if(r==null || r.length()<k) {return false;}
+	public static boolean kmerScan(Read r, int k, long kmerMask, long midMask, LongHashSet set){
+		if(r==null || r.length()<k){return false;}
 		final byte[] bases=r.bases;
 		long kmer=0;
 		int len=0;
@@ -522,7 +543,10 @@ public class PolyFilter implements Accumulator<PolyFilter.ProcessThread> {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Create read streams and process all data */
+	/**
+	 * Opens the shared input streamer and the optional kept and rejected writers, runs worker
+	 * threads to completion, closes all streams, writes metadata and emits run counters.
+	 */
 	public void process(Timer t){
 		
 		//Turn off read validation in the input threads to increase speed
@@ -581,41 +605,45 @@ public class PolyFilter implements Accumulator<PolyFilter.ProcessThread> {
 		//Reset read validation
 		Read.VALIDATE_IN_CONSTRUCTOR=vic;
 		
-		//Report timing and results
+		//Report timing and results with finite percentages for empty inputs.
 		t.stop();
 		t2.stop("\nFiltering Time:  \t\t");
+		final long readsDenom=Tools.max(1, readsProcessed);
+		final long basesDenom=Tools.max(1, basesProcessed);
 		outstream.println(Tools.timeReadsBasesProcessed(t, readsProcessed, basesProcessed, 8));
-		outstream.println(Tools.readsBasesOut(readsProcessed, basesProcessed, readsOut, basesOut, 8, true));
-		if(merge) {
-			outstream.println(Tools.numberPercent("Merged Reads:", readsMerged, readsMerged*100.0/readsProcessed, 4, 8));
+		outstream.println(Tools.readsBasesOut(readsDenom, basesDenom, readsOut, basesOut, 8, true));
+		if(merge){
+			outstream.println(Tools.numberPercent("Merged Reads:", readsMerged, readsMerged*100.0/readsDenom, 4, 8));
 		}
-		if(polymers!=null && polymers.length>0) {
-			for(int i=0; i<polymers.length; i++) {
+		if(polymers!=null && polymers.length>0){
+			for(int i=0; i<polymers.length; i++){
 				final String b=Character.toString((char)polymers[i]);
 				final long x=polymerFlagged[i];
-				outstream.println(Tools.numberPercent("Poly-"+b+" Reads:", x, x*100.0/readsProcessed, 4, 8));
+				outstream.println(Tools.numberPercent("Poly-"+b+" Reads:", x, x*100.0/readsDenom, 4, 8));
 			}
 		}
-		if(entropyCutoff2>0) {
-			outstream.println(Tools.numberPercent("Low Entropy Reads:", entropyFlagged, entropyFlagged*100.0/readsProcessed, 4, 8));
+		if(entropyCutoff2>0){
+			outstream.println(Tools.numberPercent("Low Entropy Reads:", entropyFlagged, entropyFlagged*100.0/readsDenom, 4, 8));
 		}
-		if(qualityCutoff2>0) {
-			outstream.println(Tools.numberPercent("Low Quality Reads:", qualityFlagged, qualityFlagged*100.0/readsProcessed, 4, 8));
+		if(qualityCutoff2>0){
+			outstream.println(Tools.numberPercent("Low Quality Reads:", qualityFlagged, qualityFlagged*100.0/readsDenom, 4, 8));
 		}
-		if(filter!=null && lowCountFraction2<=1) {
-			outstream.println(Tools.numberPercent("Low Depth Reads:", depthFlagged, depthFlagged*100.0/readsProcessed, 4, 8));
+		if(filter!=null && lowCountFraction2<=1){
+			outstream.println(Tools.numberPercent("Low Depth Reads:", depthFlagged, depthFlagged*100.0/readsDenom, 4, 8));
 		}
-		if(trimLeft>0 || trimRight>0) {
-			outstream.println(Tools.numberPercent("Trimmed Reads:", readsTrimmed, readsTrimmed*100.0/readsProcessed, 4, 8));
+		if(trimLeft>0 || trimRight>0){
+			outstream.println(Tools.numberPercent("Trimmed Reads:", readsTrimmed, readsTrimmed*100.0/readsDenom, 4, 8));
 		}
 		{
 			lastReadsOut=readsOut;
 			lastReadsRemoved=readsProcessed-readsOut;
 			lastBasesOut=basesOut;
 			lastBasesRemoved=basesProcessed-basesOut;
+			lastReadsPolymerRemoved=readsPolymerRemoved;
+			lastBasesPolymerRemoved=basesPolymerRemoved;
 			
 			long x=readsProcessed-readsOut;
-			outstream.println(Tools.numberPercent("Total Discards:", x, x*100.0/readsProcessed, 4, 8));
+			outstream.println(Tools.numberPercent("Total Discards:", x, x*100.0/readsDenom, 4, 8));
 		}
 		if(loglogOut!=null){
 			outstream.println("Unique "+loglogOut.k+"-mers out:     \t"+loglogOut.cardinality());
@@ -629,7 +657,10 @@ public class PolyFilter implements Accumulator<PolyFilter.ProcessThread> {
 		}
 	}
 	
-	/** Spawn process threads */
+	/**
+	 * Starts one ProcessThread per shared worker slot and folds their counters through this
+	 * instance's Accumulator callback.
+	 */
 	private void spawnThreads(final Streamer cris, final Writer ros, final Writer rosb){
 		
 		//Do anything necessary prior to processing
@@ -651,14 +682,21 @@ public class PolyFilter implements Accumulator<PolyFilter.ProcessThread> {
 		
 	}
 	
+	/**
+	 * Merges per-worker counters after ThreadWaiter has joined a worker. Cause counters are
+	 * read-side counts, so a rejected pair can increment one cause for each mate even though
+	 * routing happens once per original pair.
+	 */
 	@Override
 	public final void accumulate(ProcessThread pt){
-		synchronized(pt) {
+		synchronized(pt){
 			readsProcessed+=pt.readsProcessedT;
 			basesProcessed+=pt.basesProcessedT;
 			readsMerged+=pt.readsMergedT;
 			readsTrimmed+=pt.readsTrimmedT;
 			basesTrimmed+=pt.basesTrimmedT;
+			readsPolymerRemoved+=pt.readsPolymerRemovedT;
+			basesPolymerRemoved+=pt.basesPolymerRemovedT;
 			readsOut+=pt.readsOutT;
 			basesOut+=pt.basesOutT;
 			errorState|=(!pt.success);
@@ -674,7 +712,7 @@ public class PolyFilter implements Accumulator<PolyFilter.ProcessThread> {
 	public final boolean success(){return !errorState;}
 
 	@Override
-	public ReadWriteLock rwlock() {return null;}
+	public ReadWriteLock rwlock(){return null;}
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Inner Methods        ----------------*/
@@ -690,25 +728,25 @@ public class PolyFilter implements Accumulator<PolyFilter.ProcessThread> {
 	 * @param nonFraction Maximal allowed fraction of nonmatching bases in the region.
 	 * @return Length of the longest homopolymer.
 	 */
-	public static int polymerLen_old(final byte[] bases, final byte mer, final float nonFraction) {
-		if(nonFraction<=0) {return polymerLen(bases, mer);}
+	public static int polymerLen_old(final byte[] bases, final byte mer, final float nonFraction){
+		if(nonFraction<=0){return polymerLen(bases, mer);}
 		
 		float score=0;
 		float maxScore=0;
 		int maxLen=0;
 		int lastZero=-1;
 		
-		for(int i=0; i<bases.length; i++) {
+		for(int i=0; i<bases.length; i++){
 			final byte b=bases[i];
-			if(b!=mer) {//common case
+			if(b!=mer){//common case
 				score=Tools.max(0, score-1);
-				if(score<=0) {
+				if(score<=0){
 					lastZero=i;
 					maxScore=0;
 				}
-			}else {
+			}else{
 				score+=nonFraction;
-				if(score>=maxScore) {
+				if(score>=maxScore){
 					maxScore=score;
 					maxLen=Tools.max(maxLen, i-lastZero);
 				}
@@ -729,21 +767,21 @@ public class PolyFilter implements Accumulator<PolyFilter.ProcessThread> {
 	 * @param nonFraction Maximum allowed fraction of non-matching bases
 	 * @return Length of longest homopolymer region
 	 */
-	public static int polymerLen(final byte[] bases, final byte mer, final float nonFraction) {
-		if(nonFraction<=0) {return polymerLen(bases, mer);}
+	public static int polymerLen(final byte[] bases, final byte mer, final float nonFraction){
+		if(nonFraction<=0){return polymerLen(bases, mer);}
 		
 		float score=0;
 		int maxLen=0;
 		int lastZero=-1;
 		
-		for(int i=0; i<bases.length; i++) {
+		for(int i=0; i<bases.length; i++){
 			final byte b=bases[i];
-			if(b!=mer) {//common case
+			if(b!=mer){//common case
 				score=Tools.max(0, score-1);
-				if(score<=0) {
+				if(score<=0){
 					lastZero=i;
 				}
-			}else {
+			}else{
 				score+=nonFraction;
 				maxLen=Tools.max(maxLen, i-lastZero);
 			}
@@ -751,14 +789,14 @@ public class PolyFilter implements Accumulator<PolyFilter.ProcessThread> {
 		
 		score=0;
 		lastZero=-1;
-		for(int i=0; i<bases.length; i++) {
+		for(int i=0; i<bases.length; i++){
 			final byte b=bases[bases.length-i-1];
-			if(b!=mer) {//common case
+			if(b!=mer){//common case
 				score=Tools.max(0, score-1);
-				if(score<=0) {
+				if(score<=0){
 					lastZero=i;
 				}
-			}else {
+			}else{
 				score+=nonFraction;
 				maxLen=Tools.max(maxLen, i-lastZero);
 			}
@@ -773,11 +811,11 @@ public class PolyFilter implements Accumulator<PolyFilter.ProcessThread> {
 	 * @param mer Subunit of the homopolymer to count (e.g. 'G').
 	 * @return Length of the longest homopolymer.
 	 */
-	public static int polymerLen(final byte[] bases, final byte mer) {
+	public static int polymerLen(final byte[] bases, final byte mer){
 		int max=0, current=0;
-		for(byte b : bases) {
-			if(b==mer) {current++;}
-			else {
+		for(byte b : bases){
+			if(b==mer){current++;}
+			else{
 				max=Tools.max(max, current);
 				current=0;
 			}
@@ -786,14 +824,15 @@ public class PolyFilter implements Accumulator<PolyFilter.ProcessThread> {
 	}
 	
 	/**
-	 * Trims homopolymer sequences from both ends of a read.
+	 * Applies the BBDuk polymer trimmer once for each configured trim base, allowing each
+	 * pass to see the read after the prior base's trim.
 	 * @param r Read to trim
-	 * @return Total number of bases trimmed
+	 * @return Total number of bases trimmed across all configured trim bases
 	 */
-	public int trimRead(Read r) {
-		if(r==null) {return 0;}
+	public int trimRead(Read r){
+		if(r==null){return 0;}
 		int trimmed=0;
-		for(int i=0; i<trimPolymers.length; i++) {
+		for(int i=0; i<trimPolymers.length; i++){
 			final byte b=trimPolymers[i];
 			int x=BBDuk.trimPoly(r, trimLeft, trimRight, maxNonPoly, b);
 			trimmed+=x;
@@ -805,9 +844,9 @@ public class PolyFilter implements Accumulator<PolyFilter.ProcessThread> {
 	/*----------------         Inner Classes        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Worker thread for processing reads through homopolymer and quality filters.
-	 * Handles merging, trimming, and multi-criteria filtering of sequence reads. */
-	class ProcessThread extends Thread {
+	/** Worker thread that pulls batches from the shared Streamer and routes each original
+	 * R1/mate pair to either the kept writer or the rejected writer under the original list id. */
+	class ProcessThread extends Thread{
 		
 		//Constructor
 		/**
@@ -840,7 +879,11 @@ public class PolyFilter implements Accumulator<PolyFilter.ProcessThread> {
 			success=true;
 		}
 		
-		/** Iterate through the reads */
+		/**
+		 * Drains Streamer batches until nextList returns null. The Streamer returnList hooks are
+		 * intentionally unused here because the current Streamer contract makes them optional
+		 * compatibility no-ops rather than a required recycling handshake.
+		 */
 		void processInner(){
 			
 			//Grab the first ListNum of reads
@@ -879,15 +922,36 @@ public class PolyFilter implements Accumulator<PolyFilter.ProcessThread> {
 
 					final int insert=(r2==null || !merge ? -1 : 
 						BBMerge.findOverlapVStrict(r1, r2, false));
-					final boolean junk1=isJunk(r1, insert);
-					final boolean junk2=isJunk(r2, insert);
-					boolean keep=!junk1 && !junk2;
-					if(keep && (trimLeft>0 || trimRight>0)) {
+					final int cause1=junkCause(r1, insert);
+					final int cause2=junkCause(r2, insert);
+					final int cause=cause1|cause2;
+					//A pair is kept only when both mates pass all pre-trim checks.
+					boolean keep=(cause==CAUSE_NONE);
+					if(!keep && (cause&CAUSE_POLYMER)!=0){
+						readsPolymerRemovedT+=r1.pairCount();
+						basesPolymerRemovedT+=initialLength1+initialLength2;
+					}
+					if(keep && (trimLeft>0 || trimRight>0)){
 						int trimmed1=trimRead(r1);
 						int trimmed2=trimRead(r2);
-						keep=r1.length()>minLength && (r2==null || r2.length()>=minLength);
+						final int trimmed=trimmed1+trimmed2;
+						final boolean lengthOK=r1.length()>=minLength &&
+								(r2==null || r2.length()>=minLength);
+						if(lengthOK){
+							basesPolymerRemovedT+=trimmed;
+						}else{
+							final boolean originalLengthOK=initialLength1>=minLength &&
+									(r2==null || initialLength2>=minLength);
+							if(originalLengthOK){
+								readsPolymerRemovedT+=r1.pairCount();
+								basesPolymerRemovedT+=initialLength1+initialLength2;
+							}else{
+								basesPolymerRemovedT+=trimmed;
+							}
+						}
+						keep=lengthOK;
 						readsTrimmedT+=(trimmed1>0 ? 1 : 0)+(trimmed2>0 ? 1 : 0);
-						basesTrimmedT+=trimmed1+trimmed2;
+						basesTrimmedT+=trimmed;
 					}
 					
 					
@@ -895,7 +959,7 @@ public class PolyFilter implements Accumulator<PolyFilter.ProcessThread> {
 					assert(r1.mate==r2);
 					
 					if(keep){
-						if(quantizeQuality) {
+						if(quantizeQuality){
 							Quantizer.quantize(r1);
 							Quantizer.quantize(r2);
 						}
@@ -919,19 +983,22 @@ public class PolyFilter implements Accumulator<PolyFilter.ProcessThread> {
 		}
 		
 		/**
-		 * Determines if a read should be discarded based on multiple quality criteria.
-		 * Evaluates homopolymer content, entropy, base quality, and depth coverage.
+		 * Applies the read-side reject order. Null mates pass. Short successful overlaps skip
+		 * every read-side filter. The strict polymer window and polymer k-mer tiers reject
+		 * before the long-insert exemption; medium polymer windows require one supporting
+		 * entropy, depth or quality signal, and strict entropy, quality and depth checks run
+		 * after all polymer tiers.
 		 *
 		 * @param r Read to evaluate
-		 * @param insert Insert size if read is part of merged pair
-		 * @return true if read should be discarded
+		 * @param insert BBMerge insert size, or -1 when no merged insert is available
+		 * @return cause bit mask, or CAUSE_NONE if the read should be kept
 		 */
-		private boolean isJunk(Read r, int insert) {
-			if(r==null) {return false;}
+		private int junkCause(Read r, int insert){
+			if(r==null){return CAUSE_NONE;}
 			
 			//Reads merged with a short insert; probably OK regardless of poly-G
-			if(insert>0 && insert<r.length()+10) {
-				return false;
+			if(insert>0 && insert<r.length()+10){
+				return CAUSE_NONE;
 			}
 			
 			final float entropy=(eTracker==null ? 1 : eTracker.averageEntropy(r.bases, true));
@@ -939,59 +1006,63 @@ public class PolyFilter implements Accumulator<PolyFilter.ProcessThread> {
 			final float lcf=(filter==null ? 0 : filter.lowCountFraction(r, minCount, true));
 			
 			int worstBase=0, worstLen=0;
-			for(int i=0; i<polymers.length; i++) {
+			for(int i=0; i<polymers.length; i++){
 				final byte b=polymers[i];
 				int len=polymerLen(r.bases, b, nonPolyFraction);
-				if(len>worstLen) {
+				if(len>worstLen){
 					worstLen=len;
 					worstBase=i;
 				}
 			}
 			
-			if(worstLen>minPolymer2) {
+			if(worstLen>minPolymer2){
 				polymerFlaggedT[worstBase]++;
-				return true;
+				return CAUSE_POLYMER;
 			}
 			
-			if(set!=null && kmerScan(r, kpoly, kmerMask, midMask, set)) {
+			if(set!=null && kmerScan(r, kpoly, kmerMask, midMask, set)){
 				polymerFlaggedT[worstBase]++;
-				return true;
+				return CAUSE_POLYMER;
 			}
 			
 			//Reads merged with a long insert; increase stringency
-			if(insert>0 && insert>=r.length()+10) {
-				return false;
+			if(insert>0 && insert>=r.length()+10){
+				return CAUSE_NONE;
 			}
 			
 			if(worstLen>minPolymer && 
-					(entropy<entropyCutoff || lcf>lowCountFraction || quality<qualityCutoff)) {
+					(entropy<entropyCutoff || lcf>lowCountFraction || quality<qualityCutoff)){
 				polymerFlaggedT[worstBase]++;
-				return true;
+				return CAUSE_POLYMER;
 			}
-			if(entropy<entropyCutoff2) {
+			if(entropy<entropyCutoff2){
 				entropyFlaggedT++;
-				return true;
+				return CAUSE_ENTROPY;
 			}
-			if(quality<qualityCutoff2) {
+			if(quality<qualityCutoff2){
 				qualityFlaggedT++;
-				return true;
+				return CAUSE_QUALITY;
 			}
-			if(lcf>=lowCountFraction2) {
+			if(lcf>=lowCountFraction2){
 				depthFlaggedT++;
-				return true;
+				return CAUSE_DEPTH;
 			}
-			return false;
+			return CAUSE_NONE;
 		}
 		
 		/** Number of reads processed by this thread */
 		protected long readsProcessedT=0;
 		/** Number of bases processed by this thread */
 		protected long basesProcessedT=0;
-		/** Number of reads trimmed by this thread */
+		/** Number of reads shortened by end trimming in this thread */
 		protected long readsTrimmedT=0;
 		/** Number of bases trimmed by this thread */
 		protected long basesTrimmedT=0;
-		/** Number of reads merged by this thread */
+		/** Whole-pair reads discarded by polymer causes; trim-only bases add no reads */
+		protected long readsPolymerRemovedT=0;
+		/** Whole original discarded pairs plus kept/already-short terminal polymer trim bases */
+		protected long basesPolymerRemovedT=0;
+		/** Number of individual reads whose pair had a successful merge overlap */
 		protected long readsMergedT=0;
 		
 		/** Number of reads retained by this thread */
@@ -1006,7 +1077,7 @@ public class PolyFilter implements Accumulator<PolyFilter.ProcessThread> {
 		private final Streamer cris;
 		/** Shared output stream */
 		private final Writer ros;
-		/** Matched output stream */
+		/** Rejected-read output stream */
 		private final Writer rosb;
 		/** Thread ID */
 		final int tid;
@@ -1066,7 +1137,11 @@ public class PolyFilter implements Accumulator<PolyFilter.ProcessThread> {
 	public long readsTrimmed=0;
 	/** Number of bases trimmed */
 	public long basesTrimmed=0;
-	/** Number of paired reads successfully merged */
+	/** Whole-pair reads discarded by polymer causes; trim-only bases add no reads */
+	public long readsPolymerRemoved=0;
+	/** Whole original discarded pairs plus kept/already-short terminal polymer trim bases */
+	public long basesPolymerRemoved=0;
+	/** Number of individual reads whose pair had a successful merge overlap */
 	protected long readsMerged=0;
 
 	/** Number of reads retained */
@@ -1085,6 +1160,21 @@ public class PolyFilter implements Accumulator<PolyFilter.ProcessThread> {
 	public static long lastBasesOut=-1;
 	/** Number of bases removed from last run */
 	public static long lastBasesRemoved=-1;
+	/** Last-run whole-pair reads discarded by polymer causes; trim-only bases add no reads */
+	public static long lastReadsPolymerRemoved=-1;
+	/** Last-run whole discarded pairs plus kept/already-short terminal polymer trim bases */
+	public static long lastBasesPolymerRemoved=-1;
+
+	/** No read-side removal cause */
+	private static final int CAUSE_NONE=0;
+	/** Read-side removal due to polymer detection */
+	private static final int CAUSE_POLYMER=1;
+	/** Read-side removal due to low entropy */
+	private static final int CAUSE_ENTROPY=2;
+	/** Read-side removal due to low quality */
+	private static final int CAUSE_QUALITY=4;
+	/** Read-side removal due to low k-mer depth */
+	private static final int CAUSE_DEPTH=8;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
@@ -1100,9 +1190,9 @@ public class PolyFilter implements Accumulator<PolyFilter.ProcessThread> {
 	/** Secondary output file */
 	private final FileFormat ffout2;
 	
-	/** Primary output file for matching reads */
+	/** Primary FileFormat for rejected reads */
 	private final FileFormat ffoutm1;
-	/** Secondary output file for matching reads */
+	/** Secondary FileFormat for rejected reads */
 	private final FileFormat ffoutm2;
 	
 	/** Bloom filter for depth-based read filtering */
@@ -1175,9 +1265,9 @@ public class PolyFilter implements Accumulator<PolyFilter.ProcessThread> {
 	float qualityCutoff2=7.5f;
 	/** Maximum allowed fraction of non-polymer bases in homopolymer detection */
 	float nonPolyFraction=1-0.85f;//0.15f;//These numbers are slightly different.
-	/** Array of polymer bases to detect and filter */
+	/** Polymer bases used for detection and cause-specific counters */
 	byte[] polymers="GC".getBytes();
-	/** Array of polymer bases to trim from read ends */
+	/** Polymer bases used for end trimming; defaults to polymers when unset */
 	byte[] trimPolymers=null;
 	
 	/** Counters for reads flagged for each type of polymer */

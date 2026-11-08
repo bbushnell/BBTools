@@ -5,25 +5,25 @@ echo "
 Written by Brian Bushnell
 Last modified September 20, 2022
 
-Description:  Filters reads potentially sharing a kmer with a reference.
-The more memory, the higher the accuracy.  Reads going to outu are guaranteed
-to not match the reference, but reads going to outm might may or may not
-match the reference.
+Description:  Partitions reads by consecutive kmer hits against a reference.
+More memory generally reduces hash collisions.  Reads going to outm satisfy
+the configured hit rule but may be false positives.  Reads going to outu fail
+that rule; they can still share isolated kmers with the reference.
 
-Usage:  bloomfilter.sh in=<input file> out=<nonmatches> outm=<matches> ref=<reference>
+Usage:  bloomfilter.sh in=<input file> outu=<nonmatches> outm=<matches> ref=<reference>
 
 Example:
-bloomfilter.sh in=reads.fq outm=nonhuman.fq out=human.fq k=31 minhits=3 ref=human.fa
+bloomfilter.sh in=reads.fq outu=nonhuman.fq outm=human.fq k=31 minhits=3 ref=human.fa
 
 Error correction and depth filtering can be done simultaneously.
 
 File parameters:
 in=<file>       Primary input, or read 1 input.
 in2=<file>      Read 2 input if reads are in two files.
-outm=<file>     (out) Primary matched read output.
-outm2=<file>    (out2) Matched read 2 output if reads are in two files.
-outu=<file>     Primary unmatched read output.
-outu2=<file>    Unmatched read 2 output if reads are in two files.
+outm=<file>     Primary matched read output.
+outm2=<file>    Matched read 2 output if reads are in two files.
+outu=<file>     (out) Primary unmatched read output.
+outu2=<file>    (out2) Unmatched read 2 output if reads are in two files.
 outc=<file>     Optional output stream for kmer counts.
 ref=<file>      Reference sequence file, or a comma-delimited list.
                 For depth-based filtering, set this to the same as the input.

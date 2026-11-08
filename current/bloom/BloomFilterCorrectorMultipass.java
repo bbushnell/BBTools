@@ -11,27 +11,37 @@ import shared.Shared;
 import shared.Timer;
 
 /**
- * Thin orchestrator for BBCMS two-pass mode (Item 3a).  With passes=2, runs a
- * cheap K=31 junk-removal pass first (survivors written to a temp file), then
- * runs the user's normal correction pass on the survivors.  With passes=1
- * (default), delegates straight to BloomFilterCorrectorWrapper with zero
- * overhead.  Never modifies BloomFilterCorrectorWrapper; each pass is a
- * complete, independent invocation of it, each building its own filter.
+ * Runs BBCMS once, or filters reads before a second correction invocation.
+ * The default {@code passes=1} delegates to {@link BloomFilterCorrectorWrapper}.
+ * With {@code passes=2}, first-pass settings default to k=31, two-bit counts,
+ * junk removal enabled and correction disabled. Surviving reads go through one
+ * temporary compressed FASTQ before the second invocation builds its own filter.
+ * Paired survivors share that temporary file as interleaved records.
+ *
+ * Both wrapper invocations run sequentially in the same JVM; static parser and
+ * I/O settings can carry over. This class does not isolate them or support
+ * concurrent pipeline invocations. It copies argument references into its own
+ * list and leaves the caller's argument array unchanged. The first pass receives
+ * only its explicit settings and the flags in {@link #FORWARD_TO_PASS1}; the
+ * second receives the remaining user settings with its input and read limit
+ * adjusted. The first input stream's actual pairing state determines whether
+ * the second invocation reads the temporary FASTQ as interleaved.
  *
  * Design: Amber.  Implementation: Nepgear.
  *
  * @author Brian Bushnell, Nepgear
  * @date August 21, 2026
  */
-public class BloomFilterCorrectorMultipass {
+public class BloomFilterCorrectorMultipass{
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Code entrance from the command line.
-	 * @param args Command line arguments
+	 * Parses the pipeline settings and runs the requested invocation sequence.
+	 * Exceptions thrown by either wrapper invocation propagate to the launcher.
+	 * @param args Non-null array of BBCMS flag=value arguments
 	 */
 	public static void main(String[] args){
 		Timer t=new Timer();
@@ -40,11 +50,12 @@ public class BloomFilterCorrectorMultipass {
 	}
 
 	/**
-	 * Constructor.  Parses the multipass-specific flags (passes=, k0=, bits0=,
-	 * hcf0=, mincount0=, tossjunk0=, ecc0=) and partitions everything else into
-	 * in1/in2 (recorded separately, since both passes need to control them) and
-	 * pass2Args (forwarded to the correction pass verbatim).
-	 * @param args Command line arguments
+	 * Separates pipeline flags, input paths and arguments for the wrapper.
+	 * Recognizes passes, k0, bits0, hcf0, mincount0, tossjunk0 and ecc0 here;
+	 * other flags remain in their original order for downstream parsing. The last
+	 * reads/maxreads argument is also saved for the first pass. No files are opened.
+	 * Supported pass counts are 1 and 2, checked by an assertion.
+	 * @param args Non-null array of flag=value arguments; entries must be non-null
 	 */
 	public BloomFilterCorrectorMultipass(String[] args){
 		int passes_=1;
@@ -114,13 +125,18 @@ public class BloomFilterCorrectorMultipass {
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Runs either a single delegated pass or the full two-pass pipeline.
-	 * @param t Timer started at program entrance
+	 * Runs the wrapper once or runs both passes through a temporary FASTQ.
+	 * Two-pass mode creates the temporary file under Shared.tmpdir(), when set,
+	 * otherwise the JVM temporary directory. After file creation, cleanup is
+	 * attempted even when a wrapper throws; deletion failure is not reported.
+	 * A first-pass failure prevents the second invocation. The timer is stopped
+	 * only after normal completion, and its elapsed time is not printed here.
+	 * @param t Non-null timer started at program entrance
 	 */
 	void process(Timer t){
 		if(passes<=1){
 			//pass2Args deliberately excludes in=/in2= (needed separately for the
-			//passes=2 swap) -- add them back for a true zero-overhead delegate.
+			//passes=2 swap) -- add them back before the single wrapper invocation.
 			ArrayList<String> list=new ArrayList<String>(pass2Args.size()+2);
 			if(in1!=null){list.add("in="+in1);}
 			if(in2!=null){list.add("in2="+in2);}
@@ -141,9 +157,8 @@ public class BloomFilterCorrectorMultipass {
 		//Always a SINGLE interleaved temp file, regardless of whether the
 		//user's own input/output is twin or interleaved (Brian, 2026-08-21:
 		//"intermediate files should generally be interleaved... it's just
-		//cleaner"). Verified live: twin in=/in2= with only out= (no out2=) set
-		//makes BloomFilterCorrectorWrapper write interleaved output, and a
-		//plain in= with no in2= on the reread correctly auto-detects as paired.
+		//cleaner"). BLM201: carry the input stream's actual pairing state into
+		//pass 2; original input flags and header-based guessing are insufficient.
 		final String temp1;
 		try{
 			temp1=File.createTempFile("bbcms_p1_", ".fq.gz", tmpDir).getAbsolutePath();
@@ -153,18 +168,18 @@ public class BloomFilterCorrectorMultipass {
 
 		try{
 			System.err.println("\n----- BBCMS Pass 1: junk removal (k="+k0+") -----");
-			BloomFilterCorrectorWrapper.main(buildPass1Args(temp1));
+			final boolean paired=BloomFilterCorrectorWrapper.run(buildPass1Args(temp1));
 
 			//Pass 1's filter (can be gigabytes) is unreachable now but not yet
 			//collected -- Runtime.freeMemory() still reports it as used, so pass
 			//2's memFraction-based cell sizing (BloomFilter -> KCountArray7MTA)
 			//undersizes and can crash on a negative cell count (verified live:
-			//AssertionError in Primes.primeAtMost at -Xmx4.5g). Force the
-			//collection before pass 2 reads free memory.
+			//AssertionError in Primes.primeAtMost at -Xmx4.5g). Request collection
+			//before pass 2 reads free memory; the JVM can ignore System.gc().
 			System.gc();
 
 			System.err.println("\n----- BBCMS Pass 2: correction -----");
-			BloomFilterCorrectorWrapper.main(buildPass2Args(temp1));
+			BloomFilterCorrectorWrapper.main(buildPass2Args(temp1, paired));
 		}finally{
 			delete(temp1);
 		}
@@ -172,12 +187,13 @@ public class BloomFilterCorrectorMultipass {
 	}
 
 	/**
-	 * Builds the arg array for the junk-removal pass: original input, a
-	 * hardcoded (k0-overridable) filter/threshold set, a single interleaved
-	 * temp output, and a small whitelist of user args safe to carry over
-	 * (see FORWARD_TO_PASS1).
-	 * @param temp1 Pass-1 interleaved output path
-	 * @return Argument array for BloomFilterCorrectorWrapper.main
+	 * Builds first-pass arguments from the original input and the *0 settings.
+	 * Output is the single temporary FASTQ, with overwrite enabled and smooth=3.
+	 * Appends the last read-limit argument and whitelisted user flags in input
+	 * order. Options absent from this list use the wrapper's defaults or shared
+	 * process state; for example, the user's merge flag is not forwarded here.
+	 * @param temp1 Non-null path of the already-created temporary output file
+	 * @return Fresh argument array for BloomFilterCorrectorWrapper.main
 	 */
 	private String[] buildPass1Args(String temp1){
 		ArrayList<String> list=new ArrayList<String>();
@@ -201,13 +217,16 @@ public class BloomFilterCorrectorMultipass {
 	}
 
 	/**
-	 * Builds the arg array for the correction pass: the user's original args
-	 * verbatim, with in=/in2= swapped to the single interleaved pass-1 output
-	 * and maxreads= dropped (pass 1 already bounded the input).
-	 * @param temp1 Pass-1 interleaved output path to read as pass-2 input
-	 * @return Argument array for BloomFilterCorrectorWrapper.main
+	 * Builds second-pass arguments using the first pass's single output as input.
+	 * Drops every reads/maxreads argument because the first pass already limited
+	 * input. Replaces original interleaved/int flags with the first input stream's
+	 * actual pairing state. Preserves other stored arguments and their order;
+	 * adds ow=t only if no ow/overwrite flag was given. Does not modify the stored list.
+	 * @param temp1 Non-null path of the first pass's completed temporary FASTQ
+	 * @param paired Whether the first input stream processed paired reads
+	 * @return Fresh argument array for BloomFilterCorrectorWrapper.main
 	 */
-	private String[] buildPass2Args(String temp1){
+	private String[] buildPass2Args(String temp1, boolean paired){
 		ArrayList<String> list=new ArrayList<String>();
 		list.add("in="+temp1);
 		boolean sawOw=false;
@@ -216,16 +235,20 @@ public class BloomFilterCorrectorMultipass {
 			//constructor (merged into the single interleaved temp1 above).
 			String a=arg.split("=")[0].toLowerCase();
 			if(a.equals("reads") || a.equals("maxreads")){continue;}
+			if(a.equals("interleaved") || a.equals("int")){continue;}
 			if(a.equals("ow") || a.equals("overwrite")){sawOw=true;}
 			list.add(arg);
 		}
 		if(!sawOw){list.add("ow=t");}
+		list.add("interleaved="+paired);
 		return list.toArray(new String[0]);
 	}
 
 	/**
-	 * Deletes a temp file if it exists.
-	 * @param s Path to delete, or null (no-op)
+	 * Attempts to delete the pipeline's temporary file if it exists.
+	 * Ignores File.delete()'s false result; it does not guarantee removal or
+	 * suppress an exception thrown by the filesystem security checks.
+	 * @param s Temporary path owned by this pipeline, or null for no operation
 	 */
 	private static void delete(String s){
 		if(s!=null){
@@ -238,32 +261,32 @@ public class BloomFilterCorrectorMultipass {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Flags safe to carry from the user's args into the pass-1 (junk-removal) invocation. */
+	/** User flag names forwarded to pass 1; this list does not translate format or pairing settings. */
 	private static final HashSet<String> FORWARD_TO_PASS1=new HashSet<String>(Arrays.asList(
 			"t", "threads", "rcomp", "memmult", "memfraction", "memratio", "cells", "seed",
 			"ordered", "verbose", "interleaved", "int", "qfin", "qfin1", "qfin2"));
 
 	/** Number of passes; only 1 (delegate) and 2 (junk-removal + correction) are supported. */
 	final int passes;
-	/** Pass-1 kmer length override (default 31). */
+	/** First-pass k-mer length in bases; default 31. */
 	final int k0;
-	/** Pass-1 bits-per-cell override (default 2). */
+	/** First-pass count-cell width in bits; default 2. */
 	final int bits0;
-	/** Pass-1 high-count-fraction override (default 0.4). */
+	/** First-pass high-count-fraction flag; default 0.4. */
 	final float hcf0;
-	/** Pass-1 mincount override (default 2). */
+	/** First-pass minimum-count flag; default 2. */
 	final int mincount0;
-	/** Pass-1 tossjunk override (default true). */
+	/** Whether the first pass requests junk-read removal; default true. */
 	final boolean tossjunk0;
-	/** Pass-1 ecc override (default false). */
+	/** Whether the first pass requests error correction; default false. */
 	final boolean ecc0;
 	/** User's original primary input file. */
 	final String in1;
-	/** User's original secondary input file, or null if unpaired/interleaved. */
+	/** User's secondary input path, or null when no second path was specified. */
 	final String in2;
-	/** The user's original reads=/maxreads= arg, verbatim, or null if unset. */
+	/** Last reads/maxreads argument, verbatim, or null; applied to pass 1 only in two-pass mode. */
 	final String maxReadsArg;
-	/** Every user arg except in=/in2=/maxreads=/the passes=&*0= multipass flags; forwarded to pass 2 as-is. */
+	/** Non-input, non-multipass args; includes reads/maxreads until buildPass2Args removes them. */
 	final ArrayList<String> pass2Args;
 
 }

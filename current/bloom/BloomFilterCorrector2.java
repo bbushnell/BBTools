@@ -3,7 +3,6 @@ package bloom;
 import java.util.Arrays;
 import java.util.BitSet;
 
-import assemble.ErrorTracker;
 import dna.AminoAcid;
 import shared.Tools;
 import stream.Read;
@@ -13,28 +12,39 @@ import structures.LongList;
 import ukmer.Kmer;
 
 /**
- * ukmer.Kmer-based (k&gt;31) implementation of Bloom filter-based sequencing
- * error correction. Encodes kmers via {@link ukmer.Kmer}'s multi-word rolling
- * (addRight/addLeft), and stores each position's canonical xor() hash in the
- * per-position LongList plus an independent xor2() in a parallel thread-local
- * list. Both hashes are strand-canonical; the abstract superclass performs
- * stored-position lookups through getCountAt(), overridden here to use both.
- * Anything that must DERIVE a new candidate kmer (not
- * merely look one up) rebuilds a live Kmer from the underlying bases, since
- * xor() is a one-way hash and cannot be un-hashed -- mirrors assemble/Tadpole2,
- * which this was ported from (see the plan's Port recipe).
+ * Implements long-kmer correction primitives using multi-word {@link Kmer} state.
+ * Normally used for k&gt;31. Each stored window holds its canonical xor() hash;
+ * dual-hash mode also maintains xor2() in a parallel thread-local list. A hash
+ * cannot reconstruct the original sequence, so candidate generation rebuilds
+ * a rolling Kmer from bases. This implementation was ported from assemble.Tadpole2;
+ * the separate short-kmer implementation retains packed sequence values instead.
  *
- * Correctness pins (see BloomFilterCorrectorWrapper's k&gt;31 dispatch and the
- * plan's §The crux): ukmer.Kmer.MASK_CORE must be false on both filter BUILD
- * and QUERY, and both sides must agree on k after {@link ukmer.Kmer#getKbig}
- * normalization -- the Wrapper handles both before this class is ever touched.
+ * Build and query must use the same effective length after {@link Kmer#getKbig}
+ * normalization and must keep Kmer.MASK_CORE false. The normal wrapper establishes
+ * these settings; direct callers must do so themselves. A second, smaller window
+ * size is not supported. Counts retain the table's collision and saturation limits.
+ *
+ * The filter is borrowed. Superclass entry points initialize thread-local scratch;
+ * direct use of primitives that need scratch requires that initialization first.
+ * Mutable sequence/count buffers belong to the caller. Dual-hash stored-position
+ * queries must use the primary list paired with the current thread's secondary
+ * list; a later fill replaces that pairing. Concurrent callers need separate
+ * buffers and stable filter/global settings. Independent operations on the same
+ * thread share this scratch and secondary-list state.
  *
  * @author Brian Bushnell, Nepgear
  * @date August 19, 2026
  */
-public class BloomFilterCorrector2 extends BloomFilterCorrector {
+public class BloomFilterCorrector2 extends BloomFilterCorrector{
 
-	public BloomFilterCorrector2(BloomFilter filter_, int k_, int ksmall_) {
+	/**
+	 * Stores the borrowed table and checks the long-kmer geometry assertions.
+	 * Does not initialize thread-local scratch or normalize the requested length.
+	 * @param filter_ Borrowed count table, required before a lookup
+	 * @param k_ Effective k-mer length, already normalized for Kmer storage
+	 * @param ksmall_ Must equal k_; smaller constituent-window counting is unsupported
+	 */
+	public BloomFilterCorrector2(BloomFilter filter_, int k_, int ksmall_){
 		super(filter_, k_, ksmall_);
 		assert(k_==ksmall_) : "BFC2 does not support the ksmall sliding-window trick; k must equal ksmall for true k>31 mode. k="+k_+", ksmall="+ksmall_;
 		assert(!Kmer.MASK_CORE) : "MASK_CORE must be false for build/query hash agreement (plan's crux pin); was true.";
@@ -47,10 +57,13 @@ public class BloomFilterCorrector2 extends BloomFilterCorrector {
 	 * harness exercise the multi-word carry/combine path (addLeft/addRight
 	 * across words, xor's rotate+combine) at a k value BFC1 can also run
 	 * (k&lt;=31), for direct side-by-side comparison isolated from any
-	 * k-length confound. Not read anywhere in the normal dispatch path.
+	 * k-length confound. newKmer reads this field when scratch is initialized;
+	 * normal operation leaves it null. Tests must not change it while a caller
+	 * uses this class, and must restore it afterward.
 	 */
 	public static int[] FORCE_MULT_SPLIT=null;
 
+	/** Constructs scratch geometry from the diagnostic split, or the normal effective k. */
 	@Override
 	protected Kmer newKmer(){
 		return FORCE_MULT_SPLIT!=null ? new Kmer(FORCE_MULT_SPLIT[0], FORCE_MULT_SPLIT[1]) : super.newKmer();
@@ -61,15 +74,18 @@ public class BloomFilterCorrector2 extends BloomFilterCorrector {
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Returns number of valid kmers. Rolls a live Kmer over bases, storing each
-	 * position's xor() hash. Only starts RECORDING once i>=min (mirroring BFC1
-	 * exactly): the list has blen-k+1 entries, kmers[j] spans bases[j..j+k-1] --
-	 * NOT one entry per base. Everything downstream (counts, errorCorrectPincer/
-	 * Tail, etc., all inherited unchanged from the base) assumes this exact
-	 * length; recording from i=0 instead of i=min produced a list of length
-	 * blen with a bogus leading run of -1s, which desynced counts.size from
-	 * bases.length and crashed smooth()'s edge lookup (caught on the first
-	 * real k>31 run, ArrayIndexOutOfBounds at maxRightCount).
+	 * Replaces the primary window hashes and, in dual mode, this thread's secondary list.
+	 * For reads of at least k bases, writes length-k+1 entries indexed by window
+	 * start; undefined windows receive -1 in both lists. Shorter reads return zero
+	 * before clearing either list. Uses initialized localKmer scratch, not bases as
+	 * mutable workspace.
+	 *
+	 * Historical port failure: recording before the first complete window produced
+	 * one entry per base, desynchronized counts and crashed smooth's edge lookup.
+	 * Retain window-start indexing; it is shared by all inherited correction paths.
+	 * @param bases Non-null sequence, read without modification
+	 * @param kmers Caller-owned primary list to replace when the read is long enough
+	 * @return Number of valid windows, excluding undefined-window entries
 	 */
 	@Override
 	public int fillKmers(byte[] bases, LongList kmers){
@@ -100,9 +116,14 @@ public class BloomFilterCorrector2 extends BloomFilterCorrector {
 	}
 
 	/**
-	 * Regenerates k-mers and counts after sequence modification. Since the stored
-	 * value is a hash proxy, rebuilds the kmer ending at position `a` fresh from
-	 * bases[a..a+k-1] (unmodified by the edit at a+k), then rolls forward.
+	 * Rebuilds the unchanged anchor starting at a, then refreshes windows after a substitution at a+k.
+	 * Updates up to k following starts, clipped to counts.size, in the primary list,
+	 * count list and current secondary list. Undefined windows receive -1 hashes
+	 * and zero counts. Requires initialized scratch and aligned lists.
+	 * @param bases Non-null modified sequence, read without modification
+	 * @param kmers Primary window list to update in place
+	 * @param counts Full count list aligned with kmers, updated in place
+	 * @param a In-range start of the unchanged anchor immediately preceding the changed base
 	 */
 	@Override
 	public void regenerateKmers(byte[] bases, LongList kmers, IntList counts, final int a){
@@ -132,9 +153,15 @@ public class BloomFilterCorrector2 extends BloomFilterCorrector {
 	}
 
 	/**
-	 * Regenerates k-mer counts for positions changed during reassembly. The Kmer
-	 * parameter is always null at BFC1's call site too (vestigial scaffolding,
-	 * per the plan's Gotchas) -- ignored here as well, using our own scratch Kmer.
+	 * Recounts windows spanning the first through last changed base, including intervening gaps.
+	 * Uses initialized localKmer scratch and writes zero for undefined windows.
+	 * When smoothing is enabled, suppresses strict interior peaks across the whole
+	 * count list afterward. Does not refresh stored hash lists or modify bases.
+	 * @param bases Non-null modified sequence
+	 * @param counts Existing window-count list, updated in place
+	 * @param dummy Unused compatibility argument; may be null
+	 * @param changed Nonempty set of in-range modified base indices, read without modification
+	 * @return Number of valid windows recounted before smoothing
 	 */
 	@Override
 	public int regenerateCounts(byte[] bases, IntList counts, final Kmer dummy, BitSet changed){
@@ -183,6 +210,12 @@ public class BloomFilterCorrector2 extends BloomFilterCorrector {
 	 * producing systematic under-correction (root cause of the BFC2-vs-BFC1
 	 * divergence found via TraceRead2.java: kmer.len desynced from the loop's
 	 * position `a` immediately after the first regenerateCounts call).
+	 * Recounts the anchor at ca and up to k following windows, clipped at the read
+	 * end; undefined windows receive zero. Does not smooth or refresh stored hashes.
+	 * @param bases Non-null modified sequence, read without modification
+	 * @param counts Existing full count list, updated without changing its size
+	 * @param ca In-range anchor-window start preceding the changed base at ca+k
+	 * @return Number of valid windows recounted
 	 */
 	@Override
 	public int regenerateCounts(byte[] bases, IntList counts, final int ca){
@@ -219,9 +252,17 @@ public class BloomFilterCorrector2 extends BloomFilterCorrector {
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Inner reassembly algorithm for single-direction extension. Rolls a live
-	 * Kmer rightward over bb's bases (always fresh from position 0 -- no stored
-	 * value to invert here, same as BFC1's own fresh roll).
+	 * Scans left to right and attempts substitutions at count drops.
+	 * Changes bb's bases and refreshes counts in place; does not extend the builder
+	 * or modify qualities. The rolling state uses localKmer, while candidate and
+	 * recount operations use localKmer2 so they cannot reset the active scan.
+	 * Candidate identity is compared as a base code, independently of its support count (BLM203).
+	 * @param bb Mutable read builder with backing capacity equal to logical length; recounting uses array length
+	 * @param quals Read-only qualities aligned to bases, or null to use quality 20
+	 * @param rightCounts Scratch array with exactly four entries, overwritten
+	 * @param counts Full window-count list aligned to bb, updated in place
+	 * @param errorExtension Number of preceding windows used for the similarity check
+	 * @return Number of corrections recorded by this directional scan
 	 */
 	@Override
 	public int reassemble_inner(final ByteBuilder bb, final byte[] quals, final int[] rightCounts, final IntList counts,
@@ -269,14 +310,16 @@ public class BloomFilterCorrector2 extends BloomFilterCorrector {
 						System.err.println("BFC2 kmer.xor()="+kmer.xor()+", selfCount="+getCount(kmer)+" vs aCount="+aCount+", kmer.len="+kmer.len);
 						System.err.println("BFC2 Counts: "+aCount+", "+Arrays.toString(rightCounts));
 						System.err.println("BFC2 rightMaxPos="+rightMaxPos+", rightMax="+rightMax+", rightSecondPos="+rightSecondPos+", rightSecond="+rightSecond);
-						System.err.println("BFC2 base="+(char)base+", num="+num+"; num==rightMax? "+(num==rightMax));
+						System.err.println("BFC2 base="+(char)base+", num="+num+"; num==rightMaxPos? "+(num==rightMaxPos));
 					}
 
 					if(rightMax>=minCountExtend){
 						detected++;
-						if(num==rightMax){
+						//BLM203: compare base codes, not a base code with its support count.
+						//An unchanged winning base is not a correction.
+						if(num==rightMaxPos){
 							detected--;
-							if(verbose){System.err.println("BFC2 rejected: num==rightMax");}
+							if(verbose){System.err.println("BFC2 rejected: num==rightMaxPos");}
 						}else if((isError(rightMax, rightSecond, qb) || !isJunction(rightMax, rightSecond)) && isSimilar(aCount, rightMax)){
 							bases[b]=AminoAcid.numberToBase[rightMaxPos];
 							corrected++;
@@ -302,7 +345,17 @@ public class BloomFilterCorrector2 extends BloomFilterCorrector {
 	/*----------------    Abstract Seam: Extend      ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Derives the initial kmer from bb's own trailing k bases, then extends. */
+	/**
+	 * Derives the trailing window from bb and attempts rightward extension.
+	 * Returns zero for a short builder or undefined trailing window. Requires
+	 * initialized scratch; appends to bb without changing the count table.
+	 * @param bb Caller-owned sequence builder to extend
+	 * @param leftCounts Four-entry left-branch scratch array, or null to omit those checks
+	 * @param rightCounts Scratch array with exactly four entries
+	 * @param distance Maximum number of bases to append
+	 * @param includeJunctionBase Allow the terminal junction base when the forward strand is canonical
+	 * @return Number of bases appended
+	 */
 	@Override
 	public int extendToRight2(final ByteBuilder bb, final int[] leftCounts, final int[] rightCounts, final int distance, boolean includeJunctionBase){
 		final int initialLength=bb.length();
@@ -325,6 +378,16 @@ public class BloomFilterCorrector2 extends BloomFilterCorrector {
 	 * into a rollable kmer). If fromRcomp, flips to the reverse-complement
 	 * orientation first via Kmer.rcomp(), mirroring BFC1's rkmer-as-starting-
 	 * point trick for the pincer's right-side anchor.
+	 * @param bb Caller-owned builder to append to
+	 * @param leftCounts Four-entry left-branch scratch array, or null
+	 * @param rightCounts Scratch array with exactly four entries
+	 * @param distance Maximum number of bases to append
+	 * @param includeJunctionBase Allow the terminal junction base on the canonical forward strand
+	 * @param bases Sequence containing a valid anchor at originPos
+	 * @param kmers Unused hash list; the anchor must be reconstructed from bases
+	 * @param originPos Start base index of the anchor window
+	 * @param fromRcomp Whether to reverse-complement the anchor before extending
+	 * @return Number of bases appended
 	 */
 	@Override
 	protected int extendFromStored(final ByteBuilder bb, final int[] leftCounts, final int[] rightCounts, final int distance,
@@ -345,6 +408,16 @@ public class BloomFilterCorrector2 extends BloomFilterCorrector {
 	 * extendToRight2raw structurally, one base at a time via Kmer.addRight
 	 * instead of shift/mask, with fillLeftCounts/fillRightCounts/getCount
 	 * translated to the Kmer/xor equivalents.
+	 * Stops for insufficient support, junctions, or conflicting left predecessors
+	 * when leftCounts is supplied. May append a junction base only on the forward
+	 * canonical strand. Mutates the live anchor and caller buffers, not the table.
+	 * @param bb Caller-owned builder to append to
+	 * @param leftCounts Four-entry left-branch scratch array, or null
+	 * @param rightCounts Scratch array with exactly four entries
+	 * @param distance Maximum append length in bases
+	 * @param includeJunctionBase Allow the terminal junction base on the canonical forward strand
+	 * @param kmer Valid live anchor, advanced in place; must not be localKmer2
+	 * @return Number of bases appended
 	 */
 	private int extendCore(final ByteBuilder bb, final int[] leftCounts, final int[] rightCounts, final int distance,
 			boolean includeJunctionBase, final Kmer kmer){
@@ -428,6 +501,9 @@ public class BloomFilterCorrector2 extends BloomFilterCorrector {
 	 * Tests all four candidate preceding bases via Kmer.addLeft on a scratch
 	 * clone (addLeft prepends and evicts the current rightmost base -- exactly
 	 * the candidate BFC1's shift-based version constructs).
+	 * @param kmer Valid live anchor, preserved; must not alias localKmer2
+	 * @param counts Four-entry output array in A/C/G/T order, overwritten
+	 * @return Base code of the first maximum-count candidate, with ties in A/C/G/T order
 	 */
 	private int fillLeftCounts(final Kmer kmer, final int[] counts){
 		final Kmer scratch=localKmer2.get();
@@ -450,6 +526,9 @@ public class BloomFilterCorrector2 extends BloomFilterCorrector {
 	 * Fills array with counts for all possible right extensions of a live kmer.
 	 * Tests all four candidate following bases via Kmer.addRight on a scratch
 	 * clone (does not mutate the caller's live rolling kmer).
+	 * @param kmer Valid live anchor, preserved; must not alias localKmer2
+	 * @param counts Four-entry output array in A/C/G/T order, overwritten
+	 * @return Base code of the first maximum-count candidate, with ties in A/C/G/T order
 	 */
 	private int fillRightCounts(final Kmer kmer, final int[] counts){
 		final Kmer scratch=localKmer2.get();
@@ -476,6 +555,10 @@ public class BloomFilterCorrector2 extends BloomFilterCorrector {
 	 * Max count among all possible left extensions of the kmer at list position
 	 * pos, rebuilt from bases (the stored hash cannot be un-hashed). Called only
 	 * from smooth() for the sequence's leading edge.
+	 * @param bases Sequence with an in-range k-base window at pos, read without modification
+	 * @param kmers Unused stored hash list
+	 * @param pos Window start index in bases
+	 * @return Maximum nonnegative left-extension count, or zero for an undefined anchor
 	 */
 	@Override
 	protected int maxLeftCount(byte[] bases, LongList kmers, int pos){
@@ -506,6 +589,10 @@ public class BloomFilterCorrector2 extends BloomFilterCorrector {
 	/**
 	 * Max count among all possible right extensions of the kmer at list position
 	 * pos, rebuilt from bases. Called only from smooth() for the trailing edge.
+	 * @param bases Sequence with an in-range k-base window at pos, read without modification
+	 * @param kmers Unused stored hash list
+	 * @param pos Window start index in bases
+	 * @return Maximum nonnegative right-extension count, or zero for an undefined anchor
 	 */
 	@Override
 	protected int maxRightCount(byte[] bases, LongList kmers, int pos){
@@ -531,12 +618,22 @@ public class BloomFilterCorrector2 extends BloomFilterCorrector {
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Examines kmer counts around merge borders to ensure the merge was not
-	 * chimeric. Pure count lookup through the abstract getCount2 primitive --
-	 * no kmer derivation, so this could stay in the shared base, but the plan
-	 * lists it under the seam and duplicating a lookup-only loop costs nothing
-	 * for correctness. (Amber: this one COULD be hoisted; flagging rather than
-	 * silently deviating a third time on the same class of judgment call.)
+	 * Tests count discontinuities around the two inferred overlap boundaries.
+	 * Rebuilds stored hashes and reads them through getCountAt, preserving both
+	 * hash lanes in dual mode. Returns true without testing when the read fails
+	 * the initial length requirements. This is a merge heuristic, not proof that
+	 * a read is nonchimeric. Each tested range must fit the dense stored-window list.
+	 *
+	 * Historical port notes (Amber) retained this override rather than hoisting
+	 * the similar loop into the base during the port.
+	 * @param merged Proposed merged read; bases are not modified
+	 * @param len1 First original mate's length in bases
+	 * @param len2 Second original mate's length in bases
+	 * @param kmers Caller-owned primary hash list, replaced when the test runs
+	 * @param width Number of neighboring windows on each side to examine, positive
+	 * @param thresh Minimum supporting count for rejection against counts at most one
+	 * @param highMult Count-ratio multiplier for rejection against positive counts
+	 * @return false on a detected discontinuity; true when accepted or not tested
 	 */
 	@Override
 	public boolean mergeOK(Read merged, int len1, int len2, LongList kmers, final int width, final int thresh, final long highMult){
@@ -544,6 +641,7 @@ public class BloomFilterCorrector2 extends BloomFilterCorrector {
 		final byte[] bases=merged.bases;
 		if(len<len1+width+1 || len<len2+width+1 || len<k+width){return true;}
 		fillKmers(bases, kmers);
+		final int kmerCount=kmers.size();
 		final int a=len-len2-1;
 		final int b=a+1;
 		final int c=len1-1;
@@ -554,7 +652,8 @@ public class BloomFilterCorrector2 extends BloomFilterCorrector {
 		final int ck=c-k+1;
 		final int dk=d;
 
-		if(ak-width>=0 && ak+width<len){
+		//BLM204: use dense window positions, not base length or the count of valid windows.
+		if(ak-width>=0 && ak+width<kmerCount){
 			int min=getCountAt(kmers, ak);
 			for(int i=ak-width+1; i<ak; i++){min=Tools.min(min, getCountAt(kmers, i));}
 			int min2=getCountAt(kmers, ak+1);
@@ -562,7 +661,7 @@ public class BloomFilterCorrector2 extends BloomFilterCorrector {
 			if(min>=thresh && min2<=1){return false;}
 			if(min2>0 && min>min2*highMult){return false;}
 		}
-		if(ck-width>=0 && ck+width<len){
+		if(ck-width>=0 && ck+width<kmerCount){
 			int min=getCountAt(kmers, ck);
 			for(int i=ck-width+1; i<ck; i++){min=Tools.min(min, getCountAt(kmers, i));}
 			int min2=getCountAt(kmers, ck+1);
@@ -570,7 +669,7 @@ public class BloomFilterCorrector2 extends BloomFilterCorrector {
 			if(min>=thresh && min2<=1){return false;}
 			if(min2>0 && min>min2*highMult){return false;}
 		}
-		if(bk-width>=0 && bk+width<len){
+		if(bk-width>=0 && bk+width<kmerCount){
 			int min=getCountAt(kmers, bk);
 			for(int i=bk+1; i<bk+width+1; i++){min=Tools.min(min, getCountAt(kmers, i));}
 			int min2=getCountAt(kmers, bk-1);
@@ -578,7 +677,7 @@ public class BloomFilterCorrector2 extends BloomFilterCorrector {
 			if(min>=thresh && min2<=1){return false;}
 			if(min2>0 && min>min2*highMult){return false;}
 		}
-		if(dk-width>=0 && dk+width<len){
+		if(dk-width>=0 && dk+width<kmerCount){
 			int min=getCountAt(kmers, dk);
 			for(int i=dk+1; i<dk+width+1; i++){min=Tools.min(min, getCountAt(kmers, i));}
 			int min2=getCountAt(kmers, dk-1);
@@ -590,11 +689,16 @@ public class BloomFilterCorrector2 extends BloomFilterCorrector {
 	}
 
 	/**
-	 * Tests if a proposed base change results in similar k-mer count. Rebuilds
-	 * the candidate kmer from bases[a..a+k-1] with newBase substituted at the
-	 * end (via addRight, which evicts bases[a]) -- the stored hash at position a
-	 * cannot be un-hashed to construct this candidate, per the plan's Port
-	 * recipe / Tadpole2.isSimilar precedent.
+	 * Rebuilds the window starting at a, drops its first base and appends newBase.
+	 * Compares that candidate's count with counts[a] using inherited similarity
+	 * thresholds. Uses initialized localKmer scratch without modifying the inputs;
+	 * the hash list cannot reconstruct the candidate and is not read.
+	 * @param bases Sequence containing a valid k-base window at a
+	 * @param a Start base index of the anchor window
+	 * @param newBase Defined DNA base to append to the candidate
+	 * @param kmers Unused stored primary hash list
+	 * @param counts Read-only count list indexed by window start
+	 * @return Whether the candidate count meets the configured similarity thresholds
 	 */
 	@Override
 	protected boolean isSimilar(byte[] bases, int a, byte newBase, LongList kmers, IntList counts){
@@ -613,6 +717,7 @@ public class BloomFilterCorrector2 extends BloomFilterCorrector {
 	/*----------------  Abstract Seam: Primitives    ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Returns this thread's reusable secondary-hash list, allocating it on first use. */
 	private LongList xor2List(){
 		LongList list=localXor2List.get();
 		if(list==null){
@@ -622,16 +727,24 @@ public class BloomFilterCorrector2 extends BloomFilterCorrector {
 		return list;
 	}
 
+	/** Queries a valid live k-mer using the borrowed filter's one- or two-hash mode. */
 	private int getCount(final Kmer kmer){
 		return dualHash() ? filter.filter.read(kmer.xor(), kmer.xor2()) : filter.filter.read(kmer.xor());
 	}
 
+	/**
+	 * Queries a stored window using its aligned secondary hash when dual mode is enabled.
+	 * @param kmers Primary list paired with this thread's current secondary list
+	 * @param pos In-range window index in both lists
+	 * @return Table count, or zero for a negative undefined-window primary hash
+	 */
 	@Override
 	protected int getCountAt(final LongList kmers, final int pos){
 		final long key=kmers.get(pos);
 		return key<0 ? 0 : (dualHash() ? filter.filter.read(key, xor2List().get(pos)) : filter.filter.read(key));
 	}
 
+	/** Whether the currently assigned filter requests the secondary hash lane. */
 	private boolean dualHash(){return filter!=null && filter.dualHash;}
 
 	/** Not a real kmer to decode (it's a hash proxy) -- formats the hash value itself, debug-only. */
@@ -642,36 +755,62 @@ public class BloomFilterCorrector2 extends BloomFilterCorrector {
 
 	/**
 	 * Identity: Kmer.xor() is already strand-canonical (fwd and rcomp give the
-	 * same value -- see the plan's §Bridge resolution), so there is no separate
+	 * same value), so there is no separate
 	 * "reverse complement" of a stored hash to compute.
+	 * @param kmer Stored primary hash, not packed sequence
+	 * @return The supplied hash unchanged
 	 */
 	@Override
 	protected long rcomp(long kmer){
 		return kmer;
 	}
 
-	/** The two arguments are the primary and secondary hashes for long kmers. */
+	/**
+	 * Queries a hash pair; these arguments are not forward/reverse sequence encodings.
+	 * @param kmer Primary canonical hash
+	 * @param rkmer Secondary canonical hash, ignored in single-hash mode
+	 * @return Table count using the filter's configured hash mode
+	 */
 	@Override
 	public int getCount(long kmer, long rkmer){
 		return dualHash() ? filter.filter.read(kmer, rkmer) : filter.filter.read(kmer);
 	}
 
+	/**
+	 * Performs the legacy single-hash table lookup, even when dual mode is configured.
+	 * Callers requiring dual-hash lookup must supply both hashes or a stored position.
+	 * @param key Primary hash for a single-hash table; no sentinel handling
+	 * @return Count from the single-hash lookup path
+	 */
 	@Override
 	public int getCount(long key){
 		return filter.filter.read(key);
 	}
 
+	/**
+	 * Performs a single-hash lookup with negative-sentinel handling.
+	 * This compatibility method does not recover the secondary hash; inherited
+	 * stored-position processing uses the getCountAt override instead.
+	 * @param kmer Primary hash for a single-hash table, or a negative undefined sentinel
+	 * @return Zero for a negative value, otherwise the single-hash table count
+	 */
 	@Override
 	public int getCount2(long kmer){
 		return kmer<0 ? 0 : filter.filter.read(kmer);
 	}
 
-	/** Already canonical -- no max(kmer,rkmer) selection needed. */
+	/**
+	 * Retains the primary canonical hash without combining it with the secondary one.
+	 * @param kmer Primary canonical hash
+	 * @param rkmer Unused secondary hash
+	 * @return The supplied primary hash unchanged
+	 */
 	@Override
 	public long toValue(long kmer, long rkmer){
 		return kmer;
 	}
 
+	/** Secondary window hashes aligned with the most recently filled primary list on each thread. */
 	private final ThreadLocal<LongList> localXor2List=new ThreadLocal<LongList>();
 
 }

@@ -26,58 +26,67 @@ import structures.LongList;
 import tracker.ReadStats;
 
 /**
- * Wraps a BloomFilter to filter reads.
- * 
+ * Builds or loads a counting Bloom filter and partitions input fragments by matches.
+ * Matching fragments go to outm; nonmatches go to out/outu. Both bins contain
+ * the original pair, even when a temporary merged read supplies the query.
+ * Overlap correction can change the original bases and qualities before routing.
+ * Optional count output contains qualifying window occurrences from the query
+ * representation, independently of which bin receives the original fragment.
+ * Construction changes process-wide parsing/I/O settings and builds the filter;
+ * instances are not isolated concurrent command invocations.
  * @author Brian Bushnell
  * @date April 23, 2018
- *
  */
-public class BloomFilterWrapper {
-	
+public class BloomFilterWrapper{
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
-	 * Code entrance from the command line.
+	 * Constructs the filter, processes reads and closes redirected diagnostics on normal return.
 	 * @param args Command line arguments
 	 */
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
 		Timer t=new Timer();
-		
+
 		//Create an instance of this class
 		BloomFilterWrapper x=new BloomFilterWrapper(args);
-		
+
 		//Run the object
 		x.process(t);
-		
+
 		//Close the print stream if it was redirected
 		Shared.closeStream(x.outstream);
 	}
-	
+
 	/**
-	 * Constructor.
+	 * Parses options, resolves paths and creates the reference filter or deserializes it.
+	 * Expands paired # filenames and selects interleaving from inputs/outputs unless
+	 * explicitly set. Counting cells are widened as needed for the requested minimum.
+	 * Creates file descriptors here; processing streams are opened by process.
+	 * Filter serialization is launched asynchronously only for a newly built filter.
 	 * @param args Command line arguments
 	 */
 	public BloomFilterWrapper(String[] args){
-		
+
 		{//Preparse block for help, config files, and outstream
 			PreParser pp=new PreParser(args, getClass(), false);
 			args=pp.args;
 			outstream=pp.outstream;
 		}
-		
+
 		boolean setInterleaved=false; //Whether interleaved was explicitly set.
-		
+
 		//Set shared static variables
 		ReadWrite.USE_PIGZ=ReadWrite.USE_UNPIGZ=true;
 		ReadWrite.setZipThreads(Tools.max(Shared.threads()>1 ? 2 : 1, Shared.threads()>20 ? Shared.threads()/2 : Shared.threads()));
 		SamLine.SET_FROM_OK=true;
-		
+
 		//Create a parser object
 		Parser parser=new Parser();
-		
+
 		boolean setBits=false;
 		int k_=31;
 		int hashes_=2;
@@ -88,22 +97,22 @@ public class BloomFilterWrapper {
 		boolean requireBothToMatch_=false;
 		boolean ecco_=false;
 		boolean merge_=false;
-		
+
 		//Parse each argument
 		for(int i=0; i<args.length; i++){
 			String arg=args[i];
-			
+
 			//Break arguments into their constituent parts, in the form of "a=b"
 			String[] split=arg.split("=");
 			String a=split[0].toLowerCase();
 			String b=split.length>1 ? split[1] : null;
-			
+
 			if(a.equals("verbose")){
 				verbose=Parse.parseBoolean(b);
 			}else if(a.equals("ordered")){
 				ordered=Parse.parseBoolean(b);
 			}
-			
+
 			else if(a.equalsIgnoreCase("k") || a.equalsIgnoreCase("bloomK") || a.equalsIgnoreCase("bloomFilterK")){
 				k_=Integer.parseInt(b);
 			}else if(a.equalsIgnoreCase("hashes") || a.equalsIgnoreCase("bloomHashes") || a.equalsIgnoreCase("bloomFilterHashes")){
@@ -115,7 +124,6 @@ public class BloomFilterWrapper {
 			}else if(a.equals("bits")){
 				setBits=true;
 				bits_=Integer.parseInt(b);
-				assert(bits_>0);
 			}else if(a.equals("mincount")){
 				minCount_=Integer.parseInt(b);
 //				assert(minCount_>=1) : "mincount must be at least 1.";
@@ -135,13 +143,13 @@ public class BloomFilterWrapper {
 			}else if(a.equals("seed")){
 				KCountArray7MTA.setSeed(Parse.parseKMG(b));
 			}
-			
+
 			else if(a.equals("serialin")){
 				serialIn=b;
 			}else if(a.equals("serialout")){
 				serialOut=b;
 			}
-			
+
 			else if(a.equals("ref")){
 				boolean result=Tools.addFiles(b, ref);
 				assert(result) : "Could not add file(s): "+b;
@@ -165,9 +173,14 @@ public class BloomFilterWrapper {
 				assert(false) : "Unknown parameter "+args[i];
 			}
 		}
-		
+
+		//Packed cells require a power of two through 32; invalid widths can loop forever
+		//during widening because Java masks long shift distances and int doubling wraps.
+		if(bits_<1 || bits_>32 || (bits_&(bits_-1))!=0){
+			throw new IllegalArgumentException("Unsupported counter width: "+bits_+"; expected 1, 2, 4, 8, 16, or 32.");
+		}
 		while(minCount_>0 && (1L<<bits_)-1<minCount_){bits_*=2;}
-		
+
 		k=k_;
 		bits=bits_;
 		hashes=hashes_;
@@ -178,69 +191,70 @@ public class BloomFilterWrapper {
 		ecco=ecco_;
 		merge=merge_;
 		KmerCountAbstract.CANONICAL=rcomp; //rcomp, or true, perhaps...  hmmm.
-		
+
 		shift=bitsPerBase*k;
 		shift2=shift-bitsPerBase;
 		mask=(shift>63 ? -1L : ~((-1L)<<shift));
-		
+
 		{//Process parser fields
 			Parser.processQuality();
-			
+
 			maxReads=parser.maxReads;
-			
+
 			overwrite=ReadStats.overwrite=parser.overwrite;
 			append=ReadStats.append=parser.append;
 			setInterleaved=parser.setInterleaved;
-			
+
 			in1=parser.in1;
 			in2=parser.in2;
 			qfin1=parser.qfin1;
 			qfin2=parser.qfin2;
-			
+
 			qfout1=parser.qfout1;
 			qfout2=parser.qfout2;
-			
+
 			extin=parser.extin;
 			extout=parser.extout;
 		}
-		
+
 		//Do input file # replacement
 		if(in1!=null && in2==null && in1.indexOf('#')>-1 && !new File(in1).exists()){
 			in2=in1.replace("#", "2");
 			in1=in1.replace("#", "1");
 		}
-		
+
 		//Do output file # replacement
 		if(out1!=null && out2==null && out1.indexOf('#')>-1){
 			out2=out1.replace("#", "2");
 			out1=out1.replace("#", "1");
 		}
-		
+
 		//Do output file # replacement
 		if(outm1!=null && outm2==null && outm1.indexOf('#')>-1){
 			outm2=outm1.replace("#", "2");
 			outm1=outm1.replace("#", "1");
 		}
-		
+
 		//Adjust interleaved detection based on the number of input files
 		if(in2!=null){
 			if(FASTQ.FORCE_INTERLEAVED){outstream.println("Reset INTERLEAVED to false because paired input files were specified.");}
 			FASTQ.FORCE_INTERLEAVED=FASTQ.TEST_INTERLEAVED=false;
 		}
-		
+
 		assert(FastaReadInputStream.settingsOK());
-		
+
 		//Ensure there is an input file
 		if(in1==null){throw new RuntimeException("Error - at least one input file is required.");}
-		
+
 		//Adjust the number of threads for input file reading
 		if(!ByteFile.FORCE_MODE_BF1 && !ByteFile.FORCE_MODE_BF2 && Shared.threads()>2){
 			ByteFile.FORCE_MODE_BF2=true;
 		}
-		
-		//Ensure out2 is not set without out1
+
+		//Each paired output needs its primary writer; otherwise the mate path is unused.
 		if(out1==null && out2!=null){throw new RuntimeException("Error - cannot define out2 without defining out1.");}
-		
+		if(outm1==null && outm2!=null){throw new RuntimeException("Error - cannot define outm2 without defining outm1.");}
+
 		//Adjust interleaved settings based on number of output files
 		if(!setInterleaved){
 			assert(in1!=null && (out1!=null || out2==null)) : "\nin1="+in1+"\nin2="+in2+"\nout1="+out1+"\nout2="+out2+"\n";
@@ -255,37 +269,53 @@ public class BloomFilterWrapper {
 				}
 			}
 		}
-		
+
 		//Ensure output files can be written
-		if(!Tools.testOutputFiles(overwrite, append, false, out1, out2, outm1, outm2)){
-			outstream.println((out1==null)+", "+(out2==null)+", "+out1+", "+out2);
-			throw new RuntimeException("\n\noverwrite="+overwrite+"; Can't write to output files "+out1+", "+out2+"\n");
+		//A loaded filter bypasses construction and ignores serialOut.
+		final String serialWrite=(serialIn==null ? serialOut : null);
+		if(!Tools.testOutputFiles(overwrite, append, false, out1, out2, outm1,
+				outm2, qfout1, qfout2, outc)){
+			throw new RuntimeException("overwrite="+overwrite+"; Can't write one or more output files: "+
+					out1+", "+out2+", "+outm1+", "+outm2+", "+qfout1+", "+qfout2+", "+outc);
 		}
-		
+		//Serialization replaces the complete object; append must not bypass overwrite=false.
+		if(!Tools.testOutputFiles(overwrite, false, false, serialWrite)){
+			throw new RuntimeException("overwrite="+overwrite+"; Can't write serialized filter: "+serialWrite);
+		}
+
 		//Ensure input files can be read
-		if(!Tools.testInputFiles(false, true, in1, in2)){
-			throw new RuntimeException("\nCan't read some input files.\n");  
+		if(!Tools.testInputFiles(false, true, in1, in2, qfin1, qfin2, serialIn)){
+			throw new RuntimeException("\nCan't read some input files.\n");
 		}
-		
+
 		//Ensure that no file was specified multiple times
-		if(!Tools.testForDuplicateFiles(true, in1, in2, out1, out2, outm1, outm2)){
+		if(!Tools.testForDuplicateFiles(true, in1, in2, qfin1, qfin2, serialIn,
+				serialWrite, out1, out2, outm1, outm2, qfout1, qfout2, outc)){
 			throw new RuntimeException("\nSome file names were specified multiple times.\n");
 		}
-		
+		if(serialIn==null){
+			//References may also be input reads, but no output may overwrite a reference.
+			Tools.testInputFiles(true, true, ref);
+			for(String reference : ref){
+				Tools.testForDuplicateFiles(true, reference, serialWrite, out1,
+						out2, outm1, outm2, qfout1, qfout2, outc);
+			}
+		}
+
 		//Create output FileFormat objects
 		ffout1=FileFormat.testOutput(out1, FileFormat.FASTQ, extout, true, overwrite, append, ordered);
 		ffout2=FileFormat.testOutput(out2, FileFormat.FASTQ, extout, true, overwrite, append, ordered);
-		
+
 		//Create output FileFormat objects
 		ffoutm1=FileFormat.testOutput(outm1, FileFormat.FASTQ, extout, true, overwrite, append, ordered);
 		ffoutm2=FileFormat.testOutput(outm2, FileFormat.FASTQ, extout, true, overwrite, append, ordered);
-		
+
 		ffoutc=FileFormat.testOutput(outc, FileFormat.FASTA, extout, true, overwrite, append, ordered);
 
 		//Create input FileFormat objects
 		ffin1=FileFormat.testInput(in1, FileFormat.FASTA, extin, true, true);
 		ffin2=FileFormat.testInput(in2, FileFormat.FASTA, extin, true, true);
-		
+
 		{
 			Timer t=new Timer(outstream, true);
 			if(serialIn==null){
@@ -295,6 +325,7 @@ public class BloomFilterWrapper {
 					ReadWrite.writeObjectInThread(filter, serialOut, true);
 				}
 			}else{
+				//Loaded geometry governs query scratch and diagnostics as well as matching.
 				filter=ReadWrite.read(BloomFilter.class, serialIn, true);
 			}
 			t.stop("Filter creation: \t\t");
@@ -305,18 +336,23 @@ public class BloomFilterWrapper {
 			}
 		}
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Create read streams and process all data */
+	/** Opens owned streams, joins workers, drains outputs and reports fragment routing.
+	 * Displayed read totals count individual mates; bases are counted before optional
+	 * overlap edits. Unmatched totals are classification counts even when no output
+	 * was requested. Normal completion restores constructor validation and folds
+	 * stream/statistics errors into errorState; exceptions bypass this close sequence.
+	 * @param t Timer started before construction, stopped after normal stream closure */
 	void process(Timer t){
-		
+
 		//Turn off read validation in the input threads to increase speed
 		final boolean vic=Read.VALIDATE_IN_CONSTRUCTOR;
 		Read.VALIDATE_IN_CONSTRUCTOR=Shared.threads()<4;
-		
+
 		//Create a read input stream
 		final ConcurrentReadInputStream cris;
 		{
@@ -326,57 +362,57 @@ public class BloomFilterWrapper {
 		}
 		boolean paired=cris.paired();
 		if(!ffin1.samOrBam()){outstream.println("Input is being processed as "+(paired ? "paired" : "unpaired"));}
-		
+
 		//Optionally create read output streams
 		final ConcurrentReadOutputStream rosu, rosm, rosc;
 		if(ffout1!=null){
 			//Select output buffer size based on whether it needs to be ordered
 			final int buff=(ordered ? Tools.mid(16, 128, (Shared.threads()*2)/3) : 8);
-			
+
 			//Notify user of output mode
 			if(cris.paired() && out2==null && (in1!=null && !ffin1.samOrBam() && !ffout1.samOrBam())){
 				outstream.println("Writing interleaved.");
 			}
-			
+
 			rosu=ConcurrentReadOutputStream.getStream(ffout1, ffout2, qfout1, qfout2, buff, null, false);
 			rosu.start(); //Start the stream
 		}else{rosu=null;}
-		
+
 		if(ffoutm1!=null){
 			//Select output buffer size based on whether it needs to be ordered
 			final int buff=(ordered ? Tools.mid(16, 128, (Shared.threads()*2)/3) : 8);
-			
+
 			rosm=ConcurrentReadOutputStream.getStream(ffoutm1, ffoutm2, qfoutm1, qfoutm2, buff, null, false);
 			rosm.start(); //Start the stream
 		}else{rosm=null;}
-		
+
 		if(ffoutc!=null){
 			//Select output buffer size based on whether it needs to be ordered
 			final int buff=(ordered ? Tools.mid(16, 128, (Shared.threads()*2)/3) : 8);
-			
+
 			rosc=ConcurrentReadOutputStream.getStream(ffoutc, null, buff, null, false);
 			rosc.start(); //Start the stream
 		}else{rosc=null;}
-		
+
 		//Reset counters
 		readsProcessed=readsOut=0;
 		basesProcessed=basesOut=0;
-		
+
 		Timer t2=new Timer(outstream, true);
-		
+
 		//Process the reads in separate threads
 		spawnThreads(cris, rosu, rosm, rosc);
-		
+
 		if(verbose){outstream.println("Finished; closing streams.");}
-		
+
 		//Write anything that was accumulated by ReadStats
 		errorState|=ReadStats.writeAll();
 		//Close the read streams
 		errorState|=ReadWrite.closeStreams(cris, rosu, rosm, rosc);
-		
+
 		//Reset read validation
 		Read.VALIDATE_IN_CONSTRUCTOR=vic;
-		
+
 		//Report timing and results
 		t.stop();
 		t2.stop("\nFiltering Time:  \t\t");
@@ -384,8 +420,9 @@ public class BloomFilterWrapper {
 		{
 			long readsMatched=(readsProcessed-readsOut);
 			long basesMatched=(basesProcessed-basesOut);
-			double rpct=readsMatched*100.0/readsProcessed;
-			double bpct=basesMatched*100.0/basesProcessed;
+			//Empty input reports zero percent without changing the recorded counters.
+			double rpct=readsMatched*100.0/Tools.max(1L, readsProcessed);
+			double bpct=basesMatched*100.0/Tools.max(1L, basesProcessed);
 			String rstring=Tools.padKMB(readsMatched, 8);
 			String bstring=Tools.padKMB(basesMatched, 8);
 			StringBuilder sb=new StringBuilder();
@@ -393,49 +430,56 @@ public class BloomFilterWrapper {
 			sb.append("Bases Matched:      ").append(bstring).append(Tools.format(" \t%.2f%%", bpct));
 			outstream.println(sb);
 		}
-		
+
 		//Throw an exception of there was an error in a thread
 		if(errorState){
 			throw new RuntimeException(getClass().getName()+" terminated in an error state; the output may be corrupt.");
 		}
 	}
-	
-	/** Spawn process threads */
-	private void spawnThreads(final ConcurrentReadInputStream cris, 
+
+	/** Starts the configured workers and joins each before collecting its counters.
+	 * Interrupted joins are logged and retried. A worker that fails before setting
+	 * success marks errorState, but this method does not cancel its peers or repair
+	 * output batch IDs abandoned by a failed worker.
+	 * @param cris Started shared input, closed by process after workers finish
+	 * @param rosu Optional started unmatched output
+	 * @param rosm Optional started matched output
+	 * @param rosc Optional started window-count output */
+	private void spawnThreads(final ConcurrentReadInputStream cris,
 			final ConcurrentReadOutputStream rosu, final ConcurrentReadOutputStream rosm,
 			final ConcurrentReadOutputStream rosc){
-		
+
 		//Do anything necessary prior to processing
-		
+
 		//Determine how many threads may be used
 		final int threads=Shared.threads();
-		
+
 		//Fill a list with ProcessThreads
 		ArrayList<ProcessThread> alpt=new ArrayList<ProcessThread>(threads);
 		for(int i=0; i<threads; i++){
 			alpt.add(new ProcessThread(cris, rosu, rosm, rosc, i));
 		}
-		
+
 		//Start the threads
 		for(ProcessThread pt : alpt){
 			pt.start();
 		}
-		
+
 		//Wait for completion of all threads
 		boolean success=true;
 		for(ProcessThread pt : alpt){
-			
+
 			//Wait until this thread has terminated
 			while(pt.getState()!=Thread.State.TERMINATED){
-				try {
+				try{
 					//Attempt a join operation
 					pt.join();
-				} catch (InterruptedException e) {
+				}catch(InterruptedException e){
 					//Potentially handle this, if it is expected to occur
 					e.printStackTrace();
 				}
 			}
-			
+
 			//Accumulate per-thread statistics
 			readsProcessed+=pt.readsProcessedT;
 			basesProcessed+=pt.basesProcessedT;
@@ -443,29 +487,30 @@ public class BloomFilterWrapper {
 			basesOut+=pt.basesOutT;
 			success&=pt.success;
 		}
-		
+
 		//Track whether any threads failed
 		if(!success){errorState=true;}
-		
+
 		//Do anything necessary after processing
-		
+
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------         Inner Classes        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
 	 * Worker thread that processes reads through the Bloom filter.
-	 * Each thread independently reads sequence data, applies the filter,
-	 * and routes reads to appropriate output streams based on matches.
+	 * Borrows batches from one shared input and submits each original batch ID to
+	 * every enabled output, including empty matched/count lists. Scratch counts are
+	 * private to the worker; completed reference counts are shared read-only.
 	 */
-	private class ProcessThread extends Thread {
-		
+	private class ProcessThread extends Thread{
+
 		//Constructor
 		/**
 		 * Constructor for ProcessThread worker.
@@ -476,8 +521,8 @@ public class BloomFilterWrapper {
 		 * @param rosc_ Output stream for k-mer counts
 		 * @param tid_ Thread identifier
 		 */
-		ProcessThread(final ConcurrentReadInputStream cris_, 
-				final ConcurrentReadOutputStream rosu_, final ConcurrentReadOutputStream rosm_, 
+		ProcessThread(final ConcurrentReadInputStream cris_,
+				final ConcurrentReadOutputStream rosu_, final ConcurrentReadOutputStream rosm_,
 				final ConcurrentReadOutputStream rosc_, final int tid_){
 			cris=cris_;
 			rosu=rosu_;
@@ -485,23 +530,27 @@ public class BloomFilterWrapper {
 			rosc=rosc_;
 			tid=tid_;
 		}
-		
-		//Called by start()
+
+		/** Runs the batch loop; success stays false if the worker exits exceptionally. */
 		@Override
 		public void run(){
-			
+
 			//Process the reads
 			processInner();
-			
+
 			//Do anything necessary after processing
-			
+
 			//Indicate successful exit status
 			success=true;
 		}
-		
-		/** Iterate through the reads */
+
+		/** Validates reads, optionally merges/corrects pairs, then routes by the query result.
+		 * Restores mate orientation after temporary merging and emits original fragments.
+		 * Returned unmatched batches contain nulls at matched positions. Counts output
+		 * reflects the temporary query view and is not restricted to one output bin.
+		 * Input lists are returned after output submission on the normal path. */
 		void processInner(){
-			
+
 			//Grab the first ListNum of reads
 			ListNum<Read> ln=cris.nextList();
 			//Grab the actual read list from the ListNum
@@ -524,7 +573,7 @@ public class BloomFilterWrapper {
 					Read r1=reads.get(idx);
 					Read r2=r1.mate;
 					final String r2id=r1.mateId();
-					
+
 					//Validate reads in worker threads
 					if(!r1.validated()){r1.validate(true);}
 					if(r2!=null && !r2.validated()){r2.validate(true);}
@@ -536,8 +585,8 @@ public class BloomFilterWrapper {
 					//Increment counters
 					readsProcessedT+=r1.pairCount();
 					basesProcessedT+=initialLength1+initialLength2;
-					
-					
+
+
 					//Reads are processed in this block.
 					{
 						//Merge is used only to expose insert-spanning kmers to the filter and to cut duplicate
@@ -603,13 +652,19 @@ public class BloomFilterWrapper {
 		}
 
 		/**
-		 * Breaks a read into kmers and adds them, with their counts, to the new list.
-		 * @param r Read to process
-		 * @param counts Output list of kmers (bases) and counts (read name)
+		 * Emits every fully defined packed window reaching minCount, including repeats.
+		 * Uses the loaded or constructed filter's k/strand settings and count lookup; quality
+		 * scores are not consulted. Each output read holds encoded key bases, the
+		 * decimal count as its name, no qualities and the source numeric ID.
+		 * @param r Borrowed read, or null to do nothing
+		 * @param counts Destination list to append newly allocated window reads to
 		 */
 		private void addCounts(Read r, ArrayList<Read> counts){
 			if(r==null){return;}
 			final byte[] bases=r.bases;
+			final int k=filter.k, shift2=filter.shift2;
+			final long mask=filter.mask;
+			final boolean rcomp=filter.rcomp;
 
 			long kmer=0;
 			long rkmer=0;
@@ -638,12 +693,14 @@ public class BloomFilterWrapper {
 				}
 			}
 		}
-		
+
 		/**
-		 * Process a read or a read pair.
-		 * @param r1 Read 1
-		 * @param r2 Read 2 (may be null)
-		 * @return True if the reads should be kept (meaning they don't match the filter), false if they should be discarded.
+		 * Classifies the current query representation using the configured pair policy.
+		 * Both mates must match only when requireBothToMatch is true and r2 is present;
+		 * a successfully merged pair is queried as one read.
+		 * @param r1 First query read
+		 * @param r2 Second query read, or null for single/merged input
+		 * @return true for a matching fragment routed to outm, false for out/outu
 		 */
 		boolean matchesFilter(final Read r1, final Read r2){
 			if(r2!=null && requireBothToMatch){
@@ -654,23 +711,23 @@ public class BloomFilterWrapper {
 				return filter.matchesEither(r1, r2, buffer, minCount);
 			}
 		}
-		
-		/** Buffer for storing k-mer matches when consecutive matches are required */
-		private final LongList buffer=minConsecutiveMatches>1 ? new LongList(150) : null;
-		
-		/** Number of reads processed by this thread */
+
+		/** Private scratch sized by the actual filter's matching policy, including loaded filters. */
+		private final LongList buffer=filter.minConsecutiveMatches>1 ? new LongList(150) : null;
+
+		/** Individual reads observed before overlap operations, counting both mates. */
 		protected long readsProcessedT=0;
 		/** Number of bases processed by this thread */
 		protected long basesProcessedT=0;
-		
-		/** Number of reads retained by this thread */
+
+		/** Individual unmatched reads, whether or not an unmatched output is enabled. */
 		protected long readsOutT=0;
 		/** Number of bases retained by this thread */
 		protected long basesOutT=0;
-		
+
 		/** True only if this thread has completed successfully */
 		boolean success=false;
-		
+
 		/** Shared input stream */
 		private final ConcurrentReadInputStream cris;
 		/** Shared output stream */
@@ -682,30 +739,30 @@ public class BloomFilterWrapper {
 		/** Thread ID */
 		final int tid;
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
 	/** List of reference sequence files used to build the Bloom filter */
 	private ArrayList<String> ref=new ArrayList<String>();
-	
+
 	/** Primary input file path */
 	private String in1=null;
 	/** Secondary input file path */
 	private String in2=null;
-	
+
 	/** Quality file for primary input */
 	private String qfin1=null;
 	/** Quality file for secondary input */
 	private String qfin2=null;
 
-	/** Primary output file path */
+	/** Primary unmatched output path; out, out1, outu and outu1 are aliases. */
 	private String out1=null;
-	/** Secondary output file path */
+	/** Second unmatched mate output path; absent sends both mates to the primary output. */
 	private String out2=null;
-	
-	/** Output for kmer counts */
+
+	/** Optional qualifying-window occurrence output, defaulting to FASTA format. */
 	private String outc=null;
 
 	/** Quality file for primary output */
@@ -718,11 +775,11 @@ public class BloomFilterWrapper {
 	/** Secondary output file path for matching reads */
 	private String outm2=null;
 
-	/** Quality file for primary matching output */
+	/** Reserved primary matched-quality path; currently no parsed argument assigns it. */
 	private String qfoutm1=null;
-	/** Quality file for secondary matching output */
+	/** Reserved secondary matched-quality path; currently no parsed argument assigns it. */
 	private String qfoutm2=null;
-	
+
 	/** Override input file extension */
 	private String extin=null;
 	/** Override output file extension */
@@ -732,7 +789,7 @@ public class BloomFilterWrapper {
 	private String serialIn=null;
 	/** Path to serialize Bloom filter output file */
 	private String serialOut=null;
-	
+
 	/*--------------------------------------------------------------*/
 
 	/** Number of reads processed */
@@ -740,14 +797,14 @@ public class BloomFilterWrapper {
 	/** Number of bases processed */
 	protected long basesProcessed=0;
 
-	/** Number of reads retained */
+	/** Individual unmatched reads, independent of whether they were written. */
 	protected long readsOut=0;
 	/** Number of bases retained */
 	protected long basesOut=0;
 
-	/** Quit after processing this many input reads; -1 means no limit */
+	/** Input-stream fragment limit; negative means unlimited, while reports count both mates. */
 	private long maxReads=-1;
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
@@ -756,28 +813,28 @@ public class BloomFilterWrapper {
 	final FileFormat ffin1;
 	/** Secondary input file */
 	final FileFormat ffin2;
-	
+
 	/** Primary output file */
 	private final FileFormat ffout1;
 	/** Secondary output file */
 	private final FileFormat ffout2;
-	
+
 	/** Primary output file for matching reads */
 	private final FileFormat ffoutm1;
 	/** Secondary output file for matching reads */
 	private final FileFormat ffoutm2;
-	
+
 	/** Output for kmers and counts */
 	private final FileFormat ffoutc;
-	
+
 	/** The underlying Bloom filter used for k-mer matching */
 	final BloomFilter filter;
-	
-	/** K-mer length used by the Bloom filter */
+
+	/** Requested k-mer length used when constructing a new filter. */
 	final int k;
 	/** Number of hash functions used by the Bloom filter */
 	final int hashes;
-	/** Number of bits per k-mer in the counting structure */
+	/** Requested bits per count cell, widened to hold minCount when building a filter. */
 	final int bits;
 	/** Minimum number of consecutive k-mer matches required */
 	final int minConsecutiveMatches;
@@ -787,13 +844,13 @@ public class BloomFilterWrapper {
 	final boolean requireBothToMatch;
 	/** Whether to perform error correction by overlap */
 	final boolean ecco;
-	/** Whether to merge overlapping paired reads */
+	/** Use a temporary merged query when strict overlap succeeds; restore original output pairs. */
 	final boolean merge;
 	/** Minimum k-mer count required for a match */
 	final int minCount;
 	/** Fraction of available memory to use for the Bloom filter */
 	float memFraction=1.0f;
-	
+
 	/** Number of bits used to encode each DNA base */
 	final int bitsPerBase=BloomFilter.bitsPerBase;
 	/** Bit shift value for k-mer encoding */
@@ -802,11 +859,11 @@ public class BloomFilterWrapper {
 	final int shift2;
 	/** Bit mask for k-mer length truncation */
 	final long mask;
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/** Print status messages to this output stream */
 	private PrintStream outstream=System.err;
 	/** Print verbose messages */
@@ -819,5 +876,5 @@ public class BloomFilterWrapper {
 	private boolean append=false;
 	/** Reads are output in input order */
 	private boolean ordered=false;
-	
+
 }

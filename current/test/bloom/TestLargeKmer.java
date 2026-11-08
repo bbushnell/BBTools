@@ -1,8 +1,10 @@
-package bloom;
+package test.bloom;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 
+import bloom.KCountArray2;
+import bloom.KmerCount3;
 import dna.AminoAcid;
 import fileIO.ReadWrite;
 import shared.Timer;
@@ -12,13 +14,20 @@ import stream.Read;
 import structures.ListNum;
 
 /**
+ * Legacy experiment estimating long-window support from shorter forward k-mers.
+ * For each quality-qualified k2-base window, bins the minimum constituent k-mer
+ * count, clipped to 255. Counts window occurrences rather than distinct long keys;
+ * the source table can also saturate. This is not an exact large-k-mer counter.
+ * Input is FASTQ with non-null qualities and shared KmerCount3 limits/quality settings apply.
+ *
  * @author Brian Bushnell
  * @date Jul 5, 2012
- *
  */
-public class TestLargeKmer {
+public class TestLargeKmer{
 	
-	public static void main(String args[]){
+	/** Builds short counts, scans input again and prints all 256 support bins.
+	 * @param args Input, optional mate input, k, cell bits and k2, in that order */
+	public static void main(String[] args){
 		Timer t=new Timer();
 		
 		String fname1=args[0];
@@ -38,12 +47,31 @@ public class TestLargeKmer {
 		}
 	}
 	
+	/** Builds a new short-key table before scanning input for long-window support.
+	 * @param fname1 Primary FASTQ input
+	 * @param fname2 Optional second mate FASTQ
+	 * @param k Short window length in 1..19
+	 * @param cbits Cell width supported by KCountArray2
+	 * @param k2 Long window length, at least k
+	 * @return New 256-bin histogram of clipped minimum subwindow counts */
 	public static long[] countK2(String fname1, String fname2, int k, int cbits, int k2){
 		KCountArray2 counts=KmerCount3.countFastq(fname1, fname2, k, cbits);
 		return countK2(fname1, fname2, k, counts, k2);
 	}
 	
+	/** Scans both mates against a borrowed forward-key table without changing it.
+	 * Maintains a sliding frequency histogram to find the least-supported subwindow.
+	 * Undefined or low-quality bases interrupt qualifying windows.
+	 * Normal completion closes the owned reader, but currently ignores its error result.
+	 * Exceptions during counting bypass that close; incomplete-input detection is not guaranteed.
+	 * @param fname1 Primary FASTQ input
+	 * @param fname2 Optional second mate FASTQ
+	 * @param k Short window length in 1..19, matching the table's key encoding
+	 * @param counts1 Non-null table populated with forward k-base keys
+	 * @param k2 Long window length, at least k; smaller values invalidate the ring
+	 * @return New histogram counting each eligible k2-window occurrence once */
 	public static long[] countK2(String fname1, String fname2, int k, KCountArray2 counts1, int k2){
+		//TODO: Validate k2>=k before reader startup; smaller values create an invalid ring.
 		assert(k>=1 && k<20);
 		final int kbits=2*k;
 		final long mask=(kbits>63 ? -1L : ~((-1L)<<kbits));
@@ -57,7 +85,6 @@ public class TestLargeKmer {
 		
 		long kmer=0; //current kmer
 		int len=0;  //distance since last contig start or ambiguous base
-		
 		
 		final long[] upperBound=new long[BOUND_LEN]; //Lowest upper bound provable of kmer count
 		final int[] ring=new int[k2-k+1];
@@ -74,7 +101,6 @@ public class TestLargeKmer {
 			}
 			
 			while(ln!=null && reads!=null && reads.size()>0){//ln!=null prevents a compiler potential null access warning
-				//System.err.println("reads.size()="+reads.size());
 				for(Read r : reads){
 					
 					len=0;
@@ -166,15 +192,14 @@ public class TestLargeKmer {
 					}
 					
 				}
-				//System.err.println("returning list");
 				cris.returnList(ln);
-				//System.err.println("fetching list");
 				ln=cris.nextList();
 				reads=(ln!=null ? ln.list : null);
 			}
 			System.err.println("Finished reading");
 			cris.returnList(ln);
 			System.err.println("Returned list");
+			//TODO: Propagate the close error; otherwise malformed input can yield a partial histogram.
 			ReadWrite.closeStreams(cris);
 			System.err.println("Closed stream");
 		}
@@ -182,9 +207,12 @@ public class TestLargeKmer {
 		return upperBound;
 	}
 	
+	/** Returns the smaller value. */
 	public static final int min(int x, int y){return x<y ? x : y;}
+	/** Returns the larger value. */
 	public static final int max(int x, int y){return x>y ? x : y;}
 	
+	/** Histogram width; values at least 255 share the last bin. */
 	public static final int BOUND_LEN=256;
 	
 }

@@ -13,15 +13,23 @@ import stream.Read;
 import structures.ListNum;
 
 /**
- * Counts k-mer frequencies in sequencing data using memory-efficient arrays.
- * Processes FASTQ and FASTA files to generate k-mer frequency distributions
- * for analysis of sequence composition and complexity.
+ * Legacy direct-address nucleotide counter with packed, saturating cells.
+ * Counts forward-strand windows from both mates; it does not canonicalize reverse
+ * complements. Undefined bases and bases below the shared quality cutoff break
+ * a window. Configuration and cumulative counters come from KmerCountAbstract.
+ * Missing qualities are accepted; those bases are filtered only by sequence.
  *
  * @author Brian Bushnell
  * @date Jul 5, 2012
  */
-public class KmerCount3 extends KmerCountAbstract {
+public class KmerCount3 extends KmerCountAbstract{
 	
+	/**
+	 * Counts input and prints a histogram of all table cells, including unused cells.
+	 * Positional arguments are input, optional mate input, k and cell bits.
+	 * Changes the process-wide FASTA minimum read length when input has a FASTA suffix.
+	 * @param args Three or four positional arguments in the stated order
+	 */
 	public static void main(String[] args){
 		
 		Timer t=new Timer();
@@ -37,15 +45,18 @@ public class KmerCount3 extends KmerCountAbstract {
 			FastaReadInputStream.MIN_READ_LEN=k;
 		}
 		count=countFastq(fname1, fname2, k, cbits);
-		
-		
+
 		t.stop();
 		System.out.println("Finished counting; time = "+t);
-		
-		long[] freq=count.transformToFrequency();
+		printStatistics(count);
+	}
 
-//		System.out.println(count+"\n");
-//		System.out.println(Arrays.toString(freq)+"\n");
+	/** Prints all cell frequencies to System.out, grouping depths of eight or more.
+	 * Percentages use the histogram's total cell count, including unoccupied cells.
+	 * Reads a newly allocated histogram without mutating the supplied table.
+	 * @param count Non-null direct-address table supplying its complete cell histogram */
+	public static void printStatistics(final KCountArray2 count){
+		long[] freq=count.transformToFrequency();
 		
 		long sum=sum(freq);
 		System.out.println("Kmer fraction:");
@@ -56,7 +67,7 @@ public class KmerCount3 extends KmerCountAbstract {
 			System.out.println(prefix+"\t"+Tools.format("%.3f%%   ",(100l*freq[i]/(double)sum))+"\t"+freq[i]);
 		}
 		while(lim1<=freq.length){
-			int x=0;
+			long x=0;
 			for(int i=lim1; i<lim2; i++){
 				x+=freq[i];
 			}
@@ -69,6 +80,17 @@ public class KmerCount3 extends KmerCountAbstract {
 		}
 	}
 	
+	/**
+	 * Builds a new table by counting quality-qualified forward windows in both mates.
+	 * Reads are consumed through CRIS and released after counting. Increments shared
+	 * readsProcessed once per root, without resetting it. The shared maxReads limit
+	 * is passed to the input stream. Does not modify read bases or qualities.
+	 * @param reads1 Primary sequence input; bases without qualities are accepted
+	 * @param reads2 Optional separate mate input, or null
+	 * @param k Window length, asserted to be in 1..19; storage grows as 4^k
+	 * @param cbits Packed cell width supported by KCountArray2
+	 * @return Newly populated direct-address table with saturating counts
+	 */
 	public static KCountArray2 countFastq(String reads1, String reads2, int k, int cbits){
 		assert(k>=1 && k<20);
 		final int kbits=2*k;
@@ -114,20 +136,14 @@ public class KmerCount3 extends KmerCountAbstract {
 					for(int i=0; i<bases.length; i++){
 						byte b=bases[i];
 						int x=AminoAcid.baseToNumber[b];
-						if(x<0 || quals[i]<minQuality){
+						if(x<0 || (quals!=null && quals[i]<minQuality)){
 							len=0;
 							kmer=0;
 						}else{
 							kmer=((kmer<<2)|x)&mask;
 							len++;
 							if(len>=k){
-//								System.out.print("Incrementing "+Long.toHexString(kmer)+": "+count.read(kmer));
 								count.increment(kmer, 1);
-//								System.out.println(" -> "+count.read(kmer));
-//								System.out.print("Incrementing array for "+Long.toHexString(kmer)+": "+array[(int)kmer]);
-//								array[(int)kmer]++;
-//								System.out.println(" -> "+array[(int)kmer]+"\n");
-//								assert(array[(int)kmer]==count.read(kmer) || array[(int)kmer]>3);
 							}
 						}
 					}
@@ -140,7 +156,7 @@ public class KmerCount3 extends KmerCountAbstract {
 						for(int i=0; i<bases.length; i++){
 							byte b=bases[i];
 							int x=AminoAcid.baseToNumber[b];
-							if(x<0 || quals[i]<minQuality){
+							if(x<0 || (quals!=null && quals[i]<minQuality)){
 								len=0;
 								kmer=0;
 							}else{
@@ -154,16 +170,16 @@ public class KmerCount3 extends KmerCountAbstract {
 					}
 					
 				}
-				//System.err.println("returning list");
 				cris.returnList(ln);
-				//System.err.println("fetching list");
 				ln=cris.nextList();
 				reads=(ln!=null ? ln.list : null);
 			}
 			System.err.println("Finished reading");
 			cris.returnList(ln);
 			System.err.println("Returned list");
-			ReadWrite.closeStream(cris);
+			if(ReadWrite.closeStream(cris)){
+				throw new RuntimeException("Input stream reported errors while counting reads.");
+			}
 			System.err.println("Closed stream");
 			System.err.println("Processed "+readsProcessed+" reads.");
 		}

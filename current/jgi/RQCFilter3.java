@@ -2210,8 +2210,8 @@ public class RQCFilter3 {
 			PolyFilter x=new PolyFilter(args);
 			try {
 				x.process(new Timer());
-				filterstats.basesPolyG+=PolyFilter.lastBasesRemoved;
-				filterstats.readsPolyG+=PolyFilter.lastReadsRemoved;
+				filterstats.basesPolyG+=PolyFilter.lastBasesPolymerRemoved;
+				filterstats.readsPolyG+=PolyFilter.lastReadsPolymerRemoved;
 				filterstats.basesLowQuality+=PolyFilter.lastBasesRemoved;
 				filterstats.readsLowQuality+=PolyFilter.lastReadsRemoved;
 				if(filterstats.readsIn<1){

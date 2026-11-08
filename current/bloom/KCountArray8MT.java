@@ -20,11 +20,12 @@ import structures.ByteBuilder;
  * @author Brian Bushnell
  * @date Aug 17, 2012
  */
-public class KCountArray8MT extends KCountArray {
+public class KCountArray8MT extends KCountArray{
 	
-	/** Serial version ID for serialization compatibility */
-	private static final long serialVersionUID = -3146298383509476887L;
+	/** Serialization identifier. */
+	private static final long serialVersionUID=-3146298383509476887L;
 
+	/** Runs a tiny manual smoke check for one table shape. */
 	public static void main(String[] args){
 		long cells=Long.parseLong(args[0]);
 		int bits=Integer.parseInt(args[1]);
@@ -65,6 +66,7 @@ public class KCountArray8MT extends KCountArray {
 		
 	}
 		
+	/** Allocates a partitioned table with prime row lengths and a required prefilter. */
 	public KCountArray8MT(long cells_, int bits_, int hashes_, KCountArray prefilter_){
 		super(getPrimeCells(cells_, bits_), bits_, getDesiredArrays(cells_, bits_));
 //		verbose=false;
@@ -81,6 +83,7 @@ public class KCountArray8MT extends KCountArray {
 		assert(hashes>0 && hashes<=hashMasks.length);
 	}
 	
+	/** Returns the minimum partition count needed to keep row storage indexable. */
 	private static int getDesiredArrays(long desiredCells, int bits){
 		
 		long words=Tools.max((desiredCells*bits+31)/32, minArrays);
@@ -91,6 +94,7 @@ public class KCountArray8MT extends KCountArray {
 		return arrays;
 	}
 	
+	/** Rounds the requested capacity down to a prime row length per partition. */
 	private static long getPrimeCells(long desiredCells, int bits){
 		
 		int arrays=getDesiredArrays(desiredCells, bits);
@@ -100,12 +104,7 @@ public class KCountArray8MT extends KCountArray {
 		return x2*arrays;
 	}
 	
-	/**
-	 * Reads the count for a k-mer using multiple hash functions.
-	 * Returns the minimum count across all hash positions after checking prefilter.
-	 * @param rawKey The k-mer key to read
-	 * @return Minimum count across all hash functions
-	 */
+	/** Returns the prefilter count, or the minimum finalized count once the prefilter saturates. */
 	@Override
 	public int read(final long rawKey){
 		assert(finished);
@@ -127,6 +126,7 @@ public class KCountArray8MT extends KCountArray {
 		return min;
 	}
 	
+	/** Reads one already-hashed key from its selected partition. */
 	private int readHashed(long key){
 		if(verbose){System.err.print("Reading hashed key "+key);}
 //		System.out.println("key="+key);
@@ -149,27 +149,14 @@ public class KCountArray8MT extends KCountArray {
 		return (int)((word>>>cellShift)&valueMask);
 	}
 	
-	/**
-	 * Direct write operation is not supported for this thread-safe implementation.
-	 * Use increment operations instead for proper thread safety.
-	 *
-	 * @param key The k-mer key
-	 * @param value The value to write
-	 * @throws RuntimeException Always thrown as operation is not allowed
-	 */
+	/** Throws; queued multi-row increments are the only supported writes. */
 	@Override
 	public void write(final long key, int value){
 		throw new RuntimeException("Not allowed for this class.");
 	}
 	
-	/**
-	 * Increments counts for multiple k-mers with optimized batching.
-	 * Pre-hashes keys outside critical section and filters through prefilter
-	 * before passing to buffered increment system.
-	 * @param keys Array of k-mer keys to increment
-	 */
+	/** Queues increments only for keys whose prefilter cell is saturated. */
 	@Override
-	/** This should increase speed by doing the first hash outside the critical section, but it does not seem to help. */
 	public void increment(long[] keys){
 		if(prefilter==null){
 			for(int i=0; i<keys.length; i++){
@@ -198,18 +185,13 @@ public class KCountArray8MT extends KCountArray {
 		}
 	}
 	
-	//Slow
-	/**
-	 * Increments a k-mer count by a specified amount using repeated single increments.
-	 * This is a slower implementation that calls increment0 multiple times.
-	 * @param rawKey The k-mer key to increment
-	 * @param amt Amount to increment by
-	 */
+	/** Queues repeated single-count increments; intentionally slow for large amt. */
 	@Override
 	public void increment(final long rawKey, int amt){
 		for(int i=0; i<amt; i++){increment0(rawKey);}
 	}
 	
+	/** Queues one increment per hash row after the prefilter saturates. */
 	public void increment0(final long rawKey){
 		if(verbose){System.err.println("\n*** Incrementing raw key "+rawKey+" ***");}
 		if(prefilter!=null){
@@ -244,6 +226,7 @@ public class KCountArray8MT extends KCountArray {
 		}
 	}
 	
+	/** Queues one increment per row when the first-row hash is precomputed. */
 	private void incrementPartiallyHashed(final long pKey){
 		if(verbose){System.err.println("\n*** Incrementing key "+pKey+" ***");}
 		
@@ -291,32 +274,19 @@ public class KCountArray8MT extends KCountArray {
 		}
 	}
 	
-	/**
-	 * Increment and return operation is not supported for this implementation.
-	 * The buffered multi-threaded design makes atomic read-increment-return unfeasible.
-	 *
-	 * @param key The k-mer key
-	 * @param incr Increment amount
-	 * @return Never returns as operation throws exception
-	 * @throws RuntimeException Always thrown as operation is not supported
-	 */
+	/** Throws; asynchronous writers cannot return a synchronized new count. */
 	@Override
 	public int incrementAndReturnUnincremented(long key, int incr){
 		throw new RuntimeException("Operation not supported.");
 	}
 	
-	/** Converts count data to frequency histogram.
-	 * @return Array where index represents count value and value represents frequency */
+	/** Returns a histogram over all finalized partitions. */
 	@Override
 	public long[] transformToFrequency(){
 		return transformToFrequency(matrix);
 	}
 	
-	/**
-	 * Creates string representation of all count values in the arrays.
-	 * Iterates through each array extracting individual cell values for debugging.
-	 * @return ByteBuilder containing comma-separated list of all count values
-	 */
+	/** Renders every stored cell in partition order. */
 	@Override
 	public ByteBuilder toContentsString(){
 		ByteBuilder sb=new ByteBuilder();
@@ -338,25 +308,15 @@ public class KCountArray8MT extends KCountArray {
 		return sb;
 	}
 	
-	/** Calculates fraction of cells that contain non-zero counts.
-	 * @return Ratio of used cells to total cells */
+	/** Returns the finished nonzero-cell fraction. */
 	@Override
 	public double usedFraction(){return cellsUsed/(double)cells;}
 	
-	/**
-	 * Calculates fraction of cells with counts at or above threshold.
-	 * @param mindepth Minimum count threshold
-	 * @return Ratio of cells meeting threshold to total cells
-	 */
+	/** Returns the fraction of cells at or above a positive minimum depth. */
 	@Override
 	public double usedFraction(int mindepth){return cellsUsed(mindepth)/(double)cells;}
 	
-	/**
-	 * Counts cells with values at or above the specified threshold.
-	 * Iterates through all arrays examining each packed cell value.
-	 * @param mindepth Minimum count threshold
-	 * @return Number of cells meeting the threshold
-	 */
+	/** Counts finalized cells at or above a positive minimum depth. */
 	@Override
 	public long cellsUsed(int mindepth){
 		long count=0;
@@ -367,11 +327,12 @@ public class KCountArray8MT extends KCountArray {
 //				System.out.println("C");
 				for(int word : array){
 //					System.out.println("D: "+Integer.toBinaryString(word));
-					while(word>0){
-						int x=word&valueMask;
+					long word2=word&0xFFFFFFFFL;
+					while(word2!=0){
+						int x=(int)(word2&valueMask);
 //						System.out.println("E: "+x+", "+mindepth);
 						if(x>=mindepth){count++;}
-						word>>>=cellBits;
+						word2>>>=cellBits;
 					}
 				}
 			}
@@ -379,14 +340,7 @@ public class KCountArray8MT extends KCountArray {
 		return count;
 	}
 	
-	/**
-	 * Hash function that applies row-specific transformations using precomputed masks.
-	 * Uses double hashing for the first row to improve distribution quality.
-	 *
-	 * @param key Input key to hash
-	 * @param row Hash function row (0-based)
-	 * @return Hashed key value
-	 */
+	/** Applies the row's xor-mask hash; row zero gets an extra remap. */
 	@Override
 	final long hash(long key, int row){
 		int cell=(int)((Long.MAX_VALUE&key)%(hashArrayLength-1));
@@ -402,17 +356,8 @@ public class KCountArray8MT extends KCountArray {
 		return key^hashMasks[row][cell];
 	}
 	
-	/**
-	 * Creates randomized hash masks for the hash functions.
-	 * Each mask has exactly 16 bits set in both upper and lower 32-bit halves
-	 * to ensure good bit distribution. Uses collision detection to prevent
-	 * duplicate patterns that could reduce hash quality.
-	 *
-	 * @param rows Number of hash function rows
-	 * @param cols Number of mask values per row
-	 * @return 2D array of hash masks with balanced bit patterns
-	 */
-	private static long[][] makeMasks(int rows, int cols) {
+	/** Creates the per-row random xor masks used by the hash function. */
+	private static long[][] makeMasks(int rows, int cols){
 		
 		long seed;
 		synchronized(KCountArray8MT.class){
@@ -431,7 +376,8 @@ public class KCountArray8MT extends KCountArray {
 		return r;
 	}
 	
-	private static void fillMasks(long[] r, Random randy) {
+	/** Fills one mask row with balanced, low-bit-unique random masks. */
+	private static void fillMasks(long[] r, Random randy){
 //		for(int i=0; i<r.length; i++){
 //			long x=0;
 //			while(Long.bitCount(x&0xFFFFFFFF)!=16){
@@ -482,8 +428,7 @@ public class KCountArray8MT extends KCountArray {
 	}
 	
 	
-	/** Initializes and starts all WriteThread instances.
-	 * Each thread will allocate its portion of the matrix and begin processing. */
+	/** Starts one writer per partition. */
 	@Override
 	public void initialize(){
 		for(int i=0; i<writers.length; i++){
@@ -496,11 +441,7 @@ public class KCountArray8MT extends KCountArray {
 		}
 	}
 	
-	/**
-	 * Gracefully shuts down all WriteThread instances and finalizes counts.
-	 * Flushes remaining buffers, sends poison messages, and waits for completion.
-	 * Aggregates per-thread cell usage statistics into final count.
-	 */
+	/** Flushes queued writes, stops writers and marks the table readable. */
 	@Override
 	public void shutdown(){
 		if(finished){return;}
@@ -533,10 +474,9 @@ public class KCountArray8MT extends KCountArray {
 //				System.out.println("wt"+wt.num+" is alive: "+wt.isAlive());
 				while(wt.isAlive()){
 //					System.out.println("wt"+wt.num+" is alive: "+wt.isAlive());
-					try {
+					try{
 						wt.join(10000);
-					} catch (InterruptedException e) {
-						// TODO Auto-generated catch block
+					}catch(InterruptedException e){
 						e.printStackTrace();
 					}
 					if(wt.isAlive()){System.err.println(wt.getClass().getCanonicalName()+" is taking a long time to die.");}
@@ -552,15 +492,12 @@ public class KCountArray8MT extends KCountArray {
 	
 	private class WriteThread extends Thread{
 		
+		/** Binds this writer to one partition. */
 		public WriteThread(int tnum){
 			num=tnum;
 		}
 		
-		/**
-		 * Main thread execution loop that processes key batches until shutdown.
-		 * Allocates local array for NUMA optimization and processes incoming
-		 * key arrays from the blocking queue until poison message received.
-		 */
+		/** Allocates this partition and drains key batches until poison arrives. */
 		@Override
 		public void run(){
 			assert(matrix[num]==null);
@@ -573,10 +510,9 @@ public class KCountArray8MT extends KCountArray {
 
 				if(verbose){System.err.println(" - Reading keys for wt"+num+".");}
 				while(keys==null){
-					try {
+					try{
 						keys=writeQueue.take();
-					} catch (InterruptedException e) {
-						// TODO Auto-generated catch block
+					}catch(InterruptedException e){
 						e.printStackTrace();
 					}
 				}
@@ -600,6 +536,7 @@ public class KCountArray8MT extends KCountArray {
 			array=null;
 		}
 		
+		/** Enqueues a batch of already-partitioned hashed keys. */
 		void add(long[] keys){
 //			assert(isAlive());
 			assert(!shutdown);
@@ -608,17 +545,17 @@ public class KCountArray8MT extends KCountArray {
 			if(verbose){System.err.println(" + Adding keys to wt"+num+".");}
 			boolean success=false;
 			while(!success){
-				try {
+				try{
 					writeQueue.put(keys);
 					success=true;
-				} catch (InterruptedException e) {
-					// TODO Auto-generated catch block
+				}catch(InterruptedException e){
 					e.printStackTrace();
 				}
 			}
 			if(verbose){System.err.println(" ++ Added keys to wt"+num+". (success)");}
 		}
 		
+		/** Increments one hashed key that belongs to this writer's partition. */
 		private int incrementHashedLocal(long key){
 			assert((key&arrayMask)==num);
 			key=(key>>>arrayBits)%(cellMod);
@@ -644,6 +581,7 @@ public class KCountArray8MT extends KCountArray {
 	}
 	
 	
+	/** Returns the nonzero-cell count accumulated during shutdown. */
 	public long cellsUsed(){return cellsUsed;}
 	
 	private boolean finished=false;

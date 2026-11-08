@@ -3,47 +3,55 @@ package bloom;
 import java.util.Arrays;
 import java.util.BitSet;
 
-import assemble.ErrorTracker;
 import dna.AminoAcid;
 import kmer.AbstractKmerTable;
 import shared.Tools;
-import stream.Read;
 import structures.ByteBuilder;
 import structures.IntList;
 import structures.LongList;
 import ukmer.Kmer;
 
 /**
- * Long-primitive (k&lt;=31) implementation of Bloom filter-based sequencing
- * error correction. Encodes kmers as bit-packed longs via shift/mask rolling.
- * All representation-agnostic orchestration lives in the abstract superclass
- * {@link BloomFilterCorrector}; this class implements only the kmer-representation
- * primitives (the abstract seam).
+ * Implements short-kmer correction primitives using two-bit packed longs.
+ * Supports k-mer lengths up to 31; {@link BloomFilterCorrector} supplies the
+ * correction orchestration. Stored values retain forward sequence orientation,
+ * with -1 for windows containing an undefined base. Queries honor the attached
+ * filter's strand policy: canonical selection or the forward packed value.
+ * When ksmall is smaller than k, the filter combines smaller-window counts
+ * through its getCountBig path.
+ *
+ * The count table is borrowed. Sequence builders, count lists and extension
+ * buffers are caller-owned and may be modified as documented below. Concurrent
+ * callers must supply separate mutable buffers and keep filter/settings stable.
+ * Counts remain subject to the filter's collisions and saturation; they are
+ * evidence for correction heuristics, not proof of the true sequence.
  *
  * @author Brian Bushnell
  * @date June 3, 2025
  */
-public class BloomFilterCorrector1 extends BloomFilterCorrector {
+public class BloomFilterCorrector1 extends BloomFilterCorrector{
 
 	/**
-	 * Constructs a BloomFilterCorrector1 with specified parameters.
-	 * @param filter_ The Bloom filter containing reference k-mer counts
-	 * @param k_ K-mer length for error correction operations
-	 * @param ksmall_ Small k-mer length for efficient lookups (must be <= k_)
+	 * Stores the filter and requested k-mer geometry without allocating a table.
+	 * @param filter_ Borrowed filter, required before any count lookup
+	 * @param k_ Packed k-mer length in bases, from 1 through 31
+	 * @param ksmall_ Filter's small-window length, positive and at most k_
 	 */
-	public BloomFilterCorrector1(BloomFilter filter_, int k_, int ksmall_) {
+	public BloomFilterCorrector1(BloomFilter filter_, int k_, int ksmall_){
 		super(filter_, k_, ksmall_);
 	}
 
 	/**
-	 * Regenerates k-mer counts for positions that were changed during correction.
-	 * Updates count array after bases have been modified to reflect new k-mer frequencies.
+	 * Recounts windows spanning the interval from the first through last changed base.
+	 * Rewrites the whole affected interval, including gaps between changed bits;
+	 * undefined windows receive zero. When smoothing is enabled, also suppresses
+	 * strict interior count peaks across the entire list. Does not modify bases.
 	 *
-	 * @param bases Modified sequence bases
-	 * @param counts Count array to update
-	 * @param dummy Unused Kmer parameter
-	 * @param changed BitSet indicating which positions were modified
-	 * @return Number of valid k-mers processed
+	 * @param bases Non-null modified sequence
+	 * @param counts Existing count list indexed by window start, updated in place
+	 * @param dummy Unused compatibility parameter; may be null
+	 * @param changed Nonempty set of in-range base indices, read without modification
+	 * @return Number of valid windows recounted before smoothing
 	 */
 	@Override
 	public int regenerateCounts(byte[] bases, IntList counts, final Kmer dummy, BitSet changed){
@@ -97,13 +105,14 @@ public class BloomFilterCorrector1 extends BloomFilterCorrector {
 	}
 
 	/**
-	 * Regenerates k-mer counts for a specific region after base changes.
-	 * Updates count array for positions affected by sequence modifications.
+	 * Recounts the anchor window and up to k following windows after a base change.
+	 * Starts at window ca, clips the scan at the read end and writes zero for
+	 * undefined windows. Unlike the changed-bit overload, does not smooth counts.
 	 *
-	 * @param bases Modified sequence bases
-	 * @param counts Count array to update
-	 * @param ca Starting count array index
-	 * @return Number of valid k-mers processed
+	 * @param bases Non-null sequence, read without modification
+	 * @param counts Existing full-length count list, updated without changing its size
+	 * @param ca In-range anchor-window start preceding the changed base at ca+k
+	 * @return Number of valid windows recounted
 	 */
 	@Override
 	public int regenerateCounts(byte[] bases, IntList counts, final int ca){
@@ -119,7 +128,7 @@ public class BloomFilterCorrector1 extends BloomFilterCorrector {
 		final int clen=counts.size;
 
 		/* Loop through the bases, maintaining a forward and reverse kmer via bitshifts.
-		 * i is an index in the base array, j is an index in the count array. */
+		 * i is a base index; i-k+1 is the corresponding count-list index. */
 		for(int i=b-k+1; i<lim; i++){
 			final byte base=bases[i];
 			final long x=AminoAcid.baseToNumber[base];
@@ -152,16 +161,18 @@ public class BloomFilterCorrector1 extends BloomFilterCorrector {
 	}
 
 	/**
-	 * Inner reassembly algorithm for single-direction extension.
-	 * Extends sequence rightward looking for error patterns and corrections.
-	 * Identifies substitution errors by analyzing k-mer count transitions.
+	 * Scans left to right and attempts substitutions at count drops.
+	 * Changes bb's bases in place and refreshes affected counts after each recorded
+	 * correction; it neither extends the builder nor changes quality scores.
+	 * Reads too short for a candidate beyond the anchor and dead zone return zero.
+	 * Candidate identity is compared as a base code, independently of its support count (BLM203).
 	 *
-	 * @param bb ByteBuilder containing sequence to extend
-	 * @param quals Quality scores
-	 * @param rightCounts Buffer for extension counts
-	 * @param counts K-mer count values
-	 * @param errorExtension Maximum extension distance
-	 * @return Number of errors corrected
+	 * @param bb Mutable read builder with backing capacity equal to logical length; recounting uses array length
+	 * @param quals Read-only qualities aligned to bases, or null to use quality 20
+	 * @param rightCounts Caller-owned scratch array with exactly four entries
+	 * @param counts Full window-count list aligned to bb, updated in place
+	 * @param errorExtension Number of preceding windows used for the similarity check
+	 * @return Number of corrections recorded by this directional scan
 	 */
 	@Override
 	public int reassemble_inner(final ByteBuilder bb, final byte[] quals, final int[] rightCounts, final IntList counts,
@@ -194,8 +205,6 @@ public class BloomFilterCorrector1 extends BloomFilterCorrector {
 				len=0;
 				kmer=rkmer=0;
 			}else{
-
-
 				//Now consider the next kmer
 				kmer=((kmer<<2)|(long)x)&mask;
 				rkmer=((rkmer>>>2)|(x2<<shift2))&mask;
@@ -237,7 +246,9 @@ public class BloomFilterCorrector1 extends BloomFilterCorrector {
 
 						if(rightMax>=minCountExtend){
 							detected++;
-							if(num==rightMax){
+							//BLM203: compare base codes, not a base code with its support count.
+							//An unchanged winning base is not a correction.
+							if(num==rightMaxPos){
 								detected--;
 							}else if((isError(rightMax, rightSecond, qb) || !isJunction(rightMax, rightSecond)) && isSimilar(aCount, rightMax)){
 								bases[b]=AminoAcid.numberToBase[rightMaxPos];
@@ -261,14 +272,15 @@ public class BloomFilterCorrector1 extends BloomFilterCorrector {
 	}
 
 	/**
-	 * Extends sequence rightward by generating k-mer from existing sequence.
-	 * Wrapper method that computes the rightmost k-mer and calls main extension.
+	 * Builds an anchor from the trailing k bases and attempts rightward extension.
+	 * Returns zero without extension if the builder is too short or the anchor
+	 * contains an undefined base; otherwise delegates to the packed extension core.
 	 *
-	 * @param bb ByteBuilder containing initial sequence
-	 * @param leftCounts Buffer for left neighbor analysis (may be null)
-	 * @param rightCounts Buffer for right neighbor counts
-	 * @param distance Maximum extension distance
-	 * @param includeJunctionBase Whether to include base at junction positions
+	 * @param bb Caller-owned sequence builder to append to
+	 * @param leftCounts Four-entry scratch buffer for left-branch checks, or null to omit them
+	 * @param rightCounts Scratch buffer with exactly four entries, overwritten
+	 * @param distance Maximum number of bases to append
+	 * @param includeJunctionBase Allow the terminal junction base when its forward strand is canonical
 	 * @return Number of bases added to sequence
 	 */
 	@Override
@@ -302,17 +314,24 @@ public class BloomFilterCorrector1 extends BloomFilterCorrector {
 			if(len<k){
 				if(verbose || verbose2){outstream.println("Returning because len<k: "+len+"<"+k);}
 				return 0;
-			}
-			else{assert(len==k);}
+			}else{assert(len==k);}
 		}
 		return extendToRight2raw(bb, leftCounts, rightCounts, distance, includeJunctionBase, kmer, rkmer);
 	}
 
 	/**
-	 * Extends rightward starting from the kmer stored at list position originPos
-	 * (or its reverse complement, if fromRcomp). BFC1 already has the actual
-	 * kmer content in the LongList, so this is a cheap O(1) lookup + optional
-	 * rcomp, then delegates to the same raw extension core as the 5-arg overload.
+	 * Uses a stored forward window, optionally reverse-complemented, as the anchor.
+	 * No sequence reconstruction is needed for this packed representation.
+	 * @param bb Caller-owned builder to append to
+	 * @param leftCounts Four-entry left-branch scratch buffer, or null
+	 * @param rightCounts Scratch buffer with exactly four entries
+	 * @param distance Maximum number of bases to append
+	 * @param includeJunctionBase Allow the terminal junction base on the canonical forward strand
+	 * @param bases Unused in this representation; supplied by the superclass contract
+	 * @param kmers Read-only list containing a valid packed anchor at originPos
+	 * @param originPos In-range anchor index in kmers
+	 * @param fromRcomp Whether to reverse-complement the anchor before extending
+	 * @return Number of bases appended
 	 */
 	@Override
 	protected int extendFromStored(final ByteBuilder bb, final int[] leftCounts, final int[] rightCounts, final int distance,
@@ -330,13 +349,19 @@ public class BloomFilterCorrector1 extends BloomFilterCorrector {
 	}
 
 	/**
-	 * Extend these bases to the right by at most 'distance'.
-	 * Stops at right junctions only.
-	 * Does not claim ownership.
-	 * Not part of the abstract contract -- a k&gt;31 kmer cannot be represented as a
-	 * single long, so this exact (kmer,rkmer) signature is BFC1-only; it is used
-	 * internally by the two abstract entry points below (extendToRight2's 5-arg
-	 * form, and extendFromStored).
+	 * Appends at most distance bases from an already-encoded anchor.
+	 * Stops at insufficient support, junctions, or a conflicting left predecessor
+	 * when leftCounts is supplied. Junction-base inclusion is conditional on the
+	 * forward packed strand being larger than its reverse complement. Does not
+	 * claim graph ownership or modify the count table.
+	 * @param bb Caller-owned builder to append to
+	 * @param leftCounts Four-entry left-branch scratch buffer, or null
+	 * @param rightCounts Scratch buffer with exactly four entries
+	 * @param distance Maximum append length in bases
+	 * @param includeJunctionBase Allow the terminal junction base on the canonical forward strand
+	 * @param kmer Valid packed forward anchor
+	 * @param rkmer Reverse complement of kmer
+	 * @return Number of bases appended
 	 */
 	private int extendToRight2raw(final ByteBuilder bb, final int[] leftCounts, final int[] rightCounts, final int distance, boolean includeJunctionBase,
 			long kmer, long rkmer){
@@ -465,13 +490,15 @@ public class BloomFilterCorrector1 extends BloomFilterCorrector {
 	}
 
 	/**
-	 * Regenerates k-mers and counts after sequence modification.
-	 * Updates k-mer list and count array for positions affected by base changes.
+	 * Refreshes windows affected by a substitution at base a+k using stored anchor a.
+	 * Leaves anchor a unchanged and rolls through the next k window starts, clipped
+	 * to counts.size. Writes -1/zero for undefined windows. The assertion on each
+	 * valid replacement assumes that the corresponding old packed value changed.
 	 *
-	 * @param bases Modified sequence bases
-	 * @param kmers K-mer list to update
-	 * @param counts Count array to update
-	 * @param a Starting index for regeneration
+	 * @param bases Non-null modified sequence, read without modification
+	 * @param kmers Full aligned window list with a valid unchanged anchor at a; updated in place
+	 * @param counts Full aligned count list, updated in place
+	 * @param a Start index of the unchanged window immediately preceding the changed base
 	 */
 	@Override
 	public void regenerateKmers(byte[] bases, LongList kmers, IntList counts, final int a){
@@ -509,11 +536,10 @@ public class BloomFilterCorrector1 extends BloomFilterCorrector {
 	}
 
 	/**
-	 * Cheap O(1) form using the stored kmer directly. Called by the abstract
-	 * bases-based override below; not part of the abstract contract itself
-	 * (BFC2 cannot accept a raw long).
-	 * @param kmer K-mer to extend leftward
-	 * @return Maximum count among left extensions
+	 * Counts the four windows formed by prepending a base and dropping the last base.
+	 * Uses packed values directly; does not allocate a sequence or modify the table.
+	 * @param kmer Valid forward packed k-mer, not the undefined-window sentinel
+	 * @return Maximum nonnegative count among the four candidate windows
 	 */
 	private int maxLeftCount(long kmer){
 		long rkmer=rcomp(kmer);
@@ -528,7 +554,7 @@ public class BloomFilterCorrector1 extends BloomFilterCorrector {
 			long kmer2=kmer|(((long)i)<<shift2);
 			assert(kmer2==(kmer2&mask));
 			assert(rkmer2==(rkmer2&mask));
-			long key=toValue(rkmer2, kmer2);
+			long key=toValue(kmer2, rkmer2);
 			int count=getCount(key);
 			count=Tools.max(count, 0);
 			if(count>max){
@@ -540,10 +566,10 @@ public class BloomFilterCorrector1 extends BloomFilterCorrector {
 	}
 
 	/**
-	 * Cheap O(1) form using the stored kmer directly. Called by the abstract
-	 * bases-based override below; not part of the abstract contract itself.
-	 * @param kmer K-mer to extend rightward
-	 * @return Maximum count among right extensions
+	 * Counts the four windows formed by appending a base and dropping the first base.
+	 * Uses packed values directly; does not allocate a sequence or modify the table.
+	 * @param kmer Valid forward packed k-mer, not the undefined-window sentinel
+	 * @return Maximum nonnegative count among the four candidate windows
 	 */
 	private int maxRightCount(long kmer){
 		long rkmer=rcomp(kmer);
@@ -572,30 +598,41 @@ public class BloomFilterCorrector1 extends BloomFilterCorrector {
 		return max;
 	}
 
-	/** Abstract-contract entry: O(1) lookup from the stored kmer, delegates to the raw helper above. */
+	/**
+	 * Reads the packed anchor at pos and finds its strongest left extension.
+	 * @param bases Unused for this representation
+	 * @param kmers Read-only packed-window list
+	 * @param pos In-range index of a valid packed window
+	 * @return Maximum nonnegative count among the four left candidate windows
+	 */
 	@Override
 	protected int maxLeftCount(byte[] bases, LongList kmers, int pos){
 		return maxLeftCount(kmers.get(pos));
 	}
 
-	/** Abstract-contract entry: O(1) lookup from the stored kmer, delegates to the raw helper above. */
+	/**
+	 * Reads the packed anchor at pos and finds its strongest right extension.
+	 * @param bases Unused for this representation
+	 * @param kmers Read-only packed-window list
+	 * @param pos In-range index of a valid packed window
+	 * @return Maximum nonnegative count among the four right candidate windows
+	 */
 	@Override
 	protected int maxRightCount(byte[] bases, LongList kmers, int pos){
 		return maxRightCount(kmers.get(pos));
 	}
 
 	/**
-	 * Fills array with counts for all possible left extensions of a k-mer.
-	 * Computes counts for all four bases that could precede the given k-mer.
-	 * Not part of the abstract contract -- BFC1-internal, used only by
-	 * extendToRight2raw and reassemble_inner's own rolling state.
+	 * Replaces counts[0..3] with nonnegative counts for the A/C/G/T left extensions.
+	 * Each candidate prepends one base and evicts the current last base. Ties for
+	 * the largest count select the first base in A/C/G/T order.
 	 *
 	 * @param kmer Forward k-mer
 	 * @param rkmer Reverse complement k-mer
-	 * @param counts Output array for extension counts
-	 * @param mask Bit mask for k-mer operations
-	 * @param shift2 Bit shift value for operations
-	 * @return Index of extension with maximum count
+	 * @param counts Caller-owned output array with at least four entries
+	 * @param mask Mask retaining the low 2*k bits
+	 * @param shift2 Position of the first base's low bit, 2*(k-1)
+	 * @return Base code of the first maximum-count extension, from 0 through 3
 	 */
 	private int fillLeftCounts(long kmer, long rkmer, int[] counts, long mask, int shift2){
 		assert(kmer==rcomp(rkmer));
@@ -607,7 +644,7 @@ public class BloomFilterCorrector1 extends BloomFilterCorrector {
 			long kmer2=kmer|(((long)i)<<shift2);
 			assert(kmer2==(kmer2&mask));
 			assert(rkmer2==(rkmer2&mask));
-			long key=toValue(rkmer2, kmer2);
+			long key=toValue(kmer2, rkmer2);
 			int count=getCount(key);
 			count=Tools.max(count, 0);
 			counts[i]=count;
@@ -620,17 +657,16 @@ public class BloomFilterCorrector1 extends BloomFilterCorrector {
 	}
 
 	/**
-	 * Fills array with counts for all possible right extensions of a k-mer.
-	 * Computes counts for all four bases that could follow the given k-mer.
-	 * Not part of the abstract contract -- BFC1-internal, same reasoning as
-	 * fillLeftCounts above.
+	 * Replaces counts[0..3] with nonnegative counts for the A/C/G/T right extensions.
+	 * Each candidate appends one base and evicts the current first base. Ties for
+	 * the largest count select the first base in A/C/G/T order.
 	 *
 	 * @param kmer Forward k-mer
 	 * @param rkmer Reverse complement k-mer
-	 * @param counts Output array for extension counts
-	 * @param mask Bit mask for k-mer operations
-	 * @param shift2 Bit shift value for operations
-	 * @return Index of extension with maximum count
+	 * @param counts Caller-owned output array with at least four entries
+	 * @param mask Mask retaining the low 2*k bits
+	 * @param shift2 Position of the first base's low bit, 2*(k-1)
+	 * @return Base code of the first maximum-count extension, from 0 through 3
 	 */
 	private int fillRightCounts(long kmer, long rkmer, int[] counts, long mask, int shift2){
 		assert(kmer==rcomp(rkmer));
@@ -657,7 +693,15 @@ public class BloomFilterCorrector1 extends BloomFilterCorrector {
 		return maxPos;
 	}
 
-	/** Returns number of valid kmers */
+	/**
+	 * Stores each forward packed window, using -1 for windows with undefined bases.
+	 * For a read of at least k bases, clears kmers and writes length-k+1 entries.
+	 * A shorter read returns zero before clearing the list; callers must not treat
+	 * its old contents as windows from that read. Does not modify bases.
+	 * @param bases Non-null sequence of nonnegative encoded character bytes
+	 * @param kmers Caller-owned list to replace when the read is long enough
+	 * @return Number of valid windows, excluding the -1 entries
+	 */
 	@Override
 	public int fillKmers(byte[] bases, LongList kmers){
 		final int blen=bases.length;
@@ -694,15 +738,16 @@ public class BloomFilterCorrector1 extends BloomFilterCorrector {
 	}
 
 	/**
-	 * Tests if a proposed base change results in similar k-mer count.
-	 * Verifies that the new k-mer has a count similar to the original
-	 * to avoid introducing artifacts during correction.
+	 * Advances the stored window at a by one base and compares its candidate count.
+	 * Drops the first base, appends newBase, then applies the inherited count-
+	 * similarity heuristic against counts[a]. Does not mutate any supplied buffer.
 	 *
-	 * @param a K-mer index
-	 * @param newBase Proposed replacement base
-	 * @param kmers K-mer list
-	 * @param counts K-mer count values
-	 * @return true if the new k-mer has similar count
+	 * @param bases Unused for this representation
+	 * @param a In-range index of a valid stored window
+	 * @param newBase Defined DNA base to append to the candidate window
+	 * @param kmers Read-only forward packed-window list
+	 * @param counts Read-only count list aligned with kmers
+	 * @return Whether the candidate count satisfies the configured similarity thresholds
 	 */
 	@Override
 	protected boolean isSimilar(byte[] bases, int a, byte newBase, LongList kmers, IntList counts){
@@ -719,52 +764,56 @@ public class BloomFilterCorrector1 extends BloomFilterCorrector {
 		return similar;
 	}
 
-	/** Converts encoded k-mer to text representation */
+	/** Formats a packed k-mer as k DNA bases in a new builder, for diagnostics. */
 	@Override
 	protected StringBuilder toText(long kmer){return AbstractKmerTable.toText(kmer, k);}
-	/** Computes reverse complement of encoded k-mer */
+	/** Returns the reverse complement of the low 2*k bits, without canonicalizing. */
 	@Override
 	protected long rcomp(long kmer){return AminoAcid.reverseComplementBinaryFast(kmer, k);}
 	/**
-	 * Gets count for k-mer using appropriate method based on k size.
-	 * @param kmer Forward k-mer
-	 * @param rkmer Reverse complement k-mer
-	 * @return K-mer count from Bloom filter
+	 * Queries a strand pair using the filter's strand policy when k equals ksmall.
+	 * Otherwise queries its constituent smaller windows.
+	 * The smaller-window path derives all queries from kmer and ignores rkmer.
+	 * @param kmer Valid forward packed k-mer
+	 * @param rkmer Its packed reverse complement
+	 * @return Direct count, or minimum count across the constituent small windows
 	 */
 	@Override
 	public int getCount(long kmer, long rkmer){
 		return (k==ksmall ? filter.getCount(kmer, rkmer) : filter.getCountBig(kmer));
 	}
 	/**
-	 * Gets count for k-mer key using appropriate method based on k size.
-	 * @param key K-mer key value
-	 * @return K-mer count from Bloom filter
+	 * Queries an already-selected key, or the small windows encoded within it.
+	 * Does not recognize undefined-window sentinels; use getCount2 for that case.
+	 * @param key Selected table key when k equals ksmall, otherwise a valid packed k-mer
+	 * @return Direct count, or minimum count across the constituent small windows
 	 */
 	@Override
 	public int getCount(long key){
 		return (k==ksmall ? filter.getCount(key) : filter.getCountBig(key));
 	}
 	/**
-	 * Gets count for k-mer with invalid k-mer handling.
-	 * Returns 0 for invalid k-mers (negative values).
-	 * @param kmer K-mer to look up
-	 * @return K-mer count, or 0 if k-mer is invalid
+	 * Returns zero for negative values; otherwise applies the filter's strand policy.
+	 * With ksmall smaller than k, the filter applies its strand policy to each small window.
+	 * @param kmer Stored forward packed k-mer, or a negative undefined-window sentinel
+	 * @return Direct or minimum constituent-window count; zero for a negative input
 	 */
 	@Override
 	public int getCount2(long kmer){
 		return kmer<0 ? 0 : (k==ksmall ? filter.getCount(toValue(kmer, rcomp(kmer))) : filter.getCountBig(kmer));
 	}
 	/**
-	 * Converts k-mer pair to lookup key value.
-	 * Uses canonical representation if reverse complement mode is enabled.
+	 * Selects a packed strand using the attached filter's policy.
+	 * Without a filter, retains the original canonical key-conversion behavior.
 	 *
-	 * @param kmer Forward k-mer
-	 * @param rkmer Reverse complement k-mer
-	 * @return Key value for Bloom filter lookup
+	 * @param kmer Valid forward packed k-mer
+	 * @param rkmer Its packed reverse complement
+	 * @return Packed strand value to query; no hashing or table access occurs here
 	 */
 	@Override
 	public long toValue(long kmer, long rkmer){
-		long value=(rcomp ? Tools.max(kmer, rkmer) : kmer);
+		//BLM206: stored and extension queries must use the same strand policy as the table.
+		long value=(filter==null || filter.rcomp ? Tools.max(kmer, rkmer) : kmer);
 		return value;
 	}
 

@@ -21,17 +21,30 @@ import structures.ListNum;
 import tracker.ReadStats;
 
 /**
+ * Legacy packed-kmer error detection and substitution correction.
+ * The correction loop runs on the calling thread; input, output and count-array
+ * implementations may use their own workers. This is separate from BBCMS's
+ * BloomFilterCorrector pipeline. KmerCount5/6 and ReadCounter also use the static
+ * coverage detectors without invoking this command-line driver.
+ *
+ * Detection queries canonical keys and returns either window-start or base-index
+ * masks, as documented per method. Correction edits the supplied Read and uses
+ * forward-only candidate queries, so callers must supply compatible counts.
+ * Shared flags and KmerCount6 settings are not restored between invocations;
+ * concurrent pipelines with differing settings are not isolated. BLM205 records
+ * the bounded owned-stream cleanup repair and its remaining coverage limits.
+ *
  * @author Brian Bushnell
  * @date Aug 20, 2012
- *
  */
 public class ErrorCorrect extends Thread{
 	
 	/**
-	 * Program entry point for error correction pipeline.
-	 * Parses command-line arguments, builds k-mer count table, and performs
-	 * error detection and correction on reads.
-	 * @param args Command-line arguments including input files and parameters
+	 * Builds counts and processes reads using the legacy positional command line.
+	 * The first two entries are input paths; option scanning starts at index 2,
+	 * so a flag in the second position is treated as a filename. PreParser handles
+	 * help/configuration first. Changes shared parsing and correction settings.
+	 * @param args First input path, optional second input path, then flag=value options
 	 */
 	public static void main(String[] args){
 
@@ -123,23 +136,24 @@ public class ErrorCorrect extends Thread{
 		detect(reads1, reads2, kca, k, thresh2, maxReads, output, ordered, append, overwrite);
 	}
 	
-	//Only called by main...
 	/**
-	 * Constructs k-mer count table from input reads for error correction.
-	 * Supports multi-pass building for improved accuracy with low-coverage data.
+	 * Builds a count table, optionally using earlier passes as trusted-count filters.
+	 * Calls shutdown on each table after its normal counting pass, then returns
+	 * the final table. Writes KmerCount6.maxReads and does not restore that global.
+	 * Intermediate passes adjust sampling; the final pass uses stepsize directly.
 	 *
 	 * @param reads1 First input reads file
 	 * @param reads2 Second input reads file (may be null)
-	 * @param k K-mer length for counting
+	 * @param k Packed DNA k-mer length in bases, from 1 through 31
 	 * @param cbits Bits per count cell in bloom filter
 	 * @param hashes Number of hash functions in bloom filter
-	 * @param buildpasses Number of passes for table construction
-	 * @param matrixbits Size of bloom filter matrix in bits
-	 * @param maxreads Maximum reads to use for table building
-	 * @param stepsize Step size for k-mer sampling
-	 * @param thresh1 Initial threshold for first pass
-	 * @param thresh2 Final threshold for correction
-	 * @return Populated k-mer count array
+	 * @param buildpasses Positive number of counting passes
+	 * @param matrixbits Base-two logarithm of requested cell count, capped at 2*k
+	 * @param maxreads Input-stream limit for table building; -1 means unlimited
+	 * @param stepsize Positive detection-sampling step for the final trusted-table pass
+	 * @param thresh1 Trusted-count threshold for intermediate passes
+	 * @param thresh2 Trusted-count threshold for the final pass
+	 * @return Final populated array after shutdown, owned by the caller
 	 */
 	public static KCountArray makeTable(String reads1, String reads2, int k, int cbits, int hashes, int buildpasses, int matrixbits,
 			long maxreads, int stepsize, int thresh1, int thresh2){
@@ -191,21 +205,27 @@ public class ErrorCorrect extends Thread{
 	}
 	
 	/**
-	 * Detects and corrects errors in reads using k-mer count table.
-	 * Sets up input/output streams and delegates to core detection method.
+	 * Opens and starts owned read streams, then runs detection/correction on the calling thread.
+	 * With paired input, a # in output selects separate mate files; otherwise
+	 * output is interleaved. No output stream is created for null output. Attempts
+	 * closure of each acquired stream in finally, including construction/processing failures.
+	 * A recorded stream error prevents successful return; cleanup failures are suppressed
+	 * on an existing primary exception rather than replacing it.
+	 * Failure to start an acquired output halts loudly: its API cannot close NEW backends,
+	 * and joining them would spin forever. This fatal-start path does not return to the caller.
 	 *
 	 * @param reads1 First input reads file
 	 * @param reads2 Second input reads file (may be null)
-	 * @param kca K-mer count array for error detection
-	 * @param k K-mer length
+	 * @param kca Borrowed count table compatible with detection and correction queries
+	 * @param k Packed DNA k-mer length in bases
 	 * @param thresh Minimum k-mer count threshold
-	 * @param maxReads Maximum reads to process
+	 * @param maxReads Limit passed to the input stream; -1 means unlimited
 	 * @param output Output file path (may be null)
 	 * @param ordered Whether to maintain read order in output
 	 * @param append Whether to append to existing output file
 	 * @param overwrite Whether to overwrite existing output file
 	 */
-	public static void detect(String reads1, String reads2, KCountArray kca, int k, int thresh, long maxReads, String output, boolean ordered, boolean append, boolean overwrite) {
+	public static void detect(String reads1, String reads2, KCountArray kca, int k, int thresh, long maxReads, String output, boolean ordered, boolean append, boolean overwrite){
 
 		
 		final ConcurrentReadInputStream cris;
@@ -216,57 +236,84 @@ public class ErrorCorrect extends Thread{
 		}
 		assert(cris!=null) : reads1;
 		
-		cris.start();
-		if(verbose){System.err.println("Started cris");}
-		boolean paired=cris.paired();
-		if(verbose){System.err.println("Paired: "+paired);}
-		
 		ConcurrentReadOutputStream ros=null;
-		if(output!=null){
-			String out1=output.replaceFirst("#", "1"), out2=null;
-			
-			if(cris.paired()){
-				if(output.contains("#")){
-					out2=output.replaceFirst("#", "2");
-				}else{
-					System.err.println("Writing interleaved.");
+		boolean outputStarted=false;
+		Throwable primaryFailure=null;
+		try{
+			cris.start();
+			if(verbose){System.err.println("Started cris");}
+			boolean paired=cris.paired();
+			if(verbose){System.err.println("Paired: "+paired);}
+			if(output!=null){
+				String out1=output.replaceFirst("#", "1"), out2=null;
+				if(cris.paired()){
+					if(output.contains("#")){
+						out2=output.replaceFirst("#", "2");
+					}else{
+						System.err.println("Writing interleaved.");
+					}
 				}
+				final int buff=(!ordered ? 8 : Tools.max(16, 2*THREADS));
+				FileFormat ff1=FileFormat.testOutput(out1, FileFormat.FASTQ, OUTPUT_INFO ? ".info" : null, true, overwrite, append, ordered);
+				FileFormat ff2=FileFormat.testOutput(out2, FileFormat.FASTQ, OUTPUT_INFO ? ".info" : null, true, overwrite, append, ordered);
+				assert(!ff1.sam()) : "Sam files need reference info for the header.";
+				ros=ConcurrentReadOutputStream.getStream(ff1, ff2, buff, null, true);
 			}
-			
-			final int buff=(!ordered ? 8 : Tools.max(16, 2*THREADS));
-			
-			FileFormat ff1=FileFormat.testOutput(out1, FileFormat.FASTQ, OUTPUT_INFO ? ".info" : null, true, overwrite, append, ordered);
-			FileFormat ff2=FileFormat.testOutput(out2, FileFormat.FASTQ, OUTPUT_INFO ? ".info" : null, true, overwrite, append, ordered);
-			ros=ConcurrentReadOutputStream.getStream(ff1, ff2, buff, null, true);
-			
-			assert(!ff1.sam()) : "Sam files need reference info for the header.";
+			if(ros!=null){
+				ros.start();
+				outputStarted=true;
+				Data.sysout.println("Started output threads.");
+			}
+			detect(cris, kca, k, thresh, maxReads, ros);
+		}catch(RuntimeException | Error failure){
+			primaryFailure=failure;
+			throw failure;
+		}finally{
+			if(ros!=null && !outputStarted){
+				//A partial start can leave NEW backends: abort does not close them and join spins.
+				if(primaryFailure!=null){primaryFailure.printStackTrace(System.err);}
+				KillSwitch.kill("ErrorCorrect output failed to start completely; cannot safely join unstarted writers. Output is incomplete.");
+			}
+			//BLM205: close independently so failure from one owner cannot skip the other.
+			boolean streamError=false;
+			Throwable cleanupFailure=null;
+			try{streamError|=ReadWrite.closeStream(cris);}
+			catch(RuntimeException | Error failure){cleanupFailure=failure;}
+			try{streamError|=ReadWrite.closeStream(ros);}
+			catch(RuntimeException | Error failure){
+				if(cleanupFailure==null){cleanupFailure=failure;}
+				else if(cleanupFailure!=failure){cleanupFailure.addSuppressed(failure);}
+			}
+			if(streamError){
+				final RuntimeException failure=new RuntimeException("ErrorCorrect input/output stream failed; output may be incomplete.");
+				if(cleanupFailure==null){cleanupFailure=failure;}
+				else{cleanupFailure.addSuppressed(failure);}
+			}
+			if(cleanupFailure!=null){
+				if(primaryFailure!=null){
+					if(primaryFailure!=cleanupFailure){primaryFailure.addSuppressed(cleanupFailure);}
+				}else if(cleanupFailure instanceof RuntimeException){throw (RuntimeException)cleanupFailure;}
+				else{throw (Error)cleanupFailure;}
+			}
 		}
-		
-		
-		if(ros!=null){
-			ros.start();
-			Data.sysout.println("Started output threads.");
-		}
-		
-		detect(cris, kca, k, thresh, maxReads, ros);
-		
-		ReadWrite.closeStreams(cris, ros);
 		if(verbose){System.err.println("Closed stream");}
 	}
 	
 	/**
-	 * Core error detection and correction processing loop.
-	 * Processes reads from input stream, detects errors, attempts correction,
-	 * and writes results to output stream with correction statistics.
+	 * Consumes started input batches, corrects reads in place and optionally submits them to output.
+	 * Processes both mates and reports individual-read/base totals. Returns batches
+	 * to cris, but does not start or close either borrowed stream. Every processed batch ID
+	 * is sent to ros when present, including lists whose roots were filtered out.
+	 * Short reads retain bases, qualities and error metadata; the other mate is still processed.
 	 *
-	 * @param cris Input stream for reading sequences
-	 * @param kca K-mer count array for error detection
-	 * @param k K-mer length
+	 * @param cris Started input stream supplying non-null read roots
+	 * @param kca Borrowed count table compatible with detection and correction queries
+	 * @param k Packed DNA k-mer length in bases
 	 * @param thresh Minimum k-mer count threshold
-	 * @param maxReads Maximum reads to process
-	 * @param ros Output stream for corrected reads (may be null)
+	 * @param maxReads Unused here; the caller must configure any limit on cris
+	 * @param ros Started output stream, or null to omit writing
 	 */
-	public static void detect(ConcurrentReadInputStream cris, KCountArray kca, int k, int thresh, long maxReads, ConcurrentReadOutputStream ros) {
+	public static void detect(ConcurrentReadInputStream cris, KCountArray kca, int k, int thresh, long maxReads, ConcurrentReadOutputStream ros){
 		Timer tdetect=new Timer();
 		tdetect.start();
 		
@@ -298,11 +345,11 @@ public class ErrorCorrect extends Thread{
 					totalBases+=r.length();
 //					BitSet bs=detectErrors(r, kca, k, thresh);
 					BitSet bs=detectErrorsBulk(r, kca, k, thresh, 1);
-					if(verbose){System.err.println(toString(bs, r.length()));}
+					if(verbose && bs!=null){System.err.println(toString(bs, r.length()));}
 //					Data.sysout.println(toString(detectErrorsTips(r, kca, k, thresh), r.length()));
-					if(verbose){System.err.println(toString(detectErrors(r, kca, k, thresh), r.length()-k+1));}
-					if(bs==null){//No errors, or can't detect errors
-						assert(false);
+					if(verbose && bs!=null){System.err.println(toString(detectErrors(r, kca, k, thresh), r.length()-k+1));}
+					if(bs==null){//No complete window; this does not establish an error-free read.
+						//Preserve existing metadata and continue to the other mate.
 					}else{
 						int x=bs.cardinality();
 						covered+=x;
@@ -327,10 +374,10 @@ public class ErrorCorrect extends Thread{
 					totalBases+=r2.length();
 //					BitSet bs=detectErrors(r2, kca, k, thresh);
 					BitSet bs=detectErrorsBulk(r2, kca, k, thresh, 1);
-					if(verbose){System.err.println(toString(bs, r2.length()));}
+					if(verbose && bs!=null){System.err.println(toString(bs, r2.length()));}
 //					Data.sysout.println(toString(detectErrorsTips(r2, kca, k, thresh), r2.length()));
-					if(verbose){System.err.println(toString(detectErrors(r2, kca, k, thresh), r2.length()-k+1));}
-					if(bs==null){//No errors, or can't detect errors
+					if(verbose && bs!=null){System.err.println(toString(detectErrors(r2, kca, k, thresh), r2.length()-k+1));}
+					if(bs==null){//No complete window; preserve metadata without counting a correction.
 					}else{
 						int x=bs.cardinality();
 						covered+=x;
@@ -390,7 +437,16 @@ public class ErrorCorrect extends Thread{
 		Data.sysout.println("Uncovered:      \t"+uncoveredFinal);
 	}
 	
-	/** Sets a 1 bit at start of each kmer with count at least thresh */
+	/**
+	 * Marks the start index of every valid k-mer whose canonical count reaches thresh.
+	 * This is a window mask, not a base-coverage mask. Undefined bases break the
+	 * rolling window; no input arrays or Read fields are modified.
+	 * @param r Non-null read to inspect
+	 * @param kca Table supporting canonical packed-key queries
+	 * @param k Packed DNA k-mer length in bases, from 1 through 31
+	 * @param thresh Minimum supporting count
+	 * @return New window-start BitSet, or null when the read is shorter than k
+	 */
 	public static BitSet detectErrors(final Read r, final KCountArray kca, final int k, final int thresh){
 		
 		final int kbits=2*k;
@@ -428,7 +484,19 @@ public class ErrorCorrect extends Thread{
 		return bs;
 	}
 	
-	/** Sets a 1 bit for every base covered by a kmer with count at least thresh */
+	/**
+	 * Marks every base covered by a sampled valid window whose canonical count reaches thresh.
+	 * Sampling starts at the first complete window in each defined-base run;
+	 * a valid window ending at the final base is always sampled. A step of one
+	 * examines every valid window. Bases and qualities are not modified. Also
+	 * writes r.errors as the nonnegative number of bases without sampled support.
+	 * @param r Non-null read to inspect
+	 * @param kca Table supporting canonical packed-key queries
+	 * @param k Packed DNA k-mer length in bases, from 1 through 31
+	 * @param thresh Minimum supporting count
+	 * @param stepsize Positive step between sampled window starts within each valid run
+	 * @return New base-coverage BitSet, or null for absent bases or a read shorter than k
+	 */
 	public static BitSet detectErrorsBulk(final Read r, final KCountArray kca, final int k, final int thresh, final int stepsize){
 
 		final int kbits=2*k;
@@ -467,13 +535,25 @@ public class ErrorCorrect extends Thread{
 				}
 			}
 		}
-		r.errors=bs.cardinality()-r.length();
+		//BLM205: errors counts unsupported bases, consistently with correctErrors.
+		r.errors=r.length()-bs.cardinality();
 
 		return bs;
 	}
 	
-	/** Sets 1 for all bases.
-	 * Then clears all bits covered by incorrect kmers. */
+	/**
+	 * Starts with all bases retained, then clears bases covered by sampled low-count valid windows.
+	 * Samples by absolute window-end index modulo detectStepsize, also sampling a
+	 * valid final-base window. Undefined windows are not queried, so a retained bit
+	 * may simply be unexamined; it does not prove coverage by a high-count window.
+	 * Does not modify the read or table.
+	 * @param r Non-null read to inspect
+	 * @param kca Table supporting canonical packed-key queries
+	 * @param k Packed DNA k-mer length in bases, from 1 through 31
+	 * @param thresh Count below which a sampled window clears its covered bases
+	 * @param detectStepsize Positive sampling step on absolute window-end indices
+	 * @return New retained-base BitSet, or null for absent bases or a read shorter than k
+	 */
 	public static BitSet detectTrusted(final Read r, final KCountArray kca, final int k, final int thresh, final int detectStepsize){
 
 		final int kbits=2*k;
@@ -519,15 +599,15 @@ public class ErrorCorrect extends Thread{
 	}
 	
 	/**
-	 * Detects errors focusing on k-mer endpoints.
-	 * For each trusted k-mer, marks both the start and end positions.
-	 * Provides different coverage pattern than bulk detection.
+	 * Marks the first and last base of each valid window with canonical count at least thresh.
+	 * Interior bases are not marked merely because they lie inside that window.
+	 * Does not modify the read or table.
 	 *
-	 * @param r Read to analyze
-	 * @param kca K-mer count array
-	 * @param k K-mer length
+	 * @param r Non-null read to inspect
+	 * @param kca Table supporting canonical packed-key queries
+	 * @param k Packed DNA k-mer length in bases, from 1 through 31
 	 * @param thresh Minimum k-mer count threshold
-	 * @return BitSet marking start and end of trusted k-mers
+	 * @return New base-index BitSet, or null for absent bases or a read shorter than k
 	 */
 	public static BitSet detectErrorsTips(final Read r, final KCountArray kca, final int k, final int thresh){
 		
@@ -567,8 +647,25 @@ public class ErrorCorrect extends Thread{
 	}
 	
 
-	/** Assumes bulk mode was used; e.g., any '0' bit is covered by no correct kmers */
+	/**
+	 * Attempts substitutions next to supported regions, using a full bulk-coverage mask.
+	 * Mutates bases, writes existing qualities on edits/failures and updates r.errors. After
+	 * each successful substitution, recomputes coverage with sampling step one;
+	 * callers must use the returned mask rather than assume the original was updated.
+	 * A failed attempt can mark its base N and return early. Absent qualities stay
+	 * absent. Nearby correction attempts honor the passed maxBurst limit. Correction with
+	 * OUTPUT_INFO is explicitly unsupported by an assertion.
+	 * @param r Read to modify; bases and coverage must describe the same sequence
+	 * @param kca Borrowed table compatible with canonical detection and forward-only candidate queries
+	 * @param k Packed DNA k-mer length in bases, from 1 through 31
+	 * @param thresh Minimum supporting count
+	 * @param bs Non-null bulk-coverage mask computed with every valid window examined
+	 * @param maxCorrections Maximum successful substitutions in this invocation
+	 * @param maxBurst Maximum allowed nearby correction attempts in a burst
+	 * @return Current coverage mask, possibly a new object after successful correction
+	 */
 	public static BitSet correctErrors(final Read r, final KCountArray kca, final int k, final int thresh, BitSet bs, final int maxCorrections, final int maxBurst){
+		//Production callers pass MAX_ERROR_BURST; direct callers may choose another limit.
 		
 		assert(!OUTPUT_INFO) : "TODO: Outputting correction data is not yet supported.";
 		
@@ -598,7 +695,7 @@ public class ErrorCorrect extends Thread{
 			if(Tools.absdif(errorLoc,lastloc)<=BURST_THRESH){burst++;}
 			else{burst=1;}
 			lastloc=errorLoc;
-			boolean success=(burst<=MAX_ERROR_BURST) && correctFromRight(r, kca, k, thresh, bs, errorLoc);
+			boolean success=(burst<=maxBurst) && correctFromRight(r, kca, k, thresh, bs, errorLoc);
 			if(success){
 				corrections++;
 				bs=detectErrorsBulk(r, kca, k, thresh, 1);
@@ -608,7 +705,7 @@ public class ErrorCorrect extends Thread{
 //				r.errorsCorrected+=corrections;
 				if(verbose){System.err.println("Could not correct.");}
 				r.bases[errorLoc]='N';
-				r.quality[errorLoc]=0;
+				if(r.quality!=null){r.quality[errorLoc]=0;}
 				return bs;
 			}
 		}
@@ -620,7 +717,7 @@ public class ErrorCorrect extends Thread{
 				if(Tools.absdif(errorLoc,lastloc)<=BURST_THRESH){burst++;}
 				else{burst=1;}
 				lastloc=errorLoc;
-				boolean success=(burst<=MAX_ERROR_BURST) && correctFromLeft(r, kca, k, thresh, bs, errorLoc);
+				boolean success=(burst<=maxBurst) && correctFromLeft(r, kca, k, thresh, bs, errorLoc);
 				if(success){
 					corrections++;
 					bs=detectErrorsBulk(r, kca, k, thresh, 1);
@@ -629,7 +726,7 @@ public class ErrorCorrect extends Thread{
 					r.errors=r.length()-bs.cardinality();
 //					r.errorsCorrected+=corrections;
 					r.bases[errorLoc]='N';
-					r.quality[errorLoc]=0;
+					if(r.quality!=null){r.quality[errorLoc]=0;}
 					if(verbose){System.err.println("Could not correct.");}
 					return bs;
 				}
@@ -644,15 +741,18 @@ public class ErrorCorrect extends Thread{
 	
 	
 	/**
-	 * @param r
-	 * @param kca
-	 * @param k
-	 * @param thresh
-	 * @param bs
-	 * @param errorLoc
-	 * @return
+	 * Tries each replacement base after a supported prefix and compares rightward support.
+	 * Queries forward-only packed keys. Restores the original base if no candidate wins;
+	 * a winning candidate changes the base and any existing quality, without updating bs.
+	 * @param r Read whose bases and optional quality array may be modified
+	 * @param kca Counts used to evaluate candidate k-mers
+	 * @param k K-mer length in bases
+	 * @param thresh Minimum supporting k-mer count
+	 * @param bs Base-coverage mask from bulk detection
+	 * @param error Index of the first unsupported base after the supported prefix
+	 * @return true if a different base wins the minimum-advance comparison
 	 */
-	private static boolean correctFromLeft(Read r, KCountArray kca, int k, int thresh, BitSet bs, int error) {
+	private static boolean correctFromLeft(Read r, KCountArray kca, int k, int thresh, BitSet bs, int error){
 		final int kbits=2*k;
 		final long mask=(kbits>63 ? -1L : ~((-1L)<<kbits));
 		final int setlen=k;
@@ -733,7 +833,7 @@ public class ErrorCorrect extends Thread{
 		if(bestC==oldBase){return false;}
 		bases[error]=bestC;
 		
-		r.quality[error]=(byte)Tools.min(10, 3+delta);
+		if(r.quality!=null){r.quality[error]=(byte)Tools.min(10, 3+delta);}
 		
 		return true;
 	}
@@ -741,15 +841,18 @@ public class ErrorCorrect extends Thread{
 	
 	
 	/**
-	 * @param r
-	 * @param kca
-	 * @param k
-	 * @param thresh
-	 * @param bs
-	 * @param errorLoc
-	 * @return
+	 * Tries each replacement base before a supported suffix and compares leftward support.
+	 * Queries forward-only packed keys. Restores the original base if no candidate wins;
+	 * a winning candidate changes the base and any existing quality, without updating bs.
+	 * @param r Read whose bases and optional quality array may be modified
+	 * @param kca Counts used to evaluate candidate k-mers
+	 * @param k K-mer length in bases
+	 * @param thresh Minimum supporting k-mer count
+	 * @param bs Base-coverage mask from bulk detection
+	 * @param error Index of the last unsupported base before the supported suffix
+	 * @return true if a different base wins the minimum-advance comparison
 	 */
-	private static boolean correctFromRight(Read r, KCountArray kca, int k, int thresh, BitSet bs, int error) {
+	private static boolean correctFromRight(Read r, KCountArray kca, int k, int thresh, BitSet bs, int error){
 		final int kbits=2*k;
 		final int shift=kbits-2;
 		final long mask=(kbits>63 ? -1L : ~((-1L)<<kbits));
@@ -849,13 +952,13 @@ public class ErrorCorrect extends Thread{
 		if(bestC==oldBase){return false;}
 		bases[error]=bestC;
 		
-		r.quality[error]=(byte)Tools.min(10, 3+delta);
+		if(r.quality!=null){r.quality[error]=(byte)Tools.min(10, 3+delta);}
 		
 		return true;
 	}
 	
 
-	/** returns index of highest value, if unique; else a negative number */
+	/** Returns the unique maximum's index, or -1 for a tie; array must be nonempty and is not modified. */
 	private static int maxUniqueIndex(int[] array){
 		int max=array[0];
 		int maxIndex=0;
@@ -871,11 +974,11 @@ public class ErrorCorrect extends Thread{
 	}
 
 	/**
-	 * Converts BitSet to string representation for debugging.
-	 * Creates string of '1' and '0' characters representing bit states.
+	 * Formats exactly len bit positions as '1'/'0' characters for diagnostics.
+	 * Does not alter the mask; unset positions beyond its current logical end print zero.
 	 *
-	 * @param bs BitSet to convert
-	 * @param len Length of string to generate
+	 * @param bs Non-null BitSet to inspect
+	 * @param len Nonnegative number of positions to print
 	 * @return String representation of BitSet
 	 */
 	public static final String toString(BitSet bs, int len){
@@ -886,9 +989,10 @@ public class ErrorCorrect extends Thread{
 	}
 	
 	/**
-	 * Removes reads with uncorrected errors from the list.
-	 * Sets list entries to null for reads (and their mates) that still have errors.
-	 * @param list List of reads to filter
+	 * Nulls a root only when it has errors and its mate is absent or also has errors.
+	 * A pair with either error-free mate is retained together. Does not resize the
+	 * list or mutate either read, preserving output list positions and IDs.
+	 * @param list Mutable list of non-null read roots
 	 */
 	private static void removeBad(ArrayList<Read> list){
 		
@@ -907,21 +1011,19 @@ public class ErrorCorrect extends Thread{
 	public static boolean verbose=false;
 	/** Bails out if a read still has errors after correcting this many. */
 	public static int ERROR_CORRECTION_LIMIT=6;
-	/** Max allowed number of nearby corrections.
-	 * A long error burst indicates the read simply has low coverage, and is not being corrected correctly. */
+	/** Maximum allowed nearby correction attempts; limits correction bursts that may reflect low coverage. */
 	public static int MAX_ERROR_BURST=3;
 	/** Bursts have at most this distance between errors. E.G. '1' means errors are adjacent. */
 	public static int BURST_THRESH=2;
-	/** Withhold uncorrectable reads from output. */
+	/** Filter errored single reads and pairs with errors in both mates; retain pairs with either good mate. */
 	public static boolean DONT_OUTPUT_BAD_READS=false;
-	/** Do not correct an error if it is at most this far from the next error.  Instead, bail out. */
+	/** Required advantage in supported-window advance over the second-best candidate, clipped near read ends. */
 	public static int MIN_ADVANCE=1;
 
-	/** Number of threads used for error correction.  Does not control number of threads for creating the hash table.
-	 * Additionally, up to 2 threads are used for reading and up to 2 for writing.  For this (singlethreaded) class, the number does nothing. */
+	/** Used in output-buffer sizing, not to start correction workers; correction itself runs on the caller thread. */
 	public static final int THREADS=1;
 	
-	/** Output correction data instead of the corrected read */
+	/** Select .info output; actual correction in this mode remains unsupported by correctErrors. */
 	public static boolean OUTPUT_INFO=false;
 	
 	
