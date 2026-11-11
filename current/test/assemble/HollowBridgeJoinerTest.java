@@ -10,9 +10,18 @@ import assemble.HollowTipConnections;
 import assemble.HollowTipConnections.Connection;
 
 /** Tiny in-memory tests for read-backed gap reconstruction and oriented path spelling.
+ * Exercises exact consensus, guarded scaffolding, ambiguous evidence and path
+ * topology without touching the filesystem or native assembler inputs. The
+ * checks deliberately compare to independent byte arrays and edit-distance
+ * oracles instead of trusting the implementation under test.
  * @author Brian Bushnell, Fischl */
-public final class HollowBridgeJoinerTest {
+public final class HollowBridgeJoinerTest{
 
+	/*--------------------------------------------------------------*/
+	/*----------------             Main             ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Runs all deterministic fixtures in one assertion-enabled JVM. */
 	public static void main(final String[] args){
 		boolean assertions=false;
 		assert(assertions=true);
@@ -32,7 +41,9 @@ public final class HollowBridgeJoinerTest {
 	/*----------------           Fixtures           ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Unknown-gap spelling retains both complete contigs, even when the inferred gap is negative. */
+	/** Unknown-gap spelling retains both complete contigs, even when the inferred gap is negative.
+	 * Default joins should scaffold conservatively with Ns rather than fill a
+	 * gap from read sequence or trim an overlap. */
 	private static void testScaffolds(){
 		final byte[] reference=sequence(1000, 971);
 		for(int gap : new int[]{40, 0, -20}){
@@ -68,7 +79,9 @@ public final class HollowBridgeJoinerTest {
 		check(Arrays.equals(output.get(0).bases, expected), "An oriented chain must preserve all three full contigs.");
 	}
 
-	/** Every strand combination must produce the same complete sequence across gaps and overlaps. */
+	/** Every strand combination must produce the same complete sequence across gaps and overlaps.
+	 * The reference oracle is built from the original random chromosome rather
+	 * than by replaying the joiner's orientation choices. */
 	private static void testOrientations(){
 		final byte[] reference=sequence(750, 971);
 		for(int gap : new int[]{40, 0, -20}){
@@ -95,7 +108,9 @@ public final class HollowBridgeJoinerTest {
 		}
 	}
 
-	/** Tied interiors and mismatching known flanks must not be converted into an invented consensus. */
+	/** Tied interiors and mismatching known flanks must not be converted into an invented consensus.
+	 * Whole-gap votes are candidate-level records: a tie abstains, a bad known
+	 * flank rejects and a ratio winner must stay an intact observed sequence. */
 	private static void testAmbiguityAndFlanks(){
 		final byte[] reference=sequence(700, 977), read=Arrays.copyOfRange(reference, 244, 372);
 		final byte[] alternate=read.clone(), badFlank=read.clone();
@@ -119,7 +134,9 @@ public final class HollowBridgeJoinerTest {
 				"Exact vote-ratio equality permits the supported complete gap, not a mosaic.");
 	}
 
-	/** A repeated selector in one record cannot masquerade as multiple independent observations. */
+	/** A repeated selector in one record cannot masquerade as multiple independent observations.
+	 * Duplicating the same evidence window inside a read invalidates that read's
+	 * vote rather than inflating support. */
 	private static void testRepeatedPair(){
 		final byte[] reference=sequence(700, 983), read=Arrays.copyOfRange(reference, 244, 372);
 		final byte[] twice=new byte[256];
@@ -132,7 +149,9 @@ public final class HollowBridgeJoinerTest {
 				"A second selected-pair occurrence revokes the first occurrence's vote from that read record.");
 	}
 
-	/** A short middle contig may participate in two valid joins within one linear path. */
+	/** A short middle contig may participate in two valid joins within one linear path.
+	 * This covers the legal degree-two case where a middle contig is traversed
+	 * once by a non-branching path. */
 	private static void testChain(){
 		final byte[] reference=sequence(1000, 991);
 		final ArrayList<Contig> contigs=contigs(Arrays.copyOfRange(reference, 0, 300),
@@ -147,7 +166,9 @@ public final class HollowBridgeJoinerTest {
 				"An oriented chain must include each contig exactly once and spell both gaps correctly.");
 	}
 
-	/** A degree-two closed component is preserved rather than arbitrarily cut or circularized. */
+	/** A degree-two closed component is preserved rather than arbitrarily cut or circularized.
+	 * The prototype only emits linear paths; a cycle must leave the original
+	 * contig objects untouched. */
 	private static void testCycle(){
 		final byte[] reference=sequence(960, 997);
 		final ArrayList<Contig> contigs=contigs(Arrays.copyOfRange(reference, 0, 300),
@@ -167,7 +188,9 @@ public final class HollowBridgeJoinerTest {
 		for(int i=0; i<3; i++){check(output.get(i)==contigs.get(i), "An unjoined contig must retain its original object and sequence.");}
 	}
 
-	/** Conflicts are candidate-level evidence; single edits, Ns, clipping and repeated selectors stay conservative. */
+	/** Conflicts are candidate-level evidence; single edits, Ns, clipping and repeated selectors stay conservative.
+	 * The guarded joiner must distinguish outer-flank vetoes from gap support
+	 * while counting each read record at most once. */
 	private static void testOuterFlanks(){
 		final byte[] reference=sequence(700, 1009), seed=Arrays.copyOfRange(reference, 244, 372);
 		final byte[] read=Arrays.copyOfRange(reference, 200, 420), bad=read.clone(), unknown=read.clone();
@@ -214,7 +237,9 @@ public final class HollowBridgeJoinerTest {
 				"Repeated selected pairs revoke a negative vote as well as a positive gap vote.");
 	}
 
-	/** Exhaustive binary words compare the allocation-free one-edit test with an independent full DP oracle. */
+	/** Exhaustive binary words compare the allocation-free one-edit test with an independent full DP oracle.
+	 * Free trailing reference suffixes model the production flank check; every tiny binary
+	 * word gives a compact complete cross-check. */
 	private static void testFlankDistance(){
 		for(int length=1; length<=5; length++){
 			for(int q=0; q<(1<<length); q++){
@@ -244,12 +269,14 @@ public final class HollowBridgeJoinerTest {
 	/*----------------         Test helpers         ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Builds a finder with three copies of one read so discovery meets the minimum support floor. */
 	private static HollowTipConnections find(final ArrayList<Contig> contigs, final byte[] read){
 		final HollowTipConnections finder=new HollowTipConnections(contigs, 128, 128, 3);
 		for(int i=0; i<3; i++){finder.addRead(read);}
 		return finder;
 	}
 
+	/** Wraps byte arrays as contigs with stable fixture IDs in argument order. */
 	private static ArrayList<Contig> contigs(final byte[]... sequences){
 		final ArrayList<Contig> result=new ArrayList<Contig>();
 		for(byte[] sequence : sequences){result.add(new Contig(sequence, result.size()));}
@@ -259,11 +286,12 @@ public final class HollowBridgeJoinerTest {
 	/** Tiny deterministic in-memory fixtures, not additional benchmark libraries. */
 	private static byte[] sequence(final int length, final int seed){
 		final Random random=new Random(seed);
-		final byte[] bases=new byte[length], alphabet={'A','C','G','T'};
+		final byte[] bases=new byte[length], alphabet={'A', 'C', 'G', 'T'};
 		for(int i=0; i<length; i++){bases[i]=alphabet[random.nextInt(4)];}
 		return bases;
 	}
 
+	/** Reverse-complements an A/C/G/T fixture without invoking BBTools utilities. */
 	private static byte[] reverse(final byte[] bases){
 		final byte[] result=new byte[bases.length];
 		for(int i=0; i<bases.length; i++){
@@ -273,10 +301,15 @@ public final class HollowBridgeJoinerTest {
 		return result;
 	}
 
+	/** Maps A to C and all other bases to A for bad-flank and ambiguous-gap cases. */
 	private static void mutate(final byte[] bases, final int position){bases[position]=(byte)(bases[position]=='A' ? 'C' : 'A');}
+
+	/** Counts every assertion-like fixture predicate before throwing its specific failure message. */
 	private static void check(final boolean condition, final String message){
 		checks++;
 		if(!condition){throw new AssertionError(message);}
 	}
+
+	/** Number of semantic fixture predicates that reached {@link #check(boolean, String)}. */
 	private static int checks;
 }

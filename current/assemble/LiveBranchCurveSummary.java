@@ -15,10 +15,15 @@ import structures.ByteBuilder;
 
 /**
  * Selects exact attainable curve rows under fixed false-rescue budgets.
- * Never retunes a model or accesses TEST. Ties retain the higher cutoff.
+ * Budgets are absolute false-positive counts, not rates. Maximizes true positives;
+ * equal true-positive counts retain the first, higher cutoff in descending input order.
+ * Reads only the supplied curve and never retunes a model. The caller supplies the
+ * validation population and its expected observation count; fold identity is not checked.
+ * Streams validation while retaining one best row per budget. Output opens only after
+ * the complete curve passes, and selected rows are copied without recomputing rates.
  * @author Fischl
  */
-public final class LiveBranchCurveSummary {
+public final class LiveBranchCurveSummary{
 
 	/** Summarizes one model's exact validation curve through standard argument parsing. */
 	public static void main(final String[] args){
@@ -46,7 +51,12 @@ public final class LiveBranchCurveSummary {
 	/*----------------        Static Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Validates count conservation and keeps the first maximal-TP row under each FP budget. */
+	/**
+	 * Requires a nonempty complete curve with exact header, descending finite cutoffs,
+	 * an initial reject-all state and a final accept-all state. Parameter expected counts observations,
+	 * not threshold rows. Validates group increments, conserved populations and rate columns,
+	 * then emits one selected input row for each declared false-positive budget.
+	 */
 	static void summarize(final String input, final String output, final long expected){
 		assert(expected>0) : "False-rescue curves must describe a nonempty validation population.";
 		final ByteBuilder[] best=new ByteBuilder[BUDGETS.length];
@@ -88,7 +98,10 @@ public final class LiveBranchCurveSummary {
 				previousCutoff=cutoff; previousTP=tp; previousFP=fp; count++;
 			}
 			if(count<2 || previousTP!=positive || previousFP!=negative){throw new IllegalArgumentException("Incomplete exact curve.");}
-		}finally{if(file.close()){throw new IllegalStateException("Curve read failed.");}}
+		}finally{
+			//TODO: Probable bug ASM024 - cleanup failure can replace the primary curve-validation failure.
+			if(file.close()){throw new IllegalStateException("Curve read failed.");}
+		}
 		final ByteStreamWriter writer=new ByteStreamWriter(output, false, false, false);
 		writer.start();
 		try{
@@ -98,10 +111,13 @@ public final class LiveBranchCurveSummary {
 				assert(bestTP[i]>=0 && best[i].length()>0) : "Reject-all is feasible for every nonnegative false-rescue budget.";
 				writer.print(out.clear().append(BUDGETS[i]).tab().append(best[i]).nl());
 			}
-		}finally{if(writer.poisonAndWait()){throw new IllegalStateException("Curve summary write failed.");}}
+		}finally{
+			//TODO: Probable bug ASM024 - cleanup failure can replace the primary summary-writing failure.
+			if(writer.poisonAndWait()){throw new IllegalStateException("Curve summary write failed.");}
+		}
 	}
 
-	/** Verifies existing rate columns without replacing undefined rates by zero. */
+	/** Requires NA for zero denominators; otherwise requires a finite value within 1e-9 of the ratio. */
 	private static void checkRate(final LineParser1 p, final int field, final long numerator, final long denominator){
 		assert(numerator>=0 && numerator<=denominator) : "A class-conditional numerator cannot exceed its population.";
 		if(denominator==0){
@@ -118,6 +134,8 @@ public final class LiveBranchCurveSummary {
 	/*----------------          Constants           ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Exact input schema; the output prepends only fp_budget. */
 	static final String HEADER="threshold_bits\tthreshold\tgroup_positive\tgroup_negative\ttp\tfp\ttn\tfn\tprecision\trecall\tfpr\tfnr";
+	/** Absolute FP limits in output order; Long.MAX_VALUE supplies an unconstrained endpoint. */
 	static final long[] BUDGETS={0, 1, 2, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, Long.MAX_VALUE};
 }

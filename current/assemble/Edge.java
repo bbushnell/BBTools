@@ -4,25 +4,47 @@ import simd.Vector;
 import structures.ByteBuilder;
 
 /**
- * Represents directed edges in the De Bruijn graph connecting two contigs
- * with orientation and overlap information for assembly operations.
- * Stores connection data including orientation encoding, overlap length,
- * coverage depth, and optional sequence data for graph traversal.
+ * Directed connection between two contigs in a De Bruijn graph.
+ * Stores endpoint orientation, supporting depth, optional emitted bases and
+ * cross-k trim metadata used when a verified path replaces a tip interval.
  *
  * @author Brian Bushnell
  */
-public class Edge {
-	
+public class Edge{
+
+	/**
+	 * Constructs an edge whose overlap is inferred from the active graph k.
+	 *
+	 * @param origin_ source contig id
+	 * @param destination_ destination contig id
+	 * @param length_ emitted base count for dense Tadpole paths, or kmer-step
+	 *        distance for graph-only paths without a payload
+	 * @param orientation_ two-bit source/destination endpoint orientation
+	 * @param depth_ supporting read depth
+	 * @param bases_ optional emitted payload bases; retained and later mutated in
+	 *        place by {@link #flipSource()}
+	 */
 	public Edge(int origin_, int destination_, int length_, int orientation_, int depth_, byte[] bases_){
 		this(origin_, destination_, length_, orientation_, depth_, bases_, 0);
 	}
 
-	/** Constructs an edge with an explicit overlap; zero uses the graph kmer length. */
+	/**
+	 * Constructs an edge with an explicit overlap.
+	 *
+	 * @param overlap_ exact overlap in bases; zero means use the active graph k
+	 */
 	public Edge(int origin_, int destination_, int length_, int orientation_, int depth_, byte[] bases_, int overlap_){
 		this(origin_, destination_, length_, orientation_, depth_, bases_, overlap_, 0, 0);
 	}
 
-	/** Constructs a trim-aware cross-k edge between anchors inside two long-k tip regions. */
+	/**
+	 * Constructs a trim-aware cross-k edge between anchors inside two long-k tip regions.
+	 * Cross-k overlap links use {@code length==0} and no payload; their explicit
+	 * overlap and trim fields describe the sequence to retain from each contig.
+	 *
+	 * @param sourceTrim_ bases past the source anchor that the payload replaces
+	 * @param destTrim_ bases before the destination anchor that are trimmed before joining
+	 */
 	public Edge(int origin_, int destination_, int length_, int orientation_, int depth_, byte[] bases_,
 			int overlap_, int sourceTrim_, int destTrim_){
 		origin=origin_;
@@ -35,22 +57,19 @@ public class Edge {
 		sourceTrim=sourceTrim_;
 		destTrim=destTrim_;
 	}
-	
-	/**
-	 * Returns string representation of this edge for debugging.
-	 * Delegates to appendTo method for efficient string construction.
-	 * @return Formatted string showing edge properties
-	 */
+
+	/** Returns a debug string containing destination, orientation, length, depth and payload fields. */
 	@Override
 	public String toString(){
 		return appendTo(new ByteBuilder()).toString();
 	}
-	
+
 	/**
-	 * Appends formatted edge information to the given ByteBuilder.
-	 * Format: "(destination-orientation-length-depth-bases)"
-	 * @param bb ByteBuilder to append to
-	 * @return The same ByteBuilder for method chaining
+	 * Appends this edge in compact debug form:
+	 * {@code (destination-orientation-length-depth-bases[-overlap=N][-sourceTrim=N][-destTrim=N])}.
+	 *
+	 * @param bb destination builder
+	 * @return the same builder for chaining
 	 */
 	public ByteBuilder appendTo(ByteBuilder bb){
 		bb.append('(');
@@ -62,12 +81,11 @@ public class Edge {
 		bb.append(')');
 		return bb;
 	}
-	
+
 	/**
-	 * Generates Graphviz DOT format representation of this edge.
-	 * Creates directed edge notation with orientation and length labels
-	 * for graph visualization and debugging.
-	 * @param bb ByteBuilder to append DOT format output to
+	 * Appends a Graphviz DOT edge from {@link #origin} to {@link #destination}.
+	 *
+	 * @param bb destination builder
 	 */
 	public void toDot(ByteBuilder bb){
 		bb.append(origin);
@@ -76,94 +94,99 @@ public class Edge {
 		bb.append(" [label=\"").append(((orientation&1)==0) ? "LEFT" : "RIGHT").append("\\nlen=").append(length);
 		bb.append("\\norient=").append(orientation).append("\"]").append('\n');
 	}
-	
-	/**
-	 * Tests if destination connection is on the right side.
-	 * Checks bit 1 of orientation encoding.
-	 * @return true if destination connects to right side, false for left
-	 */
-	public boolean destRight() {
+
+	/** Returns whether the destination endpoint is on the destination contig's right side. */
+	public boolean destRight(){
 		return (orientation&2)==2;
 	}
-	/**
-	 * Tests if source connection is on the right side.
-	 * Checks bit 0 of orientation encoding.
-	 * @return true if source connects to right side, false for left
-	 */
-	public boolean sourceRight() {
+
+	/** Returns whether the source endpoint is on the source contig's right side. */
+	public boolean sourceRight(){
 		return (orientation&1)==1;
 	}
-	
+
 	/**
-	 * Flips the source orientation and reverse complements sequence data.
-	 * Toggles bit 0 of orientation encoding and applies reverse complement
-	 * transformation to stored sequence to maintain biological accuracy.
+	 * Flips the source endpoint and reverse-complements emitted bases in place.
 	 */
-	void flipSource(){
+	public void flipSource(){
 		if(Tadpole.verbose){System.err.print("Flipping edge source "+this+" -> ");}
 		if(bases!=null){Vector.reverseComplementInPlace(bases);}
 		orientation^=1;
 		if(Tadpole.verbose){System.err.println(this);}
 	}
 
-	/** Reads an extension base in outward traversal order. Left-edge payloads are
-	 * stored reverse-complemented so flipping their source preserves the path. */
+	/**
+	 * Reads an emitted base in outward traversal order.
+	 * Left-source payloads are read from the opposite end and complemented to
+	 * restore their biological orientation.
+	 */
 	final byte traversalBase(final int pos){
 		assert(bases!=null && pos>=0 && pos<bases.length) :
 				"Graph path consumers require an emitted base inside the edge payload: "+pos+", edge="+this;
 		return sourceRight() ? bases[pos] : dna.AminoAcid.baseToComplementExtended[bases[bases.length-1-pos]];
 	}
-	
-	/** Flips the destination orientation encoding.
-	 * Toggles bit 1 of orientation encoding without modifying sequence data. */
+
+	/** Flips the destination endpoint without modifying emitted bases. */
 	void flipDest(){
 		if(Tadpole.verbose){System.err.print("Flipping edge dest "+this+" -> ");}
 		orientation^=2;
 		if(Tadpole.verbose){System.err.println(this);}
 	}
-	
+
 	/**
-	 * Merges another edge with identical topology into this edge.
-	 * Combines coverage depths and preserves data from higher-coverage edge.
-	 * Requires matching origin, destination, and orientation values.
-	 * @param e Edge to merge with this one
+	 * Merges depth from a same-topology edge.
+	 * Payload, length, overlap and trims are replaced only when the incoming edge
+	 * has greater supporting depth than this edge had before the merge; the path
+	 * depth statistics remain untouched. Accumulated supporting depth saturates at
+	 * {@link Integer#MAX_VALUE}. The chosen payload reference is retained rather
+	 * than copied.
+	 *
+	 * @param e same-origin, same-destination, same-orientation edge to merge
 	 */
 	void merge(Edge e){
 		assert(e.origin==origin);
 		assert(e.destination==destination);
 		assert(e.orientation==orientation);
-		if(e.depth>depth){
+		final int oldDepth=depth;
+		if(e.depth>oldDepth){
 			length=e.length;
 			bases=e.bases;
 			orientation=e.orientation;
 			overlap=e.overlap;
 			sourceTrim=e.sourceTrim;
 			destTrim=e.destTrim;
-			depth+=e.depth;
-		}else{
-			depth+=e.depth;
 		}
+		depth=(int)Math.min(Integer.MAX_VALUE, (long)oldDepth+e.depth);
 	}
-	
-	byte[] bases;
-	int origin;
-	int destination;
-	int length;
-	int orientation; //left source to left dest; 1 right source to left dest; 2 left source to right dest; 3 right source to right dest
+
+	/** Optional emitted payload; ordinary path payloads have {@code bases.length==length}. */
+	public byte[] bases;
+	/** Source contig id. */
+	public int origin;
+	/** Destination contig id. */
+	public int destination;
+	/** Emitted bases for dense paths, kmer steps for graph-only paths, or zero for cross-k overlap links. */
+	public int length;
+	/** Two-bit endpoint orientation: source is bit 0, destination is bit 1. */
+	public int orientation; //left source to left dest; 1 right source to left dest; 2 left source to right dest; 3 right source to right dest
 //	int orientation; //0 left kmer, 1 left rkmer, 2 right kmer, 3 right rkmer (of dest)
 //	final int direction; //0 forward, 1 backward //They are all forward edges now
-	int depth;
+	/**
+	 * Supporting read depth accumulated across merged same-topology edges, capped
+	 * at {@link Integer#MAX_VALUE}.
+	 */
+	public int depth;
 	/** Minimum read-kmer depth along a graph-only representative path; -1 if not measured. */
-	int pathMinDepth=-1;
+	public int pathMinDepth=-1;
 	/** Maximum read-kmer depth along the same graph-only representative path. */
-	int pathMaxDepth=-1;
+	public int pathMaxDepth=-1;
 	/** Mean read-kmer depth along that path, including both endpoint kmers. */
-	double pathMeanDepth=-1;
+	public double pathMeanDepth=-1;
 	/** Explicit exact overlap for cross-k tip joins; zero means use the active graph k. */
-	int overlap;
+	public int overlap;
 	/** Bases beyond the source anchor that are replaced by the verified edge path. */
-	int sourceTrim;
+	public int sourceTrim;
 	/** Bases before the destination anchor that are omitted from the merged sequence. */
-	int destTrim;
-	
+	public int destTrim;
+
 }

@@ -4,11 +4,13 @@ import dna.AminoAcid;
 import ukmer.HollowKmerLookup;
 import ukmer.KmerTableSetU;
 
-/** Worker-local proposals for a substitution entering a Hollow left anchor.
+/**
+ * Worker-local proposals for a substitution entering a Hollow left anchor.
  * Counts are observations, not proof of sequence truth. This class never edits
  * a sequence; the extension caller owns the transaction and rollback.
- * @author Brian Bushnell, Fischl */
-public final class HollowAnchorRescue {
+ * @author Brian Bushnell, Fischl
+ */
+public final class HollowAnchorRescue{
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
@@ -30,11 +32,13 @@ public final class HollowAnchorRescue {
 	/*----------------           Methods            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Returns a replacement ingress base, or -1; records whether a trial must roll back.
+	/**
+	 * Returns a replacement ingress base, or -1; records whether a trial must roll back.
 	 * Call only at an extension stopping point with a defined terminal K window.
 	 * A supported ordinary successor must never be replaced by this rescue.
 	 * The rare stop-path packs 64 bases, then queries four ordinary successors;
-	 * only a strong collapse pays for the full16-choice matrix. */
+	 * only a strong collapse pays for the full 16-choice matrix.
+	 */
 	public int propose(final byte[] bases, final int length, final int minExtend){
 		if(bases==null || length<k || length>bases.length || minExtend<1){
 			throw new IllegalArgumentException("Hollow rescue needs a complete terminal window and positive extension threshold.");
@@ -48,7 +52,7 @@ public final class HollowAnchorRescue {
 			// An initial weak context cannot propose a correction. After a trial,
 			// however, the same weakness must reject it rather than silently count
 			// as confirmation. A deletion-seed failure retained a false correction
-			// after support fell14->2; the old early return bypassed rollback.
+			// after support fell 14->2; the old early return bypassed rollback.
 			collapsed=true;
 			return -1;
 		}
@@ -101,15 +105,21 @@ public final class HollowAnchorRescue {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** True for inadequate terminal support or a strong ordinary-support collapse.
+	/**
+	 * True for inadequate terminal support or a strong ordinary-support collapse.
 	 * Initial proposals still return -1; after a tentative correction this flag
-	 * requires restoring its original byte and extension checkpoint. */
+	 * requires restoring its original byte and extension checkpoint.
+	 */
 	public boolean collapsed;
 	/** Committed correction in the current oriented extension call; -1 after rollback. */
 	public int correctedPosition=-1;
+	/** Immutable Hollow count lookup shared with the nominal extension engine. */
 	private final HollowKmerLookup lookup;
+	/** Full Hollow span; locates the masked ingress base between the two 32-base arms. */
 	private final int k;
+	/** If true, supported ingress rows outside the winning allele veto the rescue. */
 	private final boolean rejectCompetitor;
+	/** Reused 4-by-4 matrix of replacement ingress alleles and ordinary successors. */
 	private final int[] choices=new int[16];
 	private static final int FLOOR=4, RATIO=4;
 }

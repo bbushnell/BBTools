@@ -9,11 +9,22 @@ import shared.Tools;
 
 /**
  * Classifies contigs on independent length, depth, and long-anchor topology axes.
+ * Borrows the caller's graph for single-threaded classification. The contig
+ * list, sequences, coverage and edges must remain stable during the pass;
+ * only each contig's graph-class fields are mutated. Returned summary lists
+ * retain the original contig references.
+ *
  * @author Noelle
  */
-final class ContigGraphClassifier {
+public final class ContigGraphClassifier{
 
-	ContigGraphClassifier(final ArrayList<Contig> contigs_, final int minContig_, final int k_,
+	/**
+	 * Stores borrowed contig and threshold inputs for one classification pass.
+	 * Requires non-null contigs whose ids equal their list indices, positive k
+	 * and nonnegative ordered depth cutoffs. Forbids NaN cutoffs and permits
+	 * positive infinity as an unbounded high-depth ceiling.
+	 */
+	public ContigGraphClassifier(final ArrayList<Contig> contigs_, final int minContig_, final int k_,
 			final float lowDepthCutoff_, final float mediumDepthCutoff_, final float highDepthCutoff_){
 		contigs=contigs_;
 		minContig=minContig_;
@@ -22,13 +33,22 @@ final class ContigGraphClassifier {
 		mediumDepthCutoff=mediumDepthCutoff_;
 		highDepthCutoff=highDepthCutoff_;
 		if(k<1){throw new IllegalArgumentException("Graph-classification k must be positive: "+k+".");}
-		if(lowDepthCutoff<0 || mediumDepthCutoff<lowDepthCutoff || highDepthCutoff<mediumDepthCutoff){
+		if(Float.isNaN(lowDepthCutoff) || Float.isNaN(mediumDepthCutoff) || Float.isNaN(highDepthCutoff) ||
+				lowDepthCutoff<0 || mediumDepthCutoff<lowDepthCutoff || highDepthCutoff<mediumDepthCutoff){
 			throw new IllegalArgumentException("Invalid graph depth thresholds: "+lowDepthCutoff+", "+
 					mediumDepthCutoff+", "+highDepthCutoff+".");
 		}
 	}
 
-	Result classify(){
+	/**
+	 * Reinitializes graph classification fields, propagates long-anchor reaches
+	 * through reciprocal exact edges and returns per-class counts and bases.
+	 * Requires exclusive access to mutate Contig graphClass, graphClassHop,
+	 * graphDepthClass and graphLengthClass.
+	 * Rejects NaN coverage on contigs being classified; failure can leave earlier
+	 * graph fields updated. Used or associated contigs remain unclassified.
+	 */
+	public Result classify(){
 		final int states=Math.multiplyExact(contigs.size(), 2);
 		final int[] anchor1=KillSwitch.allocInt1D(states), anchor2=KillSwitch.allocInt1D(states);
 		final int[] distance1=KillSwitch.allocInt1D(states), distance2=KillSwitch.allocInt1D(states);
@@ -49,7 +69,7 @@ final class ContigGraphClassifier {
 			}else{
 				c.graphClass=Contig.GRAPH_UNANCHORED;
 				c.graphLengthClass=(c.length()>=minContig ? Contig.LENGTH_LONG : Contig.LENGTH_SHORT);
-				c.graphDepthClass=depthClass(c.coverage);
+				c.graphDepthClass=depthClass(c.coverage, c.id);
 			}
 		}
 
@@ -83,13 +103,19 @@ final class ContigGraphClassifier {
 		return result;
 	}
 
-	private int depthClass(final float coverage){
+	/** Assigns a depth bucket, rejecting unordered NaN coverage with its contig ID. */
+	private int depthClass(final float coverage, final int id){
 		if(coverage<=lowDepthCutoff){return Contig.DEPTH_LOW;}
 		if(coverage<mediumDepthCutoff){return Contig.DEPTH_SEMILOW;}
 		if(coverage<=highDepthCutoff){return Contig.DEPTH_MEDIUM;}
-		return Contig.DEPTH_HIGH;
+		if(coverage>highDepthCutoff){return Contig.DEPTH_HIGH;}
+		throw new IllegalArgumentException("NaN coverage for contig "+id+".");
 	}
 
+	/**
+	 * Assigns the topology bucket for one usable contig from the two anchors
+	 * nearest to each side.
+	 */
 	private void classifyTopology(final Contig c, final int[] anchor1, final int[] anchor2,
 			final int[] distance1, final int[] distance2){
 		if(selfLoop(c)){
@@ -123,6 +149,11 @@ final class ContigGraphClassifier {
 		}
 	}
 
+	/**
+	 * Starts an anchor wave from all edges on one side of a long contig.
+	 *
+	 * @return the updated queue tail
+	 */
 	private int seed(final Contig source, final boolean sourceRight, final ArrayList<Edge> edges,
 			final int anchor, final int[] anchor1, final int[] anchor2,
 			final int[] distance1, final int[] distance2, final int[] queueState,
@@ -135,6 +166,12 @@ final class ContigGraphClassifier {
 		return tail;
 	}
 
+	/**
+	 * Records one reached side for an anchor, keeping only the first two
+	 * distinct anchors per contig side and queuing short contigs for traversal.
+	 *
+	 * @return the updated queue tail
+	 */
 	private int visit(final Contig source, final boolean sourceRight, final Edge edge,
 			final int anchor, final int nextDistance, final int[] anchor1, final int[] anchor2,
 			final int[] distance1, final int[] distance2, final int[] queueState,
@@ -149,9 +186,11 @@ final class ContigGraphClassifier {
 		if(dest.used() || dest.associate() || dest.id==anchor || !usableEdge(source, sourceRight, edge, dest)){return tail;}
 		final int state=(dest.id<<1)|(edge.destRight() ? 1 : 0);
 		if(anchor1[state]==anchor || anchor2[state]==anchor){return tail;}
-		if(anchor1[state]<0){anchor1[state]=anchor; distance1[state]=nextDistance;}
-		else if(anchor2[state]<0){anchor2[state]=anchor; distance2[state]=nextDistance;}
-		else{return tail;}
+		if(anchor1[state]<0){
+			anchor1[state]=anchor; distance1[state]=nextDistance;
+		}else if(anchor2[state]<0){
+			anchor2[state]=anchor; distance2[state]=nextDistance;
+		}else{return tail;}
 		if(dest.graphLengthClass==Contig.LENGTH_LONG){return tail;}
 		queueState[tail]=state;
 		queueAnchor[tail]=anchor;
@@ -159,34 +198,50 @@ final class ContigGraphClassifier {
 		return tail;
 	}
 
+	/** Returns how many distinct anchors have reached a state. */
 	private static int anchorCount(final int state, final int[] anchor1, final int[] anchor2){
 		return anchor1[state]<0 ? 0 : anchor2[state]<0 ? 1 : 2;
 	}
 
-	/** Returns the shortest worst-side distance supported by two distinct long anchors. */
+	/**
+	 * Returns the shortest worst-side edge-hop distance supported by two distinct
+	 * long anchors.
+	 */
 	private static int connectedHop(final int left, final int right, final int[] anchor1,
 			final int[] anchor2, final int[] distance1, final int[] distance2){
 		int best=Integer.MAX_VALUE;
 		if(anchor1[left]>=0 && anchor1[right]>=0 && anchor1[left]!=anchor1[right]){
 			best=Tools.min(best, Tools.max(distance1[left], distance1[right]));
 		}
-		if(anchor1[left]>=0 && anchor2[right]>=0 && anchor1[left]!=anchor2[right]){best=Tools.min(best, Tools.max(distance1[left], distance2[right]));}
-		if(anchor2[left]>=0 && anchor1[right]>=0 && anchor2[left]!=anchor1[right]){best=Tools.min(best, Tools.max(distance2[left], distance1[right]));}
-		if(anchor2[left]>=0 && anchor2[right]>=0 && anchor2[left]!=anchor2[right]){best=Tools.min(best, Tools.max(distance2[left], distance2[right]));}
+		if(anchor1[left]>=0 && anchor2[right]>=0 && anchor1[left]!=anchor2[right]){
+			best=Tools.min(best, Tools.max(distance1[left], distance2[right]));
+		}
+		if(anchor2[left]>=0 && anchor1[right]>=0 && anchor2[left]!=anchor1[right]){
+			best=Tools.min(best, Tools.max(distance2[left], distance1[right]));
+		}
+		if(anchor2[left]>=0 && anchor2[right]>=0 && anchor2[left]!=anchor2[right]){
+			best=Tools.min(best, Tools.max(distance2[left], distance2[right]));
+		}
 		return best==Integer.MAX_VALUE ? -1 : best;
 	}
 
+	/**
+	 * Returns the nearest long-anchor distance in edge hops recorded for a state,
+	 * or -1 if none reached it.
+	 */
 	private static int nearestDistance(final int state, final int[] anchor1, final int[] anchor2,
 			final int[] distance1, final int[] distance2){
 		if(anchor1[state]<0){return -1;}
 		return anchor2[state]<0 ? distance1[state] : Tools.min(distance1[state], distance2[state]);
 	}
 
+	/** Returns whether a contig has a self-loop endpoint or a validated reciprocal self-edge. */
 	private boolean selfLoop(final Contig c){
 		return c.leftCode==Tadpole.LOOP || c.rightCode==Tadpole.LOOP ||
 				selfEdge(c, false, c.leftEdges) || selfEdge(c, true, c.rightEdges);
 	}
 
+	/** Returns whether an edge list contains a usable edge from one side back to itself. */
 	private boolean selfEdge(final Contig source, final boolean sourceRight, final ArrayList<Edge> edges){
 		if(edges==null){return false;}
 		for(Edge e : edges){
@@ -202,14 +257,16 @@ final class ContigGraphClassifier {
 		return joinCompatible(state, edge) && reciprocalEdge(state, edge, dest)!=null;
 	}
 
+	/** Returns the reverse edge matching the forward edge, payload, overlap and trims. */
 	private Edge reciprocalEdge(final int state, final Edge edge, final Contig dest){
 		final int reverseState=destinationState(edge)^1;
 		final ArrayList<Edge> reverse=outEdges(reverseState);
 		if(reverse==null){return null;}
 		for(Edge back : reverse){
-			if(back.origin!=dest.id || back.destination!=(state>>>1) || destinationState(back)!=(state^1)
-					|| back.length!=edge.length || back.overlap!=edge.overlap
-					|| back.sourceTrim!=edge.destTrim || back.destTrim!=edge.sourceTrim
+			if(back.origin!=dest.id || back.destination!=(state>>>1)
+					|| destinationState(back)!=(state^1) || back.length!=edge.length
+					|| back.overlap!=edge.overlap || back.sourceTrim!=edge.destTrim
+					|| back.destTrim!=edge.sourceTrim
 					|| !joinCompatible(reverseState, back)){continue;}
 			final int novel=Tools.max(0, edge.length-k);
 			int i=0;
@@ -229,7 +286,8 @@ final class ContigGraphClassifier {
 		final int destination=destinationState(edge);
 		final Contig source=contig(state), target=contig(destination);
 		if(edge.overlap>0){
-			if(edge.sourceTrim+edge.overlap>=source.length() || edge.destTrim+edge.overlap>=target.length()){return false;}
+			if(edge.sourceTrim+edge.overlap>=source.length()
+					|| edge.destTrim+edge.overlap>=target.length()){return false;}
 			final int sourceStart=source.length()-edge.sourceTrim-edge.overlap;
 			for(int i=0; i<edge.overlap; i++){
 				if(orientedBase(source, state, sourceStart+i)!=orientedBase(target, destination, edge.destTrim+i)){return false;}
@@ -243,29 +301,46 @@ final class ContigGraphClassifier {
 		 * novel prefix beyond k. */
 		final int shared=Tools.max(0, k-edge.length);
 		for(int i=0; i<shared; i++){
-			if(orientedBase(source, state, source.length()-shared+i)!=orientedBase(target, destination, i)){return false;}
+			if(orientedBase(source, state, source.length()-shared+i)
+					!=orientedBase(target, destination, i)){return false;}
 		}
 		return true;
 	}
 
+	/** Returns the outgoing edge list for one oriented contig side. */
 	private ArrayList<Edge> outEdges(final int state){
 		final Contig c=contig(state);
 		return reverse(state) ? c.leftEdges : c.rightEdges;
 	}
 
+	/** Returns the contig containing one oriented side. */
 	private Contig contig(final int state){return contigs.get(state>>>1);}
-	private static boolean reverse(final int state){return (state&1)!=0;}
-	private static int destinationState(final Edge edge){return (edge.destination<<1)|(edge.destRight() ? 1 : 0);}
 
+	/** Returns whether a state represents a left-side traversal. */
+	private static boolean reverse(final int state){return (state&1)!=0;}
+
+	/** Returns the state reached at an edge destination. */
+	private static int destinationState(final Edge edge){
+		return (edge.destination<<1)|(edge.destRight() ? 1 : 0);
+	}
+
+	/** Returns one edge payload base in traversal orientation. */
 	private static byte orientedNovelBase(final Edge edge, final int state, final int pos){
 		return edge.traversalBase(pos);
 	}
 
+	/** Returns one contig base in traversal orientation. */
 	private static byte orientedBase(final Contig c, final int state, final int pos){
-		return reverse(state) ? AminoAcid.baseToComplementExtended[c.bases[c.length()-1-pos]] : c.bases[pos];
+		return reverse(state) ? AminoAcid.baseToComplementExtended[c.bases[c.length()-1-pos]]
+				: c.bases[pos];
 	}
 
-	static final class Result {
+	/**
+	 * Accumulates counts and bases by graph, length and depth class while
+	 * retaining classified Contig references by topology.
+	 */
+	static final class Result{
+		/** Allocates empty summary buckets and retains the depth thresholds for this pass. */
 		@SuppressWarnings("unchecked")
 		Result(final float lowDepthCutoff_, final float mediumDepthCutoff_, final float highDepthCutoff_){
 			lowDepthCutoff=lowDepthCutoff_;
@@ -275,6 +350,7 @@ final class ContigGraphClassifier {
 			for(int i=0; i<topology.length; i++){topology[i]=new ArrayList<Contig>();}
 		}
 
+		/** Adds one already-classified contig to all summary dimensions. */
 		void add(final Contig c){
 			topology[c.graphClass].add(c);
 			topologyBases[c.graphClass]+=c.length();
@@ -287,16 +363,26 @@ final class ContigGraphClassifier {
 			maxHop[c.graphClass]=Tools.max(maxHop[c.graphClass], c.graphClassHop);
 		}
 
+		/** Contigs grouped by topological class. */
 		final ArrayList<Contig>[] topology;
+		/** Base totals grouped by topological class. */
 		final long[] topologyBases=new long[8];
+		/** Contig counts and bases grouped by length class. */
 		final long[] lengthCount=new long[2], lengthBases=new long[2];
+		/** Contig counts and bases grouped by depth class. */
 		final long[] depthCount=new long[4], depthBases=new long[4];
+		/** Joint count and base totals for length, depth and topology classes. */
 		final long[][][] combinationCount=new long[2][4][8], combinationBases=new long[2][4][8];
+		/** Maximum long-anchor hop distance observed for each topological class. */
 		final int[] maxHop=new int[8];
+		/** Thresholds used when assigning graph-depth classes. */
 		final float lowDepthCutoff, mediumDepthCutoff, highDepthCutoff;
 	}
 
+	/** Contigs indexed by consecutive contig id. */
 	private final ArrayList<Contig> contigs;
+	/** Minimum contig length considered a long anchor, and active graph k. */
 	private final int minContig, k;
+	/** Cutoffs separating low, semilow, medium and high graph-depth classes. */
 	private final float lowDepthCutoff, mediumDepthCutoff, highDepthCutoff;
 }

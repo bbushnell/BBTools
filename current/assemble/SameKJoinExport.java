@@ -10,37 +10,51 @@ import structures.ByteBuilder;
 /**
  * Optional diagnostic feature and virtual-control output. Truth never enters
  * this writer. Control identities are a separate namespace and file schema.
+ * One serial producer owns the reused row/vector scratch and closes the exporter.
+ * Borrowed population moments must remain stable so header metadata and later
+ * feature rows describe the same population. Output files are independent streams.
  * @author Fischl
  */
-final class SameKJoinExport implements AutoCloseable {
+public final class SameKJoinExport implements AutoCloseable{
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Paths must already be validated against every input and other output. */
+	/** Paths must already be validated against every input and other output.
+	 * Opens/starts the feature writer and optional control-context writer, then emits
+	 * headers immediately. A failed control-writer constructor closes the unstarted
+	 * feature writer. Startup/header failures attempt closure of both constructed
+	 * writers, preserving the original exception with cleanup failures suppressed.
+	 * Backend failures inside a writer's own constructor remain its responsibility. */
 	SameKJoinExport(final String features, final String controls, final int k_, final int context_,
 			final SameKJoinFeatures.Moments moments_){
 		if(features==null || k_<2 || context_<1 || moments_==null){throw new IllegalArgumentException("Feature export requires explicit schema and moments.");}
 		k=k_; context=context_; moments=moments_;
 		featureWriter=new ByteStreamWriter(features, false, false, false);
-		controlWriter=controls==null ? null : new ByteStreamWriter(controls, false, false, false);
-		featureWriter.start();
-		if(controlWriter!=null){controlWriter.start(); controlWriter.print(CONTROL_HEADER+"\n");}
-		row.append("#schema=").append(SameKJoinFeatures.VERSION).append(" unique=").append(moments.unique);
-		row.append(" observations=").append(Double.toString(moments.observations));
-		row.append(" squares=").append(Double.toString(moments.squares));
-		featureWriter.print(row.nl());
-		row.clear().append("kind\tevent");
-		for(int i=0; i<SameKJoinFeatures.INPUTS; i++){row.tab().append('f').append(i);}
-		featureWriter.print(row.nl());
+		try{
+			controlWriter=controls==null ? null : new ByteStreamWriter(controls, false, false, false);
+		}catch(RuntimeException|Error failure){
+			//Both workers are still NEW; ordinary poisonAndWait would wait for startup.
+			try{
+				if(featureWriter.closeBeforeStart()){
+					failure.addSuppressed(new IllegalStateException("Feature output cleanup failed: "+features));
+				}
+			}catch(RuntimeException|Error cleanup){
+				if(cleanup!=failure){failure.addSuppressed(cleanup);}
+			}
+			throw failure;
+		}
+		startAndWriteHeaders(featureWriter, controlWriter, moments, row);
 	}
 
 	/*--------------------------------------------------------------*/
 	/*----------------           Methods            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Uses original float coverage, not the rounded six-place raw diagnostic text. */
+	/** Uses original float coverage, not the rounded six-place raw diagnostic text.
+	 * Consumes borrowed oriented neighborhoods synchronously; does not retain them.
+	 * The caller supplies the consecutive one-based candidate event identity. */
 	void candidate(final long event, final Contig source, final boolean sr, final Contig dest,
 			final boolean dr, final int[] sourceCounts, final int[] destCounts){
 		if(source.length()<k+2 || dest.length()<k+2){
@@ -54,7 +68,10 @@ final class SameKJoinExport implements AutoCloseable {
 		writeVector("candidate", event);
 	}
 
-	/** Samples and exports contexts without creating Contig objects or assuming positive truth. */
+	/** Samples and exports contexts without creating Contig objects or assuming positive truth.
+	 * Invoke once after candidate rows when producing input for SameKJoinModelGate:
+	 * each invocation restarts control IDs at one and appends a terminal metadata row.
+	 * This method does not close the streams; close remains the producer's responsibility. */
 	SameKAcceptedControls.Result controls(final ArrayList<Contig> contigs, final TadpoleGraph.Counts counts,
 			final int requested, final long seed){
 		if(controlWriter==null){throw new IllegalStateException("Control output was not requested.");}
@@ -92,7 +109,7 @@ final class SameKJoinExport implements AutoCloseable {
 		featureWriter.print(row.nl());
 	}
 
-	/** Flushes every started writer, including when a producer or another writer failed. */
+	/** Signals completion and waits for both writers, reporting accumulated I/O error flags. */
 	@Override
 	public void close(){
 		boolean failed=featureWriter.poisonAndWait();
@@ -105,11 +122,52 @@ final class SameKJoinExport implements AutoCloseable {
 	/*--------------------------------------------------------------*/
 
 	/**
+	 * Starts the constructor-owned, newly opened writers and emits their original
+	 * headers using the exporter's scratch row. The control writer may be null.
+	 * On unchecked failure, closes NEW writers directly and poisons/joins started
+	 * workers, then rethrows the original failure. Partial files are not removed.
+	 * Exposed within the package for deterministic lifecycle injection.
+	 */
+	static void startAndWriteHeaders(final ByteStreamWriter featureWriter, final ByteStreamWriter controlWriter,
+			final SameKJoinFeatures.Moments moments, final ByteBuilder row){
+		try{
+			featureWriter.start();
+			if(controlWriter!=null){controlWriter.start(); controlWriter.print(CONTROL_HEADER+"\n");}
+			row.append("#schema=").append(SameKJoinFeatures.VERSION).append(" unique=").append(moments.unique);
+			row.append(" observations=").append(Double.toString(moments.observations));
+			row.append(" squares=").append(Double.toString(moments.squares));
+			featureWriter.print(row.nl());
+			row.clear().append("kind\tevent");
+			for(int i=0; i<SameKJoinFeatures.INPUTS; i++){row.tab().append('f').append(i);}
+			featureWriter.print(row.nl());
+		}catch(RuntimeException|Error failure){
+			try{closeAfterStartupFailure(featureWriter, failure);}
+			finally{closeAfterStartupFailure(controlWriter, failure);}
+			throw failure;
+		}
+	}
+
+	/** Attempts one owned writer's cleanup, retaining its error on the original failure.
+	 * Actual state matters: start() may throw after launching its worker. NEW writers
+	 * must not receive poisonAndWait, which waits for a startup that never occurred. */
+	private static void closeAfterStartupFailure(final ByteStreamWriter writer, final Throwable failure){
+		if(writer==null){return;}
+		try{
+			final boolean failed=writer.getState()==Thread.State.NEW ? writer.closeBeforeStart() : writer.poisonAndWait();
+			if(failed){failure.addSuppressed(new IllegalStateException("Exporter startup cleanup failed: "+writer.fname));}
+		}catch(RuntimeException|Error cleanup){
+			if(cleanup!=failure){failure.addSuppressed(cleanup);}
+		}
+	}
+
+	/**
 	 * Nine decimals preserve reachable normalized counts/lengths without exponent
 	 * notation or temporary field Strings. Check the actual roundtrip, never silently
 	 * round a future out-of-domain feature. Positive native counts/means are >=1.
+	 * Appends one tab before each of exactly27 values to caller-owned output; leaves
+	 * values unchanged. Rejection can leave a partially appended row in out.
 	 */
-	static void appendVector(final ByteBuilder out, final float[] values){
+	public static void appendVector(final ByteBuilder out, final float[] values){
 		if(values.length!=SameKJoinFeatures.INPUTS){throw new IllegalArgumentException("Wrong feature vector width.");}
 		for(float value : values){
 			if(!Float.isFinite(value) || value<0){throw new IllegalArgumentException("Invalid normalized feature.");}
@@ -126,10 +184,16 @@ final class SameKJoinExport implements AutoCloseable {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Owned feature stream and optional control-context stream; the latter may be null. */
 	private final ByteStreamWriter featureWriter, controlWriter;
+	/** Word length and extra retained context per side, in bases. */
 	private final int k, context;
+	/** Borrowed stable table population, used for both metadata and normalized features. */
 	private final SameKJoinFeatures.Moments moments;
+	/** Serial producer's reusable textual output scratch. */
 	private final ByteBuilder row=new ByteBuilder();
+	/** Reused normalized candidate/control feature vector. */
 	private final float[] vector=new float[SameKJoinFeatures.INPUTS];
-	static final String CONTROL_HEADER="event\tk\tunitig\tcut\tsource_len\tdest_len\tsource_word\tdest_word\tleft_context\tright_context";
+	/** Fixed control-context columns; candidate/control feature rows use a separate schema. */
+	public static final String CONTROL_HEADER="event\tk\tunitig\tcut\tsource_len\tdest_len\tsource_word\tdest_word\tleft_context\tright_context";
 }

@@ -18,11 +18,19 @@ import ukmer.Kmer;
 
 /**
  * Opt-in single-K assembly with learned joining of retained raw unitigs.
- * Replaces ordinary post-contig graph cleanup, not the conservative contig walk.
+ * Standalone execution replaces ordinary post-contig graph cleanup. The combined
+ * entry point can additionally install a separate live-walk model; the ordinary
+ * postpass leaves native walk decisions unchanged.
  * Features and inference borrow the original table; no read reload or truth input.
+ * Standalone execution owns one assembler through raw assembly, scoring, joining and
+ * final output. The borrowed form leaves table lifetime and output filtering to its caller.
+ * Borrowed callers install it as a raw-contig transform before their ordinary cleanup.
+ * Scoring is serial and reuses model/vector scratch; instances are not safe for concurrent use.
+ * Model support is an inclusive cutoff decision, followed by reciprocal unique-partner
+ * selection. Supported candidates are not necessarily joins in the final products.
  * @author Fischl
  */
-final class SameKJoinRescue {
+final class SameKJoinRescue{
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Static Methods        ----------------*/
@@ -35,10 +43,18 @@ final class SameKJoinRescue {
 		return false;
 	}
 
-	/** Enters through tadpole.sh; the ordinary constructor still owns native options. */
+	/** Constructs and runs one standalone postpass, including its native-option validation and output. */
 	static void run(final String[] args){new SameKJoinRescue(args).process();}
 
-	/** Development-only composition; the ordinary tadpole.sh binding remains unchanged. */
+	/**
+	 * Adds a separate live-walk model to the ordinary postpass binding. Checks its input/output
+	 * aliases and readability before installing a gate; the postpass still needs its own model.
+	 * Construction and validation precede the processing cleanup scope.
+	 * The 12-input live gate and 27-input postpass share counts, not model parameters.
+	 * @param args Native options and required ordinary postpass model/cutoff/output
+	 * @param liveModel Additional 12-input live-branch model path
+	 * @param liveCutoff Finite inclusive live-branch score threshold in [0,1]
+	 */
 	static void runCombined(final String[] args, final String liveModel, final float liveCutoff){
 		if(liveModel==null || liveModel.isEmpty() || !Float.isFinite(liveCutoff) || liveCutoff<0 || liveCutoff>1){
 			throw new IllegalArgumentException("Combined rescue requires a live model and explicit cutoff in[0,1].");
@@ -65,7 +81,14 @@ final class SameKJoinRescue {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Prepended defaults permit explicit overrides, which validation then checks. */
+	/**
+	 * Constructs the standalone 27-feature postpass. Prepended raw-unitig defaults permit
+	 * explicit overrides, which effective-setting checks then constrain. Requires one FASTA
+	 * output, a model and a finite cutoff; optional scores records candidate decisions.
+	 * Read correction/extension, multi-K and supplied-graph modes are excluded. This path
+	 * honors native overwrite but rejects append and input/output aliases before model loading.
+	 * @param args Expanded native and contigrescue options
+	 */
 	private SameKJoinRescue(final String[] args){
 		final ArrayList<String> nativeArgs=new ArrayList<String>(Arrays.asList(
 				"mode=contig", "processcontigs=f", "pop=f", "sweeplen=0",
@@ -136,7 +159,15 @@ final class SameKJoinRescue {
 	/*----------------           Methods            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Borrows an already constructed assembler; never loads reads or owns its table. */
+	/**
+	 * Borrows an already constructed assembler without loading reads or owning its table.
+	 * Does not repeat standalone path/mode validation. The caller must keep native state and
+	 * the loaded counts stable through mergeLoaded, then own final filtering and cleanup.
+	 * Disables per-model batched SIMD but leaves process-wide SIMD/FMA settings to the caller.
+	 * @param tad_ Assembler retaining the original count table
+	 * @param model_ Required 27-input, one-output model path
+	 * @param cutoff_ Finite inclusive support threshold in [0,1]
+	 */
 	SameKJoinRescue(final Tadpole tad_, final String model_, final float cutoff_){
 		if(tad_==null || model_==null || !Float.isFinite(cutoff_) || cutoff_<0 || cutoff_>1){
 			throw new IllegalArgumentException("Borrowed postpass requires a table owner, model and cutoff in[0,1].");
@@ -149,7 +180,17 @@ final class SameKJoinRescue {
 		net.simdFF=false;
 	}
 
-	/** Scores before ordinary cleanup and returns every product, including short contigs. */
+	/**
+	 * Scores and joins loaded raw unitigs without writing or applying the final length filter.
+	 * Recomputes product depths, clears generated names and canonicalizes orientation while
+	 * preserving the corresponding physical graph-limit flags. Borrowed table lifetime remains
+	 * with the caller; failure can leave already visited products updated.
+	 * The merger allocates products, so coverage/name/orientation updates here affect those
+	 * products rather than the supplied unitigs. Every product is refreshed, even if short.
+	 * @param contigs Raw unitigs whose list indices identify their physical endpoints
+	 * @param moments Stable population moments from the same loaded count table
+	 * @return Every joined or unjoined product, including short contigs
+	 */
 	ArrayList<Contig> mergeLoaded(final ArrayList<Contig> contigs, final SameKJoinFeatures.Moments moments){
 		assert(output==null && scores==null && contigs!=null && moments!=null) :
 				"Borrowed postpass has no writer; its caller owns final filtering and table lifetime.";
@@ -179,7 +220,15 @@ final class SameKJoinRescue {
 	/** Keeps the table live through scoring and metadata, clearing it even after failure. */
 	private void process(){process(null);}
 
-	/** Runs both decisions against one table, sharing immutable moments when a live gate exists. */
+	/**
+	 * Runs raw assembly and postpass decisions against one table. A supplied live gate shares
+	 * its population moments with the postpass. Clears the installed gate and table in finally;
+	 * output and score files may be partial on failure. Optional assembly statistics run afterward.
+	 * Reported output counts all products; emitted counts only those passing mincontig.
+	 * Success/timing messages precede table cleanup. Total time excludes construction,
+	 * final cleanup and optional statistics; a live gate's lazy scan may occur during build.
+	 * @param liveGate Optional gate used only during the native walk; null for ordinary postpass
+	 */
 	private void process(final LiveBranchGate liveGate){
 		assert(tad!=null && net!=null) : "Validate the complete binding before loading reads or opening outputs.";
 		final long start=System.nanoTime();
@@ -219,7 +268,16 @@ final class SameKJoinRescue {
 		}
 	}
 
-	/** Scores all physical candidates before selecting reciprocal unique partners. */
+	/**
+	 * Scores each physical candidate serially before reciprocal unique-partner selection.
+	 * The optional trace records raw score bits, a printable score and cutoff support; its
+	 * accepted column does not certify a final join. Rejects nonfinite/out-of-range model output.
+	 * Candidate unitigs need at least K+2 bases for inward-base feature queries. The collector
+	 * retains same-contig proposals; support counts include them, but mate selection rejects them.
+	 * @param contigs Stable raw unitigs used by the candidate collector
+	 * @param moments Population normalizers from the original loaded table
+	 * @return Supported endpoint degrees and partners, from which mates are selected
+	 */
 	private SameKJoinMerge.Choices score(final ArrayList<Contig> contigs, final SameKJoinFeatures.Moments moments){
 		assert(contigs!=null) : "Native contig mode must finish before endpoint enumeration.";
 		final SameKJoinMerge.Choices choices=new SameKJoinMerge.Choices(contigs.size());
@@ -229,6 +287,8 @@ final class SameKJoinRescue {
 		final TadpoleGraph.Counts counts=new TadpoleGraph.Counts(){
 			@Override public int count(final Kmer word){return tad.bridgeCount(word);}
 		};
+		//TODO: Probable bug - trace startup/header failure occurs before its
+		//cleanup try, leaving the opened writer outside the failure cleanup path.
 		if(trace!=null){trace.start(); trace.print("event\tk\tscore_bits\tscore\taccepted\n");}
 		try{
 			candidates=new SameKJoinCollector(contigs, counts, k).collect(new SameKJoinCollector.Sink(){
@@ -258,7 +318,13 @@ final class SameKJoinRescue {
 		return choices;
 	}
 
-	/** Applies final mincontig only now; depths are recomputed from the borrowed table. */
+	/**
+	 * Applies mincontig at final emission and recomputes depths from the retained count table.
+	 * Headers report depth/length, not native endpoint classifications. Returned count includes
+	 * only emitted products; a write failure can leave a partial FASTA.
+	 * @param contigs All merged/unmerged products before final length filtering
+	 * @return Number of products emitted after the length filter and successful writer close
+	 */
 	private int writeContigs(final ArrayList<Contig> contigs){
 		assert(tad.minContigLen>0) : "Only the final emission stage applies mincontig to rescued paths.";
 		final Kmer word=new Kmer(k);
@@ -288,10 +354,16 @@ final class SameKJoinRescue {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Retained assembler; processing owns cleanup only in standalone execution. */
 	private final Tadpole tad;
+	/** Mutable inference scratch used serially; per-network batched SIMD is disabled. */
 	private final CellNet net;
+	/** Fixed word length shared by unitigs, count table and feature encoding. */
 	private final int k;
+	/** Model and optional output/score destinations; outputs stay null in borrowed mode. */
 	private String model, output, scores;
+	/** Inclusive candidate-support threshold; NaN is the unset constructor sentinel. */
 	private float cutoff=Float.NaN;
+	/** Physical candidate count from the most recent completed collector pass. */
 	private long candidates;
 }

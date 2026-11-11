@@ -19,9 +19,13 @@ import structures.ByteBuilder;
 /**
  * Retains all training candidates and an exact, seeded uniform control subset.
  * Consumes a validated corpus and its row sidecar; never opens held-out tables.
+ * The complete sidecar is checked across all folds, but only training rows consume
+ * feature records. Two passes require stable input bytes and row order. Outputs
+ * retain candidate/control identities and source ordinals; no truth-label balancing
+ * or replacement sampling is performed. Failure can leave an incomplete new directory.
  * @author Fischl
  */
-public final class SameKTrainingSample {
+public final class SameKTrainingSample{
 
 	/** Parses standard config/JVM options and creates a new training-only directory. */
 	public static void main(final String[] args){
@@ -59,14 +63,30 @@ public final class SameKTrainingSample {
 	/*----------------           Methods            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Counts only training controls before streaming a without-replacement sample. */
+	/** Counts only training controls before streaming a without-replacement sample.
+	 * Inputs must stay unchanged across both passes; equal row counts do not prove
+	 * equal feature/provenance bytes. Failed provenance acquisition closes the started
+	 * training writer; cleanup errors are suppressed on the original failure.
+	 * The completion marker follows successful closure. */
 	private void run(){
 		final long[] totals=scan(false, null, null, 0);
 		if(totals[1]>Integer.MAX_VALUE || quota>totals[1]){
 			throw new IllegalArgumentException("Control quota exceeds population or supported integer range: "+quota+" / "+totals[1]);
 		}
 		if(!new File(output).mkdir()){throw new IllegalArgumentException("Output directory must be new: "+output);}
-		final ByteStreamWriter table=open(output+"/train.tsv"), provenance=open(output+"/rows.tsv");
+		final ByteStreamWriter table=open(output+"/train.tsv");
+		final ByteStreamWriter provenance;
+		try{provenance=open(output+"/rows.tsv");}
+		catch(RuntimeException|Error failure){
+			try{
+				if(table.poisonAndWait()){
+					failure.addSuppressed(new IllegalStateException("Training writer cleanup failed: "+output+"/train.tsv"));
+				}
+			}catch(RuntimeException|Error cleanup){
+				if(cleanup!=failure){failure.addSuppressed(cleanup);}
+			}
+			throw failure;
+		}
 		long[] selected;
 		boolean error=false;
 		try{selected=scan(true, table, provenance, (int)totals[1]);}
@@ -82,10 +102,31 @@ public final class SameKTrainingSample {
 		outstream.println(summary);
 	}
 
-	/** Validates row order/targets in both passes; feature bytes and source ordinals are preserved. */
+	/** Validates row order/targets in both passes; feature bytes and source ordinals are preserved.
+	 * Emission keeps every training candidate and exactly quota training controls.
+	 * A failed data-reader acquisition closes the already-open metadata reader;
+	 * cleanup failures are suppressed on the original acquisition failure.
+	 * @param emit Whether to write the selected rows instead of only validating/counting
+	 * @param out Started feature writer when emit is true; otherwise unused
+	 * @param provenance Started selected-row provenance writer when emit is true
+	 * @param controls Counted training-control population for emission; ignored in the first pass
+	 * @return Full training candidate/control population counts, not emitted subset counts
+	 */
 	private long[] scan(final boolean emit, final ByteStreamWriter out, final ByteStreamWriter provenance, final int controls){
 		assert(!emit || (out!=null && provenance!=null && controls>=quota)) : "Sampling requires an available quota and paired outputs.";
-		final ByteFile meta=ByteFile.makeByteFile(rows, true), data=ByteFile.makeByteFile(input, true);
+		final ByteFile meta=ByteFile.makeByteFile(rows, true);
+		final ByteFile data;
+		try{data=ByteFile.makeByteFile(input, true);}
+		catch(RuntimeException|Error failure){
+			try{
+				if(meta.close()){
+					failure.addSuppressed(new IllegalStateException("Metadata reader cleanup failed: "+rows));
+				}
+			}catch(RuntimeException|Error cleanup){
+				if(cleanup!=failure){failure.addSuppressed(cleanup);}
+			}
+			throw failure;
+		}
 		final LineParser1 mp=new LineParser1('\t'), dp=new LineParser1('\t');
 		final ByteBuilder buffer=new ByteBuilder();
 		final long[] counts=new long[2], ordinals=new long[3];
@@ -164,8 +205,12 @@ public final class SameKTrainingSample {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Borrowed pre-parser report stream; main owns its final close. */
 	private final PrintStream outstream;
+	/** Training feature input, full-fold provenance input and new output directory. */
 	private String input, rows, output;
+	/** Exact number of training controls to retain; the initial sentinel requires an explicit value. */
 	private int quota=-1;
+	/** Required nonnegative random seed; reproducibility also requires unchanged input order. */
 	private long seed=-1;
 }

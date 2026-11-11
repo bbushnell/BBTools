@@ -8,7 +8,7 @@ import ukmer.KmerTableSetU;
  * This qualifies a separately established contradiction; it never creates a veto.
  * Counts are immutable, and neither the saved query nor its seed is added here.
  * @author Brian Bushnell, Fischl */
-public final class ShortKmerPathSupport {
+public final class ShortKmerPathSupport{
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
@@ -127,7 +127,8 @@ public final class ShortKmerPathSupport {
 	/*--------------------------------------------------------------*/
 
 	/** Immutable count source; implementations must not retain or mutate scratch keys. */
-	public interface CountLookup {
+	public interface CountLookup{
+		/** Returns a nonnegative count for {@code key}, or zero when the word is absent. */
 		int count(Kmer key);
 	}
 
@@ -135,10 +136,16 @@ public final class ShortKmerPathSupport {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Immutable short-word count source. */
 	private final CountLookup lookup;
+	/** Long context size and exact short kmer size. */
 	private final int contextSpan, supportK;
+	/** Ring marking whether each contained short word has count zero or one. */
 	private final boolean[] weak;
+	/** Active rolling context word and scratch candidate successor word. */
 	private final Kmer word, neighbor;
+	/** Number of weak ring slots, next replacement slot and last candidate count. */
 	private int lowWindows, cursor, lastChosen=-1;
+	/** Whether the ring reflects a valid reset context. */
 	private boolean ready;
 }

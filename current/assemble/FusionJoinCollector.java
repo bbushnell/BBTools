@@ -11,11 +11,18 @@ import structures.ByteBuilder;
  * Opt-in streaming census of reciprocal fusion proposals before safety vetoes.
  * Counts are borrowed from exactly one phase table; reference truth is deferred
  * until after assembly. No selection or merging policy depends on these outputs.
+ * The caller serializes phase, record and close calls; mutable scratch is not thread-safe.
+ * Count tables must remain valid and stable until endPhase releases the reference.
+ * Sidecars are written separately, so an exception can leave incomplete event records.
  * @author Fischl
  */
-final class FusionJoinCollector implements AutoCloseable {
+final class FusionJoinCollector implements AutoCloseable{
 
-	/** Opens new sidecars only after checking every input/output physical alias. */
+	/**
+	 * Opens four new sidecars after checking supplied input/output aliases. On initialization
+	 * failure, attempts to close assigned writers and preserves that failure with any close
+	 * failure suppressed. No reference truth or count table is loaded by this constructor.
+	 */
 	FusionJoinCollector(final String prefix, final ArrayList<String> inputs,
 			final String assembly, final String gfa){
 		assert(prefix!=null && assembly!=null) : "Corpus output needs an explicit prefix and assembly path.";
@@ -42,7 +49,11 @@ final class FusionJoinCollector implements AutoCloseable {
 		}
 	}
 
-	/** Binds the current phase's provider; the preceding provider must be released. */
+	/**
+	 * Borrows the current phase provider and records phase metadata. Caller must end the prior
+	 * phase first and must not reuse a closed collector. graphCounts is recorded provenance;
+	 * the provider supplies the actual lookup behavior.
+	 */
 	void beginPhase(final int k_, final int maxOverlap, final boolean graphCounts, final TadpoleGraph.Counts counts){
 		assert(measurer==null && counts!=null) : "End the previous phase before borrowing another count table.";
 		assert(maxOverlap>=k_) : "FusionPass must describe the same overlap range as its overlapper.";
@@ -55,7 +66,13 @@ final class FusionJoinCollector implements AutoCloseable {
 	/** Drops the only borrowed count reference before its owner clears or replaces the table. */
 	void endPhase(){measurer=null;}
 
-	/** Records a frozen candidate without querying truth, modifying contigs or short-circuiting features. */
+	/**
+	 * Records one frozen reciprocal proposal before the caller applies cycle and later safety
+	 * vetoes. Copies bounded oriented contexts with up to 200 retained flank bases per side;
+	 * Join applies trims and checks the exact overlap. No truth is queried and contigs are not
+	 * mutated. Event IDs advance before Join validates trimmed geometry or output begins; a failed call can
+	 * leave a gap or partial sidecars; the event counter alone does not prove completed rows.
+	 */
 	void record(final Contig source, final boolean sr, final int st,
 			final Contig dest, final boolean dr, final int dt, final int overlap){
 		assert(measurer!=null && !closed) : "Feature extraction must be inside an open, live-count phase.";
@@ -88,7 +105,11 @@ final class FusionJoinCollector implements AutoCloseable {
 		return bases;
 	}
 
-	/** Closes every started writer, including failure paths and legitimate zero-candidate assemblies. */
+	/**
+	 * Releases the borrowed phase reference, waits for assigned writers and reports error flags.
+	 * Marks closed before draining; later calls return even if this call reported failure.
+	 * The reported event count can include an attempted record that failed partway through.
+	 */
 	@Override
 	public void close(){
 		if(closed){return;}
@@ -100,7 +121,7 @@ final class FusionJoinCollector implements AutoCloseable {
 		System.err.println("FUSION_VECTOR_OUTPUT_CLOSED rows="+events);
 	}
 
-	/** Proves that rejected cycle proposals are collected without changing the graph. */
+	/** Checks one three-contig cycle for zero added edges and three retained trace pairs, not feature values. */
 	static void selfTest(final String directory){
 		final String prefix=directory+"/cycle";
 		final ArrayList<Contig> contigs=new ArrayList<Contig>();
@@ -132,9 +153,14 @@ final class FusionJoinCollector implements AutoCloseable {
 		System.err.println("FUSION_COLLECTOR_CYCLE_PASS rejected_proposals=3");
 	}
 
+	/** Owned diagnostic, vector, histogram and trace writers, in that order. */
 	private final ByteStreamWriter[] writers=new ByteStreamWriter[4];
+	/** Reused serialization scratch; callers must serialize access. */
 	private final ByteBuilder row=new ByteBuilder();
+	/** Phase-local feature scratch holding the borrowed count provider; null outside a phase. */
 	private FusionJoinDiagnostic measurer;
+	/** Current phase K and cumulative attempted event count across phases. */
 	private int k, events;
+	/** Close was requested; not proof of successful writer completion. */
 	private boolean closed;
 }

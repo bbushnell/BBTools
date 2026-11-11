@@ -6,9 +6,11 @@ package assemble;
  * true. Native accepts bypass inference; only grey-zone junctions need a model.
  * The caller must separately enforce actual-predecessor, seed and ownership
  * guards. No field depends on the partial contig or the thread reaching a node.
+ * Count arrays use raw A/C/G/T indices and must remain stable during a call.
+ * Feature output is caller-owned scratch; callers sharing it must coordinate writes.
  * @author Fischl
  */
-final class LiveBranchPolicy {
+public final class LiveBranchPolicy{
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
@@ -27,8 +29,11 @@ final class LiveBranchPolicy {
 	 * each side. Swapping sides and their flags must leave the result unchanged.
 	 * The initial half-depth competitor screen is experimental, not a default
 	 * change to Tadpole. Equality at the screen boundary remains a hard stop.
+	 * Evidence and parameter validation precede the native-accept shortcut. If neither
+	 * side is flagged, that shortcut does not apply the rescue depth/competitor screen.
+	 * Otherwise both sides are screened, including a side not individually flagged.
 	 */
-	static int level(final int count, final int[] left, final int[] right,
+	public static int level(final int count, final int[] left, final int[] right,
 			final boolean leftBranch, final boolean rightBranch,
 			final int minExtend, final double maxCompetitorFraction){
 		validateCounts(left); validateCounts(right);
@@ -58,8 +63,10 @@ final class LiveBranchPolicy {
 	 * Returns the only permitted preferred base, or -1 for a tie/absent side.
 	 * Sorting features never changes these raw nucleotide identities. Arriving
 	 * through any other predecessor must remain a hidden-branch stop in the caller.
+	 * This only selects a unique positive maximum; it does not enforce minExtend or
+	 * the competitor-fraction screen. The caller retains those separate obligations.
 	 */
-	static int preferredBase(final int[] counts){
+	public static int preferredBase(final int[] counts){
 		validateCounts(counts);
 		int highest=0, best=-1;
 		boolean tied=false;
@@ -75,8 +82,13 @@ final class LiveBranchPolicy {
 	 * The raw arrays are never changed. Side order is chosen AFTER normalization,
 	 * so equal float blocks are identical even if large integer depths round alike.
 	 * This is a new 12-input schema, not the 27-input completed-contig postpass.
+	 * Slots 0 / 1-4 / 5-8 hold node depth and two descending side blocks; the blocks are
+	 * ordered lexicographically ascending. Slot 9 is log2(K)/8; slots 10/11 hold the
+	 * unique-node and observation-weighted mean depths. Every depth uses log2(1+x)/8.
+	 * K must be at least 2; this encoder does not impose the corpus tools' narrower range.
+	 * Nonfinite/negative means throw while filling, so invalid input can leave partial output.
 	 */
-	static void fill(final float[] out, final int k, final int count,
+	public static void fill(final float[] out, final int k, final int count,
 			final int[] left, final int[] right, final double uniqueMean,
 			final double observationMean){
 		validateCounts(left); validateCounts(right);
@@ -128,8 +140,12 @@ final class LiveBranchPolicy {
 	/*----------------           Constants          ----------------*/
 	/*--------------------------------------------------------------*/
 
-	static final int NATIVE_ACCEPT=0, HARD_STOP=1, GREY_ZONE=2;
-	static final int INPUTS=12;
+	/** Node classifications: preserve native acceptance, refuse rescue, or permit model evaluation. */
+	public static final int NATIVE_ACCEPT=0, HARD_STOP=1, GREY_ZONE=2;
+	/** Exact feature-vector width; independent of the completed-contig feature schema. */
+	public static final int INPUTS=12;
+	/** Feature schema identity consumed by live-branch model/trace metadata. */
 	static final String VERSION="livebranch12-v1";
+	/** Converts natural logarithms to base 2 before the fixed 1/8 scaling. */
 	private static final double INV_LOG_2=1/Math.log(2);
 }

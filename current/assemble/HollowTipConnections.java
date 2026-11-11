@@ -10,25 +10,28 @@ import ukmer.HollowAnchorTable;
 
 /**
  * Experimental read-supported connections between assembly-unique tip anchors.
- * Counts literal outer32bp pairs, retaining every partner of an indexed anchor,
- * including partners absent from the assembly. Discovery requires a sole
- * supported partner in both directions and records conflicting end geometries.
- * It does not merge contigs, reconstruct gaps, or change Tadpole defaults.
+ * Counts literal outer 32 bp pairs, retaining every partner of an eligible arm,
+ * including partners absent from the assembly. With slide=0, eligible arms are
+ * globally unique and nonpalindromic; sliding runs keep every indexed candidate
+ * as evidence. Discovery seeds only from unique oriented tip anchors, requires
+ * one supported partner in both directions, and records conflicting end
+ * geometries for the bridge joiner to reject. It does not merge contigs,
+ * reconstruct gaps, or change Tadpole defaults.
  * @author Brian Bushnell, Fischl
  */
-public final class HollowTipConnections {
+public final class HollowTipConnections{
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Builds immutable assembly anchors and an initially empty, single-span evidence table. */
+	/** Uses the full indexed tip interval as the endpoint seed band. */
 	public HollowTipConnections(final ArrayList<Contig> contigs, final int span_,
 			final int tipBases, final int minSupport_){
 		this(contigs, span_, tipBases, minSupport_, 0, tipBases-32, 0);
 	}
 
-	/** Seed distances exclude the32bp arm; sliding evidence extends beyond the seed band. */
+	/** Seed distances exclude the 32 bp arm; sliding evidence extends beyond the seed band. */
 	public HollowTipConnections(final ArrayList<Contig> contigs, final int span_,
 			final int tipBases, final int minSupport_, final int tipMin_, final int tipMax_, final int slide_){
 		if(contigs==null || contigs.size()>Integer.MAX_VALUE/2 || span_<=64 || minSupport_<1){
@@ -55,7 +58,7 @@ public final class HollowTipConnections {
 	/*----------------       Evidence loading       ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Counts one read once; only fully defined spans contribute, even in the masked interior. */
+	/** Counts eligible span occurrences from one read; overlapping windows are not deduplicated. */
 	public void addRead(final byte[] bases){
 		if(discovered){throw new IllegalStateException("Evidence cannot change after connection discovery.");}
 		if(bases==null){throw new IllegalArgumentException("Read bases must not be null.");}
@@ -150,11 +153,22 @@ public final class HollowTipConnections {
 		return result;
 	}
 
+	/** Reads presented to the evidence table, including reads shorter than one span. */
 	public long reads(){return reads;}
+
+	/** Total bases in all reads presented to the evidence table. */
 	public long readBases(){return readBases;}
+
+	/** Complete read-local spans with all bases defined, before tip filtering. */
 	public long windows(){return windows;}
+
+	/** Complete spans retained because at least one arm matched the active tip filter. */
 	public long retainedWindows(){return retainedWindows;}
+
+	/** Distinct canonical arm pairs currently retained in the evidence table. */
 	public int distinctPairs(){return table.size();}
+
+	/** Bytes occupied by the low-level pair table arrays, for sizing diagnostics. */
 	public long pairArrayBytes(){return table.arrayBytes();}
 
 	/** Seed exclusion is not evidence exclusion; terminal/repeated probe words remain countable. */
@@ -164,7 +178,8 @@ public final class HollowTipConnections {
 	 * Audits the strongest deterministic seed, without retrying a different seed
 	 * after failure. Both known contig arms slide together at every integer offset.
 	 * Any supported alternative partner vetoes the join, including unmapped or
-	 * nonunique partners. Missing expected support is reported separately.
+	 * nonunique shifted partners retained only as evidence. Missing expected
+	 * support is reported separately.
 	 */
 	private void checkSliding(final Connection c, final SolePartner outgoing, final SolePartner incoming){
 		assert(slide>0 && table.frozen()) : "Sliding verification consumes the complete immutable read evidence table.";
@@ -221,7 +236,7 @@ public final class HollowTipConnections {
 	/*--------------------------------------------------------------*/
 
 	/** Retained result for one physical end pair and one signed gap/overlap. */
-	public static final class Connection {
+	public static final class Connection{
 
 		private Connection(final int leftEnd_, final int rightEnd_, final long gap_,
 				final int left, final int right, final long first, final long second, final int count){
@@ -245,30 +260,59 @@ public final class HollowTipConnections {
 			}
 		}
 
+		/** Maximum count for one correlated anchor pair supporting this end/gap geometry. */
 		public int support(){return support;}
+
+		/** Number of unique anchor pairs that support this same end/gap geometry. */
 		public int anchorPairs(){return anchorPairs;}
+
+		/** Left-side snapshot anchor chosen for representative support and diagnostics. */
 		public int leftAnchor(){return leftAnchor;}
+
+		/** Right-side snapshot anchor chosen for representative support and diagnostics. */
 		public int rightAnchor(){return rightAnchor;}
+
+		/** Observed outgoing word for the representative left-to-right pair. */
 		public long firstWord(){return firstWord;}
+
+		/** Observed incoming word for the representative left-to-right pair. */
 		public long secondWord(){return secondWord;}
+
+		/** Whether either physical contig end participates in multiple candidate geometries. */
 		public boolean conflicted(){return conflicted;}
+
+		/** Final sliding-window veto reason, with branch vetoes overriding lower-priority offsets. */
 		public String slideReason(){return slideReason;}
+
+		/** Number of defined shifted anchor positions checked during sliding validation. */
 		public int slideChecked(){return slideChecked;}
+
+		/** Minimum pair count across sliding offsets; any undefined offset forces zero. Also zero when sliding is disabled or margins prevent checking. */
 		public int slideMinCount(){return slideMinCount;}
+
+		/** Offset of the retained sliding-window veto, if one was recorded. */
 		public int slideFailureOffset(){return slideFailureOffset;}
 
+		/** Ordered physical end IDs, encoded as 2*contigIndex plus side. */
 		public final int leftEnd, rightEnd;
+		/** Signed span-derived gap; negative values represent sequence overlap. */
 		public final long gap;
+		/** Representative maximum support and its chosen anchor pair. */
 		private int support, anchorPairs, leftAnchor, rightAnchor;
+		/** Observed words for the representative directed pair. */
 		private long firstWord, secondWord;
+		/** True when either endpoint appears in another candidate geometry. */
 		private boolean conflicted;
+		/** Sliding veto reason retained for diagnostics. */
 		private String slideReason;
+		/** Sliding offset counters and the retained failing offset. */
 		private int slideChecked, slideMinCount, slideFailureOffset;
+		/** Collision chain for construction-time grouping by end pair and gap. */
 		private Connection next;
 	}
 
 	/** Reusable callback counts every sufficiently supported partner, including unmapped ones. */
-	private static final class SolePartner implements HollowAnchorTable.PartnerConsumer {
+	private static final class SolePartner implements HollowAnchorTable.PartnerConsumer{
 		SolePartner(final int minimum_){minimum=minimum_;}
 		void reset(){supported=0; count=0; partner=0;}
 		@Override
@@ -278,8 +322,11 @@ public final class HollowTipConnections {
 			partner=partner_;
 			count=count_;
 		}
+		/** Minimum count for a partner to be considered supported. */
 		final int minimum;
+		/** Number of supported partners, capped at two, and the last supported count. */
 		int supported, count;
+		/** Last supported partner observed by the callback. */
 		long partner;
 	}
 
@@ -287,15 +334,25 @@ public final class HollowTipConnections {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Fixed evidence span and minimum per-pair support to retain a partner. */
 	public final int span, minSupport;
+	/** Endpoint seed band, excluding the 32 bp arm, and symmetric sliding radius. */
 	public final int tipMin, tipMax, slide;
+	/** Immutable assembly-tip anchor snapshot used for seed lookup and geometry. */
 	public final HollowTipAnchors anchors;
+	/** Contigs whose oriented endpoints define bridge geometry. */
 	private final ArrayList<Contig> sequences;
+	/** Number of contigs in {@link #sequences}, cached before endpoint encoding. */
 	private final int contigCount;
+	/** Literal outer-arm pair counts retained from reads. */
 	private final HollowAnchorTable table;
+	/** Ring buffer of first-arm words waiting for their second arm. */
 	private final long[] delayedWords;
+	/** Ring buffer of first-arm tip membership at queue time. */
 	private final boolean[] delayedEligible;
+	/** Input and retained-window counters for diagnostics. */
 	private long reads, readBases, windows, retainedWindows;
+	/** Set after the one-time discovery snapshot freezes evidence. */
 	private boolean discovered;
 	private static final Comparator<Connection> ORDER=new Comparator<Connection>(){
 		@Override

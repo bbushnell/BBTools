@@ -12,10 +12,20 @@ import java.util.Random;
 import dna.AminoAcid;
 
 /** Runs isolated Tadpole extension processes with exactly known reference continuations.
+ * <p>
+ * Each child process receives a tiny synthetic FASTA in a private temporary
+ * directory so success cases can compare exact sequences and failure cases can
+ * leave a focused log for diagnosis.
  * @author Brian Bushnell, Fischl */
-public final class HollowExtensionTest {
+public final class HollowExtensionTest{
 
-	/** Accepts the installation path; keeps fixtures and child logs for diagnosis. */
+	/*--------------------------------------------------------------*/
+	/*----------------        Initialization        ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Accepts the installation path; keeps fixtures and child logs for diagnosis.
+	 * @param args one argument naming the BBTools installation path
+	 */
 	public static void main(final String[] args) throws Exception{
 		check(args.length==1, "Specify the BBTools installation.");
 		final HollowExtensionTest test=new HollowExtensionTest(Paths.get(args[0]).toAbsolutePath());
@@ -23,13 +33,22 @@ public final class HollowExtensionTest {
 		System.out.println("HOLLOW_EXTENSION_TEST_PASS checks="+checks+" dir="+test.root);
 	}
 
-	/** Isolated paths prevent one case from consuming another's outputs. */
+	/** Isolated paths prevent one case from consuming another's outputs.
+	 * @param code_ BBTools installation containing the public launcher
+	 * @throws Exception if the temporary fixture directory cannot be created
+	 */
 	private HollowExtensionTest(final Path code_) throws Exception{
 		code=code_;
 		root=Files.createTempDirectory("hollow-extension-");
 	}
 
-	/** Tests middle-error rescue, default-off parity, true branches and invalid modes. */
+	/*--------------------------------------------------------------*/
+	/*----------------            Tests             ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Tests middle-error rescue, default-off parity, true branches and invalid modes.
+	 * @throws Exception if a child process or fixture file fails
+	 */
 	private void run() throws Exception{
 		for(int span : new int[]{96, 124, 128}){
 			final String reference=randomBases(span+40, 42000+span);
@@ -65,7 +84,16 @@ public final class HollowExtensionTest {
 		}
 	}
 
-	/** Executes only normal launchers, with small resources and deterministic output order. */
+	/** Executes only normal launchers, with small resources and deterministic output order.
+	 * @param name unique stem for the output FASTA and combined log
+	 * @param reads input reads fixture
+	 * @param extra evidence reads fixture
+	 * @param span requested k-mer length
+	 * @param success true when Tadpole is expected to accept the options
+	 * @param options additional command-line options for the fixture
+	 * @return output FASTA lines when the child is expected to succeed
+	 * @throws Exception if process execution or output reading fails
+	 */
 	private List<String> runCase(final String name, final Path reads, final Path extra,
 			final int span, final boolean success, final String... options) throws Exception{
 		assert(reads!=null && extra!=null) : "Every comparison uses the same named evidence files.";
@@ -83,7 +111,14 @@ public final class HollowExtensionTest {
 		return Files.readAllLines(output, StandardCharsets.US_ASCII);
 	}
 
-	/** Reads only small fixture FASTAs; preserves sequence order and ignores headers. */
+	/*--------------------------------------------------------------*/
+	/*----------------           Helpers            ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Reads only small fixture FASTAs; preserves sequence order and ignores headers.
+	 * @param lines FASTA lines emitted by a fixture process
+	 * @return ordered sequences with headers removed
+	 */
 	private static List<String> sequences(final List<String> lines){
 		final List<String> result=new ArrayList<String>();
 		StringBuilder sequence=null;
@@ -97,12 +132,21 @@ public final class HollowExtensionTest {
 		return result;
 	}
 
-	/** Creates a fresh fixture; no production reads are modified. */
+	/** Creates a fresh fixture; no production reads are modified.
+	 * @param name file name below this test's temporary root
+	 * @param content ASCII FASTA content
+	 * @return path to the written fixture
+	 * @throws Exception if writing fails
+	 */
 	private Path write(final String name, final String content) throws Exception{
 		return Files.write(root.resolve(name), content.getBytes(StandardCharsets.US_ASCII));
 	}
 
-	/** Uses independently generated DNA, not assembler output, as continuation truth. */
+	/** Uses independently generated DNA, not assembler output, as continuation truth.
+	 * @param length number of bases to generate
+	 * @param seed deterministic PRNG seed
+	 * @return synthetic DNA sequence
+	 */
 	private static String randomBases(final int length, final long seed){
 		final Random random=new Random(seed);
 		final StringBuilder bases=new StringBuilder(length);
@@ -110,20 +154,33 @@ public final class HollowExtensionTest {
 		return bases.toString();
 	}
 
-	/** Converts whole fixtures to the opposite biological orientation. */
+	/** Converts whole fixtures to the opposite biological orientation.
+	 * @param sequence forward sequence
+	 * @return reverse complement sequence
+	 */
 	private static String reverse(final String sequence){
 		final byte[] bases=sequence.getBytes(StandardCharsets.US_ASCII);
 		AminoAcid.reverseComplementBasesInPlace(bases);
 		return new String(bases, StandardCharsets.US_ASCII);
 	}
 
-	/** Fails loudly on any scientific or execution expectation mismatch. */
+	/** Fails loudly on any scientific or execution expectation mismatch.
+	 * @param condition true if the checked expectation held
+	 * @param message assertion detail for failed checks
+	 */
 	private static void check(final boolean condition, final String message){
 		if(!condition){throw new AssertionError(message);}
 		checks++;
 	}
 
+	/*--------------------------------------------------------------*/
+	/*----------------            Fields            ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** BBTools installation and temporary directory retaining fixture outputs/logs. */
 	private final Path code, root;
+	/** Counter used to name expected-failure cases. */
 	private int invalidCases;
+	/** Explicit checks reached before failure or success. */
 	private static int checks;
 }

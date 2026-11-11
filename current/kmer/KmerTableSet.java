@@ -4,6 +4,7 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.BitSet;
+import java.util.Locale;
 import java.util.concurrent.atomic.AtomicLong;
 
 import assemble.Contig;
@@ -103,8 +104,9 @@ public class KmerTableSet extends AbstractKmerTableSet{
 		for(int i=0; i<args.length; i++){
 
 			final String arg=args[i];
-			String[] split=arg.split("=");
-			String a=split[0].toLowerCase();
+			// Preserve '=' inside values; a missing or terminal delimiter still gives b=null.
+			String[] split=Parse.splitOnFirst(arg, '=');
+			String a=split[0].toLowerCase(Locale.ROOT);
 			String b=split.length>1 ? split[1] : null;
 
 			if(Parser.parseCommonStatic(arg, a, b)){

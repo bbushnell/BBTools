@@ -1,18 +1,25 @@
 package assemble;
 
 /**
- * Experimental final-graph veto for implicit paths at outward branch ends.
- * A single completed contig edge does not rule out other unresolved kmer paths.
- * This policy neither alters exact-overlap decisions nor consults another table.
+ * Vetoes ordinary direct implicit joins at unresolved outward branch ends.
+ * BubblePopper bypasses this gate for cross-K merges; explicit-overlap edges
+ * are accepted without counting. An implicit join is rejected if either
+ * consumed endpoint has F_BRANCH or D_BRANCH, even when its path is shorter
+ * than K. TadpoleMulti can install it for final graph simplification;
+ * MultiKBranchRescue can also install it for initial cleanup.
  * @author Fischl
  */
-final class GraphBranchGate {
+public final class GraphBranchGate{
 
 	/*--------------------------------------------------------------*/
 	/*----------------           Methods            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Checks the consumed ends before destination flipping; rejection never mutates graph state. */
+	/**
+	 * Checks consumed ends before the caller flips or merges the destination.
+	 * Only this gate's counters can change; contigs and reciprocal graph edges
+	 * remain untouched by this check.
+	 */
 	boolean accept(final Contig left, final Contig right, final Edge edge, final int k){
 		assert(left!=null && right!=null && edge!=null && k>0 && edge.sourceRight()) :
 				"BubblePopper.expandRightSimple supplies a rightward edge before destination flipping.";
@@ -33,7 +40,7 @@ final class GraphBranchGate {
 		return false;
 	}
 
-	/** Matches the outward-branch states produced by Tadpole.classifyGraphEnd. */
+	/** Returns whether {@code code} names forward branching or branching in both directions. */
 	private static boolean outwardBranch(final int code){
 		assert(code>=0 && code<Tadpole.MAX_CODE) : "Endpoint codes index ShaveObject.codeStrings: "+code;
 		return code==Tadpole.F_BRANCH || code==Tadpole.D_BRANCH;
@@ -43,5 +50,9 @@ final class GraphBranchGate {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	long evaluations, rejected;
+	/** Candidate implicit edges that reached this gate, excluding explicit overlaps. */
+	public long evaluations;
+
+	/** Candidate implicit edges vetoed for consuming an unresolved outward branch. */
+	public long rejected;
 }

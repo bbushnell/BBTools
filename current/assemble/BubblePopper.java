@@ -7,31 +7,33 @@ import shared.Tools;
 import structures.ByteBuilder;
 
 /**
- * Identifies and resolves bubble structures in assembly graphs.
- * Bubbles are short alternative paths between two nodes that represent
- * sequencing errors or minor sequence variants. This class collapses
- * these redundant paths to simplify the assembly graph.
+ * Mutates a Tadpole contig graph by directly merging linear neighbors,
+ * pruning depth-classified error arms and optionally unzipping isolated
+ * two-arm biological bubbles into terminal products.
+ *
+ * The instance retains the live contig list and the destination-edge map
+ * that Tadpole built immediately before the pass.  Merge and retirement
+ * helpers keep both structures synchronized while they rewrite edges.
  *
  * @author Brian Bushnell
  */
-public class BubblePopper {
+public class BubblePopper{
 	
 	/**
-	 * Constructs a BubblePopper for the given assembly graph.
-	 * @param allContigs_ Complete list of contigs in the assembly
-	 * @param destMap_ Mapping from contig IDs to their incoming edges
-	 * @param kbig_ K-mer size used in the assembly
+	 * Uses a live contig graph without an indirect-bubble error classifier.
+	 * Direct unitig merges remain available, but indirect pruning and unzipping
+	 * both require a classifier.
 	 */
-	BubblePopper(ArrayList<Contig> allContigs_, HashMap<Integer, ArrayList<Edge>> destMap_, int kbig_){
+	public BubblePopper(ArrayList<Contig> allContigs_, HashMap<Integer, ArrayList<Edge>> destMap_, int kbig_){
 		this(allContigs_, destMap_, kbig_, null);
 	}
 
 	/**
-	 * Constructs a bubble popper with Tadpole's configured kmer-count error classifier.
-	 * A null classifier disables destructive indirect bubble cleanup while leaving
-	 * lossless direct unitig merging available.
+	 * Retains Tadpole's live graph containers and optional kmer-count classifier.
+	 * A null classifier disables indirect cleanup before error pruning or
+	 * true-bubble unzipping, while direct merges remain available.
 	 */
-	BubblePopper(ArrayList<Contig> allContigs_, HashMap<Integer, ArrayList<Edge>> destMap_, int kbig_,
+	public BubblePopper(ArrayList<Contig> allContigs_, HashMap<Integer, ArrayList<Edge>> destMap_, int kbig_,
 			ErrorClassifier errorClassifier_){
 		allContigs=allContigs_;
 		destMap=destMap_;
@@ -41,14 +43,13 @@ public class BubblePopper {
 	}
 	
 	/**
-	 * Expands a contig by finding and merging compatible adjacent paths.
-	 * Attempts both direct merging of simple paths and indirect bubble popping.
-	 * Processes the contig in both directions by flipping when needed.
+	 * Runs rightward simplification, then flips the same live contig and repeats
+	 * against its original left side when that side can still change.
 	 *
-	 * @param c The contig to expand from
-	 * @return Number of expansions performed
+	 * @param c live contig to simplify in place
+	 * @return number of accepted direct merges, error-arm prunes or true-bubble unzips
 	 */
-	int expand(Contig c) {
+	public int expand(Contig c){
 		assert(!validateGraph || validate(c));
 //		if(true) {return 0;}
 		if(verbose){System.err.println("\n\n*expand: "+c.name()+"\n");}
@@ -69,7 +70,7 @@ public class BubblePopper {
 			final int countBeforeFlip=count;
 			center.flip(destMap.get(center.id));
 			while(popDirect && expandRightSimple()){count++;}
-			while((popIndirect || unzipBubbles) && center.rightForwardBranch() && expandRight()) {
+			while((popIndirect || unzipBubbles) && center.rightForwardBranch() && expandRight()){
 				count++;
 				while(popDirect && expandRightSimple()){count++;}
 			}
@@ -81,11 +82,10 @@ public class BubblePopper {
 	}
 	
 	/**
-	 * Removes dead-end branches from both sides of a contig.
-	 * Only operates when the debranch flag is enabled.
-	 * @param c The contig to debranch
+	 * Removes short terminal branches on both sides during Tadpole's final
+	 * optional debranching pass.
 	 */
-	void debranch(Contig c){
+	public void debranch(Contig c){
 		assert(debranch);
 		debranchRight(c);
 		debranchLeft(c);
@@ -156,15 +156,11 @@ public class BubblePopper {
 	}
 	
 	/**
-	 * Removes dead-end branches from the specified outbound edge set.
-	 * Identifies dead ends, optionally keeps the longest branch if all are dead,
-	 * and truncates the selected branches.
-	 *
-	 * @param source The source contig
-	 * @param outbound The outbound edges to evaluate
+	 * Truncates dead outbound arms from one edge list, keeping the highest
+	 * length-times-coverage arm or arms if every arm is terminal.
 	 */
 	private void debranch(Contig source, ArrayList<Edge> outbound){
-		if(outbound==null || outbound.size()<2) {return;}
+		if(outbound==null || outbound.size()<2){return;}
 		int deadEnds=0;
 		int longest=0;
 		int deepest=0;
@@ -202,13 +198,8 @@ public class BubblePopper {
 	}
 	
 	/**
-	 * Removes an edge connection between two contigs.
-	 * Updates both the source and destination contig edge lists
-	 * and the global destination mapping.
-	 *
-	 * @param e The edge to remove
-	 * @param from The source contig
-	 * @param to The destination contig
+	 * Deletes one bidirectional edge and removes its inbound-map entry.
+	 * The supplied orientation is still the original orientation stored on e.
 	 */
 	void truncate(Edge e, Contig from, Contig to){
 		branchesRemoved++;
@@ -219,7 +210,7 @@ public class BubblePopper {
 				from.removeLeftEdge(to.id, e.destRight());
 			}
 			ArrayList<Edge> inbound=destMap.get(to.id);
-			inbound=Contig.removeEdge(to.id, e.destRight(), inbound);
+			inbound=removeInboundEdge(inbound, from.id, e.sourceRight(), to.id, e.destRight());
 			if(inbound==null){destMap.remove(to.id);}
 		}
 		{
@@ -229,18 +220,30 @@ public class BubblePopper {
 				to.removeLeftEdge(from.id, e.sourceRight());
 			}
 			ArrayList<Edge> inbound=destMap.get(from.id);
-			inbound=Contig.removeEdge(from.id, e.sourceRight(), inbound);
+			inbound=removeInboundEdge(inbound, to.id, e.destRight(), from.id, e.sourceRight());
 			if(inbound==null){destMap.remove(from.id);}
 		}
 	}
+
+	/** Removes all inbound entries matching an exact directed endpoint pair. */
+	private static ArrayList<Edge> removeInboundEdge(ArrayList<Edge> inbound, int origin,
+			boolean sourceRight, int destination, boolean destRight){
+		if(inbound==null){return null;}
+		for(int i=inbound.size()-1; i>=0; i--){
+			Edge e=inbound.get(i);
+			assert(e!=null) : "Destination-map inbound lists must stay dense after graph edits.";
+			if(e.origin==origin && e.sourceRight()==sourceRight && e.destination==destination
+					&& e.destRight()==destRight){
+				inbound.remove(i);
+			}
+		}
+		return inbound.isEmpty() ? null : inbound;
+	}
 	
 	/**
-	 * Attempts to expand the center contig rightward through a simple path.
-	 * A simple path has exactly one outbound edge leading to a node with
-	 * at most one return edge to the center. Validates connectivity patterns
-	 * before merging.
-	 *
-	 * @return true if expansion was successful
+	 * Attempts one rightward direct merge from {@link #center}.
+	 * Cross-K passes require a reciprocal single edge and optional support checks;
+	 * final same-K cleanup can also consult serial coverage, overlap and branch gates.
 	 */
 	private boolean expandRightSimple(){
 		assert(!validateGraph || validate(center));
@@ -281,7 +284,7 @@ public class BubblePopper {
 		if(crossKMerge && (outboundRight==null || outboundRight.size()!=1 || outboundRight.get(0).destination!=center.id)){
 			crossKRejectedReciprocal++;
 			return false;
-		}else if(outboundRight==null) {
+		}else if(outboundRight==null){
 			//do nothing
 		}else if(outboundRight.size()>1){
 			return false;
@@ -367,12 +370,7 @@ public class BubblePopper {
 		System.err.println(row);
 	}
 	
-	/**
-	 * Counts incoming edges to a contig from a specific side.
-	 * @param id The contig ID to check
-	 * @param destRight Whether to count edges incoming to the right side
-	 * @return Number of matching incoming edges
-	 */
+	/** Counts inbound map entries that target one side of a contig. */
 	private int countInbound(int id, boolean destRight){
 		int count=0;
 		ArrayList<Edge> inbound=destMap.get(id);
@@ -385,12 +383,7 @@ public class BubblePopper {
 		return count;
 	}
 
-	/**
-	 * Gets incoming edges to a contig from a specific side.
-	 * @param id The contig ID to check
-	 * @param destRight Whether to get edges incoming to the right side
-	 * @return List of matching incoming edges, or null if none found
-	 */
+	/** Copies inbound map entries that target one side, or returns null when none match. */
 	private ArrayList<Edge> getInbound(int id, boolean destRight){
 		ArrayList<Edge> inbound=destMap.get(id);
 		if(inbound==null){return null;}
@@ -404,12 +397,9 @@ public class BubblePopper {
 	}
 	
 	/**
-	 * Attempts to expand the center contig rightward through bubble resolution.
-	 * Identifies bubble structures with multiple intermediate nodes that
-	 * converge to a mutual destination. Validates bubble topology and
-	 * performs the bubble popping operation.
-	 *
-	 * @return true if bubble was successfully popped
+	 * Classifies a rightward two-or-more-arm bubble and either prunes error arms,
+	 * collapses an all-error bubble through the representative arm, or leaves an
+	 * isolated comparable-depth bubble for {@link #unzipTrueBubble}.
 	 */
 	private boolean expandRight(){
 		assert(!validateGraph || validate(center));
@@ -534,7 +524,7 @@ public class BubblePopper {
 		
 	}
 
-	/** Restores orientation after a declined candidate, in reverse mutation order. */
+	/** Restores orientation after a declined unzip candidate, in reverse mutation order. */
 	private void restoreOrientation(ArrayList<Contig> flippedMids, boolean destFlipped){
 		if(!unzipBubbles){return;}
 		if(destFlipped){dest.flip(destMap.get(dest.id));}
@@ -583,7 +573,7 @@ public class BubblePopper {
 				&& errorClassifier.isError(representativeExit.depth, alternateExit.depth);
 	}
 
-	/** Detaches only error-classified arms, retaining comparable-depth biological alternatives. */
+	/** Marks only error-classified middle arms associate, retaining comparable-depth alternatives. */
 	private boolean pruneErrorMids(ArrayList<Contig> errorMids){
 		assert(!errorMids.isEmpty());
 		for(Contig c : errorMids){
@@ -738,7 +728,8 @@ public class BubblePopper {
 			int pathLength, float leftFraction, float rightFraction){
 		final double sum=left.coverage*(left.length()-kbig+1)*leftFraction
 				+mid.coverage*(mid.length()-kbig+1)+right.coverage*(right.length()-kbig+1)*rightFraction
-				+entry.depth*Tools.max(0, entry.length-1)+exit.depth*Tools.max(0, exit.length-1);
+				+(long)entry.depth*Tools.max(0, entry.length-1)
+				+(long)exit.depth*Tools.max(0, exit.length-1);
 		return (float)(sum/(pathLength-kbig+1));
 	}
 
@@ -758,17 +749,9 @@ public class BubblePopper {
 	}
 	
 	/**
-	 * Pops a bubble by merging the left and right nodes through the best path.
-	 * Concatenates sequence data, redirects edges, marks intermediate nodes
-	 * as used, and updates coverage statistics.
-	 *
-	 * @param left The left (source) contig
-	 * @param right The right (destination) contig
-	 * @param mid The representative middle contig
-	 * @param leftMidEdge Edge from left to middle
-	 * @param rightMidEdge Edge from middle to right
-	 * @param midNodes All intermediate nodes in the bubble
-	 * @return true if pop operation completed successfully
+	 * Collapses every middle arm by appending the representative path to left,
+	 * redirecting right's far-end edges to left, retiring right and marking the
+	 * nonrepresentative arms associate.
 	 */
 	private boolean pop(Contig left, Contig right, Contig mid, Edge leftMidEdge, Edge rightMidEdge, ArrayList<Contig> midNodes){
 		assert(!validateGraph || validate(left));
@@ -791,6 +774,7 @@ public class BubblePopper {
 		if(rightMidEdge.bases!=null){bb.append(rightMidEdge.bases);}
 		for(int i=kbig; i<right.bases.length; i++){bb.append(right.bases[i]);}
 		left.bases=bb.toBytes();
+		left.gc=left.hh=left.caga=-1;
 		
 		//Cleanup
 		left.rightEdges.clear();
@@ -828,14 +812,14 @@ public class BubblePopper {
 		left.rightFusionEndpoint=right.rightFusionEndpoint;
 		final double coverageSum;
 		if(crossKMerge){
-			coverageSum=left.coverage*originalLeftLength+right.coverage*right.length();
-			left.coverage=(float)(coverageSum/(originalLeftLength+right.length()));
+			left.coverage=retainedSpanCoverage(originalLeftLength, right.length(),
+					left.coverage, right.coverage);
 		}else{
 			coverageSum=left.coverage*(originalLeftLength-kbig+1)
 					+mid.coverage*(mid.length()-kbig+1)
 					+right.coverage*(right.length()-kbig+1)
-					+leftMidEdge.depth*Tools.max(0, leftMidEdge.length-1)
-					+rightMidEdge.depth*Tools.max(0, rightMidEdge.length-1);
+					+(long)leftMidEdge.depth*Tools.max(0, leftMidEdge.length-1)
+					+(long)rightMidEdge.depth*Tools.max(0, rightMidEdge.length-1);
 			left.coverage=(float)(coverageSum/(left.length()-kbig+1));
 		}
 		
@@ -865,13 +849,8 @@ public class BubblePopper {
 	}
 	
 	/**
-	 * Redirects incoming edges from one contig to another.
-	 * Updates the destination mapping to point edges from the source
-	 * contig to the target contig for the specified orientation.
-	 *
-	 * @param from Source contig ID
-	 * @param to Target contig ID
-	 * @param destRight Whether to redirect edges to the right side
+	 * Moves inbound edges for one destination side from a soon-retired contig to
+	 * the survivor's inbound list, and removes the stale map slot.
 	 */
 	private void redirectEdges(final int from, final int to, final boolean destRight){
 		if(from==to){return;}
@@ -893,22 +872,13 @@ public class BubblePopper {
 		else{destMap.put(to, inboundTo);}
 	}
 	
-	/**
-	 * Removes edges pointing to used or associated contigs.
-	 * Cleans up both left and right edge lists.
-	 * @param c The contig to clean
-	 */
+	/** Removes outbound edges that still point at retired used/associate contigs. */
 	void removeDeadEdges(Contig c){
 		c.leftEdges=removeDeadEdges(c.leftEdges);
 		c.rightEdges=removeDeadEdges(c.rightEdges);
 	}
 	
-	/**
-	 * Removes edges pointing to used or associated contigs from an edge list.
-	 * Nullifies dead edges and condenses the list to remove gaps.
-	 * @param edges The edge list to clean
-	 * @return The cleaned edge list, or null if all edges were removed
-	 */
+	/** Nulls retired destinations in one outbound list and returns a condensed live list. */
 	private ArrayList<Edge> removeDeadEdges(ArrayList<Edge> edges){
 		if(edges==null){return null;}
 		int removed=0;
@@ -927,14 +897,8 @@ public class BubblePopper {
 	}
 	
 	/**
-	 * Merges two contigs connected by a direct edge.
-	 * Concatenates sequence data, transfers edges from right to left,
-	 * updates coverage statistics, and marks the right contig as used.
-	 *
-	 * @param left The left (target) contig that will absorb the right contig
-	 * @param right The right (source) contig to be merged
-	 * @param leftEdge The connecting edge between them
-	 * @return true if merge completed successfully
+	 * Appends right onto left across one validated outgoing edge, honoring any
+	 * cross-K trims/overlap, then retires right and redirects its far-end edges.
 	 */
 	private boolean merge(Contig left, Contig right, Edge leftEdge){
 
@@ -957,6 +921,7 @@ public class BubblePopper {
 		}
 		for(int i=leftEdge.destTrim+overlap; i<right.bases.length; i++){bb.append(right.bases[i]);}
 		left.bases=bb.toBytes();
+		left.gc=left.hh=left.caga=-1;
 		
 		//Cleanup
 		left.rightEdges.clear();
@@ -988,11 +953,11 @@ public class BubblePopper {
 		if(crossKMerge){
 			final int retainedLeft=originalLeftLength-leftEdge.sourceTrim;
 			final int retainedRight=right.length()-leftEdge.destTrim;
-			coverageSum=left.coverage*retainedLeft+right.coverage*retainedRight;
-			left.coverage=(float)(coverageSum/(retainedLeft+retainedRight));
+			left.coverage=retainedSpanCoverage(retainedLeft, retainedRight,
+					left.coverage, right.coverage);
 		}else{
 			coverageSum=left.coverage*(originalLeftLength-kbig+1)+right.coverage*(right.length()-kbig+1)
-					+leftEdge.depth*Tools.max(0, leftEdge.length-1);
+					+(long)leftEdge.depth*Tools.max(0, leftEdge.length-1);
 			left.coverage=(float)(coverageSum/(left.length()-kbig+1));
 		}
 		
@@ -1018,6 +983,27 @@ public class BubblePopper {
 	}
 
 	/**
+	 * Returns retained-span weighted coverage for cross-K merges.
+	 * Both retained spans must be positive; explicit cross-K edges are gated on
+	 * overlaps shorter than each retained side, and the untrimmed bubble path
+	 * only passes complete contigs.
+	 *
+	 * The numerator preserves the historical float product/addition order, while
+	 * the denominator widens before addition so two valid retained spans cannot
+	 * overflow the int sum.
+	 */
+	public static float retainedSpanCoverage(final int retainedLeft, final int retainedRight,
+			final float leftCoverage, final float rightCoverage){
+		if(retainedLeft<=0 || retainedRight<=0){
+			throw new IllegalArgumentException("Retained spans must be positive: "+
+					retainedLeft+", "+retainedRight);
+		}
+		final double coverageSum=leftCoverage*retainedLeft+rightCoverage*retainedRight;
+		final long denominator=(long)retainedLeft+retainedRight;
+		return (float)(coverageSum/denominator);
+	}
+
+	/**
 	 * Logs already-oriented inputs before a direct merge mutates either contig.
 	 * TSV: tag, K, left/right IDs, left/right lengths, edge length, effective overlap,
 	 * left/right trims, depth, orientation, left-window offset, left tail, right head,
@@ -1040,6 +1026,10 @@ public class BubblePopper {
 		System.err.println(row);
 	}
 
+	/**
+	 * Tests whether two contigs match exactly across a proposed trimmed
+	 * overlap before a cross-K direct merge is accepted.
+	 */
 	private static boolean exactOverlap(Contig left, Contig right, int overlap, int sourceTrim, int destTrim){
 		if(overlap<1 || overlap>=left.length()-sourceTrim || overlap>=right.length()-destTrim){return false;}
 		final int start=left.length()-sourceTrim-overlap;
@@ -1049,15 +1039,8 @@ public class BubblePopper {
 		return true;
 	}
 	
-	/**
-	 * Determines if a contig forms a self-loop structure.
-	 * Checks for loop codes or validates that all edges point back to itself
-	 * with correct orientations.
-	 *
-	 * @param c The contig to test
-	 * @return true if the contig is a loop
-	 */
-	boolean isLoop(Contig c){
+	/** Returns true when both ends already report LOOP or the two live edges form one. */
+	public boolean isLoop(Contig c){
 		if(c.leftCode==Tadpole.LOOP && c.rightCode==Tadpole.LOOP){return true;}
 		if(c.leftEdgeCount()!=1 || c.rightEdgeCount()!=1){return false;}
 		for(Edge e : c.leftEdges){
@@ -1074,15 +1057,10 @@ public class BubblePopper {
 	}
 	
 	/**
-	 * Validates the structural integrity of a contig and its edges.
-	 * Performs extensive consistency checks on edge relationships,
-	 * destination mappings, and contig states. Used for debugging
-	 * and ensuring graph correctness.
-	 *
-	 * @param c The contig to validate
-	 * @return true if all validation checks pass
+	 * Assertion-only outbound/inbound index consistency check for one contig in
+	 * the current mutable graph.
 	 */
-	boolean validate(Contig c){
+	public boolean validate(Contig c){
 		assert(c!=null);
 		assert(c.id>=0 && c.id<allContigs.size()) : c.id+", "+allContigs.size();
 		assert(allContigs.get(c.id)==c) : c.id;
@@ -1133,12 +1111,9 @@ public class BubblePopper {
 	}
 	
 	/**
-	 * Selects the best representative edge from a set of outbound edges.
-	 * Prioritizes edges to contigs meeting minimum length requirements,
-	 * then selects based on depth and contig length.
-	 *
-	 * @param edges The edges to choose from
-	 * @return The best representative edge, or null if none suitable
+	 * Prefers a minimum-length-satisfying arm with greatest entry depth as the
+	 * representative path used for destructive error-arm comparisons.  If every
+	 * arm is short, the first edge remains selected and the caller rejects it.
 	 */
 	private Edge findRepresentativeMidEdge(ArrayList<Edge> edges){
 		//TODO: Probable bug - preferring any >=minLen arm can select a long low-depth error arm
@@ -1156,8 +1131,8 @@ public class BubblePopper {
 				if(mid.length()<minLen && c.length()>=minLen){
 					midEdge=e;
 					mid=c;
-				}else if(c.length()>=minLen) {
-					if(e.depth>midEdge.depth || (e.depth==midEdge.depth && c.length()>mid.length())) {
+				}else if(c.length()>=minLen){
+					if(e.depth>midEdge.depth || (e.depth==midEdge.depth && c.length()>mid.length())){
 						midEdge=e;
 						mid=c;
 					}
@@ -1168,12 +1143,8 @@ public class BubblePopper {
 	}
 	
 	/**
-	 * Validates that all intermediate nodes in a bubble have consistent
-	 * connectivity patterns. Ensures all nodes connect to the same
-	 * left and right destinations with no self-loops or external connections.
-	 *
-	 * @param midNodes The intermediate nodes to validate
-	 * @return true if all nodes have consistent connectivity
+	 * Requires every middle node to connect only between the active center and
+	 * destination nodes, with no self-loops or external incoming edges.
 	 */
 	private boolean midNodesConcur(ArrayList<Contig> midNodes){
 		int leftDest=-1;
@@ -1233,13 +1204,8 @@ public class BubblePopper {
 	}
 	
 	/**
-	 * Retrieves all intermediate contigs reachable through outbound edges.
-	 * Optionally flips contigs to ensure consistent orientation.
-	 * Returns null if any duplicate nodes or used nodes are encountered.
-	 *
-	 * @param outbound The edges leading to intermediate nodes
-	 * @param flipAsNeeded Whether to flip nodes for consistent orientation
-	 * @return List of intermediate contigs, or null if invalid structure
+	 * Fetches unique live middle nodes and flips any right-entered node so all
+	 * candidate arms are oriented from center to dest.
 	 */
 	private ArrayList<Contig> fetchMidNodes(ArrayList<Edge> outbound, boolean flipAsNeeded,
 			ArrayList<Contig> flippedMids){
@@ -1261,12 +1227,8 @@ public class BubblePopper {
 	}
 	
 	/**
-	 * Finds the mutual destination that all paths through intermediate nodes
-	 * converge to. Validates that all intermediate nodes have outbound edges
-	 * leading to the same destination with consistent orientation.
-	 *
-	 * @param edges The edges leading to intermediate nodes
-	 * @return The mutual destination contig ID, or negative if none found
+	 * Returns the one destination and orientation found across non-null outbound
+	 * middle-arm lists, using the edge orientation to cache the destination side.
 	 */
 	private int	findMutualDest(ArrayList<Edge> edges){
 		if(verbose){System.err.println("findMutualDest("+edges+")");}
@@ -1400,60 +1362,61 @@ public class BubblePopper {
 //		return (max-min>leeway ? -1 : max);
 //	}
 	
-	/** Complete list of all contigs in the assembly */
+	/** Live graph vertices indexed by current contig id. */
 	final ArrayList<Contig> allContigs;
-	/** Mapping from contig IDs to their incoming edge lists */
+	/** Inbound edge lists keyed by destination id; empty lists must be absent. */
 	final HashMap<Integer, ArrayList<Edge>> destMap;
-	/** K-mer size used in the assembly */
+	/** Kmer length used to interpret ordinary exact overlaps. */
 	final int kbig;
-	/** Minimum contig length for bubble resolution (2*kbig-1) */
+	/** Minimum representative middle-arm length for indirect bubble cleanup. */
 	final int minLen;
 	/** Tadpole's configured kmer-count error classifier; null preserves all indirect alternatives. */
 	final ErrorClassifier errorClassifier;
-	/** Reusable buffer for sequence concatenation operations */
+	/** Reused by merge and unzip path construction. */
 	final ByteBuilder bb=new ByteBuilder();
 	
-	/** Current center contig being processed for expansion */
+	/** Current oriented source contig being simplified. */
 	Contig center=null;
-	/** Current destination contig in bubble resolution */
+	/** Current oriented sink contig during indirect bubble classification. */
 	Contig dest=null;
 	
-	/** ID of the last found mutual destination contig */
+	/** Destination cached by the latest findMutualDest() call. */
 	int lastMutualDest=-1;
-	/** Orientation of the last found mutual destination */
+	/** Orientation bits for the cached mutual destination side. */
 	int lastMutualDestOrientation=-1;
 	
-	/** Counter for successful expansion operations */
+	/** Count of accepted merge, prune and unzip operations. */
 	int expansions=0;
-	/** Counter for contigs merged or absorbed during operations */
+	/** Count of contigs retired or associated into a surviving graph path. */
 	int contigsAbsorbed=0;
 	/** Counter for isolated biological bubbles unzipped into two terminal paths */
 	int trueBubblesUnzipped=0;
-	/** Counter for branches removed during debranching operations */
+	/** Count of bidirectional dead-end edges truncated during debranching. */
 	long branchesRemoved=0;
 
-	/** Whether to print detailed debugging information */
-	static boolean verbose=false;
-	/** Whether direct path merging is enabled */
-	static boolean popDirect=true;
+	/** Enables graph-shape and merge trace logging to stderr. */
+	public static boolean verbose=false;
+	/** Enables direct unitig merges through a single accepted outgoing edge. */
+	public static boolean popDirect=true;
 	/** Whether depth-gated indirect error-bubble cleanup is enabled */
-	static boolean popIndirect=false;
+	public static boolean popIndirect=false;
 	/** Whether isolated two-arm biological bubbles are unzipped into two terminal paths */
-	static boolean unzipBubbles=true;
+	public static boolean unzipBubbles=true;
 	/** Whether direct merges join contigs built at a longer kmer length. */
-	static boolean crossKMerge=false;
+	public static boolean crossKMerge=false;
 	/** Maximum bridge depth divided by the greater flank coverage; nonpositive disables. */
-	static float crossKMaxDepthRatio=3;
+	public static float crossKMaxDepthRatio=3;
 	/** Extra-overlap disagreement budget; negative retains legacy unchecked trimming. */
-	static int crossKMaxMismatches=-1;
+	public static int crossKMaxMismatches=-1;
 	/** Optional serial exact-fusion check; gap bridges never consult this checker. */
-	static FusionKmerSupport crossKSupport;
-	/** Optional serial final-graph policy; TadpoleMulti installs/restores it around final processing only. */
-	static CoverageGate directCoverageGate;
+	public static FusionKmerSupport crossKSupport;
+	/** Optional serial coverage policy installed and restored by the current initial or final cleanup owner. */
+	public static CoverageGate directCoverageGate;
 	/** Experimental final-only overlap-conflict veto; null preserves existing behavior. */
-	static GraphOverlapGate directOverlapGate;
+	public static GraphOverlapGate directOverlapGate;
 	/** Experimental final-only implicit-path branch veto; null preserves existing behavior. */
-	static GraphBranchGate directBranchGate;
+	public static GraphBranchGate directBranchGate;
+	/** Per-simplifier cross-K telemetry; constructing a BubblePopper resets these instance counters. */
 	long crossKMergeEvaluations=0;
 	long crossKMerged=0;
 	long crossKRejectedSourceShape=0;
@@ -1463,17 +1426,18 @@ public class BubblePopper {
 	long crossKRejectedReciprocal=0;
 	long crossKRejectedSourceInbound=0;
 	long crossKRejectedDestInbound=0;
-	long crossKRejectedFlanks=0;
-	/** Whether debranching of dead ends is enabled */
-	static boolean debranch=false;
+	/** Count of cross-K candidates rejected by merge-time trimmed-flank validation. */
+	public long crossKRejectedFlanks=0;
+	/** Enables final short-dead-end edge truncation. */
+	public static boolean debranch=false;
 	/** Whether assertion-enabled runs perform graph consistency checks */
-	static boolean validateGraph=false;
+	public static boolean validateGraph=false;
 
-	/** One final phase's optional direct-merge policy and counters; no per-edge allocation. */
-	static final class CoverageGate {
+	/** One installed direct-merge coverage policy and counters; new instances start at zero. */
+	public static final class CoverageGate{
 
 		/** Creates an enabled gate; a null policy, not a zero-ratio object, represents disabled. */
-		CoverageGate(final float ratio_){
+		public CoverageGate(final float ratio_){
 			validateRatio(ratio_);
 			ratio=ratio_;
 		}
@@ -1500,12 +1464,14 @@ public class BubblePopper {
 			return accepted;
 		}
 
+		/** Maximum permitted high/low coverage ratio; finite and at least one. */
 		final float ratio;
-		long evaluations, rejected;
+		/** Merge pairs evaluated by this gate instance, and the subset rejected for coverage. */
+		public long evaluations, rejected;
 	}
 
 	/** Minimal callback used to share Tadpole's tuned error-count heuristic without duplicating constants. */
-	interface ErrorClassifier {
+	public interface ErrorClassifier{
 		boolean isError(int high, int low);
 	}
 }

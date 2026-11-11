@@ -1637,12 +1637,12 @@ public class Parser{
 	}
 
 	/**
-	 * Determines if an argument is a JVM flag rather than a program parameter.
-	 * Recognizes memory settings, assertion flags, and other JVM options.
+	 * Recognizes supported heap, stack, assertion and out-of-memory launcher tokens.
+	 * Other strings, including null, return false. Does not change parser state.
 	 * @param arg The argument to check
 	 * @return true if the argument is a JVM flag, false otherwise
 	 */
-	static boolean isJavaFlag(String arg){
+	public static boolean isJavaFlag(String arg){
 		if(arg==null){return false;}
 		if(arg.startsWith("-Xmx") || arg.startsWith("-Xms") || arg.startsWith("-Xmn") || arg.startsWith("-Xss") || arg.startsWith("-xmx") || arg.startsWith("-xms") || arg.startsWith("-xmn") || arg.startsWith("-xss")){
 			return arg.length()>4 && Tools.isDigit(arg.charAt(4));

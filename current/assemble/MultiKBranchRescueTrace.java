@@ -6,9 +6,16 @@ package assemble;
  * affect cached header statistics, so compare sequence content rather than headers.
  * @author Fischl
  */
-public final class MultiKBranchRescueTrace {
+public final class MultiKBranchRescueTrace{
 
-	/** Restores the process-wide diagnostic flag even when argument validation fails. */
+	/*--------------------------------------------------------------*/
+	/*----------------             Main             ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/**
+	 * Runs the rescue driver with BubblePopper diagnostics enabled.
+	 * Restores the process-wide flag even when argument validation fails.
+	 */
 	public static void main(final String[] args){
 		assert(args!=null) : "MultiKBranchRescue requires a non-null command-line array.";
 		final boolean previous=BubblePopper.verbose;

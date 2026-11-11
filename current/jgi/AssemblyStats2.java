@@ -73,7 +73,7 @@ public final class AssemblyStats2 {
 
 			if(true){
 				final String arg=args[i];
-				String[] split=arg.split("=");
+				String[] split=Parse.splitOnFirst(arg, '=');
 				String a=split[0].toLowerCase();
 				String b=split.length>1 ? split[1] : null;
 				
@@ -252,6 +252,8 @@ public final class AssemblyStats2 {
 	 * Determines input format (FASTA/FASTQ), processes sequences through appropriate
 	 * counting method, sorts results, and generates formatted output reports.
 	 * Handles both benchmark mode and full statistical analysis modes.
+	 * Leaves any input returned as System.in open; closes other acquired streams.
+	 * Read or close failures abort before printing.
 	 */
 	public void process(){
 		Timer t=new Timer();
@@ -287,23 +289,15 @@ public final class AssemblyStats2 {
 //			assert(ff==null || (!ff.fastq())) : "AssemblyStats only supports fasta files.  To override this message, use the -da flag.";
 		}
 		
-		if(is==null){is=ReadWrite.getInputStream(in, false, true, false);}
-		try {
-			if(benchmark){sum=bench(is);}
-			else{
-				if(fastqMode){
-					counts=countFastq(is, gc);
-				}else{
-					counts=countFasta(is, gc);
-				}
+		try{
+			if(is==null){is=ReadWrite.getInputStream(in, false, true, false);}
+			try(InputStream owned=is==System.in ? null : is){
+				if(benchmark){sum=bench(is);}
+				else if(fastqMode){counts=countFastq(is, gc);}
+				else{counts=countFasta(is, gc);}
 			}
-		} catch (IOException e) {
-			e.printStackTrace();
-		}
-		try {
-			if(is!=System.in){is.close();}
-		} catch (IOException e) {
-			e.printStackTrace();
+		}catch(IOException e){
+			throw new RuntimeException("Error reading or closing assembly input: "+in, e);
 		}
 		
 		if(tlist!=null && tlist.size()>0){Shared.sort(tlist);}

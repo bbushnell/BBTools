@@ -18,7 +18,7 @@ import structures.ByteBuilder;
 /** Reduces a complete matched Hollow suffix panel without dropping adverse genomes.
  * Nonexact suffixes are fixed-coordinate disagreements, not inferred edit counts.
  * @author Brian Bushnell, Fischl */
-public final class HollowPanelSummary {
+public final class HollowPanelSummary{
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
@@ -82,7 +82,9 @@ public final class HollowPanelSummary {
 						for(int g=0; g<2; g++){
 							final String arm=genome+"_"+SETTINGS[s]+"_"+GEOMETRIES[g]+CAPS[c];
 							values[g]=readSummary(root+"/runs/"+arm+"/summary.tsv", arm, CAPS[c]);
-							for(int i=0; i<8; i++){sums[s][c][g][i]+=values[g][i];}
+							for(int i=0; i<8; i++){
+								sums[s][c][g][i]=addPooled(sums[s][c][g][i], values[g][i], arm, FIELDS[i]);
+							}
 						}
 						require(values[0][0]==values[1][0], "Matched geometries must contain the same seeds: "+genome);
 						final long delta=nonexact(values[1])-nonexact(values[0]);
@@ -143,8 +145,11 @@ public final class HollowPanelSummary {
 				final String[] paths={lp.parseString(3), lp.parseString(5)};
 				final long[][] values=new long[2][];
 				for(int g=0; g<2; g++){
-					values[g]=readSummary(paths[g]+"/summary.tsv", lp.parseString(2+g*2), cap);
-					for(int i=0; i<8; i++){sums[g][i]+=values[g][i];}
+					final String arm=lp.parseString(2+g*2);
+					values[g]=readSummary(paths[g]+"/summary.tsv", arm, cap);
+					for(int i=0; i<8; i++){
+						sums[g][i]=addPooled(sums[g][i], values[g][i], arm, FIELDS[i]);
+					}
 				}
 				require(values[0][0]==values[1][0], "Paired treatments must contain the same seeds: "+genome);
 				final long delta=nonexact(values[1])-nonexact(values[0]);
@@ -290,6 +295,14 @@ public final class HollowPanelSummary {
 		require(v[3]+v[4]+v[5]==v[1] && v[6]<=v[5] && v[7]>=v[4], "Audit classes do not conserve extended seeds.");
 	}
 
+	/** Throws before pooled output opens; already flushed per-genome rows may remain. */
+	private static long addPooled(final long total, final long value, final String arm, final String field){
+		if(value>Long.MAX_VALUE-total){
+			throw new IllegalArgumentException("Pooled HollowPanelSummary counter exceeds long range: arm="+arm+" field="+field);
+		}
+		return total+value;
+	}
+
 	/** Counts unverified suffixes, including boundary disagreements, without asserting topology. */
 	private static long nonexact(final long[] v){
 		assert(v.length==8 && v[5]>=v[6]) : "Circular-compatible seeds are a subset of boundary seeds.";
@@ -346,8 +359,8 @@ public final class HollowPanelSummary {
 		System.out.println("HOLLOW_PANEL_CASE_TEST_PASS checks=4");
 	}
 
-	/** Retains only a rare adverse row, never per-base objects or the full read corpus. */
-	private static final class AuditRow {
+	/** Retains one adverse row without per-base objects or the full read corpus. */
+	private static final class AuditRow{
 		/** Copies fields that must survive the next native input line. */
 		AuditRow(final LineParser1 lp){
 			assert(lp.terms()==9) : "The suffix audit defines nine columns, including its origin-labelled ID.";
@@ -372,8 +385,11 @@ public final class HollowPanelSummary {
 		/** Circular-compatible rows are retained as boundary evidence, not counted as nonexact. */
 		boolean nonexact(){return linear+wrapped>0;}
 
+		/** Extension length, domain counts and first zero-based disagreement offset (-1 for none). */
 		final int added, linear, beyond, wrapped, first;
+		/** Existing audit class, kept verbatim after validation. */
 		final String classification;
+		/** Retained suffix bytes from observed output and coordinate truth. */
 		final byte[] observed, truth;
 	}
 
@@ -382,14 +398,17 @@ public final class HollowPanelSummary {
 		if(!condition){throw new IllegalArgumentException(message);}
 	}
 
-	/** Owns a non-daemon report writer, including exceptional exit. */
-	private static final class Report implements AutoCloseable {
+	/** Wraps one successfully started report writer for normal and exceptional cleanup. */
+	private static final class Report implements AutoCloseable{
+		/** Opens and starts the owned asynchronous writer for a fresh panel report. */
 		Report(final String path){
 			writer=new ByteStreamWriter(path, false, false, true);
 			writer.start();
 		}
+		/** Waits for the writer thread and promotes any buffered-output failure. */
 		@Override
 		public void close(){require(!writer.poisonAndWait(), "Panel report write failed.");}
+		/** Owned output thread; poisonAndWait flushes and joins it. */
 		final ByteStreamWriter writer;
 	}
 
@@ -397,23 +416,38 @@ public final class HollowPanelSummary {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Manifest input, per-genome output, pooled output, fixed audit root and optional case report. */
 	private String input, output, pooled, root, cases;
+	/** Required complete panel size. */
 	private int expectedGenomes=100;
+	/** Runs in-process partition checks instead of reading audit files. */
 	private boolean test=false;
+	/** Reads explicit baseline/treatment directories instead of deriving fixed panel arms. */
 	private boolean pairManifest=false;
+	/** PreParser-selected diagnostic stream; closed by main after process returns or throws. */
 	private final PrintStream log;
+	/** Per-run retained-case partitions, populated only when case output is requested. */
 	private final long[] caseTotals=new long[4];
+	/** Case labels in caseIndex order. */
 	private static final String[] CASE_LABELS={"both_nonexact", "solid_only_nonexact", "hollow_only_nonexact", "circular_compatible_only"};
+	/** Fixed-panel input settings emitted by the original benchmark layout. */
 	private static final String[] SETTINGS={"control", "readins", "readdel", "readmixed", "seedsub", "seedins", "seeddel"};
+	/** Fixed-panel extension caps. */
 	private static final int[] CAPS={20, 100};
+	/** Fixed-panel geometry arms compared per setting and cap. */
 	private static final String[] GEOMETRIES={"solid", "hollow"};
+	/** Summary counter names read from each arm and emitted for each paired side. */
 	private static final String[] FIELDS={"sequences", "extended", "added_bases", "linear_exact",
 			"internal_disagreement", "boundary", "circular_compatible", "linear_disagreeing_bases"};
+	/** Expected per-arm summary schema. */
 	private static final String SCHEMA="arm\tsequences\textended_sequences\tadded_bases\tlinear_exact\tinternal_disagreement"
 			+"\tboundary_sequences\tcircular_compatible\tlinear_disagreeing_bases";
+	/** Expected adverse suffix-detail schema. */
 	private static final String CASE_SCHEMA="id\tadded\tlinear_disagreements\tbeyond_reference\twrapped_disagreements"
 			+"\tfirst_disagreement_offset\tclassification\tobserved_suffix\tcoordinate_suffix";
+	/** Suffix-detail fields copied into case reports for both compared arms. */
 	private static final String[] CASE_FIELDS={"added", "linear_disagreements", "beyond_reference", "wrapped_disagreements",
 			"first_disagreement_offset", "classification", "observed_suffix", "coordinate_suffix"};
+	/** Explicit paired-manifest schema: one row per genome and two named audit directories. */
 	private static final String PAIR_SCHEMA="genome\tcap\tbaseline_arm\tbaseline_dir\ttreatment_arm\ttreatment_dir";
 }

@@ -8,10 +8,19 @@ import assemble.Contig;
 import assemble.HollowTipAnchors;
 import ukmer.HollowAnchorTable;
 
-/** Assembly-wide uniqueness and oriented endpoint-geometry fixtures.
- * @author Brian Bushnell, Fischl */
-public final class HollowTipAnchorsTest {
+/**
+ * Assembly-wide uniqueness and oriented endpoint-geometry fixtures for
+ * {@link HollowTipAnchors}.
+ *
+ * <p>The scenarios keep contigs in memory and verify physical 32-base arms,
+ * reverse-complement lookup, duplicated-arm rejection, and signed gap geometry
+ * without invoking read mapping or the bridge joiner.</p>
+ *
+ * @author Brian Bushnell, Fischl
+ */
+public final class HollowTipAnchorsTest{
 
+	/** Runs deterministic tip-anchor fixtures; assertions must be enabled. */
 	public static void main(final String[] args){
 		boolean assertions=false;
 		assert(assertions=true);
@@ -26,7 +35,7 @@ public final class HollowTipAnchorsTest {
 	/*----------------           Fixtures           ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Overlapping tip bands count physical positions once and preserve oriented gap geometry. */
+	/** Overlapping tip bands count physical positions once and preserve signed endpoint geometry. */
 	private static void testUniqueGeometry(){
 		final ArrayList<Contig> contigs=new ArrayList<Contig>();
 		contigs.add(new Contig(sequence(400, 113), 91));
@@ -59,7 +68,7 @@ public final class HollowTipAnchorsTest {
 		check(rejected, "An unrelated observed word must not silently choose a strand.");
 	}
 
-	/** An internal copy, including a reverse-complement copy, invalidates a tip candidate. */
+	/** Internal forward or reverse-complement copies invalidate the repeated tip candidate. */
 	private static void testInternalDuplicates(){
 		for(int mode=0; mode<3; mode++){
 			final byte[] first=sequence(400, 221), second=sequence(400, 223);
@@ -78,7 +87,7 @@ public final class HollowTipAnchorsTest {
 		}
 	}
 
-	/** Short/ambiguous words do not enter the index; all-zero words remain valid biological keys. */
+	/** Short and ambiguous words are excluded, while all-zero/all-one biological keys remain valid. */
 	private static void testAmbiguousAndShort(){
 		final ArrayList<Contig> contigs=new ArrayList<Contig>();
 		contigs.add(new Contig(sequence(31, 18)));
@@ -125,14 +134,17 @@ public final class HollowTipAnchorsTest {
 		return word;
 	}
 
+	/** Returns the DNA complement for the four literal fixture bases. */
 	private static byte complement(final byte base){
 		return (byte)(base=='A' ? 'T' : base=='C' ? 'G' : base=='G' ? 'C' : 'A');
 	}
 
+	/** Counts one assertion and fails with scenario-specific context on mismatch. */
 	private static void check(final boolean condition, final String message){
 		checks++;
 		if(!condition){throw new AssertionError(message);}
 	}
 
+	/** Cumulative fixture assertions reached; repeated main() calls do not reset it. */
 	private static int checks;
 }

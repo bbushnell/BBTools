@@ -14,14 +14,32 @@ import ukmer.WalkerU;
  * edge has been selected. Only the normalized model representation is sorted.
  * @author Fischl
  */
-final class SameKJoinFeatures {
+public final class SameKJoinFeatures{
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Static Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Fills a caller-owned vector; reversing the pair exchanges its two blocks. */
-	static void fill(final float[] out, final int k, final int[] source, final int[] dest,
+	/** Fills the caller-owned 27-input vector without changing either raw neighborhood.
+	 * Partner/strand reversal exchanges the endpoint blocks before their lexicographic
+	 * ordering; the final sorted vector is invariant when all oriented inputs agree.
+	 * Each raw neighborhood is current/right-A,C,G,T/left-A,C,G,T. The actual inward
+	 * count comes from that nucleotide-indexed input, independently of sorted output.
+	 * Means are nonnegative finite depths; position counts are positive window counts.
+	 * @param out Exactly 27 writable entries; may be partly overwritten if validation fails
+	 * @param k Word length in bases, at least two
+	 * @param source Source endpoint's nine nucleotide-indexed counts
+	 * @param dest Destination endpoint's nine nucleotide-indexed counts
+	 * @param sourceInwardBase Source's actual inward nucleotide index, zero through three
+	 * @param destInwardBase Destination's actual inward nucleotide index, zero through three
+	 * @param sourceMean Mean depth across the source arm's positions
+	 * @param destMean Mean depth across the destination arm's positions
+	 * @param sourcePositions Number of source arm windows contributing to its mean
+	 * @param destPositions Number of destination arm windows contributing to its mean
+	 * @param uniqueMean Population depth averaged over positive unique keys
+	 * @param observationMean Population depth weighted by count observations
+	 */
+	public static void fill(final float[] out, final int k, final int[] source, final int[] dest,
 			final int sourceInwardBase, final int destInwardBase, final double sourceMean,
 			final double destMean, final long sourcePositions, final long destPositions,
 			final double uniqueMean, final double observationMean){
@@ -75,13 +93,17 @@ final class SameKJoinFeatures {
 		}
 	}
 
-	/** Log1p preserves absence versus singleton evidence without clipping high depth. */
-	static float depth(final double value){
+	/** Encodes a finite nonnegative depth as log2(1+value)/8.
+	 * Preserves absence versus singleton evidence without clipping high depth. */
+	public static float depth(final double value){
 		if(!Double.isFinite(value) || value<0){throw new IllegalArgumentException("Invalid feature depth: "+value);}
 		return (float)(0.125*Math.log1p(value)*INV_LOG_2);
 	}
 
-	/** Queries current/right4/left4 counts with reusable keys; absent neighbors become zero. */
+	/** Queries current/right4/left4 counts in the requested contig orientation.
+	 * Mutates caller-owned keys and out scratch, leaves contig bases unchanged and
+	 * uses the count provider only for lookups. Absent-key sentinels become zero;
+	 * extension slots retain A,C,G,T order. */
 	static void neighborhood(final TadpoleGraph.Counts counts, final Contig contig,
 			final boolean reverse, final int start, final int k, final Kmer key,
 			final Kmer neighbor, final int[] out){
@@ -117,7 +139,7 @@ final class SameKJoinFeatures {
 	 * Positive values are authoritative occupancy (HashArrayU1D.fillHistogram and
 	 * WalkerU1D.next); this is intentionally not applied to the short-key tables.
 	 */
-	static void addLongCounts(final Moments result, final HashArrayU1D table){
+	public static void addLongCounts(final Moments result, final HashArrayU1D table){
 		assert(result!=null && table!=null) : "Moment accumulation requires a live explicit table and its caller-owned result.";
 		for(int count : table.values()){if(count>0){result.add(count);}}
 		for(KmerNodeU node : table.victims().toList()){
@@ -136,8 +158,8 @@ final class SameKJoinFeatures {
 			final WalkerU walker=((Tadpole2)tad).tables.walk();
 			while(walker.next()){if(walker.value()>0){result.add(walker.value());}}
 		}else{throw new IllegalArgumentException("Exact depth moments require a known explicit Tadpole table.");}
-		// HashArray1D.Walker1D can emit -1 empty values after regenerate(); only
-		// positive live counts belong to the population. The long-K walker skips them.
+		// Only positive live counts belong to the population. Keep that filter explicit
+		// on both walker paths, independently of each walker's empty-cell handling.
 		return result;
 	}
 
@@ -146,25 +168,34 @@ final class SameKJoinFeatures {
 	/*--------------------------------------------------------------*/
 
 	/** Exact population, with floating-point sums to avoid integer-square overflow. */
-	static final class Moments {
+	public static final class Moments{
+		/** Public constructor for relocated tests that compare long-K table traversal. */
+		public Moments(){}
 		/** Adds one positive live count, not a depth-histogram bin or observation. */
-		void add(final int count){
+		public void add(final int count){
 			if(count<1){throw new IllegalArgumentException("Depth moments count only live positive entries.");}
 			unique=Math.addExact(unique, 1);
 			observations+=count; squares+=(double)count*count;
 			assert(Double.isFinite(squares)) : "Finite exact-table counts must produce representable double moments.";
 		}
-		double uniqueMean(){return unique==0 ? 0 : observations/unique;}
-		double observationMean(){return observations==0 ? 0 : squares/observations;}
-		long unique;
-		double observations, squares;
+		/** Sum of counts divided by positive-key count; zero for an empty population. */
+		public double uniqueMean(){return unique==0 ? 0 : observations/unique;}
+		/** Sum of squared counts divided by total observations; zero when empty. */
+		public double observationMean(){return observations==0 ? 0 : squares/observations;}
+		/** Number of positive live keys accumulated, with checked integer overflow. */
+		public long unique;
+		/** Count sum and squared-count sum, accumulated as doubles in traversal order. */
+		public double observations, squares;
 	}
 
 	/*--------------------------------------------------------------*/
 	/*----------------           Constants          ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Two 12-column endpoint blocks followed by K and two population means. */
 	static final int INPUTS=27, BLOCK=12;
-	static final String VERSION="samek27-v1";
+	/** Fixed exported/inference schema identity; normalization changes require migration. */
+	public static final String VERSION="samek27-v1";
+	/** Converts natural logarithms to base two before the feature-specific scale. */
 	private static final double INV_LOG_2=1/Math.log(2);
 }

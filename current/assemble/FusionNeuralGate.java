@@ -13,21 +13,29 @@ import structures.ByteBuilder;
  * Optional serial veto for frozen reciprocal fusion proposals. The model sees
  * the same retained context and original-tip entropy as the v2 training corpus.
  * It borrows one phase's counts and never ranks partners or overrides a guard.
+ * Instances reuse mutable network, feature and sequence scratch; all calls are
+ * serial, with stable contigs and counts until scoring completes. Model dimensions
+ * alone do not verify feature ordering, training provenance or calibration.
  * @author Fischl
  */
-final class FusionNeuralGate {
+public final class FusionNeuralGate{
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Loads isolated inference state; the caller must supply its chosen cutoff. */
-	FusionNeuralGate(final String path, final float cutoff_){
+	/** Loads a fresh inference-only network from text; the caller supplies its chosen cutoff. */
+	public FusionNeuralGate(final String path, final float cutoff_){
 		this(CellNetParser.loadInferenceFromLines(ByteFile.toLines(path)), cutoff_);
 	}
 
-	/** Validates the fixed v2 schema without changing legacy global network mode. */
-	FusionNeuralGate(final CellNet net_, final float cutoff_){
+	/**
+	 * Checks the v2 input/output dimensions and finite cutoff in [0,1]. Retains the
+	 * supplied network without copying and enables its per-network simdFF flag;
+	 * callers must not concurrently use or mutate that network's inference scratch.
+	 * This constructor does not change the legacy global network representation mode.
+	 */
+	public FusionNeuralGate(final CellNet net_, final float cutoff_){
 		if(net_==null || net_.numInputs()!=INPUTS || net_.numOutputs()!=1){
 			throw new IllegalArgumentException("Fusion neural gate requires 109 inputs and one output.");
 		}
@@ -43,16 +51,24 @@ final class FusionNeuralGate {
 	/*----------------           Methods            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Attaches the only current table and resets per-phase cost/candidate counters. */
-	void beginPhase(final int k_, final TadpoleGraph.Counts counts){
+	/**
+	 * Borrows a stable count provider at the supplied K and resets per-phase counters.
+	 * The caller must end the previous phase first and keep the table live until
+	 * endPhase; this method neither loads a table nor enforces ownership elsewhere.
+	 */
+	public void beginPhase(final int k_, final TadpoleGraph.Counts counts){
 		assert(measurer==null) : "Detach the previous fusion phase before borrowing another table.";
 		k=k_;
 		measurer=new FusionJoinDiagnostic(k, counts);
 		evaluations=rejected=featureNanos=inferenceNanos=0;
 	}
 
-	/** Drops borrowed counts before the owning table is cleared; never clears a table itself. */
-	void endPhase(){
+	/**
+	 * Reports completed evaluations and drops the borrowed provider; repeated calls
+	 * without a new phase do nothing. The caller clears its table afterward. Network
+	 * and scratch buffers remain reusable, and counters remain readable until beginPhase.
+	 */
+	public void endPhase(){
 		if(measurer==null){return;}
 		System.err.println("Fusion neural: k="+k+", cutoff="+cutoff+", evaluations="+evaluations+
 				", rejected="+rejected+", featureSeconds="+(featureNanos*1e-9)+
@@ -60,7 +76,12 @@ final class FusionNeuralGate {
 		measurer=null;
 	}
 
-	/** Scores an unchanged proposal once, before any contigs in its frozen pass are merged. */
+	/**
+	 * Scores one proposal and accepts at score>=cutoff, including equality. The caller
+	 * supplies a frozen proposal after its other guards; this method does not deduplicate
+	 * calls or apply graph guards. Only completed feature/inference calls enter counters
+	 * and timings; an exception propagates without recording an evaluated candidate.
+	 */
 	boolean accepts(final Contig source, final boolean sr, final int st,
 			final Contig dest, final boolean dr, final int dt, final int overlap){
 		final long start=System.nanoTime();
@@ -75,8 +96,12 @@ final class FusionNeuralGate {
 		return accepted;
 	}
 
-	/** Native inference, including any serialized input normalization. */
-	float score(final float[] inputs){
+	/**
+	 * Runs native inference with configured input normalization, independent of phase
+	 * attachment and candidate counters. Inputs must contain exactly109 finite values;
+	 * CellNet copies them into its mutable scratch. Rejects nonfinite/out-of-range output.
+	 */
+	public float score(final float[] inputs){
 		assert(inputs.length==INPUTS) : "Fusion v2 inference must consume exactly its 109 trained inputs.";
 		for(float input : inputs){
 			if(!Float.isFinite(input)){throw new IllegalArgumentException("Nonfinite fusion network input.");}
@@ -89,11 +114,15 @@ final class FusionNeuralGate {
 	}
 
 	/**
-	 * Returns a borrowed vector. Matches FusionJoinCollector's 200-base retained
-	 * flanks and FusionEntropyCorpus's original, pre-trim terminal100-base tips.
+	 * Returns a borrowed vector overwritten by subsequent feature calls. Matches
+	 * FusionJoinCollector's 200-base retained flanks and FusionEntropyCorpus's
+	 * original, pre-trim terminal100-base tips.
 	 * Nine-decimal quantization reproduces the persisted training input floats.
+	 * Reverse flags select oriented contig views; trims and overlap are base counts in
+	 * those views. Requires a positive exact overlap and at least one retained flanking
+	 * base on each side. Input contigs are read, not changed; scoring/counters are separate.
 	 */
-	float[] features(final Contig source, final boolean sr, final int st,
+	public float[] features(final Contig source, final boolean sr, final int st,
 			final Contig dest, final boolean dr, final int dt, final int overlap){
 		assert(measurer!=null && source!=null && dest!=null) : "Live fusion features need contigs and phase counts.";
 		final int sourceEnd=source.length()-st, destStart=dt+overlap;
@@ -146,14 +175,26 @@ final class FusionNeuralGate {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Retained mutable inference state, owned here or supplied for exclusive serial use. */
 	private final CellNet net;
+	/** Inclusive acceptance threshold. */
 	private final float cutoff;
+	/** Reused original-tip measurement scratch. */
 	private final FusionTipEntropy entropy=new FusionTipEntropy();
+	/** Reused nine-decimal serialization scratch. */
 	private final ByteBuilder decimal=new ByteBuilder(32);
+	/** Borrowed109-value feature result; never returned as a fresh snapshot. */
 	private final float[] vector=new float[INPUTS];
+	/** Product capacity may grow; tip buffers are resized to each exact terminal span. */
 	private byte[] product=new byte[0], sourceTip=new byte[0], destTip=new byte[0];
+	/** Current borrowed count provider and feature scratch, or null outside a phase. */
 	private FusionJoinDiagnostic measurer;
+	/** Count-table K for the current/most recently ended phase. */
 	private int k;
-	long evaluations, rejected, featureNanos, inferenceNanos;
+	/** Completed accepts calls in the current or most recently ended phase. */
+	public long evaluations;
+	/** Phase veto count and accumulated feature/inference time in nanoseconds. */
+	long rejected, featureNanos, inferenceNanos;
+	/**107 core features followed by symmetric original-tip entropy minimum/maximum. */
 	static final int INPUTS=109;
 }

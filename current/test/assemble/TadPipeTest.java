@@ -16,13 +16,18 @@ import stream.Read;
 import stream.ReadInputStream;
 import structures.ListNum;
 /**
- * Deterministic orchestration tests with tiny isolated child processes.
- * These test dataflow and failure contracts, not biological assembly quality.
+ * Deterministic orchestration tests with tiny isolated Bash child processes.
+ * A private fake installation supplies launchers and model placeholders; children
+ * record arguments/PIDs and emit literal FASTA rather than running BBTools tools.
+ * Also checks a real concurrent reader's quota boundary and native empty gzip I/O.
+ * These test dataflow and selected failure contracts, not biological assembly quality,
+ * general concurrency safety or performance. Temporary files are retained for inspection.
  * @author Brian Bushnell, Fischl
  */
-public class TadPipeTest {
+public class TadPipeTest{
 
-	public static void main(String[] args) throws Exception{
+	/** Runs all fixtures, ignoring arguments, and prints the retained scratch path on success. */
+	public static void main(final String[] args) throws Exception{
 		final TadPipeTest test=new TadPipeTest();
 		test.testReadQuota();
 		test.testPlan();
@@ -37,9 +42,11 @@ public class TadPipeTest {
 		System.out.println("TADPIPE_TEST_PASS checks="+test.checks+" scratch="+test.root);
 	}
 
-	/** Reproduces the extra sampling prefetch deterministically, without timing races. */
+	/** Requires quotas of one/three roots without a post-quota hasMore probe.
+	 * Joins the observed producer before close so shutdown cannot hide an extra probe.
+	 * Does not inject a concurrent close or test probabilistic sampling. */
 	private void testReadQuota() throws Exception{
-		for(int quota : new int[] {1,3}){
+		for(int quota : new int[]{1, 3}){
 			final QuotaInput input=new QuotaInput(quota);
 			final ConcurrentGenericReadInputStream cris=new ConcurrentGenericReadInputStream(input, null, quota);
 			cris.start();
@@ -60,32 +67,42 @@ public class TadPipeTest {
 	}
 
 	/** Tiny source whose hasMore call is observable even after the requested quota. */
-	private static final class QuotaInput extends ReadInputStream {
+	private static final class QuotaInput extends ReadInputStream{
+		/** Sets the observation threshold; this source itself can emit ten roots. */
 		QuotaInput(final int quota_){quota=quota_;}
+		/** Records the calling producer and returns up to two single-base unpaired reads. */
 		@Override
 		public ArrayList<Read> nextList(){
 			reader=Thread.currentThread();
 			final ArrayList<Read> reads=new ArrayList<Read>();
 			for(int i=0; i<2 && cursor<10; i++, cursor++){
-				reads.add(new Read(new byte[] {'A'}, null, "probe"+cursor, cursor));
+				reads.add(new Read(new byte[]{'A'}, null, "probe"+cursor, cursor));
 			}
 			return reads.isEmpty() ? null : reads;
 		}
+		/** Counts probes after the threshold without consuming or prefetching any data. */
 		@Override
 		public boolean hasMore(){
 			if(cursor>=quota){postQuotaProbes++;}
 			return cursor<10;
 		}
+		/** No external resources; reports no close error. */
 		@Override
 		public boolean close(){return false;}
+		/** All generated entries are unpaired roots. */
 		@Override
 		public boolean paired(){return false;}
+		/** Diagnostic name only; this source has no backing file. */
 		@Override
 		public String fname(){return "quota-probe";}
+		/** Rejects reuse of this single-use source. */
 		@Override
 		public void restart(){throw new UnsupportedOperationException("Test source is single-use.");}
+		/** Source-emission threshold at which another hasMore call is unexpected. */
 		final int quota;
+		/** Generated source entries and calls observed after reaching the quota. */
 		int cursor, postQuotaProbes;
+		/** Producer captured by nextList, joined before the parent closes the stream. */
 		volatile Thread reader;
 	}
 
@@ -238,7 +255,7 @@ public class TadPipeTest {
 		pipe.work=Files.createDirectory(root.resolve("rem-controls"));
 		final ArrayList<TadPipe.Stage> plan=pipe.plan();
 		check(plan.size()==13, "Three custom REM passes preserve the pipeline shape.");
-		final int[] ks={64,96,64}, limits={20,40,70};
+		final int[] ks={64, 96, 64}, limits={20, 40, 70};
 		final HashSet<String> paths=new HashSet<String>(), names=new HashSet<String>();
 		for(int i=0; i<3; i++){
 			final TadPipe.Stage rem=plan.get(5+i);
@@ -287,7 +304,7 @@ public class TadPipeTest {
 		check(reordered.remKs.length==2, "Schedule validation follows all CLI arguments, not their spelling order.");
 	}
 
-	/** Confirms child isolation, publication, quoting, and successful FASTQ-only cleanup. */
+	/** Confirms distinct child PIDs, publication, quoting and managed-read cleanup. */
 	private void testSuccess() throws Exception{
 		final TadPipe.Config config=config("success.fa", "dedupe_testlabel=a b=$literal",
 				"k=96,124,64,32", "assemblek=96", "assemble_mincontig=750");
@@ -369,7 +386,8 @@ public class TadPipeTest {
 		check(Files.size(empty)>0 && !TadPipe.hasSequence(empty), "Gzip/BGZF header bytes alone cannot count as assembled sequence.");
 	}
 
-	/** Supplies small explicit resources so these tests never launch computational tools. */
+	/** Routes stages to private Bash stubs with small resource arguments and scaffolding off.
+	 * The arguments are inspected by the stubs; no computational tool is started. */
 	private TadPipe.Config config(final String output, final String... more){
 		final ArrayList<String> args=new ArrayList<String>(Arrays.asList("in="+in, "in2="+in2,
 				"out="+root.resolve(output), "bbtools="+tools, "temp="+root, "t=1", "childheap=256m", "scaffold=f"));
@@ -383,6 +401,8 @@ public class TadPipeTest {
 		if(!condition){throw new AssertionError(message);}
 	}
 
+	/** Retained scratch root, fake installation and distinct literal mate-input files. */
 	private final Path root, tools, in, in2;
+	/** Explicit checks completed by this fixture instance, independent of JVM assertions. */
 	private int checks;
 }

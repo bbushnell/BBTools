@@ -11,10 +11,29 @@ import parse.Parser;
 import shared.Tools;
 import structures.ByteBuilder;
 
-/** Reproducibly randomizes depth, error quality and multi-K recipes per genome. @author Fischl */
-final class FusionCorpusPlan {
+/**
+ * Randomizes depth, error quality and multi-K recipes for a fixed ordered manifest.
+ * One seeded random stream supplies all draws; changing row order or membership changes
+ * later assignments. This planner preserves supplied metadata without verifying genome
+ * contents, biological groups or representativeness, and does not simulate reads itself.
+ * @author Fischl
+ */
+final class FusionCorpusPlan{
 
-	/** Reads the verified seven-column reference manifest and appends independent random draws. */
+	/**
+	 * Called by FusionJoinDiagnostic plan mode after PreParser/config processing. Skips blank
+	 * and comment lines, requires seven columns and literal-unique IDs/source paths, and keeps
+	 * each original row intact. Other metadata and the referenced genome files are not validated.
+	 * Depth is drawn from 15–150, quality from 25–35. Sorted schedules contain one K in 24–48,
+	 * one or two distinct Ks in 49–96, and one in 97–127; read seeds are nonnegative longs.
+	 * The exact expected row count is checked after closing the plan, before the distribution
+	 * file is written. A failure can leave a partial plan; the two outputs are not atomic.
+	 * Initialization failures close acquired streams and preserve the original unchecked
+	 * failure, with cleanup failures suppressed; partial output files are not removed.
+	 * Processing cleanup always attempts writer shutdown. An unchecked input-close failure
+	 * retains precedence over processing errors, with writer-cleanup failures suppressed.
+	 * @param args Native input/output options, optional seed and expected row count
+	 */
 	static void run(final String[] args){
 		final Parser parser=new Parser();
 		long seed=350194;
@@ -41,10 +60,19 @@ final class FusionCorpusPlan {
 		final int[] depths=new int[151], qualities=new int[36], lengths=new int[128];
 		final HashSet<String> ids=new HashSet<String>(), paths=new HashSet<String>();
 		final ByteFile input=ByteFile.makeByteFile(parser.in1, true);
-		final ByteStreamWriter output=new ByteStreamWriter(parser.out1, false, false, false);
-		output.start();
-		final LineParser1 fields=new LineParser1('\t');
-		final ByteBuilder row=new ByteBuilder();
+		ByteStreamWriter acquired=null;
+		final LineParser1 fields;
+		final ByteBuilder row;
+		try{
+			acquired=new ByteStreamWriter(parser.out1, false, false, false);
+			acquired.start();
+			fields=new LineParser1('\t');
+			row=new ByteBuilder();
+		}catch(RuntimeException|Error failure){
+			closeAfterInitializationFailure(input, acquired, failure);
+			throw failure;
+		}
+		final ByteStreamWriter output=acquired;
 		int genomes=0;
 		boolean inputError, outputError;
 		try{
@@ -80,7 +108,16 @@ final class FusionCorpusPlan {
 				genomes++;
 			}
 		}finally{
-			inputError=input.close();
+			try{inputError=input.close();}
+			catch(RuntimeException|Error failure){
+				// ASM024: retain input-close precedence while still closing and joining the writer.
+				try{
+					if(output.poisonAndWait()){failure.addSuppressed(new IllegalStateException("Corpus plan output cleanup failed: "+output.fname));}
+				}catch(RuntimeException|Error cleanup){
+					if(cleanup!=failure){failure.addSuppressed(cleanup);}
+				}
+				throw failure;
+			}
 			outputError=output.poisonAndWait();
 		}
 		if(inputError || outputError || genomes!=expected){
@@ -90,7 +127,32 @@ final class FusionCorpusPlan {
 		System.err.println("FUSION_CORPUS_PLAN_PASS genomes="+genomes+" seed="+seed);
 	}
 
-	/** Writes every possible bin, including zeros, so missing range coverage is visible. */
+	/** Closes resources acquired before the processing try; ASM024 output-open failure
+	 * is reproduced by the public planner fixture. Writer cleanup is attempted even
+	 * if input cleanup fails. State distinguishes unstarted ownership from a worker. */
+	private static void closeAfterInitializationFailure(final ByteFile input, final ByteStreamWriter writer, final Throwable failure){
+		assert(input!=null && failure!=null) : "run() calls initialization cleanup only after acquiring input and catching its primary failure.";
+		try{
+			if(input.close()){failure.addSuppressed(new IllegalStateException("Corpus manifest input cleanup failed."));}
+		}catch(RuntimeException|Error cleanup){
+			if(cleanup!=failure){failure.addSuppressed(cleanup);}
+		}finally{
+			if(writer!=null){
+				try{
+					final boolean failed=writer.getState()==Thread.State.NEW ? writer.closeBeforeStart() : writer.poisonAndWait();
+					if(failed){failure.addSuppressed(new IllegalStateException("Corpus plan output cleanup failed: "+writer.fname));}
+				}catch(RuntimeException|Error cleanup){
+					if(cleanup!=failure){failure.addSuppressed(cleanup);}
+				}
+			}
+		}
+	}
+
+	/**
+	 * Writes all bins, including zeros. Depth/quality counts each sum to the number of genomes;
+	 * K counts sum to the number of selected schedule entries, so each genome contributes three
+	 * or four observations there. These are realized draw counts, not expected probabilities.
+	 */
 	private static void writeDistribution(final String path, final int[] depths,
 			final int[] qualities, final int[] lengths){
 		assert(depths.length==151 && qualities.length==36 && lengths.length==128) :

@@ -13,15 +13,21 @@ import assemble.Tadpole2;
 import ukmer.Kmer;
 
 /** Tests Hollow auxiliary assembly routing and full-sequence endpoint identity.
- * Uses existing read fixtures, never generates a new read corpus.
+ * <p>
+ * The endpoint fixture probes masked-arm aliases directly, while routing cases
+ * exercise public Tadpole invocations against existing reads without generating
+ * a new read corpus.
  * @author Fischl */
-public final class HollowAssemblyTest {
+public final class HollowAssemblyTest{
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Takes the installation path and retains small child logs for failed cases. */
+	/** Takes the installation path and retains small child logs for failed cases.
+	 * @param args one argument naming the BBTools installation path
+	 * @throws Exception if fixture execution or output inspection fails
+	 */
 	public static void main(final String[] args) throws Exception{
 		check(args.length==1, "Specify the BBTools installation.");
 		final HollowAssemblyTest test=new HollowAssemblyTest(Paths.get(args[0]).toAbsolutePath());
@@ -30,7 +36,10 @@ public final class HollowAssemblyTest {
 		System.out.println("HOLLOW_ASSEMBLY_TEST_PASS checks="+checks+" dir="+test.root);
 	}
 
-	/** All outputs are isolated from the existing read fixture and the installation. */
+	/** All outputs are isolated from the existing read fixture and the installation.
+	 * @param code_ BBTools installation containing the public launcher
+	 * @throws Exception if the temporary output directory cannot be created
+	 */
 	private HollowAssemblyTest(final Path code_) throws Exception{
 		code=code_;
 		root=Files.createTempDirectory("hollow-assembly-");
@@ -40,7 +49,12 @@ public final class HollowAssemblyTest {
 	/*----------------            Tests             ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Arm matches, including palindromic arms, never substitute for full endpoint sequence. */
+	/** Arm matches, including palindromic arms, never substitute for full endpoint sequence.
+	 * <p>
+	 * The fixture forces identical Hollow arm hashes with different interiors and
+	 * also checks palindromic arms whose reverse complement needs the interior to
+	 * choose the correct side.
+	 */
 	private void endpoints(){
 		Kmer.PACKED=true;
 		for(int k : new int[]{65, 96, 124, 128}){
@@ -73,14 +87,20 @@ public final class HollowAssemblyTest {
 		}
 	}
 
-	/** Loads fixture sequence directly; the test does not use Contig's package-private loaders. */
+	/** Loads fixture sequence directly; the test does not use Contig's package-private loaders.
+	 * @param key scratch key to clear and refill
+	 * @param bases complete fixture sequence
+	 * @param start first base of the k-mer to load
+	 */
 	private static void load(final Kmer key, final byte[] bases, final int start){
 		assert(start>=0 && start+key.kbig<=bases.length) : "Fixture endpoint must contain a full word.";
 		key.clear();
 		for(int i=start; i<start+key.kbig; i++){key.addRight(bases[i]);}
 	}
 
-	/** Exercises single-K, ordered, legacy, fusion evidence, washing, and final graph routing. */
+	/** Exercises single-K, ordered, legacy, fusion evidence, washing, and final graph routing.
+	 * @throws Exception if a launcher process or output check fails
+	 */
 	private void routing() throws Exception{
 		final Path reads=code.resolve("testdata/crossk_long_bridge_x.fa");
 		check(Files.isRegularFile(reads), "Missing existing read fixture.");
@@ -123,7 +143,13 @@ public final class HollowAssemblyTest {
 		check(Files.size(root.resolve("graph.gfa"))>0, "Graph mode did not emit its requested GFA.");
 	}
 
-	/** Runs public launchers only; process exit and output/log assertions are separate checks. */
+	/** Runs public launchers only; process exit and output/log assertions are separate checks.
+	 * @param name unique stem for the output FASTA and combined log
+	 * @param reads existing read fixture
+	 * @param success true when Tadpole is expected to accept the options
+	 * @param options additional command-line options for the fixture
+	 * @throws Exception if process execution or output inspection fails
+	 */
 	private void run(final String name, final Path reads, final boolean success,
 			final String... options) throws Exception{
 		assert(name!=null && reads!=null) : "Each test must have an isolated output and an existing input.";
@@ -146,7 +172,10 @@ public final class HollowAssemblyTest {
 		}
 	}
 
-	/** Fails even if someone accidentally launches the test without assertions. */
+	/** Fails even if someone accidentally launches the test without assertions.
+	 * @param condition true if the checked expectation held
+	 * @param message assertion detail for failed checks
+	 */
 	private static void check(final boolean condition, final String message){
 		if(!condition){throw new AssertionError(message);}
 		checks++;
@@ -156,7 +185,10 @@ public final class HollowAssemblyTest {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** BBTools installation and temporary directory retaining outputs/logs. */
 	private final Path code, root;
+	/** Explicit checks reached before failure or success. */
 	private static int checks;
+	/** Fixed sequence long enough to preserve Hollow arms while mutating interiors. */
 	private static final String SEQUENCE="CATACTCGCCTCGGCATATGTAGCCCGGAATCATCACACTCCTCAGGGAGCTCCTACTAGCTTGGAGCTCATCGCCGTTCACTCGGACTAACTCTGCAGCAAATGACGCCCGACCACGGTCCCAACTGACATCAGCCGCTTTGATGCGAAGCCAATTTCATTCCTCCTCTATCCTAAGCATCGATCTCTCCAACATCTCGACTCTTGGAG";
 }

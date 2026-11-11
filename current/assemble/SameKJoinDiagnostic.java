@@ -21,9 +21,16 @@ import ukmer.Kmer;
  * Development census of same-table contig boundaries. Collection uses raw
  * eligible single-K unitigs and changes no join decisions. Reference labeling
  * is a separate invocation after the read table has been released.
+ * Collection may export raw unitigs, model features and sampled virtual controls.
+ * Labeling consumes saved candidate or control contexts and a separate reference;
+ * unresolved placement stays distinct from a negative label. Each output is an
+ * independent stream, so failure can leave partial diagnostic artifacts.
+ * Candidate IDs and contig indices join these files; neither is a reference coordinate.
+ * The candidate census contains 36 columns; label output contains 17 columns after
+ * its explanatory comment. Feature and control-context files have their own schemas.
  * @author Fischl
  */
-public final class SameKJoinDiagnostic {
+public final class SameKJoinDiagnostic{
 
 	/*--------------------------------------------------------------*/
 	/*----------------             Main             ----------------*/
@@ -73,13 +80,21 @@ public final class SameKJoinDiagnostic {
 	/*----------------           Methods            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Keeps read-depth collection and reference truth in separate process lifetimes. */
+	/** Dispatches one mode; labeling consumes saved files without constructing a read-count table. */
 	private void run(){
 		assert(output!=null) : "Argument validation must precede opening any diagnostic output.";
 		if(task.equals("label")){label();}else{collect();}
 	}
 
-	/** Runs the existing contig walk once, then borrows that same live table. */
+	/**
+	 * Runs the existing raw-unitig walk once, then borrows its table for census and
+	 * optional features/controls before clearing it. Auto control sampling requests
+	 * floor(candidateEvents/9), capped by the eligible internal-cut population.
+	 * Candidate contexts include the K-1 overlap plus up to context extra bases per arm.
+	 * Features use original float coverage, while census/FASTA coverage is rounded text.
+	 * The census success message precedes export close and table cleanup; it is not alone
+	 * evidence that every output closed successfully. Setup/path failures precede the table finally.
+	 */
 	private void collect(){
 		if(reference!=null || circular){throw new IllegalArgumentException("Truth reference/topology belongs only to task=label.");}
 		final ArrayList<String> args=new ArrayList<String>(nativeArgs);
@@ -176,7 +191,15 @@ public final class SameKJoinDiagnostic {
 		}finally{if(writer.poisonAndWait()){throw new RuntimeException("Raw contig output failed.");}}
 	}
 
-	/** Labels bounded pair context and, separately, censuses every occurrence of the endpoint Kmers. */
+	/**
+	 * Labels bounded pair context and separately censuses endpoint Kmer occurrences.
+	 * Accepts either the candidate or control-context schema, with consecutive IDs
+	 * and one K per file. No original-read table is loaded in this invocation.
+	 * Materializes contexts, endpoint words and references before writing labels. Emits
+	 * supported/1, contradicted/0 or unresolved/NA in input order; unknown is never a negative.
+	 * circular applies to every physical reference for endpoint masks, but exact bounded
+	 * pair-context searches do not pad circular origins. Header-only input is allowed.
+	 */
 	private void label(){
 		final Parser parser=new Parser();
 		for(String arg : nativeArgs){
@@ -255,8 +278,14 @@ public final class SameKJoinDiagnostic {
 	/*----------------        Static Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Unique compatible context supports a pair; absent context alone never establishes a false join. */
-	static String pairLabel(final FusionJoinDiagnostic.Join join, final ArrayList<String> refs,
+	/**
+	 * Supports only a uniquely placed whole context with both arms also unique. All other
+	 * circular cases stay unresolved. For linear references, an absent whole context is
+	 * delegated to the bounded arm-geometry rule; absence alone is not a negative label.
+	 * This does not establish repeat-copy identity or correctness of a longer chain.
+	 * @return supported, contradicted or unresolved; never a whole-assembly verdict
+	 */
+	public static String pairLabel(final FusionJoinDiagnostic.Join join, final ArrayList<String> refs,
 			final FusionJoinDiagnostic.Hit whole, final FusionJoinDiagnostic.Hit left,
 			final FusionJoinDiagnostic.Hit right, final boolean circular){
 		assert(join!=null && whole!=null && left!=null && right!=null) : "Pair labels require whole and both arm hit classes.";
@@ -268,7 +297,7 @@ public final class SameKJoinDiagnostic {
 		return "unresolved";
 	}
 
-	/** Raw truth is isolated from the candidate feature file. */
+	/** Appends occurrence/unknown-flank counts and left/right/pair masks to labels, never features. */
 	private static void appendTruth(final ByteBuilder row, final KmerBranchOracle.Result truth){
 		assert(truth!=null) : "Each recorded endpoint must have one reference-census result, even with zero hits.";
 		row.tab().append(truth.occurrences).tab().append(truth.unknownFlanks);
@@ -306,14 +335,22 @@ public final class SameKJoinDiagnostic {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Borrowed pre-parser reporting stream; main owns its final close. */
 	private final PrintStream outstream;
+	/** Remaining count/assembly arguments, or native input arguments in label mode. */
 	private final ArrayList<String> nativeArgs=new ArrayList<String>();
+	/** Selected mode and diagnostic paths; reference is used only by the label invocation. */
 	private String task="collect", output, rawContigs, reference, features, controls;
+	/** Reference topology for endpoint masks and conservative origin-crossing pair labels. */
 	private boolean circular;
+	/** Maximum additional bases retained on each side of the shared K-1 overlap. */
 	private int context=200;
+	/** Requested internal controls; -1 derives the request from candidate count. */
 	private int controlCount=-1;
+	/** Seed for sampling the ordered population of eligible internal unitig cuts. */
 	private long controlSeed=1;
-	static final String HEADER="event\tk\tsource\tsource_end\tdest\tdest_end\tsource_len\tdest_len\tsource_cov\tdest_cov\tsource_code\tdest_code\tsource_word\tdest_word\tsource_junction\tdest_junction"+
+	/** Fixed 36-column census; source/dest are list indices and end flags use left=0/right=1. */
+	public static final String HEADER="event\tk\tsource\tsource_end\tdest\tdest_end\tsource_len\tdest_len\tsource_cov\tdest_cov\tsource_code\tdest_code\tsource_word\tdest_word\tsource_junction\tdest_junction"+
 			"\tsource_depth\tsource_rA\tsource_rC\tsource_rG\tsource_rT\tsource_lA\tsource_lC\tsource_lG\tsource_lT"+
 			"\tdest_depth\tdest_rA\tdest_rC\tdest_rG\tdest_rT\tdest_lA\tdest_lC\tdest_lG\tdest_lT\tleft_context\tright_context";
 }

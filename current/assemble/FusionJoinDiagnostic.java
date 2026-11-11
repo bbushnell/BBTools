@@ -18,6 +18,8 @@ import stream.ReadInputStream;
 import stream.FASTQ;
 import stream.FastaReadInputStream;
 import structures.ByteBuilder;
+import test.assemble.FusionJoinFeaturesTest;
+import test.assemble.FusionNeuralGateTest;
 import ukmer.Kmer;
 import ukmer.KmerTableSetU;
 
@@ -25,11 +27,14 @@ import ukmer.KmerTableSetU;
  * Development-only census of selected fusion windows and local read-depth features.
  * Reference sequence supplies conservative adjacency labels, never depth features.
  * A single exact canonical table serves one query K; no assembly is modified.
+ * Instances reuse mutable key, feature and output scratch; do not share an
+ * instance between concurrent measurements.
  * @author Fischl
  */
-public final class FusionJoinDiagnostic {
+public final class FusionJoinDiagnostic{
 
-	/** Loads one count table, measures all logged pairs, then releases that table. */
+	/** Dispatches explicit development modes, or loads one count table, measures
+	 * logged pairs and releases that table. Always closes the pre-parser's stream. */
 	public static void main(final String[] args){
 		final PreParser pp=new PreParser(args, FusionJoinDiagnostic.class, false);
 		try{
@@ -74,7 +79,9 @@ public final class FusionJoinDiagnostic {
 		final ArrayList<String> tableArgs=new ArrayList<String>();
 		for(String arg : args){
 			final String[] split=arg.split("=", 2);
-			final String a=split[0].toLowerCase(), b=split.length>1 ? split[1] : null;
+			// Option names must recognize OUTHIST even under Turkish default locales.
+			// Values, including case-sensitive output paths, keep their original bytes.
+			final String a=split[0].toLowerCase(java.util.Locale.ROOT), b=split.length>1 ? split[1] : null;
 			if(a.equals("trace")){trace=b;}
 			else if(a.equals("ref")){reference=b;}
 			else if(a.equals("assembly")){assembly=b;}
@@ -117,7 +124,7 @@ public final class FusionJoinDiagnostic {
 	}
 
 	/** Borrows immutable phase counts; this instance never owns, loads or clears a table. */
-	FusionJoinDiagnostic(final int k_, final TadpoleGraph.Counts counts_){
+	public FusionJoinDiagnostic(final int k_, final TadpoleGraph.Counts counts_){
 		assert(k_>0 && counts_!=null) : "Live fusion features require the current phase's count provider.";
 		tables=null;
 		counts=counts_;
@@ -226,8 +233,18 @@ public final class FusionJoinDiagnostic {
 	/**
 	 * Measures a retained window into reusable buffers for both collection and inference.
 	 * The returned vector is borrowed until the next call; a null row skips text output.
+	 * Counts and input bases are borrowed without modification. Region depth prefixes
+	 * are sorted in place for quantiles even when text output is disabled.
+	 * @param bases Oriented, unambiguous retained sequence; unused buffer suffix is ignored
+	 * @param length Populated prefix length in bases, at least the query K
+	 * @param lo Zero-based start of the overlap within that prefix
+	 * @param overlap Positive overlap length; lo+overlap is its exclusive end
+	 * @param sourceTrim Nonnegative discarded source suffix length, used as feature metadata
+	 * @param destTrim Nonnegative discarded destination prefix length, used as feature metadata
+	 * @param row Optional caller-owned builder to append diagnostic fields without a newline
+	 * @return This instance's reusable 107-element vector; copy it to retain the measurement
 	 */
-	float[] measure(final byte[] bases, final int length, final int lo, final int overlap,
+	public float[] measure(final byte[] bases, final int length, final int lo, final int overlap,
 			final int sourceTrim, final int destTrim, final ByteBuilder row){
 		final int n=length-k+1, hi=lo+overlap;
 		assert(n>0 && lo>=0 && hi<=length && length<=bases.length) :
@@ -315,7 +332,8 @@ public final class FusionJoinDiagnostic {
 		return 3;
 	}
 
-	/** Emits sample size plus nearest-rank-on-index quantiles; absence is NA, not zero. */
+	/** Sorts the populated prefix in place, even when row is null. If requested,
+	 * emits sample size and quantiles at floor(q*(n-1)); absence is NA, not zero. */
 	private static void stats(final int[] values, final int n, final ByteBuilder row){
 		Arrays.sort(values, 0, n);
 		if(row==null){return;}
@@ -344,28 +362,51 @@ public final class FusionJoinDiagnostic {
 		return readJoins(path, false);
 	}
 
-	/** Empty traces are legitimate for corpus assemblies without reciprocal candidates. */
+	/** Empty traces are legitimate for corpus assemblies without reciprocal candidates.
+	 * Closes the owned reader on return or rejection; a parsing failure remains primary
+	 * if cleanup also fails. OverlapPair records require eleven fields and a preceding
+	 * positive FusionPass K; parsed pairs receive consecutive one-based event IDs.
+	 * Other record types are ignored. allowEmpty selects whether zero pairs are accepted. */
 	static ArrayList<Join> readJoins(final String path, final boolean allowEmpty){
 		final ArrayList<Join> joins=new ArrayList<Join>();
 		final ByteFile file=ByteFile.makeByteFile(path, true);
-		final LineParser1 parser=new LineParser1('\t');
-		int phase=-1;
-		for(byte[] line=file.nextLine(); line!=null; line=file.nextLine()){
-			parser.set(line);
-			if(parser.termEquals("FusionPass", 0)){phase=parser.parseInt(1);}
-			else if(parser.termEquals("OverlapPair", 0)){
-				if(parser.terms()!=11 || phase<1){throw new IllegalArgumentException("Unrecognized fusion trace record.");}
-				joins.add(new Join(joins.size()+1, phase, parser.parseInt(1), parser.parseInt(2),
-						parser.parseInt(5), parser.parseInt(6), parser.parseInt(7),
-						parser.parseByteArray(9), parser.parseByteArray(10)));
+		Throwable failure=null;
+		try{
+			final LineParser1 parser=new LineParser1('\t');
+			int phase=-1;
+			for(byte[] line=file.nextLine(); line!=null; line=file.nextLine()){
+				parser.set(line);
+				if(parser.termEquals("FusionPass", 0)){phase=parser.parseInt(1);}
+				else if(parser.termEquals("OverlapPair", 0)){
+					if(parser.terms()!=11 || phase<1){throw new IllegalArgumentException("Unrecognized fusion trace record.");}
+					joins.add(new Join(joins.size()+1, phase, parser.parseInt(1), parser.parseInt(2),
+							parser.parseInt(5), parser.parseInt(6), parser.parseInt(7),
+							parser.parseByteArray(9), parser.parseByteArray(10)));
+				}
+			}
+		}catch(RuntimeException|Error original){
+			failure=original;
+			throw original;
+		}finally{
+			try{
+				if(file.close()){throw new IllegalArgumentException("Unreadable/empty fusion trace: "+path);}
+			}catch(RuntimeException|Error cleanup){
+				if(failure==null){throw cleanup;}
+				if(cleanup!=failure){failure.addSuppressed(cleanup);}
 			}
 		}
-		if(file.close() || (!allowEmpty && joins.isEmpty())){throw new IllegalArgumentException("Unreadable/empty fusion trace: "+path);}
+		if(!allowEmpty && joins.isEmpty()){throw new IllegalArgumentException("Unreadable/empty fusion trace: "+path);}
 		return joins;
 	}
 
-	/** Retains both orientations of small truth/assembly sequences, not a second kmer table. */
-	static ArrayList<String> sequences(final String path){
+	/** Loads small truth/assembly sequences, retaining both orientations in input order.
+	 * Temporarily changes process-wide pairing and FASTA splitting flags; callers
+	 * must serialize loading with other users of those flags. An empty input throws.
+	 * @param path Input sequence file read through the FASTA-default loader
+	 * @return A new list containing each record's uppercase forward string followed
+	 * by its uppercase reverse complement; no count table or live reader is retained
+	 */
+	public static ArrayList<String> sequences(final String path){
 		final ArrayList<String> answer=new ArrayList<String>();
 		final boolean force=FASTQ.FORCE_INTERLEAVED, test=FASTQ.TEST_INTERLEAVED;
 		final boolean split=FastaReadInputStream.SPLIT_READS;
@@ -391,8 +432,11 @@ public final class FusionJoinDiagnostic {
 		return answer;
 	}
 
-	/** Counts all overlapping matches on both strands; palindromes conservatively count twice. */
-	static Hit find(final ArrayList<String> sequences, final byte[] query){
+	/** Counts every overlapping match in the supplied strings, retaining the last coordinates.
+	 * The loader supplies both strands; palindromes then conservatively count twice.
+	 * Exact totals use long: for a nonempty query, the product of the maximum int-sized
+	 * list and String lengths fits long. Label-only saturation belongs to the labeler. */
+	public static Hit find(final ArrayList<String> sequences, final byte[] query){
 		assert(query.length>0) : "An empty join arm would match every reference position.";
 		final String word=new String(query, StandardCharsets.US_ASCII);
 		final Hit hit=new Hit();
@@ -502,9 +546,9 @@ public final class FusionJoinDiagnostic {
 	/*--------------------------------------------------------------*/
 
 	/** One selected edge with original trace identity and retained oriented sequences. */
-	static final class Join {
+	public static final class Join{
 		/** Reconstructs precisely the retained source plus the nonoverlapping destination. */
-		Join(final int event_, final int phase_, final int source_, final int dest_, final int overlap_,
+		public Join(final int event_, final int phase_, final int source_, final int dest_, final int overlap_,
 				final int st, final int dt, final byte[] sourceBases, final byte[] destBases){
 			event=event_;
 			phase=phase_;
@@ -524,28 +568,53 @@ public final class FusionJoinDiagnostic {
 			product=Arrays.copyOf(left, left.length+right.length-overlap);
 			System.arraycopy(right, overlap, product, left.length, right.length-overlap);
 		}
+		/** One-based selected-pair ordinal, recorded phase K and trace-local contig IDs;
+		 * overlap and discarded trim lengths are measured in bases. */
 		final int event, phase, source, dest, overlap, sourceTrim, destTrim;
-		final byte[] left, right, product;
+		/** Owned source copy with its discarded terminal suffix removed. */
+		public final byte[] left;
+		/** Owned destination copy with its discarded initial prefix removed. */
+		public final byte[] right;
+		/** Owned reconstructed source plus the nonoverlapping destination suffix. */
+		public final byte[] product;
 	}
 
 	/** A match census; coordinates are used only when exactly one hit exists. */
-	static final class Hit {
-		int count, sequence=-1, pos=-1;
+	public static final class Hit{
+		/** Match results are constructed by the package lookup methods. */
+		Hit(){}
+		/** Exact aggregate for exhaustive lookup; label-only callers may cap at two. */
+		public long count;
+		/** Last matching supplied sequence index, or -1 when absent. */
+		int sequence=-1;
+		/** Zero-based start in that supplied sequence, or -1 when absent. */
+		public int pos=-1;
 	}
 
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Offline inputs and output paths; unused by instances borrowing live phase counts. */
 	private String trace, reference, assembly, out, outVectors, outHist;
+	/** Reusable numeric-vector encoder; its returned array belongs to this instance. */
 	private final FusionJoinFeatures encoder=new FusionJoinFeatures();
+	/** Scratch for vector and histogram records, separate from the caller's diagnostic row. */
 	private final ByteBuilder sidecar=new ByteBuilder();
+	/** Grow-only depth scratch; only each region's populated prefix is meaningful. */
 	private int[][] values=new int[5][0];
+	/** Current populated lengths in REGION_NAMES order, reset for each measurement. */
 	private final int[] sizes=new int[5];
+	/** Owned offline count table, or null when counts are borrowed from a live phase. */
 	private final KmerTableSetU tables;
+	/** Stable count provider for the owned table or borrowed phase; negative counts mean absence. */
 	private final TadpoleGraph.Counts counts;
+	/** Reused rolling-window and one-base-neighbor keys, used serially by this instance. */
 	private final Kmer key, neighbor;
+	/** Exact query word length, independent of the trace's recorded phase K. */
 	private final int k;
+	/** Four disjoint regions plus the extra subset spanning both overlap boundaries. */
 	private static final String[] REGION_NAMES={"left", "overlap", "right", "boundary", "span"};
+	/** Diagnostic order: minimum, lower decile, median, upper decile and maximum. */
 	private static final double[] QUANTILES={0, .1, .5, .9, 1};
 }

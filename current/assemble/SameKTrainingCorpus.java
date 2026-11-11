@@ -21,9 +21,13 @@ import structures.ByteBuilder;
  * Streams same-K features and their separate candidate/control truth namespaces
  * into native trainer tables. Unknown truth is counted, never made negative.
  * Genome folds are supplied by a frozen manifest, never selected from labels.
+ * Manifest order determines row order within each fold. Resolved feature bytes
+ * are copied with a target and separate provenance; unresolved rows remain in
+ * census totals. Inventory hashes/sizes are prior recorded evidence, not freshly
+ * recomputed reference checks. A new output directory may remain partial on failure.
  * @author Fischl
  */
-public final class SameKTrainingCorpus {
+public final class SameKTrainingCorpus{
 
 	/** Runs the converter; success requires a complete marker after every writer closes. */
 	public static void main(final String[] args){
@@ -64,7 +68,8 @@ public final class SameKTrainingCorpus {
 	/*----------------           Methods            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Preflights identities/files, streams each genome once, then closes all outputs. */
+	/** Preflights cohort/inventory identities and source artifacts, streams each genome's
+	 * paired rows, then closes all five main outputs before writing the completion marker. */
 	private void run(){
 		final ArrayList<Sample> samples=readSamples();
 		checkInventory(samples);
@@ -150,7 +155,8 @@ public final class SameKTrainingCorpus {
 		return samples;
 	}
 
-	/** Binds each cohort member to the prior reference check and rejects byte-identical references. */
+	/** Binds cohort members in order to the prior reference inventory, requiring positive
+	 * recorded byte sizes and unique well-formed recorded hashes. Does not open references. */
 	private void checkInventory(final ArrayList<Sample> samples){
 		assert(samples.size()==expected) : "Inventory is compared to the complete frozen cohort in original order.";
 		final ByteFile file=ByteFile.makeByteFile(inventory, true);
@@ -175,7 +181,14 @@ public final class SameKTrainingCorpus {
 		}finally{if(file.close()){throw new IllegalStateException("Inventory read failure.");}}
 	}
 
-	/** Joins all feature/context/truth rows in lockstep with O(1) per-row scratch. */
+	/** Joins all feature/context/truth rows in lockstep with O(1) per-row scratch.
+	 * Candidate and control IDs each start at one; both populations are validated,
+	 * while only resolved targets enter the selected fold and provenance output.
+	 * @param sample Frozen route and expected source metadata for one genome
+	 * @param out Started train/validation/test, provenance and census writers, in that order
+	 * @param emitted Running per-fold output ordinals, updated for each resolved row
+	 * @return Six population totals: supported/contradicted/unresolved candidates, then controls
+	 */
 	private long[] convert(final Sample sample, final ByteStreamWriter[] out, final long[] emitted){
 		assert(sample.fold>=0 && sample.fold<3) : "Frozen genome-level folds route rows; labels never select a fold.";
 		final String dir=root+"/runs/"+sample.id;
@@ -269,7 +282,7 @@ public final class SameKTrainingCorpus {
 	/*----------------        Static Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Opens a fresh output writer; callers always close it even after validation failure. */
+	/** Starts a fresh output writer for caller-managed completion and terminal error checks. */
 	private static ByteStreamWriter open(final String path){
 		if(!Tools.testOutputFiles(false, false, false, path)){throw new IllegalArgumentException("Output exists: "+path);}
 		final ByteStreamWriter writer=new ByteStreamWriter(path, false, false, false);
@@ -307,14 +320,18 @@ public final class SameKTrainingCorpus {
 	/*--------------------------------------------------------------*/
 
 	/** Retains one genome's small routing record, not its feature vectors. */
-	private static final class Sample {
+	private static final class Sample{
 		/** Stores the label-independent route and the expected K/control seed. */
 		Sample(final String id_, final String group_, final int fold_, final int k_, final int depth_, final long seed_){
 			id=id_; group=group_; fold=fold_; k=k_; depth=depth_; seed=seed_;
 		}
+		/** Frozen genome identifier and group used to prevent recorded cross-fold leakage. */
 		final String id, group;
+		/** Fold index, selected word length and planned read depth. */
 		final int fold, k, depth;
+		/** Expected control-sampling seed from the cohort row. */
 		final long seed;
+		/** Recorded reference SHA80, filled by inventory validation before conversion. */
 		String hash;
 	}
 
@@ -322,10 +339,15 @@ public final class SameKTrainingCorpus {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Borrowed pre-parser report stream; main owns final closure. */
 	private final PrintStream outstream;
+	/** Cohort/inventory inputs, collection root and new corpus output directory. */
 	private String input, inventory, root, output;
+	/** Required cohort cardinality; defaults to1000 unless expected= overrides it. */
 	private int expected=1000;
+	/** Routing names in the same order as output writers and emitted-row counters. */
 	private static final String[] FOLDS={"train", "validation", "test"};
+	/** Required per-genome artifacts; the first five are opened together for conversion. */
 	private static final String[] FILES={"features.tsv", "candidates.tsv", "controls.tsv", "labels.tsv", "control_labels.tsv", "complete.txt", "exit_code.txt"};
 	private static final String COHORT_HEADER="#genome\tsource\ttaxid\tgroup\tcontig_length50\tbases\tscaffolds\tdepth\tquality\tk_schedule\tread_seed\tplan_seed\tfold\tk\treads\treference";
 	private static final String LABEL_COMMENT="#pair labels use bounded exact context, not whole-assembly truth; ambiguous placements remain unresolved";

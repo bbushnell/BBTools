@@ -17,7 +17,7 @@ import ukmer.HollowAnchorTable;
  * Read records are not necessarily independent molecules. Cycles are not joined.
  * @author Brian Bushnell, Fischl
  */
-public final class HollowBridgeJoiner {
+public final class HollowBridgeJoiner{
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
@@ -29,14 +29,14 @@ public final class HollowBridgeJoiner {
 		this(contigs_, finder, connections, minimum_, ratio_, 0, 16);
 	}
 
-	/** Optional outer-flank voting reuses the selected-pair pass; zero flank bases preserves old behavior. */
+	/** Optional outer-flank voting reuses the selected-pair pass; zero flank bases disables it. */
 	public HollowBridgeJoiner(final ArrayList<Contig> contigs_, final HollowTipConnections finder,
 			final ArrayList<Connection> connections, final int minimum_, final int ratio_,
 			final int flankBases_, final int flankMin_){
 		this(contigs_, finder, connections, minimum_, ratio_, flankBases_, flankMin_, false);
 	}
 
-	/** Scaffold mode preserves complete contigs and marks each uncertain adjacency with exactly ten Ns. */
+	/** Keeps the discovery snapshot fixed and chooses scaffolding or whole-gap filling for accepted paths. */
 	public HollowBridgeJoiner(final ArrayList<Contig> contigs_, final HollowTipConnections finder,
 			final ArrayList<Connection> connections, final int minimum_, final int ratio_,
 			final int flankBases_, final int flankMin_, final boolean fillGaps_){
@@ -78,7 +78,7 @@ public final class HollowBridgeJoiner {
 	/*----------------      Read verification       ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Streams one complete record, preserving read boundaries and rolling without per-window allocation. */
+	/** Streams one complete read record, deduplicating all votes discovered within that record. */
 	public void addRead(final byte[] bases){
 		if(finished){throw new IllegalStateException("Gap evidence is frozen after joining.");}
 		if(bases==null){throw new IllegalArgumentException("Gap evidence must contain sequence.");}
@@ -99,7 +99,7 @@ public final class HollowBridgeJoiner {
 		}
 	}
 
-	/** Removes duplicate-locus votes, verifies known sequence, and retains only distinct gap strings. */
+	/** Removes duplicate selected-pair votes, verifies flanks, and retains distinct whole-gap strings. */
 	private void observe(final Selector selector, final byte[] bases, final int start){
 		final Evidence e=selector.evidence;
 		assert(start>=0 && start+span<=bases.length) : "A selected pair must identify one complete read window.";
@@ -223,7 +223,7 @@ public final class HollowBridgeJoiner {
 	/*----------------         Path spelling        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Chooses whole-gap votes, joins only linear paths, and preserves every unused contig unchanged. */
+	/** Freezes evidence, chooses whole-gap winners, joins only linear paths, and preserves all leftovers. */
 	public ArrayList<Contig> join(){
 		if(finished){throw new IllegalStateException("Joining consumes one evidence snapshot.");}
 		finished=true;
@@ -320,7 +320,9 @@ public final class HollowBridgeJoiner {
 		return reverse && base>=0 ? 3-base : base;
 	}
 
+	/** Number of accepted adjacencies consumed while spelling linear paths. */
 	public int joins(){return joins;}
+	/** Returns a new list over shared candidate dispositions, usually inspected after join(). */
 	public ArrayList<Evidence> evidence(){return new ArrayList<Evidence>(evidence);}
 
 	/*--------------------------------------------------------------*/
@@ -328,7 +330,7 @@ public final class HollowBridgeJoiner {
 	/*--------------------------------------------------------------*/
 
 	/** One retained geometry and its bounded set of whole-gap read votes. */
-	public static final class Evidence {
+	public static final class Evidence{
 		private Evidence(final Connection connection_, final HollowTipAnchors anchors){
 			connection=connection_;
 			sourceEnd=32+anchors.exitDistance(connection.leftAnchor(), (connection.leftEnd&1)==0);
@@ -336,12 +338,19 @@ public final class HollowBridgeJoiner {
 			assert(sourceEnd>=32 && sourceEnd<=anchors.contigLength(connection.leftAnchor())) :
 					"The source arm must lie inside its contig; a deep overlap may place the target start before the read window.";
 		}
+		/** Final disposition string; null until join() classifies an otherwise eligible candidate. */
 		public String reason(){return reason;}
+		/** Winning whole-gap sequence votes; assigned when join() freezes the evidence. */
 		public long support(){return support;}
+		/** Next-best whole-gap sequence votes; assigned with support during join(). */
 		public long runner(){return runner;}
+		/** Additional selected-pair hits after the first in a read record; they revoke that record's vote. */
 		public long repeated(){return repeated;}
+		/** Records rejected because the selected window disagreed with known internal contig flanks. */
 		public long flankRejected(){return flankRejected;}
+		/** Records with at least one usable agreeing outside flank and no contradictory outside flank. */
 		public long outerConfirmed(){return outerConfirmed;}
+		/** Records whose usable outside flanks contradicted at least one contig. */
 		public long outerContradictory(){return outerContradictory;}
 		public final Connection connection;
 		private final int sourceEnd, targetStart;
@@ -356,14 +365,14 @@ public final class HollowBridgeJoiner {
 	}
 
 	/** One exact missing sequence and the number of qualifying read records containing it. */
-	private static final class Variant {
+	private static final class Variant{
 		Variant(final byte[] bases_){bases=bases_;}
 		final byte[] bases;
 		long count;
 	}
 
 	/** One directional arm-pair selector; allocated only per retained candidate, not per read. */
-	private static final class Selector {
+	private static final class Selector{
 		Selector(final long second_, final boolean reverse_, final Evidence evidence_, final Selector next_){
 			second=second_;
 			reverse=reverse_;

@@ -31,9 +31,9 @@ import ukmer.KmerTableSetU;
  * Seeds, proposed extensions and reference truth never contribute counts. This
  * diagnostic does not accept, reject or apply a correction.
  * @author Brian Bushnell, Fischl */
-public final class HollowSeedSupport {
+public final class HollowSeedSupport{
 
-	/** Loads one exact count table and streams paired original/proposed records. */
+	/** Expands native config, then loads one exact count table and paired seed/proposal records. */
 	public static void main(final String[] args){
 		final PreParser pp=new PreParser(args, HollowSeedSupport.class, false);
 		try{new HollowSeedSupport(pp.args, pp.outstream).process();}
@@ -181,7 +181,7 @@ public final class HollowSeedSupport {
 	/*----------------            Tests             ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Tests window bounds, both orientations and seed-only counts using in-memory graphs. */
+	/** Loads tiny evidence tables from supplied reads, then tests in-memory window geometry. */
 	private void selfTest(){
 		final Random random=new Random(421051);
 		expectInvalid(new byte[]{'A', 'C'}, new byte[]{'T', 'G'});
@@ -356,8 +356,9 @@ public final class HollowSeedSupport {
 	/*----------------            I/O               ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Synchronous FASTA iteration avoids producer deadlocks on comparison errors. */
-	private static final class Cursor implements AutoCloseable {
+	/** Uses no parser worker; the streamer backend is still closed after successful construction. */
+	private static final class Cursor implements AutoCloseable{
+		/** Opens an ordered FASTA stream with direct parser iteration. */
 		Cursor(final String path){
 			final FileFormat ff=FileFormat.testInput(path, FileFormat.FASTA, null, true, true);
 			require(ff.fasta(), "Seed and proposed inputs must be ordered FASTA files.");
@@ -373,22 +374,30 @@ public final class HollowSeedSupport {
 			}
 			return batch.list.get(index++);
 		}
+		/** Closes the streamer backend after every successfully constructed cursor. */
 		@Override
 		public void close(){require(!ReadWrite.closeStream(stream), "Seed comparison input failed.");}
+		/** Owned zero-worker FASTA stream closed by this cursor. */
 		private final Streamer stream;
+		/** Current streamer batch; null only before the first fetch or after EOF. */
 		private ListNum<Read> batch;
+		/** Next unread element in batch.list. */
 		private int index;
+		/** Sticky EOF flag so next() never asks a closed input for another batch. */
 		private boolean finished;
 	}
 
-	/** Closes the report writer even if a malformed record aborts comparison. */
-	private static final class Report implements AutoCloseable {
+	/** Wraps one successfully started report writer for normal and exceptional cleanup. */
+	private static final class Report implements AutoCloseable{
+		/** Opens and starts the owned asynchronous writer for a fresh text report. */
 		Report(final String path){
 			writer=new ByteStreamWriter(FileFormat.testOutput(path, FileFormat.TXT, null, true, false, false, false));
 			writer.start();
 		}
+		/** Waits for the writer thread and promotes any buffered-output failure. */
 		@Override
 		public void close(){require(!writer.poisonAndWait(), "Support report output failed.");}
+		/** Owned writer thread; close waits for buffered rows and surfaces write errors. */
 		final ByteStreamWriter writer;
 	}
 
@@ -401,8 +410,12 @@ public final class HollowSeedSupport {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Original-read FASTQ, seed FASTA, proposed FASTA and two fresh report outputs. */
 	private String reads, seeds, queries, output, stats;
+	/** Solid-window span and inclusive depth threshold for supported windows. */
 	private int k=96, support=2;
+	/** Runs in-memory guard and geometry checks instead of external comparisons. */
 	private boolean test;
+	/** PreParser-selected diagnostic stream; closed by main after process returns or throws. */
 	private final PrintStream log;
 }

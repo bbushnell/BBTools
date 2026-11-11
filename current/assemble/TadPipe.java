@@ -26,9 +26,10 @@ import shared.Shared;
  *
  * @author Brian Bushnell, Fischl
  */
-public class TadPipe {
+public class TadPipe{
 
-	public static void main(String[] args) throws IOException, InterruptedException{
+	/** Parses coordinator options, runs the pipeline, and closes any redirected diagnostics. */
+	public static void main(final String[] args) throws IOException, InterruptedException{
 		final PreParser pp=new PreParser(args, TadPipe.class, false);
 		try{
 			new TadPipe(new Config(pp.args), pp.outstream).process();
@@ -41,7 +42,8 @@ public class TadPipe {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Keeps pipeline state private to this invocation, never in tool statics. */
+	/** Borrows mutable configuration and diagnostics for one serial pipeline invocation.
+	 * Children receive explicit arguments in fresh JVMs; this coordinator is not thread-safe. */
 	public TadPipe(final Config config_, final PrintStream outstream_){
 		assert(config_!=null && outstream_!=null) : "A pipeline needs configuration and a progress stream.";
 		config=config_;
@@ -52,7 +54,12 @@ public class TadPipe {
 	/*----------------          Execution           ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Publishes an assembly only after every child succeeds; failure retains evidence. */
+	/** Publishes an assembly only after every child succeeds and its FASTA has sequence text.
+	 * Even a dry run validates prerequisites and creates a work directory and command log.
+	 * Before publication, failures skip intermediate cleanup. After publication, requested
+	 * cleanup can fail partway; the final output has already moved to its destination.
+	 * Logs and optional unpolished/unscaffolded assemblies are retained on success.
+	 */
 	public void process() throws IOException, InterruptedException{
 		config.validate();
 		Files.createDirectories(config.temp);
@@ -73,8 +80,8 @@ public class TadPipe {
 			if(!Files.isRegularFile(finalAssembly) || !hasSequence(finalAssembly)){
 				throw new IOException("Assembly is empty; no final output published. Inspect "+work);
 			}
-			if(config.overwrite){Files.move(finalAssembly, config.out, StandardCopyOption.REPLACE_EXISTING);}
-			else{Files.move(finalAssembly, config.out);}
+			if(config.overwrite){Files.move(finalAssembly, config.out, StandardCopyOption.REPLACE_EXISTING);
+			}else{Files.move(finalAssembly, config.out);}
 			if(config.delete){
 				for(Path path : intermediates){Files.deleteIfExists(path);}
 			}
@@ -93,7 +100,10 @@ public class TadPipe {
 		}
 	}
 
-	/** Compressed headers alone are nonzero bytes, but are not an assembly. */
+	/** Scans the complete input for nonempty text following a FASTA header.
+	 * Rejects nonempty text before the first header and reports reader-close errors.
+	 * Does not validate the sequence alphabet; headers alone return false, even compressed.
+	 */
 	public static boolean hasSequence(final Path path) throws IOException{
 		assert(path!=null) : "Publication validation needs the exact final stage output.";
 		final ByteFile input=ByteFile.makeByteFile(FileFormat.testInput(path.toString(), FileFormat.FASTA, null, true, true));
@@ -101,9 +111,9 @@ public class TadPipe {
 		try{
 			for(byte[] line=input.nextLine(); line!=null; line=input.nextLine()){
 				if(line.length==0){continue;}
-				if(line[0]=='>'){header=true;}
-				else if(header){sequence=true;}
-				else{throw new IOException("Final output is not FASTA: "+path);}
+				if(line[0]=='>'){header=true;
+				}else if(header){sequence=true;
+				}else{throw new IOException("Final output is not FASTA: "+path);}
 			}
 		}finally{
 			if(input.close()){throw new IOException("Error reading completed assembly: "+path);}
@@ -137,7 +147,10 @@ public class TadPipe {
 		outstream.printf(Locale.ROOT, "Finished %s in %.3f seconds.%n", stage.name, (System.nanoTime()-start)*1e-9);
 	}
 
-	/** Constructs the complete dataflow before launching any expensive processing. */
+	/** Constructs finalized child commands without launching them or writing their outputs.
+	 * Requires work to identify the invocation's existing work directory. Records managed
+	 * intermediates and final assembly paths in this coordinator; call once per invocation.
+	 */
 	public ArrayList<Stage> plan(){
 		assert(work!=null) : "The unique work directory must exist before stage paths are assigned.";
 		final ArrayList<Stage> stages=new ArrayList<Stage>();
@@ -184,8 +197,8 @@ public class TadPipe {
 				final Stage merge=(pass<0 ? stage("05_"+label, "bbmerge.sh", "merge", group)
 						: stage("05_"+label, "bbmerge.sh", "merge", group, "rem"+(pass+1)));
 				merge.defaults("interleaved=t", "ordered=t");
-				if(k==0){merge.defaults("kfilter=1");}
-				else{
+				if(k==0){merge.defaults("kfilter=1");
+				}else{
 					merge.defaults("rem=t", "k="+k, "extend2="+config.remExtension(pass));
 					if(k==93){merge.defaults("strict=t");}
 				}
@@ -303,8 +316,8 @@ public class TadPipe {
 	private Stage stage(final String name, final String tool, final String... groups){
 		assert(groups.length>0) : "Every stage has a documented override group.";
 		final Stage stage=new Stage(name, tool, groups);
-		if(tool.equals("tippolish.sh")){stage.defaults("t="+config.threads, "overwrite=f");}
-		else{stage.defaults("t="+config.threads, "zl="+config.zipLevel, "overwrite=f");}
+		if(tool.equals("tippolish.sh")){stage.defaults("t="+config.threads, "overwrite=f");
+		}else{stage.defaults("t="+config.threads, "zl="+config.zipLevel, "overwrite=f");}
 		if(tool.equals("tadpole.sh")){stage.defaults("prealloc=f", "prefilter=f", "hashkmers=explicit");}
 		return stage;
 	}
@@ -375,52 +388,52 @@ public class TadPipe {
 	/*--------------------------------------------------------------*/
 
 	/** Per-invocation options; prefixes configure tools but cannot redirect pipeline files. */
-	public static final class Config {
+	public static final class Config{
+		/** Parses coordinator flags and ordered override groups, then checks the REM schedule.
+		 * Filesystem/resource validation is deferred to validate(). Paths become absolute.
+		 */
 		public Config(final String[] args){
 			assert(args!=null) : "PreParser supplies a nonnull argument array.";
 			for(String arg : args){
 				final String[] split=Parse.splitOnFirst(arg, '=');
 				final String key=split[0].toLowerCase(Locale.ROOT), value=(split.length>1 ? split[1] : null);
-				if(key.equals("in") || key.equals("in1")){in=path(value);}
-				else if(key.equals("in2")){in2=path(value);}
-				else if(key.equals("out")){out=path(value);}
-				else if(key.equals("bbtools")){bbtools=path(value);}
-				else if(key.equals("temp") || key.equals("tempdir") || key.equals("tmpdir")){temp=path(value);}
-				else if(key.equals("childheap")){heap=value;}
-				else if(key.equals("t") || key.equals("threads")){threads=Integer.parseInt(value);}
-				else if(key.equals("zl") || key.equals("ziplevel")){zipLevel=Integer.parseInt(value);}
-				else if(key.equals("delete")){delete=Parse.parseBoolean(value);}
-				else if(key.equals("gz")){gz=Parse.parseBoolean(value);}
-				else if(key.equals("overwrite") || key.equals("ow")){overwrite=Parse.parseBoolean(value);}
-				else if(key.equals("dryrun")){dryrun=Parse.parseBoolean(value);}
-				else if(key.equals("dedupe")){dedupe=Parse.parseBoolean(value);}
-				else if(key.equals("ecco")){ecco=Parse.parseBoolean(value);}
-				else if(key.equals("clump") || key.equals("clumpecc")){clump=Parse.parseBoolean(value);}
-				else if(key.equals("ecc") || key.equals("correct")){ecc=Parse.parseBoolean(value);}
-				else if(key.equals("merge")){merge=Parse.parseBoolean(value);}
-				else if(key.equals("rem")){rem=Parse.parseBoolean(value);}
-				else if(key.equals("remk")){
+				if(key.equals("in") || key.equals("in1")){in=path(value);
+				}else if(key.equals("in2")){in2=path(value);
+				}else if(key.equals("out")){out=path(value);
+				}else if(key.equals("bbtools")){bbtools=path(value);
+				}else if(key.equals("temp") || key.equals("tempdir") || key.equals("tmpdir")){temp=path(value);
+				}else if(key.equals("childheap")){heap=value;
+				}else if(key.equals("t") || key.equals("threads")){threads=Integer.parseInt(value);
+				}else if(key.equals("zl") || key.equals("ziplevel")){zipLevel=Integer.parseInt(value);
+				}else if(key.equals("delete")){delete=Parse.parseBoolean(value);
+				}else if(key.equals("gz")){gz=Parse.parseBoolean(value);
+				}else if(key.equals("overwrite") || key.equals("ow")){overwrite=Parse.parseBoolean(value);
+				}else if(key.equals("dryrun")){dryrun=Parse.parseBoolean(value);
+				}else if(key.equals("dedupe")){dedupe=Parse.parseBoolean(value);
+				}else if(key.equals("ecco")){ecco=Parse.parseBoolean(value);
+				}else if(key.equals("clump") || key.equals("clumpecc")){clump=Parse.parseBoolean(value);
+				}else if(key.equals("ecc") || key.equals("correct")){ecc=Parse.parseBoolean(value);
+				}else if(key.equals("merge")){merge=Parse.parseBoolean(value);
+				}else if(key.equals("rem")){rem=Parse.parseBoolean(value);
+				}else if(key.equals("remk")){
 					remKs="none".equalsIgnoreCase(value) ? new int[0] : integerList(value, "remk", 1);
-				}
-				else if(key.equals("remextend")){
+				}else if(key.equals("remextend")){
 					remExtends="auto".equalsIgnoreCase(value) ? null : integerList(value, "remextend", 0);
-				}
-				else if(key.equals("extend")){extend=Parse.parseBoolean(value);}
-				else if(key.equals("extendm") || key.equals("extendmerged")){extendMerged=Parse.parseBoolean(value);}
-				else if(key.equals("extendu") || key.equals("extendunmerged")){extendUnmerged=Parse.parseBoolean(value);}
-				else if(key.equals("qtrim")){qtrim=Parse.parseBoolean(value);}
-				else if(key.equals("nn")){nn=Parse.parseBoolean(value);}
-				else if(key.equals("polish")){polish=Parse.parseBoolean(value);}
-				else if(key.equals("scaffold")){scaffold=Parse.parseBoolean(value);}
-				else if(key.equals("interleaved") || key.equals("int")){
+				}else if(key.equals("extend")){extend=Parse.parseBoolean(value);
+				}else if(key.equals("extendm") || key.equals("extendmerged")){extendMerged=Parse.parseBoolean(value);
+				}else if(key.equals("extendu") || key.equals("extendunmerged")){extendUnmerged=Parse.parseBoolean(value);
+				}else if(key.equals("qtrim")){qtrim=Parse.parseBoolean(value);
+				}else if(key.equals("nn")){nn=Parse.parseBoolean(value);
+				}else if(key.equals("polish")){polish=Parse.parseBoolean(value);
+				}else if(key.equals("scaffold")){scaffold=Parse.parseBoolean(value);
+				}else if(key.equals("interleaved") || key.equals("int")){
 					interleaved=Parse.parseBoolean(value);
-				}else if(key.indexOf('_')>0){addOverride(key, value);}
-				else if(key.equals("k") || key.equals("assemblek") || key.equals("graphk")
+				}else if(key.indexOf('_')>0){addOverride(key, value);
+				}else if(key.equals("k") || key.equals("assemblek") || key.equals("graphk")
 						|| key.equals("bridgek") || key.equals("fusek")){
 					//These convenience aliases configure only the final Tadpole process.
 					addOverride("assemble_"+key, value);
-				}
-				else{throw new IllegalArgumentException("Unknown TadPipe option: "+arg+"; use a documented phase_ prefix.");}
+				}else{throw new IllegalArgumentException("Unknown TadPipe option: "+arg+"; use a documented phase_ prefix.");}
 			}
 			validateRem();
 		}
@@ -478,7 +491,10 @@ public class TadPipe {
 			}
 		}
 
-		/** Fails before processing on invalid resources, missing inputs, or output aliases. */
+		/** Checks resources, named inputs and publication paths before processing.
+		 * Resolves input symlinks and normalizes explicit assembly-model overrides in place.
+		 * Child-launcher/model existence is checked separately when the stage plan is ready.
+		 */
 		public void validate() throws IOException{
 			if(in==null || out==null || bbtools==null || temp==null){throw new IllegalArgumentException("Specify in, out, a temp directory and the BBTools installation.");}
 			if(in2==null && Boolean.FALSE.equals(interleaved)){
@@ -503,7 +519,7 @@ public class TadPipe {
 					throw new IOException("Pipeline paths cannot contain commas or newlines: "+path);
 				}
 			}
-			final Map<String,String> assembly=overrides.get("assemble");
+			final Map<String, String> assembly=overrides.get("assemble");
 			if(assembly!=null && assembly.containsKey("fusenet") && !"null".equalsIgnoreCase(assembly.get("fusenet"))
 					&& !"auto".equalsIgnoreCase(assembly.get("fusenet"))){
 				if(!assembly.containsKey("fusencutoff")){throw new IllegalArgumentException("A custom assemble_fusenet requires assemble_fusencutoff.");}
@@ -548,8 +564,8 @@ public class TadPipe {
 					|| option.equals("interleaved") || option.equals("int") || option.equals("gfa") || option.equals("dot")){
 				throw new IllegalArgumentException("TadPipe owns stage inputs, outputs and pairing: "+key);
 			}
-			Map<String,String> map=overrides.get(group);
-			if(map==null){map=new LinkedHashMap<String,String>(); overrides.put(group, map);}
+			Map<String, String> map=overrides.get(group);
+			if(map==null){map=new LinkedHashMap<String, String>(); overrides.put(group, map);}
 			map.put(option, value==null ? "t" : value);
 		}
 
@@ -559,24 +575,39 @@ public class TadPipe {
 			return Paths.get(value).toAbsolutePath().normalize();
 		}
 
+		/** Primary named read input; validate() resolves it to its real path. */
 		Path in;
+		/** Optional mate input and final publication destination, initially absolute paths. */
 		public Path in2, out=path("contigs.fa");
+		/** Selected launcher installation and parent of the unique per-run work directory. */
 		Path bbtools=path("."), temp=path(System.getProperty("java.io.tmpdir"));
+		/** Maximum heap passed independently to each sequential child JVM. */
 		String heap="14g";
+		/** Default child worker count and compression level; scoped overrides may replace them. */
 		int threads=Shared.threads(), zipLevel=4;
+		/** Managed-read cleanup, intermediate compression, output replacement and planning-only flags. */
 		boolean delete=true, gz=true, overwrite=false, dryrun=false;
+		/** Optional input-pairing declaration; explicit false requires a separate mate file. */
 		public Boolean interleaved=null;
+		/** Pipeline stage switches; nn selects default fusion/rescue configuration. */
 		boolean dedupe=true, ecco=true, clump=true, ecc=true, merge=true, rem=true, extend=true, qtrim=true, nn=true;
+		/** Which evidence streams to extend when the global extension switch is enabled. */
 		boolean extendMerged=true, extendUnmerged=true;
+		/** Enables polishing against the retained, uncorrected first-stage reads. */
 		boolean polish=false;
+		/** Enables final scaffolding after optional polishing. */
 		boolean scaffold=true;
-		public int[] remKs={124,145,93};
+		/** Ordered REM K values; an empty array keeps only the initial overlap-merge pass. */
+		public int[] remKs={124, 145, 93};
+		/** One shared or one-per-pass extension limit; null selects legacy automatic limits. */
 		int[] remExtends=null;
-		public final Map<String,Map<String,String>> overrides=new LinkedHashMap<String,Map<String,String>>();
+		/** Mutable ordered maps from override group to option/value; duplicate options replace values. */
+		public final Map<String, Map<String, String>> overrides=new LinkedHashMap<String, Map<String, String>>();
 	}
 
 	/** One fresh process, with explicit outputs checked before consumers are launched. */
-	public static final class Stage {
+	public static final class Stage{
+		/** Borrows the ordered override-group array; command construction remains deferred. */
 		Stage(final String name_, final String tool_, final String[] groups_){
 			assert(name_!=null && tool_.endsWith(".sh")) : "Stages execute BBTools launchers, never raw tool main methods.";
 			name=name_;
@@ -597,7 +628,7 @@ public class TadPipe {
 		void overrides(final Config config){
 			assert(config!=null) : "Overrides belong to this pipeline invocation.";
 			for(String group : groups){
-				final Map<String,String> map=config.overrides.get(group);
+				final Map<String, String> map=config.overrides.get(group);
 				if(map!=null){args.putAll(map);}
 			}
 		}
@@ -625,10 +656,15 @@ public class TadPipe {
 			for(Map.Entry<String,String> entry : args.entrySet()){command.add(entry.getKey()+"="+entry.getValue());}
 		}
 
+		/** Log basename and launcher path relative to the selected installation. */
 		public final String name, tool;
+		/** Override groups in application order, from generic to specialized. */
 		final String[] groups;
-		public final LinkedHashMap<String,String> args=new LinkedHashMap<String,String>();
+		/** Mutable child options; insertion order determines command-line order. */
+		public final LinkedHashMap<String, String> args=new LinkedHashMap<String, String>();
+		/** Managed outputs that must be regular files after the child exits successfully. */
 		final ArrayList<Path> outputs=new ArrayList<Path>();
+		/** Final argument vector populated once by finish(); executed without a shell command string. */
 		public final ArrayList<String> command=new ArrayList<String>();
 	}
 
@@ -636,9 +672,14 @@ public class TadPipe {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Borrowed configuration, mutated by validation and read while constructing stages. */
 	private final Config config;
+	/** Borrowed coordinator progress stream; main owns redirected-stream closure. */
 	private final PrintStream outstream;
+	/** Managed read intermediates eligible for nonrecursive cleanup after publication. */
 	private final ArrayList<Path> intermediates=new ArrayList<Path>();
+	/** Unique work directory, or a caller-supplied existing directory for plan-only inspection. */
 	public Path work;
+	/** Current publication candidate and optional predecessor assemblies retained for inspection. */
 	private Path finalAssembly, unpolishedAssembly, unscaffoldedAssembly;
 }

@@ -10,10 +10,15 @@ import java.util.List;
 
 /** Exercises writer shutdown through real launcher processes, not in-process exceptions.
  * GNU timeout kills the complete child process group if a regression leaves a writer alive.
+ * The fixture probes invalid delete, readindels and grade inputs, then one valid
+ * grade path, so every case observes the shipped wrapper and native parser
+ * lifecycle rather than a direct Java call.
  * @author Brian Bushnell, Fischl */
-public final class HollowIndelFailureTest {
+public final class HollowIndelFailureTest{
 
-	/** Accepts a BBTools installation and optional old mode to reproduce the original hang. */
+	/** Accepts a BBTools installation and optional old mode to reproduce the original hang.
+	 * Temporary FASTA/FASTQ files are deterministic and intentionally tiny; the
+	 * assertions check diagnostics, exit status and child process liveness. */
 	public static void main(final String[] args) throws Exception{
 		check(args.length==1 || args.length==2, "Specify BBTools path and optionally old.");
 		final Path code=Paths.get(args[0]).toAbsolutePath();
@@ -40,7 +45,9 @@ public final class HollowIndelFailureTest {
 		System.out.println("HOLLOW_INDEL_FAILURE_TEST_PASS cases=5 dir="+root);
 	}
 
-	/** Checks both timely nonzero exit and the original validation diagnostic. */
+	/** Checks each child process for the expected exit class and diagnostic before timeout.
+	 * The timeout wrapper preserves the old hang as status 124 while fixed
+	 * passing and failing cases must finish with their expected message. */
 	private static void run(final Path code, final Path root, final String name,
 			final boolean hangExpected, final boolean success, final String diagnostic,
 			final String... args) throws Exception{

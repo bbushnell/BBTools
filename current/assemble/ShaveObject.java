@@ -8,7 +8,7 @@ import java.io.PrintStream;
  * @author Brian Bushnell
  * @date Jul 20, 2015
  */
-public abstract class ShaveObject {
+public abstract class ShaveObject{
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Static Fields        ----------------*/
@@ -19,32 +19,38 @@ public abstract class ShaveObject {
 	
 	/** Assembly mode for building contigs from input reads. */
 	public static final int contigMode=0;
-	/** Assembly mode for extending existing contigs. */
+	/** Assembly mode for extending reads or sequences. */
 	public static final int extendMode=1;
 	/** Assembly mode for error correction. */
 	public static final int correctMode=2;
-	/** Assembly mode for filling gaps between contigs. */
+	/** Assembly mode for estimating insert size from paired reads. */
 	public static final int insertMode=3;
-	/** Assembly mode for discarding low-quality sequence. */
+	/** Assembly mode for configured read filtering. */
 	public static final int discardMode=4;
 	
-	/** Exploration result code indicating the target was reached successfully. */
-	/** Exploration result code indicating a circular path was detected. */
-	/** Exploration result code when recursion depth is exceeded. */
-	/**
-	 * Exploration result code when the path exceeds the maximum length threshold.
-	 */
-	/**
-	 * Exploration result code when the path is below the minimum length threshold.
-	 */
-	/** Exploration result code for a terminated path with no outgoing edges. */
 	/** Exploration result code indicating traversal can continue. */
-	public static final int KEEP_GOING=0, DEAD_END=1, TOO_SHORT=2, TOO_LONG=3, TOO_DEEP=4, LOOP=7, SUCCESS=8;
-	/** Branch code for a dead-end branching point in the graph. */
-	/** Branch code for a backward branching point in the graph. */
-	/** Branch code for a forward branching point in the graph. */
+	public static final int KEEP_GOING=0;
+	/** Exploration result code for a terminated path with no outgoing edges. */
+	public static final int DEAD_END=1;
+	/** Exploration result code when the path is below the minimum length threshold. */
+	public static final int TOO_SHORT=2;
+	/** Exploration result code when the path exceeds the maximum length threshold. */
+	public static final int TOO_LONG=3;
+	/** Exploration result code when k-mer depth exceeds maxCount. */
+	public static final int TOO_DEEP=4;
+	/** Exploration result code indicating a circular path was detected. */
+	public static final int LOOP=7;
+	/** Exploration result code indicating the target was reached successfully. */
+	public static final int SUCCESS=8;
+
 	/** Bit mask used to identify branch-type result codes. */
-	public static final int BRANCH_BIT=16, F_BRANCH=BRANCH_BIT|1, B_BRANCH=BRANCH_BIT|2, D_BRANCH=BRANCH_BIT|3;
+	public static final int BRANCH_BIT=16;
+	/** Branch code for a forward branching point in the graph. */
+	public static final int F_BRANCH=BRANCH_BIT|1;
+	/** Branch code for a backward branching point in the graph. */
+	public static final int B_BRANCH=BRANCH_BIT|2;
+	/** Branch code for a point branching in both directions in the graph. */
+	public static final int D_BRANCH=BRANCH_BIT|3;
 	
 	/**
 	 * Tests whether a result code represents any branch type using the BRANCH_BIT mask.
@@ -53,14 +59,19 @@ public abstract class ShaveObject {
 	 */
 	public static final boolean isBranchCode(int code){return (code&BRANCH_BIT)==BRANCH_BIT;}
 	
-	/** Extension error code indicating an invalid seed sequence. */
 	/** Extension error code indicating an ownership conflict. */
-	public static final int BAD_OWNER=11, BAD_SEED=12/*, BRANCH=13*/;
+	public static final int BAD_OWNER=11;
+	/** Extension error code indicating an invalid seed sequence. */
+	public static final int BAD_SEED=12/*, BRANCH=13*/;
 	
-	/** Traversal state constant for graph elements confirmed for retention */
-	/** Traversal state constant for graph elements marked for deletion */
-	/** Traversal state constant for successfully analyzed graph elements */
-	public static final int STATUS_UNEXPLORED=0, STATUS_EXPLORED=1, STATUS_REMOVE=2, STATUS_KEEP=3;
+	/** Traversal state for graph elements not yet analyzed. */
+	public static final int STATUS_UNEXPLORED=0;
+	/** Traversal state for successfully analyzed graph elements. */
+	public static final int STATUS_EXPLORED=1;
+	/** Traversal state for graph elements marked for deletion. */
+	public static final int STATUS_REMOVE=2;
+	/** Traversal state for graph elements confirmed for retention. */
+	public static final int STATUS_KEEP=3;
 	
 	/** Human-readable names corresponding to each numeric result code. */
 	public static final String[] codeStrings=new String[] {
@@ -70,10 +81,10 @@ public abstract class ShaveObject {
 			"BRANCH", "F_BRANCH", "B_BRANCH", "D_BRANCH"
 	};
 	
-	/** Maximum valid result code value (length of codeStrings). */
+	/** Exclusive upper bound for valid indexes into codeStrings. */
 	public static final int MAX_CODE=codeStrings.length;
 	
-	/** Flag to enable performance monitoring output during assembly operations. */
+	/** Flag to enable diagnostic event-count output during assembly operations. */
 	public static boolean printEventCounts=false;
 	
 	/** Enables verbose logging. */

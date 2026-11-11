@@ -15,12 +15,11 @@ import structures.ByteBuilder;
 import ukmer.Kmer;
 
 /**
- * Designed for removal of dead ends (aka hairs).
+ * Shaver for 1-long k-mers that marks and removes dead-end paths and bubbles.
  * @author Brian Bushnell
  * @date Jun 26, 2015
- *
  */
-public class Shaver1 extends Shaver {
+public class Shaver1 extends Shaver{
 	
 	
 	/*--------------------------------------------------------------*/
@@ -29,8 +28,8 @@ public class Shaver1 extends Shaver {
 
 	
 	/**
-	 * Constructor with default parameters for dead-end removal.
-	 * Uses default values for count thresholds, branch multiplier, and length limits.
+	 * Constructs a shaver with the default count thresholds, branch
+	 * multiplier, length limits, and hair/bubble removal enabled.
 	 * @param tables_ The k-mer table set to operate on
 	 * @param threads_ Number of threads for parallel processing
 	 */
@@ -39,7 +38,8 @@ public class Shaver1 extends Shaver {
 	}
 	
 	/**
-	 * Full constructor with all parameters for customized dead-end removal.
+	 * Constructs a shaver with explicit count thresholds, branch multiplier,
+	 * length limits, and removal policy.
 	 *
 	 * @param tables_ The k-mer table set to operate on
 	 * @param threads_ Number of threads for parallel processing
@@ -66,9 +66,9 @@ public class Shaver1 extends Shaver {
 	/*--------------------------------------------------------------*/
 
 	@Override
-	final AbstractExploreThread makeExploreThread(int id_){return new ExploreThread(id_);}
+	protected final AbstractExploreThread makeExploreThread(int id_){return new ExploreThread(id_);}
 	@Override
-	final AbstractShaveThread makeShaveThread(int id_){return new ShaveThread(id_);}
+	protected final AbstractShaveThread makeShaveThread(int id_){return new ShaveThread(id_);}
 	
 	
 	/*--------------------------------------------------------------*/
@@ -90,7 +90,7 @@ public class Shaver1 extends Shaver {
 	 * @param maxCount Maximum count threshold to avoid repeats
 	 * @param maxLengthToDiscard Maximum length of paths that can be discarded
 	 * @param maxDistanceToExplore Maximum distance to explore in each direction
-	 * @param prune Whether to mark paths for removal
+	 * @param prune Unused legacy flag; removal is controlled by the hair and bubble settings
 	 * @param countMatrixT Matrix to count termination condition combinations
 	 * @param removeMatrixT Matrix to count actual removals by termination type
 	 * @return true if the path was marked for removal, false otherwise
@@ -152,15 +152,17 @@ public class Shaver1 extends Shaver {
 		return false;
 	}
 	
-	/** Explores a single unbranching path in the forward direction.
-	 * @param kmer
-	 * @param bb
-	 * @param leftCounts
-	 * @param rightCounts
-	 * @param minCount
-	 * @param maxCount
-	 * @param maxLength0
-	 * @return A termination code such as DEAD_END
+	/**
+	 * Explores a single unbranching path in the forward direction.
+	 *
+	 * @param kmer Starting k-mer, matching the rightmost k-mer in {@code bb} when present
+	 * @param bb Sequence builder extended in place with the explored path
+	 * @param leftCounts Scratch array for backward-extension counts
+	 * @param rightCounts Scratch array for forward-extension counts
+	 * @param minCount Minimum count accepted as a real extension
+	 * @param maxCount Maximum count before a path is considered too deep
+	 * @param maxLength0 Maximum total builder length minus k before TOO_LONG
+	 * @return DEAD_END, TOO_LONG, TOO_DEEP, LOOP, F_BRANCH, or B_BRANCH
 	 */
 	public int explore(long kmer, ByteBuilder bb, int[] leftCounts, int[] rightCounts, int minCount, int maxCount, int maxLength0){
 		if(verbose){outstream.println("Entering explore with bb.length()="+bb.length());}
@@ -290,9 +292,19 @@ public class Shaver1 extends Shaver {
 		return TOO_LONG;
 	}
 	
-	/** Explores a single unbranching path in the forward direction.
-	 * Returns reason for ending in this direction:
-	 *  DEAD_END, TOO_LONG, TOO_DEEP, F_BRANCH, B_BRANCH */
+	/**
+	 * Explores a single unbranching path in the forward direction, recalculating
+	 * branch counts after each accepted extension.
+	 *
+	 * @param kmer Starting k-mer, matching the rightmost k-mer in {@code bb} when present
+	 * @param bb Sequence builder extended in place with the explored path
+	 * @param leftCounts Scratch array for backward-extension counts
+	 * @param rightCounts Scratch array for forward-extension counts
+	 * @param minCount Minimum count accepted as a real extension
+	 * @param maxCount Maximum count before a path is considered too deep
+	 * @param maxLength0 Maximum total builder length minus k before TOO_LONG
+	 * @return DEAD_END, TOO_LONG, TOO_DEEP, LOOP, F_BRANCH, or B_BRANCH
+	 */
 	public int explore2(long kmer, ByteBuilder bb, int[] leftCounts, int[] rightCounts, int minCount, int maxCount, int maxLength0){
 		if(verbose){outstream.println("Entering explore with bb.length()="+bb.length());}
 		assert(bb.length()==0 || tables.rightmostKmer(bb)==kmer);
@@ -445,7 +457,7 @@ public class Shaver1 extends Shaver {
 	class ExploreThread extends AbstractExploreThread{
 		
 		/**
-		 * Constructor
+		 * Constructs an explorer for a single worker id.
 		 */
 		public ExploreThread(int id_){
 			super(id_, k);		
@@ -455,7 +467,7 @@ public class Shaver1 extends Shaver {
 		}
 		
 		@Override
-		boolean processNextTable(Kmer kmer, Kmer temp){
+		protected boolean processNextTable(Kmer kmer, Kmer temp){
 			final int tnum=nextTable.getAndAdd(1);
 			if(tnum>=tables.ways){return false;}
 			final HashArray1D table=tables.getTable(tnum);
@@ -475,7 +487,7 @@ public class Shaver1 extends Shaver {
 		}
 		
 		@Override
-		boolean processNextVictims(Kmer kmer, Kmer temp){
+		protected boolean processNextVictims(Kmer kmer, Kmer temp){
 			final int tnum=nextVictims.getAndAdd(1);
 			if(tnum>=tables.ways){return false;}
 			final HashArray1D table=tables.getTable(tnum);
@@ -541,7 +553,7 @@ public class Shaver1 extends Shaver {
 		
 		/*--------------------------------------------------------------*/
 		
-		//old
+		// Low-count starting points.
 		/**
 		 * Processes a single hash table cell in low-count mode.
 		 * Checks if the k-mer meets count criteria and ownership requirements
@@ -562,7 +574,7 @@ public class Shaver1 extends Shaver {
 			return processKmer_low(key);
 		}
 		
-		//old
+		// Low-count victim-tree nodes.
 		/**
 		 * Processes a k-mer node in low-count mode.
 		 * Extracts the k-mer and count from the node, validates criteria,
@@ -581,7 +593,7 @@ public class Shaver1 extends Shaver {
 			return processKmer_low(key);
 		}
 		
-		//old
+		// Low-count path exploration.
 		/**
 		 * Processes a single k-mer in low-count mode.
 		 * Calls exploreAndMark to determine if the k-mer is part of a removable dead end.
@@ -598,7 +610,7 @@ public class Shaver1 extends Shaver {
 		
 		/*--------------------------------------------------------------*/
 		
-		//new
+		// High-count starting points.
 		/**
 		 * Processes a single hash table cell in high-count mode.
 		 * Focuses on high-coverage k-mers that may have low-coverage neighbors
@@ -620,7 +632,7 @@ public class Shaver1 extends Shaver {
 			return processKmer_high(key);
 		}
 		
-		//new
+		// High-count victim-tree nodes.
 		/**
 		 * Processes a k-mer node in high-count mode.
 		 * Looks for high-coverage k-mers that may have low-coverage dead-end neighbors.
@@ -703,7 +715,7 @@ public class Shaver1 extends Shaver {
 //			return sum;
 //		}
 		
-		//new
+		// High-count neighbor exploration.
 		/**
 		 * Processes a high-coverage k-mer to find dead-end neighbors.
 		 * Uses optimized bit manipulation when core masking is enabled,
@@ -879,14 +891,14 @@ public class Shaver1 extends Shaver {
 	class ShaveThread extends AbstractShaveThread{
 
 		/**
-		 * Constructor
+		 * Constructs a remover for a single worker id.
 		 */
 		public ShaveThread(int id_){
 			super(id_);
 		}
 		
 		@Override
-		boolean processNextTable(){
+		protected boolean processNextTable(){
 			final int tnum=nextTable.getAndAdd(1);
 			if(tnum>=tables.ways){return false;}
 //			long x=0;
@@ -946,23 +958,26 @@ public class Shaver1 extends Shaver {
 	 */
 	int getCount(long kmer, long rkmer){return tables.getCount(kmer, rkmer);}
 	/**
-	 * Claims ownership of a k-mer.
+	 * Raises a present canonical k-mer's ownership status to {@code id}.
 	 * @param kmer K-mer to claim
-	 * @param id Claiming thread/process ID
-	 * @return true if successfully claimed, false if already owned
+	 * @param id Ownership status to install
+	 * @return true for absent keys or when no higher status was already present
 	 */
 	boolean claim(long kmer, int id){return claim(kmer, AminoAcid.reverseComplementBinaryFast(kmer, k), id);}
 	/**
-	 * Claims ownership of a k-mer pair.
+	 * Raises a canonical k-mer pair's ownership status to {@code id}.
 	 *
 	 * @param kmer Forward k-mer
 	 * @param rkmer Reverse complement k-mer
-	 * @param id Claiming thread/process ID
-	 * @return true if successfully claimed, false if already owned
+	 * @param id Ownership status to install
+	 * @return true for absent keys or when no higher status was already present
 	 */
 	boolean claim(long kmer, long rkmer, int id){return tables.claim(kmer, rkmer, id);}
+	/** Claims {@code bb} with {@code id}, then with {@code id+CLAIM_OFFSET} only if the first pass succeeds; partial claims are retained on failure. */
 	boolean doubleClaim(ByteBuilder bb, int id/*, long rid*/){return tables.doubleClaim(bb, id/*, rid*/);}
+	/** Raises ownership for every valid k-mer in {@code bb}, optionally stopping at the first higher status. */
 	boolean claim(ByteBuilder bb, int id, /*long rid, */boolean earlyExit){return tables.claim(bb, id/*, rid*/, earlyExit);}
+	/** Raises ownership for every valid k-mer in the array, optionally stopping at the first higher status. */
 	boolean claim(byte[] array, int len, int id, /*long rid, */boolean earlyExit){return tables.claim(array, len, id/*, rid*/, earlyExit);}
 	/**
 	 * Finds the current owner of a k-mer.
@@ -970,9 +985,13 @@ public class Shaver1 extends Shaver {
 	 * @return Owner ID or status code
 	 */
 	int findOwner(long kmer){return tables.findOwner(kmer);}
+	/** Finds the maximum owner status observed in {@code bb} before any early exit past {@code id}. */
 	int findOwner(ByteBuilder bb, int id){return tables.findOwner(bb, id);}
+	/** Finds the maximum owner status observed in an array before any early exit past {@code id}. */
 	int findOwner(byte[] array, int len, int id){return tables.findOwner(array, len, id);}
+	/** Releases any k-mers in {@code bb} still owned by {@code id}. */
 	void release(ByteBuilder bb, int id){tables.release(bb, id);}
+	/** Releases any k-mers in the array that are still owned by {@code id}. */
 	void release(byte[] array, int len, int id){tables.release(array, len, id);}
 	/**
 	 * Fills array with counts of right-extension k-mers.
@@ -1013,11 +1032,11 @@ public class Shaver1 extends Shaver {
 	/*--------------------------------------------------------------*/
 	
 	@Override
-	AbstractKmerTableSet tables(){return tables;}
+	protected AbstractKmerTableSet tables(){return tables;}
 	
-	/** The k-mer table set containing sequence data for shaving operations */
+	/** K-mer table set containing sequence data for shaving operations. */
 	final KmerTableSet tables;
-	/** Length of k-mers used in this shaver instance */
+	/** Length of k-mers used in this shaver instance. */
 	final int k;
 	
 }

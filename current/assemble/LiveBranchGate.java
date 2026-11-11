@@ -10,9 +10,12 @@ import shared.Shared;
 /**
  * Optional interior-only rescue of an immutable node's preferred route.
  * Each worker owns inference state; native accepts and hard stops never score.
+ * The prototype, borrowed count table and supplied population moments must stay
+ * stable while workers use this gate. Keep Shared.SIMD_FMA disabled throughout
+ * scoring, and join workers before reading aggregate counters or scan timing.
  * @author Fischl
  */
-final class LiveBranchGate {
+public final class LiveBranchGate{
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
@@ -23,8 +26,17 @@ final class LiveBranchGate {
 		this(tad_, CellNetParser.loadInferenceFromLines(ByteFile.toLines(path)), tad_.k(), tad_.minCountExtend, cutoff_, null);
 	}
 
-	/** Supplies fixed moments for deterministic policy/inference tests. */
-	LiveBranchGate(final CellNet model, final int k_, final int minExtend_, final float cutoff_,
+	/** Supplies fixed moments without scanning an assembler's count table.
+	 * Borrows the model and moments unchanged for this gate's lifetime; each scoring
+	 * thread lazily copies the model into private dense inference state. The caller
+	 * keeps Shared.SIMD_FMA disabled until all scoring threads have finished.
+	 * @param model Nonnull 12-input, one-output model supporting dense inference copies
+	 * @param k_ Word length in bases, from 24 through 127
+	 * @param minExtend_ Positive minimum extension count
+	 * @param cutoff_ Finite inclusive acceptance threshold in [0,1]
+	 * @param moments_ Nonnull completed population moments, never mutated during use
+	 */
+	public LiveBranchGate(final CellNet model, final int k_, final int minExtend_, final float cutoff_,
 			final SameKJoinFeatures.Moments moments_){
 		this(null, model, k_, minExtend_, cutoff_, moments_);
 	}
@@ -47,8 +59,18 @@ final class LiveBranchGate {
 	 * The caller excludes hidden branches before this method. Requiring the actual
 	 * predecessor to be the unique preferred one also protects callers with their
 	 * native hidden-branch flag disabled. This does not override ownership/cycles.
+	 * Borrows both count arrays for this call without modifying them; callers keep
+	 * them stable during the call. Scoring state and counters belong to each thread.
+	 * @param count Nonnegative depth of the current node
+	 * @param left Four nonnegative predecessor counts in A/C/G/T order
+	 * @param right Four nonnegative successor counts in A/C/G/T order
+	 * @param leftBranch Native branch flag for the predecessor side
+	 * @param rightBranch Native branch flag for the successor side
+	 * @param arrivalBase Actual predecessor base index, from 0 through 3
+	 * @return True only for an eligible route whose score reaches the inclusive cutoff;
+	 * native accepts, hard stops and other predecessors return false without scoring
 	 */
-	boolean rescue(final int count, final int[] left, final int[] right,
+	public boolean rescue(final int count, final int[] left, final int[] right,
 			final boolean leftBranch, final boolean rightBranch, final int arrivalBase){
 		if(arrivalBase<0 || arrivalBase>3){throw new IllegalArgumentException("Interior rescue requires its actual preceding base.");}
 		if(LiveBranchPolicy.level(count, left, right, leftBranch, rightBranch, minExtend, 0.5)!=LiveBranchPolicy.GREY_ZONE ||
@@ -63,8 +85,13 @@ final class LiveBranchGate {
 		return accepted;
 	}
 
-	/** Tests exact inference independently of native walk eligibility. */
-	float score(final float[] vector){return score(local.get(), vector);}
+	/** Scores with this thread's private inference state, without eligibility checks
+	 * or changes to rescue/evaluation counters. Keep Shared.SIMD_FMA disabled.
+	 * @param vector Twelve finite nonnegative features in LiveBranchPolicy.fill order,
+	 * held stable by the caller during this call
+	 * @return A finite score in [0,1]; an invalid model result throws
+	 */
+	public float score(final float[] vector){return score(local.get(), vector);}
 
 	/** Immutable count moments are computed once, without a second table or read pass. */
 	private SameKJoinFeatures.Moments moments(){
@@ -90,8 +117,12 @@ final class LiveBranchGate {
 	/** Reuses the immutable population after workers join; the postpass must not reload the table. */
 	SameKJoinFeatures.Moments populationMoments(){return moments();}
 
-	/** Merges primitive worker counters only after the assembly workers have joined. */
-	long[] totals(){
+	/** Merges worker counters after the caller has joined every scoring worker.
+	 * The registry lock does not make concurrent counter writes safe to observe.
+	 * @return A new two-element array: completed eligible evaluations, then rescues;
+	 * direct score calls are excluded, and counters are not reset
+	 */
+	public long[] totals(){
 		long evaluations=0, rescues=0;
 		synchronized(states){
 			for(State state : states){evaluations+=state.evaluations; rescues+=state.rescues;}
@@ -115,13 +146,17 @@ final class LiveBranchGate {
 	/*--------------------------------------------------------------*/
 
 	/** Worker-private model arrays, reusable feature buffer and unsynchronized counters. */
-	private static final class State {
+	private static final class State{
+		/** Creates this worker's dense inference copy with private arrays and normalization. */
 		State(final CellNet prototype){
 			net=prototype.copyDenseForInference();
 			net.simdFF=false;
 		}
+		/** Private inference copy; per-network batched SIMD is disabled. */
 		final CellNet net;
+		/** Reused live-branch feature vector, distinct from the network's input scratch. */
 		final float[] vector=new float[12];
+		/** This worker's scored and accepted eligible routes; merged only after joining. */
 		long evaluations, rescues;
 	}
 
@@ -129,13 +164,21 @@ final class LiveBranchGate {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Borrowed assembler for lazy population scanning; null with supplied test moments. */
 	private final Tadpole tad;
+	/** Stable source for per-worker inference copies; never scored directly here. */
 	private final CellNet prototype;
+	/** Word length and minimum extension count used by the fixed eligibility policy. */
 	private final int k, minExtend;
+	/** Inclusive model-score acceptance boundary. */
 	private final float cutoff;
+	/** Published once after lazy accumulation, or borrowed unchanged from the constructor. */
 	private volatile SameKJoinFeatures.Moments moments;
+	/** Lazy scan duration in nanoseconds; zero when moments were supplied. */
 	private long momentNanos;
+	/** Synchronized worker registry; counter reads additionally require completed workers. */
 	private final ArrayList<State> states=new ArrayList<State>();
+	/** Allocates one private model/vector/counter set on each worker's first scoring use. */
 	private final ThreadLocal<State> local=new ThreadLocal<State>(){
 		@Override protected State initialValue(){
 			final State state=new State(prototype);

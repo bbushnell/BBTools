@@ -367,13 +367,13 @@ runQuietMultiGraphTest(){
 }
 
 resolveSymlinks
-runTest assemble.BubblePopperUnitTest
-runTest assemble.PathPreservingBubbleSimplifierSpec
-runTest assemble.ReadThreadedXResolverUnitTest
-runTest assemble.CrossKTipOverlapperUnitTest
-runTest assemble.SimpleOmnitigExtractorUnitTest
-runTest assemble.TadpoleMultiUnitTest
-runTest assemble.ContigGraphClassifierUnitTest
+runTest test.assemble.BubblePopperUnitTest
+runTest test.assemble.PathPreservingBubbleSimplifierSpec
+runTest test.assemble.ReadThreadedXResolverUnitTest
+runTest test.assemble.CrossKTipOverlapperUnitTest
+runTest test.assemble.SimpleOmnitigExtractorUnitTest
+runTest test.assemble.TadpoleMultiUnitTest
+runTest test.assemble.ContigGraphClassifierUnitTest
 runCrossKLeftBridgeTest
 runLongKBridgeEligibilityTest
 runLongKBridgeResolutionTest

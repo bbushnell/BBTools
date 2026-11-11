@@ -11,9 +11,10 @@ import structures.IntList;
  * One instance belongs to one worker; the lookup must not retain or change its Kmer.
  * @author Fischl
  */
-final class HomopolymerIndelProposal {
+public final class HomopolymerIndelProposal{
 
-	interface CountLookup {
+	/** Borrowed immutable table access using this worker's reusable query word. */
+	public interface CountLookup{
 		/**
 		 * Return accumulated depth, or -1 for an absent key, without changing the
 		 * table or the query's sequence arrays. Use the TABLE's canonicalization
@@ -25,24 +26,39 @@ final class HomopolymerIndelProposal {
 		int count(Kmer key);
 	}
 
-	enum Status { NOT_EVALUATED, NOT_A_RUN, EDGE, UNOBSERVABLE, UNDEFINED,
-		ORIGINAL_SUPPORTED, NO_SUPPORTED_ALTERNATIVE, AMBIGUOUS, PROPOSED, UNSUPPORTED_ACTION, COMPETING_INSERTION, COMPETING_DELETION }
+	/** Outcome of the latest proposal attempt; rejection reasons do not classify truth. */
+	enum Status{NOT_EVALUATED, NOT_A_RUN, EDGE, UNOBSERVABLE, UNDEFINED,
+		ORIGINAL_SUPPORTED, NO_SUPPORTED_ALTERNATIVE, AMBIGUOUS, PROPOSED, UNSUPPORTED_ACTION, COMPETING_INSERTION, COMPETING_DELETION}
 
+	/** Uses runs of at least two bases, without neighboring-edit competition vetoes. */
 	HomopolymerIndelProposal(final int k_, final CountLookup lookup_, final int minSupport_,
 			final int maxOriginal_, final float ratio_){
-		this(k_,lookup_,minSupport_,maxOriginal_,ratio_,false);
+		this(k_, lookup_, minSupport_, maxOriginal_, ratio_, false);
 	}
 
+	/** Optionally allows singleton extension; competing-edit vetoes remain disabled. */
 	HomopolymerIndelProposal(final int k_, final CountLookup lookup_, final int minSupport_,
 			final int maxOriginal_, final float ratio_, final boolean singletons_){
-		this(k_,lookup_,minSupport_,maxOriginal_,ratio_,singletons_,false);
+		this(k_, lookup_, minSupport_, maxOriginal_, ratio_, singletons_, false);
 	}
 
+	/** Adds optional interruption-insertion competition; adjacent-deletion vetoes remain off. */
 	HomopolymerIndelProposal(final int k_, final CountLookup lookup_, final int minSupport_,
 			final int maxOriginal_, final float ratio_, final boolean singletons_, final boolean competing_){
-		this(k_,lookup_,minSupport_,maxOriginal_,ratio_,singletons_,competing_,false);
+		this(k_, lookup_, minSupport_, maxOriginal_, ratio_, singletons_, competing_, false);
 	}
 
+	/**
+	 * Creates one worker's verifier and optional competing-profile scratch.
+	 * @param k_ Exact, unrounded table word length, at least five
+	 * @param lookup_ Immutable table access; must not retain the borrowed query word
+	 * @param minSupport_ Inclusive minimum count for every candidate-context window
+	 * @param maxOriginal_ Inclusive maximum allowed original run-spanning count
+	 * @param ratio_ Finite contrast ratio, at least one; candidate support must strictly exceed it times the original maximum
+	 * @param singletons_ Whether one-base runs may propose extension only
+	 * @param competing_ Whether supported internal non-run insertions veto extension
+	 * @param deletionCompeting_ Whether supported adjacent deletions veto shortening
+	 */
 	HomopolymerIndelProposal(final int k_, final CountLookup lookup_, final int minSupport_,
 			final int maxOriginal_, final float ratio_, final boolean singletons_, final boolean competing_, final boolean deletionCompeting_){
 		if(k_<5 || lookup_==null || minSupport_<1 || maxOriginal_<0 ||
@@ -57,9 +73,9 @@ final class HomopolymerIndelProposal {
 		singletons=singletons_;
 		key=new Kmer(k);
 		if(key.kbig!=k){throw new IllegalArgumentException("Kmer layout rounded requested k="+k+" to "+key.kbig);}
-		competitor=competing_ ? new HomopolymerInsertionEvidence(k,lookup) : null;
+		competitor=competing_ ? new HomopolymerInsertionEvidence(k, lookup) : null;
 		competingDepths=competing_ ? new IntList() : null;
-		deletionCompetitor=deletionCompeting_ ? new HomopolymerDeletionEvidence(k,lookup) : null;
+		deletionCompetitor=deletionCompeting_ ? new HomopolymerDeletionEvidence(k, lookup) : null;
 		deletionDepths=deletionCompeting_ ? new IntList() : null;
 	}
 
@@ -74,6 +90,8 @@ final class HomopolymerIndelProposal {
 	 * Every kmer in the candidate context, including two untouched kmers on each
 	 * side, must pass the support floor and contrast against ALL original kmers
 	 * spanning the run and its two distinct adjacent bases. No input bytes change.
+	 * Resets diagnostics on entry; callers must not consume a result after an exception.
+	 * @return One-base length delta, or zero when the current evidence abstains
 	 */
 	int propose(final byte[] bases, final int start, final int end){
 		status=Status.NOT_EVALUATED;
@@ -113,11 +131,11 @@ final class HomopolymerIndelProposal {
 		if(!shorter && !longer){status=Status.NO_SUPPORTED_ALTERNATIVE; return 0;}
 		// Singleton -1 remains an evidence hypothesis, never an allowed action.
 		if(run==1 && shorter){status=Status.UNSUPPORTED_ACTION; return 0;}
-		if(shorter && deletionCompetitor!=null && competingDeletion(bases,start,end)){
-			status=Status.COMPETING_DELETION;return 0;
+		if(shorter && deletionCompetitor!=null && competingDeletion(bases, start, end)){
+			status=Status.COMPETING_DELETION; return 0;
 		}
-		if(longer && competitor!=null && competingInsertion(bases,start,end)){
-			status=Status.COMPETING_INSERTION;return 0;
+		if(longer && competitor!=null && competingInsertion(bases, start, end)){
+			status=Status.COMPETING_INSERTION; return 0;
 		}
 		status=Status.PROPOSED;
 		return shorter ? -1 : 1;
@@ -126,13 +144,13 @@ final class HomopolymerIndelProposal {
 	/** A nearby non-HP insertion can mimic an extra run base in pooled repeat counts.
 	 * Compare both adjacent deletions in the same original span; abstain only.
 	 * Vetoing a proposal may release other batch edits, so validate whole reads. */
-	private boolean competingDeletion(final byte[] bases,final int start,final int end){
+	private boolean competingDeletion(final byte[] bases, final int start, final int end){
 		assert(end-start>=2 && supported(shorterMin) && bases[start-1]!=bases[start] && bases[end]!=bases[start]) :
 			"Only an observable maximal run with an accepted HP-1 hypothesis reaches adjacent-deletion evidence.";
-		deletionCompetitor.profile(bases,start-k-1,end+k+1,start-1,deletionDepths);
-		leftDeletionMin=deletionCompetitor.minimum;queries+=deletionDepths.size;
-		deletionCompetitor.profile(bases,start-k-1,end+k+1,end,deletionDepths);
-		rightDeletionMin=deletionCompetitor.minimum;queries+=deletionDepths.size;
+		deletionCompetitor.profile(bases, start-k-1, end+k+1, start-1, deletionDepths);
+		leftDeletionMin=deletionCompetitor.minimum; queries+=deletionDepths.size;
+		deletionCompetitor.profile(bases, start-k-1, end+k+1, end, deletionDepths);
+		rightDeletionMin=deletionCompetitor.minimum; queries+=deletionDepths.size;
 		return supported(leftDeletionMin) || supported(rightDeletionMin);
 	}
 
@@ -148,10 +166,10 @@ final class HomopolymerIndelProposal {
 	private boolean competingInsertion(final byte[] bases, final int start, final int end){
 		assert(competitor!=null && competingDepths!=null && supported(longerMin)) :
 			"Competing insertion checks only follow a supported HP extension and require worker-local scratch.";
-		for(int gap=start+1;gap<end;gap++){
-			for(byte base:ALPHABET){
+		for(int gap=start+1; gap<end; gap++){
+			for(byte base : ALPHABET){
 				if(base==bases[start]){continue;}
-				competitor.profile(bases,start-k-1,end+k+1,gap,base,competingDepths);
+				competitor.profile(bases, start-k-1, end+k+1, gap, base, competingDepths);
 				queries+=competingDepths.size;
 				if(supported(competitor.minimum)){return true;}
 			}
@@ -159,7 +177,11 @@ final class HomopolymerIndelProposal {
 		return false;
 	}
 
-	/** Stream a virtual edited context; no candidate arrays or per-window allocations. */
+	/** Streams a virtual edited context without candidate arrays or per-window allocations.
+	 * Original scoring takes the maximum over windows spanning the run and both
+	 * neighbors; candidate scoring takes the minimum over the entire context.
+	 * Singleton original scoring may stop early once support already rules out an edit.
+	 * Updates query counts and marks originalComplete only after a full original scan. */
 	private int score(final byte[] bases, final int from, final int run, final int delta,
 			final boolean original){
 		assert(delta>=-1 && delta<=1 && (!original || delta==0)) :
@@ -190,27 +212,42 @@ final class HomopolymerIndelProposal {
 		return score;
 	}
 
+	/** Requires the absolute floor and strict contrast against the current original maximum. */
 	private boolean supported(final int depth){
 		assert(originalMax>=0) : "Candidate contrast requires the original run-spanning profile first.";
 		return depth>=minSupport && depth>originalMax*ratio;
 	}
 
+	/** Accepts only uppercase DNA bases in the full verification context. */
 	private static boolean defined(final byte b){return b=='A' || b=='C' || b=='G' || b=='T';}
 
+	/** Last proposal outcome, reset before validating each new request. */
 	Status status=Status.NOT_EVALUATED;
 	/** False means originalMax may be only a lower bound (or not evaluated).
 	 * Emitted proposals always have a complete original profile. */
 	boolean originalComplete=false;
+	/** Original maximum and candidate minima (-1 until measured), plus lookups in this call. */
 	int originalMax=-1, shorterMin=-1, longerMin=-1, queries=0;
-	int leftDeletionMin=-1,rightDeletionMin=-1;
+	/** Minima for deleting either adjacent flank base; -1 until the competition check runs. */
+	int leftDeletionMin=-1, rightDeletionMin=-1;
+	/** Exact word length, candidate support floor and original support ceiling. */
 	private final int k, minSupport, maxOriginal;
+	/** Strict multiplicative contrast threshold applied to the original maximum. */
 	private final float ratio;
+	/** Whether a length-one run may propose +1; deletion remains evidence only. */
 	private final boolean singletons;
+	/** Immutable borrowed table access shared with optional competing-profile helpers. */
 	private final CountLookup lookup;
+	/** Reused rolling query word; never retained by the lookup. */
 	private final Kmer key;
+	/** Optional internal interruption-insertion profiler; null when disabled. */
 	private final HomopolymerInsertionEvidence competitor;
+	/** Worker-owned insertion-profile buffer, allocated only with competitor. */
 	private final IntList competingDepths;
+	/** Optional adjacent-base deletion profiler; null when disabled. */
 	private final HomopolymerDeletionEvidence deletionCompetitor;
+	/** Worker-owned deletion-profile buffer, allocated only with deletionCompetitor. */
 	private final IntList deletionDepths;
-	private static final byte[] ALPHABET={'A','C','G','T'};
+	/** Defined insertion alternatives in deterministic A/C/G/T order. */
+	private static final byte[] ALPHABET={'A', 'C', 'G', 'T'};
 }

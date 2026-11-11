@@ -15,16 +15,39 @@ import structures.IntList;
  * unitigs in that graph are simple omnitigs in the underlying compacted assembly
  * graph: shared sequence may occur in multiple output walks, but no traversal ever
  * chooses a pairing across a branch.
+ * One instance supports one extraction pass and is not thread-safe. The graph is
+ * borrowed and must remain unchanged during extraction; outputs are new contigs
+ * with new base arrays. Traversal state and statistics are retained after the pass.
  *
  * @author Noelle
  */
-class SimpleOmnitigExtractor {
+public class SimpleOmnitigExtractor{
 
-	SimpleOmnitigExtractor(ArrayList<Contig> contigs_, int k_){
+	/*--------------------------------------------------------------*/
+	/*----------------        Initialization        ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/**
+	 * Creates a single-use extractor with no nonredundant path-cover length threshold.
+	 *
+	 * @param contigs_ borrowed graph whose contig ids match list order
+	 * @param k_ graph k-mer length and default overlap for graph edges without explicit overlap
+	 */
+	public SimpleOmnitigExtractor(ArrayList<Contig> contigs_, int k_){
 		this(contigs_, k_, 1);
 	}
 
-	SimpleOmnitigExtractor(ArrayList<Contig> contigs_, int k_, int minAnchorLen_){
+	/**
+	 * Creates a single-use extractor for one graph.
+	 * Extraction validates positive K, nonnull unused/unassociated contigs with
+	 * ids matching list indices, lengths at least K, and structurally valid edges.
+	 * The constructor allocates traversal arrays but does not validate those entries.
+	 *
+	 * @param contigs_ borrowed graph whose contig ids match list order
+	 * @param k_ graph k-mer length and default overlap for graph edges without explicit overlap
+	 * @param minAnchorLen_ anchor length used only by extractNonredundant; singletons are not filtered
+	 */
+	public SimpleOmnitigExtractor(ArrayList<Contig> contigs_, int k_, int minAnchorLen_){
 		contigs=contigs_;
 		k=k_;
 		minAnchorLen=minAnchorLen_;
@@ -32,8 +55,17 @@ class SimpleOmnitigExtractor {
 		visitStamp=new int[covered.length];
 	}
 
-	/** Returns canonical representatives of every maximal safe walk. */
-	ArrayList<Contig> extract(){
+	/*--------------------------------------------------------------*/
+	/*----------------        Maximal Walks         ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/**
+	 * Returns canonical representatives of every maximal safe walk.
+	 *
+	 * This single-use method records visited states and cumulative statistics in
+	 * this extractor; construct a fresh instance for another extraction.
+	 */
+	public ArrayList<Contig> extract(){
 		validateInput();
 		final ArrayList<Contig> output=new ArrayList<Contig>();
 		classifyEdges();
@@ -69,13 +101,19 @@ class SimpleOmnitigExtractor {
 		return output;
 	}
 
+	/*--------------------------------------------------------------*/
+	/*----------------          Path Cover          ----------------*/
+	/*--------------------------------------------------------------*/
+
 	/**
 	 * Returns a deterministic copy-aware path cover of the usable graph.
 	 * Ordinary contigs occur once.  A clean 2-by-2 X center occurs twice, once
 	 * for each edge on one selected boundary; the opposite boundary remains
-	 * unresolved so no left-to-right pairing is invented.
+	 * unresolved so no left-to-right pairing is invented.  This single-use
+	 * method consumes the extractor state; construct a fresh instance for another
+	 * extraction.
 	 */
-	ArrayList<Contig> extractNonredundant(){
+	public ArrayList<Contig> extractNonredundant(){
 		validateInput();
 		classifyEdges();
 		final int statesCount=covered.length;
@@ -168,6 +206,10 @@ class SimpleOmnitigExtractor {
 		return output;
 	}
 
+	/*--------------------------------------------------------------*/
+	/*----------------        Graph Planning        ----------------*/
+	/*--------------------------------------------------------------*/
+
 	/** Both X-fan products must contain sequence that was independently output-worthy. */
 	private boolean fanHasOutputAnchor(final int center, final int a, final int b){
 		return contigs.get(center).length()>=minAnchorLen
@@ -191,6 +233,7 @@ class SimpleOmnitigExtractor {
 		selectedJoins-=smallOnlyJoinsDiscarded;
 	}
 
+	/** Selects and sorts one preferred side for each eligible two-in/two-out X center. */
 	private ArrayList<XFanPlan> makeXFanPlans(final int[] degree){
 		final ArrayList<XFanPlan> plans=new ArrayList<XFanPlan>();
 		for(Contig c : contigs){
@@ -204,6 +247,7 @@ class SimpleOmnitigExtractor {
 		return plans;
 	}
 
+	/** Returns exactly two usable exits with distinct non-self destinations, or null. */
 	private XFanPlan makeXFanPlan(final int state){
 		final Edge[] edges=new Edge[2];
 		int size=0;
@@ -220,6 +264,11 @@ class SimpleOmnitigExtractor {
 		return new XFanPlan(state, edges, contigs);
 	}
 
+	/*--------------------------------------------------------------*/
+	/*----------------        Product Emission      ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Emits one accepted X-fan path and updates walk/base counters; the caller counts duplicated centers. */
 	private void emitFanPath(final int state, final Edge edge, final ArrayList<Contig> output){
 		states.clear();
 		pathEdges.clear();
@@ -238,6 +287,7 @@ class SimpleOmnitigExtractor {
 		outputBases+=bases.length;
 	}
 
+	/** Counts every unusable exactness or reciprocity failure in the oriented graph. */
 	private void classifyEdges(){
 		for(int state=0; state<covered.length; state++){
 			final ArrayList<Edge> edges=outEdges(state);
@@ -250,6 +300,7 @@ class SimpleOmnitigExtractor {
 		}
 	}
 
+	/** Emits one selected nonredundant path from its uncovered terminal state. */
 	private void emitSelectedPath(final int start, final Edge[] selectedOut, final boolean[] used,
 			final ArrayList<Contig> output){
 		states.clear();
@@ -290,6 +341,7 @@ class SimpleOmnitigExtractor {
 		}
 	}
 
+	/** Emits one maximal topology-safe walk from a non-1-in/1-out seed arc. */
 	private void emitWalk(final int start, final Edge first, final ArrayList<Contig> output){
 		states.clear();
 		pathEdges.clear();
@@ -325,6 +377,7 @@ class SimpleOmnitigExtractor {
 		outputBases+=bases.length;
 	}
 
+	/** Reconstructs bases for the currently buffered oriented states and edges. */
 	private byte[] makeSequence(){
 		bb.clear();
 		appendContig(bb, states.get(0), 0);
@@ -357,6 +410,7 @@ class SimpleOmnitigExtractor {
 		}
 	}
 
+	/** Creates an output contig with coverage and terminal metadata from the buffered path. */
 	private Contig makeContig(final byte[] bases){
 		final Contig out=new Contig(bases, -1);
 		double coverageSum=0;
@@ -393,6 +447,7 @@ class SimpleOmnitigExtractor {
 		return out;
 	}
 
+	/** Emits one isolated or preserved-cycle contig in canonical orientation. */
 	private void emitSingleton(final Contig source, final ArrayList<Contig> output){
 		final byte[] bases=source.bases.clone();
 		final Contig out;
@@ -406,6 +461,7 @@ class SimpleOmnitigExtractor {
 		outputBases+=out.length();
 	}
 
+	/** Uses the supplied base array and copies coverage plus strand-adjusted terminal metadata. */
 	private static Contig copySingleton(final Contig source, final byte[] bases, final boolean reverse){
 		final Contig out=new Contig(bases, -1);
 		out.coverage=source.coverage;
@@ -422,6 +478,7 @@ class SimpleOmnitigExtractor {
 		return out;
 	}
 
+	/** Appends an oriented contig, skipping already represented leading overlap. */
 	private void appendContig(final ByteBuilder builder, final int state, final int skip){
 		final Contig c=contig(state);
 		if(skip<0 || skip>c.length()){
@@ -437,6 +494,11 @@ class SimpleOmnitigExtractor {
 		}
 	}
 
+	/*--------------------------------------------------------------*/
+	/*----------------          Validation          ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Verifies the borrowed graph can be traversed by id-indexed oriented states. */
 	private void validateInput(){
 		if(k<1){throw new IllegalArgumentException("Simple-omnitig k must be positive: "+k);}
 		for(int i=0; i<contigs.size(); i++){
@@ -449,6 +511,7 @@ class SimpleOmnitigExtractor {
 		}
 	}
 
+	/** Verifies stored edges leave the expected source side and point inside the graph. */
 	private void validateEdges(final Contig source, final ArrayList<Edge> edges, final boolean right){
 		if(edges==null){return;}
 		for(Edge edge : edges){
@@ -461,6 +524,7 @@ class SimpleOmnitigExtractor {
 		}
 	}
 
+	/** Verifies one selected edge is legal and sequence-compatible in this orientation. */
 	private void validateEdge(final int state, final Edge edge){
 		if(edge.origin!=contig(state).id || edge.sourceRight()==reverse(state)){
 			throw new IllegalStateException("Edge is inconsistent with oriented omnitig state "+state+": "+edge);
@@ -475,6 +539,10 @@ class SimpleOmnitigExtractor {
 			throw new IllegalStateException("Omnitig attempted an inexact graph edge from state "+state+": "+edge);
 		}
 	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Oriented Graph        ----------------*/
+	/*--------------------------------------------------------------*/
 
 	/** Returns true only when an edge spells an exact linear join in this orientation. */
 	private boolean joinCompatible(final int state, final Edge edge){
@@ -506,6 +574,7 @@ class SimpleOmnitigExtractor {
 		return joinCompatible(state, edge) && reciprocalEdge(state, edge)!=null;
 	}
 
+	/** Returns the exact reverse traversal of an oriented edge, or null when absent. */
 	private Edge reciprocalEdge(final int state, final Edge edge){
 		final int reverseState=destinationState(edge)^1;
 		final ArrayList<Edge> reverseEdges=outEdges(reverseState);
@@ -523,18 +592,22 @@ class SimpleOmnitigExtractor {
 		return null;
 	}
 
+	/** Returns one novel payload base in traversal orientation. */
 	private static byte orientedNovelBase(final Edge edge, final int state, final int pos){
 		return edge.traversalBase(pos);
 	}
 
+	/** Returns one contig base in the orientation encoded by a state. */
 	private static byte orientedBase(final Contig c, final int state, final int pos){
 		return reverse(state) ? AminoAcid.baseToComplementExtended[c.bases[c.length()-1-pos]] : c.bases[pos];
 	}
 
+	/** Returns usable incoming degree for an oriented state. */
 	private int inDegree(final int state){
 		return outDegree(state^1);
 	}
 
+	/** Returns usable outgoing degree for an oriented state. */
 	private int outDegree(final int state){
 		final ArrayList<Edge> edges=outEdges(state);
 		if(edges==null){return 0;}
@@ -543,21 +616,31 @@ class SimpleOmnitigExtractor {
 		return count;
 	}
 
+	/** Returns the first usable exit; callers establish that the state has exactly one. */
 	private Edge firstUsableOutEdge(final int state){
 		final ArrayList<Edge> edges=outEdges(state);
 		if(edges!=null){for(Edge edge : edges){if(usableEdge(state, edge)){return edge;}}}
 		throw new IllegalStateException("No usable edge from 1-out omnitig state "+state);
 	}
 
+	/** Returns the edge list leaving an oriented state. */
 	private ArrayList<Edge> outEdges(final int state){
 		final Contig c=contig(state);
 		return reverse(state) ? c.leftEdges : c.rightEdges;
 	}
 
+	/** Returns the contig for an oriented state. */
 	private Contig contig(final int state){return contigs.get(state>>>1);}
+	/** Returns true when a state traverses its contig in reverse-complement orientation. */
 	private static boolean reverse(final int state){return (state&1)!=0;}
+	/** Returns the oriented destination state reached by an edge. */
 	private static int destinationState(final Edge edge){return (edge.destination<<1)|(edge.destRight() ? 1 : 0);}
 
+	/*--------------------------------------------------------------*/
+	/*----------------           Utilities          ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Advances the traversal stamp, clearing old stamps when it wraps to zero. */
 	private int nextStamp(){
 		if(++stamp==0){
 			for(int i=0; i<visitStamp.length; i++){visitStamp[i]=0;}
@@ -566,6 +649,7 @@ class SimpleOmnitigExtractor {
 		return stamp;
 	}
 
+	/** Orders a buffered walk against the same physical walk seeded from the reverse end. */
 	private int comparePathToReverseTwin(){
 		for(int i=0, j=states.size-1; i<states.size; i++, j--){
 			final int a=states.get(i), b=states.get(j)^1;
@@ -574,6 +658,7 @@ class SimpleOmnitigExtractor {
 		return 0;
 	}
 
+	/** Compares a base array lexicographically to its reverse complement. */
 	private static int compareToReverseComplement(final byte[] bases){
 		for(int i=0, j=bases.length-1; i<bases.length; i++, j--){
 			final int a=bases[i]&0xFF;
@@ -583,6 +668,7 @@ class SimpleOmnitigExtractor {
 		return 0;
 	}
 
+	/** Reverse-complements a base array in place. */
 	private static void reverseComplement(final byte[] bases){
 		for(int i=0, j=bases.length-1; i<=j; i++, j--){
 			final byte a=AminoAcid.baseToComplementExtended[bases[j]];
@@ -592,8 +678,14 @@ class SimpleOmnitigExtractor {
 		}
 	}
 
-	private static class PathCandidate implements Comparable<PathCandidate> {
+	/*--------------------------------------------------------------*/
+	/*----------------         Inner Classes        ----------------*/
+	/*--------------------------------------------------------------*/
 
+	/** Pair of reciprocal arcs considered as one undirected path-cover join. */
+	private static class PathCandidate implements Comparable<PathCandidate>{
+
+		/** Borrows reciprocal edges and snapshots the keys used for deterministic join priority. */
 		PathCandidate(final int state_, final Edge edge_, final int reverseState_, final Edge reverseEdge_,
 				final int ambiguity_, final int minLength_){
 			state=state_;
@@ -605,6 +697,7 @@ class SimpleOmnitigExtractor {
 			support=Tools.min(edge.depth, reverseEdge.depth);
 		}
 
+		/** Orders joins by ambiguity, then length, support and topology for deterministic selection. */
 		@Override
 		public int compareTo(final PathCandidate b){
 			if(ambiguity!=b.ambiguity){return ambiguity<b.ambiguity ? -1 : 1;}
@@ -615,12 +708,16 @@ class SimpleOmnitigExtractor {
 			return destination==bDestination ? 0 : destination<bDestination ? -1 : 1;
 		}
 
+		/** Exit states, excess endpoint degree, shorter contig length and minimum reciprocal depth. */
 		final int state, reverseState, ambiguity, minLength, support;
+		/** Borrowed forward and reverse traversals of the same physical join. */
 		final Edge edge, reverseEdge;
 	}
 
-	private static class XFanPlan implements Comparable<XFanPlan> {
+	/** One candidate side of an X center, containing its two outgoing usable edges. */
+	private static class XFanPlan implements Comparable<XFanPlan>{
 
+		/** Borrows the two-edge array and snapshots neighbor span, depth and center length. */
 		XFanPlan(final int state_, final Edge[] edges_, final ArrayList<Contig> contigs){
 			state=state_;
 			edges=edges_;
@@ -630,6 +727,7 @@ class SimpleOmnitigExtractor {
 			support=(long)edges[0].depth+edges[1].depth;
 		}
 
+		/** Orders X centers by flank span, support, center length and state. */
 		@Override
 		public int compareTo(final XFanPlan b){
 			if(neighborLength!=b.neighborLength){return neighborLength>b.neighborLength ? -1 : 1;}
@@ -638,19 +736,25 @@ class SimpleOmnitigExtractor {
 			return state==b.state ? 0 : state<b.state ? -1 : 1;
 		}
 
+		/** Oriented center state and its contig length. */
 		final int state, centerLength;
+		/** Sum of the two neighbor lengths and outgoing edge depths. */
 		final long neighborLength, support;
+		/** Borrowed exits from this candidate side, retaining graph-list order. */
 		final Edge[] edges;
 	}
 
-	private static class DisjointSet {
+	/** Union-find structure used to keep the nonredundant path cover acyclic. */
+	private static class DisjointSet{
 
+		/** Starts one component per contig id. */
 		DisjointSet(final int size){
 			parent=new int[size];
 			rank=new byte[size];
 			for(int i=0; i<size; i++){parent[i]=i;}
 		}
 
+		/** Returns the canonical component for a contig id. */
 		int find(int x){
 			int root=x;
 			while(parent[root]!=root){root=parent[root];}
@@ -662,6 +766,7 @@ class SimpleOmnitigExtractor {
 			return root;
 		}
 
+		/** Merges the components containing two contig ids. */
 		void union(final int a, final int b){
 			final int x=find(a), y=find(b);
 			if(x==y){return;}
@@ -672,39 +777,79 @@ class SimpleOmnitigExtractor {
 			}
 		}
 
+		/** Parent links; roots point to themselves. */
 		final int[] parent;
+		/** Union-by-rank bounds, independent of component sizes. */
 		final byte[] rank;
 	}
 
-	long inputBases(){return inputBases;}
-	long outputBases(){return outputBases;}
-	int walksEmitted(){return walksEmitted;}
-	int extendedWalks(){return extendedWalks;}
-	int preservedCycleContigs(){return preservedCycleContigs;}
-	int inexactEdges(){return inexactEdges;}
-	int nonreciprocalEdges(){return nonreciprocalEdges;}
-	int truncatedCycleWalks(){return truncatedCycleWalks;}
-	int pathCandidates(){return pathCandidates;}
-	int selectedJoins(){return selectedJoins;}
-	int pathCyclesRejected(){return pathCyclesRejected;}
-	int smallOnlyJoinsDiscarded(){return smallOnlyJoinsDiscarded;}
-	int xCentersDuplicated(){return xCentersDuplicated;}
-	int xCopiesEmitted(){return xCopiesEmitted;}
-	long xCenterBasesDuplicated(){return xCenterBasesDuplicated;}
-	long xNetBases(){return xNetBases;}
+	/*--------------------------------------------------------------*/
+	/*----------------          Statistics          ----------------*/
+	/*--------------------------------------------------------------*/
 
+	/** Returns input bases visited by this extraction. */
+	long inputBases(){return inputBases;}
+	/** Returns bases emitted by this extraction. */
+	long outputBases(){return outputBases;}
+	/** Returns the number of maximal walks or selected paths emitted. */
+	int walksEmitted(){return walksEmitted;}
+	/** Returns the number of emitted walks spanning more than one contig. */
+	public int extendedWalks(){return extendedWalks;}
+	/** Returns pure-cycle contigs preserved as singletons. */
+	public int preservedCycleContigs(){return preservedCycleContigs;}
+	/** Returns edges rejected because their sequence does not spell an exact join. */
+	public int inexactEdges(){return inexactEdges;}
+	/** Returns exact edges rejected because the reverse traversal is absent. */
+	public int nonreciprocalEdges(){return nonreciprocalEdges;}
+	/** Returns branch-seeded walks truncated before repeating a state. */
+	public int truncatedCycleWalks(){return truncatedCycleWalks;}
+	/** Returns reciprocal candidate joins considered by the path cover. */
+	int pathCandidates(){return pathCandidates;}
+	/** Returns ordinary path-cover joins retained after anchor filtering; excludes X-fan joins. */
+	public int selectedJoins(){return selectedJoins;}
+	/** Returns candidate joins rejected because they would close a path-cover cycle. */
+	int pathCyclesRejected(){return pathCyclesRejected;}
+	/** Returns selected joins discarded for lacking a long anchor. */
+	public int smallOnlyJoinsDiscarded(){return smallOnlyJoinsDiscarded;}
+	/** Returns clean X centers represented by two selected paths. */
+	public int xCentersDuplicated(){return xCentersDuplicated;}
+	/** Returns X-center copies emitted into selected paths. */
+	public int xCopiesEmitted(){return xCopiesEmitted;}
+	/** Returns raw X-center bases duplicated by selected paths. */
+	public long xCenterBasesDuplicated(){return xCenterBasesDuplicated;}
+	/** Returns net bases added by duplicating accepted X centers. */
+	public long xNetBases(){return xNetBases;}
+
+	/*--------------------------------------------------------------*/
+	/*----------------            Fields            ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Borrowed id-indexed graph; extraction reads but does not intentionally mutate it. */
 	private final ArrayList<Contig> contigs;
+	/** Graph k-mer length and minimum anchoring length for nonredundant products. */
 	private final int k, minAnchorLen;
+	/** States visited by maximal-walk processing or retained as singletons; reverse twins are marked together. */
 	private final boolean[] covered;
+	/** Traversal stamps for cycle detection without per-walk allocation. */
 	private final int[] visitStamp;
+	/** Buffered oriented states for the product currently being emitted. */
 	private final IntList states=new IntList();
+	/** Buffered edges connecting {@link #states} for the product currently being emitted. */
 	private final ArrayList<Edge> pathEdges=new ArrayList<Edge>();
+	/** Reusable base builder for output sequence reconstruction. */
 	private final ByteBuilder bb=new ByteBuilder();
+	/** Last assigned visit stamp; initially zero, which is skipped on wrap. */
 	private int stamp=0;
+	/** Maximal-walk output counters. */
 	private int walksEmitted=0, extendedWalks=0, preservedCycleContigs=0;
+	/** Rejected-edge counters. */
 	private int inexactEdges=0, nonreciprocalEdges=0;
+	/** Branch-seeded cycle truncation counter. */
 	private int truncatedCycleWalks=0;
+	/** Nonredundant path-cover candidate and selection counters. */
 	private int pathCandidates=0, selectedJoins=0, pathCyclesRejected=0, smallOnlyJoinsDiscarded=0;
+	/** Copy-aware X-center counters. */
 	private int xCentersDuplicated=0, xCopiesEmitted=0;
+	/** Base totals for input, output and accepted X-center duplication. */
 	private long inputBases=0, outputBases=0, xCenterBasesDuplicated=0, xNetBases=0;
 }

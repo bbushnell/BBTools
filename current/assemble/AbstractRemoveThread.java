@@ -14,21 +14,20 @@ import ukmer.KmerNodeU;
 import ukmer.KmerTableSetU;
 
 /**
- * Removes k-mers whose counts fall outside a specified range.
- * Base class for threaded k-mer pruning across standard and unlimited table sets.
+ * Removes k-mers with counts outside a retained inclusive range.
+ * Shared worker scaffold for standard and unlimited k-mer tables.
  * @author Brian Bushnell
  * @date Jul 20, 2015
  */
 public abstract class AbstractRemoveThread extends Thread{
 
 	/**
-	 * Creates a removal thread with bounds and shared table counter.
-	 * Initializes ID, min/max thresholds, and the atomic table index tracker.
+	 * Creates a worker sharing the caller's table counter.
 	 *
-	 * @param id_ Thread identifier
-	 * @param min_ Minimum k-mer count to retain
-	 * @param max_ Maximum k-mer count to retain
-	 * @param nextTable_ Shared atomic counter for table iteration
+	 * @param id_ worker identifier
+	 * @param min_ minimum count to retain
+	 * @param max_ maximum count to retain
+	 * @param nextTable_ shared next-table counter, initially zero
 	 */
 	public AbstractRemoveThread(int id_, int min_, int max_, AtomicInteger nextTable_){
 		id=id_;
@@ -38,16 +37,25 @@ public abstract class AbstractRemoveThread extends Thread{
 		assert(nextTable.get()==0);
 	}
 	
-	/** Executes removal across tables until none remain.
-	 * Loops calling processNextTable() until exhaustion. */
+	/**
+	 * Processes tables until the shared counter reaches the table count.
+	 * Retains any worker failure for the coordinating process() call.
+	 */
 	@Override
 	public final void run(){
-		while(processNextTable()){}
+		try{
+			while(processNextTable()){}
+		}catch(Throwable t){
+			failure=t;
+		}
 	}
 	
 	/**
-	 * Processes the next table shard for k-mer removal.
-	 * Implemented by subclasses for specific table types.
+	 * Claims and prunes one table when any remain.
+	 * Implementations exclusively mutate count storage in their claimed shard,
+	 * clear ownership state, and regenerate table metadata after zeroing all
+	 * values outside the retained count range.
+	 *
 	 * @return true if a table was processed; false when no tables remain
 	 */
 	abstract boolean processNextTable();
@@ -55,21 +63,28 @@ public abstract class AbstractRemoveThread extends Thread{
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Runs multi-threaded k-mer pruning across a table set.
-	 * Spawns worker threads (standard or unlimited), joins them, and aggregates removed counts.
+	 * Runs k-mer pruning workers across a standard or unlimited table set.
+	 * Uses {@link KmerTableSet} for that exact class and casts all other inputs to
+	 * {@link KmerTableSetU}; callers must
+	 * provide a positive worker count and must not read or mutate the table set
+	 * concurrently while workers clear ownership and regenerate processed shards.
+	 * Interrupted joins are logged and retried until each worker terminates.
 	 *
-	 * @param threads Number of worker threads
-	 * @param min Minimum count to retain
-	 * @param max Maximum count to retain
-	 * @param tables Table set to process
-	 * @param print Whether to emit timing/removal stats
-	 * @return Total k-mers removed across all tables
+	 * @param threads positive number of worker threads
+	 * @param min minimum count to retain
+	 * @param max maximum count to retain
+	 * @param tables table set to process
+	 * @param print whether to emit timing and removal statistics
+	 * @return total k-mers removed across all tables
+	 * @throws RuntimeException first worker runtime failure, after all workers join
+	 * @throws Error first worker error, after all workers join
 	 */
 	public static long process(final int threads, final int min, final int max, AbstractKmerTableSet tables, boolean print){
 		Timer t=new Timer();
 		
 		final AtomicInteger nextTable=new AtomicInteger(0);
 		long kmersRemoved=0;
+		Throwable failure=null;
 		
 		/* Create Removethreads */
 		ArrayList<AbstractRemoveThread> alpt=new ArrayList<AbstractRemoveThread>(threads);
@@ -85,17 +100,19 @@ public abstract class AbstractRemoveThread extends Thread{
 		for(AbstractRemoveThread pt : alpt){pt.start();}
 		
 		for(AbstractRemoveThread pt : alpt){
-			while(pt.getState()!=Thread.State.TERMINATED){
-				try {
+			while(true){
+				try{
 					pt.join();
-				} catch (InterruptedException e) {
-					// TODO Auto-generated catch block
+					break;
+				}catch(InterruptedException e){
 					e.printStackTrace();
 				}
 			}
 			
 			kmersRemoved+=pt.kmersRemovedT;
+			if(failure==null && pt.failure!=null){failure=pt.failure;}
 		}
+		rethrow(failure);
 
 		t.stop();
 		if(print){
@@ -105,11 +122,20 @@ public abstract class AbstractRemoveThread extends Thread{
 		
 		return kmersRemoved;
 	}
+
+	/** Throws a worker failure after all workers have joined. */
+	private static void rethrow(final Throwable failure){
+		if(failure==null){return;}
+		if(failure instanceof RuntimeException){throw (RuntimeException)failure;}
+		if(failure instanceof Error){throw (Error)failure;}
+		throw new RuntimeException(failure);
+	}
 	
 	/*--------------------------------------------------------------*/
 	
 	private static class RemoveThread1 extends AbstractRemoveThread{
 
+		/** Creates a standard-table removal worker. */
 		public RemoveThread1(int id_, int min_, int max_, AtomicInteger nextTable_, KmerTableSet tables_){
 			super(id_, min_, max_, nextTable_);
 			tables=tables_;
@@ -135,6 +161,7 @@ public abstract class AbstractRemoveThread extends Thread{
 			return true;
 		}
 		
+		/** Clears out-of-range counts from a binary-tree victim chain. */
 		private void traverseKmerNode(KmerNode kn){
 			if(kn==null){return;}
 			final int value=kn.count();
@@ -143,6 +170,7 @@ public abstract class AbstractRemoveThread extends Thread{
 			traverseKmerNode(kn.right());
 		}
 		
+		/** Concrete standard table set mutated by this worker. */
 		private final KmerTableSet tables;
 		
 	}
@@ -151,6 +179,7 @@ public abstract class AbstractRemoveThread extends Thread{
 	
 	private static class RemoveThread2 extends AbstractRemoveThread{
 
+		/** Creates an unlimited-table removal worker. */
 		public RemoveThread2(int id_, int min_, int max_, AtomicInteger nextTable_, KmerTableSetU tables_){
 			super(id_, min_, max_, nextTable_);
 			tables=tables_;
@@ -176,6 +205,7 @@ public abstract class AbstractRemoveThread extends Thread{
 			return true;
 		}
 		
+		/** Clears out-of-range counts from a binary-tree victim chain. */
 		private void traverseKmerNode(KmerNodeU kn){
 			if(kn==null){return;}
 			final int value=kn.count();
@@ -184,16 +214,20 @@ public abstract class AbstractRemoveThread extends Thread{
 			traverseKmerNode(kn.right());
 		}
 		
+		/** Concrete unlimited table set mutated by this worker. */
 		private final KmerTableSetU tables;
 		
 	}
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Number of k-mers removed by this thread. */
+	/** Number of k-mers removed by this worker. */
 	long kmersRemovedT=0;
+
+	/** Throwable raised by this worker, visible after join. */
+	Throwable failure=null;
 	
-	/** Thread identifier for coordination and logging. */
+	/** Thread identifier retained by concrete workers. */
 	final int id;
 	/** Minimum k-mer count threshold for retention. */
 	final int min;

@@ -13,18 +13,26 @@ import shared.Shared;
 import shared.Tools;
 
 /**
- * Development-only multi-K comparison with optional initial live and postpass rescue.
- * All arms retain formed short contigs and run the same ordinary graph cleanup.
- * Neither network observes truth, later-K tables, or filtered FASTA intermediates.
+ * Runs the development-only multi-K comparison with optional learned rescue on
+ * the first assembly arm.
+ * <p>
+ * The initial live branch gate runs while the seed k-mer table is still owned by
+ * the initial {@link Tadpole} instance.  The optional postpass rescue transforms
+ * the initial raw contigs before ordinary graph cleanup and later-K table
+ * construction.  All arms retain formed short contigs and use the same cleanup
+ * order, so neither network observes truth labels, later-K tables or filtered
+ * FASTA intermediates.
  * @author Fischl
  */
-public final class MultiKBranchRescue implements TadpoleMulti.InitialAssembly {
+public final class MultiKBranchRescue implements TadpoleMulti.InitialAssembly{
 
 	/*--------------------------------------------------------------*/
 	/*----------------             Main             ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Expands standard configuration files before selecting the two optional bindings. */
+	/** Expands standard configuration files before selecting the two optional bindings.
+	 * @param args command line arguments
+	 */
 	public static void main(final String[] args){
 		final PreParser pp=new PreParser(args, MultiKBranchRescue.class, false);
 		try{new MultiKBranchRescue(pp.args).run();}
@@ -35,8 +43,16 @@ public final class MultiKBranchRescue implements TadpoleMulti.InitialAssembly {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Leaves downstream assembly knobs visible while protecting raw-model assumptions. */
-	MultiKBranchRescue(final String[] args){
+	/**
+	 * Parses experiment-specific model bindings, then forwards the remaining
+	 * arguments into the ordinary multi-K configuration.
+	 * <p>
+	 * The constructor owns output-mode and cleanup-order switches that would make
+	 * the raw neural-model comparison ambiguous, but leaves ordinary Tadpole and
+	 * TadpoleMulti assembly knobs visible for paired fixture recipes.
+	 * @param args command line arguments after {@link PreParser} expansion
+	 */
+	public MultiKBranchRescue(final String[] args){
 		if(args==null){throw new IllegalArgumentException("Expected reads, out=FASTA and a multi-K schedule.");}
 		final ArrayList<String> nativeArgs=new ArrayList<String>(Arrays.asList(
 				"retainshortcontigs=t", "trimends=0", "trimcircular=f", "simdfma=f"));
@@ -90,7 +106,11 @@ public final class MultiKBranchRescue implements TadpoleMulti.InitialAssembly {
 		}
 	}
 
-	/** Requires explicit paired bindings; reject a cutoff without its corresponding model. */
+	/** Requires a model and a finite cutoff to appear as a pair.
+	 * @param model model path, or {@code null} when this rescue stage is disabled
+	 * @param cutoff inclusive probability cutoff for the model
+	 * @param name stage name used in error messages
+	 */
 	private static void validateBinding(final String model, final float cutoff, final String name){
 		if(model==null ? !Float.isNaN(cutoff) : model.isEmpty() || !Float.isFinite(cutoff) || cutoff<0 || cutoff>1){
 			throw new IllegalArgumentException(name+"net and "+name+"cutoff in[0,1] must be specified together.");
@@ -101,7 +121,13 @@ public final class MultiKBranchRescue implements TadpoleMulti.InitialAssembly {
 	/*----------------           Methods            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Restores the caller's policy even if initial assembly fails before finish() runs. */
+	/**
+	 * Executes the multi-K run while preserving the process-wide direct graph
+	 * gates that the initial assembly temporarily overrides.
+	 * <p>
+	 * Concurrent invocations in the same JVM are unsupported because those gates
+	 * are static {@link BubblePopper} hooks.
+	 */
 	private void run(){
 		previousCoverageGate=BubblePopper.directCoverageGate;
 		previousBranchGate=BubblePopper.directBranchGate;
@@ -112,7 +138,17 @@ public final class MultiKBranchRescue implements TadpoleMulti.InitialAssembly {
 		}
 	}
 
-	/** Validates all paths and raw-unitig invariants before any reads or writers open. */
+	/**
+	 * Validates raw-unitig invariants, installs the initial hooks and binds all
+	 * rescue models before assembly read streams or output writers open.
+	 * <p>
+	 * Only the initial assembly table may own these hooks.  The live branch gate
+	 * must see the initial table's k-mers and ownership bits directly, while the
+	 * postpass transform must receive the same raw contig list immediately before
+	 * ordinary graph cleanup prepares contigs for the later-K schedule.
+	 * @param tad initial Tadpole instance that owns the seed table
+	 * @param schedule multi-K configuration that created this callback
+	 */
 	@Override
 	public void prepare(final Tadpole tad, final TadpoleMulti.Config schedule){
 		assert(schedule==config && tad!=null) : "This binding belongs only to this schedule's initial assembler.";
@@ -160,7 +196,16 @@ public final class MultiKBranchRescue implements TadpoleMulti.InitialAssembly {
 		if(initialBranchGate!=null){Tadpole.outstream.println("MULTIK_INITIAL_BRANCH_BINDING enabled=true");}
 	}
 
-	/** Reports encounter counters after workers join, before the initial table is released. */
+	/**
+	 * Reports learned-gate counters after the initial process2 cleanup completes
+	 * and before the initial table is released for the later-K arms.
+	 * <p>
+	 * Initial direct graph gates are restored here as soon as their protected
+	 * cleanup has finished.  {@link #run()} repeats the same restoration in a
+	 * {@code finally} block so aborted runs also leave the process-wide gates as
+	 * they were before this experiment started.
+	 * @param tad initial Tadpole instance that has just finished cleanup
+	 */
 	@Override
 	public void finish(final Tadpole tad){
 		assert(tad!=null && tad.k()==config.assembleK) : "Only the initial assembly may report live rescue counters.";
@@ -188,12 +233,20 @@ public final class MultiKBranchRescue implements TadpoleMulti.InitialAssembly {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Frozen multi-K schedule after private experiment arguments are removed. */
 	private final TadpoleMulti.Config config;
+	/** Maximum high/low coverage ratio for optional initial bubble popping, or zero. */
 	private final float initialCoverageRatio;
+	/** True when initial graph cleanup rejects branch-conflicting merges. */
 	private final boolean initialBranchGuard;
+	/** Active and saved initial-coverage gates for process-wide BubblePopper state. */
 	private BubblePopper.CoverageGate initialCoverageGate, previousCoverageGate;
+	/** Active and saved initial-branch gates for process-wide BubblePopper state. */
 	private GraphBranchGate initialBranchGate, previousBranchGate;
+	/** Optional neural model paths for initial live rescue and raw-contig postpass rescue. */
 	private String liveModel, postModel;
+	/** Inclusive cutoffs paired with {@link #liveModel} and {@link #postModel}. */
 	private float liveCutoff=Float.NaN, postCutoff=Float.NaN;
+	/** Installed live gate, retained only long enough to report encounter counts. */
 	private LiveBranchGate live;
 }

@@ -19,9 +19,12 @@ import structures.ByteBuilder;
  * Audits saved same-K candidate provenance without loading reads or reference.
  * Original walk stop codes and freshly queried endpoint junction flags remain
  * separate: a backward/hidden branch can stop before the next base is appended.
+ * This audit checks paired schema/event/K consistency and groups saved labels;
+ * it does not recompute reference truth, endpoint sequences or read-count evidence.
+ * Output contains only observed code/flag/label groups, in fixed numeric order.
  * @author Fischl
  */
-public final class SameKJoinAudit {
+public final class SameKJoinAudit{
 
 	/*--------------------------------------------------------------*/
 	/*----------------             Main             ----------------*/
@@ -38,7 +41,12 @@ public final class SameKJoinAudit {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Requires original candidate and label files and one new audit output. */
+	/**
+	 * Requires distinct readable candidate/label inputs and one new output, with no paired
+	 * input/output binding. Alias and overwrite checks precede the streaming audit.
+	 * @param args Preparser-expanded options: in=candidates, labels=table and out=audit
+	 * @param outstream_ Borrowed diagnostics, closed by main when owned
+	 */
 	private SameKJoinAudit(final String[] args, final PrintStream outstream_){
 		outstream=outstream_;
 		final Parser parser=new Parser();
@@ -64,11 +72,31 @@ public final class SameKJoinAudit {
 	/*----------------           Methods            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Counts source/destination provenance in lockstep, without changing any labels. */
+	/**
+	 * Counts saved provenance in lockstep without changing labels. Requires consecutive
+	 * one-based event IDs and a common K across both tables, plus consistent label/target pairs.
+	 * Other candidate evidence and reference-provenance fields are not validated here.
+	 * Both inputs must finish and close successfully before opening the audit output.
+	 * An empty matched census writes only the output header, with zero summary counts.
+	 * A failed label-reader acquisition closes the already-open candidate reader,
+	 * retaining the original failure and suppressing cleanup failures.
+	 */
 	private void run(){
 		assert(input!=null && labels!=null) : "Every census row must retain its original paired truth record.";
 		final long[] counts=new long[ShaveObject.MAX_CODE*ShaveObject.MAX_CODE*4*3];
-		final ByteFile cf=ByteFile.makeByteFile(input, true), lf=ByteFile.makeByteFile(labels, true);
+		final ByteFile cf=ByteFile.makeByteFile(input, true);
+		final ByteFile lf;
+		try{lf=ByteFile.makeByteFile(labels, true);}
+		catch(RuntimeException|Error failure){
+			try{
+				if(cf.close()){
+					failure.addSuppressed(new IllegalStateException("Candidate reader cleanup failed: "+input));
+				}
+			}catch(RuntimeException|Error cleanup){
+				if(cleanup!=failure){failure.addSuppressed(cleanup);}
+			}
+			throw failure;
+		}
 		final LineParser1 cp=new LineParser1('\t'), lp=new LineParser1('\t');
 		int event=0, k=0;
 		long recordedBranch=0, neitherFlag=0, branchWithoutFlag=0, ownership=0;
@@ -108,7 +136,14 @@ public final class SameKJoinAudit {
 				" neither_endpoint_junction="+neitherFlag+" branch_without_endpoint_junction="+branchWithoutFlag+" ownership="+ownership);
 	}
 
-	/** Writes sparse observed groups while verifying exact count conservation. */
+	/**
+	 * Writes nonzero groups in source-code, destination-code, source-flag, destination-flag,
+	 * label order, and verifies their sum against the consumed event count. A failure can leave
+	 * partial output. Displayed branch summaries refer to original stop-code bits, not fresh flags.
+	 * @param counts Fixed-width provenance bins
+	 * @param k Common input K, or zero for an empty census that emits no group rows
+	 * @param expected Number of paired events consumed
+	 */
 	private void write(final long[] counts, final int k, final int expected){
 		assert(counts.length==ShaveObject.MAX_CODE*ShaveObject.MAX_CODE*12) : "One bin per code pair, flag pair and truth class.";
 		final ByteStreamWriter writer=new ByteStreamWriter(output, false, false, false);
@@ -156,8 +191,12 @@ public final class SameKJoinAudit {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Borrowed destination for final audit counts. */
 	private final PrintStream outstream;
+	/** Candidate census, paired labels and sparse grouped-output paths. */
 	private String input, labels, output;
+	/** Parallel label/target meanings and deterministic label-bin order. */
 	private static final String[] LABELS={"supported", "contradicted", "unresolved"}, TARGETS={"1", "0", "NA"};
+	/** Exact paired label schema; grouping does not revalidate every reference field. */
 	private static final String LABEL_HEADER="event\tk\tlabel\ttarget\twhole_hits\tleft_hits\tright_hits\tsource_hits\tsource_unknown\tsource_left_mask\tsource_right_mask\tsource_pair_mask\tdest_hits\tdest_unknown\tdest_left_mask\tdest_right_mask\tdest_pair_mask";
 }

@@ -8,9 +8,13 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Random;
 
-/** Native CLI tests for scaffold defaults, publication and input preservation.
+/**
+ * Native CLI tests for scaffold defaults, publication and input preservation.
+ * Standalone gap spelling has literal expected sequences; single/multi-K cases
+ * check a minimum published length and retained-evidence diagnostic, not exact
+ * assembly structure. Temporary data and child logs remain available afterward.
  * @author Brian Bushnell, Fischl */
-public final class TadpoleScaffoldTest {
+public final class TadpoleScaffoldTest{
 
 	/** All generated data are tiny deterministic fixtures, not benchmark libraries. */
 	public static void main(final String[] args) throws Exception{
@@ -20,7 +24,8 @@ public final class TadpoleScaffoldTest {
 		System.out.println("TADPOLE_SCAFFOLD_PASS checks="+checks+" dir="+test.root);
 	}
 
-	/** Creates one repeat-free fixture and three independent supporting records. */
+	/** Creates a seeded sequence, three identical supporting reads and two separated
+	 * contig slices. Random generation does not guarantee absence of repeats. */
 	private TadpoleScaffoldTest(final Path code_) throws Exception{
 		code=code_;
 		root=Files.createTempDirectory("tadpole-scaffold-test-");
@@ -66,7 +71,8 @@ public final class TadpoleScaffoldTest {
 		check(!Files.exists(root.resolve("invalid.fa")), "Scaffolding must reject incompatible modes before writing output.");
 	}
 
-	/** Executes the shipped shell launcher in a fresh process and retains diagnostics. */
+	/** Executes the shipped shell launcher in a fresh process and retains diagnostics.
+	 * Negative cases accept any nonzero exit; separate checks inspect input/output effects. */
 	private void launch(final String name, final String script, final boolean success, final String... options) throws Exception{
 		assert(name!=null && script.endsWith(".sh")) : "Each test names a real launcher and a unique diagnostic log.";
 		final ArrayList<String> command=new ArrayList<String>(Arrays.asList("bash", code.resolve(script).toString(), "-Xmx256m", "-Xms32m"));
@@ -83,9 +89,14 @@ public final class TadpoleScaffoldTest {
 		for(String line : Files.readAllLines(path, StandardCharsets.US_ASCII)){if(!line.startsWith(">")){bases.append(line);}}
 		return bases.toString();
 	}
+	/** Reads a tiny fixture or diagnostic file, never an arbitrary sequencing library. */
 	private static String text(final Path path) throws Exception{return new String(Files.readAllBytes(path), StandardCharsets.UTF_8);}
+	/** Counts explicit expectations and throws on failure regardless of assertion flags. */
 	private static void check(final boolean value, final String message){checks++; if(!value){throw new AssertionError(message);}}
+	/** Real installation and retained fixture paths; no automatic deletion is performed. */
 	private final Path code, root, reads, contigs;
+	/** Seeded literal sequence underlying both contig and read fixtures. */
 	private final String reference;
+	/** Expectations attempted across all fixture instances in this JVM. */
 	private static int checks;
 }

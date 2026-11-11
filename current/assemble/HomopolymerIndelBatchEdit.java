@@ -6,34 +6,56 @@ import structures.IntList;
 
 /** Transactional one-pass splice of approved disjoint-context original-coordinate edits.
  * This applies evidence supplied by a caller; it does not classify errors or count kmers.
+ * Read and scratch lists belong to one worker. Selection does not authorize
+ * mutation by itself: apply validates the complete selected read contexts before
+ * replacing arrays. Original input buffers and candidate lists remain unchanged.
  * @author Fischl
  */
-final class HomopolymerIndelBatchEdit {
+final class HomopolymerIndelBatchEdit{
+	/** Creates an editor that accepts only runs of at least two bases. */
 	HomopolymerIndelBatchEdit(){this(false);}
+	/** Optionally allows singleton +1 edits and the complete non-singleton fallback. */
 	HomopolymerIndelBatchEdit(final boolean singletons_){singletons=singletons_;}
+	/** Selection result: no edit, complete candidates, non-singleton fallback, or isolated subset. */
 	static final int WITHHELD=0, DIRECT=1, BASELINE=2, ISOLATED=3;
 
 	/** Native acceptance order. DIRECT uses candidates; BASELINE/ISOLATED use out.
 	 * The caller computed overlap while generating ordered original proposals.
-	 * Rescue is never consulted after either old acceptance path succeeds. */
+	 * Rescue is never consulted after either old acceptance path succeeds.
+	 * A DIRECT or early WITHHELD return need not clear out; use the returned code,
+	 * not stale scratch contents. A successful selection still requires apply.
+	 * @param read Original unmodified read used to validate isolated rescue candidates
+	 * @param candidates Ordered original (start,end,delta) triples
+	 * @param overlap Whether original verification contexts overlap
+	 * @param k Exact verification word length, at least five
+	 * @param maxEdits Positive count-of-events budget, not a net length budget
+	 * @param isolated Whether to try isolated-component rescue after older paths reject
+	 * @param out Distinct caller-owned scratch for fallback/rescue; must not alias candidates
+	 * @return Selection code identifying the list to pass to apply, or WITHHELD
+	 */
 	int selectAccepted(final Read read, final IntList candidates, final boolean overlap,
 			final int k, final int maxEdits, final boolean isolated, final IntList out){
 		assert(candidates!=null && candidates.size%3==0 && maxEdits>0) :
 			"Native batch selection requires complete original triples and a positive event-count budget.";
 		if(candidates.size==0){return WITHHELD;}
 		if(candidates.size/3<=maxEdits && !overlap){return DIRECT;}
-		if(singletons && selectBaseline(candidates,3,k,maxEdits,out)){return BASELINE;}
+		if(singletons && selectBaseline(candidates, 3, k, maxEdits, out)){return BASELINE;}
 		if(!isolated){return WITHHELD;}
 		// A malformed proposal must not be hidden by discarding its overlap component.
 		// Share apply's content/bounds/metadata validation, allowing context overlaps.
-		validate(read,candidates,k,false);
-		return HomopolymerIndelIsolation.select(candidates,k,maxEdits,out) ? ISOLATED : WITHHELD;
+		validate(read, candidates, k, false);
+		return HomopolymerIndelIsolation.select(candidates, k, maxEdits, out) ? ISOLATED : WITHHELD;
 	}
 
 	/** On combined-set rejection, copy the COMPLETE old non-singleton subset.
 	 * Input stride3 is native triples; stride6 additionally carries dev evidence.
 	 * No input mutation or arbitrary budget truncation. Empty/ineligible subsets
-	 * leave output empty. Mechanical apply still validates complete Read contexts. */
+	 * leave output empty. Mechanical apply still validates complete Read contexts.
+	 * For stride six, only the first three cells of each record are copied. Both
+	 * lists and their backing storage must be distinct; output is meaningful only
+	 * after normal return, since malformed later records can follow copied entries.
+	 * @return Whether the complete non-singleton subset is eligible and within budget
+	 */
 	static boolean selectBaseline(final IntList candidates, final int stride, final int k, final int maxEdits, final IntList out){
 		if(candidates==null || out==null || candidates==out || (stride!=3 && stride!=6) || candidates.size%stride!=0 || k<5 || maxEdits<1){
 			throw new IllegalArgumentException("Baseline selection requires distinct lists, complete records, valid K and budget.");
@@ -55,8 +77,11 @@ final class HomopolymerIndelBatchEdit {
 		return true;
 	}
 
-	/** Validate before any allocation or mutation. Rescue may have overlapping
-	 * contexts, but candidate maximal runs themselves must remain ordered/disjoint. */
+	/** Validates before output allocation or Read mutation and returns the resulting length.
+	 * Rescue may have overlapping contexts, but candidate maximal runs themselves
+	 * must remain ordered/disjoint. Nonempty edits require editable metadata and
+	 * defined complete contexts. Empty lists stop after structural argument checks
+	 * and leave metadata untouched. disjoint additionally requires nonoverlapping contexts. */
 	private long validate(final Read read, final IntList edits, final int k, final boolean disjoint){
 		if(read==null || read.bases==null || edits==null || edits.size%3!=0 || k<5 ||
 				(read.quality!=null && read.quality.length!=read.bases.length)){
@@ -87,9 +112,14 @@ final class HomopolymerIndelBatchEdit {
 		return length;
 	}
 
-	/** Triples (start,end,delta), ascending original coordinates; lists are never modified. */
+	/** Splices all (start,end,delta) triples in ascending original coordinates.
+	 * Validates every full verification context before allocating both new arrays;
+	 * installs neither until construction succeeds. Empty input preserves array
+	 * identities. A/C edits use the run's left edge, G/T edits its right edge;
+	 * inserted qualities are zero and null qualities remain null. Lists and old
+	 * arrays are never modified. The caller must enforce its event-count budget. */
 	void apply(final Read read, final IntList edits, final int k){
-		final long length=validate(read,edits,k,true);
+		final long length=validate(read, edits, k, true);
 		if(edits.size==0){return;}
 		final byte[] bases=read.bases, qualities=read.quality;
 		if(length<0 || length>Shared.MAX_ARRAY_LEN){throw new IllegalArgumentException("Batch output length exceeds supported array size.");}
@@ -102,16 +132,17 @@ final class HomopolymerIndelBatchEdit {
 			final int pos=(b=='A' || b=='C') ? start : delta<0 ? end-1 : end;
 			final int chunk=pos-source;
 			assert(chunk>=0) : "Disjoint original contexts must produce monotone splice positions.";
-			System.arraycopy(bases,source,out,written,chunk);
-			if(outQ!=null){System.arraycopy(qualities,source,outQ,written,chunk);}
+			System.arraycopy(bases, source, out, written, chunk);
+			if(outQ!=null){System.arraycopy(qualities, source, outQ, written, chunk);}
 			written+=chunk;
-			if(delta>0){out[written++]=b; source=pos;} // New quality slot remains raw0.
+			if(delta>0){out[written++]=b; source=pos;}// New quality slot remains raw0.
 			else{source=pos+1;}
 		}
-		System.arraycopy(bases,source,out,written,bases.length-source);
-		if(outQ!=null){System.arraycopy(qualities,source,outQ,written,bases.length-source);}
+		System.arraycopy(bases, source, out, written, bases.length-source);
+		if(outQ!=null){System.arraycopy(qualities, source, outQ, written, bases.length-source);}
 		assert(written+bases.length-source==out.length) : "All original suffix bytes and the declared edit deltas must explain final length.";
 		read.bases=out; read.quality=outQ;
 	}
+	/** Whether singleton extension and its non-singleton fallback are enabled. */
 	private final boolean singletons;
 }

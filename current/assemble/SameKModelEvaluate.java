@@ -22,11 +22,16 @@ import structures.LongList;
 /**
  * Scores a frozen same-K corpus fold and emits exact candidate/control curves.
  * Unknown labels were excluded upstream; neither population is resampled here.
+ * Validates the full provenance sidecar while consuming feature rows only for the
+ * selected fold. Inference is serial and reuses one feature vector and model state.
+ * Scores are retained in memory, separately by kind; curve generation sorts them
+ * in place. Raw prediction rows retain input order, while tied scores enter a curve
+ * together. Outputs may be partial after failure; complete.txt is written last.
  * @author Fischl
  */
-public final class SameKModelEvaluate {
+public final class SameKModelEvaluate{
 
-	/** Runs read-only inference with standard BBTools argument handling. */
+	/** Runs inference without training or modifying the model file; closes the diagnostic stream. */
 	public static void main(final String[] args){
 		final PreParser pp=new PreParser(args, SameKModelEvaluate.class, false);
 		try{new SameKModelEvaluate(pp.args, pp.outstream).run();}
@@ -46,11 +51,15 @@ public final class SameKModelEvaluate {
 			String name=parts[0].toLowerCase(Locale.ROOT);
 			while(name.startsWith("-")){name=name.substring(1);}
 			final String value=parts.length>1 ? parts[1] : null;
-			if(name.equals("rows")){rows=value;}
-			else if(name.equals("net")){network=value;}
-			else if(name.equals("fold")){fold=Arrays.asList(FOLDS).indexOf(value);}
-			else if(name.equals("simdff")){simdFF=Parse.parseBoolean(value);}
-			else if(!parser.parse(arg, name, value)){throw new IllegalArgumentException("Unknown evaluation option: "+arg);}
+			if(name.equals("rows")){
+				rows=value;
+			}else if(name.equals("net")){
+				network=value;
+			}else if(name.equals("fold")){
+				fold=Arrays.asList(FOLDS).indexOf(value);
+			}else if(name.equals("simdff")){
+				simdFF=Parse.parseBoolean(value);
+			}else if(!parser.parse(arg, name, value)){throw new IllegalArgumentException("Unknown evaluation option: "+arg);}
 		}
 		input=parser.in1; output=parser.out1;
 		if(input==null || rows==null || network==null || output==null || fold<0 || parser.in2!=null || parser.out2!=null ||
@@ -63,7 +72,16 @@ public final class SameKModelEvaluate {
 	/*----------------           Methods            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Joins provenance before inference and preserves raw float scores for independent checks. */
+	/**
+	 * Joins selected-fold rows in sidecar order, requiring exact headers, matching targets and
+	 * finite nonnegative features. Validates every sidecar row's fold, kind and ordinal even
+	 * outside the selected fold. Saves normalized-zero score bits and decimal scores before
+	 * generating curves; a successful prediction file alone is not a complete evaluation.
+	 * Failed feature-reader acquisition closes metadata and preserves the original unchecked
+	 * failure, with any metadata-cleanup failure suppressed.
+	 * Failed prediction-output acquisition attempts both input closes and rethrows the
+	 * original failure with cleanup failures suppressed. Partial output ownership is separate.
+	 */
 	private void run(){
 		final CellNet net=CellNetParser.load(network, false);
 		if(net==null || net.numInputs()!=27 || net.numOutputs()!=1){throw new IllegalArgumentException("Expected a27-input binary model.");}
@@ -74,8 +92,37 @@ public final class SameKModelEvaluate {
 		final float[] vector=new float[27];
 		final LineParser1 mp=new LineParser1('\t'), dp=new LineParser1('\t');
 		final ByteBuilder buffer=new ByteBuilder();
-		final ByteFile meta=ByteFile.makeByteFile(rows, true), data=ByteFile.makeByteFile(input, true);
-		final ByteStreamWriter predictions=open(output+"/scores.tsv");
+		final ByteFile meta=ByteFile.makeByteFile(rows, true);
+		final ByteFile data;
+		try{data=ByteFile.makeByteFile(input, true);}
+		catch(RuntimeException|Error failure){
+			try{
+				if(meta.close()){failure.addSuppressed(new IllegalStateException("Evaluation metadata cleanup failed."));}
+			}catch(RuntimeException|Error cleanup){
+				if(cleanup!=failure){failure.addSuppressed(cleanup);}
+			}
+			throw failure;
+		}
+		final ByteStreamWriter predictions;
+		try{predictions=open(output+"/scores.tsv");}
+		catch(RuntimeException|Error failure){
+			// ASM024: output acquisition can fail while both inputs are already owned.
+			try{
+				try{
+					if(meta.close()){failure.addSuppressed(new IllegalStateException("Evaluation metadata cleanup failed."));}
+				}catch(RuntimeException|Error cleanup){
+					if(cleanup!=failure){failure.addSuppressed(cleanup);}
+				}
+			}finally{
+				try{
+					try{
+						if(data.close()){failure.addSuppressed(new IllegalStateException("Evaluation feature input cleanup failed."));}
+					}catch(RuntimeException|Error cleanup){
+						if(cleanup!=failure){failure.addSuppressed(cleanup);}
+					}
+				}finally{throw failure;}// Preserve the primary even if recording a cleanup failure fails.
+			}
+		}
 		boolean error=false;
 		try{
 			require(meta.nextLine(), "fold\trow\tgenome\tkind\tevent\ttarget");
@@ -107,6 +154,7 @@ public final class SameKModelEvaluate {
 				predictions.print(buffer.clear().append(line).tab().append(packed>>>1).tab().appendSlow(score).nl());
 			}
 			if(data.nextLine()!=null || ordinals[fold]==0){throw new IllegalArgumentException("Unpaired extra rows or empty selected fold.");}
+			//TODO: Probable bug ASM024 - an unchecked close failure can skip later cleanup; separate from second-reader acquisition.
 		}finally{error=meta.close() | data.close() | predictions.poisonAndWait();}
 		if(error){throw new IllegalStateException("Incomplete input/prediction output.");}
 		final ByteStreamWriter summary=open(output+"/summary.tsv");
@@ -136,16 +184,25 @@ public final class SameKModelEvaluate {
 	/*----------------        Static Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Encodes a finite probability and its label; normalizes signed zero for numeric sorting. */
-	static long pack(final float score, final int label){
+	/** Encodes a finite probability in [0,1] and a binary label for numeric sorting.
+	 * Normalizes signed zero, shifts the float bits left once and stores the label
+	 * in the low bit; the result is the input representation required by writeCurve. */
+	public static long pack(final float score, final int label){
 		if(!Float.isFinite(score) || score<0 || score>1 || (label!=0 && label!=1)){
 			throw new IllegalArgumentException("Expected finite score in[0,1] and binary label: "+score+", "+label);
 		}
 		return ((long)Float.floatToRawIntBits(score==0 ? 0 : score)<<1)|label;
 	}
 
-	/** Emits every attainable decision set for score>=cutoff, including reject-all and tied groups. */
-	static long[] writeCurve(final LongList scores, final ByteStreamWriter writer){
+	/**
+	 * Sorts the supplied packed population in place and emits every attainable decision set
+	 * for score>=cutoff, including reject-all and whole tied groups. Returns positive count,
+	 * negative count and distinct-score count, in that order; an empty population has only
+	 * the reject-all row. Inputs must have the encoding and range enforced by pack.
+	 * The caller owns scores and the already-started writer. This method changes the
+	 * score order and appends output; it neither starts nor closes the writer.
+	 */
+	public static long[] writeCurve(final LongList scores, final ByteStreamWriter writer){
 		assert(scores!=null && writer!=null) : "Exact threshold curves require a complete population and output writer.";
 		scores.sort();
 		long positive=0;
@@ -174,7 +231,11 @@ public final class SameKModelEvaluate {
 		return new long[]{positive, negative, distinct};
 	}
 
-	/** Keeps a predeclared compact cutoff grid; full exact curves remain the authority for selection. */
+	/**
+	 * Emits the fixed cutoff grid from the already-sorted population and its complete totals.
+	 * Group counts include only scores equal to each cutoff; cumulative counts include all
+	 * scores at or above it. Full exact curves remain the authority for threshold selection.
+	 */
 	private static void writePoints(final LongList scores, final long positive, final long negative, final ByteStreamWriter writer){
 		assert(positive+negative==scores.size) : "Operating-point denominators must match the population used by the full curve.";
 		writer.print("threshold_bits\tthreshold\tgroup_positive\tgroup_negative\ttp\tfp\ttn\tfn\tprecision\trecall\tfpr\tfnr\n");
@@ -185,8 +246,7 @@ public final class SameKModelEvaluate {
 				final long packed=scores.array[i];
 				final float score=Float.intBitsToFloat((int)(packed>>>1));
 				if(score<cutoff){break;}
-				if((packed&1L)==1){tp++; if(score==cutoff){gp++;}}
-				else{fp++; if(score==cutoff){gn++;}}
+				if((packed&1L)==1){tp++; if(score==cutoff){gp++;}}else{fp++; if(score==cutoff){gn++;}}
 			}
 			append(buffer, cutoff, gp, gn, tp, fp, positive, negative);
 		}
@@ -225,11 +285,22 @@ public final class SameKModelEvaluate {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Diagnostic stream owned and closed by main. */
 	private final PrintStream outstream;
+	/** Selected feature table, full provenance sidecar, saved model and new output directory. */
 	private String input, rows, network, output;
+	/** Required index into FOLDS; -1 means no supported fold was selected. */
 	private int fold=-1;
+	/** Per-model feed-forward switch; this does not set the independent global SIMD/FMA flags. */
 	private boolean simdFF=false;
+
+	/*--------------------------------------------------------------*/
+	/*----------------           Constants          ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Exact accepted sidecar fold names, also used to index independent ordinal counters. */
 	private static final String[] FOLDS={"train", "validation", "test"};
+	/** Descending reporting grid, beginning above the permitted score range to reject all rows. */
 	private static final float[] CUTOFFS={Math.nextUp(1.0f), 1, 0.9999f, 0.9995f, 0.999f, 0.995f, 0.99f,
 			0.975f, 0.95f, 0.925f, 0.9f, 0.85f, 0.8f, 0.75f, 0.7f, 0.65f, 0.6f, 0.5f, 0.25f, 0};
 }

@@ -11,30 +11,41 @@ import shared.Shared;
 import shared.Timer;
 import shared.Tools;
 
-/**
- * User-facing assembly defaults, separate from constructor and experimental APIs.
- * The postpass borrows the initial table; later phases retain their own policies.
- * Explicit options override defaults regardless of argument order.
+/** Resolves public CLI assembly defaults and owns initial-phase cleanup policy.
+ * Lower-level makeTadpole callers do not implicitly use this policy. The optional
+ * postpass borrows the initial table; later phases retain their own policies.
+ * Inserted defaults precede explicit arguments, whose order remains unchanged.
+ * Enabled rescue and bundled-fusion paths are resolved before native construction;
+ * recognized model outputs are checked for aliases. This is preflight validation,
+ * not protection against path races.
+ * One serial initial assembly owns each instance. Its coverage gate changes
+ * shared BubblePopper state, so separate instances are not independent threads.
  * @author Fischl
  */
-final class TadpoleAssemblyPolicy implements TadpoleMulti.InitialAssembly, AutoCloseable {
+public final class TadpoleAssemblyPolicy implements TadpoleMulti.InitialAssembly, AutoCloseable{
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Resolves policy options without opening streams or loading a count table. */
-	TadpoleAssemblyPolicy(final String[] input){this(input, false);}
+	/** Resolves policy options and model paths without loading a count table/network.
+	 * Input must already have config and PacBio defaults expanded. */
+	public TadpoleAssemblyPolicy(final String[] input){this(input, false);}
 
-	/** Also handles the explicit tadpolemulti.sh entry point with a single listed K. */
+	/** Also handles the explicit tadpolemulti.sh entry point with a single listed K.
+	 * Policy-only arguments are consumed here; other tokens pass through in order.
+	 * Explicit thresholds are validated even when the corresponding policy is disabled.
+	 * @param input Expanded CLI arguments; the array is not retained or modified
+	 * @param forceMulti Route through the multi-K orchestrator even for a single K
+	 */
 	private TadpoleAssemblyPolicy(final String[] input, final boolean forceMulti){
 		assert(input!=null) : "Policy selection follows config and PacBio expansion.";
 		assembly=isAssembly(input);
 		final ArrayList<String> explicit=new ArrayList<String>();
-		for(String arg : input){
+		for(String arg:input){
 			final String name=key(arg), value=value(arg);
-			if(name.equals("assemblydefaults")){defaults=Parse.parseBoolean(value);}
-			else if(name.equals("branchrescue")){
+			if(name.equals("assemblydefaults")){defaults=Parse.parseBoolean(value);
+			}else if(name.equals("branchrescue")){
 				rescue=("auto".equalsIgnoreCase(value) ? -1 : Parse.parseBoolean(value) ? 1 : 0);
 			}else if(name.equals("branchrescuenet")){
 				if(value==null || value.isEmpty()){
@@ -61,7 +72,7 @@ final class TadpoleAssemblyPolicy implements TadpoleMulti.InitialAssembly, AutoC
 		}
 		rescueRequested=assembly && (rescue==1 || (rescue<0 && (defaults || modelSet))) && postModel!=null;
 		boolean hollow=false;
-		for(String arg : explicit){if(key(arg).equals("hollow")){hollow=Parse.parseBoolean(value(arg));}}
+		for(String arg:explicit){if(key(arg).equals("hollow")){hollow=Parse.parseBoolean(value(arg));}}
 		multi=forceMulti || (assembly && hollow) || TadpoleMulti.hasMultipleK(explicit.toArray(new String[0]));
 		final ArrayList<String> resolved=new ArrayList<String>();
 		if(assembly && (defaults || rescueRequested)){
@@ -75,7 +86,7 @@ final class TadpoleAssemblyPolicy implements TadpoleMulti.InitialAssembly, AutoC
 		if(assembly && multi){
 			String fusion=defaults ? "auto" : null;
 			boolean cutoff=false;
-			for(String arg : explicit){
+			for(String arg:explicit){
 				if(key(arg).equals("fusenet")){fusion=value(arg);}
 				if(key(arg).equals("fusencutoff")){cutoff=true;}
 			}
@@ -93,7 +104,7 @@ final class TadpoleAssemblyPolicy implements TadpoleMulti.InitialAssembly, AutoC
 		args=resolved.toArray(new String[0]);
 		// Protect bundled/custom models even from outstream's early PreParser open.
 		if(rescueRequested){postModel=modelPath(postModel); checkModelOutputs(postModel, input);}
-		for(String arg : args){
+		for(String arg:args){
 			if(key(arg).equals("fusenet") && !"null".equalsIgnoreCase(value(arg))){
 				checkModelOutputs(value(arg), input);
 			}
@@ -104,7 +115,11 @@ final class TadpoleAssemblyPolicy implements TadpoleMulti.InitialAssembly, AutoC
 	/*----------------           Execution          ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Runs public single/multi-K entry points without changing lower-level callers. */
+	/** Dispatches scaffold/multi-K requests or one ordinary native assembly.
+	 * Policy closure restores the initial coverage gate on normal/exceptional exits;
+	 * the single-K finally block also clears its raw-contig transform. The CLI owns
+	 * closing Tadpole's shared diagnostic stream, except when scaffold dispatch returns.
+	 */
 	static void run(final String[] input, final boolean forceMulti){
 		if(TadpoleScaffold.dispatch(input, forceMulti)){return;}
 		try(TadpoleAssemblyPolicy policy=new TadpoleAssemblyPolicy(input, forceMulti)){
@@ -126,7 +141,13 @@ final class TadpoleAssemblyPolicy implements TadpoleMulti.InitialAssembly, AutoC
 		}finally{Shared.closeStream(Tadpole.outstream);}
 	}
 
-	/** Installs initial-only policy before workers start, never on bridge tables. */
+	/** Installs initial-only policy before workers start, never on bridge tables.
+	 * No-op for nonassembly modes. Assembly preparation is single-use until close;
+	 * explicit unsupported rescue requests fail, while automatic rescue may abstain.
+	 * An ineligible automatic fusion schedule has its model cleared in place.
+	 * @param tad Constructed initial assembler; its table and transform slot are borrowed
+	 * @param schedule Optional mutable multi-K configuration, or null for single-K
+	 */
 	@Override
 	public void prepare(final Tadpole tad, final TadpoleMulti.Config schedule){
 		assert(tad!=null && !prepared) : "Each policy owns at most one initial assembly.";
@@ -158,7 +179,9 @@ final class TadpoleAssemblyPolicy implements TadpoleMulti.InitialAssembly, AutoC
 		}
 	}
 
-	/** Reports and releases initial cleanup policy before any later-K operation. */
+	/** Reports coverage-gate counters when installed, then restores shared gate state.
+	 * @param tad Non-null initial assembler; used only for the ownership assertion
+	 */
 	@Override
 	public void finish(final Tadpole tad){
 		assert(tad!=null) : "Finish belongs to the original table owner.";
@@ -169,7 +192,9 @@ final class TadpoleAssemblyPolicy implements TadpoleMulti.InitialAssembly, AutoC
 		close();
 	}
 
-	/** Restores caller state on success, validation failure, or worker failure. */
+	/** Restores the saved shared coverage gate once after preparation; otherwise no-op.
+	 * Does not clear a Tadpole raw-contig transform or dispose the borrowed table.
+	 */
 	@Override
 	public void close(){
 		if(prepared){BubblePopper.directCoverageGate=previousCoverage; prepared=false;}
@@ -179,15 +204,19 @@ final class TadpoleAssemblyPolicy implements TadpoleMulti.InitialAssembly, AutoC
 	/*----------------            Helpers           ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Carries automatic-model eligibility separately from a custom explicit binding. */
-	TadpoleMulti.Config multiConfig(){
+	/** Creates a schedule from resolved arguments, marking only bundled fusion as automatic.
+	 * @return New mutable multi-K schedule, not cached by this policy
+	 */
+	public TadpoleMulti.Config multiConfig(){
 		assert(multi) : "Only the multi-K entry point resolves a phase schedule.";
 		final TadpoleMulti.Config config=new TadpoleMulti.Config(args);
 		config.automaticFusion=bundledFusion;
 		return config;
 	}
 
-	/** Auto abstains outside the frozen model's domain rather than extrapolating. */
+	/** Checks the initial assembler against the rescue model's supported runtime domain.
+	 * @return Explanation of the first unsupported setting, or null if all checks pass
+	 */
 	private static String unsupported(final Tadpole tad){
 		assert(tad!=null) : "Model eligibility uses the fully resolved native assembler.";
 		if(tad.k()<24 || tad.k()>127){return "the bundled postpass supports assembly K24-127.";}
@@ -201,11 +230,15 @@ final class TadpoleAssemblyPolicy implements TadpoleMulti.InitialAssembly, AutoC
 		return null;
 	}
 
-	/** Checks output aliases before native constructors can open redirected streams. */
+	/** Checks recognized output-like option values against the enabled model path.
+	 * Repeated options are allowed; comma-separated destinations are checked individually.
+	 * This protects models before PreParser can open a redirected diagnostic stream;
+	 * other writers remain responsible for their own input/output collision checks.
+	 */
 	private static void checkModelOutputs(final String model, final String[] input){
 		assert(model!=null) : "Only enabled models need path protection.";
 		final ArrayList<String> outputs=new ArrayList<String>();
-		for(String arg : input){
+		for(String arg:input){
 			final String name=key(arg), val=value(arg);
 			if(val==null || "null".equalsIgnoreCase(val)){continue;}
 			if(name.startsWith("out") || name.equals("dot") || name.equals("gfa")
@@ -216,10 +249,12 @@ final class TadpoleAssemblyPolicy implements TadpoleMulti.InitialAssembly, AutoC
 		}
 		// Other writers validate their own collisions. Here only model preservation
 		// matters; repeated output options are not themselves a model-path conflict.
-		for(String output : outputs){TadpoleGraph.checkPaths(model, new ArrayList<String>(), output);}
+		for(String output:outputs){TadpoleGraph.checkPaths(model, new ArrayList<String>(), output);}
 	}
 
-	/** Resolves shipped resources by installation path, not the caller's directory. */
+	/** Resolves ?resources through Data and checks readability; literal paths remain literal.
+	 * @return Readable resolved path; this does not validate network contents or identity
+	 */
 	private static String modelPath(final String name){
 		assert(name!=null) : "Disabled neural policies never resolve a resource.";
 		final String path=Data.findPath(name);
@@ -229,29 +264,34 @@ final class TadpoleAssemblyPolicy implements TadpoleMulti.InitialAssembly, AutoC
 		return path;
 	}
 
-	/** Mirrors mode-selection triggers; preprocessing flags alone do not imply assembly. */
-	static boolean isAssembly(final String[] args){
+	/** Mirrors mode-selection triggers without constructing an assembler.
+	 * An explicit mode wins; otherwise correction/filtering, extension or supplied
+	 * contigs disable assembly defaults. An ordinary output name alone does not.
+	 * @param args Expanded CLI arguments, read without mutation
+	 * @return Whether this policy should treat the request as contig assembly
+	 */
+	public static boolean isAssembly(final String[] args){
 		assert(args!=null) : "Mode selection needs expanded arguments.";
 		String mode=null;
 		boolean contigs=false, ecc=false, mark=false, hp=false, local=false, toss=false, uncorrectable=false;
 		int left=-1, right=-1, depth=-1;
-		for(String arg : args){
+		for(String arg:args){
 			final String name=key(arg), val=value(arg);
-			if(name.equals("mode")){mode=val;}
-			else if(name.equals("contigs")){contigs=val!=null && !"null".equalsIgnoreCase(val);}
-			else if(name.equals("ecc") || name.equals("ecct")){ecc=Parse.parseBoolean(val);}
-			else if(name.equals("aecc") || name.equals("aec") || name.equals("aggressive")
+			if(name.equals("mode")){mode=val;
+			}else if(name.equals("contigs")){contigs=val!=null && !"null".equalsIgnoreCase(val);
+			}else if(name.equals("ecc") || name.equals("ecct")){ecc=Parse.parseBoolean(val);
+			}else if(name.equals("aecc") || name.equals("aec") || name.equals("aggressive")
 					|| name.equals("cecc") || name.equals("cec") || name.equals("conservative")){
 				if(Parse.parseBoolean(val)){ecc=true;}
-			}else if(name.equals("markerrors")){mark=Parse.parseBoolean(val);}
-			else if(name.equals("hpindel")){hp=Parse.parseBoolean(val);}
-			else if(name.equals("fixindels") || name.equals("localedit")){local=Parse.parseBoolean(val);}
-			else if(name.equals("tossjunk") || name.equals("tj")){toss=Parse.parseBoolean(val);}
-			else if(name.equals("tossuncorrectable") || name.equals("tu")){uncorrectable=Parse.parseBoolean(val);}
-			else if(name.equals("tossdepth") || name.equals("discarddepth")){depth=Integer.parseInt(val);}
-			else if(name.equals("extendleft") || name.equals("el")){left=Parse.parseIntKMG(val);}
-			else if(name.equals("extendright") || name.equals("er")){right=Parse.parseIntKMG(val);}
-			else if(name.equals("maxextension") || name.equals("maxe")){left=right=Parse.parseIntKMG(val);}
+			}else if(name.equals("markerrors")){mark=Parse.parseBoolean(val);
+			}else if(name.equals("hpindel")){hp=Parse.parseBoolean(val);
+			}else if(name.equals("fixindels") || name.equals("localedit")){local=Parse.parseBoolean(val);
+			}else if(name.equals("tossjunk") || name.equals("tj")){toss=Parse.parseBoolean(val);
+			}else if(name.equals("tossuncorrectable") || name.equals("tu")){uncorrectable=Parse.parseBoolean(val);
+			}else if(name.equals("tossdepth") || name.equals("discarddepth")){depth=Integer.parseInt(val);
+			}else if(name.equals("extendleft") || name.equals("el")){left=Parse.parseIntKMG(val);
+			}else if(name.equals("extendright") || name.equals("er")){right=Parse.parseIntKMG(val);
+			}else if(name.equals("maxextension") || name.equals("maxe")){left=right=Parse.parseIntKMG(val);}
 		}
 		if(mode!=null){
 			// Match Tadpole's numeric parser, including leading zeros and KMG suffixes.
@@ -280,11 +320,18 @@ final class TadpoleAssemblyPolicy implements TadpoleMulti.InitialAssembly, AutoC
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	final String[] args;
-	final boolean assembly, multi, rescueRequested;
+	/** Newly allocated resolved argument array; tokens are immutable input/default strings. */
+	public final String[] args;
+	/** Resolved assembly/multi-K routing and enabled initial branch-rescue policy. */
+	public final boolean assembly, multi, rescueRequested;
+	/** Defaults toggle, explicit model binding, active gate lifetime and bundled fusion provenance. */
 	private boolean defaults=true, modelSet=false, prepared=false, bundledFusion=false;
+	/** Rescue request: -1 automatic,0 disabled,1 explicitly enabled. */
 	private int rescue=-1;
+	/** Initial rescue model name/path; null disables the model even if rescue is requested. */
 	private String postModel="?tadpole_contig_rescue.bbnet";
+	/** Validated model cutoff and coverage ratio; NaN ratio is resolved during construction. */
 	private float postCutoff=0.7f, initialRatio=Float.NaN;
+	/** Owned initial gate and borrowed previous shared gate restored by close. */
 	private BubblePopper.CoverageGate coverage, previousCoverage;
 }

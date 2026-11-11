@@ -35,7 +35,7 @@ import structures.ListNum;
 /** Builds controlled indel inputs and grades entire extensions at their known origins.
  * Scrabble uses the whole query and only an origin-local reference window.
  * @author Brian Bushnell, Fischl */
-public final class HollowIndelTruth {
+public final class HollowIndelTruth{
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
@@ -687,7 +687,7 @@ public final class HollowIndelTruth {
 	/*--------------------------------------------------------------*/
 
 	/** Retains one native input batch, with no background record producer to strand on failure. */
-	private static final class SequenceCursor implements AutoCloseable {
+	private static final class SequenceCursor implements AutoCloseable{
 		/** Starts a host-driven single-end stream for an ordered comparison input. */
 		SequenceCursor(final String path){
 			assert(path!=null) : "Compare-mode input validation supplies a named original or extension library.";
@@ -714,7 +714,7 @@ public final class HollowIndelTruth {
 	}
 
 	/** Owns a native FASTA writer; only selected batches are submitted with dense IDs. */
-	private static final class SequenceOutput implements AutoCloseable {
+	private static final class SequenceOutput implements AutoCloseable{
 		/** Uses the normal sequence writer rather than formatting FASTA in a tabular helper. */
 		SequenceOutput(final String path){
 			assert(path!=null) : "Compare-mode output validation supplies a fresh selected-record destination.";
@@ -763,7 +763,7 @@ public final class HollowIndelTruth {
 
 	/** Always sends the terminal and joins the report thread, including on validation failure.
 	 * Try-with-resources preserves the primary exception and suppresses any cleanup failure. */
-	private static final class ReportWriter implements AutoCloseable {
+	private static final class ReportWriter implements AutoCloseable{
 		/** Opens and starts the writer owned by this resource. */
 		ReportWriter(final String path){writer=HollowIndelTruth.writer(path);}
 
@@ -780,7 +780,7 @@ public final class HollowIndelTruth {
 	}
 
 	/** Keeps immutable origin and input sequence for each output identity. */
-	private static final class Seed {
+	private static final class Seed{
 		Seed(final Read read_, final Read ref_, final int start_, final int index_){
 			assert(read_!=null && ref_!=null && start_>=0) : "Scoring requires input and reference coordinates.";
 			read=read_; ref=ref_; start=start_; index=index_;

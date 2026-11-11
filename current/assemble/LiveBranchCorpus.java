@@ -26,9 +26,12 @@ import structures.ByteBuilder;
  * negative label. Encounter multiplicity is provenance, not training weight.
  * One invocation labels one genome/library/K; genome-level folds belong to the
  * external frozen cohort, not to row-level random splitting in this tool.
+ * Reference circularity is one caller-supplied choice applied to every reference
+ * contig. Audit rows are canonical-word sorted; trainer rows preserve that order
+ * after role, truth and optional control selection. No model is trained here.
  * @author Fischl
  */
-public final class LiveBranchCorpus {
+public final class LiveBranchCorpus{
 
 	/*--------------------------------------------------------------*/
 	/*----------------             Main             ----------------*/
@@ -72,7 +75,11 @@ public final class LiveBranchCorpus {
 	/*----------------           Methods            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Validates the complete trace before reading truth or creating any outputs. */
+	/**
+	 * Validates the complete trace before reading truth or creating outputs. Labels sorted
+	 * canonical words against all reference occurrences in both orientations. Circularity
+	 * is applied uniformly, without inferring topology from individual contig headers.
+	 */
 	private void run(){
 		final ArrayList<Node> nodes=readTrace();
 		Collections.sort(nodes, (a, b)->a.word.compareTo(b.word));
@@ -91,6 +98,9 @@ public final class LiveBranchCorpus {
 	 * Retains one immutable key and count vector per node, with a reusable lookup
 	 * key for duplicate encounters. Counts/flags/levels must agree on duplicates;
 	 * arrival and entry provenance may differ across orientations and schedules.
+	 * Requires the exact observation-v2 header and one final completion record, with no
+	 * trailing rows. Trailer moments/configuration are checked but not recomputed from reads;
+	 * recorded node screening levels are recomputed using the bound policy parameters.
 	 */
 	private ArrayList<Node> readTrace(){
 		final ArrayList<Node> nodes=new ArrayList<Node>();
@@ -169,12 +179,19 @@ public final class LiveBranchCorpus {
 		return nodes;
 	}
 
-	/** Rejects impossible global populations instead of normalizing corrupted data. */
+	/** Checks coarse population bounds, retaining finite-product rounding and the relative tolerance. */
 	private void validateMoments(final ArrayList<Node> nodes){
 		if(unique<0 || unique<nodes.size() || !Double.isFinite(observations) || !Double.isFinite(squares) ||
 				observations<unique || squares<observations ||
-				(unique==0 && (observations!=0 || squares!=0)) ||
-				squares*unique<observations*observations*(1-1e-12)){
+				(unique==0 && (observations!=0 || squares!=0))){
+			throw new IllegalArgumentException("Invalid count-table population moments.");
+		}
+		final double left=squares*unique, right=observations*observations*(1-1e-12);
+		// ASM034: overflow implies unique>=1 and observations>=unique; both ratios stay finite.
+		// Empty populations retain the finite-product path, avoiding division by zero.
+		final boolean invalid=Double.isFinite(left) && Double.isFinite(right) ? left<right :
+				squares/observations<(observations/unique)*(1-1e-12);
+		if(invalid){
 			throw new IllegalArgumentException("Invalid count-table population moments.");
 		}
 		double seen=0;
@@ -182,7 +199,12 @@ public final class LiveBranchCorpus {
 		if(seen>observations*(1+1e-12)){throw new IllegalArgumentException("Observed unique-node depths exceed the whole table.");}
 	}
 
-	/** Writes one audited row per unique node, and at most one trainer row for it. */
+	/**
+	 * Writes every node to the audit/census and at most one trainer row per resolved grey or
+	 * selected control node. Trainer row IDs are one-based and match rows.tsv; unknown truth
+	 * never becomes target zero. Main writers are closed before complete.txt is written.
+	 * Files are separate writes, so a failure can leave an incomplete output directory.
+	 */
 	private void write(final ArrayList<Node> nodes, final KmerBranchOracle.Result[] truth){
 		assert(nodes.size()==truth.length) : "Oracle results retain the exact sorted query order.";
 		if(controlFraction<1){selectControls(nodes, truth);}
@@ -242,7 +264,12 @@ public final class LiveBranchCorpus {
 		outstream.println(summary);
 	}
 
-	/** One role predicate is shared by census, sampling and vector emission. */
+	/**
+	 * Shared node-level role predicate: grey and hard levels take precedence. A native-accept
+	 * control additionally needs a supported preferred route and at least one nonhidden
+	 * interior encounter arriving through its preferred predecessor. This does not assert
+	 * that every encounter of a grey node was eligible for live inference.
+	 */
 	private int role(final Node node, final int left, final int right){
 		assert(node.level>=0 && node.level<=2) : "Only validated policy levels may select training roles.";
 		return node.level==LiveBranchPolicy.GREY_ZONE ? 0 : node.level==LiveBranchPolicy.HARD_STOP ? 1 :
@@ -280,8 +307,12 @@ public final class LiveBranchCorpus {
 		for(int i=0; i<limit; i++){candidates.get(i).selectedControl=true;}
 	}
 
-	/** Floor keeps controls at or below the requested fraction; one means retain all. */
-	static int controlLimit(final int grey, final int available, final double fraction){
+	/**
+	 * Caps controls at floor(grey*fraction/(1-fraction)), limited by availability.
+	 * Fraction one keeps all; fraction zero or zero grey nodes keeps none for smaller fractions.
+	 * Counts refer to resolved grey/control nodes, not encounters or all audit rows.
+	 */
+	public static int controlLimit(final int grey, final int available, final double fraction){
 		if(grey<0 || available<0 || !Double.isFinite(fraction) || fraction<0 || fraction>1){
 			throw new IllegalArgumentException("controlfraction must be finite and in [0,1]; population counts must be nonnegative.");
 		}
@@ -309,7 +340,11 @@ public final class LiveBranchCorpus {
 		assert(total==nodes) : "Every deduplicated node must contribute exactly once to the role/label census: "+total+" != "+nodes;
 	}
 
-	/** Strict local truth, not a guarantee about long-range repeat resolution or an entire assembly. */
+	/**
+	 * Strict local truth: missing preferred route precedes absent reference hits, then unknown
+	 * flanks. Only complete reference context can yield safe/unsafe; safe requires every
+	 * occurrence to agree with both preferred flanks. This is not whole-assembly correctness.
+	 */
 	static String label(final KmerBranchOracle.Result result, final int left, final int right){
 		if(result==null){throw new IllegalArgumentException("Reference census is required.");}
 		if(left< -1 || left>3 || right< -1 || right>3){throw new IllegalArgumentException("Preferred bases must be A/C/G/T codes or -1.");}
@@ -335,7 +370,8 @@ public final class LiveBranchCorpus {
 	/*--------------------------------------------------------------*/
 
 	/** One persistent node; occurrence count never changes its model input or weight. */
-	private static final class Node {
+	private static final class Node{
+		/** Copies counts from reusable parser storage; the supplied word is already a persistent copy. */
 		Node(final Word word_, final int[] v){
 			word=word_; count=v[1]; left=Arrays.copyOfRange(v, 2, 6); right=Arrays.copyOfRange(v, 6, 10);
 			lb=v[10]!=0; rb=v[11]!=0; level=v[16];
@@ -357,20 +393,31 @@ public final class LiveBranchCorpus {
 				goodInterior|=preferred>=0 && preferred==v[13];
 			}
 		}
+		/** Owned immutable canonical identity. */
 		final Word word;
+		/** Stable node depth and recomputed/validated policy level. */
 		final int count, level;
+		/** Owned raw A/C/G/T side counts. */
 		final int[] left, right;
+		/** Recorded native branch predicates, distinct from hidden encounter stops. */
 		final boolean lb, rb;
+		/** Trace multiplicity, never an extra trainer weight. */
 		long encounters;
+		/** At least one qualifying preferred-predecessor interior encounter was observed. */
 		boolean goodInterior;
+		/** Unsigned selection rank for eligible controls; lexical words break ties. */
 		long sampleHash;
+		/** Optional selection result used only when controlFraction is below one. */
 		boolean selectedControl;
 	}
 
 	/** Exact byte key; mutable lookup is never inserted, persistent copies never change. */
-	private static final class Word implements Comparable<Word> {
+	private static final class Word implements Comparable<Word>{
+		/** Empty lookup shell; set borrows the reusable parser buffer. */
 		Word(){}
+		/** Persistent key owns a copy of the active byte prefix. */
 		Word(final Word other){set(Arrays.copyOf(other.bases, other.length), other.length);}
+		/** Borrows an active prefix and refreshes its hash; never mutate an inserted key. */
 		void set(final byte[] bytes, final int len){
 			assert(len>=0 && len<=bytes.length) : "Key extent must lie inside the reusable parser buffer.";
 			bases=bytes; length=len; hash=1;
@@ -401,7 +448,9 @@ public final class LiveBranchCorpus {
 			}
 			return Integer.compare(length, other.length);
 		}
+		/** Borrowed parser storage for lookup, or an owned prefix copy for an inserted key. */
 		byte[] bases;
+		/** Active prefix length and cached 31-based byte hash; equality still compares every active byte. */
 		int length, hash;
 	}
 
@@ -409,16 +458,28 @@ public final class LiveBranchCorpus {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Borrowed diagnostic destination. */
 	private final PrintStream outstream;
+	/** Trace file and newly created output directory. */
 	private final String input, output;
+	/** Truth reference supplied separately from the assembler trace. */
 	private String reference;
+	/** One topology choice for all reference contigs; default is linear. */
 	private boolean circular;
+	/** Validated trace metadata: word length, minimum extension depth and control sampling interval. */
 	private int k, minExtend, controlEvery;
+	/** Trace policy fraction and supplied population sums, not statistics of the sampled trace alone. */
 	private double fraction, observations, squares;
+	/** Observed encounter count and supplied positive-key population size. */
 	private long encounters, unique;
+	/** Maximum selected-control share relative to resolved grey plus selected controls; one keeps all. */
 	private double controlFraction=1;
+	/** Deterministic canonical-word sampling seed. */
 	private long controlSeed=1;
+	/** Zero-based indices after the word column for binary branch, entry and hidden flags. */
 	private static final int[] BINARY_FIELDS={10, 11, 14, 15};
+	/** Stable role/census order shared with the integer results from role(). */
 	private static final String[] ROLES={"grey", "hard", "control", "excluded"};
+	/** Writer slots: full audit, trainer vectors, trainer provenance and census; completion is separate. */
 	private static final String[] OUTPUT_FILES={"nodes.tsv", "vectors.tsv", "rows.tsv", "census.tsv"};
 }

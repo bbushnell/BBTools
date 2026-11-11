@@ -5,15 +5,19 @@ import structures.IntList;
 import structures.LongList;
 import ukmer.Kmer;
 
-/** Reusable multiplicities of unfiltered Hollow keys wholly inside one original seed.
+/**
+ * Reusable multiplicities of unfiltered Hollow keys wholly inside one original seed.
  * Uses the same two fingerprints as the global pair table, including strand canonicalization.
  * Primary-hash collisions retain separate secondary fingerprints. Never edits a shared table.
- * @author Brian Bushnell, Fischl */
-public final class HollowSeedCounts {
+ * @author Brian Bushnell, Fischl
+ */
+public final class HollowSeedCounts{
 
 	/** Binds the ledger to the same full span as the immutable global table. */
 	public HollowSeedCounts(final int k_){
-		if(k_<=64 || !Kmer.PACKED){throw new IllegalArgumentException("Hollow seed counts require packed K>64.");}
+		if(k_<=64 || !Kmer.PACKED){
+			throw new IllegalArgumentException("Hollow seed counts require packed K>64.");
+		}
 		k=k_;
 		word=new Kmer(k, true);
 	}
@@ -22,10 +26,14 @@ public final class HollowSeedCounts {
 	/*----------------           Counting           ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Replaces the ledger with all defined windows inside the specified original prefix.
-	 * Qualities and loader transformations are deliberately outside this diagnostic contract. */
+	/**
+	 * Replaces the ledger with all defined windows inside the specified original prefix.
+	 * Qualities and loader transformations are deliberately outside this diagnostic contract.
+	 */
 	public void reset(final byte[] bases, final int length){
-		if(bases==null || length<0 || length>bases.length){throw new IllegalArgumentException("Invalid original seed prefix length: "+length);}
+		if(bases==null || length<0 || length>bases.length){
+			throw new IllegalArgumentException("Invalid original seed prefix length: "+length);
+		}
 		assert(word.hollow && word.kbig==k) : "Local and global pair hashes must encode the same Hollow span.";
 		clear();
 		word.clear();
@@ -86,9 +94,14 @@ public final class HollowSeedCounts {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Full Hollow span; every self-support query must use this same geometry. */
 	private final int k;
+	/** Reusable rolling Hollow kmer for recounting a seed prefix without allocation. */
 	private final Kmer word;
+	/** Primary fingerprint to one-based head index for the secondary-collision chain. */
 	private final LongHashMap heads=new LongHashMap(128);
+	/** Secondary fingerprints keyed by chain node, disambiguating equal primary hashes. */
 	private final LongList fingerprints=new LongList(128);
+	/** Collision-chain next links, and same-index multiplicity for each fingerprint. */
 	private final IntList next=new IntList(128), counts=new IntList(128);
 }

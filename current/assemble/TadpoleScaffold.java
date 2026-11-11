@@ -15,12 +15,24 @@ import parse.Parse;
 import shared.Shared;
 import shared.Tools;
 
-/** Optional final Hollow scaffolding for the public Tadpole single/multi-K entry points.
- * Original contigs and evidence reports remain in a unique sibling work directory.
+/**
+ * Optional final Hollow scaffolding for the public Tadpole single/multi-K entry points.
+ * Runs assembly and scaffolding serially in the caller's JVM. Native stages use
+ * shared process settings, so concurrent invocations are unsupported.
+ * Original contigs and evidence reports remain in a unique sibling work directory;
+ * the requested output receives the scaffold product only after that stage returns.
  * @author Brian Bushnell, Fischl */
-final class TadpoleScaffold {
+final class TadpoleScaffold{
 
-	/** Removes scaffold options before native parsing; ordinary invocations take the unchanged path. */
+	/**
+	 * Consumes scaffold options from already expanded arguments. Returns false when
+	 * none are present, leaving dispatch to the caller. Otherwise runs the selected
+	 * pipeline and returns true; exceptions propagate. Only scaffold=t enables the
+	 * postpass: overrides alone are stripped while ordinary assembly continues.
+	 * The last scaffold boolean wins, and override order is retained for native parsing.
+	 * @param input Expanded command-line arguments; not modified
+	 * @param forceMulti Whether the caller requires multi-K dispatch
+	 */
 	static boolean dispatch(final String[] input, final boolean forceMulti){
 		assert(input!=null) : "Scaffolding dispatch follows native config expansion.";
 		boolean seen=false, enabled=false;
@@ -45,7 +57,15 @@ final class TadpoleScaffold {
 		return true;
 	}
 
-	/** Builds the ordinary assembly first, then publishes only a successfully scaffolded result. */
+	/**
+	 * Validates named rereadable evidence and a single FASTA output, builds ordinary
+	 * contigs, then runs HollowBridge with defaults followed by permitted overrides.
+	 * Paths, joining and overwrite policy for the intermediate outputs remain owned
+	 * here. Publication moves the scaffold file out of the work directory and honors
+	 * the requested overwrite policy; atomic replacement is not requested. Once
+	 * created, the work directory is retained on success or failure. I/O exceptions
+	 * are wrapped with its path; other exceptions propagate.
+	 */
 	private static void run(final ArrayList<String> core, final ArrayList<String> overrides, final boolean forceMulti){
 		assert(core!=null && overrides!=null) : "Dispatch separates native assembly arguments from postpass overrides.";
 		final String[] original=core.toArray(new String[0]);
@@ -136,5 +156,6 @@ final class TadpoleScaffold {
 		while(key.startsWith("-")){key=key.substring(1);}
 		return key;
 	}
+	/** Treats absent, empty and case-insensitive null values as unspecified paths. */
 	private static boolean present(final String value){return value!=null && !value.isEmpty() && !value.equalsIgnoreCase("null");}
 }

@@ -9,26 +9,28 @@ import structures.LongList;
 import ukmer.HollowAnchorTable;
 
 /**
- * Immutable snapshot of assembly-wide-unique32bp anchors near contig ends.
+ * Immutable snapshot of assembly-wide unique 32 bp anchors near contig ends.
  * Candidate discovery is tip-restricted; uniqueness verification scans every
  * contig position, including interiors and reverse-complement duplicates.
- * Palindromic anchors are excluded because a single anchor cannot orient them.
- * Rebuild after changing contig sequences or their order; indices refer to the
- * supplied list order, not mutable Contig.id values.
+ * Anchor identity is canonical, while stored coordinates retain the first
+ * literal tip occurrence. Palindromic anchors are excluded from uniqueness
+ * because one word cannot orient a connection. Rebuild after changing contig
+ * sequences or their order; indices refer to the supplied list order, not
+ * mutable Contig.id values.
  * @author Brian Bushnell, Fischl
  */
-public final class HollowTipAnchors {
+public final class HollowTipAnchors{
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Indexes whole32bp words contained in either terminal tipBases interval. */
+	/** Indexes whole 32 bp words contained in either terminal tipBases interval. */
 	public HollowTipAnchors(final ArrayList<Contig> contigs, final int tipBases_){
 		this(contigs, tipBases_, false);
 	}
 
-	/** Sliding probes may retain palindromes as evidence, never as oriented unique seeds. */
+	/** Optionally retains palindromic candidates for branch evidence, never as unique oriented seeds. */
 	public HollowTipAnchors(final ArrayList<Contig> contigs, final int tipBases_, final boolean retainPalindromes_){
 		if(contigs==null || tipBases_<32){
 			throw new IllegalArgumentException("Tip indexing requires contigs and tipBases>=32.");
@@ -73,18 +75,31 @@ public final class HollowTipAnchors {
 	/** Evidence membership ignores uniqueness: a repeated shifted arm must not hide branches. */
 	boolean containsCanonical(final long key){return map.get(key)>0;}
 
+	/** Number of distinct candidate canonical words seen in a tip interval. */
 	public int size(){return words.size;}
+
+	/** Number of nonpalindromic candidate words that occur exactly once across all contig positions. */
 	public int uniqueCount(){return uniqueCount;}
+
+	/** Whether the indexed candidate survives global uniqueness and palindrome filters. */
 	public boolean isUnique(final int index){
 		checkIndex(index);
 		return occurrences[index]==1 && words.get(index)!=HollowAnchorTable.reverseComplement(words.get(index));
 	}
+
+	/** Literal 32 bp word as it appears in its owning contig, before canonicalization. */
 	public long forwardWord(final int index){checkIndex(index); return words.get(index);}
+
+	/** Index of the owning contig in the list used to build this snapshot. */
 	public int contigIndex(final int index){checkIndex(index); return owners.get(index);}
+
+	/** Zero-based start coordinate of the literal word on its stored forward strand. */
 	public int start(final int index){checkIndex(index); return positions.get(index);}
+
+	/** Length of the owning contig when this immutable snapshot was built. */
 	public int contigLength(final int index){checkIndex(index); return lengths.get(index);}
 
-	/** Whether this observed arm is reverse-complemented relative to its stored contig. */
+	/** Whether this observed arm is reverse-complemented relative to its stored contig orientation. */
 	public boolean reverse(final int index, final long observed){
 		checkIndex(index);
 		final long forward=words.get(index);
@@ -93,13 +108,13 @@ public final class HollowTipAnchors {
 		throw new IllegalArgumentException("Observed word does not identify anchor "+index);
 	}
 
-	/** Bases remaining after this arm while moving outward in the indicated contig strand. */
+	/** Bases from the 32 bp arm to the exit end in the indicated contig strand. */
 	public int exitDistance(final int index, final boolean reverse){
 		checkIndex(index);
 		return reverse ? positions.get(index) : lengths.get(index)-positions.get(index)-32;
 	}
 
-	/** Bases before this arm when entering the contig in the indicated strand. */
+	/** Bases from the entry end to the 32 bp arm in the indicated contig strand. */
 	public int entryDistance(final int index, final boolean reverse){
 		checkIndex(index);
 		return reverse ? lengths.get(index)-positions.get(index)-32 : positions.get(index);
@@ -123,7 +138,7 @@ public final class HollowTipAnchors {
 	/*----------------       Internal methods       ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Adds candidate positions in a bounded start-coordinate interval, preserving the literal strand. */
+	/** Adds first tip positions for canonical identities in a bounded start interval. */
 	private void addCandidates(final byte[] bases, final int owner, final int first, final int last){
 		assert(first>=0 && first<=last && last<=bases.length-32) : "Tip start bounds must contain complete32bp words.";
 		long forward=0, reverse=0;
@@ -146,7 +161,7 @@ public final class HollowTipAnchors {
 		}
 	}
 
-	/** Counts each physical position once; a second occurrence permanently invalidates the anchor. */
+	/** Counts physical canonical occurrences across all positions, capping at nonunique. */
 	private void countOccurrences(final byte[] bases){
 		assert(occurrences.length==words.size) : "All candidates must be collected before global uniqueness counting.";
 		long forward=0, reverse=0;
@@ -170,6 +185,7 @@ public final class HollowTipAnchors {
 		return Long.compareUnsigned(word, reverse)>=0 ? word : reverse;
 	}
 
+	/** Asserts the caller supplied an index from this snapshot when assertions are enabled. */
 	private void checkIndex(final int index){
 		assert(index>=0 && index<words.size) : "Anchor index must come from this snapshot's lookup or iteration: "+index;
 	}
@@ -178,11 +194,18 @@ public final class HollowTipAnchors {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Terminal interval size used for candidate discovery and endpoint gates. */
 	public final int tipBases;
+	/** True only for evidence snapshots that keep strand-ambiguous candidates. */
 	private final boolean retainPalindromes;
+	/** Cached number of candidates that pass global uniqueness and orientation filters. */
 	private final int uniqueCount;
+	/** Canonical 32 bp word to one-based candidate index. */
 	private final LongIntMap map=new LongIntMap();
+	/** Literal forward words from the first retained tip occurrence of each canonical key. */
 	private final LongList words=new LongList();
+	/** Owning list indices, zero-based starts and snapshot contig lengths for each word. */
 	private final IntList owners=new IntList(), positions=new IntList(), lengths=new IntList();
+	/** Physical occurrence counts for candidate canonical words, capped at two. */
 	private final byte[] occurrences;
 }

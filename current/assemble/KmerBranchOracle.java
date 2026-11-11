@@ -8,14 +8,14 @@ import dna.AminoAcid;
 import map.LongHashMap;
 
 /**
- * Exact source-genome census for collected, oriented junction words.
+ * Exact reference census for caller-collected, oriented junction words.
  * Every occurrence contributes both flanks, including occurrences after the
  * second hit. Counts describe physical reference positions; reverse-complement
- * hits contribute flanks in query orientation. This supplies local topology,
- * not a claim that a whole contig merge is safe.
+ * hits contribute flanks in query orientation. Results report local topology,
+ * not whether a whole contig merge is safe.
  * @author Fischl
  */
-public final class KmerBranchOracle {
+public final class KmerBranchOracle{
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
@@ -29,10 +29,12 @@ public final class KmerBranchOracle {
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Indexes query seeds, then scans each reference once. All queries have one K.
-	 * Circularity is explicit per reference, never inferred from a header. A query
-	 * may span a circular origin, but K must not exceed that reference's length.
-	 * Boundary/N flanks remain unknown rather than evidence of a true dead end.
+	 * Returns one Result per query in input order after indexing query seeds and
+	 * scanning each reference once. All queries have one K and are copied before
+	 * indexing; an empty query list is valid. Circularity is explicit per reference,
+	 * never inferred from a header. A query may span a circular origin, but K must
+	 * not exceed that reference's length. Boundary/N flanks remain unknown rather
+	 * than evidence of a true dead end.
 	 */
 	public static Result[] scan(final List<byte[]> queries, final List<byte[]> references,
 			final boolean[] circular, final int k){
@@ -87,7 +89,7 @@ public final class KmerBranchOracle {
 		return results;
 	}
 
-	/** Links patterns by immutable map group ID; LongHashMap.put is insert-if-absent. */
+	/** Links one oriented pattern into its immutable seed group. */
 	private static void addPattern(final Pattern pattern, final ArrayList<Pattern> patterns,
 			final LongHashMap index, final int[] heads){
 		assert(patterns.size()<heads.length) : "At most two orientations are indexed per query.";
@@ -98,7 +100,7 @@ public final class KmerBranchOracle {
 		patterns.add(pattern);
 	}
 
-	/** Full equality, not seed/hash equality, establishes an occurrence. */
+	/** Full circular-safe equality, not seed/hash equality, establishes an occurrence. */
 	private static boolean matches(final byte[] reference, final long start, final byte[] word){
 		assert(start>=0 && start<reference.length) : "Each candidate is anchored to one physical reference start.";
 		for(int i=0; i<word.length; i++){
@@ -144,9 +146,9 @@ public final class KmerBranchOracle {
 	/*----------------         Inner Classes        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Complete aggregate of flanks, retaining paired context rather than only marginals. */
-	public static final class Result {
-		/** Adds one physical occurrence, with both interpretations of a palindromic word. */
+	/** Per-query aggregate retaining paired flank context rather than only marginals. */
+	public static final class Result{
+		/** Counts one physical hit; palindromes add both mask interpretations once. */
 		private void add(final int left, final int right, final boolean palindrome){
 			assert(left>=-1 && left<4 && right>=-1 && right<4) : "Flank masks encode A/C/G/T or explicit unknown.";
 			occurrences++;
@@ -163,7 +165,7 @@ public final class KmerBranchOracle {
 			if(left>=0 && right>=0){pairMask|=1<<(4*left+right);}
 		}
 
-		/** Strict origin-blind traversal truth, not whole-contig or context-aware pair truth. */
+		/** True when occurrences are nonzero, no flanks are unknown, and marginals equal the expected bases. */
 		public boolean unambiguous(final int left, final int right){
 			if(left<0 || left>3 || right<0 || right>3){throw new IllegalArgumentException("Expected flanks must be A/C/G/T codes.");}
 			return occurrences>0 && unknownFlanks==0 && leftMask==(1<<left) && rightMask==(1<<right);
@@ -173,11 +175,12 @@ public final class KmerBranchOracle {
 		public long occurrences;
 		/** Hits with at least one linear-boundary or undefined flank. */
 		public long unknownFlanks;
+		/** Known left flanks, known right flanks, and observed ordered flank pairs. */
 		public int leftMask, rightMask, pairMask;
 	}
 
-	/** One exact orientation, with a diverse seed chosen once per retained query. */
-	private static final class Pattern {
+	/** One exact orientation with a single selected seed for candidate lookup. */
+	private static final class Pattern{
 		/** Chooses the window with most adjacent-base changes; ties use the earliest. */
 		Pattern(final byte[] word_, final boolean reverse_, final boolean palindrome_,
 				final Result result_, final int seedLength){
@@ -197,11 +200,17 @@ public final class KmerBranchOracle {
 			seed=packed;
 		}
 
+		/** Normalized forward or reverse-complement query word to compare exactly. */
 		final byte[] word;
+		/** Orientation and palindromic-state flags for one retained query pattern. */
 		final boolean reverse, palindrome;
+		/** Shared aggregate for both orientations of one caller-supplied query. */
 		final Result result;
+		/** Offset of {@link #seed} inside {@link #word}. */
 		final int offset;
+		/** Packed selected seed used only to find later full-match candidates. */
 		final long seed;
+		/** Next pattern in the same LongHashMap seed group. */
 		int next=-1;
 	}
 }

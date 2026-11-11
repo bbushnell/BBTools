@@ -7,36 +7,46 @@ import map.LongLongHashMap2;
 import structures.IntList;
 import structures.LongList;
 
-/** Finds unique reciprocal exact overlaps between selected contig ends. */
-class CrossKTipOverlapper {
+/**
+ * Finds unique reciprocal exact overlaps between selected contig ends.
+ *
+ * The selector is used for two related passes: cross-k bridging between long-k
+ * endpoints and optional graph-k fusion.  Both modes enumerate oriented terminal
+ * anchors, freeze each tip's best partner and retain only reciprocal choices,
+ * then apply vetoes that cannot rewrite that frozen graph.
+ */
+public class CrossKTipOverlapper{
 
-	CrossKTipOverlapper(ArrayList<Contig> contigs_, int minOverlap_, int maxOverlap_){
+	/** Uses saved cross-k bridge endpoints without an additional retained-contig length floor. */
+	public CrossKTipOverlapper(ArrayList<Contig> contigs_, int minOverlap_, int maxOverlap_){
 		this(contigs_, minOverlap_, maxOverlap_, false, 0);
 	}
 
-	CrossKTipOverlapper(ArrayList<Contig> contigs_, int minOverlap_, int maxOverlap_, boolean graphKEnds_){
+	/** Selects endpoint eligibility by the graphKEnds flag without a retained-contig length floor. */
+	public CrossKTipOverlapper(ArrayList<Contig> contigs_, int minOverlap_, int maxOverlap_, boolean graphKEnds_){
 		this(contigs_, minOverlap_, maxOverlap_, graphKEnds_, 0);
 	}
 
-	CrossKTipOverlapper(ArrayList<Contig> contigs_, int minOverlap_, int maxOverlap_,
+	/** Excludes contigs shorter than the retained-side threshold before candidate discovery. */
+	public CrossKTipOverlapper(ArrayList<Contig> contigs_, int minOverlap_, int maxOverlap_,
 			boolean graphKEnds_, int minContig_){
 		this(contigs_, minOverlap_, maxOverlap_, graphKEnds_, minContig_, -1);
 	}
 
 	/** A negative mismatch allowance preserves legacy unchecked terminal trimming. */
-	CrossKTipOverlapper(final ArrayList<Contig> contigs_, final int minOverlap_, final int maxOverlap_,
+	public CrossKTipOverlapper(final ArrayList<Contig> contigs_, final int minOverlap_, final int maxOverlap_,
 			final boolean graphKEnds_, final int minContig_, final int maxMismatches_){
 		this(contigs_, minOverlap_, maxOverlap_, graphKEnds_, minContig_, maxMismatches_, false);
 	}
 
 	/** Optionally requires historical dead-end evidence in addition to current tip eligibility. */
-	CrossKTipOverlapper(final ArrayList<Contig> contigs_, final int minOverlap_, final int maxOverlap_,
+	public CrossKTipOverlapper(final ArrayList<Contig> contigs_, final int minOverlap_, final int maxOverlap_,
 			final boolean graphKEnds_, final int minContig_, final int maxMismatches_, final boolean deadEndsOnly_){
 		this(contigs_, minOverlap_, maxOverlap_, graphKEnds_, minContig_, maxMismatches_, deadEndsOnly_, false);
 	}
 
 	/** Optionally vetoes a selected pair when a longer conflicting placement exists in this pass. */
-	CrossKTipOverlapper(final ArrayList<Contig> contigs_, final int minOverlap_, final int maxOverlap_,
+	public CrossKTipOverlapper(final ArrayList<Contig> contigs_, final int minOverlap_, final int maxOverlap_,
 			final boolean graphKEnds_, final int minContig_, final int maxMismatches_,
 			final boolean deadEndsOnly_, final boolean rejectConflicts_){
 		if(minOverlap_<1 || maxOverlap_<minOverlap_){
@@ -56,8 +66,15 @@ class CrossKTipOverlapper {
 		}
 	}
 
-	/** Adds reciprocal overlap edges and returns the number of acyclic pairs added. */
-	int addEdges(){
+	/**
+	 * Adds one reciprocal edge pair for every accepted overlap and returns the
+	 * number of pairs that survived ambiguity, cycle and evidence vetoes.
+	 *
+	 * Candidate ranking is deliberately frozen before cycle, short-tip, coverage,
+	 * support and neural checks.  Late checks may reject an edge, but they do not
+	 * let a runner-up become best and change the already-observed component graph.
+	 */
+	public int addEdges(){
 		validateCoverageRatio(maxCoverageRatio);
 		final ArrayList<Tip> tips=makeTips();
 		if(BubblePopper.verbose){
@@ -142,6 +159,8 @@ class CrossKTipOverlapper {
 				System.err.println("FusionSelected\t"+minOverlap+"\t"+pair.a.index+"\t"+pair.b.index+
 						"\t"+pair.overlap+"\t"+pair.aTrim+"\t"+pair.bTrim);
 			}
+			// TODO ASM036: BubblePopper.merge() must widen retained cross-k spans
+			// before extremely large accepted overlaps are coverage-weighted safely.
 			addEdges(pair);
 			added++;
 		}
@@ -161,7 +180,7 @@ class CrossKTipOverlapper {
 	 * This deliberately broad experimental veto may remove correct one-sided
 	 * repeat attachments. Missing depth is not evidence of compatible copy number.
 	 */
-	static boolean compatibleCoverage(final float a, final float b, final float ratio){
+	public static boolean compatibleCoverage(final float a, final float b, final float ratio){
 		assert(Float.isFinite(ratio) && (ratio==0 || ratio>=1)) :
 				"The coverage veto requires a validated multiplicative limit or its zero/off sentinel.";
 		if(ratio==0){return true;}
@@ -171,7 +190,10 @@ class CrossKTipOverlapper {
 		return low>0 && high<=low*ratio;
 	}
 
-	/** Reuses the anchor maps for either best selection or a read-only replay of selected alternatives. */
+	/**
+	 * Reuses the anchor maps for either best selection or a conflict replay that
+	 * preserves best-partner ranking while marking contradictory longer placements.
+	 */
 	private void findCandidates(final ArrayList<Tip> tips, final LongLongHashMap2 terminalMap,
 			final LongLongHashMap2 duplicateMap, final long outgoingPower, final boolean conflictsOnly){
 		assert(!conflictsOnly || rejectConflicts) : "Conflict replay needs the explicitly enabled fusion policy.";
@@ -202,7 +224,11 @@ class CrossKTipOverlapper {
 
 	}
 
-	/** Stores one anchor per tip and at most two tips per hash; repeated or third tips are ambiguous. */
+	/**
+	 * Stores one anchor per tip and at most two tips per hash.
+	 * Re-seeing the identical tip and offset is harmless.  A different offset
+	 * from one tip, or any third distinct tip, makes this hash ambiguous.
+	 */
 	private void addAnchor(LongLongHashMap2 primary, LongLongHashMap2 duplicate,
 			long hash, long code){
 		if(BubblePopper.verbose){
@@ -210,16 +236,26 @@ class CrossKTipOverlapper {
 		}
 		final long encoded=code+1;
 		final long old=primary.get(hash);
-		if(old<0){primary.set(hash, encoded);}
-		else if(old==AMBIGUOUS || old==encoded){return;}
-		else if(((old-1)>>>32)==(code>>>32)){primary.set(hash, AMBIGUOUS);}
-		else{
+		if(old<0){
+			primary.set(hash, encoded);
+		}else if(old==AMBIGUOUS || old==encoded){
+			return;
+		}else if(((old-1)>>>32)==(code>>>32)){
+			primary.set(hash, AMBIGUOUS);
+		}else{
 			final long old2=duplicate.get(hash);
-			if(old2<0){duplicate.set(hash, encoded);}
-			else if(old2!=encoded){primary.set(hash, AMBIGUOUS);}
+			if(old2<0){
+				duplicate.set(hash, encoded);
+			}else if(old2!=encoded){
+				primary.set(hash, AMBIGUOUS);
+			}
 		}
 	}
 
+	/**
+	 * Collects long-enough endpoint tips that match the configured current-side
+	 * eligibility and optional historical-dead-end filter.
+	 */
 	private ArrayList<Tip> makeTips(){
 		final ArrayList<Tip> tips=new ArrayList<Tip>();
 		for(int i=0; i<contigs.size(); i++){
@@ -244,6 +280,12 @@ class CrossKTipOverlapper {
 		return tips;
 	}
 
+	/**
+	 * Evaluates one source-to-destination anchor hit in oriented sequence space.
+	 * Self matches only prove repeated context, external matches can become best
+	 * partners, and conflict replay marks a selected partner only when a larger
+	 * covered placement disagrees with its trimmed flanks.
+	 */
 	private void consider(ArrayList<Tip> tips, long sourceCode, Tip dest, int destAnchorTrim, boolean conflictsOnly){
 		final Tip source=tips.get((int)(sourceCode>>>32));
 		if(conflictsOnly && (source.best!=dest || dest.best!=source || source.conflictingPlacement)){return;}
@@ -405,6 +447,7 @@ class CrossKTipOverlapper {
 		return true;
 	}
 
+	/** Verifies the selected overlap in the same trimmed orientation used to score candidates. */
 	private static boolean matches(Tip source, int sourceTrim, Tip dest, int destTrim, int overlap){
 		final boolean sourceReverse=!source.right;
 		final boolean destReverse=dest.right;
@@ -423,7 +466,7 @@ class CrossKTipOverlapper {
 	 * covers both sides; unknown bases are disagreements, not matching evidence.
 	 * Uncovered trimmed bases are rejected rather than silently left unvalidated.
 	 */
-	static boolean compatibleTrimmedFlanks(final Contig source, final boolean sourceReverse,
+	public static boolean compatibleTrimmedFlanks(final Contig source, final boolean sourceReverse,
 			final int sourceTrim, final Contig dest, final boolean destReverse, final int destTrim,
 			final int overlap, final int allowance){
 		assert(source!=null && dest!=null && allowance>=0 && sourceTrim>=0 && destTrim>=0 && overlap>0) :
@@ -457,6 +500,11 @@ class CrossKTipOverlapper {
 		return true;
 	}
 
+	/**
+	 * Encodes an accepted direct overlap as reciprocal zero-length graph edges.
+	 * Each direction stores the same exact overlap and swaps source/destination
+	 * trims so BubblePopper can later orient either endpoint into a right merge.
+	 */
 	private static void addEdges(Pair pair){
 		final Tip a=pair.a, b=pair.b;
 		if(BubblePopper.verbose){printPair(pair);}
@@ -557,16 +605,22 @@ class CrossKTipOverlapper {
 		return answer;
 	}
 
+	/** Finds a path-compressed component representative for cycle detection. */
 	private static int find(int[] parent, int x){
 		while(parent[x]!=x){parent[x]=parent[parent[x]]; x=parent[x];}
 		return x;
 	}
 
+	/** Merges two component representatives in the cycle-detection forest. */
 	private static void union(int[] parent, int a, int b){
 		a=find(parent, a); b=find(parent, b);
 		if(a!=b){parent[b]=a;}
 	}
 
+	/**
+	 * Prints counters from the production one-shot lifecycle: construct, install
+	 * optional gates, call addEdges once. Counters are not reset for a second call.
+	 */
 	private void printSummary(int tips, int ambiguous, int reciprocal, int cycleRejected){
 		if(!BubblePopper.verbose && maxMismatches<0 && support==null && neural==null && maxCoverageRatio==0 && !shortEvidence){return;}
 		System.err.println((graphKEnds ? "Graph-k" : "Cross-k")+" tip overlaps: endpoints="+tips+
@@ -582,31 +636,34 @@ class CrossKTipOverlapper {
 				", added="+(reciprocal-cycleRejected-conflictRejected-supportRejected-coverageRejected-neuralRejected-shortEvidenceRejected)+".");
 	}
 
+	/** Hashes an oriented window using the same base encoding as the rolling update. */
 	private static long hash(Contig c, boolean reverse, int start, int length){
 		long hash=0;
 		for(int i=0; i<length; i++){hash=hash*HASH_MULT+((baseAt(c, reverse, start+i)&0xFF)+1);}
 		return hash;
 	}
 
+	/** Returns the outgoing-base multiplier for a length-preserving rolling hash. */
 	private static long power(long base, int exponent){
 		long value=1;
 		for(int i=0; i<exponent; i++){value*=base;}
 		return value;
 	}
 
+	/** Reads a base on the requested strand. */
 	private static byte baseAt(Contig c, boolean reverse, int pos){
 		return reverse ? AminoAcid.baseToComplementExtended[c.bases[c.length()-1-pos]] : c.bases[pos];
 	}
 
 	/** Primitive anchor chains preserve every short repeat copy without boxing per anchor. */
-	private static final class ShortTipIndex {
+	private static final class ShortTipIndex{
 		/** The ordinary candidate index remains independent and unmodified. */
 		ShortTipIndex(final ArrayList<Tip> tips_){
 			assert(tips_!=null && !tips_.isEmpty()) : "Only eligible short ends justify an evidence index.";
 			tips=tips_;
 		}
 
-		/** Stores one-based positions because LongLongHashMap2 reserves nonpositive values. */
+		/** Stores positive bucket links and keeps zero as this index's chain terminator. */
 		void add(final long hash, final long code){
 			assert(codes.size==next.size && codes.size<Integer.MAX_VALUE-1) :
 					"Parallel anchor arrays and one-based integer links must remain aligned and representable.";
@@ -616,57 +673,79 @@ class CrossKTipOverlapper {
 			heads.set(hash, codes.size);
 		}
 
+		/** Borrowed short-tip list; encoded anchor payloads store indices into this list. */
 		final ArrayList<Tip> tips;
+		/** Hash-bucket heads as one-based indices into codes/next. */
 		final LongLongHashMap2 heads=new LongLongHashMap2(256);
+		/** Encoded tip-and-offset payloads for each short-repeat anchor occurrence. */
 		final LongList codes=new LongList();
+		/** One-based next links parallel to codes; zero terminates a bucket chain. */
 		final IntList next=new IntList();
 	}
 
-	static class Tip {
+	/** Candidate end from the long merge set or the optional short-tip index. */
+	static class Tip{
+		/** Records the owning contig, selected side, and owner-list index. */
 		Tip(Contig contig_, boolean right_, int index_){contig=contig_; right=right_; index=index_;}
+		/** Owning live contig and selected side in outward orientation. */
 		final Contig contig;
 		final boolean right;
+		/** Position in the current tip or short-tip list, depending on owner list. */
 		final int index;
+		/** Best external partner frozen before reciprocal pair creation. */
 		Tip best;
+		/** Best overlap and the exact source/destination trims for that placement. */
 		int bestOverlap=0;
 		int bestSourceTrim=0, bestDestTrim=0;
+		/** Equal best external partners or self-repeats block reciprocal selection. */
 		boolean ambiguous=false;
 		/** A frozen best pair has a covered, larger placement with contradictory flanks. */
 		boolean conflictingPlacement=false;
 	}
 
-	static class Pair {
+	/** Frozen reciprocal candidate awaiting safety vetoes and edge creation. */
+	static class Pair{
+		/** Stores both ends and the exact trim recipe for their selected overlap. */
 		Pair(Tip a_, Tip b_, int overlap_, int aTrim_, int bTrim_){
 			a=a_; b=b_; overlap=overlap_; aTrim=aTrim_; bTrim=bTrim_;
 		}
 		final Tip a, b;
+		/** Exact overlap and terminal bases discarded from a and b before joining. */
 		final int overlap, aTrim, bTrim;
 	}
 
+	/** Borrowed live contig list; Contig.id must index this list for edge construction. */
 	private final ArrayList<Contig> contigs;
+	/** Inclusive overlap bounds plus retained-contig length floor and flank mismatch policy. */
 	private final int minOverlap, maxOverlap, minContig, maxMismatches;
+	/** Current open graph ends versus saved cross-k bridge endpoints. */
 	private final boolean graphKEnds;
+	/** Optional filter requiring a historical dead-end before an endpoint can participate. */
 	private final boolean deadEndsOnly;
+	/** Optional second pass that marks conflicting longer covered placements. */
 	private final boolean rejectConflicts;
+	/** Per-run candidate counters consumed by printSummary(). */
 	private long exactCandidates=0, selfMatches=0;
 	private long flankRejected=0;
 	private int conflictRejected=0;
 	/** Optional immutable-read-table checker, installed before serial edge discovery. */
-	FusionKmerSupport support;
+	public FusionKmerSupport support;
 	/** Optional read-only census of every frozen reciprocal pair before safety vetoes. */
 	FusionJoinCollector collector;
 	/** Optional post-guard veto; never changes the frozen partner or cycle graph. */
-	FusionNeuralGate neural;
+	public FusionNeuralGate neural;
 	/** Controls external-pair eligibility, not conservative self/anchor/conflict evidence. */
-	boolean allowTrim=true;
+	public boolean allowTrim=true;
 	/** Development-only monotone veto; short endpoints never enter ordinary pair selection. */
-	boolean shortEvidence=false;
+	public boolean shortEvidence=false;
 	/** Experimental whole-contig depth-discontinuity veto; zero preserves legacy behavior. */
-	float maxCoverageRatio=0;
+	public float maxCoverageRatio=0;
 	private int supportRejected=0;
 	private int coverageRejected=0;
 	private int neuralRejected=0;
 	private int shortEvidenceRejected=0;
+	/** Marks a hash bucket with multiple candidate anchors. */
 	private static final long AMBIGUOUS=Long.MAX_VALUE;
+	/** Odd multiplier used for terminal rolling hashes, with intentional long wraparound. */
 	private static final long HASH_MULT=0x9E3779B185EBCA87L;
 }

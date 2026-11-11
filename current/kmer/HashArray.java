@@ -475,11 +475,12 @@ public abstract class HashArray extends AbstractKmerTable{
 
 	/**
 	 * Finds the cell position of a k-mer in the hash table.
+	 * The returned cell is borrowed and remains valid only while the table structure is stable.
 	 * @param kmer The k-mer to find
 	 * @return Matching cell, NOT_PRESENT at the first empty cell, or HASH_COLLISION
 	 * when the full probe window is occupied; the latter requires a separate victim lookup
 	 */
-	final int findKmer(long kmer){
+	public final int findKmer(long kmer){
 		return findKmer(kmer, kmerToCell(kmer));
 	}
 

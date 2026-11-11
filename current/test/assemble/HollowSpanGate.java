@@ -25,8 +25,11 @@ import structures.ListNum;
 /** Evaluates an experimental start veto on saved right-extensions, without rerunning them.
  * A rejected record is truncated to its original seed length; no base is corrected.
  * Truth is deliberately absent from the gate and must be audited independently afterward.
+ * The tool streams one saved extension FASTA and three terminal-depth reports in
+ * lockstep, proving that endpoint identity and row order match before making a
+ * conservative retain-or-truncate decision.
  * @author Brian Bushnell, Fischl */
-public final class HollowSpanGate {
+public final class HollowSpanGate{
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
@@ -39,7 +42,9 @@ public final class HollowSpanGate {
 		finally{Shared.closeStream(pp.outstream);}
 	}
 
-	/** Requires three ordered terminal reports and fresh sequence/report outputs. */
+	/** Requires three ordered terminal reports and fresh sequence/report outputs.
+	 * The {@code test=true} mode skips file validation so the in-process reject
+	 * oracle can run without fixture paths. */
 	private HollowSpanGate(final String[] args){
 		final Parser parser=new Parser();
 		parser.overwrite=false;
@@ -70,13 +75,17 @@ public final class HollowSpanGate {
 	/*----------------           Methods            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Joins by both strict stream order and ID, checking endpoint identity before any decision. */
+	/** Joins by both strict stream order and ID, checking endpoint identity before any decision.
+	 * On successful completion, the output FASTA contains every input record
+	 * once; rejected records are shortened to their saved seed prefix and
+	 * summarized in the details TSV. */
 	private void process(){
 		if(test){selfTest(); return;}
 		final Streamer stream=StreamerFactory.makeStreamer(
 				FileFormat.testInput(input, FileFormat.FASTA, null, true, true), null, true, -1, false, true, 1);
 		final Writer writer=WriterFactory.makeWriter(
 				FileFormat.testOutput(output, FileFormat.FASTA, null, true, false, false, true), null, 1, null, false);
+		// TODO ASM024: construction and partial startup failures can bypass cleanup before started is true.
 		final HashSet<String> seen=new HashSet<String>();
 		final ByteBuilder row=new ByteBuilder();
 		long reads=0, flagged=0, withheld=0, removed=0;
@@ -138,8 +147,10 @@ public final class HollowSpanGate {
 	/*----------------        Inner Classes         ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** One native tabular stream; only its current row remains live. */
-	private static final class Profile implements AutoCloseable {
+	/** One native tabular stream; only its current row remains live.
+	 * A profile owns exactly one report and consumes exactly one row for each
+	 * extension read. */
+	private static final class Profile implements AutoCloseable{
 		/** Validates schema before the record stream starts, closing on constructor failure. */
 		Profile(final String path){
 			file=ByteFile.makeByteFile(path, true);
@@ -148,6 +159,7 @@ public final class HollowSpanGate {
 				final byte[] header=file.nextLine();
 				valid=header!=null && new String(header, java.nio.charset.StandardCharsets.US_ASCII).equals(SCHEMA);
 				require(valid, "Unexpected terminal profile header: "+path);
+			// TODO ASM024: invalid-schema cleanup can mask the original schema failure.
 			}finally{if(!valid){file.close();}}
 		}
 
@@ -176,22 +188,33 @@ public final class HollowSpanGate {
 
 		/** Extra rows are fatal rather than silently left unused. */
 		void requireEnd(){require(file.nextLine()==null, "Terminal profile has extra rows.");}
+
+		/** Closes the native byte stream and promotes I/O errors to fixture failures. */
 		@Override
 		public void close(){require(!file.close(), "Terminal profile read failed.");}
+
+		/** Open native TSV reader positioned after the already-validated schema row. */
 		private final ByteFile file;
+
+		/** Reused parser for the current report row. */
 		private final LineParser1 lp=new LineParser1('\t');
+
+		/** Seed length from the row most recently consumed for the caller's read. */
 		int seedLength;
 	}
 
-	/** Guarantees terminal delivery to the report writer even when a record check fails. */
-	private static final class Report implements AutoCloseable {
+	/** Finishes the report writer during resource cleanup after successful construction. */
+	private static final class Report implements AutoCloseable{
 		/** Opens one fresh asynchronous report owned by this resource. */
 		Report(final String path){
 			writer=new ByteStreamWriter(path, false, false, true);
 			writer.start();
 		}
+		/** Finishes the asynchronous TSV writer and checks for deferred write errors. */
 		@Override
 		public void close(){require(!writer.poisonAndWait(), "Guard report write failed.");}
+
+		/** Detail-report writer owned by this resource. */
 		final ByteStreamWriter writer;
 	}
 
@@ -204,8 +227,15 @@ public final class HollowSpanGate {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Input/output paths and the three terminal-depth reports. */
 	private String input, output, details, minus, nominal, plus;
+
+	/** Terminal k-mer size, abstention ratio and minimum alternate-depth floor. */
 	private int k=128, ratio=4, minSupport=3;
+
+	/** Runs the internal reject-rule truth table instead of streaming files. */
 	private boolean test=false;
+
+	/** Native terminal-profile TSV schema expected from each report stream. */
 	private static final String SCHEMA="id\tlength\tk\tquery_span\tleft_anchor\tright_anchor\tdepth";
 }

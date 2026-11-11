@@ -21,9 +21,16 @@ import structures.ByteBuilder;
  * Development-only reference-guided or NN-scored joining of saved raw unitigs.
  * The two decision inputs are mutually exclusive; NN mode never opens labels.
  * No read table is loaded, and no unknown label is converted into a negative.
+ * Support alone does not force a join: each connected endpoint must have exactly
+ * one supported partner, reciprocally. Linear components are spelled with exact
+ * K-1 overlaps after baseAt normalizes case/orientation and maps non-ACGT symbols to N;
+ * this is normalized equality, not raw-byte equality. Closed components retain their original unitigs.
+ * The standalone tool writes merged FASTA, an original baseline with the same length cutoff and
+ * a path table for every result, including products filtered from FASTA. These
+ * outputs are separate writes, not an atomic publication. No new coverage is computed.
  * @author Fischl
  */
-public final class SameKJoinMerge {
+public final class SameKJoinMerge{
 
 	/*--------------------------------------------------------------*/
 	/*----------------             Main             ----------------*/
@@ -40,7 +47,14 @@ public final class SameKJoinMerge {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Keeps scientific choices explicit; all outputs must be new. */
+	/**
+	 * Requires either labels or the complete features/network/cutoff/score-output binding.
+	 * Other required inputs are ordered raw FASTA and candidates, with explicit K and three
+	 * output destinations. Rejects paired input/output and checks aliases before opening data;
+	 * ordinary output files must be new regardless of the general parser's overwrite setting.
+	 * @param args Preparser-expanded experimental merge options
+	 * @param outstream_ Borrowed diagnostic stream, closed by main when owned
+	 */
 	private SameKJoinMerge(final String[] args, final PrintStream outstream_){
 		outstream=outstream_;
 		final Parser parser=new Parser();
@@ -83,7 +97,9 @@ public final class SameKJoinMerge {
 	/*----------------           Methods            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Validates all evidence before writing, then emits matched final-length filters. */
+	/** Validates all evidence before writing FASTA, then applies the same final-length
+	 * filter to original and merged contigs. NN score rows are written during validation.
+	 * FASTA and path files are published separately; failure can leave earlier outputs. */
 	private void run(){
 		assert(k>=2 && minContig>0) : "The overlap and final filter are explicit experimental parameters.";
 		final ArrayList<Contig> contigs=TadpoleGraph.readContigs(input);
@@ -104,7 +120,15 @@ public final class SameKJoinMerge {
 				" baseline_emitted="+before+" merged_emitted="+emitted+" mincontig="+minContig);
 	}
 
-	/** Reads consecutive paired rows and verifies the candidate against the actual FASTA. */
+	/**
+	 * Reads consecutive candidate events and either matched label rows or model decisions.
+	 * Binds physical endpoint indices, lengths, endpoint/context sequences and normalized overlaps
+	 * to the ordered FASTA. Saved neighborhood counts and branch columns are not remeasured.
+	 * A supported label must name target 1 and unique whole/left/right context hits; remaining
+	 * reference provenance is not independently revalidated here. Unresolved labels abstain.
+	 * @param contigs Original raw unitigs in saved census order
+	 * @return Support degrees/partners accumulated before reciprocal selection
+	 */
 	private Choices readChoices(final ArrayList<Contig> contigs){
 		assert(contigs!=null) : "Candidate indices refer to one fixed ordered raw-unitig set.";
 		final Choices choices=new Choices(contigs.size());
@@ -197,8 +221,17 @@ public final class SameKJoinMerge {
 	/*----------------        Static Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Spells disjoint linear chains; leaves every closed component unmerged. */
-	static Result merge(final ArrayList<Contig> input, final int[] mate, final int k){
+	/**
+	 * Spells disjoint linear chains without mutating input contigs or the mate array.
+	 * Validates reciprocal non-self connections and checks normalized overlaps while spelling.
+	 * Closed components are copied one unitig at a time without opening their cycle or
+	 * validating its overlap joins. This merger does not recompute product depths.
+	 * @param input Stable unitigs whose list positions define physical endpoint IDs
+	 * @param mate Two entries per unitig: left=2*i, right=2*i+1; -1 means a free end
+	 * @param k Word length, making each linear overlap k-1 bases
+	 * @return New product sequences and parallel provenance paths; no final length filtering
+	 */
+	public static Result merge(final ArrayList<Contig> input, final int[] mate, final int k){
 		if(k<2 || mate.length!=2L*input.size()){throw new IllegalArgumentException("Invalid merge geometry.");}
 		for(int end=0; end<mate.length; end++){
 			final int other=mate[end];
@@ -224,7 +257,7 @@ public final class SameKJoinMerge {
 		return result;
 	}
 
-	/** Every contig is appended once; each exact K-1 overlap is emitted once. */
+	/** Starts at a free physical end, spells each unitig once and omits each verified K-1 prefix overlap. */
 	private static void spell(final ArrayList<Contig> input, final int[] mate, final int k,
 			final int start, final boolean[] used, final Result result){
 		assert(mate[start]<0) : "Only a free physical end starts a linear component.";
@@ -254,7 +287,9 @@ public final class SameKJoinMerge {
 	/**
 	 * Exact joining removes internal ends only. Preserve the physical outer ends
 	 * for later bridge/fusion eligibility; default integer zero is not topology.
-	 * Coverage is intentionally recomputed from the caller's live count table.
+	 * Coverage is not copied. The borrowed SameKJoinRescue.mergeLoaded path refreshes every
+	 * product; standalone rescue refreshes emitted products only. This standalone merger
+	 * emits sequence and paths without computing new coverage.
 	 */
 	private static void copyOuterEnds(final Contig target, final Contig first, final boolean firstReverse,
 			final Contig last, final boolean lastReverse){
@@ -272,7 +307,7 @@ public final class SameKJoinMerge {
 		target.tid=first.tid==last.tid ? first.tid : -1;
 	}
 
-	/** Case/orientation-normalized sequence equality is mandatory, not merely a hash hit. */
+	/** Requires baseAt-normalized overlap equality: case/orientation normalized, non-ACGT mapped to N. */
 	private static void verifyOverlap(final Contig a, final boolean ar, final Contig b, final boolean br, final int overlap){
 		if(a.length()<=overlap || b.length()<=overlap){throw new IllegalArgumentException("Overlap consumes a whole unitig.");}
 		for(int i=0; i<overlap; i++){
@@ -282,7 +317,7 @@ public final class SameKJoinMerge {
 		}
 	}
 
-	/** Binds saved diagnostic contexts to the original ordered FASTA, not just IDs. */
+	/** Compares literal saved context bytes to baseAt-normalized FASTA bases, including non-ACGT mapped to N. */
 	private static void verifyText(final Contig c, final boolean reverse, final int start, final byte[] text){
 		if(start<0 || text.length<1 || (long)start+text.length>c.length()){throw new IllegalArgumentException("Context does not fit raw unitig.");}
 		for(int i=0; i<text.length; i++){
@@ -315,19 +350,21 @@ public final class SameKJoinMerge {
 	/*----------------         Inner Classes        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Counts all supported competitors before choosing any partner. */
-	static final class Choices {
-		Choices(final int contigs){
+	/** Serial support accumulator; repeated pairs count again, so callers must avoid duplicate candidates. */
+	public static final class Choices{
+		/** Allocates two physical endpoint slots per unitig, with no supported partners yet. */
+		public Choices(final int contigs){
 			if(contigs<0 || contigs>Integer.MAX_VALUE/2){throw new IllegalArgumentException("Too many physical endpoints.");}
 			degree=new int[2*contigs]; partner=new int[degree.length]; Arrays.fill(partner, -1);
 		}
-		void add(final int a, final int b){
+		/** Adds one supported ordered endpoint pair; this does not yet choose a final join. */
+		public void add(final int a, final int b){
 			assert(a>=0 && a<b && b<degree.length) : "Candidates are ordered pairs of different physical ends.";
 			degree[a]=Math.addExact(degree[a], 1); degree[b]=Math.addExact(degree[b], 1);
 			partner[a]=b; partner[b]=a; supported++;
 		}
-		/** Frozen reciprocal unique choices; self-contig proposals remain unmerged. */
-		int[] mates(){
+		/** Returns a fresh reciprocal unique-partner array; competitors and self-contig proposals abstain. */
+		public int[] mates(){
 			final int[] result=new int[degree.length]; Arrays.fill(result, -1);
 			for(int a=0; a<degree.length; a++){
 				final int b=partner[a];
@@ -335,12 +372,15 @@ public final class SameKJoinMerge {
 			}
 			return result;
 		}
+		/** Support counts and last observed partners for each physical endpoint. */
 		final int[] degree, partner;
+		/** Supported pair additions, not the number of reciprocal joins. */
 		int supported;
 	}
 
 	/** Persistent spelled products and their original-unitig paths; no input is mutated. */
-	static final class Result {
+	public static final class Result{
+		/** Takes ownership of a newly spelled/cloned sequence and assigns its sequential samek_ name. */
 		Contig add(final byte[] bases, final String path){
 			assert(bases!=null && path!=null) : "Every output component retains its sequence and provenance.";
 			final int id=contigs.size();
@@ -348,19 +388,28 @@ public final class SameKJoinMerge {
 			contigs.add(result); paths.add(path);
 			return result;
 		}
-		final ArrayList<Contig> contigs=new ArrayList<Contig>();
+		/** Newly allocated products, before the caller's final length filter. */
+		public final ArrayList<Contig> contigs=new ArrayList<Contig>();
+		/** Input-list indices with + or - orientation, parallel to contigs. */
 		final ArrayList<String> paths=new ArrayList<String>();
-		int joins, cycleUnitigs;
+		/** Absorbed linear connections and preserved closed-component unitigs, respectively. */
+		public int joins, cycleUnitigs;
 	}
 
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Borrowed diagnostic destination from the preparser. */
 	private final PrintStream outstream;
+	/** Saved evidence and output destinations; labels and network bindings are mutually exclusive. */
 	private String input, output, candidates, labels, baseline, paths, features, network, scores;
+	/** Inclusive model support threshold; NaN until explicitly configured. */
 	private float cutoff=Float.NaN;
+	/** Distinguishes an omitted cutoff from an explicitly supplied invalid value. */
 	private boolean cutoffSpecified;
+	/** Word length and common final FASTA length threshold, both measured in bases. */
 	private int k, minContig=500;
+	/** Exact schema; event/K and decision fields are checked, not all reference provenance. */
 	private static final String LABEL_HEADER="event\tk\tlabel\ttarget\twhole_hits\tleft_hits\tright_hits\tsource_hits\tsource_unknown\tsource_left_mask\tsource_right_mask\tsource_pair_mask\tdest_hits\tdest_unknown\tdest_left_mask\tdest_right_mask\tdest_pair_mask";
 }

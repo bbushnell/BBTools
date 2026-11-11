@@ -29,23 +29,35 @@ import ukmer.Kmer;
  * terminates that route. Branches are retained, not resolved. One shortest
  * representative per target is recorded, with A/C/G/T tie order. These are
  * possible kmer paths, not evidence that a read spans the whole connection.
+ * Borrows the contig list, sequences and count provider. Keep their order, IDs,
+ * bases and counts stable while this explorer exists; concurrent workers require
+ * concurrent read-only count lookups. Exploration annotates coverage and replaces
+ * edge lists, but never changes sequences or names. Use a fresh explorer for each
+ * traversal: the contig-claim counter is not reset by {@link #explore(int)}.
  * @author Fischl
  */
-final class TadpoleGraph {
+public final class TadpoleGraph{
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
 	/** Supplies canonical DNA counts while search keys retain exact orientation. */
-	interface Counts {
+	public interface Counts{
+		/** Reads the count for a borrowed, reusable query key; must not retain it or change its sequence.
+		 * Negative results, including absent-key sentinels, are treated as zero depth.
+		 */
 		int count(Kmer kmer);
 		/** Query keys must share the count owner's geometry, not an implicit solid default. */
 		default boolean hollow(){return false;}
 	}
 
-	/** Creates an explorer without modifying contig sequences, names, or ordering. */
-	TadpoleGraph(final ArrayList<Contig> contigs_, final Counts counts_, final int k_,
+	/** Indexes incoming endpoints without modifying contig sequences, names or ordering.
+	 * Contig IDs must equal their positions in the borrowed list. The effective K must
+	 * exactly match the count provider's key geometry. Distance counts extension steps;
+	 * maxStates_ bounds distinct retained oriented kmers per endpoint, including its seed.
+	 */
+	public TadpoleGraph(final ArrayList<Contig> contigs_, final Counts counts_, final int k_,
 			final int minDepth_, final int maxDistance_, final int maxStates_){
 		assert(contigs_!=null && counts_!=null) : "Graph exploration needs contigs and read-kmer evidence.";
 		if(k_<1 || minDepth_<1 || maxDistance_<0 || maxStates_<1){
@@ -100,8 +112,13 @@ final class TadpoleGraph {
 		}catch(IOException e){throw new RuntimeException("Could not verify graph input/output paths.", e);}
 	}
 
-	/** Reads complete FASTA records with header trimming and sequence validation disabled. */
-	static ArrayList<Contig> readContigs(final String path){
+	/** Reads complete FASTA records with header trimming and sequence validation disabled.
+	 * Returns new contigs with IDs in input order, retaining each parsed sequence array.
+	 * Temporarily changes process-wide parsing flags; callers must serialize this operation
+	 * with other users of those flags. Normal backend-close errors are reported after
+	 * restoring the flags; a thrown close failure propagates before restoration completes.
+	 */
+	public static ArrayList<Contig> readContigs(final String path){
 		assert(path!=null) : "A supplied assembly is required for graph-only mode.";
 		final boolean trim=Shared.TRIM_READ_DESCRIPTION, validate=Read.VALIDATE_IN_CONSTRUCTOR;
 		final boolean force=FASTQ.FORCE_INTERLEAVED, test=FASTQ.TEST_INTERLEAVED;
@@ -153,8 +170,11 @@ final class TadpoleGraph {
 	/*----------------          Exploration         ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Processes contigs independently; failures propagate before any graph is written. */
-	void explore(final int threads){
+	/** Processes each claimed contig once and waits for all workers before reporting failure.
+	 * Workers annotate depth and endpoint edges; partial annotations remain after failure.
+	 * This method does not write output or reset the claim counter for another traversal.
+	 */
+	public void explore(final int threads){
 		assert(threads>0) : "Graph worker count must be positive.";
 		final ArrayList<Worker> workers=new ArrayList<Worker>();
 		for(int i=0; i<Math.min(threads, contigs.size()); i++){workers.add(new Worker(this));}
@@ -180,7 +200,7 @@ final class TadpoleGraph {
 	}
 
 	/** One worker owns its reusable BFS storage and all metadata for each claimed contig. */
-	private static final class Worker extends Thread {
+	private static final class Worker extends Thread{
 
 		/** Allocates scratch only; the endpoint index and counts remain shared/read-only. */
 		Worker(final TadpoleGraph graph_){
@@ -225,7 +245,11 @@ final class TadpoleGraph {
 			c.maxCov=max;
 		}
 
-		/** Finds shortest first-end connections, retaining branches instead of selecting one. */
+		/** Finds shortest first-end connections, retaining branches instead of selecting one.
+		 * Reuses this worker's queue/map after clearing the previous endpoint. Low-depth or
+		 * undefined seeds return no links without changing that endpoint's existing limit flag.
+		 * Ordinary completion flags supported unseen continuations or seed returns cut off by a bound.
+		 */
 		private ArrayList<Edge> walk(final Contig c, final int side){
 			assert(c.id>=0) : "Reachability requires a stable source contig ID.";
 			visited.clear();
@@ -276,8 +300,7 @@ final class TadpoleGraph {
 							state.sumDepth+depth, state.distance==0 ? depth : state.firstDepth);
 				}
 			}
-			if(side==0){c.graphLeftLimited=limited;}
-			else{c.graphRightLimited=limited;}
+			if(side==0){c.graphLeftLimited=limited;}else{c.graphRightLimited=limited;}
 			return edges;
 		}
 
@@ -315,18 +338,26 @@ final class TadpoleGraph {
 			visited.put(state.key, used++);
 		}
 
+		/** Shared immutable endpoint index, count provider and traversal settings. */
 		final TadpoleGraph graph;
+		/** Reusable current and candidate oriented kmers, owned by this worker. */
 		final Kmer key, next;
+		/** Lookup-only key borrowing the candidate array; never inserted into a map. */
 		final Key probe;
+		/** Retained state key to queue index; absent keys return -1 and the seed has index zero. */
 		final ObjectIntMap<Key> visited=new ObjectIntMap<Key>(Key.class);
+		/** High-water queue storage reused after clearing the map that borrows its keys. */
 		final ArrayList<WalkState> states=new ArrayList<WalkState>();
+		/** Number of queue slots used by the current endpoint's search. */
 		int used;
+		/** Whether a supported unseen continuation or seed return was cut off by a bound. */
 		boolean limited;
+		/** Failure published to the joining caller; no partial graph is reported as success. */
 		Throwable failure;
 	}
 
 	/** Exact oriented packed words; canonical hashes alone are insufficient for endpoints. */
-	private static final class Key {
+	private static final class Key{
 		/** Retains the supplied array; callers copy it unless this is the lookup-only probe. */
 		Key(final long[] words_){words=words_;}
 		@Override
@@ -335,15 +366,19 @@ final class TadpoleGraph {
 		public boolean equals(final Object other){
 			return other instanceof Key && Arrays.equals(words, ((Key)other).words);
 		}
+		/** Borrowed packed words; stored keys remain unchanged until their map is cleared. */
 		long[] words;
 	}
 
 	/** Reusable queue slot; depths include the source anchor and each subsequent kmer. */
-	private static final class WalkState {
+	private static final class WalkState{
 		/** Allocates one exact key buffer for this retained queue slot. */
 		WalkState(final int words){key=new Key(new long[words]);}
+		/** Owned packed key buffer, borrowed by the visited map while this slot is active. */
 		final Key key;
+		/** Extension distance, path depth bounds and first-extension depth (seed depth at zero). */
 		int distance, minDepth, maxDepth, firstDepth;
+		/** Sum over the source anchor and every extension on this representative path. */
 		long sumDepth;
 	}
 
@@ -351,7 +386,9 @@ final class TadpoleGraph {
 	/*----------------            Output            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Writes graph-only DOT; never invokes graph simplification or contig output. */
+	/** Writes graph-only DOT after successful exploration and waits for output completion.
+	 * Never invokes graph simplification or contig output; a reported writer failure throws.
+	 */
 	void writeDot(final String path, final boolean pretty){
 		assert(path!=null) : "DOT output requires a destination.";
 		final ByteStreamWriter writer=TadpoleDot.open(path, pretty, k);
@@ -368,7 +405,10 @@ final class TadpoleGraph {
 		if(writer.poisonAndWait()){throw new RuntimeException("Error writing graph: "+path);}
 	}
 
-	/** Writes input sequences unchanged; names are tags since GFA IDs cannot contain spaces. */
+	/** Writes input sequences unchanged; names are tags since GFA IDs cannot contain spaces.
+	 * Call after successful exploration. Uses Tadpole's output overwrite/append settings,
+	 * waits for output completion and throws on a reported writer failure.
+	 */
 	void writeGfa(final String path){
 		assert(path!=null) : "GFA output requires a destination.";
 		final FileFormat ff=FileFormat.testOutput(path, FileFormat.GFA, null, true,
@@ -420,9 +460,14 @@ final class TadpoleGraph {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Borrowed ordered contigs; workers exclusively annotate the contig they claim. */
 	final ArrayList<Contig> contigs;
+	/** Borrowed stable read-kmer evidence, shared by all workers. */
 	final Counts counts;
+	/** Effective K, minimum supported depth, extension-distance bound and state-count bound. */
 	final int k, minDepth, maxDistance, maxStates;
+	/** Incoming oriented endpoint keys to encoded contig ends (2*ID+side); immutable after indexing. */
 	private final HashMap<Key, IntList> ends=new HashMap<Key, IntList>();
+	/** Monotonic work claim counter; makes this explorer a single-traversal instance. */
 	private final AtomicInteger nextContig=new AtomicInteger();
 }

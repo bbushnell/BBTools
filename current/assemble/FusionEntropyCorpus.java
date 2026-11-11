@@ -15,10 +15,22 @@ import parse.Parser;
 import shared.Tools;
 import structures.ByteBuilder;
 
-/** Backfills native tip entropy without rereading reads or rebuilding assemblies. @author Fischl */
-final class FusionEntropyCorpus {
+/**
+ * Appends two native tip-entropy features to saved 107-input fusion vectors.
+ * Uses the oriented tip sequences retained in traces; no read recount, reassembly or
+ * independent truth labeling occurs here. Unresolved candidates retain derivative
+ * vectors but are excluded from binary trainer tables. Literal manifest group labels
+ * control splitting; this tool does not establish biological or homology separation.
+ * @author Fischl
+ */
+final class FusionEntropyCorpus{
 
-	/** Builds an immutable109-input derivative and group-disjoint native trainer tables. */
+	/**
+	 * Creates a fresh 109-input derivative and trainer tables disjoint by supplied group label.
+	 * Preflights source file paths before creating output; contents are validated during
+	 * conversion. Sample order is preserved within each split. Outputs are separate writes,
+	 * so a later failure can leave partial per-genome or combined tables.
+	 */
 	static void run(final String[] args){
 		final Parser parser=new Parser();
 		String root=null;
@@ -75,7 +87,11 @@ final class FusionEntropyCorpus {
 				" supported="+totals[1]+" contradicted="+totals[2]+" unresolved="+totals[3]+" unavailable_tips="+totals[4]);
 	}
 
-	/** Reads unique sample identities and filename-genus grouping without consulting labels. */
+	/**
+	 * Requires exactly expected noncomment rows of twelve columns, unique gNNNN IDs and a
+	 * nonempty group in column three (zero-based). Retains only ID/group; other manifest
+	 * values and the group's biological meaning are not validated. Labels are not consulted.
+	 */
 	private static ArrayList<Sample> readSamples(final String path, final int expected){
 		final ArrayList<Sample> samples=new ArrayList<Sample>();
 		final HashSet<String> ids=new HashSet<String>();
@@ -98,7 +114,12 @@ final class FusionEntropyCorpus {
 		return samples;
 	}
 
-	/** Fixed shuffled80/10/10 group allocation prevents rows from one genus crossing splits. */
+	/**
+	 * Sorts distinct group labels then shuffles with the supplied seed. Train ends at
+	 * floor(8*groups/10), validation at floor(9*groups/10), and the rest is test. These are
+	 * group quotas, not genome or row quotas; small cohorts can leave a split empty.
+	 * Assignments are reproducible for a fixed group set and seed, not across changed cohorts.
+	 */
 	private static void assignSplits(final ArrayList<Sample> samples, final long seed){
 		assert(!samples.isEmpty()) : "Split assignment requires at least one verified sample.";
 		final HashSet<String> unique=new HashSet<String>();
@@ -113,7 +134,15 @@ final class FusionEntropyCorpus {
 		for(Sample sample : samples){sample.split=assignments.get(sample.group);}
 	}
 
-	/** Lockstep identity checks bind each original vector to its trace and unchanged reference label. */
+	/**
+	 * Requires consecutive vector event IDs, matching same-K phases and matching label IDs;
+	 * trace pairs are associated by order and phase, without recomputing their correspondence.
+	 * Preserves original vector-row bytes and appends symmetric entropy min/max from the two
+	 * recorded tips. Only supported/1 and contradicted/0 enter training; unresolved/NA remains
+	 * in the per-genome derivative. Extra labels or trailing OverlapPair records are rejected;
+	 * other trailing trace records are not interpreted after the last vector.
+	 * @return Candidate, supported, contradicted, unresolved and unavailable-physical-tip counts
+	 */
 	private static long[] convert(final Sample sample, final String root, final String out,
 			final FusionTipEntropy entropy, final ByteStreamWriter training){
 		assert(sample.split>=0 && sample.split<3) : "Each genome must have a label-independent split before conversion.";
@@ -206,13 +235,16 @@ final class FusionEntropyCorpus {
 		return writer;
 	}
 
-	/** Immutable identity and assigned split; no reference label participates in assignment. */
-	private static final class Sample {
+	/** Immutable identity/group plus an assigned split; truth labels never determine the split. */
+	private static final class Sample{
 		/** Retains only the manifest fields needed for deterministic grouping and path resolution. */
 		Sample(final String id_, final String group_){id=id_; group=group_;}
+		/** Safe path identity and literal manifest grouping label. */
 		final String id, group;
+		/** Index into SPLITS; assigned before conversion, initially invalid. */
 		int split=-1;
 	}
 
+	/** Stable assignment order and trainer filename stems. */
 	private static final String[] SPLITS={"train", "validate", "test"};
 }

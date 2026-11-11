@@ -14,10 +14,23 @@ import ukmer.AbstractKmerTableU;
 import ukmer.Kmer;
 
 /** Exercises the actual Tadpole2 read-extension entry points with controlled counts.
+ * <p>
+ * Each fixture installs an unambiguous nominal path plus one supported alternate
+ * span in the loaded tables, then compares unguarded extension against the live
+ * Hollow branch guard through both builder and read reconstruction entry points.
  * @author Brian Bushnell, Fischl */
-public final class HollowLiveExtensionTest {
+public final class HollowLiveExtensionTest{
 
-	/** Loads one small fixture per engine, then installs disjoint deterministic paths. */
+	/*--------------------------------------------------------------*/
+	/*----------------             Main             ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Loads one small fixture per engine, then installs disjoint deterministic paths.
+	 * <p>
+	 * Intended for a fresh JVM because the static check counter advances
+	 * monotonically across every fixture engine.
+	 * @param args command line arguments; accepts only {@code in=}
+	 */
 	public static void main(String[] args){
 		final PreParser pp=new PreParser(args, HollowLiveExtensionTest.class, false);
 		args=pp.args;
@@ -51,7 +64,11 @@ public final class HollowLiveExtensionTest {
 	/*----------------           Fixtures           ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Constructor parsing is exercised rather than changing protected fields in the test. */
+	/** Constructor parsing is exercised rather than changing protected fields in the test.
+	 * @param input small FASTA fixture used to initialize the Tadpole tables
+	 * @param guard true to enable Hollow branch stopping
+	 * @return Tadpole2 instance configured through its public argument parser
+	 */
 	private static Tadpole2 make(final String input, final boolean guard){
 		assert(input!=null) : "The ordinary table loader requires a real small fixture, not fabricated loader state.";
 		return new Tadpole2(new String[]{"in="+input, "k="+K, "mode=extend", "hollow=t",
@@ -60,7 +77,12 @@ public final class HollowLiveExtensionTest {
 				"pop=f", "sweeplen=0", "ordered=t", "interleaved=f", "extendrollback=0"}, false);
 	}
 
-	/** Makes a strong unbranched nominal path and one ambiguous alternate-span choice. */
+	/** Makes a strong unbranched nominal path and one ambiguous alternate-span choice.
+	 * @param engine engine whose tables receive the fixture counts
+	 * @param path nominal seed plus extension bases
+	 * @param span Hollow diagnostic span length
+	 * @param stop zero-based extension offset where the alternate should veto
+	 */
 	private static void populate(final Tadpole2 engine, final byte[] path, final int span, final int stop){
 		assert(stop>=0 && stop<EXTENSION) : "The veto must lie inside the otherwise fully extendable suffix.";
 		final AbstractKmerTableU[] tables=engine.tables.tables();
@@ -80,7 +102,12 @@ public final class HollowLiveExtensionTest {
 		}
 	}
 
-	/** Checks both junction conventions, repeated calls and Read/quality reconstruction. */
+	/** Checks both junction conventions, repeated calls and Read/quality reconstruction.
+	 * @param baseline guard-off engine sharing the same nominal path
+	 * @param guarded guard-on engine expected to stop at {@code stop}
+	 * @param path nominal seed plus extension bases
+	 * @param stop number of extension bases allowed before the veto
+	 */
 	private static void exercise(final Tadpole2 baseline, final Tadpole2 guarded, final byte[] path, final int stop){
 		assert(path.length==SEED+EXTENSION) : "The expected suffix length is fixed independently of the extension implementation.";
 		for(boolean junction : new boolean[]{false, true}){
@@ -111,7 +138,10 @@ public final class HollowLiveExtensionTest {
 				"Read extension must preserve original qualities and match the extended sequence length.");
 	}
 
-	/** Returns a builder holding only the immutable original seed. */
+	/** Returns a builder holding only the immutable original seed.
+	 * @param path nominal seed plus extension bases
+	 * @return mutable builder initialized to the seed prefix
+	 */
 	private static ByteBuilder prefix(final byte[] path){
 		assert(path.length>=SEED) : "Every fixture must provide the complete seed before extension.";
 		final ByteBuilder builder=new ByteBuilder(SEED);
@@ -119,18 +149,31 @@ public final class HollowLiveExtensionTest {
 		return builder;
 	}
 
-	/** Uses ordinary packed Kmer hashing to install exact fixture counts. */
+	/** Uses ordinary packed Kmer hashing to install exact fixture counts.
+	 * @param tables k-mer tables to mutate
+	 * @param word complete k-mer to install
+	 * @param count positive fixture count
+	 */
 	private static void put(final AbstractKmerTableU[] tables, final Kmer word, final int count){
 		assert(count>0) : "Zero is the table's empty sentinel, not a populated fixture count.";
 		tables[word.mod(tables.length)].set(word, count);
 	}
 
-	/** All comparisons remain fatal even if the invocation disables assertions. */
+	/** All comparisons remain fatal even if the invocation disables assertions.
+	 * @param pass true if the checked fixture property held
+	 * @param message assertion detail for failed checks
+	 */
 	private static void check(final boolean pass, final String message){
 		if(!pass){throw new AssertionError(message);}
 		checks++;
 	}
 
+	/*--------------------------------------------------------------*/
+	/*----------------            Fields            ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Number of explicit fixture checks reached before failure or success. */
 	private static int checks;
+	/** K-mer geometry and extension length used by all live-entry fixtures. */
 	private static final int K=128, SEED=129, EXTENSION=20;
 }

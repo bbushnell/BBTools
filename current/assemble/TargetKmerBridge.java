@@ -17,9 +17,18 @@ import ukmer.Kmer;
  *
  * @author Brian, Noelle
  */
-public final class TargetKmerBridge {
+public final class TargetKmerBridge{
 
+	/**
+	 * Allocates worker-local scratch for one Tadpole count graph.
+	 * @param tadpole_ graph owner used for kmer counts, extension counts and thresholds
+	 * @param maxDistance_ maximum number of extension bases to search; must be in [0, MAX_BRIDGE_DISTANCE]
+	 * @param reciprocal_ whether to require the reverse walk to reproduce the forward insert
+	 */
 	public TargetKmerBridge(final Tadpole tadpole_, final int maxDistance_, final boolean reciprocal_){
+		if(maxDistance_<0 || maxDistance_>MAX_BRIDGE_DISTANCE){
+			throw new IllegalArgumentException("maxDistance must be in [0, "+MAX_BRIDGE_DISTANCE+"], not "+maxDistance_);
+		}
 		tadpole=tadpole_;
 		k=tadpole.k();
 		maxDistance=maxDistance_;
@@ -82,6 +91,7 @@ public final class TargetKmerBridge {
 		return forwardDistance;
 	}
 
+	/** Walks the strongest rightward path from {@code source} toward {@code target}. */
 	private int trace(final Kmer source, final Kmer target, final int seedLength,
 			final int targetLength, final ByteBuilder extension){
 		traceDistance=0;
@@ -109,6 +119,7 @@ public final class TargetKmerBridge {
 		return -1;
 	}
 
+	/** Loads a concrete base window into {@code kmer}; ambiguous bases abort the candidate. */
 	private boolean loadKmer(final Kmer kmer, final byte[] bases, final int start){
 		kmer.clear();
 		for(int i=start, lim=start+k; i<lim; i++){
@@ -119,6 +130,7 @@ public final class TargetKmerBridge {
 		return kmer.len()>=k;
 	}
 
+	/** Advances the visited-set epoch, clearing the epoch table on integer wraparound. */
 	private void clearVisited(){
 		visitedEpoch++;
 		if(visitedEpoch==0){
@@ -127,6 +139,10 @@ public final class TargetKmerBridge {
 		}
 	}
 
+	/**
+	 * Adds one kmer xor to the trace-local visited set.
+	 * @return false on a repeated xor hash, including any 64-bit collision
+	 */
 	private boolean addVisited(final long hash){
 		//A 64-bit collision can only reject a valid path as cyclic; it cannot create a false bridge.
 		int cell=((int)hash)&visitedMask;
@@ -139,28 +155,52 @@ public final class TargetKmerBridge {
 		return true;
 	}
 
+	/** Returns the terminal status from the most recent {@link #find(Read, Read)} call. */
 	public int status(){return status;}
+	/** Returns the most recent forward hit distance, even if reciprocal checking later failed. */
 	public int distance(){return forwardDistance;}
+	/** Returns 1 when the latest search reached its forward target, otherwise 0. */
 	public int hits(){return forwardHits;}
 
+	/** A bounded, unbranched path reached the target; {@link #apply(Read)} is valid. */
 	public static final int SUCCESS=0;
+	/** The source is unusable or the forward walk reaches a dead end or junction. */
 	public static final int NO_PATH=1;
+	/** The target kmer is absent, ambiguous, or outside the bounded walk. */
 	public static final int NO_TARGET=2;
+	/** Reserved status for ambiguous bridge candidates. */
 	public static final int AMBIGUOUS=3;
+	/** The walk repeated a kmer xor hash before reaching the target. */
 	public static final int CYCLE=4;
+	/** The reverse path failed or produced a different insert size. */
 	public static final int NONRECIPROCAL=5;
+	/** Largest distance whose visited-table capacity can grow to a positive power of two. */
+	public static final int MAX_BRIDGE_DISTANCE=(1<<29)-2;
 
+	/** Count graph and threshold owner. */
 	private final Tadpole tadpole;
+	/** Active kmer length and maximum extension distance in bases. */
 	private final int k, maxDistance;
+	/** Whether a successful forward bridge needs reverse confirmation. */
 	private final boolean reciprocal;
+	/** Reused right-extension counts for the current walk kmer. */
 	private final int[] rightCounts=new int[4];
+	/** Reused Kmer workspaces for endpoints and the active walk. */
 	private final Kmer forwardSource, forwardTarget, reverseSource, reverseTarget, walkKmer;
+	/** Open-addressed xor table for cycle rejection within one trace. */
 	private final long[] visitedHashes;
+	/** Epoch tags parallel to {@link #visitedHashes}. */
 	private final int[] visitedEpochs;
+	/** Power-of-two mask for the visited table. */
 	private final int visitedMask;
+	/** Bases that should be appended to the left read after a successful forward walk. */
 	private final ByteBuilder forwardExtension=new ByteBuilder();
+	/** Terminal status from the latest candidate. */
 	private int status=NO_PATH;
+	/** Extension bases walked in the active trace. */
 	private int traceDistance=0;
+	/** Successful forward extension distance and hit count. */
 	private int forwardDistance=0, forwardHits=0;
+	/** Visited-set epoch; zero at construction and nonzero while tracing paths. */
 	private int visitedEpoch=0;
 }

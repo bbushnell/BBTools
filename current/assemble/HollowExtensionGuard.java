@@ -4,11 +4,17 @@ import dna.AminoAcid;
 import ukmer.HollowKmerLookup;
 import ukmer.KmerTableSetU;
 
-/** Worker-local, allocation-free alternate-span branch checks for read extension.
- * Reset for each oriented read/call, then query before appending each candidate.
- * Counts remain immutable; this guard never corrects bases or rewinds a seed.
- * @author Brian Bushnell, Fischl */
-public final class HollowExtensionGuard {
+/**
+ * Worker-local, allocation-free alternate-span branch checks for read extension.
+ * Reset for each oriented prefix, then query before appending each candidate.
+ * The immediate path veto tests K-1/K+1 alternatives around the nominal Hollow
+ * endpoint; the delayed observer records the first later hard contradiction
+ * but trims only if that attempt stalls before its limit, so reaching the
+ * limit keeps the completed extension. Counts remain immutable; this guard
+ * never corrects bases or rewinds a seed.
+ * @author Brian Bushnell, Fischl
+ */
+public final class HollowExtensionGuard{
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
@@ -19,8 +25,9 @@ public final class HollowExtensionGuard {
 		this(new HollowKmerLookup(source), source.kbig, ratio, floor);
 	}
 
-	/** Creates reusable state; an explicit lookup also permits small deterministic fixtures. */
-	public HollowExtensionGuard(final HollowKmerLookup lookup_, final int k_, final int ratio_, final int floor_){
+	/** Creates reusable state; an explicit lookup also permits isolated count fixtures. */
+	public HollowExtensionGuard(final HollowKmerLookup lookup_, final int k_,
+			final int ratio_, final int floor_){
 		if(lookup_==null || k_<67 || ratio_<1 || floor_<1){
 			throw new IllegalArgumentException("Hollow extension guard requires loaded counts, K>=67, ratio>=1 and floor>=1.");
 		}
@@ -34,10 +41,12 @@ public final class HollowExtensionGuard {
 	/*----------------           Methods            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Starts at a prefix whose terminal K bases are defined, as required by rightmostKmer.
+	/**
+	 * Starts a contiguous right-extension attempt from a defined terminal K.
 	 * The extra K+1 context is optional: a missing base or preceding N disables
 	 * only that spacing for the first step. After one accepted base it is defined.
-	 * This one-time scan is O(K); all subsequent sequential checks are O(1) in K. */
+	 * This one-time scan is O(K); all subsequent sequential checks are O(1) in K.
+	 */
 	public void reset(final byte[] bases, final int length){
 		if(bases==null || length<k || length>bases.length){
 			throw new IllegalArgumentException("Hollow guard reset needs a complete terminal K window.");
@@ -59,11 +68,13 @@ public final class HollowExtensionGuard {
 		assert(end-k+33<end) : "K>=67 keeps both left-arm ingress bases inside the existing prefix, not the candidate.";
 	}
 
-	/** Tests one proposed base before the caller commits it to the sequence.
+	/**
+	 * Tests one proposed base before the caller commits it to the sequence.
 	 * Repeated queries at the same endpoint do not advance state. A following
 	 * endpoint may be exactly one base longer; its actual appended base advances
 	 * the anchors, even when the ByteBuilder has reallocated its backing array.
-	 * Any new read, orientation or discontinuous endpoint requires reset(). */
+	 * Any new read, orientation or discontinuous endpoint requires reset().
+	 */
 	public boolean reject(final byte[] bases, final int length, final int candidate){
 		return reject(bases, length, candidate, true);
 	}
@@ -71,21 +82,26 @@ public final class HollowExtensionGuard {
 	/** Clears call-local history even when the extension engine returns before reset(). */
 	public void clearWarning(){firstWarning=-1;}
 
-	/** Remembers the earliest hard contradiction, but does not stop or alter the path.
-	 * Once recorded, later count queries are unnecessary until the next call. */
+	/**
+	 * Remembers the earliest hard contradiction, but does not stop or alter the path.
+	 * Once recorded, later count queries are unnecessary until the next call.
+	 */
 	public void observe(final byte[] bases, final int length, final int candidate){
 		if(firstWarning<0 && reject(bases, length, candidate, false)){firstWarning=length;}
 	}
 
-	/** A completed request is retained; only a later stall activates the checkpoint.
-	 * A candidate that was inspected but never appended cannot itself be removed. */
+	/**
+	 * A completed request is retained; only a later stall activates the checkpoint.
+	 * A candidate that was inspected but never appended cannot itself be removed.
+	 */
 	public int retainedLength(final int length, final int limit){
 		assert(length>=0 && limit>=length) : "The extension wrapper bounds retained sequence by its requested limit.";
 		return length<limit && firstWarning>=0 && firstWarning<length ? firstWarning : length;
 	}
 
 	/** Shares rolling geometry while keeping delayed hard conflicts distinct from ambiguity stops. */
-	private boolean reject(final byte[] bases, final int length, final int candidate, final boolean ambiguity){
+	private boolean reject(final byte[] bases, final int length, final int candidate,
+			final boolean ambiguity){
 		assert(candidate>=0 && candidate<4) : "The nominal extension engine chooses an ACGT index, never an ambiguous candidate.";
 		if(end<0 || bases==null || length>bases.length || (length!=end && length!=end+1)){
 			throw new IllegalArgumentException("Reset Hollow guard before changing reads or skipping endpoints; previous="+end+", next="+length);
@@ -136,10 +152,16 @@ public final class HollowExtensionGuard {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Immutable alternate-span Hollow counts; no extension attempt mutates them. */
 	private final HollowKmerLookup lookup;
+	/** Full span, hard-veto ratio, and count floor shared by both alternate spacings. */
 	private final int k, ratio, floor;
+	/** Rolling left arms for K+1/K-1 spacings plus the shared right 32-base arm. */
 	private long leftPlus, leftMinus, right;
+	/** Next endpoint expected by reject/observe; -1 means reset() has not run. */
 	private int end=-1;
+	/** Earliest delayed hard contradiction retained for stall-time trimming. */
 	private int firstWarning=-1;
+	/** True once leftPlus carries a defined leading base for the K+1 spacing. */
 	private boolean plusValid;
 }

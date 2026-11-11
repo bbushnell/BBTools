@@ -9,10 +9,18 @@ import assemble.HollowBridgeJoiner;
 import assemble.HollowTipConnections;
 import assemble.HollowTipConnections.Connection;
 
-/** Tiny in-memory evidence fixtures for endpoint-indexed connection discovery.
- * @author Brian Bushnell, Fischl */
-public final class HollowTipConnectionsTest {
+/**
+ * Tiny in-memory evidence fixtures for endpoint-indexed connection discovery.
+ *
+ * <p>The cases construct synthetic contigs and reads directly to isolate Hollow
+ * tip-pair counting, conflict aggregation, masked interiors, sliding-window
+ * veto diagnostics, and the bridge-joiner consumer check from file I/O.</p>
+ *
+ * @author Brian Bushnell, Fischl
+ */
+public final class HollowTipConnectionsTest{
 
+	/** Runs deterministic connection-discovery fixtures; assertions must be enabled. */
 	public static void main(final String[] args){
 		boolean assertions=false;
 		assert(assertions=true);
@@ -32,10 +40,10 @@ public final class HollowTipConnectionsTest {
 	/*----------------           Fixtures           ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Checks all strand combinations, positive/zero/negative gaps and noninflated support. */
+	/** Checks every strand pairing, positive/zero/negative gaps, and noninflated support. */
 	private static void testOrientationAndGap(){
 		final byte[] reference=sequence(750, 739);
-		for(int gap : new int[]{40, 0, -20}){
+		for(int gap : new int[]{40,0,-20}){
 			for(int orientation=0; orientation<4; orientation++){
 				final boolean leftReverse=(orientation&1)!=0, rightReverse=(orientation&2)!=0;
 				byte[] left=Arrays.copyOfRange(reference, 0, 300);
@@ -63,7 +71,7 @@ public final class HollowTipConnectionsTest {
 		}
 	}
 
-	/** Masked substitutions preserve endpoints; undefined spans and cross-read windows do not count. */
+	/** Masked substitutions preserve endpoints; undefined spans and split reads do not count. */
 	private static void testMaskedInteriorAndReadBoundaries(){
 		final byte[] reference=sequence(700, 751);
 		final ArrayList<Contig> assembly=contigs(Arrays.copyOfRange(reference, 0, 300), Arrays.copyOfRange(reference, 340, 640));
@@ -181,7 +189,7 @@ public final class HollowTipConnectionsTest {
 				"Nonunique shifted arms must not disappear from the branch evidence index.");
 	}
 
-	/** A center-only observation cannot establish sliding support; boundary seeds cannot pretend to slide. */
+	/** Center-only evidence cannot prove sliding support; boundary seeds cannot pretend to slide. */
 	private static void testSlidingMissingEvidence(){
 		final byte[] reference=sequence(750, 853);
 		final ArrayList<Contig> assembly=contigs(Arrays.copyOfRange(reference, 0, 300), Arrays.copyOfRange(reference, 340, 640));
@@ -206,7 +214,7 @@ public final class HollowTipConnectionsTest {
 	/** Sliding preserves positive gaps, abutments and overlaps at all four endpoint orientations. */
 	private static void testSlidingGeometry(){
 		final byte[] reference=sequence(750, 857);
-		for(int gap : new int[]{40, 0, -20}){
+		for(int gap : new int[]{40,0,-20}){
 			for(int orientation=0; orientation<4; orientation++){
 				byte[] left=Arrays.copyOfRange(reference, 0, 300), right=Arrays.copyOfRange(reference, 300+gap, 600+gap);
 				if((orientation&1)!=0){left=reverse(left);}
@@ -225,6 +233,7 @@ public final class HollowTipConnectionsTest {
 	/*----------------         Test helpers         ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Wraps each synthetic sequence in a Contig whose id matches its list index. */
 	private static ArrayList<Contig> contigs(final byte[]... sequences){
 		final ArrayList<Contig> contigs=new ArrayList<Contig>();
 		for(byte[] sequence : sequences){contigs.add(new Contig(sequence, contigs.size()));}
@@ -239,6 +248,7 @@ public final class HollowTipConnectionsTest {
 		return bases;
 	}
 
+	/** Reverse-complements a synthetic DNA read or contig for oriented fixtures. */
 	private static byte[] reverse(final byte[] bases){
 		final byte[] result=new byte[bases.length];
 		for(int i=0; i<bases.length; i++){
@@ -248,6 +258,7 @@ public final class HollowTipConnectionsTest {
 		return result;
 	}
 
+	/** Concatenates left anchor, interior, and right anchor literals into one read. */
 	private static byte[] join(final byte[] a, final byte[] b, final byte[] c){
 		final byte[] result=new byte[a.length+b.length+c.length];
 		System.arraycopy(a, 0, result, 0, a.length);
@@ -256,10 +267,12 @@ public final class HollowTipConnectionsTest {
 		return result;
 	}
 
+	/** Counts one assertion and fails with scenario-specific context on mismatch. */
 	private static void check(final boolean condition, final String message){
 		checks++;
 		if(!condition){throw new AssertionError(message);}
 	}
 
+	/** Cumulative fixture assertions reached; repeated main() calls do not reset it. */
 	private static int checks;
 }

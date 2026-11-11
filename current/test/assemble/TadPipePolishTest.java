@@ -8,9 +8,13 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
-/** Exercises final-polish routing through real isolated fake child processes.
+/**
+ * Checks final-polish and scaffold routing through the real TadPipe launcher
+ * with tiny Bash stage stubs. Sentinel outputs test command routing, publication
+ * and failure retention, not the correctness of assembly or polishing algorithms.
+ * Temporary inputs and logs are retained for inspection after success or failure.
  * @author Brian Bushnell, Fischl */
-public final class TadPipePolishTest {
+public final class TadPipePolishTest{
 
 	/** Accepts the installation path; test data and logs remain in a unique directory. */
 	public static void main(final String[] args) throws Exception{
@@ -21,7 +25,8 @@ public final class TadPipePolishTest {
 		System.out.println("TADPIPE_POLISH_TEST_PASS checks="+checks+" dir="+test.root);
 	}
 
-	/** Tiny launchers expose dataflow without needing an assembler or mapper. */
+	/** Creates an isolated stub installation with a space-containing path; files are
+	 * invoked through Bash and do not need executable permissions. */
 	private TadPipePolishTest(final Path code_) throws Exception{
 		code=code_;
 		root=Files.createTempDirectory("tadpipe-polish-test-");
@@ -49,7 +54,8 @@ public final class TadPipePolishTest {
 		Files.write(tools.resolve("dev/hollowbridge.sh"), scaffold.getBytes(StandardCharsets.UTF_8));
 	}
 
-	/** Scaffolding defaults on, runs last, retains contigs and never publishes a failed-stage fallback. */
+	/** Checks scaffold defaults, polished input, aliases and failure retention.
+	 * Requires run() first, which creates the fail-polish sentinel removed here. */
 	private void runScaffolds() throws Exception{
 		Files.delete(tools.resolve("fail-polish"));
 		final Path on=launchInternal("scaffold_default", true, false, "delete=f");
@@ -81,7 +87,8 @@ public final class TadPipePolishTest {
 				"Failed scaffolding must preserve contigs and read evidence.");
 	}
 
-	/** Default off, success, failure and bounded override cases have independent outputs. */
+	/** Checks default-off polishing, routing, dry-run publication and failed-stage
+	 * retention. Each invocation has a distinct output and work directory. */
 	private void run() throws Exception{
 		final Path off=launch("off", true);
 		check(text(root.resolve("off.fa")).contains("unpolished"), "Default-off publication must retain assembly output.");
@@ -123,7 +130,13 @@ public final class TadPipePolishTest {
 		return launchInternal(name, success, true, extras);
 	}
 
-	/** Uses native defaults when requested, while legacy polishing fixtures explicitly disable scaffolding. */
+	/**
+	 * Runs a fresh JVM through tadpipe.sh with the stub installation as its tool path.
+	 * Polishing-only cases disable scaffolding; other cases retain native defaults.
+	 * Expected failures accept any nonzero exit, not a particular diagnostic.
+	 * Returns the printed work directory, or null after an expected early failure
+	 * that printed none. Child output is retained in a per-case log.
+	 */
 	private Path launchInternal(final String name, final boolean success, final boolean disableScaffold, final String... extras) throws Exception{
 		assert(name!=null) : "Every test execution needs a distinct output and diagnostic log.";
 		final Path log=root.resolve(name+".log");
@@ -150,7 +163,10 @@ public final class TadPipePolishTest {
 		checks++;
 	}
 
+	/** Real launcher root, retained test directory, stub tools and original read input. */
 	private final Path code, root, tools, reads;
+	/** Unique suffix for invalid-option cases within this fixture instance. */
 	private int invalid;
+	/** Successful explicit checks across invocations in this JVM. */
 	private static int checks;
 }

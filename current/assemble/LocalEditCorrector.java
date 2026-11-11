@@ -7,30 +7,55 @@ import ukmer.Kmer;
 /** Worker-local single-edit caller used by native Tadpole and BBCMS:
  * dense/sparse original depths -> local probes -> full winning-context verification
  * -> transactional edit. Sparse scanning may miss narrow unsampled troughs.
- * One edit per call; repeated calls MUST recompute the profile (this method does).
+ * correctOne installs at most one edit per call and recomputes the profile each time;
+ * collect instead delivers original-coordinate proposals without installing edits.
  * Canonical whole-read orientation is a correctness-first reference implementation,
  * not a claim of optimal allocation or runtime. Worker-local; immutable count table.
+ * Borrowed counts, layout settings and input arrays must remain stable during a call.
+ * A successful edit replaces the Read arrays; it does not mutate the earlier arrays.
+ * Counters and scratch describe this call, not a whole-read transaction or concurrent snapshot.
+ * Public diagnostics are maintained by this worker; callers must not assign them.
+ * Read them after a call, with no concurrent use of the corrector. Initial metadata
+ * validation failures retain prior diagnostics; later exceptions may leave partial values.
  * @author Fischl */
-final class LocalEditCorrector {
+public final class LocalEditCorrector{
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	LocalEditCorrector(final int k_, final HomopolymerIndelProposal.CountLookup lookup_){
+	/** Uses one probe window, dense scanning and substitution-first candidate selection. */
+	public LocalEditCorrector(final int k_, final HomopolymerIndelProposal.CountLookup lookup_){
 		this(k_, lookup_, 1);
 	}
+	/** Selects probe-window count while retaining dense, substitution-first discovery. */
 	LocalEditCorrector(final int k_, final HomopolymerIndelProposal.CountLookup lookup_, final int windows){
 		this(k_, lookup_, windows, false);
 	}
-	LocalEditCorrector(final int k_, final HomopolymerIndelProposal.CountLookup lookup_, final int windows, final boolean checkIndelCompetition_){
+	/** Optionally compares indels even after finding a supported substitution. */
+	public LocalEditCorrector(final int k_, final HomopolymerIndelProposal.CountLookup lookup_, final int windows, final boolean checkIndelCompetition_){
 		this(k_, lookup_, windows, checkIndelCompetition_, 1);
 	}
+	/** Selects original-profile stride; pair lookahead overrides it with dense scanning. */
 	LocalEditCorrector(final int k_, final HomopolymerIndelProposal.CountLookup lookup_, final int windows,
 			final boolean checkIndelCompetition_, final int profileStride_){
 		this(k_, lookup_, windows, checkIndelCompetition_, profileStride_, null);
 	}
-	LocalEditCorrector(final int k_, final HomopolymerIndelProposal.CountLookup lookup_, final int windows,
+	/** Allocates reusable discovery scratch for exactly representable K>=5 and stable counts.
+	 * Probe windows must be positive, odd and no greater than K; stride must be positive.
+	 * A supplied neural gate requires one window and indel competition. The caller owns
+	 * gate/table compatibility and beginRead setup for depth-aware scoring; this constructor
+	 * neither creates that gate nor begins its read scope. Neural callers must exclude
+	 * pair lookahead, whose fallback is not scored here; LocalEditEngine enforces that rule.
+	 * Retains the supplied count provider and optional gate; use one corrector/gate per worker.
+	 * @param k_ Exactly representable count-table word length, at least 5
+	 * @param lookup_ Nonnull stable count provider with the table's K/hash/canonicalization
+	 * @param windows Positive odd probe-window count no greater than K; neural scoring requires 1
+	 * @param checkIndelCompetition_ Whether indels compete with substitutions; required with a gate
+	 * @param profileStride_ Positive original-profile sampling stride; 1 is dense
+	 * @param neuralGate_ Optional worker-local veto, or null for heuristic-only correction
+	 */
+	public LocalEditCorrector(final int k_, final HomopolymerIndelProposal.CountLookup lookup_, final int windows,
 			final boolean checkIndelCompetition_, final int profileStride_, final LocalEditNeuralGate neuralGate_){
 		if(lookup_==null || k_<5){throw new IllegalArgumentException("Corrector requires K>=5 and immutable counts.");}
 		if(profileStride_<1){throw new IllegalArgumentException("Profile stride must be positive.");}
@@ -51,18 +76,19 @@ final class LocalEditCorrector {
 	/*----------------            Methods           ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Return 0 or 1 applied edits. All original arrays remain unchanged. */
-	int correctOne(final Read read){
+	/** Returns the number of installed edits, zero or one; old arrays remain intact, but Read references may change. */
+	public int correctOne(final Read read){
 		return correctOne(read, false);
 	}
-	/** Experimental opt-in: commit only the first edit of a verified pair witness. */
-	int correctOne(final Read read, final boolean nearbyPairs){
+	/** Experimental opt-in: installs only the first edit of a two-edit witness after single-edit
+	 * discovery is exhausted. This concerns one read, not mates; neural callers must pass false. */
+	public int correctOne(final Read read, final boolean nearbyPairs){
 		return correctOne(read, nearbyPairs, -1);
 	}
 	/** On the first read pass, estimate separated errors from depth geometry,
 	 * without probing mutations. This is a rejection heuristic, not verified repairs.
 	 * Negative initialLimit preserves the ordinary first-edit discovery path. */
-	int correctOne(final Read read, final boolean nearbyPairs, final int initialLimit){
+	public int correctOne(final Read read, final boolean nearbyPairs, final int initialLimit){
 		return scan(read, nearbyPairs, initialLimit, null);
 	}
 	/** Propose against one immutable original profile without applying any edit.
@@ -76,10 +102,18 @@ final class LocalEditCorrector {
 		if(sink==null){throw new IllegalArgumentException("Non-mutating discovery requires a proposal sink.");}
 		return scan(read, false, initialLimit, sink);
 	}
-	interface ProposalSink {
+	/** Serial callback borrowing canonical bases and a half-open dependency interval.
+	 * Position/base describe the normalized edit in that orientation; reverse says whether
+	 * it differs from the supplied Read. False stops after this delivered proposal. */
+	interface ProposalSink{
+		/** Consumes one verified proposal without mutating bases or reentering this corrector. */
 		boolean accept(byte[] canonicalBases, boolean reverse, LocalSingleBaseEdit.Operation operation,
 			int position, byte base, int contextFrom, int contextTo, int threshold);
 	}
+	/** Validates editable metadata/array shape before resetting call diagnostics.
+	 * Then chooses canonical orientation, scans bounded troughs and applies or delivers
+	 * proposals. Later exceptions can leave partial scratch/counters; initial validation
+	 * failures retain the previous call's diagnostics. A nonnull sink disables installation. */
 	private int scan(final Read read, final boolean nearbyPairs, final int initialLimit, final ProposalSink sink){
 		assert(sink==null || !nearbyPairs) : "Independent original-coordinate proposals do not implement pair-witness semantics.";
 		HomopolymerIndelEdit.requireEditable(read);
@@ -215,6 +249,9 @@ final class LocalEditCorrector {
 			pairExcludedStarts.add(start);
 		}
 	}
+	/** Edits a temporary Read in canonical orientation, then installs complete arrays
+	 * in the caller's original orientation. lastPosition uses the pre-edit original
+	 * read coordinates: existing-base position or insertion boundary as appropriate. */
 	private void applyChosen(final Read read, final byte[] bases, final boolean reverse){
 		assert(chosenOperation!=null && chosenPosition>=0) : "Only a verified single-edit or pair-first proposal may reach transactional application.";
 		final byte[] quality=reverse && read.quality!=null ? reversed(read.quality) : read.quality;
@@ -240,6 +277,8 @@ final class LocalEditCorrector {
 		assert(acceptedTroughs==ambiguousLoci+noSupportedCandidateLoci+allCandidatesRejectedLoci+verifiedLoci) :
 				"Every correction-profile trough is ambiguous, unsupported, rejected or verified; depth-only preflight resets locator counters before discovery.";
 	}
+	/** Verifies a supported raw candidate and compares its normalized edit with the current winner.
+	 * Distinct verified edits mark the trough ambiguous; equivalent placements retain the first evidence locus. */
 	private void consider(final byte[] bases, final LocalSingleBaseEdit.Operation op, final int p,
 			final byte b, final int from, final int to, final int threshold){
 		supportedCandidates++;
@@ -290,7 +329,8 @@ final class LocalEditCorrector {
 	/*----------------        Static Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Equivalent 1bp indel placements collapse without an HP-specific error model. */
+	/** Collapses equivalent one-base indel placements without changing sequence.
+	 * A/C normalize left; G/T normalize right in canonical orientation. Substitutions stay put. */
 	private static int normalize(final byte[] bases, final LocalSingleBaseEdit.Operation op, int p, final byte inserted){
 		if(op==LocalSingleBaseEdit.Operation.SUBSTITUTION){return p;}
 		final byte b=op==LocalSingleBaseEdit.Operation.DELETION ? bases[p] : inserted;
@@ -303,10 +343,14 @@ final class LocalEditCorrector {
 		}
 		return p;
 	}
+	/** Counts the scratch word, mapping absent -1 to zero and rejecting lower depths.
+	 * Increments the selected counter after lookup returns; a throwing lookup is not counted. */
 	private int count(final boolean verification){
 		final int value=lookup.count(key); if(verification){verificationQueries++;}else{profileQueries++;}
 		if(value<-1){throw new IllegalStateException("Invalid count depth: "+value);}return Math.max(0, value);
 	}
+	/** Compares uppercase A/C/G/T/N bytes lexicographically to their reverse complement.
+	 * Negative selects the original orientation; zero identifies a self-complementary read. */
 	private static int orientation(final byte[] b){
 		for(int i=0; i<b.length; i++){
 			final int delta=b[i]-complement(b[b.length-1-i]);
@@ -314,12 +358,15 @@ final class LocalEditCorrector {
 		}
 		return 0;
 	}
+	/** Complements defined uppercase bases and maps all other bytes to N. */
 	private static byte complement(final byte b){return b=='A' ? (byte)'T' : b=='C' ? (byte)'G' : b=='G' ? (byte)'C' : b=='T' ? (byte)'A' : (byte)'N';}
+	/** Allocates the reverse-complement sequence; does not mutate the source array. */
 	private static byte[] reverseComplement(final byte[] b){
 		final byte[] out=new byte[b.length];
 		for(int i=0; i<b.length; i++){out[i]=complement(b[b.length-1-i]);}
 		return out;
 	}
+	/** Allocates reversed qualities; callers pass a nonnull array. */
 	private static byte[] reversed(final byte[] b){
 		final byte[] out=new byte[b.length];
 		for(int i=0; i<b.length; i++){out[i]=b[b.length-1-i];}
@@ -330,37 +377,68 @@ final class LocalEditCorrector {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	long profileQueries, probeQueries, verificationQueries;
+	/** Per-call reported profile/probe work and completed verification lookups; failures may leave partial totals. */
+	public long profileQueries, probeQueries, verificationQueries;
 	/** Per-call diagnostics; EXHAUSTED is the terminal zero call, even after earlier edits.
 	 * A runner cap has no zero call: do not label these last-success counters as terminal-zero. */
-	enum CallStatus {SHORT_READ, UNSUPPORTED_BASE, SELF_RC, EXHAUSTED, APPLIED, APPLIED_PAIR, INITIAL_LIMIT, COLLECTED}
-	CallStatus callStatus;
-	long initialEstimatedEdits;
+	public enum CallStatus{SHORT_READ, UNSUPPORTED_BASE, SELF_RC, EXHAUSTED, APPLIED, APPLIED_PAIR, INITIAL_LIMIT, COLLECTED}
+	/** Last normal completion reason; null during a validated call that has not finished. */
+	public CallStatus callStatus;
+	/** Depth-geometry estimate, possibly stopped at initialLimit+1; not a count of proven errors. */
+	public long initialEstimatedEdits;
+	/** Troughs with a unique candidate surviving all configured vetoes. */
 	private int verifiedLoci;
-	int lowRegions, skippedEdge, skippedWide, skippedUndefined, acceptedTroughs;
-	int ambiguousLoci, noSupportedCandidateLoci, allCandidatesRejectedLoci;
-	int neuralEvaluations, neuralRejectedLoci, neuralAcceptedLoci;
-	long supportedCandidates, verificationRejectedCandidates;
-	long pairQueries;
-	boolean usedPairLookahead;
+	/** Locator outcomes copied at finishScan; acceptedTroughs counts delivered geometric regions. */
+	public int lowRegions, skippedEdge, skippedWide, skippedUndefined, acceptedTroughs;
+	/** Mutually exclusive unsuccessful outcomes among encountered geometric regions. */
+	public int ambiguousLoci;
+	public int noSupportedCandidateLoci, allCandidatesRejectedLoci;
+	/** Per-call gate attempts and outcomes for unique ordinary candidates, excluding pair fallback.
+	 * Reset after initial read validation; earlier validation failures retain the previous values
+	 * and later exceptions can leave partial totals. Observe after the worker's call, not concurrently.
+	 * Diagnostic fields are maintained by this corrector; callers should not assign them. */
+	public int neuralEvaluations, neuralRejectedLoci, neuralAcceptedLoci;
+	/** Supported raw candidate attempts and those rejected by full-context verification. */
+	public long supportedCandidates, verificationRejectedCandidates;
+	/** Lookup count reported by the optional pair-witness search for this call. */
+	public long pairQueries;
+	/** Whether the installed edit came from the optional pair-witness fallback. */
+	public boolean usedPairLookahead;
+	/** Lazily allocated worker-local pair search, reused across reads. */
 	private LocalEditPairLookahead pairLookahead;
+	/** Increasing canonical depth starts where ambiguous single edits exclude pair reinterpretation. */
 	private IntList pairExcludedStarts;
-	LocalSingleBaseEdit.Operation lastOperation;
-	int lastPosition;
+	/** Last installed edit, or null when this validated call installed none. */
+	public LocalSingleBaseEdit.Operation lastOperation;
+	/** Pre-edit original-orientation coordinate of that installed edit, or -1. */
+	public int lastPosition;
+	/** Current trough's retained operation and normalized/raw evidence positions. */
 	private LocalSingleBaseEdit.Operation chosenOperation;
 	private int chosenPosition, chosenEvidencePosition;
+	/** Retained proposed allele in canonical orientation; unused by deletion application. */
 	private byte chosenBase;
+	/** Whether distinct verified edits competed in the current trough. */
 	private boolean ambiguous;
+	/** Exactly represented table span shared by all scratch helpers. */
 	private final int k;
+	/** Borrowed stable count source; lookup may refresh key caches but not its represented word. */
 	private final HomopolymerIndelProposal.CountLookup lookup;
+	/** Whether a substitution must also compete with supported indels. */
 	private final boolean checkIndelCompetition;
+	/** Borrowed optional gate; caller establishes its original-read scope. */
 	private final LocalEditNeuralGate neuralGate;
+	/** Reused full-context verification word. */
 	private final Kmer key;
+	/** Worker-local candidate counts and lazy probe cache. */
 	private final LocalEditKmerProbe probe;
+	/** Worker-local scan over the current original-depth profile. */
 	private final LocalEditTroughLocator locator;
+	/** Requested profile sampling stride; pair mode always uses one. */
 	private final int profileStride;
+	/** Owns reused scan depths; counts aliases its output list. */
 	private final LocalEditDepthProfile profile;
 	private final IntList counts;
+	/** Stateless single-edit applicator, installing new arrays only after reconstruction. */
 	private final LocalSingleBaseEdit editor=new LocalSingleBaseEdit();
 
 	/*--------------------------------------------------------------*/

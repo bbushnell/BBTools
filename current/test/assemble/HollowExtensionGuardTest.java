@@ -12,10 +12,23 @@ import ukmer.HollowKmerLookup;
 import ukmer.Kmer;
 
 /** Checks rolling live-guard decisions against full diagnostic reconstruction.
+ * <p>
+ * Randomized fixtures load the immutable diagnostic tables first, then compare
+ * rolling extension decisions, one-base repeated calls and fresh-call resets
+ * against a direct oracle for both k-1 and k+1 Hollow contexts.
  * @author Brian Bushnell, Fischl */
-public final class HollowExtensionGuardTest {
+public final class HollowExtensionGuardTest{
 
-	/** Covers sequential growth, resets, both orientations, absent context and buffer replacement. */
+	/*--------------------------------------------------------------*/
+	/*----------------             Main             ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Covers sequential growth, resets, both orientations, absent context and buffer replacement.
+	 * <p>
+	 * Intended for a fresh JVM because it leaves {@link Kmer#PACKED} true and
+	 * advances static fixture counters monotonically.
+	 * @param args unused command line arguments
+	 */
 	public static void main(final String[] args){
 		Kmer.PACKED=true;
 		final Random random=new Random(42122);
@@ -46,7 +59,12 @@ public final class HollowExtensionGuardTest {
 	/*----------------           Fixtures           ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Exhausts support, symmetry, strict-ratio boundaries and overflow-safe old-mode parity. */
+	/** Exhausts support, symmetry, strict-ratio boundaries and overflow-safe old-mode parity.
+	 * <p>
+	 * The finite grid covers weak context, weak chosen/alternate branches, strict
+	 * dominance thresholds and large counts whose ratio products would overflow
+	 * with ordinary signed {@code int} multiplication.
+	 */
 	private static void solidBranchRules(){
 		for(int context : new int[]{0, 1, 2, 3, 22, 25, Integer.MAX_VALUE}){
 			for(int chosen : new int[]{0, 1, 2, 3, 9, 12, 13, 23, Integer.MAX_VALUE}){
@@ -72,7 +90,12 @@ public final class HollowExtensionGuardTest {
 		check(KmerWindowDepth.rejectSolidStep(3, 0, 3, 3, 1, false), "Legacy off-mode must still accept its unused ratio of one.");
 	}
 
-	/** Loads every diagnostic context/neighbor first, then compares against an immutable table. */
+	/** Loads every diagnostic context/neighbor first, then compares against an immutable table.
+	 * @param bases nominal seed plus candidate extension path
+	 * @param seed exclusive end of the already accepted seed prefix
+	 * @param k tested k-mer length
+	 * @param random deterministic source of fixture depths
+	 */
 	private static void exercise(final byte[] bases, final int seed, final int k, final Random random){
 		assert(seed>=k && bases.length>seed) : "Every fixture has a valid nominal seed and at least one candidate.";
 		final byte[] untouched=bases.clone();
@@ -112,7 +135,15 @@ public final class HollowExtensionGuardTest {
 				oracle(tables, bases, seed, AminoAcid.baseToNumber[bases[seed]], word, neighbor), "Reset leaked state from the preceding read.");
 	}
 
-	/** Rebuilds both query words and applies the already validated diagnostic predicates. */
+	/** Rebuilds both query words and applies the already validated diagnostic predicates.
+	 * @param tables immutable fixture tables
+	 * @param bases full observed path
+	 * @param end zero-based candidate endpoint
+	 * @param candidate numeric base the extension would append
+	 * @param word scratch word for the Hollow context
+	 * @param neighbor scratch word for candidate neighbors
+	 * @return true when either Hollow span vetoes the candidate
+	 */
 	private static boolean oracle(final AbstractKmerTableU[] tables, final byte[] bases, final int end,
 			final int candidate, final Kmer word, final Kmer neighbor){
 		assert(candidate>=0 && candidate<4) : "Oracle candidates are defined bases selected from the fixture path.";
@@ -132,7 +163,11 @@ public final class HollowExtensionGuardTest {
 		return false;
 	}
 
-	/** Unsupported geometry and discontinuous use must fail loudly. */
+	/** Unsupported geometry and discontinuous use must fail loudly.
+	 * <p>
+	 * Constructor and endpoint-order checks protect callers from fabricating
+	 * rolling state when no complete terminal context exists.
+	 */
 	private static void invalidCalls(){
 		final AbstractKmerTableU[] tables={new HashArrayH1D(new int[]{101})};
 		final HollowKmerLookup lookup=new HollowKmerLookup(tables, 128, true);
@@ -159,7 +194,12 @@ public final class HollowExtensionGuardTest {
 	/*----------------           Helpers            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Identifies unavailable observed context without encoding missing or N bases. */
+	/** Identifies unavailable observed context without encoding missing or N bases.
+	 * @param bases candidate path to inspect
+	 * @param start inclusive first context base
+	 * @param end exclusive end of the context
+	 * @return true when the complete half-open interval contains only concrete bases
+	 */
 	private static boolean defined(final byte[] bases, final int start, final int end){
 		assert(end<=bases.length) : "Observed contexts cannot extend past the actual prefix.";
 		if(start<0){return false;}
@@ -167,23 +207,39 @@ public final class HollowExtensionGuardTest {
 		return true;
 	}
 
-	/** Stores fixture counts with the original diagnostic representation. */
+	/** Stores fixture counts with the original diagnostic representation.
+	 * @param tables mutable lookup tables
+	 * @param word complete Hollow context or neighbor word
+	 * @param count positive count to install
+	 */
 	private static void put(final AbstractKmerTableU[] tables, final Kmer word, final int count){
 		assert(count>0) : "HashArrayH1D reserves zero for an absent key.";
 		tables[word.mod(tables.length)].set(word, count);
 	}
 
-	/** Uses the original packed lookup rather than the endpoint helper being tested. */
+	/** Uses the original packed lookup rather than the endpoint helper being tested.
+	 * @param tables immutable fixture tables
+	 * @param word complete query word
+	 * @return non-negative count stored for the query
+	 */
 	private static int depth(final AbstractKmerTableU[] tables, final Kmer word){
 		assert(word.len>=word.kbig) : "Diagnostic counts need a complete table-sized query word.";
 		return Math.max(0, tables[word.mod(tables.length)].getValue(word));
 	}
 
-	/** Test failures remain fatal if assertions were accidentally disabled. */
+	/** Test failures remain fatal if assertions were accidentally disabled.
+	 * @param pass true if the checked fixture property held
+	 * @param message assertion detail for failed checks
+	 */
 	private static void check(final boolean pass, final String message){
 		if(!pass){throw new AssertionError(message);}
 		checks++;
 	}
 
+	/*--------------------------------------------------------------*/
+	/*----------------            Fields            ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Explicit check and decision counters reached before failure or success. */
 	private static int checks, rejected, retained;
 }

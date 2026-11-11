@@ -14,19 +14,29 @@ import structures.ByteBuilder;
 import ukmer.Kmer;
 
 /**
- * Runs assembly followed by ordered, shared-table fusion and bridging phases.
- * The last phase lends its count table to final graph processing when K matches.
+ * Coordinates initial contig assembly, shorter-K fusion, gap bridging and final graph output.
+ * Ordered mode preserves repeated K occurrences and shares each occurrence's table
+ * between its consumers. Legacy mode performs all fusion passes before bridging.
+ * A matching final phase can lend its table to final graph processing.
+ *
+ * Configuration is borrowed; phases share and mutate contig objects. Orchestration is serial,
+ * although individual Tadpole operations may use workers. Temporary BubblePopper
+ * policies are process-wide, so independent invocations must not run concurrently.
+ * Final FASTA output is written after the schedule; optional graph/evidence outputs
+ * may be written earlier. A later failure does not roll back those outputs.
  *
  * @author Brian Bushnell, Noelle
  */
-public class TadpoleMulti {
+public class TadpoleMulti{
 
+	/** Expands config files and delegates public mode/model selection to the shared policy. */
 	public static void main(String[] args){
 		args=Tadpole.expandConfigArgs(args);
 		TadpoleAssemblyPolicy.run(args, true);
 	}
 
-	TadpoleMulti(Config config_){this(config_, null);}
+	/** Borrows a validated configuration without installing development hooks. */
+	public TadpoleMulti(Config config_){this(config_, null);}
 
 	/** Leaves public dispatch unchanged; a development driver may bind the initial table only. */
 	TadpoleMulti(final Config config_, final InitialAssembly initial_){
@@ -34,6 +44,7 @@ public class TadpoleMulti {
 		config=config_; initialAssembly=initial_;
 	}
 
+	/** Runs one schedule, closes its optional collector and detaches fusion evidence on exit. */
 	void process(){
 		final Tadpole longest=Tadpole.makeTadpole(makeArgs(config.assembleK, true), true);
 		// Tadpole's constructor re-enables graph processing for pop/sweep/classification.
@@ -123,7 +134,7 @@ public class TadpoleMulti {
 		writeContigs(contigs, config.out, minContig, idOffset);
 		if(config.showStats && FileFormat.isFastaExt(ReadWrite.rawExtension(config.out)) && !FileFormat.isStdio(config.out)){
 			System.err.println();
-			jgi.AssemblyStats2.main(new String[] {"in="+config.out, "printextended"});
+			jgi.AssemblyStats2.main(new String[]{"in="+config.out, "printextended"});
 		}
 	}
 
@@ -331,7 +342,11 @@ public class TadpoleMulti {
 		return result;
 	}
 
-	/** Builds one complete graph after all cross-k merges, then emits the requested terminal representation. */
+	/**
+	 * Returns the final graph's contig/path representation and releases its table on success.
+	 * A supplied owner lends an already loaded table; otherwise this method loads one.
+	 * Graph processing may write configured GFA output. The caller writes final FASTA.
+	 */
 	private ArrayList<Contig> extractFinalGraph(final ArrayList<Contig> contigs,
 			Tadpole tad, final int minContig){
 		if(tad==null){
@@ -438,11 +453,12 @@ public class TadpoleMulti {
 		return extracted;
 	}
 
+	/** Selects cross-K traversal on either concrete assembler returned by the Tadpole factory. */
 	private static void setCrossKGraph(final Tadpole tad, final boolean value){
-		if(tad instanceof Tadpole1){((Tadpole1)tad).crossKGraph=value;}
-		else{((Tadpole2)tad).crossKGraph=value;}
+		if(tad instanceof Tadpole1){((Tadpole1)tad).crossKGraph=value;}else{((Tadpole2)tad).crossKGraph=value;}
 	}
 
+	/** Counts eligible physical ends, potentially two per contig; contigs shorter than K contribute none. */
 	private static int countBridgeEndpoints(ArrayList<Contig> contigs, final int k){
 		int count=0;
 		for(Contig c : contigs){
@@ -453,6 +469,7 @@ public class TadpoleMulti {
 		return count;
 	}
 
+	/** Runs bounded direct cross-K merge passes, restoring temporary global policies on failure too. */
 	private void mergeCrossK(Tadpole tad){
 		final boolean oldDirect=BubblePopper.popDirect;
 		final boolean oldIndirect=BubblePopper.popIndirect;
@@ -480,7 +497,7 @@ public class TadpoleMulti {
 		}
 	}
 
-	/** Loads the sole live table for an initial same-K fusion pass. */
+	/** Loads an owned shorter-K evidence table for a legacy fusion pass, when evidence is enabled. */
 	private void loadFusionSupport(final int k){
 		final FusionNeuralGate neural=neuralForK(k);
 		if(!config.fusePath && fusionCollector==null && neural==null){return;}
@@ -530,7 +547,7 @@ public class TadpoleMulti {
 	}
 
 	/** Evidence counts must not lose singleton words to a probabilistic prefilter. */
-	String[] makeFusionSupportArgs(final int k){
+	public String[] makeFusionSupportArgs(final int k){
 		assert((config.fusePath || config.fusionVectorPrefix!=null || config.fuseNet!=null) && k<config.assembleK) :
 				"Only a shorter-K support or collection pass may load a separate, sole evidence table.";
 		final ArrayList<String> args=new ArrayList<String>(Arrays.asList(makeArgs(k, false)));
@@ -557,13 +574,20 @@ public class TadpoleMulti {
 		}
 	}
 
+	/** Rejects an assembler or table error before subsequent phases or final FASTA publication. */
 	private static void checkErrorState(Tadpole tad){
 		if(tad.errorState || tad.tables().errorState){
 			throw new RuntimeException(tad.getClass().getSimpleName()+" terminated in an error state; no assembly will be written.");
 		}
 	}
 
-	String[] makeArgs(final int k, final boolean longest){
+	/**
+	 * Copies common options and appends phase-specific overrides; no output is opened here.
+	 * longest selects the initial solid assembler, even when its graph later uses Hollow counts.
+	 * Auxiliary phases request processcontigs=f, but constructor policies can override it;
+	 * the driver invokes their graph work explicitly and owns final FASTA output.
+	 */
+	public String[] makeArgs(final int k, final boolean longest){
 		final ArrayList<String> list=new ArrayList<String>(config.common.size()+6);
 		list.addAll(config.common);
 		final int hashMode=(longest ? Tadpole.HASH_EXPLICIT : config.hashMode(k));
@@ -584,12 +608,18 @@ public class TadpoleMulti {
 			list.add("evictlowdepthcontigs=t");
 			config.addLowDepthThresholdArgs(list);
 		}
-		if(longest && config.retainShortContigsSet){list.add("retainshortcontigs="+config.retainShortContigs);}
-		else if(longest && config.graphClassificationRequested()){list.add("retainshortcontigs=t");}
+		if(longest && config.retainShortContigsSet){
+			list.add("retainshortcontigs="+config.retainShortContigs);
+		}else if(longest && config.graphClassificationRequested()){
+			list.add("retainshortcontigs=t");
+		}
 		if(!longest){list.add("pop=f");}
 		return list.toArray(new String[list.size()]);
 	}
 
+	/** Writes eligible contigs and assigns consecutive IDs to all entries, including filtered ones.
+	 * A null destination returns without changing IDs. Throws if poisonAndWait reports failure;
+	 * other exceptions are not covered by a writer-cleanup finally block. */
 	private void writeContigs(ArrayList<Contig> contigs, String out, int minContig, int idOffset){
 		if(out==null){return;}
 		if(!Tools.testOutputFiles(Tadpole.overwrite, Tadpole.append, false, out)){
@@ -607,7 +637,9 @@ public class TadpoleMulti {
 		if(bsw.poisonAndWait()){throw new RuntimeException("Error writing "+out);}
 	}
 
-	static boolean hasMultipleK(final String[] args){
+	/** Recognizes options requiring this driver; a recognized option may still be disabled or invalid.
+	 * Does not expand config files or validate the eventual schedule. */
+	public static boolean hasMultipleK(final String[] args){
 		for(String arg : args){
 			final int equals=arg.indexOf('=');
 			String a=(equals<0 ? arg : arg.substring(0, equals)).toLowerCase();
@@ -629,9 +661,13 @@ public class TadpoleMulti {
 		return false;
 	}
 
-	static class Config {
+	/** Parsed schedule plus mutable phase policies, borrowed by one driver.
+	 * Construction resolves K values using the process-wide packed-K setting. */
+	public static class Config{
 
-		Config(String[] args){
+		/** Parses driver options and forwards remaining arguments to each assembler.
+		 * Applies explicit packed flags before resolving K lists; that global setting is not restored. */
+		public Config(String[] args){
 			String kList=null, assembleText=null, fuseText=null, bridgeText=null, hollowText="all";
 			boolean hollowSelectionSet=false;
 			boolean assembleExplicit=false, fuseExplicit=false, bridgeExplicit=false, graphExplicit=false;
@@ -646,15 +682,21 @@ public class TadpoleMulti {
 				String a=(equals<0 ? arg : arg.substring(0, equals)).toLowerCase();
 				final String b=(equals<0 ? null : arg.substring(equals+1));
 				while(a.startsWith("-")){a=a.substring(1);}
-				if(a.equals("k")){kList=b;}
-				else if(a.equals("hollow")){hollow=Parse.parseBoolean(b);}
-				else if(a.equals("hollowk")){hollowText=b; hollowSelectionSet=true;}
-				else if(a.equals("korder")){
-					if("input".equalsIgnoreCase(b)){ordered=true;}
-					else if("legacy".equalsIgnoreCase(b)){ordered=false;}
-					else{throw new IllegalArgumentException("korder must be input or legacy: "+b);}
-				}
-				else if(a.equals("assemblek")){
+				if(a.equals("k")){
+					kList=b;
+				}else if(a.equals("hollow")){
+					hollow=Parse.parseBoolean(b);
+				}else if(a.equals("hollowk")){
+					hollowText=b; hollowSelectionSet=true;
+				}else if(a.equals("korder")){
+					if("input".equalsIgnoreCase(b)){
+						ordered=true;
+					}else if("legacy".equalsIgnoreCase(b)){
+						ordered=false;
+					}else{
+						throw new IllegalArgumentException("korder must be input or legacy: "+b);
+					}
+				}else if(a.equals("assemblek")){
 					assembleText=b;
 					assembleExplicit=(b==null || !b.equalsIgnoreCase("auto"));
 				}else if(a.equals("fusek") || a.equals("joink")){
@@ -701,14 +743,16 @@ public class TadpoleMulti {
 				}else if(a.equals("hashkmers") || a.equals("kmerhash") || a.equals("bridgehash") || a.equals("hashbridges")
 						|| a.equals("hashonly") || a.equals("hashedkmers")){
 					hashModeRequested=Tadpole.parseHashMode(b);
-				}else if(a.equals("out") || a.equals("out1") || a.equals("oute") || a.equals("oute1")){out=b;}
-				else if(a.equals("crosskmaxdepthratio") || a.equals("ckmdr")){maxDepthRatio=Float.parseFloat(b);}
-				else if(a.equals("crosskpasses") || a.equals("ckpasses")){passes=Integer.parseInt(b);}
-				else if(a.equals("graphk")){
+				}else if(a.equals("out") || a.equals("out1") || a.equals("oute") || a.equals("oute1")){
+					out=b;
+				}else if(a.equals("crosskmaxdepthratio") || a.equals("ckmdr")){
+					maxDepthRatio=Float.parseFloat(b);
+				}else if(a.equals("crosskpasses") || a.equals("ckpasses")){
+					passes=Integer.parseInt(b);
+				}else if(a.equals("graphk")){
 					graphK=(b==null || b.equalsIgnoreCase("auto") ? -1 : parseK(b, "graphk"));
 					graphExplicit=true;
-				}
-				else if(a.equals("simpleomnitigs") || a.equals("omnitigs")){
+				}else if(a.equals("simpleomnitigs") || a.equals("omnitigs")){
 					simpleOmnitigs=Parse.parseBoolean(b);
 				}else if(a.equals("graphcover") || a.equals("pathcover") || a.equals("nonredundantpaths")){
 					graphCover=Parse.parseBoolean(b);
@@ -718,8 +762,7 @@ public class TadpoleMulti {
 				}else if(a.equals("gfa") || a.equals("outgfa")){
 					outGfa=b;
 				}else if(a.equals("lowdepthcontigdiag") || a.equals("diagnoselowdepthcontigs") || a.equals("ldcd")){
-					if(isLowDepthDiagStage(b)){lowDepthContigDiag=true; lowDepthContigDiagStage=parseLowDepthDiagStage(b);}
-					else{lowDepthContigDiag=Parse.parseBoolean(b);}
+					if(isLowDepthDiagStage(b)){lowDepthContigDiag=true; lowDepthContigDiagStage=parseLowDepthDiagStage(b);}else{lowDepthContigDiag=Parse.parseBoolean(b);}
 				}else if(a.equals("lowdepthcontigdiagstage") || a.equals("ldcdstage")){
 					lowDepthContigDiag=true;
 					lowDepthContigDiagStage=parseLowDepthDiagStage(b);
@@ -734,8 +777,7 @@ public class TadpoleMulti {
 				}else if(a.equals("evictlowdepthcontigs") || a.equals("removelowdepthcontigs") || a.equals("ldce")){
 					evictLowDepthContigs=Parse.parseBoolean(b);
 				}else if(a.equals("retainshortcontigs") || a.equals("retainshortgraph")){
-					if(b==null || b.equalsIgnoreCase("auto")){retainShortContigsSet=false;}
-					else{retainShortContigs=Parse.parseBoolean(b); retainShortContigsSet=true;}
+					if(b==null || b.equalsIgnoreCase("auto")){retainShortContigsSet=false;}else{retainShortContigs=Parse.parseBoolean(b); retainShortContigsSet=true;}
 				}else if(a.equals("sweeplen") || a.equals("graphsweeplen")){
 					sweepContigLen=Parse.parseIntKMG(b);
 				}else if(a.equals("classifygraphcontigs") || a.equals("classifycontigs") || a.equals("graphclassify")){
@@ -789,8 +831,7 @@ public class TadpoleMulti {
 					evictGraphDepthMask=Tadpole.parseGraphDepthMask(b);
 				}else if(a.equals("evictconnectedabove") || a.equals("eca")){
 					evictConnectedAbove=(b==null || b.equalsIgnoreCase("none") || b.equalsIgnoreCase("false") ? -1 : Integer.parseInt(b));
-				}else if(a.equals("showstats")){showStats=Parse.parseBoolean(b); common.add(arg);}
-				else if(a.equals("dot") || a.equals("outdot")){
+				}else if(a.equals("showstats")){showStats=Parse.parseBoolean(b); common.add(arg);}else if(a.equals("dot") || a.equals("outdot")){
 					throw new RuntimeException("DOT output is not yet supported by TadpoleMulti.");
 				}else if(a.equals("mode") && !"contig".equalsIgnoreCase(b)){
 					throw new RuntimeException("TadpoleMulti requires mode=contig.");
@@ -809,9 +850,13 @@ public class TadpoleMulti {
 				throw new IllegalArgumentException("Hollow assembly requires packed=t, hashkmers=auto or pair, and no explicit-key enumeration.");
 			}
 			final int[] shorthand=parseKList(kList, "k", true);
-			if(assembleExplicit){assembleK=parseK(assembleText, "assemblek");}
-			else if(shorthand.length>0){assembleK=shorthand[0];}
-			else{throw new RuntimeException("TadpoleMulti requires k=<list> or assemblek=<value>.");}
+			if(assembleExplicit){
+				assembleK=parseK(assembleText, "assemblek");
+			}else if(shorthand.length>0){
+				assembleK=shorthand[0];
+			}else{
+				throw new RuntimeException("TadpoleMulti requires k=<list> or assemblek=<value>.");
+			}
 			fuseKs=(fuseExplicit ? parseKList(fuseText, "fusek", true)
 					: selectBelow(shorthand, assembleK));
 			bridgeKs=(bridgeExplicit ? parseKList(bridgeText, "bridgek", true)
@@ -824,7 +869,9 @@ public class TadpoleMulti {
 				}
 			}
 			if(out==null){throw new RuntimeException("TadpoleMulti requires an output file.");}
-			if(maxDepthRatio<0){throw new RuntimeException("crosskmaxdepthratio must be nonnegative.");}
+			//Require valid-range membership: ordered comparisons against NaN are false (ASM040).
+			//Positive infinity remains valid for ceilings without a finite upper bound.
+			if(!(maxDepthRatio>=0)){throw new RuntimeException("crosskmaxdepthratio must be nonnegative: "+maxDepthRatio);}
 			if(passes<1){throw new RuntimeException("crosskpasses must be positive.");}
 			if(fuseMaxMismatches<-1){throw new IllegalArgumentException("fusemaxmismatches must be -1 or nonnegative.");}
 			CrossKTipOverlapper.validateCoverageRatio(fuseCoverageRatio);
@@ -842,16 +889,18 @@ public class TadpoleMulti {
 			}
 			if(simpleOmnitigs && graphCover){throw new RuntimeException("simpleOmnitigs and graphCover are mutually exclusive output modes.");}
 			if(lowDepthContigMaxLen==0 || lowDepthContigMaxLen< -1){throw new RuntimeException("lowDepthContigMaxLen must be positive or auto.");}
-			if(lowDepthContigMaxCov<0){throw new RuntimeException("lowDepthContigMaxCov must be nonnegative.");}
-			if(lowDepthContigFraction<0 || lowDepthContigFraction>1){throw new RuntimeException("lowDepthContigFraction must be from 0 to 1.");}
+			if(!(lowDepthContigMaxCov>=0)){throw new RuntimeException("lowDepthContigMaxCov must be nonnegative: "+lowDepthContigMaxCov);}
+			if(!(lowDepthContigFraction>=0 && lowDepthContigFraction<=1)){throw new RuntimeException("lowDepthContigFraction must be from 0 to 1: "+lowDepthContigFraction);}
 			if(graphClassificationRequested()){
-				if(graphClassLowMaxCov<0){throw new RuntimeException("graphClassLowMaxCov must be nonnegative.");}
-				if(graphClassLowFraction<0 || graphClassLowFraction>1){throw new RuntimeException("graphClassLowFraction must be from 0 to 1.");}
-				if(graphClassMediumFraction<graphClassLowFraction){
-					throw new RuntimeException("graphClassMediumFraction must be at least graphClassLowFraction.");
+				if(!(graphClassLowMaxCov>=0)){throw new RuntimeException("graphClassLowMaxCov must be nonnegative: "+graphClassLowMaxCov);}
+				if(!(graphClassLowFraction>=0 && graphClassLowFraction<=1)){throw new RuntimeException("graphClassLowFraction must be from 0 to 1: "+graphClassLowFraction);}
+				if(!(graphClassMediumFraction>=graphClassLowFraction)){
+					throw new RuntimeException("graphClassMediumFraction must be at least graphClassLowFraction: "+
+							graphClassMediumFraction+", low="+graphClassLowFraction);
 				}
-				if(graphClassHighFraction<graphClassMediumFraction){
-					throw new RuntimeException("graphClassHighFraction must be at least graphClassMediumFraction.");
+				if(!(graphClassHighFraction>=graphClassMediumFraction)){
+					throw new RuntimeException("graphClassHighFraction must be at least graphClassMediumFraction: "+
+							graphClassHighFraction+", medium="+graphClassMediumFraction);
 				}
 			}
 			if(emitConnectedMax==0 || emitConnectedMax< -1){throw new RuntimeException("emitConnectedMax must be positive or all.");}
@@ -864,8 +913,7 @@ public class TadpoleMulti {
 					graphK=(!ordered ? assembleK : shorthand.length>0 ? shorthand[shorthand.length-1]
 							: phaseKs[phaseKs.length-1]);
 				}
-			}else if(graphExplicit){throw new RuntimeException("graphk requires graph operations, graph classification, or lowDepthContigDiag=t.");}
-			else{graphK=assembleK;}
+			}else if(graphExplicit){throw new RuntimeException("graphk requires graph operations, graph classification, or lowDepthContigDiag=t.");}else{graphK=assembleK;}
 			if(hollowKs!=null){
 				for(int k : hollowKs){
 					if(!contains(phaseKs, k) && !(finalGraphNeeded() && k==graphK)){
@@ -875,6 +923,7 @@ public class TadpoleMulti {
 			}
 		}
 
+		/** Requires a positive decimal request and returns the supported Kmer storage span. */
 		private static int parseK(final String text, final String name){
 			if(text==null || text.length()<1){throw new RuntimeException(name+" requires a positive kmer length.");}
 			final int requested=Integer.parseInt(text);
@@ -882,6 +931,9 @@ public class TadpoleMulti {
 			return Kmer.getKbig(requested);
 		}
 
+		/** Resolves a comma-separated list; ordered mode retains order and duplicate occurrences.
+		 * Legacy mode sorts descending and deduplicates resolved spans. Empty/none/f/false
+		 * mean no spans; null is accepted only when nullIsEmpty is true. */
 		private int[] parseKList(final String text, final String name, final boolean nullIsEmpty){
 			if(text==null){
 				if(nullIsEmpty){return new int[0];}
@@ -910,10 +962,9 @@ public class TadpoleMulti {
 			phases.add(assembleK);
 			boolean consumed=false;
 			for(int k : shorthand){
-				if(!consumed && k==assembleK){consumed=true;}
-				else{phases.add(k);}
+				if(!consumed && k==assembleK){consumed=true;}else{phases.add(k);}
 			}
-			for(int[] requested : new int[][] {fuseKs, bridgeKs}){
+			for(int[] requested : new int[][]{fuseKs, bridgeKs}){
 				for(int k : requested){
 					if(contains(phases.array, phases.size, k)){continue;}
 					if(ordered && hasList){
@@ -935,6 +986,7 @@ public class TadpoleMulti {
 			return false;
 		}
 
+		/** Copies values strictly below ceiling, retaining input order and duplicates. */
 		private static int[] selectBelow(final int[] source, final int ceiling){
 			int count=0;
 			for(int k : source){if(k<ceiling){count++;}}
@@ -944,31 +996,41 @@ public class TadpoleMulti {
 			return selected;
 		}
 
-		boolean graphOperations(){return simpleOmnitigs || graphCover || outGfa!=null;}
+		/** Whether a graph-derived path representation or GFA output was requested. */
+		public boolean graphOperations(){return simpleOmnitigs || graphCover || outGfa!=null;}
 		/** Automatic models use the corpus/validation K range, never extrapolated long-K features. */
-		boolean neuralKAllowed(final int k){return !automaticFusion || (k>=24 && k<=127);}
-		boolean earlyLowDepthDiag(){return lowDepthContigDiag && (lowDepthContigDiagStage&DIAG_EARLY)!=0;}
-		boolean finalLowDepthDiag(){return lowDepthContigDiag && (lowDepthContigDiagStage&DIAG_FINAL)!=0;}
-		boolean finalGraphNeeded(){
+		public boolean neuralKAllowed(final int k){return !automaticFusion || (k>=24 && k<=127);}
+		/** Whether to capture candidate identities immediately after initial assembly. */
+		public boolean earlyLowDepthDiag(){return lowDepthContigDiag && (lowDepthContigDiagStage&DIAG_EARLY)!=0;}
+		/** Whether final graph processing should report low-depth candidates. */
+		public boolean finalLowDepthDiag(){return lowDepthContigDiag && (lowDepthContigDiagStage&DIAG_FINAL)!=0;}
+		/** Whether any selected representation, diagnostic, classifier or guard needs a final graph. */
+		public boolean finalGraphNeeded(){
 			return hollow || graphOperations() || finalLowDepthDiag() || graphClassificationRequested()
 					|| graphMergeCoverageRatio>0 || graphMergeBranchGuard || graphMergeOverlapGuard;
 		}
+		/** Combines explicit classification, emission and topology/depth eviction policies. */
 		boolean explicitGraphClassificationRequested(){
 			return classifyGraphContigs || emitTerminal || emitBranchedTerminal || emitUnanchored || emitLoopback
 					|| emitBranchedConnected || emitMultiConnected || emitSelfLoop || emitConnectedMax>0
 					|| graphTopologyEvictionRequested() || evictConnectedAbove>0;
 		}
-		boolean graphClassificationRequested(){
+		/** Includes the initial automatic sweep as well as explicit classification policies. */
+		public boolean graphClassificationRequested(){
 			return explicitGraphClassificationRequested() || sweepContigLen>0;
 		}
+		/** Whether any topology category is selected for eviction. */
 		boolean graphTopologyEvictionRequested(){
 			return evictGraphTopologyMask!=0 || evictUnanchored || evictTerminal || evictBranchedTerminal || evictLoopback ||
 					evictBranchedConnected || evictMultiConnected;
 		}
-		boolean useHashBridgeTables(){return hashModeForAny(bridgeKs)>0;}
-		int bridgeHashMode(){return hashModeForAny(bridgeKs);}
+		/** Whether any configured bridge span selects a hashed table representation. */
+		public boolean useHashBridgeTables(){return hashModeForAny(bridgeKs)>0;}
+		/** Returns the first hashed bridge mode, or the explicit representation when none needs hashing. */
+		public int bridgeHashMode(){return hashModeForAny(bridgeKs);}
 		/** Short spans have no masked middle and retain the native solid representation. */
 		boolean hollowPhase(final int k){return hollow && k>64 && (hollowKs==null || contains(hollowKs, k));}
+		/** Resolves Hollow, explicit-key requirements and requested/automatic hashing for one phase. */
 		int hashMode(final int k){
 			if(hollowPhase(k)){return Tadpole.HASH_PAIR;}
 			if(explicitTableRequired || k<64){return Tadpole.HASH_EXPLICIT;}
@@ -976,6 +1038,7 @@ public class TadpoleMulti {
 			if(k==64 && !preallocRequested){return Tadpole.HASH_EXPLICIT;}
 			return preallocRequested ? Tadpole.HASH_FIXED : Tadpole.HASH_PAIR;
 		}
+		/** Returns the first positive hash mode in array order, not a union of all modes. */
 		private int hashModeForAny(final int[] array){
 			for(int k : array){
 				final int mode=hashMode(k);
@@ -983,10 +1046,12 @@ public class TadpoleMulti {
 			}
 			return Tadpole.HASH_EXPLICIT;
 		}
+		/** Accepts boolean spellings or a numeric fraction greater than zero as a preallocation request. */
 		private static boolean parsePrealloc(String b){
 			if(b==null || b.length()<1 || Character.isLetter(b.charAt(0))){return Parse.parseBoolean(b);}
 			return Double.parseDouble(b)>0;
 		}
+		/** Identifies forwarded retention/enumeration options that cannot use hashed-only keys. */
 		private static boolean requiresExplicitTable(String a, String b){
 			if(a.equals("maxcountretain") || a.equals("maxcr") || a.equals("maxdepthretain") || a.equals("maxdr")){
 				return b!=null && !b.equalsIgnoreCase("inf") && !b.equalsIgnoreCase("infinity");
@@ -995,25 +1060,30 @@ public class TadpoleMulti {
 			if(a.equals("gchist")){return !(b!=null && (b.equalsIgnoreCase("f") || b.equalsIgnoreCase("false") || b.equals("0")));}
 			return false;
 		}
+		/** Installs a configured GFA destination on the final graph owner. */
 		void applyFinalGraphOutput(final Tadpole tad){
 			if(outGfa!=null){tad.setGfaOutput(outGfa);}
 		}
+		/** Copies the same low-depth criteria into either an early or final graph diagnostic. */
 		void applyLowDepthThresholds(final Tadpole tad){
 			tad.lowDepthContigMaxLen=lowDepthContigMaxLen;
 			tad.lowDepthContigMaxCov=lowDepthContigMaxCov;
 			tad.lowDepthContigFraction=lowDepthContigFraction;
 			tad.lowDepthContigTopology=lowDepthContigTopology;
 		}
+		/** Appends low-depth criteria as argument strings for a newly constructed assembler. */
 		void addLowDepthThresholdArgs(final ArrayList<String> list){
 			list.add("lowdepthcontigmaxlen="+(lowDepthContigMaxLen<0 ? "auto" : lowDepthContigMaxLen));
 			list.add("lowdepthcontigmaxcov="+lowDepthContigMaxCov);
 			list.add("lowdepthcontigfraction="+lowDepthContigFraction);
 			list.add("lowdepthcontigtopology="+Tadpole.lowDepthTopologyName(lowDepthContigTopology));
 		}
+		/** Enables only the final-stage diagnostic and copies its thresholds. */
 		void applyLowDepthDiagnostic(final Tadpole tad){
 			tad.lowDepthContigDiag=finalLowDepthDiag();
 			applyLowDepthThresholds(tad);
 		}
+		/** Installs final classification/emission/eviction policies without repeating the initial sweep. */
 		void applyFinalGraphClassification(final Tadpole tad){
 			/* The automatic sweep already ran before cross-k fusion and bridging. */
 			tad.classifyGraphContigs=explicitGraphClassificationRequested();
@@ -1042,6 +1112,7 @@ public class TadpoleMulti {
 			tad.graphClassHighFraction=graphClassHighFraction;
 			applyLowDepthThresholds(tad);
 		}
+		/** Accepts all sufficiently long contigs, then applies configured class exceptions to shorter ones. */
 		boolean emitContig(final Contig c, final int minContig){
 			if(c.length()>=minContig){return true;}
 			if(!classifyGraphContigs || c.graphClass<0){return false;}
@@ -1056,6 +1127,7 @@ public class TadpoleMulti {
 			throw new IllegalStateException("Unknown graph class "+c.graphClass+" on contig "+c.id+".");
 		}
 
+		/** Reports effective phase spans and enabled policies, using the initial assembler's extra settings. */
 		void printExecutionPlan(final Tadpole tad){
 			final ByteBuilder extras=new ByteBuilder();
 			tad.appendExecutionPlanExtras(extras);
@@ -1114,6 +1186,7 @@ public class TadpoleMulti {
 			Tadpole.outstream.println();
 		}
 
+		/** Formats resolved spans in their existing order, with no trailing comma. */
 		private static String toKList(final int[] array){
 			final ByteBuilder bb=new ByteBuilder(array.length*4);
 			for(int i=0; i<array.length; i++){
@@ -1123,85 +1196,144 @@ public class TadpoleMulti {
 			return bb.toString();
 		}
 
+		/** Chooses a representative bridge hash mode, falling back to the final graph's mode. */
 		private int displayedHashMode(){
 			final int bridgeMode=hashModeForAny(bridgeKs);
 			if(bridgeMode>0){return bridgeMode;}
 			return finalGraphNeeded() ? hashMode(graphK) : Tadpole.HASH_EXPLICIT;
 		}
 
-		final ArrayList<String> common=new ArrayList<String>();
-		final int assembleK;
-		final int[] fuseKs, bridgeKs, phaseKs;
+		/** Forwarded arguments copied into each phase, followed by driver overrides. */
+		public final ArrayList<String> common=new ArrayList<String>();
+		/** Resolved span used to construct initial solid contigs. */
+		public final int assembleK;
+		/** Membership list of spans used for fusion. */
+		public final int[] fuseKs;
+		/** Membership list of spans used for bridging. */
+		public final int[] bridgeKs;
+		/** Ordered list of phase occurrences, including repeated spans. */
+		public final int[] phaseKs;
 		/** Null selects every eligible span; an empty list selects none for matched controls. */
 		final int[] hollowKs;
-		final boolean bridgeInitial;
-		boolean ordered=true, hollow=false;
+		/** Whether an explicit bridge list requested bridging on the initial occurrence too. */
+		public final boolean bridgeInitial;
+		/** Preserve phase order and repeated spans. */
+		public boolean ordered=true;
+		/** Select Hollow for eligible auxiliary spans. */
+		boolean hollow=false;
+		/** Final contig destination and optional final-graph GFA destination. */
 		String out, outGfa;
+		/** Optional prefix for fusion evidence sidecars. */
 		String fusionVectorPrefix;
-		String fuseNet;
+		/** Optional fusion model path; paired with an explicit cutoff during parsing. */
+		public String fuseNet;
 		/** Set only by the public CLI's automatic bundled-model selection. */
 		boolean automaticFusion=false;
-		float fuseCutoff=Float.NaN;
+		/** Unset sentinel until explicitly provided; an active model requires a finite cutoff. */
+		public float fuseCutoff=Float.NaN;
+		/** Distinguishes an omitted cutoff from a parsed value. */
 		boolean fuseCutoffSet=false;
+		/** Nonnegative cross-K merge depth-ratio policy, temporarily installed in BubblePopper. */
 		float maxDepthRatio=3;
+		/** Maximum direct-merge passes for each proposed cross-K graph. */
 		int passes=10;
-		int fuseMaxMismatches=-1;
-		boolean fuseDeadEndsOnly=false;
-		boolean fuseConflicts=false;
+		/** Mismatch policy passed to proposal discovery and merge; -1 retains the native default. */
+		public int fuseMaxMismatches=-1;
+		/** Restricts overlap discovery to eligible dead ends. */
+		public boolean fuseDeadEndsOnly=false;
+		/** Enables conflict-aware proposals; requires an explicit nonnegative mismatch limit. */
+		public boolean fuseConflicts=false;
 		/** Optional experimental whole-contig depth ratio; zero disables the veto. */
-		float fuseCoverageRatio=0;
+		public float fuseCoverageRatio=0;
 		/** Optional direct-merge depth policy, scoped only to normal final-graph simplification. */
-		float graphMergeCoverageRatio=0;
+		public float graphMergeCoverageRatio=0;
 		/** Optional veto installed solely around final graph simplification. */
 		boolean graphMergeOverlapGuard=false;
 		/** Rejects implicit graph joins that consume an unresolved outward branch. */
-		boolean graphMergeBranchGuard=false;
+		public boolean graphMergeBranchGuard=false;
 		/** Evidence veto; does not make short contigs joinable. */
-		boolean fuseShortEvidence=false;
-		boolean fusePath=false;
-		int fusePathDepth=1;
-		int fusePathFlank=0;
-		boolean fuseTrim=true;
-		int graphK=-1;
-		boolean simpleOmnitigs=false, graphCover=false, lowDepthContigDiag=false, evictLowDepthContigs=false, popBubbles=true;
-		boolean classifyGraphContigs=false;
-		boolean emitTerminal=false, emitBranchedTerminal=false, emitUnanchored=false, emitLoopback=false;
-		boolean emitBranchedConnected=false, emitMultiConnected=false, emitSelfLoop=false;
-		boolean evictTerminal=false, evictBranchedTerminal=false, evictUnanchored=false, evictLoopback=false;
-		boolean evictBranchedConnected=false, evictMultiConnected=false;
-		int evictGraphTopologyMask=0;
+		public boolean fuseShortEvidence=false;
+		/** Enables the count-supported fusion path veto. */
+		public boolean fusePath=false;
+		/** Minimum count required by the fusion path checker. */
+		public int fusePathDepth=1;
+		/** Requested path-check flank length; zero delegates automatic sizing. */
+		public int fusePathFlank=0;
+		/** Allows overlap proposals to trim ends. */
+		public boolean fuseTrim=true;
+		/** Final graph span, resolved from -1 during construction. */
+		public int graphK=-1;
+		/** Mutually exclusive final graph representation switches. */
+		public boolean simpleOmnitigs=false, graphCover=false;
+		/** Low-depth diagnostic, initial eviction, and final bubble-popping switches. */
+		boolean lowDepthContigDiag=false, evictLowDepthContigs=false, popBubbles=true;
+		/** Effective graph classification request after related policies are combined. */
+		public boolean classifyGraphContigs=false;
+		/** Short-contig emission exceptions for terminal, branched, unanchored and loopback classes. */
+		public boolean emitTerminal=false, emitBranchedTerminal=false, emitUnanchored=false, emitLoopback=false;
+		/** Additional short-contig emission exceptions for connected and self-loop classes. */
+		public boolean emitBranchedConnected=false, emitMultiConnected=false, emitSelfLoop=false;
+		/** Individual topology eviction switches passed to final graph processing. */
+		public boolean evictTerminal=false, evictBranchedTerminal=false, evictUnanchored=false, evictLoopback=false;
+		/** Connected topology eviction switches passed to final graph processing. */
+		public boolean evictBranchedConnected=false, evictMultiConnected=false;
+		/** Additional topology-category bitmask selected for eviction. */
+		public int evictGraphTopologyMask=0;
+		/** Bitset selecting early, final or both low-depth diagnostic stages. */
 		int lowDepthContigDiagStage=DIAG_FINAL;
-		int lowDepthContigMaxLen=-1;
-		float lowDepthContigMaxCov=3, lowDepthContigFraction=0.2f;
-		int lowDepthContigTopology=0, emitConnectedMax=-1, evictConnectedAbove=-1;
-		int evictGraphDepthMask=1<<Contig.DEPTH_LOW;
-		int sweepContigLen=500;
-		float graphClassLowMaxCov=4, graphClassLowFraction=0.2f;
-		float graphClassMediumFraction=0.4f, graphClassHighFraction=2.5f;
+		/** Low-depth diagnostic length ceiling; -1 requests automatic sizing. */
+		public int lowDepthContigMaxLen=-1;
+		/** Absolute coverage and relative-depth criteria shared by early/final diagnostics. */
+		public float lowDepthContigMaxCov=3, lowDepthContigFraction=0.2f;
+		/** Diagnostic topology selector, short connected emission limit, and eviction hop cutoff. */
+		public int lowDepthContigTopology=0, emitConnectedMax=-1, evictConnectedAbove=-1;
+		/** Depth-category bitmask used with topology eviction. */
+		public int evictGraphDepthMask=1<<Contig.DEPTH_LOW;
+		/** Initial automatic sweep length; zero disables that sweep. */
+		public int sweepContigLen=500;
+		/** Absolute and relative thresholds for low-depth graph classification. */
+		public float graphClassLowMaxCov=4, graphClassLowFraction=0.2f;
+		/** Relative thresholds delimiting medium and high graph depth. */
+		public float graphClassMediumFraction=0.4f, graphClassHighFraction=2.5f;
+		/** Forwarded options constraining automatic table representation. */
 		boolean explicitTableRequired=false, preallocRequested=false;
-		boolean retainShortContigs=false, retainShortContigsSet=false;
+		/** Explicit short-contig retention policy and whether the user supplied it. */
+		public boolean retainShortContigs=false, retainShortContigsSet=false;
+		/** Requested hash mode before per-phase compatibility and automatic selection. */
 		int hashModeRequested=Tadpole.HASH_AUTO;
+		/** Whether to report final non-stdio FASTA statistics after writing contigs. */
 		boolean showStats=true;
 	}
 
 	/** Initial-only hooks never bind to a later count-table owner. */
-	interface InitialAssembly {
+	interface InitialAssembly{
+		/** Installs development hooks before the initial assembler runs. */
 		void prepare(Tadpole tad, Config config);
+		/** Observes the initial result after any same-K Hollow graph replacement. */
 		void finish(Tadpole tad);
 	}
 
+	/** Borrowed schedule and policies; callers must not mutate them while processing. */
 	private final Config config;
+	/** Optional initial-phase development hooks; never invoked for auxiliary phases. */
 	private final InitialAssembly initialAssembly;
+	/** Owned legacy fusion evidence table, unlike borrowed ordered/final-graph counts. */
 	private Tadpole fusionSupportTadpole;
+	/** Current path checker, borrowing counts from the active phase owner. */
 	private FusionKmerSupport fusionSupport;
+	/** Optional evidence writer owned by the process-level try-with-resources scope. */
 	private FusionJoinCollector fusionCollector;
+	/** Optional shared model binding whose evidence is reset between phases. */
 	private FusionNeuralGate fusionNeural;
+	/** Final diagnostic retained for comparison with early candidate identities. */
 	private Tadpole.LowDepthDiagnostic finalLowDepthDiagnostic;
 
+	/** Recognizes stage words when a diagnostic option doubles as a boolean option. */
 	private static boolean isLowDepthDiagStage(final String s){
 		return s!=null && (s.equalsIgnoreCase("early") || s.equalsIgnoreCase("final") || s.equalsIgnoreCase("both"));
 	}
 
+	/** Resolves a stage word to its bitmask; null means final only. */
 	private static int parseLowDepthDiagStage(final String s){
 		if(s==null || s.equalsIgnoreCase("final")){return DIAG_FINAL;}
 		if(s.equalsIgnoreCase("early")){return DIAG_EARLY;}
@@ -1209,16 +1341,20 @@ public class TadpoleMulti {
 		throw new RuntimeException("lowDepthContigDiagStage must be early, final, or both: "+s);
 	}
 
+	/** Formats a resolved early/final stage bitmask for the execution plan. */
 	private static String lowDepthDiagStageName(final int stage){
 		return stage==(DIAG_EARLY|DIAG_FINAL) ? "both" : stage==DIAG_EARLY ? "early" : "final";
 	}
 
-	private static final class EarlyLowDepthTracker {
+	/** Snapshots early candidate identities/lengths without copying mutable contigs. */
+	private static final class EarlyLowDepthTracker{
+		/** Copies the candidate list and saves its initial lengths and total bases. */
 		EarlyLowDepthTracker(final Tadpole.LowDepthDiagnostic diagnostic){
 			candidates=new ArrayList<Contig>(diagnostic.candidates);
 			lengths=new int[candidates.size()];
 			for(int i=0; i<lengths.length; i++){lengths[i]=candidates.get(i).length(); bases+=lengths[i];}
 		}
+		/** Compares object identity against final live/candidate lists, not sequence similarity. */
 		void reportFates(final Tadpole.LowDepthDiagnostic diagnostic){
 			final IdentityHashMap<Contig, Boolean> live=new IdentityHashMap<Contig, Boolean>(diagnostic.live.size()*2+1);
 			final IdentityHashMap<Contig, Boolean> finalCandidates=new IdentityHashMap<Contig, Boolean>(diagnostic.candidates.size()*2+1);
@@ -1238,10 +1374,14 @@ public class TadpoleMulti {
 					"/+"+grownBases+" bases, stillCandidates="+stillCandidate+
 					", reclassified="+(present-stillCandidate)+".");
 		}
+		/** Owned list of borrowed early candidate objects. */
 		final ArrayList<Contig> candidates;
+		/** Initial length of each corresponding candidate, in bases. */
 		final int[] lengths;
+		/** Sum of initial candidate lengths, used only for reporting. */
 		long bases;
 	}
 
+	/** Low-depth diagnostic stage bits; their union selects both observations. */
 	private static final int DIAG_EARLY=1, DIAG_FINAL=2;
 }

@@ -10,17 +10,57 @@ import parse.PreParser;
 import shared.Shared;
 import shared.Tools;
 
-/** Development-only raw contig comparison with optional live branch rescue. @author Fischl */
-public final class LiveBranchRescue {
+/**
+ * Development-only raw contig comparison with optional live branch rescue.
+ * Each invocation runs one mode; it does not generate a paired control assembly.
+ * Requires an output destination and one effective canonical DNA K in 24–127. With net omitted,
+ * the native walk runs without a live gate; a supplied model requires a finite
+ * cutoff in [0,1] and 12 inputs/one output. The gate uses read-count features,
+ * never reference labels, and accepts eligible scores at or above the cutoff.
+ * Rescue is limited to eligible interior grey-zone encounters reached through the
+ * preferred predecessor; native seed, hidden-branch, ownership and cycle guards remain.
+ * Appends the same raw-unitig settings and simdfma=f in both modes; other native
+ * options still come from the caller. Shared settings are not restored on return.
+ * Reported evaluations and rescues count encounters, not distinct words or final joins.
+ * @author Fischl
+ */
+public final class LiveBranchRescue{
 
-	/** Expands standard configs; no reference or labels are available to the live decision. */
+	/**
+	 * Expands standard configs and closes the preparser's owned diagnostic stream.
+	 * Standard output/error remain open; collection failures propagate.
+	 * @param args Read/output options and optional net, cutoff and verifymoments settings
+	 */
 	public static void main(final String[] args){
 		final PreParser pp=new PreParser(args, LiveBranchRescue.class, false);
 		try{run(pp.args);}
 		finally{Shared.closeStream(pp.outstream);}
 	}
 
-	/** Forces identical raw-unitig/scalar settings in the no-model and model arms. */
+	/*--------------------------------------------------------------*/
+	/*----------------        Static Methods        ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/**
+	 * Consumes out, net, cutoff and verifymoments, forwarding remaining supported native
+	 * arguments. Omitted, empty and literal "null" net values select the no-model control
+	 * with the NaN cutoff sentinel. Alternate outputs and multi-K options are rejected.
+	 * Checks effective native settings and read/mate/extra/model paths before processing;
+	 * ordinary output files must be new even when native overwrite is requested.
+	 * Appended raw-contig settings disable postprocessing and trimming, retain short
+	 * contigs and select explicit-key table storage. Other native read filters and
+	 * preassembly table cleanup are not globally disabled. Both modes append simdfma=f;
+	 * the live gate also disables batched SIMD on its private inference copies.
+	 *
+	 * The processing finally clears the installed gate and count data. Argument/path
+	 * validation and gate construction occur before that cleanup scope. Optional moment
+	 * verification adds post-run scans in either mode. The gate timing covers only its
+	 * lazy scan and can be zero when no encounter reaches inference; no gate timing is
+	 * printed in control mode. Control mode reports zero evaluations and rescues.
+	 * The success message is printed before finally clears the table, so it does not
+	 * certify that cleanup succeeded. Output may remain after failure.
+	 * @param args Expanded diagnostic and native arguments
+	 */
 	private static void run(final String[] args){
 		if(args==null){throw new IllegalArgumentException("Expected read, output and optional network arguments.");}
 		String output=null, model=null;
@@ -33,7 +73,8 @@ public final class LiveBranchRescue {
 			while(name.startsWith("-")){name=name.substring(1);}
 			final String value=split.length>1 ? split[1] : null;
 			if(name.equals("out")){output=value;}
-			else if(name.equals("net")){model=value;}
+			// PreParser rewrites literal null to an empty value before this parser.
+			else if(name.equals("net")){model=value==null || value.isEmpty() || value.equalsIgnoreCase("null") ? null : value;}
 			else if(name.equals("cutoff")){cutoff=Float.parseFloat(value);}
 			else if(name.equals("verifymoments")){verifyMoments=Parse.parseBoolean(value);}
 			else if(name.startsWith("out") || name.equals("dot") || name.equals("gfa") || name.equals("khist") ||
@@ -75,7 +116,15 @@ public final class LiveBranchRescue {
 		}
 	}
 
-	/** Optional post-run oracle adds extra scans; it must not be used for end-to-end timing claims. */
+	/**
+	 * Compares live unique counts and raw double bits for count and squared-count sums.
+	 * The long-K fast traversal is checked against the key walker; short K uses the same
+	 * walker implementation twice. This is traversal parity, not independent biological truth.
+	 * Both traversals include only positive live table entries. This does not compare
+	 * against the gate's cached moments or against counts reconstructed from the reads.
+	 * Adds post-run scans and must be excluded from end-to-end timing comparisons.
+	 * @param tad Assembler whose loaded count table remains available and stable
+	 */
 	private static void verifyMoments(final Tadpole tad){
 		final SameKJoinFeatures.Moments direct=SameKJoinFeatures.moments(tad);
 		final SameKJoinFeatures.Moments walked=SameKJoinFeatures.momentsByWalker(tad);

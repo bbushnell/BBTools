@@ -7,10 +7,13 @@ import java.util.ArrayList;
  * Input regions are sorted read-kmer depths: left, overlap, right, boundary,
  * and the extra subset spanning both boundaries. No truth or identity is accepted.
  * Flank minima/maxima are pointwise statistics, not a designated physical flank.
- * One instance supplies reusable scratch and output buffers for one worker.
+ * One instance supplies reusable scratch and output buffers for one worker;
+ * concurrent calls on that instance are unsupported. Input arrays are borrowed
+ * for the call and neither retained nor modified. The 107 columns are ordered
+ * by {@link #names()}; changing their meaning or order requires a new schema.
  * @author Fischl
  */
-public final class FusionJoinFeatures {
+public final class FusionJoinFeatures{
 
 	/*--------------------------------------------------------------*/
 	/*----------------           Methods            ----------------*/
@@ -20,6 +23,29 @@ public final class FusionJoinFeatures {
 	 * Fills a borrowed vector, overwritten by the next call. Coordinates and depths
 	 * refer to the retained joined window; trims describe discarded terminal bases.
 	 * Deciles use floor(q*(n-1)). Missing regions have zero values and a presence bit.
+	 * Flank minima/maxima are taken separately for each summary column, so those
+	 * columns need not all describe the same flank. Enrichment needs both flanks
+	 * and overlap observations; its columns are zero when any of these is absent.
+	 *
+	 * @param depths Five arrays with sorted, nonnegative populated prefixes:
+	 * left flank, overlap, right flank, crossing either boundary, crossing both
+	 * @param sizes Populated lengths; the first four sum to words, and the fifth
+	 * is a subset of the fourth rather than another part of that sum
+	 * @param k Positive length of the counted words in bases
+	 * @param overlap Positive length of the shared overlap in bases
+	 * @param leftBases Retained window bases before the overlap
+	 * @param rightBases Retained window bases after the overlap
+	 * @param sourceTrim Discarded terminal bases from the source contig
+	 * @param destTrim Discarded terminal bases from the destination contig
+	 * @param words Positive number of word positions in the retained window
+	 * @param missing Number of those positions with zero observed depth
+	 * @param tested Number of directed continuation comparisons near the overlap
+	 * @param half Comparisons with a positive alternative at least half the intended depth
+	 * @param dominated Comparisons with a positive alternative at least the intended depth;
+	 * no greater than half, which is no greater than tested
+	 * @param maxAltRatio Largest alternative depth divided by max(1, intended depth),
+	 * finite and nonnegative; the producer supplies zero when no comparison exists
+	 * @return This instance's reusable 107-element vector; copy it to retain a result
 	 */
 	public float[] fill(final int[][] depths, final int[] sizes, final int k, final int overlap,
 			final int leftBases, final int rightBases, final int sourceTrim, final int destTrim,
@@ -74,7 +100,9 @@ public final class FusionJoinFeatures {
 	/*----------------        Static Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Presence, log position count, zero fraction, then eleven log depth deciles. */
+	/** Fills all fourteen output columns from a sorted prefix without changing it:
+	 * presence, log position count, zero fraction, then eleven log depth deciles.
+	 * An empty prefix produces fourteen zeros. */
 	private static void summarize(final int[] values, final int n, final float[] result){
 		assert(n>=0 && n<=values.length && result.length==REGION_WIDTH) : "Region summary buffers must match the schema.";
 		result[0]=n>0 ? 1 : 0;
@@ -85,19 +113,23 @@ public final class FusionJoinFeatures {
 		for(int q=0; q<=10; q++){result[3+q]=n>0 ? logDepth(quantile(values, n, q)) : 0;}
 	}
 
-	/** Integer arithmetic fixes the decile index, including singleton regions. */
+	/** Returns the observed depth at floor(decile*(n-1)/10) in a nonempty sorted
+	 * prefix. Endpoints select its minimum/maximum; there is no interpolation. */
 	private static int quantile(final int[] values, final int n, final int decile){
 		assert(n>0 && n<=values.length && decile>=0 && decile<=10) : "A requested decile needs at least one observed word.";
 		return values[(int)((long)decile*(n-1)/10)];
 	}
 
-	/** Matches the PacBio depth transform; zero depth is separately represented. */
+	/** Returns one eighth of log2(max(1, depth)), matching the PacBio depth transform.
+	 * Zero and one both encode as zero; presence and zero-fraction columns distinguish them. */
 	private static float logDepth(final int depth){return (float)(LOG_SCALE*Math.log(Math.max(1, depth)));}
 
-	/** Log1p keeps true zero geometry/counts at zero without clipping large values. */
+	/** Returns one eighth of log2(1+value) for nonnegative geometry/counts/ratios.
+	 * True zero remains zero and large values are not clipped. */
 	private static float logOnePlus(final double value){return (float)(LOG_SCALE*Math.log1p(value));}
 
-	/** Checks the producer's sorted-prefix contract without inspecting reference data. */
+	/** Checks the five arrays and their nonnegative sorted prefixes. Unused suffixes
+	 * are ignored; geometry and cross-region count constraints are checked by fill. */
 	private static boolean validRegions(final int[][] depths, final int[] sizes){
 		if(depths==null || sizes==null || depths.length!=5 || sizes.length!=5){return false;}
 		for(int r=0; r<5; r++){
@@ -109,7 +141,8 @@ public final class FusionJoinFeatures {
 		return true;
 	}
 
-	/** Returns a schema copy so callers cannot mutate the shared column contract. */
+	/** Returns a fresh copy of all 107 column names in vector order, protecting the
+	 * shared schema from caller mutations. */
 	public static String[] names(){return NAMES.clone();}
 
 	/** Builds named columns once; the schema version changes if semantics/order change. */
@@ -139,17 +172,25 @@ public final class FusionJoinFeatures {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Independent flank summaries, combined by columnwise minimum and maximum. */
 	private final float[] left=new float[REGION_WIDTH], right=new float[REGION_WIDTH];
+	/** Scratch reused in turn for overlap, boundary and spanning-word summaries. */
 	private final float[] center=new float[REGION_WIDTH];
+	/** Borrowed result storage; each fill overwrites every column. */
 	private final float[] vector=new float[NAMES.length];
 
 	/*--------------------------------------------------------------*/
 	/*----------------           Constants          ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Schema identifier accompanying sidecar columns and trained model inputs. */
 	public static final String VERSION="fusion_join_v1";
+	/** Presence, position count, zero fraction and eleven deciles per region. */
 	private static final int REGION_WIDTH=14;
+	/** Converts natural logarithms into one-eighth-scaled base-two logarithms. */
 	private static final double LOG_SCALE=.125/Math.log(2);
+	/** Producer indices for overlap, either-boundary and both-boundaries regions. */
 	private static final int[] CENTRAL_REGIONS={1, 3, 4};
+	/** Immutable-by-convention schema order; public access returns a clone. */
 	private static final String[] NAMES=makeNames();
 }

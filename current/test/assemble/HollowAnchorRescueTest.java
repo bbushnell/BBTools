@@ -22,7 +22,7 @@ import ukmer.KmerTableSetU;
 /** Tests real extension transactions using controlled in-memory count graphs.
  * No read fixtures are generated; an existing tiny input initializes each table.
  * @author Brian Bushnell, Fischl */
-public final class HollowAnchorRescueTest {
+public final class HollowAnchorRescueTest{
 
 	/** Covers word boundaries, both orientations, safe abstention and byte-exact rollback. */
 	public static void main(String[] args){
@@ -646,7 +646,7 @@ public final class HollowAnchorRescueTest {
 	}
 
 	/** Test-only access to fill immutable-during-extension counts before each transaction. */
-	private static final class GuardedEngine extends Tadpole2 {
+	private static final class GuardedEngine extends Tadpole2{
 		GuardedEngine(final String[] args){super(args, false);}
 		KmerTableSetU support(){return hollowSeedGuardTables;}
 	}

@@ -331,16 +331,17 @@ public final class HashForest extends AbstractKmerTable implements Iterable<Kmer
 	}
 
 	/*--------------------------------------------------------------*/
-	/*----------------      Nonpublic Methods       ----------------*/
+	/*----------------      Node Access Methods     ----------------*/
 	/*--------------------------------------------------------------*/
 
 	/**
 	 * Retrieves the node containing a specific k-mer.
+	 * Borrows the live node; callers must exclude structural mutation while using it.
 	 * @param kmer The k-mer to find
 	 * @return The node containing the k-mer, or null if not found
 	 */
 	@Override
-	final KmerNode get(long kmer){
+	public final KmerNode get(long kmer){
 		int cell=(int)(kmer%prime);
 		KmerNode n=array[cell];
 		while(n!=null && n.pivot!=kmer){

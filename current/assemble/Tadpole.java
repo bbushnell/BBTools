@@ -7,6 +7,7 @@ import java.util.BitSet;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.IdentityHashMap;
+import java.util.Locale;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -44,9 +45,13 @@ import tracker.ReadStats;
 import ukmer.Kmer;
 import ukmer.KmerTableSetU;
 
-
 /**
- * Short-kmer assembler based on KmerCountExact.
+ * Shared command, lifecycle and correction machinery for Tadpole1 and Tadpole2.
+ * Dispatch selects single-word or packed tables; concrete subclasses implement
+ * their count queries, traversal and correction kernels. A run owns its table
+ * data and mutable contig population. Workers borrow streams and share counts,
+ * while retaining separate scratch and counters. Construction also changes
+ * process-wide parsing, I/O and kmer settings; instances are not isolated or reentrant.
  * Optional fixindels=f enables conservative general substitution and 1bp
  * insertion/deletion correction when set to true; it is not limited to runs.
  * Competing verified substitutions and indels are withheld in both correction
@@ -58,10 +63,10 @@ import ukmer.KmerTableSetU;
  * fixindelsbatch=f optionally groups verified original-coordinate candidates,
  * repairs bounded local regions and rebuilds the read once. It requires dense
  * fixindelsstride=1, no pair lookahead, and fixindelspatchmax>=2*K+5 (default4096).
- * fixindelsnet=<file>, fixindelssha80=<20hex>, and fixindelscutoff=<float>
+ * {@code fixindelsnet=<file>}, {@code fixindelssha80=<20hex>}, and {@code fixindelscutoff=<float>}
  * enable one frozen K=62 model as a veto after unique full-context
- * verification; fixindelshighnet=<file>, fixindelshighsha80=<20hex>, and
- * fixindelshighcutoff=<float> add an original-read P50>30 high-depth veto.
+ * verification; {@code fixindelshighnet=<file>}, {@code fixindelshighsha80=<20hex>}, and
+ * {@code fixindelshighcutoff=<float>} add an original-read P50>30 high-depth veto.
  * Neural binding is incompatible with pair/batch modes. pacbio selects the
  * bundled depth specialists and correction defaults; explicit options override.
  * @author Brian Bushnell
@@ -69,9 +74,9 @@ import ukmer.KmerTableSetU;
  *
  */
 public abstract class Tadpole extends ShaveObject{
-	
+
 	/**
-	 * Code entrance from the command line.
+	 * Expands configuration and dispatches to same-K rescue or the assembly policy driver.
 	 * @param args Command line arguments
 	 */
 	public static void main(String[] args){
@@ -83,39 +88,39 @@ public abstract class Tadpole extends ShaveObject{
 		}
 		TadpoleAssemblyPolicy.run(args, false);
 	}
-	
+
 	/**
 	 * Factory method creating appropriate Tadpole implementation based on k-mer size.
-	 * Creates Tadpole2 for k-mers >31 or when FORCE_TADPOLE2 is enabled, otherwise creates Tadpole1.
-	 * Sets AbstractKmerTableSet.MASK_CORE appropriately for memory optimization.
+	 * Creates Tadpole2 for effective K>31 or when FORCE_TADPOLE2 is enabled, otherwise Tadpole1.
+	 * Sets the initial global core-mask choice before construction; explicit parsed options
+	 * may override it. The narrow synchronized assignment does not serialize whole runs.
 	 *
 	 * @param args Command line arguments containing k-mer size and other parameters
-	 * @param setDefaults Whether to apply default configuration settings
-	 * @return Tadpole1 for short k-mers (≤31) or Tadpole2 for long k-mers (>31)
+	 * @param setDefaults Whether to reset constructor compression, reader and minimum-probability
+	 * defaults before parsing options; explicit options and implementation selection still apply
+	 * @return A newly constructed implementation, with Tadpole2 also available by explicit force
 	 */
 	public static Tadpole makeTadpole(String[] args, boolean setDefaults){
-		//TODO: Probable bug - setDefaults is ignored below: even BBMerge's false
-		//request constructs with true and resets shared defaults. Audit callers before changing this legacy behavior.
 		args=expandConfigArgs(args);
 		final int k=preparseK(args);
 		if(k>31 || FORCE_TADPOLE2){
 			synchronized(Tadpole.class){
 				AbstractKmerTableSet.MASK_CORE=false;
 			}
-			return new Tadpole2(args, true);
+			return new Tadpole2(args, setDefaults);
 		}else{
 			synchronized(Tadpole.class){
 				AbstractKmerTableSet.MASK_CORE=true;
 			}
-			Tadpole tad=new Tadpole1(args, true);
+			Tadpole tad=new Tadpole1(args, setDefaults);
 //			if(!tad.setShave){tad.removeDeadEnds=true;}
 //			if(!tad.setRinse){tad.removeBubbles=true;}
 			return tad;
 		}
 	}
-	
+
 	/** Expands config before implementation/phase selection without opening outstream twice. */
-	static String[] expandConfigArgs(final String[] args){
+	public static String[] expandConfigArgs(final String[] args){
 		assert(args!=null) : "Tadpole dispatch requires an argument array before selecting its kmer representation.";
 		//Preserve the original invocation for metadata; PreParser will see expanded args.
 		if(Shared.COMMAND_LINE==null){Shared.COMMAND_LINE=args.clone();}
@@ -180,11 +185,11 @@ public abstract class Tadpole extends ShaveObject{
 		int k=31;
 		for(int i=0; i<args.length; i++){
 			final String arg=args[i];
-			String[] split=arg.split("=");
-			String a=split[0].toLowerCase();
+			String[] split=Parse.splitOnFirst(arg, '=');
+			String a=split[0].toLowerCase(Locale.ROOT);
 			String b=split.length>1 ? split[1] : null;
 			while(a.charAt(0)=='-'){a=a.substring(1);}
-			
+
 			if(a.equals("k")){
 				k=Integer.parseInt(b);
 			}else if(a.equals("tad2") || a.equals("tadpole2")){
@@ -202,22 +207,25 @@ public abstract class Tadpole extends ShaveObject{
 		//PACKED-aware normalizer (exact under packing, old rounding otherwise).
 		return Kmer.getKbig(k);
 	}
-	
+
 	/**
-	 * Constructor.
+	 * Expands and parses options, resolves modes/defaults and validates combinations and paths.
+	 * Also updates shared I/O and kmer settings and may load neural resources. Subclasses
+	 * create the count-table loader afterward; this constructor does not start processing.
 	 * @param args Command line arguments
+	 * @param setDefaults Whether to reset the initial compression, byte-reader and minimum-probability defaults
 	 */
 	public Tadpole(String[] args, boolean setDefaults){
 		args=expandConfigArgs(args);
 		checkSeedGuardPaths(args);
-		
+
 		{//Preparse block for help, config files, and outstream
 			PreParser pp=new PreParser(args, getClass(), true);
 			args=pp.args;
 			outstream=pp.outstream;
 		}
 		kbig=preparseK(args);
-		
+
 		if(setDefaults){
 			/* Set global defaults */
 			ReadWrite.ZIPLEVEL=2;
@@ -228,7 +236,7 @@ public abstract class Tadpole extends ShaveObject{
 			}
 			AbstractKmerTableSet.defaultMinprob=0.5;
 		}
-		
+
 		/* Initialize local variables with defaults */
 		Parser parser=new Parser();
 		boolean ecc_=false, ecco_=false, merge_=false, testMerge_=true, vstrict_=false, setEcc_=false;
@@ -246,21 +254,21 @@ public abstract class Tadpole extends ShaveObject{
 		String localEditHighNetPath_=null, localEditHighNetSha80_=null;
 		float localEditNetCutoff_=Float.NaN;
 		float localEditHighNetCutoff_=Float.NaN;
-		int localEditMax_=8,localEditStride_=8;
+		int localEditMax_=8, localEditStride_=8;
 		int localEditPatchMax_=4096;
 		boolean useOwnership_=false, setUseOwnership_=false;
 		boolean graphSweepSet=false;
-		
+
 		int prefilter=0;
-		
+
 		/* Parse arguments */
 		for(int i=0; i<args.length; i++){
 
 			final String arg=args[i];
-			String[] split=arg.split("=");
-			String a=split[0].toLowerCase();
+			String[] split=Parse.splitOnFirst(arg, '=');
+			String a=split[0].toLowerCase(Locale.ROOT);
 			String b=split.length>1 ? split[1] : null;
-			
+
 			if(a.equals("in") || a.equals("in1") || a.equals("ine") || a.equals("ine1")){
 				in1.clear();
 				if(b!=null){
@@ -338,8 +346,7 @@ public abstract class Tadpole extends ShaveObject{
 			}else if(a.equalsIgnoreCase("lowDepthContigTopology") || a.equals("ldctopology")){
 				lowDepthContigTopology=parseLowDepthTopology(b);
 			}else if(a.equalsIgnoreCase("retainShortContigs") || a.equalsIgnoreCase("retainShortGraph")){
-				if(b==null || b.equalsIgnoreCase("auto")){retainShortContigsSet=false;}
-				else{retainShortContigs=Parse.parseBoolean(b); retainShortContigsSet=true;}
+				if(b==null || b.equalsIgnoreCase("auto")){retainShortContigsSet=false;}else{retainShortContigs=Parse.parseBoolean(b); retainShortContigsSet=true;}
 			}else if(a.equalsIgnoreCase("sweepLen") || a.equalsIgnoreCase("graphSweepLen")){
 				sweepContigLen=Parse.parseIntKMG(b);
 				graphSweepSet=true;
@@ -492,8 +499,7 @@ public abstract class Tadpole extends ShaveObject{
 			}else if(a.equals("mincoverage") || a.equals("mincov")){
 				minCoverage=Float.parseFloat(b);
 			}else if(a.equals("maxcoverage") || a.equals("maxcov")){
-				if(b.equalsIgnoreCase("inf")){maxCoverage=Float.MAX_VALUE;}
-				else{maxCoverage=Float.parseFloat(b);}
+				if(b.equalsIgnoreCase("inf")){maxCoverage=Float.MAX_VALUE;}else{maxCoverage=Float.parseFloat(b);}
 			}else if(a.equals("branchlower") || a.equals("branchlowerconst") || a.equals("blc")){
 				branchLowerConst=Parse.parseIntKMG(b);
 			}else if(a.equals("branchmult2") || a.equals("bm2")){
@@ -544,7 +550,7 @@ public abstract class Tadpole extends ShaveObject{
 			}else if(a.equals("tad2") || a.equals("tadpole2")){
 				FORCE_TADPOLE2=Parse.parseBoolean(b);
 			}
-			
+
 			else if(a.equals("tid") || a.equalsIgnoreCase("taxid")){
 				taxID=Integer.parseInt(b);
 			}else if(a.equals("firstid") || a.equalsIgnoreCase("startid") || a.equalsIgnoreCase("idoffset")){
@@ -554,7 +560,7 @@ public abstract class Tadpole extends ShaveObject{
 			}else if(a.equals("veryshortnames")){
 				Contig.VERY_SHORT_NAMES=Parse.parseBoolean(b);
 			}
-			
+
 			else if(a.equals("maskcore") || a.equals("coremask")){
 				AbstractKmerTableSet.MASK_CORE=Kmer.MASK_CORE=Parse.parseBoolean(b);
 			}else if(a.equals("packed")){
@@ -600,7 +606,7 @@ public abstract class Tadpole extends ShaveObject{
 			}else if(a.equals("fillfast") || a.equals("fastfill")){
 				AbstractKmerTableSet.FAST_FILL=Parse.parseBoolean(b);
 			}
-			
+
 			//Shaver
 			else if(a.equals("shaverinse") || a.equals("shaveandrinse") || a.equals("wash") || a.equals("sr")){
 				if(b==null || Character.isLetter(b.charAt(0))){
@@ -634,8 +640,7 @@ public abstract class Tadpole extends ShaveObject{
 			}else if(a.equalsIgnoreCase("shaveFast") || a.equalsIgnoreCase("fastShave")){
 				Shaver.shaveFast=Parse.parseBoolean(b);
 			}
-			
-			
+
 			//Junk removal
 			else if(a.equals("tossjunk") || a.equals("tj")){
 				tossJunk=Parse.parseBoolean(b);
@@ -648,7 +653,7 @@ public abstract class Tadpole extends ShaveObject{
 			}else if(a.equals("tossuncorrectable") || a.equals("tu")){
 				discardUncorrectable=Parse.parseBoolean(b);
 			}
-			
+
 			//Error Correction
 			else if(a.equals("ecctail") || a.equals("eccright") || a.equals("tail")){
 				ECC_TAIL=Parse.parseBoolean(b);
@@ -772,7 +777,7 @@ public abstract class Tadpole extends ShaveObject{
 			}else if(a.equals("qualsum") || a.equals("windowqualsum") || a.equals("qs")){
 				windowQualSum=Integer.parseInt(b);
 			}
-			
+
 			else if(a.equals("mbb") || a.equals("markbad") || a.equals("markbadbases")){
 				if(b==null){b="1";}
 				MARK_BAD_BASES=Integer.parseInt(b);
@@ -783,23 +788,22 @@ public abstract class Tadpole extends ShaveObject{
 			}else if(a.equals("mq") || a.equals("markquality")){
 				MARK_QUALITY=(byte)Integer.parseInt(b);
 			}
-			
+
 			//Trimming
 			else if(a.equals("trim") || a.equals("trimends")){
 				if(b==null || Character.isLetter(b.charAt(0))){
-					if("auto".equalsIgnoreCase(b)){trimEnds=-1;}
-					else{trimEnds=Parse.parseBoolean(b) ? -1 : 0;}
+					if("auto".equalsIgnoreCase(b)){trimEnds=-1;}else{trimEnds=Parse.parseBoolean(b) ? -1 : 0;}
 				}else{
 					trimEnds=Integer.parseInt(b);
 				}
 			}else if(a.equals("trimcircular") || a.equals("trimloop") || a.equals("trimlooploop")){
 				trimCircular=Parse.parseBoolean(b);
 			}
-			
+
 			else if(a.equalsIgnoreCase("sortbuffers") || a.equalsIgnoreCase("sortbuffer")){
 				HashBuffer.SORT_BUFFERS=Parse.parseBoolean(b);
 			}
-			
+
 			else if(Parser.parseCommonStatic(arg, a, b)){
 				//do nothing
 			}else if(Parser.parseZip(arg, a, b)){
@@ -813,18 +817,16 @@ public abstract class Tadpole extends ShaveObject{
 			}else if(parser.parseTrim(arg, a, b)){
 				//do nothing
 			}
-			
+
 			else if(a.equals("prefilter")){
-				if(b==null){prefilter=2;}
-				else if(Character.isLetter(b.charAt(0))){prefilter=Parse.parseBoolean(b) ? 2 : 0;}
-				else{prefilter=Integer.parseInt(b);}
+				if(b==null){prefilter=2;}else if(Character.isLetter(b.charAt(0))){prefilter=Parse.parseBoolean(b) ? 2 : 0;}else{prefilter=Integer.parseInt(b);}
 			}else if(KmerTableSetU.isValidArgument(a)){
 				//Do nothing
 			}else{
 				throw new RuntimeException("Unknown parameter "+args[i]);
 			}
 		}
-		
+
 		kmerRangeMin=Tools.max(prefilter+1, kmerRangeMin);
 		if(processingMode<0 && graphContigs!=null){processingMode=graphMode;}
 		if(processingMode==graphMode){
@@ -832,7 +834,7 @@ public abstract class Tadpole extends ShaveObject{
 			if(!graphSweepSet){sweepContigLen=0;}
 			popBubbles=false;
 		}
-		
+
 		if(outDot!=null || outGfa!=null || popBubbles || resolveRepeats || simpleOmnitigs || graphCover
 				|| lowDepthContigDiag || graphClassificationRequested()){processContigs=true;}
 		if(processContigs && sweepContigLen>0){classifyGraphContigs=true;}
@@ -840,16 +842,20 @@ public abstract class Tadpole extends ShaveObject{
 		if(!retainShortContigsSet){retainShortContigs=popBubbles || graphClassificationRequested();}
 		if(evictLowDepthContigs){retainShortContigs=true;}
 		if(lowDepthContigMaxLen==0 || lowDepthContigMaxLen< -1){throw new RuntimeException("lowDepthContigMaxLen must be positive or auto.");}
-		if(lowDepthContigMaxCov<0){throw new RuntimeException("lowDepthContigMaxCov must be nonnegative.");}
-		if(lowDepthContigFraction<0 || lowDepthContigFraction>1){throw new RuntimeException("lowDepthContigFraction must be from 0 to 1.");}
+		//Require membership in each allowed range: comparisons against NaN are false.
+		//Positive infinity remains an unbounded ceiling where no finite upper bound is imposed.
+		if(!(lowDepthContigMaxCov>=0)){throw new RuntimeException("lowDepthContigMaxCov must be nonnegative: "+lowDepthContigMaxCov);}
+		if(!(lowDepthContigFraction>=0 && lowDepthContigFraction<=1)){throw new RuntimeException("lowDepthContigFraction must be from 0 to 1: "+lowDepthContigFraction);}
 		if(graphClassificationRequested()){
-			if(graphClassLowMaxCov<0){throw new RuntimeException("graphClassLowMaxCov must be nonnegative.");}
-			if(graphClassLowFraction<0 || graphClassLowFraction>1){throw new RuntimeException("graphClassLowFraction must be from 0 to 1.");}
-			if(graphClassMediumFraction<graphClassLowFraction){
-				throw new RuntimeException("graphClassMediumFraction must be at least graphClassLowFraction.");
+			if(!(graphClassLowMaxCov>=0)){throw new RuntimeException("graphClassLowMaxCov must be nonnegative: "+graphClassLowMaxCov);}
+			if(!(graphClassLowFraction>=0 && graphClassLowFraction<=1)){throw new RuntimeException("graphClassLowFraction must be from 0 to 1: "+graphClassLowFraction);}
+			if(!(graphClassMediumFraction>=graphClassLowFraction)){
+				throw new RuntimeException("graphClassMediumFraction must be at least graphClassLowFraction: "+
+						graphClassMediumFraction+", low="+graphClassLowFraction);
 			}
-			if(graphClassHighFraction<graphClassMediumFraction){
-				throw new RuntimeException("graphClassHighFraction must be at least graphClassMediumFraction.");
+			if(!(graphClassHighFraction>=graphClassMediumFraction)){
+				throw new RuntimeException("graphClassHighFraction must be at least graphClassMediumFraction: "+
+						graphClassHighFraction+", medium="+graphClassMediumFraction);
 			}
 		}
 		if(evictGraphDepthMask<0 || evictGraphDepthMask>15){throw new RuntimeException("Invalid graph eviction depth mask.");}
@@ -873,7 +879,7 @@ public abstract class Tadpole extends ShaveObject{
 				}
 			}
 		}
-		
+
 		if(ECC_AGGRESSIVE){
 			ECC_REQUIRE_BIDIRECTIONAL=false;
 			errorExtensionReassemble=0;
@@ -886,7 +892,7 @@ public abstract class Tadpole extends ShaveObject{
 			windowCount=Tools.max(windowCount, 6);
 			windowQualSum=Tools.min(windowQualSum, 65);
 			windowLen=Tools.min(windowLen, 12);
-			
+
 			ECC_REQUIRE_BIDIRECTIONAL=false;
 		}else if(ECC_CONSERVATIVE){
 			errorExtensionReassemble+=2;
@@ -899,27 +905,27 @@ public abstract class Tadpole extends ShaveObject{
 			windowLen=Tools.max(windowLen, 12);
 			windowCount=Tools.min(windowCount, 4);
 			windowQualSum=Tools.min(windowQualSum, 65);
-			
+
 			ECC_REQUIRE_BIDIRECTIONAL=true;
 			ECC_ROLLBACK=true;
 		}
-		
+
 //		assert(false) : ECC_REASSEMBLE;
-		
+
 		if(trimEnds<0){
 			trimEnds=kbig/2;
 		}
 		if(minContigLen<0){minContigLen=500;}
-		
+
 		if(verbose){
 			BubblePopper.verbose=true;
 //			assert(false) : "Verbose is disabled.";
 //			AbstractKmerTableU.verbose=true;
 		}
 		THREADS=Shared.threads();
-		
+
 		assert(kmerRangeMax>=kmerRangeMin) : "kmerRangeMax must be at least kmerRangeMin: "+kmerRangeMax+", "+kmerRangeMin;
-		
+
 		if(graphContigs!=null && processingMode!=graphMode){
 			throw new IllegalArgumentException("contigs= is only valid with mode=graph.");
 		}
@@ -963,9 +969,9 @@ public abstract class Tadpole extends ShaveObject{
 				//outstream.println("Operating in contig mode.");
 			}
 		}
-		
+
 		if(processingMode==extendMode || processingMode==correctMode || processingMode==discardMode){
-			
+
 //			{//Use in and out if ine and oute are not specified, in this mode.
 //				if(ine1.isEmpty() && ine2.isEmpty()){
 //					ine1.addAll(in1);
@@ -975,7 +981,7 @@ public abstract class Tadpole extends ShaveObject{
 //					oute1.add(outContigs);
 //				}
 //			}
-			
+
 			if(processingMode==extendMode){
 				if(extendLeft==-1){extendLeft=100;}
 				if(extendRight==-1){extendRight=100;}
@@ -1030,29 +1036,28 @@ public abstract class Tadpole extends ShaveObject{
 			Tools.testInputFiles(true, true, hollowSeedGuardReads);
 		}
 		hashKmerMode=resolveHashMode();
-		
+
 		{//Process parser fields
 			Parser.parseQuality("","","");
 			Parser.processQuality();
 		}
-		
+
 		if(setUseOwnership_){
 			useOwnership=useOwnership_;
 		}else{
 			useOwnership=(processingMode==contigMode || removeBubbles || removeDeadEnds);
 		}
-		
+
 		final int extraBytesPerKmer;
 		{
 			int x=0;
 			if(useOwnership){x+=4;}
-			if(processingMode==correctMode || processingMode==discardMode){}
-			else if(processingMode==contigMode || processingMode==extendMode){x+=1;}
+			if(processingMode==correctMode || processingMode==discardMode){}else if(processingMode==contigMode || processingMode==extendMode){x+=1;}
 			extraBytesPerKmer=x;
 		}
-		
+
 		/* Set final variables; post-process and validate argument combinations */
-		
+
 		if(hpMaxEdits_<1){throw new IllegalArgumentException("hpmaxedits must be positive.");}
 		if(localEditMax_<1){throw new IllegalArgumentException("fixindelsmax must be positive.");}
 		if(localEditStride_<1){throw new IllegalArgumentException("fixindelsstride must be positive.");}
@@ -1137,11 +1142,11 @@ public abstract class Tadpole extends ShaveObject{
 		merge=merge_;
 		testMerge=testMerge_;
 		vstrict=vstrict_;
-		
+
 		/* Adjust I/O settings and filenames */
-		
+
 		assert(FastaReadInputStream.settingsOK());
-		
+
 		for(int i=0; i<in1.size(); i++){
 			String s=in1.get(i);
 			if(s!=null && s.contains("#") && !new File(s).exists()){
@@ -1152,7 +1157,7 @@ public abstract class Tadpole extends ShaveObject{
 				in2.add(a+2+b);
 			}
 		}
-		
+
 		for(int i=0; i<out1.size(); i++){
 			String s=out1.get(i);
 			if(s!=null && s.contains("#")){
@@ -1163,7 +1168,7 @@ public abstract class Tadpole extends ShaveObject{
 				out2.add(a+2+b);
 			}
 		}
-		
+
 		for(int i=0; i<outd1.size(); i++){
 			String s=outd1.get(i);
 			if(s!=null && s.contains("#")){
@@ -1202,18 +1207,17 @@ public abstract class Tadpole extends ShaveObject{
 		}
 		if(!Tools.testOutputFiles(overwrite, append, false, out1, out2)){
 			throw new RuntimeException("\nCan't write to some output files; overwrite="+overwrite+"\n");
-		}		
+		}
 		in1=Tools.fixExtension(in1);
 		in2=Tools.fixExtension(in2);
 		assert(!in1.isEmpty()) : "Requires at least one input file.";
 		if(!Tools.testInputFiles(true, true, in1, in2)){
-			throw new RuntimeException("\nCan't read some input files.\n");  
+			throw new RuntimeException("\nCan't read some input files.\n");
 		}
 		assert(THREADS>0);
 		outstream.println("Using "+THREADS+" threads.");
 	}
 
-	
 	/*--------------------------------------------------------------*/
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
@@ -1250,72 +1254,83 @@ public abstract class Tadpole extends ShaveObject{
 		while(start<key.length() && key.charAt(start)=='-'){start++;}
 		return key.substring(start).toLowerCase(java.util.Locale.ROOT);
 	}
-	
-	
+
 	/**
 	 * Main processing method executing the complete assembly pipeline.
 	 * Validates output files, loads k-mers, processes based on selected mode,
-	 * and outputs results with comprehensive statistics. Handles parallel histogram
+	 * and outputs configured statistics. Handles parallel histogram
 	 * and k-mer output generation when threading is enabled.
+	 * After processing succeeds, output failures propagate and table data is cleared
+	 * even when an auxiliary output fails. Started output workers finish before cleanup.
 	 *
 	 * @param t Timer for tracking execution time
 	 */
 	public final void process(Timer t){
-		
+
 		/* Check for output file collisions */
 		Tools.testOutputFiles(overwrite, append, false, outKmers, outHist);
-		
+
 		/* Count kmers */
 		process2(processingMode);
-		
-		if(THREADS>1 && outHist!=null && outKmers!=null){
-			Timer tout=new Timer();
-			tout.start();
-			Thread a=new DumpKmersThread();
-			Thread b=new MakeKhistThread();
-			a.start();
-			b.start();
-			while(a.getState()!=Thread.State.TERMINATED){
-				try {
-					a.join();
-				} catch (InterruptedException e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
+
+		try{
+			if(THREADS>1 && outHist!=null && outKmers!=null){
+				Timer tout=new Timer();
+				tout.start();
+				Thread a=new DumpKmersThread();
+				Thread b=new MakeKhistThread();
+				// Each slot has one writer; joining both workers makes their failures visible here.
+				final Throwable[] failures=new Throwable[2];
+				a.setUncaughtExceptionHandler((thread, failure) -> failures[0]=failure);
+				b.setUncaughtExceptionHandler((thread, failure) -> failures[1]=failure);
+				try{
+					a.start();
+					b.start();
+				}finally{
+					// A failed second start must not clear tables while the first worker still uses them.
+					while(a.isAlive()){
+						try{
+							a.join();
+						}catch(InterruptedException e){
+							// Preserve the existing wait policy; both writers must finish before cleanup.
+							e.printStackTrace();
+						}
+					}
+					while(b.isAlive()){
+						try{
+							b.join();
+						}catch(InterruptedException e){
+							e.printStackTrace();
+						}
+					}
 				}
-			}
-			while(b.getState()!=Thread.State.TERMINATED){
-				try {
-					b.join();
-				} catch (InterruptedException e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
+				final Throwable failure=failures[0]!=null ? failures[0] : failures[1];
+				if(failure!=null){
+					if(failures[1]!=null && failures[1]!=failure){failure.addSuppressed(failures[1]);}
+					throw new RuntimeException("Auxiliary k-mer output worker failed.", failure);
 				}
+				tout.stop();
+				outstream.println("Write Time:                 \t"+tout);
+			}else{
+				if(outHist!=null){makeKhist();}
+				if(outKmers!=null){dumpKmersAsText();}
 			}
-			tout.stop();
-			outstream.println("Write Time:                 \t"+tout);
-		}else{
-			if(outHist!=null){
-				makeKhist();
-			}
-			if(outKmers!=null){
-				dumpKmersAsText();
-			}
-		}
-		
-		clearData();
-		
+		}catch(RuntimeException|Error failure){
+			errorState=true;
+			throw failure;
+		}finally{clearData();}
+
 		/* Stop timer and calculate speed statistics */
 		t.stop();
-		
-		
+
 		if(showSpeed){
 			outstream.println("\nTotal Time:               \t"+t);
-			
+
 			if(processingMode==extendMode || processingMode==correctMode || processingMode==discardMode){
 				outstream.println(Tools.readsBasesProcessed(t.elapsed, readsIn, basesIn, 8));
 			}
 		}
-		
+
 		{
 			String outContigs=out1.isEmpty() ? null : out1.get(0);
 			if(showStats && outContigs!=null && processingMode==contigMode && FileFormat.isFastaExt(ReadWrite.rawExtension(outContigs)) && !FileFormat.isStdio(outContigs)){
@@ -1323,16 +1338,16 @@ public abstract class Tadpole extends ShaveObject{
 				jgi.AssemblyStats2.main(new String[] {"in="+outContigs, "printextended"});
 			}
 		}
-		
+
 		/* Throw an exception if errors were detected */
 		if(errorState){
 			throw new RuntimeException(getClass().getSimpleName()+" terminated in an error state; the output may be corrupt.");
 		}
 	}
-	
-	/** Creates k-mer frequency histogram for quality assessment and optimization */
+
+	/** Writes the configured histogram from loaded tables; implementations must surface output failure. */
 	abstract void makeKhist();
-	/** Exports k-mer frequency table to text format for analysis */
+	/** Writes the configured kmer dump; implementations must surface output failure. */
 	abstract void dumpKmersAsText();
 	/**
 	 * Loads k-mers from input reads into hash tables.
@@ -1341,9 +1356,10 @@ public abstract class Tadpole extends ShaveObject{
 	 * @return Number of k-mers loaded
 	 */
 	public abstract long loadKmers(Timer t);
-	
+
 	/**
-	 * Clears assembly data structures to free memory after processing completion
+	 * Drops the contig population and clears primary and optional seed-protection tables.
+	 * Does not reset configuration, counters, thread-local scratch or other process-wide state.
 	 */
 	public final void clearData(){
 		allContigs=null;
@@ -1351,14 +1367,14 @@ public abstract class Tadpole extends ShaveObject{
 		if(hollowSeedGuardTables!=null){hollowSeedGuardTables.clear();}
 	}
 
-	/** Detaches the current contigs so another kmer pass can consume them. */
+	/** Transfers the current list reference to the caller and clears this instance's reference; no copy. */
 	final ArrayList<Contig> detachContigs(){
 		final ArrayList<Contig> list=allContigs;
 		allContigs=null;
 		return list;
 	}
 
-	/** Installs externally built contigs for graph processing. */
+	/** Retains the supplied mutable population for graph processing without copying it. */
 	final void setContigs(ArrayList<Contig> contigs){allContigs=contigs;}
 
 	/** Resolves a live ownership ID without exposing the mutable contig list to subclasses. */
@@ -1368,7 +1384,7 @@ public abstract class Tadpole extends ShaveObject{
 		return allContigs.get(owner);
 	}
 
-	/** Captures independent bridge and fusion eligibility before clearing assembly-K edges. */
+	/** Mutates each contig's bridge/fusion eligibility before assembly-K edges are discarded. */
 	final void markBridgeEndpoints(){
 		for(Contig c : allContigs){
 			c.leftBridgeEndpoint=(c.leftCode!=LOOP);
@@ -1399,12 +1415,14 @@ public abstract class Tadpole extends ShaveObject{
 		return code==F_BRANCH || code==D_BRANCH ? calcRatio(outward) :
 			(code==B_BRANCH ? calcRatio(inward) : 0);
 	}
-	
+
 	/**
 	 * Core processing method implementing mode-specific assembly operations.
-	 * Handles k-mer loading, range filtering, graph cleaning, and mode-specific processing
-	 * including contig building, read extension, or error correction.
-	 * @param mode Processing mode: contigMode, extendMode, correctMode, insertMode, or discardMode
+	 * Loads counts, then performs the chosen graph, assembly or read-processing path.
+	 * Mode must match the configuration resolved by construction. Counts, graph state,
+	 * reads and counters may already be changed if processing throws; this is not a transaction.
+	 * Auxiliary outputs and final table cleanup belong to process(), not this method.
+	 * @param mode Selected contig, graph, extension, correction, insert or discard operation
 	 */
 	public final void process2(int mode){
 		if(hollow && mode==contigMode){
@@ -1432,40 +1450,39 @@ public abstract class Tadpole extends ShaveObject{
 			graph.report();
 			return;
 		}
-		
+
 		/* Start phase timer */
 		Timer t=new Timer();
-		
+
 		/* Fill tables with kmers */
 		outstream.println("\nLoading kmers.\n");
 		loadKmers(t);
-		
+
 		t.stop();
 //		outstream.println("Input:                      \t"+tables.readsIn+" reads \t\t"+tables.basesIn+" bases.");
 //		outstream.println("Unique Kmers:               \t"+tables.kmersLoaded);
 //		outstream.println("Load Time:                  \t"+t);
-		
-		
+
 		t.start();
-		
+
 		pruneLoadedKmers();
-		
+
 		shaveAndRinse(t, removeDeadEnds, removeBubbles, true);
-		
+
 		if(mode==extendMode || mode==correctMode || mode==discardMode){
 			outstream.println("\nExtending/error-correcting/discarding.\n");
-			
+
 			final boolean vic=Read.VALIDATE_IN_CONSTRUCTOR;
 			Read.VALIDATE_IN_CONSTRUCTOR=false;
 			extendReads();
 			Read.VALIDATE_IN_CONSTRUCTOR=vic;
-			
+
 			if(DISPLAY_PROGRESS){
 				outstream.println("\nAfter extending reads:");
 				Shared.printMemory();
 				outstream.println();
 			}
-			
+
 			t.stop();
 
 			outstream.println("Input:                      \t"+readsIn+" reads \t\t"+basesIn+" bases.");
@@ -1501,7 +1518,7 @@ public abstract class Tadpole extends ShaveObject{
 					final long corrected=(basesCorrectedTail+basesCorrectedPincer+basesCorrectedReassemble+basesCorrectedSubstitute+basesCorrectedEcco);
 					StringBuilder sb=new StringBuilder();
 					sb.append("Errors corrected:           \t"+Tools.padRight(corrected, 7)+" \t(");
-					
+
 					String comma="";
 					if(ECC_PINCER){
 						sb.append(comma).append(basesCorrectedPincer+" pincer");
@@ -1523,11 +1540,11 @@ public abstract class Tadpole extends ShaveObject{
 						sb.append(comma).append(basesCorrectedEcco+" overlap");
 						comma=", ";
 					}
-					
+
 					sb.append(")");
 					outstream.println(sb);
 				}
-				
+
 				if(ecco || merge){outstream.println("Reads merged:               \t"+Tools.padRight(readsMerged, 7)+
 						Tools.format(" \t(%.2f%%)", readsMerged*200.0/readsIn));}
 				outstream.println("Reads with errors detected: \t"+Tools.padRight(readsDetected, 7)+
@@ -1576,41 +1593,41 @@ public abstract class Tadpole extends ShaveObject{
 				outstream.println("Skipped end runs:            \t"+markSkippedEnd);
 				outstream.println("Skipped merged runs:         \t"+markSkippedMerged);
 			}
-			
+
 			outstream.println("Extend/error-correct time:  \t"+t);
 		}else{
 			/* Build contigs */
 			outstream.println("\nBuilding contigs.\n");
 			buildContigs(mode);
-			
+
 			if(DISPLAY_PROGRESS){
 				outstream.println("\nAfter building contigs:");
 				Shared.printMemory();
 				outstream.println();
 			}
-			
+
 			t.stop();
-			
+
 			if(readsIn>0){outstream.println("Input:                      \t"+readsIn+" reads \t\t"+basesIn+" bases.");}
 			outstream.println("Bases generated:            \t"+basesBuilt);
 			outstream.println("Contigs generated:          \t"+contigsBuilt);
 			outstream.println("Longest contig:             \t"+longestContig);
 			if(popBubbles){outstream.println("Bubbles popped:             \t"+bubblesPopped);}
 			if(resolveRepeats){outstream.println("X repeats resolved:         \t"+readThreadedRepeatsResolved);}
-			
+
 			outstream.println("Contig-building time:       \t"+t);
 		}
 	}
-	
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
 	 * Performs graph cleaning operations to remove dead ends and bubbles.
 	 * Coordinates shaving (dead-end removal) and rinsing (bubble removal) operations
-	 * with optional progress reporting and performance timing.
+	 * with optional reporting. If enabled, stops the supplied timer after shaving
+	 * and restarts it afterward; an exception bypasses those later steps.
 	 *
 	 * @param t Timer for tracking operation duration
 	 * @param shave Whether to remove dead ends
@@ -1621,7 +1638,7 @@ public abstract class Tadpole extends ShaveObject{
 	public final long shaveAndRinse(Timer t, boolean shave, boolean rinse, boolean print){
 		long removed=0;
 		if(shave || rinse){
-			
+
 			if(print){
 				if(rinse && shave){
 					outstream.println("\nRemoving dead ends and error bubbles.");
@@ -1677,7 +1694,7 @@ public abstract class Tadpole extends ShaveObject{
 		}
 		return AbstractRemoveThread.process(THREADS, kmerRangeMin, kmerRangeMax, tables(), true);
 	}
-	
+
 	/**
 	 * Performs graph shaving operations to remove spurious structures.
 	 * Implementation varies between Tadpole1 and Tadpole2 for different k-mer table types.
@@ -1687,30 +1704,34 @@ public abstract class Tadpole extends ShaveObject{
 	 * @return Number of k-mers removed
 	 */
 	abstract long shave(boolean shave, boolean rinse);
+	/** Optional contig-tip cleaning entry point; unsupported unless a concrete implementation overrides it. */
 	long shaveFromContigs(ArrayList<Contig> contigs, boolean shave, boolean rinse){
 		throw new UnsupportedOperationException("Tip-seeded compact washing is unavailable for "+getClass().getSimpleName()+".");
 	}
 	/**
-	 * Initializes thread ownership tracking for k-mers to prevent race conditions during parallel processing
+	 * Initializes table ownership storage before claims; this alone is not a synchronization policy.
 	 */
 	abstract void initializeOwnership();
-	
+
 	/**
-	 * Build contigs.
+	 * Builds a contig population or insert histogram, then writes configured outputs.
+	 * Joins workers before closing borrowed streams on the normal path. Contig output
+	 * applies final emission policy and mutates IDs by the requested offset; graph
+	 * output may already have been emitted during processing of the earlier population.
 	 */
 	private final void buildContigs(final int mode){
-		
+
 		if(mode==contigMode){
 			allContigs=new ArrayList<Contig>();
 			allInserts=null;
-			
+
 			if(useOwnership){
 				Timer t=new Timer(outstream, true);
 				t.start("Initializing ownership.");
 				initializeOwnership();
 				t.stop("Time: ");
 			}
-			
+
 		}else if(mode==insertMode){
 			allContigs=null;
 			allInserts=new LongList();
@@ -1719,19 +1740,19 @@ public abstract class Tadpole extends ShaveObject{
 		}else{
 			throw new RuntimeException("Unknown mode "+mode);
 		}
-		
+
 		/* Create read input stream */
 		final ConcurrentReadInputStream[] crisa=(mode==contigMode ? null : makeCrisArray(in1, in2));
 
 		runBuildThreads(mode, crisa);
-		
+
 		/* Shut down I/O streams; capture error status */
 		if(crisa!=null){
 			for(ConcurrentReadInputStream cris : crisa){
 				errorState|=ReadWrite.closeStreams(cris);
 			}
 		}
-		
+
 		if(allContigs!=null){
 			Shared.sort(allContigs, ContigLengthComparator.comparator);//longest-first (ContigLengthComparator default)
 			if(rawContigTransform!=null){
@@ -1744,7 +1765,7 @@ public abstract class Tadpole extends ShaveObject{
 				processContigs();
 			}
 		}
-		
+
 		if(outInsert!=null){
 			FileFormat ff=FileFormat.testOutput(outInsert, FileFormat.TEXT, 0, 0, true, overwrite, append, false);
 			TextStreamWriter tsw=new TextStreamWriter(ff);
@@ -1757,9 +1778,10 @@ public abstract class Tadpole extends ShaveObject{
 			}
 			errorState|=tsw.poisonAndWait();
 		}
-		
+
 		String outContigs=out1.isEmpty() ? null : out1.get(0);
 		if(outContigs!=null){
+			nextContigIDOffset=contigIDOffset;
 			FileFormat ff=FileFormat.testOutput(outContigs, FileFormat.FA, 0, 0, true, overwrite, append, false);
 //			ConcurrentReadOutputStream ros=ConcurrentReadOutputStream.getStream(ff, null, null, null, 4, null, false);
 //			ros.start();
@@ -1769,6 +1791,7 @@ public abstract class Tadpole extends ShaveObject{
 				for(int i=0; i<allContigs.size(); i++){
 					Contig r=allContigs.get(i);
 					r.id+=contigIDOffset;
+					if(r.id>=nextContigIDOffset){nextContigIDOffset=r.id+1L;}
 					if(emitContig(r)){
 						bsw.println(r);
 						contigsWritten++;
@@ -1778,6 +1801,11 @@ public abstract class Tadpole extends ShaveObject{
 			}
 			errorState|=bsw.poisonAndWait();
 		}
+	}
+
+	/** Exclusive upper bound of retained contig IDs after the latest final output pass. */
+	final long nextContigIDOffset(){
+		return nextContigIDOffset;
 	}
 
 	/** Returns whether one contig passes final length and graph-class emission policy. */
@@ -1795,37 +1823,41 @@ public abstract class Tadpole extends ShaveObject{
 		throw new IllegalStateException("Unknown graph class "+c.graphClass+" on contig "+c.id+".");
 	}
 
+	/** Whether any classification, selected-class output or graph cleanup option requests classification. */
 	private boolean graphClassificationRequested(){
 		return classifyGraphContigs || emitTerminal || emitBranchedTerminal || emitUnanchored || emitLoopback
 				|| emitBranchedConnected || emitMultiConnected || emitSelfLoop || emitConnectedMax>0
 				|| graphTopologyEvictionRequested() || evictConnectedAbove>0 || sweepContigLen>0;
 	}
-	
+
 	/**
 	 * Executes parallel build threads for contig construction.
 	 * Creates BUILD_THREADS worker threads, manages their lifecycle, and aggregates
 	 * statistics including contig counts, base counts, and insert size data.
+	 * After successful startup, joins each worker and aggregates its partial results,
+	 * then throws for a captured worker failure. It does not cancel peers or roll back
+	 * tables/results. Interrupted joins are logged and retried.
 	 *
 	 * @param mode Processing mode for build threads
 	 * @param crisa Array of concurrent read input streams for parallel processing
 	 */
 	void runBuildThreads(int mode, ConcurrentReadInputStream[] crisa){
 		Timer t=new Timer(outstream, true);
-		
+
 		if(BUILD_THREADS<1){BUILD_THREADS=THREADS;}
-		
+
 		/* Create ProcessThreads */
 		ArrayList<AbstractBuildThread> alpt=new ArrayList<AbstractBuildThread>(BUILD_THREADS);
 		for(int i=0; i<BUILD_THREADS; i++){alpt.add(makeBuildThread(i, mode, crisa));}
 		for(AbstractBuildThread pt : alpt){pt.start();}
-		
+
 		/* Wait for threads to die, and gather statistics */
 		Throwable workerFailure=null;
 		for(AbstractBuildThread pt : alpt){
 			while(pt.getState()!=Thread.State.TERMINATED){
-				try {
+				try{
 					pt.join();
-				} catch (InterruptedException e) {
+				}catch(InterruptedException e){
 					// TODO Auto-generated catch block
 					e.printStackTrace();
 				}
@@ -1840,7 +1872,7 @@ public abstract class Tadpole extends ShaveObject{
 			if(allInserts!=null){
 				allInserts.incrementBy(pt.insertSizes);
 			}
-			
+
 			readsIn+=pt.readsInT;
 			basesIn+=pt.basesInT;
 			lowqReads+=pt.lowqReadsT;
@@ -1852,11 +1884,12 @@ public abstract class Tadpole extends ShaveObject{
 		}
 		t.stop("Time: ");
 	}
-	
+
 	/**
-	 * Post-processes assembled contigs to create connectivity graph.
-	 * Initializes contig graph structure, runs parallel processing threads,
-	 * optionally performs bubble popping, and generates DOT format output for visualization.
+	 * Builds endpoint edges, optionally filters/rebuilds, resolves repeats and simplifies bubbles.
+	 * Graph reports precede optional path extraction; extracted sequence contigs become
+	 * the final population. Mutates contigs, edges, ownership and aggregate counters.
+	 * Failures do not restore earlier graph state or retract already written outputs.
 	 */
 	void processContigs(){
 		if(resolveRepeats && processingMode!=contigMode){
@@ -1906,7 +1939,7 @@ public abstract class Tadpole extends ShaveObject{
 			resolveReadThreadedRepeats();
 			t.stop("Time: ");
 		}
-		
+
 		if(popBubbles){
 			t.start();
 			for(int popped=1, i=0; popped>0 && i<bubblePasses; i++){
@@ -1919,7 +1952,7 @@ public abstract class Tadpole extends ShaveObject{
 			classifyGraphContigs("final");
 			t.stop("Time: ");
 		}
-		
+
 		if(outDot!=null){
 			outstream.println("Writing contig graph.");
 			ByteStreamWriter bsw=TadpoleDot.open(outDot, prettyDot, kbig);
@@ -2013,6 +2046,7 @@ public abstract class Tadpole extends ShaveObject{
 		return result;
 	}
 
+	/** Prints short-contig counts and bases for one depth class across all topology categories. */
 	private void printShortGraphCombinations(final String stage, final int depth,
 			final ContigGraphClassifier.Result result){
 		final ByteBuilder bb=new ByteBuilder(384);
@@ -2057,6 +2091,7 @@ public abstract class Tadpole extends ShaveObject{
 		return remove.size();
 	}
 
+	/** Adds eligible object identities to a removal set and returns newly selected bases. */
 	private long addGraphEvictions(final ArrayList<Contig> source, final IdentityHashMap<Contig, Boolean> remove){
 		long bases=0;
 		for(Contig c : source){
@@ -2078,6 +2113,7 @@ public abstract class Tadpole extends ShaveObject{
 		return bases;
 	}
 
+	/** Adds previously unselected sweep candidates under one topology's depth ceiling. */
 	private long addDefaultGraphSweepEvictions(final ArrayList<Contig> source, final int maxDepth,
 			final IdentityHashMap<Contig, Boolean> remove){
 		long bases=0;
@@ -2090,26 +2126,30 @@ public abstract class Tadpole extends ShaveObject{
 		return bases;
 	}
 
+	/** Applies the configured cleanup length and depth mask to one classified contig. */
 	private boolean graphEvictionEligible(final Contig c){
 		return graphEvictionEligible(c, graphCleanupMaxLen(), evictGraphDepthMask);
 	}
 
-	static boolean graphEvictionEligible(final Contig c, final int maxLen, final int depthMask){
+	/** Tests short length class, inclusive length ceiling and depth-mask membership. */
+	public static boolean graphEvictionEligible(final Contig c, final int maxLen, final int depthMask){
 		return c.graphLengthClass==Contig.LENGTH_SHORT && c.length()<=maxLen &&
 				c.graphDepthClass>=0 && (depthMask&(1<<c.graphDepthClass))!=0;
 	}
 
 	/** True for one automatic sweep candidate under its topology-specific depth ceiling. */
-	static boolean defaultGraphSweepEligible(final Contig c, final int maxLen, final int maxDepth){
+	public static boolean defaultGraphSweepEligible(final Contig c, final int maxLen, final int maxDepth){
 		return c.graphLengthClass==Contig.LENGTH_SHORT && c.length()<=maxLen &&
 				c.graphDepthClass>=Contig.DEPTH_LOW && c.graphDepthClass<=maxDepth;
 	}
 
+	/** Whether any explicit topology-eviction flag or mask is enabled. */
 	private boolean graphTopologyEvictionRequested(){
 		return evictGraphTopologyMask!=0 || evictUnanchored || evictTerminal || evictBranchedTerminal || evictLoopback ||
 				evictBranchedConnected || evictMultiConnected;
 	}
 
+	/** Combines an exact topology bit with its named eviction option. */
 	private boolean evictGraphTopology(final int topology){
 		if((evictGraphTopologyMask&(1<<topology))!=0){return true;}
 		if(topology==Contig.GRAPH_UNANCHORED){return evictUnanchored;}
@@ -2121,10 +2161,12 @@ public abstract class Tadpole extends ShaveObject{
 		return false;
 	}
 
+	/** Current inclusive cleanup ceiling; zero leaves no positive-length candidate eligible. */
 	private int graphCleanupMaxLen(){
 		return sweepContigLen;
 	}
 
+	/** Uses a positive sweep length as the long-anchor boundary, otherwise minContigLen. */
 	private int graphClassificationLength(){
 		return (sweepContigLen>0 ? sweepContigLen : minContigLen);
 	}
@@ -2191,7 +2233,8 @@ public abstract class Tadpole extends ShaveObject{
 		return result;
 	}
 
-	static final class LowDepthDiagnostic {
+	/** Mutable diagnostic snapshot retaining live/candidate contig references, not sequence copies. */
+	static final class LowDepthDiagnostic{
 		LowDepthDiagnostic(final String stage_){stage=stage_;}
 		final String stage;
 		final ArrayList<Contig> live=new ArrayList<Contig>();
@@ -2226,6 +2269,7 @@ public abstract class Tadpole extends ShaveObject{
 				&& c.leftCode!=LOOP && c.rightCode!=LOOP ? 3 : -1;
 	}
 
+	/** Lazily caches the called histogram peak; later table mutations do not invalidate this cache. */
 	private int calledMainDepthPeak(){
 		if(cachedMainDepthPeak!=Integer.MIN_VALUE){return cachedMainDepthPeak;}
 		final long[] khist=tables().fillHistogram(histMax);
@@ -2233,6 +2277,7 @@ public abstract class Tadpole extends ShaveObject{
 				kbig, true, 0.1);
 	}
 
+	/** Parses the diagnostic topology policy; null selects the conservative policy. */
 	static int parseLowDepthTopology(final String s){
 		if(s==null || s.equalsIgnoreCase("conservative") || s.equalsIgnoreCase("dddbbb")){
 			return LOW_DEPTH_TOPOLOGY_CONSERVATIVE;
@@ -2243,43 +2288,60 @@ public abstract class Tadpole extends ShaveObject{
 		throw new RuntimeException("lowDepthContigTopology must be conservative or notloop: "+s);
 	}
 
+	/** Parses depth names or all/none into a bitmask; null means low only. */
 	static int parseGraphDepthMask(final String s){
 		if(s==null || s.equalsIgnoreCase("low")){return 1<<Contig.DEPTH_LOW;}
 		if(s.equalsIgnoreCase("all")){return 15;}
 		if(s.equalsIgnoreCase("none") || s.equalsIgnoreCase("false")){return 0;}
 		int mask=0;
 		for(String term : s.split(",")){
-			if(term.equalsIgnoreCase("low")){mask|=1<<Contig.DEPTH_LOW;}
-			else if(term.equalsIgnoreCase("semilow") || term.equalsIgnoreCase("semi-low")){mask|=1<<Contig.DEPTH_SEMILOW;}
-			else if(term.equalsIgnoreCase("medium") || term.equalsIgnoreCase("mid")){mask|=1<<Contig.DEPTH_MEDIUM;}
-			else if(term.equalsIgnoreCase("high")){mask|=1<<Contig.DEPTH_HIGH;}
-			else{throw new RuntimeException("Unknown graph depth class: "+term);}
+			if(term.equalsIgnoreCase("low")){
+				mask|=1<<Contig.DEPTH_LOW;
+			}else if(term.equalsIgnoreCase("semilow") || term.equalsIgnoreCase("semi-low")){
+				mask|=1<<Contig.DEPTH_SEMILOW;
+			}else if(term.equalsIgnoreCase("medium") || term.equalsIgnoreCase("mid")){
+				mask|=1<<Contig.DEPTH_MEDIUM;
+			}else if(term.equalsIgnoreCase("high")){
+				mask|=1<<Contig.DEPTH_HIGH;
+			}else{
+				throw new RuntimeException("Unknown graph depth class: "+term);
+			}
 		}
 		return mask;
 	}
 
-	static int parseGraphTopologyMask(final String s){
+	/** Parses topology groups into a mask; terminal and connected include their branched variants. */
+	public static int parseGraphTopologyMask(final String s){
 		if(s==null || s.equalsIgnoreCase("none") || s.equalsIgnoreCase("false")){return 0;}
 		if(s.equalsIgnoreCase("all")){return 255;}
 		int mask=0;
 		for(String term : s.split(",")){
 			term=term.toLowerCase().replace("_", "-");
-			if(term.equals("unanchored")){mask|=1<<Contig.GRAPH_UNANCHORED;}
-			else if(term.equals("terminal")){
+			if(term.equals("unanchored")){
+				mask|=1<<Contig.GRAPH_UNANCHORED;
+			}else if(term.equals("terminal")){
 				mask|=(1<<Contig.GRAPH_TERMINAL)|(1<<Contig.GRAPH_BRANCHED_TERMINAL);
-			}else if(term.equals("branched-terminal")){mask|=1<<Contig.GRAPH_BRANCHED_TERMINAL;}
-			else if(term.equals("loopback")){mask|=1<<Contig.GRAPH_LOOPBACK;}
-			else if(term.equals("connected")){
+			}else if(term.equals("branched-terminal")){
+				mask|=1<<Contig.GRAPH_BRANCHED_TERMINAL;
+			}else if(term.equals("loopback")){
+				mask|=1<<Contig.GRAPH_LOOPBACK;
+			}else if(term.equals("connected")){
 				mask|=(1<<Contig.GRAPH_CONNECTED)|(1<<Contig.GRAPH_BRANCHED_CONNECTED)|
 						(1<<Contig.GRAPH_MULTI_CONNECTED);
-			}else if(term.equals("branched-connected")){mask|=1<<Contig.GRAPH_BRANCHED_CONNECTED;}
-			else if(term.equals("multi-connected")){mask|=1<<Contig.GRAPH_MULTI_CONNECTED;}
-			else if(term.equals("self-loop") || term.equals("selfloop")){mask|=1<<Contig.GRAPH_SELF_LOOP;}
-			else{throw new RuntimeException("Unknown graph topology class: "+term);}
+			}else if(term.equals("branched-connected")){
+				mask|=1<<Contig.GRAPH_BRANCHED_CONNECTED;
+			}else if(term.equals("multi-connected")){
+				mask|=1<<Contig.GRAPH_MULTI_CONNECTED;
+			}else if(term.equals("self-loop") || term.equals("selfloop")){
+				mask|=1<<Contig.GRAPH_SELF_LOOP;
+			}else{
+				throw new RuntimeException("Unknown graph topology class: "+term);
+			}
 		}
 		return mask;
 	}
 
+	/** Formats recognized depth bits in increasing category order; ignores bits outside the four classes. */
 	static String graphDepthMaskName(final int mask){
 		if(mask==0){return "none";}
 		if(mask==15){return "all";}
@@ -2292,6 +2354,7 @@ public abstract class Tadpole extends ShaveObject{
 		return sb.toString();
 	}
 
+	/** Formats recognized topology bits in increasing category order. */
 	static String graphTopologyMaskName(final int mask){
 		if(mask==0){return "none";}
 		if(mask==255){return "all";}
@@ -2304,6 +2367,7 @@ public abstract class Tadpole extends ShaveObject{
 		return sb.toString();
 	}
 
+	/** Returns a depth label, or unclassified for an unknown value. */
 	static String graphDepthName(final int depth){
 		if(depth==Contig.DEPTH_LOW){return "low";}
 		if(depth==Contig.DEPTH_SEMILOW){return "semilow";}
@@ -2312,6 +2376,7 @@ public abstract class Tadpole extends ShaveObject{
 		return "unclassified";
 	}
 
+	/** Returns a topology label, or unclassified for an unknown value. */
 	static String graphTopologyName(final int topology){
 		if(topology==Contig.GRAPH_UNANCHORED){return "unanchored";}
 		if(topology==Contig.GRAPH_TERMINAL){return "terminal";}
@@ -2324,11 +2389,15 @@ public abstract class Tadpole extends ShaveObject{
 		return "unclassified";
 	}
 
+	/** Names the nonloop policy explicitly; all other values format as conservative. */
 	static String lowDepthTopologyName(final int mode){
 		return mode==LOW_DEPTH_TOPOLOGY_NOT_LOOP ? "notloop" : "conservative";
 	}
 
-	/** Summarizes positive contig coverage using kmer-position and read-evidence weights. */
+	/** Summarizes positive contig coverage without reordering the supplied list.
+	 * Position weight is max(1,length-K+1); read-evidence weight multiplies it by
+	 * coverage. Weighted medians select the first value reaching half the total,
+	 * without interpolation. No qualifying contigs leave zero-valued fields. */
 	private CoverageSummary coverageSummary(final ArrayList<Contig> contigs, final int minLength){
 		final CoverageSummary result=new CoverageSummary();
 		final ArrayList<Contig> sorted=new ArrayList<Contig>(contigs.size());
@@ -2358,13 +2427,15 @@ public abstract class Tadpole extends ShaveObject{
 		return result;
 	}
 
-	static final class CoverageSummary {
+	/** Mutable weighted-coverage result; read weights are inferred from coverage, not distinct molecules. */
+	static final class CoverageSummary{
 		float positionMedian, readMedian, positionRms, readMean;
 		long positionWeight;
 		double readWeight, squaredDepthSum;
 	}
 
-	/** Writes the post-processed contig graph in GFA 1.0 format. */
+	/** Writes current contigs and directed edges as GFA1.0, accumulating writer-close errors.
+	 * Sequence emission filters and later path extraction do not filter this graph report. */
 	private void writeGfa(){
 		outstream.println("Writing GFA contig graph.");
 		FileFormat ff=FileFormat.testOutput(outGfa, FileFormat.GFA, null, true, overwrite, append, false);
@@ -2484,16 +2555,21 @@ public abstract class Tadpole extends ShaveObject{
 		assert(!BubblePopper.validateGraph || validateContigGraph());
 	}
 
-	/** Appends consecutive contig-tip owners for one read, splitting at undefined bases. */
+	/** Observes contig-owner paths for one read, collapsing consecutive repeats and splitting at undefined bases.
+	 * Implementations reuse scratch and may skip invalid owners; seen belongs to the read pair. */
 	abstract void fillOwnerPath(byte[] bases, IntList path, LongList seen, ReadThreadedXResolver resolver);
+	/** Whether ownership describes a cross-K bridge graph rather than ordinary assembly ends. */
 	abstract boolean crossKGraph();
 
-	private final class RepeatEvidenceThread extends Thread {
+	/** Reads shared input streams with private path scratch and captures failures for the coordinator. */
+	private final class RepeatEvidenceThread extends Thread{
+		/** Borrows stream/resolver references; startup and closure remain coordinated outside this constructor. */
 		RepeatEvidenceThread(ConcurrentReadInputStream[] crisa_, ReadThreadedXResolver resolver_){
 			crisa=crisa_;
 			resolver=resolver_;
 		}
 
+		/** Starts each stream once under its array monitor, then captures any processing failure. */
 		@Override
 		public void run(){
 			try{
@@ -2505,6 +2581,7 @@ public abstract class Tadpole extends ShaveObject{
 			}catch(Throwable t){failure=t;}
 		}
 
+		/** Observes both mates with a shared per-pair seen list; returns input batches on the normal path. */
 		private void process(ConcurrentReadInputStream cris){
 			ListNum<Read> ln=cris.nextList();
 			ArrayList<Read> reads=(ln==null ? null : ln.list);
@@ -2521,13 +2598,18 @@ public abstract class Tadpole extends ShaveObject{
 			cris.returnList(ln);
 		}
 
+		/** Shared borrowed streams, started once and closed by the coordinator. */
 		final ConcurrentReadInputStream[] crisa;
+		/** Shared evidence collector. */
 		final ReadThreadedXResolver resolver;
+		/** Worker-local owner path. */
 		final IntList path=new IntList();
+		/** Worker-local observations deduplicated across both mates of one pair. */
 		final LongList seen=new LongList(4);
+		/** Captured worker failure inspected after join. */
 		volatile Throwable failure;
 	}
-	
+
 	/**
 	 * Creates mapping from destination contig IDs to incoming edges.
 	 * Builds lookup table for all edges pointing to each contig, enabling
@@ -2544,7 +2626,7 @@ public abstract class Tadpole extends ShaveObject{
 						ArrayList<Edge> list=destToEdgeMap.get(d);
 						if(list==null){
 							list=new ArrayList<Edge>(2);
-							destToEdgeMap.put(d,  list);
+							destToEdgeMap.put(d, list);
 						}
 						list.add(e);
 					}
@@ -2555,7 +2637,7 @@ public abstract class Tadpole extends ShaveObject{
 						ArrayList<Edge> list=destToEdgeMap.get(d);
 						if(list==null){
 							list=new ArrayList<Edge>(2);
-							destToEdgeMap.put(d,  list);
+							destToEdgeMap.put(d, list);
 						}
 						list.add(e);
 					}
@@ -2564,7 +2646,7 @@ public abstract class Tadpole extends ShaveObject{
 		}
 		return destToEdgeMap;
 	}
-	
+
 	/**
 	 * Removes bubble structures from contig graph to improve assembly contiguity.
 	 * Uses BubblePopper to identify and collapse alternative paths between shared
@@ -2579,19 +2661,19 @@ public abstract class Tadpole extends ShaveObject{
 			outstream.println("Popping bubbles; contigs="+allContigs.size());
 		}
 		HashMap<Integer, ArrayList<Edge>> destToEdgeMap=destToEdgeMap();
-		
+
 		int bubblesPoppedThisPass=0;
 		BubblePopper bp=new BubblePopper(allContigs, destToEdgeMap, kbig, this::isError);
-		
-		if(debranch) {
+
+		if(debranch){
 			for(Contig c : allContigs){
 				bp.debranch(c);
 			}
 		}
-		
+
 		for(Contig c : allContigs){
 			if(!c.used() && (BubblePopper.crossKMerge ? c.leftEdgeCount()>0 || c.rightEdgeCount()>0 :
-					c.leftForwardBranch() || c.rightForwardBranch())) {
+					c.leftForwardBranch() || c.rightForwardBranch())){
 				bubblesPoppedThisPass+=bp.expand(c);
 			}
 		}
@@ -2603,20 +2685,20 @@ public abstract class Tadpole extends ShaveObject{
 					", sourceInbound="+bp.crossKRejectedSourceInbound+
 					", destInbound="+bp.crossKRejectedDestInbound+".");
 		}
-		
+
 		ArrayList<Contig> temp=new ArrayList<Contig>(allContigs.size());
-		
+
 		basesBuilt=0;
 		contigsBuilt=0;
 		longestContig=0;
-		
+
 		for(Contig c : allContigs){
 			if(c.used()){
 				assert(!BubblePopper.validateGraph || bp.validate(c));
 				//Potentially do something about inbound edges...  there shouldn't be any, though.
 			}else{
 				bp.removeDeadEdges(c);//Should not be necessary but found cases where it is.
-				
+
 				assert(!BubblePopper.validateGraph || bp.validate(c));
 				temp.add(c);
 				final int len=c.length();
@@ -2628,7 +2710,7 @@ public abstract class Tadpole extends ShaveObject{
 			}
 		}
 		Shared.sort(temp, ContigLengthComparator.comparator);
-		
+
 		int newID=0;
 		destToEdgeMap=destToEdgeMap();
 		final ArrayList<ArrayList<Edge>> inbound=new ArrayList<ArrayList<Edge>>(temp.size());
@@ -2639,16 +2721,16 @@ public abstract class Tadpole extends ShaveObject{
 			c.renumber(newID, inbound.get(newID));
 			newID++;
 		}
-		
+
 		allContigs.clear();
 		allContigs.addAll(temp);
 		assert(!BubblePopper.validateGraph || validateContigGraph());
-		
+
 //		for(Contig c : temp){
 //			if(!c.used && c.length()>minContigLen){
-//				
+//
 //				allContigs.add(c);
-//				
+//
 //				int len=c.length();
 //				basesBuilt+=len;
 //				contigsBuilt++;
@@ -2656,7 +2738,7 @@ public abstract class Tadpole extends ShaveObject{
 //			}
 //		}
 		bubblesPopped+=bubblesPoppedThisPass;
-		
+
 		outstream.println("Popped "+bubblesPoppedThisPass+" bubbles"+(bp.debranch ? "; removed "+bp.branchesRemoved+" branches." : "."));
 		return bubblesPoppedThisPass;
 	}
@@ -2672,11 +2754,13 @@ public abstract class Tadpole extends ShaveObject{
 		}
 		return true;
 	}
-	
+
 	/**
 	 * Executes parallel contig processing threads for connectivity analysis.
 	 * Creates worker threads to analyze contig connections and edge relationships,
-	 * aggregating edge creation statistics across all threads.
+	 * aggregating edge creation statistics across all threads. After successful startup,
+	 * joins all workers before reporting a captured failure; partial counters and graph
+	 * mutations are retained. Interrupted joins are logged and retried.
 	 */
 	void runProcessContigThreads(){
 		/* Create ProcessThreads */
@@ -2684,7 +2768,7 @@ public abstract class Tadpole extends ShaveObject{
 		ArrayList<AbstractProcessContigThread> alpt=new ArrayList<AbstractProcessContigThread>(THREADS);
 		for(int i=0; i<THREADS; i++){alpt.add(makeProcessContigThread(allContigs, next));}
 		for(AbstractProcessContigThread pt : alpt){pt.start();}
-		
+
 		/* Wait for threads to die, and gather statistics */
 		Throwable workerFailure=null;
 		long graphEndsRefreshed=0, graphEndCodesChanged=0, edgesMadePass=0;
@@ -2695,9 +2779,9 @@ public abstract class Tadpole extends ShaveObject{
 		long[] ambiguousEndCodeCounts=new long[MAX_CODE];
 		for(AbstractProcessContigThread pt : alpt){
 			while(pt.getState()!=Thread.State.TERMINATED){
-				try {
+				try{
 					pt.join();
-				} catch (InterruptedException e) {
+				}catch(InterruptedException e){
 					// TODO Auto-generated catch block
 					e.printStackTrace();
 				}
@@ -2762,14 +2846,14 @@ public abstract class Tadpole extends ShaveObject{
 		}
 		outstream.println(sb);
 	}
-	
+
 	/**
 	 * Initializes contig connectivity data structures for graph processing.
 	 * Implementation varies between Tadpole1 and Tadpole2 for different k-mer sizes.
 	 * @param contigs List of assembled contigs to initialize
 	 */
-	abstract void initializeContigs(ArrayList<Contig> contigs);
-	
+	public abstract void initializeContigs(ArrayList<Contig> contigs);
+
 	/**
 	 * Factory method creating build threads for contig construction.
 	 * Returns thread implementation appropriate for k-mer table type.
@@ -2780,7 +2864,7 @@ public abstract class Tadpole extends ShaveObject{
 	 * @return Build thread implementation
 	 */
 	abstract AbstractBuildThread makeBuildThread(int i, int mode, ConcurrentReadInputStream[] crisa);
-	
+
 	/**
 	 * Factory method creating threads for contig processing operations.
 	 * Returns thread implementation appropriate for k-mer table type.
@@ -2789,10 +2873,13 @@ public abstract class Tadpole extends ShaveObject{
 	 * @param next Atomic counter for work distribution
 	 * @return Process thread implementation
 	 */
-	abstract AbstractProcessContigThread makeProcessContigThread(ArrayList<Contig> contigs, AtomicInteger next);
-	
+	public abstract AbstractProcessContigThread makeProcessContigThread(ArrayList<Contig> contigs, AtomicInteger next);
+
 	/**
-	 * Extend reads.
+	 * Creates shared read/output streams, runs read workers and merges their counters.
+	 * Workers exit the VM on unrecoverable processing failures; ordinary completion
+	 * joins them and closes all streams, accumulating close errors in errorState.
+	 * This method does not provide cleanup after every possible startup exception.
 	 */
 	private final void extendReads(){
 
@@ -2804,23 +2891,23 @@ public abstract class Tadpole extends ShaveObject{
 
 		/* Create read input stream */
 		final ConcurrentReadOutputStream[] rosda=makeCrosArray(outd1, outd2);
-		
+
 		/* Create ProcessThreads */
 		ArrayList<ExtendThread> alpt=new ArrayList<ExtendThread>(THREADS);
 		for(int i=0; i<THREADS; i++){alpt.add(new ExtendThread(i, crisa, rosa, rosda));}
 		for(ExtendThread pt : alpt){pt.start();}
-		
+
 		/* Wait for threads to die, and gather statistics */
 		for(ExtendThread pt : alpt){
 			while(pt.getState()!=Thread.State.TERMINATED){
-				try {
+				try{
 					pt.join();
-				} catch (InterruptedException e) {
+				}catch(InterruptedException e){
 					// TODO Auto-generated catch block
 					e.printStackTrace();
 				}
 			}
-			
+
 			readsIn+=pt.readsInT;
 			basesIn+=pt.basesInT;
 			lowqReads+=pt.lowqReadsT;
@@ -2844,12 +2931,12 @@ public abstract class Tadpole extends ShaveObject{
 			localEditDeletions+=pt.localEditDeletionsT;
 			localEditCapHits+=pt.localEditCapHitsT;
 			localEditPairQueries+=pt.localEditPairQueriesT;
-			localEditInitialSkipped+=pt.localEditInitialSkippedT;localEditRolledBack+=pt.localEditRolledBackT;
+			localEditInitialSkipped+=pt.localEditInitialSkippedT; localEditRolledBack+=pt.localEditRolledBackT;
 			localEditNeuralEvaluations+=pt.localEditNeuralEvaluationsT;
 			localEditNeuralAccepted+=pt.localEditNeuralAcceptedT;
 			localEditNeuralRejected+=pt.localEditNeuralRejectedT;
-			localEditRegions+=pt.localEditRegionsT;localEditEdges+=pt.localEditEdgesT;localEditSizes+=pt.localEditSizesT;
-			localEditBoundaries+=pt.localEditBoundariesT;localEditFinalRejected+=pt.localEditFinalRejectedT;
+			localEditRegions+=pt.localEditRegionsT; localEditEdges+=pt.localEditEdgesT; localEditSizes+=pt.localEditSizesT;
+			localEditBoundaries+=pt.localEditBoundariesT; localEditFinalRejected+=pt.localEditFinalRejectedT;
 			readsCorrected+=pt.readsCorrectedT;
 			basesCorrectedPincer+=pt.basesCorrectedPincerT;
 			basesCorrectedTail+=pt.basesCorrectedTailT;
@@ -2877,7 +2964,7 @@ public abstract class Tadpole extends ShaveObject{
 			readsCorrectedEcco+=pt.readsCorrectedEccoT;
 			basesCorrectedEcco+=pt.basesCorrectedEccoT;
 		}
-		
+
 		/* Shut down I/O streams; capture error status */
 		for(ConcurrentReadInputStream cris : crisa){
 			errorState|=ReadWrite.closeStreams(cris);
@@ -2894,7 +2981,7 @@ public abstract class Tadpole extends ShaveObject{
 			}
 		}
 	}
-	
+
 	/**
 	 * Creates array of concurrent read input streams from file lists.
 	 * Supports both single-end and paired-end read files with automatic
@@ -2902,7 +2989,8 @@ public abstract class Tadpole extends ShaveObject{
 	 *
 	 * @param list1 Primary read files
 	 * @param list2 Mate pair read files (may be empty)
-	 * @return Array of configured input streams
+	 * @return Unstarted local streams in the normal non-MPI path, one per primary path;
+	 * surplus mate paths are unused. Legacy MPI startup follows the reader factory
 	 */
 	private final ConcurrentReadInputStream[] makeCrisArray(ArrayList<String> list1, ArrayList<String> list2){
 		final ConcurrentReadInputStream[] array;
@@ -2923,11 +3011,11 @@ public abstract class Tadpole extends ShaveObject{
 		}
 		return array;
 	}
-	
+
 	/**
 	 * Creates array of concurrent read output streams for parallel writing.
-	 * Configures output streams with appropriate buffering and compression
-	 * settings for optimal performance.
+	 * Configures unstarted streams using current static ordering/overwrite/append
+	 * settings. Output count follows the primary list; surplus mate paths are unused.
 	 *
 	 * @param list1 Primary output files
 	 * @param list2 Mate pair output files (may be empty)
@@ -2954,9 +3042,11 @@ public abstract class Tadpole extends ShaveObject{
 		}
 		return array;
 	}
-	
-	/** Examines kmer counts around the merge borders to ensure the merge was not chimeric */ 
-	public boolean mergeOK(Read merged, final int len1, final int len2, final BitSet bs, final IntList countList, final Kmer kmer, 
+
+	/** Heuristic merge-border depth check, not proof that a merged read is nonchimeric.
+	 * Returns true without checking when the merged sequence is too short for the
+	 * configured border windows. Reuses/clears the bitset and count list and mutates Kmer scratch. */
+	public boolean mergeOK(Read merged, final int len1, final int len2, final BitSet bs, final IntList countList, final Kmer kmer,
 			final int width, final int thresh, final long mult){
 		final int len=merged.length();
 		final int overlap=Tools.min(len, len1+len2-len);
@@ -2964,7 +3054,7 @@ public abstract class Tadpole extends ShaveObject{
 		if(len<len1+width+1 || len<len2+width+1 || len<kbig+width){return true;}
 //		int valid=corrector.fillKmers(bases, kmers);
 		final int a=len-len2-1; //Base to left of first boundary
-		final int b=a+1; //Base to right of first boundary 
+		final int b=a+1; //Base to right of first boundary
 		final int c=len1-1;
 		final int d=c+1;
 
@@ -2972,15 +3062,14 @@ public abstract class Tadpole extends ShaveObject{
 		final int bk=b; //kmer to right of first boundary
 		final int ck=c-kbig+1; //kmer to left of second boundary
 		final int dk=d; //kmer to right of second boundary
-		
-		
+
 		bs.clear();
 		if(ak-width>=0 && ak+width<len){bs.set(ak-width, ak+width+1);} //probably from ak-width+1
 		if(bk-width>=0 && ck+width<len){bs.set(bk-width, bk+width+1);} //Technically to bk+width
 		if(ck-width>=0 && bk+width<len){bs.set(ck-width, ck+width+1);}
 		if(dk-width>=0 && dk+width<len){bs.set(dk-width, dk+width+1);}
 		tables().fillSpecificCounts(bases, countList, bs, kmer);
-		
+
 		if(ak-width>=0 && ak+width<len){
 			int min=countList.get(ak);
 			for(int i=ak-width+1; i<ak; i++){min=Tools.min(min, countList.get(i));}
@@ -3001,7 +3090,7 @@ public abstract class Tadpole extends ShaveObject{
 				if(min2>0 && min>min2*mult){return false;}
 //			}
 		}
-		
+
 		if(bk-width>=0 && bk+width<len){
 //			if(ak<0 || countList.get(ak)>1){//Skip this operation if there is an error to the right
 				int min=countList.get(bk);
@@ -3024,26 +3113,28 @@ public abstract class Tadpole extends ShaveObject{
 		}
 		return true;
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------         Inner Classes        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------         ExtendThread         ----------------*/
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Extends reads.
+	 * Processes borrowed read batches for correction, filtering and extension.
+	 * Owns scratch/counters and optional correction engines; shared streams start
+	 * once under their array monitors. Any uncaught processing failure halts the VM.
 	 */
 	private final class ExtendThread extends Thread{
-		
+
 		/**
-		 * Constructor
-		 * @param id_
+		 * Retains borrowed stream arrays and allocates worker-local scratch.
+		 * @param id_ Worker identifier retained for diagnostics
 		 * @param crisa_ Read input stream array
-		 * @param rosa_
-		 * @param rosda_
+		 * @param rosa_ Processed-read output streams, possibly absent for an input
+		 * @param rosda_ Discard output streams, possibly absent for an input
 		 */
 		public ExtendThread(int id_, ConcurrentReadInputStream[] crisa_, ConcurrentReadOutputStream[] rosa_, ConcurrentReadOutputStream[] rosda_){
 			tid=id_;
@@ -3052,19 +3143,21 @@ public abstract class Tadpole extends ShaveObject{
 			rosda=rosda_;
 			leftCounts=extendThroughLeftJunctions ? null : KillSwitch.allocInt1D(4);
 		}
-		
+
+		/** Aborts on failure in every mode; the coordinator must not accept partial work or wait for abandoned output. */
 		@Override
 		public void run(){
-			if(!hpIndel && !localEdit && !hollowBranchStop && !hollowBranchRollback && !hollowRescue){runInner(); return;}
 			try{runInner();}
 			catch(Throwable failure){
 				failure.printStackTrace(outstream);
 				KillSwitch.kill(hollowBranchStop || hollowBranchRollback || hollowRescue ? "Experimental Hollow extension worker failed; incomplete outputs must not be used."
 					: hpIndel ? "Experimental homopolymer worker failed; incomplete outputs must not be used."
-					: "Experimental fixindels worker failed; incomplete outputs must not be used.");
+					: localEdit ? "Experimental fixindels worker failed; incomplete outputs must not be used."
+					: "Read-processing worker failed; incomplete outputs must not be used.");
 			}
 		}
 
+		/** Initializes local scratch and processes every input with corresponding optional outputs. */
 		private void runInner(){
 			initializeThreadLocals();
 			for(int i=0; i<crisa.length; i++){
@@ -3093,32 +3186,34 @@ public abstract class Tadpole extends ShaveObject{
 				run(cris, ros, rosd);
 			}
 		}
-		
+
 		/**
 		 * Processes reads from a single input stream through the extension pipeline.
 		 * Handles read pairs through error correction, extension, and quality filtering,
-		 * directing output to appropriate streams based on processing results.
+		 * directing output to appropriate streams based on processing results. A pair is
+		 * discarded only when both mates are marked. Both outputs receive the input batch
+		 * ID even for an empty result; input lists return only on the normal path.
 		 *
 		 * @param cris Input stream for reading sequences
 		 * @param ros Output stream for processed reads
 		 * @param rosd Output stream for discarded reads
 		 */
 		private void run(ConcurrentReadInputStream cris, ConcurrentReadOutputStream ros, ConcurrentReadOutputStream rosd){
-			
+
 			ListNum<Read> ln=cris.nextList();
 			ArrayList<Read> reads=(ln!=null ? ln.list : null);
-			
+
 			//While there are more reads lists...
 			while(ln!=null && reads!=null && reads.size()>0){//ln!=null prevents a compiler potential null access warning
 
 				final ArrayList<Read> listOut=new ArrayList<Read>(reads.size());
 				final ArrayList<Read> listOutD=(rosd==null ? null : new ArrayList<Read>(reads.size()));
-				
+
 				//For each read (or pair) in the list...
 				for(int i=0; i<reads.size(); i++){
 					final Read r1=reads.get(i);
 					final Read r2=r1.mate;
-					
+
 					processReadPair(r1, r2);
 					if(r1.discarded() && (r2==null || r2.discarded())){
 						readsDiscardedT+=r1.pairCount();
@@ -3130,7 +3225,7 @@ public abstract class Tadpole extends ShaveObject{
 				}
 				if(ros!=null){ros.add(listOut, ln.id);}
 				if(rosd!=null){rosd.add(listOutD, ln.id);}
-				
+
 				//Fetch a new read list
 				cris.returnList(ln);
 				ln=cris.nextList();
@@ -3138,7 +3233,7 @@ public abstract class Tadpole extends ShaveObject{
 			}
 			cris.returnList(ln);
 		}
-		
+
 		/**
 		 * Finds overlap between paired reads for merging operations.
 		 * Uses either strict or very strict overlap detection based on configuration.
@@ -3146,7 +3241,7 @@ public abstract class Tadpole extends ShaveObject{
 		 * @param r1 First read in pair
 		 * @param r2 Second read in pair
 		 * @param ecc Whether error correction should be applied during overlap detection
-		 * @return Overlap length in bases, or negative value if no valid overlap found
+		 * @return Inferred insert size from BBMerge, or its failure code; not overlap length
 		 */
 		final int findOverlap(Read r1, Read r2, boolean ecc){
 			if(vstrict){
@@ -3155,7 +3250,7 @@ public abstract class Tadpole extends ShaveObject{
 				return BBMerge.findOverlapStrict(r1, r2, ecc);
 			}
 		}
-		
+
 		/**
 		 * Processes paired reads through merging, extension, and error correction.
 		 * Handles read overlap detection, merging validation, error correction,
@@ -3176,14 +3271,14 @@ public abstract class Tadpole extends ShaveObject{
 			final String r2id=r1.mateId();
 			final int initialLength1=r1.length();
 			final int initialLength2=r1.mateLength();
-			
+
 			readsInT++;
 			basesInT+=r1.length();
 			if(r2!=null){
 				readsInT++;
 				basesInT+=r2.length();
 			}
-			
+
 			final Read r1_0=r1, r2_0=r2;
 			if((ecco || merge) && r1!=null && r2!=null && !r1.discarded() && !r2.discarded()){
 				final int insert=findOverlap(r1, r2, false);
@@ -3220,10 +3315,10 @@ public abstract class Tadpole extends ShaveObject{
 					}
 				}
 			}
-			
+
 			processRead(r1);
 			processRead(r2);
-			
+
 			//Unmerge
 			if(merge && r2==null && r2id!=null && !trackerT.rollback){
 				final int to=r1.length()-1;
@@ -3234,12 +3329,12 @@ public abstract class Tadpole extends ShaveObject{
 				r2.mate=r1;
 				r1.mate=r2;
 				r2.id=r2id;
-				
+
 				if(r1.length()>initialLength1){
 					r1.bases=Arrays.copyOf(r1.bases, initialLength1);
 					if(r1.quality!=null){r1.quality=Arrays.copyOf(r1.quality, initialLength1);}
 				}
-				
+
 				r10.bases=r1.bases;
 				r10.quality=r1.quality;
 				r10.flags=r1.flags;
@@ -3248,7 +3343,7 @@ public abstract class Tadpole extends ShaveObject{
 				r20.flags=r2.flags;
 			}
 		}
-		
+
 		/**
 		 * Processes individual read through error correction, extension, and quality filtering.
 		 * Applies error correction algorithms, junk detection, coverage-based filtering,
@@ -3292,8 +3387,7 @@ public abstract class Tadpole extends ShaveObject{
 				if(trackerT.rollback){
 					rollbacksT++;
 					if(trackerT.rollbackSubstitute){rollbackSubstituteT++;}
-					if(trackerT.rollbackTrigger==1){rollbackTrigger1T++;}
-					else if(trackerT.rollbackTrigger==2){rollbackTrigger2T++;}
+					if(trackerT.rollbackTrigger==1){rollbackTrigger1T++;}else if(trackerT.rollbackTrigger==2){rollbackTrigger2T++;}
 					final int histIdx=Tools.mid(0, trackerT.rollbackCorrectedSnapshot, rollbackCorrectedHistT.length-1);
 					rollbackCorrectedHistT[histIdx]++;
 				}
@@ -3318,12 +3412,12 @@ public abstract class Tadpole extends ShaveObject{
 					}
 				}
 			}
-			
+
 			if(tossJunk && isJunk(r, rightCounts, kmerT)){
 				r.setDiscarded(true);
 				return;
 			}
-			
+
 			if(discardLowDepthReads>=0 && hasKmersAtOrBelow(r, discardLowDepthReads, lowDepthDiscardFraction, kmerT)){
 				r.setDiscarded(true);
 				if(r.mate!=null && !requireBothBad){
@@ -3331,7 +3425,7 @@ public abstract class Tadpole extends ShaveObject{
 					return;
 				}else if(r.mate==null){return;}
 			}
-			
+
 			int extensionRight=0, extensionLeft=0;
 			if(extendRight>0){
 				extensionRight=extendRead(r, builderT, leftCounts, rightCounts, extendRight, kmerT);
@@ -3362,23 +3456,23 @@ public abstract class Tadpole extends ShaveObject{
 		private void applyLocalEdits(final Read r){
 			if(localEditBatch){
 				assert(localEditPatch!=null && localEditRegionsWorker!=null) : "Batch correction needs one worker-owned selector/executor sharing immutable native counts.";
-				final int changed=localEditPatch.correctSelected(r,localEditRegionsWorker,localEditMax);
-				localEditSubstitutionsT+=localEditPatch.substitutions;localEditInsertionsT+=localEditPatch.insertions;
-				localEditDeletionsT+=localEditPatch.deletions;localEditReadsChangedT+=(changed>0 ? 1 : 0);
+				final int changed=localEditPatch.correctSelected(r, localEditRegionsWorker, localEditMax);
+				localEditSubstitutionsT+=localEditPatch.substitutions; localEditInsertionsT+=localEditPatch.insertions;
+				localEditDeletionsT+=localEditPatch.deletions; localEditReadsChangedT+=(changed>0 ? 1 : 0);
 				localEditInitialSkippedT+=(localEditPatch.initialRejected ? 1 : 0);
-				localEditCapHitsT+=(localEditPatch.budgetRejected ? 1 : 0);localEditRolledBackT+=(localEditPatch.budgetRejected ? 1 : 0);
+				localEditCapHitsT+=(localEditPatch.budgetRejected ? 1 : 0); localEditRolledBackT+=(localEditPatch.budgetRejected ? 1 : 0);
 				localEditRegionsT+=localEditRegionsWorker.regions.finish().size/4;
 				localEditEdgesT+=localEditRegionsWorker.regions.edgeDeferred;
 				localEditSizesT+=(long)localEditRegionsWorker.regions.sizeDeferred+localEditPatch.sizeRejected;
-				localEditBoundariesT+=localEditPatch.boundaryRejected;localEditFinalRejectedT+=localEditPatch.finalRejected;
+				localEditBoundariesT+=localEditPatch.boundaryRejected; localEditFinalRejectedT+=localEditPatch.finalRejected;
 				return;
 			}
 			assert(localEditEngine!=null) : "The dedicated correction path requires one worker-local transaction engine.";
-			localEditEngine.correct(r,localEditMax,localEditPairs);
-			localEditSubstitutionsT=localEditEngine.substitutions;localEditInsertionsT=localEditEngine.insertions;
-			localEditDeletionsT=localEditEngine.deletions;localEditReadsChangedT=localEditEngine.changedReads;
-			localEditCapHitsT=localEditEngine.cappedReads;localEditPairQueriesT=localEditEngine.pairQueries;
-			localEditInitialSkippedT=localEditEngine.initialSkippedReads;localEditRolledBackT=localEditEngine.rolledBackReads;
+			localEditEngine.correct(r, localEditMax, localEditPairs);
+			localEditSubstitutionsT=localEditEngine.substitutions; localEditInsertionsT=localEditEngine.insertions;
+			localEditDeletionsT=localEditEngine.deletions; localEditReadsChangedT=localEditEngine.changedReads;
+			localEditCapHitsT=localEditEngine.cappedReads; localEditPairQueriesT=localEditEngine.pairQueries;
+			localEditInitialSkippedT=localEditEngine.initialSkippedReads; localEditRolledBackT=localEditEngine.rolledBackReads;
 			localEditNeuralEvaluationsT=localEditEngine.neuralEvaluations;
 			localEditNeuralAcceptedT=localEditEngine.neuralAcceptedLoci;
 			localEditNeuralRejectedT=localEditEngine.neuralRejectedLoci;
@@ -3399,7 +3493,7 @@ public abstract class Tadpole extends ShaveObject{
 				int end=start+1;
 				while(end<bases.length && bases[end]==bases[start]){end++;}
 				if(end-start>=2 || hpSingletons){
-					final int delta=hpKernel.propose(bases,start,end);
+					final int delta=hpKernel.propose(bases, start, end);
 					hpLookupsT+=hpKernel.queries;
 					if(hpKernel.status==HomopolymerIndelProposal.Status.COMPETING_INSERTION){hpCompetingVetoedT++;}
 					if(hpKernel.status==HomopolymerIndelProposal.Status.COMPETING_DELETION){hpDeletionVetoedT++;}
@@ -3414,11 +3508,11 @@ public abstract class Tadpole extends ShaveObject{
 			final int proposed=hpEdits.size/3;
 			hpProposalsT+=proposed;
 			if(proposed==0){return;}
-			final int policy=hpBatch.selectAccepted(r,hpEdits,overlap,kbig,hpMaxEdits,hpIsolated,hpBaseline);
+			final int policy=hpBatch.selectAccepted(r, hpEdits, overlap, kbig, hpMaxEdits, hpIsolated, hpBaseline);
 			if(policy==HomopolymerIndelBatchEdit.WITHHELD){hpWithheldT++; return;}
 			final IntList accepted=policy==HomopolymerIndelBatchEdit.DIRECT ? hpEdits : hpBaseline;
 			final int oldLength=r.length();
-			hpBatch.apply(r,accepted,kbig);
+			hpBatch.apply(r, accepted, kbig);
 			if(policy==HomopolymerIndelBatchEdit.BASELINE){hpFallbackReadsT++;}
 			if(policy==HomopolymerIndelBatchEdit.ISOLATED){hpIsolatedReadsT++; hpIsolatedEditsT+=accepted.size/3;}
 			int inserted=0, deleted=0;
@@ -3427,55 +3521,77 @@ public abstract class Tadpole extends ShaveObject{
 				"The accepted original-coordinate batch must explain both output length and applied-event counters.";
 			hpReadsChangedT++; hpInsertedT+=inserted; hpDeletedT+=deleted;
 		}
-		
+
 		/*--------------------------------------------------------------*/
-		
-		/** Input read stream */
+
+		/** Borrowed shared input streams, one per primary path. */
 		private final ConcurrentReadInputStream[] crisa;
+		/** Borrowed processed-read outputs aligned with input indices. */
 		private final ConcurrentReadOutputStream[] rosa;
+		/** Borrowed discard outputs aligned with input indices. */
 		private final ConcurrentReadOutputStream[] rosda;
-		
+
+		/** Optional left-branch counts; null disables those checks in concrete extension paths. */
 		private final int[] leftCounts;
+		/** Reused four-base right-extension counts. */
 		private final int[] rightCounts=KillSwitch.allocInt1D(4);
+		/** Per-read correction outcomes, reset by the concrete correction/marking path. */
 		private final ErrorTracker trackerT=new ErrorTracker();
+		/** Worker-local primary sequence scratch. */
 		private final ByteBuilder builderT=new ByteBuilder();
+		/** Independent second sequence scratch. */
 		private final ByteBuilder builderT2=new ByteBuilder();
+		/** Primary packed-word scratch for explicit read-worker calls. */
 		private final Kmer kmerT=new Kmer(kbig, hollow);
+		/** Independent secondary packed-word scratch. */
 		private final Kmer kmerT2=new Kmer(kbig, hollow);
+		/** Correction-position scratch. */
 		private final BitSet bitsetT=new BitSet(300);
+		/** Merge-boundary count-selection scratch. */
 		private final BitSet mergeOKBitsetT=new BitSet(300);
+		/** Single-word correction scratch, unused by some packed-word adapters. */
 		private final LongList kmerList=new LongList();
+		/** Primary per-window count profile. */
 		private final IntList countList=new IntList();
+		/** Secondary profile or proposal scratch according to the correction phase. */
 		private final IntList countList2=new IntList();
+		/** Optional homopolymer proposals as start/end/delta triples. */
 		private final IntList hpEdits=hpIndel ? new IntList() : null;
+		/** Alternate accepted triple list for baseline/isolated homopolymer policies. */
 		private final IntList hpBaseline=(hpSingletons || hpIsolated) ? new IntList() : null;
+		/** Worker-local homopolymer batch selector/editor. */
 		private final HomopolymerIndelBatchEdit hpBatch=hpIndel ? new HomopolymerIndelBatchEdit(hpSingletons) : null;
+		/** Worker-local proposal kernel over the shared immutable counts. */
 		private final HomopolymerIndelProposal hpKernel=hpIndel ? new HomopolymerIndelProposal(kbig,
 			new HomopolymerIndelProposal.CountLookup(){
 				@Override public int count(final Kmer key){return Tadpole.this.bridgeCount(key);}
-			},4,2,4,hpSingletons,hpCompeting,hpDeletionCompeting) : null;
+			}, 4, 2, 4, hpSingletons, hpCompeting, hpDeletionCompeting) : null;
 		long hpLookupsT=0;
 		long hpFallbackReadsT=0;
 		long hpIsolatedReadsT=0, hpIsolatedEditsT=0;
 		long hpCompetingVetoedT=0;
 		long hpDeletionVetoedT=0;
 		long hpReadsChangedT=0, hpProposalsT=0, hpWithheldT=0, hpInsertedT=0, hpDeletedT=0;
+		/** Sequential read transaction with private inference-network copies when configured. */
 		private final LocalEditEngine localEditEngine=localEdit && !localEditBatch ? new LocalEditEngine(kbig,
 			new LocalEditEngine.CountLookup(){
 				@Override public int count(final Kmer key){return Tadpole.this.bridgeCount(key);}
 			}, 1, true, localEditStride,
 				localEditNeuralNet==null ? null : localEditNeuralNet.copy(false), localEditNeuralCutoff,
 				localEditNeuralHighNet==null ? null : localEditNeuralHighNet.copy(false), localEditNeuralHighCutoff) : null;
+		/** Count adapter shared only by this worker's batch helpers. */
 		private final HomopolymerIndelProposal.CountLookup localEditBatchCounts=localEditBatch ?
 			new HomopolymerIndelProposal.CountLookup(){@Override public int count(final Kmer key){return Tadpole.this.bridgeCount(key);}} : null;
-		private final LocalEditPatchRegions localEditRegionsWorker=localEditBatch ? new LocalEditPatchRegions(kbig,localEditBatchCounts,1,true,1,localEditPatchMax) : null;
-		private final LocalEditPatchCorrector localEditPatch=localEditBatch ? new LocalEditPatchCorrector(kbig,localEditBatchCounts,1,true,localEditPatchMax) : null;
+		/** Selects bounded original-coordinate correction regions. */
+		private final LocalEditPatchRegions localEditRegionsWorker=localEditBatch ? new LocalEditPatchRegions(kbig, localEditBatchCounts, 1, true, 1, localEditPatchMax) : null;
+		/** Rebuilds reads from accepted regions with private validation scratch. */
+		private final LocalEditPatchCorrector localEditPatch=localEditBatch ? new LocalEditPatchCorrector(kbig, localEditBatchCounts, 1, true, localEditPatchMax) : null;
 		long localEditReadsChangedT=0, localEditSubstitutionsT=0, localEditInsertionsT=0, localEditDeletionsT=0;
 		long localEditCapHitsT=0, localEditPairQueriesT=0;
-		long localEditInitialSkippedT=0,localEditRolledBackT=0;
+		long localEditInitialSkippedT=0, localEditRolledBackT=0;
 		long localEditNeuralEvaluationsT=0, localEditNeuralAcceptedT=0, localEditNeuralRejectedT=0;
-		long localEditRegionsT=0,localEditEdgesT=0,localEditSizesT=0,localEditBoundariesT=0,localEditFinalRejectedT=0;
-		
+		long localEditRegionsT=0, localEditEdgesT=0, localEditSizesT=0, localEditBoundariesT=0, localEditFinalRejectedT=0;
+
 		long readsInT=0;
 		long basesInT=0;
 		long lowqReadsT=0;
@@ -3508,19 +3624,20 @@ public abstract class Tadpole extends ShaveObject{
 		long readsMergedT=0;
 		long readsCorrectedEccoT=0;
 		long basesCorrectedEccoT=0;
-		
+
+		/** Worker identifier retained by construction. */
 		private final int tid;
-		
+
 	}
-	
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------       Extension Methods      ----------------*/
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Extends read sequence using k-mer graph traversal.
-	 * Implementation varies between Tadpole1 and Tadpole2 for different k-mer sizes.
+	 * Extends the read rightward using the loaded count graph and returns added bases.
+	 * Implementations may replace base/quality arrays and mutate all supplied scratch;
+	 * initialize the implementation's thread-local state before the no-Kmer overload.
 	 *
 	 * @param r Read to extend
 	 * @param bb ByteBuilder for sequence construction
@@ -3530,35 +3647,35 @@ public abstract class Tadpole extends ShaveObject{
 	 * @return Number of bases added during extension
 	 */
 	public abstract int extendRead(Read r, ByteBuilder bb, int[] leftCounts, int[] rightCounts, int distance);
+	/** Explicit-scratch read-extension counterpart; single-word implementations may ignore kmer. */
 	public abstract int extendRead(Read r, ByteBuilder bb, int[] leftCounts, int[] rightCounts, int distance, final Kmer kmer);
 //	{
 //		throw new RuntimeException("Must be overridden.");
 //	}
-	
+
 	/**
 	 * Extend these bases to the right by at most 'distance'.
-	 * Stops at right junctions only.
-	 * Does not claim ownership.
+	 * Uses implementation-specific junction checks and does not claim ownership.
+	 * Returns added bases, with builder/count scratch mutated; this is not a termination code.
 	 */
 	public abstract int extendToRight2(final ByteBuilder bb, final int[] leftCounts, final int[] rightCounts, final int distance, boolean includeJunctionBase);
-	
+
 	/**
 	 * Extend these bases to the right by at most 'distance'.
-	 * Stops at right junctions only.
-	 * Does not claim ownership.
+	 * Uses implementation-specific junction checks without ownership claims.
+	 * The base implementation always throws; subclasses provide explicit rolling scratch support.
 	 */
 	public int extendToRight2(final ByteBuilder bb, final int[] leftCounts, final int[] rightCounts, final int distance, boolean includeJunctionBase, Kmer kmer){
 		throw new RuntimeException("Must be overridden.");
 	}
-	
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Junk Detection        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/** Test a read to see if it could possibly assemble. */
 	public abstract boolean isJunk(Read r);
-	
+
 	/**
 	 * Tests read to determine if it could possibly assemble using provided data structures.
 	 * Implementation varies between Tadpole1 and Tadpole2 for different k-mer sizes.
@@ -3569,13 +3686,13 @@ public abstract class Tadpole extends ShaveObject{
 	 * @return true if read appears unassemblable (junk), false if potentially assemblable
 	 */
 	public abstract boolean isJunk(Read r, final int[] localLeftCounts, Kmer kmer);
-	
-	/** True if at least fraction of the reads kmers are at or below count. */
+
+	/** Heuristic low-depth fraction test; short/no-supported-window behavior is implementation-specific. */
 	public abstract boolean hasKmersAtOrBelow(Read r, int count, float fraction);
-	
-	/** True if at least fraction of the reads kmers are at or below count. */
+
+	/** Explicit-scratch counterpart of the low-depth fraction heuristic. */
 	public abstract boolean hasKmersAtOrBelow(Read r, int count, float fraction, Kmer kmer);
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------       Error Correction       ----------------*/
 	/*--------------------------------------------------------------*/
@@ -3606,7 +3723,7 @@ public abstract class Tadpole extends ShaveObject{
 		out.skippedMergedRuns=result.skippedMergedRuns;
 		return out;
 	}
-	
+
 	/**
 	 * Counts potential errors in sequence based on k-mer coverage patterns.
 	 * Uses bidirectional error detection comparing adjacent k-mer counts
@@ -3633,18 +3750,18 @@ public abstract class Tadpole extends ShaveObject{
 		}
 		return possibleErrors;
 	}
-	
+
 	/**
 	 * Performs error correction on read using k-mer frequency analysis.
 	 * Implementation varies between Tadpole1 and Tadpole2 for different k-mer sizes.
 	 * @param r Read to correct
-	 * @return Number of errors corrected
+	 * @return Retained correction events, not necessarily unique positions or biological errors
 	 */
 	public abstract int errorCorrect(Read r);
 
 	/** Marks bounded low-count runs without attempting correction. */
 	public abstract MarkErrorStats markErrors(Read r, LongList kmers, IntList counts, Kmer kmer, ErrorTracker tracker);
-	
+
 	/**
 	 * Performs comprehensive error correction using multiple algorithms and data structures.
 	 * Implementation varies between Tadpole1 and Tadpole2 for different k-mer sizes.
@@ -3661,11 +3778,11 @@ public abstract class Tadpole extends ShaveObject{
 	 * @param bs BitSet for position marking
 	 * @param kmer Primary k-mer object
 	 * @param kmer2 Secondary k-mer object
-	 * @return Number of errors corrected
+	 * @return Retained correction events after the implementation's optional rollback
 	 */
 	public abstract int errorCorrect(Read r, final int[] leftCounts, final int[] rightCounts, LongList kmers, IntList counts, IntList counts2,
 			final ByteBuilder bb, final ByteBuilder bb2, final ErrorTracker tracker, final BitSet bs, Kmer kmer, Kmer kmer2);
-	
+
 	/**
 	 * Performs inner reassembly algorithm for error correction.
 	 * Implementation varies between Tadpole1 and Tadpole2 for different k-mer sizes.
@@ -3681,11 +3798,12 @@ public abstract class Tadpole extends ShaveObject{
 	 */
 	public abstract int reassemble_inner(ByteBuilder bb, byte[] quals, final int[] rightCounts, IntList counts,
 			final int extension, final Kmer kmer, final Kmer kmer2);
-	
+
 	/**
-	 * Performs multi-pass reassembly error correction with bidirectional validation.
-	 * Constructs candidate sequences from both directions, applies quality filtering,
-	 * and performs consensus calling with rollback protection for over-correction.
+	 * Runs up to six directional reassembly passes, continuing only while corrections
+	 * and unresolved detections remain. Allocates two proposal builders; the supplied
+	 * bb/bb2 parameters are unused. Mutates bases, qualities, counts, tracker and scratch.
+	 * Whole-read rollback is the concrete errorCorrect caller's responsibility.
 	 *
 	 * @param bases Sequence to reassemble
 	 * @param quals Quality scores for bases
@@ -3706,31 +3824,35 @@ public abstract class Tadpole extends ShaveObject{
 		if(bases.length<kbig+1+deadZone){return 0;}
 		final ByteBuilder fromLeft=new ByteBuilder(bases.length);
 		final ByteBuilder fromRight=new ByteBuilder(bases.length);
-		
+
 		int detected0=tracker.detectedReassemble;
 		int corrected=reassemble_pass(bases, quals, fromLeft, fromRight, rightCounts, counts, counts2, tracker, errorExtension, kmer, regenKmer, bs);
-		
+
 		int correctedIncr=corrected;
 		int detectedIncr=tracker.detectedReassemble-detected0;
 		int uncorrected=detectedIncr-correctedIncr;
-		
+
 		for(int passes=1; passes<6 && correctedIncr>0 && uncorrected>0; passes++){//Without a pass limit this could, in rare cases, make an infinite loop
 			tracker.detectedReassemble-=uncorrected;
 			detected0=tracker.detectedReassemble;
 			correctedIncr=reassemble_pass(bases, quals, fromLeft, fromRight, rightCounts, counts, counts2, tracker, errorExtension, kmer, regenKmer, bs);
-			
+
 			corrected+=correctedIncr;
 			detectedIncr=tracker.detectedReassemble-detected0;
 			uncorrected=detectedIncr-correctedIncr;
 		}
-		
+
 		return corrected;
 	}
-	
+
 	/**
 	 * Performs single pass of reassembly error correction algorithm.
-	 * Builds sequences from both directions, compares results for consensus,
-	 * applies sliding window quality filtering, and regenerates k-mer counts.
+	 * Builds directional proposals, compares them, filters proposed changes and
+	 * regenerates counts after installation. Proposal conflicts can return zero after
+	 * incrementing detected counters. Temporary sequence/quality reversals are undone
+	 * on normal paths; proposal builders/counts remain modified. No general exception
+	 * transaction restores them. Qualities follow the reverse proposal's coordinates
+	 * and are restored in a finally block if that inner call fails.
 	 *
 	 * @param bases Original sequence being corrected
 	 * @param quals Quality scores for bases
@@ -3757,21 +3879,27 @@ public abstract class Tadpole extends ShaveObject{
 			fromLeft.append(b);
 			fromRight.append(b);
 		}
-		
+
 		assert(counts.size>0) : counts+", "+bases.length;
-		
+
 		counts2.clear();
 		counts2.addAll(counts);
 		reassemble_inner(fromLeft, quals, rightCounts, counts2, errorExtension, kmer, kmer2);
-		
+
 		fromRight.reverseComplementInPlace();
 		counts2.clear();
 		counts2.addAll(counts);
 		counts2.reverse();
-		
-		reassemble_inner(fromRight, quals, rightCounts, counts2, errorExtension, kmer, kmer2);
+
+		//Both concrete inner methods index quality by the current base orientation.
+		Vector.reverseInPlace(quals);
+		try{
+			reassemble_inner(fromRight, quals, rightCounts, counts2, errorExtension, kmer, kmer2);
+		}finally{
+			Vector.reverseInPlace(quals);
+		}
 		fromRight.reverseComplementInPlace();
-		
+
 //		outstream.println(new String(fromRight));
 //		outstream.println(copy);
 //		outstream.println();
@@ -3781,14 +3909,13 @@ public abstract class Tadpole extends ShaveObject{
 		int detectedInner=0;
 		int detectedOuter=0;
 		boolean rollback=false;
-		
+
 		for(int i=0; i<bases.length; i++){
 			byte a=bases[i];
 			byte b=fromLeft.get(i);
 			byte c=fromRight.get(i);
 			if(a!=b || a!=c){
-				if(b==c){detectedInner++;}
-				else{
+				if(b==c){detectedInner++;}else{
 					detectedOuter++;
 					if(a!=b && a!=c){
 						assert(b!=c);
@@ -3799,19 +3926,19 @@ public abstract class Tadpole extends ShaveObject{
 			if(b==a){fromLeft.set(i, (byte)0);}
 			if(c==a){fromRight.set(i, (byte)0);}
 		}
-		
+
 		final int detected=detectedInner+detectedOuter;
 		tracker.detectedReassemble+=detected;
 		if(rollback || detected==0){return 0;}
 		bs.clear();
-		
+
 		int clearedLeft=clearWindow2(fromLeft, quals, windowLen, windowCount, windowQualSum/*, windowCountHQ, windowHQThresh*/);
 		fromRight.reverseInPlace();
 		Vector.reverseInPlace(quals);
 		int clearedRight=clearWindow2(fromRight, quals, windowLen, windowCount, windowQualSum/*, windowCountHQ, windowHQThresh*/);
 		fromRight.reverseInPlace();
 		Vector.reverseInPlace(quals);
-		
+
 		for(int i=0; i<bases.length; i++){
 			byte a=bases[i];
 			byte b=fromLeft.get(i);
@@ -3830,9 +3957,9 @@ public abstract class Tadpole extends ShaveObject{
 //					quals[i]=(byte)Tools.max(2, q-3);
 //				}
 			}
-			
+
 			if(ECC_REQUIRE_BIDIRECTIONAL && b!=c && i>=kbig && i<bases.length-kbig){d=a;}//Clause to force pincer mode in the middle
-			
+
 			if(d!=a){
 				byte q=(quals==null ? 30 : quals[i]);
 				if(b==c){
@@ -3849,18 +3976,18 @@ public abstract class Tadpole extends ShaveObject{
 				}
 			}
 		}
-		
+
 		if(rollback && correctedInner+correctedOuter>0){
 			tracker.rollback=true;
 			return 0;
 		}
-		
+
 		{
 			tracker.correctedReassembleInner+=correctedInner;
 			tracker.correctedReassembleOuter+=correctedOuter;
 		}
 		int corrected=correctedOuter+correctedInner;
-		
+
 		if(corrected>0){
 			AbstractKmerTableSet tables=tables();
 //			counts.clear();
@@ -3868,27 +3995,29 @@ public abstract class Tadpole extends ShaveObject{
 			tables.regenerateCounts(bases, counts, kmer, bs);
 			assert(counts.size>0);
 		}
-		
+
 		return corrected;
 	}
-	
+
 	/**
-	 * Applies sliding window quality filtering to clear low-quality corrections.
-	 * Removes corrections when window contains too many changes or low-quality bases
-	 * to prevent over-correction in problematic regions.
+	 * Suppresses a suffix of nonzero correction proposals after the first dense-change
+	 * or high-quality-sum window. Counts proposals with positive qualities (all proposals
+	 * when qualities are null), then clears every proposal from max(0,i-window) to the
+	 * builder end on threshold breach. High-quality changes are harder to justify;
+	 * this is not a filter that removes low-quality input bases. Mutates only the builder.
 	 *
 	 * @param bb ByteBuilder containing correction candidates
 	 * @param quals Quality scores for bases
 	 * @param window Window size for quality assessment
 	 * @param limit Maximum corrections allowed in window
-	 * @param qsumLimit Maximum quality sum allowed in window
+	 * @param qsumLimit Maximum summed positive qualities of proposed changes before suffix suppression
 	 * @return Number of corrections cleared
 	 */
 	private static int clearWindow2(final ByteBuilder bb, final byte[] quals, final int window,
 			final int limit, final int qsumLimit/*, final int limitHQ, final byte hqThresh*/){
 		final int len=bb.length;
 		final byte[] array=bb.array;
-		
+
 		int cleared=0;
 		int count=0, countHQ=0, qsum=0;
 		//count, qsum and countHQ are all windowed (incremented as a correction enters at i, decremented
@@ -3926,15 +4055,19 @@ public abstract class Tadpole extends ShaveObject{
 		}
 		return cleared;
 	}
-	
-	/** Changes to N any base covered strictly by kmers with count below minCount */
+
+	/** Marks bases left unprotected by sampled qualifying kmer windows, optionally restricting to boundary/delta positions.
+	 * Positive markQuality lowers qualities without replacing called bases; nonpositive
+	 * markQuality changes eligible bases to N. Counts selected positions, not necessarily
+	 * newly changed bytes: called bases can count again even with already-low or null
+	 * qualities. Reuses/clears bs, mutates bases/qualities, and does not regenerate counts. */
 	public final int markBadBases(final byte[] bases, final byte[] quals, final IntList counts, final BitSet bs,
 			final int minCount, boolean deltaOnly, final byte markQuality){
 		if(counts.size<1){return 0;}
-		
+
 		bs.clear();
 		assert(counts.size==bases.length-kbig+1) : counts.size+", "+bases.length;
-		
+
 //		boolean flag=true;
 		for(int i=0; i<counts.size;){
 			final int count=counts.get(i);
@@ -3953,12 +4086,12 @@ public abstract class Tadpole extends ShaveObject{
 				bs.set(i, i+kbig);
 			}
 		}
-		
+
 		final int card=bs.cardinality();
 		final int toMark=bases.length-card;
 		int marked=0;
 		assert(card<=bases.length);
-		
+
 		int consecutiveBad=0;
 		for(int i=0; i<bases.length; i++){
 			if(bs.get(i)){
@@ -3982,12 +4115,12 @@ public abstract class Tadpole extends ShaveObject{
 				if(bases[i]=='N' || (quals!=null && quals[i]<=markQuality)){consecutiveBad=0;}
 			}
 		}
-		
+
 //		assert(toMark==0 && flag) : "toMark="+toMark+"card="+card+"len="+bases.length+"\n"+bs+"\n"+new String(bases)+"\n"+counts+"\nminCount="+minCount+"\n";
-		
+
 		return marked;
 	}
-	
+
 	/**
 	 * Tests if k-mer count is similar to counts in specified range.
 	 * Uses coverage similarity thresholds to determine if counts represent
@@ -3997,7 +4130,7 @@ public abstract class Tadpole extends ShaveObject{
 	 * @param loc1 Start position in count list
 	 * @param loc2 End position in count list
 	 * @param counts K-mer count list
-	 * @return true if all counts in range are similar to reference count
+	 * @return true if every count in the clipped inclusive range is similar, including an empty range
 	 */
 	protected final boolean isSimilar(final int a, int loc1, int loc2, final IntList counts){
 		loc1=Tools.max(loc1, 0);
@@ -4007,7 +4140,7 @@ public abstract class Tadpole extends ShaveObject{
 		}
 		return true;
 	}
-	
+
 	/**
 	 * Tests if two k-mer counts are similar within configured thresholds.
 	 * Uses both constant and proportional similarity criteria for robust comparison.
@@ -4023,7 +4156,7 @@ public abstract class Tadpole extends ShaveObject{
 		assert(dif>=0);
 		return (dif<pathSimilarityConstant || dif<max*pathSimilarityFraction);
 	}
-	
+
 	/**
 	 * Tests if reference count indicates error compared to counts in specified range.
 	 * Uses error detection thresholds to identify likely sequencing errors
@@ -4033,7 +4166,7 @@ public abstract class Tadpole extends ShaveObject{
 	 * @param loc1 Start position in count list
 	 * @param loc2 End position in count list
 	 * @param counts K-mer count list
-	 * @return true if all counts in range indicate error relative to reference
+	 * @return true if every count in the clipped inclusive range passes, including an empty range
 	 */
 	protected final boolean isError(final int a, int loc1, int loc2, final IntList counts){
 		loc1=Tools.max(loc1, 0);
@@ -4043,7 +4176,7 @@ public abstract class Tadpole extends ShaveObject{
 		}
 		return true;
 	}
-	
+
 	/**
 	 * Tests for bidirectional error pattern using quality score integration.
 	 * Compares k-mer counts in both directions with quality-weighted error thresholds
@@ -4058,7 +4191,7 @@ public abstract class Tadpole extends ShaveObject{
 	protected final boolean isErrorBidirectional(final int a, final int b, final byte qa, final byte qb){
 		return (a>=b ? isError(a, b, qb) : isError(b, a, qa));
 	}
-	
+
 	/**
 	 * Tests if coverage ratio indicates sequencing error.
 	 * Uses configurable error multipliers and lower bounds to identify
@@ -4078,10 +4211,10 @@ public abstract class Tadpole extends ShaveObject{
 			em1=Tools.mid(errorMult1, 4, low*1.6f-3);
 //		final float em1=4;
 		}else{throw new RuntimeException(""+errorPath);}
-		
+
 		return (low*em1<high || (low<=errorLowerConst && high>=Tools.max(minCountCorrect, low*errorMult2)));
 	}
-	
+
 	/**
 	 * Tests if coverage ratio indicates sequencing error with quality integration.
 	 * Adjusts error thresholds based on base quality score to improve
@@ -4102,10 +4235,10 @@ public abstract class Tadpole extends ShaveObject{
 			em1=Tools.mid(errorMult1, 4, low*(q<=10 ? 1.6f : 2f)-3); //final float em1=4;//(low<3 ? 4 : Tools.min(errorMult1, 2*low));
 			em1=em1*(1+q*errorMultQFactor);
 		}else{throw new RuntimeException(""+errorPath);}
-		
+
 		return (low*em1<high || (low<=errorLowerConst && high>=Tools.max(minCountCorrect, low*errorMult2)));
 	}
-	
+
 	/**
 	 * Tests if position represents a single-base substitution error.
 	 * Analyzes flanking k-mer coverage patterns to identify isolated
@@ -4135,12 +4268,11 @@ public abstract class Tadpole extends ShaveObject{
 		}
 		return false;
 	}
-	
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Helper Methods        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
 	 * Extracts k-mer from sequence at specified position.
 	 * Builds k-mer by adding nucleotides sequentially with validation
@@ -4149,7 +4281,7 @@ public abstract class Tadpole extends ShaveObject{
 	 * @param bases Sequence containing k-mer
 	 * @param loc Starting position of k-mer
 	 * @param kmer Kmer object to populate
-	 * @return Populated kmer object or null if ambiguous bases encountered
+	 * @return Supplied kmer after a complete defined window, or null with partial scratch on an undefined base
 	 */
 	protected static final Kmer getKmer(byte[] bases, int loc, Kmer kmer){
 		kmer.clear();
@@ -4162,7 +4294,7 @@ public abstract class Tadpole extends ShaveObject{
 		assert(kmer.len==kmer.kbig);
 		return kmer;
 	}
-	
+
 	/**
 	 * Tests if position represents a junction based on left and right branch analysis.
 	 * Considers position a junction if either direction shows significant branching.
@@ -4177,9 +4309,9 @@ public abstract class Tadpole extends ShaveObject{
 		if(isJunction(rightMax, rightSecond)){return true;}
 		return isJunction(leftMax, leftSecond);
 	}
-	
-	/** Technically, returns true if it is junction or max */
-	protected final boolean isJunction(int max, int second){
+
+	/** Whether the second count is positive and not sufficiently dominated under configured branch thresholds. */
+	public final boolean isJunction(int max, int second){
 		if(second<1 || second*branchMult1<max || (second<=branchLowerConst && max>=Tools.max(minCountExtend, second*branchMult2))){
 			return false;
 		}
@@ -4189,12 +4321,12 @@ public abstract class Tadpole extends ShaveObject{
 				(second*branchMult1<max)+", "+(second<=branchLowerConst)+", "+(max>=Tools.max(minCountExtend, second*branchMult2)));}
 		return true;
 	}
-	
+
 	/**
 	 * Calculates ratio between highest and second-highest counts.
 	 * Used for branch strength analysis in junction detection algorithms.
 	 * @param counts Array of counts to analyze
-	 * @return Ratio of highest to second-highest count, or 99.0 if no branching
+	 * @return Highest/second-highest ratio, or 99.0 when the second-highest count is below one
 	 */
 	float calcRatio(int[] counts){
 		int a=0, b=0;
@@ -4209,40 +4341,41 @@ public abstract class Tadpole extends ShaveObject{
 		}
 		return (b<1 ? 99f : ((float)a)/b);
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Helper Classes        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
 	 * Worker thread for dumping k-mer frequency tables to text format in parallel
 	 */
-	private final class DumpKmersThread extends Thread {
-		
+	// process() captures uncaught failures from both output workers and propagates them after joining.
+	private final class DumpKmersThread extends Thread{
+
 		DumpKmersThread(){}
-		
+
 		@Override
 		public void run(){
 			dumpKmersAsText();
 		}
-		
+
 	}
-	
+
 	/** Worker thread for generating k-mer frequency histograms in parallel */
-	private final class MakeKhistThread extends Thread {
-		
+	private final class MakeKhistThread extends Thread{
+
 		MakeKhistThread(){}
-		
+
 		@Override
 		public void run(){
 			makeKhist();
 		}
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
 	 * Returns k-mer hash table set for this assembler instance.
 	 * Implementation varies between Tadpole1 and Tadpole2 for different k-mer sizes.
@@ -4304,6 +4437,7 @@ public abstract class Tadpole extends ShaveObject{
 		return kmerRangeMax==Integer.MAX_VALUE;
 	}
 
+	/** Resolves auto/explicit storage requests against operation needs; rejects incompatible forced modes. */
 	private int resolveHashMode(){
 		final boolean compatible=hashCompatible();
 		if(hollow){
@@ -4324,6 +4458,7 @@ public abstract class Tadpole extends ShaveObject{
 		return preallocRequested ? HASH_FIXED : HASH_PAIR;
 	}
 
+	/** Parses storage aliases or a boolean; null selects automatic representation. */
 	static int parseHashMode(final String b){
 		if(b==null || b.equalsIgnoreCase("auto")){return HASH_AUTO;}
 		if(b.equalsIgnoreCase("fixed") || b.equalsIgnoreCase("fingerprint") || b.equals("1")){return HASH_FIXED;}
@@ -4331,15 +4466,18 @@ public abstract class Tadpole extends ShaveObject{
 		return Parse.parseBoolean(b) ? HASH_PAIR : HASH_EXPLICIT;
 	}
 
+	/** Interprets a preallocation boolean or positive numeric fraction for automatic table selection. */
 	static boolean parsePrealloc(final String b){
 		if(b==null || b.length()<1 || Character.isLetter(b.charAt(0))){return Parse.parseBoolean(b);}
 		return Double.parseDouble(b)>0;
 	}
 
+	/** Names a storage mode; unknown values format as auto. */
 	static String hashModeName(final int mode){
 		return mode==HASH_FIXED ? "fixed" : mode==HASH_PAIR ? "pair" : mode==HASH_EXPLICIT ? "explicit" : "auto";
 	}
 
+	/** Whether the concrete packed table set uses hash-only storage. */
 	private boolean hashOnlyTables(){
 		return tables() instanceof KmerTableSetU && ((KmerTableSetU)tables()).hashOnly();
 	}
@@ -4348,7 +4486,9 @@ public abstract class Tadpole extends ShaveObject{
 	final boolean compactLocalWashEnabled(){
 		return tipSeededWash && hashOnlyTables() && (removeDeadEnds || removeBubbles);
 	}
+	/** Whether dead-end shaving was resolved as enabled. */
 	final boolean shaveEnabled(){return removeDeadEnds;}
+	/** Whether bubble rinsing was resolved as enabled. */
 	final boolean rinseEnabled(){return removeBubbles;}
 
 	/** Appends enabled non-default operations to a startup plan. */
@@ -4412,10 +4552,10 @@ public abstract class Tadpole extends ShaveObject{
 	abstract int bridgeCount(Kmer kmer);
 	/** Fills the four forward-extension depths for a bridge-walk kmer. */
 	abstract int bridgeRightCounts(Kmer kmer, int[] counts);
-	
+
 //	int ways; //MUST be set by subclass
 	/** Big kmer length */
-	final int kbig;
+	public final int kbig;
 	/** Returns k-mer size for this assembler.
 	 * @return K-mer length in bases */
 	public final int k(){return kbig;}
@@ -4424,25 +4564,38 @@ public abstract class Tadpole extends ShaveObject{
 	private ArrayList<Contig> allContigs;
 	/** Collection of insert size measurements for paired reads */
 	private LongList allInserts;
+	/** Aggregate contig count, refreshed by later graph transformations. */
 	private long contigsBuilt=0;
+	/** Aggregate lengths counted by the current construction/transformation phase. */
 	private long basesBuilt=0;
+	/** Longest contig counted by the current construction/transformation phase. */
 	private long longestContig=0;
-	
+
 	/** Whether to extend reads through left junction points during extension */
 	protected boolean extendThroughLeftJunctions=true;
-	
+
+	/** Whether loaded-count cleaning removes bubble paths. */
 	private boolean removeBubbles=false;
+	/** Whether loaded-count cleaning removes dead-end paths. */
 	private boolean removeDeadEnds=false;
+	/** Records an explicit shave option; historical consumers in this class are commented out. */
 	private boolean setShave=false;
+	/** Records an explicit rinse option; historical consumers in this class are commented out. */
 	private boolean setRinse=false;
+	/** Upper depth bound supplied to shaving passes. */
 	protected int maxShaveDepth=1;
+	/** Requested discarded-path length bound, combined with minContigLen by concrete shavers. */
 	protected int shaveDiscardLen=150;
+	/** Maximum exploration distance supplied to shavers. */
 	protected int shaveExploreDist=300;
-	
+
+	/** Inclusive retained count minimum, raised above the prefilter cutoff during parsing. */
 	protected int kmerRangeMin=0;
+	/** Inclusive retained count maximum. */
 	protected int kmerRangeMax=Integer.MAX_VALUE;
-	
-	protected int processingMode=-1;
+
+	/** Selected operation; negative means infer it from options during construction. */
+	public int processingMode=-1;
 	/** Resolved compact-kmer storage: explicit, resizable hash pair, or fixed fingerprint. */
 	protected int hashKmerMode=HASH_EXPLICIT;
 	/** Experimental full-span extension with two outer 32-base count anchors. */
@@ -4465,40 +4618,66 @@ public abstract class Tadpole extends ShaveObject{
 	protected boolean hollowSeedGuardProposed=false;
 	/** Owned by this run and cleared with the primary table; never populated from seeds. */
 	protected KmerTableSetU hollowSeedGuardTables;
+	/** Alternate-span branch ratio and minimum support for optional Hollow guards. */
 	protected int hollowBranchRatio=4, hollowBranchSupport=3;
+	/** Requested representation before compatibility/default resolution. */
 	private int hashKmerModeRequested=HASH_AUTO;
+	/** Explicit storage request, preallocation hint, table-seeding policy and contig-tip wash policy. */
 	private boolean hashKmerModeSpecified=false, preallocRequested=false, seedFromTable=true, tipSeededWash=false;
-	
+
+	/** Requested left added-base limit; negative defaults are resolved by mode. */
 	protected int extendLeft=-1;
+	/** Requested right added-base limit; negative defaults are resolved by mode. */
 	protected int extendRight=-1;
+	/** Read-ID-based trimming bound after extension stops short of its requested limit. */
 	protected int extensionRollback=3;
-	
+
 	/** Track kmer ownership */
 	public final boolean useOwnership;
-	
+
+	/** Maximum constructed/extended sequence length passed to concrete walkers. */
 	public int maxContigLen=1000000000;
+	/** Minimum extension required by concrete contig builders before accepting a result. */
 	public int minExtension=2;
+	/** Ordinary final contig-length threshold; selected graph classes can bypass emission filtering. */
 	public int minContigLen=500;
+	/** Inclusive coverage floor for newly constructed table-seeded contigs. */
 	public float minCoverage=1;
+	/** Inclusive coverage ceiling for newly constructed table-seeded contigs. */
 	public float maxCoverage=Float.MAX_VALUE;
+	/** Legacy public configuration slot; not read by this class. */
 	public boolean joinContigs;
-	
+
+	/** Bases trimmed from both constructed ends; a negative request resolves to half-K. */
 	int trimEnds=0;
+	/** Whether two loop codes trigger removal of the repeated K-1 suffix. */
 	boolean trimCircular=true;
 
+	/** Base seed-depth threshold; multithreshold construction can temporarily raise it. */
 	int minCountSeed=3;
 
+	/** Minimum supported successor depth for extension. */
 	protected int minCountExtend=2;
+	/** General strongest/second branch dominance multiplier. */
 	protected float branchMult1=20;
+	/** Alternate dominance multiplier when the second branch is at most branchLowerConst. */
 	protected float branchMult2=3;
+	/** Low second-branch cutoff for the alternate junction rule. */
 	private int branchLowerConst=3;
-	
+
+	/** Selects the fixed-multiplier or depth-adaptive error predicate. */
 	private int errorPath=1;
+	/** Primary depth-drop multiplier, adjusted by presets and optional quality weighting. */
 	private float errorMult1=16;
+	/** Alternate low-depth multiplier in the error predicate. */
 	private float errorMult2=2.6f;
+	/** Quality factor multiplying the primary error threshold. */
 	private float errorMultQFactor=0.002f;
+	/** Low-count ceiling enabling the alternate error rule. */
 	private int errorLowerConst=4;//3 seems fine
+	/** Minimum candidate support used by error predicates and correction kernels. */
 	private int minCountCorrect=3;//5 is more conservative...
+	/** Current correction-support threshold after preset adjustments. */
 	int minCountCorrect(){return minCountCorrect;}
 	/** Item 3c: true iff at least one kmer count is below minCountCorrect -- catches the
 	 * zero-clean-kmer case (densely packed errors, or a large k with errors ~k bases apart) a
@@ -4522,32 +4701,43 @@ public abstract class Tadpole extends ShaveObject{
 	 * substitute development is done, which lets the compiler eliminate the histogram block entirely
 	 * (assertions-skill dead-code pattern). Brian's call, 2026-08-23. */
 	static boolean PRINT_ROLLBACK_HIST=true;
+	/** Strict absolute count-difference tolerance; either similarity rule can pass. */
 	private int pathSimilarityConstant=3;
+	/** Strict difference tolerance as a fraction of the larger count. */
 	private float pathSimilarityFraction=0.45f;//0.3
+	/** Reassembly validation distance passed to the concrete kernel. */
 	protected int errorExtensionReassemble=5;//default 2; higher is more conservative
+	/** Bidirectional pincer validation distance. */
 	protected int errorExtensionPincer=5;//default 5; higher is more conservative
+	/** Tail validation distance. */
 	protected int errorExtensionTail=9;//default 9; higher is more conservative
+	/** End region excluded from selected correction scans. */
 	protected int deadZone=0;
+	/** Distance to the leaving entry in the correction-proposal window. */
 	protected int windowLen=12;
+	/** Maximum counted proposals before suffix suppression. */
 	protected int windowCount=6;
+	/** Maximum proposal-quality sum before suffix suppression. */
 	protected int windowQualSum=80;
+	/** Parsed historical high-quality count limit; not passed to the active window filter. */
 	protected int windowCountHQ=2;
+	/** Parsed historical high-quality cutoff; not passed to the active window filter. */
 	protected byte windowHQThresh=24;
-	
+
 	protected byte qIncreasePincer=8;
 	protected byte qMinPincer=24;
 	protected byte qMaxPincer=32;
-	
+
 	protected byte qIncreaseTail=4;
 	protected byte qMinTail=20;
 	protected byte qMaxTail=28;
-	
-	
+
+	/** Whether ordinary contig mode invokes final FASTA assembly statistics. */
 	public boolean showStats=true;
-	
+
 	/** Has this class encountered errors while processing? */
 	public boolean errorState=false;
-	
+
 	/** Input reads */
 	private ArrayList<String> in1=new ArrayList<String>(), in2=new ArrayList<String>();
 	/** Output reads */
@@ -4564,10 +4754,10 @@ public abstract class Tadpole extends ShaveObject{
 	static final int graphMode=5;
 	/** Output graph in GFA format */
 	private String outGfa=null;
-	
+
 //	/** Extra reads */
 //	private ArrayList<String> extra=new ArrayList<String>();
-	
+
 //	/** Contig output file */
 //	private String outContigs=null;
 	/** Insert size histogram */
@@ -4587,9 +4777,9 @@ public abstract class Tadpole extends ShaveObject{
 	protected boolean histHeader=true;
 	/** Histogram show rows with 0 count */
 	protected boolean histZeros=false;
-	
+
 	protected boolean smoothHist=false;
-	
+
 	/** Maximum input reads (or pairs) to process.  Does not apply to references.  -1 means unlimited. */
 	private long maxReads=-1;
 
@@ -4609,9 +4799,9 @@ public abstract class Tadpole extends ShaveObject{
 	long hpDeletionVetoed=0;
 	long localEditReadsChanged=0, localEditSubstitutions=0, localEditInsertions=0, localEditDeletions=0;
 	long localEditCapHits=0, localEditPairQueries=0;
-	long localEditInitialSkipped=0,localEditRolledBack=0;
+	long localEditInitialSkipped=0, localEditRolledBack=0;
 	long localEditNeuralEvaluations=0, localEditNeuralAccepted=0, localEditNeuralRejected=0;
-	long localEditRegions=0,localEditEdges=0,localEditSizes=0,localEditBoundaries=0,localEditFinalRejected=0;
+	long localEditRegions=0, localEditEdges=0, localEditSizes=0, localEditBoundaries=0, localEditFinalRejected=0;
 	long readsExtended=0;
 	long readsCorrected=0;
 	long basesCorrectedPincer=0;
@@ -4638,21 +4828,20 @@ public abstract class Tadpole extends ShaveObject{
 	long markSkippedMerged=0;
 	long readsDiscarded=0;
 	long basesDiscarded=0;
-	
+
 	long readsMerged=0;
 	long readsCorrectedEcco=0;
 	long basesCorrectedEcco=0;
-	
+
 	protected boolean ECC_PINCER=false;
 	protected boolean ECC_TAIL=false;
 	protected boolean ECC_ALL=false;
 	protected boolean ECC_REASSEMBLE=true;
 	/** Item 3b: substitute ECC, cleanup pass after reassemble. */
 	protected boolean ECC_SUBSTITUTE=false;
-	/** Item 3b: number of independently-confirming spans required to accept a substitute correction;
-	 * also the number of distinct alternate bases that must clear this bar for exactly one to be
-	 * accepted. 1 is safe for Tadpole1's exact table (no collision risk), unlike BBCMS's Bloom
-	 * filter which needs 2. */
+	/** Required confirming spans for a substitution candidate; exactly one alternate
+	 * allele must meet this threshold. The historical value1 relied on exact-table
+	 * lookup, which avoids hash collisions but does not establish biological uniqueness. */
 	//TODO: Probable bug - exact lookup prevents hash collisions but not biological repeat matches;
 	//CONFIRM_MIN=1 can seed iterative conversion of a true read into a repeat-supported decoy
 	//across substitute passes (testdata/noelle_substitute_review/single_span_repeat_k95.fa: 43 false edits).
@@ -4661,7 +4850,7 @@ public abstract class Tadpole extends ShaveObject{
 	protected boolean ECC_CONSERVATIVE=false;
 	protected boolean ECC_ROLLBACK=true;
 	protected boolean ECC_REQUIRE_BIDIRECTIONAL=true;
-	
+
 	/** Mark bases as bad if they are completely covered by kmers with a count below this */
 	protected int MARK_BAD_BASES=0;
 	/** Only mark bad bases that are adjacent to good bases */
@@ -4670,27 +4859,27 @@ public abstract class Tadpole extends ShaveObject{
 	protected boolean MARK_ERROR_READS_ONLY=true;
 	/** Assign this quality score to marked bases */
 	protected byte MARK_QUALITY=0;
-	
+
 	/** Discard reads that cannot be assembled */
 	protected boolean tossJunk=false;
-	
+
 	/** Discard reads with kmers below this depth */
 	protected int discardLowDepthReads=-1;
-	
+
 	/** Only discard reads in which at least this fraction of kmers are low depth */
 	protected float lowDepthDiscardFraction=0f;
-	
+
 	/** Only discard reads if both in a pair fail */
 	protected boolean requireBothBad=false;
-	
+
 	/** Discard reads with uncorrectable errors */
 	protected boolean discardUncorrectable=false;
-	
+
 	/** Look for contig-contig edges */
 	boolean processContigs=false;
 	/** Maximum unbranched short-k distance searched while bridging high-k contig ends. */
 	int crossKMaxLen=500;
-	
+
 	/** Pop simple bubbles in contig graph */
 	boolean popBubbles=true;
 
@@ -4718,7 +4907,7 @@ public abstract class Tadpole extends ShaveObject{
 	/** Remove selected short topology classes before simplification. */
 	boolean evictTerminal=false, evictBranchedTerminal=false, evictUnanchored=false, evictLoopback=false;
 	boolean evictBranchedConnected=false, evictMultiConnected=false;
-	/** Exact topology mask populated by the five logical benchmark classes. */
+	/** Eight-bit exact topology mask, populated by named options/groups. */
 	int evictGraphTopologyMask=0;
 	/** Depth-class bitmask for graph cleanup; low only by default. */
 	int evictGraphDepthMask=1<<Contig.DEPTH_LOW;
@@ -4745,20 +4934,20 @@ public abstract class Tadpole extends ShaveObject{
 		@Override
 		public int compare(final Contig a, final Contig b){return Float.compare(a.coverage, b.coverage);}
 	};
-	
+
 	int bubblePasses=1;
-	
+
 	/** Expand simple tandem repeats in contig graph */
 	boolean expandTandemRepeats=false;
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------       ThreadLocal Temps      ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
 	 * Initializes thread-local data structures for parallel processing.
-	 * Creates per-thread arrays, builders, and tracking objects to avoid
-	 * synchronization overhead during intensive k-mer operations.
+	 * Creates per-thread arrays, builders and trackers once, using localLeftCounts
+	 * as the initialization marker. Does not clear existing scratch or reset a run.
 	 */
 	protected final void initializeThreadLocals(){
 		if(localLeftCounts.get()!=null){return;}
@@ -4775,7 +4964,7 @@ public abstract class Tadpole extends ShaveObject{
 		localKmer2.set(new Kmer(kbig, hollow));
 		localTracker.set(new ErrorTracker());
 	}
-	
+
 	/** Optional observation-only contig-walk sink; installed by the diagnostic driver before workers start. */
 	LiveBranchObserver liveBranchObserver;
 	/** Development-only interior rescue; null preserves all native branch decisions. */
@@ -4794,41 +4983,41 @@ public abstract class Tadpole extends ShaveObject{
 	private ThreadLocal<Kmer> localKmer=new ThreadLocal<Kmer>();
 	private ThreadLocal<Kmer> localKmer2=new ThreadLocal<Kmer>();
 	protected ThreadLocal<ErrorTracker> localTracker=new ThreadLocal<ErrorTracker>();
-	
+
 	/**
 	 * Returns cleared thread-local Kmer object for k-mer operations.
 	 * Provides fast access to thread-specific Kmer instance without allocation.
-	 * @return Cleared Kmer object for current thread
+	 * @return Reused Kmer after clearFast; requires initializeThreadLocals on this thread first
 	 */
 	protected Kmer getLocalKmer(){
 		Kmer local=localKmer.get();
 		local.clearFast();
 		return local;
 	}
-	
+
 	/**
 	 * Returns cleared thread-local secondary Kmer object for complex operations.
 	 * Provides access to second Kmer instance for algorithms requiring multiple k-mers.
-	 * @return Cleared secondary Kmer object for current thread
+	 * @return Reused secondary Kmer after clearFast; requires prior thread-local initialization
 	 */
 	protected Kmer getLocalKmer2(){
 		Kmer local=localKmer2.get();
 		local.clearFast();
 		return local;
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------       Final Primitives       ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/** min kmer count to dump to text */
 	protected int minToDump=1;
-	
+
 	/** max kmer count to dump to text */
 	protected int maxToDump=Integer.MAX_VALUE;
-	
+
 	/** Correct via kmers */
-	final boolean ecc;
+	public final boolean ecc;
 	/** Mark isolated low-count kmer runs instead of correcting them */
 	final boolean markErrors;
 	/** Experimental, disabled by default; initially an indel-only correction phase. */
@@ -4839,56 +5028,63 @@ public abstract class Tadpole extends ShaveObject{
 	final boolean hpCompeting;
 	final boolean hpDeletionCompeting;
 	/** Experimental, disabled-by-default worker-local single-edit correction. */
-	final boolean localEdit;
-	final int localEditMax,localEditStride;
-	final boolean localEditPairs;
+	public final boolean localEdit;
+	final int localEditMax, localEditStride;
+	/** Enables two-edit lookahead within one read, not paired-end correction. */
+	public final boolean localEditPairs;
 	/** Opt-in dense local transactions; existing sequential defaults remain unchanged. */
-	final boolean localEditBatch;
+	public final boolean localEditBatch;
 	final int localEditPatchMax;
-	final CellNet localEditNeuralNet;
-	final float localEditNeuralCutoff;
-	final CellNet localEditNeuralHighNet;
-	final float localEditNeuralHighCutoff;
-	
+	/** Primary neural template copied into worker-local sequential edit engines. */
+	public final CellNet localEditNeuralNet;
+	/** Minimum score required by the primary sequential edit neural veto. */
+	public final float localEditNeuralCutoff;
+	/** High-depth neural template copied into worker-local sequential edit engines. */
+	public final CellNet localEditNeuralHighNet;
+	/** Minimum score required by the high-depth sequential edit neural veto. */
+	public final float localEditNeuralHighCutoff;
+
 	/** Correct via overlap */
 	final boolean ecco;
-	
+
 	/** Use stricter settings for merging */
 	final boolean vstrict;
-	
+
 	/** Merge, correct, and unmerge */
 	final boolean merge;
-	
+
 	/** Check bordering counts to see if the merge seems correct */
 	final boolean testMerge;
 	int testMergeWidth=4;
 	long testMergeMult=80L;
 	int testMergeThresh=3;
-	
+
 	/** For numbering contigs */
 	final AtomicLong contigNum=new AtomicLong(0);
-	
+
 	int bubblesPopped=0;
-	
+
 	int contigPasses=16;
 	double contigPassMult=1.7;
-	
+
 	/** For controlling access to tables for contig-building */
 	final AtomicInteger nextTable[];
-	
-	/** For controlling access to victim buffers for contig-building */
+
+	/** Shared per-pass next-shard counters for hash-table overflow forests, not read buffers. */
 	final AtomicInteger nextVictims[];
-	
+
 	int taxID=-1;
-	
+
 	int contigIDOffset=0;
+	/** Survives clearData(); conservatively counts filtered retained contig IDs after successful final output. */
+	private long nextContigIDOffset=0;
 	public long contigsWritten=0;
 	public long basesWritten=0;
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------         Static Fields        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/** Permission to overwrite existing files */
 	public static boolean overwrite=true;
 	/** Permission to append to existing files */
@@ -4899,9 +5095,9 @@ public abstract class Tadpole extends ShaveObject{
 	public static boolean showSpeed=true;
 	/** Display progress messages such as memory usage */
 	public static boolean DISPLAY_PROGRESS=true;
-	/** Number of ProcessThreads */
+	/** Shared read/graph worker count, resolved from Shared.threads at construction. */
 	public static int THREADS=Shared.threads();
-	/** Number of BuildThreads */
+	/** Shared assembly-worker count; nonpositive becomes THREADS at first build. */
 	public static int BUILD_THREADS=-1;
 	/** Do garbage collection prior to printing memory usage */
 	private static final boolean GC_BEFORE_PRINT_MEMORY=false;
@@ -4909,7 +5105,14 @@ public abstract class Tadpole extends ShaveObject{
 	/** Whether to ignore k-mer ownership conflicts during parallel processing */
 	static boolean IGNORE_BAD_OWNER=false;
 	/** Whether to force use of Tadpole2 implementation regardless of k-mer size */
-	static boolean FORCE_TADPOLE2=false;
-	static final int HASH_AUTO=-1, HASH_EXPLICIT=0, HASH_PAIR=1, HASH_FIXED=2;
-	
+	public static boolean FORCE_TADPOLE2=false;
+	/** Request automatic k-mer table selection after k and memory policy are known. */
+	public static final int HASH_AUTO=-1;
+	/** Force the legacy explicit k-mer table representation. */
+	public static final int HASH_EXPLICIT=0;
+	/** Force the resizable hashed-kmer representation used by hashonly=t. */
+	public static final int HASH_PAIR=1;
+	/** Force the fixed preallocated fingerprint table representation. */
+	public static final int HASH_FIXED=2;
+
 }

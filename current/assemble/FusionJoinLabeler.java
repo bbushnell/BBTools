@@ -16,11 +16,20 @@ import structures.ByteBuilder;
  * Batch exact-reference labels, run only after read-count tables are released.
  * A query-seed index scans each reference orientation once and full-verifies hits.
  * Hit counts saturate at two: only absent, unique and multiple matter for labels.
+ * The run entry point loads uppercase forward/reverse-complement reference records;
+ * the lookup helper itself searches only the supplied strings. Palindromic matches
+ * can therefore count twice across orientations. Labels concern bounded join windows,
+ * not global repeat-copy identity or correctness of a complete chain of merges.
  * @author Fischl
  */
-final class FusionJoinLabeler {
+final class FusionJoinLabeler{
 
-	/** Parses native options after the launcher's PreParser has expanded its arguments. */
+	/**
+	 * Parses native options after PreParser expansion, reconstructs trace joins and labels
+	 * whole/left/right windows. A valid empty trace is allowed, but reference records must
+	 * exist. verify=t adds an exhaustive hit cross-check intended for small fixtures.
+	 * Releasing assembly count tables beforehand is the caller's scheduling obligation.
+	 */
 	static void run(final String[] args){
 		final Parser parser=new Parser();
 		String trace=null, reference=null;
@@ -56,7 +65,12 @@ final class FusionJoinLabeler {
 		writeLabels(joins, refs, hits, parser.out1);
 	}
 
-	/** Writes one truth record per proposal, including explicit unresolved cases. */
+	/**
+	 * Preserves proposal order, reconstructed event IDs and trace phases; both K fields use the phase.
+	 * Delegates supported/contradicted/unresolved decisions to the diagnostic label predicate,
+	 * emits NA for unresolved targets, and includes saturated whole/arm counts. A write failure
+	 * can leave partial output; the completion diagnostic follows the checked writer drain.
+	 */
 	private static void writeLabels(final ArrayList<FusionJoinDiagnostic.Join> joins,
 			final ArrayList<String> refs, final FusionJoinDiagnostic.Hit[] hits, final String output){
 		assert(hits.length==joins.size()*3) : "Each proposal requires whole, left and right match censuses.";
@@ -89,7 +103,10 @@ final class FusionJoinLabeler {
 	/**
 	 * Indexes one diverse exact31mer per query. Saturated queries are unlinked so
 	 * repeated reference words do not repeatedly verify already ambiguous patterns.
-	 * Short/undefined-only queries use the exhaustive fallback; corpus windows are longer.
+	 * Queries with no complete defined 31-base seed use the exhaustive fallback.
+	 * Full matches use literal, case-sensitive equality within one supplied record, with no
+	 * circular wrapping. Query bytes and reference strings are borrowed and must remain stable.
+	 * Results retain input order; stored coordinates are meaningful for labels only at count one.
 	 */
 	static FusionJoinDiagnostic.Hit[] findAll(final ArrayList<String> refs, final ArrayList<byte[]> patterns){
 		assert(refs!=null && patterns!=null) : "Batch truth lookup requires explicit reference records and patterns.";
@@ -154,7 +171,11 @@ final class FusionJoinLabeler {
 		return true;
 	}
 
-	/** Independently compares indexed hit classes and unique coordinates with exhaustive substring lookup. */
+	/**
+	 * Cross-checks indexed hit classes and unique coordinates using exhaustive substring lookup.
+	 * This reuses the same helper as the seedless fallback; it is not an independent oracle for
+	 * that fallback or the label predicate, and does not compare coordinates of saturated hits.
+	 */
 	private static void verify(final ArrayList<String> refs, final ArrayList<byte[]> patterns,
 			final FusionJoinDiagnostic.Hit[] hits){
 		assert(patterns.size()==hits.length) : "Verification needs one result per original query.";
@@ -189,7 +210,7 @@ final class FusionJoinLabeler {
 	}
 
 	/** One persistent query plus primitive linked-list state; no per-reference-position allocation. */
-	private static final class Query {
+	private static final class Query{
 		/** Chooses the earliest31mer with the most balanced A/C/G/T composition. */
 		Query(final byte[] bases_){
 			assert(bases_!=null && bases_.length>0) : "Truth queries must contain sequence.";
@@ -209,12 +230,18 @@ final class FusionJoinLabeler {
 				if(score<best){best=score; offset=p-SEED_LENGTH+1; seed=word;}
 			}
 		}
+		/** Borrowed complete query bytes, unchanged during the batch scan. */
 		final byte[] bases;
+		/** Mutable saturated match class; final coordinates are relevant only for a unique hit. */
 		final FusionJoinDiagnostic.Hit hit=new FusionJoinDiagnostic.Hit();
+		/** Packed selected 31-base seed; ignored when offset is negative. */
 		long seed;
+		/** Selected seed start and next query in its shared-seed list; -1 means absent. */
 		int offset=-1, next=-1;
 	}
 
+	/** Seed width fits 62 bits; complete-query equality still determines every hit. */
 	private static final int SEED_LENGTH=31;
+	/** Keeps the rolling seed within the selected 62-bit representation. */
 	private static final long MASK=(1L<<(2*SEED_LENGTH))-1;
 }

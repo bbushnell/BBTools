@@ -3,19 +3,22 @@ package assemble;
 import dna.AminoAcid;
 
 /**
- * Experimental veto for graph walks conflicting with an existing exact overlap.
- * An overlap is evidence of ambiguity, not permission to replace the graph walk.
- * The serial final-graph phase owns this policy and its counters.
+ * Experimental veto for implicit graph walks that conflict with an exact overlap.
+ * Explicit-overlap and cross-K joins keep their own policies. Ordinary implicit
+ * paths are rejected when a bounded exact parent overlap of at least K implies
+ * different spacing. An overlap is evidence of ambiguity, not permission to
+ * replace the graph walk. The final-graph caller supplies assemble-K minus one
+ * as the configured search ceiling.
  * @author Fischl
  */
-final class GraphOverlapGate {
+public final class GraphOverlapGate{
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Bounds the search by the original assemble-K minus one. */
-	GraphOverlapGate(final int maxOverlap_){
+	/** Stores a positive caller-supplied overlap search ceiling. */
+	public GraphOverlapGate(final int maxOverlap_){
 		if(maxOverlap_<1){throw new IllegalArgumentException("Overlap search requires a positive ceiling.");}
 		maxOverlap=maxOverlap_;
 	}
@@ -25,12 +28,12 @@ final class GraphOverlapGate {
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Checks merge-time sequences before BubblePopper flips the destination.
-	 * Explicit overlap edges retain their own fusion policy. Ordinary walks are
-	 * vetoed only when their spacing differs from an exact graph-K-or-longer overlap.
-	 * No input, edge, or graph state is changed, even on rejection.
+	 * Checks consumed ends before the caller flips or merges the destination.
+	 * The search ceiling is also bounded below both retained parent lengths.
+	 * Explicit-overlap edges and empty search ranges are accepted without counting.
+	 * No contig or edge is mutated; only this gate's counters can change.
 	 */
-	boolean accept(final Contig left, final Contig right, final Edge edge, final int k){
+	public boolean accept(final Contig left, final Contig right, final Edge edge, final int k){
 		assert(left!=null && right!=null && edge!=null && k>0 && edge.sourceRight()) :
 				"BubblePopper.expandRightSimple supplies a rightward edge before flipping its destination.";
 		if(edge.overlap>0 || k>maxOverlap){return true;}
@@ -56,7 +59,7 @@ final class GraphOverlapGate {
 		return true;
 	}
 
-	/** Compares an oriented suffix/prefix without allocating a reverse complement. */
+	/** Compares an oriented left suffix and right prefix without allocating. */
 	private static boolean exact(final byte[] left, final int start, final byte[] right,
 			final boolean reverse, final int rightStart, final int length){
 		assert(start>=0 && start+length<=left.length && rightStart>=0 && rightStart+length<=right.length) :
@@ -75,6 +78,12 @@ final class GraphOverlapGate {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Largest exact parent overlap allowed by the caller. */
 	final int maxOverlap;
-	long evaluations, rejected;
+
+	/** Eligible implicit walks entering the search. */
+	long evaluations;
+
+	/** Eligible implicit walks vetoed by a conflicting exact overlap. */
+	public long rejected;
 }

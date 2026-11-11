@@ -22,12 +22,25 @@ import structures.LongList;
 
 /**
  * Scores one live-branch corpus partition without resampling or mixing controls
- * into validation candidates. Emits all attainable score>=cutoff decisions.
+ * into validation candidates. Emits all attainable {@code score>=cutoff} decisions.
+ * Validates every sidecar row while consuming features only for the selected partition.
+ * Validation permits grey candidates only; validation_controls permits controls only;
+ * training may contain either role. Inference reuses one model and feature vector serially.
+ * Retains packed scores by role and delegates in-place sorting/tied-score curves to
+ * SameKModelEvaluate. Predictions preserve selected-row order; scores.tsv retains
+ * the seven provenance columns and adds score_bits and score. Separate grey.tsv and
+ * control.tsv curves share summary.tsv, including a row for an empty role.
+ * Partial outputs remain after failure; complete.txt is written only after the other
+ * writers finish successfully.
  * @author Fischl
  */
-public final class LiveBranchModelEvaluate {
+public final class LiveBranchModelEvaluate{
 
-	/** Runs inference through standard BBTools parsing. */
+	/**
+	 * Runs serial inference through standard BBTools parsing and closes any owned diagnostic stream.
+	 * Standard output/error remain open; shared parser settings are not restored after the run.
+	 * @param args Feature input, full sidecar, model, partition and new output directory options
+	 */
 	public static void main(final String[] args){
 		final PreParser pp=new PreParser(args, LiveBranchModelEvaluate.class, false);
 		try{new LiveBranchModelEvaluate(pp.args, pp.outstream).run();}
@@ -38,7 +51,13 @@ public final class LiveBranchModelEvaluate {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Requires explicit partition identity, matching provenance, and new outputs. */
+	/**
+	 * Parses options and requires readable feature, sidecar and model paths and a new output path.
+	 * Partition names are case-sensitive: train, validation or validation_controls.
+	 * Header/provenance validation and output-directory creation are deferred to run.
+	 * @param args Expanded options, including standard parser settings
+	 * @param stream Borrowed diagnostic stream; main owns its closing policy
+	 */
 	private LiveBranchModelEvaluate(final String[] args, final PrintStream stream){
 		outstream=stream;
 		final Parser parser=new Parser();
@@ -47,11 +66,15 @@ public final class LiveBranchModelEvaluate {
 			String name=parts[0].toLowerCase(Locale.ROOT);
 			while(name.startsWith("-")){name=name.substring(1);}
 			final String value=parts.length>1 ? parts[1] : null;
-			if(name.equals("rows")){rows=value;}
-			else if(name.equals("net")){network=value;}
-			else if(name.equals("partition")){partition=Arrays.asList(PARTITIONS).indexOf(value);}
-			else if(name.equals("simdff")){simdFF=Parse.parseBoolean(value);}
-			else if(!parser.parse(arg, name, value)){throw new IllegalArgumentException("Unknown evaluation option: "+arg);}
+			if(name.equals("rows")){
+				rows=value;
+			}else if(name.equals("net")){
+				network=value;
+			}else if(name.equals("partition")){
+				partition=Arrays.asList(PARTITIONS).indexOf(value);
+			}else if(name.equals("simdff")){
+				simdFF=Parse.parseBoolean(value);
+			}else if(!parser.parse(arg, name, value)){throw new IllegalArgumentException("Unknown evaluation option: "+arg);}
 		}
 		input=parser.in1; output=parser.out1;
 		if(input==null || rows==null || network==null || output==null || partition<0 || parser.in2!=null || parser.out2!=null ||
@@ -64,7 +87,18 @@ public final class LiveBranchModelEvaluate {
 	/*----------------           Methods            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Checks the full sidecar and selected feature stream before publishing completion. */
+	/**
+	 * Checks exact headers, one-based partition-local ordinals, identities, roles and binary targets.
+	 * Sidecar partitions may be interleaved; only selected rows consume feature rows, in order.
+	 * Selected rows additionally require matching feature targets, finite nonnegative values
+	 * and a K encoding within 1e-6 of the provenance K. Model scores must be finite in [0,1].
+	 * Packed score bits normalize signed zero; printed score text retains the model's value.
+	 * The selected partition must be nonempty. Emits separate grey/control curves with tied
+	 * groups kept together and a reject-all row, even for a role with no selected rows.
+	 * Retains one packed long per selected row until both role curves have been written.
+	 * Failed prediction-output acquisition attempts both input closes and rethrows the
+	 * original failure with cleanup failures suppressed. Partial output ownership is separate.
+	 */
 	private void run(){
 		final CellNet net=CellNetParser.load(network, false);
 		if(net==null || net.numInputs()!=12 || net.numOutputs()!=1){throw new IllegalArgumentException("Expected a12-input, one-output model.");}
@@ -75,8 +109,37 @@ public final class LiveBranchModelEvaluate {
 		final float[] vector=new float[12];
 		final LineParser1 mp=new LineParser1('\t'), dp=new LineParser1('\t');
 		final ByteBuilder buffer=new ByteBuilder(), word=new ByteBuilder(), genome=new ByteBuilder();
-		final ByteFile meta=ByteFile.makeByteFile(rows, true), data=ByteFile.makeByteFile(input, true);
-		final ByteStreamWriter predictions=open(output+"/scores.tsv");
+		final ByteFile meta=ByteFile.makeByteFile(rows, true);
+		final ByteFile data;
+		try{data=ByteFile.makeByteFile(input, true);}
+		catch(RuntimeException|Error failure){
+			try{
+				if(meta.close()){failure.addSuppressed(new IllegalStateException("Evaluation metadata cleanup failed."));}
+			}catch(RuntimeException|Error cleanup){
+				if(cleanup!=failure){failure.addSuppressed(cleanup);}
+			}
+			throw failure;
+		}
+		final ByteStreamWriter predictions;
+		try{predictions=open(output+"/scores.tsv");}
+		catch(RuntimeException|Error failure){
+			// ASM024: output acquisition can fail while both inputs are already owned.
+			try{
+				try{
+					if(meta.close()){failure.addSuppressed(new IllegalStateException("Evaluation metadata cleanup failed."));}
+				}catch(RuntimeException|Error cleanup){
+					if(cleanup!=failure){failure.addSuppressed(cleanup);}
+				}
+			}finally{
+				try{
+					try{
+						if(data.close()){failure.addSuppressed(new IllegalStateException("Evaluation feature input cleanup failed."));}
+					}catch(RuntimeException|Error cleanup){
+						if(cleanup!=failure){failure.addSuppressed(cleanup);}
+					}
+				}finally{throw failure;}// Preserve the primary even if recording a cleanup failure fails.
+			}
+		}
 		try{
 			require(meta.nextLine(), ROW_HEADER);
 			require(data.nextLine(), "#dims\t12\t1");
@@ -113,6 +176,7 @@ public final class LiveBranchModelEvaluate {
 			}
 			if(data.nextLine()!=null || ordinals[partition]==0){throw new IllegalArgumentException("Unpaired extra rows or empty selected partition.");}
 		}finally{
+			//TODO: Probable bug ASM024 - unchecked close failures can skip later cleanup and mask the processing failure.
 			if(meta.close() | data.close() | predictions.poisonAndWait()){throw new IllegalStateException("Incomplete input/prediction output.");}
 		}
 		final ByteStreamWriter summary=open(output+"/summary.tsv");
@@ -140,7 +204,15 @@ public final class LiveBranchModelEvaluate {
 	/*----------------        Static Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Validates canonical DNA and the frozen genome naming convention without per-row Strings. */
+	/**
+	 * Requires a g-plus-four-digits genome ID and an uppercase ACGT word of length K,
+	 * with K in [24,127]. The word must be lexicographically no greater than its reverse
+	 * complement. Checks syntax/canonical orientation, not membership in a reference genome.
+	 * @param genome Genome identifier scratch, not modified
+	 * @param word DNA word scratch, not modified
+	 * @param k Expected word length in bases
+	 * @return Whether both identities satisfy the sidecar's syntax and orientation rules
+	 */
 	private static boolean validIdentity(final ByteBuilder genome, final ByteBuilder word, final int k){
 		assert(genome!=null && word!=null) : "Sidecar identities are required to associate scores with upstream junctions.";
 		if(genome.length()!=5 || genome.array[0]!='g' || k<24 || k>127 || word.length()!=k){return false;}
@@ -155,14 +227,18 @@ public final class LiveBranchModelEvaluate {
 		return order<=0;
 	}
 
-	/** Opens only new files inside this run's newly created output directory. */
+	/**
+	 * Starts an owned writer for a new file inside this run's output directory.
+	 * @param path Output filename; append and overwrite are disabled
+	 * @return Started writer whose caller must finish with poisonAndWait
+	 */
 	private static ByteStreamWriter open(final String path){
 		final ByteStreamWriter writer=new ByteStreamWriter(path, false, false, false);
 		writer.start();
 		return writer;
 	}
 
-	/** Rejects incompatible schemas before any inference. */
+	/** Rejects a missing or byte-different UTF-8 header before any inference. */
 	private static void require(final byte[] actual, final String expected){
 		if(!Arrays.equals(actual, expected.getBytes(StandardCharsets.UTF_8))){throw new IllegalArgumentException("Expected header: "+expected);}
 	}
@@ -171,11 +247,23 @@ public final class LiveBranchModelEvaluate {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Borrowed diagnostic stream; main closes it only when it is not stdout/stderr. */
 	private final PrintStream outstream;
+	/** Selected features, full provenance, saved model and a new output directory. */
 	private String input, rows, network, output;
+	/** Required PARTITIONS index; -1 means no supported partition was selected. */
 	private int partition=-1;
+	/** Per-model feed-forward switch, separate from the global SIMD/FMA settings. */
 	private boolean simdFF=false;
+
+	/*--------------------------------------------------------------*/
+	/*----------------           Constants          ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Accepted names and ordinal-counter order; the two validation partitions have distinct roles. */
 	private static final String[] PARTITIONS={"train", "validation", "validation_controls"};
+	/** Role indices used for retained score populations and output filenames. */
 	private static final String[] ROLES={"grey", "control"};
-	static final String ROW_HEADER="partition\trow\tgenome\tk\tword\trole\ttarget";
+	/** Exact seven-column sidecar header shared with the analytic fixture. */
+	public static final String ROW_HEADER="partition\trow\tgenome\tk\tword\trole\ttarget";
 }

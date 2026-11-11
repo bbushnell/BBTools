@@ -37,7 +37,8 @@ out=contigs.fa      Output FASTA (scaffolds by default; scaffold=f for contigs).
 temp=<directory>    Parent for a unique work directory (default Java tmpdir).
 delete=t            Delete pipeline FASTQs only after successful assembly.
                     Commands and per-stage logs are always retained.
-                    All intermediates are retained on failure.
+                    Stage failures retain intermediates. Cleanup runs after
+                    publication and can stop partway if deleting a file fails.
 gz=t                Compress intermediates through native BBTools I/O.
 overwrite=f         Allow replacement of an existing final output.
 dryrun=f            Validate paths and print/save commands without running them.
@@ -96,10 +97,11 @@ polish_maxoverlap=200 Maximum context overlap.
 polish_indexed=t      Use the exact prefix index for candidate discovery.
 polish_t=<t>          Threads per polishing child (polish_threads is an alias).
 The same per-child heap budget applies; coordinators remain at 256 MB.
-The unpolished assembly, polish.edits.tsv, logs and polishing evidence remain
-in the printed TadPipe work directory. Final output is published only after
-all enabled stages, including scaffolding, succeed; failure retains reads and
-the assembly. delete=t then removes pipeline FASTQs, not polishing evidence.
+The unpolished assembly, polish.edits.tsv and logs remain in the printed
+TadPipe work directory. Final output is published only after
+all enabled stages, including scaffolding, succeed; stage failure retains reads and
+the assembly. delete=t then removes pipeline FASTQs, including the uncorrected
+reads used for polishing. Set delete=f to retain those reads after success.
 Whole-assembly mapping is shared, but separate context mapping and per-target
 kmer counting can be expensive. No minimum-depth or allele-support guard is
 relaxed. Polishing overrides do not change preprocessing or assembly settings.

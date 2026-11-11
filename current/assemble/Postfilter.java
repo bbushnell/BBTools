@@ -3,6 +3,7 @@ package assemble;
 import java.io.File;
 import java.io.PrintStream;
 import java.util.ArrayList;
+import java.util.Locale;
 
 import align2.BBMap;
 import dna.Data;
@@ -18,18 +19,16 @@ import shared.Tools;
 import tracker.ReadStats;
 
 /**
- * Two-phase assembly quality filtering pipeline that executes sequential read
- * alignment and coverage-based contig filtering to produce high-quality assembly outputs.
- *
- * Implements post-assembly quality filtering through BBMap read alignment followed by
- * FilterByCoverage contig filtering. Phase 1 aligns input reads against assembly contigs
- * to generate coverage statistics. Phase 2 applies multiple quality thresholds to retain
- * only well-supported contigs.
+ * Maps reads to an assembly with BBMap, then filters contigs with FilterByCoverage.
+ * Coverage statistics are generated before optional end trimming. Passing the
+ * configured coverage thresholds is not a guarantee of assembly correctness.
+ * Instances are intended for one sequential run; child tools and the diagnostic
+ * stream use shared static state, so this is not an isolated concurrent pipeline.
  *
  * @author Brian Bushnell
  * @date Jul 8, 2015
  */
-public class Postfilter {
+public class Postfilter{
 
 	/**
 	 * Program entry point that creates a Postfilter instance and executes the
@@ -39,10 +38,9 @@ public class Postfilter {
 	public static void main(String[] args){
 		Timer t=new Timer();
 		
-		//Create a new CountKmersExact instance
+		//Create and run the mapping/filtering pipeline.
 		Postfilter x=new Postfilter(args, true);
 		
-		///And run it
 		x.process(t);
 		
 		//Close the print stream if it was redirected
@@ -53,6 +51,10 @@ public class Postfilter {
 	 * Constructs a Postfilter with command-line arguments and optional default configuration.
 	 * Parses all filtering parameters, validates input/output files, and configures
 	 * BBMap and FilterByCoverage settings.
+	 * Retains equals signs inside values. Checks rejected-output collisions and
+	 * overwrite refusal before mapping can create coverage output.
+	 * Rejects effective NaN coverage thresholds after all arguments have been parsed.
+	 * Normalizes option names independently of locale without changing their values.
 	 *
 	 * @param args Command line arguments for filtering configuration
 	 * @param setDefaults Whether to apply default compression and threading settings
@@ -78,8 +80,8 @@ public class Postfilter {
 		/* Parse arguments */
 		for(int i=0; i<args.length; i++){
 			final String arg=args[i];
-			String[] split=arg.split("=");
-			String a=split[0].toLowerCase();
+			String[] split=Parse.splitOnFirst(arg, '=');
+			String a=split[0].toLowerCase(Locale.ROOT);
 			String b=split.length>1 ? split[1] : null;
 			
 			if(a.equals("append") || a.equals("app")){
@@ -126,20 +128,28 @@ public class Postfilter {
 			}
 		}
 		
+		if(Double.isNaN(minCoverage) || Double.isNaN(minCoveredPercent)){
+			throw new IllegalArgumentException("mincov and minpercent must not be NaN.");
+		}
 		if(in2==null && in1!=null && in1.contains("#") && !new File(in1).exists()){
 			in2=in1.replaceFirst("#", "2");
 			in1=in1.replaceFirst("#", "1");
 		}
 		
-		if(!Tools.testOutputFiles(overwrite, append, false, covstats, out)){
+		// Check all path collisions before output validation can assert on duplicates.
+		if(!Tools.testForDuplicateFiles(true, in1, in2, covstats, out, ref, outdirty)){
+			throw new RuntimeException("\nSome file names were specified multiple times.\n");
+		}
+		// The optional rejected-output stream opens only after mapping; fail before that work.
+		if(!overwrite && !append && Tools.isOutputFileName(outdirty) && new File(outdirty).exists()){
+			throw new RuntimeException("File "+outdirty+" exists and overwrite=false.");
+		}
+		if(!Tools.testOutputFiles(overwrite, append, false, covstats, out, outdirty)){
 			throw new RuntimeException("\n\noverwrite="+overwrite+"; Can't write to output files "+
-					covstats+", "+out+"\n");
+					covstats+", "+out+", "+outdirty+"\n");
 		}
 		if(!Tools.testInputFiles(false, true, in1, in2, ref)){
 			throw new RuntimeException("\nCan't read some input files.\n");  
-		}
-		if(!Tools.testForDuplicateFiles(true, in1, in2, covstats, out, ref)){
-			throw new RuntimeException("\nSome file names were specified multiple times.\n");
 		}
 
 		assert(in1!=null);
@@ -155,17 +165,13 @@ public class Postfilter {
 	
 	
 	/**
-	 * Executes the two-phase assembly filtering pipeline with timing.
+	 * Runs BBMap, unloads its reference, and invokes FilterByCoverage on the original
+	 * contigs with the generated coverage file. Unrecognized constructor arguments
+	 * are forwarded only to BBMap; wrapper mapping options are appended afterward.
+	 * Reuses the argument list for the filtering call, so this method is intended
+	 * to run once per instance. Optionally rereads non-stdio output for assembly stats.
 	 *
-	 * Phase 1: Runs BBMap to align input reads against assembly contigs using permissive
-	 * settings for comprehensive coverage calculation. Generates coverage statistics file.
-	 *
-	 * Phase 2: Runs FilterByCoverage with configurable quality thresholds to filter
-	 * contigs based on coverage depth, read support, covered percentage, and length.
-	 *
-	 * Optional: Generates final assembly statistics using AssemblyStats2 if showStats enabled.
-	 *
-	 * @param t Timer for tracking execution duration
+	 * @param t Legacy timer parameter; not read or stopped by this method
 	 */
 	public void process(Timer t){
 
@@ -212,38 +218,58 @@ public class Postfilter {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Forwarded mapping arguments, then reused for the filtering invocation. */
 	private ArrayList<String> mapArgs=new ArrayList<String>();
 	
+	/** Primary reads to map, with an optional mate-placeholder expansion. */
 	private String in1=null;
+	/** Optional separate mate-read file. */
 	private String in2=null;
+	/** Assembly used as mapping reference and subsequent filtering input. */
 	private String ref=null;
+	/** Destination for retained contigs. */
 	private String out="filtered.fa";
+	/** Optional destination for rejected contigs. */
 	private String outdirty=null;
+	/** Coverage table produced by mapping and consumed by filtering. */
 	private String covstats="covstats.txt";
 
+	/** Maximum indel setting passed to BBMap. */
 	private int maxIndel=0;
+	/** Minimum seed-hit setting passed to BBMap. */
 	private int minHits=2;
+	/** Fixed mapping bandwidth appended after forwarded arguments. */
 	private int bw=20;
+	/** Fixed mapping tip-search setting appended after forwarded arguments. */
 	private int tipsearch=0;
+	/** Whether BBMap may attempt mate rescue. */
 	private boolean rescue=false;
 	
+	/** Bases trimmed from each contig end during filtering. */
 	private int trimEnds=0;
 	
+	/** Minimum average mapped depth required by the coverage filter. */
 	private double minCoverage=2;
+	/** Minimum covered-base percentage required by the coverage filter. */
 	private double minCoveredPercent=95;
+	/** Minimum mapped-read count required by the coverage filter. */
 	private long minReads=6;
+	/** Minimum contig length after optional end trimming. */
 	private int minLength=400;
 	
+	/** Whether to reread a non-stdio output for assembly statistics. */
 	boolean showStats=true;
 	
+	/** Append policy forwarded to mapping and filtering outputs. */
 	boolean append=false;
+	/** Overwrite policy checked before mapping and forwarded to both child tools. */
 	boolean overwrite=true;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Static Fields        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Print stream for program output messages */
+	/** Shared diagnostic stream selected by the most recent constructor. */
 	private static PrintStream outstream=System.err;
 	
 }

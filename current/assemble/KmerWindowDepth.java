@@ -2,6 +2,7 @@ package assemble;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Locale;
@@ -29,14 +30,24 @@ import ukmer.Kmer;
 import ukmer.KmerTableSetU;
 
 /**
- * Reports exact read-kmer evidence along selected reference windows.
- * Coordinates describe forward-reference kmer ends, one-based and inclusive.
- * Reference sequence selects queries only; it never contributes counts.
+ * Reports read-count evidence for reference windows, terminal queries or saved
+ * sequence windows, using an explicit Solid table or the selected Hollow geometry.
+ * Reference regions select one-based inclusive kmer-end coordinates. Saved-query
+ * reports use the supplied sequence orientation, not canonical-key orientation.
+ * With pathseedlen and outseq, experimental postpasses may trim an added suffix
+ * while preserving the original seed; they never assemble a replacement path.
+ * The constructor validates the distinct policy combinations rather than treating
+ * them as interchangeable settings. Reference/saved queries select lookups and
+ * are not automatically added to the count inputs. Only explicit table inputs
+ * contribute counts; a query file may also be explicitly included as evidence.
+ * Mode handlers own their writers and loaded tables.
+ * CLI parsing and table construction change process-wide settings; serialize main
+ * invocations or use separate JVMs. Mutable query scratch belongs to its caller.
  * @author Fischl
  */
-public final class KmerWindowDepth {
+public final class KmerWindowDepth{
 
-	/** Loads one exact table and emits depths without assembling or mutating it. */
+	/** Loads evidence for the selected report or saved-path postpass; no assembly is run. */
 	public static void main(final String[] args){
 		final PreParser pp=new PreParser(args, KmerWindowDepth.class, false);
 		try{new KmerWindowDepth(pp.args).process();}
@@ -47,7 +58,8 @@ public final class KmerWindowDepth {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Separates reference-window options from the existing native table parser. */
+	/** Separates report/path options from native count-table options, validates mode
+	 * combinations and paths, and constructs the required unloaded evidence tables. */
 	private KmerWindowDepth(final String[] args){
 		assert(args!=null) : "PreParser supplies expanded diagnostic arguments.";
 		final ArrayList<String> tableArgs=new ArrayList<String>();
@@ -282,14 +294,14 @@ public final class KmerWindowDepth {
 			shortTables=new KmerTableSetU(shortArgs, 0);
 		}else if(pathShortStop || pathBackFork){
 			//Both constructors use the same packed/canonical/probability settings.
-			//Only the second table's geometry changes; neither table sees queries.
+			//Only the geometry changes; both tables reuse the explicit count inputs.
 			tableArgs.add("k=64");
 			tableArgs.add("hollow=f");
 			tableArgs.add("hashonly=f");
 			shortTables=new KmerTableSetU(tableArgs.toArray(new String[0]), 0);
 		}else{shortTables=null;}
 		if(pathSourceK>0){
-			//The shorter source span counts exactly the same originals, never the saved queries.
+			//The shorter source span reuses explicit count inputs without adding queries.
 			//This mode is exclusive with all short/Solid policies, so no third table is loaded.
 			tableArgs.add("k="+pathSourceK);
 			tableArgs.add("hollow=t");
@@ -300,11 +312,14 @@ public final class KmerWindowDepth {
 		}else{sourceTables=null;}
 	}
 
-	/** Resolves aliases before checking that the original seed input is counted once. */
+	/** Recognizes canonical names and existing physical aliases for evidence inclusion checks. */
 	private static boolean sameFile(final String a, final String b){
 		assert(a!=null && b!=null) : "The evidence inclusion check requires two real file names.";
-		try{return new File(a).getCanonicalFile().equals(new File(b).getCanonicalFile());}
-		catch(IOException e){throw new IllegalArgumentException("Could not resolve seed evidence paths.", e);}
+		try{
+			final File first=new File(a).getCanonicalFile(), second=new File(b).getCanonicalFile();
+			return first.equals(second) || (first.exists() && second.exists() &&
+					Files.isSameFile(first.toPath(), second.toPath()));
+		}catch(IOException e){throw new IllegalArgumentException("Could not resolve seed evidence paths.", e);}
 	}
 
 	/*--------------------------------------------------------------*/
@@ -800,12 +815,13 @@ public final class KmerWindowDepth {
 	}
 
 	/** Flattens existing streamer batches without loading the seed library into memory. */
-	private static final class SeedCursor {
+	private static final class SeedCursor{
 		/** Host-driven FASTA parsing cannot strand a producer on a full record queue after a mismatch. */
 		SeedCursor(final String path){
 			stream=StreamerFactory.makeStreamer(FileFormat.testInput(path, FileFormat.FASTA, null, true, true),
 					null, true, -1, false, true, 0);
 		}
+		/** Starts the owned streamer before the first original-seed request. */
 		void start(){stream.start(); started=true;}
 		/** Returns the next original record, retaining terminal state after the first EOF. */
 		Read next(){
@@ -817,15 +833,20 @@ public final class KmerWindowDepth {
 			}
 			return batch.list.get(index++);
 		}
+		/** Closes a started streamer and returns its error flag; an unstarted cursor returns false. */
 		boolean close(){return started && ReadWrite.closeStream(stream);}
+		/** Owned original-seed reader, advanced only by this cursor. */
 		private final Streamer stream;
+		/** Current borrowed batch; replaced when all its records have been consumed. */
 		private ListNum<Read> batch;
+		/** Index of the next record in the current batch. */
 		private int index;
+		/** Whether startup completed and whether terminal EOF has been observed, respectively. */
 		private boolean started, finished;
 	}
 
 	/** Streams an existing Hollow actual-floor1 decision table, never count evidence. */
-	private static final class CandidateCursor {
+	private static final class CandidateCursor{
 		/** Validates the native self/backward report schema before any output is opened. */
 		CandidateCursor(final String path){
 			file=ByteFile.makeByteFile(path, true);
@@ -886,9 +907,13 @@ public final class KmerWindowDepth {
 		void requireEnd(){
 			if(file.nextLine()!=null){throw new IllegalArgumentException("Hollow candidates contain more rows than saved queries.");}
 		}
+		/** Closes the owned candidate reader and returns its error flag. */
 		boolean close(){return file.close();}
+		/** Owned candidate report, already positioned after its validated header. */
 		private final ByteFile file;
+		/** Reused parser for the current thirteen-column candidate row. */
 		private final LineParser1 lp=new LineParser1('\t');
+		/** Complete Solid seed depth, or -1 until a qualifying backward candidate is measured. */
 		int solidDepth=-1;
 	}
 
@@ -1315,7 +1340,8 @@ public final class KmerWindowDepth {
 
 	/** Reuses observed endpoint anchors at another table span, without changing their bases.
 	 * The extra base on each arm preserves one-step neighbor queries. All synthetic A bases
-	 * remain strictly inside the ignored interior, even after either one-base shift. */
+	 * remain strictly inside the ignored interior, even after either one-base shift.
+	 * Mutates caller-owned scratch without allocation; rebuilding costs O(word.kbig*word.mult). */
 	public static void setHollowQuery(final Kmer word, final byte[] bases, final int start, final int span){
 		if(!word.hollow || word.kbig<66 || span<66 || start<0 || start>bases.length-span){
 			throw new IllegalArgumentException("Alternate-span queries require valid bounds and two nonoverlapping33bp contexts.");
@@ -1338,29 +1364,50 @@ public final class KmerWindowDepth {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Reference/scaffold selection, tabular output, saved-query input, optional
+	 * trimmed-sequence output and original self-counted seed input, respectively. */
 	private String reference, scaffold, output, queries, sequenceOutput, selfSeeds;
 	/** Explicit original FASTQ for the optional read-only Solid protection table. */
 	private String pathShortReads;
 	/** Exact original-read support geometry; the default preserves the Solid64 diagnostic. */
 	private int pathShortK=64;
-	/** Two-pass singleton removal preserves the <=1 class; filtered zero is not exact absence. */
+	/** Two-pass singleton removal preserves the &lt;=1 class; filtered zero is not exact absence. */
 	private boolean pathShortPrefilter=false;
+	/** Requested reference kmer-end intervals, each a one-based inclusive pair. */
 	private final ArrayList<int[]> regions=new ArrayList<int[]>();
+	/** Owned primary Solid/Hollow counts; queries never insert evidence. */
 	private final KmerTableSetU tables;
+	/** Optional owned Solid support counts, absent when no short-key policy needs them. */
 	private final KmerTableSetU shortTables;
+	/** Optional owned Hollow counts at pathSourceK, from the original evidence inputs. */
 	private final KmerTableSetU sourceTables;
+	/** Effective primary table geometry in bases, taken from tables.kbig. */
 	private final int k;
+	/** Observed query span in bases; a zero argument is replaced with k during construction. */
 	private int querySpan=0;
+	/** First saved-window end coordinate (one-based); zero leaves that reporting mode off. */
 	private int queryStart=0;
+	/** Preserved seed length in bases, dominance ratio and minimum supporting count. */
 	private int pathSeedLength=0, pathRatio=4, pathSupport=3;
+	/** Tests k+1 then k-1 spacing; rolls a later hard conflict back to the earliest
+	 * same-spacing ambiguity; or stops at ambiguity immediately, respectively.
+	 * Rollback and immediate branch stopping are mutually exclusive. */
 	private boolean pathBothSpans=false, pathRollback=false, pathBranchStop=false;
+	/** Stops when a positive chosen-key count comes entirely from the matching original seed. */
 	private boolean pathSelfStop=false;
+	/** Adds nominal-span predecessor dominance, a supported count drop, or a supported
+	 * count rise, respectively; each may shorten the boundary from alternate-span checks. */
 	private boolean pathBackStop=false, pathDropStop=false, pathRiseStop=false;
+	/** Adds the nominal forward-branch veto restricted to competitors observed two or three times. */
 	private boolean pathLowBranchStop=false;
+	/** Chosen support must be strictly below this multiple of the low-count competitor to stop. */
 	private int pathLowBranchRatio=32;
+	/** Exclusive Solid scan: by default requires supported context/alternative evidence against a zero-count
+	 * choice; pathSolidBranchStop additionally permits supported positive-choice ambiguity. */
 	private boolean pathSolidStop=false;
 	/** Default-off supported ambiguity modifier for the read-only Solid postpass. */
 	private boolean pathSolidBranchStop=false;
+	/** Exclusive nominal Hollow scan; zero-choice contradictions use pathSupport unless a modifier applies. */
 	private boolean pathNominalStop=false;
 	/** Separately enables ratio-dominated count1 choices in the nominal Hollow scan. */
 	private boolean pathNominalWeak=false;
@@ -1372,22 +1419,33 @@ public final class KmerWindowDepth {
 	private boolean pathRiseSource=false;
 	/** Zero disables the extra immutable Hollow table and preserves the original diagnostic. */
 	private int pathSourceK=0;
+	/** Exclusive two-table check of weak Hollow choices against supported Solid64 branch dominance. */
 	private boolean pathShortStop=false;
+	/** Replaces that short-key predicate with the fixed supported Hollow drop plus Solid64 contradiction. */
 	private boolean pathShortDrop=false;
+	/** Confirms reported Hollow backward stops at the seed boundary using weak complete Solid support. */
 	private boolean pathSolidBackStop=false;
+	/** Further requires a supported Solid64 fork before full-length Solid support recovers or the horizon ends. */
 	private boolean pathBackFork=false;
+	/** Prior candidate decisions for the Solid backward check; excluded from count inputs. */
 	private String pathCandidates;
+	/** Inclusive context/alternative floor for Solid contradictions and optional supported ambiguity. */
 	private int pathSolidSupport=2;
+	/** Backward competitor/actual ratio; drop context/chosen ratio, minimum context
+	 * count and maximum chosen count, respectively. Both ratio comparisons include equality. */
 	private int pathBackRatio=2, pathDropRatio=16, pathDropContext=32, pathDropMax=2;
 	/** Zero inherits pathSupport after parsing, preserving the original coupled default. */
 	private int pathBackActualSupport=0;
+	/** Inclusive chosen/context ratio and chosen-count floor for either enabled rise check. */
 	private int pathRiseRatio=16, pathRiseMin=32;
+	/** One query span, or the ordered k+1/k-1 pair requested by pathBothSpans. */
 	private final int[] pathSpans;
 
 	/*--------------------------------------------------------------*/
 	/*----------------           Constants          ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Stable stop-reason indices shared by evidence scratch, report labels and candidate parsing. */
 	private static final int ALTERNATE_SPAN=0, SELF_ONLY=1, BACKWARD_DOMINANCE=2, DEPTH_DROP=3, DEPTH_RISE=4;
 	private static final int LOW_FORWARD_BRANCH=5;
 	private static final int SOLID_CONTRADICTION=6;
@@ -1397,6 +1455,8 @@ public final class KmerWindowDepth {
 	private static final int NOMINAL_HOLLOW_RISE=10;
 	private static final int NOMINAL_HOLLOW_WEAK=11;
 	private static final int SOLID_AMBIGUITY=12;
+	/** Serialized reason names in code order; candidate input accepts only the original first six. */
 	private static final String[] STOP_REASONS={"alternate_span", "self_only", "backward_dominance", "depth_drop", "depth_rise", "low_forward_branch", "solid_contradiction", "solid_weak_backward_seed", "solid_seed_short_fork", "nominal_hollow_contradiction", "nominal_hollow_rise", "nominal_hollow_weak_choice", "solid_ambiguity"};
+	/** Exact thirteen-column header required by the separate Solid backward-candidate reader. */
 	private static final String CANDIDATE_SCHEMA="id\tseed_length\toriginal_length\tretained_length\tk\tquery_span\tcontext_depth\tchosen_count\tother_count\tother_base\tself_count\texternal_count\tstop_reason";
 }

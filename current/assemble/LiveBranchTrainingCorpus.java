@@ -24,9 +24,14 @@ import structures.ByteBuilder;
  * controls have separate tables so abundant controls cannot dominate checkpoint
  * selection. The upstream frozen cohort defines folds; this tool does not prove
  * homology isolation or generate reference truth.
+ * Manifest order determines output order within each partition. Validated vector
+ * lines are copied without reformatting; output provenance gets partition-local ordinals.
+ * Retains routing/census metadata by genome and streams paired vector/identity rows.
+ * Does not resample controls, reconstruct their selection, or verify reference file hashes.
+ * Errors can leave partial outputs; complete.txt is written after the other outputs close.
  * @author Fischl
  */
-public final class LiveBranchTrainingCorpus {
+public final class LiveBranchTrainingCorpus{
 
 	/** Standard config expansion and native output-stream lifecycle. */
 	public static void main(final String[] args){
@@ -62,7 +67,11 @@ public final class LiveBranchTrainingCorpus {
 	/*----------------           Methods            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Validates all small routing/terminal records, then streams each vector/provenance pair once. */
+	/**
+	 * Validates manifest and per-genome terminal/census metadata before creating output.
+	 * Vector content is validated while streaming afterward. Writes mixed-role training,
+	 * grey-only validation and separate validation controls, plus provenance and census.
+	 */
 	private void run(){
 		final ArrayList<Sample> samples=readManifest();
 		for(Sample sample : samples){preflight(sample);}
@@ -92,7 +101,12 @@ public final class LiveBranchTrainingCorpus {
 		outstream.println(summary);
 	}
 
-	/** The hash-bound upstream manifest is authoritative; TEST is deliberately not accepted here. */
+	/**
+	 * Reads exactly expected routes in manifest order, accepting train/validation only.
+	 * Requires unique genome IDs and label-directory strings; paths are not canonicalized.
+	 * Validates depth/action fields but does not retain them; reads/reference columns are
+	 * not inspected. This is routing validation, not an independent check of upstream hashes.
+	 */
 	private ArrayList<Sample> readManifest(){
 		final ArrayList<Sample> samples=new ArrayList<Sample>();
 		final ObjectIntMap<String> ids=new ObjectIntMap<String>(String.class), dirs=new ObjectIntMap<String>(String.class);
@@ -122,7 +136,12 @@ public final class LiveBranchTrainingCorpus {
 		return samples;
 	}
 
-	/** Binds full census to the exact TRAIN sampling policy or unsampled VALID export. */
+	/**
+	 * Checks successful upstream exit, four-role census and exact terminal count schema.
+	 * Training requires the recorded0.1 control fraction, frozen seed and controlLimit
+	 * quota; validation requires all available known controls. Checks metadata/count
+	 * consistency, not which identities the upstream sampler selected.
+	 */
 	private static void preflight(final Sample sample){
 		if(!Tools.testInputFiles(false, true, sample.run+"/exit_code.txt", sample.labels+"/vectors.tsv", sample.labels+"/rows.tsv")){
 			throw new IllegalArgumentException("Missing completed source files for "+sample.id);
@@ -167,10 +186,28 @@ public final class LiveBranchTrainingCorpus {
 		}
 	}
 
-	/** Streams rows and values together; sorted canonical identities prevent duplicate node weighting. */
+	/**
+	 * Streams paired rows in strictly increasing canonical-word order within this genome.
+	 * Requires binary labels, finite nonnegative features and matching K/target metadata.
+	 * Copies vector bytes unchanged and numbers emitted rows within each output partition.
+	 * Unknown/hard/excluded nodes remain census metadata, not emitted trainer examples.
+	 * Final class/population reconciliation occurs after rows have already been written.
+	 * Failed metadata acquisition closes the vector input and preserves the original
+	 * unchecked failure, with any vector-cleanup failure suppressed.
+	 */
 	private static void convert(final Sample sample, final ByteStreamWriter[] writers, final long[] emitted){
 		final ByteFile data=ByteFile.makeByteFile(sample.labels+"/vectors.tsv", true);
-		final ByteFile meta=ByteFile.makeByteFile(sample.labels+"/rows.tsv", true);
+		final ByteFile meta;
+		try{meta=ByteFile.makeByteFile(sample.labels+"/rows.tsv", true);}
+		catch(RuntimeException|Error failure){
+			// ASM024: the vector input is owned before metadata acquisition can fail.
+			try{
+				if(data.close()){failure.addSuppressed(new IllegalStateException("Live training vector input cleanup failed."));}
+			}catch(RuntimeException|Error cleanup){
+				if(cleanup!=failure){failure.addSuppressed(cleanup);}
+			}
+			throw failure;
+		}
 		final LineParser1 dp=new LineParser1('\t'), mp=new LineParser1('\t');
 		final ByteBuilder word=new ByteBuilder(), previous=new ByteBuilder(), out=new ByteBuilder();
 		final long[][] counts=new long[2][2];
@@ -221,7 +258,8 @@ public final class LiveBranchTrainingCorpus {
 	/*----------------        Static Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Exact canonical DNA identity, independent of the model's numeric features. */
+	/** Requires K uppercase ACGT bases ordered no greater than their reverse complement.
+	 * Tests identity syntax/orientation, not whether that word occurs in a reference. */
 	private static boolean canonical(final ByteBuilder word, final int k){
 		if(word.length()!=k){return false;}
 		int order=0;
@@ -277,17 +315,23 @@ public final class LiveBranchTrainingCorpus {
 	/*--------------------------------------------------------------*/
 
 	/** Cold routing metadata and full role counts for one genome, never retained vector rows. */
-	private static final class Sample {
+	private static final class Sample{
 		/** Binds the immutable selected-manifest route before reading any vector. */
 		Sample(final String id_, final boolean train_, final int k_, final long seed_, final String run_, final String labels_){
 			id=id_; run=run_; labels=labels_;
 			train=train_; k=k_; seed=seed_;
 		}
+		/** Selected genome ID, completed run directory and labeled-export directory. */
 		final String id, run, labels;
+		/** Training rows share one table; validation rows are separated by role. */
 		final boolean train;
+		/** Selected k-mer length, validated in[24,127]. */
 		final int k;
+		/** Frozen upstream control-sampling seed; no sampling is performed here. */
 		final long seed;
+		/** Full upstream role counts in ROLES order, with safe/unsafe/unknown columns. */
 		final long[][] census=new long[4][3];
+		/** Known grey rows and retained known controls expected from terminal metadata. */
 		long grey, controls;
 	}
 
@@ -295,11 +339,18 @@ public final class LiveBranchTrainingCorpus {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Diagnostic stream closed by main. */
 	private final PrintStream outstream;
+	/** Selected routing manifest and required new output directory. */
 	private final String input, output;
+	/** Expected manifest genome count; defaults to848 unless overridden. */
 	private int expected=848;
-	static final String SCHEMA="#schema=livebranch12-v1; genome folds fixed; validation candidates and controls separated";
-	static final String MANIFEST_HEADER="genome\tfold\tk\tdepth\tseed\taction\trun\tlabels\treads\treference";
+	/** Exact trainer schema consumed by the live-branch evaluator and fixtures. */
+	public static final String SCHEMA="#schema=livebranch12-v1; genome folds fixed; validation candidates and controls separated";
+	/** Exact ten-column input header; not every descriptive column is consumed. */
+	public static final String MANIFEST_HEADER="genome\tfold\tk\tdepth\tseed\taction\trun\tlabels\treads\treference";
+	/** Output table names and emitted-ordinal counter order. */
 	private static final String[] PARTITIONS={"train", "validation", "validation_controls"};
+	/** Upstream census order, including roles excluded from trainer rows. */
 	private static final String[] ROLES={"grey", "hard", "control", "excluded"};
 }

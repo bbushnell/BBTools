@@ -11,7 +11,7 @@ import ukmer.Kmer;
 /** Checks the rolling short-word ring against independently rebuilt windows.
  * No count table, reference truth or production extension is needed for these units.
  * @author Brian Bushnell, Fischl */
-public final class ShortKmerPathSupportTest {
+public final class ShortKmerPathSupportTest{
 
 	/** Exercises geometry, both orientations, ring wrap, reset and support boundaries. */
 	public static void main(final String[] args){
@@ -184,5 +184,6 @@ public final class ShortKmerPathSupportTest {
 		checks++;
 	}
 
+	/** Number of explicit unit assertions reached. */
 	private static int checks;
 }

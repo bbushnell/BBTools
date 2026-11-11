@@ -10,12 +10,20 @@ import shared.Tools;
 import structures.ByteBuilder;
 import ukmer.Kmer;
 
-/** Checks fixed-anchor span queries against independent base-level fingerprints.
+/** Checks fixed-anchor span queries with direct base-level endpoint encoding and
+ * selected path-predicate boundaries. Fingerprints reuse the production hash mixers;
+ * this tests query geometry rather than independently validating those mixers.
+ * Optional sequence/table fixtures require separate native consumer checks.
  * @author Brian Bushnell, Fischl */
-public final class KmerWindowDepthTest {
+public final class KmerWindowDepthTest{
 
-	/** Covers word boundaries, reverse complements, canonical ties and all eight neighbors. */
+	/** Covers word boundaries, reverse complements, canonical ties and all eight neighbors.
+	 * Sets Kmer.PACKED=true without restoring it; intended for an isolated test JVM.
+	 * Removes recognized JVM flags before selecting the first remaining argument as
+	 * the optional fixture destination; later arguments are unused. The caller supplies
+	 * the directory; this main does not create it. */
 	public static void main(final String[] args){
+		final String[] positional=SameKJoinTest.removeJavaFlags(args);
 		Kmer.PACKED=true;
 		final Random random=new Random(42121);
 		for(int span : new int[]{66, 72, 96, 124, 127, 128, 129, 160}){
@@ -77,7 +85,7 @@ public final class KmerWindowDepthTest {
 		seedFork();
 		shortDrop();
 		predecessorOrientation(random);
-		if(args.length>0){writeFixtures(args[0]);}
+		if(positional.length>0){writeFixtures(positional[0]);}
 		System.out.println("KMER_WINDOW_SPAN_TEST_PASS checks="+checks);
 	}
 
@@ -295,8 +303,8 @@ public final class KmerWindowDepthTest {
 	/** Separates a supported transition from the false short-key stops seen in the panel. */
 	private static void shortDrop(){
 		check(KmerWindowDepth.rejectShortDrop(148, 13, 44, 0, 44), "The diagnosed wrong g0772 choice has both independent signals.");
-		for(int[] pair : new int[][]{{5,6},{18,17},{24,24},{19,19},{14,15},{15,15},{23,23},
-				{14,14},{15,13},{19,17},{17,17},{95,94},{14,14},{21,20}}){
+		for(int[] pair : new int[][]{{5, 6}, {18, 17}, {24, 24}, {19, 19}, {14, 15}, {15, 15}, {23, 23},
+				{14, 14}, {15, 13}, {19, 17}, {17, 17}, {95, 94}, {14, 14}, {21, 20}}){
 			check(!KmerWindowDepth.rejectShortDrop(pair[0], pair[1], 44, 0, 44),
 					"Every observed false stopping transition must abstain even with strong short contradiction.");
 		}
@@ -332,7 +340,9 @@ public final class KmerWindowDepthTest {
 		}
 	}
 
-	/** Writes exact-count CLI fixtures; each evidence record contains just one nominal key. */
+	/** Writes seeds, queries and controlled count evidence beneath the supplied directory.
+	 * Exact-span evidence records contribute one nominal key; longer queries are separate
+	 * consumer inputs. Sequential file writes can leave partial fixtures on failure. */
 	private static void writeFixtures(final String directory){
 		assert(directory!=null && !directory.isEmpty()) : "The test launcher supplies a fresh fixture directory, never an implicit working path.";
 		final Random random=new Random(421914);
@@ -772,7 +782,8 @@ public final class KmerWindowDepthTest {
 		}
 	}
 
-	/** Encodes endpoints directly, without using the synthetic-word construction. */
+	/** Encodes endpoints directly without synthetic-word construction, while sharing
+	 * Tools' hash mixers and the requested K salt with the production fingerprint scheme. */
 	private static void checkHash(final Kmer word, final byte[] query, final int k){
 		assert(query.length>=64) : "The independent oracle reads two32bp endpoints.";
 		final byte[] rc=query.clone();
@@ -801,5 +812,6 @@ public final class KmerWindowDepthTest {
 		checks++;
 	}
 
+	/** Successful always-on checks; repeated main calls in one JVM accumulate this counter. */
 	private static int checks;
 }

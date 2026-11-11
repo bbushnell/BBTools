@@ -12,11 +12,18 @@ import structures.LongList;
  * Finds closed 2-by-2 repeat junctions and records reads that traverse both
  * boundaries.  Topology alone never authorizes a graph change: an X is
  * resolvable only when both inferred paths have separate, nonconflicting
- * read support.
+ * read support. Candidate discovery snapshots an initially stable graph; worker
+ * threads can then vote in parallel, and resolution reads those votes only
+ * after the workers have joined.
  */
-class ReadThreadedXResolver {
+public class ReadThreadedXResolver{
 
-	ReadThreadedXResolver(ArrayList<Contig> contigs_, HashMap<Integer, ArrayList<Edge>> destMap_,
+	/*--------------------------------------------------------------*/
+	/*----------------        Initialization        ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Allocates one candidate slot per stable contig index before read traversal. */
+	public ReadThreadedXResolver(ArrayList<Contig> contigs_, HashMap<Integer, ArrayList<Edge>> destMap_,
 			int k_, int minSupport_, int maxNoise_){
 		contigs=contigs_;
 		destMap=destMap_;
@@ -26,8 +33,12 @@ class ReadThreadedXResolver {
 		candidates=new Candidate[contigs.size()];
 	}
 
+	/*--------------------------------------------------------------*/
+	/*----------------           Methods            ----------------*/
+	/*--------------------------------------------------------------*/
+
 	/** Finds structurally closed X junctions without changing the graph. */
-	int findCandidates(){
+	public int findCandidates(){
 		int found=0;
 		for(int i=0; i<contigs.size(); i++){
 			final Contig mid=contigs.get(i);
@@ -41,12 +52,13 @@ class ReadThreadedXResolver {
 	}
 
 	/** Records every consecutive owned-contig triple in one read path. */
-	void observePath(IntList path){
+	public void observePath(IntList path){
 		observePath(path, new LongList(4));
 	}
 
-	/** Records each candidate/path combination at most once per physical read. */
-	void observePath(IntList path, LongList seen){
+	/** Records each candidate/path once for the shared physical-read or mate-pair lifetime.
+	 * The caller shares {@code seen} across both mates, then clears it for the next fragment. */
+	public void observePath(IntList path, LongList seen){
 		for(int i=2; i<path.size; i++){
 			final int a=path.array[i-2], mid=path.array[i-1], b=path.array[i];
 			if(a!=mid && mid!=b && a!=b){
@@ -60,11 +72,12 @@ class ReadThreadedXResolver {
 	}
 
 	/** Records one traversal in either read orientation. */
-	void observe(final int a, final int mid, final int b){
+	public void observe(final int a, final int mid, final int b){
 		final long key=observationKey(a, mid, b);
 		if(key>=0){increment(key);}
 	}
 
+	/** Encodes a supported left/middle/right traversal, accepting either orientation. */
 	private long observationKey(final int a, final int mid, final int b){
 		if(mid<0 || mid>=candidates.length){return -1;}
 		final Candidate c=candidates[mid];
@@ -77,23 +90,25 @@ class ReadThreadedXResolver {
 		return li>=0 && ri>=0 ? (((long)mid)<<2)|((li<<1)|ri) : -1;
 	}
 
+	/** Adds one read-supported vote to the prevalidated support matrix slot. */
 	private void increment(final long key){
 		final Candidate c=candidates[(int)(key>>>2)];
 		synchronized(c){c.support[(int)(key&3)]++;}
 	}
 
 	/** Returns the unique supported pairing, or -1 when evidence is insufficient/ambiguous. */
-	int pairing(final int mid){
+	public int pairing(final int mid){
 		if(mid<0 || mid>=candidates.length || candidates[mid]==null){return -1;}
 		return candidates[mid].pairing(minSupport, maxNoise);
 	}
 
-	long support(final int mid, final int leftIndex, final int rightIndex){
+	/** Returns the exact vote count for one left/right pairing around a middle contig. */
+	public long support(final int mid, final int leftIndex, final int rightIndex){
 		return candidates[mid].support[(leftIndex<<1)|rightIndex];
 	}
 
 	/** Resolves every nonoverlapping X with a unique, nonconflicting read-supported pairing. */
-	int resolveSupported(){
+	public int resolveSupported(){
 		int resolved=0;
 		for(Candidate c : candidates){
 			if(c!=null && c.pairing(minSupport, maxNoise)>=0 && resolve(c)){resolved++;}
@@ -102,21 +117,26 @@ class ReadThreadedXResolver {
 		return resolved;
 	}
 
-	Candidate candidate(final int mid){return candidates[mid];}
+	/** Returns the structural candidate registered for the middle contig index. */
+	public Candidate candidate(final int mid){return candidates[mid];}
+	/** Returns the contig index span covered by the candidate table. */
 	int contigCount(){return candidates.length;}
 
+	/** Sums recorded votes assigned to candidate pairings, not rejected raw traversals. */
 	long observations(){
 		long count=0;
 		for(Candidate c : candidates){if(c!=null){count+=c.totalSupport();}}
 		return count;
 	}
 
+	/** Counts recorded candidate snapshots with evidence; current topology is not rechecked. */
 	int candidatesWithEvidence(){
 		int count=0;
 		for(Candidate c : candidates){if(c!=null && c.totalSupport()>0){count++;}}
 		return count;
 	}
 
+	/** Counts recorded candidate snapshots with one supported pairing; {@link #resolve} revalidates. */
 	int resolvableCandidates(){
 		int count=0;
 		for(Candidate c : candidates){
@@ -125,6 +145,7 @@ class ReadThreadedXResolver {
 		return count;
 	}
 
+	/** Builds a candidate only for a closed two-left by two-right X topology. */
 	private Candidate makeCandidate(final Contig mid){
 		if(mid==null || mid.used() || mid.associate()
 				|| mid.leftEdgeCount()!=2 || mid.rightEdgeCount()!=2){return null;}
@@ -140,6 +161,7 @@ class ReadThreadedXResolver {
 		return new Candidate(mid.id, left, right);
 	}
 
+	/** Splices the two supported X paths if the graph still matches the candidate. */
 	private boolean resolve(final Candidate c){
 		final Contig mid=contigs.get(c.middle);
 		if(mid.used() || mid.associate()){return false;}
@@ -208,12 +230,14 @@ class ReadThreadedXResolver {
 		return true;
 	}
 
+	/** Reverses any temporary flips made while aligning candidate spokes. */
 	private void restoreOrientations(final Contig[] left, final Contig[] right,
 			final boolean[] flippedLeft, final boolean[] flippedRight){
 		for(int i=1; i>=0; i--){if(flippedRight[i]){right[i].flip(destMap.get(right[i].id));}}
 		for(int i=1; i>=0; i--){if(flippedLeft[i]){left[i].flip(destMap.get(left[i].id));}}
 	}
 
+	/** Rejects exterior edges that point back into the X or into retired contigs. */
 	private boolean exteriorSafe(final Contig node, final boolean exteriorRight, final Candidate x){
 		final ArrayList<Edge> exterior=exteriorRight ? node.rightEdges : node.leftEdges;
 		if(exterior==null){return true;}
@@ -226,10 +250,12 @@ class ReadThreadedXResolver {
 		return true;
 	}
 
+	/** Returns whether a contig id belongs to the candidate being resolved. */
 	private static boolean inCandidate(final int id, final Candidate c){
 		return id==c.middle || id==c.left[0] || id==c.left[1] || id==c.right[0] || id==c.right[1];
 	}
 
+	/** Verifies that an oriented spoke sequence can be appended without a mismatch. */
 	private boolean validForwardEdge(final Contig source, final Contig target, final Edge e){
 		if(e==null || e.origin!=source.id || e.destination!=target.id || e.orientation!=1
 				|| source.length()<k || target.length()<k || e.length<1
@@ -250,6 +276,7 @@ class ReadThreadedXResolver {
 		return true;
 	}
 
+	/** Materializes the merged left-middle-right contig bases for one resolved arm. */
 	private byte[] makePath(final Contig left, final Edge entry, final Contig mid,
 			final Edge exit, final Contig right){
 		bb.clear();
@@ -260,6 +287,7 @@ class ReadThreadedXResolver {
 		return bb.toBytes();
 	}
 
+	/** Estimates merged coverage from retained terminal contigs and fractional X support. */
 	private float pathCoverage(final Contig left, final Edge entry, final Contig mid,
 			final Edge exit, final Contig right, final int pathLength, final float middleFraction){
 		final double sum=left.coverage*(left.length()-k+1)
@@ -269,6 +297,7 @@ class ReadThreadedXResolver {
 		return (float)(sum/(pathLength-k+1));
 	}
 
+	/** Installs merged sequence, coverage, and terminal metadata on the left product. */
 	private static void setProduct(final Contig left, final Contig right, final Contig mid,
 			final byte[] bases, final float coverage){
 		left.bases=bases;
@@ -283,6 +312,7 @@ class ReadThreadedXResolver {
 		left.gc=left.hh=left.caga=-1;
 	}
 
+	/** Moves incoming exterior edges from the right contig being retired to its product. */
 	private void redirectExterior(final int from, final int to, final boolean destRight){
 		final ArrayList<Edge> old=destMap.get(from);
 		if(old==null){return;}
@@ -302,6 +332,7 @@ class ReadThreadedXResolver {
 		if(moved!=null){destMap.put(to, moved);}
 	}
 
+	/** Recreates inbound edge lists from all live contig-owned edges. */
 	private void rebuildDestMap(){
 		destMap.clear();
 		for(Contig c : contigs){
@@ -311,6 +342,7 @@ class ReadThreadedXResolver {
 		}
 	}
 
+	/** Registers each edge under its destination contig. */
 	private void addInbound(final ArrayList<Edge> edges){
 		if(edges==null){return;}
 		for(Edge e : edges){
@@ -320,15 +352,18 @@ class ReadThreadedXResolver {
 		}
 	}
 
+	/** Finds the edge to the requested destination in a two-spoke side. */
 	private static int indexOfEdge(final ArrayList<Edge> edges, final int destination){
 		for(int i=0; i<edges.size(); i++){if(edges.get(i).destination==destination){return i;}}
 		return -1;
 	}
 
+	/** Returns whether two two-neighbor arrays contain the same ids in either order. */
 	private static boolean sameNeighbors(final int[] a, final int[] b){
 		return (a[0]==b[0] && a[1]==b[1]) || (a[0]==b[1] && a[1]==b[0]);
 	}
 
+	/** Verifies that a spoke endpoint closes directly and uniquely back to the X. */
 	private boolean validClosedNeighbor(final Contig mid, final Edge forward, final boolean midRight){
 		if(forward==null || forward.origin!=mid.id || forward.sourceRight()!=midRight
 				|| forward.destination<0 || forward.destination>=contigs.size()){return false;}
@@ -343,6 +378,7 @@ class ReadThreadedXResolver {
 				&& reverse.length==forward.length && reverse.depth>0 && forward.depth>0;
 	}
 
+	/** Counts inbound edges that enter one side of the destination contig. */
 	private int countInbound(final int id, final boolean destRight){
 		final ArrayList<Edge> inbound=destMap.get(id);
 		if(inbound==null){return 0;}
@@ -351,16 +387,23 @@ class ReadThreadedXResolver {
 		return count;
 	}
 
+	/** Extracts the two destination ids from a candidate side. */
 	private static int[] neighborIDs(final ArrayList<Edge> edges){
 		if(edges==null || edges.size()!=2){return null;}
 		return new int[]{edges.get(0).destination, edges.get(1).destination};
 	}
 
+	/** Returns a two-entry array index, or -1 when the id is absent. */
 	private static int indexOf(final int[] array, final int value){
 		return array[0]==value ? 0 : array[1]==value ? 1 : -1;
 	}
 
-	static final class Candidate {
+	/*--------------------------------------------------------------*/
+	/*----------------        Inner Classes         ----------------*/
+	/*--------------------------------------------------------------*/
+
+	public static final class Candidate{
+		/** Records the middle contig and its two neighbors on each side. */
 		Candidate(int middle_, int[] left_, int[] right_){
 			middle=middle_;
 			left=left_;
@@ -380,18 +423,33 @@ class ReadThreadedXResolver {
 			return diagonal==crossed ? -1 : diagonal ? 0 : 1;
 		}
 
+		/** Sums all four left/right support cells. */
 		long totalSupport(){return support[0]+support[1]+support[2]+support[3];}
 
+		/** Middle contig id serving as the X center. */
 		final int middle;
+		/** Two left-neighbor ids and two right-neighbor ids in edge-list order. */
 		final int[] left, right;
+		/** Read support for pairings 00, 01, 10 and 11. */
 		final long[] support=new long[4];
 	}
 
+	/*--------------------------------------------------------------*/
+	/*----------------            Fields            ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Live contig table indexed by contig id. */
 	private final ArrayList<Contig> contigs;
+	/** Inbound edge map keyed by edge destination id. */
 	private final HashMap<Integer, ArrayList<Edge>> destMap;
+	/** Candidate indexed by middle contig id; null for non-X contigs. */
 	private final Candidate[] candidates;
+	/** K-mer length used to verify spoke overlaps. */
 	private final int k;
+	/** Minimum traversal support required for each accepted path. */
 	private final int minSupport;
+	/** Maximum support permitted for each rejected cross path. */
 	private final int maxNoise;
+	/** Scratch buffer for merged contig bases. */
 	private final ByteBuilder bb=new ByteBuilder();
 }

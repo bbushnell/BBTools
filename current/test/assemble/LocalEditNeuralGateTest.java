@@ -1,0 +1,71 @@
+package test.assemble;
+
+import assemble.HomopolymerIndelProposal;
+import assemble.LocalEditNeuralFeatures;
+import assemble.LocalEditNeuralGate;
+import assemble.LocalSingleBaseEdit;
+import ml.CellNet;
+import ml.CellNetParser;
+import ukmer.Kmer;
+
+/** Frozen-model score parity for the legacy 28-input feature vector over a literal
+ * complete count surface. The direct vector has 28 entries and this fixture does
+ * not call beginRead; it does not support the gate's 39-input depth-aware mode.
+ * See {@link test.assemble.LocalEditReadDepthTest} for 39-input score and read-depth cache checks,
+ * and {@link test.assemble.LocalEditNeuralIntegrationTest} for the generated39 integration mode.
+ */
+public final class LocalEditNeuralGateTest{
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Initialization        ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Static fixture only. */
+	private LocalEditNeuralGateTest(){}
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Static Methods        ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Compares gate and directly loaded model scores, then checks undefined-evidence
+	 * abstention. The cutoff is validated but accept/reject policy is not tested here.
+	 * @param args Three positional values: literal model path, lowercase 20-character
+	 * SHA80, and finite cutoff in [0,1]. The model must have 28 inputs and one output;
+	 * the supplied path is also passed directly to CellNetParser for the comparison.
+	 */
+	public static void main(final String[] args){
+		if(args.length!=3){throw new IllegalArgumentException("Expected model path, SHA80, and cutoff.");}
+		final float cutoff=Float.parseFloat(args[2]);
+		final CellNet gateNet=LocalEditNeuralGate.loadFrozen(args[0], args[1], cutoff);
+		final HomopolymerIndelProposal.CountLookup lookup=new HomopolymerIndelProposal.CountLookup(){
+			@Override public int count(final Kmer key){return 5;}
+		};
+		final LocalEditNeuralGate gate=new LocalEditNeuralGate(62, lookup, gateNet, cutoff);
+		final byte[] bases=new byte[140];
+		final byte[] alphabet={'A', 'C', 'G', 'T'};
+		for(int i=0; i<bases.length; i++){bases[i]=alphabet[i&3];}
+		final int position=70, original=LocalEditNeuralFeatures.baseIndex(bases[position]);
+		final int candidate=LocalEditNeuralFeatures.candidateIndex(original, LocalEditNeuralFeatures.SUBSTITUTION, 0);
+		final float observed=gate.score(bases, position, LocalSingleBaseEdit.Operation.SUBSTITUTION, (byte)'A');
+		if(!Float.isFinite(observed) || gate.probeQueries!=8 || gate.windowQueries!=3 || gate.evaluations!=1){
+			throw new AssertionError("Complete 3+1+4 evidence must produce one finite score with eleven lookups.");
+		}
+		final int[] depths={5, 5, 5, 5, 5, 5, 5, 5};
+		final double[] features=new double[LocalEditNeuralFeatures.FEATURE_COUNT];
+		final float[] input=new float[LocalEditNeuralFeatures.FEATURE_COUNT];
+		if(!LocalEditNeuralFeatures.fill(features, 5, depths, candidate, original, 5, 5, 1, false, bases.length, position) ||
+				!LocalEditNeuralFeatures.toModelInput(features, input)){
+			throw new AssertionError("Literal complete feature vector was rejected.");
+		}
+		final CellNet direct=CellNetParser.load(args[0], false); direct.simdFF=true;
+		final float expected=direct.applyInput(input).feedForwardDense();
+		if(Float.floatToIntBits(observed)!=Float.floatToIntBits(expected)){
+			throw new AssertionError("Runtime gate score differs from the frozen vector path: "+observed+" != "+expected);
+		}
+		bases[39]='N';
+		if(!Float.isNaN(gate.score(bases, position, LocalSingleBaseEdit.Operation.SUBSTITUTION, (byte)'A'))){
+			throw new AssertionError("Undefined central evidence must abstain.");
+		}
+		System.out.println("LOCAL_EDIT_NEURAL_GATE_TEST_OK score="+observed);
+	}
+}

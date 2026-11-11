@@ -10,10 +10,22 @@ import ml.CellNetParser;
 import parse.LineParser1;
 import structures.ByteBuilder;
 
-/** Streams all candidate vectors into a truth-blind NN decision. @author Fischl */
-final class SameKJoinModelGate {
+/** Streams all candidate vectors into a truth-blind NN decision.
+ * A serial caller scores candidates in source order, validates the remaining
+ * controls with finish, then closes the native streams. Model/parser/vector/output
+ * scratch belongs to this instance; it is not shared between concurrent callers.
+ * Score rows are emitted during candidate validation, before final trailer checks.
+ * The gate neither constructs graph edges nor establishes reference truth.
+ * @author Fischl
+ */
+final class SameKJoinModelGate{
 
-	/** Loads one model and validates feature metadata before starting the score trace. */
+	/** Loads one 27-input/one-output model and validates metadata before starting the
+	 * score trace. Paths must already be checked by the caller. Encoded K comes from k_;
+	 * metadata supplies unique, observations and squares for the population means.
+	 * Every candidate/control row must match that encoded K and those means.
+	 * Failed setup closes acquired streams, retaining the original unchecked failure
+	 * with cleanup failures suppressed. Partial output files are not removed. */
 	SameKJoinModelGate(final String features, final String model, final String outscore, final int k_, final float cutoff_){
 		if(k_<24 || k_>127 || !Float.isFinite(cutoff_) || cutoff_<0 || cutoff_>1){
 			throw new IllegalArgumentException("This diagnostic model domain is K24–127; supply cutoff in[0,1].");
@@ -24,6 +36,7 @@ final class SameKJoinModelGate {
 		net.simdFF=false;// Matches validation's layer setting, not a promise of scalar dot products.
 		// Vector.fma independently follows simdfma; set it false for exact scalar trace parity.
 		input=ByteFile.makeByteFile(features, true);
+		ByteStreamWriter acquired=null;
 		try{
 			final byte[] first=input.nextLine();
 			if(first==null){throw new IllegalArgumentException("Missing feature metadata.");}
@@ -42,17 +55,25 @@ final class SameKJoinModelGate {
 			final ByteBuilder header=new ByteBuilder("kind\tevent");
 			for(int i=0; i<27; i++){header.tab().append('f').append(i);}
 			if(!Arrays.equals(input.nextLine(), header.toBytes())){throw new IllegalArgumentException("Wrong feature columns.");}
-		}catch(RuntimeException failure){input.close(); throw failure;}
-		output=new ByteStreamWriter(outscore, false, false, false);
-		output.start();
-		output.print("event\tk\tscore_bits\tscore\taccepted\n");
+			acquired=new ByteStreamWriter(outscore, false, false, false);
+			acquired.start();
+			acquired.print("event\tk\tscore_bits\tscore\taccepted\n");
+		}catch(RuntimeException|Error failure){
+			closeAfterConstructionFailure(input, acquired, failure);
+			throw failure;
+		}
+		output=acquired;
 	}
 
 	/*--------------------------------------------------------------*/
 	/*----------------           Methods            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Scores every candidate, including those with no resolved reference label. */
+	/** Consumes and scores the next candidate, including those without resolved truth.
+	 * Consumes the input row and queues its score-trace row before returning.
+	 * @param event One-based event identity already checked by the merger
+	 * @return Whether the finite probability meets the inclusive cutoff
+	 */
 	boolean accept(final int event){
 		assert(event>0) : "Candidate event IDs are one-based and checked in source order by the merger.";
 		readVector(input.nextLine(), "candidate", event);
@@ -64,7 +85,9 @@ final class SameKJoinModelGate {
 		return accepted;
 	}
 
-	/** Validates unused control rows and the exact trailer; controls never create graph edges. */
+	/** Validates all remaining control rows and the single final trailer after the
+	 * caller has scored every candidate. Controls are not evaluated by the model.
+	 * Does not close either stream; the caller still invokes close on failure. */
 	void finish(){
 		int controls=0;
 		boolean trailer=false;
@@ -101,12 +124,35 @@ final class SameKJoinModelGate {
 		}
 	}
 
-	/** Closes both native streams; the merger refuses to emit FASTA if either fails. */
+	/** Closes input and joins the score writer; does not consume or validate remaining rows.
+	 * @return True if either native close reports an I/O error, causing the merger to refuse FASTA
+	 */
 	boolean close(){return input.close() | output.poisonAndWait();}
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Static Methods        ----------------*/
 	/*--------------------------------------------------------------*/
+
+	/** Attempts both acquired resources, preserving the primary failure and its cause.
+	 * A writer can start before start() throws; use actual state, never return status.
+	 * NEW writers need direct close because poisonAndWait waits for worker startup.
+	 * Resources inside a writer constructor that never returns remain its responsibility. */
+	private static void closeAfterConstructionFailure(final ByteFile input, final ByteStreamWriter writer, final Throwable failure){
+		try{
+			if(input.close()){failure.addSuppressed(new IllegalStateException("Model-gate feature input cleanup failed."));}
+		}catch(RuntimeException|Error cleanup){
+			if(cleanup!=failure){failure.addSuppressed(cleanup);}
+		}finally{
+			if(writer!=null){
+				try{
+					final boolean failed=writer.getState()==Thread.State.NEW ? writer.closeBeforeStart() : writer.poisonAndWait();
+					if(failed){failure.addSuppressed(new IllegalStateException("Model-gate score output cleanup failed: "+writer.fname));}
+				}catch(RuntimeException|Error cleanup){
+					if(cleanup!=failure){failure.addSuppressed(cleanup);}
+				}
+			}
+		}
+	}
 
 	/** Checks a named long field from the producer's cold metadata. */
 	private static long number(final String text, final String prefix){
@@ -126,12 +172,20 @@ final class SameKJoinModelGate {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Word length expected in this feature stream, in bases. */
 	private final int k;
+	/** Acceptance cutoff, K encoded from k_, and metadata-derived unique/observation-weighted means. */
 	private final float cutoff, encodedK, mean, weighted;
+	/** Owned inference network; layer SIMD is disabled but shared FMA remains independent. */
 	private final CellNet net;
+	/** Owned feature stream, positioned after its metadata and column header at construction. */
 	private final ByteFile input;
+	/** Owned asynchronous score-trace writer, closed after finish or a processing failure. */
 	private final ByteStreamWriter output;
+	/** Reused normalized vector for the current candidate or unscored control row. */
 	private final float[] vector=new float[27];
+	/** Reused parser over the current borrowed input line. */
 	private final LineParser1 fields=new LineParser1('\t');
+	/** Serial score-row formatting scratch. */
 	private final ByteBuilder buffer=new ByteBuilder();
 }

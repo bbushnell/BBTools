@@ -2,14 +2,22 @@ package test.assemble;
 
 import java.nio.charset.StandardCharsets;
 
-/** Independent tiny cases for origin offsets, immutable prefixes and suffix-only accuracy.
- * @author Brian Bushnell, Fischl */
-public final class HollowExtensionTruthTest {
+/**
+ * Independent tiny cases for origin offsets, immutable prefixes, and
+ * suffix-only accuracy.
+ *
+ * @author Brian Bushnell, Fischl
+ */
+public final class HollowExtensionTruthTest{
 
-	/** Exercises scorer boundaries before it is trusted on a genome-scale output. */
+	/*--------------------------------------------------------------*/
+	/*----------------             Main             ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Exercises the coordinate scorer before trusting it on genome-scale output. */
 	public static void main(final String[] args){
 		final byte[] ref=bases("AACCGGTTAA");
-		final byte[] seed=bases("CTGG");//One mutated seed base; source positions2..5 are CCGG.
+		final byte[] seed=bases("CTGG");// One mutated seed base; source positions2..5 are CCGG.
 		final HollowExtensionTruth.Score score=new HollowExtensionTruth.Score();
 		HollowExtensionTruth.score(bases("CTGGTT"), seed, ref, 2, 2, score);
 		check(score.added==2 && score.bad==0 && score.beyond==0 && score.unknown==0);
@@ -32,7 +40,14 @@ public final class HollowExtensionTruthTest {
 		System.out.println("HOLLOW_EXTENSION_TRUTH_TEST_PASS checks=7");
 	}
 
+	/*--------------------------------------------------------------*/
+	/*----------------        Static Methods        ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Encodes fixture bases as deterministic single-byte ASCII. */
 	private static byte[] bases(final String sequence){return sequence.getBytes(StandardCharsets.US_ASCII);}
+
+	/** Keeps each scoring assertion fatal even when JVM assertions are disabled. */
 	private static void check(final boolean condition){
 		if(!condition){throw new AssertionError("Coordinate scoring fixture failed.");}
 	}

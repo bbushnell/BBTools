@@ -23,9 +23,13 @@ import structures.ByteBuilder;
  * Freezes single-K collection recipes before labels are examined. All versions
  * of a recorded source group share one fold; groups are filename-derived, not
  * verified genera. This planner never reads reference sequence or training labels.
+ * Group strings come from the supplied manifest. Sorting groups and genome IDs before
+ * seeded choices makes output independent of input row order for the same cohort.
+ * Fold proportions apply to groups, not genome/read counts. Library paths are constructed
+ * under the supplied root without checking that the root or sequence files exist.
  * @author Fischl
  */
-public final class SameKCorpusPlan {
+public final class SameKCorpusPlan{
 
 	/** Parses a native BBTools command and writes a new collection manifest. */
 	public static void main(final String[] args){
@@ -38,7 +42,12 @@ public final class SameKCorpusPlan {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Accepts a frozen Plan35 sample manifest and the existing library root. */
+	/**
+	 * Accepts a frozen Plan35 sample manifest, absolute library-root string and expected row count.
+	 * Checks the manifest input/output paths; the library root itself is not inspected.
+	 * @param args Preparser-expanded native options plus root, expected, splitseed and kseed
+	 * @param stream Borrowed diagnostic destination, closed by main when owned
+	 */
 	private SameKCorpusPlan(final String[] args, final PrintStream stream){
 		outstream=stream;
 		final Parser parser=new Parser();
@@ -71,7 +80,12 @@ public final class SameKCorpusPlan {
 	/*----------------           Methods            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Validates everything before opening output, then freezes folds and K draws. */
+	/**
+	 * Validates manifest rows before opening output, then assigns whole groups to folds.
+	 * Validation and test each receive max(1, round(groupCount*0.15)) groups; training gets
+	 * the rest. Each genome receives one uniform draw from its original K schedule using
+	 * a separate seeded stream. Cohort changes can change assignments even with fixed seeds.
+	 */
 	private void run(){
 		assert(expected>=3) : "Three nonempty folds require at least three source groups.";
 		final ArrayList<Sample> samples=readSamples();
@@ -107,7 +121,13 @@ public final class SameKCorpusPlan {
 				" splitseed="+splitSeed+" kseed="+kSeed);
 	}
 
-	/** Reads only the small manifest; validates source identity and simulation ranges. */
+	/**
+	 * Reads only the small manifest, requiring the exact header, expected count and recipe ranges.
+	 * IDs, absolute source-path strings and taxid strings must be unique; path aliases and
+	 * biological identities are not resolved. K schedules must have three/four ascending values
+	 * in [24,127]. Retains original row bytes for verbatim provenance in the output.
+	 * @return Validated records without reading any source/reference sequence
+	 */
 	private ArrayList<Sample> readSamples(){
 		assert(input!=null) : "A frozen source manifest is required for reproducible library reuse.";
 		final ArrayList<Sample> samples=new ArrayList<Sample>();
@@ -156,7 +176,14 @@ public final class SameKCorpusPlan {
 		return samples;
 	}
 
-	/** Writes original provenance unchanged, followed by fold, K and exact library paths. */
+	/**
+	 * Writes original row bytes followed by fold, selected K and constructed library paths.
+	 * Metadata explicitly declares input_files_verified=false. Output may be partial on failure.
+	 * @param samples Validated records sorted by genome ID and carrying assigned fold/K
+	 * @param groups Number of distinct literal group strings
+	 * @param trainGroups Number of groups assigned to training
+	 * @param heldout Number of groups assigned to each of validation and test
+	 */
 	private void write(final ArrayList<Sample> samples, final int groups, final int trainGroups, final int heldout){
 		assert(samples.size()==expected) : "Only a fully validated manifest may be emitted.";
 		final ByteStreamWriter writer=new ByteStreamWriter(output, false, false, false);
@@ -182,14 +209,19 @@ public final class SameKCorpusPlan {
 	/*--------------------------------------------------------------*/
 
 	/** Retains a small source row and its assigned collection recipe, never sequence. */
-	private static final class Sample {
+	private static final class Sample{
+		/** Retains the validated original bytes and schedule without cloning. */
 		Sample(final byte[] original_, final String id_, final String group_, final int[] ks_){
 			assert(original_!=null && ks_.length>=3) : "Samples retain validated provenance and original K choices.";
 			original=original_; id=id_; group=group_; ks=ks_;
 		}
+		/** Original twelve-column row, unchanged during planning. */
 		final byte[] original;
+		/** Genome ordering key and literal fold-assignment group. */
 		final String id, group;
+		/** Ascending original K choices; read-only after construction. */
 		final int[] ks;
+		/** Assigned fold index and one sampled K. */
 		int fold, k;
 	}
 
@@ -197,9 +229,13 @@ public final class SameKCorpusPlan {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Borrowed destination for the final sample/group counts. */
 	private final PrintStream outstream;
+	/** Source manifest, new output manifest and unverified absolute library root. */
 	private String input, output, root;
+	/** Required input row count, not a sampling limit. */
 	private int expected=1000;
+	/** Independent group-shuffle and per-genome K-draw seeds. */
 	private long splitSeed=370194, kSeed=370195;
 	private static final String[] FOLDS={"train", "validation", "test"};
 	private static final String HEADER="#genome\tsource\ttaxid\tgroup\tcontig_length50\tbases\tscaffolds\tdepth\tquality\tk_schedule\tread_seed\tplan_seed";

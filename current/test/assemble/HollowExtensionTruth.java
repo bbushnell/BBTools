@@ -25,8 +25,11 @@ import structures.ListNum;
 
 /** Audits synthetic inputs and scores only appended bases at Shred's exact source coordinates.
  * No alignment, best-hit selection or mutation truth is used by the assembler.
+ * Audit mode validates benchmark generation, while grade mode checks that the
+ * extension output preserves each 200 bp seed and scores only the right-hand
+ * suffix against the originating reference coordinate.
  * @author Brian Bushnell, Fischl */
-public final class HollowExtensionTruth {
+public final class HollowExtensionTruth{
 
 	/** Runs audit or grade mode using native sequence readers and tabular output. */
 	public static void main(final String[] args){
@@ -35,7 +38,9 @@ public final class HollowExtensionTruth {
 		finally{Shared.closeStream(pp.outstream);}
 	}
 
-	/** Parses flags without accepting a mistyped truth/input path. */
+	/** Parses flags without accepting a mistyped truth/input path.
+	 * Outputs are deliberately non-overwriting because these reports are used as
+	 * immutable benchmark evidence. */
 	private HollowExtensionTruth(final String[] args, final PrintStream log_){
 		log=log_;
 		final Parser parser=new Parser();
@@ -63,7 +68,9 @@ public final class HollowExtensionTruth {
 		FastaReadInputStream.SPLIT_READS=false;
 	}
 
-	/** Resolves references and shreds once, then streams the much larger synthetic read input. */
+	/** Resolves references and shreds once, then streams the much larger synthetic read input.
+	 * Reference IDs and shred origins form the only coordinate system trusted by
+	 * the downstream audit and grading paths. */
 	private void process(){
 		final ArrayList<Read> refs=new ArrayList<Read>();
 		final Map<String,Read> byName=new HashMap<String,Read>();
@@ -90,7 +97,9 @@ public final class HollowExtensionTruth {
 		else{grade(seeds);}
 	}
 
-	/** Verifies mutation-only coordinates, shred sequence, Q20 and empirical read error rate. */
+	/** Verifies mutation-only coordinates, shred sequence, Q20 and empirical read error rate.
+	 * RandomReadsMG headers are parsed only to check the generator contract; the
+	 * assembler under test never receives this truth. */
 	private void audit(final ArrayList<Read> refs, final Map<String,Read> byName, final Map<String,Seed> seeds){
 		final Map<String,Read> mutated=new HashMap<String,Read>();
 		final long[] genome={0, 0, 0};
@@ -149,7 +158,10 @@ public final class HollowExtensionTruth {
 		log.println("HOLLOW_INPUT_AUDIT_PASS reads="+reads[0]+" shreds="+seeds.size());
 	}
 
-	/** Scores suffixes only; rejects missing/duplicate IDs and any alteration to the seed. */
+	/** Scores suffixes only; rejects missing/duplicate IDs and any alteration to the seed.
+	 * Optional details contain only sequences with mismatching, beyond-reference
+	 * or unscorable appended bases, so summary and detail streams can be compared
+	 * independently. */
 	private void grade(final Map<String,Seed> seeds){
 		final Counts[] counts={new Counts(), new Counts(), new Counts(), new Counts(), new Counts()};
 		final BitSet seen=new BitSet(seeds.size());
@@ -189,7 +201,9 @@ public final class HollowExtensionTruth {
 		log.println("HOLLOW_EXTENSION_GRADE_PASS sequences="+seen.cardinality());
 	}
 
-	/** No alignment is needed: mutations are substitutions and extensions are right-only. */
+	/** No alignment is needed: mutations are substitutions and extensions are right-only.
+	 * Every appended base is classified once as correct, mismatching, beyond the
+	 * reference or unscorable. */
 	static void score(final byte[] sequence, final byte[] seed, final byte[] ref,
 			final int start, final int maximum, final Score score){
 		require(start>=0 && start+seed.length<=ref.length, "Seed origin is outside reference.");
@@ -245,13 +259,22 @@ public final class HollowExtensionTruth {
 
 	/** Appends an exact integer metric rather than rounding a count through floating point. */
 	private static void row(final ByteBuilder bb, final String name, final long value){bb.append(name).tab().append(value).nl();}
+
+	/** Treats native fully-defined A/C/G/T/U in either case as comparable truth.
+	 * Scoring still compares literal bytes, so case or U-vs-T can mismatch. */
 	private static boolean defined(final byte b){return AminoAcid.isFullyDefined(b);}
+
+	/** Keeps benchmark-input validation active without relying on {@code -ea}. */
 	static void require(final boolean condition, final String message){
 		if(!condition){throw new IllegalArgumentException(message);}
 	}
 
-	/** Coordinates and error class are derived from the original shred, not its extension. */
-	private static final class Seed {
+	/** Coordinates and error class are derived from the original shred, not its extension.
+	 * The inspected suffix is positions 72-199: anchors are 72-103 and 168-199,
+	 * middle is 104-167, and priority is ambiguous, anchor, middle, then clean.
+	 * Positions 0-71 never affect the clean-seed group. */
+	private static final class Seed{
+		/** Captures the seed origin and groups pre-existing seed errors by position. */
 		Seed(final Read read_, final Read reference_, final int start_, final int index_){
 			read=read_;
 			reference=reference_;
@@ -267,17 +290,22 @@ public final class HollowExtensionTruth {
 			}
 			group=ambiguous ? 4 : anchor ? 3 : middle ? 2 : 1;
 		}
+		/** Original 200 bp shred and full reference contig. */
 		final Read read, reference;
+
+		/** Shred start, stable duplicate-detection index and error-class group. */
 		final int start, index, group;
 	}
 
 	/** Reused per-sequence score, keeping the hot loop allocation-free. */
-	static final class Score {
+	static final class Score{
+		/** Appended bases and mutually exclusive error counters for one output. */
 		int added, bad, beyond, unknown;
 	}
 
 	/** Non-overlapping suffix categories and complete-sequence accuracy totals. */
-	private static final class Counts {
+	private static final class Counts{
+		/** Folds one scored sequence into aggregate base and sequence counters. */
 		void add(final Score s){
 			assert(s.added>=s.bad+s.beyond+s.unknown) : "Suffix categories must partition appended bases.";
 			sequences++;
@@ -293,12 +321,22 @@ public final class HollowExtensionTruth {
 				else{exact++;}
 			}
 		}
+		/** Total sequences, base-level suffix counts and extended sequence classes. */
 		long sequences, extended, added, correct, bad, beyond, unknown, exact, incorrect, uncertain;
 	}
 
+	/** Reference, mutant, shred, extension and optional details paths. */
 	private String reference, mutant, shreds, input, output, details;
+
+	/** Selected operation and output arm label. */
 	private String mode="grade", label="arm";
+
+	/** Maximum allowed right extension length in grade mode. */
 	private int maxExtension=-1;
+
+	/** Destination for pass summaries, already owned by the preparser. */
 	private final PrintStream log;
+
+	/** Summary groups ordered to keep output tables stable. */
 	private static final String[] GROUPS={"all", "clean_seed", "middle_only_seed_error", "anchor_seed_error", "ambiguous_seed"};
 }

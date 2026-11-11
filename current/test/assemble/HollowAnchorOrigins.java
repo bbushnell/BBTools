@@ -29,7 +29,7 @@ import structures.ListNum;
 /** Finds literal sequence occurrences of two 32bp anchors, without hashing.
  * Reports both orientations, interior disagreement and the query-oriented next base.
  * @author Brian Bushnell, Fischl */
-public final class HollowAnchorOrigins {
+public final class HollowAnchorOrigins{
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
@@ -42,7 +42,7 @@ public final class HollowAnchorOrigins {
 		finally{Shared.closeStream(pp.outstream);}
 	}
 
-	/** Selects explicit query ends from a saved KmerWindowDepth table. */
+	/** Selects explicit query ends from a saved KmerWindowDepth table or one FASTA path. */
 	private HollowAnchorOrigins(final String[] args, final PrintStream log_){
 		log=log_;
 		final Parser parser=new Parser();
@@ -155,7 +155,7 @@ public final class HollowAnchorOrigins {
 		log.println("HOLLOW_ANCHOR_ORIGINS_PASS targets="+targets.size()+" references="+references);
 	}
 
-	/** Requires each requested end exactly once; the saved full word supplies the actual anchors. */
+	/** Requires each requested table end exactly once; the saved full word supplies the actual anchors. */
 	private ArrayList<Target> loadTargets(){
 		final ArrayList<Target> result=new ArrayList<Target>();
 		final boolean[] seen=new boolean[ends.length];
@@ -411,13 +411,13 @@ public final class HollowAnchorOrigins {
 		if(!condition){throw new IllegalArgumentException(message);}
 	}
 
-	/** Retains one small query and primitive aggregate counters. */
-	private static final class Target {
+	/** Retains one small query and its primitive aggregate counters. */
+	private static final class Target{
 		/** Retains an original saved context with no candidate-base designation. */
 		Target(final int end_, final byte[] word_){
 			this(end_, word_, (byte)'.', null);
 		}
-		/** Caches both orientations once so the literal scan allocates no per-window keys. */
+		/** Retains the caller's forward word and copies its reverse orientation once. */
 		Target(final int end_, final byte[] word_, final byte candidate_, final String queryId_){
 			assert(word_!=null && word_.length>64) : "Literal matching requires two complete outer 32bp anchors.";
 			end=end_;
@@ -427,33 +427,51 @@ public final class HollowAnchorOrigins {
 			reverse=Arrays.copyOf(word, word.length);
 			AminoAcid.reverseComplementBasesInPlace(reverse);
 		}
+		/** One-based inclusive query end; also the exclusive zero-based word bound. */
 		final int end;
+		/** Dot for the original context, or the query-oriented A/C/G/T successor candidate. */
 		final byte candidate;
+		/** Saved path identifier used when optional flank comparisons reattach the full query. */
 		final String queryId;
+		/** Borrowed forward query word and copied reverse complement used for literal scans. */
 		final byte[] word, reverse;
+		/** Optional full saved path borrowed from Read; shifted successors can share it. */
 		byte[] path;
+		/** Totals: oriented, exact, strand and query-oriented next-base counts. */
 		final long[] counts=new long[9];
 	}
 
-	/** Ensures native report threads terminate on validation failures as well as success. */
-	private static final class Report implements AutoCloseable {
+	/** Wraps one successfully started report writer for normal and exceptional cleanup. */
+	private static final class Report implements AutoCloseable{
+		/** Opens and starts the owned asynchronous writer for a fresh text report. */
 		Report(final String path){
 			writer=new ByteStreamWriter(path, false, false, true);
 			writer.start();
 		}
+		/** Waits for the writer thread and promotes any buffered-output failure. */
 		@Override
 		public void close(){require(!writer.poisonAndWait(), "Anchor report output failed.");}
+		/** Owned output thread; poisonAndWait promotes asynchronous write failures. */
 		final ByteStreamWriter writer;
 	}
 
+	/** Primary depth/FASTA input, hit output, reference FASTA, summary and report label. */
 	private String input, output, reference, summary, label="query";
+	/** Optional saved-path FASTA input and flank-comparison report output. */
 	private String paths, flanks;
+	/** Requested one-based end coordinates in table or saved-path coordinates. */
 	private int[] ends;
+	/** Runs in-process geometry checks instead of reading external inputs. */
 	private boolean test=false;
+	/** Emits shifted A/C/G/T successors for each original table or FASTA context. */
 	private boolean successors=false;
+	/** Loads contexts from a saved path FASTA instead of a KmerWindowDepth table. */
 	private boolean queryFasta=false;
+	/** Whitespace-trimmed FASTA ID required for queryFasta mode. */
 	private String scaffold;
+	/** Full-word length to sample from the saved path in queryFasta mode. */
 	private int queryLength=224;
+	/** PreParser-selected diagnostic stream; closed by main after process returns or throws. */
 	private final PrintStream log;
 	private static final byte[] ALPHABET={'A', 'C', 'G', 'T'};
 }

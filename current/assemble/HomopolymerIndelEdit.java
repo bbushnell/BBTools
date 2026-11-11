@@ -10,8 +10,10 @@ import stream.Read;
  * One reusable result holder belongs to one worker.
  * @author Fischl
  */
-final class HomopolymerIndelEdit {
+final class HomopolymerIndelEdit{
+	/** Creates an editor that requires runs of at least two bases. */
 	HomopolymerIndelEdit(){this(false);}
+	/** Optionally permits singleton extension; singleton deletion remains forbidden. */
 	HomopolymerIndelEdit(final boolean singletons_){singletons=singletons_;}
 
 	/**
@@ -19,7 +21,12 @@ final class HomopolymerIndelEdit {
 	 * metadata rather than silently invalidating somebody else's coordinate system.
 	 * Both new arrays are built before either is installed; this is exception-safe,
 	 * not synchronization for a concurrently shared Read. Rescan after each edit;
-	 * intervals from the old length must not be reused. No-op leaves all state intact.
+	 * intervals from the old length must not be reused. A no-op leaves Read state
+	 * intact and exposes its original arrays through this reusable result holder.
+	 * @param read Caller-owned read whose arrays may be replaced
+	 * @param start Inclusive start of the maximal run in current read coordinates
+	 * @param end Exclusive end of the maximal run
+	 * @param delta Minus one to shorten, plus one to lengthen, or zero for no change
 	 */
 	void apply(final Read read, final int start, final int end, final int delta){
 		editedBases=editedQualities=null;
@@ -35,7 +42,9 @@ final class HomopolymerIndelEdit {
 		read.quality=editedQualities;
 	}
 
-	/** Shared metadata guard; do not use clearMapping as a substitute for this contract. */
+	/** Rejects paired, mapped, amino-acid or attached coordinate state without changing it.
+	 * Shared metadata guard; do not use clearMapping as a substitute for this contract.
+	 * This guard alone does not validate the bases, qualities or proposed edit. */
 	static void requireEditable(final Read read){
 		if(read==null){throw new IllegalArgumentException("Cannot edit a null Read.");}
 		if(read.mate!=null || read.paired() || read.pairnum()!=0 || read.mapped() || read.perfect() || read.shortmatch() ||
@@ -55,6 +64,14 @@ final class HomopolymerIndelEdit {
 	 * about which physical homopolymer base was erroneous. An inserted base has
 	 * quality zero (unknown); existing qualities are never inflated. Null quality
 	 * stays null. A zero delta returns the original array identities unchanged.
+	 * That no-op checks array lengths and interval bounds, not run content/maximality.
+	 * Successful nonzero edits expose new arrays in editedBases/editedQualities.
+	 * The holder is cleared before validation; retained earlier output arrays stay valid.
+	 * @param bases Borrowed sequence; a nonzero edit requires an uppercase maximal run
+	 * @param qualities Borrowed qualities of matching length, or null
+	 * @param start Inclusive run start in the supplied sequence
+	 * @param end Exclusive run end
+	 * @param delta Minus one, zero or plus one; singleton shortening is never allowed
 	 */
 	void apply(final byte[] bases, final byte[] qualities, final int start,
 			final int end, final int delta){
@@ -105,8 +122,10 @@ final class HomopolymerIndelEdit {
 		position=pos;
 	}
 
+	/** Last successful result arrays; null after a rejected request, original aliases for delta zero. */
 	byte[] editedBases, editedQualities;
 	/** Insertion boundary or deleted-base index in the original oriented read. */
 	int position=-1;
+	/** Enables the separately authorized length-one +1 case only. */
 	private final boolean singletons;
 }

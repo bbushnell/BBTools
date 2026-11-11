@@ -27,12 +27,14 @@ import structures.ListNum;
 
 /**
  * Experimental endpoint-indexed Hollow connection discovery from saved reads.
- * Reports candidate geometry; explicit join=t adds read-verified scaffolding,
- * with experimental sequence filling under fillgaps=t. A unique assembly anchor need not be unique in
- * the genome. Candidate support counts observations, not independent molecules.
+ * The primary report lists conservative candidate geometry; join=t performs a
+ * second read pass that either scaffolds accepted linear paths with ten Ns or,
+ * under fillgaps=t, fills positive gaps with whole-window read votes. A unique
+ * assembly anchor need not be unique in the genome, and candidate support
+ * counts read observations rather than independent molecules.
  * @author Brian Bushnell, Fischl
  */
-public final class HollowBridge {
+public final class HollowBridge{
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
@@ -46,7 +48,7 @@ public final class HollowBridge {
 		finally{Shared.closeStream(tool.outstream);}
 	}
 
-	/** Uses native BBTools option handling and verifies paths before opening output. */
+	/** Parses discovery and optional join outputs, then enforces evidence-alias and overwrite checks. */
 	public HollowBridge(String[] args){
 		final PreParser pp=new PreParser(args, getClass(), false);
 		args=pp.args;
@@ -116,7 +118,7 @@ public final class HollowBridge {
 	/*----------------       Primary methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Counts saved-read evidence, discovers connections, and emits a deterministic report. */
+	/** Counts saved-read evidence once for candidates and again only for requested join votes. */
 	private void process(final Timer timer){
 		assert(span>64 && minSupport>0) : "Discovery requires validated Hollow span and support thresholds.";
 		final ArrayList<Contig> contigs=TadpoleGraph.readContigs(assembly);
@@ -149,7 +151,7 @@ public final class HollowBridge {
 		outstream.println(Tools.timeReadsBasesProcessed(timer, finder.reads(), finder.readBases(), 8));
 	}
 
-	/** Streams roots and mates separately; no Hollow window ever spans two reads. */
+	/** Streams one paired or single input; maxReads applies per Streamer input in reader-dependent units; no Hollow window spans two reads or records. */
 	private void load(final String first, final String second, final Consumer<byte[]> consumer){
 		assert(first!=null && consumer!=null) : "Evidence loading needs a primary file and one mutable count/vote owner.";
 		final FileFormat ff1=FileFormat.testInput(first, FileFormat.FASTQ, null, true, true);
@@ -168,7 +170,7 @@ public final class HollowBridge {
 		if(reader.errorState()){throw new RuntimeException("Error reading evidence: "+first);}
 	}
 
-	/** Writes complete joined paths and unchanged rejected/isolated contigs through native FASTA output. */
+	/** Writes joiner output contigs through native FASTA output. */
 	private void writeAssembly(final ArrayList<Contig> contigs){
 		assert(join && outAssembly!=null) : "Assembly output is available only under explicit join=t.";
 		final ByteStreamWriter writer=new ByteStreamWriter(outAssembly, overwrite, false, true, FileFormat.FASTA);
@@ -258,14 +260,24 @@ public final class HollowBridge {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Assembly FASTA, primary reads, optional mate reads, report and join outputs. */
 	private String assembly, in1, in2, output, outAssembly, outJoins;
+	/** Additional read evidence inputs counted after in1/in2. */
 	private final ArrayList<String> extra=new ArrayList<String>();
+	/** Hollow span, indexed tip interval, candidate support threshold and input threads. */
 	private int span=224, tipBases=192, minSupport=3, threadsIn=-1;
+	/** Endpoint seed band and symmetric sliding radius. */
 	private int tipMin=0, tipMax=-1, slide=0;
+	/** Minimum winning/runner and confirmed/contradictory ratios for accepted joins. */
 	private int gapRatio=4;
+	/** Optional flank-vote audit window and threshold. */
 	private int flankBases=128, flankMin=16;
+	/** Whether join=t applies the additional flank vote audit. */
 	private boolean flankCheck=false;
+	/** Reader-dependent per-input limit applied afresh to each primary, mate and extra load. */
 	private long maxReads=-1;
+	/** Output policy and experimental join modes. */
 	private boolean overwrite=false, join=false, fillGaps=false;
+	/** Diagnostic stream supplied by PreParser and closed by main. */
 	private PrintStream outstream=System.err;
 }

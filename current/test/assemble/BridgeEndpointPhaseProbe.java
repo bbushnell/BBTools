@@ -14,11 +14,11 @@ import fileIO.ByteStreamWriter;
 import shared.Timer;
 import structures.ByteBuilder;
 
-/** Isolates bridge-end eligibility loss without graph traversal or merging.
+/** Isolates cross-K bridge-end eligibility loss without graph traversal or merging.
  * @author Brian Bushnell, Fischl */
-public final class BridgeEndpointPhaseProbe {
+public final class BridgeEndpointPhaseProbe{
 
-	/** Requires a fresh evidence directory and the expected outcome: lost or preserved. */
+	/** Requires a fresh evidence directory and the expected cross-K endpoint outcome. */
 	public static void main(final String[] args) throws Exception{
 		check(args.length==2, "Specify an unused evidence directory and lost|preserved.");
 		check(args[1].equals("lost") || args[1].equals("preserved"), "Expected outcome must be explicit.");
@@ -34,7 +34,7 @@ public final class BridgeEndpointPhaseProbe {
 	/*----------------            Probe             ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Both short tips exist, but no read contains even one long-K word. */
+	/** Both short tips exist, but no read contains even one high-K word. */
 	private static void probe(final Path root, final int high, final int low,
 			final int readLength, final boolean expectLoss) throws Exception{
 		assert(low<=readLength && readLength<high) :
@@ -74,7 +74,7 @@ public final class BridgeEndpointPhaseProbe {
 				"Phase-local ownership must not revive permanently excluded loop endpoints.");
 	}
 
-	/** Loads exactly one table at a time and calls the real cross-K ownership initializer. */
+	/** Loads exactly one table and calls the real cross-K ownership initializer. */
 	private static void initialize(final Path reads, final int k, final Contig contig) throws Exception{
 		assert(contig.length()>k) : "Both terminal words must fit; this is not a short-contig exclusion test.";
 		final Tadpole tad=Tadpole.makeTadpole(new String[]{"in="+reads, "k="+k, "t=1",
@@ -92,7 +92,7 @@ public final class BridgeEndpointPhaseProbe {
 		}finally{tad.clearData();}
 	}
 
-	/** Fresh eligible outer ends are the input contract of a cross-K bridge pass. */
+	/** Fresh eligible outer ends are the input contract for cross-K bridge attempts. */
 	private static Contig contig(final byte[] bases) throws Exception{
 		assert(bases.length>300) : "All fixture contigs must contain both long-K tips.";
 		final Contig result=new Contig(bases.clone(), "fixture", 0);
@@ -114,7 +114,7 @@ public final class BridgeEndpointPhaseProbe {
 		return field;
 	}
 
-	/** Generates deterministic, nonhomopolymeric input without an external corpus. */
+	/** Samples deterministic independent bases without an external corpus. */
 	private static byte[] randomBases(final int length, final long seed){
 		assert(length>=600) : "The two read fragments must not overlap in this fixture.";
 		final Random random=new Random(seed);

@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified August 18, 2016
+Last modified November 8, 2026
 
 Description:  Generates multiple assemblies with Tadpole
 to estimate the optimal kmer length.
@@ -13,17 +13,20 @@ tadwrapper.sh in=reads.fq out=contigs%.fa k=31,62,93
 
 Parameters:
 out=<file>      Output file name.  Must contain a % symbol.
-outfinal=<file> Optional.  If set, the best assembly file
-                will be renamed to this.
+outfinal=<file> Optional destination for the selected assembly.
+                Never replaces an input.  Existing outputs require ow=t.
+                A failed publication retains the selected assembly.
 k=31            Comma-delimited list of kmer lengths.
-delete=f        Delete assemblies before terminating.
-quitearly=f     Quit once metrics stop improving with longer kmers.
-bisect=f        Recursively assemble with the kmer midway between
-                the two best kmers until improvement halts.
+delete=f        Delete nonselected intermediates after success,
+                excluding the final destination.
+quitearly=f     Stop the initial K scan on a worse trial; ties continue.
+bisect=f        Test K values between the current winner and its
+                adjacent tested K values, refining where they improve.
 expand=f        Recursively assemble with kmers shorter or longer
                 than the current best until improvement halts.
 
-All other parameters are passed to Tadpole.
+Keep showstats=t: selection uses each trial's reported assembly statistics.
+All other parameters are passed to Tadpole.  The search is heuristic.
 "
 }
 

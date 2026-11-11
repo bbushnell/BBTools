@@ -7,11 +7,25 @@ import assemble.HollowSeedCounts;
 import dna.AminoAcid;
 import ukmer.Kmer;
 
-/** Checks seed-only multiplicities against independently rebuilt windows.
+/** Checks Hollow seed-only multiplicities against independently rebuilt windows.
+ * <p>
+ * The fixtures query complete Hollow words that share their original solid seed,
+ * mutate unsupported interior bases to prove lookup keys keep only seed-defining
+ * positions, and rebuild the oracle only from the original prefix so
+ * extension-only windows never count as self-support.
  * @author Brian Bushnell, Fischl */
-public final class HollowSeedCountsTest {
+public final class HollowSeedCountsTest{
 
-	/** Exercises partial words, repeat multiplicity, Ns, RC and forced primary collisions. */
+	/*--------------------------------------------------------------*/
+	/*----------------             Main             ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Exercises partial words, repeat multiplicity, Ns, RC and forced primary collisions.
+	 * <p>
+	 * Intended for a fresh JVM because it leaves {@link Kmer#PACKED} true and
+	 * advances the static check counter monotonically.
+	 * @param args unused command line arguments
+	 */
 	public static void main(final String[] args){
 		Kmer.PACKED=true;
 		final Random random=new Random(7189);
@@ -45,7 +59,19 @@ public final class HollowSeedCountsTest {
 		System.err.println("HOLLOW_SEED_COUNTS_TEST_PASS checks="+checks);
 	}
 
-	/** Builds a fresh word instead of sharing the ledger's rolling state. */
+	/*--------------------------------------------------------------*/
+	/*----------------        Static Methods        ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Builds a fresh word instead of sharing the ledger's rolling state.
+	 * <p>
+	 * Returned words may be partial after {@code N}; callers inspect
+	 * {@link Kmer#len} before counting them as complete keys.
+	 * @param bases source bases containing the requested full window
+	 * @param start zero-based first base of the queried k-mer
+	 * @param k k-mer length to rebuild independently
+	 * @return packed canonical word for the requested window
+	 */
 	private static Kmer window(final byte[] bases, final int start, final int k){
 		assert(start>=0 && start+k<=bases.length) : "The independent oracle must not read outside its explicit window.";
 		final Kmer word=new Kmer(k, true);
@@ -53,7 +79,12 @@ public final class HollowSeedCountsTest {
 		return word;
 	}
 
-	/** Enumerates only original-prefix windows; extension bases must never count as self. */
+	/** Enumerates only original-prefix windows; extension bases must never count as self.
+	 * @param seed complete seed plus extension bases
+	 * @param length exclusive end of the original seed prefix
+	 * @param query complete query word
+	 * @return number of original-prefix windows matching {@code query}
+	 */
 	private static int oracle(final byte[] seed, final int length, final Kmer query){
 		assert(length<=seed.length && query.len>=query.kbig) : "Oracle counts only complete keys inside the original prefix.";
 		int count=0;
@@ -86,11 +117,19 @@ public final class HollowSeedCountsTest {
 		check(counts.count(0, -1)==0, "Clear removes collision chains");
 	}
 
-	/** Keeps failures loud even when somebody invokes the test without -ea. */
+	/** Keeps failures loud even when somebody invokes the test without -ea.
+	 * @param pass true if the checked fixture property held
+	 * @param message assertion detail for failed checks
+	 */
 	private static void check(final boolean pass, final String message){
 		checks++;
 		if(!pass){throw new AssertionError(message);}
 	}
 
+	/*--------------------------------------------------------------*/
+	/*----------------            Fields            ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Number of explicit fixture checks reached before failure or success. */
 	private static long checks;
 }

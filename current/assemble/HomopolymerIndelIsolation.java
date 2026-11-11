@@ -8,12 +8,18 @@ import structures.IntList;
  * Native use is opt-in and only after existing acceptance paths reject.
  * @author Fischl
  */
-final class HomopolymerIndelIsolation {
+final class HomopolymerIndelIsolation{
 
 	/** Copy the complete isolated subset of sorted (start,end,delta) triples.
 	 * False means empty or over budget; output is empty in either case. No input
-	 * mutation, allocation, ranking, truncation, or net-delta budgeting. Malformed
-	 * candidates throw, including discarded candidates. */
+	 * mutation, ranking, truncation, or net-delta budgeting. The output list may
+	 * grow its backing array; no object is created per candidate. Malformed
+	 * candidates throw, including discarded candidates. Lists belong to the caller
+	 * and must not share mutable backing storage. Coordinates are zero-based,
+	 * half-open run intervals; verification contexts extend K+1 bases on each side.
+	 * This geometry-only pass checks the left boundary, not the read's right bound.
+	 * @return Whether the complete isolated subset is nonempty and within budget
+	 */
 	static boolean select(final IntList candidates, final int k, final int maxEdits, final IntList out){
 		if(candidates==null || out==null || candidates==out || candidates.size%3!=0 || k<5 || maxEdits<1){
 			throw new IllegalArgumentException("Isolation needs distinct lists, complete triples, K>=5 and a positive edit budget.");

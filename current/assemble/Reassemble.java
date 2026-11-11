@@ -1,10 +1,14 @@
 package assemble;
 
 import java.io.File;
+import java.io.Closeable;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.PrintStream;
+import java.nio.file.Files;
 import java.util.ArrayList;
+import java.util.Locale;
 
 import bin.BinObject;
 import fileIO.FileFormat;
@@ -18,99 +22,55 @@ import shared.Timer;
 import shared.Tools;
 import tax.GiToTaxid;
 
-/**
- * Processes multiple genome files individually through Tadpole assembler while
- * preserving taxonomic ID labels. Reads genome files with taxID in filename
- * (pattern: tid_<number>_...), runs Tadpole on each, and concatenates results
- * to a single output file.
+/** Runs Tadpole separately for each input genome, publishing contigs to one output.
+ * Sequential per-file assembly avoids mixing those files in a single assembly;
+ * it does not establish taxonomic correctness or eliminate within-file misassembly.
+ * Positive IDs parsed from filenames or the first header are passed to Tadpole.
+ * Missing IDs are permitted and reported; labels are not resolved against a tree.
  *
- * <p>This tool eliminates the need for coassembly, preventing chimeric contigs and
- * simplifying the workflow for metagenomic binning evaluation datasets.</p>
+ * <p>Input accepts comma-separated paths and one level of FASTA directory children.
+ * Existing bare paths are also accepted. Directory order is not sorted, duplicate
+ * inputs are retained, and this class does not expand wildcard patterns.</p>
  *
- * <h2>Problem Solved:</h2>
- * Traditional metagenomic assembly pipelines coassemble all genomes simultaneously,
- * which leads to:
- * <ul>
- * <li>High memory usage (1000+ genomes at once)</li>
- * <li>Chimeric contigs that confound binning evaluation</li>
- * <li>Complex post-processing: mapping reads → SAM parsing → contig renaming</li>
- * <li>Ambiguous read mappings causing incorrect contig labels</li>
- * </ul>
+ * <p>Default append mode clears a replaceable existing output once, then appends
+ * each genome with a cumulative contig-ID offset. Specifying {@code tempdir=DIR}
+ * instead retains per-genome temporary assemblies until final concatenation succeeds.
+ * Reported assembly failures produce a final error even with {@code failfast=f};
+ * successfully written output may be partial. The object is intended for one serial
+ * run and changes shared parser/Tadpole settings; it is not reentrant.</p>
  *
- * <p>Reassemble processes each genome independently, maintaining ground truth labels
- * directly from filenames without requiring read mapping.</p>
- *
- * <h2>Input Requirements:</h2>
- * Genome files must have taxID in filename following pattern:
- * <ul>
- * <li>tid_<number>_... (e.g., tid_910964_1282131.Streptococcus.asm.fa)</li>
- * <li>tid|<number>|... (alternative delimiter)</li>
- * </ul>
- *
- * <h2>Usage Examples:</h2>
  * <pre>
- * # Basic usage with directory input
- * java -ea -Xmx8g driver.Reassemble in=genomes/ out=assembled.fa k=155
- *
- * # Comma-delimited file list
- * java -ea -Xmx8g driver.Reassemble in=tid_123.fa,tid_456.fa out=output.fa k=31
- *
- * # With custom parameters and fail-fast mode
- * java -ea -Xmx8g driver.Reassemble in=genomes/*.fa out=output.fa k=155 \\
- *     mcs=2 mce=2 mincontig=200 failfast=t tempdir=/tmp/
+ * reassemble.sh -Xmx8g in=genomes/ out=assembled.fa k=155
+ * reassemble.sh in=genomes/ out=assembled.fa tempdir=assembly-temp/ failfast=t
  * </pre>
  *
- * <h2>Key Features:</h2>
- * <ul>
- * <li>Processes genomes sequentially to avoid memory accumulation</li>
- * <li>Extracts taxID from filename automatically</li>
- * <li>Prevents chimeric contigs through isolated assembly</li>
- * <li>Configurable failure handling (continue vs fail-fast)</li>
- * <li>Automatic temp file management and cleanup</li>
- * <li>Comprehensive statistics reporting per genome</li>
- * </ul>
- *
- * <h2>Parameters:</h2>
- * <h3>Reassemble-specific:</h3>
- * <ul>
- * <li>in=<file|dir> - Input files (comma-delimited, directories, wildcards supported)</li>
- * <li>out=<file> - Output file path (required)</li>
- * <li>failfast=<t/f> - Abort on first failure (default: false)</li>
- * <li>delete=<t/f> - Delete temp files after success (default: true)</li>
- * <li>tempdir=<path> - Temporary file directory (default: output file's directory)</li>
- * <li>verbose=<t/f> - Verbose logging (default: false)</li>
- * </ul>
- *
- * <h3>Tadpole pass-through:</h3>
- * All other parameters are passed to Tadpole. Common ones:
- * <ul>
- * <li>k=<int> - K-mer size for assembly (required)</li>
- * <li>mcs=<int> - minCountSeed (default: 1 in code for sparse genomes)</li>
- * <li>mce=<int> - minCountExtend (default: 1 in code for sparse genomes)</li>
- * <li>mincontig=<int> - Minimum contig length (default: 1 in code)</li>
- * <li>prefilter=<int> - Prefilter level</li>
- * <li>mode=<contig|extend> - Assembly mode</li>
- * </ul>
+ * <p>{@code out=} and at least one input are required; {@code k=} defaults to 31.
+ * {@code delete=t} permits temporary-file deletion only after every assembly and
+ * final output completion succeed. {@code verbose=t} enables additional diagnostics.
+ * Unhandled options pass to Tadpole, but per-genome input/output, append mode,
+ * ID offset and statistics settings are subsequently imposed by this wrapper.
+ * Sparse-genome defaults are {@code mcs=1}, {@code mce=1}, {@code mincontig=1};
+ * explicit user options follow them and retain Tadpole's last-value-wins behavior.</p>
  *
  * @author Brian Bushnell
  * @contributor Noire
  * @date February 9, 2026
  */
-public class Reassemble {
+public class Reassemble{
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Static Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Program entry point. Creates Reassemble instance and executes processing.
+	 * Runs one wrapper and closes its diagnostic stream after successful construction.
 	 * @param args Command-line arguments
 	 */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		Reassemble x=new Reassemble(args);
-		x.process(t);
-		Shared.closeStream(x.outstream);
+		try{x.process(t);}
+		finally{Shared.closeStream(x.outstream);}
 	}
 
 	/*--------------------------------------------------------------*/
@@ -118,9 +78,11 @@ public class Reassemble {
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Constructs a Reassemble instance by parsing command-line arguments.
-	 * Separates Reassemble-specific arguments from Tadpole pass-through arguments.
-	 * @param args Command-line arguments
+	 * Expands input specifications, validates named output aliases and records options.
+	 * Construction may create a requested temporary directory but does not assemble.
+	 * Unhandled options retain their input order for later Tadpole parsing.
+	 * @param args Command-line arguments, expanded through PreParser for config/help
+	 * @throws IllegalArgumentException If input/output/K requirements or output protection fail
 	 */
 	public Reassemble(String[] args){
 		{//Preparse block for help, config files, and outstream
@@ -130,21 +92,22 @@ public class Reassemble {
 		}
 
 		Parser parser=new Parser();
+		parser.overwrite=true;
 		tadpoleArgs=new ArrayList<String>();
 
 		for(int i=0; i<args.length; i++){
 			String arg=args[i];
-			String[] split=arg.split("=");
-			String a=split[0].toLowerCase();
-			String b=split.length>1 ? split[1] : null;
+			String[] split=Parse.splitOnFirst(arg, '=');
+			String a=split[0].toLowerCase(Locale.ROOT);
+			String b=split.length>1 && !split[1].isEmpty() ? split[1] : null;
 			if(b!=null && b.equalsIgnoreCase("null")){b=null;}
 
 			if(a.equals("in") || a.equals("in1")){
 				// Handle multiple input specifications
 				if(b!=null){
 					String[] files=b.split(",");
-					for(String s : files){
-						// Expand directories and wildcards using Tools.getFileOrFiles
+					for(String s:files){
+						// Expand one directory level; this helper does not expand wildcards.
 						ArrayList<String> expanded=Tools.getFileOrFiles(s, true, false, false, false);
 						in.addAll(expanded);
 					}
@@ -175,9 +138,11 @@ public class Reassemble {
 		}
 
 		// Validate inputs
-		assert(in.size()>0) : "No input files specified. Use in=<file> or in=<directory>";
-		assert(out!=null) : "No output file specified. Use out=<file>";
-		assert(k>0) : "K-mer size must be specified and positive. Use k=<value>";
+		if(in.isEmpty() || out==null || k<1){
+			throw new IllegalArgumentException("Specify input files, an output, and a positive k-mer length.");
+		}
+		overwrite=parser.overwrite;
+		validateOutput();
 
 		// Determine mode: append (default) or temp files (if tempdir specified)
 		useAppendMode=(tempdir==null);
@@ -191,7 +156,27 @@ public class Reassemble {
 		}
 
 		// Setup output file format
-		ffout=FileFormat.testOutput(out, FileFormat.FASTA, null, true, true, false, false);
+		ffout=FileFormat.testOutput(out, FileFormat.FASTA, null, true, overwrite, false, false);
+	}
+
+	/** Checks named output replacement and aliases before any output initialization.
+	 * Canonical paths and existing hard links are checked against all named inputs;
+	 * stream names are skipped. This is a preflight check, not filesystem locking. */
+	private void validateOutput(){
+		if(FileFormat.isStdio(out)){return;}
+		try{
+			final File target=new File(out).getCanonicalFile();
+			if(target.exists() && (!overwrite || !target.isFile())){
+				throw new IllegalArgumentException("Output exists and cannot be replaced: "+out+"; overwrite="+overwrite);
+			}
+			for(String input:in){
+				if(FileFormat.isStdio(input)){continue;}
+				final File source=new File(input).getCanonicalFile();
+				if(source.equals(target) || (source.exists() && target.exists() && Files.isSameFile(source.toPath(), target.toPath()))){
+					throw new IllegalArgumentException("Assembly output aliases an input: "+input+" -> "+out);
+				}
+			}
+		}catch(IOException e){throw new RuntimeException("Could not verify assembly output aliases: "+out, e);}
 	}
 
 	/*--------------------------------------------------------------*/
@@ -199,9 +184,14 @@ public class Reassemble {
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Main processing orchestration method.
-	 * Processes each input genome through Tadpole, using append mode or temp files.
+	 * Processes genomes serially, retaining successful counters and publication state.
+	 * With failfast=false, caught assembly Exceptions permit later genomes to run;
+	 * any failed genome still makes the final result an error. Errors and exceptions
+	 * outside the per-genome assembly try block propagate immediately.
+	 * Temporary outputs are deleted only after every genome and concatenation succeed;
+	 * individual deletion return values are not checked. Partial final output may remain.
 	 * @param t Timer for tracking execution time
+	 * @throws RuntimeException If assembly, output initialization or final output completion fails
 	 */
 	void process(Timer t){
 		outstream.println("Reassemble start");
@@ -213,13 +203,15 @@ public class Reassemble {
 		//used to clear a pre-existing out file, so re-running with the same out= silently appended the new assembly onto stale
 		//contigs. Delete it once up front so the run starts clean (temp-file mode already overwrites out in concatenateOutputs).
 		//Matches BBTools' default-overwrite convention.
-		if(useAppendMode){
+		validateOutput();
+		if(useAppendMode && !FileFormat.isStdio(out)){
 			File of=new File(out);
-			if(of.exists()){of.delete();}
+			if(of.exists() && !of.delete()){throw new RuntimeException("Could not clear assembly output: "+out);}
 		}
 
 		ArrayList<GenomeRecord> records=new ArrayList<GenomeRecord>();
 		long cumulativeContigOffset=0;
+		boolean failed=false;
 
 		// Process each genome individually
 		for(int i=0; i<in.size(); i++){
@@ -230,13 +222,13 @@ public class Reassemble {
 			records.add(record);
 
 			if(record.success){
-				// Update cumulative offset for next genome
-				cumulativeContigOffset+=record.contigsWritten;
+				// ASM056: final filtering can leave gaps, so emitted counts do not reserve the ID range.
+				cumulativeContigOffset=record.nextContigOffset;
 			}
 
-			if(!record.success && failfast){
-				outstream.println("ERROR: Assembly failed for "+inputFile+" and failfast=true. Aborting.");
-				System.exit(1);
+			if(!record.success){
+				failed=true;
+				if(failfast){throw new RuntimeException("Assembly failed for "+inputFile+": "+record.errorMessage);}
 			}
 		}
 
@@ -245,8 +237,8 @@ public class Reassemble {
 			concatenateOutputs(records);
 
 			// Clean up temp files
-			if(deleteTemp){
-				for(GenomeRecord r : records){
+			if(deleteTemp && !failed){
+				for(GenomeRecord r:records){
 					if(r.tempOutput!=null){
 						File f=new File(r.tempOutput);
 						if(f.exists()){f.delete();}
@@ -260,6 +252,7 @@ public class Reassemble {
 
 		t.stop();
 		outstream.println("\nTime: "+t);
+		if(failed){throw new RuntimeException("One or more genome assemblies failed; output may be incomplete. Temporary assemblies were retained.");}
 		outstream.println("Reassemble finish");
 	}
 
@@ -268,16 +261,20 @@ public class Reassemble {
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Concatenates all successful assembly outputs into single output file.
-	 * Uses binary stream copying pattern from ConcatenateFiles.
-	 * @param records List of genome processing records
+	 * Copies successful temporary assemblies to a newly opened final output, in order.
+	 * Input compression is decoded and final-output compression is handled by ReadWrite.
+	 * No successful genomes means no final output is opened. Otherwise a missing
+	 * successful temporary file is an error, while a zero-byte file contributes no bytes.
+	 * Final stream/subprocess completion precedes the caller's temporary-file deletion;
+	 * a failure can leave partial final output but preserves those temporary assemblies.
+	 * @param records Completed per-genome results in input order
 	 */
 	private void concatenateOutputs(ArrayList<GenomeRecord> records){
 		outstream.println("\n=== Concatenating outputs to "+out+" ===");
 
 		// Count successful assemblies
 		int successCount=0;
-		for(GenomeRecord r : records){
+		for(GenomeRecord r:records){
 			if(r.success){successCount++;}
 		}
 		outstream.println("Successful assemblies: "+successCount+"/"+records.size());
@@ -288,46 +285,42 @@ public class Reassemble {
 		}
 
 		// Concatenate using binary stream copying
-		try{
+		try(AssemblyOutput output=new AssemblyOutput(out)){
 			final byte[] buf=new byte[32768];  // 32KB buffer
-			final OutputStream os=ReadWrite.getOutputStream(out, false, true, true);
 
-			for(GenomeRecord r : records){
+			for(GenomeRecord r:records){
 				if(r.success && r.tempOutput!=null){
 					File f=new File(r.tempOutput);
-					if(f.exists() && f.length()>0){
+					if(!f.isFile()){throw new IOException("Completed temporary assembly is missing: "+r.tempOutput);}
+					if(f.length()>0){
 						if(verbose){
 							outstream.println("Concatenating: "+r.tempOutput);
 						}
 
-						InputStream is=ReadWrite.getInputStream(r.tempOutput, false, true, true);
-
-						for(int lim=is.read(buf); lim>0; lim=is.read(buf)){
-							os.write(buf, 0, lim);
+						try(InputStream is=ReadWrite.getInputStream(r.tempOutput, false, true, true)){
+							for(int lim=is.read(buf); lim>0; lim=is.read(buf)){
+								output.stream.write(buf, 0, lim);
+							}
 						}
-
-						is.close();
 					}
 				}
 			}
 
-			ReadWrite.close(os);
-			outstream.println("Concatenation complete: "+out);
-		}catch(Exception e){
-			outstream.println("ERROR: Failed to concatenate outputs");
-			e.printStackTrace(outstream);
-		}
+		}catch(IOException e){throw new RuntimeException("Failed to concatenate assemblies to "+out, e);}
+		outstream.println("Concatenation complete: "+out);
 	}
 
 	/**
-	 * Prints summary table of all genome processing results.
-	 * @param records List of genome processing records
+	 * Prints per-genome success/error rows without changing their state.
+	 * Append mode reports contig/base counters; temporary mode reports physical file
+	 * bytes. These measures are not interchangeable.
+	 * @param records Completed results in processing order
 	 */
 	private void printSummary(ArrayList<GenomeRecord> records){
 		outstream.println("\n=== Assembly Summary ===");
 		if(useAppendMode){
 			outstream.println("Genome\tTaxID\tStatus\tContigs\tBases");
-			for(GenomeRecord r : records){
+			for(GenomeRecord r:records){
 				outstream.print(new File(r.inputFile).getName()+"\t");
 				outstream.print((r.taxID>0 ? r.taxID : "N/A")+"\t");
 				outstream.print((r.success ? "SUCCESS" : "FAILED")+"\t");
@@ -339,7 +332,7 @@ public class Reassemble {
 			}
 		}else{
 			outstream.println("Genome\tTaxID\tStatus\tOutputSize");
-			for(GenomeRecord r : records){
+			for(GenomeRecord r:records){
 				outstream.print(new File(r.inputFile).getName()+"\t");
 				outstream.print((r.taxID>0 ? r.taxID : "N/A")+"\t");
 				outstream.print((r.success ? "SUCCESS" : "FAILED")+"\t");
@@ -357,10 +350,14 @@ public class Reassemble {
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Processes a single genome file through Tadpole assembler.
+	 * Selects the label/output path, invokes Tadpole and captures assembly Exceptions.
+	 * Filename parsing and argument construction occur outside that exception handler.
+	 * A successful record copies the completed Tadpole contig/base counts and exclusive
+	 * contig-ID bound, including retained contigs removed by final filtering; temporary
+	 * mode additionally observes the file's physical length. No temporary file is deleted.
 	 * @param inputFile Path to genome file
 	 * @param contigOffset Starting contig ID offset for this genome
-	 * @return GenomeRecord containing processing results
+	 * @return New success/failure record; a caught Exception leaves an error message
 	 */
 	private GenomeRecord processGenome(String inputFile, long contigOffset){
 		GenomeRecord record=new GenomeRecord();
@@ -389,8 +386,12 @@ public class Reassemble {
 			outputFile=record.tempOutput;
 		}
 
-		// Build Tadpole argument array
-		ArrayList<String> args=new ArrayList<String>(tadpoleArgs);
+		// Sparse-genome defaults precede explicit options, including aliases and combined mincount.
+		ArrayList<String> args=new ArrayList<String>();
+		args.add("mcs=1");
+		args.add("mce=1");
+		args.add("mincontig=1");
+		args.addAll(tadpoleArgs);
 		args.add("in="+inputFile);
 		args.add("out="+outputFile);
 		//[assemble/Reassemble#001] app=t is correct here now that process() deletes any pre-existing out up front (see there).
@@ -398,9 +399,6 @@ public class Reassemble {
 			args.add("app=t");  // Append mode
 		}
 		args.add("k="+k);  // K-mer size for assembly
-		args.add("mcs=1");  // minCountSeed=1 for sparse genomes
-		args.add("mce=1");  // minCountExtend=1 for sparse genomes
-		args.add("mincontig=1");  // Keep all contigs initially
 		args.add("idoffset="+contigOffset);  // Unique contig IDs
 		args.add("showstats=f");
 		if(record.taxID>0){
@@ -427,6 +425,7 @@ public class Reassemble {
 			record.success=true;
 			record.contigsWritten=tadpole.contigsWritten;
 			record.basesWritten=tadpole.basesWritten;
+			record.nextContigOffset=tadpole.nextContigIDOffset();
 			outstream.println("Assembly succeeded: "+record.contigsWritten+" contigs, "+record.basesWritten+" bases");
 		}catch(Exception e){
 			record.success=false;
@@ -454,15 +453,17 @@ public class Reassemble {
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Parses taxID from filename, falling back to FASTA header if not found in filename.
-	 * First tries filename patterns (tid_<number> or tid|<number>).
-	 * If not found, reads first line of file to parse from FASTA header.
-	 * @param filename File name or path containing taxID
-	 * @return taxID number, or -1 if not found
+	 * Tries the legacy path parser after removing recognized format/compression
+	 * suffixes, then tid_/tid| plus digits in the original basename,
+	 * then BinObject parsing of the first logical input line. Only positive IDs count.
+	 * Header-read Exceptions are tolerated (logged only when verbose); Errors and
+	 * failures from the first legacy parser propagate. No taxonomy-tree resolution occurs.
+	 * @param filename Literal input name or path, also used to open the header
+	 * @return Positive parsed ID, or -1 when all attempted fallbacks find none
 	 */
 	private int parseTaxIDFromFilename(String filename){
-		// Try GiToTaxid.parseTaxidNumber (handles tid_ and tid| with various delimiters)
-		int tid=GiToTaxid.parseTaxidNumber(filename, '_');
+		// The header-token parser requires digits or field separators, not a filename extension (ASM038).
+		int tid=GiToTaxid.parseTaxidNumber(ReadWrite.stripExtension(filename), '_');
 		if(tid>0){return tid;}
 
 		// Fallback: simple manual parsing for tid_<digits> in filename
@@ -506,54 +507,81 @@ public class Reassemble {
 	/*----------------        Inner Classes         ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/**
-	 * Records processing results for a single genome.
-	 */
+	/** Mutable result owned by one serial genome invocation; retained for final reporting. */
 	private static class GenomeRecord{
+		/** Original input name, used for report labeling. */
 		String inputFile;
+		/** Positive parsed label, or -1 when no label was found. */
 		int taxID=-1;
+		/** Per-genome output in temporary mode; null in direct-append mode. */
 		String tempOutput;
+		/** True only after Tadpole.process returns normally. */
 		boolean success=false;
+		/** Physical temporary-file size observed after success, rather than a base count. */
 		long outputSize=0;
+		/** Tadpole contig/base output counters captured after successful processing. */
 		long contigsWritten=0;
 		long basesWritten=0;
+		/** Exclusive absolute ID bound from successful output, including filtered retained contigs. */
+		long nextContigOffset=0;
+		/** Caught Exception message; may be null, empty on unfailed records. */
 		String errorMessage="";
+	}
+
+	/** Owns final-output completion so close/subprocess errors prevent temporary-file deletion. */
+	private static final class AssemblyOutput implements Closeable{
+		/** Opens the final native backend; its owner must close it before deleting any inputs. */
+		AssemblyOutput(final String name_){
+			name=name_;
+			stream=ReadWrite.getOutputStream(name, false, true, true);
+		}
+		/** Completes the backend and any registered output process, reporting retained errors. */
+		@Override
+		public void close() throws IOException{
+			if(ReadWrite.finishWriting(null, stream, name, true)){throw new IOException("Failed to finish assembly output: "+name);}
+		}
+		/** Native output backend; bulk writes go directly to it without a per-byte wrapper. */
+		final OutputStream stream;
+		/** Filename used to wait for any registered compression process. */
+		final String name;
 	}
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Fields                ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Input genome file paths */
+	/** Expanded inputs in supplied/directory-listing order; duplicates are retained. */
 	private ArrayList<String> in=new ArrayList<String>();
 
-	/** Output file path */
+	/** Required final output name, possibly a stream name. */
 	private String out=null;
 
-	/** Temporary file directory */
+	/** Optional temporary directory with trailing slash; null selects direct append. */
 	private String tempdir=null;
 
 	/** K-mer size for assembly (default 31) */
 	private int k=31;
 
-	/** Use append mode (true) or temp files (false) */
+	/** Derived from tempdir during construction; true publishes each genome directly. */
 	private boolean useAppendMode=true;
 
-	/** Abort on first failure (default false) */
+	/** Abort on the first caught assembly failure; false still reports a final error. */
 	private boolean failfast=false;
 
-	/** Delete temporary files after concatenation (default true) */
+	/** Delete temporary files only after all genomes and final output succeed (default true). */
 	private boolean deleteTemp=true;
+	/** Whether an existing final output may be replaced; never permits an input alias. */
+	private boolean overwrite=true;
 
-	/** Arguments to pass through to Tadpole */
+	/** Ordered pass-through options, copied before per-genome overrides are appended. */
 	private ArrayList<String> tadpoleArgs;
 
-	/** Output file format */
+	/** Construction-time output descriptor; actual writes use per-genome/final names. */
 	private FileFormat ffout;
 
-	/** Output stream for logging */
+	/** PreParser diagnostic stream; the CLI entry point closes it after processing. */
 	private PrintStream outstream=System.err;
 
-	/** Verbose logging flag */
+	/** Shared diagnostic verbosity; persists across instances in the same JVM. */
 	public static boolean verbose=false;
 }

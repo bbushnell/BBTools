@@ -19,25 +19,31 @@ import structures.ByteBuilder;
 import ukmer.HollowAnchorTable;
 
 /**
- * Read-only truth audit of selected assembly anchors. Reports every literal
- * 32bp occurrence in a supplied reference, independently of the joining code.
- * Coordinates are zero-based; no reference evidence changes a join decision.
+ * Read-only truth audit for hand-selected 32-base assembly anchors.
+ *
+ * <p>The diagnostic loads complete contigs and references, disables FASTA split
+ * reads for the process without restoring that global flag, and emits every
+ * literal occurrence of each requested anchor in the supplied reference without
+ * consulting or mutating the Hollow joiner. Palindromic 32-base matches produce
+ * one positive-strand row per physical position; reported coordinates are
+ * zero-based evidence locations and do not feed back into join selection.</p>
+ *
  * @author Brian Bushnell, Fischl
  */
-public final class HollowTipAnchorAudit {
+public final class HollowTipAnchorAudit{
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Parses a bounded query list and scans complete FASTA records with native I/O. */
+	/** Parses the bounded query list, then scans complete contig and reference FASTA records. */
 	public static void main(final String[] args){
 		final PreParser pp=new PreParser(args, HollowTipAnchorAudit.class, false);
 		try{new HollowTipAnchorAudit(pp.args, pp.outstream).process();}
 		finally{Shared.closeStream(pp.outstream);}
 	}
 
-	/** Positions are contig-index:start0 pairs, selected from the candidate report. */
+	/** Retains only contig-index:start0 query pairs selected from a candidate report. */
 	private HollowTipAnchorAudit(final String[] args, final PrintStream log_){
 		log=log_;
 		final Parser parser=new Parser();
@@ -62,7 +68,7 @@ public final class HollowTipAnchorAudit {
 	/*----------------           Methods            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Scans all reference positions and both strands for each exact selected arm. */
+	/** Builds selected-arm queries, then scans unsplit reference records on both strands. */
 	private void process(){
 		if(test){selfTest(); return;}
 		Tools.testInputFiles(false, true, input, reference);
@@ -114,7 +120,7 @@ public final class HollowTipAnchorAudit {
 		}finally{if(writer.poisonAndWait()){throw new RuntimeException("Audit output failed: "+output);}}
 	}
 
-	/** Encodes a complete defined32bp word; all bit patterns are valid identities. */
+	/** Encodes one complete defined 32-base word; every bit pattern is a legal identity. */
 	private static long encode(final byte[] bases, final int start){
 		assert(start>=0 && start<=bases.length-32) : "Selected positions must contain a full32bp arm.";
 		long word=0;
@@ -126,7 +132,7 @@ public final class HollowTipAnchorAudit {
 		return word;
 	}
 
-	/** Known bit patterns independently check the diagnostic's word and strand convention. */
+	/** Checks the diagnostic word and strand conventions with known 32-base identities. */
 	private void selfTest(){
 		final byte[] bases=new byte[32];
 		java.util.Arrays.fill(bases, (byte)'A');
@@ -144,16 +150,20 @@ public final class HollowTipAnchorAudit {
 	/*----------------         Inner classes        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** One retained query and its occurrence total; allocated only for selected anchors. */
-	private static final class Query {
+	/** One exact anchor query and its physical occurrence total. */
+	private static final class Query{
+		/** Stores one contig/start query and precomputes both strand encodings. */
 		Query(final int contig_, final int start_, final long word){
 			contig=contig_;
 			start=start_;
 			forward=word;
 			reverse=HollowAnchorTable.reverseComplement(word);
 		}
+		/** Selected assembly contig index and zero-based 32-base start. */
 		final int contig, start;
+		/** Forward and reverse-complement 32-base encodings of the same query arm. */
 		final long forward, reverse;
+		/** Number of literal reference positions observed on either strand. */
 		long hits;
 	}
 
@@ -161,7 +171,10 @@ public final class HollowTipAnchorAudit {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Input contigs, reference FASTA, fresh output TSV, and selected position list. */
 	private String input, reference, output, positions;
+	/** True for the built-in convention self-test that skips file I/O. */
 	private boolean test;
+	/** Diagnostic stream supplied by PreParser; main delegates cleanup to Shared.closeStream. */
 	private final PrintStream log;
 }

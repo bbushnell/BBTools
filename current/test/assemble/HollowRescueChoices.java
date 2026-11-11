@@ -26,11 +26,11 @@ import ukmer.HollowKmerLookup;
 import ukmer.Kmer;
 import ukmer.KmerTableSetU;
 
-/** Reconstructs the16 ingress/next-base counts for retained right-extension seed edits.
+/** Reconstructs the 16 ingress/next-base counts for retained right-extension seed edits.
  * Original seeds and original reads supply evidence; saved extensions never do.
  * This is a post-hoc diagnostic, not an execution trace or a correction policy.
  * @author Brian Bushnell, Fischl */
-public final class HollowRescueChoices {
+public final class HollowRescueChoices{
 
 	/** Expands native configuration arguments and closes redirected diagnostics. */
 	public static void main(final String[] args){
@@ -43,7 +43,7 @@ public final class HollowRescueChoices {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Keeps evidence and ordered comparison inputs explicit and separate. */
+	/** Keeps original-read evidence and ordered original/proposed FASTA inputs separate. */
 	private HollowRescueChoices(final String[] args, final PrintStream log_){
 		assert(args!=null) : "PreParser supplies expanded diagnostic arguments.";
 		log=log_;
@@ -80,7 +80,7 @@ public final class HollowRescueChoices {
 	/*----------------           Methods            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Loads evidence once and streams each original/proposed pair without retaining libraries. */
+	/** Loads original evidence once and streams each seed/proposal pair in order. */
 	private void process(){
 		if(test){selfTest(); return;}
 		final KmerTableSetU tables=load(k, false);
@@ -134,7 +134,7 @@ public final class HollowRescueChoices {
 		log.println("HOLLOW_RESCUE_CHOICES_PASS seeds="+examined+" changes="+changed+" k="+k);
 	}
 
-	/** Matches unfiltered extension evidence: every original seed and read counted once. */
+	/** Matches unfiltered extension evidence: every original read and seed counted once. */
 	private KmerTableSetU load(final int span, final boolean tiny){
 		assert(span>64) : "Endpoint-pair counts require a non-solid Hollow span.";
 		final ArrayList<String> options=new ArrayList<String>(Arrays.asList(
@@ -172,7 +172,7 @@ public final class HollowRescueChoices {
 		return (int)end;
 	}
 
-	/** Packs one counted anchor; the edited ingress is outside both pre-step anchors. */
+	/** Packs one pre-step anchor; the edited ingress is not inside either anchor. */
 	private static long arm(final byte[] bases, final int start){
 		assert(start>=0 && start+32<=bases.length) : "Checkpoint geometry must provide32existing bases per anchor.";
 		long value=0;
@@ -242,10 +242,11 @@ public final class HollowRescueChoices {
 	/*----------------            I/O               ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Native synchronous FASTA iteration avoids a producer blocked after an input error. */
-	private static final class Cursor implements AutoCloseable {
-		/** Opens one unpaired comparison stream without background queue dependencies. */
+	/** Caller-driven FASTA iteration avoids a parser worker blocked after an input error. */
+	private static final class Cursor implements AutoCloseable{
+		/** Opens one unpaired comparison stream with no parser worker. */
 		Cursor(final String path){
+			/* TODO(ASM024): close a partially started stream if start throws here. */
 			final FileFormat ff=FileFormat.testInput(path, FileFormat.FASTA, null, true, true);
 			require(ff.fasta(), "Ordered comparison inputs must be FASTA.");
 			stream=StreamerFactory.makeStreamer(ff, null, true, -1, false, true, 0); stream.start();
@@ -259,22 +260,30 @@ public final class HollowRescueChoices {
 			}
 			return batch.list.get(index++);
 		}
+		/** Closes a successfully constructed comparison stream and reports native read errors. */
 		@Override
 		public void close(){require(!ReadWrite.closeStream(stream), "Comparison input failed.");}
+		/** Native FASTA reader owned by this cursor after construction succeeds. */
 		private final Streamer stream;
+		/** Current batch of ordered FASTA records retained until the next batch arrives. */
 		private ListNum<Read> batch;
+		/** Next unread record index within batch. */
 		private int index;
+		/** EOF latch so additional next calls remain null. */
 		private boolean finished;
 	}
 
-	/** Flushes the native writer on success and failure without closing other outputs. */
-	private static final class Report implements AutoCloseable {
+	/** Finishes a successfully constructed native writer on success and failure. */
+	private static final class Report implements AutoCloseable{
 		/** Starts one new diagnostic report. */
 		Report(final String path){
+			/* TODO(ASM024): clean up a partially constructed writer if start throws here. */
 			writer=new ByteStreamWriter(FileFormat.testOutput(path, FileFormat.TXT, null, true, false, false, false)); writer.start();
 		}
+		/** Flushes one constructed report and converts close errors into diagnostic failures. */
 		@Override
 		public void close(){require(!writer.poisonAndWait(), "Choice report output failed.");}
+		/** New diagnostic report writer owned by this resource wrapper. */
 		final ByteStreamWriter writer;
 	}
 
@@ -287,8 +296,12 @@ public final class HollowRescueChoices {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Original FASTQ, original FASTA, proposed FASTA, detail TSV and summary TSV paths. */
 	private String reads, seeds, queries, output, stats;
+	/** Hollow K in bases, and the minimum competitor count recorded as support. */
 	private int k=192, support=4;
+	/** Runs geometry self-tests without reports, while still loading supplied read evidence. */
 	private boolean test;
+	/** Native PreParser diagnostics stream, closed by main. */
 	private final PrintStream log;
 }

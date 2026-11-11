@@ -14,15 +14,27 @@ import shared.Tools;
  * Development-only collection at actual native contig branch checks. The same
  * conservative walk runs with or without the observer. Reference labeling and
  * training are separate processes, after the read count table is released.
+ * Requires one effective canonical DNA K in 24–127, ownership and positive extension depth.
+ * The required out option names the observation trace; rawcontigs optionally names
+ * the raw-unitig FASTA. Collection appends its raw-unitig settings to the forwarded
+ * native arguments, preserving caller-supplied branch thresholds.
+ * Repeated encounters remain in the trace. A completion trailer records table moments
+ * before count data is released; successful writer close is also required before reporting success.
+ * Raw contigs and trace rows may remain after failure; no rollback or deletion is attempted.
  * @author Fischl
  */
-public final class LiveBranchDiagnostic {
+public final class LiveBranchDiagnostic{
 
 	/*--------------------------------------------------------------*/
 	/*----------------             Main             ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Expands config files through the standard preparser, then forwards native arguments. */
+	/**
+	 * Expands configuration through the standard preparser and closes its owned diagnostic stream.
+	 * Standard output/error streams remain open.
+	 * Collection failures propagate; this wrapper does not restore Tadpole's shared settings.
+	 * @param args Trace destination, optional raw-contig destination and native counting/walk options
+	 */
 	public static void main(final String[] args){
 		final PreParser pp=new PreParser(args, LiveBranchDiagnostic.class, false);
 		try{collect(pp.args);}
@@ -33,7 +45,24 @@ public final class LiveBranchDiagnostic {
 	/*----------------        Static Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Installs the observer only on this single-K raw-unitig diagnostic instance. */
+	/**
+	 * Installs an observer on one raw-unitig assembly instance. Consumes out, rawcontigs and
+	 * controlevery (default 64); forwards other supported options and rejects alternate output
+	 * options and arguments recognized by the multi-K dispatcher. Values retain text after
+	 * the first equals sign. Effective native settings are checked after Tadpole construction.
+	 * Appended overrides include processcontigs=f, pop=f, sweeplen=0, trimends=0 and
+	 * trimcircular=f, retain short raw contigs, and force explicit k-mer table storage.
+	 * Other counting/walk settings remain native options; branch thresholds, read filters
+	 * and preassembly table cleanup are not globally disabled by this wrapper.
+	 *
+	 * Checks read, mate and extra input paths against both outputs before opening the observer.
+	 * Ordinary output files must be new even if native arguments request overwrite. The final
+	 * cleanup clears the observer reference and count data, including when observer construction
+	 * fails; earlier argument, native-construction and path-validation failures precede that scope.
+	 * Counts used in the completion trailer come from the retained table after process2 returns,
+	 * not from summing sampled trace rows. The success message follows observer close and cleanup.
+	 * @param args Expanded diagnostic and native options
+	 */
 	private static void collect(final String[] args){
 		if(args==null){throw new IllegalArgumentException("Expected diagnostic arguments.");}
 		String output=null, raw=null;
