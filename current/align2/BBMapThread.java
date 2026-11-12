@@ -982,12 +982,12 @@ public final class BBMapThread extends AbstractMapThread{
 		return best;
 	}
 
-	/** Smallest plausible long indel joining complementary half-read pseudo sites. */
+	/** Smallest plausible long indel joining complementary half-read pseudo sites,
+	 * or zero when no candidate passes the coverage, chromosome, strand and gap limits. */
 	private static int smallestPseudoSplitGap(final Read r, final int maxGap){
 		if(r.sites==null || r.sites.size()<2){return 0;}
-		//TODO: Probable bug - HybridMaxIndelConfig allows Integer.MAX_VALUE;
-		//maxGap+1 then wraps negative and suppresses all positive split candidates.
-		int best=maxGap+1;
+		//The sentinel must exceed every allowed int gap, including Integer.MAX_VALUE.
+		long best=(long)maxGap+1;
 		for(SiteScore left:r.sites){
 			if(left.pseudoLeftCoverage()<95 || left.pseudoRightCoverage()>75){continue;}
 			for(SiteScore right:r.sites){
@@ -997,7 +997,7 @@ public final class BBMapThread extends AbstractMapThread{
 				if(gap>50 && gap<=maxGap){best=Tools.min(best,gap);}
 			}
 		}
-		return best>maxGap ? 0 : best;
+		return best>maxGap ? 0 : (int)best;
 	}
 
 	/** Highest final paired-site score retained by the low attempt. */

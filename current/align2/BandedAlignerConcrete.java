@@ -12,6 +12,13 @@ import shared.Tools;
  * The terminal row/reference boundary forces diagonal transitions, so this is
  * not an unrestricted global edit-distance solver. exact=false makes an undefined
  * base on either side match at zero cost. Instance scratch is not thread-safe.
+ * Directional calls require nonnull inputs and valid starting base coordinates.
+ * They score at most the shorter available span and may stop early when a row's
+ * minimum exceeds maxEdits. The returned last-row result may exceed that limit;
+ * it is not necessarily a full edit distance. Off-center penalties follow
+ * {@link BandedAligner#penalizeOffCenter}. Each call updates the inherited
+ * last-result fields; reported locations use the original arrays' coordinates
+ * even when the implementation swaps inputs.
  *
  * @author Brian Bushnell
  * @date Aug 5, 2013
@@ -121,11 +128,14 @@ public class BandedAlignerConcrete extends BandedAligner{
 	}
 
 	/**
-	 * @param query
-	 * @param ref
-	 * @param qstart
-	 * @param rstart
-	 * @return Edit distance
+	 * Extends both inputs toward higher coordinates from the supplied bases.
+	 * @param query Query bases, read without modification
+	 * @param ref Reference bases, read without modification
+	 * @param qstart Zero-based starting query base, inclusive
+	 * @param rstart Zero-based starting reference base, inclusive
+	 * @param maxEdits Early-stop threshold and band-width limit; requires {@code 0<=maxEdits<big}
+	 * @param exact True requires byte equality; false lets an undefined base on either side match
+	 * @return Last scored row's banded result, possibly partial or above maxEdits
 	 */
 	@Override
 	public int alignForward(final byte[] query, final byte[] ref, final int qstart, final int rstart, final int maxEdits, final boolean exact){
@@ -242,11 +252,14 @@ public class BandedAlignerConcrete extends BandedAligner{
 	}
 
 	/**
-	 * @param query
-	 * @param ref
-	 * @param qstart
-	 * @param rstart
-	 * @return Edit distance
+	 * Extends complemented query toward lower coordinates and reference toward higher coordinates.
+	 * @param query Query bases; traversed bases are complemented without modifying the array
+	 * @param ref Reference bases, read without modification
+	 * @param qstart Zero-based starting query base, inclusive
+	 * @param rstart Zero-based starting reference base, inclusive
+	 * @param maxEdits Early-stop threshold and band-width limit; requires {@code 0<=maxEdits<big}
+	 * @param exact True requires equality after any complementation; false permits undefined-base matches
+	 * @return Last scored row's banded result, possibly partial or above maxEdits
 	 */
 	@Override
 	public int alignForwardRC(final byte[] query, final byte[] ref, final int qstart, final int rstart, final int maxEdits, final boolean exact){
@@ -356,11 +369,14 @@ public class BandedAlignerConcrete extends BandedAligner{
 	}
 
 	/**
-	 * @param query
-	 * @param ref
-	 * @param qstart
-	 * @param rstart
-	 * @return Edit distance
+	 * Extends both inputs toward lower coordinates from the supplied bases.
+	 * @param query Query bases, read without modification
+	 * @param ref Reference bases, read without modification
+	 * @param qstart Zero-based starting query base, inclusive
+	 * @param rstart Zero-based starting reference base, inclusive
+	 * @param maxEdits Early-stop threshold and band-width limit; requires {@code 0<=maxEdits<big}
+	 * @param exact True requires byte equality; false lets an undefined base on either side match
+	 * @return Last scored row's banded result, possibly partial or above maxEdits
 	 */
 	@Override
 	public int alignReverse(final byte[] query, final byte[] ref, final int qstart, final int rstart, final int maxEdits, final boolean exact){
@@ -472,11 +488,14 @@ public class BandedAlignerConcrete extends BandedAligner{
 	}
 
 	/**
-	 * @param query
-	 * @param ref
-	 * @param qstart
-	 * @param rstart
-	 * @return Edit distance
+	 * Extends complemented query toward higher coordinates and reference toward lower coordinates.
+	 * @param query Query bases; traversed bases are complemented without modifying the array
+	 * @param ref Reference bases, read without modification
+	 * @param qstart Zero-based starting query base, inclusive
+	 * @param rstart Zero-based starting reference base, inclusive
+	 * @param maxEdits Early-stop threshold and band-width limit; requires {@code 0<=maxEdits<big}
+	 * @param exact True requires equality after any complementation; false permits undefined-base matches
+	 * @return Last scored row's banded result, possibly partial or above maxEdits
 	 */
 	@Override
 	public int alignReverseRC(final byte[] query, final byte[] ref, final int qstart, final int rstart, final int maxEdits, final boolean exact){
@@ -592,7 +611,7 @@ public class BandedAlignerConcrete extends BandedAligner{
 	 * On failure lastRow and both locations are -1, and lastEdits is above the limit.
 	 * All substitutions and terminal gaps cost one; off-center extension penalties
 	 * do not apply because both ends are fixed and every gap is already charged.
-	 * The band permits abs(consumedQuery-consumedReference)<=min(maxWidth/2,maxEdits).
+	 * The band permits {@code abs(consumedQuery-consumedReference)<=min(maxWidth/2,maxEdits)}.
 	 * Rejection is relative to that band, not a claim of unrestricted distance. */
 	@Override
 	public int alignFixed(final byte[] query, final byte[] ref, final int qstart, final int rstart,

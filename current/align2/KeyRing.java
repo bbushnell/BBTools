@@ -40,7 +40,7 @@ public final class KeyRing{
 	 *
 	 * @param s Input sequence as byte array
 	 * @param offsets Array of starting positions for k-mer extraction
-	 * @param chunksize Length of each k-mer (must be >0 and <16)
+	 * @param chunksize Length of each k-mer (must be {@code >0 && <16})
 	 * @return Fresh array of keys (-1 for a seed containing an undefined base), or null if offsets is null
 	 */
 	public static int[] makeKeys(byte[] s, int[] offsets, int chunksize){

@@ -80,7 +80,7 @@ class HorizontalUnlimited{
 	}
 
 	/** Lenient limited fill using optimistic remaining matches, live spans, and compact ancestry.
-	 * minimum is already adjusted by the caller and is not score-shifted. halfband<=0
+	 * minimum is already adjusted by the caller and is not score-shifted. {@code halfband<=0}
 	 * disables the explicit band; positive values retain the legacy asymmetric window.
 	 * Dead rows return null. A leading insertion may keep column zero alive even when
 	 * no interior cell survives. Returns the same endpoint layout as fill on success. */

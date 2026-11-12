@@ -20,7 +20,7 @@ import stream.SiteScore;
  * Successor to BBIndex (the de-facto "v4", Dec 2012). The headline change is the
  * 32-bit UNSIGNED packed site coordinate: the heap element is Quad64 (long site)
  * instead of BBIndex's Quad (int site), packed coords are widened via
- * ((long)a2)&0xFFFFFFFFL, and the indel-window math uses subUnsigned/addUnsigned
+ * {@code ((long)a2)&0xFFFFFFFFL}, and the indel-window math uses subUnsigned/addUnsigned
  * rather than signed +/-. This doubles the addressable range per block from
  * ~2.1Gbp (signed int) to ~4.29Gbp (unsigned packed coordinate). This is block
  * address space, not a promise that a Java chromosome array can span that range.
@@ -2729,16 +2729,27 @@ public final class BBIndex5 extends AbstractIndex {
 	static float FRACTION_GENOME_TO_EXCLUDE=0.03f; //Default .03; lower is slower and more accurate.  For perfect reads and small genomes, lower is FASTER.
 
 	/**
-	 * Configures fraction of most frequent k-mers to exclude from alignment.
-	 * Adjusts multiple filtering thresholds to balance speed versus sensitivity.
-	 * @param f Fraction to exclude (0.0 to 1.0, typically 0.03)
+	 * Sets the fraction of most frequent k-mers to exclude from searches.
+	 * Adjusts search thresholds based on genome repetitiveness.
+	 * Lower values are slower but more thorough.
+	 * @param f Finite fraction in [0,1) whose derived filtering percentiles are nonnegative
+	 * @throws IllegalArgumentException If f would produce an invalid histogram index;
+	 * shared configuration is unchanged on rejection
 	 */
 	public static final void setFractionToExclude(float f){
-		//TODO: Probable parameter-range bug - accepted fractions such as0.5 yield
-		//negative histogram indexes in the formulas below; defaults remain small.
-		assert(f>=0 && f<1);
+		if(!(f>=0 && f<1)){
+			throw new IllegalArgumentException("excludefraction must be finite and in [0,1): "+f);
+		}
+		final int minIndex=(int)(1000*(1-3.5*f));
+		//This is the strongest multiplier below. If its index fits, all five fit.
+		//Validate before changing shared state: analyzeIndex and greedy filtering
+		//use these values as direct indexes into the 1001-bin length histogram.
+		if(minIndex<0){
+			throw new IllegalArgumentException("excludefraction="+f+" produces a negative filtering percentile: "+
+				minIndex+". Use a smaller fraction (below approximately 0.286 with the current filtering rules).");
+		}
 		FRACTION_GENOME_TO_EXCLUDE=f;
-		MIN_INDEX_TO_DROP_LONG_HIT_LIST=(int)(1000*(1-3.5*FRACTION_GENOME_TO_EXCLUDE)); //default 810
+		MIN_INDEX_TO_DROP_LONG_HIT_LIST=minIndex;
 		MAX_AVERAGE_LIST_TO_SEARCH=(int)(1000*(1-2.3*FRACTION_GENOME_TO_EXCLUDE)); //lower is faster, default 840
 		MAX_AVERAGE_LIST_TO_SEARCH2=(int)(1000*(1-1.4*FRACTION_GENOME_TO_EXCLUDE)); //default 910
 		MAX_SINGLE_LIST_TO_SEARCH=(int)(1000*(1-1.0*FRACTION_GENOME_TO_EXCLUDE)); //default 935

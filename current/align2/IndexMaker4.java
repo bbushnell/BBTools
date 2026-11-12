@@ -371,6 +371,9 @@ public class IndexMaker4{
 				final Block b;
 				synchronized(intercom){
 					intercom[1]++;
+					// Wake on count completion, not repeatedly from allocation waiters:
+					// those waiters can otherwise wake each other and starve the allocator.
+					if(intercom[1]==4){intercom.notifyAll();}
 					if(id==0){
 						while(intercom[1]<4 && failure==null){
 							intercom.wait();
@@ -405,7 +408,6 @@ public class IndexMaker4{
 						intercom.notifyAll();
 					}else{
 						while(intercom[2]<1 && failure==null){
-							if(intercom[1]>=4){intercom.notifyAll();}
 							intercom.wait();
 						}
 						if(failure!=null){rethrow(failure);}

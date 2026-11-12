@@ -42,7 +42,7 @@ public class Quad implements Comparable<Quad>{
 	/**
 	 * Compares this Quad with another for ordering: primary by site value, secondary by column value.
 	 * @param other The Quad to compare with
-	 * @return Negative if this < other, positive if this > other, zero if equal
+	 * @return Negative if {@code this < other}, positive if {@code this > other}, zero if equal
 	 */
 	@Override
 	public int compareTo(final Quad other){

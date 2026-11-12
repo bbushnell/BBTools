@@ -1,4 +1,8 @@
-package align2;
+package test.align2;
+
+import align2.BBMapS;
+import align2.HybridMatchCache;
+import align2.MultiStateAligner11ts;
 
 import java.util.Arrays;
 import java.util.Random;

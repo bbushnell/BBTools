@@ -2075,15 +2075,20 @@ public final class BBIndexAcc extends AbstractIndex {
 
 
 	/**
-	 * Calculates the maximum possible alignment score for a read.
-	 * Score depends on read length, base qualities, and scoring mode (affine or extended).
+	 * Scores a candidate site anchored by the center key.
+	 * Combines the center key score, left and right extension scores, a weighted
+	 * Y score and a center-index tie-breaker; a singleton approximate hit returns
+	 * the center key score directly.
 	 *
-	 * @param offsets K-mer positions in the read
-	 * @param baseScores Base quality scores
+	 * @param locs Candidate genome locations per key
 	 * @param keyScores K-mer alignment scores
-	 * @param readlen Length of the read
-	 * @param useQuality Whether to incorporate base quality into scoring
-	 * @return Maximum theoretical alignment score
+	 * @param centerIndex Index of the key anchoring the candidate site
+	 * @param offsets K-mer positions in the read
+	 * @param sizes Hit-list sizes for each key
+	 * @param penalizeIndels Whether to penalize indels while extending from the center
+	 * @param numApproxHits Number of approximate hits considered for this candidate
+	 * @param numHits Usable-key bound passed to scoreRight
+	 * @return Candidate seed score for this center key and site
 	 */
 	private final int quickScore(final int[] locs, final int[] keyScores, final int centerIndex, final int offsets[],
 			int[] sizes, final boolean penalizeIndels, final int numApproxHits, final int numHits){
@@ -2887,17 +2892,27 @@ public final class BBIndexAcc extends AbstractIndex {
 	static float FRACTION_GENOME_TO_EXCLUDE=0.003f; //Default .04; lower is slower and more accurate
 
 	/**
-	 * Sets fraction of most frequent k-mers to exclude from searches.
-	 * Highly repetitive k-mers are filtered out to improve search performance
-	 * and reduce false positive alignments.
-	 * @param f Fraction between 0 and 1 representing portion of k-mers to exclude
+	 * Sets the fraction of most frequent k-mers to exclude from searches.
+	 * Adjusts search thresholds based on genome repetitiveness.
+	 * Lower values are slower but more thorough.
+	 * @param f Finite fraction in [0,1) whose derived filtering percentiles are nonnegative
+	 * @throws IllegalArgumentException If f would produce an invalid histogram index;
+	 * shared configuration is unchanged on rejection
 	 */
 	public static final void setFractionToExclude(float f){
-		//TODO: Probable parameter-range bug - accepted large fractions (e.g.0.5)
-		//produce negative histogram indexes below. Defaults are much smaller.
-		assert(f>=0 && f<1);
+		if(!(f>=0 && f<1)){
+			throw new IllegalArgumentException("excludefraction must be finite and in [0,1): "+f);
+		}
+		final int minIndex=(int)(1000*(1-3.5*f));
+		//This is the strongest multiplier below. If its index fits, all five fit.
+		//Validate before changing shared state: analyzeIndex and greedy filtering
+		//use these values as direct indexes into the 1001-bin length histogram.
+		if(minIndex<0){
+			throw new IllegalArgumentException("excludefraction="+f+" produces a negative filtering percentile: "+
+				minIndex+". Use a smaller fraction (below approximately 0.286 with the current filtering rules).");
+		}
 		FRACTION_GENOME_TO_EXCLUDE=f;
-		MIN_INDEX_TO_DROP_LONG_HIT_LIST=(int)(1000*(1-3.5*FRACTION_GENOME_TO_EXCLUDE)); //default 810
+		MIN_INDEX_TO_DROP_LONG_HIT_LIST=minIndex;
 		MAX_AVERAGE_LIST_TO_SEARCH=(int)(1000*(1-2.3*FRACTION_GENOME_TO_EXCLUDE)); //lower is faster, default 840
 		MAX_AVERAGE_LIST_TO_SEARCH2=(int)(1000*(1-1.4*FRACTION_GENOME_TO_EXCLUDE)); //default 910
 		MAX_SINGLE_LIST_TO_SEARCH=(int)(1000*(1-1.0*FRACTION_GENOME_TO_EXCLUDE)); //default 935

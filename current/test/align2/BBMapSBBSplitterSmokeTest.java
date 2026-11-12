@@ -1,4 +1,7 @@
-package align2;
+package test.align2;
+
+import align2.BBMapS;
+import align2.BBSplitter;
 
 import java.io.File;
 import java.nio.file.Files;

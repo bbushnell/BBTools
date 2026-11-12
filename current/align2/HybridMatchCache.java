@@ -12,13 +12,13 @@ import stream.SiteScore;
  * Not thread-safe: BBMapThread owns one cache, enables replay only during final
  * match generation, and clears it at attempt boundaries and in its finally block.
  * @author Collei */
-final class HybridMatchCache {
+public final class HybridMatchCache {
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	HybridMatchCache(){this(null);}
+	public HybridMatchCache(){this(null);}
 	/** The optional counter belongs to the same worker; null disables hit accounting. */
 	HybridMatchCache(HybridMaxIndelStats stats_){stats=stats_;}
 
@@ -27,7 +27,7 @@ final class HybridMatchCache {
 	/*--------------------------------------------------------------*/
 
 	/** Drops both observations and disables replay for the next attempt. */
-	void clear(){entries[0]=entries[1]=null; replaying=false;}
+	public void clear(){entries[0]=entries[1]=null; replaying=false;}
 	/** Drops one mate slot without changing whether the owner is replaying. */
 	void clear(int slot){
 		assert(slot>=0 && slot<2) : "Each paired observation owns one of two end slots";
@@ -44,7 +44,7 @@ final class HybridMatchCache {
 	 * @param minus Reverse-complement query bases, or null
 	 * @param imperfect Maximum imperfect score supplied to match generation
 	 * @param maximum Maximum possible score supplied to match generation */
-	void remember(int slot, long id, SiteScore original, SiteScore generated,
+	public void remember(int slot, long id, SiteScore original, SiteScore generated,
 			byte[] plus, byte[] minus, int imperfect, int maximum){
 		clear(slot);
 		assert(!replaying) : "Observation cannot replace a cache during finalization";
@@ -58,7 +58,7 @@ final class HybridMatchCache {
 	 * Once the site identity matches, the entry is consumed even if validation fails;
 	 * a changed site cannot regain a stale observation later in the same attempt.
 	 * @return True when site.match was populated; false leaves it untouched */
-	boolean restore(long id, SiteScore site, byte[] plus, byte[] minus,
+	public boolean restore(long id, SiteScore site, byte[] plus, byte[] minus,
 			int imperfect, int maximum, boolean secondary){
 		if(!replaying || secondary){return false;}
 		for(int i=0; i<entries.length; i++){
@@ -114,9 +114,9 @@ final class HybridMatchCache {
 	/*--------------------------------------------------------------*/
 
 	/** Enabled only around final match generation; always reset by the owner. */
-	boolean replaying;
+	public boolean replaying;
 	/** Installed only by the functional test driver; ordinary runs leave it null. */
-	static volatile AtomicLong auditHits;
+	public static volatile AtomicLong auditHits;
 	private final HybridMaxIndelStats stats;
 	private final Entry[] entries=new Entry[2];
 }

@@ -996,21 +996,19 @@ public abstract class MSA{
 	public abstract int calcInsScore(int len);
 
 	/**
-	 * Converts minimum identity percentage to minimum ratio for specified MSA class.
-	 * Delegates to appropriate MSA implementation for class-specific ratio calculation.
+	 * Converts minimum identity to the selected aligner's minimum score ratio.
+	 * The 11ts and explicit 11tsJNI names share the Java 11ts conversion.
 	 *
-	 * @param minid Minimum identity percentage (0.0 to 1.0)
-	 * @param classname Name of MSA implementation class
+	 * @param minid Identity fraction in (0,1], or percentage in (1,100]
+	 * @param classname Case-insensitive MSA implementation class name
 	 * @return Minimum ratio value corresponding to specified identity threshold
 	 */
 	public static final float minIdToMinRatio(double minid, String classname){
-		//TODO: Unlike makeMSA,this dispatcher lacks an explicit 11tsJNI alias.
-		// Calls using that literal name fail under -ea; normal 11ts dispatch is unaffected.
 		if("MultiStateAligner9ts".equalsIgnoreCase(classname)){
 			return MultiStateAligner9ts.minIdToMinRatio(minid);
 		}else if("MultiStateAligner10ts".equalsIgnoreCase(classname)){
 			return MultiStateAligner10ts.minIdToMinRatio(minid);
-		}else if("MultiStateAligner11ts".equalsIgnoreCase(classname)){
+		}else if("MultiStateAligner11ts".equalsIgnoreCase(classname) || "MultiStateAligner11tsJNI".equalsIgnoreCase(classname)){
 			return MultiStateAligner11ts.minIdToMinRatio(minid);
 		}else if("MultiStateAligner9PacBio".equalsIgnoreCase(classname)){
 			return MultiStateAligner9PacBio.minIdToMinRatio(minid);

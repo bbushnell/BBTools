@@ -1338,9 +1338,9 @@ public abstract class AbstractMapThread extends Thread {
 
 
 
-	/** Returns the number of additional bases away that should be searched for slow align.
+	/** Searches eligible alignment sites for tip deletions and refreshes changed site scores.
 	 * This should probably be called between quickMap and slowAlign, only on
-	 * sites where stop-start<=bases.length-1 */
+	 * sites where {@code stop-start<=bases.length-1}. */
 	final void findTipDeletions(final Read r, final byte[] basesP, final byte[] basesM, final int maxSwScore, final int maxImperfectScore){
 
 		boolean findRight=r.quality==null || (r.minQualityLastNBases(TIP_DELETION_MAX_TIPLEN)>=TIP_DELETION_MIN_QUALITY &&
@@ -2648,7 +2648,7 @@ public abstract class AbstractMapThread extends Thread {
 
 	/** Returns the number of additional bases away that should be searched for slow align.
 	 * This should probably be called between quickMap and slowAlign, only on
-	 * sites where stop-start<=bases.length-1 */
+	 * sites where {@code stop-start<=bases.length-1}. */
 	protected final static int findTipDeletionsRight(final byte[] bases, final int chrom,
 			int originalStop, int searchDist, int tiplen){
 		ChromosomeArray cha=Data.getChromosome(chrom);
@@ -2708,7 +2708,7 @@ public abstract class AbstractMapThread extends Thread {
 
 	/** Returns the number of additional bases away that should be searched for slow align.
 	 * This should probably be called between quickMap and slowAlign, only on
-	 * sites where stop-start<=bases.length-1 */
+	 * sites where {@code stop-start<=bases.length-1}. */
 	protected final static int findTipDeletionsLeft(final byte[] bases, final int chrom,
 			final int originalStart, int searchDist, int tiplen){
 		ChromosomeArray cha=Data.getChromosome(chrom);

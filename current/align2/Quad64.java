@@ -1,7 +1,7 @@
 package align2;
 
 /** Mutable hit-list cursor ordered by a long site value, then seed column.
- * BBIndex5 assigns packed int coordinates widened with &0xFFFFFFFFL; thus bit31
+ * BBIndex5 assigns packed int coordinates widened with {@code &0xFFFFFFFFL}; thus bit31
  * does not make a coordinate negative. compareTo itself uses signed long order.
  * Row indexes the caller-owned hit list, not a dynamic-programming matrix.
  * Poll before changing site, then reinsert. Mutable, unsynchronized, and not
@@ -48,7 +48,7 @@ public class Quad64 implements Comparable<Quad64>{
 	/**
 	 * Compares Quad64 objects by site value, then by column for tie-breaking.
 	 * @param other Quad64 to compare against
-	 * @return Negative if this < other, positive if this > other, 0 if equal
+	 * @return Negative if {@code this < other}, positive if {@code this > other}, 0 if equal
 	 */
 	@Override
 	public int compareTo(final Quad64 other){

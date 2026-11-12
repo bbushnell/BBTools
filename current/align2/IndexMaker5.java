@@ -362,6 +362,10 @@ public class IndexMaker5{
 				final Block b;
 				synchronized(intercom){
 					intercom[1]++;
+					if(intercom[1]==4){
+						// Wake worker zero once; waiters must not spin a notify storm.
+						intercom.notifyAll();
+					}
 					if(id==0){
 						while(intercom[1]<4 && failure==null){
 							intercom.wait();
@@ -398,7 +402,6 @@ public class IndexMaker5{
 						intercom.notifyAll();
 					}else{
 						while(intercom[2]<1 && failure==null){
-							if(intercom[1]>=4){intercom.notifyAll();}
 							intercom.wait();
 						}
 						if(failure!=null){rethrow(failure);}

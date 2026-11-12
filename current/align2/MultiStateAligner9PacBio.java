@@ -60,12 +60,12 @@ public final class MultiStateAligner9PacBio extends MSA{
 	 * @param maxColumns_ Maximum number of columns (reference length) the aligner can handle
 	 */
 	public MultiStateAligner9PacBio(int maxRows_, int maxColumns_){
-		this(maxRows_,maxColumns_,PacBioScoreParameters.DEFAULT);
+		this(maxRows_, maxColumns_, PacBioScoreParameters.DEFAULT);
 	}
 
 	/** Explicit per-instance experimental penalties; no shared static mutation. */
-	public MultiStateAligner9PacBio(int maxRows_,int maxColumns_,PacBioScoreParameters costs_){
-		super(maxRows_,maxColumns_);
+	public MultiStateAligner9PacBio(int maxRows_, int maxColumns_, PacBioScoreParameters costs_){
+		super(maxRows_, maxColumns_);
 		if(costs_==null){throw new IllegalArgumentException("PacBio penalties cannot be null");}
 		costs=costs_;
 

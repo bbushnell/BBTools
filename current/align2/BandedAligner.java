@@ -94,7 +94,7 @@ public abstract class BandedAligner{
 	}
 
 	/** Traverses query/reference toward higher coordinates from valid starting bases.
-	 * The concrete implementation requires nonempty overlap and 0<=maxEdits<big;
+	 * The concrete implementation requires nonempty overlap and {@code 0<=maxEdits<big};
 	 * exact controls undefined-base matching, not exhaustive/global optimality. */
 	public abstract int alignForward(final byte[] query, final byte[] ref, final int qstart, final int rstart, final int maxEdits, final boolean exact);
 

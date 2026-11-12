@@ -2381,15 +2381,27 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex{
 	static float FRACTION_GENOME_TO_EXCLUDE=0.005f; //Default .04; lower is slower and more accurate
 
 	/**
-	 * Sets fraction of most frequent k-mers to exclude from searches.
-	 * Adjusts various search thresholds based on exclusion fraction.
-	 * @param f Fraction to exclude (0.0 to 1.0)
+	 * Sets the fraction of most frequent k-mers to exclude from searches.
+	 * Adjusts search thresholds based on genome repetitiveness.
+	 * Lower values are slower but more thorough.
+	 * @param f Finite fraction in [0,1) whose derived filtering percentiles are nonnegative
+	 * @throws IllegalArgumentException If f would produce an invalid histogram index;
+	 * shared configuration is unchanged on rejection
 	 */
 	public static final void setFractionToExclude(float f){
-		assert(f>=0 && f<1);
-		//TODO: Probable bug - accepted large fractions make histogram indexes below negative.
+		if(!(f>=0 && f<1)){
+			throw new IllegalArgumentException("excludefraction must be finite and in [0,1): "+f);
+		}
+		final int minIndex=(int)(1000*(1-3.5*f));
+		//This is the strongest multiplier below. If its index fits, all five fit.
+		//Validate before changing shared state: analyzeIndex and greedy filtering
+		//use these values as direct indexes into the 1001-bin length histogram.
+		if(minIndex<0){
+			throw new IllegalArgumentException("excludefraction="+f+" produces a negative filtering percentile: "+
+				minIndex+". Use a smaller fraction (below approximately 0.286 with the current filtering rules).");
+		}
 		FRACTION_GENOME_TO_EXCLUDE=f;
-		MIN_INDEX_TO_DROP_LONG_HIT_LIST=(int)(1000*(1-3.5*FRACTION_GENOME_TO_EXCLUDE)); //default 810
+		MIN_INDEX_TO_DROP_LONG_HIT_LIST=minIndex;
 		MAX_AVERAGE_LIST_TO_SEARCH=(int)(1000*(1-2.3*FRACTION_GENOME_TO_EXCLUDE)); //lower is faster, default 840
 		MAX_AVERAGE_LIST_TO_SEARCH2=(int)(1000*(1-1.4*FRACTION_GENOME_TO_EXCLUDE)); //default 910
 		MAX_SINGLE_LIST_TO_SEARCH=(int)(1000*(1-1.0*FRACTION_GENOME_TO_EXCLUDE)); //default 935

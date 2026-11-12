@@ -11,9 +11,15 @@ import static align2.MultiStateAligner9PacBio.*;
  * No compressed-reference construction or limited-fill policy is provided.
  * @author Brian Bushnell, Raiden
  */
-public final class PacBioRollingAligner {
+public final class PacBioRollingAligner{
 
+	/** Creates a worker-owned aligner using the default penalties. */
 	public PacBioRollingAligner(){this(PacBioScoreParameters.DEFAULT);}
+	/**
+	 * Creates a worker-owned aligner with the supplied immutable penalties.
+	 * @param costs_ Nonnull penalty set, retained without copying
+	 * @throws IllegalArgumentException If costs_ is null
+	 */
 	public PacBioRollingAligner(PacBioScoreParameters costs_){
 		if(costs_==null){throw new IllegalArgumentException("Rolling PacBio requires immutable instance penalties");}
 		costs=costs_;
@@ -150,8 +156,8 @@ public final class PacBioRollingAligner {
 		int next=0;
 		for(int p=length-1; p>=0; p--){
 			final byte op=reverse[p];
-			if(op==MSA.GAPC){Arrays.fill(result, next, next+MSA.GAPLEN, (byte)'D');next+=MSA.GAPLEN;}
-			else{result[next++]=op;}
+			if(op==MSA.GAPC){Arrays.fill(result, next, next+MSA.GAPLEN, (byte)'D');next+=MSA.GAPLEN;
+			}else{result[next++]=op;}
 		}
 		assert(next==result.length) : "Every compressed-reference gap expands to exactly GAPLEN operations";
 		return result;
@@ -162,7 +168,14 @@ public final class PacBioRollingAligner {
 	}
 	/** Primitive DP payload only: six int rows and byte ancestry, excluding headers/trace output. */
 	public long workingBytes(){assert(ready) : "Working dimensions require a completed fill";return (rows+1L)*stride+24L*stride;}
+	/** Estimates retained DP payload as ancestry capacity plus six rows at the
+	 * current row capacity, rather than workingBytes()'s active dimensions.
+	 * Returns zero if ancestry has not been allocated; excludes array headers,
+	 * borrowed sequences and returned score/trace arrays. */
 	public long retainedBytes(){return ancestry==null ? 0 : ancestry.length+24L*m0.length;}
+	/** Nanoseconds spent in the last completed array-allocation step, or zero if
+	 * that step reused capacity. A fill failing before the step completes leaves
+	 * the previous value; this is not the total fill time. */
 	public long allocationNanos(){return allocationNanos;}
 	private final PacBioScoreParameters costs;
 	private int[] m0, m1, d0, d1, i0, i1;

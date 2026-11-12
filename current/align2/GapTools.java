@@ -304,7 +304,7 @@ public class GapTools{
 		 * Compares this Range to another Range for ordering.
 		 * Primary sort by start coordinate, secondary sort by end coordinate.
 		 * @param r Range to compare against
-		 * @return Negative if this < r, positive if this > r, zero if equal
+		 * @return Negative if {@code this < r}, positive if {@code this > r}, zero if equal
 		 */
 		@Override
 		public int compareTo(Range r){

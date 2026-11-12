@@ -428,7 +428,10 @@ public abstract class AbstractMapper{
 			}else if(a.equals("targetsize")){
 				targetGenomeSize=Parse.parseKMG(b);
 			}else if(a.equals("fgte")){
-				fractionGenomeToExclude=Float.parseFloat(b);
+				final float fraction=Float.parseFloat(b);
+				//NaN would bypass the mapper's >=0 gate and retain default thresholds.
+				if(Float.isNaN(fraction)){throw new IllegalArgumentException("fgte must not be NaN");}
+				fractionGenomeToExclude=fraction;
 				outstream.println("Set fractionGenomeToExclude to "+Tools.format("%.4f",fractionGenomeToExclude));
 			}else if(a.equals("minratio")){
 				MINIMUM_ALIGNMENT_SCORE_RATIO=Float.parseFloat(b);
