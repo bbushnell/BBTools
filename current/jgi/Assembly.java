@@ -37,6 +37,8 @@ public class Assembly {
 		acgtnio=new long[8];
 		int contigLen=0;
 		for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()) {
+			//TODO: Probable bug - ByteFile returns empty arrays for blank lines;
+			//line[0] below throws instead of accepting an empty FASTA separator.
 			if(line[0]=='>') {
 				headerLength+=(line.length-1);
 				if(firstHeader==null && line.length>1) {
@@ -51,6 +53,8 @@ public class Assembly {
 				contigLen+=line.length;
 			}
 		}
+		//TODO: Probable bug - the final contigLen is never added at EOF, so
+		//AssemblyStats3 omits the last contig (and reports zero size for one-contig FASTA).
 		bf.close();
 		contigs.sort();
 		contigs.reverse();

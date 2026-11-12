@@ -9,8 +9,6 @@ import consensus.BaseGraph;
 import dna.AminoAcid;
 import idaligner.AlignmentStats;
 import idaligner.EndClippedAligner;
-import idaligner.QuantumAligner;
-import idaligner.ScrabbleAligner;
 import map.LongHashSet;
 import ml.CellNet;
 import shared.Tools;
@@ -177,6 +175,74 @@ public class NcrnaScavenger {
 	}
 
 	public long alignmentCount(){return alignmentCount;}
+	/** Changes the two shortlist sweep knobs on this worker only. The actual
+	 * index owns its cutoff, so updating the public metadata alone is insufficient.
+	 */
+	public void setShortlistPolicy(final int topN, final float floor){
+		validateShortlistMode(topN, true);
+		kmerIndex.setAdaptiveFloor(floor);
+		adaptFloor=floor;
+		indexTopN=topN;
+	}
+
+	/** Fixed thresholds remain integers throughout the caller and its index. */
+	public void setFixedShortlistPolicy(final int topN, final int minHits){
+		validateShortlistMode(topN, false);
+		kmerIndex.setFixedMinHits(minHits);
+		indexMinHitsDefault=minHits;
+		indexTopN=topN;
+	}
+
+	/** Applies every mapping control to the real worker-owned index and its reported
+	 * metadata. Discovery, model verification, boundary and path policies are unchanged.
+	 * The ordinary caller never invokes this between its windows; calibration applies
+	 * it between complete policy executions on one contig.
+	 */
+	public void setShortlistPolicy(final int topN, final boolean adaptive, final float floor,
+		final float topFrac, final float qFrac, final int minHits){
+		validateShortlistIndex(topN);
+		kmerIndex.setPolicy(adaptive, floor, topFrac, qFrac, minHits);
+		indexTopN=topN;
+		adaptiveMinHits=adaptive;
+		adaptFloor=floor;
+		adaptTopFrac=topFrac;
+		adaptQFrac=qFrac;
+		indexMinHitsDefault=minHits;
+	}
+
+	/** Full calibration policy; validates primary-alignment patience before mutating the index.
+	 * Ordinary/unselected callers retain -1. Rescue keeps its legacy first-pass exit
+	 * at every patience value; exhaustive diagnostics still bypass early exits.
+	 */
+	public void setShortlistPolicy(final int topN, final boolean adaptive, final float floor,
+			final float topFrac, final float qFrac, final int minHits, final int patience){
+		NcrnaPatience.validate(patience);
+		setShortlistPolicy(topN, adaptive, floor, topFrac, qFrac, minHits);
+		modelPatience=patience;
+	}
+
+	public int modelPatience(){return modelPatience;}
+
+	/** Called only after an actual primary model alignment passed its span checks. */
+	private boolean stopAfterModel(final float identity, final boolean currentPass, final boolean legacyEarly){
+		if(mappingOracleExhaustive){return false;}
+		return modelPatience<0 ? legacyEarly && currentPass : patienceState.observe(identity, currentPass, true);
+	}
+
+	private void validateShortlistMode(final int topN, final boolean adaptive){
+		validateShortlistIndex(topN);
+		if(adaptiveMinHits!=adaptive){
+			throw new IllegalStateException("Legacy shortlist iteration must retain its fixed/adaptive mode");
+		}
+	}
+	private void validateShortlistIndex(final int topN){
+		TrnaKmerIndex.validateTopN(topN);
+		if(kmerIndex==null || indexScoreMargin>=0 || mappingOracleExhaustive
+			|| MitoSsuModelPolicy.coverage(family, modelNames)){
+			throw new IllegalStateException("Shortlist iteration requires the matching fixed/adaptive cardinality index, not an exhaustive, score-margin or mitochondrial-tier policy");
+		}
+	}
+
 	/** Counts only real verifications; a length rejection is not an alignment. */
 	public long mitoLengthSkips(){return mitoLengthSkips;}
 	public long mitoAlignmentCount(){return mitoAlignmentCount;}
@@ -188,6 +254,36 @@ public class NcrnaScavenger {
 	public long shortlistCpuNanos(){return shortlistCpuNanos;}
 	public long hbmCpuNanos(){return hbmCpuNanos;}
 	private void alignmentTimed(long start){if(start>=0){alignmentCpuNanos+=NcrnaCpuProfile.cpuNow()-start;}}
+	/** Optional exact reuse shared only by policies on the same worker/library.
+	 * The ordinary caller leaves this null. Tracebacks, clipping, HBM and endpoints
+	 * still execute normally; this changes only repeated primary/rescue kernels.
+	 */
+	public void setAlignmentCache(final NcrnaAlignmentCache cache){
+		if(cache!=null && !cache.usesLibrary(library)){
+			throw new IllegalArgumentException("Alignment cache must bind this scavenger's exact immutable model library");
+		}
+		alignmentCache=cache;
+	}
+
+	/** Records actual kernel CPU rather than counting cache lookup time as alignment. */
+	private float alignIdentity(final int model, final byte[] sequence, final int[] positions, final boolean quantum){
+		assert(model>=0 && model<library.length && sequence!=null)
+			: "Shortlisted model IDs and candidate bytes must bind the actual verification request";
+		if(alignmentCache!=null){
+			final long before=alignmentCache.kernelCpuNanos();
+			final float identity=quantum ? alignmentCache.quantum(model, sequence, positions)
+				: alignmentCache.scrabble(model, sequence, positions);
+			alignmentCpuNanos+=alignmentCache.kernelCpuNanos()-before;
+			return identity;
+		}
+		final long start=NcrnaCpuProfile.cpuNow();
+		final float identity;
+		if(quantum){identity=NcrnaAlignmentWork.quantum(library[model], sequence, positions, library[model].length);}
+		else if(positions!=null){identity=NcrnaAlignmentWork.scrabble(library[model], sequence, positions, library[model].length);}
+		else{identity=NcrnaAlignmentWork.scrabble(sequence, library[model], null, library[model].length);}
+		alignmentTimed(start);
+		return identity;
+	}
 	/** Sum of candidate input spans at actual alignment calls, including endpoint trimming. */
 	public long alignedBases(){return alignedBases;}
 	/** HBM evaluations count separately; reusing a traceback is not another alignment. */
@@ -818,14 +914,13 @@ public class NcrnaScavenger {
 		final boolean quantumFeatures=(boundaryFeatureVersion==NcrnaBoundaryScorer.FEATURES_V2
 			|| boundaryFeatureVersion==NcrnaBoundaryScorer.FEATURES_V3);
 		final float[] shortlistIdentity=(quantumFeatures ? new float[shortlist.length] : null);
+		patienceState.reset(modelPatience);
 		if(quantumUsed){
 			int[] pos=new int[4];
 			for(int j=0; j<shortlist.length; j++){
 				int m=shortlist[j];
 				if(!modelLengthFeasible(m, seq.length)){lengthRejected=true;continue;}
-				final long cpuStart=NcrnaCpuProfile.cpuNow();
-				float id=QuantumAligner.alignStatic(library[m], seq, pos);
-				alignmentTimed(cpuStart);
+				float id=alignIdentity(m, seq, pos, true);
 				diagnoseModel(name,bases.length,strand,pass,wStart,wStop,m,id);
 				alignedBases+=seq.length;
 				if(shortlistIdentity!=null){shortlistIdentity[j]=id;}
@@ -839,7 +934,7 @@ public class NcrnaScavenger {
 				if(!spanAllowed){modelSpanRejects++;lengthRejected=true;continue;}
 				if(DEBUG){System.err.println("DEBUG   quantum model="+m+" modelLen="+library[m].length+" id="+id+" pos="+Arrays.toString(pos));}
 				if(betterPrimary(id, m, bestId, bestModel)){bestId=id; bestModel=m; bestStart=pos[0]; bestStop=pos[1];}
-				if(!mappingOracleExhaustive && rankedModelFallback && id>=modelPass(m)){break;}
+				if(stopAfterModel(id, id>=modelPass(m), rankedModelFallback)){break;}
 			}
 		}else{
 			for(int j=0; j<shortlist.length; j++){
@@ -849,9 +944,7 @@ public class NcrnaScavenger {
 				// genomic reference endpoints only when the model is shorter.
 				final boolean observe=modelThresholds!=null && modelThresholds.hasLengths() && seq.length>library[m].length;
 				final int[] pos=observe ? lengthPositions : null;
-				final long cpuStart=NcrnaCpuProfile.cpuNow();
-				float id=observe ? ScrabbleAligner.alignStatic(library[m], seq, pos) : ScrabbleAligner.alignStatic(seq, library[m], null);
-				alignmentTimed(cpuStart);
+				float id=alignIdentity(m, seq, pos, false);
 				diagnoseModel(name,bases.length,strand,pass,wStart,wStop,m,id);
 				alignedBases+=seq.length;
 				if(shortlistIdentity!=null){shortlistIdentity[j]=id;}
@@ -862,7 +955,7 @@ public class NcrnaScavenger {
 				if(!spanAllowed){modelSpanRejects++;lengthRejected=true;continue;}
 				if(DEBUG){System.err.println("DEBUG   scrabble model="+m+" modelLen="+library[m].length+" id="+id);}
 				if(betterPrimary(id, m, bestId, bestModel)){bestId=id; bestModel=m;if(observe){bestStart=pos[0];bestStop=pos[1];}else{bestStart=0;bestStop=wLen-1;}}
-				if(!mappingOracleExhaustive && rankedModelFallback && id>=modelPass(m)){break;}
+				if(stopAfterModel(id, id>=modelPass(m), rankedModelFallback)){break;}
 			}
 		}
 		if(DEBUG){System.err.println("DEBUG best: bestId="+bestId+" bestModel="+bestModel+" idBorderline="+idBorderline+" idPass="+idPass);}
@@ -929,9 +1022,7 @@ public class NcrnaScavenger {
 				if(!modelLengthFeasible(m, orfSeq.length)){continue;}
 				final boolean observe=modelThresholds!=null && modelThresholds.hasLengths() && orfSeq.length>library[m].length;
 				final int[] pos=observe ? lengthPositions : null;
-				final long cpuStart=NcrnaCpuProfile.cpuNow();
-				final float id=observe ? ScrabbleAligner.alignStatic(library[m], orfSeq, pos) : ScrabbleAligner.alignStatic(orfSeq, library[m], null);
-				alignmentTimed(cpuStart);
+				final float id=alignIdentity(m, orfSeq, pos, false);
 				alignedBases+=orfSeq.length;
 				alignmentCount++;
 				// Rescue retains the original candidate interval; a shorter local
@@ -1086,6 +1177,7 @@ public class NcrnaScavenger {
 		AlignmentStats bestPassStats=null;
 		int bestModel=-1, bestHbmModel=-1;
 		AlignmentStats bestHbmStats=null;
+		patienceState.reset(modelPatience);
 		for(int j=0; j<shortlist.length; j++){
 			final int m=shortlist[j];
 			if(m<0 || m>=library.length){throw new IllegalStateException("Invalid shortlisted model "+m+" for "+family);}
@@ -1109,10 +1201,13 @@ public class NcrnaScavenger {
 			if(clipModel){
 				if(endClippedAligner==null){endClippedAligner=new EndClippedAligner();}
 				// Explicit16S/23S floors restrict clipping to physical edges; preserve existing18S local rescue.
+				final long kernelStart=NcrnaCpuProfile.cpuNow();
 				final EndClippedAligner.Result clipped=prok16sPartialMinLen>0 || physicalEdgeMinLen>0
 					? endClippedAligner.alignContigEdges(library[m], seq, wStart==0, wStop==bases.length-1,
 						physicalEdgeMinLen>0 ? EDGE_MATCH_REWARD : 1, physicalEdgeMinLen>0 ? EDGE_NONMATCH_PENALTY : 1)
 					: endClippedAligner.align(library[m], seq);
+				final NcrnaAlignmentWork work=NcrnaAlignmentWork.current();
+				if(work!=null){work.executed(library[m].length, seq.length, kernelStart);}
 				stats=clipped;
 				observedStats=clipped;
 				if(diagSink!=null){diagSink.modelClip(family,name,strand,pass,wStart,wStop,m,clipped,alignmentMinLength(clipped,true,m));}
@@ -1130,8 +1225,7 @@ public class NcrnaScavenger {
 			}else{
 				stats=new AlignmentStats(true);
 				observedStats=stats;
-				id=quantumCapMultiplier==1 ? QuantumAligner.alignAndTraceStatic(library[m], seq, stats)
-					: QuantumAligner.alignAndTraceStatic(library[m], seq, stats, quantumCapMultiplier);
+				id=NcrnaAlignmentWork.quantumTrace(library[m], seq, stats, library[m].length, quantumCapMultiplier);
 			}
 			alignmentTimed(cpuStart);
 			diagnoseModel(name,bases.length,strand,pass,wStart,wStop,m,id);
@@ -1181,7 +1275,7 @@ public class NcrnaScavenger {
 				if(DEBUG){System.err.println("DEBUG   reused-quantum-hbm model="+m+" hbm="+hbm);}
 				if(hbm>bestHbm){bestHbm=hbm;bestHbmModel=m;bestHbmIdentity=id;bestHbmStats=stats;}
 			}
-			if(!mappingOracleExhaustive && rankedModelFallback && id>=modelPass){break;}
+			if(stopAfterModel(id, id>=modelPass, rankedModelFallback)){break;}
 		}
 		final int model;
 		final float identity;
@@ -1364,7 +1458,7 @@ public class NcrnaScavenger {
 		if(trimAlignmentExtent && partial!=null){
 			alignmentCount++;alignedBases+=Tools.min(bases.length-1,orf.stop+trimExt)-Tools.max(0,orf.start-trimExt)+1;
 			final long cpuStart=NcrnaCpuProfile.cpuNow();
-			final idaligner.ContigEdgeAlignment.Bounds ends=idaligner.ContigEdgeAlignment.refineInterior(library[model],bases,partial,trimExt,wStart);
+			final idaligner.ContigEdgeAlignment.Bounds ends=idaligner.ContigEdgeAlignment.refineInterior(library[model], bases, partial, trimExt, wStart, NcrnaAlignmentWork.refinementObserver());
 			alignmentTimed(cpuStart);
 			orf.start=ends.start;orf.stop=ends.stop;trimSucceeded=ends.changed;
 		}else if(trimAlignmentExtent){trimSucceeded=trimToAlignmentExtent(orf, bases, model, wStart, wStop, acceptedIdentity);}
@@ -1416,8 +1510,8 @@ public class NcrnaScavenger {
 		AlignmentStats stats=new AlignmentStats(true);
 		stats.doTrace=true;
 		final long cpuStart=NcrnaCpuProfile.cpuNow();
-		if(seqX.length>=cons.length){ScrabbleAligner.alignAndTraceStatic(cons, seqX, stats);}
-		else{ScrabbleAligner.alignAndTraceStatic(seqX, cons, stats);}
+		if(seqX.length>=cons.length){NcrnaAlignmentWork.scrabbleTrace(cons, seqX, stats, cons.length);}
+		else{NcrnaAlignmentWork.scrabbleTrace(seqX, cons, stats, cons.length);}
 		alignmentTimed(cpuStart);
 		alignedBases+=seqX.length;
 		alignmentCount++;
@@ -1778,6 +1872,9 @@ public class NcrnaScavenger {
 	/** Production controls; claimed-window refresh prevents duplicate calls from stale window geometry. */
 	public boolean refreshClaimedWindows=true;
 	public boolean rankedModelFallback=false;
+	/** -1 preserves legacy primary exits; nonnegative values affect only primary walks. */
+	private int modelPatience=-1;
+	private final NcrnaPatience patienceState=new NcrnaPatience();
 	public boolean strictIndexCutoff=false;
 	/** -1 preserves topN; otherwise retain every positive score within this gap. */
 	public int indexScoreMargin=-1;
@@ -1881,6 +1978,7 @@ public class NcrnaScavenger {
 	public CmRnaVerifier cmVerifier;
 
 	private long alignmentCount=0;
+	private NcrnaAlignmentCache alignmentCache;
 	private long mitoLengthSkips=0,mitoAlignmentCount=0,original16sAlignmentCount=0;
 	private long modelLengthChecks=0, modelLengthSkips=0, modelSpanRejects=0;
 	private final int[] lengthPositions=new int[2];

@@ -4,7 +4,6 @@ import java.util.Arrays;
 
 import consensus.BaseGraph;
 import idaligner.AlignmentStats;
-import idaligner.ScrabbleAligner;
 import stream.Read;
 
 /**
@@ -69,8 +68,8 @@ public class TrnaBoundaryFeatures {
 	public static float aniFeature(byte[] candidate, byte[] consensus){
 		AlignmentStats stats=new AlignmentStats(true);
 		stats.doTrace=true;
-		if(candidate.length>=consensus.length){ScrabbleAligner.alignAndTraceStatic(consensus, candidate, stats);}
-		else{ScrabbleAligner.alignAndTraceStatic(candidate, consensus, stats);}
+		if(candidate.length>=consensus.length){NcrnaAlignmentWork.scrabbleTrace(consensus, candidate, stats, consensus.length);}
+		else{NcrnaAlignmentWork.scrabbleTrace(candidate, consensus, stats, consensus.length);}
 		return stats.identity;
 	}
 
@@ -304,11 +303,11 @@ public class TrnaBoundaryFeatures {
 		stats.doTrace=true;
 		final Read r;
 		if(candidate.length<=cons.length){
-			float id=ScrabbleAligner.alignAndTraceStatic(candidate, cons, stats);
+			float id=NcrnaAlignmentWork.scrabbleTrace(candidate, cons, stats, cons.length);
 			if(stats.matchString==null || id<0.2f){return null;}
 			r=TrnaConsensusBuilder.toAlignedRead(candidate, stats, "candidate", 0);
 		}else{
-			float id=ScrabbleAligner.alignAndTraceStatic(cons, candidate, stats);
+			float id=NcrnaAlignmentWork.scrabbleTrace(cons, candidate, stats, cons.length);
 			if(stats.matchString==null || id<0.2f){return null;}
 			r=TrnaConsensusBuilder.invertToModelFrame(candidate, stats);
 		}

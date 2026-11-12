@@ -109,6 +109,7 @@ public class CallGenes extends ProkObject {
 	public CallGenes(String[] args){
 		NCRNA_BOUNDARY_NN_OVERRIDE=null;
 		NCRNA_FAMILY_ROOT=null;
+		ncrnaCallerPolicy=null;
 		
 		{//Preparse block for help, config files, and outstream
 			PreParser pp=new PreParser(args, (args.length>40 ? null : getClass()), false);
@@ -693,6 +694,8 @@ public class CallGenes extends ProkObject {
 				S18_ENABLED=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("ncrnafamily")){
 				NCRNA_FAMILY_FILTER=parseNcrnaFamily(b);
+			}else if(a.equals("ncrnapolicy")){
+				ncrnaCallerPolicy=NcrnaCallerPolicy.load(b);
 			}else if(a.equalsIgnoreCase("ncrnafamilyroot")){
 				if(b==null || b.isEmpty()){
 					throw new IllegalArgumentException("ncrnafamilyroot requires a directory containing manifest.tsv");
@@ -918,6 +921,10 @@ public class CallGenes extends ProkObject {
 		prok16sEndpoints.apply(GeneCaller.ncrnaFamilies);
 		prok23sEndpoints.apply(GeneCaller.ncrnaFamilies);
 		prok5sEndpoints.apply(GeneCaller.ncrnaFamilies);
+		if(ncrnaCallerPolicy!=null){
+			ncrnaCallerPolicy.validateLoaded(GeneCaller.ncrnaFamilies);
+			ncrnaCallerPolicy.report(outstream);
+		}
 		if(physicalNcrnaEdges){for(NcrnaFamily family:GeneCaller.ncrnaFamilies){NcrnaFamilyRegistry.enablePhysicalEdges(family);}}
 		for(NcrnaFamily family:GeneCaller.ncrnaFamilies){if(MitoSsuModelPolicy.coverage(family.name,family.modelNames)){
 			MitoSsuTierPolicy.configured();// Reject malformed experiment controls before workers or output streams.
@@ -1790,7 +1797,25 @@ public class CallGenes extends ProkObject {
 	}
 
 	/** Single-input and two-pass execution retain their established thread/model lifecycle. */
-	private boolean useFileWorkers(){return fnaList.size()>1 && Shared.threads()>1 && passes!=2;}
+	private boolean useFileWorkers(){return iterationFactory!=null || fnaList.size()>1 && Shared.threads()>1 && passes!=2;}
+
+	/** Installs an explicitly requested batch experiment before run(). Native
+	 * initialization, per-input PGMs and file-worker failure handling remain intact.
+	 * Input ownership is whole-file even at one thread or with one input. Training
+	 * passes and protein diagnostics are excluded because their evolving state is
+	 * not a controlled ncRNA shortlist experiment.
+	 */
+	public void setIteration(final CallGenesIteration factory){
+		if(factory==null || iterationFactory!=null || passes!=1 || proteinReference!=null
+				|| cmEnabled || perContig || merge || ecco){
+			throw new IllegalArgumentException("Iteration requires one native calling pass, whole unmerged inputs, and no protein/CM experiment");
+		}
+		iterationFactory=factory;
+		outstream.println("Policy iteration: native counters describe executed work across policies; reused detection does not add work. Ordinary output contains the designated baseline only.");
+	}
+
+	/** Exact configured input paths, copied before a batch driver binds references. */
+	public String[] inputFiles(){return fnaList.toArray(new String[fnaList.size()]);}
 
 	/** Small immutable metadata survives preparation; no complete genome is retained here. */
 	private static final class FileJob{
@@ -1803,7 +1828,7 @@ public class CallGenes extends ProkObject {
 	/** ProkCC's preparation barrier: private file classifications, then serial PGM loads. */
 	private FileJob[] prepareFiles(GeneModel defaultPgm, boolean perFileTax,
 			java.util.HashMap<String,GeneModel> phylumCache, int threads){
-		assert(threads>0 && fnaList.size()>1) : "File preparation follows the bounded multi-input dispatch gate";
+		assert(threads>0 && !fnaList.isEmpty()) : "File preparation needs at least one input and one bounded worker";
 		final FileTaxonomy[] taxa=new FileTaxonomy[fnaList.size()];
 		if(perFileTax){
 			prepareTaxonomy();
@@ -1903,6 +1928,7 @@ public class CallGenes extends ProkObject {
 		final ProcessThread worker=new ProcessThread(makeCris(job.fna), bsw, sequence[1], sequence[2], sequence[3],
 			sequence[4], job.pgm, minLen, ordinal, attempt, diag, vote, 0);
 		worker.fileOutput=new CallGenesFileOutput(failure, outputChunks);
+		worker.inputName=job.fna;
 		if(fileCost!=null){worker.cost=fileCost.worker(ordinal);}
 		worker.setName("callgenes-file-"+ordinal);
 		worker.start();
@@ -2470,7 +2496,12 @@ public class CallGenes extends ProkObject {
 					processInner();
 					if(ReadWrite.closeStream(cris)){throw new IllegalStateException("Input read failed in "+getName());}
 					success=true;fileOutput.finish();
-				}catch(Throwable failure){fileOutput.fail(failure);}
+				}catch(Throwable failure){
+					// Publish the actual worker cause before the coordinator halts the
+					// process; its generic queue-failure message otherwise hides it.
+					failure.printStackTrace(outstream);
+					fileOutput.fail(failure);
+				}
 				return;
 			}
 			
@@ -2485,6 +2516,9 @@ public class CallGenes extends ProkObject {
 		
 		/** Iterate through the reads */
 		void processInner(){
+			// Generic CRIS.fname() combines both producers (including ",null" for
+			// an unpaired input). Bind the original native FileJob path instead.
+			if(iterationFactory!=null){iteration=iterationFactory.create(inputName, caller, pgm);}
 			
 			//Grab the first ListNum of reads
 			ListNum<Read> ln=cris.nextList();
@@ -2509,6 +2543,7 @@ public class CallGenes extends ProkObject {
 			if(ln!=null){
 				cris.returnList(ln.id, ln.list==null || ln.list.isEmpty());
 			}
+			if(iteration!=null){iteration.finish();}
 		}
 		
 		/**
@@ -2642,7 +2677,7 @@ public class CallGenes extends ProkObject {
 		}
 		private ArrayList<Orf> processReadBody(final Read r, ArrayList<RrnaItsDeriver.Derived> itsOut){
 				emittedSequences=0;
-			ArrayList<Orf> list=caller.callGenes(r, pgm, true);
+			ArrayList<Orf> list=iteration==null ? caller.callGenes(r, pgm, true) : iteration.call(r);
 			if(proteinReference!=null && list!=null){for(Orf orf : list){if(orf.proteinBonus>0){
 				proteinSelectedT++; if(orf.proteinOnlyCandidate){proteinRescuedSelectedT++;}
 			}}}
@@ -2760,6 +2795,8 @@ public class CallGenes extends ProkObject {
 		private final GeneModel pgm;
 		/** Gene Caller for annotation */
 		final GeneCaller caller;
+		private CallGenesIteration.Worker iteration;
+		private String inputName;
 		/** Thread ID */
 		final int tid;
 		CallGenesFileOutput fileOutput;
@@ -3525,6 +3562,7 @@ public class CallGenes extends ProkObject {
 		options.floor=resolveFamilyScore(name, overrides.floor, NCRNA_ADAPT_FLOOR_OVERRIDE, p.boundary==null ? 0f : p.boundary.floor);
 		options.topFrac=resolveFamilyScore(name, overrides.topFrac, NCRNA_ADAPT_TOPFRAC_OVERRIDE, p.boundary==null ? 0f : p.boundary.topFrac);
 		options.qFrac=resolveFamilyScore(name, overrides.qFrac, NCRNA_ADAPT_QFRAC_OVERRIDE, p.boundary==null ? 0f : p.boundary.qFrac);
+		if(ncrnaCallerPolicy!=null){ncrnaCallerPolicy.apply(name, options);}
 		return options;
 	}
 
@@ -4311,6 +4349,9 @@ public class CallGenes extends ProkObject {
 	/** Rejects ambiguous global overrides and logically inverted identity thresholds. */
 	public static void validateNcrnaSweepOverrides(){
 		validateSelectedFamilyRoot();
+		if(ncrnaCallerPolicy!=null && !GeneCaller.ncrnaFamilies.isEmpty()){
+			throw new IllegalStateException("ncrnapolicy requires fresh family resources, not an already loaded caller roster");
+		}
 		if(NCRNA_CONSENSUS_OVERRIDE!=null || NCRNA_MODELS_OVERRIDE!=null){
 			if(NCRNA_CONSENSUS_OVERRIDE==null || NCRNA_MODELS_OVERRIDE==null || NCRNA_FAMILY_FILTER==null){
 				throw new IllegalArgumentException("ncrnaconsensus and ncrnamodels require paired files and one ncrnafamily");
@@ -4496,6 +4537,8 @@ public class CallGenes extends ProkObject {
 
 	/** Maximum number of reads to process, or -1 for no limit */
 	private long maxReads=-1;
+	/** Null for ordinary calling; installed before processing and shared read-only. */
+	private CallGenesIteration iterationFactory;
 	/** Whether to attempt merging of overlapping paired reads */
 	private boolean merge;
 	/** Whether to perform error correction on overlapping paired reads */
@@ -5020,6 +5063,8 @@ public class CallGenes extends ProkObject {
 
 	/** Root of the selected family only; grouped members use the full group directory. */
 	private static String NCRNA_FAMILY_ROOT=null;
+	/** Explicit one-policy table; null opens no file and preserves scalar defaults. */
+	private static NcrnaCallerPolicy ncrnaCallerPolicy;
 
 	/** Engineering-sweep controls. The generic overrides deliberately require one explicit
 	 * family so a command cannot silently apply one value to biologically different callers. */

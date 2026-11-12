@@ -8,18 +8,18 @@ import structures.ByteBuilder;
 
 /** Optional worker CPU counters. Stores no callers, models or scavengers.
  * Enabled only by -Dbbtools.diagnostic.ncrnaCpuOut=FILE.
- * @author Ganyu */
+ * @author Ganyu, Raiden */
 public final class NcrnaCpuProfile {
 	static final String PROPERTY="bbtools.diagnostic.ncrnaCpuOut";
 	static final String OUTPUT=System.getProperty(PROPERTY);
-	public static final int INIT=0, SCAVENGE=1, SHARED_SCAN=2, SSU_APPLY=3, SSU_FINISH=4, PATH=5, STAGE_COUNT=6;
+	public static final int INIT=0, SCAVENGE=1, SHARED_SCAN=2, SSU_APPLY=3, SSU_FINISH=4, PATH=5, TRNA=6, STAGE_COUNT=7;
 	private static final Clock CLOCK=OUTPUT==null ? null : systemClock();
 	public static boolean enabled(){return OUTPUT!=null;}
 	/** Shared current-thread clock for disjoint kernel measurements inside a
 	 * scavenger span. These details are subdivisions, never added to SCAVENGE. */
 	public static long cpuNow(){return CLOCK==null ? -1 : CLOCK.cpu();}
 	public static NcrnaCpuProfile create(int families){return enabled() ? new NcrnaCpuProfile(families, CLOCK) : null;}
-	static void checkOutput(){if(enabled()){require(!OUTPUT.isEmpty(), "CPU profile output path must not be empty"); RrnaResourceIO.fresh(OUTPUT, "", ".verification.tsv");}}
+	static void checkOutput(){if(enabled()){require(!OUTPUT.isEmpty(), "CPU profile output path must not be empty"); RrnaResourceIO.fresh(OUTPUT, "", ".verification.tsv", ".kernels.tsv");}}
 	private static Clock systemClock(){
 		final ThreadMXBean bean=ManagementFactory.getThreadMXBean();
 		require(bean.isCurrentThreadCpuTimeSupported(), "Requested ncRNA CPU profiling is unsupported by this JVM");
@@ -31,6 +31,8 @@ public final class NcrnaCpuProfile {
 	public NcrnaCpuProfile(int families_, Clock clock_){
 		require(families_>=0 && clock_!=null, "CPU profile requires a family count and supported clock");
 		families=families_; clock=clock_; times=new long[(families+1)*STAGE_COUNT*2]; counts=new long[families*6]; details=new long[families*6];
+		work=new NcrnaAlignmentWork[families+2];
+		for(int i=0; i<work.length; i++){work[i]=new NcrnaAlignmentWork();}
 	}
 	public void begin(int family, int stage){
 		assert(!active && !merged && family>=0 && family<=families && stage>=0 && stage<STAGE_COUNT
@@ -40,12 +42,21 @@ public final class NcrnaCpuProfile {
 		assert(owner==0 || owner==thread) : shared.KillSwitch.assertDie("One CPU profile belongs to one worker thread");
 		owner=thread; slot=(family*STAGE_COUNT+stage)*2; active=true;
 		cpuStart=clock.cpu();
+		if(enabled()){
+			final int target=stage==SCAVENGE ? family : stage==TRNA ? families : stage==SSU_APPLY ? families+1 : -1;
+			kernelScope=target>=0;
+			if(kernelScope){NcrnaAlignmentWork.enter(work[target]);}
+		}
 	}
 	public void end(){
 		final long cpu=clock.cpu();
 		assert(active && owner==Thread.currentThread().getId() && cpuStart>=0 && cpu>=cpuStart)
 			: shared.KillSwitch.assertDie("Current-thread CPU clocks must remain available and monotonic within a span");
 		times[slot]+=cpu-cpuStart; times[slot+1]++; active=false;
+		if(kernelScope){
+			NcrnaAlignmentWork.leave();
+			kernelScope=false;
+		}
 	}
 	public void activity(int family, long alignments, long bases, long hbmCalls, long hbmBases, long hits, long windows){
 		require(!active && !merged && family>=0 && family<families, "Read family activity only after worker termination");
@@ -59,6 +70,7 @@ public final class NcrnaCpuProfile {
 		for(int i=0; i<times.length; i++){times[i]=Math.addExact(times[i], other.times[i]);}
 		for(int i=0; i<counts.length; i++){counts[i]=Math.addExact(counts[i], other.counts[i]);}
 		for(int i=0; i<details.length; i++){details[i]=Math.addExact(details[i], other.details[i]);}
+		for(int i=0; i<work.length; i++){work[i].add(other.work[i]);}
 		other.merged=true;
 	}
 	public void verification(int family, long alignmentCpu, long shortlistCpu, long hbmCpu, long lengthChecks, long lengthSkips, long spanRejects){
@@ -80,7 +92,7 @@ public final class NcrnaCpuProfile {
 	}
 	public void write(String path, String[] names){
 		require(!active && !merged && names.length==families, "Only completed aggregate counters may be written");
-		RrnaResourceIO.fresh(path, "", ".verification.tsv");
+		RrnaResourceIO.fresh(path, "", ".verification.tsv", ".kernels.tsv");
 		final ByteStreamWriter out=RrnaResourceIO.writer(path); final ByteBuilder b=new ByteBuilder();
 		try{
 			out.println("# Diagnostic current-thread total CPU nanoseconds, not process user time; excludes other threads (GC/JIT/I/O). Clock overhead remains included.");
@@ -101,17 +113,52 @@ public final class NcrnaCpuProfile {
 		}finally{RrnaResourceIO.finish(out);}
 		final ByteStreamWriter detail=RrnaResourceIO.writer(path+".verification.tsv");
 		try{
-			detail.println("# Current-thread kernel CPU subdivisions of SCAVENGE; do not add them to the outer span. Remaining time includes window construction, copying, decisions and diagnostic overhead.");
+			detail.println("# Legacy verifier subdivisions; HBM helper time includes its traceback and boundary kernels are incomplete here. Use .kernels.tsv for actual alignment CPU; never add either table to outer spans.");
 			detail.println("family\talignment_cpu_ns\tshortlist_cpu_ns\thbm_cpu_ns\tlength_checked_models\tprealignment_length_skips\tpostalignment_span_rejects");
 			for(int f=0; f<families; f++){b.clear().append(names[f]);for(int j=0; j<6; j++){b.tab().append(details[f*6+j]);}detail.print(b.nl());}
 		}finally{RrnaResourceIO.finish(detail);}
+		writeKernels(path+".kernels.tsv", names);
 	}
+	/** Borrowed counters are read on their worker between calls, or after join. */
+	public NcrnaAlignmentWork alignmentWork(final int family){
+		require(!merged && family>=0 && family<families, "Select one current generic family for policy deltas");
+		return work[family];
+	}
+
+	/** Kernel requests are a separate census, never added to outer stage spans or
+	 * legacy verifier counters. Unknown legacy PGM RNA coverage stays explicit.
+	 */
+	private void writeKernels(final String path, final String[] names){
+		final ByteStreamWriter out=RrnaResourceIO.writer(path);
+		final ByteBuilder b=new ByteBuilder();
+		try{
+			out.println("# Logical requests include exact cache hits; physical requests and CPU exclude them. CPU clock overhead remains included.");
+			out.println("# Model bases count the actual model operand; candidate bases are separate. Child 16S requests are already in their parent's row.");
+			out.println("# Legacy PGM RNA kernels are not instrumented: 16S="+ProkObject.call16S+" 23S="+ProkObject.call23S+" 5S="+ProkObject.call5S+" 18S="+ProkObject.call18S
+				+" tRNA_without_library="+(ProkObject.calltRNA && GeneCaller.trnaLibrary==null));
+			out.println("# Optional CM and protein-support alignment engines are outside this consensus-kernel report.");
+			out.println("family\tlogical_alignments\tphysical_alignments\tcache_hits\tmodel_bases\tcandidate_bases\tphysical_model_bases\talignment_cpu_ns\thbm_calls\thbm_cpu_ns");
+			for(int i=0; i<work.length; i++){
+				final NcrnaAlignmentWork w=work[i];
+				require(w.logical==w.physical+w.hits && w.cpuNanos>=0 && w.modelBases>=w.physicalModelBases,
+					"Actual kernel execution and cache reuse must conserve logical requests and model bases");
+				b.clear();
+				BuildNcrnaReference.field(b, i<families ? names[i] : i==families ? "tRNA" : "SSU_competition");
+				b.tab().append(w.logical).tab().append(w.physical).tab().append(w.hits)
+					.tab().append(w.modelBases).tab().append(w.queryBases).tab().append(w.physicalModelBases)
+					.tab().append(w.cpuNanos).tab().append(w.hbmCalls).tab().append(w.hbmCpuNanos).nl();
+				out.print(b);
+			}
+		}finally{RrnaResourceIO.finish(out);}
+	}
+
 	static void require(boolean ok, String message){if(!ok){throw new IllegalArgumentException(message);}}
-	private static final String[] STAGES={"INIT", "SCAVENGE", "SHARED_SEED_SCAN", "SSU_APPLY", "SSU_FINISH", "FIND_PATH"};
+	private static final String[] STAGES={"INIT", "SCAVENGE", "SHARED_SEED_SCAN", "SSU_APPLY", "SSU_FINISH", "FIND_PATH", "TRNA"};
 	final int families;
 	final long[] times, counts, details;
 	private final Clock clock;
 	private long owner, cpuStart;
 	private int slot;
-	private boolean active, merged;
+	private boolean active, merged, kernelScope;
+	private final NcrnaAlignmentWork[] work;
 }

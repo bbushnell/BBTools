@@ -66,11 +66,13 @@ public final class NcrnaSixsLoaderTest {
 		final String seeds=prefix+"_17mers.fa"+(rf13 ? ".gz" : "");
 		keys(ProkObject.loadLongKmers(seeds, 17), f.kmerSet);keys(f.kmerSet, ProkObject.loadLongKmersByType(17, id));
 		check(f.kLong==17 && f.seedMinHits==1 && !f.seedDistinct && f.minLen==60 && f.windowPad==(rf13 ? 250 : 125)
-			&& f.indexK==7 && f.indexTopN==60 && f.fixedMinHits==1 && !f.adaptive && f.adaptFloor==0f && f.adaptTopFrac==0f && f.adaptQFrac==0f
+			&& f.indexK==7 && f.indexTopN==(rf13 ? 56 : 5) && f.fixedMinHits==1 && f.adaptive
+			&& f.adaptFloor==(rf13 ? 1f : 16f) && f.adaptTopFrac==0f && f.adaptQFrac==0f
+			&& f.modelPatience==(rf13 ? 0 : Integer.MAX_VALUE)
 			&& f.scoreA==0f && f.scoreB==20f && f.idPass==.70f && f.idBorderline==(rf13 ? .60f : .70f)
 			&& f.hbmPass==(rf13 ? .64f : .75f) && f.collapseFrac==.85f && f.outputType==ProkObject.RNA
 			&& f.scavengePass2 && f.trimAlignmentExtent && !f.reuseConsensusAlignment && f.boundary5NetTemplate==null,
-			"Grouped layout must not alter either member's measured policy");
+			"Grouped resources must retain unchanged biology controls and the selected per-member shortlist policy");
 		final NcrnaFamilyLoader.Options options=new NcrnaFamilyLoader.Options();
 		options.enabled=false;options.resources.root=baseline+"/absent-group";
 		check(NcrnaFamilyLoader.load(id, options, resolver)==null, "Disabled members must not resolve the group");

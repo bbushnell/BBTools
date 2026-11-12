@@ -454,6 +454,11 @@ public class Orf extends PFeature {
 		return bb.toString();
 	}
 	
+	//TODO: Probable bug - ByteBuilder.append(char/String) truncates non-ASCII
+	//contig/model text instead of UTF-8 encoding it (structures/ByteBuilder#002).
+	//Reproduced by NcrnaPolicyIterationTest with an Omega contig: the saved-GFF
+	//reader rejects invalid UTF-8. Live query projection rejects these names too.
+	//A shared UTF-8 writer change is separate from shortlist iteration.
 	public ByteBuilder appendGff(ByteBuilder bb){
 		if(scafName==null){
 			bb.append('.').tab();

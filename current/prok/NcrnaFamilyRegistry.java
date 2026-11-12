@@ -149,6 +149,7 @@ public final class NcrnaFamilyRegistry {
 			legacyConsensusRole=legacyRole_;
 			resources=resources_;packagedEndpoints=resources_==null ? boundary_==null : resources_.packagedEndpoints;
 			boundary=boundary_;
+			modelPatience=boundary==null ? -1 : boundary.modelPatience;
 			seedMinHits=boundary==null || isCobalamin(id_) || "fmn".equals(id_) || "sam1".equals(id_)
 				|| "tpp".equals(id_) || "glycine".equals(id_) ? 2 : 1;
 			scoreA=boundary==null ? 0f : boundary.scoreA;
@@ -167,6 +168,8 @@ public final class NcrnaFamilyRegistry {
 		final int seedK=17, seedMinHits;
 		final int minSeedKeys;
 		final int minLen, windowPad, indexK, topN, minHits, outputType;
+		/** Packaged primary-model stopping; -1 preserves the legacy verifier walk. */
+		final int modelPatience;
 		/** Measured SRP-small fallback; all other families retain discarded intersections. */
 		public final int collapsedWindowPad;
 		final int partialMinLen, quantumCap, voteSlack, boundaryRadius;
@@ -232,19 +235,20 @@ public final class NcrnaFamilyRegistry {
 		new String[0], 180, 370, 7, 60, 12, 3f, .62f, .60f, .62f, true, ProkObject.RNA,
 		true, false, false, 0, 1, 60, -1, false, new String[0], .85f, false, true, 1, null,
 		new BoundaryPolicy("tmrna_consensus.fa", "tmrna_models.hbm", 5f, true, 11f, .48f, .072f, new int[]{-3,-2,-1,0,1,2}), null, "", "consensus");
-	/** Measured FMN policy:84 models, two distinct17-mer seeds and68% identity.
-	 * Endpoint refinement remains a follow-up; model mapping uses7-mers. */
+	/** Measured FMN policy: 84 models, two distinct 17-mer seeds and 68% identity.
+	 * Adaptive 7-mer mapping preserves all 3,522 baseline detections on 3,000 genomes
+	 * with 235,455 alignments. Endpoint refinement remains a follow-up. */
 	private static final Entry FMN=new Entry("fmn", "callgenes_FMN", "fmn=t",
-		new String[0], 100, 376, 7, 84, 1, 1f, .68f, .68f, 1.01f, true, ProkObject.RNA,
+		new String[0], 100, 376, 7, 64, 1, 1f, .68f, .68f, 1.01f, true, ProkObject.RNA,
 		true, false, false, 0, 1, 60, -1, false, new String[0], .85f, false, true, 2, null,
-		new BoundaryPolicy("fmn_consensus.fa", "fmn_models.hbmc", 0f, false, 0f, 0f, 0f, new int[]{0}), null, "", "consensus");
-	/** Selected SAM-I policy:two distinct17-mer seeds and70% identity.
-	 * The installed library has215 models; the historical shortlist cap remains238.
-	 * The all-eligible endpoint nets use start/stop radii8/12 and internal9-mers. */
+		new BoundaryPolicy("fmn_consensus.fa", "fmn_models.hbmc", 0f, true, 10f, .25f, .014f, new int[]{0}), null, "", "consensus");
+	/** Selected SAM-I policy: public fixed 7-mer shortlist, capped at 238 models,
+	 * with 16 non-improving primary alignments after acceptance. Seed support,
+	 * identity, the 215-model library and endpoint nets retain their controls. */
 	private static final Entry SAM1=new Entry("sam1", "callgenes_SAM1", "sam1=t",
 		new String[0], 50, 378, 7, 238, 1, 1f, .70f, .70f, 1.01f, true, ProkObject.RNA,
 		true, false, false, 0, 1, 60, -1, false, new String[0], .85f, false, true, 2, null,
-		new BoundaryPolicy("sam1_consensus.fa", "sam1_models.hbmc", 0f, false, 0f, 0f, 0f, new int[]{0}), null, "", "consensus");
+		new BoundaryPolicy("sam1_consensus.fa", "sam1_models.hbmc", 0f, false, 0f, 0f, 0f, new int[]{0}, 16), null, "", "consensus");
 	/** Selected TPP policy: 425 models, two distinct 17-mers and 70% identity.
 	 * Keep the evaluated 232-base padding when replacing the model library;
 	 * adaptive 7-mer mapping retains all 5,763 baseline detections on 3,210 genomes
@@ -265,16 +269,16 @@ public final class NcrnaFamilyRegistry {
 	private static final Group COBALAMIN_GROUP=new Group("cobalamin", "callgenes_cobalamin", new String[]{"RF00174", "RF01482", "RF01689"},
 		new String[]{"consensus", "models"}, new String[]{"seeds"}, new String[]{"boundary", "boundary_start", "boundary_stop", "cutoffs"});
 	/** Measured opt-in B12 policies; each member retains its independent length floor. */
-	private static final Entry COBALAMIN_RF00174=cobalamin("RF00174", 109);
-	private static final Entry COBALAMIN_RF01482=cobalamin("RF01482", 109);
-	private static final Entry COBALAMIN_RF01689=cobalamin("RF01689", 66);
-	private static Entry cobalamin(String member, int minLen){
+	private static final Entry COBALAMIN_RF00174=cobalamin("RF00174", 109, 384, true, 2f, 0f, 0f, 8);
+	private static final Entry COBALAMIN_RF01482=cobalamin("RF01482", 109, 100, false, 0f, 0f, 0f, -1);
+	private static final Entry COBALAMIN_RF01689=cobalamin("RF01689", 66, 100, false, 0f, 0f, 0f, -1);
+	private static Entry cobalamin(String member, int minLen, int topN, boolean adaptive, float floor, float topFrac, float qFrac, int patience){
 		assert(COBALAMIN_GROUP.hasMember(member) && minLen>=17) : "Each B12 caller must bind a declared member and a seed-length-compatible floor";
 		final float identity="RF00174".equals(member) ? .64f : .66f;
 		return new Entry("cobalamin_"+member.toLowerCase(java.util.Locale.ROOT), "callgenes_cobalamin", "ncrna=t cobalamin=t",
-		new String[0], minLen, 450, 9, 100, 1, 1f, identity, identity, 1.01f, true, ProkObject.RNA,
+		new String[0], minLen, 450, 9, topN, 1, 1f, identity, identity, 1.01f, true, ProkObject.RNA,
 		true, false, false, 0, 1, 60, -1, false, new String[0], .85f, false, true, 1, null,
-		new BoundaryPolicy("cobalamin_"+member+"_consensus.fa", "cobalamin_"+member+"_models.hbmc", 0f, false, 0f, 0f, 0f, new int[]{0}),
+		new BoundaryPolicy("cobalamin_"+member+"_consensus.fa", "cobalamin_"+member+"_models.hbmc", 0f, adaptive, floor, topFrac, qFrac, new int[]{0}, patience),
 		COBALAMIN_GROUP, member, "consensus");
 	}
 	private static final Entry R58=new Entry("r58", "callgenes_5.8S", "ncrna=t r58lsu=t",
@@ -288,13 +292,13 @@ public final class NcrnaFamilyRegistry {
 	private static final Group SIXS_GROUP=new Group("6S", "callgenes_6S", new String[]{"RF00013", "RF01685"},
 		new String[]{"consensus", "models", "seeds"}, new String[0], new String[]{"boundary", "boundary_start", "boundary_stop"});
 	private static final Entry SIXS_RF00013=new Entry("sixs_rf00013", "callgenes_6S", "ncrna=t sixs=t",
-		new String[0], 60, 250, 7, 60, 1, 20f, .70f, .60f, .64f, true, ProkObject.RNA,
+		new String[0], 60, 250, 7, 56, 1, 20f, .70f, .60f, .64f, true, ProkObject.RNA,
 		true, false, false, 0, 1, 60, 8, false, new String[0], .85f, false, true, 1, null,
-		new BoundaryPolicy("sixs_rf00013_consensus.fa", "sixs_rf00013_models.hbm", 0f, false, 0f, 0f, 0f, new int[]{-3,-2,-1,0,1,2}), SIXS_GROUP, "RF00013", "consensus");
+		new BoundaryPolicy("sixs_rf00013_consensus.fa", "sixs_rf00013_models.hbm", 0f, true, 1f, 0f, 0f, new int[]{-3,-2,-1,0,1,2}, 0), SIXS_GROUP, "RF00013", "consensus");
 	private static final Entry SIXS_RF01685=new Entry("sixs_rf01685", "callgenes_6S", "ncrna=t sixs=t",
-		new String[0], 60, 125, 7, 60, 1, 20f, .70f, .70f, .75f, true, ProkObject.RNA,
+		new String[0], 60, 125, 7, 5, 1, 20f, .70f, .70f, .75f, true, ProkObject.RNA,
 		true, false, false, 0, 1, 60, 1, false, new String[0], .85f, false, true, 1, null,
-		new BoundaryPolicy("sixs_rf01685_consensus.fa", "sixs_rf01685_models.hbm", 0f, false, 0f, 0f, 0f, new int[]{-3,-2,-1,0,1,2}), SIXS_GROUP, "RF01685", "consensus");
+		new BoundaryPolicy("sixs_rf01685_consensus.fa", "sixs_rf01685_models.hbm", 0f, true, 16f, 0f, 0f, new int[]{-3,-2,-1,0,1,2}, Integer.MAX_VALUE), SIXS_GROUP, "RF01685", "consensus");
 	private static final Group SRP_GROUP=new Group("SRP", "callgenes_SRP", new String[]{"small", "large"},
 		new String[]{"consensus", "models"}, new String[]{"seeds"}, new String[]{"boundary", "boundary_start", "boundary_stop"});
 	private static final Entry SRP_SMALL=new Entry("srp_small", "callgenes_SRP", "ncrna=t",
@@ -362,18 +366,28 @@ public final class NcrnaFamilyRegistry {
 	/** Shared-end families retain their measured shortlist policy and legacy CWD overrides. */
 	static final class BoundaryPolicy {
 		BoundaryPolicy(String consensus_, String models_, float scoreA_, boolean adaptive_, float floor_, float topFrac_, float qFrac_, int[] stopOffsets_){
-			this(consensus_, models_, scoreA_, adaptive_, floor_, topFrac_, qFrac_, stopOffsets_, false);
+			this(consensus_, models_, scoreA_, adaptive_, floor_, topFrac_, qFrac_, stopOffsets_, false, -1);
+		}
+		BoundaryPolicy(String consensus_, String models_, float scoreA_, boolean adaptive_, float floor_, float topFrac_, float qFrac_, int[] stopOffsets_, int modelPatience_){
+			this(consensus_, models_, scoreA_, adaptive_, floor_, topFrac_, qFrac_, stopOffsets_, false, modelPatience_);
 		}
 		BoundaryPolicy(String consensus_, String models_, float scoreA_, boolean adaptive_, float floor_, float topFrac_, float qFrac_, int[] stopOffsets_, boolean trna_){
+			this(consensus_, models_, scoreA_, adaptive_, floor_, topFrac_, qFrac_, stopOffsets_, trna_, -1);
+		}
+		private BoundaryPolicy(String consensus_, String models_, float scoreA_, boolean adaptive_, float floor_, float topFrac_, float qFrac_, int[] stopOffsets_, boolean trna_, int modelPatience_){
 			assert((trna_ || consensus_!=null && models_!=null) && stopOffsets_!=null)
 				: "Generic factories honor CWD names; tRNA uses resource roots only and retains its own boundary adapter";
+			NcrnaPatience.validate(modelPatience_);
+			assert(!trna_ || modelPatience_==-1) : "The independent tRNA caller does not use generic ncRNA verifier patience";
 			consensus=consensus_;models=models_;scoreA=scoreA_;floor=floor_;topFrac=topFrac_;stopOffsets=stopOffsets_;
 			adaptive=adaptive_;qFrac=qFrac_;trna=trna_;
+			modelPatience=modelPatience_;
 		}
 		final String consensus, models;
 		final boolean adaptive, trna;
 		final float scoreA, floor, topFrac, qFrac;
 		final int[] stopOffsets;
+		final int modelPatience;
 	}
 	private NcrnaFamilyRegistry(){}
 }

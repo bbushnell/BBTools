@@ -18,6 +18,10 @@ public final class NcrnaFamilyLoader {
 		require(options!=null && resolver!=null, "Explicit load options and resolver required");
 		if(!options.enabled){return null;}//A disabled selection never resolves or opens a resource.
 		final NcrnaFamilyRegistry.Entry p=NcrnaFamilyRegistry.get(familyId);
+		final int patience=options.modelPatience==Options.UNSET_PATIENCE ? p.modelPatience : options.modelPatience;
+		NcrnaPatience.validate(patience);
+		require(patience==-1 || p.boundary!=null && !p.boundary.trna,
+			"Explicit ncRNA model patience requires a generic shared-boundary caller: "+p.id);
 		require(options.collapsedWindowPad>=-1, "Collapsed-window padding uses -1 only for the registry default");
 		final int seedK=options.seedK<0 ? p.seedK : options.seedK;
 		require(seedK==p.seedK || p.boundary!=null && p.boundary.trna,
@@ -112,6 +116,7 @@ public final class NcrnaFamilyLoader {
 			Float.isNaN(options.boundaryMarginStart) ? 0f : options.boundaryMarginStart,
 			Float.isNaN(options.boundaryMarginStop) ? 0f : options.boundaryMarginStop);
 		family.outputType=p.outputType;family.seedMinHits=seedMinHits;family.scavengePass2=p.pass2;
+		family.modelPatience=patience;
 		if("fmn".equals(p.id) || "sam1".equals(p.id) || "tpp".equals(p.id) || "glycine".equals(p.id)){
 			family.seedDistinct=seedMinHits>1;//Direct loads preserve riboswitch distinct-key support.
 		}
@@ -228,6 +233,9 @@ public final class NcrnaFamilyLoader {
 		final float pass, borderline;
 	}
 	public static final class Options {
+		/** Distinguishes an omitted registry choice from an explicit legacy value -1. */
+		public static final int UNSET_PATIENCE=Integer.MIN_VALUE;
+		public int modelPatience=UNSET_PATIENCE;
 		/** Explicit enable selection; null permits a packaged default. Absent packages keep boundary unchanged. */
 		public Boolean boundaryOverride;
 		public boolean enabled=true, hbm=true, seeds=true, endpoints=true, cutoffs=true, boundary=false;

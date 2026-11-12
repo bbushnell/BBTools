@@ -204,15 +204,23 @@ public class GeneCaller extends ProkObject {
 
 		final String name=r.id;
 		final byte[] bases=r.bases;
+		assert(iterationCandidates==null || (iterationBases==bases && breakOrfs))
+			: KillSwitch.assertDie("Candidate reuse is confined to one unchanged contig with ordinary CDS start enumeration");
 		contigGC=calcContigGC(bases);
 		activeNet=selectNet(contigGC);
 		activeStopNet=selectStopNet(contigGC);
 		activeMetaNet=selectMetaNet(contigGC);
 
-		//Lists of all longest orfs per frame
-		ArrayList<Orf>[] frameLists=makeOrfs(name, bases, minLen, geneticCode);
-		//Lists of all high-scoring orfs per frame, with potentially multiple orfs sharing stops.
-		ArrayList<Orf>[] brokenLists=(breakOrfs ? breakOrfs(frameLists, bases) : frameLists);
+		ArrayList<Orf>[] brokenLists=iterationCandidates==null ? null : iterationCandidates.restoreCds(pgm_);
+		if(brokenLists==null){
+			// All scored pre-path starts, including alternatives sharing a stop.
+			final ArrayList<Orf>[] frameLists=makeOrfs(name, bases, minLen, geneticCode);
+			brokenLists=(breakOrfs ? breakOrfs(frameLists, bases) : frameLists);
+			if(iterationCandidates!=null){
+				if(!breakOrfs){throw new IllegalArgumentException("Candidate reuse requires ordinary CDS start enumeration");}
+				iterationCandidates.captureCds(brokenLists, pgm_);
+			}
+		}
 		if(!breakOrfs) {
 			for(int i=0; i<brokenLists.length; i++) {
 				if(brokenLists[i]==null) {brokenLists[i]=new ArrayList<Orf>(1);}
@@ -355,6 +363,195 @@ public class GeneCaller extends ProkObject {
 		//Allocate lazily there so a conserved-seed-only call needs neither one.
 		float[] scores=null;
 		int[] kmersSeen=null;
+		initializeNcrnaScavengers();
+		if(ncrnaScavengers!=null){
+			for(NcrnaScavenger scavenger : ncrnaScavengers){
+				scavenger.prepareCdsStopConstraint(cdsCandidates, bases.length);
+			}
+		}
+		//The existing in-place flip at the end of each iteration makes bases
+		//strand-oriented here and restores its original orientation before return.
+		//Generic scavengers therefore share that buffer with the legacy callers;
+		//a second reverse-complement copy would retain another whole contig per worker.
+		for(int strand=0; strand<2; strand++){
+			final byte[] strandBases=bases;
+			final ConservedRnaSeedIndex.ScanResult sharedSeedHits;
+			if(conservedRnaSeedIndex==null){sharedSeedHits=null;}
+			else if(iterationSeeds!=null && iterationSeeds[strand]!=null){
+				assert(iterationBases==bases) : "Seed reuse is confined to the same borrowed contig and strand";
+				sharedSeedHits=iterationSeeds[strand];
+			}else{
+				if(ncrnaCpuProfile!=null){ncrnaCpuProfile.begin(ncrnaFamilies.size(), NcrnaCpuProfile.SHARED_SCAN);}
+				try{sharedSeedHits=conservedRnaSeedIndex.scan(strandBases);}
+				finally{if(ncrnaCpuProfile!=null){ncrnaCpuProfile.end();}}
+				if(iterationSeeds!=null){iterationSeeds[strand]=sharedSeedHits;}
+				if(strandBases.length>=ConservedRnaSeedIndex.K){sharedSweepPasses++;}
+			}
+			//Generic ncRNA scavenger pass (Noire's TrnaCaller factoring, 2026-08-23): one
+			//independent claimed-region list per family per strand -- these families don't
+			//overlap each other or tRNA biologically, so there's no reason to cross-claim.
+			if(ncrnaScavengers!=null){
+				for(int fi=0; fi<ncrnaScavengers.size(); fi++){
+					final int reuseSlot=2*fi+strand;
+					if(iterationCandidates!=null && !iterationCandidates.isTarget(fi)){
+						final ArrayList<Orf> retained=iterationCandidates.restoreRna(reuseSlot);
+						if(retained!=null){
+							array[strand].addAll(retained);
+							continue;
+						}
+					}
+					ArrayList<int[]> calledPos=new ArrayList<>();
+					final NcrnaScavenger scavenger=ncrnaScavengers.get(fi);
+					final int seedSlot=ncrnaSeedSlots[fi];
+					ArrayList<Orf> found;
+					if(ncrnaCpuProfile!=null){ncrnaCpuProfile.begin(fi, NcrnaCpuProfile.SCAVENGE);}
+					try{
+					if(seedSlot>=0){
+						if(sharedSeedHits==null){throw new IllegalStateException("Missing shared 17-mer scan for "+ncrnaFamilies.get(fi).name);}
+						final int[] hits=sharedSeedHits.hits(seedSlot);
+						if(VERIFY_UNIFIED_SEEDS){verifySeedHits(name, ncrnaFamilies.get(fi).name, strand, hits, scavenger.findKmerHitPositions(strandBases));}
+						found=scavenger.scavenge(name, strandBases, strand, calledPos, hits, sharedSeedHits.keys(seedSlot));
+					}else{
+						found=scavenger.scavenge(name, strandBases, strand, calledPos);
+					}
+					}finally{if(ncrnaCpuProfile!=null){ncrnaCpuProfile.end();}}
+					if(strand==1 && found!=null){
+						for(Orf orf : found){orf.flip();}
+					}
+					if(iterationCandidates!=null && !iterationCandidates.isTarget(fi)){iterationCandidates.captureRna(reuseSlot, found);}
+					if(found!=null){array[strand].addAll(found);}
+				}
+			}
+			for(StatsContainer sc : pgm.rnaContainers){
+				if(ProkObject.callType(sc.type)){
+					if(sc.type==tRNA && trnaLibrary!=null && trnaLibrary.length>0){
+						final int reuseSlot=2*ncrnaFamilies.size()+strand;
+						if(iterationCandidates!=null){
+							final ArrayList<Orf> retained=iterationCandidates.restoreRna(reuseSlot);
+							if(retained!=null){
+								array[strand].addAll(retained);
+								continue;
+							}
+						}
+						if(ncrnaCpuProfile!=null){ncrnaCpuProfile.begin(ncrnaFamilies.size(), NcrnaCpuProfile.TRNA);}
+						try{
+							if(trnaCaller==null){trnaCaller=new TrnaCaller(pgm, trnaLibrary, trnaModels, trnaModelNames);trnaCaller.cmVerifier=cmVerifier;}
+							ArrayList<Orf> list;
+							if(TrnaCaller.SCAVENGE_ONLY){
+								list=new ArrayList<>();
+							}else{
+								list=trnaCaller.callTrnas(name, bases, strand);
+							}
+							//Scavenger pass: find tRNAs at kmer-hit positions missed by PGM-based candidate generation
+							if((TrnaCaller.SCAVENGE || TrnaCaller.SCAVENGE_ONLY) && list!=null){
+								ArrayList<int[]> calledPos=new ArrayList<>();
+								for(Orf orf : list){calledPos.add(new int[]{orf.start, orf.stop});}
+								ArrayList<Orf> scavenged;
+								if(trnaSeedSlot>=0){
+									if(sharedSeedHits==null){throw new IllegalStateException("Missing shared 17-mer scan for tRNA");}
+									final int[] hits=sharedSeedHits.hits(trnaSeedSlot);
+									if(VERIFY_UNIFIED_SEEDS){verifySeedHits(name, "tRNA", strand, hits, trnaCaller.findKmerHitPositions(bases));}
+									scavenged=trnaCaller.scavengeTrnas(name, bases, strand, calledPos, hits);
+								}else{
+									scavenged=trnaCaller.scavengeTrnas(name, bases, strand, calledPos);
+								}
+								if(scavenged!=null){list.addAll(scavenged);}
+							}
+							if(strand==1 && list!=null){
+								for(Orf orf : list){orf.flip();}
+							}
+							if(iterationCandidates!=null){iterationCandidates.captureRna(reuseSlot, list);}
+							if(list!=null){array[strand].addAll(list);}
+						}finally{if(ncrnaCpuProfile!=null){ncrnaCpuProfile.end();}}
+					}else{
+						if(scores==null){
+							scores=new float[bases.length];
+							kmersSeen=(lsuKmers==null && ssuKmers==null && trnaKmers==null && r5SKmers==null) ? null : new int[bases.length];
+						}
+						ArrayList<Orf> list=makeRnasForStrand(name, bases, strand, sc, scores, (sc.kmerSet()==null ? null : kmersSeen), false, -1);//TODO: Make this loop through all RNA types
+					if(strand==1 && list!=null){
+						for(Orf orf : list){
+							assert(orf.strand==strand);
+							orf.flip();
+						}
+					}
+					if(list!=null){array[strand].addAll(list);}
+					}
+				}
+			}
+			Collections.sort(array[strand]);
+			Vector.reverseComplementInPlaceFast(bases);
+		}
+		return array;
+	}
+
+	/** Returns this worker's live family caller after native resources have loaded.
+	 * Policy iteration changes this instance, never the shared family descriptor.
+	 */
+	public NcrnaScavenger ncrnaScavenger(final int family){
+		if(family<0 || family>=ncrnaFamilies.size()){
+			throw new IllegalArgumentException("Unknown loaded ncRNA family index: "+family);
+		}
+		initializeNcrnaScavengers();
+		return ncrnaScavengers.get(family);
+	}
+
+	/** Optional target counters for the owning iteration worker between calls. */
+	public NcrnaAlignmentWork ncrnaAlignmentWork(final int family){
+		return ncrnaCpuProfile==null ? null : ncrnaCpuProfile.alignmentWork(family);
+	}
+
+	/** Shares only immutable seed hits while a driver repeats policies on one
+	 * unchanged contig. Every policy still generates its own candidates and path.
+	 * Pair with endNcrnaIteration in finally; no sequence survives that scope.
+	 */
+	public void beginNcrnaIteration(final Read read){
+		if(read==null || read.bases==null || iterationSeeds!=null){
+			throw new IllegalStateException("A seed-reuse scope needs one intact contig and cannot nest");
+		}
+		iterationBases=read.bases;
+		iterationSeeds=new ConservedRnaSeedIndex.ScanResult[2];
+	}
+
+	/** Optional reuse of candidates independent of the target shortlist. Limited
+	 * to the measured prokaryotic callers; ordinary callers never enter this scope.
+	 * Family claims remain independent in makeRnas. TPP still consumes the exact
+	 * original pre-path CDS starts, and every policy reruns shared path selection.
+	 */
+	public void beginNcrnaIteration(final Read read, final int target){
+		beginNcrnaIteration(read, new int[]{target});
+	}
+
+	/** Recompute every selected member while reusing unchanged callers' candidates.
+	 * Copies target membership and preserves the single-target dependency guards.
+	 */
+	public void beginNcrnaIteration(final Read read, final int[] targets){
+		if(proteinSupport!=null || proteinFateSink!=null || cmVerifier!=null || ssuCompetition!=null
+			|| call16S || call23S || call5S || call18S
+			|| (calltRNA && (trnaLibrary==null || trnaLibrary.length==0))){
+			throw new IllegalArgumentException("Candidate reuse requires seeded prok RNA callers without protein/CM/SSU-competition state");
+		}
+		for(final NcrnaFamily family:ncrnaFamilies){
+			if(family.outputType==r18S || family.name.equals("r58") || family.name.equals("lsu") || family.name.equalsIgnoreCase("euk5S")){
+				throw new IllegalArgumentException("Eukaryotic candidate reuse needs separate dependency verification: "+family.name);
+			}
+		}
+		final NcrnaCandidateReuse candidates=new NcrnaCandidateReuse(targets, ncrnaFamilies.size());
+		beginNcrnaIteration(read);
+		iterationCandidates=candidates;
+	}
+
+	public void endNcrnaIteration(){
+		iterationBases=null;
+		iterationSeeds=null;
+		iterationCandidates=null;
+	}
+
+	/** Lazy construction stays on the owning worker, including CPU-clock spans. */
+	private void initializeNcrnaScavengers(){
+		if(ncrnaCpuProfile==null && NcrnaCpuProfile.enabled()){
+			ncrnaCpuProfile=NcrnaCpuProfile.create(ncrnaFamilies.size());
+		}
 		if(ncrnaScavengers==null && !ncrnaFamilies.isEmpty()){
 			ncrnaScavengers=new ArrayList<>(ncrnaFamilies.size());
 			for(NcrnaFamily fam : ncrnaFamilies){
@@ -380,102 +577,6 @@ public class GeneCaller extends ProkObject {
 				}finally{if(ncrnaCpuProfile!=null){ncrnaCpuProfile.end();}}
 			}
 		}
-		if(ncrnaScavengers!=null){
-			for(NcrnaScavenger scavenger : ncrnaScavengers){
-				scavenger.prepareCdsStopConstraint(cdsCandidates, bases.length);
-			}
-		}
-		//The existing in-place flip at the end of each iteration makes bases
-		//strand-oriented here and restores its original orientation before return.
-		//Generic scavengers therefore share that buffer with the legacy callers;
-		//a second reverse-complement copy would retain another whole contig per worker.
-		for(int strand=0; strand<2; strand++){
-			final byte[] strandBases=bases;
-			final ConservedRnaSeedIndex.ScanResult sharedSeedHits;
-			if(conservedRnaSeedIndex==null){sharedSeedHits=null;}
-			else{
-				if(ncrnaCpuProfile!=null){ncrnaCpuProfile.begin(ncrnaFamilies.size(), NcrnaCpuProfile.SHARED_SCAN);}
-				try{sharedSeedHits=conservedRnaSeedIndex.scan(strandBases);}
-				finally{if(ncrnaCpuProfile!=null){ncrnaCpuProfile.end();}}
-			}
-			//Count actual base-loop scans, including no-hit and family-minLen-rejected
-			//strands. The shared index returns before scanning inputs shorter than K.
-			if(sharedSeedHits!=null && strandBases.length>=ConservedRnaSeedIndex.K){sharedSweepPasses++;}
-			//Generic ncRNA scavenger pass (Noire's TrnaCaller factoring, 2026-08-23): one
-			//independent claimed-region list per family per strand -- these families don't
-			//overlap each other or tRNA biologically, so there's no reason to cross-claim.
-			if(ncrnaScavengers!=null){
-				for(int fi=0; fi<ncrnaScavengers.size(); fi++){
-					ArrayList<int[]> calledPos=new ArrayList<>();
-					final NcrnaScavenger scavenger=ncrnaScavengers.get(fi);
-					final int seedSlot=ncrnaSeedSlots[fi];
-					ArrayList<Orf> found;
-					if(ncrnaCpuProfile!=null){ncrnaCpuProfile.begin(fi, NcrnaCpuProfile.SCAVENGE);}
-					try{
-					if(seedSlot>=0){
-						if(sharedSeedHits==null){throw new IllegalStateException("Missing shared 17-mer scan for "+ncrnaFamilies.get(fi).name);}
-						final int[] hits=sharedSeedHits.hits(seedSlot);
-						if(VERIFY_UNIFIED_SEEDS){verifySeedHits(name, ncrnaFamilies.get(fi).name, strand, hits, scavenger.findKmerHitPositions(strandBases));}
-						found=scavenger.scavenge(name, strandBases, strand, calledPos, hits, sharedSeedHits.keys(seedSlot));
-					}else{
-						found=scavenger.scavenge(name, strandBases, strand, calledPos);
-					}
-					}finally{if(ncrnaCpuProfile!=null){ncrnaCpuProfile.end();}}
-					if(strand==1 && found!=null){
-						for(Orf orf : found){orf.flip();}
-					}
-					if(found!=null){array[strand].addAll(found);}
-				}
-			}
-			for(StatsContainer sc : pgm.rnaContainers){
-				if(ProkObject.callType(sc.type)){
-					if(sc.type==tRNA && trnaLibrary!=null && trnaLibrary.length>0){
-						if(trnaCaller==null){trnaCaller=new TrnaCaller(pgm, trnaLibrary, trnaModels, trnaModelNames);trnaCaller.cmVerifier=cmVerifier;}
-						ArrayList<Orf> list;
-						if(TrnaCaller.SCAVENGE_ONLY){
-							list=new ArrayList<>();
-						}else{
-							list=trnaCaller.callTrnas(name, bases, strand);
-						}
-						//Scavenger pass: find tRNAs at kmer-hit positions missed by PGM-based candidate generation
-						if((TrnaCaller.SCAVENGE || TrnaCaller.SCAVENGE_ONLY) && list!=null){
-							ArrayList<int[]> calledPos=new ArrayList<>();
-							for(Orf orf : list){calledPos.add(new int[]{orf.start, orf.stop});}
-							ArrayList<Orf> scavenged;
-							if(trnaSeedSlot>=0){
-								if(sharedSeedHits==null){throw new IllegalStateException("Missing shared 17-mer scan for tRNA");}
-								final int[] hits=sharedSeedHits.hits(trnaSeedSlot);
-								if(VERIFY_UNIFIED_SEEDS){verifySeedHits(name, "tRNA", strand, hits, trnaCaller.findKmerHitPositions(bases));}
-								scavenged=trnaCaller.scavengeTrnas(name, bases, strand, calledPos, hits);
-							}else{
-								scavenged=trnaCaller.scavengeTrnas(name, bases, strand, calledPos);
-							}
-							if(scavenged!=null){list.addAll(scavenged);}
-						}
-						if(strand==1 && list!=null){
-							for(Orf orf : list){orf.flip();}
-						}
-						if(list!=null){array[strand].addAll(list);}
-					}else{
-						if(scores==null){
-							scores=new float[bases.length];
-							kmersSeen=(lsuKmers==null && ssuKmers==null && trnaKmers==null && r5SKmers==null) ? null : new int[bases.length];
-						}
-						ArrayList<Orf> list=makeRnasForStrand(name, bases, strand, sc, scores, (sc.kmerSet()==null ? null : kmersSeen), false, -1);//TODO: Make this loop through all RNA types
-					if(strand==1 && list!=null){
-						for(Orf orf : list){
-							assert(orf.strand==strand);
-							orf.flip();
-						}
-					}
-					if(list!=null){array[strand].addAll(list);}
-					}
-				}
-			}
-			Collections.sort(array[strand]);
-			Vector.reverseComplementInPlaceFast(bases);
-		}
-		return array;
 	}
 
 	public static void applyNcrnaProductionControls(NcrnaScavenger scavenger){
@@ -483,6 +584,10 @@ public class GeneCaller extends ProkObject {
 	}
 
 	public static void applyNcrnaFamilyControls(NcrnaScavenger scavenger, NcrnaFamily family){
+		if(family.modelPatience!=-1){
+			scavenger.setShortlistPolicy(family.indexTopN, family.adaptive, family.adaptFloor,
+				family.adaptTopFrac, family.adaptQFrac, family.fixedMinHits, family.modelPatience);
+		}
 		scavenger.hbmPass=family.hbmPass;
 		scavenger.collapseFrac=family.collapseFrac;
 		scavenger.family=family.name;
@@ -2028,6 +2133,9 @@ public class GeneCaller extends ProkObject {
 	 * TrnaKmerIndex is per-thread-mutable, so each GeneCaller instance needs its own,
 	 * built from the SHARED read-only family bundle). Null until first use. */
 	private ArrayList<NcrnaScavenger> ncrnaScavengers;
+	private byte[] iterationBases;
+	private ConservedRnaSeedIndex.ScanResult[] iterationSeeds;
+	private NcrnaCandidateReuse iterationCandidates;
 	private NcrnaCpuProfile ncrnaCpuProfile;
 	/** Read only after this worker joins; return scalar counters, never retain its models. */
 	NcrnaCpuProfile completedCpuProfile(){

@@ -636,6 +636,30 @@ ncrnaseedminhits=  Conserved 17-mer seed threshold for selected euk5S, B12,
 ncrnaindexk=    Targeted family mapping k (1-15); seed k remains unchanged. Larger values
                 allocate exponentially larger indices; 6/7 are tuning choices.
 ncrnaindextopn=  Maximum models shortlisted per candidate (>=1).
+ncrnapolicy=    Optional TSV containing exactly one complete policy for named
+                shared-boundary ncRNA members. Uses the sweep policy columns:
+                policy, member, mode, topn, floor, minhits, topfrac, qfrac, patience.
+                Rows use canonical IDs (e.g. sam1, sixs_rf00013,
+                cobalamin_rf00174); group selectors and tRNA are unsupported.
+                Each named member must be enabled. Table tuples override scalar
+                shortlist flags for those members only. Mapping K, resources,
+                seeds, identity thresholds, endpoints and path scores are separate.
+                Patience -1 keeps legacy stopping, 0 stops at the first eligible
+                pass, 2147483647 visits the
+                entire shortlist. Failed-primary rescue retains legacy stopping.
+                Omitted means no table; packaged defaults remain unchanged.
+                Example invocation: callgenes.sh in=genome.fa out=calls.gff \
+                sam1=t ncrnapolicy=policy.tsv
+                Minimal policy.tsv (literal tabs between columns):
+policy	member	mode	topn	floor	minhits	topfrac	qfrac	patience
+example	sam1	fixed	238	0	1	0	0	16
+                fixed uses integral minhits; adaptive uses
+                ceil(max(floor, topfrac*bestShared, qfrac*uniqueQueryKmers)).
+                topn is a positive integer; minhits is a nonnegative integer;
+                floor/topfrac/qfrac must be finite and nonnegative. Inactive
+                fields still need values. Patience is -1 or a nonnegative integer.
+                A multi-model index retains its best positive-sharing model if
+                no model meets the cutoff. A one-model index honors its cutoff.
 ncrnaindexminhits=  Shared mapping-kmer cutoff (>=0). A multi-model index keeps
                 its best model below this cutoff unless strict filtering is on.
                 Zero bypasses mapping only for a one-model library.

@@ -1194,16 +1194,16 @@ public class TrnaConsensusBuilder {
 		stats.doTrace=true;
 		final Read r;
 		if(candidate.length<=cons.length){
-			float id=ScrabbleAligner.alignAndTraceStatic(candidate, cons, stats);
+			float id=NcrnaAlignmentWork.scrabbleTrace(candidate, cons, stats, cons.length);
 			if(stats.matchString==null || id<0.2f){return -999;}
 			r=toAlignedRead(candidate, stats, "candidate", 0);
 		}else{
-			float id=ScrabbleAligner.alignAndTraceStatic(cons, candidate, stats);
+			float id=NcrnaAlignmentWork.scrabbleTrace(cons, candidate, stats, cons.length);
 			if(stats.matchString==null || id<0.2f){return -999;}
 			r=invertToModelFrame(candidate, stats);
 		}
 		if(r==null){return -999;}
-		return model.score(r, false, true);
+		return NcrnaAlignmentWork.hbm(model, r);
 	}
 
 	/** Scores an existing consensus-as-query alignment against its parallel HBM.
@@ -1212,7 +1212,7 @@ public class TrnaConsensusBuilder {
 	public static float scoreAlignedAgainstModel(byte[] candidate, AlignmentStats stats, BaseGraph model){
 		if(model==null || candidate==null || stats==null || stats.matchString==null){return -999;}
 		final Read r=invertToModelFrame(candidate, stats);
-		return r==null ? -999 : model.score(r, false, true);
+		return r==null ? -999 : NcrnaAlignmentWork.hbm(model, r);
 	}
 
 	/** Physical-edge traces retain their original model origin; no realignment. */
@@ -1222,7 +1222,7 @@ public class TrnaConsensusBuilder {
 		final Read r=invertToModelFrame(candidate, stats, modelStart);
 		assert(r==null || r.start>=modelStart && r.stop<model.original.length)
 			: "Physical-edge HBM coordinates must stay inside the original model, not restart at zero";
-		return r==null ? -999 : model.score(r, false, true);
+		return r==null ? -999 : NcrnaAlignmentWork.hbm(model, r);
 	}
 
 	/**

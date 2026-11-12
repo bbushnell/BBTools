@@ -86,6 +86,18 @@ public final class NcrnaTmrnaRescueMarginTest {
 			"Two failed primary alignments must lead to first-model identity rescue with early exit");
 		final NcrnaScavenger zero=identityScavenger();zero.setTmrnaRescueMargins(0,0);
 		check(gff(first).equals(gff(run(zero,WINDOW))) && zero.alignmentCount()==3,"Explicit zero must preserve identity-rescue early exit");
+		for(final int patience:new int[]{-1, 0, 1, Integer.MAX_VALUE}){
+			final NcrnaScavenger caller=identityScavenger();
+			caller.setShortlistPolicy(2, false, 0, 0, 0, 0, patience);
+			check(gff(first).equals(gff(run(caller, WINDOW))) && caller.alignmentCount()==3,
+				"Primary patience must preserve the first passing rescue and its one rescue alignment: patience="+patience);
+		}
+		final NcrnaScavenger exhaustive=identityScavenger();
+		exhaustive.setShortlistPolicy(2, false, 0, 0, 0, 0, 0);
+		exhaustive.setMappingOracleExhaustive(true);
+		final ArrayList<Orf> all=run(exhaustive, WINDOW);
+		check(all.size()==1 && "later".equals(all.get(0).trnaModel) && exhaustive.alignmentCount()==4,
+			"Exhaustive diagnostics must still inspect both rescues and retain the higher-identity model");
 		final NcrnaScavenger raised=identityScavenger();raised.setTmrnaRescueMargins(.0215f,0);
 		final ArrayList<Orf> later=run(raised,WINDOW);
 		check(later.size()==1 && "later".equals(later.get(0).trnaModel) && raised.alignmentCount()==4

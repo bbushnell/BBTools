@@ -8,8 +8,6 @@ import java.util.Comparator;
 import consensus.BaseGraph;
 import dna.AminoAcid;
 import idaligner.AlignmentStats;
-import idaligner.QuantumAligner;
-import idaligner.ScrabbleAligner;
 import map.LongHashSet;
 import shared.Tools;
 import structures.FloatList;
@@ -385,7 +383,7 @@ public class TrnaCaller extends ProkObject {
 			final int m=shortlist[idx];
 			final float lenSim=Tools.min(product.length, trnaLibrary[m].length)/(float)Tools.max(product.length, trnaLibrary[m].length);
 			if(lenSim<MIN_LEN_SIM){continue;}//coverage guard: no zero-cost-deletion match
-			final float id=ScrabbleAligner.alignStatic(product, trnaLibrary[m], null);
+			final float id=NcrnaAlignmentWork.scrabble(product, trnaLibrary[m], null, trnaLibrary[m].length);
 			alignmentCount++;
 			if(id>bestId){bestId=id; bestModel=m; sinceImproved=0;}else{sinceImproved++;}
 			if(id>=ID_PASS){passed=true; if(earlyExit && sinceImproved>=earlyExitPatience){break;}}
@@ -468,7 +466,7 @@ public class TrnaCaller extends ProkObject {
 
 		for(int j=0; j<shortlist.length; j++){
 			int i=shortlist[j];
-			float id=ScrabbleAligner.alignStatic(seq, trnaLibrary[i], null);
+			float id=NcrnaAlignmentWork.scrabble(seq, trnaLibrary[i], null, trnaLibrary[i].length);
 			alignmentCount++;
 			final float lenSim=Tools.min(seq.length, trnaLibrary[i].length)/(float)Tools.max(seq.length, trnaLibrary[i].length);
 			final float combo=id*lenSim;
@@ -610,8 +608,8 @@ public class TrnaCaller extends ProkObject {
 		final byte[] cons=trnaLibrary[model];
 		AlignmentStats stats=new AlignmentStats(true);
 		stats.doTrace=true;
-		if(seq.length>=cons.length){ScrabbleAligner.alignAndTraceStatic(cons, seq, stats);}
-		else{ScrabbleAligner.alignAndTraceStatic(seq, cons, stats);}
+		if(seq.length>=cons.length){NcrnaAlignmentWork.scrabbleTrace(cons, seq, stats, cons.length);}
+		else{NcrnaAlignmentWork.scrabbleTrace(seq, cons, stats, cons.length);}
 		alignmentCount++;
 		return stats;
 	}
@@ -1044,7 +1042,7 @@ public class TrnaCaller extends ProkObject {
 			int[] pos=new int[4];
 			for(int j=0; j<shortlist.length; j++){
 				int m=shortlist[j];
-				float id=QuantumAligner.alignStatic(trnaLibrary[m], seq, pos);
+				float id=NcrnaAlignmentWork.quantum(trnaLibrary[m], seq, pos, trnaLibrary[m].length);
 				alignmentCount++;
 				if(id>=ID_BORDERLINE){
 					candidateModels[candidateCount]=m;
@@ -1059,8 +1057,8 @@ public class TrnaCaller extends ProkObject {
 			for(int j=0; j<shortlist.length; j++){
 				int m=shortlist[j];
 				final boolean modelIsQuery=(trnaLibrary[m].length<seq.length);
-				float id=(modelIsQuery ? ScrabbleAligner.alignStatic(trnaLibrary[m], seq, pos)
-					: ScrabbleAligner.alignStatic(seq, trnaLibrary[m], null));
+				float id=(modelIsQuery ? NcrnaAlignmentWork.scrabble(trnaLibrary[m], seq, pos, trnaLibrary[m].length)
+					: NcrnaAlignmentWork.scrabble(seq, trnaLibrary[m], null, trnaLibrary[m].length));
 				alignmentCount++;
 				if(id>=ID_BORDERLINE){
 					candidateModels[candidateCount]=m;
@@ -1138,7 +1136,7 @@ public class TrnaCaller extends ProkObject {
 			float bestHbm=-999; int bestHbmModel=-1;
 			for(int j=0; j<shortlist.length; j++){
 				final int m=shortlist[j];
-				final float id=ScrabbleAligner.alignStatic(orfSeq, trnaLibrary[m], null);
+				final float id=NcrnaAlignmentWork.scrabble(orfSeq, trnaLibrary[m], null, trnaLibrary[m].length);
 				alignmentCount++;
 				if(id>bestReId){bestReId=id; bestReModel=m;}
 				if(id>=ID_PASS){break;}//clear pass -- stop searching

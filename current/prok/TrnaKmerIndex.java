@@ -84,10 +84,11 @@ public final class TrnaKmerIndex {
 	/** Models sorted count-desc / id-asc for the current query (reused; valid entries = touched.size). */
 	private final int[] sortedOut;
 
-	/*-- Cutoff policy (constant per run; resolved by TrnaCaller from its static flags) --*/
-	private final boolean adaptive;
-	private final float floor, topFrac, qFrac;
-	private final int fixedMinHits;
+	/*-- Policy changes occur between queries on the owning worker only. --*/
+	private boolean adaptive;
+	private float floor;
+	private float topFrac, qFrac;
+	private int fixedMinHits;
 
 	/*-- Reporting counters + last-query stats (for REFHIST / SHORTLIST_STATS) --*/
 	private long queries=0, totalShortlisted=0;
@@ -117,6 +118,40 @@ public final class TrnaKmerIndex {
 
 	static void validateTopN(int topN){
 		if(topN<1){throw new IllegalArgumentException("indexTopN must be >=1: "+topN);}
+	}
+
+	/** Changes only the adaptive absolute floor, without rebuilding postings.
+	 * The index and its scratch belong to one worker; call between queries.
+	 */
+	public void setAdaptiveFloor(final float value){
+		if(!adaptive || !Float.isFinite(value) || value<0){
+			throw new IllegalArgumentException("A floor sweep requires an adaptive index and a finite nonnegative floor: "+value);
+		}
+		floor=value;
+	}
+
+	/** Changes only the fixed cutoff on the owning worker, without rebuilding postings. */
+	public void setFixedMinHits(final int value){
+		if(adaptive || value<0){
+			throw new IllegalArgumentException("Fixed minimum-hit iteration requires a fixed index and a nonnegative integer: "+value);
+		}
+		fixedMinHits=value;
+	}
+
+	/** Replaces the complete cutoff policy without rebuilding immutable postings.
+	 * Call between queries on this index's owning thread. Validate all values before
+	 * changing any state, so a rejected policy leaves the previous policy intact.
+	 * Switching fixed0 to adaptive0 is not generally equivalent: the former has a
+	 * deliberate no-kmer bypass for one-model libraries (shortlist()).
+	 */
+	public void setPolicy(final boolean adaptive_, final float floor_, final float topFrac_,
+		final float qFrac_, final int minHits_){
+		validateConfiguration(indexK, floor_, topFrac_, qFrac_, minHits_);
+		adaptive=adaptive_;
+		floor=floor_;
+		topFrac=topFrac_;
+		qFrac=qFrac_;
+		fixedMinHits=minHits_;
 	}
 
 	/** A ranked posting list has no purpose for one model. Store its distinct k-mers directly. */

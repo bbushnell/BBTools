@@ -82,6 +82,16 @@ public final class ContigEdgeAlignment {
 	 * the candidate window at referenceOffset; proposals use full-reference coordinates. */
 	public static Bounds refineInterior(final byte[] model, final byte[] ref,
 			final EndClippedAligner.Result accepted, final int extension, final int referenceOffset){
+		return refineInterior(model, ref, accepted, extension, referenceOffset, null);
+	}
+
+	/** Optional observer executes the same Scrabble trace at the actual kernel
+	 * boundary. No callback occurs for an endpoint combination needing no alignment.
+	 * The caller owns the observer; this helper never retains it.
+	 */
+	public static Bounds refineInterior(final byte[] model, final byte[] ref,
+			final EndClippedAligner.Result accepted, final int extension, final int referenceOffset,
+			final TraceAlignment observer){
 		if(accepted==null){return null;}
 		if(extension<0 || model.length!=accepted.qLen || referenceOffset<0 || (long)referenceOffset+accepted.rLen>ref.length){
 			throw new IllegalArgumentException("Interior refinement must preserve the accepted model/reference frame");
@@ -100,7 +110,8 @@ public final class ContigEdgeAlignment {
 		shared.Tools.toUpperCase(reference);// Match the caller's private uppercase trim window.
 		final AlignmentStats stats=new AlignmentStats(true);
 		// Keep model/query orientation even when indels make the query longer.
-		ScrabbleAligner.alignAndTraceStatic(query,reference,stats);
+		if(observer==null){ScrabbleAligner.alignAndTraceStatic(query,reference,stats);}
+		else{observer.align(query, reference, stats);}
 		if(stats.matchString==null || stats.rStart<0 || stats.rStop<stats.rStart || stats.rStop>=reference.length){
 			return new Bounds(originalStart,originalStop,false);
 		}
@@ -111,6 +122,11 @@ public final class ContigEdgeAlignment {
 			:"Only the interior-facing endpoint may move; the original physical endpoint is exempt";
 		return new Bounds(start,stop,start!=originalStart || stop!=originalStop);
 	}
+	/** Executes an alignment of the actual observed model slice and candidate. */
+	public interface TraceAlignment{
+		float align(byte[] model, byte[] candidate, AlignmentStats stats);
+	}
+
 	public static final class Bounds{
 		Bounds(int start_,int stop_,boolean changed_){start=start_;stop=stop_;changed=changed_;}
 		public final int start,stop;public final boolean changed;

@@ -7,6 +7,7 @@ import fileIO.ByteStreamWriter;
 import map.ObjectMap;
 import map.ObjectSet;
 import parse.LineParser1;
+import parse.Parse;
 import parse.PreParser;
 import prok.NcrnaGffFamilyGrader.Locus;
 import prok.NcrnaGffFamilyGrader.MatchResult;
@@ -17,6 +18,10 @@ import structures.IntList;
 
 /** One-to-one B12 subtype/union grades with explicit unresolved subtype abstentions.
  * Historical coordinates and reviewed full-core coordinates are separate views.
+ * With reviewedonly=t, only own-subtype reviewed cores contribute references:
+ * SOURCE remains input provenance, and clan-only cores and UNREVIEWED source
+ * intervals mask otherwise unmatched calls. UNREVIEWED is rejected in legacy mode.
+ * Duplicate predictions inside an unscored mask remain unscored in this mode.
  * @author Brian Bushnell, Raiden
  */
 public final class CobalaminPanelGrade {
@@ -24,16 +29,34 @@ public final class CobalaminPanelGrade {
 	public static void main(String[] args){
 		final PreParser pp=new PreParser(args, CobalaminPanelGrade.class, false);
 		String panel=null, contigs=null, calls=null, out=null;
+		final CobalaminPanelGrade x=new CobalaminPanelGrade();
 		for(String arg:pp.args){
-			final int eq=arg.indexOf('=');require(eq>0, "Use flag=value");
-			final String k=arg.substring(0, eq).toLowerCase(Locale.ROOT), v=arg.substring(eq+1);
-			if(k.equals("panel")){panel=v;}else if(k.equals("contigs")){contigs=v;}
-			else if(k.equals("in")){calls=v;}else if(k.equals("outprefix")){out=v;}else{throw new IllegalArgumentException("Unknown option: "+k);}
+			final String[] split=Parse.splitOnFirst(arg, '=');
+			final String a=split[0].toLowerCase(Locale.ROOT);
+			final String b=split.length>1 ? split[1] : null;
+			require(!a.isEmpty() && b!=null, "Use flag=value: "+arg);
+			if(a.equals("panel")){
+				panel=b;
+			}else if(a.equals("contigs")){
+				contigs=b;
+			}else if(a.equals("in")){
+				calls=b;
+			}else if(a.equals("outprefix")){
+				out=b;
+			}else if(a.equals("reviewedonly")){
+				x.reviewedOnly=Parse.parseBoolean(b);
+			}else{
+				throw new IllegalArgumentException("Unknown option: "+a);
+			}
 		}
 		require(panel!=null && contigs!=null && calls!=null && out!=null, "Bind reviewed panel, exact contig ownership and actual caller GFF");
 		Shared.setThreads(1);
-		try{final CobalaminPanelGrade x=new CobalaminPanelGrade();x.contigs(contigs);x.truth(panel);x.calls(calls);x.write(out);}
-		finally{Shared.closeStream(pp.outstream);}
+		try{
+			x.contigs(contigs);
+			x.truth(panel);
+			x.calls(calls);
+			x.write(out);
+		}finally{Shared.closeStream(pp.outstream);}
 	}
 
 	/*--------------------------------------------------------------*/
@@ -67,8 +90,13 @@ public final class CobalaminPanelGrade {
 				final Locus original=locus(c, family, p.parseInt(5), p.parseInt(6), p.parseString(9));
 				require(physical.add(key(original)), "Exact duplicate source coordinates require independent adjudication");
 				final int start=p.parseInt(7), stop=p.parseInt(8);final Locus core;
-				if(member.equals(CobalaminPanelPrep.UNRESOLVED)){require(start==0 && stop==0, "Unresolved truth cannot carry a claimed full core");core=null;}
-				else{
+				final boolean unreviewed=member.equals(UNREVIEWED);
+				require(!unreviewed || reviewedOnly,
+					"UNREVIEWED requires reviewedonly=t to prevent scoring missing review as SOURCE truth: "+id);
+				if(unreviewed || member.equals(CobalaminPanelPrep.UNRESOLVED)){
+					require(start==0 && stop==0, "Unreviewed or unresolved truth cannot carry a claimed full core: "+id);
+					core=null;
+				}else{
 					require(member.equals(family) || member.equals(CobalaminPanelPrep.CLAN_ONLY), "Only reviewed own-subtype or clan-only labels are accepted");
 					core=locus(c, member, start, stop, p.parseString(9));
 					require(cores.add(key(core)), "Distinct source intervals share an exact reviewed core; adjudication is required before FULL_CM union grading: "+id);
@@ -125,9 +153,15 @@ public final class CobalaminPanelGrade {
 			perGenome.println("view\tscope\tgenome\ttruth\tcalls\tTP\tFP\tFN\tunscored\texact_duplicates\texact5\texact3\tboth_exact");
 			audit.println("view\tscope\tcall_index\tgenome\tseqid\temitted_family\tstart1\tstop1\tstrand\tmodel\toutcome\ttruth_id\td5\td3");
 			misses.println("view\tscope\ttruth_id\tgenome\tseqid\tstart1\tstop1\tstrand");
-			for(boolean full:new boolean[]{false, true}){for(int scope=0; scope<4; scope++){grade(full, scope, summary, perGenome, audit, misses);}}
+			for(boolean full:new boolean[]{false, true}){
+				if(reviewedOnly && !full){continue;}
+				for(int scope=0; scope<4; scope++){
+					grade(full, scope, summary, perGenome, audit, misses);
+				}
+			}
 		}finally{RrnaResourceIO.finish(summary, perGenome, audit, misses);}
 		System.err.println("COBALAMIN_PANEL_GRADE_PASS genomes="+genomes.size()+" truth="+truth.size()+" calls="+calls.size()+"; apparent metrics, unresolved evidence retained");
+		if(reviewedOnly){System.err.println("reviewedonly=t: own-subtype FULL_CM truth; unreviewed, unresolved and clan-only loci remain unscored masks");}
 	}
 	private void grade(boolean full, int scope, ByteStreamWriter summary, ByteStreamWriter perGenome, ByteStreamWriter audit, ByteStreamWriter misses){
 		assert(scope>=0 && scope<=3):"Three biological subtypes and their pooled union are the only report scopes";
@@ -137,8 +171,9 @@ public final class CobalaminPanelGrade {
 		final Stats[] byGenome=new Stats[genomes.size()];for(int i=0; i<byGenome.length; i++){byGenome[i]=new Stats();}
 		for(Truth t:truth){
 			if(!full){if(scope==3 || t.source==scope){refs.add(t.original);owners.add(t);byGenome[t.contig.genome.index].truth++;}}
-			else if(t.core==null || scope!=3 && t.clanOnly){masks.add(t.core==null?t.original:t.core);}
-			else if(scope==3 || t.source==scope){refs.add(t.core);owners.add(t);byGenome[t.contig.genome.index].truth++;}
+			else if(t.core==null || t.clanOnly && (scope!=3 || reviewedOnly)){
+				masks.add(t.core==null ? t.original : t.core);
+			}else if(scope==3 || t.source==scope){refs.add(t.core);owners.add(t);byGenome[t.contig.genome.index].truth++;}
 		}
 		final boolean[] unscored=new boolean[calls.size()];final ObjectSet<String> unionSeen=new ObjectSet<String>(String.class);
 		for(int i=0; i<calls.size(); i++){
@@ -146,14 +181,20 @@ public final class CobalaminPanelGrade {
 			final boolean duplicate=scope==3?!unionSeen.add(key(c.locus)):c.duplicate;
 			final Stats s=byGenome[c.contig.genome.index];s.calls++;if(duplicate){s.duplicates++;}
 			// A repeated prediction cannot consume a second overlapping reference.
-			// Retain it for the audit/FP count below, but exclude it from matching.
-			if(duplicate){continue;}
+			// Keep legacy duplicate FPs; reviewed-only mode first checks unscored masks.
+			if(duplicate && !reviewedOnly){continue;}
 			boolean edge=false, masked=false;
-			if(full && !duplicate){
+			if(full){
 				for(Locus r:refs){if(NcrnaGffFamilyGrader.overlapsReciprocal(c.locus, r, .5f)){edge=true;break;}}
 				if(!edge){for(Locus mask:masks){if(overlap(c.locus, mask)){masked=true;break;}}}
 			}
-			if(masked){unscored[i]=true;s.unscored++;}else{scored.add(c.locus);indices.add(i);}
+			if(masked){
+				unscored[i]=true;
+				s.unscored++;
+			}else if(!duplicate){
+				scored.add(c.locus);
+				indices.add(i);
+			}
 		}
 		final MatchResult match=NcrnaGffFamilyGrader.matchOneToOne(scored, refs, .5f);final int[] truthForCall=new int[calls.size()];java.util.Arrays.fill(truthForCall, -1);
 		for(int j=0; j<indices.size; j++){truthForCall[indices.get(j)]=match.callMatchedTruthIdx[j];}
@@ -212,5 +253,9 @@ public final class CobalaminPanelGrade {
 	private final ObjectMap<String,Contig> contigMap=new ObjectMap<String,Contig>(String.class, Contig.class);
 	private final ArrayList<Genome> genomes=new ArrayList<Genome>();
 	private final ArrayList<Truth> truth=new ArrayList<Truth>();private final ArrayList<Call> calls=new ArrayList<Call>();
+	/** Opt-in scoring scope; legacy SOURCE and clan-union grades remain the default. */
+	private boolean reviewedOnly=false;
 	private static final String[] FAMILIES=CobalaminPanelPrep.FAMILIES;
+	/** Missing review coverage, distinct from an adjudicated unresolved locus. */
+	private static final String UNREVIEWED="UNREVIEWED";
 }

@@ -10,6 +10,10 @@ import fileIO.ByteFile;
  * @author Ganyu */
 public final class NcrnaCpuProfileTest {
 	public static void main(String[] args){
+		final parse.PreParser pp=new parse.PreParser(args, NcrnaCpuProfileTest.class, false);
+		try{run(pp.args);}finally{shared.Shared.closeStream(pp.outstream);}
+	}
+	private static void run(String[] args){
 		check(args.length==1 && args[0].startsWith("outdir="), "Expected fresh outdir");
 		check(!NcrnaCpuProfile.enabled() && NcrnaCpuProfile.create(2)==null, "Absent property must leave CPU observation disabled");
 		final String root=args[0].substring(7);check(new File(root).mkdir(), "Fresh fixture directory required");
@@ -18,6 +22,9 @@ public final class NcrnaCpuProfileTest {
 		first.begin(0, NcrnaCpuProfile.INIT);clock.add(8);first.end();
 		first.begin(0, NcrnaCpuProfile.SCAVENGE);clock.add(21);first.end();
 		first.begin(2, NcrnaCpuProfile.SHARED_SCAN);clock.add(3);first.end();
+		first.begin(2, NcrnaCpuProfile.TRNA);
+		clock.add(5);
+		first.end();
 		first.activity(0, 2, 100, 1, 44, 7, 3);
 		first.verification(0, 14, 4, 2, 10, 3, 2);
 		second.begin(1, NcrnaCpuProfile.INIT);clock.add(9);second.end();
@@ -38,7 +45,8 @@ public final class NcrnaCpuProfileTest {
 			"GLOBAL\tSHARED_SEED_SCAN\t2\t7\tNA\tNA\tNA\tNA\tNA\tNA",
 			"GLOBAL\tSSU_APPLY\t1\t6\tNA\tNA\tNA\tNA\tNA\tNA",
 			"GLOBAL\tSSU_FINISH\t0\t0\tNA\tNA\tNA\tNA\tNA\tNA",
-			"GLOBAL\tFIND_PATH\t1\t12\tNA\tNA\tNA\tNA\tNA\tNA"};
+			"GLOBAL\tFIND_PATH\t1\t12\tNA\tNA\tNA\tNA\tNA\tNA",
+			"GLOBAL\tTRNA\t1\t5\tNA\tNA\tNA\tNA\tNA\tNA"};
 		try{
 			for(byte[] line; (line=in.nextLine())!=null;){
 				final String text=new String(line, StandardCharsets.UTF_8);
@@ -46,7 +54,7 @@ public final class NcrnaCpuProfileTest {
 				check(row<expected.length && text.equals(expected[row++]), "CPU deltas, invocations and activity must keep family/stage identity");
 			}
 		}finally{check(!in.close(), "Fixture output read failed");}
-		check(row==8, "Each family has two disjoint stages; global shared scan, SSU phases and path appear once each");
+		check(row==9, "Each family has two stages; shared scan, SSU phases, path and independent tRNA appear once each");
 		final ByteFile details=RrnaResourceIO.open(path+".verification.tsv");int detailRows=0;
 		final String[] expectedDetails={"familyA\t14\t4\t2\t10\t3\t2", "familyB\t7\t2\t1\t8\t1\t1"};
 		try{for(byte[] line; (line=details.nextLine())!=null; ){

@@ -7,7 +7,6 @@ import fileIO.ByteFile;
 import fileIO.ByteStreamWriter;
 import fileIO.ReadWrite;
 import idaligner.AlignmentStats;
-import idaligner.QuantumAligner;
 import map.ObjectSet;
 import parse.LineParser1;
 import parse.Parse;
@@ -86,7 +85,11 @@ public final class RrnaEndpointVector {
 		final byte[] query=span.length<ref.length?span:ref,target=span.length<ref.length?ref:span;
 		// QuantumAligner.alignAndTraceStatic seeds bandwidth from stats.rStart;
 		// clear prior-candidate state so training/caller order cannot change identity.
-		stats.clear();stats.doTrace=true;final float id=QuantumAligner.alignAndTraceStatic(query,target,stats);require(Float.isFinite(id)&&id>=0&&id<=1,"Quantum candidate identity must be finite and fractional");return id;
+		stats.clear();
+		stats.doTrace=true;
+		final float id=NcrnaAlignmentWork.quantumTrace(query, target, stats, ref.length, 1);
+		require(Float.isFinite(id) && id>=0 && id<=1, "Quantum candidate identity must be finite and fractional");
+		return id;
 	}
 
 	public void run(String in,String prefix,long expected){

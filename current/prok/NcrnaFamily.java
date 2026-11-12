@@ -228,6 +228,9 @@ public class NcrnaFamily {
 	public final float adaptTopFrac;
 	public final float adaptQFrac;
 	public final int fixedMinHits;
+	/** Primary-model stagnation count, installed before workers. -1 keeps legacy
+	 * exits, MAX visits every shortlisted model; rescue stopping stays unchanged. */
+	public int modelPatience=-1;
 
 	/** Forward-ported from Noire's tree (2026-08-28) -- see the 15-arg constructor's javadoc. */
 	public final float scoreA;

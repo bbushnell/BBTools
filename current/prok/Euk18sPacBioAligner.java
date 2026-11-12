@@ -4,7 +4,6 @@ import java.lang.management.ManagementFactory;
 import java.lang.management.ThreadMXBean;
 import align2.MultiStateAligner9PacBio;
 import idaligner.AlignmentStats;
-import idaligner.QuantumAligner;
 import stream.Read;
 import stream.SamLine;
 
@@ -54,10 +53,12 @@ final class Euk18sPacBioAligner {
 		r.retainedMatrixBytes=rolling ? rollingMsa.retainedBytes() : matrixBytes(maxQuery, maxRef);
 		r.allocationNanos=allocationNanos;r.primaryCpuNanos=elapsedCpu(cpuBegin);
 		r.primaryNanos=System.nanoTime()-begin;
+		final NcrnaAlignmentWork work=NcrnaAlignmentWork.current();
+		if(work!=null){work.completed(query.length, ref.length, r.primaryCpuNanos);}
 		if(compareQuantum){
 			final long qBegin=System.nanoTime(), qCpuBegin=cpuTime();
 			final AlignmentStats q=new AlignmentStats(true);
-			r.quantumIdentity=QuantumAligner.alignAndTraceStatic(query, ref, q);
+			r.quantumIdentity=NcrnaAlignmentWork.quantumTrace(query, ref, q, query.length, 1);
 			r.quantumStart=q.rStart;r.quantumStop=q.rStop;
 			r.quantumCpuNanos=elapsedCpu(qCpuBegin);r.quantumNanos=System.nanoTime()-qBegin;
 			r.comparedQuantum=true;
