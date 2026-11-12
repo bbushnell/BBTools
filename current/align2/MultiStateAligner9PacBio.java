@@ -68,6 +68,8 @@ public final class MultiStateAligner9PacBio extends MSA{
 		super(maxRows_, maxColumns_);
 		if(costs_==null){throw new IllegalArgumentException("PacBio penalties cannot be null");}
 		costs=costs_;
+		defaultCosts=costs.sameValues(PacBioScoreParameters.DEFAULT);
+		imperfectOffset=Tools.min(costs.del, costs.ins-POINTS_MATCH2);
 
 		//Comprehension (Ady 2026-06-21): 9PacBio is a PacBio variant -- TIMEBITS=9, ss.semiperfect ACTIVE
 		//(scoreNoIndels L1945/L2035), AFFINE_ARRAYS=false; groups with 9XFlat despite the "Based on MSA9ts" class doc.
@@ -2205,8 +2207,19 @@ public final class MultiStateAligner9PacBio extends MSA{
 		return POINTS_MATCH+(baseScores.length-1)*(POINTS_MATCH2)+Tools.sumInt(baseScores);
 	}
 
+	/**
+	 * Computes the native-penalty cutoff for near-perfect alignment heuristics.
+	 * Requires all nine instance penalties to equal DEFAULT; object identity is irrelevant.
+	 * Experimental penalties remain available for alignment, but not this cutoff.
+	 * @param numBases Number of read bases
+	 * @return Cutoff score in unshifted score units
+	 * @throws IllegalStateException If the instance penalties differ from DEFAULT
+	 */
 	@Override
 	public final int maxImperfectScore(int numBases){
+		if(!defaultCosts){
+			throw new IllegalStateException("maxImperfectScore requires DEFAULT-equivalent PacBio penalties; experimental penalties remain supported for alignment");
+		}
 //		int maxQ=maxQuality(numBases);
 ////		maxImperfectSwScore=maxQ-(POINTS_MATCH2+POINTS_MATCH2)+(POINTS_MATCH+costs.sub);
 //		int maxI=maxQ+costs.del;
@@ -2214,13 +2227,24 @@ public final class MultiStateAligner9PacBio extends MSA{
 //		maxI=Tools.min(maxI, maxQ-(POINTS_MATCH2+POINTS_MATCH2)+(POINTS_MATCH+costs.sub));
 
 		int maxQ=maxQuality(numBases);
-		int maxI=maxQ+Tools.min(costs.del, costs.ins-POINTS_MATCH2);
+		int maxI=maxQ+imperfectOffset;
 		assert(maxI<(maxQ-(POINTS_MATCH2+POINTS_MATCH2)+(POINTS_MATCH+costs.sub)));
 		return maxI;
 	}
 
+	/**
+	 * Computes the native-penalty cutoff including the supplied per-base score adjustments.
+	 * Requires all nine instance penalties to equal DEFAULT; object identity is irrelevant.
+	 * Experimental penalties remain available for alignment, but not this cutoff.
+	 * @param baseScores Per-base score adjustments, one entry per read base
+	 * @return Cutoff score in unshifted score units
+	 * @throws IllegalStateException If the instance penalties differ from DEFAULT
+	 */
 	@Override
 	public final int maxImperfectScore(byte[] baseScores){
+		if(!defaultCosts){
+			throw new IllegalStateException("maxImperfectScore requires DEFAULT-equivalent PacBio penalties; experimental penalties remain supported for alignment");
+		}
 //		int maxQ=maxQuality(numBases);
 ////		maxImperfectSwScore=maxQ-(POINTS_MATCH2+POINTS_MATCH2)+(POINTS_MATCH+costs.sub);
 //		int maxI=maxQ+costs.del;
@@ -2228,7 +2252,7 @@ public final class MultiStateAligner9PacBio extends MSA{
 //		maxI=Tools.min(maxI, maxQ-(POINTS_MATCH2+POINTS_MATCH2)+(POINTS_MATCH+costs.sub));
 
 		int maxQ=maxQuality(baseScores);
-		int maxI=maxQ+Tools.min(costs.del, costs.ins-POINTS_MATCH2);
+		int maxI=maxQ+imperfectOffset;
 		assert(maxI<(maxQ-(POINTS_MATCH2+POINTS_MATCH2)+(POINTS_MATCH+costs.sub)));
 		return maxI;
 	}
@@ -2339,6 +2363,10 @@ public final class MultiStateAligner9PacBio extends MSA{
 	/** Three-dimensional scoring matrix for match/insertion/deletion states */
 	private final int[][][] packed;
 	private final PacBioScoreParameters costs;
+	/** Whether all instance penalties equal DEFAULT, cached for the cutoff helpers. */
+	private final boolean defaultCosts;
+	/** Immutable gap-penalty offset added to maxQuality by the cutoff helpers. */
+	private final int imperfectOffset;
 	/** Buffer for storing gapped reference sequences */
 	private final byte[] grefbuffer;
 	/** Current limit of valid data in gapped reference buffer */

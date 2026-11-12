@@ -16,7 +16,7 @@ import structures.ListNum;
  * setting applies. Missing qualities follow Read's default rather than a MAPQ score.
  * Mapping is classified by positive chromosome, with top-site recovery if needed;
  * pairing uses the paired alignment flag, not merely the presence of a mate.
- * Bins cover nonnegative byte qualities 0..127; empty-bin percentages remain NaN.
+ * Bins cover nonnegative byte qualities 0..127; empty bins remain with 0.000 percent.
  * This is not a FASTQ/SAM reader or BBMapS's Streamer/Writer workflow.
  *
  * @author Brian Bushnell
@@ -50,6 +50,7 @@ public class MakeQualityHistogram{
 	 * Prints histogram showing mapping success rates by quality score.
 	 * Displays quality score bins with counts of mapped vs unmapped reads
 	 * and calculates mapping percentage for each quality level.
+	 * Bins with both counts zero remain in the output with 0.000 percent.
 	 * @param mapped Array containing [mapped_counts, unmapped_counts] by quality
 	 */
 	public static void printMappedHistogram(int[][] mapped){
@@ -58,7 +59,7 @@ public class MakeQualityHistogram{
 		for(int i=0; i<mapped[0].length; i++){
 			int e=mapped[0][i];
 			int m=mapped[1][i];
-			float percent=e*100f/((long)e+m);
+			float percent=(e==0 && m==0 ? 0f : e*100f/((long)e+m));
 			System.out.println(i+"\t"+e+"\t"+m+"\t"+Tools.format("%.3f", percent));
 		}
 	}
@@ -67,6 +68,7 @@ public class MakeQualityHistogram{
 	 * Prints histogram showing pairing success rates by quality score.
 	 * Displays quality score bins with counts of paired vs single reads
 	 * and calculates pairing percentage for each quality level.
+	 * Bins with both counts zero remain in the output with 0.000 percent.
 	 * @param paired Array containing [paired_counts, single_counts] by quality
 	 */
 	public static void printPairedHistogram(int[][] paired){
@@ -75,7 +77,7 @@ public class MakeQualityHistogram{
 		for(int i=0; i<paired[0].length; i++){
 			int e=paired[0][i];
 			int m=paired[1][i];
-			float percent=e*100f/((long)e+m);
+			float percent=(e==0 && m==0 ? 0f : e*100f/((long)e+m));
 			System.out.println(i+"\t"+e+"\t"+m+"\t"+Tools.format("%.3f", percent));
 		}
 	}

@@ -11,7 +11,9 @@ public final class PacBioScoreParameters{
 	 * Gap arguments accept zero and negative values down to the native deletion
 	 * opening penalty (-292). Substitutions use the nearest integer magnitude,
 	 * with half ties rounded away from zero; a small scale can round them to zero.
-	 * Acceptance here does not establish compatibility with every aligner helper.
+	 * Experimental penalties remain available for alignment. The maxImperfectScore
+	 * helpers require all nine resulting penalties to equal DEFAULT; a distinct
+	 * instance with the same values is supported.
 	 * @param del4 Fourth deletion-tier penalty, in [-292,0]
 	 * @param del5 Fifth deletion-tier penalty, in [-292,0]
 	 * @param ins4 Fourth insertion-tier penalty, in [-292,0]
@@ -22,9 +24,8 @@ public final class PacBioScoreParameters{
 	 * @throws IllegalArgumentException If the scale or a resulting penalty is outside its accepted range
 	 */
 	public static PacBioScoreParameters experimental(int del4, int del5, int ins4, int ins, int del, float subScale){
-		//TODO: ALN204 - zero gap penalties are accepted here, but can violate
-		//MultiStateAligner9PacBio.maxImperfectScore's assertion. Contract question
-		//remains open; inspected prok callers do not use that score-bound helper.
+		//ALN204: Non-DEFAULT-equivalent penalties remain valid for alignment;
+		//MultiStateAligner9PacBio rejects them only in its maxImperfectScore helpers.
 		if(!Float.isFinite(subScale) || subScale<=0 || subScale>1){
 			throw new IllegalArgumentException("Experimental substitution scale must be finite in (0,1]");
 		}
