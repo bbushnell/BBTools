@@ -14,26 +14,26 @@ import sketch.Sketch;
 import structures.ByteBuilder;
 
 /**
- * Encodes and decodes barcode demultiplexing data for efficient storage and transmission.
- * Supports various encoding formats including A48 compression and delta compression.
- * Handles dual-barcode systems with configurable lengths and delimiters.
+ * Encodes expected barcodes, observed barcode counts, and demultiplexing
+ * thresholds into chunked text for DemuxClient/DemuxServer exchange.
+ * Supports raw or A48 barcode coding, optional count deltas, and optional
+ * barcode-coordinate deltas for single- and dual-barcode designs.
  *
  * @author Brian Bushnell
  * @date 2024
  */
-public class DemuxData {
-	
+public class DemuxData{
+
 	/**
-	 * Test method demonstrating encoding and decoding of barcode data.
-	 * Creates sample data with expected barcodes and counts, then encodes and decodes.
+	 * Developer harness demonstrating a round trip through the chunked encoding.
 	 * @param args Command-line arguments (unused)
 	 */
-	public static void main(String[] args) {
+	public static void main(String[] args){
 		DemuxData dd=new DemuxData(10, 10, '+');
 		dd.deltaBarcodes=true;
 		dd.deltaCounts=true;
 //		dd.coding=Sketch.A48;
-		
+
 		dd.expectedList=new LinkedHashSet<String>();
 		dd.codeCounts=new ArrayList<Barcode>();
 
@@ -50,8 +50,8 @@ public class DemuxData {
 		dd.codeCounts.add(new Barcode("GGGGGGGGGG+TCGTACGTTT", 1));
 		dd.codeCounts.add(new Barcode("NNNNNNNNNN+NNNNNNNNNN", 1));
 		System.err.println("Expected:\n"+dd.expectedList);
-		
-		
+
+
 		ArrayList<Barcode> list=(ArrayList<Barcode>)(dd.codeCounts);
 
 		System.err.println("Encoding.");
@@ -63,36 +63,37 @@ public class DemuxData {
 		System.err.println("Counts:\n"+dd.codeCounts);
 		System.err.println("Result:\n"+dd2.codeCounts);
 	}
-	
+
 	/**
-	 * Constructs DemuxData with specified barcode lengths and delimiter.
-	 * @param length1_ Length of first barcode
-	 * @param length2_ Length of second barcode (0 for single barcode)
-	 * @param delimiter_ Character used to separate dual barcodes
+	 * Creates a message for one barcode layout.
+	 * @param length1_ Length of the first barcode
+	 * @param length2_ Length of the second barcode, or 0 for single-index data
+	 * @param delimiter_ Delimiter between dual barcodes
 	 */
 	public DemuxData(int length1_, int length2_, int delimiter_){
 		length1=length1_;
 		length2=length2_;
 		barcodeDelimiter=delimiter_;
 	}
-	
-	/** Constructs DemuxData by decoding from encoded chunks.
-	 * @param chunks Encoded data chunks to decode */
-	public DemuxData(ArrayList<byte[]> chunks) {
+
+	/**
+	 * Creates a message by decoding encoded chunks.
+	 * @param chunks Encoded DemuxData chunks to decode
+	 */
+	public DemuxData(ArrayList<byte[]> chunks){
 		decode(chunks);
 	}
-	
+
 	/**
-	 * Encodes barcode data into compressed chunks for storage or transmission.
-	 * Applies delta compression and A48 encoding based on configuration.
-	 * Splits large datasets into multiple chunks to manage memory usage.
-	 * @return List of encoded byte chunks
+	 * Encodes flags, expected barcodes, and observed counts into newline-delimited
+	 * chunks, splitting the result before the send buffer grows too large.
+	 * @return encoded byte chunks
 	 */
-	public ArrayList<byte[]> encode() {
+	public ArrayList<byte[]> encode(){
 		ByteBuilder bb=new ByteBuilder();
 
 		ArrayList<byte[]> chunks=new ArrayList<byte[]>(2);
-		
+
 		bb.append("#Flags").nl();
 		bb.append("length1=").append(length1).nl();
 		bb.append("length2=").append(length2).nl();
@@ -100,7 +101,10 @@ public class DemuxData {
 		bb.append("coding=").append(coding).nl();
 		bb.append("deltacounts=").append(deltaCounts).nl();
 		bb.append("deltabarcodes=").append(deltaBarcodes).nl();
-		
+		//Omit defaults so existing servers that reject unknown flags can still read default requests.
+		if(type!=PCRMatrix.PROB_TYPE){bb.append("type=").append(type).nl();}
+		if(hdistSum){bb.append("hdistsum=").append(hdistSum).nl();}
+
 		bb.append("maxhdist0=").append(maxHDist0).nl();
 		bb.append("minratio0=").append(minRatio0, 6).nl();
 		bb.append("minprob0=").append(minProb0, 6).nl();
@@ -111,56 +115,46 @@ public class DemuxData {
 		bb.append("addpolyc=").append(addPolyC).nl();
 		bb.append("addpolyg=").append(addPolyG).nl();
 		bb.append("addpolyt=").append(addPolyT).nl();
-		
-		
+
+
 		bb.nl().append("#Expected\t").append(expectedList.size()).nl();
-		for(String s : expectedList) {
+		for(String s : expectedList){
 			bb.append(s).nl();
 		}
-		
-		//TODO: Possible bug [barcode/DemuxData#001] - the sort here is DEAD CODE and never runs. When an out-of-order
-		//pair is found, `break` (below) exits the loop immediately; `sorted` is set false ONLY right before that break,
-		//so the `if(!sorted){...sort...}` block can never be reached (it sits after the break, and on every other
-		//iteration `sorted` is still true). => ENSURE_SORTED DETECTS unsorted input but never actually sorts it.
-		//Why it matters: encode() (delta counts, line ~221) and decode()'s assert (line ~483) BOTH require codeCounts
-		//to be in Barcode.compareTo order (counts non-increasing). The live caller feeds dd.codeCounts=bs.codeMap.values()
-		//(a HashMap's values = UNSORTED) via the client-server path (CountBarcodes2:371, useServer). With -ea (always on)
-		//the server-side decode then trips assert(count<=prevCount||prevCount<0) at ~483 and CRASHES. Not corruption
-		//(the delta is self-inverse -> without -ea it reconstructs correctly), but a crash-loud on legitimate input.
-		//Latent for local-JGI runs (prob/ loaded -> useServer stays false -> DemuxData path never taken).
-		//Recommended fix: move the sort AFTER the loop (or drop the break and guard the sort post-loop):
-		//   for(...){ if(prev!=null && bc.compareTo(prev)<0){sorted=false; break;} prev=bc; }
-		//   if(!sorted){ ArrayList<Barcode> list=new ArrayList<>(codeCounts); Collections.sort(list); codeCounts=list; }
-		if(ENSURE_SORTED) {
+
+		//barcode/DemuxData#001: Counts must be in Barcode.compareTo order for delta counts and
+		//decode-side ordering checks. HashMap.values() callers can feed unsorted input here,
+		//so sort only when a disorder is detected.
+		if(ENSURE_SORTED){
 			Barcode prev=null;
 			boolean sorted=true;
-			for(Barcode bc : codeCounts) {
-				if(prev!=null) {
-					if(bc.compareTo(prev)<0) {
+			for(Barcode bc : codeCounts){
+				if(prev!=null){
+					if(bc.compareTo(prev)<0){
 						sorted=false;
 						break;
 					}
 				}
 				prev=bc;
-				if(!sorted) {
-					ArrayList<Barcode> list=new ArrayList<Barcode>(codeCounts);
-					Collections.sort(list);
-					codeCounts=list;
-				}
+			}
+			if(!sorted){
+				ArrayList<Barcode> list=new ArrayList<Barcode>(codeCounts);
+				Collections.sort(list);
+				codeCounts=list;
 			}
 		}
-		
+
 		long total=0;
 		bb.nl().append("#Counts\t").append(codeCounts.size()).nl();
 		long prevCount=-1;
 		String prevName=null;
 		final byte[] buffer=new byte[64];
 		prevCode1=prevCode2=0;
-		for(Barcode bc : codeCounts) {
+		for(Barcode bc : codeCounts){
 			appendBarcode(bc, bb, prevCount, prevName, buffer);
 			prevCount=bc.count();
 			prevName=bc.name;
-			if(bb.length>=SEND_BUFFER_MAX_BYTES) {
+			if(bb.length>=SEND_BUFFER_MAX_BYTES){
 				total+=bb.length;
 				byte[] chunk=bb.toBytes();
 				chunks.add(chunk);
@@ -169,87 +163,89 @@ public class DemuxData {
 			}
 		}
 		bb.append("#End").nl();
-		if(bb.length>0) {
+		if(bb.length>0){
 			total+=bb.length;
 			byte[] chunk=bb.toBytes();
 			chunks.add(chunk);
 			bb.clear();
 //			System.err.println("Created chunk "+toStringChunk(chunk, 50));
 		}
-		
+
 		System.err.println("Encoded "+total+" bytes as "+chunks.size()+" chunks.");
 //		for(byte[] b : chunks) {
 //			System.err.println(new String(b));
 //		}
 //		assert(false);
-		
+
 		return chunks;
 	}
-	
+
 	/**
-	 * Appends a single barcode entry to the output buffer using configured encoding.
-	 * Applies delta compression if enabled and conditions are met.
+	 * Appends one observed barcode count using the configured raw/A48 coding and
+	 * optional deltas from the previous count row.
 	 *
 	 * @param bc Barcode to append
 	 * @param bb ByteBuilder to append to
-	 * @param prevCount Previous barcode count for delta compression
-	 * @param prevName Previous barcode name for comparison
-	 * @param buffer Temporary buffer for encoding operations
-	 * @return The updated ByteBuilder
+	 * @param prevCount Previous barcode count for count-delta compression
+	 * @param prevName Previous barcode name for diagnostic assertions
+	 * @param buffer Temporary A48 digit buffer
+	 * @return updated ByteBuilder
 	 */
-	private ByteBuilder appendBarcode(Barcode bc, ByteBuilder bb, long prevCount, 
-			String prevName, final byte[] buffer) {
+	private ByteBuilder appendBarcode(Barcode bc, ByteBuilder bb, long prevCount,
+			String prevName, final byte[] buffer){
 		final long count=bc.count();
-		if(coding==Sketch.RAW) {
+		if(coding==Sketch.RAW){
 			bb.append(bc.name);
-		}else if(coding==Sketch.HEX) {
+		}else if(coding==Sketch.HEX){
 			assert(false) : coding;
-		}else if(coding==Sketch.A48) {
+		}else if(coding==Sketch.A48){
 			final boolean sameCount=(count==prevCount);
 			final long x1=encodeACGTN(bc.name, 0, length1);
-			assert(!deltaBarcodes || !sameCount || x1>=prevCode1) : 
+			assert(!deltaBarcodes || !sameCount || x1>=prevCode1) :
 				prevCode1+", "+x1+", "+prevName+", "+bc+", "+deltaBarcodes+", "+count+", "+prevCount;
 			final boolean match1=(x1==prevCode1);
-			if(!SKIP_DUPLICATE || !match1) {
+			if(!SKIP_DUPLICATE || !match1){
 				final long x=x1;
 				final long code=(deltaBarcodes && sameCount ? x-prevCode1 : x);
 				appendA48(code, bb, buffer);
 				prevCode1=x;
 			}
-			if(length2>0) {
+			if(length2>0){
 				final long x2=encodeACGTN(bc.name, length1+1, length1+1+length2);
-				assert(!deltaBarcodes || !sameCount || !match1 || x2>=prevCode2) : 
+				assert(!deltaBarcodes || !sameCount || !match1 || x2>=prevCode2) :
 					"\npc2="+prevCode2+", x2="+x2+", pn="+prevName+", n="+bc.name+", "
 							+ "pcount="+prevCount+", count="+bc.count();
 				final boolean match2=(x2==prevCode2);
 				final long code=(deltaBarcodes && sameCount && match1 ? x2-prevCode2 : x2);
 				bb.tab();
-				if(!SKIP_DUPLICATE || !match2) {appendA48(code, bb, buffer);}
+				if(!SKIP_DUPLICATE || !match2){appendA48(code, bb, buffer);}
 				prevCode2=x2;
 			}
-		}else {
+		}else{
 			assert(false) : coding;
 		}
-		if(count!=prevCount) {
+		if(count!=prevCount){
 			bb.tab().append(prevCount<1 || !deltaCounts ? count : prevCount-count);
 		}
 		return bb.nl();
 	}
-	
+
 	/**
-	 * Encodes a DNA sequence substring into a long using base-5 encoding.
-	 * Maps A=0, C=1, G=2, N=3, T=4 and uses powers of 5 for position encoding.
+	 * Encodes one A/C/G/N/T barcode slice into a base-5 long.
+	 * Maps A=0, C=1, G=2, N=3, and T=4.
 	 *
 	 * @param s DNA sequence string to encode
-	 * @param a Starting position (inclusive)
-	 * @param b Ending position (exclusive)
-	 * @return Encoded sequence as long value
+	 * @param a Starting position, inclusive
+	 * @param b Ending position, exclusive
+	 * @return encoded barcode slice
+	 * @throws IllegalArgumentException if the slice does not fit in a signed long
 	 */
-	public static final long encodeACGTN(String s, int a, int b) {
+	public static final long encodeACGTN(String s, int a, int b){
 		final byte[] table=baseToNumberACGNT;
+		if(b-a>27){return encodeACGTNChecked(s, a, b, table);}
 		//Starting with 1 would simplify things by encoding the length, at the cost of ~1 bit.
 		long code=0;
-		for(int i=a; i<b; i++) {
+		for(int i=a; i<b; i++){
 			final char c=s.charAt(i);
 			final int x=table[c];
 			assert(x>=0) : x+", "+c+", "+s+"["+i+"] is not ACGTN";
@@ -258,20 +254,44 @@ public class DemuxData {
 		}
 		return code;
 	}
-	
+
 	/**
-	 * Decodes a long value back into DNA sequence using base-5 decoding.
-	 * Reconstructs the original sequence by reversing the encoding process.
-	 *
-	 * @param code0 Encoded sequence value
-	 * @param bb ByteBuilder to append decoded sequence to
-	 * @param len Expected length of decoded sequence
+	 * Encodes longer A/C/G/N/T slices with signed-long overflow checks.
+	 * @param s DNA sequence string to encode
+	 * @param a Starting position, inclusive
+	 * @param b Ending position, exclusive
+	 * @param table Lookup table mapping base characters to numeric values
+	 * @return encoded barcode slice
+	 * @throws IllegalArgumentException if the slice does not fit in a signed long
 	 */
-	public static final void decodeACGTN(final long code0, final ByteBuilder bb, final int len) {
+	private static final long encodeACGTNChecked(String s, int a, int b, byte[] table){
+		long code=0;
+		for(int i=a; i<b; i++){
+			final char c=s.charAt(i);
+			final int x=table[c];
+			assert(x>=0) : x+", "+c+", "+s+"["+i+"] is not ACGTN";
+			if(code>(Long.MAX_VALUE-x)/5){
+				throw new IllegalArgumentException("A48 barcode slice overflows long: "+
+						"s="+s+", a="+a+", b="+b+", i="+i+", code="+code+", x="+x);
+			}
+			code=code*5+x;
+			assert(code>=0) : s+", "+a+", "+b;
+		}
+		return code;
+	}
+
+	/**
+	 * Decodes a base-5 A/C/G/N/T value and appends the reconstructed barcode.
+	 *
+	 * @param code0 Encoded barcode value
+	 * @param bb ByteBuilder to append decoded sequence to
+	 * @param len Expected barcode length
+	 */
+	public static final void decodeACGTN(final long code0, final ByteBuilder bb, final int len){
 		final byte[] table=numberToBaseACGNT;
 		long code=code0;
 		final int from=bb.length();
-		for(int i=0; i<len; i++) {
+		for(int i=0; i<len; i++){
 			final int x=(int)(code%5);
 			code/=5;
 			final byte c=table[x];
@@ -283,14 +303,14 @@ public class DemuxData {
 		assert(code<=1) : "Code too big for expected length: len="+
 			len+", code0="+code0+", code="+code+", term="+bb;
 	}
-	
+
 	/**
-	 * Appends a long value using A48 encoding (base-64 with ASCII offset).
-	 * Converts value to base-64 representation with characters starting at ASCII 48.
+	 * Appends a nonnegative long value as A48 base-64 digits with an ASCII {@code '0'}
+	 * offset.
 	 *
-	 * @param value Long value to encode
+	 * @param value nonnegative long value to encode
 	 * @param bb ByteBuilder to append encoded value to
-	 * @param temp Temporary buffer for digit processing
+	 * @param temp Temporary buffer for reversed digits
 	 */
 	public static final void appendA48(long value, ByteBuilder bb, byte[] temp){
 		int i=0;
@@ -308,44 +328,42 @@ public class DemuxData {
 			}
 		}
 	}
-	
+
 	/**
-	 * Parses an A48-encoded value from a byte array.
-	 * Reconstructs the original long value from base-64 ASCII representation.
+	 * Parses one A48 value from {@code line} until a byte below {@code '0'}.
 	 *
 	 * @param line Byte array containing encoded value
 	 * @param from Starting position in array
-	 * @return Decoded long value
+	 * @return decoded value
 	 */
 	public static long parseA48(byte[] line, int from){
 		if(line.length<=from){return 0;}
 		long x=0;
 		for(int i=from; i<line.length; i++){
 			final byte b=line[i];
-			if(b<48) {break;}
+			if(b<48){break;}
 			x<<=6;
 			x|=(((long)b)-48);
 		}
 		return x;
 	}
-	
+
 	/**
-	 * Creates a debug string showing beginning and end of a byte chunk.
+	 * Creates a debug string containing the beginning and end of a byte chunk.
 	 * @param chunk Byte array to display
-	 * @param x Number of bytes to show from start and end
-	 * @return Debug string representation
+	 * @param x Number of bytes to show from each end
+	 * @return debug string representation
 	 */
-	private static String toStringChunk(byte[] chunk, int x) {
+	private static String toStringChunk(byte[] chunk, int x){
 		return "'"+new String(chunk, 0, x)+"','"+new String(chunk, chunk.length-x, x)+"'";
 	}
-	
+
 	/**
-	 * Decodes barcode data from encoded chunks.
-	 * Reconstructs configuration flags, expected barcode lists, and count data.
-	 * Handles chunked data that may span multiple byte arrays.
+	 * Decodes newline-delimited chunks into flags, expected barcodes, and observed
+	 * barcode counts. Carries a partial final line across chunk boundaries.
 	 * @param chunks Collection of encoded data chunks to decode
 	 */
-	public void decode(Collection<byte[]> chunks) {
+	public void decode(Collection<byte[]> chunks){
 		System.err.println("Decoding "+chunks.size()+" chunks.");
 		int mode=0;
 		LineParser2 lp=new LineParser2('\n');
@@ -354,52 +372,52 @@ public class DemuxData {
 		int numExpected=0, expectedSeen=0;
 		int numCounts=0, countsSeen=0;
 		int chunksSeen=0;
-		
+
 		ByteBuilder bbChunk=new ByteBuilder(), bbBuffer=new ByteBuilder();
 		long prevCount=-1;
 		prevCode1=prevCode2=0;
 		String prevName=null;
-		for(byte[] chunk0 : chunks) {
+		for(byte[] chunk0 : chunks){
 			chunksSeen++;
 
 			byte[] chunk=chunk0;
-			if(!bbChunk.endsWith('\n')) {//This block fixes each chunk so they end with a linebreak
+			if(!bbChunk.endsWith('\n')){//This block fixes each chunk so they end with a linebreak
 				bbChunk.append(chunk0);
 				int offset=0;
-				while(!bbChunk.endsWith('\n')) {
+				while(!bbChunk.endsWith('\n')){
 					offset++;
 					bbChunk.length--;
 				}
 				chunk=bbChunk.toBytes();
 				bbChunk.clear();
-				for(; offset>0; offset--) {
+				for(; offset>0; offset--){
 					bbChunk.append(chunk0[chunk0.length-offset]);
 				}
 			}
-			
+
 //			System.err.println("Processing chunk "+chunksSeen+": "+new String(chunk, 0, 60)+"..."+
 //					new String(chunk, chunk.length-60, 60));
 			lp.set(chunk);
-			
+
 			//Inverted the above loop for faster processing
-			while(mode<1 && lp.hasMore()) {
+			while(mode<1 && lp.hasMore()){
 				lp.advance();
-				if(lp.currentFieldLength()>0) {
+				if(lp.currentFieldLength()>0){
 					final byte[] line=lp.parseByteArrayFromCurrentField();
-					if(line[0]=='#') {
+					if(line[0]=='#'){
 						int x=parseMode(line);
 						assert(x>mode);
 						mode=x;
 						assert(mode==FLAGS) : mode+", "+new String(line);
-					}else {assert(false) : new String(line);}
+					}else{assert(false) : new String(line);}
 				}
 			}
-			while(mode==FLAGS && lp.hasMore()) {
+			while(mode==FLAGS && lp.hasMore()){
 				lp.advance();
-				if(lp.currentFieldLength()>0) {
+				if(lp.currentFieldLength()>0){
 					final byte[] line=lp.parseByteArrayFromCurrentField();
 					tabParser.set(line);
-					if(line[0]=='#') {
+					if(line[0]=='#'){
 						int x=parseMode(line);
 						assert(x>mode);
 						mode=x;
@@ -411,12 +429,12 @@ public class DemuxData {
 					}
 				}
 			}
-			while(mode==EXPECTED && lp.hasMore()) {
+			while(mode==EXPECTED && lp.hasMore()){
 				lp.advance();
-				if(lp.currentFieldLength()>0) {
+				if(lp.currentFieldLength()>0){
 					final byte[] line=lp.parseByteArrayFromCurrentField();
 					tabParser.set(line);
-					if(line[0]=='#') {
+					if(line[0]=='#'){
 						int x=parseMode(line);
 						assert(x>mode);
 						mode=x;
@@ -427,18 +445,18 @@ public class DemuxData {
 						expectedSeen++;
 						Barcode bc=new Barcode(tabParser.parseString(0));
 						expectedList.add(bc.name);
-						if(length1<0) {
+						if(length1<0){
 							length1=bc.length1();
 							length2=bc.length2();
 						}
 					}
 				}
 			}
-			while(mode==COUNTS && lp.hasMore()) {
+			while(mode==COUNTS && lp.hasMore()){
 				lp.advance();
-				if(lp.currentFieldLength()>0) {
+				if(lp.currentFieldLength()>0){
 					final byte[] line=lp.parseByteArrayFromCurrentField();
-					if(lp.parseByteFromCurrentField()=='#') {
+					if(lp.parseByteFromCurrentField()=='#'){
 						int x=parseMode(line);
 						assert(x>mode);
 						mode=x;
@@ -451,7 +469,7 @@ public class DemuxData {
 						prevCount=bc.count();
 						prevName=bc.name;
 						codeCounts.add(bc);
-						if(length1<0) {
+						if(length1<0){
 							length1=bc.length1();
 							length2=bc.length2();
 						}
@@ -463,61 +481,57 @@ public class DemuxData {
 		assert(countsSeen==numCounts) : countsSeen+", "+numCounts+", "+mode;
 		assert(mode==END) : mode;
 	}
-	
+
 	/**
-	 * Parses a single count line from encoded data.
-	 * Handles A48 decoding, delta decompression, and barcode reconstruction.
+	 * Parses one encoded count row, applying A48 decoding and count/barcode deltas.
 	 *
 	 * @param line Byte array containing the encoded line
 	 * @param prevCount Previous count for delta decompression
-	 * @param prevName Previous barcode name for comparison
+	 * @param prevName Previous barcode name for diagnostic assertions
 	 * @param bb ByteBuilder for temporary string construction
-	 * @return Decoded Barcode object
+	 * @return decoded Barcode object
 	 */
-	private Barcode parseCountLine(byte[] line, long prevCount, String prevName, ByteBuilder bb) {
+	private Barcode parseCountLine(byte[] line, long prevCount, String prevName, ByteBuilder bb){
 		bb.clear();
 		tabParser.set(line);
 		int term=0;
 		tabParser.setBounds(term);
-		if(coding==Sketch.A48) {
+		if(coding==Sketch.A48){
 			final long x1, x2, x3;
 			x1=(tabParser.currentFieldLength()<1 ? -1 : parseA48(line, tabParser.a()));
-			if(length2>0) {
+			if(length2>0){
 				term++;
 				tabParser.setBounds(term);
 				x2=(tabParser.currentFieldLength()<1 ? -1 : parseA48(line, tabParser.a()));
-			}else {x2=-1;}
-			if(tabParser.hasMore()) {
+			}else{x2=-1;}
+			if(tabParser.hasMore()){
 				term++;
 				x3=tabParser.parseLong(term);
-			}else {x3=-1;}
-			
+			}else{x3=-1;}
+
 			final long count=(x3<0 ? prevCount : deltaCounts && prevCount>0 ? prevCount-x3 : x3);
-			//LOAD-BEARING INVARIANT: this assert requires codeCounts to arrive in non-increasing count order
-			//(count<=prevCount). That order is supposed to be guaranteed by DemuxData.ENSURE_SORTED in encode() - but
-			//that sort is currently DEAD CODE (see [barcode/DemuxData#001]), so unsorted HashMap.values() input trips
-			//this assert. The delta math itself (prevCount-x3) is order-independent/self-inverse; it is only THIS assert
-			//(and the symmetric encode-side delta-barcode asserts) that demand the ordering. If #001 is fixed the input
-			//is sorted and this holds; if instead the ordering requirement is dropped, this assert must be relaxed too.
+			//LOAD-BEARING INVARIANT: encode() sorts counts into non-increasing order, so count deltas
+			//must be nonnegative here. Negative count fields are the omitted-count sentinel and would
+			//silently decode as prevCount rather than as an increase; see barcode/DemuxData#001.
 			assert(count>0 && (count<=prevCount || prevCount<0)) : x3+", "+count+", "+prevCount+"\n"+new String(line);
-			final long code1=(x1<0 ? prevCode1 : 
+			final long code1=(x1<0 ? prevCode1 :
 				deltaBarcodes && count==prevCount ? prevCode1+x1 : x1);
-			final long code2=(x2<0 ? prevCode2 : 
+			final long code2=(x2<0 ? prevCode2 :
 				deltaBarcodes && count==prevCount && code1==prevCode1 ? prevCode2+x2 : x2);
-			
+
 			decodeACGTN(code1, bb, length1);
-			if(length2>0) {
-				if(barcodeDelimiter>0) {bb.append((byte)barcodeDelimiter);}
+			if(length2>0){
+				if(barcodeDelimiter>0){bb.append((byte)barcodeDelimiter);}
 				decodeACGTN(code2, bb, length2);
 			}
 			prevCode1=code1;
 			prevCode2=code2;
 			return new Barcode(bb.toString(), count);
-		}else {
+		}else{
 			bb.append(line, tabParser.a(), tabParser.b());
 		}
 		long count=prevCount;
-		if(tabParser.hasMore()) {
+		if(tabParser.hasMore()){
 			term++;
 			long x=tabParser.parseLong(term);
 			count=prevCount>0 && deltaCounts ? prevCount-x : x;
@@ -525,27 +539,26 @@ public class DemuxData {
 		}
 		return new Barcode(bb.toString(), count);
 	}
-	
+
 	/**
-	 * Determines the parsing mode based on line header.
-	 * Identifies section boundaries in encoded data format.
+	 * Determines the parser mode from a section header line.
 	 * @param line Line to examine for mode markers
 	 * @return Mode constant (FLAGS, EXPECTED, COUNTS, END) or -1 if unknown
 	 */
-	public int parseMode(byte[] line) {
-		if(Tools.startsWith(line, "#Flags")) {return FLAGS;}
-		if(Tools.startsWith(line, "#Expected")) {return EXPECTED;}
-		if(Tools.startsWith(line, "#Counts")) {return COUNTS;}
-		if(Tools.startsWith(line, "#End")) {return END;}
+	public int parseMode(byte[] line){
+		if(Tools.startsWith(line, "#Flags")){return FLAGS;}
+		if(Tools.startsWith(line, "#Expected")){return EXPECTED;}
+		if(Tools.startsWith(line, "#Counts")){return COUNTS;}
+		if(Tools.startsWith(line, "#End")){return END;}
 		return -1;
 	}
-	
+
 	/**
-	 * Parses a configuration flag line using equals separator.
+	 * Parses one {@code key=value} flag line.
 	 * @param line Line containing key=value pair
 	 * @return true if flag was successfully parsed
 	 */
-	public boolean parseFlag(byte[] line) {
+	public boolean parseFlag(byte[] line){
 		equalsParser.set(line);
 		String a=equalsParser.parseString(0);
 		String b=equalsParser.terms()>1 ? equalsParser.parseString(1) : null;
@@ -553,11 +566,7 @@ public class DemuxData {
 		assert(c) : a+", "+b;
 		return c;
 	}
-	
 
-	
-	
-	
 	/**
 	 * Parses a configuration flag from key-value pair.
 	 * Handles various barcode processing parameters including lengths, encoding,
@@ -568,7 +577,7 @@ public class DemuxData {
 	 * @return true if flag was recognized and parsed successfully
 	 */
 	public boolean parseFlag(String a, String b){
-		
+
 		if(a.equalsIgnoreCase("polya") || a.equalsIgnoreCase("addpolya")){
 			addPolyA=Parse.parseBoolean(b);
 		}else if(a.equalsIgnoreCase("polyc") || a.equalsIgnoreCase("addpolyc")){
@@ -578,7 +587,7 @@ public class DemuxData {
 		}else if(a.equalsIgnoreCase("polyt") || a.equalsIgnoreCase("addpolyt")){
 			addPolyT=Parse.parseBoolean(b);
 		}
-		
+
 		else if(a.equalsIgnoreCase("coding") || a.equalsIgnoreCase("encoding")){
 			coding=Tools.startsWithDigit(b) ? Integer.parseInt(b) : Tools.indexOf(Sketch.codingArray, b.charAt(0));
 		}else if(a.equalsIgnoreCase("length1") || a.equalsIgnoreCase("len1")){
@@ -594,7 +603,13 @@ public class DemuxData {
 		}else if(a.equalsIgnoreCase("delta")){
 			deltaBarcodes=deltaCounts=Parse.parseBoolean(b);
 		}
-		
+
+		else if(a.equals("type")){
+			type=Integer.parseInt(b);
+		}else if(a.equals("hdistsum")){
+			hdistSum=Parse.parseBoolean(b);
+		}
+
 		else if(a.equals("maxhdist0") || a.equals("hdist0")){
 			maxHDist0=Integer.parseInt(b);
 		}else if(a.equals("maxhdist") || a.equals("hdist") || a.equals("maxhdist1") || a.equals("hdist1")){
@@ -623,7 +638,7 @@ public class DemuxData {
 		}
 		return true;
 	}
-	
+
 	/** Collection of barcodes with their observed counts */
 	public Collection<Barcode> codeCounts;
 	/** Set of expected barcode combinations */
@@ -633,14 +648,14 @@ public class DemuxData {
 	private long prevCode1=0;
 	/** Previous encoded value for second barcode (used in delta compression) */
 	private long prevCode2=0;
-	
+
 	/** Length of first barcode */
 	public int length1=-1;
 	/** Length of second barcode (0 for single barcode systems) */
 	public int length2=-1;
 	/** Character used to separate dual barcodes */
 	public int barcodeDelimiter='+';
-	
+
 	/** Maximum Hamming distance allowed for first barcode matching */
 	public int maxHDist0=6;
 	/** Minimum ratio threshold for first barcode matching */
@@ -654,7 +669,7 @@ public class DemuxData {
 	public float minRatio1=1_000_000f; //Possibly 5k for single-ended (10bp), or based on length
 	/** Minimum probability threshold for second barcode matching */
 	public float minProb1=-5.6f;
-	
+
 	/** Whether to add poly-A sequences during processing */
 	public boolean addPolyA=PCRMatrix.addPolyA;
 	/** Whether to add poly-C sequences during processing */
@@ -663,31 +678,31 @@ public class DemuxData {
 	public boolean addPolyG=PCRMatrix.addPolyG;
 	/** Whether to add poly-T sequences during processing */
 	public boolean addPolyT=PCRMatrix.addPolyT;
-	
+
 	/** Maximum size of encoding buffer before creating new chunk */
 	public int SEND_BUFFER_MAX_BYTES=8000000;
 	/** Whether to use delta compression for barcode counts */
 	public boolean deltaCounts=deltaCountsDefault;
 	/** Whether to use delta compression for barcode sequences */
 	public boolean deltaBarcodes=deltaBarcodesDefault;
-	
+
 	/** Default value for delta count compression */
 	public static boolean deltaCountsDefault=true;
 	/** Default value for delta barcode compression */
 	public static boolean deltaBarcodesDefault=false;
-	
+
 	/** Parser for key=value configuration lines */
 	private LineParser1 equalsParser=new LineParser1('=');
 	/** Parser for tab-separated data lines */
 	private LineParser1 tabParser=new LineParser1('\t');
-	
+
 	/** Type identifier for PCR matrix processing */
 	public int type=PCRMatrix.PROB_TYPE;
 	/** Whether to sum Hamming distances across barcode positions */
 	public boolean hdistSum=false;
 	/** Encoding format used for barcode compression */
 	public int coding=DEFAULT_CODING;
-	
+
 	/** Default encoding format (A48) */
 	public static int DEFAULT_CODING=Sketch.A48;
 	/** Whether to ensure barcodes are sorted before encoding */
@@ -695,20 +710,20 @@ public class DemuxData {
 	/** Whether to skip encoding duplicate consecutive values */
 	public static boolean SKIP_DUPLICATE=false;
 	private static final int FLAGS=1, EXPECTED=2, COUNTS=3, END=4;
-	
+
 	/**
 	 * Lookup table for converting numbers to DNA bases (0=A, 1=C, 2=G, 3=N, 4=T)
 	 */
-	public static final byte[] numberToBaseACGNT=new byte[] {'A', 'C', 'G', 'N', 'T'};
+	public static final byte[] numberToBaseACGNT=new byte[]{'A', 'C', 'G', 'N', 'T'};
 	/** Lookup table for converting DNA bases to numbers */
 	public static final byte[] baseToNumberACGNT=makeBaseToNumberACGNT();
-	
+
 	/**
 	 * Creates lookup table for converting DNA bases to numerical values.
 	 * Maps A/a=0, C/c=1, G/g=2, N/n=3, T/t/U/u=4, others=-1.
 	 * @return Byte array mapping ASCII characters to base numbers
 	 */
-	private static final byte[] makeBaseToNumberACGNT() {
+	private static final byte[] makeBaseToNumberACGNT(){
 		byte[] array=new byte[128];
 		Arrays.fill(array, (byte)(-1));
 		array['A']=array['a']=0;
@@ -719,5 +734,5 @@ public class DemuxData {
 		array['U']=array['u']=4;
 		return array;
 	}
-	
+
 }

@@ -31,46 +31,55 @@ import structures.StringNum;
 import tracker.ReadStats;
 
 /**
- * Counts occurrences of barcodes in sequence reads and analyzes their distance to expected codes.
- * Extracts barcodes from read headers, counts them, compares to expected and valid sets, and reports distances and validity flags.
- * Supports paired and single-end reads with optional reverse-complement handling.
+ * Counts header barcodes in sequence reads and writes barcode-count rows;
+ * read forwarding is optional.
+ * Each output-count row reports the observed barcode count, the minimum
+ * overlapping-prefix Hamming distance to expected codes, an edit distance
+ * initialized from that Hamming value and refined only when the Hamming
+ * distance exceeds 1, and membership in the valid set.
  * @author Brian Bushnell
  * @date June 20, 2014
  */
 public class CountBarcodes {
 
+/**
+	 * Program entry point; parses arguments, counts barcodes, and closes the
+	 * redirected status stream after processing.
+	 * @param args Command-line arguments
+	 */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		CountBarcodes x=new CountBarcodes(args);
 		x.process(t);
-		
-		//Close the print stream if it was redirected
+
+//Close the print stream if it was redirected
 		Shared.closeStream(x.outstream);
 	}
-	
-	/**
+
+/**
 	 * Parses command-line arguments and initializes file formats.
-	 * Sets up input/output streams, expected/valid barcode maps, and processing parameters such as maxReads and header printing.
+	 * Sets up optional read forwarding, required barcode-count output, and
+	 * expected/valid barcode sets.
 	 * @param args Command-line arguments for configuration
 	 */
 	public CountBarcodes(String[] args){
-		
+
 		{//Preparse block for help, config files, and outstream
 			PreParser pp=new PreParser(args, getClass(), false);
 			args=pp.args;
 			outstream=pp.outstream;
 		}
-		
-		boolean setInterleaved=false; //Whether it was explicitly set.
-		
+
+		boolean setInterleaved=false;//Whether it was explicitly set.
+
 		Shared.capBuffers(4);
 		ReadWrite.USE_PIGZ=ReadWrite.USE_UNPIGZ=true;
 		ReadWrite.setZipThreads(Shared.threads());
-		
+
 
 		expectedCodeMap=new HashMap<String,String>(200);
 		validCodeMap=new HashMap<String,String>(200);
-		
+
 		Parser parser=new Parser();
 		for(int i=0; i<args.length; i++){
 			String arg=args[i];
@@ -79,7 +88,7 @@ public class CountBarcodes {
 			String b=split.length>1 ? split[1] : null;
 
 			if(parser.parse(arg, a, b)){
-				//do nothing
+//do nothing
 			}else if(a.equals("verbose")){
 				verbose=Parse.parseBoolean(b);
 				ByteFile1.verbose=verbose;
@@ -116,20 +125,20 @@ public class CountBarcodes {
 			}else{
 				outstream.println("Unknown parameter "+args[i]);
 				assert(false) : "Unknown parameter "+args[i];
-				//				throw new RuntimeException("Unknown parameter "+args[i]);
+//				throw new RuntimeException("Unknown parameter "+args[i]);
 			}
 		}
-		
+
 		{//Process parser fields
 			Parser.processQuality();
-			
+
 			maxReads=parser.maxReads;
-			
+
 			overwrite=ReadStats.overwrite=parser.overwrite;
 			append=ReadStats.append=parser.append;
 
 			setInterleaved=parser.setInterleaved;
-			
+
 			in1=parser.in1;
 			in2=parser.in2;
 			qfin1=parser.qfin1;
@@ -139,39 +148,39 @@ public class CountBarcodes {
 			out2=parser.out2;
 			qfout1=parser.qfout1;
 			qfout2=parser.qfout2;
-			
+
 			extin=parser.extin;
 			extout=parser.extout;
 		}
-		
+
 		if(in1!=null && in2==null && in1.indexOf('#')>-1 && !new File(in1).exists()){
-			in2=in1.replace("#", "2");
-			in1=in1.replace("#", "1");
+			in2=in1.replace("#","2");
+			in1=in1.replace("#","1");
 		}
 		if(out1!=null && out2==null && out1.indexOf('#')>-1){
-			out2=out1.replace("#", "2");
-			out1=out1.replace("#", "1");
+			out2=out1.replace("#","2");
+			out1=out1.replace("#","1");
 		}
 		if(in2!=null){
 			if(FASTQ.FORCE_INTERLEAVED){outstream.println("Reset INTERLEAVED to false because paired input files were specified.");}
 			FASTQ.FORCE_INTERLEAVED=FASTQ.TEST_INTERLEAVED=false;
 		}
-		
+
 		assert(FastaReadInputStream.settingsOK());
-		
+
 		if(in1==null){throw new RuntimeException("Error - at least one input file is required.");}
 		if(!ByteFile.FORCE_MODE_BF1 && !ByteFile.FORCE_MODE_BF2 && Shared.threads()>2){
 			ByteFile.FORCE_MODE_BF2=true;
 		}
-		
+
 		if(out1==null && out2!=null){throw new RuntimeException("Error - cannot define out2 without defining out1.");}
-		
+
 		if(!setInterleaved){
 			assert(in1!=null && (out1!=null || out2==null)) : "\nin1="+in1+"\nin2="+in2+"\nout1="+out1+"\nout2="+out2+"\n";
-			if(in2!=null){ //If there are 2 input streams.
+			if(in2!=null){//If there are 2 input streams.
 				FASTQ.FORCE_INTERLEAVED=FASTQ.TEST_INTERLEAVED=false;
 				outstream.println("Set INTERLEAVED to "+FASTQ.FORCE_INTERLEAVED);
-			}else{ //There is one input stream.
+			}else{//There is one input stream.
 				if(out2!=null){
 					FASTQ.FORCE_INTERLEAVED=true;
 					FASTQ.TEST_INTERLEAVED=false;
@@ -182,17 +191,17 @@ public class CountBarcodes {
 
 		if(out1!=null && out1.equalsIgnoreCase("null")){out1=null;}
 		if(out2!=null && out2.equalsIgnoreCase("null")){out2=null;}
-		
+
 		if(!Tools.testOutputFiles(overwrite, append, false, out1, out2)){
 			outstream.println((out1==null)+", "+(out2==null)+", "+out1+", "+out2);
 			throw new RuntimeException("\n\noverwrite="+overwrite+"; Can't write to output files "+out1+", "+out2+"\n");
 		}
-		
+
 		validCodes=new ArrayList<String>(validCodeMap.size());
 		validCodes.addAll(validCodeMap.values());
 		expectedCodes=new ArrayList<String>(expectedCodeMap.size());
 		expectedCodes.addAll(expectedCodeMap.values());
-		
+
 		ffout1=FileFormat.testOutput(out1, FileFormat.FASTQ, extout, true, overwrite, append, false);
 		ffout2=FileFormat.testOutput(out2, FileFormat.FASTQ, extout, true, overwrite, append, false);
 		ffCounts=FileFormat.testOutput(outCounts, FileFormat.TEXT, null, false, overwrite, append, false);
@@ -200,20 +209,20 @@ public class CountBarcodes {
 		ffin1=FileFormat.testInput(in1, FileFormat.FASTQ, extin, true, true);
 		ffin2=FileFormat.testInput(in2, FileFormat.FASTQ, extin, true, true);
 	}
-	
-	/**
-	 * Main processing method that reads sequences, counts barcodes, and generates output.
-	 * Extracts barcodes from read headers, maintains counts in a hash map, computes distances to expected codes, and writes results to output files.
+
+/**
+	 * Reads input, counts R1 header barcodes, forwards reads when requested,
+	 * and writes the sorted barcode count table.
 	 * @param t Timer for tracking execution time
 	 */
 	void process(Timer t){
-		
-		
+
+
 		final ConcurrentReadInputStream cris;
 		{
 			cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ffin1, ffin2, qfin1, qfin2);
 			if(verbose){outstream.println("Started cris");}
-			cris.start(); //4567
+			cris.start();//4567
 		}
 		boolean paired=cris.paired();
 //		if(verbose){
@@ -223,49 +232,49 @@ public class CountBarcodes {
 		final ConcurrentReadOutputStream ros;
 		if(out1!=null){
 			final int buff=4;
-			
+
 			if(cris.paired() && out2==null && (in1==null || !in1.contains(".sam"))){
 				outstream.println("Writing interleaved.");
 			}
 
-			//[barcode/CountBarcodes#001] FIXED: 2nd clause was a copy-paste `in1` (should be in2), matching the correct
-			//sibling assert on the next line. Now catches out1 colliding with input file 2. Unlike the twin
-			//NovaDemux#001 (where out1 must be a %-pattern so the assert is vacuous), CountBarcodes' out1 is a real
-			//filename, so out1==in2 is a REACHABLE collision (would overwrite input 2 while reading it). NEEDS no
-			//behavior review: it only makes the existing guard fire on a case it was always meant to catch.
+//[barcode/CountBarcodes#001] FIXED: 2nd clause was a copy-paste `in1` (should be in2), matching the correct
+//sibling assert on the next line. Now catches out1 colliding with input file 2. Unlike the twin
+//NovaDemux#001 (where out1 must be a %-pattern so the assert is vacuous), CountBarcodes' out1 is a real
+//filename, so out1==in2 is a REACHABLE collision (would overwrite input 2 while reading it). NEEDS no
+//behavior review: it only makes the existing guard fire on a case it was always meant to catch.
 			assert(!out1.equalsIgnoreCase(in1) && !out1.equalsIgnoreCase(in2)) : "Input file and output file have same name.";
 			assert(out2==null || (!out2.equalsIgnoreCase(in1) && !out2.equalsIgnoreCase(in2))) : "out1 and out2 have same name.";
-			
+
 			ros=ConcurrentReadOutputStream.getStream(ffout1, ffout2, qfout1, qfout2, buff, null, false);
 			ros.start();
 		}else{ros=null;}
-		
+
 		long readsProcessed=0;
 		long basesProcessed=0;
-		
+
 		HashMap<String, StringNum> map=new HashMap<String, StringNum>();
-		
+
 		{
-			
+
 			ListNum<Read> ln=cris.nextList();
 			ArrayList<Read> reads=(ln!=null ? ln.list : null);
-			
+
 //			outstream.println("Fetched "+reads);
-			
+
 			if(reads!=null && !reads.isEmpty()){
 				Read r=reads.get(0);
 				assert((ffin1==null || ffin1.samOrBam()) || (r.mate!=null)==cris.paired());
 			}
 
 			while(ln!=null && reads!=null && reads.size()>0){//ln!=null prevents a compiler potential null access warning
-				
+
 				for(int idx=0; idx<reads.size(); idx++){
 					final Read r1=reads.get(idx);
 					final Read r2=r1.mate;
-					
+
 					final int initialLength1=r1.length();
 					final int initialLength2=(r1.mateLength());
-					
+
 					{
 						readsProcessed++;
 						basesProcessed+=initialLength1;
@@ -274,12 +283,12 @@ public class CountBarcodes {
 						readsProcessed++;
 						basesProcessed+=initialLength2;
 					}
-					
+
 //					String id=r1.id;
 //					int colon=id.lastIndexOf(':');
 //					String barcode=id.substring(colon+1);
 					final String barcode=r1.barcode(true);
-					
+
 					if(countUndefined || AminoAcid.isFullyDefined(barcode)){
 						StringNum value=map.get(barcode);
 						if(value==null){
@@ -289,9 +298,9 @@ public class CountBarcodes {
 						value.increment();
 					}
 				}
-				
+
 				final ArrayList<Read> listOut=reads;
-				
+
 				if(ros!=null){ros.add(listOut, ln.id);}
 
 				cris.returnList(ln);
@@ -302,15 +311,17 @@ public class CountBarcodes {
 				cris.returnList(ln.id, ln.list==null || ln.list.isEmpty());
 			}
 		}
-		
+
 		ArrayList<StringNum> list=new ArrayList<StringNum>(map.size());
 		list.addAll(map.values());
 		Shared.sort(list);
 		Collections.reverse(list);
-		
+
 		TextStreamWriter tsw=new TextStreamWriter(ffCounts);
 		tsw.start();
 		if(printHeader){
+//edit_dist starts from the Hamming result, tries banded edit only
+//when hdist>1, and retains Hamming if that calculation throws.
 			tsw.print("#code\tcount\tHamming_dist\tedit_dist\tvalid\n");
 		}
 		for(StringNum sn : list){
@@ -319,9 +330,9 @@ public class CountBarcodes {
 			int hdist=calcHdist(sn.s, expectedCodes);
 			int edist=hdist;
 			if(hdist>1){
-				try {
+				try{
 					edist=calcEdist(sn.s, expectedCodes);
-				} catch (Exception e) {
+				}catch(Exception e){
 					edist=hdist;
 				}
 			}
@@ -330,27 +341,28 @@ public class CountBarcodes {
 		}
 		tsw.poisonAndWait();
 		errorState|=tsw.errorState;
-		
+
 		errorState|=ReadStats.writeAll();
-		
+
 		errorState|=ReadWrite.closeStreams(cris, ros);
-		
+
 		t.stop();
 		outstream.println(Tools.timeReadsBasesProcessed(t, readsProcessed, basesProcessed, 8));
-		
+
 		if(errorState){
 			throw new RuntimeException(getClass().getName()+" terminated in an error state; the output may be corrupt.");
 		}
 	}
-	
-	/**
+
+/**
 	 * Calculates the minimum Hamming distance between a barcode and expected codes.
 	 * Compares against all expected codes and returns the smallest distance found.
 	 * @param s The barcode sequence to compare
 	 * @param expectedCodes List of expected barcode sequences
-	 * @return Minimum Hamming distance to any expected code
+	 * @return Minimum Hamming distance to any expected code, or {@code s.length()}
+	 * when expectedCodes is empty
 	 */
-	public static int calcHdist(String s, ArrayList<String> expectedCodes) {
+	public static int calcHdist(String s, ArrayList<String> expectedCodes){
 		int min=s.length();
 		for(String code : expectedCodes){
 			min=Tools.min(min, hdist(s, code));
@@ -358,15 +370,15 @@ public class CountBarcodes {
 		}
 		return min;
 	}
-	
-	/**
+
+/**
 	 * Calculates Hamming distance between two strings by counting substitutions.
 	 * Only counts mismatches up to the length of the shorter string.
 	 * @param s First string to compare
 	 * @param code Second string to compare
 	 * @return Number of character substitutions needed
 	 */
-	static int hdist(String s, String code) {
+	static int hdist(String s, String code){
 		final int min=Tools.min(s.length(), code.length());
 		int subs=0;
 		for(int i=0; i<min; i++){
@@ -374,15 +386,15 @@ public class CountBarcodes {
 		}
 		return subs;
 	}
-	
-	/**
-	 * Calculates the minimum edit distance between a barcode and expected codes.
-	 * Uses a banded aligner to compute edit distance allowing insertions and deletions.
+
+/**
+	 * Calculates the minimum of the query length and all computed banded edit
+	 * distances. With no expected codes, this returns {@code s.length()}.
 	 * @param s The barcode sequence to compare
 	 * @param expectedCodes List of expected barcode sequences
-	 * @return Minimum edit distance to any expected code
+	 * @return Minimum of {@code s.length()} and all computed banded distances
 	 */
-	int calcEdist(String s, ArrayList<String> expectedCodes) {
+	int calcEdist(String s, ArrayList<String> expectedCodes){
 		int min=s.length();
 		for(String code : expectedCodes){
 			min=Tools.min(min, edist(s, code));
@@ -390,24 +402,26 @@ public class CountBarcodes {
 		}
 		return min;
 	}
-	
-	/**
+
+/**
 	 * Calculates edit distance between two strings using banded alignment.
 	 * Allows insertions, deletions, and substitutions in the alignment.
 	 * @param s First string to align
 	 * @param code Second string to align
 	 * @return Edit distance between the strings
 	 */
-	int edist(String s, String code) {
+	int edist(String s, String code){
 		int x=bandy.alignForward(s.getBytes(), code.getBytes(), 0, 0, s.length(), true);
 		return x;
 	}
-	
-	/*--------------------------------------------------------------*/
-	
+
+/*--------------------------------------------------------------*/
+/*----------------           File Names         ----------------*/
+/*--------------------------------------------------------------*/
+
 	private String in1=null;
 	private String in2=null;
-	
+
 	private String qfin1=null;
 	private String qfin2=null;
 
@@ -417,11 +431,13 @@ public class CountBarcodes {
 
 	private String qfout1=null;
 	private String qfout2=null;
-	
+
 	private String extin=null;
 	private String extout=null;
-	
-	/*--------------------------------------------------------------*/
+
+/*--------------------------------------------------------------*/
+/*----------------          Parameters          ----------------*/
+/*--------------------------------------------------------------*/
 
 	private boolean reverseComplementMate=false;
 	private boolean reverseComplement=false;
@@ -430,9 +446,11 @@ public class CountBarcodes {
 	private int maxRows=-1;
 
 	private long maxReads=-1;
-	
-	/*--------------------------------------------------------------*/
-	
+
+/*--------------------------------------------------------------*/
+/*----------------         File Formats         ----------------*/
+/*--------------------------------------------------------------*/
+
 	private final FileFormat ffin1;
 	private final FileFormat ffin2;
 
@@ -444,15 +462,17 @@ public class CountBarcodes {
 	private final HashMap<String,String> validCodeMap;
 	private final ArrayList<String> expectedCodes;
 	private final ArrayList<String> validCodes;
-	
+
 	private final BandedAlignerConcrete bandy=new BandedAlignerConcrete(21);
-	
-	/*--------------------------------------------------------------*/
-	
+
+/*--------------------------------------------------------------*/
+/*----------------            State             ----------------*/
+/*--------------------------------------------------------------*/
+
 	private PrintStream outstream=System.err;
 	public static boolean verbose=false;
 	public boolean errorState=false;
 	private boolean overwrite=true;
 	private boolean append=false;
-	
+
 }

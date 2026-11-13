@@ -20,16 +20,19 @@ import structures.ByteBuilder;
 import structures.LongList;
 
 /**
- * Writes legacy stats files when demultiplexing, for compatibility.
- * These are not very informative and not recommended for use.
- * @author BBushnell
+ * Writes legacy Illumina-style demultiplexing summary CSV files.
+ * These outputs are retained for compatibility with older downstream workflows;
+ * newer reports should be preferred for fresh analyses.
+ * Report methods enqueue output asynchronously; callers must close this object
+ * after writing all requested reports. Instances are not thread-safe.
  *
+ * @author BBushnell
  */
-public class LegacyFileWriter {
+public class LegacyFileWriter implements AutoCloseable{
 
 	/** Default constructor for LegacyFileWriter */
 	public LegacyFileWriter(){}
-	
+
 //	Top_Unknown_Barcodes.csv
 //	Lane,index,index2,# Reads,% of Unknown Barcodes,% of All Reads
 //	7,AGGAGTTCTA,GGGGGGGGGG,3216744,0.017843,0.000839
@@ -49,38 +52,38 @@ public class LegacyFileWriter {
 	 * @param overwrite Whether to overwrite existing files
 	 * @return Total count of unexpected reads
 	 */
-	long writeTopUnknownBarcodes(final Set<String> expectedSet, 
-			HashMap<String, String> assignmentMap, final byte delimiter, 
-			final String fname, final int lane, final int lines, 
-			boolean overwrite) {
-		if(fname==null) {return 0;}
+	long writeTopUnknownBarcodes(final Set<String> expectedSet,
+			HashMap<String, String> assignmentMap, final byte delimiter,
+			final String fname, final int lane, final int lines,
+			boolean overwrite){
+		if(fname==null){return 0;}
 		ArrayList<Barcode> list=new ArrayList<Barcode>(counts);
 		Collections.sort(list);
-		
-		ByteStreamWriter bsw=ByteStreamWriter.makeBSW(fname, overwrite, false, true);
+
+		ByteStreamWriter bsw=makeBSW(fname, overwrite);
 //		if(delimiter<=0) {
 //			bsw.println("Lane,index,,# Reads,% of Unknown Barcodes,% of All Reads");
 //		}else {
 			bsw.println("Lane,index,index2,# Reads,% of Unknown Barcodes,% of All Reads");
 //		}
-		
+
 		long total=0;
 		long expected=0;
-		for(Barcode bc : list) {
+		for(Barcode bc : list){
 			total+=bc.count();
-			if(assignmentMap.containsKey(bc.name)) {expected+=bc.count();}
+			if(assignmentMap.containsKey(bc.name)){expected+=bc.count();}
 		}
 		final long unexpected=total-expected;
 		final float invTotal=1f/Tools.max(1, total);
 		final float invUnexpected=1f/Tools.max(1, unexpected);
-		
+
 //		System.err.println("total="+total+", expected="+expected+", unexpected="+unexpected);
-		
+
 		int printed=0;
 		ByteBuilder bb=new ByteBuilder();
-		for(Barcode bc : list) {
-			if(!assignmentMap.containsKey(bc.name)) {
-				if(printed>=lines) {break;}
+		for(Barcode bc : list){
+			if(!assignmentMap.containsKey(bc.name)){
+				if(printed>=lines){break;}
 				printed++;
 				bb.clear().append(lane).comma();
 				bc.appendIndex(bb, delimiter, 1).comma();
@@ -97,7 +100,7 @@ public class LegacyFileWriter {
 		bsw.poison();
 		return unexpected;
 	}
-	
+
 
 ////	Index_Hopping_Counts.csv
 ////	Lane,SampleID,index,index2,# Reads,% of Hopped Reads,% of All Reads
@@ -109,8 +112,8 @@ public class LegacyFileWriter {
 ////	7,,CCGTGCGGTC,GATCCAGTAG,5645,0.000196,0.000001
 ////	7,,CCGTGCGGTC,GCCTGGTAAG,4099,0.000142,0.000001
 ////	(all valid then all invalid pairs)
-	
-	
+
+
 	/**
 	 * Writes Index_Hopping_Counts.csv file showing index hopping statistics.
 	 * First lists all expected barcode pairs, then all invalid combinations indicating index hopping.
@@ -123,14 +126,14 @@ public class LegacyFileWriter {
 	 * @param lane Sequencing lane number
 	 * @param overwrite Whether to overwrite existing files
 	 */
-	void writeIndexHoppingCounts(final Set<String> expectedSet, 
-			LinkedHashMap<String,String> sampleMap, final byte delimiter, final String fname, 
-			final int lane, boolean overwrite) {
-		if(delimiter<=0) {return;}
+	void writeIndexHoppingCounts(final Set<String> expectedSet,
+			LinkedHashMap<String,String> sampleMap, final byte delimiter, final String fname,
+			final int lane, boolean overwrite){
+		if(delimiter<=0){return;}
 		LinkedHashSet<String> leftSet=new LinkedHashSet<String>();
 		LinkedHashSet<String> rightSet=new LinkedHashSet<String>();
 		LineParserS1 lp=new LineParserS1(delimiter);
-		for(String s : expectedSet) {
+		for(String s : expectedSet){
 			lp.set(s);
 			assert(lp.terms()==2) : "Wrong number of barcodes in '"+s+
 				"'; expected 2 for delimiter "+(int)delimiter;
@@ -140,12 +143,12 @@ public class LegacyFileWriter {
 //		System.err.println(expectedSet.size());
 		final HashMap<String, Barcode> countMap=new HashMap<String, Barcode>(Tools.max(8, counts.size()));
 		float allMult=1f/Tools.max(1, (totalR1));
-		for(Barcode bc : counts) {countMap.put(bc.name, bc);}
-		
-		ByteStreamWriter bsw=ByteStreamWriter.makeBSW(fname, overwrite, false, true);
+		for(Barcode bc : counts){countMap.put(bc.name, bc);}
+
+		ByteStreamWriter bsw=makeBSW(fname, overwrite);
 		bsw.println("Lane,SampleID,index,index2,# Reads,% of Hopped Reads,% of All Reads");
 		final ByteBuilder bb=new ByteBuilder();
-		for(String s : expectedSet) {
+		for(String s : expectedSet){
 			String sample=(sampleMap==null ? null : sampleMap.get(s));
 			lp.set(s);
 			bb.clear().append(lane).comma().append(sample==null ? "" : sample).comma();
@@ -159,30 +162,30 @@ public class LegacyFileWriter {
 //		bsw.poisonAndWait();
 //		assert(false);
 		long hoppedCount=0;
-		for(String left : leftSet) {
+		for(String left : leftSet){
 			bb.clear().append(left).append(delimiter);
 			final int len=bb.length;
-			for(String right : rightSet) {
+			for(String right : rightSet){
 				bb.setLength(len).append(right);
 				String pair=bb.toString();
-				if(!expectedSet.contains(pair)) {
+				if(!expectedSet.contains(pair)){
 					Barcode bc=countMap.get(pair);
-					if(bc!=null) {
+					if(bc!=null){
 						hoppedCount+=bc.count();
 					}
 				}
 			}
 		}
 		final float hoppedMult=1f/(Tools.max(1, hoppedCount));
-		
+
 		ByteBuilder bb2=new ByteBuilder();
-		for(String left : leftSet) {
+		for(String left : leftSet){
 			bb.clear().append(left).append(delimiter);
 			final int len=bb.length;
-			for(String right : rightSet) {
+			for(String right : rightSet){
 				bb.setLength(len).append(right);
 				String pair=bb.toString();
-				if(!expectedSet.contains(pair)) {
+				if(!expectedSet.contains(pair)){
 					Barcode bc=countMap.get(pair);
 					long count=(bc==null ? 0 : bc.count());
 
@@ -202,14 +205,14 @@ public class LegacyFileWriter {
 //		if(fname==null) {return 0;}
 //		ArrayList<Barcode> list=new ArrayList<Barcode>(counts.size());
 //		Collections.sort(list);
-//		
+//
 //		ByteStreamWriter bsw=ByteStreamWriter.makeBSW(fname, overwrite, false, true);
 //		if(delimiter<=0) {
 //			bsw.println("Lane,index,# Reads,% of Unknown Barcodes,% of All Reads");
 //		}else {
 //			bsw.println("Lane,index,index2,# Reads,% of Unknown Barcodes,% of All Reads");
 //		}
-//		
+//
 //		long total=0;
 //		long expected=0;
 //		for(Barcode bc : counts) {
@@ -219,7 +222,7 @@ public class LegacyFileWriter {
 //		final long unexpected=total-expected;
 //		final float invTotal=1f/Tools.max(1, total);
 //		final float invUnexpected=1f/Tools.max(1, unexpected);
-//		
+//
 //		int printed=0;
 //		ByteBuilder bb=new ByteBuilder();
 //		for(Barcode bc : counts) {
@@ -237,7 +240,7 @@ public class LegacyFileWriter {
 //		bsw.poison();
 //		return unexpected;
 //	}
-	
+
 //	Quality_Metrics.csv
 //	Lane,SampleID,index,index2,ReadNumber,Yield,YieldQ30,QualityScoreSum,Mean Quality Score (PF),% Q30
 //	7,529965,CCGTGCGGTC,CCCGATATGG,1,8405183819,7964042904,327093323760,38.92,0.95
@@ -259,25 +262,26 @@ public class LegacyFileWriter {
 	 * @param overwrite Whether to overwrite existing files
 	 * @return Number of lines written to the file
 	 */
-	int writeQualityMetrics(final Set<String> expectedSet, LinkedHashMap<String,String> sampleMap, 
-			final byte delimiter, final String fname, final int lane, boolean overwrite) {
-		if(fname==null) {return 0;}
+	int writeQualityMetrics(final Set<String> expectedSet, LinkedHashMap<String,String> sampleMap,
+			final byte delimiter, final String fname, final int lane, boolean overwrite){
+		if(fname==null){return 0;}
 
 		LinkedHashSet<String> set2=new LinkedHashSet<String>(expectedSet);
 		set2.remove(UNDETERMINED);
 		set2.add(UNDETERMINED);
-		
-		ByteStreamWriter bsw=ByteStreamWriter.makeBSW(fname, overwrite, false, true);
+
+		ByteStreamWriter bsw=makeBSW(fname, overwrite);
 		bsw.println(QTag.header());
 		ByteBuilder bb=new ByteBuilder();
 		int lines=0;
-		for(String name : set2) {
+		final int tagCount=(totalR2<1 ? 1 : 2);
+		for(String name : set2){
 			String sample=(sampleMap==null ? null : sampleMap.get(name));
 			QTag[] tags=tagMap.get(name);
-			if(tags==null) {
-				tags=new QTag[] {new QTag(), new QTag()};
+			if(tags==null){
+				tags=new QTag[]{new QTag(), new QTag()};
 			}
-			for(int pairnum=0; pairnum<tags.length && tags[pairnum]!=null; pairnum++) {
+			for(int pairnum=0; pairnum<tagCount && tags[pairnum]!=null; pairnum++){
 				QTag tag=tags[pairnum];
 				bb.clear();
 				tag.appendTo(bb, lane, pairnum, sample==null ? UNDETERMINED : sample,
@@ -289,9 +293,11 @@ public class LegacyFileWriter {
 		bsw.poison();
 		return lines;
 	}
-	
+
 //	Demultiplex_Stats.csv
-//	Lane,SampleID,Index,# Reads,# Perfect Index Reads,# One Mismatch Index Reads,# Two Mismatch Index Reads,% Reads,% Perfect Index Reads,% One Mismatch Index Reads,% Two Mismatch Index Reads
+//	Lane,SampleID,Index,# Reads,# Perfect Index Reads,
+//	# One Mismatch Index Reads,# Two Mismatch Index Reads,% Reads,
+//	% Perfect Index Reads,% One Mismatch Index Reads,% Two Mismatch Index Reads
 //	7,529965,CCGTGCGGTC-CCCGATATGG,55663469,49490086,6173383,0,0.0145,0.8891,0.1109,0.0000
 //	7,529966,CACAGTTGTC-TAGGCAGGCT,52701428,48056108,4645320,0,0.0138,0.9119,0.0881,0.0000
 //	7,529967,CCTCTTCAGA-GATCCAGTAG,48686653,44431620,4255033,0,0.0127,0.9126,0.0874,0.0000
@@ -309,18 +315,18 @@ public class LegacyFileWriter {
 	 */
 	void writeDemultiplexStats(String fname, HashMap<String, String> assignmentMap,
 			Set<String> expected, LinkedHashMap<String,String> sampleMap,
-			int lane, boolean overwrite) {
-		
+			int lane, boolean overwrite){
+
 		LinkedHashMap<String, long[]> hdistMap=new LinkedHashMap<String, long[]>(expected.size());
 		final int maxHDist=3;
-		for(String name : expected) {
+		for(String name : expected){
 			hdistMap.put(name, new long[maxHDist+1]);
 		}
-		
+
 		HashMap<String, Barcode> countMap=new HashMap<String, Barcode>(counts.size());
-		for(Barcode bc : counts) {countMap.put(bc.name, bc);}
-		
-		for(Entry<String, String> e : assignmentMap.entrySet()) {
+		for(Barcode bc : counts){countMap.put(bc.name, bc);}
+
+		for(Entry<String, String> e : assignmentMap.entrySet()){
 			String key=e.getKey();
 			String value=e.getValue();
 			long[] distArray=hdistMap.get(value);
@@ -330,16 +336,16 @@ public class LegacyFileWriter {
 			long count=(bc==null ? 0 : bc.count());
 			distArray[Tools.min(maxHDist, dist)]+=count;
 		}
-		
+
 		String header="Lane,SampleID,Index,# Reads,# Perfect Index Reads,"
 				+ "# One Mismatch Index Reads,# Two Mismatch Index Reads,"
 				+ "% Reads,% Perfect Index Reads,% One Mismatch Index Reads,% Two Mismatch Index Reads";
-		ByteStreamWriter bsw=ByteStreamWriter.makeBSW(fname, overwrite, false, true);
+		ByteStreamWriter bsw=makeBSW(fname, overwrite);
 		bsw.println(header);
 		ByteBuilder bb=new ByteBuilder();
-		
+
 		final float totalMult=1f/totalR1;
-		for(String name : expected) {
+		for(String name : expected){
 			String sample=(sampleMap==null ? null : sampleMap.get(name));
 			final long[] dist=hdistMap.get(name);
 			final long sum=Tools.sum(dist);
@@ -348,35 +354,35 @@ public class LegacyFileWriter {
 			bb.comma().append(sample==null ? "" : sample);
 			bb.comma().append(name.replace('+', '-'));
 			bb.comma().append(sum);
-			for(int i=0; i<=2; i++) {bb.comma().append(dist[i]);}
+			for(int i=0; i<=2; i++){bb.comma().append(dist[i]);}
 			bb.comma().append(sum*totalMult, 4);
-			for(int i=0; i<=2; i++) {bb.comma().append(dist[i]*localMult, 4);}
+			for(int i=0; i<=2; i++){bb.comma().append(dist[i]*localMult, 4);}
 			bsw.print(bb.nl());
 //			System.err.println(totalR1+", "+sum+", "+Arrays.toString(dist)+", "+(sum*totalMult)+", "+bb);
 		}
-		
+
 		{
 			long unknown=totalR1-totalR1Assigned;
 			String sample="Undetermined";
 //			final long[] dist=hdistMap.get(name);
 			final long sum=unknown;
 //			System.err.println(unknown+", "+totalR1+", "+totalR1Assigned);
-			final long[] dist=new long[] {sum, 0, 0};
+			final long[] dist=new long[]{sum, 0, 0};
 			final float localMult=1f/sum;
 			bb.clear().append(lane);
 			bb.comma().append(sample==null ? "" : sample);
 			bb.comma().append("");
 			bb.comma().append(sum);
-			for(int i=0; i<=2; i++) {bb.comma().append(dist[i]);}
+			for(int i=0; i<=2; i++){bb.comma().append(dist[i]);}
 			bb.comma().append(sum*totalMult, 4);
-			for(int i=0; i<=2; i++) {bb.comma().append(dist[i]*localMult, 4);}
+			for(int i=0; i<=2; i++){bb.comma().append(dist[i]*localMult, 4);}
 			bsw.print(bb.nl());
 		}
-		
+
 		bsw.poison();
 	}
-	
-	
+
+
 //	Demultiplex_Tile_Stats.csv
 //	Lane,SampleID,Index,Tile,# Reads,% Reads
 //	7,529965,CCGTGCGGTC-CCCGATATGG,1101,29931,0.0000
@@ -396,31 +402,31 @@ public class LegacyFileWriter {
 	 * @param delimiter Delimiter for dual indices
 	 * @param overwrite Whether to overwrite existing files
 	 */
-	void writeDemultiplexTileStats(String fname, LinkedHashMap<String,String> sampleMap, 
-			Collection<String> expected, int lane, byte delimiter, boolean overwrite) {
-		if(tileMap==null) {return;}
-		if(expected==null) {expected=sampleMap.keySet();}
+	void writeDemultiplexTileStats(String fname, LinkedHashMap<String,String> sampleMap,
+			Collection<String> expected, int lane, byte delimiter, boolean overwrite){
+		if(tileMap==null){return;}
+		if(expected==null){expected=sampleMap.keySet();}
 		String header="Lane,SampleID,Index,Tile,# Reads,% Reads";
-		ByteStreamWriter bsw=ByteStreamWriter.makeBSW(fname, overwrite, false, true);
+		ByteStreamWriter bsw=makeBSW(fname, overwrite);
 		bsw.println(header);
 		ByteBuilder bb=new ByteBuilder();
 		ArrayList<Integer> tiles=new ArrayList<Integer>(tileMap.keySet());
 		Collections.sort(tiles);
 		final float invTotal=1f/Tools.max(1, totalR1);
 //		assert(false) : totalR1+", "+tileMap.size()+", "+expected.size();
-		for(Integer tile : tiles) {
+		for(Integer tile : tiles){
 			LinkedHashMap<String, Barcode> tmap=tileMap.get(tile);
 //			for(Entry<String, Barcode> e : tmap.entrySet()) {
 //				Barcode bc=e.getValue();
-			for(String name : expected) {
+			for(String name : expected){
 				Barcode bc=tmap.get(name);
-				if(bc!=null) {
+				if(bc!=null){
 					String sampleID=(sampleMap==null ? null : sampleMap.get(bc.name));
 					bb.clear();
 					bb.append(lane);
 					bb.comma().append(sampleID);
 					Barcode.appendIndex(bb.comma(), delimiter, 1, bc.name);
-					if(delimiter>=0 && (byte)bc.name.indexOf(delimiter)>0) {
+					if(delimiter>=0 && (byte)bc.name.indexOf(delimiter)>0){
 						bb.dash();
 						Barcode.appendIndex(bb, delimiter, 2, bc.name);
 					}
@@ -433,59 +439,131 @@ public class LegacyFileWriter {
 		}
 		bsw.poison();
 	}
-	
-	
+
+
 	/**
 	 * Processes a read for statistics collection.
 	 * Updates quality metrics, read counts, and tile statistics if enabled.
-	 * Handles both single and paired-end reads.
+	 * Handles both single and paired-end reads, using Read.obj as the tile destination.
 	 *
-	 * @param r The read to process
+	 * @param r Non-null read to process
 	 * @param barcode Assigned barcode (null treated as undetermined)
 	 */
-	void add(Read r, String barcode) {
-		//TODO: Possible bug [barcode/LegacyFileWriter#001] (LOW) - this NPEs on a null `r`: line below dereferences
-		//r.pairnum(). The caller NovaDemux.processInner (~709) does `legacyWriter.add(r.mate, name)`, and r.mate is
-		//NULL for single-end input. So legacy mode (legacypath=...) + single-end reads -> NullPointerException here.
-		//(barcode==null is handled just below, but r==null is not.) Reachable but niche (legacy output is paired-
-		//oriented). Fix options (Brian's call): guard `if(r==null){return;}` at the top here, or make NovaDemux:709
-		//skip the call when r.mate==null, or declare single-end+legacy unsupported. Flagged, not auto-fixed (design).
-		if(barcode==null) {barcode=UNDETERMINED;}
+	void add(Read r, String barcode){
+		add(r, barcode, (String)r.obj);
+	}
+
+	/**
+	 * Collects statistics without using the read's output-routing field.
+	 * The explicit destination allows callers to count assigned reads that will not be emitted.
+	 *
+	 * @param r Non-null read; callers must skip absent mates
+	 * @param barcode Assigned barcode for quality and read counts; null means undetermined
+	 * @param dest Tile-statistics barcode; null omits tile statistics for this read
+	 */
+	void add(final Read r, String barcode, final String dest){
+		assert(r!=null) : "Legacy statistics require a read; callers must skip absent mates.";
+		// Caller contract: r is non-null; callers skip absent mates before adding R2 stats.
+		if(barcode==null){barcode=UNDETERMINED;}
 		QTag[] qtags=tagMap.get(barcode);
-		if(qtags==null) {
-			qtags=new QTag[] {new QTag(), new QTag()};
+		if(qtags==null){
+			qtags=new QTag[]{new QTag(), new QTag()};
 			tagMap.put(barcode, qtags);
 		}
 		qtags[r.pairnum()].add(r);
-		String dest=(String) r.obj;
-		if(r.pairnum()==0) {
+		if(r.pairnum()==0){
 			totalR1++;
 			totalR1Assigned+=(barcode==UNDETERMINED ? 0 : 1);
-			if(r.mate!=null) {
+			if(r.mate!=null){
 				totalR2++;
 				totalR2Assigned+=(barcode==UNDETERMINED ? 0 : 1);
 			}
 //			assert(false) : (tileMap==null) +", "+dest+", "+barcode;
-			if(tileMap!=null && dest!=null) {
+			if(tileMap!=null && dest!=null){
 				ihp.parse(r);
 				Integer tile=ihp.tile();
 				LinkedHashMap<String, Barcode> tmap=tileMap.get(tile);
-				if(tmap==null) {
+				if(tmap==null){
 					tmap=new LinkedHashMap<String, Barcode>();
 					tileMap.put(tile, tmap);
 				}
 				Barcode bc=tmap.get(dest);
-				if(bc==null) {
+				if(bc==null){
 					bc=new Barcode(dest);
 					tmap.put(dest, bc);
 				}
-				assert(tileMap.size()>0 && tmap.size()>0) : 
-					tileMap.size()+", "+tmap.size()+", "+tile+", "+dest+"\n"+ihp; 
+				assert(tileMap.size()>0 && tmap.size()>0) :
+					tileMap.size()+", "+tmap.size()+", "+tile+", "+dest+"\n"+ihp;
 				bc.increment(1);
 			}
 		}
 	}
-	
+
+	/**
+	 * Creates and tracks one legacy report writer for completion in {@link #close()}.
+	 *
+	 * @param fname Output CSV filename
+	 * @param overwrite Whether to overwrite existing files
+	 * @return Started writer, or null if fname is null
+	 */
+	private ByteStreamWriter makeBSW(final String fname, final boolean overwrite){
+		final ByteStreamWriter bsw=ByteStreamWriter.makeBSW(fname, overwrite, false, true);
+		if(bsw!=null){writers.add(bsw);}
+		return bsw;
+	}
+
+	/**
+	 * Requests and checks completion for all retained legacy report writers.
+	 * Joins every retained writer, clears completed handles, and throws only after
+	 * all completion checks have been attempted.
+	 */
+	@Override
+	public void close(){
+		RuntimeException failure=null;
+		for(ByteStreamWriter bsw : writers){
+			try{
+				bsw.poison();
+			}catch(RuntimeException e){
+				failure=addFailure(failure, e);
+			}
+		}
+		for(ByteStreamWriter bsw : writers){
+			try{
+				bsw.waitForFinish();
+				if(bsw.errorState){
+					failure=addFailure(failure, new RuntimeException("Error writing "+bsw.fname));
+				}
+			}catch(RuntimeException e){
+				failure=addFailure(failure, e);
+			}
+		}
+		writers.clear();
+		if(failure!=null){throw wrapCloseFailure(failure);}
+	}
+
+	/**
+	 * Aggregates writer-close failures while preserving the first exception as primary.
+	 *
+	 * @param failure Existing primary failure
+	 * @param next Newly observed failure
+	 * @return Primary failure with next suppressed, or next when no primary existed
+	 */
+	private static RuntimeException addFailure(RuntimeException failure, final RuntimeException next){
+		if(failure==null){return next;}
+		if(failure!=next){failure.addSuppressed(next);}
+		return failure;
+	}
+
+	/**
+	 * Wraps all legacy report failures in the caller-visible BAR231 exception.
+	 *
+	 * @param failure Primary writer failure with any later failures suppressed
+	 * @return Legacy report exception carrying all writer failures
+	 */
+	private static IllegalStateException wrapCloseFailure(final RuntimeException failure){
+		return new IllegalStateException("Legacy barcode report output failed", failure);
+	}
+
 
 	/**
 	 * Loads sample mapping from CSV or TSV file.
@@ -498,16 +576,16 @@ public class LegacyFileWriter {
 	 * @param rcIndex2 Whether to reverse complement second index
 	 * @return Map from processed barcodes to sample IDs, null if fname is null
 	 */
-	LinkedHashMap<String, String> loadSampleMap(String fname, 
+	LinkedHashMap<String, String> loadSampleMap(String fname,
 			byte barcodeDelimiter, boolean rcIndex1, boolean rcIndex2){
-		if(fname==null) {return null;}
+		if(fname==null){return null;}
 		LinkedHashMap<String, String> map=new LinkedHashMap<String, String>();
 		ByteFile bf=ByteFile.makeByteFile(fname, true);
 		LineParser1 lp=new LineParser1(',');
-		for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()) {
-			if(!Tools.startsWith(line, '#')) {
+		for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()){
+			if(!Tools.startsWith(line, '#')){
 				lp.set(line);
-				if(lp.terms()<2) {
+				if(lp.terms()<2){
 					lp=new LineParser1('\t');
 					lp.set(line);
 					assert(lp.terms()>=2) : "Can't find delimiter in line '"+new String(line)+"'";
@@ -521,41 +599,41 @@ public class LegacyFileWriter {
 		bf.close();
 		return map;
 	}
-	
+
 	/**
 	 * Accumulates quality metrics for a single read direction.
 	 * Tracks base counts, quality score distributions, and Q30 statistics.
 	 * Used internally for generating quality metrics reports.
 	 */
-	static class QTag {
-		
+	static class QTag{
+
 		/**
 		 * Adds quality statistics from a read.
 		 * @param r Read to process
 		 * @return Position of first base below Q30, or read length if all Q30+
 		 */
-		int add(Read r) {
+		int add(Read r){
 			return add(r.quality);
 		}
-		
+
 		/**
 		 * Processes quality scores to update statistics.
 		 * Counts bases, Q30 bases, and accumulates position-specific quality sums.
 		 * @param quals Array of quality scores
 		 * @return Position of first base below Q30, or array length if all Q30+
 		 */
-		int add(byte[] quals) {
+		int add(byte[] quals){
 			reads++;
 			bases+=quals.length;
 			int q30=quals.length;
 			int q30Count=0;
 //			long sum=0;
-			for(int i=0; i<quals.length; i++) {
+			for(int i=0; i<quals.length; i++){
 				final int q=quals[i];
 //				sum+=q;
 				qsum.increment(i, q);
 				qcount.increment(i, 1);
-				if(q>=30) {
+				if(q>=30){
 					q30Count++;
 				}else if(i<q30){
 					q30=i;
@@ -565,18 +643,18 @@ public class LegacyFileWriter {
 			q30CountSum+=q30Count;
 			return q30;
 		}
-		
+
 		/** Returns total number of bases processed */
-		long yieldBases() {return bases;}
+		long yieldBases(){return bases;}
 		/** Returns total number of Q30+ bases */
-		long yieldQ30() {return /*q30PositionSum*/q30CountSum;}
+		long yieldQ30(){return /*q30PositionSum*/q30CountSum;}
 		/** Returns sum of all quality scores */
-		long qualityScoreSum() {return (long)qsum.sum();}
+		long qualityScoreSum(){return (long)qsum.sum();}
 		/** Returns mean quality score across all bases */
-		double meanQualityScore() {return qsum.sum()/bases;}
+		double meanQualityScore(){return qsum.sum()/bases;}
 		/** Returns fraction of bases with quality score >= 30 */
-		double fractionQ30() {return yieldQ30()/(double)yieldBases();}
-		
+		double fractionQ30(){return yieldQ30()/(double)yieldBases();}
+
 //		Lane,SampleID,index,index2,ReadNumber,Yield,YieldQ30,QualityScoreSum,Mean Quality Score (PF),% Q30
 		/**
 		 * Appends quality metrics as CSV row to ByteBuilder.
@@ -590,8 +668,8 @@ public class LegacyFileWriter {
 		 * @param barcode Barcode sequence
 		 * @return The modified ByteBuilder
 		 */
-		ByteBuilder appendTo(ByteBuilder bb, int lane, int pairnum, 
-				String sampleID, byte delimiter, String barcode) {
+		ByteBuilder appendTo(ByteBuilder bb, int lane, int pairnum,
+				String sampleID, byte delimiter, String barcode){
 			bb.append(lane);
 			bb.comma().append(sampleID);
 			Barcode.appendIndex(bb.comma(), delimiter, 1, barcode);
@@ -604,13 +682,13 @@ public class LegacyFileWriter {
 			bb.comma().append(fractionQ30(),2);
 			return bb;
 		}
-		
+
 		/** Returns CSV header line for Quality_Metrics.csv format */
-		static String header() {
+		static String header(){
 			return "Lane,SampleID,index,index2,ReadNumber,"
 					+ "Yield,YieldQ30,QualityScoreSum,Mean Quality Score (PF),% Q30";
 		}
-		
+
 		/** Number of reads processed */
 		long reads=0;
 		/** Total number of bases processed */
@@ -633,7 +711,7 @@ public class LegacyFileWriter {
 	private long totalR1Assigned=0;
 	/** Count of R2 reads assigned to determined barcodes */
 	private long totalR2Assigned=0;
-	
+
 	/** Collection of barcode counts for statistics generation */
 	Collection<Barcode> counts=null;
 	/** Maps barcodes to quality tag arrays for R1/R2 pair tracking */
@@ -641,9 +719,12 @@ public class LegacyFileWriter {
 	/** Constant string identifier for undetermined reads */
 	private final static String UNDETERMINED="Undetermined";;
 	/** Maps sequencing tiles to barcode counts for per-tile statistics */
-	LinkedHashMap<Integer, LinkedHashMap<String, Barcode>> tileMap=new LinkedHashMap<Integer, LinkedHashMap<String, Barcode>>();
+	LinkedHashMap<Integer, LinkedHashMap<String, Barcode>> tileMap=
+			new LinkedHashMap<Integer, LinkedHashMap<String, Barcode>>();
 	/** Parser for extracting tile information from Illumina read headers */
 	final IlluminaHeaderParser2 ihp=new IlluminaHeaderParser2();
-	
-	
+	/** Report writers still awaiting completion checks */
+	private final ArrayList<ByteStreamWriter> writers=new ArrayList<ByteStreamWriter>();
+
+
 }

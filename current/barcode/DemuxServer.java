@@ -36,60 +36,70 @@ import structures.ByteBuilder;
 import structures.StringNum;
 
 /**
- * Server for barcode demux queries.
+ * HTTP service that accepts DemuxData barcode-count payloads and returns barcode
+ * assignment maps.
  * @author Brian Bushnell
  * @date June 24, 2024
  *
  */
 public class DemuxServer {
-	
-	/*--------------------------------------------------------------*/
-	/*----------------            Startup           ----------------*/
-	/*--------------------------------------------------------------*/
 
-	/** Command line entrance */
+/*--------------------------------------------------------------*/
+/*----------------            Startup           ----------------*/
+/*--------------------------------------------------------------*/
+
+/**
+	 * Program entry point; parses arguments, starts the demux server, and leaves
+	 * the HTTP listener running.
+	 * @param args Command-line arguments
+	 */
 	public static void main(String[] args) throws Exception {
 		Timer t=new Timer();
 		@SuppressWarnings("unused")
 		DemuxServer ds=new DemuxServer(args);
-		
+
 		t.stop("Time: ");
-		
+
 		System.err.println("Ready!");
-		
-		//ts.begin();
+
+//ts.begin();
 	}
-	
-	/** Constructor */
+
+/**
+	 * Parses command-line options, installs request contexts, and starts the
+	 * HTTP or HTTPS server.
+	 * @param args Command-line arguments
+	 * @throws Exception if the server cannot be created
+	 */
 	private DemuxServer(String[] args) throws Exception {
 		{//Preparse block for help, config files, and outstream
 			PreParser pp=new PreParser(args, getClass(), false);
 			args=pp.args;
 			outstream=pp.outstream;
 		}
-		
+
 		ReadWrite.USE_UNPIGZ=true;
-		
-		int port_=4096; //Demux server
+
+		int port_=4096;//Demux server
 		String killCode_=null;
 		boolean allowLocalHost_=false;
-		String addressPrefix_="128."; //LBL
+		String addressPrefix_="128.";//LBL
 		boolean https=false;
-		
+
 		PCRMatrix.devMode=true;
-		
-		//Create a parser object
+
+//Create a parser object
 		Parser parser=new Parser();
-		
-		//Parse each argument
+
+//Parse each argument
 		for(int i=0; i<args.length; i++){
 			String arg=args[i];
-			
-			//Break arguments into their constituent parts, in the form of "a=b"
+
+//Break arguments into their constituent parts, in the form of "a=b"
 			String[] split=arg.split("=");
 			String a=split[0].toLowerCase();
 			String b=split.length>1 ? split[1] : null;
-			
+
 			if(a.equals("verbose")){
 				verbose=Parse.parseBoolean(b);
 			}else if(a.equals("verbose2")){
@@ -124,52 +134,51 @@ public class DemuxServer {
 			}else if(a.equals("devmode")){
 				PCRMatrix.devMode=Parse.parseBoolean(b);
 			}else if(parser.parse(arg, a, b)){//Parse standard flags in the parser
-				//do nothing
+//do nothing
 			}else{
 				throw new RuntimeException(arg);
 			}
 		}
-		
+
 		port=port_;
 		allowLocalHost=allowLocalHost_;
 		addressPrefix=addressPrefix_;
-		//TODO: Possible bug [barcode/DemuxServer#001] FIX SITE - the parsed kill code (local killCode_, set from the
-		//kill/killcode flag at ~111) is NEVER copied to the `killCode` field; it stays null. Consequence: the /kill
-		//context is never registered (~147, `if(killCode!=null)`) AND testCode (~285) rejects every code. So the
-		//documented remote-kill feature is completely dead - `kill=SECRET` does nothing; the server can only be stopped
-		//by killing the process. Fix: add `killCode=killCode_;` here (mirroring port/allowLocalHost/addressPrefix above).
-		
+		killCode=killCode_;
+//FIXED [barcode/DemuxServer#001]: copy the parsed kill/killcode flag before
+//context registration so /kill is registered only when the user supplied a
+//secret; omitted kill leaves remote shutdown disabled.
+
 		ReadWrite.USE_UNPIGZ=false;
 //		ReadWrite.USE_UNBGZIP=false;
-		
-		//Wait for server initialization
+
+//Wait for server initialization
 		httpServer=initializeServer(1000, 8, https);
 		assert(httpServer!=null);
-		
-		//Initialize handlers
+
+//Initialize handlers
 		httpServer.createContext("/", new BaseHandler());
 		httpServer.createContext("/demux", new DemuxHandler());
-		//[barcode/DemuxServer#001] consequence: killCode is always null here (never assigned from killCode_), so this
-		//branch never runs -> /kill is never registered even when the user supplied kill=code. See fix site above.
+//[barcode/DemuxServer#001]: explicit kill/killcode registers the kill handler;
+//omitting it keeps remote shutdown unavailable.
 		if(killCode!=null){
 			httpServer.createContext("/kill", new KillHandler());
 		}
 
 		httpServer.createContext("/stats", new StatsHandler());
 		httpServer.createContext("/favicon.ico", new IconHandler());
-		
+
 		handlerThreads=handlerThreads>0 ? handlerThreads : Tools.max(2, Shared.threads());
-		httpServer.setExecutor(java.util.concurrent.Executors.newFixedThreadPool(handlerThreads)); // Creates a multithreaded executor
+		httpServer.setExecutor(java.util.concurrent.Executors.newFixedThreadPool(handlerThreads));// Creates a multithreaded executor
 //		httpServer.setExecutor(java.util.concurrent.Executors.newCachedThreadPool()); // Creates a multithreaded executor
 //		httpServer.setExecutor(null); // Creates a singlethreaded executor
-		
-		//Start the server
+
+//Start the server
 		httpServer.start();
 	}
-	
 
-	
-	/** Iterative wait for server initialization */
+
+
+/** Iterative wait for server initialization */
 	private HttpServer initializeServer(int millis0, int iterations, boolean https){
 		HttpServer server=null;
 		InetSocketAddress isa=new InetSocketAddress(port);
@@ -181,13 +190,13 @@ public class DemuxServer {
 				}else{
 					server=HttpServer.create(isa, 0);
 				}
-			} catch (java.net.BindException e) {//Expected
+			}catch(java.net.BindException e){//Expected
 				System.err.println(e);
 				System.err.println("\nWaiting "+millis+" ms");
 				ee=e;
 				ServerTools.pause(millis);
 				millis=millis*2;
-			} catch (IOException e) {//Not sure when this would occur...  it would be unexpected
+			}catch(IOException e){//Not sure when this would occur...  it would be unexpected
 				System.err.println(e);
 				System.err.println("\nWaiting "+millis+" ms");
 				ee=e;
@@ -198,15 +207,15 @@ public class DemuxServer {
 		if(server==null){throw new RuntimeException(ee);}
 		return server;
 	}
-	
-	/*--------------------------------------------------------------*/
-	/*----------------           Handlers           ----------------*/
-	/*--------------------------------------------------------------*/
-	
-	/*--------------------------------------------------------------*/
-	
+
+/*--------------------------------------------------------------*/
+/*----------------           Handlers           ----------------*/
+/*--------------------------------------------------------------*/
+
+/*--------------------------------------------------------------*/
+
 	private class BaseHandler implements HttpHandler {
-		
+
 		@SuppressWarnings("restriction")
 		@Override
 		public void handle(HttpExchange t) throws IOException {
@@ -218,16 +227,16 @@ public class DemuxServer {
 			}
 
 			baseQueries.incrementAndGet();
-			ServerTools.reply("Shush", "text/plain", t, verbose2, 444, true);
+			ServerTools.reply("Shush","text/plain", t, verbose2, 444, true);
 		}
-		
+
 	}
-	
-	/*--------------------------------------------------------------*/
-	
-	/** Handles queries for favicon.ico */
+
+/*--------------------------------------------------------------*/
+
+/** Handles queries for favicon.ico */
 	private class IconHandler implements HttpHandler {
-		
+
 		@Override
 		public void handle(HttpExchange t) throws IOException {
 			if(verbose2){
@@ -235,16 +244,16 @@ public class DemuxServer {
 				printQuery(t, addressPrefix, allowLocalHost, printIP, printHeaders);
 			}
 			iconQueries.incrementAndGet();
-			ServerTools.reply(favIcon, "image/x-icon", t, verbose2, 200, true);
+			ServerTools.reply(favIcon,"image/x-icon", t, verbose2, 200, true);
 		}
-		
+
 	}
-	
-	/*--------------------------------------------------------------*/
-	
-	/** Handles queries that fall through other handlers */
+
+/*--------------------------------------------------------------*/
+
+/** Handles queries that fall through other handlers */
 	private class StatsHandler implements HttpHandler {
-		
+
 		@Override
 		public void handle(HttpExchange t) throws IOException {
 			if(verbose2){
@@ -254,41 +263,41 @@ public class DemuxServer {
 			final long startTime=System.nanoTime();
 			returnStats(startTime, t);
 		}
-		
+
 	}
-	
-	/*--------------------------------------------------------------*/
-	
-	/** Handles requests to kill the server */
+
+/*--------------------------------------------------------------*/
+
+/** Handles requests to kill the server */
 	private class KillHandler implements HttpHandler {
-		
+
 		@Override
 		public void handle(HttpExchange t) throws IOException {
 			if(verbose2){
 				System.err.println("Kill handler");
 				printQuery(t, addressPrefix, allowLocalHost, printIP, printHeaders);
 			}
-			
-			//Parse the query from the URL
+
+//Parse the query from the URL
 			String rparam=getRParam(t);
 			InetSocketAddress remote=t.getRemoteAddress();
-			
+
 			if(testCode(t, rparam)){
-				ServerTools.reply("Success.", "text/plain", t, verbose2, 200, true);
+				ServerTools.reply("Success.","text/plain", t, verbose2, 200, true);
 				System.err.println("Killed by remote address "+remote);
-				//TODO: Perhaps try to close open resources such as the server
+//TODO: Perhaps try to close open resources such as the server
 				KillSwitch.killSilent();
 			}
-			
+
 			if(verbose){System.err.println("Bad kill from address "+remote);}
-			ServerTools.reply("Bad Code", "text/plain", t, verbose2, 403, true);
+			ServerTools.reply("Bad Code","text/plain", t, verbose2, 403, true);
 		}
-		
-		/** Determines whether kill code was correct */
+
+/** Determines whether kill code was correct */
 		private boolean testCode(HttpExchange t, String rparam){
 			String[] params = rparam.split("/");
 			if(verbose2){System.err.println(Arrays.toString(params));}
-			
+
 			if(killCode!=null){
 				if(params.length>1){//URL mode
 					return (params[1].equals(killCode));
@@ -296,8 +305,8 @@ public class DemuxServer {
 					try {
 						String code=ServerTools.receive(t);
 						return (code!=null && code.equals(killCode));
-					} catch (Exception e) {
-						// TODO Auto-generated catch block
+					}catch(Exception e){
+// Log receive failures so body-mode kill attempts fail closed with diagnostics.
 						e.printStackTrace();
 					}
 				}
@@ -305,54 +314,52 @@ public class DemuxServer {
 			return false;
 		}
 	}
-	
-	/** Parse the query from the URL */
+
+/** Parse the query from the URL */
 	private static String getRParam(HttpExchange t){
 		if(verbose2){System.err.println("getRParam");}
 		String rparam = t.getRequestURI().toString();
-		
-		//Trim leading slashes
+
+//Trim leading slashes
 		while(rparam.startsWith("/")){
 			rparam = rparam.substring(1);
 		}
-		
-		//Trim trailing slashes
+
+//Trim trailing slashes
 		while(rparam.endsWith("/")){
 			rparam = rparam.substring(0, rparam.length()-1);
 		}
-		
+
 		if(verbose){System.err.println(rparam==null || rparam.trim().length()<1 ? "usage" : rparam+"\t"+System.currentTimeMillis());}
 		return rparam;
 	}
-	
-	/*--------------------------------------------------------------*/
 
-	/** Handles demux queries */
+/*--------------------------------------------------------------*/
+
+/** Handles demux queries */
 	private class DemuxHandler implements HttpHandler {
-		
+
 		DemuxHandler(){}
-		
+
 		@Override
 		public void handle(HttpExchange t) throws IOException {
 			final long startTime=System.nanoTime();
-			//TODO: Possible bug [barcode/DemuxServer#002] (minor/perf) - the `|| true` forces per-query logging
-			//("Demux handler" + full printQuery) on EVERY request regardless of verbose2. Confirmed intentional-looking
-			//debug leftover (Brian's own inline note below). Harmless to correctness; noisy + slight overhead on a hot
-			//server path. Fix: drop `|| true`.
-			if(verbose2 || true){ //Possible bug: Verbose logging always enabled due to || true
+//FIXED [barcode/DemuxServer#002]: verbose2 gates per-request metadata;
+//phase timing logs below still print for demux requests.
+			if(verbose2){
 				System.err.println("Demux handler");
 				printQuery(t, addressPrefix, allowLocalHost, printIP, printHeaders);
 			}
 			queries.incrementAndGet();
-			
-			//Parse the query from the URL
+
+//Parse the query from the URL
 			ArrayList<byte[]> body=getBody(t);
 			final long fetchTime=System.nanoTime();
 			System.err.println("Fetched "+body.size()+" chunks in "+
 					(fetchTime-startTime)/1000000+" ms.");
-			//COMPREHENSION (re [barcode/DemuxData#001]): this decode of the client's chunks is EXACTLY where the
-			//client-server crash lands - new DemuxData(body)->decode()->parseCountLine trips the descending-count
-			//assert (DemuxData ~483) when the client sent unsorted codeCounts (its dead ENSURE_SORTED never sorted).
+//COMPREHENSION (re [barcode/DemuxData#001]): client chunk decoding lands here; historical
+//unsorted codeCounts from live callers used to trip parseCountLine's descending-count
+//assert before DemuxData.encode() copied and sorted disordered inputs.
 			DemuxData dd=new DemuxData(body);
 			final long parseTime=System.nanoTime();
 			System.err.println("Parsed "+body.size()+" chunks in "+
@@ -363,12 +370,13 @@ public class DemuxServer {
 			final long assignTime=System.nanoTime();
 			System.err.println("Assigned "+list.size()+" barcodes in "+
 					(assignTime-parseTime)/1000000+" ms.");
-			
-			reply(list, dd.coding, dd.length1, dd.length2, "text/plain", t, verbose2, 200, true);
+
+			boolean replied=reply(list, dd.coding, dd.length1, dd.length2,
+"text/plain", t, verbose2, 200, true);
 			final long replyTime=System.nanoTime();
-			System.err.println("Replied with "+list.size()+" barcodes in "+
-					(replyTime-assignTime)/1000000+" ms.");
-			
+			System.err.println((replied ? "Replied with " : "Failed to reply with ")+
+					list.size()+" barcodes in "+(replyTime-assignTime)/1000000+" ms.");
+
 			final long stopTime=System.nanoTime();
 			final long elapsed=stopTime-startTime;
 //			if(response.startsWith("Welcome to ")){
@@ -383,13 +391,13 @@ public class DemuxServer {
 //			}
 		}
 	}
-	
+
 //	/** Write to the body of an incoming HTTP session */
 //	@SuppressWarnings("restriction")
-//	private static boolean reply(HashMap<String, String> map, String type, HttpExchange t, 
+//	private static boolean reply(HashMap<String, String> map, String type, HttpExchange t,
 //			boolean verbose, int code, boolean close){
 //		if(verbose){System.err.println("Sending: "+map.size());}
-//		
+//
 //		{
 //			Headers h = t.getResponseHeaders();
 ////			String type="text/plain";
@@ -420,84 +428,87 @@ public class DemuxServer {
 //		if(close){t.close();}
 //		return true;
 //	}
-	
-	/** Write to the body of an incoming HTTP session */
+
+/** Writes an assignment response to an incoming HTTP session. */
 	@SuppressWarnings("restriction")
 	private static boolean reply(ArrayList<Pair> map, int encoding, int len1, int len2,
 			String type, HttpExchange t, boolean verbose, int code, boolean close){
 		if(verbose){System.err.println("Sending: "+map.size());}
-		
+
 		{
 			Headers h = t.getResponseHeaders();
 //			String type="text/plain";
 			h.add("Content-Type", type);
 		}
+		final boolean success;
 		try {
 			t.sendResponseHeaders(code, 0);
 			OutputStream os=t.getResponseBody();
-			
-			writeToStream(map, os, encoding, len1, len2);
-			
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
+
+			success=writeToStream(map, os, encoding, len1, len2);
+
+		}catch(IOException e){
+// Preserve write diagnostics for the HTTP handler's error path.
 			e.printStackTrace();
 			if(close){t.close();}
 			return false;
 		}
 		if(close){t.close();}
-		return true;
+		return success;
 	}
-	
-	/**
-	 * Writes barcode assignment pairs to output stream in specified encoding format.
-	 * Supports both raw and compressed A48 encoding with buffering for large datasets.
+
+/**
+	 * Writes barcode assignment pairs in the requested wire format.
+	 * Buffers output and writes accumulated bytes to the stream when the buffer
+	 * grows large. Attempts to close non-standard output streams after a normal write or a
+	 * caught {@link IOException}; unchecked failures can bypass the close attempt.
 	 *
 	 * @param map List of barcode pairs to write
 	 * @param os Output stream to write to
-	 * @param encoding Encoding format (Sketch.RAW or Sketch.A48)
-	 * @param len1 Length of first barcode segment for A48 encoding
-	 * @param len2 Length of second barcode segment for A48 encoding
+	 * @param encoding Encoding format, {@link Sketch#RAW} or {@link Sketch#A48}
+	 * @param len1 Length of the first barcode segment for A48 encoding
+	 * @param len2 Length of the second barcode segment for A48 encoding
 	 * @return true if write was successful
 	 */
-	public static boolean writeToStream(ArrayList<Pair> map, OutputStream os, final int encoding, int len1, int len2) {
+	public static boolean writeToStream(ArrayList<Pair> map, OutputStream os, final int encoding, int len1, int len2){
 		final byte[] buffer=new byte[64];
 		ByteBuilder bb=new ByteBuilder();
-		Pair prev=new Pair("", "");
+		Pair prev=new Pair("","");
 		try {
-			for(Pair p : map) {
-				if(encoding==Sketch.RAW) {
+			for(Pair p : map){
+				if(encoding==Sketch.RAW){
 					bb.append(p.a).tab().append(p.b).nl();
-				}else {//Allows map compression
+				}else{//Allows map compression
 					assert(encoding==Sketch.A48);
 					appendA48(bb, p, prev, len1, len2, buffer);
 					prev=p;
 				}
-				if(bb.length>8000000) {
+				if(bb.length>8000000){
 					os.write(bb.array, 0, bb.length);
 					bb.clear();
 				}
 			}
-			if(bb.length>0) {
+			if(bb.length>0){
 				os.write(bb.array, 0, bb.length);
 				bb.clear();
 			}
-			if(os!=System.out && os!=System.err) {os.close();}//For testing
+			if(os!=System.out && os!=System.err){os.close();}//For testing
 			return true;
-		} catch (IOException e) {
+		}catch(IOException e){
 			e.printStackTrace();
 		}
 		try {
-			if(os!=System.out && os!=System.err) {os.close();}
+			if(os!=System.out && os!=System.err){os.close();}
 			return false;
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
+		}catch(IOException e){
+// Preserve diagnostics from a failed close after a write failure.
 			e.printStackTrace();
 			return false;
 		}
 	}
-	
-	/**
-	 * Appends barcode pair to ByteBuilder using A48 compressed encoding format.
+
+/**
+	 * Appends one assignment pair in the DemuxClient A48 delta wire format.
 	 * Only writes segments that differ from the previous pair to save space.
 	 *
 	 * @param bb ByteBuilder to append encoded data to
@@ -507,42 +518,41 @@ public class DemuxServer {
 	 * @param length2 Length of second barcode segment
 	 * @param buffer Working buffer for encoding operations
 	 */
-	private static void appendA48(ByteBuilder bb, Pair p, Pair prev, int length1, int length2, byte[] buffer) {
+	private static void appendA48(ByteBuilder bb, Pair p, Pair prev, int length1, int length2, byte[] buffer){
 		final String a1=p.a, b1=p.b, a0=prev.a, b0=prev.b;
-		
-		//Key
-		if(!Tools.equalsSubstring(a1, a0, 0, length1)) {
+
+//Key
+		if(!Tools.equalsSubstring(a1, a0, 0, length1)){
 			final long x=DemuxData.encodeACGTN(a1, 0, length1);
 			DemuxData.appendA48(x, bb, buffer);
 		}
-		if(length2>0) {
+		if(length2>0){
 			bb.tab();
-			if(!Tools.equalsSubstring(a1, a0, length1+1, length1+1+length2)) {
+			if(!Tools.equalsSubstring(a1, a0, length1+1, length1+1+length2)){
 				final long x=DemuxData.encodeACGTN(a1, length1+1, length1+1+length2);
 				DemuxData.appendA48(x, bb, buffer);
 			}
 		}
 		bb.tab();
-		
-		//Value
-		if(!Tools.equalsSubstring(b1, b0, 0, length1)) {
+
+//Value
+		if(!Tools.equalsSubstring(b1, b0, 0, length1)){
 			final long x=DemuxData.encodeACGTN(b1, 0, length1);
 			DemuxData.appendA48(x, bb, buffer);
 		}
-		if(length2>0) {
+		if(length2>0){
 			bb.tab();
-			if(!Tools.equalsSubstring(b1, b0, length1+1, length1+1+length2)) {
+			if(!Tools.equalsSubstring(b1, b0, length1+1, length1+1+length2)){
 				final long x=DemuxData.encodeACGTN(b1, length1+1, length1+1+length2);
 				DemuxData.appendA48(x, bb, buffer);
 			}
 		}
-		
-		//TODO
-//		TODO: I need to decode this on the other end.
+
+// DemuxClient.toMapA48 decodes this skip-if-same field layout.
 		bb.nl();
 	}
-	
-	/**
+
+/**
 	 * Converts demux data into barcode assignment mappings using PCR matrix calculations.
 	 * Creates a probability matrix, populates it with expected barcodes, refines assignments,
 	 * and generates final barcode-to-assignment mappings.
@@ -552,7 +562,7 @@ public class DemuxServer {
 	 */
 	private HashMap<String, String> toAssignmentMap(DemuxData dd){
 		System.err.println("dd: type="+dd.type+", len1="+dd.length1+", len2="+dd.length2+", delimiter="+dd.barcodeDelimiter+
-				", hdistsum="+dd.hdistSum+", expected="+dd.expectedList.size()+", counts="+dd.codeCounts.size());
+", hdistsum="+dd.hdistSum+", expected="+dd.expectedList.size()+", counts="+dd.codeCounts.size());
 		PCRMatrix matrix=(PCRMatrix)PCRMatrix.create(dd.type, dd.length1, dd.length2, dd.barcodeDelimiter, dd.hdistSum);
 		matrix.populateExpected(dd.expectedList);
 		matrix.populateSplitCodes(dd);
@@ -561,8 +571,8 @@ public class DemuxServer {
 		HashMap<String, String> map=matrix.makeAssignmentMap(dd.codeCounts, 4);
 		return map;
 	}
-	
-	/**
+
+/**
 	 * Converts a HashMap to a sorted ArrayList of Pair objects.
 	 * Used for consistent ordering of barcode assignments in output.
 	 * @param map HashMap of key-value pairs to convert
@@ -570,19 +580,19 @@ public class DemuxServer {
 	 */
 	static final ArrayList<Pair> toPairList(HashMap<String, String> map){
 		ArrayList<Pair> list=new ArrayList<Pair>(map.size());
-		for(Entry<String, String> e : map.entrySet()) {
+		for(Entry<String, String> e : map.entrySet()){
 			Pair p=new Pair(e.getKey(), e.getValue());
 			list.add(p);
 		}
 		Collections.sort(list);
 		return list;
 	}
-	
-	/*--------------------------------------------------------------*/
-	/*----------------            Helpers           ----------------*/
-	/*--------------------------------------------------------------*/
-	
-	/**
+
+/*--------------------------------------------------------------*/
+/*----------------            Helpers           ----------------*/
+/*--------------------------------------------------------------*/
+
+/**
 	 * Reads the complete HTTP request body into byte array chunks.
 	 * @param t The HTTP exchange containing the request body
 	 * @return ArrayList of byte arrays containing the request body data
@@ -590,12 +600,12 @@ public class DemuxServer {
 	static ArrayList<byte[]> getBody(HttpExchange t){
 		if(verbose2){System.err.println("getBody");}
 		InputStream is=t.getRequestBody();
-		
+
 		ArrayList<byte[]> list=ServerTools.readStreamToList(is);
 		return list;
 	}
-	
-	/**
+
+/**
 	 * Generates and returns server statistics as HTTP response.
 	 * Updates timing measurements and sends basic server stats to client.
 	 * @param startTime Start time in nanoseconds for timing calculations
@@ -605,23 +615,23 @@ public class DemuxServer {
 		if(logUsage){System.err.println("stats");}
 		String stats=basicStats();
 		bytesOut.addAndGet(stats.length());
-		ServerTools.reply(stats, "text/plain", t, verbose2, 200, true);
+		ServerTools.reply(stats,"text/plain", t, verbose2, 200, true);
 		final long stopTime=System.nanoTime();
 		final long elapsed=stopTime-startTime;
 		timeMeasurementsUsage.incrementAndGet();
 		elapsedTimeUsage.addAndGet(elapsed);
 		lastTimeUsage.set(elapsed);
 	}
-	
-	/**
+
+/**
 	 * Generates basic server statistics as formatted string.
 	 * Includes query counts, timing information, and data transfer statistics.
 	 * @return Formatted statistics string for display
 	 */
 	private String basicStats(){
-		if(!countQueries){return "";}
+		if(!countQueries){return"";}
 		StringBuilder sb=new StringBuilder(500);
-		
+
 		final long mq=malformedQueries.get();
 		final long iq=internalQueries.get();
 		final long q=queries.get();
@@ -646,11 +656,11 @@ public class DemuxServer {
 		sb.append('\n').append("BytesIn:   ").append(bytesIn.get());
 		sb.append('\n').append("BytesOut:  ").append(bytesOut.get());
 		sb.append('\n');
-		
+
 		return sb.toString();
 	}
-	
-	/**
+
+/**
 	 * Analyzes and logs information about incoming HTTP requests.
 	 * Determines if request is from local or remote address and optionally prints
 	 * IP addresses, headers, and other diagnostic information.
@@ -662,15 +672,15 @@ public class DemuxServer {
 	 * @param printHeaders Whether to print HTTP headers
 	 * @return true if request is from local address, false if remote
 	 */
-	private static boolean printQuery(HttpExchange t, 
+	private static boolean printQuery(HttpExchange t,
 			String prefix, boolean allowLocalHost, boolean printIP, boolean printHeaders){
-		
+
 		InetSocketAddress client=t.getRemoteAddress();
 		InetSocketAddress server=t.getLocalAddress();
-		
+
 		Headers requestHeaders=t.getRequestHeaders();
 		final String xff=requestHeaders.getFirst("X-forwarded-for");
-		
+
 		if(printIP){
 			final String country=requestHeaders.getFirst("Cf-ipcountry");
 			final String agent=requestHeaders.getFirst("User-agent");
@@ -679,14 +689,14 @@ public class DemuxServer {
 			System.err.println("Ipc="+country);
 			System.err.println("Agent="+agent);
 		}
-		
-		//This is for IPv4, class A.  Probably extends outside of Berkeley.
+
+//This is for IPv4, class A.  Probably extends outside of Berkeley.
 		String clientAddress=client.toString();
 		String serverAddress=server.toString();
-		
-		if(clientAddress.contains("127.0.0.1") || 
+
+		if(clientAddress.contains("127.0.0.1") ||
 				clientAddress.contains("/0:0:0:0:0:0:0:1:")){//TODO: contains versus startsWith?
-			
+
 			if(printHeaders){
 				Headers responseHeaders=t.getResponseHeaders();
 				System.err.println("\nRequest: ");
@@ -698,7 +708,7 @@ public class DemuxServer {
 					System.err.println(entry.getKey()+" -> "+entry.getValue());
 				}
 			}
-			
+
 //			final String xff=requestHeaders.getFirst("X-forwarded-for");
 			if(xff!=null){
 				if(xff.startsWith(prefix)){
@@ -716,15 +726,15 @@ public class DemuxServer {
 				return true;
 			}
 		}
-		
-		//Makes sure they match up to the first delimiter
-		//TODO: This needs to be reviewed
+
+//Makes sure they match up to the first delimiter
+//TODO: This needs to be reviewed
 		for(int i=0, max=Tools.max(clientAddress.length(), serverAddress.length()); i<max; i++){
 			char cc=clientAddress.charAt(i), sc=serverAddress.charAt(i);
 			if(cc!=sc){break;}
 			if(cc=='.'){//IPv4
 				System.err.println("@Local");
-				return true; 
+				return true;
 			}else if(cc==':'){//IPv6; probably depends on how long the mask is
 				System.err.println("@Local");
 				return true;
@@ -734,19 +744,19 @@ public class DemuxServer {
 		System.err.println("@Remote");
 		return false;
 	}
-	
-	/*--------------------------------------------------------------*/
-	/*----------------        Nested Classes        ----------------*/
-	/*--------------------------------------------------------------*/
-	
-	/**
+
+/*--------------------------------------------------------------*/
+/*----------------        Nested Classes        ----------------*/
+/*--------------------------------------------------------------*/
+
+/**
 	 * Simple pair class for storing barcode key-value assignments.
 	 * Implements Comparable for consistent sorting by value then key.
 	 * @author Brian Bushnell
 	 */
 	static class Pair implements Comparable<Pair> {
-		
-		/**
+
+/**
 		 * Constructs a new barcode assignment pair.
 		 * @param a_ Key string (observed barcode)
 		 * @param b_ Value string (assigned barcode)
@@ -755,108 +765,108 @@ public class DemuxServer {
 			a=a_;
 			b=b_;
 		}
-		
+
 		@Override
-		public int compareTo(Pair o) {
+		public int compareTo(Pair o){
 			int x=b.compareTo(o.b);
 			return x!=0 ? x : a.compareTo(o.a);
 		}
-		
-		/** Returns string representation of the pair as "key,value".
+
+/** Returns string representation of the pair as "key,value".
 		 * @return Comma-separated string representation */
-		public final String toString() {return a+","+b;}
-		
-		/** Value string of the barcode pair */
-		/** Key string of the barcode pair */
+		public final String toString(){return a+","+b;}
+
+/** Value string of the barcode pair */
+/** Key string of the barcode pair */
 		final String a, b;
-		
+
 	}
-	
-	/*--------------------------------------------------------------*/
-	/*----------------           Counters           ----------------*/
-	/*--------------------------------------------------------------*/
-	
+
+/*--------------------------------------------------------------*/
+/*----------------           Counters           ----------------*/
+/*--------------------------------------------------------------*/
+
 	private HashMap<String, StringNum> versionMap=new HashMap<String, StringNum>();
 	private AtomicLongArray timesByCount=new AtomicLongArray(10000);
 	private AtomicLongArray queryCounts=new AtomicLongArray(10000);
-	
-	/** Total number of demux queries processed */
+
+/** Total number of demux queries processed */
 	private AtomicLong queries=new AtomicLong(0);
-	/** Same IP address mask */
+/** Same IP address mask */
 	private AtomicLong internalQueries=new AtomicLong(0);
-	/** Number of favicon.ico requests */
+/** Number of favicon.ico requests */
 	private AtomicLong iconQueries=new AtomicLong(0);
-	/** Number of base handler queries */
+/** Number of base handler queries */
 	private AtomicLong baseQueries=new AtomicLong(0);
-	
-	/** Total bytes received from clients */
+
+/** Total bytes received from clients */
 	private AtomicLong bytesIn=new AtomicLong(0);
-	/** Total bytes sent to clients */
+/** Total bytes sent to clients */
 	private AtomicLong bytesOut=new AtomicLong(0);
-	
+
 	private AtomicLong elapsedTimeUsage=new AtomicLong(0);
 	private AtomicLong timeMeasurementsUsage=new AtomicLong(0);
 	private AtomicLong lastTimeUsage=new AtomicLong(0);
-	
+
 	private AtomicLong elapsedTimeRemote=new AtomicLong(0);
 	private AtomicLong timeMeasurementsRemote=new AtomicLong(0);
 	private AtomicLong lastTimeRemote=new AtomicLong(0);
-	
+
 	private AtomicLong elapsedTimeLocal=new AtomicLong(0);
 	private AtomicLong timeMeasurementsLocal=new AtomicLong(0);
 	private AtomicLong lastTimeLocal=new AtomicLong(0);
 
 	private AtomicLong malformedQueries=new AtomicLong(0);
-	
-	/*--------------------------------------------------------------*/
-	/*----------------           Fields             ----------------*/
-	/*--------------------------------------------------------------*/
-	
-	/** Whether to print IP address information for debugging */
+
+/*--------------------------------------------------------------*/
+/*----------------           Fields             ----------------*/
+/*--------------------------------------------------------------*/
+
+/** Whether to print IP address information for debugging */
 	private boolean printIP=true;
-	/** Whether to print HTTP headers for debugging */
+/** Whether to print HTTP headers for debugging */
 	private boolean printHeaders=false;
-	/** Whether to maintain query count statistics */
+/** Whether to maintain query count statistics */
 	private boolean countQueries=true;
-	
-	/** Whether to allow connections from localhost */
+
+/** Whether to allow connections from localhost */
 	final boolean allowLocalHost;
-	/** IP address prefix considered as local network */
+/** IP address prefix considered as local network */
 	final String addressPrefix;
-	/** Address of current server instance (optional) */
+/** Address of current server instance (optional) */
 	private String domain=null;
 
-	
-	
-	/** Server start time as formatted date string */
+
+
+/** Server start time as formatted date string */
 	private final String startTime=new Date().toString();
-	
-	/** Listen on this port */
+
+/** Listen on this port */
 	private final int port;
-	/** Number of threads for handling HTTP requests */
+/** Number of threads for handling HTTP requests */
 	int handlerThreads=0;
-	
-	/** HTTP server instance for handling requests */
+
+/** HTTP server instance for handling requests */
 	private final HttpServer httpServer;
-	/** Whether to use HTML formatting in responses */
+/** Whether to use HTML formatting in responses */
 	private boolean useHtml=false;
-	/** Secret code required to remotely shutdown the server */
+/** Secret code required to remotely shutdown the server */
 	private String killCode=null;
-	
-	/** File path to favicon.ico resource */
+
+/** File path to favicon.ico resource */
 	private final String favIconPath=Data.findPath("?favicon.ico");
-	/** Favicon.ico data as byte array for HTTP responses */
+/** Favicon.ico data as byte array for HTTP responses */
 	private final byte[] favIcon=ReadWrite.readRaw(favIconPath);
-	
-	/*--------------------------------------------------------------*/
-	/*----------------        Common Fields         ----------------*/
-	/*--------------------------------------------------------------*/
-	
-	/** Print status messages to this output stream */
+
+/*--------------------------------------------------------------*/
+/*----------------        Common Fields         ----------------*/
+/*--------------------------------------------------------------*/
+
+/** Print status messages to this output stream */
 	private PrintStream outstream=System.err;
-	/** Print verbose messages */
+/** Print verbose messages */
 	private static boolean verbose=false, verbose2=false, logUsage=false;
-	/** True if an error was encountered */
+/** True if an error was encountered */
 	private boolean errorState=false;
-	
+
 }

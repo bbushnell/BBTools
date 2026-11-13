@@ -100,9 +100,11 @@ Note: prob and tile mode may require a license.
 Server Parameters (for prob Mode only):
 server=auto     true:  Barcode counts are sent to a remote server for 
                        processing, and barcode assignments are sent back.
+                       Only probability mode is supported by the server;
+                       explicit hdist or tile modes require server=f.
                 false: Barcode counts are processed locally.
-                auto:  Sets flag to false unless the local machine contains
-                       proprietary probabilistic processing code.
+                auto:  Uses the server for probability mode when the local
+                       probabilistic implementation is unavailable.
 
 Sensitivity Cutoff Parameters for Prob/Tile Mode:
 maxhdist=6     Maximum Hamming distance (number of mismatches) allowed.
@@ -137,7 +139,18 @@ clearzone=1     (cz) Minimum difference between the closest and second-closest
                 clearzone is set to at most 2.  Lower values increase both
                 yield and crosstalk.
 
-Buffering Parameters:
+Modern Output Parameters (opt-in):
+multiwriter=f   Use the direct MultiFileWriter output path with ST/ZT Writers.
+multiwritermode=auto  Choose auto, st, or zt for leaf execution.  Compression
+                runs on the leaf or caller thread without external compressors.
+multiwriterfiles=50   Physical file cap including unmatched files and mates.
+multiwriterbuffer=64m Estimated matched-read routing budget; writer buffers,
+                cardinality trackers, and input batches require additional memory.
+                Modern batches contain at most 256 entries or about 1MB of reads.
+                minreads, loglog, writeempty, and ordinary output options apply.
+                printretiretime reports modern counts and finalization duration.
+
+Legacy Buffering Parameters (multiwriter=f):
 streams=8       Allow at most this many active streams.  The actual number
                 of open files will be 1 greater than this if outu is set,
                 and doubled if output is paired and written in twin files 

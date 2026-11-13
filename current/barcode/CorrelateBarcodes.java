@@ -27,11 +27,17 @@ import tracker.ReadStats;
 
 /**
  * Correlates barcode quality with read quality and generates quality histograms.
- * Processes reads with embedded barcodes in their identifiers, extracts barcode sequences and quality scores, and analyzes their relationship to read quality, with optional filtering by barcode quality.
+ * The first two underscore-separated fields of each primary read's ID supply the
+ * barcode sequence and Phred+33 qualities. One barcode observation describes a
+ * fragment; the same barcode quality is correlated separately with each mate.
+ * Histograms describe all processed fragments, including those rejected for output.
+ * This serial processor owns mutable counters and changes process-wide I/O/statistics
+ * settings. Quality histograms have 100 bins; the correlation report emits rows
+ * 0 through 99, including empty rows, for the supported quality domain.
  * @author Brian Bushnell
  * @date June 20, 2014
  */
-public class CorrelateBarcodes {
+public class CorrelateBarcodes{
 
 	public static void main(String[] args){
 		Timer t=new Timer();
@@ -178,8 +184,9 @@ public class CorrelateBarcodes {
 	}
 	
 	/**
-	 * Main processing method that reads input sequences and analyzes barcode quality.
-	 * Extracts barcodes from read identifiers, computes quality correlations, filters reads based on barcode quality thresholds, and generates correlation matrices and quality histograms.
+	 * Reads barcode metadata, accumulates quality correlations and optionally writes
+	 * accepted fragments and histograms. Input IDs must contain the sequence/quality
+	 * fields in the required layout; malformed or out-of-range metadata is not normalized.
 	 * @param t Timer for tracking processing time and generating performance statistics
 	 */
 	void process(Timer t){
@@ -279,6 +286,7 @@ public class CorrelateBarcodes {
 						readsProcessed++;
 						basesProcessed+=initialLength1;
 						final int q1=r1.avgQualityByProbabilityInt(true, 0);
+						//BAR208: both axes include the supported configured quality range.
 						qualCor1[q1][qbar]++;
 					}
 					if(r2!=null){
@@ -297,7 +305,8 @@ public class CorrelateBarcodes {
 				ArrayList<Read> listOut=reads;
 				
 				if(ros!=null){
-					if(minBarcodeAverageQuality>0){
+					//BAR207: either enabled cutoff can mark a fragment discarded.
+					if(minBarcodeAverageQuality>0 || minBarcodeMinQuality>0){
 						listOut=new ArrayList<Read>(reads.size());
 						for(Read r : reads){
 							if(!r.discarded()){listOut.add(r);}
@@ -407,14 +416,20 @@ public class CorrelateBarcodes {
 	private String aqhist=null;
 	private String mqhist=null;
 
+	/** Minimum probability-derived average barcode quality for retaining a fragment. */
 	private float minBarcodeAverageQuality=0;
+	/** Minimum individual barcode quality for retaining a fragment. */
 	private int minBarcodeMinQuality=0;
 
-	private long[][] qualCor1=new long[50][50];
-	private long[][] qualCor2=new long[50][50];
+	/** Covers supported raw Phred values through 93 and probability-derived averages through 60. */
+	private static final int QUALITY_BINS=100;
+	/** Read-quality by barcode-quality counts for each mate, with the same domain as the histograms. */
+	private long[][] qualCor1=new long[QUALITY_BINS][QUALITY_BINS];
+	private long[][] qualCor2=new long[QUALITY_BINS][QUALITY_BINS];
 
-	private long[] aqhistArray=new long[100];
-	private long[] mqhistArray=new long[100];
+	/** Per-fragment barcode average- and minimum-quality histograms, before output filtering. */
+	private long[] aqhistArray=new long[QUALITY_BINS];
+	private long[] mqhistArray=new long[QUALITY_BINS];
 	
 	/*--------------------------------------------------------------*/
 

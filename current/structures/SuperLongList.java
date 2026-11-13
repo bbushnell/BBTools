@@ -164,10 +164,11 @@ public class SuperLongList {
 
 	/**
 	 * Returns the value at a count percentile, after the overflow list is sorted.
+	 * At percentile 1 the target is the exact integer count.
 	 */
 	public long percentileValueByCount(double percentile){
 //		assert(sorted);
-		long thresh=(long)(count*percentile);
+		final long thresh=percentileThreshold(count, percentile);
 		long currentSum=0;
 		long currentCount=0;
 		for(int i=0; i<array.length; i++){
@@ -191,11 +192,11 @@ public class SuperLongList {
 
 	/**
 	 * Returns the value that crosses a cumulative-sum percentile, after the
-	 * overflow list is sorted.
+	 * overflow list is sorted. At percentile 1 the target is the exact integer sum.
 	 */
 	public long percentileValueBySum(double percentile){
 //		assert(sorted);
-		long thresh=(long)(sum*percentile);
+		final long thresh=percentileThreshold(sum, percentile);
 		long currentSum=0;
 		long currentCount=0;
 		for(int i=0; i<array.length; i++){
@@ -219,11 +220,11 @@ public class SuperLongList {
 
 	/**
 	 * Returns the sum of the lowest values through a count percentile, after the
-	 * overflow list is sorted.
+	 * overflow list is sorted. At percentile 1 the target is the exact integer count.
 	 */
 	public long percentileSumByCount(double percentile){
 //		assert(sorted);
-		long thresh=(long)(count*percentile);
+		final long thresh=percentileThreshold(count, percentile);
 		long currentSum=0;
 		long currentCount=0;
 		for(int i=0; i<array.length; i++){
@@ -255,11 +256,12 @@ public class SuperLongList {
 
 	/**
 	 * Returns how many lowest values are needed to cross a cumulative-sum
-	 * percentile, after the overflow list is sorted.
+	 * percentile, after the overflow list is sorted. At percentile 1 the target
+	 * is the exact integer sum.
 	 */
 	public long percentileCountBySum(double percentile){
 //		assert(sorted);
-		long thresh=(long)(sum*percentile);
+		final long thresh=percentileThreshold(sum, percentile);
 		long currentSum=0;
 		long currentCount=0;
 		for(int i=0; i<array.length; i++){
@@ -287,6 +289,15 @@ public class SuperLongList {
 		}
 		assert(false) : percentile+", "+count+", "+sum;
 		return 0;
+	}
+
+	/**
+	 * Keeps the 100-percent target exact; a double conversion can round a large
+	 * total above its reachable value or below the final bin. Other fractions
+	 * retain the existing truncated double product.
+	 */
+	private static long percentileThreshold(final long total, final double percentile){
+		return percentile==1 ? total : (long)(total*percentile);
 	}
 
 	/** Returns the highest present value by scanning the overflow list if needed. */

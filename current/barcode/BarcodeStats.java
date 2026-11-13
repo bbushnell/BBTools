@@ -2,6 +2,7 @@ package barcode;
 
 import java.io.File;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
@@ -22,13 +23,16 @@ import structures.LongList;
  * Analyzes barcode frequencies and quality from sequencing data.
  * Tracks expected vs observed barcodes, error distances, and pair validation
  * for single or dual-indexed barcode systems.
+ * Mutable maps, counters and alignment scratch belong to one caller; merge input
+ * counts before the single calcStats pass. Expected Barcode objects may be shared
+ * by addExpectedCodes/copySpecial and are incremented during calculation.
  *
  * @author Brian Bushnell
  * @date June 3, 2025
  */
-public class BarcodeStats {
+public class BarcodeStats{
 	
-	public static void main(String[] args) {
+	public static void main(String[] args){
 		
 		String fname=args[0];
 		int codesPerRead=(args.length>1 ? Integer.parseInt(args[1]) : 1);
@@ -36,9 +40,9 @@ public class BarcodeStats {
 		String expected=(args.length>3 ? args[3] : null);
 		
 		BarcodeStats bs=new BarcodeStats(delimiter, codesPerRead, null);
-		if(expected!=null) {bs.loadBarcodeList(expected, delimiter, false, false);}
+		if(expected!=null){bs.loadBarcodeList(expected, delimiter, false, false);}
 		bs.loadBarcodeCounts(fname);
-		if(codesPerRead>1) {
+		if(codesPerRead>1){
 			bs.leftStats=bs.makeLeft();
 			bs.rightStats=bs.makeRight();
 			bs.leftStats.calcStats();
@@ -61,11 +65,11 @@ public class BarcodeStats {
 	
 	/**
 	 * Constructs BarcodeStats for analyzing barcode data.
-	 * @param delimiter_ Character separating paired barcodes (0 for single)
+	 * @param delimiter_ Character separating paired barcodes (0 when none is specified)
 	 * @param barcodesPerRead_ Number of barcodes per read (1 or 2)
 	 * @param label_ Optional label for this analysis instance
 	 */
-	public BarcodeStats(int delimiter_, int barcodesPerRead_, String label_) {
+	public BarcodeStats(int delimiter_, int barcodesPerRead_, String label_){
 		delimiter=(char)delimiter_;
 		assert(delimiter==delimiter_) : "Invalid delimiter; character value "+delimiter_;
 		barcodesPerRead=barcodesPerRead_;
@@ -79,32 +83,54 @@ public class BarcodeStats {
 
 	
 	/**
-	 * Loads a set of barcodes from a set of barcodes or filenames.
-	 * They can have a tab after them with more stuff, which will be trimmed.
-	 * Modifies the input set.
+	 * Expands names/files in place and requires equal resulting name lengths.
+	 * Retains legacy generic-name handling: normalization occurs only for a positive
+	 * delimiter or requested reverse complement. Barcode-only callers can explicitly
+	 * normalize suffixes with the six-argument overload (BAR210).
 	 */
 	public static LinkedHashSet<String> loadBarcodeSet(LinkedHashSet<String> barcodeSet,
 			byte barcodeDelimiter, boolean rcIndex1, boolean rcIndex2){
 		return loadBarcodeSet(barcodeSet, barcodeDelimiter, rcIndex1, rcIndex2, true);
 	}
 
+	/** Expands files/literals with legacy transformation rules and optional uniform lengths.
+	 * Returns null for a null or empty input set; file lines are not filtered as comments. */
 	public static LinkedHashSet<String> loadBarcodeSet(LinkedHashSet<String> barcodeSet,
 			byte barcodeDelimiter, boolean rcIndex1, boolean rcIndex2, boolean requireUniformLength){
-		if(barcodeSet==null || barcodeSet.isEmpty()) {return null;}
+		return loadBarcodeSet(barcodeSet, barcodeDelimiter, rcIndex1, rcIndex2, requireUniformLength, false);
+	}
+
+	/**
+	 * Expands files/literals in place, optionally normalizing explicitly identified barcode names.
+	 * BAR210: barcode contexts can strip tab suffixes even without a delimiter or reverse complement.
+	 * Generic overloads retain their previous rules. fixBarcode preserves genuine tab index separators
+	 * and applies each requested reverse complement once. File lines are not filtered as comments.
+	 * @param barcodeSet Mutable ordered set of names or filenames
+	 * @param barcodeDelimiter Dual-index separator, or 0 when absent
+	 * @param rcIndex1 Reverse complement the first index
+	 * @param rcIndex2 Reverse complement the second index
+	 * @param requireUniformLength Require equal resulting lengths after transformations
+	 * @param normalizeBarcode Normalize barcode suffixes even when delimiter and RC options are unset
+	 * @return The same mutated set, or null for a null or empty input set
+	 */
+	public static LinkedHashSet<String> loadBarcodeSet(LinkedHashSet<String> barcodeSet,
+			byte barcodeDelimiter, boolean rcIndex1, boolean rcIndex2, boolean requireUniformLength,
+			boolean normalizeBarcode){
+		if(barcodeSet==null || barcodeSet.isEmpty()){return null;}
 		int barcodeLength=0;
 
 		//Handle names
 		@SuppressWarnings("unchecked")
 		LinkedHashSet<String> tempSet=new LinkedHashSet<String>(barcodeSet);
 		barcodeSet.clear();
-		for(String s : tempSet) {
+		for(String s : tempSet){
 			File f=new File(s);
 			if(f.exists() && f.isFile()){//Read the file
 				TextFile tf=new TextFile(s);
 				String[] lines=tf.toStringLines();
 				for(String line : lines){
 //					assert(false) : "'"+Character.toString(barcodeDelimiter)+"'="+((int)(barcodeDelimiter));
-					if(barcodeDelimiter>0 || rcIndex1 || rcIndex2) {
+					if(normalizeBarcode || barcodeDelimiter>0 || rcIndex1 || rcIndex2){
 						line=BarcodeStats.fixBarcode(line, barcodeDelimiter, rcIndex1, rcIndex2);
 						assert(barcodeDelimiter<1 || line.indexOf(barcodeDelimiter)>=0) :
 							line+", "+barcodeDelimiter;
@@ -115,7 +141,7 @@ public class BarcodeStats {
 					barcodeSet.add(line);
 				}
 			}else{
-				if(barcodeDelimiter>0 || rcIndex1 || rcIndex2) {
+				if(normalizeBarcode || barcodeDelimiter>0 || rcIndex1 || rcIndex2){
 					s=BarcodeStats.fixBarcode(s, barcodeDelimiter, rcIndex1, rcIndex2);
 					assert(barcodeDelimiter<1 || s.indexOf(barcodeDelimiter)>=0) :
 						s+", "+barcodeDelimiter;
@@ -134,14 +160,14 @@ public class BarcodeStats {
 	 * @param forceDelimiter Character to use as delimiter (overwrites existing)
 	 * @param rcIndex1 Reverse complement first barcode
 	 * @param rcIndex2 Reverse complement second barcode
-	 * @return Number of barcodes loaded
+	 * @return Total expected-list size after loading, or 0 for a null argument; list entries are not deduplicated
 	 */
 	public int loadBarcodeList(String fname, int forceDelimiter, boolean rcIndex1, boolean rcIndex2){
 		if(fname==null){return 0;}
 		String[] codes;
-		if(new File(fname).exists()) {
+		if(new File(fname).exists()){
 			codes=TextFile.toStringLines(fname);
-		}else {
+		}else{
 			codes=fname.split(",");
 		}
 		for(int i=0; i<codes.length; i++){
@@ -162,12 +188,12 @@ public class BarcodeStats {
 	
 //	//For the special case of barcode <tab> count, like CountBarcodes2's output
 //	//Now handled by fixBarcode
-//	private static String removeTab(String s) {
+//	private static String removeTab(String s){
 //		int tab=s.indexOf('\t');
-//		if(tab<0) {return s;}
-//		for(int i=tab+1; i<s.length(); i++) {
+//		if(tab<0){return s;}
+//		for(int i=tab+1; i<s.length(); i++){
 //			char c=s.charAt(i);
-//			if(!Tools.isDigit(c) && c!='\t') {return s;}
+//			if(!Tools.isDigit(c) && c!='\t'){return s;}
 //		}
 //		return s.substring(0, tab);
 //	}
@@ -180,11 +206,11 @@ public class BarcodeStats {
 	 * @param rcIndex2 Reverse complement second barcode
 	 * @return Standardized barcode string
 	 */
-	public static String fixBarcode(String s, int delimiter, boolean rcIndex1, boolean rcIndex2) {
-		if(s==null) {return null;}
+	public static String fixBarcode(String s, int delimiter, boolean rcIndex1, boolean rcIndex2){
+		if(s==null){return null;}
 		final int tab=s.indexOf('\t');
-		if(delimiter!='\t' && tab>0) {s=s.substring(0, tab);}
-		if(delimiter>0) {s=fixDelimiter(s, delimiter);}
+		if(delimiter!='\t' && tab>0){s=s.substring(0, tab);}
+		if(delimiter>0){s=fixDelimiter(s, delimiter);}
 		s=rcompBarcode(s, delimiter, rcIndex1, rcIndex2);
 		return s;
 	}
@@ -197,12 +223,12 @@ public class BarcodeStats {
 	 * @param rcIndex2 Reverse complement second barcode
 	 * @return Barcode with reverse complements applied
 	 */
-	public static String rcompBarcode(String s, int delimiter, boolean rcIndex1, boolean rcIndex2) {
-		if(s==null || (!rcIndex1 && !rcIndex2)) {return s;}
+	public static String rcompBarcode(String s, int delimiter, boolean rcIndex1, boolean rcIndex2){
+		if(s==null || (!rcIndex1 && !rcIndex2)){return s;}
 		int idx=s.indexOf((char)delimiter);
-		if(idx<0) {
+		if(idx<0){
 			return rcIndex1 ? AminoAcid.reverseComplementBases(s) : s;
-		}else {
+		}else{
 			String a=s.substring(0, idx);
 			String b=s.substring(idx+1);
 			a=(rcIndex1 ? AminoAcid.reverseComplementBases(a) : a);
@@ -212,16 +238,17 @@ public class BarcodeStats {
 	}
 	
 	/**
-	 * Replaces first non-letter character with specified delimiter.
+	 * Finds the first non-letter character and replaces every occurrence of that
+	 * character with the requested delimiter. A preexisting requested delimiter leaves the name unchanged.
 	 * @param s Input barcode string
 	 * @param forceDelimiter Character to use as new delimiter
-	 * @return String with delimiter replaced
+	 * @return Original or normalized string; null remains null
 	 */
-	public static String fixDelimiter(String s, int forceDelimiter) {
-		if(s==null || forceDelimiter<1 || s.indexOf(forceDelimiter)>=0) {return s;}
-		for(int i=0; i<s.length(); i++) {
+	public static String fixDelimiter(String s, int forceDelimiter){
+		if(s==null || forceDelimiter<1 || s.indexOf(forceDelimiter)>=0){return s;}
+		for(int i=0; i<s.length(); i++){
 			char c=s.charAt(i);
-			if(!Character.isLetter(c)) {
+			if(!Character.isLetter(c)){
 				return s.replace(c, (char)forceDelimiter);
 			}
 		}
@@ -233,7 +260,7 @@ public class BarcodeStats {
 	 * Loads barcode counts from tab-delimited file.
 	 * Expected format: barcode\tcount per line.
 	 * @param fname Input filename
-	 * @return Number of barcode entries processed
+	 * @return Number of non-comment entries processed, including duplicate names whose counts were merged
 	 */
 	public long loadBarcodeCounts(String fname){
 		LineParser2 lp=new LineParser2('\t');
@@ -263,21 +290,20 @@ public class BarcodeStats {
 	//TODO: Add load from fastq
 	
 	/**
-	 * Creates single-barcode statistics from dual-barcode data.
+	 * Creates independent component counts and expected Barcode objects from dual-index data.
+	 * Does not calculate aggregate statistics. Positive delimiters use their actual position
+	 * and retain the supplied component length metadata. Delimiterless names split at the
+	 * midpoint; child length metadata is inferred from all extracted expected/observed names,
+	 * or 0 when their lengths differ or no names are present. Parent metadata is unchanged.
 	 * @param pairnum Which barcode to extract (0=left, 1=right)
 	 * @return New BarcodeStats containing only specified barcode position
 	 */
-	public BarcodeStats split(int pairnum) {
+	public BarcodeStats split(int pairnum){
 		assert(barcodesPerRead==2) : barcodesPerRead;
 		BarcodeStats split=new BarcodeStats((char)0, 1, pairnum==0 ? "Left" : "Right");
 		split.length1=(pairnum==0 ? length1 : length2);
-		//REACHABILITY NOTE (re [barcode/Barcode#001]): getStringForPairnum below splits on `delimiter`. Its buggy
-		//no-delimiter MIDPOINT branch (pos=len/2+1, mis-splits even-length concatenated dual indices) fires only when
-		//delimiter==0. The live pipeline never reaches it here: loadStatic sets barcodesPerRead=2 ONLY when a
-		//delimiter>0 was detected (delimiter<=0 -> single, barcodesPerRead=1), and split() asserts barcodesPerRead==2.
-		//So "dual here" implies delimiter>0 implies the correct delimiter path. Only BarcodeStats.main() (arg-driven
-		//test entry) could pass delimiter==0 with codesPerRead=2 and trip #001 -> keeps Barcode#001 latent-LOW.
-		for(Barcode b : expectedCodeList) {
+		//BAR203: automatic loading detects dual names by delimiter; explicit constructor/main callers can request midpoint splits.
+		for(Barcode b : expectedCodeList){
 			split.addExpectedCode(b.getStringForPairnum(pairnum, delimiter));
 		}
 		for(Entry<String, Barcode> e : codeMap.entrySet()){
@@ -286,7 +312,23 @@ public class BarcodeStats {
 			split.increment(code, b.count());
 //			assert(false) : b.count()+", "+codeMap.size()+", "+split.codeMap.get(code);
 		}
+		if(delimiter==0){split.length1=split.uniformComponentLength();}
 		return split;
+	}
+
+	/** Returns the common actual component length across expected and observed names, or 0 for mixed/no names. */
+	private int uniformComponentLength(){
+		assert(barcodesPerRead==1) : "Component length is inferred only after split creates a single-index child.";
+		int length=-1;
+		for(final Barcode b : expectedCodeList){
+			if(length<0){length=b.length();}
+			else if(length!=b.length()){return 0;}
+		}
+		for(final Barcode b : codeMap.values()){
+			if(length<0){length=b.length();}
+			else if(length!=b.length()){return 0;}
+		}
+		return Tools.max(0, length);
 	}
 	
 	/**
@@ -294,7 +336,7 @@ public class BarcodeStats {
 	 * @param fname Filename to analyze
 	 * @return Delimiter character code or -1 if none found
 	 */
-	public static int findDelimiter(String fname) {
+	public static int findDelimiter(String fname){
 		TextFile tf=new TextFile(fname);
 		int delimiter=-1;
 		for(String line=tf.nextLine(); line!=null && delimiter==-1; line=tf.nextLine()){
@@ -315,13 +357,13 @@ public class BarcodeStats {
 	 * @param expectedBarcodeCount Number of top barcodes to treat as expected
 	 * @return Loaded BarcodeStats instance
 	 */
-	public static BarcodeStats loadStatic(String fname, String expectedBarcodeFile, int expectedBarcodeCount) {
+	public static BarcodeStats loadStatic(String fname, String expectedBarcodeFile, int expectedBarcodeCount){
 		BarcodeStats bs=loadStatic(fname);
 		if(expectedBarcodeFile!=null){
 			bs.loadBarcodeList(expectedBarcodeFile, bs.delimiter, false, false);
-		}else if(expectedBarcodeCount>0) {
+		}else if(expectedBarcodeCount>0){
 			ArrayList<Barcode> list=bs.toList();
-			for(int i=0, max=Tools.min(expectedBarcodeCount, list.size()); i<max; i++) {
+			for(int i=0, max=Tools.min(expectedBarcodeCount, list.size()); i<max; i++){
 				Barcode b=list.get(i);
 				bs.addExpectedCode(b.name);
 			}
@@ -335,7 +377,7 @@ public class BarcodeStats {
 	 * @param fname Barcode count file
 	 * @return Loaded BarcodeStats instance
 	 */
-	public static BarcodeStats loadStatic(String fname) {
+	public static BarcodeStats loadStatic(String fname){
 		int delimiter=findDelimiter(fname);
 		BarcodeStats bs=new BarcodeStats(delimiter>0 ? delimiter : 0, delimiter>0 ? 2 : 1, null);
 		bs.loadBarcodeCounts(fname);
@@ -343,17 +385,18 @@ public class BarcodeStats {
 	}
 	
 	/** Creates statistics for left barcodes only from dual-barcode data */
-	public BarcodeStats makeLeft() {return split(0);}
+	public BarcodeStats makeLeft(){return split(0);}
 	/** Creates statistics for right barcodes only from dual-barcode data */
-	public BarcodeStats makeRight() {return split(1);}
+	public BarcodeStats makeRight(){return split(1);}
 	
 	/*--------------------------------------------------------------*/
 	/*----------------            Methods           ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Copies expected barcode list from another BarcodeStats instance.
+	/** Copies expected collection entries, sharing the mutable Barcode objects.
+	 * The destination list must be empty; later calcStats calls can change shared counts.
 	 * @param bs Source BarcodeStats containing expected barcodes */
-	public void addExpectedCodes(BarcodeStats bs) {
+	public void addExpectedCodes(BarcodeStats bs){
 		assert(expectedCodeList.isEmpty());
 		expectedCodeList.addAll(bs.expectedCodeList);
 		expectedCodeMap.putAll(bs.expectedCodeMap);
@@ -364,17 +407,18 @@ public class BarcodeStats {
 	 * @param s Barcode sequence string
 	 * @return 1 if added, 0 if already exists
 	 */
-	public int addExpectedCode(String s) {
+	public int addExpectedCode(String s){
 		if(expectedCodeMap.containsKey(s)){return 0;}
 		return addExpectedCode(new Barcode(s));
 	}
 	
 	/**
 	 * Adds Barcode object to expected list if not already present.
+	 * Retains the supplied mutable object rather than cloning it.
 	 * @param b Barcode object to add
 	 * @return 1 if added, 0 if already exists
 	 */
-	public int addExpectedCode(Barcode b) {
+	public int addExpectedCode(Barcode b){
 		if(expectedCodeMap.containsKey(b.name)){return 0;}
 		expectedCodeMap.put(b.name, b);
 		expectedCodeList.add(b);
@@ -387,7 +431,7 @@ public class BarcodeStats {
 	 * @param key Barcode sequence string
 	 * @param amt Count to add
 	 */
-	public void increment(String key, long amt) {
+	public void increment(String key, long amt){
 		Barcode b=codeMap.get(key);
 		if(b==null){
 			b=new Barcode(key);
@@ -402,14 +446,14 @@ public class BarcodeStats {
 	 * @param amt Count to add
 	 * @param tile Sequencing tile identifier
 	 */
-	public void increment(String key, long amt, int tile) {
+	public void increment(String key, long amt, int tile){
 		final String key2=(tile==0 ? key : key+tile);
 		Barcode b=codeMap.get(key2);
 		if(b==null){
 			b=new Barcode(key);
 			b.tile=tile;
 			codeMap.put(key2, b);
-		}else {
+		}else{
 			assert(b.tile==tile);
 		}
 		b.increment(amt);
@@ -420,7 +464,7 @@ public class BarcodeStats {
 	 * @param key Barcode sequence string
 	 * @param amt Count to add
 	 */
-	public void incrementBad(String key, long amt) {
+	public void incrementBad(String key, long amt){
 		Barcode b=badPairMap.get(key);
 		if(b==null){
 			b=new Barcode(key);
@@ -434,7 +478,7 @@ public class BarcodeStats {
 	 * @param key Barcode sequence string
 	 * @param amt Count to add
 	 */
-	public void incrementGood(String key, long amt) {
+	public void incrementGood(String key, long amt){
 		Barcode b=goodPairMap.get(key);
 		if(b==null){
 			b=new Barcode(key);
@@ -449,14 +493,14 @@ public class BarcodeStats {
 	 * @param count Number of occurrences
 	 * @param transitions List to store transition data
 	 */
-	public void incrementMismatches(final String s, final long count, LongList transitions) {
+	public void incrementMismatches(final String s, final long count, LongList transitions){
 		final Barcode b=findClosest(s, 6, 1);
-		if(b==null) {return;}
+		if(b==null){return;}
 		final String s2=b.name;
-		for(int i=0; i<s.length(); i++) {
+		for(int i=0; i<s.length(); i++){
 			final char q=s.charAt(i), r=s2.charAt(i);
-			if(Tools.isLetter(q) && r!='N') {
-				if(q!=r) {
+			if(Tools.isLetter(q) && r!='N'){
+				if(q!=r){
 					incrementMismatch(i, r, q, count, transitions);
 				}
 			}
@@ -472,13 +516,13 @@ public class BarcodeStats {
 	 * @param incr Count increment
 	 * @param transitions List to store encoded transition
 	 */
-	public void incrementMismatch(int pos, int ref, int query, long incr, LongList transitions) {
+	public void incrementMismatch(int pos, int ref, int query, long incr, LongList transitions){
 		int idx=Transition.encode(pos, ref, query);
 		transitions.increment(idx, incr);
 	}
 	
 	/** Formats transition data as tab-delimited text output */
-	public ByteBuilder printTransitions() {return printTransitions(transitions, null);}
+	public ByteBuilder printTransitions(){return printTransitions(transitions, null);}
 	
 	/**
 	 * Formats transition data with position, reference, query, and counts.
@@ -486,12 +530,12 @@ public class BarcodeStats {
 	 * @param bb ByteBuilder for output (created if null)
 	 * @return ByteBuilder with formatted transition table
 	 */
-	public static ByteBuilder printTransitions(LongList transitions, ByteBuilder bb) {
-		if(bb==null) {bb=new ByteBuilder();}
+	public static ByteBuilder printTransitions(LongList transitions, ByteBuilder bb){
+		if(bb==null){bb=new ByteBuilder();}
 		ArrayList<Transition> list=new ArrayList<Transition>();
-		for(int i=0; i<transitions.size(); i++) {
+		for(int i=0; i<transitions.size(); i++){
 			long count=transitions.get(i);
-			if(count>0) {
+			if(count>0){
 				Transition t=Transition.decode(i);
 				t.count=count;
 				list.add(t);
@@ -499,7 +543,7 @@ public class BarcodeStats {
 		}
 		Collections.sort(list);
 		bb.append("#pos\tref\tquery\tcount\n");
-		for(Transition t : list) {
+		for(Transition t : list){
 			t.appendTo(bb).nl();
 		}
 //		assert(false) : transitions+"\n"+bb;
@@ -509,12 +553,14 @@ public class BarcodeStats {
 	/**
 	 * Calculates comprehensive barcode statistics including distances and error rates.
 	 * Must be called after loading all data. Analyzes expected vs observed barcodes,
-	 * homopolymer content, N-containing sequences, and edit distances.
+	 * homopolymer content, undefined-base sequences, and edit distances. This method
+	 * accumulates rather than resets counters, expected counts and mismatch tables;
+	 * call it once per assembled instance. Dual pair accounting also updates child maps.
 	 */
-	public void calcStats() {//Should only be called after merging, only on master copy
+	public void calcStats(){//Should only be called after merging, only on master copy
 //		System.err.println(codeMap);
 //		assert(false) : codeMap.size();
-		for(Entry<String, Barcode> e : codeMap.entrySet()) {
+		for(Entry<String, Barcode> e : codeMap.entrySet()){
 			Barcode b=e.getValue();
 			totalCodes+=b.count();
 			totalCodesU++;
@@ -527,7 +573,7 @@ public class BarcodeStats {
 				expectedCodesU++;
 				//validArray[2]+=b.count();
 			}else{
-				if(!expectedCodeList.isEmpty()) {
+				if(!expectedCodeList.isEmpty()){
 					incrementMismatches(b.name, b.count(), transitions);
 				}
 				if(b.countUndefined()>0){
@@ -539,6 +585,7 @@ public class BarcodeStats {
 				}else if(!expectedCodeList.isEmpty() && barcodesPerRead<2){
 					int hdist=calcHdist(b);
 					int edist=(hdist>1 && calcEdist ? calcEdist(b) : hdist);
+					ensureDistanceCapacity(Tools.max(hdist, edist));
 					hdistArray[hdist]+=b.count();
 					edistArray[edist]+=b.count();
 					hdistArrayU[hdist]++;
@@ -546,13 +593,13 @@ public class BarcodeStats {
 				}
 			}
 			
-			if(leftStats!=null && !leftStats.expectedCodeList.isEmpty()) {
+			if(leftStats!=null && !leftStats.expectedCodeList.isEmpty()){
 				assert(rightStats!=null);
 				String left=b.leftString(delimiter);
 				String right=b.rightString(delimiter);
 //				leftStats.increment(left, b.count());
 //				rightStats.increment(right, b.count());
-				if(eb==null) { 
+				if(eb==null){
 					final boolean leftMatched=leftStats.expectedCodeMap.containsKey(left), rightMatched=rightStats.expectedCodeMap.containsKey(right);
 					final int matched=(leftMatched ? 1 : 0)+(rightMatched ? 1 : 0);
 					validArray[matched]+=b.count();
@@ -568,12 +615,12 @@ public class BarcodeStats {
 			}
 		}
 		
-		if(leftStats!=null && !leftStats.expectedCodeList.isEmpty()) {
+		if(leftStats!=null && !leftStats.expectedCodeList.isEmpty()){
 			badPairFraction=(float)(validArray[2]/(1.0*totalCodes));
 			goodPairFraction=(float)(expectedCodes/(1.0*totalCodes));
 		}else{
 			long bad=0, good=0;//This should just give the same result as above, but for left and right...
-			for(Barcode e : expectedCodeList) {
+			for(Barcode e : expectedCodeList){
 				{
 					Barcode bc=badPairMap.get(e.name);
 					bad+=(bc==null ? 0 : bc.count());
@@ -588,21 +635,35 @@ public class BarcodeStats {
 		}
 	}
 	
+	/** Preserves all distance bins when actual names exceed the initial histogram capacity (BAR211). */
+	private void ensureDistanceCapacity(final int distance){
+		assert(distance>=0 && distance<Integer.MAX_VALUE) :
+				"Distance histograms require a representable nonnegative bin and one-past capacity: "+distance;
+		if(distance<hdistArray.length && distance<edistArray.length &&
+				distance<hdistArrayU.length && distance<edistArrayU.length){return;}
+		final int length=Tools.max(distance+1, Tools.max(Tools.max(hdistArray.length, edistArray.length),
+				Tools.max(hdistArrayU.length, edistArrayU.length)));
+		if(hdistArray.length<length){hdistArray=Arrays.copyOf(hdistArray, length);}
+		if(edistArray.length<length){edistArray=Arrays.copyOf(edistArray, length);}
+		if(hdistArrayU.length<length){hdistArrayU=Arrays.copyOf(hdistArrayU, length);}
+		if(edistArrayU.length<length){edistArrayU=Arrays.copyOf(edistArrayU, length);}
+	}
+
 	/**
 	 * Finds expected barcode with minimum Hamming distance to query.
 	 * @param s Query barcode sequence
 	 * @param maxHDist Maximum allowed Hamming distance
 	 * @return Closest expected barcode or null if distance exceeds limit
 	 */
-	public Barcode findClosest(String s, int maxHDist) {
+	public Barcode findClosest(String s, int maxHDist){
 		assert(!expectedCodeList.isEmpty());
 		Barcode best=expectedCodeMap.get(s);
-		if(best!=null || maxHDist<1) {return best;}
+		if(best!=null || maxHDist<1){return best;}
 		int min=s.length();
-		for(int i=0; i<expectedCodeList.size(); i++) {
+		for(int i=0; i<expectedCodeList.size(); i++){
 			Barcode b=expectedCodeList.get(i);
 			int dist=b.hdist(s);
-			if(dist<min) {
+			if(dist<min){
 				best=b;
 				min=dist;
 			}
@@ -619,14 +680,14 @@ public class BarcodeStats {
 	 * @param clearzone Minimum additional distance to second-best match
 	 * @return Unambiguous closest barcode or null if criteria not met
 	 */
-	public Barcode findClosest(String s, int maxHDist, int clearzone) {
+	public Barcode findClosest(String s, int maxHDist, int clearzone){
 		assert(!expectedCodeList.isEmpty());
 		Barcode best=expectedCodeMap.get(s);
 //		Barcode best2=null;
 		
 		//Note:  This ignores cases where you have a perfect match to the wrong barcode,
 		//or two barcodes are within clearzone of each other.
-		if(best!=null || maxHDist<1) {return best;}
+		if(best!=null || maxHDist<1){return best;}
 		int hdist=s.length();
 		int hdist2=hdist;
 		assert(best==null); //Otherwise hdist should be 0.
@@ -635,13 +696,13 @@ public class BarcodeStats {
 		//distance is pushed into hdist2 (the `hdist2=hdist` line) BEFORE best/hdist are overwritten, so hdist2 is
 		//always the true runner-up, never stale. Accept (below) requires hdist+clearzone<=hdist2 (unambiguous). A tie
 		//(d==hdist==hdist2) collapses hdist2 to hdist -> rejected unless clearzone<=0. Verified: [5,3,4],[3,5,4],[3,3].
-		for(int i=0; i<expectedCodeList.size(); i++) {
+		for(int i=0; i<expectedCodeList.size(); i++){
 			Barcode b=expectedCodeList.get(i);
 			int d=b.hdist(s);
-			if(d<hdist2) {
+			if(d<hdist2){
 //				best2=b;
 				hdist2=d;
-				if(d<hdist) {
+				if(d<hdist){
 //					best2=best;
 					hdist2=hdist;
 					best=b;
@@ -649,7 +710,7 @@ public class BarcodeStats {
 				}
 			}
 		}
-		if(hdist<=maxHDist && hdist+clearzone<=hdist2) {return best;}
+		if(hdist<=maxHDist && hdist+clearzone<=hdist2){return best;}
 		return null;
 	}
 	
@@ -659,11 +720,11 @@ public class BarcodeStats {
 	 * @param s Query barcode sequence
 	 * @return Minimum Hamming distance (0 if exact match exists)
 	 */
-	public int calcHdist(String s) {
+	public int calcHdist(String s){
 		assert(!expectedCodeList.isEmpty());
-		if(expectedCodeMap.containsKey(s)) {return 0;}
+		if(expectedCodeMap.containsKey(s)){return 0;}
 		int min=s.length();
-		for(int i=0; i<expectedCodeList.size(); i++) {
+		for(int i=0; i<expectedCodeList.size(); i++){
 			Barcode b=expectedCodeList.get(i);
 			min=Tools.min(min, b.hdist(s));
 		}
@@ -676,13 +737,13 @@ public class BarcodeStats {
 	 * @param b Query barcode object
 	 * @return Minimum Hamming distance to expected barcodes
 	 */
-	public int calcHdist(Barcode b) {
+	public int calcHdist(Barcode b){
 		assert(!expectedCodeList.isEmpty());
 		assert(!expectedCodeMap.containsKey(b.name)) : "Check this first.";
 		int min=b.length();
-		for(Barcode expected : expectedCodeList) {
+		for(Barcode expected : expectedCodeList){
 			min=Tools.min(min, b.hdist(expected));
-			if(min<=1) {
+			if(min<=1){
 				assert(min==1);
 				return min;
 			}
@@ -696,13 +757,13 @@ public class BarcodeStats {
 	 * @param b Query barcode object
 	 * @return Minimum edit distance to expected barcodes
 	 */
-	public int calcEdist(Barcode b) {
+	public int calcEdist(Barcode b){
 		assert(!expectedCodeList.isEmpty());
 		assert(!expectedCodeMap.containsKey(b.name)) : "Check this first.";
 		int min=b.length();
-		for(Barcode expected : expectedCodeList) {
+		for(Barcode expected : expectedCodeList){
 			min=Tools.min(min, b.edist(expected, bandy));
-			if(min<=1) {
+			if(min<=1){
 				assert(min==1);
 				return min;
 			}
@@ -714,18 +775,19 @@ public class BarcodeStats {
 	/*----------------         Distribution         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Creates copy with same configuration and expected barcode list.
-	 * @return New BarcodeStats instance with copied expected barcodes */
-	public BarcodeStats copySpecial() {
+	/** Creates empty observed counts with the same delimiter, code count and label.
+	 * Expected Barcode objects are shared; component stats and length fields are not copied.
+	 * @return New instance with copied expected collections and shared expected objects */
+	public BarcodeStats copySpecial(){
 		BarcodeStats bs=new BarcodeStats(delimiter, barcodesPerRead, label);
 		bs.addExpectedCodes(this);
 		return bs;
 	}
 	
-	/** Merges barcode counts from another BarcodeStats instance.
+	/** Merges observed counts by unsuffixed Barcode name; does not merge derived statistics or tile metadata.
 	 * @param bs Source BarcodeStats to merge counts from */
-	public void merge(BarcodeStats bs) {
-		for(Entry<String, Barcode> e : bs.codeMap.entrySet()) {
+	public void merge(BarcodeStats bs){
+		for(Entry<String, Barcode> e : bs.codeMap.entrySet()){
 			Barcode b=e.getValue();
 			increment(b.name, b.count());
 		}
@@ -735,8 +797,8 @@ public class BarcodeStats {
 	/*----------------           Reporting          ----------------*/
 	/*--------------------------------------------------------------*/
 	
-//	private float badPairFraction() {
-//		if(leftStats!=null) {
+//	private float badPairFraction(){
+//		if(leftStats!=null){
 //			return (float)(validArray[2]/(1.0*totalCodes));
 //		}
 //	}
@@ -747,7 +809,7 @@ public class BarcodeStats {
 	 * @return True if both components match expected but pair doesn't
 	 */
 	public boolean isBadPair(String s){
-		if(expectedCodeMap.containsKey(s)) {return false;}
+		if(expectedCodeMap.containsKey(s)){return false;}
 		String[] split=split(s, delimiter);
 		return leftStats.expectedCodeMap.containsKey(split[0]) && rightStats.expectedCodeMap.containsKey(split[1]);
 	}
@@ -758,7 +820,7 @@ public class BarcodeStats {
 	 * @return True if either barcode component doesn't match expected
 	 */
 	public boolean hasErrors(String s){
-		if(expectedCodeMap.containsKey(s)) {return false;}
+		if(expectedCodeMap.containsKey(s)){return false;}
 		String[] split=split(s, delimiter);
 		return !leftStats.expectedCodeMap.containsKey(split[0]) || !rightStats.expectedCodeMap.containsKey(split[1]);
 	}
@@ -771,11 +833,11 @@ public class BarcodeStats {
 	 */
 	private static String[] split(String s, int delimiter){
 		String a=null, b=null;
-		if(delimiter<=0) {
+		if(delimiter<=0){
 			a=s.substring(0, s.length()/2);
 			b=s.substring(s.length()/2, s.length());
 		}else{
-			for(int i=0; a==null && i<s.length(); i++) {
+			for(int i=0; a==null && i<s.length(); i++){
 				if(s.charAt(i)==delimiter){
 					a=s.substring(0, i);
 					b=s.substring(i+1, s.length());
@@ -788,7 +850,7 @@ public class BarcodeStats {
 	}
 	
 	/** Returns number of unique barcodes observed */
-	public int size() {return codeMap.size();}
+	public int size(){return codeMap.size();}
 	
 	/** Returns sorted list of all observed barcodes by count (descending).
 	 * @return ArrayList of Barcode objects sorted by frequency */
@@ -807,7 +869,7 @@ public class BarcodeStats {
 	 */
 	public long hdistSum(int min, int max){
 		long sum=0;
-		for(int i=min; i<=max && i<hdistArray.length; i++) {
+		for(int i=min; i<=max && i<hdistArray.length; i++){
 			sum+=hdistArray[i];
 		}
 		return sum;
@@ -821,7 +883,7 @@ public class BarcodeStats {
 	 */
 	public long edistSum(int min, int max){
 		long sum=0;
-		for(int i=min; i<=max && i<edistArray.length; i++) {
+		for(int i=min; i<=max && i<edistArray.length; i++){
 			sum+=edistArray[i];
 		}
 		return sum;
@@ -832,9 +894,9 @@ public class BarcodeStats {
 	 * @param x Number to format
 	 * @return Padded string representation
 	 */
-	String pad(long x) {
+	String pad(long x){
 		String s=""+x;
-		while(s.length()<10) {s=s+" ";}
+		while(s.length()<10){s=s+" ";}
 		return s;
 	}
 	
@@ -843,40 +905,42 @@ public class BarcodeStats {
 	 * @param hdr Header prefix for output lines
 	 * @return Multi-line string with detailed barcode statistics
 	 */
-	public String toStats(String hdr) {
+	public String toStats(String hdr){
 		StringBuilder sb=new StringBuilder();
 		sb.append(hdr+"\t"+pad(totalCodes)+"\t("+totalCodesU+" unique)");
-		if(barcodesPerRead>1) {
+		if(barcodesPerRead>1){
 			sb.append("\n-codesPerRead\t"+pad(barcodesPerRead));
 			sb.append("\n-delimiter\t"+(delimiter>0 ? Character.toString(delimiter) : ""));
-			if(length1>0) {sb.append("\n-bcLength1\t"+pad(length1));}
-			if(length2>0) {sb.append("\n-bcLength2\t"+pad(length2));}
-		}else {
-			if(length1>0) {sb.append("\n-bcLength\t"+pad(length1));}
+			if(length1>0){sb.append("\n-bcLength1\t"+pad(length1));}
+			if(length2>0){sb.append("\n-bcLength2\t"+pad(length2));}
+		}else{
+			if(length1>0){sb.append("\n-bcLength\t"+pad(length1));}
 		}
-		if(!expectedCodeList.isEmpty()) {
+		if(!expectedCodeList.isEmpty()){
 			sb.append("\n-expected\t"+pad(expectedCodes)+"\t("+expectedCodesU+" unique)");
 			sb.append("\n-unexpected\t"+pad(totalCodes-expectedCodes)+"\t("+(totalCodesU-expectedCodesU)+" unique)");
 		}
 		sb.append("\n-codesWithNs\t"+pad(nCodes)+"\t("+nCodesU+" unique)");
 		sb.append("\n-homopolymers\t"+pad(simd.Vector.sum(polymerArray))+"\t("+simd.Vector.sum(polymerArrayU)+" unique)");
-		if(polymerArray[0]>0) {sb.append("\n--polyA\t"+polymerArray[0]);}
-		if(polymerArray[1]>0) {sb.append("\n--polyC\t"+polymerArray[1]);}
-		if(polymerArray[2]>0) {sb.append("\n--polyG\t"+polymerArray[2]);}
-		if(polymerArray[3]>0) {sb.append("\n--polyT\t"+polymerArray[3]);}
+		if(polymerArray[0]>0){sb.append("\n--polyA\t"+polymerArray[0]);}
+		if(polymerArray[1]>0){sb.append("\n--polyC\t"+polymerArray[1]);}
+		if(polymerArray[2]>0){sb.append("\n--polyG\t"+polymerArray[2]);}
+		if(polymerArray[3]>0){sb.append("\n--polyT\t"+polymerArray[3]);}
 		if(barcodesPerRead>1 && !expectedCodeList.isEmpty()){
 			sb.append("\n-badPair\t"+pad(validArray[2])+"\t("+validArrayU[2]+" unique)"+"\t"+String.format("(%.4f)",badPairFraction));
 			sb.append("\n-singleMatch\t"+pad(validArray[1])+"\t("+validArrayU[1]+" unique)"+"\t"+String.format("(%.4f)",(float)(validArray[1]/(1.0*totalCodes))));
 			sb.append("\n-neitherMatch\t"+pad(validArray[0])+"\t("+validArrayU[0]+" unique)"+"\t"+String.format("(%.4f)",(float)(validArray[0]/(1.0*totalCodes))));
 		}
-		if(!expectedCodeList.isEmpty() && barcodesPerRead<2) {
+		if(!expectedCodeList.isEmpty() && barcodesPerRead<2){
 //			sb.append("\n-hDist 1,2,3+\t"+hdistSum(1,1)+", "+hdistSum(2,2)+", "+hdistSum(3,999));
-//			if(calcEdist) {
+//			if(calcEdist){
 //				sb.append("\n-eDist 1,2,3+\t"+edistSum(1,1)+", "+edistSum(2,2)+", "+edistSum(3,999));
 //			}
-			sb.append("\n-hDist 1,2,3+\t"+hdistSum(1,1)+"\t"+hdistSum(2,2)+"\t"+hdistSum(3,999));
-			if(calcEdist) {
-				sb.append("\n-eDist 1,2,3+\t"+edistSum(1,1)+"\t"+edistSum(2,2)+"\t"+edistSum(3,999));
+			//BAR219: Expanded histograms must include every stored observation in the 3+ sums below.
+			//Each histogram's last index includes distances beyond the original 999 reporting limit.
+			sb.append("\n-hDist 1,2,3+\t"+hdistSum(1,1)+"\t"+hdistSum(2,2)+"\t"+hdistSum(3,hdistArray.length-1));
+			if(calcEdist){
+				sb.append("\n-eDist 1,2,3+\t"+edistSum(1,1)+"\t"+edistSum(2,2)+"\t"+edistSum(3,edistArray.length-1));
 			}
 		}
 		return sb.toString();
@@ -902,26 +966,26 @@ public class BarcodeStats {
 	 * @param minCount Minimum count required for inclusion
 	 */
 	public void printToFile(FileFormat ff, long minCount){
-		if(ff==null) {return;}
+		if(ff==null){return;}
 		ArrayList<Barcode> list=toList();
 		long sum=0;
-		for(Barcode bc : list) {sum+=bc.count();}
+		for(Barcode bc : list){sum+=bc.count();}
 		
-		try {
+		try{
 			ByteStreamWriter bsw=new ByteStreamWriter(ff);
 			bsw.start();
 			bsw.println("#Barcodes\t"+sum);
 			bsw.println("#Unique\t"+list.size());
 			ByteBuilder bb=new ByteBuilder(128);
 			for(Barcode bc : list){
-				if(bc.count()>=minCount) {
+				if(bc.count()>=minCount){
 					bc.appendTo(bb).nl();
 					bsw.print(bb);
 					bb.clear();
 				}
 			}
 			errorState|=bsw.poisonAndWait();
-		} catch (Throwable e) {
+		} catch (Throwable e){
 			System.err.println("ERROR - Could not write barcode file "+ff.name()+": "+e.toString());
 			errorState=true;
 		}
@@ -940,22 +1004,21 @@ public class BarcodeStats {
 	/** Ordered list of expected barcode sequences */
 	public final ArrayList<Barcode> expectedCodeList=new ArrayList<Barcode>();
 	/** Map of expected barcode strings to objects for fast lookup */
-	public final HashMap<String,Barcode> expectedCodeMap=new HashMap<String,Barcode>();
+	public final HashMap<String, Barcode> expectedCodeMap=new HashMap<String, Barcode>();
 
-	/** Character separating dual barcodes (0 for single barcodes) */
+	/** Character separating dual barcodes; 0 for single names or explicit delimiterless midpoint splits. */
 	public final char delimiter;
 	/** Number of barcodes per read (1 or 2) */
 	public final int barcodesPerRead;
-	/** Length of first/primary barcode */
+	/** Length of first/primary barcode, or 0 when unknown. */
 	public int length1;
-	/** Length of second barcode (dual-indexed only) */
+	/** Length of second barcode (dual-indexed only), or 0 when unknown. */
 	public int length2;
 	
-	/** Total input bytes processed */
-	/** Total input lines processed */
+	/** Count of input lines and payload characters/bytes consumed by the loaders, excluding line terminators. */
 	public long linesProcessed=0, bytesProcessed=0;
 	
-	/** Count of barcodes containing N bases */
+	/** Observation count for unexpected barcodes containing undefined letter bases */
 	public long nCodes=0;
 	/** Total count of expected barcode occurrences */
 	public long expectedCodes=0;

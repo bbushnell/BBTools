@@ -12,14 +12,17 @@ import shared.Tools;
 import structures.ByteBuilder;
 
 /**
- * Represents a DNA sequencing barcode with comprehensive analysis and comparison capabilities.
- * Supports dual-indexed barcodes, distance calculations, validation, and count tracking.
- * Used for barcode demultiplexing, quality control, and sequencing data analysis.
+ * Barcode name and mutable observation metadata, with sequence and dual-index helpers.
+ * Names are borrowed immutable strings; sequence helpers expect ASCII nucleotide
+ * names with the delimiters or tile suffixes supported by the particular method.
+ * Equality and hashing use name and tile, while sorting also uses descending count.
+ * Do not mutate tile while using an instance as a hash key. Instances and collections
+ * require caller-owned synchronization; incrementSync protects only that increment.
  *
  * @author Brian Bushnell
  * @date December 30, 2013
  */
-public class Barcode implements Comparable<Barcode> {
+public class Barcode implements Comparable<Barcode>{
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Constructors         ----------------*/
@@ -61,19 +64,21 @@ public class Barcode implements Comparable<Barcode> {
 	/*----------------            Methods           ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Gets one of two barcodes for dual indexes */
-	public Barcode getBarcodeForPairnum(int pairnum, char delimiter) {
+	/** Copies one index and the count into a new barcode; other metadata uses constructor defaults. */
+	public Barcode getBarcodeForPairnum(int pairnum, char delimiter){
 		return new Barcode(getStringForPairnum(pairnum, delimiter), count);
 	}
 	/**
 	 * Extracts one component string from a dual-indexed barcode.
-	 * Uses delimiter if present, otherwise splits at midpoint.
+	 * A positive delimiter must occur in the name and is excluded from both components.
+	 * Without a delimiter, the left component takes half the characters rounded down;
+	 * the right takes the remainder. Empty components are allowed by this helper.
 	 *
 	 * @param pairnum Which component to extract (0=left/first, 1=right/second)
-	 * @param delimiter Character separating barcode components
+	 * @param delimiter Positive separator character, or 0 for a midpoint split
 	 * @return String containing the specified barcode component
 	 */
-	public String getStringForPairnum(int pairnum, char delimiter) {
+	public String getStringForPairnum(int pairnum, char delimiter){
 		assert(pairnum==0 || pairnum==1);
 		final int pos, pos2;
 		if(delimiter>0){//If there is a delimiter
@@ -81,19 +86,9 @@ public class Barcode implements Comparable<Barcode> {
 			pos2=pos+1;
 			assert(pos>=0) : pos+", "+Character.toString(delimiter)+", "+name;
 		}else{
-			//TODO: Possible bug [barcode/Barcode#001] - no-delimiter midpoint split is off by one for even length.
-			//For an even-length concatenated dual index (e.g. "AAAACCCC", want "AAAA"|"CCCC") this gives
-			//pos=5 -> left=substring(0,5)="AAAAC", right=substring(5,8)="CCC": one base misassigned to left.
-			//Symmetric split needs pos=len/2 (not len/2+1). Currently LATENT: this branch is only reached when
-			//delimiter==0 AND barcodesPerRead==2, but the only caller path (BarcodeStats.split(), which has zero
-			//callers tree-wide; and leftString/rightString@BarcodeStats:540 guarded by leftStats!=null dual mode)
-			//always carries delimiter>0 in the live pipeline (CountBarcodes2:571 sets dual<=>delimiter>0).
-			//CONFIRM INTENT: is delimiter-less dual meant to be supported? If yes this is a live wrong-split; if no,
-			//the branch is vestigial. Consequence if a future caller feeds a delimiter-less dual barcode here:
-			//both extracted indices are silently wrong (left too long by 1, right missing its first base).
-			boolean even=((name.length()&1)==0);
-			pos=(name.length()/2)+1;
-			pos2=(even ? pos : pos+1);
+			//BAR203 / barcode/Barcode#001: adjacent midpoint slices preserve every base, including an odd remainder.
+			pos=name.length()/2;
+			pos2=pos;
 		}
 		String s=(pairnum==0 ? name.substring(0, pos) : name.substring(pos2, name.length()));
 		return s;
@@ -131,7 +126,7 @@ public class Barcode implements Comparable<Barcode> {
 	 * Identifies bases that are letters but not fully defined (e.g., N, Y, R).
 	 * @return Number of undefined bases in the sequence
 	 */
-	public int countUndefined() {
+	public int countUndefined(){
 		int sum=0;
 		for(int i=0; i<length(); i++){
 			char c=charAt(i);
@@ -142,23 +137,24 @@ public class Barcode implements Comparable<Barcode> {
 	
 	/**
 	 * Checks if the barcode is a homopolymer sequence.
-	 * Uses the first character as the expected homopolymer base.
+	 * Uses the first character as the expected homopolymer base; the name must be nonempty.
 	 * @return true if all bases match the first character
 	 */
-	public boolean isHomopolymer() {return isHomopolymer(name, name.charAt(0));}
+	public boolean isHomopolymer(){return isHomopolymer(name, name.charAt(0));}
 	/**
 	 * Checks if the barcode is a homopolymer of the specified base.
 	 * @param h Expected homopolymer base character
-	 * @return true if all bases match the specified character
+	 * @return true if all letter bases match the specified character
 	 */
-	public boolean isHomopolymer(char h) {return isHomopolymer(name);}
+	//BAR201: retain the requested base when forwarding to the static implementation.
+	public boolean isHomopolymer(char h){return isHomopolymer(name, h);}
 	/**
 	 * Checks if a sequence is a homopolymer.
 	 * Uses the first character as the expected homopolymer base.
 	 * @param name Sequence to check
 	 * @return true if all bases match the first character
 	 */
-	public static boolean isHomopolymer(String name) {return isHomopolymer(name, name.charAt(0));}
+	public static boolean isHomopolymer(String name){return isHomopolymer(name, name.charAt(0));}
 	/**
 	 * Checks if a sequence is a homopolymer of the specified base.
 	 * Non-letter characters are ignored in the comparison.
@@ -167,32 +163,36 @@ public class Barcode implements Comparable<Barcode> {
 	 * @param h Expected homopolymer base character
 	 * @return true if all letter bases match the specified character
 	 */
-	public static boolean isHomopolymer(String name, char h) {
-		for(int i=0; i<name.length(); i++) {
+	public static boolean isHomopolymer(String name, char h){
+		for(int i=0; i<name.length(); i++){
 			char c=name.charAt(i);
-			if(c!=h && Tools.isLetter(c)) {return false;}
+			if(c!=h && Tools.isLetter(c)){return false;}
 		}
 		return true;
 	}
 	
-	/** Returns -1 if false, and the homopolymer character 2-bit encoding if true */
-	public byte checkHomopolymer() {
+	/** Classifies a nonempty ASCII name with at least two matching defined bases and at most one nonletter.
+	 * The first character must be a defined base; any differing letter rejects the name.
+	 * Raw digits count as nonletters; separately stored tile metadata is not examined.
+	 * @return A/C/G/T base code for an accepted homopolymer, or -1 when rejected */
+	public byte checkHomopolymer(){
 		int match=0;
 		int nonletter=0;
 		final byte mer=AminoAcid.baseToNumber[charAt(0)];
-		if(mer<0) {return mer;}
+		if(mer<0){return mer;}
 		for(int i=1; i<length(); i++){
 			char c=charAt(i);
 			byte n=AminoAcid.baseToNumber[c];
-			if(n==mer) {
+			if(n==mer){
 				match++;
-			}else if(Tools.isLetter(c)) {
+			}else if(Tools.isLetter(c)){
 				return -1;
-			}else {
+			}else{
 				nonletter++;
 			}
 		}
-		return (match>0 && nonletter<=1 ? mer : 0);
+		//BAR202: Reject names outside the existing domain instead of reporting the A base code.
+		return (match>0 && nonletter<=1 ? mer : -1);
 	}
 
 	/**
@@ -201,7 +201,7 @@ public class Barcode implements Comparable<Barcode> {
 	 * @param b Second character
 	 * @return true if both are non-letters
 	 */
-	public static final boolean nonLetter(int a, int b) {
+	public static final boolean nonLetter(int a, int b){
 		return !Tools.isLetter(a) && !Tools.isLetter(b);
 	}
 	
@@ -355,20 +355,22 @@ public class Barcode implements Comparable<Barcode> {
 	}
 	/**
 	 * Calculates left-side Hamming distance until non-letter encountered.
-	 * Stops comparison when first non-letter character is found.
+	 * Stops at the first non-letter in a; b does not define the comparison boundary.
 	 *
 	 * @param a First sequence
 	 * @param b Second sequence
 	 * @return Number of mismatched positions in letter region
 	 */
 	public static int hdistL(final String a, final String b){
+		//BAR215: Stop at a's tile or separator before indexing a potentially shorter b.
 		assert(a.length()==b.length() || (Tools.endsWithLetter(a)!=Tools.endsWithLetter(b) 
 				&& Tools.startsWithLetter(a) && Tools.startsWithLetter(b)))
 			: "'"+a+"', '"+b+"'";
 		int subs=0;
 		for(int i=0, max=a.length(); i<max; i++){
-			final char ca=a.charAt(i), cb=b.charAt(i);
-			if(!Tools.isLetter(ca)) {break;}
+			final char ca=a.charAt(i);
+			if(!Tools.isLetter(ca)){break;}
+			final char cb=b.charAt(i);
 			subs+=(ca==cb ? 0 : 1);
 		}
 		return subs;
@@ -389,7 +391,7 @@ public class Barcode implements Comparable<Barcode> {
 		int subs=0;
 		for(int i=minlen-1; i>=0; i--){
 			final char ca=a.charAt(i), cb=b.charAt(i);
-			if(!Tools.isLetter(ca)) {
+			if(!Tools.isLetter(ca)){
 				//At least one of them should not be a tile number
 				assert(!Tools.isDigit(ca));
 				break;
@@ -430,9 +432,9 @@ public class Barcode implements Comparable<Barcode> {
 	 * @param codes Collection of barcodes to map
 	 * @return HashMap with barcode names as keys
 	 */
-	public static HashMap<String, Barcode> barcodesToMap(Collection<Barcode> codes) {
+	public static HashMap<String, Barcode> barcodesToMap(Collection<Barcode> codes){
 		HashMap<String, Barcode> countMap=new HashMap<String, Barcode>();
-		for(Barcode b : codes) {countMap.put(b.name, b);}
+		for(Barcode b : codes){countMap.put(b.name, b);}
 		return countMap;
 	}
 	
@@ -446,10 +448,10 @@ public class Barcode implements Comparable<Barcode> {
 	 * @return List of expected barcodes with aggregated counts
 	 */
 	public static ArrayList<Barcode> summateAssignments(HashMap<String, String> assignmentMap,
-			ArrayList<Barcode> expectedCodeList, HashMap<String, Barcode> countMap) {
+			ArrayList<Barcode> expectedCodeList, HashMap<String, Barcode> countMap){
 		ArrayList<String> list=new ArrayList<String>(expectedCodeList.size());
-		for(Barcode b : expectedCodeList) {
-			if(b.expected==1) {list.add(b.name);}
+		for(Barcode b : expectedCodeList){
+			if(b.expected==1){list.add(b.name);}
 		}
 		return summateAssignments(assignmentMap, list, countMap);
 	}
@@ -464,7 +466,7 @@ public class Barcode implements Comparable<Barcode> {
 	 * @return List of expected barcodes with aggregated counts
 	 */
 	public static ArrayList<Barcode> summateAssignments(HashMap<String, String> assignmentMap,
-			Collection<String> expectedCodeList, Collection<Barcode> counts) {
+			Collection<String> expectedCodeList, Collection<Barcode> counts){
 		HashMap<String, Barcode> countMap=barcodesToMap(counts);
 		return summateAssignments(assignmentMap, expectedCodeList, countMap);
 	}
@@ -479,20 +481,20 @@ public class Barcode implements Comparable<Barcode> {
 	 * @return Sorted list of expected barcodes with aggregated counts
 	 */
 	public static ArrayList<Barcode> summateAssignments(HashMap<String, String> assignmentMap,
-			Collection<String> expectedCodeList, HashMap<String, Barcode> countMap) {
+			Collection<String> expectedCodeList, HashMap<String, Barcode> countMap){
 
 		HashMap<String, Barcode> sumMap=new HashMap<String, Barcode>();
-		for(String s : expectedCodeList) {
+		for(String s : expectedCodeList){
 			sumMap.put(s, new Barcode(s));
 		}
-		for(Entry<String, String> e : assignmentMap.entrySet()) {
+		for(Entry<String, String> e : assignmentMap.entrySet()){
 			String observed=e.getKey(), assigned=e.getValue();
 			Barcode sum=sumMap.get(assigned);
-			if(sum==null) {
+			if(sum==null){
 				sumMap.put(assigned, sum=new Barcode(assigned));//Optional.  This shouldn't really happen.
 			}
 			Barcode count=countMap.get(observed);
-			if(count!=null) {
+			if(count!=null){
 				sum.increment(count);
 			}
 		}
@@ -509,11 +511,11 @@ public class Barcode implements Comparable<Barcode> {
 	 * @param fname Filename to parse
 	 * @return Barcode sequence string, or null if not found
 	 */
-	public static String parseBarcodeFromFname(String fname) {
+	public static String parseBarcodeFromFname(String fname){
 		String[] split=Tools.dotPattern.split(fname);
-		for(String s : split) {
-			if(isBarcode(s)) {return s;}
-			else if("UNKNOWN".equalsIgnoreCase(s)) {return s;}
+		for(String s : split){
+			if(isBarcode(s)){return s;}
+			else if("UNKNOWN".equalsIgnoreCase(s)){return s;}
 		}
 //		assert(false) : "Can't find barcode in filename "+fname+"\n"+Arrays.toString(split);
 		return null;
@@ -525,14 +527,14 @@ public class Barcode implements Comparable<Barcode> {
 	 * @param x Character to check
 	 * @return true if valid barcode symbol
 	 */
-	public static final boolean isBarcodeSymbol(char x) {return AminoAcid.isACGTN(x) || x=='-' || x=='+';}
+	public static final boolean isBarcodeSymbol(char x){return AminoAcid.isACGTN(x) || x=='-' || x=='+';}
 	/**
 	 * Checks if byte is valid barcode symbol.
 	 * Valid symbols are ACGTN plus delimiter characters - and +.
 	 * @param x Byte to check
 	 * @return true if valid barcode symbol
 	 */
-	public static final boolean isBarcodeSymbol(byte x) {return AminoAcid.isACGTN(x) || x=='-' || x=='+';}
+	public static final boolean isBarcodeSymbol(byte x){return AminoAcid.isACGTN(x) || x=='-' || x=='+';}
 	
 	/**
 	 * Determines if string represents a valid barcode sequence.
@@ -540,14 +542,14 @@ public class Barcode implements Comparable<Barcode> {
 	 * @param s String to validate
 	 * @return true if valid barcode format
 	 */
-	public static boolean isBarcode(String s) {
+	public static boolean isBarcode(String s){
 		int bases=0;
 		int delimiters=0;
-		if(s.length()<6) {return false;}
-		for(int i=0; i<s.length(); i++) {
+		if(s.length()<6){return false;}
+		for(int i=0; i<s.length(); i++){
 			char c=s.charAt(i);
-			if(AminoAcid.isACGTN(c)) {bases++;}
-			else if(c=='-' || c=='+') {delimiters++;}
+			if(AminoAcid.isACGTN(c)){bases++;}
+			else if(c=='-' || c=='+'){delimiters++;}
 			else {return false;}
 		}
 		return bases>=6 && delimiters<=1;
@@ -558,9 +560,9 @@ public class Barcode implements Comparable<Barcode> {
 	 * @param s String to validate
 	 * @return true if all characters are valid barcode symbols
 	 */
-	public static final boolean containsOnlyBarcodeSymbols(String s) {
-		for(int i=0; i<s.length(); i++) {
-			if(!isBarcodeSymbol(s.charAt(i))) {return false;}
+	public static final boolean containsOnlyBarcodeSymbols(String s){
+		for(int i=0; i<s.length(); i++){
+			if(!isBarcodeSymbol(s.charAt(i))){return false;}
 		}
 		return true;
 	}
@@ -573,24 +575,24 @@ public class Barcode implements Comparable<Barcode> {
 	 * @param x New count value */
 	public void setCount(long x){count=x;}
 	/** Gets the length of the barcode sequence */
-	public int length() {return name.length();}
+	public int length(){return name.length();}
 	/**
 	 * Gets character at specified position in barcode sequence.
 	 * @param i Position index
 	 * @return Character at position i
 	 */
-	public char charAt(int i) {return name.charAt(i);}
+	public char charAt(int i){return name.charAt(i);}
 	/** Gets byte array representation of barcode sequence */
-	public byte[] getBytes() {return name.getBytes();}
+	public byte[] getBytes(){return name.getBytes();}
 	
 	/**
 	 * Gets length of first component (letters from start).
 	 * Counts letters until first non-letter character.
 	 * @return Length of first letter sequence
 	 */
-	public int length1() {
-		for(int i=0; i<name.length(); i++) {
-			if(!Tools.isLetter(name.charAt(i))) {return i;}
+	public int length1(){
+		for(int i=0; i<name.length(); i++){
+			if(!Tools.isLetter(name.charAt(i))){return i;}
 		}
 		return name.length();
 	}
@@ -599,7 +601,7 @@ public class Barcode implements Comparable<Barcode> {
 	 * Skips trailing digits, then counts letters backwards.
 	 * @return Length of second letter sequence
 	 */
-	public int length2() {
+	public int length2(){
 		int i=name.length()-1;
 		while(i>=0 && Tools.isDigit(name.charAt(i))){
 			i--;
@@ -617,35 +619,38 @@ public class Barcode implements Comparable<Barcode> {
 	/*--------------------------------------------------------------*/
 	
 	/** Increments the count by 1 */
-	public void increment() {count++;}
+	public void increment(){count++;}
 	/** Increments the count by another barcode's count.
 	 * @param b Barcode whose count to add */
-	public void increment(Barcode b) {count+=b.count;}
+	public void increment(Barcode b){count+=b.count;}
 	/** Increments the count by specified amount.
 	 * @param x Amount to add to count */
-	public void increment(long x) {count+=x;}
+	public void increment(long x){count+=x;}
 	/** Thread-safe increment of count by specified amount.
 	 * @param x Amount to add to count */
-	public synchronized void incrementSync(long x) {count+=x;}
+	public synchronized void incrementSync(long x){count+=x;}
 	
 	/*--------------------------------------------------------------*/
 	/*----------------           Overrides          ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Hashes name and mutable tile; count and frequency do not participate. */
 	@Override
 	public int hashCode(){
 		return name.hashCode()^(tile*65);
 	}
 	
+	/** Orders by count descending, tile ascending, then name; ordering is not consistent with count-free equality. */
 	@Override
-	public int compareTo(Barcode b) {
+	public int compareTo(Barcode b){
 		if(count!=b.count){return count>b.count ? -1 : 1;}
 		if(tile!=b.tile){return tile>b.tile ? 1 : -1;}
 		return name.compareTo(b.name);
 	}
 	
+	/** Current fast path casts to Barcode; unrelated object types throw ClassCastException. */
 	@Override
-	public boolean equals(Object b) {
+	public boolean equals(Object b){
 //		return(b!=null && getClass()==b.getClass() && equals((Barcode)b));//Proper way
 		return(equals((Barcode)b));//Faster way
 	}
@@ -655,7 +660,7 @@ public class Barcode implements Comparable<Barcode> {
 	 * @param b Barcode to compare
 	 * @return true if name and tile match
 	 */
-	public boolean equals(Barcode b) {return(b!=null && name.equals(b.name) && tile==b.tile);}//Ignores count
+	public boolean equals(Barcode b){return(b!=null && name.equals(b.name) && tile==b.tile);}//Ignores count
 	
 	@Override
 	public String toString(){
@@ -671,7 +676,7 @@ public class Barcode implements Comparable<Barcode> {
 	 */
 	public ByteBuilder appendTo(ByteBuilder bb){
 		bb.append(name);
-		if(tile>0) {bb.append(tile);}
+		if(tile>0){bb.append(tile);}
 		return bb.tab().append(count);
 	}
 	
@@ -683,7 +688,7 @@ public class Barcode implements Comparable<Barcode> {
 	 * @param indexNum Which index component to extract (1-based)
 	 * @return The same ByteBuilder for chaining
 	 */
-	public ByteBuilder appendIndex(ByteBuilder bb, byte delimiter, int indexNum) {
+	public ByteBuilder appendIndex(ByteBuilder bb, byte delimiter, int indexNum){
 		return appendIndex(bb, delimiter, indexNum, name);
 	}
 	
@@ -697,10 +702,10 @@ public class Barcode implements Comparable<Barcode> {
 	 * @param name Barcode name to parse
 	 * @return The same ByteBuilder for chaining
 	 */
-	public static ByteBuilder appendIndex(ByteBuilder bb, byte delimiter, int indexNum, String name) {
-		for(int i=0, currentIndex=1; i<name.length() && currentIndex<=indexNum; i++) {
+	public static ByteBuilder appendIndex(ByteBuilder bb, byte delimiter, int indexNum, String name){
+		for(int i=0, currentIndex=1; i<name.length() && currentIndex<=indexNum; i++){
 			final char c=name.charAt(i);
-			if(c==delimiter) {currentIndex++;}
+			if(c==delimiter){currentIndex++;}
 			else if(currentIndex==indexNum){bb.append(c);}
 		}
 		return bb;
@@ -722,7 +727,7 @@ public class Barcode implements Comparable<Barcode> {
 	//if a future caller feeds a tile-bearing NAME here, a lone tile digit would be misread as a dual-index
 	//delimiter -> wrong barcodesPerRead=2 and wrong split. Keep the two overloads in sync if reviving this one.
 	public static byte delimiter(String barcode){
-		if(barcode==null || barcode.length()<3) {return 0;}
+		if(barcode==null || barcode.length()<3){return 0;}
 		int letters=0, nonletters=0;
 		byte delimiter=0;
 		for(int i=0; i<barcode.length(); i++){
@@ -730,7 +735,7 @@ public class Barcode implements Comparable<Barcode> {
 			if(Tools.isLetter(c)){
 				letters++;
 			}else{
-				if(nonletters==0) {delimiter=(byte)c;}
+				if(nonletters==0){delimiter=(byte)c;}
 				nonletters++;
 			}
 		}
@@ -747,7 +752,7 @@ public class Barcode implements Comparable<Barcode> {
 	 * @return Delimiter byte, or 0 if none or multiple delimiters
 	 */
 	public static byte delimiter(byte[] barcode){
-		if(barcode==null || barcode.length<3) {return 0;}
+		if(barcode==null || barcode.length<3){return 0;}
 		int letters=0, numbers=0, other=0;
 		byte delimiter=0;
 		for(int i=0; i<barcode.length; i++){
@@ -757,7 +762,7 @@ public class Barcode implements Comparable<Barcode> {
 			}else if(Tools.isDigit(c)){
 				numbers++;
 			}else{
-				if(other==0) {delimiter=(byte)c;}
+				if(other==0){delimiter=(byte)c;}
 				other++;
 			}
 		}
@@ -773,9 +778,9 @@ public class Barcode implements Comparable<Barcode> {
 	 * @param code Barcode string to analyze
 	 * @return Number of homopolymer segments (0, 1, or 2)
 	 */
-	public static int countPolymers(String code) {
+	public static int countPolymers(String code){
 		int delimiter=code.length();
-		for(int i=0; i<code.length(); i++) {
+		for(int i=0; i<code.length(); i++){
 			if(!Tools.isLetter(code.charAt(i))){delimiter=i; break;}
 		}
 		
@@ -783,7 +788,7 @@ public class Barcode implements Comparable<Barcode> {
 		{
 			int same=0, len=0;
 			char last=0;
-			for(int i=0; i<delimiter; i++) {
+			for(int i=0; i<delimiter; i++){
 				char c=code.charAt(i);
 				same+=(c==last ? 1 : 0);
 				len++;
@@ -794,7 +799,7 @@ public class Barcode implements Comparable<Barcode> {
 		{
 			int same=0, len=0;
 			char last=0;
-			for(int i=delimiter+1; i<code.length(); i++) {
+			for(int i=delimiter+1; i<code.length(); i++){
 				char c=code.charAt(i);
 				same+=(c==last ? 1 : 0);
 				len++;

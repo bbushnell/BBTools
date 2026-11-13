@@ -1,27 +1,24 @@
 package barcode.stub;
 
 /**
- * Stub implementation of a probabilistic PCR matrix for barcode processing.
- * Provides a placeholder implementation for PCR matrix probability calculations
- * in the barcode processing workflow, with no active computational logic.
- * Extends PCRMatrixProbAbstract to inherit the abstract framework for
- * probabilistic matrix operations while serving as an extension point for
- * future implementation of specialized PCR matrix probability calculations.
+ * Public reflection target when the optional probability implementation is absent.
+ * Its constructor has the expected factory signature, but the inherited validity
+ * check rejects construction. This is not a usable probability matrix.
  *
  * @author Brian Bushnell
  * @date March 25, 2024
  */
-public class PCRMatrixProb extends PCRMatrixProbAbstract {
-	
+public class PCRMatrixProb extends PCRMatrixProbAbstract{
+
 	/**
-	 * Constructs a PCRMatrixProb stub with the specified parameters.
-	 * This empty constructor serves as a placeholder implementation.
+	 * Matches the optional constructor signature. Arguments are not forwarded;
+	 * the implicit superclass constructor rejects the missing implementation.
 	 *
-	 * @param a First integer parameter
-	 * @param b Second integer parameter
-	 * @param c Third integer parameter
-	 * @param d Boolean parameter
+	 * @param a Requested first index length (unused by the stub)
+	 * @param b Requested second index length (unused by the stub)
+	 * @param c Requested delimiter (unused by the stub)
+	 * @param d Requested distance-sum mode (unused by the stub)
 	 */
-	public PCRMatrixProb(int a, int b, int c, boolean d) {}
-	
+	public PCRMatrixProb(int a, int b, int c, boolean d){}
+
 }

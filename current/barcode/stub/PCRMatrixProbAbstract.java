@@ -7,21 +7,22 @@ import java.util.HashMap;
 import barcode.Barcode;
 import barcode.PCRMatrix;
 import structures.ByteBuilder;
+
 /**
- * Abstract base class providing skeletal implementation for probabilistic PCR matrix operations.
- * Serves as a no-op implementation framework for barcode assignment and probability calculations.
- * All concrete methods return default values (null/false) allowing subclasses to selectively
- * override specific functionality for probabilistic barcode processing workflows.
+ * Public API placeholder used when the optional probability classes are absent.
+ * Static parser hooks can be called without creating an instance. Construction invokes
+ * PCRMatrix's validity check, which always fails here and terminates through KillSwitch.
+ * Empty/default-valued instance bodies satisfy the public API; they do not provide a
+ * usable no-op matrix or an extension path around the final validity rejection.
  *
  * @author Brian Bushnell
  * @date May 15, 2024
  */
-public abstract class PCRMatrixProbAbstract extends PCRMatrix {
-	
-	/** Constructs an abstract PCR matrix with zero dimensions and no delimiter.
-	 * Primarily for subclasses; does not perform any initialization beyond base class. */
-	public PCRMatrixProbAbstract() {super(0, 0, 0, false);}
-	
+public abstract class PCRMatrixProbAbstract extends PCRMatrix{
+
+	/** Enters the base constructor with placeholder dimensions; valid() rejects before allocation. */
+	public PCRMatrixProbAbstract(){super(0, 0, 0, false);}
+
 	/**
 	 * Static parsing method for PCR matrix configuration parameters.
 	 * Always returns false in this abstract implementation.
@@ -32,10 +33,10 @@ public abstract class PCRMatrixProbAbstract extends PCRMatrix {
 	 * @return false (no parsing implemented)
 	 */
 	public static final boolean parseStatic(String arg, String a, String b){return false;}
-	
+
 	/** Post-parse cleanup hook; no-op in this abstract stub. */
 	public final static void postParseStatic(){}
-	
+
 	/**
 	 * Instance-level parameter parsing method.
 	 * Always returns false in this abstract implementation.
@@ -46,73 +47,67 @@ public abstract class PCRMatrixProbAbstract extends PCRMatrix {
 	 * @return false (no parsing implemented)
 	 */
 	@Override
-	public final boolean parse(String arg, String a, String b) {return false;}
-	
+	public final boolean parse(String arg, String a, String b){return false;}
+
 	/**
-	 * Refines barcode collection using count threshold.
-	 * No-op implementation in abstract class.
+	 * Empty API placeholder, not reachable on a normally constructed stub.
 	 * @param cb Barcode collection to refine
 	 * @param c Count threshold for refinement
 	 */
 	@Override
-	public final void refine(Collection<Barcode> cb, long c) {}
-	
+	public final void refine(Collection<Barcode> cb, long c){}
+
 	/**
-	 * Creates barcode assignment mapping from collection.
-	 * Returns null in this abstract implementation.
+	 * Null-returning API placeholder; normal stub construction is rejected.
 	 *
 	 * @param cb Barcode collection for assignment mapping
-	 * @param x Threshold parameter for mapping
+	 * @param x Minimum observation count threshold
 	 * @return null (no assignment map created)
 	 */
 	@Override
-	public final HashMap<String, String> makeAssignmentMap(Collection<Barcode> cb, long x) {return null;}
+	public final HashMap<String, String> makeAssignmentMap(Collection<Barcode> cb, long x){return null;}
 
 	/**
-	 * Populates barcode count data from list with minimum threshold.
-	 * No-op implementation in abstract class.
+	 * Empty count-population placeholder; normal stub construction is rejected.
 	 * @param list Barcode list to process for counts
 	 * @param minCount Minimum count threshold for inclusion
 	 */
 	@Override
-	public final void populateCounts(ArrayList<Barcode> list, long minCount) {}
-	
-	/** Generates probability data from count matrices. No-op in abstract class */
-	@Override
-	public final void makeProbs() {}
+	public final void populateCounts(ArrayList<Barcode> list, long minCount){}
 
-	/** Initializes internal data structures. No-op in abstract class */
+	/** Empty probability-generation placeholder; normal stub construction is rejected. */
 	@Override
-	public final void initializeData() {}
-	
-	/** Populates data for unexpected barcode sequences. No-op in abstract class */
+	public final void makeProbs(){}
+
+	/** Empty initialization placeholder; normal stub construction is rejected. */
 	@Override
-	public final void populateUnexpected() {}
+	public final void initializeData(){}
+
+	/** Empty candidate-population placeholder; normal stub construction is rejected. */
+	@Override
+	public final void populateUnexpected(){}
 
 	/**
-	 * Validates PCR matrix state and licensing.
-	 * Always returns false in abstract implementation.
-	 * @return false (invalid state)
+	 * Rejects this placeholder during the PCRMatrix constructor's validity check.
+	 * @return Always false, causing construction to terminate with the existing license diagnostic
 	 */
 	@Override
-	protected final boolean valid() {return false;}
-	
+	protected final boolean valid(){return false;}
+
 	/**
-	 * Finds the closest matching barcode for given sequence.
-	 * Returns null in this abstract implementation.
+	 * Null-returning search placeholder; normal stub construction is rejected.
 	 * @param s Query barcode sequence
 	 * @return null (no closest barcode found)
 	 */
 	@Override
-	public final Barcode findClosest(String s) {return null;}
-	
+	public final Barcode findClosest(String s){return null;}
+
 	/**
-	 * Serializes probability data to ByteBuilder format.
-	 * Returns null in this abstract implementation.
+	 * Null-returning output placeholder; normal stub construction is rejected.
 	 * @param bb ByteBuilder for output serialization
 	 * @return null (no serialization performed)
 	 */
 	@Override
-	public final ByteBuilder toBytesProb(ByteBuilder bb) {return null;}
-	
+	public final ByteBuilder toBytesProb(ByteBuilder bb){return null;}
+
 }

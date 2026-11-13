@@ -32,6 +32,14 @@ Processing Parameters:
 countundefined=t    Count barcodes that contain non-ACGT symbols.
 pcrmatrix=f         Use a PCRMatrix for barcode assignment.
 mode=hdist          PCRMatrix type.
+mincountpercentile=0
+                    Fraction [0,1]. If positive, keep only observed barcodes
+                    at or above this count-mass-weighted percentile cutoff for
+                    matrix/server assignment; ties at the cutoff are retained.
+                    For example, counts 1,1,8,90 with mincountpercentile=0.1
+                    keep 8 and 90. Default 0 disables this filter. Raw counts
+                    and raw statistics are unchanged whether this is enabled or
+                    disabled.
 
 
 Java Parameters:

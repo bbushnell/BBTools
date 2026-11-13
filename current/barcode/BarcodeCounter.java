@@ -22,13 +22,15 @@ import structures.ListNum;
 import structures.SuperLongList;
 
 /**
- * Static utility class for barcode counting and related file operations.
- * Provides methods for reading sequence files, extracting barcodes from read headers,
- * maintaining barcode count statistics, and writing results and mappings to tab-separated output.
+ * Static barcode counting and tabular I/O helpers.
+ * Read counting extracts one header barcode per primary-read fragment, not one
+ * observation per mate; missing header barcodes are skipped. Maps and Barcode
+ * counts are mutable and owned by the caller. The shared errorState accumulates
+ * failures and is not reset here; concurrent invocations are not coordinated.
  * @author Brian Bushnell
  * @date April 9, 2024
  */
-public class BarcodeCounter {
+public class BarcodeCounter{
 	//TODO: Make non-static and put barcode-length/number/delimiter detection here.
 
 	/*--------------------------------------------------------------*/
@@ -37,13 +39,13 @@ public class BarcodeCounter {
 	
 	/**
 	 * Counts barcodes from a reads file with automatic format detection.
-	 * Detects barcode delimiter and barcodes-per-read from FileFormat, then delegates to the main counting method.
+	 * Queries format metadata, then delegates to header-based counting.
 	 * @param readsFile Path to the reads file (FASTQ or other supported format)
-	 * @param maxReads Maximum number of reads to process (0 = unlimited)
+	 * @param maxReads Maximum input fragments; negative means unlimited, while zero is not an unlimited request
 	 * @param addTile Whether to include tile information in barcode keys
 	 * @return HashMap mapping barcode strings to Barcode objects with counts
 	 */
-	public static final HashMap<String, Barcode> countBarcodes(String readsFile, long maxReads, boolean addTile) {
+	public static final HashMap<String, Barcode> countBarcodes(String readsFile, long maxReads, boolean addTile){
 		FileFormat ff=FileFormat.testInput(readsFile, FileFormat.FASTQ, null, true, true);
 		final byte delimiter=(byte)ff.barcodeDelimiter();
 		final int barcodesPerRead=ff.barcodesPerRead();
@@ -54,11 +56,11 @@ public class BarcodeCounter {
 	 * Main barcode counting method that processes reads from a FileFormat.
 	 * Creates a concurrent input stream, processes reads in batches, and uses IlluminaHeaderParser2 to extract barcodes.
 	 * @param ff FileFormat object containing input file configuration
-	 * @param maxReads Maximum number of reads to process (0 = unlimited)
+	 * @param maxReads Maximum input fragments; negative means unlimited, while zero is not an unlimited request
 	 * @param addTile Whether to include tile information in barcode keys for uniqueness
 	 * @return HashMap mapping barcode strings (optionally with tile) to Barcode objects with counts
 	 */
-	public static final HashMap<String, Barcode> countBarcodes(FileFormat ff, long maxReads, boolean addTile) {
+	public static final HashMap<String, Barcode> countBarcodes(FileFormat ff, long maxReads, boolean addTile){
 		final ConcurrentReadInputStream cris=makeCris(ff, maxReads);
 		HashMap<String, Barcode> map=new HashMap<String, Barcode>();
 		
@@ -91,6 +93,7 @@ public class BarcodeCounter {
 		return map;
 	}
 	
+	/** Creates and starts the owned input stream; the counting caller must close it. */
 	private static final ConcurrentReadInputStream makeCris(FileFormat ff1, long maxReads){
 		ConcurrentReadInputStream cris=ConcurrentReadInputStream.getReadInputStream(
 				maxReads, true, ff1, null);
@@ -98,6 +101,7 @@ public class BarcodeCounter {
 		return cris;
 	}
 	
+	/** Validates primary reads, counts their headers and returns the borrowed batch to its input. */
 	private static final void processList(ListNum<Read> ln, final ConcurrentReadInputStream cris, 
 			HashMap<String, Barcode> codeMap, IlluminaHeaderParser2 ihp, boolean addTile){
 
@@ -115,13 +119,14 @@ public class BarcodeCounter {
 		cris.returnList(ln);
 	}
 	
+	/** Counts one fragment; a tile suffix distinguishes map keys while the Barcode retains the unsuffixed name. */
 	private static final void processRead(final Read r1, HashMap<String, Barcode> codeMap, IlluminaHeaderParser2 ihp, boolean addTile){
 		ihp.parse(r1.id);
 		final String key=ihp.barcode();
 		if(key==null){return;}
 		String key2=key;
 		int tile=0;
-		if(addTile) {
+		if(addTile){
 			tile=ihp.tile();
 			assert(tile>10 && tile<10000);
 			key2+=tile;
@@ -148,9 +153,9 @@ public class BarcodeCounter {
 	public static final ArrayList<String> loadBarcodes(String fname, int forceDelimiter){
 		if(fname==null){return null;}
 		String[] codes;
-		if(new File(fname).exists()) {
+		if(new File(fname).exists()){
 			codes=TextFile.toStringLines(fname);
-		}else {
+		}else{
 			codes=fname.split(",");
 		}
 		ArrayList<String> expected=new ArrayList<String>();
@@ -170,7 +175,8 @@ public class BarcodeCounter {
 	
 	/**
 	 * Loads barcode count data from a tab-separated file.
-	 * Each non-comment line must contain barcode name and count separated by tab; filters by a minimum count threshold.
+	 * Each non-comment line must be nonempty and contain a barcode name and count
+	 * separated by a tab. Extra columns are ignored; a minimum count filters entries.
 	 * @param fname Path to tab-separated barcode count file
 	 * @param minCount Minimum count threshold for inclusion
 	 * @return ArrayList of Barcode objects meeting the count threshold
@@ -179,13 +185,13 @@ public class BarcodeCounter {
 		LineParser2 lp=new LineParser2('\t');
 		ByteFile bf=ByteFile.makeByteFile(fname, true);
 		ArrayList<Barcode> list=new ArrayList<Barcode>();
-		for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()) {
-			if(line[0]=='#') {continue;}
+		for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()){
+			if(line[0]=='#'){continue;}
 			lp.set(line);
 			String a=lp.parseString();
 			assert(lp.hasMore()) : new String(line);
 			long b=lp.parseLong();
-			if(b>=minCount) {
+			if(b>=minCount){
 				Barcode c=new Barcode(a, b);
 				list.add(c);
 			}
@@ -196,34 +202,36 @@ public class BarcodeCounter {
 	
 	/**
 	 * Writes barcode counts to file using FileFormat settings.
-	 * Delegates to the String-filename writeCounts method, using overwrite and append flags from the FileFormat.
+	 * Delegates using the FileFormat name and its overwrite/append flags.
 	 * @param counts Collection of Barcode objects to write
 	 * @param minCount Minimum count threshold for inclusion
 	 * @param ff FileFormat specifying output settings
 	 * @param sort Whether to sort barcodes before writing
-	 * @param overwrite Whether to overwrite existing files
-	 * @param append Whether to append to existing files
-	 * @return true if writing succeeded, false otherwise
+	 * @param overwrite Ignored in favor of ff.overwrite()
+	 * @param append Ignored in favor of ff.append()
+	 * @return true if the writer reported an error, false on normal completion
 	 */
 	public static final boolean writeCounts(Collection<Barcode> counts, long minCount, FileFormat ff, 
 			boolean sort, boolean overwrite, boolean append){
-		return writeCounts(counts, minCount, ff, sort, ff.overwrite(), ff.append());
+		//BAR200: the filename selects the nonrecursive overload; FileFormat settings govern the output.
+		return writeCounts(counts, minCount, ff.name(), sort, ff.overwrite(), ff.append());
 	}
 	
 	/**
 	 * Writes barcode counts to a tab-separated file with header information.
-	 * Optionally sorts barcodes, writes summary header lines, and filters output by a minimum count threshold.
+	 * Optionally sorts a copy of the collection, then filters output by minimum count.
+	 * Header totals describe all supplied barcodes, including entries filtered from the rows.
 	 * @param counts Collection of Barcode objects to write
 	 * @param minCount Minimum count threshold for inclusion
 	 * @param fname Output file path
 	 * @param sort Whether to sort barcodes by count before writing
 	 * @param overwrite Whether to overwrite existing files
 	 * @param append Whether to append to existing files
-	 * @return true if writing succeeded, false otherwise
+	 * @return true if the writer reported an error, false on normal completion
 	 */
 	public static final boolean writeCounts(Collection<Barcode> counts, long minCount, String fname, 
 			boolean sort, boolean overwrite, boolean append){
-		if(sort) {
+		if(sort){
 			ArrayList<Barcode> list=new ArrayList<Barcode>(counts);
 			Collections.sort(list);
 			counts=list;
@@ -233,17 +241,17 @@ public class BarcodeCounter {
 		bsw.start();
 		
 		long sum=0;
-		for(Barcode bc : counts) {sum+=bc.count();}
+		for(Barcode bc : counts){sum+=bc.count();}
 		bsw.println("#Barcodes\t"+sum);
 		bsw.println("#Unique\t"+counts.size());
 		ByteBuilder bb=new ByteBuilder(128);
-		for(Barcode b : counts) {
-			if(b.count()>=minCount) {
+		for(Barcode b : counts){
+			if(b.count()>=minCount){
 				b.appendTo(bb).nl();
 				bsw.print(bb);
 				bb.clear();
 			}
-//			if(b.count()>=minCount) {
+//			if(b.count()>=minCount){
 //				bsw.print(b.name).tab().print(b.count()).nl();
 //			}
 		}
@@ -259,13 +267,13 @@ public class BarcodeCounter {
 	 * @param fname Output file path
 	 * @param overwrite Whether to overwrite existing files
 	 * @param append Whether to append to existing files
-	 * @return true if writing succeeded, false otherwise
+	 * @return true if the writer reported an error, false on normal completion
 	 */
 	public static final boolean writeCounts(HashMap<String, Barcode> counts, String fname, 
 			boolean overwrite, boolean append){
 		ByteStreamWriter bsw=new ByteStreamWriter(fname, overwrite, append, true);
 		bsw.start();
-		for(Entry<String, Barcode> e : counts.entrySet()) {
+		for(Entry<String, Barcode> e : counts.entrySet()){
 			Barcode b=e.getValue();
 			bsw.print(b.name).tab().print(b.count()).nl();
 		}
@@ -278,16 +286,17 @@ public class BarcodeCounter {
 	
 	/**
 	 * Loads a barcode assignment map from a tab-separated file.
-	 * Each non-comment line must contain two tab-separated values representing key-value pairs.
+	 * Each non-comment line must be nonempty and contain two tab-separated values.
+	 * Duplicate keys replace earlier assignments; extra columns are ignored.
 	 * @param mapIn Path to tab-separated assignment map file
 	 * @return HashMap mapping first column values to second column values
 	 */
-	public static HashMap<String, String> loadAssignmentMap(String mapIn) {
+	public static HashMap<String, String> loadAssignmentMap(String mapIn){
 		LineParser2 lp=new LineParser2('\t');
 		ByteFile bf=ByteFile.makeByteFile(mapIn, true);
 		HashMap<String, String> map=new HashMap<String, String>();
-		for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()) {
-			if(line[0]=='#') {continue;}
+		for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()){
+			if(line[0]=='#'){continue;}
 			lp.set(line);
 			String a=lp.parseString();
 			assert(lp.hasMore()) : new String(line);
@@ -305,14 +314,14 @@ public class BarcodeCounter {
 	 * @param mapOut Output file path
 	 * @param overwrite Whether to overwrite existing files
 	 * @param append Whether to append to existing files
-	 * @return true if writing succeeded, false otherwise
+	 * @return true if the writer reported an error, false on normal completion
 	 */
 	public static boolean writeAssignmentMap(HashMap<String, String> assignmentMap,
-			String mapOut, boolean overwrite, boolean append) {
+			String mapOut, boolean overwrite, boolean append){
 
 		ByteStreamWriter bsw=new ByteStreamWriter(mapOut, overwrite, append, true);
 		bsw.start();
-		for(Entry<String, String> e : assignmentMap.entrySet()) {
+		for(Entry<String, String> e : assignmentMap.entrySet()){
 			String a=e.getKey(), b=e.getValue();
 			bsw.print(a).tab().print(b);
 			bsw.nl();
@@ -332,9 +341,9 @@ public class BarcodeCounter {
 	 * @param barcodes Collection of Barcode objects
 	 * @return Sorted SuperLongList containing all barcode counts
 	 */
-	public static SuperLongList makeCountList(Collection<Barcode> barcodes) {
+	public static SuperLongList makeCountList(Collection<Barcode> barcodes){
 		SuperLongList sll=new SuperLongList(100000);
-		for(Barcode b : barcodes) {
+		for(Barcode b : barcodes){
 			sll.increment(b.count());
 		}
 		sll.sort();
@@ -342,31 +351,53 @@ public class BarcodeCounter {
 	}
 	
 	/**
-	 * Returns barcode count at a specified percentile threshold using cumulative count.
-	 * Computes the value from the sorted SuperLongList and currently asserts for testing rather than production use.
-	 * @param barcodes Collection of Barcode objects for analysis
-	 * @param percentile Percentile threshold (0.0 to 1.0)
-	 * @return Count value at the specified percentile (asserts in current implementation)
+	 * Returns a count-mass-weighted abundance cutoff without modifying the input collection or counts.
+	 * Interior fractions retain SuperLongList's cumulative-sum threshold rounded down;
+	 * 0 returns 0 and 1 returns the maximum observed count without floating-point rounding.
+	 * Callers retaining counts at or above the cutoff keep the entire boundary bin.
+	 * @param barcodes Stable non-null collection of non-null barcodes with nonnegative counts
+	 * @param percentile Finite fraction in [0,1]
+	 * @return Abundance cutoff, possibly 0 when the rounded target is 0
+	 * @throws IllegalArgumentException For invalid fractions/counts, null inputs or summed-count overflow
+	 * @throws IllegalStateException When the collection has no positive observation mass
 	 */
-	//TODO: Possible bug [barcode/BarcodeCounter#001] - this method is marked "don't call it directly" and contains an
-	//unconditional `assert(false)` (below), yet it IS called live: CountBarcodes2:357-358 invokes it whenever the
-	//user flag mincountpercent/mincountpercentile is set >0. Under -ea (ALWAYS on for BBTools) that user flag => an
-	//immediate AssertionError crash. And the caller discards the result (the `thresh` local is never read), so even
-	//with -da the flag is a silent no-op. => half-built feature wired to a user flag: reachable crash + dead output.
-	//MEDIUM. Fix is NOT obvious (percentileValueBySum is itself marked untested) -> flag to Brian: either finish+test
-	//and drop the assert, or remove/guard the CountBarcodes2 wiring (or make the flag fail with "not implemented").
-	public static long barcodeCountPercentile(Collection<Barcode> barcodes, float percentile) {
-		//Just an example; don't call it directly.
-		SuperLongList sll=makeCountList(barcodes);
-		long x=sll.percentileValueBySum(percentile);//TODO: Note - this is untested and gives assertion error.
-		assert(false) : x; //Make sure this returns the count described in the annotation, not +1 or -1.
-		return x;
+	public static long barcodeCountPercentile(Collection<Barcode> barcodes, float percentile){
+		if(Float.isNaN(percentile) || Float.isInfinite(percentile) || percentile<0 || percentile>1){
+			throw new IllegalArgumentException("Barcode percentile must be a finite fraction in [0,1]: "+percentile);
+		}
+		if(barcodes==null){throw new IllegalArgumentException("Barcode percentile requires a non-null collection.");}
+		final SuperLongList sll=(percentile>0 && percentile<1 ? new SuperLongList(100000) : null);
+		long total=0, maximum=0;
+		for(final Barcode b : barcodes){
+			if(b==null){throw new IllegalArgumentException("Barcode percentile does not accept null entries.");}
+			final long count=b.count();
+			if(count<0){throw new IllegalArgumentException("Barcode percentile requires nonnegative counts: "+b.name+"="+count);}
+			if(count>Long.MAX_VALUE-total){
+				throw new IllegalArgumentException("Barcode count sum overflow: total="+total+", next="+count);
+			}
+			total+=count;
+			if(count>maximum){maximum=count;}
+			if(sll!=null){sll.increment(count);}
+		}
+		if(total<=0){throw new IllegalStateException("Barcode percentile requires positive observation mass: total="+total);}
+		final long cutoff;
+		//BAR-003 / barcode/BarcodeCounter#001: exact endpoints avoid rounding a near-MAX total beyond its actual mass.
+		if(percentile==0){cutoff=0;}
+		else if(percentile==1){cutoff=maximum;}
+		else{
+			sll.sort();
+			cutoff=sll.percentileValueBySum(percentile);
+		}
+		assert(cutoff>=0 && cutoff<=maximum) : "SuperLongList's cumulative cutoff must stay in [0,max] so >=cutoff filtering "+
+				"cannot discard every valid observation: cutoff="+cutoff+", max="+maximum+", total="+total+", fraction="+percentile;
+		return cutoff;
 	}
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Static Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Accumulated read/write failure flag; callers decide when to reset or report it. */
 	public static boolean errorState=false;
 	
 }

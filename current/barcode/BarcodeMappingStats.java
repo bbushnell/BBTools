@@ -14,15 +14,19 @@ import structures.ByteBuilder;
  * Tracks barcode mapping statistics for sequence analysis.
  * Maintains counts of barcode occurrences and cross-references between
  * read barcodes and their mapped reference locations to detect contamination.
+ * One owner updates each instance; merge worker-local instances after workers finish.
+ * Counts are caller-supplied units, except increment(Read,String), which adds pairCount.
+ * Output fractions are conditional on each read barcode, not global read fractions.
  * @author Brian Bushnell
  */
-public class BarcodeMappingStats {
+public class BarcodeMappingStats{
 	
 	/*--------------------------------------------------------------*/
 	/*----------------          Constructor         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	public BarcodeMappingStats() {}
+	/** Creates empty mutable barcode and reference-count maps. */
+	public BarcodeMappingStats(){}
 	
 	/*--------------------------------------------------------------*/
 	/*----------------            Methods           ----------------*/
@@ -33,15 +37,15 @@ public class BarcodeMappingStats {
 	 * Combines barcode counts and source mapping data by adding counts together.
 	 * @param bs The other statistics instance to merge into this one
 	 */
-	public void merge(BarcodeMappingStats bs) {
-		for(Entry<String, Barcode> e : bs.codeMap.entrySet()) {
+	public void merge(BarcodeMappingStats bs){
+		for(Entry<String, Barcode> e : bs.codeMap.entrySet()){
 			Barcode b=e.getValue();
 			incrementCodeMap(b.name, b.count());
 		}
-		for(Entry<String, HashMap<String, Barcode>> e : bs.sourceMap.entrySet()) {
+		for(Entry<String, HashMap<String, Barcode>> e : bs.sourceMap.entrySet()){
 			final String readKey=e.getKey();
 			final HashMap<String, Barcode> map=e.getValue();
-			for(Entry<String, Barcode> ee : map.entrySet()) {
+			for(Entry<String, Barcode> ee : map.entrySet()){
 				final Barcode b=ee.getValue();
 				final String refKey=ee.getKey();
 				incrementSourceMap(readKey, refKey, b.count());
@@ -67,7 +71,7 @@ public class BarcodeMappingStats {
 	 * @param key The barcode string to increment
 	 * @param amt The amount to add to the barcode's count
 	 */
-	public void incrementCodeMap(String key, long amt) {
+	public void incrementCodeMap(String key, long amt){
 		Barcode b=codeMap.get(key);
 		if(b==null){
 			b=new Barcode(key);
@@ -84,7 +88,7 @@ public class BarcodeMappingStats {
 	 * @param refKey The reference sequence identifier
 	 * @param amt The amount to add to this mapping's count
 	 */
-	public void incrementSourceMap(String readKey, String refKey, long amt) {
+	public void incrementSourceMap(String readKey, String refKey, long amt){
 		HashMap<String, Barcode> map=sourceMap.get(readKey);
 		if(map==null){
 			map=new HashMap<String, Barcode>();
@@ -101,20 +105,19 @@ public class BarcodeMappingStats {
 	/**
 	 * Writes barcode mapping statistics to a tab-delimited output file.
 	 * Output includes barcode, source reference, count, and fraction columns
-	 * sorted by barcode count in descending order.
+	 * sorted by barcode count in descending order, with sources similarly sorted
+	 * within each barcode. Fractions divide source counts by their per-barcode sum.
+	 * Separate map mutation methods must leave a source map for every counted barcode.
+	 * An empty overall map produces the two report headers with a total count of zero.
 	 *
 	 * @param outbarcodes Output file path for the statistics report
 	 * @param overwrite Whether to overwrite existing output files
 	 */
-	public void writeStats(String outbarcodes, boolean overwrite) {
+	public void writeStats(String outbarcodes, boolean overwrite){
 		ByteBuilder bb=new ByteBuilder();
-		//TODO: Possible bug [barcode/BarcodeMappingStats#001] (LOW) - toSortedList returns NULL for an empty/null map,
-		//but this method does not guard it: sum(codeList) (next line) and the `for(Barcode bc : codeList)` loop below
-		//both dereference codeList -> NullPointerException when codeMap is empty (no barcodes counted). Reachable: this
-		//class is used by jgi/Seal.java, so a Seal run that produces zero mapped barcodes then calls writeStats crashes.
-		//(The inner sourceMap.get(bc.name) is safe - increment() always populates codeMap and sourceMap together.)
-		//Fix: early-return or treat null codeList as empty. Flagged, not auto-fixed (Seal-side reachability unverified).
 		ArrayList<Barcode> codeList=toSortedList(codeMap);
+		//BAR204 / barcode/BarcodeMappingStats#001: an empty overall map still needs a header-only report.
+		if(codeMap.isEmpty()){codeList=new ArrayList<Barcode>(0);}
 		final long sum=sum(codeList);
 		final double invSum=1.0/(Tools.max(1, sum));
 
@@ -123,12 +126,12 @@ public class BarcodeMappingStats {
 
 		bsw.println("#Reads\t"+sum);
 		bsw.println("#Barcode\tSource\tCount\tFraction");
-		for(Barcode bc : codeList) {
+		for(Barcode bc : codeList){
 			HashMap<String, Barcode> map=sourceMap.get(bc.name);
 			ArrayList<Barcode> sourceList=toSortedList(map);
 			final long sum2=sum(sourceList);
 			final double invSum2=1.0/(Tools.max(1, sum2));
-			for(Barcode source : sourceList) {
+			for(Barcode source : sourceList){
 				bb.append(bc.name).tab().append(source.name).tab().append(source.count()).tab().append(source.count()*invSum2, 6).nl();
 				bsw.print(bb);
 				bb.clear();
@@ -137,9 +140,10 @@ public class BarcodeMappingStats {
 		errorState|=bsw.poisonAndWait();
 	}
 	
-	private static long sum(ArrayList<Barcode> list) {
+	/** Sums observation counts in a nonnull list. */
+	private static long sum(ArrayList<Barcode> list){
 		long sum=0;
-		for(Barcode bc : list) {
+		for(Barcode bc : list){
 			sum+=bc.count();
 		}
 		return sum;
@@ -154,7 +158,7 @@ public class BarcodeMappingStats {
 	private static ArrayList<Barcode> toSortedList(HashMap<String, Barcode> map){
 		if(map==null || map.isEmpty()){return null;}
 		ArrayList<Barcode> list=new ArrayList<Barcode>(map.size());
-		for(Entry<String, Barcode> e : map.entrySet()) {
+		for(Entry<String, Barcode> e : map.entrySet()){
 			list.add(e.getValue());
 		}
 		Collections.sort(list);
@@ -165,10 +169,13 @@ public class BarcodeMappingStats {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Read-barcode counts; externally mutable, so callers must preserve sourceMap consistency. */
 	public HashMap<String, Barcode> codeMap=new HashMap<String, Barcode>();
 	
+	/** Per-read-barcode reference counts, which may count multiple assignments for one read. */
 	public HashMap<String, HashMap<String, Barcode>> sourceMap=new HashMap<String, HashMap<String, Barcode>>();
 	
+	/** Accumulated report-writer error result; the owner must inspect it. */
 	public boolean errorState=false;
 	
 }
