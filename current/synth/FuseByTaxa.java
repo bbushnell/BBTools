@@ -29,10 +29,11 @@ import structures.ListNum;
  * merges groups separated by another token. Use unpaired contigs: processing
  * visits primary entries returned by the reader, not their linked mates.
  * <p>
- * A nonempty chunk is flushed before adding a contig that would exceed maxlen,
- * including its padding. Individual contigs are not split, so one contig can
- * exceed maxlen; see SYN016. Each chunk is filtered independently by floor.
- * A null output still computes eligible-chunk and adjacent-group counters.
+ * A nonempty chunk is flushed before adding bases that would exceed a positive
+ * maxlen. If one contig is longer than a positive maxlen, its bases are split
+ * across adjacent chunks without internal padding. Each chunk is filtered
+ * independently by floor. A null output still computes eligible-chunk and
+ * adjacent-group counters.
  * Instances are intended for one processing pass on one caller thread; argument
  * parsing also configures shared reader/compression settings.
  * <p>
@@ -142,9 +143,18 @@ public class FuseByTaxa {
 					bb.clear(); chunk++;
 				}
 				if(bb.length()>0){for(int k=0; k<pad; k++){bb.append((byte)'N');}}
-				//TODO: Probable bug - SYN016: a contig longer than maxlen is appended whole,
-				//despite the documented chunk bound. Oversized-contig policy needs clarification.
-				bb.append(r.bases);
+				for(int offset=0; offset<r.length();){
+					if(maxlen>0 && bb.length()>=maxlen){
+						if(emit(bsw, curTid, chunk, bb)){emittedThisTaxon=true;}
+						bb.clear(); chunk++;
+					}
+					final int len=(maxlen>0 ? (int)Math.min(maxlen-bb.length(), r.length()-offset) : r.length()-offset);
+					assert(len>0) : "Append slice must progress after full chunks are emitted; "+
+						"len="+len+" maxlen="+maxlen+" chunkLength="+bb.length()+
+						" readLength="+r.length()+" offset="+offset;
+					bb.append(r.bases, offset, len);
+					offset+=len;
+				}
 			}
 		}
 		//Flush the final taxon.
@@ -226,7 +236,7 @@ public class FuseByTaxa {
 	private long floor=1000000;
 	/** Requested Ns between contigs retained in the same chunk. */
 	private int pad=10;
-	/** Pre-append chunk limit in bases; does not split an oversized individual contig. */
+	/** Hard chunk limit in bases when positive; nonpositive values retain legacy whole-contig behavior. */
 	private long maxlen=50000000;
 
 	/** Primary reader entries and their bases consumed by process. */

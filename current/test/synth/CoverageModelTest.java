@@ -1,4 +1,6 @@
-package synth;
+package test.synth;
+
+import synth.CoverageModel;
 
 import shared.Random;
 

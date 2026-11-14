@@ -40,11 +40,11 @@ public class RandomHexamer{
 		for(int i=0; i<k; i++){
 			byte b=bases[i];
 			int x=AminoAcid.baseToNumber[b];
-			if(x<0){return true;} // Skip ambiguous sequences
+			if(x<0){return true;}// Skip ambiguous sequences
 			kmer=(kmer<<2) | AminoAcid.baseToNumber[b];
 		}
 //		assert(false) : bases.length+", "+k+", "+probs[kmer]+", "+Arrays.toString(probs);
-		return probs[kmer]>randy.nextFloat(); // Higher prob = better priming = keep read
+		return probs[kmer]>randy.nextFloat();// Higher prob = better priming = keep read
 	}
 	
 	/**
@@ -131,7 +131,7 @@ public class RandomHexamer{
 		if(initialized && k==k_){return true;}
 		
 		synchronized(RandomHexamer.class){
-			if(initialized && k==k_){return true;} // Double-checked locking
+			if(initialized && k==k_){return true;}// Double-checked locking
 			
 			k=k_;
 			final int cardinality=1<<(2*k);

@@ -141,40 +141,41 @@ public class MakeChimeras {
 	 * candidates, and output counters advance only when a writer is present. A missing
 	 * output therefore still runs generation but reports zero emitted reads and bases.
 	 * <p>Requires a positive requested count and usable source reads. A positive forced
-	 * length requires a longer source read, checked before opening the writer.
-	 * Normal completion returns input batches,
-	 * closes the reader, finishes the writer and reports accumulated I/O errors;
-	 * exceptional exits have no general finally cleanup here.
+	 * length requires a longer source read for the second parent, checked before
+	 * opening the writer.
+	 * Normal completion returns input batches, closes the reader, finishes the writer
+	 * and reports accumulated I/O errors. Exceptional exits inside the protected
+	 * reader and writer loops attempt the corresponding cleanup before unwinding.
 	 * @param t Started timer; restarted to report loading and generation separately
 	 */
 	void process(Timer t){
 		assert(readsOut>0) : "Please set the 'readsout' flag to a positive integer.";
-		
+
 		ArrayList<Read> source=new ArrayList<Read>();
 		{
 			final ConcurrentReadInputStream cris;
 			{
 				cris=ConcurrentReadInputStream.getReadInputStream(readsIn, false, ffin1, null, qfin1, null);
 				if(verbose){outstream.println("Started cris");}
-				cris.start(); //4567
+				cris.start();//4567
 			}
-			assert(!cris.paired());
-			
+
 			long readsProcessed=0;
 			long basesProcessed=0;
-			
-			{
-				
+
+			try{
+				assert(!cris.paired());
+
 				ListNum<Read> ln=cris.nextList();
 				ArrayList<Read> reads=(ln!=null ? ln.list : null);
-				
+
 				//			outstream.println("Fetched "+reads);
-				
+
 				if(reads!=null && !reads.isEmpty()){
 					Read r=reads.get(0);
 					assert((ffin1==null || ffin1.samOrBam()) || (r.mate!=null)==cris.paired());
 				}
-				
+
 				while(ln!=null && reads!=null && reads.size()>0){//ln!=null prevents a compiler potential null access warning
 
 					for(int idx=0; idx<reads.size(); idx++){
@@ -182,7 +183,7 @@ public class MakeChimeras {
 						assert(r1.mate==null);
 
 						final int initialLength1=r1.length();
-						
+
 						if(initialLength1>0){
 							source.add(r1);
 						}
@@ -190,7 +191,7 @@ public class MakeChimeras {
 						readsProcessed++;
 						basesProcessed+=initialLength1;
 					}
-					
+
 					cris.returnList(ln);
 					ln=cris.nextList();
 					reads=(ln!=null ? ln.list : null);
@@ -198,16 +199,16 @@ public class MakeChimeras {
 				if(ln!=null){
 					cris.returnList(ln.id, ln.list==null || ln.list.isEmpty());
 				}
+			}finally{
+				errorState|=ReadWrite.closeStream(cris);
 			}
-			
-			errorState|=ReadWrite.closeStream(cris);
-			
+
 			t.stop();
 			outstream.println(Tools.timeReadsBasesProcessed(t, readsProcessed, basesProcessed, 8));
 		}
-		
-		
-		
+
+
+
 		if(readsOut>=0){
 			t.start();
 			//A positive second fragment requires a source longer than forceLength.
@@ -222,7 +223,21 @@ public class MakeChimeras {
 							forceLength+"; maximum source length="+maxLength);
 				}
 			}
-			
+			if(readsOut>0 && source.isEmpty()){
+				throw new IllegalArgumentException("No nonempty source reads were retained.");
+			}
+
+			final ArrayList<Read> source2;
+			if(forceLength>0){
+				source2=new ArrayList<Read>();
+				for(Read r : source){
+					if(r.length()>forceLength){source2.add(r);}
+				}
+				assert(!source2.isEmpty());
+			}else{
+				source2=source;
+			}
+
 			final TextStreamWriter tsw;
 			if(ffout1==null){
 				tsw=null;
@@ -230,29 +245,32 @@ public class MakeChimeras {
 				tsw=new TextStreamWriter(ffout1);
 				tsw.start();
 			}
-			
+
 			final Random randy=Shared.threadLocalRandom();
-			
+
 			long readsProcessed=0;
 			long basesProcessed=0;
 			final int mod=source.size();
-			for(long i=0; i<readsOut; i++){
-				Read a=source.get(randy.nextInt(mod));
-				Read b=source.get(randy.nextInt(mod));
-				Read c=makeChimera(a, b, randy, i);
-				if(c==null){
-					i--;
-				}else{
-					if(tsw!=null && c!=null){
-						tsw.println(c);
-						readsProcessed++;
-						basesProcessed+=c.length();
+			final int mod2=source2.size();
+			try{
+				for(long i=0; i<readsOut; i++){
+					Read a=source.get(randy.nextInt(mod));
+					Read b=source2.get(randy.nextInt(mod2));
+					Read c=makeChimera(a, b, randy, i);
+					if(c==null){
+						i--;
+					}else{
+						if(tsw!=null){
+							tsw.println(c);
+							readsProcessed++;
+							basesProcessed+=c.length();
+						}
 					}
 				}
+			}finally{
+				if(tsw!=null){errorState|=tsw.poisonAndWait();}
 			}
-			
-			if(tsw!=null){errorState|=tsw.poisonAndWait();}
-			
+
 			t.stop();
 			outstream.println(Tools.timeReadsBasesProcessed(t, readsProcessed, basesProcessed, 8));
 		}
@@ -261,7 +279,7 @@ public class MakeChimeras {
 			throw new RuntimeException(getClass().getName()+" terminated in an error state; the output may be corrupt.");
 		}
 	}
-	
+
 	/**
 	 * Concatenates copied fragments, preserving the parent reads.
 	 * With positive forceLength, requests that length from a (clipped to a's length)
@@ -273,7 +291,7 @@ public class MakeChimeras {
 	 * @param numericID Numeric ID for the generated read
 	 * @return New chimera, or null when a forced fragment has no bases
 	 */
-	private Read makeChimera(Read a, Read b, Random randy, long numericID) {
+	private Read makeChimera(Read a, Read b, Random randy, long numericID){
 		final String id=a.id+" ~ "+b.id;
 
 		final Read a2, b2;
@@ -321,7 +339,7 @@ public class MakeChimeras {
 	 * @param randy Generator used for length, start and orientation
 	 * @return New fragment with independent base and optional quality arrays
 	 */
-	private static Read getPiece(Read a, Random randy) {
+	private static Read getPiece(Read a, Random randy){
 		int len=randy.nextInt(a.length())+1;
 		
 		final int start;
@@ -355,7 +373,7 @@ public class MakeChimeras {
 	 * @param len Desired fragment length in bases
 	 * @return New fragment, or null if the length after clipping is less than one
 	 */
-	private Read getPiece(Read a, Random randy, int len) {
+	private Read getPiece(Read a, Random randy, int len){
 		len=Tools.min(len, a.length());
 		if(len<1){return null;}
 		

@@ -224,7 +224,7 @@ public class FakeReads {
 		{
 			cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ffin1, null, qfin1, null);
 			if(verbose){System.err.println("Started cris");}
-			cris.start(); //4567
+			cris.start();//4567
 		}
 		boolean paired=cris.paired();
 		if(verbose){System.err.println("Input is "+(paired ? "paired" : "unpaired"));}

@@ -50,7 +50,7 @@ public final class FuseSequence extends BBTool_ST {
 	}
 	
 	@Override
-	public boolean parseArgument(String arg, String a, String b) {
+	public boolean parseArgument(String arg, String a, String b){
 		if(a.equals("pad") || a.equals("npad") || a.equals("ns")){
 			npad=Integer.parseInt(b);
 			return true;
@@ -80,9 +80,10 @@ public final class FuseSequence extends BBTool_ST {
 	}
 	
 	/**
-	 * Main processing loop for fusing sequences.
-	 * Reads input sequences and either fuses pairs immediately or accumulates reads
-	 * in a buffer until maxlen is reached, then outputs the concatenated sequence.
+	 * Consumes input reads and emits either fused pairs or buffered concatenations.
+	 * Pair-fusing mode keeps one output read per retained pair, while concatenation
+	 * mode appends reads to a shared buffer and flushes it at positive length limits
+	 * or at end of input.
 	 *
 	 * @param cris Input stream for reading sequences
 	 * @param ros Output stream for writing processed sequences
@@ -92,6 +93,9 @@ public final class FuseSequence extends BBTool_ST {
 		
 		readsProcessed=0;
 		basesProcessed=0;
+		if(discardOutputQualities()){
+			quals=null;
+		}
 
 		long outNum=0;
 		long lastListID=0;
@@ -164,6 +168,11 @@ public final class FuseSequence extends BBTool_ST {
 		}
 	}
 	
+	/**
+	 * Converts the accumulated bases and qualities into an output read.
+	 * @param id numeric suffix to append when output numbering is enabled
+	 * @return a read containing the previous buffer contents
+	 */
 	Read bufferToRead(long id){
 		Read r=new Read(bases.toBytes(), (quals==null ? null : quals.toBytes()), 0);
 		bases.clear();
@@ -173,20 +182,14 @@ public final class FuseSequence extends BBTool_ST {
 		return r;
 	}
 	
-	/* (non-Javadoc)
-	 * @see jgi.BBTool_ST#processReadPair(stream.Read, stream.Read)
-	 */
 	/**
-	 * Processes a pair of reads based on the fusion mode.
-	 * In fusePairs mode, joins R1 and reverse complement of R2 with padding.
-	 * Otherwise, processes each read individually for concatenation.
-	 *
-	 * @param r1 First read in the pair
-	 * @param r2 Second read in the pair (may be null)
-	 * @return true if reads were fused as pairs, false if processed individually
+	 * Handles one primary read and its optional mate according to the active mode.
+	 * @param r1 first read in the pair
+	 * @param r2 second read in the pair, or null for unpaired input
+	 * @return true when the primary read should stay in the current output list
 	 */
 	@Override
-	protected boolean processReadPair(Read r1, Read r2) {
+	protected boolean processReadPair(Read r1, Read r2){
 		if(fusePairs){
 			fusePair(r1, r2);
 			return true;
@@ -196,7 +199,12 @@ public final class FuseSequence extends BBTool_ST {
 		return false;
 	}
 	
-	private void fusePair(Read r1, Read r2) {
+	/**
+	 * Joins a primary read, padding and the reverse-complemented mate in place.
+	 * @param r1 primary read to receive the fused bases and qualities
+	 * @param r2 mate to reverse-complement and append, or null to leave r1 unchanged
+	 */
+	private void fusePair(Read r1, Read r2){
 		if(r2==null){return;}
 		
 		r2.reverseComplementFast();
@@ -221,41 +229,58 @@ public final class FuseSequence extends BBTool_ST {
 		r1.quality=quals;
 	}
 	
-	private void processRead(Read r) {
+	/**
+	 * Appends one read to the concatenation buffer, inserting padding first when
+	 * previous reads are already buffered.
+	 * @param r read to append
+	 */
+	private void processRead(Read r){
 		if(name==null){
 			name=r.id;
 		}
 		if(bases.length>0){
 			for(int i=0; i<npad; i++){
 				bases.append(PAD_SYMBOL);
-				quals.append((byte)0);
+				if(quals!=null){quals.append((byte)0);}
 			}
 		}
 		bases.append(r.bases);
-		if(r.quality!=null){
-			quals.append(r.quality);
-		}else{
-			for(int i=0, max=r.length(); i<max; i++){
-				quals.append(defaultQuality);
+		if(quals!=null){
+			if(r.quality!=null){
+				quals.append(r.quality);
+			}else{
+				for(int i=0, max=r.length(); i<max; i++){
+					quals.append(defaultQuality);
+				}
 			}
 		}
 	}
 	
-	/** Subclass-specific startup operations.
-	 * No operations needed for FuseSequence. */
+	/**
+	 * Indicates whether concatenated reads need an inline quality buffer.
+	 * FASTA primary output discards read qualities unless separate qfout output is active.
+	 * @return true if FuseSequence can skip synthetic quality construction
+	 */
+	private boolean discardOutputQualities(){
+		return ffout1!=null && ffout1.fasta() && qfout1==null;
+	}
+
+	/** No startup work is needed after the shared streams are allocated. */
 	@Override
-	protected void startupSubclass() {}
+	protected void startupSubclass(){}
 	
+	/** No cleanup is needed before the shared streams are closed. */
 	@Override
-	protected void shutdownSubclass() {}
+	protected void shutdownSubclass(){}
 	
-	/** Indicates whether to use shared header information.
-	 * @return false - FuseSequence does not use shared headers */
+	/** Indicates whether to pass a shared SAM/BAM header to output streams.
+	 * @return false; FuseSequence writes ordinary sequence output */
 	@Override
 	protected final boolean useSharedHeader(){return false;}
 	
+	/** FuseSequence adds no tool-specific summary statistics. */
 	@Override
-	protected void showStatsSubclass(Timer t, long readsIn, long basesIn) {}
+	protected void showStatsSubclass(Timer t, long readsIn, long basesIn){}
 	
 	int maxlen=Shared.MAX_ARRAY_LEN;
 	int npad;

@@ -61,7 +61,7 @@ import tracker.ReadStats;
 public class RandomReadsMG{
 
 	/*
-	 *TODO: Enhanced realism features (all optional, disabled by default)
+	 * TODO: Enhanced realism features (all optional, disabled by default)
 	 *
 	 *1. Adapter contamination for short inserts
 	 *  -Tested!  Paired reads only.
@@ -122,7 +122,7 @@ public class RandomReadsMG{
 	 */
 	public RandomReadsMG(String[] args){
 
-		{ //Preparse block for help, config files, and outstream
+		{//Preparse block for help, config files, and outstream
 			PreParser pp=new PreParser(args, getClass(), false);
 			args=pp.args;
 			outstream=pp.outstream;
@@ -133,7 +133,7 @@ public class RandomReadsMG{
 		ReadWrite.setZipThreads(Shared.threads());
 		FASTQ.TEST_INTERLEAVED=FASTQ.FORCE_INTERLEAVED=false;
 
-		{ //Parse the arguments
+		{//Parse the arguments
 			final Parser parser=parse(args);
 			Parser.processQuality();
 
@@ -148,9 +148,9 @@ public class RandomReadsMG{
 		}
 		indelRate=insRate+delRate;
 		validateParams();
-		doPoundReplacement(); //Replace # with 1 and 2
-		checkFileExistence(); //Ensure files can be read and written
-		checkStatics(); //Adjust file-related static fields as needed for this program 
+		doPoundReplacement();//Replace # with 1 and 2
+		checkFileExistence();//Ensure files can be read and written
+		checkStatics();//Adjust file-related static fields as needed for this program
 
 		//Create output FileFormat objects
 		final boolean ordered=(out2!=null && !"null".equalsIgnoreCase(out2));
@@ -355,7 +355,7 @@ public class RandomReadsMG{
 			}else if(a.equals("parse_flag_goes_here")){
 				long fake_variable=Parse.parseKMG(b);
 				//Set a variable here
-			}else if(parser.parse(arg, a, b)){ //Parse standard flags in the parser
+			}else if(parser.parse(arg, a, b)){//Parse standard flags in the parser
 				//do nothing
 			}else{
 				File f=new File(arg);
@@ -495,7 +495,7 @@ public class RandomReadsMG{
 		spawnThreads(inputFiles, ros);
 
 		if(verbose){outstream.println("Finished; closing streams.");}
-		if(ros!=null) {ros.poisonAndWait();}
+		if(ros!=null){ros.poisonAndWait();}
 
 		//Write anything that was accumulated by ReadStats
 		errorState|=ReadStats.writeAll();
@@ -530,14 +530,14 @@ public class RandomReadsMG{
 		if(paired && out2==null){
 			outstream.println("Writing interleaved.");
 		}
-		if(inputFiles.size()>1) {
+		if(inputFiles.size()>1){
 			OrderedQueueSystem2.BUFFER_PADDING=Math.max(OrderedQueueSystem2.BUFFER_PADDING, 64);
 			Shared.setBufferLen(400);
 		}
 		int wt=-1;//inputFiles.size()>1 ? -1 : 1;
 		final Writer ros=WriterFactory.getStream(
 				ffout1, ffout2, qfout1, qfout2, 4, null, false, wt);
-		ros.start(); //Start the stream
+		ros.start();//Start the stream
 		return ros;
 	}
 
@@ -615,7 +615,7 @@ public class RandomReadsMG{
 				try{
 					//Attempt a join operation
 					pt.join();
-				} catch (InterruptedException e){
+				}catch(InterruptedException e){
 					//Potentially handle this, if it is expected to occur
 					e.printStackTrace();
 				}
@@ -650,7 +650,7 @@ public class RandomReadsMG{
 	private Streamer makeCris(String fname){
 		FileFormat ff=FileFormat.testInput(fname, FileFormat.FASTA, null, true, true);
 		Streamer cris=StreamerFactory.getReadInputStream(-1, false, ff, null, 0);
-		cris.start(); //Start the stream
+		cris.start();//Start the stream
 		if(verbose){outstream.println("Started cris");}
 		return cris;
 	}
@@ -859,7 +859,7 @@ public class RandomReadsMG{
 			for(int i=lim; i<initial; i++){
 				if(AminoAcid.isFullyDefined(bases[i])){
 					bases[i]='G';
-					if(quals!=null){quals[i]=(byte)Math.min(8, quals[i]);} // Low quality for off end
+					if(quals!=null){quals[i]=(byte)Math.min(8, quals[i]);}// Low quality for off end
 				}
 			}
 		}
@@ -879,13 +879,13 @@ public class RandomReadsMG{
 	 */
 	public static int mutateIllumina(Read r, final int meanQ, final int qRange, 
 			Random randy, final boolean addErrors){
-		if(!addErrors && qRange<1) {return 0;}
+		if(!addErrors && qRange<1){return 0;}
 		if(r.quality==null){r.quality=new byte[r.length()];}
 		final byte[] bases=r.bases, quals=r.quality;
 		final int fullRange=qRange*2+1;
 		final int baseQ=meanQ-qRange;
 		int subs=0;
-		if(FLAT_QUAL || qRange<1) {
+		if(FLAT_QUAL || qRange<1){
 			final byte q=(byte)(baseQ+(fullRange<1 ? 0 : randy.nextInt(fullRange)));
 			final float prob=QualityTools.PROB_CORRECT[q];
 			for(int i=0; i<bases.length; i++){
@@ -902,7 +902,7 @@ public class RandomReadsMG{
 					quals[i]=0;
 				}
 			}
-		}else {
+		}else{
 			for(int i=0; i<bases.length; i++){
 				byte b=bases[i];
 				if(AminoAcid.isFullyDefined(b)){
@@ -942,7 +942,7 @@ public class RandomReadsMG{
 			if(AminoAcid.isFullyDefined(b) && randy.nextFloat()<rate){
 				//Make a substitution-choose a different base
 				int x=AminoAcid.baseToNumber[b];
-				x=(x+(randy.nextInt3()+1))&3; // Add 1-3 to avoid same base
+				x=(x+(randy.nextInt3()+1))&3;// Add 1-3 to avoid same base
 				bases[i]=AminoAcid.numberToBase[x];
 				subs++;
 			}
@@ -976,7 +976,7 @@ public class RandomReadsMG{
 	}
 
 	/** Trace-aware form; the null-trace path is the legacy compatibility oracle. */
-	static int addIndels(Read r, float insRate, float delRate, int desiredLength, int meanQ, int qRange, Random randy, TruthTrace trace){
+	public static int addIndels(Read r, float insRate, float delRate, int desiredLength, int meanQ, int qRange, Random randy, TruthTrace trace){
 		final byte[] bases=r.bases;
 		final byte[] quals=r.quality;
 		final int[] locs=trace==null ? null : trace.coordinates;
@@ -1018,7 +1018,7 @@ public class RandomReadsMG{
 					//Deletion-skip this base
 					padding--;
 					dels++;
-				}else {
+				}else{
 					i--;// Retry
 				}
 			}else{
@@ -1069,7 +1069,7 @@ public class RandomReadsMG{
 	}
 
 	/** Trace-aware form; tracking changes no random draws or base-generation decisions. */
-	int mutateLongRead(Read r, float sRate, float iRate, float dRate, float hRate, Random randy, TruthTrace trace){
+	public int mutateLongRead(Read r, float sRate, float iRate, float dRate, float hRate, Random randy, TruthTrace trace){
 		final float delProb=dRate/Math.max(0.000000000001f, (iRate+dRate));
 		final float errProb=sRate+iRate+dRate;
 		float bonus=0;
@@ -1094,20 +1094,20 @@ public class RandomReadsMG{
 			if(f>=errProb+bonus){
 				bb.append(b);
 				if(newLocs!=null){newLocs.add(locs[i]);}
-			}else if(f<sRate){ //Substitution
+			}else if(f<sRate){//Substitution
 				int x=AminoAcid.baseToNumber[b];
 				x=(x+(randy.nextInt3()+1))&3;
 				bb.append(AminoAcid.numberToBase[x]);
 				if(newLocs!=null){newLocs.add(locs[i]);}
 				changes++;
-			}else{ //Indel
+			}else{//Indel
 				if(randy.nextFloat()<delProb){
 					//Deletion, do nothing
-				}else{ //Insertion
+				}else{//Insertion
 					bb.append(b);
 					if(newLocs!=null){newLocs.add(locs[i]);}
 					byte b2=(f>errProb ? b : AminoAcid.numberToBase[randy.nextInt()&3]);
-					bb.append(b2); //This is a same-base insertion, sometimes.
+					bb.append(b2);//This is a same-base insertion, sometimes.
 					if(newLocs!=null){newLocs.add(-1);}
 				}
 				bonus=0;
@@ -1120,8 +1120,8 @@ public class RandomReadsMG{
 	}
 
 	/** Immutable clean source plus the surviving source coordinate of each read base. */
-	static final class TruthTrace{
-		TruthTrace(final byte[] orientedReference){
+	public static final class TruthTrace{
+		public TruthTrace(final byte[] orientedReference){
 			if(orientedReference==null || orientedReference.length<1){throw new IllegalArgumentException("Truth tracing requires a nonempty clean source.");}
 			reference=orientedReference.clone();coordinates=new int[reference.length];
 			for(int i=0;i<coordinates.length;i++){coordinates[i]=i;}
@@ -1130,23 +1130,23 @@ public class RandomReadsMG{
 			assert(r!=null && r.bases!=null && coordinates!=null && coordinates.length==r.length()) :
 				"Truth coordinates must remain one-to-one with output bases after every mutation pass.";
 		}
-		final byte[] reference;
-		int[] coordinates;
+		public final byte[] reference;
+		public int[] coordinates;
 	}
 
 	/** Exact forward-reference-order header CIGAR and its consumption counts. */
-	static final class TruthCigar{
-		TruthCigar(final byte[] cigar_,final int readLength_,final int referenceLength_){
+	public static final class TruthCigar{
+		public TruthCigar(final byte[] cigar_,final int readLength_,final int referenceLength_){
 			cigar=cigar_;readLength=readLength_;referenceLength=referenceLength_;
 		}
-		final byte[] cigar;
-		final int readLength,referenceLength;
+		public final byte[] cigar;
+		public final int readLength,referenceLength;
 	}
 
 	/** Build a compact extended CIGAR without realigning repeat-equivalent edits.
 	 * The trace uses read-oriented local coordinates; reverse-strand operations
 	 * are reversed before encoding so the header CIGAR is forward-reference order. */
-	static TruthCigar buildTruthCigar(final Read r,final TruthTrace trace,final boolean reverse){
+	public static TruthCigar buildTruthCigar(final Read r,final TruthTrace trace,final boolean reverse){
 		if(r==null || r.bases==null || trace==null){throw new IllegalArgumentException("CIGAR construction requires a read and its mutation trace.");}
 		trace.assertMatches(r);
 		final ByteBuilder ops=new ByteBuilder(r.length()+16);
@@ -1179,7 +1179,7 @@ public class RandomReadsMG{
 	}
 
 	/** Leftmost forward-reference coordinate of an oriented source prefix. */
-	static int truthStart(final int originalStart,final int extractedLength,final int referenceLength,final boolean reverse){
+	public static int truthStart(final int originalStart,final int extractedLength,final int referenceLength,final boolean reverse){
 		if(originalStart<0 || extractedLength<1 || referenceLength<1 || referenceLength>extractedLength){
 			throw new IllegalArgumentException("Invalid truth span: start="+originalStart+", extracted="+extractedLength+", reference="+referenceLength);
 		}
@@ -1202,7 +1202,7 @@ public class RandomReadsMG{
 	 */
 	public static int generatePacBioHiFiLength(int minLength, int meanLength, int maxLength, double sigma, Random randy){
 		//Log-normal distribution
-		double mu=Math.log(meanLength)-0.5*sigma*sigma; //Bias correction for log-normal mean
+		double mu=Math.log(meanLength)-0.5*sigma*sigma;//Bias correction for log-normal mean
 		double logLength=mu+randy.nextGaussian()*sigma;
 		int length=(int)Math.round(Math.exp(logLength));
 
@@ -1228,7 +1228,7 @@ public class RandomReadsMG{
 		//Use mixed distribution approach
 		if(randy.nextDouble()<longTailFactor){
 			//Generate from heavy tail (exponential)
-			double scale=meanLength*2; //Scale factor produces longer tail reads
+			double scale=meanLength*2;//Scale factor produces longer tail reads
 			double x=-Math.log(randy.nextDouble())*scale;
 			return (int)Tools.mid(minLength, x, maxLength);
 		}else{
@@ -1240,9 +1240,9 @@ public class RandomReadsMG{
 		}
 	}
 	
-	private ByteBuilder illuminaHeader(ByteBuilder bb, Random randy, int pnum) {
-		if(bb==null) {bb=new ByteBuilder();}
-		if(machine!=null) {bb.append(machine);}
+	private ByteBuilder illuminaHeader(ByteBuilder bb, Random randy, int pnum){
+		if(bb==null){bb=new ByteBuilder();}
+		if(machine!=null){bb.append(machine);}
 		else{bb.append("LH000").append(hdrNum1);}
 		bb.colon().append(hdrNum2);
 		bb.colon().append(hdrNum3).append("GLGMLT3");
@@ -1257,14 +1257,14 @@ public class RandomReadsMG{
 		return bb;
 	}
 	
-	private byte[] randomBarcode(int len1, int len2, Random randy) {
+	private byte[] randomBarcode(int len1, int len2, Random randy){
 		ByteBuilder bb=new ByteBuilder(len1+len2+1);
-		for(int i=0; i<len1; i++) {
+		for(int i=0; i<len1; i++){
 			bb.append(AminoAcid.numberToBase[randy.nextInt()&3]);
 		}
-		if(len2<1) {return bb.toBytes();}
+		if(len2<1){return bb.toBytes();}
 		bb.append('+');
-		for(int i=0; i<len2; i++) {
+		for(int i=0; i<len2; i++){
 			bb.append(AminoAcid.numberToBase[randy.nextInt()&3]);
 		}
 		return bb.toBytes();
@@ -1377,7 +1377,7 @@ public class RandomReadsMG{
 		 */
 		private void processContig(Read contig, float depth, int taxID, int fnum, String fname){
 			final int clen=contig.length();
-			if(circular) {
+			if(circular){
 				bb.clear().append(contig.bases).append(contig.bases);
 				contig.bases=bb.toBytes();
 				bb.clear();
@@ -1391,11 +1391,11 @@ public class RandomReadsMG{
 				if(paired && contig.length()<avgInsert){return;}
 			}else{
 				// Long-read platforms (PacBio/ONT)
-				int minContigLength=minLength+50; // Buffer for read placement
+				int minContigLength=minLength+50;// Buffer for read placement
 				if(contig.length()<minContigLength){return;}
 			}
 
-			lastStart=lastInsert=lastStrand-1; // Reset PCR duplicates
+			lastStart=lastInsert=lastStrand-1;// Reset PCR duplicates
 			long basesToGenerate=(readsPerContig>0 ? readsPerContig*basesPerRead : (long)(depth*contig.length()));
 			long readsGenerated=0;
 			long basesGenerated=0;
@@ -1670,12 +1670,12 @@ public class RandomReadsMG{
 		 */
 		private String makeHeader(int start, int clen, int strand, int insert, int rlen, int taxID,
 				int fnum, long cnum, int pnum, int pcr, String fname, Random randy, String id1, byte[] cigar){
-			if(circular && start>=clen/2) {start-=clen/2;}
+			if(circular && start>=clen/2){start-=clen/2;}
 			bb.clear();
-			if(illuminaHeaders) {
-				if(id1==null) {
+			if(illuminaHeaders){
+				if(id1==null){
 					illuminaHeader(bb, randy, pnum);
-				}else {
+				}else{
 					assert(pnum==1);
 					int space=id1.indexOf(' ');
 					bb.append(id1, 0, space+1);
@@ -1692,7 +1692,7 @@ public class RandomReadsMG{
 			if(taxID>0){bb.under().append("tid").under().append(taxID);}
 			else{bb.under().append("name").under().append(fname);}
 			if(cigar!=null){bb.under().append("cigar").under().append(cigar);}
-			if(!illuminaHeaders) {bb.space().append(pnum+1).colon();}
+			if(!illuminaHeaders){bb.space().append(pnum+1).colon();}
 			return bb.toString();
 		}
 

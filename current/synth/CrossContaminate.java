@@ -62,8 +62,8 @@ public class CrossContaminate {
 	 * Parses options, expands filename lists, validates names and starts output writers.
 	 * Input and output lists must have equal nonzero lengths. Repeated inputs are
 	 * allowed; exact input/output name matches are rejected before writers open.
-	 * This check does not resolve filesystem aliases. Numeric assertions do not
-	 * establish valid zero-bound sampling; see SYN021 below.
+	 * This check does not resolve filesystem aliases. Probability bounds must be
+	 * positive so log-space sampling stays finite.
 	 * @param args Command-line options, including optional configuration files
 	 */
 	public CrossContaminate(String[] args){
@@ -189,11 +189,11 @@ public class CrossContaminate {
 		maxSinks=Tools.min(inNames.size()-1, maxSinks);
 		assert(minSinks<=maxSinks) : minSinks+", "+maxSinks;
 		
-		assert(minProb<=maxProb);
-		assert(minProb>=0 && maxProb<=1);
+		if(!(minProb>0) || !(minProb<=maxProb) || !(maxProb<=1)){
+			throw new IllegalArgumentException("minprob and maxprob must be positive probabilities with minprob<=maxprob<=1: "
+					+minProb+", "+maxProb);
+		}
 
-		//TODO: Probable bug - SYN021: zero passes validation but log(0) makes the sampled range non-finite.
-		//Define whether zero rates are supported or rejected before sampling sink probabilities.
 		minProbPow=Math.log(minProb);
 		maxProbPow=Math.log(maxProb);
 		
@@ -271,20 +271,32 @@ public class CrossContaminate {
 	
 	/**
 	 * Starts in-place shuffling for each output using Shuffle's shared thread limit.
-	 * The final Shuffle wait checks that limit, not that every thread has terminated.
+	 * Waits for every started shuffle thread and folds its error state into this tool.
 	 * @param threads Maximum active shuffle-thread count requested from Shuffle
 	 */
 	void shuffle(final int threads){
 		outstream.println("Shuffling output in "+threads+" thread"+(threads==1 ? "." : "s."));
 		Shuffle.showSpeed=Shuffle.printClass=false;
 		Shuffle.setMaxThreads(threads);
-		//TODO: Probable bug - SYN024: ShuffleThread catches failures without returning a status;
-		//this caller can report success after a shuffle fails.
+		ArrayList<ShuffleThread> list=new ArrayList<ShuffleThread>(vessels.size());
 		for(Vessel v : vessels){
 			ShuffleThread st=new ShuffleThread(v.fname, null, v.fname, null, Shuffle.SHUFFLE, true);
+			list.add(st);
 			st.start();
 		}
-		Shuffle.waitForFinish();
+		boolean interrupted=false;
+		for(ShuffleThread st : list){
+			while(st.isAlive()){
+				try{
+					st.join();
+				}catch(InterruptedException e){
+					interrupted=true;
+					errorState=true;
+				}
+			}
+			errorState|=st.errorState();
+		}
+		if(interrupted){Thread.currentThread().interrupt();}
 	}
 	
 	/**
@@ -388,7 +400,8 @@ public class CrossContaminate {
 	 * Chooses distinct non-source sinks and rewrites shared Vessel probabilities.
 	 * Each sink takes a log-space sampled fraction of the remaining mass; the
 	 * source receives the remainder. Weights become cumulative lower bounds and
-	 * the result is reversed for {@link #addRead}. Zero bounds remain unresolved.
+	 * the result is reversed for {@link #addRead}; the fallback output has a zero
+	 * lower bound after reversal.
 	 * @param list Writers in input/output index order; list order is preserved
 	 * @param sourceNum Index of the source's corresponding output
 	 * @return New routing list referencing the original mutable Vessel objects
@@ -521,7 +534,7 @@ public class CrossContaminate {
 	private int minSinks=1;
 	/** Maximum sink count, clamped to the number of other outputs. */
 	private int maxSinks=8;
-	/** Lower sampled fraction of remaining mass; zero is not correctly handled (SYN021). */
+	/** Lower sampled fraction of remaining mass; must be positive. */
 	private double minProb=0.000005;
 	/** Upper sampled fraction of remaining mass. */
 	private double maxProb=0.025;

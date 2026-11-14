@@ -23,9 +23,9 @@ import structures.ListNum;
 import tracker.ReadStats;
 
 /**
- * Shreds long sequences into shorter fragments using fixed, even, or random-length strategies.
- * Supports overlap/increment control and several distributions (uniform, log-uniform, exponential) for simulated read lengths.
- * Useful for simulating sequencing reads or breaking up long contigs for downstream analysis.
+ * Shreds long sequences into shorter fragments with fixed, even, random-length,
+ * or branch-kmer strategies.
+ *
  * @author Brian Bushnell
  * @date June 20, 2014
  */
@@ -35,7 +35,9 @@ public class Shred {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Program entry point that constructs a Shred instance and processes input sequences.
+	/**
+	 * Program entry point.
+	 *
 	 * @param args Command line arguments */
 	public static void main(String[] args){
 		Timer t=new Timer();
@@ -47,9 +49,9 @@ public class Shred {
 	}
 	
 	/**
-	 * Constructs a Shred instance by parsing command-line arguments.
-	 * Configures shredding parameters (length, overlap, increment, mode) and sets up input/output streams.
-	 * @param args Command-line arguments containing shredding options
+	 * Constructs a configured shredder from command-line arguments.
+	 *
+	 * @param args Command-line arguments
 	 */
 	public Shred(String[] args){
 		
@@ -149,11 +151,11 @@ public class Shred {
 		}
 		
 		minLength=Tools.mid(1, minLength, shredLength);
-		if(increment_>0) {
+		if(increment_>0){
 			assert(shredLength>0);
 			increment=increment_;
 			overlap=(maxLength<0 ? shredLength : minLength)-increment;
-		} else {
+		}else{
 			assert(shredLength>0);
 			assert(shredLength>overlap);
 			increment=shredLength-overlap;
@@ -182,20 +184,28 @@ public class Shred {
 		ffin1=FileFormat.testInput(in1, FileFormat.FASTQ, extin, true, true);
 		
 		randy=Shared.threadLocalRandom(seed);
-		if(median>0 && variance>0 && (minLength<0 || maxLength<0)) {
+		if(median>0 && variance>0 && (minLength<0 || maxLength<0)){
 			minLength=Tools.max(1, median-variance);
 			maxLength=median+variance;
 		}
 		if(branchK==0){System.err.println("minlen="+minLength+", maxlen="+maxLength);}
 		else{outstream.println("Branch shredding: k="+branchK+", cut after branch k-mer; all bases retained");}
-		if(minLength>-1 && maxLength>-1) {
+		if(minLength>-1 && maxLength>-1){
 			assert(maxLength>=minLength);
 			range=maxLength-minLength+1;
-		}else {
+		}else{
 			range=0;
 		}
 	}
 	
+	/**
+	 * Legacy parser for class-specific flags.
+	 *
+	 * @param arg Original unmodified command-line token
+	 * @param a Lower-case flag name
+	 * @param b Flag value, or {@code null} for valueless flags
+	 * @return {@code true} if this method consumed the flag
+	 */
 	public boolean parseArgument(String arg, String a, String b){
 		if(a.equals("reads") || a.equals("maxreads")){
 			maxReads=Parse.parseKMG(b);
@@ -213,8 +223,8 @@ public class Shred {
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Main processing method that coordinates input/output streams and shredding.
-	 * Creates concurrent streams, processes all input reads, and reports timing and throughput statistics.
+	 * Coordinates stream creation, shredding, shutdown, and throughput reporting.
+	 *
 	 * @param t Timer for tracking execution time
 	 */
 	void process(Timer t){
@@ -271,8 +281,8 @@ public class Shred {
 	}
 	
 	/**
-	 * Core processing loop that reads input sequences and generates shreds according to the configured mode.
-	 * Handles taxonomic ID parsing from filenames or sequence headers when enabled.
+	 * Reads input lists and emits shreds according to the configured length mode.
+	 *
 	 * @param cris Concurrent input stream for reading sequences
 	 * @param ros Concurrent output stream for writing shreds
 	 */
@@ -293,7 +303,7 @@ public class Shred {
 		}
 		
 		int tid=-1;
-		if(parseFileTID) {
+		if(parseFileTID){
 			tid=bin.BinObject.parseTaxID(in1);
 		}
 
@@ -309,7 +319,7 @@ public class Shred {
 				readsProcessed++;
 				basesProcessed+=initialLength1;
 				
-				if(parseSequenceTID) {
+				if(parseSequenceTID){
 					tid=bin.BinObject.parseTaxID(r1.id);
 				}
 				
@@ -354,6 +364,15 @@ public class Shred {
 //		}
 //	}
 	
+	/**
+	 * Splits one read into evenly spaced, nearly equal-length shreds.
+	 * Each emitted shred is at least {@link #minLength}, at most
+	 * {@link #shredLength}, and passes the configured {@link #maxNs} filter.
+	 *
+	 * @param r1 Source read
+	 * @param list Destination list for accepted shreds
+	 * @param tid Taxonomic id to add to shred names, or {@code <=0} to omit it
+	 */
 	void processEvenly(final Read r1, final ArrayList<Read> list, int tid){
 		final byte[] bases=r1.bases;
 		final byte[] quals=r1.quality;
@@ -374,8 +393,8 @@ public class Shred {
 			final byte[] quals2=(quals==null ? null : KillSwitch.copyOfRange(quals, a, b));
 			Read shred=new Read(bases2, quals2, toName(name, a, (b-1), tid), readsOut);
 			boolean pass=true;
-			if(pass && maxNs>=0 && shred.countUndefined()>maxNs) {pass=false;}
-			if(pass) {
+			if(pass && maxNs>=0 && shred.countUndefined()>maxNs){pass=false;}
+			if(pass){
 				readsOut++;
 				basesOut+=shred.length();
 				list.add(shred);
@@ -383,6 +402,15 @@ public class Shred {
 		}
 	}
 	
+	/**
+	 * Splits one read by stepping {@link #increment} bases between shred starts.
+	 * Each emitted shred is at least {@link #minLength}, at most
+	 * {@link #shredLength}, and passes the configured {@link #maxNs} filter.
+	 *
+	 * @param r1 Source read
+	 * @param list Destination list for accepted shreds
+	 * @param tid Taxonomic id to add to shred names, or {@code <=0} to omit it
+	 */
 	void processUnevenly(final Read r1, final ArrayList<Read> list, int tid){
 		final byte[] bases=r1.bases;
 		final byte[] quals=r1.quality;
@@ -397,8 +425,8 @@ public class Shred {
 			final byte[] quals2=(quals==null ? null : KillSwitch.copyOfRange(quals, i, limit));
 			Read shred=new Read(bases2, quals2, toName(name, i, (limit-1), tid), readsOut, r1.flags);
 			boolean pass=true;
-			if(pass && maxNs>=0 && shred.countUndefined()>maxNs) {pass=false;}
-			if(pass) {
+			if(pass && maxNs>=0 && shred.countUndefined()>maxNs){pass=false;}
+			if(pass){
 				readsOut++;
 				basesOut+=shred.length();
 				list.add(shred);
@@ -408,6 +436,15 @@ public class Shred {
 		}
 	}
 	
+	/**
+	 * Splits one read into adjacent random-length shreds.
+	 * Each emitted shred is at least {@link #minLength}, clipped to the
+	 * remaining read length, and passes the configured {@link #maxNs} filter.
+	 *
+	 * @param r1 Source read
+	 * @param list Destination list for accepted shreds
+	 * @param tid Taxonomic id to add to shred names, or {@code <=0} to omit it
+	 */
 	void processRandomly(final Read r1, final ArrayList<Read> list, int tid){
 		final byte[] bases=r1.bases;
 		final byte[] quals=r1.quality;
@@ -425,63 +462,93 @@ public class Shred {
 			final byte[] bases2=KillSwitch.copyOfRange(bases, i, limit);
 			final byte[] quals2=(quals==null ? null : KillSwitch.copyOfRange(quals, i, limit));
 			Read shred=new Read(bases2, quals2, toName(name, i, (limit-1), tid), readsOut);
-			readsOut++;
-			basesOut+=shred.length();
-			list.add(shred);
+			boolean pass=true;
+			if(pass && maxNs>=0 && shred.countUndefined()>maxNs){pass=false;}
+			if(pass){
+				readsOut++;
+				basesOut+=shred.length();
+				list.add(shred);
+			}
 			if(limit==bases.length){return;}
 			assert(limit<bases.length);
 			i=limit;
 		}
 	}
 	
-	final String toName(String name, int start, int stop, int tid) {
+	/**
+	 * Formats an output id as name_start-stop, optionally suffixed by tax id.
+	 *
+	 * @param name Read id or configured prefix; {@code null} omits the prefix
+	 *             and underscore
+	 * @param start Zero-based inclusive source start
+	 * @param stop Zero-based inclusive source stop
+	 * @param tid Taxonomic id to append when positive
+	 * @return Shred id containing coordinates and, when available, tax id
+	 */
+	final String toName(String name, int start, int stop, int tid){
 		return (name==null ? "" : name+"_")+start+"-"+stop+(tid>0 ? "_tid_"+tid : "");
 	}
 	
-	final int randomLength(final int remainder) {
-		if(mode==LINEAR) {return randomLengthLinear(remainder);}
-		else if(mode==LOG) {return logUniformLength(remainder);}
-		else if(mode==EXP) {return randomLengthExp(remainder);}
-		else {
+	/**
+	 * Samples one random length using the configured distribution mode.
+	 *
+	 * @param remainder Remaining bases in the source read
+	 * @return Length clipped to {@code remainder}
+	 */
+	final int randomLength(final int remainder){
+		if(mode==LINEAR){return randomLengthLinear(remainder);}
+		else if(mode==LOG){return logUniformLength(remainder);}
+		else if(mode==EXP){return randomLengthExp(remainder);}
+		else{
 			throw new RuntimeException("Unknown mode "+mode);
 		}
 	}
 	
-	final int randomLengthLinear(final int remainder) {
+	/**
+	 * Samples a discrete linear-uniform length and clips it to the current remainder.
+	 *
+	 * @param remainder Remaining bases in the source read
+	 * @return Length clipped to {@code remainder}
+	 */
+	final int randomLengthLinear(final int remainder){
 		return Tools.min(minLength+randy.nextInt(range), remainder);
 	}
 	
-	final int randomLengthExp(final int remainder) {
-		if(remainder<=minLength) {return remainder;}
+	/**
+	 * Samples an exponential length.
+	 * Out-of-range samples are retried before falling back to the current
+	 * remainder.
+	 *
+	 * @param remainder Remaining bases in the source read
+	 * @return Length clipped to {@code remainder}
+	 */
+	final int randomLengthExp(final int remainder){
+		if(remainder<=minLength){return remainder;}
 		long max=Tools.min(maxLength, remainder);
 		float invlambda=(float)(1/Math.sqrt(minLength*max));
 //		System.err.println("1/Lambda="+invlambda);
 		int rand=(int)Tools.exponential(randy, invlambda);
-		for(int i=0; i<20 && (rand>max || rand<minLength); i++) {
+		for(int i=0; i<20 && (rand>max || rand<minLength); i++){
 			rand=(int)Tools.exponential(randy, invlambda);
 		}
 //		System.err.println("Rand.exp="+rand);
 		return (rand<minLength || rand>max ? remainder : rand);
 	}
 	
-    /**
-     * Samples a length from a continuous log-uniform distribution between minLength and maxLength.
-     * Draws a uniform random variate in log space, exponentiates, and clips to the remaining sequence length.
-     * @param remainder Maximum possible length for the current shred
-     * @return Log-uniform distributed length between minLength and maxLength, bounded by remainder
-     */
-    private int logUniformLength(int remainder) {
-        double u = randy.nextDouble(); // Uniform between 0 and 1
-        
-        // Calculate log-uniform value between minLength and maxLength
-        double logMin = Math.log(minLength);
-        double logMax = Math.log(maxLength);
-        double logValue = logMin + u * (logMax - logMin);
-        
-        // Convert back from log space and round to integer
-        int len=(int) Math.round(Math.exp(logValue));
-        return Math.min(remainder, len);
-    }
+	/**
+	 * Samples a continuous log-uniform length and clips it to the current remainder.
+	 *
+	 * @param remainder Maximum possible length for the current shred
+	 * @return Distributed length bounded by remainder
+	 */
+	private int logUniformLength(int remainder){
+		double u=randy.nextDouble();
+		double logMin=Math.log(minLength);
+		double logMax=Math.log(maxLength);
+		double logValue=logMin+u*(logMax-logMin);
+		int len=(int)Math.round(Math.exp(logValue));
+		return Math.min(remainder, len);
+	}
 	
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
@@ -527,8 +594,7 @@ public class Shred {
 	private final Random randy;
 	
 	int mode=LINEAR;
-	/** Constant for exponential distribution mode */
-	/** Constant for log-uniform distribution mode */
+	/** Length-distribution modes. */
 	static final int LINEAR=0, LOG=1, EXP=2;
 	static final String[] modes={"LINEAR", "LOG", "EXP"};
 	

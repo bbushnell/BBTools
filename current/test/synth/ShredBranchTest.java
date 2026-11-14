@@ -1,4 +1,6 @@
-package synth;
+package test.synth;
+
+import synth.Shred;
 
 import java.nio.file.Files;
 import java.nio.file.Path;

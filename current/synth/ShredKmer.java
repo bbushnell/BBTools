@@ -107,6 +107,7 @@ final class ShredKmer{
 			}
 			complete=true;
 		}finally{
+			//Possible Bug: finishError can abandon output without waiting for closure.
 			if(!complete && writer!=null){writer.finishError();}
 			final boolean inputError=ReadWrite.closeStream(reader); tables.clear();
 			if(complete && inputError){throw new IllegalStateException("Branch shred input close failed");}

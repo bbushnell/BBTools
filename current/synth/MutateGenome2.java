@@ -316,7 +316,7 @@ public class MutateGenome2 {
 	 */
 	public boolean isHomopolymerIns(byte[] bases, int pos, StringBuilder sb){
 		byte b=(byte) sb.charAt(0);
-		for(int i=1; i<sb.length(); i++) {
+		for(int i=1; i<sb.length(); i++){
 			if(sb.charAt(i)!=b){return false;}
 		}
 		return isHomopolymerIns(bases, pos, b);
@@ -329,7 +329,7 @@ public class MutateGenome2 {
 	 */
 	public ArrayList<Read> processRead(Read r, ByteBuilder[] bba, ArrayList<SmallVar> vars, ArrayList<String> headers){
 
-		if(r.aminoacid()) {
+		if(r.aminoacid()){
 			return processReadAmino(r, bba, vars, headers);
 		}
 
@@ -354,7 +354,7 @@ public class MutateGenome2 {
 				if(i<retain){
 					junctionsAdded++;
 					mutationLengthAdded++;
-				} //Chimeric junction
+				}//Chimeric junction
 
 				for(; i<retain; i++, j++){
 					bba[0].append(bases0[j]);
@@ -391,7 +391,7 @@ public class MutateGenome2 {
 						subsAdded++;
 						mutationLengthAdded++;
 					}else if(randy.nextBoolean()){//del
-						if(banHomopolymers && isHomopolymerDel(bases, i, 1)) {
+						if(banHomopolymers && isHomopolymerDel(bases, i, 1)){
 							i--;
 						}else{
 							for(int haplo=0; haplo<ploidy; haplo++){
@@ -407,7 +407,7 @@ public class MutateGenome2 {
 						}
 					}else{//ins
 						b=AminoAcid.numberToBase[randy.nextInt()&3];
-						while(banHomopolymers && isHomopolymerIns(bases, i, b)) {
+						while(banHomopolymers && isHomopolymerIns(bases, i, b)){
 							b=AminoAcid.numberToBase[randy.nextInt()&3];
 						}
 						for(int haplo=0; haplo<ploidy; haplo++){
@@ -461,7 +461,7 @@ public class MutateGenome2 {
 								int len=1+(Tools.min(randy.nextInt(lim), randy.nextInt(lim), randy.nextInt(lim)));
 
 								if(randy.nextBoolean()){//del
-									if(banHomopolymers && isHomopolymerDel(bases, i, len)) {
+									if(banHomopolymers && isHomopolymerDel(bases, i, len)){
 										i--;
 									}else{
 										delsAdded++;
@@ -484,7 +484,7 @@ public class MutateGenome2 {
 									mutationLengthAdded+=len;
 									if(len==1){
 										b=AminoAcid.numberToBase[randy.nextInt()&3];
-										while(banHomopolymers && isHomopolymerIns(bases, i, b)) {
+										while(banHomopolymers && isHomopolymerIns(bases, i, b)){
 											b=AminoAcid.numberToBase[randy.nextInt()&3];
 										}
 										for(int haplo=0; haplo<ploidy; haplo++){
@@ -497,7 +497,7 @@ public class MutateGenome2 {
 										if(vars!=null){vars.add(new SmallVar(INS, i, i, Character.toString((char)b), "", prevChar, r.id, r.numericID, present));}
 									}else{
 										StringBuilder sb=new StringBuilder();
-										while(sb.length()==0 || (banHomopolymers && isHomopolymerIns(bases, i, sb))) {
+										while(sb.length()==0 || (banHomopolymers && isHomopolymerIns(bases, i, sb))){
 											sb.setLength(0);
 											while(sb.length()<len){
 												b=AminoAcid.numberToBase[randy.nextInt()&3];
@@ -582,7 +582,7 @@ public class MutateGenome2 {
 				if(i<retain){
 					junctionsAdded++;
 					mutationLengthAdded++;
-				} //Chimeric junction
+				}//Chimeric junction
 
 				for(; i<retain; i++, j++){
 					bba[0].append(bases0[j]);

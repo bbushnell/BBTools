@@ -135,7 +135,7 @@ public class MutateGenome {
 				long[] counts=Parse.parseLongArray(b);
 				kmerFreq=new float[counts.length];
 				float mult=1f/Tools.sum(counts);
-				for(int j=0; j<counts.length; j++) {kmerFreq[j]=counts[j]*mult;}
+				for(int j=0; j<counts.length; j++){kmerFreq[j]=counts[j]*mult;}
 			}
 
 			else if(a.equals("prefix")){
@@ -206,8 +206,8 @@ public class MutateGenome {
 		ffout1=FileFormat.testOutput(out1, FileFormat.FASTA, null, true, overwrite, append, false);
 		ffoutVcf=FileFormat.testOutput(outVcf, FileFormat.VCF, null, true, overwrite, append, false);
 		ffin1=FileFormat.testInput(in1, FileFormat.FASTA, null, true, true);
-		if(k>0) {
-			AdjustEntropy.load();//TODO: Annoying, should not be needed.
+		if(k>0){
+			AdjustEntropy.load();// TODO: Annoying, should not be needed.
 			Clade c=CladeLoaderMF.loadOneClade(in1, null, maxReads);
 			kmerFreq=c.frequencies[k];
 			rcomp=k>2;
@@ -464,7 +464,7 @@ public class MutateGenome {
 				if(i<retain){
 					junctionsAdded++;
 					mutationLengthAdded++;
-				} //Chimeric junction
+				}//Chimeric junction
 
 				for(; i<retain; i++, j++){
 					bb.append(bases0[j]);
@@ -583,11 +583,11 @@ public class MutateGenome {
 						mutationLengthAdded+=len;
 						netLengthAdded+=len;
 						ByteBuilder bbv=new ByteBuilder(len);
-						for(int j=0; j<len; j++) {
+						for(int j=0; j<len; j++){
 							b=AminoAcid.numberToBase[randy.nextInt()&3];
 							//b0 is the current character in the ref, which will be added after the insertion
 							//prevChar is the last character in bb, which will come before the insertion
-							while(banHomopolymers && ((j==0 && b==prevChar) || (j==len-1 && b==b0))) {
+							while(banHomopolymers && ((j==0 && b==prevChar) || (j==len-1 && b==b0))){
 								b=AminoAcid.numberToBase[randy.nextInt()&3];
 							}
 							bb.append(b);
@@ -596,7 +596,7 @@ public class MutateGenome {
 						if(vars!=null){vars.add(new SmallVar(INS, i, i, bbv.toString(), "", prevChar, r.id, r.numericID));}
 						success=true;
 						lastIndel=i;
-						//i++; //No i++ for insertions
+						//i++;//No i++ for insertions
 					}
 				}else if(addDel){
 					int lim=Tools.min(maxIndel, bases.length-i-2), len=1;
@@ -631,7 +631,7 @@ public class MutateGenome {
 
 				assert(success);
 				assert(bb.length()==refAdded+subsAdded+insLenAdded) : bb.length()+", "+refAdded+", "+
-				subsAdded+", "+insLenAdded+", "+delLenAdded;//TODO: This is firing, claiming len 1.
+				subsAdded+", "+insLenAdded+", "+delLenAdded;// TODO: This is firing, claiming len 1.
 				assert(i==refAdded+subsAdded+delLenAdded) : i+", "+refAdded+", "+subsAdded+", "+delLenAdded;
 			}
 		}
@@ -692,7 +692,7 @@ public class MutateGenome {
 		}
 		
 		// Determine if original is GC (0=A, 1=C, 2=G, 3=T)
-		final boolean isGC = (original=='C' || original=='G'); // C or G
+		final boolean isGC = (original=='C' || original=='G');// C or G
 		
 		// Decide whether to stay in same pool or switch
 		final float stayProb = isGC ? gc : (1f - gc);
@@ -838,7 +838,7 @@ public class MutateGenome {
 				if(i<retain){
 					junctionsAdded++;
 					mutationLengthAdded++;
-				} //Chimeric junction
+				}//Chimeric junction
 
 				for(; i<retain; i++, j++){
 					bb.append(bases0[j]);

@@ -11,11 +11,12 @@ import shared.Shared;
  * Construction consumes the supplied RNG but does not retain it. Probability
  * lookup reads fixed parameters; read decisions consume a caller-supplied RNG,
  * whose sharing and synchronization remain the caller's responsibility.
- * Numeric ranges are not validated here; zero normalization and other invalid
- * floating-point configurations can produce NaN rather than a bounded result.
+ * A positive wave-amplitude budget is required; other numeric ranges are not
+ * validated here, and invalid floating-point configurations can still produce
+ * NaN rather than a bounded result.
  * @author Brian Bushnell, Jean
  */
-class CoverageModel{
+public class CoverageModel{
 
 	/*--------------------------------------------------------------*/
 	/*----------------             Init             ----------------*/
@@ -45,9 +46,10 @@ class CoverageModel{
 	 * is normalized to the amplitude budget. A sole wave receives the whole weight.
 	 * Draw order is one origin-bias float, then one period float and one phase
 	 * double per wave, including when a parameter range has zero width.
-	 * Callers supply usable numeric values: periods must be positive and ordered,
-	 * and the resulting floating-point normalization must be positive and finite.
-	 * These expectations are not checked or converted into fallback behavior.
+	 * Callers supply other usable numeric values: periods must be positive and
+	 * ordered, and the resulting floating-point normalization must be positive
+	 * and finite. These expectations are not checked or converted into fallback
+	 * behavior.
 	 * @param numWaves Number of waves; ordinary wave modeling uses at least one
 	 * @param maxAmplitude_ Total wave-amplitude budget, narrowed to float
 	 * @param maxOriBias Upper bound on origin bias; zero disables this contribution
@@ -58,6 +60,9 @@ class CoverageModel{
 	 */
 	public CoverageModel(int numWaves, double maxAmplitude_, double maxOriBias, 
 			double minProb, Random randy, int minPeriod, int maxPeriod){
+		if(maxAmplitude_<=0){
+			throw new IllegalArgumentException("CoverageModel maxAmplitude must be positive when sine waves are enabled: "+maxAmplitude_);
+		}
 		amplitudes=new float[numWaves];
 		inversePeriods=new float[numWaves];
 		offsets=new float[numWaves];
@@ -74,7 +79,7 @@ class CoverageModel{
 		for(int i=0; i<numWaves; i++){
 			// Assign amplitude, with larger amplitudes for longer periods
 			// A sole wave receives the full weight; interpolation would divide by zero.
-			float relativeSize=numWaves==1 ? 1f : 0.4f+0.6f*i/(numWaves-1); // 0.4-1.0 range
+			float relativeSize=numWaves==1 ? 1f : 0.4f+0.6f*i/(numWaves-1);// 0.4-1.0 range
 			amplitudes[i]=maxAmplitude*relativeSize/numWaves;
 			totalAmplitude+=amplitudes[i];
 
@@ -127,7 +132,7 @@ class CoverageModel{
 		for(int i=0; i<amplitudes.length; i++){
 			// Optimized angle calculation using pre-computed inverse period
 			float angle=(position*inversePeriods[i])+offsets[i];
-			float normalizedSine=(float)((Math.sin(angle)+1f)*0.5f); // 0-1 range
+			float normalizedSine=(float)((Math.sin(angle)+1f)*0.5f);// 0-1 range
 
 			// Efficient power calculation for sharper valleys
 			float squared=normalizedSine*normalizedSine;
@@ -142,8 +147,8 @@ class CoverageModel{
 
 		// Scale to available probability range (above minimum)
 		float availableRange=1f-minProbability;
-		//TODO: Probable bug - SYN009: waveamp=0 and oribias=0 give 0/0 here, so
-		//long-contig probabilities become NaN. RandomReadsMG accepts both options.
+		// The constructor rejects zero wave amplitude; other invalid inputs can
+		// still leave normalization undefined.
 		float scaledProbability=minProbability+
 				availableRange*(sinSum+maxOriBiasValue)/maxPossibleSum;
 
@@ -183,9 +188,9 @@ class CoverageModel{
 		int genomeLength=Integer.parseInt(args[3]);
 
 		// Constants
-		float maxAmplitude=0.8f; // Increase for more dramatic effect
+		float maxAmplitude=0.8f;// Increase for more dramatic effect
 		float maxOriBias=0.25f;
-		float minProb=0.05f; // Lower minimum for better contrast
+		float minProb=0.05f;// Lower minimum for better contrast
 		int binSize=100;
 
 		// Initialize the model
@@ -281,9 +286,9 @@ class CoverageModel{
 		long totalReads=(long)(targetCoverage*genomeLength/readLength);
 
 		// Initialize coverage bins
-		int numBins=(genomeLength+binSize-1)/binSize; // Ceiling division
-		int[] basesPerBucket=new int[numBins]; // Count total bases in each bucket
-		int[] bucketSizes=new int[numBins]; // Actual size of each bucket
+		int numBins=(genomeLength+binSize-1)/binSize;// Ceiling division
+		int[] basesPerBucket=new int[numBins];// Count total bases in each bucket
+		int[] bucketSizes=new int[numBins];// Actual size of each bucket
 
 		// Set up bucket sizes
 		for(int i=0; i<numBins-1; i++){
@@ -314,8 +319,8 @@ class CoverageModel{
 			int endBucket=(readEnd-1)/binSize;
 
 			// First bucket - partial
-			//TODO: Probable bug - SYN010: this ignores readEnd when the terminal bucket
-			//is partial. genomeLength=150, pos=149, readLength=10 counts 10 instead of 1.
+			//Possible Bug: this ignores readEnd when the terminal bucket is partial.
+			//SYN010: genomeLength=150, pos=149, readLength=10 counts 10 instead of 1.
 			int basesInFirstBucket=Math.min((startBucket+1)*binSize-pos, readLength);
 			basesPerBucket[startBucket]+=basesInFirstBucket;
 

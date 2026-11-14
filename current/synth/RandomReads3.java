@@ -51,7 +51,7 @@ public final class RandomReads3 {
 	public static void main(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
-			PreParser pp=new PreParser(args, new Object() { }.getClass().getEnclosingClass(), false);
+			PreParser pp=new PreParser(args, new Object(){}.getClass().getEnclosingClass(), false);
 			args=pp.args;
 			outstream=pp.outstream;
 		}
@@ -133,7 +133,7 @@ public final class RandomReads3 {
 //			int x=-1;
 //			try {
 //				x=Parse.parseIntKMG(b);
-//			} catch (NumberFormatException e) {}
+//			}catch(NumberFormatException e){}
 			
 			if(Parser.parseZip(arg, a, b)){
 				//do nothing
@@ -433,7 +433,7 @@ public final class RandomReads3 {
 		if(pbadapter!=null){
 			rr.pbadapter1=pbadapter.getBytes();
 			rr.pbadapter2=AminoAcid.reverseComplementBases(rr.pbadapter1);
-			rr.pbadapter1=rr.pbadapter2; //For PacBio, since adapters never appear in plus configuration
+			rr.pbadapter1=rr.pbadapter2;//For PacBio, since adapters never appear in plus configuration
 		}
 		if(fragadapter1!=null){
 			rr.fragadapter1=Tools.toAdapters(fragadapter1, -1);
@@ -928,7 +928,7 @@ public final class RandomReads3 {
 			}
 		}
 		
-		for(int i=index+1; i<lim; i++){ //Change middles to anything
+		for(int i=index+1; i<lim; i++){//Change middles to anything
 			byte old=bases[i];
 			if(AminoAcid.isFullyDefined(old)){
 				byte oldNum=AminoAcid.baseToNumber[old];
@@ -1011,7 +1011,7 @@ public final class RandomReads3 {
 		dif[0]-=len;
 		dif[1]+=len;
 		
-		int index=rand.nextInt(readlen-len+1); //Assures that all inserted bases will be within the read
+		int index=rand.nextInt(readlen-len+1);//Assures that all inserted bases will be within the read
 		
 //		outstream.println("Added insertion "+len+" at "+index);
 		
@@ -1083,7 +1083,7 @@ public final class RandomReads3 {
 		dif[0]+=len;
 		
 //		int index=randy2.nextInt(s.length()-len);
-		int index=1+rand.nextInt(readlen-1); //Assures there will never be a deletion of the first base, which would not technically be a deletion.
+		int index=1+rand.nextInt(readlen-1);//Assures there will never be a deletion of the first base, which would not technically be a deletion.
 		
 //		outstream.println("Added deletion "+len+" at "+index);
 		
@@ -2209,7 +2209,7 @@ public final class RandomReads3 {
 		if(FORCE_SINGLE_SCAFFOLD && !Data.isSingleScaffold(r.chrom, r.start, r.stop)){return null;}
 		if(MIN_SCAFFOLD_OVERLAP>0 && Data.scaffoldOverlapLength(r.chrom, r.start, r.stop)<MIN_SCAFFOLD_OVERLAP){return null;}
 		
-		if(quantizeQuality) {
+		if(quantizeQuality){
 			Quantizer.quantize(r.quality);
 		}
 		return r;

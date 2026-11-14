@@ -1,4 +1,6 @@
-package synth;
+package test.synth;
+
+import synth.ShredPacBio;
 
 import java.lang.reflect.Field;
 

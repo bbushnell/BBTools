@@ -17,4 +17,4 @@ for arg in "$@"; do
 done
 parseJavaArgs --xmx=2g --xms=64m --mode=fixed "${JVM_ARGS[@]}" || exit 1
 setEnvironment || exit 1
-exec java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" synth.ShredBranchTest "${ARGS[@]}"
+exec java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" test.synth.ShredBranchTest "${ARGS[@]}"

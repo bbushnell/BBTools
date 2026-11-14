@@ -1,4 +1,6 @@
-package synth;
+package test.synth;
+
+import synth.MakeChimeras;
 
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;

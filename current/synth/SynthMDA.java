@@ -29,9 +29,14 @@ import structures.ListNum;
 import tracker.ReadStats;
 
 /**
- * Simulates Multiple Displacement Amplification (MDA) to generate amplified genomic sequences.
- * Amplifies input reference sequences through iterative random fragment sampling cycles and writes an amplified reference.
- * Optionally generates synthetic reads from the amplified reference using RandomReads3 with configurable error rates.
+ * Simulates multiple displacement amplification by repeatedly sampling random
+ * fragments from a separator-delimited reference and appending them to an
+ * amplified reference.  Optionally passes the amplified reference to
+ * {@link RandomReads3} to synthesize error-containing reads.
+ * <p>
+ * Instances configure process-global FASTQ, compression and read-statistics
+ * settings during construction, then run a single amplification pass.
+ *
  * @author Brian Bushnell
  * @date Oct 17, 2014
  */
@@ -41,6 +46,9 @@ public class SynthMDA {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Runs one amplification pass and closes redirected status output.
+	 * @param args input, reference-output and optional read-generation options
+	 */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		SynthMDA x=new SynthMDA(args);
@@ -50,6 +58,11 @@ public class SynthMDA {
 		Shared.closeStream(x.outstream);
 	}
 	
+	/** Parses command-line options and creates input/output format descriptors.
+	 * @param args command-line options; {@link PreParser} also expands config files
+	 * @throws RuntimeException if no input reference is configured, or if the
+	 *         amplified-reference output path cannot be written
+	 */
 	public SynthMDA(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -169,6 +182,10 @@ public class SynthMDA {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Reads the input reference, amplifies it, writes the amplified reference and,
+	 * when requested, invokes {@link RandomReads3} on that temporary reference.
+	 * @param t timer to stop before printing throughput statistics
+	 */
 	void process(Timer t){
 		
 		ByteBuilder bb=new ByteBuilder();
@@ -178,12 +195,13 @@ public class SynthMDA {
 		{
 			cris=ConcurrentReadInputStream.getReadInputStream(-1, false, ffref, null);
 			if(verbose){outstream.println("Started cris");}
-			cris.start(); //4567
+			cris.start();//4567
 		}
 		assert(!cris.paired());
 		
 		long readsProcessed=0;
 		long basesProcessed=0;
+		long maxContigLength=0;
 		
 		{
 			
@@ -209,6 +227,7 @@ public class SynthMDA {
 					
 					readsProcessed++;
 					basesProcessed+=initialLength1;
+					maxContigLength=Tools.max(maxContigLength, initialLength1);
 				}
 				
 				final ArrayList<Read> listOut=reads;
@@ -223,6 +242,15 @@ public class SynthMDA {
 		}
 		errorState|=ReadStats.writeAll();
 		errorState|=ReadWrite.closeStream(cris);
+
+		final long initialGoal=Tools.min((long)(bb.length()*initialRatio), 600000000L);
+		//amplify() counts the separator it appends after each attempt, so
+		//maxContigLength+1 is the longest possible accepted addition.
+		if(initialGoal>0 && maxContigLength+1<minlen2){
+			throw new IllegalArgumentException("At least one input contig must be long "+
+					"enough to seed amplification: maxContigLength="+maxContigLength+
+					", minlen2="+minlen2);
+		}
 		
 		ByteBuilder dest=amplify(bb, false, minlen, maxlen, initialRatio);
 		bb=null;
@@ -299,8 +327,8 @@ public class SynthMDA {
 			try {
 				File f=new File(out1);
 				if(f.exists()){f.delete();}
-			} catch (Exception e) {
-				// TODO Auto-generated catch block
+			}catch(Exception e){
+				// Best-effort cleanup; a leftover temporary reference is non-fatal.
 				e.printStackTrace();
 			}
 		}
@@ -314,6 +342,15 @@ public class SynthMDA {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Extends a source buffer by sampling random forward or reverse-complement
+	 * fragments until the requested ratio-derived goal is reached.
+	 * @param source separator-delimited reference buffer to sample
+	 * @param retain true to append to {@code source}; false to append to a fresh buffer
+	 * @param minlen minimum attempted fragment length
+	 * @param maxlen maximum attempted fragment length
+	 * @param ratio multiplier used to derive the destination goal length
+	 * @return the amplified buffer
+	 */
 	private ByteBuilder amplify(ByteBuilder source, boolean retain, int minlen, int maxlen, float ratio){
 		assert(minlen<=maxlen && minlen>0 && maxlen>0);
 		final int range=maxlen-minlen+1;
