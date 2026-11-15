@@ -18,6 +18,7 @@ import json.JsonObject;
 import parse.Parse;
 import parse.Parser;
 import parse.PreParser;
+import shared.KillSwitch;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
@@ -33,15 +34,19 @@ import tracker.EntropyTracker;
 import tracker.ReadStats;
 
 /**
- * Detects inverted repeats in PacBio reads.
- * Attempts to determine whether reads are chimeric
- * due to a missing adapter.
- * 
- * @author Brian Bushnell
+ * Classifies PacBio subreads using inverted-repeat, adapter and well-level evidence.
+ * Consumes consecutive subread groups from ZMWStreamer, assigns each group to one
+ * worker, and optionally writes good, ambiguous, bad and junction records. Sequence,
+ * quality and header data can be changed by the configured trimming/annotation
+ * operations; output groups are not globally ordered across workers.
+ * Synthetic truth-header grading is optional and distinct from the classifier.
+ * Constructors configure shared I/O and alignment settings, so independent CLI
+ * invocations are not designed to run concurrently within the same JVM.
+ * @author Brian Bushnell, Shinobu
  * @date June 5, 2019
  *
  */
-public final class IceCreamFinder {
+public final class IceCreamFinder{
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
@@ -66,8 +71,10 @@ public final class IceCreamFinder {
 	}
 	
 	/**
-	 * Constructor.
-	 * @param args Command line arguments
+	 * Parses options, validates paths and derives adapter-dependent alignment sizes.
+	 * Prepares file descriptions without starting input or processing threads;
+	 * adapter=null disables adapter matching. Also configures shared I/O settings.
+	 * @param args BBTools key=value options including the input path
 	 */
 	public IceCreamFinder(String[] args){
 		
@@ -252,6 +259,7 @@ public final class IceCreamFinder {
 			}else if(a.equals("printtiming") || a.equals("extended")){
 				printTiming=Parse.parseBoolean(b);
 			}else if(a.equals("queuelen") || a.equals("qlen")){
+				//TODO PIC-007: this legacy option is not forwarded; qlen already selects targetQlen above.
 				queuelen=Integer.parseInt(b);
 			}else if(a.equals("outg") || a.equals("outgood")){
 				outg=b;
@@ -272,10 +280,14 @@ public final class IceCreamFinder {
 				if(b!=null){
 					String[] split2=b.split(",");
 					for(String s2 : split2){
-						if(s2.equalsIgnoreCase("good")){sendAmbigToGood=true;}
-						else if(s2.equalsIgnoreCase("bad") || s2.equalsIgnoreCase("toss")){sendAmbigToBad=true;}
-						else if(s2.equalsIgnoreCase("ambig")){}
-						else{assert(false) : "Bad argument: '"+s2+"' in '"+arg+"'; should be good or bad";}
+						if(s2.equalsIgnoreCase("good")){
+							sendAmbigToGood=true;
+						}else if(s2.equalsIgnoreCase("bad") || s2.equalsIgnoreCase("toss")){
+							sendAmbigToBad=true;
+						}else if(s2.equalsIgnoreCase("ambig")){
+						}else{
+							assert(false) : "Bad argument: '"+s2+"' in '"+arg+"'; should be good or bad";
+						}
 					}
 				}
 				setAmbig=true;
@@ -352,7 +364,10 @@ public final class IceCreamFinder {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Create read streams and process all data */
+	/** Starts outputs, streams grouped wells through workers, and reports results.
+	 * Normal completion joins workers and closes sequence outputs before reports.
+	 * @param t Running timer stopped before the final text/JSON report
+	 */
 	void process(Timer t){
 		
 		//Turn off read validation in the input threads to increase speed
@@ -386,8 +401,9 @@ public final class IceCreamFinder {
 		//Reset read validation
 		Read.VALIDATE_IN_CONSTRUCTOR=vic;
 		
-		writeScoreRatioHistogram(ffasrhist, adapterScores);
-		writeScoreRatioHistogram(ffirsrhist, repeatScores);
+		//PIC-009: a failed histogram is an output failure even when sequence output succeeded.
+		errorState|=writeScoreRatioHistogram(ffasrhist, adapterScores);
+		errorState|=writeScoreRatioHistogram(ffirsrhist, repeatScores);
 		
 		//Report timing and results
 		t.stop();
@@ -416,30 +432,33 @@ public final class IceCreamFinder {
 	
 	/**
 	 * Formats processing results as human-readable text output.
+	 * Zero-total percentages are zero; an unobserved alignment average is NA.
 	 * @param t Timer containing processing duration
 	 * @return ByteBuilder with formatted text results
 	 */
 	private ByteBuilder toText(Timer t){
 		ByteBuilder bb=new ByteBuilder();
+		final long readDenom=Tools.max(1L, readsProcessed), baseDenom=Tools.max(1L, basesProcessed), wellDenom=Tools.max(1L, ZMWs);
 		
 		bb.appendln(Tools.timeReadsBasesProcessed(t, readsProcessed, basesProcessed, 8));
-		bb.appendln(Tools.readsBasesOut(readsProcessed, basesProcessed, readsOut, basesOut, 8, false));
+		bb.appendln(Tools.readsBasesOut(readDenom, baseDenom, readsOut, basesOut, 8, false));
 		
 		long readsFiltered=readsProcessed-readsOut;
-		bb.appendln(Tools.numberPercent("Reads Filtered:", readsFiltered, readsFiltered*100.0/(readsProcessed), 3, 8));
+		bb.appendln(Tools.numberPercent("Reads Filtered:", readsFiltered, readsFiltered*100.0/readDenom, 3, 8));
 		if(trimReads || trimPolyA){
-			bb.appendln(Tools.numberPercent("Reads Trimmed:", readsTrimmed, readsTrimmed*100.0/(readsProcessed), 3, 8));
-			bb.appendln(Tools.numberPercent("Bases Trimmed:", basesTrimmed, basesTrimmed*100.0/(basesProcessed), 3, 8));
+			bb.appendln(Tools.numberPercent("Reads Trimmed:", readsTrimmed, readsTrimmed*100.0/readDenom, 3, 8));
+			bb.appendln(Tools.numberPercent("Bases Trimmed:", basesTrimmed, basesTrimmed*100.0/baseDenom, 3, 8));
 		}
 		bb.appendln(Tools.number("Total ZMWs:", ZMWs, 8));
-		bb.appendln(Tools.numberPercent("Bad ZMWs:", iceCreamZMWs, iceCreamZMWs*100.0/(ZMWs), 3, 8));
-		bb.appendln(Tools.numberPercent("Absent Adapter:", missingAdapterZMWs, missingAdapterZMWs*100.0/(ZMWs), 3, 8));
-		bb.appendln(Tools.numberPercent("Hidden Adapter:", hiddenAdapterZMWs, hiddenAdapterZMWs*100.0/(ZMWs), 3, 8));
-		bb.appendln(Tools.numberPercent("Ambiguous IR:", ambiguousZMWs, ambiguousZMWs*100.0/(ZMWs), 3, 8));
-//		bb.appendln(Tools.numberPercent("Low Entropy:", lowEntropyReads, lowEntropyReads*100.0/(readsProcessed), 3, 8));
-		bb.appendln(Tools.numberPercent("Low Entropy:", lowEntropyZMWs, lowEntropyZMWs*100.0/(ZMWs), 3, 8));
-		
-		bb.appendln(Tools.number("Avg Score Ratio:", iceCreamRatio/ratiosCounted, 3, 8));
+		bb.appendln(Tools.numberPercent("Bad ZMWs:", iceCreamZMWs, iceCreamZMWs*100.0/wellDenom, 3, 8));
+		bb.appendln(Tools.numberPercent("Absent Adapter:", missingAdapterZMWs, missingAdapterZMWs*100.0/wellDenom, 3, 8));
+		bb.appendln(Tools.numberPercent("Hidden Adapter:", hiddenAdapterZMWs, hiddenAdapterZMWs*100.0/wellDenom, 3, 8));
+		bb.appendln(Tools.numberPercent("Ambiguous IR:", ambiguousZMWs, ambiguousZMWs*100.0/wellDenom, 3, 8));
+//		bb.appendln(Tools.numberPercent("Low Entropy:", lowEntropyReads, lowEntropyReads*100.0/readDenom, 3, 8));
+		bb.appendln(Tools.numberPercent("Low Entropy:", lowEntropyZMWs, lowEntropyZMWs*100.0/wellDenom, 3, 8));
+
+		bb.appendln(ratiosCounted>0 ? Tools.number("Avg Score Ratio:", iceCreamRatio/ratiosCounted, 3, 8) :
+				Tools.string("Avg Score Ratio:", "NA", 8));
 		bb.appendln(Tools.number("Score Cutoff:", minRatio2, 3, 8));
 		
 		if(printTiming){
@@ -452,25 +471,26 @@ public final class IceCreamFinder {
 		if(parseCustom){
 			{
 				bb.appendln("\nReads:");
-				bb.appendln(Tools.numberPercent("True Positive:", truePositiveReads, truePositiveReads*100.0/(readsProcessed), 2, 8));
-				bb.appendln(Tools.numberPercent("True Negative:", trueNegativeReads, trueNegativeReads*100.0/(readsProcessed), 2, 8));
-				bb.appendln(Tools.numberPercent("False Positive:", falsePositiveReads, falsePositiveReads*100.0/(readsProcessed), 2, 8));
-				bb.appendln(Tools.numberPercent("False Negative:", falseNegativeReads, falseNegativeReads*100.0/(readsProcessed), 2, 8));
-				bb.appendln(Tools.numberPercent("Ambiguous:", ambiguousReads, ambiguousReads*100.0/(readsProcessed), 2, 8));
+				bb.appendln(Tools.numberPercent("True Positive:", truePositiveReads, truePositiveReads*100.0/readDenom, 2, 8));
+				bb.appendln(Tools.numberPercent("True Negative:", trueNegativeReads, trueNegativeReads*100.0/readDenom, 2, 8));
+				bb.appendln(Tools.numberPercent("False Positive:", falsePositiveReads, falsePositiveReads*100.0/readDenom, 2, 8));
+				bb.appendln(Tools.numberPercent("False Negative:", falseNegativeReads, falseNegativeReads*100.0/readDenom, 2, 8));
+				bb.appendln(Tools.numberPercent("Ambiguous:", ambiguousReads, ambiguousReads*100.0/readDenom, 2, 8));
 
-				double snr=(truePositiveReads+trueNegativeReads+ambiguousReads)/Tools.max(1, falsePositiveReads+falseNegativeReads+ambiguousReads);
+				double snr=(truePositiveReads+(double)trueNegativeReads+ambiguousReads)/Tools.max(1, falsePositiveReads+falseNegativeReads+ambiguousReads);
 				snr=10*Math.log10(snr);
 				bb.appendln(Tools.number("SNR:", snr, 2, 8));
 			}
 			{
 				bb.appendln("\nZMWs:");
-				bb.appendln(Tools.numberPercent("True Positive:", truePositiveZMWs, truePositiveZMWs*100.0/(ZMWs), 2, 8));
-				bb.appendln(Tools.numberPercent("True Negative:", trueNegativeZMWs, trueNegativeZMWs*100.0/(ZMWs), 2, 8));
-				bb.appendln(Tools.numberPercent("False Positive:", falsePositiveZMWs, falsePositiveZMWs*100.0/(ZMWs), 2, 8));
-				bb.appendln(Tools.numberPercent("False Negative:", falseNegativeZMWs, falseNegativeZMWs*100.0/(ZMWs), 2, 8));
-				bb.appendln(Tools.numberPercent("Ambiguous:", ambiguousZMWs, ambiguousZMWs*100.0/(ZMWs), 2, 8));
+				bb.appendln(Tools.numberPercent("True Positive:", truePositiveZMWs, truePositiveZMWs*100.0/wellDenom, 2, 8));
+				bb.appendln(Tools.numberPercent("True Negative:", trueNegativeZMWs, trueNegativeZMWs*100.0/wellDenom, 2, 8));
+				bb.appendln(Tools.numberPercent("False Positive:", falsePositiveZMWs, falsePositiveZMWs*100.0/wellDenom, 2, 8));
+				bb.appendln(Tools.numberPercent("False Negative:", falseNegativeZMWs, falseNegativeZMWs*100.0/wellDenom, 2, 8));
+				bb.appendln(Tools.numberPercent("Ambiguous:", ambiguousZMWs, ambiguousZMWs*100.0/wellDenom, 2, 8));
 
-				double snr=(truePositiveZMWs+trueNegativeZMWs+ambiguousReads)/Tools.max(1, falsePositiveZMWs+falseNegativeZMWs+ambiguousZMWs);
+				//PIC-006: use well counts and floating-point division, matching the JSON report.
+				double snr=(truePositiveZMWs+(double)trueNegativeZMWs+ambiguousZMWs)/Tools.max(1, falsePositiveZMWs+falseNegativeZMWs+ambiguousZMWs);
 				snr=10*Math.log10(snr);
 				bb.appendln(Tools.number("SNR:", snr, 2, 8));
 			}
@@ -480,11 +500,13 @@ public final class IceCreamFinder {
 	
 	/**
 	 * Formats processing results as JSON output.
+	 * Zero-total percentages are zero; an unobserved alignment average is null.
 	 * @param t Timer containing processing duration
 	 * @return JsonObject with structured results
 	 */
 	private JsonObject toJson(Timer t){
 		JsonObject jo=new JsonObject();
+		final long readDenom=Tools.max(1L, readsProcessed), baseDenom=Tools.max(1L, basesProcessed), wellDenom=Tools.max(1L, ZMWs);
 		long readsFiltered=readsProcessed-readsOut;
 		
 		jo.add("Time", t.timeInSeconds());
@@ -493,27 +515,27 @@ public final class IceCreamFinder {
 		jo.add("Reads_Out", readsOut);
 		jo.add("Bases_Out", basesOut);
 		jo.add("Reads_Filtered", readsFiltered);
-		jo.add("Reads_Filtered_Pct", readsFiltered*100.0/(readsProcessed));
-		if(trimReads){
+		jo.add("Reads_Filtered_Pct", readsFiltered*100.0/readDenom);
+		if(trimReads || trimPolyA){
 			jo.add("Reads_Trimmed", readsTrimmed);
-			jo.add("Reads_Trimmed_Pct", readsTrimmed*100.0/(readsProcessed));
+			jo.add("Reads_Trimmed_Pct", readsTrimmed*100.0/readDenom);
 			jo.add("Bases_Trimmed", basesTrimmed);
-			jo.add("Bases_Trimmed_Pct", basesTrimmed*100.0/(basesProcessed));
+			jo.add("Bases_Trimmed_Pct", basesTrimmed*100.0/baseDenom);
 		}
 		jo.add("Total_ZMWs", ZMWs);
 		jo.add("Bad_ZMWs", iceCreamZMWs);
-		jo.add("Bad_ZMWs_Pct", iceCreamZMWs*100.0/(ZMWs));
+		jo.add("Bad_ZMWs_Pct", iceCreamZMWs*100.0/wellDenom);
 		jo.add("Absent_Adapter", missingAdapterZMWs);
-		jo.add("Absent_Adapter_Pct", missingAdapterZMWs*100.0/(ZMWs));
+		jo.add("Absent_Adapter_Pct", missingAdapterZMWs*100.0/wellDenom);
 		jo.add("Hidden_Adapter", hiddenAdapterZMWs);
-		jo.add("Hidden_Adapter_Pct", hiddenAdapterZMWs*100.0/(ZMWs));
+		jo.add("Hidden_Adapter_Pct", hiddenAdapterZMWs*100.0/wellDenom);
 //		jo.add("Low_Entropy", lowEntropyReads);
-//		jo.add("Low_Entropy_Pct", lowEntropyReads*100.0/(readsProcessed));
+//		jo.add("Low_Entropy_Pct", lowEntropyReads*100.0/readDenom);
 		jo.add("Low_Entropy", lowEntropyZMWs);
-		jo.add("Low_Entropy_Pct", lowEntropyZMWs*100.0/(ZMWs));
+		jo.add("Low_Entropy_Pct", lowEntropyZMWs*100.0/wellDenom);
 		jo.add("Ambiguous_Inverted_Repeat", ambiguousZMWs);
-		jo.add("Ambiguous_Inverted_Repeat_Pct", ambiguousZMWs*100.0/(ZMWs));
-		jo.add("Avg_Score_Ratio_IR", iceCreamRatio/ratiosCounted);
+		jo.add("Ambiguous_Inverted_Repeat_Pct", ambiguousZMWs*100.0/wellDenom);
+		jo.add("Avg_Score_Ratio_IR", ratiosCounted>0 ? iceCreamRatio/ratiosCounted : (Object)null);
 		jo.add("Score_Cutoff_IR", minRatio2);
 		
 		jo.add("Alignment_Iterations_IR", alignmentIters);
@@ -521,7 +543,7 @@ public final class IceCreamFinder {
 		
 		if(parseCustom){
 			{
-				double snr=(truePositiveReads+trueNegativeReads+ambiguousReads)/Tools.max(1, falsePositiveReads+falseNegativeReads+ambiguousReads);
+				double snr=(truePositiveReads+(double)trueNegativeReads+ambiguousReads)/Tools.max(1, falsePositiveReads+falseNegativeReads+ambiguousReads);
 				snr=10*Math.log10(snr);
 				jo.add("TP_Reads", truePositiveReads);
 				jo.add("TN_Reads", trueNegativeReads);
@@ -529,16 +551,16 @@ public final class IceCreamFinder {
 				jo.add("FN_Reads", falseNegativeReads);
 				jo.add("AM_Reads", ambiguousReads);
 
-				jo.add("TP_Reads_Pct", truePositiveReads*100.0/(readsProcessed));
-				jo.add("TN_Reads_Pct", trueNegativeReads*100.0/(readsProcessed));
-				jo.add("FP_Reads_Pct", falsePositiveReads*100.0/(readsProcessed));
-				jo.add("FN_Reads_Pct", falseNegativeReads*100.0/(readsProcessed));
-				jo.add("AM_Reads_Pct", ambiguousReads*100.0/(readsProcessed));
+				jo.add("TP_Reads_Pct", truePositiveReads*100.0/readDenom);
+				jo.add("TN_Reads_Pct", trueNegativeReads*100.0/readDenom);
+				jo.add("FP_Reads_Pct", falsePositiveReads*100.0/readDenom);
+				jo.add("FN_Reads_Pct", falseNegativeReads*100.0/readDenom);
+				jo.add("AM_Reads_Pct", ambiguousReads*100.0/readDenom);
 				
 				jo.add("SNR_Reads", snr);
 			}
 			{
-				double snr=(truePositiveZMWs+trueNegativeZMWs+ambiguousZMWs)/Tools.max(1, falsePositiveZMWs+falseNegativeZMWs+ambiguousZMWs);
+				double snr=(truePositiveZMWs+(double)trueNegativeZMWs+ambiguousZMWs)/Tools.max(1, falsePositiveZMWs+falseNegativeZMWs+ambiguousZMWs);
 				snr=10*Math.log10(snr);
 				jo.add("TP_ZMWs", truePositiveZMWs);
 				jo.add("TN_ZMWs", trueNegativeZMWs);
@@ -546,11 +568,11 @@ public final class IceCreamFinder {
 				jo.add("FN_ZMWs", falseNegativeZMWs);
 				jo.add("AM_ZMWs", ambiguousZMWs);
 
-				jo.add("TP_ZMWs_Pct", truePositiveZMWs*100.0/(ZMWs));
-				jo.add("TN_ZMWs_Pct", trueNegativeZMWs*100.0/(ZMWs));
-				jo.add("FP_ZMWs_Pct", falsePositiveZMWs*100.0/(ZMWs));
-				jo.add("FN_ZMWs_Pct", falseNegativeZMWs*100.0/(ZMWs));
-				jo.add("AM_ZMWs_Pct", ambiguousZMWs*100.0/(ZMWs));
+				jo.add("TP_ZMWs_Pct", truePositiveZMWs*100.0/wellDenom);
+				jo.add("TN_ZMWs_Pct", trueNegativeZMWs*100.0/wellDenom);
+				jo.add("FP_ZMWs_Pct", falsePositiveZMWs*100.0/wellDenom);
+				jo.add("FN_ZMWs_Pct", falseNegativeZMWs*100.0/wellDenom);
+				jo.add("AM_ZMWs_Pct", ambiguousZMWs*100.0/wellDenom);
 				
 				jo.add("SNR_ZMWs", snr);
 			}
@@ -562,9 +584,10 @@ public final class IceCreamFinder {
 	 * Writes alignment score ratio histogram to file.
 	 * @param ff Output file format, or null to skip
 	 * @param hist Histogram array to write
+	 * @return Whether the writer reported an output error; false when no file was requested
 	 */
-	private static void writeScoreRatioHistogram(FileFormat ff, long[] hist){
-		if(ff==null){return;}
+	private static boolean writeScoreRatioHistogram(FileFormat ff, long[] hist){
+		if(ff==null){return false;}
 		final ByteStreamWriter bsw=new ByteStreamWriter(ff);
 		bsw.start();
 		final float mult=1.0f/(hist.length-1);
@@ -579,13 +602,13 @@ public final class IceCreamFinder {
 		for(int i=0; i<hist.length; i++){
 			bsw.print(i*mult, 3).tab().println(hist[i]);
 		}
-		bsw.poisonAndWait();
+		return bsw.poisonAndWait();
 	}
 	
 	/**
-	 * Creates concurrent read output stream from file format.
+	 * Creates and starts the optional concurrent output backend.
 	 * @param ff File format specification, or null
-	 * @return Configured output stream, or null if ff is null
+	 * @return Started output stream, or null if ff is null
 	 */
 	private ConcurrentReadOutputStream makeCros(FileFormat ff){
 		if(ff==null){return null;}
@@ -598,7 +621,7 @@ public final class IceCreamFinder {
 		return ros;
 	}
 	
-	/** Spawn process threads */
+	/** Starts consumers, feeds the input on this thread, then joins and accumulates the workers. */
 	private void spawnThreads(final ZMWStreamer zstream,
 			final ConcurrentReadOutputStream rosg, final ConcurrentReadOutputStream rosa,
 			final ConcurrentReadOutputStream rosb, final ConcurrentReadOutputStream rosj){
@@ -635,10 +658,10 @@ public final class IceCreamFinder {
 			
 			//Wait until this thread has terminated
 			while(pt.getState()!=Thread.State.TERMINATED){
-				try {
+				try{
 					//Attempt a join operation
 					pt.join();
-				} catch (InterruptedException e) {
+				}catch(InterruptedException e){
 					//Potentially handle this, if it is expected to occur
 					e.printStackTrace();
 				}
@@ -702,8 +725,8 @@ public final class IceCreamFinder {
 	/*----------------         Inner Classes        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Processes reads. */
-	private class ProcessThread extends Thread {
+	/** Owns mutable alignment buffers and counters while consuming whole wells from the shared queue. */
+	private class ProcessThread extends Thread{
 		
 		//Constructor
 		/**
@@ -738,15 +761,14 @@ public final class IceCreamFinder {
 		//Called by start()
 		@Override
 		public void run(){
-			//Do anything necessary prior to processing
-			
-			//Process the reads
-			processInner();
-			
-			//Do anything necessary after processing
-			
-			//Indicate successful exit status
-			success=true;
+			try{
+				processInner();
+				success=true;
+			}catch(Throwable failure){
+				//PIC-014: main feeds the bounded well queue; a dead consumer can strand that producer.
+				try{failure.printStackTrace();}
+				finally{KillSwitch.kill("IceCreamFinder worker "+tid+" failed; aborting blocked input/output threads.");}
+			}
 		}
 		
 		/** Iterate through the reads */
@@ -763,7 +785,7 @@ public final class IceCreamFinder {
 		/**
 		 * Flags reads with low entropy as low-complexity sequences.
 		 * @param reads ZMW containing reads to check
-		 * @param minEnt Minimum entropy threshold
+		 * @param minEnt Legacy unused argument; the tracker uses the constructor's entropy cutoff
 		 * @param minLen0 Minimum absolute length for low-entropy block
 		 * @param minFract Minimum fraction of read length for low-entropy block
 		 * @return Number of reads flagged
@@ -1015,7 +1037,7 @@ public final class IceCreamFinder {
 		//Since they go forward-rev-forward-rev it's imprudent to discard inner reads.
 		/** Removes reads shorter than minimum length threshold.
 		 * @param reads ZMW to filter */
-		private void removeShortTrash(ZMW reads) {
+		private void removeShortTrash(ZMW reads){
 			int removed=0;
 			for(int i=0; i<reads.size(); i++){
 				Read r=reads.get(i);
@@ -1028,9 +1050,11 @@ public final class IceCreamFinder {
 		}
 		
 		/**
-		 * Trims undefined bases from read ends.
+		 * Trims end spans until the requested run of defined bases is reached.
+		 * Trims qualities with bases, adjusts supported PacBio header coordinates,
+		 * and refreshes sequence/quality fields in an attached SAM record.
 		 * @param r Read to trim
-		 * @param lookahead Number of defined bases to look for
+		 * @param lookahead Number of consecutive defined bases to look for
 		 * @return Number of bases trimmed
 		 */
 		int trimRead(Read r, int lookahead){
@@ -1056,7 +1080,9 @@ public final class IceCreamFinder {
 		}
 		
 		/**
-		 * Trims poly-A/poly-T tails from read ends.
+		 * Trims end spans selected by the A/T running-score heuristic.
+		 * Trims qualities with bases, adjusts supported PacBio header coordinates,
+		 * and refreshes sequence/quality fields in an attached SAM record.
 		 * @param r Read to trim
 		 * @return Number of bases trimmed
 		 */
@@ -1119,13 +1145,13 @@ public final class IceCreamFinder {
 					defined=0;
 				}
 			}
-			return len-lastUndef-1;
+			return len-lastUndef;//PIC-102: include the undefined base itself; no undefined bases means zero.
 		}
 		
 		/**
-		 * Aligns adapter sequence to left tip of read and masks matches.
+		 * Aligns the adapter to the left tip and masks the inclusive alignment span with X.
 		 * @param r Read to check
-		 * @return Number of adapter bases found
+		 * @return Length of the masked span, including alignment mismatches, or zero for no accepted hit
 		 */
 		final int alignLeftTipAdapter(Read r){
 			assert(adapter.length<adapterTipLen); //Time to increase adapterTipLen
@@ -1144,9 +1170,9 @@ public final class IceCreamFinder {
 		}
 		
 		/**
-		 * Aligns adapter sequence to right tip of read and masks matches.
+		 * Aligns the adapter to the right tip and masks the inclusive alignment span with X.
 		 * @param r Read to check
-		 * @return Number of adapter bases found
+		 * @return Length of the masked span, including alignment mismatches, or zero for no accepted hit
 		 */
 		final int alignRightTipAdapter(Read r){
 			final byte[] bases=r.bases;
@@ -1208,8 +1234,7 @@ public final class IceCreamFinder {
 			
 			//Unify flags on all reads
 			if(keepZMWsTogether){
-				if(discardedReads>0){sendAllToDiscarded=true;}
-				else if(ambigReads>0){sendAllToAmbiguous=true;}
+				if(discardedReads>0){sendAllToDiscarded=true;}else if(ambigReads>0){sendAllToAmbiguous=true;}
 			}
 //			if(discardedReads>0 || ambigReads>0){System.err.println("\nd="+discardedReads+", a="+ambigReads);}
 			if(discardedReads>0){iceCreamZMWsT++;}
@@ -1221,15 +1246,14 @@ public final class IceCreamFinder {
 				if(r.discarded() || sendAllToDiscarded){
 //					assert(false);
 					if(bad!=null){bad.add(r);}
-					if(trueIceCream){truePositiveReadsT++;}
-					else{falsePositiveReadsT++;}
+					if(trueIceCream){truePositiveReadsT++;}else{falsePositiveReadsT++;}
 //					System.err.println("d:t="+r.tested()+",ad="+r.hasAdapter()+",ir="+r.invertedRepeat()+","+r.id+", reads="+reads.size());
 				}else if(r.ambiguous() || sendAllToAmbiguous){
 					if(ambig!=null){ambig.add(r);}
 					if(sendAmbigToGood){
 						readsOutT++;
 						basesOutT+=r.length();
-						if(good!=null) {good.add(r);}
+						if(good!=null){good.add(r);}
 					}
 					if(sendAmbigToBad && bad!=null){bad.add(r);}
 					ambiguousReadsT++;
@@ -1240,8 +1264,7 @@ public final class IceCreamFinder {
 					}
 					readsOutT++;
 					basesOutT+=r.length();
-					if(trueIceCream && !r.trimmed()){falseNegativeReadsT++;}
-					else{trueNegativeReadsT++;}
+					if(trueIceCream && !r.trimmed()){falseNegativeReadsT++;}else{trueNegativeReadsT++;}
 //					if(discardedReads>0 || ambigReads>0){System.err.println("g*:t="+r.tested()+",ad="+r.hasAdapter()+",ir="+r.invertedRepeat()+","+r.id+", reads="+reads.size());}
 				}
 			}
@@ -1419,8 +1442,14 @@ public final class IceCreamFinder {
 			return ar;
 		}
 
-		/** Align the adapter sequence to the read, piecewise, to count matches. */
-		private int lookForAdapter(Read r, double mult) {
+		/** Scans windows for adapters, masks confirmed hits in the working sequence,
+		 * and updates tested/adapter/discard flags and the score histogram.
+		 * The working sequence aliases the read bases only when padding is nonpositive.
+		 * @param r Untested read without a previously marked adapter
+		 * @param mult Multiplier applied to suspect and confirmed score thresholds
+		 * @return Number of confirmed adapter hits
+		 */
+		private int lookForAdapter(Read r, double mult){
 			assert(!r.hasAdapter() && !r.tested());
 			int begin=0;
 			while(begin<r.length() && r.bases[begin]=='N'){begin++;} //Skip reads made of 'N'
@@ -1469,8 +1498,7 @@ public final class IceCreamFinder {
 							if(!kill && useLocality && array.length-stop>window){//Look ahead
 								rvec=ssa.fillAndScoreLimited(adapter, array, stop, stop+window, suspectThresh);
 								if(rvec!=null){
-									if(score>=suspectMidpoint && rvec[0]>=suspectThresh && rvec[1]-stop<suspectDistance){kill=true;}
-									else if(score>=suspectThresh && rvec[0]>=scoreThresh && rvec[1]-stop<suspectDistance){kill=true;}
+									if(score>=suspectMidpoint && rvec[0]>=suspectThresh && rvec[1]-stop<suspectDistance){kill=true;}else if(score>=suspectThresh && rvec[0]>=scoreThresh && rvec[1]-stop<suspectDistance){kill=true;}
 								}
 							}
 							
@@ -1510,8 +1538,14 @@ public final class IceCreamFinder {
 			return found;
 		}
 
-		/** Align the adapter sequence to the read ends, and trim if needed. */
-		private int trimTerminalAdapters(Read r, double mult) {
+		/** Dormant legacy helper that scans windows and masks confirmed adapter hits,
+		 * and updates read flags and the score histogram without shortening the read.
+		 * The working sequence aliases the read bases only when padding is nonpositive.
+		 * @param r Untested read without a previously marked adapter
+		 * @param mult Multiplier applied to suspect and confirmed score thresholds
+		 * @return Number of confirmed adapter hits
+		 */
+		private int trimTerminalAdapters(Read r, double mult){
 			assert(!r.hasAdapter() && !r.tested());
 			int begin=0;
 			while(begin<r.length() && r.bases[begin]=='N'){begin++;} //Skip reads made of 'N'
@@ -1560,8 +1594,7 @@ public final class IceCreamFinder {
 							if(!kill && useLocality && array.length-stop>window){//Look ahead
 								rvec=ssa.fillAndScoreLimited(adapter, array, stop, stop+window, suspectThresh);
 								if(rvec!=null){
-									if(score>=suspectMidpoint && rvec[0]>=suspectThresh && rvec[1]-stop<suspectDistance){kill=true;}
-									else if(score>=suspectThresh && rvec[0]>=scoreThresh && rvec[1]-stop<suspectDistance){kill=true;}
+									if(score>=suspectMidpoint && rvec[0]>=suspectThresh && rvec[1]-stop<suspectDistance){kill=true;}else if(score>=suspectThresh && rvec[0]>=scoreThresh && rvec[1]-stop<suspectDistance){kill=true;}
 								}
 							}
 							
@@ -1605,7 +1638,7 @@ public final class IceCreamFinder {
 		 * Pads array with 'N' bases on both ends.
 		 * @param array Original sequence array
 		 * @param pad Number of padding bases per end
-		 * @return Padded array, or original if pad <= 0
+		 * @return Padded array, or original if pad &lt;= 0
 		 */
 		private byte[] npad(final byte[] array, final int pad){
 			if(pad<=0){return array;}
@@ -1688,7 +1721,7 @@ public final class IceCreamFinder {
 		final FlatAligner fla=new FlatAligner();
 //		final MultiStateAligner9PacBioAdapter msa=alignAdapter ? new MultiStateAligner9PacBioAdapter(ALIGN_ROWS, ALIGN_COLUMNS) : null;
 		/** For slowly aligning adapter sequence sectionwise */
-		final SingleStateAlignerPacBioAdapter ssa=(alignAdapter || trimReads) ? new SingleStateAlignerPacBioAdapter(ALIGN_ROWS, ALIGN_COLUMNS, adapter.length) : null;
+		final SingleStateAlignerPacBioAdapter ssa=adapter!=null && (alignAdapter || trimReads) ? new SingleStateAlignerPacBioAdapter(ALIGN_ROWS, ALIGN_COLUMNS, adapter.length) : null;
 		/** Alternate scoring for slow adapter alignment */
 		final MultiStateAligner9PacBioAdapter2 msa2=(alignAdapter || trimReads) ? new MultiStateAligner9PacBioAdapter2() : null;
 
@@ -1755,16 +1788,22 @@ public final class IceCreamFinder {
 	private float adapterRatio2=0.325f; //0.31f normal, 0.325 timeless
 	/** Ratio for suspect adapter alignments */
 	private float suspectRatio=0.85f;
+	/** Use neighboring windows to confirm or reject a suspect adapter hit. */
 	private boolean useLocality=true;
+	/** Retry a suspect hit with the alternate adapter scoring implementation. */
 	private boolean useAltMsa=true;
 	
 	
+	/** Reference-tip search span relative to query length in restricted alignments. */
 	private float tipRatio=1.5f;
 	
+	/** Length multiplier over the internal median for flagging long subreads. */
 	private float longReadMult=1.5f;
 	
+	/** Length multiplier used when comparing other subreads with the shortest read. */
 	private float shortReadMult=1.5f;
 	
+	/** Relative-length threshold used by the short-read retention heuristic. */
 	private float veryShortMult=0.35f;
 	
 	/** Short half of inverted repeat must be at least this fraction of read length to be classed as a triangle */
@@ -1776,10 +1815,10 @@ public final class IceCreamFinder {
 	/** Align again once the junction position is provisionally identified */
 	private boolean realign=true;
 	
-	/** For internal read array transfers */ 
+	/** Legacy parsed option, not forwarded to ZMWStreamer; qlen selects targetQlen. */
 	private int queuelen=80;
 	
-	/** For grading synthetic data */
+	/** Read simulation truth fields for grading, rather than inferring truth from sequence. */
 	private boolean parseCustom;
 	
 	/** Input reads are CCS (full pass) */
@@ -1806,10 +1845,10 @@ public final class IceCreamFinder {
 	/** Alignment iterations for inverted repeat calculation with query columns and ref rows */
 	protected long alignmentItersShort=0;
 	
-	/** Time spent in long iterations */
+	/** Legacy full-layout nanosecond accumulator; timing instrumentation is currently commented out. */
 	protected long elapsed=0;
 	
-	/** Time spent in short iterations */
+	/** Legacy query-width nanosecond accumulator; timing instrumentation is currently commented out. */
 	protected long elapsedShort=0;
 	
 	/** Print iteration time statistics */
@@ -1843,10 +1882,10 @@ public final class IceCreamFinder {
 	/** Number of ratios in iceCreamRatio */
 	protected long ratiosCounted=0;
 	
-	/** Histogram */
+	/** Adapter-score histogram; bin index maps linearly to a ratio in [0,1]. */
 	protected final long[] adapterScores=new long[201];
 	
-	/** Histogram */
+	/** Inverted-repeat score histogram; bin index maps linearly to a ratio in [0,1]. */
 	protected final long[] repeatScores=new long[201];
 	
 	/** ZMWs with a triangle read but no hidden adapters */
@@ -1881,6 +1920,7 @@ public final class IceCreamFinder {
 	protected final int ALIGN_ROWS;
 	protected final int ALIGN_COLUMNS;
 
+	/** Legacy parsed setting; its former conditional branches are commented out. */
 	private boolean timeless=true;
 	protected final int maxSwScore;
 	protected final int minSwScore;

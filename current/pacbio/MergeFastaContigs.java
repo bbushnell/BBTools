@@ -19,16 +19,25 @@ import structures.ListNum;
 import tracker.ReadStats;
 
 /**
- * Merges FASTA or FASTQ contigs into synthetic chromosomes with N-padding.
- * Combines multiple input contigs into fewer output sequences to improve assembly contiguity.
- * Filters contigs by minimum length and splits output when size limits are reached.
- *
+ * Merges FASTA or FASTQ records into synthetic chromosomes separated by blocks
+ * of N bases. FASTA input may come from one file or a comma-separated list of
+ * files; FASTQ input is converted to FASTA and treated one read per contig.
+ * Records shorter than {@link #MIN_CONTIG_TO_ADD} are skipped, and output
+ * chromosomes roll over when a pending contig plus padding would reach
+ * {@link #MAX_OUTPUT_LEN}.
  * @author Brian Bushnell
  * @date Jul 10, 2012
  */
-public class MergeFastaContigs {
+public class MergeFastaContigs{
 	
-	
+	/**
+	 * Parses merge settings, dispatches to the FASTA or FASTQ merge path, and
+	 * prints global counters to standard output.
+	 * Legacy positional fallbacks for {@code in}, {@code out}, {@code index},
+	 * {@code npad}, and {@code npad2} are retained below, but ordinary
+	 * positional arguments are rejected as unknown before the fallback runs.
+	 * @param args Command-line arguments
+	 */
 	public static void main(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -89,10 +98,10 @@ public class MergeFastaContigs {
 		if(outfile==null){outfile=args[1];}
 		if(outindex==null){outindex=args[2];}
 		
-		try {
+		try{
 			if(npl<0 && args.length>3){N_PAD_LENGTH=Integer.parseInt(args[3]);}
 			if(npl2<0 && args.length>4){N_PAD_LENGTH2=Integer.parseInt(args[4]);}
-		} catch (NumberFormatException e) {
+		}catch(NumberFormatException e){
 			//ignore
 		}
 		
@@ -125,15 +134,17 @@ public class MergeFastaContigs {
 		
 	}
 	
-	
-	
-	//n [MergeFastaContigs] this 3-arg merge() (writes to System.out) is DEAD — no callers; main() dispatches only to mergeFasta/
-	//n mergeFastq. Superseded stdout version. Also `modulo` field (L520) is dead (defined, never read). mergeFasta uses
-	//n poisonAndWait() (L321-322) while mergeFastq uses poison() (L431-432) — both safe (TextStreamWriter non-daemon), a style
-	//n divergence not a bug. Class is functionally sound but crufty (N-pad assembly of contigs into synthetic chroms). One real
-	//n edge: if the read loop exits on the chrom<maxChromsOut / dataOut<maxDataOut cap MID-contig, `temp` can be non-empty at the
-	//n trailing assert(temp.length()==0) (fires under -ea; content lost under -da). Normal EOF clears temp so it holds then.
-	public static void merge(String infile, String outfile, String outindex) {
+	/**
+	 * Legacy single-file FASTA merge path that writes merged FASTA to standard
+	 * output and the contig index to standard error. The {@code outfile} and
+	 * {@code outindex} parameters are retained for the historical signature but
+	 * are not opened by this method; {@link #main(String[])} dispatches new FASTA
+	 * work to {@link #mergeFasta(String[], String, String)}.
+	 * @param infile Input FASTA file path
+	 * @param outfile Ignored output FASTA path
+	 * @param outindex Ignored output index path
+	 */
+	public static void merge(String infile, String outfile, String outindex){
 		StringBuilder temp=new StringBuilder(MIN_CONTIG_TO_ADD);
 		TextFile tf=new TextFile(infile, false);
 		
@@ -196,13 +207,16 @@ public class MergeFastaContigs {
 	}
 	
 	/**
-	 * Merges FASTA contigs from multiple input files into synthetic chromosomes.
-	 * Filters contigs by minimum length, adds N-padding between contigs, and splits into multiple chromosomes when size limits are exceeded while recording contig locations in an index file.
-	 * @param infiles Array of input FASTA file paths
+	 * Merges FASTA contigs from one or more files into synthetic chromosomes.
+	 * The index records {@code chrom}, zero-based contig start, and original header
+	 * for each emitted contig. Writers are started internally and joined through
+	 * {@link TextStreamWriter#poisonAndWait()} after the final right pad is queued;
+	 * the returned terminal-status booleans are ignored.
+	 * @param infiles Input FASTA file paths
 	 * @param outfile Output FASTA file path
-	 * @param outindex Output index file path mapping contig locations
+	 * @param outindex Output index file path mapping contig starts
 	 */
-	public static void mergeFasta(String infiles[], String outfile, String outindex) {
+	public static void mergeFasta(String infiles[], String outfile, String outindex){
 		
 		if(new File(outfile).exists()){
 			for(String s : infiles){assert(!s.equalsIgnoreCase(outfile));}
@@ -332,13 +346,15 @@ public class MergeFastaContigs {
 	
 	
 	/**
-	 * Merges FASTQ reads into synthetic chromosomes with N-padding.
-	 * Converts FASTQ format to FASTA while preserving sequence data, treating each read as a contig and recording its chromosomal position in the index file.
+	 * Converts a FASTQ file to padded synthetic FASTA chromosomes.
+	 * Each read is treated as one candidate contig and recorded in the index by
+	 * read ID. The input stream is closed explicitly; output writers are poisoned
+	 * without waiting for completion or checking their terminal status.
 	 * @param in1 Input FASTQ file path
 	 * @param outfile Output FASTA file path
-	 * @param outindex Output index file path mapping read locations
+	 * @param outindex Output index file path mapping read starts
 	 */
-	public static void mergeFastq(String in1, String outfile, String outindex) {
+	public static void mergeFastq(String in1, String outfile, String outindex){
 		StringBuilder temp=new StringBuilder(MIN_CONTIG_TO_ADD);
 		
 		FASTQ.TEST_INTERLEAVED=false;
@@ -377,8 +393,6 @@ public class MergeFastaContigs {
 		ArrayList<Read> reads=(ln!=null ? ln.list : null);
 
 
-
-
 		while(ln!=null && reads!=null && reads.size()>0){//ln!=null prevents a compiler potential null access warning
 			//System.err.println("reads.size()="+reads.size());
 			for(Read r : reads){
@@ -412,11 +426,6 @@ public class MergeFastaContigs {
 				}
 
 				temp.setLength(0);
-				//NOTE [pacbio/MergeFastaContigs#001] LOW/dev/dead: these two lines are copy-paste cruft from the FASTA path.
-				//Here `s=new String(r.bases)` (L380) is NEVER null (so the break is dead), and `label=s.substring(1)` sets label
-				//to the SEQUENCE-minus-first-char — but label is unconditionally reset to r.id at the top of the next iteration
-				//(L381) before it's ever used, so this reassignment is DEAD (harmless). In the FASTA path s IS a '>'-header and
-				//substring(1) correctly strips '>'; that logic was pasted here where it doesn't apply.
 				if(s==null){break;}
 				label=s.substring(1);
 
@@ -443,6 +452,13 @@ public class MergeFastaContigs {
 		iout.poison();
 	}
 	
+	/**
+	 * Prints sequence to standard output with line breaks aligned to lineBreak.
+	 * TODO: Probable legacy stdout bug: {@code mod==0} starts after the first
+	 * chunk, unlike {@link #printAsLines(CharSequence, int, TextStreamWriter)}.
+	 * @param sb Sequence or padding to print
+	 * @param mod Existing bases on the current output line
+	 */
 	private static void printAsLines(CharSequence sb, int mod){
 		dataOut+=sb.length();
 		assert(mod<lineBreak);
@@ -465,6 +481,13 @@ public class MergeFastaContigs {
 			}
 		}
 	}
+
+	/**
+	 * Queues sequence to a writer with line breaks aligned to lineBreak.
+	 * @param sb Sequence or padding to print
+	 * @param mod Existing bases on the current output line
+	 * @param cout Destination FASTA writer
+	 */
 	private static void printAsLines(CharSequence sb, int mod, TextStreamWriter cout){
 		dataOut+=sb.length();
 		assert(mod<lineBreak);
@@ -495,6 +518,11 @@ public class MergeFastaContigs {
 		}
 	}
 
+	/**
+	 * Returns and caches an N block of the requested inter-contig pad length.
+	 * @param N_PAD_LENGTH Number of N bases
+	 * @return Cached N block
+	 */
 	public static String npad(int N_PAD_LENGTH){
 		if(npad==null || npad.length()!=N_PAD_LENGTH){
 			StringBuilder sb=new StringBuilder(N_PAD_LENGTH);
@@ -506,6 +534,11 @@ public class MergeFastaContigs {
 		return npad;
 	}
 
+	/**
+	 * Returns and caches an N block of the requested end-pad length.
+	 * @param N_PAD_LENGTH Number of N bases
+	 * @return Cached N block
+	 */
 	public static String npad2(int N_PAD_LENGTH){
 		if(npad2==null || npad2.length()!=N_PAD_LENGTH){
 			StringBuilder sb=new StringBuilder(N_PAD_LENGTH);
@@ -527,20 +560,36 @@ public class MergeFastaContigs {
 	static long contigsOut=0;
 	static long chromsOut=0;
 	
+	/** Bases per FASTA output line */
 	public static int lineBreak=80;
+	/** Legacy unused lineBreak-derived field */
 	public static int modulo=lineBreak+1;
+	/** N bases between emitted contigs */
 	public static int N_PAD_LENGTH=300;
-	public static int N_PAD_LENGTH2=2000; //for ends
+	/** N bases used for chromosome-end padding */
+	public static int N_PAD_LENGTH2=2000;
+	/** Shorter contigs are skipped */
 	public static int MIN_CONTIG_TO_ADD=150;
-	public static int MAX_OUTPUT_LEN=220000000; //200M allows expansion to 262M
+	/**
+	 * Maximum requested chromosome length before rollover; the 220M default
+	 * preserves a historical capacity target.
+	 */
+	public static int MAX_OUTPUT_LEN=220000000;
+	/** Maximum number of synthetic chromosomes */
 	public static int maxChromsOut=60000;
+	/** Approximate maximum number of queued sequence and padding bases */
 	public static long maxDataOut=Long.MAX_VALUE;
+	/** Count of queued sequence and padding bases, excluding headers and newlines */
 	private static long dataOut=0;
-	/** Cached N-padding string for chromosome ends */
+	/** Cached N-padding strings */
 	public static String npad, npad2;
+	/** Overwrite existing output files */
 	public static boolean overwrite=true;
+	/** Append to existing output files */
 	public static boolean append=false;
-	public static boolean PAD_START=true; //Set to true to add padding to beginning.
+	/** Add end padding before the first contig */
+	public static boolean PAD_START=true;
+	/** Print per-line FASTA progress */
 	public static boolean verbose=false;
 	
 }

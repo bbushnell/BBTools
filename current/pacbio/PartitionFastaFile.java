@@ -6,16 +6,23 @@ import fileIO.TextStreamWriter;
 import shared.Timer;
 
 /**
- * Partitions FASTA files into multiple smaller files based on sequence length.
- * Splits input FASTA by base count, creating new files when partition size is reached.
- * Ensures complete sequences are not split across partition boundaries.
+ * Partitions FASTA input into smaller files at partition record boundaries.
+ * Opens a new output file when a header arrives after the current partition has
+ * reached the requested base count; the global maximum-output cutoff remains
+ * independent of headers and may stop mid-record.
  *
  * @author Brian Bushnell
  * @date Jul 10, 2012
  */
-public class PartitionFastaFile {
+public class PartitionFastaFile{
 	
 	
+	/**
+	 * Splits a FASTA file into numbered output partitions.
+	 * @param args Input path, output template containing '#', target bases per
+	 *             partition, unused slot, and optional maximum bases to write
+	 *             at index 4
+	 */
 	public static void main(String[] args){
 		
 		Timer t=new Timer();
@@ -41,7 +48,17 @@ public class PartitionFastaFile {
 		
 	}
 	
-	public static void split(TextFile tf, String outfile, long partition) {
+	/**
+	 * Writes FASTA records to numbered files, rotating files on headers after
+	 * the current partition reaches the requested base count.
+	 * Writers are poisoned but not joined or checked for errors; the caller owns
+	 * the input reader. The dataOut counter is static and cumulative; maxDataOut
+	 * is a static limit.
+	 * @param tf Input FASTA reader
+	 * @param outfile Output template containing '#'
+	 * @param partition Target bases per output file
+	 */
+	public static void split(TextFile tf, String outfile, long partition){
 		long currentBases=0;
 		int pnum=1;
 
@@ -74,11 +91,11 @@ public class PartitionFastaFile {
 		//n [PartitionFastaFile] this synchronized(tsw){tsw.wait(100)} is a pointless 100ms sleep — nothing ever notifies tsw, so
 		//n it just blocks 100ms before poison(). Harmless (poison drains and the non-daemon writer is joined at JVM exit) but a
 		//n code smell / no-op. The per-partition split (currentBases>=partition, checked only at '>' headers) DOES keep whole records.
-		try {
+		try{
 			synchronized(tsw){
 				tsw.wait(100);
 			}
-		} catch (InterruptedException e) {
+		}catch(InterruptedException e){
 			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}

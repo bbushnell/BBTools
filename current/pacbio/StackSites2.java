@@ -26,17 +26,13 @@ import structures.CoverageArray2;
 import structures.ListNum;
 
 /**
- * Processes alignment sites from PacBio long reads to generate coverage arrays
- * and filtered site lists.
- * Accumulates coverage statistics for perfect matches and overall alignments across chromosomes.
- * Filters sites based on coverage thresholds to retain only reliable alignment
- * data for downstream analysis.
- * Writes intermediate data to temporary files organized by genomic blocks for memory efficiency.
- *
+ * Stacks per-read PacBio alignment sites through chromosome-block temp files,
+ * then filters the sorted sites with whole-read, perfect, and true-perfect
+ * coverage arrays.
  * @author Brian Bushnell
  * @date Jul 16, 2012
  */
-public class StackSites2 {
+public class StackSites2{
 	
 	public static void main(String[] args){
 		{//Preparse block for help, config files, and outstream
@@ -76,6 +72,16 @@ public class StackSites2 {
 		System.out.println("Time: \t"+t);
 	}
 	
+	/**
+	 * Streams mapped reads, converts each site to SiteScoreR with read numeric ID
+	 * and mate bit, records total/perfect/semiperfect coverage arrays, writes
+	 * temp buckets through a Glob, then emits retained sorted sites.
+	 * @param fname1 First read input
+	 * @param fname2 Second read input, or {@code null} or {@code "null"}
+	 * @param outname Output filtered stacked-site path
+	 * @param pcovoutname Per-chromosome perfect-coverage output pattern
+	 * @param tempname Temporary filename pattern containing {@code #}, or null
+	 */
 	public static void stack(String fname1, String fname2, String outname, String pcovoutname, String tempname){
 		assert(pcovoutname.contains("#"));
 		final RTextInputStream rtis=new RTextInputStream(fname1, (fname2==null || fname2.equals("null") ? null : fname2), -1);
@@ -283,6 +289,17 @@ public class StackSites2 {
 		
 	}
 	
+	/**
+	 * Poisons temp writers, joins and sorts each chromosome-block bucket, applies
+	 * coverage-based retention, deletes temp files when requested, and queues
+	 * retained sites grouped by {@link #INTERVAL}-base spans. The final output
+	 * writer is joined, but its terminal status is ignored.
+	 * @param g Temp-bucket owner
+	 * @param outname Output filtered stacked-site path
+	 * @param pcov Perfect or semiperfect coverage arrays excluding read tips
+	 * @param truePcov Perfect coverage arrays including full sites
+	 * @param cov All-site coverage arrays
+	 */
 	private static final void finish(Glob g, String outname, ArrayList<CoverageArray> pcov, ArrayList<CoverageArray> truePcov, ArrayList<CoverageArray> cov){
 
 		
@@ -307,9 +324,9 @@ public class StackSites2 {
 			TextStreamWriter tsw=g.wmap.get(k);
 			String fname=Glob.fname(k, g.tempname);
 			for(int i=0; i<50 && tsw.isAlive(); i++){
-				try {
+				try{
 					tsw.join(20000);
-				} catch (InterruptedException e) {
+				}catch(InterruptedException e){
 					// TODO Auto-generated catch block
 					e.printStackTrace();
 				}
@@ -372,13 +389,23 @@ public class StackSites2 {
 		out.poisonAndWait();
 	}
 	
-	//n [StackSites2] TRACED CLEAN (no .sh, no callers — the EVOLVED twin of StackSites, invoked by MakePacBioScript scripts).
+	//n Historical traced-clean note: [StackSites2] TRACED CLEAN (no .sh, no callers — the EVOLVED twin of StackSites, invoked by MakePacBioScript scripts).
 	//n Divergences from StackSites are intentional generational evolution, NOT bugs: SS2 gates pcov on semiperfect (perfect→
 	//n truePcov separately), trims PCOV_TIP_DIST from the pcov increment range, blocks output into per-key temp files (Glob),
 	//n adds coverage-based retainSite filtering, and uses out.poisonAndWait() (cleaner than SS's poison()). retainSite's
 	//n pcov/tpcov/cov reads below use possibly-negative (start-PCOV_TIP_DIST) or past-end (stop+PCOV_TIP_DIST) indices, but
 	//n CoverageArray2.get clamps OOB→0 (verified L145) so NO AIOOBE. cov.increment(j,-1) intentionally mutates shared coverage
 	//n as sites are tossed (order-sensitive greedy filter — by design). Like StackSites it feeds SiteR#001 downstream via pairnum.
+	/**
+	 * Returns true for retained semiperfect and imperfect sites under the greedy
+	 * coverage filter, decrementing total coverage when an imperfect site is
+	 * tossed.
+	 * @param ssr Candidate reduced site
+	 * @param pcov Perfect/semiperfect interior coverage for this chromosome
+	 * @param tpcov Perfect full-site coverage for this chromosome
+	 * @param cov Mutable total coverage for this chromosome
+	 * @return True if the site survives coverage filtering
+	 */
 	private static boolean retainSite(SiteScoreR ssr, CoverageArray pcov, CoverageArray tpcov, CoverageArray cov){
 		if(ssr.semiperfect && !ssr.perfect){return true;} //For tip extension
 		assert(cov!=null && cov!=FAKE) : (cov==FAKE)+", "+ssr.chrom;
@@ -422,7 +449,19 @@ public class StackSites2 {
 		return true;
 	}
 	
-	private static boolean checkPerfection(int start, int stop, byte[] bases, ChromosomeArray cha, boolean rcomp, float f) {
+	/**
+	 * Returns true when all non-N reference bases match over the site and at
+	 * least fraction {@code f} of the read bases aligned against concrete
+	 * reference bases.
+	 * @param start Inclusive chromosome start
+	 * @param stop Inclusive chromosome stop; retained for the historical signature
+	 * @param bases Read bases
+	 * @param cha Chromosome sequence
+	 * @param rcomp True to compare the reverse complement of {@code bases}
+	 * @param f Minimum concrete-reference fraction
+	 * @return True if the site is perfect outside reference Ns
+	 */
+	private static boolean checkPerfection(int start, int stop, byte[] bases, ChromosomeArray cha, boolean rcomp, float f){
 		
 		int noref=0;
 		if(rcomp){
@@ -443,6 +482,19 @@ public class StackSites2 {
 		return bases.length-noref>=f*bases.length;
 	}
 	
+	/**
+	 * Returns true when this site matches the original strand, optional
+	 * chromosome, and either endpoint is within {@code thresh} of the
+	 * original bounds.
+	 * @param ss Candidate site
+	 * @param trueChrom Original chromosome
+	 * @param trueStrand Original strand
+	 * @param trueStart Original start
+	 * @param trueStop Original stop
+	 * @param thresh Allowed endpoint distance
+	 * @param useChrom True to require chromosome equality
+	 * @return True when this is a loose match to the original site
+	 */
 	public static boolean isCorrectHitLoose(SiteScore ss, int trueChrom, byte trueStrand, int trueStart, int trueStop, int thresh, boolean useChrom){
 		if((useChrom && ss.chrom!=trueChrom) || ss.strand!=trueStrand){return false;}
 
@@ -452,10 +504,11 @@ public class StackSites2 {
 		return (Tools.absdif(ss.start, trueStart)<=thresh || Tools.absdif(ss.stop, trueStop)<=thresh);
 	}
 	
+	/** Position-keyed temp-file writers for SiteScoreR buckets. */
 	private static class Glob{
 		
 		public Glob(String tempPattern_){
-			tempname=(tempPattern_ == null ? DEFAULT_TEMP_PATTERN : tempPattern_);
+			tempname=(tempPattern_==null ? DEFAULT_TEMP_PATTERN : tempPattern_);
 		}
 		
 		public void write(SiteScoreR ssr){
@@ -486,19 +539,29 @@ public class StackSites2 {
 		
 	}
 	
+	/** Number of bases per temporary chromosome-block bucket */
 	public static int BLOCKSIZE=8000000;
 	
 	/** Interval size for grouping sites by genomic position */
 	public static final int INTERVAL=200;
+	/** Number of root reads pulled from the input stream */
 	public static long readsProcessed=0;
+	/** Number of candidate sites converted to SiteScoreR */
 	public static long sitesProcessed=0;
+	/** Number of retained candidate sites */
 	public static long sitesOut=0;
+	/** Delete temp buckets after each bucket has been read */
 	public static boolean DELETE_TEMP=true;
+	/** Default temp-file pattern; # is replaced with build and bucket key */
 	public static final String DEFAULT_TEMP_PATTERN="StackSites2TempFile_#.txt.gz";
+	/** Distance trimmed from each end before incrementing eligible perfect/semiperfect interior coverage */
 	public static int PCOV_TIP_DIST=6;
 
+	/** Minimum total coverage needed to retain a site by coverage alone */
 	public static int MIN_COV_TO_RETAIN=2;
+	/** Minimum perfect coverage needed to toss an imperfect site */
 	public static int MIN_PCOV_TO_TOSS=3;
 	
+	/** Empty coverage sentinel for missing perfect coverage arrays */
 	private static final CoverageArray FAKE=new CoverageArray2(-1, 500);
 }

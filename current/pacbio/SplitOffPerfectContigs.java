@@ -19,16 +19,22 @@ import structures.CoverageArray2;
 import structures.Range;
 
 /**
- * Splits assemblies into perfect and imperfect contigs based on coverage data.
- * Identifies high-coverage regions that represent perfect assemblies and separates them
- * from lower-coverage regions that may contain errors. Perfect contigs are written to
- * FASTA output while imperfect regions are kept in chromosome arrays for reference.
+ * Splits assemblies into high- and low-coverage contigs based on coverage-based
+ * classification. High-coverage ranges are written to FASTA output while retained
+ * lower-coverage ranges are kept in chromosome arrays for a replacement genome build.
  *
  * @author Brian Bushnell
  * @date Jul 26, 2012
  */
-public class SplitOffPerfectContigs {
+public class SplitOffPerfectContigs{
 	
+	/**
+	 * Splits a loaded genome build by either precomputed coverage arrays or SiteScore
+	 * text files. Defaults buildout to the input build, and when buildout equals the
+	 * input build it may replace chromosome files and delete that build's index files.
+	 *
+	 * @param args Command line arguments.
+	 */
 	public static void main(String[] args){
 		{//Preparse block for help, config files, and outstream
 			PreParser pp=new PreParser(args, new Object() { }.getClass().getEnclosingClass(), false);
@@ -176,9 +182,25 @@ public class SplitOffPerfectContigs {
 		System.out.println("Time:\t"+t);
 	}
 	
+	/**
+	 * Emits high-coverage ranges as FASTA records, may mark low-coverage interiors
+	 * as X in the supplied chromosome, copies retained imperfect ranges into a
+	 * replacement chromosome for buildout, and updates cumulative static counters.
+	 *
+	 * @param cha Source chromosome, modified when BREAK_BAD_CONTIGS marks bases.
+	 * @param ca Coverage used to classify source ranges.
+	 * @param contig First FASTA header id to write.
+	 * @param trigger N-run length that splits source contigs; shorter N gaps
+	 * are bridged, and X bases split immediately.
+	 * @param minAcceptableCoverage Minimum coverage for a range to be emitted.
+	 * @param fastaBlocklen Fixed output line width for emitted FASTA bodies.
+	 * @param tsw Destination writer, owned by the caller.
+	 * @param buildout Genome build receiving the replacement chromosome.
+	 * @param tipbuffer Bases at each retained-range end excluded from coverage tests.
+	 * @return The next contig id after the last FASTA header written.
+	 */
 	public static long writeContigs(ChromosomeArray cha, CoverageArray ca, long contig, int trigger, int minAcceptableCoverage, int fastaBlocklen,
 			TextStreamWriter tsw, int buildout, int tipbuffer){
-		
 		ArrayList<Range> list=cha.toContigRanges(trigger);
 		
 		int minContig=MIN_CONTIG_TO_ADD;
@@ -337,12 +359,22 @@ public class SplitOffPerfectContigs {
 		return contig;
 	}
 	
-	//n [SplitOffPerfectContigs] TRACED CLEAN otherwise (no direct .sh; part of the pacbio assembly pipeline via generated scripts):
+	//n Historical assessment [SplitOffPerfectContigs] TRACED CLEAN otherwise
+	//n (no direct .sh; part of the pacbio assembly pipeline via generated scripts):
 	//n avg-len prints guard the divisor with Tools.max(count,1) (no div-by-zero); CoverageArray.get/increment clamp OOB→0 (verified);
 	//n cha2 sizing (badlen += 2*N_PAD_LENGTH2-N_PAD_LENGTH+10) leaves 10 bytes of slack over the actual content and cha2.set
 	//n auto-extends anyway (no overflow); the basesKept/contigsKept/... stat fields are all assigned AND used (contrast the
-	//n dead ones in driver/SummarizeCrossblock#002); tsw.poison() is safe (TextStreamWriter non-daemon → joined at JVM exit).
+	//n dead ones in driver/SummarizeCrossblock#002); main poisons the writer but
+	//n does not explicitly join it or check writer error state.
 	//n BREAK_BAD_CONTIGS forward/reverse 'X'-marking passes are symmetric and bounds-safe.
+
+	/**
+	 * Writes one FASTA record body in fixed-width lines.
+	 *
+	 * @param sb Sequence to write.
+	 * @param tsw Destination writer, owned by the caller.
+	 * @param blocklen Positive maximum number of bases per line.
+	 */
 	public static void writeContig(CharSequence sb, TextStreamWriter tsw, int blocklen){
 		for(int i=0; i<sb.length(); i+=blocklen){
 			int max=Tools.min(i+blocklen, sb.length());
@@ -350,7 +382,15 @@ public class SplitOffPerfectContigs {
 		}
 	}
 	
-	
+	/**
+	 * Converts comma-separated SiteScore file names into per-chromosome coverage.
+	 * Each input file is parsed as tab-separated SiteScore records, and padding
+	 * bases are excluded from both ends of perfect and semiperfect hits.
+	 *
+	 * @param sitesfile Comma-separated SiteScore file names.
+	 * @param padding Bases to exclude from both hit ends.
+	 * @return Coverage indexed by chromosome id.
+	 */
 	public static ArrayList<CoverageArray> toCoverage(String sitesfile, int padding){
 		ArrayList<CoverageArray> pcov=new ArrayList<CoverageArray>(8);
 		pcov.add(new CoverageArray2(0,1000));

@@ -34,23 +34,26 @@ import tracker.EntropyTracker;
 import tracker.ReadStats;
 
 /**
- * Version of Reformat designed for PacBio data.
- * Supports some of Reformat's capability, like subsampling,
- * in a ZMW-aware tool.
- * 
- * @author Brian Bushnell
+ * Filters, samples and optionally builds consensus from grouped PacBio subreads.
+ * Input subreads must already be consecutive by well; ZMWStreamer supplies groups
+ * without sorting. Workers mutate the supplied reads' flags, bases and headers.
+ * Constructor parsing changes shared reader/writer settings, so independent CLI
+ * invocations are the supported isolation boundary rather than concurrent objects
+ * in one JVM. Worker failure is fatal to the CLI to avoid stranding its producer;
+ * direct library methods retain their own return/exception contracts.
+ * Remaining sampling/reporting limitations are recorded beside the affected code.
+ * @author Brian Bushnell, Sucrose
  * @date June 5, 2019
- *
  */
-public final class ReformatPacBio {
+public final class ReformatPacBio{
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Code entrance from the command line.
-	 * @param args Command line arguments
+	 * Constructs and runs one invocation, then closes a redirected diagnostic stream.
+	 * @param args BBTools key=value options, including a required input path
 	 */
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
@@ -67,8 +70,10 @@ public final class ReformatPacBio {
 	}
 	
 	/**
-	 * Constructor.
-	 * @param args Command line arguments
+	 * Parses settings, validates paths and resolves format descriptors.
+	 * Changes shared I/O/validation settings; processing and worker startup occur
+	 * later in process, not in this constructor.
+	 * @param args BBTools key=value options; configuration files are handled by PreParser
 	 */
 	public ReformatPacBio(String[] args){
 		
@@ -134,7 +139,10 @@ public final class ReformatPacBio {
 	/*----------------    Initialization Helpers    ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Parse arguments from the command line */
+	/** Parses tool options and delegates standard options to Parser; updates shared settings too.
+	 * @param args Preparsed command-line options
+	 * @return Parser holding standard input/output, read-limit and overwrite settings
+	 */
 	private Parser parse(String[] args){
 		//Create a parser object
 		Parser parser=new Parser();
@@ -178,17 +186,13 @@ public final class ReformatPacBio {
 				}else{
 					ZMWStreamer.useStreamer=Parse.parseBoolean(b);
 				}
-			}
-			
-			else if(a.equals("keepshortreads") || a.equals("ksr")){
+			}else if(a.equals("keepshortreads") || a.equals("ksr")){
 				keepShortReads=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("keepzmwstogether") || a.equals("kzt") || a.equals("keepreadstogether") || a.equals("krt")){
 				keepZMWsTogether=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("subsampleFromEnds")){
 				subsampleFromEnds=Parse.parseBoolean(b);
-			}
-			
-			else if(a.equals("ccsinput") || a.equals("ccsin")){
+			}else if(a.equals("ccsinput") || a.equals("ccsin")){
 				CCSInput=Parse.parseBoolean(b);
 			}else if(a.equals("minlength") || a.equals("minlen")){
 				minLengthAfterTrimming=Integer.parseInt(b);
@@ -208,9 +212,7 @@ public final class ReformatPacBio {
 				outstats=b;
 			}else if(a.equals("schist") || a.equals("shist")){
 				schist=b;
-			}
-			
-			else if(a.equals("shredlen")){
+			}else if(a.equals("shredlen")){
 				shredLength=Integer.parseInt(b);
 			}else if(a.equals("overlap")){
 				overlap=Integer.parseInt(b);
@@ -224,15 +226,11 @@ public final class ReformatPacBio {
 				makeCCS=Parse.parseBoolean(b);
 			}else if(a.equals("findorientation") || a.equals("orient") || a.equals("reorient")){
 				findOrientation=Parse.parseBoolean(b);
-			}
-			
-			else if(a.equals("minpasses")){
+			}else if(a.equals("minpasses")){
 				minPasses=Float.parseFloat(b);
 			}else if(a.equals("minsubreads")){
 				minSubreads=Integer.parseInt(b);
-			}
-			
-			else if(a.equalsIgnoreCase("samplerate")){
+			}else if(a.equalsIgnoreCase("samplerate")){
 				samplerate=Float.parseFloat(b);
 			}else if(a.equalsIgnoreCase("sampleReadsTarget") || a.equals("srt")){
 				sampleReadsTarget=Parse.parseKMG(b);
@@ -248,19 +246,13 @@ public final class ReformatPacBio {
 				keepLongestPass=Parse.parseBoolean(b);
 			}else if(a.equals("seed")){
 				seed=Long.parseLong(b);
-			}
-			
-			else if(a.equalsIgnoreCase("zmws") || a.equalsIgnoreCase("maxzmws")){
+			}else if(a.equalsIgnoreCase("zmws") || a.equalsIgnoreCase("maxzmws")){
 				maxZMWs=Parse.parseKMG(b);
-			}
-			
-			else if(a.equals("whitelist")){
+			}else if(a.equals("whitelist")){
 				whitelist=b;
 			}else if(a.equals("blacklist")){
 				blacklist=b;
-			}
-			
-			else if(a.equalsIgnoreCase("trimpolya")){
+			}else if(a.equalsIgnoreCase("trimpolya")){
 				trimPolyA=Parse.parseBoolean(b);
 			}else if(PolymerTrimmer.parse(arg, a, b)){
 				//do nothing
@@ -295,12 +287,12 @@ public final class ReformatPacBio {
 		return parser;
 	}
 	
-	/** Add or remove .gz or .bz2 as needed */
+	/** Resolves an existing compressed/uncompressed variant of the configured input path. */
 	private void fixExtensions(){
 		in1=Tools.fixExtension(in1);
 	}
 	
-	/** Ensure files can be read and written */
+	/** Checks input/list readability, output writability and duplicate paths before processing. */
 	private void checkFileExistence(){
 		
 		//Ensure output files can be written
@@ -321,7 +313,7 @@ public final class ReformatPacBio {
 		}
 	}
 	
-	/** Adjust file-related static fields as needed for this program */
+	/** Selects the shared byte-reader mode when not forced and checks FASTA settings. */
 	private static void checkStatics(){
 		//Adjust the number of threads for input file reading
 		if(!ByteFile.FORCE_MODE_BF1 && !ByteFile.FORCE_MODE_BF2 && Shared.threads()>2){
@@ -335,7 +327,13 @@ public final class ReformatPacBio {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Create read streams and process all data */
+	/** Runs the configured invocation once and reports its collected counters.
+	 * Loads ID sets, optionally counts input for exact sampling, starts input/output
+	 * and workers, then closes writers and restores Read's constructor-validation flag
+	 * on the normal path.
+	 * Fatal worker errors halt the VM; this is not a general resource-unwinding API.
+	 * @param t Running invocation timer, stopped before final reports
+	 */
 	void process(Timer t){
 		if(verbose){System.err.println("Entered process()");}
 
@@ -373,7 +371,7 @@ public final class ReformatPacBio {
 		//Reset read validation
 		Read.VALIDATE_IN_CONSTRUCTOR=vic;
 		
-		writeHistogram(ffschist, subreadCounts);
+		errorState|=writeHistogram(ffschist, subreadCounts);
 		
 		//Report timing and results
 		t.stop();
@@ -402,27 +400,29 @@ public final class ReformatPacBio {
 	
 	/**
 	 * Generates text-format statistics summary.
-	 * Reports processing metrics, filtering results, and quality metrics.
+	 * Reports well/read/base counts, filtering, and enabled trimming/entropy counters.
 	 * @param t Timer with execution timing information
 	 * @return ByteBuilder containing formatted text statistics
 	 */
 	private ByteBuilder toText(Timer t){
 		ByteBuilder bb=new ByteBuilder();
 		bb.appendln(Tools.timeZMWsReadsBasesProcessed(t, ZMWs, readsProcessed, basesProcessed, 8));
-		bb.appendln(Tools.ZMWsReadsBasesOut(ZMWs, readsProcessed, basesProcessed, ZMWsOut, readsOut, basesOut, 8, true));
+		//PIC-108: The helper uses input counts only as divisors, not as displayed counts.
+		bb.appendln(Tools.ZMWsReadsBasesOut(Tools.max(1, ZMWs), Tools.max(1, readsProcessed),
+				Tools.max(1, basesProcessed), ZMWsOut, readsOut, basesOut, 8, true));
 		
 		long readsFiltered=readsProcessed-readsOut;
-		bb.appendln(Tools.numberPercent("Reads Filtered:", readsFiltered, readsFiltered*100.0/(readsProcessed), 3, 8));
+		bb.appendln(Tools.numberPercent("Reads Filtered:", readsFiltered, readsFiltered*100.0/Tools.max(1, readsProcessed), 3, 8));
 		if(trimReads || trimPolyA){
-			bb.appendln(Tools.numberPercent("Reads Trimmed:", readsTrimmed, readsTrimmed*100.0/(readsProcessed), 3, 8));
-			bb.appendln(Tools.numberPercent("Bases Trimmed:", basesTrimmed, basesTrimmed*100.0/(basesProcessed), 3, 8));
+			bb.appendln(Tools.numberPercent("Reads Trimmed:", readsTrimmed, readsTrimmed*100.0/Tools.max(1, readsProcessed), 3, 8));
+			bb.appendln(Tools.numberPercent("Bases Trimmed:", basesTrimmed, basesTrimmed*100.0/Tools.max(1, basesProcessed), 3, 8));
 		}
 //		bb.appendln(Tools.number("Total ZMWs:", ZMWs, 8));
-		bb.appendln(Tools.numberPercent("Partial ZMWs:", partiallyDiscardedZMWs, partiallyDiscardedZMWs*100.0/(ZMWs), 3, 8));
-		bb.appendln(Tools.numberPercent("Discarded ZMWs:", fullyDiscardedZMWs, fullyDiscardedZMWs*100.0/(ZMWs), 3, 8));
+		bb.appendln(Tools.numberPercent("Partial ZMWs:", partiallyDiscardedZMWs, partiallyDiscardedZMWs*100.0/Tools.max(1, ZMWs), 3, 8));
+		bb.appendln(Tools.numberPercent("Discarded ZMWs:", fullyDiscardedZMWs, fullyDiscardedZMWs*100.0/Tools.max(1, ZMWs), 3, 8));
 //		bb.appendln(Tools.numberPercent("Low Entropy:", lowEntropyReads, lowEntropyReads*100.0/(readsProcessed), 3, 8));
 		if(entropyCutoff>=0){
-			bb.appendln(Tools.numberPercent("Low Entropy:", lowEntropyZMWs, lowEntropyZMWs*100.0/(ZMWs), 3, 8));
+			bb.appendln(Tools.numberPercent("Low Entropy:", lowEntropyZMWs, lowEntropyZMWs*100.0/Tools.max(1, ZMWs), 3, 8));
 		}
 		
 		if(parseCustom){}
@@ -431,7 +431,7 @@ public final class ReformatPacBio {
 	
 	/**
 	 * Generates JSON-format statistics summary.
-	 * Creates structured output with all processing metrics and percentages.
+	 * Reports well/read/base counts, filtering, and enabled trimming/entropy counters.
 	 * @param t Timer with execution timing information
 	 * @return JsonObject containing structured statistics data
 	 */
@@ -448,23 +448,23 @@ public final class ReformatPacBio {
 		jo.add("Bases_Out", basesOut);
 		jo.add("ZMWs_Out", ZMWsOut);
 		jo.add("Reads_Filtered", readsFiltered);
-		jo.add("Reads_Filtered_Pct", readsFiltered*100.0/(readsProcessed));
-		if(trimReads){
+		jo.add("Reads_Filtered_Pct", readsFiltered*100.0/Tools.max(1, readsProcessed));
+		if(trimReads || trimPolyA){
 			jo.add("Reads_Trimmed", readsTrimmed);
-			jo.add("Reads_Trimmed_Pct", readsTrimmed*100.0/(readsProcessed));
+			jo.add("Reads_Trimmed_Pct", readsTrimmed*100.0/Tools.max(1, readsProcessed));
 			jo.add("Bases_Trimmed", basesTrimmed);
-			jo.add("Bases_Trimmed_Pct", basesTrimmed*100.0/(basesProcessed));
+			jo.add("Bases_Trimmed_Pct", basesTrimmed*100.0/Tools.max(1, basesProcessed));
 		}
 //		jo.add("Total_ZMWs", ZMWs);fullyDiscardedZMWs
 		jo.add("Partial_ZMWs", partiallyDiscardedZMWs);
-		jo.add("Partial_ZMWs_Pct", partiallyDiscardedZMWs*100.0/(ZMWs));
+		jo.add("Partial_ZMWs_Pct", partiallyDiscardedZMWs*100.0/Tools.max(1, ZMWs));
 		jo.add("Discarded_ZMWs", fullyDiscardedZMWs);
-		jo.add("Discarded_ZMWs_Pct", fullyDiscardedZMWs*100.0/(ZMWs));
+		jo.add("Discarded_ZMWs_Pct", fullyDiscardedZMWs*100.0/Tools.max(1, ZMWs));
 //		jo.add("Low_Entropy", lowEntropyReads);
 //		jo.add("Low_Entropy_Pct", lowEntropyReads*100.0/(readsProcessed));
 		if(entropyCutoff>=0){
 			jo.add("Low_Entropy", lowEntropyZMWs);
-			jo.add("Low_Entropy_Pct", lowEntropyZMWs*100.0/(ZMWs));
+			jo.add("Low_Entropy_Pct", lowEntropyZMWs*100.0/Tools.max(1, ZMWs));
 		}
 		if(parseCustom){
 			//Special stats if desired
@@ -473,13 +473,14 @@ public final class ReformatPacBio {
 	}
 	
 	/**
-	 * Writes histogram data to specified output file.
-	 * Includes summary statistics like mean, median, mode, and standard deviation.
-	 * @param ff Output file format, or null to skip writing
-	 * @param hist Histogram array with count data
+	 * Writes summary statistics and every bin through a ByteStreamWriter, then waits
+	 * for its terminal. Returns the writer error flag for the invocation to retain.
+	 * @param ff Histogram output descriptor, or null to skip writing
+	 * @param hist Bin-indexed observation counts
+	 * @return Writer error state, or false when histogram output is disabled
 	 */
-	private static void writeHistogram(FileFormat ff, long[] hist){
-		if(ff==null){return;}
+	private static boolean writeHistogram(FileFormat ff, long[] hist){
+		if(ff==null){return false;}
 		final ByteStreamWriter bsw=new ByteStreamWriter(ff);
 		bsw.start();
 
@@ -493,14 +494,15 @@ public final class ReformatPacBio {
 		for(int i=0; i<hist.length; i++){
 			bsw.print(i).tab().println(hist[i]);
 		}
-		bsw.poisonAndWait();
+		//PIC-009: Output closure errors must reach the invocation's final error check.
+		return bsw.poisonAndWait();
 	}
 	
 	/**
-	 * Creates a concurrent output stream for reads.
-	 * Configures buffering and format-specific options.
-	 * @param ff Output file format, or null for no output
-	 * @return Configured ConcurrentReadOutputStream or null
+	 * Creates and starts a read writer with a sixteen-list output buffer.
+	 * Requests preservation of the input SAM header only for SAM/BAM-to-SAM/BAM.
+	 * @param ff Output descriptor, or null for no writer
+	 * @return Started writer, or null when output is disabled
 	 */
 	private ConcurrentReadOutputStream makeCros(FileFormat ff){
 		if(ff==null){return null;}
@@ -514,7 +516,11 @@ public final class ReformatPacBio {
 		return ros;
 	}
 	
-	/** Spawn process threads */
+	/** Starts consumers, groups input synchronously on this thread, then joins consumers.
+	 * @param zstream Started input backend whose grouping producer has not run yet
+	 * @param rosg Started good-read writer, or null
+	 * @param rosb Started bad-read writer, or null
+	 */
 	private void spawnThreads(final ZMWStreamer zstream,
 			final ConcurrentReadOutputStream rosg,
 			final ConcurrentReadOutputStream rosb){
@@ -542,9 +548,10 @@ public final class ReformatPacBio {
 	}
 	
 	/**
-	 * Waits for all processing threads to complete and accumulates statistics.
-	 * Collects per-thread counters and sets error state if any thread failed.
-	 * @param alpt List of ProcessThread objects to monitor
+	 * Joins each consumer, retrying interruptions, and folds its counters/success flag.
+	 * spawnThreads subsequently takes the producer's published-well total. Backend
+	 * error status is not folded here; a normal join is not universal input validation.
+	 * @param alpt Started consumers belonging to this invocation
 	 */
 	private void waitForThreads(ArrayList<ProcessThread> alpt){
 		
@@ -554,10 +561,10 @@ public final class ReformatPacBio {
 			
 			//Wait until this thread has terminated
 			while(pt.getState()!=Thread.State.TERMINATED){
-				try {
+				try{
 					//Attempt a join operation
 					pt.join();
-				} catch (InterruptedException e) {
+				}catch(InterruptedException e){
 					//Potentially handle this, if it is expected to occur
 					e.printStackTrace();
 				}
@@ -592,12 +599,21 @@ public final class ReformatPacBio {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Generates consensus sequence from multiple subreads in a ZMW.
-	 * Uses BaseGraph for alignment and consensus calling with identity filtering.
-	 * Applies minimum pass requirements and generates quality metrics.
-	 *
-	 * @param zmw ZMW containing subreads for consensus generation
-	 * @return Consensus read with average identity score in obj field
+	 * Builds consensus from an ordered, nonempty well with an eligible reference.
+	 * Assigns each read's strand from its original index ({@code i&1}), including discarded
+	 * entries. Fewer than three reads or an estimate below2.1passes returns the
+	 * existing selected read without computing a new average-identity field.
+	 * Larger wells require a positive internal median for pass estimation.
+	 * The graph path uses nondiscarded contributors, whose bases must be present,
+	 * and normalizes their orientation without compacting/reindexing the list.
+	 * With orientation search disabled, temporary reverse complements are restored
+	 * and original-index strand flags remain on normal completion. An exceptional
+	 * alignment need not restore input state; with orientation search enabled,
+	 * BaseGraph's additional orientation mutations are not undone here.
+	 * @param zmw Nonempty well with at least one nondiscarded reference candidate
+	 * @return Existing reference on the short/low-pass path, otherwise a new consensus
+	 * with average eligible-contributor identity as a Float in obj
+	 * @throws IllegalStateException If pass estimation finds a nonpositive internal median
 	 */
 	public Read makeConsensus(ZMW zmw){
 		//Apply correct strand
@@ -611,7 +627,8 @@ public final class ReformatPacBio {
 		float idSum=0;
 		int added=0;
 		for(Read r : zmw){
-			if(r!=ref){
+			//PIC-105: Keep original index-derived strands while excluding discarded contributors.
+			if(r!=ref && !r.discarded()){
 				final boolean rcomp=(r.strand()!=ref.strand());
 				if(rcomp){r.reverseComplementFast();}
 				float id=shredAndAdd(r, bg, null);
@@ -632,14 +649,13 @@ public final class ReformatPacBio {
 	}
 	
 	/**
-	 * Shreds long reads and adds alignable fragments to BaseGraph.
-	 * Handles both short reads (direct alignment) and long reads (shredding).
-	 * Filters fragments by identity threshold before adding to graph.
-	 *
-	 * @param subread Input subread to process
-	 * @param bg BaseGraph for consensus building
-	 * @param ssa Sequence aligner (created if null)
-	 * @return Average identity score of aligned fragments
+	 * Aligns a subread or its shreds, adding fragments that meet the identity cutoff.
+	 * Match/alignment metadata on attempted reads may change; orientation search
+	 * can also mutate their bases. Rejected fragments still enter the returned mean.
+	 * @param subread Read with nonnull bases
+	 * @param bg Mutable graph receiving qualifying fragments
+	 * @param ssa Aligner to reuse, or null to obtain the current thread's GeneCaller aligner
+	 * @return Mean identity across attempted fragments, including rejected ones
 	 */
 	private float shredAndAdd(Read subread, BaseGraph bg, Aligner ssa){
 		int added=0;
@@ -669,14 +685,14 @@ public final class ReformatPacBio {
 	}
 	
 	/**
-	 * Divides a read into overlapping fragments of specified length.
-	 * Ensures even coverage with specified overlap between adjacent shreds.
-	 * Maintains original read names with coordinate suffixes.
-	 *
-	 * @param r Read to shred into fragments
-	 * @param shredLength Target length for each fragment
-	 * @param overlap Number of bases overlap between adjacent fragments
-	 * @return List of Read objects representing the fragments
+	 * Places bounded fragments at approximately even starting intervals.
+	 * A single chunk retains the original Read object. Multiple chunks copy bases
+	 * and present qualities, retain numericID and append start/end coordinate suffixes
+	 * with an inclusive last position. Actual overlap follows the rounded placement.
+	 * @param r Read with nonnull bases
+	 * @param shredLength Maximum fragment length; must exceed overlap when splitting
+	 * @param overlap Extra span requested beyond each evenly spaced interval
+	 * @return New list containing the original read or independently copied fragments
 	 */
 	private static ArrayList<Read> shred(final Read r, final int shredLength, final int overlap){
 		final byte[] bases=r.bases;
@@ -736,9 +752,11 @@ public final class ReformatPacBio {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Counts total reads, ZMWs, and bases in input for exact subsampling.
-	 * Required for target-based subsampling modes to calculate probabilities.
-	 * Updates initial counts and remaining counters for sampling.
+	 * Counts grouped input before the processing pass for target-based sampling.
+	 * Honors the same configured read/well limits and initializes remaining counters.
+	 * Requires a reopenable non-stdin input. Drains the asynchronous producer's normal
+	 * terminal without retaining its join handle or folding its backend error flag;
+	 * this count is not a separate input-integrity or cancellation guarantee.
 	 */
 	void countInitial(){
 		if(verbose){System.err.println("Entered countInitial()");}
@@ -764,7 +782,7 @@ public final class ReformatPacBio {
 	/*--------------------------------------------------------------*/
 	
 	/** Processes reads. */
-	private class ProcessThread extends Thread {
+	private class ProcessThread extends Thread{
 		
 		//Constructor
 		/**
@@ -794,18 +812,16 @@ public final class ReformatPacBio {
 		//Called by start()
 		@Override
 		public void run(){
-			//Do anything necessary prior to processing
-			randy=Shared.threadLocalRandom(seed<0 ? seed : seed+tid);
-			//Randy can't be initialized in the constructor because it is threadlocal;
-			//that leads to nonrandom results.
-			
-			//Process the reads
-			processInner();
-			
-			//Do anything necessary after processing
-			
-			//Indicate successful exit status
-			success=true;
+			try{
+				randy=Shared.threadLocalRandom(seed<0 ? seed : seed+tid);
+				//Initialize on this worker because the random source is thread-local.
+				processInner();
+				success=true;
+			}catch(Throwable failure){
+				//PIC-109: A dead consumer can strand the synchronous producer on its bounded well queue.
+				try{failure.printStackTrace();}
+				finally{KillSwitch.kill("ReformatPacBio worker "+tid+" failed; aborting blocked input/output threads.");}
+			}
 		}
 		
 		/** Iterate through the reads */
@@ -1004,16 +1020,14 @@ public final class ReformatPacBio {
 					if(keepZMWsTogether){
 						assert(readsRemaining>0) : readsRemaining;
 						double prob=sampleReadsTarget/(double)(readsRemaining);
-						if(randy.nextDouble()<prob){sampleReadsTarget-=reads.size();}
-						else{reads.setDiscarded(true);}
+						if(randy.nextDouble()<prob){sampleReadsTarget-=reads.size();}else{reads.setDiscarded(true);}
 						readsRemaining-=reads.size();
 					}else{
 						for(Read r : reads){
 							if(r!=null && !r.discarded()){
 								assert(readsRemaining>0) : readsRemaining;
 								double prob=sampleReadsTarget/(double)(readsRemaining);
-								if(randy.nextDouble()<prob){sampleReadsTarget--;}
-								else{r.setDiscarded(true);}
+								if(randy.nextDouble()<prob){sampleReadsTarget--;}else{r.setDiscarded(true);}
 							}
 							readsRemaining--;
 						}
@@ -1023,8 +1037,7 @@ public final class ReformatPacBio {
 						assert(basesRemaining>0) : basesRemaining;
 						final long bases=reads.countBases();
 						double prob=sampleBasesTarget/(double)(basesRemaining);
-						if(randy.nextDouble()<prob){sampleBasesTarget-=bases;}
-						else{reads.setDiscarded(true);}
+						if(randy.nextDouble()<prob){sampleBasesTarget-=bases;}else{reads.setDiscarded(true);}
 						basesRemaining-=bases;
 					}else{
 						for(Read r : reads){
@@ -1032,8 +1045,7 @@ public final class ReformatPacBio {
 								assert(basesRemaining>0) : basesRemaining;
 								final int bases=r.length();
 								double prob=sampleBasesTarget/(double)(basesRemaining);
-								if(randy.nextDouble()<prob){sampleBasesTarget-=bases;}
-								else{r.setDiscarded(true);}
+								if(randy.nextDouble()<prob){sampleBasesTarget-=bases;}else{r.setDiscarded(true);}
 								basesRemaining-=bases;
 							}
 						}
@@ -1041,8 +1053,7 @@ public final class ReformatPacBio {
 				}else if(sampleZMWsExact){
 					assert(ZMWsRemaining>0) : ZMWsRemaining;
 					double prob=sampleZMWsTarget/(double)(ZMWsRemaining);
-					if(randy.nextDouble()<prob){sampleZMWsTarget--;}
-					else{reads.setDiscarded(true);}
+					if(randy.nextDouble()<prob){sampleZMWsTarget--;}else{reads.setDiscarded(true);}
 					ZMWsRemaining--;
 				}else{assert(false) : "No sampling mode.";}
 			}
@@ -1066,9 +1077,7 @@ public final class ReformatPacBio {
 						if(trimmed>0){
 							basesTrimmedT+=trimmed;
 							readsTrimmedT++;
-							//TODO: technically this should track the lefty and right trim amounts
-							//but it doesn't really matter as long as the sum is correct
-							ZMW.fixReadHeader(r, 0, trimmed);
+							//PIC-111: Both trim helpers already updated header coordinates; do not apply the trim twice.
 						}
 
 						//TODO: Note again, removing intermediate reads messes up forward-rev ordering
@@ -1137,12 +1146,11 @@ public final class ReformatPacBio {
 		}
 		
 		/**
-		 * Removes reads shorter than minimum length threshold.
-		 * Marks short reads as discarded to filter out low-quality fragments.
+		 * Marks short, previously retained reads as discarded without removing list entries.
 		 * @param reads ZMW containing reads to filter by length
-		 * @return Number of reads removed for being too short
+		 * @return Number of newly discarded reads; already discarded reads are not counted
 		 */
-		private int removeShortTrash(ZMW reads) {
+		private int removeShortTrash(ZMW reads){
 			int removed=0;
 			for(int i=0; i<reads.size(); i++){
 				Read r=reads.get(i);
@@ -1314,7 +1322,8 @@ public final class ReformatPacBio {
 					defined=0;
 				}
 			}
-			return len-lastUndef-1;
+			//PIC-102: lastUndef belongs to the removed suffix; len means no undefined base was found.
+			return len-lastUndef;
 		}
 		
 		/**
@@ -1467,8 +1476,7 @@ public final class ReformatPacBio {
 	
 	/** Output format for statistics (text or JSON) */
 	private int format=FORMAT_TEXT;
-	/** Constant for JSON format statistics output */
-	/** Constant for text format statistics output */
+	/** Text/JSON statistics selectors used by parsing and final report dispatch. */
 	private static final int FORMAT_TEXT=1, FORMAT_JSON=2;
 	
 	/*--------------------------------------------------------------*/
@@ -1506,7 +1514,7 @@ public final class ReformatPacBio {
 	/** Total ZMWs observed */
 	protected long ZMWs=0;
 	
-	/** Histogram */
+	/** Pre-filter well-size histogram; bin100 collects all wells with at least100reads. */
 	protected final long[] subreadCounts=new long[101];
 	
 	/** Enable flagging of unusually long reads as potential artifacts */
@@ -1523,19 +1531,19 @@ public final class ReformatPacBio {
 	/*----------------      Subsampling Fields      ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	//If a target is chosen, these will be initialized with the original counts
-	/** Total reads in input file (for exact subsampling) */
+	//Target-based sampling initializes these from the configured count pass.
+	/** Reads observed in the count pass, honoring the input read and well limits. */
 	long initialReads=0;
-	/** Total ZMWs in input file (for exact subsampling) */
+	/** Wells observed in the limited count pass. */
 	long initialZMWs=0;
-	/** Total bases in input file (for exact subsampling) */
+	/** Bases observed in the limited count pass. */
 	long initialBases=0;
 	
-	/** Reads remaining to process (for exact subsampling) */
+	/** Mutable read-sampling denominator initialized from initialReads. */
 	long readsRemaining=0;
-	/** ZMWs remaining to process (for exact subsampling) */
+	/** Mutable well-sampling denominator initialized from initialZMWs. */
 	long ZMWsRemaining=0;
-	/** Bases remaining to process (for exact subsampling) */
+	/** Mutable base-sampling denominator initialized from initialBases. */
 	long basesRemaining=0;
 	
 	/** Fraction of reads to retain (0.0 to 1.0) */
@@ -1556,9 +1564,9 @@ public final class ReformatPacBio {
 	/** True if any exact subsampling mode is enabled */
 	final boolean sampleExact;
 	
-	/** Retain only the highest quality pass from each ZMW */
+	/** Retain the eligible internal median-length read, falling back to the longest survivor. */
 	boolean keepBestPass=false;
-	/** Retain only the longest pass from each ZMW */
+	/** Retain the longest eligible read from each well, keeping the first tie. */
 	boolean keepLongestPass=false;
 	
 	/*--------------------------------------------------------------*/
@@ -1581,7 +1589,7 @@ public final class ReformatPacBio {
 	
 	/** Minimum entropy to be considered "complex", on a scale of 0-1 */
 	float entropyCutoff=-1; //suggested 0.55
-	/** Minimum length of a low-entropy block to fail a read */
+	/** Absolute low-entropy threshold, combined by minimum with the fractional read-length threshold. */
 	int entropyLength=350;
 	/** Minimum length of a low-entropy block as a fraction of read length;
 	 * the minimum of the two will be used */
@@ -1614,7 +1622,7 @@ public final class ReformatPacBio {
 	
 	/** Random seed for deterministic subsampling (-1 for random) */
 	private long seed=-1;
-	/** Maximum number of ZMWs to process (-1 for no limit) */
+	/** Maximum published input wells; nonpositive means no well cap. */
 	private long maxZMWs=-1;
 	
 	/** Length of fragments when shredding long reads for consensus */
@@ -1628,7 +1636,7 @@ public final class ReformatPacBio {
 	/** Attempt to determine correct strand orientation during consensus */
 	private boolean findOrientation=false;
 	
-	/** Minimum number of passes required for a ZMW */
+	/** Minimum estimated passes, including fractional endpoint contributions. */
 	private float minPasses=0;
 	/** Minimum number of subreads required for a ZMW */
 	private int minSubreads=0;

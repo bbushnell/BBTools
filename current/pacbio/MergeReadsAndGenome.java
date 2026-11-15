@@ -23,15 +23,21 @@ import tracker.ReadStats;
 /**
  * Merges synthetic genome-derived reads with real sequencing reads into a unified output file.
  * Creates sequential synthetic reads from a reference genome using specified parameters,
- * then appends real reads from input files. All reads are processed to correct IDs and
- * trim terminal N bases before output.
+ * then appends real reads from input files. All retained reads receive consecutive
+ * numeric IDs; only reference-positioned reads with chrom >= 1 have terminal Ns
+ * trimmed before output.
  *
  * @author Brian Bushnell
  * @date Dec 7, 2012
  */
-public class MergeReadsAndGenome {
+public class MergeReadsAndGenome{
 	
 	
+	/**
+	 * Parses options, opens the requested synthetic and real-read streams, appends
+	 * them to one output stream, and waits for the output writer to finish.
+	 * @param args BBTools key=value options
+	 */
 	public static void main(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -118,6 +124,7 @@ public class MergeReadsAndGenome {
 		tsw.start();
 		
 		long id=0;
+		boolean errorState=false;
 		
 		if(genome>=0){
 			Data.setGenome(genome);
@@ -127,7 +134,7 @@ public class MergeReadsAndGenome {
 			ConcurrentLegacyReadInputStream cris=new ConcurrentLegacyReadInputStream(ris, reads);
 			cris.start();
 			id=appendReads(cris, tsw, id);
-			ReadWrite.closeStream(cris);
+			errorState|=ReadWrite.closeStream(cris);
 		}
 		
 		if(in!=null){
@@ -140,13 +147,25 @@ public class MergeReadsAndGenome {
 					cris.start(); //4567
 				}
 				id=appendReads(cris, tsw, id);
-				ReadWrite.closeStream(cris);
+				errorState|=ReadWrite.closeStream(cris);
 			}
 		}
 		
-		tsw.poisonAndWait();
+		errorState|=tsw.poisonAndWait();
+		if(errorState){
+			throw new RuntimeException("MergeReadsAndGenome terminated in an error state; the output may be corrupt.");
+		}
 	}
 	
+	/** Writes both reads from each input pair as independent sequential records.
+	 * Renumbering and terminal-N trimming mutate retained reads in place; alignment
+	 * and mate metadata are otherwise left unchanged. The caller remains responsible
+	 * for closing the input stream, and writer errors are handled by the caller.
+	 * @param cris Started input stream to drain
+	 * @param tsw Started output stream to receive records
+	 * @param id First numeric ID to assign to a retained record
+	 * @return Next numeric ID after the last retained record
+	 */
 	public static long appendReads(ConcurrentReadInputStream cris, TextStreamWriter tsw, long id){
 		ListNum<Read> ln=cris.nextList();
 		ArrayList<Read> reads=(ln!=null ? ln.list : null);
@@ -177,6 +196,15 @@ public class MergeReadsAndGenome {
 		return id;
 	}
 	
+	/** Assigns the supplied ID and trims terminal Ns from reference-positioned reads.
+	 * The read's numeric ID and textual ID are always replaced. For reads with
+	 * chrom >= 1, terminal Ns are removed by replacing bases and non-null qualities;
+	 * reads that would trim below the 50-base floor are discarded.
+	 * @param r Read to mutate, or null
+	 * @param id Numeric ID to assign if the read is non-null
+	 * @return The retained read, or null for null input or a terminal-N trim
+	 * that would leave fewer than 50 bases
+	 */
 	public static Read correctRead(Read r, long id){
 		if(r==null){return null;}
 		r.numericID=id;

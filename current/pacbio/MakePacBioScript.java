@@ -9,18 +9,27 @@ import parse.Parse;
 import shared.Shared;
 
 /**
- * Generates shell scripts for error-correcting PacBio reads using Illumina reads.
- * Creates customized scripts from templates by substituting parameters like file paths, memory settings, thread counts, and organism names.
- * Supports multiple input modes including PacBio correction, assembly correction, and CCS processing.
+ * Generates legacy Genepool shell scripts for correcting PacBio or assembly
+ * reads with Illumina reads by filling a selected template's @-markers.
+ * <p>
+ * Input file arguments may be comma-separated lists; those lists are rewritten
+ * to concatenated intermediate file names and the original lists are preserved
+ * only for the template merge markers.  If no explicit template is supplied,
+ * {@code mode=ccs} and modes ending in {@code _ccs} are recognized but still
+ * throw TODO exceptions during default-template selection.
+ * </p>
  * @author Brian Bushnell
  * @date Oct 2, 2012
  */
-public class MakePacBioScript {
+public class MakePacBioScript{
 	
 	/**
-	 * Program entry point that processes command-line arguments and generates the script.
-	 * Parses input parameters, validates required values, reads the template file, performs parameter substitution, and writes the final script to disk.
-	 * @param args Command-line arguments containing file paths and processing parameters
+	 * Parses {@code key=value} arguments, selects or reads a template, fills
+	 * scheduler/resource and file-name markers, and writes the generated script.
+	 * The later stdout branch is not reachable from {@code out=null} because
+	 * the current output parser probes a {@code null} File before clearing output.
+	 * @param args Command-line arguments containing paths, processing mode,
+	 * scheduler limits, memory settings, and template controls
 	 */
 	public static void main(String[] args){
 		
@@ -295,7 +304,8 @@ public class MakePacBioScript {
 			lines=tf.toStringLines();
 		}
 
-
+		// Template markers toggle optional lines and substitute the selected
+		// resources, queue limits, heap sizes, build IDs, and merge inputs.
 		StringBuilder sb=new StringBuilder();
 		for(int i=0; i<lines.length; i++){
 			String s=lines[i];
@@ -307,7 +317,7 @@ public class MakePacBioScript {
 			///house/homedirs/b/bushnell/ template paths): mergeline is a COPY-PASTE dup of refline — both test "?ref?". It was
 			//presumably meant to test a distinct marker (e.g. "?merge?"). As written mergeline==refline, and its ONLY use (the
 			//`optional` computation just below) already includes !refline, so mergeline is fully redundant/dead — no functional
-			//effect, but any intended merge-line handling never happens. Harmless given no template relies on it.
+			//effect, but any intended merge-line handling never happens. The old "no template relies on it" claim is unverified.
 			boolean mergeline=s.contains("?ref?");
 			boolean optional=(!eccline && !sortline && !refline && !mergeline && s.startsWith("#?")); //Optional for some other reason
 			

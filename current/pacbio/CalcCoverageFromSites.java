@@ -11,27 +11,33 @@ import parse.PreParser;
 import shared.Timer;
 import shared.Tools;
 import stream.SiteScoreR;
-import structures.CoverageArray;
-import structures.CoverageArray2;
+import structures.CoverageArray3;
 import var.GenerateVarlets;
 
 /**
- * Calculates coverage statistics from site alignment data and generates detailed accuracy reports.
- * Processes SiteScoreR data to compute coverage depth and correctness metrics.
- * Supports both memory-efficient processing and full CoverageArray output generation.
- *
+ * Calculates coverage and correctness summaries from tab-delimited SiteScoreR
+ * groups.  Each site contributes after {@link #MIN_END_DIST} bases are
+ * trimmed from both ends, reports scan complete loaded chromosomes, and total
+ * plus correct coverage are accumulated in 32-bit arrays so output and
+ * no-output modes report the same depths.
  * @author Brian Bushnell
  * @date Jul 19, 2012
  */
-public class CalcCoverageFromSites {
-	
+public class CalcCoverageFromSites{
+
+	/**
+	 * Parses the input table, optional output pattern, genome build and
+	 * mincoverage threshold, then runs coverage accumulation.
+	 * @param args Input path, coverage output path or null, genome build, and
+	 * optional mincoverage flag
+	 */
 	public static void main(String[] args){
 		{//Preparse block for help, config files, and outstream
 			PreParser pp=new PreParser(args, new Object() { }.getClass().getEnclosingClass(), false);
 			args=pp.args;
 			//outstream=pp.outstream;
 		}
-		
+
 		Timer t=new Timer();
 		String infile=args[0];
 		String outfile=args[1];
@@ -44,92 +50,99 @@ public class CalcCoverageFromSites {
 			final String[] split=arg.split("=");
 			String a=split[0].toLowerCase();
 			String b=split[1];
-			
+
 			if(a.equals("mincoverage")){
 				mincoverage=Integer.parseInt(b);
 			}
 		}
-		if(outfile==null){
-			process(infile, genome, mincoverage);
-		}else{
-			processAndWrite(infile, genome, mincoverage, outfile);
-		}
+		processAndWrite(infile, genome, mincoverage, outfile);
 		t.stop();
 		System.out.println("Time: \t"+t);
 	}
-	
-	
-	public static void processAndWrite(final String fname, final int genome, final int mincoverage, final String outpattern){
+
+	/**
+	 * Computes coverage, optionally writes per-chromosome coverage objects, and
+	 * prints aggregate coverage/correctness statistics. Each site is trimmed by
+	 * {@link #MIN_END_DIST} bases on both ends before coverage is accumulated;
+	 * site and read counters still include sites that become empty after trimming.
+	 * Total and correct coverage use 8 bytes per reference position for two
+	 * 32-bit arrays and throw before overflowing.
+	 * Legacy read IDs above Integer.MAX_VALUE are excluded from Reads Represented.
+	 * @param fname Input tab-delimited SiteScoreR groups
+	 * @param genome Genome build to load
+	 * @param mincoverage Minimum depth for a base to count as covered
+	 * @param outpattern Output coverage pattern containing {@code #}, or null
+	 */
+	public static void processAndWrite(final String fname, final int genome,
+			final int mincoverage, final String outpattern){
 		Data.setGenome(genome);
-		
+
 		BitSet bs=new BitSet();
-		
-		CoverageArray[] coverage=new CoverageArray[Data.numChroms+1];
-		byte[][] correct=new byte[Data.numChroms+1][];
-		
+
+		CoverageArray3[] coverage=new CoverageArray3[Data.numChroms+1];
+		CoverageArray3[] correct=new CoverageArray3[Data.numChroms+1];
+
 		for(int chrom=1; chrom<=Data.numChroms; chrom++){
-			coverage[chrom]=new CoverageArray2(chrom, Data.chromLengths[chrom]);
-			correct[chrom]=new byte[Data.chromLengths[chrom]];
+			coverage[chrom]=new CoverageArray3(chrom, Data.chromLengths[chrom]);
+			correct[chrom]=new CoverageArray3(chrom, Data.chromLengths[chrom]);
 		}
-		
+
 		TextFile tf=new TextFile(fname, true);
 		String s=tf.nextLine();
-		
+
 		long totalSites=0;
 		long correctSites=0;
 		long totalSiteLen=0;
 		long correctSiteLen=0;
-		
+
 		while(s!=null){
 			SiteScoreR[] sites=toSites(s);
 			for(SiteScoreR ssr : sites){
-				
-				if(bs!=null && ssr.numericID<=Integer.MAX_VALUE){
+
+				if(ssr.numericID<=Integer.MAX_VALUE){
 					bs.set((int)ssr.numericID);
 				}
-				
-				int len=ssr.stop-ssr.start+1;
+
+				long len=(long)ssr.stop-ssr.start+1;
 				totalSites++;
 				totalSiteLen+=len;
 				if(ssr.correct){
 					correctSites++;
 					correctSiteLen+=len;
 				}
-				
-				
+
 				int chrom=ssr.chrom;
-				int min=Tools.max(ssr.start+MIN_END_DIST,  0);
-				int max=Tools.min(ssr.stop-MIN_END_DIST,  Data.chromLengths[chrom]-1);
-				
-				CoverageArray ca=coverage[chrom];
-				for(int i=min; i<=max; i++){
-					ca.increment(i);
-				}
-				
-				if(ssr.correct){
-					byte[] array=correct[chrom];
-					for(int i=min; i<=max; i++){
-						if(array[i]<Byte.MAX_VALUE){array[i]++;}
-					}
+				long minLong=Math.max((long)ssr.start+MIN_END_DIST, 0);
+				long maxLong=Math.min((long)ssr.stop-MIN_END_DIST,
+						(long)Data.chromLengths[chrom]-1);
+
+				if(minLong<=maxLong){
+					incrementCoverage(coverage[chrom], correct[chrom], ssr.correct,
+							(int)minLong, (int)maxLong, chrom);
 				}
 			}
-			
+
 			s=tf.nextLine();
 		}
 		tf.close();
-		
-		for(int i=1; i<coverage.length; i++){
-			if(coverage[i].arrayLength()-coverage[i].maxIndex>2000){coverage[i].resize(coverage[i].maxIndex+1);}
-			ReadWrite.writeObjectInThread(coverage[i], outpattern.replaceFirst("#", ""+i), false);
+
+		if(outpattern!=null){
+			for(int i=1; i<coverage.length; i++){
+				CoverageArray3 cov=coverage[i];
+				if(cov.maxIndex>=0 && cov.arrayLength()-cov.maxIndex>2000){
+					cov.resize(cov.maxIndex+1);
+				}
+				ReadWrite.writeObjectInThread(cov, outpattern.replaceFirst("#", ""+i), false);
+			}
 		}
-		
+
 		long totalCoverage=0;
 		long totalCoverageBase=0;
 		long totalCoverageN=0;
 		long correctCoverage=0;
 		long correctCoverageBase=0;
 		long correctCoverageN=0;
-		
+
 		long onlyCorrectBase=0;
 		long onlyIncorrectBase=0;
 		long onlyCorrectN=0;
@@ -143,26 +156,26 @@ public class CalcCoverageFromSites {
 		long noCorrectBase=0;
 		long noCoverageBase=0;
 		long noCoverageN=0;
-		
+
 		long baseCount=0;
 		long nCount=0;
 		long nCountCovered=0;
-		
+
 		for(int chrom=1; chrom<=Data.numChroms; chrom++){
 			ChromosomeArray cha=Data.getChromosome(chrom);
-			CoverageArray cov=coverage[chrom];
-			byte[] cor=correct[chrom];
-			for(int i=0; i<cov.maxIndex; i++){
+			CoverageArray3 cov=coverage[chrom];
+			CoverageArray3 cor=correct[chrom];
+			for(int i=0; i<Data.chromLengths[chrom]; i++){
 				char b=Tools.toUpperCase((char)cha.get(i));
 				if(!AminoAcid.isFullyDefined(b)){b='N';}
-				
+
 				int total=cov.get(i);
-				int good=cor[i];
+				int good=cor.get(i);
 				int bad=total-good;
-				
+
 				totalCoverage+=total;
 				correctCoverage+=good;
-				
+
 				if(b=='N'){
 					nCount++;
 					if(total>=mincoverage){
@@ -212,45 +225,35 @@ public class CalcCoverageFromSites {
 			coverage[chrom]=null;
 			correct[chrom]=null;
 		}
-		
+
 		long length=nCount+baseCount;
-		double invlen=1.0/length;
-		//NOTE [pacbio/CalcCoverageFromSites#002] LOW/dev/cosmetic (both methods): these reciprocals are unguarded — nCount==0
-		//(genome with no N), baseCount==0, nCountCovered==0, or length==0 → Infinity, and finite*Inf / 0*Inf → NaN/Infinity in
-		//the printed stats. Likewise correctSitesB=correctSites*100/totalSites is 0/0=NaN on empty input. Double division → no
-		//crash, just NaN/Inf in the report (pattern a). args[0..2] are also unguarded (AIOOBE<3); mincoverage arg split[1] AIOOBE.
-		double invbase=1.0/baseCount;
-		double invn=1.0/nCount;
-		double invnc=1.0/nCountCovered; //covered N's
-		
-		double totalCoverageB=totalCoverage*invlen;
-		double totalCoverageBaseB=totalCoverageBase*invbase;
-		double totalCoverageNB=totalCoverageN*invn;
-		double correctCoverageB=correctCoverage*invlen;
-		double correctCoverageBaseB=correctCoverageBase*invbase;
-		double correctCoverageNB=correctCoverageN*invn;
-		
-		double onlyCorrectBaseB=onlyCorrectBase*invbase*100;
-		double onlyIncorrectBaseB=onlyIncorrectBase*invbase*100;
-		double onlyCorrectNB=onlyCorrectN*invnc*100;
-		double onlyIncorrectNB=onlyIncorrectN*invnc*100;
-		double mostlyCorrectBaseB=mostlyCorrectBase*invbase*100;
-		double mostlyIncorrectBaseB=mostlyIncorrectBase*invbase*100;
-		double mostlyCorrectNB=mostlyCorrectN*invnc*100;
-		double mostlyIncorrectNB=mostlyIncorrectN*invnc*100;
-		double anyCorrectBaseB=anyCorrectBase*invbase*100;
-		double anyCorrectNB=anyCorrectN*invnc*100;
-		double noCorrectBaseB=noCorrectBase*invbase*100;
-		double noCoverageBaseB=noCoverageBase*invbase*100;
-		double noCoverageNB=noCoverageN*invn*100;
-		
 
+		double totalCoverageB=ratio(totalCoverage, length);
+		double totalCoverageBaseB=ratio(totalCoverageBase, baseCount);
+		double totalCoverageNB=ratio(totalCoverageN, nCount);
+		double correctCoverageB=ratio(correctCoverage, length);
+		double correctCoverageBaseB=ratio(correctCoverageBase, baseCount);
+		double correctCoverageNB=ratio(correctCoverageN, nCount);
 
-		double correctSitesB=correctSites*100d/totalSites;
-		double correctSiteLenB=correctSiteLen*100d/totalSiteLen;
-		
+		double onlyCorrectBaseB=percent(onlyCorrectBase, baseCount);
+		double onlyIncorrectBaseB=percent(onlyIncorrectBase, baseCount);
+		double onlyCorrectNB=percent(onlyCorrectN, nCountCovered);
+		double onlyIncorrectNB=percent(onlyIncorrectN, nCountCovered);
+		double mostlyCorrectBaseB=percent(mostlyCorrectBase, baseCount);
+		double mostlyIncorrectBaseB=percent(mostlyIncorrectBase, baseCount);
+		double mostlyCorrectNB=percent(mostlyCorrectN, nCountCovered);
+		double mostlyIncorrectNB=percent(mostlyIncorrectN, nCountCovered);
+		double anyCorrectBaseB=percent(anyCorrectBase, baseCount);
+		double anyCorrectNB=percent(anyCorrectN, nCountCovered);
+		double noCorrectBaseB=percent(noCorrectBase, baseCount);
+		double noCoverageBaseB=percent(noCoverageBase, baseCount);
+		double noCoverageNB=percent(noCoverageN, nCount);
+
+		double correctSitesB=percent(correctSites, totalSites);
+		double correctSiteLenB=percent(correctSiteLen, totalSiteLen);
+
 		System.out.println("\nOverall Statistics");
-		
+
 		if(bs!=null){
 			System.out.println("Reads Represented:       \t"+bs.cardinality());
 		}
@@ -258,21 +261,21 @@ public class CalcCoverageFromSites {
 		System.out.println(Tools.format("Total Correct Site Length:\t"+(correctSiteLenB<10?" ":"")+"%.3f%%  ", correctSiteLenB)+" \t"+correctSiteLen);
 
 		System.out.println("\nCoverage Statistics");
-		
+
 		System.out.println(Tools.format("Avg Coverage:            \t"+(totalCoverageB<10?" ":"")+"%.3f", totalCoverageB)+"  \t"+totalCoverage);
-		
+
 		System.out.println(Tools.format("Avg Coverage Base:       \t"+(totalCoverageBaseB<10?" ":"")+"%.3f", totalCoverageBaseB)+"  \t"+totalCoverageBase);
-		
+
 		System.out.println(Tools.format("Avg Coverage N:          \t"+(totalCoverageNB<10?" ":"")+"%.3f", totalCoverageNB)+"  \t"+totalCoverageN);
-		
+
 		System.out.println(Tools.format("Correct Coverage:        \t"+(correctCoverageB<10?" ":"")+"%.3f", correctCoverageB)+"  \t"+correctCoverage);
-		
+
 		System.out.println(Tools.format("Correct Coverage Base:   \t"+(correctCoverageBaseB<10?" ":"")+"%.3f", correctCoverageBaseB)+"  \t"+correctCoverageBase);
-		
+
 		System.out.println(Tools.format("Correct Coverage N:      \t"+(correctCoverageNB<10?" ":"")+"%.3f", correctCoverageNB)+"  \t"+correctCoverageN);
-		
+
 		System.out.println("\nStatistics over Defined Bases");
-		
+
 		System.out.println(Tools.format("onlyCorrect:             \t"+(onlyCorrectBaseB<10?" ":"")+"%.3f", onlyCorrectBaseB)+"%");
 		System.out.println(Tools.format("mostlyCorrect:           \t"+(mostlyCorrectBaseB<10?" ":"")+"%.3f", mostlyCorrectBaseB)+"%");
 		System.out.println(Tools.format("anyCorrect:              \t"+(anyCorrectBaseB<10?" ":"")+"%.3f", anyCorrectBaseB)+"%");
@@ -280,259 +283,77 @@ public class CalcCoverageFromSites {
 		System.out.println(Tools.format("mostlyIncorrect:         \t"+(mostlyIncorrectBaseB<10?" ":"")+"%.3f", mostlyIncorrectBaseB)+"%");
 		System.out.println(Tools.format("onlyIncorrect:           \t"+(onlyIncorrectBaseB<10?" ":"")+"%.3f", onlyIncorrectBaseB)+"%");
 		System.out.println(Tools.format("noCoverage:              \t"+(noCoverageBaseB<10?" ":"")+"%.3f", noCoverageBaseB)+"%");
-		
+
 		System.out.println("\nStatistics over N (for covered locations)");
-		
+
 		System.out.println(Tools.format("onlyCorrect:             \t"+(onlyCorrectNB<10?" ":"")+"%.3f", onlyCorrectNB)+"%");
 		System.out.println(Tools.format("mostlyCorrect:           \t"+(mostlyCorrectNB<10?" ":"")+"%.3f", mostlyCorrectNB)+"%");
 		System.out.println(Tools.format("anyCorrect:              \t"+(anyCorrectNB<10?" ":"")+"%.3f", anyCorrectNB)+"%");
 		System.out.println(Tools.format("mostlyIncorrect:         \t"+(mostlyIncorrectNB<10?" ":"")+"%.3f", mostlyIncorrectNB)+"%");
 		System.out.println(Tools.format("onlyIncorrect:           \t"+(onlyIncorrectNB<10?" ":"")+"%.3f", onlyIncorrectNB)+"%");
 		System.out.println(Tools.format("noCoverage (over all N): \t"+(noCoverageNB<10?" ":"")+"%.3f", noCoverageNB)+"%");
-		
-		
+
+
 	}
-	
-	
+
+	/**
+	 * Computes coverage without writing coverage objects.
+	 * @param fname Input tab-delimited SiteScoreR groups
+	 * @param genome Genome build to load
+	 * @param mincoverage Minimum depth for a base to count as covered
+	 */
 	public static void process(final String fname, final int genome, final int mincoverage){
-		Data.setGenome(genome);
-		
-		BitSet bs=new BitSet();
-		
-		byte[][] coverage=new byte[Data.numChroms+1][];
-		byte[][] correct=new byte[Data.numChroms+1][];
-		
-		for(int chrom=1; chrom<=Data.numChroms; chrom++){
-			coverage[chrom]=new byte[Data.chromLengths[chrom]];
-			correct[chrom]=new byte[Data.chromLengths[chrom]];
-		}
-		
-		TextFile tf=new TextFile(fname, true);
-		String s=tf.nextLine();
-		
-		long totalSites=0;
-		long correctSites=0;
-		long totalSiteLen=0;
-		long correctSiteLen=0;
-		
-		while(s!=null){
-			SiteScoreR[] sites=toSites(s);
-			for(SiteScoreR ssr : sites){
-				
-				if(bs!=null){
-					//NOTE [pacbio/CalcCoverageFromSites#001c] LOW/dev: TWIN DIVERGENCE — processAndWrite() guards this cast with
-					//`ssr.numericID<=Integer.MAX_VALUE` (L87) but this process() twin does NOT → a numericID > MAX_VALUE wraps to a
-					//negative int → bs.set(negative) IndexOutOfBoundsException. The no-output path is the less-guarded twin.
-					bs.set((int)ssr.numericID);
-				}
-
-				int len=ssr.stop-ssr.start+1;
-				totalSites++;
-				totalSiteLen+=len;
-				if(ssr.correct){
-					correctSites++;
-					correctSiteLen+=len;
-				}
-
-
-				int chrom=ssr.chrom;
-				//TODO: Possible bug [pacbio/CalcCoverageFromSites#001a] LOW/dev: TWIN DIVERGENCE — this process() twin does NOT apply
-				//the MIN_END_DIST end-trim that processAndWrite() uses (there: min=start+MIN_END_DIST, max=stop-MIN_END_DIST, L101-102).
-				//So the two methods count coverage over DIFFERENT spans → the printed statistics differ depending solely on whether
-				//an outfile was passed. processAndWrite (with trim) is presumably the intended behavior; this twin drifted.
-				int min=Tools.max(ssr.start,  0);
-				int max=Tools.min(ssr.stop,  Data.chromLengths[chrom]-1);
-				byte[] array=coverage[chrom];
-				for(int i=min; i<=max; i++){
-					if(array[i]<Byte.MAX_VALUE){array[i]++;}
-				}
-				if(ssr.correct){
-					array=correct[chrom];
-					for(int i=min; i<=max; i++){
-						if(array[i]<Byte.MAX_VALUE){array[i]++;}
-					}
-				}
-			}
-			
-			s=tf.nextLine();
-		}
-		tf.close();
-		
-		long totalCoverage=0;
-		long totalCoverageBase=0;
-		long totalCoverageN=0;
-		long correctCoverage=0;
-		long correctCoverageBase=0;
-		long correctCoverageN=0;
-		
-		long onlyCorrectBase=0;
-		long onlyIncorrectBase=0;
-		long onlyCorrectN=0;
-		long onlyIncorrectN=0;
-		long mostlyCorrectBase=0;
-		long mostlyIncorrectBase=0;
-		long mostlyCorrectN=0;
-		long mostlyIncorrectN=0;
-		long anyCorrectBase=0;
-		long anyCorrectN=0;
-		long noCorrectBase=0;
-		long noCoverageBase=0;
-		long noCoverageN=0;
-		
-		long baseCount=0;
-		long nCount=0;
-		long nCountCovered=0;
-		
-		for(int chrom=1; chrom<=Data.numChroms; chrom++){
-			ChromosomeArray cha=Data.getChromosome(chrom);
-			byte[] cov=coverage[chrom];
-			byte[] cor=correct[chrom];
-			//NOTE [pacbio/CalcCoverageFromSites#001b] LOW/dev: TWIN DIVERGENCE — this process() twin iterates the FULL chromosome
-			//(cov.length), while processAndWrite() iterates only to cov.maxIndex (L155). So the baseCount/nCount denominators and
-			//the noCoverage tallies differ between the two paths (process() counts trailing uncovered positions, the other doesn't).
-			for(int i=0; i<cov.length; i++){
-				char b=Tools.toUpperCase((char)cha.get(i));
-				if(!AminoAcid.isFullyDefined(b)){b='N';}
-				
-				int total=cov[i];
-				int good=cor[i];
-				int bad=total-good;
-				
-				totalCoverage+=total;
-				correctCoverage+=good;
-				
-				if(b=='N'){
-					nCount++;
-					if(total>=mincoverage){
-						totalCoverageN+=total;
-						correctCoverageN+=good;
-						nCountCovered++;
-						if(total==good){
-							onlyCorrectN++;
-							mostlyCorrectN++;
-						}else if(good>bad){
-							mostlyCorrectN++;
-						}else if(good==0){
-							onlyIncorrectN++;
-							mostlyIncorrectN++;
-						}else if(bad>good){
-							mostlyIncorrectN++;
-						}
-						if(good>0){anyCorrectN++;}
-					}else{
-						noCoverageN++;
-					}
-				}else{
-					baseCount++;
-					if(total>=mincoverage){
-						totalCoverageBase+=total;
-						correctCoverageBase+=good;
-						if(total==good){
-							onlyCorrectBase++;
-							mostlyCorrectBase++;
-						}else if(good>bad){
-							mostlyCorrectBase++;
-						}else if(good==0){
-							onlyIncorrectBase++;
-							mostlyIncorrectBase++;
-							noCorrectBase++;
-						}else if(bad>good){
-							mostlyIncorrectBase++;
-						}
-						if(good>0){anyCorrectBase++;}
-					}else{
-						noCoverageBase++;
-						noCorrectBase++;
-					}
-				}
-			}
-			Data.unload(chrom, true);
-			coverage[chrom]=null;
-			correct[chrom]=null;
-		}
-		
-		long length=nCount+baseCount;
-		double invlen=1.0/length;
-		//NOTE [pacbio/CalcCoverageFromSites#002] LOW/dev/cosmetic (both methods): these reciprocals are unguarded — nCount==0
-		//(genome with no N), baseCount==0, nCountCovered==0, or length==0 → Infinity, and finite*Inf / 0*Inf → NaN/Infinity in
-		//the printed stats. Likewise correctSitesB=correctSites*100/totalSites is 0/0=NaN on empty input. Double division → no
-		//crash, just NaN/Inf in the report (pattern a). args[0..2] are also unguarded (AIOOBE<3); mincoverage arg split[1] AIOOBE.
-		double invbase=1.0/baseCount;
-		double invn=1.0/nCount;
-		double invnc=1.0/nCountCovered; //covered N's
-		
-		double totalCoverageB=totalCoverage*invlen;
-		double totalCoverageBaseB=totalCoverageBase*invbase;
-		double totalCoverageNB=totalCoverageN*invn;
-		double correctCoverageB=correctCoverage*invlen;
-		double correctCoverageBaseB=correctCoverageBase*invbase;
-		double correctCoverageNB=correctCoverageN*invn;
-		
-		double onlyCorrectBaseB=onlyCorrectBase*invbase*100;
-		double onlyIncorrectBaseB=onlyIncorrectBase*invbase*100;
-		double onlyCorrectNB=onlyCorrectN*invnc*100;
-		double onlyIncorrectNB=onlyIncorrectN*invnc*100;
-		double mostlyCorrectBaseB=mostlyCorrectBase*invbase*100;
-		double mostlyIncorrectBaseB=mostlyIncorrectBase*invbase*100;
-		double mostlyCorrectNB=mostlyCorrectN*invnc*100;
-		double mostlyIncorrectNB=mostlyIncorrectN*invnc*100;
-		double anyCorrectBaseB=anyCorrectBase*invbase*100;
-		double anyCorrectNB=anyCorrectN*invnc*100;
-		double noCorrectBaseB=noCorrectBase*invbase*100;
-		double noCoverageBaseB=noCoverageBase*invbase*100;
-		double noCoverageNB=noCoverageN*invn*100;
-		
-
-
-		double correctSitesB=correctSites*100d/totalSites;
-		double correctSiteLenB=correctSiteLen*100d/totalSiteLen;
-		
-		System.out.println("\nOverall Statistics");
-		
-		if(bs!=null){
-			System.out.println("Reads Represented:       \t"+bs.cardinality());
-		}
-		System.out.println(Tools.format("Total Correct Sites:     \t"+(correctSitesB<10?" ":"")+"%.3f%%  ", correctSitesB)+" \t"+correctSites);
-		System.out.println(Tools.format("Total Correct Site Length:\t"+(correctSiteLenB<10?" ":"")+"%.3f%%  ", correctSiteLenB)+" \t"+correctSiteLen);
-
-		System.out.println("\nCoverage Statistics");
-		
-		System.out.println(Tools.format("Avg Coverage:            \t"+(totalCoverageB<10?" ":"")+"%.3f", totalCoverageB)+"  \t"+totalCoverage);
-		
-		System.out.println(Tools.format("Avg Coverage Base:       \t"+(totalCoverageBaseB<10?" ":"")+"%.3f", totalCoverageBaseB)+"  \t"+totalCoverageBase);
-		
-		System.out.println(Tools.format("Avg Coverage N:          \t"+(totalCoverageNB<10?" ":"")+"%.3f", totalCoverageNB)+"  \t"+totalCoverageN);
-		
-		System.out.println(Tools.format("Correct Coverage:        \t"+(correctCoverageB<10?" ":"")+"%.3f", correctCoverageB)+"  \t"+correctCoverage);
-		
-		System.out.println(Tools.format("Correct Coverage Base:   \t"+(correctCoverageBaseB<10?" ":"")+"%.3f", correctCoverageBaseB)+"  \t"+correctCoverageBase);
-		
-		System.out.println(Tools.format("Correct Coverage N:      \t"+(correctCoverageNB<10?" ":"")+"%.3f", correctCoverageNB)+"  \t"+correctCoverageN);
-		
-		System.out.println("\nStatistics over Defined Bases");
-		
-		System.out.println(Tools.format("onlyCorrect:             \t"+(onlyCorrectBaseB<10?" ":"")+"%.3f", onlyCorrectBaseB)+"%");
-		System.out.println(Tools.format("mostlyCorrect:           \t"+(mostlyCorrectBaseB<10?" ":"")+"%.3f", mostlyCorrectBaseB)+"%");
-		System.out.println(Tools.format("anyCorrect:              \t"+(anyCorrectBaseB<10?" ":"")+"%.3f", anyCorrectBaseB)+"%");
-		System.out.println(Tools.format("noCorrect:               \t"+(noCorrectBaseB<10?" ":"")+"%.3f", noCorrectBaseB)+"%");
-		System.out.println(Tools.format("mostlyIncorrect:         \t"+(mostlyIncorrectBaseB<10?" ":"")+"%.3f", mostlyIncorrectBaseB)+"%");
-		System.out.println(Tools.format("onlyIncorrect:           \t"+(onlyIncorrectBaseB<10?" ":"")+"%.3f", onlyIncorrectBaseB)+"%");
-		System.out.println(Tools.format("noCoverage:              \t"+(noCoverageBaseB<10?" ":"")+"%.3f", noCoverageBaseB)+"%");
-		
-		System.out.println("\nStatistics over N (for covered locations)");
-		
-		System.out.println(Tools.format("onlyCorrect:             \t"+(onlyCorrectNB<10?" ":"")+"%.3f", onlyCorrectNB)+"%");
-		System.out.println(Tools.format("mostlyCorrect:           \t"+(mostlyCorrectNB<10?" ":"")+"%.3f", mostlyCorrectNB)+"%");
-		System.out.println(Tools.format("anyCorrect:              \t"+(anyCorrectNB<10?" ":"")+"%.3f", anyCorrectNB)+"%");
-		System.out.println(Tools.format("mostlyIncorrect:         \t"+(mostlyIncorrectNB<10?" ":"")+"%.3f", mostlyIncorrectNB)+"%");
-		System.out.println(Tools.format("onlyIncorrect:           \t"+(onlyIncorrectNB<10?" ":"")+"%.3f", onlyIncorrectNB)+"%");
-		System.out.println(Tools.format("noCoverage (over all N): \t"+(noCoverageNB<10?" ":"")+"%.3f", noCoverageNB)+"%");
-		
-		
+		processAndWrite(fname, genome, mincoverage, null);
 	}
-	
-	
-	
+
+	/**
+	 * Increments total and optional correct coverage over one inclusive range.
+	 * @param total Total coverage array to update
+	 * @param correct Correct coverage array to update when isCorrect is true
+	 * @param isCorrect True if this range should increment correct coverage
+	 * @param min First position
+	 * @param max Last position
+	 * @param chrom Chromosome identifier for diagnostics
+	 */
+	private static void incrementCoverage(CoverageArray3 total, CoverageArray3 correct,
+			boolean isCorrect, int min, int max, int chrom){
+		int[] totalArray=total.array;
+		int[] correctArray=(isCorrect ? correct.array : null);
+		for(int i=min; i<=max; i++){
+			if(totalArray[i]==Integer.MAX_VALUE){
+				throw new ArithmeticException("Coverage depth overflow on chrom "
+						+chrom+" at position "+i);
+			}
+			totalArray[i]++;
+			if(isCorrect){correctArray[i]++;}
+		}
+		total.minIndex=Tools.min(min, total.minIndex);
+		total.maxIndex=Tools.max(max, total.maxIndex);
+		if(isCorrect){
+			correct.minIndex=Tools.min(min, correct.minIndex);
+			correct.maxIndex=Tools.max(max, correct.maxIndex);
+		}
+	}
+
+	/**
+	 * Divides two integers with an explicit zero-denominator guard.
+	 */
+	private static double ratio(long numerator, long denominator){
+		return denominator<1 ? 0 : numerator/(double)denominator;
+	}
+
+	/**
+	 * Converts a numerator and denominator to a guarded percentage.
+	 */
+	private static double percent(long numerator, long denominator){
+		return denominator<1 ? 0 : numerator*100d/denominator;
+	}
+
+	/**
+	 * Parses one tab-delimited line of serialized SiteScoreR records.
+	 * @param s Tab-delimited serialized SiteScoreR records
+	 * @return Parsed sites in input order
+	 */
 	public static SiteScoreR[] toSites(String s){
 		String[] split=s.split("\t");
 		SiteScoreR[] scores=new SiteScoreR[split.length];
@@ -541,7 +362,8 @@ public class CalcCoverageFromSites {
 		}
 		return scores;
 	}
-	
-	public static int MIN_END_DIST=GenerateVarlets.MIN_END_DIST; //These must be the same.
-	
+
+	/** End distance shared with GenerateVarlets site filtering */
+	public static int MIN_END_DIST=GenerateVarlets.MIN_END_DIST;
+
 }

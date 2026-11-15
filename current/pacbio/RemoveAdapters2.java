@@ -23,14 +23,21 @@ import structures.ListNum;
 import tracker.ReadStats;
 
 /**
- * Removes PacBio sequencing adapters from reads using multi-state alignment.
- * Provides increased sensitivity to nearby adapters compared to the original RemoveAdapters.
- * Uses a configurable adapter query, alignment mode, and optional read splitting at detected adapter sites.
+ * Detects PacBio adapter sequence inside PacBio reads with a padded,
+ * windowed Smith-Waterman scan against the adapter and its reverse complement.
+ * Reads with confirmed adapter hits are marked with {@code X} bases and can
+ * either be discarded, split into contigs, or written with the marks retained.
  * @author Brian Bushnell
  * @date Nov 5, 2012
  */
-public class RemoveAdapters2 {
+public class RemoveAdapters2{
 
+	/**
+	 * Parses read-stream, output, adapter-scoring and splitting flags, then
+	 * constructs paired or unpaired autodetected input streams for worker
+	 * processing.
+	 * @param args Command-line flag=value settings
+	 */
 	public static void main(String[] args){
 		{//Preparse block for help, config files, and outstream
 			PreParser pp=new PreParser(args, new Object() { }.getClass().getEnclosingClass(), false);
@@ -149,6 +156,10 @@ public class RemoveAdapters2 {
 		}
 		boolean paired=cris.paired();
 		if(verbose){System.err.println("Paired: "+paired);}
+		if(splitReads && paired){
+			ReadWrite.closeStream(cris);
+			throw new IllegalArgumentException("RemoveAdapters2 split=t is not supported for paired input; use split=f or unpaired input.");
+		}
 		
 		ConcurrentReadOutputStream ros=null;
 		if(OUTPUT_READS){
@@ -161,7 +172,21 @@ public class RemoveAdapters2 {
 		process(cris, ros, query, splitReads);
 	}
 	
+	/**
+	 * Starts the read streams and worker threads, waits for all workers to
+	 * finish, closes streams, and prints merged adapter statistics.
+	 * @param cris Input stream, owned and closed here
+	 * @param ros Optional output stream, owned and closed here when non-null
+	 * @param query Adapter sequence to align against
+	 * @param split True to split reads at marked adapter bases before output. Paired
+	 *        input with splitting is rejected before either stream is started; on
+	 *        this rejection, callers retain ownership of any output stream they created.
+	 */
 	public static void process(ConcurrentReadInputStream cris, ConcurrentReadOutputStream ros, String query, boolean split){
+		if(split && cris.paired()){
+			ReadWrite.closeStream(cris);
+			throw new IllegalArgumentException("RemoveAdapters2 split=t is not supported for paired input; use split=f or unpaired input.");
+		}
 
 		Timer t=new Timer();
 		
@@ -185,9 +210,9 @@ public class RemoveAdapters2 {
 			ProcessThread pt=pts[i];
 			synchronized(pt){
 				while(pt.getState()!=Thread.State.TERMINATED){
-					try {
+					try{
 						pt.join();
-					} catch (InterruptedException e) {
+					}catch(InterruptedException e){
 						// TODO Auto-generated catch block
 						e.printStackTrace();
 					}
@@ -209,6 +234,12 @@ public class RemoveAdapters2 {
 		
 	}
 	
+	/**
+	 * Merges per-thread counters and prints aggregate adapter/output counts,
+	 * plus synthetic-read truth statistics for reads classified after short and
+	 * all-N reads have been skipped.
+	 * @param pts Completed workers
+	 */
 	public static void printStatistics(ProcessThread[] pts){
 
 		long plusAdaptersFound=0;
@@ -273,8 +304,18 @@ public class RemoveAdapters2 {
 	
 	private static class ProcessThread extends Thread{
 		
+		/**
+		 * Builds a worker-local aligner and derives score thresholds from the
+		 * chosen adapter query.
+		 * @param cris_ Shared input stream
+		 * @param ros_ Optional shared output stream
+		 * @param minRatio_ Stored worker ratio; current thresholds are derived
+		 * from {@link #MINIMUM_ALIGNMENT_SCORE_RATIO}
+		 * @param query_ Adapter bases
+		 * @param split_ True to split marked reads before output
+		 */
 		public ProcessThread(ConcurrentReadInputStream cris_,
-				ConcurrentReadOutputStream ros_, float minRatio_, String query_, boolean split_) {
+				ConcurrentReadOutputStream ros_, float minRatio_, String query_, boolean split_){
 			cris=cris_;
 			ros=ros_;
 			minRatio=minRatio_;
@@ -299,8 +340,11 @@ public class RemoveAdapters2 {
 			suspectMidpoint=(minSwScoreSuspect+minSwScore)/2;
 		}
 		
-		/** Main thread execution method that processes read lists from the input stream.
-		 * For each read, detects adapters and optionally splits at adapter locations before writing output. */
+		/**
+		 * Processes every input list, marking adapters on primary reads and
+		 * mates, optionally removing discarded reads or splitting marked reads,
+		 * then returns each list to the input stream.
+		 */
 		@Override
 		public void run(){
 			ListNum<Read> ln=cris.nextList();
@@ -373,12 +417,12 @@ public class RemoveAdapters2 {
 		}
 
 		/**
-		 * Splits all reads in a list that contain adapters at 'X' markers.
-		 * Processes both primary reads and mates and returns a new list combining split sections and unsplit reads.
-		 * @param in Input list of reads to potentially split
-		 * @return New list containing split read sections and unsplit reads
+		 * Flattens a list of primary reads and mates, replacing every read that
+		 * contains {@code X} markers with its retained sections.
+		 * @param in Input reads to split
+		 * @return New list containing split sections and unmarked reads
 		 */
-		private static ArrayList<Read> split(ArrayList<Read> in) {
+		private static ArrayList<Read> split(ArrayList<Read> in){
 			ArrayList<Read> out=new ArrayList<Read>(in.size());
 			for(Read r : in){
 				if(r!=null){
@@ -396,12 +440,13 @@ public class RemoveAdapters2 {
 		}
 
 		/**
-		 * Splits a single read at 'X' markers (adapter locations) into multiple sections.
-		 * Only sections meeting the minimum contig length are emitted.
+		 * Splits one read at {@code X} markers and emits sections at least
+		 * {@link #minContig}; sections keep the original numeric ID and derive
+		 * text IDs from the section start.
 		 * @param r Read to split at adapter markers
-		 * @return List of read sections created from splitting
+		 * @return Retained sections in original order
 		 */
-		private static ArrayList<Read> split(Read r) {
+		private static ArrayList<Read> split(Read r){
 			ArrayList<Read> sections=new ArrayList<Read>();
 			
 			int lastX=-1;
@@ -427,12 +472,13 @@ public class RemoveAdapters2 {
 		}
 
 		/**
-		 * Processes a single read to detect and mark adapter sequences.
-		 * Aligns against the adapter query (and optionally its reverse complement), marks positions with 'X', and updates statistics.
-		 * @param r Read to process for adapter detection
+		 * Scans one read in overlapping windows on enabled strands, confirms
+		 * high-confidence or nearby suspect adapter hits, marks confirmed spans
+		 * with {@code X}, updates synthetic truth counters, and flags the read.
+		 * @param r Read to scan and mutate in place
 		 * @return Number of adapters found in the read
 		 */
-		private int processRead(Read r) {
+		private int processRead(Read r){
 			
 			int begin=0;
 			while(begin<r.length() && r.bases[begin]=='N'){begin++;} //Skip reads made of 'N'
@@ -583,6 +629,13 @@ public class RemoveAdapters2 {
 			
 		}
 		
+		/**
+		 * Returns one detached array with {@code pad} Ns at each end and copies
+		 * the read bases between them.
+		 * @param array Read bases
+		 * @param pad Number of Ns to add on each end
+		 * @return Fresh padded array detached from {@link #padbuffer}
+		 */
 		private byte[] npad(final byte[] array, final int pad){
 			final int len=array.length+2*pad;
 			if(padbuffer==null || padbuffer.length!=len){padbuffer=new byte[len];}
@@ -631,6 +684,12 @@ public class RemoveAdapters2 {
 		
 	}
 	
+	/**
+	 * Nulls reads whose adapter-detection outcome marked the whole fragment for
+	 * discard; paired reads are nulled only when both mates are discarded.
+	 * @param list Mutable input list
+	 * @return Number of top-level list entries nulled
+	 */
 	private static int removeDiscarded(ArrayList<Read> list){
 		int removed=0;
 		for(int i=0; i<list.size(); i++){

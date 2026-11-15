@@ -23,18 +23,21 @@ import structures.ListNum;
 import tracker.ReadStats;
 
 /**
- * Increased sensitivity to nearby adapters.
- * Does reverse-complementation on low-scoring suspects.
+ * Legacy alternate PacBio adapter detector that scans autodetected reads with a
+ * windowed adapter aligner and optional flanking reverse-complement validation
+ * for low-scoring suspect hits.
  * @author Brian Bushnell
  * @date Nov 5, 2012
  *
  */
-public class RemoveAdapters3 {
+public class RemoveAdapters3{
 
 	/**
-	 * Program entry point for adapter removal.
-	 * Parses command-line arguments and initiates the processing pipeline.
-	 * @param args Command-line arguments including input files, output paths, and parameters
+	 * Parses read-stream, output, adapter and split flags, then constructs
+	 * paired or unpaired autodetected input streams for worker processing.
+	 * Unlike RemoveAdapters2, this legacy variant does not parse plus-only,
+	 * minus-only or alternate-aligner flags.
+	 * @param args Command-line flag=value settings
 	 */
 	public static void main(String[] args){
 		
@@ -143,6 +146,10 @@ public class RemoveAdapters3 {
 		}
 		boolean paired=cris.paired();
 		if(verbose){System.err.println("Paired: "+paired);}
+		if(splitReads && paired){
+			ReadWrite.closeStream(cris);
+			throw new IllegalArgumentException("RemoveAdapters3 split=t is not supported for paired input; use split=f or unpaired input.");
+		}
 		
 		ConcurrentReadOutputStream ros=null;
 		if(OUTPUT_READS){
@@ -156,15 +163,20 @@ public class RemoveAdapters3 {
 	}
 	
 	/**
-	 * Main processing pipeline for adapter removal.
-	 * Creates worker threads, manages I/O streams, and coordinates the removal process.
-	 *
-	 * @param cris Input read stream
-	 * @param ros Output read stream (may be null)
+	 * Starts the read streams and worker threads, waits for all workers to
+	 * finish, closes streams, and prints merged adapter statistics.
+	 * @param cris Input stream, owned and closed here
+	 * @param ros Optional output stream, owned and closed here when non-null
 	 * @param query Adapter sequence to search for
-	 * @param split Whether to split reads at adapter locations
+	 * @param split True to split reads at marked adapter bases before output. Paired
+	 *        input with splitting is rejected before either stream is started; on
+	 *        this rejection, callers retain ownership of any output stream they created.
 	 */
 	public static void process(ConcurrentReadInputStream cris, ConcurrentReadOutputStream ros, String query, boolean split){
+		if(split && cris.paired()){
+			ReadWrite.closeStream(cris);
+			throw new IllegalArgumentException("RemoveAdapters3 split=t is not supported for paired input; use split=f or unpaired input.");
+		}
 
 		Timer t=new Timer();
 		
@@ -188,9 +200,9 @@ public class RemoveAdapters3 {
 			ProcessThread pt=pts[i];
 			synchronized(pt){
 				while(pt.getState()!=Thread.State.TERMINATED){
-					try {
+					try{
 						pt.join();
-					} catch (InterruptedException e) {
+					}catch(InterruptedException e){
 						// TODO Auto-generated catch block
 						e.printStackTrace();
 					}
@@ -213,9 +225,9 @@ public class RemoveAdapters3 {
 	}
 	
 	/**
-	 * Aggregates and prints processing statistics from all worker threads.
-	 * Reports adapter detection counts, accuracy metrics, and false positive/negative rates.
-	 * @param pts Array of processing threads to collect statistics from
+	 * Merges per-thread counters and prints aggregate adapter and synthetic-read
+	 * truth statistics.
+	 * @param pts Completed workers
 	 */
 	public static void printStatistics(ProcessThread[] pts){
 
@@ -265,24 +277,23 @@ public class RemoveAdapters3 {
 	}
 	
 	/**
-	 * Worker thread that processes reads for adapter removal.
-	 * Performs sequence alignment, adapter detection, and read modification.
-	 * Each thread maintains its own alignment objects and statistics counters.
+	 * Worker with private alignment objects, reverse-complement scratch buffers
+	 * and statistics counters.
 	 */
 	private static class ProcessThread extends Thread{
 		
 		/**
-		 * Constructs a ProcessThread with alignment parameters and I/O streams.
-		 * Initializes alignment matrices, score thresholds, and reverse-complement buffers.
-		 *
-		 * @param cris_ Input read stream
-		 * @param ros_ Output read stream
-		 * @param minRatio_ Minimum alignment score ratio for adapter detection
-		 * @param query_ Adapter sequence to search for
-		 * @param split_ Whether to split reads at adapter locations
+		 * Builds a worker-local adapter aligner, reverse-complement aligner and
+		 * score thresholds from the chosen adapter query.
+		 * @param cris_ Shared input stream
+		 * @param ros_ Optional shared output stream
+		 * @param minRatio_ Stored worker ratio; current thresholds are derived
+		 * from {@link #MINIMUM_ALIGNMENT_SCORE_RATIO}
+		 * @param query_ Adapter bases
+		 * @param split_ True to split marked reads before output
 		 */
 		public ProcessThread(ConcurrentReadInputStream cris_,
-				ConcurrentReadOutputStream ros_, float minRatio_, String query_, boolean split_) {
+				ConcurrentReadOutputStream ros_, float minRatio_, String query_, boolean split_){
 			cris=cris_;
 			ros=ros_;
 			minRatio=minRatio_;
@@ -311,6 +322,7 @@ public class RemoveAdapters3 {
 			rcomp2=new byte[rcompDistance];
 		}
 		
+		/** Processes lists from the input stream, marking adapters in place and optionally splitting marked reads before output. */
 		@Override
 		public void run(){
 			ListNum<Read> ln=cris.nextList();
@@ -363,10 +375,12 @@ public class RemoveAdapters3 {
 		}
 
 		/**
-		 * @param readlist
-		 * @return
+		 * Replaces adapter-marked single-end reads with retained sections.
+		 * The assertion requires callers to pass flattened single-end entries.
+		 * @param in Input reads to split
+		 * @return New list containing split sections and unmarked reads
 		 */
-		private static ArrayList<Read> split(ArrayList<Read> in) {
+		private static ArrayList<Read> split(ArrayList<Read> in){
 			ArrayList<Read> out=new ArrayList<Read>(in.size());
 			for(Read r : in){
 				if(r!=null){
@@ -382,10 +396,13 @@ public class RemoveAdapters3 {
 		}
 
 		/**
-		 * @param r
-		 * @return
+		 * Splits one read at {@code X} markers and emits sections at least
+		 * {@link #minContig}; sections keep the original numeric ID and derive
+		 * text IDs from the section start.
+		 * @param r Read to split at adapter markers
+		 * @return Retained sections in original order
 		 */
-		private static ArrayList<Read> split(Read r) {
+		private static ArrayList<Read> split(Read r){
 			ArrayList<Read> sections=new ArrayList<Read>();
 			
 			int lastX=-1;
@@ -411,9 +428,13 @@ public class RemoveAdapters3 {
 		}
 
 		/**
-		 * @param r
+		 * Scans one read in overlapping windows, optionally confirms weak hits
+		 * with a flanking reverse-complement comparison, marks confirmed spans
+		 * with {@code X}, updates synthetic truth counters, and flags the read.
+		 * @param r Read to scan and mutate in place
+		 * @return Number of adapters found in the read
 		 */
-		private int processRead(Read r) {
+		private int processRead(Read r){
 			
 			int begin=0;
 			while(begin<r.length() && r.bases[begin]=='N'){begin++;} //Skip reads made of 'N'
@@ -533,12 +554,14 @@ public class RemoveAdapters3 {
 		}
 		
 		/**
-		 * @param array
-		 * @param start
-		 * @param stop
-		 * @return
+		 * Compares the flanks around a suspect adapter to look for a local
+		 * reverse-complement structure.
+		 * @param array Padded read bases
+		 * @param start Suspect adapter start in padded coordinates
+		 * @param stop Suspect adapter stop in padded coordinates
+		 * @return True when the flanks pass the hardcoded reverse-complement score
 		 */
-		private boolean testRcomp(byte[] array, int start, int stop) {
+		private boolean testRcomp(byte[] array, int start, int stop){
 			
 			for(int i=0, j=start-rcompDistance, k=stop+1; i<rcompDistance; i++, j++, k++){
 				rcomp1[i]=array[j];
@@ -565,12 +588,11 @@ public class RemoveAdapters3 {
 		}
 
 		/**
-		 * Pads sequence array with 'N' bases at both ends.
-		 * Creates working buffer for alignment operations with boundary protection.
-		 *
-		 * @param array Original sequence array
-		 * @param pad Number of 'N' bases to add at each end
-		 * @return Padded sequence array
+		 * Returns one detached array with {@code pad} Ns at each end and copies
+		 * the read bases between them.
+		 * @param array Read bases
+		 * @param pad Number of Ns to add on each end
+		 * @return Fresh padded array detached from {@link #padbuffer}
 		 */
 		private byte[] npad(final byte[] array, final int pad){
 			final int len=array.length+2*pad;
@@ -641,9 +663,9 @@ public class RemoveAdapters3 {
 		private final int minSwScore;
 		/** Minimum alignment score for suspect adapter detection (lower threshold) */
 		private final int minSwScoreSuspect;
-		/** Minimum alignment score for reverse-complement validation */
+		/** Computed but unused reverse-complement validation threshold */
 		private final int minSwScoreRcomp;
-		/** Maximum alignment score for imperfect matches */
+		/** Computed but unused maximum imperfect-match score */
 		private final int maxImperfectSwScore;
 		
 		/** Count of synthetic (simulated) reads processed by this thread */
@@ -652,10 +674,10 @@ public class RemoveAdapters3 {
 	}
 	
 	/**
-	 * Removes discarded reads from the list by setting them to null.
-	 * Maintains list structure while marking unwanted reads for cleanup.
-	 * @param list List of reads to filter
-	 * @return Number of reads removed
+	 * Nulls reads whose adapter-detection outcome marked the whole fragment for
+	 * discard; paired reads are nulled only when both mates are discarded.
+	 * @param list Mutable input list
+	 * @return Number of top-level list entries nulled
 	 */
 	private static int removeDiscarded(ArrayList<Read> list){
 		int removed=0;
@@ -683,11 +705,9 @@ public class RemoveAdapters3 {
 	private static boolean OUTPUT_READS=false;
 	/** Whether to maintain input order in output */
 	private static boolean ordered=false;
-	/** Perfect mode flag for enhanced accuracy */
+	/** Parsed but otherwise unused legacy perfect-mode flag */
 	private static boolean PERFECTMODE=false;
-	/**
-	 * Minimum alignment score ratio for adapter detection (default 0.31f for ~1% FP, 94% TP)
-	 */
+	/** Minimum alignment score ratio for adapter detection */
 	private static float MINIMUM_ALIGNMENT_SCORE_RATIO=0.31f; //0.31f: At 250bp reads, approx 0.01% false-positive and 94% true-positive.
 	/** Enable reverse-complement testing for adapter validation */
 	public static boolean RCOMP=true;

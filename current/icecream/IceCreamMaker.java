@@ -30,14 +30,20 @@ import structures.ListNum;
 import tracker.ReadStats;
 
 /**
- * Generates chimeric PacBio reads containing inverted repeats
- * due to missing adapters.
- * 
- * @author Brian Bushnell
+ * Simulates PacBio subreads and truth-labelled adapter failures for IceCreamFinder.
+ * Uses a synthetic genome or concatenated input sequences, samples molecule and
+ * movie lengths, and alternates strand on successive passes. Missing adapters
+ * join passes directly; hidden adapters join them with simulated adapter bases.
+ * Emitted headers carry simulation metadata for IceCreamGrader, not measured
+ * sequencing accuracy. Reads have no computed base qualities.
+ * The ccs option retains one internal median-length simulated read per well;
+ * it does not compute a consensus. Instances change shared I/O settings and are
+ * intended for one CLI invocation, not concurrent independent runs in one JVM.
+ * @author Brian Bushnell, Shinobu
  * @date June 8, 2019
  *
  */
-public class IceCreamMaker {
+public class IceCreamMaker{
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
@@ -62,8 +68,10 @@ public class IceCreamMaker {
 	}
 	
 	/**
-	 * Constructor.
-	 * @param args Command line arguments
+	 * Parses configuration, validates ranges and prepares file descriptions.
+	 * Does not load the reference or start workers. Also changes shared I/O,
+	 * fake-quality and read-format settings used by this CLI invocation.
+	 * @param args BBTools key=value options, including a positive zmws count
 	 */
 	public IceCreamMaker(String[] args){
 		
@@ -139,29 +147,21 @@ public class IceCreamMaker {
 			
 			if(a.equals("verbose")){
 				verbose=Parse.parseBoolean(b);
-			}
-			
-			else if(a.equals("idhist")){
+			}else if(a.equals("idhist")){
 				outIdHist=b;
-			}
-			
-			else if(a.equals("minlength") || a.equals("minlen")){
+			}else if(a.equals("minlength") || a.equals("minlen")){
 				minMoleculeLength=Parse.parseIntKMG(b);
 			}else if(a.equals("maxlength") || a.equals("maxlen")){
 				maxMoleculeLength=Parse.parseIntKMG(b);
 			}else if(a.equals("length") || a.equals("len")){
 				minMoleculeLength=maxMoleculeLength=Parse.parseIntKMG(b);
-			}
-			
-			else if(a.equals("minmovie") || a.equals("minmov")){
+			}else if(a.equals("minmovie") || a.equals("minmov")){
 				minMovie=Parse.parseIntKMG(b);
 			}else if(a.equals("maxmovie") || a.equals("maxmov")){
 				maxMovie=Parse.parseIntKMG(b);
 			}else if(a.equals("movie") || a.equals("mov")){
 				minMovie=maxMovie=Parse.parseIntKMG(b);
-			}
-			
-			else if(a.equals("missingrate") || a.equals("missing")){
+			}else if(a.equals("missingrate") || a.equals("missing")){
 				missingRate=Double.parseDouble(b);
 				assert(missingRate<=1);
 			}else if(a.equals("hiddenrate") || a.equals("hidden")){
@@ -170,9 +170,7 @@ public class IceCreamMaker {
 			}else if(a.equals("bothends")){
 				allowBothEndsBad=Parse.parseBoolean(b);
 				assert(false) : "TODO";
-			}
-			
-			else if(a.equals("gc")){
+			}else if(a.equals("gc")){
 				genomeGC=(float)Double.parseDouble(b);
 				assert(genomeGC>=0 && genomeGC<=1);
 			}else if(a.equals("genomesize")){
@@ -185,9 +183,7 @@ public class IceCreamMaker {
 				maxZMWs=Parse.parseIntKMG(b);
 			}else if(a.equals("ccs")){
 				makeCCS=Parse.parseBoolean(b);
-			}
-			
-			else if(a.equals("invertedrepeatrate") || a.equals("invertrepeatrate") || a.equals("irrate")){
+			}else if(a.equals("invertedrepeatrate") || a.equals("invertrepeatrate") || a.equals("irrate")){
 				invertedRepeatRate=Double.parseDouble(b);
 				assert(invertedRepeatRate>=0);
 			}else if(a.equals("invertedrepeatminlen") || a.equals("invertrepeatminlen") || a.equals("irminlen")){
@@ -196,9 +192,7 @@ public class IceCreamMaker {
 				invertedRepeatMaxLength=Parse.parseIntKMG(b);
 			}else if(a.equals("invertedrepeatlen") || a.equals("invertrepeatlen") || a.equals("irlen")){
 				invertedRepeatMinLength=invertedRepeatMaxLength=Parse.parseIntKMG(b);
-			}
-			
-			else if(a.equals("miner") || a.equals("minerrorrate")){
+			}else if(a.equals("miner") || a.equals("minerrorrate")){
 				minErrorRate=(float)Double.parseDouble(b);
 				assert(minErrorRate>=0 && minErrorRate<=1);
 			}else if(a.equals("maxer") || a.equals("maxerrorrate")){
@@ -207,9 +201,7 @@ public class IceCreamMaker {
 			}else if(a.equals("er") || a.equals("errorrate")){
 				minErrorRate=maxErrorRate=(float)Double.parseDouble(b);
 				assert(minErrorRate>=0 && minErrorRate<=1);
-			}
-			
-			else if(a.equals("minid") || a.equals("minidentity")){
+			}else if(a.equals("minid") || a.equals("minidentity")){
 				maxErrorRate=1-(float)Double.parseDouble(b);
 				assert(maxErrorRate>=0 && maxErrorRate<=1);
 			}else if(a.equals("maxid") || a.equals("maxidentity")){
@@ -222,9 +214,7 @@ public class IceCreamMaker {
 				addErrors=Parse.parseBoolean(b);
 			}else if(a.equals("ref")){
 				parser.in1=b;
-			}
-			
-			else if(a.equals("parse_flag_goes_here")){
+			}else if(a.equals("parse_flag_goes_here")){
 				long fake_variable=Parse.parseKMG(b);
 				//Set a variable here
 			}else if(parser.parse(arg, a, b)){//Parse standard flags in the parser
@@ -294,18 +284,18 @@ public class IceCreamMaker {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Create read streams and process all data */
+	/** Loads or generates the reference, starts simulation workers and writes reports.
+	 * Closes normally completed streams and checks accumulated worker/writer errors.
+	 * @param t Running timer stopped before the final report
+	 */
 	void process(Timer t){
 		
-		//Turn off read validation in the input threads to increase speed
+		//Enable input validation while loading the reference; restore it after normal completion.
 		final boolean vic=Read.VALIDATE_IN_CONSTRUCTOR;
 		Read.VALIDATE_IN_CONSTRUCTOR=true;
 		
 		//Create a read input stream
 		final ConcurrentReadInputStream cris=makeCris();
-		
-		//Optionally create a read output stream
-		final ConcurrentReadOutputStream ros=makeCros(false);
 		
 		//Reset counters
 		readsProcessed=readsOut=0;
@@ -318,9 +308,16 @@ public class IceCreamMaker {
 			ref=loadData(cris, randy);
 		}
 		
-		if(invertedRepeatRate>0){
-			addInvertedRepeats(ref, randy);
+		try{
+			if(invertedRepeatRate>0){addInvertedRepeats(ref, randy);}
+			validateSimulation();
+		}catch(RuntimeException e){
+			try{errorState|=ReadWrite.closeStream(cris);}
+			finally{Read.VALIDATE_IN_CONSTRUCTOR=vic;}
+			throw e;
 		}
+		//Do not start an output worker until reference and movie feasibility checks pass.
+		final ConcurrentReadOutputStream ros=makeCros(false);
 		
 		//Process the reads in separate threads
 		spawnThreads(cris, ros);
@@ -348,8 +345,48 @@ public class IceCreamMaker {
 		}
 	}
 	
+	/** Rejects impossible molecule/CCS requests without drawing from the simulator RNG.
+	 * These necessary bounds do not guarantee a short wait for a very unlikely
+	 * accepted candidate. The final transformed reference is checked here.
+	 */
+	private void validateSimulation(){
+		final int minFragment=Tools.min(minMoleculeLength, ref.length);
+		if(minFragment<1 || !hasUsableRun(ref, minFragment, true)){
+			throw new IllegalArgumentException("Reference has no fully defined fragment of at least "+
+					minFragment+" bases; simulation cannot generate a well.");
+		}
+		if(makeCCS){
+			//A float draw cannot exceed nextDown(1f); strict inequality matters at that endpoint.
+			final int passes=missingRate>Math.nextDown(1.0f) ? 4 : 3;
+			final boolean deletions=addErrors && maxErrorRate>0 && delThresh>insThresh;
+			final long minimumMovie=(passes-1L)*adapterLen+
+					(deletions ? 1 : 2+(passes-2L)*minFragment);
+			if(maxMovie<minimumMovie){
+				throw new IllegalArgumentException("CCS requires at least "+passes+
+						" raw passes; maxmovie="+maxMovie+" is below the minimum possible budget "+minimumMovie+".");
+			}
+		}
+	}
+
+	/** Stops at the first eligible run; normal references need only a short prefix scan.
+	 * @param bases Reference to inspect without mutation
+	 * @param length Positive required run length
+	 * @param fullyDefined True for molecule sampling; false for repeat insertion's literal N exclusion
+	 * @return Whether at least one eligible run exists
+	 */
+	private static boolean hasUsableRun(byte[] bases, int length, boolean fullyDefined){
+		assert(length>0) : "A candidate window must contain at least one base: "+length;
+		int run=0;
+		for(byte b : bases){
+			run=(fullyDefined ? AminoAcid.isFullyDefined(b) : b!='N') ? run+1 : 0;
+			if(run>=length){return true;}
+		}
+		return false;
+	}
+
 	/**
-	 * Write identity histogram showing distribution of read accuracies to output file.
+	 * Writes one histogram observation per generated well, using its requested
+	 * error rate rather than recounting realized substitutions or indels.
 	 */
 	private void writeIdHist(){
 		if(ffIdHist==null){return;}
@@ -362,7 +399,7 @@ public class IceCreamMaker {
 		errorState|=bsw.poisonAndWait();
 	}
 	
-	/** Create a Read Input Stream */
+	/** Starts the optional reference input backend, or returns null for a synthetic reference. */
 	private ConcurrentReadInputStream makeCris(){
 		if(ffin1==null){return null;}
 		ConcurrentReadInputStream cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ffin1, null);
@@ -371,7 +408,7 @@ public class IceCreamMaker {
 		return cris;
 	}
 	
-	/** Create a Read Output Stream */
+	/** Starts the optional unordered subread output backend, or returns null when output is disabled. */
 	private ConcurrentReadOutputStream makeCros(boolean pairedInput){
 		if(ffout1==null){return null;}
 
@@ -384,7 +421,7 @@ public class IceCreamMaker {
 		return ros;
 	}
 	
-	/** Spawn process threads */
+	/** Starts simulation workers, joins them, and accumulates their counters and success flags. */
 	private void spawnThreads(final ConcurrentReadInputStream cris, final ConcurrentReadOutputStream ros){
 		
 		//Do anything necessary prior to processing
@@ -419,10 +456,10 @@ public class IceCreamMaker {
 			
 			//Wait until this thread has terminated
 			while(pt.getState()!=Thread.State.TERMINATED){
-				try {
+				try{
 					//Attempt a join operation
 					pt.join();
-				} catch (InterruptedException e) {
+				}catch(InterruptedException e){
 					//Potentially handle this, if it is expected to occur
 					e.printStackTrace();
 				}
@@ -449,7 +486,7 @@ public class IceCreamMaker {
 	 * @param randy Random number generator
 	 * @return Random nucleotide base (A, T, G, C)
 	 */
-	private byte randomBase(Random randy) {
+	private byte randomBase(Random randy){
 		float rGC=randy.nextFloat();
 		if(rGC>=genomeGC){//AT
 			return (byte)(randy.nextBoolean() ? 'A' : 'T');
@@ -465,7 +502,7 @@ public class IceCreamMaker {
 	 * @param randy Random number generator
 	 * @return Random length between min and max (inclusive)
 	 */
-	private static int randomLength(int min, int max, Random randy) {
+	private static int randomLength(int min, int max, Random randy){
 		if(min==max){return min;}
 		int range=max-min+1;
 		int x=min+Tools.min(randy.nextInt(range), randy.nextInt(range));
@@ -483,7 +520,7 @@ public class IceCreamMaker {
 	 * @param randy Random number generator
 	 * @return Random rate between min and max
 	 */
-	private static float randomRate(float min, float max, Random randy) {
+	private static float randomRate(float min, float max, Random randy){
 		if(min==max){return min;}
 		float range=max-min;
 //		float a=(randy.nextFloat()+randy.nextFloat());
@@ -510,8 +547,9 @@ public class IceCreamMaker {
 	}
 	
 	/**
-	 * Load reference data from input stream, replacing undefined bases with random
-	 * nucleotides and concatenating all sequences.
+	 * Concatenates primary input sequences up to MAX_GENOME_LENGTH. With addNs, inserts an
+	 * N separator and preserves undefined bases; otherwise replaces undefined bases
+	 * in the input arrays with sampled nucleotides before appending them.
 	 * @param cris Input stream containing reference sequences
 	 * @param randy Random number generator for base replacement
 	 * @return Concatenated reference sequence
@@ -534,6 +572,8 @@ public class IceCreamMaker {
 				//Increment counters
 				readsProcessed+=r.pairCount();
 				basesProcessed+=r.pairLength();
+				//TODO: Probable bug [PIC-015] - paired reference input counts mates here but appends only primary bases below.
+				//Normal reference FASTA is unpaired; paired-reference support needs a separate explicit contract and finite case.
 				
 				
 
@@ -595,12 +635,20 @@ public class IceCreamMaker {
 	 * @param randy Random number generator for positioning
 	 */
 	private void addInvertedRepeats(byte[] bases, Random randy){
-		
 		long added=0;
 		long toAdd=(long) (bases.length*invertedRepeatRate);
+		if(toAdd<=0){return;}
+		if(2L*invertedRepeatMaxLength>bases.length){
+			throw new IllegalArgumentException("Reference length "+bases.length+
+					" cannot fit every requested inverted-repeat pair; irmaxlen="+invertedRepeatMaxLength+".");
+		}
+		if(!hasUsableRun(bases, 2*invertedRepeatMinLength, false)){
+			throw new IllegalArgumentException("Reference has no N-free window for an inverted-repeat pair of "+
+					(2L*invertedRepeatMinLength)+" bases.");
+		}
 		while(added<toAdd){
 			int len=randomLength(invertedRepeatMinLength, invertedRepeatMaxLength, randy);
-			int start=randy.nextInt(bases.length-2*len);
+			int start=randy.nextInt(bases.length-2*len+1);//PIC-011: include the last fitting window and exact fits.
 			int stop=start+len;
 			boolean OK=true;
 			for(int i=0; i<len && OK; i++){
@@ -624,8 +672,8 @@ public class IceCreamMaker {
 	/*----------------         Inner Classes        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** */
-	private class ProcessThread extends Thread {
+	/** Owns one RNG and counters; claims well-ID batches through the shared atomic counter. */
+	private class ProcessThread extends Thread{
 		
 		//Constructor
 		/**
@@ -633,7 +681,7 @@ public class IceCreamMaker {
 		 * @param ros_ Output stream for generated reads
 		 * @param tid_ Thread ID
 		 * @param nextZmwID_ Atomic counter for ZMW IDs
-		 * @param seed Random seed for this thread
+		 * @param seed Legacy unused argument; run uses the enclosing instance's configured seed
 		 */
 		ProcessThread(final ConcurrentReadOutputStream ros_, final int tid_, 
 				final AtomicLong nextZmwID_, final long seed){
@@ -658,7 +706,7 @@ public class IceCreamMaker {
 			success=true;
 		}
 		
-		/** Iterate through the reads */
+		/** Claims well IDs and emits unordered batches containing all their generated subreads. */
 		void processInner(){
 
 			//As long as there is a nonempty read list...
@@ -675,8 +723,13 @@ public class IceCreamMaker {
 			}
 		}
 		
-		/** Generate the next list of reads */
+		/** Generates the requested number of successful wells, retrying rejected candidates.
+		 * @param toGenerate Number of wells, not the number of emitted subreads
+		 * @param nextID First well ID in this batch
+		 * @return Concatenated subreads for the batch
+		 */
 		private ArrayList<Read> generateList(int toGenerate, long nextID){
+			//TODO PIC-005: preflight excludes known impossible requests, but rare valid candidates can still take arbitrarily many retries.
 
 			//Grab the actual read list from the ListNum
 			final ArrayList<Read> reads=new ArrayList<Read>(toGenerate);
@@ -696,7 +749,7 @@ public class IceCreamMaker {
 		/**
 		 * Find median-length read from list, excluding first and last elements.
 		 * @param list List of ReadBuilder objects
-		 * @return ReadBuilder with median length, or null if insufficient reads
+		 * @return First internal read at the lower median length, or null for fewer than three reads
 		 */
 		private ReadBuilder median(ArrayList<ReadBuilder> list){
 			if(list.size()<3){return null;}
@@ -720,12 +773,16 @@ public class IceCreamMaker {
 		}
 		
 		/**
-		 * Generate a single read.
+		 * Simulates a well, applies adapter joins, and optionally retains one internal
+		 * median-length subread. Successful wells update output counts and the requested
+		 * identity histogram. Rejected fragment/CCS candidates return null for retry.
+		 * @param nextID Well identifier stored in every generated header
+		 * @return Generated subreads, or null when this candidate is rejected
 		 */
 		private ArrayList<Read> generateZMW(final long nextID){
 			
 			final int movieLength=randomLength(minMovie, maxMovie, randy);
-			final float errorRate=randomRate(minErrorRate, maxErrorRate, randy);
+			final float errorRate=addErrors ? randomRate(minErrorRate, maxErrorRate, randy) : 0;
 			
 			ArrayList<ReadBuilder> baseCalls=baseCallAllPasses(movieLength, errorRate, nextID);
 			if(baseCalls==null){
@@ -803,10 +860,10 @@ public class IceCreamMaker {
 		/**
 		 * Simulate base calling for all passes through a DNA fragment, alternating
 		 * strand direction for each pass.
-		 * @param movieLength Total sequencing movie time
+		 * @param movieLength Emitted-base budget plus fixed adapter cost per pass
 		 * @param errorRate Error rate for this ZMW
 		 * @param zmw ZMW identifier
-		 * @return List of ReadBuilder objects for each pass
+		 * @return Pass builders, or null if ten fragment attempts find no eligible region
 		 */
 		private ArrayList<ReadBuilder> baseCallAllPasses(final int movieLength, final float errorRate, long zmw){
 			byte[] frag=null;
@@ -837,9 +894,19 @@ public class IceCreamMaker {
 			return list;
 		}
 		
-		/** Call bases for one pass */
+		/** Calls one oriented fragment suffix with a bounded emitted-base budget.
+		 * An insertion consumes budget without advancing the fragment; a deletion
+		 * advances the fragment without consuming budget. The truth pass fraction
+		 * uses traversed fragment bases, and qualities are not synthesized here.
+		 * @param frag Nonempty oriented fragment, read without mutation
+		 * @param errorRate Per-base error-event probability in [0,1]
+		 * @param start First fragment position
+		 * @param movieStart Starting coordinate recorded in the synthetic header
+		 * @param movieRemaining Remaining emitted-base budget
+		 * @param zmw Well identifier
+		 * @return Mutable sequence builder with simulation metadata
+		 */
 		private ReadBuilder baseCallOnePass(final byte[] frag, final float errorRate, final int start, final int movieStart, int movieRemaining, long zmw){
-			final float mult=1/(1-errorRate);
 			ByteBuilder bb=new ByteBuilder();
 			int fpos=start;
 			for(; fpos<frag.length && movieRemaining>0; fpos++){
@@ -849,7 +916,8 @@ public class IceCreamMaker {
 					bb.append(b);
 					movieRemaining--;
 				}else{
-					f=mult*(1-f);
+					//PIC-003: normalize within the error event; the former remap exceeded one and suppressed all indels.
+					f/=errorRate;//This branch is unreachable at errorRate=0; division also avoids reciprocal overflow.
 					if(f<insThresh){//ins
 						b=AminoAcid.numberToBase[randy.nextInt()&3];
 						bb.append(b);
@@ -891,7 +959,7 @@ public class IceCreamMaker {
 		private byte[] fetchBases(byte[] source){
 			
 			final int len=randomLength(minMoleculeLength, maxMoleculeLength, randy);
-			int start=len>=source.length ? 0 : randy.nextInt(source.length-len);
+			int start=len>=source.length ? 0 : randy.nextInt(source.length-len+1);//PIC-010: the final start is eligible too.
 			int stop=Tools.min(start+len, source.length);
 			
 //			System.err.println("fetchBases(len="+len+", slen="+source.length+", start="+start+", stop="+stop);//123
@@ -917,13 +985,13 @@ public class IceCreamMaker {
 		
 		/** Atomic ZMW ID counter shared across threads */
 		private final AtomicLong atomicZmwID;
-		/** Number of reads to generate per batch */
+		/** Wells claimed per batch; each successful well may emit several subreads. */
 		private final int readsPerList=Shared.bufferLen();
 		
 		/** Random number source */
 		private Random randy;
 		
-		/** Random number source */
+		/** Requested-identity observations, accumulated once per successful well. */
 		private final long[] idHistT=new long[ID_BINS];
 		
 		/** Shared output stream */
@@ -946,7 +1014,7 @@ public class IceCreamMaker {
 	/** Primary output file path */
 	private String out1=null;
 
-	/** Primary output file path */
+	/** Requested-identity histogram output path. */
 	private String outIdHist=null;
 
 	/** Quality file output path */
@@ -959,49 +1027,49 @@ public class IceCreamMaker {
 	
 	/*--------------------------------------------------------------*/
 
-	/**  */
+	/** Minimum requested fragment length; a shorter reference can truncate it. */
 	private int minMoleculeLength=500;
-	/**  */
+	/** Maximum requested fragment length, inclusive. */
 	private int maxMoleculeLength=10000;
-	/**  */
+	/** Minimum movie budget in emitted bases plus fixed adapter costs. */
 	private int minMovie=500;
-	/**  */
+	/** Maximum movie budget, inclusive. */
 	private int maxMovie=40000;
 	
-	/**  */
+	/** Probability that a well receives alternating missing-adapter joins. */
 	private double missingRate=0.0;
-	/**  */
+	/** Probability of each hidden-adapter join when ccs mode is disabled. */
 	private double hiddenRate=0.0;
-	/**  */
+	/** Unimplemented option; explicitly parsing bothends currently asserts. */
 	private boolean allowBothEndsBad=false;
 	
-	/**  */
+	/** GC probability for synthetic reference bases and undefined-base replacement. */
 	private float genomeGC=0.6f;
-	/**  */
+	/** Synthetic reference length; unused when reference input is supplied. */
 	private long genomeSize=10000000;
-	/**  */
+	/** Preserve undefined input bases and insert N separators rather than replacing them. */
 	private boolean addNs=true;
 	
-	/**  */
+	/** Target reference fraction counted as both halves of inserted inverted repeats. */
 	private double invertedRepeatRate=0.0;
-	/**  */
+	/** Minimum length of one inverted-repeat half. */
 	private int invertedRepeatMinLength=100;
-	/**  */
+	/** Maximum length of one inverted-repeat half, inclusive. */
 	private int invertedRepeatMaxLength=10000;
 	
-	/**  */
+	/** Lower endpoint of the per-well error-rate distribution. */
 	private float minErrorRate=0.05f;
-	/**  */
+	/** Upper endpoint of the per-well error-rate distribution. */
 	private float maxErrorRate=0.25f;
-	/**  */
+	/** When false, generates error-free calls regardless of the configured rate range. */
 	private boolean addErrors=true;
-	/** One read per ZMW */
+	/** Retain one internal median simulated subread; does not compute a consensus. */
 	private boolean makeCCS=false;
 	
-	/** */
+	/** Configured seed; negative values request nondeterministic RNG initialization. */
 	private long seed=-1;
 	
-	/** Histogram of read identity percentages */
+	/** Requested identity histogram, one observation per successful well. */
 	private long[] idHist=new long[ID_BINS]; 
 	
 	//These should add to 1
@@ -1019,17 +1087,17 @@ public class IceCreamMaker {
 	
 	/*--------------------------------------------------------------*/
 
-	/** Number of reads processed */
+	/** Reference input records counted, including mates */
 	protected long readsProcessed=0;
-	/** Number of bases processed */
+	/** Reference input bases counted, including mates */
 	protected long basesProcessed=0;
 
-	/** Number of reads retained */
+	/** Number of simulated subreads emitted */
 	protected long readsOut=0;
-	/** Number of bases retained */
+	/** Number of simulated bases emitted */
 	protected long basesOut=0;
 
-	/** Quit after processing this many INPUT reads */
+	/** Maximum reference input fragments requested from the reader; negative means unlimited */
 	private long maxReads=-1;
 	
 	/** Quit after generating this many OUTPUT zmws */
@@ -1051,7 +1119,7 @@ public class IceCreamMaker {
 	/** Primary output file */
 	private final FileFormat ffout1;
 	
-	/** Primary output file */
+	/** Output descriptor for the requested-identity histogram */
 	private final FileFormat ffIdHist;
 	
 	/*--------------------------------------------------------------*/

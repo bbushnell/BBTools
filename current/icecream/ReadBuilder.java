@@ -4,35 +4,36 @@ import stream.Read;
 import structures.ByteBuilder;
 
 /**
- * Constructs and manipulates PacBio sequencing read metadata with multi-subread support.
- * Parses and reconstructs complex sequencing read information, handling movie start/stop
- * coordinates, number of passes, subreads, and error rates. Supports combining multiple
- * read builders and generating formatted read headers.
- *
- * @author Brian Bushnell
+ * Mutable sequence and synthetic truth metadata used by IceCreamMaker.
+ * Accumulates subread/adapter fragments and emits the tab-separated header consumed
+ * by IceCreamGrader. Contamination classification uses the stored subread count.
+ * Serialization always uses movie prefix m1_2_3. Each mutable builder belongs to
+ * one simulator worker; callers own any sequence arrays shared with it.
+ * @author Brian Bushnell, Sucrose
  */
-class ReadBuilder {
+class ReadBuilder{
 	
 	/**
-	 * Constructs a ReadBuilder with byte array bases and metadata.
-	 * @param bases_ Sequence bases as byte array
-	 * @param passes_ Number of sequencing passes
-	 * @param movieStart_ Starting position in movie coordinates
-	 * @param zmw_ Zero-Mode Waveguide identifier
+	 * Wraps the supplied bases without copying them, then initializes metadata.
+	 * @param bases_ Non-null sequence array, initially shared with the ByteBuilder
+	 * @param passes_ Fractional template passes represented by this fragment
+	 * @param movieStart_ Stored starting coordinate
+	 * @param zmw_ Stored well identifier
 	 */
-	public ReadBuilder(byte[] bases_, float passes_, int movieStart_, long zmw_) {
+	public ReadBuilder(byte[] bases_, float passes_, int movieStart_, long zmw_){
 		this(new ByteBuilder(bases_), passes_, movieStart_, zmw_);
 	}
 	
 	/**
-	 * Constructs a ReadBuilder with ByteBuilder and metadata.
-	 * Sets movie stop position based on sequence length.
-	 * @param bases_ Sequence bases as ByteBuilder
-	 * @param passes_ Number of sequencing passes
-	 * @param movieStart_ Starting position in movie coordinates
-	 * @param zmw_ Zero-Mode Waveguide identifier
+	 * Borrows the mutable builder and initializes the stored stop to start+length.
+	 * A passes value at least one initializes fullPasses to one, not its integer part.
+	 * Caller maintains compatible coordinates and metadata; no range checks occur here.
+	 * @param bases_ Non-null mutable sequence builder, retained directly
+	 * @param passes_ Fractional template passes represented by this fragment
+	 * @param movieStart_ Stored starting coordinate
+	 * @param zmw_ Stored well identifier
 	 */
-	public ReadBuilder(ByteBuilder bases_, float passes_, int movieStart_, long zmw_) {
+	public ReadBuilder(ByteBuilder bases_, float passes_, int movieStart_, long zmw_){
 		bases=bases_;
 		passes=passes_;
 		movieStart=movieStart_;
@@ -43,10 +44,11 @@ class ReadBuilder {
 	}
 	
 	/**
-	 * Determines if a read ID represents an "ice cream" read with multiple subreads.
-	 * Parses tab-delimited ID to extract subread count.
-	 * @param id Read identifier string with tab-delimited metadata
-	 * @return true if subreads > 1, indicating ice cream contamination
+	 * Reads the synthetic truth label from the fourth tab-separated header field.
+	 * Uses the value after '=' by position without checking the field name; does not
+	 * examine sequence bases or accept arbitrary real-read headers.
+	 * @param id Non-null synthetic header containing the ordered subreads field
+	 * @return Whether the stored subread count is greater than one
 	 */
 	public static boolean isIceCream(String id){
 		String[] terms=id.split("\t");
@@ -55,13 +57,14 @@ class ReadBuilder {
 	}
 	
 	/**
-	 * Parses a Read object to extract PacBio metadata and create ReadBuilder.
-	 * Extracts movie coordinates, ZMW ID, passes, subreads, adapters, and error rate
-	 * from tab-delimited read ID format.
-	 * @param r Read object with formatted PacBio ID
-	 * @return ReadBuilder populated with parsed metadata
+	 * Parses the positional header format emitted by toHeader, retaining r.bases
+	 * through a wrapping ByteBuilder. Requires the first six fields; a missing
+	 * seventh errorRate field defaults to zero. Field names, coordinate consistency,
+	 * and the original movie prefix are not validated or retained separately.
+	 * @param r Non-null read with non-null bases and a compatible synthetic header
+	 * @return New metadata object whose sequence initially shares the read's array
 	 */
-	public static ReadBuilder parse(Read r) {
+	public static ReadBuilder parse(Read r){
 		ByteBuilder bases=new ByteBuilder(r.bases);
 		String[] terms=r.id.split("\t");
 		String[] name=terms[0].split("/");
@@ -89,16 +92,18 @@ class ReadBuilder {
 		return rb;
 	}
 	
+	/** @return The newly formatted synthetic header as a String. */
 	@Override
 	public String toString(){
 		return toHeader().toString();
 	}
 	
 	/**
-	 * Generates formatted PacBio read header with all metadata fields.
-	 * Format: m1_2_3/zmw/start_stop passes=X fullPasses=X subreads=X missing=X
-	 * adapters=X errorRate=X
-	 * @return ByteBuilder containing formatted header
+	 * Serializes m1_2_3/well/start_stop followed by passes, fullPasses, subreads,
+	 * missing, adapters and errorRate, in that tab-separated order. Formats passes
+	 * with two decimal places and errorRate with three; stored numeric fields are
+	 * not recomputed from sequence content.
+	 * @return Newly allocated header builder
 	 */
 	public ByteBuilder toHeader(){
 		ByteBuilder id=new ByteBuilder(200);
@@ -115,15 +120,15 @@ class ReadBuilder {
 	
 	/** Returns the length of the sequence bases.
 	 * @return Number of bases in the sequence */
-	public int length() {
+	public int length(){
 		return bases.length();
 	}
 	
 	/**
-	 * Combines this ReadBuilder with another by appending bases and summing metadata.
-	 * Updates movie stop position, missing bases, adapters, full passes, subreads,
-	 * and total passes.
-	 * @param rb ReadBuilder to append to this one
+	 * Appends the source sequence, extends stored movieStop by its emitted length,
+	 * and sums missing/adapters/fullPasses/subreads/passes. Retains this object's
+	 * zmw, movieStart and errorRate; no cross-fragment compatibility check is made.
+	 * @param rb Non-null fragment whose metadata the caller considers compatible
 	 */
 	void add(ReadBuilder rb){
 		bases.append(rb.bases);
@@ -137,41 +142,36 @@ class ReadBuilder {
 	}
 	
 	/**
-	 * Converts ReadBuilder to a Read object with formatted header.
-	 * Creates Read with bases, null quality scores, and complete metadata header.
-	 * @return Read object ready for downstream processing
+	 * Creates a Read from a copy of the current bases and the synthetic header.
+	 * Passes null qualities and numeric ID zero to the Read constructor.
+	 * @return New read with sequence independent of the builder
 	 */
-	Read toRead() {
-		//Example: m54283_190403_183820/4194374/919_2614
-		//Run ID is m54283_190403_183820
-		//zmw ID is 4194374.
-		//Read start/stop coordinates are 919_2614
-		
+	Read toRead(){
 		ByteBuilder id=toHeader();
 		Read r=new Read(bases.toBytes(), null, id.toString(), 0);
 		return r;
 	}
 	
-	/** Sequence bases stored as ByteBuilder for efficient manipulation */
+	/** Mutable sequence builder, borrowed by constructors and mutated by add. */
 	ByteBuilder bases;
 
-	/** Zero-Mode Waveguide identifier for this read */
+	/** Stored well identifier, retained when appending fragments. */
 	final long zmw;
-	/** Starting coordinate position in the movie */
+	/** Stored starting coordinate, retained when appending fragments. */
 	final int movieStart;
-	/** Ending coordinate position in the movie */
+	/** Stored stop, initialized and extended using emitted sequence lengths. */
 	int movieStop;
 	
-	/** Number of sequencing passes performed */
+	/** Accumulated fractional template passes, not recomputed from emitted length. */
 	float passes;
-	/** Number of complete sequencing passes */
+	/** Complete-pass metadata, initially at most one and summed by add. */
 	int fullPasses=0;
-	/** Number of subreads detected in this ZMW */
+	/** Subread fragments represented, initially one; adapter-only fragments set this to zero. */
 	int subreads=1;
-	/** Count of missing bases or adapters */
+	/** Missing-adapter joins recorded by the simulator, not a missing-base count. */
 	int missing=0;
-	/** Number of adapter sequences detected */
+	/** Included adapter fragments recorded by the simulator, not sequence detections. */
 	int adapters=0;
-	/** Estimated sequencing error rate for this read */
+	/** Stored requested simulation error rate; add retains the receiver's value. */
 	float errorRate=0;
 }

@@ -4,58 +4,61 @@ import aligner.AlignmentResult;
 import shared.Shared;
 
 /**
- * Abstract base class for sequence alignment algorithms with configurable
- * implementations. Provides factory method to select alignment strategy (JNI or
- * Java) and defines abstract alignment methods for forward alignments with score
- * and ratio thresholds.
- *
- * @author Brian Bushnell
+ * Forward overlap-alignment interface used by IceCreamFinder workers.
+ * Implementations retain mutable iteration counters; give each worker its own
+ * instance. Both methods align the complete query against an inclusive reference
+ * window. The Short method uses query-width dynamic-programming arrays; its name
+ * does not specify numeric precision, which the JNI wrapper selects separately.
+ * Caller-provided bounds and a nonempty query are assumed rather than validated.
+ * @author Brian Bushnell, Sucrose
  */
-public abstract class IceCreamAligner {
+public abstract class IceCreamAligner{
 
 	/**
-	 * Factory method that creates an appropriate aligner implementation based on
-	 * configuration. Returns JNI implementation if USE_JNI is enabled, otherwise
-	 * returns Java implementation for 32-bit alignment.
-	 *
-	 * @param bits Bit configuration for alignment (currently only 32-bit supported
-	 * for Java implementation)
-	 * @return IceCreamAlignerJNI if JNI enabled, IceCreamAlignerJava for 32-bit,
-	 * throws RuntimeException for unsupported bit configurations
+	 * Selects the current backend. JNI selection ignores bits and initializes the
+	 * native implementation; otherwise only the 32-bit Java implementation exists.
+	 * @param bits Requested Java precision when JNI is disabled
+	 * @return New backend instance with its own counters
+	 * @throws RuntimeException If JNI is disabled and bits is not 32
 	 */
 	public static IceCreamAligner makeAligner(int bits){
 		if(Shared.USE_JNI){
 			return new IceCreamAlignerJNI();
 		}else if(bits==32){
 			return new IceCreamAlignerJava();
-		}
-		else{
+		}else{
 			throw new RuntimeException(""+bits);
 		}
 	}
 
 	/**
-	 * @param query
-	 * @param ref
-	 * @param qstart
-	 * @param rstart
-	 * @param rstop
-	 * @param minScore Quit early if score drops below this
-	 * @param minRatio Don't return results if max score is less than this fraction of max possible score
-	 * @return
+	 * Aligns with reference-window-width working arrays and row-based early exits.
+	 * The reference window must be at least as long as the query for initialization.
+	 * Supplied implementations rescale the raw score before applying minRatio.
+	 * @param query Nonempty complete query, read without mutation
+	 * @param ref Reference bases, read without mutation
+	 * @param rstart Inclusive window start, nonnegative
+	 * @param rstop Inclusive window stop, less than ref.length and not before rstart
+	 * @param minScore Aggressive early-exit threshold on a query row's best raw score
+	 * @param minRatio Required ratio of rescaled score to query length
+	 * @return Alignment with absolute reference endpoint and legacy maxQpos=query.length,
+	 * or null after an early exit or a failing ratio check
 	 */
 	public abstract AlignmentResult alignForward(final byte[] query, final byte[] ref, final int rstart, final int rstop, final int minScore,
 			final float minRatio);
 
 	/**
-	 * @param query
-	 * @param ref
-	 * @param qstart
-	 * @param rstart
-	 * @param rstop
-	 * @param minScore Quit early if score drops below this
-	 * @param minRatio Don't return results if max score is less than this fraction of max possible score
-	 * @return
+	 * Aligns with query-width working arrays, selecting the best full-query endpoint
+	 * over reference positions. Current Java and native short algorithms do not use
+	 * minScore; retain that distinction from alignForward's early-exit behavior.
+	 * @param query Nonempty complete query, read without mutation
+	 * @param ref Reference bases, read without mutation
+	 * @param rstart Inclusive window start, nonnegative
+	 * @param rstop Inclusive window stop, less than ref.length and not before rstart
+	 * @param minScore Compatibility argument, unused by the supplied short algorithms
+	 * @param minRatio Required ratio of rescaled score to query length
+	 * @return Alignment with absolute reference endpoint and legacy maxQpos=query.length-1,
+	 * or null when the rescaled score ratio is below minRatio
 	 */
 	public abstract AlignmentResult alignForwardShort(final byte[] query, final byte[] ref, final int rstart, final int rstop, final int minScore,
 			final float minRatio);
@@ -66,15 +69,13 @@ public abstract class IceCreamAligner {
 //	public static final int pointsIns = -2;
 
 	/**
-	 * Returns the number of iterations performed by the standard alignment algorithm.
-	 * Used for performance monitoring and optimization analysis.
-	 * @return Number of alignment iterations executed
+	 * Returns the backend's accumulated full-alignment cell counter.
+	 * Early-exit accounting differs between the Java and JNI implementations.
+	 * @return Recorded cell count; not a timing measurement
 	 */
 	abstract long iters();
-	/**
-	 * Returns the number of iterations performed by the short alignment algorithm.
-	 * Used for performance monitoring and optimization analysis.
-	 * @return Number of short alignment iterations executed
+	/** Returns the backend's accumulated short-alignment cell counter.
+	 * @return Recorded cell count; not a timing measurement
 	 */
 	abstract long itersShort();
 

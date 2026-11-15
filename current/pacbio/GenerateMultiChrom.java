@@ -19,18 +19,28 @@ import shared.Tools;
  * @author Brian Bushnell
  * @date Jul 16, 2012
  */
-public class GenerateMultiChrom {
+public class GenerateMultiChrom{
 	
+	/**
+	 * Loads a reference chromosome, synthesizes the requested number of modified
+	 * copies, and writes them as a genome build.
+	 * @param args Input genome or chromosome file, output chromosome count, build,
+	 *             and optional min/max/buffer contig gap settings
+	 */
 	public static void main(String[] args){
 		
+		if(args.length!=3 && args.length!=6){
+			throw new IllegalArgumentException("Expected 3 or 6 arguments: <genome|chromosome> <copies> <build> [mincontig maxcontig buffer]");
+		}
+
 		ChromosomeArray cha=null;
 		
-		try {
+		try{
 			int genomeIn=Integer.parseInt(args[0]);
 			Data.setGenome(genomeIn);
 			cha=Data.getChromosome(1);
 			Data.unload(1, true);
-		} catch (NumberFormatException e) {
+		}catch(NumberFormatException e){
 			//ignore
 		}
 		
@@ -47,11 +57,9 @@ public class GenerateMultiChrom {
 		int mincontig=-1;
 		int maxcontig=-1;
 		int buffer=-1;
-		//TODO: Possible bug [pacbio/GenerateMultiChrom#001] LOW/dev (no .sh, no callers): guard is `args.length>3` but the block
-		//reads args[4] AND args[5] → AIOOBE when exactly 4 or 5 args are given (only args[3], or args[3..4], present). Guard should
-		//be args.length>5. Also args[0..2] parseInt NFE-unguarded; makeSynthetic's `while(a<=cha.array.length)` can read one past
-		//the end (cha.get clamps, low risk); addN's spread=maxContig-minContig+1 → randy.nextInt(spread) throws if maxContig<minContig.
-		if(args.length>3){
+		//TODO: Remaining legacy boundary notes: makeSynthetic iterates through a<=cha.array.length (cha.get clamps);
+		//addN requires maxContig>=minContig so spread=maxContig-minContig+1 is positive for nextInt(spread).
+		if(args.length==6){
 			mincontig=Integer.parseInt(args[3]);
 			maxcontig=Integer.parseInt(args[4]);
 			buffer=Integer.parseInt(args[5]);
@@ -75,6 +83,13 @@ public class GenerateMultiChrom {
 		
 	}
 	
+	/**
+	 * Adds randomly spaced gap blocks to a synthetic chromosome.
+	 * @param cha Chromosome to modify in place
+	 * @param minContig Minimum distance between inserted gap blocks
+	 * @param maxContig Maximum distance between inserted gap blocks
+	 * @param buffer Length of each inserted gap block
+	 */
 	private static void addN(ChromosomeArray cha, int minContig, int maxContig, int buffer){
 		
 		final int spread=maxContig-minContig+1;
@@ -102,7 +117,14 @@ public class GenerateMultiChrom {
 		}
 	}
 
-	private static ChromosomeArray makeSynthetic(ChromosomeArray cha, int chrom) {
+	/**
+	 * Builds one synthetic chromosome by applying short random substitutions,
+	 * insertions, and deletions to an input chromosome.
+	 * @param cha Source chromosome
+	 * @param chrom Chromosome number for the generated copy
+	 * @return Synthetic chromosome copy
+	 */
+	private static ChromosomeArray makeSynthetic(ChromosomeArray cha, int chrom){
 //		assert(false) : cha.array.length+", "+cha.maxIndex;
 		ChromosomeArray chb=new ChromosomeArray(chrom, Shared.PLUS, cha.minIndex, cha.array.length+40);
 		chb.maxIndex=-1;

@@ -482,7 +482,7 @@ public class GenerateVarlets3 {
 					{
 						long key=r.numericID;
 						if((r.pairnum()&1)==1){
-							key=-key;
+							key=SiteR.idPairnum(key, r.pairnum());
 							assert(key<0);
 						}
 						SiteR head=sitemap.get(key);
@@ -505,7 +505,7 @@ public class GenerateVarlets3 {
 					if(r2!=null){
 						long key=r2.numericID;
 						if((r2.pairnum()&1)==1){
-							key=-key;
+							key=SiteR.idPairnum(key, r2.pairnum());
 							assert(key<0);
 						}
 						SiteR head=sitemap.get(key);

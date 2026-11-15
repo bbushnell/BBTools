@@ -358,7 +358,7 @@ public class GenerateVarlets2 {
 		private void multiprocessRead_old(Read r){
 			long key=r.numericID;
 			if((r.pairnum()&1)==1){
-				key=-key;
+				key=SiteR.idPairnum(key, r.pairnum());
 				assert(key<0);
 			}
 			if(true){throw new RuntimeException("Deprecated.");}
@@ -390,7 +390,7 @@ public class GenerateVarlets2 {
 		private void multiprocessRead(Read r){
 			long key=r.numericID;
 			if((r.pairnum()&1)==1){
-				key=-key;
+				key=SiteR.idPairnum(key, r.pairnum());
 				assert(key<0);
 			}
 			

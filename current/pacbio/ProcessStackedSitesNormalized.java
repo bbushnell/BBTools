@@ -12,14 +12,20 @@ import shared.Tools;
 import stream.SiteScoreR;
 
 /**
- * Processes stacked alignment sites from PacBio sequencing runs, normalizes
- * site scores within fixed genomic intervals, and retains the best-scoring
- * subset of sites per interval based on configurable thresholds.
+ * Votes on already stacked {@link SiteScoreR} arrays by sweeping fixed genomic
+ * intervals, scoring sites relative to each interval's center, and retaining
+ * the sites that earn enough accumulated votes before writing the original
+ * tab-separated arrays back out.
  * @author Brian Bushnell
  * @date Jul 18, 2012
  */
-public class ProcessStackedSitesNormalized {
+public class ProcessStackedSitesNormalized{
 	
+	/**
+	 * Parses the input and output paths plus filtering knobs, processes the
+	 * stacked-site table, and prints retained/correct site counters.
+	 * @param args Input path, output path, and optional flag=value settings
+	 */
 	public static void main(String[] args){
 		{//Preparse block for help, config files, and outstream
 			PreParser pp=new PreParser(args, new Object() { }.getClass().getEnclosingClass(), false);
@@ -74,55 +80,99 @@ public class ProcessStackedSitesNormalized {
 			}
 		}
 		
-		process(infile, outfile);
-		
-		//n [PSSN#003 note] LOW/cosmetic: correctIn*100/sitesIn and correctOut*100/sitesOut are 0/0=NaN on empty input (no crash,
-		//n double div). args[0..1] unguarded (AIOOBE<2). Buffer.close() uses tsw.poison() (not poisonAndWait) — safe, TextStreamWriter
-		//n is non-daemon so the JVM joins it at exit. Buffer.setLimits reads array[0].chrom but array[0] is always non-null when it's
-		//n called (fill returns before setLimits on empty input; add/fill always leave array[0] set) — verified, no NPE.
-		System.out.println("Sites In:\t"+sitesIn+"    \t"+Tools.format("%.3f%% correct",correctIn*100d/sitesIn));
-		System.out.println("Sites Out:\t"+sitesOut+"    \t"+Tools.format("%.3f%% correct",correctOut*100d/sitesOut));
+		try{
+			process(infile, outfile);
+		}catch(RuntimeException e){
+			System.err.println("ProcessStackedSitesNormalized failed: "+e.getMessage());
+			throw e;
+		}
+
+		//n [PSSN#003 note] LOW/cosmetic: args[0..1] remain unguarded (AIOOBE<2).
+		//n Buffer.close() now waits for the writer and reports close errors; process() aborts it
+		//n on interval scoring exceptions so rejected scores cannot leave the JVM alive.
+		System.out.println("Sites In:\t"+sitesIn+"    \t"+correctPercent(correctIn, sitesIn));
+		System.out.println("Sites Out:\t"+sitesOut+"    \t"+correctPercent(correctOut, sitesOut));
 		t.stop();
 		System.out.println("Time: \t"+t);
 	}
 
+	/** Formats a correct-site percentage, treating an empty denominator as 0%. */
+	private static String correctPercent(long correct, long sites){
+		double percent=(sites<1 ? 0 : correct*100d/sites);
+		return Tools.format("%.3f%% correct", percent);
+	}
+
 	/**
-	 * Main processing method that reads stacked site records, scans genomic
-	 * intervals, and writes filtered/retained sites to the output file.
-	 * @param infile Path to input file containing stacked alignment sites
-	 * @param outfile Path to output file for retained sites
+	 * Reads stacked site records, scans each chromosome in {@link #INTERVAL}
+	 * windows, and writes arrays after all overlapping windows have voted.
+	 * @param infile Input tab-delimited SiteScoreR arrays
+	 * @param outfile Output arrays containing sites with enough retain votes
 	 */
-	public static void process(String infile, String outfile) {
+	public static void process(String infile, String outfile){
+		validateSettings();
 		
 		Buffer buffer=new Buffer(3, infile, outfile);
-		
-		int chrom=buffer.chrom;
-		int start=buffer.min;
-		int stop=buffer.min+INTERVAL-1;
-		
-		assert(buffer.array[0]!=null);
-		while(buffer.array[0]!=null){
+		boolean success=false;
+		try{
+			int chrom=buffer.chrom;
+			int start=buffer.min;
+			int stop=buffer.min+INTERVAL-1;
 			
-			processInterval(buffer, chrom, start, stop);
-			
-			start+=INTERVAL;
-			stop+=INTERVAL;
-			boolean success=buffer.advanceToInterval(start, stop, chrom);
-			if(!success){
-				chrom=buffer.chrom;
-				start=buffer.min;
-				stop=start+INTERVAL-1;
+			while(buffer.array[0]!=null){
+
+				processInterval(buffer, chrom, start, stop);
+
+				start+=INTERVAL;
+				stop+=INTERVAL;
+				boolean advanced=buffer.advanceToInterval(start, stop, chrom);
+				if(!advanced){
+					chrom=buffer.chrom;
+					start=buffer.min;
+					stop=start+INTERVAL-1;
+				}
 			}
+			success=true;
+		}finally{
+			if(success){buffer.close();}
+			else{buffer.abort();}
 		}
-		buffer.close();
+	}
+
+	/** Validates finite public knobs before output construction where possible. */
+	private static void validateSettings(){
+		if(INTERVAL<1){
+			throw new IllegalArgumentException("interval must be positive: "+INTERVAL);
+		}
+		checkFinite("fractiontoretain1", FRACTION_TO_RETAIN1);
+		checkFinite("fractiontoretain2", FRACTION_TO_RETAIN2);
+		checkFinite("minfractionfromreadends", MIN_FRACTION_FROM_READ_ENDS);
+		checkFinite("scorethresh", SCORE_THRESH);
+		checkFinite("centerweight", CENTER_WEIGHT);
+	}
+
+	/** Rejects NaN and infinity settings that would poison interval scores. */
+	private static void checkFinite(String name, float value){
+		if(!Float.isFinite(value)){
+			throw new IllegalArgumentException(name+" must be finite: "+value);
+		}
 	}
 	
+	/**
+	 * Scores plus- and minus-strand candidates contained in one interval.
+	 * Sites too short or too near their own ends for the configured fractional
+	 * end trim do not receive votes for this interval.
+	 * @param buffer Sliding chromosome buffer
+	 * @param chrom Chromosome being scanned
+	 * @param start Inclusive interval start
+	 * @param stop Inclusive interval stop
+	 */
 	private static void processInterval(Buffer buffer, int chrom, int start, int stop){
 
 		ArrayList<SiteScoreR> plus=new ArrayList<SiteScoreR>();
 		ArrayList<SiteScoreR> minus=new ArrayList<SiteScoreR>();
 
 		for(Ssra ssra : buffer.array){
+			if(ssra==null){continue;}
 //			if(Tools.isWithin(start-MIN_DIST_FROM_READ_ENDS, stop+MIN_DIST_FROM_READ_ENDS,  ssra.min, ssra.max)){
 			if(Tools.isWithin(start, stop,  ssra.min, ssra.max)){
 				for(SiteScoreR ssr : ssra.array){
@@ -192,6 +242,12 @@ public class ProcessStackedSitesNormalized {
 //		return retain;
 //	}
 	
+	/**
+	 * Sorts one strand's candidates by normalized score and adds weighted retain
+	 * votes to the retained prefix, subject to count and score-drop thresholds.
+	 * @param list Same-strand candidates for the current interval
+	 * @return Planned retained count before a possible score-drop break
+	 */
 	private static final int markRetain(ArrayList<SiteScoreR> list){
 //		Shared.sort(list, SiteScoreR.NCOMP);
 //		assert(list.size()<2 || list.get(0).normalizedScore>=list.get(1).normalizedScore) : list.get(0)+"\t"+list.get(1);
@@ -244,6 +300,12 @@ public class ProcessStackedSitesNormalized {
 		return retain;
 	}
 	
+	/**
+	 * Parses one tab-delimited stacked group and summarizes its coordinate and
+	 * score bounds.
+	 * @param s One input line containing tab-delimited SiteScoreR records
+	 * @return Parsed group summary
+	 */
 	public static Ssra toSrar(String s){
 		String[] split=s.split("\t");
 		SiteScoreR[] scores=new SiteScoreR[split.length];
@@ -274,25 +336,36 @@ public class ProcessStackedSitesNormalized {
 		return ssra;
 	}
 	
+	/**
+	 * Returns a score adjusted for read/reference length bias and distance from
+	 * the current interval's nearest end.
+	 * @param ssr Candidate site
+	 * @param endDist Distance from the site to the interval edge being scored
+	 * @return Adjusted score used only for interval-local ranking
+	 */
 	public static float normalizedScore(SiteScoreR ssr, int endDist){
 		final float lim1=0.008f;
 		final float lim2=-lim1;
+		final int reflen=ssr.reflen();
+		if(ssr.readlen<=0){
+			throw new IllegalArgumentException("read length must be positive: "+ssr.readlen);
+		}
 		
-		
-		int dif=ssr.readlen-ssr.reflen(); //Positive for insertions, negative for deletions
-		float modifier=dif/(float)(ssr.readlen*4); //Prioritize reads with insertions over deletions, to correct for scoring bias
+		int dif=ssr.readlen-reflen; //Positive for insertions, negative for deletions
+		float modifier=dif/(ssr.readlen*4f); //Prioritize reads with insertions over deletions, to correct for scoring bias
 		if(modifier<lim2){modifier=lim2;}
 		if(modifier>lim1){modifier=lim1;}
 		
-		int maxEndDist=(ssr.reflen()-INTERVAL)/2;
-//		float modifier2=(0.03f*endDist)/maxEndDist;
-		//TODO: Possible bug [pacbio/ProcessStackedSitesNormalized#001] LOW/dev: maxEndDist=(reflen()-INTERVAL)/2 is 0 when a
-		//site's reflen()==INTERVAL (short site, INTERVAL default 12) → this FLOAT divide by 0.0f yields Infinity/NaN → modifier2
-		//→ f=score*(1+modifier+Inf) → NaN/Inf normalizedScore, which then poisons the NCOMP sort in markRetain (NaN comparisons).
-		//reflen()<INTERVAL makes maxEndDist negative → modifier2 sign flips (de-prioritizes centered reads instead). Unguarded.
+		int maxEndDist=(reflen-INTERVAL)/2;
+		if(maxEndDist<=0){
+			throw new IllegalArgumentException("score normalization requires reflen greater than INTERVAL+1: reflen="+reflen+", interval="+INTERVAL);
+		}
 		float modifier2=CENTER_WEIGHT*endDist/(float)maxEndDist; //Prioritize reads centered on this interval
 
 		float f=ssr.score*(1+modifier+modifier2);
+		if(!Float.isFinite(f)){
+			throw new IllegalArgumentException("normalized score must be finite: "+f);
+		}
 		return f;
 	}
 	
@@ -321,8 +394,18 @@ public class ProcessStackedSitesNormalized {
 	
 	public static class Ssra{
 
+		/** Empty constructor for legacy callers that fill fields directly. */
 		public Ssra(){}
 		
+		/**
+		 * Stores one stacked input line and its precomputed bounds.
+		 * @param array_ Parsed SiteScoreR records
+		 * @param chrom_ Chromosome shared by the array
+		 * @param min_ Minimum start across the array
+		 * @param max_ Maximum stop across the array
+		 * @param best_ Highest raw score in the array
+		 * @param worst_ Lowest raw score in the array
+		 */
 		public Ssra(SiteScoreR[] array_, int chrom_, int min_, int max_, int best_, int worst_){
 			array=array_;
 			chrom=chrom_;
@@ -349,6 +432,13 @@ public class ProcessStackedSitesNormalized {
 	
 	public static class Buffer{
 		
+		/**
+		 * Opens the input and output streams and primes a chromosome-local
+		 * sliding window with up to {@code size} stacked groups.
+		 * @param size Number of stacked input groups kept in memory
+		 * @param infname_ Input path
+		 * @param outfname_ Output path
+		 */
 		public Buffer(int size, String infname_, String outfname_){
 			assert(!infname_.equalsIgnoreCase(outfname_)) : infname_+" == "+outfname_; //Not a complete test
 			array=new Ssra[size];
@@ -362,6 +452,7 @@ public class ProcessStackedSitesNormalized {
 			
 		}
 		
+		/** Reads one stacked group, updating input counters. */
 		public Ssra read(){
 			String s=tf.nextLine();
 			if(s==null){
@@ -373,6 +464,7 @@ public class ProcessStackedSitesNormalized {
 			return ssra;
 		}
 		
+		/** Advances by one group, flushing the evicted group if the buffer was full. */
 		private boolean advance(){
 			if(nextSsra==null){return false;}
 			
@@ -382,6 +474,7 @@ public class ProcessStackedSitesNormalized {
 			return true;
 		}
 		
+		/** Fills the buffer with groups from the next chromosome. */
 		private boolean fill(){
 			assert(array[0]==null);
 			if(nextSsra==null){return false;}
@@ -420,7 +513,8 @@ public class ProcessStackedSitesNormalized {
 			return chrom==c && Tools.overlap(a, b, min, max);
 		}
 		
-		private void purge() {
+		/** Writes all buffered groups and clears the active window. */
+		private void purge(){
 			for(int i=0; i<array.length; i++){
 				Ssra ssra=array[i];
 				if(ssra!=null){write(ssra);}
@@ -428,7 +522,12 @@ public class ProcessStackedSitesNormalized {
 			}
 		}
 		
-		private void write(Ssra ssra) {
+		/**
+		 * Writes retained sites from one original stacked group, preserving the
+		 * tab-delimited group layout when at least one site survives.
+		 * @param ssra Original stacked group
+		 */
+		private void write(Ssra ssra){
 			String tab="";
 			StringBuilder sb=new StringBuilder(ssra.array.length*48);
 			
@@ -453,6 +552,12 @@ public class ProcessStackedSitesNormalized {
 			tsw.print(sb);
 		}
 
+		/**
+		 * Appends a same-chromosome group to the window, evicting the oldest
+		 * group when the fixed-size buffer is already full.
+		 * @param s Group to add
+		 * @return Evicted group, or null if no group was evicted
+		 */
 		public Ssra add(Ssra s){
 			
 			assert(array[0]==null || array[0].chrom==s.chrom);
@@ -479,6 +584,7 @@ public class ProcessStackedSitesNormalized {
 			return r;
 		}
 		
+		/** Recomputes the active chromosome and coordinate range. */
 		private void setLimits(){
 			max=Integer.MIN_VALUE;
 			min=Integer.MAX_VALUE;
@@ -491,11 +597,19 @@ public class ProcessStackedSitesNormalized {
 			}
 		}
 		
+		/** Flushes all remaining groups, closes input, and joins output. */
 		public void close(){
 			purge();
 			while(fill()){purge();}
+			boolean error=tf.close();
+			error|=tsw.poisonAndWait();
+			if(error){throw new RuntimeException("Error closing "+outfname);}
+		}
+
+		/** Closes both streams after a processing failure without writing more groups. */
+		public void abort(){
 			tf.close();
-			tsw.poison();
+			tsw.poisonAndWait();
 		}
 		
 		public int max=-1;

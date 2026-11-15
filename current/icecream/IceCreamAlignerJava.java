@@ -2,16 +2,29 @@ package icecream;
 
 import aligner.AlignmentResult;
 
-public final class IceCreamAlignerJava extends IceCreamAligner {
+/** Integer-scored Java implementation of the two IceCreamFinder overlap layouts.
+ * Allocates two working arrays per call and reads query/reference bytes without
+ * mutation. Only the accumulated iteration counters are instance state; use one
+ * instance per worker to keep those unsynchronized counters reliable. Historical
+ * loop-tuning notes below are retained, without a new performance claim.
+ * @author Brian Bushnell, Sucrose
+ */
+public final class IceCreamAlignerJava extends IceCreamAligner{
 
+	/** Creates an aligner with zero recorded iterations; selected by the base factory. */
 	IceCreamAlignerJava(){}
 	
+	/** {@inheritDoc}
+	 * Uses reference-window-width arrays and records every processed row's width,
+	 * including a row that triggers an early return. Ties on the final row select
+	 * the rightmost reference endpoint. Retains the legacy query-length endpoint.
+	 */
 	@Override
 	public AlignmentResult alignForward(final byte[] query, final byte[] ref, final int rstart, final int rstop, final int minScore,
-			final float minRatio) {
+			final float minRatio){
 		final int arrayLength=rstop-rstart+1;
 
-		//Stack allocated; faster.
+		//Two per-call heap arrays; their references swap after each query row.
 		final int[] array1=new int[arrayLength+1], array2=new int[arrayLength+1];
 
 		final int minPassingScore=(int)(query.length*minRatio*pointsMatch);
@@ -23,7 +36,7 @@ public final class IceCreamAlignerJava extends IceCreamAligner {
 		int maxRpos=-1;
 
 		for(int i=0; i<=arrayLength-query.length; i++){prev[i]=0;}
-		for(int i=arrayLength-query.length, score=0; i<=arrayLength; i++, score+=pointsDel) {
+		for(int i=arrayLength-query.length, score=0; i<=arrayLength; i++, score+=pointsDel){
 			prev[i]=score;
 		}
 
@@ -95,13 +108,18 @@ public final class IceCreamAlignerJava extends IceCreamAligner {
 		return new AlignmentResult(maxScore, maxQpos, maxRpos, query.length, ref.length, rstart, rstop, ratio);
 	}
 
+	/** {@inheritDoc}
+	 * Uses query-width arrays and visits the reference interval in order. This
+	 * variant does not apply minScore early exits. Ties select the rightmost
+	 * reference endpoint, and maxQpos remains query.length-1.
+	 */
 	@Override
 	public AlignmentResult alignForwardShort(final byte[] query, final byte[] ref, final int rstart, final int rstop, final int minScore,
-			final float minRatio) {
+			final float minRatio){
 		
 		final int arrayLength=query.length;
 
-		//Stack allocated; faster.
+		//Two per-call heap arrays; their references swap after each reference base.
 		final int[] array1=new int[arrayLength+1], array2=new int[arrayLength+1];
 
 		final int minPassingScore=(int)(query.length*minRatio);
@@ -112,7 +130,7 @@ public final class IceCreamAlignerJava extends IceCreamAligner {
 		int maxQpos=-1;
 		int maxRpos=-1;
 
-		for(int i=0; i<prev.length; i++) {
+		for(int i=0; i<prev.length; i++){
 			prev[i]=pointsIns*i;
 		}
 
@@ -185,13 +203,11 @@ public final class IceCreamAlignerJava extends IceCreamAligner {
 	/*----------------           Getters            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/**
-	 * Returns the number of iterations performed in forward alignment operations
-	 */
+	/** @return Accumulated reference-window cells, including early-exit rows. */
 	@Override
 	long iters(){return iters;}
 
-	/** Returns the number of iterations performed in short alignment operations */
+	/** @return Accumulated query-width cells across visited reference positions. */
 	@Override
 	long itersShort(){return itersShort;}
 
@@ -199,16 +215,22 @@ public final class IceCreamAlignerJava extends IceCreamAligner {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	long iters = 0;
-	long itersShort = 0;
+	/** Full-layout cell counter, unsynchronized and never reset by alignment calls. */
+	long iters=0;
+	/** Query-width layout cell counter, unsynchronized and never reset by alignment calls. */
+	long itersShort=0;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------           Constants          ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	public static final int pointsMatch = 1;
-	public static final int pointsSub = -1;
-	public static final int pointsDel = -2;
-	public static final int pointsIns = -2;
+	/** Raw reward for equal query/reference bytes. */
+	public static final int pointsMatch=1;
+	/** Raw penalty for unequal query/reference bytes. */
+	public static final int pointsSub=-1;
+	/** Raw hScore gap-step penalty, shared by both DP layouts. */
+	public static final int pointsDel=-2;
+	/** Raw vScore gap-step penalty, shared by both DP layouts. */
+	public static final int pointsIns=-2;
 	
 }

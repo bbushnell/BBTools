@@ -278,7 +278,7 @@ public class GenerateVarlets {
 			for(SiteScoreR ssr : array){
 				long key=ssr.numericID;
 				if((ssr.pairnum&1)==1){
-					key=-key;
+					key=SiteR.idPairnum(key, ssr.pairnum);
 					assert(key<0);
 				}
 				ArrayList<SiteScoreR> list=map.get(key);
@@ -431,7 +431,7 @@ public class GenerateVarlets {
 		private void multiprocessRead_old(Read r){
 			long key=r.numericID;
 			if((r.pairnum()&1)==1){
-				key=-key;
+				key=SiteR.idPairnum(key, r.pairnum());
 				assert(key<0);
 			}
 			if(true){throw new RuntimeException("Deprecated.");}
@@ -464,7 +464,7 @@ public class GenerateVarlets {
 		private void multiprocessRead(Read r){
 			long key=r.numericID;
 			if((r.pairnum()&1)==1){
-				key=-key;
+				key=SiteR.idPairnum(key, r.pairnum());
 				assert(key<0);
 			}
 			

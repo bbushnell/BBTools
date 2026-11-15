@@ -25,8 +25,12 @@ import tracker.ReadStats;
  * @author Brian Bushnell
  * @date Nov 15, 2012
  */
-public class PartitionReads {
+public class PartitionReads{
 
+	/**
+	 * Parses input/output templates and partitions input read pairs across them.
+	 * @param args BBTools key=value options
+	 */
 	public static void main(String[] args){
 		{//Preparse block for help, config files, and outstream
 			PreParser pp=new PreParser(args, new Object() { }.getClass().getEnclosingClass(), false);
@@ -143,6 +147,16 @@ public class PartitionReads {
 		System.out.println("Time:  \t"+t);
 	}
 	
+	/** Starts the supplied streams and writes read roots round-robin to output partitions.
+	 * Mate records are kept in the same modulo bucket, either in {@code tsw2} when
+	 * present or directly after their root record in {@code tsw1}. On completion,
+	 * the input stream is closed and output writers are poisoned without joining
+	 * them or checking writer error state.
+	 * @param tsw1 Root-read output writers, one per partition
+	 * @param tsw2 Mate output writers, matching {@code tsw1}; entries may be null
+	 * @param cris Input stream to start, drain, return lists to, and close
+	 * @return Number of root reads or read pairs assigned to partitions
+	 */
 	public static long process(TextStreamWriter[] tsw1, TextStreamWriter[] tsw2, ConcurrentReadInputStream cris){
 		for(TextStreamWriter tsw : tsw1){if(tsw!=null){tsw.start();}}
 		for(TextStreamWriter tsw : tsw2){if(tsw!=null){tsw.start();}}
@@ -210,6 +224,7 @@ public class PartitionReads {
 		
 		for(TextStreamWriter tsw : tsw1){if(tsw!=null){tsw.poison();}}
 		for(TextStreamWriter tsw : tsw2){if(tsw!=null){tsw.poison();}}
+		//TODO PIC-203: input close and output writer errors are currently ignored.
 		ReadWrite.closeStream(cris);
 		return x;
 	}

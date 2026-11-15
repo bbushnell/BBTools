@@ -22,13 +22,18 @@ import structures.CoverageArray2;
 import structures.ListNum;
 
 /**
- * Processes alignment sites from PacBio sequencing data and generates coverage maps.
- * Stacks aligned reads by genomic position and outputs site information for analysis.
+ * Stacks per-read PacBio alignment sites by chromosome interval and writes
+ * perfect/semiperfect coverage arrays for downstream correction scripts.
  * @author Brian Bushnell
  * @date Jul 16, 2012
  */
-public class StackSites {
+public class StackSites{
 	
+	/**
+	 * Parses the optional genome/build setting, stacks one read input into a
+	 * sorted SiteScoreR table, and writes per-chromosome perfect-site coverage.
+	 * @param args in1, in2/null, output path, coverage path pattern with {@code #}
+	 */
 	public static void main(String[] args){
 		{//Preparse block for help, config files, and outstream
 			PreParser pp=new PreParser(args, new Object() { }.getClass().getEnclosingClass(), false);
@@ -54,6 +59,16 @@ public class StackSites {
 		System.out.println("Time: \t"+t);
 	}
 	
+	/**
+	 * Streams mapped reads, converts each site to a SiteScoreR carrying the read
+	 * numeric ID and mate bit, records perfect-site coverage, and writes sorted
+	 * site rows grouped by chromosome interval. The read stream is closed
+	 * explicitly; the output writer is poisoned without waiting for completion.
+	 * @param fname1 First read input
+	 * @param fname2 Second read input, or {@code null} or {@code "null"}
+	 * @param outname Output stacked-site path
+	 * @param pcovoutname Per-chromosome perfect-coverage output pattern
+	 */
 	public static void stack(String fname1, String fname2, String outname, String pcovoutname){
 		assert(pcovoutname.contains("#"));
 		RTextInputStream rtis=new RTextInputStream(fname1, (fname2==null || fname2.equals("null") ? null : fname2), -1);
@@ -65,7 +80,7 @@ public class StackSites {
 		System.err.println("Paired: "+paired);
 		
 		ArrayList<CoverageArray> pcov=new ArrayList<CoverageArray>(8);
-		pcov.add(new CoverageArray2(0,1000));
+		pcov.add(new CoverageArray2(0, 1000));
 		
 		Glob g=new Glob();
 		
@@ -206,18 +221,30 @@ public class StackSites {
 			g.array[i]=null;
 		}
 		
-		//n [StackSites] TRACED CLEAN (no .sh, no callers — invoked by MakePacBioScript-generated scripts). out.poison() (vs the
-		//n evolved StackSites2's out.poisonAndWait() L372) is NOT a truncation bug: TextStreamWriter is non-daemon (no setDaemon)
-		//n so the JVM joins it at exit and it drains its queue on the poison marker; SS2 just uses the tidier wait-form. write()
+		//n Historical traced-clean note: [StackSites] TRACED CLEAN (no .sh, no callers — invoked by MakePacBioScript-generated scripts).
+		//n out.poison() relies on the non-daemon writer to keep the JVM alive and drain its queue, but gives the caller no
+		//n explicit join or terminal error status; StackSites2's poisonAndWait() is the tidier wait-form. write()
 		//n interval-grouping asserts hold for start>=0; Glob growth is correct; checkPerfection compares revcomp(read) vs ref
 		//n forward for minus strand (correct). This class constructs SiteScoreR with pairnum (L117/L158) → its output later becomes
 		//n SiteR via var.GenerateVarlets, so read-0's mate here is what surfaces the SiteR#001 pairnum-zero collision downstream.
-		//n Minor: readsProcessed++ (L84) counts before the r!=null check, so null list slots inflate the count slightly.
+		//n Minor: readsProcessed++ (L84) counts before the r!=null check, and a null root read would later throw at r.mate.
 		out.poison();
 
 	}
 	
-	private static boolean checkPerfection(int start, int stop, byte[] bases, ChromosomeArray cha, boolean rcomp, float f) {
+	/**
+	 * Returns true when all non-N reference bases match over the site and at
+	 * least fraction {@code f} of the read bases aligned against concrete
+	 * reference bases.
+	 * @param start Inclusive chromosome start
+	 * @param stop Inclusive chromosome stop; retained for the historical signature
+	 * @param bases Read bases
+	 * @param cha Chromosome sequence
+	 * @param rcomp True to compare the reverse complement of {@code bases}
+	 * @param f Minimum concrete-reference fraction
+	 * @return True if the site is perfect outside reference Ns
+	 */
+	private static boolean checkPerfection(int start, int stop, byte[] bases, ChromosomeArray cha, boolean rcomp, float f){
 		
 		int noref=0;
 		if(rcomp){
@@ -277,6 +304,19 @@ public class StackSites {
 		}
 	}
 	
+	/**
+	 * Returns true when a called site is on the original strand, optionally the
+	 * original chromosome, and either endpoint is within {@code thresh} bases of
+	 * the original bounds.
+	 * @param ss Candidate site
+	 * @param trueChrom Original chromosome
+	 * @param trueStrand Original strand
+	 * @param trueStart Original start
+	 * @param trueStop Original stop
+	 * @param thresh Allowed endpoint distance
+	 * @param useChrom True to require chromosome equality
+	 * @return True when this is a loose match to the original site
+	 */
 	public static boolean isCorrectHitLoose(SiteScore ss, int trueChrom, byte trueStrand, int trueStart, int trueStop, int thresh, boolean useChrom){
 		if((useChrom && ss.chrom!=trueChrom) || ss.strand!=trueStrand){return false;}
 
@@ -286,6 +326,7 @@ public class StackSites {
 		return (Tools.absdif(ss.start, trueStart)<=thresh || Tools.absdif(ss.stop, trueStop)<=thresh);
 	}
 	
+	/** Chromosome-indexed growable buckets of SiteScoreR records. */
 	private static class Glob{
 		
 		public Glob(){
@@ -311,8 +352,11 @@ public class StackSites {
 		
 	}
 	
+	/** Genomic span per output group */
 	public static final int INTERVAL=200;
+	/** Number of root reads pulled from the input stream */
 	public static long readsProcessed=0;
+	/** Number of candidate sites converted to SiteScoreR */
 	public static long sitesProcessed=0;
 	
 }

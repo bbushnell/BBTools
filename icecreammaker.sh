@@ -34,13 +34,13 @@ movie=          (mov) Set minmov and maxmov to the same number.
 Ice cream parameters:
 missingrate=0   (missing) Fraction of reads missing an adapter.
 hiddenrate=0    (hidden) Fraction of adapters not detected.
-bothends=f      Allow missing or hiddden adapters on both ends.
+bothends        Reserved and currently unsupported; do not set this option.
 
 Other parameters:
 zmws            (reads) Number of ZMWs to generate.  There are actually
                 multiple subreads per zmw.
-ccs=f           Make CCS reads (one read per ZMW, full pass only).
-                You still need to specify the error rate.
+ccs=f           Retain one median internal simulated subread per ZMW.
+                This does not compute consensus; specify its error rate.
 gc=0.6          If a random genome is generated, use this GC fraction.
 genomesize=10m  If a random genome is generated, make it this big.
 irrate=0.0      Add inverted repeats until this fraction of the genome
@@ -49,8 +49,9 @@ irminlen=500    Minimum length of inverted repeats.
 irmaxlen=5000   Maximum length of inverted repeats
 irlen=          Set minirlen and maxirlen to the same number.
 miner=0.05      (minerrorrate) Minimum error rate.
-maxer=0.28      (maxerrorrate) Maximum error rate.
+maxer=0.25      (maxerrorrate) Maximum error rate.
 er=             (errorrate) Set minerrorrate and maxerrorrate.
+adderrors=t     Set false for error-free base calls regardless of er/miner/maxer.
 NOTE: You can alternatively set minid, maxid, or id.
 
 

@@ -4,28 +4,42 @@ import aligner.AlignmentResult;
 import shared.KillSwitch;
 import shared.Shared;
 
-public final class IceCreamAlignerJNI extends IceCreamAligner {
+/**
+ * JNI overlap aligner with per-call input copies and per-instance work counters.
+ * Loading this class initializes the native library; this implementation has no
+ * Java fallback. Each worker should own an instance because counters are mutable
+ * and unsynchronized. Caller bounds and a nonempty query are assumed.
+ * Native result vectors contain raw score, legacy query endpoint, window-relative
+ * reference endpoint and completed cell count. The wrapper converts the reference
+ * endpoint to absolute coordinates and rescales the score before ratio filtering.
+ * @author Brian Bushnell, Sucrose
+ */
+public final class IceCreamAlignerJNI extends IceCreamAligner{
 
-	static {
+	static{
 		Shared.loadJNI();
 	}
 
+	/** Creates an independent counter owner after native-library initialization. */
 	IceCreamAlignerJNI(){}
 	
 	/**
-	 * Performs forward alignment using JNI implementation with dynamic precision selection.
-	 * Uses 32-bit integer or 16-bit short arrays based on sequence length to optimize memory use and performance, and applies early-exit thresholds.
-	 * @param query Query sequence as byte array
-	 * @param ref Reference sequence as byte array
+	 * Aligns using reference-window-width native working arrays and row early exits.
+	 * Copies input bytes into primitive arrays; input bases are not mutated. Current
+	 * precision selection requires both lengths and minScore to fit short arithmetic.
+	 * The reference window must be at least as long as the query for initialization.
+	 * Native full-aligner early exits leave the returned cell counter at zero.
+	 * @param query Nonempty complete query
+	 * @param ref Reference bases containing the requested window
 	 * @param rstart Reference start position (inclusive)
 	 * @param rstop Reference stop position (inclusive)
-	 * @param minScore Minimum score threshold for early termination
+	 * @param minScore Aggressive early-exit threshold on a query row's best raw score
 	 * @param minRatio Minimum ratio of rescaled match count to query length for returning a result
-	 * @return AlignmentResult with score, positions, and ratio, or null if below minRatio
+	 * @return Rescaled result with legacy maxQpos=query.length, or null if its ratio is below minRatio
 	 */
 	@Override
 	public AlignmentResult alignForward(final byte[] query, final byte[] ref, final int rstart, final int rstop, final int minScore,
-			final float minRatio) {
+			final float minRatio){
 		
 		final int qlen=query.length;
 		final int rlen=rstop-rstart+1;
@@ -34,7 +48,8 @@ public final class IceCreamAlignerJNI extends IceCreamAligner {
 //		alignForwardJNI(qInt, rInt, retVec, qlen, rlen, minScore, minRatio);
 //		alignForwardPseudo(qInt, rInt, retVec, qlen, rlen, minScore, minRatio);
 		
-		if((qlen+rlen+32)*2>Short.MAX_VALUE) {
+		//PIC-104: Preserve an int threshold even when the sequence lengths fit 16-bit arithmetic.
+		if(minScore<Short.MIN_VALUE || minScore>Short.MAX_VALUE || (qlen+rlen+32)*2>Short.MAX_VALUE){
 			final int[] qInt=new int[query.length];
 			final int[] rInt=new int[rlen];
 			for(int i=0; i<query.length; i++){qInt[i]=query[i];}
@@ -69,25 +84,26 @@ public final class IceCreamAlignerJNI extends IceCreamAligner {
 	}
 
 	/**
-	 * Performs short forward alignment using optimized JNI implementation.
-	 * Uses short-alignment native methods and accumulates a separate iteration counter for performance tracking.
-	 * @param query Query sequence as byte array
-	 * @param ref Reference sequence as byte array
+	 * Aligns using query-width native arrays and selects the best full-query endpoint.
+	 * Short names the array layout, not numeric precision: the length gate still
+	 * selects 16-bit or 32-bit native arithmetic. Copies inputs without mutation.
+	 * @param query Nonempty complete query
+	 * @param ref Reference bases containing the requested window
 	 * @param rstart Reference start position (inclusive)
 	 * @param rstop Reference stop position (inclusive)
-	 * @param minScore Minimum score threshold for early termination (used in JNI 32-bit path)
+	 * @param minScore Compatibility argument, unused by both native short algorithms
 	 * @param minRatio Minimum ratio of rescaled match count to query length for returning a result
-	 * @return AlignmentResult with score, positions, and ratio, or null if below minRatio
+	 * @return Rescaled result with legacy maxQpos=query.length-1, or null if below minRatio
 	 */
 	@Override
 	public AlignmentResult alignForwardShort(final byte[] query, final byte[] ref, final int rstart, final int rstop, final int minScore,
-			final float minRatio) {
+			final float minRatio){
 		
 		final int qlen=query.length;
 		final int rlen=rstop-rstart+1;
 		final int[] retVec=KillSwitch.allocInt1D(4);
 		
-		if((qlen+rlen+32)*2>Short.MAX_VALUE) {
+		if((qlen+rlen+32)*2>Short.MAX_VALUE){
 			final int[] qInt=new int[query.length];
 			final int[] rInt=new int[rlen];
 			for(int i=0; i<query.length; i++){qInt[i]=query[i];}
@@ -122,13 +138,17 @@ public final class IceCreamAlignerJNI extends IceCreamAligner {
 	/*----------------             JNI              ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	private static void alignForwardPseudo(final int[] query, final int[] ref, final int[] retArray, 
-			final int qlen, final int rlen, final int minScore, final float minRatio) {
+	/** Inactive Java translation retained for native comparison; production calls the JNI methods.
+	 * Uses heap working arrays and writes score/endpoints/cells into retArray on completion.
+	 * Unlike native full alignment, an early return does not install a failure sentinel.
+	 */
+	private static void alignForwardPseudo(final int[] query, final int[] ref, final int[] retArray,
+			final int qlen, final int rlen, final int minScore, final float minRatio){
 		
 		final int arrayLength=rlen;
 		final int arrayLength2=rlen+1;
 
-		//Stack allocated; faster.
+		//These Java arrays are heap allocated; the corresponding C arrays are on its stack.
 		int[] array1=new int[arrayLength2];
 		int[] array2=new int[arrayLength2];
 
@@ -143,7 +163,7 @@ public final class IceCreamAlignerJNI extends IceCreamAligner {
 		final int minPassingScore3=minPassingScore-qlen*pointsMatch;
 
 		for(int i=0; i<=arrayLength-qlen; i++){prev[i]=0;}
-		for(int i=arrayLength-qlen, score=0; i<=arrayLength; i++, score+=pointsDel) {
+		for(int i=arrayLength-qlen, score=0; i<=arrayLength; i++, score+=pointsDel){
 			prev[i]=score;
 			next[i]=0;
 		}
@@ -219,12 +239,15 @@ public final class IceCreamAlignerJNI extends IceCreamAligner {
 		retArray[3]=iters;
 	}
 	
-	private static void alignForwardShortPseudo(int[] query, int[] ref, int[] retArray, int qlen, int rlen) {
+	/** Inactive query-width Java translation retained for native comparison.
+	 * Writes raw score, query endpoint qlen-1, relative reference endpoint and cells.
+	 */
+	private static void alignForwardShortPseudo(int[] query, int[] ref, int[] retArray, int qlen, int rlen){
 		
 		final int arrayLength=qlen;
 		final int arrayLength2=qlen+1;
 
-		//Stack allocated; faster.
+		//These Java arrays are heap allocated; the corresponding C arrays are on its stack.
 		int[] array1=new int[arrayLength2];
 		int[] array2=new int[arrayLength2];
 
@@ -235,7 +258,7 @@ public final class IceCreamAlignerJNI extends IceCreamAligner {
 		int maxRpos=-1;
 		int itersShort=0;
 
-		for(int i=0; i<arrayLength2; i++) {
+		for(int i=0; i<arrayLength2; i++){
 			prev[i]=pointsIns*i;
 			next[i]=0;//For C version initialization
 		}
@@ -300,9 +323,13 @@ public final class IceCreamAlignerJNI extends IceCreamAligner {
 		retArray[3]=itersShort;
 	}
 
+	/** Native reference-width 32-bit alignment; retArray uses the class-level four-field contract. */
 	private static native void alignForwardJNI(int[] query, int[] ref, int[] retArray, int qlen, int rlen, int minScore, float minRatio);
+	/** Native reference-width 16-bit alignment; lengths and threshold must survive short conversion. */
 	private static native void alignForward16JNI(short[] query, short[] ref, int[] retArray, short qlen, short rlen, short minScore, float minRatio);
+	/** Native query-width 32-bit alignment, without a row-score threshold argument. */
 	private static native void alignForwardShortJNI(int[] query, int[] ref, int[] retArray, int qlen, int rlen);
+	/** Native query-width 16-bit alignment, without a row-score threshold argument. */
 	private static native void alignForwardShort16JNI(short[] query, short[] ref, int[] retArray, short qlen, short rlen);
 	
 	/*--------------------------------------------------------------*/
@@ -310,17 +337,16 @@ public final class IceCreamAlignerJNI extends IceCreamAligner {
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Returns total iterations performed by forward alignment operations.
-	 * Tracks computational work across all calls to alignForward for performance analysis.
-	 * @return Total iteration count for forward alignments
+	 * Returns the sum of full-alignment cell counts published by native calls.
+	 * Full-aligner early-exit work is omitted because C returns before publishing it.
+	 * @return Recorded cells, not a timing measurement
 	 */
 	@Override
 	long iters(){return iters;}
 
 	/**
-	 * Returns total iterations performed by short alignment operations.
-	 * Tracks computational work across all calls to alignForwardShort for performance analysis.
-	 * @return Total iteration count for short alignments
+	 * Returns the sum of query-width cell counts published by native calls.
+	 * @return Recorded cells, not a timing measurement
 	 */
 	@Override
 	long itersShort(){return itersShort;}
@@ -329,16 +355,22 @@ public final class IceCreamAlignerJNI extends IceCreamAligner {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	long iters = 0;
-	long itersShort = 0;
+	/** Full-alignment completed-call cell count, excluding native early-exit work. */
+	long iters=0;
+	/** Query-width alignment cell count. */
+	long itersShort=0;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------           Constants          ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	public static final int pointsMatch = 1;
-	public static final int pointsSub = -1;
-	public static final int pointsDel = -2;
-	public static final int pointsIns = -2;
+	/** Raw score for matching bases; must agree with the native implementation. */
+	public static final int pointsMatch=1;
+	/** Raw substitution penalty; also used when rescaling returned scores. */
+	public static final int pointsSub=-1;
+	/** Raw deletion penalty. */
+	public static final int pointsDel=-2;
+	/** Raw insertion penalty. */
+	public static final int pointsIns=-2;
 	
 }
