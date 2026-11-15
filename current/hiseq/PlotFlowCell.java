@@ -25,6 +25,7 @@ import kmer.ScheduleMaker;
 import parse.Parse;
 import parse.Parser;
 import parse.PreParser;
+import shared.KillSwitch;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
@@ -43,17 +44,17 @@ import template.ThreadWaiter;
 /**
  * Analyzes a flow cell for low-quality areas.
  * Removes reads in the low-quality areas.
- * 
+ *
  * @author Brian Bushnell
  * @date August 31, 2016
  *
  */
-public class PlotFlowCell implements Accumulator<PlotFlowCell.WorkerThread> {
-	
+public class PlotFlowCell implements Accumulator<PlotFlowCell.WorkerThread>{
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
 	 * Code entrance from the command line.
 	 * @param args Command line arguments
@@ -62,40 +63,40 @@ public class PlotFlowCell implements Accumulator<PlotFlowCell.WorkerThread> {
 		Timer t=new Timer();
 		PlotFlowCell x=new PlotFlowCell(args);
 		x.process(t);
-		
+
 		//Close the print stream if it was redirected
 		Shared.closeStream(x.outstream);
 	}
-	
+
 	/**
 	 * Constructor.
 	 * @param args Command line arguments
 	 */
 	public PlotFlowCell(String[] args){
-		
+
 		{//Preparse block for help, config files, and outstream
 			PreParser pp=new PreParser(args, getClass(), false);
 			args=pp.args;
 			outstream=pp.outstream;
 		}
-		
+
 		//Set shared static variables
 		ReadWrite.USE_PIGZ=ReadWrite.USE_UNPIGZ=true;
 		ReadWrite.setZipThreads(Shared.threads());
-		
+
 		//Create a parser object
 		Parser parser=new Parser();
 		boolean setInterleaved=false; //Whether interleaved was explicitly set.
-		
+
 		//Parse each argument
 		for(int i=0; i<args.length; i++){
 			String arg=args[i];
-			
+
 			//Break arguments into their constituent parts, in the form of "a=b"
-			String[] split=arg.split("=");
+			String[] split=arg.split("=", 2);
 			String a=split[0].toLowerCase();
-			String b=split.length>1 ? split[1] : null;
-			
+			String b=split.length>1 && !split[1].isEmpty() ? split[1] : null;
+
 			if(a.equals("verbose")){
 				verbose=Parse.parseBoolean(b);
 			}else if(a.equals("divisor") || a.equals("size")){
@@ -108,6 +109,11 @@ public class PlotFlowCell implements Accumulator<PlotFlowCell.WorkerThread> {
 				targetAverageReads=Parse.parseIntKMG(b);
 			}else if(a.equals("dump") || a.equals("out")){
 				dump=b;
+			}else if(a.equals("dumpversion")){
+				dumpVersion=Integer.parseInt(b);
+				if(dumpVersion!=3 && dumpVersion!=4){
+					throw new IllegalArgumentException("dumpversion must be 3 or 4: "+dumpVersion);
+				}
 			}else if(a.equals("indump") || a.equals("ind") || a.equals("dumpin")){
 				dumpIn=b;
 			}else if(a.equals("pound")){
@@ -144,19 +150,19 @@ public class PlotFlowCell implements Accumulator<PlotFlowCell.WorkerThread> {
 			}else if(a.equals("longheader")){
 				MicroTile.shortHeader=!Parse.parseBoolean(b);
 			}
-			
+
 			else if(a.equals("minpolyg")){
 				MicroTile.MIN_POLY_G=Integer.parseInt(b);
 			}else if(a.equals("trackcycles")){
 				MicroTile.TRACK_CYCLES=Parse.parseBoolean(b);
 			}else if(a.equals("extra")){
-				if(b!=null) {
-					for(String s : b.split(",")) {
+				if(b!=null){
+					for(String s : b.split(",")){
 						extra.add(s);
 					}
 				}
 			}
-			
+
 			else if(a.equals("parse_flag_goes_here")){
 				//Set a variable here
 			}else if(parser.parse(arg, a, b)){//Parse standard flags in the parser
@@ -170,50 +176,50 @@ public class PlotFlowCell implements Accumulator<PlotFlowCell.WorkerThread> {
 				//				throw new RuntimeException("Unknown parameter "+args[i]);
 			}
 		}
-		
+
 		{//Process parser fields
 			Parser.processQuality();
-			
+
 			maxReads=parser.maxReads;
-			
+
 			overwrite=parser.overwrite;
 			append=parser.append;
 			setInterleaved=parser.setInterleaved;
-			
+
 			in1=parser.in1;
 			in2=parser.in2;
 
 			if(dump==null && parser.out1!=null){dump=parser.out1;}
-			
+
 			extin=parser.extin;
 		}
-		
-		if("phix".equalsIgnoreCase(refPath)) {
+
+		if("phix".equalsIgnoreCase(refPath)){
 			refPath=Data.findPath("?phix2.fa.gz");
 		}
-		
+
 		//Do input file # replacement
 		if(in1!=null && in2==null && in1.indexOf('#')>-1 && !new File(in1).exists()){
 			in2=in1.replace("#", "2");
 			in1=in1.replace("#", "1");
 		}
-		
+
 		//Adjust interleaved detection based on the number of input files
 		if(in2!=null){
 			if(FASTQ.FORCE_INTERLEAVED){outstream.println("Reset INTERLEAVED to false because paired input files were specified.");}
 			FASTQ.FORCE_INTERLEAVED=FASTQ.TEST_INTERLEAVED=false;
 		}
-		
+
 		assert(FastaReadInputStream.settingsOK());
-		
+
 		//Ensure there is an input file
 		if(in1==null){throw new RuntimeException("Error - at least one input file is required.");}
-		
+
 		//Adjust the number of threads for input file reading
 		if(!ByteFile.FORCE_MODE_BF1 && !ByteFile.FORCE_MODE_BF2 && Shared.threads()>2){
 			ByteFile.FORCE_MODE_BF2=true;
 		}
-		
+
 		//Adjust interleaved settings based on number of output files
 		if(!setInterleaved){
 			assert(in1!=null) : "\nin1="+in1+"\nin2="+in2+"\n";
@@ -222,17 +228,17 @@ public class PlotFlowCell implements Accumulator<PlotFlowCell.WorkerThread> {
 				outstream.println("Set INTERLEAVED to "+FASTQ.FORCE_INTERLEAVED);
 			}
 		}
-		
+
 		//Ensure output files can be written
 		if(!Tools.testOutputFiles(overwrite, append, false, dump)){
 			throw new RuntimeException("\n\noverwrite="+overwrite+"; Can't write to output file "+dump+"\n");
 		}
-		
+
 		//Ensure input files can be read
 		if(!Tools.testInputFiles(false, true, in1, in2)){
-			throw new RuntimeException("\nCan't read some input files.\n");  
+			throw new RuntimeException("\nCan't read some input files.\n");
 		}
-		
+
 		//Ensure that no file was specified multiple times
 		if(!Tools.testForDuplicateFiles(true, in1, in2, dump)){
 			throw new RuntimeException("\nSome file names were specified multiple times.\n");
@@ -242,23 +248,23 @@ public class PlotFlowCell implements Accumulator<PlotFlowCell.WorkerThread> {
 		ffin1=FileFormat.testInput(in1, FileFormat.FASTQ, extin, true, true);
 		ffin2=FileFormat.testInput(in2, FileFormat.FASTQ, extin, true, true);
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
 	/** Create read streams and process all data */
 	public void process(Timer t){
-		
+
 		final int oldThreads=Shared.threads();
 		//G11: dead ternary — both arms are 64, so this is unconditionally capThreads(64) regardless of kmersPerRead (vestigial mode-specific cap that was never differentiated). Harmless; not a behavioral bug.
 		Shared.capThreads(kmersPerRead>0 ? 64 : 64);
-		
+
 		barcodeStats=loadBarcodes(expectedBarcodes);
 		//Reset counters
 		readsProcessed=0;
 		basesProcessed=0;
-		
+
 		MicroIndex3 index=(refPath==null ? null : new MicroIndex3(alignK, 0, refPath, false));
 		mapper=(index==null ? null : new MicroAligner3(index, minIdentity, true));
 
@@ -271,28 +277,31 @@ public class PlotFlowCell implements Accumulator<PlotFlowCell.WorkerThread> {
 			bloomCorrector=null;
 		}else{
 			flowcell=new FlowCell(dumpIn);
-			
+
 			if(flowcell.avgReads<targetAverageReads){
 				flowcell=flowcell.widenToTargetReads(targetAverageReads);
 			}
 		}
-		
+
 		Shared.setThreads(oldThreads);
+		if(errorState){
+			throw new RuntimeException("PlotFlowCell terminated in an error state.");
+		}
 	}
 
 	/** Create read streams and process all data */
 	void loadKmers(){
 		Timer t2=new Timer();
 		outstream.print("Loading kmers:  \t");
-		if(bloomMode) {
+		if(bloomMode){
 			BloomFilter.printMem=false;
 			KmerCountAbstract.KMERS_PER_READ=kmersPerRead;
 		}
-		if(bloomMode && multithreadedLoad) {
+		if(bloomMode && multithreadedLoad){
 			KmerCountAbstract.CANONICAL=true;
 //			ReadCounter rc=new ReadCounter(k, true, false, true, false);
 			bloomFilter=new BloomFilter(in1, in2, extra, k, k, cbits, hashes, 1, true, false, true, 0.7f);
-		}else {
+		}else{
 			//Create a read input stream
 			final ConcurrentReadInputStream cris;
 			{
@@ -302,20 +311,20 @@ public class PlotFlowCell implements Accumulator<PlotFlowCell.WorkerThread> {
 			}
 			boolean paired=cris.paired();
 //			if(!ffin1.samOrBam()){outstream.println("Input is being processed as "+(paired ? "paired" : "unpaired"));}
-			
+
 			//Process the read stream
 			loadKmersInner(cris);
-			
+
 			if(verbose){outstream.println("Finished; closing streams.");}
-			
+
 			//Close the read streams
 			errorState|=ReadWrite.closeStreams(cris);
 		}
-		
+
 		t2.stop();
 		outstream.println(t2);
-		
-		if(bloomFilter!=null) {
+
+		if(bloomFilter!=null){
 			bloomCorrector=new BloomFilterCorrector1(bloomFilter, k, k);
 			double used=bloomFilter.filter.usedFraction();
 			long unique=(long)bloomFilter.filter.estimateUniqueKmersFromUsedFraction(hashes, used);
@@ -328,23 +337,23 @@ public class PlotFlowCell implements Accumulator<PlotFlowCell.WorkerThread> {
 		}
 		KmerCountAbstract.KMERS_PER_READ=0;
 	}
-	
+
 	/**
 	 * Loads expected barcodes and initializes barcode statistics tracking.
 	 * @param expectedBarcodesFile Path to file containing expected barcodes
 	 * @return BarcodeStats object for barcode analysis
 	 */
-	BarcodeStats loadBarcodes(String expectedBarcodesFile) {
-		if(delimiter<0) {
+	BarcodeStats loadBarcodes(String expectedBarcodesFile){
+		if(delimiter<0){
 			delimiter=(byte)ffin1.barcodeDelimiter();
 			barcodesPerRead=ffin1.barcodesPerRead();
 		}
 		BarcodeStats bs=new BarcodeStats(delimiter, barcodesPerRead, extin);
-		if(bs.length1<1 && bs.length2<1) {
+		if(bs.length1<1 && bs.length2<1){
 			bs.length1=ffin1.barcodeLength(1);
 			bs.length2=ffin1.barcodeLength(2);
 		}
-		if(expectedBarcodesFile!=null) {
+		if(expectedBarcodesFile!=null){
 			bs.loadBarcodeList(expectedBarcodesFile, barcodesPerRead>1 ? delimiter : 0, false, false);
 		}
 		return bs;
@@ -352,7 +361,7 @@ public class PlotFlowCell implements Accumulator<PlotFlowCell.WorkerThread> {
 
 	/** Create read streams and process all data */
 	void fillTiles(){
-		
+
 		//Create a read input stream
 		final ConcurrentReadInputStream cris;
 		{
@@ -364,44 +373,44 @@ public class PlotFlowCell implements Accumulator<PlotFlowCell.WorkerThread> {
 //		if(!ffin1.samOrBam()){outstream.println("Input is being processed as "+(paired ? "paired" : "unpaired"));}
 
 		Timer t2=new Timer();
-		
+
 		//Process the read stream
 		outstream.print("Filling tiles:  \t");
-		if(multithreadedFill) {
+		if(multithreadedFill){
 			spawnThreads(cris);
-		}else {
+		}else{
 			fillTilesInner(cris);
 		}
-		
+
 		t2.stop();
 		outstream.println(t2);
-		
+
 		ArrayList<MicroTile> mtList=flowcell.calcStats();
 		if(flowcell.avgReads<targetAverageReads){
 			flowcell=flowcell.widenToTargetReads(targetAverageReads);
 			mtList=flowcell.toList();
 		}
-		
+
 		if(dump!=null){
-			flowcell.dump(dump, overwrite);
+			flowcell.dump(dump, overwrite, dumpVersion);
 		}
-		
+
 		if(verbose){outstream.println("Finished; closing streams.");}
-		
+
 		//Close the read streams
 		errorState|=ReadWrite.closeStreams(cris);
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/** Iterate through the reads */
 	private void loadKmersInner(final ConcurrentReadInputStream cris){
 
-		if(bloomMode) {
+		if(bloomMode){
 			bloomFilter=new BloomFilter(k, k, cbits, hashes, 1, true, false, true, 0.7f);
-		}else {
+		}else{
 			keySets=new AbstractKmerTable[WAYS];
 
 			//Initialize tables
@@ -416,8 +425,8 @@ public class PlotFlowCell implements Accumulator<PlotFlowCell.WorkerThread> {
 		if(bloomMode) {bloomFilter.filter.shutdown();}
 		//Do anything necessary after processing
 	}
-	
-	private void loadKmersST(final ConcurrentReadInputStream cris) {
+
+	private void loadKmersST(final ConcurrentReadInputStream cris){
 		//Grab the first ListNum of reads
 		ListNum<Read> ln=cris.nextList();
 		//Grab the actual read list from the ListNum
@@ -428,7 +437,7 @@ public class PlotFlowCell implements Accumulator<PlotFlowCell.WorkerThread> {
 			Read r=reads.get(0);
 			assert((ffin1==null || ffin1.samOrBam()) || (r.mate!=null)==cris.paired());
 		}
-		
+
 		LongList kmers=new LongList(300);
 
 		//As long as there is a nonempty read list...
@@ -458,49 +467,49 @@ public class PlotFlowCell implements Accumulator<PlotFlowCell.WorkerThread> {
 			cris.returnList(ln.id, ln.list==null || ln.list.isEmpty());
 		}
 	}
-	
+
 	/**
 	 * Loads k-mers from a single read into counting data structures.
 	 * Supports both all-kmer and single-kmer per read modes.
 	 * @param r Read to process for k-mers
 	 * @param kmers Temporary list for k-mer storage
 	 */
-	private void loadKmers(Read r, LongList kmers) {
+	private void loadKmers(Read r, LongList kmers){
 		if(r==null || r.length()<k) {return;}
 //		if(!randy.nextBoolean()) {return;}//Speed optimization, I guess
-		if(kmersPerRead<1) {
+		if(kmersPerRead<1){
 			kmers.clear();
 			BloomFilter.toKmers(r, kmers, k, 0, 0, true);
-			if(keySets!=null) {
-				for(int i=0; i<kmers.size; i++) {
+			if(keySets!=null){
+				for(int i=0; i<kmers.size; i++){
 					long kmer=kmers.array[i];
 					AbstractKmerTable table=keySets[(int)(kmer%WAYS)];
 					table.increment(kmer, 1);
 				}
-			}else {
-				for(int i=0; i<kmers.size; i++) {
+			}else{
+				for(int i=0; i<kmers.size; i++){
 					long kmer=kmers.array[i];
 					bloomFilter.filter.increment(kmer);
 				}
 			}
-		}else {
+		}else{
 //			final long kmer=toKmer(r.bases, randy.nextInt(r.length()-k2), k);
 			//G11: (r.length()-k2) is guaranteed >=1 here — the L467 guard returns when r.length()<k (k=31, k2=30), so length>=31 → length-30>=1; no div-by-zero in the modulo. numericID>=0 (stream-assigned) → non-negative index.
 			final long kmer=toKmer(r.bases, (int)(r.numericID%(r.length()-k2)), k);
 			if(kmer>=0){
-				if(keySets!=null) {
+				if(keySets!=null){
 					AbstractKmerTable table=keySets[(int)(kmer%WAYS)];
 					table.increment(kmer, 1);
-				}else {
+				}else{
 					bloomFilter.filter.increment(kmer);
 				}
 			}
 		}
 	}
-	
+
 	/** Iterate through the reads */
 	private void fillTilesInner(final ConcurrentReadInputStream cris){
-		
+
 		LongList kmers=new LongList();
 		IntList counts=new IntList();
 		{
@@ -508,69 +517,72 @@ public class PlotFlowCell implements Accumulator<PlotFlowCell.WorkerThread> {
 			ListNum<Read> ln=cris.nextList();
 			//Grab the actual read list from the ListNum
 			ArrayList<Read> reads=(ln!=null ? ln.list : null);
-			
+
 			//Check to ensure pairing is as expected
 			if(reads!=null && !reads.isEmpty()){
 				Read r=reads.get(0);
 				assert((ffin1==null || ffin1.samOrBam()) || (r.mate!=null)==cris.paired());
 			}
-			
+
 			//As long as there is a nonempty read list...
 			while(ln!=null && reads!=null && reads.size()>0){//ln!=null prevents a compiler potential null access warning
 				if(verbose){outstream.println("Fetched "+reads.size()+" reads.");}
-				
+
 				//Loop through each read in the list
 				for(int idx=0; idx<reads.size(); idx++){
-					final Read r1=reads.get(idx);
-					final Read r2=r1.mate;
-					
-					//Track the initial length for statistics
-					final int initialLength1=r1.length();
-					final int initialLength2=r1.mateLength();
-					
-					//Increment counters
-					readsProcessed+=r1.pairCount();
-					basesProcessed+=initialLength1+initialLength2;
-					
-					final MicroTile mt=flowcell.getMicroTile(r1.id);
-					
-					if(loadKmers){
-						processTileKmers(r1, mt, kmers, counts);
-						processTileKmers(r2, mt, kmers, counts);
-					}
-					
-					if(mapper!=null) {
-						mapper.map(r1);
-						mapper.map(r2);
-					}
-					
-					if(barcodeStats!=null) {
-						String code=r1.barcode(true);
-						int hdist=barcodeStats.calcHdist(code);
-						mt.barcodes+=barcodesPerRead;
-						mt.barcodeHDistSum+=hdist;
-					}
+						final Read r1=reads.get(idx);
+						final Read r2=r1.mate;
+						requireQuality(r1);
+						requireQuality(r2);
+
+						//Track the initial length for statistics
+						final int initialLength1=r1.length();
+						final int initialLength2=r1.mateLength();
+
+						//Increment counters
+						readsProcessed+=r1.pairCount();
+						basesProcessed+=initialLength1+initialLength2;
+
+						final MicroTile mt=flowcell.getMicroTile(r1.id);
+
+						if(loadKmers){
+							processTileKmers(r1, mt, kmers, counts);
+							processTileKmers(r2, mt, kmers, counts);
+						}
+
+						if(mapper!=null){
+							mapper.map(r1);
+							mapper.map(r2);
+						}
+
+						if(barcodeStats!=null){
+							String code=r1.barcode(true);
+							if(!barcodeStats.expectedCodeList.isEmpty()){
+								mt.barcodeHDistSum+=barcodeStats.calcHdist(code);
+							}
+							mt.barcodes+=barcodesPerRead;
+						}
 
 					mt.add(r1);
 					mt.add(r2);
 				}
-				
+
 				//Notify the input stream that the list was used
 				cris.returnList(ln);
 				if(verbose){outstream.println("Returned a list.");}
-				
+
 				//Fetch a new list
 				ln=cris.nextList();
 				reads=(ln!=null ? ln.list : null);
 			}
-			
+
 			//Notify the input stream that the final list was used
 			if(ln!=null){
 				cris.returnList(ln.id, ln.list==null || ln.list.isEmpty());
 			}
 		}
 	}
-	
+
 	/**
 	 * Processes k-mers for a read and updates tile statistics based on k-mer
 	 * analysis mode (single k-mer or all k-mers with Bloom filter).
@@ -579,27 +591,27 @@ public class PlotFlowCell implements Accumulator<PlotFlowCell.WorkerThread> {
 	 * @param kmers Temporary k-mer storage
 	 * @param counts Temporary count storage
 	 */
-	void processTileKmers(Read r, MicroTile mt, LongList kmers, IntList counts) {
+	void processTileKmers(Read r, MicroTile mt, LongList kmers, IntList counts){
 		if(r==null || r.length()<k) {return;}
-		
-		if(kmersPerRead<1 && bloomMode) {
+
+		if(kmersPerRead<1 && bloomMode){
 			processAllKmers(r, mt, kmers, counts);
-		}else {
+		}else{
 			processOneKmer(r, mt);
 		}
 	}
-	
+
 	/**
 	 * Processes a single k-mer from a read and updates tile hit/miss statistics
 	 * based on k-mer frequency in the loaded k-mer sets.
 	 * @param r Read to process
 	 * @param mt MicroTile to update
 	 */
-	void processOneKmer(Read r, MicroTile mt) {
+	void processOneKmer(Read r, MicroTile mt){
 //		final long kmer=toKmer(r.bases, randy.nextInt(r.length()-k2), k);
 		//G11: same modulo-safety as loadKmers — reached only via processTileKmers (L580 guard r.length()<k returns), so length>=31 → (length-k2)>=1, no div-by-zero. (numericID+1) can't overflow at realistic read counts.
 		final long kmer=toKmer(r.bases, (int)((r.numericID+1)%(r.length()-k2)), k);
-		if(kmer<0) {
+		if(kmer<0){
 			mt.misses++;
 			return;
 		}
@@ -610,7 +622,7 @@ public class PlotFlowCell implements Accumulator<PlotFlowCell.WorkerThread> {
 		if(value>=cutoff) {mt.hits++;}
 		else {mt.misses++;}
 	}
-	
+
 	/**
 	 * Processes all k-mers from a read using Bloom filter correction to identify
 	 * potential sequencing errors and update tile error statistics.
@@ -619,15 +631,15 @@ public class PlotFlowCell implements Accumulator<PlotFlowCell.WorkerThread> {
 	 * @param kmers K-mer storage
 	 * @param counts Count storage for k-mer frequencies
 	 */
-	void processAllKmers(Read r, MicroTile mt, LongList kmers, IntList counts) {
+	void processAllKmers(Read r, MicroTile mt, LongList kmers, IntList counts){
 		final byte[] bases=r.bases;
 		final byte[] quals=r.quality;
-		
+
 		int valid=bloomCorrector.fillKmers(bases, kmers);
 		if(valid<2){return;}
 //		if(!r.containsUndefined() && !bloomCorrector.hasErrorsFast(kmers)){return;}
-		
-		
+
+
 		bloomCorrector.fillCounts(bases, kmers, counts);
 		final int depth=(counts.size<1 ? 0 : counts.get((int)((r.numericID+1)%counts.size)));
 		mt.depthSum+=depth;
@@ -637,37 +649,37 @@ public class PlotFlowCell implements Accumulator<PlotFlowCell.WorkerThread> {
 		mt.kmerBaseErrorCount+=possibleErrors;
 		mt.kmerReadErrorCount+=(possibleErrors>0 ? 1 : 0);
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------          Threading           ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/** Spawn process threads */
 	private void spawnThreads(final ConcurrentReadInputStream cris){
-		
+
 		//Do anything necessary prior to processing
-		
+
 		//Determine how many threads may be used
 		final int threads=Shared.threads();
-		
+
 		//Fill a list with ProcessThreads
 		ArrayList<WorkerThread> alpt=new ArrayList<WorkerThread>(threads);
 		for(int i=0; i<threads; i++){
 			alpt.add(new WorkerThread(cris, i));
 		}
-		
+
 		//Start the threads and wait for them to finish
 		boolean success=ThreadWaiter.startAndWait(alpt, this);
 		errorState|=!success;
-		
+
 		//Do anything necessary after processing
-		
+
 	}
-	
+
 	@Override
 	public final void accumulate(WorkerThread pt){
 //		System.err.println("Accumulating "+pt.tid+": "+pt.readsProcessedT);
-		synchronized(pt) {
+		synchronized(pt){
 			flowcell.add(pt.fc);
 			readsProcessed+=pt.readsProcessedT;
 			basesProcessed+=pt.basesProcessedT;
@@ -676,17 +688,19 @@ public class PlotFlowCell implements Accumulator<PlotFlowCell.WorkerThread> {
 //		System.err.println("readsProcessed: "+readsProcessed+", "+flowcell.readsProcessed);
 //		pt.fc.dump(pt.tid+".txt", overwrite);
 	}
-	
+
 	@Override
-	public final boolean success() {return !errorState;}
-	
+	public final boolean success(){
+		return !errorState;
+	}
+
 	/**
 	 * Worker thread for parallel processing of flow cell tile data. Each thread
 	 * maintains its own FlowCell instance and processes a subset of reads
 	 * independently before results are accumulated.
 	 */
-	class WorkerThread extends Thread {
-		
+	class WorkerThread extends Thread{
+
 		/**
 		 * Constructs a worker thread with input stream and thread ID.
 		 * @param cris_ Shared concurrent read input stream
@@ -697,37 +711,37 @@ public class PlotFlowCell implements Accumulator<PlotFlowCell.WorkerThread> {
 			tid=tid_;
 			fc=new FlowCell(k);
 		}
-		
+
 		//Called by start()
 		@Override
 		public void run(){
 			//Do anything necessary prior to processing
-			
+
 			//Process the reads
 			processInner();
-			
+
 			//Do anything necessary after processing
-			
+
 			//Indicate successful exit status
 			success=true;
 		}
-		
+
 		/** Iterate through the reads */
 		void processInner(){
-			
+
 			//Grab the first ListNum of reads
 			ListNum<Read> ln=cris.nextList();
 
 			//As long as there is a nonempty read list...
 			while(ln!=null && ln.size()>0){
 //				if(verbose){outstream.println("Fetched "+reads.size()+" reads.");} //Disabled due to non-static access
-				
+
 				processList(ln);
-				
+
 				//Notify the input stream that the list was used
 				cris.returnList(ln);
 //				if(verbose){outstream.println("Returned a list.");} //Disabled due to non-static access
-				
+
 				//Fetch a new list
 				ln=cris.nextList();
 			}
@@ -737,7 +751,7 @@ public class PlotFlowCell implements Accumulator<PlotFlowCell.WorkerThread> {
 				cris.returnList(ln.id, ln.list==null || ln.list.isEmpty());
 			}
 		}
-		
+
 		/**
 		 * Processes a list of reads, validating each read and processing read pairs
 		 * through the tile analysis pipeline.
@@ -747,16 +761,18 @@ public class PlotFlowCell implements Accumulator<PlotFlowCell.WorkerThread> {
 
 			//Grab the actual read list from the ListNum
 			final ArrayList<Read> reads=ln.list;
-			
+
 			//Loop through each read in the list
 			for(int idx=0; idx<reads.size(); idx++){
 				final Read r1=reads.get(idx);
 				final Read r2=r1.mate;
-				
+				requireQuality(r1);
+				requireQuality(r2);
+
 				//Validate reads in worker threads
 				if(!r1.validated()){r1.validate(true);}
 				if(r2!=null && !r2.validated()){r2.validate(true);}
-				
+
 				{
 					//Reads are processed in this block.
 					processReadPair(r1, r2);
@@ -766,37 +782,37 @@ public class PlotFlowCell implements Accumulator<PlotFlowCell.WorkerThread> {
 			//Output reads to the output stream
 //			if(ros!=null){ros.add(reads, ln.id);}
 		}
-		
+
 		/**
 		 * Process a read or a read pair.
 		 * @param r1 Read 1
 		 * @param r2 Read 2 (may be null)
-		 * @return True if the reads should be kept, false if they should be discarded.
 		 */
 		void processReadPair(final Read r1, final Read r2){
 			//Increment counters
 			readsProcessedT+=r1.pairCount();
 			basesProcessedT+=r1.pairLength();
-			
+
 			final MicroTile mt=fc.getMicroTile(r1.id);
-			
+
 			if(loadKmers){
 				processTileKmers(r1, mt, kmers, counts);
 				processTileKmers(r2, mt, kmers, counts);
 			}
-			
-			if(mapper!=null) {
+
+			if(mapper!=null){
 				mapper.map(r1);
 				mapper.map(r2);
 			}
-			
-			if(barcodeStats!=null) {
+
+			if(barcodeStats!=null){
 				String code=r1.barcode(true);
-				int hdist=barcodeStats.calcHdist(code);
+				if(!barcodeStats.expectedCodeList.isEmpty()){
+					mt.barcodeHDistSum+=barcodeStats.calcHdist(code);
+				}
 				mt.barcodes+=barcodesPerRead;
-				mt.barcodeHDistSum+=hdist;
 			}
-			
+
 			mt.add(r1);
 			mt.add(r2);
 		}
@@ -805,28 +821,28 @@ public class PlotFlowCell implements Accumulator<PlotFlowCell.WorkerThread> {
 		protected long readsProcessedT=0;
 		/** Number of bases processed by this thread */
 		protected long basesProcessedT=0;
-		
+
 		/** True only if this thread has completed successfully */
 		boolean success=false;
-		
+
 		/** Shared input stream */
 		private final ConcurrentReadInputStream cris;
 		/** Thread ID */
 		final int tid;
-		
+
 		/** Thread-local flow cell data structure */
 		final FlowCell fc;
-		
+
 		/** Thread-local k-mer storage */
 		final LongList kmers=new LongList();
 		/** Thread-local count storage */
 		final IntList counts=new IntList();
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Helper Methods        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
 	 * Generate a kmer from specified start location
 	 * @param bases
@@ -838,7 +854,7 @@ public class PlotFlowCell implements Accumulator<PlotFlowCell.WorkerThread> {
 		final int stop=start+klen;
 		assert(stop<=bases.length) : klen+", "+bases.length;
 		long kmer=0;
-		
+
 		for(int i=start; i<stop; i++){
 			final byte b=bases[i];
 			final long x=Dedupe.baseToNumber[b];
@@ -846,7 +862,21 @@ public class PlotFlowCell implements Accumulator<PlotFlowCell.WorkerThread> {
 		}
 		return kmer;
 	}
-	
+
+	/**
+	 * Verify that a read has base qualities before any tile statistics consume it.
+	 * PlotFlowCell metrics depend on quality-probability and quality-weighted k-mer
+	 * calculations, so FASTA reads and SAM/BAM records with '*' QUAL cannot produce
+	 * a valid flow-cell model.
+	 * @param r read to check, or null for an absent mate
+	 */
+	private static void requireQuality(final Read r){
+		if(r==null || r.length()<1 || r.quality!=null){return;}
+		KillSwitch.killTraceless("Missing quality scores: plotflowcell.sh requires "+
+				"per-base qualities; found none for read '"+r.id+"'. FASTA inputs "+
+				"and SAM/BAM records with '*' QUAL are unsupported.");
+	}
+
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
@@ -855,38 +885,40 @@ public class PlotFlowCell implements Accumulator<PlotFlowCell.WorkerThread> {
 	private String in1=null;
 	/** Secondary input file path */
 	private String in2=null;
-	
+
 	/** Additional input files */
 	private ArrayList<String> extra=new ArrayList<String>();
-	
+
 	/** Override input file extension */
 	private String extin=null;
-	
+
 	/** Enable pound symbol file substitution */
 	private boolean pound=true;
 	/** Output dump file path */
 	private String dump=null;
+	/** Output schema: legacy 3 by default; 4 preserves scalar tile counters exactly. */
+	private int dumpVersion=3;
 	/** Input dump file path for loading existing data */
 	private String dumpIn=null;
-	
+
 	/*--------------------------------------------------------------*/
 
 	/** Number of reads processed */
 	public long readsProcessed=0;
 	/** Number of bases processed */
 	public long basesProcessed=0;
-	
+
 	/** Quit after processing this many input reads; -1 means no limit */
 	private long maxReads=-1;
-	
+
 	/** Hold kmers.  A kmer X such that X%WAYS=Y will be stored in keySets[Y] */
 	private AbstractKmerTable[] keySets;
-	
+
 	/** Bloom filter for memory-efficient k-mer counting */
 	private BloomFilter bloomFilter;
 	/** Bloom filter corrector for error detection */
 	private BloomFilterCorrector bloomCorrector;
-	
+
 	/** Use Bloom filter instead of hash tables for k-mer counting */
 	private boolean bloomMode=false;
 	/** Enable multithreaded k-mer loading */
@@ -902,14 +934,14 @@ public class PlotFlowCell implements Accumulator<PlotFlowCell.WorkerThread> {
 	private int cbits=4;
 	/** Number of hash functions for Bloom filter */
 	private int hashes=3;
-	
+
 	/** Target average reads per tile for flow cell widening */
 	private int targetAverageReads=800;
-	
+
 	/** Number of hash table partitions for k-mer storage */
 	private static final int WAYS=31;
 	private static final int k=31, k2=30;
-	
+
 //	private final Random randy=Shared.threadLocalRandom();
 	/** Main flow cell data structure */
 	private FlowCell flowcell;
@@ -924,8 +956,8 @@ public class PlotFlowCell implements Accumulator<PlotFlowCell.WorkerThread> {
 	float minIdentity=0.65f;
 	/** K-mer size for alignment (PhiX is unique down to k=13) */
 	int alignK=19; //Phix is unique down to k=13
-	
-	
+
+
 	/** Barcode delimiter character */
 	private byte delimiter='+';
 	/** Number of barcodes expected per read */
@@ -935,9 +967,9 @@ public class PlotFlowCell implements Accumulator<PlotFlowCell.WorkerThread> {
 	/** Barcode statistics and analysis object */
 	private BarcodeStats barcodeStats;
 //	private long minCountToUse=0;
-//	
+//
 //	private boolean warned=false;
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
@@ -946,16 +978,16 @@ public class PlotFlowCell implements Accumulator<PlotFlowCell.WorkerThread> {
 	private final FileFormat ffin1;
 	/** Secondary input file */
 	private final FileFormat ffin2;
-	
+
 	@Override
 	public final ReadWriteLock rwlock() {return rwlock;}
 	/** Read-write lock for thread-safe operations */
 	private final ReadWriteLock rwlock=new ReentrantReadWriteLock();
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/** Print status messages to this output stream */
 	private PrintStream outstream=System.err;
 	/** Print verbose messages */
@@ -966,5 +998,5 @@ public class PlotFlowCell implements Accumulator<PlotFlowCell.WorkerThread> {
 	private boolean overwrite=true;
 	/** Append to existing output files */
 	private boolean append=false;
-	
+
 }

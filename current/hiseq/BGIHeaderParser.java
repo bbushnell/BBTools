@@ -15,37 +15,37 @@ import structures.ByteBuilder;
  * @author Brian Bushnell
  * @date April 5, 2024
  */
-public class BGIHeaderParser extends ReadHeaderParser {
-	
+public class BGIHeaderParser extends ReadHeaderParser{
+
 	/*--------------------------------------------------------------*/
 	/*----------------             Main             ----------------*/
 	/*--------------------------------------------------------------*/
-	
-	public static void main(String[] args) {
+
+	public static void main(String[] args){
 		BGIHeaderParser ihp=new BGIHeaderParser();
 		ihp.test(args.length>0 ? args[0] : null);
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Expected Format       ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	//v300056266_run28L3C001R0010057888/1
 	//20A_V100002704L1C001R012000000/1
 	//E200008112L1C001R00100063962/1
-	
+
 	//split: [v300056266, run28, 3, 001, 0010057888, 1]
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Public Methods        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
 	 * Parses a BGI header string and primes the internal tokenizer.
 	 * @param id_ Header string to parse
 	 * @return this parser for chaining
 	 */
-	public BGIHeaderParser parse(String id_) {
+	public BGIHeaderParser parse(String id_){
 		id=id_;
 		lp.set(id_);
 		return this;
@@ -53,12 +53,13 @@ public class BGIHeaderParser extends ReadHeaderParser {
 
 	//@LH00223:28:22GLGMLT3:1:1101:5928:1016 1:N:0:CTGCTTGGTT+CTAACGACAG (NovaseqX)
 	/**
-	 * Converts the parsed BGI header to Illumina-style format (machine:run:flowcell:lane:tile:x:y pairCode:N:controlBits:barcode).
+	 * Converts the parsed BGI header to Illumina-style format.
+	 * Format: machine:run:flowcell:lane:tile:x:y pairCode:N:controlBits:barcode
 	 * Appends optional barcode and extra metadata if present.
 	 * @param barcode Optional barcode sequence
 	 * @return Illumina-formatted header string
 	 */
-	public String toIllumina(String barcode) {
+	public String toIllumina(String barcode){
 		bb.clear();
 		//TODO: Possible bug [hiseq/BGIHeaderParser#001] - machine() is hard-coded null for BGI, so this
 		//emits the literal "null" as the instrument field and DROPS the real BGI instrument id (sample(),
@@ -78,34 +79,34 @@ public class BGIHeaderParser extends ReadHeaderParser {
 		if(ex!=null) {bb.tab().append(ex);}
 		return bb.toString();
 	}
-	
+
 	/** Returns the sample/machine token (first term) or null if unavailable. */
 	@Override
-	public String sample() {
+	public String sample(){
 		return lp.terms()<=0 ? null : lp.parseString(0);
 	}
-	
+
 	/**
 	 * Returns the machine identifier (BGI headers do not provide one; returns null).
 	 */
 	@Override
-	public String machine() {
+	public String machine(){
 		return null;
 	}
 
 	/** Returns the run number (BGI headers do not provide one; returns 0). */
 	@Override
-	public int run() {
+	public int run(){
 		return 0;
 	}
-	
+
 	/**
 	 * Extracts the flowcell identifier from the BGI header.
 	 * Returns the second parsed token which represents the flowcell ID.
 	 * @return Flowcell identifier string, or null if not available
 	 */
 	@Override
-	public String flowcell() {
+	public String flowcell(){
 		return lp.terms()<=1 ? null : lp.parseString(1);
 	}
 
@@ -167,7 +168,7 @@ public class BGIHeaderParser extends ReadHeaderParser {
 	 * @return Always returns null for BGI headers
 	 */
 	@Override
-	public String barcode() {
+	public String barcode(){
 		return null;
 	}
 
@@ -177,18 +178,18 @@ public class BGIHeaderParser extends ReadHeaderParser {
 	 * @return Extra information string, or null if not available
 	 */
 	@Override
-	public String extra() {
+	public String extra(){
 		//TODO: Possible bug [hiseq/BGIHeaderParser#002] - guard tests terms<=11 but reads term 6, so extra
 		//is always null for a standard 6-term BGI header (and for any 7-11 term one). The 11 looks copied
 		//from another parser; to read term 6 it should be terms()<=6 ? null : parseString(6).
 		return lp.terms()<=11 ? null : lp.parseString(6);
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Private Fields        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	private final LineParserS4 lp=new LineParserS4("_LCR/\t");
 	private final ByteBuilder bb=new ByteBuilder(64);
-	
+
 }

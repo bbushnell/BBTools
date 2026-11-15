@@ -12,39 +12,39 @@ import structures.ByteBuilder;
  * @author Brian Bushnell
  * @date May 6, 2024
  */
-public class BGIHeaderParser2 extends ReadHeaderParser {
-	
+public class BGIHeaderParser2 extends ReadHeaderParser{
+
 	/*--------------------------------------------------------------*/
 	/*----------------             Main             ----------------*/
 	/*--------------------------------------------------------------*/
-	
-	public static void main(String[] args) {
+
+	public static void main(String[] args){
 		BGIHeaderParser2 ihp=new BGIHeaderParser2();
 		ihp.test(args.length>0 ? args[0] : null);
 		ihp.parse(args[0]);
 		System.err.println("toIllumina: "+ihp.toIllumina("ACGTACGT"));
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Expected Format       ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	//v300056266_run28L3C001R0010057888/1
 	//20A_V100002704L1C001R012000000/1
 	//E200008112L1C001R00100063962/1
-	
+
 	//split: [v300056266, run28, 3, 001, 0010057888, 1]
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Public Methods        ----------------*/
 	/*--------------------------------------------------------------*/
-	
-	public BGIHeaderParser2 parse(String id_) {
+
+	public BGIHeaderParser2 parse(String id_){
 		id=id_;
 		extra=null;
 		if(PARSE_EXTRA) {//Handles comments, but it's slow
 			int idx=firstWhitespace(id);
-			if(idx>=0) {
+			if(idx>=0){
 				extra=id.substring(idx+1);
 				id=id.substring(0, idx);
 			}
@@ -52,9 +52,9 @@ public class BGIHeaderParser2 extends ReadHeaderParser {
 		lp.set(id);
 		return this;
 	}
-	
-	private static int firstWhitespace(String s) {
-		for(int i=0; i<s.length(); i++) {
+
+	private static int firstWhitespace(String s){
+		for(int i=0; i<s.length(); i++){
 			if(Character.isWhitespace(s.charAt(i))){
 				return i;
 			}
@@ -63,7 +63,7 @@ public class BGIHeaderParser2 extends ReadHeaderParser {
 	}
 
 	//@LH00223:28:22GLGMLT3:1:1101:5928:1016 1:N:0:CTGCTTGGTT+CTAACGACAG (NovaseqX)
-	public String toIllumina(String barcode) {
+	public String toIllumina(String barcode){
 		bb.clear();
 		bb.append(machine()).colon();
 		bb.append(run()).colon();
@@ -80,15 +80,15 @@ public class BGIHeaderParser2 extends ReadHeaderParser {
 		if(ex!=null) {bb.tab().append(ex);}
 		return bb.toString();
 	}
-	
+
 	@Override
-	public String sample() {
+	public String sample(){
 		String s=lp.terms()<=1 ? null : lp.parseString(1);
 		return s!=null ? s : "SA";
 	}
-	
+
 	@Override
-	public String machine() {
+	public String machine(){
 		//"CG" (Complete Genomics) is the CORRECT reference: toIllumina() above emits machine() as the leading
 		//field, giving a well-formed "CG:run:flowcell:...". Contrast [hiseq/BGIHeaderParser#001]: the v1
 		//BGIHeaderParser.machine() returns null -> its toIllumina() emits a literal "null" machine field. Twin
@@ -97,12 +97,12 @@ public class BGIHeaderParser2 extends ReadHeaderParser {
 	}
 
 	@Override
-	public int run() {
+	public int run(){
 		return 0;
 	}
-	
+
 	@Override
-	public String flowcell() {
+	public String flowcell(){
 		String s=lp.terms()<=0 ? null : lp.parseString(0);
 //		String s=lp.terms()<=1 ? null : lp.parseString(1);
 		return s!=null ? s : "FC";
@@ -177,7 +177,7 @@ public class BGIHeaderParser2 extends ReadHeaderParser {
 	 * @return Always returns null
 	 */
 	@Override
-	public String barcode() {
+	public String barcode(){
 		return null;
 	}
 
@@ -187,23 +187,23 @@ public class BGIHeaderParser2 extends ReadHeaderParser {
 	 * @return Comment string or null if no comments or parsing disabled
 	 */
 	@Override
-	public String extra() {
+	public String extra(){
 //		return lp.terms()<=6 ? null : lp.parseString(6);
 		return extra;
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Private Fields        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	private String extra=null;
 	private final LineParserS4Reverse lp=new LineParserS4Reverse("_LCR/");
 	private final ByteBuilder bb=new ByteBuilder(64);
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Static Fields         ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	public static boolean PARSE_EXTRA=false;
-	
+
 }

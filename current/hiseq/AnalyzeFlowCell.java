@@ -27,6 +27,7 @@ import jgi.Dedupe;
 import parse.Parse;
 import parse.Parser;
 import parse.PreParser;
+import shared.KillSwitch;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
@@ -48,19 +49,22 @@ import template.Accumulator;
 import template.ThreadWaiter;
 
 /**
- * Analyzes a flow cell for low-quality areas.
- * Removes reads in the low-quality areas.
- * 
+ * Collects spatial quality statistics and filters reads using microtile decisions.
+ * Optional sampled Bloom counts, barcode statistics and alignment observations
+ * supplement base-quality measurements. Configuration changes process-wide parser,
+ * reader and tile settings; separate instances are not independent concurrent jobs.
+ * Workers coordinate shared model updates; public counters describe the current pass.
+ *
  * @author Brian Bushnell
  * @date August 31, 2016
  *
  */
-public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThread> {
-	
+public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThread>{
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
 	 * Code entrance from the command line.
 	 * @param args Command line arguments
@@ -69,49 +73,50 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 		Timer t=new Timer();
 		AnalyzeFlowCell x=new AnalyzeFlowCell(args);
 		x.process(t);
-		
+
 		//Close the print stream if it was redirected
 		Shared.closeStream(x.outstream);
 	}
-	
+
 	/**
-	 * Constructor.
+	 * Parses options, configures shared settings and checks input/output paths.
+	 * Does not start the read-processing passes; call process(Timer) separately.
 	 * @param args Command line arguments
 	 */
 	public AnalyzeFlowCell(String[] args){
-		
+
 		{//Preparse block for help, config files, and outstream
 			PreParser pp=new PreParser(args, getClass(), false);
 			args=pp.args;
 			outstream=pp.outstream;
 		}
-		
+
 		//Set shared static variables
 		ReadWrite.USE_PIGZ=ReadWrite.USE_UNPIGZ=true;
 		ReadWrite.setZipThreads(Shared.threads());
-		
+
 		Parser parser=parse(args);
-		
+
 		if(gToN || discardG){MicroTile.TRACK_CYCLES=true;}
-		
+
 		{//Process parser fields
 			Parser.processQuality();
-			
+
 			maxReads=parser.maxReads;
-			
+
 			overwrite=parser.overwrite;
 			append=parser.append;
 			setInterleaved=parser.setInterleaved;
-			
+
 			in1=parser.in1;
 			in2=parser.in2;
 
 			out1=parser.out1;
 			out2=parser.out2;
-			
+
 			extin=parser.extin;
 			extout=parser.extout;
-			
+
 
 			trimq=parser.trimq;
 			trimE=parser.trimE();
@@ -119,19 +124,19 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 			trimLeft=parser.qtrimLeft;
 			trimRight=parser.qtrimRight;
 		}
-		
+
 
 		Read.VALIDATE_IN_CONSTRUCTOR=true;
 		align=(align || alignOut!=null) && samInput==null && dumpIn==null;
-		
-		if(recalibrate) {
+
+		if(recalibrate){
 			CalcTrueQuality.initializeMatrices();
 		}
-//		if(mapper!=null) {
+//		if(mapper!=null){
 //			assert(mapper.getMap().size()>0) : refPath+", "+alignK+", "+minIdentity;
 //		}
 		checkFiles();
-		
+
 		//Create output FileFormat objects
 		ffout1=FileFormat.testOutput(out1, FileFormat.FASTQ, extout, true, overwrite, append, false);
 		ffout2=FileFormat.testOutput(out2, FileFormat.FASTQ, extout, true, overwrite, append, false);
@@ -141,11 +146,11 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 		ffin1=FileFormat.testInput(in1, FileFormat.FASTQ, extin, true, true);
 		ffin2=FileFormat.testInput(in2, FileFormat.FASTQ, extin, true, true);
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------    Initialization Helpers    ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
 	 * Parses command-line arguments for flow cell analysis parameters.
 	 * Handles tile sizing, k-mer loading, filtering options, alignment settings,
@@ -160,21 +165,21 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 		parser.qtrimRight=trimRight;
 		parser.trimq=trimq;
 		parser.minReadLength=minlen;
-		
+
 		//Parse each argument
 		for(int i=0; i<args.length; i++){
 			String arg=args[i];
-			
+
 			//Break arguments into their constituent parts, in the form of "a=b"
-			String[] split=arg.split("=");
+			String[] split=arg.split("=", 2);
 			String a=split[0].toLowerCase();
-			String b=split.length>1 ? split[1] : null;
-			
+			String b=split.length>1 && !split[1].isEmpty() ? split[1] : null;
+
 			if(a.equals("verbose")){
 				verbose=Parse.parseBoolean(b);
 			}else if(a.equals("outb") || a.equals("outbad")){
 				outbad=b;
-			}else if(a.equals("sam") || a.equals("insam") || 
+			}else if(a.equals("sam") || a.equals("insam") ||
 					a.equals("samin") || a.equals("saminput")){
 				samInput=b;
 			}else if(a.equals("sammt")){
@@ -191,6 +196,11 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 				targetAlignedReads=Parse.parseIntKMG(b);
 			}else if(a.equals("dump") || a.equals("dumpout") || a.equals("outdump")){
 				dumpOut=b;
+			}else if(a.equals("dumpversion")){
+				dumpVersion=Integer.parseInt(b);
+				if(dumpVersion!=3 && dumpVersion!=4){
+					throw new IllegalArgumentException("dumpversion must be 3 or 4: "+dumpVersion);
+				}
 			}else if(a.equals("indump") || a.equals("ind") || a.equals("dumpin")){
 				dumpIn=b;
 			}else if(a.equals("filterout") || a.equals("filterlist") || a.equals("coordinates")
@@ -209,32 +219,32 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 			}else if(a.equals("hashes")){
 				hashes=Integer.parseInt(b);
 			}
-			
+
 			else if(a.equals("smooth") || a.equals("fixspikes")){
-				if(!Tools.startsWithDigit(b)) {
+				if(!Tools.startsWithDigit(b)){
 					smoothDepths=Parse.parseBoolean(b) ? 3 : 0;
-				}else {
+				}else{
 					smoothDepths=Integer.parseInt(b);
 				}
 			}else if(a.equals("deblur") || a.equals("deconvolute")){
 				deblurDepths=Parse.parseBoolean(b);
 			}
-			
+
 			else if(a.equals("blur") || a.equals("blurtiles") || a.equals("smoothtiles")){
 				blurTiles=Parse.parseBoolean(b);
 			}
-			
-			else if(a.equals("recalibrate") || a.equals("recal")) {
+
+			else if(a.equals("recalibrate") || a.equals("recal")){
 				recalibrate=Parse.parseBoolean(b);
 			}
-			
+
 			else if(a.equals("minpolyg")){
 				MicroTile.MIN_POLY_G=Integer.parseInt(b);
 			}else if(a.equals("trackcycles")){
 				MicroTile.TRACK_CYCLES=Parse.parseBoolean(b);
 			}else if(a.equals("extra")){
-				if(b!=null) {
-					for(String s : b.split(",")) {
+				if(b!=null){
+					for(String s : b.split(",")){
 						extra.add(s);
 					}
 				}
@@ -243,7 +253,7 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 			}else if(a.equals("barcodesout") || a.equals("barcodecounts") || a.equals("counts")){
 				barcodeCounts=b;
 			}
-			
+
 			else if(a.equals("merge")){
 				merge=Parse.parseBoolean(b);
 			}else if(a.equals("strict")){
@@ -251,8 +261,8 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 			}else if(a.equals("loose")){
 				strictmerge=!Parse.parseBoolean(b);
 			}
-			
-			else if(a.equals("alignout") || a.equals("sideout") || a.equals("phixout") || a.equals("outphix") || 
+
+			else if(a.equals("alignout") || a.equals("sideout") || a.equals("phixout") || a.equals("outphix") ||
 					a.equals("outsam") || a.equals("samout")){
 				alignOut=b;
 			}else if(a.equals("align")){
@@ -263,19 +273,19 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 				alignK1=Integer.parseInt(b);
 			}else if(a.equals("alignk2") || a.equals("sidek2")){
 				alignK2=Integer.parseInt(b);
-			}else if(a.equals("alignminid") || a.equals("alignminid1") || 
+			}else if(a.equals("alignminid") || a.equals("alignminid1") ||
 					a.equals("sideminid") || a.equals("sideminid1") || a.equals("minid") || a.equals("minid1")){
 				alignMinid1=Float.parseFloat(b);
 			}else if(a.equals("alignminid2") || a.equals("sideminid2") || a.equals("minid2")){
 				alignMinid2=Float.parseFloat(b);
-			}else if(a.equals("alignmm1") || a.equals("alignmidmask1") || a.equals("sidemm1") || 
+			}else if(a.equals("alignmm1") || a.equals("alignmidmask1") || a.equals("sidemm1") ||
 					a.equals("sidemidmask1")){
 				alignMM1=Integer.parseInt(b);
-			}else if(a.equals("alignmm2") || a.equals("alignmidmask2") || a.equals("sidemm2") || 
+			}else if(a.equals("alignmm2") || a.equals("alignmidmask2") || a.equals("sidemm2") ||
 					a.equals("sidemidmask2")){
 				alignMM2=Integer.parseInt(b);
 			}
-			
+
 			else if(a.equals("lqo") || a.equals("lowqualityonly")){
 				discardOnlyLowQuality=Parse.parseBoolean(b);
 			}else if(a.equals("dmult")){
@@ -293,7 +303,7 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 //			else if(a.equals("kmersperread")){
 //				kmersPerRead=Integer.parseInt(b);
 //			}
-			
+
 			else if(a.equals("parse_flag_goes_here")){
 				//Set a variable here
 			}else if(TileDump.parseStatic(arg, a, b)){
@@ -311,7 +321,7 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 		}
 		return parser;
 	}
-	
+
 	/** Validates input/output file configurations and adjusts settings.
 	 * Performs # replacement, interleaving adjustment, and file existence checks. */
 	private void checkFiles(){
@@ -320,7 +330,7 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 		checkFileExistence();
 		checkStatics();
 	}
-	
+
 	/** Replaces # symbols in file paths with 1/2 for paired-end files.
 	 * Handles both input and output file path expansion. */
 	private void doPoundReplacement(){
@@ -335,36 +345,36 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 			out2=out1.replace("#", "2");
 			out1=out1.replace("#", "1");
 		}
-		
+
 		//Ensure there is an input file
 		if(in1==null){throw new RuntimeException("Error - at least one input file is required.");}
 
 		//Ensure out2 is not set without out1
 		if(out1==null && out2!=null){throw new RuntimeException("Error - cannot define out2 without defining out1.");}
 	}
-	
+
 	/** Verifies that input files exist and output files can be created.
 	 * Checks for duplicate file names and validates file accessibility. */
 	private void checkFileExistence(){
-		
+
 		//Ensure output files can be written
-		if(!Tools.testOutputFiles(overwrite, append, false, out1, out2, outbad, dumpOut, barcodeCounts)){
+		if(!Tools.testOutputFiles(overwrite, append, false, out1, out2, outbad, dumpOut, barcodeCounts, coordsOut, alignOut)){
 			outstream.println((out1==null)+", "+(out2==null)+", "+out1+", "+out2+", "+outbad);
-			throw new RuntimeException("\n\noverwrite="+overwrite+"; Can't write to output files "+out1+", "+out2+", "+outbad+", "+dumpOut+"\n");
+			throw new RuntimeException("\n\noverwrite="+overwrite+"; Can't write to output files "+out1+", "+out2+", "+outbad+", "+dumpOut+", "+barcodeCounts+", "+coordsOut+", "+alignOut+"\n");
 		}
 
 		//Ensure input files can be read
 		if(!Tools.testInputFiles(false, true, in1, in2, samInput, dumpIn, expectedBarcodes)){
-			throw new RuntimeException("\nCan't read some input files.\n");  
+			throw new RuntimeException("\nCan't read some input files.\n");
 		}
 
 		//Ensure that no file was specified multiple times
-		if(!Tools.testForDuplicateFiles(true, in1, in2, out1, out2, outbad, samInput, 
-				dumpIn, dumpOut, expectedBarcodes, barcodeCounts)){
+		if(!Tools.testForDuplicateFiles(true, in1, in2, out1, out2, outbad, samInput,
+				dumpIn, dumpOut, expectedBarcodes, barcodeCounts, coordsOut, alignOut)){
 			throw new RuntimeException("\nSome file names were specified multiple times.\n");
 		}
 	}
-	
+
 	/** Configures interleaved file handling based on input/output file counts.
 	 * Sets FASTQ interleaving flags for proper paired-end read processing. */
 	private void adjustInterleaving(){
@@ -389,7 +399,7 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 			}
 		}
 	}
-	
+
 	/**
 	 * Validates and adjusts static configuration settings.
 	 * Optimizes ByteFile threading mode and verifies FastaReadInputStream
@@ -400,50 +410,50 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 		if(!ByteFile.FORCE_MODE_BF1 && !ByteFile.FORCE_MODE_BF2 && Shared.threads()>2){
 			ByteFile.FORCE_MODE_BF2=true;
 		}
-		
+
 		assert(FastaReadInputStream.settingsOK());
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
 	/** Create read streams and process all data */
 	public void process(Timer t){
-		
+
 		//Reset counters
 		readsProcessed=0;
 		basesProcessed=0;
-		
+
 		if(dumpIn==null){
 			barcodeStats=loadBarcodes(expectedBarcodes);
-			if(barcodeCounts!=null) {
+			if(barcodeCounts!=null){
 				barcodeMap=new ConcurrentHashMap<String, AtomicStringNum>();
 			}
 			if(loadKmers){loadKmers();}
 			flowcell=new FlowCell(k);
 			fillTiles();
-			
+
 			bloomFilter=null;//Clearing before widen saves memory
 			ArrayList<MicroTile> mtList;
-//			if(!processSamMT) {loadSam_ST(samInput);}
+//			if(!processSamMT){loadSam_ST(samInput);}
 			Timer t2=new Timer();
 			boolean showTime=false;
-			synchronized(flowcell) {
+			synchronized(flowcell){
 				mtList=flowcell.calcStats();
-				if(showTime) {t2.stopAndStart("calcStats: ");}
+				if(showTime){t2.stopAndStart("calcStats: ");}
 				if(flowcell.avgReads<targetAverageReads){
 					flowcell=flowcell.widenToTargetReads(targetAverageReads);
-					if(showTime) {t2.stopAndStart("Widen: ");}
+					if(showTime){t2.stopAndStart("Widen: ");}
 					mtList=flowcell.toList();
-					if(showTime) {t2.stopAndStart("toList: ");}
+					if(showTime){t2.stopAndStart("toList: ");}
 				}
-				if(blurTiles) {
+				if(blurTiles){
 					flowcell.blur();
-					if(showTime) {t2.stopAndStart("Blur: ");}
+					if(showTime){t2.stopAndStart("Blur: ");}
 				}
 				//Temporarily widen to calculate a regression
-				if(flowcell.avgAlignedReads<targetAlignedReads && flowcell.readsAligned>targetAlignedReads) {
+				if(flowcell.avgAlignedReads<targetAlignedReads && flowcell.readsAligned>targetAlignedReads){
 					final int oldX=Tile.xSize, oldY=Tile.ySize;
 					FlowCell temp=flowcell.widenToTargetAlignedReads(targetAlignedReads);
 					temp.calcStats();
@@ -451,32 +461,32 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 					flowcell.uniqueToBaseErrorRateFormula=temp.uniqueToBaseErrorRateFormula;
 					Tile.xSize=oldX;
 					Tile.ySize=oldY;
-					if(showTime) {t2.stopAndStart("Widen2: ");}
+					if(showTime){t2.stopAndStart("Widen2: ");}
 				}
-//				if(MicroTile.trackDepth) {flowcell.summarizeDepth();}
+//				if(MicroTile.trackDepth){flowcell.summarizeDepth();}
 			}
 
 			long readsToDiscard=TileDump.markTiles(flowcell, mtList, outstream);
 
 			if(dumpOut!=null){
-				flowcell.dump(dumpOut, overwrite);
-				if(showTime) {t2.stopAndStart("Dump: ");}
+				flowcell.dump(dumpOut, overwrite, dumpVersion);
+				if(showTime){t2.stopAndStart("Dump: ");}
 			}
-			if(barcodeCounts!=null) {
+			if(barcodeCounts!=null){
 				dumpBarcodes(barcodeMap.values(), barcodeCounts, overwrite);
-				if(showTime) {t2.stopAndStart("Dump Barcodes: ");}
+				if(showTime){t2.stopAndStart("Dump Barcodes: ");}
 			}
 		}else{
 			flowcell=new FlowCell(dumpIn);
 //			if(loadKmers){loadKmers();}
-			if(targetX>Tile.xSize || targetY>Tile.ySize) {
+			if(targetX>Tile.xSize || targetY>Tile.ySize){
 				flowcell=flowcell.widen(targetX, targetY, true);
 			}
 			if(flowcell.avgReads<targetAverageReads){
 				flowcell.calcStats();//May be necessary for calculating average reads
 				flowcell=flowcell.widenToTargetReads(targetAverageReads);
 			}
-			if(blurTiles) {flowcell.blur();}
+			if(blurTiles){flowcell.blur();}
 			ArrayList<MicroTile> mtList=flowcell.calcStats();
 			long readsToDiscard=TileDump.markTiles(flowcell, mtList, outstream);
 		}
@@ -490,13 +500,15 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 		System.err.println("STDev poly-G:    \t"+Tools.format("%.4f", flowcell.stdPolyG));
 		System.err.println("Alignment Rate:  \t"+Tools.format("%.8f", flowcell.alignmentRate()));
 		System.err.println("Base Error Rate: \t"+Tools.format("%.8f", flowcell.baseErrorRate()));
-		
-		if(sidechannel!=null && sidechannel.samOut) {Data.unloadAll();}
-		
+
+		if(sidechannel!=null && sidechannel.samOut){Data.unloadAll();}
+
 		processReads(t);
 	}
 
-	/** Create read streams and process all data */
+	/** Builds the sampled count table from primary inputs and complete extra references.
+	 * The scalar path uses unweighted keys; the parallel loader receives minProb.
+	 * Changes shared loader settings and restores selected settings on normal completion. */
 	void loadKmers(){
 		Timer t2=new Timer();
 		outstream.print("Loading kmers:  \t");
@@ -515,15 +527,15 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 		KmerCountAbstract.IDMASK=idmask_write;
 		KmerCountAbstract.minProb=minProb;
 		KmerCountAbstract.CANONICAL=true;
-		
-		if(loadThreads>1) {
-			if(idmask_write>7) {
+
+		if(loadThreads>1){
+			if(idmask_write>7){
 				KmerCountAbstract.MAX_COUNT_THREADS=loadThreads;
 			}
-			bloomFilter=new BloomFilter(in1, in2, extra, k, k, cbits, hashes, 
+			bloomFilter=new BloomFilter(in1, in2, extra, k, k, cbits, hashes,
 					1, true, false, false, 0.65f);
 			bloomFilter.filter.shutdown();
-		}else {
+		}else{
 			//Create a read input stream
 			final Streamer cris;
 			{
@@ -534,66 +546,72 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 			boolean paired=cris.paired();
 			//Process the read stream
 			loadKmersInner(cris);
-			
+
 //			if(verbose){outstream.println("Finished; closing streams.");}
-			
+
 			//Close the read streams
 			errorState|=ReadWrite.closeStreams(cris);
+			//HIL-005: extra references are complete inputs, independent of the primary read limit.
+			for(String fname : extra){loadExtraKmers(fname);}
 			bloomFilter.filter.shutdown();
 		}
-		
+
 		KmerCountAbstract.KMERS_PER_READ=0;
 		KmerCountAbstract.IDMASK=0;
 		KmerCountAbstract.MAX_COUNT_THREADS=oldMCT;
 		KmerCountAbstract.minProb=oldProb;
-		
+
 		double used=bloomFilter.filter.usedFraction();
 		long unique=(long)bloomFilter.filter.estimateUniqueKmersFromUsedFraction(hashes, used);
 		System.err.println(String.format("Bloom Occupancy:\t%.2f%%", 100*used));
 		System.err.println("Unique Kmers:   \t"+unique);
-		
+
 		t2.stop();
 		outstream.println(t2);
 	}
 
-	/** Create read streams and process all data */
+	/** Opens primary and optional alignment readers, fills the spatial model, and
+	 * closes the readers after the workers finish. Records reader/side-channel errors
+	 * in errorState for the enclosing processing operation to report. */
 	void fillTiles(){
-		
+
 		//Create a read input stream
 		final Streamer cris;
 		cris=StreamerFactory.getReadInputStream(maxReads, true, ffin1, ffin2, -1);
 		cris.start(); //Start the stream
 		if(verbose){outstream.println("Started cris");}
 		boolean paired=cris.paired();
-		
+
 		Streamer ss=null;
-		if(samInput!=null && processSamMT) {
+		if(samInput!=null && processSamMT){
 			outstream.println("Loading sam file.");
 			FileFormat ff=FileFormat.testInput(samInput, FileFormat.SAM, null, true, false);
 			final int streamerThreads=Tools.min(4, Shared.threads());
 			ss=StreamerFactory.makeSamOrBamStreamer(ff, streamerThreads, false, false, maxReads, false);
 			ss.start();
 		}
-		
 
-		if(align) {
-			sidechannel=new SideChannel3(alignRef, alignOut, null, alignK1, alignK2, 
+
+		if(align){
+			sidechannel=new SideChannel3(alignRef, alignOut, null, alignK1, alignK2,
 					alignMinid1, alignMinid2, alignMM1, alignMM2, overwrite, ordered);
 			sidechannel.start();
-		}else {
+		}else{
 			sidechannel=null;
 		}
-		
+
 		//Process the read stream
 		fillTilesInner(cris, ss);
-		
+
 		if(verbose){outstream.println("Finished; closing streams.");}
-		
+
 		//Close the read streams
 		errorState|=ReadWrite.closeStreams(cris);
-		if(sidechannel!=null) {errorState|=sidechannel.shutdown();}
+		//HIL-005: a SAM terminal may follow a failed parser; retain its error and close its input.
+		errorState|=ReadWrite.closeStream(ss);
+		if(sidechannel!=null){errorState|=sidechannel.shutdown();}
 	}
-	
+
 	//This version is not really any faster,
 	//though it does use 15% less CPU-time.
 	/**
@@ -604,16 +622,16 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 	 * @param sl SAM line containing alignment information
 	 * @param ihp Illumina header parser for coordinate extraction
 	 */
-	private void processSamLine(SamLine sl, IlluminaHeaderParser2 ihp) {
+	private void processSamLine(SamLine sl, IlluminaHeaderParser2 ihp){
 		if(sl==null){return;}
-//		if(!sl.mapped() && !sl.nextMapped()) {return;} //Probably not PhiX
-		if(!sl.mapped()) {return;}//TODO: Track unmapped info; requires modifying dump format
-		
-		if(!sl.mapped() || sl.seq==null || !sl.hasCigar()) {return;}
+//		if(!sl.mapped() && !sl.nextMapped()){return;} //Probably not PhiX
+		if(!sl.mapped()){return;}//TODO: Track unmapped info; requires modifying dump format
+
+		if(!sl.mapped() || sl.seq==null || !sl.hasCigar()){return;}
 		final int pairnum=sl.pairnum();
-		
+
 //		final boolean needsFixing=(varMap!=null && Read.containsVars(r.match));
-		
+
 		final byte[] shortmatch=sl.toShortMatch(false);
 		final byte[] match=Read.toLongMatchString(shortmatch);
 
@@ -642,17 +660,17 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 				assert(false) : "Unhandled symbol "+m;
 			}
 		}
-		
+
 		final MicroTile mt;
 		final Lane lane;
 		ihp.parse(sl.qname);
 		final int lnum=ihp.lane(), tile=ihp.tile(), x=ihp.xPos(), y=ihp.yPos();
-		synchronized(flowcell) {
+		synchronized(flowcell){
 			lane=flowcell.getLane(lnum);
 			mt=lane.getMicroTile(tile, x, y);
 		}
 
-		synchronized(mt) {
+		synchronized(mt){
 			mt.alignedReadCount++;
 			mt.alignedBaseCount+=Read.countAlignedBases(match);
 			mt.readErrorCount+=((subs+inss+dels>0) ? 1 : 0);
@@ -664,7 +682,7 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 
 	/** Create read streams and process all data */
 	void processReads(Timer t){
-		
+
 		if(ffout1!=null || ffoutbad!=null || coordsOut!=null){
 			Timer t2=new Timer();
 			outstream.print("Filtering reads:\t");
@@ -685,15 +703,15 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 				ros=WriterFactory.getStream(ffout1, ffout2, buff, null, false, 1);
 				ros.start(); //Start the stream
 			}else{ros=null;}
-			
+
 			if(ffoutbad!=null){
 				rosb=WriterFactory.getStream(ffoutbad, null, null, null, buff, null, false, 1);
 				rosb.start(); //Start the stream
 			}else{rosb=null;}
-			
-			final ByteStreamWriter coords=(coordsOut==null ? null : 
+
+			final ByteStreamWriter coords=(coordsOut==null ? null :
 				ByteStreamWriter.makeBSW(coordsOut, overwrite, append, true));
-			
+
 			//Process the read stream
 			processInner(cris, ros, rosb, coords);
 
@@ -701,45 +719,45 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 
 			//Close the read streams
 			errorState|=ReadWrite.closeStreams(cris, ros, rosb);
-			
-			if(coords!=null) {
+
+			if(coords!=null){
 				errorState=coords.poisonAndWait()|errorState;
 			}
 
 			t2.stop();
 			outstream.println(t2);
 		}
-		
+
 		//Report timing and results
 		{
 			t.stop();
 			lastReadsOut=readsProcessed-readsDiscarded;
 			outstream.println();
 			outstream.println(Tools.timeReadsBasesProcessed(t, readsProcessed, basesProcessed, 8));
-			
+
 			if(ffout1!=null || ffoutbad!=null || coordsOut!=null){
 
 				String rpstring=Tools.padKMB(readsDiscarded, 8);
 				String bpstring=Tools.padKMB(basesDiscarded, 8);
 				String gpstring=Tools.padKMB(gsTransformedToN, 8);
 				outstream.println();
-				outstream.println("Reads Discarded:    "+rpstring+" \t"+Tools.format("%.3f%%", readsDiscarded*100.0/readsProcessed));
-				outstream.println("Bases Discarded:    "+bpstring+" \t"+Tools.format("%.3f%%", basesDiscarded*100.0/basesProcessed));
-				if(gToN){outstream.println("Gs Masked By N:     "+gpstring+" \t"+Tools.format("%.3f%%", gsTransformedToN*100.0/basesProcessed));}
+				outstream.println("Reads Discarded:    "+rpstring+" \t"+Tools.format("%.3f%%", readsProcessed==0 ? 0 : readsDiscarded*100.0/readsProcessed));
+				outstream.println("Bases Discarded:    "+bpstring+" \t"+Tools.format("%.3f%%", basesProcessed==0 ? 0 : basesDiscarded*100.0/basesProcessed));
+				if(gToN){outstream.println("Gs Masked By N:     "+gpstring+" \t"+Tools.format("%.3f%%", basesProcessed==0 ? 0 : gsTransformedToN*100.0/basesProcessed));}
 				outstream.println();
 			}
 		}
-		
+
 		//Throw an exception of there was an error in a thread
 		if(errorState){
 			throw new RuntimeException(getClass().getName()+" terminated in an error state; the output may be corrupt.");
 		}
 	}
-	
+
 	/** Iterate through the reads */
-	void processInner(final Streamer cris, final Writer ros, 
+	void processInner(final Streamer cris, final Writer ros,
 			final Writer rosb, final ByteStreamWriter coords){
-		
+
 		//Do anything necessary prior to processing
 		readsProcessed=0;
 		basesProcessed=0;
@@ -750,33 +768,35 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 			ListNum<Read> ln=cris.nextList();
 			//Grab the actual read list from the ListNum
 			ArrayList<Read> reads=(ln!=null ? ln.list : null);
-			
+
 			//Check to ensure pairing is as expected
 			if(reads!=null && !reads.isEmpty()){
 				Read r=reads.get(0);
 				assert((ffin1==null || ffin1.samOrBam()) || (r.mate!=null)==cris.paired());
 			}
-			
+
 			//As long as there is a nonempty read list...
 			while(ln!=null && reads!=null){//ln!=null prevents a compiler potential null access warning
 				if(verbose){outstream.println("Fetched "+reads.size()+" reads.");}
 
 				ArrayList<Read> keepList=new ArrayList<Read>(reads.size());
 				ArrayList<Read> tossList=new ArrayList<Read>(4);
-				
+
 				//Loop through each read in the list
 				for(int idx=0; idx<reads.size(); idx++){
 					final Read r1=reads.get(idx);
 					final Read r2=r1.mate;
-					
+
+					requirePrimaryQualities(r1, 1);
+					requirePrimaryQualities(r2, 2);
 					//Track the initial length for statistics
 					final int initialLength1=r1.length();
 					final int initialLength2=(r1.mateLength());
-					
+
 					//Increment counters
 					readsProcessed+=r1.pairCount();
 					basesProcessed+=initialLength1+initialLength2;
-					
+
 					boolean keep=processReadPair(r1, r2);
 					if(keep){
 						keepList.add(r1);
@@ -786,48 +806,68 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 						basesDiscarded+=initialLength1+initialLength2;
 					}
 				}
-				
+
 				//Output reads to the output stream
 				if(ros!=null){ros.add(keepList, ln.id);}
 				if(rosb!=null){rosb.add(tossList, ln.id);}
-				if(coords!=null) {
+				if(coords!=null){
 					bb.clear();
-					for(Read r : tossList) {
+					for(Read r : tossList){
 						ihp.parse(r);
 						ihp.appendCoordinates(bb);
 						bb.nl();
 					}
-					if(!bb.isEmpty()) {coords.print(bb);}
+					if(!bb.isEmpty()){coords.print(bb);}
 				}
 				if(verbose){outstream.println("Returned a list.");}
-				
+
 				//Fetch a new list
 				ln=cris.nextList();
 				reads=(ln!=null ? ln.list : null);
 			}
 		}
-		
+
 		//Do anything necessary after processing
-		
+
 	}
-	
-	/** Iterate through the reads */
+
+	/** Creates a fresh count table and consumes the borrowed primary stream.
+	 * The caller starts/closes the stream and finalizes the resulting table. */
 	public void loadKmersInner(final Streamer cris){
-		
 		bloomFilter=new BloomFilter(k, k, cbits, hashes, 1, true, false, true, 0.7f);
-		
+		addKmersFromStream(cris, ffin1);
+	}
+
+	/** Loads one complete extra reference into the existing table and closes its reader. */
+	private void loadExtraKmers(final String fname){
+		final FileFormat ff=FileFormat.testInput(fname, FileFormat.FASTQ, null, true, true);
+		final Streamer cris=StreamerFactory.getReadInputStream(-1, true, ff, null, -1);
+		boolean closeFailed=false;
+		try{
+			cris.start();
+			addKmersFromStream(cris, ff);
+		}finally{
+			closeFailed=ReadWrite.closeStream(cris);
+			errorState|=closeFailed;
+		}
+		if(closeFailed){throw new RuntimeException("Error loading extra reference "+fname);}
+	}
+
+	/** Adds positional samples to the existing table without replacing earlier counts.
+	 * The reader and its format descriptor belong to the caller. */
+	private void addKmersFromStream(final Streamer cris, final FileFormat ff){
 		{
 			//Grab the first ListNum of reads
 			ListNum<Read> ln=cris.nextList();
 			//Grab the actual read list from the ListNum
 			ArrayList<Read> reads=(ln!=null ? ln.list : null);
-			
+
 			//Check to ensure pairing is as expected
 			if(reads!=null && !reads.isEmpty()){
 				Read r=reads.get(0);
-				assert((ffin1==null || ffin1.samOrBam()) || (r.mate!=null)==cris.paired());
+				assert((ff==null || ff.samOrBam()) || (r.mate!=null)==cris.paired());
 			}
-			
+
 			LongList kmers=new LongList(300);
 			//As long as there is a nonempty read list...
 			while(ln!=null && reads!=null){//ln!=null prevents a compiler potential null access warning
@@ -840,14 +880,14 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 					loadKmers(r1, kmers);
 					loadKmers(r2, kmers);
 				}
-				
+
 				//Fetch a new list
 				ln=cris.nextList();
 				reads=(ln!=null ? ln.list : null);
 			}
 		}
 	}
-	
+
 	/**
 	 * Loads k-mers from a single read into the Bloom filter.
 	 * Uses ID-based masking for controlled sampling and increments
@@ -856,34 +896,36 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 	 * @param r Read to process for k-mer extraction
 	 * @param kmers Reusable list for k-mer storage
 	 */
-	private void loadKmers(Read r, LongList kmers) {
-		if(r==null || r.length()<k) {return;}
-//		if(!randy.nextBoolean()) {return;}//Speed optimization, I guess
-		
+	private void loadKmers(Read r, LongList kmers){
+		if(r==null || r.length()<k){return;}
+//		if(!randy.nextBoolean()){return;}//Speed optimization, I guess
+
 		kmers.clear();
 		BloomFilter.toKmers(r, kmers, k, 0, 0, true);
 		final int idmod=(int)((r.numericID+3)&idmask_write);
-		for(int i=0; i<kmers.size; i++) {
-			if((i&idmask_write)==idmod) {
+		for(int i=0; i<kmers.size; i++){
+			if((i&idmask_write)==idmod){
 				long kmer=kmers.array[i];
 				bloomFilter.filter.increment(kmer);
 			}
 		}
 	}
-	
-	/** Iterate through the reads */
+
+	/** Consumes borrowed, already-started readers with the configured workers.
+	 * The caller owns reader closure. Worker totals and model updates accumulate
+	 * into this instance; this method does not reset earlier observations. */
 	public void fillTilesInner(final Streamer cris, final Streamer ss){
 		Timer t2=new Timer();
-		
-		if(merge && loadKmers) {fillThreads=Tools.max(fillThreads, fillThreadsM);}
+
+		if(merge && loadKmers){fillThreads=Tools.max(fillThreads, fillThreadsM);}
 		fillThreads=Tools.min(fillThreads, Shared.threads());
 		outstream.print("Filling tiles with "+fillThreads+" threads:  \t");
 		spawnThreads(cris, ss);
-		
+
 		t2.stop();
 		outstream.println(t2);
 	}
-	
+
 	/**
 	 * Processes k-mer depth information for tile quality assessment.
 	 * Applies optional smoothing and deblurring filters to depth profiles.
@@ -892,62 +934,63 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 	 * @param klist List for storing k-mer depths
 	 * @param blist List for storing base depths after deblurring
 	 */
-	private void processTileKmers(Read r, IntList klist, IntList blist) {
+	private void processTileKmers(Read r, IntList klist, IntList blist){
 		fillDepthList(r, klist);
-		if(smoothDepths>3) {smooth5(klist);}
-		else if(smoothDepths>=3) {smooth3(klist);}
-		if(deblurDepths) {deblur(klist, blist);}
+		if(smoothDepths>3){smooth5(klist);}
+		else if(smoothDepths>=3){smooth3(klist);}
+		if(deblurDepths){deblur(r, klist, blist);}
 	}
-	
-	//Samples all kmers
+
+	//Samples window ends selected by idmask_read.
 	/**
 	 * Fills depth list with k-mer counts from Bloom filter.
 	 * Samples k-mers across read length using ID-based masking and
 	 * retrieves depth values from the preloaded filter.
+	 * Clears the reused output before handling null or shorter-than-k reads.
 	 *
 	 * @param r Read to process
 	 * @param depths Output list for k-mer depth values
 	 */
-	private void fillDepthList(Read r, IntList depths) {
-		if(r==null || r.length()<k) {return;}
+	private void fillDepthList(Read r, IntList depths){
+		depths.clear();
+		if(r==null || r.length()<k){return;}
 		final byte[] bases=r.bases;
 		final int shift=2*k;
 		final int shift2=shift-2;
 		final long mask=(-1L)>>>(64-shift);
 
 		long kmer=0, rkmer=0;
-		
-		depths.clear();
-		
+
 		final int idmod=(int)(r.numericID&idmask_read);
-		
+
 		//TODO: Debranch using 2 loops; one for 1st k-1 bases, and one for the rest.
-		for(int i=0, len=0; i<bases.length; i++) {
+		for(int i=0, len=0; i<bases.length; i++){
 			final byte b=bases[i];
 			final long x=AminoAcid.baseToNumber[b];
 			final long x2=AminoAcid.baseToComplementNumber[b];
 			kmer=((kmer<<2)|x)&mask;
 			rkmer=x<0 ? 0 : ((rkmer>>>2)|(x2<<shift2))&mask;
-			
+
 			len=(x<0 ? 0 : len+1);
 			rkmer=(x<0 ? 0 : rkmer);//is this necessary? TODO: Check.
 //			if(x<0){len=0; rkmer=0;}else{len++;}//old branchy version
-			if(i>=k && ((i&idmask_read)==idmod)) {
+			if(i>=k-1 && ((i&idmask_read)==idmod)){
 				final long key=toKey(kmer, rkmer);
 				final int value=(len>=k ? bloomFilter.getCount(key) : 0);
 				depths.add(value);
 			}
 		}
 	}
-	
+
 	/**
-	 * Applies 3-point median smoothing to depth profile.
-	 * Reduces noise in k-mer depth measurements by taking minimum
-	 * of local 3-point neighborhoods.
+	 * Suppresses isolated high depths using three-position neighborhoods.
+	 * Endpoint values become local minima; interior values are capped by the
+	 * larger neighboring depth. Updates are in place, so the left neighbor may
+	 * already have changed. This is not a median filter.
 	 * @param list Depth values to smooth in-place
 	 */
-	private void smooth3(IntList list) {
-		if(list.size<3) {return;}
+	private void smooth3(IntList list){
+		if(list.size<3){return;}
 		final int max=list.size-1;
 		{
 			int a=list.get(0), b=list.get(1), c=list.get(2);
@@ -960,19 +1003,21 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 			//FIXED (G11 2026-07-02, Brian-authorized via Neptune) [hiseq/AnalyzeFlowCell#003] copy-paste: this end-of-list block computes `a` from the max end but was writing list.set(0,a) (start index) → index 0 clobbered with the end-of-read value, and the last element (index max) never smoothed. Now list.set(max, a). Twin fix: smooth5#004. Was list.set(0, a).
 			list.set(max, a);
 		}
-		for(int i=1; i<max; i++) {
+		for(int i=1; i<max; i++){
 			int a=list.get(i-1), b=list.get(i), c=list.get(i+1);
 			list.set(i, Tools.min(b, Tools.max(a, c)));
 		}
 	}
-	
+
 	/**
-	 * Applies 5-point median smoothing to depth profile.
-	 * More aggressive smoothing than 3-point for heavily noisy data.
+	 * Suppresses high depths using five-position neighborhoods in place.
+	 * Interior values are capped by the larger of the two side minima;
+	 * endpoints use narrower neighborhoods. Earlier left-side updates participate
+	 * in later comparisons, so this is directional rather than a median filter.
 	 * @param list Depth values to smooth in-place
 	 */
-	private void smooth5(IntList list) {
-		if(list.size<5) {return;}
+	private void smooth5(IntList list){
+		if(list.size<5){return;}
 		final int max=list.size-1;
 		{
 			int a=list.get(0), b=list.get(1), c=list.get(2), d=list.get(3);
@@ -989,95 +1034,125 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 			list.set(max, a);
 			list.set(max-1, b);
 		}
-		for(int i=2; i<max-1; i++) {
+		for(int i=2; i<max-1; i++){
 			int a=list.get(i-2), b=list.get(i-1), c=list.get(i), d=list.get(i+1), e=list.get(i+2);
 			int left=Tools.min(a, b);
 			int right=Tools.min(d, e);
 			list.set(i, Tools.min(c, Tools.max(left, right)));
 		}
 	}
-	
+
 	/**
-	 * Deconvolutes k-mer depths to base-level depth estimates.
+	 * Projects consecutive k-mer depths to base-level maximum depths.
 	 * Spreads k-mer depth values across constituent base positions
-	 * to create per-base depth profiles.
+	 * to create per-base depth profiles. The input describes consecutive windows;
+	 * n nonempty windows span n+k-1 bases, and an empty input produces no values.
 	 *
 	 * @param klist K-mer depth values
 	 * @param blist Output base depth values
 	 */
-	void deblur(IntList klist, IntList blist) {
+	void deblur(IntList klist, IntList blist){
 		blist.clearFull();
-		blist.set(klist.size+k-1, 0);
-		for(int i=0; i<klist.size; i++) {
+		if(klist.isEmpty()){return;}
+		// A dense list of n windows of length k spans n+k-1 base positions.
+		blist.set(klist.size+k-2, 0);
+		for(int i=0; i<klist.size; i++){
 			int kdepth=klist.get(i);
 			//Since max is only 3 this could be much more efficient, without a double loop
-			if(kdepth>0) {
-				for(int j=i, max=i+k; j<max; j++) {
+			if(kdepth>0){
+				for(int j=i, max=i+k; j<max; j++){
 					//FIXED (G11 2026-07-02, Brian-authorized via Neptune) [hiseq/AnalyzeFlowCell#005] wrong-index: spreads kmer-depth kdepth across base positions [i,i+k) taking the running max at each position. Was reading blist.get(i) (fixed outer index) → later j clobbered any larger value a prior kmer wrote at j. Now reads blist.get(j) so the max accumulates correctly per position. Was blist.get(i).
 					blist.set(j, Tools.max(blist.get(j), kdepth));
 				}
 			}
 		}
 	}
-	
+
+	/** Projects sampled depths onto their original read coordinates (HIL-008).
+	 * Uncovered positions have zero depth. Dense sampling retains the existing fast path;
+	 * reads shorter than k, including null mates, produce an empty output.
+	 * No extra Bloom queries or per-read position arrays are needed. */
+	private void deblur(final Read r, final IntList klist, final IntList blist){
+		if(idmask_read==0){deblur(klist, blist); return;}
+		blist.clearFull();
+		if(r==null || r.length()<k){
+			assert(klist.isEmpty()) : "fillDepthList must clear depths for null/short reads";
+			return;
+		}
+		blist.set(r.length()-1, 0);
+		final int idmod=(int)(r.numericID&idmask_read);
+		int index=0;
+		for(int end=k-1; end<r.length(); end++){
+			if((end&idmask_read)!=idmod){continue;}
+			assert(index<klist.size) : "Projection must match fillDepthList sampling: index="+index+", depths="+klist.size;
+			final int depth=klist.get(index++);
+			if(depth>0){
+				for(int base=end-k+1; base<=end; base++){
+					blist.set(base, Tools.max(blist.get(base), depth));
+				}
+			}
+		}
+		assert(index==klist.size) : "Projection must consume every sampled depth: consumed="+index+", depths="+klist.size;
+	}
+
 //	//Samples multiple kmers
-//	private void processTileKmersSampled(Read r, MicroTile mt, int samples) {
-//		if(r.length()<=3*k+1) {samples=1;}
+//	private void processTileKmersSampled(Read r, MicroTile mt, int samples){
+//		if(r.length()<=3*k+1){samples=1;}
 //		samples=Tools.min(samples, r.length()-k2);
 //		final int cutoff=(kmersPerRead<1 ? 2 : 1);
-//		
+//
 //		long depthSum=0;
-//		for(int i=0; i<samples; i++) {
+//		for(int i=0; i<samples; i++){
 //			int value=getKmerCount(r.bases, getPos(r.numericID+74+k3*i, r.length()));
 //			depthSum+=value;
-//			if(value>=cutoff) {mt.hits++;}
+//			if(value>=cutoff){mt.hits++;}
 //			else {mt.misses++;}
 //		}
 //		mt.depthSum+=depthSum;
 //	}
-//	
-//	private int getKmerCount(byte[] bases, int pos) {
+//
+//	private int getKmerCount(byte[] bases, int pos){
 //		final int lim=bases.length-k2;
 //		pos=pos%(bases.length-k2);
 //		assert(pos>=0 && pos<=lim);
 //		final long kmer=toKmer(bases, pos, k);
-//		if(kmer<0) {return 0;}
+//		if(kmer<0){return 0;}
 //		final long key=toKey(kmer);
 //		final int value=bloomFilter.getCount(key);
-////		if(maxReads==1) {System.err.println("Got "+value+" for kmer "+key);}
+////		if(maxReads==1){System.err.println("Got "+value+" for kmer "+key);}
 //		return value;
 //	}
-//	
-//	private int getPos(long id, int len) {
+//
+//	private int getPos(long id, int len){
 //		return (deterministic ? (int)((id)%(len-k2)) : randy.nextInt(len-k2));
 //	}
-	
+
 	/**
 	 * Converts k-mer to canonical form for Bloom filter lookup.
 	 * Uses lexicographically larger of forward and reverse complement.
 	 * @param kmer Input k-mer in binary encoding
 	 * @return Canonical k-mer key
 	 */
-	private final long toKey(long kmer) {
+	private final long toKey(long kmer){
 		return Tools.max(kmer, AminoAcid.reverseComplementBinaryFast(kmer, k));
-//		return (kmersPerRead==1 || kmer==-1 ? kmer : 
+//		return (kmersPerRead==1 || kmer==-1 ? kmer :
 //			Tools.max(kmer, AminoAcid.reverseComplementBinaryFast(kmer, k)));
 	}
-	
+
 	/**
 	 * Converts k-mer to canonical form when reverse complement is pre-computed.
 	 * @param kmer Forward k-mer
 	 * @param rkmer Reverse complement k-mer
 	 * @return Canonical k-mer key (larger of the two)
 	 */
-	private final long toKey(long kmer, long rkmer) {
+	private final long toKey(long kmer, long rkmer){
 		return Tools.max(kmer, rkmer);
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
 	 * Processes read pair with quality trimming fallback.
 	 * First attempts filtering without trimming, then retries with
@@ -1098,7 +1173,7 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 			return false;
 		}
 	}
-	
+
 	/**
 	 * Process a single read pair.
 	 * @param r1 Read 1
@@ -1106,7 +1181,7 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 	 * @return True if the reads should be kept, false if they should be discarded.
 	 */
 	boolean processReadPair_inner(final Read r1, final Read r2){
-		
+
 		//[hiseq/AnalyzeFlowCell#001] FIXED (G11 2026-07-01, Brian-authorized): was getMicroTile(r1.id), the
 		//create=TRUE overload, which never returns null -> the mt==null warning below was DEAD CODE and a read
 		//with no build-phase tile would silently get a fresh discard=0 tile (kept, no warning) + pollute the
@@ -1123,16 +1198,16 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 		}
 		if(mt.discard<discardLevel){return true;}
 		if(!discardOnlyLowQuality){return false;}
-		
-		if(shouldDiscard(r1, mt)) {return false;}
+
+		if(shouldDiscard(r1, mt)){return false;}
 		if(gToN){gsTransformedToN+=doGToN(r1, mt);}
-		
-		if(shouldDiscard(r2, mt)) {return false;}
+
+		if(shouldDiscard(r2, mt)){return false;}
 		if(gToN){gsTransformedToN+=doGToN(r2, mt);}
-		
+
 		return true;
 	}
-	
+
 	/**
 	 * Determines if read should be discarded based on quality metrics.
 	 * Checks average quality, error-free probability, poly-G content,
@@ -1142,18 +1217,18 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 	 * @param mt Associated MicroTile with quality statistics
 	 * @return true if read should be discarded
 	 */
-	private boolean shouldDiscard(Read r, MicroTile mt) {
-		if(r==null || r.length()<1) {return false;}
+	private boolean shouldDiscard(Read r, MicroTile mt){
+		if(r==null || r.length()<1){return false;}
 		final int len=r.length();
 		double qual=r.avgQualityByProbabilityDouble(true, len);
 		double prob=100*r.probabilityErrorFree(true, len);
 		if(qual<=flowcell.avgQuality-(dmult*TileDump.qDeviations*flowcell.stdQuality)){return true;}
 		if(prob<=flowcell.avgErrorFree-(dmult*TileDump.eDeviations*flowcell.stdErrorFree)){return true;}
-		if(PolyFilter.polymerLen(r.bases, (byte)'G', 0.16f)>15) {return true;}
+		if(PolyFilter.polymerLen(r.bases, (byte)'G', 0.16f)>15){return true;}
 		if(discardG && shouldDiscardG(r, mt)){return true;}
 		return false;
 	}
-	
+
 	/**
 	 * Evaluates read for G-content based discard criteria.
 	 * Checks if G bases occur at positions with elevated tile-level
@@ -1171,8 +1246,8 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 		//reads at least this long, i.e. the same input).
 		final byte[] bases=r.bases;
 		final float[] gArray=mt.tracker.cycleAverages[2];
-		
-		final float thresh=(float)(flowcell.avgG+Tools.max(TileDump.gDeviations*flowcell.stdG, 
+
+		final float thresh=(float)(flowcell.avgG+Tools.max(TileDump.gDeviations*flowcell.stdG,
 				flowcell.avgG*TileDump.gFraction, TileDump.gAbs));
 		for(int i=0; i<bases.length; i++){
 			byte b=bases[i];
@@ -1182,7 +1257,7 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 		}
 		return false;
 	}
-	
+
 	/**
 	 * Masks problematic G bases as N in read sequence.
 	 * Identifies G bases at positions with elevated tile G frequency
@@ -1193,12 +1268,12 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 	 * @return Number of G bases converted to N
 	 */
 	private int doGToN(Read r, MicroTile mt){
-		if(r==null || r.length()<1) {return 0;}
+		if(r==null || r.length()<1){return 0;}
 		final byte[] bases=r.bases;
 		final byte[] quals=r.quality;
 		final float[] gArray=mt.tracker.cycleAverages[2];
-		
-		final float thresh=(float)(flowcell.avgG+Tools.max(TileDump.gDeviations*flowcell.stdG, 
+
+		final float thresh=(float)(flowcell.avgG+Tools.max(TileDump.gDeviations*flowcell.stdG,
 				flowcell.avgG*TileDump.gFraction, TileDump.gAbs));
 		int changes=0;
 		for(int i=0; i<bases.length; i++){
@@ -1211,11 +1286,11 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 		}
 		return changes;
 	}
-		
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Helper Methods        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
 	 * Generate a kmer from specified start location
 	 * @param bases
@@ -1227,7 +1302,7 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 		final int stop=start+klen;
 		assert(stop<=bases.length) : klen+", "+bases.length;
 		long kmer=0;
-		
+
 		for(int i=start; i<stop; i++){
 			final byte b=bases[i];
 			final long x=Dedupe.baseToNumber[b];
@@ -1235,11 +1310,11 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 		}
 		return kmer;
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------           Barcodes           ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
 	 * Loads expected barcode list and configures barcode statistics.
 	 * Determines delimiter, barcode count per read, and barcode lengths
@@ -1248,22 +1323,22 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 	 * @param expectedBarcodesFile Path to expected barcodes file
 	 * @return Configured BarcodeStats object
 	 */
-	BarcodeStats loadBarcodes(String expectedBarcodesFile) {
-		if(delimiter<0) {
+	BarcodeStats loadBarcodes(String expectedBarcodesFile){
+		if(delimiter<0){
 			delimiter=(byte)ffin1.barcodeDelimiter();
 			barcodesPerRead=ffin1.barcodesPerRead();
 		}
 		BarcodeStats bs=new BarcodeStats(delimiter, barcodesPerRead, extin);
-		if(bs.length1<1 && bs.length2<1) {
+		if(bs.length1<1 && bs.length2<1){
 			bs.length1=ffin1.barcodeLength(1);
 			bs.length2=ffin1.barcodeLength(2);
 		}
-		if(expectedBarcodesFile!=null) {
+		if(expectedBarcodesFile!=null){
 			bs.loadBarcodeList(expectedBarcodesFile, barcodesPerRead>1 ? delimiter : 0, false, false);
 		}
 		return bs;
 	}
-	
+
 	/**
 	 * Writes barcode count statistics to output file.
 	 * Sorts barcodes by frequency and outputs count summary with
@@ -1272,40 +1347,53 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 	 * @param counts Collection of barcode counts
 	 * @param fname Output filename
 	 * @param overwrite Whether to overwrite existing file
+	 * @throws RuntimeException if the barcode writer reports an output error
 	 */
-	private static void dumpBarcodes(Collection<AtomicStringNum> counts, String fname, boolean overwrite) {
+	private static void dumpBarcodes(Collection<AtomicStringNum> counts, String fname, boolean overwrite){
 		System.err.println("Writing barcode counts.");
-		if(fname==null || counts==null) {return;}
+		if(fname==null || counts==null){return;}
 		ArrayList<AtomicStringNum> list=new ArrayList<AtomicStringNum>(counts);
 		Collections.sort(list);
 		Collections.reverse(list);
 		long sum=0;
-		for(AtomicStringNum asn : list) {sum+=asn.n.get();}
+		for(AtomicStringNum asn : list){sum+=asn.n.get();}
 		ByteStreamWriter bsw=ByteStreamWriter.makeBSW(fname, overwrite, false, true);
 		bsw.print("#Barcodes\t").print(sum).nl();
 		bsw.print("#Unique\t").print(list.size()).nl();
 		bsw.print("#Code\tCount\n");
-		for(AtomicStringNum count : list) {
+		for(AtomicStringNum count : list){
 			bsw.print(count.s).tab().print(count.n.get()).nl();
 		}
-		bsw.poisonAndWait();
+		if(bsw.poisonAndWait()){
+			throw new RuntimeException("Error writing barcode counts to "+fname);
+		}
 	}
-	
+
+	/** Rejects nonempty primary reads without qualities before analysis or filtering.
+	 * A worker-only exception could leave producers waiting, so this input error
+	 * terminates the process. Auxiliary alignment-only SAM records do not use this check. */
+	private static void requirePrimaryQualities(final Read read, final int mate){
+		if(read!=null && read.length()>0 && read.quality==null){
+			KillSwitch.killTraceless("Missing quality scores for primary read '"+read.id+"' (mate "+mate+
+				"). Flow-cell quality analysis requires per-base qualities; use FASTQ or SAM/BAM with QUAL values.");
+		}
+	}
+
 	/*--------------------------------------------------------------*/
 	/*----------------       Thread Management      ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/** Spawn process threads */
 	private void spawnThreads(final Streamer cris, final Streamer ss){
-		
+
 		//Do anything necessary prior to processing
-		
+
 		//Increases concurrency by making flowcell copies
-		//2 seems to be sufficient when merging is used. 
+		//2 seems to be sufficient when merging is used.
 		FlowCell[] fca=new FlowCell[Tools.mid(1, (merge || loadKmers ? 2 : 3), (fillThreads+4)/8)];
 		fca[0]=flowcell;
-		for(int i=1; i<fca.length; i++) {fca[i]=new FlowCell(k);}
-		
+		for(int i=1; i<fca.length; i++){fca[i]=new FlowCell(k);}
+
 		//Fill a list with ProcessThreads
 		ArrayList<ProcessThread> alpt=new ArrayList<ProcessThread>(fillThreads);
 		for(int i=0; i<fillThreads; i++){
@@ -1314,42 +1402,42 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 		//Start the threads and wait for them to finish
 		boolean success=ThreadWaiter.startAndWait(alpt, this);
 		errorState|=!success;
-		
+
 		//Do anything necessary after processing
-		
+
 		//Combine flowcell copies
-		synchronized(flowcell) {
-			for(int i=1; i<fca.length; i++) {
-				synchronized(fca[i]) {
+		synchronized(flowcell){
+			for(int i=1; i<fca.length; i++){
+				synchronized(fca[i]){
 					flowcell.add(fca[i]);
 				}
 			}
 		}
 	}
-	
+
 	@Override
 	public final void accumulate(ProcessThread pt){
-		synchronized(pt) {
+		synchronized(pt){
 			readsProcessed+=pt.readsProcessedT;
 			basesProcessed+=pt.basesProcessedT;
 			errorState|=(!pt.success);
-			synchronized(flowcell) {
+			synchronized(flowcell){
 				flowcell.xMin=(flowcell.xMin<0 ? pt.xmin : Tools.min(pt.xmin, flowcell.xMin));
 				flowcell.xMax=(flowcell.xMax<0 ? pt.xmax : Tools.max(pt.xmax, flowcell.xMax));
 				flowcell.yMin=(flowcell.yMin<0 ? pt.ymin : Tools.min(pt.ymin, flowcell.yMin));
 				flowcell.yMax=(flowcell.yMax<0 ? pt.ymax : Tools.max(pt.ymax, flowcell.yMax));
 				flowcell.tMin=(flowcell.tMin<0 ? pt.tmin : Tools.min(pt.tmin, flowcell.tMin));
 				flowcell.tMax=(flowcell.tMax<0 ? pt.tmax : Tools.max(pt.tmax, flowcell.tMax));
-				if(pt.flowcellName!=null) {
+				if(pt.flowcellName!=null){
 					assert(flowcell.name==null || flowcell.name.equals(pt.flowcellName));
 					flowcell.name=pt.flowcellName;
 				}
-//				for(Lane lane : flowcell.lanes) {
-//					if(lane!=null) {
-//						for(int pairnum=0; pairnum<2; pairnum++) {
+//				for(Lane lane : flowcell.lanes){
+//					if(lane!=null){
+//						for(int pairnum=0; pairnum<2; pairnum++){
 //							long[] counts=pt.laneDepthCounts[lane.lane][pairnum];
 //							long[] sums=pt.laneDepthSums[lane.lane][pairnum];
-//							for(int i=0; i<counts.length; i++) {
+//							for(int i=0; i<counts.length; i++){
 //								lane.depthCounts[pairnum].addAndGet(i, counts[i]);
 //								lane.depthSums[pairnum].addAndGet(i, sums[i]);
 //							}
@@ -1359,21 +1447,21 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 			}
 		}
 	}
-	
+
 	@Override
-	public final boolean success(){return !errorState;}	
+	public final boolean success(){return !errorState;}
 	@Override
-	public final ReadWriteLock rwlock() {return rwlock;}
+	public final ReadWriteLock rwlock(){return rwlock;}
 	/** Read-write lock for thread synchronization */
 	private final ReadWriteLock rwlock=new ReentrantReadWriteLock();
-	
+
 	/**
 	 * Worker thread for processing reads and populating tile data.
 	 * Handles read stream processing, k-mer analysis, alignment data,
 	 * and barcode statistics in multi-threaded environment.
 	 */
-	class ProcessThread extends Thread {
-		
+	class ProcessThread extends Thread{
+
 		//Constructor
 		ProcessThread(final Streamer cris_, final Streamer ss_, final int tid_, final FlowCell flowcell_){
 			cris=cris_;
@@ -1381,40 +1469,40 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 			tid=tid_;
 			flowcellT=flowcell_;
 		}
-		
+
 		//Called by start()
 		@Override
 		public void run(){
 			//Do anything necessary prior to processing
-			
+
 			//Process the reads
 			processInner();
-			
+
 			//Do anything necessary after processing
-			
+
 			//Indicate successful exit status
 			success=true;
 		}
-		
+
 		/** Iterate through the reads */
 		void processInner(){
-			
+
 			//Grab the first ListNum of reads
 			ListNum<Read> ln=cris.nextList();
 
-			//As long as there is a nonempty read list...
-			while(ln!=null && ln.size()>0){
+			//HIL-007: empty batches are nonterminal; Streamer.nextList reserves null for EOF.
+			while(ln!=null){
 //				if(verbose){outstream.println("Fetched "+reads.size()+" reads.");} //Disabled due to non-static access
-				
+
 				processList(ln);
-				
+
 				//Fetch a new list
 				ln=cris.nextList();
 			}
-			
-			if(ss!=null) {processSam();}
+
+			if(ss!=null){processSam();}
 		}
-		
+
 		/**
 		 * Processes individual read list from input stream.
 		 * Validates reads, updates statistics, and processes each
@@ -1425,12 +1513,14 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 
 			//Grab the actual read list from the ListNum
 			final ArrayList<Read> reads=ln.list;
-			
+
 			//Loop through each read in the list
 			for(int idx=0; idx<reads.size(); idx++){
 				final Read r1=reads.get(idx);
 				final Read r2=r1.mate;
-				
+
+				requirePrimaryQualities(r1, 1);
+				requirePrimaryQualities(r2, 2);
 				//Validate reads in worker threads
 				if(!r1.validated()){r1.validate(true);}
 				if(r2!=null && !r2.validated()){r2.validate(true);}
@@ -1442,12 +1532,12 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 				//Increment counters
 				readsProcessedT+=r1.pairCount();
 				basesProcessedT+=initialLength1+initialLength2;
-				
+
 				processReadPair(r1, r2);
 			}
-			if(sidechannel!=null) {sidechannel.writeByStatus(reads, ln.id);}
+			if(sidechannel!=null){sidechannel.writeByStatus(reads, ln.id);}
 		}
-		
+
 		/**
 		 * Process a read or a read pair.
 		 * @param r1 Read 1
@@ -1455,11 +1545,11 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 		 */
 		void processReadPair(final Read r1, final Read r2){
 			final int cutoff=(idmask_write<=3 && cbits>1) ? 2 : 1;
-			if(recalibrate) {
+			if(recalibrate){
 				CalcTrueQuality.recalibrate(r1);
 				CalcTrueQuality.recalibrate(r2);
 			}
-			
+
 			ihp.parse(r1.id);
 			final int lnum=ihp.lane(), tile=ihp.tile(), x=ihp.xPos(), y=ihp.yPos();
 			xmin=Tools.min(x, xmin);
@@ -1468,19 +1558,19 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 			ymax=Tools.max(y, ymax);
 			tmin=Tools.min(tile, tmin);
 			tmax=Tools.max(tile, tmax);
-			if(flowcellName==null) {
+			if(flowcellName==null){
 				flowcellName=ihp.machine()+":"+ihp.run()+":"+ihp.flowcell();
 			}
-			
+
 			long hits1=0, hits2=0, misses=0, depthSum=0;
 			if(loadKmers){//All kmer processing is outside of the sync block
 				processTileKmers(r1, kmerDepths0, baseDepths0);
 				processTileKmers(r2, kmerDepths1, baseDepths1);
-				
+
 				IntList list0=(deblurDepths ? baseDepths0 : kmerDepths0);
 //				long[] counts0=laneDepthCounts[lnum][0];
 //				long[] sums0=laneDepthSums[lnum][0];
-				for(int i=0; i<list0.size; i++) {
+				for(int i=0; i<list0.size; i++){
 					int d=list0.get(i);
 					int hit=(d>=cutoff ? 1 : 0);
 					hits1+=hit;
@@ -1496,7 +1586,7 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 				IntList list1=(deblurDepths ? baseDepths1 : kmerDepths1);
 //				long[] counts1=laneDepthCounts[lnum][1];
 //				long[] sums1=laneDepthSums[lnum][1];
-				for(int i=0; i<list1.size; i++) {
+				for(int i=0; i<list1.size; i++){
 					int d=list1.get(i);
 					int hit=(d>=cutoff ? 1 : 0);
 					hits2+=hit;
@@ -1508,71 +1598,72 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 //					sums1[i]+=d;
 				}
 			}
-			
+
 			int merged=0;
 			int insert=0;
 			int overlap=0;
 			int mergeErrors=0;
-			if(merge && r2!=null) {
-				if(strictmerge) {
+			if(merge && r2!=null){
+				if(strictmerge){
 					insert=BBMerge.findOverlapStrict(r1, r2, false);
-				}else {
+				}else{
 					insert=BBMerge.findOverlapLoose(r1, r2, false);
 				}
-				if(insert>0) {
+				if(insert>0){
 					merged=2;
 					overlap=Tools.min(insert, r1.length()+r2.length()-insert);
 					mergeErrors=BBMerge.countErrors(r1.bases, r2.bases, insert);
-				}else {insert=0;}
+				}else{insert=0;}
 			}
-			
-			if(sidechannel!=null) {
+
+			if(sidechannel!=null){
 				sidechannel.map(r1, r2);
 			}
-			
+
 			int bchdist=0;
 			int barcodePolymers=0;
-			if(barcodeStats!=null) {
+			if(barcodeStats!=null){
 				String code=ihp.barcode();
-				if(!barcodeStats.expectedCodeList.isEmpty()) {
+				if(!barcodeStats.expectedCodeList.isEmpty()){
 					bchdist=barcodeStats.calcHdist(code);
 				}
 				barcodePolymers=Barcode.countPolymers(code);
 //				assert(barcodePolymers==0 && !code.contains("GGGGGGGG")) : code+", "+barcodePolymers;
-				if(barcodeMap!=null) {
+				if(barcodeMap!=null){
 					AtomicStringNum count=barcodeMap.get(code);
-					if(count==null) {
-						count=new AtomicStringNum(code, 0);
-						barcodeMap.put(code, count);
+					if(count==null){
+						final AtomicStringNum candidate=new AtomicStringNum(code, 0);
+						final AtomicStringNum previous=barcodeMap.putIfAbsent(code, candidate);
+						count=(previous==null ? candidate : previous);
 					}
 					count.increment();
 				}
 			}
-			
+
 			//Changes hits to misses if the read was a poly-G read.
 			//Unwise for short-insert libraries.
 			//Probably not necessary, either
-			if(changePolyGHitsToMisses && r1!=null && r1.discarded()) {misses+=hits1; hits1=0;}
-			if(changePolyGHitsToMisses && r2!=null && r2.discarded()) {misses+=hits2; hits2=0;}
-			
+			if(changePolyGHitsToMisses && r1!=null && r1.discarded()){misses+=hits1; hits1=0;}
+			if(changePolyGHitsToMisses && r2!=null && r2.discarded()){misses+=hits2; hits2=0;}
+
 			final MicroTile mt;
-			synchronized(flowcellT) {
+			synchronized(flowcellT){
 				mt=flowcellT.getMicroTile(lnum, tile, x, y, true);
 			}
-			
+
 //			boolean addQuick=true; //This has a very minor impact on speed, <5% at t=64
 //			double readQualityByProbSum=0, probErrorFreeSum=0, baseErrorProbSum=0;
 //			int alignedReadCount=0, alignedBaseCount=0, readErrorCount=0, baseErrorCount=0, readInsCount=0, readDelCount=0;
 //			if(addQuick){//Moving things out of the synchronized block to improve threading; changes add to addQuick
-//				if(r1!=null) {
+//				if(r1!=null){
 //					int len=r1.length();
 //					readQualityByProbSum+=r1.avgQualityByProbabilityDouble(true, len);
 //					probErrorFreeSum+=100*r1.probabilityErrorFree(true, len);
 //					baseErrorProbSum+=r1.expectedErrors(true, len);
-//					
-//					if(r1.match!=null) {
+//
+//					if(r1.match!=null){
 //						int bc=r1.countAlignedBases();
-//						if(bc>0) {
+//						if(bc>0){
 //							alignedReadCount++;
 //							alignedBaseCount+=bc;
 //							int errors=r1.countErrors();
@@ -1582,20 +1673,20 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 //							readInsCount+=(mSCNID[4]>0 ? 1 : 0);
 //							readDelCount+=(mSCNID[5]>0 ? 1 : 0);
 //						}
-//					}else if(r1.samline!=null && r1.samline.mapped()) {
+//					}else if(r1.samline!=null && r1.samline.mapped()){
 //						alignedReadCount++;
 //					}
-//					
+//
 //				}
-//				if(r2!=null) {
+//				if(r2!=null){
 //					int len=r2.length();
 //					readQualityByProbSum+=r2.avgQualityByProbabilityDouble(true, len);
 //					probErrorFreeSum+=100*r2.probabilityErrorFree(true, len);
 //					baseErrorProbSum+=r2.expectedErrors(true, len);
-//					
-//					if(r2.match!=null) {
+//
+//					if(r2.match!=null){
 //						int bc=r2.countAlignedBases();
-//						if(bc>0) {
+//						if(bc>0){
 //							alignedReadCount++;
 //							alignedBaseCount+=bc;
 //							int errors=r2.countErrors();
@@ -1605,14 +1696,14 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 //							readInsCount+=(mSCNID[4]>0 ? 1 : 0);
 //							readDelCount+=(mSCNID[5]>0 ? 1 : 0);
 //						}
-//					}else if(r2.samline!=null && r2.samline.mapped()) {
+//					}else if(r2.samline!=null && r2.samline.mapped()){
 //						alignedReadCount++;
 //					}
 //				}
 //			}
-			
-			synchronized(mt) {
-//				if(addQuick) {
+
+			synchronized(mt){
+//				if(addQuick){
 //					mt.addQuick(r1);
 //					mt.addQuick(r2);
 //
@@ -1626,29 +1717,29 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 //					mt.baseErrorCount+=baseErrorCount;
 //					mt.readInsCount+=readInsCount;
 //					mt.readDelCount+=readDelCount;
-//				}else {
+//				}else{
 					mt.add(r1);
 					mt.add(r2);
 //				}
-				
+
 				mt.hits+=(hits1+hits2);
 				mt.misses+=misses;
 				mt.depthSum+=depthSum;
-				
+
 				mt.barcodes+=barcodesPerRead;
 				mt.barcodeHDistSum+=bchdist;
 				mt.barcodePolymers+=barcodePolymers;
-				
+
 				mt.mergedReads+=merged;
 				mt.insertSum+=insert;
 				mt.overlapSum+=overlap;
 				mt.mergeErrorSum+=mergeErrors;
 			}
 		}
-		
+
 		/** Processes SAM alignment data for thread-specific statistics.
 		 * Iterates through SAM lines and updates tile alignment metrics. */
-		private void processSam() {
+		private void processSam(){
 			ListNum<SamLine> ln=ss.nextLines();
 			ArrayList<SamLine> reads=(ln==null ? null : ln.list);
 			final IlluminaHeaderParser2 ihp=new IlluminaHeaderParser2();
@@ -1675,7 +1766,7 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 		int xmax=-1, ymax=-1, tmax=-1;
 		/** Name identifier for the flow cell being processed */
 		public String flowcellName=null;
-		
+
 		/** K-mer depth values for first read in pair */
 		private IntList kmerDepths0=new IntList(151);
 		/** K-mer depth values for second read in pair */
@@ -1687,10 +1778,10 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 
 //		long[][][] laneDepthSums=new long[9][2][500];
 //		long[][][] laneDepthCounts=new long[9][2][500];
-		
+
 		/** Parser for extracting coordinates from Illumina read headers */
 		private IlluminaHeaderParser2 ihp=new IlluminaHeaderParser2();
-		
+
 		/** True only if this thread has completed successfully */
 		boolean success=false;
 
@@ -1700,10 +1791,10 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 		private final Streamer ss;
 		/** Thread ID */
 		final int tid;
-		/** Thread-local FlowCell instance for data accumulation */
+		/** Assigned FlowCell; multiple workers may share it and synchronize model updates. */
 		final FlowCell flowcellT;
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
@@ -1712,8 +1803,8 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 	private String in1=null;
 	/** Secondary input file path */
 	private String in2=null;
-	
-	/** Additional input files for processing */
+
+	/** Additional reference inputs loaded completely for k-mer counting. */
 	private ArrayList<String> extra=new ArrayList<String>();
 
 	/** Primary output file path */
@@ -1726,26 +1817,28 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 
 	/** Optional aligned reads (e.g. PhiX) */
 	private String samInput=null;
-	/** Whether to process SAM input in multi-threaded mode */
+	/** Enables worker-side SAM consumption; fixed true, and sammt parsing is dormant. */
 	private final boolean processSamMT=true;
-	
+
 	/** Override input file extension */
 	private String extin=null;
 	/** Override output file extension */
 	private String extout=null;
-	
-	/*--------------------------------------------------------------*/	
-	
+
+	/*--------------------------------------------------------------*/
+
 //	private boolean pound=true;
 	/** Output file for flow cell statistics dump */
 	private String dumpOut=null;
+	/** Output schema: legacy 3 by default; 4 preserves scalar tile counters exactly. */
+	private int dumpVersion=3;
 	/** Input file for pre-computed flow cell statistics */
 	private String dumpIn=null;
 	/** Output file for coordinates of discarded reads */
 	private String coordsOut=null;
-	
-	/*--------------------------------------------------------------*/	
-	
+
+	/*--------------------------------------------------------------*/
+
 	/** Delimiter character for barcode separation */
 	private byte delimiter='+';
 	/** Number of barcodes expected per read */
@@ -1756,14 +1849,14 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 	private String barcodeCounts;
 	/** Statistics object for barcode analysis */
 	private BarcodeStats barcodeStats;
-	
+
 	/** Thread-safe map for tracking barcode frequencies */
 	private ConcurrentHashMap<String, AtomicStringNum> barcodeMap;
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------         Side Channel         ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/** Whether to perform alignment for quality assessment */
 	boolean align=false;
 	/** Output file for alignment results */
@@ -1784,8 +1877,8 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 	int alignMM2=1;
 	/** Side channel for alignment processing */
 	SideChannel3 sidechannel;
-	
-	/*--------------------------------------------------------------*/	
+
+	/*--------------------------------------------------------------*/
 
 	/** Number of reads processed */
 	public long readsProcessed=0;
@@ -1796,13 +1889,13 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 	public long readsDiscarded=0;
 	/** Number of bases discarded */
 	public long basesDiscarded=0;
-	
+
 	/** Number of G bases converted to N due to quality issues */
-	protected long gsTransformedToN=0; 
-	
-	/** Quit after processing this many input reads; -1 means no limit */
+	protected long gsTransformedToN=0;
+
+	/** Primary reader limit in that backend's units; negative is unlimited. Extras are uncapped. */
 	private long maxReads=-1;
-	
+
 	/** Whether interleaved was explicitly set. */
 	private boolean setInterleaved=false;
 
@@ -1816,42 +1909,42 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 	/** Number of threads for tile filling */
 	private int fillThreads=64;
 	//128 threads only ran at 5600% utilization...  may be too many.
-	/** Number of threads for tile filling when merging is enabled */
+	/** Requested filling-thread floor for merge plus k-mer loading, capped by Shared.threads(). */
 	private static final int fillThreadsM=96;//threads when merge is enabled
 	/** Bloom filter for k-mer counting and depth estimation */
 	private BloomFilter bloomFilter;
 
-	/** Bit mask for read ID-based k-mer sampling */
+	/** Window-end mask; numericID selects the matching masked phase during depth lookup. */
 	int idmask_read=7;
-	/** Bit mask for write ID-based k-mer sampling */
+	/** Extracted-key index mask; numericID+3 selects the masked phase during loading. */
 	int idmask_write=15;
 	/** Level of depth smoothing to apply (0=none, 3=3-point, 5=5-point) */
 	private int smoothDepths=0;
-	/** Whether to deconvolute k-mer depths to base depths */
+	/** Whether to project k-mer depths onto bases by the maximum overlapping sampled depth. */
 	private boolean deblurDepths=false;
-	
+
 	/** Whether to apply blurring to tile statistics */
 	private boolean blurTiles=false;
-	
+
 	/** Whether to load k-mers for depth analysis */
 	private boolean loadKmers=true;
 //	private int kmersPerRead=0;//for loading
-	/** Minimum probability threshold for k-mer inclusion */
+	/** Probability threshold passed to the multithreaded loader; the scalar path uses unweighted keys. */
 	private float minProb=0;
-	/** Whether to use deterministic k-mer sampling */
+	/** Unused legacy option; its only consumer is in commented-out code. */
 	private boolean deterministic=true;
 	/** Number of bits per counter in Bloom filter */
 	private int cbits=2;
 	/** Number of hash functions in Bloom filter */
 	private int hashes=2;
-	
+
 	/** Whether to recalibrate quality scores */
 	private boolean recalibrate=false;
 	/** Whether to attempt read pair merging */
 	private boolean merge=false;
 	/** Whether to use strict merging criteria */
 	private boolean strictmerge=false;
-	
+
 	/** Target number of average reads per tile for analysis */
 	private int targetAverageReads=1600;
 	/** Target number of aligned reads per tile for analysis */
@@ -1860,28 +1953,28 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 	private int targetX=Tile.xSize;
 	/** Target Y dimension for tile sizing */
 	private int targetY=Tile.ySize;
-	
+
 	/** K-mer length for analysis (fixed at 31) */
 	private static final int k=31;
-	
+
 	/** Main FlowCell data structure containing tile information */
 	private FlowCell flowcell;
-	
+
 	/** Whether to convert poly-G read hits to misses */
 	private boolean changePolyGHitsToMisses=false;
-	
+
 	/** Multiplier for deviation-based quality thresholds */
 	private float dmult=-0.2f;
-	
+
 	/** Whether to discard only reads with low quality scores */
 	private boolean discardOnlyLowQuality=true;
 	/** Quality level threshold for discarding reads */
 	private int discardLevel=1;
-	/** Whether to convert problematic G bases to N */
+	/** Dormant G-masking path; no active command-line setter enables it. */
 	private boolean gToN=false;
-	/** Whether to discard reads with problematic G content */
+	/** Dormant G-discard path; no active command-line setter enables it. */
 	private boolean discardG=false;
-	
+
 	/** Minimum read length after trimming */
 	private int minlen=30;
 	/** Quality threshold for trimming (-1 to disable) */
@@ -1892,10 +1985,10 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 	private boolean trimLeft=false;
 	/** Whether to trim from right end of reads */
 	private boolean trimRight=true;
-	
+
 	/** Flag to prevent repeated warning messages */
 	private boolean warned=false;
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
@@ -1904,19 +1997,19 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 	private final FileFormat ffin1;
 	/** Secondary input file */
 	private final FileFormat ffin2;
-	
+
 	/** Primary output file */
 	private final FileFormat ffout1;
 	/** Secondary output file */
 	private final FileFormat ffout2;
-	
+
 	/** Output for discarded reads */
 	private final FileFormat ffoutbad;
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/** Number of reads output in the last run */
 	public static long lastReadsOut;
 	/** Print status messages to this output stream */
@@ -1931,5 +2024,5 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 	private boolean append=false;
 	/** Output reads in input order (possibly todo) */
 	private final boolean ordered=false;
-	
+
 }

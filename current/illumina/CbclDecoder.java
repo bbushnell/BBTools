@@ -1,8 +1,11 @@
 package illumina;
 
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.util.Map.Entry;
 import java.util.zip.GZIPInputStream;
 
 /**
@@ -14,14 +17,14 @@ import java.util.zip.GZIPInputStream;
  *   bits 4-5: base for cluster B
  *   bits 6-7: quality bin index for cluster B
  *
- * Quality bin indices (0-3) are remapped to Phred scores via the
- * header's qscoreRemap table (e.g., NovaSeq RTA3 maps to 0, 12, 23, 37).
- * A byte value of 0x00 indicates no-call (base=N, quality=0).
+ * Quality bin indices are remapped to Phred scores via the header's
+ * qscoreRemap table. A 4-bit cluster nibble of zero indicates a no-call for
+ * that cluster and emits base N with Phred 0.
  *
  * @author Chloe
  * @date October 15, 2025
  */
-public class CbclDecoder {
+public class CbclDecoder{
 
 	/*--------------------------------------------------------------*/
 	/*----------------         Constants            ----------------*/
@@ -35,22 +38,29 @@ public class CbclDecoder {
 
 	/**
 	 * Decode a gzip-compressed block of CBCL data.
-	 * @param compressedData Gzip-compressed bytes
-	 * @param numClusters Number of clusters in this tile
-	 * @param bitsPerBase Bits per base (typically 2)
-	 * @param bitsPerQual Bits per quality (typically 2)
-	 * @param qscoreRemap Quality bin remap table from header; may be null
-	 * @return Array of [bases, quals] where both are byte arrays
+	 * The inflated packed block must contain exactly {@code ceil(numClusters/2)}
+	 * bytes. Returned bases are ASCII bases; returned qualities are ASCII
+	 * Phred+33 bytes.
+	 * @param compressedData Gzip-compressed bytes for one tile
+	 * @param numClusters number of clusters in this tile
+	 * @param bitsPerBase bits per base; only 2 is supported
+	 * @param bitsPerQual bits per quality bin; only 2 is supported
+	 * @param qscoreRemap quality-bin remap table from the header; may be null
+	 * @return array of {@code [bases, quals]} where both entries are byte arrays
 	 */
 	public static byte[][] decodeBlock(byte[] compressedData, int numClusters,
 	                                    int bitsPerBase, int bitsPerQual,
-	                                    int[] qscoreRemap) throws IOException {
+	                                    int[] qscoreRemap) throws IOException{
 		//Decompress gzip data
 		ByteArrayInputStream bais=new ByteArrayInputStream(compressedData);
 		GZIPInputStream gis=new GZIPInputStream(bais);
-		//TODO: Uses Java 9+ library: readAllBytes (InputStream.readAllBytes, since Java 9). Violates Java-8 bytecode-compliance target (no compiler warning). Address post-compaction.
-		byte[] decompressed=gis.readAllBytes();
+		byte[] decompressed=readAll(gis);
 		gis.close();
+		int expectedSize=(int)((numClusters+1L)/2);
+		if(decompressed.length!=expectedSize){
+			throw new IOException("CBCL block expands to "+decompressed.length+
+					" bytes but "+numClusters+" clusters require "+expectedSize);
+		}
 
 		//Allocate output arrays
 		byte[] bases=new byte[numClusters];
@@ -59,7 +69,7 @@ public class CbclDecoder {
 		//Unpack bit-packed data
 		if(bitsPerBase==2 && bitsPerQual==2){
 			decode2bit(decompressed, bases, quals, numClusters, qscoreRemap);
-		} else {
+		}else{
 			throw new UnsupportedOperationException("Only 2-bit encoding supported currently");
 		}
 
@@ -73,7 +83,7 @@ public class CbclDecoder {
 	 * A nibble of 0x0 (base=0, qual=0) is a no-call: emit N with quality 0.
 	 */
 	private static void decode2bit(byte[] data, byte[] bases, byte[] quals,
-	                                int numClusters, int[] qscoreRemap) {
+	                                int numClusters, int[] qscoreRemap){
 		int clusterIdx=0;
 		for(int byteIdx=0; byteIdx<data.length && clusterIdx<numClusters; byteIdx++){
 			int b=data[byteIdx]&0xFF;
@@ -113,35 +123,80 @@ public class CbclDecoder {
 	 * @param tileNum Tile number to extract
 	 * @return [bases, quals] for the specified tile
 	 */
-	public static byte[][] readTile(String filename, int tileNum) throws IOException {
+	public static byte[][] readTile(String filename, int tileNum) throws IOException{
 		//Parse header
 		CbclHeader header=new CbclHeader(filename);
 
 		//Find tile in metadata
 		Integer numClusters=header.tileMetadata.get(tileNum);
 		if(numClusters==null){
-			throw new IOException("Tile " + tileNum + " not found in CBCL file");
+			throw new IOException("Tile "+tileNum+" not found in CBCL file");
 		}
 
 		//Read compressed data
 		FileInputStream fis=new FileInputStream(filename);
-		fis.skip(header.compressedDataOffset);
-		//TODO: Uses Java 9+ library: readAllBytes (InputStream.readAllBytes, since Java 9). Violates Java-8 bytecode-compliance target (no compiler warning). Address post-compaction.
-		byte[] compressedData=fis.readAllBytes();
-		fis.close();
-
-		//For files with multiple tiles, need to split the compressed blocks
-		//For now, assume single tile per file (which matches test data structure)
+		byte[] compressedData;
+		try{
+			long offset=header.compressedDataOffset;
+			Integer compressedSize=header.tileCompressedSizes.get(tileNum);
+			for(Entry<Integer, Integer> entry : header.tileCompressedSizes.entrySet()){
+				if(entry.getKey()==tileNum){break;}
+				offset+=entry.getValue();
+			}
+			skipFully(fis, offset);
+			compressedData=readFully(fis, compressedSize);
+		}finally{
+			fis.close();
+		}
+		int uncompressedSize=header.tileUncompressedSizes.get(tileNum);
+		int expectedSize=(int)((numClusters+1L)/2);
+		if(uncompressedSize!=expectedSize){
+			throw new IOException("Tile "+tileNum+" declares uncompressed size "+uncompressedSize+
+					" but "+numClusters+" clusters require "+expectedSize+" bytes");
+		}
 		return decodeBlock(compressedData, numClusters,
-		                   header.bitsPerBasecall, header.bitsPerQscore,
-		                   header.qscoreRemap);
+				header.bitsPerBasecall, header.bitsPerQscore, header.qscoreRemap);
+	}
+
+	private static byte[] readFully(InputStream is, int length) throws IOException{
+		byte[] data=new byte[length];
+		int offset=0;
+		while(offset<length){
+			int read=is.read(data, offset, length-offset);
+			if(read<0){throw new IOException("Unexpected end of compressed CBCL block");}
+			offset+=read;
+		}
+		return data;
+	}
+
+	private static byte[] readAll(InputStream is) throws IOException{
+		ByteArrayOutputStream baos=new ByteArrayOutputStream();
+		byte[] buffer=new byte[32768];
+		for(int read=is.read(buffer); read>=0; read=is.read(buffer)){
+			if(read>0){baos.write(buffer, 0, read);}
+		}
+		return baos.toByteArray();
+	}
+
+	private static void skipFully(InputStream is, long length) throws IOException{
+		long skipped=0;
+		while(skipped<length){
+			long current=is.skip(length-skipped);
+			if(current>0){
+				skipped+=current;
+			}else if(is.read()<0){
+				throw new IOException("Unexpected end of CBCL file");
+			}else{
+				skipped++;
+			}
+		}
 	}
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Test Main             ----------------*/
 	/*--------------------------------------------------------------*/
 
-	public static void main(String[] args) throws Exception {
+	public static void main(String[] args) throws Exception{
 		if(args.length<2){
 			System.err.println("Usage: CbclDecoder <cbcl_file> <tile_num>");
 			System.exit(1);
@@ -154,7 +209,7 @@ public class CbclDecoder {
 		byte[] bases=result[0];
 		byte[] quals=result[1];
 
-		System.out.println("Decoded " + bases.length + " clusters for tile " + tileNum);
+		System.out.println("Decoded "+bases.length+" clusters for tile "+tileNum);
 		System.out.println("First 5 clusters:");
 		for(int i=0; i<Math.min(5, bases.length); i++){
 			System.out.printf("Cluster %d: base=%c qual=%c (Q%d)\n",

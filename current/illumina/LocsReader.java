@@ -12,21 +12,22 @@ import java.nio.ByteOrder;
  * @author Chloe
  * @date October 15, 2025
  */
-public class LocsReader {
+public class LocsReader{
 
 	/**
 	 * Read cluster positions from .locs file.
 	 * @param fname Path to s.locs file
 	 * @return Array of [x,y] float pairs indexed by cluster
 	 */
-	public static float[][] readPositions(String fname) throws IOException {
+	public static float[][] readPositions(String fname) throws IOException{
 		FileInputStream fis=new FileInputStream(fname);
 
 		//Read header (12 bytes)
 		byte[] headerBytes=new byte[12];
-		//TODO: Possible bug [illumina/LocsReader#001] - return value of fis.read(headerBytes) is IGNORED; FileInputStream.read(byte[])
-		//may return fewer than 12 bytes even on a valid file (not guaranteed to fill), leaving trailing 0s -> numClusters parsed from
-		//garbage. The per-cluster reads below ARE checked (read!=8 throws); the header read is not. Latent-LOW (local files usually fill).
+		//TODO: Possible bug [illumina/LocsReader#001] - the return value from
+		//FileInputStream.read(byte[]) is ignored for the header. That call is not
+		//guaranteed to fill all 12 bytes; a short read would leave trailing zeroes.
+		//The per-cluster reads below are checked.
 		//Fix: loop until 12 bytes read, or throw on short read (as CbclHeader.readHeader does).
 		fis.read(headerBytes);
 
@@ -60,7 +61,7 @@ public class LocsReader {
 	/**
 	 * Test reading a .locs file.
 	 */
-	public static void main(String[] args) throws Exception {
+	public static void main(String[] args) throws Exception{
 		if(args.length<1){
 			System.err.println("Usage: LocsReader <locs_file>");
 			System.exit(1);

@@ -29,26 +29,26 @@ import structures.ByteBuilder;
  *
  * @author Brian Bushnell
  */
-public class PlotHist {
-	
+public class PlotHist{
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
 		Timer t=new Timer();
-		
+
 		//Create an instance of this class
 		PlotHist x=new PlotHist(args);
-		
+
 		//Run the object
 		x.process(t);
-		
+
 		//Close the print stream if it was redirected
 		Shared.closeStream(x.outstream);
 	}
-	
+
 	/**
 	 * Constructor that parses command line arguments and initializes the PlotHist
 	 * instance. Sets up file formats, validates parameters, and prepares for
@@ -56,22 +56,22 @@ public class PlotHist {
 	 * @param args Command line arguments
 	 */
 	public PlotHist(String[] args){
-		
+
 		{//Preparse block for help, config files, and outstream
 			PreParser pp=new PreParser(args, /*getClass()*/null, false);
 			args=pp.args;
 			outstream=pp.outstream;
 		}
-		
+
 		//Set shared static variables prior to parsing
 		ReadWrite.USE_PIGZ=ReadWrite.USE_UNPIGZ=true;
 		ReadWrite.setZipThreads(Shared.threads());
-		
+
 		{//Parse the arguments
 			final Parser parser=parse(args);
 			overwrite=parser.overwrite;
 			append=parser.append;
-			
+
 			in1=parser.in1;
 		}
 
@@ -82,11 +82,11 @@ public class PlotHist {
 
 		ffin1=FileFormat.testInput(in1, FileFormat.TXT, null, true, true);
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------    Initialization Helpers    ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
 	 * Parses arguments from the command line using a Parser object.
 	 * Supports configuration of bins count and verbose output settings.
@@ -94,18 +94,18 @@ public class PlotHist {
 	 * @return Configured Parser instance with parsed settings
 	 */
 	private Parser parse(String[] args){
-		
+
 		//Create a parser object
 		Parser parser=new Parser();
-		
+
 		//Set any necessary Parser defaults here
 		//parser.foo=bar;
 //		parser.out1="stdout";
-		
+
 		//Parse each argument
 		for(int i=0; i<args.length; i++){
 			String arg=args[i];
-			
+
 			//Break arguments into their constituent parts, in the form of "a=b"
 			String[] split=arg.split("=");
 			String a=split[0].toLowerCase();
@@ -132,10 +132,10 @@ public class PlotHist {
 				throw new RuntimeException("Unknown parameter "+args[i]);
 			}
 		}
-		
+
 		return parser;
 	}
-	
+
 	/**
 	 * Adds or removes .gz or .bz2 extensions as needed for input files.
 	 * Validates that at least one input file is specified.
@@ -145,17 +145,17 @@ public class PlotHist {
 		in1=Tools.fixExtension(in1);
 		if(in1==null){throw new RuntimeException("Error - at least one input file is required.");}
 	}
-	
+
 	/** Ensures input files can be read by testing file accessibility.
 	 * @throws RuntimeException if input files cannot be read */
 	private void checkFileExistence(){
-		
+
 		//Ensure input files can be read
 		if(!Tools.testInputFiles(false, true, in1)){
-			throw new RuntimeException("\nCan't read some input files.\n");  
+			throw new RuntimeException("\nCan't read some input files.\n");
 		}
 	}
-	
+
 	/**
 	 * Adjusts file-related static fields as needed for this program.
 	 * Configures ByteFile mode based on available thread count for optimal
@@ -166,13 +166,13 @@ public class PlotHist {
 		if(!ByteFile.FORCE_MODE_BF1 && !ByteFile.FORCE_MODE_BF2 && Shared.threads()>2){
 			ByteFile.FORCE_MODE_BF2=true;
 		}
-		
+
 //		if(!ByteFile.FORCE_MODE_BF2){
 //			ByteFile.FORCE_MODE_BF2=false;
 //			ByteFile.FORCE_MODE_BF1=true;
 //		}
 	}
-	
+
 	/**
 	 * Ensures parameter ranges are within bounds and required parameters are set.
 	 * Validates that input file and bins count are properly configured.
@@ -183,7 +183,7 @@ public class PlotHist {
 		assert(bins>0);
 		return true;
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
@@ -195,46 +195,46 @@ public class PlotHist {
 	 * @param t Timer for tracking processing duration and performance metrics
 	 */
 	void process(Timer t){
-		
+
 		ByteFile bf=ByteFile.makeByteFile(ffin1);
-		
+
 		processInner(bf);
 		writeData();
-		
+
 		errorState|=bf.close();
-		
+
 		t.stop();
-		
+
 		outstream.println(Tools.timeLinesBytesProcessed(t, linesProcessed, bytesProcessed, 8));
-		
+
 		outstream.println();
 		outstream.println("Lines Out:         \t"+linesOut);
-		
+
 		//Throw an exception of there was an error in a thread
 		if(errorState){
 			throw new RuntimeException(getClass().getName()+" terminated in an error state; the output may be corrupt.");
 		}
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
-	
-	private void gatherData(ByteFile bf) {
+
+	private void gatherData(ByteFile bf){
 		byte[] line=bf.nextLine();
-		
+
 		LineParser1 lp=new LineParser1('\t');
 		while(line!=null){
 			if(line.length>0){
 				final boolean valid=(line[0]!='#');
-				if(valid) {
+				if(valid){
 					lp.set(line);
 					int lineTerms=Tools.min(terms, lp.terms());
-					for(int term=0; term<lineTerms; term++) {
-						double d=lp.parseDouble(term);
+					for(int term=0; term<lineTerms; term++){
+						double d=parseDouble(lp, term);
 						maxArray[term]=Tools.max(maxArray[term], d);
 					}
-				}else {
+				}else{
 					header=new String(line).substring(1).split("\t");
 					terms=header.length;
 					maxArray=new double[terms];
@@ -245,10 +245,10 @@ public class PlotHist {
 		bf.reset();
 		countMatrix=new long[terms][bins+1];
 	}
-	
+
 	private void processInner(ByteFile bf){
 		gatherData(bf);
-		
+
 		byte[] line=bf.nextLine();
 
 		LineParser1 lp=new LineParser1('\t');
@@ -256,14 +256,14 @@ public class PlotHist {
 			if(line.length>0){
 				linesProcessed++;
 				bytesProcessed+=(line.length+1);
-				
+
 				final boolean valid=(line[0]!='#');
-				
+
 				if(valid){
 					lp.set(line);
 					int lineTerms=Tools.min(terms, lp.terms());
-					for(int term=0; term<lineTerms; term++) {
-						double d=lp.parseDouble(term);
+					for(int term=0; term<lineTerms; term++){
+						double d=parseDouble(lp, term);
 						//bin is in [0, bins]: maxArray[term] is this column's MAX (from gatherData), so d<=max ->
 						//d/max<=1.0 -> bin<=bins; negatives clamp to 0 via Tools.max. The d==max row gives exactly
 						//bin=bins, which is why countMatrix is sized [terms][bins+1] (index bins is the last valid
@@ -280,10 +280,24 @@ public class PlotHist {
 			line=bf.nextLine();
 		}
 	}
-	
-	private void writeData() {
+
+	/** Parses one indexed field, using Java's parser only for exponent notation. */
+	private static double parseDouble(final LineParser1 lp, final int term){
+		lp.setBounds(term);
+		final byte[] line=lp.line();
+		final int start=lp.a(), stop=lp.b();
+		for(int i=start; i<stop; i++){
+			final byte b=line[i];
+			if(b=='e' || b=='E'){
+				return Parse.parseDoubleSlow(line, start, stop);
+			}
+		}
+		return Parse.parseDouble(line, start, stop);
+	}
+
+	private void writeData(){
 		ByteBuilder bb=new ByteBuilder();
-		for(int term=0; term<terms; term++) {
+		for(int term=0; term<terms; term++){
 			String name=header[term];
 			long[] counts=countMatrix[term];
 			ByteStreamWriter bsw=ByteStreamWriter.makeBSW(name+".tsv", overwrite, false, false);
@@ -291,7 +305,7 @@ public class PlotHist {
 			linesOut++;
 			double incr=maxArray[term]/bins;
 			double binStart=0;
-			for(int bin=0; bin<counts.length; bin++) {
+			for(int bin=0; bin<counts.length; bin++){
 				bb.append(binStart, 6, true).tab().append(counts[bin]).nl();
 				linesOut++;
 				binStart+=incr;
@@ -306,40 +320,40 @@ public class PlotHist {
 			errorState|=bsw.poisonAndWait();
 		}
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
 	private String in1=null;
-	
+
 	/*--------------------------------------------------------------*/
-	
+
 	private long linesProcessed=0;
 	private long linesOut=0;
 	private long bytesProcessed=0;
 	private long bytesOut=0;
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	private final FileFormat ffin1;
-	
+
 	String[] header;
 	long[][] countMatrix;
 	double[] maxArray;
 	int bins=1000;
 	int terms=0;
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	private PrintStream outstream=System.err;
 	public static boolean verbose=false;
 	public boolean errorState=false;
 	private boolean overwrite=true;
 	private boolean append=false;
-	
+
 }

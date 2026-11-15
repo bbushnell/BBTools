@@ -12,6 +12,8 @@ Usage:  tiledump.sh in=<input file> out=<output file>
 Standard parameters:
 in=<file>       Input dump file.
 out=<file>      Output dump file.
+dumpversion=3   Output version: 3 keeps the legacy layout (default); 4 appends
+                exact scalar tile counters. Input versions are auto-detected.
 overwrite=t     (ow) Set to false to force the program to abort rather than
                 overwrite an existing file.
 

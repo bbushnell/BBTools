@@ -1,7 +1,9 @@
 package illumina;
 
+import java.io.ByteArrayOutputStream;
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 
@@ -12,22 +14,23 @@ import java.nio.ByteOrder;
  * @author Chloe
  * @date October 15, 2025
  */
-public class FilterReader {
+public class FilterReader{
 
 	/**
 	 * Read pass-filter flags from .filter file.
 	 * @param fname Path to filter file (e.g., s_1_1101.filter)
 	 * @return Array of boolean flags (true=pass filter)
 	 */
-	public static boolean[] readFilters(String fname) throws IOException {
+	public static boolean[] readFilters(String fname) throws IOException{
 		FileInputStream fis=new FileInputStream(fname);
 
 		//Read all bytes
-		//TODO: Uses Java 9+ library: readAllBytes (InputStream.readAllBytes, since Java 9). Compiles under any modern JDK with no
-		//warning, but violates the Java-8 BYTECODE-COMPLIANCE target (Brian: he compiles for 8 compliance, so no Java-9+ syntax OR
-		//library classes/methods). Also in illumina/CbclDecoder (x2). Address post-compaction (e.g. read via a manual buffer loop).
-		byte[] data=fis.readAllBytes();
-		fis.close();
+		byte[] data;
+		try{
+			data=readAll(fis);
+		}finally{
+			fis.close();
+		}
 
 		//First few bytes are header - need to determine header size
 		//From Picard: header is first 12 bytes, then cluster count, then flags
@@ -39,6 +42,14 @@ public class FilterReader {
 			bb.position(8);
 			int numClusters=bb.getInt();
 			System.err.println("Filter file: " + numClusters + " clusters (from header)");
+			if(numClusters<0){
+				throw new IOException("Negative filter cluster count: "+numClusters);
+			}
+			long expected=12L+numClusters;
+			if(data.length<expected){
+				throw new IOException("Filter file declares "+numClusters+
+						" clusters but contains only "+(data.length-12)+" flags");
+			}
 
 			//Flags start after header (12 bytes)
 			boolean[] filters=new boolean[numClusters];
@@ -57,10 +68,19 @@ public class FilterReader {
 		return filters;
 	}
 
+	private static byte[] readAll(InputStream is) throws IOException{
+		ByteArrayOutputStream baos=new ByteArrayOutputStream();
+		byte[] buffer=new byte[32768];
+		for(int read=is.read(buffer); read>=0; read=is.read(buffer)){
+			if(read>0){baos.write(buffer, 0, read);}
+		}
+		return baos.toByteArray();
+	}
+
 	/**
 	 * Test reading a .filter file.
 	 */
-	public static void main(String[] args) throws Exception {
+	public static void main(String[] args) throws Exception{
 		if(args.length<1){
 			System.err.println("Usage: FilterReader <filter_file>");
 			System.exit(1);

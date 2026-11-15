@@ -27,36 +27,36 @@ import structures.ListNum;
  *
  * @author Brian Bushnell
  */
-public class PlotReadPosition {
+public class PlotReadPosition{
 
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
 		Timer t=new Timer();
-		
+
 		//Create an instance of this class
 		PlotReadPosition x=new PlotReadPosition(args);
-		
+
 		//Run the object
 		x.process(t);
-		
+
 		//Close the print stream if it was redirected
 		Shared.closeStream(x.outstream);
 	}
-	
+
 	public PlotReadPosition(String[] args){
-		
+
 		{//Preparse block for help, config files, and outstream
 			PreParser pp=new PreParser(args, getClass(), false);
 			args=pp.args;
 			outstream=pp.outstream;
 		}
-		
+
 		Parser parser=new Parser();
 		for(int i=0; i<args.length; i++){
 			String arg=args[i];
-			String[] split=arg.split("=");
+			String[] split=arg.split("=", 2);
 			String a=split[0].toLowerCase();
-			String b=split.length>1 ? split[1] : null;
+			String b=split.length>1 && !split[1].isEmpty() ? split[1] : null;
 			if(b!=null && b.equalsIgnoreCase("null")){b=null;}
 
 			if(a.equals("expected") || a.equals("names") || a.equals("barcodes")){
@@ -71,10 +71,10 @@ public class PlotReadPosition {
 				outstream.println("Unknown parameter "+args[i]);
 			}
 		}
-		
+
 		{//Process parser fields
 			Parser.processQuality();
-			
+
 			maxReads=parser.maxReads;
 			in1=parser.in1;
 			out1=parser.out1;
@@ -96,9 +96,9 @@ public class PlotReadPosition {
 		ArrayList<String> expected=BarcodeCounter.loadBarcodes(expectedPath, delimiter);
 		matrix.populateExpected(expected);
 	}
-	
+
 	void process(Timer t){
-		
+
 		final ConcurrentReadInputStream cris;
 		{
 			cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ffin1, null);
@@ -111,33 +111,33 @@ public class PlotReadPosition {
 			final int buff=4;
 
 			assert(!out1.equalsIgnoreCase(in1) && !out1.equalsIgnoreCase(in1)) : "Input file and output file have same name.";
-			
+
 			ros=ConcurrentReadOutputStream.getStream(ffout1, null, buff, "x\ty\thdist\n", false);
 			ros.start();
 		}else{ros=null;}
-		
+
 		long readsProcessed=0, basesProcessed=0;
 		long readsNoBarcode=0, readsWithBarcode=0;//[PlotReadPosition#001] track/skip barcode-less reads
 		{
-			
+
 			ListNum<Read> ln=cris.nextList();
 			ArrayList<Read> reads=(ln!=null ? ln.list : null);
-			
+
 			if(reads!=null && !reads.isEmpty()){
 				Read r=reads.get(0);
 				assert((ffin1==null || ffin1.samOrBam()) || (r.mate!=null)==cris.paired());
 			}
-			
+
 			ByteBuilder bb=new ByteBuilder(128);
 			while(ln!=null && reads!=null && reads.size()>0){//ln!=null prevents a compiler potential null access warning
 				if(verbose){outstream.println("Fetched "+reads.size()+" reads.");}
-				
+
 				for(int idx=0; idx<reads.size(); idx++){
 					final Read r1=reads.get(idx);
 					readsProcessed+=r1.pairCount();
 					basesProcessed+=r1.pairLength();
 					r1.mate=null;
-					
+
 					//  *********  Process reads here  *********
 					ihp.parse(r1);
 //					System.err.println(ihp);
@@ -154,14 +154,14 @@ public class PlotReadPosition {
 					readsWithBarcode++;
 					Barcode bc=matrix.findClosest(barcode, 99, 0);
 					int dist=barcode.length();
-					if(bc!=null) {
+					if(bc!=null){
 						dist=bc.hdist(barcode);
 					}
 					bb.clear();
 					bb.append(ihp.xPos()).tab().append(ihp.yPos()).tab().append(dist);
 					r1.id=bb.toString();
 				}
-				
+
 				if(ros!=null){ros.add(reads, ln.id);}
 
 				cris.returnList(ln);
@@ -175,7 +175,7 @@ public class PlotReadPosition {
 		}
 		ReadWrite.closeStreams(cris, ros);
 		if(verbose){outstream.println("Finished.");}
-		
+
 		t.stop();
 		outstream.println("Time:                         \t"+t);
 		outstream.println("Reads Processed:    "+readsProcessed+" \t"+Tools.format("%.2fk reads/sec", (readsProcessed/(double)(t.elapsed))*1000000));
@@ -185,28 +185,28 @@ public class PlotReadPosition {
 			if(readsWithBarcode==0){outstream.println("Warning: no barcodes found in input.");}
 		}
 	}
-	
+
 	/*--------------------------------------------------------------*/
-	
+
 	/*--------------------------------------------------------------*/
-	
+
 	private String in1=null;
 	private String out1=null;
 	private String expectedPath=null;
-	
+
 	private final FileFormat ffin1;
 	private final FileFormat ffout1;
-	
+
 	/*--------------------------------------------------------------*/
 
 	private final PCRMatrixHDist matrix;
 	private final IlluminaHeaderParser2 ihp=new IlluminaHeaderParser2();
-	
+
 	private long maxReads=-1;
-	
+
 	/*--------------------------------------------------------------*/
-	
+
 	private java.io.PrintStream outstream=System.err;
 	public static boolean verbose=false;
-	
+
 }

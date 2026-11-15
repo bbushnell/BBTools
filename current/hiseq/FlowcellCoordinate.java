@@ -4,22 +4,23 @@ package hiseq;
  * Parses and represents coordinate information for Illumina sequencing
  * flowcell data points. Extracts and manages lane, tile, x, and y
  * coordinates from Illumina sequencing read identifiers using an
- * IlluminaHeaderParser2. Provides thread-safe coordinate parsing and
- * comparison capabilities for sequencing data processing.
+ * IlluminaHeaderParser2. Instances contain mutable fields and parser scratch;
+ * callers must confine each instance to one thread or provide synchronization.
+ * {@link #getFC()} offers reusable scratch isolated to the calling thread.
  *
  * @author Brian Bushnell
  */
-public class FlowcellCoordinate implements Comparable<FlowcellCoordinate> {
-	
+public class FlowcellCoordinate implements Comparable<FlowcellCoordinate>{
+
 	/** Creates a FlowcellCoordinate with default uninitialized values. */
-	public FlowcellCoordinate() {}
-	
+	public FlowcellCoordinate(){}
+
 	/** Creates a FlowcellCoordinate by parsing the specified identifier.
 	 * @param id Illumina sequencing read identifier to parse */
-	public FlowcellCoordinate(String id) {
+	public FlowcellCoordinate(String id){
 		setFrom(id);
 	}
-	
+
 //	public float distance(FlowcellCoordinate fc){ //Comment out due to being unused
 //		assert(isSet());
 //		assert(fc.isSet());
@@ -42,7 +43,7 @@ public class FlowcellCoordinate implements Comparable<FlowcellCoordinate> {
 ////		return (float)Math.sqrt(a*a+b*b);
 //	}
 
-	
+
 	/**
 	 * Parses flowcell coordinate information from an Illumina read identifier.
 	 * Extracts lane, tile, x, y coordinates and optionally UMI from the header.
@@ -50,22 +51,23 @@ public class FlowcellCoordinate implements Comparable<FlowcellCoordinate> {
 	 */
 	public void setFrom(String id){
 		ihp.parse(id);
-		
+
 		lane=ihp.lane();
 		tile=ihp.tile();
 		x=ihp.xPos();
 		y=ihp.yPos();
-		if(parseUMI) {umi=ihp.index3();}
+		if(parseUMI){umi=ihp.index3();}
 	}
-	
+
 	/** Checks if all coordinate fields have valid values.
 	 * @return true if lane, tile, x, and y are all non-negative */
 	public boolean isSet(){
 		return lane>=0 && tile>=0 && x>=0 && y>=0;
 	}
 
+	/** Orders by lane, tile, y and x; ignores UMI. Assumes ordinary bounded pixel coordinates. */
 	@Override
-	public int compareTo(FlowcellCoordinate b) {
+	public int compareTo(FlowcellCoordinate b){
 		//Subtraction comparators are overflow-safe here: lane/tile are small and x/y are pixel coords
 		//(<~10^5), so no difference approaches Integer.MAX. Order is lane,tile,Y,X (note: Y before X).
 		if(lane!=b.lane){return lane-b.lane;}
@@ -74,11 +76,12 @@ public class FlowcellCoordinate implements Comparable<FlowcellCoordinate> {
 		if(x!=b.x){return x-b.x;}
 		return 0;
 	}
-	
+
+	/** Tests this point against inclusive rectangular bounds, without comparing lane or tile. */
 	public boolean overlaps(int xMinLoc, int xMaxLoc, int yMinLoc, int yMaxLoc){
 		return x>=xMinLoc && x<=xMaxLoc && y>=yMinLoc && y<=yMaxLoc;
 	}
-	
+
 	/** Lane number from the flowcell, initialized to -1 */
 	public int lane=-1;
 	/** Tile number within the lane, initialized to -1 */
@@ -91,18 +94,18 @@ public class FlowcellCoordinate implements Comparable<FlowcellCoordinate> {
 	public String umi;
 	/** Parser for extracting coordinate information from Illumina headers */
 	private final IlluminaHeaderParser2 ihp=new IlluminaHeaderParser2();
-	
+
 	/** Large distance value for coordinate calculations */
 	public static final float big=10000000;
-	/** Flag to enable UMI parsing from read identifiers */
+	/** Configure before parsing; false leaves the existing UMI field untouched. */
 	public static boolean parseUMI=false;
 //	public static boolean spanTiles=false;
 
-	
+
 	/**
 	 * Thread-safe retrieval of a FlowcellCoordinate instance.
 	 * Uses ThreadLocal storage to provide one instance per thread.
-	 * @return FlowcellCoordinate instance for the current thread
+	 * @return Borrowed mutable scratch for the current thread, reused by subsequent calls
 	 */
 	public static FlowcellCoordinate getFC(){
 		FlowcellCoordinate fc=localFC.get();
@@ -114,5 +117,5 @@ public class FlowcellCoordinate implements Comparable<FlowcellCoordinate> {
 	}
 	/** Thread-local storage for FlowcellCoordinate instances */
 	private static final ThreadLocal<FlowcellCoordinate> localFC=new ThreadLocal<FlowcellCoordinate>();
-	
+
 }

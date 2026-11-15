@@ -22,6 +22,8 @@ interleaved=auto    Set true/false to override autodetection of the
 Output parameters:
 out=<file>          Output file for filtered reads.
 dump=<file>         Write a summary of quality information by coordinates.
+dumpversion=3       Output dump format: 3 preserves the legacy layout (default);
+                    4 writes exact raw scalar counters for internal readers.
 
 Tile parameters:
 xsize=500           Initial width of micro-tiles.

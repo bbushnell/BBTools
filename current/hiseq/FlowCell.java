@@ -12,29 +12,31 @@ import structures.Point;
  * Represents an Illumina sequencing flow cell with comprehensive lane and
  * tile-level statistics management. Provides data aggregation, statistical
  * computation, and adaptive processing for genomic read analysis across
- * multiple lanes and tiles.
+ * multiple lanes and tiles. Structural growth, traversal and derived statistics
+ * require caller coordination; per-tile counters are not made atomic here.
+ * Tile dimensions and parser configuration are shared static settings.
  *
  * @author Brian Bushnell
  */
-public class FlowCell {
-	
+public class FlowCell{
+
 	/** Creates a FlowCell by loading data from a tile dump file.
 	 * @param fname Path to the tile dump file to load */
 	public FlowCell(String fname){
 		TileDump.loadDump(fname, this);
 	}
-	
+
 	/** Creates a FlowCell with the specified k-mer length.
 	 * @param k_ K-mer length for sequence analysis */
 	public FlowCell(int k_){k=k_;}
-	
+
 	/**
 	 * Retrieves a MicroTile by parsing an Illumina read identifier.
 	 * This method is NOT thread-safe due to shared IlluminaHeaderParser2.
 	 * @param id Illumina read identifier string
 	 * @return MicroTile corresponding to the parsed coordinates
 	 */
-	public MicroTile getMicroTile(String id) {//This method is NOT threadsafe
+	public MicroTile getMicroTile(String id){//This method is NOT threadsafe
 		//NOT threadsafe on TWO counts, both load-bearing (G11 2026-07-01): (1) it mutates the shared
 		//'ihp' field below, and (2) it cascades into getLane/getTile/Tile.get(...,true) which grow the
 		//lanes/tiles/xlist/ylist ArrayLists with no internal lock. If two threads call this on the SAME
@@ -49,7 +51,7 @@ public class FlowCell {
 		ihp.parse(id);
 		return getMicroTile(ihp);
 	}
-	
+
 	/**
 	 * Retrieves a MicroTile using a pre-parsed header parser.
 	 * @param ihp Illumina header parser containing coordinate information
@@ -71,7 +73,7 @@ public class FlowCell {
 		ihp.parse(id);
 		return getLane(ihp.lane()).getMicroTile(ihp.tile(), ihp.xPos(), ihp.yPos(), create);
 	}
-	
+
 	/**
 	 * Retrieves a MicroTile at the specified coordinates, creating if needed.
 	 *
@@ -84,7 +86,7 @@ public class FlowCell {
 	public MicroTile getMicroTile(int lane, int tile, int x, int y){
 		return getLane(lane).getMicroTile(tile, x, y, true);
 	}
-	
+
 	/**
 	 * Retrieves a MicroTile at the specified coordinates.
 	 *
@@ -98,7 +100,7 @@ public class FlowCell {
 	public MicroTile getMicroTile(int lane, int tile, int x, int y, boolean create){
 		return getLane(lane).getMicroTile(tile, x, y, create);
 	}
-	
+
 	/**
 	 * Retrieves a Lane by number, creating new lanes as needed.
 	 * Dynamically expands the lanes list to accommodate the requested lane.
@@ -119,7 +121,7 @@ public class FlowCell {
 	 * non-null MicroTiles.
 	 * @return ArrayList containing all MicroTiles in the FlowCell
 	 */
-	public ArrayList<MicroTile> toList() {
+	public ArrayList<MicroTile> toList(){
 		ArrayList<MicroTile> mtList=new ArrayList<MicroTile>();
 		for(Lane lane : lanes){
 			if(lane!=null){
@@ -140,14 +142,17 @@ public class FlowCell {
 		}
 		return mtList;
 	}
-	
+
 	/**
-	 * Calculates comprehensive statistics for the entire FlowCell.
-	 * Processes all MicroTiles to compute read counts, alignment rates,
-	 * error rates, quality metrics, and linear regression formulas for
-	 * unique percentage vs error rate relationships.
+	 * Processes every populated MicroTile and totals its read/base/alignment/error counters.
+	 * Read-count means use all populated tiles. Quality, miss percentage, depth,
+	 * error-free value, poly-G and G-content means/deviations use only MicroTiles
+	 * with readCount>=minCountToUse, with one equally weighted entry per eligible tile.
+	 * Fits read error rate and sqrt(base error rate) against the miss percentage;
+	 * the latter prediction is squared by MicroTile's error-rate reporting methods.
 	 *
 	 * @return ArrayList of all processed MicroTiles
+	 * @throws IllegalStateException If an attempted fit has nonfinite coefficients
 	 */
 	public ArrayList<MicroTile> calcStats(){
 		ArrayList<MicroTile> mtList=toList();
@@ -171,18 +176,18 @@ public class FlowCell {
 		for(MicroTile mt : mtList){
 			if(mt.readCount>=minCountToUse){toKeep++;}
 		}
-		
+
 		FloatList avgQualityList=new FloatList(toKeep);
 		FloatList avgUniqueList=new FloatList(toKeep);
 		FloatList avgDepthList=new FloatList(toKeep);
 		FloatList avgErrorFreeList=new FloatList(toKeep);
 		FloatList avgPolyGList=new FloatList(toKeep);
 		FloatList avgGList=new FloatList(toKeep);
-		
+
 
 		ArrayList<Point> readPoints=new ArrayList<Point>();
 		ArrayList<Point> basePoints=new ArrayList<Point>();
-		
+
 		for(MicroTile mt : mtList){
 			if(mt!=null && mt.readCount>=minCountToUse){
 				double up=mt.uniquePercent();
@@ -198,37 +203,48 @@ public class FlowCell {
 				basePoints.add(new Point(up, Math.sqrt(ber)));
 			}
 		}
-		
-		if(readsAligned>1000) {
+
+		if(readsAligned>1000){
 			Collections.sort(readPoints);
 			Collections.sort(basePoints);
-			uniqueToReadErrorRateFormula=Tools.linearRegression(readPoints, 0.001, 0.999);
-			uniqueToBaseErrorRateFormula=Tools.linearRegression(basePoints, 0.001, 0.999);
+			final double[] readFit=Tools.linearRegression(readPoints, 0.001, 0.999);
+			final double[] baseFit=Tools.linearRegression(basePoints, 0.001, 0.999);
+			//HIL-110: aligned-read count alone does not ensure enough distinct miss percentages for a fit.
+			if(!Double.isFinite(readFit[0]) || !Double.isFinite(readFit[1])
+					|| !Double.isFinite(baseFit[0]) || !Double.isFinite(baseFit[1])){
+				throw new IllegalStateException("Nonfinite flow-cell regression: eligible microtiles="+readPoints.size()
+					+", aligned reads="+readsAligned+", minimum reads per tile="+minCountToUse
+					+", miss percentage range="+(readPoints.isEmpty() ? "empty" :
+						readPoints.get(0).x+".."+readPoints.get(readPoints.size()-1).x)
+					+", read fit="+Arrays.toString(readFit)+", sqrt-base fit="+Arrays.toString(baseFit));
+			}
+			uniqueToReadErrorRateFormula=readFit;
+			uniqueToBaseErrorRateFormula=baseFit;
 //			System.err.println("Calculated "+Arrays.toString(uniqueToBaseErrorRateFormula)+" from "
 //					+basePoints.size()+" points, "+basePoints.get(0)+"~"+basePoints.get(basePoints.size()-1));
-		}else {
+		}else{
 //			assert(false) : readsProcessed+", "+basesProcessed+", "+readsAligned+", "+readPoints.get(0);
 			readPoints=basePoints=null;
 			uniqueToReadErrorRateFormula=uniqueToBaseErrorRateFormula=null;
 		}
-		
+
 		avgQuality=avgQualityList.mean();
 		avgUnique=avgUniqueList.mean();
 		avgDepth=avgDepthList.mean();
 		avgErrorFree=avgErrorFreeList.mean();
 		avgPolyG=avgPolyGList.mean();
 		avgG=avgGList.mean();
-		
+
 		stdQuality=avgQualityList.stdev();
 		stdUnique=avgUniqueList.stdev();
 		stdDepth=avgDepthList.stdev();
 		stdErrorFree=avgErrorFreeList.stdev();
 		stdPolyG=avgPolyGList.stdev();
 		stdG=avgGList.stdev();
-		
+
 		return mtList;
 	}
-	
+
 	/**
 	 * Adaptively widens tile dimensions to reach target read count.
 	 * Iteratively increases tile sizes until average reads per tile
@@ -261,7 +277,7 @@ public class FlowCell {
 		}
 		return fc.setFrom(this);
 	}
-	
+
 	/**
 	 * Adaptively widens tile dimensions to reach target aligned read count.
 	 * Similar to widenToTargetReads but focuses on aligned reads specifically.
@@ -293,7 +309,7 @@ public class FlowCell {
 		}
 		return fc.setFrom(this);
 	}
-	
+
 //	/** Reverses tile widening by halving the larger dimension.
 //	 * Reduces either xSize or ySize by half, choosing the larger dimension.
 //	 * NOTE:  This is broken, causes stale microtiles. */
@@ -301,9 +317,9 @@ public class FlowCell {
 //		if(Tile.xSize>Tile.ySize){Tile.ySize/=2;}
 //		else{Tile.xSize/=2;}
 //	}
-	
+
 	/**
-	 * Widens tile dimensions by doubling the larger dimension.
+	 * Widens tile dimensions by doubling the smaller dimension.
 	 * If x >= y, doubles y; otherwise doubles x.
 	 * @param loud If true, prints widening information to stderr
 	 * @return New FlowCell with wider tile dimensions
@@ -314,7 +330,7 @@ public class FlowCell {
 		final int y2=x>=y ? 2*y : y;
 		return widen(x2, y2, loud);
 	}
-	
+
 	/**
 	 * Widens tile dimensions to specified x and y sizes.
 	 * Creates a new FlowCell with larger tiles and redistributes all
@@ -327,18 +343,18 @@ public class FlowCell {
 	 */
 	public FlowCell widen(int x2, int y2, boolean loud){
 //		assert(x2>Tile.xSize || y2>Tile.ySize);
-		if(x2<=Tile.xSize && y2<=Tile.ySize) {return this;}
+		if(x2<=Tile.xSize && y2<=Tile.ySize){return this;}
 		Tile.xSize=Tools.max(x2, Tile.xSize);
 		Tile.ySize=Tools.max(y2, Tile.ySize);
-		if(loud) {System.err.println("Widening to "+Tile.xSize+"x"+Tile.ySize);}
+		if(loud){System.err.println("Widening to "+Tile.xSize+"x"+Tile.ySize);}
 		ArrayList<MicroTile> list=toList();
 		FlowCell fc=new FlowCell(k).setFrom(this);
 		for(MicroTile mt : list){
 			MicroTile mt2=fc.getMicroTile(mt.lane, mt.tile, mt.x1, mt.y1);
 			mt2.add(mt);
 		}
-		for(Lane lane : lanes) {
-			if(lane!=null) {
+		for(Lane lane : lanes){
+			if(lane!=null){
 				Lane lane2=fc.getLane(lane.lane);
 				lane2.addLists(lane);
 			}
@@ -351,12 +367,12 @@ public class FlowCell {
 	 * Each MicroTile is weighted 8x and combined with up, down, left, and right
 	 * neighbors, then scaled by 0.125 to achieve ~50% above original counts.
 	 */
-	public void blur() {
+	public void blur(){
 		FlowCell fc=new FlowCell(k);
 		fc.add(this);
 		ArrayList<MicroTile> list=this.toList();
-		for(MicroTile mt : list) {
-			if(mt.readCount<1) {continue;}
+		for(MicroTile mt : list){
+			if(mt.readCount<1){continue;}
 			int tile=mt.tile, lane=mt.lane, x1=mt.x1, x2=mt.x2, y1=mt.y1, y2=mt.y2;
 			int x0=x1-1, y0=y1-1, x3=x2+1, y3=y2+1;
 //			MicroTile center=fc.getMicroTile(lane, tile, x1, y1, true);
@@ -371,64 +387,76 @@ public class FlowCell {
 //			mt.add(center);
 //			mt.add(center);
 //			mt.add(center);
-//			if(up!=null) {mt.add(up);}
-//			if(down!=null) {mt.add(down);}
-//			if(left!=null) {mt.add(left);}
-//			if(right!=null) {mt.add(right);}
-			
+//			if(up!=null){mt.add(up);}
+//			if(down!=null){mt.add(down);}
+//			if(left!=null){mt.add(left);}
+//			if(right!=null){mt.add(right);}
+
 			mt.multiplyBy(8);
-			if(up!=null) {mt.add(up);}
-			if(down!=null) {mt.add(down);}
-			if(left!=null) {mt.add(left);}
-			if(right!=null) {mt.add(right);}
+			if(up!=null){mt.add(up);}
+			if(down!=null){mt.add(down);}
+			if(left!=null){mt.add(left);}
+			if(right!=null){mt.add(right);}
 			mt.multiplyBy(0.125); //Counts should end up around 50% above original
 		}
 	}
-	
+
 	/**
 	 * Saves the FlowCell data to a tile dump file.
 	 * @param fname Output filename for the dump
 	 * @param overwrite If true, overwrites existing files
 	 */
-	public void dump(String fname, boolean overwrite) {
+	public void dump(String fname, boolean overwrite){
 		TileDump.write(this, fname, overwrite);
 	}
-	
+
+	/** Writes a legacy v3 dump or opt-in v4 exact scalar microtile counters.
+	 * All model state must remain stable during serialization. Cycle arrays and
+	 * complete derived FlowCell state are not checkpointed by either format.
+	 * @param fname Output filename
+	 * @param overwrite Whether to replace an existing file
+	 * @param version Output version, 3 or 4
+	 * @throws IllegalArgumentException If the version or exact raw counters are invalid */
+	public void dump(String fname, boolean overwrite, int version){
+		TileDump.write(this, fname, overwrite, version);
+	}
+
 	/**
 	 * Adds data from another FlowCell to this one.
-	 * Thread-safe operation that synchronizes on both source and destination
-	 * lanes during the merge operation.
+	 * Locks source and destination lanes while combining their data. The caller
+	 * must own destination structural growth and keep source structure stable;
+	 * concurrent reciprocal merges are not supported by this lock ordering.
 	 * @param fcb FlowCell to merge into this one
 	 */
-	public void add(FlowCell fcb) {
-		for(Lane b : fcb.lanes) {
-			if(b!=null) {
-				synchronized(b) {
+	public void add(FlowCell fcb){
+		for(Lane b : fcb.lanes){
+			if(b!=null){
+				synchronized(b){
 					Lane a=getLane(b.lane);
-					synchronized(a) {
+					synchronized(a){
 						a.add(b);
 					}
 				}
 			}
 		}
 	}
-	
+
 	/**
 	 * Copies statistical data and metadata from another FlowCell.
-	 * Transfers read counts, error counts, coordinate boundaries, and
-	 * regression formulas from the source FlowCell.
+	 * Transfers totals, name, bounds, k and copies of the two regression formulas.
+	 * Does not copy lane contents, derived averages, deviations or thresholds.
 	 *
 	 * @param fc Source FlowCell to copy from
 	 * @return This FlowCell with updated data
 	 */
-	FlowCell setFrom(FlowCell fc) {
+	FlowCell setFrom(FlowCell fc){
 		readsProcessed=fc.readsProcessed;
 		basesProcessed=fc.basesProcessed;
 		readsAligned=fc.readsAligned;
 		basesAligned=fc.basesAligned;
 		readErrors=fc.readErrors;
 		baseErrors=fc.baseErrors;
-		
+
 		name=fc.name;
 		xMin=fc.xMin;
 		xMax=fc.xMax;
@@ -438,30 +466,30 @@ public class FlowCell {
 		tMax=fc.tMax;
 		k=fc.k;
 
-		uniqueToReadErrorRateFormula=fc.uniqueToReadErrorRateFormula==null ? null : 
+		uniqueToReadErrorRateFormula=fc.uniqueToReadErrorRateFormula==null ? null :
 			Arrays.copyOf(fc.uniqueToReadErrorRateFormula, 2);
-		uniqueToBaseErrorRateFormula=fc.uniqueToBaseErrorRateFormula==null ? null : 
+		uniqueToBaseErrorRateFormula=fc.uniqueToBaseErrorRateFormula==null ? null :
 			Arrays.copyOf(fc.uniqueToBaseErrorRateFormula, 2);
 		return this;
 	}
 
 	/** Calculates the overall alignment rate for the FlowCell.
 	 * @return Fraction of reads that aligned successfully */
-	public double alignmentRate() {
+	public double alignmentRate(){
 		//Guarded (G11 2026-07-01): was `readsAligned/(double)readsProcessed`, a lone divergence -- baseErrorRate()
 		//below already uses Tools.max(basesAligned,1). readsProcessed==0 (empty flowcell) -> NaN otherwise.
 		return readsAligned/(double)(Tools.max(readsProcessed, 1));
 	}
-	
+
 	/** Calculates the overall base error rate for aligned reads.
 	 * @return Base error rate as fraction of aligned bases */
-	public double baseErrorRate() {
+	public double baseErrorRate(){
 		return baseErrors/(double)(Tools.max(basesAligned, 1));
 	}
-	
+
 	/** List of sequencing lanes in this FlowCell */
 	public ArrayList<Lane> lanes=new ArrayList<Lane>();
-	
+
 	/** Total number of reads processed across all lanes */
 	long readsProcessed;
 	/** Total number of bases processed across all lanes */
@@ -474,7 +502,7 @@ public class FlowCell {
 	long readErrors;
 	/** Total number of base-level errors detected */
 	long baseErrors;
-	
+
 	/** Name identifier for this FlowCell */
 	String name;
 
@@ -497,41 +525,43 @@ public class FlowCell {
 	public double avgReads;
 	/** Average number of aligned reads per MicroTile */
 	public double avgAlignedReads;
-	/** Minimum read count threshold for including MicroTiles in statistics */
+	/** Read-count eligibility threshold for metric lists/fits; totals and read-count means include all populated tiles. */
 	public double minCountToUse;
-	
-	/** Average quality score across all MicroTiles */
+
+	/** Mean per-tile quality score over MicroTiles meeting minCountToUse. */
 	public double avgQuality;
-	/** Average unique read percentage across all MicroTiles */
+	/** Mean miss percentage (100*misses/(hits+misses), zero for no samples) over eligible MicroTiles, not unique reads. */
 	public double avgUnique;
-	/** Average sequencing depth across all MicroTiles */
+	/** Mean MicroTile.depth() over MicroTiles meeting minCountToUse. */
 	public double avgDepth;
-	/** Average percentage of error-free reads across all MicroTiles */
+	/** Mean MicroTile.percentErrorFree() over eligible tiles, without rescaling.
+	 * Ordinary MicroTile.add stores 100 times each read's error-free probability, so this is percentage-scaled. */
 	public double avgErrorFree;
-	/** Average poly-G percentage across all MicroTiles */
+	/** Mean per-tile poly-G read percentage over MicroTiles meeting minCountToUse. */
 	public double avgPolyG;
-	/** Average G-content across all MicroTiles */
+	/** Mean per-tile G fraction over MicroTiles meeting minCountToUse. */
 	public double avgG;
-	
-	/** Standard deviation of quality scores across MicroTiles */
+
+	/** Standard deviation of per-tile quality scores over MicroTiles meeting minCountToUse. */
 	public double stdQuality;
-	/** Standard deviation of unique read percentages across MicroTiles */
+	/** Standard deviation of eligible tiles' miss percentages, in percentage points. */
 	public double stdUnique;
-	/** Standard deviation of sequencing depth across MicroTiles */
+	/** Standard deviation of MicroTile.depth() over MicroTiles meeting minCountToUse. */
 	public double stdDepth;
-	/** Standard deviation of error-free percentages across MicroTiles */
+	/** Standard deviation of eligible tiles' percentErrorFree() values, on the same scale as avgErrorFree. */
 	public double stdErrorFree;
-	/** Standard deviation of poly-G percentages across MicroTiles */
+	/** Standard deviation of eligible tiles' poly-G read percentages, in percentage points. */
 	public double stdPolyG;
-	/** Standard deviation of G-content across MicroTiles */
+	/** Standard deviation of eligible tiles' G fractions. */
 	public double stdG;
-	
-	/** Linear regression coefficients for unique percentage vs read error rate */
+
+	/** Fitted [intercept, slope] for read error rate versus eligible tiles' miss percentage, or null when not fitted. */
 	public double[] uniqueToReadErrorRateFormula;
-	/** Linear regression coefficients for unique percentage vs base error rate */
+	/** Fitted [intercept, slope] for sqrt(baseErrorRate()) versus eligible tiles' miss percentage, or null.
+	 * MicroTile.toText/impliedErrorRate clamp the predicted root then square it to obtain a base error rate. */
 	public double[] uniqueToBaseErrorRateFormula;
-	
+
 	/** Header parser for extracting coordinates from read identifiers */
 	private IlluminaHeaderParser2 ihp=new IlluminaHeaderParser2();
-	
+
 }

@@ -11,9 +11,9 @@ import java.nio.ByteOrder;
  * @author Chloe
  * @date October 15, 2025
  */
-public class CbclInspector {
+public class CbclInspector{
 
-	public static void main(String[] args) throws Exception {
+	public static void main(String[] args) throws Exception{
 		if(args.length<1){
 			System.err.println("Usage: CbclInspector <cbcl_file>");
 			System.exit(1);
@@ -23,7 +23,7 @@ public class CbclInspector {
 		inspectCbcl(fname);
 	}
 
-	static void inspectCbcl(String fname) throws Exception {
+	static void inspectCbcl(String fname) throws Exception{
 		System.out.println("Inspecting: " + fname);
 
 		FileInputStream fis=new FileInputStream(fname);

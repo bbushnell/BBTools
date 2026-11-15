@@ -18,18 +18,18 @@ import structures.IntList;
  * Reads s.locs for positions, .filter files for pass-filter flags,
  * and .cbcl files for base calls and quality scores.
  *
- * Usage: Cbcl2Text runfolder=<path> out=<file> lane=<int> [tiles=<list>]
+ * Usage: {@code Cbcl2Text runfolder=<path> out=<file> lane=<int> [tiles=<list>]}
  *
  * @author Chloe
  * @date October 15, 2025
  */
-public class Cbcl2Text {
+public class Cbcl2Text{
 
 	/*--------------------------------------------------------------*/
 	/*----------------             Main             ----------------*/
 	/*--------------------------------------------------------------*/
 
-	public static void main(String[] args) {
+	public static void main(String[] args){
 		//Parse arguments
 		String runFolder=null;
 		String outFile=null;
@@ -44,13 +44,13 @@ public class Cbcl2Text {
 
 			if(a.equals("runfolder") || a.equals("in")){
 				runFolder=b;
-			} else if(a.equals("out") || a.equals("output")){
+			}else if(a.equals("out") || a.equals("output")){
 				outFile=b;
-			} else if(a.equals("lane")){
+			}else if(a.equals("lane")){
 				lane=Integer.parseInt(b);
-			} else if(a.equals("tiles")){
+			}else if(a.equals("tiles")){
 				tiles=b;
-			} else if(a.equals("length") || a.equals("lengths")){
+			}else if(a.equals("length") || a.equals("lengths")){
 				length=b;
 			}
 		}
@@ -73,7 +73,7 @@ public class Cbcl2Text {
 	/*----------------         Constructor          ----------------*/
 	/*--------------------------------------------------------------*/
 
-	public Cbcl2Text(String runFolder_, String outFile_, int lane_, String tiles_, String length_) {
+	public Cbcl2Text(String runFolder_, String outFile_, int lane_, String tiles_, String length_){
 		runFolder=runFolder_;
 		outFile=outFile_;
 		lane=lane_;
@@ -91,8 +91,10 @@ public class Cbcl2Text {
 		if(length_!=null && !length_.isEmpty()){
 			if(length_.equals("auto")){
 				//Parse RunInfo.xml
-				try {
-					readLengths=RunInfoParser.parseReadLengths(runFolder_);
+				try{
+					RunInfoParser.ReadStructure structure=RunInfoParser.parseReadStructure(runFolder_);
+					readLengths=structure.lengths;
+					setAutoTerms(structure.indexed);
 					splitReads=true;
 					System.err.println("Read structure from RunInfo.xml: " + Arrays.toString(readLengths));
 				} catch(IOException e){
@@ -117,11 +119,27 @@ public class Cbcl2Text {
 		locsFile=intensitiesDir+"/s.locs";
 	}
 
+	private void setAutoTerms(boolean[] indexed){
+		r1term=i1term=i2term=r2term=u1term=u2term=-1;
+		int reads=0, indexes=0;
+		for(int i=0; i<indexed.length; i++){
+			if(indexed[i]){
+				if(indexes==0){i1term=i;}
+				else if(indexes==1){i2term=i;}
+				indexes++;
+			}else{
+				if(reads==0){r1term=i;}
+				else if(reads==1){r2term=i;}
+				reads++;
+			}
+		}
+	}
+
 	/*--------------------------------------------------------------*/
 	/*----------------       Core Processing        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	public void process() {
+	public void process(){
 		//Read cluster positions from s.locs
 		System.err.println("Reading positions from " + locsFile);
 		float[][] positions;
@@ -159,7 +177,7 @@ public class Cbcl2Text {
 	/**
 	 * Determine which tiles to process based on available files.
 	 */
-	private void determineTiles() throws IOException {
+	private void determineTiles() throws IOException{
 		tilesToProcess=new IntList();
 
 		//If user specified tiles, use those
@@ -195,7 +213,7 @@ public class Cbcl2Text {
 	/**
 	 * Process a single tile across all cycles.
 	 */
-	private List<ClusterData> processTile(int lane, int tileNum, float[][] positions) throws IOException {
+	private List<ClusterData> processTile(int lane, int tileNum, float[][] positions) throws IOException{
 		//Read pass-filter flags
 		String filterFile=baseCallsDir+"/L"+String.format("%03d", lane)+
 		                  "/s_"+lane+"_"+tileNum+".filter";// [illumina/Cbcl2Text#001] FIXED: was hardcoded s_1_
@@ -244,6 +262,12 @@ public class Cbcl2Text {
 			}
 
 			//Decode this cycle
+			CbclHeader header=new CbclHeader(cbclFile);
+			if(header.nonPfExcluded){
+				// The positions and filters are unfiltered; compacted CBCL data
+				// needs an explicit index map before coordinates can be assigned.
+				throw new IOException("CBCL file excludes non-PF clusters; compacted cluster data cannot be converted to positioned text");
+			}
 			byte[][] data=CbclDecoder.readTile(cbclFile, tileNum);
 			byte[] bases=data[0];
 			byte[] quals=data[1];
@@ -262,7 +286,8 @@ public class Cbcl2Text {
 
 			if(readLengths!=null && readLengths.length>0){
 				//Split into reads based on specified lengths
-				clusters.get(i).setData(allBases, allQuals, readLengths);
+				clusters.get(i).setData(allBases, allQuals, readLengths,
+						r1term, i1term, i2term, r2term, u1term, u2term);
 			}else{
 				//Concatenated (default)
 				clusters.get(i).basesR1=allBases;
@@ -276,7 +301,7 @@ public class Cbcl2Text {
 	/**
 	 * Find all available cycle directories.
 	 */
-	private List<Integer> findAvailableCycles() {
+	private List<Integer> findAvailableCycles(){
 		List<Integer> cycles=new ArrayList<>();
 		String laneDir=baseCallsDir+"/L"+String.format("%03d", lane);
 		File dir=new File(laneDir);
@@ -288,7 +313,7 @@ public class Cbcl2Text {
 			if(name.startsWith("C") && name.endsWith(".1") && f.isDirectory()){
 				//Extract cycle number
 				String cycleStr=name.substring(1, name.length()-2);
-				try {
+				try{
 					int cycle=Integer.parseInt(cycleStr);
 					cycles.add(cycle);
 				} catch(NumberFormatException e){
@@ -304,7 +329,7 @@ public class Cbcl2Text {
 	/**
 	 * Determine which surface (1 or 2) contains the specified tile.
 	 */
-	private int determineSurface(int tileNum, int sampleCycle) throws IOException {
+	private int determineSurface(int tileNum, int sampleCycle) throws IOException{
 		//Check surface 1
 		String cbclFile1=getCbclFilename(sampleCycle, 1);
 		if(new File(cbclFile1).exists()){
@@ -329,7 +354,7 @@ public class Cbcl2Text {
 	/**
 	 * Get CBCL filename for a specific cycle and surface.
 	 */
-	private String getCbclFilename(int cycle, int surface) {
+	private String getCbclFilename(int cycle, int surface){
 		//Note: directory name has .1 suffix (always), but inside are surface 1 and 2 files
 		return baseCallsDir+"/L"+String.format("%03d", lane)+
 		       "/C"+cycle+".1/L"+String.format("%03d", lane)+"_"+surface+".cbcl";
@@ -338,11 +363,11 @@ public class Cbcl2Text {
 	/**
 	 * Write output to tab-delimited text file or fastq.
 	 */
-	private long writeOutput(List<ClusterData> clusters, ByteStreamWriter bsw, boolean fastq) {
+	private long writeOutput(List<ClusterData> clusters, ByteStreamWriter bsw, boolean fastq){
 		ByteBuilder bb=new ByteBuilder();
 		long written=0;
 		for(ClusterData cd : clusters){
-			if(cd.passFilter || !passOnly) {
+			if(cd.passFilter || !passOnly){
 				bb.clear();
 				if(fastq) {cd.toBytes(bb);}
 				else{cd.toBytesOld(bb, splitReads);}
@@ -370,6 +395,9 @@ public class Cbcl2Text {
 	private IntList tilesToProcess;
 
 	private int[] readLengths=null; //Read lengths for splitting
+	private int r1term=ClusterData.r1term, i1term=ClusterData.i1term;
+	private int i2term=ClusterData.i2term, r2term=ClusterData.r2term;
+	private int u1term=ClusterData.u1term, u2term=ClusterData.u2term;
 	private boolean splitReads=false; //Output comma-delimited reads
 	private boolean passOnly=true; //Output comma-delimited reads
 }

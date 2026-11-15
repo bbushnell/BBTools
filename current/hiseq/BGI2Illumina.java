@@ -23,17 +23,18 @@ import tracker.ReadStats;
 
 /**
  * Converts BGI sequencer read headers to Illumina format.
- * Processes FASTQ files and transforms BGI-specific read identifiers to Illumina-compatible format while preserving sequence data and quality scores.
+ * Processes FASTQ files and transforms BGI-specific read identifiers to
+ * Illumina-compatible format while preserving sequence data and quality scores.
  * Supports both single-end and paired-end read files.
  * @author Brian Bushnell
  * @date May 6, 2024
  */
-public class BGI2Illumina {
-	
+public class BGI2Illumina{
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
 	 * Program entry point for BGI to Illumina header conversion.
 	 * Initializes timer, creates BGI2Illumina instance, processes files, and handles cleanup.
@@ -42,49 +43,50 @@ public class BGI2Illumina {
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
 		Timer t=new Timer();
-		
+
 		//Create an instance of this class
 		BGI2Illumina x=new BGI2Illumina(args);
-		
+
 		//Run the object
 		x.process(t);
-		
+
 		//Close the print stream if it was redirected
 		Shared.closeStream(x.outstream);
 	}
-	
+
 	/**
 	 * Constructor that parses command-line arguments and initializes file formats.
-	 * Sets up input/output streams, validates file paths, and configures processing parameters including interleaving and compression settings.
+	 * Sets up input/output streams, validates file paths, and configures processing
+	 * parameters including interleaving and compression settings.
 	 * @param args Command-line arguments specifying input/output files and options
 	 */
 	public BGI2Illumina(String[] args){
-		
+
 		{//Preparse block for help, config files, and outstream
 			PreParser pp=new PreParser(args, null /*getClass()*/, false);
 			args=pp.args;
 			outstream=pp.outstream;
 		}
-		
+
 		//Set shared static variables prior to parsing
 		ReadWrite.USE_PIGZ=ReadWrite.USE_UNPIGZ=true;
 		ReadWrite.setZipThreads(Shared.threads());
 		Shared.capBuffers(4); //Only for singlethreaded programs
-		
+
 		FASTQ.ASCII_OFFSET=33;
 		FASTQ.ASCII_OFFSET_OUT=33;
 		FASTQ.DETECT_QUALITY=false;
 		FASTQ.TEST_INTERLEAVED=true;
-		
+
 		{//Parse the arguments
 			final Parser parser=parse(args);
 			Parser.processQuality();
-			
+
 			maxReads=parser.maxReads;
 			overwrite=ReadStats.overwrite=parser.overwrite;
 			append=ReadStats.append=parser.append;
 			setInterleaved=parser.setInterleaved;
-			
+
 			in1=parser.in1;
 			in2=parser.in2;
 			qfin1=parser.qfin1;
@@ -102,8 +104,8 @@ public class BGI2Illumina {
 		adjustInterleaving(); //Make sure interleaving agrees with number of input and output files
 		fixExtensions(); //Add or remove .gz or .bz2 as needed
 		checkFileExistence(); //Ensure files can be read and written
-		checkStatics(); //Adjust file-related static fields as needed for this program 
-		
+		checkStatics(); //Adjust file-related static fields as needed for this program
+
 		//Create output FileFormat objects
 		ffout1=FileFormat.testOutput(out1, FileFormat.FASTQ, extout, true, overwrite, append, ordered);
 		ffout2=FileFormat.testOutput(out2, FileFormat.FASTQ, extout, true, overwrite, append, ordered);
@@ -112,11 +114,11 @@ public class BGI2Illumina {
 		ffin1=FileFormat.testInput(in1, FileFormat.FASTQ, extin, true, true);
 		ffin2=FileFormat.testInput(in2, FileFormat.FASTQ, extin, true, true);
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------    Initialization Helpers    ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
 	 * Parses command-line arguments into configuration parameters.
 	 * Processes standard file I/O flags plus BGI-specific options like barcode handling and extra parsing modes.
@@ -124,23 +126,23 @@ public class BGI2Illumina {
 	 * @return Parser object containing parsed configuration
 	 */
 	private Parser parse(String[] args){
-		
+
 		//Create a parser object
 		Parser parser=new Parser();
-		
+
 		//Set any necessary Parser defaults here
 		//parser.foo=bar;
-		
+
 		//Parse each argument
 		for(int i=0; i<args.length; i++){
 			String arg=args[i];
-			
+
 			//Break arguments into their constituent parts, in the form of "a=b"
-			String[] split=arg.split("=");
+			String[] split=arg.split("=", 2);
 			String a=split[0].toLowerCase();
-			String b=split.length>1 ? split[1] : null;
+			String b=split.length>1 && !split[1].isEmpty() ? split[1] : null;
 			if(b!=null && b.equalsIgnoreCase("null")){b=null;}
-			
+
 			if(a.equals("verbose")){
 				verbose=Parse.parseBoolean(b);
 			}else if(a.equals("parseextra") || a.equals("extra")){
@@ -157,12 +159,14 @@ public class BGI2Illumina {
 				assert(false) : "Unknown parameter "+args[i];
 			}
 		}
-		
+
 		return parser;
 	}
-	
+
 	/** Replaces # symbols with 1 and 2 in file paths for paired-end files.
-	 * Enables specification of paired files using pattern like "reads_#.fastq" which expands to "reads_1.fastq" and "reads_2.fastq". */
+	 * Enables specification of paired files using a pattern like "reads_#.fastq",
+	 * which expands to "reads_1.fastq" and "reads_2.fastq".
+	 */
 	private void doPoundReplacement(){
 		//Do input file # replacement
 		if(in1!=null && in2==null && in1.indexOf('#')>-1 && !new File(in1).exists()){
@@ -175,14 +179,14 @@ public class BGI2Illumina {
 			out2=out1.replace("#", "2");
 			out1=out1.replace("#", "1");
 		}
-		
+
 		//Ensure there is an input file
 		if(in1==null){throw new RuntimeException("Error - at least one input file is required.");}
 
 		//Ensure out2 is not set without out1
 		if(out1==null && out2!=null){throw new RuntimeException("Error - cannot define out2 without defining out1.");}
 	}
-	
+
 	/** Standardizes file extensions for compressed and uncompressed formats.
 	 * Automatically adds or removes .gz and .bz2 extensions based on file contents and compression settings. */
 	private void fixExtensions(){
@@ -191,7 +195,7 @@ public class BGI2Illumina {
 		qfin1=Tools.fixExtension(qfin1);
 		qfin2=Tools.fixExtension(qfin2);
 	}
-	
+
 	/** Validates that input files exist and output files can be written.
 	 * Checks for duplicate file specifications and verifies file permissions based on overwrite and append settings. */
 	private void checkFileExistence(){
@@ -200,20 +204,22 @@ public class BGI2Illumina {
 			outstream.println((out1==null)+", "+(out2==null)+", "+out1+", "+out2);
 			throw new RuntimeException("\n\noverwrite="+overwrite+"; Can't write to output files "+out1+", "+out2+"\n");
 		}
-		
+
 		//Ensure input files can be read
 		if(!Tools.testInputFiles(false, true, in1, in2)){
-			throw new RuntimeException("\nCan't read some input files.\n");  
+			throw new RuntimeException("\nCan't read some input files.\n");
 		}
-		
+
 		//Ensure that no file was specified multiple times
 		if(!Tools.testForDuplicateFiles(true, in1, in2, out1, out2)){
 			throw new RuntimeException("\nSome file names were specified multiple times.\n");
 		}
 	}
-	
+
 	/** Configures interleaved read processing based on input/output file counts.
-	 * Sets FASTQ interleaving flags to match the number of input and output files specified, ensuring proper paired-end handling. */
+	 * Sets FASTQ interleaving flags to match the number of input and output files,
+	 * ensuring proper paired-end handling.
+	 */
 	private void adjustInterleaving(){
 		//Adjust interleaved detection based on the number of input files
 		if(in2!=null){
@@ -236,7 +242,7 @@ public class BGI2Illumina {
 			}
 		}
 	}
-	
+
 	/** Adjusts static configuration for optimal file I/O performance.
 	 * Sets ByteFile modes and thread counts based on system capabilities and validates FastaReadInputStream settings. */
 	private static void checkStatics(){
@@ -244,56 +250,57 @@ public class BGI2Illumina {
 		if(!ByteFile.FORCE_MODE_BF1 && !ByteFile.FORCE_MODE_BF2 && Shared.threads()>2){
 			ByteFile.FORCE_MODE_BF2=true;
 		}
-		
+
 		assert(FastaReadInputStream.settingsOK());
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
 	/**
 	 * Main processing method that converts BGI headers to Illumina format.
-	 * Creates input/output streams, processes all reads through header conversion, and reports timing statistics and processing results.
+	 * Creates input/output streams, processes all reads through header conversion,
+	 * and reports timing statistics and processing results.
 	 * @param t Timer for tracking processing time
 	 */
 	void process(Timer t){
-		
+
 		//Create a read input stream
 		final ConcurrentReadInputStream cris=makeCris();
-		
+
 		//Optionally create a read output stream
 		final ConcurrentReadOutputStream ros=makeCros(cris.paired());
-		
+
 		//Reset counters
 		readsProcessed=readsOut=0;
 		basesProcessed=basesOut=0;
-		
+
 		//Process the read stream
 		processInner(cris, ros);
-		
+
 		if(verbose){outstream.println("Finished; closing streams.");}
-		
+
 		//Write anything that was accumulated by ReadStats
 		errorState|=ReadStats.writeAll();
 		//Close the read streams
 		errorState|=ReadWrite.closeStreams(cris, ros);
-		
+
 		//Report timing and results
 		t.stop();
 		outstream.println(Tools.timeReadsBasesProcessed(t, readsProcessed, basesProcessed, 8));
 		outstream.println(Tools.readsBasesOut(readsProcessed, basesProcessed, readsOut, basesOut, 8, false));
-		
+
 		//Throw an exception of there was an error in a thread
 		if(errorState){
 			throw new RuntimeException(getClass().getName()+" terminated in an error state; the output may be corrupt.");
 		}
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	private ConcurrentReadInputStream makeCris(){
 		ConcurrentReadInputStream cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ffin1, ffin2, qfin1, qfin2);
 		cris.start(); //Start the stream
@@ -302,7 +309,7 @@ public class BGI2Illumina {
 		if(!ffin1.samOrBam()){outstream.println("Input is being processed as "+(paired ? "paired" : "unpaired"));}
 		return cris;
 	}
-	
+
 	private ConcurrentReadOutputStream makeCros(boolean pairedInput){
 		if(ffout1==null){return null;}
 
@@ -318,11 +325,11 @@ public class BGI2Illumina {
 		ros.start(); //Start the stream
 		return ros;
 	}
-	
+
 	void processInner(final ConcurrentReadInputStream cris, final ConcurrentReadOutputStream ros){
-		
+
 		//Do anything necessary prior to processing
-		
+
 		{
 			//Grab the first ListNum of reads
 			ListNum<Read> ln=cris.nextList();
@@ -336,33 +343,33 @@ public class BGI2Illumina {
 			//As long as there is a nonempty read list...
 			while(ln!=null && ln.size()>0){
 //				if(verbose){outstream.println("Fetched "+reads.size()+" reads.");} //Disabled due to non-static access
-				
+
 				processList(ln, cris, ros);
 
 				//Fetch a new list
 				ln=cris.nextList();
 			}
-			
+
 			//Notify the input stream that the final list was used
 			if(ln!=null){
 				cris.returnList(ln.id, ln.list==null || ln.list.isEmpty());
 			}
 		}
-		
+
 		//Do anything necessary after processing
-		
+
 	}
-	
+
 	void processList(ListNum<Read> ln, final ConcurrentReadInputStream cris, final ConcurrentReadOutputStream ros){
 
 		//Grab the actual read list from the ListNum
 		final ArrayList<Read> reads=ln.list;
-		
+
 		//Loop through each read in the list
 		for(int idx=0; idx<reads.size(); idx++){
 			final Read r1=reads.get(idx);
 			final Read r2=r1.mate;
-			
+
 			//Validate reads in worker threads
 			if(!r1.validated()){r1.validate(true);}
 			if(r2!=null && !r2.validated()){r2.validate(true);}
@@ -374,11 +381,11 @@ public class BGI2Illumina {
 			//Increment counters
 			readsProcessed+=r1.pairCount();
 			basesProcessed+=initialLength1+initialLength2;
-			
+
 			{
 				//Reads are processed in this block.
 				boolean keep=processReadPair(r1, r2);
-				
+
 				if(!keep){reads.set(idx, null);}
 				else{
 					readsOut+=r1.pairCount();
@@ -394,8 +401,8 @@ public class BGI2Illumina {
 		cris.returnList(ln);
 //		if(verbose){outstream.println("Returned a list.");} //Disabled due to non-static access
 	}
-	
-	
+
+
 	/**
 	 * Converts BGI headers to Illumina format for a read pair.
 	 * Parses BGI header format and generates equivalent Illumina headers using configured barcode information.
@@ -413,13 +420,13 @@ public class BGI2Illumina {
 		//populates lp before the accessors read it).
 		bhp.parse(r1.id);
 		r1.id=bhp.toIllumina(barcode);
-		if(r2!=null) {
+		if(r2!=null){
 			bhp.parse(r2.id);
 			r2.id=bhp.toIllumina(barcode);
 		}
 		return true;
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
@@ -427,7 +434,7 @@ public class BGI2Illumina {
 	private String in1=null;
 	/** Secondary input file path for paired-end data */
 	private String in2=null;
-	
+
 	private String qfin1=null;
 	private String qfin2=null;
 
@@ -437,17 +444,17 @@ public class BGI2Illumina {
 
 	private String qfout1=null;
 	private String qfout2=null;
-	
+
 	/** Override input file extension for format detection */
 	private String extin=null;
 	private String extout=null;
-	
+
 	private boolean setInterleaved=false;
-	
+
 	private String barcode=null;
-	
+
 	private BGIHeaderParser2 bhp=new BGIHeaderParser2();
-	
+
 	/*--------------------------------------------------------------*/
 
 	/** Total number of reads processed through header conversion */
@@ -460,7 +467,7 @@ public class BGI2Illumina {
 
 	/** Maximum number of reads to process; -1 for unlimited */
 	private long maxReads=-1;
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
@@ -468,15 +475,15 @@ public class BGI2Illumina {
 	/** Primary input file format configuration */
 	private final FileFormat ffin1;
 	private final FileFormat ffin2;
-	
+
 	private final FileFormat ffout1;
 	/** Secondary output file format configuration */
 	private final FileFormat ffout2;
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/** Output stream for status and error messages */
 	private PrintStream outstream=System.err;
 	/** Enable verbose status messages during processing */
@@ -489,5 +496,5 @@ public class BGI2Illumina {
 	private boolean append=false;
 	/** Output ordering flag (has no effect for single-threaded processing) */
 	private final boolean ordered=false;
-	
+
 }

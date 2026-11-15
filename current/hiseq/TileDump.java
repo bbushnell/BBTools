@@ -24,45 +24,47 @@ import shared.Tools;
  * Loads, processes, and analyzes Illumina HiSeq tile data for quality assessment.
  * Identifies problematic micro-tiles based on quality metrics and statistical outliers.
  * Supports multiple dump file versions and provides tile blurring functionality.
+ * Header loading changes shared tile dimensions; callers must serialize loads
+ * and keep those settings stable while using a populated FlowCell.
  * @author Brian Bushnell
  */
-public class TileDump {
-	
+public class TileDump{
+
 	/*--------------------------------------------------------------*/
 	/*----------------              CLI             ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/** Program entry point for tile dump analysis.
 	 * @param args Command-line arguments */
-	public static void main(String[] args) {
+	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
 		Timer t=new Timer();
-		
+
 		//Create an instance of this class
 		TileDump td=new TileDump(args);
-		
+
 		//Run the object
 		td.process(t);
 	}
-	
+
 	/**
 	 * Main processing method that loads dump data and performs tile analysis.
 	 * Calculates statistics, marks problematic tiles, and writes output if specified.
 	 * Applies tile blurring and widening operations as configured.
 	 * @param t Timer for tracking execution time
 	 */
-	public void process(Timer t) {
+	public void process(Timer t){
 		final FlowCell fc0=loadDump(in);
 		FlowCell fc=fc0;
 
 		targetX=Tools.max(targetX, Tile.xSize);
 		targetY=Tools.max(targetY, Tile.ySize);
-		if(targetX>Tile.xSize || targetY>Tile.ySize) {fc=fc.widen(targetX, targetY, true);}
-		if(targetReads>0) {fc=fc.widenToTargetReads(targetReads);}
-		if(blurTiles) {fc.blur();}
-		
+		if(targetX>Tile.xSize || targetY>Tile.ySize){fc=fc.widen(targetX, targetY, true);}
+		if(targetReads>0){fc=fc.widenToTargetReads(targetReads);}
+		if(blurTiles){fc.blur();}
+
 		//Temporarily widen to calculate a regression
-		if(fc.avgAlignedReads<targetAlignedReads && fc.readsAligned>targetAlignedReads) {
+		if(fc.avgAlignedReads<targetAlignedReads && fc.readsAligned>targetAlignedReads){
 			final int oldX=Tile.xSize, oldY=Tile.ySize;
 			FlowCell temp=fc.widenToTargetAlignedReads(targetAlignedReads);
 			temp.calcStats();
@@ -71,31 +73,31 @@ public class TileDump {
 			Tile.xSize=oldX;
 			Tile.ySize=oldY;
 		}
-		
+
 		ArrayList<MicroTile> mtList=fc.calcStats();
 		markTiles(fc, mtList, System.err);
 //		long readsToDiscard=markTiles(mtList, fc.avgReads);//Non-static method...
-		
-		if(out!=null) {
-			write(fc, out, overwrite);
+
+		if(out!=null){
+			write(fc, out, overwrite, dumpVersion);
 		}
 	}
-	
+
 	/**
 	 * Constructor.
 	 * @param args Command line arguments
 	 */
 	public TileDump(String[] args){
-		
+
 		{//Preparse block for help, config files, and outstream
 			PreParser pp=new PreParser(args, /*getClass()*/null, false);
 			args=pp.args;
 		}
-		
+
 		//Set shared static variables prior to parsing
 		ReadWrite.USE_PIGZ=ReadWrite.USE_UNPIGZ=true;
 		ReadWrite.setZipThreads(Shared.threads());
-		
+
 		{//Parse the arguments
 			final Parser parser=parse(args);
 			overwrite=parser.overwrite;
@@ -104,17 +106,17 @@ public class TileDump {
 		}
 		checkFileExistence(); //Ensure files can be read and written
 	}
-	
+
 	/** Parse arguments from the command line */
 	private Parser parse(String[] args){
-		
+
 		//Create a parser object
 		Parser parser=new Parser();
-		
+
 		//Parse each argument
 		for(int i=0; i<args.length; i++){
 			String arg=args[i];
-			
+
 			//Break arguments into their constituent parts, in the form of "a=b"
 			String[] split=arg.split("=");
 			String a=split[0].toLowerCase();
@@ -136,6 +138,9 @@ public class TileDump {
 				targetReads=Parse.parseIntKMG(b);
 			}else if(a.equals("targetalignedreads") || a.equals("alignedreads")){
 				targetAlignedReads=Parse.parseIntKMG(b);
+			}else if(a.equals("dumpversion")){
+				dumpVersion=Integer.parseInt(b);
+				checkOutputVersion(dumpVersion);
 			}else if(a.equals("parse_flag_goes_here")){
 				long fake_variable=Parse.parseKMG(b);
 				//Set a variable here
@@ -149,10 +154,10 @@ public class TileDump {
 				throw new RuntimeException("Unknown parameter "+args[i]);
 			}
 		}
-		
+
 		return parser;
 	}
-	
+
 	/**
 	 * Parses static configuration parameters for tile quality thresholds.
 	 * Handles deviation settings, fraction thresholds, and absolute limits.
@@ -162,7 +167,7 @@ public class TileDump {
 	 * @param b Parameter value
 	 * @return true if parameter was recognized and parsed, false otherwise
 	 */
-	public static boolean parseStatic(String arg, String a, String b) {
+	public static boolean parseStatic(String arg, String a, String b){
 		if(a.equals("qdeviations") || a.equals("qd")){
 			qDeviations=Float.parseFloat(b);
 		}else if(a.equals("udeviations") || a.equals("ud")){
@@ -190,23 +195,23 @@ public class TileDump {
 		}else if(a.equals("pgabsolute") || a.equals("pga")){
 			polyGAbs=Float.parseFloat(b);
 		}
-		else if(a.equals("mbf") || a.equals("mdf") || a.equals("maxbadfraction") || 
+		else if(a.equals("mbf") || a.equals("mdf") || a.equals("maxbadfraction") ||
 				a.equals("maxbadtilefraction") || a.equals("maxdiscardfraction")){
 			maxDiscardFraction=Float.parseFloat(b);
-		}else if(a.equals("impliederrorrate") || a.equals("inferrederrorrate") 
-				|| a.equals("ier") || a.equals("maxier")) {
+		}else if(a.equals("impliederrorrate") || a.equals("inferrederrorrate")
+				|| a.equals("ier") || a.equals("maxier")){
 			maxImpliedErrorRate=Float.parseFloat(b);
-		}else if(a.equals("inferredquality") || a.equals("impliedquality") || a.equals("miniq")) {
+		}else if(a.equals("inferredquality") || a.equals("impliedquality") || a.equals("miniq")){
 			float miniq=Float.parseFloat(b);
 			maxImpliedErrorRate=(float)QualityTools.phredToProbError(miniq);
 		}
-		
-		else {
+
+		else{
 			return false;
 		}
 		return true;
 	}
-	
+
 	/** Ensure files can be read and written */
 	private void checkFileExistence(){
 		//Ensure output files can be written
@@ -215,22 +220,22 @@ public class TileDump {
 			throw new RuntimeException("\n\noverwrite="+overwrite+
 					"; Can't write to output file "+out+"\n");
 		}
-		
+
 		//Ensure input files can be read
 		if(!Tools.testInputFiles(false, true, in)){
-			throw new RuntimeException("\nCan't read some input files.\n");  
+			throw new RuntimeException("\nCan't read some input files.\n");
 		}
-		
+
 		//Ensure that no file was specified multiple times
 		if(!Tools.testForDuplicateFiles(true, in, out)){
 			throw new RuntimeException("\nSome file names were specified multiple times.\n");
 		}
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------           Writing            ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
 	 * Writes FlowCell data to a tab-delimited output file.
 	 * Includes header metadata, statistics, and micro-tile data.
@@ -238,20 +243,41 @@ public class TileDump {
 	 * @param fc FlowCell containing processed tile data
 	 * @param fname Output file name
 	 * @param overwrite Whether to overwrite existing files
+	 * @throws RuntimeException If the writer records a write or close error
 	 */
-	public static void write(FlowCell fc, String fname, boolean overwrite) {
+	public static void write(FlowCell fc, String fname, boolean overwrite){
+		write(fc, fname, overwrite, VERSION_OUT);
+	}
+
+	/** Writes v3 by explicit request or opt-in v4 with exact scalar MicroTile counters.
+	 * V4 retains the entire legacy column prefix, pads absent merge columns, and
+	 * appends seven raw values. It does not persist cycle arrays or all FlowCell
+	 * metadata and derived fit state. Callers must keep the model quiescent.
+	 * @param fc Stable model to serialize
+	 * @param fname Output filename
+	 * @param overwrite Whether to replace existing output
+	 * @param version Output version, 3 or 4
+	 * @throws IllegalArgumentException If version or v4 raw counters are invalid
+	 * @throws RuntimeException If the writer records an I/O error */
+	public static void write(FlowCell fc, String fname, boolean overwrite, int version){
+		checkOutputVersion(version);
+		final boolean rawCounters=(version==VERSION_RAW);
+		//Validate before opening/starting the writer; rejection must not strand its consumer thread.
+		if(rawCounters){
+			for(MicroTile mt : fc.toList()){mt.checkRawCounters();}
+		}
 		assert(fname!=null);
 		ByteStreamWriter bsw=new ByteStreamWriter(fname, overwrite, false, true);
 		bsw.start();
 
-		bsw.print("#Version\t").print(TileDump.VERSION_OUT).nl();
-		
+		bsw.print("#Version\t").print(version).nl();
+
 		bsw.print("#id\t").print(fc.name).nl();
 		bsw.print("#lane\t");
 		{
 			String comma="";
-			for(Lane lane : fc.lanes) {
-				if(lane!=null && !lane.isEmpty()) {
+			for(Lane lane : fc.lanes){
+				if(lane!=null && !lane.isEmpty()){
 					bsw.print(comma).print(lane.lane);
 					comma=",";
 				}
@@ -260,10 +286,10 @@ public class TileDump {
 		}
 		assert(fc.k>0) : fc.k;
 		bsw.print("#k\t").print(fc.k).nl();
-		
+
 		bsw.print("#xSize\t").print(Tile.xSize).nl();
 		bsw.print("#ySize\t").print(Tile.ySize).nl();
-		if(fc.xMax>=0 || fc.yMax>=0 || fc.xMin>=0 || fc.yMin>=0) {
+		if(fc.xMax>=0 || fc.yMax>=0 || fc.xMin>=0 || fc.yMin>=0){
 			bsw.print("#xMin\t").print(fc.xMin).nl();
 			bsw.print("#xMax\t").print(fc.xMax).nl();
 			bsw.print("#yMin\t").print(fc.yMin).nl();
@@ -281,53 +307,63 @@ public class TileDump {
 		bsw.print("#alignRate\t").print(fc.readsAligned/(double)(Tools.max(1, fc.readsProcessed)), 5).nl();
 		bsw.print("#readErrRate\t").print(fc.readErrors/(double)(Tools.max(1, fc.readsAligned)), 5).nl();
 		bsw.print("#baseErrRate\t").print(fc.baseErrors/(double)(Tools.max(1, fc.basesAligned)), 5).nl();
-		
+
 		bsw.print("#avgQuality\t").print(fc.avgQuality, 5).nl();
 		bsw.print("#avgUnique\t").print(fc.avgUnique, 5).nl();
 		bsw.print("#avgErrorFree\t").print(fc.avgErrorFree, 5).nl();
 		bsw.print("#avgPolyG\t").print(fc.avgPolyG, 5).nl();
-		if(fc.avgG>0) {bsw.print("#avgG\t").print(fc.avgG, 5).nl();}
-		
+		if(fc.avgG>0){bsw.print("#avgG\t").print(fc.avgG, 5).nl();}
+
 		bsw.print("#stdQuality\t").print(fc.stdQuality, 6).nl();
 		bsw.print("#stdUnique\t").print(fc.stdUnique, 6).nl();
 		bsw.print("#stdErrorFree\t").print(fc.stdErrorFree, 6).nl();
 		bsw.print("#stdPolyG\t").print(fc.stdPolyG, 6).nl();
-		if(fc.avgG>0) {bsw.print("#stdG\t").print(fc.stdG, 6).nl();}
-		
-		if(fc.uniqueToReadErrorRateFormula!=null) {
+		if(fc.avgG>0){bsw.print("#stdG\t").print(fc.stdG, 6).nl();}
+
+		if(fc.uniqueToReadErrorRateFormula!=null){
 			bsw.print("#uniqueToReadErrorRate\t").print(fc.uniqueToReadErrorRateFormula[0], 5).print('+').print(fc.uniqueToReadErrorRateFormula[1],5).print('X').nl();
 			bsw.print("#uniqueToBaseErrorRate\t").print(fc.uniqueToBaseErrorRateFormula[0], 5).print('+').print(fc.uniqueToBaseErrorRateFormula[1],5).print('X').nl();
 		}
-		
+
 		//G11: printCycleStats is hardcoded false, so this whole loop (and printTSV below) is currently DEAD — the per-lane depth/match/sub cycle-stat dump is disabled. Vestigial, not a bug; kept as a toggle for future cycle-stat output. (Also, lane.depthCounts etc. are the AtomicLongArrays that fillTilesInner's atomic-increment TODO left unused.)
 		boolean printCycleStats=false;
 		for(Lane lane : fc.lanes){
 			if(lane!=null && printCycleStats){
-				for(int pairnum=0; pairnum<2; pairnum++) {
-					if(lane.depthCounts[pairnum].get(0)>0) {
+				for(int pairnum=0; pairnum<2; pairnum++){
+					if(lane.depthCounts[pairnum].get(0)>0){
 						printTSV(bsw, lane.depthSums[pairnum], "#depthSums_"+lane.lane+"_"+pairnum);
 						printTSV(bsw, lane.depthCounts[pairnum], "#depthCounts_"+lane.lane+"_"+pairnum);
 					}
-					if(lane.matchCounts[pairnum].get(0)>0) {
+					if(lane.matchCounts[pairnum].get(0)>0){
 						printTSV(bsw, lane.matchCounts[pairnum], "#matchCounts_"+lane.lane+"_"+pairnum);
 						printTSV(bsw, lane.subCounts[pairnum], "#subCounts_"+lane.lane+"_"+pairnum);
 					}
 				}
 			}
 		}
-		
+
 		bsw.print("#");
-		bsw.println(MicroTile.header());
-		
+		bsw.println(MicroTile.header(rawCounters));
+
 		for(Lane lane : fc.lanes){
 			if(lane!=null){
-				lane.print(bsw, fc.k, fc.uniqueToReadErrorRateFormula, fc.uniqueToBaseErrorRateFormula);
+				lane.print(bsw, fc.k, fc.uniqueToReadErrorRateFormula, fc.uniqueToBaseErrorRateFormula, rawCounters);
 			}
 		}
-		//TODO: Possible bug [hiseq/TileDump#001] - poisonAndWait() return (the write-error flag) is discarded. This is the SAFE variant (it waits, so output is fully flushed — no truncation, unlike the PlotHist#001 bare-poison() case), but TileDump has no errorState field / process() is void / main() checks no exit status, so a write error (disk full etc.) is silently swallowed and never reflected in the exit code. LOW: data integrity is fine; only error-status fidelity is lost, and the tool lacks any error-propagation plumbing to carry it. Fixing fully would mean threading an errorState through process()/main().
-		bsw.poisonAndWait();
+		//HIL-102 (alias hiseq/TileDump#001): waiting for a failed writer does not imply intact output.
+		if(bsw.poisonAndWait()){
+			throw new RuntimeException("Error writing tile dump "+fname+"; output may be incomplete.");
+		}
 	}
-	
+
+	/** Rejects unsupported output versions before opening a file.
+	 * @param version Requested output version */
+	private static void checkOutputVersion(int version){
+		if(version!=VERSION_OUT && version!=VERSION_RAW){
+			throw new IllegalArgumentException("Unsupported dumpversion="+version+"; use 3 (legacy) or 4 (exact scalar counters).");
+		}
+	}
+
 	/**
 	 * Prints an AtomicLongArray as tab-separated values with a label.
 	 * Only prints up to the last non-zero element to minimize output size.
@@ -336,22 +372,22 @@ public class TileDump {
 	 * @param list Array of long values to print
 	 * @param label Header label for the data row
 	 */
-	private static void printTSV(ByteStreamWriter bsw, AtomicLongArray list, String label) {
+	private static void printTSV(ByteStreamWriter bsw, AtomicLongArray list, String label){
 		bsw.print(label);
 		int maxNonZero=-1;
-		for(int i=0; i<list.length(); i++) {
-			if(list.get(i)>0) {maxNonZero=i;}
+		for(int i=0; i<list.length(); i++){
+			if(list.get(i)>0){maxNonZero=i;}
 		}
-		for(int i=0; i<=maxNonZero; i++) {
+		for(int i=0; i<=maxNonZero; i++){
 			bsw.tab().print(list.get(i));
 		}
 		bsw.nl();
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------           Parsing            ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
 	 * Loads tile dump data from a file into a new FlowCell with default k-mer size.
 	 * @param fname File name of dump data to load
@@ -360,41 +396,50 @@ public class TileDump {
 	public static FlowCell loadDump(String fname){
 		return loadDump(fname, new FlowCell(31));
 	}
-	
+
 	/**
 	 * Loads tile dump data from a file into an existing FlowCell.
 	 * Supports multiple dump file versions with appropriate loading methods.
 	 *
 	 * @param fname File name of dump data to load
-	 * @param fc Existing FlowCell to populate with data
-	 * @return FlowCell containing loaded tile data
+	 * @param fc Existing FlowCell to populate; existing contents are not cleared
+	 * @return The supplied FlowCell after parsing and successful reader closure
+	 * @throws RuntimeException If the input is unsupported or a read/close error is recorded
 	 */
 	public static FlowCell loadDump(String fname, FlowCell fc){
 		ByteFile bf=ByteFile.makeByteFile(fname, false);
-
-		final int version=parseHeader(bf, fc);
-		long tiles=0;
-		if(version==1) {
-			tiles=loadTiles1(bf, fc);
-		}else if(version>1) {
-			tiles=loadTiles2(bf, fc, version);
-//		}else if(version==3) {
-//			tiles=loadTiles3(bf, fc);
-		}else {
-			throw new RuntimeException("Unhandled dump file version "+version);
+		Throwable failure=null;
+		try{
+			final int version=parseHeader(bf, fc);
+			if(version==1){loadTiles1(bf, fc);}
+			else if(version>1){loadTiles2(bf, fc, version);}
+			else{throw new RuntimeException("Unhandled dump file version "+version);}
+			return fc;
+		}catch(RuntimeException | Error e){
+			failure=e;
+			throw e;
+		}finally{
+			//HIL-103: EOF may already close the reader, but its sticky error still needs checking.
+			try{
+				if(bf.close()){
+					throw new RuntimeException("Error reading tile dump "+fname+"; data may be incomplete.");
+				}
+			}catch(RuntimeException | Error closeFailure){
+				if(failure==null){throw closeFailure;}
+				if(closeFailure!=failure){failure.addSuppressed(closeFailure);}
+			}
 		}
-		return fc;
 	}
 
 	/**
 	 * Parses header lines from a dump file and configures FlowCell parameters.
 	 * Reads metadata including version, dimensions, k-mer size, and statistics.
 	 *
-	 * @param bf ByteFile to read header from
+	 * @param bf Borrowed reader; first non-header row is pushed back when present
 	 * @param fc FlowCell to configure with header data
 	 * @return Version number of the dump file format
 	 */
-	public static int parseHeader(ByteFile bf, FlowCell fc) {
+	public static int parseHeader(ByteFile bf, FlowCell fc){
 		LineParser1 lp=new LineParser1('\t');
 		int version=1;
 		for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()){
@@ -427,7 +472,7 @@ public class TileDump {
 				}else if(Tools.startsWith(line, "#lane")){
 					//ignore
 				}
-				
+
 				else if(Tools.startsWith(line, "#avgQuality")){
 					fc.avgQuality=lp.parseDouble(1);
 				}else if(Tools.startsWith(line, "#avgUnique")){
@@ -449,12 +494,12 @@ public class TileDump {
 				}else if(Tools.startsWith(line, "#stdG")){
 					fc.stdG=lp.parseDouble(1);
 				}
-				
+
 				else if(Tools.startsWith(line, "#reads")){
 					fc.readsProcessed=lp.parseLong(1);
 				}else if(Tools.startsWith(line, "#avgReads")){
 					fc.avgReads=lp.parseDouble(1);
-				}else {}
+				}else{}
 			}else{
 				bf.pushBack(line);
 				break;
@@ -462,19 +507,19 @@ public class TileDump {
 		}
 		return version;
 	}
-	
+
 	/**
 	 * Loads micro-tile data from version 1 dump files.
 	 * Parses tab-delimited tile statistics and populates MicroTile objects.
 	 *
-	 * @param bf ByteFile containing tile data
+	 * @param bf Borrowed ByteFile containing tile data; caller owns closure/error checks
 	 * @param fc FlowCell to populate with tile data
-	 * @return Number of lines processed
+	 * @return Number of completely parsed data rows
 	 */
-	public static long loadTiles1(ByteFile bf, FlowCell fc) {
+	public static long loadTiles1(ByteFile bf, FlowCell fc){
 		final LineParser2 lp=new LineParser2('\t');
 		long lines=0;
-		for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()) {
+		for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()){
 			assert(line[0]!='#') : "Unexpected header line "+bf.lineNum()+":\n"+new String(line);
 			lp.set(line);
 			int lane=lp.parseInt();
@@ -485,13 +530,13 @@ public class TileDump {
 			int y2=lp.parseInt();
 
 			MicroTile mt=fc.getMicroTile(lane, tile, x1, y1);
-			assert(mt.x1==x1 && mt.x2==x2) : 
-				"Micro-tile size seems to be different:\n"+ 
+			assert(mt.x1==x1 && mt.x2==x2) :
+				"Micro-tile size seems to be different:\n"+
 				"xsize="+Tile.xSize+", ysize="+Tile.ySize+"\n"
 				+ "mt.x1="+mt.x1+", mt.x2="+mt.x2+", x1="+x1+", x2="+x2+"\n"
 				+"line='"+new String(line)+"'";
-			assert(mt.y1==y1 && mt.y2==y2) : 
-				"Micro-tile size seems to be different:\n"+ 
+			assert(mt.y1==y1 && mt.y2==y2) :
+				"Micro-tile size seems to be different:\n"+
 				"xsize="+Tile.xSize+", ysize="+Tile.ySize+"\n"
 				+ "mt.y1="+mt.y1+", mt.y2="+mt.y2+", y1="+y1+",y2="+y2;
 
@@ -536,23 +581,26 @@ public class TileDump {
 			mt.acgtn=new long[] {a,c,g,t,n};
 			mt.homoPolyGCount=hmpCount;
 			mt.homoPolyGSum=hmpSum;
+			lines++;//HIL-106: count only completely parsed rows.
 		}
 		return lines;
 	}
-	
+
 	/**
 	 * Loads micro-tile data from version 2+ dump files with extended metrics.
 	 * Includes additional statistics like base counts, error rates, and barcode data.
+	 * V2/v3 reconstruct approximate counters from rounded metrics. V4 requires the
+	 * appended raw values and restores scalar counters exactly, including doubles.
 	 *
-	 * @param bf ByteFile containing tile data
+	 * @param bf Borrowed ByteFile containing tile data; caller owns closure/error checks
 	 * @param fc FlowCell to populate with tile data
 	 * @param dumpVersion Specific version number for format handling
-	 * @return Number of lines processed
+	 * @return Number of completely parsed data rows
 	 */
-	public static long loadTiles2(ByteFile bf, FlowCell fc, int dumpVersion) {
+	public static long loadTiles2(ByteFile bf, FlowCell fc, int dumpVersion){
 		final LineParser2 lp=new LineParser2('\t');
 		long lines=0;
-		for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()) {
+		for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()){
 			assert(line[0]!='#') : "Unexpected header line "+bf.lineNum()+":\n"+new String(line);
 			lp.set(line);
 			int lane=lp.parseInt();
@@ -563,13 +611,13 @@ public class TileDump {
 			int y2=lp.parseInt();
 
 			MicroTile mt=fc.getMicroTile(lane, tile, x1, y1);
-			assert(mt.x1==x1 && mt.x2==x2) : 
-				"Micro-tile size seems to be different:\n"+ 
+			assert(mt.x1==x1 && mt.x2==x2) :
+				"Micro-tile size seems to be different:\n"+
 				"xsize="+Tile.xSize+", ysize="+Tile.ySize+"\n"
 				+ "mt.x1="+mt.x1+", mt.x2="+mt.x2+", x1="+x1+", x2="+x2+"\n"
 				+"line='"+new String(line)+"'";
-			assert(mt.y1==y1 && mt.y2==y2) : 
-				"Micro-tile size seems to be different:\n"+ 
+			assert(mt.y1==y1 && mt.y2==y2) :
+				"Micro-tile size seems to be different:\n"+
 				"xsize="+Tile.xSize+", ysize="+Tile.ySize+"\n"
 				+ "mt.y1="+mt.y1+", mt.y2="+mt.y2+", y1="+y1+",y2="+y2;
 
@@ -611,39 +659,35 @@ public class TileDump {
 			long n=lp.parseLong();
 			long hmpCount=lp.parseLong();
 			long hmpSum=lp.parseLong();
-			
-			//SELF-CONSISTENT reconstruction, NOT a bug (do not "fix" reads->kmerCount here): the dump stores
-			//DERIVED per-tile metrics, not raw kmer/quality counters, so reload picks internal counters that
-			//REPRODUCE those metrics. It sets hits+misses=reads (not the true, unstored kmer count) and
-			//depthSum=reads*depth, so uniquePercent()=misses/(hits+misses)=uniquePercent and
-			//depth()=depthSum/(hits+misses)=depth recompute EXACTLY. Same for the *Sum fields vs their averages.
-			//The absolute counts are intentionally fake; every ratio/derived value markTiles+plotting use is exact.
+
+			//Legacy v2/v3 reconstruction uses reads rather than the original kmer count.
+			//HIL-105: preserve that approximation for old inputs; v4 replaces it with exact raw values below.
 			mt.misses=(long)(uniquePercent*reads*0.01);
 			mt.hits=reads-mt.misses;
 			mt.readQualityByProbSum=reads*averageQualityProb;
 			mt.probErrorFreeSum=reads*percentErrorFree;
 			mt.baseErrorProbSum=bases*averageBaseErrorProb;
 			mt.depthSum=(long)(reads*depth);
-			
+
 			mt.acgtn=new long[] {a,c,g,t,n};
 			mt.homoPolyGCount=hmpCount;
 			mt.homoPolyGSum=hmpSum;
-			
+
 			float polyRate=lp.parseFloat();
 			mt.barcodes=lp.parseLong();
 			mt.barcodeHDistSum=lp.parseLong();
 			mt.barcodePolymers=lp.parseLong();
-			
+
 			float hdist=lp.parseFloat();
 			float bcpoly=lp.parseFloat();
-			
-			if(dumpVersion>2) {
+
+			if(dumpVersion>2){
 				mt.validKmerSum=lp.parseLong();
 				mt.goodKmerSum=lp.parseDouble();
 				float goodKmerFraction=lp.parseFloat();
 			}
-			
-			if(lp.hasMore()) {
+
+			if(lp.hasMore()){
 				mt.mergedReads=lp.parseLong();
 				mt.insertSum=lp.parseLong();
 				mt.overlapSum=lp.parseLong();
@@ -652,14 +696,50 @@ public class TileDump {
 				float mergeRate=lp.parseFloat();
 				float mergBaseErrorRate=lp.parseFloat();
 			}
+			if(dumpVersion==VERSION_RAW){
+				//V4 always has all seven merge fields before this suffix, including unmerged rows.
+				mt.hits=Long.parseLong(rawField(lp, "hits"));
+				mt.misses=Long.parseLong(rawField(lp, "misses"));
+				mt.depthSum=Long.parseLong(rawField(lp, "depthSum"));
+				mt.readQualityByProbSum=parseRawDouble(lp, "readQualityByProbSum");
+				mt.probErrorFreeSum=parseRawDouble(lp, "probErrorFreeSum");
+				mt.baseErrorProbSum=parseRawDouble(lp, "baseErrorProbSum");
+				mt.goodKmerSum=parseRawDouble(lp, "goodKmerSum");
+			}
+			lines++;//HIL-106
 		}
 		return lines;
 	}
-	
-//	public static long loadTiles3(ByteFile bf, FlowCell fc) {
+
+	/** Reads a required exact-counter field, distinguishing a missing/empty value from zero.
+	 * @param lp Row parser positioned before the field
+	 * @param name Counter name for diagnostics
+	 * @return Nonempty field text */
+	private static String rawField(LineParser2 lp, String name){
+		if(!lp.hasMore()){
+			throw new IllegalArgumentException("Missing v4 raw counter "+name);
+		}
+		final String text=lp.parseString();
+		if(text.isEmpty()){throw new IllegalArgumentException("Empty v4 raw counter "+name);}
+		return text;
+	}
+
+	/** Parses Java's round-trippable notation, including exponents; rejects nonfinite counters.
+	 * @param lp Row parser positioned before the field
+	 * @param name Counter name for diagnostics
+	 * @return The exact finite double value */
+	private static double parseRawDouble(LineParser2 lp, String name){
+		final double value=Double.parseDouble(rawField(lp, name));
+		if(!Double.isFinite(value)){
+			throw new IllegalArgumentException("Nonfinite v4 raw counter "+name+"="+value);
+		}
+		return value;
+	}
+
+//	public static long loadTiles3(ByteFile bf, FlowCell fc){
 //		final LineParser2 lp=new LineParser2('\t');
 //		long lines=0;
-//		for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()) {
+//		for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()){
 //			assert(line[0]!='#') : "Unexpected header line "+bf.lineNum()+":\n"+new String(line);
 //			lp.set(line);
 //			int lane=lp.parseInt();
@@ -670,13 +750,13 @@ public class TileDump {
 //			int y2=lp.parseInt();
 //
 //			MicroTile mt=fc.getMicroTile(lane, tile, x1, y1);
-//			assert(mt.x1==x1 && mt.x2==x2) : 
-//				"Micro-tile size seems to be different:\n"+ 
+//			assert(mt.x1==x1 && mt.x2==x2) :
+//				"Micro-tile size seems to be different:\n"+
 //				"xsize="+Tile.xSize+", ysize="+Tile.ySize+"\n"
 //				+ "mt.x1="+mt.x1+", mt.x2="+mt.x2+", x1="+x1+", x2="+x2+"\n"
 //				+"line='"+new String(line)+"'";
-//			assert(mt.y1==y1 && mt.y2==y2) : 
-//				"Micro-tile size seems to be different:\n"+ 
+//			assert(mt.y1==y1 && mt.y2==y2) :
+//				"Micro-tile size seems to be different:\n"+
 //				"xsize="+Tile.xSize+", ysize="+Tile.ySize+"\n"
 //				+ "mt.y1="+mt.y1+", mt.y2="+mt.y2+", y1="+y1+",y2="+y2;
 //
@@ -729,20 +809,20 @@ public class TileDump {
 //			mt.acgtn=new long[] {a,c,g,t,n};
 //			mt.homoPolyGCount=hmpCount;
 //			mt.homoPolyGSum=hmpSum;
-//			
+//
 //			float polyRate=lp.parseFloat();
 //			mt.barcodes=lp.parseLong();
 //			mt.barcodeHDistSum=lp.parseLong();
 //			mt.barcodePolymers=lp.parseLong();
-//			
+//
 //			float hdist=lp.parseFloat();
 //			float bcpoly=lp.parseFloat();
-//			
+//
 //			mt.validKmerSum=lp.parseLong();
 //			mt.goodKmerSum=lp.parseDouble();
 //			float goodKmerFraction=lp.parseFloat();
-//			
-//			if(lp.hasMore()) {
+//
+//			if(lp.hasMore()){
 //				mt.mergedReads=lp.parseLong();
 //				mt.insertSum=lp.parseLong();
 //				mt.overlapSum=lp.parseLong();
@@ -754,7 +834,7 @@ public class TileDump {
 //		}
 //		return lines;
 //	}
-	
+
 	/**
 	 * Identifies and marks problematic micro-tiles based on quality thresholds.
 	 * Uses statistical analysis to flag tiles with poor quality, low uniqueness,
@@ -763,14 +843,14 @@ public class TileDump {
 	 * @param flowcell FlowCell containing aggregate statistics for comparison
 	 * @param mtList List of MicroTile objects to evaluate
 	 * @param outstream PrintStream for reporting flagged tiles summary
-	 * @return Total number of reads in flagged tiles
+	 * @return Reads in tiles still flagged after the discard-cap rescue pass
 	 */
 	static final long markTiles(FlowCell flowcell, ArrayList<MicroTile> mtList, PrintStream outstream){
 		for(MicroTile mt : mtList){
 			mt.discard=0;
 		}
 		long readsToDiscard=0;
-		
+
 		long cDiscards=0, qDiscards=0, iqDiscards=0, eDiscards=0;
 		long uDiscards=0, mtDiscards=0, gDiscards=0, mtRetained=0;
 		final double alignmentRate=flowcell.alignmentRate();
@@ -784,18 +864,18 @@ public class TileDump {
 			double ier=mt.impliedErrorRate(flowcell.uniqueToBaseErrorRateFormula);
 //			assert(false) : "\nier="+ier+", u="+u+", berf="+Arrays.toString(flowcell.uniqueToBaseErrorRateFormula)
 //			+", maxImpliedErrorRate="+maxImpliedErrorRate+", alignmentRate="+alignmentRate;
-			
+
 			double dq=flowcell.avgQuality-q;
 			double de=flowcell.avgErrorFree-e;
 			double du=u-flowcell.avgUnique;
 			double dpg=pg-flowcell.avgPolyG;
 			double dg=g-flowcell.avgG;
-			
+
 			if(mt.readCount<10 && mt.readCount<0.02f*avgReads){
 				mt.discard++;
 				cDiscards++;
 			}
-			
+
 			//Four parallel 3-part threshold checks (quality/errorFree/polyG/unique) below: each fires only
 			//when the deviation exceeds ALL of {N*std, frac*avg, abs}. Verified each uses its OWN metric's
 			//constants (qual*/errorFree*/polyG*/unique*) and correct sign: dq=avg-q & de=avg-e discard LOW
@@ -804,11 +884,11 @@ public class TileDump {
 				mt.discard++;
 				qDiscards++;
 			}
-			if(ier>maxImpliedErrorRate && alignmentRate>0.0001) {
+			if(ier>maxImpliedErrorRate && alignmentRate>0.0001){
 				mt.discard++;
 				iqDiscards++;
 			}
-			if(de>eDeviations*flowcell.stdErrorFree && 
+			if(de>eDeviations*flowcell.stdErrorFree &&
 					de>flowcell.avgErrorFree*errorFreeFraction && de>errorFreeAbs){
 				mt.discard++;
 				eDiscards++;
@@ -816,7 +896,7 @@ public class TileDump {
 //			assert(de<=0) : "e="+e+", de="+de+", eDeviations="+eDeviations+
 //			", flowcell.stdErrorFree="+flowcell.stdErrorFree+", flowcell.avgErrorFree="+flowcell.avgErrorFree
 //			+", errorFreeFraction="+errorFreeFraction+", errorFreeAbs="+errorFreeAbs;
-			if(dpg>pgDeviations*flowcell.stdPolyG && 
+			if(dpg>pgDeviations*flowcell.stdPolyG &&
 					dpg>flowcell.avgPolyG*polyGFraction && dpg>polyGAbs){
 				mt.discard++;
 				gDiscards++;//NOTE: polyG discards are counted under gDiscards (reported as "G spikes"); the
@@ -832,7 +912,7 @@ public class TileDump {
 					uDiscards++;
 				}
 			}
-			
+
 //			if((discardG || gToN) && (dg>gDeviations*flowcell.stdG && dg>flowcell.avgG*gFraction && dg>gAbs)){
 //				mt.discard++;
 //				gDiscards++;
@@ -843,29 +923,29 @@ public class TileDump {
 			}
 			else{mtRetained++;}
 		}
-		
+
 		long fullSize=mtList.size()-cDiscards;
 		long fullSizeDiscards=mtDiscards-cDiscards;
 		long maxDiscards=(long)(maxDiscardFraction*fullSize);
-		if(fullSizeDiscards>maxDiscards) {
+		if(fullSizeDiscards>maxDiscards){
 			//Over the discard cap: rescue (un-discard) flagged tiles in sorted order until back under it.
 			//Sort order = MicroTile.compareTo, so its correctness decides WHICH reads survive here --
 			//see the [hiseq/MicroTile#001] tiebreaker bug (equal-uniquePercent tiles rescued by readCount
 			//instead of quality). Rescue gate requires readCount>=10 AND >=2% of avg: a tile with readCount
 			//in [10, 0.02*avgReads) is NOT a low-count auto-discard (needs rc<10 too) yet is NOT rescuable.
 			Collections.sort(mtList);
-			for(MicroTile mt : mtList) {
-				if(mt.discard>0 && mt.readCount>=10 && mt.readCount>=0.02f*avgReads) {//full size discard
+			for(MicroTile mt : mtList){
+				if(mt.discard>0 && mt.readCount>=10 && mt.readCount>=0.02f*avgReads){//full size discard
 					mt.discard=0;
 					mtDiscards--;
 					fullSizeDiscards--;
 					mtRetained++;
 					readsToDiscard-=mt.readCount;
-					if(fullSizeDiscards<=maxDiscards) {break;}
+					if(fullSizeDiscards<=maxDiscards){break;}
 				}
 			}
 		}
-		
+
 		outstream.println();
 		outstream.println("Flagged "+mtDiscards+" of "+(mtDiscards+mtRetained)+" micro-tiles, containing "+readsToDiscard+" reads:");
 		outstream.println(uDiscards+" exceeded uniqueness thresholds.");
@@ -875,30 +955,32 @@ public class TileDump {
 		outstream.println(gDiscards+" contained G spikes.");
 		outstream.println(cDiscards+" had too few reads to calculate statistics.");
 		outstream.println();
-		
+
 		return readsToDiscard;
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------           Statics            ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/** Output dump file format version number */
 	public static final int VERSION_OUT=3;
+	/** Opt-in format appending exact scalar MicroTile counters after the legacy prefix. */
+	public static final int VERSION_RAW=4;
 	/** Input dump file format version number */
 	public static int VERSION_IN=1;
 	/** Enable verbose output for debugging and progress tracking */
 	public static boolean verbose;
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/** Maximum fraction of full-size tiles that can be discarded */
 	static float maxDiscardFraction=0.4f;
 	/** Maximum implied error rate threshold for tile filtering */
 	static float maxImpliedErrorRate=0.012f;
-	
+
 	/** Number of standard deviations above mean for quality-based tile filtering */
 	static float qDeviations=2.4f;
 	/** Number of standard deviations above mean for uniqueness-based filtering */
@@ -909,7 +991,7 @@ public class TileDump {
 	static float pgDeviations=1.4f;
 	/** Number of standard deviations above mean for G-content filtering */
 	static float gDeviations=3f;
-	
+
 	/** Minimum quality difference as fraction of mean for tile filtering */
 	static float qualFraction=0.08f;
 	/** Minimum uniqueness difference as fraction of mean for tile filtering */
@@ -920,7 +1002,7 @@ public class TileDump {
 	static float polyGFraction=0.2f;
 	/** Minimum G-content difference as fraction of mean for tile filtering */
 	static float gFraction=.1f;
-	
+
 	/** Absolute minimum quality threshold for tile filtering */
 	static float qualAbs=2.0f;
 	/** Absolute minimum uniqueness threshold for tile filtering */
@@ -931,7 +1013,7 @@ public class TileDump {
 	static float polyGAbs=0.2f;
 	/** Absolute minimum G-content threshold for tile filtering */
 	static float gAbs=.1f;
-	
+
 	/** Input dump file name */
 	private String in=null;
 	/** Output file name for processed results */
@@ -948,5 +1030,7 @@ public class TileDump {
 	private boolean blurTiles=false;
 	/** Whether to overwrite existing output files */
 	private boolean overwrite=true;
-	
+	/** Output format; legacy v3 remains the default for existing consumers. */
+	private int dumpVersion=VERSION_OUT;
+
 }

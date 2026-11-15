@@ -13,7 +13,9 @@ import structures.ByteBuilder;
  * Represents a spatial tile region on HiSeq flow cells for quality assessment.
  * Accumulates quality metrics, error rates, and base composition statistics
  * for reads originating from a defined rectangular coordinate region.
- * Used for spatial quality analysis and tile-based filtering.
+ * Used for spatial quality analysis and tile-based filtering. Counter updates
+ * are unsynchronized; callers serialize shared updates. Configure static cycle
+ * tracking before construction and keep it stable while instances are in use.
  *
  * @author Brian Bushnell
  */
@@ -40,12 +42,12 @@ public class MicroTile implements Comparable<MicroTile>{
 		y1=y1_;
 		y2=y2_;
 	}
-	
+
 	/** Processes the cycle tracker if cycle tracking is enabled */
 	void process(){
 		if(tracker!=null){tracker.process();}
 	}
-	
+
 	/**
 	 * Tests if coordinates fall within this tile's boundaries.
 	 * @param x X-coordinate to test
@@ -55,50 +57,50 @@ public class MicroTile implements Comparable<MicroTile>{
 	public boolean contains(int x, int y){
 		return x>=x1 && x<=x2 && y>=y1 && y<=y2;
 	}
-	
+
 	@Override
 	public String toString(){
 		return lane+", "+tile+", "+x1+", "+x2+", "+y1+", "+y2;
 	}
-	
+
 	/** Calculates average read quality using probability-weighted scoring.
 	 * @return Average quality score by probability, or 0 if no reads processed */
 	public double averageReadQualityByProb(){
 		return readCount==0 ? 0 : readQualityByProbSum/readCount;
 	}
-	
+
 	/** Calculates expected base error rate from quality scores.
 	 * @return Average expected error probability per base */
 	public double averageExpectedBaseErrorRate(){
 		return baseCount==0 ? 0 : baseErrorProbSum/baseCount;
 	}
-	
+
 	/** Converts expected base error rate to Phred scale.
 	 * @return Expected base error rate as Phred quality score */
 	public double averageExpectedBaseErrorRatePhred(){
 		return QualityTools.probErrorToPhredDouble(averageExpectedBaseErrorRate());
 	}
-	
+
 	/** Calculates percentage of reads expected to be error-free.
 	 * @return Percentage of error-free reads based on quality scores */
 	public double percentErrorFree(){
 		return readCount==0 ? 0 : probErrorFreeSum/readCount;
 	}
-	
-	/** Calculates fraction of k-mers with high quality scores.
-	 * @return Ratio of good k-mers to total k-mers */
+
+	/** Calculates quality-weighted correct-kmer mass per valid window.
+	 * @return Weighted good mass divided by valid windows, or 0 for empty counters */
 	public double goodKmerFraction(){
-		double kmers=goodKmerSum+validKmerSum;
-		return goodKmerSum/Tools.max(kmers, 1);
+		//HIL-104: validKmerSum already counts all eligible windows, including their good weight.
+		return goodKmerSum/Tools.max(validKmerSum, 1);
 	}
-	
+
 	/** Calculates fraction of reads that aligned successfully.
 	 * @return Alignment rate as ratio of aligned to total reads */
 	public double alignmentRate(){
 		return readCount==0 ? 0 : alignedReadCount/(double)readCount;
 	}
-	
-	//Small sample sizes will drift toward 23. 
+
+	//Small sample sizes will drift toward 23.
 	/**
 	 * Calculates empirical quality score from alignment error counts.
 	 * Applies Bayesian smoothing with pseudocounts for small samples.
@@ -113,8 +115,8 @@ public class MicroTile implements Comparable<MicroTile>{
 //		System.err.println(baseErrorCount+", "+alignedBaseCount+", "+prob+", "+phred);
 		return phred;
 	}
-	
-	//Small sample sizes will drift toward 0.2. 
+
+	//Small sample sizes will drift toward 0.2.
 	/**
 	 * Calculates per-read error rate from alignment data.
 	 * Applies Bayesian smoothing with 0.2 pseudocount for stability.
@@ -127,8 +129,8 @@ public class MicroTile implements Comparable<MicroTile>{
 		double rate=e/b;
 		return rate;
 	}
-	
-	//Small sample sizes will drift toward 0.002. 
+
+	//Small sample sizes will drift toward 0.002.
 	/**
 	 * Calculates per-base error rate from alignment data.
 	 * Applies Bayesian smoothing with 0.002 pseudocount for stability.
@@ -141,13 +143,13 @@ public class MicroTile implements Comparable<MicroTile>{
 		double rate=e/b;
 		return rate;
 	}
-	
+
 	/** Calculates insertion rate per read from alignment data.
 	 * @return Fraction of reads containing insertions */
 	public double readInsRate(){
 //		System.err.println(alignedReadCount+", "+readInsCount+", "+
 //		(readInsCount/(double)alignedReadCount));
-		if(alignedReadCount==0) {return 0;}
+		if(alignedReadCount==0){return 0;}
 //		double e=readInsCount+0.01;
 //		double b=alignedReadCount+10;
 		double e=readInsCount;
@@ -155,11 +157,11 @@ public class MicroTile implements Comparable<MicroTile>{
 		double rate=e/b;
 		return rate;
 	}
-	 
+
 	/** Calculates deletion rate per read from alignment data.
 	 * @return Fraction of reads containing deletions */
 	public double readDelRate(){
-		if(alignedReadCount==0) {return 0;}
+		if(alignedReadCount==0){return 0;}
 //		double e=readDelCount+0.01;
 //		double b=alignedReadCount+10;
 		double e=readDelCount;
@@ -167,48 +169,48 @@ public class MicroTile implements Comparable<MicroTile>{
 		double rate=e/b;
 		return rate;
 	}
-	 
+
 	/** Calculates k-mer-based error rate per read.
 	 * @return Rate of reads with k-mer-detected errors */
 	public double kmerErrorRateR(){
-		if(readCount==0) {return 0;}
+		if(readCount==0){return 0;}
 		double e=kmerReadErrorCount;
 		double b=readCount;
 		double rate=e/b;
 		return rate;
 	}
-	 
+
 	/** Calculates k-mer-based error rate per base.
 	 * @return Rate of bases with k-mer-detected errors per read */
 	public double kmerErrorRateB(){
-		if(readCount==0) {return 0;}
+		if(readCount==0){return 0;}
 		double e=kmerBaseErrorCount;
 		double b=readCount;
 		double rate=e/b;
 		return rate;
 	}
-	
+
 	/** Calculates percentage of k-mers found in reference database.
 	 * @return Percentage of k-mer hits */
 	public double hitPercent(){
 		long count=kmerCount();
 		return count==0 ? 0 : hits*100.0/count;
 	}
-	
+
 	/** Calculates percentage of unique k-mers not found in database.
 	 * @return Percentage of unique k-mers */
 	public double uniquePercent(){
 		long count=kmerCount();
 		return count==0 ? 0 : misses*100.0/count;
 	}
-	
+
 	/** Calculates percentage of reads with poly-G contamination.
 	 * @return Percentage of reads exceeding minimum poly-G threshold */
 	public double polyGPercent(){
 		long count=readCount;
 		return count==0 ? 0 : homoPolyGCount*100.0/count;
 	}
-	
+
 	/** Calculates average k-mer depth from database lookups.
 	 * @return Average depth per k-mer */
 	public double depth(){
@@ -219,37 +221,37 @@ public class MicroTile implements Comparable<MicroTile>{
 		//loading) count==0 -> NaN in the toText "depth" column and in FlowCell.avgDepth. Now returns 0 like siblings.
 		return count==0 ? 0 : depthSum*1.0/count;
 	}
-	
-	/** Gets average G content from cycle tracker.
-	 * @return Average G percentage, or 0 if tracking disabled */
+
+	/** Gets average G content after the populated tracker has been processed.
+	 * @return G fraction in [0,1], or 0 if tracking was disabled at construction */
 	public double avgG(){
 		return tracker==null ? 0 : tracker.avg('G');
 	}
-	
-	/** Gets maximum G content from cycle tracker.
-	 * @return Maximum G percentage, or 0 if tracking disabled */
+
+	/** Gets maximum per-cycle G content after processing the populated tracker.
+	 * @return G fraction in [0,1], or 0 if tracking was disabled at construction */
 	public double maxG(){
 		return tracker==null ? 0 : tracker.max('G');
 	}
-	
+
 	/**
 	 * Calculates implied error rate from base error rate function.
 	 * Uses unique k-mer percentage to estimate per-base error rates.
 	 * @param berf Base error rate function coefficients [intercept, slope]
 	 * @return Estimated per-base error rate
 	 */
-	public double impliedErrorRate(double[] berf) {
-		if(berf==null) {return 0;}
+	public double impliedErrorRate(double[] berf){
+		if(berf==null){return 0;}
 		double rootBer=Tools.mid(0.000001, 0.75, berf[0]+berf[1]*uniquePercent());
 		return rootBer*rootBer;
 	}
 
 	/** Gets total k-mer count (hits plus misses) */
 	public long kmerCount(){return hits+misses;}
-	
-	/** Resets all statistics counters to zero.
-	 * Clears k-mer counts, error counts, base composition, and quality metrics. */
-	public void clear() {
+
+	/** Clears numeric accumulation and existing tracker results; retains geometry
+	 * and the discard flag, which markTiles resets separately. */
+	public void clear(){
 		hits=0;
 		misses=0;
 		depthSum=0;
@@ -269,7 +271,7 @@ public class MicroTile implements Comparable<MicroTile>{
 		goodKmerSum=0;
 		validKmerSum=0;
 		Arrays.fill(acgtn, 0);
-		
+
 		homoPolyGCount=0;
 		homoPolyGSum=0;
 		if(TRACK_CYCLES){
@@ -278,19 +280,19 @@ public class MicroTile implements Comparable<MicroTile>{
 		barcodes=0;
 		barcodeHDistSum=0;
 		barcodePolymers=0;
-		
+
 		mergedReads=0;
 		insertSum=0;
 		overlapSum=0;
 		mergeErrorSum=0;
 	}
-	
+
 	/**
 	 * Adds statistics from another MicroTile to this one.
 	 * Merges all counters including reads, errors, k-mers, and composition.
 	 * @param mt MicroTile to merge statistics from
 	 */
-	public void add(MicroTile mt) {
+	public void add(MicroTile mt){
 		hits+=mt.hits;
 		misses+=mt.misses;
 		depthSum+=mt.depthSum;
@@ -321,20 +323,20 @@ public class MicroTile implements Comparable<MicroTile>{
 		barcodes+=mt.barcodes;
 		barcodeHDistSum+=mt.barcodeHDistSum;
 		barcodePolymers+=mt.barcodePolymers;
-		
+
 		mergedReads+=mt.mergedReads;
 		insertSum+=mt.insertSum;
 		overlapSum+=mt.overlapSum;
 		mergeErrorSum+=mt.mergeErrorSum;
 	}
-	
+
 	/**
 	 * Multiplies all statistics by a scaling factor.
 	 * Used for normalizing tile statistics or creating projections.
 	 * Does not handle cycle tracker multiplication.
 	 * @param mult Scaling factor to apply to all counters
 	 */
-	public void multiplyBy(double mult) {
+	public void multiplyBy(double mult){
 		hits=(long)(mult*hits);
 		misses=(long)(mult*misses);
 		depthSum=(long)(mult*depthSum);
@@ -366,13 +368,13 @@ public class MicroTile implements Comparable<MicroTile>{
 		barcodes=(long)(mult*barcodes);
 		barcodeHDistSum=(long)(mult*barcodeHDistSum);
 		barcodePolymers=(long)(mult*barcodePolymers);
-		
+
 		mergedReads=(long)(mult*mergedReads);
 		insertSum=(long)(mult*insertSum);
 		overlapSum=(long)(mult*overlapSum);
 		mergeErrorSum=(long)(mult*mergeErrorSum);
 	}
-	
+
 	/**
 	 * Counts and scores k-mers based on quality values.
 	 * Uses sliding window to calculate probability of k-mer correctness.
@@ -382,7 +384,7 @@ public class MicroTile implements Comparable<MicroTile>{
 	 * @param k K-mer length for scoring window
 	 * @return Total quality-weighted k-mer score
 	 */
-	private float countGoodKmers(byte[] quals, int k) {
+	private float countGoodKmers(byte[] quals, int k){
 		int valid=0;
 		float good=0;
 		float product=1;
@@ -391,20 +393,20 @@ public class MicroTile implements Comparable<MicroTile>{
 		//equals exactly the product of the current k in-window bases. q==0 (no-call) breaks the run:
 		//len/product reset, so windows never span a q0 -> quals[i-k] is guaranteed >0 when the divide runs
 		//(len>k means k+1 consecutive q>0). No div/inverse of a zero-prob entry.
-		for(int i=0, len=0; i<quals.length; i++) {
+		for(int i=0, len=0; i<quals.length; i++){
 			byte q=quals[i];
-			if(q>0) {
+			if(q>0){
 				len++;
 				float pc=QualityTools.PROB_CORRECT[q];
 				product=product*pc;
-				if(len>=k) {
-					if(len>k) {
+				if(len>=k){
+					if(len>k){
 						product=product*QualityTools.PROB_CORRECT_INVERSE[quals[i-k]];
 					}
 					valid++;
 					good+=product;
 				}
-			}else {
+			}else{
 				len=0;
 				product=1;
 			}
@@ -413,33 +415,36 @@ public class MicroTile implements Comparable<MicroTile>{
 		validKmerSum+=valid;
 		return good;
 	}
-	
+
 	/**
 	 * Processes a read and updates all relevant statistics.
 	 * Analyzes quality scores, alignment information, base composition,
-	 * poly-G content, and k-mer quality metrics.
+	 * poly-G content, and quality-weighted 62-mers. Overwrites the read's discarded
+	 * flag with its poly-G classification. Nonempty reads require quality scores.
 	 * @param r Read to process and extract statistics from
+	 * @throws IllegalArgumentException If a nonempty read has no quality scores
 	 */
 	public void add(Read r){
 		if(r==null){return;}
 		final int len=r.length();
 		if(len<1){return;}
+		if(r.quality==null){throw new IllegalArgumentException("Missing quality scores for nonempty read "+r.id);}
 		final SamLine sl=r.samline;
 		final byte[] match=r.match;
-		
+
 		readCount++;
 		baseCount+=r.length();
 		readQualityByProbSum+=r.avgQualityByProbabilityDouble(true, len);
 		probErrorFreeSum+=100*r.probabilityErrorFree(true, len);
 		baseErrorProbSum+=r.expectedErrors(true, len);
-		
+
 		countGoodKmers(r.quality, 62);
-		
+
 //		if(r.mapped() || (sl!=null && sl.mapped()){alignedRead
-		
-		if(match!=null) {
+
+		if(match!=null){
 			int bc=r.countAlignedBases();
-			if(bc>0) {
+			if(bc>0){
 				alignedReadCount++;
 				alignedBaseCount+=bc;
 				int errors=r.countErrors();
@@ -449,10 +454,10 @@ public class MicroTile implements Comparable<MicroTile>{
 				readInsCount+=(mSCNID[4]>0 ? 1 : 0);
 				readDelCount+=(mSCNID[5]>0 ? 1 : 0);
 			}
-		}else if(sl!=null && sl.mapped()) {
+		}else if(sl!=null && sl.mapped()){
 			alignedReadCount++;
 		}
-		
+
 		final byte[] bases=r.bases;
 		int maxPolyG=0, currentPolyG=0;
 		for(int i=0; i<len; i++){
@@ -474,21 +479,26 @@ public class MicroTile implements Comparable<MicroTile>{
 			tracker.add(r);
 		}
 	}
-	
-	/** 
+
+	/**
 	 * Has some slow functions offloaded to increase
-	 * concurrency, but did not result in a speedup.
+	 * concurrency, but did not result in a speedup. Omits quality-probability and
+	 * alignment accumulation; still requires qualities for 62-mer counting and
+	 * overwrites the read's poly-G discard flag. Retained as a separate variant.
+	 * @param r Read to process; null and empty reads are ignored
+	 * @throws IllegalArgumentException If a nonempty read has no quality scores
 	 */
 	public void addQuick(Read r){
 		if(r==null){return;}
 		final int len=r.length();
 		if(len<1){return;}
-		
+		if(r.quality==null){throw new IllegalArgumentException("Missing quality scores for nonempty read "+r.id);}
+
 		readCount++;
 		baseCount+=r.length();
-		
+
 		countGoodKmers(r.quality, 62);
-		
+
 		final byte[] bases=r.bases;
 		int maxPolyG=0, currentPolyG=0;
 		for(int i=0; i<len; i++){
@@ -510,14 +520,14 @@ public class MicroTile implements Comparable<MicroTile>{
 			tracker.add(r);
 		}
 	}
-	
+
 	/**
 	 * Generates column headers for tabular output.
 	 * Returns either short or long format headers based on shortHeader flag.
 	 * @return Tab-delimited header string for statistics output
 	 */
-	public static String header() {
-		if(shortHeader) {
+	public static String header(){
+		if(shortHeader){
 			return "lane\ttile\tx1\tx2\ty1\ty2"
 					+ "\treads\tbases\talnRead\talnBase\terrAlnR\terrAlnB"
 					+ "\terrKR\terrKB"
@@ -533,7 +543,7 @@ public class MicroTile implements Comparable<MicroTile>{
 					+ "\tMerged\tInsert\tOverlap\tMrgErr"
 					+ "\tAvInsrt\tMrgRate\tMrgBER";
 		}
-		
+
 		return "lane\ttile\tx1\tx2\ty1\ty2"
 		+ "\treads\tbases\talignedRead\talignedBase\treadsAlignedWithErrors\talignedErrorCount"
 		+ "\treadsWithKmerErrors\tkmerErrorCount"
@@ -549,11 +559,20 @@ public class MicroTile implements Comparable<MicroTile>{
 		+ "\tMergedReads\tInsertSum\tOverlapSum\tMergeErrors"
 		+ "\tAvgInsertSize\tMergeRate\tMergeBaseErrorRate";
 	}
-	
+
+	/** Returns the legacy header followed by uniquely named exact scalar columns when requested.
+	 * @param rawCounters Whether to append the v4 raw-counter suffix
+	 * @return Tab-delimited column names; the legacy prefix is unchanged */
+	public static String header(boolean rawCounters){
+		return header()+(rawCounters ? "\traw_hits\traw_misses\traw_depthSum\traw_readQualityByProbSum"
+			+"\traw_probErrorFreeSum\traw_baseErrorProbSum\traw_goodKmerSum" : "");
+	}
+
 	/**
-	 * Formats all tile statistics as tab-delimited text output.
+	 * Formats all tile statistics as legacy tab-delimited text output.
 	 * Includes coordinate information, quality metrics, error rates,
-	 * base composition, and derived statistics.
+	 * base composition, and derived statistics. Appends merge columns only when
+	 * mergedReads>0; the header always names them.
 	 *
 	 * @param bb ByteBuilder to append formatted output to
 	 * @param k K-mer length for calculations
@@ -563,6 +582,23 @@ public class MicroTile implements Comparable<MicroTile>{
 	 * @return ByteBuilder with appended statistics line
 	 */
 	public ByteBuilder toText(ByteBuilder bb, int k, double HG, double[] rerf, double[] berf){
+		return toText(bb, k, HG, rerf, berf, false);
+	}
+
+	/** Formats a legacy row or its v4 extension. Exact output includes all seven merge
+	 * columns before seven raw counters; doubles use round-trippable Java notation.
+	 * Callers must keep counters stable throughout validation and serialization.
+	 * Cycle arrays and FlowCell-level derived state are not serialized here.
+	 * @param bb Destination builder
+	 * @param k K-mer length
+	 * @param HG High-depth genomic k-mer fraction
+	 * @param rerf Read error rate coefficients
+	 * @param berf Base error rate coefficients
+	 * @param rawCounters Whether to append the v4 exact scalar counters
+	 * @return The destination builder, including the final newline
+	 * @throws IllegalArgumentException If a raw double counter is nonfinite */
+	public ByteBuilder toText(ByteBuilder bb, int k, double HG, double[] rerf, double[] berf, boolean rawCounters){
+		if(rawCounters){checkRawCounters();}
 		bb.append(lane).tab();
 		bb.append(tile).tab();
 		bb.append(x1).tab();
@@ -582,16 +618,16 @@ public class MicroTile implements Comparable<MicroTile>{
 		bb.append(readDelCount).tab();
 		bb.append(readErrorRate(), 5).tab();
 		bb.append(baseErrorRate(), 5).tab();
-		
+
 		final double uniquePercent=uniquePercent();
 		bb.append(uniquePercent, 4).tab();
 		bb.append(averageReadQualityByProb(), 4).tab();
 		bb.append(percentErrorFree(), 4).tab();
 		bb.append(averageExpectedBaseErrorRate(), 5).tab();
 		final double depth=depth();
-		if(depth>10000) {
+		if(depth>10000){
 			bb.append((long)Math.round(depth)).tab();
-		}else {
+		}else{
 			bb.append(depth, depth>=100 ? 2 : 4).tab();
 		}
 		final double E1=(HG>0 && hits+misses>0 ? calcErrorRateFromUniqueness(HG, k) : 0);
@@ -600,13 +636,15 @@ public class MicroTile implements Comparable<MicroTile>{
 		assert(rerf!=null || alignedReadCount<1 || depthSum<1) : readCount+", "+alignedReadCount;
 		final double rer=(rerf==null ? 0 : Tools.mid(0.000001, 0.999999, rerf[0]+rerf[1]*uniquePercent));
 //		assert(rer>0.001) : rerf[0];
-		final double E2=1-Math.pow(1-rer, 1/avgBases);
+		//HIL-109: no base observations means no inference; avoid pow(1,Infinity), which produces NaN.
+		//The fixed-decimal formatter hid that NaN as0.00000; explicit zero emits0 instead.
+		final double E2=(baseCount==0 ? 0 : 1-Math.pow(1-rer, 1/avgBases));
 		bb.append(E2, 5).tab();
 		final double rootber=(berf==null ? 0 : Tools.mid(0.000001, 0.75, berf[0]+berf[1]*uniquePercent));
 		final double ber=rootber*rootber;
 		bb.append(ber, 5).tab();
 		bb.append(QualityTools.probErrorToPhredDouble(ber), 4).tab();
-		
+
 		bb.append(alignmentRate(), 5).tab();
 		bb.append(trueQuality(), 4).tab();
 		bb.append(kmerErrorRateR(), 5).tab();
@@ -614,7 +652,7 @@ public class MicroTile implements Comparable<MicroTile>{
 		bb.append(readInsRate(), 5).tab();
 		bb.append(readDelRate(), 5).tab();
 		bb.append(discard);
-		
+
 		for(int i=0; i<5; i++){
 			bb.tab().append(acgtn[i]);
 		}
@@ -626,7 +664,7 @@ public class MicroTile implements Comparable<MicroTile>{
 		//readCount==0 -> NaN in the polyG_Rate column. Now guarded like its siblings.
 		bb.tab().append(homoPolyGCount/Tools.max(1.0, readCount), 5);
 //		assert(false) : homoPolyGSum+"\n"+bb;
-		
+
 		bb.tab().append(barcodes);
 		bb.tab().append(barcodeHDistSum);
 		bb.tab().append(barcodePolymers);
@@ -637,8 +675,8 @@ public class MicroTile implements Comparable<MicroTile>{
 		bb.tab().append(validKmerSum);
 		bb.tab().append(goodKmerSum, (goodKmerSum>=999 ? 0 : 2), true);
 		bb.tab().append(goodKmerSum/(Tools.max(1.0, validKmerSum)), 5);
-		
-		if(mergedReads>0) {
+
+		if(mergedReads>0 || rawCounters){
 			bb.tab().append(mergedReads);
 			bb.tab().append(insertSum);
 			bb.tab().append(overlapSum);
@@ -647,23 +685,47 @@ public class MicroTile implements Comparable<MicroTile>{
 			bb.tab().append(mergedReads/Tools.max(1.0, readCount), 5);//Merge rate
 			bb.tab().append(mergeErrorSum/Tools.max(1.0, 2*overlapSum), 5);//Merge error rate
 		}
-		
+		if(rawCounters){
+			bb.tab().append(hits).tab().append(misses).tab().append(depthSum);
+			bb.tab().append(Double.toString(readQualityByProbSum));
+			bb.tab().append(Double.toString(probErrorFreeSum));
+			bb.tab().append(Double.toString(baseErrorProbSum));
+			bb.tab().append(Double.toString(goodKmerSum));
+		}
+
 		return bb.nl();
 	}
-	
+
+	/** Checks the exact suffix before a file writer is opened; caller owns stable counters. */
+	void checkRawCounters(){
+		checkRawCounter(readQualityByProbSum, "readQualityByProbSum");
+		checkRawCounter(probErrorFreeSum, "probErrorFreeSum");
+		checkRawCounter(baseErrorProbSum, "baseErrorProbSum");
+		checkRawCounter(goodKmerSum, "goodKmerSum");
+	}
+
+	/** Rejects a value that cannot represent a finite accumulated statistic.
+	 * @param value Counter value
+	 * @param name Counter name for the diagnostic */
+	private void checkRawCounter(double value, String name){
+		if(!Double.isFinite(value)){
+			throw new IllegalArgumentException("Nonfinite "+name+"="+value+" in microtile "+this);
+		}
+	}
+
 	/**
 	 * Although this seems like it should work, it did not work
 	 * very well at all in a test of real data.
 	 * @param HG_lane High depth genomic kmer fraction of lane.
 	 * @return E_tile Per-base error rate of this tile.
 	 */
-	public float calcErrorRateFromUniqueness(double HG_lane, int k) {
+	public float calcErrorRateFromUniqueness(double HG_lane, int k){
 		//Unique kmer rate
 		double U_tile=uniquePercent()*0.01;
-		
+
 		//Non-unique kmer rate
 		double NU_tile=1-U_tile;
-		
+
 		//Kmer correctness probablity
 		double P_tile=NU_tile/HG_lane;
 //		assert(P_tile<=1) : HG_lane+", "+U_tile+", "+NU_tile+", "+P_tile;
@@ -673,16 +735,16 @@ public class MicroTile implements Comparable<MicroTile>{
 		double NE_tile=Math.pow(P_tile, 1.0/k);
 		//Per-base error rate
 		double E_tile=1-NE_tile;
-		
+
 		return (float)E_tile;
 	}
-	
+
 	/** Sorts better tiles first */
 	@Override
-	public int compareTo(MicroTile mt) {
+	public int compareTo(MicroTile mt){
 		double ua=uniquePercent();
 		double ub=mt.uniquePercent();
-		if(ua!=ub) {return ua>ub ? 1 : -1;}
+		if(ua!=ub){return ua>ub ? 1 : -1;}
 		double qa=averageReadQualityByProb();
 		double qb=mt.averageReadQualityByProb();
 		//[hiseq/MicroTile#001] FIXED (G11 2026-07-01, Brian-authorized): was `if(ua!=ub)` (re-tested the
@@ -691,11 +753,11 @@ public class MicroTile implements Comparable<MicroTile>{
 		//SECONDARY tiebreaker. Order is intentional: uniqueness (empirical) primary, quality (claimed,
 		//may be uncalibrated) secondary. Live impact: TileDump discard-cap rescue (~L835) now rescues
 		//tied tiles by quality, changing which reads filterbytile.sh keeps on uniquePercent ties.
-		if(qa!=qb) {return qa<qb ? 1 : -1;}
-		if(readCount!=mt.readCount) {return readCount>mt.readCount ? -1 : 1;}
+		if(qa!=qb){return qa<qb ? 1 : -1;}
+		if(readCount!=mt.readCount){return readCount>mt.readCount ? -1 : 1;}
 		return 0;
 	}
-	
+
 	/** Number of k-mers found in reference database */
 	public long hits;
 	/** Number of k-mers not found in reference database */
@@ -724,33 +786,33 @@ public class MicroTile implements Comparable<MicroTile>{
 	public long readDelCount;//Number of reads containing deletions
 	/** Sum of read qualities weighted by error probability */
 	public double readQualityByProbSum;
-	/** Sum of error-free probabilities across all reads */
+	/** Sum of per-read error-free probabilities multiplied by100; add() applies this percentage scale. */
 	public double probErrorFreeSum;
 	/** Sum of expected error probabilities for all bases */
 	public double baseErrorProbSum;
-	
+
 	/** Sum of quality-weighted k-mer scores */
 	public double goodKmerSum;
 	/** Total number of valid k-mers processed */
 	public long validKmerSum;
-	
+
 	/** Base composition counts for A, C, G, T, N */
 	public long[] acgtn=new long[5];
 	/** Number of reads with poly-G runs exceeding threshold */
 	public long homoPolyGCount;
 	/** Total length of poly-G runs across all reads */
 	public long homoPolyGSum;
-	
+
 	/** Counter for discarded reads */
 	public int discard=0;
-	
+
 	/** HiSeq lane number for this tile */
 	public final int lane;
 	/** Tile identifier within the lane */
 	public final int tile;
 	public final int x1, x2;
 	public final int y1, y2;
-	
+
 //	long[] barcodeHDist=new long[4];
 	/** Number of barcodes processed */
 	long barcodes;
@@ -758,7 +820,7 @@ public class MicroTile implements Comparable<MicroTile>{
 	long barcodeHDistSum=0;
 	/** Number of barcodes containing homopolymer runs */
 	long barcodePolymers=0;
-	
+
 	/** Number of successfully merged paired reads */
 	long mergedReads=0;
 	/** Sum of insert sizes for merged reads */
@@ -767,7 +829,7 @@ public class MicroTile implements Comparable<MicroTile>{
 	long overlapSum=0;
 	/** Sum of errors detected during read merging */
 	long mergeErrorSum=0;
-	
+
 	/** Cycle-by-cycle quality tracking, null if tracking disabled */
 	public final CycleTracker tracker=TRACK_CYCLES ? new CycleTracker() : null;
 
@@ -777,5 +839,5 @@ public class MicroTile implements Comparable<MicroTile>{
 	public static boolean TRACK_CYCLES=false;
 	/** Whether to use abbreviated column headers in output */
 	public static boolean shortHeader=true;
-	
+
 }
