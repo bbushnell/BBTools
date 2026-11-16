@@ -4244,30 +4244,54 @@ public final class Tools{
 		return (x>0 ? new String(array) : in);
 	}
 		
-	/**
-	 * Creates histogram from atomic long array data.
-	 * @param data Atomic long array source data
-	 * @param buckets Number of histogram buckets
-	 * @return Histogram showing data distribution
+	/** Samples a count distribution at evenly spaced interior quantiles.
+	 * Slot i selects the first observed value reaching the 1-based rank
+	 * ceil(total*(2*i+1)/(2*(buckets+1))). Integer decomposition keeps these ranks
+	 * exact above double's precision limit. The source must not change during this
+	 * two-pass operation; atomic elements do not provide a snapshot.
+	 * @param data Nonnegative observation counts indexed by observed value
+	 * @param buckets One less than the output length; nonnegative and below Integer.MAX_VALUE
+	 * @return Observed value indices, or a zero-filled array when there are no observations
+	 * @throws IllegalArgumentException If the bucket count or an observation count is invalid
+	 * @throws ArithmeticException If the total observation count exceeds long range
 	 */
 	public static int[] makeHistogram(AtomicLongArray data, int buckets){
-		long total=sum(data);
-		long increment=total/(buckets+1);
-		
-		int[] hist=new int[buckets+1];
-		
+		if(buckets<0 || buckets==Integer.MAX_VALUE){
+			throw new IllegalArgumentException("Invalid histogram bucket count: "+buckets);
+		}
+		long total=0;
+		for(int i=0; i<data.length(); i++){
+			final long count=data.get(i);
+			if(count<0){throw new IllegalArgumentException("Negative histogram count at "+i+": "+count);}
+			total=Math.addExact(total, count);
+		}
+		final int[] hist=new int[buckets+1];
+		if(total==0){return hist;}
 		long sum=0;
-		long target=increment/2;
 		int ptr=0;
 		for(int i=0; i<hist.length; i++){
+			final long target=histogramRank(total, hist.length, i);
 			while(ptr<data.length() && sum<target){
-				sum+=data.get(ptr);
+				sum=Math.addExact(sum, data.get(ptr));
 				ptr++;
 			}
-			hist[i]=ptr;
-			target+=increment;
+			if(sum<target){throw new IllegalStateException("Histogram counts changed while selecting rank "+target);}
+			hist[i]=ptr-1;
 		}
 		return hist;
+	}
+
+	/** Computes an interior midpoint rank without multiplying total by the slot index.
+	 * The rounded fractional numerator is at most 2*slots^2, which fits a long
+	 * for every positive int slot count. The complete rank is at most total.
+	 */
+	private static long histogramRank(final long total, final int slots, final int index){
+		assert(total>0 && slots>0 && index>=0 && index<slots) :
+			"Histogram midpoint ranks require positive counts and a valid output slot: "+total+", "+slots+", "+index;
+		final long whole=total/slots, remainder=total%slots;
+		final long denominator=2L*slots;
+		final long fractional=(whole&1L)*slots+(2L*index+1)*remainder;
+		return whole*index+whole/2+(fractional+denominator-1)/denominator;
 	}
 	
 	/** TODO:  This (temporarily) uses a lot of memory.  Could be reduced by making an array of length max(x) and counting occurrences. */

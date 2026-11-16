@@ -32,16 +32,17 @@ import template.Accumulator;
 import template.ThreadWaiter;
 import tracker.ReadStats;
 import var2.SamFilter;
+import var2.ScafMap;
 
 /**
  * Scaffolds contigs based on paired read mapping data from SAM/BAM files.
  * Creates scaffolds by joining contigs using insert size information from properly paired reads.
- * Builds edge maps between contigs and determines optimal joining order and orientation.
+ * Builds edge maps and selects joins and orientations using local support heuristics.
  *
  * @author Brian Bushnell
  * @date September 11, 2019
  */
-public class Lilypad implements Accumulator<Lilypad.ProcessThread> {
+public class Lilypad implements Accumulator<Lilypad.ProcessThread>{
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
@@ -265,12 +266,12 @@ public class Lilypad implements Accumulator<Lilypad.ProcessThread> {
 		final boolean vic=Read.VALIDATE_IN_CONSTRUCTOR;
 		Read.VALIDATE_IN_CONSTRUCTOR=Shared.threads()<4;
 		
-		//Create a read input stream
-		final Streamer ss=makeStreamer(ffin);
-		
 		//Load reference
 		loadReferenceCustom();
 		
+		//Create a read input stream
+		final Streamer ss=makeStreamer(ffin);
+
 		//Reset counters
 		readsProcessed=readsOut=0;
 		basesProcessed=basesOut=0;
@@ -317,22 +318,30 @@ public class Lilypad implements Accumulator<Lilypad.ProcessThread> {
 	private synchronized void loadReferenceCustom(){
 		assert(!loadedRef);
 		ConcurrentReadInputStream cris=makeRefCris();
-		for(ListNum<Read> ln=cris.nextList(); ln!=null && ln.size()>0; ln=cris.nextList()) {
+		final ScafMap scafMap=new ScafMap();
+		for(ListNum<Read> ln=cris.nextList(); ln!=null; ln=cris.nextList()){
+			if(ln.size()<1){
+				cris.returnList(ln);
+				break;
+			}
 			for(Read r : ln){
 				String name=r.id;
 				String name2=Tools.trimToWhitespace(r.id);
 				Contig cont=new Contig(name, r.bases, r.numericID);
 				refMap.put(name, cont);
 				refMap2.put(name2, cont);
+				scafMap.addScaffold(r);
 			}
 			cris.returnList(ln);
 		}
-		ReadWrite.closeStream(cris);
+		errorState|=ReadWrite.closeStream(cris);
+		if(scafMap.size()>0){ScafMap.setDefaultScafMap(scafMap, ffref.name());}
 		loadedRef=true;
 	}
 	
 	private ConcurrentReadInputStream makeRefCris(){
-		ConcurrentReadInputStream cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ffref, null);
+		//The reads= quota limits alignments, not the reference records they can name.
+		ConcurrentReadInputStream cris=ConcurrentReadInputStream.getReadInputStream(-1, true, ffref, null);
 		cris.start(); //Start the stream
 		if(verbose){outstream.println("Started cris");}
 		boolean paired=cris.paired();
@@ -396,7 +405,7 @@ public class Lilypad implements Accumulator<Lilypad.ProcessThread> {
 		errorState|=!success;
 		
 		//Do anything necessary after processing
-		totalAverageInsert=totalInsertSum/(double)totalInsertCount;
+		totalAverageInsert=(totalInsertCount<1 ? 0 : totalInsertSum/(double)totalInsertCount);
 		insertByPercentile=Tools.makeHistogram(insertCounts, buckets);
 	}
 	
@@ -458,7 +467,7 @@ public class Lilypad implements Accumulator<Lilypad.ProcessThread> {
 		}
 	}
 	
-	private static int calcInsertSize(SamLine sl) {
+	private static int calcInsertSize(SamLine sl){
 		assert(sl.mapped() && sl.pairedOnSameChrom());
 		assert(sl.nonSecondary());
 		assert(!sl.supplementary());
@@ -501,9 +510,8 @@ public class Lilypad implements Accumulator<Lilypad.ProcessThread> {
 	
 	/** Worker thread that processes SAM/BAM reads and builds inter-contig connections.
 	 * Tracks coverage statistics and identifies scaffold junction points from paired reads. */
-	class ProcessThread extends Thread {
+	class ProcessThread extends Thread{
 		
-		//Constructor
 		/**
 		 * Creates processing thread with input stream and thread identifier.
 		 * @param ss_ SamStreamer for reading input data
@@ -614,7 +622,7 @@ public class Lilypad implements Accumulator<Lilypad.ProcessThread> {
 	
 	Contig findLeftmost(Contig source){
 		if(verbose){System.err.println("findLeftmost("+source.name+")");}
-		while(true) {
+		while(true){
 			assert(!source.processed());
 			if(source.processed()){return null;}
 			source.processedLeft=true;
@@ -657,7 +665,7 @@ public class Lilypad implements Accumulator<Lilypad.ProcessThread> {
 		if(verbose){System.err.println("expandRight("+source0.name+")");}
 		bb.clear();
 		Contig source=source0;
-		while(true) {
+		while(true){
 			assert(!source.processedRight);
 			if(source.processedRight){return null;}
 			if(source.strand==1){
@@ -717,7 +725,7 @@ public class Lilypad implements Accumulator<Lilypad.ProcessThread> {
 	
 	/*--------------------------------------------------------------*/
 	
-	private class Contig {
+	private class Contig{
 		
 		Contig(String name_, byte[] bases_, long numericID_){
 			name=name_;
@@ -726,13 +734,13 @@ public class Lilypad implements Accumulator<Lilypad.ProcessThread> {
 			depthArray=new AtomicIntegerArray(bases.length);
 		}
 		
-		public Read makeScaffold(ByteBuilder bb) {
+		public Read makeScaffold(ByteBuilder bb){
 			assert(!processed());
 			Contig leftmost=findLeftmost(this);
 			return expandRight(leftmost, bb);
 		}
 		
-		Edge bestEdge(boolean left) {
+		Edge bestEdge(boolean left){
 			final LinkedHashMap<String, Edge> map=(left ? leftEdgeMap : rightEdgeMap);
 			if(map.isEmpty()){return null;}
 			long weightSum=0;
@@ -799,7 +807,7 @@ public class Lilypad implements Accumulator<Lilypad.ProcessThread> {
 		 * Determines edge direction based on read strand and creates Edge objects.
 		 * @param sl SAM line with mate mapped to different chromosome/contig
 		 */
-		private void handleMixedPair(SamLine sl){
+		private synchronized void handleMixedPair(SamLine sl){
 			assert(sl.mapped() && sl.nextMapped() && !sl.pairedOnSameChrom());
 			String rname=sl.rnameS();
 			String rnext=sl.rnextS();
@@ -883,7 +891,7 @@ public class Lilypad implements Accumulator<Lilypad.ProcessThread> {
 //			assert(false) : weight;
 		}
 		
-		public float strandRatio() {
+		public float strandRatio(){
 			return Tools.max(sameStrandCount, difStrandCount)/(float)(sameStrandCount+difStrandCount);
 		}
 		
@@ -989,7 +997,7 @@ public class Lilypad implements Accumulator<Lilypad.ProcessThread> {
 	private final FileFormat ffout;
 	
 	@Override
-	public final ReadWriteLock rwlock() {return rwlock;}
+	public final ReadWriteLock rwlock(){return rwlock;}
 	private final ReadWriteLock rwlock=new ReentrantReadWriteLock();
 	
 	/*--------------------------------------------------------------*/

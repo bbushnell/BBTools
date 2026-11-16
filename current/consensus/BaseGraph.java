@@ -12,24 +12,27 @@ import shared.KillSwitch;
 import shared.Tools;
 import shared.TrimRead;
 import simd.Vector;
-import stream.FASTQ;
 import stream.Read;
 import structures.ByteBuilder;
 import structures.IntList;
 
 /**
- * A graph of the possible alignments of a reference sequence.
+ * Accumulates aligned nucleotide observations against a reference backbone and
+ * produces consensus sequences or model scores. Each reference position owns
+ * reference/deletion nodes and may lead to an insertion chain. The reference
+ * contributes one initial observation; deletion nodes have no pseudocount.
+ * Concurrent add calls synchronize node updates and totals. Finish accumulation
+ * before scoring, probability initialization, traversal or serialization.
+ * Consensus policies are shared static state inherited from ConsensusObject.
  * 
  * @author Brian Bushnell
  * @date September 6, 2019
  *
  */
-public class BaseGraph extends ConsensusObject implements Serializable {
+public class BaseGraph extends ConsensusObject implements Serializable{
 	
-	/**
-	 * 
-	 */
-	private static final long serialVersionUID = 3000198119165515066L;
+	/** Retains compatibility with serialized graph models. */
+	private static final long serialVersionUID=3000198119165515066L;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
@@ -70,8 +73,8 @@ public class BaseGraph extends ConsensusObject implements Serializable {
 	
 	/**
 	 * Creates weight array from quality scores for reference positions.
-	 * Padding positions get zero weight, quality positions get scaled weights
-	 * from 0.6 to 1.0 based on quality score.
+	 * Padding positions get zero weight. Other positions default to one, or use
+	 * 0.6+0.4*max(0,Q-2)/39 when qualities are supplied; values above Q41 are not capped.
 	 *
 	 * @param quals Quality score array (may be null)
 	 * @return Weight array with same length as padded sequence
@@ -102,7 +105,7 @@ public class BaseGraph extends ConsensusObject implements Serializable {
 	 * @param in Input sequence to pad
 	 * @param pad Number of bases to add at each end
 	 * @param symbol Padding base character
-	 * @return Padded sequence array
+	 * @return A new padded array, or the borrowed input when padding is zero
 	 */
 	private static byte[] pad(byte[] in, int pad, byte symbol){
 		if(pad<1){return in;}
@@ -114,12 +117,18 @@ public class BaseGraph extends ConsensusObject implements Serializable {
 		return out;
 	}
 	
-	/** This method should be threadsafe */
+	/** Adds an aligned read without query-border exclusions. Finish all writers before reading the graph. */
 	public void add(Read r){
 		add(r, 0, 0);
 	}
 	
-	/** This method should be threadsafe */
+	/** Accumulates an aligned read using query-border limits.
+	 * Expands its match string in place; bases and qualities remain borrowed.
+	 * Reference/deletion updates and insertion-chain creation are synchronized.
+	 * @param r Reference-oriented read with bases, match string and start coordinate
+	 * @param leftBorder Left query-border limit
+	 * @param rightBorder Right query-border limit
+	 */
 	public void add(Read r, int leftBorder, int rightBorder){
 		final int maxQpos=r.length()-rightBorder;
 		r.toLongMatchString(false);
@@ -166,7 +175,7 @@ public class BaseGraph extends ConsensusObject implements Serializable {
 				delSum++;
 			}else if(m=='I'){
 				assert(prevNode!=null) : new String(r.match+"\n"+r.samline); //Alignments must not start with I.
-				synchronized(prevNode) {
+				synchronized(prevNode){
 					if(prevNode.insEdge==null){
 						prevNode.insEdge=new BaseNode('.', INS, rpos);
 					}
@@ -234,12 +243,15 @@ public class BaseGraph extends ConsensusObject implements Serializable {
 		return (quals[Math.max(0, next-1)]+quals[next])/2;
 	}
 	
-	/** 
-	 * Generates a score indicating how well the alignment matches the model.
-	 * Scores range from 1 to -1 times the alignment length; a random sequence
-	 * might be around 0.  Less-conserved models result in lower scores,
-	 * even for optimally-matching alignments. 
-	 * A relative score divides by the alignment length. */
+	/** Scores an alignment with the legacy indel normalization bounds.
+	 * Probability caches must be initialized after accumulation. This variant is
+	 * retained separately because its indel bounds differ from score().
+	 * @param r Reference-oriented read; its short match string may be expanded
+	 * @param local Use the best positive running segment instead of the complete sum
+	 * @param relative Normalize by the accumulated best-to-worst score range
+	 * @return Raw model score, or (score-minimum)/(maximum-minimum)
+	 * @throws ArithmeticException If relative normalization has no finite range or result
+	 */
 	public float scoreOld(Read r, boolean local, boolean relative){
 		float sum=0;
 		float minSum=0;
@@ -405,16 +417,19 @@ public class BaseGraph extends ConsensusObject implements Serializable {
 			float a=local ? peak : sum;
 			float b=local ? minPeak : minSum;
 			float c=local ? maxPeak : maxSum;
-			return relative ? (a-b)/(c-b) : a; //This changes to a 0-1 scale of worst to best possible alignment
+			return relative ? normalizedScore(a, b, c) : a;
 		}
 	}
 	
-	/** 
-	 * Generates a score indicating how well the alignment matches the model.
-	 * Scores range from 1 to -1 times the alignment length; a random sequence
-	 * might be around 0.  Less-conserved models result in lower scores,
-	 * even for optimally-matching alignments. 
-	 * A relative score divides by the alignment length. */
+	/** Scores an alignment using allele probabilities and reference/deletion support.
+	 * Probability caches must be initialized after accumulation. Scoring expands
+	 * short matches; verbose diagnostics also update node-edge annotations.
+	 * @param r Reference-oriented read with alignment coordinates and match symbols
+	 * @param local Use the best positive running segment instead of the complete sum
+	 * @param relative Normalize by the accumulated best-to-worst score range
+	 * @return Raw model score, or (score-minimum)/(maximum-minimum)
+	 * @throws ArithmeticException If relative normalization has no finite range or result
+	 */
 	public float score(Read r, boolean local, boolean relative){
 		float sum=0;
 		float minSum=0;
@@ -588,8 +603,23 @@ public class BaseGraph extends ConsensusObject implements Serializable {
 			float a=local ? peak : sum;
 			float b=local ? minPeak : minSum;
 			float c=local ? maxPeak : maxSum;
-			return relative ? (a-b)/(c-b) : a; //This changes to a 0-1 scale of worst to best possible alignment
+			return relative ? normalizedScore(a, b, c) : a;
 		}
+	}
+
+	/** Rejects undefined normalization instead of leaking NaN into caller comparisons. */
+	private float normalizedScore(final float score, final float minimum, final float maximum){
+		final float range=maximum-minimum;
+		if(range==0 || !Float.isFinite(range)){
+			throw new ArithmeticException("No finite score range for consensus model "+name+
+				": minimum="+minimum+", maximum="+maximum);
+		}
+		final float result=(score-minimum)/range;
+		if(!Float.isFinite(result)){
+			throw new ArithmeticException("Non-finite normalized score for consensus model "+name+
+				": score="+score+", minimum="+minimum+", maximum="+maximum);
+		}
+		return result;
 	}
 	
 	/** Count of alignments over this reference position. */
@@ -602,13 +632,12 @@ public class BaseGraph extends ConsensusObject implements Serializable {
 		return sum;
 	}
 	
+	/** Renders each reference node once using its current edge summaries. */
 	@Override
-	public ByteBuilder toText() {
-		System.err.println("...");
+	public ByteBuilder toText(){
 		ByteBuilder bb=new ByteBuilder();
 		bb.append(name).append(':');
 		bb.append('{');
-		if(ref.length>0){bb.append(ref[0].toText());}
 		for(int i=0; i<ref.length; i++){
 			if(i>0){bb.comma();}
 			bb.append(ref[i].toText());
@@ -624,7 +653,7 @@ public class BaseGraph extends ConsensusObject implements Serializable {
 	 */
 	int maxDepth(){
 		int maxDepth=0;
-		for(int i=0; i<ref.length; i++) {
+		for(int i=0; i<ref.length; i++){
 			final BaseNode dnode=del[i];
 			final BaseNode rnode=ref[i];
 			final int dc=dnode.countSum;
@@ -639,13 +668,14 @@ public class BaseGraph extends ConsensusObject implements Serializable {
 	 * Traverses graph to generate consensus sequence with quality scores.
 	 * Selects consensus bases based on weight ratios and allele frequencies,
 	 * handles insertions and deletions according to frequency thresholds.
-	 * Optionally trims low-depth regions from consensus ends.
+	 * Enabling either trim mode retains the legacy minimum depth of one; uppercase
+	 * N removal is additionally controlled by trimNs. Resets and fills
+	 * refCount/subCount/insCount/delCount before optional terminal trimming; those
+	 * counters describe the untrimmed traversal. Run only after accumulation finishes.
 	 *
 	 * @return Read object containing consensus sequence and quality scores
 	 */
-	public Read traverse() {
-		//TODO: Note, this mutates the object due to refCount, subCount, insCount, delCount
-		//Maybe they should be cleared first, or just removed if not needed.
+	public Read traverse(){
 		final ByteBuilder bb=new ByteBuilder();
 		final ByteBuilder bq=new ByteBuilder();
 		final IntList depthList=new IntList();
@@ -659,7 +689,7 @@ public class BaseGraph extends ConsensusObject implements Serializable {
 		
 //		System.err.println("rpos\tdw\trw\tiw");
 		final byte[] temp=KillSwitch.allocByte1D(2);
-		for(int i=0; i<ref.length; i++) {
+		for(int i=0; i<ref.length; i++){
 			
 			final BaseNode dnode=del[i];
 			final BaseNode rnode=ref[i];
@@ -676,7 +706,7 @@ public class BaseGraph extends ConsensusObject implements Serializable {
 			final float afMult=1f/(dc+rc);
 			final float daf=dc*afMult;
 			
-			long weightSum=dw+rw;
+			long weightSum=(long)dw+rw;
 			
 			
 //			System.err.println(i+"\t"+dw+"\t"+rw+"\t"+iw);
@@ -684,9 +714,8 @@ public class BaseGraph extends ConsensusObject implements Serializable {
 			//Deletion nodes have no reference pseudocount: dc counts supporting observations.
 			if(rw>=dw || daf<MAF_del || dc<minDepth || noIndels){//Common case
 				{
-					rnode.consensus(temp);
+					if(qualityByMS){rnode.consensusBase(temp);}else{rnode.consensus(temp);}
 					byte b=temp[0];
-					byte q=temp[1];
 					bb.append(b);
 					depthList.add(depth);
 //					System.err.println(i+": "+Character.toString(b));
@@ -697,8 +726,9 @@ public class BaseGraph extends ConsensusObject implements Serializable {
 						bq.append(quality);
 //						System.err.println("quality="+quality+" for "+Arrays.toString(rnode.acgtCount));
 					}else{
+						byte q=temp[1];
 						double quality=Tools.mid(2, 41, 10*Math.log10(rw/Tools.max(0.01f, weightSum-rw)));
-						bq.append((byte)(Tools.min(q, quality)+FASTQ.ASCII_OFFSET));
+						bq.append((byte)Tools.min(q, quality));
 					}
 					if(b==rnode.refBase){
 						refCount++;
@@ -709,9 +739,8 @@ public class BaseGraph extends ConsensusObject implements Serializable {
 				
 				//Then add inodes
 				while(inode!=null && !noIndels && inode.weightSum>=(weightSum-inode.weightSum) && inode.countSum*afMult>=MAF_ins){
-					inode.consensus(temp);
+					if(qualityByMS){inode.consensusBase(temp);}else{inode.consensus(temp);}
 					byte b=temp[0];
-					byte q=temp[1];
 					final int allele=AminoAcid.baseToNumber[b];
 					assert(allele>=0) : "BaseNode.consensus must select an A/C/G/T insertion before indexing allele support: "+b;
 					//Do not pool different inserted bases to satisfy the minimum allele depth.
@@ -724,8 +753,9 @@ public class BaseGraph extends ConsensusObject implements Serializable {
 						byte quality=(byte)Tools.mid(2, 41, Math.round(39*inode.alleleDif()));
 						bq.append(quality);
 					}else{
-						double quality=Tools.mid(2, 41, 10*Math.log10(inode.weightSum/(rw+dw)));
-						bq.append((byte)(Tools.min(q, quality)+FASTQ.ASCII_OFFSET));
+						byte q=temp[1];
+						double quality=Tools.mid(2, 41, 10*Math.log10(inode.weightSum/(double)weightSum));
+						bq.append((byte)Tools.min(q, quality));
 					}
 					insCount++;
 					inode=inode.insEdge;
@@ -741,8 +771,9 @@ public class BaseGraph extends ConsensusObject implements Serializable {
 		if(trimDepthFraction>0 || trimNs){
 			final int trimDepth=Tools.max(1, (int)(trimDepthFraction*maxDepth));
 			int left=0, right=0;
-			while(left<depthList.size && (depthList.get(left)<trimDepth || r.bases[left]=='N')){left++;}
-			while(right<depthList.size && (depthList.get(depthList.size-right-1)<trimDepth || r.bases[depthList.size-right-1]=='N')){right++;}
+			while(left<depthList.size && (depthList.get(left)<trimDepth || (trimNs && r.bases[left]=='N'))){left++;}
+			while(right<depthList.size && (depthList.get(depthList.size-right-1)<trimDepth ||
+				(trimNs && r.bases[depthList.size-right-1]=='N'))){right++;}
 			if(left>0 || right>0){
 				TrimRead.trimByAmount(r, left, right, 1);
 			}
@@ -757,13 +788,13 @@ public class BaseGraph extends ConsensusObject implements Serializable {
 	 * Higher diversity positions get lower weights for alignment scoring.
 	 * Updates refWeights array for use in alignment algorithms.
 	 */
-	public void makeWeights() {
+	public void makeWeights(){
 		
 		refWeights=new float[ref.length];
 //		insWeights=new float[ref.length];
 //		delWeights=new float[ref.length];
 		
-		for(int i=0; i<ref.length; i++) {
+		for(int i=0; i<ref.length; i++){
 			
 			final BaseNode dnode=del[i];
 			final BaseNode rnode=ref[i];
@@ -813,12 +844,23 @@ public class BaseGraph extends ConsensusObject implements Serializable {
 		return ar==null ? -1 : ar==ar0 ? 0 : 1;
 	}
 	
-	/** Generates match string and returns identity */
+	/** Generates an alignment without orientation search and returns its identity.
+	 * Uses GeneCaller's aligner when ssa is null; the caller owns the read and aligner.
+	 */
 	public float alignAndGenerateMatch(Read r, Aligner ssa){
 		return alignAndGenerateMatch(r, ssa, false, -1);
 	}
 	
-	/** Generates match string and returns identity */
+	/** Aligns a read to the complete padded reference and installs its match/coordinates.
+	 * An accepted reverse orientation reverse-complements the read and toggles its
+	 * strand. If no alignment is produced, returns zero without promising to clear
+	 * previous alignment fields. A null aligner selects GeneCaller's default.
+	 * @param r Mutable read owned by this caller
+	 * @param ssa Aligner exclusively used by this caller, or null
+	 * @param findOrientation Test both read orientations before alignment
+	 * @param minRatio Minimum orientation-screen ratio when that screen is enabled
+	 * @return Identity of the generated match, or zero when no match is produced
+	 */
 	public float alignAndGenerateMatch(Read r, Aligner ssa, boolean findOrientation, float minRatio){
 		if(findOrientation){
 			int orientation=findBestOrientation(r, minRatio);
@@ -850,7 +892,8 @@ public class BaseGraph extends ConsensusObject implements Serializable {
 	/**
 	 * Calculates probability scores for all nodes in the graph.
 	 * Processes reference nodes and their insertion chains to update
-	 * base probability distributions.
+	 * base probability distributions. Call once after all counts are populated;
+	 * existing caches are rejected by BaseNode assertions rather than refreshed.
 	 */
 	void calcProbs(){
 		for(BaseNode n : ref){
@@ -876,9 +919,9 @@ public class BaseGraph extends ConsensusObject implements Serializable {
 
 	/** Total number of reads added to this graph */
 	public long readTotal;
-	/** Total number of bases processed from all reads */
+	/** Total supplied query bases, including any excluded borders or overhangs. */
 	public long baseTotal;
-	/** Total number of CIGAR symbols processed */
+	/** Total supplied expanded match symbols, including any unvisited terminal overhang. */
 	public long symbolTotal;
 	/** Total number of match/substitution operations */
 	public long msTotal;
@@ -886,7 +929,7 @@ public class BaseGraph extends ConsensusObject implements Serializable {
 	public long insTotal;
 	/** Total number of deletion operations */
 	public long delTotal;
-	/** Sum of all quality scores processed */
+	/** Sum of visited match/substitution/insertion qualities; excludes clips and deletions. */
 	public long qualTotal;
 	
 	

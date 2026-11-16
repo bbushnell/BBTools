@@ -14,7 +14,7 @@ import structures.ByteBuilder;
 
 /** Tests standalone publication, input preservation and fail-closed orchestration.
  * @author Brian Bushnell, Fischl */
-public final class TipPolishTest {
+public final class TipPolishTest{
 
 	/** Runs real child launchers; the test directory is retained for inspection. */
 	public static void main(final String[] args) throws Exception{

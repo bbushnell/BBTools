@@ -29,7 +29,6 @@ minwr=0.8       (minWeightRatio) Minimum fraction of outgoing edges
 minsr=0.8       (minStrandRatio) Minimum fraction of outgoing edges
                 indicating the same orientation.  Lower values will increase
                 continuity at a possible risk of inversions.
-passes=8        More passes may increase continuity.
 samestrandpairs=f  Read pairs map to the same strand.  Currently untested.
 
 Java Parameters:

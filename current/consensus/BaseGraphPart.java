@@ -4,17 +4,17 @@ import java.io.Serializable;
 
 /**
  * Abstract base class for graph elements in consensus sequence generation.
- * Serves as parent class for BaseEdge and BaseNode, providing fundamental
- * type classification and serialization support for graph-based consensus algorithms.
+ * Supplies BaseNode's immutable type and serialization support. Mutable node
+ * state and synchronization belong to subclasses and their graph owners.
  * Supports three discrete element types: Reference (REF), Insertion (INS), and Deletion (DEL).
  *
  * @author Brian Bushnell
  * @date September 6, 2019
  */
-public abstract class BaseGraphPart extends ConsensusObject implements Serializable {
+public abstract class BaseGraphPart extends ConsensusObject implements Serializable{
 	
 	/** Serialization version identifier for class compatibility */
-	private static final long serialVersionUID = 3854022870880887972L;
+	private static final long serialVersionUID=3854022870880887972L;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/

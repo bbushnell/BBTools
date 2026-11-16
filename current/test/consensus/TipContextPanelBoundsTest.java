@@ -15,7 +15,7 @@ import structures.ByteBuilder;
 
 /** Tests native panel discovery bounds without changing evidence acceptance.
  * @author Fischl */
-public final class TipContextPanelBoundsTest {
+public final class TipContextPanelBoundsTest{
 
 	/** Exercises short-overlap boundaries through the public CLI on both strands. */
 	public static void main(final String[] args) throws Exception{

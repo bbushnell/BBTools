@@ -31,7 +31,7 @@ import structures.ListNum;
  * supplied to context discovery, construction, merging, or the polishing guard.
  * @author Fischl
  */
-public final class TipContextPanel {
+public final class TipContextPanel{
 
 	/** Uses native argument expansion and keeps diagnostics separate from artifacts. */
 	public static void main(final String[] args){
@@ -327,7 +327,7 @@ public final class TipContextPanel {
 	}
 
 	/** Tracks physical multiplicity separately from the first donor's identity. */
-	private static final class Match {
+	private static final class Match{
 		final TipContextGuard.CandidateSet set=new TipContextGuard.CandidateSet();
 		String donor;
 	}
@@ -337,7 +337,7 @@ public final class TipContextPanel {
 	 * one interior mismatch is allowed. The index only removes impossible pairs;
 	 * that unchanged method still verifies every candidate's complete overlap.
 	 */
-	private static final class PrefixIndex {
+	private static final class PrefixIndex{
 
 		/** Stores two primitive linked entries per donor; reverse sequences are lazy. */
 		PrefixIndex(final LinkedHashMap<String, Read> assembly){

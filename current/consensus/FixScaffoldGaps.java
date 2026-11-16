@@ -10,6 +10,7 @@ import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import fileIO.ByteFile;
+import fileIO.ByteStreamWriter;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
 import parse.Parse;
@@ -31,6 +32,7 @@ import template.Accumulator;
 import template.ThreadWaiter;
 import tracker.ReadStats;
 import var2.SamFilter;
+import var2.ScafMap;
 
 /**
  * Resizes scaffold gaps to represent the best estimate 
@@ -40,7 +42,7 @@ import var2.SamFilter;
  * @date September 11, 2019
  *
  */
-public class FixScaffoldGaps implements Accumulator<FixScaffoldGaps.ProcessThread> {
+public class FixScaffoldGaps implements Accumulator<FixScaffoldGaps.ProcessThread>{
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
@@ -201,9 +203,9 @@ public class FixScaffoldGaps implements Accumulator<FixScaffoldGaps.ProcessThrea
 		if(ref==null){throw new RuntimeException("Error - a reference file is required.");}
 		
 		//Ensure output files can be written
-		if(!Tools.testOutputFiles(overwrite, append, false, out)){
+		if(!Tools.testOutputFiles(overwrite, append, false, out, insertList)){
 			outstream.println((out==null)+", "+out);
-			throw new RuntimeException("\n\noverwrite="+overwrite+"; Can't write to output file "+out+"\n");
+			throw new RuntimeException("\n\noverwrite="+overwrite+"; Can't write to output file "+out+" or "+insertList+"\n");
 		}
 		
 		//Ensure input files can be read
@@ -212,7 +214,7 @@ public class FixScaffoldGaps implements Accumulator<FixScaffoldGaps.ProcessThrea
 		}
 		
 		//Ensure that no file was specified multiple times
-		if(!Tools.testForDuplicateFiles(true, in, ref, out)){
+		if(!Tools.testForDuplicateFiles(true, in, ref, out, insertList)){
 			throw new RuntimeException("\nSome file names were specified multiple times.\n");
 		}
 	}
@@ -244,12 +246,12 @@ public class FixScaffoldGaps implements Accumulator<FixScaffoldGaps.ProcessThrea
 		final boolean vic=Read.VALIDATE_IN_CONSTRUCTOR;
 		Read.VALIDATE_IN_CONSTRUCTOR=Shared.threads()<4;
 		
-		//Create a read input stream
-		final Streamer ss=makeStreamer(ffin);
-		
 		//Load reference
 		loadReferenceCustom();
 		
+		//Create a read input stream
+		final Streamer ss=makeStreamer(ffin);
+
 		//Reset counters
 		readsProcessed=readsOut=0;
 		basesProcessed=basesOut=0;
@@ -300,22 +302,32 @@ public class FixScaffoldGaps implements Accumulator<FixScaffoldGaps.ProcessThrea
 	private synchronized void loadReferenceCustom(){
 		assert(!loadedRef);
 		ConcurrentReadInputStream cris=makeRefCris();
-		for(ListNum<Read> ln=cris.nextList(); ln!=null && ln.size()>0; ln=cris.nextList()) {
+		final ScafMap scafMap=new ScafMap();
+		for(ListNum<Read> ln=cris.nextList(); ln!=null; ln=cris.nextList()){
+			if(ln.size()<1){
+				cris.returnList(ln);
+				break;
+			}
 			for(Read r : ln){
 				String name=r.id;
 				String name2=Tools.trimToWhitespace(r.id);
 				Scaffold scaf=new Scaffold(name, r.bases, r.numericID);
 				refMap.put(name, scaf);
 				refMap2.put(name2, scaf);
+				scafMap.addScaffold(r);
 			}
+			cris.returnList(ln);
 		}
+		errorState|=ReadWrite.closeStream(cris);
+		if(scafMap.size()>0){ScafMap.setDefaultScafMap(scafMap, ffref.name());}
 		loadedRef=true;
 	}
 	
 	/** Creates input stream for reading reference sequences.
 	 * @return Configured ConcurrentReadInputStream for reference file */
 	private ConcurrentReadInputStream makeRefCris(){
-		ConcurrentReadInputStream cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ffref, null);
+		//The reads= quota limits alignments, not the reference records they can name.
+		ConcurrentReadInputStream cris=ConcurrentReadInputStream.getReadInputStream(-1, true, ffref, null);
 		cris.start(); //Start the stream
 		if(verbose){outstream.println("Started cris");}
 		boolean paired=cris.paired();
@@ -372,7 +384,7 @@ public class FixScaffoldGaps implements Accumulator<FixScaffoldGaps.ProcessThrea
 		errorState|=!success;
 		
 		//Do anything necessary after processing
-		totalAverageInsert=totalInsertSum/(double)totalInsertCount;
+		totalAverageInsert=(totalInsertCount<1 ? 0 : totalInsertSum/(double)totalInsertCount);
 		insertByPercentile=Tools.makeHistogram(insertCounts, buckets);
 	}
 	
@@ -403,13 +415,14 @@ public class FixScaffoldGaps implements Accumulator<FixScaffoldGaps.ProcessThrea
 	 */
 	private void fixScaffolds(ConcurrentReadOutputStream ros){
 		ByteBuilder bb=new ByteBuilder(1000000);
+		ByteStreamWriter insertWriter=makeInsertWriter();
 
 		ArrayList<Read> list=new ArrayList<Read>(200);
 		long num=0;
 		long lengthSum=0;
 		for(Entry<String, Scaffold> e : refMap.entrySet()){
 			Scaffold scaf=e.getValue();
-			Read r=scaf.fixScaffold(bb);
+			Read r=scaf.fixScaffold(bb, insertWriter);
 			lengthSum+=r.length();
 			list.add(r);
 			scaffoldsOut++;
@@ -425,6 +438,15 @@ public class FixScaffoldGaps implements Accumulator<FixScaffoldGaps.ProcessThrea
 		if(list.size()>0){
 			if(ros!=null){ros.add(list, num);}
 		}
+		if(insertWriter!=null){errorState|=insertWriter.poisonAndWait();}
+	}
+
+	/** Opens the optional bounded insert-list writer. */
+	private ByteStreamWriter makeInsertWriter(){
+		if(insertList==null){return null;}
+		ByteStreamWriter bsw=new ByteStreamWriter(insertList, overwrite, append, false);
+		bsw.start();
+		return bsw;
 	}
 	
 	/**
@@ -432,7 +454,7 @@ public class FixScaffoldGaps implements Accumulator<FixScaffoldGaps.ProcessThrea
 	 * @param sl SAM line representing a paired read alignment
 	 * @return Absolute insert size
 	 */
-	private static int calcInsertSize(SamLine sl) {
+	private static int calcInsertSize(SamLine sl){
 		assert(sl.mapped() && sl.pairedOnSameChrom());
 		assert(sl.nonSecondary());
 		assert(!sl.supplementary());
@@ -466,11 +488,13 @@ public class FixScaffoldGaps implements Accumulator<FixScaffoldGaps.ProcessThrea
 	/*----------------         Inner Classes        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** This class is static to prevent accidental writing to shared variables.
-	 * It is safe to remove the static modifier. */
-	class ProcessThread extends Thread {
+	/** Processes one share of SAM/BAM input. */
+	class ProcessThread extends Thread{
 		
-		//Constructor
+		/** Constructs a worker for shared SAM/BAM input.
+		 * @param ss_ Shared streamer supplying mapped reads
+		 * @param tid_ Thread identifier
+		 */
 		ProcessThread(final Streamer ss_, final int tid_){
 			ss=ss_;
 			tid=tid_;
@@ -528,10 +552,8 @@ public class FixScaffoldGaps implements Accumulator<FixScaffoldGaps.ProcessThrea
 		}
 		
 		/**
-		 * Process a read or a read pair.
-		 * @param r Read 1
-		 * @param r2 Read 2 (may be null)
-		 * @return True if the reads should be kept, false if they should be discarded.
+		 * Process a read.
+		 * @param r Read to process
 		 */
 		void processRead(final Read r){
 			final SamLine sl=r.samline;
@@ -590,7 +612,7 @@ public class FixScaffoldGaps implements Accumulator<FixScaffoldGaps.ProcessThrea
 	
 	/** Represents a scaffold sequence with coverage and insert size tracking.
 	 * Maintains atomic arrays for thread-safe accumulation of coverage depth and insert sizes. */
-	private class Scaffold {
+	private class Scaffold{
 		
 		/**
 		 * Creates a scaffold with coverage tracking arrays.
@@ -640,68 +662,93 @@ public class FixScaffoldGaps implements Accumulator<FixScaffoldGaps.ProcessThrea
 		 * Generates corrected scaffold sequence with adjusted gap sizes.
 		 * Uses insert size statistics to resize N-gaps based on expected insert sizes.
 		 * @param bb ByteBuilder for sequence construction
+		 * @param insertWriter Optional file-level writer for insert diagnostics
 		 * @return Read containing the corrected scaffold sequence
 		 */
-		Read fixScaffold(ByteBuilder bb){
+		Read fixScaffold(ByteBuilder bb, ByteStreamWriter insertWriter){
 			int streak=0;
 			bb.clear();
 			
-			if(insertList!=null){
-				for(int i=0; i<bases.length; i++) {
-					bb.append(i).tab().append(depthArray.get(i)).tab().append(insertArray.get(i)/(Tools.max(1, depthArray.get(i)))).nl();
-				}
-				ReadWrite.writeString(bb, insertList, false);
-				bb.clear();
-			}
+			if(insertWriter!=null){appendInsertList(insertWriter);}
 			
 			for(int i=0; i<bases.length; i++){
 				byte b=bases[i];
 				if(b=='N'){
 					streak++;
 				}else{
-					if(streak>=scaffoldBreakNs && i-streak>300 && i<bases.length-300){
-						int pivot=i-streak/2-1;
-						long depthSum=depthArray.get(pivot);
-						long insertSum=insertArray.get(pivot);
-						double avgInsert=(insertSum/(double)depthSum);
-						
-						int avgDepth=((depthArray.get(i-200-streak)+depthArray.get(i+200))/2);
-						int percentile=(int)(buckets*Tools.max(0.5, 1.0-depthSum/(double)(avgDepth+depthSum)));
-						int insertProxy=insertByPercentile[percentile];
-						
-//						assert(false) : Arrays.toString(insertByPercentile);
-						
-						int dif=(int)Math.round(insertProxy-avgInsert);
-						int toAdd=Tools.max(scaffoldBreakNs, streak+dif);
-
-//						System.err.println("totalAverageInsert="+(int)totalAverageInsert+", avg="+(int)avgInsert+", dif="+dif);
-//						System.err.println("proxy="+insertProxy+", percentile="+percentile+", avgDepth="+(int)avgDepth+", depth="+depthSum);
-//						System.err.println("pivot="+pivot+", depthSum="+depthSum+", avg="+(int)avgInsert+", streak="+streak+", dif="+dif+", toAdd="+toAdd);
-						
-						if(dif>0){
-							//TODO:  This is tricky because long-insert reads will be self-selected.
-							//Should be compared to average coverage, or nearby coverage, and then consult a size distribution histogram.
-							gapsWidened++;
-							nsAdded+=dif;
-						}else if(dif<0){
-							gapsNarrowed++;
-							nsRemoved-=dif;
-						}else{
-							gapsUnchanged++;
-						}
-						nsTotal+=toAdd;
-						for(int j=0; j<toAdd; j++){
-							bb.append('N');
-						}
+					if(streak>0){
+						final int toAdd=correctedGapLength(i, streak);
+						for(int j=0; j<toAdd; j++){bb.append('N');}
 					}
 					streak=0;
 					bb.append(b);
 				}
 			}
+			for(int j=0; j<streak; j++){bb.append('N');}
 			
 			return new Read(bb.toBytes(), null, name, numericID);
 		}
 		
+		/** Append this scaffold's insert diagnostics in bounded reusable chunks. */
+		private void appendInsertList(ByteStreamWriter writer){
+			final ByteBuilder bb=new ByteBuilder(32768);
+			for(int i=0; i<bases.length; i++){
+				bb.append(i).tab().append(depthArray.get(i)).tab().
+					append(insertArray.get(i)/(Tools.max(1, depthArray.get(i)))).nl();
+				if(bb.length()>32768){
+					writer.print(bb);
+					bb.clear();
+				}
+			}
+			if(!bb.isEmpty()){writer.print(bb);}
+		}
+
+		/** Return the output length for one N-run after applying supported gap resizing. */
+		private int correctedGapLength(final int gapStop, final int streak){
+			if(streak<scaffoldBreakNs || gapStop-streak<=300 || gapStop>=bases.length-300){
+				return streak;
+			}
+
+			final int pivot=gapStop-streak/2-1;
+			final long depthSum=depthArray.get(pivot);
+			if(depthSum<minDepth || depthSum==0){
+				gapsUnchanged++;
+				nsTotal+=streak;
+				return streak;
+			}
+
+			final long insertSum=insertArray.get(pivot);
+			final double avgInsert=(insertSum/(double)depthSum);
+
+			final int avgDepth=((depthArray.get(gapStop-200-streak)+depthArray.get(gapStop+200))/2);
+			final int percentile=(int)(buckets*Tools.max(0.5, 1.0-depthSum/(double)(avgDepth+depthSum)));
+			final int insertProxy=insertByPercentile[percentile];
+
+//			assert(false) : Arrays.toString(insertByPercentile);
+
+			final int dif=(int)Math.round(insertProxy-avgInsert);
+			final int toAdd=Tools.max(scaffoldBreakNs, streak+dif);
+			final int emittedDif=toAdd-streak;
+
+//			System.err.println("totalAverageInsert="+(int)totalAverageInsert+", avg="+(int)avgInsert+", dif="+dif);
+//			System.err.println("proxy="+insertProxy+", percentile="+percentile+", avgDepth="+(int)avgDepth+", depth="+depthSum);
+//			System.err.println("pivot="+pivot+", depthSum="+depthSum+", avg="+(int)avgInsert+", streak="+streak+", dif="+dif+", toAdd="+toAdd);
+
+			if(emittedDif>0){
+				//Long-insert reads are self-selected; this heuristic should be kept conservative.
+				//Compare to average or nearby coverage, then consult a size distribution histogram.
+				gapsWidened++;
+				nsAdded+=emittedDif;
+			}else if(emittedDif<0){
+				gapsNarrowed++;
+				nsRemoved-=emittedDif;
+			}else{
+				gapsUnchanged++;
+			}
+			nsTotal+=toAdd;
+			return toAdd;
+		}
+
 		/** Numeric identifier for this scaffold */
 		final int numericID;
 		/** Scaffold name/identifier */
@@ -806,7 +853,7 @@ public class FixScaffoldGaps implements Accumulator<FixScaffoldGaps.ProcessThrea
 	/** Uses full ref names */
 	public LinkedHashMap<String, Scaffold> refMap=new LinkedHashMap<String, Scaffold>();
 	/** Uses truncated ref names */
-	public LinkedHashMap<String, Scaffold> refMap2=new LinkedHashMap<String, Scaffold>();;
+	public LinkedHashMap<String, Scaffold> refMap2=new LinkedHashMap<String, Scaffold>();
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
@@ -821,7 +868,7 @@ public class FixScaffoldGaps implements Accumulator<FixScaffoldGaps.ProcessThrea
 	private final FileFormat ffout;
 	
 	@Override
-	public final ReadWriteLock rwlock() {return rwlock;}
+	public final ReadWriteLock rwlock(){return rwlock;}
 	/** Read-write lock for thread synchronization */
 	private final ReadWriteLock rwlock=new ReentrantReadWriteLock();
 	

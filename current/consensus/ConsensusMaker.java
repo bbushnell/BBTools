@@ -16,6 +16,7 @@ import parse.Parse;
 import parse.Parser;
 import parse.PreParser;
 import prok.ProkObject;
+import shared.KillSwitch;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
@@ -44,7 +45,7 @@ import var2.ScafMap;
  * @date September 6, 1019
  *
  */
-public class ConsensusMaker extends ConsensusObject implements Accumulator<ConsensusMaker.ProcessThread> {
+public class ConsensusMaker extends ConsensusObject implements Accumulator<ConsensusMaker.ProcessThread>{
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
@@ -369,8 +370,10 @@ public class ConsensusMaker extends ConsensusObject implements Accumulator<Conse
 		outstream.println(Tools.number("Sub Count:", subCount, 8));
 		outstream.println(Tools.number("Del Count:", delCount, 8));
 		outstream.println(Tools.number("Ins Count:", insCount, 8));
-		outstream.println(Tools.number("Avg Identity:", 100*identitySum/alignedReads, 3, 8));
-		if(scoreSum>0){
+		if(alignedReads>0){
+			outstream.println(Tools.number("Avg Identity:", 100*identitySum/alignedReads, 3, 8));
+		}
+		if(scoreSum>0 && alignedReads>0){
 			outstream.println(Tools.number("Avg Score:", 100*scoreSum/alignedReads, 3, 8));
 		}
 		
@@ -419,6 +422,8 @@ public class ConsensusMaker extends ConsensusObject implements Accumulator<Conse
 				cris.returnList(ln.id, ln.list==null || ln.list.isEmpty());
 			}
 		}
+		if(ln!=null){cris.returnList(ln);}
+		errorState|=ReadWrite.closeStream(cris);
 		if(verbose){outstream.println("Loaded "+map.size()+" reference sequences.");}
 		if(scafMap.size()>0){ScafMap.setDefaultScafMap(scafMap, ffref.name());} //enable ref-based M-cigar resolution
 		loadedRef=true;
@@ -466,7 +471,8 @@ public class ConsensusMaker extends ConsensusObject implements Accumulator<Conse
 	/** Creates a concurrent read input stream for reference sequences.
 	 * @return Configured input stream for reference file */
 	private ConcurrentReadInputStream makeRefCris(){
-		ConcurrentReadInputStream cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ffref, null);
+		//The reads= quota limits alignments, not the reference records they can name.
+		ConcurrentReadInputStream cris=ConcurrentReadInputStream.getReadInputStream(-1, true, ffref, null);
 		cris.start(); //Start the stream
 		if(verbose){outstream.println("Started cris");}
 		boolean paired=cris.paired();
@@ -633,21 +639,21 @@ public class ConsensusMaker extends ConsensusObject implements Accumulator<Conse
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** This tool does not serialize itself as text. */
 	@Override
-	public ByteBuilder toText() {
-		// TODO Auto-generated method stub
-		return null;
-	}
+	public ByteBuilder toText(){return null;}
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Inner Classes        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** This class is static to prevent accidental writing to shared variables.
-	 * It is safe to remove the static modifier. */
-	class ProcessThread extends Thread {
+	/** Processes one share of read input. */
+	class ProcessThread extends Thread{
 		
-		//Constructor
+		/** Constructs a worker for SAM/BAM streaming input.
+		 * @param ss_ Shared streamer supplying mapped reads
+		 * @param tid_ Thread identifier
+		 */
 		ProcessThread(final Streamer ss_, final int tid_){
 			ss=ss_;
 			cris=null;
@@ -655,9 +661,8 @@ public class ConsensusMaker extends ConsensusObject implements Accumulator<Conse
 			realigner=(realign ? new Realigner() : null);
 		}
 		
-		//Constructor
 		/**
-		 * Constructs a ProcessThread for sequence file input processing.
+		 * Constructs a worker for sequence-file input processing.
 		 * @param cris_ ConcurrentReadInputStream for reading sequences
 		 * @param tid_ Thread identifier
 		 */
@@ -671,15 +676,21 @@ public class ConsensusMaker extends ConsensusObject implements Accumulator<Conse
 		//Called by start()
 		@Override
 		public void run(){
-			//Do anything necessary prior to processing
-			
-			//Process the reads
-			processInner();
-			
-			//Do anything necessary after processing
-			
-			//Indicate successful exit status
-			success=true;
+			try{
+				//Do anything necessary prior to processing
+
+				//Process the reads
+				processInner();
+
+				//Do anything necessary after processing
+
+				//Indicate successful exit status
+				success=true;
+			}catch(Throwable failure){
+				try{failure.printStackTrace(outstream);}
+				finally{KillSwitch.kill("ConsensusMaker worker "+tid+" failed; aborting blocked input threads.");}
+				throw new RuntimeException(failure);
+			}
 		}
 		
 		/** Iterate through the reads */
@@ -726,10 +737,8 @@ public class ConsensusMaker extends ConsensusObject implements Accumulator<Conse
 		}
 		
 		/**
-		 * Process a read or a read pair.
-		 * @param r Read 1
-		 * @param r2 Read 2 (may be null)
-		 * @return True if the reads should be kept, false if they should be discarded.
+		 * Process a read.
+		 * @param r Read to process
 		 */
 		void processRead(final Read r){
 			if(r.bases==null || r.length()<=1){return;}
@@ -813,7 +822,7 @@ public class ConsensusMaker extends ConsensusObject implements Accumulator<Conse
 			
 //			System.err.println(rname);
 			
-			if(realigner!=null) {
+			if(realigner!=null){
 				assert(false);
 				realigner.realign(r, sl, bg.original, true);
 			}
@@ -958,7 +967,7 @@ public class ConsensusMaker extends ConsensusObject implements Accumulator<Conse
 	private final FileFormat ffmodel;
 	
 	@Override
-	public final ReadWriteLock rwlock() {return rwlock;}
+	public final ReadWriteLock rwlock(){return rwlock;}
 	/** Read-write lock for thread synchronization */
 	private final ReadWriteLock rwlock=new ReentrantReadWriteLock();
 	

@@ -37,7 +37,7 @@ import structures.ListNum;
  * universes, matching the validated experimental workflow.
  * @author Brian Bushnell, Fischl
  */
-public final class TipPolish {
+public final class TipPolish{
 
 	/** Expands config files with the standard preparser before orchestration. */
 	public static void main(final String[] args) throws IOException, InterruptedException{

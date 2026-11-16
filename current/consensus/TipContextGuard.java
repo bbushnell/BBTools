@@ -30,7 +30,7 @@ import structures.ListNum;
  * from a one-read error. This class is not called by ordinary assembly/polishing.
  * @author Fischl
  */
-public final class TipContextGuard {
+public final class TipContextGuard{
 
 	/** Uses native argument expansion and closes a redirected diagnostic stream. */
 	public static void main(final String[] args){
@@ -294,7 +294,7 @@ public final class TipContextGuard {
 	/*--------------------------------------------------------------*/
 
 	/** One oriented suffix-to-prefix placement, not an assertion of biological origin. */
-	static final class Candidate {
+	static final class Candidate{
 		Candidate(final byte[] bases_, final int overlap_){
 			assert(bases_!=null && overlap_>0 && overlap_<bases_.length) : "A donor must extend beyond its overlap.";
 			bases=bases_;
@@ -305,13 +305,13 @@ public final class TipContextGuard {
 	}
 
 	/** Multiplicity is preserved even when two donors have exactly the same sequence. */
-	static final class CandidateSet {
+	static final class CandidateSet{
 		int count;
 		Candidate only;
 	}
 
 	/** Mapping-independent veto only: repeated observations preserve an allele, never force a correction. */
-	static final class KmerEvidence {
+	static final class KmerEvidence{
 		KmerEvidence(final int length){
 			check(length>=32, "The experimental kmer veto requires at least32 target bases.");
 			depths=new int[length];
