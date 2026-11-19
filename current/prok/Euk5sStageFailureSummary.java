@@ -18,12 +18,16 @@ import structures.IntList;
  * @author Raiden
  */
 public final class Euk5sStageFailureSummary {
+	private boolean historicalStages=false;
+	/** Historical zero/false ambiguity is retained only when explicitly requested. */
+	public void setHistoricalStages(final boolean historical){historicalStages=historical;}
 	public static void main(String[] args){
-		String loci=null,stages=null,out=null,assembly=null,summaryIn=null;int expected=-1,models=-1,expectedAssemblies=-1;
+		String loci=null,stages=null,out=null,assembly=null,summaryIn=null;int expected=-1,models=-1,expectedAssemblies=-1;boolean historicalStages=false;
 		for(String arg : args){
 			final int eq=arg.indexOf('=');require(eq>0,"Expected flag=value");
 			final String key=arg.substring(0,eq).toLowerCase(Locale.ROOT),value=arg.substring(eq+1);
 			if(key.equals("loci")){loci=value;}else if(key.equals("stages")){stages=value;}
+			else if(key.equals("historicalstages")){historicalStages=parse.Parse.parseBoolean(value);}
 			else if(key.equals("outprefix")){out=value;}else if(key.equals("assembly")){assembly=value;}
 			else if(key.equals("expectedfn")){expected=Integer.parseInt(value);}
 			else if(key.equals("models")){models=Integer.parseInt(value);}
@@ -38,6 +42,7 @@ public final class Euk5sStageFailureSummary {
 		require(loci!=null && stages!=null && out!=null && assembly!=null && expected>=0 && models>0,
 			"Required loci, stages, outprefix, assembly, expectedfn and models");
 		final Euk5sStageFailureSummary tool=new Euk5sStageFailureSummary(assembly,models);
+		tool.setHistoricalStages(historicalStages);
 		tool.loadLoci(loci,expected);tool.loadStages(stages);tool.write(out);
 		System.err.println("EUK5S_STAGE_FAILURE_SUMMARY_PASS assembly="+assembly+" FN="+tool.count);
 	}
@@ -106,9 +111,9 @@ public final class Euk5sStageFailureSummary {
 		final ByteFile in=RrnaSourceTargetPrep.open(path);final LineParser1 p=new LineParser1('\t');
 		final IntList seeds=new IntList();String lastName=null;Group group=null;
 		try{
-			Euk5sEndpointErrorSummary.header(in,NcrnaStageDiagLogSink.HEADER,path);
+			NcrnaStageDiagLogSink.readHeader(in,historicalStages,path);
 			for(byte[] row;(row=in.nextLine())!=null;){
-				p.set(row);require(p.terms()==21,"Stage diagnostic must retain21 columns");
+				p.set(row);NcrnaStageDiagLogSink.validateRow(p,historicalStages);
 				if(!p.termEquals(family,1)){continue;}
 				// Per-model identities are separate evidence, not terminal windows or
 				// extra candidates. Keep existing FN stage counts unchanged.
@@ -122,7 +127,7 @@ public final class Euk5sStageFailureSummary {
 				if(group.length<0){group.length=length;}else{require(group.length==length,"Conflicting contig lengths");}
 				if(p.termEquals("SEED",0)){
 					require(!group.seedSeen[strand],"Duplicate seed stream for one contig/strand");group.seedSeen[strand]=true;
-					parseSeeds(row,p,seeds,length);
+					parseSeeds(row,p,seeds,length,historicalStages);
 					for(Evidence e : group.loci){if(e.strand==strand){
 						require(e.stop<length,"FN extends beyond diagnostic contig");
 						final int first=(strand==0 ? e.start : length-1-e.stop)+8;
@@ -166,9 +171,9 @@ public final class Euk5sStageFailureSummary {
 			}
 		}finally{require(!in.close(),"Stage observations read failed");}
 	}
-	private static void parseSeeds(byte[] row,LineParser1 p,IntList seeds,int length){
+	private static void parseSeeds(byte[] row,LineParser1 p,IntList seeds,int length,boolean historical){
 		seeds.clear();final int expected=p.parseInt(19);require(expected>=0,"Negative seed count");
-		if(expected==0){require(p.termEquals(".",20),"Zero seeds need explicit empty field");return;}
+		if(expected==0){require(historical ? p.termEquals(".",20) : p.length(20)==0,"Zero seeds need the explicitly selected format's empty-list encoding");return;}
 		p.setBounds(20);final int end=p.b();int value=0,digits=0;
 		for(int i=p.a();i<=end;i++){
 			if(i==end || row[i]==','){

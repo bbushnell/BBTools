@@ -59,7 +59,33 @@ public final class NcrnaLearningSplitTest {
 		fails(()->NcrnaLearningSplit.all(new int[]{9, 9}, new int[]{0, 1}, new int[]{0, 0}, 2, 1));
 		fails(()->NcrnaLearningSplit.all(new int[]{0}, new int[]{0}, new int[]{0}, 1, 1));
 		fails(()->NcrnaLearningSplit.all(new int[]{9}, new int[]{0}, new int[]{1}, 1, 1));
+		sourceGroups();
 		System.out.println("Learning split passed: whole TaxIDs, rare phyla/bins, word boundary, underfill and invalid populations");
+	}
+
+	/** Taxonomy and assembly integers deliberately collide across their namespaces. */
+	private static void sourceGroups(){
+		final int[] taxa=new int[60], assemblies=new int[60], phyla=new int[60], models=new int[60];
+		for(int gene=0; gene<60; gene++){
+			final int group=gene/3;
+			taxa[gene]=group<10 ? group+1 : 0;
+			assemblies[gene]=group<10 ? group+101 : group-9;
+		}
+		final int[] savedTaxa=taxa.clone(), savedAssemblies=assemblies.clone();
+		final Result result=NcrnaLearningSplit.splitSources(taxa, assemblies, phyla, models, 1, 1, 42);
+		assert(result.taxids.length==20 && result.target==2 && result.selected==2
+			&& result.groupByGene[0]!=result.groupByGene[30] && result.groupByGene[30]!=result.groupByGene[33])
+			: "Known TaxID1 and unknown-taxonomy assembly1 are distinct; different unknown assemblies never merge";
+		for(int gene=0; gene<60; gene++){
+			assert(result.taxids[result.groupByGene[gene]]==taxa[gene]
+				&& result.groupByGene[gene]==result.groupByGene[gene/3*3]
+				&& result.validationByGene[gene]==result.validationByGene[gene/3*3])
+				: "Original TaxID or missing zero is preserved and every source group stays indivisible";
+		}
+		assert(Arrays.equals(taxa, savedTaxa) && Arrays.equals(assemblies, savedAssemblies))
+			: "Source-aware selection cannot rewrite taxonomy or exact-assembly identities";
+		assemblies[30]=-1;
+		fails(()->NcrnaLearningSplit.splitSources(taxa, assemblies, phyla, models, 1, 1, 42));
 	}
 
 	private static int[] reverse(int[] input){

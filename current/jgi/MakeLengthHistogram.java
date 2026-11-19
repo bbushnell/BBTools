@@ -177,6 +177,7 @@ public class MakeLengthHistogram {
 			if(verbose){outstream.println("Finished reading");}
 			cris.returnList(ln);
 			if(verbose){outstream.println("Returned list");}
+			//TODO: Probable bug - Ignoring the native close error can publish a histogram after a failed input read.
 			ReadWrite.closeStream(cris);
 			if(verbose){outstream.println("Closed stream");}
 			outstream.println("Processed "+readsProcessed+" reads.");
@@ -228,6 +229,7 @@ public class MakeLengthHistogram {
 			}
 			if(i*MULT>=maxFound){break;}
 		}
+		//TODO: Probable bug - Ignoring the writer error can report success after a truncated histogram write.
 		tsw.poisonAndWait();
 	}
 	

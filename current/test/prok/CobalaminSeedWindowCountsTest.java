@@ -77,8 +77,8 @@ public final class CobalaminSeedWindowCountsTest {
 			panel.append('t').append(i).append("\tgenome\t").append(seq).append("\tRF00174\tRF00174\t")
 				.append(start).append('\t').append(stop).append('\t').append(start).append('\t').append(stop).append('\t').append(sign).append('\n');
 			final String prefix="cobalamin_rf00174\t"+seq+'\t'+strand+'\t'+length+"\t1\t0\t"+(length-1);
-			stages.append("MODEL\t").append(prefix).append("\tALIGNMENT\t.\t.\t0\t").append(model).append("\t1.0\t.\t.\t.\t.\t.\t.\t.\n");
-			stages.append("WINDOW\t").append(prefix).append("\tACCEPT_IDPASS\t2\t1\t0\t").append(model).append("\t1.0\t0\t0\t0\t17\tfalse\t.\t.\n");
+			stages.append("MODEL\t").append(prefix).append("\tALIGNMENT\t-1\t-1\t0\t").append(model).append("\t1.0\t-1\t-1\t-1\t-1\t\t-1\t\n");
+			stages.append("WINDOW\t").append(prefix).append("\tACCEPT_IDPASS\t2\t1\t0\t").append(model).append("\t1.0\t-1\t-1\t0\t17\t\t-1\t\n");
 		}
 		write(root.resolve("contigs.tsv"), contigs.toString());write(root.resolve("calls.tsv"), calls.toString());
 		write(root.resolve("panel.tsv"), panel.toString());write(root.resolve("stages.tsv"), stages.toString());
@@ -102,7 +102,7 @@ public final class CobalaminSeedWindowCountsTest {
 	}
 	private static String window(String contig, int length, int strand, int pass, int raw){
 		return "WINDOW\tcobalamin_rf00174\t"+contig+'\t'+strand+'\t'+length+'\t'+pass+"\t0\t"+(length-1)+"\tACCEPT_IDPASS\t"+raw
-			+"\t1\t0\tcobalamin_RF00174_fixture\t0.8\t0.0\t0.0\t0\t"+(length-1)+"\tfalse\t.\t.\n";
+			+"\t1\t0\tcobalamin_RF00174_fixture\t0.8\t-1\t-1\t0\t"+(length-1)+"\t\t-1\t\n";
 	}
 	private static void run(Path root, String out, String stages){
 		CobalaminSeedWindowCounts.main(new String[]{"calls="+root.resolve("calls.tsv"), "stages="+root.resolve(stages), "contigs="+root.resolve("contigs.tsv"),

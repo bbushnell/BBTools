@@ -8,14 +8,46 @@ import fileIO.FileFormat;
 import fileIO.ReadWrite;
 import parse.LineParser1;
 import stream.Streamer;
+import structures.ByteBuilder;
 
 /** Shared ownership of native text streams used by the ncRNA model tools.
  * Use these owners in try-with-resources so cleanup failures remain suppressed
- * behind an earlier body failure. Record parsing and buffering belong to callers.
+ * behind an earlier body failure. Record framing and buffering belong to callers;
+ * shared maximum-length helpers preserve one optional-value text contract.
  * Each owner is confined to one thread and belongs to one try-with-resources scope.
  * @author Brian Bushnell, Raiden
  */
 public final class NcrnaTextIO{
+
+	/** Writes only an existing upper length bound; MAX_VALUE is an internal unbounded control. */
+	public static void appendMaximumLength(final ByteBuilder row, final int maximum){
+		assert(row!=null) : "The owning text writer supplies its reusable output buffer";
+		if(maximum<1){throw new IllegalArgumentException("A maximum length must be positive or internally unbounded");}
+		if(maximum!=Integer.MAX_VALUE){row.append(maximum);}
+	}
+
+	/** Empty current cells mean unbounded. Old declared schemas retain their numeric
+	 * MAX_VALUE encoding on input only. Validate decimal digits before accumulating
+	 * so the native integer parser's overflow cannot turn malformed text into a bound. */
+	public static int maximumLength(final LineParser1 parser, final int field, final boolean legacy){
+		assert(parser!=null && field>=0 && field<parser.terms()) : "A validated record schema must contain its declared maximum-length column";
+		parser.setBounds(field);
+		final int from=parser.a(), to=parser.b();
+		if(from==to && !legacy){return Integer.MAX_VALUE;}
+		final byte[] line=parser.line();
+		int value=0;
+		for(int i=from; i<to; i++){
+			final int digit=line[i]-'0';
+			if(digit<0 || digit>9 || value>(Integer.MAX_VALUE-digit)/10){
+				throw new IllegalArgumentException("Maximum length must be an empty unbounded cell or a positive decimal integer: column="+field);
+			}
+			value=value*10+digit;
+		}
+		if(value<1 || !legacy && value==Integer.MAX_VALUE){
+			throw new IllegalArgumentException("Current unbounded maximum length must be omitted, not encoded as a sentinel: column="+field);
+		}
+		return value;
+	}
 
 	/*--------------------------------------------------------------*/
 	/*----------------          Input Owner         ----------------*/

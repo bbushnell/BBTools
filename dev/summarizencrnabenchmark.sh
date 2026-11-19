@@ -42,6 +42,18 @@ subtypegrades= Its .subtype_summary.tsv with the same three leading fields.
              A net TP decline is not a lost-set size. No subtype is inferred from
              reference coordinates or from the model winning a different match.
 profile=     Optional native NcrnaCpuProfile table (requires profiletime=)
+exactstrata= Optional NcrnaDdlCallerPanel .strata.tsv; requires both subtype inputs.
+             Joins original input/reference parent bytes using exact_sequence,
+             never the composite seen_stratum. SEEN/NOT_SEEN/UNKNOWN stay separate.
+             Reports TP/FN/recall for RF00174 support recovery, exclusive subtype
+             accuracy and union recovery on those same labelled parents. Masked
+             exclusive parents stay outside its recall denominator. Precision is
+             NA because unmatched queries lack an exact-sequence partition.
+             Writes .exact_summary.tsv, .exact_references.tsv, .exact_query_counts.tsv,
+             .exact_union_queries.tsv and .exact_subtype_queries.tsv. Query witnesses
+             preserve every original cobalamin union row and RF00174 subtype row,
+             including unmatched/duplicate calls; labels refer to matched reference
+             sequences only. Other/unmatched reference populations are UNASSIGNED.
 profiletime= That SAME profile invocation's single user/system/wall time row
              The profile has no policy label; the recipe binds it to its policy.
 policies=    Required comma-separated literal policy names, no empty/duplicate names

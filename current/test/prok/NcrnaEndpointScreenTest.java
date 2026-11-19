@@ -160,6 +160,23 @@ public final class NcrnaEndpointScreenTest{
 			}
 		}
 		check(curves==32, "Four geometries times two ends times two partitions times two ratios");
+		final String missingRoster=NcrnaLearningPopulationTest.roster().replace("assembly0\t1\t", "assembly0\t.\t")
+			.replace("assembly1\t2\t", "assembly1\t.\t");
+		final String missingLoci=NcrnaLearningPopulationTest.loci().replace("assembly0\t1\t", "assembly0\t.\t")
+			.replace("assembly1\t2\t", "assembly1\t.\t");
+		NcrnaLearningPopulationTest.write(roster, missingRoster);
+		NcrnaLearningPopulationTest.write(loci, missingLoci);
+		final File mixed=new File(root, "mixed_screen");
+		NcrnaEndpointScreen.main(new String[]{"in="+fasta, "out="+mixed, "graph="+graph, "original="+original,
+			"roster="+roster, "loci="+loci, "splitseed=42", "ks=3", "radius=1", "ratios=1.0000001,2", "t=2"});
+		for(final String name:new String[]{"population.tsv", "summary.tsv", "curves.tsv"}){
+			try(Input before=new Input(new File(output, name).getPath()); Input after=new Input(new File(mixed, name).getPath())){
+				for(byte[] line; (line=before.reader.nextLine())!=null;){
+					check(Arrays.equals(line, after.reader.nextLine()), "Removing taxonomy without changing these source groups cannot alter screen rows: "+name);
+				}
+				check(after.reader.nextLine()==null, "Missing taxonomy cannot add or remove original screen rows: "+name);
+			}
+		}
 	}
 
 	private static void check(final boolean condition, final String reason){if(!condition){throw new AssertionError(reason);}}

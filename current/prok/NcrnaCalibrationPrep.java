@@ -21,14 +21,16 @@ import structures.ByteBuilder;
  * @author Brian Bushnell, Raiden
  */
 public final class NcrnaCalibrationPrep {
+	private boolean historicalStages=false;
 	public static void main(String[] args){
 		final PreParser pp=new PreParser(args, NcrnaCalibrationPrep.class, false);
 		String roster=null, audit=null, stages=null, out=null, family=null;
-		int genomes=-1, loci=-1, windows=-1, contigs=-1, clen=-1;double ga=Double.NaN;
+		int genomes=-1, loci=-1, windows=-1, contigs=-1, clen=-1;double ga=Double.NaN;boolean historicalStages=false;
 		for(String arg:pp.args){
 			final int eq=arg.indexOf('=');require(eq>0, "Use flag=value");
 			final String key=arg.substring(0, eq).toLowerCase(Locale.ROOT), value=arg.substring(eq+1);
 			if(key.equals("roster")){roster=value;}else if(key.equals("audit")){audit=value;}
+			else if(key.equals("historicalstages")){historicalStages=parse.Parse.parseBoolean(value);}
 			else if(key.equals("stages")){stages=value;}else if(key.equals("outprefix")){out=value;}
 			else if(key.equals("family")){family=value;}else if(key.equals("genomes")){genomes=Integer.parseInt(value);}
 			else if(key.equals("loci")){loci=Integer.parseInt(value);}else if(key.equals("windows")){windows=Integer.parseInt(value);}
@@ -39,6 +41,7 @@ public final class NcrnaCalibrationPrep {
 			&& windows>=0 && contigs>0 && clen>0 && Double.isFinite(ga), "Bind the complete cohort, audit, caller stages, model criteria and denominators");
 		Shared.setThreads(1);Shared.TRIM_READ_DESCRIPTION=false;
 		final NcrnaCalibrationPrep tool=new NcrnaCalibrationPrep(family);
+		tool.historicalStages=historicalStages;
 		tool.loadRoster(roster, genomes);tool.loadAudit(audit, loci, clen, ga);tool.loadStages(stages, windows);
 		tool.write(out, contigs);Shared.closeStream(pp.outstream);
 	}
@@ -96,14 +99,14 @@ public final class NcrnaCalibrationPrep {
 	private void loadStages(final String path, final int expected){
 		final ByteFile in=RrnaResourceIO.open(path);final LineParser1 p=new LineParser1('\t');
 		try{
-			RrnaResourceIO.header(in, NcrnaStageDiagLogSink.HEADER, path);
+			NcrnaStageDiagLogSink.readHeader(in, historicalStages, path);
 			for(byte[] row; (row=in.nextLine())!=null; ){
-				p.set(row);require(p.terms()==21, "Caller stage schema changed");
+				p.set(row);NcrnaStageDiagLogSink.validateRow(p, historicalStages);
 				if(!p.termEquals(family, 1) || !p.termEquals("WINDOW", 0)){continue;}
 				final String seqid=RrnaResourceIO.first(p.parseString(2));final int length=p.parseInt(4);
 				final Contig c=contig(seqid, length);
 				final Window w=new Window(windows.size(), c, p.parseInt(3), p.parseInt(5), p.parseInt(6), p.parseInt(7),
-					p.parseString(8), p.parseInt(10), p.parseInt(11), p.parseFloat(13));
+					p.parseString(8), p.parseInt(10), p.parseInt(11), NcrnaStageDiagLogSink.score(p, 13));
 				require((w.strand==0 || w.strand==1) && (w.pass==1 || w.pass==2) && w.start>=0 && w.stop>=w.start && w.stop<length,
 					"Caller window must remain in its actual oriented contig");
 				c.windows.add(w);windows.add(w);
@@ -210,5 +213,6 @@ public final class NcrnaCalibrationPrep {
 	private final ArrayList<Window> windows=new ArrayList<Window>();
 	public static final String ROSTER_HEADER="index\tgenome\tassembly\ttaxid\tdomain\tphylum\tgff\tfasta\tloci\tgenome_bases\tcontigs";
 	public static final String TRUTH_HEADER="seqid\tfamily\tstart\tstop\tstrand";
+	/** The window metadata preserves identity=-1 when no identity was measured. */
 	public static final String WINDOW_HEADER="window\tgenome\tseqid\tstrand\tcontig_length\tpass\tstart0\tstop0\toutcome\tshortlist_size\tmodel\tidentity\tphysical_edge";
 }

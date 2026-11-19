@@ -1,5 +1,7 @@
 package cardinality;
 
+import java.util.Arrays;
+
 import dna.AminoAcid;
 import fileIO.ByteFile;
 import fileIO.FileFormat;
@@ -214,6 +216,36 @@ public final class DynamicDemiLog extends AbstractDemiLog {
 	/*----------------           Methods            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Discards all observations while retaining the hash configuration, arrays,
+	 * ID and name. Reuses this thread-confined sketch for an independent sequence;
+	 * borrowed array views remain valid and their contents are cleared in place.
+	 * The adaptive floor and early-exit mask must restart together with the maxima,
+	 * or hashAndStore would reject valid low-scoring keys from the next sequence.
+	 * Process-global exponent, blacklist and correction settings are unchanged.
+	 */
+	public void clear(){
+		assert(maxArray.length==buckets && (countArray==null || countArray.length==buckets)
+			&& (gcArray==null || gcArray.length==buckets) && (kmerArray==null || kmerArray.length==buckets))
+			: "hashAndStore indexes every enabled array by one bucket mask: buckets="+buckets
+				+" maxima="+maxArray.length+" counts="+(countArray==null ? -1 : countArray.length)
+				+" gc="+(gcArray==null ? -1 : gcArray.length)+" kmers="+(kmerArray==null ? -1 : kmerArray.length);
+		java.util.Arrays.fill(maxArray, (char)0);
+		if(countArray!=null){java.util.Arrays.fill(countArray, (char)0);}
+		if(gcArray!=null){java.util.Arrays.fill(gcArray, (byte)0);}
+		if(kmerArray!=null){java.util.Arrays.fill(kmerArray, 0L);}
+		if(nlzCounts!=null){java.util.Arrays.fill(nlzCounts, 0);}
+		if(sortBuf!=null){sortBuf.clear();}
+		globalNLZ=0;
+		minZeroCount=buckets;
+		filledBuckets=0;
+		eeMask=-1L;
+		added=0;
+		microIndex=0;
+		lastCardinality=-1;
+		branch1=0;
+		branch2=0;
+	}
+
 	/**
 	 * Scans the bucket array once, accumulating all sums needed for estimation.
 	 * This is the only per-subclass method required — all estimator logic
@@ -322,8 +354,7 @@ public final class DynamicDemiLog extends AbstractDemiLog {
 
 		//Precalculate everything necessary
 		final int bucket=(int)(key&bucketMask);
-		final int shift=offset-nlz;
-		final int score=Math.max(1, (nlz<<mantissabits)+(int)((~(key>>>shift))&mask));
+		final int score=encodeKey(key, nlz, mantissabits, mask, offset);
 		final int oldValue=maxArray[bucket];//Required memory read
 
 		if(LAZY_ALLOCATE){//Optional MicroIndex for low cardinality (causes speed decrease)
@@ -372,6 +403,51 @@ public final class DynamicDemiLog extends AbstractDemiLog {
 			assert(globalNLZ<57) : "globalNLZ="+globalNLZ;
 		}
 
+	}
+
+	/** Inserts a native hash with only the high bin-selector bits replaced.
+	 * Hash must be Tools.hash64shift(number^this sketch's seed). The original
+	 * hash supplies the key and early-exit test; number preserves blacklist,
+	 * optional literal k-mer and GC semantics. Zero partition bits is native.
+	 * Unequal partition occupancy has no calibrated cardinality correction.
+	 * This duplicates native updates to leave hashAndStore's hot body unchanged.
+	 */
+	public void storeHashed(final long number, final long key, final int partition, final int partitionBits){
+		assert(partitionBits>=0 && partitionBits<=bucketBits && partition>=0 && (partition>>>partitionBits)==0)
+			: "Partition selector must fit the high bucket-mask bits: partition="+partition
+				+", bits="+partitionBits+", bucketBits="+bucketBits;
+		if(Long.compareUnsigned(key, eeMask)>0){return;}
+		final int nlz=Long.numberOfLeadingZeros(key)&nlzMask;
+		final int bucket=((int)key&(bucketMask>>>partitionBits))|(partition<<(bucketBits-partitionBits));
+		final int score=encodeKey(key, nlz, mantissabits, mask, offset);
+		final int oldValue=maxArray[bucket];
+		if(LAZY_ALLOCATE){
+			final long micro=(key>>bucketBits)&0x3FL;
+			microIndex|=(1L<<micro);
+			if(Long.bitCount(microIndex)<MICRO_CUTOFF_BITS){return;}
+		}
+		if(score<oldValue){return;}
+		if(blacklist!=null && blacklist.contains(number)){return;}
+		lastCardinality=-1;
+		final int newValue=Math.max(score, oldValue);
+		final int nlzOld=oldValue>>mantissabits;
+		maxArray[bucket]=(char)newValue;
+		if(oldValue==0 && newValue>0){filledBuckets++;}
+		if(kmerArray!=null && score>oldValue){kmerArray[bucket]=number;}
+		if(countArray!=null){
+			final char count=countArray[bucket];
+			countArray[bucket]=(char)(oldValue>score ? count :
+				oldValue==score ? Math.max(count, (char)(count+1)) : 1);
+			if(gcArray!=null && score>oldValue){gcArray[bucket]=(byte)Long.bitCount(number&0x5555555555555555L);}
+		}
+		if(nlz>nlzOld && nlzOld==globalNLZ && --minZeroCount<1){
+			while(minZeroCount==0 && globalNLZ<maxNLZ){
+				globalNLZ++;
+				eeMask>>>=1;
+				minZeroCount=countAndDecrement();
+			}
+			assert(globalNLZ<57) : "Native adaptive-floor storage cannot advance beyond the representable hash tiers: "+globalNLZ;
+		}
 	}
 
 	/** Counts buckets at the current tier (used by advancement loop). */
@@ -500,6 +576,44 @@ public final class DynamicDemiLog extends AbstractDemiLog {
 	/*----------------        Static Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Encodes an already mixed hash without inserting it or changing global state.
+	 * Raw-key collectors need keys that a sketch's maximum or adaptive floor would
+	 * discard. Widths are explicit so independent recipes can share this arithmetic.
+	 * The exponent wraps; zero stays reserved for empty. Java's shift-distance
+	 * behavior is preserved, including extreme hashes under wider exponent fields.
+	 */
+	public static int encodeKey(final long hash, final int exponentBits, final int mantissaBits){
+		assert(exponentBits>=1 && exponentBits<=8 && mantissaBits>=1
+			&& exponentBits+mantissaBits<=16)
+			: "DDL keys must fit a char with nonempty exponent/mantissa fields: exponent="
+				+exponentBits+", mantissa="+mantissaBits;
+		final int nlz=Long.numberOfLeadingZeros(hash)&((1<<exponentBits)-1);
+		return encodeKey(hash, nlz, mantissaBits, (1<<mantissaBits)-1, 63-mantissaBits);
+	}
+
+	/** Native insertion already has the masked exponent and precomputed fields. */
+	private static int encodeKey(final long hash, final int nlz, final int mantissaBits,
+			final int mantissaMask, final int offset){
+		assert(mantissaBits>0 && mantissaBits<16 && nlz>=0 && nlz<=(65535>>>mantissaBits))
+			: "Native and explicit key encoders must fit the exponent above the mantissa in one char: nlz="
+				+nlz+", mantissa="+mantissaBits;
+		final int shift=offset-nlz;
+		return Math.max(1, (nlz<<mantissaBits)+(int)((~(hash>>>shift))&mantissaMask));
+	}
+
+	/** Inserts one already encoded absolute key into its explicitly mapped bin.
+	 * Zero is empty and cannot displace an observed key. No adaptive floor,
+	 * blacklist, count, cardinality or process-wide encoding state is involved.
+	 * @return Whether this key raised the stored maximum
+	 */
+	public static boolean addKey(final char[] output, final int bin, final char key){
+		assert(output!=null && bin>=0 && bin<output.length)
+			: "Key-only insertion must target an existing bin in the caller's declared DDL geometry: bin="+bin;
+		if(key<=output[bin]){return false;}
+		output[bin]=key;
+		return true;
+	}
+
 	/** Counts buckets whose absolute NLZ matches the given tier.
 	 * Used during add() to find the new floor tier from absolute-encoded merged values. */
 	private static int countTermsInTier(final int nlz, final char[] array) {
@@ -546,6 +660,37 @@ public final class DynamicDemiLog extends AbstractDemiLog {
 			equal+=ebit;
 		}
 		return new int[]{lower, equal, higher, bothEmpty};
+	}
+
+	/** Writes lower/equal/higher/both-empty counts into caller-owned scratch.
+	 * Visits every bucket in arrayA, as the allocating overload does; arrayB must
+	 * cover that range. The first four output fields are overwritten, not added.
+	 * Returns the same output array; any later fields are untouched. Inputs are
+	 * borrowed read-only and the caller confines the output to one comparison.
+	 * The separate loop deliberately leaves the existing allocating entrypoint's
+	 * hot code unchanged; delegation would add a call and preconditions there.
+	 */
+	public static int[] compareDetailed(final char[] arrayA, final char[] arrayB, final int[] counts){
+		assert(arrayA!=null && arrayB!=null && arrayB.length>=arrayA.length && counts!=null && counts.length>=4)
+			: "Detailed comparison reads every left bucket and writes four counts: left="+(arrayA==null ? -1 : arrayA.length)
+				+" right="+(arrayB==null ? -1 : arrayB.length)+" output="+(counts==null ? -1 : counts.length);
+		int lower=0, equal=0, higher=0, bothEmpty=0;
+		for(int i=0; i<arrayA.length; i++){
+			final int a=arrayA[i], b=arrayB[i];
+			if(a==0 && b==0){bothEmpty++; continue;}
+			int dif=a-b;
+			int nbit=(dif>>>31);
+			int hbit=((-dif)>>>31);
+			int ebit=1-nbit-hbit;
+			lower+=nbit;
+			higher+=hbit;
+			equal+=ebit;
+		}
+		counts[0]=lower;
+		counts[1]=equal;
+		counts[2]=higher;
+		counts[3]=bothEmpty;
+		return counts;
 	}
 
 	/** Minimum reliable divisor for WKID calculation.

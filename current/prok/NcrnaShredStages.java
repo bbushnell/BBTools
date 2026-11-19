@@ -20,6 +20,7 @@ import structures.ByteBuilder;
  * @author Raiden
  */
 public final class NcrnaShredStages {
+	private boolean historicalStages=false;
 	public static void main(String[] args){
 		final PreParser pp=new PreParser(args, NcrnaShredStages.class, false);final NcrnaShredStages x=new NcrnaShredStages();
 		String fasta=null, stages=null, gff=null, out=null;int expected=-1;
@@ -28,6 +29,7 @@ public final class NcrnaShredStages {
 			if(k.equals("in")){fasta=v;}else if(k.equals("stages")){stages=v;}else if(k.equals("gff")){gff=v;}else if(k.equals("outprefix")){out=v;}
 			else if(k.equals("expected")){expected=Integer.parseInt(v);}else if(k.equals("family")){x.family=v;}else if(k.equals("prefix")){x.prefix=v;}
 			else if(k.equals("label")){x.label=v;}else if(k.equals("idpass")){x.cut=Float.parseFloat(v);}else if(k.equals("idborderline")){x.border=Float.parseFloat(v);}
+			else if(k.equals("historicalstages")){x.historicalStages=parse.Parse.parseBoolean(v);}
 			else{throw new IllegalArgumentException("Unknown option: "+k);}
 		}
 		require(fasta!=null && stages!=null && gff!=null && out!=null && expected>0 && x.family!=null && x.prefix!=null && x.label!=null
@@ -43,8 +45,8 @@ public final class NcrnaShredStages {
 	}
 	private void stages(String path){
 		final ByteFile in=RrnaResourceIO.open(path);final LineParser1 p=new LineParser1('\t');
-		try{RrnaResourceIO.header(in, NcrnaStageDiagLogSink.HEADER, path);for(byte[] row; (row=in.nextLine())!=null; ){
-			p.set(row);require(p.terms()==21, "Caller stage schema changed");if(!p.termEquals(family, 1)){continue;}
+		try{NcrnaStageDiagLogSink.readHeader(in, historicalStages, path);for(byte[] row; (row=in.nextLine())!=null; ){
+			p.set(row);NcrnaStageDiagLogSink.validateRow(p, historicalStages);if(!p.termEquals(family, 1)){continue;}
 			final Member m=byId.get(RrnaResourceIO.first(p.parseString(2)));require(m!=null && p.parseInt(4)==m.length, "Stage event must bind the exact input record and length");
 			final int strand=p.parseInt(3);require(strand==0 || strand==1, "Stage strand must be explicit");
 			if(p.termEquals("SEED", 0)){
@@ -105,9 +107,7 @@ public final class NcrnaShredStages {
 	}
 	/** appendSlow(float) may use exponents; retain zero-allocation parsing otherwise. */
 	private static float identity(LineParser1 p){
-		p.setBounds(13);final byte[] row=p.line();
-		for(int i=p.a(); i<p.b(); i++){if(row[i]=='e' || row[i]=='E'){return Float.parseFloat(p.parseString(13));}}
-		return p.parseFloat(13);
+		return NcrnaStageDiagLogSink.score(p, 13);
 	}
 	private static void require(boolean ok, String why){if(!ok){throw new IllegalArgumentException(why);}}
 	private static final class Member {Member(String i, int n){id=i;length=n;}final String id;final int length;final long[] events=new long[NAMES.length];}

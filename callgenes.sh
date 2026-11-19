@@ -14,6 +14,8 @@ Usage:  callgenes.sh in=contigs.fa out=calls.gff outa=aminos.faa out16S=16S.fa
 File parameters:
 in=<file>       A fasta file; the only required parameter.
 out=<file>      Output gff file.
+gffinputordinal=f  Emit one zero-based input-position comment per input in GFF,
+                including inputs with no calls. Useful when contig names repeat.
 outa=<file>     Amino acid output.
 out16s=<file>   16S output.
 out18s=<file>   18S output.
@@ -544,6 +546,24 @@ cobalamin=f     Enable B12 riboswitch calling (RF00174, RF01482, RF01689).
                 Default off; uses calibrated seed, ranking and identity settings.
 cobalaminroot=  Explicit group directory containing manifest.tsv, shared seeds,
                 and the three RF-named resource subdirectories.
+cobalaminddl=   Experimental RF00174 member-voted profile file; omitted by default.
+                Requires the ordinary passes=1 mode; never inherited by another caller run.
+                Uses forward middle-masked10-mer/2048-bucket raw-key ranking,
+                interleaved with the ordinary native floor2/keep-best proposals.
+cobalaminddlcap=384  Distinct proposal cap; allowed:384,50,all.
+                all requires selected-format profiles and an explicit ncrnapolicy
+                with topn=2147483647,patience=2147483647 (both unlimited).
+                Unlimited rescue selects the highest-identity accepting model.
+                Finite caps retain their existing patience and verification.
+                GFF ddl_stream and ddl_native_shared report separate proposal facts.
+                Selected profiles also retain ddl_rank,ddl_score,accepted_identity.
+cobalamingc=    Experimental RF00174 model-GC table from the full saved baseline.
+                Requires selected-format cobalaminddl profiles and both options below.
+cobalamingcweight=  Nonnegative multiplier for abs(windowGC-modelMean)/populationSD.
+cobalamingccut= Positive SD distance, or range for the observed minimum/maximum.
+                Scores may be negative; excluded models do not consume the cap.
+                GC uses known ACGT bases only. Unknown window/model GC keeps the
+                original score; zero-SD profiles require exact observed GC.
 cobalaminminlen= Override all three minimum called lengths; positive integer.
                 Default minimum lengths: 109 bases for RF00174 and RF01482,
                 66 bases for RF01689.
@@ -744,6 +764,22 @@ r58ncrnaminlen=140  R58 minimum candidate length (1-1000); alias r58minlen.
 ncrnadiag=     Optional stage-diagnostic TSV path; alias r58diag. Reports all
                 enabled ncRNA families, before final path selection. Omitted
                 produces no diagnostics and adds no alignments.
+                Exactly 21 tab-separated fields, header type_v2. Unavailable
+                numbers are -1; missing text/list/unattempted trim is empty.
+                Preserve trailing empty cells and real measured zero/false.
+ncrnaboundarytrace=  Optional candidate-to-final-path boundary score TSV.
+ncrnaboundarytracefamily=  Explicit shared-boundary member or group to trace.
+                Both options, gffinputordinal=t, unpaired assemblies, and an
+                ungated scalar/positional package are required. No output or
+                capture state is created when omitted. Scalar capture also
+                scores the second end with the first held for margin replay;
+                its extra diagnostic work is not ordinary inference timing.
+ncrnaboundaryinvocationsonly=f  Observe actual positional-refiner calls and final
+                               selection without score replay. Requires the two
+                               trace options above; supports full-error packages.
+ncrnaselectiontrace=  Optional selected path/report geometry and neighbour-overlap
+                     TSV; requires invocation-only boundary tracing. Observes all
+                     selected feature identities before applying reported ends.
 rnasepkmers=    Explicit RNase-P conserved-kmer fasta; requires ncrna=t.
 srpsmallkmers=  Explicit SRP-small conserved-kmer fasta; requires ncrna=t.
 srplargekmers=  Explicit SRP-large conserved-kmer fasta; requires ncrna=t.

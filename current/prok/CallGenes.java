@@ -49,7 +49,7 @@ import tracker.ReadStats;
  * @date Sep 24, 2018
  *
  */
-public class CallGenes extends ProkObject {
+public class CallGenes extends ProkObject implements AutoCloseable{
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
@@ -98,7 +98,7 @@ public class CallGenes extends ProkObject {
 			verifyTailLengthPolicy();
 			process(timer);
 			verifyTailLengthPolicy();
-		}finally{closeOwnedResources();}
+		}finally{close();}
 	}
 
 	/** Initialize ordinary models/networks/RNA once without calling a control genome.
@@ -118,11 +118,12 @@ public class CallGenes extends ProkObject {
 			initializeSharedResources();
 			replay.run();
 			verifyTailLengthPolicy();
-		}finally{closeOwnedResources();}
+		}finally{close();}
 	}
 
 	/** Preserve ordinary cleanup order, including when an earlier owner throws. */
-	private void closeOwnedResources(){
+	@Override
+	public void close(){
 		try{MitoSsuTierLog.closeConfigured();}
 		finally{
 			try{if(proteinReference!=null){proteinReference.close();}}
@@ -384,9 +385,17 @@ public class CallGenes extends ProkObject {
 			}else if(a.equalsIgnoreCase("ncrnavotediag")){
 				if(b==null || b.isEmpty()){throw new IllegalArgumentException(a+" requires an output path");}
 				ncrnaVoteDiagLog=b;
-			}else if(a.equals("hist") || a.equalsIgnoreCase("outhist")
-				|| a.equalsIgnoreCase("lengthhist") || a.equalsIgnoreCase("lhist")
-				|| a.equalsIgnoreCase("genehist")){
+			}else if(a.equalsIgnoreCase("ncrnaboundarytrace")){
+				if(b==null || b.isEmpty()){throw new IllegalArgumentException(a+" requires an output path");}
+				ncrnaBoundaryTraceLog=b;
+			}else if(a.equalsIgnoreCase("ncrnaboundarytracefamily")){
+				ncrnaBoundaryTraceFamily=parseNcrnaFamily(b);
+			}else if(a.equalsIgnoreCase("ncrnaboundaryinvocationsonly")){
+				ncrnaBoundaryInvocationsOnly=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("ncrnaselectiontrace")){
+				if(b==null || b.isEmpty()){throw new IllegalArgumentException(a+" requires an output path");}
+				ncrnaSelectionTraceLog=b;
+			}else if(a.equals("hist") || a.equalsIgnoreCase("outhist") || a.equalsIgnoreCase("lengthhist") || a.equalsIgnoreCase("lhist") || a.equalsIgnoreCase("genehist")){
 				geneHistFile=b;
 			}else if(a.equals("bins")){
 				geneHistBins=Integer.parseInt(b);
@@ -781,6 +790,37 @@ public class CallGenes extends ProkObject {
 				S18_ENABLED=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("ncrnafamily")){
 				NCRNA_FAMILY_FILTER=parseNcrnaFamily(b);
+			}else if(a.equals("cobalaminddl")){
+				if(b==null || b.isEmpty()){
+					throw new IllegalArgumentException("cobalaminddl requires the explicit RF00174 profile path");
+				}
+				cobalaminDdlPath=b;
+			}else if(a.equals("cobalamingc")){
+				if(b==null || b.isEmpty()){throw new IllegalArgumentException("cobalamingc requires the complete model-GC table");}
+				cobalaminGcPath=b;
+			}else if(a.equals("cobalamingcweight")){
+				if(b==null){throw new IllegalArgumentException("cobalamingcweight requires a nonnegative number");}
+				cobalaminGcWeight=Double.parseDouble(b);
+				if(!Double.isFinite(cobalaminGcWeight) || cobalaminGcWeight<0){
+					throw new IllegalArgumentException("cobalamingcweight must be finite and nonnegative");
+				}
+				cobalaminGcWeightSet=true;
+			}else if(a.equals("cobalamingccut")){
+				if(b==null){throw new IllegalArgumentException("cobalamingccut requires a positive SD distance or range");}
+				cobalaminGcRange=b.equalsIgnoreCase("range");
+				if(!cobalaminGcRange){
+					cobalaminGcCut=Double.parseDouble(b);
+					if(!Double.isFinite(cobalaminGcCut) || cobalaminGcCut<=0){
+						throw new IllegalArgumentException("cobalamingccut must be positive finite SD units or range");
+					}
+				}
+				cobalaminGcCutSet=true;
+			}else if(a.equals("cobalaminddlcap")){
+				cobalaminDdlCap="all".equalsIgnoreCase(b) ? Integer.MAX_VALUE : Parse.parseIntKMG(b);
+				if(cobalaminDdlCap!=50 && cobalaminDdlCap!=384 && cobalaminDdlCap!=Integer.MAX_VALUE){
+					throw new IllegalArgumentException("cobalaminddlcap must be50,384 orall for the RF00174 comparison");
+				}
+				cobalaminDdlCapSet=true;
 			}else if(a.equalsIgnoreCase("ncrnafamilyroot")){
 				if(b==null || b.isEmpty()){
 					throw new IllegalArgumentException("ncrnafamilyroot requires a directory containing manifest.tsv");
@@ -1038,9 +1078,8 @@ public class CallGenes extends ProkObject {
 			ncrnaCallerPolicy.validateLoaded(GeneCaller.ncrnaFamilies);
 			ncrnaCallerPolicy.report(outstream);
 		}
-		if(physicalNcrnaEdges){for(NcrnaFamily family:GeneCaller.ncrnaFamilies){
-			NcrnaFamilyRegistry.enablePhysicalEdges(family);
-		}}
+		configureCobalaminDdl();
+		if(physicalNcrnaEdges){for(NcrnaFamily family:GeneCaller.ncrnaFamilies){NcrnaFamilyRegistry.enablePhysicalEdges(family);}}
 		for(NcrnaFamily family:GeneCaller.ncrnaFamilies){if(MitoSsuModelPolicy.coverage(family.name,family.modelNames)){
 			MitoSsuTierPolicy.configured();// Reject malformed experiment controls before workers or output streams.
 		}}
@@ -1079,6 +1118,76 @@ public class CallGenes extends ProkObject {
 		return parser;
 	}
 	
+	/** True only after the explicit resource has loaded and bound to the actual family. */
+	public boolean hasSelectedCobalaminDdl(){return cobalaminDdlProfiles!=null && cobalaminDdlProfiles.selected();}
+
+	/** Uses the actually parsed baseline resources/controls without calling on
+	 * any input. Each returned worker owns its ranking and alignment scratch.
+	 * Caller construction and this factory do not run the genome-processing loop.
+	 */
+	public NcrnaScavenger savedCobalaminWindowWorker(final float identity){
+		return NcrnaDdlWindowAnalysis.savedWindowWorker(savedCobalaminFamily(), cobalaminDdlProfiles, identity);
+	}
+
+	/** Explicit shuffled verifier control, with discovery seeds bypassed. */
+	public NcrnaScavenger shuffledCobalaminWindowWorker(final float identity, final boolean spanGate){
+		return NcrnaDdlWindowAnalysis.shuffledWindowWorker(savedCobalaminFamily(), cobalaminDdlProfiles, identity, spanGate);
+	}
+
+	private NcrnaFamily savedCobalaminFamily(){
+		if(!hasSelectedCobalaminDdl() || cobalaminDdlCap!=Integer.MAX_VALUE
+			|| cobalaminGcPath!=null || cmEnabled || passes!=1){
+			throw new IllegalStateException("Acceptance replay requires the actual selected unlimited, no-GC/no-CM single-pass baseline configuration");
+		}
+		NcrnaFamily selected=null;
+		for(final NcrnaFamily family:GeneCaller.ncrnaFamilies){
+			if(!"cobalamin_rf00174".equals(family.name)){continue;}
+			if(selected!=null){throw new IllegalStateException("Replay cannot choose between duplicate configured RF00174 families");}
+			selected=family;
+		}
+		if(selected==null){throw new IllegalStateException("The replay configuration did not load its RF00174 resource");}
+		return selected;
+	}
+
+	/** Explicit RF00174 profile load; an omitted option opens no file. */
+	private void configureCobalaminDdl(){
+		if(cobalaminGcPath==null && (cobalaminGcWeightSet || cobalaminGcCutSet)){
+			throw new IllegalArgumentException("GC weight/cut options require cobalamingc=model_gc.tsv");
+		}
+		if(cobalaminGcPath!=null && (cobalaminDdlPath==null || !cobalaminGcWeightSet || !cobalaminGcCutSet)){
+			throw new IllegalArgumentException("cobalamingc requires selected cobalaminddl profiles and explicit cobalamingcweight/cobalamingccut");
+		}
+		if(cobalaminDdlPath==null){
+			if(cobalaminDdlCapSet){throw new IllegalArgumentException("cobalaminddlcap requires cobalaminddl=profile.tsv");}
+			return;
+		}
+		if(passes!=1){throw new IllegalArgumentException("cobalaminddl requires the ordinary passes=1 caller experiment");}
+		NcrnaFamily selected=null;
+		for(final NcrnaFamily family:GeneCaller.ncrnaFamilies){
+			if("cobalamin_rf00174".equals(family.name)){
+				if(selected!=null){throw new IllegalStateException("RF00174 may load once before binding hybrid profiles");}
+				selected=family;
+			}
+		}
+		if(selected==null){
+			throw new IllegalArgumentException("cobalaminddl requires a loaded cobalamin RF00174 family");
+		}
+		final long start=System.nanoTime();
+		cobalaminDdlProfiles=NcrnaDdlProfileResource.load(cobalaminDdlPath, selected.modelNames, selected.library);
+		if(cobalaminGcPath!=null){
+			final NcrnaWindowGcProfile gc=NcrnaWindowGcProfile.load(cobalaminGcPath, selected.modelNames,
+				cobalaminGcWeight, cobalaminGcCut, cobalaminGcRange);
+			cobalaminDdlProfiles=cobalaminDdlProfiles.withGc(gc);
+			outstream.println("RF00174 window GC: knownModels="+gc.knownModels()+" unknownModels="+(gc.models()-gc.knownModels())
+				+" weight="+gc.weight()+" cutoff="+(gc.observedRange() ? "range" : Double.toString(gc.cutoff()))
+				+" unknown=unadjusted zeroSD=exact");
+		}
+		NcrnaDdlShortlist.validateCap(cobalaminDdlProfiles, cobalaminDdlCap);
+		outstream.println("RF00174 "+(cobalaminDdlProfiles.dual() ? "sketch-only" : "hybrid")+" profiles: models="+cobalaminDdlProfiles.models()
+			+" buckets="+cobalaminDdlProfiles.buckets()+" cap="+cobalaminDdlCap
+			+" loadSeconds="+((System.nanoTime()-start)*1e-9));
+	}
+
 	/** Resolves run policy before resource loading; a custom code never inherits missing rows. */
 	static GeneticCode selectGeneticCode(Integer table, String file){
 		if(table!=null && file!=null){throw new IllegalArgumentException("transl_table and codefile are mutually exclusive");}
@@ -1094,10 +1203,20 @@ public class CallGenes extends ProkObject {
 	
 	/** Ensure files can be read and written */
 	private void checkFileExistence(){
+		if(ncrnaSelectionTraceLog!=null && (!ncrnaBoundaryInvocationsOnly || !Tools.isOutputFileName(ncrnaSelectionTraceLog))){
+			throw new IllegalArgumentException("ncrnaselectiontrace requires invocation-only boundary tracing and a named fresh output");
+		}
+		if(ncrnaBoundaryInvocationsOnly && ncrnaBoundaryTraceLog==null){
+			throw new IllegalArgumentException("ncrnaboundaryinvocationsonly requires a named boundary trace and target family");
+		}
+		if((ncrnaBoundaryTraceLog==null)!=(ncrnaBoundaryTraceFamily==null)){
+			throw new IllegalArgumentException("ncrnaboundarytrace and ncrnaboundarytracefamily must be selected together");
+		}
+		if(ncrnaBoundaryTraceLog!=null && (append || outGff==null || !gffInputOrdinal || !Tools.isOutputFileName(ncrnaBoundaryTraceLog))){
+			throw new IllegalArgumentException("Boundary trace requires a named non-append output and source-qualified GFF (gffinputordinal=t)");
+		}
 		//Ensure output files can be written
-		if(!Tools.testOutputFiles(overwrite, append, false, outGff, outAmino, out16S, out18S,
-			outIts, outStats, geneHistFile, fiveSAttemptLog, ncrnaDiagLog, ncrnaVoteDiagLog,
-			cmDiagLog, cmPlacementLog, hbmDiagLog)){
+		if(!Tools.testOutputFiles(overwrite, append, false, outGff, outAmino, out16S, out18S, outIts, outStats, geneHistFile, fiveSAttemptLog, ncrnaDiagLog, ncrnaVoteDiagLog, ncrnaBoundaryTraceLog, ncrnaSelectionTraceLog, cmDiagLog, cmPlacementLog, hbmDiagLog)){
 			outstream.println((outGff==null)+", "+outGff);
 			throw new RuntimeException("\n\noverwrite="+overwrite+"; Can't write to output files "
 				+outGff+", "+outAmino+", "+out16S+", "+out18S+", "+outIts+", "+outStats+", "
@@ -1126,6 +1245,8 @@ public class CallGenes extends ProkObject {
 		foo.add(fiveSAttemptLog);
 		foo.add(ncrnaDiagLog);
 		foo.add(ncrnaVoteDiagLog);
+		foo.add(ncrnaBoundaryTraceLog);
+		foo.add(ncrnaSelectionTraceLog);
 		foo.add(cmDiagLog);
 		foo.add(cmPlacementLog);
 		foo.add(hbmDiagLog);
@@ -1133,9 +1254,7 @@ public class CallGenes extends ProkObject {
 			throw new RuntimeException("\nSome file names were specified multiple times.\n");
 		}
 		if(cmLibrary!=null){
-			final String[] outputs={outGff, outAmino, out16S, out18S, outIts, outStats,
-				geneHistFile, fiveSAttemptLog, ncrnaDiagLog, ncrnaVoteDiagLog, cmDiagLog,
-				cmPlacementLog, hbmDiagLog};
+			final String[] outputs={outGff, outAmino, out16S, out18S, outIts, outStats, geneHistFile, fiveSAttemptLog, ncrnaDiagLog, ncrnaVoteDiagLog, ncrnaBoundaryTraceLog, ncrnaSelectionTraceLog, cmDiagLog, cmPlacementLog, hbmDiagLog};
 			for(String model : cmLibrary.paths){
 				for(String path : outputs){
 					if(!Tools.isOutputFileName(path)){continue;}
@@ -1163,9 +1282,7 @@ public class CallGenes extends ProkObject {
 		if(!Tools.testInputFiles(true, true, inGffList.toArray(new String[0]))){
 			throw new IllegalArgumentException("Cannot read reference training GFF files");
 		}
-		final String[] outputs={outGff, outAmino, out16S, out18S, outIts, outStats,
-			geneHistFile, fiveSAttemptLog, ncrnaDiagLog, ncrnaVoteDiagLog, cmDiagLog,
-			cmPlacementLog, hbmDiagLog};
+		final String[] outputs={outGff, outAmino, out16S, out18S, outIts, outStats, geneHistFile, fiveSAttemptLog, ncrnaDiagLog, ncrnaVoteDiagLog, ncrnaBoundaryTraceLog, ncrnaSelectionTraceLog, cmDiagLog, cmPlacementLog, hbmDiagLog};
 		for(String gff : inGffList){
 			final File reference=new File(gff);
 			for(String path : outputs){
@@ -1339,9 +1456,7 @@ public class CallGenes extends ProkObject {
 		if(hbmReference==null){throw new IllegalArgumentException("hbmreference requires a BBGAP resource directory");}
 		try{
 			proteinReference=ProteinSupport.load(annotationMode, hbmReference, hbmBoost, hbmStopBoost,
-				new String[]{outGff,outAmino,out16S,out18S,outIts,outStats,geneHistFile,
-				fiveSAttemptLog,ncrnaDiagLog,ncrnaVoteDiagLog,cmDiagLog,cmPlacementLog,hbmDiagLog},
-				tailPolicy, modelWeighted, protection, search);
+				new String[]{outGff,outAmino,out16S,out18S,outIts,outStats,geneHistFile,fiveSAttemptLog,ncrnaDiagLog,ncrnaVoteDiagLog,ncrnaBoundaryTraceLog,ncrnaSelectionTraceLog,cmDiagLog,cmPlacementLog,hbmDiagLog}, tailPolicy, modelWeighted, protection, search);
 		}catch(IOException e){throw new IllegalArgumentException("Could not load annotation reference: "+hbmReference, e);}
 		outstream.println("Protein support: mode="+annotationMode+" families="+proteinReference.familyCount()
 			+" reference="+proteinReference.referencePin()+" orf_bonus="+hbmBoost+" stop_bonus="+hbmStopBoost
@@ -1415,8 +1530,7 @@ public class CallGenes extends ProkObject {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Shared serial startup; retain the ordinary load/publication order exactly.
-	 * Per-genome calling and result writing remain outside this method. */
+	/** Shared serial startup used by ordinary calling and saved replay. */
 	private GeneModel initializeSharedResources(){
 		if(timeline!=null && !useFileWorkers()){timeline.singleInput(fnaList.size());}
 		NcrnaCpuProfile.checkOutput();
@@ -1473,6 +1587,11 @@ public class CallGenes extends ProkObject {
 
 	/** Create read streams and process all data */
 	void process(Timer t){
+		// Reject an unsupported trace before any output writer starts.
+		if(ncrnaBoundaryTraceLog!=null){
+			if(iterationFactory!=null){throw new IllegalArgumentException("Boundary tracing does not support policy iteration");}
+			NcrnaBoundaryTrace.validateTarget(ncrnaBoundaryTraceFamily, GeneCaller.ncrnaFamilies, ncrnaBoundaryInvocationsOnly);
+		}
 		final GeneModel defaultPgm=initializeSharedResources();
 		final boolean perFileTax=(useTaxonomy && !perContig);
 		final java.util.HashMap<String,GeneModel> phylumCache=selectionPhylumCache;
@@ -1515,6 +1634,20 @@ public class CallGenes extends ProkObject {
 			ncrnaDiagSink=new NcrnaStageDiagLogSink(ncrnaDiagBsw);
 		}
 		ByteStreamWriter ncrnaVoteDiagBsw=null;
+		ByteStreamWriter boundaryTraceBsw=null;
+		ByteStreamWriter selectionTraceBsw=null;
+		if(ncrnaBoundaryTraceLog!=null){
+			boundaryTraceBsw=new ByteStreamWriter(ncrnaBoundaryTraceLog, overwrite, false, false);
+			boundaryTraceBsw.start();
+			boundaryTraceBsw.print(ncrnaBoundaryInvocationsOnly ? NcrnaBoundaryTrace.INVOCATION_HEADER : NcrnaBoundaryTrace.HEADER);
+			boundaryTraceWriter=new NcrnaBoundaryTrace.Writer(boundaryTraceBsw, ncrnaBoundaryTraceFamily, ncrnaBoundaryInvocationsOnly);
+			if(ncrnaSelectionTraceLog!=null){
+				selectionTraceBsw=new ByteStreamWriter(ncrnaSelectionTraceLog, overwrite, false, false);
+				selectionTraceBsw.start();
+				selectionTraceBsw.print(NcrnaSelectionTrace.HEADER);
+				boundaryTraceWriter.setSelectionOutput(selectionTraceBsw);
+			}
+		}
 		NcrnaVoteDiagSink ncrnaVoteDiagSink=null;
 		if(ncrnaVoteDiagLog!=null){
 			ncrnaVoteDiagBsw=new ByteStreamWriter(ncrnaVoteDiagLog, overwrite, append, false);
@@ -1606,6 +1739,8 @@ public class CallGenes extends ProkObject {
 		if(ncrnaDiagBsw!=null){errorState|=ncrnaDiagBsw.poisonAndWait();}
 		if(proteinFateBsw!=null){errorState|=proteinFateBsw.poisonAndWait();}
 		if(ncrnaVoteDiagBsw!=null){errorState|=ncrnaVoteDiagBsw.poisonAndWait();}
+		if(boundaryTraceBsw!=null){errorState|=boundaryTraceBsw.poisonAndWait();}
+		if(selectionTraceBsw!=null){errorState|=selectionTraceBsw.poisonAndWait();}
 		if(cmDiagBsw!=null){errorState|=cmDiagBsw.poisonAndWait();}
 		if(cmPlacementBsw!=null){errorState|=cmPlacementBsw.poisonAndWait();}
 		
@@ -2409,6 +2544,10 @@ public class CallGenes extends ProkObject {
 			sequence[4], job.pgm, minLen, ordinal, attempt, diag, vote, 0);
 		worker.fileOutput=new CallGenesFileOutput(failure, outputChunks);
 		worker.inputName=job.fna;
+		if(boundaryTraceWriter!=null){
+			boundaryTraceWriter.input(ordinal, job.fna);
+			worker.caller.setBoundaryTrace(boundaryTraceWriter.worker(ordinal, ordinal));
+		}
 		if(fileCost!=null){worker.cost=fileCost.worker(ordinal);}
 		worker.setName("callgenes-file-"+ordinal);
 		worker.start();
@@ -2568,12 +2707,14 @@ public class CallGenes extends ProkObject {
 		//Determine how many threads may be used
 		final int threads=Shared.threads();
 		if(timeline!=null){timeline.workers(threads);}
+		if(boundaryTraceWriter!=null){boundaryTraceWriter.input(inputOrdinal, fnaList.get(inputOrdinal));}
 		
 		//Fill a list with ProcessThreads
 		ArrayList<ProcessThread> alpt=new ArrayList<ProcessThread>(threads);
 		for(int i=0; i<threads; i++){
 			final ProcessThread worker=new ProcessThread(cris, bsw, rosAmino, ros16S, ros18S, rosIts,
 				pgm, minLen, i, attemptSink, ncrnaDiagSink, ncrnaVoteDiagSink, outputListOffset);
+			if(boundaryTraceWriter!=null){worker.caller.setBoundaryTrace(boundaryTraceWriter.worker(inputOrdinal, i));}
 			if(fileCost!=null){worker.cost=fileCost.worker(inputOrdinal);}
 			alpt.add(worker);
 		}
@@ -2999,6 +3140,7 @@ public class CallGenes extends ProkObject {
 			geneHistT=(geneHistBins>1 ? new long[geneHistBins] : null);
 			caller=new GeneCaller(minLen, maxOverlapSameStrand, maxOverlapOppositeStrand, 
 					minStartScore, minStopScore, minKmerScore, minOrfScore, minAvgScore, pgm, geneticCode);
+			if(cobalaminDdlProfiles!=null){caller.setCobalaminDdl(cobalaminDdlProfiles, cobalaminDdlCap);}
 			caller.setAttemptSink(attemptSink_);
 			if(proteinReference!=null){caller.setProteinSupport(proteinReference);}
 			if(stopTailReference!=null){caller.setStopTailSupport(stopTailReference);}
@@ -3028,12 +3170,16 @@ public class CallGenes extends ProkObject {
 		@Override
 		public void run(){
 			try{
-				if(cost==null){runInner();}else{
-					cost.start();
-					try{runInner();}finally{cost.stop(success);}
-				}
+				if(cost==null){runInner();return;}
+				cost.start();
+				try{runInner();}finally{cost.stop(success);}
+			}catch(OutOfMemoryError e){
+				// Free emergency memory before formatting the original OOM and heap guidance.
+				KillSwitch.memKill(e);
+				throw e;
 			}catch(Throwable e){
-				// A diagnostic failure must not strand a reader or ordered output consumer.
+				// A worker failure must not strand a reader or output writer after main exits.
+				e.printStackTrace(outstream);
 				KillSwitch.kill("CallGenes worker failed: "+e);
 				throw new IllegalStateException(e);
 			}
@@ -3067,6 +3213,9 @@ public class CallGenes extends ProkObject {
 		void processInner(){
 			// Generic CRIS.fname() combines both producers (including ",null" for
 			// an unpaired input). Bind the original native FileJob path instead.
+			if(boundaryTraceWriter!=null && cris.paired()){
+				throw new IllegalArgumentException("Boundary tracing requires unpaired assembly contigs");
+			}
 			if(iterationFactory!=null){iteration=iterationFactory.create(inputName, caller, pgm);}
 			
 			//Grab the first ListNum of reads
@@ -3239,6 +3388,7 @@ public class CallGenes extends ProkObject {
 		}
 		private ArrayList<Orf> processReadBody(final Read r,
 				ArrayList<RrnaItsDeriver.Derived> itsOut, ArrayList<Read> aminoOut){
+			if(boundaryTraceWriter!=null && iteration!=null){throw new IllegalArgumentException("Boundary tracing does not support policy iteration");}
 			emittedSequences=0;
 			ArrayList<Orf> list=iteration==null ? caller.callGenes(r, pgm, true) : iteration.call(r);
 			if((proteinReference!=null || stopTailReference!=null) && list!=null){for(Orf orf : list){if(orf.proteinBonus>0){
@@ -3929,7 +4079,10 @@ public class CallGenes extends ProkObject {
 		for(int i=0; i<names.length; i++){
 			families[i]=loadSharedBoundaryFamily(names[i], null, null, null, -1, 0f, false, 0f, false);
 		}
-		requireCobalaminGroup(families);
+		final String replacedMember=(NCRNA_KMERS_OVERRIDE!=null || NCRNA_FAMILY_ROOT!=null)
+			&& NcrnaFamilyRegistry.isCobalamin(NCRNA_FAMILY_FILTER) && !"cobalamin".equals(NCRNA_FAMILY_FILTER)
+			? NCRNA_FAMILY_FILTER : null;
+		requireCobalaminGroup(families, replacedMember);
 		int modelCount=0;
 		for(NcrnaFamily family:families){
 			GeneCaller.ncrnaFamilies.add(family);modelCount+=family.library.length;
@@ -3941,15 +4094,21 @@ public class CallGenes extends ProkObject {
 				+" idBorderline="+family.idBorderline+" hbmPass="+family.hbmPass);
 		}
 		System.err.println("Cobalamin clan: families="+families.length+" models="+modelCount
-			+" sharedSeedKeys="+families[0].kmerSet.size());
+			+" seedKeyCounts="+families[0].kmerSet.size()+","+families[1].kmerSet.size()+","+families[2].kmerSet.size());
 	}
 
 	/** Model prefixes preserve emitted subtype; every shared seed must fan out to all members. */
 	public static void requireCobalaminGroup(NcrnaFamily[] families){
-		if(families==null || families.length!=3){
-			throw new IllegalArgumentException("The B12 clan requires all three subfamilies");
-		}
+		requireCobalaminGroup(families, null);
+	}
+
+	/** Only an explicit single-member seed/root replacement may differ; untouched
+	 * siblings still share their original set. The family-bit index supports both.
+	 */
+	private static void requireCobalaminGroup(final NcrnaFamily[] families, final String replacedMember){
+		if(families==null || families.length!=3){throw new IllegalArgumentException("The B12 clan requires all three subfamilies");}
 		final String[] members={"RF00174", "RF01482", "RF01689"};
+		int replaced=-1;
 		for(int i=0; i<families.length; i++){
 			final NcrnaFamily f=families[i];
 			if(f==null || !f.name.equals("cobalamin_"+members[i].toLowerCase(java.util.Locale.ROOT))
@@ -3963,15 +4122,19 @@ public class CallGenes extends ProkObject {
 						+members[i]+" / "+name);
 				}
 			}
-			if(f.kmerSet.size()!=families[0].kmerSet.size()){
-				throw new IllegalArgumentException("B12 members require one identical shared seed set");
-			}
+			if(f.name.equals(replacedMember)){replaced=i;}
 		}
-		for(long key:families[0].kmerSet.toArray()){
-			for(int i=1; i<families.length; i++){
+		assert(replacedMember==null || replaced>=0) : "The scoped seed exception must name an actual validated B12 member: "+replacedMember;
+		final int shared=replaced==0 ? 1 : 0;
+		final long[] sharedKeys=families[shared].kmerSet.toArray();
+		for(int i=0; i<families.length; i++){
+			if(i==replaced || i==shared){continue;}
+			if(families[i].kmerSet.size()!=families[shared].kmerSet.size()){
+				throw new IllegalArgumentException("Untouched B12 members require one identical shared seed set");
+			}
+			for(final long key:sharedKeys){
 				if(!families[i].kmerSet.contains(key)){
-					throw new IllegalArgumentException("B12 members require identical forward17-mers; "
-						+"scope seed overrides to ncrnafamily=cobalamin");
+					throw new IllegalArgumentException("Untouched B12 members require identical forward17-mers; use an explicit member-scoped seed replacement");
 				}
 			}
 		}
@@ -4469,8 +4632,9 @@ public class CallGenes extends ProkObject {
 		options.boundary=boundary;
 		options.boundaryStartOffsets=effectiveBoundaryStartOffsets(name);
 		options.boundaryStopOffsets=boundaryStopOffsets(name);
-		options.boundaryMarginStart=marginStart;options.boundaryMarginStop=marginStop;
-		options.boundaryMarginStartSet=true;options.boundaryMarginStopSet=true;
+		options.boundaryMarginStart=marginStart;
+		options.boundaryMarginStop=marginStop;
+		options.boundaryMarginStartSet=options.boundaryMarginStopSet=true;
 		if(boundary){
 			// 5.8S uses its packaged shared-boundary roles; LSU retains explicit/legacy development resources.
 			options.resources.boundary=name.equals("r58") ? explicitNcrnaResource(name, "boundary", net) :
@@ -5976,6 +6140,14 @@ public class CallGenes extends ProkObject {
 	private static String NCRNA_FAMILY_ROOT=null;
 	/** Explicit one-policy table; null opens no file and preserves scalar defaults. */
 	private static NcrnaCallerPolicy ncrnaCallerPolicy;
+	/** Omitted path means no profile I/O, worker scratch or experimental ORF fields. */
+	private String cobalaminDdlPath;
+	private String cobalaminGcPath;
+	private double cobalaminGcWeight, cobalaminGcCut;
+	private boolean cobalaminGcWeightSet, cobalaminGcCutSet, cobalaminGcRange;
+	private NcrnaDdlProfileResource cobalaminDdlProfiles;
+	private int cobalaminDdlCap=384;
+	private boolean cobalaminDdlCapSet;
 
 	/** Engineering-sweep controls. The generic overrides deliberately require one explicit
 	 * family so a command cannot silently apply one value to biologically different callers. */
@@ -6268,6 +6440,13 @@ public class CallGenes extends ProkObject {
 	private String ncrnaDiagLog=null;
 	/** Optional generated-vote evidence, independent of the established stage logger. */
 	private String ncrnaVoteDiagLog=null;
+	/** Optional source-qualified ungated boundary evidence; never enabled by default. */
+	private String ncrnaBoundaryTraceLog=null, ncrnaBoundaryTraceFamily=null;
+	/** Optional complete selected path/report geometry, separate from candidate events. */
+	private String ncrnaSelectionTraceLog=null;
+	/** Explicit observation mode; full score tracing keeps its existing resource restrictions. */
+	private boolean ncrnaBoundaryInvocationsOnly=false;
+	private NcrnaBoundaryTrace.Writer boundaryTraceWriter=null;
 	/** Output filename for gene length histogram */
 	private String geneHistFile=null;
 	/** Whether to output statistics in JSON format */
@@ -6314,6 +6493,8 @@ public class CallGenes extends ProkObject {
 	private boolean overwrite=true;
 	/** Whether to append to existing output files instead of overwriting */
 	private boolean append=false;
+	/** Opt-in zero-based input-boundary comments, emitted only by the GFF publisher. */
+	private boolean gffInputOrdinal=false;
 	/**
 	 * Whether to maintain input order in output (may cause hanging on some sequences)
 	 */
@@ -6323,6 +6504,5 @@ public class CallGenes extends ProkObject {
 	//is repaired by emitting one possibly-empty list per CRIS batch from processList.
 	// OK for GFF and amino output; sparse RNA sequence outputs still need batchwise emission.
 	private boolean ordered=false;
-	private boolean gffInputOrdinal=false;
 	
 }

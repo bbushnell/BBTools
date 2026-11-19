@@ -43,6 +43,61 @@ final class NcrnaReferenceBatch{
 		return new Task(id, prepared, results, physical, expectedHits, catalog);
 	}
 
+	/** The bundled collector has scan-local batch IDs and no fabricated hit total. */
+	static Task bundledTask(final String group, final String id, final String prepared, final String results,
+		final String bundle, final long genomes, final long bases, final long records, final NcrnaEvidenceCatalog catalog){
+		final Task task=new Task(id, prepared, results, results, -1, catalog, group, bundle);
+		require(task.genomes.size()==genomes && task.bases==bases && task.records==records,
+			"Bundled collector dimensions must match the native input receipt and preparation");
+		return task;
+	}
+
+	/** Check each CM header once before workers start; HMM-filter headers are separate.
+	 * This is metadata binding, not a substitute for the recipe's byte authentication.
+	 */
+	static void validateBundle(final String path, final Roster roster){
+		final Words words=new Words();
+		final boolean[] seen=new boolean[roster.queried()];
+		boolean inModel=false;
+		String name=null, accession=null;
+		long length=-1;
+		double ga=Double.NaN;
+		try(Input in=new Input(path)){
+			for(byte[] row=in.reader.nextLine(); row!=null; row=in.reader.nextLine()){
+				words.set(row);
+				if(words.eq(0, "INFERNAL1/a")){
+					require(!inModel, "Unterminated CM in bundle");
+					inModel=true;
+					name=null;
+					accession=null;
+					length=-1;
+					ga=Double.NaN;
+				}else if(inModel && words.eq(0, "NAME")){
+					require(name==null, "Repeated CM name");
+					name=words.text(1);
+				}else if(inModel && words.eq(0, "ACC")){
+					require(accession==null, "Repeated CM accession");
+					accession=words.text(1);
+				}else if(inModel && words.eq(0, "CLEN")){
+					require(length<0, "Repeated CM length");
+					length=words.number(1, 0, 0);
+				}else if(inModel && words.eq(0, "GA")){
+					require(Double.isNaN(ga), "Repeated CM GA threshold");
+					ga=Double.parseDouble(words.text(1));
+				}else if(inModel && words.eq(0, "//")){
+					final Model model=accession==null ? null : roster.model(accession);
+					require(model!=null && model.queryIndex()>=0 && !seen[model.queryIndex()]
+						&& model.queryName().equals(name) && model.length==length && model.ga==ga,
+						"Bundled CM metadata differs from the captured queried roster: "+accession);
+					seen[model.queryIndex()]=true;
+					inModel=false;
+				}
+			}
+		}
+		require(!inModel, "Unterminated final CM in bundle");
+		for(final boolean present:seen){require(present, "Every queried model must occur in the bound bundle");}
+	}
+
 	/** Reads each model table once; successful return conserves the whole batch. */
 	static Evidence[] read(final Task task, final NcrnaEvidenceCatalog catalog,
 		final Roster roster, final double searchSpaceMb){
@@ -50,17 +105,26 @@ final class NcrnaReferenceBatch{
 		reader.readMap();
 		reader.readCompletion();
 		long total=0;
-		for(int i=0; i<roster.queried(); i++){
-			final Model model=roster.query(i);
-			final String point=new File(task.results, model.accession).getPath();
-			final String physical=new File(task.physicalResults, model.accession).getPath();
-			require(line(new File(physical, "exit.txt").getPath()).equals("0"), "A failed model search cannot supply empty evidence: "+point);
-			reader.readSearch(new File(physical, "search.out").getPath(), model, reader.expected[i]);
-			final long observed=reader.readHits(new File(point, "hits.tbl").getPath(), new File(physical, "hits.tbl").getPath(), model, reader.reportBits[i]);
-			require(observed==reader.expected[i], "Native reported-hit count differs from the complete table: "+model.accession);
-			total=Math.addExact(total, observed);
+		if(task.bundle!=null){
+			reader.readBundledSearch(new File(task.physicalResults, "search.out").getPath());
+			total=reader.readHits(new File(task.results, "hits.tbl").getPath(),
+				new File(task.physicalResults, "hits.tbl").getPath(), null, Double.NaN);
+			for(int i=0; i<roster.queried(); i++){
+				require(reader.observed[i]==reader.expected[i], "Bundled native hit count differs for "+roster.query(i).accession);
+			}
+		}else{
+			for(int i=0; i<roster.queried(); i++){
+				final Model model=roster.query(i);
+				final String point=new File(task.results, model.accession).getPath();
+				final String physical=new File(task.physicalResults, model.accession).getPath();
+				require(line(new File(physical, "exit.txt").getPath()).equals("0"), "A failed model search cannot supply empty evidence: "+point);
+				reader.readSearch(new File(physical, "search.out").getPath(), model, reader.expected[i]);
+				final long observed=reader.readHits(new File(point, "hits.tbl").getPath(), new File(physical, "hits.tbl").getPath(), model, reader.reportBits[i]);
+				require(observed==reader.expected[i], "Native reported-hit count differs from the complete table: "+model.accession);
+				total=Math.addExact(total, observed);
+			}
 		}
-		require(total==task.expectedHits, "Batch collector and actual native hit totals differ");
+		require(task.bundle!=null || total==task.expectedHits, "Batch collector and actual native hit totals differ");
 		long distributed=0;
 		for(final Evidence evidence:reader.evidence){distributed=Math.addExact(distributed, evidence.size());}
 		require(distributed==total, "Every native hit must map to exactly one input");
@@ -81,6 +145,7 @@ final class NcrnaReferenceBatch{
 			inputIndex.put(Long.parseLong(genome.id), i);
 		}
 		expected=new long[roster.queried()];
+		observed=new long[roster.queried()];
 		reportBits=new double[roster.queried()];
 	}
 
@@ -120,26 +185,33 @@ final class NcrnaReferenceBatch{
 	/** Reads actual batch/model completion, not inferred per-genome native receipts. */
 	private void readCompletion(){
 		require(line(new File(task.physicalResults, "exit.txt").getPath()).equals("0"), "Incomplete batch search cannot be imported");
-		final byte[] copied=oneRow(new File(task.physicalResults, "input.tsv").getPath(), BINDING_HEADER);
-		require(Arrays.equals(copied, task.binding), "Search must retain the exact accepted preparation binding");
+		final boolean bundled=task.bundle!=null;
+		if(!bundled){
+			final byte[] copied=oneRow(new File(task.physicalResults, "input.tsv").getPath(), BINDING_HEADER);
+			require(Arrays.equals(copied, task.binding), "Search must retain the exact accepted preparation binding");
+		}
 		final LineParser1 p=new LineParser1('\t');
 		final boolean[] seen=new boolean[roster.queried()];
 		int count=0;
 		final String path=new File(task.physicalResults, "completion.tsv").getPath();
 		try(Input in=new Input(path)){
-			RrnaResourceIO.header(in.reader, COMPLETION_HEADER, path);
+			RrnaResourceIO.header(in.reader, bundled ? BUNDLED_COMPLETION_HEADER : COMPLETION_HEADER, path);
 			for(byte[] row=in.reader.nextLine(); row!=null; row=in.reader.nextLine()){
 				p.set(row);
-				require(p.terms()==9 && p.termEquals(task.id, 0) && p.termEquals("COMPLETE", 8), "Native completion must identify this complete batch");
+				require(p.terms()==(bundled ? 7 : 9) && p.termEquals(task.id, 0)
+					&& p.termEquals("COMPLETE", bundled ? 6 : 8), "Native completion must identify this complete batch");
 				int query=-1;
 				for(int i=0; i<roster.queried(); i++){if(p.termEquals(roster.query(i).accession, 1)){query=i;}}
 				require(query>=0 && !seen[query], "Unknown or repeated completed model");
 				require(p.parseLong(2)==task.records && p.parseLong(3)==task.bases && p.parseLong(4)==Math.multiplyExact(task.bases, 2),
 					"Native batch dimensions differ from the exact prepared population");
 				expected[query]=p.parseLong(5);
-				reportBits[query]=p.parseDouble(7);
-				require(expected[query]>=0 && p.parseDouble(6)==roster.query(query).ga && Double.isFinite(reportBits[query])
-					&& reportBits[query]>0 && reportBits[query]<roster.query(query).ga, "Invalid native hit count or original-GA/report binding");
+				require(expected[query]>=0, "Native reported-hit count cannot be negative");
+				if(!bundled){
+					reportBits[query]=p.parseDouble(7);
+					require(p.parseDouble(6)==roster.query(query).ga && Double.isFinite(reportBits[query])
+						&& reportBits[query]>0 && reportBits[query]<roster.query(query).ga, "Invalid native hit count or original-GA/report binding");
+				}
 				seen[query]=true;
 				count++;
 			}
@@ -152,10 +224,11 @@ final class NcrnaReferenceBatch{
 	/*--------------------------------------------------------------*/
 
 	/** Reads physical bytes but keeps original path/line witnesses and footer checks. */
-	private long readHits(final String path, final String physicalPath, final Model model, final double lower){
+	private long readHits(final String path, final String physicalPath, final Model selected, final double lower){
 		final RrnaCmTruthBuilder.Fields fields=new RrnaCmTruthBuilder.Fields();
 		long number=0, count=0;
 		boolean program=false, version=false, command=false, finished=false;
+		Model previous=selected;
 		try(Input in=new Input(physicalPath)){
 			for(byte[] row=in.reader.nextLine(); row!=null; row=in.reader.nextLine()){
 				number++;
@@ -171,13 +244,15 @@ final class NcrnaReferenceBatch{
 						version=true;
 					}else if(text.startsWith("# Option settings:")){
 						require(!command, "Repeated native command footer");
-						checkCommand(text.substring(18).trim(), model, lower, path);
+						checkCommand(text.substring(18).trim(), selected, lower, path);
 						command=true;
 					}else if(text.equals("# [ok]")){finished=true;}
 					continue;
 				}
 				fields.set(row);
-				if(!fields.eq(4, "cm") || !fields.eq(3, model.accession) || !fields.eq(2, model.queryName())){
+				if(selected==null && (previous==null || !fields.eq(3, previous.accession))){previous=roster.model(fields.text(3));}
+				final Model model=previous;
+				if(model==null || model.queryIndex()<0 || !fields.eq(4, "cm") || !fields.eq(3, model.accession) || !fields.eq(2, model.queryName())){
 					throw new IllegalArgumentException("Unexpected model/type in native report: "+path+':'+number);
 				}
 				probe.set(row, fields.start[0], fields.end[0]);
@@ -185,8 +260,10 @@ final class NcrnaReferenceBatch{
 				if(target==null){throw new IllegalArgumentException("Unknown synthetic native target: "+path+':'+number);}
 				final Evidence item=evidence[target.input];
 				final Hit hit=new Hit(path, number, row, target.original, target.synthetic, model, fields, item.observed, true);
+				require(selected!=null || hit.included, "A --cut_ga bundled report cannot contain a natively excluded hit");
 				if(!hit.range.equals("VALID_INTERVAL")){throw new IllegalArgumentException("Native coordinates leave the captured contig: "+path+':'+number);}
 				item.addBatchHit(hit);
+				observed[model.queryIndex()]++;
 				count++;
 			}
 		}
@@ -196,7 +273,8 @@ final class NcrnaReferenceBatch{
 
 	/** The real native footer, rather than a manually reconstructed command, binds inclusion. */
 	private void checkCommand(final String command, final Model model, final double lower, final String table){
-		CompareCmSearchCosts.checkCommand(command, model.path, model.ga, lower, true);
+		if(model==null){CompareCmSearchCosts.checkCommand(command, task.bundle, Double.NaN, Double.NaN, false);}
+		else{CompareCmSearchCosts.checkCommand(command, model.path, model.ga, lower, true);}
 		final String[] argv=command.trim().split(" +");
 		require(argv[argv.length-1].equals(task.fasta), "Native command searched a different prepared batch");
 		int cpu=0, space=0, format=0, output=0, searchReport=0, noHmm=0, noAli=0;
@@ -251,6 +329,49 @@ final class NcrnaReferenceBatch{
 		require(queries==1 && accessions==1 && dimensions==1 && totals==1 && ends==1, "Native search report is incomplete or contains multiple queries");
 	}
 
+	/** Each query, including a zero-hit query, must have its own complete accounting. */
+	private void readBundledSearch(final String path){
+		final Words words=new Words();
+		final boolean[] seen=new boolean[roster.queried()];
+		int query=-1;
+		int accessions=0, dimensions=0, totals=0, ends=0;
+		try(Input in=new Input(path)){
+			for(byte[] row=in.reader.nextLine(); row!=null; row=in.reader.nextLine()){
+				words.set(row);
+				require(ends==0 || words.count==0, "Content follows native search completion");
+				if(words.eq(0, "Query:")){
+					require(query<0 || accessions==1 && dimensions==1 && totals==1, "Incomplete bundled query accounting");
+					query=-1;
+					for(int i=0; i<roster.queried(); i++){
+						if(words.eq(1, roster.query(i).queryName())){
+							require(query<0, "Query name must identify one roster model");
+							query=i;
+						}
+					}
+					require(query>=0 && !seen[query] && words.clen(2)==roster.query(query).length,
+						"Unknown, repeated or length-mismatched bundled query");
+					seen[query]=true;
+					accessions=0;
+					dimensions=0;
+					totals=0;
+				}else if(words.eq(0, "Accession:")){
+					require(query>=0 && words.eq(1, roster.query(query).accession), "Bundled query accession differs from roster");
+					accessions++;
+				}else if(words.eq(0, "Target") && words.eq(1, "sequences:")){
+					require(query>=0 && words.count>3 && row[words.start[3]]=='('
+						&& words.number(2, 0, 0)==task.records && words.number(3, 1, 0)==Math.multiplyExact(task.bases, 2),
+						"Bundled native query searched different target dimensions");
+					dimensions++;
+				}else if(words.eq(0, "Total") && words.eq(1, "CM") && words.eq(2, "hits") && words.eq(3, "reported:")){
+					require(query>=0 && words.number(4, 0, 0)==expected[query], "Bundled report and completion hit counts differ");
+					totals++;
+				}else if(words.eq(0, "[ok]")){ends++;}
+			}
+		}
+		require(query>=0 && accessions==1 && dimensions==1 && totals==1 && ends==1, "Bundled native search report is incomplete");
+		for(final boolean present:seen){require(present, "Missing native query cannot be treated as zero-hit coverage");}
+	}
+
 	/*--------------------------------------------------------------*/
 	/*----------------       Immutable Binding      ----------------*/
 	/*--------------------------------------------------------------*/
@@ -258,34 +379,60 @@ final class NcrnaReferenceBatch{
 	static final class Task{
 		Task(final String id_, final String prepared_, final String results_, final String physicalResults_,
 			final long expectedHits_, final NcrnaEvidenceCatalog catalog){
+			this(id_, prepared_, results_, physicalResults_, expectedHits_, catalog, null, null);
+		}
+		Task(final String id_, final String prepared_, final String results_, final String physicalResults_,
+			final long expectedHits_, final NcrnaEvidenceCatalog catalog, final String group_, final String bundle_){
 			id=id_;
+			bundle=bundle_;
+			key=bundle==null ? id : group_+":"+id;
 			prepared=prepared_;
 			results=results_;
 			physicalResults=physicalResults_;
 			expectedHits=expectedHits_;
 			require(id.matches("0|[1-9][0-9]*") && new File(prepared).isAbsolute() && new File(results).isAbsolute()
-				&& new File(physicalResults).isAbsolute() && expectedHits>=0,
+				&& new File(physicalResults).isAbsolute() && (bundle==null ? expectedHits>=0
+					: expectedHits==-1 && group_!=null && group_.matches("[A-Za-z0-9_.-]+") && new File(bundle).isAbsolute()),
 				"Batch collector needs a canonical ID, absolute directories and nonnegative hit count");
-			binding=oneRow(new File(prepared, "binding.tsv").getPath(), BINDING_HEADER);
 			final LineParser1 p=new LineParser1('\t');
-			p.set(binding);
-			require(p.terms()==11 && p.termEquals(id, 0) && p.termEquals("PREPARATION_BOUND", 10), "Incomplete or foreign preparation binding");
-			fasta=text(p, 1);
-			fastaSha80=p.parseString(2);
-			mapping=text(p, 3);
-			mapSha80=p.parseString(4);
-			members=text(p, 5);
-			membersSha80=p.parseString(6);
-			final long count=p.parseLong(7);
-			bases=p.parseLong(8);
-			records=p.parseLong(9);
-			require(fasta.equals(new File(prepared, "batch.fa").getPath()) && mapping.equals(new File(prepared, "targets.tsv").getPath())
-				&& members.equals(new File(prepared, "members.tsv").getPath()), "Preparation binding must name this batch's actual artifacts");
-			require(SeedOffsetTable.validSha80(fastaSha80) && SeedOffsetTable.validSha80(mapSha80) && SeedOffsetTable.validSha80(membersSha80)
-				&& count>0 && count<=catalog.size() && bases>0 && records>0, "Preparation needs declared sha80 identities and positive dimensions");
-			p.set(oneRow(new File(prepared, "summary.tsv").getPath(), PREPARED_HEADER));
-			require(p.terms()==6 && p.termEquals(id, 0) && p.parseInt(1)>=0 && p.parseLong(2)==count
-				&& p.parseLong(3)==bases && p.parseLong(4)==records && p.termEquals("PREPARED_NOT_SEARCHED", 5), "Preparation summary differs from binding");
+			final long count;
+			if(bundle!=null){
+				binding=null;
+				fasta=new File(prepared, "batch.fa").getPath();
+				mapping=new File(prepared, "targets.tsv").getPath();
+				members=new File(prepared, "members.tsv").getPath();
+				final String[] hashes=readInputReceipt(new File(physicalResults, "input.tsv").getPath(), prepared);
+				fastaSha80=hashes[0];
+				mapSha80=hashes[1];
+				membersSha80=hashes[2];
+				p.set(oneRow(new File(prepared, "summary.tsv").getPath(), PREPARED_HEADER));
+				require(p.terms()==6 && p.termEquals(id, 0) && p.parseInt(1)>=0 && p.termEquals("PREPARED_NOT_SEARCHED", 5),
+					"Incomplete or foreign bundled preparation summary");
+				count=p.parseLong(2);
+				bases=p.parseLong(3);
+				records=p.parseLong(4);
+			}else{
+				binding=oneRow(new File(prepared, "binding.tsv").getPath(), BINDING_HEADER);
+				p.set(binding);
+				require(p.terms()==11 && p.termEquals(id, 0) && p.termEquals("PREPARATION_BOUND", 10), "Incomplete or foreign preparation binding");
+				fasta=text(p, 1);
+				fastaSha80=p.parseString(2);
+				mapping=text(p, 3);
+				mapSha80=p.parseString(4);
+				members=text(p, 5);
+				membersSha80=p.parseString(6);
+				count=p.parseLong(7);
+				bases=p.parseLong(8);
+				records=p.parseLong(9);
+				require(fasta.equals(new File(prepared, "batch.fa").getPath()) && mapping.equals(new File(prepared, "targets.tsv").getPath())
+					&& members.equals(new File(prepared, "members.tsv").getPath()), "Preparation binding must name this batch's actual artifacts");
+				require(SeedOffsetTable.validSha80(fastaSha80) && SeedOffsetTable.validSha80(mapSha80) && SeedOffsetTable.validSha80(membersSha80)
+					&& count>0 && count<=catalog.size() && bases>0 && records>0, "Preparation needs declared sha80 identities and positive dimensions");
+				p.set(oneRow(new File(prepared, "summary.tsv").getPath(), PREPARED_HEADER));
+				require(p.terms()==6 && p.termEquals(id, 0) && p.parseInt(1)>=0 && p.parseLong(2)==count
+					&& p.parseLong(3)==bases && p.parseLong(4)==records && p.termEquals("PREPARED_NOT_SEARCHED", 5), "Preparation summary differs from binding");
+			}
+			require(count>0 && count<=catalog.size() && bases>0 && records>0, "Prepared batch dimensions must be positive and bounded by the catalog");
 			final LongIntMap seen=new LongIntMap(16);
 			long memberBases=0, memberRecords=0;
 			try(Input in=new Input(members)){
@@ -306,12 +453,34 @@ final class NcrnaReferenceBatch{
 			}
 			require(genomes.size()==count && memberBases==bases && memberRecords==records, "Prepared members do not conserve the batch population");
 		}
-		final String id, prepared, results, fasta, mapping, members, fastaSha80, mapSha80, membersSha80;
+		final String id, key, bundle, prepared, results, fasta, mapping, members, fastaSha80, mapSha80, membersSha80;
 		/** Read location only; never substituted into original command bindings or evidence keys. */
 		final String physicalResults;
 		final byte[] binding;
 		final long expectedHits, bases, records;
 		final ArrayList<Genome> genomes=new ArrayList<Genome>();
+	}
+
+	/** Actual bundled searches retain three provenance rows, not an old-format binding. */
+	private static String[] readInputReceipt(final String path, final String prepared){
+		final String[] names={"batch.fa", "targets.tsv", "members.tsv"};
+		final String[] hashes=new String[names.length];
+		final LineParser1 p=new LineParser1('\t');
+		try(Input in=new Input(path)){
+			RrnaResourceIO.header(in.reader, "role\tpath\tsha80", path);
+			for(byte[] row=in.reader.nextLine(); row!=null; row=in.reader.nextLine()){
+				p.set(row);
+				require(p.terms()==3, "Native input receipt requires role, path and sha80");
+				int slot=-1;
+				for(int i=0; i<names.length; i++){if(p.termEquals(names[i], 0)){slot=i;}}
+				require(slot>=0 && hashes[slot]==null && p.termEquals(new File(prepared, names[slot]).getPath(), 1),
+					"Unknown, repeated or foreign native input receipt row");
+				hashes[slot]=p.parseString(2);
+				require(SeedOffsetTable.validSha80(hashes[slot]), "Native input receipt must retain the declared sha80");
+			}
+		}
+		for(final String hash:hashes){require(hash!=null, "Missing native input receipt row");}
+		return hashes;
 	}
 
 	private static final class Mapping{
@@ -354,6 +523,10 @@ final class NcrnaReferenceBatch{
 			require(data[end[field]-1]==']', "Malformed native query CLEN terminator");
 			return number(field, 6, 1);
 		}
+		String text(final int field){
+			require(field<count, "Missing native metadata token");
+			return new String(data, start[field], end[field]-start[field], StandardCharsets.UTF_8);
+		}
 		byte[] data;
 		int count;
 		final int[] start=new int[8], end=new int[8];
@@ -390,11 +563,13 @@ final class NcrnaReferenceBatch{
 	private final double searchSpaceMb;
 	private final Evidence[] evidence;
 	private final long[] expected;
+	private final long[] observed;
 	private final double[] reportBits;
 	private final LongIntMap inputIndex=new LongIntMap(16);
 	private final ObjectMap<Target,Mapping> targets=new ObjectMap<Target,Mapping>(Target.class, Mapping.class);
 	private final Target probe=new Target();
 	static final String BINDING_HEADER="batch_id\tfasta\tfasta_sha80\tmapping\tmapping_sha80\tmembers\tmembers_sha80\tgenomes\tnucleotide_bases\tfasta_records\tstatus";
 	static final String COMPLETION_HEADER="batch_id\tmodel\tFASTA_records\tinput_bases\tsearched_residues\treported_hits\toriginal_GA_bits\treport_bits\tstatus";
+	static final String BUNDLED_COMPLETION_HEADER="batch_id\tmodel\tFASTA_records\tinput_bases\tsearched_residues\treported_hits\tstatus";
 	static final String PREPARED_HEADER="batch_id\ttask_id\tgenomes\tnucleotide_bases\tfasta_records\tstatus";
 }

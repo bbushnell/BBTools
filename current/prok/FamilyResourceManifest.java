@@ -44,7 +44,7 @@ final class FamilyResourceManifest {
 					require(role.equals("consensus") || role.equals("models") || role.equals("seeds") || role.equals("tables") || role.equals("endpoints") || role.equals("cutoffs")
 						|| role.equals("boundary") || role.equals("boundary_start") || role.equals("boundary_stop") || role.equals("legacy_consensus")
 						|| role.equals("vote_offsets") || role.equals("joined_model_positions") || role.equals("length_bounds")
-						|| role.equals("boundary_config"),
+						|| role.equals("boundary_config") || role.equals("positional_config"),
 						"Unknown resource role for "+family.id+": "+role);
 				}
 				final String key=key(member, role, model, end);
@@ -87,7 +87,8 @@ final class FamilyResourceManifest {
 	}
 	private static void validateFormat(String role, String path, String format){
 		final String expected=role.equals("consensus") || role.equals("legacy_consensus") || role.equals("seeds") ? "fasta" : role.equals("models") ? "hbm"
-			: role.equals("endpoints") ? "bbnets" : role.equals("boundary") ? "bbnet" : role.equals("boundary_config") ? "config" : "tsv";
+			: role.equals("endpoints") ? "bbnets" : role.equals("boundary") ? "bbnet"
+			: role.equals("boundary_config") || role.equals("positional_config") ? "config" : "tsv";
 		require(format.equals(expected), "Unsupported format for "+role+": "+format);
 		if(role.equals("models")){require(path.endsWith(".hbm") || path.endsWith(".hbmc") || path.endsWith(".hbmc.gz"),
 			"HBM format dispatch depends on the native .hbm/.hbmc[.gz] suffix: "+path);}

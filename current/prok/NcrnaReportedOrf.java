@@ -7,8 +7,9 @@ import shared.KillSwitch;
 
 /** RNA candidate whose refined endpoints are applied only after final selection.
  * Discovery, length gates, overlap resolution and path scoring use ordinary
- * start/stop fields containing the raw accepted alignment. Only glycine creates
- * this subtype; other RNA and CDS objects acquire no additional fields.
+ * start/stop fields containing the family's detection geometry: glycine's raw
+ * accepted alignment, or post-trim/pre-network bounds for opt-in cobalamin.
+ * Other RNA and CDS objects acquire no additional fields.
  * Stored reporting bounds are zero-based inclusive in the original sense frame.
  * @author Brian Bushnell, Raiden
  */
@@ -54,13 +55,20 @@ public final class NcrnaReportedOrf extends Orf{
 	public boolean applyReportedBounds(){
 		assert(reportedStart>=0 && reportedStop>=reportedStart && reportedStop<scaflen)
 			: KillSwitch.assertDie("Final output must use the physical bounds saved before strand flipping");
-		final int nextStart=flipped()==0 ? reportedStart : scaflen-1-reportedStop;
-		final int nextStop=flipped()==0 ? reportedStop : scaflen-1-reportedStart;
+		final int nextStart=reportStart();
+		final int nextStop=reportStop();
 		final boolean changed=start!=nextStart || stop!=nextStop;
 		start=nextStart;
 		stop=nextStop;
 		return changed;
 	}
+
+	/** Effective report in the original sense frame, before any GeneCaller flip. */
+	public int reportedSenseStart(){return reportedStart;}
+	public int reportedSenseStop(){return reportedStop;}
+	/** Saved report in the current frame, without changing selection geometry. */
+	public int reportStart(){return flipped()==0 ? reportedStart : scaflen-1-reportedStop;}
+	public int reportStop(){return flipped()==0 ? reportedStop : scaflen-1-reportedStart;}
 
 	/** Final-output handoff shared by GeneCaller and direct-scavenger consumers.
 	 * Does not add/remove calls or change scores. Restore output ordering only if

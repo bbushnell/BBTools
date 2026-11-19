@@ -9,6 +9,7 @@ import fileIO.ByteStreamWriter;
 import parse.LineParser1;
 import prok.NcrnaShredStages;
 import prok.NcrnaStageDiagLogSink;
+import prok.NcrnaStageDiagSink;
 import prok.RrnaResourceIO;
 import structures.ByteBuilder;
 
@@ -50,15 +51,15 @@ public final class NcrnaShredStagesTest {
 			log.model("cobalamin", "q0", 0, 200, 1, 0, 199, 0, "cobalamin_0", .60f);
 			log.model("cobalamin", "q0", 0, 200, 1, 0, 199, 1, "cobalamin_1", .65f);
 			// Edge verification may compute HBM even though equal thresholds select IDPASS.
-			log.window("cobalamin", "q0", 0, 200, 1, 0, 199, "ACCEPT_IDPASS", 2, 2, 1, "cobalamin_1", .65f, 0, .80f, 50, 149, false);
+			log.window("cobalamin", "q0", 0, 200, 1, 0, 199, "ACCEPT_IDPASS", 2, 2, 1, "cobalamin_1", .65f, 0, .80f, 50, 149, NcrnaStageDiagSink.PRIMARY_ID|NcrnaStageDiagSink.HBM, false);
 			log.model("cobalamin", "q0", 0, 200, 2, 0, 199, 0, "cobalamin_0", .70f);
-			log.window("cobalamin", "q0", 0, 200, 2, 0, 199, "ACCEPT_IDPASS", 2, 1, 0, "cobalamin_0", .70f, 0, 0, 50, 149, false);
+			log.window("cobalamin", "q0", 0, 200, 2, 0, 199, "ACCEPT_IDPASS", 2, 1, 0, "cobalamin_0", .70f, 0, 0, 50, 149, NcrnaStageDiagSink.PRIMARY_ID, false);
 			log.path("cobalamin", "q0", 0, 200, "cobalamin_1", 50, 149, false);log.path("cobalamin", "q0", 0, 200, "cobalamin_0", 50, 149, false);log.path("cobalamin", "q0", 0, 200, "cobalamin_0", 50, 149, true);
 			// Native appendSlow emits this finite value with an exponent.
 			log.model("cobalamin", "q3", 0, 200, 1, 0, 199, 0, "cobalamin_0", .0001f);
-			log.window("cobalamin", "q3", 0, 200, 1, 0, 199, "REJECT_ID", 1, 1, 0, "cobalamin_0", .0001f, 0, 0, -1, -1, false);
+			log.window("cobalamin", "q3", 0, 200, 1, 0, 199, "REJECT_ID", 1, 1, 0, "cobalamin_0", .0001f, 0, 0, -1, -1, NcrnaStageDiagSink.PRIMARY_ID, false);
 			log.model("cobalamin", "q4", 0, 200, 1, 0, 199, 0, "cobalamin_0", .66f);
-			log.window("cobalamin", "q4", 0, 200, 1, 0, 199, rescue?"ACCEPT_RESCUE":"ACCEPT_IDPASS", 1, 1, 0, "cobalamin_0", .66f, 0, 0, 50, 149, false);
+			log.window("cobalamin", "q4", 0, 200, 1, 0, 199, rescue?"ACCEPT_RESCUE":"ACCEPT_IDPASS", 1, 1, 0, "cobalamin_0", .66f, 0, 0, 50, 149, NcrnaStageDiagSink.PRIMARY_ID, false);
 			log.path("cobalamin", "q4", 0, 200, "cobalamin_0", 50, 149, false);
 		}finally{RrnaResourceIO.finish(out);}
 	}

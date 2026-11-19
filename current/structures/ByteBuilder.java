@@ -523,6 +523,7 @@ public final class ByteBuilder implements Serializable, CharSequence{
 	}
 
 	public ByteBuilder append(final double x0, final int decimals0, boolean concise){
+		//TODO: Probable bug - NaN reaches floating-to-long casts below and prints zero; observed in absent ncRNA GC fields. Callers needing missing values must emit them explicitly.
 //		if(true){return append(x0, decimals0);}
 		if(x0==(long)x0){return append((long)x0);}
 		// Round the magnitude before truncation, as in the fractional-digit path below.

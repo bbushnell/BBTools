@@ -43,10 +43,28 @@ public final class NcrnaNativeTrainer{
 	 */
 	public void train(final Method method, final String recipe, final String[] training,
 			final String validation, final File output){
+		train(method, recipe, training, validation, output, 10, 1);
+	}
+
+	/** Trains one positional network with explicitly bound feature/class widths.
+	 * Uses the same native regression trainer, process ownership and all-data
+	 * monitoring route. The ten-input scalar entry point retains its strict shape.
+	 */
+	public void trainPositional(final String recipe, final String[] training,
+			final String validation, final File output, final int inputs, final int classes){
+		if(inputs<1 || classes<2){
+			throw new IllegalArgumentException("Positional training requires positive feature width and at least two endpoint classes");
+		}
+		train(Method.REGRESSION, recipe, training, validation, output, inputs, classes);
+	}
+
+	/** The caller declares its data shape; a recipe cannot silently replace it. */
+	private void train(final Method method, final String recipe, final String[] training,
+			final String validation, final File output, final int inputs, final int outputs){
 		if(method==null || training==null || training.length==0 || output==null || output.exists()){
 			throw new IllegalArgumentException("Native training needs a method, nonempty inputs and a fresh network path");
 		}
-		final String[] arguments=recipe(method, recipe);
+		final String[] arguments=recipe(method, recipe, inputs, outputs);
 		final File script=new File(installation, method==Method.CLASSIFIER ? "train.sh" : "regressiontrainer.sh");
 		readable(script.getPath());
 		final String[] paths=new String[training.length];
@@ -74,7 +92,7 @@ public final class NcrnaNativeTrainer{
 	}
 
 	/** Loads native config syntax once; validates only the builder's scientific contract. */
-	private static String[] recipe(final Method method, final String path){
+	private static String[] recipe(final Method method, final String path, final int inputs, final int outputs){
 		readable(path);
 		final String[] arguments=Parser.parseConfig(new String[]{"config="+path});
 		int[] dims=null;
@@ -103,9 +121,9 @@ public final class NcrnaNativeTrainer{
 				cycles=NcrnaNumbers.intKMG(a, b);
 			}
 		}
-		if(dims==null || dims.length<2 || dims[0]!=10 || dims[dims.length-1]!=1
+		if(dims==null || dims.length<2 || dims[0]!=inputs || dims[dims.length-1]!=outputs
 				|| seed<0 || epochs<1 || fraction!=0 || nets!=1 || cycles!=1){
-			throw new IllegalArgumentException("Boundary recipe requires dims=10,...,1, nonnegative seed, positive epochs/batches, vfraction=0 and one net/cycle");
+			throw new IllegalArgumentException("Boundary recipe requires dims="+inputs+",...,"+outputs+", nonnegative seed, positive epochs/batches, vfraction=0 and one net/cycle");
 		}
 		for(int width:dims){
 			if(width<1){throw new IllegalArgumentException("Recipe layer widths must be fixed positive integers");}

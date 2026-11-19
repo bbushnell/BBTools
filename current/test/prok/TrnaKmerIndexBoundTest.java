@@ -17,7 +17,7 @@ import prok.*;
  * asserts, run via `java -ea`, matching this codebase's assertion-first testing convention. Java 8
  * safe throughout (BBTools ships to Java 8 -- no String.repeat(), a Java 11+ method).
  *
- * @author G11
+ * @author G11, Raiden
  */
 public class TrnaKmerIndexBoundTest {
 
@@ -27,6 +27,8 @@ public class TrnaKmerIndexBoundTest {
 		testSingleModelStrictCutoff();
 		testSingleModelDirectAlignmentControl();
 		testAdaptiveDenominatorIsUniqueNotPositional();
+		testCountOnlyLiteralAndReplacement();
+		testCountOnlySingleModelControl();
 		System.out.println("TrnaKmerIndexBoundTest: ALL TESTS PASSED");
 	}
 
@@ -145,6 +147,62 @@ public class TrnaKmerIndexBoundTest {
 		System.out.println("testAdaptiveDenominatorIsUniqueNotPositional PASSED: shortlist="
 			+java.util.Arrays.toString(result)+" (both models cleared minHits=1, confirming qKmers="
 			+"unique-count=1, not positional-count=494)");
+	}
+
+	/** A unique query key contributes all model occurrences, irrespective of the
+	 * shortlist floor/cap; empty replacement must clear every previous output. */
+	static void testCountOnlyLiteralAndReplacement(){
+		final byte[][] library={toBytes("AAAAAAAAA"), toBytes("CCCCC"), toBytes("AAANAAA")};
+		final TrnaKmerIndex index=new TrnaKmerIndex(library, 3, false, 0f, 0f, 0f, 999);
+		final char[] counts=new char[3];
+		final byte[] query=toBytes(repeat("A", 200)+'N'+repeat("C", 200));
+		index.countShared(query, counts);
+		assert(counts[0]==7 && counts[1]==3 && counts[2]==2)
+			: "Count-only must retain literal model occurrences7/3/2 once per unique query key, not apply floor999";
+		assert(index.lastMaxShared()==7 && index.lastUniqueQueryKmers()==2 && index.queriesProcessed()==1)
+			: "Count-only must refresh actual query diagnostics and record exactly one query";
+		final int[] kept=index.shortlist(query, 1);
+		assert(kept.length==1 && kept[0]==0 && index.lastSharedCount(1)==3 && index.lastSharedCount(2)==2)
+			: "Legacy cap/floor/keep-best behavior and complete count diagnostics must survive count-only use";
+		index.countShared(toBytes(""), counts);
+		assert(counts[0]==0 && counts[1]==0 && counts[2]==0 && index.lastMaxShared()==0)
+			: "An empty replacement must clear both the last native counts and caller-owned destination";
+		index.countShared(toBytes("AAAAAAAAAAAAAAAA"), counts);
+		assert(counts[0]==7 && counts[1]==0 && counts[2]==2)
+			: "A second nonempty query cannot retain an absent model's preceding counts";
+		index.setPolicy(true, 100f, 1f, 1f, 1);
+		index.countShared(query, counts);
+		assert(counts[0]==7 && counts[1]==3 && counts[2]==2)
+			: "Adaptive shortlist settings cannot alter the count-only numerator";
+		try{
+			index.countShared(query, new char[2]);
+			throw new AssertionError("A truncated native-count destination was accepted");
+		}catch(IllegalArgumentException expected){
+			assert(expected.getMessage().contains("one output slot")) : "Reject the destination shape before changing count scratch";
+		}
+		System.out.println("testCountOnlyLiteralAndReplacement PASSED");
+	}
+
+	/** One-model counts are strict set matches; fixed0 remains a separate legacy
+	 * no-prefilter control, before and after the new API replaces its scratch. */
+	static void testCountOnlySingleModelControl(){
+		final TrnaKmerIndex index=new TrnaKmerIndex(new byte[][]{toBytes("AAAAAAAAA")}, 3, false, 0f, 0f, 0f, 0);
+		final char[] counts=new char[1];
+		final byte[] absent=toBytes("CCCCCCCCCCCC");
+		assert(index.shortlist(absent, 1).length==1) : "fixed0 must retain the explicit direct-alignment control";
+		index.countShared(toBytes("AAAAAAAAAAAAAAAA"), counts);
+		assert(counts[0]==1 && index.lastMaxShared()==1)
+			: "One-model count-only uses one distinct shared type, not the multi-model occurrence weight or fixed0 bypass";
+		index.countShared(absent, counts);
+		assert(counts[0]==0 && index.lastMaxShared()==0) : "No one-model match must produce actual zero support";
+		assert(index.shortlist(absent, 1).length==1 && index.lastSharedCount(0)==0)
+			: "Count-only must not change the following fixed0 control's policy or diagnostic zero";
+		index.setFixedMinHits(99);
+		index.countShared(toBytes("AAAAAAAAAAAAAAAA"), counts);
+		assert(counts[0]==1) : "Count-only must not filter the one-model positive count below fixed99";
+		assert(index.shortlist(toBytes("AAAAAAAAAAAAAAAA"), 1).length==0)
+			: "The unchanged one-model shortlister must still reject that count below fixed99";
+		System.out.println("testCountOnlySingleModelControl PASSED");
 	}
 
 	static byte[] toBytes(String s){return s.getBytes(java.nio.charset.StandardCharsets.US_ASCII);}

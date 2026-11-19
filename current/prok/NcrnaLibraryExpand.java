@@ -17,25 +17,39 @@ import structures.ByteBuilder;
 
 /** Adds exact singleton models for uncovered admitted members; preserves every old model.
  * The original builder assignments stay immutable. Added-model membership is separate.
+ * Optional inputfamily= declares one producing-CM family for native source IDs;
+ * it must equal family= and every ID must use that family's input namespace.
+ * Existing biological/group tags must agree. Without it, historical tag checks apply.
  * @author Brian, Raiden
  */
 public final class NcrnaLibraryExpand {
 
 	public static void main(String[] args){
 		final PreParser pp=new PreParser(args, NcrnaLibraryExpand.class, false);
-		String in=null, ref=null, hbm=null, report=null, out=null, family=null, prefix=null;int expected=-1;
+		String in=null, ref=null, hbm=null, report=null, out=null, family=null, prefix=null;
+		String inputFamily=null;
+		int expected=-1;
 		for(String arg:pp.args){
-			final int eq=arg.indexOf('=');require(eq>0, "Use flag=value");
-			final String k=arg.substring(0, eq).toLowerCase(Locale.ROOT), v=arg.substring(eq+1);
-			if(k.equals("in")){in=v;}else if(k.equals("ref")){ref=v;}else if(k.equals("hbm")){hbm=v;}
-			else if(k.equals("report")){report=v;}else if(k.equals("outprefix")){out=v;}else if(k.equals("family")){family=v;}
-			else if(k.equals("prefix")){prefix=v;}else if(k.equals("expected")){expected=Integer.parseInt(v);}
-			else{throw new IllegalArgumentException("Unknown option: "+k);}
+			final int eq=arg.indexOf('=');
+			require(eq>0, "Use flag=value");
+			final String a=arg.substring(0, eq).toLowerCase(Locale.ROOT), b=arg.substring(eq+1);
+			if(a.equals("in")){in=b;}
+			else if(a.equals("ref")){ref=b;}
+			else if(a.equals("hbm")){hbm=b;}
+			else if(a.equals("report")){report=b;}
+			else if(a.equals("outprefix")){out=b;}
+			else if(a.equals("family")){family=b;}
+			else if(a.equals("prefix")){prefix=b;}
+			else if(a.equals("expected")){expected=Integer.parseInt(b);}
+			else if(a.equals("inputfamily")){inputFamily=b;}
+			else{throw new IllegalArgumentException("Unknown option: "+a);}
 		}
 		require(in!=null && ref!=null && hbm!=null && report!=null && out!=null && family!=null && prefix!=null && !prefix.isEmpty() && expected>0,
 			"Bind the entire admitted corpus, prior library and exhaustive report, output, group, new model prefix and population");
+		require(inputFamily==null || inputFamily.equals(family),
+			"Explicit input family must equal the emitted family; cross-family routing requires original metadata");
 		Shared.setThreads(1);Shared.TRIM_READ_DESCRIPTION=false;
-		try{new NcrnaLibraryExpand().run(in, ref, hbm, report, out, family, prefix, expected);}
+		try{new NcrnaLibraryExpand().run(in, ref, hbm, report, out, family, prefix, expected, inputFamily);}
 		finally{Shared.closeStream(pp.outstream);}
 	}
 
@@ -43,7 +57,8 @@ public final class NcrnaLibraryExpand {
 	/*----------------            Methods           ----------------*/
 	/*--------------------------------------------------------------*/
 
-	private void run(String input, String refs, String hbm, String report, String out, String family, String prefix, int expected){
+	private void run(String input, String refs, String hbm, String report, String out, String family,
+		String prefix, int expected, String inputFamily){
 		final ArrayList<Read> library=new ArrayList<Read>();RrnaResourceIO.stream(refs, library::add);
 		final ArrayList<NucleotideHbmCodec.Model> models=new ArrayList<NucleotideHbmCodec.Model>();
 		final ObjectSet<String> names=new ObjectSet<String>(String.class);
@@ -63,11 +78,11 @@ public final class NcrnaLibraryExpand {
 			final String id=RrnaResourceIO.first(r.id);final Member m=members.get(id);
 			require(m!=null && !m.seen && r.bases!=null && r.length()==m.length && r.length()>0,
 				"Every reported member must occur once in the complete unchanged-length admitted FASTA: "+id);
-			require(RrnaResourceIO.field(r.id, "build_group").equals(family), "Foreign operational group in admitted input: "+id);
+			validateInputFamily(r.id, family, inputFamily);
 			m.seen=true;count[0]++;
 			if(!m.covered){
 				for(byte base:r.bases){require(RrnaResourceIO.base(base)>=0, "Singleton models require unambiguous admitted DNA: "+id);}
-				RrnaResourceIO.field(r.id, "member_family");
+				if(inputFamily==null){RrnaResourceIO.field(r.id, "member_family");}
 				require(names.add(prefix+id), "Expanded model name collides with an existing model: "+id);additions.add(r);
 			}
 		});
@@ -88,13 +103,32 @@ public final class NcrnaLibraryExpand {
 				// BaseGraph's constructor gives the exact reference one vote per position.
 				writer.add(new NucleotideHbmCodec.Model((">"+label+"\tdepth=1").getBytes(StandardCharsets.UTF_8), r.bases, counts));
 				fasta.print(b.clear().append('>').append(label).nl().append(r.bases).nl());
-				ledger.print(b.clear().append(id).tab().append(model).tab().append(family).tab().append(RrnaResourceIO.field(r.id, "member_family"))
+				final String biological=inputFamily==null ? RrnaResourceIO.field(r.id, "member_family") : inputFamily;
+				ledger.print(b.clear().append(id).tab().append(model).tab().append(family).tab().append(biological)
 					.tab().append(r.length()).append("\tEXACT_SINGLE_MEMBER_NO_REASSIGNMENT\n"));
 			}
 			writer.finish();
 		}finally{RrnaResourceIO.finish(fasta, ledger);}
 		System.err.println("NCRNA_LIBRARY_EXPAND_PASS original_models="+models.size()+" added_models="+additions.size()+" members="+expected+
 			"; original assignments unchanged, added memberships separate; exhaustive remeasurement required");
+	}
+
+	/** Validates the historical tag contract or the explicit single-producing-CM binding.
+	 * Never changes a header, sequence, member disposition, or model contribution.
+	 */
+	private static void validateInputFamily(String header, String family, String inputFamily){
+		assert(header!=null && family!=null):"Expansion requires intact source headers and an emitted group";
+		if(inputFamily==null){
+			require(RrnaResourceIO.field(header, "build_group").equals(family),
+				"Foreign operational group in admitted input: "+RrnaResourceIO.first(header));
+			return;
+		}
+		require(RrnaResourceIO.first(header).startsWith(inputFamily+"_input_"),
+			"Explicit input family must match every original source namespace: "+header);
+		final String group=RrnaResourceIO.optionalField(header, "build_group");
+		final String biological=RrnaResourceIO.optionalField(header, "member_family");
+		require((group==null || group.equals(inputFamily)) && (biological==null || biological.equals(inputFamily)),
+			"Existing metadata conflicts with the explicit producing-CM family: "+header);
 	}
 
 	private static ObjectMap<String,Member> loadReport(String path, ObjectSet<String> names, int expected){

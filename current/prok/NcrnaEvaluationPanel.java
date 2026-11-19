@@ -17,11 +17,14 @@ import structures.ByteBuilder;
 
 /** Selects ordered evaluation metadata without reading genome or annotation payloads.
  * Invoked through BuildNcrnaReference's native template-derived CLI. A declared
- * catalog source limits eligible inputs; the flat caller config selects and orders
+ * catalog source or explicit source union limits eligible inputs; the flat caller config selects and orders
  * them. Original FASTA aliases survive in the binder roster, canonical paths in
  * the grading manifest. No loci or masks are copied, inferred or reclassified.
  * The project recipe verifies registered identity before invoking this metadata
  * operation; a structurally valid manifest alone does not establish authorization.
+ * Only selected input IDs resolve assembly/TaxID across all requested-source
+ * memberships. NA is unknown; conflicting known claims fail. Source-local names
+ * stay in the original catalog and never substitute for canonical input ownership.
  * One invocation owns all state and native readers/writers. The final reference
  * manifest is written only after metadata validation and other outputs close.
  * @author Brian Bushnell, Raiden
@@ -52,16 +55,27 @@ final class NcrnaEvaluationPanel{
 	/** A supplied path may alias one input, never two; repeated inputs fail even
 	 * when their caller paths differ. Nested or comma-list configs are unsupported. */
 	private void select(final String path, final String source){
+		final ObjectSet<String> requested=new ObjectSet<String>(String.class);
+		final ObjectSet<String> observed=new ObjectSet<String>(String.class);
+		final String[] sources=source.split(",", -1);
+		for(final String name:sources){
+			require(!name.isEmpty() && requested.add(name), "Source panel union requires nonempty, distinct literal source names");
+		}
 		final ObjectMap<String, Selection> eligible=new ObjectMap<String, Selection>(String.class, Selection.class);
 		for(int i=0; i<catalog.size(); i++){
 			final Genome genome=catalog.get(i);
+			Selection selection=null;
 			for(int j=0; j<genome.memberships(); j++){
 				final Membership member=genome.membership(j);
-				if(!member.source.equals(source)){continue;}
-				final Selection selection=new Selection(genome, member);
+				if(!requested.contains(member.source)){continue;}
+				observed.add(member.source);
+				if(selection==null){selection=new Selection(genome);}
 				addPath(eligible, genome.fasta, selection);
 				addPath(eligible, member.suppliedFasta, selection);
 			}
+		}
+		for(final String name:sources){
+			require(observed.contains(name), "Unknown or empty catalog source panel: "+name);
 		}
 		require(eligible.size()>0, "Unknown or empty catalog source panel: "+source);
 		try(ConfigInput config=new ConfigInput(path)){
@@ -83,15 +97,31 @@ final class NcrnaEvaluationPanel{
 			}
 		}
 		require(!order.isEmpty(), "Caller configuration must declare inputs, including zero-call genomes");
+		// Off-panel metadata does not choose selected roster values. Every claim
+		// for a selected ID participates, irrespective of which alias selected it.
+		for(final Selection selection:order){
+			for(int i=0; i<selection.genome.memberships(); i++){
+				final Membership member=selection.genome.membership(i);
+				if(!requested.contains(member.source)){continue;}
+				selection.assembly=knownValue(selection.assembly, member.assembly, selection.genome.id, "assembly");
+				selection.taxid=knownValue(selection.taxid, member.taxid, selection.genome.id, "TaxID");
+			}
+		}
 	}
 
 	private static void addPath(final ObjectMap<String, Selection> paths, final String path, final Selection selection){
 		final Selection old=paths.get(path);
-		require(old==null || old.genome==selection.genome
-			&& old.member.sourceGenome.equals(selection.member.sourceGenome)
-			&& old.member.assembly.equals(selection.member.assembly),
-			"Ambiguous FASTA ownership or conflicting source metadata: "+path);
+		require(old==null || old.genome==selection.genome, "Ambiguous FASTA ownership across catalog inputs: "+path);
 		if(old==null){paths.put(path, selection);}
+	}
+
+	/** NA is an absent claim. Source-local names stay in the original catalog;
+	 * they are not a second biological identity test for a canonical input ID. */
+	private static String knownValue(final String old, final String value, final String input, final String field){
+		if(old.equals("NA")){return value;}
+		if(value.equals("NA")){return old;}
+		require(old.equals(value), "Conflicting known "+field+" claims for selected input "+input+": "+old+" versus "+value);
+		return old;
 	}
 
 	/** Reads the complete manifest so a missing off-panel row cannot masquerade as
@@ -153,7 +183,7 @@ final class NcrnaEvaluationPanel{
 				selection.bases=Math.addExact(selection.bases, length);
 				buffer.clear();
 				raw(selection.genome.id).tab();
-				raw(selection.member.assembly).tab();
+				raw(selection.assembly).tab();
 				raw(name).tab().append(length).nl();
 				output.writer.print(buffer);
 			}
@@ -173,8 +203,8 @@ final class NcrnaEvaluationPanel{
 			for(final Selection item:order){
 				buffer.clear().append(++index).tab();
 				raw(item.genome.id).tab();
-				raw(item.member.assembly).tab();
-				raw(item.member.taxid).append("\tNA\tNA\tNA\t");
+				raw(item.assembly).tab();
+				raw(item.taxid).append("\tNA\tNA\tNA\t");
 				raw(item.originalFasta).append("\tNA\t").append(item.bases).tab().append(item.contigs).nl();
 				output.writer.print(buffer);
 			}
@@ -184,7 +214,7 @@ final class NcrnaEvaluationPanel{
 	/** Records selection, not a claim that the Java metadata reader verified hashes. */
 	private void writeSelection(final String config, final String source, final String reference){
 		try(Output output=new Output(prefix+".selection.tsv")){
-			output.writer.println("input_id\tsource_panel\tcaller_fasta\tcanonical_fasta\treference_gff\tcaller_config\treference_manifest");
+			output.writer.println("input_id\tsource_panel\tcaller_fasta\tcanonical_fasta\treference_gff\tcaller_config\treference_manifest\tmetadata_resolution");
 			for(final Selection item:order){
 				assert(item.gff!=null) : "Complete reference-catalog validation precedes selection output";
 				buffer.clear();
@@ -194,7 +224,7 @@ final class NcrnaEvaluationPanel{
 				raw(item.genome.fasta).tab();
 				raw(item.gff).tab();
 				raw(config).tab();
-				raw(reference).nl();
+				raw(reference).append("\tSELECTED_UNION_KNOWN_VALUES_NA_UNKNOWN\n");
 				output.writer.print(buffer);
 			}
 		}
@@ -249,13 +279,12 @@ final class NcrnaEvaluationPanel{
 	}
 
 	private static final class Selection{
-		Selection(final Genome genome_, final Membership member_){
+		Selection(final Genome genome_){
 			genome=genome_;
-			member=member_;
 		}
 		final Genome genome;
-		final Membership member;
 		String originalFasta, gff;
+		String assembly="NA", taxid="NA";
 		long contigs, bases;
 	}
 	private final NcrnaEvidenceCatalog catalog;

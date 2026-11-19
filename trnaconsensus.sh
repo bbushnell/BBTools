@@ -28,6 +28,38 @@ reassignrounds=2  Reassignment iterations; consensus is rebuilt between
                 rounds, with early exit when no sequences move.
 lentilt=0.03    Slight reassignment incentive toward the cluster whose median
                 member length is closest to the sequence's own; 0 disables.
+clusterpolicy=legacy  Optional nucleotide clustering: top50, patience or all.
+                top50 chooses the best passing model in the first50 DDL ranks;
+                only if none passes does it try every remaining model.
+                patience walks DDL ranks; all exhausts every model. These three
+                modes use Quantum for assignment, consensus and HBM traces.
+clusterpatience=100  After the first pass, stop after this many alignments
+                without a better passing identity;0 returns the first pass.
+ddlbins=        Required512 or1024 for DDL policies; no selected default.
+ddlseed=12345   Shared query/member/model DDL hash seed.
+paddingblacklist=  Existing exported padding-word TSV; requires the complete
+               256 SHORT8 and2048 MASKED10 prefixes for the selected fit_side.
+                Use paddingblacklist=none explicitly for unfiltered initial
+                DDL clustering; omit paddingfit in that mode. A missing file
+                argument does not silently select an unfiltered sketch.
+paddingfit=     Explicit literal fit_side label from that file. A historical
+                fit-fold list is not an all-gene refit. No list learning occurs.
+                The all policy needs no DDL/blacklist inputs and performs no
+                DDL construction or indexing. DDL profiles include one vote per
+                member/bin plus100 once per distinct consensus bin/key.
+                New policies use lentilt=0 and stochastic=f; the legacy mode
+                retains its existing settings and behavior.
+outbuildstats=  Optional TSV for a new nucleotide policy with prune=0. Reports
+                executed assignment, clustering-consensus, final-consensus and
+                optional census alignments separately and in total. Also writes
+                final model-size and member-identity histograms (identity rounded
+                to nearest0.001) from existing final placements, without aligning
+                again for reporting. Includes input/modeled/unmodeled members.
+                With these policies, outassignments preserves absent source
+                taxonomy as -1; the original full record ID remains authoritative.
+                Native cmfrom/cmto/cmlen header fields additionally give each
+                model's member-end ranges and joint left-missing44/right-missing20
+                classes. Missing CM metadata remains explicitly counted.
 
 Recruitment parameters:
 recruit=t       Recruit orphans into clusters via consensus alignment.
@@ -58,7 +90,8 @@ pushd . > /dev/null
 DIR="${BASH_SOURCE[0]}"
 while [ -h "$DIR" ]; do
   cd "$(dirname "$DIR")"
-  DIR="$(readlink "$(basename "$DIR")")"
+  nextDir="$(readlink "$(basename "$DIR")")"
+  DIR="$nextDir"
 done
 cd "$(dirname "$DIR")"
 DIR="$(pwd)/"

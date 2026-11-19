@@ -41,6 +41,14 @@ public final class NcrnaCallerProtection{
 		validatePolicy(baseArgs);
 		genomePaths=NcrnaCallerEvaluation.readGenomes(genomes);
 		references=NcrnaLocusComparison.readTruth(truth, truthFamily);
+		sourceBound=NcrnaLocusComparison.hasInputOrdinals(references);
+		if(sourceBound){
+			for(final Locus locus:references){
+				if(locus.inputOrdinal>=genomePaths.size()){
+					throw new IllegalArgumentException("Reference input ordinal is outside the ordered genome list: "+locus.inputOrdinal);
+				}
+			}
+		}
 		threads=threads_;
 		heap=heap_;
 		maxCalls=maxCalls_;
@@ -149,10 +157,13 @@ public final class NcrnaCallerProtection{
 	private ArrayList<Locus> call(final String ref, final String hbm, final File directory){
 		final File config=new File(directory, "caller.config");
 		final File gff=new File(directory, "calls.gff");
-		NcrnaCallerProcess.writeConfiguration(config, baseArgs, genomePaths, gff, family, threads,
-			"ncrnaconsensus="+new File(ref).getAbsolutePath(), "ncrnamodels="+new File(hbm).getAbsolutePath());
+		final String consensus="ncrnaconsensus="+new File(ref).getAbsolutePath();
+		final String models="ncrnamodels="+new File(hbm).getAbsolutePath();
+		final String[] resources=sourceBound ? new String[]{consensus, models, "gffinputordinal=t"} : new String[]{consensus, models};
+		NcrnaCallerProcess.writeConfiguration(config, baseArgs, genomePaths, gff, family, threads, resources);
 		NcrnaCallerProcess.runInstalled(config, Parse.parseKMGBinary(heap)/(1024L*1024));
-		return NcrnaLocusComparison.readCalls(gff.getPath(), displayFamily);
+		return sourceBound ? NcrnaLocusComparison.readCalls(gff.getPath(), displayFamily, genomePaths.size())
+			: NcrnaLocusComparison.readCalls(gff.getPath(), displayFamily);
 	}
 
 	/** Keeps the caller policy scientific; this driver owns inputs, outputs and budgets. */
@@ -169,7 +180,8 @@ public final class NcrnaCallerProtection{
 					a.endsWith("hist") || a.equals("amino") || a.equals("json") ||
 					a.equals("t") || a.equals("threads") || a.equals("workers") ||
 					a.equals("reads") || a.equals("maxreads") || a.equals("samplerate") ||
-					a.equals("stats") || a.equals("genehist") || a.equals("ncrnaconsensus") || a.equals("ncrnamodels")){
+					a.equals("stats") || a.equals("genehist") || a.equals("ncrnaconsensus") || a.equals("ncrnamodels") ||
+					a.equals("gffinputordinal")){
 				throw new IllegalArgumentException("callerconfig must contain scientific options only; driver owns "+a);
 			}
 		}
@@ -231,6 +243,8 @@ public final class NcrnaCallerProtection{
 	private final ArrayList<String> genomePaths;
 	/** Stable reference order is the axis of every saved matching array. */
 	private final ArrayList<Locus> references;
+	/** Source-qualified truth requires one publisher boundary for every ordered input. */
+	private final boolean sourceBound;
 	/** Threads passed to each sequential caller subprocess. */
 	private final int threads;
 	/** Initial-protection budget including baseline; regeneration has its own budget. */

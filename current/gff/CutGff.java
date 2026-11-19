@@ -569,6 +569,8 @@ public class CutGff implements Accumulator<CutGff.ProcessThread>  {
 							}
 						}
 					}else{
+						//TODO: Probable bug - an out-of-contig interval is silently omitted;
+						//the invocation may succeed with fewer records. Default behavior retained.
 						if(start>=0 && stop<scaf.length()){
 							final int extStart=Tools.max(0, start-flank);
 							final int extStop=Tools.min(scaf.length()-1, stop+flank);

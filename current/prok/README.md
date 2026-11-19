@@ -4,6 +4,20 @@ BBTools prokaryotic package providing comprehensive tools for bacterial and arch
 
 ## ncRNA resource development
 
+`dev/evaluatencrnapositionalnet.sh in=evaluation.tsv rows=evaluation.rows.tsv net=endpoint.bbnet end=5prime out=summary.tsv`
+scores one exported69-input/21-output positional network on paired held-out
+jitter trials. It checks exact headers, finite raw features, one-hot labels,
+evaluation sidecars and true-minus-raw sense-coordinate agreement. Native
+inference applies serialized normalization once and uses the caller's first
+maximum for ties. Counts/rates describe usable trials; movement of initially
+correct ends uses only initially correct trials as its denominator, or NA when
+none exist. Whole-caller detection, joint-end validity and unique-genome recall
+are separate measurements. The summary is written only after complete input.
+Numeric-only rows cannot detect same-label identity permutations; accepted
+producer/manifest provenance supplies that association. No network is trained
+or automatically selected. `dev/testncrnapositionalneteval.sh out=fresh_directory`
+checks literal metrics, tied outputs, normalized inference and malformed inputs.
+
 `dev/summarizencrnabenchmark.sh in=times.tsv gradeinputs=grade_inputs.tsv grades=grade_summary.tsv raw=grade_raw.tsv policies=shipped,selected workers=1,16 repeats=3 out=report`
 summarizes completed ordinary-caller benchmarks with a declared complete roster.
 Native grade tables carry three additional leading fields: policy, threads and
@@ -67,6 +81,44 @@ input multiplicity lower bound without claiming an optimal partition. Reuse the
 same recorded partition across caller builds. Calling, binding, grading and
 authentication remain the owning workflow's responsibility. See its help for
 schemas and generated-label semantics; no FASTA headers are changed.
+
+### Stage diagnostic format
+
+`callgenes.sh ncrnadiag=stages.tsv` emits one header and exactly 21 tab-separated
+fields per event. The current header starts with `type_v2`; event tags remain
+`SEED`, `MODEL`, `WINDOW`, and `PATH`. All coordinates are zero-based, inclusive,
+and oriented to the reported strand. Keep trailing empty cells when parsing.
+Unavailable numeric slots contain `-1`; unavailable text, seed lists and
+unattempted trim flags are empty. Real measured zero and attempted-trim `false`
+remain values. A literal model name `-1` is text, not numeric absence.
+
+`SEED` supplies actual hit count and centers, including count zero with an empty
+list. `MODEL` supplies the actual attempted model's identity before acceptance.
+`WINDOW` supplies the terminal phase's retained measurements, counts and candidate
+span where available. A measured zero identity does not require a winning model.
+The trim flag describes alignment trimming only, not voting or neural refinement.
+`PATH` supplies the candidate span before/after path selection and accepted
+verifier identity for 16S, 23S and prok5S only. Acceptance is not final retention.
+Column names and exact indices are defined by `NcrnaStageDiagLogSink.HEADER`;
+callback semantics and measurement flags are in `NcrnaStageDiagSink`.
+
+The readers `Euk18sM1Grade`, `Euk5sStageFailureSummary`,
+`CobalaminPrecisionReview`, `CobalaminSeedWindowCounts`, `NcrnaCalibrationPrep`,
+`NcrnaShredStages`, `RrnaShortlistReplay`, and `NcrnaChangeEvidence` require the
+current header by default. Select `historicalstages=t` explicitly to read the
+old header and its original semantics; old zero/false slots cannot be
+retrospectively classified as measured or absent. Historical raw rows are not
+rewritten. Calibration window metadata carries absent identity as `-1`.
+
+`MitoSsuShortlistControl` requires current-format saved rows for fresh raw-row
+parity. Its CLI rejects historical mode before resource loading or output.
+Its explicit historical `rows` API permits inspection only; it cannot establish
+cross-format byte equality. Do not regenerate old baselines to hide this limit.
+
+`dev/testncrnastagediag.sh out=fresh_directory` checks framing, measured zero,
+failed versus unattempted trimming, scientific notation and explicit historical
+selection. `old=baseline.tsv in=current.tsv out=fresh_report.tsv` compares saved
+real events field by field, allowing only declared absent-slot changes.
 
 `dev/ncrnachangeevidence.sh in=sweep.changes.tsv inputs=sweep.inputs.tsv policies=policies.tsv calls=sweep family=cobalamin_ out=evidence.tsv`
 extracts original per-input/policy stage and GFF rows around every changed reference
@@ -288,6 +340,37 @@ screened negative inputs. Ordinary reducer modes retain forward-only behavior.
 `buildncrnaboundarynets.sh` learns endpoint features, compares native classifier
 and regression networks through ordinary CallGenes, and exports the accepted
 family resources. Its guide is `docs/guides/BuildNcrnaBoundaryNetsGuide.txt`.
+
+`dev/buildncrnapositionalinputs.sh tripletables=t` is an optional experimental
+K9 boundary-input layout. It counts three positional tables per end: the supplied
+inside/outside placement, the nine bases immediately left of the endpoint
+(exclusive, offset -9), and the nine immediately right (exclusive, offset +1).
+At radius ten the vector has 69 inputs: three ordered 21-score windows, candidate
+length divided by the selected consensus length, full-contig GC, Quantum
+candidate identity, and three selected-HBM coverage values. Coverage uses the
+same aligned-coordinate/normalization rules as sliding features, on the unmoved
+candidate span. Training and same-locus monitoring exclude that locus's word
+and denominator at every positional offset; ordinary inference uses the complete
+retained tables. Monitoring remains non-independent.
+
+`interchange=t radii=10 exclude=<locus_ids> evaluationseed=<third_seed>` writes
+these inputs once as plain TSV for native Java and GPU trainers. Each of the six
+train/monitor/evaluation endpoint matrices begins `#dims<TAB>69<TAB>21<TAB>0`
+and contains only the69 raw inputs followed by21 one-hot labels. Row-aligned
+`.rows.tsv` sidecars preserve locus, source, assembly, set, selected model,
+sample and inclusive zero-based raw/truth coordinates in the sense context.
+Complete excluded loci teach no tables and use no self-subtraction when evaluated.
+Exact assembly overlap across training and evaluation is rejected; missing taxonomy
+is permitted. `vectors.stats.tsv` retains each population's limitations, draw seed,
+feature order and scaling, with clipped versus ambiguous score windows separated.
+This exports vector-level tuning data; it does not measure caller recall.
+
+The optional `ncrna_positional_triple_v1` package schema binds all six tables,
+the ordered training consensus and a `traininghbm=` witness. The loader compares
+that witness's model order, original sequences, coordinate layout and coverage
+against the actual loaded HBMs. Explicit OFF opens no learned payload. The old
+single-table schemas and default input layout remain supported unchanged. This
+layout is experimental; its existence does not establish a caller improvement.
 
 `dev/ncrnaendpointsummary.sh` summarizes existing nine-column matched-locus reports
 without calling or matching again. It reports signed/absolute endpoint errors,

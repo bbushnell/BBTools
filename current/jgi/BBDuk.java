@@ -867,11 +867,7 @@ public class BBDuk {
 		
 		if(maskMiddle){
 			assert(k>midMaskLen+1);
-			int bits=midMaskLen*bitsPerBase;
-//			int shift=(k-maskMiddle)&(~1);//Equivalent to (x/2)*2
-			int shift=((k-midMaskLen)/2)*bitsPerBase; //old behavior before moving to variable width can be restored with +1: "((k-maskMiddle+1)/2)*bitsPerBase"
-			middleMask=~((~((-1L)<<bits))<<shift);
-//			mask<<=(shift);
+			middleMask=AbstractKmerTable.makeMiddleMask(k, amino, midMaskLen);
 		}else{
 			middleMask=-1L;
 		}

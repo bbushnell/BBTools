@@ -139,8 +139,8 @@ public final class CobalaminPrecisionReviewTest {
 			.append(minus?"\t-\t":"\t+\t").append(++line).append("\t1\t").append(a).append('\t').append(z).append("\t2\t").append(n).append('\n');
 			stages.append("WINDOW\tcobalamin_").append(family(id).toLowerCase(java.util.Locale.ROOT)).append('\t').append(id).append(" description\t")
 				.append(minus?1:0).append("\t1000\t1\t").append(a).append('\t').append(z).append("\tACCEPT_IDPASS\t2\t1\t0\tcobalamin_")
-				.append(family(id)).append("_fixture\t").append(n==1?"0.67":"0.71").append("\t0.0\t0.0\t")
-				.append(minus?801:99).append('\t').append(minus?900:198).append("\tfalse\t.\t.\n");
+				.append(family(id)).append("_fixture\t").append(n==1?"0.67":"0.71").append("\t-1\t-1\t")
+				.append(minus?801:99).append('\t').append(minus?900:198).append("\t\t-1\t\n");
 		}return line;
 	}
 	private static String feature(String id, String hash, int line, String kind, String type, int start, int stop, int overlap, boolean annotated){

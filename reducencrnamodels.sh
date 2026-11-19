@@ -65,6 +65,9 @@ t=auto          Alignment workers, using the standard BBTools thread option.
 Optional caller protection (supply all together, including hbm):
 genomes=        Text file listing distinct absolute genome FASTA paths.
 truth=          TSV: seqid, family, start, stop, strand; one-based inclusive.
+                Optional sixth column input_ordinal0 is the zero-based position
+                in genomes=, not a taxID. With it, caller protection requires
+                source-qualified GFF and never matches across input genomes.
 family=         CallGenes family key, such as sam1.
 truthfamily=    Exact truth-table label, such as RF00162.
 callerconfig=   Ordinary CallGenes scientific options, including family activation

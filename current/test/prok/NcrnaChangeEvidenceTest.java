@@ -56,12 +56,12 @@ public final class NcrnaChangeEvidenceTest{
 			+"secondβ%25\tchanged%25name\tLOST\tparent\tseq%25α\t100\t110\t+\n";
 		write("changes.tsv", changes);
 		final String stage=NcrnaStageDiagLogSink.HEADER+"\n"
-			+"SEED\tcobalamin_test\tseq%α description\t0\t1000\t.\t.\t.\t.\t.\t.\t.\t.\t.\t.\t.\t.\t.\t.\t2\t99,109\n"
-			+"WINDOW\tcobalamin_test\tseq%α description\t0\t1000\t1\t89\t119\tACCEPT_IDPASS\t2\t1\t0\tmodel\t0.7\t0\t0\t99\t109\ttrue\t.\t.\n"
-			+"MODEL\tcobalamin_test\tseq%α description\t0\t1000\t1\t89\t119\tALIGNMENT\t.\t.\t0\tmodel\t0.7\t.\t.\t.\t.\t.\t.\t.\n"
-			+"PATH\tcobalamin_test\tseq%α description\t0\t1000\t.\t.\t.\tDP_INPUT\t.\t.\t.\tmodel\t.\t.\t.\t99\t109\t.\t.\t.\n"
-			+"PATH\tcobalamin_test\tseq%α description\t1\t1000\t.\t.\t.\tDP_RETAINED\t.\t.\t.\tother_model\t.\t.\t.\t890\t900\t.\t.\t.\n"
-			+"WINDOW\tcobalamin_test\tseq%α description\t0\t1000\t1\t789\t819\tREJECT_ID\t2\t1\t0\tfar\t0.2\t0\t0\t-1\t-1\tfalse\t.\t.\n";
+			+"SEED\tcobalamin_test\tseq%α description\t0\t1000\t-1\t-1\t-1\t\t-1\t-1\t-1\t\t-1\t-1\t-1\t-1\t-1\t\t2\t99,109\n"
+			+"WINDOW\tcobalamin_test\tseq%α description\t0\t1000\t1\t89\t119\tACCEPT_IDPASS\t2\t1\t0\tmodel\t0.7\t-1\t-1\t99\t109\ttrue\t-1\t\n"
+			+"MODEL\tcobalamin_test\tseq%α description\t0\t1000\t1\t89\t119\tALIGNMENT\t-1\t-1\t0\tmodel\t0.7\t-1\t-1\t-1\t-1\t\t-1\t\n"
+			+"PATH\tcobalamin_test\tseq%α description\t0\t1000\t-1\t-1\t-1\tDP_INPUT\t-1\t-1\t-1\tmodel\t-1\t-1\t-1\t99\t109\t\t-1\t\n"
+			+"PATH\tcobalamin_test\tseq%α description\t1\t1000\t-1\t-1\t-1\tDP_RETAINED\t-1\t-1\t-1\tother_model\t-1\t-1\t-1\t890\t900\t\t-1\t\n"
+			+"WINDOW\tcobalamin_test\tseq%α description\t0\t1000\t1\t789\t819\tREJECT_ID\t2\t1\t0\tfar\t0.2\t-1\t-1\t-1\t-1\t\t-1\t\n";
 		final String gff="##gff-version 3\nseq%α\tBBTools\tCDS\t90\t105\t.\t+\t0\tID=near_cds\n"
 			+"seq%α\tBBTools\tRNA\t100\t110\t.\t-\t.\tmodel:opposite\n"
 			+"seq%α\tBBTools\trRNA\t300\t400\t.\t+\t.\tID=far_rrna\n";

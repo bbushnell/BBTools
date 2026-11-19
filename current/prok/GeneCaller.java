@@ -118,6 +118,17 @@ public class GeneCaller extends ProkObject {
 		}
 	}
 	ProteinSupport.Worker proteinSupport;
+	/** Run-owned optional experiment; never stored on the shared family roster. */
+	public void setCobalaminDdl(final NcrnaDdlProfileResource profiles, final int cap){
+		if(ncrnaScavengers!=null || cobalaminDdlProfiles!=null){
+			throw new IllegalArgumentException("Install one RF00174 profile on a fresh caller before lazy worker construction");
+		}
+		NcrnaDdlShortlist.validateCap(profiles, cap);
+		cobalaminDdlProfiles=profiles;
+		cobalaminDdlCap=cap;
+	}
+	private NcrnaDdlProfileResource cobalaminDdlProfiles;
+	private int cobalaminDdlCap;
 	StopTailSupport.Worker stopTailSupport;
 	/** Shared bounded search pool; this caller owns only its contig evidence and counters. */
 	public void setTailCascadeSupport(final StopTailCascadeSupport reference, final float bonus, final boolean protect){
@@ -348,12 +359,21 @@ public class GeneCaller extends ProkObject {
 	 */
 	public ArrayList<Orf> callGenes(Read r, GeneModel pgm_, boolean breakOrfs){
 		if(pathActive){throw new IllegalStateException("A path observer must not reenter its caller");}
-		if(proteinFateSink==null && tailCascade==null && pathObserver==null){return callGenesInner(r, pgm_, breakOrfs);}
-		try{return callGenesInner(r, pgm_, breakOrfs);}
-		catch(RuntimeException | Error failure){
-			KillSwitch.kill("Protein evidence processing failed on "+r.id+": "+failure);
-			throw failure;
+		if(proteinFateSink==null && tailCascade==null && pathObserver==null && boundaryTrace==null){return callGenesInner(r, pgm_, breakOrfs);}
+		if(boundaryTrace!=null){
+			if(iterationCandidates!=null || iterationSeeds!=null){
+				throw new IllegalArgumentException("Boundary tracing does not support iteration-candidate or seed reuse");
+			}
 		}
+		try{
+			if(boundaryTrace!=null){boundaryTrace.begin(r.id, r.length(), r.numericID);}
+			return callGenesInner(r, pgm_, breakOrfs);
+		}
+		catch(RuntimeException | Error failure){
+			if(boundaryTrace!=null){boundaryTrace.clear();}
+			KillSwitch.kill((boundaryTrace==null ? "Protein fate diagnostics" : "Boundary trace diagnostics")+" failed on "+r.id+": "+failure);
+			throw failure;
+		}finally{if(boundaryTrace!=null){boundaryTrace.clear();}}
 	}
 	/** Only Replay owns the private input copy; cached evidence cannot be supplied
 	 * separately from its contig. Native controls share the identical input bytes. */
@@ -542,7 +562,9 @@ public class GeneCaller extends ProkObject {
 		
 		// Selection and its diagnostics use raw discovery bounds. Downstream GFF,
 		// sequence extraction and length reports consume the refined output bounds.
+		if(boundaryTrace!=null){boundaryTrace.beforeReport(path, maxOverlapSameStrand, maxOverlapOppositeStrand);}
 		NcrnaReportedOrf.applyTo(path);
+		if(boundaryTrace!=null){boundaryTrace.finish(path);}
 		return path;
 	}
 
@@ -815,24 +837,31 @@ public class GeneCaller extends ProkObject {
 			for(NcrnaFamily fam : ncrnaFamilies){
 				if(ncrnaCpuProfile!=null){ncrnaCpuProfile.begin(ncrnaScavengers.size(), NcrnaCpuProfile.INIT);}
 				try{
-					NcrnaScavenger scavenger=new NcrnaScavenger(fam.library, fam.models, fam.modelNames,
-						fam.kmerSet, fam.kLong, fam.minLen, fam.windowPad,
-						fam.indexK, fam.indexTopN, fam.adaptive,
-						fam.adaptFloor, fam.adaptTopFrac, fam.adaptQFrac, fam.fixedMinHits,
-						fam.scoreA, fam.scoreB, fam.idPass, fam.idBorderline,
-						fam.boundary5NetTemplate, fam.boundary3NetTemplate,
-						fam.boundaryStartTable, fam.boundaryStopTable,
-						fam.boundaryStartInside, fam.boundaryStartOutside, fam.boundaryStopInside, fam.boundaryStopOutside,
-						fam.boundaryMeanLen, fam.boundaryStartOffsets, fam.boundaryStopOffsets,
-						fam.boundaryMarginStart, fam.boundaryMarginStop);
-					applyNcrnaFamilyControls(scavenger, fam);
-					// D50 keeps18S on its fast path even when small-family CM is enabled.
-					scavenger.cmVerifier=(fam.outputType!=r18S && cmVerifier!=null &&
-						cmVerifier.supports(fam.outputType) ? cmVerifier : null);
-					scavenger.setStageDiagSink(ncrnaDiagSink,fam.name);
-					scavenger.setVoteDiagSink(ncrnaVoteDiagSink, fam.name);
-					scavenger.setAttemptLog(Euk18sAttemptLog.forFamily(fam.name));
-					ncrnaScavengers.add(scavenger);
+				final boolean sketchOnly=cobalaminDdlProfiles!=null && cobalaminDdlProfiles.dual()
+					&& "cobalamin_rf00174".equals(fam.name);
+				NcrnaScavenger scavenger=new NcrnaScavenger(fam.library, fam.models, fam.modelNames,
+					fam.kmerSet, fam.kLong, fam.minLen, fam.windowPad,
+					fam.indexK, fam.indexTopN, fam.adaptive,
+					fam.adaptFloor, fam.adaptTopFrac, fam.adaptQFrac, fam.fixedMinHits,
+					fam.scoreA, fam.scoreB, fam.idPass, fam.idBorderline,
+					fam.boundary5NetTemplate, fam.boundary3NetTemplate,
+					fam.boundaryStartTable, fam.boundaryStopTable,
+					fam.boundaryStartInside, fam.boundaryStartOutside, fam.boundaryStopInside, fam.boundaryStopOutside,
+					fam.boundaryMeanLen, fam.boundaryStartOffsets, fam.boundaryStopOffsets,
+					fam.boundaryMarginStart, fam.boundaryMarginStop, !sketchOnly);
+				applyNcrnaFamilyControls(scavenger, fam);
+				if(boundaryTrace!=null && boundaryTrace.accepts(fam)){
+					scavenger.setBoundaryTrace(boundaryTrace.family(fam));
+				}
+				// D50 keeps18S on its fast path even when small-family CM is enabled.
+				scavenger.cmVerifier=(fam.outputType!=r18S && cmVerifier!=null && cmVerifier.supports(fam.outputType) ? cmVerifier : null);
+				if(cobalaminDdlProfiles!=null && "cobalamin_rf00174".equals(fam.name)){
+					scavenger.useDdlProfiles(cobalaminDdlProfiles, cobalaminDdlCap);
+				}
+				scavenger.setStageDiagSink(ncrnaDiagSink,fam.name);
+				scavenger.setVoteDiagSink(ncrnaVoteDiagSink, fam.name);
+				scavenger.setAttemptLog(Euk18sAttemptLog.forFamily(fam.name));
+				ncrnaScavengers.add(scavenger);
 				}finally{if(ncrnaCpuProfile!=null){ncrnaCpuProfile.end();}}
 			}
 		}
@@ -842,10 +871,18 @@ public class GeneCaller extends ProkObject {
 		scavenger.refreshClaimedWindows=CallGenes.NCRNA_REFRESH_CLAIMED_WINDOWS;
 	}
 
+	/** Attach only to a fresh worker; source ordinals belong to the actual input scheduler. */
+	public void setBoundaryTrace(final NcrnaBoundaryTrace.Worker trace){
+		if(ncrnaScavengers!=null || boundaryTrace!=null){throw new IllegalStateException("Configure boundary tracing before lazy caller initialization");}
+		boundaryTrace=trace;
+	}
+
 	public static void applyNcrnaFamilyControls(NcrnaScavenger scavenger, NcrnaFamily family){
 		if(family.modelPatience!=-1){
-			scavenger.setShortlistPolicy(family.indexTopN, family.adaptive, family.adaptFloor,
-				family.adaptTopFrac, family.adaptQFrac, family.fixedMinHits, family.modelPatience);
+			if(scavenger.hasNativeRankingIndex()){
+				scavenger.setShortlistPolicy(family.indexTopN, family.adaptive, family.adaptFloor,
+					family.adaptTopFrac, family.adaptQFrac, family.fixedMinHits, family.modelPatience);
+			}else{scavenger.setModelPatience(family.modelPatience);}
 		}
 		scavenger.hbmPass=family.hbmPass;
 		scavenger.collapseFrac=family.collapseFrac;
@@ -887,7 +924,9 @@ public class GeneCaller extends ProkObject {
 		scavenger.modelClipRescueId=family.modelClipRescueId;
 		if(family.modelThresholds!=null){scavenger.setModelThresholds(family.modelThresholds);}
 		scavenger.boundaryFeatureVersion=family.boundaryFeatureVersion;
+		scavenger.boundarySharedConfidence=family.boundarySharedConfidence;
 		scavenger.boundaryOnRawEndpoints=family.boundaryOnRawEndpoints;
+		scavenger.deferBoundaryReport=family.deferBoundaryReport;
 		scavenger.nnCentre5Vote=family.nnCentre5Vote;
 		scavenger.nnCentre3Vote=family.nnCentre3Vote;
 		scavenger.nnCutoff=family.nnCutoff;
@@ -3204,6 +3243,7 @@ public class GeneCaller extends ProkObject {
 	public boolean keepAtLeastOneOrf=false;
 
 	/** Test-only, null-by-default observer for ordered rRNA consensus attempts. */
+	private NcrnaBoundaryTrace.Worker boundaryTrace=null;
 	private RefinementAttemptSink attemptSink=null;
 	public void setAttemptSink(RefinementAttemptSink sink){attemptSink=sink;}
 	private NcrnaStageDiagSink ncrnaDiagSink=null;

@@ -19,7 +19,7 @@ public final class NcrnaCpuProfile {
 	 * scavenger span. These details are subdivisions, never added to SCAVENGE. */
 	public static long cpuNow(){return CLOCK==null ? -1 : CLOCK.cpu();}
 	public static NcrnaCpuProfile create(int families){return enabled() ? new NcrnaCpuProfile(families, CLOCK) : null;}
-	static void checkOutput(){if(enabled()){require(!OUTPUT.isEmpty(), "CPU profile output path must not be empty"); RrnaResourceIO.fresh(OUTPUT, "", ".verification.tsv", ".kernels.tsv");}}
+	static void checkOutput(){if(enabled()){require(!OUTPUT.isEmpty(), "CPU profile output path must not be empty"); RrnaResourceIO.fresh(OUTPUT, SUFFIXES);}}
 	private static Clock systemClock(){
 		final ThreadMXBean bean=ManagementFactory.getThreadMXBean();
 		require(bean.isCurrentThreadCpuTimeSupported(), "Requested ncRNA CPU profiling is unsupported by this JVM");
@@ -92,7 +92,7 @@ public final class NcrnaCpuProfile {
 	}
 	public void write(String path, String[] names){
 		require(!active && !merged && names.length==families, "Only completed aggregate counters may be written");
-		RrnaResourceIO.fresh(path, "", ".verification.tsv", ".kernels.tsv");
+		RrnaResourceIO.fresh(path, SUFFIXES);
 		final ByteStreamWriter out=RrnaResourceIO.writer(path); final ByteBuilder b=new ByteBuilder();
 		try{
 			out.println("# Diagnostic current-thread total CPU nanoseconds, not process user time; excludes other threads (GC/JIT/I/O). Clock overhead remains included.");
@@ -118,6 +118,86 @@ public final class NcrnaCpuProfile {
 			for(int f=0; f<families; f++){b.clear().append(names[f]);for(int j=0; j<6; j++){b.tab().append(details[f*6+j]);}detail.print(b.nl());}
 		}finally{RrnaResourceIO.finish(detail);}
 		writeKernels(path+".kernels.tsv", names);
+		writeWindows(path, names);
+		writeProposals(path+".proposals.tsv", names);
+	}
+
+	/** Only the existing experimental acceptance handoff supplies these events.
+	 * Ordinary accepts are unclassified; an empty table does not mean no accepts.
+	 * These counters precede deduplication/path selection and are not final calls. */
+	private void writeProposals(final String path, final String[] names){
+		final ByteStreamWriter out=RrnaResourceIO.writer(path);
+		final ByteBuilder b=new ByteBuilder();
+		try{
+			out.println("# Experimental verifier acceptance events before candidate resolution and final path selection; repeated windows/retries are separate events, not unique loci.");
+			out.println("# Ordinary/public accepts have no proposal classification. Missing rows mean no classified experimental events, not absence of ordinary accepts.");
+			out.println("family\tfirst_proposal_stream\tnative_support\texperimental_verifier_accept_events");
+			for(int family=0; family<families; family++){
+				for(int stream=0; stream<3; stream++){
+					for(int support=0; support<3; support++){
+						final long count=work[family].proposalCount(stream, support);
+						require(count>=0, "Merged experimental acceptance counts cannot become negative");
+						if(count==0){continue;}
+						require((stream==2)==(support==2), "Only sketch-only ordering has unmeasured native support");
+						b.clear().append(names[family]).tab().append(PROPOSAL_STREAMS[stream])
+							.tab().append(PROPOSAL_SUPPORT[support]).tab().append(count).nl();
+						out.print(b);
+					}
+				}
+			}
+		}finally{RrnaResourceIO.finish(out);}
+	}
+
+	/** Generic scheduled-window work includes all nested primary/rescue/refinement
+	 * kernels. Other routes remain explicit outside-window totals, not lost counts. */
+	private void writeWindows(final String path, final String[] names){
+		final ByteStreamWriter summary=RrnaResourceIO.writer(path+".windows.tsv");
+		final ByteStreamWriter histogram=RrnaResourceIO.writer(path+".window_hist.tsv");
+		final ByteBuilder b=new ByteBuilder();
+		try{
+			summary.println("family\twindows\twindow_logical\twindow_physical\toutside_window_logical\toutside_window_physical\tlogical_mean\tlogical_p50\tlogical_p95\tlogical_max\tphysical_mean\tphysical_p50\tphysical_p95\tphysical_max\tgeneric_ranking_queries\tqueries_with_undefined_non_N");
+			histogram.println("family\tkind\talignments_per_window\twindows");
+			for(int family=0; family<work.length; family++){
+				final NcrnaAlignmentWork w=work[family];
+				final String name=family<families ? names[family] : family==families ? "tRNA" : "SSU_competition";
+				long logicalWindows=0, physicalWindows=0, requests=0, executions=0;
+				for(int bin=0; bin<w.windowBins(); bin++){
+					final long logicalCount=w.windowCount(true, bin), physicalCount=w.windowCount(false, bin);
+					require(logicalCount>=0 && physicalCount>=0, "Joined window histogram counts cannot overflow or become negative");
+					logicalWindows=Math.addExact(logicalWindows, logicalCount);
+					physicalWindows=Math.addExact(physicalWindows, physicalCount);
+					requests=Math.addExact(requests, Math.multiplyExact((long)bin, logicalCount));
+					executions=Math.addExact(executions, Math.multiplyExact((long)bin, physicalCount));
+					for(int kind=0; kind<2; kind++){
+						final long count=kind==0 ? logicalCount : physicalCount;
+						if(count>0){histogram.print(b.clear().append(name).tab().append(kind==0 ? "LOGICAL" : "PHYSICAL").tab().append(bin).tab().append(count).nl());}
+					}
+				}
+				require(logicalWindows==w.windows && physicalWindows==w.windows && requests==w.windowLogical
+					&& executions==w.windowPhysical && requests<=w.logical && executions<=w.physical,
+					"Window histograms must conserve all observed windows and their exact logical/physical work");
+				if("cobalamin_rf00174".equals(name)){
+					require(w.windows==counts[family*6+5],
+						"RF00174 histogram units must match every scheduled window; direct oracle work remains outside-window work");
+				}
+				b.clear().append(name).tab().append(w.windows).tab().append(requests).tab().append(executions)
+					.tab().append(w.logical-requests).tab().append(w.physical-executions);
+				for(int kind=0; kind<2; kind++){
+					if(w.windows==0){b.append("\tNA\tNA\tNA\tNA");}
+					else{
+						b.tab().appendSci((double)(kind==0 ? requests : executions)/w.windows, 16);
+						b.tab().append(w.windowPercentile(kind==0, 50)).tab().append(w.windowPercentile(kind==0, 95))
+							.tab().append(w.windowPercentile(kind==0, 100));
+					}
+				}
+				require(w.rankingQueries>=w.undefinedRankingQueries && w.undefinedRankingQueries>=0,
+					"Alphabet attribution counts generic query invocations, never more undefined queries than total queries");
+				summary.print(b.tab().append(w.rankingQueries).tab().append(w.undefinedRankingQueries).nl());
+			}
+		}finally{
+			RrnaResourceIO.finish(summary);
+			RrnaResourceIO.finish(histogram);
+		}
 	}
 	/** Borrowed counters are read on their worker between calls, or after join. */
 	public NcrnaAlignmentWork alignmentWork(final int family){
@@ -154,6 +234,9 @@ public final class NcrnaCpuProfile {
 
 	static void require(boolean ok, String message){if(!ok){throw new IllegalArgumentException(message);}}
 	private static final String[] STAGES={"INIT", "SCAVENGE", "SHARED_SEED_SCAN", "SSU_APPLY", "SSU_FINISH", "FIND_PATH", "TRNA"};
+	private static final String[] SUFFIXES={"", ".verification.tsv", ".kernels.tsv", ".windows.tsv", ".window_hist.tsv", ".proposals.tsv"};
+	private static final String[] PROPOSAL_STREAMS={"native", "sketch", "sketch_only"};
+	private static final String[] PROPOSAL_SUPPORT={"BELOW_SHIPPED_FLOOR_2", "AT_LEAST_SHIPPED_FLOOR_2", "NA"};
 	final int families;
 	final long[] times, counts, details;
 	private final Clock clock;

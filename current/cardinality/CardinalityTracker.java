@@ -605,7 +605,7 @@ public abstract class CardinalityTracker implements Drivable {
 		final int shift=2*k;
 		final int shift2=shift-2;
 		final long mask=(shift>63 ? -1L : ~((-1L)<<shift));
-		final int lenmask=(-1)>>>k;
+		final long lenmask=Long.MAX_VALUE>>>k;
 
 		long kmer=0, rkmer=0;
 
@@ -661,7 +661,10 @@ public abstract class CardinalityTracker implements Drivable {
 //			}
 
 			//Does not handle IUPAC
-			int len=-1;
+			// The initial state permits k defined bases. An N sign-extends x,
+			// inserting one higher bit and requiring k FOLLOWING defined bases.
+			// A long keeps DNA-code low bits below the threshold even at k=31.
+			long len=Long.MAX_VALUE;
 			for(int i=0; i<bases.length; i++){
 				final byte b=bases[i];
 //				final long x=AminoAcid.baseToNumber[b];//Normal 2-bit encoding
@@ -683,6 +686,54 @@ public abstract class CardinalityTracker implements Drivable {
 				}
 			}
 		}
+	}
+
+	/** Enumerates one or two packed DNA word lengths in one pass, without hashing
+	 * or retaining words. Defined bases use the native A0/C1/T2/G3 encoding.
+	 * Canonical words take the greater forward/reverse-complement value, as
+	 * hashSmall does. Equal lengths emit once; distinct lengths emit short then
+	 * long at each position. The consumer is borrowed and should be reused by
+	 * its worker. No word objects, array slices or result arrays are allocated.
+	 *
+	 * strict=true interrupts on every non-ACGT byte, including ambiguity at a
+	 * subsequently masked position. false preserves hashSmall's unqualified
+	 * arithmetic ambiguity state, which does not support general IUPAC symbols.
+	 * No quality filtering, blacklist, seed, mask or sketch settings are applied;
+	 * the consumer selects those policies after receiving a complete word.
+	 */
+	public static void forEachKmer(final byte[] bases, final int shortK, final int longK,
+			final boolean canonical, final boolean strict, final KmerConsumer consumer){
+		if(bases==null || shortK<1 || shortK>longK || longK>31 || consumer==null){
+			throw new IllegalArgumentException("Word enumeration requires actual bases, ordered lengths1..31 and a primitive consumer");
+		}
+		final long shortMask=(1L<<(2*shortK))-1, longMask=(1L<<(2*longK))-1;
+		final long shortThreshold=Long.MAX_VALUE>>>shortK, longThreshold=Long.MAX_VALUE>>>longK;
+		final int reverseShift=2*longK-2, shortReverseShift=2*(longK-shortK);
+		long forward=0, reverse=0, len=Long.MAX_VALUE;
+		for(int i=0; i<bases.length; i++){
+			final byte b=bases[i];
+			final int upper=b&~32;
+			final long x=strict && upper!='A' && upper!='C' && upper!='G' && upper!='T'
+				? (long)(Integer.MIN_VALUE|3) : ((b>>1)&3)|((b&8)<<28);
+			len|=x;
+			len>>>=1;
+			forward=((forward<<2)|x)&longMask;
+			if(canonical){reverse=((reverse>>>2)|((x^2)<<reverseShift))&longMask;}
+			if(len<=shortThreshold){
+				assert(i>=shortK-1) : "Native ambiguity state must suppress every incomplete leading word";
+				final long word=forward&shortMask;
+				consumer.accept(canonical ? Math.max(word, reverse>>>shortReverseShift) : word, shortK);
+			}
+			if(shortK!=longK && len<=longThreshold){
+				assert(i>=longK-1) : "The longer word cannot be emitted before its complete span";
+				consumer.accept(canonical ? Math.max(forward, reverse) : forward, longK);
+			}
+		}
+	}
+
+	/** Primitive borrowed sink for the word and its explicit span length. */
+	public interface KmerConsumer{
+		void accept(long word, int k);
 	}
 
 	/**

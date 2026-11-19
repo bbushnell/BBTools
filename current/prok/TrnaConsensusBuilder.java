@@ -17,6 +17,9 @@ import fileIO.FileFormat;
 import fileIO.ReadWrite;
 import idaligner.AlignmentStats;
 import idaligner.ScrabbleAligner;
+import idaligner.QuantumAligner;
+import cardinality.DynamicDemiLog;
+import map.LongHashSet;
 import parse.Parse;
 import parse.Parser;
 import parse.PreParser;
@@ -30,6 +33,7 @@ import stream.FastaReadInputStream;
 import stream.Read;
 import structures.ByteBuilder;
 import structures.ListNum;
+import structures.LongList;
 
 /**
  * Builds per-anticodon consensus tRNA sequences using pivot-based
@@ -78,6 +82,18 @@ public class TrnaConsensusBuilder {
 				clusterIdentity=Float.parseFloat(b);
 			}else if(a.equals("cluster")){
 				doClustering=Parse.parseBoolean(b);
+			}else if(a.equals("clusterpolicy")){
+				clusterPolicy="legacy".equalsIgnoreCase(b) ? null : NcrnaClusterAssignment.Policy.parse(b);
+			}else if(a.equals("clusterpatience")){
+				clusterPatience=Integer.parseInt(b);
+			}else if(a.equals("ddlbins")){
+				ddlBins=Integer.parseInt(b);
+			}else if(a.equals("ddlseed")){
+				ddlSeed=Long.parseLong(b);
+			}else if(a.equals("paddingblacklist")){
+				paddingBlacklistFile=b;
+			}else if(a.equals("paddingfit")){
+				paddingFit=b;
 			}else if(a.equals("minclustersize") || a.equals("mincluster")){
 				minClusterSize=Integer.parseInt(b);
 			}else if(a.equals("recruit")){
@@ -90,6 +106,7 @@ public class TrnaConsensusBuilder {
 				endTrimFrac=Float.parseFloat(b);
 			}else if(a.equals("lentilt") || a.equals("lengthtilt")){
 				lenTilt=Float.parseFloat(b);
+				lenTiltSet=true;
 			}else if(a.equals("reassignrounds") || a.equals("rounds")){
 				reassignRounds=Integer.parseInt(b);
 			}else if(a.equals("census")){
@@ -106,6 +123,8 @@ public class TrnaConsensusBuilder {
 				stochasticSeed=Long.parseLong(b);
 			}else if(a.equals("outassignments")){
 				outAssignments=b;
+			}else if(a.equals("outbuildstats")){
+				outBuildStats=b;
 			}else if(a.equals("family")){
 				family=b;
 			}else if(parser.parse(arg, a, b)){
@@ -121,13 +140,39 @@ public class TrnaConsensusBuilder {
 
 		if(in==null){throw new RuntimeException("Error - an input file is required.");}
 		if(out==null){throw new RuntimeException("Error - an output file is required.");}
+		if(clusterPolicy!=null){
+			if(!lenTiltSet){lenTilt=0;}
+			if(!doClustering || stochasticConsensus || lenTilt!=0 || clusterPatience<0
+					|| clusterPolicy!=NcrnaClusterAssignment.Policy.ALL && ddlBins!=512 && ddlBins!=1024){
+				throw new IllegalArgumentException("New nucleotide policies require cluster=t, stochastic=f, lentilt=0 and nonnegative clusterpatience; DDL policies also require explicit ddlbins=512 or1024");
+			}
+			if(clusterPolicy!=NcrnaClusterAssignment.Policy.ALL){
+				DynamicDemiLog.setExponent(4);
+				if("none".equalsIgnoreCase(paddingBlacklistFile)){
+					if(paddingFit!=null){throw new IllegalArgumentException("paddingblacklist=none has no learned paddingfit scope");}
+					paddingBlacklist=new LongHashSet(4);
+				}else{
+					paddingBlacklist=NcrnaDdlSketchBuilder.readBlacklist(paddingBlacklistFile, paddingFit);
+				}
+			}
+		}
 		//Citan, 2026-08-28: family namespace must be explicit whenever assignments are written,
 		//so clusterKeys stay collision-free across a future joint multi-family manifest (kept
 		//clusterKey embeds modelLabel, and modelLabel's format -- consensusPrefix+anticodon+
 		//"_c"+fci (consensusPrefix defaults to "tRNA_consensus_") -- is NOT itself family-
 		//namespaced, so two different families could otherwise produce byte-identical modelLabels).
-		if(outAssignments!=null && (family==null || family.isEmpty())){
-			throw new RuntimeException("Error - a non-empty family= is required when outassignments= is set.");
+		if((outAssignments!=null || outBuildStats!=null) && (family==null || family.isEmpty())){
+			throw new RuntimeException("Error - a non-empty family= is required when outassignments= or outbuildstats= is set.");
+		}
+		if(outBuildStats!=null){
+			if(clusterPolicy==null || pruneCount!=0){
+				throw new IllegalArgumentException("outbuildstats requires a new nucleotide clusterpolicy and prune=0 so final-model histograms conserve membership");
+			}
+			if(!Tools.testOutputFiles(parser.overwrite, false, false, outBuildStats)){
+				throw new IllegalArgumentException("Cannot write outbuildstats="+outBuildStats);
+			}
+			clusterSizes=new LongList();
+			memberIdentities=new LongList(1001);
 		}
 
 		//Citan, 2026-08-28, round 5: resolved ONCE here, single-threaded, before any parallel
@@ -155,7 +200,7 @@ public class TrnaConsensusBuilder {
 	void process(Timer t){
 		ArrayList<Read> reads=loadReads();
 		outstream.println("Loaded "+reads.size()+" tRNA sequences.");
-		if(outAssignments!=null){checkNoDuplicateRecordIds(reads);}
+		if(outAssignments!=null || outBuildStats!=null){checkNoDuplicateRecordIds(reads);}
 
 		LinkedHashMap<String, ArrayList<byte[]>> seedMap=null;
 		if(seedIn!=null){
@@ -165,7 +210,7 @@ public class TrnaConsensusBuilder {
 		LinkedHashMap<String, ArrayList<Read>> groups=groupByAnticodon(reads);
 		outstream.println("Found "+groups.size()+" anticodon groups.");
 
-		if(outAssignments!=null){assignmentMap=new java.util.IdentityHashMap<>();}
+		if(outAssignments!=null || outBuildStats!=null){assignmentMap=new java.util.IdentityHashMap<>();}
 
 		ArrayList<Read> consensusList=new ArrayList<>();
 		ArrayList<BaseGraph> modelList=(outModel!=null ? new ArrayList<>() : null);
@@ -187,8 +232,9 @@ public class TrnaConsensusBuilder {
 
 			ArrayList<byte[]> seeds=(seedMap!=null ? seedMap.get(anticodon) : null);
 
-			if(doClustering && group.size()>1){
+			if(doClustering && (group.size()>1 || clusterPolicy!=null)){
 				final ArrayList<ArrayList<Read>> clusters=clusterSequences(group, seeds);
+				final NcrnaDdlClusterer currentDdl=ddlClusterer;
 				recordDroppedOrphans(group, clusters);
 				//Per-cluster consensus+HBM+census are independent: compute in
 				//parallel, then assemble serially in cluster order so output
@@ -197,6 +243,8 @@ public class TrnaConsensusBuilder {
 				final BaseGraph[] graphs=new BaseGraph[clusters.size()];
 				final String[] censusLines=new String[clusters.size()];
 				final String[] labels=new String[clusters.size()];
+				final long[] finalWork=clusterPolicy==null ? null : new long[clusters.size()];
+				final float[][] finalIdentities=outBuildStats==null ? null : new float[clusters.size()][];
 				final String anticodonF=anticodon;
 				ArrayList<Future<?>> futures=new ArrayList<>();
 				for(int ci=0; ci<clusters.size(); ci++){
@@ -208,7 +256,14 @@ public class TrnaConsensusBuilder {
 						public void run(){
 							final String label=consensusPrefix+anticodonF+"_c"+fci+" n="+cluster.size();
 							final byte[] consensus;
-							if(outModel!=null){
+							if(clusterPolicy!=null){
+								final NcrnaDdlConsensus.Fit fit=NcrnaDdlConsensus.refine(cluster,
+									currentDdl.consensus(fci), currentDdl.membershipIdentity(), MAX_GRAPH_ITERS, endTrimFrac>0);
+								consensus=fit.bases;
+								finalWork[fci]=fit.alignments;
+								if(finalIdentities!=null){finalIdentities[fci]=fit.identities;}
+								if(outModel!=null){graphs[fci]=fit.graph(label);}
+							}else if(outModel!=null){
 								//Consensus and HBM built TOGETHER, from alignments to the SAME stabilized
 								//reference (Brian's ruling, Aug 22 2026, via Noire) -- see
 								//buildConsensusAndGraph's javadoc for why the old separate buildConsensus()+
@@ -233,6 +288,7 @@ public class TrnaConsensusBuilder {
 				int kept=0;
 				for(int ci=0; ci<clusters.size(); ci++){
 					final ArrayList<Read> cluster=clusters.get(ci);
+					if(finalWork!=null){finalConsensusAlignments+=finalWork[ci];}
 					if(consensi[ci]==null){
 						//Either below minClusterSize (never attempted, `continue`d above) or a
 						//size-eligible cluster whose consensus build failed (line ~188/193) --
@@ -241,6 +297,16 @@ public class TrnaConsensusBuilder {
 						continue;
 					}
 					if(censusLines[ci]!=null){outstream.println(censusLines[ci]);}
+					if(clusterPolicy!=null && census){censusAlignments+=cluster.size();}
+					if(finalIdentities!=null){
+						clusterSizes.increment(cluster.size());
+						final float[] identities=finalIdentities[ci];
+						assert(identities!=null && identities.length==cluster.size())
+							: "Final-model identity reporting must reuse one accepted Quantum placement per actual member";
+						for(final float identity:identities){memberIdentities.increment(Math.min(1000, Math.max(0, Math.round(identity*1000))));}
+						modeledMembers+=cluster.size();
+						modelBounds.add(new ModelBounds(labels[ci], cluster));
+					}
 					Read r=new Read(consensi[ci], null, labels[ci], num);
 					consensusList.add(r);
 					if(modelList!=null){modelList.add(graphs[ci]);}
@@ -313,6 +379,7 @@ public class TrnaConsensusBuilder {
 		}
 
 		writeAssignments(reads);
+		writeBuildStats(reads, consensusList.size());
 
 		if(ffout!=null){
 			//TODO: TOOL_WRITER_SINGLE_OUTPUTS - inherited start/add failures bypass
@@ -464,10 +531,21 @@ public class TrnaConsensusBuilder {
 	}
 
 	ArrayList<ArrayList<Read>> clusterSequences(ArrayList<Read> group, ArrayList<byte[]> seeds){
+		group.sort((a, b)->b.length()-a.length());
+		if(clusterPolicy!=null){
+			ddlClusterer=new NcrnaDdlClusterer(group, clusterPolicy, clusterPatience, ddlBins, ddlSeed,
+				paddingBlacklist, clusterIdentity, recruitIdentity, reassignRounds, passes, endTrimFrac>0, doRecruit, Tools.max(1, Shared.threads()));
+			final ArrayList<ArrayList<Read>> result=ddlClusterer.cluster(seeds);
+			assignmentAlignments+=ddlClusterer.alignments;
+			clusteringConsensusAlignments+=ddlClusterer.consensusAlignments;
+			outstream.println("Nucleotide clustering: "+ddlClusterer.queries+" assignment queries, "+ddlClusterer.alignments
+				+" assignment alignments, "+ddlClusterer.passing+" passing assignment pairs, "+ddlClusterer.earlyStops+" patience stops, "
+				+ddlClusterer.profileUpdates+" incremental profile updates, "+ddlClusterer.profileRebuilds
+				+" full profile rebuilds, "+ddlClusterer.indexRebuilds+" index rebuilds.");
+			return result;
+		}
 		ArrayList<ArrayList<Read>> clusters=new ArrayList<>();
 		ArrayList<byte[]> centroids=new ArrayList<>();
-
-		group.sort((a, b)->b.length()-a.length());
 
 		if(seeds!=null && !seeds.isEmpty()){
 			// Seeded mode: assign reads to pre-existing centroids only
@@ -776,7 +854,8 @@ public class TrnaConsensusBuilder {
 			stats.clear();
 			stats.doTrace=true;
 			if(r.length()<=cons.length){
-				float id=ScrabbleAligner.alignAndTraceStatic(r.bases, cons, stats);
+				float id=clusterPolicy==null ? ScrabbleAligner.alignAndTraceStatic(r.bases, cons, stats)
+					: QuantumAligner.alignAndTraceStatic(r.bases, cons, stats);
 				if(stats.matchString==null || id<minIdentity){continue;}
 				aligned++;
 				//KNOWN LIMITATION: a member that fits inside the model cannot expose a
@@ -785,7 +864,8 @@ public class TrnaConsensusBuilder {
 				//censused with this method — do not change without re-censusing the series.
 				deficit[0]++;
 			}else{
-				float id=ScrabbleAligner.alignAndTraceStatic(cons, r.bases, stats);
+				float id=clusterPolicy==null ? ScrabbleAligner.alignAndTraceStatic(cons, r.bases, stats)
+					: QuantumAligner.alignAndTraceStatic(cons, r.bases, stats);
 				if(stats.matchString==null || id<minIdentity){continue;}
 				aligned++; longer++;
 				deficit[Tools.min(Tools.max(stats.rStart, 0), 7)]++;
@@ -1591,8 +1671,9 @@ public class TrnaConsensusBuilder {
 	 * path added a new way to lose or duplicate a Read that this method doesn't yet know about,
 	 * and that must fail loud, not silently under- or over-count. Fails loud (not skip-and-
 	 * count, unlike this file's tolerant flank/gc conventions elsewhere -- this is the record's
-	 * whole downstream identity) on an unparseable tid or a literal tab in any written field
-	 * (which would corrupt the TSV structure). */
+	 * whole downstream identity) on a literal tab in any written field (which would
+	 * corrupt the TSV structure). Missing source taxonomy is written as -1, without
+	 * dropping a record or changing its cluster, consensus, model or vote. */
 	private void writeAssignments(ArrayList<Read> reads){
 		if(outAssignments==null){return;}
 		//Citan, 2026-08-28: an independent check on assignmentMap's own populated size BEFORE
@@ -1614,17 +1695,6 @@ public class TrnaConsensusBuilder {
 				+"method knowing about it.";
 			final String fullRecordId=r.id;
 			final int tid=tax.TaxTree.parseTaxID(fullRecordId);
-			if(tid<1){
-				//NOTE: this throw previously crash-HUNG the JVM (non-daemon pool workers stayed
-				//alive; observed 2026-09-08, Dori job 25705455, RUNNING post-exception until
-				//scancel). FIXED 2026-09-08 by daemonizing the compute pool (see pool()) per
-				//Brian's input-side-daemons-only guidance - the diagnostic exception is preserved
-				//and the process now exits. Optional follow-on (Brian): a KillSwitch watchdog
-				//terminating after X minutes below Y CPU load. G11.
-				throw new RuntimeException("Error - could not parse a source tid from record '"
-					+fullRecordId+"' -- outassignments= requires every record to carry a "
-					+"parseable tid_NNNN (or tid|/ncbi|/ncbi_) token.");
-			}
 			final String builderGroup=parseAnticodon(fullRecordId);
 			final String group=(builderGroup==null ? "unknown" : builderGroup);
 			final String clusterKey=a[0], modelLabel=a[1], status=a[2];
@@ -1634,7 +1704,8 @@ public class TrnaConsensusBuilder {
 						+"corrupt the outassignments TSV: '"+field+"'");
 				}
 			}
-			bb.append(fullRecordId).tab().append(tid).tab().append(group).tab()
+			//Assignments preserve missing taxonomy in both legacy and optional clustering modes.
+			bb.append(fullRecordId).tab().append(tid>0 ? tid : -1).tab().append(group).tab()
 				.append(clusterKey).tab().append(modelLabel).tab().append(status).nl();
 			written++;
 		}
@@ -1646,6 +1717,103 @@ public class TrnaConsensusBuilder {
 		bsw.print(bb);
 		errorState|=bsw.poisonAndWait();
 		outstream.println("Wrote "+written+" assignment rows to "+outAssignments);
+	}
+
+	/** Counts are taken at the actual assignment/refinement call sites. Histogram
+	 * identities come from retained final traces, without reporting alignments. */
+	private void writeBuildStats(final ArrayList<Read> reads, final int models){
+		if(outBuildStats==null){return;}
+		final int inputMembers=reads.size();
+		long orphans=0, small=0, kept=0;
+		for(final Read read:reads){
+			final String[] assignment=assignmentMap.get(read);
+			if(assignment==null){throw new IllegalStateException("Build statistics require a disposition for every original member");}
+			if("orphan".equals(assignment[2])){orphans++;}
+			else if("small".equals(assignment[2])){small++;}
+			else if("kept".equals(assignment[2])){kept++;}
+			else{throw new IllegalStateException("Unknown construction member disposition: "+assignment[2]);}
+		}
+		final long total=assignmentAlignments+clusteringConsensusAlignments+finalConsensusAlignments+censusAlignments;
+		long clusters=0, members=0, identities=0;
+		for(int size=0; size<clusterSizes.size; size++){
+			clusters+=clusterSizes.get(size);
+			members+=size*clusterSizes.get(size);
+		}
+		for(int bin=0; bin<memberIdentities.size; bin++){identities+=memberIdentities.get(bin);}
+		assert(clusters==models && members==modeledMembers && identities==modeledMembers && kept==modeledMembers
+			&& kept+small+orphans==inputMembers)
+			: "Final-model size and identity histograms must conserve every modeled member and emitted model";
+		final FileFormat format=FileFormat.testOutput(outBuildStats, FileFormat.TXT, null, true, overwrite, false, false);
+		try(NcrnaTextIO.Output output=new NcrnaTextIO.Output(format)){
+			output.writer.println("kind\tvalue\tcount");
+			final ByteBuilder row=new ByteBuilder();
+			buildMetric(output, row, "input_members", inputMembers);
+			buildMetric(output, row, "models", models);
+			buildMetric(output, row, "modeled_members", modeledMembers);
+			buildMetric(output, row, "unmodeled_members", inputMembers-modeledMembers);
+			buildMetric(output, row, "orphan_members", orphans);
+			buildMetric(output, row, "small_cluster_members", small);
+			buildMetric(output, row, "singleton_models", clusterSizes.get(1));
+			buildMetric(output, row, "assignment_alignments", assignmentAlignments);
+			buildMetric(output, row, "clustering_consensus_alignments", clusteringConsensusAlignments);
+			buildMetric(output, row, "final_consensus_alignments", finalConsensusAlignments);
+			buildMetric(output, row, "census_alignments", censusAlignments);
+			buildMetric(output, row, "total_executed_alignments", total);
+			for(int size=1; size<clusterSizes.size; size++){
+				if(clusterSizes.get(size)>0){output.writer.print(row.clear().append("cluster_size\t").append(size).tab().append(clusterSizes.get(size)).nl());}
+			}
+			for(int bin=0; bin<memberIdentities.size; bin++){
+				if(memberIdentities.get(bin)>0){output.writer.print(row.clear().append("identity_nearest_thousandth\t").append(bin).tab().append(memberIdentities.get(bin)).nl());}
+			}
+			for(final ModelBounds bounds:modelBounds){bounds.write(output, row);}
+		}
+	}
+	private static void buildMetric(final NcrnaTextIO.Output output, final ByteBuilder row, final String name, final long value){
+		output.writer.print(row.clear().append(name).append("\tall\t").append(value).nl());
+	}
+
+	/** Native CM coordinates are diagnostics, never reclipped construction ends.
+	 * Four end-class counts are joint categories; the two marginals can overlap. */
+	private static final class ModelBounds{
+		ModelBounds(final String label_, final ArrayList<Read> members){
+			label=label_;
+			for(final Read member:members){
+				final int from=field(member.id, " cmfrom="), to=field(member.id, " cmto="), length=field(member.id, " cmlen=");
+				if(from<0 && to<0 && length<0){missing++;continue;}
+				if(from<1 || to<from || length<to){throw new IllegalArgumentException("Native CM diagnostic fields must retain valid from/to/length together: "+member.id);}
+				minFrom=Math.min(minFrom, from);
+				maxFrom=Math.max(maxFrom, from);
+				minTo=Math.min(minTo, to);
+				maxTo=Math.max(maxTo, to);
+				final boolean left=from-1==44, right=length-to==20;
+				endClasses[(left ? 1 : 0)|(right ? 2 : 0)]++;
+			}
+			assert(missing+endClasses[0]+endClasses[1]+endClasses[2]+endClasses[3]==members.size())
+				: "Every final construction member must retain one joint native-end class or explicit absent metadata";
+		}
+		private static int field(final String header, final String name){
+			final int index=header.indexOf(name);
+			if(index<0){return -1;}
+			final int from=index+name.length(), space=header.indexOf(' ', from);
+			return Parse.parseInt(header, from, space<0 ? header.length() : space);
+		}
+		void write(final NcrnaTextIO.Output output, final ByteBuilder row){
+			metric(output, row, "cm_from_min", maxFrom<0 ? -1 : minFrom);
+			metric(output, row, "cm_from_max", maxFrom);
+			metric(output, row, "cm_to_min", maxTo<0 ? -1 : minTo);
+			metric(output, row, "cm_to_max", maxTo);
+			metric(output, row, "cm_left44_only", endClasses[1]);
+			metric(output, row, "cm_right20_only", endClasses[2]);
+			metric(output, row, "cm_left44_and_right20", endClasses[3]);
+			metric(output, row, "cm_neither_end_class", endClasses[0]);
+			metric(output, row, "cm_metadata_missing", missing);
+		}
+		private void metric(final NcrnaTextIO.Output output, final ByteBuilder row, final String kind, final long count){
+			output.writer.print(row.clear().append(kind).tab().append(label).tab().append(count).nl());
+		}
+		final String label;
+		final long[] endClasses=new long[4];
+		int minFrom=Integer.MAX_VALUE, minTo=Integer.MAX_VALUE, maxFrom=-1, maxTo=-1, missing;
 	}
 
 	private String in;
@@ -1660,6 +1828,13 @@ public class TrnaConsensusBuilder {
 	private float minIdentity=0.3f;
 	private float clusterIdentity=0.70f;
 	private boolean doClustering=true;
+	private NcrnaClusterAssignment.Policy clusterPolicy;
+	private int clusterPatience=100, ddlBins=-1;
+	private long ddlSeed=12345;
+	private String paddingBlacklistFile, paddingFit;
+	private LongHashSet paddingBlacklist;
+	private NcrnaDdlClusterer ddlClusterer;
+	private boolean lenTiltSet;
 	private boolean doRecruit=true;
 	private int minClusterSize=3;
 	private float recruitIdentity=0.70f;
@@ -1700,6 +1875,10 @@ public class TrnaConsensusBuilder {
 	//(see TrnaConsensusBuilderAssignmentsTest's byte-invariance test). See recordAssignment's
 	//javadoc for the clusterKey scheme.
 	private String outAssignments=null;
+	private String outBuildStats;
+	private LongList clusterSizes, memberIdentities;
+	private final ArrayList<ModelBounds> modelBounds=new ArrayList<ModelBounds>();
+	private long modeledMembers, assignmentAlignments, clusteringConsensusAlignments, finalConsensusAlignments, censusAlignments;
 	private String family=null;
 	/** Read identity -> {clusterKey, modelLabel, status}, populated only when outAssignments!=
 	 * null. IdentityHashMap deliberately: Read has no meaningful equals/hashCode override here

@@ -13,6 +13,18 @@ public interface NcrnaBoundaryRefiner{
 	 * endpoint path; true replaces that path even when refinement makes no move. */
 	boolean applies(int model);
 
+	/** False preserves the original pre-trim replacement hook. True requests the
+	 * ordinary scalar-NN anchor after unchanged alignment trimming, and runs only
+	 * when trim succeeded, raw-end refinement is enabled or one end is fixed.
+	 * Selected before calling; must not change during a worker's lifetime.
+	 */
+	default boolean afterAlignmentTrim(){return false;}
+
+	/** Only an implementation with an explicit trace contract may publish score windows. */
+	default void setBoundaryTrace(NcrnaBoundaryTrace.Family trace){
+		if(trace!=null){throw new IllegalArgumentException("This refiner has no boundary trace contract");}
+	}
+
 	/** Refines zero-based inclusive coordinates on the complete sense-oriented
 	 * contig. fixedMask uses bit 1 for the physical start and bit 2 for the stop.
 	 * Identity is the selected alignment's score; quantumIdentity distinguishes

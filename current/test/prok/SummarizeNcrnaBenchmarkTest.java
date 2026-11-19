@@ -71,6 +71,7 @@ public final class SummarizeNcrnaBenchmarkTest{
 			5000000000L, 5, 12, 41.666667);
 		testTaxonomy(fixture);
 		NcrnaSubtypeComparisonTest.run(new File(fixture.root, "subtype-comparison"));
+		NcrnaExactMembershipTest.run(new File(fixture.root, "exact-membership"));
 
 		final String missing=fixture.path("missing-times.tsv");
 		writeLines(missing, withoutLast(lines(fixture.times)));

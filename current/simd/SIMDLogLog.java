@@ -95,7 +95,17 @@ public class SIMDLogLog{
 	 * @param arrayB Second DDL maxArray; must have the same length as arrayA
 	 * @return int[]{lower, equal, higher, bothEmpty} */
 	public static int[] compareDetailed(final char[] arrayA, final char[] arrayB){
-		assert(arrayA.length==arrayB.length);
+		return compareDetailed(arrayA, arrayB, new int[4]);
+	}
+
+	/** Runs the existing vector/tail comparison into worker-owned scratch.
+	 * Slots0..3 are overwritten and later slots stay untouched. Invoke through
+	 * Vector.compareDDL to retain the capability gate and Java8 scalar fallback.
+	 * @return The supplied four-count-or-longer output array
+	 */
+	public static int[] compareDetailed(final char[] arrayA, final char[] arrayB, final int[] counts){
+		assert(arrayA!=null && arrayB!=null && arrayA.length==arrayB.length && counts!=null && counts.length>=4)
+			: "Vector comparison needs equal bin arrays and output slots for all four count categories";
 		final int len=arrayA.length;
 		int lower=0, equal=0, higher=0, bothEmpty=0;
 		final int limit=SSPECIES.loopBound(len);
@@ -133,7 +143,11 @@ public class SIMDLogLog{
 			else if(a>b){higher++;}
 			else{equal++;}
 		}
-		return new int[]{lower, equal, higher, bothEmpty};
+		counts[0]=lower;
+		counts[1]=equal;
+		counts[2]=higher;
+		counts[3]=bothEmpty;
+		return counts;
 	}
 
 	/** Core SIMD comparison on pre-converted short arrays.

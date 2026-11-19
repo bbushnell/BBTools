@@ -23,6 +23,18 @@ expected=           Optional accepted number of matched loci.
 exact5=             Optional accepted count of exact 5-prime ends.
 exact3=             Optional accepted count of exact 3-prime ends.
 both=               Optional accepted count of both ends exact.
+bindings=           Optional five-column panel source map. Requires exclude=.
+exclude=            Existing NcrnaLearningExclusions panel_sources.tsv audit.
+                    Joins the matched length:input_id/contig namespace to exact
+                    assemblies; input IDs are printable ASCII, never ordinals
+                    or inferred TaxIDs. Unknown/conflicting sources fail.
+expectedall=        Optional matched count BEFORE source exclusion; expected=,
+                    exact5=, exact3= and both= still describe retained rows.
+                    Every selected-family pair is validated before filtering.
+                    Adds .population.tsv accounting only in this optional mode:
+                    selected=retained+excluded, source/panel/audit counts and
+                    explicitly unmatched path aliases. Bind BOTH intended panel
+                    names/counts and the permitted unmatched count in the worker.
 ow=f                Existing output files are protected by default.
 
 Positive errors point downstream in transcript orientation. Quantiles use nearest

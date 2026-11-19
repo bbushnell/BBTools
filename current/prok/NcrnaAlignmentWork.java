@@ -2,8 +2,10 @@ package prok;
 
 import consensus.BaseGraph;
 import stream.Read;
+import structures.LongList;
 import idaligner.AlignmentStats;
 import idaligner.ContigEdgeAlignment;
+import idaligner.EndClippedAligner;
 import idaligner.QuantumAligner;
 import idaligner.ScrabbleAligner;
 
@@ -17,6 +19,29 @@ import idaligner.ScrabbleAligner;
  * @author Brian Bushnell, Raiden
  */
 public final class NcrnaAlignmentWork{
+
+	/** Selected-format primary operand order and fresh position hints, shared by
+	 * production and saved-window measurements. This does not apply acceptance gates. */
+	public static float selectedQuantum(final byte[] model, final byte[] window, final int[] positions){
+		assert(model!=null && window!=null && positions!=null && positions.length>=4)
+			: "Selected primary verification needs model query, genomic reference and four endpoint hints";
+		java.util.Arrays.fill(positions, 0);
+		return quantum(model, window, positions, model.length);
+	}
+
+	/** Real physical-edge kernel; explicit flags must come from original contig
+	 * bounds, never from the ends of a detached saved window. */
+	public static EndClippedAligner.Result contigEdges(final EndClippedAligner aligner,
+			final byte[] model, final byte[] window, final boolean left, final boolean right,
+			final int match, final int penalty){
+		assert(aligner!=null && model!=null && window!=null && (left || right))
+			: "Only an original physical contig edge permits model-end clipping";
+		final NcrnaAlignmentWork work=current();
+		final long start=work==null ? -1 : NcrnaCpuProfile.cpuNow();
+		final EndClippedAligner.Result result=aligner.alignContigEdges(model, window, left, right, match, penalty);
+		if(work!=null){work.executed(model.length, window.length, start);}
+		return result;
+	}
 
 	/** Ordinary uncached Scrabble identity, retaining the caller's operand order. */
 	public static float scrabble(final byte[] query, final byte[] reference,
@@ -100,6 +125,74 @@ public final class NcrnaAlignmentWork{
 		cpuNanos+=elapsed;
 	}
 
+	/** One scheduled generic window, spanning primary, rescue and edge retry.
+	 * Snapshots precede all work, so early rejects contribute a real zero bin.
+	 * Nested alignments are requests inside this unit, never additional windows. */
+	public void window(final long logicalBefore, final long physicalBefore){
+		final long requests=logical-logicalBefore, executions=physical-physicalBefore;
+		assert(logicalBefore>=0 && physicalBefore>=0 && requests>=executions && executions>=0
+			&& requests<Integer.MAX_VALUE)
+			: shared.KillSwitch.assertDie("One nonnested window must conserve monotonic logical/physical requests and fit an integer histogram bin");
+		windows++;
+		windowLogical+=requests;
+		windowPhysical+=executions;
+		logicalHistogram.increment((int)requests);
+		physicalHistogram.increment((int)executions);
+	}
+
+	public int windowBins(){return Math.max(logicalHistogram.size, physicalHistogram.size);}
+
+	/** One experimental verifier acceptance before candidate resolution and DP.
+	 * Repeated windows/retries remain events, never unique loci or retained calls.
+	 * Native support is unavailable when the sketch is the only ranking index. */
+	public void proposal(final int nativeCount, final boolean fromSketch){
+		assert(nativeCount>=-1 && nativeCount<=65535 && (nativeCount>=0 || fromSketch))
+			: shared.KillSwitch.assertDie("An accepted experimental proposal must retain its winning stream and measured native count, or sketch-only NA");
+		final int stream=nativeCount<0 ? 2 : fromSketch ? 1 : 0;
+		final int support=nativeCount<0 ? 2 : nativeCount<2 ? 0 : 1;
+		proposalCounts[stream*3+support]++;
+	}
+
+	/** Fixed stream/support cells avoid per-acceptance objects and boxed keys. */
+	public long proposalCount(final int stream, final int support){
+		assert(stream>=0 && stream<3 && support>=0 && support<3)
+			: "Proposal report indices are native/sketch/sketch-only by below-floor/at-floor/NA";
+		return proposalCounts[stream*3+support];
+	}
+
+	/** Attribution-only alphabet census, outside the shortlist CPU timer.
+	 * Counts query invocations, including a repeated physical-edge query, not loci.
+	 * N is supported; other undefined symbols expose V1's unnormalized-input limit. */
+	public void rankingQuery(final byte[] sequence){
+		assert(sequence!=null) : "Ranking alphabet attribution requires the actual query bytes before encoding";
+		rankingQueries++;
+		for(final byte base:sequence){
+			final int upper=base&0xdf;
+			if(upper!='A' && upper!='C' && upper!='G' && upper!='T' && upper!='N'){
+				undefinedRankingQueries++;
+				return;
+			}
+		}
+	}
+	public long windowCount(final boolean requests, final int bin){
+		assert(bin>=0) : "A window-work histogram is indexed by nonnegative alignment-request counts";
+		return (requests ? logicalHistogram : physicalHistogram).get(bin);
+	}
+
+	/** Nearest-rank count percentile over actual windows, including zero work. */
+	public int windowPercentile(final boolean requests, final int percent){
+		assert(windows>0 && percent>0 && percent<=100)
+			: "Window percentiles require at least one observed window and an integer percentage1..100";
+		final long target=(windows/100)*percent+((windows%100)*percent+99)/100;
+		final LongList histogram=requests ? logicalHistogram : physicalHistogram;
+		long cumulative=0;
+		for(int bin=0; bin<histogram.size; bin++){
+			cumulative+=histogram.get(bin);
+			if(cumulative>=target){return bin;}
+		}
+		throw new IllegalStateException("Window histogram lost observations before percentile calculation");
+	}
+
 	/** Merge only after joining the owning worker; shared writers never mutate it. */
 	public void add(final NcrnaAlignmentWork other){
 		assert(other!=null && other!=this) : "Joined family counters merge once into a separate aggregate";
@@ -112,6 +205,16 @@ public final class NcrnaAlignmentWork{
 		cpuNanos+=other.cpuNanos;
 		hbmCalls+=other.hbmCalls;
 		hbmCpuNanos+=other.hbmCpuNanos;
+		windows+=other.windows;
+		windowLogical+=other.windowLogical;
+		windowPhysical+=other.windowPhysical;
+		rankingQueries+=other.rankingQueries;
+		undefinedRankingQueries+=other.undefinedRankingQueries;
+		for(int i=0; i<proposalCounts.length; i++){
+			proposalCounts[i]=Math.addExact(proposalCounts[i], other.proposalCounts[i]);
+		}
+		logicalHistogram.incrementBy(other.logicalHistogram);
+		physicalHistogram.incrementBy(other.physicalHistogram);
 	}
 
 	private static int candidateLength(final byte[] query, final byte[] reference, final int modelLength){
@@ -143,5 +246,9 @@ public final class NcrnaAlignmentWork{
 	static void leave(){ACTIVE.set(null);}
 
 	public long logical, physical, hits, modelBases, queryBases, physicalModelBases, cpuNanos, hbmCalls, hbmCpuNanos;
+	public long windows, windowLogical, windowPhysical;
+	public long rankingQueries, undefinedRankingQueries;
+	private final long[] proposalCounts=new long[9];
+	private final LongList logicalHistogram=new LongList(16), physicalHistogram=new LongList(16);
 	private static final ThreadLocal<NcrnaAlignmentWork> ACTIVE=new ThreadLocal<NcrnaAlignmentWork>();
 }

@@ -130,7 +130,7 @@ public class NcrnaBoundaryScorer {
 			byte[] modelConsensus, BaseGraph model, TrnaBoundaryFeatures.NinemerTable table,
 			int insideCount, int outsideCount, float contigGC, float meanLen, float modelPlateau){
 		return score(net,window,s,e,isStop,modelConsensus,model,table,insideCount,outsideCount,
-			contigGC,meanLen,modelPlateau,FEATURES_V1,Float.NaN,null,null,null);
+			contigGC,meanLen,modelPlateau,FEATURES_V1,0,null,null,null);
 	}
 
 	/** Scores a supplied feature policy; callers own the network's mutable state. */
@@ -261,6 +261,7 @@ public class NcrnaBoundaryScorer {
 		}
 		int[] offsets(){return new int[]{startOffset, stopOffset};}
 		public final int startOffset, stopOffset, startSitesScored, stopSitesScored;
+		/** Exists only when the corresponding sitesScored count is positive; otherwise unused finite0. */
 		public final float startChosenScore, stopChosenScore;
 		/** In-window stop candidates deliberately excluded by the CDS ceiling. */
 		public final int stopSitesExcluded;
@@ -275,7 +276,7 @@ public class NcrnaBoundaryScorer {
 			boolean touchesContigStart, boolean touchesContigEnd){
 		return refineBoundariesWithCounts(startNet,stopNet,window,s,e,modelConsensus,model,startTable,stopTable,
 			startInside,startOutside,stopInside,stopOutside,contigGC,meanLen,startOffsets,stopOffsets,
-			marginStart,marginStop,touchesContigStart,touchesContigEnd,FEATURES_V1,Float.NaN,null,null);
+			marginStart,marginStop,touchesContigStart,touchesContigEnd,FEATURES_V1,0,null,null);
 	}
 
 	/** V2 shares one Quantum identity across the locus and reads fixed HBM endpoint
@@ -340,6 +341,52 @@ public class NcrnaBoundaryScorer {
 			float[] startFuzz, float[] stopFuzz,
 			TrnaBoundaryFeatures.NinemerTable familyStartTable,
 			TrnaBoundaryFeatures.NinemerTable familyStopTable, int fixedMask, int stopCeiling){
+		return refineBoundariesWithCounts(startNet, stopNet, window, s, e, modelConsensus, model,
+			startTable, stopTable, startInside, startOutside, stopInside, stopOutside,
+			contigGC, meanLen, startOffsets, stopOffsets, marginStart, marginStop,
+			touchesContigStart, touchesContigEnd, featureVersion, locusAni, startFuzz, stopFuzz,
+			familyStartTable, familyStopTable, fixedMask, stopCeiling, false);
+	}
+
+	/** Explicit shared confidence additionally compares the runner-up for positive margins.
+	 * False and zero-margin calls retain the historical selector and sequential order.
+	 * The second end is scored against the first end actually selected by this gate.
+	 */
+	public static RefinementResult refineBoundariesWithCounts(CellNet startNet, CellNet stopNet, byte[] window, int s, int e,
+			byte[] modelConsensus, BaseGraph model,
+			TrnaBoundaryFeatures.NinemerTable startTable, TrnaBoundaryFeatures.NinemerTable stopTable,
+			int startInside, int startOutside, int stopInside, int stopOutside, float contigGC, float meanLen,
+			int[] startOffsets, int[] stopOffsets, float marginStart, float marginStop,
+			boolean touchesContigStart, boolean touchesContigEnd, int featureVersion, float locusAni,
+			float[] startFuzz, float[] stopFuzz,
+			TrnaBoundaryFeatures.NinemerTable familyStartTable,
+			TrnaBoundaryFeatures.NinemerTable familyStopTable, int fixedMask, int stopCeiling, boolean sharedConfidence){
+		return refineBoundariesWithCounts(startNet, stopNet, window, s, e, modelConsensus, model,
+			startTable, stopTable, startInside, startOutside, stopInside, stopOutside,
+			contigGC, meanLen, startOffsets, stopOffsets, marginStart, marginStop,
+			touchesContigStart, touchesContigEnd, featureVersion, locusAni, startFuzz, stopFuzz,
+			familyStartTable, familyStopTable, fixedMask, stopCeiling, sharedConfidence, null);
+	}
+
+	/** Optional diagnostic windows include the second end with the first held and moved.
+	 * Additional scoring occurs only when capture is requested and the first end moves.
+	 * Such diagnostic work is not an ordinary inference timing measurement.
+	 */
+	public static RefinementResult refineBoundariesWithCounts(CellNet startNet, CellNet stopNet, byte[] window, int s, int e,
+			byte[] modelConsensus, BaseGraph model,
+			TrnaBoundaryFeatures.NinemerTable startTable, TrnaBoundaryFeatures.NinemerTable stopTable,
+			int startInside, int startOutside, int stopInside, int stopOutside, float contigGC, float meanLen,
+			int[] startOffsets, int[] stopOffsets, float marginStart, float marginStop,
+			boolean touchesContigStart, boolean touchesContigEnd, int featureVersion, float locusAni,
+			float[] startFuzz, float[] stopFuzz,
+			TrnaBoundaryFeatures.NinemerTable familyStartTable,
+			TrnaBoundaryFeatures.NinemerTable familyStopTable, int fixedMask, int stopCeiling, boolean sharedConfidence, ScoreSink trace){
+		if(trace!=null && (marginStart!=0 || marginStop!=0)){
+			throw new IllegalArgumentException("Capture replay scores during the declared ungated scalar run");
+		}
+		if(sharedConfidence && (!Float.isFinite(marginStart) || marginStart<0 || !Float.isFinite(marginStop) || marginStop<0)){
+			throw new IllegalArgumentException("Endpoint confidence margins must be finite and nonnegative");
+		}
 		if(stopCeiling<e){throw new IllegalArgumentException("Stop ceiling must preserve the raw anchor and offset zero: stop="+e+" ceiling="+stopCeiling);}
 		if((fixedMask&~3)!=0){throw new IllegalArgumentException("Physical endpoint mask uses only start/stop bits");}
 		assert(s>=0 && e>=s && e<window.length)
@@ -348,7 +395,7 @@ public class NcrnaBoundaryScorer {
 			"Unknown ncRNA boundary feature version: "+featureVersion);}
 		if((familyStartTable==null)!=(familyStopTable==null)){throw new IllegalArgumentException("Family start/stop tables must be supplied together");}
 		if(familyStartTable!=null && featureVersion!=FEATURES_V3){throw new IllegalArgumentException("Family/consensus table blending requires boundaryfeatures=v3");}
-		if(fixedMask==3){return new RefinementResult(0,0,0,0,Float.NaN,Float.NaN);}
+		if(fixedMask==3){return new RefinementResult(0,0,0,0,0,0);}
 		final int[] excluded=stopCeiling==Integer.MAX_VALUE ? null : new int[1];
 		final float modelPlateau=(featureVersion==FEATURES_V1 && model!=null ? TrnaBoundaryFeatures.modelMaxCoverage(model) : 0);
 		if(fixedMask!=0){
@@ -356,11 +403,12 @@ public class NcrnaBoundaryScorer {
 			final float[] sweep=bestOffset(stop?stopNet:startNet,window,s,e,stop,modelConsensus,model,stop?stopTable:startTable,
 				stop?stopInside:startInside,stop?stopOutside:startOutside,contigGC,meanLen,stop?stopOffsets:startOffsets,
 				stop?touchesContigEnd:touchesContigStart,modelPlateau,featureVersion,locusAni,startFuzz,stopFuzz,
-				stop?familyStopTable:familyStartTable, stopCeiling, excluded);
+				stop?familyStopTable:familyStartTable, stopCeiling, excluded, sharedConfidence, trace, NcrnaBoundaryTrace.FIRST);
 			final float margin=stop?marginStop:marginStart;
-			final int offset=applyMargin(sweep,margin),count=(int)sweep[3];final float chosen=selectedScore(sweep,margin);
-			return stop?new RefinementResult(0,offset,0,count,Float.NaN,chosen,excluded==null ? 0 : excluded[0])
-				:new RefinementResult(offset,0,count,0,chosen,Float.NaN);
+			final int offset=applyMargin(sweep, margin, sharedConfidence), count=(int)sweep[3];
+			final float chosen=selectedScore(sweep, margin, sharedConfidence);
+			return stop?new RefinementResult(0,offset,0,count,0,chosen,excluded==null ? 0 : excluded[0])
+				:new RefinementResult(offset,0,count,0,chosen,0);
 		}
 		final float startConf=score(startNet, window, s, e, false, modelConsensus, model,
 			startTable, startInside, startOutside, contigGC, meanLen, modelPlateau,featureVersion,locusAni,startFuzz,stopFuzz,familyStartTable);
@@ -371,22 +419,34 @@ public class NcrnaBoundaryScorer {
 		if(startConf<=stopConf){//start is the worse (or tied) boundary -- refine it first
 			startSweep=bestOffset(startNet, window, s, e, false, modelConsensus, model,
 				startTable, startInside, startOutside, contigGC, meanLen, startOffsets, touchesContigStart, modelPlateau,
-				featureVersion,locusAni,startFuzz,stopFuzz,familyStartTable);
-			final int bestStartOffset=applyMargin(startSweep, marginStart);
+				featureVersion,locusAni,startFuzz,stopFuzz,familyStartTable, Integer.MAX_VALUE, null, sharedConfidence, trace, NcrnaBoundaryTrace.FIRST);
+			final int bestStartOffset=applyMargin(startSweep, marginStart, sharedConfidence);
 			stopSweep=bestOffset(stopNet, window, s+bestStartOffset, e, true, modelConsensus, model,
 				stopTable, stopInside, stopOutside, contigGC, meanLen, stopOffsets, touchesContigEnd, modelPlateau,
-				featureVersion,locusAni,startFuzz,stopFuzz,familyStopTable, stopCeiling, excluded);
+				featureVersion,locusAni,startFuzz,stopFuzz,familyStopTable, stopCeiling, excluded, sharedConfidence, trace,
+				bestStartOffset==0 ? NcrnaBoundaryTrace.HELD : NcrnaBoundaryTrace.MOVED);
+			if(trace!=null && bestStartOffset!=0){
+				bestOffset(stopNet, window, s, e, true, modelConsensus, model,
+					stopTable, stopInside, stopOutside, contigGC, meanLen, stopOffsets, touchesContigEnd, modelPlateau,
+					featureVersion, locusAni, startFuzz, stopFuzz, familyStopTable, stopCeiling, null, sharedConfidence, trace, NcrnaBoundaryTrace.HELD);
+			}
 		}else{
 			stopSweep=bestOffset(stopNet, window, s, e, true, modelConsensus, model,
 				stopTable, stopInside, stopOutside, contigGC, meanLen, stopOffsets, touchesContigEnd, modelPlateau,
-				featureVersion,locusAni,startFuzz,stopFuzz,familyStopTable, stopCeiling, excluded);
-			final int bestStopOffset=applyMargin(stopSweep, marginStop);
+				featureVersion,locusAni,startFuzz,stopFuzz,familyStopTable, stopCeiling, excluded, sharedConfidence, trace, NcrnaBoundaryTrace.FIRST);
+			final int bestStopOffset=applyMargin(stopSweep, marginStop, sharedConfidence);
 			startSweep=bestOffset(startNet, window, s, e+bestStopOffset, false, modelConsensus, model,
 				startTable, startInside, startOutside, contigGC, meanLen, startOffsets, touchesContigStart, modelPlateau,
-				featureVersion,locusAni,startFuzz,stopFuzz,familyStartTable);
+				featureVersion,locusAni,startFuzz,stopFuzz,familyStartTable, Integer.MAX_VALUE, null, sharedConfidence, trace,
+				bestStopOffset==0 ? NcrnaBoundaryTrace.HELD : NcrnaBoundaryTrace.MOVED);
+			if(trace!=null && bestStopOffset!=0){
+				bestOffset(startNet, window, s, e, false, modelConsensus, model,
+					startTable, startInside, startOutside, contigGC, meanLen, startOffsets, touchesContigStart, modelPlateau,
+					featureVersion, locusAni, startFuzz, stopFuzz, familyStartTable, Integer.MAX_VALUE, null, sharedConfidence, trace, NcrnaBoundaryTrace.HELD);
+			}
 		}
-		return new RefinementResult(applyMargin(startSweep, marginStart), applyMargin(stopSweep, marginStop),
-			(int)startSweep[3], (int)stopSweep[3], selectedScore(startSweep, marginStart), selectedScore(stopSweep, marginStop),
+		return new RefinementResult(applyMargin(startSweep, marginStart, sharedConfidence), applyMargin(stopSweep, marginStop, sharedConfidence),
+			(int)startSweep[3], (int)stopSweep[3], selectedScore(startSweep, marginStart, sharedConfidence), selectedScore(stopSweep, marginStop, sharedConfidence),
 			excluded==null ? 0 : excluded[0]);
 	}
 
@@ -400,9 +460,20 @@ public class NcrnaBoundaryScorer {
 		return (bestScore-zeroScore>margin) ? bestOffset : 0;
 	}
 
+	/** A shared positive margin may reject a legacy move, never create another one. */
+	private static int applyMargin(final float[] sweep, final float margin, final boolean shared){
+		final int legacy=applyMargin(sweep, margin);
+		if(!shared || margin==0 || legacy==0){return legacy;}
+		return NcrnaEndpointConfidence.permits(sweep[2], sweep[1], sweep[4], margin) ? legacy : 0;
+	}
+
 	/** Score at the endpoint actually selected after the margin gate. */
 	static float selectedScore(float[] sweepResult, float margin){
 		return applyMargin(sweepResult, margin)==0 ? sweepResult[2] : sweepResult[1];
+	}
+
+	private static float selectedScore(final float[] sweep, final float margin, final boolean shared){
+		return applyMargin(sweep, margin, shared)==0 ? sweep[2] : sweep[1];
 	}
 
 	/**
@@ -422,7 +493,7 @@ public class NcrnaBoundaryScorer {
 		return bestOffset(net, window, s0, e0, isStop, modelConsensus, model, table,
 			insideCount, outsideCount, contigGC, meanLen, offsets, touchesRelevantContigEnd,
 			modelPlateau, featureVersion, locusAni, startFuzz, stopFuzz, familyTable,
-			Integer.MAX_VALUE, null);
+			Integer.MAX_VALUE, null, false, null, NcrnaBoundaryTrace.FIRST);
 	}
 
 	/** Same four-value result contract; optional counter receives only physically
@@ -432,10 +503,16 @@ public class NcrnaBoundaryScorer {
 			int insideCount, int outsideCount, float contigGC, float meanLen, int[] offsets,
 			boolean touchesRelevantContigEnd, float modelPlateau, int featureVersion, float locusAni,
 			float[] startFuzz, float[] stopFuzz, TrnaBoundaryFeatures.NinemerTable familyTable,
-			int stopCeiling, int[] excluded){
-		int bestOff=0, sitesScored=0; float bestScore=-Float.MAX_VALUE, zeroScore=Float.NaN;
+			int stopCeiling, int[] excluded, boolean sharedConfidence, ScoreSink trace, int context){
+		int bestOff=0, sitesScored=0;
+		float bestScore=-Float.MAX_VALUE, zeroScore=0;
+		boolean zeroScored=false;
+		float runnerUp=-Float.MAX_VALUE;
+		final float[] scores=trace==null ? null : new float[offsets.length];
+		final boolean[] available=trace==null ? null : new boolean[offsets.length];
 		int deliberateExclusions=0;
-		for(int offset : offsets){
+		for(int index=0; index<offsets.length; index++){
+			final int offset=offsets[index];
 			final int s=s0+(isStop ? 0 : offset), e=e0+(isStop ? offset : 0);
 			if(isStop && e>stopCeiling){
 				deliberateExclusions++;
@@ -446,21 +523,31 @@ public class NcrnaBoundaryScorer {
 			final float sc=score(net, window, s, e, isStop, modelConsensus, model, table, insideCount, outsideCount,
 				contigGC, meanLen, modelPlateau,featureVersion,locusAni,startFuzz,stopFuzz,familyTable);
 			sitesScored++;
-			if(offset==0){zeroScore=sc;}
+			if(scores!=null){
+				scores[index]=sc;
+				available[index]=true;
+			}
+			if(offset==0){
+				zeroScore=sc;
+				zeroScored=true;
+			}
+			if(sharedConfidence){runnerUp=sc>bestScore ? bestScore : Math.max(runnerUp, sc);}
 			if(sc>bestScore){bestScore=sc; bestOff=offset;}
 		}
 		//Kept identical to TrnaBoundaryScorer.bestOffsetTipAdjusted's own assert (plain, not
 		//assertDie -- this runs deep inside NcrnaScavenger's normal per-contig call path, same
 		//risk profile as the tRNA equivalent, not a producer/consumer pipeline where a silent
 		//worker-thread death would hang a separate consumer).
-		assert(!Float.isNaN(zeroScore)) : "offset=0 is always in-bounds for a valid base candidate -- "
-			+"scoreOffset should never return NaN for the unshifted span (window.length="+window.length
+		assert(zeroScored) : "offset=0 is always in-bounds for a valid base candidate -- "
+			+"the confidence comparison requires its actual unshifted score (window.length="+window.length
 			+", s0="+s0+", e0="+e0+", isStop="+isStop+")";
 		// Excluded off-window sites need no context; legal off-window sites still
 		// fail the unchanged completeness check. Public counts exclude off-window sites.
 		assertCompleteCenteredSweep(offsets, sitesScored+deliberateExclusions, touchesRelevantContigEnd,
 			s0, e0, isStop, window.length);
-		return new float[]{bestOff, bestScore, zeroScore, sitesScored};
+		if(trace!=null){trace.scores(isStop ? 1 : 0, context, s0, e0, scores, available);}
+		return sharedConfidence ? new float[]{bestOff, bestScore, zeroScore, sitesScored, runnerUp}
+			: new float[]{bestOff, bestScore, zeroScore, sitesScored};
 	}
 
 	/** Brian via G11, 2026-09-22: every valid site in -r..+r must be scored. This
@@ -488,5 +575,15 @@ public class NcrnaBoundaryScorer {
 		final int radius=offsets.length/2;
 		for(int i=0; i<offsets.length; i++){if(offsets[i]!=i-radius){return -1;}}
 		return radius;
+	}
+
+	/** Transfers a fresh score array; network-output producers must copy borrowed buffers. */
+	public interface ScoreSink{
+		/** Positional producers score every position; a null mask declares that fact. */
+		default void scores(int end, int context, int start, int stop, float[] values){
+			scores(end, context, start, stop, values, null);
+		}
+		/** Transfers both fresh arrays; false positions have no measured score. */
+		void scores(int end, int context, int start, int stop, float[] values, boolean[] available);
 	}
 }

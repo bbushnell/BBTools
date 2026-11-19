@@ -1,42 +1,49 @@
 # Cobalamin riboswitch resources
 
-`cobalamin=t` enables this opt-in family. Calling remains disabled by default.
-The selected configuration uses 1,928 shared forward 17-mer keys, at least two
-distinct seed keys per window, K9 model ranking and a shortlist of up to 100
-models. The three member libraries contain 508 RF00174, 39 RF01482 and 16 RF01689
-consensus/HBM models. Compressed HBM resources are distributed; HBM verification
-is disabled with its independent threshold set to 1.01.
+This package provides cobalamin discovery models and boundary refinement.
+`cobalamin=t` enables the opt-in family; calling remains disabled by default.
 
-Each member's `cutoffs.tsv` sets equal pass and borderline identity thresholds:
+The fixed discovery libraries contain 354 RF00174, 47 RF01482 and 11 RF01689
+consensus/HBM models and share forward 17-mer seeds. Their identity cutoffs are
+0.64 for RF00174 and 0.66 for RF01482/RF01689. This package does not change other
+families or choose a new shortlist policy. The manifest binds the shared seeds,
+consensus sequences, compressed HBMs, cutoffs and positional configurations.
 
-| Member | Identity |
-|---|---:|
-| RF00174 | 0.64 |
-| RF01482 | 0.66 |
-| RF01689 | 0.66 |
+All three libraries and the shared seeds were built from all 95,128 admitted
+genes in the 40,686-genome working roster, with no genomes held out.
+Model reduction used those full gene sets; caller-protection checks used
+1,000-genome and 10,000-genome panels, followed by measured model add-backs.
+These panels were not excluded from resource construction.
 
-The group `manifest.tsv` binds the shared seeds and each member's consensus,
-compressed models and cutoff table by path, byte count and sha80. These are
-scalar member cutoffs. The selected package contains no per-model length or
-identity profile.
+RF00174 and RF01482 use supported per-model endpoint offsets followed by separate
+first-stage networks for each end. The offset support floor is ten matches;
+unsupported models retain zero applied offsets. Each network has 69 inputs,
+64/48/48 hidden layers and 22 outputs: 21 positions at radius ten plus an
+out-of-range head. Three K9 tables per end, span geometry and selected-model HBM features
+retain the same training and serving definitions.
 
-On the reviewed 300-genome engineering panel, the selected production
-configuration matched 366 of 422 supported reference loci with 18 unmatched
-calls: 95.31% precision and 86.73% recall. A further 23 calls overlapped unresolved
-reference evidence and remained unscored. This all-corpus construction benchmark
-is not an independent holdout. Both endpoints were exact for 19 matched loci.
-All other RNA calls were unchanged. Five annotated CDS starts improved, and five
-predictions without matching source CDS annotations were omitted. Absence of an
-annotation does not establish absence of biological function.
+The packaged policy is A at both ends, with zero positional and head margins.
+The best in-range move must strictly beat the current position, other positions
+and the out-of-range head; ties hold. A valid model-centered span is retained
+when the head wins or neural features are unavailable. Invalid centering retains
+the original span. Every call is offered to refinement, subject to the existing
+physical-end, feature and span guards. Refined ends enter ordinary path selection.
+There is no deferred reporting or second-stage gate. RF01689 has no positional
+configuration and receives no direct boundary refinement from this package.
 
-Measured process CPU increased by about 24% at both one and sixteen threads,
-which exceeded the selected 5% default-on limit. The 50-model alternative lost
-five true positives (1.18 percentage points of recall), so the shortlist remained
-100. Resource construction identities and caller identities are different
-measurements; these cutoffs came from caller validation.
+Offsets use all 79,863 recorded matched witnesses from the 40,686-genome working
+roster. Tables and networks include all 91,072 main-member and 2,270 second-member
+original teaching loci; none of the former evaluation genomes is withheld.
+Initialization 58 was fixed before training. Same-locus monitor draws are not
+independent validation. The 1,000-genome and historical 300-genome runs are
+in-sample packaging checks with different reference definitions, not accuracy or
+generalization estimates. Their results belong in the accompanying project
+record, including gains, losses, exact/within-three and endpoint-distance changes.
 
-`cobalaminroot` selects another group directory. Explicit `ncrnaidpass` and
-`ncrnaidborderline` overrides take precedence for the selected `ncrnafamily`.
-Omit those identity overrides to use the packaged member values. A declared
-missing or invalid resource fails loading. The canonical construction, benchmark,
-cost and decision records are in the ncRNA project's `rrnafallback` repository.
+Weighted tables and HBMs use BGZF compression. Each compressed payload is checked
+against its original bytes after decompression. `cobalaminroot` selects a group
+directory; missing or inconsistent declared resources fail loading. The integrated
+release passed the full build, 33 finite checks and unchanged-default whole-GFF
+regressions on 203 and 223 genomes. Caller timing and reference comparisons on
+10,000 genomes are recorded with their measured gains, losses and limitations;
+the candidate's endpoint results are in-sample, not generalization estimates.

@@ -263,6 +263,8 @@ public class NcrnaFamily {
 	public final int[] boundaryStopOffsets;
 	public final float boundaryMarginStart;
 	public final float boundaryMarginStop;
+	/** Opt-in runner-up gate; false preserves the historical scalar margin rule. */
+	public boolean boundarySharedConfidence=false;
 	public SeedOffsetTable voteTable=null;
 	public boolean voteWindows=false, voteEnds=false;
 	/** Experimental window grouping on unpadded seed predictions; false preserves legacy geometry. */
@@ -280,6 +282,8 @@ public class NcrnaFamily {
 	TrnaBoundaryFeatures.NinemerTable[] boundaryStopTablesByModel=null;
 	int boundaryFeatureVersion=NcrnaBoundaryScorer.FEATURES_V1;
 	public boolean boundaryOnRawEndpoints=false;
+	/** Experimental cobalamin reporting only; acceptance and selection retain post-trim bounds. */
+	public boolean deferBoundaryReport=false;
 	boolean nnCentre5Vote=false, nnCentre3Vote=false;
 	/** Finite boundary score floor; zero is an active floor only when enabled. */
 	public float nnCutoff=0f;

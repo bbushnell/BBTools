@@ -7,6 +7,7 @@ import java.util.Arrays;
 
 import fileIO.ByteStreamWriter;
 import prok.NcrnaLearningPopulation;
+import prok.NcrnaLearningSplit;
 import prok.NcrnaNumbers;
 import prok.NcrnaSupport.Graph;
 import prok.NcrnaSupportIO;
@@ -40,6 +41,7 @@ public final class NcrnaLearningPopulationTest{
 			write(excludedFile, "gene0\ngene2\n");
 			final Graph graph=NcrnaSupportIO.read(graphFile);
 			final String[] models={"common", "rare"};
+			refitSources(graph, models, rosterFile, lociFile, roster, loci);
 			final NcrnaLearningPopulation all=NcrnaLearningPopulation.load(graph, models, rosterFile, lociFile, null, 42);
 			final NcrnaLearningPopulation filtered=NcrnaLearningPopulation.load(graph, models, rosterFile, lociFile, excludedFile, 42);
 			assert(all.ids.length==21 && all.split().taxids.length==20 && all.split().selected==2)
@@ -92,6 +94,78 @@ public final class NcrnaLearningPopulationTest{
 			fails(()->NcrnaLearningPopulation.load(graph, models, rosterFile, lociFile, excludedFile, 42));
 			System.out.println("Learning population passed: complete joins, below-cutoff partial-bin protection, exclusions, reordered loci and twelve invalid inputs");
 		}
+	}
+
+	/** Independent group oracle: missing taxonomy neither merges assemblies nor
+	 * becomes a fake TaxID, and normal validation still rejects missing taxonomy.
+	 */
+	private static void refitSources(final Graph graph, final String[] models, final String rosterFile,
+			final String lociFile, final String roster, final String loci){
+		final NcrnaLearningPopulation legacy=NcrnaLearningPopulation.load(graph, models, rosterFile, lociFile, null, 42);
+		final NcrnaLearningPopulation screened=NcrnaLearningPopulation.loadForScreen(graph, models, rosterFile, lociFile, 42);
+		assert(Arrays.equals(legacy.split().taxids, screened.split().taxids)
+			&& Arrays.equals(legacy.split().groupByGene, screened.split().groupByGene)
+			&& Arrays.equals(legacy.split().validationByGene, screened.split().validationByGene)
+			&& screened.assemblyGroupedLoci()==0)
+			: "The source-aware screen keeps the complete legacy grouping and split when all TaxIDs exist";
+		final NcrnaLearningSplit.Result groups=NcrnaLearningSplit.allSources(
+			new int[]{7, 0, 0, 7, 0, 0}, new int[]{0, 1, 2, 3, 1, 7},
+			new int[6], new int[6], 1, 1);
+		assert(Arrays.equals(groups.groupByGene, new int[]{0, 1, 2, 0, 1, 3})
+			&& Arrays.equals(groups.taxids, new int[]{7, 0, 0, 0}) && groups.selected==0)
+			: "Known TaxIDs group across assemblies; missing TaxIDs group only by assembly in a disjoint namespace";
+		final String missingRoster=roster.replace("assembly0\t1\t", "assembly0\t.\t")
+			.replace("assembly1\t2\t", "assembly1\t.\t");
+		final String missingLoci=loci.replace("assembly0\t1\t", "assembly0\t.\t")
+			.replace("assembly1\t2\t", "assembly1\t.\t");
+		write(rosterFile, missingRoster);
+		write(lociFile, missingLoci);
+		final NcrnaLearningPopulation all=NcrnaLearningPopulation.loadForRefit(graph, models, rosterFile, lociFile, null);
+		assert(all.ids.length==21 && all.split().taxids.length==20 && all.split().selected==0
+			&& all.split().groupByGene[0]==all.split().groupByGene[20]
+			&& all.split().groupByGene[0]!=all.split().groupByGene[1])
+			: "All original loci survive refit; two copies share their assembly while distinct unknown assemblies remain distinct";
+		for(final boolean withheld:all.split().validationByGene){
+			assert(!withheld) : "Fixed refit withholds no locus, including missing-taxonomy and partial records";
+		}
+		fails(()->NcrnaLearningPopulation.load(graph, models, rosterFile, lociFile, null, 42));
+		final NcrnaLearningPopulation missingScreen=NcrnaLearningPopulation.loadForScreen(graph, models, rosterFile, lociFile, 42);
+		assert(missingScreen.ids.length==21 && missingScreen.assemblyGroupedLoci()==3
+			&& missingScreen.split().taxids.length==20 && missingScreen.split().selected==2
+			&& missingScreen.split().groupByGene[0]==missingScreen.split().groupByGene[20]
+			&& missingScreen.split().groupByGene[0]!=missingScreen.split().groupByGene[1]
+			&& missingScreen.split().taxids[missingScreen.split().groupByGene[0]]==0)
+			: "Selection retains every original, reports three assembly-grouped loci and never invents a TaxID";
+		write(rosterFile, missingRoster.replace("assembly0\t.\t", ".\t.\t"));
+		fails(()->NcrnaLearningPopulation.loadForScreen(graph, models, rosterFile, lociFile, 42));
+		write(rosterFile, missingRoster.replace("assembly0\t.\t", "NA\t.\t"));
+		fails(()->NcrnaLearningPopulation.loadForScreen(graph, models, rosterFile, lociFile, 42));
+		write(rosterFile, missingRoster.replace("assembly1\t", "assembly0\t"));
+		write(lociFile, missingLoci.replace("assembly1\t", "assembly0\t"));
+		final NcrnaLearningPopulation aliases=NcrnaLearningPopulation.loadForRefit(graph, models, rosterFile, lociFile, null);
+		assert(aliases.split().taxids.length==19 && aliases.split().groupByGene[0]==aliases.split().groupByGene[1])
+			: "Exact assembly aliases share a group even when their source names differ and taxonomy is missing";
+		write(rosterFile, missingRoster);
+		write(lociFile, loci);
+		fails(()->NcrnaLearningPopulation.loadForRefit(graph, models, rosterFile, lociFile, null));
+		write(rosterFile, roster);
+		write(lociFile, loci);
+		final ByteBuilder nativeLoci=new ByteBuilder().append(NcrnaLearningPopulation.NATIVE_HEADER).nl();
+		for(int gene=0; gene<=20; gene++){
+			final int source=gene==20 ? 0 : gene;
+			nativeLoci.append("gene").append(gene).tab().append("gene").append(gene)
+				.tab().append("genome").append(source).tab().append("assembly").append(source).tab().append(source+1)
+				.append("\tbacteria\tP\tcontig\t+\t101\t200\t100\t20\t30\n");
+		}
+		write(lociFile, nativeLoci.toString());
+		final NcrnaLearningPopulation nativePopulation=NcrnaLearningPopulation.loadForRefit(graph, models, rosterFile, lociFile, null);
+		assert(nativePopulation.ids.length==21 && nativePopulation.eligible(20) && nativePopulation.leftFlank[20]==20)
+			: "Explicit native metadata retains plain original IDs and admitted coordinates without inventing historical annotation flags";
+		write(lociFile, nativeLoci.toString().replace("gene0\tgene0", "ID=gene0\tgene0"));
+		fails(()->NcrnaLearningPopulation.loadForRefit(graph, models, rosterFile, lociFile, null));
+		write(lociFile, nativeLoci.toString().replace("\t20\t30\n", "\t101\t30\n"));
+		fails(()->NcrnaLearningPopulation.loadForRefit(graph, models, rosterFile, lociFile, null));
+		write(lociFile, loci);
 	}
 
 	/** Literal boundary cases for both text representations, independent of the parser. */

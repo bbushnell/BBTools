@@ -350,7 +350,8 @@ public final class NcrnaFamilyRegistry {
 			for(String value:members){if(value.equals(member)){return true;}}return false;
 		}
 		boolean shared(String role){return contains(sharedRoles, role);}
-		boolean optional(String role){return role.equals("length_bounds") || role.equals("boundary_config") || contains(optionalRoles, role);}
+		boolean optional(String role){return role.equals("length_bounds") || role.equals("boundary_config")
+			|| role.equals("positional_config") || contains(optionalRoles, role);}
 		boolean permits(String member, String role){
 			assert(role!=null) : "Grouped roles are constrained by the package's declared contract";
 			return member.equals(".") ? shared(role) : hasMember(member) && (contains(requiredRoles, role) || optional(role));

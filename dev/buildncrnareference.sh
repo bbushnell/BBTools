@@ -34,6 +34,15 @@ mode=evidence  Join completed searches and historical annotations.
 mode=batchevidence Import completed per-model searches of whole-genome batches.
                Uses the complete batch collector and captured preparation maps;
                does not reopen original or prepared FASTA payloads. See schemas below.
+cmbundle=      Select bundled standard-GA import in batchevidence mode. Absolute
+               path to the original CM bundle; its headers must match the roster.
+               in= is then the native eight-field collector: scan_group, batch_id,
+               prepared_metadata, native_result, genomes, bases, records, state.
+               Scan group qualifies batch identity; native batch IDs and table/line
+               witnesses are unchanged. Reads the three-row input receipt and
+               seven-field completion, including zero-hit models. No nativepaths
+               relocation with this layout. Authenticate bytes in the run recipe;
+               this reader checks metadata, not the declared sha80 values.
 searchspacemb= Required only for batchevidence: the original full search-space -Z
                in Mb, including both strands. Must match every native command;
                it may exceed the bases in an explicitly imported timing subset.
@@ -60,10 +69,43 @@ mode=tiers     Construct scored/masked per-input GFFs and complete event provena
                marginalpercent=, saved contigs/history/relations/batch_sources and
                the normal census/model metadata. Reads captured completion metadata
                to verify the original 75%-GA reporting floor; no alignment reports.
+               Bundled-GA evidence requires marginalpercent=100 and is explicitly
+               labelled GA-only construction coverage, without sub-GA mask coverage.
 mode=tierreport Report an existing tiers directory without changing decisions.
                Uses in=reference_directory out=new_prefix; no census/model inputs.
                Separates raw-event causes from serialized physical mask reasons,
                reconciles both to saved totals, and counts measured/hitless priors.
+mode=sourcecomparison Compare selected source claims to the saved final reference.
+               Requires in=saved_metadata_directory reference=reference.tsv
+               out=fresh_prefix. Reads source_provenance.tsv.gz,
+               source_event_links.tsv.gz, event_provenance.tsv.gz,
+               annotation_witnesses.tsv.gz, family_counts.tsv,
+               source_family_counts.tsv and summary.tsv. No FASTA reads.
+               Collapses exact input/contig/family/bounds/strand source duplicates;
+               keeps original rows and all valid source-event-parent paths.
+               Direct same-family scored components distinguish unique pairs,
+               splits, merges and complex changes without overlap inference.
+               Same/changed unique pairs are separated by direct association:
+               qualifying CM group, protected-prior bounds, or mixed direct kinds.
+               Only changed qualifying-group pairs enter endpoint distributions
+               and shorter/longer totals; prior-bound pairs remain beside them.
+               Pair details have oriented parent-minus-source endpoint
+               shifts (positive downstream), signed and absolute median/p90/max;
+               median averages the middle pair, p90 uses nearest rank.
+               Masks, rejections, missing links, unassigned/cross-family sources
+               and protected priors stay separate. CM_PARENT_WITHOUT_SOURCE_LINK
+               means no valid selected-source path, not biological novelty.
+               Weak-overlap and tandem-bridge paths do not join components.
+               Their per-family path counts retain original claim aliases; sources
+               with only such scored-parent paths are neither kept nor removed.
+               Path counts belong to the declared source family, including
+               cross-family paths and explicitly UNASSIGNED source claims.
+               Unassigned sources stay unassigned; a direct mask takes precedence
+               over weak scored paths. Context-row links have separate counts.
+               Writes .source_rows.tsv.gz, .paths.tsv.gz, .components.tsv.gz,
+               .sources.tsv.gz, .parents.tsv.gz, .shifts.tsv and final .summary.tsv.
+               This is correspondence under saved links, not new adjudication.
+               Authenticate the preserved inputs in the execution recipe first.
 samplemodel=   Optional accession for bounded original event and other-family
                overlap examples (for example RF03166); no accession by default.
 examplespergroup=3 Maximum examples per tier/primary-reason/cross-family group,
@@ -181,6 +223,13 @@ mode=panel     Prepare one ordered evaluation panel from saved metadata only.
                Requires in=flat_caller_config census= memberships= sourcepanel=
                reference=full_reference_manifest observed=saved_contigs out=prefix.
                Every in=/in1= line selects one exact catalog member in sourcepanel.
+               sourcepanel accepts one literal source or an explicit comma-separated
+               union; every source must exist. Alias ownership stays strict.
+               For selected IDs, all requested-source assembly/TaxID claims must
+               agree when known; NA is unknown, all-unknown stays NA. Off-panel
+               metadata does not choose roster values. Source-local names and
+               original claims stay in the catalog; the resolution rule is
+               recorded in .selection.tsv. No first-source preference.
                Nested configs, paired/comma-list inputs, repeated inputs and
                ambiguous selected contig names fail. No FASTA/GFF payload reads.
                Writes .genomes.tsv and .contigs.tsv for BindNcrnaCalls, a

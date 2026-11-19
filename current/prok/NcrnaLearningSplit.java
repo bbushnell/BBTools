@@ -11,10 +11,47 @@ import structures.IntList;
  * Each TaxID is indivisible and belongs to one phylum. split() targets one
  * tenth of groups, subject to the same cap in each phylum and model bin.
  * all() retains the same source axis without withholding or minimum group quotas.
+ * Source-aware variants use disjoint exact-assembly groups only for missing TaxIDs.
  * Arrays supplied by the caller are borrowed and never modified.
  * @author Brian Bushnell, Raiden
  */
 public final class NcrnaLearningSplit{
+
+	/** All-loci refit with real TaxID groups and exact assembly groups where TaxID
+	 * is missing (zero). Assembly keys occupy a separate map, never the TaxID axis.
+	 * No validation selection or quota is performed. Every original locus remains.
+	 */
+	public static Result allSources(final int[] taxid, final int[] assembly, final int[] phylum,
+			final int[] model, final int phylumCount, final int modelCount){
+		if(taxid==null || assembly==null || phylum==null || model==null || taxid.length==0
+				|| assembly.length!=taxid.length || phylum.length!=taxid.length || model.length!=taxid.length
+				|| phylumCount<1 || modelCount<1){
+			throw new IllegalArgumentException("Refit grouping requires aligned TaxID/assembly/phylum/model arrays");
+		}
+		final IntHashMap known=new IntHashMap(), unknown=new IntHashMap();
+		final IntList taxa=new IntList(), phyla=new IntList();
+		final int[] groupByGene=new int[taxid.length];
+		for(int gene=0; gene<taxid.length; gene++){
+			if(taxid[gene]<0 || assembly[gene]<0 || phylum[gene]<0 || phylum[gene]>=phylumCount
+					|| model[gene]<0 || model[gene]>=modelCount){
+				throw new IllegalArgumentException("Invalid refit source/phylum/model at locus "+gene);
+			}
+			final IntHashMap lookup=taxid[gene]>0 ? known : unknown;
+			final int key=taxid[gene]>0 ? taxid[gene] : assembly[gene];
+			int group=lookup.get(key);
+			if(group<0){
+				group=taxa.size;
+				lookup.put(key, group);
+				taxa.add(taxid[gene]);
+				phyla.add(phylum[gene]);
+			}else if(phyla.get(group)!=phylum[gene]){
+				throw new IllegalArgumentException("One source group cannot cross phyla at locus "+gene);
+			}
+			groupByGene[gene]=group;
+		}
+		assert(taxa.size==known.size()+unknown.size()) : "Disjoint TaxID and missing-taxonomy assembly maps must conserve source groups";
+		return new Result(taxa.toArray(), phyla.toArray(), groupByGene, new boolean[taxa.size], new boolean[taxid.length], 0, 0);
+	}
 
 	/** Groups the complete population without selecting or requiring validation.
 	 * Fixed-method refitting needs the source axis, but no withholding quotas or
@@ -54,45 +91,44 @@ public final class NcrnaLearningSplit{
 
 	/** Returns a nonempty feasible validation partition; underfilling the target is allowed. */
 	public static Result split(final int[] taxid, final int[] phylum, final int[] model, final int phylumCount, final int modelCount, final long seed){
-		if(taxid==null || phylum==null || model==null || taxid.length==0
-				|| phylum.length!=taxid.length || model.length!=taxid.length || phylumCount<1 || modelCount<1){
-			throw new IllegalArgumentException("Split requires aligned original-locus arrays and nonempty phylum/model axes");
-		}
-		final IntHashMap lookup=new IntHashMap();
-		final IntList unique=new IntList();
-		for(int gene=0; gene<taxid.length; gene++){
-			if(taxid[gene]<=0 || phylum[gene]<0 || phylum[gene]>=phylumCount || model[gene]<0 || model[gene]>=modelCount){
-				throw new IllegalArgumentException("Invalid original TaxID/phylum/model at locus "+gene);
-			}
-			final int previous=lookup.get(taxid[gene]);
-			if(previous<0){
-				lookup.put(taxid[gene], phylum[gene]);
-				unique.add(taxid[gene]);
-			}else if(previous!=phylum[gene]){
-				throw new IllegalArgumentException("One TaxID cannot cross phyla: "+taxid[gene]);
-			}
-		}
-		final int[] groups=unique.toArray();
-		Arrays.sort(groups);
+		return select(all(taxid, phylum, model, phylumCount, modelCount), model, phylumCount, modelCount, seed);
+	}
+
+	/** Selection split with real TaxID groups and separate exact-assembly groups
+	 * only where taxonomy is missing. No TaxID is invented or exposed as an ordinal.
+	 * The all-TaxID route retains the sorted legacy group order. Mixed groups follow
+	 * first occurrence on the fixed original-gene axis, as in allSources().
+	 */
+	public static Result splitSources(final int[] taxid, final int[] assembly, final int[] phylum,
+			final int[] model, final int phylumCount, final int modelCount, final long seed){
+		if(taxid==null){throw new IllegalArgumentException("Source grouping requires the original taxonomy column");}
+		boolean missing=false;
+		for(final int value:taxid){missing|=value==0;}
+		if(!missing){return split(taxid, phylum, model, phylumCount, modelCount, seed);}
+		return select(allSources(taxid, assembly, phylum, model, phylumCount, modelCount),
+			model, phylumCount, modelCount, seed);
+	}
+
+	/** Applies the existing quotas/shuffle to a validated grouping. Group labels
+	 * are metadata only; selection uses dense indices and never interprets taxonomy.
+	 */
+	private static Result select(final Result grouping, final int[] model, final int phylumCount,
+			final int modelCount, final long seed){
+		final int[] groups=grouping.taxids, groupPhylum=grouping.phylumByGroup, groupByGene=grouping.groupByGene;
+		assert(groupByGene.length==model.length) : "Validated source groups and original model bins must share the original gene axis";
 		final int target=groups.length/10;
-		if(target==0){throw new IllegalArgumentException("Validation needs at least ten positive TaxID groups");}
-		final int[] groupPhylum=new int[groups.length];
+		if(target==0){throw new IllegalArgumentException("Validation needs at least ten source groups");}
 		final int[] phylumTotal=new int[phylumCount];
 		for(int group=0; group<groups.length; group++){
-			groupPhylum[group]=lookup.get(groups[group]);
 			phylumTotal[groupPhylum[group]]++;
-			// After collecting phylum assignments, this map becomes TaxID -> group index.
-			lookup.put(groups[group], group);
 		}
 		final int words=(int)(((long)modelCount+63)/64);
 		final long cells=(long)words*groups.length;
 		if(cells>Integer.MAX_VALUE-8){throw new IllegalArgumentException("Group/model membership exceeds indexed-array capacity");}
 		final long[] membership=new long[(int)cells];
 		final int[] modelTotal=new int[modelCount];
-		final int[] groupByGene=new int[taxid.length];
-		for(int gene=0; gene<taxid.length; gene++){
-			final int group=lookup.get(taxid[gene]);
-			groupByGene[gene]=group;
+		for(int gene=0; gene<groupByGene.length; gene++){
+			final int group=groupByGene[gene];
 			final int cell=group*words+(model[gene]>>>6);
 			final long bit=1L<<(model[gene]&63);
 			if((membership[cell]&bit)==0){
@@ -140,8 +176,8 @@ public final class NcrnaLearningSplit{
 		for(int m=0; m<modelCount; m++){
 			assert(modelValidation[m]<=modelTotal[m]/10) : "Validation removed more than one tenth of original model bin "+m;
 		}
-		final boolean[] validationByGene=new boolean[taxid.length];
-		for(int gene=0; gene<taxid.length; gene++){validationByGene[gene]=validation[groupByGene[gene]];}
+		final boolean[] validationByGene=new boolean[groupByGene.length];
+		for(int gene=0; gene<groupByGene.length; gene++){validationByGene[gene]=validation[groupByGene[gene]];}
 		return new Result(groups, groupPhylum, groupByGene, validation, validationByGene, target, selected);
 	}
 
@@ -159,7 +195,10 @@ public final class NcrnaLearningSplit{
 		return false;
 	}
 
-	/** Owns its arrays; consumers treat them as read-only. TaxID groups are sorted. */
+	/** Owns its arrays; consumers treat them as read-only. Legacy TaxID groups are
+	 * sorted. allSources groups follow first occurrence; zero means missing TaxID,
+	 * and distinct missing-taxonomy assemblies can therefore have repeated zeros.
+	 */
 	public static final class Result{
 		private Result(final int[] taxids_, final int[] phyla_, final int[] groupByGene_, final boolean[] validation_,
 				final boolean[] validationByGene_, final int target_, final int selected_){

@@ -76,6 +76,10 @@ public final class PackagedBoundaryConfig{
 				cutoff=cutoffEnabled ? NcrnaNumbers.floatValue(a, b) : 0f;
 				require(Float.isFinite(cutoff), "Numeric cutoff must be finite; none disables it");
 				break;
+			case "sharedconfidence":
+				require(Parse.isBoolean(b) || b.equals("0") || b.equals("1"), "sharedconfidence must be a boolean value");
+				sharedConfidence=Parse.parseBoolean(b);
+				break;
 			case "net":
 				net=resolve(b);
 				break;
@@ -134,6 +138,7 @@ public final class PackagedBoundaryConfig{
 		require(loaded.boundary3NetTemplate!=null && loaded.boundary5NetTemplate.numOutputs()==1
 			&& loaded.boundary3NetTemplate.numOutputs()==1, "Boundary ranking requires one scalar output per end");
 		loaded.nnCutoff=cutoff;
+		loaded.boundarySharedConfidence=sharedConfidence;
 		loaded.nnCutoffEnabled=cutoffEnabled;
 	}
 
@@ -176,7 +181,7 @@ public final class PackagedBoundaryConfig{
 
 	private final File file;
 	private String family, net, startTable, stopTable;
-	private boolean enabled, cutoffEnabled;
+	private boolean enabled, sharedConfidence, cutoffEnabled;
 	private int normalization, startRadius, stopRadius;
 	private float startMargin, stopMargin, cutoff;
 	/** Serialized v1 feature order; must match the shared scorer's ten network inputs. */

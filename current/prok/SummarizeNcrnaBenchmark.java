@@ -69,6 +69,7 @@ public final class SummarizeNcrnaBenchmark{
 			else if(a.equals("taxonomy")){taxonomy=b;}
 			else if(a.equals("subtyperaw")){subtypeRaw=b;}
 			else if(a.equals("subtypegrades")){subtypeGrades=b;}
+			else if(a.equals("exactstrata")){exactStrata=b;}
 			else if(a.equals("profile")){profile=b;}
 			else if(a.equals("profiletime")){profileTime=b;}
 			else if(a.equals("baseline")){baseline=b;}
@@ -81,7 +82,7 @@ public final class SummarizeNcrnaBenchmark{
 		prefix=common.out1;
 		require(timings!=null && prefix!=null, "Supply in=timings out=fresh_prefix");
 		if(timingOnly){
-			require(subtypeRaw==null && subtypeGrades==null, "timingonly=t does not accept subtype reports");
+			require(subtypeRaw==null && subtypeGrades==null && exactStrata==null, "timingonly=t does not accept subtype reports or exact strata");
 			require(inputManifest==null && summaries==null && raw==null && originalCounts==null && taxonomy==null,
 				"timingonly=t does not accept grade or count inputs or taxonomy; no accuracy or stability analysis is performed");
 		}else{
@@ -92,6 +93,7 @@ public final class SummarizeNcrnaBenchmark{
 		require(!common.overwrite && !common.append, "Benchmark reports require fresh outputs");
 		require((profile==null)==(profileTime==null), "profile= and profiletime= must be supplied together");
 		require((subtypeRaw==null)==(subtypeGrades==null), "subtyperaw= and subtypegrades= must be supplied together");
+		require(exactStrata==null || subtypeRaw!=null, "exactstrata= requires both native subtype reports to validate the complete RF00174 parent population");
 		policyBytes=new byte[policyNames.length][];
 		int found=-1;
 		for(int i=0; i<policyNames.length; i++){
@@ -114,7 +116,7 @@ public final class SummarizeNcrnaBenchmark{
 				for(int r=1; r<=repeats; r++){cells[index(p, t, r)]=new Cell(p, t, r);}
 			}
 		}
-		require(Tools.testInputFiles(false, true, timings, inputManifest, summaries, raw, originalCounts, taxonomy, profile, profileTime, subtypeRaw, subtypeGrades),
+		require(Tools.testInputFiles(false, true, timings, inputManifest, summaries, raw, originalCounts, taxonomy, profile, profileTime, subtypeRaw, subtypeGrades, exactStrata),
 			"Every supplied benchmark input must be readable");
 		if(timingOnly){RrnaResourceIO.fresh(prefix, ".cells.tsv", ".timing.tsv", ".profile.tsv");}
 		else{RrnaResourceIO.fresh(prefix, ".cells.tsv", ".timing.tsv", ".grades.tsv", ".comparisons.tsv", ".changes.tsv", ".profile.tsv");}
@@ -123,6 +125,7 @@ public final class SummarizeNcrnaBenchmark{
 			RrnaResourceIO.fresh(prefix, ".subtype_comparisons.tsv", ".subtype_changes.tsv");
 			subtypeComparison=new NcrnaSubtypeComparison(cells.length);
 		}
+		if(exactStrata!=null){RrnaResourceIO.fresh(prefix, NcrnaExactMembership.SUFFIXES);}
 	}
 
 	/*--------------------------------------------------------------*/
@@ -140,6 +143,14 @@ public final class SummarizeNcrnaBenchmark{
 			readRaw();
 			validate();
 			if(subtypeComparison!=null){readSubtypeReports();}
+			if(exactStrata!=null){
+				final byte[][] contexts=new byte[cells.length][];
+				for(int i=0; i<cells.length; i++){
+					cellPrefix(buffer.clear(), cells[i]);
+					contexts[i]=Arrays.copyOf(buffer.array, buffer.length());
+				}
+				subtypeComparison.exactMembership(exactStrata, prefix, contexts, raw, subtypeRaw);
+			}
 		}
 		writeTiming();
 		if(!timingOnly){
@@ -966,7 +977,7 @@ public final class SummarizeNcrnaBenchmark{
 	/*--------------------------------------------------------------*/
 
 	private String timings, inputManifest, summaries, raw, originalCounts, taxonomy, profile, profileTime, prefix;
-	private String subtypeRaw, subtypeGrades;
+	private String subtypeRaw, subtypeGrades, exactStrata;
 	private NcrnaSubtypeComparison subtypeComparison;
 	/** Optional declared class per selected input; labels never determine scoring. */
 	private int[] lineageByInput, lineagePopulation;

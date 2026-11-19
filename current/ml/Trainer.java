@@ -717,6 +717,10 @@ public class Trainer implements Accumulator<WorkerThread>{
 //			loadData(validateIn, false, maxLinesV, shuffleRaw && maxLinesV<Shared.MAX_ARRAY_LEN));
 
 		initializeSampleCutoffs(data, validateSet);
+		if(!quiet){
+			outstream.println("Loaded samples: training="+(data==null ? 0 : data.samples.length)
+				+" validation="+(validateSet==null ? 0 : validateSet.samples.length));
+		}
 		if(training && data!=null){makeSubsets(data);}
 
 //		assert(false) : data+", "+validateSet;
@@ -1277,7 +1281,12 @@ public class Trainer implements Accumulator<WorkerThread>{
 	 */
 	public final CellNet randomNetwork(long seed){
 		final int[] dims=(dims0!=null ? dims0 : makeDims(minDims, maxDims, seed));
-		return randomNetwork(dims, seed, maxDensity, maxDensity1, maxEdges, edgeBlockSize, commands, denseMode);
+		final CellNet net=randomNetwork(dims, seed, maxDensity, maxDensity1, maxEdges, edgeBlockSize, commands, denseMode);
+		// TrainerThread.calcNetStats retains net.cutoff when cutoffeval is explicit.
+		// Fresh nets need the same initialization as loadNetwork; otherwise that
+		// branch scores at the unset -1 cutoff, corrupting rates and saved metadata.
+		if(setCutoffForEvaluation){net.setCutoff(cutoffForEvaluation);}
+		return net;
 	}
 
 	/**

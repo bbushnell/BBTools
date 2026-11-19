@@ -107,6 +107,8 @@ public final class BuildNcrnaReference implements Accumulator<BuildNcrnaReferenc
 				batchSearchSpace=Double.parseDouble(b);
 			}else if(a.equals("nativepaths")){
 				nativePaths=b;
+			}else if(a.equals("cmbundle")){
+				cmBundle=b;
 			}else if(a.equals("reference")){
 				panelReference=b;
 			}else if(a.equals("observed")){
@@ -133,7 +135,7 @@ public final class BuildNcrnaReference implements Accumulator<BuildNcrnaReferenc
 			}else if(a.equals("mode")){
 				require("evidence".equals(b) || "batchevidence".equals(b) || "profile".equals(b) || "scores".equals(b) || "retention".equals(b) || "tiers".equals(b) || "tierreport".equals(b)
 					|| "geometry".equals(b) || "attributes".equals(b) || "strata".equals(b) || "prior".equals(b)
-					|| "cost".equals(b) || "panels".equals(b) || "panel".equals(b) || "inventory".equals(b) || "selectpanel".equals(b) || "anchors".equals(b) || "sourceanchors".equals(b),
+					|| "cost".equals(b) || "panels".equals(b) || "panel".equals(b) || "inventory".equals(b) || "selectpanel".equals(b) || "anchors".equals(b) || "sourceanchors".equals(b) || "sourcecomparison".equals(b),
 					"Unknown reference mode: "+b);
 				batch=b.equals("batchevidence");
 				profile=b.equals("profile");
@@ -152,12 +154,29 @@ public final class BuildNcrnaReference implements Accumulator<BuildNcrnaReferenc
 				selectPanel=b.equals("selectpanel");
 				anchors=b.equals("anchors");
 				sourceAnchors=b.equals("sourceanchors");
+				sourceComparison=b.equals("sourcecomparison");
 			}else if(!parser.parse(arg, a, b)){
 				throw new IllegalArgumentException("Unknown parameter: "+arg);
 			}
 		}
+		require(cmBundle==null || batch && new File(cmBundle).isAbsolute() && nativePaths==null,
+			"cmbundle= requires batchevidence with the native bundled-GA collector and original native directories");
 		input=parser.in1;
 		prefix=parser.out1;
+		if(sourceComparison){
+			require(input!=null && panelReference!=null && prefix!=null && new File(input).isDirectory(),
+				"sourcecomparison requires in=saved_metadata_directory reference=reference.tsv out=fresh_prefix");
+			require(census==null && memberships==null && scope==null && assets==null && queries==null && comparison==null
+				&& attributePrefix==null && attributeEvidence==null && priorManifest==null && panelSource==null && panelContigs==null
+				&& marginalPercent==null && collapsePercent==null && anchorManifest==null && sourcePrefix==null && nativePaths==null
+				&& inventoryMembers==null && inventoryWitnesses==null && inventoryEvents==null && selectionInventory==null
+				&& selectionPolicy==null && selectionTaxonomy==null && selectionFamily==null && !samplingSpecified
+				&& !examplesSpecified && sampleModel==null && batchSearchSpace==-1 && !parser.overwrite && !parser.append
+				&& parser.in2==null && parser.out2==null && parser.maxReads<0 && parser.samplerate==1,
+				"sourcecomparison describes complete saved links only; no sampling, changed policy or overwrite");
+			NcrnaSourceComparison.validatePaths(input, panelReference, prefix);
+			return;
+		}
 		require(selectPanel || selectionInventory==null && selectionPolicy==null && selectionTaxonomy==null && selectionFamily==null,
 			"Selection-only options require mode=selectpanel; they must not silently affect another mode");
 		if(selectPanel){
@@ -276,6 +295,7 @@ public final class BuildNcrnaReference implements Accumulator<BuildNcrnaReferenc
 		require(attributeEvidence==null || strata || tiers, "attributesevidence= applies only to strata or tier construction");
 		final ArrayList<String> all=new ArrayList<String>();
 		all.addAll(Arrays.asList(census, memberships, scope, assets, queries));
+		if(cmBundle!=null){all.add(cmBundle);}
 		if(nativePaths!=null){all.add(nativePaths);}
 		if(profile || scores || retention || tiers || geometry || attributes || strata || prior || anchors || sourceAnchors){
 			for(final String suffix:NcrnaReferenceProfiles.INPUT_SUFFIXES){all.add(input+suffix);}
@@ -340,6 +360,7 @@ public final class BuildNcrnaReference implements Accumulator<BuildNcrnaReferenc
 		roster=NcrnaReferenceEvidence.loadModels(scope, assets, queries);
 		for(int i=0; i<roster.queried(); i++){modelIndex.put(roster.query(i).accession, i);}
 		if(batch){
+			if(cmBundle!=null){NcrnaReferenceBatch.validateBundle(cmBundle, roster);}
 			loadBatches();
 			totals=new Counts(roster);
 			return;
@@ -373,9 +394,19 @@ public final class BuildNcrnaReference implements Accumulator<BuildNcrnaReferenc
 		final ObjectSet<String> prepared=new ObjectSet<String>(String.class), nativeDirs=new ObjectSet<String>(String.class);
 		final LineParser1 p=new LineParser1('\t');
 		try(Input in=new Input(input)){
-			RrnaResourceIO.header(in.reader, BATCH_COLLECTOR_HEADER, input);
+			RrnaResourceIO.header(in.reader, cmBundle==null ? BATCH_COLLECTOR_HEADER : BUNDLED_COLLECTOR_HEADER, input);
 			for(byte[] row=in.reader.nextLine(); row!=null; row=in.reader.nextLine()){
 				p.set(row);
+				if(cmBundle!=null){
+					require(p.terms()==8 && p.termEquals("RAW_NATIVE_GA_COMPLETE", 7), "Expected a complete native bundled-GA collector row");
+					final NcrnaReferenceBatch.Task task=NcrnaReferenceBatch.bundledTask(p.parseString(0), p.parseString(1),
+						utf8(p, 2), utf8(p, 3), cmBundle, p.parseLong(4), p.parseLong(5), p.parseLong(6), catalog);
+					require(ids.add(task.key) && prepared.add(task.prepared) && nativeDirs.add(task.results),
+						"Repeated scan-qualified batch, preparation or native result directory");
+					for(final Genome genome:task.genomes){require(inputs.add(genome.id), "A census input belongs to multiple batches: "+genome.id);}
+					batchTasks.add(task);
+					continue;
+				}
 				require(p.terms()==5 && p.parseInt(3)==roster.queried(), "Batch collector must declare every queried model");
 				final String id=p.parseString(0), source=utf8(p, 1), results=utf8(p, 2);
 				require(ids.add(id) && prepared.add(source) && nativeDirs.add(results), "Repeated batch ID, preparation or native result directory");
@@ -434,6 +465,11 @@ public final class BuildNcrnaReference implements Accumulator<BuildNcrnaReferenc
 	/*--------------------------------------------------------------*/
 
 	private void process(final Timer timer){
+		if(sourceComparison){
+			NcrnaSourceComparison.process(input, panelReference, prefix);
+			outstream.println("Source comparison completed; saved correspondence is not independent biological validation.");
+			return;
+		}
 		if(selectPanel){
 			NcrnaPanelSelector.process(census, memberships, panelReference, selectionInventory,
 				inventoryMembers, selectionPolicy, selectionTaxonomy, selectionFamily, prefix);
@@ -859,15 +895,17 @@ public final class BuildNcrnaReference implements Accumulator<BuildNcrnaReferenc
 	private void writeBatchSources(){
 		final ByteBuilder b=new ByteBuilder();
 		try(Output out=new Output(prefix+".batch_sources.tsv")){
-			out.writer.println("batch_id\tprepared_directory\tnative_directory\tfasta\tfasta_sha80\tmapping\tmapping_sha80\tmembers\tmembers_sha80\tsearch_space_Mb\tobservation_basis");
+			out.writer.println(cmBundle==null ? BATCH_SOURCES_HEADER : BUNDLED_SOURCES_HEADER);
 			for(final NcrnaReferenceBatch.Task task:batchTasks){
-				b.clear().append(task.id).tab();
+				b.clear().append(task.key).tab();
 				field(b, task.prepared).tab();
 				field(b, task.results).tab();
 				field(b, task.fasta).tab().append(task.fastaSha80).tab();
 				field(b, task.mapping).tab().append(task.mapSha80).tab();
 				field(b, task.members).tab().append(task.membersSha80).tab().append(batchSearchSpace, 6);
-				out.writer.print(b.append("\tCAPTURED_PREPARATION_MAP_NOT_CURRENT_FASTA_READ\n"));
+				b.append("\tCAPTURED_PREPARATION_MAP_NOT_CURRENT_FASTA_READ");
+				if(cmBundle!=null){field(b.tab().append("BUNDLED_GA").tab().append(task.id).tab(), cmBundle);}
+				out.writer.print(b.nl());
 			}
 		}
 	}
@@ -994,14 +1032,14 @@ public final class BuildNcrnaReference implements Accumulator<BuildNcrnaReferenc
 	/*--------------------------------------------------------------*/
 
 	private String input, prefix, census, memberships, scope, assets, queries, attributePrefix, attributeEvidence, marginalPercent, collapsePercent, priorManifest, comparison, anchorManifest, sourcePrefix, sampleModel;
-	private String nativePaths;
+	private String nativePaths, cmBundle;
 	private String panelReference, panelContigs, panelSource;
 	private boolean panel;
 	private boolean inventory;
 	private boolean selectPanel;
 	private String selectionInventory, selectionPolicy, selectionTaxonomy, selectionFamily;
 	private String inventoryMembers, inventoryWitnesses, inventoryEvents;
-	private boolean profile, scores, retention, tiers, tierReport, geometry, attributes, strata, prior, cost, panels, anchors, sourceAnchors, samplingSpecified, batch, examplesSpecified;
+	private boolean profile, scores, retention, tiers, tierReport, geometry, attributes, strata, prior, cost, panels, anchors, sourceAnchors, sourceComparison, samplingSpecified, batch, examplesSpecified;
 	private int examplesPerGroup=3;
 	private double batchSearchSpace=-1;
 	private int maxInputs=Integer.MAX_VALUE, limit;
@@ -1025,6 +1063,9 @@ public final class BuildNcrnaReference implements Accumulator<BuildNcrnaReferenc
 	public static final String BATCH_STATUS="BATCH_EVIDENCE_COMPLETE_NOT_ADJUDICATED";
 	public static final String BOUND_GA_BASIS="ORIGINAL_GA_NATIVE_INCLUSION";
 	public static final String BATCH_COLLECTOR_HEADER="batch_id\tprepared_directory\tresult_directory\tmodels\traw_model_hits";
+	public static final String BUNDLED_COLLECTOR_HEADER="scan_group\tbatch_id\tprepared_metadata\tnative_result\tgenomes\tbases\trecords\tstate";
+	static final String BATCH_SOURCES_HEADER="batch_id\tprepared_directory\tnative_directory\tfasta\tfasta_sha80\tmapping\tmapping_sha80\tmembers\tmembers_sha80\tsearch_space_Mb\tobservation_basis";
+	static final String BUNDLED_SOURCES_HEADER=BATCH_SOURCES_HEADER+"\tnative_layout\tnative_batch_id\tcm_bundle";
 	public static final String NATIVE_PATH_HEADER="batch_id\toriginal_native_directory\tphysical_native_directory";
 	public static final String OVERLAP_HEADER="input_id\tpair_kind\tleft_source\tleft_line\tnative_table\tnative_line\toverlap_bases\trelation\tdeterministic_best_candidate";
 	public static final String HISTORICAL_HEADER="input_id\tgff\tline\ttarget\ttype\tstart\tstop\tstrand\tID\tselection_bits\trange\tincompatible_ID\toverlap_state\tparent_count\tRFAM_count\tsame_strand_candidates\topposite_strand_overlaps\tinvalid_hit_overlaps\tbest_native_line";

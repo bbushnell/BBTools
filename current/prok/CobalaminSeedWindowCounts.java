@@ -25,10 +25,11 @@ import structures.FloatList;
  * @author Brian Bushnell, Raiden
  */
 public final class CobalaminSeedWindowCounts {
+	private boolean historicalStages=false;
 
 	public static void main(String[] args){
 		final PreParser pp=new PreParser(args, CobalaminSeedWindowCounts.class, false);
-		String calls=null, stages=null, contigs=null, inputs=null, seeds=null, out=null, refs=null, panel=null;int expected=-1, quantum=-1;
+		String calls=null, stages=null, contigs=null, inputs=null, seeds=null, out=null, refs=null, panel=null;int expected=-1, quantum=-1;boolean historicalStages=false;
 		for(String arg:pp.args){
 			final int eq=arg.indexOf('=');require(eq>0, "Use flag=value");
 			final String k=arg.substring(0, eq).toLowerCase(Locale.ROOT), v=arg.substring(eq+1);
@@ -36,6 +37,7 @@ public final class CobalaminSeedWindowCounts {
 			else if(k.equals("inputs")){inputs=v;}else if(k.equals("seeds")){seeds=v;}else if(k.equals("outprefix")){out=v;}
 			else if(k.equals("refs")){refs=v;}else if(k.equals("panel")){panel=v;}
 			else if(k.equals("quantum")){quantum=Integer.parseInt(v);}
+			else if(k.equals("historicalstages")){historicalStages=parse.Parse.parseBoolean(v);}
 			else if(k.equals("expected")){expected=Integer.parseInt(v);}else{throw new IllegalArgumentException(k);}
 		}
 		require(calls!=null && stages!=null && contigs!=null && inputs!=null && seeds!=null && out!=null && expected>0,
@@ -45,6 +47,7 @@ public final class CobalaminSeedWindowCounts {
 		require(refs==null ? quantum==-1 : quantum>=0, "Paired replay requires the caller's explicit resolved Quantum window threshold");
 		try{
 			final CobalaminSeedWindowCounts x=new CobalaminSeedWindowCounts();
+			x.historicalStages=historicalStages;
 			x.quantumThreshold=quantum;
 			x.contigs(contigs);
 			if(refs!=null){x.identityInputs(refs, panel);}
@@ -96,9 +99,9 @@ public final class CobalaminSeedWindowCounts {
 	private void stages(String path){
 		final ByteFile in=RrnaResourceIO.open(path);final LineParser1 p=new LineParser1('\t');long line=1;
 		try{
-			RrnaResourceIO.header(in, NcrnaStageDiagLogSink.HEADER, path);
+			NcrnaStageDiagLogSink.readHeader(in, historicalStages, path);
 			for(byte[] row; (row=in.nextLine())!=null; ){
-				line++;p.set(row);require(p.terms()==21, "Saved stage schema must remain21 columns");
+				line++;p.set(row);NcrnaStageDiagLogSink.validateRow(p, historicalStages);
 				if(!p.termEquals("WINDOW", 0) || !p.termStartsWith("ACCEPT_", 8)){continue;}
 				int family=-1;for(int i=0; i<FAMILIES.length; i++){if(p.termEquals(STAGE_FAMILIES[i], 1)){family=i;}}
 				if(family<0){continue;}
@@ -111,7 +114,7 @@ public final class CobalaminSeedWindowCounts {
 				for(Call call:c.calls){
 					if(call.start==start && call.stop==stop && call.strand==strand && call.family.equals(FAMILIES[family]) && p.termEquals(call.model, 12)){
 						final Window window=new Window(line, pass, a, z, raw);
-						if(compareIdentity && p.termEquals("ACCEPT_IDPASS", 8)){window.direct=p.parseFloat(13);}
+						if(compareIdentity && p.termEquals("ACCEPT_IDPASS", 8)){window.direct=NcrnaStageDiagLogSink.score(p, 13);}
 						call.windows.add(window);
 					}
 				}
@@ -160,14 +163,15 @@ public final class CobalaminSeedWindowCounts {
 	/** Re-read only to bind initial MODEL observations to the selected rescue model
 	 * as well as direct-pass models; WINDOW bestId can name a different model. */
 	private void initialIdentities(String path){
-		read(path, NcrnaStageDiagLogSink.HEADER, p->{
+		read(path, historicalStages ? NcrnaStageDiagLogSink.LEGACY_HEADER : NcrnaStageDiagLogSink.HEADER, p->{
+			NcrnaStageDiagLogSink.validateRow(p, historicalStages);
 			if(!p.termEquals("MODEL", 0) || !p.termStartsWith("cobalamin_", 1)){return;}
 			final Contig contig=byContig.get(RrnaResourceIO.first(p.parseString(2)));
 			require(contig!=null && contig.length==p.parseInt(4), "MODEL observations must bind the frozen contig");
 			final int strand=p.parseInt(3), pass=p.parseInt(5), a=p.parseInt(6), z=p.parseInt(7);
 			for(Call c:contig.calls){if(c.strand==strand && p.termEquals(c.model, 12)){
 				for(Window w:c.windows){if(w.pass==pass && w.start==a && w.stop==z){
-					final float id=p.parseFloat(13);
+					final float id=NcrnaStageDiagLogSink.score(p, 13);
 					require(Float.isFinite(id) && id>=0 && id<=1 && (Float.isNaN(w.primary) || w.primary==id),
 						"Repeated exact initial pair must have the same finite identity");w.primary=id;
 				}}

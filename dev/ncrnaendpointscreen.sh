@@ -9,8 +9,20 @@ Usage: dev/ncrnaendpointscreen.sh in=contexts.fa.gz out=fresh_directory \
   graph=original.support.tsv original=original_consensus.fa \
   roster=roster.tsv loci=loci.tsv splitseed=1 ks=7,9 radius=10
 
-Screens all inside/outside compositions for each K using the native whole-TaxID
-split and endpoint tables. Inputs are the complete original admitted population,
+Saved-row ranking: dev/ncrnaendpointscreen.sh mode=rank in=curves.tsv out=prefix
+Ranks VALIDATION decisive-true fractions at ratio2, then ratio3, then smallerK.
+TRAIN_LOO is displayed separately; tied placements all remain choices. Zero
+validation produces UNAVAILABLE. Writes .ranked.tsv, .choices.tsv and .byk.tsv
+(best placements at each K, preserving every tie) with exact counts and fractions.
+Every row reports TRAIN_LOO minus VALIDATION for ratios two and three. A positive
+gap means a larger training fraction; zero denominators produce NA. Groups use
+TaxID or exact assembly, so relatives under different TaxIDs can span partitions.
+Count rank is not significance or caller adoption;
+inspect validation counts and unresolved near-ties before choosing a configuration.
+
+Screens all inside/outside compositions for each K using native endpoint tables
+and indivisible source groups: real TaxID when present, exact assembly otherwise.
+Missing both identities fails; no taxonomy is invented. Inputs are the complete original admitted population,
 not a small benchmark or reduced model membership. No exclusions or row sampling.
 
 in=          Complete sense-oriented contexts with source, actual flanks and GC.
@@ -19,7 +31,7 @@ graph=       Complete ORIGINAL support graph.
 original=    Consensus FASTA matching the graph's original model-name axis.
 roster=      Native eleven-column original source roster.
 loci=        Native 21-column original locus metadata.
-splitseed=   Required nonnegative whole-TaxID split seed.
+splitseed=   Required nonnegative source-group split seed.
 ks=7,9       Distinct K values, each 1..15. All outside counts 0..K are tested.
 radius=10    Positive symmetric candidate radius in bases, with offset zero included.
 ratios=1.5,2,3,5,10
@@ -46,6 +58,7 @@ These are count-screening curves, NOT caller FPR/recall or neural accuracy.
 
 Outputs: population.tsv (exact split/eligibility), summary.tsv (original/context,
 table and candidate accounting), curves.tsv (counts and fractions by ratio).
+The log also reports original loci grouped by TaxID versus exact assembly.
 Missing GC prevents scoring, as in native vectors, but a geometrically valid
 training record can still contribute to the native endpoint table.
 Only one geometry's tables are retained. Two passes over the existing small

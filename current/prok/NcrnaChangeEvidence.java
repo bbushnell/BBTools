@@ -28,6 +28,7 @@ import structures.ByteBuilder;
  * @author Brian Bushnell, Raiden
  */
 public final class NcrnaChangeEvidence{
+	private boolean historicalStages=false;
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
@@ -54,6 +55,7 @@ public final class NcrnaChangeEvidence{
 			else if(a.equals("family")){family=b;}
 			else if(a.equals("padding")){padding=Parse.parseIntKMG(b);}
 			else if(a.equals("models")){includeModels=Parse.parseBoolean(b);}
+			else if(a.equals("historicalstages")){historicalStages=Parse.parseBoolean(b);}
 			else{require(parser.parse(arg, a, b), "Unknown flag: "+arg);}
 		}
 		changes=parser.in1;
@@ -196,7 +198,7 @@ public final class NcrnaChangeEvidence{
 		assert(batch!=null && !batch.loci.isEmpty()) : "Each stage read is bound to saved changes from one original input/policy";
 		assert(rows.length==batch.loci.size()) : "Every inspected locus/policy context needs its own evidence-row counter";
 		try(Input in=new Input(path)){
-			RrnaResourceIO.header(in.reader, NcrnaStageDiagLogSink.HEADER, path);
+			NcrnaStageDiagLogSink.readHeader(in.reader, historicalStages, path);
 			long line=1;
 			for(byte[] row=in.reader.nextLine(); row!=null; row=in.reader.nextLine()){
 				line++;
@@ -204,6 +206,7 @@ public final class NcrnaChangeEvidence{
 				if(p.terms()!=21){
 					throw new IllegalArgumentException("Stage sidecar must retain 21 fields: "+path+" line "+line);
 				}
+				NcrnaStageDiagLogSink.validateRow(p,historicalStages);
 				if(!p.termStartsWith(family, 1)){continue;}
 				if(!includeModels && p.termEquals("MODEL", 0)){continue;}
 				final int strand=p.parseInt(3), length=p.parseInt(4);

@@ -44,6 +44,13 @@ public final class NcrnaEndpointScreen{
 		final Timer timer=new Timer();
 		final PreParser pp=new PreParser(args, NcrnaEndpointScreen.class, false);
 		try{
+			for(final String arg:pp.args){
+				if(arg.equalsIgnoreCase("mode=rank")){
+					new NcrnaEndpointScreenRank(pp.args).process();
+					pp.outstream.println("NCRNA_ENDPOINT_RANK_COMPLETE saved_counts_only=true");
+					return;
+				}
+			}
 			new NcrnaEndpointScreen(pp.args).process(pp.outstream);
 			timer.stop();
 			pp.outstream.println("Time: "+timer);
@@ -99,8 +106,11 @@ public final class NcrnaEndpointScreen{
 	/*--------------------------------------------------------------*/
 
 	public void process(final PrintStream log){
-		population=NcrnaLearningPopulation.load(NcrnaSupportIO.read(graph),
-			NcrnaSupport.loadLibrary(original).names, roster, loci, null, seed);
+		population=NcrnaLearningPopulation.loadForScreen(NcrnaSupportIO.read(graph),
+			NcrnaSupport.loadLibrary(original).names, roster, loci, seed);
+		final int assemblyGrouped=population.assemblyGroupedLoci();
+		log.println("NCRNA_SCREEN_SOURCE_GROUPING original_loci="+population.ids.length
+			+" taxid_grouped_loci="+(population.ids.length-assemblyGrouped)+" assembly_grouped_loci="+assemblyGrouped);
 		check(root.mkdir(), "Could not create "+root);
 		writePopulation();
 		try(Output summary=new Output(file("summary.tsv")); Output curves=new Output(file("curves.tsv"))){

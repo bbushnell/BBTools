@@ -73,6 +73,7 @@ public final class NcrnaNativeTrainerTest{
 		trainer.train(Method.REGRESSION, regression, new String[]{all}, all, refitRegression);
 		checkNet(refitClassifier);
 		checkNet(refitRegression);
+		positional(root, trainer);
 
 		final String invalid=root.resolve("invalid.config").toString();
 		for(final String option:new String[]{"dims", "seed", "epochs", "vfraction", "t"}){
@@ -132,6 +133,36 @@ public final class NcrnaNativeTrainerTest{
 		gone(early);
 		interrupt(root, regression, new String[]{large, first}, validation);
 		System.out.println("Native trainers passed: classifier/regression, all-shard stdin, single-file all-data refits, loaded test networks, recipe rejection and owned-group cleanup including a TERM-ignoring descendant");
+	}
+
+	/** Exercises the actual multi-output consumer without weakening scalar recipes. */
+	private static void positional(final Path root, final NcrnaNativeTrainer trainer){
+		final String matrix=root.resolve("positional.tsv.gz").toString();
+		final String recipe=root.resolve("positional.config").toString();
+		final ByteBuilder rows=new ByteBuilder("#dims\t6\t3\n");
+		for(int row=0; row<9; row++){
+			for(int col=0; col<6; col++){rows.append((row+col)%3==0 ? 1 : 0).tab();}
+			rows.append(row%3==0 ? 1 : 0).tab().append(row%3==1 ? 1 : 0).tab().append(row%3==2 ? 1 : 0).nl();
+		}
+		write(matrix, rows.toString());
+		// The driver rejects an existing destination before launch; the trainer
+		// itself must overwrite its own best checkpoint during this one fit.
+		write(recipe, "dims=6,4,3\nseed=3\nepochs=2\nvfraction=0\nfinal=sigmoid\nsimd=f\nt=1\nprintevery=1\now=t\n");
+		final File output=root.resolve("positional.bbnet").toFile();
+		trainer.trainPositional(recipe, new String[]{matrix}, matrix, output, 6, 3);
+		final CellNet net=CellNetParser.load(output.getPath(), false);
+		check(net.numInputs()==6 && net.numOutputs()==3, "The actual native positional artifact must preserve explicit input/class widths");
+		net.applyInput(new float[]{1, 0, 0, 1, 0, 0});
+		net.feedForward();
+		for(final float value:net.getOutput()){check(Float.isFinite(value), "Every loaded positional output must be finite");}
+		fails(()->trainer.train(Method.REGRESSION, recipe, new String[]{matrix}, matrix,
+			root.resolve("wrong_scalar.bbnet").toFile()), "dims=10,...,1");
+		fails(()->trainer.trainPositional(recipe, new String[]{matrix}, matrix,
+			root.resolve("wrong_inputs.bbnet").toFile(), 7, 3), "dims=7,...,3");
+		fails(()->trainer.trainPositional(recipe, new String[]{matrix}, matrix,
+			root.resolve("wrong_classes.bbnet").toFile(), 6, 5), "dims=6,...,5");
+		fails(()->trainer.trainPositional(recipe, new String[]{matrix}, matrix,
+			root.resolve("invalid_classes.bbnet").toFile(), 6, 1), "at least two endpoint classes");
 	}
 
 	/** A literal native matrix; the second shard deliberately omits its final newline. */
@@ -247,6 +278,7 @@ public final class NcrnaNativeTrainerTest{
 		}
 		throw new AssertionError("Expected native-training failure containing: "+message);
 	}
+	private static void check(final boolean valid, final String reason){if(!valid){throw new AssertionError(reason);}}
 
 	private static void write(final String path, final String text){NcrnaLearningPopulationTest.write(path, text);}
 	private static String quote(final String text){return "'"+text.replace("'", "'\\''")+"'";}

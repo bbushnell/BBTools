@@ -100,6 +100,11 @@ public final class PackagedBoundaryConfigTest{
 			final NcrnaFamily enabled=load(options(root));
 			assert(enabled.boundary5NetTemplate!=null && enabled.boundary3NetTemplate!=null)
 				: "A packaged ON selection must load its declared native network and tables";
+			assert(!enabled.boundarySharedConfidence) : "Omitted sharedconfidence must preserve the historical scalar rule";
+			write(config, recipe(true, mean, net, start, stop).append("sharedconfidence=t\n"));
+			final NcrnaFamily shared=load(options(root));
+			assert(shared.boundarySharedConfidence) : "An explicit packaged gate belongs only to the newly loaded family";
+			assert(!enabled.boundarySharedConfidence) : "Loading an explicit gate cannot mutate another loaded family's confidence policy";
 			final NcrnaFamilyLoader.Options badPath=options(root);
 			badPath.resources.boundary=root.resolve("explicit-missing.net").toString();
 			boolean failed=false;
@@ -161,7 +166,7 @@ public final class PackagedBoundaryConfigTest{
 			assert(rejected)
 				: "Independent verifiers, unpaired libraries and aggregate selectors cannot accept one generic model pair: "+family;
 		}
-		final String[] bad={base+"unknown=1\n", base+"enabled=f\n",
+		final String[] bad={base+"unknown=1\n", base+"enabled=f\n", base+"sharedconfidence=maybe\n",
 			base.replace("family=sam1", "family=cobalamin"),
 			base.replace("enabled=f", "enabled=maybe"),
 			base.replace("features=v1", "features=v2"),

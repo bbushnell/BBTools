@@ -30,8 +30,8 @@ public final class NcrnaCalibrationPrepTest {
 		write(root.resolve("roster.tsv"), NcrnaCalibrationPrep.ROSTER_HEADER+"\n0\tg0\tasm0\t1\tbacteria\tphy\tunused.gff\t"+root.resolve("genome.fa")+"\t3\t200\t1\n");
 		write(root.resolve("audit.tsv"), NcrnaCoreRecovery.AUDIT_HEADER+'\n'+row("plus", '+', true)+'\n'+row("minus", '-', true)+'\n'+row("unknown", '+', false)+'\n');
 		write(root.resolve("stages.tsv"), NcrnaStageDiagLogSink.HEADER+'\n'+
-			"WINDOW\tcobalamin\tctg\t0\t200\t1\t89\t129\tACCEPT_IDPASS\t1\t2\t0\tcobalamin_0\t0.8\t0\t0\t95\t121\ttrue\t.\t.\n"+
-			"WINDOW\tcobalamin\tctg\t1\t200\t1\t70\t110\tACCEPT_IDPASS\t1\t2\t0\tcobalamin_0\t0.8\t0\t0\t76\t102\ttrue\t.\t.\n");
+			"WINDOW\tcobalamin\tctg\t0\t200\t1\t89\t129\tACCEPT_IDPASS\t1\t2\t0\tcobalamin_0\t0.8\t-1\t-1\t95\t121\ttrue\t-1\t\n"+
+			"WINDOW\tcobalamin\tctg\t1\t200\t1\t70\t110\tACCEPT_IDPASS\t1\t2\t0\tcobalamin_0\t0.8\t-1\t-1\t76\t102\ttrue\t-1\t\n");
 		run(root, "good", 1);
 		final ArrayList<String> full=lines(root.resolve("good.full.tsv"));
 		check(full.size()==3 && full.get(1).equals("ctg\tcobalamin\t96\t122\t+") && full.get(2).equals("ctg\tcobalamin\t97\t123\t-"),

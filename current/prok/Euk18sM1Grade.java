@@ -21,20 +21,23 @@ import structures.ByteBuilder;
  * @author Raiden
  */
 public final class Euk18sM1Grade {
+	private boolean historicalStages=false;
 	public static void main(String[] args){
 		final PreParser pp=new PreParser(args,Euk18sM1Grade.class,false);args=pp.args;
-		String calls=null,truth=null,stages=null,prefix=null,arm=null,clade=null,assembly=null,contigCatalog=null;int models=-1,callerMinLen=-1;boolean negative=false,diagnostics=true;
+		String calls=null,truth=null,stages=null,prefix=null,arm=null,clade=null,assembly=null,contigCatalog=null;int models=-1,callerMinLen=-1;boolean negative=false,diagnostics=true,historicalStages=false;
 		for(String arg:args){final int e=arg.indexOf('=');require(e>0,"Expected flag=value");final String k=arg.substring(0,e).toLowerCase(Locale.ROOT),v=arg.substring(e+1);
 			if(k.equals("calls")){calls=v;}else if(k.equals("truth")){truth=v;}else if(k.equals("stages")){stages=v;}else if(k.equals("outprefix")){prefix=v;}
 			else if(k.equals("arm")){arm=v;}else if(k.equals("clade")){clade=v;}else if(k.equals("assembly")){assembly=v;}
 			else if(k.equals("contigs")){contigCatalog=v;}else if(k.equals("callerminlen")){callerMinLen=Parse.parseIntKMG(v);}
 			else if(k.equals("diagnostics")){diagnostics=Parse.parseBoolean(v);}
+			else if(k.equals("historicalstages")){historicalStages=Parse.parseBoolean(v);}
 			else if(k.equals("models")){models=Parse.parseIntKMG(v);}else if(k.equals("negative")){negative=Parse.parseBoolean(v);}else{throw new IllegalArgumentException(k);}}
 		require(calls!=null && truth!=null && prefix!=null && arm!=null && clade!=null && assembly!=null,"Required calls/truth/outprefix/arm/clade/assembly");
 		require(diagnostics ? stages!=null && models>0 : stages==null && models==-1 && contigCatalog==null && callerMinLen==-1 && !negative,"Diagnostic mode requires stages/models; diagnostics=f consumes only whole-genome calls and truth, without invented stage or defline evidence");
 		require(negative==clade.equals("prok"),"Only the prok cohort is an explicit negative euk18S control");
 		require((contigCatalog==null)==(callerMinLen<0) && callerMinLen!=0,"Optional sealed contig catalog must bind the actual positive caller minLen");
 		final Euk18sM1Grade tool=new Euk18sM1Grade(assembly,negative);
+		tool.historicalStages=historicalStages;
 		if(diagnostics){tool.run(calls,truth,stages,prefix,arm,clade,models,contigCatalog,callerMinLen);}
 		else{tool.runWithoutDiagnostics(calls,truth,prefix,arm,clade);}
 		Shared.closeStream(pp.outstream);
@@ -60,6 +63,7 @@ public final class Euk18sM1Grade {
 		loadTruth(truth);loadCompartments(stages,catalog,callerMinLen);writeCompartmentAudit(prefix);loadCalls(calls);grade.grade();grade.write(prefix,arm,clade,assembly);
 		writeStrata(prefix,arm,clade);
 		final Euk5sStageFailureSummary failure=new Euk5sStageFailureSummary(assembly,models,"euk18S");
+		failure.setHistoricalStages(historicalStages);
 		require(grade.fn<=Integer.MAX_VALUE,"Stage reducer uses integer per-assembly FN cardinality");
 		failure.loadLoci(prefix+".loci.tsv.gz",(int)grade.fn);failure.loadStages(stages);failure.write(prefix+".stage");
 		writeFailures(prefix);
@@ -84,7 +88,7 @@ public final class Euk18sM1Grade {
 	}
 	public void loadCompartments(String path,String catalog,int callerMinLen){
 		final ByteFile in=RrnaSourceTargetPrep.open(path);final LineParser1 p=new LineParser1('\t');
-		try{header(in,NcrnaStageDiagLogSink.HEADER,path);for(byte[] row;(row=in.nextLine())!=null;){p.set(row);require(p.terms()==21,"Stage sink schema changed");
+		try{NcrnaStageDiagLogSink.readHeader(in,historicalStages,path);for(byte[] row;(row=in.nextLine())!=null;){p.set(row);NcrnaStageDiagLogSink.validateRow(p,historicalStages);
 			if(!p.termEquals("SEED",0)||!p.termEquals("euk18S",1)){continue;}
 			final String full=p.parseString(2),seq=RrnaCallerModelAssignment.first(full),comp=compartment(full),old=contigs.get(seq);
 			require(old==null||old.equals(comp),"Conflicting compartment for a contig");contigs.put(seq,comp);

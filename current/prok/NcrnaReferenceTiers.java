@@ -132,9 +132,9 @@ final class NcrnaReferenceTiers{
 		for(final Threshold threshold:thresholds){require(threshold!=null, "Every queried model requires its captured GA");}
 	}
 
-	/** Reads only accepted per-batch completion metadata, never native alignment
-	 * reports or sequence payloads. The promised75% re-threshold range must be
-	 * supported by every original reporting cutoff, including zero-hit models. */
+	/** Reads accepted completion metadata, not alignment reports or sequence payloads.
+	 * GA-only batches support a100% construction floor, never the older75% coverage.
+	 * Every queried model needs coverage, including models with zero reported hits. */
 	private void readCaptureBounds(final String path){
 		final ObjectSet<String> batches=new ObjectSet<String>(String.class), directories=new ObjectSet<String>(String.class);
 		final boolean[] seen=new boolean[roster.queried()];
@@ -142,21 +142,35 @@ final class NcrnaReferenceTiers{
 		final LineParser1 p=new LineParser1('\t');
 		long bases=0, records=0;
 		try(Input in=new Input(path)){
-			RrnaResourceIO.header(in.reader, BATCH_SOURCES_HEADER, path);
+			final byte[] header=in.reader.nextLine();
+			require(header!=null, "Missing batch source header");
+			final String schema=new String(header, StandardCharsets.UTF_8);
+			bundledEvidence=schema.equals(BuildNcrnaReference.BUNDLED_SOURCES_HEADER);
+			require(bundledEvidence || schema.equals(BATCH_SOURCES_HEADER), "Unknown batch source schema");
+			require(!bundledEvidence || floor.compareTo(BigDecimal.valueOf(100))==0,
+				"Bundled GA-only evidence supports marginalpercent=100 only; sub-GA reporting coverage is absent");
 			for(byte[] row=in.reader.nextLine(); row!=null; row=in.reader.nextLine()){
 				parser.set(row);
-				require(parser.terms()==11, "Captured batch source metadata requires eleven fields");
+				require(parser.terms()==(bundledEvidence ? 14 : 11), "Captured batch source metadata differs from its declared layout");
 				final String batch=text(0), directory=text(2);
+				final String nativeBatch=bundledEvidence ? text(12) : batch;
+				if(bundledEvidence){
+					require(parser.termEquals("BUNDLED_GA", 11) && nativeBatch.matches("0|[1-9][0-9]*")
+						&& batch.endsWith(":"+nativeBatch) && new File(text(13)).isAbsolute(),
+						"Bundled source identity requires its native batch ID and original CM bundle");
+				}
 				require(batches.add(batch) && directories.add(directory) && new File(directory).isAbsolute(), "Captured batch IDs and native directories must be unique");
 				Arrays.fill(seen, false);
 				long batchBases=-1, batchRecords=-1;
 				final byte[] encoded=BuildNcrnaReference.field(new ByteBuilder(), directory).toBytes();
 				final String completionPath=new File(directory, "completion.tsv").getPath();
 				try(Input completion=new Input(completionPath)){
-					RrnaResourceIO.header(completion.reader, NcrnaReferenceBatch.COMPLETION_HEADER, completionPath);
+					RrnaResourceIO.header(completion.reader, bundledEvidence ? NcrnaReferenceBatch.BUNDLED_COMPLETION_HEADER
+						: NcrnaReferenceBatch.COMPLETION_HEADER, completionPath);
 					for(byte[] entry=completion.reader.nextLine(); entry!=null; entry=completion.reader.nextLine()){
 						p.set(entry);
-						require(p.terms()==9 && p.termEquals(batch, 0) && p.termEquals("COMPLETE", 8), "Incomplete or foreign captured model completion");
+						require(p.terms()==(bundledEvidence ? 7 : 9) && p.termEquals(nativeBatch, 0)
+							&& p.termEquals("COMPLETE", bundledEvidence ? 6 : 8), "Incomplete or foreign captured model completion");
 						int query=-1;
 						for(int i=0; i<roster.queried(); i++){if(p.termEquals(roster.query(i).accession, 1)){query=i;}}
 						require(query>=0 && !seen[query], "Unknown or repeated captured model threshold");
@@ -168,10 +182,12 @@ final class NcrnaReferenceTiers{
 						}
 						require(n==batchRecords && size==batchBases && n>0 && size>0 && p.parseLong(4)==Math.multiplyExact(size, 2) && hits>=0,
 							"Captured model completions must conserve one batch's two-strand population");
-						final BigDecimal ga=new BigDecimal(thresholds[query].gaText);
-						require(new BigDecimal(p.parseString(6)).compareTo(ga)==0
-							&& new BigDecimal(p.parseString(7)).multiply(BigDecimal.valueOf(100)).compareTo(ga.multiply(BigDecimal.valueOf(75)))==0,
-							"Tier provenance requires the captured original GA and75%-of-GA reporting floor");
+						if(!bundledEvidence){
+							final BigDecimal ga=new BigDecimal(thresholds[query].gaText);
+							require(new BigDecimal(p.parseString(6)).compareTo(ga)==0
+								&& new BigDecimal(p.parseString(7)).multiply(BigDecimal.valueOf(100)).compareTo(ga.multiply(BigDecimal.valueOf(75)))==0,
+								"Tier provenance requires the captured original GA and75%-of-GA reporting floor");
+						}
 						counts[query]=Math.addExact(counts[query], hits);
 						captureRows.add(buffer.clear().append(encoded).tab().append(entry).toBytes());
 					}
@@ -437,7 +453,8 @@ final class NcrnaReferenceTiers{
 		catch(IOException failure){throw new IllegalStateException("Could not create reference output directory", failure);}
 		writeParameters();
 		try(Output capture=new Output(path("capture_thresholds.tsv"))){
-			capture.writer.println("native_directory\t"+NcrnaReferenceBatch.COMPLETION_HEADER);
+			capture.writer.println("native_directory\t"+(bundledEvidence ? NcrnaReferenceBatch.BUNDLED_COMPLETION_HEADER
+				: NcrnaReferenceBatch.COMPLETION_HEADER));
 			for(final byte[] row:captureRows){capture.writer.println(row);}
 		}
 		final String[] inputs={input, attributes, attributeEvidence, priorPath, census, memberships, scope, assets, queries};
@@ -676,7 +693,13 @@ final class NcrnaReferenceTiers{
 			out.writer.println("collapse_rule\tALL_MEMBER_RECIPROCAL_OVERLAP_QUALIFYING_SUPPORT_ONLY");
 			out.writer.println("representative_order\tCONFIDENT_NATIVE_INCLUDED_FULL_MODEL_PERCENT_GA_COORDINATES_MODEL_NATIVE_KEY");
 			out.writer.println("raw_event_tiers\tEVIDENCE_ELIGIBILITY_BEFORE_LOCUS_COLLAPSE_BRIDGES_FLAGGED_SEPARATELY");
-			out.writer.println("captured_reporting_floor_percent\t75");
+			out.writer.println("captured_reporting_floor_percent\t"+(bundledEvidence ? "100" : "75"));
+			if(bundledEvidence){
+				out.writer.println("reporting_coverage\tGA_ONLY_CONSTRUCTION_NOT_COMPLETE_SUBGA_EVALUATION_MASKS");
+				out.writer.println("ga_only_marginal_meaning\tNATIVE_GA_INCLUDED_BUT_FAILED_FULL_SPAN_TRUNCATION_COMPETITOR_OR_SOURCE_CHECKS_AND_CLEARED_PRINTED_FLOOR_UNCERTAINTY");
+				out.writer.println("ga_only_uncertain_meaning\tNONCONFIDENT_EVENT_WHOSE_PRINTED_SCORE_INTERVAL_TOUCHES_GA");
+				out.writer.println("construction_eligibility\tUSE_NAMED_INCLUSION_SPAN_TRUNCATION_COMPETITOR_SOURCE_AND_PRIOR_CONDITIONS_NOT_TIER_WORD_ALONE");
+			}
 			out.writer.println("confident_score_basis\tORIGINAL_GA_BOUND_NATIVE_INCLUSION");
 			out.writer.println("marginal_score_basis\tPRINTED_SCORE_WITH_0.05_BIT_BOUNDS");
 			out.writer.println("floor_boundary_action\tUNCERTAIN_UNSCORED_UNMASKED");
@@ -918,6 +941,7 @@ final class NcrnaReferenceTiers{
 	private final boolean[] qualifies, uncertain;
 	private final Threshold[] thresholds;
 	private final BigDecimal floor;
+	private boolean bundledEvidence;
 	private final String floorText, collapseText, witnessPath;
 	private final long collapseMillionths;
 	private final Path root;

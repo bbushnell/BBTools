@@ -58,7 +58,7 @@ public final class RrnaPositionalKmerTable {
 		}
 		private Table(String model_,String end_,int k_,int offset_,double alpha_,int radius_,boolean inferenceOnly){
 			require(model_!=null&&model_.matches("[A-Za-z0-9_.:-]+")&&(end_.equals("5prime")||end_.equals("3prime")),"One explicit consensus and gene end per table");
-			require(k_>=6&&k_<=9&&Double.isFinite(alpha_)&&alpha_>0,"Recipe anchor search uses k6..9 and finite positive pseudocount");
+			require(k_>=5&&k_<=9&&Double.isFinite(alpha_)&&alpha_>0,"Dense positional tables use k5..9 and finite positive pseudocount");
 			radius=radius_;sites=sitesForRadius(radius);inputs=Math.addExact(sites,3);
 			valid=new long[sites];clipped=new long[sites];ambiguous=new long[sites];
 			model=model_;end=end_;k=k_;offset=offset_;alpha=alpha_;space=1<<(2*k);counts=inferenceOnly?null:new long[sites][space];
@@ -128,6 +128,15 @@ public final class RrnaPositionalKmerTable {
 		public final String model,end;public final int k,offset,space,radius,sites,inputs;public final double alpha;public long records;
 		public final long[][] counts;public final long[] valid,clipped,ambiguous;public double[] scores;boolean finished;
 	}
+	/** Metadata-only geometry for the explicit signed-background score reader.
+	 * The reader supplies scores and finalization only after complete validation;
+	 * this factory allocates no positional training-count matrix.
+	 */
+	static Table inferenceGeometry(final String model, final String end, final int k,
+			final int offset, final double alpha, final int radius){
+		return new Table(model, end, k, offset, alpha, radius, true);
+	}
+
 	public static Table load(String path,String expectedModel){
 		final ByteFile in=RrnaResourceIO.open(path);final LineParser1 p=new LineParser1('\t');
 		try{RrnaResourceIO.header(in,SCHEMA,path);RrnaResourceIO.header(in,META_HEADER,path);p.set(in.nextLine());require(p.terms()==7&&p.termEquals(expectedModel,0),"Saved model must match inference and declare its radius");

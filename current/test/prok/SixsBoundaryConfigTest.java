@@ -114,6 +114,7 @@ public final class SixsBoundaryConfigTest {
 		o.adaptive=true;o.indexK=7;o.topN=60;o.minHits=2;o.seedMinHits=3;o.windowPad=125;o.minLen=60;o.seedK=17;o.longestPadFlank=21;
 		o.floor=4;o.topFrac=.25f;o.qFrac=.1f;o.weight=2;o.idPass=.7f;o.idBorderline=.6f;o.hbmPass=.64f;
 		o.scoreA=3;o.scoreB=20;o.collapse=.85f;o.boundaryMarginStart=.01f;o.boundaryMarginStop=.02f;
+		o.boundaryMarginStartSet=o.boundaryMarginStopSet=true;
 		o.boundaryStartOffsets=new int[]{-1,0};o.boundaryStopOffsets=new int[]{0,1};
 		o.resources.root="root";o.resources.consensus="consensus";o.resources.models="models";o.resources.seeds="seeds";
 		o.resources.tables="tables";o.resources.endpoints="endpoints";o.resources.cutoffs="cutoffs";
@@ -126,7 +127,8 @@ public final class SixsBoundaryConfigTest {
 			&& o.indexK==7 && o.topN==60 && o.minHits==2 && o.seedMinHits==3 && o.windowPad==125 && o.minLen==60
 			&& o.seedK==17 && o.longestPadFlank==21 && o.floor==4 && o.topFrac==.25f && o.qFrac==.1f && o.weight==2
 			&& o.idPass==.7f && o.idBorderline==.6f && o.hbmPass==.64f && o.scoreA==3 && o.scoreB==20 && o.collapse==.85f
-			&& o.boundaryMarginStart==.01f && o.boundaryMarginStop==.02f,
+			&& o.boundaryMarginStart==.01f && o.boundaryMarginStop==.02f
+			&& o.boundaryMarginStartSet && o.boundaryMarginStopSet,
 			"Boundary overrides must not change enable, mapping, verification, scoring, geometry or margins");
 		check(o.resources.root.equals("root") && o.resources.consensus.equals("consensus") && o.resources.models.equals("models")
 			&& o.resources.seeds.equals("seeds") && o.resources.tables.equals("tables") && o.resources.endpoints.equals("endpoints")

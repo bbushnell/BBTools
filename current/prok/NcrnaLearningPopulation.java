@@ -40,7 +40,7 @@ public final class NcrnaLearningPopulation{
 	 */
 	public static NcrnaLearningPopulation load(final Graph graph, final String[] originalNames,
 			final String roster, final String loci, final String exclusions, final long seed){
-		return load(graph, originalNames, roster, loci, exclusions, seed, false);
+		return load(graph, originalNames, roster, loci, exclusions, seed, false, false);
 	}
 
 	/** Loads all eligible records without requesting a validation partition.
@@ -49,16 +49,25 @@ public final class NcrnaLearningPopulation{
 	 */
 	public static NcrnaLearningPopulation loadForRefit(final Graph graph, final String[] originalNames,
 			final String roster, final String loci, final String exclusions){
-		return load(graph, originalNames, roster, loci, exclusions, 0, true);
+		return load(graph, originalNames, roster, loci, exclusions, 0, true, true);
+	}
+
+	/** Table-only selection accepts missing taxonomy without withholding one
+	 * assembly's loci on both sides. Known TaxIDs retain their ordinary groups.
+	 */
+	public static NcrnaLearningPopulation loadForScreen(final Graph graph, final String[] originalNames,
+			final String roster, final String loci, final long seed){
+		return load(graph, originalNames, roster, loci, null, seed, false, true);
 	}
 
 	private static NcrnaLearningPopulation load(final Graph graph, final String[] originalNames,
-			final String roster, final String loci, final String exclusions, final long seed, final boolean refit){
+			final String roster, final String loci, final String exclusions, final long seed,
+			final boolean refit, final boolean allowMissingTaxid){
 		if(graph==null || graph.reduced || !Arrays.equals(graph.modelNames, originalNames)){
 			throw new IllegalArgumentException("Coverage bins require an ORIGINAL graph on the supplied original library axis");
 		}
 		final NcrnaLearningPopulation population=new NcrnaLearningPopulation(graph);
-		population.readRoster(roster);
+		population.readRoster(roster, allowMissingTaxid);
 		population.readLoci(loci);
 		population.partition(seed, refit);
 		population.readExclusions(exclusions);
@@ -89,7 +98,7 @@ public final class NcrnaLearningPopulation{
 	/*--------------------------------------------------------------*/
 
 	/** Keeps one source object per genome; phylum identifiers include domain. */
-	private void readRoster(final String path){
+	private void readRoster(final String path, final boolean allowMissingTaxid){
 		final ArrayList<Source> rows=new ArrayList<Source>();
 		final ObjectIntMap<String> assemblyTaxid=new ObjectIntMap<String>(String.class);
 		final ObjectIntMap<String> phyla=new ObjectIntMap<String>(String.class);
@@ -97,8 +106,12 @@ public final class NcrnaLearningPopulation{
 			while(input.next()){
 				if(input.number(0)!=rows.size()){throw input.bad("Roster indices must be dense and ordered");}
 				final String name=input.text(1), assembly=input.text(2);
-				final int taxid=input.number(3), expected=input.number(8);
-				if(taxid==0 || bySource.contains(name)){throw input.bad("Source needs a positive TaxID and unique genome name: "+name);}
+				final int taxid=input.taxid(3, allowMissingTaxid), expected=input.number(8);
+				if(taxid==0 && (assembly.equals(".") || assembly.equals("NA"))){
+					throw input.bad("Missing TaxID requires an exact assembly identity for indivisible source grouping");
+				}
+				if(bySource.contains(name)){throw input.bad("Source needs a unique genome name: "+name);}
+				missingTaxids|=taxid==0;
 				final int prior=assemblyTaxid.get(assembly);
 				if(prior>=0 && prior!=taxid){throw input.bad("Conflicting TaxIDs for assembly "+assembly);}
 				assemblyTaxid.put(assembly, taxid);
@@ -130,7 +143,7 @@ public final class NcrnaLearningPopulation{
 				final int gene=byLocus.get(id), genome=bySource.get(input.text(1+shift));
 				if(gene<0 || genome<0 || source[gene]>=0){throw input.bad("Unknown or duplicate original locus/source: "+id);}
 				final Source s=sources[genome];
-				if(!p.termEquals(s.assembly, 2+shift) || input.number(3+shift)!=s.taxid
+				if(!p.termEquals(s.assembly, 2+shift) || input.taxid(3+shift, missingTaxids)!=s.taxid
 						|| !p.termEquals(s.domain, 4+shift) || !p.termEquals(s.phylum, 5+shift)){
 					throw input.bad("Locus identity disagrees with its original source: "+id);
 				}
@@ -177,16 +190,28 @@ public final class NcrnaLearningPopulation{
 		assert(source[gene]<0) : "Occurrence identity is unique and is assigned to its source after this validation";
 		final LineParser1 p=input.parser;
 		final String occurrence=input.text(1);
-		if(!id.equals("ID="+occurrence)){throw input.bad("Record ID must match the admitted occurrence's CutGff identifier: "+id);}
+		if(!id.equals(input.nativeRows ? occurrence : "ID="+occurrence)){
+			throw input.bad("Record ID must match the declared occurrence identifier convention: "+id);
+		}
 		if(!p.termEquals("+", 8) && !p.termEquals("-", 8)){throw input.bad("Occurrence needs an explicit strand: "+id);}
-		final int start=input.number(9), stop=input.number(10), contig=input.number(12);
+		final int start=input.number(9), stop=input.number(10);
 		length[gene]=input.number(11);
-		leftFlank[gene]=input.number(13);
-		rightFlank[gene]=input.number(14);
-		if(start<1 || stop<start || stop>contig || (long)stop-start+1!=length[gene]){
+		leftFlank[gene]=input.number(input.nativeRows ? 12 : 13);
+		rightFlank[gene]=input.number(input.nativeRows ? 13 : 14);
+		if(start<1 || stop<start || (long)stop-start+1!=length[gene]){
 			throw input.bad("Occurrence length and coordinates disagree: "+id);
 		}
 		final boolean minus=p.termEquals("-", 8);
+		if(input.nativeRows){
+			// Native CutGff validation binds the observed clipped flanks and core DNA;
+			// no unmeasured whole-contig length is synthesized in this ledger.
+			if((minus ? rightFlank[gene] : leftFlank[gene])>start-1){
+				throw input.bad("Native occurrence flank extends before the source contig: "+id);
+			}
+			return;
+		}
+		final int contig=input.number(12);
+		if(stop>contig){throw input.bad("Occurrence extends beyond its declared source contig: "+id);}
 		final int availableLeft=minus ? contig-stop : start-1, availableRight=minus ? start-1 : contig-stop;
 		if(leftFlank[gene]>availableLeft || rightFlank[gene]>availableRight){
 			throw input.bad("Sense-oriented occurrence flanks exceed the source contig: "+id);
@@ -201,6 +226,22 @@ public final class NcrnaLearningPopulation{
 			final Source s=sources[source[gene]];
 			taxa[gene]=s.taxid;
 			phyla[gene]=s.bin;
+		}
+		if(missingTaxids){
+			final ObjectIntMap<String> assemblies=new ObjectIntMap<String>(String.class);
+			final int[] assemblyByGene=new int[ids.length];
+			for(int gene=0; gene<ids.length; gene++){
+				final String assembly=sources[source[gene]].assembly;
+				int index=assemblies.get(assembly);
+				if(index<0){
+					index=assemblies.size();
+					assemblies.put(assembly, index);
+				}
+				assemblyByGene[gene]=index;
+			}
+			split=refit ? NcrnaLearningSplit.allSources(taxa, assemblyByGene, phyla, originalModel, phylumCount, models.length)
+				: NcrnaLearningSplit.splitSources(taxa, assemblyByGene, phyla, originalModel, phylumCount, models.length, seed);
+			return;
 		}
 		split=refit ? NcrnaLearningSplit.all(taxa, phyla, originalModel, phylumCount, models.length)
 			: NcrnaLearningSplit.split(taxa, phyla, originalModel, phylumCount, models.length, seed);
@@ -225,6 +266,16 @@ public final class NcrnaLearningPopulation{
 	public boolean eligible(final int gene){return !partial[gene] && !excluded[gene];}
 	public NcrnaLearningSplit.Result split(){return split;}
 	public String sourceName(final int gene){return sources[source[gene]].name;}
+	/** Exact assembly identity already validated against the source-qualified locus ledger. */
+	public String assemblyName(final int gene){return sources[source[gene]].assembly;}
+
+	/** Counts original loci grouped by exact assembly because their TaxID is absent. */
+	public int assemblyGroupedLoci(){
+		assert(split!=null) : "Grouping counts describe the fully joined original population";
+		int count=0;
+		for(final int genome:source){if(sources[genome].taxid==0){count++;}}
+		return count;
+	}
 
 	/*--------------------------------------------------------------*/
 	/*----------------          Input Owner         ----------------*/
@@ -250,7 +301,10 @@ public final class NcrnaLearningPopulation{
 				final byte[] header=file.nextLine();
 				line++;
 				final String text=header==null ? null : new String(header, StandardCharsets.UTF_8);
-				if(allowOccurrences && OCCURRENCE_HEADER.equals(text)){
+				if(allowOccurrences && NATIVE_HEADER.equals(text)){
+					occurrenceRows=nativeRows=true;
+					terms=14;
+				}else if(allowOccurrences && OCCURRENCE_HEADER.equals(text)){
 					occurrenceRows=true;
 					terms=15;
 				}else if(!pendingHeader.equals(text)){
@@ -276,6 +330,13 @@ public final class NcrnaLearningPopulation{
 			}
 		}
 
+		/** Zero is missing taxonomy only on an explicitly source-aware loader path. */
+		int taxid(final int term, final boolean allowMissing){
+			final int value=allowMissing && parser.termEquals(".", term) ? 0 : number(term);
+			if(value==0 && !allowMissing){throw bad("A validation split requires positive TaxIDs");}
+			return value;
+		}
+
 		String text(final int term){
 			final String value=parser.parseString(term);
 			if(value.isEmpty()){throw bad("Empty identifier at field "+term);}
@@ -292,7 +353,7 @@ public final class NcrnaLearningPopulation{
 		final String path;
 		int terms;
 		final boolean allowOccurrences;
-		boolean occurrenceRows;
+		boolean occurrenceRows, nativeRows;
 		final NcrnaTextIO.Input owner;
 		final ByteFile file;
 		final LineParser1 parser=new LineParser1('\t');
@@ -329,9 +390,12 @@ public final class NcrnaLearningPopulation{
 	private final ObjectIntMap<String> bySource=new ObjectIntMap<String>(String.class);
 	private Source[] sources;
 	private int phylumCount;
+	private boolean missingTaxids;
 	private NcrnaLearningSplit.Result split;
 
 	public static final String ROSTER_HEADER="index\tgenome\tassembly\ttaxid\tdomain\tphylum\tgff\tfasta\tloci\tgenome_bases\tcontigs";
 	public static final String LOCUS_HEADER="locus_id\tgenome\tassembly\ttaxid\tdomain\tphylum\tseqid\tstrand\tintervals1\tlength\tsource_line\tsource_ids\tpartial\tpseudo\tstatus\tcontig_length\tedge\tundefined_bases\tlflank\trflank\tsource_lines";
 	public static final String OCCURRENCE_HEADER="record_id\toccurrence_id\tgenome\tassembly\ttaxid\tdomain\tphylum\tseqid\tstrand\tstart1\tstop1\tlength\tcontig_length\tlflank\trflank";
+	/** Native source IDs are unchanged; contig lengths are not inferred from flanked fragments. */
+	public static final String NATIVE_HEADER="record_id\toccurrence_id\tgenome\tassembly\ttaxid\tdomain\tphylum\tseqid\tstrand\tstart1\tstop1\tlength\tlflank\trflank";
 }

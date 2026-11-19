@@ -49,7 +49,75 @@ public final class NcrnaLocusComparisonTest{
 		assert(NcrnaLocusComparison.match(truth, calls)[0]==1) : "Three of five bases satisfies the overlap rule";
 		checkLongChain();
 		checkCoordinates();
+		checkInputOrdinals();
 		System.err.println("Locus comparison checks passed: augmentation, duplicates, contigs, strands and odd-length overlap.");
+	}
+
+	/** Repeated contig names belong to distinct inputs, including inputs with no calls.
+	 * This source identity is independent of taxID, which may be absent or shared.
+	 */
+	private static void checkInputOrdinals() throws Exception{
+		final Path root=Files.createTempDirectory("locus-inputs-");
+		final ArrayList<Path> files=new ArrayList<Path>();
+		final String row="contig\tfixture\tRNA\t1\t100\t.\t+\t.\tfamily:test;model:model0\n";
+		try(AutoCloseable cleanup=()->{
+			for(final Path path:files){Files.deleteIfExists(path);}
+			Files.delete(root);
+		}){
+			final Path truthPath=fixture(root, files, "truth.tsv",
+				"seqid\tfamily\tstart\tstop\tstrand\tinput_ordinal0\ncontig\ttest\t1\t100\t+\t0\ncontig\ttest\t1\t100\t+\t2\n");
+			final ArrayList<Locus> truth=NcrnaLocusComparison.readTruth(truthPath.toString(), "test");
+			final Path callPath=fixture(root, files, "calls.gff",
+				"##gff-version 3\n##input_ordinal0\t0\n##input_ordinal0\t1\n##input_ordinal0\t2\n"+row+"##input_ordinal0\t3\n");
+			final ArrayList<Locus> calls=NcrnaLocusComparison.readCalls(callPath.toString(), "test", 4);
+			final ArrayList<Locus> detected=NcrnaLocusComparison.readCalls(callPath.toString(), "test");
+			assert(detected.size()==1 && detected.get(0).inputOrdinal==2)
+				: "Saved-call comparisons must retain explicit source boundaries through the legacy overload";
+			final int[] matches=NcrnaLocusComparison.match(truth, calls);
+			assert(matches[0]==-1 && matches[1]==0 && calls.get(0).inputOrdinal==2)
+				: "An identical contig and locus in input two must not rescue input zero; empty inputs must retain their positions";
+			calls.add(new Locus("contig", 1, 100, 0, "input0", 0));
+			final int[] restored=NcrnaLocusComparison.match(truth, calls);
+			assert(restored[0]==1 && restored[1]==0):"Only the correct source's added call can restore its reference";
+			final ArrayList<Locus> legacy=new ArrayList<Locus>();
+			legacy.add(new Locus("contig", 1, 100, 0, null));
+			boolean mixedRejected=false;
+			try{NcrnaLocusComparison.match(legacy, calls);}catch(IllegalArgumentException expected){mixedRejected=true;}
+			assert(mixedRejected):"An unknown legacy source cannot wildcard-match qualified calls";
+			legacy.add(new Locus("contig", 1, 100, 0, null, 0));
+			mixedRejected=false;
+			try{NcrnaLocusComparison.hasInputOrdinals(legacy);}catch(IllegalArgumentException expected){mixedRejected=true;}
+			assert(mixedRejected):"A mixed reference population cannot silently become a source-qualified population";
+			final String[] badHeaders={row, "##input_ordinal0\t1\n", "##input_ordinal0\t0\n",
+				"##input_ordinal0\t0\n##input_ordinal0\t0\n", "##input_ordinal0\t0\n##input_ordinal0\t2\n",
+				"##input_ordinal0\t-1\n", "##input_ordinal0\t2147483648\n", "##input_ordinal0 0\n",
+				"##input_ordinal0\t0\textra\n", row+"##input_ordinal0\t0\n##input_ordinal0\t1\n",
+				"##input_ordinal0\t0\n##input_ordinal0\t1\n##input_ordinal0\t2\n"};
+			for(int i=0; i<badHeaders.length; i++){
+				final Path path=fixture(root, files, "bad_calls_"+i+".gff", badHeaders[i]);
+				boolean rejected=false;
+				try{NcrnaLocusComparison.readCalls(path.toString(), "test", 2);}catch(IllegalArgumentException expected){rejected=true;}
+				assert(rejected):"Missing, repeated, skipped, malformed or miscounted boundaries must fail before matching: case="+i;
+			}
+			final String[] badTruth={"contig\ttest\t1\t100\t+\t-1\n", "contig\ttest\t1\t100\t+\t2147483648\n",
+				"contig\ttest\t1\t100\t+\ncontig\ttest\t1\t100\t+\t0\n"};
+			for(int i=0; i<badTruth.length; i++){
+				final Path path=fixture(root, files, "bad_truth_"+i+".tsv", badTruth[i]);
+				boolean rejected=false;
+				try{NcrnaLocusComparison.readTruth(path.toString(), "test");}catch(IllegalArgumentException expected){rejected=true;}
+				assert(rejected):"Qualified truth must use valid nonnegative ordinals and one consistent schema: case="+i;
+			}
+		}
+		System.err.println("Input-qualified matching passed: repeated contigs, empty inputs and strict boundary validation.");
+	}
+
+	/** Retains exact finite fixture paths so cleanup never scans unrelated files. */
+	private static Path fixture(final Path root, final ArrayList<Path> files, final String name, final String text){
+		assert(root!=null && files!=null && name!=null && text!=null):"Each finite fixture must have an owned path and explicit content";
+		final Path path=root.resolve(name);
+		files.add(path);
+		try(Output output=new Output(path.toString())){output.writer.print(text);}
+		return path;
 	}
 
 	/** External text retains strict positive signed-int coordinates and model tokens. */
@@ -138,7 +206,7 @@ public final class NcrnaLocusComparisonTest{
 	private static void checkCallerPolicy(){
 		NcrnaCallerProtection.validatePolicy(new String[]{"sam1=t", "taxonomy=t", "ncrnaidpass=0.70"});
 		for(final String alias:new String[]{"infna", "fnain", "fna", "aminoout", "aaout", "amino",
-				"16sout", "18sout", "itsout", "json_out", "json", "hist", "lengthhist", "lhist", "ncrnadiag", "hbmdiag"}){
+				"16sout", "18sout", "itsout", "json_out", "json", "hist", "lengthhist", "lhist", "ncrnadiag", "hbmdiag", "gffinputordinal"}){
 			boolean rejected=false;
 			try{
 				NcrnaCallerProtection.validatePolicy(new String[]{alias+"=unowned_file"});

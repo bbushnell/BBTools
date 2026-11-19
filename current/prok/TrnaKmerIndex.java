@@ -217,6 +217,27 @@ public final class TrnaKmerIndex {
 	 * below this window's best score. Existing absolute/adaptive cutoffs still apply;
 	 * zero-score models are never admitted. -1 preserves the legacy policy exactly. */
 	public int[] shortlist(byte[] seq, int topN, int scoreMargin){
+		return shortlist(seq, topN, scoreMargin, false);
+	}
+
+	/** Counts the same unique-query/model-multiplicity matches without model sorting,
+	 * thresholding or allocating a result array. Replaces every destination entry,
+	 * including zeros; scratch and last-query diagnostics belong to this worker.
+	 * Unlike the fixed0 one-model direct-alignment control, this always counts real
+	 * matches. It records one query and no models placed on a native shortlist. */
+	public void countShared(final byte[] seq, final char[] destination){
+		if(seq==null || destination==null || nModels<1 || destination.length!=nModels){
+			throw new IllegalArgumentException("Native counts need a query and one output slot per nonempty original model roster");
+		}
+		shortlist(seq, nModels, -1, true);
+		for(int model=0; model<nModels; model++){
+			assert(counts[model]>=0 && counts[model]<=MAX_COUNT)
+				: KillSwitch.assertDie("Native shared counts must fit unsigned16bits before profile-order interleaving: model="+model+", count="+counts[model]);
+			destination[model]=(char)counts[model];
+		}
+	}
+
+	private int[] shortlist(byte[] seq, int topN, int scoreMargin, final boolean countOnly){
 		validateTopN(topN);
 		if(scoreMargin < -1){throw new IllegalArgumentException("indexScoreMargin must be -1 (disabled) or >=0: "+scoreMargin);}
 		queries++;
@@ -227,7 +248,7 @@ public final class TrnaKmerIndex {
 		queryKmers.clear();
 		//A zero fixed cutoff is the explicit direct-alignment control for a one-model library:
 		//there is no ranking decision, and bypassing the set establishes whether filtering loses loci.
-		if(scoreMargin<0 && singleModelKmers!=null && !adaptive && fixedMinHits==0){
+		if(!countOnly && scoreMargin<0 && singleModelKmers!=null && !adaptive && fixedMinHits==0){
 			lastMaxShared=0;
 			touched.add(0);
 			totalShortlisted++;
@@ -263,7 +284,7 @@ public final class TrnaKmerIndex {
 		//half of it for the class's stated zero-alloc-after-warmup design. Functionally identical sorted-
 		//unique output, no established API contract, and one already-verified sort() call.
 		qk.condense();
-		if(singleModelKmers!=null){return shortlistSingleModel(qk);}
+		if(singleModelKmers!=null){return shortlistSingleModel(qk, countOnly);}
 
 		//Pass 2: traverse postings ONCE per unique query k-mer.
 		for(int qi=0, qs=qk.size; qi<qs; qi++){
@@ -289,6 +310,7 @@ public final class TrnaKmerIndex {
 		int maxShared=0;
 		for(int t=0; t<distinct; t++){final int c=cnt[touched.get(t)]; if(c>maxShared){maxShared=c;}}
 		lastMaxShared=maxShared;
+		if(countOnly){return EMPTY_INT;}
 
 		//Resolve the shortlist cutoff. qKmers is the UNIQUE valid query-k-mer count (qk.size after
 		//condense), NOT the raw positional count (seq.length-indexK+1) the pre-dedup code used --
@@ -333,13 +355,14 @@ public final class TrnaKmerIndex {
 	}
 
 	/** Strict set-membership prefilter for a one-model library; no ranking or keep-best fallback. */
-	private int[] shortlistSingleModel(IntList qk){
+	private int[] shortlistSingleModel(IntList qk, final boolean countOnly){
 		int shared=0;
 		for(int i=0; i<qk.size; i++){if(singleModelKmers.contains(qk.get(i))){shared++;}}
 		counts[0]=shared;
 		lastMaxShared=shared;
 		if(shared<1){return EMPTY_INT;}
 		touched.add(0);
+		if(countOnly){return EMPTY_INT;}
 		final int minHits;
 		if(adaptive){
 			final int qKmers=Tools.max(1, qk.size);

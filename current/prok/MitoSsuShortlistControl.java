@@ -19,7 +19,7 @@ public final class MitoSsuShortlistControl {
 	public static void main(String[] args){
 		final PreParser pp=new PreParser(args, MitoSsuShortlistControl.class, false);
 		String in=null, stages=null, contig=null, out=null, cases=null;
-		int strand=-1, truthStart=-1, truthStop=-1;
+		int strand=-1, truthStart=-1, truthStop=-1;boolean historicalStages=false;
 		for(String arg:pp.args){
 			final int eq=arg.indexOf('=');require(eq>0, "Use flag=value");
 			final String key=arg.substring(0, eq), value=arg.substring(eq+1);
@@ -27,6 +27,7 @@ public final class MitoSsuShortlistControl {
 			else if(key.equals("contig")){contig=value;}else if(key.equals("outprefix")){out=value;}
 			else if(key.equals("strand")){strand=Integer.parseInt(value);}
 			else if(key.equals("cases")){cases=value;}
+			else if(key.equals("historicalstages")){historicalStages=parse.Parse.parseBoolean(value);}
 			else if(key.equals("truthstart")){truthStart=Integer.parseInt(value);}
 			else if(key.equals("truthstop")){truthStop=Integer.parseInt(value);}
 			else{throw new IllegalArgumentException(key);}
@@ -34,6 +35,7 @@ public final class MitoSsuShortlistControl {
 		require(stages!=null && out!=null && (cases==null ? in!=null && contig!=null && (strand==0 || strand==1)
 			: in==null && contig==null && strand==-1),
 			"Bind one source contig/strand or the explicit22-case evidence table, plus saved stages and fresh output");
+		require(!historicalStages, "Fresh shortlist parity requires current-format stage rows; historical parsing cannot prove cross-format raw-row equality");
 		Shared.setThreads(1);Shared.TRIM_READ_DESCRIPTION=false;Read.TO_UPPER_CASE=true;
 		final NcrnaFamilyLoader.Options options=new NcrnaFamilyLoader.Options();
 		options.seedMinHits=2;
@@ -209,13 +211,18 @@ public final class MitoSsuShortlistControl {
 	}
 
 	static ArrayList<String> rows(String path, String contig, int strand){
+		return rows(path,contig,strand,false);
+	}
+	/** Reading historical rows is explicit; it does not establish parity with
+	 * fresh current-format control output or infer old zero/false presence. */
+	public static ArrayList<String> rows(String path, String contig, int strand, boolean historical){
 		assert(path!=null && contig!=null):"Parity compares actual immutable stage streams";
 		final ArrayList<String> result=new ArrayList<String>();
 		final ByteFile in=RrnaResourceIO.open(path);final LineParser1 p=new LineParser1('\t');
 		try{
-			RrnaResourceIO.header(in, NcrnaStageDiagLogSink.HEADER, path);
+			NcrnaStageDiagLogSink.readHeader(in,historical,path);
 			for(byte[] line;(line=in.nextLine())!=null;){
-				p.set(line);require(p.terms()==21, "Native stage schema changed");
+				p.set(line);NcrnaStageDiagLogSink.validateRow(p,historical);
 				if((p.termEquals("MODEL", 0) || p.termEquals("WINDOW", 0)) && p.termEquals("16S", 1)
 					&& RrnaResourceIO.first(p.parseString(2)).equals(contig) && p.parseInt(3)==strand){
 					result.add(new String(line, java.nio.charset.StandardCharsets.UTF_8));

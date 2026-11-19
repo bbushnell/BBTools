@@ -209,6 +209,58 @@ final class NcrnaSubtypeComparison{
 	/*----------------      Exact comparisons       ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Optional labels partition existing outcomes; they never change assignment.
+	 * Called only after validate(), with the complete declared cells. */
+	void exactMembership(final String strata, final String prefix, final byte[][] contexts,
+			final String ordinaryRaw, final String subtypeRaw){
+		require(contexts.length==cells.length, "Exact membership needs one context per validated cell");
+		final NcrnaExactMembership exact=new NcrnaExactMembership(strata, parentIndex, parents.size(), contexts);
+		final long[] queryCounts=new long[cells.length*3];
+		for(int cell=0; cell<cells.length; cell++){
+			final Cell c=cells[cell];
+			final View support=c.views[0];
+			final View exclusive=c.views[TYPES.length];
+			queryCounts[cell*3]=c.queries.size();
+			queryCounts[cell*3+1]=support.seenQueries.size();
+			queryCounts[cell*3+2]=exclusive.seenQueries.size();
+			int labelled=0;
+			for(int i=0; i<support.parentIds.size; i++){
+				final int id=support.parentIds.get(i);
+				if(support.states.get(id)!=MASK){
+					require(exact.labelled(id), "Every scored RF00174 support parent requires an exact-sequence label, including UNKNOWN");
+					labelled++;
+				}
+			}
+			require(labelled==exact.size(), "Exact labels must equal the complete scored RF00174 support population in every cell");
+			for(int id=0; id<parents.size(); id++){
+				if(!exact.labelled(id)){continue;}
+				require(c.states.get(id)==TP || c.states.get(id)==FN,
+					"Labelled target parent must remain scored in the ordinary union");
+				require(support.states.get(id)==TP || support.states.get(id)==FN,
+					"Exact labels cannot silently include masked, unrelated or absent RF00174 support parents");
+				require(exclusive.states.contains(id), "Exclusive view must retain the labelled parent, including masked multi-supported parents");
+			}
+		}
+		try(Output out=new Output(prefix+NcrnaExactMembership.SUFFIXES[1])){
+			out.writer.println(NcrnaExactMembership.REFERENCE_HEADER);
+			for(int cell=0; cell<cells.length; cell++){
+				final Cell c=cells[cell];
+				for(int id=0; id<parents.size(); id++){
+					if(!exact.labelled(id)){continue;}
+					final Parent parent=parents.get(id);
+					exact.reference(cell, 0, id, parent.key.bytes, parent.geometry.bytes,
+						c.states.get(id), c.matches.get(id), out);
+					for(int view=0; view<2; view++){
+						final View v=c.views[view*TYPES.length];
+						exact.reference(cell, view+1, id, parent.key.bytes, parent.geometry.bytes,
+							v.states.get(id), v.references.get(id), out);
+					}
+				}
+			}
+		}
+		exact.finish(prefix, ordinaryRaw, subtypeRaw, queryCounts);
+	}
+
 	/** LOST assesses the right union; GAINED assesses the left union. Both witnesses
 	 * are emitted so a view transition is never silently called a biological loss.
 	 */

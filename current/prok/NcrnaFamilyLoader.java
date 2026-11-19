@@ -100,11 +100,18 @@ public final class NcrnaFamilyLoader {
 		final float hbmPass=useHbm ? (setNonnegative(options.hbmPass, "hbmPass") ? options.hbmPass : p.hbmPass) : 1.01f;
 		require(collapse>=0f && collapse<=1f, "Collapse fraction must be in [0,1] for "+p.id);
 		PackagedBoundaryConfig packagedBoundary=null;
+		PackagedPositionalBoundaryConfig positionalBoundary=null;
 		if(p.boundary!=null && !p.boundary.trna){
 			final FamilyResourceResolver.Handle config=resolver.optional(p.id, "boundary_config", options.resources);
 			if(config!=null){
 				packagedBoundary=PackagedBoundaryConfig.read(config.path);
 				packagedBoundary.applyDefaults(p.id, options, library);
+			}
+			final FamilyResourceResolver.Handle positional=resolver.optional(p.id, "positional_config", options.resources);
+			if(positional!=null){
+				require(packagedBoundary==null, "One family cannot declare both sliding and positional boundary configurations: "+p.id);
+				positionalBoundary=PackagedPositionalBoundaryConfig.read(positional.path);
+				positionalBoundary.applyDefaults(p.id, options, library);
 			}
 		}
 		require(!options.boundary || p.boundary!=null,
@@ -162,6 +169,7 @@ public final class NcrnaFamilyLoader {
 			family.setRrnaEndpointInference(loadEndpoints(family, options.resources, resolver), null);
 		}
 		if(packagedBoundary!=null){packagedBoundary.loaded(family);}
+		if(positionalBoundary!=null){positionalBoundary.loaded(family, resolver);}
 		return family;
 	}
 	static LongHashSet loadSeedKeys(String family, int k, FamilyResourceResolver resolver){

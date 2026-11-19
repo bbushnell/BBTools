@@ -14,6 +14,8 @@ Opposite-strand rows are included deliberately as neighboring evidence.
 padding=0       Added genomic inspection context on either side of the reference.
                 This is not a matching or causal-classification threshold.
 models=f        Include MODEL observations only when explicitly enabled.
+historicalstages=f  Require current type_v2 stage files. Set t explicitly for
+                old stage files, preserving their original zero/false ambiguity.
 out=            Fresh TSV. Original rows are percent-framed in the final column;
                 source path and physical line preserve their exact native origin.
                 Converted coordinates are one-based genomic closed intervals.

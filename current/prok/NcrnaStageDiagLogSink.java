@@ -1,11 +1,15 @@
 package prok;
 
 import fileIO.ByteStreamWriter;
+import fileIO.ByteFile;
+import parse.LineParser1;
 import shared.KillSwitch;
 import structures.ByteBuilder;
 
 /** Synchronized21-column TSV sink; reuses one byte buffer per shared logger.
- * The driver writes HEADER once and owns writer startup/shutdown.
+ * The driver writes one versioned HEADER line and owns writer startup/shutdown.
+ * Numeric absence is -1; absent text/list/unattempted trim is empty. A trailing
+ * tab is significant and must survive parsing. Historical files need explicit mode.
  * @author G11, Raiden
  */
 public final class NcrnaStageDiagLogSink implements NcrnaStageDiagSink {
@@ -14,18 +18,68 @@ public final class NcrnaStageDiagLogSink implements NcrnaStageDiagSink {
 		if(writer==null){throw new IllegalArgumentException("Stage diagnostics require an output writer");}
 		bsw=writer;
 	}
-	public static final String HEADER="type\tfamily\tcontig\tstrand\tscaflen\tpass\twStart\twStop"
+	public static final String LEGACY_HEADER="type\tfamily\tcontig\tstrand\tscaflen\tpass\twStart\twStop"
 		+"\toutcome\tkhits\tshortlistSize\tmodelIndex\tmodelName\tbestId\tbestReId\tbestHbm"
 		+"\torfStart\torfStop\ttrimSucceeded\tseedCount\tseedPositions";
+	public static final String HEADER="type_v2"+LEGACY_HEADER.substring(4);
+
+	/** A single-line version marker preserves physical stage-line provenance. */
+	public static void readHeader(final ByteFile input, final boolean historical, final String path){
+		RrnaResourceIO.header(input, historical ? LEGACY_HEADER : HEADER, path);
+	}
+
+	/** Current records declare missingness explicitly; historical mode does not
+	 * guess whether old zero/false values were measured. Both retain all21fields. */
+	public static void validateRow(final LineParser1 parser, final boolean historical){
+		if(parser.terms()!=21){throw new IllegalArgumentException("Stage diagnostic requires exactly21fields, including trailing empty text");}
+		if(historical){return;}
+		if(!(parser.termEquals("SEED", 0) || parser.termEquals("WINDOW", 0)
+			|| parser.termEquals("MODEL", 0) || parser.termEquals("PATH", 0))){
+			throw new IllegalArgumentException("Unknown current stage event");
+		}
+		for(int column=3; column<=19; column++){
+			if(!numeric(column)){continue;}
+			if(column>=13 && column<=15){
+				final float value=score(parser, column);
+				if(!Float.isFinite(value) || value<0 && value!=-1){
+					throw new IllegalArgumentException("Current stage scores require a finite nonnegative value or absent -1: column="+column);
+				}
+			}else if(!parser.termEquals("-1", column)){
+				// Native parseInt can wrap overflow into a valid zero or absent -1.
+				parser.setBounds(column);
+				NcrnaNumbers.unsignedInt(parser.line(), parser.a(), parser.b());
+			}
+		}
+		if(parser.length(1)==0 || parser.length(2)==0 || parser.parseInt(4)<=0
+			|| !(parser.termEquals("0", 3) || parser.termEquals("1", 3))
+			|| parser.length(18)>0 && !(parser.termEquals("true", 18) || parser.termEquals("false", 18))){
+			throw new IllegalArgumentException("Stage metadata and optional trim text must retain their declared domains");
+		}
+	}
+	/** appendSlow(float) can emit scientific notation. Ordinary decimal records
+	 * keep the native allocation-free path; exponent records use Java's parser. */
+	public static float score(final LineParser1 parser, final int column){
+		parser.setBounds(column);
+		final byte[] row=parser.line();
+		for(int i=parser.a(); i<parser.b(); i++){
+			if(row[i]=='e' || row[i]=='E'){return Float.parseFloat(parser.parseString(column));}
+		}
+		return parser.parseFloat(column);
+	}
+	private static boolean numeric(final int column){
+		return column>=3 && column<=19 && column!=8 && column!=12 && column!=18;
+	}
 
 	@Override
 	public synchronized void seed(String family, String contig, int strand, int scaflen, int[] hits){
 		assert(hits!=null) : KillSwitch.assertDie("Scavenger supplies a copied, possibly empty hit stream; null would conceal missing seed evidence");
-		prefix("SEED",family,contig,strand,scaflen);
-		for(int i=0; i<14; i++){bb.append("\t.");}
+		prefix("SEED", family, contig, strand, scaflen);
+		for(int column=5; column<=18; column++){
+			bb.tab();
+			if(numeric(column)){bb.append(-1);}
+		}
 		bb.tab().append(hits.length).tab();
-		if(hits.length==0){bb.append('.');}
-		else{for(int i=0; i<hits.length; i++){if(i>0){bb.append(',');}bb.append(hits[i]);}}
+		for(int i=0; i<hits.length; i++){if(i>0){bb.append(',');}bb.append(hits[i]);}
 		bsw.print(bb.nl());
 	}
 
@@ -33,20 +87,32 @@ public final class NcrnaStageDiagLogSink implements NcrnaStageDiagSink {
 	public synchronized void window(String family, String contig, int strand, int scaflen, int pass,
 		int wStart, int wStop, String outcome, int khits, int shortlistSize,
 		int modelIndex, String modelName, float bestId, float bestReId, float bestHbm,
-		int orfStart, int orfStop, boolean trimSucceeded){
+		int orfStart, int orfStop, int measuredFlags, boolean trimSucceeded){
 		assert(pass==1 || pass==2) : KillSwitch.assertDie("Stage rows must identify the actual primary or nearby-hit scavenger pass");
-		prefix("WINDOW",family,contig,strand,scaflen);
-		bb.tab().append(pass).tab().append(wStart).tab().append(wStop).tab();safe(outcome);
-		bb.tab().append(khits).tab().append(shortlistSize).tab().append(modelIndex).tab();safe(modelName);
+		prefix("WINDOW", family, contig, strand, scaflen);
+		bb.tab().append(pass).tab().append(wStart).tab().append(wStop).tab();
+		text(outcome);
+		bb.tab().append(khits).tab().append(shortlistSize).tab().append(modelIndex).tab();
+		text(modelName);
 		//Keep float round-trip precision for inspecting decisions at a cutoff.
-		bb.tab().appendSlow(bestId).tab().appendSlow(bestReId).tab().appendSlow(bestHbm).tab()
-			.append(orfStart).tab().append(orfStop).tab().append(trimSucceeded).append("\t.\t.\n");
+		fraction(bestId, (measuredFlags&PRIMARY_ID)!=0);
+		fraction(bestReId, (measuredFlags&RESCUE_ID)!=0);
+		fraction(bestHbm, (measuredFlags&HBM)!=0);
+		bb.tab().append(orfStart).tab().append(orfStop).tab();
+		if((measuredFlags&TRIM)!=0){bb.append(trimSucceeded);}
+		bb.append("\t-1\t\n");
 		bsw.print(bb);
 	}
 
-	private void prefix(String type,String family,String contig,int strand,int scaflen){
+	private void prefix(String type, String family, String contig, int strand, int scaflen){
 		assert(strand==0 || strand==1) : KillSwitch.assertDie("Diagnostic coordinates require an explicit strand to recover the genomic frame");
-		bb.clear().append(type).tab();safe(family);bb.tab();safe(contig);
+		if(family==null || family.isEmpty() || contig==null || contig.isEmpty() || scaflen<=0){
+			throw new IllegalArgumentException("Stage events require actual family/contig identities and positive contig length");
+		}
+		bb.clear().append(type).tab();
+		text(family);
+		bb.tab();
+		text(contig);
 		bb.tab().append(strand).tab().append(scaflen);
 	}
 	@Override
@@ -54,19 +120,22 @@ public final class NcrnaStageDiagLogSink implements NcrnaStageDiagSink {
 		int start,int stop,int modelIndex,String modelName,float identity){
 		assert((pass==1 || pass==2) && modelIndex>=0 && Float.isFinite(identity)) : KillSwitch.assertDie(
 			"Model evidence must identify an actual initial alignment and finite measured identity");
-		prefix("MODEL",family,contig,strand,scaflen);
-		bb.tab().append(pass).tab().append(start).tab().append(stop).append("\tALIGNMENT\t.\t.\t").append(modelIndex).tab();safe(modelName);
+		prefix("MODEL", family, contig, strand, scaflen);
+		bb.tab().append(pass).tab().append(start).tab().append(stop).append("\tALIGNMENT\t-1\t-1\t").append(modelIndex).tab();
+		text(modelName);
 		// MODEL uses bestId for this model's actual identity; unused window fields
 		// stay unavailable rather than inventing seed counts or acceptance decisions.
-		bb.tab().appendSlow(identity).append("\t.\t.\t.\t.\t.\t.\t.\n");bsw.print(bb);
+		fraction(identity, true);
+		bb.append("\t-1\t-1\t-1\t-1\t\t-1\t\n");
+		bsw.print(bb);
 	}
 	@Override
 	public synchronized void path(String family,String contig,int strand,int scaflen,
 		String modelName,int start,int stop,boolean retained){
-		writePath(family,contig,strand,scaflen,modelName,start,stop,retained,Float.NaN);
+		writePath(family,contig,strand,scaflen,modelName,start,stop,retained,0, false);
 	}
 	/** PATH bestId holds exact accepted16S/23S/prok5S identity, independent of refined ends.
-	 * Other families keep their prior unavailable field and byte representation. */
+ * Other families have no accepted-verifier identity and write-1. */
 	@Override
 	public synchronized void path(String family,String contig,int strand,int scaflen,
 		String modelName,int start,int stop,boolean retained,float acceptedIdentity){
@@ -74,25 +143,36 @@ public final class NcrnaStageDiagLogSink implements NcrnaStageDiagSink {
 			if(!Float.isFinite(acceptedIdentity) || acceptedIdentity<0f || acceptedIdentity>1f){
 				KillSwitch.assertDie(family+" path diagnostics require the selected verifier identity; missing provenance cannot become a cutoff measurement");
 			}
-			writePath(family,contig,strand,scaflen,modelName,start,stop,retained,acceptedIdentity);
+			writePath(family,contig,strand,scaflen,modelName,start,stop,retained,acceptedIdentity, true);
 		}else{path(family,contig,strand,scaflen,modelName,start,stop,retained);}
 	}
 	private void writePath(String family,String contig,int strand,int scaflen,
-		String modelName,int start,int stop,boolean retained,float identity){
+		String modelName,int start,int stop,boolean retained,float identity, boolean measured){
 		assert(start>=0 && stop>=start && stop<scaflen) : KillSwitch.assertDie(
 			"DP diagnostic spans must fit the oriented contig to join verifier and emitted-call evidence");
-		prefix("PATH",family,contig,strand,scaflen);
-		bb.append("\t.\t.\t.\t").append(retained ? "DP_RETAINED" : "DP_INPUT");
-		bb.append("\t.\t.\t.\t");safe(modelName);
-		bb.tab();if(Float.isNaN(identity)){bb.append('.');}else{bb.appendSlow(identity);}
-		bb.append("\t.\t.\t").append(start).tab().append(stop).append("\t.\t.\t.\n");
+		prefix("PATH", family, contig, strand, scaflen);
+		bb.append("\t-1\t-1\t-1\t").append(retained ? "DP_RETAINED" : "DP_INPUT");
+		bb.append("\t-1\t-1\t-1\t");
+		text(modelName);
+		fraction(identity, measured);
+		bb.append("\t-1\t-1\t").append(start).tab().append(stop).append("\t\t-1\t\n");
 		bsw.print(bb);
 	}
 	private void safe(String text){
 		if(text==null){bb.append('.');return;}
+		text(text);
+	}
+	private void text(String text){
+		if(text==null){return;}
 		for(int i=0; i<text.length(); i++){
 			final char c=text.charAt(i);bb.append(c=='\t' || c=='\n' || c=='\r' ? ' ' : c);
 		}
+	}
+	private void fraction(final float value, final boolean measured){
+		bb.tab();
+		if(!measured){bb.append(-1);return;}
+		if(!Float.isFinite(value) || value<0){throw new IllegalArgumentException("A measured stage score must be finite and nonnegative");}
+		bb.appendSlow(value);
 	}
 	/** Opt-in supplemental TSV rows in captured caller stderr, leaving the stage
 	 * file schema and all existing graders unchanged. Columns after the tag:

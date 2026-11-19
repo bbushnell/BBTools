@@ -302,6 +302,11 @@ public class TrnaBoundaryFeatures {
 		final byte[] cons=model.original;
 		stats.doTrace=true;
 		final Read r;
+		//TODO: Probable bug - ScrabbleAligner returns its pre-trace identity
+		// estimate, then retallies stats.identity from the actual trace. With
+		// neutral N scoring, all-N candidates can pass the gate below despite
+		// zero traced identity. Preserve that legacy behavior in shared features;
+		// a confidence-policy correction needs separate caller evaluation.
 		if(candidate.length<=cons.length){
 			float id=NcrnaAlignmentWork.scrabbleTrace(candidate, cons, stats, cons.length);
 			if(stats.matchString==null || id<0.2f){return null;}
@@ -529,5 +534,41 @@ public class TrnaBoundaryFeatures {
 			modelCoverage(model, alignPos)/plateau,
 			modelCoverage(model, alignPos+1)/plateau
 		};
+	}
+
+	/** Fills both sliding-defined HBM coverage triplets from one candidate alignment.
+	 * The caller supplies the UNMOVED candidate bases, its selected model, that
+	 * model's maximum coverage, and worker-owned alignment/output scratch. It keeps
+	 * any separately computed Quantum identity; this method returns no identity.
+	 * Missing models use -1, failed alignments -2, and positions outside the model
+	 * use zero, exactly as tipFuzzinessFeature. Output arrays may contain other
+	 * features outside the three slots beginning at each supplied offset.
+	 */
+	public static void tipFuzzinessFeatures(final byte[] candidate, final BaseGraph model,
+			final float plateau, final AlignmentStats stats, final float[] five, final int fiveFrom,
+			final float[] three, final int threeFrom){
+		if(candidate==null || stats==null || five==null || three==null || fiveFrom<0 || threeFrom<0
+				|| fiveFrom>five.length-3 || threeFrom>three.length-3){
+			throw new IllegalArgumentException("Both HBM endpoint triplets require a candidate and distinct worker-owned scratch slots");
+		}
+		if(model==null){
+			Arrays.fill(five, fiveFrom, fiveFrom+3, PENDING_DORI);
+			Arrays.fill(three, threeFrom, threeFrom+3, PENDING_DORI);
+			return;
+		}
+		if(model.pad!=0 || !(plateau>0 && Float.isFinite(plateau))){
+			throw new IllegalArgumentException("Sliding-defined HBM coverage requires an unpadded model and positive maximum training coverage");
+		}
+		stats.clear();
+		final Read aligned=alignToModelFrame(candidate, model, stats);
+		if(aligned==null){
+			Arrays.fill(five, fiveFrom, fiveFrom+3, NO_MODEL_MATCH);
+			Arrays.fill(three, threeFrom, threeFrom+3, NO_MODEL_MATCH);
+			return;
+		}
+		for(int shift=-1; shift<=1; shift++){
+			five[fiveFrom+shift+1]=modelCoverage(model, aligned.start+shift)/plateau;
+			three[threeFrom+shift+1]=modelCoverage(model, aligned.stop+shift)/plateau;
+		}
 	}
 }

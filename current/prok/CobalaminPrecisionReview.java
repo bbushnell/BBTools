@@ -21,11 +21,12 @@ import structures.ByteBuilder;
  * @author Brian Bushnell, Ganyu
  */
 public final class CobalaminPrecisionReview {
+	private boolean historicalStages=false;
 
 	public static void main(String[] args){
 		final PreParser pp=new PreParser(args, CobalaminPrecisionReview.class, false);
 		String loci=null, context=null, features=null, members=null, models=null, decisions=null, runs=null, neighborhood=null, out=null;
-		int expected=-1, events=-1, sensitive=-1, runCount=-1;
+		int expected=-1, events=-1, sensitive=-1, runCount=-1;boolean historicalStages=false;
 		for(String arg:pp.args){
 			final int eq=arg.indexOf('=');require(eq>0, "Use flag=value");
 			final String key=arg.substring(0, eq).toLowerCase(Locale.ROOT), value=arg.substring(eq+1);
@@ -34,6 +35,7 @@ public final class CobalaminPrecisionReview {
 			else if(key.equals("models")){models=value;}else if(key.equals("decisions")){decisions=value;}
 			else if(key.equals("runs")){runs=value;}else if(key.equals("outprefix")){out=value;}
 			else if(key.equals("neighborhood")){neighborhood=value;}
+			else if(key.equals("historicalstages")){historicalStages=parse.Parse.parseBoolean(value);}
 			else if(key.equals("expected")){expected=Integer.parseInt(value);}else if(key.equals("events")){events=Integer.parseInt(value);}
 			else if(key.equals("sensitive")){sensitive=Integer.parseInt(value);}else if(key.equals("runcount")){runCount=Integer.parseInt(value);}
 			else{throw new IllegalArgumentException("Unknown flag: "+key);}
@@ -44,6 +46,7 @@ public final class CobalaminPrecisionReview {
 		Shared.setThreads(1);
 		try{
 			final CobalaminPrecisionReview x=new CobalaminPrecisionReview();
+			x.historicalStages=historicalStages;
 			x.loci(loci, expected);x.context(context);x.features(features);x.members(members, events);
 			x.models(models, sensitive);x.decisions(decisions);x.classify();x.neighborhood(neighborhood);
 			x.runs(runs, runCount);x.write(out);
@@ -252,10 +255,11 @@ public final class CobalaminPrecisionReview {
 			"One producing-window event cannot be assigned to multiple emitted calls");}
 		final ByteFile in=RrnaResourceIO.open(path);final LineParser1 p=new LineParser1('\t');long line=1;int next=0;
 		try{
-			RrnaResourceIO.header(in, NcrnaStageDiagLogSink.HEADER, path);
+			NcrnaStageDiagLogSink.readHeader(in, historicalStages, path);
 			for(byte[] row; (row=in.nextLine())!=null; ){
-				line++;if(next==r.windows.size() || line!=r.windows.get(next).line){continue;}
-				final Window w=r.windows.get(next++);final Call c=w.call;p.set(row);
+				line++;p.set(row);NcrnaStageDiagLogSink.validateRow(p,historicalStages);
+				if(next==r.windows.size() || line!=r.windows.get(next).line){continue;}
+				final Window w=r.windows.get(next++);final Call c=w.call;
 				require(p.terms()==21 && p.termEquals("WINDOW", 0) && p.termEquals("ACCEPT_IDPASS", 8),
 					"Only source-verified B12 primary IDPASS diagnostics establish bestId identity; inspect any other acceptance path");
 				final int strand=c.strand.equals("+")?0:1, length=p.parseInt(4), a=p.parseInt(16), z=p.parseInt(17);
@@ -265,7 +269,7 @@ public final class CobalaminPrecisionReview {
 					&& p.parseInt(9)==w.occurrences && w.stop<length && a>=0 && z>=a && z<length
 					&& c.start==(strand==0?a+1:length-z) && c.stop==(strand==0?z+1:length-a),
 					"Identity evidence must match the saved call, model and producing window exactly: "+r.name+"/"+c.id);
-				w.identity=p.parseFloat(13);require(Float.isFinite(w.identity) && w.identity>=0f && w.identity<=1f,
+				w.identity=NcrnaStageDiagLogSink.score(p, 13);require(Float.isFinite(w.identity) && w.identity>=0f && w.identity<=1f,
 					"Accepted alignment identity must be a finite fraction, not a score or cutoff");
 				w.raw=raw(p);c.identityMin=Math.min(c.identityMin, w.identity);c.identityMax=Math.max(c.identityMax, w.identity);
 			}
@@ -296,7 +300,7 @@ public final class CobalaminPrecisionReview {
 				}
 			}
 			cr.println("run\tcall_id\temitted_family\toriginal_outcome\treview_id\tcategory\toptimistic_excluded\tproducing_windows\tminimum_distinct_keys\tmaximum_distinct_keys\tmodel\tminimum_matching_window_identity\tmaximum_matching_window_identity\tidentity_evidence\tcontext_"+CobalaminGenomicContext.HEADER);
-			ir.println("run\tcall_id\tstage_line\tdistinct_seed_keys\t"+NcrnaStageDiagLogSink.HEADER);
+			ir.println("run\tcall_id\tstage_line\tdistinct_seed_keys\t"+(historicalStages ? NcrnaStageDiagLogSink.LEGACY_HEADER : NcrnaStageDiagLogSink.HEADER));
 			cs.println("run\temitted_family\tcategory\toverlap_class\tsame_strand_nearest_B12_hint_any_tied\tany_strand_nearest_B12_hint_any_tied\tcall_count");
 			pr.println("run\toriginal_TP\tall_apparent_FP\tunscored\tREAL_B12\tANNOTATED_GEOMETRY\tFEATURE_CONFLICT\tPARTIAL_BELOW_GA\tNO_SUPPORT\treview_pending\toptimistic_remaining_FP\tpessimistic_precision\toptimistic_precision\tseed_evidence");
 			nr.println("run\temitted_family\tNO_SUPPORT_calls\tseed_evidence_calls\tminimum_1_key_calls\tminimum_2plus_key_calls");

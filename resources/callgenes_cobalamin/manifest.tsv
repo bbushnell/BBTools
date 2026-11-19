@@ -1,12 +1,14 @@
 #ncrna_family	2	cobalamin
 member	role	model	end	path	format	bytes	sha80
-.	seeds	.	.	seeds.fa.gz	fasta	7651	4308dcc1448d4ab382f7
-RF00174	consensus	.	.	consensus.fa	fasta	136227	70e605a3236a0ca2a9a3
-RF00174	models	.	.	models.hbmc.gz	hbm	455413	2828d30dedeb43ead0bc
+.	seeds	.	.	seeds.fa.gz	fasta	7744	653a023d1b89ab82d2ef
+RF00174	consensus	.	.	consensus.fa	fasta	92791	b287a0efa6af26ba20c3
+RF00174	models	.	.	models.hbmc.gz	hbm	349715	a63f90fdc9f51e43612c
 RF00174	cutoffs	.	.	cutoffs.tsv	tsv	55	b3f7996c1a3014649da6
-RF01482	consensus	.	.	consensus.fa	fasta	7223	d6b52b2c57a8f281578c
-RF01482	models	.	.	models.hbmc.gz	hbm	12938	cc2632ed10367c514ae1
+RF00174	positional_config	.	.	positional.config	config	571	4c1095ac5863c86e0106
+RF01482	consensus	.	.	consensus.fa	fasta	9320	85944f1be8a5851ee36d
+RF01482	models	.	.	models.hbmc.gz	hbm	21420	9e1e52459ee6088d10b1
 RF01482	cutoffs	.	.	cutoffs.tsv	tsv	55	260c8a1ad3e393e15cfb
-RF01689	consensus	.	.	consensus.fa	fasta	2094	cf647697f3d36ad75f9c
-RF01689	models	.	.	models.hbmc.gz	hbm	3614	7e5e7b730af1e24c66f0
+RF01482	positional_config	.	.	positional.config	config	571	b28e7abb7f23be58ba7b
+RF01689	consensus	.	.	consensus.fa	fasta	1486	53df739151f3c59dcd62
+RF01689	models	.	.	models.hbmc.gz	hbm	5271	c410806d38c9310f911e
 RF01689	cutoffs	.	.	cutoffs.tsv	tsv	55	6d2499e491e1cae1e885

@@ -5,6 +5,10 @@ package prok;
  * to genomic coordinates. ACCEPT means verifier acceptance before snapshot resolution and
  * final gene-path selection. It does not prove a returned or emitted call.
  * Implementations shared by workers must serialize writes. ncrnadiag= opts into this hook.
+ * The TSV implementation emits exactly21fields under its type_v2 header.
+ * Unavailable numbers are-1; unavailable text/list/trim flags are empty.
+ * Explicit operation flags preserve real measured0 and attempted-trim false;
+ * nonfinite measurements fail rather than becoming an absent observation.
  * @author G11, Raiden
  */
 public interface NcrnaStageDiagSink {
@@ -17,9 +21,10 @@ public interface NcrnaStageDiagSink {
 	 * Outcomes: REJECT_WLEN, REJECT_KHITS, REJECT_INDEX, REJECT_ID, REJECT_LEN,
 	 * REJECT_RESCUE, REJECT_VERIFY, REJECT_MAXLEN, ACCEPT_IDPASS, ACCEPT_RESCUE, ACCEPT_HBM.
 	 * REJECT_VERIFY is the single-alignment path's combined identity/HBM rejection.
-	 * Counts/model indices not reached are -1; uncomputed scores are0 (an attempted
-	 * HBM maximum with no eligible score retains -999). bestReId is0 on the single-
-	 * alignment path. Rejects may retain an aligned span, otherwise coordinates are -1.
+	 * Unreached numeric fields are -1. Measured zero is retained; measuredFlags
+	 * comes from actual primary/rescue/HBM/trim operations, never from score values.
+	 * An unattempted trim has no text value; an attempted failed trim is false.
+	 * Rejects may retain an aligned span, otherwise coordinates are -1.
 	 * Accept coordinates normally include configured trim/voting/NN refinement.
 	 * Glycine instead records raw discovery/selection bounds; deferred reporting
 	 * endpoints appear in the final GFF only after selection. trimSucceeded
@@ -27,7 +32,10 @@ public interface NcrnaStageDiagSink {
 	void window(String family, String contig, int strand, int scaflen, int pass,
 		int wStart, int wStop, String outcome, int khits, int shortlistSize,
 		int modelIndex, String modelName, float bestId, float bestReId, float bestHbm,
-		int orfStart, int orfStop, boolean trimSucceeded);
+		int orfStart, int orfStop, int measuredFlags, boolean trimSucceeded);
+
+	/** Explicit current-window measurement presence; the TSV remains21columns. */
+	int PRIMARY_ID=1, RESCUE_ID=2, HBM=4, TRIM=8;
 
 	/** Actual generic-RNA DP input or retained output, after scavenger resolution.
 	 * Coordinates retain the oriented, zero-based inclusive convention of window().
@@ -37,8 +45,9 @@ public interface NcrnaStageDiagSink {
 	default void path(String family, String contig, int strand, int scaflen,
 		String modelName, int start, int stop, boolean retained){}
 
-	/** Selected verifier identity carried by the exact16S/23S candidate through DP.
-	 * NaN for other families. Existing observers retain their old path callback. */
+	/** Selected verifier identity carried by the exact16S/23S/prok5S candidate through DP.
+	 * Other families do not supply this measurement; the TSV omits it as numeric-1.
+	 * Existing observers retain their old path callback. */
 	default void path(String family,String contig,int strand,int scaflen,
 		String modelName,int start,int stop,boolean retained,float acceptedIdentity){
 		path(family,contig,strand,scaflen,modelName,start,stop,retained);

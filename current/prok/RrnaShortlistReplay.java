@@ -22,13 +22,15 @@ import structures.ByteBuilder;
  * @author Raiden
  */
 public final class RrnaShortlistReplay {
+	private boolean historicalStages=false;
 	public static void main(String[] args){
 		final PreParser pp=new PreParser(args,RrnaShortlistReplay.class,false);
-		String fasta=null,refs=null,stages=null,calls=null,loci=null,prefix=null,assembly=null;
+		String fasta=null,refs=null,stages=null,calls=null,loci=null,prefix=null,assembly=null;boolean historicalStages=false;
 		for(String arg:pp.args){
 			final int e=arg.indexOf('=');require(e>0,"Expected flag=value");
 			final String k=arg.substring(0,e).toLowerCase(Locale.ROOT),v=arg.substring(e+1);
 			if(k.equals("in")){fasta=v;}else if(k.equals("consensus")){refs=v;}
+			else if(k.equals("historicalstages")){historicalStages=parse.Parse.parseBoolean(v);}
 			else if(k.equals("stages")){stages=v;}else if(k.equals("calls")){calls=v;}
 			else if(k.equals("loci")){loci=v;}else if(k.equals("outprefix")){prefix=v;}
 			else if(k.equals("assembly")){assembly=v;}else{throw new IllegalArgumentException(k);}
@@ -37,7 +39,9 @@ public final class RrnaShortlistReplay {
 			&& assembly!=null,"Require in/consensus/stages/calls/loci/outprefix/assembly");
 		final byte[][] library=TrnaConsensusBuilder.loadLibrary(refs);
 		final String[] names=TrnaConsensusBuilder.lastLoadedNames.clone();
-		new RrnaShortlistReplay(assembly,library,names).run(fasta,stages,calls,loci,prefix);
+		final RrnaShortlistReplay tool=new RrnaShortlistReplay(assembly,library,names);
+		tool.historicalStages=historicalStages;
+		tool.run(fasta,stages,calls,loci,prefix);
 		Shared.closeStream(pp.outstream);
 	}
 
@@ -100,9 +104,9 @@ public final class RrnaShortlistReplay {
 
 	public void loadStages(String path){
 		final ByteFile in=RrnaResourceIO.open(path);final LineParser1 p=new LineParser1('\t');
-		try{RrnaResourceIO.header(in,NcrnaStageDiagLogSink.HEADER,path);
+		try{NcrnaStageDiagLogSink.readHeader(in,historicalStages,path);
 			for(byte[] row;(row=in.nextLine())!=null;){
-				p.set(row);require(p.terms()==21,"Expected baseline 21-column diagnostic schema");
+				p.set(row);NcrnaStageDiagLogSink.validateRow(p,historicalStages);
 				if(!p.termEquals("WINDOW",0) || !p.termEquals(FAMILY,1)){continue;}
 				if(p.parseInt(10)<0){preIndexWindows++;continue;}
 				final String name=RrnaResourceIO.first(p.parseString(2));final int strand=p.parseInt(3),length=p.parseInt(4),pass=p.parseInt(5),start=p.parseInt(6),stop=p.parseInt(7);

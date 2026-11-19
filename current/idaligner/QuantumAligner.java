@@ -201,7 +201,10 @@ public class QuantumAligner implements IDAligner{
 		for(int j=0; j<=rLen; j++) {activeList.addUnchecked(j);}
 		
 		//Prefill next list
-		//TODO: qLen substantially greater than rLen can overfill nextList before row clipping.
+		//TODO: Probable bug - nextList is sized by reference length but prefilled
+		//by query length; a long query overruns it for a1/2-base reference.
+		//Observed in a tiny-contig fixture; normal caller-window reachability is
+		//unknown. The trace path below mirrors this limitation. No kernel fix yet.
 		for(int j=0; (j<=sideWidth0 || j<=topWidth*2) && j<qLen; j++) {nextList.addUnchecked(j);}
 
 		int bridgeTime=BRIDGE_PERIOD;

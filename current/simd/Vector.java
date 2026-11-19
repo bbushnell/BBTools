@@ -326,6 +326,19 @@ public final class Vector{
 		return compareDDLScalar(a, b);
 	}
 
+	/** Compares equal-length DDL arrays into caller-owned counters, with the same
+	 * optional SIMD gate and empty-bin semantics as the allocating overload.
+	 * Overwrites lower/equal/higher/both-empty in slots0..3; later slots are
+	 * untouched. Inputs are borrowed read-only; each worker owns its counters.
+	 * @return The supplied counter array, without allocating a result
+	 */
+	public static int[] compareDDL(final char[] a, final char[] b, final int[] counts){
+		assert(a!=null && b!=null && a.length==b.length && counts!=null && counts.length>=4)
+			: "DDL comparisons require equal bin geometry and four independent output counters";
+		if(Shared.SIMD && simd256){return SIMDLogLog.compareDetailed(a, b, counts);}
+		return compareDDLScalar(a, b, counts);
+	}
+
 	/** Full-width unsigned comparison; upper16 equality alone is not a match. */
 	public static int[] compareDDL(int[] a, int[] b){
 		if(a==null || b==null || a.length!=b.length){throw new IllegalArgumentException("DDL32 comparison requires equal-length arrays");}
@@ -421,6 +434,13 @@ public final class Vector{
 	 * @param b Reference storage with at least a.length elements
 	 * @return New counts in lower, equal, higher, both-empty order */
 	private static int[] compareDDLScalar(final char[] a, final char[] b){
+		return compareDDLScalar(a, b, new int[4]);
+	}
+
+	/** Shared scalar loop for allocating and reusable-counter calls. */
+	private static int[] compareDDLScalar(final char[] a, final char[] b, final int[] counts){
+		assert(a!=null && b!=null && b.length>=a.length && counts!=null && counts.length>=4)
+			: "Scalar DDL comparison reads every left bin and writes its four count categories";
 		int lower=0, equal=0, higher=0, bothEmpty=0;
 		for(int i=0; i<a.length; i++){
 			final int ai=a[i], bi=b[i];
@@ -433,7 +453,11 @@ public final class Vector{
 			higher+=hbit;
 			equal+=ebit;
 		}
-		return new int[]{lower, equal, higher, bothEmpty};
+		counts[0]=lower;
+		counts[1]=equal;
+		counts[2]=higher;
+		counts[3]=bothEmpty;
+		return counts;
 	}
 
 	/**

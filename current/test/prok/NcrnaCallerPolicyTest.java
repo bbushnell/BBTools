@@ -66,8 +66,8 @@ public final class NcrnaCallerPolicyTest{
 			policy.apply(names[i], options);
 			check(options.topN==caps[i] && options.modelPatience==patience[i] && options.minHits==1,
 				"Each canonical member must consume its own literal tuple: "+names[i]);
-			check(options.indexK==-1 && options.seedK==-1 && Float.isNaN(options.idPass)
-				&& Float.isNaN(options.scoreB), "Policy application must not supply mapping K, seeds, identity or path weights");
+			check(options.indexK==-1 && options.seedK==-1 && options.idPass==-1f
+				&& !options.scoreBSet, "Policy application must not supply mapping K, seeds, identity or path weights");
 			families.add(family(names[i], options));
 		}
 		policy.validateLoaded(families);

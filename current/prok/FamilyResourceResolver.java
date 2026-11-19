@@ -71,7 +71,8 @@ public final class FamilyResourceResolver {
 	 * malformed or incomplete payload still fails, including explicit overrides. */
 	public Handle optional(String familyId, String role, Overrides overrides){
 		final NcrnaFamilyRegistry.Entry family=NcrnaFamilyRegistry.get(familyId);
-		require(role.equals("length_bounds") || role.equals("boundary_config") || family.group!=null && family.group.optional(role),
+		require(role.equals("length_bounds") || role.equals("boundary_config") || role.equals("positional_config")
+			|| family.group!=null && family.group.optional(role),
 			"Optional resolution cannot weaken required family resources: "+family.id+"/"+role);
 		return resolve(familyId, role, ".", ".", overrides, false);
 	}
@@ -102,7 +103,7 @@ public final class FamilyResourceResolver {
 		final String manifestPath=o.root==null ? Data.findPath("?"+family.directory+"/manifest.tsv", false) : new File(o.root, "manifest.tsv").toString();
 		// Fully explicit legacy resource overrides may never need a manifest.
 		// An optional new length profile must not add that requirement.
-		if(!required && (role.equals("length_bounds") || role.equals("boundary_config"))
+		if(!required && (role.equals("length_bounds") || role.equals("boundary_config") || role.equals("positional_config"))
 				&& (manifestPath==null || !new File(manifestPath).isFile())){return null;}
 		loadManifest(family, manifestPath);
 		final String member=family.group!=null && family.group.shared(role) ? "." : family.member;
@@ -124,6 +125,14 @@ public final class FamilyResourceResolver {
 	}
 	public Handle tables(String familyId, Overrides overrides){
 		return resolve(familyId, "tables", overrides);
+	}
+	/** Config-owned payloads remain relative to that config's member directory.
+	 * The resolver alone constructs paths; parent traversal and absolute payloads
+	 * are rejected by the same rule as ordinary manifest entries.
+	 */
+	Handle configPayload(final String family, final String config, final String role, final String relative){
+		FamilyResourceManifest.validateRelative(relative);
+		return checked(family, role, new File(new File(config).getAbsoluteFile().getParentFile(), relative).getPath(), false);
 	}
 	/** Explicit resources keep their paths; no fallback to a different installation. */
 	private static Handle checked(String family, String role, String path, boolean directoryAllowed){

@@ -671,10 +671,20 @@ public abstract class AbstractKmerTable implements KmerTableInterface{
 	 * @return Bitmask with middle bits zeroed
 	 */
 	public static final long makeMiddleMask(int k, boolean amino){
-		final boolean odd=((k&1)==1);
+		return makeMiddleMask(k, amino, 2-(k&1));
+	}
+
+	/** Clears exactly width central symbols; zero width leaves all bits intact.
+	 * Even-length words with odd mask width clear the right central symbol(s),
+	 * matching BBDuk's explicit midMaskLen placement. The two-argument overload
+	 * retains its historical one-symbol odd/two-symbol even default.
+	 */
+	public static final long makeMiddleMask(final int k, final boolean amino, final int width){
 		final int bitsPerSymbol=(amino ? 5 : 2);
-		final int shift=bitsPerSymbol*((k-1)/2);
-		final long middle=~((-1L)<<(odd ? bitsPerSymbol : 2*bitsPerSymbol));
+		assert(k>0 && width>=0 && width<=k && (long)width*bitsPerSymbol<64)
+			: "Middle masking needs a real word and a representable explicit symbol block: k="+k+", width="+width+", bits="+bitsPerSymbol;
+		final int shift=bitsPerSymbol*((k-width)/2);
+		final long middle=~((-1L)<<(width*bitsPerSymbol));
 		return ~(middle<<shift);
 	}
 

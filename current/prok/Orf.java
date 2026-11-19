@@ -48,8 +48,14 @@ public class Orf extends PFeature {
 			boolean flip, int type_, boolean startTruncated_, boolean stopTruncated_){
 		super(scafName_, start_, stop_, strand_, bases.length);
 		frame=frame_;
-		startCodon=getCodon(start, bases);
-		stopCodon=getCodon(stop-2, bases);
+		final boolean rna=type_!=CDS;
+		if(rna && (start<0 || stop<start || stop>=bases.length)){
+			throw new IllegalArgumentException("RNA coordinates must remain inside the contig for path/GFF output: "+start+".."+stop+" length="+bases.length);
+		}
+		// A valid1/2-base RNA edge candidate need not contain a CDS codon.
+		// Preserve all in-bounds legacy values and the unchanged CDS read path.
+		startCodon=rna && start>bases.length-3 ? -1 : getCodon(start, bases);
+		stopCodon=rna && stop<2 ? -1 : getCodon(stop-2, bases);
 		startTruncated=startTruncated_;
 		stopTruncated=stopTruncated_;
 		type=type_;
@@ -73,7 +79,7 @@ public class Orf extends PFeature {
 		int codon=0;
 		for(int i=0; i<3; i++){
 //			assert(i+from<bases.length) : i+", "+from+", "+bases.length;
-			byte b=bases[i+from];// Safe for ctor coords: start or stop-2, both in bounds.
+			byte b=bases[i+from];//Unavailable RNA codons are excluded by the constructor; CDS keeps its ordinary bounds checks.
 			int x=AminoAcid.baseToNumber[b];
 			codon=(codon<<2)|x;
 		}

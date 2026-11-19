@@ -12,26 +12,43 @@ import structures.IntList;
 
 /** One-to-one detection matching for a declared ncRNA family.
  * Coordinates are one-based inclusive. Compatible calls overlap at least half
- * the shorter span on the same contig and strand. Augmenting paths find a
+ * the shorter span on the same input, contig and strand. Legacy unqualified
+ * inputs retain contig/strand matching. Augmenting paths find a
  * maximum-cardinality matching; tied assignments are not a biological claim.
  * Each locus is a retained result object. Primitive arrays hold matching state.
  * @author Brian Bushnell, Raiden
  */
 public final class NcrnaLocusComparison{
 
-	/** Reads the five-column truth table, retaining only the exact requested label. */
+	/** Reads five-column truth, optionally qualified by a sixth input_ordinal0 column.
+	 * Ordinals are zero-based positions in the caller's ordered input list, not taxIDs.
+	 * Qualified and legacy rows cannot be mixed. Retains only the exact family label.
+	 */
 	public static ArrayList<Locus> readTruth(final String path, final String label){
 		final ArrayList<Locus> result=new ArrayList<Locus>();
 		final LineParser1 lp=new LineParser1('\t');
+		int columns=0;
 		try(Input input=new Input(path)){
 			final ByteFile file=input.reader;
 			for(byte[] line=file.nextLine(); line!=null; line=file.nextLine()){
 				if(line.length==0 || line[0]=='#'){continue;}
 				lp.set(line);
-				if(lp.terms()!=5){throw new IllegalArgumentException("Truth requires seqid, family, start, stop, strand: "+path);}
-				if(lp.termEquals("seqid", 0) && lp.termEquals("family", 1)){continue;}
+				if(lp.terms()!=5 && lp.terms()!=6){
+					throw new IllegalArgumentException("Truth requires seqid, family, start, stop, strand and optional input_ordinal0: "+path);
+				}
+				if(columns!=0 && columns!=lp.terms()){
+					throw new IllegalArgumentException("Truth cannot mix qualified and unqualified rows: "+path);
+				}
+				columns=lp.terms();
+				if(lp.termEquals("seqid", 0) && lp.termEquals("family", 1)){
+					if(columns==6 && !lp.termEquals("input_ordinal0", 5)){
+						throw new IllegalArgumentException("The sixth truth column must be input_ordinal0: "+path);
+					}
+					continue;
+				}
 				if(!lp.termEquals(label, 1)){continue;}
-				result.add(new Locus(lp.parseString(0), position(lp, 2), position(lp, 3), strand(lp, 4), null));
+				final int ordinal=columns==6 ? inputOrdinal(lp, 5) : -1;
+				result.add(new Locus(lp.parseString(0), position(lp, 2), position(lp, 3), strand(lp, 4), null, ordinal));
 			}
 		}
 		if(result.isEmpty()){throw new IllegalArgumentException("No reference loci have truthfamily="+label);}
@@ -42,12 +59,41 @@ public final class NcrnaLocusComparison{
 	 * The caller's model attribute supplies original-winner restoration provenance.
 	 */
 	public static ArrayList<Locus> readCalls(final String path, final String label){
+		return readCalls(path, label, -1);
+	}
+
+	/** Reads GFF with optional ordered input-boundary comments, including empty inputs.
+	 * A nonnegative expectedInputs requires exactly that many comments, numbered
+	 * from zero without gaps. The legacy overload detects comments when present.
+	 */
+	public static ArrayList<Locus> readCalls(final String path, final String label, final int expectedInputs){
+		if(expectedInputs< -1){throw new IllegalArgumentException("Expected input count must be nonnegative or -1 for legacy detection");}
 		final ArrayList<Locus> result=new ArrayList<Locus>();
 		final LineParser1 lp=new LineParser1('\t');
+		int ordinal=-1;
+		boolean unqualified=false;
 		try(Input input=new Input(path)){
 			final ByteFile file=input.reader;
 			for(byte[] line=file.nextLine(); line!=null; line=file.nextLine()){
-				if(line.length==0 || line[0]=='#'){continue;}
+				if(line.length==0){continue;}
+				if(line[0]=='#'){
+					if(line.length>=INPUT_HEADER.length() && equals(line, 0, INPUT_HEADER.length(), INPUT_HEADER)){
+						lp.set(line);
+						if(lp.terms()!=2 || !lp.termEquals(INPUT_HEADER, 0) || unqualified){
+							throw new IllegalArgumentException("Malformed input boundary or caller rows before the first boundary: "+path);
+						}
+						final int next=inputOrdinal(lp, 1);
+						if(next!=(long)ordinal+1 || (expectedInputs>=0 && next>=expectedInputs)){
+							throw new IllegalArgumentException("Caller input boundaries must be contiguous from zero: "+next+" after "+ordinal);
+						}
+						ordinal=next;
+					}
+					continue;
+				}
+				if(ordinal<0){
+					if(expectedInputs>=0){throw new IllegalArgumentException("Caller row lacks its required input boundary: "+path);}
+					unqualified=true;
+				}
 				lp.set(line);
 				if(lp.terms()!=9){throw new IllegalArgumentException("Caller output must be nine-column GFF: "+path);}
 				lp.setBounds(8);
@@ -66,10 +112,24 @@ public final class NcrnaLocusComparison{
 					}
 				}
 				final String model=new String(line, modelStart, modelEnd-modelStart, StandardCharsets.US_ASCII);
-				result.add(new Locus(lp.parseString(0), position(lp, 3), position(lp, 4), strand(lp, 6), model));
+				result.add(new Locus(lp.parseString(0), position(lp, 3), position(lp, 4), strand(lp, 6), model, ordinal));
 			}
 		}
+		if(expectedInputs>=0 && (long)ordinal+1!=expectedInputs){
+			throw new IllegalArgumentException("Caller input boundary count differs from the input list: "+((long)ordinal+1)+" expected="+expectedInputs);
+		}
 		return result;
+	}
+
+	/** Returns whether a nonempty population is source-qualified, rejecting mixed modes. */
+	public static boolean hasInputOrdinals(final ArrayList<Locus> loci){
+		assert(loci!=null):"Source qualification is checked on an explicit locus population";
+		if(loci.isEmpty()){return false;}
+		final boolean qualified=loci.get(0).inputOrdinal>=0;
+		for(final Locus locus:loci){
+			if((locus.inputOrdinal>=0)!=qualified){throw new IllegalArgumentException("Cannot mix qualified and unqualified loci");}
+		}
+		return qualified;
 	}
 
 	/** Returns one call index per reference, or -1 if unmatched. Inputs are borrowed. */
@@ -85,6 +145,10 @@ public final class NcrnaLocusComparison{
 	public static int[] match(final ArrayList<Locus> truth, final ArrayList<Locus> calls,
 			final boolean[] protectedReferences){
 		assert(truth!=null && calls!=null) : "Detection matching requires explicit reference and prediction populations";
+		final boolean qualifiedTruth=hasInputOrdinals(truth), qualifiedCalls=hasInputOrdinals(calls);
+		if(!truth.isEmpty() && !calls.isEmpty() && qualifiedTruth!=qualifiedCalls){
+			throw new IllegalArgumentException("Calls and references must use the same input qualification");
+		}
 		if(protectedReferences!=null && protectedReferences.length!=truth.size()){
 			throw new IllegalArgumentException("Protected flags must use the complete truth index axis");
 		}
@@ -178,7 +242,7 @@ public final class NcrnaLocusComparison{
 	}
 
 	private static boolean overlaps(final Locus a, final Locus b){
-		if(a.strand!=b.strand){return false;}
+		if(a.strand!=b.strand || a.inputOrdinal!=b.inputOrdinal){return false;}
 		final long overlap=(long)Math.min(a.stop, b.stop)-Math.max(a.start, b.start)+1;
 		return overlap>0 && 2*overlap>=Math.min((long)a.stop-a.start+1, (long)b.stop-b.start+1);
 	}
@@ -190,6 +254,13 @@ public final class NcrnaLocusComparison{
 		final int position=NcrnaNumbers.unsignedInt(lp.line(), lp.a(), lp.b());
 		if(position<1){throw new IllegalArgumentException("Coordinates must be positive: "+position);}
 		return position;
+	}
+
+	/** Strict nonnegative signed-int input ordinal; unknown taxIDs never act as ordinals. */
+	private static int inputOrdinal(final LineParser1 lp, final int term){
+		lp.setBounds(term);
+		if(lp.b()-lp.a()<1 || lp.b()-lp.a()>10){throw new IllegalArgumentException("Invalid input ordinal width");}
+		return NcrnaNumbers.unsignedInt(lp.line(), lp.a(), lp.b());
 	}
 
 	private static int strand(final LineParser1 lp, final int term){
@@ -224,7 +295,11 @@ public final class NcrnaLocusComparison{
 	public static final class Locus{
 		/** Retains an immutable one-based inclusive span on a named contig and known strand. */
 		public Locus(final String seqid_, final int start_, final int stop_, final int strand_, final String model_){
-			if(seqid_==null || seqid_.isEmpty() || start_<1 || stop_<start_ || (strand_!=0 && strand_!=1)){
+			this(seqid_, start_, stop_, strand_, model_, -1);
+		}
+		/** Retains a source-qualified span; -1 is reserved for legacy unqualified loci. */
+		public Locus(final String seqid_, final int start_, final int stop_, final int strand_, final String model_, final int inputOrdinal_){
+			if(seqid_==null || seqid_.isEmpty() || start_<1 || stop_<start_ || (strand_!=0 && strand_!=1) || inputOrdinal_< -1){
 				throw new IllegalArgumentException("Invalid locus coordinates, contig or strand");
 			}
 			seqid=seqid_;
@@ -232,6 +307,7 @@ public final class NcrnaLocusComparison{
 			stop=stop_;
 			strand=strand_;
 			model=model_;
+			inputOrdinal=inputOrdinal_;
 		}
 		/** Exact contig identifier used to join calls and references. */
 		public final String seqid;
@@ -241,7 +317,12 @@ public final class NcrnaLocusComparison{
 		public final int start, stop;
 		/** Zero for plus, one for minus. */
 		public final int strand;
+		/** Zero-based caller input position, or -1 for the complete legacy mode. */
+		public final int inputOrdinal;
 	}
+
+	/** Publisher-owned marker; every input contributes one even when it emits no calls. */
+	public static final String INPUT_HEADER="##input_ordinal0";
 
 	private NcrnaLocusComparison(){}
 }
