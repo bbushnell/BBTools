@@ -312,6 +312,12 @@ public class Cell extends Source{
 
 	/** Backpropagates through a hidden dense row, using precomputed SPECIAL_FMA sums when enabled. */
 	public void updateEdgesHiddenLayerDense(float[] valuesIn, float[] eOverNetNext, float[] weightsOut){
+		updateEdgesHiddenLayerDense(valuesIn, eOverNetNext, weightsOut, 0);
+	}
+
+	/** restoringScale is the caller's lambda*rowWeight/global-bungee-node-count. */
+	public void updateEdgesHiddenLayerDense(float[] valuesIn, float[] eOverNetNext, float[] weightsOut,
+			final double restoringScale){
 		//assert(check());
 //		eTotalOverOut=0;
 		final float v=value();
@@ -337,7 +343,7 @@ public class Cell extends Source{
 //			}
 //		}
 
-		eOverNetArray[lpos]=eOverNet=eTotalOverOut*outOverNet;
+		eOverNetArray[lpos]=eOverNet=withRestoringGradient(eTotalOverOut*outOverNet, restoringScale);
 
 //		for(int source=0; source<valuesPrev.length; source++) {
 //			final float netOverWeight=valuesPrev[source];
@@ -362,6 +368,12 @@ public class Cell extends Source{
 	/** Backpropagates sorted-unique sparse rows; full-width rows are identity maps using dense overloads. */
 	public void updateEdgesHiddenLayerSparse(float[] valuesIn, float[] eOverNetNext,
 			float[] weightsOut, int edgeBlockSize){
+		updateEdgesHiddenLayerSparse(valuesIn, eOverNetNext, weightsOut, edgeBlockSize, 0);
+	}
+
+	/** Indexed version of the same explicitly scaled, additive restoring gradient. */
+	public void updateEdgesHiddenLayerSparse(float[] valuesIn, float[] eOverNetNext,
+			float[] weightsOut, int edgeBlockSize, final double restoringScale){
 		//assert(check());
 //		eTotalOverOut=0;
 		final float v=value();
@@ -386,7 +398,7 @@ public class Cell extends Source{
 //			}
 //		}
 
-		eOverNetArray[lpos]=eOverNet=eTotalOverOut*outOverNet;
+		eOverNetArray[lpos]=eOverNet=withRestoringGradient(eTotalOverOut*outOverNet, restoringScale);
 
 //		for(int source=0; source<valuesPrev.length; source++) {
 //			final float netOverWeight=valuesPrev[source];
@@ -410,6 +422,14 @@ public class Cell extends Source{
 	}
 
 	/*--------------------------------------------------------------*/
+
+	/** Always calls the optional hook. An inactive force returns the original
+	 * float unchanged, including signed zero; the force is never f-prime gated. */
+	private float withRestoringGradient(final float taskGradient, final double scale){
+		assert(Double.isFinite(scale) && scale>=0) : "CellNet must supply a finite nonnegative lambda*rowWeight/neuron-count scale";
+		final double unit=function.restoringGradient(sum);
+		return scale==0 || unit==0 ? taskGradient : (float)(taskGradient+scale*unit);
+	}
 
 	/** Adds one thread-local training copy's accumulated deltas into this row. */
 	public void accumulate(Cell c2){

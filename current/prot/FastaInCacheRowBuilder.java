@@ -131,10 +131,24 @@ public final class FastaInCacheRowBuilder {
 			final GeneModel pgm, final GeneModel[] pgms, final int passes,
 			final ProteinSearcher.AssignmentBinding binding, final ProteinSearcher searcher,
 			final ProteinSearcher.AssignPolicy policy, final int lookahead, final boolean configured){
-		if(binding==null || searcher==null || policy==null){
+		return buildPreparedBin(contigs,binId,qcStatus,qcDomain,qcPhylum,pgm,pgms,passes,
+			binding,searcher,policy,lookahead,configured,null);
+	}
+
+	/** The experimental backend changes only assignment of the same final caller translations. */
+	private static MagQCPreparedBin buildPreparedBin(final ArrayList<Read> contigs,
+			final String binId, final String qcStatus, final String qcDomain, final String qcPhylum,
+			final GeneModel pgm, final GeneModel[] pgms, final int passes,
+			final ProteinSearcher.AssignmentBinding binding, final ProteinSearcher searcher,
+			final ProteinSearcher.AssignPolicy policy, final int lookahead, final boolean configured,
+			final MagQCExpandedAssignment.Worker expanded){
+		if(expanded==null && (binding==null || searcher==null || policy==null)){
 			throw new RuntimeException("Prepared assignment requires binding, searcher, and policy.");
 		}
-		ProteinSearcher.validateLookahead(policy, lookahead);
+		if(expanded!=null && (binding!=null || searcher!=null || policy!=null || lookahead!=0 || !configured)){
+			throw new IllegalArgumentException("Expanded assignment requires its own worker and the unchanged configured caller session");
+		}
+		if(expanded==null){ProteinSearcher.validateLookahead(policy, lookahead);}
 		if(contigs==null || contigs.isEmpty()){throw new RuntimeException("No contigs supplied.");}
 		if((pgm==null)==(pgms==null)){throw new RuntimeException("Supply exactly one gene-model mode.");}
 		if(pgms!=null){
@@ -145,9 +159,16 @@ public final class FastaInCacheRowBuilder {
 		if(passes<1){throw new RuntimeException("CallGenes passes must be >=1: "+passes);}
 		final CallerData data=configured ? callConfiguredContigs(contigs, pgm, pgms, passes, true, null) :
 			callContigs(contigs, pgm, passes, true, true);
-		assignFamiliesViaBinding(data.accs, data.proteins, data.proteinToContig,
-			binding, searcher, policy, lookahead);
-		final MagQCPreparedBin bin=new MagQCPreparedBin(binding.familyCount());
+		if(expanded==null){
+			assignFamiliesViaBinding(data.accs, data.proteins, data.proteinToContig,
+				binding, searcher, policy, lookahead);
+		}else{
+			for(final ProteinSequence protein:data.proteins){
+				final int rank=expanded.assign(protein);
+				if(rank>=0){recordFamily(data.accs,data.proteinToContig,protein.id,rank);}
+			}
+		}
+		final MagQCPreparedBin bin=new MagQCPreparedBin(expanded==null ? binding.familyCount() : expanded.familyCount());
 		bin.id=binId; bin.status=qcStatus; bin.domain=qcDomain; bin.phylum=qcPhylum;
 		for(final Read r : contigs){
 			if(r==null || r.bases==null){continue;}
@@ -427,6 +448,17 @@ public final class FastaInCacheRowBuilder {
 	/** Owns setup lifetime; only entry/exit bookkeeping is serialized, never the per-bin work. */
 	static final class CallerSession implements AutoCloseable {
 		private CallerSession(GeneModel[] models_, CallerSettings previous_){models=models_; previous=previous_;}
+		/** Keeps PGM selection and caller lifecycle identical while projecting expanded-reference winners. */
+		MagQCPreparedBin buildExpanded(ArrayList<Read> contigs,String id,String status,String domain,String phylum,
+				GeneModel model,GeneModel[] modelsByContig,int passes,MagQCExpandedAssignment.Worker expanded){
+			if(expanded==null || (model==null)==(modelsByContig==null)){
+				throw new IllegalArgumentException("Expanded caller requires one model mode and a private assignment worker");
+			}
+			enter(modelsByContig==null ? new GeneModel[]{model} : modelsByContig);
+			try{return buildPreparedBin(contigs,id,status,domain,phylum,model,modelsByContig,passes,
+				null,null,null,0,true,expanded);}
+			finally{leave();}
+		}
 		/** A worker uses only a preloaded parent and private searcher; refinement models stay local. */
 		MagQCPreparedBin build(ArrayList<Read> contigs, String id, String status, String domain, String phylum,
 				GeneModel model, int passes, ProteinSearcher.AssignmentBinding binding,
@@ -562,17 +594,21 @@ public final class FastaInCacheRowBuilder {
 				searcher.assignFamily(binding,protein,scratch,policy,lookahead);
 			if(sink!=null){sink.assignment(protein.id,result.isAssigned() ? result.familyIdx : -1);}
 			if(!result.isAssigned()){continue;}//rejection -> no family copy, NO fallback
-			final String contig=proteinToContig.get(protein.id);
-			if(contig==null){throw new RuntimeException("Missing contig owner for translated protein "+protein.id);}
-			final CacheBuilder.Acc acc=accs.get(contig);
-			if(acc==null){throw new RuntimeException("Missing accumulator for translated protein contig "+contig);}
-			final int old=acc.fam.get(result.familyIdx);
-			if(old==Integer.MAX_VALUE || acc.mapped==Integer.MAX_VALUE){
-				throw overflow("family assignment", contig);
-			}
-			acc.fam.put(result.familyIdx, old<0 ? 1 : old+1);
-			acc.mapped++;
+			recordFamily(accs,proteinToContig,protein.id,result.familyIdx);
 		}
+	}
+
+	/** One tracked winning CDS contributes one dense-rank copy and one mapped CDS in either backend. */
+	private static void recordFamily(final HashMap<String,CacheBuilder.Acc> accs,
+			final HashMap<String,String> proteinToContig,final String proteinId,final int rank){
+		assert(rank>=0) : "Only an accepted tracked winner may increment the shared cache counters";
+		final String contig=proteinToContig.get(proteinId);
+		if(contig==null){throw new RuntimeException("Missing contig owner for translated protein "+proteinId);}
+		final CacheBuilder.Acc acc=accs.get(contig);
+		if(acc==null){throw new RuntimeException("Missing accumulator for translated protein contig "+contig);}
+		final int old=acc.fam.get(rank);
+		if(old==Integer.MAX_VALUE || acc.mapped==Integer.MAX_VALUE){throw overflow("family assignment",contig);}
+		acc.fam.put(rank,old<0 ? 1 : old+1);acc.mapped++;
 	}
 
 	/** Optional whole-genome capture; implementations copy mutable caller data before returning. */

@@ -8,6 +8,7 @@ Clusters proteins using modal DDL sketches, monomer cosine ranking, and selected
 substitution-matrix alignments (POSSUM55 by default). Greedy admission is serial;
 frozen reassignment and per-family rebuilding can use multiple workers.
 This is not a calibrated detector.
+Output families require calibration before CallGenes can use them.
 It loads proteins into memory and ranks live families exactly through an index
 or the optional exhaustive reference scan.
 

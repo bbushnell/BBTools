@@ -1,4 +1,4 @@
-package prot;
+package test.prot;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -10,6 +10,11 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import ml.CellNet;
 import ml.CellNetParser;
+import prot.MagQCAssemblyBatch;
+import prot.MagQCAssemblyInput;
+import prot.MagQCAssemblyReportTest;
+import prot.MagQCErrorCalibrationTest;
+import prot.MagQCNetBundle;
 
 /** Small public input/configuration fixtures, without network or biological model access.
  * @author Yoimiya */
@@ -51,8 +56,8 @@ public final class MagQCAssemblyBatchTest {
 				"Omitted out disables data output; explicit out=stdout retains pipeable TSV output");
 			final HashMap<String,String> named=MagQCAssemblyBatch.parseOptions(new String[]{"config="+config, "in="+first});
 			check(positional.equals(named), "Bare input after the wrapper's config must equal explicit in=");
-			check(new MagQCAssemblyBatch(new String[]{first.toString()}).jobs.size()==1
-				&& new MagQCAssemblyBatch(new String[]{"in="+first}).jobs.size()==1,
+			check(new MagQCAssemblyBatch(new String[]{first.toString()}).inputCount()==1
+				&& new MagQCAssemblyBatch(new String[]{"in="+first}).inputCount()==1,
 				"A single input must not require out= in either public syntax");
 			for(String[] duplicate:new String[][]{{first.toString(), second.toString()},
 				{first.toString(), "in="+second}, {"in="+first, second.toString()}}){
@@ -201,7 +206,8 @@ public final class MagQCAssemblyBatchTest {
 				&& !message.contains("PROKCC_V1_TAG_PENDING");
 		}
 		check(rejected, "Missing assets must identify all four files and their download instructions");
-		final String archive="https://sourceforge.net/projects/bbmap/files/Resources/prokcc_v1.5.tar";
+		final String archive="https://sourceforge.net/projects/bbmap/files/Resources/prokcc_v1.8.8.tar";
+		final String previousArchive="https://sourceforge.net/projects/bbmap/files/Resources/prokcc_v1.5.tar";
 		rejected=false;
 		try{prok.ProkCC.main(new String[]{"config="+root.resolve("missing.config")});}
 		catch(IllegalArgumentException e){
@@ -209,8 +215,12 @@ public final class MagQCAssemblyBatchTest {
 		}
 		check(rejected, "Embedded ProkCC must report installation instructions before parsing a missing release config");
 		check(archive.equals(shared.Resources.downloadURL("?prokcc/release.config"))
-			&& archive.equals(shared.Resources.downloadURL("magqc_subnets_v1.4_shrunk_18bit.bbnets.gz")),
-			"The release config and full subnet bundle must resolve to the same manual archive");
+			&& archive.equals(shared.Resources.downloadURL("magqc_subnets_v1.8.8_32bit.bbnets"))
+			&& archive.equals(shared.Resources.downloadURL("magqc_composite_v1.8.8_shrunk_18bit.bbnet.gz")),
+			"The default config and current models must resolve to the 1.8.8 manual archive");
+		check(previousArchive.equals(shared.Resources.downloadURL("magqc_subnets_v1.4_shrunk_18bit.bbnets.gz"))
+			&& previousArchive.equals(shared.Resources.downloadURL("magqc_composite_v1.5.graft")),
+			"Explicit older model names must retain their matching 1.5 manual archive");
 		check("https://sourceforge.net/projects/bbmap/files/Resources/".equals(shared.Resources.downloadURL("ssuSketchDDL.tsv.gz")),
 			"Unrelated resources must retain their existing download location");
 		final String legacy="https://sourceforge.net/projects/bbmap/files/Resources/prokcc_v1.2.1.tar";

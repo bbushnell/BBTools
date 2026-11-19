@@ -100,7 +100,12 @@ public final class ProteinFamilyAssigner {
 		 * should classify unsupported translations before invoking the alignment path.
 		 */
 		public Hit assign(final String queryId, final byte[] aminoAcids){
-			final ProteinSequence query=new ProteinSequence(queryId, aminoAcids);
+			return assign(new ProteinSequence(queryId, aminoAcids));
+		}
+
+		/** Reuses a caller's already validated encoded translation without decoding and encoding it again. */
+		public Hit assign(final ProteinSequence query){
+			if(query==null){throw new IllegalArgumentException("A validated protein query is required");}
 			ProteinSearcher.scoreFamiliesF4(query, library.sidecar, shortlist);
 			HbmCompetitiveAssign.top(shortlist.f4, shortlist.topIdx);
 			final int rank=library.gate.select(query.enc, shortlist.topIdx, SHORTLIST, selection);

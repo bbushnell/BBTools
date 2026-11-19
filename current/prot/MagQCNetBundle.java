@@ -86,6 +86,8 @@ public final class MagQCNetBundle {
 		"131 ordered four-output ordinary subnets; final size member has ten separately named outputs; composite width9984";
 	private static final String SCHEMA4_OUTPUT_SEMANTICS=
 		"131 ordered six-output ordinary subnets: blended values, errors in percentage points, raw magnifiers; unchanged ten-output size member; composite width10246";
+	private static final String SCHEMA5_OUTPUT_SEMANTICS=
+		"131 ordered six-output ordinary subnets and a retrained ten-output size member; CDS+rRNA+tRNA completeness; appended tracked_to_called input; composite width10247";
 	private static final String[] SIX_OUTPUT_NAMES={"gene_completeness", "gene_contamination",
 		"abs_residual_gene_completeness", "abs_residual_gene_contamination", "magnified_completeness", "magnified_contamination"};
 	private static final String[] SIX_OUTPUT_UNITS={"fraction [0,1]", "fraction [0,1]",
@@ -93,6 +95,35 @@ public final class MagQCNetBundle {
 		"raw log10 endpoint target [0,1]", "raw log10 endpoint target [0,1]"};
 	private static final String SIX_OUTPUT_INTERPRETATION=
 		"model-declared gene blend; inverse log errors in percentage points; raw magnified outputs unchanged";
+	private static final String CAP_PROFILE="decoded_unit_v1";
+	private static final String CAPPED_SCHEMA5_OUTPUT_SEMANTICS=SCHEMA5_OUTPUT_SEMANTICS+
+		"; bounded subnet predictions capped after decoding; endpoint features re-encoded in original log units; linear size and its error uncapped";
+	private static final String CAPPED_ORDINARY_INTERPRETATION=
+		"model-declared gene blend capped to [0,1]; inverse log errors in percentage points; endpoint features decoded, capped and re-encoded in original log units";
+	private static final String CAPPED_SIZE_INTERPRETATION=
+		"bounded size outputs capped to [0,1]; size_lin and size_lin_error unchanged";
+
+	/** Unknown profiles and older layouts fail before exposing any inference member. */
+	private static boolean capProfile(final Map<String,String> metadata) throws IOException{
+		final String profile=metadata.get("subnet_output_cap_profile");
+		if(profile==null){return false;}
+		if(!CAP_PROFILE.equals(profile) || !"5".equals(metadata.get("schema_version"))){
+			throw new IOException("Unknown or incompatible subnet output cap profile");
+		}
+		return true;
+	}
+
+	/** The block interpretation is hash-bound and also makes older readers reject capped bundles. */
+	private static String outputInterpretation(final int outputs, final boolean capped){
+		if(capped){
+			if(outputs!=6 && outputs!=10){throw new IllegalArgumentException("Cap interpretation requires six/ten outputs");}
+			return outputs==6 ? CAPPED_ORDINARY_INTERPRETATION : CAPPED_SIZE_INTERPRETATION;
+		}
+		return outputs==6 ? SIX_OUTPUT_INTERPRETATION : FOUR_OUTPUT_CLAMP_RATIO;
+	}
+	/** Metadata-only diagnostics use the same frozen names/units as the schema4/5 loader. */
+	static String[] ordinarySixOutputNames(){return SIX_OUTPUT_NAMES.clone();}
+	static String[] ordinarySixOutputUnits(){return SIX_OUTPUT_UNITS.clone();}
 
     private final List<Subnet> subnets;
     private final Map<String, String> metadata;
@@ -130,11 +161,16 @@ public final class MagQCNetBundle {
         }
         InferenceNet(CellNet master, int[] dims, long seed, float density, float density1,
                 int blockSize, boolean denseMode, MagQCPredictionContract interpretation) {
+            this(master,dims,seed,density,density1,blockSize,denseMode,interpretation,null);
+        }
+        InferenceNet(CellNet master, int[] dims, long seed, float density, float density1,
+                int blockSize, boolean denseMode, MagQCPredictionContract interpretation, MagQCSubnetOutputCaps caps_) {
             super(dims, seed, density, density1, blockSize, new ArrayList<String>(), denseMode);
             this.denseMode=denseMode;
             setFrom(master, false);
             prediction=interpretation;
-            reported=prediction==null ? null : new float[prediction.outputNames().length];
+            caps=caps_;
+            reported=prediction!=null ? new float[prediction.outputNames().length] : caps==null ? null : new float[numOutputs()];
         }
         //TODO: BBTools repeatability issue: default SIMD produced different early/late
         // prepared-vector bytes in one JVM with unchanged flags and inputs (MAG-QC
@@ -142,12 +178,13 @@ public final class MagQCNetBundle {
         // See records/BBTOOLS_BUGS_FOUND_v1.md; do not weaken exact reference tests.
         @Override public float feedForward() {
             final float raw=denseMode ? feedForwardDense() : feedForwardSparse();
-            if(prediction==null){return raw;}
+            if(reported==null){return raw;}
             for(int i=0;i<numOutputs();i++){reported[i]=super.getOutput(i);}
-            prediction.apply(reported);
+            if(prediction!=null){prediction.apply(reported);}
+            if(caps!=null){caps.apply(reported);}
             // The new subnet feature contract explicitly uses pp; composite reports
             // retain their own fraction-to-percentage conversion independently.
-            reported[2]*=100f; reported[3]*=100f;
+            if(prediction!=null){reported[2]*=100f; reported[3]*=100f;}
             return reported[0];
         }
         /** Exposes only model outputs; appended blend diagnostics are private scratch. */
@@ -159,6 +196,7 @@ public final class MagQCNetBundle {
         }
         @Override public float[] getOutput(){return reported==null ? super.getOutput() : Arrays.copyOf(reported,numOutputs());}
         private final MagQCPredictionContract prediction;
+        private final MagQCSubnetOutputCaps caps;
         private final float[] reported;
     }
 
@@ -167,7 +205,7 @@ public final class MagQCNetBundle {
 	 * composite containers. The master stays private; workers obtain independent
 	 * inference-only copies whose dense/sparse dispatch uses their own representation.
 	 */
-	static final class InferenceModel {
+	public static final class InferenceModel {
 		private InferenceModel(CellNet master_,int[] dims_,long seed_,float[] densities,
 				int blockSize_,boolean dense_){
 			master=master_; dims=dims_.clone(); seed=seed_;
@@ -175,10 +213,19 @@ public final class MagQCNetBundle {
 		}
 
 		/** Fresh private state for one worker; not a training or serialization copy. */
-		CellNet newWorker(){
+		public CellNet newWorker(){
 			assert(dims[0]==master.numInputs() && dims[dims.length-1]==master.numOutputs()) :
 				"Stored dimensions must still describe the private master before constructing worker cells";
 			return new InferenceNet(master,dims,seed,density,density1,blockSize,dense);
+		}
+
+		/** Explicit dense execution for measured diagnostics; sparse reduction order may differ. */
+		CellNet newDenseWorker(){
+			assert(dims[0]==master.numInputs()) : "Dense worker must retain the parsed master's input shape";
+			final CellNet worker=master.copyDenseForInference();
+			// copyDenseForInference copies numerical state, not semantic header tags.
+			for(final Map.Entry<String,String> tag:master.tags.entrySet()){worker.setTag(tag.getKey(),tag.getValue());}
+			return worker;
 		}
 
 		int inputs(){return dims[0];}
@@ -198,7 +245,7 @@ public final class MagQCNetBundle {
 	 * header parameters needed by the proven per-instance inference implementation.
 	 * No mutable master or execution-shape array escapes the returned descriptor.
 	 */
-	static InferenceModel parseInferenceModel(byte[] bytes,String id) throws Exception{
+	public static InferenceModel parseInferenceModel(byte[] bytes,String id) throws Exception{
 		if(bytes==null || bytes.length==0){throw new IOException(id+": empty inference network");}
 		final CellNet master=parseNet(bytes,id);
 		final int[] dims=parseDims(bytes,id);
@@ -232,9 +279,8 @@ public final class MagQCNetBundle {
          * a caller cannot mutate this validated object's contract in place after construction
          * (a `final` array field is not itself immutable -- only the reference is). */
         private final String[] outputNames, outputUnits;
-        /** This entry's OWN dense/sparse-ness, and its OWN density/density1/blockSize, all read
-         * from its own raw net bytes at construction time -- NOT the shared global
-         * ml.CellNet.DENSE flag (dense) and not hardcoded/prototype values (the other three).
+        /** This entry's representation and density/density1/blockSize are read
+         * from its own raw net bytes at construction time.
          * Used only to construct a fresh InferenceNet per thread; never mutated after
          * construction. See parseDenseFlag()/parseDensities()/parseBlockSize(). */
         private final boolean dense;
@@ -260,6 +306,16 @@ public final class MagQCNetBundle {
                 String looseNetName, String looseSubsetName, CellNet master,
                 String[] outputNames, String[] outputUnits, boolean dense,
                 float density, float density1, int blockSize) {
+            this(id,type,name,order,numObs,expectedInputs,expectedOutputs,seed,familyRanks,dims,netBytes,
+                netSha256,subsetSha256,looseNetName,looseSubsetName,master,outputNames,outputUnits,dense,
+                density,density1,blockSize,false);
+        }
+        private Subnet(String id, String type, String name, int order, int numObs,
+                int expectedInputs, int expectedOutputs, int seed, int[] familyRanks,
+                int[] dims, byte[] netBytes, String netSha256, String subsetSha256,
+                String looseNetName, String looseSubsetName, CellNet master,
+                String[] outputNames, String[] outputUnits, boolean dense,
+                float density, float density1, int blockSize, boolean capped) {
             this.id=id; this.type=type; this.name=name; this.order=order; this.numObs=numObs;
             this.expectedInputs=expectedInputs; this.expectedOutputs=expectedOutputs; this.seed=seed;
             this.familyRanks=familyRanks==null ? null : familyRanks.clone(); this.dims=dims.clone();
@@ -270,6 +326,10 @@ public final class MagQCNetBundle {
             this.outputUnits=outputUnits==null ? null : outputUnits.clone();
             this.dense=dense; this.density=density; this.density1=density1; this.blockSize=blockSize;
             prediction=expectedOutputs==6 ? subnetPrediction(master) : null;
+            if(capped && expectedOutputs!=6 && !("size".equals(type) && expectedOutputs==10)){
+                throw new IllegalArgumentException(id+": cap policy requires six ordinary or ten size heads");
+            }
+            caps=!capped ? null : prediction==null ? MagQCSubnetOutputCaps.size() : MagQCSubnetOutputCaps.ordinary(prediction);
             if(expectedOutputs!=6 && MagQCPredictionContract.requiresLogDecoding(master.getTag("output_contract"))){
                 throw new IllegalArgumentException(id+": log-error subnets require the explicit schema4 interpretation");
             }
@@ -280,14 +340,13 @@ public final class MagQCNetBundle {
         /** Fresh defensive copy each call; null for legacy (expectedOutputs==1) entries. */
         public String[] outputUnits() { return outputUnits==null ? null : outputUnits.clone(); }
 
-        /** Returns this worker's lazy private copy; no mutable master is exposed. A fresh
-         * InferenceNet (not master.copy(false)) so construction never touches the shared
-         * ml.CellNet.DENSE global, and this entry's own dense/sparse dispatch is baked into the
+        /** Returns this worker's lazy private inference copy; no mutable master is exposed.
+         * This entry's own dense/sparse dispatch is baked into the
          * returned object's feedForward() override -- correct for direct virtual feedForward()
          * calls (as MagQCVectorMaker already makes) as well as the score()/scoreAll() wrappers. */
         public CellNet netForCurrentThread() {
             CellNet n=local.get();
-            if(n==null) { n=new InferenceNet(master,executionDims,seed,density,density1,blockSize,dense,prediction); local.set(n); }
+            if(n==null) { n=new InferenceNet(master,executionDims,seed,density,density1,blockSize,dense,prediction,caps); local.set(n); }
             return n;
         }
 
@@ -297,16 +356,30 @@ public final class MagQCNetBundle {
          * lifetime, so replay can construct all subnet state inside the worker thread
          * and reuse it for every row. Sparse serialization is expanded once into
          * dense inference arrays, preserving trained weights, biases and activations;
-         * this does not mutate global DENSE or use CellNet.copy(false). */
-        CellNet newReplayWorker() {
+         * this does not allocate training matrices or use CellNet.copy(false). */
+        public CellNet newReplayWorker() {
             final CellNet worker=master.copyDenseForInference();
-            return prediction==null ? worker : new InferenceNet(worker,executionDims,seed,density,density1,blockSize,true,prediction);
+            return prediction==null && caps==null ? worker : new InferenceNet(worker,executionDims,seed,density,density1,blockSize,true,prediction,caps);
         }
+
+		/** Experimental opt-in only: snapshots immutable scalar replay parameters once.
+		 * No current scoring/replay caller uses this factory. Returned templates expose
+		 * only forward workers and defensive shape copies, never the private master.
+		 * Actual-bundle bit parity and resource measurements remain integration gates. */
+		public synchronized MagQCForwardTemplate experimentalForwardTemplate(){
+			assert(executionDims[0]==expectedInputs && executionDims[executionDims.length-1]==expectedOutputs) :
+				"Private frozen dimensions must match the validated bundle member";
+			if(forwardTemplate==null){forwardTemplate=MagQCForwardTemplate.snapshot(master, prediction!=null, caps!=null);}
+			return forwardTemplate;
+		}
+
+		/** Initialized only through the explicitly requested experimental factory. */
+		private MagQCForwardTemplate forwardTemplate;
 
         /** New ordinary subnets must explicitly bind both served errors and both raw magnifiers. */
         private static MagQCPredictionContract subnetPrediction(CellNet master){
-            final MagQCPredictionContract contract=MagQCPredictionContract.parse(master.getTag("magqc_prediction_contract"),SIX_OUTPUT_NAMES);
-            contract.validateRawContract(master.getTag("output_contract"));
+            final MagQCPredictionContract contract=MagQCPredictionContract.parseSubnet(
+                master.getTag("magqc_prediction_contract"),master.getTag("output_contract"));
             if(!contract.hasBlend() || !contract.hasLogErrors() ||
                     !contract.errorReferenceName("gene_completeness").equals("gene_completeness") ||
                     !contract.errorReferenceName("gene_contamination").equals("gene_contamination")){
@@ -315,6 +388,7 @@ public final class MagQCNetBundle {
             return contract;
         }
         private final MagQCPredictionContract prediction;
+        private final MagQCSubnetOutputCaps caps;
 
 		/**
 		 * Prepared serving uses one lazy dense instance per subnet behind this lock.
@@ -322,7 +396,7 @@ public final class MagQCNetBundle {
 		 * mutable network escapes. Arithmetic matches newReplayWorker(), including
 		 * sparse-to-dense expansion. The original master remains immutable.
 		 */
-		synchronized void scorePreparedSynced(float[] input, float[] output){
+		public synchronized void scorePreparedSynced(float[] input, float[] output){
 			if(input==null || input.length!=expectedInputs || output==null || output.length!=expectedOutputs){
 				throw new IllegalArgumentException(id+": synchronized subnet input/output width mismatch");
 			}
@@ -372,9 +446,11 @@ public final class MagQCNetBundle {
 
     public int size() { return subnets.size(); }
 	/** Schema3 keeps the size member outside all ordinary expected-copy and six-output loops. */
-	public int ordinarySize(){return "3".equals(metadata("schema_version")) || "4".equals(metadata("schema_version")) ? 131 : size();}
+	public int ordinarySize(){return "3".equals(metadata("schema_version")) || eightFeatures() ? 131 : size();}
 	/** Explicit opt-in identifies the new eight-feature ordinary-subnet layout. */
-	public boolean eightFeatures(){return "4".equals(metadata("schema_version"));}
+	public boolean eightFeatures(){return "4".equals(metadata("schema_version")) || trackedRatio();}
+	/** Schema5 appends one explicitly defined observation to each network's old input prefix. */
+	public boolean trackedRatio(){return "5".equals(metadata("schema_version"));}
 	MagQCV14Contract v14Contract() throws IOException{return new MagQCV14Contract(metadata);}
     public Subnet subnet(int index) { return subnets.get(index); }
     public Subnet subnet(String id) {
@@ -382,6 +458,59 @@ public final class MagQCNetBundle {
         throw new IllegalArgumentException("Unknown subnet: "+id);
     }
     public String metadata(String key) { return metadata.get(key); }
+
+	/** Shared inference may substitute only the decoded cap policy, never weights or frozen input metadata. */
+	void requireCappedCopy(final MagQCNetBundle capped) throws IOException{
+		if(capped==null || !trackedRatio() || !capped.trackedRatio() || size()!=132 || capped.size()!=132 ||
+			capProfile(metadata) || !capProfile(capped.metadata) ||
+			!SCHEMA5_OUTPUT_SEMANTICS.equals(metadata("output_semantics")) ||
+			!CAPPED_SCHEMA5_OUTPUT_SEMANTICS.equals(capped.metadata("output_semantics"))){
+			throw new IOException("Paired generation requires uncapped/capped schema5 bundles in that order");
+		}
+		final Map<String,String> a=new LinkedHashMap<String,String>(metadata),b=new LinkedHashMap<String,String>(capped.metadata);
+		for(final String key:new String[]{"canonical_payload_sha256","output_semantics","subnet_output_cap_profile"}){
+			a.remove(key);b.remove(key);
+		}
+		if(!a.equals(b)){throw new IOException("Capped copy changed frozen bundle metadata");}
+		for(int i=0;i<size();i++){
+			final Subnet x=subnet(i),y=capped.subnet(i);
+			if(x.caps!=null || y.caps==null || !x.id.equals(y.id) || !x.type.equals(y.type) || !x.name.equals(y.name) ||
+				x.order!=y.order || x.numObs!=y.numObs || x.expectedInputs!=y.expectedInputs || x.expectedOutputs!=y.expectedOutputs ||
+				x.seed!=y.seed || !Arrays.equals(x.familyRanks,y.familyRanks) || !Arrays.equals(x.dims,y.dims) ||
+				!x.subsetSha256.equals(y.subsetSha256) || !x.looseNetName.equals(y.looseNetName) ||
+				!x.looseSubsetName.equals(y.looseSubsetName) || !Arrays.equals(x.outputNames,y.outputNames) ||
+				!Arrays.equals(x.outputUnits,y.outputUnits) || !Arrays.equals(x.netBytes,y.netBytes)){
+				throw new IOException("Capped copy changed model payload or observation layout at member "+i);
+			}
+		}
+		assert(size()==capped.size()) : "Every paired member was checked before one inference can feed both policies";
+	}
+
+	/** Permits replacing only the size network and its output-activation declaration.
+	 * Every ordinary model and frozen observation definition must remain identical,
+	 * since an eleven-column supplement leaves all other composite bytes untouched. */
+	void requireSizeReplacement(final MagQCNetBundle replacement) throws IOException{
+		if(replacement==null || !trackedRatio() || !replacement.trackedRatio() || size()!=132 || replacement.size()!=132 ||
+			capProfile(metadata)!=capProfile(replacement.metadata)){
+			throw new IOException("Size replacement requires schema5 bundles with the same cap policy");
+		}
+		final Map<String,String> a=new LinkedHashMap<String,String>(metadata),b=new LinkedHashMap<String,String>(replacement.metadata);
+		for(final String key:new String[]{"canonical_payload_sha256","release_manifest_values_b64","release_manifest_sha256",
+			"size_output_activation_profile","size_output_activations"}){a.remove(key);b.remove(key);}
+		if(!a.equals(b)){throw new IOException("Size replacement changed frozen non-size bundle metadata");}
+		for(int i=0;i<131;i++){
+			final Subnet x=subnet(i),y=replacement.subnet(i);
+			if(!x.id.equals(y.id) || !x.type.equals(y.type) || !x.name.equals(y.name) || x.order!=y.order ||
+				x.numObs!=y.numObs || x.expectedInputs!=y.expectedInputs || x.expectedOutputs!=y.expectedOutputs || x.seed!=y.seed ||
+				!Arrays.equals(x.familyRanks,y.familyRanks) || !Arrays.equals(x.dims,y.dims) ||
+				!x.subsetSha256.equals(y.subsetSha256) || !Arrays.equals(x.outputNames,y.outputNames) ||
+				!Arrays.equals(x.outputUnits,y.outputUnits) || !Arrays.equals(x.netBytes,y.netBytes)){
+				throw new IOException("Size replacement changed ordinary member "+i);
+			}
+		}
+		assert(subnet(131).expectedInputs==214 && replacement.subnet(131).expectedInputs==214) :
+			"loadV17 validates the schema5 size observation width before an eleven-column replacement is admitted";
+	}
 
 	/**
 	 * Immutable training input definition. Scale order follows MagQCVectorMaker.computeContext:
@@ -568,9 +697,12 @@ public final class MagQCNetBundle {
     }
 
     public static void main(String[] args) throws Exception {
-        if(args.length<1) throw new IllegalArgumentException("Usage: pack|verify|list key=value ...; selftest");
+        if(args.length<1) throw new IllegalArgumentException("Usage: pack|packv14|packv16|packv17|verify|list key=value ...; selftest. packv17 accepts subnetcaps=none|decoded (default none)");
         final String command=args[0].toLowerCase();
         final Map<String,String> a=parseArgs(args, 1);
+        if(a.containsKey("subnetcaps") && !command.equals("packv17")){
+            throw new IllegalArgumentException("subnetcaps applies only to packv17");
+        }
 		if("selftest".equals(command)){
 			if(!a.isEmpty()){throw new IllegalArgumentException("Bundle selftest accepts no producer arguments");}
 			MagQCNetBundleSpecialTest.main(new String[0]);
@@ -578,6 +710,7 @@ public final class MagQCNetBundle {
         else if("pack".equals(command)) pack(a);
 		else if("packv14".equals(command)) packV14(a);
 		else if("packv16".equals(command)) packV16(a);
+		else if("packv17".equals(command)) packV17(a);
         else if("sanitize".equals(command)) sanitizeRelease(a);
         else if("verify".equals(command)) verify(a);
         else if("list".equals(command)) list(a);
@@ -606,7 +739,7 @@ public final class MagQCNetBundle {
             records.add(new Subnet(s.id,s.type,s.name,s.order,s.numObs,s.expectedInputs,s.expectedOutputs,
                     s.seed,s.familyRanks,s.dims,net,digest(net,md.get("hash_algorithm")),s.subsetSha256,
                     s.looseNetName,s.looseSubsetName,s.master,s.outputNames,s.outputUnits,s.dense,
-                    s.density,s.density1,s.blockSize));
+                    s.density,s.density1,s.blockSize,s.caps!=null));
         }
         md.put("canonical_payload_sha256",canonicalHash(md,records));
         writeAtomic(out,md,records);
@@ -713,12 +846,33 @@ public final class MagQCNetBundle {
 
 	/** Replaces only ordinary models and preserves the authenticated schema3 size member exactly. */
 	public static void packV16(Map<String,String> a) throws Exception{
+		packVersioned(a, false);
+	}
+
+	/** Replaces all ordinary and size networks for the explicit v1.7 input/label contract. */
+	public static void packV17(Map<String,String> a) throws Exception{
+		packVersioned(a, true);
+	}
+
+	/** Shared packing retains every frozen observation rank while requiring the selected version's widths. */
+	private static void packVersioned(Map<String,String> a, boolean v17) throws Exception{
+		assert(a!=null) : "Versioned packing requires explicit model/resource arguments before activation admission";
+		final String capArgument=a.get("subnetcaps");
+		if(capArgument!=null && (!v17 || !(capArgument.equals("none") || capArgument.equals("decoded")))){
+			throw new IOException("subnetcaps=none|decoded requires schema5 packing");
+		}
+		final boolean capped="decoded".equals(capArgument);
+		final String sizeActivations=a.get("sizeactivations");
+		if(sizeActivations!=null && (!v17 || !sizeActivations.equals("rslog"))){
+			throw new IOException("sizeactivations=rslog is an explicit schema5 replacement-size profile");
+		}
 		final Path basePath=requiredPath(a,"base"),out=requiredPath(a,"out");
 		final String basePin=DigestSuffix.requireSuffix(req(a,"basesha80"),"base bundle");
 		if(!basePin.equals(DigestSuffix.file(basePath.toString())) || Files.exists(out)){
 			throw new IOException("Schema4 requires a pinned schema3 base and a fresh output");
 		}
 		final MagQCNetBundle base=loadV14(basePath);
+		if(v17 && base.v14Contract().ordinaryExtra!=10){throw new IOException("Schema5 requires the complete ten-feature schema3 base");}
 		final byte[] release=MagQCTextResource.bytes(req(a,"subnetmanifest"));
 		requireReleasePin(release,req(a,"subnetmanifestsha80"));
 		final Map<String,AggRow> replacements=readAgg(requiredPath(a,"aggmanifest"));
@@ -734,26 +888,49 @@ public final class MagQCNetBundle {
 			final byte[] bytes=Files.readAllBytes(path);
 			final CellNet net=parseNet(bytes,old.id);
 			final int[] dims=parseDims(bytes,old.id);
-			if(net.numInputs()!=old.expectedInputs || net.numOutputs()!=6 ||
-				(row.expectedInputs>=0 && row.expectedInputs!=old.expectedInputs)){
+			final int inputs=old.expectedInputs+(v17 ? 1 : 0);
+			if(net.numInputs()!=inputs || net.numOutputs()!=6 ||
+				(row.expectedInputs>=0 && row.expectedInputs!=inputs)){
 				throw new IOException("Schema4 replacement input/output width differs: "+old.id);
 			}
 			final float[] density=parseDensities(bytes,old.id);
-			records.add(new Subnet(old.id,old.type,old.name,i,old.numObs,old.expectedInputs,6,parseSeed(bytes,old.id),
+			records.add(new Subnet(old.id,old.type,old.name,i,old.numObs,inputs,6,parseSeed(bytes,old.id),
 				old.familyRanks,dims,bytes,digest(bytes,CURRENT_HASH_ALGORITHM),old.subsetSha256,path.getFileName().toString(),
-				old.looseSubsetName,net,SIX_OUTPUT_NAMES,SIX_OUTPUT_UNITS,parseDenseFlag(bytes,old.id),density[0],density[1],parseBlockSize(bytes,old.id)));
+				old.looseSubsetName,net,SIX_OUTPUT_NAMES,SIX_OUTPUT_UNITS,parseDenseFlag(bytes,old.id),density[0],density[1],parseBlockSize(bytes,old.id),capped));
 		}
-		// The size model is carried byte-for-byte, with all ten existing feature meanings.
-		records.add(base.subnet(131));
 		final LinkedHashMap<String,String> md=new LinkedHashMap<String,String>(base.metadata);
-		md.put("schema_version","4"); md.put("output_semantics",SCHEMA4_OUTPUT_SEMANTICS);
+		if(capped){md.put("subnet_output_cap_profile",CAP_PROFILE);}
+		if(sizeActivations!=null){
+			md.put("size_output_activation_profile", "all_rslog_v1");
+			md.put("size_output_activations", "RSLOG,RSLOG,RSLOG,RSLOG,RSLOG,RSLOG,RSLOG,RSLOG,RSLOG,RSLOG");
+		}
+		if(v17){
+			final byte[] bytes=pinnedBytes(a,"sizenet","sizenetsha80");
+			final CellNet net=parseNet(bytes,"size"); final int[] dims=parseDims(bytes,"size");
+			if(net.numInputs()!=214 || net.numOutputs()!=10){throw new IOException("Schema5 size model requires214 inputs and ten outputs");}
+			new MagQCV14Contract(md).requireActivations(bytes,dims);
+			final float[] density=parseDensities(bytes,"size");
+			records.add(new Subnet("size","size","size",131,100,214,10,parseSeed(bytes,"size"),null,dims,bytes,
+				digest(bytes,CURRENT_HASH_ALGORITHM),"-",requiredPath(a,"sizenet").getFileName().toString(),"-",net,
+				MagQCV14Contract.NAMES,MagQCV14Contract.UNITS,parseDenseFlag(bytes,"size"),density[0],density[1],parseBlockSize(bytes,"size"),capped));
+			md.put("schema_version","5"); md.put("output_semantics",capped ? CAPPED_SCHEMA5_OUTPUT_SEMANTICS : SCHEMA5_OUTPUT_SEMANTICS);
+			md.put("v17_base_bundle_sha80",basePin);
+			md.put("v17_tracked_ratio",MagQCV17Features.DEFINITION);
+			md.put("v17_ratio_position","ordinary_suffix,size_suffix,composite_suffix");
+			md.put("v17_completeness_labels","cds_rrna_trna");
+		}else{
+			// Schema4 alone retains the old size payload byte-for-byte.
+			records.add(base.subnet(131));
+			md.put("schema_version","4"); md.put("output_semantics",SCHEMA4_OUTPUT_SEMANTICS);
+			md.put("v16_base_bundle_sha80",basePin); md.put("v16_size_net_sha80",base.subnet(131).netSha256);
+		}
 		if(parseMultioutputFlag(a.get("fixture"))){md.put("v14_fixture", "true");}
-		md.put("v16_base_bundle_sha80",basePin); md.put("v16_size_net_sha80",base.subnet(131).netSha256);
 		md.put("release_manifest_values_b64",b64(release)); md.put("release_manifest_sha256",digest(release,CURRENT_HASH_ALGORITHM));
 		requireV14Layout(md,records,new MagQCV14Contract(md));
 		md.put("canonical_payload_sha256",canonicalHash(md,records));
 		writeAtomic(out,md,records);
-		System.out.println("MAGQC_V16_BUNDLE_PACK_PASS ordinary=131 learned_outputs=6 composite_features=8 size_outputs=10");
+		System.out.println((v17 ? "MAGQC_V17_BUNDLE_PACK_PASS" : "MAGQC_V16_BUNDLE_PACK_PASS")+
+			" ordinary=131 learned_outputs=6 composite_features=8 size_outputs=10");
 	}
 
 	/** Equal widths do not prove equal observation order; retain the base subset bytes and ranks. */
@@ -776,8 +953,18 @@ public final class MagQCNetBundle {
 
 	/** The independent132-member roster must retain the original131-member population prefix. */
 	private static void requireV14Layout(Map<String, String> md, List<Subnet> records, MagQCV14Contract contract) throws Exception{
-		final boolean v16="4".equals(md.get("schema_version"));
-		if(!(v16 ? SCHEMA4_OUTPUT_SEMANTICS : SCHEMA3_OUTPUT_SEMANTICS).equals(req(md, "output_semantics")) || records.size()!=132){throw new IOException("Versioned layout differs");}
+		final boolean v17="5".equals(md.get("schema_version")),v16="4".equals(md.get("schema_version")) || v17;
+		final boolean capped=capProfile(md);
+		if(!(v17 ? capped ? CAPPED_SCHEMA5_OUTPUT_SEMANTICS : SCHEMA5_OUTPUT_SEMANTICS : v16 ? SCHEMA4_OUTPUT_SEMANTICS : SCHEMA3_OUTPUT_SEMANTICS).equals(req(md, "output_semantics")) || records.size()!=132){throw new IOException("Versioned layout differs");}
+		for(Subnet member:records){if((member.caps!=null)!=capped){throw new IOException("Member cap policy differs from bundle profile: "+member.id);}}
+		if(v17){
+			DigestSuffix.requireSuffix(req(md,"v17_base_bundle_sha80"),"schema5 base");
+			if(contract.ordinaryExtra!=10 || !MagQCV17Features.DEFINITION.equals(req(md,"v17_tracked_ratio")) ||
+				!"ordinary_suffix,size_suffix,composite_suffix".equals(req(md,"v17_ratio_position")) ||
+				!"cds_rrna_trna".equals(req(md,"v17_completeness_labels"))){
+				throw new IOException("Schema5 ratio definition, placement or completeness policy differs");
+			}
+		}
 		final FrozenInputs inputs=frozenInputs(md);
 		if(inputs.phyla().size()!=75){throw new IOException("The9984 layout requires the frozen75-column vocabulary");}
 		final byte[] ordinaryBytes=decode(req(md, "ordinary_release_manifest_values_b64"), "ordinary manifest");
@@ -790,16 +977,16 @@ public final class MagQCNetBundle {
 			if(!old.id.equals(current.id) || !old.type.equals(current.type) || !old.subsetPath.equals(current.subsetPath) ||
 				old.expectedOutputs!=4 || current.expectedOutputs!=(v16 ? 6 : 4) || !member.id.equals(current.id) ||
 				!member.type.equals(current.type) || member.expectedOutputs!=(v16 ? 6 : 4) ||
-				member.expectedInputs!=member.numObs+inputs.phyla().size()+MagQCVectorMaker.SHARED_CONTEXT_WIDTH+contract.ordinaryExtra){
+				member.expectedInputs!=member.numObs+inputs.phyla().size()+MagQCVectorMaker.SHARED_CONTEXT_WIDTH+contract.ordinaryExtra+(v17 ? 1 : 0)){
 				throw new IOException("V1.4 ordinary identity or input layout differs at "+i);
 			}
 		}
 		final ReleaseRow last=all.get(131);final Subnet size=records.get(131);
 		if(!last.id.equals("size") || !last.type.equals("size") || !last.subsetPath.equals("-") || last.expectedOutputs!=10 ||
-			!size.id.equals("size") || size.expectedInputs!=213 || size.expectedOutputs!=10 || size.numObs!=100){
+			!size.id.equals("size") || size.expectedInputs!=(v17 ? 214 : 213) || size.expectedOutputs!=10 || size.numObs!=100){
 			throw new IOException("The final member must be the declared size subnet");
 		}
-		if(v16){
+		if(v16 && !v17){
 			DigestSuffix.requireSuffix(req(md,"v16_base_bundle_sha80"),"schema4 base");
 			if(!size.netSha256.equals(req(md,"v16_size_net_sha80"))){throw new IOException("Schema4 changed the retained size network bytes");}
 		}
@@ -977,7 +1164,8 @@ public final class MagQCNetBundle {
         boolean published=false;
         try {
             writeBundle(tmp,md,records);
-			if("4".equals(md.get("schema_version"))){loadV16(tmp);}
+			if("5".equals(md.get("schema_version"))){loadV17(tmp);}
+			else if("4".equals(md.get("schema_version"))){loadV16(tmp);}
 			else if("3".equals(md.get("schema_version"))){loadV14(tmp);}else{loadMultiOutput(tmp);}
             try { Files.move(tmp,out,StandardCopyOption.ATOMIC_MOVE,StandardCopyOption.REPLACE_EXISTING); }
             catch(AtomicMoveNotSupportedException e) { Files.move(tmp,out,StandardCopyOption.REPLACE_EXISTING); }
@@ -1000,11 +1188,11 @@ public final class MagQCNetBundle {
             field(w,"num_obs",s.numObs); field(w,"expected_inputs",s.expectedInputs); field(w,"expected_outputs",s.expectedOutputs);
             field(w,"seed",s.seed); field(w,"dims",join(s.dims,","));
             field(w,"family_ranks",ranksToken(s.familyRanks));
-			field(w, "ncrna_obs_definition", observationDefinition(s.type));
+			field(w, "ncrna_obs_definition", observationDefinition(s.type,"5".equals(md.get("schema_version"))));
 			if(s.expectedOutputs==4 || s.expectedOutputs==6 || s.expectedOutputs==10) {
                 field(w,"output_names",b64Lines(s.outputNames()));
                 field(w,"output_units",b64Lines(s.outputUnits()));
-                field(w,"output_clamp_ratio",s.expectedOutputs==6 ? SIX_OUTPUT_INTERPRETATION : FOUR_OUTPUT_CLAMP_RATIO);
+                field(w,"output_clamp_ratio",outputInterpretation(s.expectedOutputs,s.caps!=null));
 				if(s.expectedOutputs==10){field(w, "output_activations", md.get("size_output_activations"));}
             } else {
                 field(w,"output_units","completeness_or_contamination_regression");
@@ -1047,7 +1235,14 @@ public final class MagQCNetBundle {
 	/** Schema4 is never silently accepted through a legacy or schema3 entry point. */
 	public static MagQCNetBundle loadV16(Path in) throws Exception{
 		final MagQCNetBundle bundle=loadInternal(in,true,true);
-		if(!bundle.eightFeatures()){throw new IOException("Expected schema4 eight-feature subnet bundle");}
+		if(!"4".equals(bundle.metadata("schema_version"))){throw new IOException("Expected schema4 eight-feature subnet bundle");}
+		return bundle;
+	}
+
+	/** Only this entry point accepts the appended ratio and RNA-inclusive completeness contract. */
+	public static MagQCNetBundle loadV17(Path in) throws Exception{
+		final MagQCNetBundle bundle=loadInternal(in,true,true);
+		if(!bundle.trackedRatio()){throw new IOException("Expected schema5 tracked-ratio subnet bundle");}
 		return bundle;
 	}
 
@@ -1113,8 +1308,9 @@ public final class MagQCNetBundle {
         require(md,"release_manifest_sha256"); require(md,"release_manifest_values_b64");
         require(md,"family_list_sha256"); require(md,"family_list_values"); require(md,"canonical_payload_sha256");
         final String schemaVersion=md.get("schema_version");
+        final boolean capped=capProfile(md);
         final String algorithm=md.get("hash_algorithm");
-		final boolean v16="4".equals(schemaVersion),v14="3".equals(schemaVersion) || v16;
+		final boolean v17="5".equals(schemaVersion),v16="4".equals(schemaVersion) || v17,v14="3".equals(schemaVersion) || v16;
 		if((!"1".equals(schemaVersion) && !"2".equals(schemaVersion) && !v14) ||
                 (!HASH_ALGORITHM.equals(algorithm) && !CURRENT_HASH_ALGORITHM.equals(algorithm))) {
             throw new IOException("unsupported schema/hash");
@@ -1160,7 +1356,7 @@ public final class MagQCNetBundle {
 				if(!Arrays.equals(names, size ? MagQCV14Contract.NAMES : v16 ? SIX_OUTPUT_NAMES : FOUR_OUTPUT_NAMES)) throw new IOException(id+": output_names does not match the frozen contract");
 				if(!Arrays.equals(units, size ? MagQCV14Contract.UNITS : v16 ? SIX_OUTPUT_UNITS : FOUR_OUTPUT_UNITS)) throw new IOException(id+": output_units does not match the frozen contract");
 				if(size && !req(f, "output_activations").equals(req(md, "size_output_activations"))){throw new IOException("Size activation bindings disagree");}
-                if(!(expOut==6 ? SIX_OUTPUT_INTERPRETATION : FOUR_OUTPUT_CLAMP_RATIO).equals(req(f,"output_clamp_ratio"))) throw new IOException(id+": output interpretation does not match the frozen contract");
+                if(!outputInterpretation(expOut,capped).equals(req(f,"output_clamp_ratio"))) throw new IOException(id+": output interpretation does not match the frozen contract");
                 outNames=names; outUnits=units;
             } else {
                 if(f.containsKey("output_names")) throw new IOException(id+": legacy (1-output) entry must not declare output_names");
@@ -1174,7 +1370,7 @@ public final class MagQCNetBundle {
 				throw new IOException(id+": special/famset payload mismatch");
 			}
 			if(specialCount>=0 && (numObs!=specialCount ||
-					!observationDefinition(rr.type).equals(req(f, "ncrna_obs_definition")))){
+					!observationDefinition(rr.type,v17).equals(req(f, "ncrna_obs_definition")))){
 				throw new IOException(id+": bad "+rr.type+" observation definition");
 			}
             if(ranks==null && (!"-".equals(rr.subsetPath) || !"-".equals(req(f,"subset_sha256")) ||
@@ -1195,7 +1391,7 @@ public final class MagQCNetBundle {
             final int blockSize=parseBlockSize(net,id);
             result.add(new Subnet(id,req(f,"type"),req(f,"name"),i,numObs,expIn,expOut,seed,ranks,dims,net,hash,
                     req(f,"subset_sha256"),req(f,"loose_net_name"),req(f,"loose_subset_name"),cell,outNames,outUnits,dense,
-                    densities[0],densities[1],blockSize));
+                    densities[0],densities[1],blockSize,capped));
         }
         if(seen.size()!=expected.size()) throw new IOException("missing or extra release subnet");
         // schema_version must agree with what the entries actually contain, not just be a label.
@@ -1214,7 +1410,7 @@ public final class MagQCNetBundle {
         final Path in=requiredPath(a,"in");
         final boolean multi=parseMultioutputFlag(a.get("multioutput"));
         final boolean v14=parseMultioutputFlag(a.get("v14")),parity=parseMultioutputFlag(a.get("parity"));
-        final MagQCNetBundle b=parseMultioutputFlag(a.get("v16")) ? loadV16(in) : v14 ? loadV14(in) : multi ? loadMultiOutput(in) : load(in);
+        final MagQCNetBundle b=parseMultioutputFlag(a.get("v17")) ? loadV17(in) : parseMultioutputFlag(a.get("v16")) ? loadV16(in) : v14 ? loadV14(in) : multi ? loadMultiOutput(in) : load(in);
         final String releasePath=a.get("subnetmanifest");
         final String releasePin=a.get("subnetmanifestsha80");
         if(releasePin!=null && releasePath==null){throw new IOException("subnetmanifestsha80 requires subnetmanifest");}
@@ -1243,7 +1439,7 @@ public final class MagQCNetBundle {
 
     public static void list(Map<String,String> a) throws Exception {
         final boolean multi=parseMultioutputFlag(a.get("multioutput"));
-        final MagQCNetBundle b=parseMultioutputFlag(a.get("v16")) ? loadV16(requiredPath(a,"in")) : parseMultioutputFlag(a.get("v14")) ? loadV14(requiredPath(a,"in")) :
+        final MagQCNetBundle b=parseMultioutputFlag(a.get("v17")) ? loadV17(requiredPath(a,"in")) : parseMultioutputFlag(a.get("v16")) ? loadV16(requiredPath(a,"in")) : parseMultioutputFlag(a.get("v14")) ? loadV14(requiredPath(a,"in")) :
             multi ? loadMultiOutput(requiredPath(a,"in")) : load(requiredPath(a,"in"));
         System.out.println("count="+b.size()+" semantic_sha80="+displaySha80(b.metadata("canonical_payload_sha256")));
         for(Subnet s:b.subnets) System.out.println(s.order+"\t"+s.id+"\t"+s.type+"\t"+s.expectedInputs+"\t"+displaySha80(s.netSha256));
@@ -1253,8 +1449,8 @@ public final class MagQCNetBundle {
     private static long requireLooseParity(Subnet member,byte[] loose) throws Exception{
         assert(member!=null && loose!=null) : "Numerical parity follows the independent loose-file and embedded-payload identity checks";
         final CellNet raw=parseNet(loose,member.id).copyDenseForInference();
-        final CellNet a=member.prediction==null ? raw : new InferenceNet(raw,member.executionDims,member.seed,
-            member.density,member.density1,member.blockSize,true,member.prediction),b=member.newReplayWorker();
+        final CellNet a=member.prediction==null && member.caps==null ? raw : new InferenceNet(raw,member.executionDims,member.seed,
+            member.density,member.density1,member.blockSize,true,member.prediction,member.caps),b=member.newReplayWorker();
         final float[] input=new float[member.expectedInputs];
         final java.util.Random random=new java.util.Random(731L+member.order);
         for(int row=0;row<16;row++){
@@ -1271,13 +1467,13 @@ public final class MagQCNetBundle {
     }
 
     private static String canonicalHash(Map<String,String> md,List<Subnet> records) {
-		final boolean v2="2".equals(md.get("schema_version")), v3="3".equals(md.get("schema_version")),v4="4".equals(md.get("schema_version"));
+		final boolean v2="2".equals(md.get("schema_version")), v3="3".equals(md.get("schema_version")),v4="4".equals(md.get("schema_version")),v5="5".equals(md.get("schema_version"));
         final StringBuilder b=new StringBuilder();
         // Pure-legacy bundles (schema_version=1) use the exact V1 domain literal and line
         // format, byte for byte -- this is the whole backward-compatibility guarantee, verified
         // by construction: a bundle with zero four-output entries never enters the v2 branches
         // below, so its canonical hash is computed identically to before this change.
-		b.append(v4 ? "MAGQC_BBNETS_CANONICAL_V4\n" : v3 ? "MAGQC_BBNETS_CANONICAL_V3\n" : v2 ? "MAGQC_BBNETS_CANONICAL_V2\n" : "MAGQC_BBNETS_CANONICAL_V1\n");
+		b.append(v5 ? "MAGQC_BBNETS_CANONICAL_V5\n" : v4 ? "MAGQC_BBNETS_CANONICAL_V4\n" : v3 ? "MAGQC_BBNETS_CANONICAL_V3\n" : v2 ? "MAGQC_BBNETS_CANONICAL_V2\n" : "MAGQC_BBNETS_CANONICAL_V1\n");
         for(Map.Entry<String,String> e:md.entrySet()) {
             // These are provenance-only locations, not semantic bundle content.
             // Packing the same bytes from another staging directory must produce
@@ -1300,7 +1496,7 @@ public final class MagQCNetBundle {
             // tampered value survived a recomputed-checksum forgery undetected.
 			if(s.expectedOutputs==4 || s.expectedOutputs==6 || s.expectedOutputs==10) {
                 b.append('\t').append(b64Lines(s.outputNames())).append('\t').append(b64Lines(s.outputUnits()))
-                 .append('\t').append(s.expectedOutputs==6 ? SIX_OUTPUT_INTERPRETATION : FOUR_OUTPUT_CLAMP_RATIO);
+                 .append('\t').append(outputInterpretation(s.expectedOutputs,s.caps!=null));
             }
             b.append('\n');
         }
@@ -1343,6 +1539,10 @@ public final class MagQCNetBundle {
 	}
 	private static int specialCount(String type){return "size".equals(type) ? 100 : MagQCObservationLayout.specialCount(type);}
 	private static String observationDefinition(String type){return "size".equals(type) ? "v14 size213 observed features; ordered markers bound by size resource pin" : MagQCObservationLayout.definition(type);}
+	/** The new size suffix is named on its member as well as in authenticated bundle metadata. */
+	private static String observationDefinition(String type,boolean v17){
+		return v17 && "size".equals(type) ? "v17 size214 observed features; v14 size213 prefix plus tracked_to_called" : observationDefinition(type);
+	}
 
 	/**
 	 * Reads six legacy columns, optionally followed by an explicit observation type.

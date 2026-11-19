@@ -18,6 +18,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import fileIO.ByteStreamWriter;
 import fileIO.FileFormat;
+import fileIO.ReadWrite;
 import parse.Parse;
 import parse.Parser;
 import prok.CallGenes;
@@ -41,7 +42,7 @@ public final class MagQCAssemblyBatch {
 	}
 
 	/** Parses one optional relocatable release config and ordinary public flags. */
-	MagQCAssemblyBatch(String[] args) throws IOException{
+	public MagQCAssemblyBatch(String[] args) throws IOException{
 		this(args, false);
 	}
 
@@ -55,7 +56,14 @@ public final class MagQCAssemblyBatch {
 		retainVectors=retainVectors_;
 		retainPrepared=retainPrepared_;
 		options=parseOptions(args);
+		expandedConfigured=MagQCExpandedAssignment.configured(options);
+		if(options.containsKey("netmetadata")!=options.containsKey("netmetadatasha80")){
+			throw new IllegalArgumentException("netmetadata and netmetadatasha80 must be supplied together");
+		}
 		sharedComposite=lockedMode(required("compositemode"));
+		if(options.containsKey("netmetadata") && sharedComposite){
+			throw new IllegalArgumentException("netmetadata currently requires compositemode=worker to retain verification context");
+		}
 		sharedSubnets=lockedMode(required("subnetmode"));
 		parallelLoad=parallelMode(required("loadmode"));
 		swapNL=Parse.parseBoolean(required("swapnl"));
@@ -119,10 +127,11 @@ public final class MagQCAssemblyBatch {
 	/*--------------------------------------------------------------*/
 
 	/** Reports the optional model/sidecar assets before loading or service access. */
-	static void requireOptionalAssets(HashMap<String,String> options){
+	public static void requireOptionalAssets(HashMap<String,String> options){
 		assert(options!=null) : "Resource preflight requires the parsed release configuration";
 		boolean missing=false;
 		for(String key:OPTIONAL_ASSETS){
+			if(MagQCExpandedAssignment.configured(options) && (key.equals("hbmbundle") || key.equals("sidecar"))){continue;}
 			final String path=options.get(key);
 			if(path==null || !Files.isRegularFile(Paths.get(path))){missing=true;}
 		}
@@ -155,10 +164,12 @@ public final class MagQCAssemblyBatch {
 			MagQCNetworkHarness.pinned(options, "requiredness", "requirednesssha80");
 			MagQCNetworkHarness.pinned(options, "sizemarkers", "sizemarkerssha80");
 		}
+		//TODO: Performance bug - each batch rehashes an already verified read-only taxsketch before loading it.
+		// Panel startup on 2026-10-22 traced this I/O here; allow reuse only with matching accepted file metadata.
 		if(taxMode.equals("local")){MagQCNetworkHarness.pinned(options, "taxsketch", "taxsketchsha80");}
 		long phaseStart=timestamp();
 		if(parallelLoad){loadInParallel();}
-		else{binding=MagQCAssemblyInput.loadBinding(options);}
+		else{loadAssignments();}
 		final long bindingNanos=elapsed(phaseStart);
 		if(override==null){
 			try(MagQCAssemblyInput.SketchSession session=MagQCAssemblyInput.openSketchSession(MagQCAssemblyInput.normalSearch(options))){
@@ -199,6 +210,8 @@ public final class MagQCAssemblyBatch {
 			networkNanos=parallelLoad ? 0 : elapsed(phaseStart);
 			runWorkers(false);
 		}finally{callers=null;}
+		// Reused verification must still hold after inference, before either report is published.
+		if(options.containsKey("netmetadata")){MagQCNetworkHarness.pinned(options,"net","netsha80");}
 		publish();
 		publishSummaries();
 		if(timings){printTimings(bindingNanos,callerSetupNanos,networkNanos,elapsed(processStart));}
@@ -206,6 +219,12 @@ public final class MagQCAssemblyBatch {
 			// The fit set identifies calibration provenance, not the predicted error values.
 			System.err.println("ProkCC completed "+jobs.size()+" bins with "+threads+" workers; error calibration fit set: "+required("errorfitset"));
 		}
+	}
+
+	/** The default binding is unchanged; expanded experiments load only the alignment library they use. */
+	private void loadAssignments() throws IOException{
+		if(expandedConfigured){expanded=MagQCExpandedAssignment.load(options);}
+		else{binding=MagQCAssemblyInput.loadBinding(options);}
 	}
 
 	/** Three independent resource loads join before taxonomy/calling workers use their state. */
@@ -222,6 +241,12 @@ public final class MagQCAssemblyBatch {
 
 	/** The subnet loader owns its formatter construction; no global CellNet mode is changed. */
 	private MagQCVectorMaker loadSubnets(){
+		if(MagQCNetworkHarness.v17Inputs(options)){
+			return MagQCVectorMaker.initializePreparedV17(required("bundle"), required("familylist"), required("subnetmanifest"),
+				required("subnetmanifestsha80"), required("expectedcopytable"), required("expectedcopytablesha80"),
+				required("subnetpopulations"), required("subnetpopulationssha80"), required("requiredness"),
+				required("requirednesssha80"), required("sizemarkers"), required("sizemarkerssha80"), false);
+		}
 		if(MagQCNetworkHarness.eightFeatures(options)){
 			return MagQCVectorMaker.initializePreparedV16(required("bundle"), required("familylist"), required("subnetmanifest"),
 				required("subnetmanifestsha80"), required("expectedcopytable"), required("expectedcopytablesha80"),
@@ -269,7 +294,7 @@ public final class MagQCAssemblyBatch {
 		@Override public void run(){
 			final long start=owner.timestamp();
 			try{
-				if(part==0){owner.binding=MagQCAssemblyInput.loadBinding(owner.options);}
+				if(part==0){owner.loadAssignments();}
 				else if(part==1){owner.master=owner.loadSubnets();}
 				else if(owner.sharedComposite){
 					owner.scorer=new MagQCNetworkHarness.Scorer(prok.ProkCC.preloadCCSynced(owner.options));
@@ -336,7 +361,7 @@ public final class MagQCAssemblyBatch {
 	}
 
 	/** Joins the successfully started prefix even when native thread creation fails. */
-	void startAndJoin(ArrayList<? extends Thread> workers){
+	public void startAndJoin(ArrayList<? extends Thread> workers){
 		int started=0;
 		boolean interrupted=false;
 		try{
@@ -367,8 +392,9 @@ public final class MagQCAssemblyBatch {
 			try{
 				final MagQCVectorMaker formatter=prepare ? null : owner.master.newPreparedWorker(owner.sharedSubnets);
 				final MagQCNetworkHarness.Scorer scoring=prepare ? null : owner.scorer.newWorker();
-				final ProteinSearcher searcher=prepare ? null : new ProteinSearcher();
+				final ProteinSearcher searcher=prepare || owner.expandedConfigured ? null : new ProteinSearcher();
 				if(searcher!=null){searcher.aligner="d55";}
+				final MagQCExpandedAssignment.Worker expanded=prepare || !owner.expandedConfigured ? null : owner.expanded.newWorker();
 				final ByteBuilder vector=new ByteBuilder(131072), output=new ByteBuilder(1024);
 				for(int index=next.getAndIncrement(); index<owner.jobs.size() && owner.failure==null; index=next.getAndIncrement()){
 					final Job job=owner.jobs.get(index);
@@ -390,11 +416,17 @@ public final class MagQCAssemblyBatch {
 						}
 						final MagQCAssemblyInput.Taxonomy tax=job.taxonomy;
 						final long callingStart=owner.timestamp();
-						final MagQCPreparedBin bin=job.routing==null ?
-							owner.callers.build(contigs, job.path, tax.status, tax.domain, tax.phylum,
-								job.model, owner.passes, owner.binding, searcher, ProteinSearcher.AssignPolicy.BOUNDED_LOOKAHEAD, 4) :
-							owner.callers.build(contigs, job.path, tax.status, tax.domain, tax.phylum,
-								job.routing.models, owner.passes, owner.binding, searcher, ProteinSearcher.AssignPolicy.BOUNDED_LOOKAHEAD, 4);
+						final MagQCPreparedBin bin;
+						if(expanded!=null){
+							bin=owner.callers.buildExpanded(contigs,job.path,tax.status,tax.domain,tax.phylum,
+								job.routing==null ? job.model : null,job.routing==null ? null : job.routing.models,owner.passes,expanded);
+						}else{
+							bin=job.routing==null ?
+								owner.callers.build(contigs, job.path, tax.status, tax.domain, tax.phylum,
+									job.model, owner.passes, owner.binding, searcher, ProteinSearcher.AssignPolicy.BOUNDED_LOOKAHEAD, 4) :
+								owner.callers.build(contigs, job.path, tax.status, tax.domain, tax.phylum,
+									job.routing.models, owner.passes, owner.binding, searcher, ProteinSearcher.AssignPolicy.BOUNDED_LOOKAHEAD, 4);
+						}
 						job.callingNanos=owner.elapsed(callingStart);
 						captureFragmentation(bin, contigs);
 						if(owner.retainPrepared){
@@ -577,7 +609,7 @@ public final class MagQCAssemblyBatch {
 	/*--------------------------------------------------------------*/
 
 	/** Resource paths use the config directory; user paths use the working directory. A bare input file is accepted. */
-	static HashMap<String,String> parseOptions(String[] args){
+	public static HashMap<String,String> parseOptions(String[] args){
 		Path base=Paths.get("").toAbsolutePath();
 		boolean configSeen=false;
 		for(String arg:args){
@@ -622,7 +654,11 @@ public final class MagQCAssemblyBatch {
 		lockedMode(values.get("compositemode")); lockedMode(values.get("subnetmode"));
 		parallelMode(values.get("loadmode"));
 		MagQCAssemblyInput.normalSearch(values);
+		MagQCExpandedAssignment.configured(values);
 		final boolean extended=v14Configured(values);
+		if(MagQCNetworkHarness.v17Inputs(values) && !MagQCNetworkHarness.eightFeatures(values)){
+			throw new IllegalArgumentException("v17inputs requires subnetfeatures=eight");
+		}
 		if(MagQCNetworkHarness.eightFeatures(values) && !extended){
 			throw new IllegalArgumentException("subnetfeatures=eight requires requiredness and size-marker resources");
 		}
@@ -640,21 +676,24 @@ public final class MagQCAssemblyBatch {
 	}
 
 	/** Selects shared locked inference or explicit private workers for comparison. */
-	static boolean lockedMode(String value){
+	public static boolean lockedMode(String value){
 		if("locked".equals(value)){return true;}
 		if("worker".equals(value)){return false;}
 		throw new IllegalArgumentException("Inference mode must be worker or locked: "+value);
 	}
 
 	/** Resource-loading concurrency is independent of the number of bin-processing workers. */
-	static boolean parallelMode(String value){
+	public static boolean parallelMode(String value){
 		if("parallel".equals(value)){return true;}
 		if("serial".equals(value)){return false;}
 		throw new IllegalArgumentException("loadmode must be serial or parallel: "+value);
 	}
 
+	/** Number of validated inputs; exposes no mutable job state to callers or tests. */
+	public int inputCount(){return jobs.size();}
+
 	/** Enumerates a requested directory once, never recursively; an explicit list retains its order. */
-	static ArrayList<Job> inputs(String input) throws IOException{
+	public static ArrayList<Job> inputs(String input) throws IOException{
 		final ArrayList<Path> paths=new ArrayList<Path>();
 		final Path single=Paths.get(input);
 		if(Files.isDirectory(single)){
@@ -681,11 +720,12 @@ public final class MagQCAssemblyBatch {
 		return jobs;
 	}
 
-	/** Supported ordinary FASTA names, including native gzip/bzip2/xz compressed inputs. */
+	/** Preserve assembly extensions while sharing the reader's gzip/BGZF aliases. */
 	private static boolean fastaName(Path path){
 		String name=path.getFileName().toString().toLowerCase(Locale.ROOT);
-		for(String suffix:new String[]{".gz", ".bz2", ".xz"}){
-			if(name.endsWith(suffix)){name=name.substring(0, name.length()-suffix.length()); break;}
+		final String compression=ReadWrite.compressionType(name);
+		if("gz".equals(compression) || "bz2".equals(compression) || "xz".equals(compression)){
+			name=name.substring(0, name.lastIndexOf('.'));
 		}
 		return name.endsWith(".fa") || name.endsWith(".fna") || name.endsWith(".fasta") || name.endsWith(".fas");
 	}
@@ -698,8 +738,17 @@ public final class MagQCAssemblyBatch {
 	private String required(String key){return MagQCNetworkHarness.required(options, key);}
 
 	/** Emits stable public options, plus experimental routing knobs only when they affect output. */
-	void appendReportOptions(ByteBuilder header){
+	public void appendReportOptions(ByteBuilder header){
+		if(options.containsKey("netmetadata")){
+			header.append("#net_verification\taccepted_readonly_metadata\n#netmetadata\t").append(required("netmetadata"))
+				.nl().append("#netmetadatasha80\t").append(required("netmetadatasha80")).nl();
+		}
 		for(String key:REPORT_OPTIONS){header.append('#').append(key).tab().append(required(key)).nl();}
+		if(expanded!=null){
+			expanded.appendBindings(header);
+			header.append("#expandedmodels\t").append(required("expandedmodels")).nl();
+			header.append("#legacy_assignment_options\tprofile/policy/lookahead describe the retained reference configuration, not the expanded scoring rule\n");
+		}
 		if(pgmMode.equals("contigtaxonomy")){
 			header.append("#pgmcontigmin\t").append(required("pgmcontigmin")).nl();
 			header.append("#pgmcontigbatchbp\t").append(required("pgmcontigbatchbp")).nl();
@@ -749,16 +798,16 @@ public final class MagQCAssemblyBatch {
 	}
 
 	/** D231 requires positive finite constants and no silent clipping. */
-	static double multiplier(String value){
+	public static double multiplier(String value){
 		final double number=Double.parseDouble(value);
 		if(!Double.isFinite(number) || number<=0){throw new IllegalArgumentException("Error multipliers must be positive and finite");}
 		return number;
 	}
 
 	/** Only small durable metadata and final report bytes are retained between phases. */
-	static final class Job{
+	public static final class Job{
 		Job(String path_){path=path_;}
-		final String path;
+		public final String path;
 		String inputPin;
 		MagQCAssemblyInput.Taxonomy taxonomy;
 		GeneModel model;
@@ -795,6 +844,7 @@ public final class MagQCAssemblyBatch {
 	final ArrayList<Job> jobs;
 	private final boolean retainVectors;
 	private final boolean retainPrepared;
+	private final boolean expandedConfigured;
 	private final boolean timings, sharedComposite, sharedSubnets, parallelLoad, swapNL, verbose;
 	private final long[] resourceNanos=new long[3];
 	private final int threads, passes, pgmContigMin, pgmContigBatchBp;
@@ -806,22 +856,25 @@ public final class MagQCAssemblyBatch {
 	private MagQCAssemblyInput.SketchSession sketches;
 	private FastaInCacheRowBuilder.CallerSession callers;
 	private ProteinSearcher.AssignmentBinding binding;
+	private MagQCExpandedAssignment expanded;
 	private MagQCVectorMaker master;
 	private MagQCNetworkHarness.Scorer scorer;
 	private static final String[] PINNED_RESOURCES={"bundle", "familylist", "subnetmanifest", "expectedcopytable", "subnetpopulations", "net"};
 	private static final String[] OPTIONAL_ASSETS={"net", "bundle", "hbmbundle", "sidecar"};
 	private static final String[] RESOURCE_PATHS={"bundle", "familylist", "subnetmanifest", "expectedcopytable", "subnetpopulations", "net",
 		"profile", "roster", "ref", "rolemanifest", "core", "coveringsets", "sidecar", "hbmbundle", "hbmprovenance", "errorcalibration", "taxsketch",
-		"requiredness", "sizemarkers"};
+		"requiredness", "sizemarkers", "netmetadata", "expandedmodels"};
 	private static final String[] REPORT_OPTIONS={"profilesha80", "policy", "lookahead", "passes", "pgmmode", "normalsearch", "deterministic",
 		"comperrormultiplier", "contamerrormultiplier", "errorfitset", "errorfitdate", "errorcoverage", "compositemode", "subnetmode", "loadmode", "swapnl"};
 	private static final HashSet<String> ALLOWED=new HashSet<String>();
 	private static final String[] V14_KEYS={"requiredness", "requirednesssha80", "sizemarkers", "sizemarkerssha80"};
 	static{
 		ALLOWED.addAll(Arrays.asList(RESOURCE_PATHS)); ALLOWED.addAll(Arrays.asList(REPORT_OPTIONS));
-		ALLOWED.addAll(Arrays.asList("pgmcontigmin", "pgmcontigbatchbp", "subnetfeatures"));
+		ALLOWED.addAll(Arrays.asList("pgmcontigmin", "pgmcontigbatchbp", "subnetfeatures", "v17inputs"));
 		ALLOWED.addAll(Arrays.asList("in", "out", "summary", "t", "taxaddress", "taxmode", "taxdomain", "taxphylum", "timings", "verbose", "ow", "errorcalibrationsha80", "taxsketchsha80"));
 		ALLOWED.addAll(Arrays.asList(V14_KEYS));
+		ALLOWED.add("netmetadatasha80");
+		ALLOWED.add("expandedmodelsha80"); ALLOWED.add("expandedidentitysha80");
 		for(String key:PINNED_RESOURCES){ALLOWED.add(key+"sha80");}
 	}
 }

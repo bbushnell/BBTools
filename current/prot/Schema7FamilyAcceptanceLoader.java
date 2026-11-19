@@ -22,6 +22,56 @@ final class Schema7FamilyAcceptanceLoader {
 
 	private Schema7FamilyAcceptanceLoader(){}
 
+	/** Authenticates only the old neural-feature layout, without loading unused old alignment resources. */
+	static FeatureLayout loadFeatureLayout(final String profile, final String profilePin,
+			final String rosterPath, final String rolesPath, final String familyList, final String familyPin){
+		checkHash(profile,DigestSuffix.requireSuffix(profilePin,"profile"),"threshold artifact");
+		final Parsed parsed=parse(profile);
+		verifyArtifact(profile,profilePin,parsed.header);
+		final int families=positiveInt(parsed.header,"families",profile);
+		final long members=positiveLong(parsed.header,"members",profile);
+		final String rosterPin=hash(parsed.header,"roster_sha80",profile);
+		final String rolesPin=hash(parsed.header,"role_manifest_sha80",profile);
+		checkHash(rosterPath,rosterPin,"roster");
+		final RuntimeRoster roster=readRoster(rosterPath,rosterPin,families);
+		checkHash(rolesPath,rolesPin,"role manifest");
+		final FamilyRoleManifest roles=FamilyRoleManifest.loadSchema7(rolesPath,
+			roster.familyIds,roster.repIds,rosterPin,members);
+		checkHash(familyList,DigestSuffix.requireSuffix(familyPin,"feature family list"),"feature family list");
+		final HbmRosterLoader features=HbmRosterLoader.load(familyList);
+		if(features.size()!=families || parsed.rows.size()!=families){throw new IllegalArgumentException("Feature/profile family counts differ");}
+		final boolean[] enabled=new boolean[families];
+		long observedMembers=0;
+		for(int rank=0;rank<families;rank++){
+			final String[] row=parsed.rows.get(rank);
+			if(canonicalInt(row[0],"rank",rank,profile)!=rank ||
+					canonicalInt(row[1],"family_id",rank,profile)!=roster.familyIds[rank] ||
+					!row[2].equals(roster.repIds[rank]) || !features.repIdByRank[rank].equals(row[2]) ||
+					canonicalInt(row[3],"n",rank,profile)!=roster.members[rank] ||
+					!row[4].equals(roster.status[rank])){
+				throw new IllegalArgumentException("Feature/profile/roster identity differs at dense rank "+rank);
+			}
+			enabled[rank]=roles.isTracked(rank) && roles.isNetworkFeature(rank);
+			observedMembers=Math.addExact(observedMembers,roster.members[rank]);
+		}
+		if(observedMembers!=members){throw new IllegalArgumentException("Feature roster member total differs from its profile");}
+		checkHash(profile,profilePin,"threshold artifact changed");
+		checkHash(rosterPath,rosterPin,"roster changed");
+		checkHash(rolesPath,rolesPin,"role manifest changed");
+		checkHash(familyList,familyPin,"feature family list changed");
+		return new FeatureLayout(roster.familyIds,roster.repIds,enabled,rosterPin,rolesPin);
+	}
+
+	/** Arrays are privately owned by the caller that constructs the immutable projection. */
+	static final class FeatureLayout{
+		FeatureLayout(int[] ids_,String[] reps_,boolean[] enabled_,String roster_,String roles_){
+			assert(ids_.length==reps_.length && ids_.length==enabled_.length) : "Verified feature layout arrays must share dense rank order";
+			ids=ids_;reps=reps_;enabled=enabled_;rosterPin=roster_;rolesPin=roles_;
+		}
+		final int[] ids;final String[] reps;final boolean[] enabled;
+		final String rosterPin,rolesPin;
+	}
+
 	/** Loads, verifies, and returns an immutable-by-ownership schema-7 table. */
 	static Loaded load(final String artifactPath, final String expectedArtifactSha80,
 			final String rosterPath,

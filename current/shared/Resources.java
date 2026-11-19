@@ -52,7 +52,7 @@ public class Resources {
 
 	/** Identifies the current archive and the explicitly retained previous release. */
 	private static boolean isProkccArchive(String url){
-		return PROKCC_ARCHIVE.equals(url) || PROKCC_LEGACY_ARCHIVE.equals(url);
+		return PROKCC_ARCHIVE.equals(url) || PROKCC_V15_ARCHIVE.equals(url) || PROKCC_LEGACY_ARCHIVE.equals(url);
 	}
 
 	/** Locates a resource file.  If fname contains commas, tries each
@@ -193,7 +193,8 @@ public class Resources {
 	private static final String NERSC_URL="https://portal.nersc.gov/cfs/bbtools/";
 	private static final String SOURCEFORGE_URL="https://sourceforge.net/projects/bbmap/files/Resources/";
 	/** One archive contains the matching ProkCC release config, model files and tables. */
-	private static final String PROKCC_ARCHIVE=SOURCEFORGE_URL+"prokcc_v1.5.tar";
+	private static final String PROKCC_ARCHIVE=SOURCEFORGE_URL+"prokcc_v1.8.8.tar";
+	private static final String PROKCC_V15_ARCHIVE=SOURCEFORGE_URL+"prokcc_v1.5.tar";
 	private static final String PROKCC_LEGACY_ARCHIVE=SOURCEFORGE_URL+"prokcc_v1.2.1.tar";
 	private static final String BBGAP_SHORT_ARCHIVE="bbgap_short_v2.tar";
 	private static final String BBGAP_TAILS_ARCHIVE="bbgap_tails_v2.tar";
@@ -203,17 +204,19 @@ public class Resources {
 
 	private static final HashMap<String, String> RESOURCE_URLS=new HashMap<>();
 	static{
-		RESOURCE_URLS.put("magqc_composite_v1.5.graft", PROKCC_ARCHIVE);
-		RESOURCE_URLS.put("magqc_graft_private_v1.5_18bit.bbnet", PROKCC_ARCHIVE);
-		RESOURCE_URLS.put("magqc_graft_heads_v1.5_18bit.bbnet", PROKCC_ARCHIVE);
-		RESOURCE_URLS.put("magqc_composite_v1.4_shrunk_18bit.bbnet.gz", PROKCC_ARCHIVE);
-		RESOURCE_URLS.put("magqc_subnets_v1.4_shrunk_18bit.bbnets.gz", PROKCC_ARCHIVE);
+		RESOURCE_URLS.put("magqc_composite_v1.8.8_shrunk_18bit.bbnet.gz", PROKCC_ARCHIVE);
+		RESOURCE_URLS.put("magqc_subnets_v1.8.8_32bit.bbnets", PROKCC_ARCHIVE);
+		RESOURCE_URLS.put("magqc_composite_v1.5.graft", PROKCC_V15_ARCHIVE);
+		RESOURCE_URLS.put("magqc_graft_private_v1.5_18bit.bbnet", PROKCC_V15_ARCHIVE);
+		RESOURCE_URLS.put("magqc_graft_heads_v1.5_18bit.bbnet", PROKCC_V15_ARCHIVE);
+		RESOURCE_URLS.put("magqc_composite_v1.4_shrunk_18bit.bbnet.gz", PROKCC_V15_ARCHIVE);
+		RESOURCE_URLS.put("magqc_subnets_v1.4_shrunk_18bit.bbnets.gz", PROKCC_V15_ARCHIVE);
 		RESOURCE_URLS.put("composite_v1.2.1_shrunk_0.8pct_18bit.bbnet.gz", PROKCC_LEGACY_ARCHIVE);
 		RESOURCE_URLS.put("magqc_subnets_v1.2.1_shrunk_57.4pct_18bit.bbnets.gz", PROKCC_LEGACY_ARCHIVE);
-		RESOURCE_URLS.put("composite_d252_polished_weight18.bbnet.gz", PROKCC_ARCHIVE);
-		RESOURCE_URLS.put("v1.bbnets.gz", PROKCC_ARCHIVE);
-		RESOURCE_URLS.put("magqc_subnets_v1.bbnets.gz", PROKCC_ARCHIVE);
-		RESOURCE_URLS.put("magqc_subnets_v1.full_fallback.bbnets.gz", PROKCC_ARCHIVE);
+		RESOURCE_URLS.put("composite_d252_polished_weight18.bbnet.gz", PROKCC_V15_ARCHIVE);
+		RESOURCE_URLS.put("v1.bbnets.gz", PROKCC_V15_ARCHIVE);
+		RESOURCE_URLS.put("magqc_subnets_v1.bbnets.gz", PROKCC_V15_ARCHIVE);
+		RESOURCE_URLS.put("magqc_subnets_v1.full_fallback.bbnets.gz", PROKCC_V15_ARCHIVE);
 		RESOURCE_URLS.put("magqc_hbm_v1.rare01.a48.mqhb.bgz", PROKCC_ARCHIVE);
 		RESOURCE_URLS.put("magqc_hbm_v1.rare01.hbmt.gz", PROKCC_ARCHIVE);
 		RESOURCE_URLS.put("magqc_sidecar_v1.tsv.gz", PROKCC_ARCHIVE);

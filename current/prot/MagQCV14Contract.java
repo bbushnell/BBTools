@@ -9,10 +9,10 @@ import java.util.Map;
 /** Explicit schema3 size transforms and feature bindings; never inferred from network dimensions.
  * @author Brian Bushnell, Nilou
  */
-final class MagQCV14Contract {
+public final class MagQCV14Contract {
 
 	/** Parses the released metadata and retains the actual declared arithmetic constants. */
-	MagQCV14Contract(final Map<String, String> metadata) throws IOException{
+	public MagQCV14Contract(final Map<String, String> metadata) throws IOException{
 		assert(metadata!=null) : "Size arithmetic must be read from the authenticated bundle metadata";
 		final String mode=required(metadata, "v14_fixture");
 		if(!mode.equals("true") && !mode.equals("false")){throw new IOException("v14_fixture must be literal true or false");}
@@ -31,7 +31,17 @@ final class MagQCV14Contract {
 			throw new IOException("Both logarithmic size targets require the declared [0,1] clamp");
 		}
 		activations=required(metadata, "size_output_activations").split(",", -1);
-		if(!Arrays.equals(activations, ACTIVATIONS)){throw new IOException("Size output activation order differs");}
+		final String profile=metadata.get("size_output_activation_profile");
+		if(profile==null){
+			if(!Arrays.equals(activations, ACTIVATIONS)){throw new IOException("Size output activation order differs");}
+		}else{
+			if(!profile.equals("all_rslog_v1") || activations.length!=NAMES.length){
+				throw new IOException("Unsupported explicit size output activation profile");
+			}
+			for(String activation:activations){
+				if(!activation.equals("RSLOG")){throw new IOException("All-rslog size profile requires every learned output to use RSLOG");}
+			}
+		}
 		if(!required(metadata, "size_output_names").equals(String.join(",", NAMES))){throw new IOException("Size output names differ");}
 	}
 
@@ -58,7 +68,7 @@ final class MagQCV14Contract {
 	}
 
 	/** Checks the activation token on each actual serialized output cell, including sparse networks. */
-	void requireActivations(final byte[] bytes, final int[] dims) throws IOException{
+	public void requireActivations(final byte[] bytes, final int[] dims) throws IOException{
 		assert(bytes!=null) : "Activation validation must inspect the serialized network actually placed in the bundle";
 		if(dims==null || dims.length<2 || dims[dims.length-1]!=10){throw new IOException("Size activation validation requires ten output cells");}
 		int first=1; for(int i=0; i<dims.length-1; i++){first=Math.addExact(first, dims[i]);}
@@ -108,5 +118,5 @@ final class MagQCV14Contract {
 	private static final String[] ACTIVATIONS={"SIG", "LINEAR", "SIG", "SIG", "SIG", "SIG", "LINEAR", "SIG", "SIG", "SIG"};
 	static final String[] KEYS={"v14_fixture", "v14_ordinary_input_extra", "v14_requiredness_sha80", "v14_size_markers_sha80",
 		"size_log10_bp_offset", "size_log10_bp_scale", "size_log10_cds_offset", "size_log10_cds_scale", "size_linear_bp_scale",
-		"size_log_target_clamp", "size_output_names", "size_output_activations"};
+		"size_log_target_clamp", "size_output_names", "size_output_activations", "size_output_activation_profile"};
 }

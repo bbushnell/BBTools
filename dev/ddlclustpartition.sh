@@ -8,7 +8,7 @@ Splits protein FASTA records into balanced files without clustering or filtering
 Loads all inputs into memory. Partition sizes differ by at most one record;
 the first partitions receive any remainder, so divisibility is not required.
 
-Usage: ddlclustpartition.sh in=tails.faa out=part#.faa map=partition.tsv
+Usage: dev/ddlclustpartition.sh in=tails.faa out=part#.faa map=partition.tsv
                            ways=4 order=shuffle seed=1
 
 in=             One disk FASTA or an ordered comma-separated list of FASTA files.
@@ -37,11 +37,13 @@ including symbolic and hard links, are rejected before any output is opened.
 No alignment, consensus construction or assignment is performed.
 config=file     Standard BBTools configuration file.
 -Xmx            Override Java heap allocation.
+Installation root is detected automatically from top-level or dev/ placement.
 HELP
 }
 if [[ $# == 0 || $1 == -h || $1 == --help ]]; then usage; exit 0; fi
 SCRIPT=$(readlink -f -- "${BASH_SOURCE[0]}")
 DIR=$(cd "$(dirname "$SCRIPT")" && pwd)
+if [[ ! -f "$DIR/javasetup.sh" ]]; then DIR=$(dirname "$DIR"); fi
 if [[ -f $DIR/bbtools.jar ]]; then CP=$DIR/bbtools.jar; else CP=$DIR/current; fi
 source "$DIR/javasetup.sh"
 source "$DIR/memdetect.sh"

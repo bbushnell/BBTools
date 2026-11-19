@@ -18,7 +18,8 @@ public final class MagQCPredictionContract {
 		require(validator.validate(), "Malformed prediction metadata JSON");
 		final JsonObject root=new JsonParser(text).parseJsonObject();
 		final String schema=string(root, "schema");
-		final boolean version2="magqc_prediction_contract_v2".equals(schema);
+		final boolean version3="magqc_prediction_contract_v3".equals(schema);
+		final boolean version2=version3 || "magqc_prediction_contract_v2".equals(schema);
 		require(version2 || "magqc_prediction_contract_v1".equals(schema), "Unsupported prediction metadata schema");
 		final Object value=root.omap==null ? null : root.omap.get("heads");
 		require(value instanceof Object[], "Prediction metadata requires a head array");
@@ -27,6 +28,8 @@ public final class MagQCPredictionContract {
 		final int[] linear={-1, -1}, magnified={-1, -1};
 		final double[] minimum=new double[2], maximum=new double[2], scale=new double[2], offset=new double[2];
 		final boolean[] logErrors=new boolean[rawNames.length];
+		final boolean[] servedClip=new boolean[rawNames.length],referenceClip=new boolean[rawNames.length];
+		int clipped=0;
 		final String[] errorQuantities=new String[rawNames.length];
 		final HashSet<String> servedErrors=new HashSet<String>();
 		final HashSet<String> linearQuantities=new HashSet<String>();
@@ -51,6 +54,11 @@ public final class MagQCPredictionContract {
 			}else if(!kind.equals("magnified_value")){
 				require("identity".equals(string(head, "transform")), "Non-magnified heads require the identity reporting transform");
 			}
+			servedClip[i]=clipField(head,"served_clip");referenceClip[i]=clipField(head,"reference_clip");
+			require(version3 || !(servedClip[i] || referenceClip[i]),"Clipped serving requires version3 prediction metadata");
+			require(!servedClip[i] || kind.equals("linear_value") || kind.equals("binary"),"Only served values and binary probabilities are capped");
+			require(!referenceClip[i] || logErrors[i],"Reference clipping belongs only to served log-error targets");
+			if(servedClip[i]){clipped++;}
 			final int axis=quantity.equals("gene_completeness") ? 0 : quantity.equals("gene_contamination") ? 1 : -1;
 			if(kind.equals("linear_value")){linearQuantities.add(quantity);}
 			if(kind.equals("linear_value") && axis>=0){
@@ -71,7 +79,8 @@ public final class MagQCPredictionContract {
 		}
 		final boolean blend=magnified[0]>=0 || magnified[1]>=0;
 		require(version2 || blend, "Legacy prediction metadata requires magnified values");
-		require(!version2 || !servedErrors.isEmpty(), "Version2 metadata requires at least one log-error head");
+		require(!version2 || version3 || !servedErrors.isEmpty(), "Version2 metadata requires at least one log-error head");
+		require(!version3 || clipped>0,"Version3 metadata requires explicit served clipping");
 		// JsonObject keeps nested objects in jmap, separately from scalar/array omap.
 		require(!root.omap.containsKey("ramp"), "Blend ramp must be an object");
 		final JsonObject ramp=root.getJson("ramp");
@@ -87,17 +96,46 @@ public final class MagQCPredictionContract {
 		}
 		require(linearQuantities.containsAll(servedErrors), "Log-error reference lacks a linear value head");
 		return new MagQCPredictionContract(rawNames, linear, magnified, minimum, maximum, scale, offset, lo, hi,
-			blend, logErrors, errorQuantities, servedErrors);
+			blend, logErrors, errorQuantities, servedErrors, servedClip, referenceClip);
+	}
+
+	/** Separates raw model head names from the bundle's stable feature names without changing slots.
+	 * Historical fixtures and the production trainer use two explicit error-name conventions. */
+	static MagQCPredictionContract parseSubnet(final String prediction, final String raw){
+		require(raw!=null && new JsonParser(raw).validate(), "Schema4 subnets require valid raw target metadata");
+		final JsonObject root=new JsonParser(raw).parseJsonObject();
+		final Object value=root.omap==null ? null : root.omap.get("heads");
+		require(value instanceof Object[] && ((Object[])value).length==6, "Schema4 subnets require six raw heads");
+		final Object[] heads=(Object[])value;
+		final String[] names=new String[6];
+		final String[] canonical={"gene_completeness", "gene_contamination", "abs_residual_gene_completeness",
+			"abs_residual_gene_contamination", "magnified_completeness", "magnified_contamination"};
+		for(int i=0; i<6; i++){
+			require(heads[i] instanceof JsonObject, "Every raw subnet head must be an object");
+			names[i]=string((JsonObject)heads[i], "name");
+			final String alias=i==2 ? "gene_completeness_error" : i==3 ? "gene_contamination_error" : canonical[i];
+			require(names[i].equals(canonical[i]) || names[i].equals(alias), "Schema4 raw head name/order differs at slot "+i);
+		}
+		require(names[2].equals(canonical[2])==names[3].equals(canonical[3]),
+			"Schema4 error heads must use one complete naming convention, not a hybrid pair");
+		final MagQCPredictionContract contract=parse(prediction, names);
+		contract.validateRawContract(raw);
+		require(contract.blend && contract.linear[0]==0 && contract.linear[1]==1 &&
+			contract.magnified[0]==4 && contract.magnified[1]==5 && contract.logErrors[2] && contract.logErrors[3] &&
+			"gene_completeness".equals(contract.errorQuantities[2]) && "gene_contamination".equals(contract.errorQuantities[3]),
+			"Schema4 feature slots require two gene values, their served log errors, then their raw magnifiers");
+		return contract;
 	}
 
 	/** Retains only validated immutable interpretation data, never the mutable JSON tree. */
 	private MagQCPredictionContract(final String[] rawNames, final int[] linear_, final int[] magnified_,
 			final double[] minimum_, final double[] maximum_, final double[] scale_, final double[] offset_,
 			final double lo_, final double hi_, final boolean blend_, final boolean[] logErrors_,
-			final String[] errorQuantities_, final HashSet<String> servedErrors_){
+			final String[] errorQuantities_, final HashSet<String> servedErrors_,final boolean[] servedClip_,final boolean[] referenceClip_){
 		rawCount=rawNames.length;
 		blend=blend_; logErrors=logErrors_.clone(); servedErrors=new HashSet<String>(servedErrors_);
 		errorQuantities=errorQuantities_.clone();
+		servedClip=servedClip_.clone();referenceClip=referenceClip_.clone();
 		names=Arrays.copyOf(rawNames, rawCount+(blend ? DIAGNOSTICS.length : 0));
 		final HashSet<String> unique=new HashSet<String>(Arrays.asList(rawNames));
 		for(int i=0; blend && i<DIAGNOSTICS.length; i++){
@@ -121,18 +159,28 @@ public final class MagQCPredictionContract {
 	public boolean hasBlend(){return blend;}
 	/** Indicates that declared log errors are decoded into the existing fractional API. */
 	public boolean hasLogErrors(){return !servedErrors.isEmpty();}
+	public boolean hasServedClip(){for(boolean value:servedClip){if(value){return true;}}return false;}
+	/** Establishes the exact inverse/re-encoding range used by the subnet cap policy. */
+	public boolean hasCanonicalSubnetEndpointBounds(){
+		if(rawCount!=6 || !blend || linear[0]!=0 || linear[1]!=1 || magnified[0]!=4 || magnified[1]!=5 ||
+			!logErrors[2] || !logErrors[3]){return false;}
+		for(int axis=0; axis<2; axis++){
+			if(minimum[axis]!=.1 || maximum[axis]!=100 || scale[axis]!=3 || offset[axis]!=1){return false;}
+		}
+		return true;
+	}
 
 	/** Raw target metadata makes inverse decoding mandatory, never an optional report decoration. */
-	static boolean requiresLogDecoding(final String rawContract){
-		return rawContract!=null && rawContract.contains("\"log_abs_error\"");
+	public static boolean requiresLogDecoding(final String rawContract){
+		return rawContract!=null && (rawContract.contains("\"log_abs_error\"") || rawContract.contains("\"served_clip\"") || rawContract.contains("explicit_targets_v2"));
 	}
 
 	/** Cross-binds decoded slots to their training targets so missing or swapped metadata fails loudly. */
-	void validateRawContract(final String text){
-		if(!hasLogErrors() && !requiresLogDecoding(text)){return;}
+	public void validateRawContract(final String text){
+		if(!hasLogErrors() && !hasServedClip() && !requiresLogDecoding(text)){return;}
 		require(text!=null && new JsonParser(text).validate(), "Log errors require valid raw output metadata");
 		final JsonObject root=new JsonParser(text).parseJsonObject();
-		require("explicit".equals(string(root, "mode")) && "explicit_targets_v1".equals(string(root, "schema")),
+		require("explicit".equals(string(root, "mode")) && (hasServedClip() ? "explicit_targets_v2" : "explicit_targets_v1").equals(string(root, "schema")),
 			"Log errors require explicit raw targets");
 		final Object rows=root.omap.get("heads");
 		require(rows instanceof Object[] && ((Object[])rows).length==rawCount, "Raw error head count differs from reporting metadata");
@@ -140,6 +188,9 @@ public final class MagQCPredictionContract {
 		for(int i=0; i<rawCount; i++){
 			require(heads[i] instanceof JsonObject, "Raw output head must be an object");
 			final JsonObject head=(JsonObject)heads[i];
+			final String kind=string(head,"kind");final boolean rawClip=clipField(head,"served_clip");
+			require(!rawClip || kind.equals("column") || kind.equals("ge") || kind.equals("gt") || kind.equals("log_abs_error"),"Unsupported raw target clipping");
+			require(rawClip==(logErrors[i] ? referenceClip[i] : servedClip[i]),"Raw targets and serving disagree on clipping");
 			require(names[i].equals(string(head, "name")), "Raw and reported head order differs");
 			require(logErrors[i]=="log_abs_error".equals(string(head, "kind")), "Log-error decoding slots differ from training targets");
 			if(logErrors[i]){
@@ -149,6 +200,7 @@ public final class MagQCPredictionContract {
 				require(names[reference].equals(errorQuantities[i]) && heads[reference] instanceof JsonObject,
 					"Raw error target references another quantity");
 				final JsonObject valueHead=(JsonObject)heads[reference];
+				require(referenceClip[i]==servedClip[reference] && rawClip==clipField(valueHead,"served_clip"),"Log-error targets must reference the same capped served value");
 				require("column".equals(string(valueHead, "kind")) && index(valueHead, "column", QUANTITY_ORDER.length)==column,
 					"Raw error reference must be the linear value of its declared quantity");
 				if(blend && column<2){
@@ -199,7 +251,19 @@ public final class MagQCPredictionContract {
 		}
 		for(int i=0; i<rawCount; i++){
 			if(logErrors[i]){output[i]=(float)(Math.max(.1, Math.min(100, Math.pow(10, 3.0*output[i]-1)))/100);}
+			// Deliberately AFTER blending. Raw linear/magnified diagnostic slots
+			// remain unchanged; training value losses use uncapped network output.
+			if(servedClip[i]){output[i]=Math.max(0f,Math.min(1f,output[i]));}
 		}
+	}
+
+	private static boolean clipField(final JsonObject object,final String key){
+		require(object.getJson(key)==null,"Clipping must be a two-number array, not an object");
+		if(object.omap==null || !object.omap.containsKey(key)){return false;}
+		final Object value=object.omap.get(key);require(value instanceof Object[] && ((Object[])value).length==2,"Clipping needs explicit [0,1] bounds");
+		final Object[] bounds=(Object[])value;
+		require(bounds[0] instanceof Number && bounds[1] instanceof Number && ((Number)bounds[0]).doubleValue()==0 && ((Number)bounds[1]).doubleValue()==1,
+			"Served clipping supports only [0,1]");return true;
 	}
 
 	/** Reads typed metadata without relying on assertion-only JsonObject casts. */
@@ -228,6 +292,7 @@ public final class MagQCPredictionContract {
 	private final double lo, hi;
 	private final boolean blend;
 	private final boolean[] logErrors;
+	private final boolean[] servedClip,referenceClip;
 	private final String[] errorQuantities;
 	private final HashSet<String> servedErrors;
 	private static final String[] DIAGNOSTICS={"linear_gene_completeness", "linear_gene_contamination",

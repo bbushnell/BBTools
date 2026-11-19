@@ -65,8 +65,8 @@ Java parameters:
 -ea                   Assertions enabled by default.
 
 Model installation:
-Download prokcc_v1.5.tar from:
-https://sourceforge.net/projects/bbmap/files/Resources/prokcc_v1.5.tar
+Download prokcc_v1.8.8.tar from:
+https://sourceforge.net/projects/bbmap/files/Resources/prokcc_v1.8.8.tar
 Untar it in the BBTools resources/ directory to create resources/prokcc/.
 The archive contains the matching configuration, models, and tables. Downloads
 are manual. See resources/prokcc/README.md for the model and release details.
@@ -99,7 +99,7 @@ for arg in "$@"; do
       [[ -z $SELFTEST ]] || { echo 'Duplicate selftest flag' >&2; exit 2; }
       SELFTEST=${arg#*=}
       case ${SELFTEST,,} in
-        t|true) CLASS=prot.MagQCAssemblyBatchTest;;
+        t|true) CLASS=test.prot.MagQCAssemblyBatchTest;;
         f|false) ;;
         *) echo 'selftest must be t or f' >&2; exit 2;;
       esac;;
@@ -113,7 +113,7 @@ if [[ $CLASS == prok.ProkCC && $CONFIG_GIVEN == false ]]; then
   DEFAULT_CONFIG=$DIR/resources/prokcc/release.config
   if [[ ! -f $DEFAULT_CONFIG ]]; then
     echo "Missing default model config: $DEFAULT_CONFIG" >&2
-    echo 'Download https://sourceforge.net/projects/bbmap/files/Resources/prokcc_v1.5.tar' >&2
+    echo 'Download https://sourceforge.net/projects/bbmap/files/Resources/prokcc_v1.8.8.tar' >&2
     echo "Untar it in the BBTools resources/ directory ($DIR/resources/) to create resources/prokcc/, then try again." >&2
     exit 1
   fi

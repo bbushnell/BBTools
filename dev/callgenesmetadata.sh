@@ -1,19 +1,16 @@
 #!/usr/bin/env bash
 usage(){
 cat <<'HELP'
-Rebind explicitly listed legacy artifact paths, preserving other bytes and resolved dependencies.
-Usage: rebindfamilyartifacts.sh in=bindings.tsv out=/fresh/package
-Input magic: #bbgap_family_rebind<TAB>1
-Columns: artifact, format, source, target, key, expected, replacement (tab-separated).
-Formats: classifier or cascade. Keys: blacklist; cascade also allows short40manifest.
-Sources/replacements are absolute; targets are safe basenames in the fresh output root.
-SHORT edits require their composite root in the same batch. Diagnostic-matrix, fitted-floor,
-scalar-mean and cyclic graphs are rejected before structural readers. No payload hashing or refitting.
-Outputs: rebound artifacts, bindings.tsv, PASS. Failure has no PASS; existing roots are never overwritten.
+Extract paired-caller scorer metadata from four saved tables. No sequence reads or caller runs.
+Usage: dev/callgenesmetadata.sh accepted=accepted_inputs.tsv raw=by_genome.tsv \
+  retained=retained_gffs.tsv summary=scorecard.tsv out=/fresh/metadata policy=cached expectedgenomes=983
+Outputs: grades.tsv, inputs.tsv, expected.tsv, PASS. Existing output roots are rejected.
+The cohort size and safe policy prefix are explicit; native/formula aliases and saved order are retained.
 
-library= selects an installed BBTools directory (default: this script's directory).
+library= overrides the detected installation root.
 classpathfile= supplies one literal classpath line of existing absolute providers.
 -Xmx/-Xms, assertions and ordinary BBTools JVM options are supported.
+Installation root is detected automatically from top-level or dev/ placement.
 HELP
 }
 if [[ $# == 0 || $1 == -h || $1 == --help ]];then
@@ -22,6 +19,7 @@ if [[ $# == 0 || $1 == -h || $1 == --help ]];then
 fi
 SCRIPT=$(readlink -f -- "${BASH_SOURCE[0]}")
 DIR=$(cd "$(dirname "$SCRIPT")" && pwd)
+if [[ ! -f "$DIR/javasetup.sh" ]]; then DIR=$(dirname "$DIR"); fi
 LIBRARY=$DIR
 CLASSPATH_FILE=
 EXACT_CP=false
@@ -58,4 +56,4 @@ fi
 source "$DIR/javasetup.sh"
 parseJavaArgs --xmx=1g --xms=32m --mode=fixed "${JVM_ARGS[@]}"
 setEnvironment
-exec java $EA $EOOM $SIMD $XMX $XMS $PROXY -ea -cp "$CP" prot.FamilyArtifactRebind "${ARGS[@]}"
+exec java $EA $EOOM $SIMD $XMX $XMS $PROXY -ea -cp "$CP" benchmark.CallGenesSavedMetadata "${ARGS[@]}"

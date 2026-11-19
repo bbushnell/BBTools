@@ -4,6 +4,7 @@ import java.io.FileInputStream;
 import java.io.InputStream;
 import java.security.DigestInputStream;
 import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.HashMap;
 
 /** Canonical 80-bit textual suffix of a SHA-256 digest. Full digest text is never constructed. */
@@ -18,17 +19,30 @@ public final class DigestSuffix {
 	/** Hashes the file's stored bytes, including compression bytes, and returns its lowercase sha80. */
 	public static String file(final String path){
 		try{
-			final MessageDigest md=MessageDigest.getInstance("SHA-256");
-			final byte[] buffer=new byte[1<<20];
-			try(InputStream in=new DigestInputStream(new FileInputStream(path), md)){
+			return file(path, MessageDigest.getInstance("SHA-256"), new byte[1<<20]);
+		}catch(NoSuchAlgorithmException e){throw new RuntimeException("SHA-256 is unavailable", e);}
+	}
+
+	/** Hashes stored bytes using caller-owned scratch. Each worker must own its
+	 * digest and nonempty buffer; both may be reused for subsequent files. */
+	public static String file(final String path, final MessageDigest digest, final byte[] buffer){
+		if(digest==null || !"SHA-256".equalsIgnoreCase(digest.getAlgorithm())){
+			throw new IllegalArgumentException("Canonical sha80 requires a SHA-256 digest");
+		}
+		if(buffer==null || buffer.length==0){throw new IllegalArgumentException("Hash input buffer must be nonempty");}
+		digest.reset();
+		try{
+			try(InputStream in=new DigestInputStream(new FileInputStream(path), digest)){
 				while(in.read(buffer)>=0){}
 			}
-			return fromDigest(md.digest());
-		}catch(Exception e){throw new RuntimeException("Failed to hash "+path, e);}
+			final byte[] value=digest.digest();
+			assert(value.length==32) : "SHA-256 must supply 32 bytes before taking the canonical sha80 suffix";
+			return fromDigest(value);
+		}catch(Exception e){digest.reset();throw new RuntimeException("Failed to hash "+path, e);}
 	}
 
 	/** Returns the lowercase sha80 of the supplied byte sequence. */
-	static String bytes(final byte[] bytes){
+	public static String bytes(final byte[] bytes){
 		try{return fromDigest(MessageDigest.getInstance("SHA-256").digest(bytes));}
 		catch(Exception e){throw new RuntimeException("Failed to hash byte content", e);}
 	}
@@ -61,7 +75,7 @@ public final class DigestSuffix {
 	}
 
 	/** Requires exactly twenty lowercase hexadecimal characters, with no legacy full-digest fallback. */
-	static String requireSuffix(final String text, final String label){
+	public static String requireSuffix(final String text, final String label){
 		if(text==null || text.length()!=HEX_LENGTH){
 			throw new IllegalArgumentException(label+" must be exactly 20 lowercase hexadecimal characters");
 		}

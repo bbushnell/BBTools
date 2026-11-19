@@ -59,6 +59,18 @@ final class MagQCSizeFeatures {
 		return present/100.0;
 	}
 
+	/** Copies the same ordered100 marker-presence bits into a caller-owned numeric row. */
+	int fillPresence(final float[] out, final int offset, final int[] observed){
+		require(out!=null && offset>=0 && offset+100<=out.length && ranks.length==100
+			&& observed!=null && observed.length==families,"Numeric size marker layout differs from the frozen100 ranks");
+		int present=0;
+		for(int i=0;i<ranks.length;i++){
+			final int count=observed[ranks[i]]; require(count>=0,"Negative observed size marker count");
+			out[offset+i]=count>0 ? 1f : 0f; if(count>0){present++;}
+		}
+		return present;
+	}
+
 	/** Produces five value labels; returns bit0/bit1 when the BP/CDS log target was clamped.
 	 * The linear size value remains unbounded. Dynamic residual targets belong to the trainer. */
 	static int targets(final long originalBp, final long originalCds, final double geneC,

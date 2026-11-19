@@ -1,4 +1,26 @@
-# Protein substitution matrix interchange
+# Protein tools
+
+## ProkCC 1.8.8
+
+Install `prokcc_v1.8.8.tar` by extracting it into the BBTools `resources/`
+directory, then run `prokcc.sh in=bin.fa out=quality.tsv`. The archive creates
+one `prokcc/` directory containing its configuration, models and supporting
+tables. Keep these resources together; their versioned hashes bind the model
+to the inputs used during evaluation.
+
+This release uses a single ten-head composite with 18-bit weights and its
+evaluated 32-bit subnet bundle. The bundle contains 132 networks and is gzip
+compressed even though its filename ends in `.bbnets`. Model normalization
+and prediction interpretation are embedded in the network. Error estimates
+remain uncalibrated and are not confidence intervals.
+
+The supplied configuration selects the eight-feature subnet layout and the
+tracked-to-called gene ratio. These are model-input contracts, not options to
+mix with an older model or bundle. Relative resource paths resolve against the
+configuration directory. To use an earlier release, retain its complete
+resource directory and pass its configuration explicitly with `config=`.
+
+## Protein substitution matrix interchange
 
 `convertproteinmatrix.sh` reads native version1 TSV or NCBI substitution-matrix
 text and writes either representation. Input detection uses file content, not

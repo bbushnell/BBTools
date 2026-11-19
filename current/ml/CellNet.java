@@ -634,6 +634,12 @@ public class CellNet implements Cloneable, Comparable<CellNet>{
 	 * @param weightMult Error-weighting factor multiplied by the sample weight
 	 */
 	public void processSample(Sample s, boolean backProp, float weightMult){
+		processSample(s, backProp, weightMult, 0);
+	}
+
+	/** Optional bungee strength is owned by the caller, never the Function singleton.
+	 * Weighted training callers use applyChanges(samples,alpha,weightMass). */
+	public void processSample(Sample s, boolean backProp, float weightMult, final double bungeeLambda){
 		//assert(check());
 		weightMult*=s.weight; //Apply sample-specific weighting
 		
@@ -668,9 +674,9 @@ public class CellNet implements Cloneable, Comparable<CellNet>{
 //		errorSum+=s.errorMagnitude;
 //		weightedErrorSum+=s.weightedErrorMagnitude;
 		if(dense){
-			backPropDense(s.goal, weightMult); //Dense backpropagation
+			backPropDense(s.goal, weightMult, bungeeLambda); //Dense backpropagation
 		}else{
-			backPropSparse(s.goal, weightMult); //Sparse backpropagation
+			backPropSparse(s.goal, weightMult, bungeeLambda); //Sparse backpropagation
 		}
 		//assert(check());
 	}
@@ -736,12 +742,14 @@ public class CellNet implements Cloneable, Comparable<CellNet>{
 		if(clip>0){setTag("normalization", "explicit-input");}
 	}
 
-	/** A clipped model must have a hidden layer whose every node uses native TANH. */
+	/** Clipping is explicit preprocessing, also shared by standard-activation comparisons. */
 	private void validateInputClip(){
-		if(layers<3 || net[1].length==0){throw new IllegalArgumentException("Input clipping requires a hidden TANH layer");}
+		if(layers<3 || net[1].length==0){throw new IllegalArgumentException("Input clipping requires a hidden layer");}
 		for(Cell cell:net[1]){
-			if(cell.function!=Function.getFunction(Function.TANH)){
-				throw new IllegalArgumentException("Input clipping requires uniformly TANH first hidden nodes");
+			final int type=cell.function.type();
+			if(type!=Function.TANH && type!=Function.SIG && type!=Function.BTANH && type!=Function.BSIG &&
+				type!=Function.SWISH && !(type>=Function.RELU && type<=Function.SOFTPLUS)){
+				throw new IllegalArgumentException("Input clipping is unsupported for activation "+cell.function.name());
 			}
 		}
 	}
@@ -873,6 +881,12 @@ public class CellNet implements Cloneable, Comparable<CellNet>{
 	 * @param weightMult Configured error-weighting factor
 	 */
 	public void backPropSparse(float[] truth, float weightMult){
+		backPropSparse(truth, weightMult, 0);
+	}
+
+	/** Explicit bungee backward pass; caller later divides by its row-weight mass. */
+	public void backPropSparse(float[] truth, float weightMult, final double bungeeLambda){
+		final double restoringScale=restoringScale(bungeeLambda, weightMult);
 		//assert(check());
 		{ //Output layer processing
 			final float[] valuesIn=values[values.length-2]; //Previous layer activations
@@ -895,7 +909,7 @@ public class CellNet implements Cloneable, Comparable<CellNet>{
 			for(int i=0; i<layer.length; i++){
 				Cell c=layer[i];
 				//assert(c.check());
-				c.updateEdgesHiddenLayerSparse(valuesIn, eOverNetNext, weightsOutLnum[i], edgeBlockSize); //Hidden layer gradients
+				c.updateEdgesHiddenLayerSparse(valuesIn, eOverNetNext, weightsOutLnum[i], edgeBlockSize, restoringScale); //Hidden layer gradients
 				//assert(c.check());
 			}
 		}
@@ -910,6 +924,12 @@ public class CellNet implements Cloneable, Comparable<CellNet>{
 	 * @param weightMult Configured error-weighting factor
 	 */
 	public void backPropDense(float[] truth, float weightMult){
+		backPropDense(truth, weightMult, 0);
+	}
+
+	/** Dense equivalent; SPECIAL_FMA supplies only the upstream task/descendant gradient. */
+	public void backPropDense(float[] truth, float weightMult, final double bungeeLambda){
+		final double restoringScale=restoringScale(bungeeLambda, weightMult);
 		//assert(check());
 		{ //Output layer processing
 			final float[] valuesIn=values[values.length-2]; //Previous layer activations
@@ -931,7 +951,7 @@ public class CellNet implements Cloneable, Comparable<CellNet>{
 			for(int i=0; i<layer.length; i++){
 				Cell c=layer[i];
 				//assert(c.check());
-				c.updateEdgesHiddenLayerDense(valuesIn, eOverNetNext, weightsOutLnum[i]); //Hidden layer gradients
+				c.updateEdgesHiddenLayerDense(valuesIn, eOverNetNext, weightsOutLnum[i], restoringScale); //Hidden layer gradients
 				//assert(c.check());
 			}
 		}
@@ -943,6 +963,27 @@ public class CellNet implements Cloneable, Comparable<CellNet>{
 		}
 	}
 	
+	/** Derives one scale across the actual current hidden map, not per layer.
+	 * Positive-force training counts without allocation so public function-map
+	 * mutation cannot leave a stale cached denominator. The legacy path skips it. */
+	private double restoringScale(final double lambda, final float rowWeight){
+		if(!Double.isFinite(lambda) || lambda<0){throw new IllegalArgumentException("Bungee strength must be finite and nonnegative");}
+		if(lambda==0){return 0;}
+		if(!Float.isFinite(rowWeight) || rowWeight<0){throw new IllegalArgumentException("Restoring force requires a finite nonnegative row weight");}
+		long count=0;
+		for(int l=1; l<layers-1; l++){
+			for(Cell cell : net[l]){
+				final int type=cell.function.type();
+				if(type==Function.BSIG || type==Function.BTANH){count++;}
+			}
+		}
+		if(count==0){throw new IllegalArgumentException("Positive bungee strength requires bungee hidden neurons");}
+		final double scale=(lambda/count)*rowWeight;
+		if(!Double.isFinite(scale)){throw new IllegalArgumentException("Bungee strength and row weight overflowed the restoring scale");}
+		assert(count<list.size()) : "The hidden bungee count must fit CellNet's complete input/hidden/output cell list";
+		return scale;
+	}
+
 	/**
 	 * Normalizes bias values across hidden layers using z-score standardization.
 	 * Computes mean and standard deviation for each layer, then applies
@@ -1028,7 +1069,7 @@ public class CellNet implements Cloneable, Comparable<CellNet>{
 	 * to ensure gradient computation uses latest weights. Required
 	 * after weight updates or normalization.
 	 */
-	void transpose(){
+	public void transpose(){
 		if(dense){transposeDense();} //Dense matrix transpose
 		else{transposeSparse();} //Sparse matrix transpose
 	}
@@ -1092,9 +1133,25 @@ public class CellNet implements Cloneable, Comparable<CellNet>{
 		//assert(check());
 		float invSamples=1f/samples; // Average gradients over batch
 		assert(invSamples<=1) : samples+", "+invSamples;
+		applyChangesAveraged(samples, alpha, invSamples);
+	}
+
+	/** Weighted counterpart: samples tracks actual rows, weightMass normalizes
+	 * both task and restoring gradients. Existing unweighted callers are unchanged. */
+	public void applyChanges(final int samples, final float alpha, final double weightMass){
+		if(samples<1 || !Double.isFinite(weightMass) || weightMass<=0){
+			throw new IllegalArgumentException("Weighted update requires positive row count and finite positive weight mass");
+		}
+		final float inverse=(float)(1.0/weightMass);
+		if(!Float.isFinite(inverse) || inverse<=0){throw new IllegalArgumentException("Weight mass cannot be represented by the FP32 update scale");}
+		applyChangesAveraged(samples, alpha, inverse);
+	}
+
+	private void applyChangesAveraged(final int samples, final float alpha, final float inverse){
+		assert(samples>0 && Float.isFinite(inverse) && inverse>0) : "Accumulated cell deltas require a valid batch-normalization scale";
 		for(Cell c : list){
 			if(c!=null){
-				c.applyUpdates(invSamples, alpha); // Update weights and biases
+				c.applyUpdates(inverse, alpha); // Update weights and biases
 			}
 		}
 		//assert(check());
@@ -1235,11 +1292,14 @@ public class CellNet implements Cloneable, Comparable<CellNet>{
 		for(Map.Entry<String,String> e : tags.entrySet()){ //Custom tags; one canonical value with the latest requested spelling
 			final String canonical=e.getKey();
 			if(inputClip>0 && canonical.equals("normalization")){continue;}
+			// Quantizer provenance describes this write, not a previously read file.
+			if(canonical.equals("weight_rounding")){continue;}
 			final String name=tagNames.get(canonical);
 			bb.append("##").append(name==null ? canonical : name).space().append(e.getValue()).nl();
 		}
 		if(OUT_DELTA_A48 && !outputDense){bb.append("#indexencoding deltaa48").nl();}
 		bb.append(codingA48Out ? "#coding A48" : "#coding decimal").nl();
+		if(weightBits==18){bb.append("##weight_rounding nearest_even").nl();}
 		if(weightBits<32){bb.append("#weightbits ").append(weightBits).nl();}
 		return bb;
 	}
@@ -1259,7 +1319,7 @@ public class CellNet implements Cloneable, Comparable<CellNet>{
 	/** Sets the dense zero-mask contract for serialization and structural edge accounting. */
 	public void setZeroAbsent(final boolean zeroAbsent_){zeroAbsent=zeroAbsent_;}
 
-	/** Writes one edge, omitting low14 or low8 bits under the explicit18/24-bit wire contract. */
+	/** Writes one edge: nearest-even18-bit rounding or the historical24-bit truncation. */
 	private void appendWeight(final ByteBuilder bb, final float weight){
 		bb.space();
 		if(weightBits<32){
@@ -1269,10 +1329,20 @@ public class CellNet implements Cloneable, Comparable<CellNet>{
 		else{bb.append(decimalEdgeWeight(weight), 6, true);}
 	}
 
-	/** Returns reduced A48 edge bits, flooring nonzero sub-precision magnitudes away from zero. */
+	/** Returns reduced A48 edge bits. New18-bit writes round to nearest, ties even;
+	 * nonzero underflows still retain the least same-sign live edge. The reader
+	 * and existing files are unchanged;24-bit output retains its old truncation. */
 	private int reducedA48Bits(final float weight){
 		final int raw=Float.floatToRawIntBits(weight);
 		int bits=raw>>>(32-weightBits);
+		if(weightBits==18){
+			// One less than half a discarded unit plus the retained low bit gives
+			// nearest-even rounding, including mantissa carry into the exponent.
+			bits=(raw+0x1fff+((raw>>>14)&1))>>>14;
+			if((bits&0x1ffff)>=0x1fe00){
+				throw new IllegalArgumentException("18-bit rounding overflows a finite edge weight: "+weight);
+			}
+		}
 		final int signless=bits&((1<<(weightBits-1))-1);
 		if(weight!=0 && signless==0){bits=(bits&(1<<(weightBits-1)))|1;}
 		assert(weight==0 || (bits&((1<<(weightBits-1))-1))!=0) :

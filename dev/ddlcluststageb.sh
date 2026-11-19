@@ -7,9 +7,9 @@ Written by Yelan and Keqing.
 Collects consensuses from independently clustered shards, or rebuilds merged
 consensuses from their original input members. Loads the complete input in memory.
 
-Usage: ddlcluststageb.sh mode=collect codecs=part0.pddl.gz,part1.pddl.gz
+Usage: dev/ddlcluststageb.sh mode=collect codecs=part0.pddl.gz,part1.pddl.gz
                        out=consensuses.faa roster=roster.tsv ow=f
-       ddlcluststageb.sh mode=union in=originals.faa partitionmap=map.tsv.gz
+       dev/ddlcluststageb.sh mode=union in=originals.faa partitionmap=map.tsv.gz
                        stageacodecs=part0.pddl.gz,part1.pddl.gz
                        stageamembers=part0.members.tsv.gz,part1.members.tsv.gz
                        roster=roster.tsv stagebcodec=merged.pddl.gz
@@ -26,7 +26,7 @@ memberranking=t  Default for mutual, layercake, probe, localprobe, localplan and
                 ordering. Local selected-baseline modes require serialized member
                 descriptors, including last-nonempty values for empty templates.
 in=             Complete original protein FASTA, in the partitioner's input order.
-partitionmap=   Mapping emitted by ddlclustpartition.sh.
+partitionmap=   Mapping emitted by dev/ddlclustpartition.sh.
 stageacodecs=   Same ordered shard codec list supplied during collection.
 stageamembers=  Matching ordered shard membership files, including unassigned rows.
 stagebcodec=    Codec from clustering the collected consensuses.
@@ -61,11 +61,13 @@ Use ddlclust.sh seeds=seeds.pddl.gz with passes>=1 to reassign the complete orig
 input. Serialized source counts are provenance, not new input assignments.
 All output directories must exist. Input/output aliases, including hard links,
 are rejected. Paired inputs, reads limits and append output are unsupported.
+Installation root is detected automatically from top-level or dev/ placement.
 HELP
 }
 if [[ $# == 0 || $1 == -h || $1 == --help ]]; then usage; exit 0; fi
 SCRIPT=$(readlink -f -- "${BASH_SOURCE[0]}")
 DIR=$(cd "$(dirname "$SCRIPT")" && pwd)
+if [[ ! -f "$DIR/javasetup.sh" ]]; then DIR=$(dirname "$DIR"); fi
 if [[ -f $DIR/bbtools.jar ]]; then CP=$DIR/bbtools.jar; else CP=$DIR/current; fi
 source "$DIR/javasetup.sh"
 source "$DIR/memdetect.sh"

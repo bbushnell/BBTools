@@ -56,6 +56,12 @@ public abstract class Function{
 	 * @return Derivative value
 	 */
 	public abstract double derivativeXFX(double x, double fx);
+
+	/** Unit-strength gradient of the activation's restoring potential with respect
+	 * to pre-activation x. This is added to the loss gradient, never multiplied
+	 * by the upstream gradient or activation derivative. The trainer applies its
+	 * strength and reduction once; ordinary functions have no restoring force. */
+	public double restoringGradient(double x){return 0;}
 	
 	/** Returns the numeric type identifier for this activation function.
 	 * @return Function type constant (SIG, TANH, RSLOG, etc.) */
@@ -90,6 +96,9 @@ public abstract class Function{
 	static final int toType(String b, boolean assertValid){
 		int type;
 		if(Tools.startsWithLetter(b)){
+			if(b.equalsIgnoreCase("silu")){return SWISH;}
+			if(b.equalsIgnoreCase("leaky_relu")){return LEAKYRELU;}
+			if(b.equalsIgnoreCase("gelu_tanh")){return GELUTANH;}
 			type=Tools.findIC(b, TYPES);
 			if(type<0){type=Tools.findIC(b, TYPES_LONG);}
 		}else{
@@ -147,6 +156,26 @@ public abstract class Function{
 	public static final Function getFunction(int type){
 		return functions[type];
 	}
+
+	/** Reads a critical activation token; unknown parameters must never fall back
+	 * to the legacy singleton because that would silently change model inference. */
+	public static Function parse(final String token){
+		if(token==null){throw new IllegalArgumentException("Missing activation token");}
+		final int colon=token.indexOf(':');
+		if(colon>=0){
+			final String name=token.substring(0, colon);
+			if(!name.equals("BSIG") && !name.equals("BTANH")){
+				throw new IllegalArgumentException("Unknown parameterized activation: "+token);
+			}
+			if(token.startsWith("FORMULA:", colon+1)){return BungeeFormula.parse(token);}
+			if(token.startsWith("AFFINE:", colon+1)){return BungeeAffine.parse(token);}
+			final double epsilon=Double.parseDouble(token.substring(colon+1));
+			return name.equals("BSIG") ? new BSig(epsilon) : new BTanh(epsilon);
+		}
+		final int type=Tools.find(token, TYPES);
+		if(type<0){throw new IllegalArgumentException("Unknown activation: "+token);}
+		return getFunction(type);
+	}
 	
 	/**
 	 * Creates and initializes the array of function instances.
@@ -166,6 +195,15 @@ public abstract class Function{
 		array[EMSIG]=ExtendedMSig.instance;
 		array[BELL]=Bell.instance;
 		array[LINEAR]=Linear.instance;
+		array[BSIG]=BSig.instance;
+		array[BTANH]=BTanh.instance;
+		array[RELU]=ReLU.instance;
+		array[LEAKYRELU]=LeakyReLU.instance;
+		array[GELU]=ml.GELU.instance;
+		array[GELUTANH]=GELUTanh.instance;
+		array[ELU]=ml.ELU.instance;
+		array[MISH]=Mish.instance;
+		array[SOFTPLUS]=Softplus.instance;
 		for(int i=0; i<array.length; i++){
 			Function f=array[i];
 			assert(f!=null) : i+", "+TYPES[i]+", "+f;
@@ -207,13 +245,16 @@ public abstract class Function{
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	public static final int SIG=0, TANH=1, RSLOG=2, MSIG=3, SWISH=4, ESIG=5, EMSIG=6, BELL=7, LINEAR=8;
+	public static final int SIG=0, TANH=1, RSLOG=2, MSIG=3, SWISH=4, ESIG=5, EMSIG=6, BELL=7, LINEAR=8,
+		BSIG=9, BTANH=10, RELU=11, LEAKYRELU=12, GELU=13, GELUTANH=14, ELU=15, MISH=16, SOFTPLUS=17;
 	
-	static final String[] TYPES=new String[] {"SIG", "TANH", "RSLOG", "MSIG", "SWISH", "ESIG", "EMSIG", "BELL", "LINEAR"};
+	static final String[] TYPES=new String[] {"SIG", "TANH", "RSLOG", "MSIG", "SWISH", "ESIG", "EMSIG", "BELL", "LINEAR", "BSIG", "BTANH",
+		"RELU", "LEAKYRELU", "GELU", "GELUTANH", "ELU", "MISH", "SOFTPLUS"};
 	
 	static final String[] TYPES_LONG=new String[] {"SIGMOID", "HYPERBOLICTANGENT", 
 	"ROTATIONALLYSYMMETRICLOGARITHM", "MIRROREDSIGMOID", "SWISH",
-	"EXTENDEDSIGMOID", "EXTENDEDMIRROREDSIGMOID", "GAUSSIAN", "LINEAR"};
+	"EXTENDEDSIGMOID", "EXTENDEDMIRROREDSIGMOID", "GAUSSIAN", "LINEAR", "BUNGEESIGMOID", "BUNGEETANH",
+	"RECTIFIEDLINEAR", "LEAKYRECTIFIEDLINEAR", "GAUSSIANERRORLINEAR", "GAUSSIANERRORLINEARTANH", "EXPONENTIALLINEAR", "MISH", "SOFTPLUS"};
 	
 	/** Array of singleton Function instances indexed by type */
 	private static final Function[] functions=makeFunctions();

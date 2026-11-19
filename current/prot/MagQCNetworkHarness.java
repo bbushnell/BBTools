@@ -68,7 +68,8 @@ public final class MagQCNetworkHarness {
 		final String release=pinned(options, "subnetmanifest", "subnetmanifestsha80");
 		final String table=pinned(options, "expectedcopytable", "expectedcopytablesha80");
 		final String populations=pinned(options, "subnetpopulations", "subnetpopulationssha80");
-		final boolean extended=MagQCAssemblyBatch.v14Configured(options), eight=eightFeatures(options);
+		final boolean extended=MagQCAssemblyBatch.v14Configured(options), eight=eightFeatures(options), v17=v17Inputs(options);
+		if(v17 && !eight){throw new IllegalArgumentException("v17inputs requires subnetfeatures=eight");}
 		if(eight && !extended){throw new IllegalArgumentException("subnetfeatures=eight requires requiredness and size-marker resources");}
 		if(extended){
 			pinned(options, "requiredness", "requirednesssha80");
@@ -76,7 +77,10 @@ public final class MagQCNetworkHarness {
 		}
 		// Classification/calling precedes subnet initialization: no classifier can alter loaded NN state.
 		final MagQCPreparedBin prepared=assembly ? MagQCAssemblyInput.build(options) : null;
-		final MagQCVectorMaker vm=extended ? (eight ? MagQCVectorMaker.initializePreparedV16(bundle, family, release,
+		final MagQCVectorMaker vm=v17 ? MagQCVectorMaker.initializePreparedV17(bundle, family, release,
+			options.get("subnetmanifestsha80"), table, options.get("expectedcopytablesha80"),
+			populations, options.get("subnetpopulationssha80"), options.get("requiredness"), options.get("requirednesssha80"),
+			options.get("sizemarkers"), options.get("sizemarkerssha80"), false) : extended ? (eight ? MagQCVectorMaker.initializePreparedV16(bundle, family, release,
 			options.get("subnetmanifestsha80"), table, options.get("expectedcopytablesha80"),
 			populations, options.get("subnetpopulationssha80"), options.get("requiredness"), options.get("requirednesssha80"),
 			options.get("sizemarkers"), options.get("sizemarkerssha80"), false) :
@@ -103,6 +107,10 @@ public final class MagQCNetworkHarness {
 	static String pinned(HashMap<String,String> options, String key, String hashKey){
 		final String path=required(options, key), pin=required(options, hashKey);
 		if(!pin.matches("[0-9a-f]{20}")){throw new IllegalArgumentException(hashKey+" requires 20 lowercase hex characters");}
+		if(key.equals("net") && options.containsKey("netmetadata")){
+			MagQCVerifiedNetMetadata.verify(required(options,"netmetadata"),required(options,"netmetadatasha80"),path,pin);
+			return path;
+		}
 		final boolean text=key.equals("familylist") || key.equals("subnetmanifest") ||
 			key.equals("expectedcopytable") || key.equals("subnetpopulations");
 		final String actual=text ? MagQCTextResource.sha80(path) : sha80(path);
@@ -192,7 +200,20 @@ public final class MagQCNetworkHarness {
 
 	/** Shared declaration for emitted vectors, model binding and both private and locked serving. */
 	static String expectedLayout(java.util.Map<String,String> options){
+		if(v17Inputs(options)){
+			if(!eightFeatures(options)){throw new IllegalArgumentException("v17inputs requires subnetfeatures=eight");}
+			return MagQCVectorMaker.JOINT_V17_COMPOSITE_LAYOUT;
+		}
 		return eightFeatures(options) ? MagQCVectorMaker.JOINT_EIGHT_COMPOSITE_LAYOUT : MagQCVectorMaker.JOINT_COMPOSITE_LAYOUT;
+	}
+
+	/** A typo must not silently choose a different model input interpretation. */
+	static boolean v17Inputs(java.util.Map<String,String> options){
+		assert(options!=null) : "Versioned input selection must use the same options as bundle loading";
+		final String value=options.get("v17inputs");
+		if(value==null || "f".equalsIgnoreCase(value) || "false".equalsIgnoreCase(value)){return false;}
+		if("t".equalsIgnoreCase(value) || "true".equalsIgnoreCase(value)){return true;}
+		throw new IllegalArgumentException("v17inputs must be t or f: "+value);
 	}
 
 	/** Uses the established native digest implementation without exposing the full digest. */
@@ -237,8 +258,8 @@ public final class MagQCNetworkHarness {
 	}
 
 	/** Validated final network, with one private worker and one reusable rounded input array. */
-	static final class Scorer {
-		Scorer(HashMap<String,String> options, int width) throws Exception{
+	public static final class Scorer {
+		public Scorer(HashMap<String,String> options, int width) throws Exception{
 			this(options, width, true);
 		}
 
@@ -387,7 +408,7 @@ public final class MagQCNetworkHarness {
 		}
 
 		/** One caller retains this private scorer for its entire worker lifetime. */
-		Scorer newWorker(){return new Scorer(this);}
+		public Scorer newWorker(){return new Scorer(this);}
 
 		/** Resource identity and semantic mismatches fail before any output is opened. */
 		private void requireTag(String key, String expected){
@@ -464,7 +485,7 @@ public final class MagQCNetworkHarness {
 			if(prediction!=null){prediction.apply(output);}
 		}
 		/** Copies caller values into owned scratch and returns an independent snapshot. */
-		float[] evaluateCopy(float[] values){
+		public float[] evaluateCopy(float[] values){
 			if(values==null || values.length!=input.length){throw new IllegalArgumentException("Composite input width mismatch");}
 			for(int i=0; i<values.length; i++){
 				final float value=values[i];
@@ -590,7 +611,7 @@ public final class MagQCNetworkHarness {
 	private static OutputContract parseOutputContract(String contract){
 		if(SIX_CONTRACT.equals(contract)){return new OutputContract("live_six", SIX_NAMES);}
 		if(contract==null || contract.indexOf("\"mode\":\"explicit\"")<0 ||
-				contract.indexOf("\"schema\":\"explicit_targets_v1\"")<0){
+				(contract.indexOf("\"schema\":\"explicit_targets_v1\"")<0 && contract.indexOf("\"schema\":\"explicit_targets_v2\"")<0)){
 			throw new IllegalArgumentException("Unsupported final-net output contract");
 		}
 		final ArrayList<String> names=new ArrayList<String>();
@@ -613,7 +634,7 @@ public final class MagQCNetworkHarness {
 	private static void validateErrorDecoding(final OutputContract raw, final MagQCPredictionContract prediction){
 		if(prediction==null){
 			if(MagQCPredictionContract.requiresLogDecoding(raw.text)){
-				throw new IllegalArgumentException("Log-error targets require model-declared inverse reporting metadata");
+				throw new IllegalArgumentException("Log-error or clipped targets require model-declared reporting metadata");
 			}
 		}else{prediction.validateRawContract(raw.text);}
 	}
@@ -631,7 +652,7 @@ public final class MagQCNetworkHarness {
 		for(String key:new String[]{"in", "out", "idsout", "bundle", "familylist", "subnetmanifest",
 			"expectedcopytable", "subnetpopulations", "net", "netsha80", "scores", "dummy", "deterministic"}){ALLOWED.put(key, true);}
 		for(String key:PIN_KEYS){ALLOWED.put(key, true);}
-		for(String key:new String[]{"subnetfeatures", "requiredness", "requirednesssha80", "sizemarkers", "sizemarkerssha80"}){ALLOWED.put(key, true);}
+		for(String key:new String[]{"subnetfeatures", "v17inputs", "requiredness", "requirednesssha80", "sizemarkers", "sizemarkerssha80"}){ALLOWED.put(key, true);}
 		for(String key:MagQCAssemblyInput.OPTIONS){ALLOWED.put(key, true);}
 	}
 }

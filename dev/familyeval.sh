@@ -6,7 +6,7 @@ Written by Keqing.
 Evaluates positive and negative protein panels using one loaded family classifier.
 Uses the existing classifier scoring path; does not rewrite gates or change families.
 
-Usage: familyeval.sh in=classifier.config pos=heldout.faa.gz \
+Usage: dev/familyeval.sh in=classifier.config pos=heldout.faa.gz \
          neg=k5.faa.gz,shadow.faa.gz negnames=k5,shadow out=results t=32
 
 in=          Classifier package recipe, or directory containing classifier.config.
@@ -134,23 +134,24 @@ TPR means acceptance by any family, not correct-family assignment. Reusing a
 calibration negative panel does not make its error rate independent validation.
 Empty panels, invalid package settings and nonfinite metrics fail with a reason.
 
-library= selects the runtime; modulejar= overlays the evaluator.
+library= overrides the detected installation root; modulejar= overlays the evaluator.
 dependencyjar= accepts colon-separated existing dependency jars, after the module
 and before the runtime on the classpath.
 classpathfile= reads one nonempty literal classpath line, preserving provider order.
 Every colon-separated entry must be an existing absolute file or directory.
-Cannot combine with modulejar= or dependencyjar=; library= still selects JVM
-setup scripts. No runtime provider is appended when classpathfile= is supplied.
+Cannot combine with modulejar= or dependencyjar=; library= overrides the detected installation root. No runtime provider is appended when classpathfile= is supplied.
 Standard config= options and -Xmx memory control are supported.
 
-Native structural fixture: familyeval.sh structuraltest /absolute/new-directory
+Native structural fixture: dev/familyeval.sh structuraltest /absolute/new-directory
 Runs synthetic checks in a fresh directory. Takes that path plus launcher/JVM
 options only; the fixture selects its own product settings and worker counts.
+Installation root is detected automatically from top-level or dev/ placement.
 HELP
 }
 if [[ $# == 0 || $1 == -h || $1 == --help ]]; then usage; exit 0; fi
 SCRIPT=$(readlink -f -- "${BASH_SOURCE[0]}")
 DIR=$(cd "$(dirname "$SCRIPT")" && pwd)
+if [[ ! -f "$DIR/javasetup.sh" ]]; then DIR=$(dirname "$DIR"); fi
 LIBRARY=$DIR; MODULE=; DEPENDENCY=; ARGS=(); JVM_ARGS=()
 CLASSPATH_FILE=; EXACT_CP=false; MODULE_SET=false; DEPENDENCY_SET=false
 for arg in "$@"; do

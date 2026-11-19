@@ -3,7 +3,8 @@
 set -euo pipefail
 if [[ $# == 0 || $1 == -h || $1 == --help ]]; then
  printf '%s\n' \
-  'Usage: ddlclustcalibrationadapter.sh members=final.members.tsv input=sampled.faa codec=final.pddl out=NEW_DIR [buckets=256]' \
+  'Usage: dev/ddlclustcalibrationadapter.sh members=final.members.tsv input=sampled.faa codec=final.pddl out=NEW_DIR [buckets=256]' \
+  'Installation root is detected automatically from top-level or dev/ placement; library= overrides it.' \
   'Emits families.tsv, family_map.tsv, chunks.tsv, buckets.tsv, models.tsv, consensus.faa, and bucket_###.tsv.gz files.' \
   'Default storage is bounded resident memory; keepwork=t is rejected.' \
   'Optional maxresidentrows=ROWS maxresidentbytes=BYTES must be positive and paired; omitted caps are automatic.' \
@@ -15,6 +16,7 @@ if [[ $# == 0 || $1 == -h || $1 == --help ]]; then
 fi
 script=$(readlink -f -- "${BASH_SOURCE[0]}")
 DIR=$(cd "$(dirname "$script")" && pwd)
+if [[ ! -f "$DIR/javasetup.sh" ]]; then DIR=$(dirname "$DIR"); fi
 library=$DIR; modulejar=; clusterjar=; testmode=f; fixture=; args=(); jvm=()
 for arg in "$@"; do
  case $arg in

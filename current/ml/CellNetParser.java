@@ -136,11 +136,20 @@ public class CellNetParser{
 		if(!inferenceOnly){net.makeWeightMatrices();}
 	}
 
-	/**
-	 * Consumes single-# configuration headers, ## metrics/custom tags and #CL
-	 * command rows until the first edge row. Newer headers guard malformed or
-	 * duplicate rows explicitly; unsupported single-# rows remain assertion-only.
-	 */
+	/** Parameters are shared only within this loaded model; Function objects are
+	 * immutable so CellNet copies may retain the same reference safely. */
+	private Function parseFunction(final String token){
+		assert(token!=null) : "Node activation token is required before binding a parsed cell";
+		Function function=parsedFunctions.get(token);
+		if(function==null){
+			function=Function.parse(token);
+			parsedFunctions.put(token, function);
+		}
+		return function;
+	}
+
+	/** Consumes configuration headers and custom tags until the first edge row.
+	 * Newer critical headers reject malformed input independently of assertions. */
 	public void parseHeader(){
 
 		//TODO: This should really use LineParser instead.
@@ -298,12 +307,10 @@ public class CellNetParser{
 				int cid=lp.parseInt();
 //				assert(false) : cid;
 				String s=lp.parseString();
-				int type=Tools.find(s, Function.TYPES);
-				assert(type>=0) : type+", "+s+"\n'"+new String(line)+"'";
+				final Function function=parseFunction(s);
 				Cell c=net.list.get(cid);
 				if(c.weights!=null){throw new IllegalArgumentException("Duplicate dense row for cell "+cid);}
-				c.function=Function.getFunction(type);
-				assert(c.function.type()==type);
+				c.function=function;
 
 				final float bias=a48 ? lp.parseFloatA48() : lp.parseFloat();
 				if(weightBits<32 && !Float.isFinite(bias)){throw new IllegalArgumentException("Nonfinite bias in a reduced-precision network");}
@@ -361,13 +368,11 @@ public class CellNetParser{
 				int cid=lp.parseInt();
 //				assert(false) : cid;
 				String s=lp.parseString();
-				int type=Tools.find(s, Function.TYPES);
-				assert(type>=0) : type+", "+s+"\n'"+new String(line)+"'";
+				final Function function=parseFunction(s);
 				Cell c=net.list.get(cid);
 				//Assertion-only validation: duplicate sparse weight rows reach this check.
 				assert(c.weights==null);
-				c.function=Function.getFunction(type);
-				assert(c.function.type()==type);
+				c.function=function;
 
 				final float bias=a48 ? lp.parseFloatA48() : lp.parseFloat();
 				if(weightBits<32 && !Float.isFinite(bias)){throw new IllegalArgumentException("Nonfinite bias in a reduced-precision network");}
@@ -460,8 +465,7 @@ public class CellNetParser{
 			if(cid<1 || cid>=net.list.size()){throw new IllegalArgumentException("Node ID outside network: "+cid);}
 			final Cell cell=net.list.get(cid);
 			if(cell.layer<1 || cell.weights!=null || cell.inputs!=null){throw new IllegalArgumentException("Duplicate or input-layer node: "+cid);}
-			final int type=Tools.find(lp.parseString(), Function.TYPES);
-			if(type<0){throw new IllegalArgumentException("Unknown node activation for cell "+cid);}
+			final Function function=parseFunction(lp.parseString());
 			lp.advance();
 			if(lp.currentFieldLength()!=2 || line[lp.a()]!='-' || line[lp.a()+1]!='1'){
 				throw new IllegalArgumentException("First node index must be the -1 bias sentinel");
@@ -479,7 +483,7 @@ public class CellNetParser{
 			final float[] weights=new float[count];
 			for(int i=0; i<count; i++){weights[i]=parseNodeFloat(lp, weightBits);}
 			if(lp.hasMore()){throw new IllegalArgumentException("Extra node fields after weights");}
-			cell.function=Function.getFunction(type); cell.setBias(bias, true);
+			cell.function=function; cell.setBias(bias, true);
 			cell.inputs=inputs; cell.weights=weights; cell.deltas=new float[count];
 			observedEdges+=count;
 		}
@@ -618,6 +622,7 @@ public class CellNetParser{
 	/** Unrecognized ##key value header lines, accumulated during parseHeader() then applied to the net via
 	 *  setTag() once it is constructed. */
 	LinkedHashMap<String,String> tags=new LinkedHashMap<String,String>();
+	private final LinkedHashMap<String,Function> parsedFunctions=new LinkedHashMap<String,Function>();
 	/** Stored performance metrics read from the header (defaults match CellNet's, so an absent line is a no-op). */
 	float fpr=999, fnr=999, err=999, wer=999;
 	/** Stored training-stats line (##stats content), or null if absent. */

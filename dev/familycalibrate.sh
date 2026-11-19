@@ -8,9 +8,9 @@ Loads the classifier once, scores with one worker pool per round, and shares its
 unchanged index and features across rounds. Optional preparation builds the initial
 classifier in memory from pinned member inputs. Positive sequences never enter calibration.
 
-Usage: familycalibrate.sh in=classifier.config neg=k5.faa.gz,shadow.faa.gz \
+Usage: dev/familycalibrate.sh in=classifier.config neg=k5.faa.gz,shadow.faa.gz \
          negnames=k5,shadow targetfpr=0.0001 rounds=4 out=calibrated t=32
-   or: familycalibrate.sh prepare=preparation.config out=calibrated t=32
+   or: dev/familycalibrate.sh prepare=preparation.config out=calibrated t=32
 
 in=              Existing classifier recipe, or directory containing classifier.config.
                  Retains that package's stored matrix and scoring policy.
@@ -79,7 +79,7 @@ dependencyjar= accepts colon-separated existing dependency jars, after modulejar
 and before the runtime on the classpath. Default classpath is unchanged.
 classpathfile= reads one literal classpath line, preserving provider order.
 Entries must be existing absolute files or directories. Cannot combine with
-modulejar= or dependencyjar=. library= still selects JVM setup scripts.
+modulejar= or dependencyjar=. library= overrides the detected installation root.
 Standard config= and -Xmx options are supported.
 
 Development-module-only validation selectors take one fresh absolute fixture directory:
@@ -87,11 +87,13 @@ gcpenaltytest, gcinputstest, gcworkertest, gcpackagetest, querygctest,
 gcpaneltest and gcdrivertest. These synthetic fixtures require a separately supplied
 test module on the classpath; their test classes are not included in the shipped
 selection. Supply the module with modulejar= or include it in classpathfile=.
+Installation root is detected automatically from top-level or dev/ placement.
 HELP
 }
 if [[ $# == 0 || $1 == -h || $1 == --help ]];then usage;exit 0;fi
 SCRIPT=$(readlink -f -- "${BASH_SOURCE[0]}")
 DIR=$(cd "$(dirname "$SCRIPT")" && pwd)
+if [[ ! -f "$DIR/javasetup.sh" ]]; then DIR=$(dirname "$DIR"); fi
 LIBRARY=$DIR;MODULE=;DEPENDENCY=;ARGS=();JVM_ARGS=()
 CLASSPATH_FILE=;EXACT_CP=false;MODULE_SET=false;DEPENDENCY_SET=false
 for arg in "$@";do

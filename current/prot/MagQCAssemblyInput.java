@@ -24,7 +24,7 @@ import tracker.EntropyTracker;
  * Taxonomy comes from one QuickClade request, never from contig identifiers.
  * @author Yoimiya
  */
-final class MagQCAssemblyInput {
+public final class MagQCAssemblyInput {
 
 	private MagQCAssemblyInput(){}
 
@@ -421,7 +421,7 @@ final class MagQCAssemblyInput {
 	}
 
 	/** Local displays may omit the domain; an isolated phylum then stays unknown. */
-	static Taxonomy parseResponse(String response, long bases, long contigs, boolean isolatedPhylumUnknown){
+	public static Taxonomy parseResponse(String response, long bases, long contigs, boolean isolatedPhylumUnknown){
 		return parseResponses(response, new long[]{bases}, new long[]{contigs}, isolatedPhylumUnknown)[0];
 	}
 
@@ -431,7 +431,7 @@ final class MagQCAssemblyInput {
 	}
 
 	/** Accepts ordered machine queries and at most one result per query. */
-	static Taxonomy[] parseResponses(String response, long[] bases, long[] contigs, boolean isolatedPhylumUnknown){
+	public static Taxonomy[] parseResponses(String response, long[] bases, long[] contigs, boolean isolatedPhylumUnknown){
 		if(bases==null || contigs==null || bases.length!=contigs.length || bases.length<1){
 			throw malformed("invalid expected counts");
 		}
@@ -552,7 +552,7 @@ final class MagQCAssemblyInput {
 	}
 
 	/** Defaults product callers to normal search; explicit false preserves legacy requests. */
-	static boolean normalSearch(HashMap<String,String> options){
+	public static boolean normalSearch(HashMap<String,String> options){
 		final String value=options==null ? null : options.get("normalsearch");
 		if(value==null){return true;}
 		if(!value.equalsIgnoreCase("t") && !value.equalsIgnoreCase("true") && !value.equals("1") &&
@@ -574,7 +574,7 @@ final class MagQCAssemblyInput {
 	}
 
 	/** Immutable deployment taxonomy; reference identity is retained only for reporting. */
-	static final class Taxonomy{
+	public static final class Taxonomy{
 		Taxonomy(String domain_, String phylum_){
 			this(domain_, phylum_, "NA", -1, -1);
 		}
@@ -594,7 +594,8 @@ final class MagQCAssemblyInput {
 		private static String reportConfidence(String value){
 			return value==null || value.isEmpty() || value.equals(".") ? "NA" : value;
 		}
-		final String status, domain, phylum, name;
+		public final String status, domain, phylum;
+		final String name;
 		final String confidentLevel, confidenceProfile;
 		final long taxId;
 		final double ani;
