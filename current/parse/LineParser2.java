@@ -129,12 +129,20 @@ public final class LineParser2 implements LineParser{
 		return Float.intBitsToFloat((int)Parse.parseLongA48(line, a, b));
 	}
 
+	/** Advances to the next field and decodes A48 raw double bits.
+	 * Signed zero, infinities and quiet-NaN payloads are preserved.
+	 */
+	public double parseDoubleA48(){
+		advance();
+		return Double.longBitsToDouble(Parse.parseLongA48(line, a, b));
+	}
+
 	/** Decodes an unsigned24-bit A48 payload as the high24 bits of a finite float32. */
 	public float parseFloatA48Truncated24(){
 		return parseFloatA48Truncated(24);
 	}
 
-	/** Restores omitted low float32 bits from three18-bit or four24-bit A48 symbols. */
+	/** Decodes one to precision/6 A48 symbols and fills omitted low float32 bits with zeros. */
 	public float parseFloatA48Truncated(final int precision){
 		if(precision!=18 && precision!=24){throw new IllegalArgumentException("A48 reduced weight precision must be18 or24");}
 		advance();
@@ -203,6 +211,14 @@ public final class LineParser2 implements LineParser{
 	public float parseFloatA48(int term){
 		advanceTo(term);
 		return Float.intBitsToFloat((int)Parse.parseLongA48(line, a, b));
+	}
+
+	/** Advances to the specified term and decodes A48 raw double bits.
+	 * Signed zero, infinities and quiet-NaN payloads are preserved.
+	 */
+	public double parseDoubleA48(int term){
+		advanceTo(term);
+		return Double.longBitsToDouble(Parse.parseLongA48(line, a, b));
 	}
 
 	@Override
@@ -314,6 +330,7 @@ public final class LineParser2 implements LineParser{
 		return len==1 && line[a]==c;
 	}
 
+	/** Reads an existing current or later field's length without changing the cursor. */
 	@Override
 	public int length(int term){
 		int a0=a, b0=b, c0=currentTerm;
@@ -366,9 +383,8 @@ public final class LineParser2 implements LineParser{
 		}
 	}
 
-	//Advances to term before toTerm
-	/** Advances to the field just before the specified term number.
-	 * @param toTerm Target term number (will stop at toTerm-1) */
+	/** Advances to the field before toTerm unless already at toTerm, in which case nothing moves.
+	 * @param toTerm Zero-based target index, no earlier than the current field */
 	public void advanceToBefore(int toTerm){
 		assert(toTerm>=currentTerm) : "Can't advance backwards: "+currentTerm+">"+toTerm;
 		for(toTerm--; currentTerm<toTerm;){
@@ -403,9 +419,10 @@ public final class LineParser2 implements LineParser{
 	}
 
 	/**
-	 * Manually sets the field boundaries.
-	 * @param a_ Start position of current field
-	 * @param b_ End position of current field
+	 * Manually sets byte boundaries without changing the current field ordinal.
+	 * The caller must keep both bounds within the borrowed line, with a_ no greater than b_.
+	 * @param a_ Inclusive start position of current field
+	 * @param b_ Exclusive end position of current field
 	 */
 	public void setBounds(int a_, int b_){
 		a=a_;

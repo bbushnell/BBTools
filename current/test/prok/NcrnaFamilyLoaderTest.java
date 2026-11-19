@@ -90,12 +90,21 @@ public final class NcrnaFamilyLoaderTest {
 			require(family.modelThresholds.pass(i)==explicit.modelThresholds.pass(i)
 				&& family.modelThresholds.borderline(i)==explicit.modelThresholds.borderline(i), "Model cutoff binding changed");
 		}
+		final NcrnaFamilyLoader.Options zero=new NcrnaFamilyLoader.Options();
+		zero.resources.consensus=consensus;zero.resources.seeds=seeds;zero.resources.cutoffs=old+"/euk5S_model_cutoffs.tsv";
+		zero.resources.tables=old+"/euk5S_endpoint";zero.resources.endpoints=old+"/euk5S_endpoints.bbnets.gz";
+		zero.idPass=0f;zero.idBorderline=0f;
+		final NcrnaFamily zeroFallback=NcrnaFamilyLoader.load("euk5S", zero, resolver);
+		require(zeroFallback.idPass==0f && zeroFallback.idBorderline==0f
+			&& zeroFallback.modelThresholds.pass(0)==family.modelThresholds.pass(0),
+			"Explicit zero fallback identities must not suppress the selected model cutoff table");
 		o.resources.cutoffs=old+"/absent-cutoffs.tsv";
 		fails(()->NcrnaFamilyLoader.load("euk5S", o, resolver), "cutoffs");
 		o.cutoffs=false;o.endpoints=false;o.resources.tables=old+"/absent-tables";o.resources.endpoints=old+"/absent-nets";
-		o.scoreA=2f;o.scoreB=4f;o.idPass=.73f;o.idBorderline=.72f;o.collapse=.8f;o.windowPad=123;
+		o.scoreA=-1f;o.scoreB=0f;o.scoreASet=o.scoreBSet=true;
+		o.idPass=.73f;o.idBorderline=.72f;o.collapse=.8f;o.windowPad=123;
 		final NcrnaFamily scalar=NcrnaFamilyLoader.load("euk5S", o, resolver);
-		require(scalar.modelThresholds==null && scalar.rrnaEndpointFeatures==null && scalar.scoreA==2f && scalar.scoreB==4f
+		require(scalar.modelThresholds==null && scalar.rrnaEndpointFeatures==null && scalar.scoreA==-1f && scalar.scoreB==0f
 			&& scalar.idPass==.73f && scalar.idBorderline==.72f && scalar.collapseFrac==.8f && scalar.windowPad==123,
 			"Scalar controls or disabled cutoff/endpoint resource I/O changed");
 		final NcrnaFamilyLoader.Options off=new NcrnaFamilyLoader.Options();off.resources.root=old+"/absent-package";off.enabled=false;

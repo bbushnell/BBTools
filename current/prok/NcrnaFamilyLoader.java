@@ -10,7 +10,8 @@ import prok.NcrnaTextIO.Input;
 
 /** Constructs the existing caller container without changing verification algorithms.
  * CallGenes uses core-only loading then its established endpoint configuration phase.
- * @author Brian, Raiden */
+ * @author Brian, Raiden
+ */
 public final class NcrnaFamilyLoader {
 
 	public static NcrnaFamily load(String familyId){return load(familyId, new Options(), new FamilyResourceResolver());}
@@ -37,7 +38,8 @@ public final class NcrnaFamilyLoader {
 		final map.ObjectSet<String> seen=new map.ObjectSet<String>(String.class);
 		for(int i=0; i<names.length; i++){
 			final String token=RrnaResourceIO.first(names[i]);
-			require(!token.isEmpty() && seen.add(token) && (!ordered || (expandedMito && i>=p.models.length) || p.models[i].equals(token))
+			require(!token.isEmpty() && seen.add(token)
+				&& (!ordered || (expandedMito && i>=p.models.length) || p.models[i].equals(token))
 				&& library[i]!=null && library[i].length>=(p.dynamicModels ? p.seedK : 1),
 				"Incompatible "+p.id+" consensus resource: model order, unique names or sequence length at "+i+": "+lib);
 		}
@@ -56,20 +58,23 @@ public final class NcrnaFamilyLoader {
 		require(!options.seeds || keys!=null && keys.size()>=p.minSeedKeys,
 			"Incompatible "+p.id+" seed resource: require at least "+p.minSeedKeys+" distinct forward k-mers: "+seeds);
 		final int k=options.indexK<0 ? p.indexK : options.indexK;
-		final int top=options.topN<0 ? (p.topN<0 || p.dynamicModels && p.models.length>0 ? library.length : p.topN) : options.topN;
+		final int top=options.topN<0 ?
+			(p.topN<0 || p.dynamicModels && p.models.length>0 ? library.length : p.topN) : options.topN;
 		final int hits=options.minHits<0 ? p.minHits : options.minHits;
 		final boolean adaptive=options.adaptive==null ? p.boundary!=null && p.boundary.adaptive : options.adaptive;
-		final float floor=Float.isNaN(options.floor) ? (p.boundary==null ? 0f : p.boundary.floor) : options.floor;
-		final float topFrac=Float.isNaN(options.topFrac) ? (p.boundary==null ? 0f : p.boundary.topFrac) : options.topFrac;
-		final float qFrac=Float.isNaN(options.qFrac) ? (p.boundary==null ? 0f : p.boundary.qFrac) : options.qFrac;
+		final float floor=setNonnegative(options.floor, "floor") ? options.floor : (p.boundary==null ? 0f : p.boundary.floor);
+		final float topFrac=setNonnegative(options.topFrac, "topFrac") ? options.topFrac : (p.boundary==null ? 0f : p.boundary.topFrac);
+		final float qFrac=setNonnegative(options.qFrac, "qFrac") ? options.qFrac : (p.boundary==null ? 0f : p.boundary.qFrac);
 		TrnaKmerIndex.validateConfiguration(k, floor, topFrac, qFrac, hits);
 		TrnaKmerIndex.validateTopN(top);
-		final float weight=Float.isNaN(options.weight) ? p.weight : options.weight;
+		final float weight=setNonnegative(options.weight, "weight") ? options.weight : p.weight;
 		final boolean memberIdentity=NcrnaFamilyRegistry.isCobalamin(p.id);
-		final FamilyResourceResolver.Handle cutoff=memberIdentity && options.cutoffs ? resolver.optional(p.id, "cutoffs", options.resources) : null;
+		final FamilyResourceResolver.Handle cutoff=memberIdentity && options.cutoffs ?
+			resolver.optional(p.id, "cutoffs", options.resources) : null;
 		final MemberCutoffs member=cutoff==null ? null : loadMemberCutoffs(cutoff.path, p.id);
-		final float idPass=Float.isNaN(options.idPass) ? (member==null ? p.idPass : member.pass) : options.idPass;
-		final float idBorderline=Float.isNaN(options.idBorderline) ? (member==null ? p.idBorderline : member.borderline) : options.idBorderline;
+		final float idPass=setNonnegative(options.idPass, "idPass") ? options.idPass : (member==null ? p.idPass : member.pass);
+		final float idBorderline=setNonnegative(options.idBorderline, "idBorderline") ?
+			options.idBorderline : (member==null ? p.idBorderline : member.borderline);
 		final int seedMinHits=options.seedMinHits<0 ? p.seedMinHits : options.seedMinHits;
 		require(Float.isFinite(idPass) && idPass>=0 && idPass<=1 && Float.isFinite(idBorderline)
 			&& idBorderline>=0 && idBorderline<=1 && seedMinHits>0, "Invalid identity or seed gate for "+p.id);
@@ -87,10 +92,13 @@ public final class NcrnaFamilyLoader {
 			pad=longest+longestFlank;
 		}
 		final int minLen=options.minLen<0 ? p.minLen : options.minLen;
-		final float scoreA=Float.isNaN(options.scoreA) ? p.scoreA : options.scoreA;
-		final float scoreB=Float.isNaN(options.scoreB) ? weight : options.scoreB;
-		final float collapse=Float.isNaN(options.collapse) ? p.collapse : options.collapse;
-		final float hbmPass=useHbm ? (Float.isNaN(options.hbmPass) ? p.hbmPass : options.hbmPass) : 1.01f;
+		final float scoreA=options.scoreASet ? options.scoreA : p.scoreA;
+		final float scoreB=options.scoreBSet ? options.scoreB : weight;
+		require(Float.isFinite(scoreA) && Float.isFinite(scoreB),
+			"Signed path scores must be finite for "+p.id);
+		final float collapse=setNonnegative(options.collapse, "collapse") ? options.collapse : p.collapse;
+		final float hbmPass=useHbm ? (setNonnegative(options.hbmPass, "hbmPass") ? options.hbmPass : p.hbmPass) : 1.01f;
+		require(collapse>=0f && collapse<=1f, "Collapse fraction must be in [0,1] for "+p.id);
 		PackagedBoundaryConfig packagedBoundary=null;
 		if(p.boundary!=null && !p.boundary.trna){
 			final FamilyResourceResolver.Handle config=resolver.optional(p.id, "boundary_config", options.resources);
@@ -99,10 +107,12 @@ public final class NcrnaFamilyLoader {
 				packagedBoundary.applyDefaults(p.id, options, library);
 			}
 		}
-		require(!options.boundary || p.boundary!=null, "Shared boundary loading requires a registered shared-end adapter: "+p.id);
+		require(!options.boundary || p.boundary!=null,
+			"Shared boundary loading requires a registered shared-end adapter: "+p.id);
 		require(!options.boundary || !p.boundary.trna,
 			"Independent tRNA boundary templates must use loadTrnaBoundary, never the generic10-input adapter");
-		final NcrnaBoundaryResources boundary=options.boundary ? new NcrnaBoundaryResources(p.id, library, options.resources, resolver) : null;
+		final NcrnaBoundaryResources boundary=options.boundary ?
+			new NcrnaBoundaryResources(p.id, library, options.resources, resolver) : null;
 		final NcrnaFamily family=new NcrnaFamily(p.id, library, models, names, keys, seedK, minLen, pad,
 			k, top, adaptive, floor, topFrac, qFrac, hits,
 			scoreA, scoreB, idPass, idBorderline, hbmPass, collapse,
@@ -113,14 +123,14 @@ public final class NcrnaFamilyLoader {
 			boundary==null ? 0f : boundary.meanLen,
 			options.boundaryStartOffsets==null ? p.boundaryOffsets(true) : options.boundaryStartOffsets,
 			options.boundaryStopOffsets==null ? p.boundaryOffsets(false) : options.boundaryStopOffsets,
-			Float.isNaN(options.boundaryMarginStart) ? 0f : options.boundaryMarginStart,
-			Float.isNaN(options.boundaryMarginStop) ? 0f : options.boundaryMarginStop);
+			options.boundaryMarginStart, options.boundaryMarginStop);
 		family.outputType=p.outputType;family.seedMinHits=seedMinHits;family.scavengePass2=p.pass2;
 		family.modelPatience=patience;
 		if("fmn".equals(p.id) || "sam1".equals(p.id) || "tpp".equals(p.id) || "glycine".equals(p.id)){
 			family.seedDistinct=seedMinHits>1;//Direct loads preserve riboswitch distinct-key support.
 		}
-		family.rankedModelFallback=p.rankedFallback;family.strictIndexCutoff=p.strictIndexCutoff;family.trimAlignmentExtent=p.boundary!=null;
+		family.rankedModelFallback=p.rankedFallback; family.strictIndexCutoff=p.strictIndexCutoff;
+		family.trimAlignmentExtent=p.boundary!=null;
 		family.reuseConsensusAlignment=p.boundary==null;family.voteSlack=p.voteSlack;
 		if("glycine".equals(p.id)){
 			// Glycine verifies every window with Quantum and retains its endpoints;
@@ -148,7 +158,9 @@ public final class NcrnaFamilyLoader {
 				NcrnaModelThresholds.loadLengths(lengths.path, family);
 			}
 		}
-		if(options.endpoints && p.packagedEndpoints){family.setRrnaEndpointInference(loadEndpoints(family, options.resources, resolver), null);}
+		if(options.endpoints && p.packagedEndpoints){
+			family.setRrnaEndpointInference(loadEndpoints(family, options.resources, resolver), null);
+		}
 		if(packagedBoundary!=null){packagedBoundary.loaded(family);}
 		return family;
 	}
@@ -158,7 +170,8 @@ public final class NcrnaFamilyLoader {
 	}
 	/** Core and boundary selections are independent. Null core arrays are valid for
 	 * the public boundary-only API; this carrier must never enter the generic caller list. */
-	public static NcrnaFamily loadTrnaBoundary(byte[][] library, BaseGraph[] models, String[] names, LongHashSet keys, int seedK,
+	public static NcrnaFamily loadTrnaBoundary(byte[][] library, BaseGraph[] models, String[] names,
+			LongHashSet keys, int seedK,
 			FamilyResourceResolver.Overrides resources, FamilyResourceResolver resolver){
 		require(resources!=null && resolver!=null, "tRNA boundary selection requires explicit override state and a resolver");
 		final NcrnaFamilyRegistry.Entry p=NcrnaFamilyRegistry.get("tRNA");
@@ -188,7 +201,8 @@ public final class NcrnaFamilyLoader {
 	static void loadJoinedPositions(NcrnaFamily family, FamilyResourceResolver.Overrides overrides,
 			FamilyResourceResolver resolver){
 		require(family!=null && resolver!=null, "Joined positions must bind loaded model names, sequences and seeds");
-		family.joinedPositions=SeedModelPositionResource.load(resolver.resolve(family.name, "joined_model_positions", overrides).path,
+		family.joinedPositions=SeedModelPositionResource.load(
+			resolver.resolve(family.name, "joined_model_positions", overrides).path,
 			family.kmerSet, family.modelNames, family.library);
 	}
 	static RrnaEndpointCallerFeatures.Resources loadEndpoints(NcrnaFamily family,
@@ -196,14 +210,17 @@ public final class NcrnaFamilyLoader {
 		require(family!=null, "Endpoint resources require an initialized registered family");
 		final NcrnaFamilyRegistry.Entry p=NcrnaFamilyRegistry.get(family.name);
 		final FamilyResourceResolver.Handle tables=resolver.tables(family.name, overrides);
-		final RrnaEndpointCallerFeatures.Resources loaded=RrnaEndpointResourceLoader.load(tables, family.modelNames, family.library,
+		final RrnaEndpointCallerFeatures.Resources loaded=RrnaEndpointResourceLoader.load(tables,
+			family.modelNames, family.library,
 			MitoSsuModelPolicy.rawNames(family, p.rawEndpointModels));
-		final RrnaEndpointCallerFeatures.Resources inference=RrnaEndpointNetworkLoader.load(resolver.resolve(family.name, "endpoints", overrides), loaded);
+		final RrnaEndpointCallerFeatures.Resources inference=RrnaEndpointNetworkLoader.load(
+			resolver.resolve(family.name, "endpoints", overrides), loaded);
 		require(inference.acceptedVerifierIdentity==RrnaEndpointCallerFeatures.Resources.supportsAcceptedIdentity(p.id),
 			p.id+" nets must preserve their trained identity feature; euk5S uses candidate-span identity");
 		return inference;
 	}
-	static void loadCutoffs(NcrnaFamily family, FamilyResourceResolver.Overrides overrides, FamilyResourceResolver resolver){
+	static void loadCutoffs(NcrnaFamily family, FamilyResourceResolver.Overrides overrides,
+			FamilyResourceResolver resolver){
 		require(family!=null && resolver!=null, "Model cutoffs require a loaded family and its resolver");
 		final ArrayList<NcrnaFamily> one=new ArrayList<NcrnaFamily>(1);one.add(family);
 		NcrnaModelThresholds.load(resolver.resolve(family.name, "cutoffs", overrides).path, one);
@@ -245,12 +262,20 @@ public final class NcrnaFamilyLoader {
 		public int longestPadFlank=-1;
 		public int collapsedWindowPad=-1;
 		public int[] boundaryStartOffsets, boundaryStopOffsets;
-		/** NaN selects a packaged margin or the historical zero margin when no package supplies one. */
-		public float boundaryMarginStart=Float.NaN, boundaryMarginStop=Float.NaN;
-		public float floor=Float.NaN, topFrac=Float.NaN, qFrac=Float.NaN, weight=Float.NaN;
-		public float idPass=Float.NaN, idBorderline=Float.NaN, hbmPass=Float.NaN;
-		public float scoreA=Float.NaN, scoreB=Float.NaN, collapse=Float.NaN;
+		/** Effective margins; unset ends inherit packaged defaults, or zero without a package. */
+		public float boundaryMarginStart=0f, boundaryMarginStop=0f;
+		/** Explicit per-end selections, including zero, take precedence over packaged defaults. */
+		public boolean boundaryMarginStartSet=false, boundaryMarginStopSet=false;
+		public float floor=-1f, topFrac=-1f, qFrac=-1f, weight=-1f;
+		public float idPass=-1f, idBorderline=-1f, hbmPass=-1f;
+		public float scoreA=0f, scoreB=0f, collapse=-1f;
+		public boolean scoreASet=false, scoreBSet=false;
 		public final FamilyResourceResolver.Overrides resources=new FamilyResourceResolver.Overrides();
+	}
+	private static boolean setNonnegative(float value, String label){
+		require(Float.isFinite(value) && (value==-1f || value>=0f),
+			label+" uses exact -1 for unset and finite nonnegative values for explicit overrides");
+		return value>=0f;
 	}
 	private static void require(boolean ok, String why){FamilyResourceManifest.require(ok, why);}
 	private NcrnaFamilyLoader(){}

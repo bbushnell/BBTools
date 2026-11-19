@@ -6,15 +6,14 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.net.HttpURLConnection;
 import java.net.InetSocketAddress;
 import java.net.MalformedURLException;
 import java.net.URI;
 import java.net.URL;
 import java.net.URLConnection;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -221,13 +220,10 @@ public class ServerTools{
 
 		//FIXED [server/ServerTools#006]: null means no request body, as documented and as
 		//the Java 8 path already allowed.
-		final HttpRequest.BodyPublisher body=message==null ?
-				HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofByteArray(message);
-		final HttpRequest request=HttpRequest.newBuilder()
-				  .uri(URI.create(address))
-				  .POST(body)
-				  .build();
-		HttpResponse<String> response=null;
+		final HttpClientAccess access=httpClientAccess();
+		final Object request=access.request(message, URI.create(address));
+		final Object httpClient=sharedHttpClient(access);
+		Object response=null;
 
 		int responseCode=-1;
 		String result=null;
@@ -235,9 +231,9 @@ public class ServerTools{
 		for(int i=0; i<14 && (result==null || responseCode<200 || responseCode>299); i++){
 			try{
 				if(i>0){Tools.sleep(40*i*i);}
-				response=client.send(request, HttpResponse.BodyHandlers.ofString());
-				result=response.body();
-				responseCode=response.statusCode();
+				response=access.send(httpClient, request);
+				result=access.body(response);
+				responseCode=access.statusCode(response);
 			}catch(InterruptedException e2){
 				//FIXED [server/ServerTools#007]: preserve cancellation and do not retry an
 				//interrupted send as ordinary I/O.
@@ -274,10 +270,13 @@ public class ServerTools{
 	/**
 	 * Returns the first Content-Encoding header value from a Java 11
 	 * response, or empty string if absent.
-	 * @param httpResponse response to inspect
+	 * Object keeps the containing class compilable on Java 8; the argument must
+	 * still be a Java 11 HttpResponse. Existing source callers remain compatible,
+	 * but callers compiled against the former HttpResponse descriptor must recompile.
+	 * @param httpResponse Java 11 response to inspect
 	 * @return first Content-Encoding header, or an empty string if absent */
-	public static String determineContentEncoding(HttpResponse<?> httpResponse){
-		return httpResponse.headers().firstValue("Content-Encoding").orElse("");
+	public static String determineContentEncoding(Object httpResponse){
+		return httpClientAccess().contentEncoding(httpResponse);
 	}
 
 
@@ -834,30 +833,141 @@ public class ServerTools{
 	/** Suppresses some legacy caught-exception diagnostics. */
 	public static boolean suppressErrors=false;
 
-	/** Shared Java 11+ HTTP client whose executor uses daemon threads so diagnostics can exit. */
-	private static HttpClient client;
-	static{
-		try{
+	/** Shared modern client, created only when its path is selected. Object avoids Java 11 linkage on Java 8. */
+	private static volatile Object client;
 
-			//Without daemon threads the process won't terminate after the shared client starts.
-			final ThreadFactory daemonThreadFactory=new ThreadFactory(){
+	/** Resolves modern APIs only for an explicitly selected Java 11+ operation. */
+	private static HttpClientAccess httpClientAccess(){
+		if(Shared.javaVersion<11){
+			throw new IllegalStateException("The HTTP client API requires Java 11 or later; use sendAndReceive for Java 8 fallback.");
+		}
+		return HttpClientHolder.ACCESS;
+	}
+
+	/** Publishes one lazily initialized client; no executor is created by unrelated helpers. */
+	private static Object sharedHttpClient(final HttpClientAccess access){
+		Object current=client;
+		if(current==null){
+			synchronized(ServerTools.class){
+				current=client;
+				if(current==null){client=current=access.newClient();}
+			}
+		}
+		return current;
+	}
+
+	/** Class initialization safely publishes cached methods without loading them on Java 8. */
+	private static final class HttpClientHolder{
+		private static final HttpClientAccess ACCESS=create();
+		private static HttpClientAccess create(){
+			try{return new HttpClientAccess();}
+			catch(ReflectiveOperationException e){throw new ExceptionInInitializerError(e);}
+		}
+	}
+
+	/** Calls the public HTTP API types, never inaccessible JDK implementation classes. */
+	private static final class HttpClientAccess{
+		HttpClientAccess() throws ReflectiveOperationException{
+			assert(Shared.javaVersion>=11) : "Only the selected modern transport may resolve java.net.http APIs";
+			final Class<?> httpClient=Class.forName("java.net.http.HttpClient");
+			final Class<?> clientBuilder=Class.forName("java.net.http.HttpClient$Builder");
+			final Class<?> version=Class.forName("java.net.http.HttpClient$Version");
+			final Class<?> request=Class.forName("java.net.http.HttpRequest");
+			final Class<?> requestBuilder=Class.forName("java.net.http.HttpRequest$Builder");
+			final Class<?> publisher=Class.forName("java.net.http.HttpRequest$BodyPublisher");
+			final Class<?> publishers=Class.forName("java.net.http.HttpRequest$BodyPublishers");
+			final Class<?> response=Class.forName("java.net.http.HttpResponse");
+			final Class<?> handler=Class.forName("java.net.http.HttpResponse$BodyHandler");
+			final Class<?> handlers=Class.forName("java.net.http.HttpResponse$BodyHandlers");
+			final Class<?> headers=Class.forName("java.net.http.HttpHeaders");
+			newClientBuilder=httpClient.getMethod("newBuilder");
+			clientVersion=clientBuilder.getMethod("version", version);
+			clientExecutor=clientBuilder.getMethod("executor", java.util.concurrent.Executor.class);
+			buildClient=clientBuilder.getMethod("build");
+			http2=version.getField("HTTP_2").get(null);
+			newRequestBuilder=request.getMethod("newBuilder");
+			requestUri=requestBuilder.getMethod("uri", URI.class);
+			requestPost=requestBuilder.getMethod("POST", publisher);
+			buildRequest=requestBuilder.getMethod("build");
+			noBody=publishers.getMethod("noBody");
+			byteBody=publishers.getMethod("ofByteArray", byte[].class);
+			stringBody=handlers.getMethod("ofString");
+			send=httpClient.getMethod("send", request, handler);
+			responseBody=response.getMethod("body");
+			responseStatus=response.getMethod("statusCode");
+			responseHeaders=response.getMethod("headers");
+			firstHeader=headers.getMethod("firstValue", String.class);
+			responseType=response;
+		}
+
+		/** Retains HTTP/2 preference and the existing four-daemon-worker executor policy. */
+		Object newClient(){
+			final ThreadFactory factory=new ThreadFactory(){
+				@Override
 				public Thread newThread(Runnable r){
-					final Thread t=new Thread(r);
-					t.setDaemon(true);
-					return t;
+					final Thread thread=new Thread(r);
+					thread.setDaemon(true);
+					return thread;
 				}
 			};
-
-			final ExecutorService executor=Executors.newFixedThreadPool(4, daemonThreadFactory);
-			client=HttpClient.newBuilder()
-				.version(HttpClient.Version.HTTP_2)
-				.executor(executor)
-				.build();
-		}catch(Throwable e){
-			System.err.println("You may need a more recent version of Java, specifically, "+
-					"11 or higher.  Your version: "+Shared.javaVersion);
-			e.printStackTrace();
+			final ExecutorService executor=Executors.newFixedThreadPool(4, factory);
+			boolean built=false;
+			try{
+				final Object builder=invoke(newClientBuilder, null);
+				invoke(clientVersion, builder, http2);
+				invoke(clientExecutor, builder, executor);
+				final Object result=invoke(buildClient, builder);
+				built=true;
+				return result;
+			}finally{if(!built){executor.shutdownNow();}}
 		}
+
+		/** Builds the same POST once so retries retain the original request and body. */
+		Object request(final byte[] message, final URI uri){
+			final Object body=message==null ? invoke(noBody, null) : invoke(byteBody, null, message);
+			final Object builder=invoke(newRequestBuilder, null);
+			invoke(requestUri, builder, uri);
+			invoke(requestPost, builder, body);
+			return invoke(buildRequest, builder);
+		}
+
+		/** Unwraps checked transport failures so the original retry/cancellation logic remains authoritative. */
+		Object send(final Object httpClient, final Object request) throws IOException, InterruptedException{
+			try{return send.invoke(httpClient, request, invoke(stringBody, null));}
+			catch(InvocationTargetException e){
+				final Throwable cause=e.getCause();
+				if(cause instanceof IOException){throw (IOException)cause;}
+				if(cause instanceof InterruptedException){throw (InterruptedException)cause;}
+				throw failure(send, cause);
+			}catch(IllegalAccessException e){throw failure(send, e);}
+		}
+		String body(final Object response){return (String)invoke(responseBody, response);}
+		int statusCode(final Object response){return (Integer)invoke(responseStatus, response);}
+		String contentEncoding(final Object response){
+			if(response==null){throw new NullPointerException("httpResponse");}
+			if(!responseType.isInstance(response)){throw new IllegalArgumentException("Expected a Java 11 HttpResponse");}
+			final Object headers=invoke(responseHeaders, response);
+			final java.util.Optional<?> value=(java.util.Optional<?>)invoke(firstHeader, headers, "Content-Encoding");
+			return value.isPresent() ? (String)value.get() : "";
+		}
+
+		/** Reflection failures are configuration errors, not retriable transport failures. */
+		private static Object invoke(final Method method, final Object target, final Object... arguments){
+			try{return method.invoke(target, arguments);}
+			catch(InvocationTargetException e){throw failure(method, e.getCause());}
+			catch(IllegalAccessException e){throw failure(method, e);}
+		}
+		private static RuntimeException failure(final Method method, final Throwable cause){
+			if(cause instanceof RuntimeException){return (RuntimeException)cause;}
+			if(cause instanceof Error){throw (Error)cause;}
+			return new IllegalStateException("Could not invoke public HTTP API "+method.getName(), cause);
+		}
+
+		private final Class<?> responseType;
+		private final Object http2;
+		private final Method newClientBuilder, clientVersion, clientExecutor, buildClient;
+		private final Method newRequestBuilder, requestUri, requestPost, buildRequest, noBody, byteBody;
+		private final Method stringBody, send, responseBody, responseStatus, responseHeaders, firstHeader;
 	}
 
 }

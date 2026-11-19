@@ -42,6 +42,7 @@ public final class CallGenesCobalaminConfigTest {
 			CallGenes.loadCobalaminResources();
 			check(GeneCaller.ncrnaFamilies.size()==3, "One selected B12 group must register all three shared-index slots");
 			final NcrnaFamily[] baseline=GeneCaller.ncrnaFamilies.toArray(new NcrnaFamily[3]);
+			final int[] topNs={384, 100, 100};
 			final int[] floors={109, 109, 66};
 			final float[] identities={.64f, .66f, .66f};
 			for(int i=0; i<baseline.length; i++){
@@ -49,9 +50,9 @@ public final class CallGenesCobalaminConfigTest {
 				check(f.name.equals("cobalamin_"+MEMBERS[i].toLowerCase(java.util.Locale.ROOT)) && f.kLong==17
 					&& f.library.length==models[i] && f.models.length==models[i] && f.kmerSet.size()==seeds,
 					"Group loading must conserve each subtype's model roster and shared seed denominator");
-				check(f.indexK==9 && f.indexTopN==100 && f.minLen==floors[i] && f.hbmPass>1
+				check(f.indexK==9 && f.indexTopN==topNs[i] && f.minLen==floors[i] && f.hbmPass>1
 					&& f.idPass==identities[i] && f.idBorderline==f.idPass,
-					"Bare opt-in loading must reproduce the measured scalar identities, K9/top100 and independent length floors without HBM rescue");
+					"Bare opt-in loading must reproduce the measured scalar identities, K9 member caps and independent length floors without HBM rescue");
 				check(f.seedMinHits==2 && f.seedDistinct, "The selected seed resource requires two different keys before alignment");
 				check(f.boundary5NetTemplate==null && f.boundary3NetTemplate==null,
 					"Detection calibration precedes separately measured boundary networks");
@@ -96,7 +97,7 @@ public final class CallGenesCobalaminConfigTest {
 			CallGenes.validateNcrnaSweepOverrides();CallGenes.loadCobalaminResources();
 			for(int i=0; i<3; i++){
 				final NcrnaFamily f=GeneCaller.ncrnaFamilies.get(i);
-				check(f.indexK==9 && f.indexTopN==(i==1?3:100) && f.minLen==floors[i]
+				check(f.indexK==9 && f.indexTopN==(i==1?3:topNs[i]) && f.minLen==floors[i]
 					&& f.idPass==(i==1?.70f:identities[i]) && f.seedMinHits==(i==1?1:2) && f.seedDistinct==(i!=1),
 					"An explicit subtype sweep must leave both sibling policies unchanged");
 			}
@@ -117,7 +118,7 @@ public final class CallGenesCobalaminConfigTest {
 			CallGenes.NCRNA_FAMILIES_ENABLED=umbrella;CallGenes.NCRNA_FAMILY_FILTER=null;
 			CallGenes.NCRNA_INDEX_K_OVERRIDE=CallGenes.NCRNA_INDEX_TOP_N_OVERRIDE=CallGenes.NCRNA_INDEX_MIN_HITS_OVERRIDE=-1;
 			CallGenes.NCRNA_SEED_MIN_HITS_OVERRIDE=-1;CallGenes.NCRNA_MAX_LEN_OVERRIDE=-1;
-			CallGenes.NCRNA_ID_PASS_OVERRIDE=CallGenes.NCRNA_ID_BORDERLINE_OVERRIDE=CallGenes.NCRNA_HBM_PASS_OVERRIDE=Float.NaN;
+			CallGenes.NCRNA_ID_PASS_OVERRIDE=CallGenes.NCRNA_ID_BORDERLINE_OVERRIDE=CallGenes.NCRNA_HBM_PASS_OVERRIDE=-1f;
 		}
 		System.out.println("CALLGENES_COBALAMIN_CONFIG_TEST_PASS");
 	}

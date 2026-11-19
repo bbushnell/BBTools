@@ -68,6 +68,14 @@ public final class RrnaEndpointCallerFeaturesTest {
 		check(a.start==50 && a.stop==129 && b.start==a.start && b.stop==a.stop
 			&& Arrays.equals(oldRecorder.five,zeroRecorder.five) && Arrays.equals(oldRecorder.three,zeroRecorder.three),
 			"Legacy overload and explicit mask0 must retain exact feature bytes and real inference results");
+		final Recorder zeroIdentityRecorder=new Recorder();final RrnaEndpointCallerFeatures zeroIdentity=new RrnaEndpointCallerFeatures(resources,zeroIdentityRecorder);
+		final Orf id0=prokCandidate(bases,53,125,0);id0.orfScore=123f;zeroIdentity.capture(id0,bases,0,gc,70,200,0f,0);
+		check(zeroIdentityRecorder.five!=null && zeroIdentity.five[resources.sites+2]==0f
+			&& zeroIdentityRecorder.three!=null && zeroIdentity.three[resources.sites+2]==0f,
+			"Accepted-verifier identity must preserve real zero on both active ends");
+		boolean missingIdentityRejected=false;try{zeroIdentity.capture(prokCandidate(bases,53,125,0),bases,0,gc,70,200,-1f,0);}
+		catch(IllegalArgumentException expected){missingIdentityRejected=true;}
+		check(missingIdentityRejected,"Accepted-verifier identity must reject missing identity on an active endpoint");
 		for(int strand=0;strand<2;strand++){
 			for(int mask=1;mask<=2;mask++){
 				final Recorder recorder=new Recorder();final RrnaEndpointCallerFeatures inference=new RrnaEndpointCallerFeatures(resources,recorder);
@@ -81,6 +89,8 @@ public final class RrnaEndpointCallerFeaturesTest {
 				final float[] active=mask==1?inference.three:inference.five,disabled=mask==1?inference.five:inference.three;
 				check(active[resources.sites]==73f/consensus.length && active[resources.sites+2]==.73f,
 					"Interior endpoint retains full trained consensus length and supplied accepted identity, not cropped-model substitutes");
+				check((mask==1 ? recorder.five : recorder.three)==null,
+					"Fixed endpoint observation must omit the nonexistent feature row");
 				for(float value:disabled){check(Float.isNaN(value),"Disabled end must not leak preceding-candidate feature values");}
 			}
 		}
@@ -93,7 +103,7 @@ public final class RrnaEndpointCallerFeaturesTest {
 		check(edge.start==0 && edge.stop==129,"Physical5prime coordinate stays fixed while normal3prime inference runs");
 		resources.five[0]=five;
 		final Recorder silent=new Recorder();final RrnaEndpointCallerFeatures both=new RrnaEndpointCallerFeatures(resources,silent);
-		final Orf fixed=prokCandidate(bases,0,179,1);both.capture(fixed,null,0,Float.NaN,70,200,Float.NaN,3);
+		final Orf fixed=prokCandidate(bases,0,179,1);both.capture(fixed,null,0,Float.NaN,70,200,-1f,3);
 		check(silent.count==0 && fixed.start==0 && fixed.stop==179,"Both fixed means no features, identity computation, NN inference or sink observation");
 		boolean rejected=false;try{both.capture(fixed,bases,0,gc,70,200,.73f,4);}catch(IllegalArgumentException e){rejected=true;}
 		check(rejected,"Unknown mask bits cannot silently suppress endpoint work");
@@ -135,8 +145,17 @@ public final class RrnaEndpointCallerFeaturesTest {
 	static byte[] features(String path){final fileIO.ByteFile in=RrnaResourceIO.open(path);final LineParser1 p=new LineParser1('\t');byte[] found=null;
 		try{for(byte[] row;(row=in.nextLine())!=null;){if(row[0]=='#'){continue;}check(found==null,"Fixture has one materialized row per end");p.set(row);check(p.terms()==53,"Materializer schema retains28inputs/25labels");p.setBounds(27);found=Arrays.copyOf(row,p.b());}}finally{check(!in.close(),"Fixture read must finish");}check(found!=null,"Missing materialized feature row");return found;}
 	static final class Recorder implements RrnaEndpointCallerFeatures.Sink{
-		@Override public void capture(String contig,int strand_,int model,int start,int stop,float[] f,boolean fu,float[] t,boolean tu){count++;strand=strand_;five=serialize(f);three=serialize(t);fiveUsable=fu;threeUsable=tu;}
-		static byte[] serialize(float[] values){final ByteBuilder b=new ByteBuilder();for(int i=0;i<values.length;i++){if(i>0){b.tab();}b.appendSlow(values[i]);}return b.toBytes();}
+		@Override public void capture(String contig,int strand_,int model,int start,int stop,float[] f,boolean fu,float[] t,boolean tu){count++;strand=strand_;five=serialize(f,fu);three=serialize(t,tu);fiveUsable=fu;threeUsable=tu;}
+		static byte[] serialize(float[] values,boolean usable){
+			if(!usable){return null;}
+			final ByteBuilder b=new ByteBuilder();
+			for(int i=0;i<values.length;i++){
+				check(Float.isFinite(values[i]),"Usable endpoint rows must contain only finite features");
+				if(i>0){b.tab();}
+				b.appendSlow(values[i]);
+			}
+			return b.toBytes();
+		}
 		long count;int strand;byte[] five,three;boolean fiveUsable,threeUsable;
 	}
 	static byte[] bytes(String s){return s.getBytes(StandardCharsets.US_ASCII);}

@@ -2903,6 +2903,8 @@ public class ReadWrite{
 						e.printStackTrace();
 					}
 				}
+				//TODO: Probable bug - writer shutdown also calls this method; accepting141 can hide truncated compressor output.
+				//Reading a deliberately closed pipe may accept SIGPIPE, but writers need exit0 or independent decoded-byte verification.
 				error|=(tries>=20 || (x!=0 && x!=141));//141 is sigpipe and appears to be OK when forcibly closing a pipe.
 				if(verbose){System.err.println("killProcess("+fname+") returned "+error+"; tries="+tries+", code="+x);}
 				if(tries>=20){

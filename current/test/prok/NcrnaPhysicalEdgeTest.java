@@ -96,14 +96,14 @@ public final class NcrnaPhysicalEdgeTest {
 		for(int i=0; i+17<=model.length; i++){
 			long key=0;for(int j=0; j<17; j++){key=(key<<2)|AminoAcid.baseToNumber[model[i+j]];}seeds.add(key);
 		}
-		final byte[] fragment=Arrays.copyOfRange(model, 200, 1000);
+		final byte[] fragment=Arrays.copyOfRange(model,200,1000);
 		for(int i=40; i<fragment.length-10; i+=50){fragment[i]=(byte)(fragment[i]=='A'?'C':'A');}
 		String expected=null;
 		for(boolean legacyTarget:new boolean[]{true, false}){
 			final NcrnaFamily f=new NcrnaFamily("euk18S", new byte[][]{model}, null,
 				new String[]{"euk18S_mitochondria"}, seeds, 17, 600, 1500, 9, 1, false, 1f, 0f, 0f, 1, 0f, 1f, 1f, 1f);
 			f.outputType=ProkObject.r18S;f.reuseConsensusAlignment=true;f.trimAlignmentExtent=false;f.scavengePass2=false;
-			f.modelClipRescue=legacyTarget;f.modelClipRescueId=legacyTarget ? .66f : Float.NaN;
+			f.modelClipRescue=legacyTarget;f.modelClipRescueId=legacyTarget ? .66f : -1f;
 			NcrnaFamilyRegistry.enablePhysicalEdges(f);
 			check(f.modelClipRescue==legacyTarget && f.modelClipRescueId==.66f,
 				"Physical-edge registration must retain the measured18S cutoff without enabling interior rescue");
@@ -113,6 +113,13 @@ public final class NcrnaPhysicalEdgeTest {
 			final String calls=Prok16sPartialRescueTest.calls(result);
 			if(expected==null){expected=calls;}else{check(expected.equals(calls), "Disabling interior rescue must not alter the saved TARGET physical-edge GFF");}
 		}
+		final NcrnaFamily explicit0=new NcrnaFamily("euk18S", new byte[][]{model}, null,
+			new String[]{"euk18S_mitochondria"}, seeds, 17, 600, 1500, 9, 1, false, 1f, 0f, 0f, 1, 0f, 1f, 1f, 1f);
+		explicit0.outputType=ProkObject.r18S;explicit0.modelClipRescue=true;explicit0.modelClipRescueId=0f;
+		NcrnaFamilyRegistry.enablePhysicalEdges(explicit0);
+		final NcrnaScavenger explicit0Caller=Prok16sPartialRescueTest.scavenger(explicit0);
+		check(explicit0.modelClipRescueId==0f && explicit0Caller.modelClipRescueId==0f,
+			"Physical-edge registration must preserve explicit rescue identity zero through the actual worker bridge");
 	}
 	static void modelCoordinates(byte[] model){
 		final EndClippedAligner aligner=new EndClippedAligner();final BaseGraph graph=graph(model);

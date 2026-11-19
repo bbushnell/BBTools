@@ -26,7 +26,7 @@ import structures.ByteBuilder;
  * @contributor Chloe
  * @date February 27, 2026
  */
-public final class DynamicDemiLog extends CardinalityTracker {
+public final class DynamicDemiLog extends AbstractDemiLog {
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
@@ -402,6 +402,27 @@ public final class DynamicDemiLog extends CardinalityTracker {
 
 	/** Returns the underlying maxArray for internal comparison. */
 	public char[] maxArray(){return maxArray;}
+
+	/** Identifies this existing register layout to width-aware clients. */
+	@Override
+	public int registerBits(){return 16;}
+
+	/** Exposes the existing process-global exponent split to width-aware clients. */
+	@Override
+	public int exponentWidth(){return exponentBits;}
+
+	/** Returns one existing unsigned char register without changing its encoding. */
+	@Override
+	public int registerValue(int bucket){
+		assert(bucket>=0 && bucket<buckets) : "Register lookup must stay within this sketch";
+		return maxArray[bucket];
+	}
+
+	/** Dispatches width-aware folding to the existing 16-bit implementations. */
+	@Override
+	public DynamicDemiLog condenseSketch(int newBuckets, boolean useBlacklist){
+		return useBlacklist ? condenseBlacklisted(this, newBuckets) : condense(this, newBuckets);
+	}
 
 	/** Returns a copy of maxArray (absolute values). For DDLIndex and external consumers. */
 	public char[] toAbsoluteArray(){

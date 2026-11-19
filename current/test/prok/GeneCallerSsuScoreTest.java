@@ -27,7 +27,7 @@ public final class GeneCallerSsuScoreTest {
 				check(caller.refineByAlignment(orf,bases,0,new StatsContainer(ProkObject.r16S)),"Perfect model must pass real refinement");
 				check(orf.start==50 && orf.stop==349 && orf.orfScore==300f,"Score must use actual refined inclusive span and measured perfect identity with no observer");
 				check(orf.ssuFullModel==gene && "exact".equals(orf.ssuFullModelName),"SSU comparison must retain the actual accepted full model without an observer");
-				final float[] identity={Float.NaN};
+				final float[] identity={-1f};
 				caller.setAttemptSink((index,total,preStart,preStop,preScore,accepted,postStart,postStop,strand,scaffold,label,length,id,reason,candidate)->{if(accepted){identity[0]=id;}});
 				orf=orf(bases,ProkObject.r16S);check(caller.refineByAlignment(orf,bases,0,new StatsContainer(ProkObject.r16S)) && orf.orfScore==300f && identity[0]==1f,"Adding an observer cannot change accepted scoring");
 				caller.setAttemptSink(null);ProkObject.rrnaFallback=true;ProkObject.r16SSequence=new Read[]{new Read(bad,null,"reject",0),new Read(gene,null,"exact",1)};

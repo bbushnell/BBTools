@@ -6,6 +6,7 @@ import java.io.PrintStream;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.DirectoryStream;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -25,6 +26,7 @@ import parse.PreParser;
 import prot.ProteinFamilyAssigner;
 import prot.ProteinFamilyCompetition;
 import prot.ProteinFamilyPacks;
+import shared.Resources;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
@@ -44,8 +46,13 @@ import template.ThreadWaiter;
 public final class AnnotateGenes implements Accumulator<AnnotateGenes.ProcessThread> {
 
 	public static void main(String[] args) throws IOException{
-		final Timer timer=new Timer(); final AnnotateGenes tool=new AnnotateGenes(args);
-		try{tool.process(timer);}finally{Shared.closeStream(tool.outstream);}
+		try{
+			final Timer timer=new Timer(); final AnnotateGenes tool=new AnnotateGenes(args);
+			try{tool.process(timer);}finally{Shared.closeStream(tool.outstream);}
+		}catch(Resources.MissingResourceException e){
+			System.err.print(e.getMessage());
+			System.exit(1);
+		}
 	}
 
 	/*--------------------------------------------------------------*/
@@ -92,14 +99,20 @@ public final class AnnotateGenes implements Accumulator<AnnotateGenes.ProcessThr
 		if(modelsSpecified){
 			final String requestedModels=models;
 			models=models==null ? null : Data.findPath(models, false);
+			if(requestedModels!=null && (models==null || Files.notExists(Paths.get(models), LinkOption.NOFOLLOW_LINKS))){
+				throw ProteinFamilyPacks.missingReference(requestedModels);
+			}
 			require(models!=null && new File(models).isDirectory(), "Model package directory not found: "+requestedModels
 				+". Extract the BBGAP reference tar into BBTools/resources/, or specify models=DIR.");
 		}else{
 			final String requestedReference=reference;
 			reference=reference==null ? null : Data.findPath(reference, false);
+			if(requestedReference!=null && (reference==null || Files.notExists(Paths.get(reference), LinkOption.NOFOLLOW_LINKS))){
+				throw ProteinFamilyPacks.missingReference(requestedReference);
+			}
 			require(reference!=null && new File(reference).isDirectory(), "BBGAP reference directory not found: "+requestedReference
 				+". Extract reference tar files into BBTools/resources/ to create bbgap/.");
-			packs=ProteinFamilyPacks.discover(Paths.get(reference), includeTest);
+			packs=ProteinFamilyPacks.discover(Paths.get(reference), includeTest, true);
 			models=packs[0].models.toString();
 		}
 		labelFiles=new String[packs==null ? 1 : packs.length];
@@ -109,26 +122,44 @@ public final class AnnotateGenes implements Accumulator<AnnotateGenes.ProcessThr
 				require(labelFiles.length==1, "A labels=FILE override requires a single pack; use pack-local labels or labels=null");
 				final String requestedLabels=labelFile;
 				labelFile=Data.findPath(labelFile, false);
-				require(labelFile!=null, "Family labels not found: "+requestedLabels);
+				if(labelFile==null || Files.notExists(Paths.get(labelFile), LinkOption.NOFOLLOW_LINKS)){
+					throw ProteinFamilyPacks.missingReference(requestedLabels);
+				}
 				labelFiles[0]=labelFile;
 			}
 		}else{
 			// Resolve labels beside the selected models, never from another resource installation.
 			for(int p=0; p<labelFiles.length; p++){
 				final File bundle=packs==null ? new File(models).getCanonicalFile().getParentFile() : packs[p].root.toFile();
-				final File compressed=new File(bundle, "labels/family_labels.tsv.gz");
-				final File raw=new File(bundle, "labels/family_labels.tsv");
-				labelFiles[p]=compressed.isFile() ? compressed.getPath() : raw.isFile() ? raw.getPath() : null;
-				require(modelsSpecified || labelFiles[p]!=null, "The installed BBGAP package is missing labels/family_labels.tsv.gz. "
-					+"Extract the complete reference tar into BBTools/resources/, or use labels=null for family assignments without names.");
+				labelFiles[p]=implicitLabels(bundle.toPath(), !modelsSpecified);
 			}
 			labelFile=labelFiles[0];
 		}
+		if(modelsSpecified){ProteinFamilyPacks.requireModels(Paths.get(models));}
 		GeneticCode.forTable(table);
 		require(Shared.threads()>0, "At least one alignment thread is required");
 		require(Tools.testInputFiles(false, true, inputPaths()), "An AnnotateGenes input is unreadable");
 		require(Tools.testOutputFiles(overwrite, false, false, out, evidence), "Cannot write AnnotateGenes output");
 		validatePaths();
+	}
+
+	/** Preserves optional labels for explicit models while rejecting malformed installed entries. */
+	private static String implicitLabels(final Path bundle, final boolean required){
+		assert(bundle!=null) : "Labels must be resolved beside the selected model package";
+		final Path directory=bundle.resolve("labels");
+		if(Files.exists(directory, LinkOption.NOFOLLOW_LINKS)){
+			require(Files.isDirectory(directory), "BBGAP labels path is not a directory: "+directory);
+		}
+		final Path compressed=directory.resolve("family_labels.tsv.gz"), raw=directory.resolve("family_labels.tsv");
+		for(Path candidate : new Path[]{compressed, raw}){
+			if(Files.exists(candidate, LinkOption.NOFOLLOW_LINKS)){
+				require(Files.isRegularFile(candidate), "BBGAP label path is not a regular file: "+candidate);
+			}
+		}
+		if(Files.isRegularFile(compressed)){return compressed.toString();}
+		if(Files.isRegularFile(raw)){return raw.toString();}
+		if(required){throw ProteinFamilyPacks.missingReference(directory.toString());}
+		return null;
 	}
 
 	/** Canonical paths catch aliases before any writer can truncate an input. */

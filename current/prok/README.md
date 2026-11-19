@@ -387,9 +387,31 @@ Resources live in `resources/callgenes_TPP/` and `resources/callgenes_Glycine/`.
 Selecting a family with missing or incompatible resources fails loudly. Omitted
 options and explicit `tpp=f glycine=f` preserve ordinary production-family defaults.
 
+## Experimental protein-family stop support
+
+CallGenes keeps protein-family support off unless explicitly selected.
+`annotation=tailcascade` uses a calibrated classifier manifest supplied through
+`tailreference=`; the reference package is separate from the Java source.
+Family evidence supports a biological stop and does not independently establish
+its start or a full-length functional assignment. Retained experimental modes
+remain explicit options; stabilization does not enable them or retune their gates.
+
+The caller help documents package validation, bonuses, pruning protection and
+other supported settings. Use `tailbonus=0 tailprotect=f` for the documented
+single-pass zero-effect control. Reproduction of an accepted comparison also
+requires its exact caller inputs, configuration, resources and pass policy;
+a score from one retained benchmark is not a substitute for those bindings.
+
 ## Core Gene Prediction
 
 ### CallGenes (CallGenes.java)
+
+At a contig edge, the called CDS coordinates retain the last complete in-frame
+codon and exclude only incomplete trailing bases. This applies with protein-family
+support enabled or disabled. Terminal coordinates can therefore differ from older
+versions that also removed a base from the final complete codon. This coordinate
+correction does not change the separate protein-output translation policy.
+
 **Purpose**: Primary executable class for prokaryotic gene-calling and annotation pipeline.
 - **Core Function**: Predicts and processes open reading frames (ORFs) in prokaryotic genomic sequences
 - **Key Features**:

@@ -4,6 +4,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
@@ -55,11 +56,15 @@ public final class ProteinSupport implements AutoCloseable {
 			throw new IllegalArgumentException("Protein support requires annotation=core|full and finite nonnegative ORF/stop bonuses");
 		}
 		final String resolved=Data.findPath(reference, false);
-		if(resolved==null || !Files.isDirectory(Paths.get(resolved))){
-			throw new IllegalArgumentException("Missing BBGAP reference: "+reference+". Extract the BBGAP tar into BBTools/resources/.");
+		if(resolved==null){throw ProteinFamilyPacks.missingReference(reference);}
+		final Path rootPath=Paths.get(resolved);
+		if(!Files.exists(rootPath, LinkOption.NOFOLLOW_LINKS)){throw ProteinFamilyPacks.missingReference(reference);}
+		if(!Files.isDirectory(rootPath)){
+			throw new IllegalArgumentException("BBGAP reference root is not a directory: "+reference);
 		}
-		final Path root=Paths.get(resolved).toRealPath();
-		final ProteinFamilyPacks.Pack[] packs=mode.equals("core") ? null : ProteinFamilyPacks.discover(root, false);
+		final Path root=rootPath.toRealPath();
+		if(mode.equals("core")){requireLegacyPack(root, reference);}
+		final ProteinFamilyPacks.Pack[] packs=mode.equals("core") ? null : ProteinFamilyPacks.discover(root, false, true);
 		final int n=packs==null ? 1 : packs.length;
 		final ProteinFamilyAssigner[] libraries=new ProteinFamilyAssigner[n];
 		final FamilyLabels[] labels=new FamilyLabels[n];
@@ -101,6 +106,14 @@ public final class ProteinSupport implements AutoCloseable {
 		if(Files.exists(input) && Files.isSameFile(output, input)){
 			throw new IllegalArgumentException("Output aliases a BBGAP reference member: "+output+" -> "+input);
 		}
+	}
+	private static void requireLegacyPack(final Path root, final String reference){
+		final Path models=root.resolve("models");
+		if(!Files.exists(models, LinkOption.NOFOLLOW_LINKS)){throw ProteinFamilyPacks.missingReference(reference);}
+		if(!Files.isDirectory(models)){throw new IllegalArgumentException("Legacy models path is not a directory");}
+		final Path artifacts=models.resolve("artifacts.tsv");
+		if(!Files.exists(artifacts, LinkOption.NOFOLLOW_LINKS)){throw ProteinFamilyPacks.missingReference(reference);}
+		if(!Files.isRegularFile(artifacts)){throw new IllegalArgumentException("Legacy model artifacts path is not a regular file");}
 	}
 
 	private ProteinSupport(ProteinFamilyAssigner[] libraries_, FamilyLabels[] labels_, String[] ids_,
@@ -212,7 +225,8 @@ public final class ProteinSupport implements AutoCloseable {
 		for(int i=0; i<DP_HISTOGRAM_BINS; i++){destination[i]+=source[i];}
 	}
 	/** Literal bins include zero-work queries. Median averages the middle pair; p95
-	 * uses nearest rank. Undefined empty statistics are NaN; empty maximum is zero.
+	 * uses nearest rank. Empty cohorts omit mean, median, p95 and max; counts remain.
+	 * The aligned_mean key is omitted when aligned_queries is zero.
 	 * Aligned means at least one DP fill, not an accepted or positive-scoring match.
 	 */
 	public static String dpSummary(final long[] counts){
@@ -226,7 +240,9 @@ public final class ProteinSupport implements AutoCloseable {
 			if(counts[i]>0){max=i;}
 		}
 		final long aligned=queries-counts[0];
-		double median=Double.NaN, p95=Double.NaN;
+		final StringBuilder summary=new StringBuilder();
+		summary.append("queries=").append(queries).append(" dp_fills=").append(fills)
+			.append(" zero_dp=").append(counts[0]);
 		if(queries>0){
 			final long lower=queries/2+queries%2, upper=queries/2+1, rank95=queries-queries/20;
 			long cumulative=0;
@@ -238,11 +254,13 @@ public final class ProteinSupport implements AutoCloseable {
 				if(percentile<0 && cumulative>=rank95){percentile=i;}
 			}
 			assert(low>=0 && high>=0 && percentile>=0) : "Nonempty checked DP histogram must contain each requested rank";
-			median=(low+high)*0.5; p95=percentile;
+			final double median=(low+high)*0.5, p95=percentile;
+			summary.append(" mean=").append(fills/(double)queries).append(" median=").append(median)
+				.append(" p95=").append(p95).append(" max=").append(max);
 		}
-		return "queries="+queries+" dp_fills="+fills+" zero_dp="+counts[0]
-			+" mean="+(queries==0 ? Double.NaN : fills/(double)queries)+" median="+median+" p95="+p95+" max="+max
-			+" aligned_queries="+aligned+" aligned_mean="+(aligned==0 ? Double.NaN : fills/(double)aligned);
+		summary.append(" aligned_queries=").append(aligned);
+		if(aligned>0){summary.append(" aligned_mean=").append(fills/(double)aligned);}
+		return summary.toString();
 	}
 	private static void checkDpShape(final long[] counts){
 		if(counts==null || counts.length!=DP_HISTOGRAM_BINS){

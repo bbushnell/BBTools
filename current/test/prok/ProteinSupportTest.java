@@ -5,18 +5,22 @@ import prok.Orf;
 import prok.ProkObject;
 import prok.ProteinSupport;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import dna.GeneticCode;
+import shared.Resources;
 
 /** Small arithmetic/translation regressions; real-reference calling is a separate pilot.
  * @author Keqing
  */
 public final class ProteinSupportTest {
 
-	public static void main(String[] args){
+	public static void main(String[] args) throws Exception{
 		dpHistograms();
 		tailCaps();
+		missingReference();
 		searchPolicy();
 		modelBonus();
 		pruningProtection();
@@ -92,11 +96,11 @@ public final class ProteinSupportTest {
 		final long[] odd=new long[101]; odd[0]=1; odd[4]=1; odd[100]=1;
 		require(ProteinSupport.dpSummary(odd).equals("queries=3 dp_fills=104 zero_dp=1 mean=34.666666666666664 median=4.0 p95=100.0 max=100 aligned_queries=2 aligned_mean=52.0"),
 			"Odd median and95th percentile must come from literal ranks, not interpolated bins");
-		require(ProteinSupport.dpSummary(new long[101]).equals("queries=0 dp_fills=0 zero_dp=0 mean=NaN median=NaN p95=NaN max=0 aligned_queries=0 aligned_mean=NaN"),
-			"Empty cohorts must not report invented zero means or percentiles");
+		require(ProteinSupport.dpSummary(new long[101]).equals("queries=0 dp_fills=0 zero_dp=0 aligned_queries=0"),
+			"Empty cohorts retain counts and omit nonexistent mean, quantiles, maximum and aligned mean");
 		final long[] zeros=new long[101]; zeros[0]=5;
-		require(ProteinSupport.dpSummary(zeros).equals("queries=5 dp_fills=0 zero_dp=5 mean=0.0 median=0.0 p95=0.0 max=0 aligned_queries=0 aligned_mean=NaN"),
-			"All-zero work is a real cohort but has no aligned-query mean");
+		require(ProteinSupport.dpSummary(zeros).equals("queries=5 dp_fills=0 zero_dp=5 mean=0.0 median=0.0 p95=0.0 max=0 aligned_queries=0"),
+			"All-zero work retains actual zero statistics and omits only its nonexistent aligned mean");
 		zeros[0]=Long.MAX_VALUE;
 		require(ProteinSupport.dpSummary(zeros).contains("median=0.0 p95=0.0 max=0"),
 			"Nearest ranks must not overflow when multiplied percentages would");
@@ -134,6 +138,52 @@ public final class ProteinSupportTest {
 		try{action.run();}catch(IllegalArgumentException | ArithmeticException expected){rejected=true;}
 		require(rejected, "Invalid or overflowing histogram arithmetic must fail loudly");
 	}
+	/** Absent annotation HBM packs need release guidance; malformed roots are still data errors. */
+	private static void missingReference() throws Exception{
+		final Path root=Files.createTempDirectory("protein-support-missing-reference-");
+		rejectMissing(()->ProteinSupport.load("core", root.resolve("absent").toString(), 1, 1, new String[0]));
+		rejectMissing(()->ProteinSupport.load("full", root.resolve("absent").toString(), 1, 1, new String[0]));
+		rejectMissing(()->ProteinSupport.load("core", root.toString(), 1, 1, new String[0]));
+		rejectMissing(()->ProteinSupport.load("full", root.toString(), 1, 1, new String[0]));
+		final Path empty=Files.createTempDirectory("protein-support-empty-reference-");
+		Files.createDirectory(empty.resolve("models"));
+		rejectMissing(()->ProteinSupport.load("core", empty.toString(), 1, 1, new String[0]));
+		final Path emptyPacks=Files.createTempDirectory("protein-support-empty-packs-");
+		Files.createDirectory(emptyPacks.resolve("packs"));
+		rejectMissing(()->ProteinSupport.load("full", emptyPacks.toString(), 1, 1, new String[0]));
+		Files.write(root.resolve("models"), new byte[0]);
+		rejectIllegal(()->ProteinSupport.load("core", root.toString(), 1, 1, new String[0]),
+			"Legacy models path is not a directory");
+		final Path malformed=Files.createTempDirectory("protein-support-malformed-reference-");
+		Files.write(malformed.resolve("packs"), new byte[0]);
+		rejectIllegal(()->ProteinSupport.load("full", malformed.toString(), 1, 1, new String[0]),
+			"BBGAP packs path is not a directory");
+		final Path danglingModels=Files.createTempDirectory("protein-support-dangling-models-");
+		Files.createSymbolicLink(danglingModels.resolve("models"), danglingModels.resolve("missing-models"));
+		rejectIllegal(()->ProteinSupport.load("core", danglingModels.toString(), 1, 1, new String[0]),
+			"Legacy models path is not a directory");
+		final Path danglingPacks=Files.createTempDirectory("protein-support-dangling-packs-");
+		Files.createSymbolicLink(danglingPacks.resolve("packs"), danglingPacks.resolve("missing-packs"));
+		rejectIllegal(()->ProteinSupport.load("full", danglingPacks.toString(), 1, 1, new String[0]),
+			"BBGAP packs path is not a directory");
+		System.err.println("PROTEIN_SUPPORT_MISSING_REFERENCE_PASS core=true full=true malformed_distinct=true");
+	}
+	private static void rejectMissing(CheckedAction action) throws Exception{
+		try{action.run();}catch(Resources.MissingResourceException expected){
+			require(expected.getMessage().contains("AnnotateGenes HBM reference pack not found"),
+				"Missing pack guidance must identify the AnnotateGenes HBM pack");
+			return;
+		}
+		throw new AssertionError("Expected AnnotateGenes HBM missing-resource guidance");
+	}
+	private static void rejectIllegal(CheckedAction action, String text) throws Exception{
+		try{action.run();}catch(IllegalArgumentException expected){
+			require(expected.getMessage().contains(text), "Unexpected malformed-reference rejection: "+expected);
+			return;
+		}
+		throw new AssertionError("Expected malformed-reference rejection: "+text);
+	}
+	private interface CheckedAction {void run() throws Exception;}
 	/** Nondefault windows retain the stop-facing codons and declare their GFF provenance. */
 	private static void tailCaps(){
 		final byte[] bases=new byte[1806]; Arrays.fill(bases, (byte)'A');

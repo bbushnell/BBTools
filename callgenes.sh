@@ -110,6 +110,63 @@ hbmprotect=auto  Experimental soft-pruning protection, separate from score bonus
                 scored_with_bonus counts candidates before soft pruning;
                 Gene Starts/Stops Retained report the actual retained totals.
 
+annotation=tail Use an explicit stop-tail manifest with tailmethod and tailcutoff;
+                requires passes=1, ordinary translation mode, and disables hbmdiag.
+tailreference=  Stop-tail manifest for annotation=tail or annotation=tailcascade.
+tailmethod=     Explicit tail scorer: aai, blosum, or hbm.
+tailcutoff=     Finite scorer cutoff for stop support.
+tailboost=0     Nonnegative ORF-score contribution for annotation=tail.
+tailstopboost=0 Nonnegative stop-support contribution for annotation=tail.
+                Tail support is stop-only evidence: it uses 100..200 amino
+                acids before a real stop, never emits functional family labels,
+                never exempts soft pruning in this trial mode, and never alters
+                native start admission or PGM training.
+
+annotation=tailcascade  Use a versioned, calibrated stop-tail classifier manifest.
+                Requires passes=1, ordinary translation mode and no hbmdiag.
+                Supply an explicit tailreference to the reviewed, pinned research
+                package; its manifest binds classifier resources and policies.
+                The optional default ?bbgap/stop_tail_overlap2/manifest.tsv asset
+                is not installed with the current research packages.
+                firststart and searchall are manifest settings, not CLI flags.
+                Legacy tailmethod/tailcutoff/tailboost/tailstopboost belong to
+                annotation=tail; use tailbonus for the versioned classifier.
+tailverification=sha80  sha80 verifies resource fingerprints (default).
+                structural checks schemas and file stability without hashing;
+                requires an explicit tailreferencesha80 for the root manifest.
+tailreferencesha80=  Optional root-manifest pin; required in structural mode.
+                Use 20 lowercase hex characters for an inherited identity, or
+                literal unmeasured only with tailverification=structural for a
+                new manifest. Structural mode does not establish byte identity.
+tailminhits=    Optional nonnegative raw-hit floor, replacing each loaded set's
+                manifest floor. Omitted preserves the original setting.
+tailtop=        Optional positive strict shortlist cap for every loaded set.
+                Omitted preserves the manifest cap; scalar failures do not backfill.
+tailidentitylowerreduction=0  Lower each set's identity-lower bound by this many
+                percentage points (finite 0..100); direct upper gates stay fixed.
+                These five flags require annotation=tailcascade. Overrides do
+                not recalibrate gates or modify the stored resource manifests.
+tailbonus=     Required finite nonnegative score bonus for annotation=tailcascade.
+                Applied once per ORF at an accepted stop, after native scoring.
+tailcascadeoppositepenalty=0  Optional post-pruning penalty against complete,
+                unsupported CDSs incompatible with an opposite supported stop.
+                Applied once per candidate, only with positive tailbonus.
+tailbonusmode=binary  binary: use the constant tailbonus at each accepted stop.
+                margin: multiply tailbonus by the measured normalized alignment
+                margin. Requires alignment-only acceptance in every query bin;
+                searchall packages do not support margin mode.
+                information: tailbonus*min(1,I/I0) from exact canonical amino-acid
+                matches on the existing alignment, using the primary winning view.
+tailinformation= Frozen background-count and LONG/SHORT normalizer TSV for
+                information mode. Required only with positive tailbonus;
+                zero bonus needs no information resource. Nonzero information
+                requires pinned alignment-only packages without shortcuts.
+tailprotect=t  Protect the best native-scoring candidate at each accepted stop
+                from soft pruning. False retains ordinary soft pruning.
+                Protection can affect retention even with tailbonus=0; use
+                tailbonus=0 tailprotect=f for a zero-effect control.
+                Native start eligibility and hard overlap limits are unchanged.
+
 Formatting parameters:
 json=false      Print stats in JSON.
 binlen=21       Histogram bin length.

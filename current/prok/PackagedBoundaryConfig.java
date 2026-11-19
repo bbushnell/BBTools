@@ -12,7 +12,7 @@ import prok.NcrnaTextIO.ConfigInput;
  * Reads plain key=value records without changing global command-line state.
  * Explicit loader choices win. Payload existence and library normalization matter
  * only when refinement is selected; the ordinary resource loaders validate payloads.
- * @author Brian Bushnell, Raiden
+ * @author Brian, Raiden
  */
 public final class PackagedBoundaryConfig{
 
@@ -72,8 +72,9 @@ public final class PackagedBoundaryConfig{
 				stopMargin=NcrnaNumbers.floatValue(a, b);
 				break;
 			case "cutoff":
-				cutoff=b.equalsIgnoreCase("none") ? Float.NaN : NcrnaNumbers.floatValue(a, b);
-				require(b.equalsIgnoreCase("none") || Float.isFinite(cutoff), "Numeric cutoff must be finite; none disables it");
+				cutoffEnabled=!b.equalsIgnoreCase("none");
+				cutoff=cutoffEnabled ? NcrnaNumbers.floatValue(a, b) : 0f;
+				require(Float.isFinite(cutoff), "Numeric cutoff must be finite; none disables it");
 				break;
 			case "net":
 				net=resolve(b);
@@ -116,12 +117,12 @@ public final class PackagedBoundaryConfig{
 		if(options.resources.boundaryStop==null){options.resources.boundaryStop=stopTable;}
 		if(options.boundaryStartOffsets==null){options.boundaryStartOffsets=offsets(startRadius);}
 		if(options.boundaryStopOffsets==null){options.boundaryStopOffsets=offsets(stopRadius);}
-		if(Float.isNaN(options.boundaryMarginStart)){options.boundaryMarginStart=startMargin;}
-		if(Float.isNaN(options.boundaryMarginStop)){options.boundaryMarginStop=stopMargin;}
+		if(!options.boundaryMarginStartSet){options.boundaryMarginStart=startMargin;}
+		if(!options.boundaryMarginStopSet){options.boundaryMarginStop=stopMargin;}
 	}
 
 	/** Binds the score cutoff after the native loader establishes the selected scorer's geometry. */
-	void loaded(final NcrnaFamily loaded){
+	public void loaded(final NcrnaFamily loaded){
 		require(family.equals(loaded.name), "Loaded family differs from its packaged configuration");
 		if(loaded.boundary5NetTemplate==null){
 			require(loaded.boundary3NetTemplate==null, "A shared adapter cannot have only one enabled end");
@@ -133,6 +134,7 @@ public final class PackagedBoundaryConfig{
 		require(loaded.boundary3NetTemplate!=null && loaded.boundary5NetTemplate.numOutputs()==1
 			&& loaded.boundary3NetTemplate.numOutputs()==1, "Boundary ranking requires one scalar output per end");
 		loaded.nnCutoff=cutoff;
+		loaded.nnCutoffEnabled=cutoffEnabled;
 	}
 
 	/*--------------------------------------------------------------*/
@@ -174,7 +176,7 @@ public final class PackagedBoundaryConfig{
 
 	private final File file;
 	private String family, net, startTable, stopTable;
-	private boolean enabled;
+	private boolean enabled, cutoffEnabled;
 	private int normalization, startRadius, stopRadius;
 	private float startMargin, stopMargin, cutoff;
 	/** Serialized v1 feature order; must match the shared scorer's ten network inputs. */

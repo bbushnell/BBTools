@@ -16,7 +16,7 @@ import structures.ByteBuilder;
  * per-strand path-finding fields (pathScore/prev/pathLength) used to chain ORFs into a gene model.
  * Extends PFeature for coordinate/strand handling.
  *
- * @author Brian Bushnell
+ * @author Brian
  */
 public class Orf extends PFeature {
 	
@@ -73,7 +73,7 @@ public class Orf extends PFeature {
 		int codon=0;
 		for(int i=0; i<3; i++){
 //			assert(i+from<bases.length) : i+", "+from+", "+bases.length;
-			byte b=bases[i+from];//bounds guard disabled; safe for valid coords (ctor passes from=start or stop-2, both in-bounds)
+			byte b=bases[i+from];// Safe for ctor coords: start or stop-2, both in bounds.
 			int x=AminoAcid.baseToNumber[b];
 			codon=(codon<<2)|x;
 		}
@@ -94,17 +94,14 @@ public class Orf extends PFeature {
 //		double b=Math.sqrt(f2/*Tools.max(f2, e2+stopScore)*/);//This is better, ignoring stopscore completely
 		double b=Math.sqrt(Tools.max(f2, e2+0.35f*stopScore));
 		double c=Tools.max(f3, e3+averageKmerScore());
-		//TODO: Possible bug [prok/Orf#002] - assert(x!=Double.NaN) is ALWAYS true (NaN != anything, even NaN),
-		//so these four asserts never catch a NaN. Correct form: assert(!Double.isNaN(x)). As written, a non-finite
-		//c from averageKmerScore() (Orf#001) propagates silently into orfScore. Fix couples to Orf#001 and changes
-		//silent->crash -> flag to Brian before applying.
-		assert(a!=Double.NaN);
-		assert(b!=Double.NaN);
-		assert(c!=Double.NaN);
+		assert(Double.isFinite(a)) : shared.KillSwitch.assertDie("Nonfinite start subscore: "+a);
+		assert(Double.isFinite(b)) : shared.KillSwitch.assertDie("Nonfinite stop subscore: "+b);
+		assert(Double.isFinite(c)) : shared.KillSwitch.assertDie("Nonfinite inner subscore: "+c);
 		c=4*Math.pow(c, 2.2);
-		double d=(0.1*a*b*c*(Math.pow(length()-overlap, 2.5)-(overlap<1 ? 0 : Math.pow(overlap+50, 2))));//TODO: Adjust these constants
+		double d=(0.1*a*b*c*(Math.pow(length()-overlap, 2.5)
+			-(overlap<1 ? 0 : Math.pow(overlap+50, 2))));//TODO: Adjust these constants
 		if(d>0){d=Math.sqrt(d);}
-		assert(d!=Double.NaN);
+		assert(Double.isFinite(d)) : shared.KillSwitch.assertDie("Nonfinite ORF score: "+d);
 		return (float)d;
 	}
 	
@@ -354,12 +351,9 @@ public class Orf extends PFeature {
 	/** Mean inner-kmer score: total kmerScore divided by the number of inner kmers spanned by the CDS.
 	 * @return kmerScore normalized by (length() - kInnerCDS - 2). */
 	public float averageKmerScore(){
-		//TODO: Possible bug [prok/Orf#001] - divisor (length()-kInnerCDS-2) is <=0 for ORFs of length<=kInnerCDS+2
-		//(kInnerCDS defaults to 6 -> length<=8): ==0 yields +/-Infinity, <0 yields a wrong-signed score. Feeds
-		//calcOrfScore (caught by Orf#002's dead NaN guard) and the GFF innerScr field. Reachability pends the
-		//GeneCaller min-ORF-length filter. NOTE: active e1..f3 tuning block is labeled "kinnercds=7" but the
-		//GeneModel.kInnerCDS default is 6 (GeneModel.java:1018) - a label/constant mismatch to confirm at GeneModel.
-		return kmerScore/(length()-GeneModel.kInnerCDS-2); //This slightly affects score if kInnerCDS is changed
+		final int innerKmers=length()-GeneModel.kInnerCDS-2;
+		if(innerKmers<=0){throw new IllegalStateException("Cannot score inner kmers in a "+length()+" bp ORF");}
+		return kmerScore/innerKmers; //This slightly affects score if kInnerCDS is changed
 	}
 	
 	/*--------------------------------------------------------------*/
@@ -460,6 +454,7 @@ public class Orf extends PFeature {
 	//reader rejects invalid UTF-8. Live query projection rejects these names too.
 	//A shared UTF-8 writer change is separate from shortlist iteration.
 	public ByteBuilder appendGff(ByteBuilder bb){
+		final float innerScore=innerScoreForGff();
 		if(scafName==null){
 			bb.append('.').tab();
 		}else{
@@ -491,7 +486,7 @@ public class Orf extends PFeature {
 //		bb.append(stopCodon).append(',');
 		bb.append("startScr:").append(startScore, 3).append(',');
 		bb.append("stopScr:").append(stopScore, 3).append(',');
-		bb.append("innerScr:").append(averageKmerScore(), 3).append(',');
+		bb.append("innerScr:").append(innerScore, 3).append(',');
 		bb.append("len:").append(length());
 		if(type==0){
 			bb.append(',');
@@ -516,7 +511,36 @@ public class Orf extends PFeature {
 			proteinEvidence.append(bb);
 			bb.append(";bbgap_candidate_origin=").append(proteinOnlyCandidate ? "rescued_start" : "native");
 		}
+		if(stopTailEvidence!=null){
+			stopTailEvidence.append(bb);
+			bb.append(";bbgap_candidate_origin=").append(proteinOnlyCandidate ? "rescued_start" : "native");
+		}
+		if(tailCascadeAssignment!=null){
+			bb.append(";bbgap_mode=tailcascade;bbgap_status=")
+				.append(tailCascadeAssignment.assigned() ? "stop_supported" : "no_hit");
+			bb.append(";bbgap_tail_stage="); AnnotationGff.escaped(bb, tailCascadeAssignment.terminal);
+			if(tailCascadePin!=null){bb.append(";bbgap_reference=").append(tailCascadePin);}
+			bb.append(";bbgap_native_score=").append(tailCascadeNativeScore, 6);
+			bb.append(";bbgap_call_bonus=").append(proteinBonus, 6);
+			bb.append(";bbgap_pruning_protected=").append(tailCascadeProtected ? 't' : 'f');
+			if(tailCascadeAssignment.assigned()){
+				bb.append(";bbgap_tail_family="); AnnotationGff.escaped(bb, tailCascadeAssignment.familyId);
+			}
+		}
 		return bb;
+	}
+
+	private float innerScoreForGff(){
+		if(!Float.isFinite(orfScore) || !Float.isFinite(startScore) || !Float.isFinite(stopScore)){
+			throw new IllegalStateException("GFF ORF scores must be finite: orf="+orfScore+
+				" start="+startScore+" stop="+stopScore+" type="+type+" scaf="+scafName);
+		}
+		final float innerScore=averageKmerScore();
+		if(!Float.isFinite(innerScore)){
+			throw new IllegalStateException("GFF inner score must be finite: inner="+innerScore+
+				" kmer="+kmerScore+" len="+length()+" type="+type+" scaf="+scafName);
+		}
+		return innerScore;
 	}
 
 	/** Prodigal left/right bits in the same forward-genomic coordinates emitted by appendGff. */
@@ -582,9 +606,19 @@ public class Orf extends PFeature {
 	/** Sum of independent homology stop/ORF contributions, applied once after native scoring.
 	 * Evidence retains both components; raw stopScore and NN inputs stay unchanged. */
 	public float proteinBonus;
+	/** Post-pruning opposite-strand preference; never included in native or support scores. */
+	public float tailCascadeOppositePenalty;
 	/** True only for starts admitted beyond the native start-score/breakLimit gates. */
 	boolean proteinOnlyCandidate;
 	ProteinSupport.Evidence proteinEvidence;
+	StopTailSupport.Evidence stopTailEvidence;
+	/** One immutable classifier decision shared by every native candidate at this stop. */
+	prot.FamilyTailCascade.Assignment tailCascadeAssignment;
+	String tailCascadePin;
+	/** Native score before the flat bonus; meaningful only with tailCascadeAssignment. */
+	float tailCascadeNativeScore;
+	/** Protects the best native candidate from soft pruning, without inventing a start. */
+	boolean tailCascadeProtected;
 
 	//Path scores are for pathfinding phase
 	
@@ -609,9 +643,9 @@ public class Orf extends PFeature {
 	 * is not a safe family identity -- Ganyu/Qiqi design note, 2026-09-17). Purely
 	 * additive: unused by appendGff() so far, does not change any existing GFF byte. */
 	public String ncrnaFamily;
-	/** Selected16S/23S verifier identity before endpoint refinement; NaN means unavailable.
-	 * Diagnostic provenance only: never reconstructed from rounded scores or used by DP. */
-	public float acceptedRrnaIdentity=Float.NaN;
+	/** Selected16S/23S/prok5S verifier identity before endpoint refinement,
+	 * or -1 when unavailable; diagnostic provenance, never reconstructed or used by DP. */
+	public float acceptedRrnaIdentity=-1f;
 	/** Immutable accepted consensus provenance for SSU competition, independent of GFF annotation. */
 	public byte[] ssuFullModel;
 	public String ssuFullModelName;

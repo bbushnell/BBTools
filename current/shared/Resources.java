@@ -14,12 +14,13 @@ import dna.Data;
  * @author Noire, Brian Bushnell
  * @date May 19, 2026
  */
-public class Resources{
+public class Resources {
 
 	/** Resolves a known optional resource's download URL without opening files or exiting. */
 	public static String downloadURL(String filename){
 		if(filename==null || filename.isEmpty()){throw new IllegalArgumentException("Resource filename is required");}
 		final String path=(filename.startsWith("?") ? filename.substring(1) : filename).replace('\\', '/');
+		if(bbgapArchive(path)!=null){return GITHUB_RELEASES;}
 		final String known=RESOURCE_URLS.get(new java.io.File(path).getName());
 		if(known!=null){return known;}
 		if(path.startsWith("prokcc/") || path.contains("/prokcc/")){return PROKCC_ARCHIVE;}
@@ -36,6 +37,17 @@ public class Resources{
 		if(!isProkccArchive(archive)){throw new IllegalArgumentException("Unknown ProkCC archive: "+archive);}
 		return "Download "+archive.substring(archive.lastIndexOf('/')+1)+" from:\n  "+archive+
 			"\nUntar it in the BBTools resources/ directory to create resources/prokcc/, then try again.\n";
+	}
+
+	/** Gives extraction instructions for a BBGAP compact stop-tail archive. */
+	public static String bbgapDownloadInstructions(String archive){
+		if(!archive.equals(BBGAP_SHORT_ARCHIVE) && !archive.equals(BBGAP_TAILS_ARCHIVE)){
+			throw new IllegalArgumentException("Unknown BBGAP archive: "+archive);
+		}
+		final String view=archive.equals(BBGAP_SHORT_ARCHIVE) ? "short" : "tails";
+		return "Download "+archive+" from:\n  "+GITHUB_RELEASES+
+			"\nFrom the BBTools resources/ directory, run tar -xf "+archive+
+			" to create bbgap/"+view+"/, then try again.\n";
 	}
 
 	/** Identifies the current archive and the explicitly retained previous release. */
@@ -103,34 +115,73 @@ public class Resources{
 		return null;
 	}
 
+	public static void throwMissing(ArrayList<String> fnames){
+		if(fnames.isEmpty()){return;}
+		final StringBuilder sb=new StringBuilder();
+		for(String f : fnames){appendMissingMessage(sb, f);}
+		throw new MissingResourceException(sb.toString());
+	}
+
 	/** Locates a single resource file.  If missing, prints download
 	 * instructions and optionally exits. */
 	private static String findSingle(String fname, boolean exit){
 		String path=Data.findPath(fname, false);
 		if(path!=null){return path;}
 
+		StringBuilder sb=new StringBuilder();
+		appendMissingMessage(sb, fname);
+		System.err.print(sb);
+		if(exit){
+			System.exit(1);
+		}
+		return null;
+	}
+
+	private static void appendMissingMessage(StringBuilder sb, String fname){
 		String bare=fname;
 		if(bare.startsWith("?")){bare=bare.substring(1);}
 
 		String url=downloadURL(bare);
-		StringBuilder sb=new StringBuilder();
+		final String bbgapArchive=bbgapArchive(bare);
 		sb.append("\nERROR: Required resource not found: ").append(bare).append('\n');
 		if(isProkccArchive(url)){
 			sb.append(prokccDownloadInstructions(url));
+		}else if(bbgapArchive!=null){
+			sb.append(bbgapDownloadInstructions(bbgapArchive));
 		}else{
 			if(url!=null){
 				sb.append("Download it from:\n  ").append(url).append('\n');
 			}else{
 				sb.append("You may need to download it from:\n  ").append(SOURCEFORGE_URL).append('\n');
 			}
-			final String destination=Data.isNetworkFile(bare) ? "BBTools/networks/" : "BBTools/resources/";
+			final String destination=Data.isNetworkFile(bare) ? "BBTools/networks/" : resourceDestination(bare);
 			sb.append("Place it in ").append(destination).append(" and try again.\n");
 		}
-		System.err.print(sb);
-		if(exit){
-			System.exit(1);
+	}
+
+	private static String resourceDestination(String bare){
+		final String path=bare.replace('\\', '/');
+		final int slash=path.lastIndexOf('/');
+		return "BBTools/resources/"+(slash<0 ? "" : path.substring(0, slash+1));
+	}
+
+	private static String bbgapArchive(String path){
+		if(path==null){return null;}
+		path=path.replace('\\', '/');
+		if(path.startsWith("?")){path=path.substring(1);}
+		if(path.equals("bbgap/short/families.tsv") || path.equals("bbgap/short/families.tsv.gz") ||
+				path.endsWith("/bbgap/short/families.tsv") || path.endsWith("/bbgap/short/families.tsv.gz")){
+			return BBGAP_SHORT_ARCHIVE;
+		}
+		if(path.equals("bbgap/tails/families.tsv") || path.equals("bbgap/tails/families.tsv.gz") ||
+				path.endsWith("/bbgap/tails/families.tsv") || path.endsWith("/bbgap/tails/families.tsv.gz")){
+			return BBGAP_TAILS_ARCHIVE;
 		}
 		return null;
+	}
+
+	public static final class MissingResourceException extends RuntimeException {
+		public MissingResourceException(String message){super(message);}
 	}
 
 	private static final String GITHUB_RELEASES="https://github.com/bbushnell/BBTools/releases/";
@@ -144,6 +195,8 @@ public class Resources{
 	/** One archive contains the matching ProkCC release config, model files and tables. */
 	private static final String PROKCC_ARCHIVE=SOURCEFORGE_URL+"prokcc_v1.5.tar";
 	private static final String PROKCC_LEGACY_ARCHIVE=SOURCEFORGE_URL+"prokcc_v1.2.1.tar";
+	private static final String BBGAP_SHORT_ARCHIVE="bbgap_short_v2.tar";
+	private static final String BBGAP_TAILS_ARCHIVE="bbgap_tails_v2.tar";
 	/** The size-filtered 32k DDL sketch DB is ~9.8 GB -- too large for GitHub's 2GB cap; hosted on Zenodo
 	 * as a direct-download file link pinned to the v40.00 record (matches the v40.00 GitHub links above). */
 	private static final String ZENODO_DDL32K="https://zenodo.org/records/21630308/files/refseqSketchDDL_k25e5b32768.tsv.gz";
@@ -172,6 +225,8 @@ public class Resources{
 		RESOURCE_URLS.put("refseqSketchDDL_k25e5b2048.tsv.gz", GITHUB_RELEASES);
 		RESOURCE_URLS.put("refseqSketchDDL_k25e5b2048_merged.tsv.gz", GITHUB_RELEASES);
 		RESOURCE_URLS.put("ribokmers.fa.gz", GITHUB_V3982);
+		RESOURCE_URLS.put("protein_blacklist_reduced16_k5_raw_shadow1024.faa.gz", GITHUB_RELEASES);
+		RESOURCE_URLS.put("protein_blacklist_d120_k6_nonoverlap_shadow2048.faa.gz", GITHUB_RELEASES);
 
 		RESOURCE_URLS.put("refseqA48_with_ribo.spectra.gz", GITHUB_V4001+"refseqA48_with_ribo.spectra.gz");
 

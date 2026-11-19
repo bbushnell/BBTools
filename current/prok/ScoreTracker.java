@@ -81,10 +81,10 @@ public class ScoreTracker {
 	@Override
 	public String toString(){
 		ByteBuilder bb=new ByteBuilder();
-		bb.append("Start Score:          \t ").append(geneStartScoreSum/geneStartScoreCount, 4).nl();
-		bb.append("Stop Score:           \t ").append(geneStopScoreSum/geneStopScoreCount, 4).nl();
-		bb.append("Inner Score:          \t ").append(geneInnerScoreSum/geneInnerScoreCount, 4).nl();
-		bb.append("Length:               \t ").append(lengthSum/(double)lengthCount, 2).nl();
+		if(geneStartScoreCount>0){bb.append("Start Score:          \t ").append(average(geneStartScoreSum, geneStartScoreCount, "start"), 4).nl();}
+		if(geneStopScoreCount>0){bb.append("Stop Score:           \t ").append(average(geneStopScoreSum, geneStopScoreCount, "stop"), 4).nl();}
+		if(geneInnerScoreCount>0){bb.append("Inner Score:          \t ").append(average(geneInnerScoreSum, geneInnerScoreCount, "inner"), 4).nl();}
+		if(lengthCount>0){bb.append("Length:               \t ").append(average(lengthSum, lengthCount, "length"), 2).nl();}
 		if(genomeSize>0){
 			bb.append("Approx Genic Fraction:\t ").append(Tools.min(1.0, lengthSum/(double)genomeSize), 4).nl();
 		}
@@ -98,15 +98,21 @@ public class ScoreTracker {
 	 */
 	public JsonObject toJson(){
 		JsonObject jo=new JsonObject();
-		//TODO: Possible bug [prok/ScoreTracker#001] (MEDIUM; reachable) - sum/count is non-finite when count==0 (empty tracker: 0.0/0=NaN) or when geneInnerScoreSum absorbed NaN/Inf from Orf.averageKmerScore() on a short ORF (Orf.java:85 divides by length()-kInnerCDS-2). addLiteral formats NaN via String.format -> a bare "NaN" token = INVALID JSON (RFC 8259). (toString instead prints "0.0000": ByteBuilder casts (long)NaN=0 -- silently wrong but valid text.) Serialized at CallGenes.printStatsJson (L540-573, gated by callX) -> reachable when an enabled type finds zero features + stats=json. Fix is a design call (Brian): guard count==0 here, or guard non-finite in json/JsonLiteral.
-		jo.addLiteral("Start Score", geneStartScoreSum/geneStartScoreCount, 4);
-		jo.addLiteral("Stop Score", geneStopScoreSum/geneStopScoreCount, 4);
-		jo.addLiteral("Inner Score", geneInnerScoreSum/geneInnerScoreCount, 4);
-		jo.addLiteral("Length", lengthSum/(double)lengthCount, 2);
+		if(geneStartScoreCount>0){jo.addLiteral("Start Score", average(geneStartScoreSum, geneStartScoreCount, "start"), 4);}
+		if(geneStopScoreCount>0){jo.addLiteral("Stop Score", average(geneStopScoreSum, geneStopScoreCount, "stop"), 4);}
+		if(geneInnerScoreCount>0){jo.addLiteral("Inner Score", average(geneInnerScoreSum, geneInnerScoreCount, "inner"), 4);}
+		if(lengthCount>0){jo.addLiteral("Length", average(lengthSum, lengthCount, "length"), 2);}
 		if(genomeSize>0){
 			jo.addLiteral("Approx Genic Fraction", Tools.min(1.0, lengthSum/(double)genomeSize), 4);
 		}
 		return jo;
+	}
+
+	private static double average(double sum, long count, String label){
+		if(count<=0 || !Double.isFinite(sum)){
+			throw new IllegalStateException("ScoreTracker "+label+" average needs a positive count and finite sum: count="+count+" sum="+sum);
+		}
+		return sum/count;
 	}
 	
 	/** Number of gene start scores accumulated */

@@ -52,7 +52,7 @@ public final class CompressedDynamicLogLog5 extends CardinalityTracker {
 	 * @param seed Random seed (-1 for default)
 	 * @param minProb_ Minimum probability threshold
 	 */
-	CompressedDynamicLogLog5(int buckets_, int k_, long seed, float minProb_){
+	public CompressedDynamicLogLog5(int buckets_, int k_, long seed, float minProb_){
 		super(roundToWords(buckets_)*6<=0 ? buckets_ :
 			Integer.highestOneBit(roundToWords(buckets_)*6-1)<<1,
 			k_, seed, minProb_);
@@ -77,7 +77,7 @@ public final class CompressedDynamicLogLog5 extends CardinalityTracker {
 	/*--------------------------------------------------------------*/
 
 	/** Read 5-bit register for bucket i: bits [4:2]=tierPart, [1:0]=history. */
-	int readBucket(final int i){
+	public int readBucket(final int i){
 		return (packed[i/6]>>>((i%6)*5))&0x1F;
 	}
 

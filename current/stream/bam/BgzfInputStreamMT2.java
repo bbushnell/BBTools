@@ -514,6 +514,12 @@ public class BgzfInputStreamMT2 extends InputStream{
 					}
 
 					//Validate decompressed size
+					//TODO: Probable bug - size/CRC AssertionError bypasses this worker's
+					//InterruptedException-only handler, leaving the failed job unpublished
+					//and the ordered consumer waiting forever. Source-inspected, not reproduced;
+					//fault/liveness repair is outside optional timing instrumentation.
+					//Likely repair: worker assertDie idiom (KillSwitch.assertDie), or
+					//structural error-job publication that reliably wakes the consumer.
 					assert(job.decompressedSize==job.expectedSize) : 
 						"Size mismatch for job "+job.id+": expected "+job.expectedSize+
 						", got "+job.decompressedSize;

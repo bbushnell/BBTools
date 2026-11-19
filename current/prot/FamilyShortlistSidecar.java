@@ -240,7 +240,7 @@ public final class FamilyShortlistSidecar {
 				compRows.add(vec);
 				if(cols[5].length()>0){
 					final String[] kmerTokens=cols[5].split(",");
-					for(String hex : kmerTokens){coveringIndex.put(Long.parseUnsignedLong(hex, 16), (long)rank);}
+					for(String hex : kmerTokens){putCoveringPosting(coveringIndex, Long.parseUnsignedLong(hex, 16), rank);}
 					setSizeList.add(kmerTokens.length);
 				}else{
 					setSizeList.add(0);
@@ -384,6 +384,17 @@ public final class FamilyShortlistSidecar {
 		if(s.equals("0")){return false;}
 		if(s.equals("1")){return true;}
 		throw new RuntimeException("Sidecar "+path+", family '"+repId+"': "+field+" must be 0 or 1, got '"+s+"'.");
+	}
+	private static void putCoveringPosting(final LongLongListHashMap index, final long word, final int rank){
+		final LongList hit=index.get(word);
+		if(hit!=null){
+			final long last=hit.get(hit.size-1);
+			if(last>=rank){
+				throw new RuntimeException("Sidecar duplicate or unordered covering-set posting for word="+
+					Long.toHexString(word)+": previous rank="+last+", rank="+rank+".");
+			}
+		}
+		index.put(word, rank);
 	}
 	/** Refuses NaN, non-finite (Infinity), or below-floor applied thresholds -- sec 3 A2's loader
 	 *  contract. An applied per-family FLOOR is always a concrete finite number for a non-fallback

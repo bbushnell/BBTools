@@ -40,7 +40,7 @@ public final class Euk18sFamilyResourceTest {
 			&& actual.seedDistinct && actual.collapseFrac==.9f && actual.scoreA==0 && actual.scoreB==1)
 			: "Migration must preserve candidate geometry, seed support and path scoring";
 		assert(actual.pacBioConsensusAlignment && actual.pacBioRolling && !actual.modelEndClipping
-			&& !actual.modelClipRescue && Float.isNaN(actual.modelClipRescueId) && actual.joinedSideSupport==1
+			&& !actual.modelClipRescue && actual.modelClipRescueId==-1f && actual.joinedSideSupport==1
 			&& actual.joinedPositions.modelCount()==10 && actual.joinedPositions.seedCount()==keys.length
 			&& actual.voteWindows && actual.voteBeforePadding && !actual.voteEnds && actual.voteSlack==60 && actual.voteEndsMaxSd==5f)
 			: "Resource loading preserves rolling/joined/voting policies; interior rescue defaults off before physical-edge registration";

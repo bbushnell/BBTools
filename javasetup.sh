@@ -310,7 +310,8 @@ parseJavaArgs() {
 	
 	# Auto-detect SIMD if not explicitly specified
 	if [ "$simd_specified" = "0" ]; then
-		autoDetectSIMD
+		# Missing vector support is a normal scalar fallback, including under set -e.
+		autoDetectSIMD || :
 	fi
 	
 	# Handle Xmx (max heap)

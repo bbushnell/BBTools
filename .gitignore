@@ -28,3 +28,5 @@ fix_script_paths.sh
 /resources/prokcc/magqc_hbm_v2_profile.consensus.faa.gz
 /resources/prokcc/magqc_hbm_v2_profile.provenance.tsv.gz
 /resources/prokcc/magqc_hbm_v2_profile.background.tsv.gz
+resources/bbgap_short_v2.tar
+resources/bbgap_tails_v2.tar

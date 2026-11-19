@@ -32,7 +32,8 @@ public abstract class CardinalityTracker implements Drivable {
 		if(trackCounts){
 			if("BBLog".equalsIgnoreCase(type)){return type;}
 			else if("DLL".equalsIgnoreCase(type) || "DynamicLogLog".equalsIgnoreCase(type) ||
-				"DDL".equalsIgnoreCase(type) || "DynamicDemiLog".equalsIgnoreCase(type)){
+				"DDL".equalsIgnoreCase(type) || "DynamicDemiLog".equalsIgnoreCase(type) ||
+				"DDL32".equalsIgnoreCase(type) || "DynamicDemiLog32".equalsIgnoreCase(type)){
 				return type;
 			}else{return "LogLog16";}
 		}
@@ -62,6 +63,8 @@ public abstract class CardinalityTracker implements Drivable {
 		}else if("DLL".equalsIgnoreCase(type) || "DynamicLogLog".equalsIgnoreCase(type) || 
 			"DDL".equalsIgnoreCase(type) || "DynamicDemiLog".equalsIgnoreCase(type)){
 			return new DynamicDemiLog();//Uses 10-bit mantissa
+		}else if("DDL32".equalsIgnoreCase(type) || "DynamicDemiLog32".equalsIgnoreCase(type)){
+			return new DynamicDemiLog32();
 		}else if("LogLog8".equalsIgnoreCase(type)){
 			return new LogLog8();//Lowest memory
 		}else if("InvertedLogLog".equalsIgnoreCase(type) || "ILL".equalsIgnoreCase(type)){
@@ -207,6 +210,8 @@ public abstract class CardinalityTracker implements Drivable {
 		}else if("DLL".equalsIgnoreCase(type) || "DynamicLogLog".equalsIgnoreCase(type) || 
 			"DDL".equalsIgnoreCase(type) || "DynamicDemiLog".equalsIgnoreCase(type)){
 			return new DynamicDemiLog(p);
+		}else if("DDL32".equalsIgnoreCase(type) || "DynamicDemiLog32".equalsIgnoreCase(type)){
+			return new DynamicDemiLog32(p);
 		}else if("LogLog8".equalsIgnoreCase(type)){
 			return new LogLog8(p);
 		}else if("InvertedLogLog".equalsIgnoreCase(type) || "ILL".equalsIgnoreCase(type)){
@@ -352,6 +357,8 @@ public abstract class CardinalityTracker implements Drivable {
 		}else if("DLL".equalsIgnoreCase(type) || "DynamicLogLog".equalsIgnoreCase(type) || 
 			"DDL".equalsIgnoreCase(type) || "DynamicDemiLog".equalsIgnoreCase(type)){
 			return new DynamicDemiLog(buckets_, k_, seed, minProb_);
+		}else if("DDL32".equalsIgnoreCase(type) || "DynamicDemiLog32".equalsIgnoreCase(type)){
+			return new DynamicDemiLog32(buckets_, k_, seed, minProb_);
 		}else if("LogLog8".equalsIgnoreCase(type)){
 			return new LogLog8(buckets_, k_, seed, minProb_);
 		}else if("InvertedLogLog".equalsIgnoreCase(type) || "ILL".equalsIgnoreCase(type)){

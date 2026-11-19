@@ -1434,6 +1434,8 @@ public class Data{
 				if(url!=null){
 					String temp=PercentEncoding.codeToSymbol(url.toString());
 					if(vb){System.err.println("Found URL "+temp);}
+					//TODO PROBABLE_BUG: Secondary classpath file: URLs remain literal "file:/..." strings here;
+					// new File(String).exists() can fail, allowing Dori/NERSC fallbacks to discard a reachable resource.
 					f=new File(temp);
 					path=temp;
 				}

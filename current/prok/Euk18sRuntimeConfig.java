@@ -85,7 +85,7 @@ public final class Euk18sRuntimeConfig {
 		require(!joinedSupportSet || useJoined,"euk18sjoinedsupport requires joined discovery or replay");
 		require(!useJoined || (pacBio && rolling && !infer && !voteEnds && minLen==916),"Joined route requires rolling PacBio, raw alignment ends, no endpoint NN and916core minimum; use euk18sjoined=f for Quantum");
 		final PacBioScoreParameters costs=PacBioScoreParameters.experimental(msaDel4,msaDel5,msaIns4,msaIns,msaDel,msaSubScale);
-		require(Float.isNaN(rescueId) || modelClipRescue,"euk18srescueid requires euk18smodelclip=rescue");
+		require(rescueId<0 || modelClipRescue,"euk18srescueid requires euk18smodelclip=rescue");
 		require(!(modelClip || modelClipRescue) || (!infer && !voteEnds),"Experimental model clipping requires endpoint NN off and raw alignment ends");
 		require(!voteBeforePadding || (voteWindows && windowPad>=0 && collapse>0),"Vote-before-padding requires window votes, an explicit measured windowpad, and positive core overlap");
 		require(indexMargin<0 || topN<0,"Choose euk18sindexmargin or euk18stopn; a score-margin shortlist has no topN cap");
@@ -133,7 +133,7 @@ public final class Euk18sRuntimeConfig {
 		f.joinedSideSupport=joinedSupport;
 		f.modelEndClipping=modelClip;
 		f.modelClipRescue=modelClipRescue;
-		f.modelClipRescueId=modelClipRescue && Float.isNaN(rescueId) ? .66f : rescueId;
+		f.modelClipRescueId=modelClipRescue && rescueId<0 ? .66f : rescueId;
 		// No HBM library: detection uses the explicitly supplied identity table.
 		NcrnaFamilyLoader.loadCutoffs(f,options.resources,resolver);
 		require(f.modelThresholds!=null,"18S has no accepted scalar fallback; every model needs a cutoff row");
@@ -154,7 +154,7 @@ public final class Euk18sRuntimeConfig {
 			+" indexMargin="+indexMargin+" indexMinHits="+indexMinHits+" windowPad="+f.windowPad
 			+" flank="+flank+" minLen="+minLen+" maxLen="+maxLen+" rawEnds="+(voteEnds?"vote":"alignment")
 			+" voteWindows="+voteWindows+" voteBeforePadding="+voteBeforePadding+" voteSlack="+voteSlack+" voteMaxSd="+voteMaxSd+" endpoint="+infer+" indexFrac="+indexFrac+" modelClip="+modelClip+" modelClipRescue="+modelClipRescue
-			+" rescueId="+(Float.isNaN(f.modelClipRescueId)?"model-cutoff":Float.toString(f.modelClipRescueId))+" aligner="+(pacBio?"pacbio":"quantum")
+			+" rescueId="+(f.modelClipRescueId<0 ? "model-cutoff" : Float.toString(f.modelClipRescueId))+" aligner="+(pacBio?"pacbio":"quantum")
 			+" msaDel4="+costs.del4+" msaDel5="+costs.del5+" msaIns4="+costs.ins4+" msaIns="+costs.ins+" msaDel="+costs.del
 			+" msaSubScale="+msaSubScale+" msaSub="+costs.sub+" msaSubR="+costs.subR+" msaSub2="+costs.sub2+" msaSub3="+costs.sub3
 			+" msaEngine="+(rolling ? "rolling" : "native")+" joined="+useJoined+" joinedSupport="+joinedSupport);
@@ -188,7 +188,7 @@ public final class Euk18sRuntimeConfig {
 		msaIns4=MultiStateAligner9PacBio.POINTS_INS4,msaIns=MultiStateAligner9PacBio.POINTS_INS,msaDel=MultiStateAligner9PacBio.POINTS_DEL;
 	private float msaSubScale=.66f;
 	private boolean modelClipRescue=false;
-	private float rescueId=Float.NaN;
+	private float rescueId=-1f;
 	private String consensus,seeds,cutoffs,offsets,voteSeedSha80,tables,nets;
 	private int minLen=916,maxLen=4000,flank=100,seedMinHits=2,indexMinHits=96,topN=-1,indexMargin=121,voteSlack=60;
 	private int windowPad=3109;

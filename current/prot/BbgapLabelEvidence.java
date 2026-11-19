@@ -89,11 +89,11 @@ public final class BbgapLabelEvidence {
 				wl.appendToken(bb, 0).tab();
 				bb.append(accession).tab();
 				wl.appendToken(bb, 2).tab();
-				wl.appendToken(bb, 4).tab();
-				wl.appendToken(bb, 5).tab();
-				wl.appendToken(bb, 7).tab();
-				wl.appendToken(bb, 8).tab();
-				wl.appendToken(bb, 16).tab();// HMMER 3.4 --tblout rep/nreported; token 15 is detected domains.
+				wl.appendNumber(bb, 4, "full_evalue", in, rows+1).tab();
+				wl.appendNumber(bb, 5, "full_score", in, rows+1).tab();
+				wl.appendNumber(bb, 7, "best_domain_evalue", in, rows+1).tab();
+				wl.appendNumber(bb, 8, "best_domain_score", in, rows+1).tab();
+				wl.appendNumber(bb, 16, "reported_domains", in, rows+1).tab();// HMMER 3.4 rep/nreported; token 15 is detected domains.
 				model.appendTarget(bb).nl();
 				bsw.print(bb);
 				rows++;
@@ -136,23 +136,23 @@ public final class BbgapLabelEvidence {
 				appendDescValue(bb, desc, "family_id", in, rows+1).tab();
 				appendDescValue(bb, desc, "active_index", in, rows+1).tab();
 				wl.appendToken(bb, 0).tab();
-				wl.appendToken(bb, 2).tab();
+				wl.appendNumber(bb, 2, "consensus_len", in, rows+1).tab();
 				bb.append(accession).tab();
 				wl.appendToken(bb, 3).tab();
-				wl.appendToken(bb, 5).tab();
-				wl.appendToken(bb, 9).tab();
-				wl.appendToken(bb, 10).tab();
-				wl.appendToken(bb, 6).tab();
-				wl.appendToken(bb, 7).tab();
-				wl.appendToken(bb, 11).tab();
-				wl.appendToken(bb, 12).tab();
-				wl.appendToken(bb, 13).tab();
-				wl.appendToken(bb, 15).tab();
-				wl.appendToken(bb, 16).tab();
-				wl.appendToken(bb, 17).tab();
-				wl.appendToken(bb, 18).tab();
-				wl.appendToken(bb, 19).tab();
-				wl.appendToken(bb, 20).tab();
+				wl.appendNumber(bb, 5, "hmm_len", in, rows+1).tab();
+				wl.appendNumber(bb, 9, "domain_index", in, rows+1).tab();
+				wl.appendNumber(bb, 10, "domain_count", in, rows+1).tab();
+				wl.appendNumber(bb, 6, "full_evalue", in, rows+1).tab();
+				wl.appendNumber(bb, 7, "full_score", in, rows+1).tab();
+				wl.appendNumber(bb, 11, "conditional_evalue", in, rows+1).tab();
+				wl.appendNumber(bb, 12, "independent_evalue", in, rows+1).tab();
+				wl.appendNumber(bb, 13, "domain_score", in, rows+1).tab();
+				wl.appendNumber(bb, 15, "hmm_from", in, rows+1).tab();
+				wl.appendNumber(bb, 16, "hmm_to", in, rows+1).tab();
+				wl.appendNumber(bb, 17, "ali_from", in, rows+1).tab();
+				wl.appendNumber(bb, 18, "ali_to", in, rows+1).tab();
+				wl.appendNumber(bb, 19, "env_from", in, rows+1).tab();
+				wl.appendNumber(bb, 20, "env_to", in, rows+1).tab();
 				appendDecimal(bb, hmmCov).tab();
 				appendDecimal(bb, consensusCov).tab();
 				model.appendDomain(bb).nl();
@@ -201,18 +201,18 @@ public final class BbgapLabelEvidence {
 				bb.append(consensus).tab();
 				bb.append(uniprot[1]).tab();
 				bb.append(uniprot[2]).tab();
-				lp.appendTerm(bb, 2).tab();
-				lp.appendTerm(bb, 3).tab();
-				lp.appendTerm(bb, 4).tab();
-				lp.appendTerm(bb, 5).tab();
+				appendNumber(bb, lp, 2, "identity", in, lineNumber).tab();
+				appendNumber(bb, lp, 3, "aligned_len", in, lineNumber).tab();
+				appendNumber(bb, lp, 4, "query_len", in, lineNumber).tab();
+				appendNumber(bb, lp, 5, "subject_len", in, lineNumber).tab();
 				appendDecimal(bb, qCov).tab();
 				appendDecimal(bb, sCov).tab();
-				lp.appendTerm(bb, 6).tab();
-				lp.appendTerm(bb, 7).tab();
-				lp.appendTerm(bb, 8).tab();
-				lp.appendTerm(bb, 9).tab();
-				lp.appendTerm(bb, 10).tab();
-				lp.appendTerm(bb, 11).tab();
+				appendNumber(bb, lp, 6, "qstart", in, lineNumber).tab();
+				appendNumber(bb, lp, 7, "qend", in, lineNumber).tab();
+				appendNumber(bb, lp, 8, "sstart", in, lineNumber).tab();
+				appendNumber(bb, lp, 9, "send", in, lineNumber).tab();
+				appendNumber(bb, lp, 10, "evalue", in, lineNumber).tab();
+				appendNumber(bb, lp, 11, "bitscore", in, lineNumber).tab();
 				lp.appendTerm(bb, 12).nl();
 				bsw.print(bb);
 			}
@@ -378,7 +378,7 @@ public final class BbgapLabelEvidence {
 					requiredInt(lp, 5, path, lineNumber, "hmm_length"),
 					required(lp, 6, path, lineNumber, "family_type"),
 					lp.parseString(8), lp.parseString(10), lp.parseString(11),
-					lp.parseString(13), lp.parseString(20));
+					lp.parseString(13), lp.parseString(20), path, lineNumber);
 				require(map.put(model.accession, model)==null, "Duplicate NCBI accession "+model.accession);
 			}
 		}finally{
@@ -485,8 +485,13 @@ public final class BbgapLabelEvidence {
 	}
 
 	private void resolveDefaults(){
-		if(inDir==null){
-			inDir="/clusterfs/jgi/groups/gentech/homes/bbushnell/Keqing/bbgap/data/labels/pilot_80";
+		if((metaFile==null || familiesFile==null || tbloutFile==null || domtbloutFile==null || swissFile==null)
+				&& inDir==null){
+			throw new IllegalArgumentException("BbgapLabelEvidence requires in/root/pilot, or explicit meta, "
+				+"families, tbl, dom, and swiss paths");
+		}
+		if(outDir==null && inDir==null){
+			throw new IllegalArgumentException("BbgapLabelEvidence requires out when in/root/pilot is omitted");
 		}
 		if(outDir==null){outDir=inDir;}
 		if(compactDir==null){compactDir=outDir;}
@@ -503,6 +508,7 @@ public final class BbgapLabelEvidence {
 			final String file, final long row){
 		final String value=descValue(desc, key);
 		require(value.length()>0, "Missing "+key+" in HMMER description from "+file+" line "+row);
+		checkOutputNumber(value, key, file, row);
 		return bb.append(value);
 	}
 
@@ -523,6 +529,28 @@ public final class BbgapLabelEvidence {
 		return bb.append(String.format(java.util.Locale.ROOT, "%.12f", value));
 	}
 
+	/** Checks only a copied numeric output field; preserves its original spelling and the general parser contract. */
+	private static ByteBuilder appendNumber(final ByteBuilder bb, final LineParser1 lp, final int column,
+			final String name, final String file, final long record){
+		checkOutputNumber(lp.parseString(column), name, file, record);
+		return lp.appendTerm(bb, column);
+	}
+
+	/** Invalid external measurements must fail before their row is submitted to the output writer. */
+	private static void checkOutputNumber(final String text, final String column, final String file, final long record){
+		final double value;
+		try{value=Double.parseDouble(text);}
+		catch(NumberFormatException failure){throw outputNumberFailure(text, column, file, record, failure);}
+		if(!Double.isFinite(value)){throw outputNumberFailure(text, column, file, record, null);}
+	}
+
+	/** Builds location diagnostics only on failure, not for every valid emitted field. */
+	private static IllegalArgumentException outputNumberFailure(final String text, final String column,
+			final String file, final long record, final Throwable cause){
+		return new IllegalArgumentException("Invalid numeric output column "+column+" in "+file+
+			" record "+record+": external value is not a finite number: "+text, cause);
+	}
+
 	private static void require(final boolean ok, final String message){
 		if(!ok){throw new IllegalArgumentException(message);}
 	}
@@ -530,7 +558,8 @@ public final class BbgapLabelEvidence {
 	private static final class NcbifamModel {
 		NcbifamModel(final String accession_, final double sequenceCutoff_, final double domainCutoff_,
 				final int hmmLength_, final String familyType_, final String forNaming_,
-				final String product_, final String gene_, final String ec_, final String source_){
+				final String product_, final String gene_, final String ec_, final String source_,
+				final String inputFile_, final long inputRecord_){
 			accession=accession_;
 			sequenceCutoff=sequenceCutoff_;
 			domainCutoff=domainCutoff_;
@@ -541,20 +570,34 @@ public final class BbgapLabelEvidence {
 			gene=gene_;
 			ec=ec_;
 			source=source_;
+			inputFile=inputFile_; inputRecord=inputRecord_;
 		}
 		ByteBuilder appendTarget(final ByteBuilder bb){
 			return appendShared(bb).tab().append(forNaming).tab().append(source).tab()
 				.append(gene).tab().append(ec).tab().append(product);
 		}
 		ByteBuilder appendDomain(final ByteBuilder bb){
+			checkOutputCutoffs();
 			return bb.append(sequenceCutoff, 3, true).tab().append(domainCutoff, 3, true)
 				.tab().append(familyType).tab().append(source).tab().append(gene).tab().append(product);
 		}
 		private ByteBuilder appendShared(final ByteBuilder bb){
+			checkOutputCutoffs();
 			return bb.append(sequenceCutoff, 3, true).tab().append(domainCutoff, 3, true).tab()
 				.append(hmmLength).tab().append(familyType);
 		}
+		/** Metadata scores are expected numbers, never missing values disguised by fixed-decimal formatting. */
+		private void checkOutputCutoffs(){
+			if(!Double.isFinite(sequenceCutoff)){
+				throw outputNumberFailure(Double.toString(sequenceCutoff), "sequence_cutoff", inputFile, inputRecord, null);
+			}
+			if(!Double.isFinite(domainCutoff)){
+				throw outputNumberFailure(Double.toString(domainCutoff), "domain_cutoff", inputFile, inputRecord, null);
+			}
+		}
 		final String accession, familyType, forNaming, product, gene, ec, source;
+		final String inputFile;
+		final long inputRecord;
 		final double sequenceCutoff, domainCutoff;
 		final int hmmLength;
 	}
@@ -602,6 +645,12 @@ public final class BbgapLabelEvidence {
 		int parseInt(final int term){return Parse.parseInt(line, starts[term], stops[term]);}
 		ByteBuilder appendToken(final ByteBuilder bb, final int term){
 			return bb.append(line, starts[term], stops[term]-starts[term]);
+		}
+		/** Validates a numeric emission without changing whitespace tokenization or rewriting finite values. */
+		ByteBuilder appendNumber(final ByteBuilder bb, final int term, final String name,
+				final String file, final long record){
+			checkOutputNumber(token(term), name, file, record);
+			return appendToken(bb, term);
 		}
 		String description(){
 			return descStart>=line.length ? "" : new String(line, descStart, line.length-descStart);

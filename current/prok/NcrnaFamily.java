@@ -195,12 +195,16 @@ public class NcrnaFamily {
 	public void setRrnaEndpointFeatures(RrnaPositionalKmerTable.Table[] five,
 			RrnaPositionalKmerTable.Table[] three,RrnaEndpointCallerFeatures.Sink sink){
 		if(sink==null){throw new IllegalArgumentException("Explicit family feature consumer required");}
-		 rrnaEndpointFeatures=new RrnaEndpointCallerFeatures.Resources(name,modelNames,library,five,three);rrnaEndpointFeatureSink=sink;
+		rrnaEndpointFeatures=new RrnaEndpointCallerFeatures.Resources(name,modelNames,library,five,three);
+		rrnaEndpointFeatureSink=sink;
 	}
 	public RrnaEndpointCallerFeatures.Resources rrnaEndpointFeatures=null;
 	/** Explicit default-off inference bundle; ordinary construction never loads it. */
-	public void setRrnaEndpointInference(RrnaEndpointCallerFeatures.Resources resources,RrnaEndpointCallerFeatures.Sink sink){
-		if(resources==null || !name.equals(resources.family) || resources.fiveNets==null){throw new IllegalArgumentException("Explicit family-matched endpoint networks required");}
+	public void setRrnaEndpointInference(RrnaEndpointCallerFeatures.Resources resources,
+			RrnaEndpointCallerFeatures.Sink sink){
+		if(resources==null || !name.equals(resources.family) || resources.fiveNets==null){
+			throw new IllegalArgumentException("Explicit family-matched endpoint networks required");
+		}
 		rrnaEndpointFeatures=resources;rrnaEndpointFeatureSink=sink;
 	}
 	public RrnaEndpointCallerFeatures.Sink rrnaEndpointFeatureSink=null;
@@ -277,7 +281,9 @@ public class NcrnaFamily {
 	int boundaryFeatureVersion=NcrnaBoundaryScorer.FEATURES_V1;
 	public boolean boundaryOnRawEndpoints=false;
 	boolean nnCentre5Vote=false, nnCentre3Vote=false;
-	float nnCutoff=Float.NaN;
+	/** Finite boundary score floor; zero is an active floor only when enabled. */
+	public float nnCutoff=0f;
+	public boolean nnCutoffEnabled=false;
 
 	/** Production controls that historically lived only in RrnaScavengerHarness.
 	 * Defaults preserve every existing generic-ncRNA family. */
@@ -316,6 +322,6 @@ public class NcrnaFamily {
 	public int physicalEdgeMinLen=0;
 	/** Historical field name: explicit16S/23S physical-edge floor; zero disables it. */
 	public int prok16sPartialMinLen=0;
-	/** NaN retains each model's cutoff; an explicit value applies only to clipped rescue. */
-	public float modelClipRescueId=Float.NaN;
+	/** -1 retains each model's cutoff; an explicit value applies only to clipped rescue. */
+	public float modelClipRescueId=-1f;
 }

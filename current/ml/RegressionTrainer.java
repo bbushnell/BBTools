@@ -1246,6 +1246,10 @@ public class RegressionTrainer{
 			if(useSimd){normalizeLayerF(weightsF[l]);}
 			else{normalizeLayer(weights[l]);}
 		}
+		//TODO: Probable bug (untested): normalization changes weightsF after applyAdamF
+		//refreshed spW/spT, but only wT is refreshed below. Sparse forward/backward
+		//passes can then read stale values when useSimd && spW!=null and
+		//normalize && normFactor>1e-4f; sparse and normalize are off by default.
 		if(useSimd){refreshTranspose();}
 		normFactor*=normShrink;
 	}

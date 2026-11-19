@@ -326,6 +326,20 @@ public final class Vector{
 		return compareDDLScalar(a, b);
 	}
 
+	/** Full-width unsigned comparison; upper16 equality alone is not a match. */
+	public static int[] compareDDL(int[] a, int[] b){
+		if(a==null || b==null || a.length!=b.length){throw new IllegalArgumentException("DDL32 comparison requires equal-length arrays");}
+		if(Shared.SIMD && simd256){return SIMDLogLog.compareDetailedUnsigned(a,b);}
+		int lower=0,equal=0,higher=0,empty=0;
+		for(int i=0; i<a.length; i++){
+			if((a[i]|b[i])==0){empty++;continue;}
+			final int cmp=Integer.compareUnsigned(a[i],b[i]);
+			if(cmp<0){lower++;}else if(cmp>0){higher++;}else{equal++;}
+		}
+		assert(lower+equal+higher+empty==a.length) : "Every register pair belongs to exactly one comparison category";
+		return new int[]{lower,equal,higher,empty};
+	}
+
 	/**
 	 * Hybrid SIMD-accelerated DDL comparison: pre-converted short[] query vs char[] ref.
 	 * Pre-convert the query once via toShortArray(), then compare against many char[] refs.

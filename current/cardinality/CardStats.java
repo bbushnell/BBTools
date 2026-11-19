@@ -116,16 +116,44 @@ public final class CardStats extends AbstractCardStats {
 			final int nativeRelTiers_, final double[] tierErrCoeffs_,
 			final float terminalMeanCF_, final float terminalMeanPlusCF_,
 			final double tierScale_, final int histFloorBits_){
+		this(buckets_, counts_, nlzBits_, histBits_, luckBits_, mantissaBits_,
+			numBuckets_, microIndex_, added_, cfMatrix_, cfBuckets_, mantissaOff_,
+			nativeRelTiers_, tierErrCoeffs_, terminalMeanCF_, terminalMeanPlusCF_, tierScale_, histFloorBits_, null);
+	}
+
+	/** Creates uncalibrated statistics only for the new unsigned 32-bit DemiLog layout.
+	 * Longs retain its rank-plus-one carry; legacy callers continue to supply char arrays. */
+	static CardStats forDemiLog32(long[] packed, int[] counts, int exponent, int mantissa,
+			int buckets, long micro, long added){
+		if(packed==null || packed.length!=buckets || mantissa<24 || mantissa>31){
+			throw new IllegalArgumentException("Wide DDL statistics require complete 32-bit register precision");
+		}
+		return new CardStats(null, counts, exponent, 0, 0, mantissa, buckets, micro, added, null, buckets, 0,
+			Integer.MAX_VALUE, null, 1, 1, 1, -1, packed);
+	}
+
+	/** Adds the 32-bit input route without widening legacy char-register arithmetic.
+	 * Only forDemiLog32 supplies wide registers and bypasses legacy calibration. */
+	private CardStats(final char[] buckets_, final int[] counts_,
+			final int nlzBits_, final int histBits_, final int luckBits_, final int mantissaBits_,
+			final int numBuckets_, final long microIndex_, final long added_,
+			final float[][] cfMatrix_, final int cfBuckets_, final double mantissaOff_,
+			final int nativeRelTiers_, final double[] tierErrCoeffs_,
+			final float terminalMeanCF_, final float terminalMeanPlusCF_,
+			final double tierScale_, final int histFloorBits_, final long[] wideBuckets_){
 
 		assert(counts_!=null && counts_.length==66);
-		assert((histBits_|luckBits_|mantissaBits_)==0 || buckets_!=null) :
+		assert((histBits_|luckBits_|mantissaBits_)==0 || buckets_!=null || wideBuckets_!=null) :
 			"Per-bucket array required when sub-NLZ bits are present";
+		assert(wideBuckets_==null || (histBits_==0 && luckBits_==0 && buckets_==null && wideBuckets_.length==numBuckets_)) :
+			"Wide DDL statistics carry only exponent/mantissa data, not another tracker's history layout";
+		wideDemiLog=wideBuckets_!=null;
 
 		// Override resolution: static AbstractCardStats.OVERRIDE_* wins when > 0.
 		// Set tmcf=1 tmpcf=1 on the command line during preliminary CF generation
 		// so per-class bias corrections are disabled and raw ratios can be measured.
-		final float tmCF=(OVERRIDE_TERMINAL_MEAN_CF>0 ? OVERRIDE_TERMINAL_MEAN_CF : terminalMeanCF_);
-		final float tmPlusCF=(OVERRIDE_TERMINAL_MEAN_PLUS_CF>0 ? OVERRIDE_TERMINAL_MEAN_PLUS_CF : terminalMeanPlusCF_);
+		final float tmCF=wideDemiLog ? 1 : (OVERRIDE_TERMINAL_MEAN_CF>0 ? OVERRIDE_TERMINAL_MEAN_CF : terminalMeanCF_);
+		final float tmPlusCF=wideDemiLog ? 1 : (OVERRIDE_TERMINAL_MEAN_PLUS_CF>0 ? OVERRIDE_TERMINAL_MEAN_PLUS_CF : terminalMeanPlusCF_);
 
 		/*--- Store configuration ---*/
 		tierScale=tierScale_;
@@ -230,7 +258,7 @@ public final class CardStats extends AbstractCardStats {
 
 		// 7b. MeanTC — per-tier corrected mean (no terminal CF needed)
 		{
-			final double[] tierCorr=meanTierCorr();
+			final double[] tierCorr=wideDemiLog ? null : meanTierCorr();
 			if(tierCorr!=null){
 				final double tcDifSum=tcDifSumFromCounts(counts, tierCorr);
 				meanTCRawF=meanEstimate(tcDifSum, filled, numBuckets);
@@ -239,7 +267,7 @@ public final class CardStats extends AbstractCardStats {
 
 		// 8. CF-corrected estimates — use DLC raw as cardinality seed for table lookup
 		//    Grab immutable CF snapshot once; all lookups use this local reference
-		cfd=CorrectionFactor.cfData;
+		cfd=wideDemiLog ? null : CorrectionFactor.cfData;
 		final double keyScale=(cfd!=null && cfd.buckets>0 ?
 				(double)cfd.buckets/numBuckets : 1.0);
 		meanCF=meanRawF*cardCF(meanRawF, CorrectionFactor.MEAN, keyScale);
@@ -486,7 +514,41 @@ public final class CardStats extends AbstractCardStats {
 
 		/*--- Phase 2b: mantissa estimates (when mantissaBits > 0) ---*/
 
-		if(mantissaBits_>0 && buckets_!=null){
+		if(wideDemiLog){
+			// The new 32-bit sketch has 24..31 mantissa bits and a long rank-plus-one
+			// payload. Keep its arithmetic separate from the public char[] path below.
+			final long mantissaMask=(1L<<mantissaBits_)-1;
+			final double mantissaScale=(double)(1L<<mantissaBits_);
+			double hllSumM=0, difSumM=0, gSumM=0;
+			int filledM=0;
+			for(int i=0; i<numBuckets; i++){
+				final long val=wideBuckets_[i];
+				if(val==0){continue;}
+				filledM++;
+				final int absNlz=(int)(val>>>mantissaBits_)-1;
+				final long invMant=val&mantissaMask;
+				hllSumM+=Math.pow(2.0, -absNlz+mantissaOff_-invMant/mantissaScale);
+				final long lowbits=(~val)&mantissaMask;
+				final long mantissa=(1L<<mantissaBits_)|lowbits;
+				final int shift=WORDLEN-absNlz-mantissaBits_-1;
+				final double dif=absNlz==0 ? Long.MAX_VALUE : Math.max(1.0, Math.scalb((double)mantissa, shift));
+				difSumM+=dif;
+				gSumM+=Math.log(Math.max(1, dif));
+			}
+			hllSumFilledM=hllSumM;
+			difSumM_=difSumM;
+			gSumM_=gSumM;
+			hmeanMRawF=(filledM==0 ? 0 : 2*alpha_m*(double)filledM*(double)filledM/hllSumM);
+			hmeanMCF=hmeanMRawF*cardCF(hmeanMRawF, CorrectionFactor.HMEANM, keyScale);
+			final int divM=Math.max(filledM, 1);
+			final double meanM=difSumM/divM;
+			final float correctionM=(filledM+numBuckets)/(float)(numBuckets+numBuckets);
+			meanMRawF=2*(Long.MAX_VALUE/Tools.max(1.0, meanM))*divM*correctionM*tmCF;
+			meanMCF_=meanMRawF*cardCF(meanMRawF, CorrectionFactor.MEANM, keyScale);
+			final double gmeanM=Math.exp(gSumM/divM);
+			gmeanMRawF=2*(Long.MAX_VALUE/gmeanM)*divM*correctionM;
+			gmeanMCF_=gmeanMRawF*cardCF(gmeanMRawF, CorrectionFactor.GMEAN, keyScale);
+		}else if(mantissaBits_>0 && buckets_!=null){
 			// Phase 2b: scan buckets for mantissa-corrected sums.
 			// The mantissa provides fractional NLZ precision beyond integer tier resolution.
 			// All DDL classes use inverted mantissa: higher stored = smaller hash within tier.
@@ -545,7 +607,7 @@ public final class CardStats extends AbstractCardStats {
 		}
 
 		// hasMantissa: true when mantissa-corrected sums differ from plain sums
-		hasMantissa=(mantissaBits_>0 && buckets_!=null);
+		hasMantissa=wideDemiLog || (mantissaBits_>0 && buckets_!=null);
 
 		/*--- Phase 2c: luck estimates (when luckBits > 0) ---*/
 
@@ -609,6 +671,7 @@ public final class CardStats extends AbstractCardStats {
 	 * Matches the logic of old CardinalityStats.cf() exactly.
 	 */
 	private double cardCF(final double rawEst, final int type, final double keyScale){
+		if(wideDemiLog){return 1;}
 		if(!CorrectionFactor.USE_CORRECTION){return 1;}
 		// Formula mode for Mean CF: use card/B input (bucket-independent), iterate
 		if((CorrectionFactor.USE_MEAN_CF_FORMULA || CorrectionFactor.USE_FORMULAS) && type==CorrectionFactor.MEAN){
@@ -1080,6 +1143,8 @@ public final class CardStats extends AbstractCardStats {
 
 	// --- CF table snapshot (grabbed once in constructor for thread safety) ---
 	private final CorrectionFactor.CFTableData cfd;
+	/** True only for the additive 32-bit factory; all legacy constructors leave it false. */
+	private final boolean wideDemiLog;
 
 	// --- Configuration (set once in constructor) ---
 	final double tierScale;     // DLC tier scale (1.0 standard, 1.5 compressed, 2.0 dual-hash)

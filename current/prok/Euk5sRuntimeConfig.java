@@ -38,7 +38,7 @@ public final class Euk5sRuntimeConfig {
 		}
 		require(infer || (tables==null && nets==null),"Endpoint table/network overrides require euk5sendpoint=t");
 		final boolean scalar=CallGenes.ncrnaSweepTarget("euk5S")
-			&& (!Float.isNaN(CallGenes.NCRNA_ID_PASS_OVERRIDE) || !Float.isNaN(CallGenes.NCRNA_ID_BORDERLINE_OVERRIDE));
+			&& (CallGenes.NCRNA_ID_PASS_OVERRIDE>=0 || CallGenes.NCRNA_ID_BORDERLINE_OVERRIDE>=0);
 		final FamilyResourceResolver resolver=new FamilyResourceResolver();
 		final FamilyResourceResolver.Overrides overrides=new FamilyResourceResolver.Overrides();
 		overrides.cutoffs=cutoffs;overrides.tables=tables;overrides.endpoints=nets;

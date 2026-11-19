@@ -31,7 +31,7 @@ public final class CobalaminMemberCutoffsTest {
 		try{
 			CallGenes.NCRNA_FAMILIES_ENABLED=true;CallGenes.COBALAMIN_ENABLED=true;
 			CallGenes.NCRNA_FAMILY_FILTER=null;
-			CallGenes.NCRNA_ID_PASS_OVERRIDE=CallGenes.NCRNA_ID_BORDERLINE_OVERRIDE=Float.NaN;
+			CallGenes.NCRNA_ID_PASS_OVERRIDE=CallGenes.NCRNA_ID_BORDERLINE_OVERRIDE=-1f;
 			load(source);identities(.64f, .64f, .66f, .66f, .66f, .66f);
 			modelProfiles(source, root);
 			final String[] values={row(0, ".64", ".64"), row(1, ".68", ".68"), row(2, ".70", ".70")};
@@ -39,10 +39,10 @@ public final class CobalaminMemberCutoffsTest {
 			load(valid);identities(.64f, .64f, .68f, .68f, .70f, .70f);
 			CallGenes.NCRNA_FAMILY_FILTER="cobalamin_rf00174";CallGenes.NCRNA_ID_PASS_OVERRIDE=.64f;
 			load(valid);identities(.64f, .64f, .68f, .68f, .70f, .70f);
-			CallGenes.NCRNA_FAMILY_FILTER="cobalamin_rf01689";CallGenes.NCRNA_ID_PASS_OVERRIDE=Float.NaN;
+			CallGenes.NCRNA_FAMILY_FILTER="cobalamin_rf01689";CallGenes.NCRNA_ID_PASS_OVERRIDE=-1f;
 			CallGenes.NCRNA_ID_BORDERLINE_OVERRIDE=.68f;
 			load(valid);identities(.64f, .64f, .68f, .68f, .70f, .68f);
-			CallGenes.NCRNA_FAMILY_FILTER=null;CallGenes.NCRNA_ID_BORDERLINE_OVERRIDE=Float.NaN;
+			CallGenes.NCRNA_FAMILY_FILTER=null;CallGenes.NCRNA_ID_BORDERLINE_OVERRIDE=-1f;
 			// The generic model path must retain its scalar policy, not switch aligners.
 			for(NcrnaFamily family:GeneCaller.ncrnaFamilies){
 				check(!family.reuseConsensusAlignment && family.modelThresholds==null,
@@ -53,7 +53,7 @@ public final class CobalaminMemberCutoffsTest {
 			load(valid);identities(.64f, .64f, .72f, .71f, .70f, .70f);
 			CallGenes.NCRNA_FAMILY_FILTER="cobalamin";
 			load(valid);identities(.72f, .71f, .72f, .71f, .72f, .71f);
-			CallGenes.NCRNA_ID_PASS_OVERRIDE=CallGenes.NCRNA_ID_BORDERLINE_OVERRIDE=Float.NaN;
+			CallGenes.NCRNA_ID_PASS_OVERRIDE=CallGenes.NCRNA_ID_BORDERLINE_OVERRIDE=-1f;
 			CallGenes.NCRNA_FAMILY_FILTER=null;
 			load(group(source, root.resolve("optional"), new String[]{null, values[1], null}, -1));
 			identities(.64f, .64f, .68f, .68f, .66f, .66f);
@@ -72,7 +72,7 @@ public final class CobalaminMemberCutoffsTest {
 			boolean failed=false;
 			try{CallGenes.validateNcrnaSweepOverrides();}catch(IllegalArgumentException expected){failed=true;}
 			check(failed, "An explicitly inverted B12 pair must still fail before resource loading");
-			CallGenes.NCRNA_FAMILY_FILTER="rnasep";CallGenes.NCRNA_ID_PASS_OVERRIDE=.50f;CallGenes.NCRNA_ID_BORDERLINE_OVERRIDE=Float.NaN;
+			CallGenes.NCRNA_FAMILY_FILTER="rnasep";CallGenes.NCRNA_ID_PASS_OVERRIDE=.50f;CallGenes.NCRNA_ID_BORDERLINE_OVERRIDE=-1f;
 			failed=false;try{CallGenes.validateNcrnaSweepOverrides();}catch(IllegalArgumentException expected){failed=true;}
 			check(failed, "Other families retain their early registry-default identity validation");
 			CallGenes.COBALAMIN_ENABLED=false;

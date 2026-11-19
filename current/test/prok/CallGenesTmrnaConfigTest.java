@@ -111,6 +111,7 @@ public class CallGenesTmrnaConfigTest {
 		final String oldKmers=CallGenes.TMRNA_KMERS_OVERRIDE;
 		final int oldPad=CallGenes.TMRNA_PAD_OVERRIDE;
 		final float oldScoreA=CallGenes.TMRNA_SCORE_A_OVERRIDE;
+		final boolean oldScoreASet=CallGenes.TMRNA_SCORE_A_OVERRIDE_SET;
 		try{
 			CallGenes.NCRNA_FAMILIES_ENABLED=true;
 			CallGenes.TMRNA_ENABLED=false;
@@ -127,7 +128,7 @@ public class CallGenesTmrnaConfigTest {
 			});
 			CallGenes.TMRNA_PAD_OVERRIDE=-1;
 			assertSpecificOverrideRejected("score", new Runnable(){
-				@Override public void run(){CallGenes.TMRNA_SCORE_A_OVERRIDE=1f;}
+				@Override public void run(){CallGenes.TMRNA_SCORE_A_OVERRIDE=1f;CallGenes.TMRNA_SCORE_A_OVERRIDE_SET=true;}
 			});
 			CallGenes.TMRNA_ENABLED=true;
 			CallGenes.validateNcrnaSweepOverrides();
@@ -138,6 +139,7 @@ public class CallGenesTmrnaConfigTest {
 			CallGenes.TMRNA_KMERS_OVERRIDE=oldKmers;
 			CallGenes.TMRNA_PAD_OVERRIDE=oldPad;
 			CallGenes.TMRNA_SCORE_A_OVERRIDE=oldScoreA;
+			CallGenes.TMRNA_SCORE_A_OVERRIDE_SET=oldScoreASet;
 		}
 	}
 

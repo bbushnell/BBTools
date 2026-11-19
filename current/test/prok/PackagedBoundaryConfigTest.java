@@ -8,11 +8,13 @@ import java.util.ArrayList;
 import fileIO.ByteFile;
 import fileIO.ByteStreamWriter;
 import fileIO.ReadWrite;
+import ml.CellNet;
 import prok.CallGenes;
 import prok.FamilyResourceResolver;
 import prok.NcrnaFamily;
 import prok.NcrnaFamilyLoader;
 import prok.NcrnaFamilyRegistry;
+import prok.NcrnaScavenger;
 import prok.NcrnaTextIO.Input;
 import prok.NcrnaTextIO.Output;
 import prok.PackagedBoundaryConfig;
@@ -23,7 +25,7 @@ import structures.ByteBuilder;
 
 /** Finite packaged-default precedence and native loader checks using installed SAM-I resources.
  * Temporary links point to read-only resources; no installed file is modified.
- * @author Brian Bushnell, Raiden
+ * @author Brian, Raiden
  */
 public final class PackagedBoundaryConfigTest{
 
@@ -58,6 +60,7 @@ public final class PackagedBoundaryConfigTest{
 			final byte[][] library=TrnaConsensusBuilder.loadLibrary(links[0].toString());
 			final int mean=PackagedBoundaryConfig.upperMedianLength(library);
 			checkRecords(config, mean, library);
+			checkFiniteCutoffs(config);
 			write(config, recipe(false, mean, null, null, null));
 			final NcrnaFamilyLoader.Options off=options(root);
 			off.boundary=true;
@@ -74,6 +77,7 @@ public final class PackagedBoundaryConfigTest{
 			explicitOff.boundaryOverride=false;
 			explicitOff.boundaryStartOffsets=new int[]{0};
 			explicitOff.boundaryMarginStart=0f;
+			explicitOff.boundaryMarginStartSet=true;
 			final NcrnaFamily overridden=load(explicitOff);
 			assert(overridden.boundary5NetTemplate==null && overridden.boundaryStartOffsets.length==1
 				&& overridden.boundaryMarginStart==0f && overridden.boundaryMarginStop==.15f)
@@ -111,11 +115,12 @@ public final class PackagedBoundaryConfigTest{
 				&& unchanged.boundaryMarginStop==0f)
 				: "Without a packaged role, historical enable selection and zero margins must be unchanged";
 			checkFlagPrecedence();
-			System.out.println("Packaged boundary checks passed: ON/OFF, explicit choices, missing payloads, absent package and flag precedence");
+			System.out.println("PACKAGED_BOUNDARY_CONFIG_TEST_PASS installed_sam=t cutoff_state=t "
+				+"margin_precedence=t cli_precedence=t missing_payloads=t absent_package=t");
 		}
 	}
 
-	private static void checkRecords(Path path, int mean, byte[][] library){
+	private static void checkRecords(final Path path, final int mean, final byte[][] library){
 		assert(mean>0 && library.length>0) : "Record checks use the actual fixture's valid normalization";
 		final String base=recipe(false, mean, null, null, null).toString();
 		for(final String option:new String[]{"meanlen", "startradius", "stopradius", "marginstart", "marginstop", "cutoff"}){
@@ -153,7 +158,8 @@ public final class PackagedBoundaryConfigTest{
 		for(String family:new String[]{"tRNA", "prok5S", "16S", "23S", "euk5S", "euk18S", "cobalamin"}){
 			boolean rejected=false;
 			try{NcrnaFamilyRegistry.modelOverrideMember(family);}catch(IllegalArgumentException expected){rejected=true;}
-			assert(rejected) : "Independent verifiers, unpaired libraries and aggregate selectors cannot accept one generic model pair: "+family;
+			assert(rejected)
+				: "Independent verifiers, unpaired libraries and aggregate selectors cannot accept one generic model pair: "+family;
 		}
 		final String[] bad={base+"unknown=1\n", base+"enabled=f\n",
 			base.replace("family=sam1", "family=cobalamin"),
@@ -178,9 +184,84 @@ public final class PackagedBoundaryConfigTest{
 			: "Only the first equals sign separates the key; the resource name must remain intact";
 	}
 
+	private static void checkFiniteCutoffs(final Path path){
+		final PackagedBoundaryConfig disabled=readSynthetic(path, "none");
+		cutoff(disabled, false, 0f);
+		cutoff(readSynthetic(path, "0"), true, 0f);
+		cutoff(readSynthetic(path, "0.46"), true, .46f);
+		margins(disabled);
+		invalidCutoff(path, "NaN");
+		invalidCutoff(path, "Infinity");
+	}
+
+	/** Parses the real key/value format; the reader does not open the named payloads. */
+	private static PackagedBoundaryConfig readSynthetic(final Path path, final String cutoff){
+		write(path, syntheticRecipe(cutoff));
+		return PackagedBoundaryConfig.read(path.toString());
+	}
+
+	/** Exercises parsed state through the loaded-family binding and actual cutoff predicate. */
+	private static void cutoff(final PackagedBoundaryConfig config, final boolean enabled, final float expected){
+		final CellNet net=new CellNet(new int[]{10, 1}, 1, 1f, 0f, 1, null);
+		final NcrnaFamily family=new NcrnaFamily("sam1", new byte[][]{new byte[120]}, null,
+			new String[]{"sam1_model"}, null, 17, 60, 150, 7, 1, false, 0f, 0f, 0f, 1,
+			0f, 1f, .7f, .6f, net, net, null, null, 0, 0, 0, 0, 120f);
+		assert(!family.nnCutoffEnabled && family.nnCutoff==0f)
+			: "New families must start with a finite disabled cutoff before packaged binding";
+		config.loaded(family);
+		assert(family.nnCutoffEnabled==enabled && family.nnCutoff==expected)
+			: "Parsed cutoff state must survive family binding, including an enabled zero";
+		assert(NcrnaScavenger.applyBoundaryScoreCutoff(3, expected-.1f,
+			family.nnCutoff, family.nnCutoffEnabled)==(enabled ? 0 : 3))
+			: "A disabled cutoff must retain a move that an enabled floor rejects";
+		assert(NcrnaScavenger.applyBoundaryScoreCutoff(-2, expected,
+			family.nnCutoff, family.nnCutoffEnabled)==-2)
+			: "Equality must retain the signed boundary move";
+		assert(NcrnaScavenger.applyBoundaryScoreCutoff(4, expected+.1f,
+			family.nnCutoff, family.nnCutoffEnabled)==4)
+			: "A score above the floor must retain the boundary move";
+	}
+
+	/** A zero override is intentional; the opposite end must still inherit its package value. */
+	private static void margins(final PackagedBoundaryConfig config){
+		final byte[][] library={new byte[120]};
+		final NcrnaFamilyLoader.Options defaults=new NcrnaFamilyLoader.Options();
+		assert(defaults.boundaryMarginStart==0f && defaults.boundaryMarginStop==0f
+			&& !defaults.boundaryMarginStartSet && !defaults.boundaryMarginStopSet)
+			: "Without a package or override, both margins must remain finite zero";
+		config.applyDefaults("sam1", defaults, library);
+		assert(defaults.boundaryMarginStart==.03f && defaults.boundaryMarginStop==.04f)
+			: "Unset ends must acquire the package's distinct start and stop margins";
+		for(boolean start:new boolean[]{true, false}){
+			final NcrnaFamilyLoader.Options options=new NcrnaFamilyLoader.Options();
+			options.boundaryMarginStartSet=start;
+			options.boundaryMarginStopSet=!start;
+			config.applyDefaults("sam1", options, library);
+			assert(options.boundaryMarginStart==(start ? 0f : .03f)
+				&& options.boundaryMarginStop==(start ? .04f : 0f))
+				: "An explicit zero on either end must win without suppressing the opposite packaged margin";
+		}
+		final NcrnaFamilyLoader.Options explicit=new NcrnaFamilyLoader.Options();
+		explicit.boundaryMarginStart=.01f;
+		explicit.boundaryMarginStop=.02f;
+		explicit.boundaryMarginStartSet=true;
+		explicit.boundaryMarginStopSet=true;
+		config.applyDefaults("sam1", explicit, library);
+		assert(explicit.boundaryMarginStart==.01f && explicit.boundaryMarginStop==.02f)
+			: "Explicit nonzero margins must also win over packaged defaults";
+	}
+
+	private static void invalidCutoff(final Path path, final String value){
+		try{
+			readSynthetic(path, value);
+		}catch(IllegalArgumentException expected){return;}
+		throw new AssertionError("Nonfinite numeric cutoff was accepted: "+value);
+	}
+
 	/** Missing package payloads distinguish actual ON/OFF parsing before any genomic call. */
 	private static void checkCli(String installation, Path root) throws Exception{
-		assert(new File(installation, "callgenes.sh").isFile()) : "CLI fixture must use the tested installation's ordinary caller";
+		assert(new File(installation, "callgenes.sh").isFile())
+			: "CLI fixture must use the tested installation's ordinary caller";
 		final Path input=root.resolve("input.fa");
 		final ByteBuilder sequence=new ByteBuilder(">fixture\n");
 		for(int i=0; i<500; i++){sequence.append('A');}
@@ -202,7 +283,8 @@ public final class PackagedBoundaryConfigTest{
 					}
 					command.add("ncrnaboundarynet="+(scenario==2 ? "t" : "f"));
 					if(scenario>0){command.add("sam1boundarynn="+(scenario==1 ? "t" : "f"));}
-					final int exit=new ProcessBuilder(command).redirectErrorStream(true).redirectOutput(log.toFile()).start().waitFor();
+					final int exit=new ProcessBuilder(command).redirectErrorStream(true)
+						.redirectOutput(log.toFile()).start().waitFor();
 					final boolean passed=scenario==1 ? exit!=0 && readLog(log, "missing.net", false) : exit==0;
 					if(!passed){readLog(log, null, true);}
 					assert(passed) : "CLI per-family/global OFF precedence failed; scenario="+scenario+", exit="+exit;
@@ -251,6 +333,15 @@ public final class PackagedBoundaryConfigTest{
 			bb.append("tablestart=").append(start).nl();
 			bb.append("tablestop=").append(stop).nl();
 		}
+		return bb;
+	}
+
+	private static ByteBuilder syntheticRecipe(final String cutoff){
+		final ByteBuilder bb=new ByteBuilder("family=sam1\nenabled=t\nfeatures=v1\nfeatureorder=");
+		bb.append(PackagedBoundaryConfig.FEATURE_ORDER);
+		bb.append("\nmeanlen=120\nstartradius=8\nstopradius=12\nmarginstart=0.03\nmarginstop=0.04\ncutoff=");
+		bb.append(cutoff);
+		bb.append("\nnet=unused.bbnet\ntablestart=start.tsv\ntablestop=stop.tsv\n");
 		return bb;
 	}
 

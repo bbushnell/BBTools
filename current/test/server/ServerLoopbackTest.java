@@ -5,6 +5,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.PrintStream;
+import java.lang.reflect.InvocationTargetException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
@@ -23,25 +24,33 @@ import com.sun.net.httpserver.HttpServer;
 import server.ServerTools;
 import structures.StringNum;
 
-/** Explicitly-started finite loopback checks for ServerTools and moved stress clients. */
+/** Explicitly-started finite loopback checks; transport mode needs no modern stress-client classes. */
 public final class ServerLoopbackTest {
 
 	/** Runs a bounded loopback listener only with explicit loopback arguments. */
 	public static void main(String[] args) throws Exception{
-		if(args.length!=3 || !args[0].equals("loopback") ||
+		if(args.length!=3 || !(args[0].equals("loopback") || args[0].equals("transport")) ||
 				!(args[1].equals("baseline") || args[1].equals("fixed"))){
-			throw new IllegalArgumentException("Usage: java -Xmx128m test.server.ServerLoopbackTest loopback <baseline|fixed> <info.tsv>");
+			throw new IllegalArgumentException("Usage: java -Xmx128m test.server.ServerLoopbackTest <loopback|transport> <baseline|fixed> <info.tsv>");
 		}
-		new ServerLoopbackTest(args[1].equals("fixed"), Paths.get(args[2])).run();
+		new ServerLoopbackTest(args[1].equals("fixed"), Paths.get(args[2]), args[0].equals("transport")).run();
 	}
 
-	private ServerLoopbackTest(boolean fixed_, Path infoPath_){fixed=fixed_; infoPath=infoPath_;}
+	private ServerLoopbackTest(boolean fixed_, Path infoPath_, boolean transportOnly_){
+		fixed=fixed_; infoPath=infoPath_; transportOnly=transportOnly_;
+	}
 
 	private void run() throws Exception{
 		try{
 			start();
 			checkNullPost();
 			checkEmptyPost();
+			if(transportOnly){
+				expect("ok-request-count", okHandler.requests.get()==(fixed ? 2 : 1), true);
+				expect("error-request-count", errorHandler.requests.get()==0, true);
+				System.out.println("SERVER_TRANSPORT_LOOPBACK_PASS");
+				return;
+			}
 			checkStressClient("StressTest", true);
 			checkStressClient("StressTest2", true);
 			checkStressClient("StressTest3", true);
@@ -129,23 +138,23 @@ public final class ServerLoopbackTest {
 			String non2xx, String exceptions) throws Exception{
 		final String[] args=name.startsWith("StressTest3") ?
 				new String[] {endpoint, "6"} : new String[] {endpoint, "6", "2"};
-		final String output;
-		if(name.startsWith("StressTest2")){
-			output=runClient(new StressRunner() {
-				@Override
-				public void run(String[] args){StressTest2.main(args);}
-			}, args, success);
-		}else if(name.startsWith("StressTest3")){
-			output=runClient(new StressRunner() {
-				@Override
-				public void run(String[] args){StressTest3.main(args);}
-			}, args, success);
-		}else{
-			output=runClient(new StressRunner() {
-				@Override
-				public void run(String[] args){StressTest.main(args);}
-			}, args, success);
-		}
+		// Optional modern-only validation dependencies are resolved solely in full mode.
+		final String className=name.startsWith("StressTest2") ? "test.server.StressTest2"
+				: name.startsWith("StressTest3") ? "test.server.StressTest3" : "test.server.StressTest";
+		final String output=runClient(new StressRunner(){
+			@Override
+			public void run(String[] args){
+				try{Class.forName(className).getMethod("main", String[].class).invoke(null, (Object)args);}
+				catch(InvocationTargetException e){
+					final Throwable cause=e.getCause();
+					if(cause instanceof RuntimeException){throw (RuntimeException)cause;}
+					if(cause instanceof Error){throw (Error)cause;}
+					throw new IllegalStateException("Unexpected checked failure from "+className, cause);
+				}catch(ReflectiveOperationException e){
+					throw new IllegalStateException("Missing full-scope stress fixture: "+className, e);
+				}
+			}
+		}, args, success);
 		expect(name, output.contains(completed) && output.contains(non2xx) &&
 				output.contains(exceptions), true);
 	}
@@ -239,6 +248,7 @@ public final class ServerLoopbackTest {
 	}
 
 	private final boolean fixed;
+	private final boolean transportOnly;
 	private final Path infoPath;
 	private HttpServer server;
 	private ExecutorService executor;

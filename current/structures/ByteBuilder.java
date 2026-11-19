@@ -425,6 +425,8 @@ public final class ByteBuilder implements Serializable, CharSequence{
 		return this;
 	}
 
+	/** Appends decimal x and an operation byte; the caller must reserve twelve spare bytes.
+	 * Ordinary paths do not grow storage; Integer.MIN_VALUE delegates to the growing long appender. */
 	public ByteBuilder appendOpUnsafe(int x, byte b){
 		if(x<0){
 			if(x<=Integer.MIN_VALUE){
@@ -734,6 +736,7 @@ public final class ByteBuilder implements Serializable, CharSequence{
 	/**
 	 * Appends substring by converting characters to bytes.
 	 * An empty span appends nothing; a null string appends the literal "null".
+	 * A reversed range also appends the literal "null".
 	 * @param x String to append from
 	 * @param from Starting index (inclusive)
 	 * @param toExclusive Ending index (exclusive)
@@ -987,6 +990,8 @@ public final class ByteBuilder implements Serializable, CharSequence{
 		return this;
 	}
 
+	//TODO: Probable bug - negative input never reaches zero under arithmetic >>6 and eventually
+	//overruns temp. This unused private legacy helper has no direct callers; no live-path fix is implied.
 	private ByteBuilder appendA48_old(long value, byte[] temp){
 		int i=0;
 		while(value!=0){
@@ -1005,6 +1010,7 @@ public final class ByteBuilder implements Serializable, CharSequence{
 		return this;
 	}
 
+	/** Appends variable-width A48 digits, high digit first; zero is the single symbol '0'. */
 	public ByteBuilder appendA48(long value){
 		if(value==0){
 			return append((byte)'0');
@@ -1021,8 +1027,13 @@ public final class ByteBuilder implements Serializable, CharSequence{
 		return this;
 	}
 
+	/** Appends raw float bits as an unsigned 32-bit A48 integer. */
 	public ByteBuilder appendFloatA48(float f){return appendA48(((long)Float.floatToRawIntBits(f))&0xFFFFFFFFL);}
 
+	/** Appends double raw bits in A48, preserving signed zero, infinities and quiet-NaN payloads. */
+	public ByteBuilder appendDoubleA48(double d){return appendA48(Double.doubleToRawLongBits(d));}
+
+	/** Appends variable-width A48 digits, high digit first; zero is the single symbol '0'. */
 	public ByteBuilder appendA48(int value){
 		if(value==0){
 			return append((byte)'0');
@@ -1105,6 +1116,8 @@ public final class ByteBuilder implements Serializable, CharSequence{
 
 	/**
 	 * Appends portion of byte array from start position for specified length.
+	 * The requested length is capped at the remaining array suffix. The caller supplies
+	 * a nonnull array, a valid start in 0..x.length, and a nonnegative length.
 	 * @param x Byte array to append from
 	 * @param start Starting position in array
 	 * @param len Number of bytes to append
@@ -1480,6 +1493,7 @@ public final class ByteBuilder implements Serializable, CharSequence{
 	}
 	/**
 	 * Sets content length directly (may truncate or expand).
+	 * Does not grow storage or initialize newly exposed bytes.
 	 * @param x New length (must be within array bounds)
 	 * @return This ByteBuilder for chaining
 	 */

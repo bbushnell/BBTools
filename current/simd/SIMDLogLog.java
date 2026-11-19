@@ -271,6 +271,38 @@ public class SIMDLogLog{
 		return new int[]{lower, equal, higher, bothEmpty};
 	}
 
+	/** Compares full-width unsigned DDL32 registers without changing the signed API.
+	 * Empty-empty pairs are counted separately; both arrays are borrowed.
+	 * @param arrayA First register array
+	 * @param arrayB Second register array, of the same length
+	 * @return Counts in lower, equal, higher, both-empty order */
+	public static int[] compareDetailedUnsigned(final int[] arrayA, final int[] arrayB){
+		if(arrayA==null || arrayB==null || arrayA.length!=arrayB.length){
+			throw new IllegalArgumentException("Unsigned DDL32 comparison requires equal-length non-null arrays");
+		}
+		final int len=arrayA.length, limit=ISPECIES.loopBound(len);
+		int lower=0, equal=0, higher=0, bothEmpty=0;
+		for(int i=0; i<limit; i+=IWIDTH){
+			final IntVector a=IntVector.fromArray(ISPECIES, arrayA, i);
+			final IntVector b=IntVector.fromArray(ISPECIES, arrayB, i);
+			final VectorMask<Integer> empty=a.compare(VectorOperators.EQ, IZERO).and(b.compare(VectorOperators.EQ, IZERO));
+			final VectorMask<Integer> active=empty.not();
+			final IntVector unsignedA=a.lanewise(VectorOperators.XOR, IBIAS);
+			final IntVector unsignedB=b.lanewise(VectorOperators.XOR, IBIAS);
+			lower+=unsignedA.compare(VectorOperators.LT, unsignedB).and(active).trueCount();
+			equal+=a.compare(VectorOperators.EQ, b).and(active).trueCount();
+			higher+=unsignedA.compare(VectorOperators.GT, unsignedB).and(active).trueCount();
+			bothEmpty+=empty.trueCount();
+		}
+		for(int i=limit; i<len; i++){
+			if((arrayA[i]|arrayB[i])==0){bothEmpty++; continue;}
+			final int comparison=Integer.compareUnsigned(arrayA[i], arrayB[i]);
+			if(comparison<0){lower++;}else if(comparison>0){higher++;}else{equal++;}
+		}
+		assert(lower+equal+higher+bothEmpty==len) : "DDL32 register categories must partition the arrays: length="+len;
+		return new int[]{lower, equal, higher, bothEmpty};
+	}
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Helper Methods        ----------------*/
 	/*--------------------------------------------------------------*/
@@ -346,5 +378,7 @@ public class SIMDLogLog{
 
 	/** Zero vector for int empty-bucket detection. */
 	private static final IntVector IZERO=IntVector.zero(ISPECIES);
+	/** Flipping the sign bit maps unsigned register order to signed vector order. */
+	private static final IntVector IBIAS=IntVector.broadcast(ISPECIES, Integer.MIN_VALUE);
 
 }

@@ -34,7 +34,7 @@ public final class NcrnaFamilyRegistry {
 		family.physicalEdgeMinLen=family.prok16sPartialMinLen>0 ? family.prok16sPartialMinLen : family.minLen;
 		// Physical18S rescue retains its measured cutoff when unrestricted interior
 		// rescue is disabled. Primary model thresholds remain unchanged.
-		if("euk18S".equals(entry.id) && Float.isNaN(family.modelClipRescueId)){
+		if("euk18S".equals(entry.id) && family.modelClipRescueId==-1f){
 			family.modelClipRescueId=.66f;
 		}
 		assert(family.physicalEdgeMinLen>0 && family.physicalEdgeMinLen<=family.minLen)

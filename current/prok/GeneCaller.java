@@ -24,7 +24,7 @@ import structures.IntList;
 
 /**
  * This class calls genes within a single thread.
- * @author Brian Bushnell
+ * @author Brian
  * @date Sep 24, 2018
  *
  */
@@ -102,24 +102,185 @@ public class GeneCaller extends ProkObject {
 		trnaCaller=null;
 	}
 
-	/** Explicit opt-in; each caller owns independent alignment scratch. */
+	/** Explicit full-family opt-in; each caller owns independent alignment scratch. */
 	public void setProteinSupport(final ProteinSupport reference){
+		rejectProteinSupportConflict(reference!=null, stopTailSupport!=null || tailCascade!=null);
 		proteinSupport=reference==null ? null : reference.newWorker();
 	}
+	/** Explicit stop-tail opt-in; mutually exclusive with full-family evidence. */
+	public void setStopTailSupport(final StopTailSupport reference){
+		rejectProteinSupportConflict(proteinSupport!=null || tailCascade!=null, reference!=null);
+		stopTailSupport=reference==null ? null : reference.newWorker();
+	}
+	private static void rejectProteinSupportConflict(final boolean oldSupport, final boolean tailSupport){
+		if(oldSupport && tailSupport){
+			throw new IllegalStateException("Use either full-family or stop-tail support, not both");
+		}
+	}
 	ProteinSupport.Worker proteinSupport;
+	StopTailSupport.Worker stopTailSupport;
+	/** Shared bounded search pool; this caller owns only its contig evidence and counters. */
+	public void setTailCascadeSupport(final StopTailCascadeSupport reference, final float bonus, final boolean protect){
+		setTailCascadeSupport(reference, bonus, protect, null);
+	}
+	/** Optional manifest identity accompanies emitted evidence; direct library fixtures may omit it. */
+	public void setTailCascadeSupport(final StopTailCascadeSupport reference, final float bonus,
+			final boolean protect, final String pin){
+		setTailCascadeSupport(reference, bonus, protect, pin, false);
+	}
+	/** Opt-in graded evidence reuses cached winning-family margins; binary behavior remains the default. */
+	public void setTailCascadeSupport(final StopTailCascadeSupport reference, final float bonus,
+			final boolean protect, final String pin, final boolean marginMode){
+		configureTailCascadeSupport(reference, bonus, protect, pin, marginMode, false);
+	}
+	/** Bind explicitly structural resources, preserving an inherited identity or literal unmeasured
+	 * in each emitted ORF. This entry point does not establish payload byte identity.
+	 */
+	public void setTailCascadeSupportStructural(final StopTailCascadeSupport reference, final float bonus,
+			final boolean protect, final String pin, final boolean marginMode){
+		configureTailCascadeSupport(reference, bonus, protect, pin, marginMode, true);
+	}
+	/** Explicit information mode shares the same ordinary/replay score insertion. */
+	public void setTailCascadeInformationSupport(final StopTailCascadeSupport reference,final float bonus,
+			final boolean protect,final String pin,final boolean structural){
+		if(reference!=null && bonus!=0){reference.requireMatchInformation();}
+		configureTailCascadeSupport(reference,bonus,protect,pin,false,structural);
+		tailCascadeInformationMode=true;
+	}
+	/** Formula constants belong to the immutable formula, not an additional tailbonus multiplier. */
+	public void setTailCascadeFormulaSupport(final StopTailCascadeSupport reference,final prot.FamilyBonusFormula formula,
+			final boolean protect,final String pin,final boolean structural){
+		setTailCascadeFormulaSupport(reference,formula,protect,pin,structural,false);
+	}
+	/** Preserve the explicit raw-divisor override through caller-worker configuration. */
+	public void setTailCascadeFormulaSupport(final StopTailCascadeSupport reference,final prot.FamilyBonusFormula formula,
+			final boolean protect,final String pin,final boolean structural,final boolean rawScoreI0Override){
+		if(reference==null || formula==null || tailCascadeOppositePenalty!=0){
+			throw new IllegalArgumentException("Formula scoring requires an explicit classifier/formula "+
+				"and no opposite-strand penalty");
+		}
+		final prot.FamilyBonusFormula bound=reference.bindFormulaEvidence(formula,rawScoreI0Override);
+		configureTailCascadeSupport(reference,0,protect,pin,false,structural);
+		tailCascadeFormula=bound;
+	}
+	/** Share scoring/protection setup while keeping the ordinary identity contract strict. */
+	private void configureTailCascadeSupport(final StopTailCascadeSupport reference, final float bonus,
+			final boolean protect, final String pin, final boolean marginMode, final boolean structural){
+		rejectProteinSupportConflict(proteinSupport!=null || stopTailSupport!=null, reference!=null);
+		if(!Float.isFinite(bonus) || bonus<0){
+			throw new IllegalArgumentException("Tail bonus must be finite and nonnegative");
+		}
+		if(structural){
+			if(pin==null || (!pin.matches("[0-9a-f]{20}") && !pin.equals("unmeasured"))){
+				throw new IllegalArgumentException("Structural tail resource identity must be inherited sha80 or unmeasured");
+			}
+		}else if(pin!=null && !pin.matches("[0-9a-f]{20}")){
+			throw new IllegalArgumentException("Tail resource identity must be sha80");
+		}
+		if(reference!=null){cascadeCode(geneticCode); if(marginMode){reference.requireAlignmentMargins();}}
+		tailCascade=reference; tailCascadeBonus=bonus; tailCascadeProtect=protect; tailCascadePin=pin;
+		tailCascadeMarginMode=marginMode;
+		tailCascadeInformationMode=false;
+		tailCascadeFormula=null;
+	}
+	/** Observe legacy stops without replacing the caller's native start mask or output code. */
+	public static GeneticCode cascadeCode(final GeneticCode explicit){
+		if(explicit!=null){return explicit;}
+		final GeneticCode code=GeneticCode.forTable(11);
+		for(int i=0; i<64; i++){
+			if(GeneModel.isStopCodon(i)!=code.isStop(i)){
+				throw new IllegalArgumentException("Tail classification requires an explicit genetic code "+
+					"for a nonstandard legacy stop mask");
+			}
+		}
+		return code;
+	}
+	private StopTailCascadeSupport tailCascade;
+	private StopTailCascadeSupport.ContigEvidence tailCascadeEvidence;
+	private StopTailCascadeSupport.Replay preparedTailReplay;
+	/** Active only inside one targeted diagnostic replay; never part of ordinary caller policy. */
+	private long targetedTailStop=-1;
+	private float targetedTailBonus;
+	private boolean[] tailCascadeParents;
+	private float tailCascadeBonus;
+	private boolean tailCascadeProtect;
+	private boolean tailCascadeMarginMode;
+	private boolean tailCascadeInformationMode;
+	private prot.FamilyBonusFormula tailCascadeFormula;
+	private String tailCascadePin;
+	public final TailCascadeStats tailCascadeStats=new TailCascadeStats();
+	/** Null by default; receives primitive snapshots without access to mutable candidates. */
+	private TailCascadeObserver tailCascadeObserver;
+	private GeneCallerPathTrace.Observer pathObserver;
+	private GeneCallerPathTrace pathTrace;
+	private boolean pathActive;
+	private float tailCascadeOppositePenalty;
+	private TailCascadeOppositePenalty.Observer oppositePenaltyObserver;
+	/** Optional post-pruning preference. Native and zero-bonus callers remain disabled. */
+	public void setTailCascadeOppositePenalty(final float penalty){
+		if(pathActive || tailCascadeEvidence!=null || preparedTailReplay!=null){
+			throw new IllegalStateException("Change opposite-strand policy only between completed contigs");
+		}
+		if(!Float.isFinite(penalty) || penalty<0){throw new IllegalArgumentException("Invalid opposite-strand penalty");}
+		if(tailCascadeFormula!=null && penalty!=0){
+			throw new IllegalArgumentException("Formula comparison cannot combine with opposite-strand penalties");
+		}
+		tailCascadeOppositePenalty=penalty;
+	}
+	/** Observation is local to this caller and receives only primitive values. */
+	public void setOppositePenaltyObserver(final TailCascadeOppositePenalty.Observer observer){
+		if(pathActive || tailCascadeEvidence!=null || preparedTailReplay!=null){
+			throw new IllegalStateException("Change opposite-strand observer only between completed contigs");
+		}
+		oppositePenaltyObserver=observer;
+	}
+	/** Install between contigs; callbacks receive snapshots and may not reenter this caller. */
+	public void setPathObserver(final GeneCallerPathTrace.Observer observer){
+		if(pathActive || tailCascadeEvidence!=null || preparedTailReplay!=null){
+			throw new IllegalStateException("Change the path observer only between completed contigs");
+		}
+		pathObserver=observer;
+	}
+	public void setTailCascadeObserver(final TailCascadeObserver observer){
+		if(tailCascadeEvidence!=null || preparedTailReplay!=null){
+			throw new IllegalStateException("Change the tail observer only between completed contigs");
+		}
+		tailCascadeObserver=observer;
+	}
+	/** Observation only, on this caller's thread. Candidate coordinates are zero-based
+	 * inclusive genomic coordinates. ordinal=-1 means no classified real stop; realStop
+	 * distinguishes an unscanned real stop from a truncated boundary. Each admitted
+	 * candidate is reported before pruning, then again if retained. Neither callback
+	 * may change scoring, admission, pruning or the selected path. */
+	public interface TailCascadeObserver{
+		void begin(StopTailCascadeSupport.ContigEvidence evidence);
+		void parent(int ordinal);
+		void candidate(int start, int stop, int strand, boolean realStop, int ordinal,
+			int candidateAaLength, float nativeScore, float bonus, float totalScore, boolean retained);
+		void end();
+	}
 	/** Optional observer; never changes candidate admission, scores or path selection. */
 	ProteinSupportFate proteinFateSink;
 	private ArrayList<ProteinSupportFate.Entry> proteinFates;
 
-	/** Preserve V10 scoring, adding conserved-family evidence once after overlap/minor-start terms. */
+	/** Apply the separate post-pruning preference exactly once to a node contribution. */
+	public static float pathRootScore(final Orf orf){
+		return subtractOppositePenalty(orf, orf.orfScore);
+	}
+	private static float subtractOppositePenalty(final Orf orf, final float score){
+		return orf.tailCascadeOppositePenalty==0 ? score : score-orf.tailCascadeOppositePenalty;
+	}
+
+	/** Add conserved-family evidence once after overlap/minor-start terms, then the separate penalty. */
 	public static float proteinAwareScore(final Orf orf, final int overlap){
 		assert(overlap>=0) : "DP overlap is a nonnegative number of bases";
-		if(overlap==0 || orf.type==ProkObject.RNA){return orf.orfScore;}
+		if(overlap==0 || orf.type==ProkObject.RNA){return pathRootScore(orf);}
 		float score=orf.calcOrfScore(overlap);
 		if(MINOR_START_MULTIPLIER!=1f && orf.type==CDS){
 			score=minorStartScore(score, orf.startCodon, orf.startTruncated, MINOR_START_MULTIPLIER);
 		}
-		return orf.proteinBonus>0 ? score+orf.proteinBonus : score;
+		// Formula evidence may be a signed contribution; overlap DP must preserve it.
+		return subtractOppositePenalty(orf, orf.proteinBonus!=0 ? score+orf.proteinBonus : score);
 	}
 
 	/*--------------------------------------------------------------*/
@@ -186,17 +347,57 @@ public class GeneCaller extends ProkObject {
 	 * @return List of non-overlapping ORFs in optimal arrangement
 	 */
 	public ArrayList<Orf> callGenes(Read r, GeneModel pgm_, boolean breakOrfs){
-		if(proteinFateSink==null){return callGenesInner(r, pgm_, breakOrfs);}
+		if(pathActive){throw new IllegalStateException("A path observer must not reenter its caller");}
+		if(proteinFateSink==null && tailCascade==null && pathObserver==null){return callGenesInner(r, pgm_, breakOrfs);}
 		try{return callGenesInner(r, pgm_, breakOrfs);}
 		catch(RuntimeException | Error failure){
-			KillSwitch.kill("Protein fate diagnostics failed on "+r.id+": "+failure);
+			KillSwitch.kill("Protein evidence processing failed on "+r.id+": "+failure);
 			throw failure;
 		}
 	}
+	/** Only Replay owns the private input copy; cached evidence cannot be supplied
+	 * separately from its contig. Native controls share the identical input bytes. */
+	ArrayList<Orf> callGenesWithPreparedTail(final Read read, final GeneModel model,
+			final StopTailCascadeSupport.Replay replay){
+		if(preparedTailReplay!=null || proteinSupport!=null || stopTailSupport!=null){
+			throw new IllegalStateException("Tail replay requires a non-reentrant native or cascade caller");
+		}
+		if(cascadeCode(geneticCode)!=replay.evidence.code || tailCascade!=null && tailCascade!=replay.owner){
+			throw new IllegalArgumentException("Replay and caller must use the same genetic code and classifier");
+		}
+		if(tailCascade==null){return callGenes(read, model, true);}
+		preparedTailReplay=replay;
+		try{return callGenes(read, model, true);}
+		finally{preparedTailReplay=null;}
+	}
+	/** Raise one accepted stop's binary bonus while retaining normal admission, protection,
+	 * pruning and DP. Operon/lookback changes can follow a different path; they are outcomes,
+	 * not independently changed parameters. Replay owns the private contig and evidence. */
+	ArrayList<Orf> callGenesWithTargetedTailBonus(final Read read, final GeneModel model,
+			final StopTailCascadeSupport.Replay replay, final int ordinal, final float bonus){
+		if(preparedTailReplay!=null || pathActive || targetedTailStop!=-1){
+			throw new IllegalStateException("Targeted bonus replay requires an idle caller");
+		}
+		if(tailCascade!=replay.owner || tailCascadeMarginMode || tailCascadeInformationMode ||
+			tailCascadeFormula!=null || ordinal<0 || ordinal>=replay.evidence.size() ||
+			!replay.evidence.assignment(ordinal).assigned()){
+			throw new IllegalArgumentException("Targeted replay requires the same binary classifier and an accepted stop");
+		}
+		if(!Float.isFinite(bonus) || bonus<tailCascadeBonus){
+			throw new IllegalArgumentException("Targeted stop bonus must be finite and at least the ordinary binary bonus");
+		}
+		targetedTailStop=replay.evidence.key(ordinal);targetedTailBonus=bonus;
+		try{return callGenesWithPreparedTail(read,model,replay);}
+		finally{targetedTailStop=-1;targetedTailBonus=0;}
+	}
 	/** Same caller path in both modes; diagnostic failures must not strand output consumers. */
 	private ArrayList<Orf> callGenesInner(Read r, GeneModel pgm_, boolean breakOrfs){
-		if(proteinSupport!=null && !breakOrfs){throw new IllegalArgumentException("Protein support requires candidate start enumeration");}
-		if(proteinFateSink!=null && proteinSupport==null){throw new IllegalStateException("Protein fate diagnostics require the actual protein-support search");}
+		if((proteinSupport!=null || stopTailSupport!=null || tailCascade!=null) && !breakOrfs){
+			throw new IllegalArgumentException("Protein support requires candidate start enumeration");
+		}
+		if(proteinFateSink!=null && proteinSupport==null){
+			throw new IllegalStateException("Protein fate diagnostics require the actual protein-support search");
+		}
 		proteinFates=proteinFateSink==null ? null : new ArrayList<ProteinSupportFate.Entry>();
 		if(ncrnaCpuProfile==null && NcrnaCpuProfile.enabled()){ncrnaCpuProfile=NcrnaCpuProfile.create(ncrnaFamilies.size());}
 		pgm=pgm_;
@@ -210,6 +411,27 @@ public class GeneCaller extends ProkObject {
 		activeNet=selectNet(contigGC);
 		activeStopNet=selectStopNet(contigGC);
 		activeMetaNet=selectMetaNet(contigGC);
+		if(tailCascade!=null){
+			if(preparedTailReplay==null){
+				final StopTailCandidateScan.Scan scan=tailCascade.scan(name, bases, cascadeCode(geneticCode));
+				tailCascadeEvidence=tailCascade.classify(scan);
+				tailCascadeStats.under100+=scan.under100;
+				tailCascadeStats.from100To199+=scan.from100To199;
+			}else{
+				tailCascadeEvidence=preparedTailReplay.evidence;
+				tailCascadeStats.under100+=preparedTailReplay.under100;
+				tailCascadeStats.from100To199+=preparedTailReplay.from100To199;
+				tailCascadeStats.reused+=tailCascadeEvidence.size();
+			}
+			tailCascadeParents=new boolean[tailCascadeEvidence.size()];
+			if(tailCascadeObserver!=null){tailCascadeObserver.begin(tailCascadeEvidence);}
+			tailCascadeStats.searched+=tailCascadeEvidence.size();
+			tailCascadeStats.accepted+=tailCascadeEvidence.accepted;
+			for(int i=0; i<tailCascadeEvidence.size(); i++){
+				final prot.FamilyTailCascade.Assignment assignment=tailCascadeEvidence.assignment(i);
+				if(assignment.assigned()){tailCascadeStats.acceptedStages[TailCascadeStats.stage(assignment)]++;}
+			}
+		}
 
 		ArrayList<Orf>[] brokenLists=iterationCandidates==null ? null : iterationCandidates.restoreCds(pgm_);
 		if(brokenLists==null){
@@ -229,17 +451,22 @@ public class GeneCaller extends ProkObject {
 		
 		ArrayList<Orf>[] rnaLists=null;
 		final int rlen=r.length();
-		if(calltRNA || (call16S && rlen>800) || (call23S && rlen>1500) || call5S || (call18S && rlen>1000) || !ncrnaFamilies.isEmpty()){
+		if(calltRNA || (call16S && rlen>800) || (call23S && rlen>1500) || call5S ||
+			(call18S && rlen>1000) || !ncrnaFamilies.isEmpty()){
 			rnaLists=makeRnas(name, bases, brokenLists);
 			if(ncrnaCpuProfile!=null){ncrnaCpuProfile.begin(ncrnaFamilies.size(), NcrnaCpuProfile.SSU_APPLY);}
 			try{applySsuCompetition(rnaLists, bases);}
 			finally{if(ncrnaCpuProfile!=null){ncrnaCpuProfile.end();}}
 			if(NcrnaScavenger.DEBUG){
 				for(ArrayList<Orf> list : rnaLists){for(Orf o : list){
-					System.err.println("DEBUG rnaList candidate: "+o.start+"-"+o.stop+" strand="+o.strand+" type="+o.type+" score="+o.orfScore);
+				System.err.println("DEBUG rnaList candidate: "+o.start+"-"+o.stop+" strand="+o.strand+
+					" type="+o.type+" score="+o.orfScore);
 				}}
 				for(Orf o : brokenLists[0]){
-					if(o.stop>=100 && o.start<=400){System.err.println("DEBUG brokenLists[0] near locus: "+o.start+"-"+o.stop+" score="+o.orfScore+" type="+o.type);}
+					if(o.stop>=100 && o.start<=400){
+						System.err.println("DEBUG brokenLists[0] near locus: "+o.start+"-"+o.stop+
+							" score="+o.orfScore+" type="+o.type);
+					}
 				}
 			}
 			if(rnaLists[0]!=null && !rnaLists[0].isEmpty()) {
@@ -253,7 +480,10 @@ public class GeneCaller extends ProkObject {
 			if(NcrnaScavenger.DEBUG){
 				System.err.println("DEBUG brokenLists[0] AFTER merge, near locus:");
 				for(Orf o : brokenLists[0]){
-					if(o.stop>=100 && o.start<=400){System.err.println("DEBUG   "+o.start+"-"+o.stop+" score="+o.orfScore+" type="+o.type);}
+					if(o.stop>=100 && o.start<=400){
+						System.err.println("DEBUG   "+o.start+"-"+o.stop+" score="+o.orfScore+
+							" type="+o.type);
+					}
 				}
 			}
 		}
@@ -289,6 +519,7 @@ public class GeneCaller extends ProkObject {
 		if(ncrnaCpuProfile!=null){ncrnaCpuProfile.begin(ncrnaFamilies.size(), NcrnaCpuProfile.PATH);}
 		try{path=findPath(brokenLists, bases);}
 		finally{if(ncrnaCpuProfile!=null){ncrnaCpuProfile.end();}}
+		if(tailCascade!=null){finishTailCascade(path);}
 		if(proteinFateSink!=null){
 			proteinFateSink.write(proteinFates, path, maxOverlapSameStrand, maxOverlapOppositeStrand);
 			proteinFates=null;
@@ -334,8 +565,13 @@ public class GeneCaller extends ProkObject {
 			//makeRnas flips minus-strand calls to genomic coordinates before the DP.
 			final int start=orf.strand==0 ? orf.start : length-1-orf.stop;
 			final int stop=orf.strand==0 ? orf.stop : length-1-orf.start;
-			final float acceptedIdentity=orf.acceptedRrnaIdentity;
-			ncrnaDiagSink.path(orf.ncrnaFamily,name,orf.strand,length,orf.trnaModel,start,stop,retained,acceptedIdentity);
+			if(orf.acceptedRrnaIdentity>=0){
+				ncrnaDiagSink.path(orf.ncrnaFamily, name, orf.strand, length,
+					orf.trnaModel, start, stop, retained, orf.acceptedRrnaIdentity);
+			}else{
+				ncrnaDiagSink.path(orf.ncrnaFamily, name, orf.strand, length,
+					orf.trnaModel, start, stop, retained);
+			}
 		}
 	}
 	
@@ -406,19 +642,27 @@ public class GeneCaller extends ProkObject {
 					ArrayList<Orf> found;
 					if(ncrnaCpuProfile!=null){ncrnaCpuProfile.begin(fi, NcrnaCpuProfile.SCAVENGE);}
 					try{
-					if(seedSlot>=0){
-						if(sharedSeedHits==null){throw new IllegalStateException("Missing shared 17-mer scan for "+ncrnaFamilies.get(fi).name);}
-						final int[] hits=sharedSeedHits.hits(seedSlot);
-						if(VERIFY_UNIFIED_SEEDS){verifySeedHits(name, ncrnaFamilies.get(fi).name, strand, hits, scavenger.findKmerHitPositions(strandBases));}
-						found=scavenger.scavenge(name, strandBases, strand, calledPos, hits, sharedSeedHits.keys(seedSlot));
-					}else{
-						found=scavenger.scavenge(name, strandBases, strand, calledPos);
-					}
+						if(seedSlot>=0){
+							if(sharedSeedHits==null){
+								throw new IllegalStateException("Missing shared 17-mer scan for "+
+									ncrnaFamilies.get(fi).name);
+							}
+							final int[] hits=sharedSeedHits.hits(seedSlot);
+							if(VERIFY_UNIFIED_SEEDS){
+								verifySeedHits(name, ncrnaFamilies.get(fi).name, strand, hits,
+									scavenger.findKmerHitPositions(strandBases));
+							}
+							found=scavenger.scavenge(name, strandBases, strand, calledPos, hits, sharedSeedHits.keys(seedSlot));
+						}else{
+							found=scavenger.scavenge(name, strandBases, strand, calledPos);
+						}
 					}finally{if(ncrnaCpuProfile!=null){ncrnaCpuProfile.end();}}
 					if(strand==1 && found!=null){
 						for(Orf orf : found){orf.flip();}
 					}
-					if(iterationCandidates!=null && !iterationCandidates.isTarget(fi)){iterationCandidates.captureRna(reuseSlot, found);}
+					if(iterationCandidates!=null && !iterationCandidates.isTarget(fi)){
+						iterationCandidates.captureRna(reuseSlot, found);
+					}
 					if(found!=null){array[strand].addAll(found);}
 				}
 			}
@@ -435,7 +679,10 @@ public class GeneCaller extends ProkObject {
 						}
 						if(ncrnaCpuProfile!=null){ncrnaCpuProfile.begin(ncrnaFamilies.size(), NcrnaCpuProfile.TRNA);}
 						try{
-							if(trnaCaller==null){trnaCaller=new TrnaCaller(pgm, trnaLibrary, trnaModels, trnaModelNames);trnaCaller.cmVerifier=cmVerifier;}
+							if(trnaCaller==null){
+								trnaCaller=new TrnaCaller(pgm, trnaLibrary, trnaModels, trnaModelNames);
+								trnaCaller.cmVerifier=cmVerifier;
+							}
 							ArrayList<Orf> list;
 							if(TrnaCaller.SCAVENGE_ONLY){
 								list=new ArrayList<>();
@@ -448,9 +695,14 @@ public class GeneCaller extends ProkObject {
 								for(Orf orf : list){calledPos.add(new int[]{orf.start, orf.stop});}
 								ArrayList<Orf> scavenged;
 								if(trnaSeedSlot>=0){
-									if(sharedSeedHits==null){throw new IllegalStateException("Missing shared 17-mer scan for tRNA");}
+									if(sharedSeedHits==null){
+										throw new IllegalStateException("Missing shared 17-mer scan for tRNA");
+									}
 									final int[] hits=sharedSeedHits.hits(trnaSeedSlot);
-									if(VERIFY_UNIFIED_SEEDS){verifySeedHits(name, "tRNA", strand, hits, trnaCaller.findKmerHitPositions(bases));}
+									if(VERIFY_UNIFIED_SEEDS){
+										verifySeedHits(name, "tRNA", strand, hits,
+											trnaCaller.findKmerHitPositions(bases));
+									}
 									scavenged=trnaCaller.scavengeTrnas(name, bases, strand, calledPos, hits);
 								}else{
 									scavenged=trnaCaller.scavengeTrnas(name, bases, strand, calledPos);
@@ -466,16 +718,18 @@ public class GeneCaller extends ProkObject {
 					}else{
 						if(scores==null){
 							scores=new float[bases.length];
-							kmersSeen=(lsuKmers==null && ssuKmers==null && trnaKmers==null && r5SKmers==null) ? null : new int[bases.length];
+							kmersSeen=(lsuKmers==null && ssuKmers==null && trnaKmers==null &&
+								r5SKmers==null) ? null : new int[bases.length];
 						}
-						ArrayList<Orf> list=makeRnasForStrand(name, bases, strand, sc, scores, (sc.kmerSet()==null ? null : kmersSeen), false, -1);//TODO: Make this loop through all RNA types
-					if(strand==1 && list!=null){
-						for(Orf orf : list){
-							assert(orf.strand==strand);
-							orf.flip();
+						ArrayList<Orf> list=makeRnasForStrand(name, bases, strand, sc, scores,
+							(sc.kmerSet()==null ? null : kmersSeen), false, -1);//TODO: Make this loop through all RNA types
+						if(strand==1 && list!=null){
+							for(Orf orf : list){
+								assert(orf.strand==strand);
+								orf.flip();
+							}
 						}
-					}
-					if(list!=null){array[strand].addAll(list);}
+						if(list!=null){array[strand].addAll(list);}
 					}
 				}
 			}
@@ -526,14 +780,18 @@ public class GeneCaller extends ProkObject {
 	 * Copies target membership and preserves the single-target dependency guards.
 	 */
 	public void beginNcrnaIteration(final Read read, final int[] targets){
-		if(proteinSupport!=null || proteinFateSink!=null || cmVerifier!=null || ssuCompetition!=null
+		if(proteinSupport!=null || proteinFateSink!=null || stopTailSupport!=null || tailCascade!=null
+				|| cmVerifier!=null || ssuCompetition!=null
 			|| call16S || call23S || call5S || call18S
 			|| (calltRNA && (trnaLibrary==null || trnaLibrary.length==0))){
-			throw new IllegalArgumentException("Candidate reuse requires seeded prok RNA callers without protein/CM/SSU-competition state");
+			throw new IllegalArgumentException("Candidate reuse requires seeded prok RNA callers without "+
+				"protein/CM/SSU-competition state");
 		}
 		for(final NcrnaFamily family:ncrnaFamilies){
-			if(family.outputType==r18S || family.name.equals("r58") || family.name.equals("lsu") || family.name.equalsIgnoreCase("euk5S")){
-				throw new IllegalArgumentException("Eukaryotic candidate reuse needs separate dependency verification: "+family.name);
+			if(family.outputType==r18S || family.name.equals("r58") || family.name.equals("lsu") ||
+					family.name.equalsIgnoreCase("euk5S")){
+				throw new IllegalArgumentException("Eukaryotic candidate reuse needs separate dependency "+
+					"verification: "+family.name);
 			}
 		}
 		final NcrnaCandidateReuse candidates=new NcrnaCandidateReuse(targets, ncrnaFamilies.size());
@@ -557,23 +815,24 @@ public class GeneCaller extends ProkObject {
 			for(NcrnaFamily fam : ncrnaFamilies){
 				if(ncrnaCpuProfile!=null){ncrnaCpuProfile.begin(ncrnaScavengers.size(), NcrnaCpuProfile.INIT);}
 				try{
-				NcrnaScavenger scavenger=new NcrnaScavenger(fam.library, fam.models, fam.modelNames,
-					fam.kmerSet, fam.kLong, fam.minLen, fam.windowPad,
-					fam.indexK, fam.indexTopN, fam.adaptive,
-					fam.adaptFloor, fam.adaptTopFrac, fam.adaptQFrac, fam.fixedMinHits,
-					fam.scoreA, fam.scoreB, fam.idPass, fam.idBorderline,
-					fam.boundary5NetTemplate, fam.boundary3NetTemplate,
-					fam.boundaryStartTable, fam.boundaryStopTable,
-					fam.boundaryStartInside, fam.boundaryStartOutside, fam.boundaryStopInside, fam.boundaryStopOutside,
-					fam.boundaryMeanLen, fam.boundaryStartOffsets, fam.boundaryStopOffsets,
-					fam.boundaryMarginStart, fam.boundaryMarginStop);
-				applyNcrnaFamilyControls(scavenger, fam);
-				// D50 keeps18S on its fast path even when small-family CM is enabled.
-				scavenger.cmVerifier=(fam.outputType!=r18S && cmVerifier!=null && cmVerifier.supports(fam.outputType) ? cmVerifier : null);
-				scavenger.setStageDiagSink(ncrnaDiagSink,fam.name);
-				scavenger.setVoteDiagSink(ncrnaVoteDiagSink, fam.name);
-				scavenger.setAttemptLog(Euk18sAttemptLog.forFamily(fam.name));
-				ncrnaScavengers.add(scavenger);
+					NcrnaScavenger scavenger=new NcrnaScavenger(fam.library, fam.models, fam.modelNames,
+						fam.kmerSet, fam.kLong, fam.minLen, fam.windowPad,
+						fam.indexK, fam.indexTopN, fam.adaptive,
+						fam.adaptFloor, fam.adaptTopFrac, fam.adaptQFrac, fam.fixedMinHits,
+						fam.scoreA, fam.scoreB, fam.idPass, fam.idBorderline,
+						fam.boundary5NetTemplate, fam.boundary3NetTemplate,
+						fam.boundaryStartTable, fam.boundaryStopTable,
+						fam.boundaryStartInside, fam.boundaryStartOutside, fam.boundaryStopInside, fam.boundaryStopOutside,
+						fam.boundaryMeanLen, fam.boundaryStartOffsets, fam.boundaryStopOffsets,
+						fam.boundaryMarginStart, fam.boundaryMarginStop);
+					applyNcrnaFamilyControls(scavenger, fam);
+					// D50 keeps18S on its fast path even when small-family CM is enabled.
+					scavenger.cmVerifier=(fam.outputType!=r18S && cmVerifier!=null &&
+						cmVerifier.supports(fam.outputType) ? cmVerifier : null);
+					scavenger.setStageDiagSink(ncrnaDiagSink,fam.name);
+					scavenger.setVoteDiagSink(ncrnaVoteDiagSink, fam.name);
+					scavenger.setAttemptLog(Euk18sAttemptLog.forFamily(fam.name));
+					ncrnaScavengers.add(scavenger);
 				}finally{if(ncrnaCpuProfile!=null){ncrnaCpuProfile.end();}}
 			}
 		}
@@ -632,11 +891,15 @@ public class GeneCaller extends ProkObject {
 		scavenger.nnCentre5Vote=family.nnCentre5Vote;
 		scavenger.nnCentre3Vote=family.nnCentre3Vote;
 		scavenger.nnCutoff=family.nnCutoff;
+		scavenger.nnCutoffEnabled=family.nnCutoffEnabled;
 		if(family.boundaryNetsByModel!=null){
 			scavenger.setPerModelBoundaryResources(family.boundaryNetsByModel,
 				family.boundaryStartTablesByModel, family.boundaryStopTablesByModel);
 		}
-		if(family.rrnaEndpointFeatures!=null){scavenger.setRrnaEndpointFeatures(family.rrnaEndpointFeatures,family.rrnaEndpointFeatureSink);}
+		if(family.rrnaEndpointFeatures!=null){
+			scavenger.setRrnaEndpointFeatures(family.rrnaEndpointFeatures,
+				family.rrnaEndpointFeatureSink);
+		}
 		if(family.boundaryRefinerFactory!=null){
 			scavenger.setBoundaryRefiner(family.boundaryRefinerFactory.create(family));
 		}
@@ -679,7 +942,9 @@ public class GeneCaller extends ProkObject {
 		}
 	}
 
-	public static int conservedRnaSeedSlotCount(){return conservedRnaSeedIndex==null ? 0 : conservedRnaSeedIndex.slotCount();}
+	public static int conservedRnaSeedSlotCount(){
+		return conservedRnaSeedIndex==null ? 0 : conservedRnaSeedIndex.slotCount();
+	}
 
 	private static void verifySeedHits(String contig, String family, int strand, int[] unified, int[] legacy){
 		if(!Arrays.equals(unified, legacy)){
@@ -766,16 +1031,36 @@ public class GeneCaller extends ProkObject {
 		return array;
 	}
 	
-	/**
-	 * Dynamic programming phase.
-	 * @param frameLists
-	 * @param bases
-	 * @return
-	 */
-	private ArrayList<Orf> findPath(ArrayList<Orf>[] frameLists, byte[] bases){
+	/** Run the actual bounded path search on six caller-ordered, fresh retained lists.
+	 * Mutates candidate path scores/links and output counters. Exposed for diagnostic
+	 * fixtures; it does not generate, score or prune candidates. With an observer,
+	 * all candidates must belong to this contig and have no previous path links. */
+	public ArrayList<Orf> findPath(ArrayList<Orf>[] frameLists, byte[] bases){
+		if(pathActive){throw new IllegalStateException("The path search is not reentrant");}
+		pathActive=true;
+		try{
+			final float penalty=tailCascade!=null && tailCascadeBonus>0 ? tailCascadeOppositePenalty : 0;
+			final TailCascadeOppositePenalty.Result opposite;
+			if(penalty>0){
+				opposite=TailCascadeOppositePenalty.apply(frameLists, penalty, maxOverlapOppositeStrand,
+					oppositePenaltyObserver!=null);
+			}
+			else{TailCascadeOppositePenalty.clear(frameLists); opposite=null;}
+			pathTrace=pathObserver==null ? null :
+				new GeneCallerPathTrace(pathObserver, frameLists, bases.length, tailCascade!=null);
+			final ArrayList<Orf> selected=findPathInner(frameLists, bases);
+			if(opposite!=null){opposite.report(selected, oppositePenaltyObserver);}
+			return selected;
+		}finally{pathTrace=null; pathActive=false;}
+	}
+
+	private ArrayList<Orf> findPathInner(ArrayList<Orf>[] frameLists, byte[] bases){
 		ArrayList<Orf> all=new ArrayList<Orf>();
 		for(ArrayList<Orf> list : frameLists){all.addAll(list);}
-		if(all.isEmpty()){return all;}
+		if(all.isEmpty()){
+			if(pathTrace!=null){pathTrace.finish(null, 0);}
+			return all;
+		}
 		Collections.sort(all);
 		
 		for(Orf orf : all){
@@ -800,7 +1085,9 @@ public class GeneCaller extends ProkObject {
 		
 		for(Orf orf : all){
 			final int myListNum=3*orf.strand+orf.frame;
+			if(pathTrace!=null){pathTrace.start(orf, lastPositionScored[myListNum]+1);}
 			calcPathScore(orf, frameLists, lastPositionScored, bestIndex);
+			if(pathTrace!=null){pathTrace.scored(orf);}
 			if(bestOrfPlus[myListNum]==null || orf.pathScorePlus>=bestOrfPlus[myListNum].pathScorePlus){
 				bestOrfPlus[myListNum]=orf;
 				bestIndexPlus[myListNum]=lastPositionScored[myListNum];
@@ -821,7 +1108,11 @@ public class GeneCaller extends ProkObject {
 				}
 			}
 		}
-		//best = global max of pathScore() over both prev-strand tables (bestOrfPlus/bestOrfMinus) across all 6 frames; the chain is reconstructed by walking orf.prev() backward. pathScorePlus/pathScoreMinus are tracked per-Orf separately precisely so the DP can pick a predecessor on either strand without clobbering the other strand's running chain.
+		//best = global max of pathScore() over both prev-strand tables
+		//(bestOrfPlus/bestOrfMinus) across all 6 frames; the chain is reconstructed
+		//by walking orf.prev() backward. pathScorePlus/pathScoreMinus are tracked
+		//per-Orf separately precisely so the DP can pick a predecessor on either
+		//strand without clobbering the other strand's running chain.
 		ArrayList<Orf> bestPath=new ArrayList<Orf>();
 		for(Orf orf=best; orf!=null; orf=orf.prev()){
 			bestPath.add(orf);
@@ -843,6 +1134,7 @@ public class GeneCaller extends ProkObject {
 			}
 		}
 		Collections.sort(bestPath);
+		if(pathTrace!=null){pathTrace.finish(best, bestPath.size());}
 		return bestPath;
 	}
 	
@@ -867,9 +1159,9 @@ public class GeneCaller extends ProkObject {
 				int lastPos=lastPositionScored[listNum];
 				int bestPos=bestIndex[listStrand][listNum];
 				if(listStrand==0){
-					calcPathScorePlus(orf, list, listStrand, lastPos, bestPos);
+					calcPathScorePlus(orf, list, listStrand, lastPos, bestPos, listNum);
 				}else{
-					calcPathScoreMinus(orf, list, listStrand, lastPos, bestPos);
+					calcPathScoreMinus(orf, list, listStrand, lastPos, bestPos, listNum);
 				}
 			}
 		}
@@ -877,7 +1169,8 @@ public class GeneCaller extends ProkObject {
 //		System.err.println(myListNum+", "+Arrays.toString(lastPositionScored)+", "+frameLists[myListNum].size());
 		
 		lastPositionScored[myListNum]++;
-		assert(frameLists[myListNum].get(lastPositionScored[myListNum])==orf) : myListNum+"\n"+orf+"\n"+frameLists[myListNum].get(lastPositionScored[myListNum])+"\n"
+		assert(frameLists[myListNum].get(lastPositionScored[myListNum])==orf) :
+			myListNum+"\n"+orf+"\n"+frameLists[myListNum].get(lastPositionScored[myListNum])+"\n"
 			+Arrays.toString(lastPositionScored)+"\n"+frameLists[myListNum].get(lastPositionScored[myListNum]+1);
 		
 		//These are sanity checks to make sure that the path did not break in the middle.
@@ -895,11 +1188,13 @@ public class GeneCaller extends ProkObject {
 	 * @param lastPos
 	 * @param bestPos
 	 */
-	private void calcPathScorePlus(final Orf orf, final ArrayList<Orf> list, final int listStrand, final int lastPos, final int bestPos){
+	private void calcPathScorePlus(final Orf orf, final ArrayList<Orf> list, final int listStrand,
+			final int lastPos, final int bestPos, final int listNum){
 		assert(listStrand==0);
 		if(lastPos<0){
+			if(pathTrace!=null){pathTrace.window(listNum, lastPos, bestPos, 0, -1);}
 			if(orf.prevPlus==null){
-				orf.pathScorePlus=orf.orfScore;
+				orf.pathScorePlus=pathRootScore(orf);
 				orf.pathLengthPlus=1;
 			}
 			return;
@@ -910,7 +1205,10 @@ public class GeneCaller extends ProkObject {
 		boolean found=false;
 		final boolean sameStrand=(orf.strand==listStrand);
 		final int maxOverlap=(sameStrand ? maxOverlapSameStrand : maxOverlapOppositeStrand);
-		for(int i=lastPos, min=Tools.max(0, bestPos-lookbackPlus); i>=min || (i>0 && !found); i--){
+		final int min=Tools.max(0, bestPos-lookbackPlus);
+		int lastVisited=-1;
+		for(int i=lastPos; i>=min || (i>0 && !found); i--){
+			lastVisited=i;
 			Orf prev=list.get(i);
 			assert(prev!=orf) : prev;
 //			System.err.println("Comparing to \t"+prev);
@@ -932,15 +1230,19 @@ public class GeneCaller extends ProkObject {
 				if(sameStrand){
 					pathLength=prevLength+1;
 					pathScore=prevScore+orfScore;
-					pathScore+=(FLAT_RNA_TRANSITIONS && orf.type!=CDS ? p0 : p0+p1*(Tools.mid(p5*(p2+pathLength), p6*(p3-pathLength), p4)));
+					pathScore+=(FLAT_RNA_TRANSITIONS && orf.type!=CDS ? p0 :
+						p0+p1*(Tools.mid(p5*(p2+pathLength), p6*(p3-pathLength), p4)));
 					if(EUK5S_ARRAY_BONUS && euk5sArrayEdge(prev,orf,EUK5S_ARRAY_MAX_GAP)){pathScore+=30f;}
 				}else{
 					pathLength=1;
 					pathScore=prev.pathScore()+orfScore;
-					pathScore+=(FLAT_RNA_TRANSITIONS && orf.type!=CDS ? p0 : q1+Tools.mid(q2*prevLength, q3+q4*prevLength, q5));
+					pathScore+=(FLAT_RNA_TRANSITIONS && orf.type!=CDS ? p0 :
+						q1+Tools.mid(q2*prevLength, q3+q4*prevLength, q5));
 				}
 				
 				if(overlap<1 && prevScore>0){found=true;}
+				if(pathTrace!=null){pathTrace.edge(listNum, i, overlap, prevScore, prevLength,
+					orfScore, pathScore, pathLength, pathScore>=orf.pathScorePlus);}
 				if(pathScore>=orf.pathScorePlus){
 					orf.pathScorePlus=pathScore;
 					orf.prevPlus=prev;
@@ -953,6 +1255,7 @@ public class GeneCaller extends ProkObject {
 //				break;
 //			}
 		}
+		if(pathTrace!=null){pathTrace.window(listNum, lastPos, bestPos, min, lastVisited);}
 	}
 	
 	/**
@@ -963,11 +1266,13 @@ public class GeneCaller extends ProkObject {
 	 * @param lastPos
 	 * @param bestPos
 	 */
-	private void calcPathScoreMinus(final Orf orf, final ArrayList<Orf> list, final int listStrand, final int lastPos, final int bestPos){
+	private void calcPathScoreMinus(final Orf orf, final ArrayList<Orf> list, final int listStrand,
+			final int lastPos, final int bestPos, final int listNum){
 		assert(listStrand==1);
 		if(lastPos<0){
+			if(pathTrace!=null){pathTrace.window(listNum, lastPos, bestPos, 0, -1);}
 			if(orf.prevMinus==null){
-				orf.pathScoreMinus=orf.orfScore;
+				orf.pathScoreMinus=pathRootScore(orf);
 				orf.pathLengthMinus=1;
 			}
 			return;
@@ -978,7 +1283,10 @@ public class GeneCaller extends ProkObject {
 		boolean found=false;
 		final boolean sameStrand=(orf.strand==listStrand);
 		final int maxOverlap=(sameStrand ? maxOverlapSameStrand : maxOverlapOppositeStrand);
-		for(int i=lastPos, min=Tools.max(0, bestPos-lookbackMinus); i>=min || (i>0 && !found); i--){
+		final int min=Tools.max(0, bestPos-lookbackMinus);
+		int lastVisited=-1;
+		for(int i=lastPos; i>=min || (i>0 && !found); i--){
+			lastVisited=i;
 			Orf prev=list.get(i);
 			assert(prev!=orf) : prev;
 //			System.err.println("Comparing to \t"+prev);
@@ -996,14 +1304,18 @@ public class GeneCaller extends ProkObject {
 				if(sameStrand){
 					pathLength=prevLength+1;
 					pathScore=prevScore+orfScore;
-					pathScore+=(FLAT_RNA_TRANSITIONS && orf.type!=CDS ? p0 : p0+p1*(Tools.mid(p5*(p2+pathLength), p6*(p3-pathLength), p4)));
+					pathScore+=(FLAT_RNA_TRANSITIONS && orf.type!=CDS ? p0 :
+						p0+p1*(Tools.mid(p5*(p2+pathLength), p6*(p3-pathLength), p4)));
 					if(EUK5S_ARRAY_BONUS && euk5sArrayEdge(prev,orf,EUK5S_ARRAY_MAX_GAP)){pathScore+=30f;}
 				}else{
 					pathLength=1;
 					pathScore=prev.pathScore()+orfScore;
-					pathScore+=(FLAT_RNA_TRANSITIONS && orf.type!=CDS ? p0 : q1+Tools.mid(q2*prevLength, q3+q4*prevLength, q5));
+					pathScore+=(FLAT_RNA_TRANSITIONS && orf.type!=CDS ? p0 :
+						q1+Tools.mid(q2*prevLength, q3+q4*prevLength, q5));
 				}
 				if(overlap<1 && prevScore>0){found=true;}
+				if(pathTrace!=null){pathTrace.edge(listNum, i, overlap, prevScore, prevLength,
+					orfScore, pathScore, pathLength, pathScore>=orf.pathScoreMinus);}
 				if(pathScore>=orf.pathScoreMinus){
 					orf.pathScoreMinus=pathScore;
 					orf.prevMinus=prev;
@@ -1016,13 +1328,15 @@ public class GeneCaller extends ProkObject {
 //				break;
 //			}
 		}
+		if(pathTrace!=null){pathTrace.window(listNum, lastPos, bestPos, min, lastVisited);}
 	}
 	
 	/** Eligibility of this proposed immediate DP predecessor edge, not a search
 	 * for nearby RNA across other retained genes. Genomic inclusive coordinates
 	 * apply on both strands; overlapping calls never receive the diagnostic bonus. */
 	public static boolean euk5sArrayEdge(Orf prev,Orf next,int maxGap){
-		assert(prev!=null && next!=null && maxGap>=0) : "A proposed DP edge needs two real candidates and a nonnegative genomic gap limit";
+		assert(prev!=null && next!=null && maxGap>=0) :
+			"A proposed DP edge needs two real candidates and a nonnegative genomic gap limit";
 		// addEuk5sFamily configures outputType=r5S, shared with legacy5S;
 		// the explicit family tag, not the numeric output type, defines eligibility.
 		if(prev.strand!=next.strand
@@ -1041,7 +1355,8 @@ public class GeneCaller extends ProkObject {
 	}
 
 	/** Enumerates selected-code stops and starts; edge/gap provenance survives later start selection. */
-	public static ArrayList<Orf> makeOrfsForFrame(String name, byte[] bases, int startFrame, int strand, int minlen, GeneticCode geneticCode){
+	public static ArrayList<Orf> makeOrfsForFrame(String name, byte[] bases, int startFrame,
+			int strand, int minlen, GeneticCode geneticCode){
 //		assert(false) : "TODO";
 		// TODO: Probable CLI-validation bug - CallGenes accepts minlen=1 or 2,
 		// then worker threads fail here instead of rejecting the parameter up front.
@@ -1090,15 +1405,17 @@ public class GeneCaller extends ProkObject {
 			}
 		}
 
-		//Add a stop codon at the sequence end.
+		//Close a truncated ORF at its last complete in-frame codon, in either code path.
 		if(start>=0){
-			if(geneticCode==null){
-				//TODO: Legacy end clipping removes an extra base after the last complete
-				//codon. Preserve no-option output; explicit codes retain complete edge codons.
-				pos--;
-				while(frame!=3 && frame!=-1){pos--; frame--;}
-			}else{pos-=frame+1;}
+			//pos is the sequence length; frame counts its unconsumed trailing bases.
+			//start is a codon boundary in this frame, so the retained span is whole codons.
+			//Removing one more base leaves a two-base codon and shifts stop scoring.
+			pos-=frame+1;
 			int len=pos-start+1;
+			//A bare worker AssertionError can strand ordered output or input queues.
+			assert(len>=3 && len%3==0) : KillSwitch.assertDie("Terminal ORF must retain complete codons "+
+				"for Orf.getCodon and breakOrf scoring: "
+					+start+", "+pos+", frame="+startFrame+", remainder="+frame);
 			if(len>=minlen){
 				assert(pos<bases.length) : start+", "+pos+", "+bases.length;
 				Orf f=new Orf(name, start, pos, strand, startFrame, bases, true, CDS, startTruncated, true);
@@ -1114,7 +1431,8 @@ public class GeneCaller extends ProkObject {
 	 * Generates a list of maximal-length RNAs (non-overlapping).
 	 * All RNAs come out in native orientation (unflipped). 
 	 * */
-	ArrayList<Orf> makeRnasForStrand(String name, byte[] bases, int strand, StatsContainer sc, float[] scores, int[] kmersSeen, boolean quitEarly, float bias){
+	ArrayList<Orf> makeRnasForStrand(String name, byte[] bases, int strand, StatsContainer sc,
+			float[] scores, int[] kmersSeen, boolean quitEarly, float bias){
 		final int window=sc.lengthAvg;
 		if(bases==null || bases.length*2<window){return null;}
 		ArrayList<Orf> orfs=new ArrayList<Orf>(sc.type==tRNA ? 32 : 8);
@@ -1153,7 +1471,11 @@ public class GeneCaller extends ProkObject {
 			if(x>=0){
 				len++;
 				if(len>=k){
-					//RNA scoring is frameless: inner.probs[0] only (a single frame, unlike CDS's 3). dif=prob-bias is the per-kmer above/below-average increment; currentScore is a Smith-Waterman-style local accumulator clamped at 0 -- a run of above-bias kmers grows it, a below-bias stretch resets it to 0. That reset is exactly where a candidate region [lastStart,maxPos] is closed in the else-branch below.
+					//RNA scoring is frameless: inner.probs[0] only (a single frame, unlike CDS's 3).
+					//dif=prob-bias is the per-kmer above/below-average increment; currentScore is a
+					//Smith-Waterman-style local accumulator clamped at 0 -- a run of above-bias kmers
+					//grows it, a below-bias stretch resets it to 0. That reset is exactly where a
+					//candidate region [lastStart,maxPos] is closed in the else-branch below.
 					float prob=inner.probs[0][kmer];
 					float dif=prob-bias;//Prob above 1 is more likely than average
 					currentScoreAbs+=prob;
@@ -1427,7 +1749,11 @@ public class GeneCaller extends ProkObject {
 //					System.err.println("innerScore="+innerScore);
 					assert(rnalen<=maxlen) : "start="+start+", stop="+stop+", rnalen="+rnalen+", minlen="+minlen+", maxlen="+maxlen;
 					if(innerScore>=innerThresh){
-						//refined score = inner^2 (c) * length-fit (d) * geomean of start/stop point scores (sqrt(a*b)). d is a triangular fit peaking at len==window (==1.0) and falling 2.4*invWindow per base off-length; a,b are floored at 0.25 so a weak/negative start or stop degrades but never zeroes or sign-flips the product. The best (start,stop) pair within [minlen,maxlen] wins.
+					//refined score = inner^2 (c) * length-fit (d) * geomean of start/stop
+					//point scores (sqrt(a*b)). d is a triangular fit peaking at len==window (==1.0)
+					//and falling 2.4*invWindow per base off-length; a,b are floored at 0.25 so
+					//a weak/negative start or stop degrades but never zeroes or sign-flips the
+					//product. The best (start,stop) pair within [minlen,maxlen] wins.
 						final float a=Tools.max(startScore+0.25f, 0.25f);
 						final float b=Tools.max(stopScore+0.25f, 0.25f);
 						final float c=innerScore*innerScore;
@@ -1436,7 +1762,8 @@ public class GeneCaller extends ProkObject {
 						if(verbose && score>=0.2f*orf.orfScore){
 							final int start2=(strand==0 ? start : bases.length-stop-1);
 							final int stop2=(strand==0 ? stop : bases.length-start-1);
-							System.err.println(start2+"-"+stop2+", "+startScore+", "+stopScore+", "+innerScore+", "+(score*scoreMult[sc.type])+", "+oldScore);
+						System.err.println(start2+"-"+stop2+", "+startScore+", "+stopScore+", "+
+							innerScore+", "+(score*scoreMult[sc.type])+", "+oldScore);
 						}
 						if(score>orf.orfScore){
 							orf.start=start;
@@ -1509,8 +1836,11 @@ public class GeneCaller extends ProkObject {
 			if(refined){
 				acceptedIndex=i;
 				if(sc.type==r16S){
-					assert(orf.length()>0 && Float.isFinite(lastAttemptIdentity) && lastAttemptIdentity>=0f && lastAttemptIdentity<=1f)
-						: KillSwitch.assertDie("Successful16S refinement must retain its accepted identity for length-times-identity-squared scoring; identity="+lastAttemptIdentity+" length="+orf.length());
+					assert(orf.length()>0 && Float.isFinite(lastAttemptIdentity) &&
+						lastAttemptIdentity>=0f && lastAttemptIdentity<=1f)
+						: KillSwitch.assertDie("Successful16S refinement must retain its accepted identity "+
+							"for length-times-identity-squared scoring; identity="+lastAttemptIdentity+
+							" length="+orf.length());
 					// Match NcrnaScavenger's SSU score scale after actual endpoint refinement.
 					// Candidate generation and the existing identity acceptance remain unchanged.
 					orf.orfScore=orf.length()*lastAttemptIdentity*lastAttemptIdentity;
@@ -1527,7 +1857,8 @@ public class GeneCaller extends ProkObject {
 				final int preStop=(strand==0 ? stop0 : bases.length-start0-1);
 				final int postStart=(strand==0 ? orf.start : bases.length-orf.stop-1);
 				final int postStop=(strand==0 ? orf.stop : bases.length-orf.start-1);
-				final String candidateId=System.identityHashCode(bases)+"_"+System.identityHashCode(this)+"_"+strand+"_"+preStart+"_"+preStop;
+				final String candidateId=System.identityHashCode(bases)+"_"+System.identityHashCode(this)+
+					"_"+strand+"_"+preStart+"_"+preStop;
 				attemptSink.onAttempt(i, consensus.length, preStart, preStop, score0, refined, postStart, postStop, strand,
 						orf.scafName, r.id, r.bases.length, lastAttemptIdentity, lastAttemptReason, candidateId);
 			}
@@ -1562,7 +1893,7 @@ public class GeneCaller extends ProkObject {
 	 */
 	boolean refineByAlignment(Orf orf, byte[] bases, int strand, StatsContainer sc, byte[] consensus, 
 			final int startSlop, final int stopSlop, int recurLimit){
-		lastAttemptIdentity=Float.NaN;
+		lastAttemptIdentity=-1f;
 		if(attemptSink!=null){lastAttemptReason="UNKNOWN";}
 		if(useIDAligner) {
 			return refineByAlignment_IDA(orf, bases, strand, 
@@ -1608,14 +1939,17 @@ public class GeneCaller extends ProkObject {
 			//TODO: Possibly change return to -1, 0, 1 ("can't align")
 			//Should be a limit on window size...
 			//Also consider shrinking matrix after jumbo alignments
-			if(attemptSink!=null){lastAttemptIdentity=Float.NaN; lastAttemptReason="REFLEN_TOO_LARGE";}
+			if(attemptSink!=null){lastAttemptIdentity=-1f; lastAttemptReason="REFLEN_TOO_LARGE";}
 			return false;
 		}
 		assert(a>=0 && b<bases.length) : a+", "+b;
 		IDAligner ida=idaligner.Factory.makeIDAligner();
 		int[] pos=new int[2];
 		float id=ida.align(consensus, bases, pos, a, b);
-		if(id<minID){if(attemptSink!=null){lastAttemptIdentity=id; lastAttemptReason="IDENTITY_BELOW_THRESHOLD";} return false;}
+		if(id<minID){
+			if(attemptSink!=null){lastAttemptIdentity=id; lastAttemptReason="IDENTITY_BELOW_THRESHOLD";}
+			return false;
+		}
 		if(cmVerifier!=null){cmWindowStart=a;cmWindowStop=b;}
 		
 		final int rstart=Tools.max(pos[0], 0);
@@ -1668,14 +2002,17 @@ public class GeneCaller extends ProkObject {
 			//TODO: Possibly change return to -1, 0, 1 ("can't align")
 			//Should be a limit on window size...
 			//Also consider shrinking matrix after jumbo alignments
-			if(attemptSink!=null){lastAttemptIdentity=Float.NaN; lastAttemptReason="REFLEN_TOO_LARGE";}
+			if(attemptSink!=null){lastAttemptIdentity=-1f; lastAttemptReason="REFLEN_TOO_LARGE";}
 			return false;
 		}
 		assert(a>=0 && b<bases.length) : a+", "+b;
 		SingleStateAlignerFlat2 ssa=getSSA();
 		final int minScore=ssa.minScoreByIdentity(consensus.length, minID);
 		int[] max=ssa.fillUnlimited(consensus, bases, a, b, minScore);
-		if(max==null){if(attemptSink!=null){lastAttemptIdentity=Float.NaN; lastAttemptReason="NO_ALIGNMENT_FOUND";} return false;}
+		if(max==null){
+			if(attemptSink!=null){lastAttemptIdentity=-1f; lastAttemptReason="NO_ALIGNMENT_FOUND";}
+			return false;
+		}
 		
 		final int rows=max[0];
 		final int maxCol=max[1];
@@ -1718,7 +2055,10 @@ public class GeneCaller extends ProkObject {
 //		assert(score.length==3) : "TODO: Handle padding requests.";
 		
 //		System.err.println("Identity: "+String.format("%.2f", 100*id)+"; location: "+rstart+"-"+rstop);
-		if(id<minID){if(attemptSink!=null){lastAttemptIdentity=id; lastAttemptReason="IDENTITY_BELOW_THRESHOLD";} return false;}
+		if(id<minID){
+			if(attemptSink!=null){lastAttemptIdentity=id; lastAttemptReason="IDENTITY_BELOW_THRESHOLD";}
+			return false;
+		}
 		
 		
 		if(cmVerifier!=null){cmWindowStart=a;cmWindowStop=b;}
@@ -1741,7 +2081,8 @@ public class GeneCaller extends ProkObject {
 	 * @param points Output list of qualifying positions
 	 * @param scores Output list of corresponding scores
 	 */
-	void fillPoints(final int left, final int right, final byte[] bases, final FrameStats fs, float thresh, final IntList points, final FloatList scores){
+	void fillPoints(final int left, final int right, final byte[] bases, final FrameStats fs, float thresh,
+			final IntList points, final FloatList scores){
 		//TODO: Confirmed bug CG01 - nonpositive thresholds can loop forever with fewer
 		//than 8 qualifying positions; trnastop=0 reproduces through the legacy tRNA CLI.
 		//Keep its bounded-loop repair separate from genetic-code integration.
@@ -1779,9 +2120,10 @@ public class GeneCaller extends ProkObject {
 			for(int frame=0; frame<3; frame++){
 				int fnum=frame+3*strand;
 				ArrayList<Orf> longest=frameLists[fnum]; //Longest Orf per stop
-				ArrayList<Orf> broken=new ArrayList<Orf>(); //All high scoring Orfs, including multiple per stop, with different starts
+				// All high scoring Orfs, including multiple per stop, with different starts.
+				ArrayList<Orf> broken=new ArrayList<Orf>();
 				if(longest!=null) {
-					final ProteinSupport.StopEvidence[] evidence=proteinSupport==null ? null : proteinSupport.prepareStops(longest, bases, geneticCode);
+					final Object[] evidence=prepareProteinStops(longest, bases);
 					for(int i=0; i<longest.size(); i++){
 						final Orf orf=longest.get(i);
 						assert(orf.frame==frame);
@@ -1808,7 +2150,7 @@ public class GeneCaller extends ProkObject {
 	 * @param bases Bases, oriented for this Orf.
 	 * @return List of Orfs.
 	 */
-	private ArrayList<Orf> breakOrf(Orf longest, byte[] bases, ProteinSupport.StopEvidence stopEvidence){
+	private ArrayList<Orf> breakOrf(Orf longest, byte[] bases, Object stopEvidence){
 		assert(longest.start<longest.stop);
 		final int flipped=longest.flipped();
 		if(flipped==1){longest.flip();}//Now the orf is aligned to its native strand
@@ -1841,8 +2183,10 @@ public class GeneCaller extends ProkObject {
 		final float stopScore=stopStats.scorePoint(longest.stop, bases);
 		stCds.geneStopScoreSum+=stopScore;
 		stCds.geneStopScoreCount++;
-		final ProteinSupportFate.Entry fate=proteinFates!=null && stopEvidence.supported()
-			? new ProteinSupportFate.Entry(longest, stopEvidence, stopScore, minLen, minStartScore) : null;
+		final ProteinSupportFate.Entry fate=proteinFates!=null &&
+				((ProteinSupport.StopEvidence)stopEvidence).supported()
+			? new ProteinSupportFate.Entry(longest, (ProteinSupport.StopEvidence)stopEvidence,
+				stopScore, minLen, minStartScore) : null;
 		if(fate!=null){proteinFates.add(fate);}
 		
 		ArrayList<Orf> broken=new ArrayList<Orf>();
@@ -1927,7 +2271,7 @@ public class GeneCaller extends ProkObject {
 		final int size=broken.size();
 		if(size<1){
 			if(fate!=null){fate.retained(broken);}
-			if(proteinSupport!=null && stopEvidence.supported()){proteinSupport.withoutStarts++;}
+			if(supported(stopEvidence)){withoutStarts(stopEvidence);}
 			return broken;
 		}
 		Orf best=null;
@@ -1937,7 +2281,11 @@ public class GeneCaller extends ProkObject {
 			
 			//This fixes scores because they were generated together, from start to stop, to make this O(N) instead of O(N^2).
 			orf.kmerScore=currentScore-orf.kmerScore;
-			if(dumpOrfScores){outstream.println("ORFDUMP\t"+orf.scafName+"\t"+(orf.start+1)+"\t"+(orf.stop+1)+"\t"+orf.strand+"\t"+orf.startScore+"\t"+orf.stopScore+"\t"+orf.averageKmerScore()+"\t"+orf.length());}
+			if(dumpOrfScores){
+				outstream.println("ORFDUMP\t"+orf.scafName+"\t"+(orf.start+1)+"\t"+(orf.stop+1)+
+					"\t"+orf.strand+"\t"+orf.startScore+"\t"+orf.stopScore+"\t"+
+					orf.averageKmerScore()+"\t"+orf.length());
+			}
 			final boolean nearEdge=(orf.start<NN_EDGE_MARGIN || orf.stop+NN_EDGE_MARGIN>=bases.length);
 			if(!nearEdge && activeMetaNet!=null && activeNet!=null && activeStopNet!=null){
 				orf.orfScore=orf.calcOrfScoreHybridMeta(activeNet, activeStopNet, activeMetaNet, contigGC, bases, longest.length());
@@ -1953,7 +2301,7 @@ public class GeneCaller extends ProkObject {
 			if(MINOR_START_MULTIPLIER!=1f){
 				orf.orfScore=minorStartScore(orf.orfScore, orf.startCodon, orf.startTruncated, MINOR_START_MULTIPLIER);
 			}
-			if(proteinSupport!=null){proteinSupport.annotate(orf, stopEvidence);}
+			annotateProtein(orf, stopEvidence);
 			if(fate!=null){fate.admitted(orf);}
 			if(best==null || orf.orfScore>=best.orfScore){best=orf;}
 			if(bestStart==null || orf.startScore>=bestStart.startScore){bestStart=orf;}
@@ -1963,18 +2311,73 @@ public class GeneCaller extends ProkObject {
 		}
 		if(broken.isEmpty()){return broken;}
 		final int retained=broken.size(), sizeCutoff=Tools.max(5, retained/2);
+		if(tailCascade!=null){
+			// Snapshot/prune native scores before adding any evidence. The first
+			// sorted candidate wins score ties by the existing positional comparator.
+			Collections.sort(broken, PFeature.featureComparatorScore);
+			final Orf nativeWinner=broken.get(0);
+			final prot.FamilyTailCascade.Assignment assignment=(prot.FamilyTailCascade.Assignment)stopEvidence;
+			final boolean targeted=targetedTailStop>=0 && assignment!=null && assignment.assigned() &&
+				!nativeWinner.stopTruncated &&
+				StopTailCandidateScan.stopKey(tailStopLeft(nativeWinner),nativeWinner.strand)==targetedTailStop;
+			prot.FamilyMatchInformation.View formulaView=null;
+			if(tailCascadeFormula!=null && tailCascadeFormula.requiresFamilySetView() && assignment!=null &&
+					assignment.assigned()){
+				final int ordinal=tailCascadeEvidence.ordinalAtStop(tailStopLeft(nativeWinner),nativeWinner.strand);
+				if(ordinal<0 || tailCascadeEvidence.assignment(ordinal)!=assignment){
+					throw new IllegalStateException("Formula view must come from this candidate's exact accepted stop evidence");
+				}
+				formulaView=tailCascadeEvidence.primaryView(ordinal);
+			}
+			final float appliedBonus=assignment==null || tailCascadeFormula!=null ? 0 :
+				tailCascadeInformationMode ? assignment.informationBonus(tailCascadeBonus) :
+				assignment.stopBonus(targeted ? targetedTailBonus : tailCascadeBonus,tailCascadeMarginMode);
+			for(int i=0; i<retained; i++){
+				final Orf orf=broken.get(i);
+				if(!Float.isFinite(orf.orfScore)){
+					throw new IllegalStateException("Nonfinite native ORF score at "+
+						orf.scafName+":"+orf.start);
+				}
+				orf.tailCascadeNativeScore=orf.orfScore;
+				if(assignment!=null && assignment.assigned() && !(keepAtLeastOneOrf && i==0) &&
+					softPruned(orf, i, sizeCutoff, best, bestStart)){
+					tailCascadeStats.nativePruned++;
+				}
+			}
+			for(Orf orf:broken){
+				orf.tailCascadeAssignment=assignment;
+				orf.tailCascadePin=tailCascadePin;
+				if(assignment!=null && assignment.assigned()){
+					orf.proteinBonus=tailCascadeFormula==null ? appliedBonus :
+						tailCascadeFormula.score(assignment,formulaView,candidateAminoAcidLength(orf));
+					if(appliedBonus!=0){orf.orfScore+=appliedBonus;}
+					else if(orf.proteinBonus!=0){orf.orfScore+=orf.proteinBonus;}
+					if(!Float.isFinite(orf.orfScore)){throw new IllegalArgumentException("Tail bonus overflows the native ORF score");}
+					orf.tailCascadeProtected=tailCascadeProtect && orf==nativeWinner;
+				}
+				if(tailCascadeObserver!=null){observeTailCandidate(orf, false);}
+			}
+		}
 		
 		//Sort to by score descending to eliminate low-scoring copies. 
 		if(broken.size()>1){Collections.sort(broken, PFeature.featureComparatorScore);}
+		if(tailCascade!=null && broken.get(0).orfScore>best.orfScore){best=broken.get(0);}
 		
 		int removed=0;
 		for(int i=0; i<retained; i++){
 			Orf orf=broken.get(i);
-			if(ProteinSupport.protectsFromPruning(orf) || (keepAtLeastOneOrf && i==0)) {
+			if(tailCascade!=null && orf.tailCascadeAssignment!=null && orf.tailCascadeAssignment.assigned()
+					&& !(keepAtLeastOneOrf && i==0) && softPruned(orf, i, sizeCutoff, best, bestStart)){
+				tailCascadeStats.afterBonusPruned++;
+				if(orf.tailCascadeProtected){tailCascadeStats.guaranteeRetained++;}
+			}
+			if(protectsFromPruning(orf) || (keepAtLeastOneOrf && i==0)) {
 				//skip
 			}else if(orf.averageKmerScore()<minInnerScore || orf.orfScore<minOrfScore || 
 					orf.orfScore/orf.length()<minAvgScore || 
-					orf.orfScore<0.5f*best.orfScore-10 || (orf.startScore<bestStart.startScore-0.55f && orf.kmerScore<best.kmerScore*1.1f && orf!=best)){
+					orf.orfScore<0.5f*best.orfScore-10 ||
+					(orf.startScore<bestStart.startScore-0.55f && orf.kmerScore<best.kmerScore*1.1f &&
+					orf!=best)){
 				if(fate!=null){
 					final String reason=orf.averageKmerScore()<minInnerScore ? "middle_score"
 						: orf.orfScore<minOrfScore ? "orf_score"
@@ -1993,6 +2396,12 @@ public class GeneCaller extends ProkObject {
 		if(removed>0){
 			Tools.condenseStrict(broken);
 		}
+		if(tailCascade!=null && supported(stopEvidence) && !broken.isEmpty()){
+			tailCascadeStats.retainedStops++;
+		}
+		if(tailCascadeObserver!=null && tailCascade!=null){
+			for(Orf orf:broken){observeTailCandidate(orf, true);}
+		}
 		if(fate!=null){fate.retained(broken);}
 		
 		geneStartsRetained+=broken.size();
@@ -2000,6 +2409,145 @@ public class GeneCaller extends ProkObject {
 		
 		if(flipped==1){longest.flip();}
 		return broken;
+	}
+
+	private Object[] prepareProteinStops(final ArrayList<Orf> longest, final byte[] bases){
+		if(tailCascade!=null){
+			final Object[] evidence=new Object[longest.size()];
+			for(int i=0; i<longest.size(); i++){
+				final Orf orf=longest.get(i);
+				if(orf.stopTruncated){continue;}
+				final int ordinal=tailCascadeEvidence.ordinalAtStop(tailStopLeft(orf), orf.strand);
+				if(ordinal<0){continue;}
+				if(tailCascadeParents[ordinal]){
+					throw new IllegalStateException("Duplicate native parent for one biological stop");
+				}
+				tailCascadeParents[ordinal]=true;
+				if(tailCascadeObserver!=null){tailCascadeObserver.parent(ordinal);}
+				evidence[i]=tailCascadeEvidence.assignment(ordinal);
+			}
+			return evidence;
+		}
+		return proteinSupport!=null ? proteinSupport.prepareStops(longest, bases, geneticCode)
+			: stopTailSupport!=null ? stopTailSupport.prepareStops(longest, bases, geneticCode) : null;
+	}
+	private void annotateProtein(final Orf orf, final Object evidence){
+		if(proteinSupport!=null){proteinSupport.annotate(orf, (ProteinSupport.StopEvidence)evidence);}
+		else if(stopTailSupport!=null){stopTailSupport.annotate(orf, (StopTailSupport.StopEvidence)evidence);}
+	}
+	private static boolean supported(final Object evidence){
+		if(evidence instanceof prot.FamilyTailCascade.Assignment){
+			return ((prot.FamilyTailCascade.Assignment)evidence).assigned();
+		}
+		return evidence instanceof ProteinSupport.StopEvidence ? ((ProteinSupport.StopEvidence)evidence).supported()
+			: evidence instanceof StopTailSupport.StopEvidence && ((StopTailSupport.StopEvidence)evidence).supported();
+	}
+	private void withoutStarts(final Object evidence){
+		if(evidence instanceof prot.FamilyTailCascade.Assignment){tailCascadeStats.noStarts++;}
+		if(evidence instanceof ProteinSupport.StopEvidence){proteinSupport.withoutStarts++;}
+		else if(evidence instanceof StopTailSupport.StopEvidence){stopTailSupport.withoutStarts++;}
+	}
+	public static boolean protectsFromPruning(final Orf orf){
+		if(orf.tailCascadeProtected){
+			assert(orf.tailCascadeAssignment!=null && orf.tailCascadeAssignment.assigned()) :
+				"Only an accepted biological stop may protect its native winner";
+			return true;
+		}
+		// Cascade protection is explicit; the legacy no-metadata rule treats any
+		// positive proteinBonus as protection and would bypass tailprotect=false.
+		if(orf.tailCascadeAssignment!=null){return false;}
+		return orf.stopTailEvidence!=null ? StopTailSupport.protectsFromPruning(orf) :
+			ProteinSupport.protectsFromPruning(orf);
+	}
+
+	/** The existing soft filters, evaluated separately from homology protection. */
+	private boolean softPruned(final Orf orf, final int rank, final int sizeCutoff, final Orf best,
+			final Orf bestStart){
+		assert(best!=null && bestStart!=null && rank>=0) :
+			"Pruning comparisons require a nonempty native candidate group";
+		return orf.averageKmerScore()<minInnerScore || orf.orfScore<minOrfScore ||
+			orf.orfScore/orf.length()<minAvgScore || orf.orfScore<0.5f*best.orfScore-10 ||
+			(orf.startScore<bestStart.startScore-0.55f && orf.kmerScore<best.kmerScore*1.1f && orf!=best)
+			|| rank>sizeCutoff;
+	}
+
+	/** Original genomic left coordinate of the biological stop codon in either stored orientation.
+	 * makeOrfs flips minus parents again after their constructor flip; broken candidates
+	 * instead retain their constructor-relative flip. Strand alone cannot identify the frame. */
+	public static int tailStopLeft(final Orf orf){
+		assert(orf!=null && orf.type==CDS && !orf.stopTruncated) :
+			"Only a real CDS terminal codon can identify classifier evidence";
+		return orf.strand==0 ? (orf.flipped()==0 ? orf.stop-2 : orf.scaflen-orf.start-3)
+			: (orf.flipped()==0 ? orf.scaflen-orf.stop-1 : orf.start);
+	}
+
+	/** Translated CDS length for the formula endpoint, excluding the terminal stop
+	 * codon when the candidate has one. Legacy null-code terminal clipping can
+	 * leave one or two extra edge bases; only complete truncated codons translate. */
+	static int candidateAminoAcidLength(final Orf orf){
+		final int codingBases=orf.stopTruncated ? orf.length()/3*3 : orf.length()-3;
+		if(codingBases<=0 || codingBases%3!=0){
+			throw new IllegalArgumentException("Candidate ORF length must encode whole translated codons: length="+
+				orf.length()+" stopTruncated="+orf.stopTruncated);
+		}
+		return codingBases/3;
+	}
+
+	/** Snapshot only; broken CDS candidates already have genomic coordinates on both strands. */
+	private void observeTailCandidate(final Orf orf, final boolean retained){
+		assert(orf.type==CDS && orf.flipped()==orf.strand && tailCascadeEvidence!=null)
+			: "breakOrf constructs genomic CDS candidates before the tail observation hook";
+		final boolean realStop=!orf.stopTruncated;
+		final int ordinal=realStop ? tailCascadeEvidence.ordinalAtStop(tailStopLeft(orf), orf.strand) : -1;
+		tailCascadeObserver.candidate(orf.start, orf.stop, orf.strand, realStop, ordinal,
+			candidateAminoAcidLength(orf), orf.tailCascadeNativeScore, orf.proteinBonus, orf.orfScore, retained);
+	}
+
+	/** Count unique selected biological stops, then release this contig's immutable results. */
+	private void finishTailCascade(final ArrayList<Orf> path){
+		assert(tailCascadeEvidence!=null && tailCascadeParents!=null) :
+			"Every classified contig must finish its own evidence map";
+		for(int i=0; i<tailCascadeParents.length; i++){
+			if(!tailCascadeParents[i] && tailCascadeEvidence.assignment(i).assigned()){tailCascadeStats.noParent++;}
+		}
+		final map.LongHashSet selected=new map.LongHashSet(16);
+		for(Orf orf:path){
+			if(orf.tailCascadeAssignment!=null && orf.tailCascadeAssignment.assigned()){
+				if(selected.add(StopTailCandidateScan.stopKey(tailStopLeft(orf), orf.strand))){
+					tailCascadeStats.selected++;
+					tailCascadeStats.selectedStages[TailCascadeStats.stage(orf.tailCascadeAssignment)]++;
+				}
+			}
+		}
+		if(tailCascadeObserver!=null){tailCascadeObserver.end();}
+		tailCascadeEvidence=null; tailCascadeParents=null;
+	}
+
+	/** Per-caller totals; merge only after its processing thread has joined. */
+	public static final class TailCascadeStats{
+		public void add(final TailCascadeStats other){
+			assert(other!=null && other!=this) : "Only completed independent caller totals may be merged";
+			searched+=other.searched; reused+=other.reused; accepted+=other.accepted;
+			under100+=other.under100; from100To199+=other.from100To199;
+			noParent+=other.noParent; noStarts+=other.noStarts; nativePruned+=other.nativePruned;
+			afterBonusPruned+=other.afterBonusPruned; guaranteeRetained+=other.guaranteeRetained; selected+=other.selected;
+			retainedStops+=other.retainedStops;
+			for(int i=0; i<STAGES.length; i++){
+				acceptedStages[i]+=other.acceptedStages[i];
+				selectedStages[i]+=other.selectedStages[i];
+			}
+		}
+		private static int stage(final prot.FamilyTailCascade.Assignment assignment){
+			for(int i=0; i<STAGES.length; i++){if(STAGES[i].equals(assignment.terminal)){return i;}}
+			throw new IllegalStateException("Unknown accepted tail-classifier stage: "+assignment.terminal);
+		}
+		public static int stageCount(){return STAGES.length;}
+		public static String stageName(final int index){return STAGES[index];}
+		/** Logical evidence coverage; reused is the subset not classified again in this arm. */
+		public long searched, reused, accepted, under100, from100To199, noParent, noStarts,
+			nativePruned, afterBonusPruned, guaranteeRetained, retainedStops, selected;
+		public final long[] acceptedStages=new long[STAGES.length], selectedStages=new long[STAGES.length];
+		private static final String[] STAGES={"ddl_accept", "cosine_accept", "identity_accept", "blosum_accept"};
 	}
 
 	/** Measurement-only whole-score penalty before best-candidate selection, pruning and DP.
@@ -2017,7 +2565,9 @@ public class GeneCaller extends ProkObject {
 	static float parseMinorStartMultiplier(String value){
 		final float factor;
 		try{factor=Float.parseFloat(value);}
-		catch(NumberFormatException e){throw new IllegalArgumentException("Invalid bbtools.diagnostic.minorStartMultiplier: "+value, e);}
+		catch(NumberFormatException e){
+			throw new IllegalArgumentException("Invalid bbtools.diagnostic.minorStartMultiplier: "+value, e);
+		}
 		if(!Float.isFinite(factor) || factor<=0f || factor>1f){
 			throw new IllegalArgumentException("bbtools.diagnostic.minorStartMultiplier must be finite in (0,1]: "+value);
 		}
@@ -2142,8 +2692,10 @@ public class GeneCaller extends ProkObject {
 		if(ncrnaCpuProfile!=null && ncrnaScavengers!=null){
 			for(int i=0; i<ncrnaScavengers.size(); i++){
 				final NcrnaScavenger s=ncrnaScavengers.get(i);
-				ncrnaCpuProfile.activity(i, s.alignmentCount(), s.alignedBases(), s.hbmScoreCalls(), s.hbmBasesScored(), s.kmerHitCount(), s.windowCount());
-				ncrnaCpuProfile.verification(i, s.alignmentCpuNanos(), s.shortlistCpuNanos(), s.hbmCpuNanos(), s.modelLengthChecks(), s.modelLengthSkips(), s.modelSpanRejects());
+				ncrnaCpuProfile.activity(i, s.alignmentCount(), s.alignedBases(), s.hbmScoreCalls(),
+					s.hbmBasesScored(), s.kmerHitCount(), s.windowCount());
+				ncrnaCpuProfile.verification(i, s.alignmentCpuNanos(), s.shortlistCpuNanos(),
+					s.hbmCpuNanos(), s.modelLengthChecks(), s.modelLengthSkips(), s.modelSpanRejects());
 			}
 		}
 		return ncrnaCpuProfile;
@@ -2178,7 +2730,8 @@ public class GeneCaller extends ProkObject {
 	public void accumulateMitoTierCounts(long[] totals){
 		assert(totals!=null && totals.length==3) : "Mitochondrial work totals require original/mito/length-skip slots";
 		if(ncrnaScavengers==null){return;}
-		assert(ncrnaScavengers.size()==ncrnaFamilies.size()) : "Family order must remain stable until joined-worker work aggregation";
+		assert(ncrnaScavengers.size()==ncrnaFamilies.size()) :
+			"Family order must remain stable until joined-worker work aggregation";
 		for(int i=0; i<ncrnaScavengers.size(); i++){
 			final NcrnaFamily family=ncrnaFamilies.get(i);
 			if(!MitoSsuModelPolicy.coverage(family.name,family.modelNames)){continue;}
@@ -2213,7 +2766,8 @@ public class GeneCaller extends ProkObject {
 	public long[] ncrnaKmerHitCounts(){
 		final long[] counts=new long[ncrnaFamilies.size()];
 		if(ncrnaScavengers!=null){
-			assert(ncrnaScavengers.size()==counts.length) : "Family registry changed before seed-count aggregation; per-family statistics would be misattributed";
+			assert(ncrnaScavengers.size()==counts.length) :
+				"Family registry changed before seed-count aggregation; per-family statistics would be misattributed";
 			for(int i=0; i<counts.length; i++){counts[i]=ncrnaScavengers.get(i).kmerHitCount();}
 		}
 		return counts;
@@ -2223,7 +2777,8 @@ public class GeneCaller extends ProkObject {
 	public long[] ncrnaWindowCounts(){
 		final long[] counts=new long[ncrnaFamilies.size()];
 		if(ncrnaScavengers!=null){
-			assert(ncrnaScavengers.size()==counts.length) : "Family registry changed before window-count aggregation; per-family statistics would be misattributed";
+			assert(ncrnaScavengers.size()==counts.length) :
+				"Family registry changed before window-count aggregation; per-family statistics would be misattributed";
 			for(int i=0; i<counts.length; i++){counts[i]=ncrnaScavengers.get(i).windowCount();}
 		}
 		return counts;
@@ -2236,7 +2791,8 @@ public class GeneCaller extends ProkObject {
 	private long[] ncrnaGeneratedVoteCounts(boolean fallback){
 		final long[] counts=new long[ncrnaFamilies.size()];
 		if(ncrnaScavengers!=null){
-			assert(ncrnaScavengers.size()==counts.length) : "Family registry changed before generated-window aggregation; per-family counts would be misattributed";
+			assert(ncrnaScavengers.size()==counts.length) :
+				"Family registry changed before generated-window aggregation; per-family counts would be misattributed";
 			for(int i=0; i<counts.length; i++){
 				final NcrnaScavenger scavenger=ncrnaScavengers.get(i);
 				counts[i]=fallback ? scavenger.voteWindowFallbacks : scavenger.votedWindows;
@@ -2291,7 +2847,7 @@ public class GeneCaller extends ProkObject {
 	public static CellNet[] metaNetTemplateGC=null;
 	public static CellNet metaNetSingle=null;
 
-	/** Skip NN scoring for ORFs within this many bases of contig ends — edge ORFs lack the upstream/downstream context the NNs need */
+	/** Skip NN scoring near contig ends; edge ORFs lack upstream/downstream NN context. */
 	static final int NN_EDGE_MARGIN=21;
 
 	public static void loadStopNetsGCN(String[] paths){
@@ -2332,7 +2888,7 @@ public class GeneCaller extends ProkObject {
 		return orfNet;
 	}
 
-	/** Shared with corpus extraction so boundary training uses inference's
+	/** Shared with annotated-corpus extraction so boundary training uses inference's
 	 * complete-contig GC fraction, ambiguous-base convention and float rounding.
 	 * Borrows a nonnull sequence without changing it; zero defined bases returns zero.
 	 */
@@ -2469,7 +3025,12 @@ public class GeneCaller extends ProkObject {
 //	static float[] biases=new float[] {1f, 1.50f, 1.30f, 1.30f, 1.55f, 1.30f};
 
 //	{"CDS", "tRNA", "16S", "23S", "5S", "18S", "28S", "RNA"};
-	//NOTE (feature forward-lead, Eru 2026-06-19): cutoff1-5/scoreMult/biases are type-indexed and sized 6 = {CDS0,tRNA1,16S2,23S3,5S4,18S5}. Adding 5.8S/28S/25S/ITS (the commented header above shows 28S=6,RNA=7 as the intended next slots) requires extending ALL six of these arrays in lockstep, new ProkObject type constants, and trained rnaContainers. See plans/prok_ribo_trna_its_calling.plan.
+	//NOTE (feature forward-lead, Eru 2026-06-19): cutoff1-5/scoreMult/biases
+	//are type-indexed and sized 6 = {CDS0,tRNA1,16S2,23S3,5S4,18S5}. Adding
+	//5.8S/28S/25S/ITS (the commented header above shows 28S=6,RNA=7 as the
+	//intended next slots) requires extending ALL six of these arrays in lockstep,
+	//new ProkObject type constants, and trained rnaContainers. See
+	//plans/prok_ribo_trna_its_calling.plan.
 	/** Sum score cutoffs for initial RNA detection by feature type */
 	static float[] cutoff1=new float[] {0, 20f, 300f, 400f, 100f, 400f};//sum score
 	/** ORF score cutoffs for refined RNA evaluation by feature type */
@@ -2528,7 +3089,8 @@ public class GeneCaller extends ProkObject {
 	/** Per-type candidate Orfs reaching refineRna before its internal gates. Diagnostic only. */
 	long[] rrnaCandidatesGenerated=new long[8];
 	long[] rrnaRefineByAlignmentCalls=new long[8];
-	long[] rrnaGateScoreFail=new long[8], rrnaGateGoodFail=new long[8], rrnaGateBothFail=new long[8], rrnaGateAdmitted=new long[8];
+	long[] rrnaGateScoreFail=new long[8], rrnaGateGoodFail=new long[8],
+		rrnaGateBothFail=new long[8], rrnaGateAdmitted=new long[8];
 	long[] rrnaG5Reject=new long[8], rrnaG6Reject=new long[8];
 	public long[] rrnaCandidatesEnteringRefinement=new long[8];
 	/** The universal (first, i==0) consensus entry is attempted exactly once per candidate
@@ -2654,13 +3216,14 @@ public class GeneCaller extends ProkObject {
 		}
 	}
 	/** Accepted refinement identity is needed for16S scoring even without a diagnostic sink. */
-	private float lastAttemptIdentity=Float.NaN;
+	private float lastAttemptIdentity=-1f;
 	/** Separate observer for generated vote proposals; existing stage rows stay unchanged. */
 	private NcrnaVoteDiagSink ncrnaVoteDiagSink;
 	void setNcrnaVoteDiagSink(NcrnaVoteDiagSink sink){
 		ncrnaVoteDiagSink=sink;
 		if(ncrnaScavengers!=null){
-			assert(ncrnaScavengers.size()==ncrnaFamilies.size()) : "Stable family ordering is required to label existing scavenger vote observers";
+			assert(ncrnaScavengers.size()==ncrnaFamilies.size()) :
+				"Stable family ordering is required to label existing scavenger vote observers";
 			for(int i=0; i<ncrnaScavengers.size(); i++){
 				ncrnaScavengers.get(i).setVoteDiagSink(sink, ncrnaFamilies.get(i).name);
 			}
@@ -2700,10 +3263,12 @@ public class GeneCaller extends ProkObject {
 	/** G11-approved measurement only: +30 on adjacent same-strand euk5S edges.
 	 * Static false removes the predicate from ordinary production scoring. */
 	public static final boolean EUK5S_ARRAY_BONUS=Boolean.getBoolean("bbtools.diagnostic.euk5sArrayBonus");
-	public static final int EUK5S_ARRAY_MAX_GAP=Integer.parseInt(System.getProperty("bbtools.diagnostic.euk5sArrayMaxGap","1000"));
+	public static final int EUK5S_ARRAY_MAX_GAP=Integer.parseInt(
+		System.getProperty("bbtools.diagnostic.euk5sArrayMaxGap","1000"));
 	static{
 		if(EUK5S_ARRAY_MAX_GAP<0 || (EUK5S_ARRAY_BONUS && FLAT_RNA_TRANSITIONS)){
-			throw new IllegalArgumentException("Array-gap limit must be nonnegative; array and global flat-RNA experiments cannot be combined");
+			throw new IllegalArgumentException("Array-gap limit must be nonnegative; array and global "+
+				"flat-RNA experiments cannot be combined");
 		}
 	}
 	

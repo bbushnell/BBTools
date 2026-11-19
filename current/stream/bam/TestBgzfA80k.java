@@ -1,23 +1,25 @@
 package stream.bam;
 
+import java.io.DataInputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 
 /**
  * Repeated file round-trip diagnostic using BgzfOutputStreamMT and BgzfInputStreamMT.
  * Creates the input only when absent, using 40000 repetitions of a default-charset
  * encoded line containing twenty A characters and a newline. Existing input is reused
  * without checking its contents. Compressed and decoded outputs are overwritten and
- * retained; Files.mismatch compares the input and decoded files after each round-trip.
+ * retained; a bounded byte comparison checks the files after each round-trip.
  *
  * Positional arguments select iterations (default 20), maximum workers (default 4),
  * and block size (default 65536). Lower bounds are 1, 1 and 256 respectively. The
  * default block size conflicts with the current writer assertion, as noted below.
- * This diagnostic also retains post-Java8 API calls; it is not Java8-compatible.
+ * File comparison and path construction use Java8-compatible APIs.
  *
  * @author Chloe
  * @date October 18, 2025
@@ -88,15 +90,35 @@ public class TestBgzfA80k{
 		}
 	}
 
-	/** Compresses, decodes, and reports the first differing byte through Files.mismatch. */
+	/** Compresses, decodes, and reports the first differing byte. */
 	private static void runRoundTrip(int threads, int blockSize) throws IOException{
 		compressFile(INPUT_FILE, COMPRESSED_FILE, threads, blockSize);
 		decompressFile(COMPRESSED_FILE, OUTPUT_FILE, threads);
 
-		//TODO: Compatibility [TestBgzfA80k#002] - Path.of and Files.mismatch are unavailable
-		//in Java8. Preserve exact comparison semantics if replacing these APIs.
-		long mismatch=Files.mismatch(Path.of(INPUT_FILE), Path.of(OUTPUT_FILE));
+		long mismatch=firstMismatch(Paths.get(INPUT_FILE), Paths.get(OUTPUT_FILE));
 		if(mismatch!=-1){throw new IOException("Round-trip mismatch at byte position "+mismatch);}
+	}
+
+	/** Returns the first differing byte, the shorter length for a prefix, or -1.
+	 * Inputs are completed diagnostic outputs and must remain unchanged during comparison.
+	 * A truncated read fails loudly instead of treating incomplete data as equal.
+	 */
+	public static long firstMismatch(final Path first, final Path second)throws IOException{
+		assert(first!=null && second!=null) : "Round-trip verification requires both complete file paths";
+		final long firstSize=Files.size(first), secondSize=Files.size(second);
+		final long sharedSize=Math.min(firstSize, secondSize);
+		final byte[] left=new byte[32768], right=new byte[32768];
+		try(DataInputStream a=new DataInputStream(Files.newInputStream(first));
+			DataInputStream b=new DataInputStream(Files.newInputStream(second))){
+			for(long offset=0; offset<sharedSize;){
+				final int count=(int)Math.min(left.length, sharedSize-offset);
+				a.readFully(left, 0, count);
+				b.readFully(right, 0, count);
+				for(int i=0; i<count; i++){if(left[i]!=right[i]){return offset+i;}}
+				offset+=count;
+			}
+		}
+		return firstSize==secondSize ? -1 : sharedSize;
 	}
 
 	/** Copies positive input reads to an MT writer using the supplied level-6 block configuration. */
@@ -131,9 +153,9 @@ public class TestBgzfA80k{
 
 	/** Prints current sizes of the input, compressed output and decoded output. */
 	private static void printFileSizes() throws IOException{
-		Path input=Path.of(INPUT_FILE);
-		Path compressed=Path.of(COMPRESSED_FILE);
-		Path output=Path.of(OUTPUT_FILE);
+		Path input=Paths.get(INPUT_FILE);
+		Path compressed=Paths.get(COMPRESSED_FILE);
+		Path output=Paths.get(OUTPUT_FILE);
 
 		System.out.println("Artifacts:");
 		System.out.println("  "+INPUT_FILE+"       "+Files.size(input)+" bytes");

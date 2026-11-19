@@ -77,7 +77,7 @@ public final class RrnaEndpointCallerFeatures {
 		capture(candidate,bases,model,contigGC,1,Integer.MAX_VALUE);
 	}
 	public void capture(Orf candidate,byte[] bases,int model,float contigGC,int minLen,int maxLen){
-		capture(candidate,bases,model,contigGC,minLen,maxLen,Float.NaN);
+		capture(candidate,bases,model,contigGC,minLen,maxLen,-1f);
 	}
 	public void capture(Orf candidate,byte[] bases,int model,float contigGC,int minLen,int maxLen,float acceptedIdentity){
 		capture(candidate,bases,model,contigGC,minLen,maxLen,acceptedIdentity,0);

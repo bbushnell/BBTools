@@ -92,6 +92,13 @@ public final class LineParser1 implements LineParser{
 		return this;
 	}
 
+	/** Indexes fields zero through maxTerm, inclusive, and selects maxTerm as the current field.
+	 * The caller must supply a nonnull line containing every requested field; this is not a cap
+	 * that stops early when the line ends. Empty fields, including a trailing empty field, count.
+	 * @param line_ Borrowed input bytes
+	 * @param maxTerm Nonnegative index of an existing field
+	 * @return this parser with the requested prefix indexed
+	 */
 	@Override
 	public LineParser set(byte[] line_, int maxTerm){
 		clear();
@@ -161,6 +168,11 @@ public final class LineParser1 implements LineParser{
 	public long parseLongA48(int term){
 		setBounds(term);
 		return Parse.parseLongA48(line, a, b);
+	}
+
+	/** Decodes A48 raw double bits, preserving signed zero, infinities and quiet-NaN payloads. */
+	public double parseDoubleA48(int term){
+		return Double.longBitsToDouble(parseLongA48(term));
 	}
 
 	/** Allocates and parses all indexed fields from term to the end. */

@@ -3,6 +3,7 @@ package prot;
 import java.io.IOException;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
@@ -12,6 +13,8 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+
+import shared.Resources;
 
 /** Discovers immutable BBGAP reference packs without changing their installation.
  * Legacy models/labels stay in place; explicit packs live under packs/ID.
@@ -43,27 +46,58 @@ public final class ProteinFamilyPacks {
 	 * packs; the legacy first pack is not a prerequisite for their discovery.
 	 */
 	public static Pack[] discover(final Path root, final boolean includeTest) throws IOException{
+		return discover(root, includeTest, false);
+	}
+
+	/** Discovers packs with optional installation guidance for an absent or partial installation.
+	 * Invalid roots and malformed packs retain strict validation.
+	 * This API throws; only the command-line entry point prints guidance and exits.
+	 * @param root Existing reference directory containing legacy models or modular packs
+	 * @param includeTest Whether development packs participate in discovery
+	 * @param installationGuidance Whether missing required pack entries or an empty result need installation guidance
+	 * @return Enabled packs in canonical load order
+	 * @throws Resources.MissingResourceException If guidance is enabled and a required entry or enabled pack is absent
+	 */
+	public static Pack[] discover(final Path root, final boolean includeTest,
+			final boolean installationGuidance) throws IOException{
 		require(root!=null && Files.isDirectory(root), "BBGAP reference root is not a directory: "+root);
 		final Path directory=root.toRealPath();
 		final ArrayList<Pack> found=new ArrayList<Pack>();
-		if(Files.exists(directory.resolve("models"))){
+		if(Files.exists(directory.resolve("models"), LinkOption.NOFOLLOW_LINKS)){
 			require(Files.isDirectory(directory.resolve("models")), "Legacy models path is not a directory");
+			if(installationGuidance){requireModels(directory.resolve("models"));}
 			found.add(new Pack(directory, "part1", 1, null));
 		}
 		final Path packs=directory.resolve("packs");
-		if(Files.exists(packs)){
+		if(Files.exists(packs, LinkOption.NOFOLLOW_LINKS)){
 			require(Files.isDirectory(packs), "BBGAP packs path is not a directory");
 			try(DirectoryStream<Path> entries=Files.newDirectoryStream(packs)){
 				for(Path entry : entries){
+					require(!Files.isSymbolicLink(entry) || Files.isDirectory(entry),
+						"BBGAP pack entry is a dangling or non-directory symbolic link: "+entry);
 					if(!Files.isDirectory(entry)){continue;}
+					if(installationGuidance){
+						requireManifest(entry);
+					}
 					final Pack pack=read(entry);
 					if(pack.test && !includeTest){continue;}
+					if(installationGuidance){
+						requireModels(pack.models);
+						final Path labels=entry.resolve("labels");
+						if(Files.exists(labels, LinkOption.NOFOLLOW_LINKS)){
+							require(Files.isDirectory(labels), "Pack labels path is not a directory: "+labels);
+						}
+						if(Files.notExists(pack.labels, LinkOption.NOFOLLOW_LINKS)){
+							throw missingReference(pack.labels.toString());
+						}
+					}
 					require(Files.isDirectory(pack.models), "Missing models directory in pack "+pack.id);
 					require(Files.isRegularFile(pack.labels), "Missing compressed label file in pack "+pack.id);
 					found.add(pack);
 				}
 			}
 		}
+		if(found.isEmpty() && installationGuidance){throw missingReference(root.toString());}
 		require(!found.isEmpty(), "No enabled BBGAP reference packs in "+root);
 		Collections.sort(found, Comparator.comparingInt(p->p.loadOrder));
 		for(int i=1; i<found.size(); i++){
@@ -71,6 +105,45 @@ public final class ProteinFamilyPacks {
 				"Duplicate reference pack load_order: "+found.get(i).loadOrder);
 		}
 		return found.toArray(new Pack[found.size()]);
+	}
+
+	/** Distinguishes an absent HBM installation from malformed reserved paths.
+	 * Only the required manifest's presence/type is checked; the model loader still
+	 * validates its contents and every declared payload before scoring.
+	 */
+	public static void requireModels(final Path models){
+		require(models!=null, "A model directory must be specified before installation checks");
+		if(Files.notExists(models, LinkOption.NOFOLLOW_LINKS)){throw missingReference(models.toString());}
+		require(Files.isDirectory(models), "Legacy models path is not a directory: "+models);
+		final Path artifacts=models.resolve("artifacts.tsv");
+		if(Files.notExists(artifacts, LinkOption.NOFOLLOW_LINKS)){throw missingReference(artifacts.toString());}
+		require(Files.isRegularFile(artifacts), "Legacy model artifacts path is not a regular file: "+artifacts);
+	}
+
+	/** An empty modular pack needs installation guidance; an invalid manifest is still an error. */
+	private static void requireManifest(final Path root){
+		final Path raw=root.resolve("pack_manifest.tsv"), gzip=root.resolve("pack_manifest.tsv.gz");
+		for(Path candidate : new Path[]{gzip, raw}){
+			if(Files.exists(candidate, LinkOption.NOFOLLOW_LINKS)){
+				require(Files.isRegularFile(candidate), "Pack manifest path is not a regular file: "+candidate);
+			}
+		}
+		if(Files.notExists(raw, LinkOption.NOFOLLOW_LINKS) && Files.notExists(gzip, LinkOption.NOFOLLOW_LINKS)){
+			throw missingReference(root.toString());
+		}
+	}
+
+	/** Creates installation guidance for missing annotation HBM packs.
+	 * The requested locator is retained for diagnosis; this method does not inspect files.
+	 */
+	public static Resources.MissingResourceException missingReference(final String requested){
+		return new Resources.MissingResourceException(
+			"\nERROR: Required AnnotateGenes HBM reference pack not found: "+requested+"\n"+
+			"The AnnotateGenes HBM reference pack is not distributed yet.\n"+
+			"It will appear at https://github.com/bbushnell/BBTools/releases/\n"+
+			"When available, install its models and labels under BBTools/resources/bbgap/ (models/ and labels/,\n"+
+			"or a complete released pack under packs/ID/), or specify reference=DIR or models=DIR.\n"+
+			"Compact SHORT/TAILS archives do not supply these annotation HBM packs.\n");
 	}
 
 	private static Pack read(final Path root){
@@ -122,7 +195,7 @@ public final class ProteinFamilyPacks {
 			if(!legacy){
 				pin(models.resolve("artifacts.tsv"), fields.get("model_artifacts_sha80"));
 				pin(labels, fields.get("label_sha80"));
-				pin(member(root, "manifest.tsv"), fields.get("payload_manifest_sha80"));
+				pin(requiredMember(root, "manifest.tsv"), fields.get("payload_manifest_sha80"));
 			}
 			final ProteinFamilyAssigner library=ProteinFamilyAssigner.load(models);
 			if(!legacy){
@@ -140,7 +213,7 @@ public final class ProteinFamilyPacks {
 		 */
 		public Path[] payloadFiles(){
 			if(legacy){return new Path[0];}
-			final Path manifest=member(root, "manifest.tsv");
+			final Path manifest=requiredMember(root, "manifest.tsv");
 			require(Files.isRegularFile(manifest), "Missing pack payload manifest: "+manifest);
 			final List<String[]> rows=HmmComparisonData.rows(manifest.toString());
 			require(!rows.isEmpty() && Arrays.equals(rows.get(0), PAYLOAD_HEADER), "Unsupported pack payload manifest header: "+manifest);
@@ -172,6 +245,21 @@ public final class ProteinFamilyPacks {
 	private static Path member(final Path root, final String name){
 		final Path gzip=root.resolve(name+".gz");
 		return Files.isRegularFile(gzip) ? gzip : root.resolve(name);
+	}
+	/** Requires an installed manifest without disguising malformed alternative entries as absence. */
+	private static Path requiredMember(final Path root, final String name){
+		final Path gzip=root.resolve(name+".gz"), raw=root.resolve(name);
+		for(Path candidate : new Path[]{gzip, raw}){
+			if(Files.exists(candidate, LinkOption.NOFOLLOW_LINKS)){
+				require(Files.isRegularFile(candidate), "Pack payload manifest is not a regular file: "+candidate);
+			}
+		}
+		if(Files.isRegularFile(gzip)){return gzip;}
+		if(Files.isRegularFile(raw)){return raw;}
+		if(Files.notExists(gzip, LinkOption.NOFOLLOW_LINKS) && Files.notExists(raw, LinkOption.NOFOLLOW_LINKS)){
+			throw missingReference(raw.toString());
+		}
+		throw new IllegalArgumentException("Cannot inspect pack payload manifest: "+raw);
 	}
 	private static void require(final boolean ok, final String reason){if(!ok){throw new IllegalArgumentException(reason);}}
 	private ProteinFamilyPacks(){}
