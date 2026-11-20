@@ -21,16 +21,28 @@ import stream.SamLine;
 import structures.ListNum;
 
 /**
- * Uses two SAM files defining primer mapping locations to cut the primed
- * sequence out of the reference.
- * Extracts subsequences between or including primers based on their alignment positions.
- * Processes reads to generate trimmed sequences suitable for amplicon analysis.
+ * Loads reference sequences from {@code in=} and two primer-alignment maps from
+ * SAM files, then emits one subsequence for each reference whose primer spans
+ * are both present and non-overlapping.
+ * <p>
+ * The SAM maps are keyed by {@code RNAME} and looked up by exact input read id
+ * or an unambiguous first-token alias. With {@code include=f}, the output omits
+ * both primers and keeps only the bases between them. With {@code include=t},
+ * the output keeps the clamped primer-to-primer span. Reads without an extracted
+ * interval are either dropped or, when {@code fake=t}, represented by a single
+ * {@code N} base.
  *
  * @author Brian Bushnell
  * @date Nov 24, 2014
  */
 public class CutPrimers {
 
+	/**
+	 * Parses arguments, processes configured input, and closes the possibly
+	 * redirected status stream.
+	 *
+	 * @param args command-line arguments
+	 */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		CutPrimers x=new CutPrimers(args);
@@ -40,6 +52,12 @@ public class CutPrimers {
 		Shared.closeStream(x.outstream);
 	}
 	
+	/**
+	 * Parses configuration, generic read options, and local primer options, then
+	 * creates input and output format descriptors for {@link #process(Timer)}.
+	 *
+	 * @param args command-line arguments
+	 */
 	public CutPrimers(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -51,7 +69,7 @@ public class CutPrimers {
 		Parser parser=new Parser();
 		for(int i=0; i<args.length; i++){
 			String arg=args[i];
-			String[] split=arg.split("=");
+			String[] split=Parse.splitOnFirst(arg, '=');
 			String a=split[0].toLowerCase();
 			String b=split.length>1 ? split[1] : null;
 
@@ -86,6 +104,13 @@ public class CutPrimers {
 		ffin1=FileFormat.testInput(in1, FileFormat.FASTQ, null, true, true);
 	}
 	
+	/**
+	 * Loads the primer SAM maps, streams input reads, writes one output list for
+	 * each input list when output is configured, and on loop completion closes
+	 * streams and prints input and extraction counts.
+	 *
+	 * @param t timer to stop and report after processing
+	 */
 	void process(Timer t){
 		
 		final ConcurrentReadInputStream cris;
@@ -110,6 +135,7 @@ public class CutPrimers {
 			ros.start();
 		}else{ros=null;}
 
+		// toSamLines keys each primer alignment by SAM RNAME for input-id lookup.
 		NameMapper<SamLine> p1set=toSamLines(sam1);
 		NameMapper<SamLine> p2set=toSamLines(sam2);
 		long readsProcessed=0, readsSuccess=0;
@@ -131,29 +157,35 @@ public class CutPrimers {
 					readsProcessed++;
 					final Read r=reads.get(idx);
 
+					// Primer rows are keyed by RNAME; only matching input ids can trim.
 					final SamLine sl1=p1set.get(r.id);
 					final SamLine sl2=p2set.get(r.id);
 					
+					// Remember the count to detect whether extraction emits an interval.
 					int oldSize=readsOut.size();
 					
 					final int len=r.length();
 					if(sl1!=null && sl2!=null){
-						final int a1=Tools.mid(0, len, sl1.start(true, false));
-						final int a2=Tools.mid(0, len, sl2.start(true, false));
-						final int b1=Tools.mid(0, len, sl1.stop(a1, true, false));
-						final int b2=Tools.mid(0, len, sl2.stop(a2, true, false));
+						// JGI-129: stop() needs the raw start, including any leading soft clip.
+						final int start1=sl1.start(true, false), start2=sl2.start(true, false);
+						final int a1=Tools.mid(0, len, start1);
+						final int a2=Tools.mid(0, len, start2);
+						final int b1=Tools.mid(0, len, sl1.stop(start1, true, false));
+						final int b2=Tools.mid(0, len, sl2.stop(start2, true, false));
 						if(Tools.overlap(a1, b1, a2, b2)){
-							
+							// Overlapping primer spans do not define a retained interval.
 						}else{
 							
+							// Order by clamped start and copy either between or through primers.
 							final int from, to;
 							if(INCLUDE_PRIMERS){
+								// JGI-129: an endpoint at len is already the exclusive copy limit.
 								if(a1<a2){
 									from=a1;
-									to=b2+1;
+									to=(b2<len ? b2+1 : len);
 								}else{
 									from=a2;
-									to=b1+1;
+									to=(b1<len ? b1+1 : len);
 								}
 							}else{
 								if(a1<a2){
@@ -174,6 +206,7 @@ public class CutPrimers {
 						}
 					}
 					
+					// Missing or overlapping primer pairs can still retain output ids.
 					if(oldSize==readsOut.size() && ADD_FAKE_READS){
 						readsOut.add(new Read(new byte[] {'N'}, null, r.id, r.numericID));
 					}
@@ -196,12 +229,23 @@ public class CutPrimers {
 		if(processingFailure!=null){throw processingFailure;}
 		if(verbose){outstream.println("Finished.");}
 		
+		// readsSuccess excludes fake N rows emitted for failed extractions.
 		t.stop();
 		outstream.println("Time:                         \t"+t);
 		outstream.println("Reads Processed:      "+readsProcessed+" \t"+Tools.format("%.2fk reads/sec", (readsProcessed/(double)(t.elapsed))*1000000));
 		outstream.println("Sequences Generated:  "+readsSuccess);
 	}
 	
+	/**
+	 * Parses non-header SAM rows from one primer file.
+	 * <p>
+	 * Each retained {@link SamLine} is stored by {@code SamLine.rname()}, replacing
+	 * repeated keys according to {@link NameMapper} rules. Input-read lookup later
+	 * uses the read id, not the SAM query name.
+	 *
+	 * @param fname SAM file name
+	 * @return primer alignments keyed by mapped reference name
+	 */
 	public static NameMapper<SamLine> toSamLines(String fname){
 		ByteFile tf=ByteFile.makeByteFile(fname, false);
 		LineParser1 lp=new LineParser1('\t');
@@ -220,24 +264,35 @@ public class CutPrimers {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Input reference sequence file. */
 	private String in1=null;
+	/** First primer SAM file. */
 	private String sam1=null;
+	/** Second primer SAM file. */
 	private String sam2=null;
+	/** Output sequence file. */
 	private String out1=null;
 	
+	/** Emit one fake N read when no real interval is extracted. */
 	private boolean ADD_FAKE_READS=true;
+	/** Include primer spans rather than only the bases between them. */
 	private boolean INCLUDE_PRIMERS=false;
 	
+	/** Input format descriptor. */
 	private final FileFormat ffin1;
+	/** Output format descriptor. */
 	private final FileFormat ffout1;
 	
 	/*--------------------------------------------------------------*/
 
+	/** Maximum CRIS root records to request, or negative for unlimited. */
 	private long maxReads=-1;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Status and error stream redirected by the preparser when requested. */
 	private java.io.PrintStream outstream=System.err;
+	/** Emit verbose stream lifecycle messages. */
 	public static boolean verbose=false;
 	
 }

@@ -21,11 +21,15 @@ import structures.LongList;
 import tracker.ReadStats;
 
 /**
+ * Calls coverage peaks from a count histogram and reports heuristic genome statistics.
+ * Histogram indices are coverage positions, not nucleotide coordinates. Optional GC
+ * arrays contain G+C-base totals for each bin, not percentages or fractions.
+ * Configuration includes mutable process-wide settings that are not reset between
+ * instances or convenience calls; concurrent reconfiguration is not isolated.
  * @author Brian Bushnell
  * @date Oct 28, 2014
- *
  */
-public class CallPeaks {
+public class CallPeaks{
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
@@ -46,9 +50,9 @@ public class CallPeaks {
 	}
 	
 	/**
-	 * Constructs CallPeaks instance with command-line argument parsing.
-	 * Configures all parameters for peak detection and genome analysis.
-	 * Processes input/output file formats and filtering thresholds.
+	 * Parses options and prepares file formats without loading a histogram.
+	 * Unspecified instance options use their initial values; static options retain
+	 * their current process-wide values. A missing output name selects stdout.
 	 * @param args Command-line arguments containing parameters and file paths
 	 */
 	public CallPeaks(String[] args){
@@ -66,9 +70,10 @@ public class CallPeaks {
 		
 		for(int i=0; i<args.length; i++){
 			String arg=args[i];
-			String[] split=arg.split("=");
+			String[] split=arg.split("=", 2);
 			String a=split[0].toLowerCase();
 			String b=split.length>1 ? split[1] : null;
+			if(b!=null && b.isEmpty()){b=null;}
 			
 			if(Parser.parseZip(arg, a, b)){
 				//do nothing
@@ -155,7 +160,7 @@ public class CallPeaks {
 	 * @param t Timer for tracking execution time
 	 */
 	public void process(Timer t){
-		LongList lists[]=loadHistogram(ffin, k);//TODO: Add support for GC here
+		LongList lists[]=loadHistogram(ffin, k);
 		LongList hist=lists[0];
 		LongList gchist=lists[1];
 		ArrayList<Peak> peaks=callPeaks(hist, gchist);
@@ -173,25 +178,27 @@ public class CallPeaks {
 	}
 	
 	/**
-	 * Static method to create CallPeaks instance and analyze provided histogram arrays.
-	 * Convenience method for programmatic peak calling with explicit parameters.
+	 * Calls peaks and writes a report without modifying the supplied histogram arrays.
+	 * Appends options to the supplied list; it does not copy or restore that list.
+	 * The return value records writer errors, not every possible summary-calculation
+	 * failure: summary exceptions are printed and reporting continues with peak rows.
 	 *
 	 * @param array Main k-mer frequency histogram
-	 * @param gcArray GC content histogram (may be null)
+	 * @param gcArray Parallel per-bin G+C-base totals, or null to omit GC analysis
 	 * @param fname Output file name
 	 * @param ow Overwrite existing output files
 	 * @param minHeight Minimum peak height threshold
 	 * @param minVolume Minimum peak volume threshold
-	 * @param minWidth Minimum peak width in bases
+	 * @param minWidth Minimum peak width in histogram positions
 	 * @param minPeak Minimum peak position to consider
 	 * @param maxPeak Maximum peak position to consider
-	 * @param maxPeakCount Maximum number of peaks to report
-	 * @param k K-mer size used for histogram generation
+	 * @param maxPeakCount Condensation target; separate height/volume cutoffs and ties can retain more
+	 * @param k K-mer size used for histogram generation; values below one select 31
 	 * @param ploidy Expected genome ploidy
 	 * @param logScale Whether to apply log scaling
 	 * @param logWidth Log scaling window width
-	 * @param list Parameter list for instance creation
-	 * @return true if analysis completed without errors
+	 * @param list Mutable option list to append to, or null to create a new list
+	 * @return true if the report writer records an error
 	 */
 	public static boolean printPeaks(long[] array, long[] gcArray, String fname, boolean ow, long minHeight, long minVolume, int minWidth,
 			int minPeak, int maxPeak, int maxPeakCount, int k, int ploidy, boolean logScale, double logWidth, ArrayList<String> list){
@@ -212,11 +219,14 @@ public class CallPeaks {
 		if(ploidy>0){list.add("ploidy="+ploidy);}
 		CallPeaks cp=new CallPeaks(list.toArray(new String[0]));
 		ArrayList<Peak> peaks=cp.callPeaks(array, gcArray, array.length);
-		cp.printPeaks(peaks, k, simd.Vector.sum(array), array, gcArray);
+		cp.printPeaks(peaks, cp.k, simd.Vector.sum(array), array, gcArray);
 		return cp.errorState;
 	}
 
-	/** Returns the center of the largest-volume called peak without writing a report. */
+	/**
+	 * Returns the largest-volume called peak's center without writing a report.
+	 * Returns zero for null/short input or no called peaks. Static settings are inherited.
+	 */
 	public static int mainPeak(final long[] array, final int minPeak, final int maxPeak, final int k,
 			final boolean logScale, final double logWidth){
 		if(array==null || array.length<2){return 0;}
@@ -240,14 +250,17 @@ public class CallPeaks {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Loads k-mer frequency histogram from input file.
-	 * Parses tab-delimited histogram data with optional GC content column.
+	 * Loads whitespace-delimited histogram rows, skipping lines beginning with '#'.
+	 * One-column rows append counts at successive indices. Multi-column rows set the
+	 * index in column zero to the count in {@link #countColumn}; repeated indices overwrite.
+	 * A numeric final token containing a decimal point in a row of at least three fields
+	 * is treated as GC percent and converted to a rounded count*k*percent/100 base total.
 	 *
 	 * @param ff Input file format specification
 	 * @param k K-mer size for GC content calculation
-	 * @return Array containing [main histogram, GC histogram] as LongList objects
+	 * @return Main histogram and GC-base totals; the second element is null if no GC token was recognized
 	 */
-	public static LongList[] loadHistogram(FileFormat ff, int k){//TODO: Add GC support
+	public static LongList[] loadHistogram(FileFormat ff, int k){
 		LongList list=new LongList(8000);
 		LongList gcList=new LongList(8000);
 		boolean hasGC=false;
@@ -280,13 +293,14 @@ public class CallPeaks {
 	}
 	
 	/**
-	 * Reduces peak count by condensing smaller peaks into larger ones.
-	 * Merges compatible peaks when total count exceeds maximum limit.
-	 * Uses height and volume thresholds to determine which peaks to preserve.
+	 * Retains peaks meeting either height or volume thresholds, then absorbs compatible
+	 * discarded peaks into their nearest retained neighbor. Unabsorbed peaks are discarded.
+	 * Retained Peak objects are mutated. Separate height/volume cutoffs and ties can
+	 * leave more than maxCount peaks.
 	 *
 	 * @param in Input list of peaks to condense
-	 * @param maxCount Maximum number of peaks to retain
-	 * @return Condensed list of peaks within the specified limit
+	 * @param maxCount Target peak count used to choose the thresholds
+	 * @return New list of retained Peak references; null or empty input is returned unchanged
 	 */
 	private static ArrayList<Peak> condense(ArrayList<Peak> in, int maxCount){
 		if(in==null || in.isEmpty()){return in;}
@@ -400,7 +414,7 @@ public class CallPeaks {
 
 		double gcmult=1.0/k;
 		if(peaks.size()>0){
-			try {
+			try{
 //				final Peak p0=peaks.get(0);
 //				final int center0=p0.center;
 				float minHetRate=0.0003f; //Less than the human rate of ~0.001, but this will miss the first peak for inbred species.
@@ -421,7 +435,7 @@ public class CallPeaks {
 				final double repeatRate=repeatSize*1.0/genomeSizeInPeaks;
 				final double repeatRate2=repeatSize2*1.0/totalGenomeSize;
 				
-				if(verbose) {
+				if(verbose){
 					System.err.println("genomeSize="+genomeSizeInPeaks+", \trepeatSize="+repeatSize);
 					System.err.println("genomeSize2="+totalGenomeSize+",\trepeatSize2="+repeatSize2);
 				}
@@ -438,7 +452,7 @@ public class CallPeaks {
 						ploidyPeak=p;
 					}
 				}
-				if(Tools.max(target,ploidyPeak.center)/(float)Tools.min(target,ploidyPeak.center)<1.3f){
+				if(Tools.max(target, ploidyPeak.center)/(float)Tools.min(target, ploidyPeak.center)<1.3f){
 					haploidCov=ploidyPeak.center;
 				}else{
 					haploidCov=(int)target;
@@ -479,7 +493,7 @@ public class CallPeaks {
 				if(ploidy>1){bsw.println("#het_rate\t"+Tools.format("%.5f", hetRate));}
 				bsw.println("#percent_repeat_in_peaks\t"+Tools.format("%.3f", (100*repeatRate)));
 				if(repeatSize2>=0){bsw.println("#percent_repeat\t"+Tools.format("%.3f", (100*repeatRate2)));}
-			} catch (Exception e) {
+			}catch(Exception e){
 				e.printStackTrace();
 			}
 		}
@@ -503,16 +517,16 @@ public class CallPeaks {
 	 * Returns the first peak meeting minimum volume fraction of largest peak.
 	 *
 	 * @param peaks List of peaks to search
-	 * @param minFraction Minimum volume as fraction of largest peak
+	 * @param minFraction Minimum volume as a fraction of the largest peak; must not exceed one
 	 * @return First genomic peak or null if none found
 	 */
-	private static Peak firstGenomicPeak(ArrayList<Peak> peaks, float minFraction) {
-		if(peaks.size()<1) {return null;}
+	private static Peak firstGenomicPeak(ArrayList<Peak> peaks, float minFraction){
+		if(peaks.size()<1){return null;}
 		assert(minFraction<=1);
 		final Peak biggest=peaks.get(biggestPeak(peaks));
 		final long minVolume=(long)(biggest.volume*minFraction);
-		for(Peak p : peaks) {
-			if(p.volume>=minVolume) {return p;}
+		for(Peak p : peaks){
+			if(p.volume>=minVolume){return p;}
 		}
 		assert(false) : peaks.size()+", "+biggest;
 		return null;
@@ -522,16 +536,16 @@ public class CallPeaks {
 	//The math here is all totally wrong and terrible but might be within a factor of 4 of correct
 	/**
 	 * Calculates expected fraction of single-copy k-mers based on heterozygosity.
-	 * Uses mathematical model to estimate single-copy k-mer abundance
-	 * as function of heterozygosity rate, k-mer size, and ploidy.
+	 * Uses the historical approximation discussed above, not a calibrated ploidy model.
+	 * Returns one below ploidy two; higher ploidies share the same diploid-style expression.
 	 *
 	 * @param hetRate Heterozygosity rate (fraction of heterozygous sites)
 	 * @param k K-mer length
 	 * @param ploidy Genome ploidy level
 	 * @return Fraction of k-mers expected to be single-copy
 	 */
-	private static float singleCopyKmerFraction(float hetRate, int k, int ploidy) {
-		if(ploidy<2) {return 1;}
+	private static float singleCopyKmerFraction(float hetRate, int k, int ploidy){
+		if(ploidy<2){return 1;}
 		float kmersPerSnp=k;//*(ploidy==2 ? 2 : 1);//Could be 1 or 2 in higher ploidies depending on the structure
 		float singleCopyKmers=hetRate*kmersPerSnp; //Fraction of whole genome size
 		float asymptote=singleCopyKmers/(1+singleCopyKmers);//Prevents the number from going over 1
@@ -548,7 +562,7 @@ public class CallPeaks {
 	 * @return Estimated count of error k-mers
 	 */
 	private static long errorKmers(ArrayList<Peak> peaks, long[] hist, float minVolumeFraction){
-		if(peaks.size()<1) {return 0;}
+		if(peaks.size()<1){return 0;}
 		final Peak first=firstGenomicPeak(peaks, minVolumeFraction);
 		if(first==null || hist==null){return -1;}
 		long sum=0;
@@ -611,7 +625,7 @@ public class CallPeaks {
 	 *
 	 * @param peaks List of peaks with GC information
 	 * @param k K-mer size for normalization
-	 * @return Estimated GC content as fraction (0.0 to 1.0)
+	 * @return Copy-weighted GC fraction relative to the first peak's center; not clipped here
 	 */
 	private static double gcContent(ArrayList<Peak> peaks, int k){
 		if(peaks.size()<1){return 0;}
@@ -637,8 +651,8 @@ public class CallPeaks {
 	 * @param peaks List of peaks for reference
 	 * @param k K-mer size for normalization
 	 * @param hist Main frequency histogram
-	 * @param gcHist GC content histogram
-	 * @return Estimated GC content as fraction (0.0 to 1.0)
+	 * @param gcHist Parallel per-bin G+C-base totals
+	 * @return Copy-weighted GC fraction from the first peak's start onward; not clipped here
 	 */
 	private static double gcContent2(ArrayList<Peak> peaks, int k, long[] hist, long[] gcHist){
 		if(peaks.size()<1){return 0;}
@@ -658,7 +672,7 @@ public class CallPeaks {
 		return (gcSum*1.0)/(sizeSum*k);
 	}
 	
-	/** Based on all peaks */
+	/** Estimates excess copies from peaks after the inferred homozygous peak. */
 	private static long repeatSize(ArrayList<Peak> peaks, final int ploidy, final float haploidPeakCenter){
 		if(peaks.size()<2){return 0;}
 		assert(ploidy>0) : ploidy;
@@ -674,15 +688,15 @@ public class CallPeaks {
 		return sizeSum;
 	}
 	
-	/** Based on ploidy peak only */
+	/** Estimates excess copies from histogram bins beyond the inferred repeat boundary. */
 	private static long repeatSize2(ArrayList<Peak> peaks, final int ploidy, final float haploidPeakCenter, long[] hist){
 		assert(ploidy>0) : ploidy;
 		final double mult=1.0/(Tools.max(1, haploidPeakCenter));
-		int valley=(int)Math.ceil(haploidPeakCenter*ploidy*(1.2f+1.0f/Tools.max(2,ploidy)));
+		int valley=(int)Math.ceil(haploidPeakCenter*ploidy*(1.2f+1.0f/Tools.max(2, ploidy)));
 		
 		//Optional
 		final int homozygousLoc=homozygousPeak(peaks, ploidy, haploidPeakCenter);
-		if(ploidy>1 && homozygousLoc>=0) {
+		if(ploidy>1 && homozygousLoc>=0){
 			Peak p=peaks.get(homozygousLoc);
 			valley=p.stop+1;
 		}
@@ -716,7 +730,7 @@ public class CallPeaks {
 	/**
 	 * Finds index of peak with largest volume.
 	 * @param peaks List of peaks to search
-	 * @return Index of peak with maximum volume
+	 * @return Index of the first maximum-volume peak, or -1 for an empty list
 	 */
 	private static int biggestPeak(ArrayList<Peak> peaks){
 		if(peaks.size()<2){return peaks.size()-1;}
@@ -737,7 +751,7 @@ public class CallPeaks {
 	/**
 	 * Finds index of peak with second-largest volume.
 	 * @param peaks List of peaks to search
-	 * @return Index of peak with second-largest volume
+	 * @return Second-largest peak index; zero for a singleton and -1 for an empty list
 	 */
 	private static int secondBiggestPeak(ArrayList<Peak> peaks){
 		if(peaks.size()<2){return peaks.size()-1;}
@@ -808,11 +822,11 @@ public class CallPeaks {
 	 * @param ploidy Expected genome ploidy
 	 * @return Estimated coverage level of haploid peak
 	 */
-	private static float haploidPeakCenter(ArrayList<Peak> peaks, int ploidy) {
+	private static float haploidPeakCenter(ArrayList<Peak> peaks, int ploidy){
 		assert(ploidy>0);
 		final Peak biggest=peaks.get(biggestPeak(peaks));
 		final Peak second=peaks.get(secondBiggestPeak(peaks));
-		if(second.volume*4>=biggest.volume) {//Similar volume; lowest is haploid peak
+		if(second.volume*4>=biggest.volume){//Similar volume; lowest is haploid peak
 			return Tools.min(biggest.center, second.center);
 		}
 		//Assume biggest is ploidy peak
@@ -835,30 +849,30 @@ public class CallPeaks {
 		final Peak biggest=peaks.get(biggestPeak(peaks));
 		final Peak second=peaks.get(secondBiggestPeak(peaks));
 		
-		if(ploidyLogic==1) {//Old code path, assumes no error/contamination peaks
+		if(ploidyLogic==1){//Old code path, assumes no error/contamination peaks
 			if(biggest==p0){//p0 is biggest.
 				//			System.err.println("a: "+biggest+" > "+second);
 				if(second.volume*4<biggest.volume){return 1;} //Probably second is a repeat peak.
 				int ratio=Math.round((second.center/(float)biggest.center));
 				//			System.err.println("b: "+ratio);
 				return Tools.max(1, ratio);
-			}else {//p0 is not biggest.
+			}else{//p0 is not biggest.
 				//I wonder if this should be biggest/second...
 				int ratio=Math.round((biggest.center/(float)p0.center));
 				//			System.err.println("c: "+biggest+", "+((biggest.center/(float)p0.center)));
 				return ratio;
 			}
-		}else {
+		}else{
 
-			if(second==biggest) {
+			if(second==biggest){
 				return 1;
-			}else if(second.center<biggest.center) {//Second volume could be low, and is based on het rate
-				if(second.volume<biggest.volume*minVolumeFraction) {
+			}else if(second.center<biggest.center){//Second volume could be low, and is based on het rate
+				if(second.volume<biggest.volume*minVolumeFraction){
 					//Second peak is tiny and likely contamination.
 					return 1;
 				}
-			}else {//second volume should be substantial since it is the heterozygous fraction
-				if(second.volume*4<biggest.volume) {
+			}else{//second volume should be substantial since it is the heterozygous fraction
+				if(second.volume*4<biggest.volume){
 					//Second peak is small and likely repeat.
 					return 1;
 				}
@@ -902,7 +916,7 @@ public class CallPeaks {
 	 * Convenience wrapper for callPeaks method with arrays.
 	 *
 	 * @param list Main k-mer frequency histogram
-	 * @param gcList GC content histogram (may be null)
+	 * @param gcList Parallel per-bin G+C-base totals, or null
 	 * @return List of identified peaks
 	 */
 	public ArrayList<Peak> callPeaks(LongList list, LongList gcList){
@@ -910,13 +924,14 @@ public class CallPeaks {
 	}
 	
 	/**
-	 * Main peak calling algorithm for k-mer frequency histograms.
-	 * Applies optional log scaling and smoothing, then identifies peaks
-	 * using state machine approach. Filters peaks by size and volume thresholds.
+	 * Finds peaks after optional log scaling and smoothing, then clips and condenses them.
+	 * Input arrays are not modified. Transformations operate on the backing array, while
+	 * detection uses the active prefix. Returned volumes and supplied GC sums use original bins
+	 * over each final [start, stop) interval; transformed heights do not replace raw counts.
 	 *
 	 * @param original Input histogram array
-	 * @param gcArray GC content histogram (may be null)
-	 * @param length Active length of histogram arrays
+	 * @param gcArray Parallel per-bin G+C-base totals, or null; must cover accessed indices
+	 * @param length Active histogram prefix length
 	 * @return List of identified peaks meeting filtering criteria
 	 */
 	public ArrayList<Peak> callPeaks(final long[] original, final long gcArray[], final int length){
@@ -1070,6 +1085,14 @@ public class CallPeaks {
 			}
 		}
 		
+		if(gcArray!=null){
+			for(Peak p : peaksOut){
+				//Match the original-count volume after clipping, merging, and smoothing.
+				long gc=0;
+				for(int i=p.start; i<p.stop; i++){gc+=gcArray[i];}
+				p.gc=gc;
+			}
+		}
 		return peaksOut;
 	}
 	
@@ -1131,9 +1154,10 @@ public class CallPeaks {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Applies progressive smoothing with increasing radius.
-	 * Smoothing radius grows larger at higher positions to handle
-	 * varying peak widths across coverage spectrum.
+	 * Returns a new histogram smoothed with clamped triangular windows.
+	 * The positive radius grows by one after successive position thresholds controlled
+	 * by progressiveMult. Growth stops after an increment exceeds maxRadius; the initial
+	 * radius is not clamped. Weighted sums use long arithmetic without overflow checks.
 	 *
 	 * @param data Input histogram array
 	 * @param radius0 Initial smoothing radius
@@ -1141,7 +1165,7 @@ public class CallPeaks {
 	 */
 	public static long[] smoothProgressive(final long[] data, int radius0){
 		int radius=radius0;
-		long div=radius*radius;
+		long div=(long)radius*radius;
 		double mult=1.0/div;
 		long[] smoothed=new long[data.length];
 		for(int i=0, next=5; i<data.length; i++){
@@ -1153,7 +1177,7 @@ public class CallPeaks {
 			if(i>next){
 				next=(int)Math.ceil(1+next*progressiveMult);
 				radius+=1;
-				div=radius*radius;
+				div=(long)radius*radius;
 				mult=1.0/div;
 				if(radius>maxRadius){next=Integer.MAX_VALUE;}
 //				System.err.println(radius+", "+div);
@@ -1163,15 +1187,16 @@ public class CallPeaks {
 	}
 	
 	/**
-	 * Applies uniform smoothing with fixed radius.
-	 * Uses weighted averaging within specified radius around each position.
+	 * Returns a new histogram smoothed with a positive-radius triangular window.
+	 * Out-of-range taps repeat the nearest endpoint; the weight sum is radius squared.
+	 * The input is unchanged. Weighted sums use long arithmetic without overflow checks.
 	 *
 	 * @param data Input histogram array
 	 * @param radius Smoothing radius in array positions
 	 * @return Smoothed histogram array
 	 */
 	public static long[] smooth(final long[] data, int radius){
-		final long div=radius*radius;
+		final long div=(long)radius*radius;
 		final double mult=1.0/div;
 		long[] smoothed=new long[data.length];
 		for(int i=0; i<data.length; i++){
@@ -1209,8 +1234,9 @@ public class CallPeaks {
 	}
 	
 	/**
-	 * Progressive smoothing for integer arrays.
-	 * Integer version of progressive smoothing with increasing radius.
+	 * Returns a new int histogram using clamped triangular windows and rounded results.
+	 * This overload doubles its growth-position threshold and stops growth after the
+	 * radius exceeds ten; it does not use maxRadius or progressiveMult. Input is unchanged.
 	 *
 	 * @param data Input integer histogram
 	 * @param radius0 Initial smoothing radius
@@ -1218,7 +1244,7 @@ public class CallPeaks {
 	 */
 	public static int[] smoothProgressive(final int[] data, int radius0){
 		int radius=radius0;
-		long div=radius*radius;
+		long div=(long)radius*radius;
 		double mult=1.0/div;
 		int[] smoothed=new int[data.length];
 		for(int i=0, next=5; i<data.length; i++){
@@ -1230,7 +1256,7 @@ public class CallPeaks {
 			if(i>next){
 				next=(int)Math.ceil(next*2);
 				radius+=1;
-				div=radius*radius;
+				div=(long)radius*radius;
 				mult=1.0/div;
 				if(radius>10){next=Integer.MAX_VALUE;}
 //				System.err.println(radius+", "+div);
@@ -1240,15 +1266,16 @@ public class CallPeaks {
 	}
 	
 	/**
-	 * Uniform smoothing for integer arrays.
-	 * Integer version of fixed-radius smoothing algorithm.
+	 * Returns a new int histogram using a positive fixed-radius triangular window.
+	 * Out-of-range taps repeat endpoint values. Weighted sums are long; rounded results
+	 * are narrowed to int. The input is unchanged.
 	 *
 	 * @param data Input integer histogram
 	 * @param radius Smoothing radius
 	 * @return Smoothed integer histogram
 	 */
 	public static int[] smooth(final int[] data, int radius){
-		final long div=radius*radius;
+		final long div=(long)radius*radius;
 		final double mult=1.0/div;
 		int[] smoothed=new int[data.length];
 		for(int i=0; i<data.length; i++){
@@ -1276,11 +1303,11 @@ public class CallPeaks {
 		int stop=loc+radius-1;
 		for(int i=start, x=1; i<loc; i++, x++){
 			int i2=Tools.max(i, 0);
-			sum+=data[i2]*x;
+			sum+=(long)data[i2]*x;
 		}
 		for(int i=loc, x=radius, max=data.length-1; i<=stop; i++, x--){
 			int i2=Tools.min(i, max);
-			sum+=data[i2]*x;
+			sum+=(long)data[i2]*x;
 		}
 		return sum;
 	}
@@ -1291,8 +1318,8 @@ public class CallPeaks {
 	
 	/**
 	 * Represents a coverage peak in k-mer frequency histogram.
-	 * Stores peak boundaries, height, volume, and GC content statistics.
-	 * Provides methods for peak manipulation and output formatting.
+	 * Mutable detection and condensation record. Final returned count and GC statistics
+	 * use the refined interval; intermediate detection sums may precede recalculation.
 	 */
 	private class Peak{
 		
@@ -1343,7 +1370,7 @@ public class CallPeaks {
 		 * @param p Peak to test compatibility with
 		 * @return true if peaks are compatible for merging
 		 */
-		public boolean compatibleWith(Peak p) {
+		public boolean compatibleWith(Peak p){
 			int min=Tools.min(center, p.stop);
 			int max=Tools.max(stop, p.center);
 //			assert(min*maxWidthMult>=max) : this+", "+p+", "+(min*maxWidthMult)+", "+max;
@@ -1351,9 +1378,12 @@ public class CallPeaks {
 		}
 
 		/**
-		 * @param array
+		 * Recomputes count statistics over [start, stop), sampling stopHeight at stop.
+		 * Does not update GC; callPeaks refreshes it after final geometry is settled.
+		 * @param array Histogram whose counts supply the statistics
 		 */
-		public void recalculate(long[] array) {
+		public void recalculate(long[] array){
+			//callPeaks refreshes GC from the original bins after all recalculations.
 			maxHeight=array[center];
 			startHeight=array[start];
 			stopHeight=array[stop];
@@ -1368,7 +1398,7 @@ public class CallPeaks {
 					maxPos=i;
 					maxHeight=x;
 				}
-				if(i<center){leftMin=Tools.min(leftMin,  x);}
+				if(i<center){leftMin=Tools.min(leftMin, x);}
 				else if(i>center){rightMin=Tools.min(rightMin, x);}
 				volume+=x;
 				volume2+=(x*i);
@@ -1376,9 +1406,11 @@ public class CallPeaks {
 		}
 
 		/**
-		 * @param p
+		 * Extends bounds to absorb another peak and adds its count/GC statistics.
+		 * The other peak is not modified; the caller subsequently recalculates final intervals.
+		 * @param p Distinct peak selected for absorption
 		 */
-		public void absorb(Peak p) {
+		public void absorb(Peak p){
 			assert(this!=p);
 			
 			if(center>p.center){
@@ -1449,11 +1481,11 @@ public class CallPeaks {
 			return bb;
 		}
 
-		/** Inclusive */
+		/** Left boundary, included in volume and GC sums. */
 		public int start;
 		/** Peak center position */
 		public int center;
-		/** Exclusive */
+		/** Right boundary, excluded from sums but sampled for stopHeight. */
 		public int stop;
 		/** Position of maximum height within peak */
 		public int maxPos;
@@ -1464,7 +1496,7 @@ public class CallPeaks {
 //		public long centerHeight;
 		/** Height at peak stop position */
 		public long stopHeight;
-		/** Total peak volume (sum of all heights in peak region) */
+		/** After recalculation, sum of histogram counts over [start, stop). */
 		public long volume;
 		/** Weighted peak volume (sum of heights multiplied by positions) */
 		public long volume2;
@@ -1475,7 +1507,7 @@ public class CallPeaks {
 		public long rightMin;
 		/** Maximum height within peak region */
 		public long maxHeight;
-		/** Sum of GC content values for this peak */
+		/** G+C-base total over the final interval when GC data is supplied. */
 		public long gc;
 
 		//Raw counts
@@ -1514,13 +1546,13 @@ public class CallPeaks {
 	private int minPeak=2;
 	/** Maximum position to consider for peak detection */
 	private int maxPeak=Integer.MAX_VALUE;
-	/** Maximum number of peaks to report */
+	/** Condensation target; separate height/volume cutoffs and ties can retain more peaks. */
 	private int maxPeakCount=10;
-	/** Maximum peak width as multiplier of center position */
+	/** Limits boundaries using rounded center/multiplier and center*multiplier positions. */
 	private float maxWidthMult=2.5f;
 	/** Radius for histogram smoothing operations */
 	private int smoothRadius=0;
-	/** Whether to use progressive smoothing with increasing radius */
+	/** Selects progressive smoothing when smoothRadius is positive; defaults to true. */
 	private boolean smoothProgressiveFlag=true;
 	/** K-mer size used for histogram generation */
 	private int k=31;
@@ -1549,38 +1581,38 @@ public class CallPeaks {
 	/*----------------        Static Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Maximum radius allowed for progressive smoothing */
+	/** Long-array radius growth stops after crossing this value; initial radius is not clamped. */
 	public static int maxRadius=10;
-	/** Multiplier for radius growth in progressive smoothing */
+	/** Spacing multiplier for long-array growth positions, not a multiplier of the radius. */
 	public static float progressiveMult=2;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Column index containing count values in input histogram */
+	/** Process-wide zero-based count column for indexed histogram rows. */
 	private static int countColumn=1;
 	
 	/** Output stream for error messages and diagnostics */
 	private PrintStream outstream=System.err;
 	/** Enable verbose output for debugging and detailed logging */
 	public static boolean verbose=false;
-	/** Flag indicating whether processing encountered errors */
+	/** Retained report-writer error flag; summary-calculation exceptions are logged separately. */
 	public boolean errorState=false;
 	/** Whether to overwrite existing output files */
 	private boolean overwrite=true;
 	/** Whether to append to existing output files */
 	private boolean append=false;
-	/** Whether to print class name in help and error messages */
+	/** Enables the constructor's invocation banner unless that constructor call suppresses it. */
 	public static boolean printClass=true;
 
 	/** Whether to use raw counts instead of normalized counts for peak calling */
 	public static boolean callByRawCount=false;
-	/** Whether to weight peaks by relief (difference from surrounding valleys) */
+	/** Parsed compatibility setting; currently unused by peak selection. */
 	public static boolean weightByRelief=false;
 	/** Constant for volume-based peak calling mode */
 	public static final int BY_VOLUME=0, BY_HEIGHT=1;
-	/** Current peak calling mode (BY_VOLUME or BY_HEIGHT) */
+	/** Legacy callMetric selector; active condensation uses its own height and volume thresholds. */
 	public static int CALL_MODE=BY_VOLUME;
 	/** Logic mode for ploidy detection algorithm */
 	public static int ploidyLogic=2;

@@ -22,7 +22,12 @@ ziplevel=2      (zl) Set to 1 (lowest) through 9 (max) to change compression
                 level; lower compression is faster.
 
 Processing parameters:
-rate=0.0        0.1 will expand by 10%; -0.1 will shrink by 10%.
+rate=<float>    Required finite nonzero rate, at least -1.
+                0.1 expands by 10%; -0.1 shrinks by 10%.
+                -1 removes each defined run exactly; values above 1 are allowed.
+                Other adjustments use float multiplication and truncate toward zero.
+                Undefined runs are unchanged. Adjustments that erase prior runs or
+                exceed builder capacity are rejected.
 
 Java Parameters:
 -Xmx            This will set Java's memory usage, overriding autodetection.
