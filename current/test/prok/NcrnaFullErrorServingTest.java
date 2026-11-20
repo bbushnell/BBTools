@@ -140,6 +140,7 @@ public final class NcrnaFullErrorServingTest{
 
 	private static void run(final File root, final String fivePath, final String threePath,
 			final String fiveGatePath, final String threeGatePath){
+		capturedScoreCases();
 		readerCases(root);
 		gateConfigurationCases(root);
 		final FamilyResourceResolver installed=new FamilyResourceResolver();
@@ -580,8 +581,13 @@ public final class NcrnaFullErrorServingTest{
 				worker.setGateObserver((end, input, score, proposed, accepted)->{
 					check(proposed==proposals[end], "Gate proposal must match direct first-stage inference");
 					for(int i=0; i<32; i++){
-						check(sameScore(input[i], inputs[end][i], vector && i<22),
-							"Raw metadata bits must match; only copied first-stage SIMD scores retain the existing numerical allowance");
+						if(!sameScore(input[i], inputs[end][i], vector && i<22)){
+							throw new AssertionError("Gate input mismatch: field="+i+", model="+model+", end="+end+", span="+start+".."+stop
+								+", fixed="+fixed+", vector="+vector+", actual="+input[i]+", expected="+inputs[end][i]
+								+", actualBits="+Float.floatToRawIntBits(input[i])+", expectedBits="+Float.floatToRawIntBits(inputs[end][i])
+								+"; metadata and scalar scores must be exact; accelerated score limit="+SIMD_TOLERANCE
+								+" because simd/SIMD.java:330 and simd/SIMD128.java:330 use FloatVector.reduceLanes(ADD), whose sum order is not fixed");
+						}
 					}
 					// Feed the SAME actual32inputs to isolate gate-copy arithmetic from first-stage SIMD drift.
 					gates[end].applyInput(input);
@@ -620,6 +626,25 @@ public final class NcrnaFullErrorServingTest{
 			worker.setGateObserver(null);
 			worker.setScoreObserver(null);
 		}
+	}
+
+	/** Fixed observed pairs make the chosen accelerated-score contract reproducible
+	 * without waiting for another intermittent vector evaluation. Scalar results
+	 * remain exact, including when the same pair is accepted in accelerated mode. */
+	private static void capturedScoreCases(){
+		final int[][] bits={{1061254580, 1061254574}, {-1168271484, -1168267007},
+			{-1168267007, -1168271484}};
+		for(final int[] pair:bits){
+			final float actual=Float.intBitsToFloat(pair[0]), expected=Float.intBitsToFloat(pair[1]);
+			check(sameScore(actual, expected, true),
+				"Captured accelerated scores must satisfy the selected absolute limit: actualBits="+pair[0]
+				+", expectedBits="+pair[1]+", difference="+Math.abs((double)actual-expected));
+			check(!sameScore(actual, expected, false), "The accelerated allowance must not relax exact scalar comparisons");
+		}
+		check(!sameScore(.5f, .500002f, true), "A two-millionth score error exceeds the selected accelerated limit");
+		check(!sameScore(Float.NaN, 0, true) && !sameScore(0, Float.NaN, true)
+			&& !sameScore(Float.POSITIVE_INFINITY, 0, true) && !sameScore(Float.POSITIVE_INFINITY, Float.POSITIVE_INFINITY, true),
+			"An accelerated allowance cannot admit nonfinite scores");
 	}
 
 	/** Exact scalar bits; the established SIMD allowance does not excuse changed decisions. */
@@ -768,7 +793,9 @@ public final class NcrnaFullErrorServingTest{
 						+", span="+start+".."+stop+", fixed="+fixed+", margin="+margin+", oorMargin="+oorMargin
 						+", mode="+(vector ? "SIMD" : "scalar")+", allowedDifference="+(vector ? SIMD_TOLERANCE : 0)
 						+", output="+output+", packaged="+scores[output]+", direct="+direct[output]
-						+", packagedBits="+Float.floatToRawIntBits(scores[output])+", directBits="+Float.floatToRawIntBits(direct[output]));
+						+", packagedBits="+Float.floatToRawIntBits(scores[output])+", directBits="+Float.floatToRawIntBits(direct[output])
+						+(vector ? "; the sum order is not fixed for FloatVector.reduceLanes(ADD) at simd/SIMD.java:330 and simd/SIMD128.java:330"
+							: "; scalar scores must match exactly"));
 				}
 			}
 			selected[end]=literal(scores, margin, oorMargin, useOorHead);
@@ -940,8 +967,12 @@ public final class NcrnaFullErrorServingTest{
 	private static final String DEFAULT_REAL_FAMILY="cobalamin_rf00174";
 	private static final long DEFAULT_REAL_COUNT=88390;
 	private static final int PAD=80;
-	/** Brian's standing ml merge allowance, relayed by G11 on November17. */
-	private static final double SIMD_TOLERANCE=2.4e-7;
+	/** Test-only absolute score limit selected by G11 on November19. The vector
+	 * ADD reduction at simd/SIMD.java:330 and simd/SIMD128.java:330 may associate
+	 * sums differently over time (JDK25 FloatVector.reduceLanes contract). This is
+	 * an acceptance choice, not a mathematical bound for arbitrary networks or
+	 * a production decision epsilon. Inputs, scalar scores and decisions stay exact. */
+	private static final double SIMD_TOLERANCE=1e-6;
 	private static long scalarCases, simdCases;
 	private static long gateScalarCases, gateSimdCases;
 	private static final long[] gateChecks=new long[2];
