@@ -44,6 +44,7 @@ lowercase=f         (lc) Convert masked bases to lower case.  Default is to conv
 split=f             Split into unmasked pieces and discard masked pieces.
 
 Coverage parameters (only relevant if sam files are specified):
+Coverage is summed across all SAM files before applying mincov and maxcov.
 mincov=-1           If nonnegative, mask bases with coverage outside this range.
 maxcov=-1           If nonnegative, mask bases with coverage outside this range.
 delcov=t            Include deletions when calculating coverage.

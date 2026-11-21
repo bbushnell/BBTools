@@ -4,7 +4,6 @@ import java.io.File;
 import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HashMap;
 import java.util.HashSet;
 import shared.Random;
 
@@ -21,6 +20,7 @@ import hiseq.ReadHeaderParser;
 import parse.Parse;
 import parse.Parser;
 import parse.PreParser;
+import processor.UniqueReadNameAllocator;
 import shared.KillSwitch;
 import shared.MetadataWriter;
 import shared.Shared;
@@ -137,6 +137,8 @@ public class ReformatReads {
 				addunderscore=Parse.parseBoolean(b);
 			}else if(a.equals("uniquenames")){
 				uniqueNames=Parse.parseBoolean(b);
+			}else if(a.equals("uniquenamescope")){
+				uniqueNamesFullHeader=UniqueReadNameAllocator.parseScope(b);
 			}else if(a.equals("verifyinterleaved") || a.equals("verifyinterleaving") || a.equals("vint")){
 				verifyinterleaving=Parse.parseBoolean(b);
 			}else if(a.equals("verifypaired") || a.equals("verifypairing") || a.equals("vpair")){
@@ -449,14 +451,18 @@ public class ReformatReads {
 
 		parser.validateStdio(ffin1, ffout1, ffoutsingle);
 
+		if(ffin1!=null && ffin1.samOrBam() && breakLength>0 && usesSamAlignmentFilters()){
+			throw new IllegalArgumentException("breaklength with SAM/BAM input is incompatible with alignment-dependent filters.");
+		}
+
 		assert(ReadStats.testFiles(true)) : "Existing output files specified, but overwrite==false";
 		assert(ReadStats.testFiles(false)) : "Duplicate or output files specified";
 
 		//		outstream.println("\n"+ReadWrite.USE_PIGZ+", "+ReadWrite.USE_UNPIGZ+", "+Data.PIGZ()+", "+Data.UNPIGZ()+", "+ffin1+"\n");
 		//		assert(false) : ReadWrite.USE_PIGZ+", "+ReadWrite.USE_UNPIGZ+", "+Data.PIGZ()+", "+Data.UNPIGZ()+", "+ffin1;
 
-		nameMap1=(uniqueNames ? new HashMap<String, Integer>() : null);
-		nameMap2=(uniqueNames ? new HashMap<String, Integer>() : null);
+		nameAllocator1=(uniqueNames ? new UniqueReadNameAllocator(uniqueNamesFullHeader) : null);
+		nameAllocator2=(uniqueNames ? new UniqueReadNameAllocator(uniqueNamesFullHeader) : null);
 
 		if(ref!=null){ScafMap.loadReference(ref, true);}
 		if(tag!=null) {
@@ -474,6 +480,17 @@ public class ReformatReads {
 		MAKE_IHIST=ReadStats.COLLECT_INSERT_STATS;
 		sam=ffin1.samOrBam();
 		readstats=ReadStats.collectingStats() ? new ReadStats() : null;
+	}
+
+	/*--------------------------------------------------------------*/
+
+	/** Reports whether configured filters require original SAM alignment fields.
+	 * @return Whether filters would inspect SAM state invalidated by breaklength splitting
+	 */
+	private boolean usesSamAlignmentFilters(){
+		return minMapq>=0 || maxMapq>=0 || filterBits!=0 || requiredBits!=0 || mappedOnly ||
+			unmappedOnly || primaryOnly || pairedOnly || unpairedOnly || minIdFilter>=0 ||
+			maxIdFilter<1 || USE_EDIT_FILTER;
 	}
 
 	/*--------------------------------------------------------------*/
@@ -1086,29 +1103,6 @@ public class ReformatReads {
 				if(r1.id==null){r1.id=""+r1.numericID;}
 				if(r2!=null && r2.id==null){r2.id=r1.id;}
 
-				if(uniqueNames){
-
-					{
-						Integer v=nameMap1.get(r1.id);
-						if(v==null){
-							nameMap1.put(r1.id, 1);
-						}else{
-							v++;
-							nameMap1.put(r1.id, v);
-							r1.id=r1.id+"_"+v;
-						}
-					}
-					if(r2!=null){
-						Integer v=nameMap2.get(r2.id);
-						if(v==null){
-							nameMap2.put(r2.id, 1);
-						}else{
-							v++;
-							nameMap2.put(r2.id, v);
-							r2.id=r2.id+"_"+v;
-						}
-					}
-				}
 				if(addunderscore){
 					r1.id=Tools.whitespace.matcher(r1.id).replaceAll("_");
 					if(r2!=null){r2.id=Tools.whitespace.matcher(r2.id).replaceAll("_");}
@@ -1123,6 +1117,10 @@ public class ReformatReads {
 					if(r2!=null){
 						if(!r2.id.contains(slash2)){r2.id+=slash2;}
 					}
+				}
+				if(uniqueNames){
+					r1.id=nameAllocator1.allocate(r1.id);
+					if(r2!=null){r2.id=nameAllocator2.allocate(r2.id);}
 				}
 			}
 		}
@@ -1448,16 +1446,18 @@ public class ReformatReads {
 	}
 
 	/**
-	 * Tests if a read passes edit distance filtering based on alignment statistics.
+	 * Tests if a read passes edit-statistic filters.
 	 * Analyzes substitutions, insertions, deletions, and clipping events against
 	 * configured thresholds to determine if read should be kept or filtered.
+	 * A read marked perfect passes only when no positive substitution count is
+	 * required.
 	 *
 	 * @param r Read to evaluate
 	 * @param requireMapped Whether unmapped reads should be rejected
-	 * @return true if read passes all configured edit distance filters
+	 * @return true if read passes all configured edit-statistic filters
 	 */
 	public final boolean passesEditFilter(Read r, boolean requireMapped){
-		if(r.perfect()){return true;}
+		if(r.perfect()){return minsubs<1;}
 		if(r.match==null && r.samline!=null){
 			r.match=r.samline.toShortMatch(false);
 		}
@@ -1656,25 +1656,27 @@ public class ReformatReads {
 	/**
 	 * Converts the last underscore in a read ID to a space character.
 	 * Used to fix UCSF-style read headers that use underscores instead of spaces.
+	 * Leaves a null read or null ID unchanged.
 	 * @param r Read whose ID should be modified
 	 */
 	public static final void underscoreToSpace(Read r){
-		if(r!=null){
+		if(r!=null && r.id!=null){
 			r.id=underscoreToSpace(r.id);
 		} 
 	}
 
 	/**
-	 * Converts the last underscore in a header string to a space character.
+	 * Converts the last underscore in a nonnull header string to a space by
+	 * character index, preserving all other characters.
 	 * @param header Header string to modify
-	 * @return Modified header with last underscore converted to space
+	 * @return Modified header, or the original reference if there is no underscore
 	 */
 	public static String underscoreToSpace(String header){
 		int x=header.lastIndexOf('_');
 		if(x<0){return header;}
-		byte[] bytes=header.getBytes();
-		bytes[x]=' ';
-		return new String(bytes);
+		final char[] chars=header.toCharArray();
+		chars[x]=' ';
+		return new String(chars);
 	}
 
 	/**
@@ -1692,8 +1694,9 @@ public class ReformatReads {
 	}
 
 	/**
-	 * Fixes problematic characters in header strings to make them filesystem-safe.
-	 * Converts non-alphanumeric characters to underscores except for allowed symbols.
+	 * Replaces each UTF-16 code unit outside the ASCII alphanumeric and
+	 * {@code _.#-()~} whitelist with an underscore. Null and empty headers are retained;
+	 * unchanged headers reuse their original String. Changed output uses the default charset.
 	 * @param header Header string to fix
 	 * @return Fixed header with invalid characters replaced
 	 */
@@ -1703,7 +1706,7 @@ public class ReformatReads {
 		boolean changed=false;
 		for(int i=0; i<header.length(); i++){
 			char c=header.charAt(i);
-			byte b=headerSymbols[c];
+			byte b=(c<128 ? headerSymbols[c] : (byte)'_');
 			array[i]=b;
 			changed|=(b!=c);
 		}
@@ -1785,10 +1788,12 @@ public class ReformatReads {
 	/** K-mer length for quality analysis and cardinality tracking */
 	private int k=0;
 
-	/** Tracks names to ensure no duplicate names. */
-	private final HashMap<String,Integer> nameMap1, nameMap2;
 	/** Whether to enforce unique read names by appending counters */
 	private boolean uniqueNames=false;
+	/** Independent scope selector: false compares the identifier, true compares the complete header. */
+	private boolean uniqueNamesFullHeader=false;
+	/** Tracks names to ensure no duplicate names. */
+	private final UniqueReadNameAllocator nameAllocator1, nameAllocator2;
 
 	private boolean reverseComplementMate=false;
 	private boolean reverseComplement=false;

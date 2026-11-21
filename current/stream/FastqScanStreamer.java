@@ -26,7 +26,7 @@ import structures.ListNum;
  * The fastqscan.sh launcher uses FastqScan, not this class's separate diagnostic main.
  * @author Brian Bushnell
  * @contributor Collei
- * @contributor Shinobu (documentation and formatting)
+ * @contributor Shinobu (documentation, formatting and header trimming)
  * @date November 29, 2025
  */
 public final class FastqScanStreamer implements Streamer{
@@ -191,7 +191,7 @@ public final class FastqScanStreamer implements Streamer{
 			final int basesLen=basesEnd-headerEnd-1-slashr1;
 			final int qualsLen=recordEnd-plusEnd-1-slashr2;
 			
-			final String header=new String(buffer, recordStart+1, headerLen);
+			final String header=trimHeader(new String(buffer, recordStart+1, headerLen));
 			final byte[] bases=Arrays.copyOfRange(buffer, headerEnd+1, basesEnd-slashr1);
 			final byte[] quals=Arrays.copyOfRange(buffer, plusEnd+1, recordEnd-slashr2);
 			FASTQ.applyQualityOffset(quals, bases, offset);
@@ -236,7 +236,7 @@ public final class FastqScanStreamer implements Streamer{
 			final int basesLen=basesEnd-headerEnd-1-slashr1;
 			final int qualsLen=recordEnd-plusEnd-1-slashr2;
 			
-			final String header=new String(buffer, recordStart+1, headerLen);
+			final String header=trimHeader(new String(buffer, recordStart+1, headerLen));
 			final byte[] bases=Arrays.copyOfRange(buffer, headerEnd+1, basesEnd-slashr1);
 			final byte[] quals=Arrays.copyOfRange(buffer, plusEnd+1, recordEnd-slashr2);
 			FASTQ.applyQualityOffset(quals, bases, offset);
@@ -257,6 +257,19 @@ public final class FastqScanStreamer implements Streamer{
 		return reads;
 	}
 	
+	/** Applies optional description trimming to an already decoded, marker-stripped header.
+	 * Preserves the original String when trimming is disabled or no whitespace is present.
+	 * With trimming enabled, an empty prefix is null. A literal leading @ or > is retained.
+	 * @param header Decoded header after removal of exactly one physical FASTQ marker
+	 * @return Header or trimmed prefix, or null for an empty prefix when trimming is enabled
+	 */
+	private static String trimHeader(final String header){
+		assert(header!=null) : "FASTQ header decoding must precede optional description trimming.";
+		if(!Shared.TRIM_READ_DESCRIPTION){return header;}
+		final int stop=Tools.indexOfWhitespace(header);
+		return header.isEmpty() || stop==0 ? null : stop<0 ? header : header.substring(0, stop);
+	}
+
 	/** Links adjacent Reads and compacts second mates out of the top-level list.
 	 * An odd leftover remains unpaired and produces a warning.
 	 * @param reads Mutable list of individual reads

@@ -13,6 +13,7 @@ import parse.Parse;
 import parse.Parser;
 import parse.PreParser;
 import processor.ReformatProcessor;
+import shared.KillSwitch;
 import shared.MetadataWriter;
 import shared.Shared;
 import shared.Timer;
@@ -34,17 +35,21 @@ import template.ThreadWaiter;
 import tracker.ReadStats;
 
 /**
- * Reformat using Streamer/Writer interfaces with multithreading.
+ * Reformat driver using Streamer/Writer interfaces and per-worker processors.
+ * Owns stream lifecycles, batch routing and sampling; ReformatProcessor owns read
+ * transformations and filter statistics. Unique naming and exact sampling run
+ * serially. Configure process-wide parser/format settings before starting workers.
  * @author Brian Bushnell
- * @contributor Isla & Gemini
+ * @contributor Isla &amp; Gemini
  * @date November 16, 2025
  */
-public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThread> {
+public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThread>{
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Parses arguments, processes input, and closes a redirected diagnostic stream. */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		ReformatStreamer x=new ReformatStreamer(args);
@@ -52,6 +57,10 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 		Shared.closeStream(x.outstream);
 	}
 
+	/** Configures the processor, validates paths and creates descriptors without starting streams.
+	 * Updates shared format/parser settings; construct before concurrent processing begins.
+	 * @param args Command-line options; filenames may contain equals signs
+	 */
 	public ReformatStreamer(String[] args){
 
 		{//Preparse block for help, config files, and outstream
@@ -96,10 +105,22 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 
 		final boolean samIn=(ffin1!=null && ffin1.samOrBam());
 		final boolean samOut=(ffout1!=null && ffout1.samOrBam());
+		if(samIn && breakLength>0 && processor.usesSamAlignmentFilters()){
+			throw new IllegalArgumentException("breaklength with SAM/BAM input is incompatible with alignment-dependent filters.");
+		}
 		SamLine.SET_FROM_OK=samIn;
 		ReadStreamByteWriter.USE_ATTACHED_SAMLINE=samIn && samOut;
-		//Determine if we need to parse SAM fields or can skip for performance
-		if(!forceParse && samIn && !samOut){
+		final boolean needsMatch=processor.minIdFilter>=0 || processor.maxIdFilter<1 || processor.USE_EDIT_FILTER;
+		if(samIn && needsMatch){
+			//Identity/edit filters need CIGAR and MD/custom match tags; RNAME supports reference lookup.
+			//Set these explicitly: an earlier invocation may have disabled the process-wide flags.
+			SamLine.PARSE_2=true;
+			SamLine.PARSE_5=true;
+			SamLine.PARSE_OPTIONAL=true;
+			SamLine.PARSE_OPTIONAL_MD_ONLY=false;
+			SamLine.PARSE_OPTIONAL_MATEQ_ONLY=false;
+		}else if(!forceParse && samIn && !samOut){
+			//MAPQ and FLAG are parsed unconditionally; other unused alignment fields can be skipped.
 			SamLine.PARSE_2=false;
 			SamLine.PARSE_5=false;
 			SamLine.PARSE_6=false;
@@ -113,13 +134,14 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 	/*----------------    Initialization Helpers    ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Parses driver, processor and generic options, then finalizes processor configuration. */
 	private Parser parse(String[] args){
 //		assert(false);
 		Parser parser=new Parser();
 
 		for(int i=0; i<args.length; i++){
 			String arg=args[i];
-			String[] split=arg.split("=");
+			String[] split=Parse.splitOnFirst(arg, '=');
 			String a=split[0].toLowerCase();
 			String b=split.length>1 ? split[1] : null;
 			if(b!=null && b.equalsIgnoreCase("null")){b=null;}
@@ -193,6 +215,7 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 		return parser;
 	}
 
+	/** Expands paired filename placeholders and rejects missing primary input/output paths. */
 	private void doPoundReplacement(){
 		if(in1!=null && in2==null && in1.indexOf('#')>-1 && !new File(in1).exists()){
 			in2=in1.replace("#", "2");
@@ -206,6 +229,7 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 		if(out1==null && out2!=null){throw new RuntimeException("Error - cannot define out2 without defining out1.");}
 	}
 
+	/** Resolves optional compression suffixes on input sequence and QUAL paths. */
 	private void fixExtensions(){
 		in1=Tools.fixExtension(in1);
 		in2=Tools.fixExtension(in2);
@@ -213,18 +237,20 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 		qfin2=Tools.fixExtension(qfin2);
 	}
 
+	/** Checks readability, overwrite policy and path collisions before streams open. */
 	private void checkFileExistence(){
-		if(!Tools.testOutputFiles(overwrite, append, false, out1, out2, outsingle)){
+		if(!Tools.testOutputFiles(overwrite, append, false, out1, out2, outsingle, qfout1, qfout2, qfoutsingle)){
 			throw new RuntimeException("\n\noverwrite="+overwrite+"; Can't write to output files "+out1+", "+out2+"\n");
 		}
-		if(!Tools.testInputFiles(false, true, in1, in2)){
+		if(!Tools.testInputFiles(false, true, in1, in2, qfin1, qfin2)){
 			throw new RuntimeException("\nCan't read some input files.\n");
 		}
-		if(!Tools.testForDuplicateFiles(true, in1, in2, out1, out2, outsingle)){
+		if(!Tools.testForDuplicateFiles(true, in1, in2, qfin1, qfin2, out1, out2, outsingle, qfout1, qfout2, qfoutsingle)){
 			throw new RuntimeException("\nSome file names were specified multiple times.\n");
 		}
 	}
 
+	/** Resolves process-wide FASTQ pairing settings from explicit flags and paired paths. */
 	private void adjustInterleaving(){
 		if(in2!=null){
 			if(FASTQ.FORCE_INTERLEAVED){outstream.println("Reset INTERLEAVED to false because paired input files were specified.");}
@@ -246,10 +272,12 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 		}
 	}
 
+	/** Reserved driver setup hook; currently has no effect. */
 	private static void checkStatics(){
 		//Empty for now
 	}
 
+	/** Reserved parameter-validation hook; current checks live in parsing and path setup. */
 	private boolean validateParams(){
 		return true;
 	}
@@ -258,6 +286,7 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 	/*----------------        Primary Method        ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Owns the prepass, streams, workers, statistics and final error reporting for one invocation. */
 	void process(Timer t){
 
 		final boolean inputReads=(ffin1!=null && !ffin1.samOrBam());
@@ -279,7 +308,7 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 			saveHeader, true, threadsIn);
 
 		//Set samplerate only if NOT doing exact sampling
-		if(!sampleReadsExact && !sampleBasesExact) {
+		if(!sampleReadsExact && !sampleBasesExact){
 			st.setSampleRate(processor.samplerate, processor.sampleseed);
 		}
 
@@ -299,11 +328,15 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 		
 		if(fw!=null){setError(fw.errorState());}
 		
+		//Exact sampling and breaklength operate on Read batches; split fragments have no original
+		//alignment metadata.
+		final boolean readMode=inputReads || outputReads || breakLength>0 || sampleReadsExact ||
+			sampleBasesExact;
 		//Process data
 		if(workers>1){
-			spawnThreads(st, fw, fwb, inputReads || outputReads);
+			spawnThreads(st, fw, fwb, readMode);
 		}else{
-			processSingleThreaded(st, fw, fwb, inputReads || outputReads);
+			processSingleThreaded(st, fw, fwb, readMode);
 		}
 		readsProcessed=processor.readsProcessedT;
 		basesProcessed=processor.basesProcessedT;
@@ -315,23 +348,19 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 		Read.VALIDATE_IN_CONSTRUCTOR=vic;
 
 		//Get output counts
-		if(sampleReadsExact || sampleBasesExact) {
-			//Trust the sampler's counts for pairs
+		if(sampleReadsExact || sampleBasesExact){
+			//Sampler counters include selected mates and emitted unsampled singletons.
 			readsOut=sampledReadsOut;
 			basesOut=sampledBasesOut;
-			if (fwb!=null){//Add un-sampled singles
-				readsOut += fwb.readsWritten();
-				basesOut += fwb.basesWritten();
-			}
-		} else {
+		}else{
 			//Trust the writers' counts
-			if(fw!=null) {
+			if(fw!=null){
 				readsOut=fw.readsWritten();
 				basesOut=fw.basesWritten();
 			}
-			if(fwb!=null) {
-				readsOut += fwb.readsWritten();
-				basesOut += fwb.basesWritten();
+			if(fwb!=null){
+				readsOut+=fwb.readsWritten();
+				basesOut+=fwb.basesWritten();
 			}
 		}
 		
@@ -360,16 +389,22 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 	/*----------------    Single-Threaded Mode      ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Processes batches on the calling thread; unexpected failure must not strand I/O workers. */
 	private void processSingleThreaded(Streamer st, Writer fw, Writer fwb, boolean readMode){
-		if(readMode){
-			for(ListNum<Read> ln=st.nextList(); ln!=null; ln=st.nextList()){
-				if(verbose) {System.err.println("Processing list "+ln.id);}
-				processReadList(ln, processor, fw, fwb);
+		try{
+			if(readMode){
+				for(ListNum<Read> ln=st.nextList(); ln!=null; ln=st.nextList()){
+					if(verbose){System.err.println("Processing list "+ln.id);}
+					processReadList(ln, processor, fw, fwb);
+				}
+			}else{
+				for(ListNum<SamLine> ln=st.nextLines(); ln!=null; ln=st.nextLines()){
+					processLineList(ln, processor, fw, fwb);
+				}
 			}
-		}else{
-			for(ListNum<SamLine> ln=st.nextLines(); ln!=null; ln=st.nextLines()){
-				processLineList(ln, processor, fw, fwb);
-			}
+		}catch(Throwable t){
+			System.err.println("jgi.ReformatStreamer worker 0 failed; aborting blocked input/output threads.");
+			KillSwitch.throwableKill(t);
 		}
 	}
 
@@ -377,6 +412,7 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 	/*----------------      Thread Management       ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Starts configured workers and merges each completed processor once. */
 	private void spawnThreads(Streamer st, Writer fw, Writer fwb, boolean readMode){
 		System.err.println("Spawning "+Tools.plural("worker", workers)+".");
 		ArrayList<ProcessThread> alpt=new ArrayList<ProcessThread>(workers);
@@ -389,6 +425,7 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 		setError(!success);
 	}
 
+	/** Merges a completed worker's counters; this method does not join that worker. */
 	@Override
 	public final void accumulate(ProcessThread pt){
 		synchronized(pt){
@@ -404,6 +441,7 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 	/*----------------        Inner Classes         ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Owns a processor clone while borrowing shared streams; unrecoverable errors halt the process. */
 	class ProcessThread extends Thread{
 
 		ProcessThread(Streamer st_, Writer fw_, Writer fwb_,
@@ -418,8 +456,13 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 
 		@Override
 		public void run(){
-			processInner();
-			success=true;
+			try{
+				processInner();
+				success=true;
+			}catch(Throwable t){
+				System.err.println("jgi.ReformatStreamer worker "+tid+" failed; aborting blocked input/output threads.");
+				KillSwitch.throwableKill(t);
+			}
 		}
 
 		void processInner(){
@@ -453,6 +496,7 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 	/*----------------      Processing Methods      ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Mutates one batch, routes surviving mates, and submits every output batch ID, including empties. */
 	private void processReadList(ListNum<Read> ln, ReformatProcessor proc, Writer fw, Writer fwb){
 		final ArrayList<Read> reads=ln.list;
 
@@ -465,7 +509,7 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 					reads.set(i, null);
 					removed++;
 				}else{
-					skipreads=-1;
+					//The shared threshold must remain unchanged when batches run out of order.
 					break;
 				}
 			}
@@ -476,6 +520,16 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 
 		//Handle breakLength
 		if(breakLength>0){
+			if(ffin1!=null && ffin1.samOrBam() && SamLine.FLIP_ON_LOAD){
+				for(final Read r : reads){
+					if(r!=null && r.bases!=null && r.length()>breakLength){
+						final SamLine sl=r.samline;
+						//Load-flipped arrays are forward-oriented; detached fragments must inherit that strand.
+						//Use original SAM flags: X6 may replace Read.flags after the parser flips the arrays.
+						if(sl!=null && sl.mapped() && sl.strand()==Shared.MINUS){r.setStrand(Shared.PLUS);}
+					}
+				}
+			}
 			Tools.breakReads(reads, breakLength, proc.minReadLength, (verbose ? outstream : null));
 		}
 
@@ -517,29 +571,33 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 		if(sampleReadsExact || sampleBasesExact){
 			final ArrayList<Read> listOut=new ArrayList<Read>();
 			final ArrayList<Read> singlesOut=(fwb==null ? null : singles);
-			if(singlesOut!=null){singlesOut.clear();}// Clear list from filtering step
-
 			sampleExact(reads, listOut, singlesOut); // Fills listOut
+			//Filter-generated singletons bypass exact sampling, as in the legacy driver.
+			if(singlesOut!=null){
+				sampledReadsOut+=singlesOut.size();
+				for(Read r : singlesOut){sampledBasesOut+=r.length();}
+			}
 
 			// Replace the original list with the new sampled list
 			ln.list.clear();
 			ln.list.addAll(listOut);
 
 			// Send the modified ListNum (with the sampled list) to output
-			if(fw!=null){ fw.addReads(ln);}
-			if(fwb!=null && singles!=null && !singles.isEmpty()){
-				// Note: Replicating original bug/feature of not sampling singles
+			if(fw!=null){fw.addReads(ln);}
+			if(fwb!=null){
+				//Preserve the batch ID even when the singleton list is empty.
 				fwb.addReads(new ListNum<Read>(singles, ln.id)); 
 			}
-		} else {
+		}else{
 			// No exact sampling; send the original filtered lists
-			if(fw!=null){ fw.addReads(ln); }
-			if(fwb!=null && singles!=null && !singles.isEmpty()){
+			if(fw!=null){fw.addReads(ln);}
+			if(fwb!=null){
 				fwb.addReads(new ListNum<Read>(singles, ln.id));
 			}
 		}
 	}
 
+	/** Filters SAM records through attached Reads; exact sampling uses processReadList instead. */
 	private void processLineList(ListNum<SamLine> ln, ReformatProcessor proc, Writer fw, Writer fwb){
 		final ArrayList<SamLine> lines=ln.list;
 
@@ -553,7 +611,7 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 					lines.set(i, null);
 					removed++;
 				}else{
-					skipreads=-1;
+					//Later batches cannot disable skipping for an earlier batch still in flight.
 					break;
 				}
 			}
@@ -641,6 +699,10 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 		}
 	}
 
+	/** Selects fragment occurrences into listOut while counting individual output reads and bases.
+	 * Updates target/population state and may emit repeated references under allowUpsample.
+	 * Requires serial calls. The singleton output argument is currently unused.
+	 */
 	private void sampleExact(ArrayList<Read> reads, ArrayList<Read> listOut, ArrayList<Read> singlesOut){
 		if(sampleReadsExact){
 			// Sample pairs
@@ -652,22 +714,21 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 					while(allowUpsample && prob>1){
 						listOut.add(r);
 						sampleReadsTarget--;
-						sampledReadsOut++;
+						sampledReadsOut+=r.pairCount();
 						sampledBasesOut+=bases;
 						prob--;
 					}
 					if(randy.nextDouble()<prob){
 						listOut.add(r);
 						sampleReadsTarget--;
-						sampledReadsOut++;
+						sampledReadsOut+=r.pairCount();
 						sampledBasesOut+=bases;
 					}
 				}
 				readsRemaining--; // Decrement for every read (pair) looked at
 			}
 
-			// Sample singles (replicates bug from original, only samples from main list)
-			// This block is intentionally left empty to match original logic.
+			//Only the main list is sampled here; singleton routing belongs to the caller.
 
 		}else{// sampleBasesExact
 			// Sample pairs
@@ -680,14 +741,14 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 					while(allowUpsample && prob>1){
 						listOut.add(r);
 						sampleBasesTarget-=bases;
-						sampledReadsOut++;
+						sampledReadsOut+=r.pairCount();
 						sampledBasesOut+=bases;
 						prob--;
 					}
 					if(randy.nextDouble()<prob){
 						listOut.add(r);
 						sampleBasesTarget-=bases;
-						sampledReadsOut++;
+						sampledReadsOut+=r.pairCount();
 						sampledBasesOut+=bases;
 					}
 				}
@@ -697,12 +758,13 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 		}
 	}
 
-	/** Copied from ReformatReads.java */
+	/** Counts fragments, individual reads and bases after skipping within the raw-input quota. */
 	private long[] countReads(long maxReads){
 		if(ffin1.stdio()){
 			throw new RuntimeException("Can't precount reads from standard in, only from a file.");
 		}
-		if(ffin2==null && (ffin1.fastq() || ffin1.fasta() || ffin1.sam())){
+		//FastqScan has no read-limit argument; bounded inputs use the quota-aware streamer.
+		if(maxReads<0 && skipreads<=0 && ffin2==null && (ffin1.fastq() || ffin1.fasta() || ffin1.sam())){
 			return FastqScan.countReadsAndBases(ffin1, true, -1, -1);
 		}
 
@@ -717,8 +779,11 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 		long count=0, count2=0, bases=0;
 
 		while(ln!=null && reads!=null && reads.size()>0){
-			count+=reads.size();
-			for(Read r : reads){
+			int first=0;
+			while(first<reads.size() && reads.get(first).numericID<skipreads){first++;}
+			count+=reads.size()-first;
+			for(int i=first; i<reads.size(); i++){
+				final Read r=reads.get(i);
 				bases+=r.length();
 				count2++;
 				if(r.mate!=null){
@@ -733,7 +798,7 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 		return new long[]{count, count2, bases};
 	}
 
-	/** Copied from ReformatReads.java */
+	/** Collects unskipped individual read lengths within the raw-input quota for length selection. */
 	private SuperLongList makeLengthHist(long maxReads){
 		if(ffin1.stdio()){
 			throw new RuntimeException("Can't precount reads from standard in, only from a file.");
@@ -750,7 +815,10 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 		SuperLongList sll=new SuperLongList(200000);
 
 		while(ln!=null && reads!=null && reads.size()>0){
-			for(Read r : reads){
+			int first=0;
+			while(first<reads.size() && reads.get(first).numericID<skipreads){first++;}
+			for(int i=first; i<reads.size(); i++){
+				final Read r=reads.get(i);
 				sll.add(r.length());
 				if(r.mate!=null){
 					sll.add(r.mateLength());
@@ -768,6 +836,7 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 	/*----------------         Statistics           ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Reports processor input totals and selected output totals, plus elapsed-time statistics. */
 	private void printStats(Timer t){
 
 		//Determine final output counts
@@ -779,8 +848,8 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 		long readsOut=readsOutPairs+readsOutSingles;
 		long basesOut=basesOutPairs+basesOutSingles;
 		
-		if(sampleReadsExact || sampleBasesExact) {
-			readsOut=sampledReadsOut; // Sampler only tracks pairs
+		if(sampleReadsExact || sampleBasesExact){
+			readsOut=sampledReadsOut; // Individual reads, including both mates of selected pairs.
 			basesOut=sampledBasesOut;
 		}
 
@@ -810,8 +879,9 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 		if(processor.verifypairing){outstream.println("Names appear to be correctly paired.");}
 	}
 
-	private boolean setError(boolean b) {
-		if(b && !errorState) {
+	/** Records a sticky failure and prints a stack on the first transition to an error state. */
+	private boolean setError(boolean b){
+		if(b && !errorState){
 			new RuntimeException("Triggered error state:").printStackTrace(outstream);
 		}
 		errorState|=b;
@@ -825,7 +895,7 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 	private String in1=null, in2=null;
 	private String qfin1=null, qfin2=null;
 	private String out1=null, out2=null, outsingle=null;
-	private String qfout1=null, qfout2=null, qfoutsingle=null;//Unsupported currently
+	private String qfout1=null, qfout2=null, qfoutsingle=null;
 	private String extin=null, extout=null;
 	private boolean setInterleaved=false;
 
@@ -842,6 +912,7 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 	protected long basesOut=0; //This is the final count, from writer or sampler
 
 	private long maxReads=-1;
+	/** Input fragment ordinal boundary, fixed after parsing even when batches run out of order. */
 	private long skipreads=-1;
 	private int breakLength=0;
 
@@ -852,8 +923,10 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 	private boolean sampleBasesExact=false;
 	private boolean allowUpsample=false;
 	private boolean prioritizeLength=false;
+	/** Remaining fragment target; distinct from the individual-read output counter. */
 	private long sampleReadsTarget=0;
 	private long sampleBasesTarget=0;
+	/** Individual reads emitted by sampling; a selected pair contributes two. */
 	private long sampledReadsOut=0;
 	private long sampledBasesOut=0;
 

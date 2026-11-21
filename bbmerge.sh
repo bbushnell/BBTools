@@ -33,6 +33,7 @@ Output parameters:
 out=<file>           File for merged reads. 'out2' will specify a second file.
 outu=<file>          File for unmerged reads. 'outu2' will specify a second file.
 outinsert=<file>     (outi) File to write read names and insert sizes.
+noheader=f          (suppressheader) Omit the column header from outinsert.
 outadapter=<file>    (outa) File to write consensus adapter sequences.
 outc=<file>          File to write input read kmer cardinality estimate.
 ihist=<file>         (hist) Insert length histogram output file.

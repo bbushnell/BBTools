@@ -1,6 +1,6 @@
 # JGI Package - BBTools Comprehensive Utilities Collection
 
-The JGI package contains 92 specialized utilities designed for genomic sequencing data analysis, read processing, quality control, and bioinformatics workflows. These tools provide comprehensive functionality for modern genomic research and data processing pipelines.
+The JGI package contains utilities for sequencing data analysis, read processing, quality control, and bioinformatics workflows.
 
 ## Package Overview
 
@@ -40,15 +40,17 @@ This package represents one of the largest collections in BBTools, offering util
 **Usage**: Critical component in paired-end read processing for sequencing data cleanup, error correction, and read reconstruction in bioinformatics pipelines
 
 #### AssemblyStats3 (AssemblyStats3.java)
-**Purpose**: Generates statistical metrics for assembly files using the Assembly class.
-**Core Function**: Processes multiple assembly files, extracting key metrics like total length, contig count, GC content, and contig length distributions.
-**Key Features**:
-  - Processes multiple input assembly files
-  - Calculates assembly size and contig statistics
-  - Computes GC content
-  - Generates summary report with metrics
-  - Supports custom output file configuration
-**Usage**: Generates assembly quality report for genomic assemblies, useful in genome research and bioinformatics pipeline quality control.
+
+`stats3.sh` writes a compact nine-column row per input: filename, total length,
+nonempty sequence-record count, GC fraction, maximum length, and total bases in
+records at least 5k, 10k, 25k and 50k bases long. It uses `Assembly` and an `IntList`;
+it does not calculate N50/N90 or split scaffolds at gaps. `stats.sh` continues to use
+`AssemblyStats2` for its more detailed report.
+
+`reads=` (alias `maxreads=`) limits nonempty sequence records in input order,
+separately for each file, before sorting lengths. Negative is unlimited (the default);
+zero produces an empty statistics row. Empty header records do not count, and the
+loader's existing acceptance of sequence before the first header is retained.
 
 #### Assembly (Assembly.java)
 **Purpose**: Parses and analyzes FASTA genome assembly files to extract sequence statistics.
@@ -62,26 +64,28 @@ This package represents one of the largest collections in BBTools, offering util
 **Usage**: Used in bioinformatics pipelines to analyze genome assembly characteristics and perform preliminary sequence statistics.
 
 #### AddAdapters.java (AddAdapters.java)
-**Purpose**: Programmatically add and simulate adapter sequences to sequencing reads
-**Core Function**: Randomly inject adapter sequences into reads with configurable location, probability, and error simulation
+**Purpose**: Legacy generator of insert-unaware adapter-contaminated read data, with an optional length-grading mode
+**Core Function**: Replaces selected read regions with adapter sequence and random filler, preserving read lengths and quality arrays and recording original/expected lengths in generated headers
 **Key Features**:
-  - Supports both 5' and 3' adapter injection with configurable probabilistic placement
-  - Optional reverse-complement adapter generation
-  - Quality-aware error simulation during adapter insertion
-  - Flexible read processing for single and paired-end sequencing data
-  - Tracks detailed statistics about adapter addition and read modifications
-**Usage**: Used in sequencing data preprocessing to simulate adapter contamination, evaluate adapter removal algorithms, and generate synthetic training datasets for bioinformatics tools
+  - Selects a 5' prefix or 3' suffix without using insert size
+  - Mates may share the sampled replacement position while independently choosing adapter entries
+  - Retains undefined input bases; optional adapter-region substitutions use existing qualities or Q30 when quality is null
+  - Optionally adds reverse-complement adapter entries
+  - `minlen` classifies expected-remainder statistics and never filters generation output
+  - Legacy grade mode compares surviving annotated lengths, without checking sequence identity or accounting for discarded reads
+**Usage**: The deprecated `addadapters.sh` generates data for subsequent external trimmer evaluation; it does not run trimming tools. Use `randomreads.sh` when paired adapter placement must respect insert size.
 
 #### AdjustHomopolymers.java (AdjustHomopolymers.java)
-**Purpose**: Command-line utility for processing sequencing reads by adjusting homopolymer runs
-**Core Function**: Modifies read bases and qualities by expanding or contracting homopolymer sequences based on a configurable rate
+**Purpose**: Applies controlled expansions or contractions to homopolymer runs in sequence reads
+**Core Function**: Adjusts each completed run, including the final run, using exact equality of the bytes supplied by input/validation
 **Key Features**:
-  - Supports single and paired-end read processing
-  - Configurable homopolymer adjustment rate
-  - Handles read validation and quality tracking
-  - Preserves read quality scores during adjustments
-  - Supports various input/output file formats (FASTQ)
-**Usage**: Used in bioinformatics pipelines to normalize sequence reads by standardizing homopolymer regions
+  - Advertised sequence inputs are single-end or paired-end FASTA/FASTQ; editing uses one caller with background stream I/O
+  - Adjusts A/C/G/T/U in either case, with case included in byte equality; undefined runs remain unchanged
+  - Requires a finite, nonzero rate at least -1: `-1` removes defined runs exactly, other rates use float multiplication and int truncation toward zero, and values above 1 are allowed
+  - Expansion copies the run's final original quality; contraction drops qualities with their bases; null qualities remain null
+  - Checks run ownership and projected builder capacity before applying an adjustment; allocation success for huge reads is not guaranteed
+  - Requires sequence bases and does not recalculate alignment metadata; mapped SAM/BAM consistency is outside the reviewed correctness scope
+**Usage**: Use `adjusthomopolymers.sh` with the desired rate for controlled run-length changes, consulting its help for input/output options.
 
 #### AssemblyStatsWrapper (AssemblyStatsWrapper.java)
 **Purpose**: Wrapper for processing multiple assembly statistics files with customizable input handling
@@ -218,15 +222,70 @@ This package represents one of the largest collections in BBTools, offering util
   - Thread-safe with concurrent read/write processing
 **Usage**: Identifies and optionally filters/reports duplicate reads in sequencing datasets
 
-*[Remaining utilities follow the same detailed documentation pattern.]*
+These are selected entries; this page is not a complete package inventory.
+
+#### Reformat (reformat.sh)
+
+Read-name uniqueness is disabled by default. Enable it with `uniquenames=t`:
+
+```bash
+bash ./reformat.sh in=reads.fq out=renamed.fq uniquenames=t trd=f ow=f
+```
+
+An unused name keeps its spelling. Collisions add `_2`, `_3`, and so on, avoiding
+names already encountered, including names with natural numeric suffixes.
+`uniquenamescope=identifier` is the default: it compares the identifier before
+the first whitespace and preserves the following description. To compare the
+complete retained header, add `uniquenamescope=header`. Selecting a scope does
+not enable uniqueness by itself.
+
+Set `trd=f` to retain descriptions. With `trd=t`, description trimming occurs
+before uniqueness comparison in either scope. For these three input headers,
+`<TAB>` represents one actual tab character:
+
+| Input order | Identifier scope, `trd=f` | Header scope, `trd=f` | Either scope, `trd=t` |
+|---|---|---|---|
+| `x a` | `x a` | `x a` | `x` |
+| `x<TAB>b` | `x_2<TAB>b` | `x<TAB>b` | `x_2` |
+| `x a` | `x_3 a` | `x a_2` | `x_3` |
+
+First and second mates have independent naming histories. When a terminal mate
+annotation remains in the header, generated suffixes precede it: a repeated
+`p/1` becomes `p_2/1`; retained `p /1` and `p 1:` become `p_2 /1` and `p_2 1:`.
+
+#### CovStatsLine (CovStatsLine.java)
+
+This mutable helper parses coverage-table rows after `initializeHeader` sets the
+column map. The map is shared across the process and unsynchronized; callers must
+coordinate schema changes with parsing. Constructors reject nonfinite scalar
+values. `reads()` checks the strand-count sum, and `add()` checks base, strand and
+read totals and rejects nonfinite weighted results before changing the receiver.
+These summaries do not retain sufficient information to pool medians or standard
+deviations reliably. Successful merges emit literal `NA` for both, retaining their
+columns and positions; the parser accepts `NA` in `Median_fold` and `Std_Dev`.
+Known singleton values stay numeric. Unavailable numeric fields are zero; check
+`medianAvailable` or `stdDevAvailable`, or use `medianText()` or `stdDevText()`, to
+distinguish unavailable values from known zeros. Missing columns retain the legacy
+known-zero default.
+Finite ranges, count relationships
+and arbitrary public-field changes are not generally validated. See the class
+Javadoc for field units, serialization order and the long-field compatibility note.
 
 ## Command Line Usage
 
-Most JGI utilities follow a standard BBTools command-line interface:
+Use the selected tool's shell launcher from the BBTools installation directory.
+For example, filter an assembly using a coverage table with matching contig IDs:
 
 ```bash
-java -cp bbmap.jar jgi.UtilityName [parameters]
+bash ./filterbycoverage.sh in=assembly.fa cov=coverage.tsv out=clean.fa \
+    outdirty=removed.fa mincov=5 minpercent=40 ow=f
 ```
+
+This example writes passing contigs to `clean.fa` and filtered contigs to
+`removed.fa`, with minimum mean coverage 5 and minimum covered percent 40.
+Contigs missing from the coverage table are filtered. Other thresholds retain
+their defaults; run `bash ./filterbycoverage.sh --help` for the available options.
+The launcher supplies the Java environment, memory settings and assertions.
 
 Common parameters across utilities:
 - `in=file`: Input file (FASTQ, FASTA, SAM, etc.)
@@ -245,11 +304,7 @@ The JGI package utilities are designed to work seamlessly with other BBTools com
 
 ## Performance and Scalability
 
-All utilities in this package are optimized for:
-- Multi-threaded processing capabilities
-- Memory-efficient algorithms
-- Support for compressed file formats
-- Streaming data processing where applicable
-- Large-scale genomic dataset handling
-
-This comprehensive utility collection serves as the foundation for complex bioinformatics workflows, providing researchers with robust, efficient tools for genomic data analysis and processing.
+Threading, streaming and compressed-format support vary by tool. Consult that
+tool's launcher help for its supported inputs, worker-thread options and heap
+settings. Choose resources for the actual tool and workload, and measure that
+configuration when comparing performance.

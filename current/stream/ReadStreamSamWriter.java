@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 
 import fileIO.FileFormat;
+import shared.KillSwitch;
 import structures.ListNum;
 
 /**
@@ -67,20 +68,22 @@ public class ReadStreamSamWriter extends ReadStreamWriter{
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Processes jobs and then finalizes the delegate on normal completion.
-	 * Caught Exceptions set the inherited failure flags and are wrapped in RuntimeException.
-	 * This handler does not catch Error instances.
-	 * @throws RuntimeException If an Exception escapes job processing or finalization
+	 * Processes jobs and finalizes the delegate on normal completion.
+	 * Any escaping failure prints its original stack and terminates the JVM with
+	 * a nonzero exit; output may be incomplete. Merely ending this thread can strand
+	 * the delegate or upstream producers. In particular, inherited addJob holds this
+	 * writer's monitor during queue.put, so abortNow cannot safely acquire that monitor
+	 * after the consumer fails. Delegate abandonment alone cannot release those producers.
 	 */
 	@Override
 	public void run(){
 		try{
 			run2();
-		}catch(Exception e){
+		}catch(Throwable t){
 			errorState=true;
 			finishedSuccessfully=false;
-			System.err.println("ReadStreamWriter failed: "+e.getMessage());
-			throw new RuntimeException(e);
+			System.err.println("Fatal SAM/BAM writer failure; output may be incomplete.");
+			KillSwitch.throwableKill(t);
 		}
 	}
 

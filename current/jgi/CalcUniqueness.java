@@ -3,7 +3,6 @@ package jgi;
 import java.io.File;
 import java.io.PrintStream;
 import java.util.ArrayList;
-import shared.Random;
 
 import fileIO.ByteFile;
 import fileIO.ByteFile1;
@@ -19,6 +18,7 @@ import kmer.ScheduleMaker;
 import parse.Parse;
 import parse.Parser;
 import parse.PreParser;
+import shared.Random;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
@@ -30,18 +30,23 @@ import stream.Read;
 import structures.ListNum;
 
 /**
+ * Samples fixed-position and random k-mers to report how often a sampled key is new.
+ * Each sampling category retains its own seen-key history across output intervals.
+ * Paired input also reports mate-specific categories and a combined pair signature.
+ * Counts and percentages describe the current interval unless cumulative mode is enabled;
+ * quality columns always summarize reads in the current interval.
+ * Processing and counters are single-threaded, with input and output handled by streams.
  * @author Brian Bushnell
  * @date Mar 24, 2014
- *
  */
-public class CalcUniqueness {
-	
-	
+public class CalcUniqueness{
+
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	
+
 	/**
 	 * Program entry point.
 	 * Creates CalcUniqueness instance and processes input with timing.
@@ -51,11 +56,11 @@ public class CalcUniqueness {
 		Timer t=new Timer();
 		CalcUniqueness x=new CalcUniqueness(args);
 		x.process(t);
-		
+
 		//Close the print stream if it was redirected
 		Shared.closeStream(x.outstream);
 	}
-	
+
 	/**
 	 * Constructor that parses arguments and initializes data structures.
 	 * Sets up hash tables, counters, and file formats for processing.
@@ -65,26 +70,27 @@ public class CalcUniqueness {
 	 * @throws RuntimeException if invalid parameters or missing required inputs
 	 */
 	public CalcUniqueness(String[] args){
-		
+
 		{//Preparse block for help, config files, and outstream
 			PreParser pp=new PreParser(args, getClass(), false);
 			args=pp.args;
 			outstream=pp.outstream;
 		}
-		
+
 		boolean setInterleaved=false; //Whether it was explicitly set.
-		
+
 		Shared.capBuffers(4);
 		ReadWrite.USE_UNPIGZ=true;
-		
+
 		int k_=25;
-		
+
 		Parser parser=new Parser();
 		for(int i=0; i<args.length; i++){
 			String arg=args[i];
-			String[] split=arg.split("=");
-			String a=split[0].toLowerCase();
-			String b=split.length>1 ? split[1] : null;
+			//Only the first '=' separates the option; filenames may contain more.
+			final int equals=arg.indexOf('=');
+			String a=(equals<0 ? arg : arg.substring(0, equals)).toLowerCase();
+			String b=(equals<0 || equals==arg.length()-1 ? null : arg.substring(equals+1));
 
 			if(parser.parse(arg, a, b)){
 				//do nothing
@@ -122,12 +128,12 @@ public class CalcUniqueness {
 				throw new RuntimeException("Unknown parameter "+args[i]);
 			}
 		}
-		
+
 		{//Process parser fields
 			Parser.processQuality();
 			minAverageQuality=parser.minAvgQuality;
 			minAverageQualityBases=parser.minAvgQualityBases;
-			
+
 			maxReads=parser.maxReads;
 			samplerate=parser.samplerate;
 			sampleseed=parser.sampleseed;
@@ -135,23 +141,23 @@ public class CalcUniqueness {
 			overwrite=parser.overwrite;
 			append=parser.append;
 			testsize=parser.testsize;
-			
+
 			setInterleaved=parser.setInterleaved;
-			
+
 			in1=parser.in1;
 			in2=parser.in2;
 
 			out=parser.out1;
-			
+
 			extin=parser.extin;
 			extout=parser.extout;
 		}
 		setSampleSeed(-1);
-		
+
 		k=k_;
 		k2=k-1;
 		assert(k>0 && k<32) : "k="+k+"; valid range is 1-31";
-		
+
 		if(in1!=null && in2==null && in1.indexOf('#')>-1 && !new File(in1).exists()){
 			in2=in1.replace("#", "2");
 			in1=in1.replace("#", "1");
@@ -160,18 +166,18 @@ public class CalcUniqueness {
 			if(FASTQ.FORCE_INTERLEAVED){System.err.println("Reset INTERLEAVED to false because paired input files were specified.");}
 			FASTQ.FORCE_INTERLEAVED=FASTQ.TEST_INTERLEAVED=false;
 		}
-		
+
 		assert(FastaReadInputStream.settingsOK());
-		
+
 		if(in1==null){throw new RuntimeException("Error - at least one input file is required.");}
 		if(!ByteFile.FORCE_MODE_BF1 && !ByteFile.FORCE_MODE_BF2 && Shared.threads()>2){
 			ByteFile.FORCE_MODE_BF2=true;
 		}
-		
+
 		if(out==null){
 			out="stdout.txt";
 		}
-		
+
 		if(!setInterleaved){
 			assert(in1!=null && out!=null) : "\nin1="+in1+"\nin2="+in2+"\nout="+out+"\n";
 			if(in2!=null){ //If there are 2 input streams.
@@ -179,11 +185,14 @@ public class CalcUniqueness {
 				outstream.println("Set INTERLEAVED to "+FASTQ.FORCE_INTERLEAVED);
 			}
 		}
-		
+
+		//Check each input against the output without rejecting repeated input names.
+		Tools.testForDuplicateFiles(true, in1, out);
+		Tools.testForDuplicateFiles(true, in2, out);
 		if(!Tools.testOutputFiles(overwrite, append, false, out)){
 			throw new RuntimeException("\n\noverwrite="+overwrite+"; Can't write to output file "+out+"\n");
 		}
-		
+
 		ffout=FileFormat.testOutput(out, FileFormat.TEXT, extout, false, overwrite, append, false);
 
 		ffin1=FileFormat.testInput(in1, FileFormat.FASTQ, extin, true, true);
@@ -206,21 +215,22 @@ public class CalcUniqueness {
 				throw new RuntimeException("Must use forest, table, or array data structure.");
 			}
 		}
-		
+
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------         Inner Class          ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
+	/** Tracks one sampling category using a bit in the shared key tables. */
 	private class Counter{
-		
+
 		/** Creates a counter with the specified bit mask for k-mer tracking.
 		 * @param mask_ Bit mask used to identify this counter's k-mer category */
 		Counter(int mask_){
 			mask=mask_;
 		}
-		
+
 		/**
 		 * Updates quality statistics for a read.
 		 * Calculates average quality and error-free probability.
@@ -233,11 +243,11 @@ public class CalcUniqueness {
 			double p=r.probabilityErrorFree(true, r.length());
 			perfectProb+=p;
 		}
-		
+
 		/**
 		 * Tracks k-mer occurrence in the appropriate hash table.
-		 * Increments hit count if k-mer exists, miss count if new.
-		 * Uses bit masking to identify which counter categories have seen this k-mer.
+		 * Counts a hit only if this category has seen the key; otherwise counts a miss.
+		 * Other categories may already have recorded the same key in the shared table.
 		 * @param kmer The k-mer value to track (negative values are ignored)
 		 */
 		void increment(final long kmer){
@@ -257,35 +267,36 @@ public class CalcUniqueness {
 				chits++;
 			}
 		}
-		
-		/** Resets interval counters while preserving cumulative totals.
-		 * Saves current values as previous for spike detection. */
+
+		/** Resets interval counts and quality sums while preserving seen-key history and
+		 * cumulative hit/miss totals. Saves the previous displayed percentage for spike fixing. */
 		void reset(){
 			prevPercent=percent();
 			prevHits=hits;
 			prevMisses=misses;
-			
+
 			hits=misses=0;
 			quality=0;
 			perfectProb=0;
 			qualCounts=0;
 		}
-		
-		/** Calculates average quality score across processed reads.
-		 * @return Average quality score, or 0 if no reads processed */
-		public double averageQuality() {
+
+		/** Averages the per-read quality scores accumulated in the current interval.
+		 * @return Mean read quality, or 0 if no reads contributed */
+		public double averageQuality(){
 			return qualCounts<1 ? 0 : quality/qualCounts;
 		}
-		
-		/** Calculates average probability of error-free reads.
+
+		/** Calculates average probability of error-free reads in the current interval.
 		 * @return Average error-free probability as percentage, or 0 if no reads */
-		public double averagePerfectProb() {
+		public double averagePerfectProb(){
 			return qualCounts<1 ? 0 : 100*perfectProb/qualCounts;
 		}
-		
+
 		/**
 		 * Calculates uniqueness percentage for this counter.
-		 * Applies spike-fixing algorithm if enabled to smooth anomalous values.
+		 * In interval mode, spike fixing caps an increase at 0.2 percentage points
+		 * above the previous displayed percentage when that interval had observations.
 		 * @return Percentage of unique k-mers (misses / total)
 		 */
 		double percent(){
@@ -296,11 +307,11 @@ public class CalcUniqueness {
 			assert(!cumulative && fixSpikes);
 			return Tools.min(percent, prevPercent+0.2);
 		}
-		
+
 		/** Formats uniqueness percentage as string with 3 decimal places.
 		 * @return Formatted percentage string */
 		String percentS(){
-			return Tools.format("%.3f",percent());
+			return Tools.format("%.3f", percent());
 		}
 
 		/**
@@ -315,27 +326,27 @@ public class CalcUniqueness {
 		 * @return Number of k-mer misses
 		 */
 		long misses(){return cumulative ? cmisses : misses;}
-		
+
 		/** Bit mask used to identify which counter categories have seen a k-mer */
 		final int mask;
-		
-		/** Cumulative probability of error-free reads */
+
+		/** Sum of read error-free probabilities in the current interval */
 		double perfectProb;
-		/** Cumulative quality score across all processed reads */
+		/** Sum of per-read quality scores in the current interval */
 		double quality;
-		/** Number of reads used for quality calculations */
+		/** Number of individual reads contributing to the current interval's quality sums */
 		long qualCounts;
-		
+
 		/** Per-interval hash hits */
 		long hits=0;
 		/** Per-interval hash misses */
 		long misses=0;
-		
+
 		/** Cumulative hash hits */
 		long chits=0;
 		/** Cumulative hash misses */
 		long cmisses=0;
-		
+
 		/** Previous interval hit count for spike detection */
 		long prevHits=0;
 		/** Previous interval miss count for spike detection */
@@ -343,11 +354,11 @@ public class CalcUniqueness {
 		/** Previous interval uniqueness percentage for spike detection */
 		double prevPercent=0;
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Primary Method        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
 	 * Main processing method that analyzes sequence uniqueness.
 	 * Reads input files, extracts k-mers, and tracks occurrence in hash tables.
@@ -357,7 +368,7 @@ public class CalcUniqueness {
 	 * @throws RuntimeException if processing encounters unrecoverable errors
 	 */
 	void process(Timer t){
-		
+
 		final ConcurrentReadInputStream cris;
 		{
 			cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ffin1, ffin2, null, null);
@@ -386,27 +397,27 @@ public class CalcUniqueness {
 			}
 			tsw.print("\n");
 		}
-		
+
 		//Counters for overall data statistics
 		long pairsProcessed=0;
 		long readsProcessed=0;
 		long basesProcessed=0;
-		
+
 		//Counter for display intervals
 		long remaining=interval;
-		
+
 		final StringBuilder sb=new StringBuilder(1024);
-		
+
 		{
 			//Fetch initial list
 			ListNum<Read> ln=cris.nextList();
 			ArrayList<Read> reads=(ln!=null ? ln.list : null);
-			
+
 			if(reads!=null && !reads.isEmpty()){
 				Read r=reads.get(0);
 				assert((ffin1==null || ffin1.samOrBam()) || (r.mate!=null)==cris.paired());
 			}
-			
+
 			/* Process 1 list of reads per loop iteration */
 			while(ln!=null && reads!=null && reads.size()>0){//ln!=null prevents a compiler potential null access warning
 				/* Process 1 read per loop iteration */
@@ -424,7 +435,7 @@ public class CalcUniqueness {
 
 						/* Process read 1 */
 						if(r1!=null){
-							
+
 							bothCounterFirst.incrementQuality(r1);
 
 							readsProcessed++;
@@ -446,7 +457,7 @@ public class CalcUniqueness {
 
 						/* Process read 2 */
 						if(r2!=null){
-							
+
 							bothCounterFirst.incrementQuality(r2);
 
 							readsProcessed++;
@@ -469,7 +480,7 @@ public class CalcUniqueness {
 						/* Process pair */
 						if(r1!=null && r2!=null){
 
-							if(length1>k+PAIR_OFFSET && length2>k+PAIR_OFFSET){
+							if(length1>=k+PAIR_OFFSET && length2>=k+PAIR_OFFSET){
 								final long kmer1=toKmer(bases1, quals1, PAIR_OFFSET, k);
 								final long kmer2=toKmer(bases2, quals2, PAIR_OFFSET, k);
 								if(kmer1!=-1 && kmer2!=-1){
@@ -495,7 +506,7 @@ public class CalcUniqueness {
 						}
 					}
 				}
-				
+
 				//Fetch a new list
 				cris.returnList(ln);
 				ln=cris.nextList();
@@ -505,29 +516,29 @@ public class CalcUniqueness {
 				cris.returnList(ln.id, ln.list==null || ln.list.isEmpty());
 			}
 		}
-		
+
 		if(remaining<interval && printLastBin){
-			
+
 			printCountsToBuffer(sb, pairsProcessed, paired);
-			
+
 			if(tsw!=null){tsw.print(sb.toString());}
-			
+
 			//Reset things
 			sb.setLength(0);
 			remaining=interval;
 		}
-		
-		
+
+
 		//Close things
 		errorState|=ReadWrite.closeStream(cris);
 		if(tsw!=null){
 			tsw.poisonAndWait();
 			errorState|=tsw.errorState;
 		}
-		
+
 		t.stop();
 		outstream.println(Tools.timeReadsBasesProcessed(t, readsProcessed, basesProcessed, 8));
-		
+
 		if(testsize){
 			long bytesProcessed=(new File(in1).length()+(in2==null ? 0 : new File(in2).length()));
 			double xpnano=bytesProcessed/(double)(t.elapsed);
@@ -535,27 +546,27 @@ public class CalcUniqueness {
 			while(xpstring.length()<8){xpstring=" "+xpstring;}
 			outstream.println("Bytes Processed:    "+xpstring+" \t"+Tools.format("%.2fm bytes/sec", xpnano*1000));
 		}
-		
+
 		if(errorState){
 			throw new RuntimeException("CalcUniqueness terminated in an error state; the output may be corrupt.");
 		}
 	}
-	
-	
+
+
 	/**
 	 * Formats uniqueness statistics into output buffer.
 	 * Includes percentages, counts, and quality metrics based on configuration.
 	 * Resets interval counters after printing.
 	 *
 	 * @param sb StringBuilder to append formatted output
-	 * @param pairsProcessed Number of read pairs processed so far
+	 * @param pairsProcessed Accepted read roots so far; a pair counts as one root
 	 * @param paired Whether input data is paired-end
 	 */
 	private void printCountsToBuffer(StringBuilder sb, long pairsProcessed, boolean paired){
-		
+
 		//Display data for the last interval
 		sb.append(pairsProcessed);
-		
+
 		if(showPercents){
 			sb.append('\t');
 			sb.append(bothCounterFirst.percentS());
@@ -574,7 +585,7 @@ public class CalcUniqueness {
 				sb.append(pairCounter.percentS());
 			}
 		}
-		
+
 		if(showCounts){
 			sb.append('\t');
 			sb.append(bothCounterFirst.misses());
@@ -593,12 +604,12 @@ public class CalcUniqueness {
 				sb.append(pairCounter.misses());
 			}
 		}
-		
+
 		if(showQuality){
 			sb.append('\t').append(Tools.format("%.2f", bothCounterFirst.averageQuality()));
 			sb.append('\t').append(Tools.format("%.2f", bothCounterFirst.averagePerfectProb()));
 		}
-		
+
 		sb.append('\n');
 
 		bothCounterFirst.reset();
@@ -609,18 +620,20 @@ public class CalcUniqueness {
 		r2CounterRand.reset();
 		pairCounter.reset();
 	}
-	
-	
+
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Helper Methods        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
-	 * Generate a kmer from specified start location
-	 * @param bases
-	 * @param start
-	 * @param klen kmer length
-	 * @return kmer
+	 * Encodes a forward k-mer using Dedupe's base lookup, without reverse-complement
+	 * canonicalization. The optional quality filter rejects low-probability windows.
+	 * @param bases Bases containing the complete requested window
+	 * @param quals Phred qualities, or null to skip the probability filter
+	 * @param start Zero-based window start
+	 * @param klen Number of bases to encode
+	 * @return Packed key, or -1 if the enabled probability filter rejects the window
 	 */
 	private final long toKmer(final byte[] bases, byte[] quals, final int start, final int klen){
 		if(minprob>0 && quals!=null){
@@ -630,27 +643,28 @@ public class CalcUniqueness {
 		final int stop=start+klen;
 		assert(stop<=bases.length);
 		long kmer=0;
-		
+
 		for(int i=start; i<stop; i++){
 			final byte b=bases[i];
+			//TODO: [JGI-126] This lookup maps ambiguous bases to A; confirm legacy compatibility before changing that policy.
 			final long x=Dedupe.baseToNumber[b];
 			kmer=((kmer<<2)|x);
 		}
 		return kmer;
 	}
-	
+
 	/**
-	 * Generate the probability a kmer is error-free, from specified start location
-	 * @param quals
-	 * @param start
-	 * @param klen kmer length
-	 * @return kmer
+	 * Multiplies base-call correctness probabilities across a quality window.
+	 * @param quals Phred qualities whose values index probCorrect
+	 * @param start Zero-based window start
+	 * @param klen Number of quality scores in the window
+	 * @return Estimated probability that every base call in the window is correct
 	 */
-	private final static float toProb(final byte[] quals, final int start, final int klen){
+	private static final float toProb(final byte[] quals, final int start, final int klen){
 		final int stop=start+klen;
 		assert(stop<=quals.length);
 		float prob=1f;
-		
+
 		for(int i=start; i<stop; i++){
 			final byte q=quals[i];
 			float pq=probCorrect[q];
@@ -658,34 +672,34 @@ public class CalcUniqueness {
 		}
 		return prob;
 	}
-	
+
 	/*--------------------------------------------------------------*/
-	
+
 	/** Sets random seed for reproducible k-mer sampling.
 	 * @param seed Random seed value (-1 for default thread-local random) */
 	public void setSampleSeed(long seed){
 		randy=Shared.threadLocalRandom(seed);
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/** Primary input file path */
 	private String in1=null;
 	/** Secondary input file path for paired-end data */
 	private String in2=null;
-	
+
 	/** Output file path for uniqueness statistics */
 	private String out=null;
-	
+
 	/** Input file extension override */
 	private String extin=null;
 	/** Output file extension override */
 	private String extout=null;
-	
+
 	/*--------------------------------------------------------------*/
-	
+
 	//Counters for hashtable hits and misses of different kmers
 	/** Counter for fixed k-mers from read 1 */
 	private final Counter r1CounterFirst=new Counter(1);
@@ -702,10 +716,10 @@ public class CalcUniqueness {
 	private final Counter bothCounterFirst=new Counter(32);
 	/** Counter for random k-mers from all reads */
 	private final Counter bothCounterRand=new Counter(64);
-	
+
 	/*--------------------------------------------------------------*/
-	
-	
+
+
 	/** Maximum number of reads to process (-1 for unlimited) */
 	private long maxReads=-1;
 	/** Fraction of reads to sample (1.0 for all reads) */
@@ -713,11 +727,11 @@ public class CalcUniqueness {
 	/** Random seed for read sampling */
 	private long sampleseed=-1;
 
-	/** Number of reads between uniqueness calculations */
+	/** Number of accepted read roots between reports; paired reads count as one root */
 	private long interval=25000;
 	/** Minimum probability threshold for k-mer acceptance */
 	private float minprob=0;
-	/** Minimum average quality score for read acceptance */
+	/** Minimum average quality of the first read required to accept its root and mate */
 	private float minAverageQuality=0;
 	/** Number of bases to consider for average quality calculation */
 	private int minAverageQualityBases=20;
@@ -736,22 +750,21 @@ public class CalcUniqueness {
 	/** Whether to apply spike-smoothing algorithm to percentages */
 	private boolean fixSpikes=false;
 
-	/** K-mer length minus 1 for array indexing */
-	/** K-mer length for uniqueness analysis */
+	/** K-mer length and k-1; length-k2 is the number of valid random window starts. */
 	private final int k, k2;
 	/** Number of hash tables for k-mer distribution */
 	private static final int WAYS=31;
 	/** Fixed offset for pair k-mer extraction */
 	private static final int PAIR_OFFSET=10;
-	
+
 	/** Initial size of data structures */
 	private int initialSize=512000;
-	
+
 	/** Hold kmers.  A kmer X such that X%WAYS=Y will be stored in keySets[Y] */
 	private final AbstractKmerTable[] keySets;
-	
+
 	/*--------------------------------------------------------------*/
-	
+
 	/** File format for primary input */
 	private final FileFormat ffin1;
 	/** File format for secondary input */
@@ -759,10 +772,10 @@ public class CalcUniqueness {
 
 	/** File format for output */
 	private final FileFormat ffout;
-	
-	
+
+
 	/*--------------------------------------------------------------*/
-	
+
 	/** Output stream for messages and statistics */
 	private PrintStream outstream=System.err;
 	/** Whether to print verbose debugging information */
@@ -775,22 +788,20 @@ public class CalcUniqueness {
 	private boolean append=false;
 	/** Whether to report file size processing statistics */
 	private boolean testsize=false;
-	
-	/** Whether to use HashArray1D data structure */
-	/** Whether to use KmerTable data structure */
-	/** Whether to use HashForest data structure */
+
+	/** Table selectors retained for alternate implementations; HashArray1D is selected. */
 	private static final boolean useForest=false, useTable=false, useArray=true;
-	
+
 	/** Random number generator for k-mer position sampling */
 	private Random randy;
-	
-	/** Lookup table converting quality scores to error probabilities */
+
+	/** Lookup table converting quality scores to base-call correctness probabilities */
 	private static final float[] probCorrect=
 		{0.0000f, 0.2501f, 0.3690f, 0.4988f, 0.6019f, 0.6838f, 0.7488f, 0.8005f, 0.8415f, 0.8741f, 0.9000f, 0.9206f, 0.9369f, 0.9499f,
 		 0.9602f, 0.9684f, 0.9749f, 0.9800f, 0.9842f, 0.9874f, 0.9900f, 0.9921f, 0.9937f, 0.9950f, 0.9960f, 0.9968f, 0.9975f, 0.9980f,
 		 0.9984f, 0.9987f, 0.9990f, 0.9992f, 0.9994f, 0.9995f, 0.9996f, 0.9997f, 0.9997f, 0.9998f, 0.9998f, 0.9999f, 0.9999f, 0.9999f,
 		 0.9999f, 0.9999f, 0.9999f, 0.9999f, 0.9999f, 0.9999f, 0.9999f, 0.9999f, 0.9999f, 0.9999f, 0.9999f, 0.9999f, 0.9999f, 0.9999f,
 		 0.9999f, 0.9999f, 0.9999f, 0.9999f, 1f, 1f, 1f, 1f, 1f, 1f, 1f, 1f, 1f, 1f, 1f, 1f, 1f, 1f, 1f, 1f, 1f, 1f, 1f, 1f, 1f, 1f};
-	
-	
+
+
 }

@@ -38,8 +38,12 @@ import tracker.EntropyTracker;
 import tracker.ReadStats;
 
 /**
- * Masks a fasta file by inserting 'N' in place of low-complexity short repeats,
- * and anything covered by mapped reads in a sam file.
+ * Loads reference sequences and marks optional repeats, low entropy/diversity,
+ * and regions selected by SAM alignments or aggregate coverage thresholds.
+ * Entropy masking is enabled by default; repeat masking is optional. Marking
+ * accumulates in per-reference BitSets before bases are converted to N/lowercase
+ * or masked spans are removed by splitting. Counts exclude marks already present
+ * when each stage starts, including preexisting N/lowercase marks seeded on input.
  * 
  * @author Brian Bushnell
  * @date Feb 18, 2014
@@ -60,7 +64,9 @@ public class BBMask{
 
 	/**
 	 * Constructor that parses command-line arguments and initializes masking parameters.
-	 * Sets up input/output files, k-mer ranges, coverage thresholds, and processing modes.
+	 * Sets up file formats, k-mer ranges, coverage thresholds, and processing modes.
+	 * Also changes shared parser, compression, interleaving and SAM parsing settings;
+	 * construction does not load the reference, start masking workers or write output.
 	 * @param args Command-line arguments for configuration
 	 */
 	public BBMask(String[] args){
@@ -79,7 +85,8 @@ public class BBMask{
 		
 		for(int i=0; i<args.length; i++){
 			String arg=args[i];
-			String[] split=arg.split("=");
+			//Only the first '=' separates the option key; later '=' characters belong to its value.
+			String[] split=Parse.splitOnFirst(arg, '=');
 			String a=split[0].toLowerCase();
 			String b=split.length>1 ? split[1] : null;
 			
@@ -178,18 +185,11 @@ public class BBMask{
 				stream.FastaReadInputStream.MIN_READ_LEN=Integer.parseInt(b);
 			}else if(!arg.contains("=") && FileFormat.hasSamOrBamExtension(arg)){
 				inSam.add(arg);
-			}
-			
-			else if(inRef==null && i==0 && Tools.looksLikeInputStream(arg)){
+			}else if(inRef==null && i==0 && Tools.looksLikeInputStream(arg)){
 				inRef=arg;
-			}
-//			else if(outRef==null && i==1 && !arg.contains("=")){
-//				outRef=arg;
-//			}
-			else{
+			}else{
 				System.err.println("Unknown parameter "+args[i]);
 				assert(false) : "Unknown parameter "+args[i];
-				//				throw new RuntimeException("Unknown parameter "+args[i]);
 			}
 		}
 		
@@ -235,10 +235,14 @@ public class BBMask{
 
 
 	/**
-	 * Main processing pipeline that executes all configured masking operations.
-	 * Sequentially performs repeat masking, low-complexity masking, and SAM-based
-	 * masking, then converts results to output format.
-	 * @param t0 Timer for tracking total execution time
+	 * Loads references, then adds repeat, entropy/diversity and SAM marks in that order.
+	 * Each stage counts newly set bits, so overlapping marks count only once. Input
+	 * N/lowercase marks are excluded from these totals. Conversion always runs, even
+	 * with no new marks: it changes bases or replaces the map with split fragments.
+	 * Unmarked non-ACGTN conversion can change bases without increasing the total.
+	 * Writes the resulting map only when output is configured. This is a mutating
+	 * processing invocation, not a reset/reuse or general failure-cleanup contract.
+	 * @param t0 Started timer stopped when final totals are reported
 	 */
 	public void process(Timer t0){
 		
@@ -265,7 +269,6 @@ public class BBMask{
 		if(processRepeats && maxk>0){
 			t.start();
 			outstream.println("\nMasking repeats (to disable, set 'mr=f')");
-//			repeats=maskRepeats_ST();
 			repeats=maskRepeats();
 			t.stop();
 			
@@ -281,7 +284,6 @@ public class BBMask{
 			while(bmstring.length()<12){bmstring=" "+bmstring;}
 	
 			outstream.println("Repeat Masking Time:          \t"+t);
-			//outstream.println("Ref Scaffolds:          "+rpstring+" \t"+Tools.format("%.2fk scafs/sec", rpnano*1000000));
 			outstream.println("Ref Bases:              "+bpstring+" \t"+Tools.format("%.2fm bases/sec", bpnano*1000));
 			outstream.println("Repeat Bases Masked:    "+bmstring);
 		}
@@ -309,7 +311,6 @@ public class BBMask{
 			while(bmstring.length()<12){bmstring=" "+bmstring;}
 	
 			outstream.println("Low Complexity Masking Time:  \t"+t);
-			//outstream.println("Ref Scaffolds:          "+rpstring+" \t"+Tools.format("%.2fk scafs/sec", rpnano*1000000));
 			outstream.println("Ref Bases:              "+bpstring+" \t"+Tools.format("%.2fm bases/sec", bpnano*1000));
 			outstream.println("Low Complexity Bases:   "+bmstring);
 		}
@@ -382,7 +383,7 @@ public class BBMask{
 	 * @param ca Coverage array containing depth values
 	 * @param maxAllowedCoverage Maximum allowed coverage value
 	 * @param maxLen Length of sequence to process
-	 * @return Number of positions marked for masking
+	 * @return Number of threshold-matching positions, including bits already set
 	 */
 	private static int setHighCoverage(BitSet bs, CoverageArray ca, int maxAllowedCoverage, int maxLen){
 		int numSet=0;
@@ -402,7 +403,7 @@ public class BBMask{
 	 * @param ca Coverage array containing depth values
 	 * @param minAllowedCoverage Minimum required coverage value
 	 * @param maxLen Length of sequence to process
-	 * @return Number of positions marked for masking
+	 * @return Number of threshold-matching positions, including bits already set
 	 */
 	private static int setLowCoverage(BitSet bs, CoverageArray ca, int minAllowedCoverage, int maxLen){
 		int numSet=0;
@@ -416,9 +417,11 @@ public class BBMask{
 	}
 	
 	/**
-	 * Converts marked positions in BitSets to masked bases in sequence data.
+	 * Mutates bases in the current reference map using each Read's attached BitSet.
+	 * The BitSets are unchanged; counts follow maskBases, including its exclusions
+	 * for preexisting masks and unmarked non-ACGTN conversion.
 	 * @param lowercase If true, mask with lowercase letters; if false, use 'N'
-	 * @return Total number of bases masked across all sequences
+	 * @return Sum of counted marked-base conversions across all sequences
 	 */
 	private long maskFromBitsets(final boolean lowercase){
 		System.err.println("\nConverting masked bases to "+(lowercase ? "lower case" : "N")); //123
@@ -431,17 +434,28 @@ public class BBMask{
 	}
 	
 	/**
-	 * Masks specified positions in a single read based on BitSet markers.
+	 * Applies maskBases to a Read's bases without replacing its arrays or metadata.
 	 *
-	 * @param r Read containing sequence bases to mask
-	 * @param bs BitSet indicating which positions to mask
+	 * @param r Nonnull Read with a nonnull bases array to mutate
+	 * @param bs Nonnull mask, read without modification
 	 * @param lowercase If true, convert to lowercase; if false, use 'N'
-	 * @return Number of bases actually masked (excluding already masked positions)
+	 * @return Count from maskBases, excluding its preexisting masks and off-bit conversions
 	 */
 	public static int maskRead(final Read r, final BitSet bs, final boolean lowercase){
 		return maskBases(r.bases, bs, lowercase);
 	}
 	
+	/** Mutates marked bases in place, leaving the BitSet unchanged.
+	 * N mode counts each marked byte other than uppercase N, then writes uppercase N.
+	 * Lowercase mode counts marked bytes that are neither lowercase nor uppercase N,
+	 * then lowercases every marked byte, including N. If CONVERT_NON_ACGTN is enabled,
+	 * unmarked non-ACGTN bytes become uppercase N without contributing to the count.
+	 * Only positions within bases are visited; higher mask bits are ignored.
+	 * @param bases Nonnull sequence array to mutate
+	 * @param bs Nonnull mask, read without modification
+	 * @param lowercase Whether to lowercase marked bytes instead of writing N
+	 * @return Counted marked positions, excluding preexisting masks as described above
+	 */
 	public static int maskBases(final byte[] bases, final BitSet bs, final boolean lowercase){
 		int sum=0;
 		if(!lowercase){
@@ -469,7 +483,8 @@ public class BBMask{
 	/**
 	 * Splits reads by removing masked regions, creating multiple shorter reads
 	 * from each original read where masked regions act as break points.
-	 * @return Total number of bases processed during splitting
+	 * Generated suffixes skip all original IDs and previously emitted IDs.
+	 * @return Newly masked bases, excluding preexisting N and, in lowercase mode, lowercase bases
 	 */
 	private long splitFromBitsets(){
 		System.err.println("\nSplitting reads by removing masked bases"); //123
@@ -480,15 +495,17 @@ public class BBMask{
 		for(String key : map.keySet()){
 			Read r=map.get(key);
 			BitSet bs=((BitSet)r.obj);
-			int rnum=0;
+			long rnum=0;
 			if(bs.isEmpty()){
-				map2.put(key, r);
+				Read old=map2.put(key, r);
+				assert(old==null) : "Original ID must remain reserved while splitting: "+key;
 			}else{
 				byte[] bases=r.bases;
 				byte[] quals=r.quality;
 
 				int lastGood, lastBad;
 				if(bs.get(0)){
+					if(bases[0]!='N' && (!MaskByLowercase || !Tools.isLowerCase(bases[0]))){sum++;}
 					lastGood=-1;
 					lastBad=0;
 				}else{
@@ -499,14 +516,17 @@ public class BBMask{
 				int i=1;
 				for(; i<bases.length; i++){
 					if(bs.get(i)){
+						if(bases[i]!='N' && (!MaskByLowercase || !Tools.isLowerCase(bases[i]))){sum++;}
 						if(lastGood==i-1){
 							int len=lastGood-lastBad;
 							if(len>0){
 								byte[] bases2=KillSwitch.copyOfRange(bases, lastBad+1, i);
 								byte[] quals2=(quals==null ? null : KillSwitch.copyOfRange(quals, lastBad+1, i));
-								Read r2=new Read(bases2, quals2, r.id+"_"+rnum, r.numericID, r.flags);
+								String id=r.id+"_"+rnum++;
+								while(map.containsKey(id) || map2.containsKey(id)){id=r.id+"_"+rnum++;}
+								Read r2=new Read(bases2, quals2, id, r.numericID, r.flags);
 								Read old=map2.put(r2.id, r2);
-								assert(old==null) : "Duplicate id "+r2.id; //TODO:  This can easily be resolved by making a new ID string.
+								assert(old==null) : "Split ID selection must prevent replacing an emitted fragment: "+r2.id;
 							}
 						}
 						lastBad=i;
@@ -519,9 +539,11 @@ public class BBMask{
 					if(len>0){
 						byte[] bases2=KillSwitch.copyOfRange(bases, lastBad+1, i);
 						byte[] quals2=(quals==null ? null : KillSwitch.copyOfRange(quals, lastBad+1, i));
-						Read r2=new Read(bases2, quals2, r.id+"_"+rnum, r.numericID, r.flags);
+						String id=r.id+"_"+rnum++;
+						while(map.containsKey(id) || map2.containsKey(id)){id=r.id+"_"+rnum++;}
+						Read r2=new Read(bases2, quals2, id, r.numericID, r.flags);
 						Read old=map2.put(r2.id, r2);
-						assert(old==null) : "Duplicate id "+r2.id; //TODO:  This can easily be resolved by making a new ID string.
+						assert(old==null) : "Split ID selection must prevent replacing an emitted fragment: "+r2.id;
 					}
 				}
 			}
@@ -560,7 +582,7 @@ public class BBMask{
 	
 	/**
 	 * Processes all SAM files to mark mapped regions for masking.
-	 * Coordinates multi-threaded SAM processing and coverage analysis.
+	 * Accumulates coverage across all files before applying coverage thresholds.
 	 * @return Number of additional bases marked for masking
 	 */
 	private long maskSam(){
@@ -569,42 +591,9 @@ public class BBMask{
 			before+=((BitSet)r.obj).cardinality();
 		}
 		for(FileFormat ff : ffinSam){
-			//maskSam_ST(ff);
 			maskSam_MT(ff);
 		}
-		for(Read r : map.values()){
-			after+=((BitSet)r.obj).cardinality();
-		}
-		return after-before;
-	}
-	
-	/** Multi-threaded SAM processing for a single file format.
-	 * @param ff FileFormat specification for SAM input file */
-	private void maskSam_MT(FileFormat ff){
-		
-		final ConcurrentReadInputStream cris;
-		{
-			cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ff, null, null, null);
-			if(verbose){System.err.println("Started cris");}
-			cris.start(); //4567
-		}
-		
-		MaskSamThread[] threads=new MaskSamThread[Shared.threads()];
-//		outstream.println("Spawning "+numThreads+" threads.");
-		for(int i=0; i<threads.length; i++){threads[i]=new MaskSamThread(cris);}
-		for(int i=0; i<threads.length; i++){threads[i].start();}
-		for(int i=0; i<threads.length; i++){
-			while(threads[i].getState()!=Thread.State.TERMINATED){
-				try {
-					threads[i].join();
-				} catch (InterruptedException e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
-				}
-			}
-		}
-		
-		if(covmap!=null){//Move coverage array information to BitSets.
+		if(covmap!=null){//Move aggregate coverage information to BitSets after all inputs close.
 			for(String rs : map.keySet()){
 				Read r=map.get(rs);
 				BitSet bs=(BitSet)r.obj;
@@ -617,14 +606,67 @@ public class BBMask{
 				}
 			}
 		}
+		for(Read r : map.values()){
+			after+=((BitSet)r.obj).cardinality();
+		}
+		return after-before;
+	}
+	
+	/** Multi-threaded SAM processing for a single file format.
+	 * Observed owner interruption is reported after joining workers and closing input.
+	 * @param ff FileFormat specification for SAM input file */
+	private void maskSam_MT(FileFormat ff){
 		
-		errorState|=ReadWrite.closeStreams(cris);
-
-		if(errorState){
-			throw new RuntimeException("BBMask terminated in an error state; the output may be corrupt.");
+		final ConcurrentReadInputStream cris;
+		{
+			cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ff, null, null, null);
+			if(verbose){System.err.println("Started cris");}
+			cris.start(); //4567
+		}
+		
+		MaskSamThread[] threads=new MaskSamThread[Shared.threads()];
+		for(int i=0; i<threads.length; i++){threads[i]=new MaskSamThread(cris);}
+		for(int i=0; i<threads.length; i++){threads[i].start();}
+		final InterruptedException interrupted=awaitWorkers(threads);
+		try{
+			errorState|=ReadWrite.closeStreams(cris);
+			if(errorState){
+				throw new RuntimeException("BBMask terminated in an error state; the output may be corrupt.");
+			}
+		}catch(RuntimeException | Error failure){
+			if(interrupted!=null){failure.addSuppressed(interrupted);}
+			throw failure;
+		}finally{
+			//Input cleanup may itself wait; restore only after that cleanup has finished.
+			if(interrupted!=null){Thread.currentThread().interrupt();}
+		}
+		if(interrupted!=null){
+			throw new RuntimeException("BBMask interrupted while waiting for SAM workers.", interrupted);
 		}
 	}
 	
+	/**
+	 * Joins this invocation's already-started workers before caller cleanup.
+	 * Does not restore interrupt status; callers restore it after closing their resources.
+	 * @param threads Nonnull workers started by the caller, excluding the calling thread
+	 * @return First interruption observed during joins, with later ones suppressed, or null
+	 */
+	private static InterruptedException awaitWorkers(final Thread[] threads){
+		InterruptedException interrupted=null;
+		for(final Thread thread : threads){
+			assert(thread!=null && thread!=Thread.currentThread() && thread.getState()!=Thread.State.NEW) :
+				"BBMask starts every owned worker before awaitWorkers; a null, self, or NEW entry cannot be joined: "+thread;
+			while(thread.getState()!=Thread.State.TERMINATED){
+				try{
+					thread.join();
+				}catch(InterruptedException e){
+					if(interrupted==null){interrupted=e;}else if(interrupted!=e){interrupted.addSuppressed(e);}
+				}
+			}
+		}
+		return interrupted;
+	}
+
 	/** Worker thread for multi-threaded SAM file processing.
 	 * Each thread processes SAM reads from shared input stream. */
 	private class MaskSamThread extends Thread{
@@ -637,7 +679,13 @@ public class BBMask{
 		
 		@Override
 		public void run(){
-			maskSam(cris);
+			try{
+				maskSam(cris);
+			}catch(Throwable t){
+				//Abandoned consumers can leave raw producers blocked, making ordinary stream close unsafe.
+				t.printStackTrace(System.err);
+				KillSwitch.kill("BBMask SAM worker failed; aborting because input cleanup cannot safely recover from worker failure.");
+			}
 		}
 		
 		/** Input stream for reading SAM format data */
@@ -669,6 +717,8 @@ public class BBMask{
 	/**
 	 * Core SAM processing logic that reads mapped reads and marks reference
 	 * positions for masking based on alignment coordinates.
+	 * Attempts to return each borrowed batch once, including on processing failure. If returning
+	 * the batch also fails, that cleanup error is suppressed on the processing error.
 	 * @param cris Input stream for reading SAM format data
 	 */
 	private void maskSam(ConcurrentReadInputStream cris){
@@ -676,10 +726,10 @@ public class BBMask{
 		long samReads=0;
 		long samBases=0;
 		IntList ranges=new IntList(16);
-		
-		{
-
-			ListNum<Read> ln=cris.nextList();
+		ListNum<Read> ln=null;
+		Throwable failure=null;
+		try{
+			ln=cris.nextList();
 			ArrayList<Read> reads=(ln!=null ? ln.list : null);
 
 			while(ln!=null && reads!=null && reads.size()>0){//ln!=null prevents a compiler potential null access warning
@@ -718,12 +768,23 @@ public class BBMask{
 					}
 				}
 
-				cris.returnList(ln);
+				final ListNum<Read> returned=ln;
+				ln=null;
+				cris.returnList(returned);
 				ln=cris.nextList();
 				reads=(ln!=null ? ln.list : null);
 			}
+		}catch(Throwable t){
+			failure=t;
+			throw t;
+		}finally{
 			if(ln!=null){
-				cris.returnList(ln.id, ln.list==null || ln.list.isEmpty());
+				try{
+					cris.returnList(ln.id, ln.list==null || ln.list.isEmpty());
+				}catch(Throwable t){
+					if(failure==null){throw t;}
+					if(failure!=t){failure.addSuppressed(t);}
+				}
 			}
 		}
 		
@@ -735,13 +796,15 @@ public class BBMask{
 	
 	/**
 	 * Marks reference positions covered by a SAM alignment for masking.
+	 * Reconstructs the full soft-clipped span before applying padding and reference bounds.
 	 * @param bs BitSet to mark positions for masking
 	 * @param sl SAM line containing alignment information
 	 * @param reflen Length of reference sequence
 	 */
 	private void mask(BitSet bs, SamLine sl, int reflen){
-		final int start=Tools.max(0, sl.start(true, false)-samPad);
-		final int stop=Tools.min(sl.stop(start, true, false)+1+samPad, reflen);
+		final int rawStart=sl.start(true, false);
+		final int start=Tools.max(0, rawStart-samPad);
+		final int stop=Tools.min(sl.stop(rawStart, true, false)+1+samPad, reflen);
 		if(stop>start){
 			synchronized(bs){//Potential bottleneck
 				bs.set(start, stop);
@@ -751,6 +814,7 @@ public class BBMask{
 	
 	/**
 	 * Increments coverage values for aligned regions in a coverage array.
+	 * Uses the unclipped origin while decoding matches, then bounds emitted ranges.
 	 *
 	 * @param ca Coverage array to increment
 	 * @param sl SAM line with alignment information
@@ -761,9 +825,9 @@ public class BBMask{
 	 * @param samPad Padding around aligned regions
 	 */
 	public static void increment(CoverageArray ca, SamLine sl, byte[] match, int reflen, IntList ranges, boolean includeDels, int samPad){
-		final int start=Tools.max(0, sl.start(true, false));
-		final int stop=Tools.min(sl.stop(start, true, false)+1, reflen);
-		if(stop>start){
+		final int start=sl.start(true, false);
+		final int stop=sl.stop(start, true, false)+1;
+		if(stop>start && stop>0 && start<reflen){
 			ranges.clear();
 			boolean numeric=false;
 			if(match==null){
@@ -780,9 +844,8 @@ public class BBMask{
 			}
 			if(numeric){match=Read.toLongMatchString(match);}
 			fillRanges(match, start, stop, ranges, includeDels);
-//			assert(false) : ranges;
 			if(ranges.size>0){
-				if(samPad!=0){//Pad the ranges, but don't let them overlap
+				if(samPad!=0 || start<0 || stop>reflen){//Pad and bound the ranges, but don't let them overlap
 					ranges.set(0, Tools.mid(0, reflen, ranges.get(0)-samPad));
 					ranges.set(1, Tools.mid(0, reflen, ranges.get(1)+samPad));
 					for(int i=2; i<ranges.size; i+=2){
@@ -801,9 +864,9 @@ public class BBMask{
 	 * Parses alignment match string to identify covered reference ranges.
 	 *
 	 * @param longmatch Long-format match string from alignment
-	 * @param start Starting position in reference
-	 * @param stop Ending position in reference
-	 * @param ranges IntList to store identified ranges
+	 * @param start Zero-based inclusive starting position in the reference
+	 * @param stop Exclusive ending position in the reference
+	 * @param ranges Initially empty list receiving half-open pairs; adjacent ranges remain separate
 	 * @param includeDels Whether to include deletion ranges
 	 */
 	public static void fillRanges(byte[] longmatch, int start, int stop, IntList ranges, boolean includeDels){
@@ -834,7 +897,7 @@ public class BBMask{
 					if(lastMode=='m'){
 						ranges.add(rstart);
 						ranges.add(lastRpos);
-					}else if(mode=='D' && includeDels){
+					}else if(lastMode=='D' && includeDels){
 						ranges.add(rstart);
 						ranges.add(lastRpos);
 					}
@@ -844,7 +907,6 @@ public class BBMask{
 			lastMode=mode;
 			lastRpos=rpos;
 		}
-//		assert(false) : rstart+", "+rpos+", "+(char)mode+", "+(char)lastMode;
 		//Final cycle
 		if(lastMode=='m'){
 			ranges.add(rstart);
@@ -870,9 +932,14 @@ public class BBMask{
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Loads reference sequences into memory and initializes data structures
-	 * for masking operations including BitSets and coverage arrays.
-	 * @return Map of sequence names to Read objects with attached BitSets
+	 * Loads references in input order, replacing each Read's obj with an owned BitSet.
+	 * Seeds uppercase N positions, and all lowercase positions in lowercase mode,
+	 * so later stage counts exclude those existing masks. Duplicate full IDs assert.
+	 * Allocates coverage arrays only for SAM input with an enabled coverage threshold;
+	 * their counts accumulate across SAM files before thresholds are applied.
+	 * Updates reference counters before any splitting or base conversion. Owns and
+	 * closes its input on the normal path; this does not add failure-cleanup guarantees.
+	 * @return Insertion-ordered map of original IDs to loaded Reads with attached masks
 	 */
 	private LinkedHashMap<String, Read> hashRef(){
 
@@ -901,7 +968,6 @@ public class BBMask{
 					final int len=r.length();
 					final byte[] bases=r.bases;
 					
-//					refLengths.add(len);
 					final BitSet bs=new BitSet(len);
 					r.obj=bs;
 					
@@ -951,9 +1017,10 @@ public class BBMask{
 	
 	
 	/**
-	 * Performs low-complexity masking across all sequences using k-mer frequency analysis.
-	 * @param matrix Pre-allocated k-mer count matrices for different k values
-	 * @return Total number of bases masked for low complexity
+	 * Adds low-diversity marks across the reference map without changing bases.
+	 * Reuses one matrix across reads; missing per-k arrays are allocated as needed.
+	 * @param matrix Mutable per-k scratch arrays, or null to allocate a matrix
+	 * @return Sum of newly set bits, excluding marks already present
 	 */
 	private long maskLowComplexity(short[][] matrix){
 		long sum=0;
@@ -965,15 +1032,16 @@ public class BBMask{
 	}
 	
 	/**
-	 * Masks low-complexity regions in a single read using sliding window k-mer analysis.
+	 * Adds low-diversity marks to the Read's attached BitSet without changing bases.
+	 * Examines the inclusive k range, reusing per-k counts and allocating missing arrays.
 	 *
-	 * @param r Read to process
+	 * @param r Read with bases and an attached BitSet to update
 	 * @param mink Minimum k-mer size
 	 * @param maxk Maximum k-mer size
 	 * @param window Sliding window size
 	 * @param ratio Minimum diversity ratio required
-	 * @param matrix K-mer count matrices
-	 * @return Number of bases masked in this read
+	 * @param matrix Nonnull mutable scratch matrix indexed by k; existing counts start at zero
+	 * @return BitSet cardinality increase across all requested k values
 	 */
 	private static int maskLowComplexity(Read r, int mink, int maxk, int window, float ratio, short[][] matrix){
 		
@@ -981,7 +1049,6 @@ public class BBMask{
 		final BitSet bs=(BitSet)r.obj;
 		
 		int before=bs.cardinality();
-//		System.err.println("\nbefore="+before+"\n"+new String(bases)+"\n"+bs);
 		
 		for(int k=mink; k<=maxk; k++){
 			if(matrix[k]==null){matrix[k]=new short[(1<<(2*k))];}
@@ -996,21 +1063,21 @@ public class BBMask{
 
 		int after=bs.cardinality();
 		
-//		System.err.println("before="+before+", after="+after+"\n"+new String(bases)+"\n"+bs);
-		
 		return after-before;
 	}
 	
 	
 	/**
-	 * Core low-complexity masking algorithm using sliding window k-mer diversity.
+	 * Adds marks for full windows with insufficient k-mer diversity and no undefined bases.
+	 * Reads bases without modification; counts is mutable rolling scratch expected to
+	 * start at zero and drained on normal completion. It must not be shared by concurrent calls.
 	 *
 	 * @param bases Sequence bases to analyze
 	 * @param bs BitSet to mark positions for masking
 	 * @param k K-mer size for analysis
 	 * @param window Size of sliding window
 	 * @param mincount Minimum unique k-mer count required
-	 * @param counts Array for tracking k-mer frequencies
+	 * @param counts Zeroed frequency scratch indexed by encoded k-mer
 	 */
 	private static void maskLowComplexity(final byte[] bases, final BitSet bs, final int k, final int window, final int mincount, final short[] counts){
 		assert(k>0) : "k must be greater than 0";
@@ -1025,8 +1092,6 @@ public class BBMask{
 		
 		for(int i=0, i2=-window; i2<bases.length; i++, i2++){
 			
-//			System.err.println("\nStart: i="+i+", current="+current+", ns="+ns+"\n"+Arrays.toString(counts));
-			
 			if(i<bases.length){
 				final byte b=bases[i];
 				final int n=Dedupe.baseToNumber[b];
@@ -1039,8 +1104,6 @@ public class BBMask{
 				}
 				counts[kmer]++;
 				if(verify){assert(current==Tools.cardinality(counts)) : current+", "+Tools.cardinality(counts)+"\n"+Arrays.toString(counts);}
-				
-//				System.err.println("Added "+kmer+"; counts["+kmer+"]="+counts[kmer]);
 			}
 			
 			if(i2>=0){
@@ -1058,8 +1121,6 @@ public class BBMask{
 					current--;
 				}
 				if(verify){assert(current==Tools.cardinality(counts)) : current+", "+Tools.cardinality(counts)+"\n"+Arrays.toString(counts);}
-				
-//				System.err.println("Removed "+kmer2+"; count="+counts[kmer2]);
 			}
 			
 			if(verify && i2>-1 && i<bases.length){
@@ -1067,7 +1128,6 @@ public class BBMask{
 			}
 			
 			if(current<mincount && ns<1 && i2>=-1 && i<bases.length){
-//				System.err.println("Masked ("+(i2+1)+", "+(i+1)+")");
 				bs.set(i2+1, i+1);
 			}
 		}
@@ -1080,27 +1140,27 @@ public class BBMask{
 	/*--------------------------------------------------------------*/
 	
 	
-	/** Performs entropy-based masking across all sequences using multi-threading.
-	 * @return Total number of bases masked for low entropy */
+	/** Adds entropy marks using a finite queue containing each reference once.
+	 * Each worker owns its trackers and each polled Read's mask; bases are unchanged.
+	 * Empty maps return zero. Counts are merged after all workers terminate.
+	 * Reports observed owner interruption only after every worker has finished.
+	 * @return Sum of newly set bits from the workers */
 	private long maskLowEntropy(){
+		if(map.isEmpty()){return 0;}
 		ArrayBlockingQueue<Read> queue=new ArrayBlockingQueue<Read>(map.size());
 		for(Read r : map.values()){queue.add(r);}
 		int numThreads=Tools.min(Shared.threads(), queue.size());
 		MaskLowEntropyThread[] threads=new MaskLowEntropyThread[numThreads];
 		long sum=0;
-//		outstream.println("Spawning "+numThreads+" threads.");
 		for(int i=0; i<threads.length; i++){threads[i]=new MaskLowEntropyThread(queue, mink2, maxk2, window, entropyCutoff);}
 		for(int i=0; i<threads.length; i++){threads[i].start();}
+		final InterruptedException interrupted=awaitWorkers(threads);
 		for(int i=0; i<threads.length; i++){
-			while(threads[i].getState()!=Thread.State.TERMINATED){
-				try {
-					threads[i].join();
-				} catch (InterruptedException e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
-				}
-			}
 			sum+=threads[i].masked;
+		}
+		if(interrupted!=null){
+			Thread.currentThread().interrupt();
+			throw new RuntimeException("BBMask interrupted while waiting for entropy workers.", interrupted);
 		}
 		return sum;
 	}
@@ -1122,7 +1182,9 @@ public class BBMask{
 			queue=queue_;
 			minkT=mink_;
 			maxkT=maxk_;
-			windowT=(short)window_;
+			//Preserve the requested window for EntropyTracker's short-counter bounds check (JGI-078).
+			//Narrowing here would silently turn unsupported windows such as 65540 into 4.
+			windowT=window_;
 			cutoff=cutoff_;
 			trackers=new EntropyTracker[maxkT+1];
 			for(int i=minkT; i<=maxkT; i++){
@@ -1155,17 +1217,16 @@ public class BBMask{
 	}
 	
 	/**
-	 * Masks low-entropy regions in a single read using entropy analysis.
+	 * Adds low-entropy marks to the attached BitSet without changing Read bases.
+	 * Reuses mutable trackers across the inclusive k range; they are not concurrent scratch.
 	 *
-	 * @param r Read to process
+	 * @param r Read with bases and an attached BitSet to update
 	 * @param mink Minimum k-mer size for entropy calculation
 	 * @param maxk Maximum k-mer size for entropy calculation
-	 * @param trackers Pre-configured entropy trackers for each k
-	 * @return Number of bases masked in this read
+	 * @param trackers Nonnull mutable tracker array with entries for each requested k
+	 * @return BitSet cardinality increase across all requested k values
 	 */
 	private int maskLowEntropy(Read r, int mink, int maxk, EntropyTracker[] trackers){
-//		outstream.println("maskLowEntropy("+r.numericID+", "+mink+", "+maxk+", "+window+", "+cutoff+", "+matrix.length+", "+countCounts.length+")");
-//		System.err.println(new String(r.bases));
 		final byte[] bases=r.bases;
 		final BitSet bs=(BitSet)r.obj;
 		
@@ -1182,10 +1243,12 @@ public class BBMask{
 	
 	
 	/**
-	 * Core entropy masking algorithm using sliding window entropy calculation.
+	 * Adds marks for complete, undefined-base-free windows that fail the tracker cutoff.
+	 * Leaves bases unchanged. A sequence shorter than the window returns without clearing
+	 * the tracker; otherwise clears and reuses it, leaving its final window state on return.
 	 * @param bases Sequence bases to analyze
 	 * @param bs BitSet to mark positions for masking
-	 * @param et EntropyTracker configured for specific k and window
+	 * @param et Mutable tracker configured for k/window/cutoff, exclusively borrowed by this call
 	 */
 	public static void maskLowEntropy(final byte[] bases, final BitSet bs, final EntropyTracker et){
 		final int window=et.windowBases();
@@ -1203,8 +1266,8 @@ public class BBMask{
 	
 
 
-	/** Single-threaded repeat masking across all sequences.
-	 * @return Total number of bases masked for repeats */
+	/** Adds repeat marks serially across the map without changing bases.
+	 * @return Sum of newly set bits, excluding marks already present */
 	private long maskRepeats_ST(){
 		long sum=0;
 		for(Read r : map.values()){
@@ -1213,9 +1276,13 @@ public class BBMask{
 		return sum;
 	}
 	
-	/** Multi-threaded repeat masking across all sequences.
-	 * @return Total number of bases masked for repeats */
+	/** Adds repeat marks using a finite queue containing each reference once.
+	 * Each polled Read's mask is updated by one worker; bases are unchanged.
+	 * Empty maps return zero. Counts are merged after all workers terminate.
+	 * Reports observed owner interruption only after every worker has finished.
+	 * @return Sum of newly set bits from the workers */
 	private long maskRepeats(){
+		if(map.isEmpty()){return 0;}
 		ArrayBlockingQueue<Read> queue=new ArrayBlockingQueue<Read>(map.size());
 		for(Read r : map.values()){queue.add(r);}
 		int numThreads=Tools.min(Shared.threads(), queue.size());
@@ -1223,16 +1290,13 @@ public class BBMask{
 		long sum=0;
 		for(int i=0; i<threads.length; i++){threads[i]=new MaskRepeatThread(queue, mink, maxk, mincount, minlen);}
 		for(int i=0; i<threads.length; i++){threads[i].start();}
+		final InterruptedException interrupted=awaitWorkers(threads);
 		for(int i=0; i<threads.length; i++){
-			while(threads[i].getState()!=Thread.State.TERMINATED){
-				try {
-					threads[i].join();
-				} catch (InterruptedException e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
-				}
-			}
 			sum+=threads[i].masked;
+		}
+		if(interrupted!=null){
+			Thread.currentThread().interrupt();
+			throw new RuntimeException("BBMask interrupted while waiting for repeat workers.", interrupted);
 		}
 		return sum;
 	}
@@ -1281,21 +1345,21 @@ public class BBMask{
 	}
 	
 	/**
-	 * Identifies and masks repetitive regions in a single read using k-mer analysis.
+	 * Adds repeat marks to the attached BitSet without changing Read bases.
+	 * For each k in the inclusive range, requires at least max(minlen, k*mincount) bases.
 	 *
-	 * @param r Read to process
+	 * @param r Read with bases and an attached BitSet to update
 	 * @param mink Minimum k-mer size for repeat detection
 	 * @param maxk Maximum k-mer size for repeat detection
 	 * @param mincount Minimum repeat count threshold
 	 * @param minlen Minimum length of repeats to mask
-	 * @return Number of bases masked in this read
+	 * @return BitSet cardinality increase across all requested k values
 	 */
 	private static int maskRepeats(Read r, int mink, int maxk, int mincount, int minlen){
 		final byte[] bases=r.bases;
 		final BitSet bs=(BitSet)r.obj;
 		
 		int before=bs.cardinality();
-//		System.err.println("\nbefore="+before+"\n"+new String(bases)+"\n"+bs);
 		
 		for(int k=mink; k<=maxk; k++){
 			maskRepeats(bases, bs, k, Tools.max(minlen, k*mincount));
@@ -1303,14 +1367,13 @@ public class BBMask{
 
 		int after=bs.cardinality();
 		
-//		System.err.println("before="+before+", after="+after+"\n"+new String(bases)+"\n"+bs);
-		
 		return after-before;
 	}
 	
 	
 	/**
-	 * Core repeat detection algorithm using k-mer pattern matching.
+	 * Adds qualifying tandem-repeat spans to the BitSet without modifying bases.
+	 * A candidate at loc uses the preceding seed [loc-k,loc); marked spans include it.
 	 *
 	 * @param bases Sequence bases to analyze
 	 * @param bs BitSet to mark positions for masking
@@ -1325,11 +1388,8 @@ public class BBMask{
 			if(len>=minlen){
 				int a=loc-k, b=loc-k+len;
 				bs.set(a, b);
-//				System.err.println("len="+len+", minlen="+minlen+", set "+(loc-k)+"-"+(loc-k+len));
 				loc=Tools.max(loc, b-minlen);
-//				System.err.println("Reset loc to "+loc);
 			}else{
-//				System.err.println("len="+len+" < minlen="+minlen);
 			}
 		}
 		
@@ -1337,13 +1397,14 @@ public class BBMask{
 	
 	
 	/**
-	 * Calculates the length of a repeat starting at specified location.
+	 * Extends the seed [loc-k,loc) while its encoded k-mer recurs without a k-base gap.
+	 * The returned length includes the seed and ends after the last matching k-mer.
 	 *
 	 * @param bases Sequence bases to analyze
 	 * @param k K-mer size for pattern matching
 	 * @param mask Bit mask for k-mer extraction
-	 * @param loc Starting location to check for repeats
-	 * @return Length of repeat found, or 0 if no repeat
+	 * @param loc Exclusive end of the seed and first extension position
+	 * @return Seed-inclusive span length, or zero if no matching extension is found
 	 */
 	private static int repeatLength(final byte[] bases, final int k, final int mask, final int loc){
 		
@@ -1362,21 +1423,18 @@ public class BBMask{
 			}else{
 				gap++;
 			}
-//			System.err.println("i="+i+", lim="+lim+", gap="+gap+", last="+last+", b="+(char)b+", n="+n+", key="+key+", kmer="+kmer);
 		}
-		
-//		System.err.println("k="+k+", mask="+mask+", loc="+loc+", last="+last);
 		
 		return (last<0 ? 0 : last-loc+k+1);
 	}
 	
 	/**
-	 * Extracts initial k-mer key for repeat detection at specified location.
+	 * Encodes the preceding k bases [loc-k,loc) as a repeat seed.
 	 *
 	 * @param bases Sequence bases
-	 * @param loc Location to extract k-mer
+	 * @param loc Exclusive end of the seed in bases
 	 * @param k K-mer size
-	 * @return Integer representation of k-mer, or -1 if invalid
+	 * @return Encoded seed, or -1 when loc is too small to contain k preceding bases
 	 */
 	private static int getInitialKey(byte[] bases, int loc, int k){
 		assert(k<16);
@@ -1404,19 +1462,16 @@ public class BBMask{
 	private ConcurrentHashMap<String, String> norefSet=new ConcurrentHashMap<String, String>(256, .75f, 16);
 	/** Coverage arrays for SAM-based masking analysis */
 	private HashMap<String, CoverageArray> covmap=null;
-//	private IntList refLengths=new IntList();
 	
-	/** Count of reference sequences processed */
+	/** Loaded reference record count, before splitting changes output record count. */
 	private long refReads=0;
-	/** Total bases in reference sequences */
+	/** Loaded reference bases, before masking or splitting. */
 	private long refBases=0;
-//	private long repeatsMasked=0;
 	
 	/** Count of SAM reads processed */
 	private long samReads=0;
 	/** Total bases in SAM reads processed */
 	private long samBases=0;
-//	private long samMasked=0;
 	
 	/** Flag indicating whether processing encountered errors */
 	public boolean errorState=false;
@@ -1445,7 +1500,7 @@ public class BBMask{
 	/** Whether to append to existing output files */
 	private boolean append=false;
 
-	/** Maximum number of reads to process */
+	/** Input limit passed separately to the reference stream and each SAM stream. */
 	private long maxReads=-1;
 
 	/** Whether to perform repeat masking */
@@ -1481,9 +1536,9 @@ public class BBMask{
 	/** Include deletions when calculating coverage */
 	private boolean includeDeletionCoverage=true;
 
-	/** If nonnegative, mask bases with coverage outside this range. */
+	/** If nonnegative, mask bases with coverage strictly below this minimum. */
 	private int mincov=-1;
-	/** If nonnegative, mask bases with coverage outside this range. */
+	/** If nonnegative, mask bases with coverage strictly above this maximum. */
 	private int maxcov=-1;
 	
 	/** Padding to add around SAM alignment regions */

@@ -24,11 +24,15 @@ import tracker.ReadStats;
 
 /**
  * Replaces read headers with headers from a separate file.
- * Supports paired-end reads and can either replace headers completely or prepend new headers to existing ones.
+ *
+ * <p>Replacement headers are read from one or two header streams in step with the
+ * sequence reads.  Each consumed read keeps its sequence and quality; only its ID
+ * changes, either by direct replacement or by prefixing the replacement ID.</p>
+ *
  * @author Brian Bushnell
  * @date May 23, 2016
  */
-public class ReplaceHeaders {
+public class ReplaceHeaders{
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
@@ -46,8 +50,13 @@ public class ReplaceHeaders {
 	}
 	
 	/**
-	 * Parses command line arguments and initializes file formats.
-	 * Sets up input/output streams for sequence reads and header files, validates paths, and enforces pairing configuration.
+	 * Parses command line arguments, prepares read and header descriptors, validates
+	 * path combinations, and records pairing/interleaving choices.
+	 *
+	 * <p>Shared IO settings are configured here, including the intentionally short
+	 * shared read-list length.  The read/header streams themselves are created in
+	 * {@link #process(Timer)}.</p>
+	 *
 	 * @param args Command line arguments specifying input/output files and options
 	 */
 	public ReplaceHeaders(String[] args){
@@ -60,7 +69,7 @@ public class ReplaceHeaders {
 		
 		boolean setInterleaved=false; //Whether interleaved was explicitly set.
 		
-		//Set shared static variables
+		//Configure shared IO settings; the shared read-list length is intentionally one.
 		Shared.setBufferLen(1);//Tools.min(200, Shared.bufferLen());
 		Shared.capBuffers(4);
 		ReadWrite.USE_PIGZ=ReadWrite.USE_UNPIGZ=true;
@@ -73,10 +82,10 @@ public class ReplaceHeaders {
 		for(int i=0; i<args.length; i++){
 			String arg=args[i];
 			
-			//Break arguments into their constituent parts, in the form of "a=b"
-			String[] split=arg.split("=");
-			String a=split[0].toLowerCase();
-			String b=split.length>1 ? split[1] : null;
+			//Only the first '=' separates the option; filenames may contain more.
+			final int equals=arg.indexOf('=');
+			String a=(equals<0 ? arg : arg.substring(0, equals)).toLowerCase();
+			String b=(equals<0 || equals==arg.length()-1 ? null : arg.substring(equals+1));
 			
 			if(parser.parse(arg, a, b)){//Parse standard flags in the parser
 				//do nothing
@@ -89,11 +98,10 @@ public class ReplaceHeaders {
 			}else if(a.equals("verbose")){
 				verbose=Parse.parseBoolean(b);
 			}else if(a.equals("parse_flag_goes_here")){
-				//Set a variable here
+				//Dormant branch reserved for a future local flag.
 			}else{
 				outstream.println("Unknown parameter "+args[i]);
 				assert(false) : "Unknown parameter "+args[i];
-				//				throw new RuntimeException("Unknown parameter "+args[i]);
 			}
 		}
 		
@@ -146,10 +154,10 @@ public class ReplaceHeaders {
 		
 		assert(FastaReadInputStream.settingsOK());
 		
-		//Ensure there is an input file
+		//Ensure there is a read input file.
 		if(in1==null){throw new RuntimeException("Error - at least one input file is required.");}
 		
-		//Ensure there is an input file
+		//Ensure there is a header input file.
 		if(hin1==null){throw new RuntimeException("Error - at least one header input file is required.");}
 		
 		//Adjust the number of threads for input file reading
@@ -195,11 +203,11 @@ public class ReplaceHeaders {
 		ffout1=FileFormat.testOutput(out1, FileFormat.FASTQ, extout, true, overwrite, append, false);
 		ffout2=FileFormat.testOutput(out2, FileFormat.FASTQ, extout, true, overwrite, append, false);
 
-		//Create input FileFormat objects
+		//Create read input FileFormat objects
 		ffin1=FileFormat.testInput(in1, FileFormat.FASTQ, extin, true, true);
 		ffin2=FileFormat.testInput(in2, FileFormat.FASTQ, extin, true, true);
 
-		//Create input FileFormat objects
+		//Create header input FileFormat objects
 		ffhin1=FileFormat.testInput(hin1, FileFormat.HEADER, null, true, true);
 		ffhin2=FileFormat.testInput(hin2, FileFormat.HEADER, null, true, true);
 	}
@@ -209,13 +217,19 @@ public class ReplaceHeaders {
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Main processing method that coordinates the header replacement pipeline.
-	 * Creates concurrent input streams for reads and headers, validates pairing, and processes all data through processInner.
+	 * Creates read, header, and optional output streams, delegates read/header ID
+	 * replacement, then closes streams on normal completion.
+	 *
+	 * <p>The borrowed streams passed to {@link #processInner(ConcurrentReadInputStream,
+	 * ConcurrentReadInputStream, ConcurrentReadOutputStream)} remain owned here:
+	 * after processing, accumulated {@link ReadStats} are written and the read/header
+	 * streams and nullable output stream are closed.</p>
+	 *
 	 * @param t Timer for tracking execution time
 	 */
 	void process(Timer t){
 		
-		//Create a read input stream
+		//Create the read input stream.
 		final ConcurrentReadInputStream cris;
 		{
 			cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ffin1, ffin2, qfin1, qfin2);
@@ -225,7 +239,7 @@ public class ReplaceHeaders {
 		final boolean paired=cris.paired();
 		if(!ffin1.samOrBam()){outstream.println("Input is being processed as "+(paired ? "paired" : "unpaired"));}
 		
-		//Create a read input stream for headers
+		//Create the replacement-header input stream and check pairedness.
 		final ConcurrentReadInputStream hcris;
 		{
 			hcris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ffhin1, ffhin2, null, null);
@@ -237,7 +251,7 @@ public class ReplaceHeaders {
 			}
 		}
 		
-		//Optionally create a read output stream
+		//Optionally create and start the read output stream.
 		final ConcurrentReadOutputStream ros;
 		if(ffout1!=null){
 			final int buff=4;
@@ -254,14 +268,13 @@ public class ReplaceHeaders {
 		readsProcessed=0;
 		basesProcessed=0;
 		
-		//Process the read stream
+		//Process paired read/header batches.
 		processInner(cris, hcris, ros);
 		
 		if(verbose){outstream.println("Finished; closing streams.");}
 		
-		//Write anything that was accumulated by ReadStats
+		//Write accumulated statistics and close the streams we own.
 		errorState|=ReadStats.writeAll();
-		//Close the read streams
 		errorState|=ReadWrite.closeStreams(hcris);
 		errorState|=ReadWrite.closeStreams(cris, ros);
 		
@@ -269,15 +282,21 @@ public class ReplaceHeaders {
 		t.stop();
 		outstream.println(Tools.timeReadsBasesProcessed(t, readsProcessed, basesProcessed, 8));
 		
-		//Throw an exception of there was an error in a thread
+		//Throw an exception if there was an error in a thread.
 		if(errorState){
 			throw new RuntimeException(getClass().getName()+" terminated in an error state; the output may be corrupt.");
 		}
 	}
 	
 	/**
-	 * Iterates through read and header streams synchronously.
-	 * Validates that header count matches read count for each batch, processes each read pair with corresponding headers, and writes output.
+	 * Iterates through read and header streams synchronously for all consumed read
+	 * batches.
+	 *
+	 * <p>The first read/header batches must be equal in size.  Later consumed read
+	 * batches require at least as many replacement headers as reads, which permits an
+	 * unused tail in a fetched header batch and does not drain additional surplus
+	 * header batches once the read stream ends.</p>
+	 *
 	 * @param cris Input stream for sequence reads
 	 * @param hcris Input stream for replacement headers
 	 * @param ros Output stream for modified reads (may be null)
@@ -287,14 +306,14 @@ public class ReplaceHeaders {
 		//Do anything necessary prior to processing
 		
 		{
-			//Grab the first ListNum of reads
+			//Grab the first ListNum of reads.
 			ListNum<Read> ln=cris.nextList();
-			//Grab the actual read list from the ListNum
+			//Grab the actual read list from the ListNum.
 			ArrayList<Read> reads=(ln!=null ? ln.list : null);
 			
-			//Grab the first ListNum of headers
+			//Grab the first ListNum of headers.
 			ListNum<Read> hln=hcris.nextList();
-			//Grab the actual read list from the ListNum
+			//Grab the actual header list from the ListNum.
 			ArrayList<Read> hreads=(hln!=null ? hln.list : null);
 			
 			if(hreads==null || hreads.size()!=reads.size()){
@@ -311,6 +330,10 @@ public class ReplaceHeaders {
 			
 			//As long as there is a nonempty read list...
 			while(ln!=null && reads!=null && reads.size()>0){//ln!=null prevents a compiler potential null access warning
+				//Later read batches need at least the headers they consume.
+				if(hreads==null || hreads.size()<reads.size()){
+					KillSwitch.kill("Missing replacement headers in batch "+ln.id+": expected "+reads.size()+", found "+(hreads==null ? 0 : hreads.size())+".");
+				}
 				if(verbose){
 					outstream.println("Fetched "+reads.size()+" reads: "+reads.get(0).id+"\n"+reads.get(0).length());
 					outstream.println("Fetched "+hreads.size()+" headers.");
@@ -336,32 +359,32 @@ public class ReplaceHeaders {
 					if(!keep){reads.set(idx, null);}
 				}
 				
-				//Output reads to the output stream
+				//Output reads to the output stream.
 				if(ros!=null){ros.add(reads, ln.id);}
 				
-				//Notify the input stream that the list was used
+				//Return the consumed read list to its stream.
 				cris.returnList(ln);
 				if(verbose){outstream.println("Returned a read list.");}
 				
-				//Notify the input stream that the list was used
+				//Return the consumed header list to its stream.
 				hcris.returnList(hln.id, hln.list.isEmpty());
 				if(verbose){outstream.println("Returned a header list.");}
 				
-				//Fetch a new list
+				//Fetch the next read list.
 				ln=cris.nextList();
 				reads=(ln!=null ? ln.list : null);
 				
-				//Fetch a new header list
+				//Fetch the next header list.
 				hln=hcris.nextList();
 				hreads=(hln!=null ? hln.list : null);
 			}
 			
-			//Notify the input stream that the final list was used
+			//Return the final fetched read list, which was not consumed above.
 			if(ln!=null){
 				cris.returnList(ln.id, ln.list==null || ln.list.isEmpty());
 			}
 			
-			//Notify the input stream that the final header list was used
+			//Return the final fetched header list, which may contain unused headers.
 			if(hln!=null){
 				hcris.returnList(hln.id, hln.list==null || hln.list.isEmpty());
 			}
@@ -376,13 +399,17 @@ public class ReplaceHeaders {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Replaces headers for a single read pair.
-	 * If prefix mode is enabled, prepends new header to existing header; otherwise completely replaces the existing header.
+	 * Replaces only the ID fields for one read or read pair.
+	 *
+	 * <p>Prefix mode joins the replacement ID, a single space, and the original ID.
+	 * Non-prefix mode assigns the replacement ID directly.  Sequences, qualities,
+	 * pairing, and all other read state are left unchanged.</p>
+	 *
 	 * @param r1 First read in the pair
 	 * @param r2 Second read in the pair (may be null for unpaired)
 	 * @param h1 Replacement header for first read
 	 * @param h2 Replacement header for second read (may be null for unpaired)
-	 * @return Always returns true (reads are always kept)
+	 * @return true; reads are always kept
 	 */
 	boolean processReadPair(final Read r1, final Read r2, final Read h1, final Read h2){
 		if(prefix){
@@ -399,43 +426,55 @@ public class ReplaceHeaders {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** First and optional second read-input paths. */
 	private String in1=null;
 	private String in2=null;
 
+	/** First and optional second replacement-header paths. */
 	private String hin1=null;
 	private String hin2=null;
 	
+	/** Optional quality-sidecar input paths for the read inputs. */
 	private String qfin1=null;
 	private String qfin2=null;
 
+	/** First and optional second read-output paths. */
 	private String out1=null;
 	private String out2=null;
 
+	/** Optional quality-sidecar output paths for the read outputs. */
 	private String qfout1=null;
 	private String qfout2=null;
 	
+	/** Read input and output extension overrides. */
 	private String extin=null;
 	private String extout=null;
 	
+	/** True to prepend replacement IDs to existing IDs rather than replacing them. */
 	private boolean prefix=false;
 	
 	/*--------------------------------------------------------------*/
 
+	/** Read and base counters for consumed reads. */
 	protected long readsProcessed=0;
 	protected long basesProcessed=0;
 
+	/** Maximum reads or pairs to request from both read and header streams. */
 	private long maxReads=-1;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Read input descriptors. */
 	private final FileFormat ffin1;
 	private final FileFormat ffin2;
 
+	/** Replacement-header input descriptors. */
 	private final FileFormat ffhin1;
 	private final FileFormat ffhin2;
 	
+	/** Read output descriptors; the first may be null to suppress output. */
 	private final FileFormat ffout1;
 	private final FileFormat ffout2;
 	
@@ -443,10 +482,15 @@ public class ReplaceHeaders {
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Diagnostic output stream, usually stderr unless redirected by PreParser. */
 	private PrintStream outstream=System.err;
+	/** Enables verbose progress diagnostics. */
 	public static boolean verbose=false;
+	/** Set when statistics or stream closure reports an error. */
 	public boolean errorState=false;
+	/** Output overwrite flag. */
 	private boolean overwrite=true;
+	/** Output append flag. */
 	private boolean append=false;
 	
 }

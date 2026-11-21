@@ -153,7 +153,7 @@ public class BBDuk {
 		for(int i=0; i<args.length; i++){
 
 			final String arg=args[i];
-			String[] split=arg.split("=");
+			String[] split=Parse.splitOnFirst(arg, '=');
 			String a=split[0].toLowerCase();
 			String b=split.length>1 ? split[1] : null;
 			
@@ -189,7 +189,7 @@ public class BBDuk {
 				qfin2=b;
 			}else if(a.equals("qfout") || a.equals("qfout1")){
 				qfout1=b;
-			}else if(a.equals("qfin2")){
+			}else if(a.equals("qfout2")){
 				qfout2=b;
 			}else if(a.equals("out") || a.equals("out1") || a.equals("outu") || a.equals("outu1") || a.equals("outnonmatch") ||
 					a.equals("outnonmatch1") || a.equals("outunnmatch") || a.equals("outunmatch1") || a.equals("outunnmatched") || a.equals("outunmatched1")){
@@ -251,7 +251,8 @@ public class BBDuk {
 				setk=true;
 			}else if(a.equals("mink") || a.equals("kmin")){
 				mink_=Integer.parseInt(b);
-				assert(mink_<0 || (mink_>0 && mink_<32)) : "kmin must be between 1 and 31; default is 4, negative numbers disable it.";
+				//Nonpositive values disable automatic short-kmer selection; explicit usk remains independent (JGI110).
+				assert(mink_<=0 || (mink_>0 && mink_<32)) : new StringBuilder("mink/kmin must be 1 to 31 when enabled; zero or negative values leave automatic short-kmer selection disabled; value=").append(mink_).toString();
 			}else if(a.equals("useshortkmers") || a.equals("shortkmers") || a.equals("usk")){
 				useShortKmers=Parse.parseBoolean(b);
 			}else if(a.equals("trimextra") || a.equals("trimpad") || a.equals("tp")){
@@ -888,7 +889,7 @@ public class BBDuk {
 			in1=a+1+b;
 			in2=a+2+b;
 		}
-		if(in2!=null && (in2.contains("=") || in2.equalsIgnoreCase("null"))){in2=null;}
+		if(in2!=null && in2.equalsIgnoreCase("null")){in2=null;}
 		if(in2!=null){
 			if(FASTQ.FORCE_INTERLEAVED && !silent){outstream.println("Reset INTERLEAVED to false because paired input files were specified.");}
 			FASTQ.FORCE_INTERLEAVED=FASTQ.TEST_INTERLEAVED=false;
@@ -1395,7 +1396,7 @@ public class BBDuk {
 		if(ktrimLeft || ktrimRight || ktrimN){
 			String x=(ktrimN ? "KMasked: " : "KTrimmed:");
 			jsonStats.add("reads"+x, readsKTrimmed);
-			jsonStats.add("bases+x", basesKTrimmed);
+			jsonStats.add("bases"+x, basesKTrimmed);
 		}
 		if(swift){
 			jsonStats.add("readsTrimmedBySwift", readsTrimmedBySwift);
@@ -1654,7 +1655,6 @@ public class BBDuk {
 	
 	/**
 	 * Write RQCFilter stats.
-	 * @param time Elapsed time, nanoseconds
 	 */
 	private void writeRqc(){
 		if(outrqc==null){return;}
@@ -1870,8 +1870,8 @@ public class BBDuk {
 									lt.queue.put(reads2);
 									b=false;
 								} catch (InterruptedException e) {
-									//TODO:  This will hang due to still-running threads.
-									throw new RuntimeException(e);
+									e.printStackTrace();
+									KillSwitch.kill("Interrupted while submitting reference reads to BBDuk loaders; aborting instead of abandoning input and loader threads.");
 								}
 							}
 						}
@@ -1917,8 +1917,8 @@ public class BBDuk {
 						lt.queue.put(list);
 						b=false;
 					} catch (InterruptedException e) {
-						//TODO:  This will hang due to still-running threads.
-						throw new RuntimeException(e);
+						e.printStackTrace();
+						KillSwitch.kill("Interrupted while submitting literal reads to BBDuk loaders; aborting instead of abandoning loader threads.");
 					}
 				}
 			}
@@ -1932,8 +1932,8 @@ public class BBDuk {
 					lt.queue.put(POISON);
 					b=false;
 				} catch (InterruptedException e) {
-					//TODO:  This will hang due to still-running threads.
-					throw new RuntimeException(e);
+					e.printStackTrace();
+					KillSwitch.kill("Interrupted while sending termination to BBDuk loaders; aborting instead of abandoning loader threads.");
 				}
 			}
 		}
@@ -1945,7 +1945,7 @@ public class BBDuk {
 				try {
 					lt.join();
 				} catch (InterruptedException e) {
-					e.printStackTrace();
+					e.printStackTrace(); KillSwitch.kill("Interrupted while joining BBDuk loaders; aborting incomplete reference loading.");
 				}
 			}
 			added+=lt.addedT;
@@ -2368,9 +2368,9 @@ public class BBDuk {
 				added=map.setIfNotPresent(key, id);
 			}else if(edist>0){
 //				long extraBase=(i>=bases.length-1 ? -1 : symbolToNumber2bases[i+1]]);
-				added=mutate(kmer, rkmer, len, id, edist, extraBase);
+				added=mutate(kmer, rkmer, len, id, edist, extraBase, true);
 			}else{
-				added=mutate(kmer, rkmer, len, id, hdist, -1);
+				added=mutate(kmer, rkmer, len, id, hdist, -1, false);
 			}
 			if(verbose){outstream.println("addToMap added "+added+" keys.");}
 			return added;
@@ -2383,9 +2383,10 @@ public class BBDuk {
 		 * @param id Scaffold number
 		 * @param dist Number of mutations
 		 * @param extraBase Base added to end in case of deletions
+		 * @param allowIndels Whether this invocation and its descendants permit indels
 		 * @return Number of kmers stored
 		 */
-		private long mutate(final long kmer, final long rkmer, final int len, final int id, final int dist, final long extraBase){
+		private long mutate(final long kmer, final long rkmer, final int len, final int id, final int dist, final long extraBase, final boolean allowIndels){
 			long added=0;
 			
 			final long key=toValue(kmer, rkmer, lengthMasks[len]);
@@ -2411,19 +2412,19 @@ public class BBDuk {
 						final long temp=(kmer&clearMasks[i])|setMasks[j][i]; //TODO:  6/14/23, fixed incorrect description of setMasks that swapped i and j; may need changing in Seal and etc
 						if(temp!=kmer){
 							long rtemp=rcomp(temp, len);
-							added+=mutate(temp, rtemp, len, id, dist2, extraBase);
+							added+=mutate(temp, rtemp, len, id, dist2, extraBase, allowIndels);
 						}
 					}
 				}
 				
-				if(editDistance>0){
+				if(allowIndels){
 					//Del
 					if(extraBase>=0 && extraBase<=maxSymbol){
 						for(int i=1; i<len; i++){
 							final long temp=(kmer&leftMasks[i])|((kmer<<bitsPerBase)&rightMasks[i])|extraBase;
 							if(temp!=kmer){
 								long rtemp=rcomp(temp, len);
-								added+=mutate(temp, rtemp, len, id, dist2, -1);
+								added+=mutate(temp, rtemp, len, id, dist2, -1, allowIndels);
 							}
 						}
 					}
@@ -2436,7 +2437,7 @@ public class BBDuk {
 							final long temp=temp0|setMasks[j][i-1];
 							if(temp!=kmer){
 								long rtemp=rcomp(temp, len);
-								added+=mutate(temp, rtemp, len, id, dist2, eb2);
+								added+=mutate(temp, rtemp, len, id, dist2, eb2, allowIndels);
 							}
 						}
 					}
@@ -3028,7 +3029,8 @@ public class BBDuk {
 							}
 						}
 						if(r2!=null){
-							if(filterPolyC>0 && detectPolyLeft(r1, filterPolyC, maxNonPoly, (byte)'C')>=filterPolyC) {
+								//JGI-099: Check R2 independently before applying the selected pair-removal policy.
+							if(filterPolyC>0 && detectPolyLeft(r2, filterPolyC, maxNonPoly, (byte)'C')>=filterPolyC) {
 								setDiscarded(r2);
 								readsPolyTrimmedT++;
 							}else if(trimPolyCLeft>0 || trimPolyCRight>0){
@@ -3501,6 +3503,7 @@ public class BBDuk {
 									scaffoldReadCounts.addAndGet(id, 1);
 									scaffoldBaseCounts.addAndGet(id, bases.length);
 								}
+								recorded=true;
 							}
 							if(hitCounts==null){
 								return found;
@@ -3566,6 +3569,8 @@ public class BBDuk {
 				if(rename){rename(r, idList, countList);}
 				id=id0;
 			}else{
+				//Clear only counters touched by this read, as condenseLoose does for qualifying reads.
+				for(int i=0; i<idList.size; i++){countArray[idList.get(i)]=0;}
 				max=0;
 				id=-1;
 			}
@@ -4031,8 +4036,11 @@ public class BBDuk {
 			final BitSet bs=new BitSet(bases.length+trimPad+1);
 			if(kmaskFullyCovered){bs.set(0, bases.length);}
 			
+			//TODO: Probable bug - positive trimPad still shifts normal-hit masks right in retained lowercase/short-kmer modes (JGI109).
 			final int minus=k-1-trimPad;
 			final int plus=trimPad+1;
+			final boolean padNormalReplacement=(trimPad>0 && !kmaskFullyCovered && !kmaskLowercase && !useShortKmers);
+			final int setMinus=(padNormalReplacement ? k2+trimPad : minus);
 			
 			final int start=(restrictRight<1 ? 0 : Tools.max(0, bases.length-restrictRight));
 			final int stop=(restrictLeft<1 ? bases.length : Tools.min(bases.length, restrictLeft));
@@ -4058,10 +4066,10 @@ public class BBDuk {
 						if(id0<0){id0=id;}
 						if(verbose){
 							outstream.println("a: Found "+kmer);
-							outstream.println("Setting "+Tools.max(0, i-minus)+", "+(i+plus));
+							outstream.println("Setting "+Tools.max(0, i-setMinus)+", "+(padNormalReplacement ? Tools.min(bases.length, i+plus) : i+plus));
 							outstream.println("i="+i+", minus="+minus+", plus="+plus+", trimpad="+trimPad+", k="+k);
 						}
-						if(!kmaskFullyCovered){bs.set(Tools.max(0, i-minus), i+plus);}
+						if(!kmaskFullyCovered){bs.set(Tools.max(0, i-setMinus), padNormalReplacement ? Tools.min(bases.length, i+plus) : i+plus);}
 						found++;
 					}else if(kmaskFullyCovered){
 						bs.clear(Tools.max(0, i-minus), i+plus);
@@ -4176,6 +4184,7 @@ public class BBDuk {
 				}
 			}
 //			int y=r.countNocalls();
+			//TODO: Probable bug - retained legacy masking modes can set padded bits beyond bases.length and inflate this count (JGI104).
 			int cardinality=bs.cardinality();
 //			assert(cardinality>0);
 			
@@ -4458,14 +4467,20 @@ public class BBDuk {
 			//Now, trim from bitset - which could be spun out into a function
 			int left=0, right=0;
 			final int len=bases.length;
-			for(int i=0; i<len; i++){
-				if(bs.get(i)){left++;}
-				else {break;}
+			if((entropyTrim&LEFT)!=0){
+				for(int i=0; i<len; i++){
+					if(bs.get(i)){left++;}
+					else {break;}
+				}
 			}
-			for(int i=len-1; i>=0; i--){
-				if(bs.get(i)){right++;}
-				else {break;}
+			if((entropyTrim&RIGHT)!=0){
+				for(int i=len-1; i>=0; i--){
+					if(bs.get(i)){right++;}
+					else {break;}
+				}
 			}
+			//Keep LEFT requests from triggering the shared trimmer's right-only minimum-length fallback.
+			if(entropyTrim==LEFT){left=Tools.min(left, len-1);}
 			if(left==0 && right==0){return 0;}
 			return TrimRead.trimByAmount(r, left, right, 1);
 		}
@@ -5324,13 +5339,13 @@ public class BBDuk {
 	final long mask;
 	final long kmask;
 	
-	/** x&clearMasks[i] will clear base i */
+	/** x&amp;clearMasks[i] will clear base i */
 	final long[] clearMasks;
 	/** x|setMasks[j][i] will set position i to symbol j */
 	final long[][] setMasks;
-	/** x&leftMasks[i] will clear all bases to the right of i (exclusive) */
+	/** x&amp;leftMasks[i] will clear all bases to the right of i (exclusive) */
 	final long[] leftMasks;
-	/** x&rightMasks[i] will clear all bases to the left of i (inclusive) */
+	/** x&amp;rightMasks[i] will clear all bases to the left of i (inclusive) */
 	final long[] rightMasks;
 	/** x|kMasks[i] will set the bit to the left of the leftmost base */
 	final long[] lengthMasks;

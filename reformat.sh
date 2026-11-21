@@ -62,7 +62,12 @@ comp=f                  (complement) Reverse-complement reads.
 changequality=t         (cq) N bases always get a quality of 0 and ACGT bases get a min quality of 2.
 quantize=f              Quantize qualities to a subset of values like NextSeq.  Can also be used with comma-delimited list, like quantize=0,8,13,22,27,32,37
 tuc=f                   (touppercase) Change lowercase letters in reads to uppercase.
-uniquenames=f           Make duplicate names unique by appending _<number>.
+uniquenames=f           Keep the first name unchanged; rename duplicates with _2, _3,
+                        etc., avoiding collisions with names already encountered.
+uniquenamescope=identifier  Compare the identifier before the first whitespace.
+                        Set to header to compare the complete header instead.
+                        Only applies with uniquenames=t. Scope selection does not
+                        remove descriptions; trd=t removes them before comparison.
 remap=                  A set of pairs: remap=CTGN will transform C>T and G>N.
                         Use remap1 and remap2 to specify read 1 or 2.
 iupacToN=f              (itn) After read validation, convert symbols other than
@@ -131,6 +136,7 @@ minlength=0             (ml) Reads shorter than this after trimming will be disc
 mlf=0                   (mlf) Reads shorter than this fraction of original length after trimming will be discarded.
 maxlength=0             If nonzero, reads longer than this after trimming will be discarded.
 breaklength=0           If nonzero, reads longer than this will be broken into multiple reads of this length.  Does not work for paired reads.
+                        Sam/bam breaklength rejects sam flag, mapq, identity, and edit filters.
 requirebothbad=t        (rbb) Only discard pairs if both reads are shorter than minlen.
 invertfilters=f         (invert) Output failing reads instead of passing reads.
 minavgquality=0         (maq) Reads with average quality (after trimming) below this will be discarded.

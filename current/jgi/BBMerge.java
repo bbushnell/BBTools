@@ -2,6 +2,7 @@ package jgi;
 
 import java.io.File;
 import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.BitSet;
@@ -16,6 +17,7 @@ import bloom.KmerCountAbstract;
 import cardinality.CardinalityTracker;
 import dna.AminoAcid;
 import dna.Data;
+import fileIO.ByteStreamWriter;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
 import kmer.KmerTableSet;
@@ -47,16 +49,21 @@ import tracker.ReadStats;
 import ukmer.Kmer;
 
 /**
+ * Merges overlapping paired-end reads and provides overlap/error-correction helpers.
+ * Command-line processing uses shared static settings and delegates multi-kmer
+ * requests to {@link BBMergeMulti}.
  * @author Brian Bushnell
  * @date Aug 14, 2012
  *
  */
-public class BBMerge {
+public class BBMerge{
 	
 	/**
-	 * Program entry point for BBMerge.
-	 * Processes paired-end reads to merge overlapping sequences.
-	 * @param args Command-line arguments for merge parameters
+	 * Delegates multi-kmer requests to BBMergeMulti; otherwise constructs and runs BBMerge.
+	 * The local path enables both feature-vector flags before construction. On normal
+	 * return from processing, it clears those flags, enables Read constructor validation,
+	 * and closes the redirected diagnostic stream.
+	 * @param args Command-line arguments
 	 */
 	public static void main(String[] args){
 		if(BBMergeMulti.isMultiK(args)){
@@ -78,10 +85,13 @@ public class BBMerge {
 	}
 	
 	/**
-	 * Preprocesses command-line arguments to handle preset modes.
-	 * Expands mode flags like strict, loose, fast into specific parameter sets.
-	 * @param args Original command-line arguments
-	 * @return Expanded arguments with mode-specific parameters
+	 * Applies shared preset, diagnostic and JNI settings, consuming preset and showfullargs
+	 * tokens by nulling their input slots. JNI tokens remain for subsequent parsing.
+	 * When tokens are consumed, prepends applicable preset defaults to the remaining
+	 * explicit arguments in their original order. Presets also depend on existing shared mode flags.
+	 * @param args Input argument array to mutate, or null for no arguments
+	 * @return Empty array for null input, the original array if no tokens were consumed,
+	 * or a new array containing preset defaults followed by the remaining arguments
 	 */
 	private static String[] preparse(String[] args){
 		if(args==null){return new String[0];}
@@ -327,10 +337,12 @@ public class BBMerge {
 	}
 	
 	/**
-	 * Constructs BBMerge instance and parses command-line arguments.
-	 * Initializes input/output files, merge parameters, and optional components
-	 * like Tadpole for kmer operations or BloomFilter for error correction.
-	 * @param args Command-line arguments
+	 * Parses arguments and configures this run and shared process settings.
+	 * Initializes requested calibration and optional Tadpole or Bloom support before
+	 * final input/output path checks; Bloom setup can count input reads.
+	 * Loads a requested nondefault neural model after those checks.
+	 * The configured merge/correction pass runs in {@link #process()}.
+	 * @param args Command-line arguments handled by PreParser and preset expansion
 	 */
 	public BBMerge(String[] args){
 		
@@ -390,7 +402,8 @@ public class BBMerge {
 		
 		for(int i=0; i<args.length; i++){
 			String arg=args[i];
-			String[] split=arg.split("=");
+			//JGI-092: Keep complete values; the native splitter preserves bare/empty options.
+			String[] split=Parse.splitOnFirst(arg, '=');
 			String a=split[0].toLowerCase();
 			String b=split.length>1 ? split[1] : null;
 			
@@ -496,6 +509,8 @@ public class BBMerge {
 				outb2=(b==null || b.equals("null") ? null : b);
 			}else if(a.startsWith("outinsert") || a.startsWith("outi") || a.startsWith("outlength")){
 				outinsert=(b==null || b.equals("null") ? null : b);
+			}else if(a.equals("noheader") || a.equals("suppressheader")){
+				stream.ReadStreamWriter.NO_HEADER=Parse.parseBoolean(b);
 			}else if(a.startsWith("outhist") || a.equals("hist") || a.equals("histogram") || a.equals("ihist")){
 				ihist=(b==null || b.equals("null") ? null : b);
 			}else if(a.equals("outa") || a.equals("outadapter")){
@@ -648,9 +663,10 @@ public class BBMerge {
 			else if(a.equals("adapter") || a.equals("adapters")){
 				adapterList1=adapterList2=getAdapterList(b);
 			}else if(a.equals("adapter1") || a.equals("adapters1")){
-				adapterList1=adapterList2=getAdapterList(b);
+				//JGI-087: Each mate-specific option updates only its own list.
+				adapterList1=getAdapterList(b);
 			}else if(a.equals("adapter2") || a.equals("adapters2")){
-				adapterList1=adapterList2=getAdapterList(b);
+				adapterList2=getAdapterList(b);
 			}
 			
 			//Extension parameters
@@ -753,6 +769,10 @@ public class BBMerge {
 			}
 		}
 		
+		if(outinsert!=null){
+			outinsert=outinsert.replaceFirst("#", "1");
+			if(TRAINING){throw new IllegalArgumentException("BBMerge training export through outinsert is not implemented; normal outinsert writes five-column insert reports.");}
+		}
 		if(adapterList1!=null || adapterList2!=null){
 			verifyAdapters=true;
 		}
@@ -821,7 +841,7 @@ public class BBMerge {
 			
 			qtrimLeft=parser.qtrimLeft;
 			qtrimRight=parser.qtrimRight;
-			trimq=(parser.trimq2!=null ? parser.trimq2 : new float[] {parser.trimq});
+			trimq=(parser.trimq2!=null ? parser.trimq2 : new float[]{parser.trimq});
 			trimE=parser.trimE2();
 			qtrim1=parser.qtrim1;
 			qtrim2=(parser.qtrim2 || (parser.trimq2!=null && parser.trimq2.length>1));
@@ -881,6 +901,11 @@ public class BBMerge {
 			outb1=outb1.replaceFirst("#", "1");
 		}
 		
+		//JGI-093: Check the resolved report path before graph setup or any output worker starts.
+		if(outinsert!=null && (!Tools.testOutputFiles(overwrite, append, false, outinsert) ||
+				!Tools.testForDuplicateFiles(true, in1, in2, out1, out2, outb1, outb2, outinsert, ihist, outCardinality, outAdapter))){
+			throw new IllegalArgumentException("Cannot write BBMerge insert report without overwriting an input or another output: "+outinsert);
+		}
 		if(extendRight1>0 || extendRight2>0 || useKFilter || eccTadpole || forceExactKmerCounts || kmerBridge){
 			
 			final long mem=Shared.memAvailable();
@@ -983,12 +1008,15 @@ public class BBMerge {
 		useMEEfilter=maxExpectedErrors>0;
 		
 		Read.VALIDATE_IN_CONSTRUCTOR=(THREADS<16);
-		if(netFile==null) {net0=null;}
-		else if(!netFile.equals(defaultNetFile)) {net0=CellNetParser.load(netFile);}
+		if(netFile==null){net0=null;}
+		else if(!netFile.equals(defaultNetFile)){net0=CellNetParser.load(netFile);}
 	}
 	
-	/** Main processing method that executes the read merging pipeline.
-	 * Loads kmers if needed, runs merge phase, and outputs statistics. */
+	/**
+	 * Loads configured Tadpole kmers, optionally cleans them, and runs the processing phase.
+	 * After the phase returns, requests histogram output, writes requested adapter/cardinality
+	 * results and prints shared statistics. Requested histogram writing is asynchronous.
+	 */
 	void process(){
 		Timer ttotal=new Timer();
 		ttotal.start();
@@ -1105,12 +1133,18 @@ public class BBMerge {
 	}
 	
 	/**
-	 * Writes insert size histogram to file with optional statistics.
-	 * @param fname Output filename for histogram
-	 * @param percentMerged Percentage of read pairs that merged successfully
+	 * Formats the shared insert histogram, rounding each bin's mean frequency up.
+	 * Uses shared bin width, maximum insert, statistics and zero-row settings. A bin reaching
+	 * the array's end uses its actual entry count; optional statistics use the raw histogram.
+	 * A null destination does nothing. Otherwise the histogram must be initialized, bin
+	 * width positive, counts nonnegative and each grouped total must fit in a long.
+	 * Starts asynchronous file writing and returns without waiting for completion.
+	 * @param fname Output filename, or null to skip output
+	 * @param percentMerged Caller-supplied percentage printed only with summary statistics
 	 */
 	public static void writeHistogram(String fname, double percentMerged){
 		if(fname==null){return;}
+		assert(bin>0) : "Histogram bin width must be positive to compute row averages: "+bin;
 		StringBuilder sb=new StringBuilder();
 
 		if(showHistStats){
@@ -1122,13 +1156,18 @@ public class BBMerge {
 		}
 		sb.append("#InsertSize\tCount\n");
 		for(int i=0; i<histTotal.length && i<=insertMaxTotal; i+=bin){
-			int x=0;
+			//JGI-088: Preserve long frequencies when accumulating an output bin.
+			long x=0;
 			int y=0;
 			for(int j=i; j<i+bin && j<histTotal.length; j++){
-				x+=histTotal[j];
+				final long count=histTotal[j];
+				assert(count>=0 && count<=Long.MAX_VALUE-x) :
+						"Histogram averages require nonnegative counts and a bin sum that fits in a long: index="+j+", count="+count+", sum="+x;
+				x+=count;
 				y++;
 			}
-			x=(x+bin-1)/y;
+			//JGI-088/091: Round by the actual bin size without overflowing an added numerator.
+			x=x/y+(x%y==0 ? 0 : 1);
 			if(x>0 || !NONZERO_ONLY){
 				sb.append(i+"\t"+x+"\n");
 			}
@@ -1214,12 +1253,17 @@ public class BBMerge {
 
 	
 	/**
-	 * Runs a processing phase with specified parameters.
-	 * Sets up input/output streams and processes reads using multiple threads.
+	 * Starts configured output writers and an input reader, then runs and joins workers.
+	 * Uses shared settings and resets and aggregates run counters. Input limits are
+	 * forwarded to the selected readers; they are not retained-sample targets.
+	 * Interruption during a worker join does not cancel processing. The owner's
+	 * interrupt status is restored after the stream-cleanup attempt, including
+	 * when an existing worker failure is propagated.
+	 * Earlier setup or result-aggregation failures can bypass stream cleanup.
 	 *
-	 * @param join Whether to join overlapping reads into single sequences
-	 * @param maxReads Maximum number of reads to process
-	 * @param perfectonly Whether to only process perfect matches
+	 * @param join Whether workers should join accepted overlapping mates
+	 * @param maxReads Limit forwarded unchanged to each input reader; units depend on the reader
+	 * @param perfectonly Currently unused
 	 */
 	public void runPhase(boolean join, long maxReads, boolean perfectonly){
 		
@@ -1227,7 +1271,7 @@ public class BBMerge {
 		
 		Writer rosgood=null;
 		Writer rosbad=null;
-		Writer rosinsert=null;
+		ByteStreamWriter rosinsert=null;
 		
 		if(out1!=null){
 			if(join==true){
@@ -1269,14 +1313,11 @@ public class BBMerge {
 		}
 		
 		if(outinsert!=null){
-			final int buff=Tools.max(16, 2*THREADS);
-			
-			String out1=outinsert.replaceFirst("#", "1");
-
-			assert(!out1.equalsIgnoreCase(in1) && !out1.equalsIgnoreCase(in1));
-			
-			final FileFormat ff=FileFormat.testOutput(out1, FileFormat.ATTACHMENT, ".info", true, overwrite, append, ordered);
-			rosinsert=WriterFactory.getStreamS(ff, null, null, null, buff, header(), false, 1);
+			final FileFormat ff=FileFormat.testOutput(outinsert, FileFormat.TEXT, ".txt", true, overwrite && !append, append, ordered);
+			final boolean printHeader=!(stream.ReadStreamWriter.NO_HEADER || (append && ff.exists()));
+			rosinsert=new ByteStreamWriter(ff);
+			//Header precedes startup; ordered data IDs remain the reader's dense IDs from zero.
+			if(printHeader){rosinsert.forcePrint(header());}
 			rosinsert.start();
 		}
 		
@@ -1309,15 +1350,17 @@ public class BBMerge {
 
 		resetCounters();
 		
+		boolean interrupted=false;
 		Throwable threadFailure=null;
 		for(int i=0; i<pta.length; i++){
 			MateThread ct=pta[i];
 			synchronized(ct){
 				while(ct.isAlive()){
-					try {
+					try{
 						ct.join(1000);
-					} catch (InterruptedException e) {
-						// TODO Auto-generated catch block
+					}catch(InterruptedException e){
+						//JGI-089: Keep joining with a clear flag; restore it only after stream cleanup.
+						interrupted=true;
 						e.printStackTrace();
 					}
 				}
@@ -1375,23 +1418,37 @@ public class BBMerge {
 		}
 		
 //		outstream.println("Finished reading");
-		errorState|=ReadWrite.closeStreams(cris, rosgood, rosbad, rosinsert);
-		
-		talign.stop();
-		//FIXED [jgi/BBMerge worker failures]: uncaught MateThread exceptions previously
-		//produced partial zero/NaN statistics and a successful process exit.
-		if(threadFailure!=null){throw new RuntimeException("BBMerge worker thread failed.", threadFailure);}
+		try{
+			boolean reportError=false;
+			try{
+				errorState|=ReadWrite.closeStreams(cris, rosgood, rosbad);
+			}finally{
+				if(rosinsert!=null){
+					try{reportError=rosinsert.poisonAndWait();}
+					finally{errorState|=rosinsert.errorState;}
+				}
+			}
+
+			talign.stop();
+			if(reportError){throw new RuntimeException("Error writing BBMerge insert report: "+outinsert);}
+			//FIXED [jgi/BBMerge worker failures]: uncaught MateThread exceptions previously
+			//produced partial zero/NaN statistics and a successful process exit.
+			if(threadFailure!=null){throw new RuntimeException("BBMerge worker thread failed.", threadFailure);}
+		}finally{
+			if(interrupted){Thread.currentThread().interrupt();}
+		}
 //		outstream.println("Align time: "+talign);
 	}
 	
 	/**
-	 * Calculates the fraction of read pairs that can be merged.
-	 *
-	 * @param fname1 First input file
-	 * @param fname2 Second input file
-	 * @param numReads Maximum reads to sample
-	 * @param samplerate Sampling rate for analysis
-	 * @return Fraction of pairs that overlap and can be merged
+	 * Estimates the positive-insert fraction using makeInsertHistogram's loose overlap search
+	 * and current shared settings. Reads are not joined or error-corrected.
+	 * @param fname1 Nonnull primary input path
+	 * @param fname2 Optional mate input path
+	 * @param numReads Limit forwarded unchanged to each input reader; units depend on the reader
+	 * @param samplerate Sampling rate passed to the reader
+	 * @return Positive-insert counts divided by all histogram counts, or zero when the
+	 * histogram is absent, has fewer than two bins, or has a total below one
 	 */
 	public static final float mergeableFraction(String fname1, String fname2, long numReads, float samplerate){
 		long[] hist=makeInsertHistogram(fname1, fname2, numReads, samplerate);
@@ -1401,13 +1458,16 @@ public class BBMerge {
 	}
 	
 	/**
-	 * Creates insert size histogram by analyzing overlaps in read pairs.
-	 *
-	 * @param fname1 First input file
-	 * @param fname2 Second input file
-	 * @param numReads Maximum reads to analyze
-	 * @param samplerate Sampling rate
-	 * @return Array containing insert size counts
+	 * Counts loose overlap candidates from paired input using current shared settings,
+	 * with error correction disabled and sampling seed 1. Positive insert lengths index
+	 * their own bins; all nonpositive results enter bin zero. Counts are not normalized.
+	 * Attempts stream closure on normal completion or an unpaired-input return; earlier
+	 * read/search failures can bypass closure, and returned close-error flags are ignored.
+	 * @param fname1 Nonnull primary input path
+	 * @param fname2 Optional mate input path
+	 * @param numReads Limit forwarded unchanged to each input reader; units depend on the reader
+	 * @param samplerate Sampling rate passed to the reader
+	 * @return Raw insert counts, or null for primary standard input or a reader reporting unpaired input
 	 */
 	public static final long[] makeInsertHistogram(String fname1, String fname2, long numReads, float samplerate){
 		assert(fname1!=null);
@@ -1450,8 +1510,13 @@ public class BBMerge {
 		return ll.toArray();
 	}
 
-	/** Returns the insert size as calculated by overlap, or -1 */
-	public static final int findOverlapUStrict(final Read r1, final Read r2, boolean ecc){
+	/** Searches original-orientation mates with the ultra-strict overlap preset.
+	 * Uses the validation, mutation and shared-setting rules of findOverlap.
+	 * @param r1 Nonnull first read
+	 * @param r2 Nonnull second read; must be r1.mate when ecc is true
+	 * @param ecc Whether to correct an accepted candidate using the joined consensus
+	 * @return Candidate insert length in bases, or a negative result on rejection */
+	public static final int findOverlapUStrict(final Read r1, final Read r2, final boolean ecc){
 		final float maxRatio=0.045f;
 		final float ratioMargin=12f;
 		final float ratioOffset=0.5f;
@@ -1476,8 +1541,13 @@ public class BBMerge {
 		return x;
 	}
 
-	/** Returns the insert size as calculated by overlap, or -1 */
-	public static final int findOverlapVStrict(final Read r1, final Read r2, boolean ecc){
+	/** Searches original-orientation mates with the very-strict overlap preset.
+	 * Uses the validation, mutation and shared-setting rules of findOverlap.
+	 * @param r1 Nonnull first read
+	 * @param r2 Nonnull second read; must be r1.mate when ecc is true
+	 * @param ecc Whether to correct an accepted candidate using the joined consensus
+	 * @return Candidate insert length in bases, or a negative result on rejection */
+	public static final int findOverlapVStrict(final Read r1, final Read r2, final boolean ecc){
 		final float maxRatio=0.05f;
 		final float ratioMargin=12f;
 		final float ratioOffset=0.5f;
@@ -1502,26 +1572,31 @@ public class BBMerge {
 		return x;
 	}
 	
-	/**
-	 * Attempts to merge two reads using strict parameters.
-	 * Returns merged read if successful overlap is found.
-	 *
-	 * @param r1 First read
-	 * @param r2 Second read
-	 * @return Merged read if successful, null otherwise
-	 */
-	public static final Read tryToMerge(final Read r1, final Read r2) {
-		if(r2==null) {return null;}
-		int insert=findOverlapStrict(r1, r2, false);
+	/** Finds a strict overlap and joins linked mates through Read.joinRead.
+	 * Inputs enter in original orientation. The search may validate reads and store
+	 * the insert; it does not request ECC. R2 is temporarily reverse-complemented
+	 * for joining and restored on normal return. Joining has Read.joinRead's metadata
+	 * side effects; this is not a read-only overlap query or an exception-safe restore.
+	 * @param r1 Nonnull first read, whose mate must be r2 for a successful join
+	 * @param r2 Original-orientation mate; null returns null without searching
+	 * @return Joined read for a positive candidate, or null when absent or rejected */
+	public static final Read tryToMerge(final Read r1, final Read r2){
+		if(r2==null){return null;}
+		final int insert=findOverlapStrict(r1, r2, false);
 		if(insert<1){return null;}
 		r2.reverseComplementFast();
-		Read r3=r1.joinRead(insert);
+		final Read r3=r1.joinRead(insert);
 		r2.reverseComplementFast();
 		return r3;
 	}
 
-	/** Returns the insert size as calculated by overlap, or -1 */
-	public static final int findOverlapStrict(final Read r1, final Read r2, boolean ecc){
+	/** Searches original-orientation mates with the strict overlap preset.
+	 * Uses the validation, mutation and shared-setting rules of findOverlap.
+	 * @param r1 Nonnull first read
+	 * @param r2 Nonnull second read; must be r1.mate when ecc is true
+	 * @param ecc Whether to correct an accepted candidate using the joined consensus
+	 * @return Candidate insert length in bases, or a negative result on rejection */
+	public static final int findOverlapStrict(final Read r1, final Read r2, final boolean ecc){
 		final float maxRatio=0.075f;
 		final float ratioMargin=7.5f;
 		final float ratioOffset=0.55f;
@@ -1546,8 +1621,13 @@ public class BBMerge {
 		return x;
 	}
 
-	/** Returns the insert size as calculated by overlap, or -1 */
-	public static final int findOverlapLoose(final Read r1, final Read r2, boolean ecc){
+	/** Searches original-orientation mates with the loose overlap preset.
+	 * Uses the validation, mutation and shared-setting rules of findOverlap.
+	 * @param r1 Nonnull first read
+	 * @param r2 Nonnull second read; must be r1.mate when ecc is true
+	 * @param ecc Whether to correct an accepted candidate using the joined consensus
+	 * @return Candidate insert length in bases, or a negative result on rejection */
+	public static final int findOverlapLoose(final Read r1, final Read r2, final boolean ecc){
 		final float maxRatio=0.11f;
 		final float ratioMargin=4.7f;
 		final float ratioOffset=0.45f;
@@ -1572,7 +1652,32 @@ public class BBMerge {
 		return x;
 	}
 	
-	/** Returns the insert size as calculated by overlap, or -1 */
+	/** Finds an insert from original-orientation mates using mapping or ratio overlap.
+	 * Validates reads when needed, temporarily reverse-complements R2 and restores its
+	 * orientation on normal return. Exceptions do not have a finally-based restore.
+	 * Quality-dependent expected-mismatch/probability filters and the shared adapter
+	 * list can reject a candidate. Ambiguity returns -1. An unambiguous nonnegative
+	 * result is passed to r1.setInsert. For positive candidates, ECC additionally
+	 * requires minInsert and may replace read arrays/error counters through the helper.
+	 * A positive mapped candidate below minInsert can still be returned without ECC.
+	 * Scratch is thread-local, but configuration and adapter lists are shared mutable
+	 * state; callers must not treat this as an independently configured merger.
+	 * @param r1 Nonnull first read
+	 * @param r2 Nonnull second read; must be r1.mate when ecc is true
+	 * @param ecc Whether to request correction for an eligible candidate
+	 * @param minOverlap Incoming value, replaced by entropy/global thresholds on the overlap path
+	 * @param minOverlap0 Overlap threshold in bases passed unchanged to the ratio search
+	 * @param minInsert Search insert threshold and minimum length required for both reads
+	 * @param minInsert0 Insert threshold in bases passed unchanged to the ratio search
+	 * @param entropy Entropy target; nonpositive uses the global minimum overlap
+	 * @param maxRatio Maximum mismatch ratio passed to the ratio search
+	 * @param minSecondRatio Second-candidate ratio threshold passed to the ratio search
+	 * @param ratioMargin Candidate-separation multiplier passed to the ratio search
+	 * @param ratioOffset Mismatch-count offset passed to the ratio search
+	 * @param efilterRatio Multiplier applied to the sum of expected mismatches and efilterOffset
+	 * @param efilterOffset Offset added to expected mismatches before filtering
+	 * @param pfilterRatio Positive probability threshold, or nonpositive to skip that filter
+	 * @return Candidate insert length in bases, or a negative result on rejection */
 	public static final int findOverlap(final Read r1, final Read r2, final boolean ecc,
 			int minOverlap, final int minOverlap0, final int minInsert, final int minInsert0, final int entropy,
 			final float maxRatio, final float minSecondRatio, final float ratioMargin, final float ratioOffset,
@@ -1607,15 +1712,15 @@ public class BBMerge {
 			ambig=false;
 		}else{
 			if(entropy>0){
-				int a=BBMergeOverlapper.calcMinOverlapByEntropy(r1.bases, 3, null, entropy);
-				int b=BBMergeOverlapper.calcMinOverlapByEntropy(r2.bases, 3, null, entropy);
+				final int a=BBMergeOverlapper.calcMinOverlapByEntropy(r1.bases, 3, null, entropy);
+				final int b=BBMergeOverlapper.calcMinOverlapByEntropy(r2.bases, 3, null, entropy);
 				minOverlap=Tools.max(MIN_OVERLAPPING_BASES, Tools.max(a, b));
 			}else{minOverlap=MIN_OVERLAPPING_BASES;}
 			if(verbose){outstream.println("minOverlap: "+minOverlap);}
 			
 			rvector[4]=0;
 
-			int x=BBMergeOverlapper.mateByOverlapRatio(r1, r2, null, null, rvector, minOverlap0, minOverlap,
+			final int x=BBMergeOverlapper.mateByOverlapRatio(r1, r2, null, null, rvector, minOverlap0, minOverlap,
 					minInsert0, minInsert, maxRatio, minSecondRatio, ratioMargin, ratioOffset, 0.95f, 0.95f, false);
 			bestInsert=x;
 			bestBad=rvector[2];
@@ -1624,20 +1729,20 @@ public class BBMerge {
 		
 		//TODO:  Crucial!  This line can vastly reduce merge rate, particularly if quality values are inaccurate.
 		if(bestInsert>0 && !ambig && r1.quality!=null && r2.quality!=null){
-			float bestExpected=BBMergeOverlapper.expectedMismatches(r1, r2, bestInsert);
+			final float bestExpected=BBMergeOverlapper.expectedMismatches(r1, r2, bestInsert);
 			if((bestExpected+efilterOffset)*efilterRatio<bestBad){ambig=true;}
 			if(verbose){outstream.println("Result after efilter:  \tinsert="+bestInsert+", bad="+bestBad+", ambig="+ambig);}
 		}
 		
 		//TODO:  Crucial!  This line can vastly reduce merge rate, particularly if quality values are inaccurate.
 		if(pfilterRatio>0 && bestInsert>0 && !ambig && r1.quality!=null && r2.quality!=null){
-			float probability=BBMergeOverlapper.probability(r1, r2, bestInsert);
+			final float probability=BBMergeOverlapper.probability(r1, r2, bestInsert);
 			if(probability<pfilterRatio){bestInsert=-1;}
 			if(verbose){outstream.println("Result after pfilter:  \tinsert="+bestInsert+", bad="+bestBad+", ambig="+ambig);}
 		}
 		
 		if(staticAdapterList!=null && bestInsert>0 && (bestInsert<len1 || bestInsert<len2)){
-			boolean foundAdapter=verifyAdaptersStatic(r1, r2, bestInsert);
+			final boolean foundAdapter=verifyAdaptersStatic(r1, r2, bestInsert);
 			if(!foundAdapter){
 				bestInsert=RET_NO_SOLUTION;
 				assert(r1.quality==null || (r1.quality.length==r1.bases.length && r2.quality.length==r2.bases.length));
@@ -1649,7 +1754,7 @@ public class BBMerge {
 		tooShort=(!ambig && bestInsert>0 && bestInsert<minInsert);
 		
 		if(ecc && bestInsert>-1 && !ambig && !tooShort){
-			int errors=errorCorrectWithInsert(r1, r2, bestInsert);
+			final int errors=errorCorrectWithInsert(r1, r2, bestInsert);
 		}
 		
 		if(r2!=null){r2.reverseComplementFast();}
@@ -1658,19 +1763,24 @@ public class BBMerge {
 		return ambig ? -1 : bestInsert;
 	}
 	
-	/**
-	 * Performs error correction on read pair using known insert size.
-	 * Creates joined read and corrects bases in overlap region.
-	 *
-	 * @param r1 First read to correct
-	 * @param r2 Second read to correct
-	 * @param insert Insert size for joining
-	 * @return Number of errors corrected
-	 */
-	public static int errorCorrectWithInsert(Read r1, Read r2, int insert){
+	/** Replaces linked, already-oriented mates with slices of their joined consensus.
+	 * R2 must already face the same fragment direction as R1; this method does not
+	 * reverse-complement either read. A nonempty join replaces base arrays, resets
+	 * both error counters and counts changed calls whose new base is fully defined.
+	 * Both mates must supply length-matched qualities or both omit them.
+	 * Present quality arrays are copied from the consensus when changeQuality is true,
+	 * otherwise from the original slices aligned to the retained bases, including R2's
+	 * oriented suffix. Reads can be shortened to the insert.
+	 * Joining also has Read.joinRead's metadata effects. Nonoverlap or an empty join
+	 * returns zero without resetting the existing error counters.
+	 * @param r1 Nonnull first read with r1.mate equal to r2
+	 * @param r2 Nonnull mate already reverse-complemented into fragment orientation
+	 * @param insert Positive fragment length in bases; no correction at or beyond the length sum
+	 * @return Sum of the newly assigned error counters, or zero when no join is corrected */
+	public static int errorCorrectWithInsert(final Read r1, final Read r2, final int insert){
 		if(insert>=r1.length()+r2.length()){return 0;}
 		assert(insert>0);
-		Read joined=r1.joinRead(insert);
+		final Read joined=r1.joinRead(insert);
 		
 		if(joined!=null && joined.length()>0){
 			final int lenj=joined.length();
@@ -1700,7 +1810,9 @@ public class BBMerge {
 				if(changeQuality){
 					r2.quality=KillSwitch.copyOfRange(joined.quality, lim2, lenj);
 				}else{
-					r2.quality=KillSwitch.copyOfRange(r2.quality, 0, r2.bases.length);
+					//Keep qualities aligned with R2's retained oriented suffix (JGI-095).
+					//The discarded prefix contains bases outside the inferred fragment.
+					r2.quality=KillSwitch.copyOfRange(r2.quality, old2.length-r2.bases.length, old2.length);
 				}
 			}
 		}else{
@@ -1709,15 +1821,15 @@ public class BBMerge {
 		return r1.errors+r2.errors;
 	}
 	
-	/**
-	 * Counts errors between original reads and joined sequence.
-	 *
-	 * @param r1 First original read
-	 * @param r2 Second original read
-	 * @param joined Merged read
-	 * @return Number of discrepancies found
-	 */
-	public static int countErrors(Read r1, Read r2, Read joined){
+	/** Counts each read's differences from fully defined calls in an oriented consensus.
+	 * R1 aligns at the consensus start and R2 at its end, both in the consensus
+	 * direction. A shared coordinate may contribute once for each differing read;
+	 * this is not the raw pairwise mismatch count. Inputs and error fields are unchanged.
+	 * @param r1 First read with nonnull bases, already in consensus orientation
+	 * @param r2 Second read with nonnull bases, already in consensus orientation
+	 * @param joined Consensus; null or a nonpositive/nonoverlapping length returns zero
+	 * @return Sum of read-to-consensus differences at fully defined consensus bases */
+	public static int countErrors(final Read r1, final Read r2, final Read joined){
 		if(joined==null){return 0;}
 		final int insert=joined.length();
 		if(insert<1 || insert>=r1.length()+r2.length()){return 0;}
@@ -1735,23 +1847,37 @@ public class BBMerge {
 		return e1+e2;
 	}
 
-	/** Assumes both reads are in original orientation */
-	public static int countErrors(Read r1, Read r2, final int insert){
+	/** Counts raw pairwise mismatches for original-orientation reads without modifying them.
+	 * Delegates the coordinate and complement comparison to the array overload.
+	 * @param r1 Nonnull first read; a null bases array yields zero
+	 * @param r2 Nonnull mate in original orientation; a null bases array yields zero
+	 * @param insert Fragment length in bases; nonpositive or nonoverlapping yields zero
+	 * @return Number of unequal raw/complemented calls in the shared coordinates */
+	public static int countErrors(final Read r1, final Read r2, final int insert){
 		return countErrors(r1.bases, r2.bases, insert);
 	}
 	
-	/** Assumes both reads are in original orientation */
-	public static int countErrors(byte[] bases1, byte[] bases2, final int insert){
+	/** Counts raw pairwise mismatches at shared fragment coordinates without mutation.
+	 * Both arrays enter in original orientation. R1 advances while R2 is traversed
+	 * backward and compared through the extended-complement table. Qualities are not
+	 * consulted and ambiguous bases have no separate skip rule.
+	 * @param bases1 First read's encoded bases; null yields zero
+	 * @param bases2 Mate's original-orientation encoded bases; null yields zero
+	 * @param insert Fragment length in bases; nonpositive or at least the length sum yields zero
+	 * @return Number of unequal raw/complemented calls across the covered coordinates */
+	public static int countErrors(final byte[] bases1, final byte[] bases2, final int insert){
 		if(insert<1 || bases1==null || bases2==null){return 0;}
 		if(insert>=bases1.length+bases2.length){return 0;}
 
-		int offset1=(insert>=bases1.length ? insert-bases1.length : 0);
+		//JGI-090: B covers fragment coordinates [insert-B.length, insert), so its length determines A's start.
+		//At each shared coordinate, A's index plus B's raw index equals insert-1.
+		int offset1=(insert>=bases2.length ? insert-bases2.length : 0);
 		int offset2=(insert>=bases2.length ? bases2.length-1 : insert-1);
 		
 		int errors=0;
 //		int overlap=0;
-		for(int i=offset1, j=offset2; i<bases1.length && j>=0; i++, j--) {
-			byte a=bases1[i], b=bases2[j];
+		for(int i=offset1, j=offset2; i<bases1.length && j>=0; i++, j--){
+			final byte a=bases1[i], b=bases2[j];
 			errors+=(a==AminoAcid.baseToComplementExtended[b] ? 0 : 1);
 //			overlap++;
 		}
@@ -1772,7 +1898,7 @@ public class BBMerge {
 	 * @return Header string for data output
 	 */
 	public static String header(){
-		if(TAG_CUSTOM) {
+		if(TAG_CUSTOM){
 			String i="##mo\tr1ee\tr2ee\talen\tblen\tbi\tbo\tbb\tbg\tbr\tbbi"+
 					"\tsbi\tsbo\tsbb\tsbg\tsbr\tsbbi\trr\tbadr\tgoodr\tovr\tbe\tpr";
 //			String o="truth\tgoal\tmerged";
@@ -1781,16 +1907,41 @@ public class BBMerge {
 			final int inputs=Tools.tabPattern.split(i).length;
 			final int outputs=Tools.tabPattern.split(o).length;
 			return "#dims\t"+inputs+"\t"+outputs+"\n"+i+"\t"+o+"\n";
-		}else {
+		}else{
 			return "#id\tnumericID\tinsert\tstatus\tmismatches\n";
 		}
 	}
+
+	/** Appends one normal report row before output correction/restoration mutates the pair.
+	 * Counts raw/complemented current calls, ignoring qualities; rejected results have
+	 * no insert/count. Does not mutate reads, scratch errors or feature attachments.
+	 * @param report Worker-owned batch bytes, not yet transferred to the writer
+	 * @param r1 First read with its mate in original sequencer orientation
+	 * @param insert Signed final search result, before Read.setInsert clamps rejection codes
+	 */
+	private static void appendInsertReport(final ByteBuilder report, final Read r1, final int insert){
+		assert(report!=null && r1!=null && r1.mate!=null) : "Insert report rows require a complete worker-owned pair and batch builder.";
+		final int mismatches=(insert>0 ? countErrors(r1, r1.mate, insert) : -1);
+		final char status=(insert>0 ? (mismatches==0 ? 'P' : 'I') : insert==RET_AMBIG ? 'A' : insert==RET_SHORT ? 'S' : 'F');
+		if(r1.id==null){report.append(r1.numericID);}
+		else{
+			//ByteBuilder's String append truncates chars; retain ASCII speed and encode other names explicitly.
+			for(int i=0; i<r1.id.length(); i++){
+				final char c=r1.id.charAt(i);
+				if(c<128){report.append(c);}
+				else{report.append(r1.id.substring(i).getBytes(StandardCharsets.UTF_8));break;}
+			}
+		}
+		report.tab().append(r1.numericID).tab().append(insert>0 ? insert : -1).tab().append(status).tab().append(mismatches).nl();
+	}
 	
-	/**
-	 * Performs quality trimming on read pair.
-	 * @param r1 First read to trim
-	 * @param r2 Second read to trim
-	 * @param iter Iteration number for trimming parameters
+	/** Trims both mates in their current orientation using shared side flags and
+	 * the selected trimq/trimE entries. The active fast path may replace base/quality arrays
+	 * without saving reversible trim state, requesting a minimum retained length of one.
+	 * Calls are sequential; failure on the second mate does not undo the first trim.
+	 * @param r1 Nonnull first read to trim
+	 * @param r2 Nonnull second read to trim
+	 * @param iter Index present in both shared trimming-parameter arrays
 	 */
 	private static void qtrim(Read r1, Read r2, int iter){
 		if(false /*untrim*/){
@@ -1802,11 +1953,15 @@ public class BBMerge {
 		}
 	}
 	
-	/**
-	 * Creates adapter list from name or file.
-	 * Returns default adapters if name is "default" or "adapters".
-	 * @param name Adapter list name or filename
-	 * @return List of adapter sequences as byte arrays
+	/** Resolves an adapter specification into a caller-owned list and base arrays.
+	 * The case-insensitive alias "default" always selects built-ins; "adapters" does
+	 * so only when no path with that name exists. Other specifications go through
+	 * Tools.toAdapterList, which reads files or comma-separated sequences/file paths,
+	 * validates uppercase nucleotides, truncates to maxAdapterLength, converts degenerate
+	 * bases to N, removes trailing Ns and deduplicates retained sequences. Built-ins
+	 * bypass that validation/truncation path.
+	 * @param name Built-in alias, file path, sequence list, or null
+	 * @return New list and arrays, or null for a null specification/no retained sequences
 	 */
 	public static final ArrayList<byte[]> getAdapterList(String name){
 		if(name==null){return null;}
@@ -1820,13 +1975,16 @@ public class BBMerge {
 		return alb;
 	}
 	
-	/**
-	 * Verifies adapter sequences at expected positions using static adapter list.
-	 *
-	 * @param r1 First read
-	 * @param r2 Second read
-	 * @param bestInsert Insert size indicating adapter positions
-	 * @return true if adapters are verified, false otherwise
+	/** Applies the static adapter rejection policy; any good comparison wins.
+	 * Tests tails using three informative bases and a 60% match threshold. With no
+	 * good comparison, a bad one rejects; unknown results reject only in strict mode.
+	 * A missing/empty list or no eligible tail passes without positive adapter evidence.
+	 * R2 is temporarily reversed for its tail check and restored on normal completion;
+	 * exceptional completion does not guarantee restoration. Callers own both reads.
+	 * @param r1 First read in forward orientation
+	 * @param r2 Mate already reverse-complemented into the first read's orientation
+	 * @param bestInsert Nonnegative insert length; adapter tails begin at this index
+	 * @return Whether the rejection policy accepts, including when no comparison is made
 	 */
 	private static boolean verifyAdaptersStatic(Read r1, Read r2, int bestInsert){
 		
@@ -1875,7 +2033,18 @@ public class BBMerge {
 		return true;
 	}
 	
-	/** Returns 0=bad, 1=unknown, 2=good */
+	/** Compares an adapter prefix with a read tail using exact, case-sensitive bytes.
+	 * Only uppercase N in either sequence is excluded from informative-base counts.
+	 * Stops early when mismatches exceed the length-based allowance; otherwise requires
+	 * minAdapterOverlap informative bases and ceil(minAdapterRatio*informative) matches.
+	 * Borrows both arrays without changing them; does not reverse-complement the read.
+	 * @param r Read with nonnull bases in the adapter's sequencer orientation
+	 * @param adapter Nonnull adapter bases
+	 * @param insert Nonnegative read index at which the adapter is expected to start
+	 * @param minAdapterOverlap Minimum informative overlap for a good result
+	 * @param minAdapterRatio Required fraction of informative bases matching the adapter
+	 * @return 0 for mismatch rejection, 1 for insufficient evidence, or 2 for a good match
+	 */
 	private static int adapterIsValid(final Read r, final byte[] adapter, final int insert,
 			final int minAdapterOverlap, final float minAdapterRatio){
 //		assert(false) : insert+", "+minAdapterOverlap;
@@ -1926,13 +2095,32 @@ public class BBMerge {
 		return ret;
 	}
 	
-	/** Worker thread for processing read pairs in parallel.
-	 * Handles overlap detection, merging, and statistics collection. */
+	/** Per-phase worker consuming paired reads and submitting numbered output batches.
+	 * Borrows shared input and optional writers; runPhase owns stream startup/cleanup,
+	 * worker joins and aggregation of local counters, histograms and trackers.
+	 * Owns mutable search scratch and optional processing state, including a network
+	 * copy with separate row parameters/activation arrays but some shared metadata.
+	 * Outer/static configuration and graph/Bloom/correction helpers remain shared;
+	 * backend concurrency and helper safety are not established by this worker wrapper.
+	 */
 	private class MateThread extends Thread{
 		
 		
-		public MateThread(Streamer cris_, Writer rosgood_, Writer rosbad_, Writer rosi_,
-				boolean joinReads_, boolean trimByOverlap_) {
+		/** Retains stream references and allocates this worker's processing state.
+		 * Does not start this thread or any stream. Optional graph/cardinality/entropy
+		 * state follows enclosing settings; the bridge borrows the enclosing Tadpole.
+		 * net0.copy(false) copies network parameters without accumulated deltas, while
+		 * command/statistics metadata can remain shared. Construction failures occur
+		 * before run's failure capture and leave stream cleanup to the caller.
+		 * @param cris_ Borrowed paired input, started by the owner before run
+		 * @param rosgood_ Optional borrowed writer for accepted reads
+		 * @param rosbad_ Optional borrowed writer for rejected reads
+		 * @param rosi_ Optional borrowed byte writer receiving immutable normal report batches
+		 * @param joinReads_ Whether to join accepted mates
+		 * @param trimByOverlap_ Whether to trim accepted mates beyond their inferred insert
+		 */
+		public MateThread(Streamer cris_, Writer rosgood_, Writer rosbad_, ByteStreamWriter rosi_,
+				boolean joinReads_, boolean trimByOverlap_){
 			cris=cris_;
 			rosgood=rosgood_;
 			rosbad=rosbad_;
@@ -1953,11 +2141,17 @@ public class BBMerge {
 		}
 		
 		
+		/** Runs the batch loop and records any Throwable for the owner to inspect after join.
+		 * Hollow mode also prints the failure and invokes the process-fatal KillSwitch.
+		 * Does not close streams, cancel peers or supply missing output batches on failure.
+		 * Recording failure does not ensure cleanup or propagation: blocked input/output
+		 * or missing ordered batches can prevent runPhase from reaching its final check.
+		 */
 		@Override
 		public void run(){
-			try {
+			try{
 				processReads();
-			} catch (Throwable t) {
+			}catch(Throwable t){
 				failure=t;
 				//TODO: Probable bug - legacy ordered output can wait for this worker's
 				//missing batch before runPhase reaches its final failure check.
@@ -1968,7 +2162,18 @@ public class BBMerge {
 			}
 		}
 		
-		private void processReads() {
+		/** Consumes nonnull paired Read roots; a null batch or null list ends the loop.
+		 * Empty lists from nextList continue normal batch submission with their input IDs.
+		 * Allocates the optional four-array originals holder once per call and reuses it;
+		 * enabled good/bad lists are new per batch. Cardinality hashing precedes pair mutations.
+		 * Submits good reads, immutable report bytes and bad reads in that order using the
+		 * input ID, including empty report batches. Rows describe each selected pair before
+		 * output mutation; good/bad qualities may be quantized before their submissions.
+		 * Lists can share Read payloads; add may block or retain references, not deep-copy.
+		 * Does not start/close streams, call returnList or poison writers; runPhase owns
+		 * their lifecycle. Exceptions leave partial work for run's failure path.
+		 */
+		private void processReads(){
 			assert(USE_MAPPING || MATE_BY_OVERLAP || kmerBridge);
 			
 			ListNum<Read> ln=cris.nextList();
@@ -1985,55 +2190,23 @@ public class BBMerge {
 				
 				ArrayList<Read> listg=(rosgood==null /*&& rosi==null*/ ? null : new ArrayList<Read>(reads.size()));
 				ArrayList<Read> listb=(rosbad==null ? null : new ArrayList<Read>(reads.size()));
+				final ByteBuilder insertReport=(rosi==null ? null : new ByteBuilder());
 				
 				if(loglogT!=null){
 					for(Read r1 : reads){loglogT.hash(r1);}
 				}
 				
 				for(Read r1 : reads){
-					int bestInsert=findOverlapInThread(r1, originals, listg, listb);
+					int bestInsert=findOverlapInThread(r1, originals, listg, listb, insertReport);
 				}
 				
 				if(rosgood!=null){
-					if(quantizeQuality) {Quantizer.quantize(listg);}
+					if(quantizeQuality){Quantizer.quantize(listg);}
 					rosgood.add(listg, ln.id);
 				}
-				if(rosi!=null){
-					//This prints both merged and unmerged reads
-					
-					if(TRAINING) {
-						for(Read r1 : reads){
-							assert(false); //Maybe nothing needs doing here
-						}
-					}else {
-//						for(Read r1 : reads){//Legacy outinsert support
-//							StringBuilder sb=new StringBuilder(40);
-//							sb.append(r1.id==null ? r1.numericID+"" : r1.id).append('\t');
-//							sb.append(r1.numericID).append('\t');
-//							final int bestInsert=r1.insert();
-//							sb.append(bestInsert>=0 ? bestInsert : -1);
-//							sb.append('\t');
-//
-//							if(bestInsert==RET_NO_SOLUTION){sb.append('F');}//Failed
-//							else if(bestInsert==RET_AMBIG){sb.append('A');} //Ambiguous
-//							else if(bestInsert==RET_SHORT){sb.append('S');} //Short
-//							else{
-//								if(r1.errors>0){sb.append('I');}//Imperfect
-//								else{sb.append('P');}//Perfect
-//								sb.append('\t');
-//								sb.append(r1.errors);
-//							}
-//							r1.obj=sb;
-//						}
-					}
-//					for(Read r : reads) {
-//						ByteBuilder bb=(ByteBuilder) r.obj;
-//						if(bb.length()<150 || bb.len
-//					}
-					rosi.add(reads, ln.id);
-				}
+				if(rosi!=null){rosi.add(insertReport, ln.id);}//Transfers ownership, including empty batches.
 				if(rosbad!=null){
-					if(quantizeQuality) {Quantizer.quantize(listb);}
+					if(quantizeQuality){Quantizer.quantize(listb);}
 					rosbad.add(listb, ln.id);
 				}
 				//			outstream.println("fetching list");
@@ -2043,7 +2216,19 @@ public class BBMerge {
 			}
 		}
 		
-		private int findOverlapInThread(final Read r1, final byte[][] originals, ArrayList<Read> listg, ArrayList<Read> listb){
+		/** Processes one linked pair, updates local statistics and selects output payloads.
+		 * Pair search may trim/correct/extend reads; accepted pairs may then be joined or
+		 * output-corrected. Optional originals preserve only base/quality arrays, not all
+		 * Read state. Custom truth/output selection can omit a pair after statistics change.
+		 * Rejected Read.insert values are clamped by setInsert, not preserved RET codes.
+		 * @param r1 Nonnull input root with a nonnull mate
+		 * @param originals Optional reusable four-slot base/quality snapshot holder
+		 * @param listg Optional destination for accepted/joined or mixed output
+		 * @param listb Optional destination for rejected roots
+		 * @param insertReport Optional owned batch builder receiving the pre-output row
+		 * @return Pair-search insert or RET code, not proof that a record was emitted
+		 */
+		private int findOverlapInThread(final Read r1, final byte[][] originals, ArrayList<Read> listg, ArrayList<Read> listb, final ByteBuilder insertReport){
 
 			final Read r2=r1.mate;
 			final int trueSize=parseCustom ? parseInsert(r1, r2) : -1;
@@ -2067,6 +2252,7 @@ public class BBMerge {
 			assert(r1.quality==null || (r1.quality.length==r1.bases.length && r2.quality.length==r2.bases.length));
 			
 			final int bestInsert=processReadPair(r1, r2);
+			if(insertReport!=null){appendInsertReport(insertReport, r1, bestInsert);}
 			assert(r1.quality==null || (r1.quality.length==r1.bases.length && r2.quality.length==r2.bases.length));
 			if(verbose){outstream.println("trueSize="+trueSize+", bestInsert="+bestInsert);}
 			
@@ -2084,10 +2270,9 @@ public class BBMerge {
 			}
 			
 			if(bestInsert>0){//Decided to merge
-				if(trueOverlap>0 && trueOverlap<=8 && EXEMPT_SHORT_OVERLAPS_FROM_STATS) {
+				if(trueOverlap>0 && trueOverlap<=8 && EXEMPT_SHORT_OVERLAPS_FROM_STATS){
 					//Temporarily ignore for purpose of training
-				}else 
-					if(bestInsert==trueSize){
+				}else if(bestInsert==trueSize){
 					correctCount++;
 					insertSumCorrect+=bestInsert;
 				}else{
@@ -2145,7 +2330,7 @@ public class BBMerge {
 				else if(bestInsert==RET_LONG){tooLongCount++;}
 				else if(bestInsert==RET_NO_SOLUTION){noSolutionCount++;}
 				
-				if(trueSize<initialLen1+initialLen2 && trueSize>0) {unmergedOverlappingCount++;}
+				if(trueSize<initialLen1+initialLen2 && trueSize>0){unmergedOverlappingCount++;}
 			}
 			
 			r1.setInsert(bestInsert);
@@ -2179,7 +2364,7 @@ public class BBMerge {
 				}
 			}
 			
-			if(parseCustom) {
+			if(parseCustom){
 
 				final boolean fp=(bestInsert>0 && bestInsert!=trueSize);
 				final boolean fn=(bestInsert<1 && trueOverlap>0);
@@ -2189,12 +2374,12 @@ public class BBMerge {
 				assert((fp ? 1 : 0)+(fn ? 1 : 0)+(tp ? 1 : 0)+(tn ? 1 : 0)==1) : 
 					fp+", "+fn+", "+tp+", "+tn+", "+bestInsert+", "+trueOverlap+", "+trueSize+", "+(initialLen1+initialLen2);
 				final boolean correct=(bestInsert==trueSize);
-				if(MAKE_VECTOR) {
+				if(MAKE_VECTOR){
 					FloatList fl=r2.fetchVector();
-					if(fl!=null && fl.size==23) {fl.add((tp || fn) ? 1 : 0);}
+					if(fl!=null && fl.size==23){fl.add((tp || fn) ? 1 : 0);}
 //					assert(false) : fl;
 				}
-				if(TAG_CUSTOM) {
+				if(TAG_CUSTOM){
 					ByteBuilder bb=r1.fetchBB();
 					//				bb.append("_tr").append(correct ? 1 : 0);
 
@@ -2203,19 +2388,19 @@ public class BBMerge {
 //					}else {
 //						bb.append(0);
 //					}
-					if(tp || fn) {//truth
+					if(tp || fn){//truth
 						bb.append(1);
-					}else {
+					}else{
 						bb.append(0);
 					}
 
-					if(trueOverlap>0 && trueOverlap<8 && EXEMPT_SHORT_OVERLAPS_FROM_STATS) {
+					if(trueOverlap>0 && trueOverlap<8 && EXEMPT_SHORT_OVERLAPS_FROM_STATS){
 						r1.nullifyObj();
 					}
 				}
 
 				if(ONLY_OUTPUT_INCORRECT && correct){
-					if(TAG_CUSTOM) {r1.nullifyObj();}
+					if(TAG_CUSTOM){r1.nullifyObj();}
 					return bestInsert;
 				}
 				
@@ -2227,7 +2412,7 @@ public class BBMerge {
 						(OUTPUT_TRUE_POSITIVE && tp) || (OUTPUT_TRUE_NEGATIVE && tn)){
 					//Print
 				}else{
-					if(TAG_CUSTOM) {r1.nullifyObj();}
+					if(TAG_CUSTOM){r1.nullifyObj();}
 					return bestInsert;
 				}
 			}
@@ -2246,6 +2431,16 @@ public class BBMerge {
 			return bestInsert;
 		}
 		
+		/** Validates reads and applies configured normalization, trimming and prefilters.
+		 * Counts pairs and their bases after validation but before trim/filter/extension.
+		 * Null R2 is rejected here; outer callers may require it earlier. Changes are not
+		 * rolled back on rejection. The legacy extend1 orientation limitation remains
+		 * documented below; this helper does not establish safe extension behavior.
+		 * @param r1 Nonnull first read
+		 * @param r2 Mate, or null for this helper's RET_BAD path
+		 * @param qtrim Whether to request quality trimming with parameter index zero
+		 * @return 1 on passing prechecks, or a negative RET code
+		 */
 		private final int preprocess(final Read r1, final Read r2, boolean qtrim){
 			assert(r1!=null);
 			if(!r1.validated()){r1.validate(true);}
@@ -2322,6 +2517,19 @@ public class BBMerge {
 			return 1;
 		}
 		
+		/** Extends each mate's sequencer-right end and optionally retries aligned search.
+		 * R2 enters aligned with R1 and is temporarily reversed for extension. A mate
+		 * continues only while it has received every requested base so far. Extensions
+		 * remain on failure; no un-extension is implemented. Tallies two mate outcomes
+		 * per call, not one extension attempt per loop iteration.
+		 * @param r1 Owned first read in forward orientation
+		 * @param r2 Owned mate already reverse-complemented into R1's orientation
+		 * @param amt Requested additional bases per mate per iteration
+		 * @param iters Positive retry count; must be one when merge is false
+		 * @param merge Whether to search after a successful extension iteration
+		 * @param extendRvec Writable array of at least two slots receiving appended bases per mate
+		 * @return Last search result, or initial RET_AMBIG when no search is requested/performed
+		 */
 		private final int extendAndMerge(Read r1, Read r2, int amt, int iters, boolean merge, int[] extendRvec){
 			assert(iters>0);
 			assert(merge || iters==1);
@@ -2367,6 +2575,13 @@ public class BBMerge {
 			return bestInsert;
 		}
 		
+		/** Appends graph extension in the read's current forward orientation using local scratch.
+		 * A positive extension replaces bases and copies present qualities, filling added
+		 * quality positions with this worker's numeric qfake. Null qualities remain null.
+		 * @param r Owned read with nonnull bases
+		 * @param amt Requested extension limit in bases
+		 * @return Number of appended bases
+		 */
 		private final int extendRead(Read r, int amt){
 			bbT.clear();
 			bbT.append(r.bases);
@@ -2394,6 +2609,15 @@ public class BBMerge {
 			return extension;
 		}
 		
+		/** Runs ratio search with optional quality weighting and an unweighted fallback.
+		 * Uses current global ratio/insert limits and local probability/result scratch.
+		 * Fallback may replace the weighted candidate. The helper's mismatch/ambiguity
+		 * values remain in rvector[2]/[4]; a returned candidate can still be ambiguous.
+		 * @param r1 Forward read
+		 * @param r2 Mate already reverse-complemented into R1's orientation
+		 * @param minOverlap Effective overlap support threshold before ratio reduction
+		 * @return Candidate insert, or a negative search rejection
+		 */
 		private final int mateByOverlap_ratioMode(Read r1, Read r2, int minOverlap){
 			assert(useRatioMode);
 			int min0=MIN_OVERLAPPING_BASES_0-MIN_OVERLAPPING_BASES_RATIO_REDUCTION;
@@ -2423,6 +2647,15 @@ public class BBMerge {
 			return x;
 		}
 		
+		/** Runs mismatch-based overlap retries and records candidate/mismatch/ambiguity scratch.
+		 * Missing mate qualities restrict quality iteration and disable failure trimming.
+		 * With qualities, configured retries may trim R1's right/R2's aligned left end;
+		 * these mutations are not undone if search still fails. Loose mode has an extra retry.
+		 * @param r1 Owned forward read
+		 * @param r2 Owned mate already reverse-complemented into R1's orientation
+		 * @param minOverlap Required overlap support before retry adjustments
+		 * @return Candidate insert, or a negative search rejection
+		 */
 		private final int mateByOverlap_flatMode(Read r1, Read r2, int minOverlap){
 			final int len1=r1.length(), len2=r2.length();
 			boolean ambigNM=false;
@@ -2479,6 +2712,13 @@ public class BBMerge {
 			return bestInsertNM;
 		}
 		
+		/** Derives the search overlap threshold with reusable entropy-count scratch.
+		 * Disabled entropy uses the global minimum. Normal mode examines R1's tail/R2's
+		 * aligned head; loose mode examines both ends and applies its expected-error factor.
+		 * @param r1 Forward read
+		 * @param r2 Mate already reverse-complemented into R1's orientation
+		 * @return Effective overlap support threshold in bases
+		 */
 		private final int calcMinOverlapFromEntropy(final Read r1, final Read r2){
 			if(!useEntropy){return MIN_OVERLAPPING_BASES;}
 			final int minOverlap;
@@ -2496,6 +2736,13 @@ public class BBMerge {
 			return minOverlap;
 		}
 		
+		/** Dormant lowercase-tail heuristic; its only search call is commented out.
+		 * Compares the remaining prefixes with uppercase N ignored, without mutating reads.
+		 * Success writes rvector[0]/[2]/[4]; failure need not refresh those slots.
+		 * @param r1 Nonempty forward read ending in lowercase adapter bases
+		 * @param r2 Nonempty aligned mate beginning with lowercase adapter bases
+		 * @return Shared prefix length, possibly zero, or -1 when the heuristic rejects
+		 */
 		private final int lookForAdapters(final Read r1, final Read r2){
 			assert(lowercaseAdapters);
 			if(!lowercaseAdapters){return -1;}
@@ -2524,13 +2771,23 @@ public class BBMerge {
 			return -1;
 		}
 		
+		/** Selects ratio/flat candidates, applies filters and optionally evaluates the network.
+		 * Reuses/grows probability scratch and may populate read attachments. R1 must not
+		 * carry an attachment; R2's attachment must be null or a FloatList. Candidate
+		 * collection modes retain some ordinarily rejected results, and retries replace
+		 * their feature vector. r1.errors is candidate mismatch scratch, not a promised
+		 * final-output mismatch count. No training provenance or accuracy is established here.
+		 * @param r1 Owned forward read
+		 * @param r2 Owned mate already reverse-complemented into R1's orientation
+		 * @return Positive candidate insert or a negative RET rejection/ambiguity code
+		 */
 		private final int mateByOverlap(Read r1, Read r2){
 			final int len1=r1.length(), len2=r2.length();
 			assert(r1.fetchObject()==null);
 			final ByteBuilder bb=(TAG_CUSTOM ? new ByteBuilder(32) : null);
-			if(bb!=null) {r1.setObj(bb);}
-			if(MAKE_VECTOR) {
-				if(r2.obj==null) {r2.setObj(new FloatList(24));}
+			if(bb!=null){r1.setObj(bb);}
+			if(MAKE_VECTOR){
+				if(r2.obj==null){r2.setObj(new FloatList(24));}
 				else{((FloatList)r2.obj).clear();}//FIXED: Retries after correction or extension must replace the previous candidate vector.
 			}
 			final FloatList vector=(FloatList) r2.obj;
@@ -2541,11 +2798,11 @@ public class BBMerge {
 				int maxBasesToConsider=Tools.min(Tools.max(len1, len2), len1+len2-minInsert);
 				float r1ee=r1.expectedTipErrors(false, maxBasesToConsider);
 				float r2ee=r2.expectedTipErrors(false, maxBasesToConsider);
-				if(TAG_CUSTOM) {
+				if(TAG_CUSTOM){
 					bb.append(minOverlap*0.1f, 1).tab();
 					bb.append(Tools.format("%.4f\t%.4f\t", r1ee, r2ee));
 				}
-				if(MAKE_VECTOR) {
+				if(MAKE_VECTOR){
 					vector.add(minOverlap*0.1f); //mo
 					vector.add(r1ee);
 					vector.add(r2ee);
@@ -2651,29 +2908,25 @@ public class BBMerge {
 					if(MAKE_VECTOR){
 						vector.add((float)p);//pr
 					}
-				}else if(MAKE_VECTOR) {
+				}else if(MAKE_VECTOR){
 					vector.add(0.1f);//For some reason this gets left off occasionally...
 				}
 				if(verbose){System.err.println("D: "+ambig+", "+bestInsert);}
 			}
 			if(verbose){System.err.println("E: "+ambig+", "+bestInsert);}
 			
-			//TODO: Uncomment.
-//			if(TAG_CUSTOM && !ONLY_OUTPUT_FALSE_POSITIVE) {
-//				assert(!TAG_CUSTOM || bestInsert>0) : bestInsert;
-//				return bestInsert;
-//			}
-//			
-//			if(ambig){return RET_AMBIG;}
+			//JGI-086: Apply the same ambiguity policy after quality filtering as before it.
+			//Custom/vector collection keeps its candidate; ordinary NN calls reach the network decision below.
+			if(ambig && ((!TAG_CUSTOM && !MAKE_VECTOR) || ONLY_OUTPUT_FALSE_POSITIVE)){return RET_AMBIG;}
 			r1.errors=bestBad;
 			
-			if(MAKE_VECTOR && bestInsert>0 && r2.obj()!=null) {
+			if(MAKE_VECTOR && bestInsert>0 && r2.obj()!=null){
 				FloatList list=r2.fetchVector();
-				if(list.size!=23) {
+				if(list.size!=23){
 					System.err.println("\n"+r1.numericID+", "+r1.obj());
 					System.err.println("*"+list.size+", "+parseCustom+", "+r1.numericID+", "+list);
 					assert(false);
-				}else {
+				}else{
 //					System.err.println(list.size+", "+parseCustom+", "+r1.numericID+", "+list);
 					//				assert((list.size()==23 && !parseCustom) || (list.size()==24 && parseCustom)) : 
 					//					list.size+", "+parseCustom+", "+r1.numericID+", "+list;
@@ -2707,6 +2960,13 @@ public class BBMerge {
 			return bestInsert>0 ? bestInsert : RET_NO_SOLUTION;
 		}
 		
+		/** Obtains the supplied truth insert from a recognized header or mapped coordinates.
+		 * Mapping fallback sets both mapped flags before estimating and asserts a positive
+		 * result. This is interpretation of supplied labels, not independent biological truth.
+		 * @param r1 First read with a nonnull identifier
+		 * @param r2 Linked mate used by the mapping fallback
+		 * @return Header parser's insert or the asserted-positive mapping estimate
+		 */
 		private final int parseInsert(Read r1, Read r2){
 			int trueSize=-1;
 			if(r1.id.startsWith("SYN") || r1.id.startsWith("insert=") ||
@@ -2723,6 +2983,18 @@ public class BBMerge {
 			return trueSize;
 		}
 		
+		/** Applies this worker's two adapter lists; a good comparison wins over bad/unknown.
+		 * Without a good result, bad rejects and unknown rejects only in strict mode.
+		 * Uses three informative bases and a 60% match threshold; if no comparison is made,
+		 * the pair passes without positive adapter evidence. Temporarily reverses R2 for
+		 * its tail check and restores it on normal completion, not guaranteed on exception.
+		 * Counts eligible mate checks in adaptersExpectedT, including an empty list, and
+		 * at most one success per call in adaptersFoundT; retries count again.
+		 * @param r1 Owned first read in forward orientation
+		 * @param r2 Owned mate already reverse-complemented into the first read's orientation
+		 * @param bestInsert Nonnegative insert length; adapter tails begin at this index
+		 * @return Whether the rejection policy accepts, including when no comparison is made
+		 */
 		private boolean verifyAdapters(Read r1, Read r2, int bestInsert){
 			final int minAdapterOverlap=3;
 			final int len1=r1.length(), len2=r2.length();
@@ -2771,11 +3043,15 @@ public class BBMerge {
 			return true;
 		}
 		
-		/**
-		 * 
-		 * @param r1 Read1
-		 * @param r2 Read2
-		 * @return A return code (RET_)
+		/** Runs preprocessing, overlap search and configured correction/extension/filter retries.
+		 * Accepts raw sequencer orientation, aligns R2 internally and restores its orientation
+		 * on normal return. Base/quality arrays, errors and other Read state may change;
+		 * exceptions do not guarantee orientation/quality restoration or rollback. This is
+		 * search processing, not final output joining/submission. Collection modes retain
+		 * their existing exceptions to ordinary rejection rules.
+		 * @param r1 Owned input root with its linked mate
+		 * @param r2 Nonnull mate in raw sequencer orientation
+		 * @return Positive candidate insert or a negative RET code
 		 */
 		private final int processReadPair(final Read r1, final Read r2){
 			final int initialLen1=r1.length(), initialLen2=r2.length();
@@ -2976,21 +3252,30 @@ public class BBMerge {
 			return bestInsert;
 		}
 		
+		/** Restores saved quality references, copying them only when current lengths differ.
+		 * Preserves null qualities. R2 enters aligned; its resize path reverses it around
+		 * the copy and restores that orientation normally. The existing extension-padding
+		 * TODO remains unresolved; this helper does not define a corrected padding policy.
+		 * @param r1 Owned first read
+		 * @param r2 Owned aligned mate
+		 * @param qual1 Saved R1 numeric qualities, or null
+		 * @param qual2 Saved R2 numeric qualities in the pair path's captured orientation, or null
+		 */
 		private void restoreQualities(Read r1, Read r2, byte[] qual1, byte[] qual2){
-			//TODO: Probable bug - usequality=f with FASTA supplies null qual arrays;
-			//the length checks below dereference them. Extension fill loops also
-			//start at the new length, so newly appended qualities remain zero.
+			//TODO: Probable bug - extension fill loops start at the new length,
+			//so appended qualities stay zero; intended extension padding is unverified.
+			//Absent input qualities are preserved without creating synthetic arrays.
 			final int len1=r1.length(), len2=r2.length();
 			r1.quality=qual1;
 			r2.quality=qual2;
 			final byte qf=Shared.FAKE_QUAL;
-			if(qual1.length!=len1){
+			if(qual1!=null && qual1.length!=len1){
 				r1.quality=Arrays.copyOf(qual1, len1);
 				for(int i=len1; i<r1.quality.length; i++){
 					r1.quality[i]=qf;
 				}
 			}
-			if(qual2.length!=len2){
+			if(qual2!=null && qual2.length!=len2){
 				r2.reverseComplementFast();
 				r2.quality=Arrays.copyOf(qual2, len2);
 				for(int i=len2; i<r2.quality.length; i++){
@@ -3000,11 +3285,12 @@ public class BBMerge {
 			}
 		}
 		
-		/**
-		 * 
-		 * @param r1 Read1
-		 * @param r2 Read2
-		 * @return A return code (RET_)
+		/** Uses a stored mapped insert when eligible, otherwise the configured overlap search.
+		 * Applies insert-length bounds to normal results; custom collection retains its
+		 * early-return behavior. May mutate search scratch, attachments and candidate errors.
+		 * @param r1 Owned forward read
+		 * @param r2 Owned mate already reverse-complemented into R1's orientation
+		 * @return Candidate insert or a RET code, including short/long/ambiguous rejection
 		 */
 		private final int processReadPair_inner(final Read r1, final Read r2){
 			int bestInsert=-1;
@@ -3025,7 +3311,7 @@ public class BBMerge {
 				}
 			}
 			
-			if((TAG_CUSTOM) && !ONLY_OUTPUT_FALSE_POSITIVE) {return bestInsert;}
+			if((TAG_CUSTOM) && !ONLY_OUTPUT_FALSE_POSITIVE){return bestInsert;}
 			if(ambig && !MAKE_VECTOR){return RET_AMBIG;}
 			else if(bestInsert>0){
 				if(bestInsert<minInsert){return RET_SHORT;}
@@ -3035,6 +3321,11 @@ public class BBMerge {
 			else{return RET_NO_SOLUTION;}
 		}
 		
+		/** Delegates suffix counting to this worker's tracker and its current PhiX policy.
+		 * The older local PhiX filter below is disabled, not an additional active check.
+		 * @param r Read with bases, linked mate bases and pair number zero or one
+		 * @param insert Nonnegative suffix boundary in read bases
+		 */
 		private void storeAdapterSequence(Read r, int insert){
 			atrackT.storeAdapterSequence(r, insert);
 //			if(ignorePhixAdapters){
@@ -3053,10 +3344,21 @@ public class BBMerge {
 //			}
 		}
 		
+		/** Dormant local PhiX diagnostic wrapper; active collection uses AdapterTracker.
+		 * @param r Read with nonnull bases and mate bases
+		 * @param insert Nonnegative suffix boundary in both mates
+		 * @return Whether either suffix matches the local prefix heuristic
+		 */
 		private boolean looksLikePhix(Read r, int insert){
 			return looksLikePhix(r.bases, insert) || looksLikePhix(r.mate.bases, insert);
 		}
 		
+		/** Dormant local prefix diagnostic with uppercase N treated as a wildcard.
+		 * A match prints the suffix and prefix to outstream; it is not a biological PhiX test.
+		 * @param bases Nonnull sequence in the prefix's orientation
+		 * @param insert Nonnegative suffix boundary
+		 * @return Whether the suffix is long enough and matches the whole local prefix
+		 */
 		private boolean looksLikePhix(byte[] bases, int insert){
 			int len=bases.length-insert;
 			if(len<phixPrefix.length){return false;}
@@ -3074,6 +3376,7 @@ public class BBMerge {
 		/*--------------------------------------------------------------*/
 		
 //		final LongList[][] adapterCountsT=new LongList[2][4];
+		/** Local adapter suffix counts, merged by the owner after this worker joins. */
 		final AdapterTracker atrackT=new AdapterTracker();
 
 		/** Per-thread cardinality tracker; merged into the shared loglog after this thread joins.
@@ -3081,70 +3384,107 @@ public class BBMerge {
 		 * the same params (same seed) and they are combined at the end. */
 		final CardinalityTracker loglogT;
 
+		/** Local scratch for graph merge validation. */
 		private final BitSet mergeOKBitsetT=new BitSet(400);
+		/** Local long-k graph scratch, absent without a graph or when k is below 32. */
 		private final Kmer kmerT;
+		/** Local bridge search state borrowing the enclosing graph, or null. */
 		private final TargetKmerBridge bridgeT;
+		/** Reused graph-validation counts. */
 		private IntList countList=new IntList();
+		/** Reused Bloom merge-validation k-mers. */
 		private LongList kmers=new LongList();
 		
+		/** Numeric quality assigned by extendRead to newly appended quality positions. */
 		final byte qfake=Shared.FAKE_QUAL;
 		
+		/** Overlap scratch: index 2 is candidate mismatch/rejection, 4 is ambiguity.
+		 * Index 0 is written by flat/dormant-adapter paths, not every ratio search. */
 		private final int[] rvector=KillSwitch.allocInt1D(5);
+		/** Appended-base counts for R1/R2 from the latest extension call. */
 		private final int[] extendRvec=KillSwitch.allocInt1D(2);
 
+		/** Four-base extension-count scratch passed to the graph service. */
 		private final int[] rightCounts=KillSwitch.allocInt1D(4);
+		/** Optional left-count scratch; omitted when left junctions may be traversed. */
 		private final int[] leftCounts=(extendThroughLeftJunctions ? null : new int[4]);
 		
+		/** Reused extension builder; successful extension installs its copied bytes. */
 		private final ByteBuilder bbT=new ByteBuilder();
 		
+		/** Positive candidate-insert counts before output selection; the last bin includes larger lengths. */
 		final long[] hist=new long[histlen];
+		/** Reusable entropy k-mer counts, absent when entropy filtering is disabled. */
 		final short[] kmerCounts;
 		
+		/** Per-base quality-probability scratch, allocated/grown by overlap search. */
 		private float[] aprob, bprob;
 
+		/** Corrections counted by the post-search output-correction path. */
 		long errorsCorrectedT=0;
 		
+		/** Paired roots counted after validation and before trimming/filtering. */
 		long pairsProcessed=0;
+		/** Sum of paired input lengths at the same pretrim counting point. */
 		long basesProcessed=0;
+		/** Legacy merge counter with no increment in the current worker paths. */
 		long matedCount=0;
+		/** Accepted inserts agreeing with the supplied truth size, subject to exemptions. */
 		long correctCount=0;
+		/** Rejected pairs whose supplied truth insert indicates an overlap. */
 		long unmergedOverlappingCount=0;
+		/** Rejection tallies for the corresponding pair-search RET results. */
 		long ambiguousCount=0;
 		long tooShortCount=0;
 		long tooLongCount=0;
+		/** Accepted inserts differing from the supplied truth size, not an accuracy oracle. */
 		long incorrectCount=0;
+		/** Pair-search no-solution rejections. */
 		long noSolutionCount=0;
+		/** Insert-length sums in bases for the matching/mismatching truth tallies. */
 		long insertSumCorrect=0;
 		long insertSumIncorrect=0;
+		/** Observed accepted insert extrema; minimum retains its sentinel until observed. */
 		int insertMax=0;
 		int insertMin=999999999;
 
+		/** Mate outcomes from extension calls, not counts of individual extension iterations. */
 		long fullyExtendedT=0;
 		long partlyExtendedT=0;
 		long notExtendedT=0;
 		long extensionsAttemptedT=0;
+		/** Per-pair bridge attempts and classified bridge outcomes. */
 		long bridgeAttemptsT=0, bridgeSuccessT=0;
 		long bridgeNoPathT=0, bridgeNoTargetT=0, bridgeAmbiguousT=0, bridgeCycleT=0;
 		long bridgeNonreciprocalT=0, bridgeRejectedT=0;
 		
+		/** Eligible mate adapter checks and successful calls; repeated checks count again. */
 		long adaptersExpectedT=0;
 		long adaptersFoundT=0;
 		
+		/** Borrowed input and optional output streams; lifecycle belongs to runPhase. */
 		private final Streamer cris;
 		private final Writer rosgood;
 		private final Writer rosbad;
-		private final Writer rosi;
+		private final ByteStreamWriter rosi;
 		
+		/** Per-worker snapshots of the owner's output-processing choices. */
 		private final boolean joinReads;
 		private final boolean trimReadsByOverlap;
+		/** Captured loop failure, inspected by the owner after joining this worker. */
 		private Throwable failure=null;
 		
+		/** Network parameter/working-state copy; some metadata remains shared. */
 		private final CellNet net;
 	}
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Resets all global statistics counters to zero */
+	/** Clears the shared aggregate histogram, counts and insert sums, including false
+	 * negatives stored in unmergedOverlappingTotal. Restores the unobserved insert
+	 * extrema to minimum 999999999 and maximum zero; configuration and worker-local
+	 * counters are unchanged. Not synchronized: callers coordinate access to shared totals.
+	 */
 	public static void resetCounters(){
 
 		Arrays.fill(histTotal, 0);
@@ -3158,6 +3498,7 @@ public class BBMerge {
 		tooLongCountTotal=0;
 		incorrectCountTotal=0;
 		noSolutionCountTotal=0;
+		unmergedOverlappingTotal=0;
 		insertSumCorrectTotal=0;
 		insertSumIncorrectTotal=0;
 		fullyExtendedTotal=0;
@@ -3174,10 +3515,16 @@ public class BBMerge {
 		insertMaxTotal=0;
 	}
 	
-	/** Loads neural network from file for merge classification.
-	 * @param fname Neural network file path */
-	private static synchronized void loadNet(String fname) {
-		if(fname==null) {
+	/** Dormant pathname-cached loader; BBMerge has no active call to this helper.
+	 * Null clears the path/model but leaves the cutoff. An already loaded equal pathname
+	 * skips parsing without checking file freshness. The path is assigned before parsing;
+	 * errors or an absent-file null do not promise rollback or a clean disabled state.
+	 * A loaded model supplies its cutoff unless an explicit cutoff was selected. Method
+	 * synchronization does not make other shared model/configuration access synchronized.
+	 * @param fname Model path, or null to clear this helper's path/model state
+	 */
+	private static synchronized void loadNet(String fname){
+		if(fname==null){
 			netFile=null;
 			net0=null;
 			return;
@@ -3197,7 +3544,7 @@ public class BBMerge {
 	/** Second input file path */
 	private String in2;
 	
-	/** Additional input files */
+	/** Additional paths forwarded to graph/filter construction, not runPhase's read stream. */
 	private ArrayList<String> extra=new ArrayList<String>();
 
 	/** First output file for merged/good reads */
@@ -3208,7 +3555,7 @@ public class BBMerge {
 	private String outb1=null;
 	/** Second output file for unmerged/bad reads */
 	private String outb2=null;
-	/** Output file for insert size information */
+	/** Resolved single-file normal insert-report path; null disables report work. */
 	private String outinsert=null;
 	/** Output file for insert size histogram */
 	private String ihist=null;
@@ -3224,76 +3571,109 @@ public class BBMerge {
 	/** Require short inserts to have adapter sequence at the expected location */
 	private boolean verifyAdapters=false;
 	
-	/** Tracker for unique kmer cardinality estimation */
+	/** Owner cardinality aggregate; workers hash through separate trackers and merge after join. */
 	final CardinalityTracker loglog;
 	
-	/** Maximum number of reads to process */
+	/** Input limit forwarded unchanged to the selected reader; units depend on its contract. */
 	private long maxReads=-1;
 	/** Whether to join overlapping reads into single sequences */
 	private boolean join=true;
-	/** Whether to perform error correction */
+	/** Correct accepted overlapping mates for unjoined output, independently of graph correction. */
 	private boolean ecco=false;
 	/** Whether to trim reads based on overlap detection */
 	private boolean trimByOverlap=false;
 	
-	/** Probability filter threshold for overlap validation */
+	/** Positive overlap-probability rejection threshold; nonpositive disables this filter. */
 	private float pfilterRatio=0.00004f;
-	/** Expected error filter ratio for overlap validation */
+	/** Multiplier on expected mismatches plus efilterOffset for the mismatch allowance. */
 	private float efilterRatio=6f;
-	/** Expected error filter offset */
+	/** Offset in expected-mismatch units, added before multiplication by efilterRatio. */
 	private float efilterOffset=0.05f;
 	/** Whether to use expected error filtering */
 	private boolean useEfilter=true;
 	/** Whether to use maximum expected errors filtering */
 	private boolean useMEEfilter=false;
 	
-	/** Whether to maintain read order in output */
+	/** Requested output ordering; two-file paired outputs force ordering in runPhase. */
 	private boolean ordered=false;
+	/** Whether ratio search first requests quality-weighted scoring when qualities are present. */
 	private boolean overlapUsingQuality=false;
+	/** Whether an unsuccessful/ambiguous weighted ratio search may retry unweighted. */
 	private boolean overlapWithoutQuality=true;
+	/** Enables graph coverage validation of candidate joins. */
 	private boolean useKFilter=false;
+	/** Coverage cutoff passed to the graph k-filter checks. */
 	private int filterCutoff=1;
+	/** Requested graph/Bloom k-mer length; constructor validation chooses the usable service. */
 	private int kmerLength=31;
+	/** Graph preallocation and prefilter settings forwarded to Tadpole. */
 	private boolean prealloc=false;
 	private int prefilter=0;
+	/** Positive graph filter-memory override; zero leaves the delegated default. */
 	private long filterMemoryOverride=0;
+	/** Graph-correction strategy switches forwarded to Tadpole. */
 	private boolean eccTail=false;
 	private boolean eccPincer=false;
 	private boolean eccReassemble=true;
 
+	/** Enables sequence-complexity-derived minimum overlap using local worker count scratch. */
 	private boolean useEntropy=true;
+	/** Entropy k-mer width and target score; worker counts have 4^entropyK slots. */
 	private int entropyK=3;
 	private int minEntropyScore=39;//30 loose;//39 normal;//44 strict;
 	
+	/** Requested reader sampling seed/fraction; algorithms and negative-seed handling follow the reader. */
 	private long sampleseed=-1;
 	private float samplerate=1;
 	
+	/** Instance aggregate of workers' post-search output-correction counts. */
 	private long errorsCorrectedTotal=0;
 	
+	/** Enables collecting adapter suffixes for consensus output. */
 	private boolean findAdapterSequence=false;
+	/** CLI mirror; active collection uses the corresponding AdapterTracker static setting. */
 	private boolean ignorePhixAdapters=false;
 	
+	/** Owner adapter aggregate, merged from workers after join. */
 	private final AdapterTracker atrack=new AdapterTracker();
 	
+	/** Shared preloaded graph/count service, or null; worker scratch is separate. */
 	private final Tadpole tadpole;
+	/** Requested pre-search/after-search extension bases per mate and retry count. */
 	private int extendRight1=0;
 	private int extendRight2=0;
 	private int extendIterations=1;
+	/** Enables graph error-correction retries after ambiguous/no-solution overlap results. */
 	private boolean eccTadpole=false;
 	/** Experimental endpoint-only counts, restricted to read extension. */
 	private boolean hollow=false;
 	/** Reject alternate-span conflicts before appending an extension base. */
 	private boolean hollowBranchStop=false;
+	/** Alternative-span branch thresholds forwarded to the Hollow graph service. */
 	private int hollowBranchRatio=4, hollowBranchSupport=3;
+	/** Optional graph-cleaning requests; these require explicit k-mer keys. */
 	private boolean shave=false;
 	private boolean rinse=false;
+	/** Enables endpoint graph bridging after an ambiguous/no-solution overlap. */
 	private boolean kmerBridge=false;
+	/** Distinguish explicitly supplied k/bridge settings from constructor defaults. */
 	private boolean setKmerLength=false, setKmerBridge=false;
+	/** Maximum bridge walk distance in appended bases. */
 	private int bridgeDistance=0;
+	/** Reserved target-window request; the current endpoint bridge requires zero. */
 	private int bridgeTargetWindow=0;
+	/** Reserved minimum-hit request; the current endpoint bridge requires one. */
 	private int bridgeMinHits=1;
+	/** Maximum allowed length-sum minus inferred insert for an accepted bridge, in bases. */
 	private int bridgeMaxOverlap=0;
+	/** Whether the bridge must also agree when walked in the reverse direction. */
 	private boolean bridgeReciprocal=true;
+	/**
+	 * Parses hash mode aliases: null/auto=-1, fixed/fingerprint/1=2, pair/two/2=1.
+	 * Other values use Parse.parseBoolean, yielding pair mode (1) or explicit keys (0).
+	 * @param b Requested mode or permissive boolean value
+	 * @return -1 for automatic selection, 0 for explicit keys, 1 for hash pairs, or 2 for fixed fingerprints
+	 */
 	private static int parseHashMode(String b){
 		if(b==null || b.equalsIgnoreCase("auto")){return -1;}
 		if(b.equalsIgnoreCase("fixed") || b.equalsIgnoreCase("fingerprint") || b.equals("1")){return 2;}
@@ -3301,6 +3681,14 @@ public class BBMerge {
 		return Parse.parseBoolean(b) ? 1 : 0;
 	}
 
+	/**
+	 * Resolves the configured mode without changing it. Hollow lookup forces hash pairs first.
+	 * Otherwise graph cleaning requires explicit keys and rejects a positive requested mode;
+	 * k below 64 forces explicit keys, then a nonnegative requested mode takes precedence.
+	 * Automatic mode uses explicit keys at k=64 without preallocation, fixed fingerprints
+	 * with preallocation, and hash pairs otherwise.
+	 * @return 0 for explicit keys, 1 for hash pairs, or 2 for fixed fingerprints
+	 */
 	private int effectiveHashMode(){
 		//Hollow lookup requires both full hashcodes, even when prealloc=t.
 		if(hollow){return 1;}
@@ -3317,122 +3705,183 @@ public class BBMerge {
 	/** -1=auto, 0=explicit, 1=resizable hash pair, 2=fixed xor2 fingerprint. */
 	private int hashKmerMode=-1;
 
+	/** Shared Bloom count/filter service, absent when the graph or neither service is selected. */
 	private final BloomFilter bloomFilter;
+	/** Shared Bloom correction/merge-check helper; this field is not worker-local state. */
 	private final BloomFilterCorrector corrector;
 	
+	/** Requests a full graph/count table even without extension or correction. */
 	private boolean forceExactKmerCounts=false;
+	/** Validate sufficiently long candidate joins with the selected graph/Bloom service. */
 	private boolean testMerge=false;
+	/** Enables Bloom correction retries after ambiguous/no-solution overlap results. */
 	private boolean eccBloom=false;
+	/** Bloom construction bit depth and hash count. */
 	private int bloomBits=2;
 	private int bloomHashes=3;
+	/** Width, multiplier and threshold forwarded to candidate merge validation. */
 	int testMergeWidth=4;
 	long testMergeMult=80L;
 	int testMergeThresh=3;
 	
+	/** Reconcile original and extended insert candidates under the existing extension policy. */
 	private boolean requireExtensionMatch=false;
+	/** Requires a positive original candidate before the extend2 reconciliation attempt. */
 	private boolean requireStrictExtensionMatch=false;
+	/** Bases subtracted from the original pair-length sum for the approximate-overlap bound. */
 	private int minApproxOverlapRem=26;
 	
+	/** Graph extension policy; true also omits worker left-count scratch. */
 	private boolean extendThroughLeftJunctions=true;
+	/** Minimum graph counts requested for seeding and extending. */
 	private int minCountSeed=3, minCountExtend=2;
+	/** Branch multipliers forwarded unchanged to graph construction. */
 	private float branchMult1=20;
 	private float branchMult2=3;
+	/** Quality probability threshold forwarded to graph construction. */
 	private float minProb=0.5f;
+	/** Branch-count constant forwarded to graph construction. */
 	private int branchLowerConst=3;
 	
+	/** Enables overlap search when the stored-mapping shortcut is unavailable. */
 	private boolean MATE_BY_OVERLAP=true;
+	/** Sends rejected roots to good output instead of the separate bad list. */
 	private boolean MIX_BAD_AND_GOOD=false;
+	/** Custom-label output selection; applied after statistics and candidate processing. */
 	private boolean ONLY_OUTPUT_INCORRECT=false;
 	
+	/** Which supplied-truth categories survive custom-label output selection. */
 	private boolean OUTPUT_FALSE_POSITIVE=true;
 	private boolean OUTPUT_FALSE_NEGATIVE=true;
 	private boolean OUTPUT_TRUE_POSITIVE=true;
 	private boolean OUTPUT_TRUE_NEGATIVE=true;
 	
+	/** Quantize good/bad Read qualities immediately before their writer submissions. */
 	private boolean quantizeQuality=false;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Per-calling-thread result scratch for the static overlap helper, not worker scratch. */
 	private static ThreadLocal<int[]> localRvector=new ThreadLocal<int[]>();
 	
+	/** Shared error indication combined during cleanup; resetCounters does not clear it. */
 	static boolean errorState=false;
 
+	/** Print expanded arguments when the pre-parser replaces the original argument array. */
 	private static boolean showFullArgs=true;
 
 	/** Recalibrate quality scores using matrices */
 	static boolean recalibrateQuality=false;
-	/** Whether to use quality scores in overlap detection */
+	/** When false, strips qualities after preprocessing and restores them on normal completion.
+	 * qtrim2 retries restore saved qualities before trimming/searching again; those
+	 * retry searches can therefore see qualities even when this setting is false.
+	 */
 	static boolean useQuality=true;
+	/** Requested quality-trim sides; retries on aligned R2 exchange left and right. */
 	static boolean qtrimRight=false;
 	static boolean qtrimLeft=false;
 //	static boolean untrim=false;
-	static float[] trimq=new float[] {6};
+	/** Numeric Phred thresholds and corresponding error probabilities indexed by trim iteration. */
+	static float[] trimq=new float[]{6};
 	static float[] trimE=QualityTools.phredToProbError(trimq);
+	/** Average numeric-quality prefilter threshold; nonpositive disables it. */
 	static float minAvgQuality=0;
+	/** Base-limit argument passed to Read.avgQuality for the average-quality precheck. */
 	static int minAvgQualityBases=0;
+	/** Expected-tip-error ceiling used when the MEE prefilter and qualities are enabled. */
 	static float maxExpectedErrors=0;
+	/** Both-short length threshold; a separate guard handles mates shorter than two bases. */
 	static int minReadLength=1;
+	/** Candidate insert upper bound inherited from parser max length; constructor resolves unlimited. */
 	static int maxReadLength=-1;
+	/** Candidate insert lower bound in bases, raised to the overlap minimum by construction. */
 	static int minInsert=15;
+	/** Detailed scan's insert start; a nonpositive request is resolved by construction. */
 	static int minInsert0=-1;
+	/** Initial versus retry trimming requests; qtrim2 suppresses the first qtrim pass. */
 	static boolean qtrim1=false;
 	static boolean qtrim2=false;
+	/** Flat-search failure-trim retry limit; unavailable mate qualities disable these retries. */
 	static int TRIM_ON_OVERLAP_FAILURE=1;
+	/** Flat-search quality rounds; absent mate qualities restrict this to one round. */
 	static int QUAL_ITERS=3;
+	/** Interpret supplied header/mapping labels for truth statistics and category selection. */
 	static boolean parseCustom=false;
+	/** Maximum length passed to non-built-in adapter-list parsing. */
 	static int maxAdapterLength=21;
 	
+	/** Requests accepted-output cropping in the join/output-correction branches. */
 	static boolean trimNonOverlapping=false;
 	
-	/** For adapter output */
+	/** Adapter-consensus trimming mirror, forwarded to AdapterTracker.trimPolyAorG. */
 	static boolean trimPolyA=true;
 	
+	/** Positive left boundary to retain during forced trimming, in zero-based base coordinates. */
 	static int forceTrimLeft;
+	/** Positive inclusive right coordinate to retain; nonpositive values do not select it. */
 	static int forceTrimRight;
+	/** Positive number of rightmost bases to remove during forced trimming. */
 	static int forceTrimRight2;
 	/** Trim right bases of the read modulo this value.
 	 * e.g. forceTrimModulo=50 would trim the last 3bp from a 153bp read. */
 	static int forceTrimModulo;
 	
+	/** Strict preset selectors; the argument prepass also changes associated thresholds. */
 	public static boolean strict=false;
 	static boolean vstrict=false;
 	static boolean ustrict=false;
 	static boolean xstrict=false;
+	/** Loose/speed preset selectors, not independent guarantees about accepted overlaps. */
 	static boolean loose=false;
 	static boolean vloose=false;
 	static boolean uloose=false;
 	static boolean xloose=false;
 	static boolean fast=false;
 	
-	/** If true, interpret lowercase bases as adapter sequence */
+	/** Retained switch for the dormant lowercase-adapter heuristic. */
 	static boolean lowercaseAdapters=false;
 	
+	/** Number of insert-count bins; the final bin accumulates larger accepted inserts too. */
 	private static final int histlen=2000;
+	/** Shared sum of worker insert histograms, reset for phase aggregation. */
 	static long[] histTotal=new long[histlen];
+	/** Histogram reporting width in bases; does not resize histTotal. */
 	static int bin=1;
 
+	/** Shared phase totals of pretrim paired roots and paired base lengths. */
 	static long readsProcessedTotal=0;
 	static long basesProcessedTotal=0;
+	/** Legacy sum of the currently unincremented worker matedCount field. */
 	static long matedCountTotal=0;
+	/** Accepted inserts matching supplied truth labels; not independent accuracy validation. */
 	static long correctCountTotal=0;
+	/** Rejected pairs with supplied truth overlap; resetCounters clears this false-negative tally. */
 	static long unmergedOverlappingTotal=0;
+	/** Aggregated pair-search rejection tallies. */
 	static long ambiguousCountTotal=0;
 	static long tooShortCountTotal=0;
 	static long tooLongCountTotal=0;
+	/** Accepted inserts differing from supplied truth labels. */
 	static long incorrectCountTotal=0;
+	/** Aggregated no-solution rejections. */
 	static long noSolutionCountTotal=0;
+	/** Accepted insert-length sums in bases, split by supplied truth agreement. */
 	static long insertSumCorrectTotal=0;
 	static long insertSumIncorrectTotal=0;
+	/** Aggregated mate outcomes/attempts from extension calls, not per-iteration counts. */
 	static long fullyExtendedTotal=0;
 	static long partlyExtendedTotal=0;
 	static long notExtendedTotal=0;
 	static long extensionsAttempted=0;
+	/** Aggregated bridge attempts and classified outcomes. */
 	static long bridgeAttemptsTotal=0, bridgeSuccessTotal=0;
 	static long bridgeNoPathTotal=0, bridgeNoTargetTotal=0, bridgeAmbiguousTotal=0, bridgeCycleTotal=0;
 	static long bridgeNonreciprocalTotal=0, bridgeRejectedTotal=0;
+	/** Aggregated eligible mate checks and successful adapter-check calls. */
 	static long adaptersExpected=0;
 	static long adaptersFound=0;
 	
+	/** Shared accepted insert extrema; reset uses the unobserved minimum sentinel and zero maximum. */
 	static int insertMinTotal=999999999;
 	static int insertMaxTotal=0;
 	
@@ -3443,28 +3892,37 @@ public class BBMerge {
 	private static int MISMATCH_MARGIN=2;
 	private static int MIN_OVERLAPPING_BASES_RATIO_REDUCTION=3;
 	
-	/** Skip alignment and calculate insert from mapping info */
+	/** Enables eligible mapping shortcuts; the worker path uses the stored Read.insert value. */
 	protected static boolean USE_MAPPING=false;
+	/** Suppress histogram rows with zero reported frequency. */
 	private static boolean NONZERO_ONLY=true;
+	/** Include the histogram's summary-statistics header. */
 	private static boolean showHistStats=true;
+	/** Retained training selection; requesting outinsert rejects this unimplemented exporter early. */
 	static boolean TRAINING=false;
 	
 	/** Whether to use ratio mode for overlap detection */
 	static boolean useRatioMode=true;
 	/** Whether to use flat mode for overlap detection */
 	static boolean useFlatMode=false;
+	/** Require matching candidate inserts when both ratio and flat searches are enabled. */
 	static boolean requireRatioMatch=false;
+	/** Raw candidate mismatch ceiling that marks the selected result ambiguous. */
 	static int MAX_MISMATCHES_R=20;
+	/** Candidate mismatch-ratio ceiling passed to ratio search. */
 	static float MAX_RATIO=0.09f;
+	/** Candidate-separation multiplier passed to ratio search. */
 	static float RATIO_MARGIN=5.5f;
+	/** Mismatch-count offset passed to ratio search. */
 	static float RATIO_OFFSET=0.55f;
+	/** Second-candidate ratio floor used by ratio-search ambiguity checks. */
 	static float MIN_SECOND_RATIO=0.1f;
 	
-	/** Maximum allowed mismatches in overlap */
+	/** Main mismatch limit passed to flat overlap search. */
 	public static int MAX_MISMATCHES=3;
-	/** Alternative maximum mismatch threshold */
+	/** Initial mismatch limit passed to flat overlap search. */
 	public static int MAX_MISMATCHES0=3;
-	/** Minimum quality score for base consideration */
+	/** Initial flat-search numeric Phred threshold; retry rounds may lower it. */
 	public static byte MIN_QUALITY=10;
 	
 	/** Return code indicating no overlap solution found */
@@ -3478,34 +3936,51 @@ public class BBMerge {
 	/** Return code indicating insert too long */
 	public static final int RET_LONG=-5;
 	
+	/** Shared requested output-file policies applied when descriptors/writers are built. */
 	private static boolean overwrite=true;
 	private static boolean append=false;
+	/** Compile-time diagnostic verbosity switch. */
 	private static final boolean verbose=false;
+	/** Compile-time custom-tag collection path; currently disabled. */
 	static final boolean TAG_CUSTOM=false;
+	/** Shared feature-collection/neural-decision switch, configured with the overlapper's flag. */
 	static boolean MAKE_VECTOR=false;
+	/** Resolved default network resource path used during class initialization. */
 	private static String defaultNetFile=Data.findPath("?bbmerge.bbnet", false);
+	/** Shared requested/cached model path; pathname equality does not establish file freshness. */
 	static String netFile=defaultNetFile;
-	static CellNet net0=CellNetParser.load(netFile, false);//False in case the net file is missing
+	/** Shared model template; worker copies have separate working/row arrays but shared metadata. */
+	static CellNet net0=CellNetParser.load(netFile, false);//False disables absent-file null handling
+	/** Shared neural acceptance threshold, initially from the model or 0.5 when absent. */
 	static float netCutoff=(net0==null ? 0.5f : net0.cutoff);
+	/** Whether a cutoff was explicitly selected, preventing loadNet from replacing it. */
 	private static boolean setCutoff=false;
+	/** Retained collection/filter control used in candidate rejection branches. */
 	private static boolean ONLY_OUTPUT_FALSE_POSITIVE=false;
+	/** Retained false-negative-only flag with no active worker consumer. */
 	private static boolean ONLY_OUTPUT_FALSE_NEGATIVE=false;
 
 	//TODO: Remove after NN is trained
+	/** Existing short-truth-overlap exemptions; branch-specific cutoffs remain unchanged. */
 	private static boolean EXEMPT_SHORT_OVERLAPS_FROM_STATS=false;
 	
+	/** Convert undefined bases to uppercase N during preprocessing. */
 	private static boolean iupacToN=false;
 	
+	/** Whether output error correction copies consensus qualities into present quality arrays. */
 	public static boolean changeQuality=true;
 	
 	/** Output stream for messages and statistics */
 	static PrintStream outstream=System.err;
 	
+	/** Shared worker count; construction resolves an unset value from Shared.threads. */
 	private static int THREADS=-1;
 //	private static String version="9.02";
 	
+	/** Prefix used by the dormant local PhiX diagnostic, separate from AdapterTracker's check. */
 	private static final byte[] phixPrefix="AGATCGGAAGAGCG".getBytes();
 	
+	/** Built-in adapter strings; getAdapterList creates new list/byte-array copies. */
 	private static final String[] defaultAdapters={
 			"AGATCGGAAGAGCACA", "AATGATACGGCGACCA",	"GATCGGAAGAGCACAC", "CTGTCTCTTATACACA",
 			"GACGCTGCCGACGA", "CCGAGCCCACGAGAC", "CTGATGGCGCGAGGGA", "CTGAGCGGGCTGGCAA",
@@ -3513,7 +3988,8 @@ public class BBMerge {
 			"TGGAATTCTCGGGTGC", "TCGGACTGTAGAACTC", "AGATCGGAAGAGCGGT"
 	};
 	
-	/** Default adapter sequences for verification */
+	/** Shared mutable adapters for static overlap verification; null skips that check.
+	 * Callers must keep the list/arrays stable while static verification uses them. */
 	public static ArrayList<byte[]> staticAdapterList=getAdapterList("default");
 	
 }

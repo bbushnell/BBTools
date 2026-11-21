@@ -14,6 +14,7 @@ import parse.Parse;
 import parse.Parser;
 import parse.PreParser;
 import processor.ReformatProcessor;
+import shared.KillSwitch;
 import shared.MetadataWriter;
 import shared.Shared;
 import shared.Timer;
@@ -23,6 +24,8 @@ import stream.ConcurrentReadOutputStream;
 import stream.FASTQ;
 import stream.FastaReadInputStream;
 import stream.Read;
+import stream.ReadStreamByteWriter;
+import stream.SamLine;
 import structures.ListNum;
 import structures.LongList;
 import structures.SuperLongList;
@@ -31,9 +34,10 @@ import template.ThreadWaiter;
 import tracker.ReadStats;
 
 /**
- * This class is designed to refactor ReformatReads by
- * using a ReformatProcessor to handle per-read logic
- * while this class manages I/O and multithreading.
+ * Reformat driver using CRIS/CROS streams and per-worker ReformatProcessor instances.
+ * Owns stream lifecycles, batch routing and sampling while the processor applies
+ * transformations and filters. Retained alongside the Streamer-based driver for
+ * comparison; unique naming and exact sampling require one processing worker.
  * @author Brian Bushnell
  * @contributor Gemini
  * @date November 16, 2025
@@ -109,6 +113,15 @@ public class Reformat2 implements Accumulator<Reformat2.ProcessThread>{
 		//Create input FileFormat objects
 		ffin1=FileFormat.testInput(in1, FileFormat.FASTQ, extin, true, true);
 		ffin2=FileFormat.testInput(in2, FileFormat.FASTQ, extin, true, true);
+
+		//Retain input alignments without requiring a loaded genome to reconstruct them.
+		final boolean samIn=(ffin1!=null && ffin1.samOrBam());
+		final boolean samOut=(ffout1!=null && ffout1.samOrBam());
+		if(samIn && breakLength>0 && processor.usesSamAlignmentFilters()){
+			throw new IllegalArgumentException("breaklength with SAM/BAM input is incompatible with alignment-dependent filters.");
+		}
+		SamLine.SET_FROM_OK=samIn;
+		ReadStreamByteWriter.USE_ATTACHED_SAMLINE=samIn && samOut;
 	}
 
 	/*--------------------------------------------------------------*/
@@ -126,7 +139,7 @@ public class Reformat2 implements Accumulator<Reformat2.ProcessThread>{
 			String arg=args[i];
 
 			//Break arguments into their constituent parts, in the form of "a=b"
-			String[] split=arg.split("=");
+			String[] split=Parse.splitOnFirst(arg, '=');
 			String a=split[0].toLowerCase();
 			String b=split.length>1 ? split[1] : null;
 			if(b!=null && b.equalsIgnoreCase("null")){b=null;}
@@ -220,18 +233,18 @@ public class Reformat2 implements Accumulator<Reformat2.ProcessThread>{
 	/** Ensure files can be read and written */
 	private void checkFileExistence(){
 		//Ensure output files can be written
-		if(!Tools.testOutputFiles(overwrite, append, false, out1, out2, outsingle)){
+		if(!Tools.testOutputFiles(overwrite, append, false, out1, out2, outsingle, qfout1, qfout2, qfoutsingle)){
 			outstream.println((out1==null)+", "+(out2==null)+", "+out1+", "+out2);
 			throw new RuntimeException("\n\noverwrite="+overwrite+"; Can't write to output files "+out1+", "+out2+"\n");
 		}
 
 		//Ensure input files can be read
-		if(!Tools.testInputFiles(false, true, in1, in2)){
+		if(!Tools.testInputFiles(false, true, in1, in2, qfin1, qfin2)){
 			throw new RuntimeException("\nCan't read some input files.\n");	
 		}
 
 		//Ensure that no file was specified multiple times
-		if(!Tools.testForDuplicateFiles(true, in1, in2, out1, out2, outsingle)){
+		if(!Tools.testForDuplicateFiles(true, in1, in2, qfin1, qfin2, out1, out2, outsingle, qfout1, qfout2, qfoutsingle)){
 			throw new RuntimeException("\nSome file names were specified multiple times.\n");
 		}
 	}
@@ -387,6 +400,7 @@ public class Reformat2 implements Accumulator<Reformat2.ProcessThread>{
 		}
 	}
 
+	/** Starts quota-limited input; ordinary subsampling is disabled for exact-sampling passes. */
 	private ConcurrentReadInputStream makeCris(float samplerate, long sampleseed){
 		ConcurrentReadInputStream cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ffin1, ffin2, qfin1, qfin2);
 
@@ -402,6 +416,7 @@ public class Reformat2 implements Accumulator<Reformat2.ProcessThread>{
 		return cris;
 	}
 
+	/** Creates and starts primary output, or returns null when no primary output is configured. */
 	private ConcurrentReadOutputStream makeCros(boolean pairedInput){
 		if(ffout1==null){return null;}
 
@@ -418,6 +433,7 @@ public class Reformat2 implements Accumulator<Reformat2.ProcessThread>{
 		return ros;
 	}
 
+	/** Creates and starts singleton output; pairedInput is retained but does not affect this route. */
 	private ConcurrentReadOutputStream makeRosb(boolean pairedInput){
 		if(ffoutsingle==null){return null;}
 		final int buff=8;
@@ -426,11 +442,12 @@ public class Reformat2 implements Accumulator<Reformat2.ProcessThread>{
 		return rosb;
 	}
 
+	/** Reports individual input/output reads and bases, processor statistics and elapsed time. */
 	private void printStats(Timer t){
 
 		long readsOut=processor.pairsOut*2+processor.singlesOut;
 		long basesOut=processor.pairBasesOut+processor.singleBasesOut;
-		if(sampleReadsExact || sampleBasesExact) {
+		if(sampleReadsExact || sampleBasesExact){
 			readsOut=sampledReadsOut;
 			basesOut=sampledBasesOut;
 		}
@@ -506,8 +523,9 @@ public class Reformat2 implements Accumulator<Reformat2.ProcessThread>{
 	/*----------------        Inner Classes         ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** This class is static to prevent accidental writing to shared variables.
-	 * It is safe to remove the static modifier. */
+	/** Borrows the driver's streams and owns one processor clone and its input counters.
+	 * Unexpected failures terminate the process rather than leaving I/O workers blocked.
+	 */
 	class ProcessThread extends Thread{
 
 		//Constructor
@@ -523,15 +541,13 @@ public class Reformat2 implements Accumulator<Reformat2.ProcessThread>{
 		//Called by start()
 		@Override
 		public void run(){
-			//Do anything necessary prior to processing
-
-			//Process the reads
-			processInner();
-
-			//Do anything necessary after processing
-
-			//Indicate successful exit status
-			success=true;
+			try{
+				processInner();
+				success=true;
+			}catch(Throwable t){
+				System.err.println("jgi.Reformat2 worker "+tid+" failed; aborting blocked input/output threads.");
+				KillSwitch.throwableKill(t);
+			}
 		}
 
 		/** Iterate through the reads */
@@ -564,6 +580,7 @@ public class Reformat2 implements Accumulator<Reformat2.ProcessThread>{
 			}
 		}
 
+		/** Processes and routes one mutable batch, retaining empty ordered output IDs. */
 		void processList(ListNum<Read> ln){
 
 			//Grab the actual read list from the ListNum
@@ -578,7 +595,7 @@ public class Reformat2 implements Accumulator<Reformat2.ProcessThread>{
 						reads.set(i, null);
 						removed++;
 					}else{
-						skipreads=-1; //Stop skipping
+						//Keep the shared threshold stable for earlier batches still in flight.
 						break;
 					}
 				}
@@ -642,21 +659,25 @@ public class Reformat2 implements Accumulator<Reformat2.ProcessThread>{
 
 			// Handle exact sampling
 			if(sampleReadsExact || sampleBasesExact){
-				// Re-use 'singles' list for exact-sampled singletons
+				//Only the main list is sampled; preserve filter-generated singletons.
 				final ArrayList<Read> listOut=new ArrayList<Read>();
-				final ArrayList<Read> singlesOut=(rosb == null ? null : singles);
-				if(singlesOut!=null){singlesOut.clear();}// Clear list, as it was populated above
+				final ArrayList<Read> singlesOut=(rosb==null ? null : singles);
 				sampleExact(reads, listOut, singlesOut);
+				if(singlesOut!=null){
+					sampledReadsOut+=singlesOut.size();
+					for(Read r : singlesOut){sampledBasesOut+=r.length();}
+				}
 
 				// Send the *new, sampled* lists to output
 				if(ros!=null){ros.add(listOut, ln.id);}// Send the sampled list
 				// Send the UNsampled singles
-				if(rosb!=null && singles!=null && !singles.isEmpty()){rosb.add(singles, ln.id);}
+				if(rosb!=null){rosb.add(singles, ln.id);}
 
 			}else{
 				// No exact sampling; send the original lists
 				if(ros!=null){ros.add(reads, ln.id);}
-				if(rosb!=null && singles!=null && !singles.isEmpty()){rosb.add(singles, ln.id);}
+				//Ordered output needs every input ID, even when this batch has no singletons.
+				if(rosb!=null){rosb.add(singles, ln.id);}
 			}
 		}
 
@@ -684,6 +705,9 @@ public class Reformat2 implements Accumulator<Reformat2.ProcessThread>{
 	/*----------------  Sampling Helper Methods     ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Selects fragment occurrences, updating serial targets and individual-read/base totals.
+	 * Repeated references may be emitted under allowUpsample; singlesOut is currently unused.
+	 */
 	private void sampleExact(ArrayList<Read> reads, ArrayList<Read> listOut, ArrayList<Read> singlesOut){
 		if(sampleReadsExact){
 			// Sample pairs
@@ -695,24 +719,21 @@ public class Reformat2 implements Accumulator<Reformat2.ProcessThread>{
 					while(allowUpsample && prob>1){
 						listOut.add(r);
 						sampleReadsTarget--;
-						sampledReadsOut++;
+						sampledReadsOut+=r.pairCount();
 						sampledBasesOut+=bases;
 						prob--;
 					}
 					if(randy.nextDouble()<prob){
 						listOut.add(r);
 						sampleReadsTarget--;
-						sampledReadsOut++;
+						sampledReadsOut+=r.pairCount();
 						sampledBasesOut+=bases;
 					}
 				}
 				readsRemaining--; // Decrement for every read (pair) looked at
 			}
 
-			// Sample singles (replicates bug from original, only samples from main list)
-			// This block is intentionally left empty to match original logic.
-			// If you want to fix the bug, you would iterate over 'singles' here
-			// and apply the same variable-rate logic.
+			//Only the main list is sampled; singleton routing belongs to the caller.
 
 		}else{// sampleBasesExact
 			// Sample pairs
@@ -725,14 +746,14 @@ public class Reformat2 implements Accumulator<Reformat2.ProcessThread>{
 					while(allowUpsample && prob>1){
 						listOut.add(r);
 						sampleBasesTarget-=bases;
-						sampledReadsOut++;
+						sampledReadsOut+=r.pairCount();
 						sampledBasesOut+=bases;
 						prob--;
 					}
 					if(randy.nextDouble()<prob){
 						listOut.add(r);
 						sampleBasesTarget-=bases;
-						sampledReadsOut++;
+						sampledReadsOut+=r.pairCount();
 						sampledBasesOut+=bases;
 					}
 				}
@@ -742,7 +763,7 @@ public class Reformat2 implements Accumulator<Reformat2.ProcessThread>{
 		}
 	}
 
-	/** Copied from ReformatReads.java */
+	/** Counts fragments, individual reads and bases after skipping within the raw-input quota. */
 	private long[] countReads(long maxReads){
 		if(ffin1.stdio()){
 			throw new RuntimeException("Can't precount reads from standard in, only from a file.");
@@ -761,8 +782,11 @@ public class Reformat2 implements Accumulator<Reformat2.ProcessThread>{
 		long count=0, count2=0, bases=0;
 
 		while(ln!=null && reads!=null && reads.size()>0){//ln!=null prevents a compiler potential null access warning
-			count+=reads.size();
-			for(Read r : reads){
+			int first=0;
+			while(first<reads.size() && reads.get(first).numericID<skipreads){first++;}
+			count+=reads.size()-first;
+			for(int i=first; i<reads.size(); i++){
+				final Read r=reads.get(i);
 				bases+=r.length();
 				count2++;
 				if(r.mate!=null){
@@ -779,7 +803,7 @@ public class Reformat2 implements Accumulator<Reformat2.ProcessThread>{
 		return new long[]{count, count2, bases};
 	}
 
-	/** Copied from ReformatReads.java */
+	/** Collects individual read lengths under the input quota for length-prioritized selection. */
 	private SuperLongList makeLengthHist(long maxReads){
 		if(ffin1.stdio()){
 			throw new RuntimeException("Can't precount reads from standard in, only from a file.");
@@ -798,7 +822,10 @@ public class Reformat2 implements Accumulator<Reformat2.ProcessThread>{
 		SuperLongList sll=new SuperLongList(200000);
 
 		while(ln!=null && reads!=null && reads.size()>0){//ln!=null prevents a compiler potential null access warning
-			for(Read r : reads){
+			int first=0;
+			while(first<reads.size() && reads.get(first).numericID<skipreads){first++;}
+			for(int i=first; i<reads.size(); i++){
+				final Read r=reads.get(i);
 				sll.add(r.length());
 				if(r.mate!=null){
 					sll.add(r.mateLength());
@@ -864,7 +891,7 @@ public class Reformat2 implements Accumulator<Reformat2.ProcessThread>{
 
 	/** Quit after processing this many input reads; -1 means no limit */
 	private long maxReads=-1;
-	/** Skip this many input reads */
+	/** Input fragment ordinal boundary, fixed after parsing for out-of-order worker batches. */
 	private long skipreads=-1;
 	/** Break reads into chunks of this length */
 	private int breakLength=0;
@@ -878,6 +905,7 @@ public class Reformat2 implements Accumulator<Reformat2.ProcessThread>{
 	private boolean prioritizeLength=false;
 	private long sampleReadsTarget=0;
 	private long sampleBasesTarget=0;
+	/** Individual reads emitted by sampling; both mates count for a selected pair. */
 	private long sampledReadsOut=0;
 	private long sampledBasesOut=0;
 

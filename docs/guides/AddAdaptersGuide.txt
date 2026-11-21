@@ -1,8 +1,8 @@
 AddAdapters Guide
 Written by Brian Bushnell
-Last updated December 22, 2015
+Last updated November 16, 2026 (original guide December 22, 2015)
 
-AddAdapters is designed for grading the performance of adapter-trimming tools.  It can add adapters to reads, and annotate the reads with their correct post-trimming length; and it can be run on trimmed reads, to calculate the rates of correct and incorrect trimming.  However, it does not understand insert size, so for adding adapters to paired reads, it's better to use RandomReads.  As such, this is deprecated for paired reads.
+AddAdapters generates adapter-contaminated data for insert-unaware trimming tests.  It replaces bases without using insert size and annotates reads with their expected post-trimming lengths.  It does not run the trimming tools.  Its optional grade mode compares the lengths of surviving trimmed reads with those annotations.  For paired data whose adapter placement must respect insert size, use RandomReads instead; the original deprecation for paired simulation refers to this limitation.
 
 
 *Usage Examples*
@@ -21,3 +21,29 @@ randomreads.sh ref=ref.fa out=reads.fq len=150 paired reads=100k mininsert=50 ma
 rename.sh in=reads.fq out=renamed.fq renamebytrim interleaved
 
 The result of this will still be named correctly for grading by addadapters.  "ACTG" would normally be a much longer adapter sequence.
+
+
+*Header annotations and grading*
+
+Keep the length annotations when passing reads through a trimming tool.  AddAdapters
+uses id_original_remaining for single reads, or id_original1_remaining1_original2_remaining2
+for a pair.  RenameReads renamebytrim writes one three-field annotation per mate.
+The optional /1, /2, or modern space-1:/space-2: suffix identifies the original mate;
+this also permits a surviving orphan /2 read to be graded correctly.  A shared paired
+annotation without a suffix requires paired input so the mate can be identified.
+
+Grade mode also accepts modern SYN_ synthetic headers and derives the expected
+length from their original span and positive insert, capped at the original length.
+A missing or nonpositive synthetic insert is unknown and is rejected; an explicit
+zero remaining length in a length-tag annotation is valid.
+
+Ordinary input handling is the default (parsecustom=f).  Grade mode decodes both
+annotation families locally.  Explicit parsecustom=t, or its fastqparsecustom alias,
+retains generic SYN_ parsing and therefore requires valid SYN_ names; leave it off
+for ordinary names and length-tagged reads.  Avoid trimming away a mate suffix when
+grading an unpaired read with a shared paired annotation.
+
+Grading compares lengths, not sequence identity or which end was trimmed, and it
+cannot count reads discarded upstream.  Existing minlen and one-base placeholder
+rules are retained.  During generation, minlen changes validity statistics only;
+it does not filter emitted reads.

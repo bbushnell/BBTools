@@ -8,20 +8,25 @@ import stream.SamLine;
 import structures.ByteBuilder;
 
 /**
- * Interface for read processing operations.
- * Implements the curiously recurring template pattern to ensure type-safe
- * accumulation of statistics between processor instances.
+ * Read-processing operations separated from a driver's streams, batching and threads.
+ * Drivers finish argument parsing and initialization before copying worker instances,
+ * then accumulate statistics after workers finish. Implementations define which
+ * configuration can be shared and which processing state needs an independent copy;
+ * this interface alone does not make a processor safe for concurrent calls.
+ * The recursive type parameter keeps accumulation within one processor type.
  * 
- * @param <P> The implementing class type, which must extend Processor<P>
+ * @param <P> The implementing class type, which implements {@code Processor<P>}
  * @author Brian Bushnell
  * @contributor Isla
  * @date November 16, 2025
  */
-public interface Processor<P extends Processor<P>> extends Cloneable {
+public interface Processor<P extends Processor<P>> extends Cloneable{
 	
 	/**
-	 * Creates a deep copy of this processor.
-	 * @return A new instance with copied state
+	 * Creates a worker instance under the implementation's copying contract.
+	 * This need not be a deep copy or reset accumulated counters. Consult the
+	 * implementation for borrowed configuration, shared state and initialization order.
+	 * @return New processor instance with implementation-defined copied state
 	 */
 	public P clone();
 	
@@ -39,7 +44,8 @@ public interface Processor<P extends Processor<P>> extends Cloneable {
 	public boolean parse(String arg, String a, String b);
 	
 	/**
-	 * Sets fields from a Parser after it has finished parsing.
+	 * Transfers generic options after both the driver and processor finish parsing.
+	 * Implementation-specific argument handling may also update derived parser settings.
 	 * @param parser The parser containing parsed values
 	 */
 	public void setFromParser(Parser parser);
@@ -55,7 +61,8 @@ public interface Processor<P extends Processor<P>> extends Cloneable {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Processes a read pair.
+	 * Mutates and filters a read or linked pair, including implementation-owned statistics.
+	 * The driver retains responsibility for routing selected reads to output streams.
 	 * @param r1 The first read (never null)
 	 * @param r2 The second read (may be null for single-end data)
 	 * @return Bit flags indicating which reads passed filters (0=none, 1=r1, 2=r2, 3=both)
@@ -63,7 +70,8 @@ public interface Processor<P extends Processor<P>> extends Cloneable {
 	public int processReadPair(Read r1, Read r2);
 	
 	/**
-	 * Processes a SAM line directly.
+	 * Processes one SAM record under the implementation's conversion/attachment contract.
+	 * This operation need not provide the paired-read context of processReadPair.
 	 * @param sl The SAM line to process
 	 * @return true if the line passed all filters
 	 */
@@ -74,14 +82,16 @@ public interface Processor<P extends Processor<P>> extends Cloneable {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Calculates the recommended number of worker threads based on configured operations.
-	 * @return The optimal number of workers
+	 * Suggests a worker count based on configured operations and shared-state constraints.
+	 * The driver must also enforce required serial-processing policies when applicable.
+	 * @return Recommended worker count, not a measured throughput guarantee
 	 */
 	public int recommendedWorkers();
 	
 	/**
 	 * Accumulates statistics from another processor instance.
-	 * Used to combine results from multiple worker threads.
+	 * Call after the source worker finishes; this is not a worker-completion barrier.
+	 * Callers must avoid merging copied initial totals or a worker's results twice.
 	 * @param other The processor whose statistics should be added to this one
 	 */
 	public void add(P other);

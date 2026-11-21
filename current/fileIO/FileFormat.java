@@ -673,6 +673,8 @@ public final class FileFormat{
 	 * Stops requesting lines after eight; the buffered reader/decoder may still read ahead.
 	 * Caught read IOExceptions are
 	 * printed; collected lines are returned after finishReading, whose error flag is ignored.
+	 * Probe processes are closed and unregistered only for the current bzip2 policy and
+	 * the literal FQZ dispatch path selected by ReadWrite.
 	 * Stream construction and unchecked failures can propagate; this is not a strict validator.
 	 * @param fname File path to read
 	 * @return Collected prefix, possibly empty/partial, or null for a skipped name
@@ -683,6 +685,7 @@ public final class FileFormat{
 		
 		ArrayList<String> oct=new ArrayList<String>(8);
 		final boolean subprocess=isBz2File(fname);
+		final boolean killProcess=contentProbeStartsRegisteredProcess(fname);
 		{
 			InputStream is=ReadWrite.getInputStream(fname, false, subprocess);
 			BufferedReader br=new BufferedReader(new InputStreamReader(is));
@@ -696,9 +699,14 @@ public final class FileFormat{
 				// TODO Auto-generated catch block
 				e.printStackTrace();
 			}
-			ReadWrite.finishReading(is, fname, subprocess, br);
+			ReadWrite.finishReading(is, fname, killProcess, br);
 		}
 		return oct;
+	}
+
+	/** Mirrors content-probe decoder registrations that finishReading must collect. */
+	private static boolean contentProbeStartsRegisteredProcess(final String fname){
+		return isBz2File(fname) || (!ReadWrite.RAWMODE && fname.endsWith(".fqz"));
 	}
 	
 	/**

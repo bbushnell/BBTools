@@ -15,11 +15,19 @@ import structures.FloatList;
 import ukmer.Kmer;
 
 /**
+ * Static paired-read overlap searches and their error, coverage and complexity helpers.
+ * Searches require nonnull base arrays and expect the second mate already reverse-
+ * complemented; they do not orient the reads. Present qualities must match base
+ * lengths and contain valid probability-table indices. Callers own the reusable
+ * probability/result arrays. Feature collection may append to read attachments,
+ * so concurrent calls must not share reads or scratch.
+ * The mutable mode flags are shared with BBMerge and are not per-call settings.
+ *
  * @author Brian Bushnell
  * @date Apr 15, 2014
  *
  */
-public final class BBMergeOverlapper {
+public final class BBMergeOverlapper{
 
 	static{
 		if(false && Shared.USE_JNI){//TODO: Disabled!
@@ -40,26 +48,29 @@ public final class BBMergeOverlapper {
 			float margin, float offset, float gIncr, float bIncr);
 	
 	/**
-	 * Finds the best overlap between two reads using mismatch counting.
-	 * Tests various overlap lengths and returns the insert size of the best match.
-	 * Uses quality scores to weight matches and mismatches.
+	 * Dispatches the legacy mismatch-counting search, using quality products to
+	 * exclude low-confidence positions rather than to weight each counted mismatch.
+	 * Custom tagging selects the retained training variant with relaxed limits;
+	 * native dispatch remains disabled.
 	 *
 	 * @param a First read (forward orientation)
 	 * @param b Second read (reverse complement assumed)
-	 * @param aprob Probability array for read a quality scores
-	 * @param bprob Probability array for read b quality scores
-	 * @param rvector Return vector for storing results [insert, overlap, mismatches, ?, ambiguous]
+	 * @param aprob Writable scratch with capacity at least a's base/quality length
+	 * @param bprob Writable scratch with capacity at least b's base/quality length
+	 * @param rvector Optional array of at least five ints; writes mismatch count at
+	 * index 2 (or the initial bound without a candidate) and ambiguity (0/1) at
+	 * index 4, leaving other slots unchanged; null uses internal scratch
 	 * @param minOverlap0 Minimum overlap length for initial filtering
-	 * @param minOverlap Minimum overlap length for final acceptance
+	 * @param minOverlap Good-match support threshold used by candidate checks
 	 * @param minInsert0 Minimum insert size to test
-	 * @param margin Tolerance for ambiguous overlaps
-	 * @param maxMismatches0 Maximum mismatches for initial filtering
-	 * @param maxMismatches Maximum mismatches for final acceptance
-	 * @param minq Minimum quality score threshold
-	 * @return Best insert size, or -1 if no valid overlap found
+	 * @param margin Additive mismatch margin, clamped at zero
+	 * @param maxMismatches0 Initial incumbent mismatch count
+	 * @param maxMismatches Final mismatch limit before subtracting the ambiguity margin
+	 * @param minq Quality-table index, clamped to [1,41], for the pair-product cutoff
+	 * @return Candidate insert length, or -1 on rejection; inspect index 4 for ambiguity
 	 */
 	protected static final int mateByOverlap(Read a, Read b, float[] aprob, float[] bprob, int[] rvector,
-			int minOverlap0, final int minOverlap, final int minInsert0, int margin, final int maxMismatches0, final int maxMismatches, final int minq) {
+			int minOverlap0, final int minOverlap, final int minInsert0, int margin, final int maxMismatches0, final int maxMismatches, final int minq){
 		if(rvector==null){rvector=KillSwitch.allocInt1D(5);}
 		final int x;
 		if(false && Shared.USE_JNI){//TODO: Disabled!
@@ -73,31 +84,34 @@ public final class BBMergeOverlapper {
 	}
 	
 	/**
-	 * Finds the best overlap between two reads using ratio-based scoring.
-	 * More sophisticated than mismatch counting, uses error rates and margins
-	 * to determine optimal overlap positions with ambiguity detection.
+	 * Dispatches ratio-based overlap scoring with ambiguity detection. Uses the
+	 * weighted Java search only when requested and both quality arrays are present;
+	 * otherwise uses the unweighted search. Native dispatch remains disabled.
 	 *
 	 * @param a First read (forward orientation)
 	 * @param b Second read (reverse complement assumed)
-	 * @param aprob Probability array for read a quality scores
-	 * @param bprob Probability array for read b quality scores
-	 * @param rvector Return vector for storing results
+	 * @param aprob Writable scratch for a's quality probabilities; unused without qualities
+	 * @param bprob Writable scratch for b's quality probabilities; unused without qualities
+	 * @param rvector Optional array of at least five ints; writes candidate raw mismatch
+	 * count or a rejection value at index 2 and ambiguity (0/1) at index 4; other
+	 * slots are unchanged, and null uses internal scratch
 	 * @param minOverlap0 Minimum overlap length for initial filtering
-	 * @param minOverlap Minimum overlap length for final acceptance
-	 * @param minInsert0 Minimum insert size to test
-	 * @param minInsert Maximum insert size to test
-	 * @param maxRatio Maximum error ratio allowed for valid overlap
+	 * @param minOverlap Good-match support threshold used by candidate checks
+	 * @param minInsert0 Minimum insert length for the detailed candidate scan
+	 * @param minInsert Minimum insert length for the preliminary ratio search
+	 * @param maxRatio Ratio ceiling used to tighten/prune the search
 	 * @param minSecondRatio Minimum ratio for second-best overlap to avoid ambiguity
-	 * @param margin Error margin multiplier for overlap validation
+	 * @param margin Ratio multiplier (at least 1) for ambiguity checks
 	 * @param offset Error offset added to ratio calculations
-	 * @param gIncr Increment value for good (matching) bases
-	 * @param bIncr Increment value for bad (mismatching) bases
-	 * @param useQuality Whether to incorporate quality scores in scoring
-	 * @return Best insert size, or -1 if no valid overlap found
+	 * @param gIncr Good-base increment in the unweighted search only
+	 * @param bIncr Mismatch increment in the unweighted search only
+	 * @param useQuality Request weighted scoring when both mates have qualities
+	 * @return Candidate insert length, or -1 on rejection; a returned candidate
+	 * may still be ambiguous, and collection modes can retain otherwise rejected candidates
 	 */
 	public static final int mateByOverlapRatio(Read a, Read b, float[] aprob, float[] bprob, int[] rvector,
 			int minOverlap0, int minOverlap, int minInsert0, int minInsert, final float maxRatio, final float minSecondRatio,
-			final float margin, final float offset, final float gIncr, final float bIncr, boolean useQuality) {
+			final float margin, final float offset, final float gIncr, final float bIncr, boolean useQuality){
 		if(rvector==null){rvector=KillSwitch.allocInt1D(5);}
 //		final boolean swapped;
 //		if(a.length()>b.length()){
@@ -136,28 +150,29 @@ public final class BBMergeOverlapper {
 	}
 	
 	/**
-	 * Quality-aware overlap detection using ratio-based scoring algorithm.
-	 * Converts quality scores to probabilities and uses them to weight
-	 * matches and mismatches during overlap evaluation.
+	 * Searches insert lengths using quality-product-weighted matches and mismatches.
+	 * Populates probability scratch, runs the preliminary ratio search, then records
+	 * best/second-best candidate statistics and optional feature/tag attachments.
 	 *
 	 * @param a First read (forward orientation)
 	 * @param b Second read (reverse complement assumed)
-	 * @param aprob Probability array for read a quality scores
-	 * @param bprob Probability array for read b quality scores
-	 * @param rvector Return vector for storing results
+	 * @param aprob Writable scratch with capacity at least a's quality length
+	 * @param bprob Writable scratch with capacity at least b's quality length
+	 * @param rvector Nonnull array of at least five ints; writes candidate raw mismatch
+	 * count or a rejection value at index 2 and ambiguity (0/1) at index 4; other slots unchanged
 	 * @param minOverlap0 Minimum overlap length for initial filtering
-	 * @param minOverlap Minimum overlap length for final acceptance
-	 * @param minInsert0 Minimum insert size to test
-	 * @param minInsert Maximum insert size to test
-	 * @param maxRatio Maximum error ratio allowed for valid overlap
+	 * @param minOverlap Good-match support threshold used by candidate checks
+	 * @param minInsert0 Minimum insert length for the detailed candidate scan
+	 * @param minInsert Minimum insert length for the preliminary ratio search
+	 * @param maxRatio Ratio ceiling used to tighten/prune the search
 	 * @param minSecondRatio Minimum ratio for second-best overlap
-	 * @param margin Error margin multiplier for overlap validation
+	 * @param margin Ratio multiplier (at least 1) for ambiguity checks
 	 * @param offset Error offset added to ratio calculations
-	 * @return Best insert size, or -1 if no valid overlap found
+	 * @return Candidate insert length, or -1 on rejection; ambiguity is reported separately
 	 */
 	protected static final int mateByOverlapRatioJava_WithQualities(Read a, Read b, float[] aprob, float[] bprob, int[] rvector,
 			int minOverlap0, int minOverlap, int minInsert0, int minInsert, float maxRatio, final float minSecondRatio,
-			final float margin, final float offset) {
+			final float margin, final float offset){
 		assert(rvector!=null);
 		assert(margin>=1);
 		minOverlap=Tools.max(4, minOverlap0, minOverlap);
@@ -176,7 +191,7 @@ public final class BBMergeOverlapper {
 		
 		{
 			final float x;
-//			if(!BBMerge.TRAINING) {
+//			if(!BBMerge.TRAINING){
 				x=findBestRatio_WithQualities(a, b, aprob, bprob, minOverlap0, minOverlap, minInsert, maxRatio, offset);
 //			}else{
 //				x=findBestRatio_WithQualitiesTraining(a, b, aprob, bprob, minOverlap0, minOverlap, minInsert, maxRatio, offset);
@@ -295,7 +310,7 @@ public final class BBMergeOverlapper {
 			}
 		}
 		if(secondBestRatio<minSecondRatio){ambig=true;}
-		if(MAKE_VECTOR) {
+		if(MAKE_VECTOR){
 //			System.err.println("Read "+a.numericID+": "+a.obj+", "+b.obj);
 			FloatList fl=b.fetchVector();
 			assert(fl.size==3) : fl.size;
@@ -389,28 +404,30 @@ public final class BBMergeOverlapper {
 	}
 	
 	/**
-	 * Quality-independent overlap detection using ratio-based scoring.
-	 * Uses simple base matching without quality score weighting.
-	 * Ignores 'N' bases in good base counting.
+	 * Searches insert lengths without quality weighting. Equal non-N bases add
+	 * gIncr; unequal bases add bIncr and one raw mismatch. Equal N bases add neither.
+	 * Feature/tag collection uses best/second-best statistics; the missing
+	 * good-count updates remain unresolved, as recorded below.
 	 *
 	 * @param a First read (forward orientation)
 	 * @param b Second read (reverse complement assumed)
-	 * @param rvector Return vector for storing results
+	 * @param rvector Nonnull array of at least five ints; writes candidate raw mismatch
+	 * count or a rejection value at index 2 and ambiguity (0/1) at index 4; other slots unchanged
 	 * @param minOverlap0 Minimum overlap length for initial filtering
-	 * @param minOverlap Minimum overlap length for final acceptance
-	 * @param minInsert0 Minimum insert size to test
-	 * @param minInsert Maximum insert size to test
-	 * @param maxRatio Maximum error ratio allowed for valid overlap
+	 * @param minOverlap Good-match support threshold used by candidate checks
+	 * @param minInsert0 Minimum insert length for the detailed candidate scan
+	 * @param minInsert Minimum insert length for the preliminary ratio search
+	 * @param maxRatio Ratio ceiling; vector/tag collection first replaces it with 0.7
 	 * @param minSecondRatio Minimum ratio for second-best overlap
-	 * @param margin Error margin multiplier for overlap validation
+	 * @param margin Ratio multiplier (at least 1) for ambiguity checks
 	 * @param offset Error offset added to ratio calculations
 	 * @param gIncr Increment value for good (matching) bases
 	 * @param bIncr Increment value for bad (mismatching) bases
-	 * @return Best insert size, or -1 if no valid overlap found
+	 * @return Candidate insert length, or -1 on rejection; ambiguity is reported separately
 	 */
 	protected static final int mateByOverlapRatioJava(Read a, Read b, int[] rvector,
 			int minOverlap0, int minOverlap, int minInsert0, int minInsert, float maxRatio, final float minSecondRatio,
-			final float margin, final float offset, final float gIncr, final float bIncr) {
+			final float margin, final float offset, final float gIncr, final float bIncr){
 		assert(rvector!=null);
 		assert(margin>=1);
 		minOverlap=Tools.max(4, minOverlap0, minOverlap);
@@ -438,6 +455,9 @@ public final class BBMergeOverlapper {
 		final float margin2=(margin+offset)/minLength;
 		final byte N='N';
 		
+		//TODO [JGI-084]: bestGood/secondBestGood are never updated in this path, making
+		//neural inputs 8/14/19 (zero-based) constant 0.2/0.2/0. Recover the training
+		//producer/corpus contract before changing these features or the shipped model.
 		int bestInsert=-1;
 		int bestOverlap=-1;
 		int bestBadInt=-1;
@@ -549,10 +569,10 @@ public final class BBMergeOverlapper {
 		}
 		
 
-		if(MAKE_VECTOR) {
+		if(MAKE_VECTOR){
 //			System.err.println("Read "+a.numericID+": "+a.obj+", "+b.obj);
 			FloatList fl=b.fetchVector();
-			if(fl.size==3) {
+			if(fl.size==3){
 				fl.add((a.length()-100)*0.01f); //alen
 				fl.add((b.length()-100)*0.01f);
 				fl.add(bestInsert*.004f);
@@ -581,7 +601,7 @@ public final class BBMergeOverlapper {
 			if(secondBestRatio<minSecondRatio){ambig=true;}
 
 //			assert(sb.length()<40) : sb;
-			if(sb.length()<40) {
+			if(sb.length()<40){
 				sb.append((a.length()-100)*0.01f, 2).tab();
 				sb.append((b.length()-100)*0.01f, 2).tab();
 				sb.append(bestInsert*.004f, 3).tab();
@@ -624,23 +644,24 @@ public final class BBMergeOverlapper {
 	}
 	
 	/**
-	 * Finds the best error ratio for overlap using quality-weighted scoring.
-	 * Pre-processing step to determine if any overlap is likely to pass
-	 * the ratio threshold before detailed analysis.
+	 * Finds a preliminary quality-weighted ratio to constrain the detailed search.
+	 * Can stop at a sufficiently good witness (ratio below half maxRatio), so the
+	 * result need not be the global minimum. Probability arrays must already be populated.
 	 *
 	 * @param a First read (forward orientation)
 	 * @param b Second read (reverse complement assumed)
-	 * @param aprob Probability array for read a quality scores
-	 * @param bprob Probability array for read b quality scores
+	 * @param aprob Populated correctness probabilities for a's bases
+	 * @param bprob Populated correctness probabilities for b's bases
 	 * @param minOverlap0 Minimum overlap length for initial filtering
-	 * @param minOverlap Minimum overlap length for final acceptance
+	 * @param minOverlap Good-match support threshold used by candidate checks
 	 * @param minInsert Minimum insert size to test
 	 * @param maxRatio Maximum error ratio threshold
 	 * @param offset Error offset added to ratio calculations
-	 * @return Best error ratio found, or value > maxRatio if no good overlap
+	 * @return Best ratio observed before stopping, maxRatio+0.0001 if none improves
+	 * that initial value, or 100 for a perfect candidate with insufficient good support
 	 */
 	protected static final float findBestRatio_WithQualities(Read a, Read b, final float[] aprob, final float[] bprob,
-			final int minOverlap0, final int minOverlap, final int minInsert, final float maxRatio, final float offset) {
+			final int minOverlap0, final int minOverlap, final int minInsert, final float maxRatio, final float offset){
 		final byte[] abases=a.bases, bbases=b.bases;
 		final int alen=abases.length, blen=bbases.length;
 		
@@ -693,23 +714,23 @@ public final class BBMergeOverlapper {
 	}
 	
 	/**
-	 * Training version of quality-aware ratio finding.
-	 * Collects additional statistics for machine learning model development.
-	 * Currently disabled with assertion failure.
+	 * Retained experimental quality-weighted ratio search tracking three ratios.
+	 * Its dispatch is commented out, and assertions enabled cause an unconditional
+	 * failure at the end. It does not currently emit a training record.
 	 *
 	 * @param a First read (forward orientation)
 	 * @param b Second read (reverse complement assumed)
-	 * @param aprob Probability array for read a quality scores
-	 * @param bprob Probability array for read b quality scores
-	 * @param minOverlap0 Minimum overlap length for initial filtering
-	 * @param minOverlap Minimum overlap length for final acceptance
+	 * @param aprob Populated correctness probabilities for a's bases
+	 * @param bprob Populated correctness probabilities for b's bases
+	 * @param minOverlap0 Unused retained parameter
+	 * @param minOverlap Minimum overlap used to bound the largest insert tested
 	 * @param minInsert Minimum insert size to test
 	 * @param maxRatio Maximum error ratio threshold
 	 * @param offset Error offset added to ratio calculations
-	 * @return Best error ratio found
+	 * @return Best ratio observed, only when assertions are disabled
 	 */
 	protected static final float findBestRatio_WithQualitiesTraining(Read a, Read b, final float[] aprob, final float[] bprob,
-			final int minOverlap0, final int minOverlap, final int minInsert, final float maxRatio, final float offset) {
+			final int minOverlap0, final int minOverlap, final int minInsert, final float maxRatio, final float offset){
 		final byte[] abases=a.bases, bbases=b.bases;
 		final int alen=abases.length, blen=bbases.length;
 		
@@ -767,23 +788,24 @@ public final class BBMergeOverlapper {
 	}
 	
 	/**
-	 * Finds the best error ratio for overlap without quality weighting.
-	 * Uses simple base matching with configurable increment values.
-	 * Ignores 'N' bases when counting good matches.
+	 * Finds a preliminary unweighted ratio to constrain the detailed search.
+	 * Equal non-N bases add gIncr; mismatches add bIncr. A sufficiently good witness
+	 * can end the scan early, so the result need not be the global minimum.
 	 *
 	 * @param a First read (forward orientation)
 	 * @param b Second read (reverse complement assumed)
 	 * @param minOverlap0 Minimum overlap length for initial filtering
-	 * @param minOverlap Minimum overlap length for final acceptance
+	 * @param minOverlap Good-match support threshold used by candidate checks
 	 * @param minInsert Minimum insert size to test
 	 * @param maxRatio Maximum error ratio threshold
 	 * @param offset Error offset added to ratio calculations
 	 * @param gIncr Increment value for good (matching) bases
 	 * @param bIncr Increment value for bad (mismatching) bases
-	 * @return Best error ratio found, or value > maxRatio if no good overlap
+	 * @return Best ratio observed before stopping, maxRatio+0.0001 if none improves
+	 * that initial value, or 100 for a perfect candidate with insufficient good support
 	 */
 	protected static final float findBestRatio(Read a, Read b,
-			final int minOverlap0, final int minOverlap, final int minInsert, final float maxRatio, final float offset, final float gIncr, final float bIncr) {
+			final int minOverlap0, final int minOverlap, final int minInsert, final float maxRatio, final float offset, final float gIncr, final float bIncr){
 		final byte[] abases=a.bases, bbases=b.bases;
 		final int alen=abases.length, blen=bbases.length;
 		
@@ -836,26 +858,30 @@ public final class BBMergeOverlapper {
 	}
 	
 	/**
-	 * Unrolled Java implementation for overlap detection using mismatch counting.
-	 * Optimized version that tests overlaps from minimum to maximum range.
-	 * Uses quality score filtering and ambiguity detection.
+	 * Legacy mismatch-counting search over ascending overlap candidates.
+	 * Counts only positions whose quality-product probability exceeds the cutoff.
+	 * If either quality array is absent, both probability arrays use 0.98 per base.
+	 * Candidate selection also checks good support and ambiguity before converting
+	 * the selected candidate to insert length.
 	 *
 	 * @param a First read (forward orientation)
 	 * @param b Second read (reverse complement assumed)
-	 * @param aprob Probability array for read a quality scores
-	 * @param bprob Probability array for read b quality scores
-	 * @param rvector Return vector for storing results
+	 * @param aprob Writable scratch with capacity at least a's base/quality length
+	 * @param bprob Writable scratch with capacity at least b's base/quality length
+	 * @param rvector Nonnull array of at least five ints; writes mismatches at
+	 * index 2 (or the initial bound without a candidate) and ambiguity (0/1) at
+	 * index 4, leaving other slots unchanged
 	 * @param minOverlap0 Minimum overlap length for initial filtering
-	 * @param minOverlap Minimum overlap length for final acceptance
+	 * @param minOverlap Good-match support threshold used by candidate checks
 	 * @param minInsert0 Minimum insert size to test
-	 * @param margin Tolerance for ambiguous overlaps
-	 * @param maxMismatches0 Maximum mismatches for initial filtering
-	 * @param maxMismatches Maximum mismatches for final acceptance
-	 * @param minq Minimum quality score threshold
-	 * @return Best insert size, or -1 if no valid overlap found
+	 * @param margin Additive mismatch margin, clamped at zero
+	 * @param maxMismatches0 Initial incumbent mismatch count
+	 * @param maxMismatches Final mismatch limit before subtracting the ambiguity margin
+	 * @param minq Quality-table index, clamped to [1,41], for the pair-product cutoff
+	 * @return Candidate insert length, or -1 on rejection; ambiguity is reported separately
 	 */
 	protected static final int mateByOverlapJava_unrolled(Read a, Read b, float[] aprob, float[] bprob, int[] rvector,
-			int minOverlap0, final int minOverlap, final int minInsert0, int margin, final int maxMismatches0, final int maxMismatches, final int minq) {
+			int minOverlap0, final int minOverlap, final int minInsert0, int margin, final int maxMismatches0, final int maxMismatches, final int minq){
 		assert(rvector!=null);
 		minOverlap0=Tools.min(Tools.max(1, minOverlap0), minOverlap);
 		assert(maxMismatches<=maxMismatches0);
@@ -971,26 +997,28 @@ public final class BBMergeOverlapper {
 	}
 	
 	/**
-	 * Training version of unrolled overlap detection for machine learning.
-	 * Modified scoring criteria for collecting training data.
-	 * Uses relaxed thresholds and custom tagging for data collection.
+	 * Retained custom-tagging variant of the legacy mismatch-counting search.
+	 * Requires TAG_CUSTOM with assertions enabled and admits any positive good-base
+	 * count to the remaining candidate checks, unlike the ordinary bad*2&lt;good test.
 	 *
 	 * @param a First read (forward orientation)
 	 * @param b Second read (reverse complement assumed)
-	 * @param aprob Probability array for read a quality scores
-	 * @param bprob Probability array for read b quality scores
-	 * @param rvector Return vector for storing results
+	 * @param aprob Writable scratch with capacity at least a's base/quality length
+	 * @param bprob Writable scratch with capacity at least b's base/quality length
+	 * @param rvector Nonnull array of at least five ints; writes mismatches at
+	 * index 2 (or the initial bound without a candidate) and ambiguity (0/1) at
+	 * index 4, leaving other slots unchanged
 	 * @param minOverlap0 Minimum overlap length for initial filtering
-	 * @param minOverlap Minimum overlap length for final acceptance
+	 * @param minOverlap Good-match support threshold used by candidate checks
 	 * @param minInsert0 Minimum insert size to test
-	 * @param margin Tolerance for ambiguous overlaps
-	 * @param maxMismatches0 Maximum mismatches for initial filtering
-	 * @param maxMismatches Maximum mismatches for final acceptance
-	 * @param minq Minimum quality score threshold
-	 * @return Best insert size, or -1 if no valid overlap found
+	 * @param margin Additive mismatch margin, clamped at zero
+	 * @param maxMismatches0 Initial incumbent mismatch count
+	 * @param maxMismatches Final mismatch limit before subtracting the ambiguity margin
+	 * @param minq Quality-table index, clamped to [1,41], for the pair-product cutoff
+	 * @return Candidate insert length, or -1 on rejection; ambiguity is reported separately
 	 */
 	protected static final int mateByOverlapJava_unrolled_training(Read a, Read b, float[] aprob, float[] bprob, int[] rvector,
-			int minOverlap0, final int minOverlap, final int minInsert0, int margin, final int maxMismatches0, final int maxMismatches, final int minq) {
+			int minOverlap0, final int minOverlap, final int minInsert0, int margin, final int maxMismatches0, final int maxMismatches, final int minq){
 		assert(rvector!=null);
 		minOverlap0=Tools.min(Tools.max(1, minOverlap0), minOverlap);
 		assert(maxMismatches<=maxMismatches0);
@@ -1107,19 +1135,26 @@ public final class BBMergeOverlapper {
 	}
 	
 	
-	/**
-	 * TODO Use this
-	 * @param a
-	 * @param b
-	 * @param overlap
-	 * @return
-	 */
-	public static final float expectedMismatches(Read a, Read b, int overlap) {
+	/** Sums quality-based expected errors over the mates' covered fragment positions.
+	 * A occupies [0,alen), reverse-complemented B occupies [overlap-blen,overlap), and
+	 * only their intersection with [0,overlap) contributes. The parameter is INSERT
+	 * length, not the number of overlapping bases. Each pair without a literal N
+	 * contributes 1-probCorrect4[qa]*probCorrect4[qb]; the returned sum does not depend
+	 * on whether the observed bases agree. Present qualities must match base lengths
+	 * and contain valid probability-table indices; contributing bases must be fully defined.
+	 * If either quality array is absent, preserves the legacy integer division
+	 * overlap/16 converted to float, independently of the actual covered positions.
+	 * @param a Left mate with nonnull bases
+	 * @param b Right mate already reverse-complemented, with nonnull bases
+	 * @param overlap Positive inferred insert length on the fragment axis
+	 * @return Quality-error sum, or the legacy missing-quality heuristic */
+	public static final float expectedMismatches(Read a, Read b, int overlap){
 		
 		final byte[] abases=a.bases, bbases=b.bases, aqual=a.quality, bqual=b.quality;
 		final int alen=abases.length, blen=bbases.length;
 		final int istart=(overlap<=blen ? 0 : overlap-blen);
-		final int jstart=(overlap<=alen ? alen-overlap : 0);
+		// JGI-083: B's overhang is measured from its own length.
+		final int jstart=(overlap<=blen ? blen-overlap : 0);
 		
 		float expected=0;
 		float actual=0;
@@ -1173,9 +1208,18 @@ public final class BBMergeOverlapper {
 		return expected;
 	}
 	
-	/** Attempt at quantifying probability of an event like this.
-	 * TODO: This returns an incorrect answer if reads are unequal lengths. */
-	public static final float probability(Read a, Read b, int insert) {
+	/** Returns the square-root likelihood ratio for the aligned fragment.
+	 * Multiplies the observed match/mismatch probabilities and divides by the product
+	 * of the larger probability at each compared position. Literal N positions are
+	 * skipped; the result is a heuristic score, not a calibrated event probability.
+	 * Retains ordinary-range float arithmetic; subnormal products trigger a second
+	 * pass multiplying normalized double ratios to avoid loss of their common scale.
+	 * Historical TODO: the unequal-length correctness concern remains unverified.
+	 * @param a Left mate with nonnull bases and valid quality-table indices when present
+	 * @param b Right mate already reverse-complemented, with the same requirements
+	 * @param insert Inferred insert length, not the number of overlapping bases
+	 * @return Square root of the product ratio, or 1 if either quality array is absent */
+	public static final float probability(Read a, Read b, int insert){
 		final byte[] abases=a.bases, bbases=b.bases, aqual=a.quality, bqual=b.quality;
 		final int alen=abases.length, blen=bbases.length;
 		final int istart=(insert<=blen ? 0 : insert-blen);
@@ -1183,6 +1227,7 @@ public final class BBMergeOverlapper {
 		
 		if(aqual==null || bqual==null){return 1;}
 		
+		//Keep the original float path and rounding when both products remain normal.
 		float probActual=1;
 		float probCommon=1;
 		
@@ -1231,18 +1276,37 @@ public final class BBMergeOverlapper {
 		
 		assert(probActual<=probCommon);
 
-		return (float)Math.sqrt(probActual/probCommon); //sqrt is just so people don't need to type so many zeros.
+		if(probActual>=Float.MIN_NORMAL && probCommon>=Float.MIN_NORMAL){
+			return (float)Math.sqrt(probActual/probCommon); //sqrt is just so people don't need to type so many zeros.
+		}
+		//JGI-094: Dividing subnormal products can turn the same mismatch into 0 or 1
+		//depending on its position. Cancel the common scale before accumulating it.
+		double ratio=1;
+		for(int i=istart, j=jstart; i<insert && i<alen && j<blen; i++, j++){
+			final byte ca=abases[i], cb=bbases[j];
+			if(ca=='N' || cb=='N'){continue;}
+			//Use the same float-rounded per-position probabilities as the first pass.
+			final float probC=probCorrect4[aqual[i]]*probCorrect4[bqual[j]];
+			//At probC>=1/3, rounded probM>=0.5: a match contributes exactly 1.
+			if(ca==cb && probC>=1f/3){continue;}
+			final float probM=probC+(1-probC)*0.25f, probE=1-probM;
+			final float common=Tools.max(probM, probE), observed=(ca==cb ? probM : probE);
+			if(observed!=common){ratio*=(double)observed/common;}
+		}
+		//Every factor is at most 1; double underflow implies a float-zero square root.
+		return (float)Math.sqrt(ratio);
 	}
 	
 	/**
-	 * Finds minimum k-mer coverage across a read using Tadpole assembler.
-	 * Dispatches to appropriate implementation based on k-mer size.
+	 * Tests whether any valid k-mer has coverage below cutoff, dispatching by k.
+	 * Returns on the first such witness rather than finding the read's exact minimum.
+	 * With no witness (including no valid k-mers), returns cutoff.
 	 *
 	 * @param r Read to analyze for k-mer coverage
-	 * @param tadpole Tadpole assembler instance containing k-mer counts
+	 * @param tadpole Count source; must be Tadpole1 for k&lt;32, otherwise Tadpole2
 	 * @param k K-mer size for coverage calculation
-	 * @param cutoff Coverage cutoff threshold
-	 * @return Minimum k-mer coverage found in the read
+	 * @param cutoff Nonnegative coverage threshold and initial result
+	 * @return First coverage below cutoff, or cutoff if no such k-mer is found
 	 */
 	protected static int minCoverage(final Read r, final Tadpole tadpole, final int k, int cutoff){
 		if(k<32){
@@ -1253,14 +1317,14 @@ public final class BBMergeOverlapper {
 	}
 	
 	/**
-	 * Finds minimum k-mer coverage for k < 32 using Tadpole1.
-	 * Uses long integers for k-mer representation and rolling hash.
+	 * Finds the first below-cutoff coverage using packed forward/reverse k-mers.
+	 * Undefined bases break the current k-mer run. Does not scan beyond a witness.
 	 *
 	 * @param r Read to analyze for k-mer coverage
-	 * @param tadpole Tadpole1 assembler instance for k < 32
+	 * @param tadpole Tadpole1 assembler instance for k &lt; 32
 	 * @param k K-mer size for coverage calculation
-	 * @param cutoff Coverage cutoff threshold
-	 * @return Minimum k-mer coverage found in the read
+	 * @param cutoff Nonnegative coverage threshold and initial result
+	 * @return First coverage below cutoff, or cutoff for absent/short bases or no witness
 	 */
 	protected static int minCoverage(final Read r, final Tadpole1 tadpole, final int k, int cutoff){
 		final byte[] bases=r.bases;
@@ -1299,14 +1363,14 @@ public final class BBMergeOverlapper {
 	}
 	
 	/**
-	 * Finds minimum k-mer coverage for k >= 32 using Tadpole2.
-	 * Uses Kmer objects for k-mer representation instead of long integers.
+	 * Finds the first below-cutoff coverage using a local multiword Kmer.
+	 * Does not scan beyond a witness; Kmer handles undefined-base run boundaries.
 	 *
 	 * @param r Read to analyze for k-mer coverage
-	 * @param tadpole Tadpole2 assembler instance for k >= 32
+	 * @param tadpole Tadpole2 assembler instance for k &gt;= 32
 	 * @param k K-mer size for coverage calculation
-	 * @param cutoff Coverage cutoff threshold
-	 * @return Minimum k-mer coverage found in the read
+	 * @param cutoff Nonnegative coverage threshold and initial result
+	 * @return First coverage below cutoff, or cutoff for absent/short bases or no witness
 	 */
 	protected static int minCoverage(final Read r, final Tadpole2 tadpole, final int k, int cutoff){
 		final byte[] bases=r.bases;
@@ -1333,14 +1397,15 @@ public final class BBMergeOverlapper {
 	}
 	
 	/**
-	 * Calculates minimum overlap length based on sequence entropy.
-	 * Combines head and tail entropy calculations to determine complexity.
+	 * Takes the larger head/tail offset from the k-mer complexity heuristic below.
+	 * The offsets are zero-based, not counts of scanned bases; an unmet threshold
+	 * contributes bases.length+1. Both scans clear and reuse the same scratch.
 	 *
 	 * @param bases Sequence bases to analyze
-	 * @param k K-mer size for entropy calculation
-	 * @param counts Array for k-mer frequency counting
-	 * @param minscore Minimum entropy score threshold
-	 * @return Maximum of head and tail entropy-based minimum overlap lengths
+	 * @param k Small positive k whose 4^k scratch size fits an int
+	 * @param counts Writable array with at least 4^k entries, or null for thread-local scratch
+	 * @param minscore Required heuristic complexity score
+	 * @return Larger zero-based threshold offset, or bases.length+1 if either scan fails
 	 */
 	protected static int calcMinOverlapByEntropy(byte[] bases, int k, short[] counts, int minscore){
 		return Tools.max(calcMinOverlapByEntropyTail(bases, k, counts, minscore), calcMinOverlapByEntropyHead(bases, k, counts, minscore));
@@ -1348,15 +1413,17 @@ public final class BBMergeOverlapper {
 	}
 	
 	/**
-	 * Calculates minimum overlap from sequence tail based on k-mer entropy.
-	 * Processes sequence from end to beginning, counting unique and duplicate k-mers
-	 * until sufficient complexity is reached.
+	 * Scans from the tail until the k-mer complexity score reaches minscore.
+	 * A k-mer's short count reaching one adds four points; reaching two adds one.
+	 * Undefined bases break runs without clearing accumulated counts. Clears scratch
+	 * before scanning. A cached thread-local array is reused without resizing for k.
 	 *
 	 * @param bases Sequence bases to analyze
-	 * @param k K-mer size for entropy calculation
-	 * @param counts Array for k-mer frequency counting
-	 * @param minscore Minimum entropy score threshold
-	 * @return Position from tail where entropy threshold is met
+	 * @param k Small positive k whose 4^k scratch size fits an int
+	 * @param counts Writable array with at least 4^k entries, or null for an adequately
+	 * sized thread-local array (keep k fixed when reusing that cache)
+	 * @param minscore Required heuristic complexity score
+	 * @return Zero-based distance from the tail at the threshold, or bases.length+1
 	 */
 	protected static int calcMinOverlapByEntropyTail(byte[] bases, int k, short[] counts, int minscore){
 		final int bits=2*k;
@@ -1397,15 +1464,16 @@ public final class BBMergeOverlapper {
 	}
 	
 	/**
-	 * Calculates minimum overlap from sequence head based on k-mer entropy.
-	 * Processes sequence from beginning to end, counting unique and duplicate k-mers
-	 * until sufficient complexity is reached.
+	 * Scans from the head until the k-mer complexity score reaches minscore.
+	 * Uses the tail scan's score and scratch contract, including undefined-base
+	 * run boundaries and reuse of a thread-local array without resizing for k.
 	 *
 	 * @param bases Sequence bases to analyze
-	 * @param k K-mer size for entropy calculation
-	 * @param counts Array for k-mer frequency counting
-	 * @param minscore Minimum entropy score threshold
-	 * @return Position from head where entropy threshold is met
+	 * @param k Small positive k whose 4^k scratch size fits an int
+	 * @param counts Writable array with at least 4^k entries, or null for an adequately
+	 * sized thread-local array (keep k fixed when reusing that cache)
+	 * @param minscore Required heuristic complexity score
+	 * @return Zero-based index from the head at the threshold, or bases.length+1
 	 */
 	protected static int calcMinOverlapByEntropyHead(byte[] bases, int k, short[] counts, int minscore){
 		final int bits=2*k;
@@ -1445,29 +1513,29 @@ public final class BBMergeOverlapper {
 		return bases.length+1;
 	}
 	
-	/** Thread-local storage for k-mer count arrays used in entropy calculations */
+	/** Reused entropy scratch; first allocation fixes each thread's cached capacity. */
 	private static ThreadLocal<short[]> localKmerCounts=new ThreadLocal<short[]>();
 	
-	/** Multiplier for bad (mismatch) scoring in overlap evaluation */
+	/** Legacy mismatch multiplier, unused by the current Java searches. */
 	private static final int BAD_MULT=6;
-	/** Primary multiplier for good (match) scoring in overlap evaluation */
+	/** Legacy primary match multiplier, unused by the current Java searches. */
 	private static final int GOOD_MULT_1=8;
-	/** Secondary multiplier for good (match) scoring in overlap evaluation */
+	/** Legacy secondary match multiplier, unused by the current Java searches. */
 	private static final int GOOD_MULT_2=400;
 
-	/** Flag indicating whether custom tagging mode is enabled for training */
+	/** Initial custom-tagging mode copied from BBMerge; selects retained training paths. */
 	private static boolean TAG_CUSTOM=BBMerge.TAG_CUSTOM;
-	/** Flag indicating whether to generate feature vectors for machine learning */
+	/** Shared feature-collection switch updated by BBMerge's main/nn argument handling. */
 	static boolean MAKE_VECTOR=BBMerge.MAKE_VECTOR;
 
-	/** Additional bad score limit for early termination in overlap search */
+	/** Extra weighted/unweighted mismatch allowance before abandoning a candidate. */
 	private static int extraBadlimit=20;//(TAG_CUSTOM ? 40 : 20);//0 is fine when not using nets
 	
 	/** Debug flag for verbose output during overlap detection */
 	protected static final boolean verbose=false;
 	
 	/**
-	 * Lookup table converting quality scores to correctness probabilities (version 3)
+	 * Version 3 correctness weights used by overlap searches and pair cutoffs.
 	 */
 	private static final float[] probCorrect3=
 		{0.000f, 0.251f, 0.369f, 0.499f, 0.602f, 0.684f, 0.749f, 0.800f, 0.842f, 0.874f,
@@ -1479,7 +1547,7 @@ public final class BBMergeOverlapper {
 		 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
 	
 	/**
-	 * Lookup table converting quality scores to correctness probabilities (version 4)
+	 * Version 4 correctness probabilities used by expectedMismatches and probability.
 	 */
 	private static final float[] probCorrect4=
 		{0.0000f, 0.2501f, 0.3690f, 0.4988f, 0.6019f, 0.6838f, 0.7488f, 0.8005f, 0.8415f, 0.8741f,
@@ -1490,7 +1558,7 @@ public final class BBMergeOverlapper {
 		 0.9999f, 0.9999f, 0.9999f, 0.9999f, 0.9999f, 0.9999f, 0.9999f, 0.9999f, 0.9999f, 0.9999f};
 	
 	/**
-	 * Lookup table converting quality scores to correctness probabilities (version 5)
+	 * Retained version 5 probability-table variant; unused by this class.
 	 */
 	private static final float[] probCorrect5=
 		{0.20000f, 0.20567f, 0.36904f, 0.49881f, 0.60189f, 0.68377f, 0.74881f, 0.80047f, 0.84151f, 0.87411f,

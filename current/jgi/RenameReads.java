@@ -30,8 +30,13 @@ import structures.Quantizer;
 import tracker.ReadStats;
 
 /**
- * Renames sequence read headers using various renaming strategies.
- * Supports prefix/suffix addition, trimming, coordinate-based naming, insert size-based naming, and SRA format fixing.
+ * Renames sequence read headers while preserving the configured input/output stream lifecycle.
+ * <p>
+ * The constructor accepts several ID transformations. Quality quantization is independent; ID
+ * modes then take this precedence: fixed or symbol trimming, SRA repair, coordinate renaming,
+ * FASTQ custom mapping, paired insert-size or trim-length renaming, fixed prefix-only IDs,
+ * prefix addition, suffix addition, then default numeric IDs with an optional prefix.
+ *
  * @author Brian Bushnell
  * @date Aug 23, 2013
  */
@@ -44,8 +49,17 @@ public class RenameReads {
 		
 		//Close the print stream if it was redirected
 		Shared.closeStream(x.outstream);
+		if(x.errorState){
+			throw new RuntimeException("RenameReads terminated in an error state; the output may be corrupt.");
+		}
 	}
 	
+	/**
+	 * Parses arguments, resolves paired file templates and interleaving, validates input/output
+	 * path collisions and output permissions, and constructs the input and output descriptors.
+	 *
+	 * @param args command-line arguments
+	 */
 	public RenameReads(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -69,18 +83,17 @@ public class RenameReads {
 			String b=split.length>1 ? split[1] : null;
 			
 			if(Parser.parseCommonStatic(arg, a, b)){
-				//do nothing
+				// parsed by shared static options
 			}else if(Parser.parseZip(arg, a, b)){
-				//do nothing
+				// parsed by compression options
 			}else if(Parser.parseQuality(arg, a, b)){
-				//do nothing
+				// parsed by quality options
 			}else if(Parser.parseFasta(arg, a, b)){
-				//do nothing
+				// parsed by FASTA options
 			}else if(parser.parseInterleaved(arg, a, b)){
-				//do nothing
+				// parsed by interleaving options
 			}else if(a.equals("passes")){
 				assert(false) : "'passes' is disabled.";
-//				passes=Integer.parseInt(b);
 			}else if(a.equals("verbose")){
 				verbose=Parse.parseBoolean(b);
 				ByteFile1.verbose=verbose;
@@ -139,7 +152,7 @@ public class RenameReads {
 				renameByInsert=Parse.parseBoolean(b);
 			}else if(a.equals("renamebytrim")){
 				renameByTrim=Parse.parseBoolean(b);
-			}else if(a.equals("renamebycoordinates") || a.equals("coordinates") || a.equals("coords")){
+			}else if(a.equals("renamebycoords") || a.equals("renamebycoordinates") || a.equals("coordinates") || a.equals("coords")){
 				renameByCoords=Parse.parseBoolean(b);
 			}else if(a.equals("quantize") || a.equals("quantizesticky")){
 				quantizeQuality=Quantizer.parse(arg, a, b);
@@ -158,7 +171,6 @@ public class RenameReads {
 			}else{
 				System.err.println("Unknown parameter "+args[i]);
 				assert(false) : "Unknown parameter "+args[i];
-				//				throw new RuntimeException("Unknown parameter "+args[i]);
 			}
 			
 			renameByMapping=FASTQ.TAG_CUSTOM;
@@ -171,11 +183,7 @@ public class RenameReads {
 			Parser.processQuality();
 		}
 		
-//		assert(false) : prefix;
 		if(prefix==null || prefix.length()<1){prefix="";}
-//		else if(!prefix.endsWith("_") && !prefixOnly){
-//			prefix=prefix+"_";
-//		}
 
 		if(renameByInsert){
 			prefix="insert=";
@@ -224,6 +232,10 @@ public class RenameReads {
 		if(out1!=null && out1.equalsIgnoreCase("null")){out1=null;}
 		if(out2!=null && out2.equalsIgnoreCase("null")){out2=null;}
 		
+		if(!Tools.testForDuplicateFiles(true, in1, in2, out1, out2)){
+			throw new RuntimeException("Input and output file names must be distinct.");
+		}
+
 		if(!Tools.testOutputFiles(overwrite, append, false, out1, out2)){
 			throw new RuntimeException("\n\noverwrite="+overwrite+"; Can't write to output files "+out1+", "+out2+"\n");
 		}
@@ -239,16 +251,20 @@ public class RenameReads {
 		}
 	}
 	
+	/**
+	 * Streams reads, applies the selected ID transformation to each list, writes requested output,
+	 * and, on normal completion, returns all lists and records close errors in {@link #errorState}.
+	 *
+	 * @param t timer used for final elapsed-time reporting
+	 */
 	void process(Timer t){
 		
 		final ConcurrentReadInputStream cris;
 		{
 			cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ffin1, ffin2, qfin1, qfin2);
-			cris.start(); //4567
+			cris.start();
 		}
 		
-//		TextStreamWriter tsw=new TextStreamWriter(args[2], false, false, true);
-//		tsw.start();
 		
 		ConcurrentReadOutputStream ros=null;
 		if(out1!=null){
@@ -258,9 +274,6 @@ public class RenameReads {
 				outstream.println("Writing interleaved.");
 			}
 
-			assert(!out1.equalsIgnoreCase(in1) && !out1.equalsIgnoreCase(in1)) : "Input file and output file have same name.";
-			assert(out2==null || (!out2.equalsIgnoreCase(in1) && !out2.equalsIgnoreCase(in2))) : "out1 and out2 have same name.";
-			
 			ros=ConcurrentReadOutputStream.getStream(ffout1, ffout2, qfout1, qfout2, buff, null, false);
 			ros.start();
 		}
@@ -275,7 +288,6 @@ public class RenameReads {
 
 			for(Read r1 : reads){
 				final Read r2=r1.mate;
-//				assert(false) : trimBeforeSymbol+", '"+symbol+"'";
 				
 				if(quantizeQuality){
 					final byte[] quals1=r1.quality, quals2=(r2==null ? null : r2.quality);
@@ -353,12 +365,18 @@ public class RenameReads {
 			reads=(ln!=null ? ln.list : null);
 		}
 		cris.returnList(ln);
+		//Main reports retained stream errors after closing the diagnostic stream.
 		errorState|=ReadWrite.closeStreams(cris, ros);
 		
 		t.stop();
 		System.err.println("Time: "+t);
 	}
 	
+	/**
+	 * Converts an SRA-style three-token ID to the embedded instrument ID plus pair suffix.
+	 *
+	 * @param r read to rename, or {@code null} for an absent mate
+	 */
 	private void fixSRA(Read r){
 		//SRR1726611.11001 HWI-ST797:117:D091UACXX:4:1101:21093:8249 length=101
 		if(r==null){return;}
@@ -371,63 +389,87 @@ public class RenameReads {
 		}
 	}
 	
-	private static String trim(String s, int left, int right) {
+	/**
+	 * Trims fixed numbers of characters from both ends of an ID.
+	 *
+	 * @param s source ID
+	 * @param left characters to trim from the left
+	 * @param right characters to trim from the right
+	 * @return trimmed ID, or an empty ID when the trim consumes the whole ID
+	 */
+	private static String trim(String s, int left, int right){
 		assert(left>=0 && right>=0) : left+", "+right;
 		assert(left>0 || right>0) : left+", "+right;
-		int len=s.length()-left-right;
-		if(len<0) {return "";}
-		else if(len>=s.length()) {return s;}
-		return s.substring(left, left+len);
+		//[JGI-128] Subtract right alone; comparing left avoids combined-width overflow.
+		final int end=s.length()-right;
+		return left>=end ? "" : s.substring(left, end);
 	}
 	
+	/**
+	 * Removes up to {@code right} characters immediately before the last requested symbol.
+	 *
+	 * @param s source ID
+	 * @param right maximum characters to remove before {@code symbol}
+	 * @param symbol delimiter whose last occurrence marks the preserved suffix
+	 * @return ID with the shortened prefix, or the original ID when {@code symbol} is absent
+	 */
 	private static String trimBeforeSymbol(String s, int right, char symbol) {
 		int pos=s.lastIndexOf(symbol);
-//		assert(false) : pos+", '"+symbol+"', "+right;
 		if(pos<0) {return s;}
 		int len=Tools.max(0, pos-right);
-//		assert(false) : pos+", "+len+", "+right;
 		String ret=s.substring(0, len)+s.substring(pos);
-//		assert(false) : pos+", "+len+", "+right+"\n"+s+"\n"+ret+"\n";
 		return ret;
 	}
 	
+	// Diagnostic output after PreParser handles redirection.
 	private PrintStream outstream=System.err;
 	
+	// Primary and optional mate input paths.
 	private String in1=null;
 	private String in2=null;
 	
+	// Optional input quality-sidecar paths.
 	private String qfin1=null;
 	private String qfin2=null;
 
+	// Primary and optional mate output paths.
 	private String out1=null;
 	private String out2=null;
 
+	// Optional output quality-sidecar paths.
 	private String qfout1=null;
 	private String qfout2=null;
 	
+	// Format extension overrides.
 	private String extin=null;
 	private String extout=null;
 
+	// ID text to add or substitute.
 	private String prefix=null;
 	private String suffix=null;
 	
+	// Resolved input formats.
 	private final FileFormat ffin1;
 	private final FileFormat ffin2;
 
+	// Resolved output formats.
 	private final FileFormat ffout1;
 	private final FileFormat ffout2;
 
+	// Output policy, progress and terminal state.
 	private boolean overwrite=true;
 	private boolean append=false;
 	private boolean verbose=false;
 	private long maxReads=-1;
 	public boolean errorState=false;
 
+	// ID trimming controls.
 	public int trimBeforeSymbol=0;
 	public char symbol;
 	public int trimRight=0;
 	public int trimLeft=0;
 
+	// Renaming modes and mate suffixes.
 	public boolean addUnderscore=true;
 	public boolean renameByMapping=false;
 	public boolean renameByInsert=false;
@@ -440,6 +482,7 @@ public class RenameReads {
 	public boolean quantizeQuality=false;
 	private String[] pairnums={" 1:", " 2:"};
 
+	// Header tokenization patterns.
 	private static final Pattern spacePattern=Pattern.compile("\\s+");
 	private static final Pattern whitespacePattern=Pattern.compile(" ");
 	

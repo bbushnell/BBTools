@@ -12,7 +12,6 @@ import dna.AminoAcid;
 import hiseq.IlluminaHeaderParser2;
 import hiseq.ReadHeaderParser;
 import jgi.CalcTrueQuality;
-import map.ObjectIntMap;
 import parse.Parse;
 import parse.Parser;
 import shared.Shared;
@@ -26,21 +25,35 @@ import structures.Quantizer;
 import tracker.ReadStats;
 
 /**
- * Encapsulates all read processing logic and statistics for Reformat.
- * Thread-safe via copy() for parallel processing.
+ * Per-read transformations, filters and statistics for the Reformat drivers.
+ * Drivers own streams, batching, sampling, worker lifecycles and output routing.
+ * Configure with parse, setFromParser and postParse before processing or cloning.
+ * Each worker uses its own processor, header parser and optional ReadStats instance;
+ * borrowed configuration and process-wide settings must remain stable during use.
+ * Unique-name allocators are shared by clones and require the drivers' single-worker policy.
  * 
  * @author Brian Bushnell
  * @contributor Isla
  * @date November 15, 2025
  */
-public class ReformatProcessor implements Processor<ReformatProcessor> {
+public class ReformatProcessor implements Processor<ReformatProcessor>{
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Creates an unconfigured instance; generic parser transfer and postParse precede use. */
 	public ReformatProcessor(){}
 
+	/**
+	 * Copies configuration and scalar counters for a worker, without resetting totals.
+	 * Remap arrays, barcode set and unique-name allocators remain shared. A fresh Illumina
+	 * parser replaces rhp, and enabled statistics get a fresh globally registered
+	 * ReadStats instance. The cardinality tracker follows its own copy contract.
+	 * Drivers clone before processing and merge completed workers once; this is not
+	 * a deep snapshot or permission for parallel unique-name processing.
+	 * @return Independent worker scratch with the shared configuration described above
+	 */
 	@Override
 	public ReformatProcessor clone(){
 		try{
@@ -50,13 +63,11 @@ public class ReformatProcessor implements Processor<ReformatProcessor> {
 			if(randy!=null){
 				rp.randy=shared.Shared.random(sampleseed);
 			}
-			if(loglog!=null) {
+			if(loglog!=null){
 				rp.loglog=loglog.copy();
 			}
-			//Comprehension: nameMap1/nameMap2 are intentionally NOT deep-copied - they are only used under uniqueNames, which
-			//forces workers=1 (recommendedWorkers + Reformat2:94), so the single worker clone safely shares the one map (no race,
-			//and uniqueness stays global). randy is copied but is a DEAD field here - sampling is done entirely by the caller
-			//(Reformat2 reads sampleReadsTarget/samplerate/sampleseed and owns its own randy); ReformatProcessor.randy is never read.
+			//Name allocators retain one serial history; both modern drivers force workers=1 under uniqueNames.
+			//The private randy field is currently unused here; actual sampling belongs to the drivers.
 			//Independent per-thread mutable state (else worker clones race on the shared instances)
 			rp.rhp=new IlluminaHeaderParser2();
 			if(readstats!=null){
@@ -73,6 +84,12 @@ public class ReformatProcessor implements Processor<ReformatProcessor> {
 	/*----------------         Parsing              ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Parses processor-specific flags; unrecognized options remain available to the generic parser.
+	 * @param arg Complete argument, also used by delegated quantizer parsing
+	 * @param a Lowercase option key
+	 * @param b Option value, possibly null for a valueless option
+	 * @return Whether this processor recognized the option
+	 */
 	@Override
 	public boolean parse(String arg, String a, String b){
 
@@ -103,6 +120,8 @@ public class ReformatProcessor implements Processor<ReformatProcessor> {
 			addunderscore=Parse.parseBoolean(b);
 		}else if(a.equals("uniquenames")){
 			uniqueNames=Parse.parseBoolean(b);
+		}else if(a.equals("uniquenamescope")){
+			uniqueNamesFullHeader=UniqueReadNameAllocator.parseScope(b);
 		}else if(a.equals("verifyinterleaved") || a.equals("verifyinterleaving") || a.equals("vint")){
 			verifyinterleaving=Parse.parseBoolean(b);
 		}else if(a.equals("verifypaired") || a.equals("verifypairing") || a.equals("vpair")){
@@ -186,6 +205,10 @@ public class ReformatProcessor implements Processor<ReformatProcessor> {
 		return true;
 	}
 
+	/** Copies generic settings and creates the optional tracker after parsing finishes.
+	 * An explicit processor k updates parser.loglogk; remap/barcode configuration remains borrowed.
+	 * @param parser Completed generic parser, also updated when k overrides its tracker setting
+	 */
 	@Override
 	public void setFromParser(Parser parser){
 		samplerate=parser.samplerate;
@@ -254,6 +277,10 @@ public class ReformatProcessor implements Processor<ReformatProcessor> {
 		pad=padLeft>0 || padRight>0;
 	}
 
+	/** Initializes derived flags, serial name allocators and optional globally registered statistics.
+	 * Call once after parser transfer and before cloning/processing. Repeated calls reset name
+	 * history and can register another statistics object; this is not a per-batch reset.
+	 */
 	@Override
 	public void postParse(){
 		pad=(padLeft>0 || padRight>0);
@@ -269,16 +296,33 @@ public class ReformatProcessor implements Processor<ReformatProcessor> {
 		MAKE_IHIST=ReadStats.COLLECT_INSERT_STATS;
 		readstats=ReadStats.collectingStats() ? new ReadStats() : null;
 
-		if(uniqueNames){
-			nameMap1=new ObjectIntMap<String>(String.class);
-			nameMap2=new ObjectIntMap<String>(String.class);
-		}
+		nameAllocator1=uniqueNames ? new UniqueReadNameAllocator(uniqueNamesFullHeader) : null;
+		nameAllocator2=uniqueNames ? new UniqueReadNameAllocator(uniqueNamesFullHeader) : null;
+	}
+
+	/** Reports whether configured filters require original SAM alignment fields.
+	 * @return Whether filters would inspect SAM state invalidated by breaklength splitting
+	 */
+	public boolean usesSamAlignmentFilters(){
+		return minMapq>=0 || maxMapq>=0 || filterBits!=0 || requiredBits!=0 || mappedOnly ||
+			unmappedOnly || primaryOnly || pairedOnly || unpairedOnly || minIdFilter>=0 ||
+			maxIdFilter<1 || USE_EDIT_FILTER;
 	}
 
 	/*--------------------------------------------------------------*/
 	/*----------------      Processing Method       ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/**
+	 * Processes borrowed mutable reads and returns the selected-read bit mask.
+	 * Input statistics and k-mer observations precede transformations and filtering.
+	 * Pair-removal policy can reject the entire pair; otherwise bits still describe
+	 * individual passing reads, and the driver routes survivors and detaches mates.
+	 * Reads, names, match/base/quality arrays and attached SAM state may change.
+	 * @param r1 Nonnull first read, linked to r2 when a mate is supplied
+	 * @param r2 Second read, or null for an individual record
+	 * @return 0 for removal, or selected-read bits 1 for r1 and 2 for r2
+	 */
 	@Override
 	public int processReadPair(Read r1, Read r2){
 
@@ -596,6 +640,8 @@ public class ReformatProcessor implements Processor<ReformatProcessor> {
 		}
 
 		//Force trim
+		//JGI-022: Count short reads here; the later length filter skips discarded reads.
+		//Discarded bases are the remaining bases after trimming, as in that length filter.
 		if(forceTrimLeft>0 || forceTrimRight>=0 || forceTrimModulo>0 || forceTrimRight2>0){
 			if(r1!=null && !r1.discarded()){
 				final int len=r1.length();
@@ -607,7 +653,11 @@ public class ReformatProcessor implements Processor<ReformatProcessor> {
 				final int x=TrimRead.trimToPosition(r1, a, b, 1);
 				basesFTrimmedT+=x;
 				readsFTrimmedT+=(x>0 ? 1 : 0);
-				if(r1.length()<minlen1){r1.setDiscarded(true);}
+				if(r1.length()<minlen1){
+					r1.setDiscarded(true);
+					readShortDiscardsT++;
+					baseShortDiscardsT+=r1.length();
+				}
 			}
 			if(r2!=null && !r2.discarded()){
 				final int len=r2.length();
@@ -619,7 +669,11 @@ public class ReformatProcessor implements Processor<ReformatProcessor> {
 				final int x=TrimRead.trimToPosition(r2, a, b, 1);
 				basesFTrimmedT+=x;
 				readsFTrimmedT+=(x>0 ? 1 : 0);
-				if(r2.length()<minlen2){r2.setDiscarded(true);}
+				if(r2.length()<minlen2){
+					r2.setDiscarded(true);
+					readShortDiscardsT++;
+					baseShortDiscardsT+=r2.length();
+				}
 			}
 		}
 
@@ -740,26 +794,6 @@ public class ReformatProcessor implements Processor<ReformatProcessor> {
 			if(r1.id==null){r1.id=""+r1.numericID;}
 			if(r2!=null && r2.id==null){r2.id=r1.id;}
 
-			if(uniqueNames){
-				Integer v=nameMap1.get(r1.id);
-				if(v==null){
-					nameMap1.put(r1.id, 1);
-				}else{
-					v++;
-					nameMap1.put(r1.id, v);
-					r1.id=r1.id+"_"+v;
-				}
-				if(r2!=null){
-					Integer v2=nameMap2.get(r2.id);
-					if(v2==null){
-						nameMap2.put(r2.id, 1);
-					}else{
-						v2++;
-						nameMap2.put(r2.id, v2);
-						r2.id=r2.id+"_"+v2;
-					}
-				}
-			}
 			if(addunderscore){
 				r1.id=Tools.whitespace.matcher(r1.id).replaceAll("_");
 				if(r2!=null){r2.id=Tools.whitespace.matcher(r2.id).replaceAll("_");}
@@ -775,10 +809,15 @@ public class ReformatProcessor implements Processor<ReformatProcessor> {
 					if(!r2.id.contains(slash2)){r2.id+=slash2;}
 				}
 			}
+			//Input description trimming precedes this processor; allocate only after final name transformations.
+			if(uniqueNames){
+				r1.id=nameAllocator1.allocate(r1.id);
+				if(r2!=null){r2.id=nameAllocator2.allocate(r2.id);}
+			}
 		}
 
 		int ret=(!r1.discarded() ? 1 : 0) | (r2!=null && !r2.discarded() ? 2 : 0);
-		if(ret==3) {
+		if(ret==3){
 			pairsOut++;
 			pairBasesOut+=r1.pairLength();
 		}else if(ret==1){
@@ -790,7 +829,7 @@ public class ReformatProcessor implements Processor<ReformatProcessor> {
 		}
 
 		//Fix samline.
-		if(!r1.discarded() && r1.samline!=null) {
+		if(!r1.discarded() && r1.samline!=null){
 			SamLine sl=r1.samline;
 			sl.setSeq(r1.bases);
 			sl.setQual(r1.quality);
@@ -804,6 +843,10 @@ public class ReformatProcessor implements Processor<ReformatProcessor> {
 		return ret;
 	}
 
+	/** Runs the complete single-record processing path on the attached Read, with no mate context.
+	 * @param sl Nonnull record whose obj is the Read attached by the input streamer
+	 * @return Whether the attached read was selected
+	 */
 	@Override
 	public boolean processSamLine(SamLine sl){
 		Read r=(Read)sl.obj;
@@ -816,8 +859,13 @@ public class ReformatProcessor implements Processor<ReformatProcessor> {
 	/*----------------      Utility Methods         ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Estimates a worker count, clamped to 1–24, without measuring throughput.
+	 * Unique-name history and exact-sampling flags require a serial recommendation;
+	 * both modern drivers enforce those requirements even for explicit worker requests.
+	 * @return Suggested worker count for the current configuration
+	 */
 	@Override
-	public int recommendedWorkers() {
+	public int recommendedWorkers(){
 		float workers=0.8f;
 
 		// Expensive operations
@@ -862,6 +910,14 @@ public class ReformatProcessor implements Processor<ReformatProcessor> {
 		return result;
 	}
 
+	/** Allocates padded base/quality arrays, retaining null qualities and ignoring null/empty reads.
+	 * Negative side lengths are treated as zero. Padding updates arrays, not alignment metadata.
+	 * @param r Read to mutate, possibly null
+	 * @param padLeft Number of left padding positions
+	 * @param padRight Number of right padding positions
+	 * @param padSymbol Base used for padding
+	 * @param padQ Numeric padding quality
+	 */
 	public static final void pad(Read r, int padLeft, int padRight, byte padSymbol, byte padQ){
 		if(r==null || r.length()==0 || (padLeft<1 && padRight<1)){return;}
 		padLeft=Tools.max(0, padLeft);
@@ -870,6 +926,7 @@ public class ReformatProcessor implements Processor<ReformatProcessor> {
 		r.quality=pad(r.quality, padLeft, padRight, padQ);
 	}
 
+	/** Copies a nonnull array between the requested padding regions; null stays null. */
 	private static final byte[] pad(byte[] old, int padLeft, int padRight, byte padSymbol){
 		if(old==null){return null;}
 		final int innerLimit=old.length+padLeft;
@@ -880,6 +937,12 @@ public class ReformatProcessor implements Processor<ReformatProcessor> {
 		return array;
 	}
 
+	/** Tests a delimited header tag against configured string equality or inclusive numeric bounds.
+	 * @param s Header containing the tag
+	 * @param tag Tag prefix used by Parse
+	 * @param delimiter Character terminating the value
+	 * @return Whether the extracted value meets the configured condition
+	 */
 	public boolean passesTagFilter(String s, String tag, char delimiter){
 		if(requiredValue!=null){
 			String value=Parse.parseString(s, tag, delimiter);
@@ -889,11 +952,21 @@ public class ReformatProcessor implements Processor<ReformatProcessor> {
 		return value>=minValue && value<=maxValue;
 	}
 
+	/** Applies both identity bounds; match conversion may populate the borrowed read's match array.
+	 * @param r Read to test
+	 * @param minId Inclusive minimum identity, disabled at zero or below
+	 * @param maxId Inclusive maximum identity, disabled at one or above
+	 * @param requireMapped Whether a missing match fails the minimum test
+	 * @return Whether both tests pass
+	 */
 	public static final boolean passesIDFilter(Read r, float minId, float maxId, boolean requireMapped){
 		if(!passesMinIDFilter(r, minId, requireMapped)){return false;}
 		return passesMaxIDFilter(r, maxId);
 	}
 
+	/** Tests minimum identity, accepting a stored-perfect flag or disabled minimum immediately.
+	 * A SAM-backed read may acquire a match array. Missing matches follow requireMapped.
+	 */
 	public static final boolean passesMinIDFilter(Read r, float minId, boolean requireMapped){
 		if(minId<=0 || r.perfect()){return true;}
 		if(r.match==null && r.samline!=null){
@@ -903,6 +976,7 @@ public class ReformatProcessor implements Processor<ReformatProcessor> {
 		return Read.identityFlat(r.match, true)>=minId;
 	}
 
+	/** Tests maximum identity after optional SAM match conversion; a missing match passes. */
 	public static final boolean passesMaxIDFilter(Read r, float maxId){
 		if(maxId>=1){return true;}
 		if(r.match==null && r.samline!=null){
@@ -912,8 +986,15 @@ public class ReformatProcessor implements Processor<ReformatProcessor> {
 		return Read.identityFlat(r.match, true)<=maxId;
 	}
 
+	/** Tests edit/event limits, expanding a borrowed match array when needed.
+	 * Stored-perfect reads have zero substitutions and must meet minsubs; the
+	 * existing shortcut for their maximum-edit limits is retained.
+	 * @param r Read to test; SAM conversion may populate its match array
+	 * @param requireMapped Whether a missing match fails instead of passing
+	 * @return Whether the configured edit limits pass
+	 */
 	public final boolean passesEditFilter(Read r, boolean requireMapped){
-		if(r.perfect()){return true;}
+		if(r.perfect()){return minsubs<=0;}
 		if(r.match==null && r.samline!=null){
 			r.match=r.samline.toShortMatch(false);
 		}
@@ -941,20 +1022,24 @@ public class ReformatProcessor implements Processor<ReformatProcessor> {
 		return !bad;
 	}
 
+	/** Replaces the last underscore when the read and ID exist; leaves missing IDs for later naming fallback.
+	 * Attached SAM state is not updated here. */
 	public static final void underscoreToSpace(Read r){
-		if(r!=null){
+		if(r!=null && r.id!=null){
 			r.id=underscoreToSpace(r.id);
 		} 
 	}
 
+	/** Replaces the last underscore by character index, preserving other characters; header must be nonnull. */
 	public static String underscoreToSpace(String header){
 		int x=header.lastIndexOf('_');
 		if(x<0){return header;}
-		byte[] bytes=header.getBytes();
-		bytes[x]=' ';
-		return new String(bytes);
+		final char[] chars=header.toCharArray();
+		chars[x]=' ';
+		return new String(chars);
 	}
 
+	/** Sanitizes a nonnull read's ID and updates its attached SAM qname when present. */
 	public static final void fixHeader(Read r){
 		if(r!=null){
 			r.id=fixHeader(r.id);
@@ -964,6 +1049,9 @@ public class ReformatProcessor implements Processor<ReformatProcessor> {
 		} 
 	}
 
+	/** Replaces unsupported filesystem-name characters, including non-ASCII, with underscores.
+	 * Null and empty headers are retained; unchanged headers reuse their original String.
+	 */
 	public static final String fixHeader(String header){
 		if(header==null || header.length()<1){return header;}
 		byte[] array=new byte[header.length()];
@@ -981,6 +1069,10 @@ public class ReformatProcessor implements Processor<ReformatProcessor> {
 		return header;
 	}
 
+	/** Adds scalar counters and tracker observations after the source worker finishes.
+	 * Does not clear the source or merge its ReadStats; that class uses its global registry.
+	 * @param other Compatible completed worker, merged once with copied initial totals accounted for
+	 */
 	@Override
 	public void add(ReformatProcessor other){
 		readsProcessedT+=other.readsProcessedT;
@@ -1018,56 +1110,62 @@ public class ReformatProcessor implements Processor<ReformatProcessor> {
 		kmersProcessed+=other.kmersProcessed;
 		correctKmers+=other.correctKmers;
 
-		if(loglog!=null) {loglog.add(other.loglog);}
+		if(loglog!=null){loglog.add(other.loglog);}
 	}
 
 	/*--------------------------------------------------------------*/
 	/*----------------            Stats             ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Writes optional processor statistics, followed by a blank line when nonempty. */
 	@Override
-	public void printStats(PrintStream stream) {
+	public void printStats(PrintStream stream){
 		ByteBuilder bb=toStats();
-		if(bb.length>0) {bb.nl();}
+		if(bb.length>0){bb.nl();}
 		stream.print(bb);
 	}
 
+	/** Formats stage-specific counters; zero input or k-mer denominators report 0.00%.
+	 * Input read/base totals are measured before processing, while trimming/discard
+	 * counters follow their individual stages and need not partition the input.
+	 * @return Newly allocated statistics text, possibly empty
+	 */
 	@Override
-	public ByteBuilder toStats() {
+	public ByteBuilder toStats(){
 		ByteBuilder bb=new ByteBuilder();
-		final double rpmult=100.0/readsProcessedT, bpmult=100.0/basesProcessedT;
+		final double rpmult=(readsProcessedT==0 ? 0 : 100.0/readsProcessedT), bpmult=(basesProcessedT==0 ? 0 : 100.0/basesProcessedT);
 
 		if(readsSwappedT>0){
-			bb.appendln("Base Transforms:        \t"+readsSwappedT+" reads ("+Tools.format("%.2f",readsSwappedT*rpmult)+"%) \t"+
-				basesSwappedT+" bases ("+Tools.format("%.2f",basesSwappedT*bpmult)+"%)");
+			bb.appendln("Base Transforms:        \t"+readsSwappedT+" reads ("+Tools.format("%.2f", readsSwappedT*rpmult)+"%) \t"+
+				basesSwappedT+" bases ("+Tools.format("%.2f", basesSwappedT*bpmult)+"%)");
 		}
 		if(readsQTrimmedT>0 || trimBadSequence){
-			bb.appendln("QTrimmed:               \t"+readsQTrimmedT+" reads ("+Tools.format("%.2f",readsQTrimmedT*rpmult)+"%) \t"+
-				basesQTrimmedT+" bases ("+Tools.format("%.2f",basesQTrimmedT*bpmult)+"%)");
+			bb.appendln("QTrimmed:               \t"+readsQTrimmedT+" reads ("+Tools.format("%.2f", readsQTrimmedT*rpmult)+"%) \t"+
+				basesQTrimmedT+" bases ("+Tools.format("%.2f", basesQTrimmedT*bpmult)+"%)");
 		}
 		if(readsFTrimmedT>0){
-			bb.appendln("FTrimmed:               \t"+readsFTrimmedT+" reads ("+Tools.format("%.2f",readsFTrimmedT*rpmult)+"%) \t"+
-				basesFTrimmedT+" bases ("+Tools.format("%.2f",basesFTrimmedT*bpmult)+"%)");
+			bb.appendln("FTrimmed:               \t"+readsFTrimmedT+" reads ("+Tools.format("%.2f", readsFTrimmedT*rpmult)+"%) \t"+
+				basesFTrimmedT+" bases ("+Tools.format("%.2f", basesFTrimmedT*bpmult)+"%)");
 		}
 		if(readShortDiscardsT>0){
-			bb.appendln("Short Read Discards:    \t"+readShortDiscardsT+" reads ("+Tools.format("%.2f",readShortDiscardsT*rpmult)+"%) \t"+
-				baseShortDiscardsT+" bases ("+Tools.format("%.2f",baseShortDiscardsT*bpmult)+"%)");
+			bb.appendln("Short Read Discards:    \t"+readShortDiscardsT+" reads ("+Tools.format("%.2f", readShortDiscardsT*rpmult)+"%) \t"+
+				baseShortDiscardsT+" bases ("+Tools.format("%.2f", baseShortDiscardsT*bpmult)+"%)");
 		}
 		if(lowqReadsT>0){
-			bb.appendln("Low quality discards:   \t"+lowqReadsT+" reads ("+Tools.format("%.2f",lowqReadsT*rpmult)+"%) \t"+
-				lowqBasesT+" bases ("+Tools.format("%.2f",lowqBasesT*bpmult)+"%)");
+			bb.appendln("Low quality discards:   \t"+lowqReadsT+" reads ("+Tools.format("%.2f", lowqReadsT*rpmult)+"%) \t"+
+				lowqBasesT+" bases ("+Tools.format("%.2f", lowqBasesT*bpmult)+"%)");
 		}
 		if(idfilteredReadsT>0){
-			bb.appendln("Identity/edit discards: \t"+idfilteredReadsT+" reads ("+Tools.format("%.2f",idfilteredReadsT*rpmult)+"%) \t"+
-				idfilteredBasesT+" bases ("+Tools.format("%.2f",idfilteredBasesT*bpmult)+"%)");
+			bb.appendln("Identity/edit discards: \t"+idfilteredReadsT+" reads ("+Tools.format("%.2f", idfilteredReadsT*rpmult)+"%) \t"+
+				idfilteredBasesT+" bases ("+Tools.format("%.2f", idfilteredBasesT*bpmult)+"%)");
 		}
 		if(badGcReadsT>0){
-			bb.appendln("GC content discards:    \t"+badGcReadsT+" reads ("+Tools.format("%.2f",badGcReadsT*rpmult)+"%) \t"+
-				badGcBasesT+" bases ("+Tools.format("%.2f",badGcBasesT*bpmult)+"%)");
+			bb.appendln("GC content discards:    \t"+badGcReadsT+" reads ("+Tools.format("%.2f", badGcReadsT*rpmult)+"%) \t"+
+				badGcBasesT+" bases ("+Tools.format("%.2f", badGcBasesT*bpmult)+"%)");
 		}
 		if(k>0){
 			bb.appendln(k+"-mers processed:        \t"+kmersProcessed);
-			bb.appendln("Correct "+k+"-mers:          \t"+Tools.format("%.2f%%", correctKmers*100.0/kmersProcessed));
+			bb.appendln("Correct "+k+"-mers:          \t"+Tools.format("%.2f%%", kmersProcessed==0 ? 0 : correctKmers*100.0/kmersProcessed));
 		}
 		if(loglog!=null){
 			bb.appendln("Unique "+loglog.k+"-mers:           \t"+loglog.cardinality());
@@ -1086,6 +1184,7 @@ public class ReformatProcessor implements Processor<ReformatProcessor> {
 	public boolean iupacToN=false;
 
 	//Verification
+	/** Parsed interleaving preference; this processor does not perform the stream-level check. */
 	public boolean verifyinterleaving=false;
 	public boolean verifypairing=false;
 	public boolean allowIdenticalPairNames=true;
@@ -1094,6 +1193,7 @@ public class ReformatProcessor implements Processor<ReformatProcessor> {
 	public boolean tossJunk=false;
 	public boolean chastityFilter=false;
 	public boolean removeBadBarcodes=false;
+	/** Retained parsed setting; this processor's barcode-removal branch uses removeBadBarcodes. */
 	public boolean failBadBarcodes=false;
 	public boolean failIfNoBarcode=false;
 	public HashSet<String> barcodes=null;
@@ -1124,6 +1224,7 @@ public class ReformatProcessor implements Processor<ReformatProcessor> {
 	public int editfilter=-1;
 	public int minMapq=-1;
 	public int maxMapq=-1;
+	/** Derived from configured edit limits during parser transfer and postParse. */
 	public boolean USE_EDIT_FILTER=false;
 
 	//Trimming
@@ -1154,6 +1255,7 @@ public class ReformatProcessor implements Processor<ReformatProcessor> {
 	public int maxReadLength=0;
 	public int minReadLength=0;
 	public float minLenFraction=0;
+	/** Pair-removal policy; returned bits still identify only individually passing reads. */
 	public boolean requireBothBad=false;
 
 	//GC
@@ -1166,38 +1268,46 @@ public class ReformatProcessor implements Processor<ReformatProcessor> {
 	public boolean fixHeaders=false;
 	public boolean lastUnderscoreToSpace=false;
 	public boolean uniqueNames=false;
+	/** Independent scope selector: false compares the identifier, true compares the complete header. */
+	public boolean uniqueNamesFullHeader=false;
 	public boolean addslash=false;
 	public boolean addcolon=false;
 	public boolean addunderscore=false;
+	/** Copied from SamLine.MAKE_STOP_TAG; requires an attached SAM record when enabled. */
 	public boolean stoptag=false;
 
 
-	/** For calculating kmer cardinality */
+	/** Optional pre-filter k-mer observer, copied per worker and merged after completion. */
 	public CardinalityTracker loglog;
+	/** Positive k also enables observed k-mer counts and quality-based expected-correct counts. */
 	public int k=0;
 
-	private ObjectIntMap<String> nameMap1=null;
-	private ObjectIntMap<String> nameMap2=null;
+	/** Per-mate serial name histories, shared by clones only under the single-worker policy. */
+	private UniqueReadNameAllocator nameAllocator1=null;
+	private UniqueReadNameAllocator nameAllocator2=null;
 
 	//Padding
 	public boolean pad=false;
 	public byte padSymbol='N';
+	/** Numeric padding quality; postParse raises fully defined base padding to at least two. */
 	public byte padQ=0;
 	public int padLeft=0;
 	public int padRight=0;
 
 	//Remapping
+	/** Borrowed conversion tables; callers must not mutate them while workers run. */
 	public byte[] remap1=null;
 	public byte[] remap2=null;
 
 	//Tag filtering
 	public String tag=null;
 	public char delimiter=0;
+	/** Inclusive numeric tag bounds; the existing default lower bound is positive Float.MIN_VALUE. */
 	public float minValue=Float.MIN_VALUE;
 	public float maxValue=Float.MAX_VALUE;
 	public String requiredValue=null;
 
-	//Sampling
+	//Sampling: exposed to the driver; processReadPair does not sample records.
 	public float samplerate=1f;
 	public long sampleseed=-1;
 	public boolean sampleReadsExact=false;
@@ -1206,22 +1316,29 @@ public class ReformatProcessor implements Processor<ReformatProcessor> {
 	public boolean prioritizeLength=false;
 	public long sampleReadsTarget=0;
 	public long sampleBasesTarget=0;
+	/** Retained initialization state; actual sampling uses driver-owned random generators. */
 	private Random randy=null;
 
 	//Other
+	/** Mutable worker scratch; clone replaces it with a fresh IlluminaHeaderParser2. */
 	public ReadHeaderParser rhp=new IlluminaHeaderParser2();
+	/** Retained CIGAR-normalization switch, disabled by default and not set by current parsing. */
 	private boolean fixCigar=false;
 
 	/*--------------------------------------------------------------*/
 	/*----------------      Statistics Fields       ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Snapshot of the process-wide insert-statistics collection flag taken by postParse. */
 	public boolean MAKE_IHIST;
+	/** Pre-filter observations; worker clones register fresh instances for global ReadStats merging. */
 	public ReadStats readstats;
 
+	/** Input totals count individual reads/mates and their pre-processing base lengths. */
 	public long readsProcessedT=0;
 	public long basesProcessedT=0;
 
+	/** Selected pairs/single reads and their lengths after padding, before driver sampling/routing. */
 	public long pairsOut=0;
 	public long singlesOut=0;
 	public long pairBasesOut=0;
@@ -1275,6 +1392,7 @@ public class ReformatProcessor implements Processor<ReformatProcessor> {
 		}
 	}
 
+	/** Process-wide slash annotation style, configured before processing rather than per worker. */
 	private static String slash1=" /1";
 	private static String slash2=" /2";
 	private static final String colon1=" 1:";

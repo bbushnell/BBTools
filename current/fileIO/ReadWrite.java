@@ -590,8 +590,8 @@ public class ReadWrite{
 	/**
 	 * Flushes a nonnull backend and closes it unless it is exactly System.out/System.err.
 	 * An exact ZipOutputStream also has its entry and archive finished before closure.
-	 * IOExceptions are printed and accumulated; unchecked failures propagate. This does
-	 * not detect PrintStream retained errors or wait for registered processes.
+	 * IOExceptions are printed and accumulated; unchecked failures propagate.
+	 * Retained PrintStream errors are checked after finalization. Does not wait for registered processes.
 	 * @param os Nonnull output backend
 	 * @return true if any errors occurred during closure
 	 */
@@ -634,6 +634,8 @@ public class ReadWrite{
 				error=true;
 			}
 		}
+		//PrintStream retains errors instead of throwing; include errors introduced during close.
+		if(os instanceof PrintStream){error|=((PrintStream)os).checkError();}
 		if(verbose){System.err.println("close("+os+") returned "+error);}
 		return error;
 	}
@@ -1383,8 +1385,9 @@ public class ReadWrite{
 	/**
 	 * Reads decoded lines using the default charset and appends one LF after every line.
 	 * Original line endings and the absence of a final terminator are not preserved.
-	 * Raw, Java ZIP/GZIP, native BGZF, bzip2 and Zstandard inputs receive normal and exceptional cleanup.
-	 * Java/native wrappers protect borrowed stdin; bzip2 and Zstandard also collect decoder exit status.
+	 * Raw, Java ZIP/GZIP, native BGZF, bzip2, FQZ and Zstandard inputs receive normal
+	 * and exceptional cleanup. Java/native wrappers protect borrowed stdin; bzip2, FQZ
+	 * and Zstandard also collect decoder exit status.
 	 * Other codecs retain legacy normal-only closure without process completion.
 	 * Closing wrappers does not preserve bytes already consumed by their read-ahead.
 	 * @param fname Input filename
@@ -1427,10 +1430,11 @@ public class ReadWrite{
 	}
 	
 	/**
-	 * Reads one serialized object. Raw, Java ZIP/GZIP, native BGZF, bzip2 and external
-	 * pigz/bgzip and Zstandard inputs receive normal and exceptional cleanup. Java/native wrappers
-	 * protect borrowed stdin; bzip2, pigz/bgzip and Zstandard also collect decoder status. Other
-	 * codecs retain normal-only closure without process completion. Reader prefetch
+	 * Reads one serialized object. Raw, Java ZIP/GZIP, native BGZF, bzip2, FQZ
+	 * and external pigz/bgzip and Zstandard inputs receive normal and exceptional cleanup.
+	 * Java/native wrappers protect borrowed stdin; bzip2, FQZ, pigz/bgzip and Zstandard
+	 * also collect decoder status. Other codecs retain normal-only closure without process
+	 * completion. Reader prefetch
 	 * may consume bytes beyond the object.
 	 * @param fname Input filename
 	 * @param allowSubprocess Whether to allow subprocess decompression
@@ -1486,7 +1490,45 @@ public class ReadWrite{
 		return getInputStream(fname, buffer, allowSubprocess, ordered, null);
 	}
 
-	/** Carries helper ownership through raw, Java/native gzip, pigz/bgzip, bzip2 and Zstandard acquisition. */
+	/** Selects the normal input backend and returns a close-managed owner for callers
+	 * that do not need a separate HelperInput lifecycle. Closing the returned stream
+	 * closes the selected wrapper once and then collects a tracked bzip2, pigz, bgzip,
+	 * FQZ or Zstandard decoder. Exact raw stdin remains borrowed below a
+	 * NonClosingInputStream. The USE_GUNZIP, Alapy, DSRC and BAM routes remain legacy/
+	 * unmanaged; native BGZF constructor failures remain outside helper setup cleanup.
+	 *
+	 * @param fname Input filename with extension indicating compression type
+	 * @param buffer Whether raw input should be buffered
+	 * @param allowSubprocess Selector hint forwarded to existing codec logic; not a universal
+	 * subprocess prohibition
+	 * @return Close-managed input stream for the selected backend
+	 */
+	public static InputStream getManagedInputStream(String fname, boolean buffer,
+			boolean allowSubprocess){
+		return getManagedInputStream(fname, buffer, allowSubprocess, true);
+	}
+
+	/** Managed-input variant with explicit native-BAM ordering.
+	 *
+	 * @param fname Input filename with extension indicating compression type
+	 * @param buffer Whether raw input should be buffered
+	 * @param allowSubprocess Selector hint forwarded to existing codec logic; not a universal
+	 * subprocess prohibition
+	 * @param ordered Native-BAM ordering flag
+	 * @return Close-managed input stream for the selected backend
+	 */
+	public static InputStream getManagedInputStream(String fname, boolean buffer,
+			boolean allowSubprocess, boolean ordered){
+		final HelperInput helper=new HelperInput();
+		final InputStream stream=getInputStream(fname, buffer, allowSubprocess, ordered,
+				helper);
+		helper.stream=stream;
+		helper.outer=stream;
+		return new ManagedInputStream(stream, helper);
+	}
+
+	/** Carries helper ownership through raw, Java/native gzip, pigz/bgzip, bzip2, FQZ
+	 * and Zstandard acquisition. */
 	private static InputStream getInputStream(String fname, boolean buffer, boolean allowSubprocess,
 			boolean ordered, final HelperInput helper){
 		if(verbose){System.err.println("getInputStream("+fname+", "+buffer+", "+allowSubprocess+")");}
@@ -1511,7 +1553,7 @@ public class ReadWrite{
 			if(zst){return getUnzstdStream(fname, helper);}
 			if(bam){return getBamInputStream(fname, ordered);}
 
-			if(fqz){return getInputStreamFromProcess(fname, "fqz_comp -d ", false, true, true);}
+			if(fqz){return getFqzInputStream(fname, helper);}
 			if(alapy){
 				return getInputStreamFromProcess(fname, "alapy_arc -q -d "+fname+" -", false, false, true);
 			}
@@ -1844,8 +1886,11 @@ public class ReadWrite{
 			final String name=processName;
 			if(name==null){return;}
 			processName=null;
-			assert(processCodec!=null && (name.endsWith(".bz2") || gzipSuffix(name) || name.endsWith(".zst"))) :
-				"HelperInput tracks bzip2/pigz/bgzip/Zstandard dispatch; killProcess must recognize the suffix and the error must identify its codec: "+name;
+			assert(processCodec!=null && (name.endsWith(".bz2") || gzipSuffix(name)
+					|| name.endsWith(".fqz") || name.endsWith(".zst"))) :
+				"HelperInput tracks bzip2/pigz/bgzip/FQZ/Zstandard dispatch; "+
+				"killProcess must recognize the suffix and the error must identify its codec: "+
+				name;
 			if(ReadWrite.killProcess(name)){throw new IOException(processCodec+" decoder failed for "+name);}
 		}
 
@@ -1853,7 +1898,8 @@ public class ReadWrite{
 		InputStream stream;
 		/** Most recently completed reader construction, for exceptional cleanup. */
 		Closeable outer;
-		/** Set at raw/native or successful bzip2/pigz/bgzip/Zstandard acquisition; other codecs leave it false. */
+		/** Set at raw/native or successful bzip2/pigz/bgzip/FQZ/Zstandard
+		 * acquisition; other codecs leave it false. */
 		boolean managed;
 		/** Exact registered decoder filename; cleared before the one completion attempt. */
 		String processName;
@@ -1863,6 +1909,49 @@ public class ReadWrite{
 		boolean closeAttempted;
 		/** Prevents duplicate closure if result conversion fails after a successful close. */
 		boolean closed;
+	}
+
+	/** Converts HelperInput's private lifecycle into ordinary one-shot InputStream close. */
+	private static final class ManagedInputStream extends FilterInputStream{
+
+		ManagedInputStream(final InputStream in, final HelperInput helper){
+			super(in);
+			assert(helper.stream==in && helper.outer==in) :
+				"ManagedInputStream closes the exact stream returned by "
+				+"getInputStream(..., HelperInput); stream="+helper.stream
+				+", outer="+helper.outer+", in="+in;
+			this.helper=helper;
+		}
+
+		@Override
+		public int read(final byte[] b) throws IOException{return in.read(b);}
+
+		@Override
+		public int read(final byte[] b, final int off, final int len) throws IOException{
+			return in.read(b, off, len);
+		}
+
+		@Override
+		public synchronized void close() throws IOException{
+			if(closed){return;}
+			closed=true;
+			Throwable primary=null;
+			try{in.close();}
+			catch(Throwable t){primary=t;}
+			try{helper.finishProcess();}
+			catch(Throwable t){
+				if(primary==null){primary=t;}
+				else if(primary!=t){primary.addSuppressed(t);}
+			}
+			if(primary==null){return;}
+			if(primary instanceof IOException){throw (IOException)primary;}
+			if(primary instanceof RuntimeException){throw (RuntimeException)primary;}
+			if(primary instanceof Error){throw (Error)primary;}
+			throw new AssertionError(primary);
+		}
+
+		private final HelperInput helper;
+		private boolean closed;
 	}
 
 	/** Lets helper-owned readers/decoders close without closing their borrowed raw input. */
@@ -1949,6 +2038,16 @@ public class ReadWrite{
 		if(verbose){System.err.println("getUnzstdStream("+fname+")");}
 		final InputStream in=getInputStreamFromProcess(fname, "zstd -d -c", false, false, true);//FIO-123: no derived file or force-mode raw pass-through.
 		if(helper!=null){helper.acquiredProcess(fname, "Zstandard");}
+		return in;
+	}
+
+	/** Records helper ownership after successful FQZ stdout acquisition. */
+	private static InputStream getFqzInputStream(final String fname,
+			final HelperInput helper){
+		if(verbose){System.err.println("getFqzInputStream("+fname+")");}
+		final InputStream in=getInputStreamFromProcess(fname, "fqz_comp -d ",
+				false, true, true);
+		if(helper!=null){helper.acquiredProcess(fname, "FQZ");}
 		return in;
 	}
 	

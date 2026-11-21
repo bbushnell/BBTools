@@ -3,6 +3,7 @@ package jgi;
 import java.io.File;
 import java.io.PrintStream;
 import java.util.ArrayList;
+import java.util.HashSet;
 
 import fileIO.ByteFile;
 import fileIO.ByteFile1;
@@ -28,8 +29,28 @@ import stream.Read;
 import structures.ListNum;
 
 /**
- * Filters sequences based on coverage statistics from alignment data.
- * Separates sequences into clean and contaminated categories using coverage thresholds, read counts, covered percentages, and ratio analysis.
+ * Filters single-ended sequences using precomputed coverage statistics keyed by
+ * sequence id.
+ * <p>
+ * The current coverage file is required and the previous coverage file is
+ * optional.  Each read is trimmed before coverage lookup and classification.
+ * Reads with no current coverage record are filtered as dirty and, when
+ * {@code length>=minLength || PRINT_SHORT_CONTIG_RESULTS}, are logged with zero
+ * coverage values.  Reads with a current record are evaluated in order against
+ * read count, post-trim length, covered percent, fold coverage, fold ratio, and
+ * under-minimum-base thresholds below.  Passing reads are written to {@code out};
+ * filtered reads are written to {@code outdirty} when those outputs are
+ * configured.
+ * <p>
+ * The input stream owns sequence input plus its optional {@code qfin} sidecar.
+ * The clean sequence output owns its optional {@code qfout} sidecar.  The log
+ * writer is a separate text output controlled by {@code logappend}; the general
+ * {@code append} flag applies only to sequence and quality outputs.
+ * Exact case-insensitive path collisions among these real outputs, and between
+ * those outputs and the sequence/coverage inputs, are rejected before the
+ * coverage/sequence streams and result writers are opened.  Symlinks, hardlinks,
+ * and backend filename rewrites remain outside that preflight.
+ *
  * @author Brian Bushnell
  * @date October 8, 2014
  */
@@ -44,6 +65,11 @@ public class FilterByCoverage {
 		Shared.closeStream(x.outstream);
 	}
 	
+	/**
+	 * Parses legacy command-line options, records planned owned sequence, quality,
+	 * coverage, and log paths, and checks real output collisions before opening
+	 * coverage/sequence streams or result writers.
+	 */
 	public FilterByCoverage(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -157,10 +183,23 @@ public class FilterByCoverage {
 		if(outclean!=null && outclean.equalsIgnoreCase("null")){outclean=null;}
 		if(outdirty!=null && outdirty.equalsIgnoreCase("null")){outdirty=null;}
 		
-		if(!Tools.testOutputFiles(overwrite, append, false, outclean, outdirty)){
-			outstream.println((outclean==null)+", "+outclean+", "+(outdirty==null)+", "+outdirty);
-			throw new RuntimeException("\n\noverwrite="+overwrite+"; Can't write to output files "+outclean+", "+outdirty+"\n");
+		//Sequence and quality outputs use the general append setting.
+		//The qfout sidecar is only active when its out stream is active.
+		if(!Tools.testOutputFiles(overwrite, append, false, outclean, outclean==null ? null : qfoutclean, outdirty)){
+			outstream.println((outclean==null)+", "+outclean+", "+(qfoutclean==null)+", "+qfoutclean+
+					", "+(outdirty==null)+", "+outdirty);
+			throw new RuntimeException("\n\noverwrite="+overwrite+"; Can't write to output files "+
+					outclean+", "+qfoutclean+", "+outdirty+"\n");
 		}
+		//Log appending is independent of general output appending.
+		if(!Tools.testOutputFiles(overwrite && !logappend, logappend, false, logfile)){
+			outstream.println((logfile==null)+", "+logfile);
+			throw new RuntimeException("\n\noverwrite="+(overwrite && !logappend)+", append="+logappend+
+					"; Can't write to log file "+logfile+"\n");
+		}
+		//Exact filename collisions are caught before CRIS, CROS, or log opening.
+		checkFileCollisions(new String[] {in1, qfin1, covStatsBefore, covStatsAfter},
+				new String[] {outclean, outclean==null ? null : qfoutclean, outdirty, logfile});
 
 		ffoutclean=FileFormat.testOutput(outclean, FileFormat.FASTA, extout, true, overwrite, append, false);
 		ffoutdirty=FileFormat.testOutput(outdirty, FileFormat.FASTA, extout, true, overwrite, append, false);
@@ -172,8 +211,17 @@ public class FilterByCoverage {
 		assert(covStatsAfter!=null) : "No coverage file specified.";
 	}
 	
+	/**
+	 * Loads coverage tables, then streams reads through exactly one owned input
+	 * stream, optional clean/dirty output streams, and an optional log writer.
+	 * RuntimeExceptions from the main read-processing loop are saved until after
+	 * CRIS/CROS closure and optional log poisoning; coverage parsing, stream
+	 * acquisition, Errors, and close-time exceptions are outside that catch.
+	 */
 	void process(Timer t){
 
+		//Coverage tables are input-only and indexed by contig id before reads stream.
+		//cslMap1 is the required current table; cslMap0 is the optional prior table.
 		final NameMapper<CovStatsLine> cslMap0=new NameMapper<CovStatsLine>(1024);
 		final NameMapper<CovStatsLine> cslMap1=new NameMapper<CovStatsLine>(1024);
 		if(ffCov0!=null){
@@ -250,7 +298,6 @@ public class FilterByCoverage {
 		long readsMissingCoverage=0;
 		
 		final TextStreamWriter tsw=(logfile==null ? null : new TextStreamWriter(logfile, (overwrite && !logappend), logappend, true));
-//		System.err.println("***** overwrite="+overwrite+", logappend="+logappend+", combined="+(overwrite && !logappend));
 		if(tsw!=null){
 			tsw.start();
 			if(logheader){tsw.print("#assembly\tcontig\tcontam\tlength\tavgFold\treads\tpercentCovered"+(ffCov0==null ? "" : "\tavgFold0\treads0\tnormRatio")+"\n");}
@@ -301,8 +348,10 @@ public class FilterByCoverage {
 						
 						if(csl0!=null){
 							covRatio=csl0.avgFold/Tools.max(0.01, csl1.avgFold);
-							int underMin=csl0.underMin-csl1.underMin;
+							long underMin=csl0.underMin-csl1.underMin;
 							
+							//With prior coverage, fold ratio and the delta in under-min bases
+							//join the absolute post-filter thresholds.
 							if(csl1.reads()<minReads || length<minLength || csl1.coveredPercent()<minCoveredPercent){
 								contam=true;
 							}else if((csl1.avgFold<minCoverage && covRatio>minRatio) || csl1.avgFold<0.5){
@@ -314,8 +363,9 @@ public class FilterByCoverage {
 							}
 						}else{
 							covRatio=0;
-							int underMin=csl1.underMin;
+							long underMin=csl1.underMin;
 							
+							//Without prior coverage, use only current absolute thresholds.
 							if(csl1.reads()<minReads || length<minLength || csl1.coveredPercent()<minCoveredPercent || csl1.avgFold<minCoverage){
 								contam=true;
 							}else if(basesUnderMin>0 && underMin>basesUnderMin){
@@ -326,6 +376,7 @@ public class FilterByCoverage {
 						}
 						
 					}else{
+						//Missing current coverage always filters; any log row uses zeros.
 						readsMissingCoverage++;
 						contam=true;
 						covRatio=0;
@@ -343,18 +394,19 @@ public class FilterByCoverage {
 					if(tsw!=null && (length>=minLength || PRINT_SHORT_CONTIG_RESULTS)){
 						if(csl1==null){
 							if(ffCov0==null){
-								tsw.print(Tools.format("%s\t%s\t%s\t%d\t%.2f\t%d\t%.2f\n", name, r1.id, contam ? "1" : "0", length, 0, 0, 0));
+								tsw.print(Tools.format("%s\t%s\t%s\t%d\t%.2f\t%d\t%.2f\n",
+										name, r1.id, contam ? "1" : "0", length, 0d, 0, 0d));
 							}else{
 								tsw.print(Tools.format("%s\t%s\t%s\t%d\t%.2f\t%d\t%.2f\t%.2f\t%d\t%.2f\n",
-										name, r1.id, contam ? "1" : "0", length, 0, 0, 0, 0, 0, 0));
+										name, r1.id, contam ? "1" : "0", length, 0d, 0, 0d, 0d, 0, 0d));
 							}
 							
 						}else if(csl0==null){
 							tsw.print(Tools.format("%s\t%s\t%s\t%d\t%.2f\t%d\t%.2f\n", name, csl1.id, contam ? "1" : "0", length,
-									csl1.avgFold, csl1.plusReads+csl1.minusReads, csl1.coveredPercent()));
+									csl1.avgFold, csl1.reads(), csl1.coveredPercent()));
 						}else{
 							tsw.print(Tools.format("%s\t%s\t%s\t%d\t%.2f\t%d\t%.2f\t%.2f\t%d\t%.2f\n", name, csl1.id, contam ? "1" : "0", length,
-									csl1.avgFold, csl1.plusReads+csl1.minusReads, csl1.coveredPercent(), csl0.avgFold, csl0.plusReads+csl0.minusReads, covRatio));
+									csl1.avgFold, csl1.reads(), csl1.coveredPercent(), csl0.avgFold, csl0.reads(), covRatio));
 						}
 					}
 				}
@@ -404,6 +456,27 @@ public class FilterByCoverage {
 	}
 	
 	/*--------------------------------------------------------------*/
+
+	/**
+	 * Matches the existing BBTools collision semantics: exact case-insensitive
+	 * argument names for real output files only. This does not resolve symlinks,
+	 * hardlinks, or backend filename rewrites such as raw-output pipe conversion.
+	 */
+	private static void checkFileCollisions(final String[] reads, final String[] writes){
+		final HashSet<String> written=new HashSet<String>(writes.length*2);
+		for(final String write : writes){
+			if(!Tools.isOutputFileName(write)){continue;}
+			final String lower=write.toLowerCase();
+			if(!written.add(lower)){
+				throw new RuntimeException("File '"+write+"' was specified for multiple output streams.");
+			}
+			for(final String read : reads){
+				if(read!=null && lower.equals(read.toLowerCase())){
+					throw new RuntimeException("File '"+write+"' was specified for both input and output streams.");
+				}
+			}
+		}
+	}
 	
 	/*--------------------------------------------------------------*/
 	
@@ -427,11 +500,19 @@ public class FilterByCoverage {
 	
 	private long maxReads=-1;
 
+	/** Minimum post-trim read length. */
 	private int minLength=0;
+	/** Minimum current plus-read plus minus-read count. */
 	private long minReads=0;
+	/** Minimum average current coverage; with a prior row, also obeys {@link #minRatio}
+	 * and the unconditional current coverage floor of 0.5. */
 	private double minCoverage=5;
+	/** Minimum current covered percent. */
 	private double minCoveredPercent=40;
+	/** Maximum tolerated prior/current fold-coverage ratio for low current coverage. */
 	private double minRatio=0;
+	/** Maximum tolerated bases below the coverage floor: prior-current delta with
+	 * a prior row, or current count otherwise; disabled when non-positive. */
 	private int basesUnderMin=-1;
 	
 	private int trimEnds=0;

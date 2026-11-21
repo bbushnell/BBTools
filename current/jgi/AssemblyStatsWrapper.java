@@ -3,6 +3,7 @@ package jgi;
 import java.io.File;
 import java.util.ArrayList;
 
+import parse.Parse;
 import shared.Tools;
 
 /**
@@ -31,7 +32,8 @@ public class AssemblyStatsWrapper {
 			if(!arg.contains("=") && Tools.canRead(arg)){
 				ilist.add("in="+arg);
 			}else{
-				String[] split=arg.split("=");
+				//JGI-058: later '=' characters belong to the filename, not the option key.
+				String[] split=Parse.splitOnFirst(arg, '=');
 				if(split[0].equalsIgnoreCase("in") || split[0].equalsIgnoreCase("ref")){
 					if(split.length>1){
 						if(new File(split[1]).exists()){

@@ -59,7 +59,7 @@ public final class BBMergeHollowTest {
 		on.loadKmers(new Timer());
 		final Class<?> workerClass=Class.forName("jgi.BBMerge$MateThread");
 		final Constructor<?> constructor=workerClass.getDeclaredConstructor(BBMerge.class,
-				Streamer.class, Writer.class, Writer.class, Writer.class, boolean.class, boolean.class);
+				Streamer.class, Writer.class, Writer.class, fileIO.ByteStreamWriter.class, boolean.class, boolean.class);
 		constructor.setAccessible(true);
 		final Object offWorker=constructor.newInstance(plain, null, null, null, null, true, false);
 		final Object onWorker=constructor.newInstance(guarded, null, null, null, null, true, false);
