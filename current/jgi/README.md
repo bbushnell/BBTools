@@ -144,7 +144,8 @@ loader's existing acceptance of sequence before the first header is retained.
 **Usage**: Used in genomic sequencing analysis to assess the novelty and complexity of sequencing data by tracking unique k-mer frequencies.
 
 #### BBQC (BBQC.java)
-**Purpose**: Wrapper for BBDukF, BBMap, and BBNorm to perform comprehensive quality control and artifact removal for sequencing reads.
+**Status**: Deprecated; superseded by RQCFilter. This wrapper was designed for JGI's Genepool environment and contains site-specific reference paths.
+**Purpose**: Legacy wrapper for BBDukF, BBMap, and BBNorm to perform quality control and artifact removal for sequencing reads.
 **Core Function**: Executes a multi-stage read processing pipeline including adapter trimming, quality filtering, artifact removal, and optional normalization
 **Key Features**:
   - Supports DNA and RNA read processing
@@ -152,7 +153,7 @@ loader's existing acceptance of sequence before the first header is retained.
   - Optional human read removal
   - Quality and length-based read filtering
   - Error correction and read normalization
-**Usage**: Used in bioinformatics preprocessing to clean and standardize sequencing data before further analysis
+**Usage**: Retained as a historical JGI preprocessing pipeline, not a portable general-purpose QC entry point.
 
 #### CheckStrand2 (CheckStrand2.java)
 **Purpose**: Determines the strandedness of RNA-seq reads through multiple computational methods

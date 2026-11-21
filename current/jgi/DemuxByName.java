@@ -36,6 +36,7 @@ import tracker.ReadStats;
  * Demultiplexes sequence reads by name patterns into separate output files.
  * Separates reads based on prefixes, suffixes, or substrings in read identifiers.
  * Supports delimiter-based parsing and flexible pattern matching modes.
+ * Set literalnames=t to keep names entries literal instead of expanding existing files.
  *
  * @author Brian Bushnell
  * @date Oct 9, 2014
@@ -80,7 +81,7 @@ public class DemuxByName {
 		Parser parser=new Parser();
 		for(int i=0; i<args.length; i++){
 			String arg=args[i];
-			String[] split=arg.split("=");
+			String[] split=Parse.splitOnFirst(arg, '=');
 			String a=split[0].toLowerCase();
 			String b=split.length>1 ? split[1] : null;
 
@@ -101,6 +102,8 @@ public class DemuxByName {
 						names.add(s);
 					}
 				}
+			}else if(a.equals("literalnames")){
+				literalNames=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("length") || a.equalsIgnoreCase("len") || a.equalsIgnoreCase("affixlength") || a.equalsIgnoreCase("affixlen")){
 				fixedAffixLength=Integer.parseInt(b);
 			}else if(a.equals("prefixmode") || a.equals("prefix") || a.equals("pm")){
@@ -137,7 +140,7 @@ public class DemuxByName {
 			names.clear();
 			for(String s : x){
 				File f=new File(s);
-				if(f.exists() && f.isFile()){
+				if(!literalNames && f.exists() && f.isFile()){
 					TextFile tf=new TextFile(s);
 					String[] lines=tf.toStringLines();
 					for(String s2 : lines){
@@ -378,6 +381,7 @@ public class DemuxByName {
 					}
 					
 					if(al2!=null || als!=null){
+						//[JGI-150] Count each routed read and mate once, for either bucket type.
 						readsOut++;
 						basesOut+=initialLength1;
 						if(r2!=null){
@@ -387,14 +391,6 @@ public class DemuxByName {
 						
 						if(al2!=null){
 							al2.add(r1);
-							{
-								readsOut++;
-								basesOut+=initialLength1;
-							}
-							if(r2!=null){
-								readsOut++;
-								basesOut+=initialLength2;
-							}
 						}else if(als!=null){
 							String sub=r1.id;
 							if(fixedAffixLength>0){
@@ -457,7 +453,8 @@ public class DemuxByName {
 		
 		errorState|=ReadStats.writeAll();
 		
-		errorState|=ReadWrite.closeStream(cris);
+		//[JGI-151] Finish unmatched output too, flushing buffered reads and collecting writer errors.
+		errorState|=ReadWrite.closeStreams(cris, rosu);
 		
 		for(String s : names){
 			ConcurrentReadOutputStream ros=nameToStream.get(s);
@@ -512,6 +509,8 @@ public class DemuxByName {
 //	private boolean exclude=true;
 
 	private String delimiter=null;
+	/** Disables filename expansion for caller-generated name keys; legacy expansion is the default. */
+	private boolean literalNames=false;
 	private boolean prefixMode=true;
 	private boolean substringMode=false;
 	private boolean perheader=false;

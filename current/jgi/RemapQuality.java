@@ -11,7 +11,9 @@ import template.BBTool_ST;
  * <p>The default map leaves all scores unchanged except 2..41, which become
  * {@code 43-score}.  A nonempty {@code map=} value skips that reversal and overlays
  * semicolon-separated {@code from,to} assignments on an otherwise identity
- * table, leaving unlisted scores unchanged.</p>
+ * table, leaving unlisted scores unchanged. Destinations must fit a signed byte
+ * ({@code -128..127}); representable values are retained without further
+ * quality-range clamping.</p>
  *
  * @author Brian Bushnell
  * @date Apr 27, 2015
@@ -40,13 +42,16 @@ public class RemapQuality extends BBTool_ST{
 	 * <p>The default table is identity except for scores 2 through 41; score
 	 * {@code i} in that inclusive range maps to {@code 43-i}.  With a nonempty mapping value,
 	 * that reversal is skipped and the supplied semicolon-separated pairs overlay
-	 * direct {@code from,to} assignments on the identity table.</p>
+	 * direct {@code from,to} assignments on the identity table. Destinations outside
+	 * {@code -128..127} are rejected before read processing begins.</p>
 	 *
 	 * <p>{@link SamLine#SET_FROM_OK} is set globally for this JVM so SAM records
 	 * can be reused from retained SamLine data when no genome is loaded.  This
 	 * tool does not restore the previous global value.</p>
 	 *
 	 * @param args Command-line arguments, including optional {@code map=from,to;...}
+	 * @throws NumberFormatException If a parsed token is not a decimal integer,
+	 * or a destination cannot be represented as a signed byte
 	 */
 	public RemapQuality(String[] args){
 		super(args);
@@ -65,8 +70,8 @@ public class RemapQuality extends BBTool_ST{
 			for(String pair : pairs){
 				String[] split=pair.split(",");
 				int a=Integer.parseInt(split[0]);
-				int b=Integer.parseInt(split[1]);
-				map[a]=(byte)b;
+				byte b=Byte.parseByte(split[1]);
+				map[a]=b;
 			}
 		}
 	}

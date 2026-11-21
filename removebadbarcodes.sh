@@ -5,8 +5,10 @@ echo "
 Written by Brian Bushnell.
 Last modified March 5, 2018
 
-Description:  Removes reads with barcodes containing non-ACGT bases.
-Read headers must be in standard Illumina format.
+Description:  Removes reads or pairs with missing or invalid R1 barcodes.
+Barcodes are taken from the R1 read name suffix after the last colon.
+A/C/G/T/U in either case and + are accepted in a nonempty suffix; no fixed length or + layout is enforced.
+For paired input, R2 names are not consulted and the whole pair is kept or discarded together.
 
 Usage:  removebadbarcodes.sh in=<file> out=<file>
 

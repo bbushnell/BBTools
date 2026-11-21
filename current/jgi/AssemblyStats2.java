@@ -30,7 +30,7 @@ import structures.LongList;
  * @date Sep 16, 2013
  *
  */
-public final class AssemblyStats2 {
+public final class AssemblyStats2{
 	
 	/*--------------------------------------------------------------*/
 
@@ -236,7 +236,7 @@ public final class AssemblyStats2 {
 		sclist2=new LongList((int)Tools.min(1<<15, cutoff+1)); //Sum of contig lengths per scaffold of length x
 		
 		llist=new LongList(64); //List of contig lengths for contigs at least cutoff in length
-		tlist=new ArrayList<Triple>(64); //List of scaf len, contigs, contig sum for scaffolds at least cutoff in length
+		tlist=new ArrayList<Triple>(64); //List of scaffold lengths, contig counts, and summed contig lengths for scaffolds at least cutoff in length
 		
 		gcbins2=(gcbins>=1000 ? gcbins : gcbins*10);
 		
@@ -277,9 +277,9 @@ public final class AssemblyStats2 {
 		boolean fastqMode=false;
 		if(is!=System.in){
 			FileFormat ff=null;
-			try {
+			try{
 				ff=FileFormat.testInput(in, FileFormat.FA, null, false, true, true);
-			} catch (Throwable e) {
+			}catch(Throwable e){
 				e.printStackTrace();
 			}
 			if(ff!=null){
@@ -327,10 +327,11 @@ public final class AssemblyStats2 {
 	 * both individual sequences and overall assembly metrics.
 	 * @param is Input stream containing FASTA data
 	 * @param gcout Output file for GC content analysis (may be null)
-	 * @return Array of base counts [A, C, G, T, N, IUPAC, other, control]
+	 * @return Array of base counts [A, C, G, T, IUPAC, N, other, control]
 	 * @throws IOException If stream reading fails
 	 */
 	public long[] countFasta(final InputStream is, String gcout) throws IOException{
+		//TODO: Probable bug - JGI069: a failure after starting the GC writer skips its normal-exit shutdown.
 		
 		long limsum=0;
 		long headerlen=0;
@@ -363,6 +364,7 @@ public final class AssemblyStats2 {
 		limsum+=lim;
 		
 		int contigs=0;
+		//TODO: Probable bug - JGI069: int record lengths can wrap above Integer.MAX_VALUE; no overflow guard here.
 		int contiglen=0;
 //		int contiglensum=0;
 		int scaffoldlen=0;
@@ -371,6 +373,7 @@ public final class AssemblyStats2 {
 		final IntList currentContigs=new IntList(10000);
 		
 		while(lim>0){
+			//TODO: Probable bug - JGI153: TAB terminates FASTA headers early and remaining description bytes are counted as sequence.
 			if(hdmode){//Scan to end of header.
 				if(hdr==null){//Header is not being stored
 					while(i<lim){
@@ -400,6 +403,8 @@ public final class AssemblyStats2 {
 							contigs=0;
 							break;
 						}
+						//JGI117: count stored header input bytes before GC output formatting mutates hdr.
+						headerlen++;
 						hdr.append((char)c);
 					}
 				}
@@ -456,8 +461,6 @@ public final class AssemblyStats2 {
 
 								if(hdr!=null){
 									if(tswgc!=null){tswgc.print(toString2(hdr, counts));}//if added for compiler benefit
-									headerlen+=hdr.length();
-									hdr.setLength(0);
 								}
 								{
 									long gc=counts[1]+counts[2];
@@ -475,9 +478,9 @@ public final class AssemblyStats2 {
 								}
 							}else{
 								Arrays.fill(counts, 0);
-								if(hdr!=null){hdr.setLength(0);}
 							}
 						}
+						if(hdr!=null){hdr.setLength(0);}//Also clear empty records (JGI-116).
 
 						break;
 					}
@@ -520,7 +523,8 @@ public final class AssemblyStats2 {
 			}
 		}
 
-		if(scaffoldlen>0){
+		// JGI114: A new header already finished the previous record; EOF only finishes an active sequence.
+		if(!hdmode && scaffoldlen>0){
 			
 //			if(contiglen>0 || contigs==0){
 //				contigs++;
@@ -627,12 +631,14 @@ public final class AssemblyStats2 {
 	 * Similar to countFasta but handles 4-line FASTQ format with quality scores.
 	 * Processes sequence headers, bases, separator lines, and quality scores
 	 * while maintaining assembly statistics and GC content analysis.
+	 * Treats CRLF as one line ending, including pairs split across input buffers.
 	 * @param is Input stream containing FASTQ data
 	 * @param gcout Output file for GC content analysis (may be null)
-	 * @return Array of base counts [A, C, G, T, N, IUPAC, other, control]
+	 * @return Array of base counts [A, C, G, T, IUPAC, N, other, control]
 	 * @throws IOException If stream reading fails
 	 */
 	public long[] countFastq(final InputStream is, String gcout) throws IOException{
+		//TODO: Probable bug - JGI069: a failure after starting the GC writer skips its normal-exit shutdown.
 		
 		long limsum=0;
 		long headerlen=0;
@@ -658,6 +664,7 @@ public final class AssemblyStats2 {
 		final long[] counts=KillSwitch.allocLong1D(8);
 		final long[] overall=KillSwitch.allocLong1D(8);
 		final StringBuilder hdr=(gcout==null ? null : new StringBuilder());
+		//Low two bits select the FASTQ line; FASTQ_PENDING_LF carries a terminal CR across refill.
 		int line=0;
 		
 		int i=0;
@@ -665,6 +672,7 @@ public final class AssemblyStats2 {
 		limsum+=lim;
 		
 		int contigs=0;
+		//TODO: Probable bug - JGI069: int record lengths can wrap above Integer.MAX_VALUE; no overflow guard here.
 		int contiglen=0;
 //		int contiglensum=0;
 		int scaffoldlen=0;
@@ -672,7 +680,9 @@ public final class AssemblyStats2 {
 		
 		final IntList currentContigs=new IntList(10000);
 		
+		//Consume paired LF only after CR; a separate empty logical line must still advance state.
 		while(lim>0){
+			//TODO: Probable bug - JGI153: TAB terminates FASTQ headers early, counts description as sequence, and desynchronizes record state.
 			if(line==0){//Scan to end of header.
 //				outstream.println("1");
 				if(hdr==null){//Header is not being stored
@@ -681,6 +691,10 @@ public final class AssemblyStats2 {
 						i++;
 						if(c<=slashr){
 							line++;
+							if(c==slashr){
+								if(i<lim){if(buf[i]==slashn){i++;}}
+								else{line|=FASTQ_PENDING_LF;}
+							}
 //							outstream.println("1.1");
 							contiglen=0;
 //							contiglensum=0;
@@ -697,6 +711,10 @@ public final class AssemblyStats2 {
 						i++;
 						if(c<=slashr){
 							line++;
+							if(c==slashr){
+								if(i<lim){if(buf[i]==slashn){i++;}}
+								else{line|=FASTQ_PENDING_LF;}
+							}
 //							outstream.println("1.2");
 							contiglen=0;
 //							contiglensum=0;
@@ -705,6 +723,8 @@ public final class AssemblyStats2 {
 							contigs=0;
 							break;
 						}
+						//JGI117: count stored header input bytes before GC output formatting mutates hdr.
+						headerlen++;
 						hdr.append((char)c);
 					}
 				}
@@ -720,6 +740,10 @@ public final class AssemblyStats2 {
 					if(c<=slashr){//Finish the contig
 //						assert(false) : scaffoldlen;
 						line=(line+1)&3;
+						if(c==slashr){
+							if(i<lim){if(buf[i]==slashn){i++;}}
+							else{line|=FASTQ_PENDING_LF;}
+						}
 //						outstream.println("2.1");
 						if(scaffoldlen>0){//if the scaffold was not blank
 							
@@ -762,8 +786,6 @@ public final class AssemblyStats2 {
 
 								if(hdr!=null){
 									if(tswgc!=null){tswgc.print(toString2(hdr, counts));}//if added for compiler benefit
-									headerlen+=hdr.length();
-									hdr.setLength(0);
 								}
 								{
 									long gc=counts[1]+counts[2];
@@ -781,9 +803,9 @@ public final class AssemblyStats2 {
 								}
 							}else{
 								Arrays.fill(counts, 0);
-								if(hdr!=null){hdr.setLength(0);}
 							}
 						}
+						if(hdr!=null){hdr.setLength(0);}//Also clear empty records (JGI-116).
 
 						break;
 					}
@@ -825,15 +847,25 @@ public final class AssemblyStats2 {
 				i=0;
 				lim=is.read(buf);
 				limsum+=lim;
+				if((line&FASTQ_PENDING_LF)!=0 && lim>0){
+					if(buf[0]==slashn){i=1;}
+					line&=3;
+				}
 			}
 
 //			outstream.println("4");
-			assert(line>1 || lim<=i || i==0) : line+", "+i+", "+lim;
+			assert(line>1 || lim<=i || i==0 || (i==1 && buf[0]==slashn)) :
+				"Header/sequence continuation starts at a refill or after its paired LF: line="+
+				line+", index="+i+", limit="+lim;
 			while(i<lim && line>1){
 				final byte c=buf[i];
 				i++;
 				if(c<=slashr){
 					line=(line+1)&3;
+					if(c==slashr){
+						if(i<lim){if(buf[i]==slashn){i++;}}
+						else{line|=FASTQ_PENDING_LF;}
+					}
 				}
 			}
 		}
@@ -916,8 +948,8 @@ public final class AssemblyStats2 {
 	 * Calculates logarithmic sum for contig length analysis.
 	 * Combines log sum from both binned counts and individual length lists.
 	 * @param clist Binned contig counts by length
-	 * @param llist Individual contig lengths above cutoff
-	 * @param cutoff Minimum length threshold
+	 * @param llist Individual contig lengths from list storage
+	 * @param cutoff Inclusive scoring minimum length
 	 * @param base Logarithm base for calculations
 	 * @return Combined logarithmic sum value
 	 */
@@ -929,8 +961,8 @@ public final class AssemblyStats2 {
 	 * Calculates logarithmic sum for scaffold length analysis.
 	 * Combines log sum from both binned counts and individual scaffold records.
 	 * @param slist Binned scaffold counts by length
-	 * @param tlist Individual scaffold records above cutoff
-	 * @param cutoff Minimum length threshold
+	 * @param tlist Individual scaffold records from list storage
+	 * @param cutoff Inclusive scoring minimum length
 	 * @param base Logarithm base for calculations
 	 * @return Combined logarithmic sum value
 	 */
@@ -942,8 +974,8 @@ public final class AssemblyStats2 {
 	 * Calculates power sum for contig length analysis.
 	 * Uses specified power function for length-weighted statistical calculations.
 	 * @param clist Binned contig counts by length
-	 * @param llist Individual contig lengths above cutoff
-	 * @param cutoff Minimum length threshold
+	 * @param llist Individual contig lengths from list storage
+	 * @param cutoff Inclusive scoring minimum length
 	 * @param power Power exponent for calculations
 	 * @return Combined power sum value
 	 */
@@ -955,8 +987,8 @@ public final class AssemblyStats2 {
 	 * Calculates power sum for scaffold length analysis.
 	 * Uses specified power function for length-weighted statistical calculations.
 	 * @param slist Binned scaffold counts by length
-	 * @param tlist Individual scaffold records above cutoff
-	 * @param cutoff Minimum length threshold
+	 * @param tlist Individual scaffold records from list storage
+	 * @param cutoff Inclusive scoring minimum length
 	 * @param power Power exponent for calculations
 	 * @return Combined power sum value
 	 */
@@ -969,7 +1001,7 @@ public final class AssemblyStats2 {
 	 * Combines length-weighted scoring with aligned fraction bonus to produce
 	 * overall assembly quality metric.
 	 * @param slist Binned scaffold counts by length
-	 * @param tlist Individual scaffold records above cutoff
+	 * @param tlist Individual scaffold records from list storage
 	 * @param min Minimum length for scoring
 	 * @param max Maximum length cap for scoring
 	 * @param aligned Fraction of aligned/mapped bases
@@ -1004,7 +1036,7 @@ public final class AssemblyStats2 {
 	 * Calculates logarithmic sum from binned count data.
 	 * Applies logarithmic transformation with optional squaring or power modification.
 	 * @param counts Binned counts by length
-	 * @param cutoff Minimum length threshold
+	 * @param cutoff Inclusive scoring minimum length
 	 * @param base Logarithm base for calculations
 	 * @return Logarithmic sum value
 	 */
@@ -1043,9 +1075,9 @@ public final class AssemblyStats2 {
 	
 	/**
 	 * Calculates logarithmic sum from individual length values.
-	 * Processes list of individual lengths above cutoff threshold.
+	 * Processes only lengths at least the inclusive scoring minimum.
 	 * @param lengths List of individual sequence lengths
-	 * @param cutoff Minimum length threshold
+	 * @param cutoff Inclusive scoring minimum length
 	 * @param base Logarithm base for calculations
 	 * @return Logarithmic sum value
 	 */
@@ -1068,9 +1100,9 @@ public final class AssemblyStats2 {
 	
 	/**
 	 * Calculates logarithmic sum from Triple scaffold records.
-	 * Processes scaffold length data from Triple objects above cutoff threshold.
+	 * Processes only scaffold records at least the inclusive scoring minimum.
 	 * @param triples List of scaffold Triple records
-	 * @param cutoff Minimum length threshold
+	 * @param cutoff Inclusive scoring minimum length
 	 * @param base Logarithm base for calculations
 	 * @return Logarithmic sum value
 	 */
@@ -1095,7 +1127,7 @@ public final class AssemblyStats2 {
 	 * Calculates power sum from binned count data.
 	 * Uses power function transformation for length-weighted calculations.
 	 * @param counts Binned counts by length
-	 * @param cutoff Minimum length threshold
+	 * @param cutoff Inclusive scoring minimum length
 	 * @param power Power exponent for calculations
 	 * @return Power sum value
 	 */
@@ -1130,9 +1162,9 @@ public final class AssemblyStats2 {
 	
 	/**
 	 * Calculates power sum from individual length values.
-	 * Processes list of individual lengths above cutoff threshold.
+	 * Processes only lengths at least the inclusive scoring minimum.
 	 * @param lengths List of individual sequence lengths
-	 * @param cutoff Minimum length threshold
+	 * @param cutoff Inclusive scoring minimum length
 	 * @param power Power exponent for calculations
 	 * @return Power sum value
 	 */
@@ -1153,9 +1185,9 @@ public final class AssemblyStats2 {
 	
 	/**
 	 * Calculates power sum from Triple scaffold records.
-	 * Processes scaffold length data from Triple objects above cutoff threshold.
+	 * Processes only scaffold records at least the inclusive scoring minimum.
 	 * @param triples List of scaffold Triple records
-	 * @param cutoff Minimum length threshold
+	 * @param cutoff Inclusive scoring minimum length
 	 * @param power Power exponent for calculations
 	 * @return Power sum value
 	 */
@@ -1189,8 +1221,8 @@ public final class AssemblyStats2 {
 	 * @param slist Binned scaffold counts
 	 * @param sclist1 Scaffold-contig count relationships
 	 * @param sclist2 Scaffold-contig length relationships
-	 * @param llist Individual contig lengths above cutoff
-	 * @param tlist Individual scaffold records above cutoff
+	 * @param llist Individual contig lengths from list storage
+	 * @param tlist Individual scaffold records from list storage
 	 * @param out Output file path
 	 */
 	public static void printResults(Timer t, long[] counts, long sum, long minScaffold, double gc_std, String in, LongList clist, LongList slist, LongList sclist1, LongList sclist2,
@@ -1198,10 +1230,10 @@ public final class AssemblyStats2 {
 		
 		String name=in;
 		if(in!=null && !in.toLowerCase().startsWith("stdin")){
-			try {
+			try{
 				File f=new File(in);
 				name=f.getCanonicalPath();
-			} catch (IOException e) {}
+			}catch(IOException e){}
 		}
 		
 		long contigs=0;
@@ -1304,7 +1336,7 @@ public final class AssemblyStats2 {
 				minScaf=(int)Tools.min(tlist.get(0).length, 250000000);
 			}
 			if(minScaf<1){minScaf=1;}
-			int[] temp=new int[] {0, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 25000, 50000, 100000,
+			int[] temp=new int[]{0, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 25000, 50000, 100000,
 					250000, 500000, 1000000, 2500000, 5000000, 10000000, 25000000, 50000000, 100000000, 250000000};
 			ArrayList<Integer> tempList=new ArrayList<Integer>();
 			tempList.add(0);
@@ -1324,7 +1356,7 @@ public final class AssemblyStats2 {
 				lims[i]=tempList.get(i);
 			}
 		}else{
-			lims=new int[] {0, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 25000, 50000, 100000,
+			lims=new int[]{0, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 25000, 50000, 100000,
 					250000, 500000, 1000000, 2500000, 5000000, 10000000, 25000000, 50000000, 100000000, 250000000};
 		}
 		
@@ -1345,11 +1377,12 @@ public final class AssemblyStats2 {
 		long cn90=-1;
 		long cl90=-1;
 
-		long s50=slen/2;
-		long c50=clen/2;
+		// N/L targets are inclusive descending prefixes: first prefix with at least ceil(total*X) bases.
+		long s50=scaflen-scaflen/2;
+		long c50=contiglen-contiglen/2;
 		
-		long s90=slen*9L/10;
-		long c90=clen*9L/10;
+		long s90=scaflen-scaflen/10;
+		long c90=contiglen-contiglen/10;
 
 		final int numOverCutoff=(FORMAT==7 ? 1000 : 50000);
 		final int numOverCutoffPlusOne=numOverCutoff+1;
@@ -1431,14 +1464,15 @@ public final class AssemblyStats2 {
 					slen-=(b*i);
 				}
 
-				if(ln50==-1 && slen<=s50){
+				// Histogram bins can contain tied lengths; count only the tied records needed to reach the target.
+				if(ln50==-1 && slen<s50){
 					ln50=i;
-					ll50=ssum+b;
+					ll50=ssum+1+(s50-slen-1)/i;
 				}
 
-				if(ln90==-1 && slen<=s90){
+				if(ln90==-1 && slen<s90){
 					ln90=i;
-					ll90=ssum+b;
+					ll90=ssum+1+(s90-slen-1)/i;
 				}
 				//			System.out.println("<A4>\tb="+b+", c="+c+", d="+d+", csum="+csum+", ssum="+ssum+", clen="+clen+", slen="+slen);
 
@@ -1484,12 +1518,12 @@ public final class AssemblyStats2 {
 					slen-=b;
 				}
 
-				if(ln50==-1 && slen<=s50){
+				if(ln50==-1 && slen<s50){
 					ln50=b;
 					ll50=ssum+1;
 				}
 
-				if(ln90==-1 && slen<=s90){
+				if(ln90==-1 && slen<s90){
 					ln90=b;
 					ll90=ssum+1;
 				}
@@ -1508,15 +1542,16 @@ public final class AssemblyStats2 {
 			
 			csum-=a;
 			clen-=a*i;
-			
-			if(cn50==-1 && clen<=c50){
+
+			// Histogram bins can contain tied lengths; count only the tied records needed to reach the target.
+			if(cn50==-1 && clen<c50){
 				cn50=i;
-				cl50=csum+a;
+				cl50=csum+1+(c50-clen-1)/i;
 			}
-			
-			if(cn90==-1 && clen<=c90){
+
+			if(cn90==-1 && clen<c90){
 				cn90=i;
-				cl90=csum+a;
+				cl90=csum+1+(c90-clen-1)/i;
 			}
 		}
 
@@ -1526,12 +1561,12 @@ public final class AssemblyStats2 {
 			csum-=1;
 			clen-=a;
 			
-			if(cn50==-1 && clen<=c50){
+			if(cn50==-1 && clen<c50){
 				cn50=a;
 				cl50=csum+1;
 			}
 			
-			if(cn90==-1 && clen<=c90){
+			if(cn90==-1 && clen<c90){
 				cn90=a;
 				cl90=csum+1;
 			}
@@ -1930,18 +1965,19 @@ public final class AssemblyStats2 {
 	 * Estimates memory requirements for BBMap indexing of assembly.
 	 * Calculates memory needed for k-mer indexing based on sequence composition,
 	 * number of scaffolds, header lengths, and k-mer size.
-	 * @param acgtn Base counts array [A,C,G,T,N]
+	 * @param acgtn Base counts array [A,C,G,T,IUPAC,N,other,consumed control]
 	 * @param scaffolds Number of scaffolds
 	 * @param headerlen Total header length in bytes
 	 * @param k K-mer size for indexing
 	 * @return Estimated memory requirement in bytes
 	 */
 	private static long bbmapMemoryBytes(long[] acgtn, long scaffolds,
-			long headerlen, int k) {
+			long headerlen, int k){
 
 		long keyspace=(1L<<(2*k));
 		long defined=acgtn[0]+acgtn[1]+acgtn[2]+acgtn[3];
-		long undefined=acgtn[4];
+		// All consumed non-ACGT sequence categories occupy reference storage.
+		long undefined=acgtn[4]+acgtn[5]+acgtn[6]+acgtn[7];
 		long midpad=(scaffolds*(FastaToChromArrays2.MID_PADDING));
 		long total=defined+undefined+midpad;
 		int chromlen=FastaToChromArrays2.MAX_LENGTH-FastaToChromArrays2.END_PADDING-FastaToChromArrays2.START_PADDING;
@@ -1968,14 +2004,14 @@ public final class AssemblyStats2 {
 	 * Generates formatted BBMap memory recommendation string.
 	 * Provides JVM heap size recommendations with physical RAM estimates
 	 * based on calculated memory requirements.
-	 * @param acgtn Base counts array [A,C,G,T,N]
+	 * @param acgtn Base counts array [A,C,G,T,IUPAC,N,other,consumed control]
 	 * @param scaffolds Number of scaffolds
 	 * @param headerlen Total header length in bytes
 	 * @param k K-mer size for indexing
 	 * @return Formatted memory recommendation string
 	 */
 	private static CharSequence estimateBBMapMemory(long[] acgtn, long scaffolds,
-			long headerlen, int k) {
+			long headerlen, int k){
 		long mem=180+bbmapMemoryBytes(acgtn, scaffolds, headerlen, k)/1000000; //in megabytes
 		if(mem>4000){
 			return "-Xmx"+((mem+1500)/1000)+"g \t(at least "+(long)Math.ceil((((mem+1500)/0.85)/1000))+" GB physical RAM)";
@@ -2009,7 +2045,7 @@ public final class AssemblyStats2 {
 	 * in either ascending or descending order.
 	 * @param fname Output file name
 	 * @param slist Binned scaffold counts
-	 * @param tlist Individual scaffold records above cutoff
+	 * @param tlist Individual scaffold records from list storage
 	 * @param ascending Whether to sort in ascending order
 	 */
 	private static void writeHistFile(String fname, LongList slist, ArrayList<Triple> tlist, boolean ascending){
@@ -2181,12 +2217,13 @@ public final class AssemblyStats2 {
 	}
 	
 	/**
-	 * Formats length values with appropriate units (bp, Kbp, Mbp).
-	 * Converts raw base counts to human-readable format with unit suffixes.
+	 * Formats length values for report output.
+	 * Values are emitted as raw base-pair integers when {@code FORMAT>=2}
+	 * or {@code x<1000}; otherwise they receive Kbp or Mbp suffixes.
 	 * @param x Length value in base pairs
-	 * @param precision Decimal places for formatting
+	 * @param precision Decimal places for scaled Kbp/Mbp values
 	 * @param width Minimum field width
-	 * @return Formatted length string with units
+	 * @return Formatted length string padded to width
 	 */
 	private static final String formatKB(long x, int precision, int width){
 		String s;
@@ -2206,12 +2243,14 @@ public final class AssemblyStats2 {
 	}
 	
 	/**
-	 * Formats length values with "All" label for zero values.
-	 * Similar to formatKB but displays "All" for zero threshold values.
+	 * Formats histogram thresholds for report output.
+	 * Zero is emitted as All first. Other values are emitted as raw
+	 * base-pair integers when {@code FORMAT>=2} or {@code x<1000}; otherwise
+	 * they receive Kbp or Mbp suffixes.
 	 * @param x Length value in base pairs
-	 * @param precision Decimal places for formatting
+	 * @param precision Decimal places for scaled Kbp/Mbp values
 	 * @param width Minimum field width
-	 * @return Formatted length string with units or "All"
+	 * @return Formatted threshold text padded to width, with All for zero
 	 */
 	private static final String formatKB_all(long x, int precision, int width){
 		String s;
@@ -2311,7 +2350,7 @@ public final class AssemblyStats2 {
 	/**
 	 * @return charToNum array
 	 */
-	public static final byte[] makeCharToNum() {
+	public static final byte[] makeCharToNum(){
 		byte[] r=new byte[256];
 		Arrays.fill(r, (byte)6);
 		r['a']=r['A']=0;
@@ -2360,6 +2399,7 @@ public final class AssemblyStats2 {
 	public static boolean addfilename=false;
 	/** Whether to include N90/L90 statistics in output */
 	public static boolean printL90=true;
+	/** Whether to swap legacy AssemblyStats2 N=count/L=length labels to conventional N=length/L=count labels */
 	public static boolean swapNL=false;
 	/** Whether to include extended statistics (logsum, powersum) */
 	public static boolean printExtended=false;
@@ -2391,6 +2431,8 @@ public final class AssemblyStats2 {
 	/** Whether to calculate and display assembly quality score */
 	public static boolean printAssemblyScore=false;
 
+	/** FASTQ state bit: consume one optional LF after a CR at the preceding buffer's end. */
+	private static final int FASTQ_PENDING_LF=4;
 	private static final byte slashr='\r', slashn='\n', carrot='>', at='@', noref='N', noref2='n';
 	
 	/*--------------------------------------------------------------*/
@@ -2428,7 +2470,7 @@ public final class AssemblyStats2 {
 	/** List of contig lengths for contigs at least cutoff in length */
 	private final LongList llist;
 	
-	/** List of scaf len, contigs, contig sum for scaffolds at least cutoff in length */
+	/** List of scaffold lengths, contig counts, and summed contig lengths for scaffolds at least cutoff in length */
 	private final ArrayList<Triple> tlist;
 
 	/** Downsampled gc histogram */
@@ -2451,9 +2493,9 @@ public final class AssemblyStats2 {
 
 	/** Most recent logarithmic sum calculation result */
 	public static double lastLogSum;
-	/** Most recent N90 calculation result */
+	/** Most recent scaffold 90% threshold length in base pairs */
 	public static long lastL90;
-	/** Most recent N50 calculation result */
+	/** Most recent scaffold 50% threshold length in base pairs */
 	public static long lastL50;
 	/** Most recent total assembly size calculation */
 	public static long lastSize;
@@ -2484,7 +2526,7 @@ public final class AssemblyStats2 {
 		}
 		
 		@Override
-		public int compareTo(Triple o) {
+		public int compareTo(Triple o){
 			if(length>o.length){return 1;}
 			if(length<o.length){return -1;}
 			return (int)(contiglen-o.contiglen);
@@ -2503,7 +2545,7 @@ public final class AssemblyStats2 {
 		}
 		
 		@Override
-		public int hashCode() {
+		public int hashCode(){
 			assert(false) : "This class should not be hashed.";
 			return super.hashCode();
 		}

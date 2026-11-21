@@ -64,7 +64,7 @@ public class RenameAndMux {
 			String arg=args[i];
 			
 			//Break arguments into their constituent parts, in the form of "a=b"
-			String[] split=arg.split("=");
+			String[] split=Parse.splitOnFirst(arg, '=');
 			String a=split[0].toLowerCase();
 			String b=split.length>1 ? split[1] : null;
 			

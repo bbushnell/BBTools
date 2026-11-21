@@ -167,7 +167,7 @@ public class KmerNormalize {
 		for(int i=(in1==null ? 0 : 1); i<args.length; i++){
 			if(args[i]==null){args[i]="null";}
 			final String arg=args[i];
-			final String[] split=arg.split("=");
+			final String[] split=Parse.splitOnFirst(arg, '=');
 			String a=split[0].toLowerCase();
 			String b=split.length>1 ? split[1] : null;
 			
@@ -2997,6 +2997,8 @@ public class KmerNormalize {
 		return out;
 	}
 	
+	//[JGI-152] Keep d1/d2/e1/e2 in documented {depth1,depth2,errors1,errors2} order.
+	//normalizeInThread consumes slots 0/1/2/3 in that same field order.
 	/** Returns {depth1, depth2, errors1, errors2} */
 	public static int[] parseDepth(String s, int[] array){
 		if(s==null || !s.startsWith("id=")){return null;}
@@ -3008,9 +3010,9 @@ public class KmerNormalize {
 			for(int i=1; i<split.length; i++){
 				final String ss=split[i];
 				if(ss.startsWith("d1=")){array[0]=Integer.parseInt(ss.substring(3));}
-				else if(ss.startsWith("d2=")){array[2]=Integer.parseInt(ss.substring(3));}
-				else if(ss.startsWith("e1=")){array[3]=Integer.parseInt(ss.substring(3));}
-				else if(ss.startsWith("e2=")){array[4]=Integer.parseInt(ss.substring(3));}
+				else if(ss.startsWith("d2=")){array[1]=Integer.parseInt(ss.substring(3));}
+				else if(ss.startsWith("e1=")){array[2]=Integer.parseInt(ss.substring(3));}
+				else if(ss.startsWith("e2=")){array[3]=Integer.parseInt(ss.substring(3));}
 			}
 			return array;
 		} catch (NumberFormatException e) {

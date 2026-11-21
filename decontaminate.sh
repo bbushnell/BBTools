@@ -13,6 +13,8 @@ decontaminate.sh readnamefile=<file> refnamefile=<file> out=<directory>
 
 Input Parameters:
 reads=<file,file>   Input reads, one file per library.
+                   Retained libraries must have unique basenames after removing
+                   directories and extensions.
 ref=<file,file>     Input assemblies, one file per library.
 readnamefile=<file> List of input reads, one line per library.
 refnamefile=<file>  List of input assemblies, one line per library.
@@ -38,7 +40,7 @@ ambig=random        Determines how coverage will be calculated for ambiguously-m
 Filtering Parameters:
 minc=3.5            Min average coverage to retain scaffold.
 minp=20             Min percent coverage to retain scaffold.
-minr=18             Min mapped reads to retain scaffold.
+minr=20             Min mapped reads to retain scaffold.
 minl=500            Min length to retain scaffold.
 ratio=1.2           Contigs will not be removed by minc unless the coverage changed by at least this factor.  0 disables this filter.
 mapraw=t            Set true to map the unnormalized reads.  Required to filter by 'ratio'.

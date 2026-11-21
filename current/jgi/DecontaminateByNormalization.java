@@ -5,6 +5,7 @@ import java.io.PrintStream;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.TimeZone;
 
 import align2.BBMap;
@@ -58,6 +59,7 @@ public class DecontaminateByNormalization {
 	 * Initializes all parameters for mapping, normalization, error correction,
 	 * and filtering steps. Sets up input/output file paths and temporary directories.
 	 * @param args Command-line arguments containing parameters and file paths
+	 * @throws IllegalArgumentException if retained read libraries have duplicate basenames
 	 */
 	public DecontaminateByNormalization(String[] args){
 		
@@ -79,9 +81,12 @@ public class DecontaminateByNormalization {
 		
 		Parser parser=new Parser();
 		parser.overwrite=true;
+		//TODO: Probable bug [JGI-147]: the advertised interleaved option never reaches
+		//Parser.parseInterleaved. Trace raw-input phase forwarding before enabling it.
 		for(int i=0; i<args.length; i++){
 			String arg=args[i];
-			String[] split=arg.split("=");
+			//[JGI-149] Preserve '=' within values without changing bare or trailing-empty options.
+			String[] split=Parse.splitOnFirst(arg, '=');
 			String a=split[0].toLowerCase();
 			String b=split.length>1 ? split[1] : null;
 			
@@ -237,6 +242,17 @@ public class DecontaminateByNormalization {
 		while(onlyProcessFirstN>0 && onlyProcessFirstN<readNames.size()){ //For testing.
 			readNames.remove(readNames.size()-1);
 			refNames.remove(refNames.size()-1);
+		}
+		//Demux, coverage and filtered-reference outputs all use the read basename.
+		//Reject collisions before even the optional raw mapping stage can overwrite them.
+		final HashMap<String, String> coreToPath=new HashMap<String, String>();
+		for(final String path : readNames){
+			final String core=ReadWrite.stripToCore(path);
+			final String previous=coreToPath.put(core, path);
+			if(previous!=null){
+				throw new IllegalArgumentException("Duplicate read basename '"+core+"': "+previous+
+					" and "+path+". Each read library needs a unique basename because output paths use it.");
+			}
 		}
 //		System.err.println("\n************ 5\n"+readNames+"\n\n"+refNames+"\n\n"+readNameFiles+"\n\n"+refNameFiles);
 		
@@ -591,13 +607,16 @@ public class DecontaminateByNormalization {
 		{
 
 			argList.add("in="+fnameIn);
-			argList.add("out="+tempdir+"%_demuxed.fq.gz");
+			argList.add("out="+tempdir+"%demuxed.fq.gz");
+			argList.add("literalnames=t");
 			
+			//Include RenameAndMux's separator so a read named a_1 cannot match library a_1_.
+			//The key supplies the underscore in the unchanged core_demuxed output filename.
 			StringBuilder sb=new StringBuilder("names=");
 			String comma="";
 			for(String s : readPaths){
 				sb.append(comma);
-				sb.append(ReadWrite.stripToCore(s));
+				sb.append(ReadWrite.stripToCore(s)).append('_');
 				comma=",";
 			}
 			argList.add(sb.toString());

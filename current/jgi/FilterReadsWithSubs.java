@@ -202,6 +202,10 @@ public class FilterReadsWithSubs {
 			final byte m=match[mpos];
 			final byte mprev=match[Tools.max(mpos-1, 0)];
 			final byte mnext=match[Tools.min(mpos+1, match.length-1)];
+			if(m=='D' && qpos==bases.length && qpos==quals.length){
+				// Terminal deletions consume no query base after the read is exhausted.
+				continue;
+			}
 			
 			final byte q=quals[qpos];
 			final byte b=bases[qpos];

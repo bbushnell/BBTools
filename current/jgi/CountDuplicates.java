@@ -3,7 +3,6 @@ package jgi;
 import java.io.File;
 import java.io.PrintStream;
 import java.util.ArrayList;
-import shared.Random;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -36,13 +35,17 @@ import tracker.ReadStats;
  * as a single read.  Reads are converted to a hashcode and only
  * the hashcode is stored when tracking duplicates, so (rare) hash
  * collisions will result in false positive duplicate detection.
- * Optionally outputs the deduplicated and/or duplicate reads.
+ * Optionally outputs one representative per sampled hash and subsequent duplicates.
+ * Sampling selects hashes deterministically; excluded reads appear in neither output.
+ * Each pair contributes one observation to duplication statistics, while processing
+ * and output counters count both mates. Hash collisions can merge unrelated reads.
+ * Reported statistics and their failure limits cap each hash's copy count at 4000.
  * 
  * @author Brian Bushnell
  * @date November 19, 2022
  *
  */
-public class CountDuplicates implements Accumulator<CountDuplicates.ProcessThread> {
+public class CountDuplicates implements Accumulator<CountDuplicates.ProcessThread>{
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
@@ -142,18 +145,15 @@ public class CountDuplicates implements Accumulator<CountDuplicates.ProcessThrea
 		//Create a parser object
 		Parser parser=new Parser();
 		
-		//Set any necessary Parser defaults here
-		//parser.foo=bar;
-		
 		//Parse each argument
 		for(int i=0; i<args.length; i++){
 			String arg=args[i];
 			
-			//Break arguments into their constituent parts, in the form of "a=b"
-			String[] split=arg.split("=");
+			//Split only the first '=' so filename values retain any remaining separators.
+			String[] split=arg.split("=", 2);
 			String a=split[0].toLowerCase();
 			String b=split.length>1 ? split[1] : null;
-			if(b!=null && b.equalsIgnoreCase("null")){b=null;}
+			if(b!=null && (b.isEmpty() || b.equalsIgnoreCase("null"))){b=null;}
 			
 			if(a.equals("verbose")){
 				verbose=Parse.parseBoolean(b);
@@ -179,9 +179,6 @@ public class CountDuplicates implements Accumulator<CountDuplicates.ProcessThrea
 				outd1=b;
 			}else if(a.equals("outd2") || a.equals("dupes2")){
 				outd2=b;
-			}else if(a.equals("parse_flag_goes_here")){
-				long fake_variable=Parse.parseKMG(b);
-				//Set a variable here
 			}else if(parser.parse(arg, a, b)){//Parse standard flags in the parser
 				//do nothing
 			}else{
@@ -193,7 +190,11 @@ public class CountDuplicates implements Accumulator<CountDuplicates.ProcessThrea
 		return parser;
 	}
 	
-	/** Replace # with 1 and 2 in headers */
+	/**
+	 * Expands paired input, retained-output and duplicate-output filename patterns.
+	 * An existing input filename containing # is kept literally; output patterns
+	 * are expanded whenever their corresponding second filename is absent.
+	 */
 	private void doPoundReplacement(){
 		//Do input file # replacement
 		if(in1!=null && in2==null && in1.indexOf('#')>-1 && !new File(in1).exists()){
@@ -201,13 +202,13 @@ public class CountDuplicates implements Accumulator<CountDuplicates.ProcessThrea
 			in1=in1.replace("#", "1");
 		}
 
-		//Do output file # replacement
+		//Expand retained-output filenames.
 		if(out1!=null && out2==null && out1.indexOf('#')>-1){
 			out2=out1.replace("#", "2");
 			out1=out1.replace("#", "1");
 		}
 
-		//Do output file # replacement
+		//Expand duplicate-output filenames.
 		if(outd1!=null && outd2==null && outd1.indexOf('#')>-1){
 			outd2=outd1.replace("#", "2");
 			outd1=outd1.replace("#", "1");
@@ -245,8 +246,59 @@ public class CountDuplicates implements Accumulator<CountDuplicates.ProcessThrea
 		if(!Tools.testForDuplicateFiles(true, in1, in2, out1, out2, outd1, outd2)){
 			throw new RuntimeException("\nSome file names were specified multiple times.\n");
 		}
+		checkStatsFile();
 	}
-	
+
+	/** Checks the report before input processing or output creation can modify files. */
+	private void checkStatsFile(){
+		if(stats==null){return;}
+		stats=stats.replace('\\', '/'); //Match ReadWrite.getOutputStream's destination spelling.
+		if(statsToStream(stats)){return;}
+		checkStatsFile(stats);
+		//Raw output replaces pipes, while some process codecs keep them: protect both spellings.
+		if(stats.indexOf('|')>=0){checkStatsFile(stats.replace('|', '_'));}
+	}
+
+	/** Protects one possible report filename, conservatively including raw-output aliases. */
+	private void checkStatsFile(final String destination){
+		final File file=new File(destination);
+		if(file.exists() && !overwrite && !append){
+			throw new RuntimeException("Statistics file "+destination+" exists and overwrite=false.");
+		}
+		//Do not use Tools' broader stream aliases: writeString treats e.g. STDOUT.txt as a file.
+		final String[] names={in1, in2, qfin1, qfin2, out1, out2, qfout1, qfout2, outd1, outd2};
+		for(String name : names){
+			if(name==null){continue;}
+			final String normalized=name.replace('\\', '/');
+			if(destination.equalsIgnoreCase(normalized) || destination.equalsIgnoreCase(normalized.replace('|', '_'))){
+				throw new RuntimeException("Statistics file "+destination+" was also specified as an input or read output.");
+			}
+		}
+	}
+
+	/**
+	 * Recognizes stream sinks only when writeString's codec path is proven to forward to raw output.
+	 * Process codecs have different aliases; ambiguous routes retain ordinary file protection.
+	 * This is a conservative sufficient test, not a general ReadWrite destination classifier.
+	 * @param name Destination after ReadWrite-style slash normalization
+	 * @return Whether the existing-file guard may be waived for a proven stream sink
+	 */
+	private static boolean statsToStream(final String name){
+		assert(name!=null) : "A null statistics destination suppresses writing and must be handled by the caller.";
+		final boolean sink=name.equals("stdout") || name.startsWith("stdout.") ||
+				name.equals("stderr") || name.startsWith("stderr.") ||
+				name.equals("/dev/null") || name.startsWith("/dev/null/");
+		if(!sink){return false;}
+		if(name.endsWith(".bz2") || name.endsWith(".xz") || name.endsWith(".dsrc") ||
+				name.endsWith(".fqz") || name.endsWith(".ac") || name.endsWith(".zst")){return false;}
+		if(name.endsWith(".gz") || name.endsWith(".gzip") || name.endsWith(".bgz") || name.endsWith(".bgzip")){
+			//getGZipOutputStream can choose a process despite writeString's allowSubprocess=false.
+			return !ReadWrite.FORCE_PIGZ && !(ReadWrite.USE_BGZF &&
+					(ReadWrite.FORCE_BGZIP || (ReadWrite.PREFER_BGZIP && ReadWrite.ZIPLEVEL<10)));
+		}
+		return true; //Java ZIP and uncompressed output both forward to getRawOutputStream.
+	}
+
 	/** Make sure interleaving agrees with number of input and output files */
 	private void adjustInterleaving(){
 		//Adjust interleaved detection based on the number of input files
@@ -334,7 +386,7 @@ public class CountDuplicates implements Accumulator<CountDuplicates.ProcessThrea
 		outstream.println(Tools.timeReadsBasesProcessed(t, readsProcessed, basesProcessed, 8));
 		outstream.println(Tools.readsBasesOut(readsProcessed, basesProcessed, readsOut, basesOut, 8, false));
 		
-		//Throw an exception of there was an error in a thread
+		//Throw an exception if there was an error in a thread.
 		if(errorState){
 			throw new RuntimeException(getClass().getName()+" terminated in an error state; the output may be corrupt.");
 		}
@@ -362,7 +414,7 @@ public class CountDuplicates implements Accumulator<CountDuplicates.ProcessThrea
 	}
 	
 	/**
-	 * Creates concurrent output stream for non-duplicate reads.
+	 * Creates the output stream for one representative per sampled hash.
 	 * Configures buffer size based on ordering requirements and thread count.
 	 * @param pairedInput Whether input reads are paired-end
 	 * @return ConcurrentReadOutputStream for filtered output, or null if no output specified
@@ -385,8 +437,8 @@ public class CountDuplicates implements Accumulator<CountDuplicates.ProcessThrea
 	
 	/**
 	 * Creates concurrent output stream for duplicate reads.
-	 * Uses same buffer sizing strategy as main output stream.
-	 * @param pairedInput Whether input reads are paired-end
+	 * Uses the main output's buffer sizing strategy and no separate quality files.
+	 * @param pairedInput Unused; mate routing is handled by the output stream
 	 * @return ConcurrentReadOutputStream for duplicate output, or null if not specified
 	 */
 	private ConcurrentReadOutputStream makeCrosD(boolean pairedInput){
@@ -401,14 +453,19 @@ public class CountDuplicates implements Accumulator<CountDuplicates.ProcessThrea
 	}
 	
 	/**
-	 * Calculates and outputs duplication statistics from k-mer hash tables.
-	 * Generates histogram of read copy counts and computes fraction/rate metrics.
-	 * Optionally writes detailed statistics to specified file.
-	 * @param fname Output file name for statistics, or null for stdout only
+	 * Calculates statistics from sampled read or pair hash counts and applies failure limits.
+	 * Copy counts are capped at 4000 before totals, fractions and failure limits are computed.
+	 * The duplicate fraction includes the first occurrence of a repeated hash; the mean
+	 * divides the capped observation total by distinct hashes, retaining NaN for an empty
+	 * table. Each nN row uses divisibility of the capped count, so the rows overlap.
+	 * Counts above 4000 therefore distort these statistics and their failure decisions.
+	 * @param fname Statistics destination, or null to suppress report output
 	 */
 	private void calcStatistics(String fname){
 		ByteBuilder bb=new ByteBuilder();
 		
+		//TODO JGI-134: The final bin clips high counts, distorting mean/fraction/divisibility.
+		//Keep the established calculation until the separate exact-statistics repair is qualified.
 		long[] counts=tables.fillHistogram(4000);
 		long sumTotal=Tools.sumHistogram(counts);
 		long sumUnique=Tools.sum(counts);
@@ -437,7 +494,7 @@ public class CountDuplicates implements Accumulator<CountDuplicates.ProcessThrea
 			bb.appendln(i+"N\t"+x+Tools.format("\t%.4f", mult*x));
 		}
 		if(fname!=null){
-			ReadWrite.writeString(bb, fname);
+			ReadWrite.writeString(bb, fname, overwrite || statsToStream(fname), append);
 		}
 
 		if(maxFraction>=0 && fraction>maxFraction){failed=true;}
@@ -452,8 +509,6 @@ public class CountDuplicates implements Accumulator<CountDuplicates.ProcessThrea
 	private void spawnThreads(final ConcurrentReadInputStream cris, 
 			final ConcurrentReadOutputStream ros, final ConcurrentReadOutputStream rosd){
 		
-		//Do anything necessary prior to processing
-		
 		//Determine how many threads may be used
 		final int threads=Shared.threads();
 		
@@ -466,8 +521,6 @@ public class CountDuplicates implements Accumulator<CountDuplicates.ProcessThrea
 		//Start the threads and wait for them to finish
 		boolean success=ThreadWaiter.startAndWait(alpt, this);
 		errorState|=!success;
-		
-		//Do anything necessary after processing
 		
 	}
 	
@@ -484,14 +537,10 @@ public class CountDuplicates implements Accumulator<CountDuplicates.ProcessThrea
 	public final boolean success(){return !errorState;}
 	
 	/*--------------------------------------------------------------*/
-	/*----------------         Inner Methods        ----------------*/
-	/*--------------------------------------------------------------*/
-	
-	/*--------------------------------------------------------------*/
 	/*----------------         Inner Classes        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	class ProcessThread extends Thread {
+	class ProcessThread extends Thread{
 
 		//Constructor
 		/**
@@ -513,8 +562,6 @@ public class CountDuplicates implements Accumulator<CountDuplicates.ProcessThrea
 		//Called by start()
 		@Override
 		public void run(){
-			//Do anything necessary prior to processing
-
 			//Process the reads
 			processInner();
 
@@ -555,10 +602,11 @@ public class CountDuplicates implements Accumulator<CountDuplicates.ProcessThrea
 		}
 		
 		/**
-		 * Processes a batch of reads for duplicate detection.
-		 * Generates hashcodes, checks against hash tables, and separates
-		 * unique reads from duplicates for appropriate output streams.
-		 * @param ln ListNum containing batch of reads to process
+		 * Counts sampled hashes and routes first occurrences and later duplicates.
+		 * Unsampled reads contribute to processed counters but neither output. The input
+		 * list is modified in place: duplicate and unsampled slots become null. Duplicate
+		 * roots are collected separately, with mates attached; both outputs retain the batch ID.
+		 * @param ln Input batch, whose read-list slots may be cleared
 		 */
 		void processList(ListNum<Read> ln){
 
@@ -587,6 +635,8 @@ public class CountDuplicates implements Accumulator<CountDuplicates.ProcessThrea
 				final int initialLength2=r1.mateLength();
 
 				//Increment counters
+				//TODO JGI-135: Both base counters add int pair lengths before widening to long.
+				//Combined lengths above Integer.MAX_VALUE overflow; reader reachability is unverified.
 				readsProcessedT+=r1.pairCount();
 				basesProcessedT+=initialLength1+initialLength2;
 				
@@ -632,7 +682,7 @@ public class CountDuplicates implements Accumulator<CountDuplicates.ProcessThrea
 
 		/**
 		 * Generates hashcodes for all reads in the batch.
-		 * Populates codes list with computed hash values for duplicate checking.
+		 * Replaces codes with one hash or UNSAMPLED sentinel per input slot.
 		 * @param reads List of reads to hash
 		 */
 		private void hashList(ArrayList<Read> reads){
@@ -649,13 +699,13 @@ public class CountDuplicates implements Accumulator<CountDuplicates.ProcessThrea
 		 *
 		 * @param r1 Primary read in the pair
 		 * @param r2 Mate read, or null for single-end
-		 * @return Combined hash value, or negative constant if filtered
+		 * @return Nonnegative combined hash, or UNSAMPLED when excluded by sampling
 		 */
 		long hashRead(final Read r1, final Read r2){
 			long code=(hashBases ? hashBases(r1, r2) : 0);
 			code^=(hashNames ? hashNames(r1, r2) : 0);
 			code^=(hashQualities ? hashQualities(r1, r2) : 0);
-			if(samplerate<1 && (code&sampleMask)<sampleThresh){return UNSAMPLED;}
+			if(samplerate<1 && (code&sampleMask)>=sampleThresh){return UNSAMPLED;}
 			return code&Long.MAX_VALUE;
 		}
 		
@@ -731,8 +781,8 @@ public class CountDuplicates implements Accumulator<CountDuplicates.ProcessThrea
 	 * Incorporates array length and pair number with salt for initial seed.
 	 * Uses rotating XOR operations with position-dependent hash values.
 	 *
-	 * @param bytes Byte array to hash (sequence, name, or quality data)
-	 * @param pairnum Read pair number (0 or 1) for differentiation
+	 * @param bytes Sequence, name or quality bytes; null produces zero
+	 * @param pairnum Additional seed offset; bases and qualities use 0/1, names use 7
 	 * @return Hash code computed from byte array
 	 * @throws AssertionError If array contains invalid characters
 	 */
@@ -786,9 +836,9 @@ public class CountDuplicates implements Accumulator<CountDuplicates.ProcessThrea
 	/** Stats output */
 	private String stats="stdout.txt";
 	
-	/** Maximum allowable fraction of duplicate reads before failure */
+	/** Maximum reported duplicate fraction, using capped counts; negative disables. */
 	private double maxFraction=-1;
-	/** Maximum allowable duplication rate before failure */
+	/** Maximum reported mean observations per distinct hash, using capped counts; negative disables. */
 	private double maxRate=-1;
 	/** Exit code to return when failure conditions are met */
 	private int failCode=0;
@@ -822,7 +872,7 @@ public class CountDuplicates implements Accumulator<CountDuplicates.ProcessThrea
 
 	/** Quit after processing this many input reads; -1 means no limit */
 	private long maxReads=-1;
-	/** Fraction of reads to process (1.0 = all reads) */
+	/** Hash-based sampling fraction; excluded reads are processed but not counted or emitted. */
 	private double samplerate=1;
 	/** Maximum occurrence count before marking as duplicate */
 	private int maxCount=1;
@@ -861,7 +911,7 @@ public class CountDuplicates implements Accumulator<CountDuplicates.ProcessThrea
 	private final int DUPLICATE=-2;
 	
 	@Override
-	public final ReadWriteLock rwlock() {return rwlock;}
+	public final ReadWriteLock rwlock(){return rwlock;}
 	/** Read-write lock for thread-safe access to shared resources */
 	private final ReadWriteLock rwlock=new ReentrantReadWriteLock();
 	
