@@ -107,10 +107,10 @@ Description:  Counts kmers in sequence data.  Capable of outputting the kmers an
 Notes:  Multithreaded, high memory.
 
 Name:  jgi.KmerNormalize (generally referred to as BBNorm)
-Shellscript:  bbnorm.sh, ecc.sh, khist.sh
+Shellscript:  bbnorm.sh, khist.sh
 Description:  Uses a lossy data structure (count-min sketch) to perform kmer-based normalization, error-correction, and/or depth-binning on reads.
 Notes:  Multithreaded, high memory.  BBNorm will never run out of memory; rather, as the amount of data increases, the accuracy decreases.  Therefore you should always use all available memory for best accuracy.  The error correction by Tadpole is superior, but Tadpole can run out of memory with large datasets.
-Additional Shellscripts:  KmerNormalize is called by 3 different shellscripts, which differ only in their default parameters (which can be overridden).  bbnorm.sh does 2-pass normalization only; ecc.sh does error-correction only; and khist.sh only makes a kmer histogram, without ignoring the low-quality kmers (as is done by ecc and bbnorm).  But, if add the flag "ecc" to bbnorm.sh and it will do error-correction also, and so forth - with the same parameters they are all identical.
+Additional Shellscripts:  KmerNormalize is called by bbnorm.sh and khist.sh, which differ only in their default parameters.  bbnorm.sh does 2-pass normalization by default; khist.sh makes a kmer histogram without ignoring low-quality kmers.  Error correction can be run from bbnorm.sh with ecc=t plus the error-correction-only defaults documented in the BBNorm guide.
 
 Name:  jgi.CalcUniqueness
 Shellscript:  bbcountunique.sh

@@ -5,23 +5,28 @@ echo "
 Written by Brian Bushnell
 Last modified October 3, 2017
 
-Description:  Creates polymer sequences.
+Description:  Creates repeated-motif FASTA sequences.
+For each k in the requested range, this writes 4^k records: one for every
+nucleotide k-mer, repeated until the sequence length is the smallest multiple of
+k that is at least minlen+k-1 bases.
 Can be used in conjunction with mutate.sh to generate low-complexity sequence.
 
 Usage:  makepolymers.sh out=<output file> k=<repeat length> minlen=<sequence length>
 
 I/O parameters:
-out=<file>      Output genome.
+out=<file>      Output FASTA file; required.
 overwrite=f     (ow) Set to false to force the program to abort rather than
                 overwrite an existing file.
 
 Processing parameters:
-k=1             Length of repeating polymeric units.
+k=1             Length of repeated nucleotide units.
                 To generate a sweep of multiple values of k,
                 specify both mink and maxk.
-minlen=31       Ensure sequences are at least this long.
-                Specifically, minlen=X will ensure sequences are long enough
-                that all possible kmers of length X are present.
+                Valid range: 1<=mink<=maxk<=31.
+minlen=31       Minimum sequence length; must be at least 1.
+                Actual sequence length is the smallest multiple of k at least
+                minlen+k-1, exposing every starting phase of a minlen-base
+                window in each repeated motif.
 
 Java Parameters:
 -Xmx            This will set Java's memory usage, overriding autodetection.

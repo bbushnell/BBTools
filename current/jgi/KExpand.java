@@ -99,11 +99,6 @@ public class KExpand {
 		checkFileExistence(); //Ensure files can be read and written
 		checkStatics(); //Adjust file-related static fields as needed for this program
 		
-//		k2=k-1;
-//		shift=bitsPerBase*k;
-//		shift2=shift-bitsPerBase;
-//		mask=(shift>63 ? -1L : ~((-1L)<<shift));
-		
 		{//set some constants
 			k2=k-1;
 			bitsPerBase=(amino ? 5 : 2);
@@ -120,13 +115,11 @@ public class KExpand {
 			clearMasks=new long[symbolArrayLen];
 			leftMasks=new long[symbolArrayLen];
 			rightMasks=new long[symbolArrayLen];
-//			lengthMasks=new long[symbolArrayLen];
 			setMasks=new long[symbols][symbolArrayLen];
 			for(int i=0; i<symbolArrayLen; i++){
 				clearMasks[i]=~(symbolMask<<(bitsPerBase*i));
 				leftMasks[i]=((-1L)<<(bitsPerBase*i));
 				rightMasks[i]=~((-1L)<<(bitsPerBase*i));
-//				lengthMasks[i]=((1L)<<(bitsPerBase*i));
 				for(long j=0; j<symbols; j++){
 					setMasks[(int)j][i]=(j<<(bitsPerBase*i));
 				}
@@ -137,7 +130,6 @@ public class KExpand {
 			shift=bitsPerBase*k;
 			shift2=shift-bitsPerBase;
 			mask=(shift>63 ? -1L : ~((-1L)<<shift));
-//			kmask=lengthMasks[k];
 		}
 		
 		//Create output FileFormat objects
@@ -167,7 +159,7 @@ public class KExpand {
 			String arg=args[i];
 			
 			//Break arguments into their constituent parts, in the form of "a=b"
-			String[] split=arg.split("=");
+			String[] split=Parse.splitOnFirst(arg, '=');
 			String a=split[0].toLowerCase();
 			String b=split.length>1 ? split[1] : null;
 			if(b!=null && b.equalsIgnoreCase("null")){b=null;}
@@ -215,7 +207,7 @@ public class KExpand {
 				skip=x;
 			}else if(a.equals("parse_flag_goes_here")){
 				long fake_variable=Parse.parseKMG(b);
-				//Set a variable here
+				//This placeholder consumes a value without applying it.
 			}else if(parser.parse(arg, a, b)){//Parse standard flags in the parser
 				//do nothing
 			}else{
@@ -355,6 +347,8 @@ public class KExpand {
 		while(it.hasMore()){
 			bb.clear();
 			final long kmer=it.next();
+			// TODO JGI-192: amino uses 5-bit keys but this decodes DNA, leaves output reads untyped,
+			// allows k>12, and rcomp=t canonicalizes input and generated kmers in different directions.
 			bb.appendKmer(kmer, k);
 			Read r=new Read(bb.toBytes(), null, id);
 			id++;
@@ -437,7 +431,6 @@ public class KExpand {
 	 * Process a list of Reads.
 	 * @param ln The list.
 	 * @param cris Read Input Stream
-	 * @param ros Read Output Stream for reads that will be retained
 	 */
 	void processList(ListNum<Read> ln, final ConcurrentReadInputStream cris){
 
@@ -475,7 +468,7 @@ public class KExpand {
 	 * Process a single read pair.
 	 * @param r1 Read 1
 	 * @param r2 Read 2 (may be null)
-	 * @return Number of kmers added.
+	 * @return Number of generated kmer visits, including duplicate visits and speed-rejected visits
 	 */
 	long processReadPair(final Read r1, final Read r2){
 		long x=addToMap(r1, skip);
@@ -486,13 +479,13 @@ public class KExpand {
 	}
 	
 	/**
-	 * Processes all kmers in a read using rolling hash algorithm.
+	 * Processes all kmers in a read using packed rolling keys.
 	 * Generates forward and reverse complement kmers, applies mutations based on
 	 * configured edit distances.
 	 *
 	 * @param r Read to process for kmer extraction
-	 * @param skip Sampling rate (1=all kmers, 2=every other, etc.)
-	 * @return Number of kmers added to the set
+	 * @param skip Sampling rate (0/1=all kmers, 2=every other, etc.)
+	 * @return Number of generated kmer visits, including duplicate visits and speed-rejected visits
 	 */
 	private long addToMap(Read r, int skip){
 		final byte[] bases=r.bases;
@@ -533,7 +526,6 @@ public class KExpand {
 				final long x2=symbolToComplementNumber0[b];
 //				assert(x!=x2) : x+", "+x2+", "+Character.toString((char)b)+"\n"+Arrays.toString(symbolToNumber0)+"\n"+Arrays.toString(symbolToComplementNumber);
 				kmer=((kmer<<bitsPerBase)|x)&mask;
-				//10000, 1111111111, 16, 16, 2, 10, 8
 				rkmer=((rkmer>>>bitsPerBase)|(x2<<shift2))&mask;
 				if(isFullyDefined(b)){len++;}else{len=0; rkmer=0;}
 				if(verbose){
@@ -577,13 +569,10 @@ public class KExpand {
 	 * @param kmer Forward kmer
 	 * @param rkmer Reverse kmer
 	 * @param len Kmer length
-	 * @param subDist Number of substitutions to allow
-	 * @param delDist Number of deletions to allow
-	 * @param insDist Number of insertions to allow
-	 * @param extraBase Base added to end in case of deletions
-	 * @param extraBase2 Base added to end in case of deletions
-	 * @param extraBase3 Base added to end in case of deletions
-	 * @return Number of kmers stored
+	 * @param extraBase Symbol added to end in case of deletions
+	 * @param extraBase2 Symbol added to end in case of deletions
+	 * @param extraBase3 Symbol added to end in case of deletions
+	 * @return Number of generated kmer visits, including duplicate visits and speed-rejected visits
 	 */
 	private long addAndMutate(final long kmer, final long rkmer, final int len, final long extraBase, final long extraBase2, final long extraBase3){
 		if(editDist>0){//Edit mode
@@ -602,7 +591,7 @@ public class KExpand {
 	 * @param kmer Forward kmer
 	 * @param rkmer Reverse kmer
 	 * @param len Kmer length
-	 * @return Number of kmers added
+	 * @return 0 if speed-filtered, otherwise 1
 	 */
 	private long addKey(final long kmer, final long rkmer, final int len){
 		if(verbose){outstream.println("addToMap_A; len="+len);}
@@ -619,38 +608,23 @@ public class KExpand {
 		return 1;
 	}
 	
-	//*** Note!  This is functionally identical to mutateE, 
-	//*** only the default params are different
+	//Legacy separate-budget implementation; structurally parallels mutateE's
+	//generated-visit accounting.
 	/**
-	 * Recursively generates mutations with separate substitution, deletion, and insertion limits.
-	 * Creates all possible mutations within the specified distance constraints.
-	 *
-	 * @param kmer Forward kmer to mutate
-	 * @param rkmer Reverse complement kmer
-	 * @param len Kmer length
-	 * @param maxEdits Maximum total edits remaining
-	 * @param subDist Substitutions allowed
-	 * @param delDist Deletions allowed
-	 * @param insDist Insertions allowed
-	 * @param extraBase Base for deletion extension
-	 * @param extraBase2 Second base for deletion extension
-	 * @param extraBase3 Third base for deletion extension
-	 * @return Number of mutant kmers generated and stored
-	 */
-	@Deprecated
-	/**
-	 * Mutate and store this kmer through 'dist' recursions.
+	 * Mutate and store this kmer with explicit substitution, deletion, and insertion limits.
 	 * @param kmer Forward kmer
 	 * @param rkmer Reverse kmer
 	 * @param len Kmer length
+	 * @param maxEdits Maximum total edits to allow
 	 * @param subDist Number of substitutions to allow
 	 * @param delDist Number of deletions to allow
 	 * @param insDist Number of insertions to allow
-	 * @param extraBase Base added to end in case of deletions
-	 * @param extraBase2 Base added to end in case of deletions
-	 * @param extraBase3 Base added to end in case of deletions
-	 * @return Number of kmers stored
+	 * @param extraBase Symbol added to end in case of deletions
+	 * @param extraBase2 Symbol added to end in case of deletions
+	 * @param extraBase3 Symbol added to end in case of deletions
+	 * @return Number of generated kmer visits, including duplicate visits and speed-rejected visits
 	 */
+	@Deprecated
 	private long mutateSDI(final long kmer, final long rkmer, final int len, final int maxEdits,
 			final int subDist, final int delDist, final int insDist, 
 			final long extraBase, final long extraBase2, final long extraBase3){
@@ -713,18 +687,21 @@ public class KExpand {
 	 * @param rkmer Reverse kmer
 	 * @param len Kmer length
 	 * @param editDist Number of edits to allow
-	 * @param extraBase Base added to end in case of deletions
-	 * @param extraBase2 Base added to end in case of deletions
-	 * @param extraBase3 Base added to end in case of deletions
-	 * @return Number of kmers stored
+	 * @param maxSubs Number of substitutions to allow
+	 * @param maxDels Number of deletions to allow
+	 * @param maxInss Number of insertions to allow
+	 * @param extraBase Symbol added to end in case of deletions
+	 * @param extraBase2 Symbol added to end in case of deletions
+	 * @param extraBase3 Symbol added to end in case of deletions
+	 * @return Number of generated kmer visits, including duplicate visits and speed-rejected visits
 	 */
 	private long mutateE(final long kmer, final long rkmer, final int len, final int editDist, 
 			final int maxSubs, final int maxDels, final int maxInss, 
 			final long extraBase, final long extraBase2, final long extraBase3){
-		long added=0;
+		long added=1;
 		
 		addKey(kmer, rkmer, len);
-		if(editDist<1){return 1;}
+		if(editDist<1){return added;}
 		
 		if(verbose){outstream.println("mutateE; len="+len+"; kmer="+kmer+"; rkmer="+rkmer);}
 		
@@ -885,51 +862,46 @@ public class KExpand {
 	/*-----------        Symbol-Specific Constants        ----------*/
 	/*--------------------------------------------------------------*/
 
-	/** True for amino acid data, false for nucleotide data */
+	/** True for amino-acid symbols, false for nucleotide symbols */
 	final boolean amino;
-//	final int maxSupportedK;
-	/** Bits per symbol in binary representation (2 for nucleotide, 5 for amino) */
+	/** Bits per symbol in binary representation: 2 for nucleotide, 5 for amino */
 	final int bitsPerBase;
 	/** Maximum symbol value for current alphabet */
 	final int maxSymbol;
 	/** Number of symbols in alphabet */
 	final int symbols;
-	/** Array length needed to store symbols in 64-bit values */
+	/** Mask-slot count, rounded up from 64/bitsPerBase */
 	final int symbolArrayLen;
 	/** Total symbol space (2^bitsPerBase) */
 	final int symbolSpace;
 	/** Bit mask for extracting single symbol */
 	final long symbolMask;
 	
-	/** Minimum length for kmer processing */
+	/** Legacy k-1 length field */
 	final int minlen;
-	/** Secondary minimum length parameter */
+	/** Legacy k length field */
 	final int minlen2;
-	/** Bit shift for kmer operations */
+	/** Total bits occupied by k symbols */
 	final int shift;
-	/** Secondary bit shift for reverse complement operations */
+	/** Shift for the leftmost symbol */
 	final int shift2;
-	/** Bit mask for kmer length */
+	/** Bit mask retaining the low packed-key bits */
 	final long mask;
 	
-	/** x&clearMasks[i] will clear base i */
+	/** x&amp;clearMasks[i] will clear symbol i */
 	final long[] clearMasks;
-	/** x|setMasks[i][j] will set base i to j */
+	/** (x&amp;clearMasks[i])|setMasks[j][i] will set symbol i to j */
 	final long[][] setMasks;
-	/** x&leftMasks[i] will clear all bases to the right of i (exclusive) */
+	/** x&amp;leftMasks[i] will clear all symbols to the right of i (exclusive) */
 	final long[] leftMasks;
-	/** x&rightMasks[i] will clear all bases to the left of i (inclusive) */
+	/** x&amp;rightMasks[i] will clear all symbols to the left of i (inclusive) */
 	final long[] rightMasks;
-//	/** x|kMasks[i] will set the bit to the left of the leftmost base */
-//	final long[] lengthMasks;
 	
-	/**
-	 * Maps symbols to numbers, allowing invalid symbols to map to negative values
-	 */
+	/** Maps symbols to numbers, with unsupported symbols mapped to zero */
 	private final byte[] symbolToNumber0;
-	/** Maps symbols to complement numbers for reverse complement calculation */
+	/** Maps symbols to complement numbers; amino maps to the identity symbol */
 	private final byte[] symbolToComplementNumber0;
-	/** Standard symbol-to-number mapping for current alphabet */
+	/** Maps symbols to numbers, with unsupported symbols mapped negative */
 	private final byte[] symbolToNumber;
 	
 	/*--------------------------------------------------------------*/
@@ -940,7 +912,7 @@ public class KExpand {
 	protected long basesProcessed=0;
 	/** Number of kmers processed */
 	protected long kmersProcessed=0;
-	/** Number of kmers added (includes mutants) */
+	/** Number of generated kmer visits before speed filtering and output deduplication */
 	protected long kmersAdded=0;
 
 	/** Number of reads output */

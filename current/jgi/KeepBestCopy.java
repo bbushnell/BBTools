@@ -30,19 +30,25 @@ import tracker.ReadStats;
  * Keeps the best copy of an SSU per organism based on quality metrics.
  * Processes sequence reads and maintains only the highest quality copy for each
  * taxonomic ID, comparing reads by defined sequence length and ambiguous base count.
+ * Selection, accounting, and {@code maxlen} checks use each list root; mates
+ * remain attached to retained roots but are not ranked independently.
  *
  * @author Brian Bushnell
  * @date Oct 4, 2019
  */
-public class KeepBestCopy {
+public class KeepBestCopy{
 	
+	/**
+	 * Parses arguments, runs the filter, reports throughput, and closes the
+	 * diagnostic stream if it was redirected.
+	 */
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
 		Timer t=new Timer();
-
+		
 		//Create an instance of this class
 		KeepBestCopy x=new KeepBestCopy(args);
-
+		
 		//Run the object
 		x.process(t);
 		
@@ -50,8 +56,12 @@ public class KeepBestCopy {
 		Shared.closeStream(x.outstream);
 	}
 	
+	/**
+	 * Applies command-line configuration, checks the required input name and
+	 * output availability, and records file formats for read and write streams.
+	 * @param args Command-line arguments
+	 */
 	public KeepBestCopy(String[] args){
-		
 		{//Preparse block for help, config files, and outstream
 			PreParser pp=new PreParser(args, getClass(), false);
 			args=pp.args;
@@ -67,11 +77,11 @@ public class KeepBestCopy {
 		Parser parser=new Parser();
 		for(int i=0; i<args.length; i++){
 			String arg=args[i];
-			String[] split=arg.split("=");
+			String[] split=Parse.splitOnFirst(arg, '=');
 			String a=split[0].toLowerCase();
 			String b=split.length>1 ? split[1] : null;
 			if(b!=null && b.equalsIgnoreCase("null")){b=null;}
-
+			
 			if(a.equals("verbose")){
 				verbose=Parse.parseBoolean(b);
 				ByteFile1.verbose=verbose;
@@ -107,7 +117,7 @@ public class KeepBestCopy {
 			
 			in1=parser.in1;
 			qfin1=parser.qfin1;
-
+			
 			out1=parser.out1;
 			qfout1=parser.qfout1;
 			
@@ -124,17 +134,22 @@ public class KeepBestCopy {
 		}
 
 		if(out1!=null && out1.equalsIgnoreCase("null")){out1=null;}
-		
+
 		if(!Tools.testOutputFiles(overwrite, append, false, out1)){
 			outstream.println((out1==null)+", "+out1);
 			throw new RuntimeException("\n\noverwrite="+overwrite+"; Can't write to output files "+out1+"\n");
 		}
 		
 		ffout1=FileFormat.testOutput(out1, FileFormat.FASTA, extout, true, overwrite, append, false);
-
+		
 		ffin1=FileFormat.testInput(in1, FileFormat.FASTA, extin, true, true);
 	}
 	
+	/**
+	 * Opens and starts the configured primary input stream.
+	 * The stream may report paired input, but downstream selection uses
+	 * only the root reads in each returned list.
+	 */
 	ConcurrentReadInputStream makeCris(){
 		final ConcurrentReadInputStream cris;
 		cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ffin1, null, qfin1, null);
@@ -143,8 +158,16 @@ public class KeepBestCopy {
 		return cris;
 	}
 	
+	/**
+	 * Consumes roots returned by the configured stream, up to the optional
+	 * maximum read limit, and retains at most one root per taxonomic ID.
+	 * Read counters count roots; base counters and {@code maxlen} comparisons
+	 * use root lengths only. Mates remain attached to retained roots but are
+	 * not ranked independently. If output is configured, retained roots are
+	 * written in first-seen taxonomic insertion order.
+	 * @param t Timer to stop and report after streams are closed
+	 */
 	void process(Timer t){
-		
 		final ConcurrentReadInputStream cris=makeCris();
 		boolean paired=cris.paired();
 		if(!ffin1.samOrBam()){outstream.println("Input is being processed as "+(paired ? "paired" : "unpaired"));}
@@ -153,7 +176,6 @@ public class KeepBestCopy {
 		long basesProcessed=0, basesOut=0;
 		
 		{
-			
 			ListNum<Read> ln=cris.nextList();
 			ArrayList<Read> reads=(ln!=null ? ln.list : null);
 			
@@ -165,7 +187,6 @@ public class KeepBestCopy {
 			}
 
 			while(ln!=null && reads!=null && reads.size()>0){//ln!=null prevents a compiler potential null access warning
-				
 				final ArrayList<Read> listOut=new ArrayList<Read>(reads.size());
 				for(int idx=0; idx<reads.size(); idx++){
 					final Read r1=reads.get(idx);
@@ -232,6 +253,14 @@ public class KeepBestCopy {
 	
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Parses the root read ID for a taxonomic key, skips negative or
+	 * unrecognized TaxIDs, and retains the root if no earlier root used that
+	 * key or this root outranks the incumbent.
+	 * Replacing a value does not move its key in the insertion-ordered map.
+	 * @param r Root read to classify and possibly retain
+	 * @return {@code true} if this root became the retained root for its key
+	 */
 	private boolean process(Read r){
 		int tid=GiToTaxid.parseTaxidNumber(r.id, '|');
 		if(tid<0){return false;}
@@ -244,9 +273,19 @@ public class KeepBestCopy {
 		return false;
 	}
 	
+	/**
+	 * Ranks candidate roots by length and ambiguity.
+	 * A null incumbent is always replaced. If lengths differ and either
+	 * exceeds {@code maxLen}, the shorter root wins; otherwise, the candidate
+	 * must have more fully defined bases or an equal number of fully defined
+	 * bases with fewer undefined bases. Exact metric ties keep the incumbent.
+	 * @param r Candidate root
+	 * @param old Incumbent root, or {@code null}
+	 * @return {@code true} if the candidate should replace the incumbent
+	 */
 	private boolean isBetterThan(Read r, Read old){
 		if(old==null){return true;}
-		int oldNs=old.countNocalls();
+		int oldNs=old.countUndefined();
 		int Ns=r.countUndefined();
 		int oldDef=old.length()-oldNs;
 		int def=r.length()-Ns;
@@ -257,36 +296,58 @@ public class KeepBestCopy {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Input sequence filename. */
 	private String in1=null;
 	
+	/** Optional input quality filename. */
 	private String qfin1=null;
 
+	/** Optional output sequence filename. */
 	private String out1=null;
 
+	/** Optional output quality filename. */
 	private String qfout1=null;
 	
+	/** Optional forced input file extension. */
 	private String extin=null;
+	
+	/** Optional forced output file extension. */
 	private String extout=null;
 	
 	/*--------------------------------------------------------------*/
 
+	/** Length above which shorter unequal roots are preferred. */
 	int maxLen=1600;
 	
+	/** Maximum root reads to consume from the input stream. */
 	private long maxReads=-1;
 	
+	/** Retained root read per taxonomic ID, in first-seen TaxID order. */
 	private LinkedHashMap<Integer, Read> map=new LinkedHashMap<Integer, Read>();
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Parsed primary input format. */
 	private final FileFormat ffin1;
+	
+	/** Parsed primary output format, or null when output is disabled. */
 	private final FileFormat ffout1;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Diagnostic stream, possibly redirected by the preparser. */
 	private PrintStream outstream=System.err;
+	
+	/** Enables diagnostic output in this class and selected readers. */
 	public static boolean verbose=false;
+	
+	/** Set when a stream or statistics writer reports a failure. */
 	public boolean errorState=false;
+	
+	/** Allows existing output files to be replaced. */
 	private boolean overwrite=true;
+	
+	/** Appends to existing output files instead of truncating them. */
 	private boolean append=false;
 	
 }

@@ -7,17 +7,30 @@ import parse.Parse;
 import shared.Tools;
 
 /**
- * Wrapper for processing multiple assembly statistics files with customizable
- * input handling. Dynamically processes input files through AssemblyStats2,
- * managing file parsing, garbage collection, and output generation.
- * Supports single and multiple input file processing with comma-separated
- * file lists and manages memory by forcing garbage collection between large files.
+ * Runs AssemblyStats2 sequentially for an ordered list of assembly inputs.
+ * Readable positional arguments without '=' are accepted wherever they occur.
+ * Named in/ref values naming an existing path stay literal; other values are
+ * split on commas. Named inputs without a value add no inputs. Remaining
+ * arguments are forwarded to every invocation.
+ * Supplies header=t, showspeed=f, addname=t and k=0 before forwarded options;
+ * later caller options can override these defaults. For each input after the
+ * first, changes the wrapper's header default to header=f, calls System.gc(),
+ * waits with a 100-millisecond timeout, and yields. Collection and a fixed pause
+ * are not guaranteed, and there is no input-size threshold. Interruption of
+ * the wait is ignored.
+ * Constructs a new AssemblyStats2 for each input. After constructing each
+ * instance after the first, sets its shared overwrite=false and append=true
+ * before processing; other AssemblyStats2 static state is not reset here.
  *
  * @author Brian Bushnell
  * @date Apr 17, 2013
  */
 public class AssemblyStatsWrapper {
 	
+	/**
+	 * Collects inputs and invokes AssemblyStats2 once for each, in encounter order.
+	 * @param args Input paths, named in/ref lists, and options forwarded to each input
+	 */
 	public static void main(String[] args){
 		ArrayList<String> alist=new ArrayList<String>();
 		ArrayList<String> ilist=new ArrayList<String>();

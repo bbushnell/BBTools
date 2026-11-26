@@ -4,9 +4,9 @@ import java.util.concurrent.atomic.AtomicLongArray;
 
 import shared.Tools;
 
-/** Finite numeric boundary checks for Tools overflow and nearest-index cases.
+/** Finite numeric boundary checks for Tools overflow, fractional weights and nearest-index cases.
  * Cases use literal independent expectations and no production callers.
- * @author Jean
+ * @author Jean, Shinobu
  */
 public final class ToolsNumericBoundaryTest{
 
@@ -34,6 +34,18 @@ public final class ToolsNumericBoundaryTest{
 				ToolsNumericBoundaryTest::standardDeviationHistogramKmerLongTwoBin);
 		test.check("AtomicLong unique-kmer histogram huge two-bin deviation",
 				ToolsNumericBoundaryTest::standardDeviationHistogramKmerAtomicLongTwoBin);
+		test.check("long unique-kmer fractional single-bin deviation",
+				ToolsNumericBoundaryTest::uniqueKmerLongFractionalSingleBin);
+		test.check("AtomicLong unique-kmer fractional single-bin deviation",
+				ToolsNumericBoundaryTest::uniqueKmerAtomicFractionalSingleBin);
+		test.check("long unique-kmer fractional two-bin deviation",
+				ToolsNumericBoundaryTest::uniqueKmerLongFractionalTwoBin);
+		test.check("AtomicLong unique-kmer fractional two-bin deviation",
+				ToolsNumericBoundaryTest::uniqueKmerAtomicFractionalTwoBin);
+		test.check("long unique-kmer empty and unit-weight controls",
+				ToolsNumericBoundaryTest::uniqueKmerLongBoundaryControls);
+		test.check("AtomicLong unique-kmer empty and unit-weight controls",
+				ToolsNumericBoundaryTest::uniqueKmerAtomicBoundaryControls);
 		test.check("murmur32plus sign mask", ToolsNumericBoundaryTest::murmur32plusSignMask);
 		test.check("murmur32plus below upper fold", ToolsNumericBoundaryTest::murmur32plusBelowUpperFold);
 		test.check("murmur32plus at upper fold", ToolsNumericBoundaryTest::murmur32plusAtUpperFold);
@@ -203,6 +215,54 @@ public final class ToolsNumericBoundaryTest{
 				0.000000000001, "huge AtomicLong unique-kmer two-bin deviation changed");
 	}
 
+	/** One populated depth has zero dispersion even when its inferred weight is below one. */
+	private static void uniqueKmerLongFractionalSingleBin(){
+		requireNear(Tools.standardDeviationHistogramKmer(fractionalKmerSingleBin()), 0, 0.000000000001,
+				"long fractional single-bin deviation must be zero");
+	}
+
+	/** Atomic counterpart of the fractional single-depth case. */
+	private static void uniqueKmerAtomicFractionalSingleBin(){
+		requireNear(Tools.standardDeviationHistogramKmer(new AtomicLongArray(fractionalKmerSingleBin())),
+				0, 0.000000000001, "AtomicLong fractional single-bin deviation must be zero");
+	}
+
+	/** Depths 3 and 6 with weights 1/3 and 1/6 have mean 4 and population variance 2. */
+	private static void uniqueKmerLongFractionalTwoBin(){
+		requireNear(Tools.standardDeviationHistogramKmer(fractionalKmerDoubleBin()), Math.sqrt(2),
+				0.000000000001, "long fractional two-bin deviation changed");
+	}
+
+	/** Atomic counterpart of the independent fractional two-depth expectation. */
+	private static void uniqueKmerAtomicFractionalTwoBin(){
+		requireNear(Tools.standardDeviationHistogramKmer(new AtomicLongArray(fractionalKmerDoubleBin())),
+				Math.sqrt(2), 0.000000000001, "AtomicLong fractional two-bin deviation changed");
+	}
+
+	/** Preserves empty NaN results and existing unit-weight and zero-bin conventions. */
+	private static void uniqueKmerLongBoundaryControls(){
+		require(Double.isNaN(Tools.standardDeviationHistogramKmer(new long[0])),
+				"empty long unique-kmer histogram must remain NaN");
+		require(Double.isNaN(Tools.standardDeviationHistogramKmer(new long[4])),
+				"all-zero long unique-kmer histogram must remain NaN");
+		requireNear(Tools.standardDeviationHistogramKmer(new long[] {0, 0, 2}), 0, 0.000000000001,
+				"long unit-weight single-bin deviation changed");
+		requireNear(Tools.standardDeviationHistogramKmer(new long[] {1}), 0, 0.000000000001,
+				"long zero-bin-only convention changed");
+	}
+
+	/** Atomic counterpart of the unchanged boundary conventions. */
+	private static void uniqueKmerAtomicBoundaryControls(){
+		require(Double.isNaN(Tools.standardDeviationHistogramKmer(new AtomicLongArray(0))),
+				"empty AtomicLong unique-kmer histogram must remain NaN");
+		require(Double.isNaN(Tools.standardDeviationHistogramKmer(new AtomicLongArray(4))),
+				"all-zero AtomicLong unique-kmer histogram must remain NaN");
+		requireNear(Tools.standardDeviationHistogramKmer(new AtomicLongArray(new long[] {0, 0, 2})),
+				0, 0.000000000001, "AtomicLong unit-weight single-bin deviation changed");
+		requireNear(Tools.standardDeviationHistogramKmer(new AtomicLongArray(new long[] {1})),
+				0, 0.000000000001, "AtomicLong zero-bin-only convention changed");
+	}
+
 	/** Input selected by inverting the 32-bit finalizer to raw hash 0x80000000. */
 	private static void murmur32plusSignMask(){
 		require(Tools.murmur32plus(0x7EC69360)==0,
@@ -237,6 +297,16 @@ public final class ToolsNumericBoundaryTest{
 	private static void murmur32plusMaskedToLastUpperFold(){
 		require(Tools.murmur32plus(0x331DA083)==131008,
 				"raw hash 0xFFFFFFFF must mask into the last upper fold");
+	}
+
+	/** One event at depth 3 represents an inferred unique weight of 1/3. */
+	private static long[] fractionalKmerSingleBin(){
+		return new long[] {0, 0, 0, 1};
+	}
+
+	/** Two events at depths 3 and 6 represent a total inferred unique weight of 1/2. */
+	private static long[] fractionalKmerDoubleBin(){
+		return new long[] {0, 0, 0, 1, 0, 0, 1};
 	}
 
 	/** Histogram with two low-count equal-copy bins at depths 3 and 6. */

@@ -5,22 +5,27 @@ echo "
 Written by Brian Bushnell
 Last modified August 22, 2024
 
-Description:  Filters a sam file to select only reads with substitution errors
-for bases with quality scores in a certain interval.  Used for manually
-examining specific reads that may have incorrectly calibrated quality scores.
+Description:  Filters a sam file to retain reads passing clipping bounds and
+at least one of three alternate retention routes: substitutions, counted indels,
+or no substitutions and no counted indels.  The substitution route uses all
+substitutions for minsubs and requires at least one substitution in the inclusive
+minq/maxq quality interval unless minsubs is below 1.  Optional counted-indel
+and perfect-read routes are controlled by their flags and are not gated by
+minsubs, minq, or maxq.  Used for manually examining specific reads that may
+have incorrectly calibrated quality scores.
 
 Usage:  filtersubs.sh in=<file> out=<file> minq=<number> maxq=<number>
 
 Parameters:
 in=<file>       Input sam or bam file.
 out=<file>      Output file.
-minq=0          Keep only reads with substitutions of at least this quality.
-maxq=99         Keep only reads with substitutions of at most this quality.
-countindels=t   Also keep reads with indels in the quality range.
-minsubs=1       Require at least this many substitutions.
-minclips=0      Discard reads with more clip operations than this.
-maxclips=-1     If nonnegative, discard reads with more clip operations.
-keepperfect=f   Also keep error-free reads.
+minq=0          Substitution route: inclusive minimum for one qualifying sub.
+maxq=99         Substitution route: inclusive maximum for one qualifying sub.
+countindels=t   Optional route: keep reads with counted indels; not quality-gated.
+minsubs=1       Substitution route: require this many total substitutions.
+minclips=0      Require at least this many clipped bases.
+maxclips=-1     If nonnegative, discard reads with more clipped bases.
+keepperfect=f   Optional route: keep reads with no substitutions or counted indels.
 
 Please contact Brian Bushnell at bbushnell@lbl.gov if you encounter any problems.
 For documentation and the latest version, visit: https://bbmap.org

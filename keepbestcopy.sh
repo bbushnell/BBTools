@@ -9,7 +9,7 @@ Description:  Discards all but the best copy of a ribosomal gene per TaxID.
 Gene sequences should be named like this: >tid|123|whatever
 Sequences are selected based on the number of fully defined bases.
 
-Usage:  keepbestcopy.sh in=<input file> out=<output file> rate=<float>
+Usage:  keepbestcopy.sh in=<input file> out=<output file>
 
 Input may be fasta or fastq, compressed or uncompressed.
 

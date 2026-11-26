@@ -17,35 +17,32 @@ import stream.SamLine;
 import structures.ListNum;
 
 /**
- * Filters reads to select only those with substitution errors
- * for bases with quality scores in a specified interval.
- * Used for manually examining specific reads that may have
+ * Filters root reads by clipping bounds, total substitutions plus at least one
+ * substitution in an inclusive quality-score interval unless minSubs is below
+ * one, optional counted indel evidence, or optional zero substitutions and zero
+ * counted indels. Used for manually examining specific reads that may have
  * incorrectly calibrated quality scores.
  *
  * @author Brian Bushnell
  * @date May 5, 2015
  */
-public class FilterReadsWithSubs {
+public class FilterReadsWithSubs{
 
 	/** Program entry point: constructs FilterReadsWithSubs, runs processing, reports timing.
 	 * @param args Command-line arguments for input/output and filter settings */
 	public static void main(String[] args){
-		//Start a timer immediately upon code entrance.
 		Timer t=new Timer();
 		
-		//Create an instance of this class
 		FilterReadsWithSubs x=new FilterReadsWithSubs(args);
 		
-		//Run the object
 		x.process(t);
 		
-		//Close the print stream if it was redirected
 		Shared.closeStream(x.outstream);
 	}
 	
 	/**
 	 * Parses command-line arguments, configures substitution/quality/clipping thresholds,
-	 * and initializes SAM input/output streams for filtering.
+	 * and initializes SAM input/output file formats for filtering.
 	 * @param args Command-line arguments for filter configuration and I/O
 	 */
 	public FilterReadsWithSubs(String[] args){
@@ -66,15 +63,13 @@ public class FilterReadsWithSubs {
 		Parser parser=new Parser();
 		for(int i=0; i<args.length; i++){
 			String arg=args[i];
-			String[] split=arg.split("=");
+			String[] split=Parse.splitOnFirst(arg, '=');
 			String a=split[0].toLowerCase();
 			String b=split.length>1 ? split[1] : null;
 			if(b!=null && b.equalsIgnoreCase("null")){b=null;}
 
 			if(a.equals("parse_flag_goes_here")){
-				//Set a variable here
-
-//				System.err.println("Calling parseArgument("+arg+","+a+","+b+")");
+				//do nothing
 			}else if(a.equals("minq")){
 				minq=Parse.parseIntKMG(b);
 			}else if(a.equals("maxq")){
@@ -87,7 +82,7 @@ public class FilterReadsWithSubs {
 				minSubs=Integer.parseInt(b);
 			}else if(a.equals("clips") || a.equalsIgnoreCase("maxclips") || a.equalsIgnoreCase("maxclip")){
 				maxClips=Integer.parseInt(b);
-				if(maxClips<0) {maxClips=Integer.MAX_VALUE;}
+				if(maxClips<0){maxClips=Integer.MAX_VALUE;}
 			}else if(a.equalsIgnoreCase("minclips") || a.equalsIgnoreCase("minclip")){
 				minClips=Integer.parseInt(b);
 			}else if(parser.parse(arg, a, b)){//Parse standard flags in the parser
@@ -111,8 +106,10 @@ public class FilterReadsWithSubs {
 	}
 	
 	/**
-	 * Streams reads, applies substitution-quality filtering, writes retained reads,
-	 * and reports throughput statistics.
+	 * Streams root reads, applies filtering to each list root, writes retained
+	 * roots, and reports throughput statistics counted with pairCount() and
+	 * pairLength(). Mates contribute to counters and output as part of their root
+	 * read; they are not evaluated separately.
 	 * @param t Timer for tracking execution
 	 */
 	void process(Timer t){
@@ -157,7 +154,7 @@ public class FilterReadsWithSubs {
 					basesProcessed+=r1.pairLength();
 					
 					boolean keep=processRead(r1);
-					if(keep) {
+					if(keep){
 						readsOut+=r1.pairCount();
 						basesOut+=r1.pairLength();
 					}else{reads.set(idx, null);}
@@ -174,7 +171,10 @@ public class FilterReadsWithSubs {
 				cris.returnList(ln.id, ln.list==null || ln.list.isEmpty());
 			}
 		}
-		ReadWrite.closeStreams(cris, ros);
+		boolean errorState=ReadWrite.closeStreams(cris, ros);
+		if(errorState){
+			throw new RuntimeException(getClass().getName()+" terminated in an error state; the output may be corrupt.");
+		}
 		if(verbose){outstream.println("Finished.");}
 		
 		//Report timing and results
@@ -184,12 +184,16 @@ public class FilterReadsWithSubs {
 	}
 	
 	/**
-	 * Evaluates a read against substitution count, quality-score, and clipping thresholds.
-	 * Returns true to keep the read; false to discard it.
+	 * Evaluates a root read against clipping and three alternate retention paths:
+	 * total substitutions at least minSubs with at least one substitution in the
+	 * inclusive minq/maxq interval unless minSubs is below one, counted indel
+	 * evidence when countIndels is enabled, or zero substitutions and zero counted
+	 * indels when keepPerfect is enabled. The indel and keepPerfect alternatives
+	 * are not gated by minSubs or by the minq/maxq interval.
 	 * @param r1 Read to evaluate
-	 * @return true if the read passes all filters
+	 * @return true if mandatory checks pass and any retention route accepts the read
 	 */
-	private boolean processRead(Read r1) {
+	private boolean processRead(Read r1){
 		final byte[] quals=r1.quality, bases=r1.bases;
 		final byte[] match=(r1.match==null ? null : !r1.shortmatch() ? r1.match : Read.toLongMatchString(r1.match));
 		if(match==null || quals==null || bases==null){return false;}
@@ -228,21 +232,21 @@ public class FilterReadsWithSubs {
 			}else{
 				throw new RuntimeException("Bad symbol m='"+((char)m)+"'\n"+new String(match)+"\n"+new String(bases)+"\n");
 			}
-			if(clips>maxClips) {return false;}
+			if(clips>maxClips){return false;}
 			
 			if(m!='D'){qpos++;}
 		}
-		if(clips>maxClips || clips<minClips) {return false;}
+		if(clips>maxClips || clips<minClips){return false;}
 //		System.err.println("match="+new String(match));
 //		System.err.println("clips="+clips);
 //		assert(false) : clips+", "+subs+", "+indels+", "+maxClips+", "+minClips;
-		if(subs>=minSubs && (passingSubs>0 || minSubs<1)) {return true;}
-		if(countIndels && indels>0) {return true;}
+		if(subs>=minSubs && (passingSubs>0 || minSubs<1)){return true;}
+		if(countIndels && indels>0){return true;}
 		return keepPerfect && subs==0 && indels==0;
 	}
 	
 	/*--------------------------------------------------------------*/
-	
+	/*----------------           I/O Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
 	private String in1=null;
@@ -252,6 +256,8 @@ public class FilterReadsWithSubs {
 	private final FileFormat ffout1;
 	
 	/*--------------------------------------------------------------*/
+	/*----------------       Tracking Fields        ----------------*/
+	/*--------------------------------------------------------------*/
 
 	private long maxReads=-1;
 	private long readsProcessed=0;
@@ -259,16 +265,22 @@ public class FilterReadsWithSubs {
 	private long basesProcessed=0;
 	private long basesOut=0;
 
-	/** Minimum number of substitutions required to retain a read */
 	/**
-	 * Maximum quality score for bases to be considered in substitution filtering
+	 * Substitution-route minimum and maximum quality scores and minimum total
+	 * substitutions; ignored by indel and keepPerfect retention.
 	 */
 	public int minq, maxq, minSubs;
+	/** Maximum number of clipped bases allowed */
 	public int maxClips=Integer.MAX_VALUE;
+	/** Minimum number of clipped bases required */
 	public int minClips=0;
+	/** Whether reads with insertion/deletion evidence can be retained */
 	public boolean countIndels;
+	/** Whether reads with no substitutions or counted indels can be retained */
 	public boolean keepPerfect;
 	
+	/*--------------------------------------------------------------*/
+	/*----------------       Output Fields          ----------------*/
 	/*--------------------------------------------------------------*/
 	
 	private java.io.PrintStream outstream=System.err;

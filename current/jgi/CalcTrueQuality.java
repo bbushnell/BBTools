@@ -64,11 +64,11 @@ public class CalcTrueQuality {
 		Shared.closeStream(x.outstream);
 	}
 	
-	/** Calls main() but restores original static variable values. */
+	/** Calls main() and restores the explicitly saved static values on normal or exceptional exit. */
 	public static void main2(String[] args){
 		final boolean oldCOLLECT_QUALITY_STATS=ReadStats.COLLECT_QUALITY_STATS;
 		final boolean oldoverwrite=ReadStats.overwrite;
-		final int oldREAD_BUFFER_LENGTH=Shared.bufferLen();;
+		final int oldREAD_BUFFER_LENGTH=Shared.bufferLen();
 		final boolean oldPIGZ=ReadWrite.USE_PIGZ;
 		final boolean oldUnPIGZ=ReadWrite.USE_UNPIGZ;
 		final int oldZL=ReadWrite.ZIPLEVEL;
@@ -77,18 +77,20 @@ public class CalcTrueQuality {
 		final boolean oldTestInterleaved=FASTQ.TEST_INTERLEAVED;
 		final boolean oldForceInterleaved=FASTQ.FORCE_INTERLEAVED;
 		
-		main(args);
-		
-		ReadStats.COLLECT_QUALITY_STATS=oldCOLLECT_QUALITY_STATS;
-		ReadStats.overwrite=oldoverwrite;
-		Shared.setBufferLen(oldREAD_BUFFER_LENGTH);
-		ReadWrite.USE_PIGZ=oldPIGZ;
-		ReadWrite.USE_UNPIGZ=oldUnPIGZ;
-		ReadWrite.ZIPLEVEL=oldZL;
-		ByteFile.FORCE_MODE_BF1=oldBF1;
-		ByteFile.FORCE_MODE_BF2=oldBF2;
-		FASTQ.TEST_INTERLEAVED=oldTestInterleaved;
-		FASTQ.FORCE_INTERLEAVED=oldForceInterleaved;
+		try{
+			main(args);
+		}finally{
+			ReadStats.COLLECT_QUALITY_STATS=oldCOLLECT_QUALITY_STATS;
+			ReadStats.overwrite=oldoverwrite;
+			Shared.setBufferLen(oldREAD_BUFFER_LENGTH);
+			ReadWrite.USE_PIGZ=oldPIGZ;
+			ReadWrite.USE_UNPIGZ=oldUnPIGZ;
+			ReadWrite.ZIPLEVEL=oldZL;
+			ByteFile.FORCE_MODE_BF1=oldBF1;
+			ByteFile.FORCE_MODE_BF2=oldBF2;
+			FASTQ.TEST_INTERLEAVED=oldTestInterleaved;
+			FASTQ.FORCE_INTERLEAVED=oldForceInterleaved;
+		}
 	}
 	
 	/**
@@ -119,7 +121,7 @@ public class CalcTrueQuality {
 		
 		for(int i=0; i<args.length; i++){
 			String arg=args[i];
-			String[] split=arg.split("=");
+			String[] split=Parse.splitOnFirst(arg, '=');
 			String a=split[0].toLowerCase();
 			String b=split.length>1 ? split[1] : null;
 
@@ -163,15 +165,12 @@ public class CalcTrueQuality {
 				ordered=Parse.parseBoolean(b);
 			}else if(a.equals("passes") || a.equals("recalpasses")){
 				passes=Integer.parseInt(b);
-			}
-			
-			
-			else if(a.equals("ploidy")){
+			}else if(a.equals("ploidy")){
 				ploidy=Integer.parseInt(b);
 			}else if(a.equals("ref")){
 				ref=b;
-				if(ref!=null && !Tools.isReadableFile(ref)) {
-					if(ref.equalsIgnoreCase("phix")) {
+				if(ref!=null && !Tools.isReadableFile(ref)){
+					if(ref.equalsIgnoreCase("phix")){
 						ref=Data.findPath("?phix2.fa.gz");
 					}
 				}
@@ -179,19 +178,16 @@ public class CalcTrueQuality {
 				realign=Parse.parseBoolean(b);
 			}else if(a.equals("prefilter")){
 				prefilter=Parse.parseBoolean(b);
-			}
-			
-			else if(a.equals("vars") || a.equals("variants") || a.equals("variations") || a.equals("varfile") || a.equals("inv")){
+			}else if(a.equals("vars") || a.equals("variants") || a.equals("variations") ||
+					a.equals("varfile") || a.equals("inv")){
 				if(b==null){varFile=null;}
-				else if(FileFormat.isVcfFile(a)){vcfFile=b;}
+				else if(FileFormat.isVcfFile(b)){vcfFile=b;}
 				else{varFile=b;}
 			}else if(a.equals("vcf") || a.equals("vcffile")){
 				vcfFile=b;
 			}else if(filter.parse(a, b, arg)){
 				//do nothing
-			}
-			
-			else if(Parser.parseCommonStatic(arg, a, b)){
+			}else if(Parser.parseCommonStatic(arg, a, b)){
 				//do nothing
 			}else if(Parser.parseZip(arg, a, b)){
 				//do nothing
@@ -388,10 +384,9 @@ public class CalcTrueQuality {
 		for(int i=0; i<alpt.size(); i++){
 			Worker pt=alpt.get(i);
 			while(pt.getState()!=Thread.State.TERMINATED){
-				try {
+				try{
 					pt.join();
-				} catch (InterruptedException e) {
-					// TODO Auto-generated catch block
+				}catch(InterruptedException e){
 					e.printStackTrace();
 				}
 			}
@@ -465,17 +460,22 @@ public class CalcTrueQuality {
 	/**
 	 * Writes calibration matrices to disk for the specified pass.
 	 * Saves both good and bad count matrices in tab-separated format.
+	 * Restores {@link ReadWrite#ZIPLEVEL} after matrix and optional qhist output.
 	 * @param pass Pass number to write matrices for
+	 * @throws RuntimeException if calibration matrix output cannot be completed
 	 */
 	public void writeMatrices(int pass){
 		int oldZL=ReadWrite.ZIPLEVEL;
-		ReadWrite.ZIPLEVEL=8;
-		gbmatrices.get(pass).write();
-		if(qhist!=null){
-			readstats=ReadStats.mergeAll();
-			readstats.writeQualityToFile(qhist, false);
+		try{
+			ReadWrite.ZIPLEVEL=8;
+			gbmatrices.get(pass).write();
+			if(qhist!=null){
+				readstats=ReadStats.mergeAll();
+				readstats.writeQualityToFile(qhist, false);
+			}
+		}finally{
+			ReadWrite.ZIPLEVEL=oldZL;
 		}
-		ReadWrite.ZIPLEVEL=oldZL;
 	}
 	
 	/**
@@ -487,6 +487,7 @@ public class CalcTrueQuality {
 	 * @param overwrite Whether to overwrite existing files
 	 * @param append Whether to append to existing files
 	 * @param pass Pass number for filename substitution
+	 * @throws RuntimeException if calibration matrix output cannot be completed
 	 */
 	public static void writeMatrix(String fname, long[][][][][] goodMatrix, long[][][][][] badMatrix, boolean overwrite, boolean append, int pass){
 		assert(fname!=null) : "No file specified";
@@ -536,7 +537,9 @@ public class CalcTrueQuality {
 			}
 		}
 		//System.err.println("Writing "+fname);
-		tsw.poisonAndWait();
+		if(tsw.poisonAndWait()){
+			throw new RuntimeException("Error writing calibration matrix: "+fname);
+		}
 		if(showStats){System.err.println("Wrote "+fname);}
 	}
 	
@@ -549,6 +552,7 @@ public class CalcTrueQuality {
 	 * @param overwrite Whether to overwrite existing files
 	 * @param append Whether to append to existing files
 	 * @param pass Pass number for filename substitution
+	 * @throws RuntimeException if calibration matrix output cannot be completed
 	 */
 	public static void writeMatrix(String fname, long[][][][] goodMatrix, long[][][][] badMatrix, boolean overwrite, boolean append, int pass){
 		assert(fname!=null) : "No file specified";
@@ -595,7 +599,9 @@ public class CalcTrueQuality {
 			}
 		}
 		//System.err.println("Writing "+fname);
-		tsw.poisonAndWait();
+		if(tsw.poisonAndWait()){
+			throw new RuntimeException("Error writing calibration matrix: "+fname);
+		}
 		if(showStats){System.err.println("Wrote "+fname);}
 	}
 	
@@ -608,6 +614,7 @@ public class CalcTrueQuality {
 	 * @param overwrite Whether to overwrite existing files
 	 * @param append Whether to append to existing files
 	 * @param pass Pass number for filename substitution
+	 * @throws RuntimeException if calibration matrix output cannot be completed
 	 */
 	public static void writeMatrix(String fname, long[][][] goodMatrix, long[][][] badMatrix, boolean overwrite, boolean append, int pass){
 		assert(fname!=null) : "No file specified";
@@ -649,7 +656,9 @@ public class CalcTrueQuality {
 			}
 		}
 		//System.err.println("Writing "+fname);
-		tsw.poisonAndWait();
+		if(tsw.poisonAndWait()){
+			throw new RuntimeException("Error writing calibration matrix: "+fname);
+		}
 		if(showStats){System.err.println("Wrote "+fname);}
 	}
 	
@@ -662,6 +671,7 @@ public class CalcTrueQuality {
 	 * @param overwrite Whether to overwrite existing files
 	 * @param append Whether to append to existing files
 	 * @param pass Pass number for filename substitution
+	 * @throws RuntimeException if calibration matrix output cannot be completed
 	 */
 	public static void writeMatrix(String fname, long[][] goodMatrix, long[][] badMatrix, boolean overwrite, boolean append, int pass){
 		assert(fname!=null) : "No file specified";
@@ -699,7 +709,9 @@ public class CalcTrueQuality {
 			}
 		}
 		//System.err.println("Writing "+fname);
-		tsw.poisonAndWait();
+		if(tsw.poisonAndWait()){
+			throw new RuntimeException("Error writing calibration matrix: "+fname);
+		}
 		if(showStats){System.err.println("Wrote "+fname);}
 	}
 	
@@ -712,6 +724,7 @@ public class CalcTrueQuality {
 	 * @param overwrite Whether to overwrite existing files
 	 * @param append Whether to append to existing files
 	 * @param pass Pass number for filename substitution
+	 * @throws RuntimeException if calibration matrix output cannot be completed
 	 */
 	public static void writeMatrix(String fname, long[] goodMatrix, long[] badMatrix, boolean overwrite, boolean append, int pass){
 		assert(fname!=null) : "No file specified";
@@ -745,7 +758,9 @@ public class CalcTrueQuality {
 			}
 		}
 		//System.err.println("Writing "+fname);
-		tsw.poisonAndWait();
+		if(tsw.poisonAndWait()){
+			throw new RuntimeException("Error writing calibration matrix: "+fname);
+		}
 		if(showStats){System.err.println("Wrote "+fname);}
 	}
 	
@@ -766,15 +781,15 @@ public class CalcTrueQuality {
 	 * @param s Read identifier string
 	 * @return Tile number extracted from the identifier
 	 */
-	public static int parseTile(String s) {
+	public static int parseTile(String s){
 		//MISEQ08:172:000000000-ABYD0:1:1101:18147:1925
 		int colons=0;
 		int a=0, b=0;
-		for(a=0; colons<4 && a<s.length(); a++) {
-			if(s.charAt(a)==':') {colons++;}
+		for(a=0; colons<4 && a<s.length(); a++){
+			if(s.charAt(a)==':'){colons++;}
 		}
-		for(b=a; colons<5 && b<s.length(); b++) {
-			if(s.charAt(b)==':') {colons++;}
+		for(b=a; colons<5 && b<s.length(); b++){
+			if(s.charAt(b)==':'){colons++;}
 		}
 		assert(a<s.length() && s.charAt(a)!=':' && s.charAt(a-1)==':') : a+", "+b+", "+s;
 		assert(b<s.length() && s.charAt(b)!=':' && s.charAt(b-1)==':') : a+", "+b+", "+s;
@@ -797,7 +812,7 @@ public class CalcTrueQuality {
 	 * @param pass1 Whether to apply pass 1 recalibration
 	 */
 	private static final void recalibrate(Read r, boolean pass0, boolean pass1){
-		if(r==null) {return;}
+		if(r==null){return;}
 //		System.err.println(r.obj);
 //		System.err.println(Arrays.toString(r.quality));
 		
@@ -1231,7 +1246,7 @@ public class CalcTrueQuality {
 	 * Each worker processes a subset of reads and maintains thread-local
 	 * quality matrices for later aggregation.
 	 */
-	private class Worker extends Thread {
+	private class Worker extends Thread{
 		
 		Worker(Streamer ss_, int pass_){
 			ss=ss_;
@@ -1241,10 +1256,11 @@ public class CalcTrueQuality {
 		
 		@Override
 		public void run(){
+			// TODO: Report worker failures before merging partial matrices.
 			runStreamer();
 		}
 		
-		/** Processes reads using SamReadStreamer.
+		/** Processes reads using the shared streamer.
 		 * Applies recalibration from previous passes and collects statistics. */
 		public void runStreamer(){
 			ListNum<Read> ln=ss.nextList();
@@ -1419,7 +1435,7 @@ public class CalcTrueQuality {
 							if(incrQbt) matrixT.qbtBadMatrix[pairnum][q1][n2][tile]+=1;
 
 							if(incrQ10) matrixT.q10BadMatrix[pairnum][q1][q0]+=1;
-							if(incrQ12) matrixT.q12BadMatrix[pairnum][q1][q0]+=1;
+							if(incrQ12) matrixT.q12BadMatrix[pairnum][q1][q2]+=1;
 							if(incrQb12) matrixT.qb12BadMatrix[pairnum][q1][n1][n2]+=1;
 							if(incrQb012) matrixT.qb012BadMatrix[pairnum][q1][n0][n1][n2]+=1;
 							if(incrQb123) matrixT.qb123BadMatrix[pairnum][q1][n1][n2][n3]+=1;
@@ -1433,7 +1449,7 @@ public class CalcTrueQuality {
 //							matrixT.qbpBadMatrix[pairnum][q1][n2][pos]+=1;
 //
 //							matrixT.q10BadMatrix[pairnum][q1][q0]+=1;
-//							matrixT.q12BadMatrix[pairnum][q1][q0]+=1;
+//							matrixT.q12BadMatrix[pairnum][q1][q2]+=1;
 //							matrixT.qb12BadMatrix[pairnum][q1][n1][n2]+=1;
 //							matrixT.qb012BadMatrix[pairnum][q1][n0][n1][n2]+=1;
 //							matrixT.qb123BadMatrix[pairnum][q1][n1][n2][n3]+=1;
@@ -1460,7 +1476,7 @@ public class CalcTrueQuality {
 						if(incrQbt) matrixT.qbtGoodMatrix[pairnum][q1][n2][tile]+=1;
 
 						if(incrQ10) matrixT.q10GoodMatrix[pairnum][q1][q0]+=incr;
-						if(incrQ12) matrixT.q12GoodMatrix[pairnum][q1][q0]+=incr;
+						if(incrQ12) matrixT.q12GoodMatrix[pairnum][q1][q2]+=incr;
 						if(incrQb12) matrixT.qb12GoodMatrix[pairnum][q1][n1][n2]+=incr;
 						if(incrQb012) matrixT.qb012GoodMatrix[pairnum][q1][n0][n1][n2]+=incr;
 						if(incrQb123) matrixT.qb123GoodMatrix[pairnum][q1][n1][n2][n3]+=incr;
@@ -1474,7 +1490,7 @@ public class CalcTrueQuality {
 //						matrixT.qbpGoodMatrix[pairnum][q1][n2][pos]+=incr;
 //
 //						matrixT.q10GoodMatrix[pairnum][q1][q0]+=incr;
-//						matrixT.q12GoodMatrix[pairnum][q1][q0]+=incr;
+//						matrixT.q12GoodMatrix[pairnum][q1][q2]+=incr;
 //						matrixT.qb12GoodMatrix[pairnum][q1][n1][n2]+=incr;
 //						matrixT.qb012GoodMatrix[pairnum][q1][n0][n1][n2]+=incr;
 //						matrixT.qb123GoodMatrix[pairnum][q1][n1][n2][n3]+=incr;
@@ -1494,7 +1510,7 @@ public class CalcTrueQuality {
 							if(incrQbt) matrixT.qbtBadMatrix[pairnum][q1][n2][tile]+=2;
 
 							if(incrQ10) matrixT.q10BadMatrix[pairnum][q1][q0]+=2;
-							if(incrQ12) matrixT.q12BadMatrix[pairnum][q1][q0]+=2;
+							if(incrQ12) matrixT.q12BadMatrix[pairnum][q1][q2]+=2;
 							if(incrQb12) matrixT.qb12BadMatrix[pairnum][q1][n1][n2]+=2;
 							if(incrQb012) matrixT.qb012BadMatrix[pairnum][q1][n0][n1][n2]+=2;
 							if(incrQb123) matrixT.qb123BadMatrix[pairnum][q1][n1][n2][n3]+=2;
@@ -1509,7 +1525,7 @@ public class CalcTrueQuality {
 //						matrixT.qbpBadMatrix[pairnum][q1][n2][pos]+=2;
 //
 //						matrixT.q10BadMatrix[pairnum][q1][q0]+=2;
-//						matrixT.q12BadMatrix[pairnum][q1][q0]+=2;
+//						matrixT.q12BadMatrix[pairnum][q1][q2]+=2;
 //						matrixT.qb12BadMatrix[pairnum][q1][n1][n2]+=2;
 //						matrixT.qb012BadMatrix[pairnum][q1][n0][n1][n2]+=2;
 //						matrixT.qb123BadMatrix[pairnum][q1][n1][n2][n3]+=2;
@@ -1616,7 +1632,7 @@ public class CalcTrueQuality {
 		
 		/** Writes all matrices to their configured output files.
 		 * Only writes matrices that are enabled and have non-null filenames. */
-		public void write() {
+		public void write(){
 			if(incrQ102 && q102matrix!=null){writeMatrix(q102matrix, q102GoodMatrix, q102BadMatrix, overwrite, append, pass);}
 			if(incrQap && qapmatrix!=null){writeMatrix(qapmatrix, qapGoodMatrix, qapBadMatrix, overwrite, append, pass);}
 			if(incrQbp && qbpmatrix!=null){writeMatrix(qbpmatrix, qbpGoodMatrix, qbpBadMatrix, overwrite, append, pass);}
@@ -1761,7 +1777,7 @@ public class CalcTrueQuality {
 		 * @param pairnum
 		 * @return recalibrated quality scores
 		 */
-		public byte[] recalibrate(byte[] bases, byte[] quals, int pairnum, int tile) {
+		public byte[] recalibrate(byte[] bases, byte[] quals, int pairnum, int tile){
 			final byte[] quals2;
 			final boolean round=(pass<passes-1);
 			final int aq=Tools.sumInt(quals)/quals.length;
@@ -1791,7 +1807,6 @@ public class CalcTrueQuality {
 			}else{
 				assert(false) : "Can't recalibrate qualities for reads that don't have quality scores.";
 				quals2=null;
-				//TODO
 			}
 			return quals2;
 		}
@@ -2502,7 +2517,7 @@ public class CalcTrueQuality {
 	private boolean callVariants=false;
 	/** Whether to write calibration matrices to disk */
 	private boolean writeMatrices=true;
-	/** Number of threads for SamReadStreamer */
+	/** Number of threads for SAM/BAM streaming */
 	private int streamerThreads=-1;
 	/** Keep input ordered */
 	private boolean ordered=false;
@@ -2609,7 +2624,7 @@ public class CalcTrueQuality {
 	/**
 	 * Sets maximum quality score for matrix dimensions.
 	 * Updates QMAX, QEND, and QMAX2 values used for matrix sizing.
-	 * @param x Maximum quality score (must be 2 < x < 94)
+	 * @param x Maximum quality score (must be {@code 2 < x < 94})
 	 */
 	public static final synchronized void setQmax(int x){
 		assert(x>2 && x<94);

@@ -51,7 +51,7 @@ import ukmer.Kmer;
  * @date May 30, 2013
  *
  */
-public class KmerNormalize {
+public class KmerNormalize{
 
 	/**
 	 * Program entry point for k-mer normalization.
@@ -62,7 +62,7 @@ public class KmerNormalize {
 	public static void main(String[] args){
 
 		{//Preparse block for help, config files, and outstream
-			PreParser pp=new PreParser(args, new Object() { }.getClass().getEnclosingClass(), false);
+			PreParser pp=new PreParser(args, new Object(){}.getClass().getEnclosingClass(), false);
 			args=pp.args;
 			outstream=pp.outstream;
 		}
@@ -195,13 +195,13 @@ public class KmerNormalize {
 				in1=b;
 			}else if(a.equals("in2")){
 				in2=b;
-			}else if(a.equals("bits") ||a.equals("cbits") || a.equals("cellbits")){
+			}else if(a.equals("bits") || a.equals("cbits") || a.equals("cellbits")){
 				cbits=Integer.parseInt(b);
-			}else if(a.equals("bits1") ||a.equals("cbits1") || a.equals("cellbits1")){
+			}else if(a.equals("bits1") || a.equals("cbits1") || a.equals("cellbits1")){
 				cbits1=Integer.parseInt(b);
-			}else if(a.equals("prefilterbits") ||a.equals("prebits")){
+			}else if(a.equals("prefilterbits") || a.equals("prebits")){
 				precbits=Integer.parseInt(b);
-			}else if(a.equals("histlen") ||a.equals("histogramlen")){
+			}else if(a.equals("histlen") || a.equals("histogramlen")){
 				HIST_LEN_PRINT=Tools.min(Integer.MAX_VALUE, Long.parseLong(b)+1);
 			}else if(a.equals("matrixbits")){
 				int matrixbits=Integer.parseInt(b);
@@ -792,14 +792,15 @@ public class KmerNormalize {
 	}
 	
 	/**
-	 * Generates unique temporary file prefix for multi-pass processing.
-	 * Creates salted prefix to avoid collisions between concurrent processes.
+	 * Builds a temporary output prefix for one multi-pass file.
+	 * Calls getTempOut to register constructed paths and retries if the
+	 * returned path subsequently exists; no file is created or reserved.
 	 *
 	 * @param inFname Input filename for salt generation
 	 * @param outFname Output filename for directory structure
-	 * @param pass Pass number for uniqueness
-	 * @param pairnum Pair number (1 or 2) for paired-end reads
-	 * @return Unique temporary file prefix
+	 * @param pass Pass number to embed in the prefix
+	 * @param pairnum Pair number to embed in the prefix
+	 * @return Generated temporary file prefix
 	 */
 	private static String getTempPrefix(String inFname, String outFname, int pass, int pairnum){
 		String tempOut=null, tempOutPrefix=null;
@@ -818,8 +819,11 @@ public class KmerNormalize {
 	}
 	
 	/**
-	 * Constructs full temporary output filename from prefix.
-	 * Uses temp directory or output directory based on configuration.
+	 * Constructs a temporary output filename from a prefix.
+	 * Appends ".fq.gz" when outFname is null or temp files use TMPDIR; otherwise
+	 * inserts the prefix before the output basename. Recursively extends the
+	 * prefix for known or existing paths before recording the returned path in
+	 * temp_file_set.
 	 *
 	 * @param outFname Original output filename
 	 * @param tempOutPrefix Temporary file prefix
@@ -848,8 +852,8 @@ public class KmerNormalize {
 	}
 	
 	/**
-	 * Generates cryptographic salt for temporary filename uniqueness.
-	 * Combines system time, filename hash, and attempt counter.
+	 * Generates hex text from nanotime, the attempt counter, the filename hash,
+	 * and current time for temporary filename construction.
 	 *
 	 * @param fname Base filename for hashing
 	 * @param attempt Retry attempt number
@@ -860,13 +864,13 @@ public class KmerNormalize {
 	}
 	
 	/**
-	 * Sorts reads in memory by error score and writes to file.
-	 * Uses ReadErrorComparator for consistent ordering.
+	 * Sorts the list in memory by error score and writes roots and mates to file.
+	 * Mutates the supplied list and returns true iff no Throwable is caught.
 	 *
 	 * @param reads List of reads to sort
 	 * @param sorted Output filename for sorted reads
 	 * @param reverse True to reverse sort order
-	 * @return true if sorting succeeded, false on error
+	 * @return true if no Throwable was caught, false otherwise
 	 */
 	private static boolean inMemorySort(ArrayList<Read> reads, String sorted, boolean reverse){
 		try{
@@ -888,9 +892,9 @@ public class KmerNormalize {
 	}
 	
 	/**
-	 * Executes a single normalization pass with specified parameters.
-	 * Builds k-mer count table, processes reads through normalization pipeline,
-	 * and generates histograms and statistics.
+	 * Applies one pass of shared normalization settings, initializes histograms,
+	 * builds k-mer count tables from primary and extra inputs, and counts primary
+	 * inputs through the normalization pipeline.
 	 *
 	 * @param auto Automatic memory allocation mode
 	 * @param memory Available memory in bytes
@@ -923,7 +927,7 @@ public class KmerNormalize {
 	 * @param khistFile K-mer histogram output file
 	 * @param rhistFile Read histogram output file
 	 * @param peakFile Peak analysis output file
-	 * @param extra Additional input files
+	 * @param extra Additional input files for k-mer table construction
 	 * @param targetDepth Target coverage depth
 	 * @param targetDepthBadLow Low threshold for bad reads
 	 * @param targetDepthBadHigh High threshold for bad reads
@@ -942,7 +946,7 @@ public class KmerNormalize {
 	 * @param fixSpikes Enable spike fixing in coverage
 	 * @param countup Enable count-up normalization mode
 	 * @param rename Rename reads with depth information
-	 * @return Total bases processed
+	 * @return Total count-stage bases, including both stages in count-up mode
 	 */
 	private static long runPass(boolean auto, long memory, int cbits, long cells, int pcbits, long precells, int buildpasses, int hashes, int prehashes, int k,
 			long maxReads, long tablereads, int minq, int buildStepsize,
@@ -1232,9 +1236,14 @@ public class KmerNormalize {
 	
 	
 	/**
-	 * Prints depth topology statistics to stderr.
-	 * Reports percentages of spikes, peaks, valleys, slopes, and flats
-	 * in the coverage depth profile.
+	 * Prints accumulated depth-topology counters to stderr.
+	 * The current caller guards this with {@link #ANALYZE_TOPOLOGY}, but this
+	 * method itself always prints to {@link System#err}. Counters are read without
+	 * being reset, and each percentage is normalized by the sum of the spike, peak,
+	 * valley, slope, and flat counters. Some events can overlap, such as spikes
+	 * also being counted as peaks, so percentages are not distinct-position
+	 * frequencies. If no topology events have been counted, this method still
+	 * prints and reports the zero-counter percentages as NaN.
 	 */
 	public static void printTopology(){
 		long total=peaks.get()+spikes.get()+flats.get()+valleys.get()+slopes.get();
@@ -1252,23 +1261,32 @@ public class KmerNormalize {
 		double dfl=mult*fl;
 		
 		System.err.println("\nDepth Topology:\t");
-		System.err.println("Spikes:     \t\t\t"+(dsp<10 ? " " : "")+Tools.format("%.3f%%  \t%d",dsp,sp));
-		System.err.println("Peaks:      \t\t\t"+(dpe<10 ? " " : "")+Tools.format("%.3f%%  \t%d",dpe,pe));
-		System.err.println("Valleys:    \t\t\t"+(dva<10 ? " " : "")+Tools.format("%.3f%%  \t%d",dva,va));
-		System.err.println("Slopes:     \t\t\t"+(dsl<10 ? " " : "")+Tools.format("%.3f%%  \t%d",dsl,sl));
-		System.err.println("Flats:      \t\t\t"+(dfl<10 ? " " : "")+Tools.format("%.3f%%  \t%d",dfl,fl));
+		System.err.println("Spikes:     \t\t\t"+(dsp<10 ? " " : "")+Tools.format("%.3f%%  \t%d", dsp, sp));
+		System.err.println("Peaks:      \t\t\t"+(dpe<10 ? " " : "")+Tools.format("%.3f%%  \t%d", dpe, pe));
+		System.err.println("Valleys:    \t\t\t"+(dva<10 ? " " : "")+Tools.format("%.3f%%  \t%d", dva, va));
+		System.err.println("Slopes:     \t\t\t"+(dsl<10 ? " " : "")+Tools.format("%.3f%%  \t%d", dsl, sl));
+		System.err.println("Flats:      \t\t\t"+(dfl<10 ? " " : "")+Tools.format("%.3f%%  \t%d", dfl, fl));
 	}
 
 
 	/**
-	 * Processes single pair of input files through normalization pipeline.
-	 * Creates input/output streams and delegates to downsample method.
+	 * Normalizes a single first/mate input pair and writes category outputs.
+	 * Creates one reader from the supplied file names, forwards {@code maxReads}
+	 * unchanged in the reader-defined units, and delegates processing to
+	 * {@link #downsample}. The shared {@code kca} and {@code storage} references
+	 * are forwarded unchanged. Output streams are opened only for non-null first
+	 * paths; the first {@code #} in each first output path is replaced with
+	 * {@code 1}, and a missing mate path is inferred with {@code 2} only for paired
+	 * input whose first output path contains {@code #}.
+	 *
+	 * <p>After a normal downsample return, only input and final-output close
+	 * helper results are ORed into {@link #errorState}.
 	 *
 	 * @param in1 First input file
 	 * @param in2 Second input file (may be null)
-	 * @param kca K-mer count array for normalization
+	 * @param kca Shared k-mer count array for normalization
 	 * @param k K-mer length
-	 * @param maxReads Maximum reads to process
+	 * @param maxReads Reader limit forwarded unchanged
 	 * @param outKeep1 First kept reads output
 	 * @param outToss1 First discarded reads output
 	 * @param outLow1 First low-coverage reads output
@@ -1287,13 +1305,13 @@ public class KmerNormalize {
 	 * @param rhistFile Read histogram output file
 	 * @param peakFile Peak analysis output file
 	 * @param estUnique Estimated unique k-mers
-	 * @param storage Storage for reads (may be null)
-	 * @return Total bases processed
+	 * @param storage Shared read storage, or null
+	 * @return Downsample-reported bases, not kept-read yield
 	 */
 	public static long count(String in1, String in2, KCountArray kca, int k, long maxReads,
 			String outKeep1, String outToss1, String outLow1, String outMid1, String outHigh1, String outUnc1,
 			String outKeep2, String outToss2, String outLow2, String outMid2, String outHigh2, String outUnc2,
-			boolean ordered, boolean overwrite, String khistFile, String rhistFile, String peakFile, long estUnique, ArrayList<Read> storage) {
+			boolean ordered, boolean overwrite, String khistFile, String rhistFile, String peakFile, long estUnique, ArrayList<Read> storage){
 		final Streamer cris;
 		{
 			FileFormat ff1=FileFormat.testInput(in1, FileFormat.FASTQ, null, true, true);
@@ -1477,14 +1495,27 @@ public class KmerNormalize {
 	
 	
 	/**
-	 * Processes multiple input file lists through normalization pipeline.
-	 * Handles comma-separated input file lists and manages multiple output streams.
+	 * Normalizes already-separated arrays of first and mate inputs.
+	 * Iterates over {@code list1}; a null or too-short {@code list2} supplies a
+	 * null second-input filename for the affected slot. Output commas are split
+	 * only when the whole literal output path does not exist. When a mate-output
+	 * argument is omitted, the first {@code #} in each first-side output slot
+	 * expands to first and second paths. First-side output arrays must provide one
+	 * reused slot, or enough slots for all {@code list1} entries when their length
+	 * is greater than 1; explicit mate-side arrays must cover every accessed index.
+	 * The first-side slot count controls whether each category reopens a writer per
+	 * input or reuses the previous writer after resetting its next list ID.
+	 *
+	 * <p>Each reader receives {@code maxReads} unchanged in the reader-defined
+	 * units. The shared {@code kca} and {@code storage} references are forwarded
+	 * unchanged. On normal return, only input and final-output close helper
+	 * results are ORed into {@link #errorState}.
 	 *
 	 * @param list1 Array of first input files
-	 * @param list2 Array of second input files (may be null)
-	 * @param kca K-mer count array for normalization
+	 * @param list2 Array of second input files, or null
+	 * @param kca Shared k-mer count array for normalization
 	 * @param k K-mer length
-	 * @param maxReads Maximum reads to process per file
+	 * @param maxReads Reader limit forwarded unchanged per entry
 	 * @param outKeep1 First kept reads output pattern
 	 * @param outToss1 First discarded reads output pattern
 	 * @param outLow1 First low-coverage reads output pattern
@@ -1503,13 +1534,13 @@ public class KmerNormalize {
 	 * @param rhistFile Read histogram output file
 	 * @param peakFile Peak analysis output file
 	 * @param estUnique Estimated unique k-mers
-	 * @param storage Storage for reads (may be null)
-	 * @return Total bases processed across all files
+	 * @param storage Shared read storage, or null
+	 * @return Sum of downsample-reported bases, not kept-read yield
 	 */
 	public static long count(String[] list1, String[] list2, KCountArray kca, int k, long maxReads,
 			String outKeep1, String outToss1, String outLow1, String outMid1, String outHigh1, String outUnc1,
 			String outKeep2, String outToss2, String outLow2, String outMid2, String outHigh2, String outUnc2,
-			boolean ordered, boolean overwrite, String khistFile, String rhistFile, String peakFile, long estUnique, ArrayList<Read> storage) {
+			boolean ordered, boolean overwrite, String khistFile, String rhistFile, String peakFile, long estUnique, ArrayList<Read> storage){
 		
 		ConcurrentReadOutputStream rosKeep=null, rosToss=null, rosLow=null, rosMid=null, rosHigh=null, rosUnc=null;
 		String[] outKeep1a=null, outKeep2a=null;
@@ -1525,13 +1556,13 @@ public class KmerNormalize {
 			if(!new File(outKeep1).exists()){
 				outKeep1a=outKeep1.split(",");
 			}else{
-				outKeep1a=new String[] {outKeep1};
+				outKeep1a=new String[]{outKeep1};
 			}
 			if(outKeep2!=null){
 				if(!new File(outKeep2).exists()){
 					outKeep2a=outKeep2.split(",");
 				}else{
-					outKeep2a=new String[] {outKeep2};
+					outKeep2a=new String[]{outKeep2};
 				}
 			}else{
 				outKeep2a=new String[outKeep1a.length];
@@ -1547,13 +1578,13 @@ public class KmerNormalize {
 			if(!new File(outToss1).exists()){
 				outToss1a=outToss1.split(",");
 			}else{
-				outToss1a=new String[] {outToss1};
+				outToss1a=new String[]{outToss1};
 			}
 			if(outToss2!=null){
 				if(!new File(outToss2).exists()){
 					outToss2a=outToss2.split(",");
 				}else{
-					outToss2a=new String[] {outToss2};
+					outToss2a=new String[]{outToss2};
 				}
 			}else{
 				outToss2a=new String[outToss1a.length];
@@ -1569,13 +1600,13 @@ public class KmerNormalize {
 			if(!new File(outLow1).exists()){
 				outLow1a=outLow1.split(",");
 			}else{
-				outLow1a=new String[] {outLow1};
+				outLow1a=new String[]{outLow1};
 			}
 			if(outLow2!=null){
 				if(!new File(outLow2).exists()){
 					outLow2a=outLow2.split(",");
 				}else{
-					outLow2a=new String[] {outLow2};
+					outLow2a=new String[]{outLow2};
 				}
 			}else{
 				outLow2a=new String[outLow1a.length];
@@ -1591,13 +1622,13 @@ public class KmerNormalize {
 			if(!new File(outMid1).exists()){
 				outMid1a=outMid1.split(",");
 			}else{
-				outMid1a=new String[] {outMid1};
+				outMid1a=new String[]{outMid1};
 			}
 			if(outMid2!=null){
 				if(!new File(outMid2).exists()){
 					outMid2a=outMid2.split(",");
 				}else{
-					outMid2a=new String[] {outMid2};
+					outMid2a=new String[]{outMid2};
 				}
 			}else{
 				outMid2a=new String[outMid1a.length];
@@ -1613,13 +1644,13 @@ public class KmerNormalize {
 			if(!new File(outHigh1).exists()){
 				outHigh1a=outHigh1.split(",");
 			}else{
-				outHigh1a=new String[] {outHigh1};
+				outHigh1a=new String[]{outHigh1};
 			}
 			if(outHigh2!=null){
 				if(!new File(outHigh2).exists()){
 					outHigh2a=outHigh2.split(",");
 				}else{
-					outHigh2a=new String[] {outHigh2};
+					outHigh2a=new String[]{outHigh2};
 				}
 			}else{
 				outHigh2a=new String[outHigh1a.length];
@@ -1635,13 +1666,13 @@ public class KmerNormalize {
 			if(!new File(outUnc1).exists()){
 				outUnc1a=outUnc1.split(",");
 			}else{
-				outUnc1a=new String[] {outUnc1};
+				outUnc1a=new String[]{outUnc1};
 			}
 			if(outUnc2!=null){
 				if(!new File(outUnc2).exists()){
 					outUnc2a=outUnc2.split(",");
 				}else{
-					outUnc2a=new String[] {outUnc2};
+					outUnc2a=new String[]{outUnc2};
 				}
 			}else{
 				outUnc2a=new String[outUnc1a.length];
@@ -1795,30 +1826,38 @@ public class KmerNormalize {
 
 	
 	/**
-	 * Core normalization method that processes reads using multiple threads.
-	 * Creates ProcessThread workers, collects statistics, and generates histograms.
+	 * Processes reads from an already-open input stream using worker threads.
+	 * The caller owns all input and read-output stream closure; this method creates
+	 * any optional COUNTUP table, starts workers over the shared streams and count
+	 * arrays, joins each worker, and accumulates their counters into pass totals.
+	 * Worker-local histograms accumulate in static shared histogram state rather
+	 * than being reset here. Bin 0 is folded into bin 1 when ZERO_BIN is false.
 	 *
-	 * @param cris Concurrent read input stream
+	 * Histogram writers are opened only when their feature flags and file names
+	 * request them; peak output is opened when peakFile is non-null. Worker error
+	 * flags are ORed into the shared errorState, which is checked before return.
+	 *
+	 * @param cris Already-open concurrent read input stream
 	 * @param kca K-mer count array
 	 * @param k K-mer length
-	 * @param maxReads Maximum reads to process
-	 * @param rosKeep Output stream for kept reads
-	 * @param rosToss Output stream for discarded reads
-	 * @param rosLow Output stream for low-coverage reads
-	 * @param rosMid Output stream for mid-coverage reads
-	 * @param rosHigh Output stream for high-coverage reads
-	 * @param rosUnc Output stream for uncorrected reads
+	 * @param maxReads Unused here; any read cap is applied upstream
+	 * @param rosKeep Optional already-open output stream for kept reads
+	 * @param rosToss Optional already-open output stream for discarded reads
+	 * @param rosLow Optional already-open output stream for low-coverage reads
+	 * @param rosMid Optional already-open output stream for mid-coverage reads
+	 * @param rosHigh Optional already-open output stream for high-coverage reads
+	 * @param rosUnc Optional already-open output stream for uncorrected reads
 	 * @param khistFile K-mer histogram output file
 	 * @param rhistFile Read histogram output file
 	 * @param peakFile Peak analysis output file
 	 * @param overwrite Overwrite existing files
 	 * @param estUnique Estimated unique k-mers
 	 * @param storage Read storage (may be null)
-	 * @return Total bases processed
+	 * @return Total bases reported by workers
 	 */
 	public static long downsample(Streamer cris, KCountArray kca, int k, long maxReads,
 			ConcurrentReadOutputStream rosKeep, ConcurrentReadOutputStream rosToss, ConcurrentReadOutputStream rosLow, ConcurrentReadOutputStream rosMid, ConcurrentReadOutputStream rosHigh, ConcurrentReadOutputStream rosUnc,
-			String khistFile, String rhistFile, String peakFile, boolean overwrite, long estUnique, ArrayList<Read> storage) {
+			String khistFile, String rhistFile, String peakFile, boolean overwrite, long estUnique, ArrayList<Read> storage){
 		Timer tdetect=new Timer();
 		tdetect.start();
 
@@ -1879,9 +1918,9 @@ public class KmerNormalize {
 				ProcessThread ct=pta[i];
 				synchronized(ct){
 					while(ct.getState()!=State.TERMINATED){
-						try {
+						try{
 							ct.join(1000);
-						} catch (InterruptedException e) {
+						}catch(InterruptedException e){
 							// TODO Auto-generated catch block
 							e.printStackTrace();
 						}
@@ -2244,7 +2283,7 @@ public class KmerNormalize {
 			outstream.println("Read depth median:            \t"+Tools.format("%d", median_reads));
 			outstream.println("Read depth standard deviation:\t"+Tools.format("%.2f", read_stdev_all));
 			
-			outstream.println("\nBase depth average:           \t"+Tools.format("%.2f)", avg_bases));
+			outstream.println("\nBase depth average:           \t"+Tools.format("%.2f", avg_bases));
 			outstream.println("Base depth median:            \t"+Tools.format("%d", median_bases));
 			outstream.println("Base depth standard deviation:\t"+Tools.format("%.2f", base_stdev_all));
 		}
@@ -2257,10 +2296,14 @@ public class KmerNormalize {
 	
 	
 	/**
-	 * Locates and fixes spikes in a coverage profile (potentially) caused by false positives in a bloom filter.
-	 * Theory:  If a high-count kmer is adjacent on both sides to low-count kmers, it may be a false positive.
-	 * It could either be reduced to the max of the two flanking points or examined in more detail.
-	 * @param cov An array of kmer counts for adjacent kmers in a read.
+	 * Heuristically lowers interior coverage spikes in place.
+	 * Scans left-to-right, ignoring endpoints. Neighbor values below 1 are
+	 * clamped to 1 for comparison and replacement; each accepted replacement is
+	 * therefore visible to later positions. An interior value is reduced to the
+	 * larger clamped neighbor when it is greater than both neighbors and, for each
+	 * clamped neighbor, is either at least twice its value or more than 2 greater.
+	 *
+	 * @param cov Coverage array to modify
 	 */
 	private static void fixSpikes(int[] cov){
 		
@@ -2279,13 +2322,20 @@ public class KmerNormalize {
 	}
 	
 	/**
-	 * Advanced spike fixing using k-mer context for validation.
-	 * Verifies spike correction against k-mer count table before applying.
+	 * Replaces selected endpoint values and interior peaks with table-backed
+	 * estimates. Requires {@code k<32} under assertions and returns without
+	 * touching arrays shorter than 3. The left endpoint is reread with
+	 * {@code readPrecise} when {@code cov[1]-cov[0]>1}; the right endpoint is
+	 * reread when {@code cov[cov.length-1]-cov[cov.length-2]>1}. Interior peaks
+	 * compare the current count {@code b} against neighbors {@code a} and {@code c}
+	 * clamped to at least 1, then are reread left-to-right with
+	 * {@code readPreciseMin} only when {@code b<6 || b>a+1 || b>c+1}, so earlier
+	 * replacements are visible to later positions.
 	 *
-	 * @param cov Coverage array to fix
-	 * @param kmers K-mer array for validation
+	 * @param cov Coverage array to modify
+	 * @param kmers K-mer array aligned with cov
 	 * @param kca K-mer count array
-	 * @param k K-mer length
+	 * @param k K-mer length; asserted to be below 32
 	 */
 	private static void fixSpikes(int[] cov, long[] kmers, KCountArray kca, final int k){
 		assert(k<32) : "this function not tested with k>31";
@@ -2335,6 +2385,34 @@ public class KmerNormalize {
 	}
 
 
+	/**
+	 * Corrects candidate one-base errors by scanning enabled directions.
+	 * Rebuilds k-mers or coverage when requested, returns 0 when no
+	 * discontinuity is found, and returns -99 when k-mers are absent or too
+	 * short. A negative directional result means that scan failed after finding
+	 * candidates, not the precheck discontinuity total. Failed scans restore read
+	 * bases only; quality, k-mer, coverage, and qhist changes are not rolled
+	 * back. A right-scan failure after left-scan success can retain the accepted
+	 * left edits in the restored base snapshot.
+	 *
+	 * @param r Read whose bases may be corrected
+	 * @param cov Coverage array to use or refresh
+	 * @param kmers K-mer array to use or refresh
+	 * @param kca K-mer count array
+	 * @param k K-mer length; asserted to be below 32
+	 * @param low Low-coverage threshold for an error candidate
+	 * @param high Minimum nearby high coverage for an error candidate
+	 * @param mult Minimum high-to-low coverage ratio
+	 * @param maxToCorrect Shared remaining budget for accepted corrections
+	 * @param maxQual Maximum quality eligible for base correction
+	 * @param kmersAlreadyValid True when kmers already reflect the read bases
+	 * @param coverageAlreadyValid True when cov already reflects kmers
+	 * @param qhist Optional per-quality candidate histogram
+	 * @param markOnly True to mark candidates instead of substituting bases
+	 * @param longkmer Reusable long-kmer object for k > 31
+	 * @return Corrected or marked count; 0 for no work; -99 for absent or short
+	 * k-mers; or a negative directional candidate count on failed correction
+	 */
 	private static int correctErrors(Read r, int[] cov, long[] kmers, KCountArray kca, final int k,
 			final int low, final int high, final int mult, int maxToCorrect, int maxQual, boolean kmersAlreadyValid, boolean coverageAlreadyValid, long[] qhist,
 			final boolean markOnly, Kmer longkmer){
@@ -2386,6 +2464,30 @@ public class KmerNormalize {
 		return cfl+cfr;
 	}
 
+	/**
+	 * Marks candidate error bases by negating qualities, then converts negative
+	 * qualities back to lowered positive values. Rebuilds k-mers or coverage
+	 * when requested; missing or short k-mers return 0.
+	 * TODO(JGI-186): when qualities are absent, directional marking writes N and
+	 * returns a positive count, but the post-mark assertion expects converted
+	 * negative qualities; repair or reject that branch before promising a
+	 * successful qualityless return.
+	 *
+	 * @param r Read whose quality markers may be changed
+	 * @param cov Coverage array to use or refresh
+	 * @param kmers K-mer array to use or refresh
+	 * @param kca K-mer count array
+	 * @param k K-mer length; asserted to be below 32
+	 * @param low Low-coverage threshold for an error candidate
+	 * @param high Minimum nearby high coverage for an error candidate
+	 * @param mult Minimum high-to-low coverage ratio
+	 * @param maxToCorrect Positive entry guard; directional helpers ignore it
+	 * @param kmersAlreadyValid True when kmers already reflect the read bases
+	 * @param coverageAlreadyValid True when cov already reflects kmers
+	 * @param qhist Optional per-quality candidate histogram
+	 * @param longkmer Reusable long-kmer object for k > 31
+	 * @return Directional mark count after converting negative quality markers
+	 */
 	private static int markErrors(Read r, int[] cov, long[] kmers, KCountArray kca, final int k,
 			final int low, final int high, final int mult, int maxToCorrect, boolean kmersAlreadyValid, boolean coverageAlreadyValid, long[] qhist, Kmer longkmer){
 		assert(k<32) : "this function not tested with k>31";
@@ -2439,13 +2541,16 @@ public class KmerNormalize {
 		return marked;
 	}
 	
-	/** Returns number of discontinuities detected.  This is not the same as the number of errors,
-	 * but the presence of discontinuities indicates the presence of errors.
-	 * @param cov
-	 * @param low
-	 * @param high
-	 * @param mult
-	 * @return
+	/**
+	 * Counts directional discontinuity events next to two higher-coverage neighbors.
+	 * A position can be counted from both directions when both two-neighbor minima
+	 * pass {@code a>=high && (b<=low || a>=b*mult)}.
+	 *
+	 * @param cov Coverage values to scan
+	 * @param low Low-coverage threshold for candidate b
+	 * @param high Minimum two-neighbor value for candidate a
+	 * @param mult Minimum a-to-b ratio above low
+	 * @return Number of directional discontinuities detected
 	 */
 	private static int countDiscontinuities(final int[] cov, final int low, final int high, final int mult){
 		
@@ -2470,7 +2575,25 @@ public class KmerNormalize {
 		return found;
 	}
 	
-	
+	/**
+	 * Refreshes k-mer and coverage arrays after read bases have changed.
+	 * Null or short bases leave both arrays unchanged.
+	 * Short k-mers update a coverage value only when a valid encoded k-mer
+	 * changes; invalid or unchanged slots retain their prior values. Long k-mers
+	 * currently call Read.toKmers with {@code makeCanonical=false}, but that
+	 * path delegates to a long-kmer helper that asserts canonical mode.
+	 * TODO(JGI-185): repair or reject that probable bug before treating it as
+	 * a supported direct-call contract. Callers must pass correctly sized arrays;
+	 * any replacement array returned by Read.toKmers is ignored.
+	 *
+	 * @param r Read whose bases define the updated k-mers
+	 * @param kmers K-mer array to refresh
+	 * @param cov Coverage array to refresh where k-mers change
+	 * @param kca K-mer count array
+	 * @param k K-mer length
+	 * @param makeCanonical True to store canonical short k-mers
+	 * @param longkmer Reusable long-kmer object for k > 31
+	 */
 	private static void regenerateKmersAndCoverage(final Read r, final long[] kmers, final int[] cov, final KCountArray kca, final int k, boolean makeCanonical,
 			Kmer longkmer){
 		assert(r!=null && kmers!=null && cov!=null && kca!=null);
@@ -2518,6 +2641,29 @@ public class KmerNormalize {
 	}
 	
 	
+	/**
+	 * Scans candidate discontinuities from left to right and corrects the base at
+	 * {@code i+k-1}. qhist is updated for each candidate before budget or quality
+	 * rejection. Mark-only mode counts each candidate, bypasses correction limits,
+	 * writes N when qualities are absent, and lowers only positive qualities.
+	 *
+	 * @param r Read whose bases or qualities may be changed
+	 * @param cov Coverage values to scan and refresh after successful changes
+	 * @param kmers K-mers to read and refresh after successful changes
+	 * @param kca K-mer count array
+	 * @param k K-mer length
+	 * @param low Low-coverage threshold for an error candidate
+	 * @param high Minimum prior-window coverage for an error candidate
+	 * @param mult Minimum high-to-low coverage ratio
+	 * @param maxToCorrect Maximum accepted candidates before failure
+	 * @param maxQual Maximum quality eligible for base correction
+	 * @param suffix Scratch suffix buffer mutated by candidate tests
+	 * @param qhist Optional per-quality candidate histogram
+	 * @param markOnly True to mark candidates instead of substituting bases
+	 * @param longkmer Reusable long-kmer object for k > 31
+	 * @return Corrected or marked count, or negative directional candidate count
+	 * after exceeding a limit or failing a base choice
+	 */
 	private static int correctErrorsFromLeft(final Read r, final int[] cov, final long[] kmers, final KCountArray kca, final int k,
 			final int low, final int high, final int mult, final int maxToCorrect, int maxQual, final byte[] suffix, final long[] qhist, boolean markOnly,
 			Kmer longkmer){
@@ -2561,10 +2707,34 @@ public class KmerNormalize {
 //		assert(false) : Arrays.toString(cov)+"\nlow="+low+", high="+high+", mult="+mult+", found="+found+", corrected="+corrected+", uncorrected="+uncorrected;
 		
 		
-		return (uncorrected>0 ? 0-found : corrected);
+		return(uncorrected>0 ? 0-found : corrected);
 	}
 	
 	
+	/**
+	 * Scans candidate discontinuities from right to left and corrects the base at
+	 * cov index {@code i}. qhist is updated for each candidate before budget or
+	 * quality rejection. Mark-only mode starts no later than {@code k-1}, counts
+	 * each candidate, bypasses correction limits, writes N when qualities are
+	 * absent, and lowers only positive qualities.
+	 *
+	 * @param r Read whose bases or qualities may be changed
+	 * @param cov Coverage values to scan and refresh after successful changes
+	 * @param kmers K-mers to read and refresh after successful changes
+	 * @param kca K-mer count array
+	 * @param k K-mer length
+	 * @param low Low-coverage threshold for an error candidate
+	 * @param high Minimum following-window coverage for an error candidate
+	 * @param mult Minimum high-to-low coverage ratio
+	 * @param maxToCorrect Maximum accepted candidates before failure
+	 * @param maxQual Maximum quality eligible for base correction
+	 * @param suffix Scratch suffix buffer mutated by candidate tests
+	 * @param qhist Optional per-quality candidate histogram
+	 * @param markOnly True to mark candidates instead of substituting bases
+	 * @param longkmer Reusable long-kmer object for k > 31
+	 * @return Corrected or marked count, or negative directional candidate count
+	 * after exceeding a limit or failing a base choice
+	 */
 	private static int correctErrorsFromRight(final Read r, final int[] cov, final long[] kmers, final KCountArray kca, final int k,
 			final int low, final int high, final int mult, final int maxToCorrect, int maxQual, final byte[] suffix, final long[] qhist, final boolean markOnly,
 			Kmer longkmer){
@@ -2608,10 +2778,25 @@ public class KmerNormalize {
 //		assert(false) : Arrays.toString(cov)+"\nlow="+low+", high="+high+", mult="+mult+", found="+found+", corrected="+corrected+", uncorrected="+uncorrected;
 		
 		
-		return (uncorrected>0 ? 0-found : corrected);
+		return(uncorrected>0 ? 0-found : corrected);
 	}
 	
 	
+	/**
+	 * Scans left-to-right error candidates and marks base {@code i+k-1} when its
+	 * quality is positive; absent qualities use a synthetic quality 10 and write
+	 * N. The maxToCorrect parameter is ignored.
+	 *
+	 * @param r Read whose qualities or bases may be marked
+	 * @param cov Coverage values to scan
+	 * @param k K-mer length
+	 * @param low Low-coverage threshold for an error candidate
+	 * @param high Minimum prior-window coverage for an error candidate
+	 * @param mult Minimum high-to-low coverage ratio
+	 * @param maxToCorrect Unused correction budget
+	 * @param qhist Optional per-quality mark histogram
+	 * @return Number of positions marked
+	 */
 	private static int markErrorsFromLeft(final Read r, final int[] cov, final int k,
 			final int low, final int high, final int mult, final int maxToCorrect, final long[] qhist){
 		
@@ -2637,6 +2822,21 @@ public class KmerNormalize {
 	}
 	
 	
+	/**
+	 * Scans right-to-left error candidates and marks base {@code i} when its
+	 * quality is positive; absent qualities use a synthetic quality 10 and write
+	 * N. The maxToCorrect parameter is ignored.
+	 *
+	 * @param r Read whose qualities or bases may be marked
+	 * @param cov Coverage values to scan
+	 * @param k K-mer length
+	 * @param low Low-coverage threshold for an error candidate
+	 * @param high Minimum following-window coverage for an error candidate
+	 * @param mult Minimum high-to-low coverage ratio
+	 * @param maxToCorrect Unused correction budget
+	 * @param qhist Optional per-quality mark histogram
+	 * @return Number of positions marked
+	 */
 	private static int markErrorsFromRight(final Read r, final int[] cov, final int k,
 			final int low, final int high, final int mult, final int maxToCorrect, final long[] qhist){
 		
@@ -2662,6 +2862,28 @@ public class KmerNormalize {
 		return found;
 	}
 	
+	/**
+	 * Tests A/C/G/T as replacements for {@code loc+k-1}. The suffix scratch is
+	 * refilled with forward context and mutated during scoring; kmers are read
+	 * but not refreshed, and cov is unused. The first A/C/G/T maximum within
+	 * target bounds is accepted only when the runner-up also passes the low-or-
+	 * ratio test. Accepted corrections can also set FIXED_N_QUAL for an
+	 * undefined base that had quality 0. Returning false leaves the read
+	 * unchanged.
+	 *
+	 * @param r Read whose base may be changed
+	 * @param cov Unused coverage array
+	 * @param kmers K-mers used to seed candidate scoring
+	 * @param kca K-mer count array
+	 * @param k K-mer length
+	 * @param low Runner-up threshold alternative to the ratio test
+	 * @param targetLowerBound Minimum accepted best count
+	 * @param targetUpperBound Maximum accepted best count
+	 * @param mult Minimum best-to-runner-up ratio above low
+	 * @param loc Coverage index anchoring the correction
+	 * @param suffix Scratch suffix buffer
+	 * @return True if the candidate base was accepted and assigned
+	 */
 	private static boolean correctErrorFromLeft(final Read r, final int[] cov, final long[] kmers, final KCountArray kca, final int k,
 			final int low, final int targetLowerBound, final int targetUpperBound, final int mult, final int loc, final byte[] suffix){
 		
@@ -2749,6 +2971,28 @@ public class KmerNormalize {
 		return false;
 	}
 	
+	/**
+	 * Tests A/C/G/T as replacements for {@code loc}. The suffix scratch is
+	 * refilled with backward context and mutated during scoring; kmers are read
+	 * but not refreshed, and cov is unused. The first A/C/G/T maximum within
+	 * target bounds is accepted only when the runner-up also passes the low-or-
+	 * ratio test. Accepted corrections can also set FIXED_N_QUAL for an
+	 * undefined base that had quality 0. Returning false leaves the read
+	 * unchanged.
+	 *
+	 * @param r Read whose base may be changed
+	 * @param cov Unused coverage array
+	 * @param kmers K-mers used to seed candidate scoring
+	 * @param kca K-mer count array
+	 * @param k K-mer length
+	 * @param low Runner-up threshold alternative to the ratio test
+	 * @param targetLowerBound Minimum accepted best count
+	 * @param targetUpperBound Maximum accepted best count
+	 * @param mult Minimum best-to-runner-up ratio above low
+	 * @param loc Base and coverage index anchoring the correction
+	 * @param suffix Scratch suffix buffer
+	 * @return True if the candidate base was accepted and assigned
+	 */
 	private static boolean correctErrorFromRight(final Read r, final int[] cov, final long[] kmers, final KCountArray kca, final int k,
 			final int low, final int targetLowerBound, final int targetUpperBound, final int mult, final int loc, final byte[] suffix){
 		
@@ -2835,14 +3079,18 @@ public class KmerNormalize {
 	}
 	
 	/**
-	 * Tests k-mer extension to the right for error correction.
-	 * Evaluates potential base substitutions at rightmost position.
+	 * Scores a supplied right-extension suffix by replacing the right edge of
+	 * {@code kmer0} with {@code suffix[0]}, then rolling remaining bytes into
+	 * the short k-mer. Uses canonical count reads, stops when the running
+	 * minimum is at most 0, returns 0 for an undefined suffix byte, and asserts
+	 * {@code k<=31}. Empty suffixes violate the final
+	 * {@code min<Integer.MAX_VALUE} assertion.
 	 *
 	 * @param kca K-mer count array
 	 * @param k K-mer length
-	 * @param kmer0 Base k-mer value
-	 * @param suffix Suffix bytes for extension
-	 * @return Count for best extension base
+	 * @param kmer0 Base k-mer value before extension
+	 * @param suffix Candidate base followed by extension bytes
+	 * @return Minimum count across the supplied extension
 	 */
 	private static int testRightSuffix(final KCountArray kca, final int k, final long kmer0, final byte[] suffix){
 		assert(k<=31);
@@ -2879,14 +3127,18 @@ public class KmerNormalize {
 	}
 	
 	/**
-	 * Tests k-mer extension to the left for error correction.
-	 * Evaluates potential base substitutions at leftmost position.
+	 * Scores a supplied left-extension suffix by replacing the left edge of
+	 * {@code kmer0} with {@code suffix[0]}, then rolling remaining bytes into
+	 * the short k-mer. Uses canonical count reads, stops when the running
+	 * minimum is at most 0, returns 0 for an undefined suffix byte, and asserts
+	 * {@code k<=31}. Empty suffixes violate the final
+	 * {@code min<Integer.MAX_VALUE} assertion.
 	 *
 	 * @param kca K-mer count array
 	 * @param k K-mer length
-	 * @param kmer0 Base k-mer value
-	 * @param suffix Suffix bytes for extension
-	 * @return Count for best extension base
+	 * @param kmer0 Base k-mer value before extension
+	 * @param suffix Candidate base followed by extension bytes
+	 * @return Minimum count across the supplied extension
 	 */
 	private static int testLeftSuffix(final KCountArray kca, final int k, final long kmer0, final byte[] suffix){
 		assert(k<=31);
@@ -2923,6 +3175,16 @@ public class KmerNormalize {
 		return min;
 	}
 	
+	/**
+	 * Classifies interior coverage-profile positions and accumulates totals.
+	 * Ignores the two endpoints, reads immediate unclamped neighbors, leaves the
+	 * array unchanged, and does not reset the shared counters before adding local
+	 * nonzero totals to them. Spikes are also counted as peaks. The width
+	 * parameter is unused.
+	 *
+	 * @param array Coverage profile to classify
+	 * @param width Unused
+	 */
 	private static void analyzeSpikes(int[] array, int width){
 		if(array.length<3){return;}
 		int peakcount=0, valleycount=0, spikecount=0, flatcount=0, slopecount=0;
@@ -2951,13 +3213,18 @@ public class KmerNormalize {
 	}
 	
 	/**
-	 * kmer array must be valid at this point
-	 * @param r
-	 * @param kca
-	 * @param k
-	 * @param out
-	 * @param kmers
-	 * @return Array of coverage per kmer
+	 * Generates coverage for a valid k-mer array.
+	 * The read parameter is unused; when assertions are disabled a null k-mer
+	 * array returns null. Delegates the canonicalization flag as {@code k<=31}.
+	 * Topology counters are updated when topology analysis is enabled.
+	 *
+	 * @param r Unused read reference
+	 * @param kca K-mer count array
+	 * @param k K-mer length
+	 * @param out Optional coverage array to reuse
+	 * @param kmers Valid non-null k-mer array under assertions
+	 * @return Array of coverage per k-mer, or null if assertions are disabled
+	 * and kmers is null
 	 */
 	public static int[] generateCoverage(Read r, KCountArray kca, final int k, int[] out, long[] kmers){
 		
@@ -2971,13 +3238,18 @@ public class KmerNormalize {
 	}
 	
 	/**
-	 * kmer array must be valid at this point
-	 * @param kca
-	 * @param k
-	 * @param out
-	 * @param kmers
-	 * @param makeCanonical
-	 * @return Array of coverage per kmer
+	 * Generates coverage from a k-mer array.
+	 * Allocates or reuses exact-length {@code out}, initializes it to -1, skips
+	 * exactly -1 k-mers, fills other entries using the supplied canonicalization
+	 * flag, and optionally calls a spike-correction helper whose asserted
+	 * precondition is {@code k<32}. Null kmers return null without touching out.
+	 *
+	 * @param kca K-mer count array
+	 * @param k K-mer length
+	 * @param out Optional coverage array to reuse
+	 * @param kmers K-mer array, or null for a too-short read
+	 * @param makeCanonical True to read canonical k-mers from kca
+	 * @return Array of coverage per k-mer, or null if kmers is null
 	 */
 	public static int[] generateCoverage(KCountArray kca, int k, int[] out, long[] kmers, boolean makeCanonical){
 		if(kmers==null){return null;}
@@ -2999,14 +3271,27 @@ public class KmerNormalize {
 	
 	//[JGI-152] Keep d1/d2/e1/e2 in documented {depth1,depth2,errors1,errors2} order.
 	//normalizeInThread consumes slots 0/1/2/3 in that same field order.
-	/** Returns {depth1, depth2, errors1, errors2} */
+	/**
+	 * Parses {@code d1}, {@code d2}, {@code e1}, and {@code e2} fields from an
+	 * {@code id=} annotation into slots {@code 0..3}.
+	 * Returns null immediately if {@code s} is null or does not start with
+	 * {@code id=}. Otherwise, either allocates a four-element array or fills the
+	 * entire caller array with {@code -1} and reuses it. Absent fields stay
+	 * {@code -1}. Tokens are split on comma or space, and unrecognized tokens are
+	 * ignored. Only {@link NumberFormatException} is caught; a numeric parse failure
+	 * returns null and may leave partially parsed slot values in a reused array.
+	 *
+	 * @param s Comma- or space-delimited annotation that must start with {@code id=}
+	 * @param array Optional array to reuse; must have slots {@code 0..3}
+	 * @return the filled array in {depth1, depth2, errors1, errors2} order, or null
+	 */
 	public static int[] parseDepth(String s, int[] array){
 		if(s==null || !s.startsWith("id=")){return null;}
 		if(array==null){array=KillSwitch.allocInt1D(4);}
 		String[] split=s.split("[, ]");
 		Arrays.fill(array, -1);
 //		assert(false) : s+"\n"+Arrays.toString(split);
-		try {
+		try{
 			for(int i=1; i<split.length; i++){
 				final String ss=split[i];
 				if(ss.startsWith("d1=")){array[0]=Integer.parseInt(ss.substring(3));}
@@ -3015,21 +3300,22 @@ public class KmerNormalize {
 				else if(ss.startsWith("e2=")){array[3]=Integer.parseInt(ss.substring(3));}
 			}
 			return array;
-		} catch (NumberFormatException e) {
+		}catch(NumberFormatException e){
 			return null;
 		}
 	}
 	
 	
 	/**
-	 * Worker thread for processing reads through normalization pipeline.
-	 * Handles read classification, error correction, and histogram updates.
-	 * Each thread processes a subset of input reads independently.
+	 * Worker thread for read normalization and optional error correction.
+	 * Each thread borrows the shared input stream, count arrays, optional output
+	 * streams, and optional storage list. It owns its counters and local histogram
+	 * arrays for later aggregation by downsample.
 	 */
 	private static class ProcessThread extends Thread{
 		
 		/**
-		 * Creates processing thread with input/output streams and count arrays.
+		 * Creates a worker over shared, already-open streams and count arrays.
 		 *
 		 * @param cris_ Concurrent read input stream
 		 * @param kca_ Main k-mer count array
@@ -3059,6 +3345,10 @@ public class KmerNormalize {
 			storage=storage_;
 		}
 		
+		/**
+		 * Dispatches to ordinary or count-up normalization.
+		 * errorStateT stays true unless the selected path returns normally.
+		 */
 		@Override
 		public void run(){
 			errorStateT=true;
@@ -3071,7 +3361,7 @@ public class KmerNormalize {
 			errorStateT=false;
 		}
 		
-		void normalizeInThread() {
+		void normalizeInThread(){
 			
 			Kmer longkmer=(k<32 ? null : new Kmer(k));
 			
@@ -3430,7 +3720,7 @@ public class KmerNormalize {
 		}
 		
 		
-		void normalizeInThreadByCountup() {
+		void normalizeInThreadByCountup(){
 			
 			Kmer longkmer=(k<32 ? null : new Kmer(k));
 			
@@ -3600,6 +3890,13 @@ public class KmerNormalize {
 			if(verbose){System.err.println("Finished reading");}
 		}
 		
+		/**
+		 * Optionally regenerates coverage for the read according to the flags,
+		 * reusing the supplied buffer when suitable or replacing it when needed.
+		 * Sorts the resulting buffer in place, records it in this worker's histogram
+		 * state, and returns it. A caller that needs the original coverage order
+		 * must pass a copy.
+		 */
 		private final int[] getSortedCoverageAndIncrementHistogram(Read r, int[] cov, long[] kmers,
 				boolean kmersAlreadyValid, boolean kmersAlreadyCanonical, boolean coverageAlreadyValid, Kmer longkmer){
 			assert(r!=null && r.bases!=null && r.length()>=k) : r;
@@ -3613,6 +3910,7 @@ public class KmerNormalize {
 			return cov;
 		}
 		
+		/** Sorts coverage in place in descending order before binning it. */
 		private void sortCoverageAndIncrementHistogram(int[] cov){
 			if(cov==null || cov.length==0){return;}
 			Arrays.sort(cov);
@@ -3620,17 +3918,23 @@ public class KmerNormalize {
 			incrementHistogramSorted(cov);
 		}
 		
-		/** Handles coverage sorted in either direction */
+		/**
+		 * Bins coverage already sorted in either direction. Negative sentinel values
+		 * are skipped from the front or stop the scan at the end. Nonnegative values
+		 * at or above HIST_LEN are capped to HIST_LEN-1; bins below hist.length
+		 * stay local and higher bins are added directly to khistogram.
+		 */
 		private final void incrementHistogramSorted(int[] cov){
 			if(hist==null || cov==null || cov.length==0){return;}
 			
 //			outstream.println(Arrays.toString(cov));
 			
-			int last=cov[0];
-			long sum=0;
-//			long sum2=0;
 			int i=0;
 			while(i<cov.length && cov[i]<0){i++;}
+			if(i>=cov.length){return;}
+			int last=Tools.min(cov[i], HIST_LEN-1);
+			long sum=0;
+//			long sum2=0;
 			for(; i<cov.length; i++){
 				int x=cov[i];
 //				outstream.println("Processing "+x);
@@ -3765,7 +4069,11 @@ public class KmerNormalize {
 	private static int TARGET_DEPTH_BAD_HIGH=100;
 	/** High-depth reads will be downsampled to this level in the final pass */
 	private static int TARGET_DEPTH_F=100;
-	/** High-depth reads will be downsampled to this level in the first pass */
+	/**
+	 * Temporary-pass target-depth seed. Positive values are used directly for the
+	 * last or sole temporary pass and doubled for earlier temporaries; values
+	 * below 1 derive a fallback from the local final-pass target depth.
+	 */
 	private static int TARGET_DEPTH_1=-1;
 	/** Reads under this depth will not be downsampled */
 	private static int MAX_DEPTH=-1;
@@ -3784,13 +4092,13 @@ public class KmerNormalize {
 	public static boolean TOSS_ERROR_READS=false;
 	/** Throw out reads containing errors in the final pass */
 	public static boolean TOSS_ERROR_READS_F=false;
-	/** Throw out reads containing errors in the first pass */
+	/** Throw out reads containing errors in the last or sole temporary pass */
 	public static boolean TOSS_ERROR_READS_1=false;
 	/** Only downsample error reads on current pass (keep all error-free reads) */
 	public static boolean DISCARD_BAD_ONLY=false;
-	/** Only downsample error reads on first pass (keep all error-free reads) */
+	/** Only downsample error reads on the final or only pass (keep all error-free reads) */
 	public static boolean DISCARD_BAD_ONLY_F=false;
-	/** Only downsample error reads on final pass (keep all error-free reads) */
+	/** Only downsample error reads on the last temporary pass (keep all error-free reads) */
 	public static boolean DISCARD_BAD_ONLY_1=false;
 	/** Require both reads in a pair to be bad before tossing the read */
 	public static boolean REQUIRE_BOTH_BAD=false;

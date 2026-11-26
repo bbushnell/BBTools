@@ -5213,7 +5213,7 @@ public final class Tools{
 	
 	/** Estimates depth dispersion after converting event counts to unique-kmer weights.
 	 * Bin i contributes histogram[i]/max(i,1) unique kmers; the event-count total
-	 * divided by max(unique total,1) supplies the mean depth. Bin zero contributes to
+	 * divided by the unique total supplies the mean depth. Bin zero contributes to
 	 * the totals but is excluded from the squared-deviation sum. Null is unsupported;
 	 * empty/all-zero input returns NaN. Totals use double accumulation to avoid long overflow. */
 	public static final double standardDeviationHistogramKmer(long[] histogram){
@@ -5223,7 +5223,7 @@ public final class Tools{
 			sum+=x;
 			sumU+=(x/(double)max(i, 1));
 		}
-		double avg=sum/max(sumU, 1);
+		double avg=sum/sumU;
 		double sumdev2=0;
 		for(int i=1; i<histogram.length; i++){
 			double dev=avg-i;
@@ -5271,7 +5271,7 @@ public final class Tools{
 			sum+=x;
 			sumU+=(x/(double)max(i, 1));
 		}
-		double avg=sum/max(sumU, 1);
+		double avg=sum/sumU;
 		double sumdev2=0;
 		for(int i=1; i<histogram.length(); i++){
 			double dev=avg-i;

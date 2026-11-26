@@ -5,15 +5,24 @@ echo "
 Written by Brian Bushnell
 Last modified July 30, 2024
 
-Description:  Selects a subset of files from an all-to-all identity
-comparison.  The subset will contain exactly X files with maximal
-pairwise ANI, or all files with at most Y pairwise identity.
-This program is similar to representative.sh but does not use taxonomy.
+Description:  Greedily selects a diverse subset from an all-to-all
+identity comparison.  It removes one endpoint of the highest-ANI
+remaining edge until at most files= nodes remain, the highest remaining
+ANI is at most ani=, or all supplied edges have been processed.
+This program does not use taxonomy or promise a globally optimal subset.
 
 Input should be in 3+ column TSV format (first 3 are required):
 (query, ref, ANI)
 ...as produced by CompareSketch when run like this:
 comparesketch.sh ata format=3 includeself perfile records=99999 *.fasta
+
+Query-column names define selectable nodes.  A reference consulted
+during selection or final reporting must appear among query rows
+actually read, or the run reports the missing reference and query.
+The lines= limit can truncate coverage.  #Query/Ref/ANI or
+#Query/Ref/AAI headers identify optional KID and SSU columns by
+name; headerless input uses legacy KID and SSU positions, columns
+10 and 12 when present.
 
 Usage:  picksubset.sh in=<file> out=<file> invalid=<file> files=<number>
 
@@ -21,10 +30,12 @@ Parameters:
 in=             Input file comparing all-to-all comparisons.
 out=            Output file for the list of files to retain.
 invalid=        Output file for the list of files to discard.
-overwrite=f     (ow) Set to false to force the program to abort rather than
+overwrite=t     (ow) Set to false to force the program to abort rather than
                 overwrite an existing file.
-files=0         Number of files to retain.
-ani=0           Maximum pairwise ANI allowed, expressed as a percent.
+files=0         Stop after retaining at most this many files.
+ani=0           Stop when the next pairwise ANI would be at most this percent.
+lines=0         Stop after this many nonempty physical input records,
+                including comments and headers; 0 or negative is unlimited.
 NOTE: files or ani, or both, must be set.
 
 Java Parameters:

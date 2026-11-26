@@ -94,7 +94,7 @@ minoverlappercent=0   (mop) Overlap must be at least this percent of smaller con
 minoverlap=200        (mo) Overlap must be at least this long to cluster and merge.
 depthratio=0          (dr) When non-zero, overlaps will only be formed between reads with a depth ratio of at most this.
                       Should be above 1.  Depth is determined by parsing the read names; this information can be added
-                      by running KmerNormalize (khist.sh, bbnorm.sh, or ecc.sh) with the flag 'rename'
+                      by running KmerNormalize (khist.sh or bbnorm.sh) with the flag 'rename'
 k=31                  Seed length used for finding containments and overlaps.  Anything shorter than k will not be found.
 numaffixmaps=1        (nam) Number of prefixes/suffixes to index per contig. Higher is more sensitive, if edits are allowed.
 hashns=f              Set to true to search for matches using kmers containing Ns.  Can lead to extreme slowdown in some cases.

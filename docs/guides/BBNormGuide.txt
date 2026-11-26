@@ -32,7 +32,7 @@ Please don't ignore this message!  The memory can be used more efficiently by sp
 
 Shellscripts:
 
-BBNorm (whose java file name is jgi.KmerNormalize) has 3 shellscripts - bbnorm.sh, ecc.sh, and khist.sh.  They all call KmerNormalize and just use different default parameters.  It is possible to make kmer frequency histograms while doing error-correction and normalization at the same time with a single command from any of these shellscripts; they are only for convenience.
+BBNorm (whose java file name is jgi.KmerNormalize) is exposed by bbnorm.sh and khist.sh in the current checkout.  Both call KmerNormalize and just use different default parameters.  Error-correction remains available through bbnorm.sh with the flags shown below.  It is possible to make kmer frequency histograms while doing error-correction and normalization at the same time with a single command from either shellscript; they are only for convenience.
 
 
 Dumping Kmers, Exact Counts, and Error Correction:
@@ -74,8 +74,6 @@ This will run 2-pass normalization to produce an output file of reads with an av
 
 
 To error-correct reads:
-ecc.sh in=reads.fq out=corrected.fq
-or equivalently
 bbnorm.sh in=reads.fq out=corrected.fq ecc=t keepall passes=1 bits=16 prefilter
 
 This will do error correction without discarding any reads.  "bits=16 prefilter" are not really necessary but will typically make the correction more accurate by storing kmers more efficiently.

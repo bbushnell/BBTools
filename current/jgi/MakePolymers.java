@@ -21,15 +21,17 @@ import structures.ByteBuilder;
 import tracker.ReadStats;
 
 /**
- * Generates synthetic polymer sequences containing all possible k-mers.
- * Creates FASTA output with sequences that contain every k-mer of specified lengths,
- * useful for testing k-mer based tools and generating comprehensive test datasets.
+ * Generates synthetic repeated-motif FASTA records.
+ * For each k in the requested range, this emits one record for each nucleotide
+ * k-mer and repeats that k-base motif to the smallest multiple of k at least
+ * minlen+k-1, exposing every starting phase of a minlen-base window in the motif.
  *
  * @author Brian Bushnell
  * @date Oct 17, 2014
  */
-public class MakePolymers {
+public class MakePolymers{
 	
+	/** Construct, validate parameters, generate records, then close redirected diagnostics on success. */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		MakePolymers x=new MakePolymers(args);
@@ -39,6 +41,7 @@ public class MakePolymers {
 		Shared.closeStream(x.outstream);
 	}
 	
+	/** Parse settings, validate them, and initialize the primary output descriptor. */
 	public MakePolymers(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -56,7 +59,7 @@ public class MakePolymers {
 		Parser parser=new Parser();
 		for(int i=0; i<args.length; i++){
 			String arg=args[i];
-			String[] split=arg.split("=");
+			String[] split=Parse.splitOnFirst(arg, '=');
 			String a=split[0].toLowerCase();
 			String b=split.length>1 ? split[1] : null;
 
@@ -96,6 +99,11 @@ public class MakePolymers {
 		
 		assert(FastaReadInputStream.settingsOK());
 		if(out1!=null && out1.equalsIgnoreCase("null")){out1=null;}
+		if(out1==null || out1.trim().isEmpty()){
+			throw new IllegalArgumentException("An output file is required; set out=<file> or out=stdout.fa.");
+		}
+		
+		validateParams();
 		
 		if(!Tools.testOutputFiles(overwrite, append, false, out1)){
 			outstream.println((out1==null)+", "+out1);
@@ -105,8 +113,8 @@ public class MakePolymers {
 		ffout1=FileFormat.testOutput(out1, FileFormat.FASTA, null, true, overwrite, append, false);
 	}
 	
+	/** Generate all requested records, wait for output completion, and report final counts. */
 	void process(Timer t){
-
 		final ByteStreamWriter bsw;
 		if(ffout1!=null){
 			bsw=new ByteStreamWriter(ffout1);
@@ -127,18 +135,12 @@ public class MakePolymers {
 		}
 	}
 	
+	/** Write every repeated k-base motif for this k. */
 	private void writeSequence(int k, ByteStreamWriter bsw){
 		ByteBuilder bb=new ByteBuilder();
 		
-		final int minLen2=((minLen+k-1)/k)*k;
-		final int minCount;
-		if(minLen2-minLen>=k-1){
-			minCount=minLen2/k;
-		}else{
-			minCount=minLen2/k+1;
-		}
-		
-		final long max=(1<<(2*k))-1;
+		final int minCount=repeatCount(k, minLen);
+		final long max=maxKey(k);
 		for(long kmer=0; kmer<=max; kmer++){
 			bb.append('>').append(k).append('_').append(kmer).append('\n');
 			for(int i=0; i<minCount; i++){
@@ -158,6 +160,7 @@ public class MakePolymers {
 		}
 	}
 	
+	/** Append one 2-bit encoded nucleotide motif of length k. */
 	public static final void toBytes(long kmer, int k, ByteBuilder bb){
 		for(int i=k-1; i>=0; i--){
 			int x=(int)((kmer>>(2*i))&3);
@@ -165,29 +168,89 @@ public class MakePolymers {
 		}
 	}
 	
-	/*--------------------------------------------------------------*/
+	/** Return the inclusive maximum 2-bit key for a requested polymer length. */
+	public static final long maxKey(final int k){
+		assert(k>0 && k<=MAX_K) : "MakePolymers stores 2-bit kmers in a positive signed long; k="+k+", max="+MAX_K;
+		return (1L<<(2*k))-1;
+	}
+	
+	/** Return the repeat count needed to expose every minLen-base window phase. */
+	public static final int repeatCount(final int k, final int minLen){
+		assert(k>0) : "MakePolymers validates positive k before repeatCount; k="+k;
+		assert(minLen>0) : "MakePolymers validates positive minLen before repeatCount; minLen="+minLen;
+		final long target=(long)minLen+k-1;
+		return (int)((target+k-1)/k);
+	}
+	
+	/**
+	 * Return the largest FASTA record ByteBuilder will need to hold for one key.
+	 * Near-MAX records start from zero because same-k sequence lengths are constant
+	 * and each large completed record triggers the existing 16384-byte flush.
+	 */
+	public static final long maxRecordBytes(final int k, final int minLen){
+		final long seqBases=repeatCount(k, minLen)*(long)k;
+		return seqBases+digits(k)+digits(maxKey(k))+FASTA_RECORD_OVERHEAD;
+	}
+	
+	private static final int digits(final long x){
+		assert(x>=0) : "MakePolymers FASTA record size formats only nonnegative k and kmer ids; x="+x;
+		int digits=1;
+		for(long y=x; y>=10; y/=10){digits++;}
+		return digits;
+	}
+	
+	/** Validate numeric bounds before opening the primary output file. */
+	private void validateParams(){
+		if(minLen<1){
+			throw new IllegalArgumentException("minlen must be at least 1: "+minLen);
+		}
+		if(mink<1 || maxk<1 || mink>maxk || maxk>MAX_K){
+			throw new IllegalArgumentException("Require 1<=mink<=maxk<="+MAX_K+"; mink="+mink+", maxk="+maxk);
+		}
+		for(int k=mink; k<=maxk; k++){
+			final long recordBytes=maxRecordBytes(k, minLen);
+			if(recordBytes>ByteBuilder.MAXLEN){
+				throw new IllegalArgumentException("FASTA record for k="+k+", minlen="+minLen+
+					" needs "+recordBytes+" bytes; max is "+ByteBuilder.MAXLEN);
+			}
+		}
+	}
 	
 	/*--------------------------------------------------------------*/
 	
+	/*--------------------------------------------------------------*/
+	
+	public static final int MAX_K=31;
+	/** Fixed bytes for '>', '_', header newline, and sequence newline. */
+	private static final int FASTA_RECORD_OVERHEAD=4;
+	
+	/** Number of FASTA records generated. */
 	private long readsProcessed=0;
+	/** Number of sequence bases generated. */
 	private long basesProcessed=0;
 	
-	/** Maximum k-mer length to generate sequences for */
+	/** Minimum and maximum repeated motif length; valid values are 1 through MAX_K. */
 	private int mink=1, maxk=1;
 	
+	/** Minimum requested sequence length before adding k-1 bases and rounding up to a multiple of k. */
 	private int minLen=31;
 	
+	/** Required output filename. */
 	private String out1=null;
-
+	/** Primary output descriptor. */
 	private final FileFormat ffout1;
-	
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Diagnostic output stream, possibly redirected by PreParser. */
 	private PrintStream outstream=System.err;
+	/** Print verbose parser and I/O diagnostics. */
 	public static boolean verbose=false;
+	/** True if any writer reports a terminal error. */
 	public boolean errorState=false;
+	/** Allow overwriting an existing output file. */
 	private boolean overwrite=true;
+	/** Append to an existing output file instead of replacing it. */
 	private boolean append=false;
 	
 }
