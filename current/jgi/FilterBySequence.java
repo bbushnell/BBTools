@@ -26,7 +26,7 @@ import structures.ListNum;
 import tracker.ReadStats;
 
 /**
- * Filters by exact sequence matches.
+ * Filters reads by exact hash lookup, with optional approximate matching.
  * Similar to Dedupe.
  * 
  * @author Brian Bushnell
@@ -84,8 +84,8 @@ public class FilterBySequence {
 		for(int i=0; i<args.length; i++){
 			String arg=args[i];
 			
-			//Break arguments into their constituent parts, in the form of "a=b"
-			String[] split=arg.split("=");
+			// JGI-241: Split the key from values that may contain '='.
+			String[] split=Parse.splitOnFirst(arg, '=');
 			String a=split[0].toLowerCase();
 			String b=split.length>1 ? split[1] : null;
 			
@@ -148,6 +148,10 @@ public class FilterBySequence {
 			
 			extin=parser.extin;
 			extout=parser.extout;
+		}
+		
+		if(!storeBases && !(maxSubs<1 && maxLengthDif<1 && mismatchFraction<=0)){
+			throw new IllegalArgumentException("Approximate matching requires storebases=t.");
 		}
 		
 		//Do input file # replacement
@@ -244,7 +248,7 @@ public class FilterBySequence {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Create read streams and process all data */
+	/** Load references, stream input reads to workers, and report filter results. */
 	void process(Timer t){
 		
 		//Turn off read validation in the input threads to increase speed
@@ -321,7 +325,7 @@ public class FilterBySequence {
 		}
 	}
 	
-	/** Load ref sequences */
+	/** Load one reference input stream into the shared reference set. */
 	private void processReference(final FileFormat ff){
 		final ConcurrentReadInputStream cris;
 		{
@@ -329,14 +333,13 @@ public class FilterBySequence {
 			cris.start(); //Start the stream
 		}
 		spawnLoadThreads(cris);
+		// TODO: JGI-240 - Preserve reference stream close errors in errorState.
 		ReadWrite.closeStream(cris);
 	}
 	
 	
-	/** Spawn process threads */
+	/** Spawn reference-loading worker threads. */
 	private void spawnLoadThreads(final ConcurrentReadInputStream cris){
-		
-		//Do anything necessary prior to processing
 		
 		//Determine how many threads may be used
 		final int threads=Shared.threads();
@@ -375,15 +378,10 @@ public class FilterBySequence {
 		
 		//Track whether any threads failed
 		if(!success){errorState=true;}
-		
-		//Do anything necessary after processing
-		
 	}
 	
-	/** Spawn process threads */
+	/** Spawn read-filtering worker threads. */
 	private void spawnProcessThreads(final ConcurrentReadInputStream cris, final ConcurrentReadOutputStream ros){
-		
-		//Do anything necessary prior to processing
 		
 		//Determine how many threads may be used
 		final int threads=Shared.threads();
@@ -424,17 +422,16 @@ public class FilterBySequence {
 		
 		//Track whether any threads failed
 		if(!success){errorState=true;}
-		
-		//Do anything necessary after processing
-		
 	}
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Thread-safe method to add multiple sequence codes to the reference set.
-	 * @param codes Collection of encoded sequences to add to reference */
+	/**
+	 * Adds buffered encoded sequences while holding the reference-set monitor.
+	 * @param codes Collection of encoded sequences to add to reference
+	 */
 	private void addToRef(Collection<Code> codes) {
 		synchronized(refSet) {
 			for(Code c : codes) {addToRef(c);}
@@ -442,9 +439,9 @@ public class FilterBySequence {
 	}
 	
 	/**
-	 * Adds a single encoded sequence to the reference set if it's novel.
-	 * Updates both the hash set and the raw sequence list.
-	 * @param c Encoded sequence to add to reference
+	 * Adds one caller-serialized encoded sequence to the hash set and, if novel,
+	 * adds its stored base array to the approximate-match list.
+	 * @param c Encoded sequence to add to the reference collection
 	 */
 	private void addToRef(Code c) {
 		boolean novel=refSet.add(c);
@@ -474,12 +471,8 @@ public class FilterBySequence {
 		//Called by start()
 		@Override
 		public void run(){
-			//Do anything necessary prior to processing
-			
 			//Process the reads
 			processInner();
-			
-			//Do anything necessary after processing
 			
 			//Indicate successful exit status
 			success=true;
@@ -553,7 +546,7 @@ public class FilterBySequence {
 		 * Process a read or a read pair.
 		 * @param r1 Read 1
 		 * @param r2 Read 2 (may be null)
-		 * @return True if the reads should be kept, false if they should be discarded.
+		 * @return True if the include/exclude mode keeps the reads
 		 */
 		boolean processReadPair(final Read r1, final Read r2){
 			boolean contained=containsBoth(r1, r2);
@@ -576,10 +569,11 @@ public class FilterBySequence {
 		}
 		
 		/**
-		 * Checks if a single read sequence matches any reference sequence.
-		 * Uses exact matching first, then approximate matching if configured.
+		 * Checks whether a single read sequence matches any reference sequence.
+		 * Null and empty reads are treated as contained.  Approximate matching, when
+		 * configured, receives the original query bases after an exact miss.
 		 * @param r Read to check against reference sequences
-		 * @return True if read matches any reference
+		 * @return True if the read matches any reference
 		 */
 		boolean contains(final Read r){
 //			System.err.println(new String(r.bases)+": Query");
@@ -594,10 +588,13 @@ public class FilterBySequence {
 		}
 		
 		/**
-		 * Performs approximate matching against all reference sequences.
-		 * Tests both forward and reverse complement orientations if configured.
+		 * Performs approximate matching against all stored reference bases.
+		 * After a forward miss, tests the reverse complement when enabled and applies
+		 * a second reverse complement on ordinary return.
+		 * TODO: JGI-245 - because extended reverse complement maps U/u to A/a, this
+		 * second transform can return T/t rather than the original U/u bytes.
 		 * @param bases Sequence bases to match
-		 * @return True if sequence approximately matches any reference
+		 * @return True if the sequence approximately matches any reference
 		 */
 		boolean bruteForce(byte[] bases) {
 			if(bases==null) {return false;}
@@ -612,10 +609,12 @@ public class FilterBySequence {
 		}
 		
 		/**
-		 * Compares a query sequence against all references within length tolerance.
-		 * Uses sliding window approach for sequences of different lengths.
+		 * Compares a query sequence against stored references within length tolerance.
+		 * Each candidate uses raw equality, with optional case folding under case=f,
+		 * and the first acceptable ungapped placement of the shorter sequence inside
+		 * the longer sequence.
 		 * @param bases Query sequence to compare
-		 * @return True if query matches any reference within tolerances
+		 * @return True if the query matches any reference within tolerance
 		 */
 		boolean compare(byte[] bases) {
 			int minlen=bases.length-maxLengthDif, maxlen=bases.length+maxLengthDif;
@@ -640,12 +639,12 @@ public class FilterBySequence {
 		}
 		
 		/**
-		 * Compares two sequences allowing for substitutions and length differences.
-		 * Slides shorter sequence along longer sequence to find best alignment.
-		 *
-		 * @param a First sequence (assumed to be longer or equal length)
-		 * @param b Second sequence to align against first
-		 * @return True if sequences match within substitution tolerance
+		 * Slides the shorter sequence over the longer sequence and accepts the first
+		 * ungapped placement with substitutions no greater than the maximum of maxSubs
+		 * and the rounded shorter-length mismatch fraction.
+		 * @param a First sequence; must be at least as long as b
+		 * @param b Second sequence to align against a
+		 * @return True if the sequences match within substitution tolerance
 		 */
 		boolean compare(byte[] a, byte[] b) {
 			final int maxSubs0=Tools.max(maxSubs, 
@@ -654,7 +653,8 @@ public class FilterBySequence {
 			for(int aStart=0; aStart<=aStartMax; aStart++) {
 				int subs=0;
 				for(int apos=aStart, bpos=0; bpos<b.length && subs<=maxSubs0; apos++, bpos++) {
-					subs+=(a[apos]==b[bpos] ? 0 : 1);
+					subs+=(a[apos]==b[bpos] || (toUpperCase &&
+							Tools.toUpperCase(a[apos])==Tools.toUpperCase(b[bpos])) ? 0 : 1);
 				}
 				if(subs<=maxSubs0) {return true;}
 //				System.err.println("Subs="+subs+", maxSubs="+maxSubs);
@@ -699,12 +699,8 @@ public class FilterBySequence {
 		//Called by start()
 		@Override
 		public void run(){
-			//Do anything necessary prior to processing
-			
 			//Process the reads
 			processInner();
-			
-			//Do anything necessary after processing
 			
 			//Indicate successful exit status
 			success=true;
@@ -797,8 +793,10 @@ public class FilterBySequence {
 	private class Code {
 		
 		/**
-		 * Constructor for Code that creates hash-based sequence representation.
-		 * Computes forward and reverse complement hashes for efficient comparison.
+		 * Constructor for a hash-based sequence representation.  When rcomp is true,
+		 * hash order is canonicalized across forward and reverse complement; otherwise
+		 * forward and reverse hashes are stored directionally.  Bases may be borrowed,
+		 * copied, or null.
 		 * @param bases_ Raw sequence bases to encode
 		 */
 		Code(byte[] bases_){
@@ -813,8 +811,10 @@ public class FilterBySequence {
 				}else{
 					bases=bases_.clone();
 					if(a!=fwd){Vector.reverseComplementInPlace(bases);}
-					for(int i=0; i<bases.length; i++){
-						bases[i]=(byte) Tools.toUpperCase(bases[i]);
+					if(toUpperCase){
+						for(int i=0; i<bases.length; i++){
+							bases[i]=(byte) Tools.toUpperCase(bases[i]);
+						}
 					}
 				}
 			}else{
@@ -828,9 +828,10 @@ public class FilterBySequence {
 		}
 		
 		/**
-		 * Tests equality between two Code objects using hash values and base comparison.
+		 * Tests equality between two Code objects using hash values and stored bases.
+		 * Missing raw bases make equal hashes sufficient.
 		 * @param c Code object to compare with
-		 * @return True if both codes represent the same sequence
+		 * @return True if hashes match and, when both arrays exist, bases match
 		 */
 		public boolean equals(Code c){
 			if(a!=c.a || b!=c.b){return false;}
@@ -849,10 +850,9 @@ public class FilterBySequence {
 			return (int)(a&0x7FFFFFFF);
 		}
 		
-		/** Secondary hash value for reverse complement comparison */
-		/** Primary hash value for sequence comparison */
+		/** a is max(fwd, rev) when rcomp is true, else fwd; b is min, else rev */
 		final long a, b;
-		/** Raw sequence bases (null if storeBases is false) */
+		/** Raw sequence bases, possibly borrowed, copied, or null */
 		final byte[] bases;
 		
 	}
@@ -886,15 +886,15 @@ public class FilterBySequence {
 	/** Override output file extension */
 	private String extout=null;
 	
-	/** Ref input file path */
+	/** Reference input file paths */
 	private String[] ref=null;
 	
-	/** Literals */
+	/** Literal reference sequences */
 	private String[] literal=null;
 
-	/** Set of encoded reference sequences for fast lookup */
+	/** Encoded references for exact hash lookup */
 	private HashSet<Code> refSet;
-	/** List of raw reference sequence bases for approximate matching */
+	/** Stored reference bases for approximate fallback */
 	private ArrayList<byte[]> refList;
 	
 	/** Whether to store raw sequence bases in addition to hash codes */
@@ -921,9 +921,9 @@ public class FilterBySequence {
 	/** Number of reference bases loaded */
 	protected long basesLoaded=0;
 
-	/** Number of reads output*/
+	/** Number of reads selected, even when no output stream is open */
 	protected long readsOut=0;
-	/** Number of bases output*/
+	/** Number of bases selected, even when no output stream is open */
 	protected long basesOut=0;
 
 	/** Quit after processing this many input reads; -1 means no limit */
@@ -950,7 +950,7 @@ public class FilterBySequence {
 	/** Secondary output file */
 	private final FileFormat ffout2;
 	
-	/** Reference Files */
+	/** Reference input file formats */
 	private final FileFormat[] ffref;
 	
 	/*--------------------------------------------------------------*/

@@ -3,20 +3,29 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified December 19, 2018
+Last modified November 24, 2026
 Description:  Generates a length histogram of input reads.
 
 Usage:	readlength.sh in=<input file>
 
 Parameters:
-in=<file>    	The 'in=' flag is needed only if the input file is not the first parameter.  'in=stdin.fq' will pipe from standard in.
-in2=<file>   	Use this if 2nd read of pairs are in a different file.
-out=<file>   	Write the histogram to this file.  Default is stdout.
-bin=10       	Set the histogram bin size.
-max=80000    	Set the max read length to track.
-round=f      	Places reads in the closest bin, rather than the highest bin of at least readlength.
-nzo=t        	(nonzeroonly) Do not print empty bins.
-reads=-1     	If nonnegative, stop after this many reads.
+in=<file>       Input sequence file; in=stdin.fq reads standard input.
+                The first bare argument can also specify the input.
+in2=<file>      Optional second mate file.
+out=<file>      Histogram output; default stdout. Aliases: hist, lhist.
+bin=10          Positive integer bin width in bases; labels are multiples of bin.
+max=80000       Cap bins at floor(max/bin)*bin; longer reads remain in that last bin.
+round=f         f: round lengths down; t: nearest bin, halfway ties upward.
+nzo=t           Omit zero-count bins. With f, print empty bins in the scanned range.
+reads=-1        Positive input fragment limit (reads or pairs); negative unlimited.
+                Zero is unsupported. The histogram counts each mate separately.
+overwrite=t     Allow replacement of an existing histogram file.
+append=f        Append a complete report (raw/gzip only); requires overwrite=f.
+                Appending does not merge the reports' bins.
+
+Min, max and average use actual lengths. Median, mode and population standard
+deviation use binned/capped lengths. Row base totals retain actual bases.
+Cumulative columns include the current and all larger bins.
 
 Please contact Brian Bushnell at bbushnell@lbl.gov if you encounter any problems.
 For documentation and the latest version, visit: https://bbmap.org

@@ -32,7 +32,6 @@ import tracker.ReadStats;
 import ukmer.Kmer;
 
 
-
 /**
  * This class is designed to visualize the distribution of kmer depths across individual reads.
  * @author Brian Bushnell
@@ -85,7 +84,6 @@ public class ReadKmerDepthDistribution {
 		int k=31;
 		int cbits=32;
 		int hashes=3;
-//		int matrixbits=-1;
 		long cells=-1;
 		long maxReads=-1;
 		int buildpasses=1;
@@ -130,9 +128,9 @@ public class ReadKmerDepthDistribution {
 				reads1=b;
 			}else if(a.equals("in2")){
 				reads2=b;
-			}else if(a.startsWith("bits") ||a.startsWith("cbits") || a.startsWith("cellbits")){
+			}else if(a.startsWith("bits") || a.startsWith("cbits") || a.startsWith("cellbits")){
 				cbits=Integer.parseInt(b);
-			}else if(a.startsWith("histlen") ||a.startsWith("histogramlen")){
+			}else if(a.startsWith("histlen") || a.startsWith("histogramlen")){
 				HIST_LEN_PRINT=Tools.min(Integer.MAX_VALUE, Long.parseLong(b)+1);
 			}else if(a.startsWith("matrixbits")){
 				int matrixbits=Integer.parseInt(b);
@@ -199,12 +197,14 @@ public class ReadKmerDepthDistribution {
 				MAX_DEPTH=Integer.parseInt(b);
 			}else if(a.equals("min") || a.equals("mindepth")){
 				MIN_DEPTH=Integer.parseInt(b);
-			}else if(a.equals("minkmers") || a.equals("minkmersovermindepth") || a.equals("mingoodkmersperread") || a.equals("mgkpr")){
+			}else if(a.equals("minkmers") || a.equals("minkmersovermindepth") ||
+					a.equals("mingoodkmersperread") || a.equals("mgkpr")){
 				MIN_KMERS_OVER_MIN_DEPTH=Tools.max(1, Integer.parseInt(b));
 			}else if(a.equals("percentile") || a.equals("depthpercentile") || a.equals("dp")){
 				DEPTH_PERCENTILE=Float.parseFloat(b);
 				if(DEPTH_PERCENTILE>1 && DEPTH_PERCENTILE<=100){DEPTH_PERCENTILE/=100;}
-				assert(DEPTH_PERCENTILE>=0 && DEPTH_PERCENTILE<=1) : "Depth percentile must be between 0 and 100.";
+				assert(DEPTH_PERCENTILE>=0 && DEPTH_PERCENTILE<=1) :
+					"Depth percentile must be between 0 and 100.";
 			}else if(a.equals("extra")){
 				if(b!=null && !b.equalsIgnoreCase("null")){
 					if(new File(b).exists()){
@@ -227,14 +227,11 @@ public class ReadKmerDepthDistribution {
 		assert(TARGET_DEPTH>0);
 		
 		assert(FastaReadInputStream.settingsOK());
-		//TODO JGI-175: canonical=f conflicts with short-counter assertions; long Kmer strand selection remains canonical.
+		//TODO JGI-175: canonical=f conflicts with short-counter assertions;
+		//long Kmer strand selection remains canonical.
 		if(k>31){CANONICAL=KmerCountAbstract.CANONICAL=false;}
 		assert(CANONICAL==KmerCountAbstract.CANONICAL);
 		
-//		if(output!=null && reads1.contains(",")){
-//			throw new RuntimeException("\nLists of input files can only be used with histogram output, not full output.\n" +
-//					"Please set output=null or move the extra input files to 'extra=file1,file2,...fileN'");
-//		}
 		
 		{
 			if(histFile==null){
@@ -244,7 +241,8 @@ public class ReadKmerDepthDistribution {
 				USE_HISTOGRAM=true;
 			}
 			
-			final long maxCount=(cbits>16 ? Integer.MAX_VALUE : (1L<<cbits)-1);//The bin count includes zero, so maxCount+1 must not overflow int.
+			//The bin count includes zero, so maxCount+1 must not overflow int.
+			final long maxCount=(cbits>16 ? Integer.MAX_VALUE : (1L<<cbits)-1);
 			assert(maxCount>0);
 			HIST_LEN_PRINT=Tools.max(1, Tools.min(HIST_LEN_PRINT, maxCount+1));
 			assert(HIST_LEN_PRINT<=Integer.MAX_VALUE) : HIST_LEN_PRINT+", "+Integer.MAX_VALUE;
@@ -258,16 +256,13 @@ public class ReadKmerDepthDistribution {
 			for(String s : extra){
 				File f=new File(s);
 				if(!f.exists() || !f.isFile()){throw new RuntimeException(s+" does not exist.");}
-				assert(!s.equalsIgnoreCase(reads1) && (reads2==null || !s.equalsIgnoreCase(reads2))) : "\nInput file "+s+" should not be included as an extra file.\n";
+				assert(!s.equalsIgnoreCase(reads1) &&
+						(reads2==null || !s.equalsIgnoreCase(reads2))) :
+					"\nInput file "+s+" should not be included as an extra file.\n";
 			}
 		}
 		
-//		outstream.println("ForceInterleaved = "+FASTQ.FORCE_INTERLEAVED);
 		
-//		assert(false) : reads1+", "+reads2+", "+output;
-//		if(FASTQ.FORCE_INTERLEAVED && in2==null){
-//			outstream.println()
-//		}
 		
 		if(threads<=0){
 			if(auto){THREADS=Shared.LOGICAL_PROCESSORS;}
@@ -276,17 +271,12 @@ public class ReadKmerDepthDistribution {
 			THREADS=threads;
 		}
 		
-//		System.err.println("THREADS="+THREADS+", KmerCountAbstract.THREADS="+KmerCountAbstract.THREADS);
 		
 		if(auto && cells==-1){
 			final long usable=(long)Tools.max(((memory-96000000)*.73), memory*0.45);
 			long mem=usable-(USE_HISTOGRAM ? (HIST_LEN*8*(1)) : 0);
 			if(buildpasses>1){mem/=2;}
 			cells=(mem*8)/cbits;
-//
-//			long tablebytes=((1L<<matrixbits)*cbits)/8;
-//			if(tablebytes*3<usable){matrixbits++;}
-//			outstream.println(tablebytes/1000000+", "+usable/1000000+", "+(tablebytes*3)/1000000);
 			
 		}else if(cells==-1){
 			cells=1L<<34;
@@ -317,7 +307,8 @@ public class ReadKmerDepthDistribution {
 			if(prefilter){
 				outstream.println("prefilter bits:   \t"+2);
 //				outstream.println("matrixbits: \t"+matrixbits);
-				outstream.println("prefilter cells:  \t"+(precells>0 && prehashes>0 ? Tools.toKMG(precells) : "?"));
+				outstream.println("prefilter cells:  \t"+
+						(precells>0 && prehashes>0 ? Tools.toKMG(precells) : "?"));
 				outstream.println("prefilter hashes: \t"+(precells>0 && prehashes>0 ? ""+prehashes : "?"));
 			}
 			outstream.println("base min quality: \t"+KmerCountAbstract.minQuality);
@@ -354,8 +345,8 @@ public class ReadKmerDepthDistribution {
 		ht.start();
 		KCountArray kca;
 		KCountArray prefilterArray=null;
-//		outstream.println();
-		//TODO JGI-175: Common amino flags reach this call, but amino=true with rcomp=true violates ReadCounter's contract.
+		//TODO JGI-175: Common amino flags reach this call, but amino=true
+		//with rcomp=true violates ReadCounter's contract.
 		ReadCounter rc=new ReadCounter(k, true, false, false, Shared.AMINO_IN);
 		rc.detectStepsize=buildStepsize;
 		if(prefilter){
@@ -414,10 +405,9 @@ public class ReadKmerDepthDistribution {
 			estUnique=((long)((est)));
 			
 		}
-		outstream.println("Estimated unique kmers:     \t"+estUnique);//+", or "+estUnique+" counting forward kmers only.");
-//		outstream.println("(Includes forward and reverse kmers)");
+		outstream.println("Estimated unique kmers:     \t"+estUnique);
 		outstream.println();
-		outstream.println("Table creation time:\t\t"+ht);//+"   \t"+Tools.format("%.2f", totalBases*1000000.0/(ht.elapsed))+" kb/sec");
+		outstream.println("Table creation time:\t\t"+ht);
 		
 		long bases=0;
 		
@@ -431,7 +421,8 @@ public class ReadKmerDepthDistribution {
 		printTopology();
 		
 		t.stop();
-		outstream.println("\nTotal time:      \t\t"+t+"   \t"+Tools.format("%.2f", bases*1000000.0/(t.elapsed))+" kb/sec");
+		outstream.println("\nTotal time:      \t\t"+t+
+				"   \t"+Tools.format("%.2f", bases*1000000.0/(t.elapsed))+" kb/sec");
 		
 		//Close the print stream if it was redirected
 		Shared.closeStream(outstream);
@@ -439,12 +430,13 @@ public class ReadKmerDepthDistribution {
 	
 	
 	/**
-	 * Prints depth topology statistics showing the distribution of
-	 * coverage patterns: spikes, peaks, valleys, slopes, and flats.
-	 * Calculates percentages of each topology type across all processed reads.
+	 * Prints topology counts for classified interior positions in root-read
+	 * coverage profiles. Spikes also count as peaks, so percentages use the
+	 * sum of the printed category counts as their denominator.
 	 */
 	public static void printTopology(){
-		long total=peaks.get()+spikes.get()+flats.get()+valleys.get()+slopes.get();//TODO JGI-176: Spikes are also peaks; clarify the report denominator.
+		//TODO JGI-176: Spikes are also peaks; clarify the report denominator.
+		long total=peaks.get()+spikes.get()+flats.get()+valleys.get()+slopes.get();
 		double mult=100.0/total;
 		
 		long sp=spikes.get();
@@ -459,17 +451,18 @@ public class ReadKmerDepthDistribution {
 		double dfl=mult*fl;
 		
 		System.err.println("\nDepth Topology:\t");
-		System.err.println("Spikes:     \t\t\t"+(dsp<10 ? " " : "")+Tools.format("%.3f%%  \t%d",dsp,sp));
-		System.err.println("Peaks:      \t\t\t"+(dpe<10 ? " " : "")+Tools.format("%.3f%%  \t%d",dpe,pe));
-		System.err.println("Valleys:    \t\t\t"+(dva<10 ? " " : "")+Tools.format("%.3f%%  \t%d",dva,va));
-		System.err.println("Slopes:     \t\t\t"+(dsl<10 ? " " : "")+Tools.format("%.3f%%  \t%d",dsl,sl));
-		System.err.println("Flats:      \t\t\t"+(dfl<10 ? " " : "")+Tools.format("%.3f%%  \t%d",dfl,fl));
+		System.err.println("Spikes:     \t\t\t"+(dsp<10 ? " " : "")+Tools.format("%.3f%%  \t%d", dsp, sp));
+		System.err.println("Peaks:      \t\t\t"+(dpe<10 ? " " : "")+Tools.format("%.3f%%  \t%d", dpe, pe));
+		System.err.println("Valleys:    \t\t\t"+(dva<10 ? " " : "")+Tools.format("%.3f%%  \t%d", dva, va));
+		System.err.println("Slopes:     \t\t\t"+(dsl<10 ? " " : "")+Tools.format("%.3f%%  \t%d", dsl, sl));
+		System.err.println("Flats:      \t\t\t"+(dfl<10 ? " " : "")+Tools.format("%.3f%%  \t%d", dfl, fl));
 	}
 
 
 	/**
-	 * Counts k-mer depths in input reads and generates coverage statistics.
-	 * Sets up input/output streams and delegates to downsample method for processing.
+	 * Counts k-mer depths for root reads and generates coverage statistics.
+	 * Sets up input/output streams and delegates the root-read selection pass to
+	 * downsample.
 	 * Failures during reader construction or later processing halt the JVM with the
 	 * original Throwable. A reported stream-close error also causes fatal failure.
 	 * Input format detection errors propagate normally. Fatal failures do not
@@ -487,11 +480,12 @@ public class ReadKmerDepthDistribution {
 	 * @return Total number of bases processed
 	 */
 	public static long count(String in1, String in2, KCountArray kca, int k, long maxReads,
-			String outKeep, boolean overwrite, String histFile, long estUnique) {
+			String outKeep, boolean overwrite, String histFile, long estUnique){
 		final FileFormat ffin1=FileFormat.testInput(in1, FileFormat.FASTQ, null, true, true);
 		final FileFormat ffin2=FileFormat.testInput(in2, FileFormat.FASTQ, null, true, true);
 		try{
-			final ConcurrentReadInputStream cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ffin1, ffin2);
+			final ConcurrentReadInputStream cris=
+				ConcurrentReadInputStream.getReadInputStream(maxReads, true, ffin1, ffin2);
 			if(verbose){System.err.println("Started cris");}
 			cris.start(); //4567
 			boolean paired=cris.paired();
@@ -512,13 +506,15 @@ public class ReadKmerDepthDistribution {
 					}
 				}
 
-				assert(!out1.equalsIgnoreCase(in1) && !out1.equalsIgnoreCase(in1));//TODO JGI-173: Check in2 and all histogram/output aliases before opening streams.
+				//TODO JGI-173: Check in2 and all histogram/output aliases before opening streams.
+				assert(!out1.equalsIgnoreCase(in1) && !out1.equalsIgnoreCase(in1));
 				assert(out2==null || (!out2.equalsIgnoreCase(in1) && !out2.equalsIgnoreCase(in2)));
 
-//				assert(false) : out1+", "+out2;
 
-				FileFormat ff1=FileFormat.testOutput(out1, FileFormat.FASTQ, "attachment", true, overwrite, append, ordered);
-				FileFormat ff2=FileFormat.testOutput(out2, FileFormat.FASTQ, "attachment", true, overwrite, append, ordered);
+				FileFormat ff1=FileFormat.testOutput(out1, FileFormat.FASTQ, "attachment",
+						true, overwrite, append, ordered);
+				FileFormat ff2=FileFormat.testOutput(out2, FileFormat.FASTQ, "attachment",
+						true, overwrite, append, ordered);
 				rosKeep=ConcurrentReadOutputStream.getStream(ff1, ff2, buff, null, true);
 			}
 			
@@ -547,8 +543,9 @@ public class ReadKmerDepthDistribution {
 	
 	/**
 	 * Processes reads in parallel to analyze k-mer depth distributions.
-	 * Creates processing threads, collects coverage histograms, and writes
-	 * results including depth statistics and histogram data.
+	 * Creates processing threads, collects root-read accounting and merged
+	 * thread-local low-bin/shared high-bin histograms, and writes results
+	 * including depth statistics and histogram data.
 	 * Unexpected worker failures and reported histogram output errors halt the JVM.
 	 * Other output streams are not guaranteed to be flushed on fatal failure.
 	 *
@@ -562,8 +559,9 @@ public class ReadKmerDepthDistribution {
 	 * @param estUnique Estimated unique k-mer count
 	 * @return Total bases processed
 	 */
-	public static long downsample(ConcurrentReadInputStream cris, KCountArray kca, int k, long maxReads, ConcurrentReadOutputStream rosKeep,
-			String histFile, boolean overwrite, long estUnique) {
+	public static long downsample(ConcurrentReadInputStream cris, KCountArray kca, int k,
+			long maxReads, ConcurrentReadOutputStream rosKeep, String histFile,
+			boolean overwrite, long estUnique){
 		Timer tdetect=new Timer();
 		tdetect.start();
 
@@ -574,7 +572,6 @@ public class ReadKmerDepthDistribution {
 		long basesTossed=0;
 		long readsTossed=0;
 		
-//		assert(false) : THREADS;
 		ProcessThread[] pta=new ProcessThread[THREADS];
 		for(int i=0; i<pta.length; i++){
 			pta[i]=new ProcessThread(cris, kca, k, rosKeep);
@@ -585,10 +582,9 @@ public class ReadKmerDepthDistribution {
 			ProcessThread ct=pta[i];
 			synchronized(ct){
 				while(ct.getState()!=State.TERMINATED){
-					try {
+					try{
 						ct.join(1000);
-					} catch (InterruptedException e) {
-						// TODO Auto-generated catch block
+					}catch(InterruptedException e){
 						e.printStackTrace();
 					}
 				}
@@ -610,20 +606,21 @@ public class ReadKmerDepthDistribution {
 			histogram_total.set(0, 0);
 		}
 		
-//		outstream.println();
 		tdetect.stop();
-		outstream.println("Table read time: \t\t"+tdetect+"   \t"+Tools.format("%.2f", totalBases*1000000.0/(tdetect.elapsed))+" kb/sec");
+		outstream.println("Table read time: \t\t"+tdetect+
+				"   \t"+Tools.format("%.2f", totalBases*1000000.0/(tdetect.elapsed))+" kb/sec");
 		
 		{
 			String pad="";
 			String s=""+totalReads;
 			while(pad.length()+s.length()<9){pad+=" ";}
-			outstream.println("Total reads in:  \t\t"+totalReads+pad+Tools.format("\t(%.3f%% Kept)", (readsKept*100.0/totalReads)));
+			outstream.println("Total reads in:  \t\t"+totalReads+pad+
+					Tools.format("\t(%.3f%% Kept)", (readsKept*100.0/totalReads)));
 			s=""+totalBases;
 			while(pad.length()+s.length()<9){pad+=" ";}
-			outstream.println("Total bases in:  \t\t"+totalBases+pad+Tools.format("\t(%.3f%% Kept)", (basesKept*100.0/totalBases)));
+			outstream.println("Total bases in:  \t\t"+totalBases+pad+
+					Tools.format("\t(%.3f%% Kept)", (basesKept*100.0/totalBases)));
 		}
-//		outstream.println();
 		if(histogram_total!=null){
 			TextStreamWriter tswh=null;
 			StringBuilder sb=new StringBuilder(100);
@@ -641,7 +638,8 @@ public class ReadKmerDepthDistribution {
 			long sumsquare=0;
 			for(int i=0; i<lim; i++){
 				long x=histogram_total.get(i);
-				long y=((x+i/2)/(i<1 ? 1 : i)); //x+i/2 rounds to compensate for colliding kmers being put in an overly high bin
+				//x+i/2 rounds to compensate for colliding kmers in overly high bins.
+				long y=((x+i/2)/(i<1 ? 1 : i));
 //				long y=((x)/(i<1 ? 1 : i));
 				sumRaw1+=x;
 				sum1+=y;
@@ -655,12 +653,15 @@ public class ReadKmerDepthDistribution {
 					tswh.print(sb.toString());
 					sb.setLength(0);
 				}
-				if(sumRaw1>=remaining){break;} //Stop once there is no more coverage, even if PRINT_ZERO_COVERAGE is not set.
+				//Stop once there is no more coverage, even if PRINT_ZERO_COVERAGE is not set.
+				if(sumRaw1>=remaining){break;}
 			}
-			for(int i=lim; i<histogram_total.length(); i++){//Weight statistics by retained bins, independently of the printed tail label.
+			//Weight statistics by retained bins, independently of the printed tail label.
+			for(int i=lim; i<histogram_total.length(); i++){
 				long x=histogram_total.get(i);
 				sumRaw2+=x;
-				long y=((x+i/2)/(i<1 ? 1 : i)); //x+i/2 rounds to compensate for colliding kmers being put in an overly high bin
+				//x+i/2 rounds to compensate for colliding kmers in overly high bins.
+				long y=((x+i/2)/(i<1 ? 1 : i));
 				sumsquare+=(x*Tools.max(1, i));
 				sum2+=y;
 			}
@@ -689,7 +690,6 @@ public class ReadKmerDepthDistribution {
 				long x=histogram_total.get(i);
 				temp1+=x;
 				if(temp1>=halfCount && median_all<0){median_all=i;}
-//				histSum+=(x*(double)i);
 				histCountU+=(x/(double)Tools.max(1, i));
 			}
 			double halfCount2=(histCountU)/2;
@@ -734,8 +734,8 @@ public class ReadKmerDepthDistribution {
 	
 	
 	/**
-	 * Locates and fixes spikes in a coverage profile (potentially) caused by false positives in a bloom filter.
-	 * Theory:  If a high-count kmer is adjacent on both sides to low-count kmers, it may be a false positive.
+	 * Locates and fixes spikes in a coverage profile that may be caused by
+	 * false positives in a bloom filter.
 	 * It could either be reduced to the max of the two flanking points or examined in more detail.
 	 * @param array An array of kmer counts for adjacent kmers in a read.
 	 */
@@ -847,18 +847,20 @@ public class ReadKmerDepthDistribution {
 	}
 	
 	/**
-	 * Generates k-mer coverage profile for a read with {@code k <= 31}.
-	 * Computes depth for each k-mer position, applies spike fixing if enabled,
-	 * and analyzes topology patterns.
+	 * Generates a k-mer coverage profile for a read, dispatching to the long-key
+	 * path for {@code k > 31}. The caller-owned output array is reused only
+	 * when it has the exact number of coverage positions. Null, null-base, and
+	 * too-short reads return {@code {0}}; windows interrupted by invalid bases
+	 * are initialized to {@code -1} before optional spike correction.
 	 *
 	 * @param r Input read to analyze
 	 * @param kca K-mer count array for depth lookups
-	 * @param k K-mer length (must be {@code <= 31})
-	 * @param out Preallocated output array (may be null)
-	 * @param kmers Array to store k-mer values (may be null)
+	 * @param k K-mer length
+	 * @param out Preallocated exact-length output array (may be null)
+	 * @param kmers Exact-length array to store k-mer values (may be null)
 	 * @return Array of coverage depths for each k-mer position
 	 */
-	public static int[] generateCoverage(Read r, KCountArray kca, int k, int[] out, long[] kmers) {
+	public static int[] generateCoverage(Read r, KCountArray kca, int k, int[] out, long[] kmers){
 		if(k>31){return generateCoverageLong(r, kca, k, out);}
 		if(r==null || r.bases==null || r.length()<k){return new int[] {0};}
 		
@@ -898,24 +900,27 @@ public class ReadKmerDepthDistribution {
 		}
 		
 		if(FIX_SPIKES){fixSpikes(out, kmers, kca, k);}
-//		fixSpikes(out, 1);
 		
 		analyzeSpikes(out, 1);
 		return out;
 	}
 	
 	/**
-	 * Generates k-mer coverage profile for reads with k > 31.
+	 * Generates a k-mer coverage profile for reads with k > 31.
 	 * Uses the same rolling Kmer representation and placement hash as ReadCounter.
-	 * Legacy nonpacked length rounding follows Kmer's constructor behavior.
+	 * Legacy nonpacked length rounding follows Kmer's constructor behavior. The
+	 * caller-owned output array is reused only when it has the exact number of
+	 * coverage positions. Null, null-base, and too-short reads return
+	 * {@code {0}}; windows interrupted by invalid bases are initialized to
+	 * {@code -1} before optional spike correction.
 	 *
 	 * @param r Input read to analyze
 	 * @param kca K-mer count array for depth lookups
 	 * @param k K-mer length (must be > 31)
-	 * @param out Preallocated output array (may be null)
+	 * @param out Preallocated exact-length output array (may be null)
 	 * @return Array of coverage depths for each k-mer position
 	 */
-	public static int[] generateCoverageLong(Read r, KCountArray kca, int k, int[] out) {
+	public static int[] generateCoverageLong(Read r, KCountArray kca, int k, int[] out){
 		return generateCoverageLong(r, kca, k, out, null);
 	}
 
@@ -948,8 +953,10 @@ public class ReadKmerDepthDistribution {
 	
 	/**
 	 * Worker thread for parallel processing of reads.
-	 * Analyzes k-mer coverage patterns, filters reads based on depth criteria,
-	 * and maintains thread-local histograms for coverage statistics.
+	 * Analyzes root-read k-mer coverage patterns and keeps roots when local
+	 * {@code max = cov[(int)(cov.length*0.05f)]} passes {@code TARGET_DEPTH}
+	 * and is more than twice local {@code min = cov[cov.length-1]}.
+	 * Thread-local low bins hold the common histogram depths.
 	 */
 	private static class ProcessThread extends Thread{
 		
@@ -961,7 +968,8 @@ public class ReadKmerDepthDistribution {
 		 * @param k_ K-mer length
 		 * @param rosk_ Output stream for filtered reads
 		 */
-		ProcessThread(ConcurrentReadInputStream cris_, KCountArray kca_, int k_, ConcurrentReadOutputStream rosk_){
+		ProcessThread(ConcurrentReadInputStream cris_, KCountArray kca_, int k_,
+				ConcurrentReadOutputStream rosk_){
 			cris=cris_;
 			kca=kca_;
 			k=k_;
@@ -982,10 +990,11 @@ public class ReadKmerDepthDistribution {
 		
 		/**
 		 * Main processing loop for analyzing reads in this thread.
-		 * Processes batches of reads, generates coverage profiles, applies filters,
-		 * and accumulates statistics for histogram generation.
+		 * Processes batches of reads, generates coverage profiles, applies the
+		 * current root-read filter, and accumulates root-only statistics. An
+		 * accepted root read carries its mate through the output stream.
 		 */
-		void countInThread() {
+		void countInThread(){
 			
 			ListNum<Read> ln=cris.nextList();
 			ArrayList<Read> reads=(ln!=null ? ln.list : null);
@@ -995,13 +1004,16 @@ public class ReadKmerDepthDistribution {
 			int[] cov1=null;
 			long[] kmers1=null;
 			
-			while(ln!=null && reads!=null && reads.size()>0){//ln!=null prevents a compiler potential null access warning
+			//The ln!=null test prevents a compiler potential null access warning.
+			while(ln!=null && reads!=null && reads.size()>0){
 				for(int rnum=0; rnum<reads.size(); rnum++){
 					Read r=reads.get(rnum);
 					Read r2=r.mate;
 					assert(r!=r2);
 					
-					int depth=-1;//TODO JGI-176: Clarify unused depth-based selection settings and root-only mate statistics.
+					//TODO JGI-176: Clarify unused depth-based selection settings
+					//and root-only mate statistics.
+					int depth=-1;
 					
 					int readcount=0;
 					int basecount=0;
@@ -1054,14 +1066,13 @@ public class ReadKmerDepthDistribution {
 				}
 				
 
-				if(rosk!=null){ //Important to send all lists to output, even empty ones, to keep list IDs straight.
-//					System.err.println("Adding list "+ln.id+" of length "+reads.size());
+				//Important to send all lists to output, even empty ones, to keep list IDs straight.
+				if(rosk!=null){
 					rosk.add(keep, ln.id);
 				}
 				keep.clear();
 				
 				cris.returnList(ln);
-				//System.err.println("fetching list");
 				ln=cris.nextList();
 				reads=(ln!=null ? ln.list : null);
 			}
@@ -1071,13 +1082,13 @@ public class ReadKmerDepthDistribution {
 		}
 		
 		/**
-		 * Generates coverage profile and updates histogram statistics.
-		 * Computes k-mer depths, sorts them in descending order, and
-		 * increments histogram bins with coverage counts.
+		 * Generates a root-read coverage profile and updates histogram statistics.
+		 * Computes k-mer depths, sorts them in descending order, and increments
+		 * thread-local low bins or shared high bins with coverage counts.
 		 *
 		 * @param r Read to analyze
-		 * @param cov Preallocated coverage array
-		 * @param kmers Array for k-mer storage
+		 * @param cov Preallocated exact-length coverage array
+		 * @param kmers Exact-length array for k-mer storage
 		 * @return Sorted coverage array (descending order)
 		 */
 		private final int[] getSortedCoverageAndIncrementHistogram(Read r, int[] cov, long[] kmers){
@@ -1101,33 +1112,25 @@ public class ReadKmerDepthDistribution {
 		private final void incrementHistogramSorted(int[] cov){
 			if(hist==null || cov==null || cov.length==0){return;}
 			
-//			outstream.println(Arrays.toString(cov));
 			
-			int last=Tools.min(cov[0], HIST_LEN-1);//Cap the initial bin too, so the first clipped position is counted.
+			//Cap the initial bin too, so the first clipped position is counted.
+			int last=Tools.min(cov[0], HIST_LEN-1);
 			long sum=0;
-//			long sum2=0;
 			for(int x : cov){
-//				outstream.println("Processing "+x);
 				if(x<0){break;}
 				int y=Tools.min(x, HIST_LEN-1);
 				if(y==last){sum++;}
 				else if(sum>0){
-//					outstream.println("Incrementing "+last+" by "+sum);
-//					sum2+=sum;
 					if(last<hist.length){hist[last]+=sum;}
 					else{histogram_total.addAndGet(last, sum);}
 					sum=1;
 				}
 				last=y;
 			}
-//			outstream.println("Ended loop");
 			if(sum>0){
-//				outstream.println("Incrementing "+last+" by "+sum);
-//				sum2+=sum;
 				if(last<hist.length){hist[last]+=sum;}
 				else{histogram_total.addAndGet(last, sum);}
 			}
-//			assert(sum2==cov.length) : sum2+", "+cov.length+", "+last+", "+sum;
 		}
 		
 		/** Input stream for reading sequence data */
@@ -1182,13 +1185,13 @@ public class ReadKmerDepthDistribution {
 	
 	/** Target coverage depth for read selection */
 	private static int TARGET_DEPTH=50;
-	/** Maximum allowed coverage depth */
+	/** Parsed maximum depth; raised to at least target depth and not used by current selection */
 	private static int MAX_DEPTH=-1;
-	/** Minimum coverage depth threshold */
+	/** Threshold for the dormant depth calculation */
 	private static int MIN_DEPTH=3;
-	/** Minimum number of k-mers above minimum depth required to keep read */
+	/** Minimum count for the dormant depth calculation */
 	private static int MIN_KMERS_OVER_MIN_DEPTH=10;
-	/** Percentile of coverage distribution to use for depth calculation */
+	/** Percentile of coverage distribution used by the dormant depth calculation */
 	private static float DEPTH_PERCENTILE=0.5f;
 	
 	

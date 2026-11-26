@@ -12,22 +12,28 @@ import stream.Read;
 import structures.ListNum;
 
 /**
- * Skeleton implementation for counting k-mer uniqueness in sequencing data.
- * Currently incomplete with TODO markers and placeholder methods.
- * Intended to analyze sequence uniqueness patterns using matrix-based tracking.
+ * Dormant skeleton for a k-mer uniqueness counter.
+ * <p>
+ * This class is retained as unfinished scaffolding.  It has no {@code main}
+ * method or command-line argument constructor.  The top-level bbcountunique
+ * launcher uses {@code CalcUniqueness}, not this class.  The processing paths
+ * retain TODO assertions, and the allocated count matrices are unused.
  *
  * @author Brian Bushnell
  * @date Jan 14, 2014
  */
-public class CountUniqueness {
+public class CountUniqueness{
 
-	
+	/**
+	 * Processes the unconfigured input list, then prints the skeleton counters.
+	 * Input-list initialization and configuration are not implemented.
+	 */
 	public void process(){
 		Timer t=new Timer();
 		for(String s : in){
 			process(s);
 		}
-		
+
 		t.stop();
 
 		double rpnano=readsProcessed/(double)(t.elapsed);
@@ -38,16 +44,22 @@ public class CountUniqueness {
 
 		while(rpstring.length()<8){rpstring=" "+rpstring;}
 		while(bpstring.length()<8){bpstring=" "+bpstring;}
-		
+
 		outstream.println("Time:                         \t"+t);
 		outstream.println("Reads Processed:    "+rpstring+" \t"+Tools.format("%.2fk reads/sec", rpnano*1000000));
 		outstream.println("Bases Processed:    "+bpstring+" \t"+Tools.format("%.2fm bases/sec", bpnano*1000));
-		
+
 		if(errorState){
 			throw new RuntimeException(this.getClass().getName()+" terminated in an error state; the output may be corrupt.");
 		}
 	}
-	
+
+	/**
+	 * Placeholder pair hook; matrix updates are not implemented.
+	 *
+	 * @param r1 first read in a pair
+	 * @param r2 second read in a pair
+	 */
 	private void process(Read r1, Read r2){
 		if(r1==null || r2==null){return;}
 		readsProcessed++;
@@ -56,23 +68,27 @@ public class CountUniqueness {
 		basesProcessed+=r2.length();
 		assert(false) : "TODO";
 	}
-	
+
+	/**
+	 * Opens an unfinished read stream with SAM fallback; under -ea, TODO assertions
+	 * stop nonempty input in the read loop.
+	 *
+	 * @param fname input path
+	 */
 	public void process(String fname){
-		
 		final ConcurrentReadInputStream cris;
 		{
 			FileFormat ff=FileFormat.testInput(fname, FileFormat.SAM, null, true, false);
 			cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ff, null);
 			if(verbose){System.err.println("Starting cris");}
-			cris.start(); //4567
+			cris.start();//4567
 		}
-		
+
 		{
 			ListNum<Read> ln=cris.nextList();
 			ArrayList<Read> reads=(ln!=null ? ln.list : null);
 
 			while(ln!=null && reads!=null && reads.size()>0){//ln!=null prevents a compiler potential null access warning
-
 				for(int idx=0; idx<reads.size(); idx++){
 					Read r1=reads.get(idx);
 					Read r2=r1.mate;
@@ -87,26 +103,36 @@ public class CountUniqueness {
 				cris.returnList(ln.id, ln.list==null || ln.list.isEmpty());
 			}
 		}
-		
+
 		errorState|=ReadWrite.closeStreams(cris);
-	
 	}
 
+	/** Placeholder matrix bound; no uniqueness algorithm currently consumes it. */
 	private static final int MAX=41;
 	private static final int MAX2=MAX+1;
+
+	/** Unused placeholder count matrices retained with the skeleton. */
 	private long[][][] goodMatrix=new long[MAX2][MAX2][MAX2];
 	private long[][][] badMatrix=new long[MAX2][MAX2][MAX2];
-	
+
 	private PrintStream outstream=System.err;
 	private boolean verbose=false;
+
+	/** Limit forwarded unchanged to the reader stream. */
 	private long maxReads=-1;
+
+	/** Unconfigured input path list. */
 	private String in[];
+
+	/** Unused output path placeholder. */
 	private String out;
+
+	/** Unused overwrite flag placeholder. */
 	private boolean overwrite=true;
+
+	/** Unused append flag placeholder. */
 	private boolean append=false;
 	private long readsProcessed=0;
 	private long basesProcessed=0;
 	private boolean errorState=false;
-	
-	
 }

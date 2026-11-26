@@ -96,7 +96,7 @@ public class CoveragePileupMT implements Accumulator<CoveragePileupMT.LoadThread
 		
 		for(int i=0; i<args.length; i++){
 			final String arg=args[i];
-			final String[] split=arg.split("=");
+			final String[] split=Parse.splitOnFirst(arg, '=');
 			String a=split[0].toLowerCase();
 			String b=split.length>1 ? split[1] : null;
 
@@ -250,7 +250,7 @@ public class CoveragePileupMT implements Accumulator<CoveragePileupMT.LoadThread
 				//do nothing
 			}else if(Parser.parseZip(arg, a, b)){
 				//do nothing
-			}else if(arg.indexOf('=')<0 && new File(arg).exists()){
+			}else if(new File(arg).exists()){
 				inputFiles.add(arg);
 			}else{
 				throw new RuntimeException("Unknown parameter: "+args[i]);
@@ -327,7 +327,7 @@ public class CoveragePileupMT implements Accumulator<CoveragePileupMT.LoadThread
 	/*--------------------------------------------------------------*/
 	
 	
-	/** The goal of this is to garbage-collect unnecessary objects, not really for reusing the object */
+	/** Releases large references and resets some counters after processing; not a complete reset path for reuse */
 	public void clear(){
 		list=null;
 		table=null;
@@ -1603,7 +1603,7 @@ public class CoveragePileupMT implements Accumulator<CoveragePileupMT.LoadThread
 		 * Processes individual SAM alignment record for coverage calculation.
 		 * Applies quality filters, trimming, and delegates to coverage tracking methods.
 		 * @param sl SAM line to process
-		 * @return true if read contributed to coverage, false if filtered out
+		 * @return Result from ordinary addCoverage calls; the physical-pair path returns false even after an update
 		 */
 		public boolean processSamLine(SamLine sl){
 			readsProcessed++;
@@ -2134,12 +2134,11 @@ public class CoveragePileupMT implements Accumulator<CoveragePileupMT.LoadThread
 	/** Calculate standard deviation of coverage */
 	public static boolean calcCovStdev=true;
 	
-	/** Window size to use when calculating average coverage,
-	 * for detecting contiguous low-coverage areas */
+	/** Width of the window used for optional low-average-coverage statistics */
 	public static int LOW_COV_WINDOW=500;
-	/** Min average coverage to not be classified as low-depth */
+	/** Average coverage threshold for optional low-window statistics */
 	public static double LOW_COV_DEPTH=5;
-	/** Print number of bases below a certain average coverage in a window */
+	/** Print an {@code Under_<depth>/<window>} stats column */
 	public static boolean USE_WINDOW=false;
 	
 	public static int HISTMAX=-1;
@@ -2174,7 +2173,7 @@ public class CoveragePileupMT implements Accumulator<CoveragePileupMT.LoadThread
 	public static boolean START_ONLY=false;
 	/** Only track coverage for stop location */
 	public static boolean STOP_ONLY=false;
-	/** This appears to be the same as nonzeroonly... */
+	/** Print basecov as #scaffold blocks with nonzero position/coverage rows */
 	public static boolean CONCISE=false;
 	/** Normalize coverage by expression contig coverage as a fraction of its max coverage */
 	public static boolean NORMALIZE_COVERAGE=false;

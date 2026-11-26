@@ -25,8 +25,8 @@ import shared.Tools;
  * @author Brian Bushnell
  * @date Apr 17, 2013
  */
-public class AssemblyStatsWrapper {
-	
+public class AssemblyStatsWrapper{
+
 	/**
 	 * Collects inputs and invokes AssemblyStats2 once for each, in encounter order.
 	 * @param args Input paths, named in/ref lists, and options forwarded to each input
@@ -34,13 +34,13 @@ public class AssemblyStatsWrapper {
 	public static void main(String[] args){
 		ArrayList<String> alist=new ArrayList<String>();
 		ArrayList<String> ilist=new ArrayList<String>();
-		
+
 		alist.add("");
 		alist.add("header=t");
 		alist.add("showspeed=f");
 		alist.add("addname=t");
 		alist.add("k=0");
-		
+
 		for(String arg : args){
 			if(!arg.contains("=") && Tools.canRead(arg)){
 				ilist.add("in="+arg);
@@ -63,7 +63,7 @@ public class AssemblyStatsWrapper {
 				}
 			}
 		}
-		
+
 		String[] args2=alist.toArray(new String[alist.size()]);
 		for(int i=0; i<ilist.size(); i++){
 			String s=ilist.get(i);
@@ -74,9 +74,9 @@ public class AssemblyStatsWrapper {
 //				AssemblyStats2.reset();
 				System.gc();
 				synchronized(AssemblyStatsWrapper.class){
-					try {
+					try{
 						AssemblyStatsWrapper.class.wait(100);
-					} catch (InterruptedException e) {}
+					}catch(InterruptedException e){}
 				}
 				Thread.yield();
 			}
@@ -87,7 +87,7 @@ public class AssemblyStatsWrapper {
 			}
 			as2.process();
 		}
-		
+
 	}
-	
+
 }

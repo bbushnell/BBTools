@@ -23,43 +23,53 @@ import stream.Read;
 import structures.ListNum;
 
 /**
- * Evaluates the accuracy of merged reads by comparing expected insert sizes
- * with actual merged read lengths. Analyzes merged reads to determine if they
- * were merged to the correct length based on synthetic or embedded insert size
- * information in read headers.
+ * Grades merged-read lengths against insert sizes encoded in read headers.
+ * Correctness here means length agreement; sequence bases are not compared.
+ * Optional raw input supplies additional total and potentially mergeable counts.
+ * Read counts refer to primary records returned by the input readers, not individual mates.
  *
  * @author Brian Bushnell
  * @date May 20, 2014
  */
-public class GradeMergedReads {
+public class GradeMergedReads{
 
-
+	/** Runs the grader and closes a redirected report stream after successful processing.
+	 * @param args Command-line options and optional first positional input
+	 */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		GradeMergedReads x=new GradeMergedReads(args);
 		x.process(t);
-		
+
 		//Close the print stream if it was redirected
 		Shared.closeStream(x.outstream);
 	}
-	
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Initialization        ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Parses options, configures shared reader settings, and describes the merged input.
+	 * @param args Command-line options; positional input paths must not contain '='
+	 */
 	public GradeMergedReads(String[] args){
-		
+
 		{//Preparse block for help, config files, and outstream
 			PreParser pp=new PreParser(args, getClass(), false);
 			args=pp.args;
 			outstream=pp.outstream;
 		}
-		
+
 		Shared.capBuffers(4);
 		ReadWrite.USE_PIGZ=ReadWrite.USE_UNPIGZ=true;
 		FASTQ.FORCE_INTERLEAVED=FASTQ.TEST_INTERLEAVED=false;
 		FASTQ.DETECT_QUALITY=false;
-		
+
 		Parser parser=new Parser();
 		for(int i=0; i<args.length; i++){
 			String arg=args[i];
-			String[] split=arg.split("=");
+			//FIXED JGI-219: Preserve filename '=' characters after the option delimiter.
+			String[] split=Parse.splitOnFirst(arg, '=');
 			String a=split[0].toLowerCase();
 			String b=split.length>1 ? split[1] : null;
 
@@ -87,42 +97,49 @@ public class GradeMergedReads {
 			}else{
 				System.err.println("Unknown parameter "+i+": "+args[i]);
 				assert(false) : "Unknown parameter "+i+": "+args[i];
-//					+"\n"+arg+", "+parser.in1+", "+arg.contains("=")+", "+(arg.toLowerCase().startsWith("stdin")+", "+new File(arg).exists()+", "+new File(arg).getAbsolutePath());
-				//				throw new RuntimeException("Unknown parameter "+args[i]);
 			}
 		}
-		
+
 		{//Process parser fields
 			Parser.processQuality();
-			
+
 			maxReads=parser.maxReads;
 			in=parser.in1;
 			extin=parser.extin;
 		}
-		
+
 		assert(FastaReadInputStream.settingsOK());
-		
+
 		if(in==null){throw new RuntimeException("Error - at least one input file is required.");}
 		if(!ByteFile.FORCE_MODE_BF1 && !ByteFile.FORCE_MODE_BF2 && Shared.threads()>2){
 			ByteFile.FORCE_MODE_BF2=true;
 		}
-		
+
 		FASTQ.PARSE_CUSTOM=false;
 
 		ffin=FileFormat.testInput(in, FileFormat.FASTQ, extin, true, true);
 	}
-	
+
+	/*--------------------------------------------------------------*/
+	/*----------------           Methods            ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Grades primary merged records and reports exact, short, and long length counts.
+	 * Optional raw records are counted first; a positive insert shorter than the
+	 * total length of the read and any mate contributes to the potentially mergeable count.
+	 * @param t Started timer, stopped after processing and reader closure
+	 */
 	void process(Timer t){
-		
+
 		long mergeable=0, total=0;
 		if(raw1!=null){
 			FileFormat ffraw1=FileFormat.testInput(raw1, FileFormat.FASTQ, extin, true, true);
 			FileFormat ffraw2=FileFormat.testInput(raw2, FileFormat.FASTQ, extin, true, true);
 			ConcurrentReadInputStream cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ffraw1, ffraw2, null, null);
 			cris.start();
-			
+
 			{
-				
+
 				ListNum<Read> ln=cris.nextList();
 				ArrayList<Read> reads=(ln!=null ? ln.list : null);
 
@@ -144,50 +161,49 @@ public class GradeMergedReads {
 				errorState|=ReadWrite.closeStream(cris);
 			}
 		}
-		
+
 		final ConcurrentReadInputStream cris;
 		{
 			cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ffin, null, null, null);
 			if(verbose){System.err.println("Started cris");}
-			cris.start(); //4567
+			cris.start();
 		}
-		
+
 		long readsProcessed=0;
 		long basesProcessed=0;
 
 		long correct=0;
 		long tooLong=0;
 		long tooShort=0;
-		
+
 		{
-			
+
 			ListNum<Read> ln=cris.nextList();
 			ArrayList<Read> reads=(ln!=null ? ln.list : null);
-			
-//			System.err.println("Fetched "+reads);
-			
+
 			if(reads!=null && !reads.isEmpty()){
 				Read r=reads.get(0);
 				assert((ffin==null || ffin.samOrBam()) || (r.mate!=null)==cris.paired());
 			}
 
 			while(ln!=null && reads!=null && reads.size()>0){//ln!=null prevents a compiler potential null access warning
-				
+
 				for(int idx=0; idx<reads.size(); idx++){
 					final Read r1=reads.get(idx);
-					
+
 					final int initialLength1=r1.length();
 					final int insert=parseInsert(r1.id);
-					
+
+					//FIXED JGI-218: A merged read shorter than its insert must count as too short.
 					int delta=insert-initialLength1;
 					if(delta==0){
 						correct++;
 					}else if(delta>0){
-						tooLong++;
-					}else{
 						tooShort++;
+					}else{
+						tooLong++;
 					}
-					
+
 					readsProcessed++;
 					basesProcessed+=initialLength1;
 				}
@@ -200,14 +216,14 @@ public class GradeMergedReads {
 				cris.returnList(ln.id, ln.list==null || ln.list.isEmpty());
 			}
 		}
-		
+
 		errorState|=ReadWrite.closeStream(cris);
-		
+
 		t.stop();
-		
+
 		long incorrect=tooShort+tooLong;
 		double snr=10*Math.log10((correct+incorrect+0.0001)/(incorrect+0.0001));
-		
+
 		if(total>0){
 			outstream.println("Input Total:            \t"+total+" pairs");
 			outstream.println("Input Overlapping:      \t"+Tools.format("%.5f",mergeable*100.0/total)+"%\t"+mergeable+" reads");
@@ -220,12 +236,24 @@ public class GradeMergedReads {
 
 		outstream.println();
 		outstream.println(Tools.timeReadsBasesProcessed(t, readsProcessed, basesProcessed, 8));
-		
+
 		if(errorState){
 			throw new RuntimeException("GradeMergedReads terminated in an error state; the output may be corrupt.");
 		}
 	}
-	
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Static Methods        ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Extracts insert-size metadata from a recognized read identifier.
+	 * SYN headers delegate to CustomHeader with mate zero. Other forms begin with
+	 * insert= or contain a RandomReadsMG f_..._i_... segment at the start or after a tab.
+	 * This method is not a complete header validator; delegated parsing may retain
+	 * partial metadata, and numeric handling differs between header forms.
+	 * @param s Nonnull read identifier without a FASTA/FASTQ marker
+	 * @return Encoded insert size
+	 */
 	public static int parseInsert(String s){
 		if(s.startsWith("SYN")){
 			CustomHeader h=new CustomHeader(s, 0);
@@ -238,21 +266,21 @@ public class GradeMergedReads {
 			final int fstart=s.startsWith("f_") ? 0 : (tab>=0 ? tab+1 : -1);
 			final int marker=fstart>=0 ? s.indexOf("_i_", fstart+2) : -1;
 			if(marker<0){throw new RuntimeException("Can't parse insert size for header "+s);}
-			int insert=0, pos=marker+3;
+			long insert=0;
+			int pos=marker+3;
 			final int start=pos;
-			while(pos<s.length() && Tools.isDigit(s.charAt(pos))){
+			//FIXED JGI-220: Bound each update before a long value can wrap, then reject values outside int range.
+			while(pos<s.length() && insert<=Integer.MAX_VALUE && Tools.isDigit(s.charAt(pos))){
 				insert=insert*10+s.charAt(pos)-'0';
 				pos++;
 			}
-			if(pos==start || insert<1){throw new RuntimeException("Can't parse insert size for header "+s);}
-			return insert;
+			if(pos==start || insert<1 || insert>Integer.MAX_VALUE){throw new RuntimeException("Can't parse insert size for header "+s);}
+			return (int)insert;
 		}
-		
-//		int space=s.indexOf(' ');
-//		if(space<0){space=s.length();}
+
 		int space=s.length();
 		int equals=s.indexOf('=');
-		for(int i=equals+1;i<s.length();i++){//For programs that rename my reads!
+		for(int i=equals+1; i<s.length(); i++){//For programs that rename my reads!
 			if(!Tools.isDigit(s.charAt(i))){
 				space=i;
 				break;
@@ -262,32 +290,39 @@ public class GradeMergedReads {
 		int insert=Integer.parseInt(s);
 		return insert;
 	}
-	
+
 	/*--------------------------------------------------------------*/
-	
-	/*--------------------------------------------------------------*/
-	
-	private String in=null;
-	
-	private String extin=null;
-	
-	private String raw1=null;
-	private String raw2=null;
-	
+	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Merged-read input path. */
+	private String in=null;
+
+	/** Optional format override shared by merged and raw inputs. */
+	private String extin=null;
+
+	/** Optional first raw-read input after any '#' mate-path expansion. */
+	private String raw1=null;
+	/** Optional second raw-read input, used only when raw1 is present. */
+	private String raw2=null;
+
+	/*--------------------------------------------------------------*/
+
+	/** Requested limit forwarded separately to the raw and merged readers. */
 	private long maxReads=-1;
-	
+
 	/*--------------------------------------------------------------*/
-	
+
+	/** Format and path descriptor for the merged input. */
 	private final FileFormat ffin;
-	
-	
+
 	/*--------------------------------------------------------------*/
-	
+
+	/** Destination for grade summaries, optional raw counts, and timing. */
 	private PrintStream outstream=System.err;
+	/** Shared verbose setting used by this driver. */
 	public static boolean verbose=false;
+	/** Retained reader error state checked after reporting. */
 	public boolean errorState=false;
-	
 
 }

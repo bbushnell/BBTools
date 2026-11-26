@@ -536,6 +536,17 @@ public class CountDuplicates implements Accumulator<CountDuplicates.ProcessThrea
 	@Override
 	public final boolean success(){return !errorState;}
 	
+	/**
+	 * Returns the combined pair length used by processed and kept base counters.
+	 * Casts before addition so legal int read lengths sum without int overflow.
+	 * @param length1 primary read length
+	 * @param length2 mate read length
+	 * @return widened sum of both lengths
+	 */
+	private static long pairLength(final int length1, final int length2){
+		return (long)length1+length2;
+	}
+	
 	/*--------------------------------------------------------------*/
 	/*----------------         Inner Classes        ----------------*/
 	/*--------------------------------------------------------------*/
@@ -635,15 +646,13 @@ public class CountDuplicates implements Accumulator<CountDuplicates.ProcessThrea
 				final int initialLength2=r1.mateLength();
 
 				//Increment counters
-				//TODO JGI-135: Both base counters add int pair lengths before widening to long.
-				//Combined lengths above Integer.MAX_VALUE overflow; reader reachability is unverified.
 				readsProcessedT+=r1.pairCount();
-				basesProcessedT+=initialLength1+initialLength2;
+				basesProcessedT+=pairLength(initialLength1, initialLength2);
 				
 				long code=codes.get(idx);
 				if(code>=0){
 					readsOutT+=r1.pairCount();
-					basesOutT+=r1.pairLength();
+					basesOutT+=pairLength(r1.length(), r1.mateLength());
 				}else{
 					reads.set(idx, null);
 					if(code==DUPLICATE){dupes.add(r1);}

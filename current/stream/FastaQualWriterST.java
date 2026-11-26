@@ -312,6 +312,23 @@ public class FastaQualWriterST implements Writer{
 		r.toFasta(bbFa);
 		bbFa.nl();
 
+		appendQual(r, bbQual);
+
+		readsWritten++;
+		basesWritten+=r.length();
+	}
+
+	/**
+	 * Appends one numeric QUAL record, using the same header and score formatting as
+	 * the paired FASTA+QUAL writer. Existing contents are retained. Signed quality
+	 * scores are printed as-is; null quality arrays print Shared.FAKE_QUAL once per
+	 * base. A final newline is appended. The caller retains the returned nonnull
+	 * buffer and owns later submission or reuse.
+	 * @param r Nonnull read to format
+	 * @param bbQual Nonnull destination QUAL buffer
+	 * @return bbQual
+	 */
+	public static ByteBuilder appendQual(Read r, ByteBuilder bbQual){
 		// Fixed #003: use Read.toFasta's numeric-ID fallback so paired output headers agree.
 		//Appending a null String directly instead emitted the literal null in QUAL.
 		// Write Qual header
@@ -336,9 +353,7 @@ public class FastaQualWriterST implements Writer{
 			if(len>0){bbQual.length--;}
 		}
 		bbQual.nl();
-
-		readsWritten++;
-		basesWritten+=r.length();
+		return bbQual;
 	}
 
 	/** Writes a nonempty buffer, clearing it after success; wraps IOException in RuntimeException. */

@@ -145,6 +145,7 @@ public class KmerHashDump {
 			}
 		}
 		st.close();
+		errorState|=st.errorState();
 		if(bb.length()>0){bsw.print(bb);}
 		errorState|=bsw.poisonAndWait();
 

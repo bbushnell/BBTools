@@ -99,7 +99,7 @@ public class CoveragePileup {
 		
 		for(int i=0; i<args.length; i++){
 			final String arg=args[i];
-			final String[] split=arg.split("=");
+			final String[] split=Parse.splitOnFirst(arg, '=');
 			String a=split[0].toLowerCase();
 			String b=split.length>1 ? split[1] : null;
 			
@@ -343,6 +343,7 @@ public class CoveragePileup {
 			throw new RuntimeException("\nCan't read some input files.\n");  
 		}
 		
+		// TODO JGI-229: Preflight outsam/outorf before their late writer opens.
 		if(!Tools.testOutputFiles(overwrite, append, false, basecov, rangecov, bincov, normcov, normcovOverall, histogram, covstats, outrpkm)){
 			throw new RuntimeException("\n\noverwrite="+overwrite+"; Can't write to output files "+
 					basecov+", "+rangecov+", "+bincov+", "+normcov+", "+normcovOverall+", "+histogram+", "+covstats+", "+outrpkm+"\n");
@@ -355,7 +356,7 @@ public class CoveragePileup {
 	/*--------------------------------------------------------------*/
 	
 	
-	/** The goal if this is to garbage-collect unnecessary objects, not really for reusing the object */
+	/** Release references to per-run data; this is not a complete reset for reuse. */
 	public void clear(){
 		list=null;
 		table=null;
@@ -484,12 +485,14 @@ public class CoveragePileup {
 		}
 //		System.err.println("J");
 		
-		printOutput();
-		
 		if(orffasta!=null){
+			// JGI-234: Read positional ORF coverage before writeStats() sorts arrays for medians.
 			processOrfsFasta(orffasta, outorf, table);
 		}
 		
+		printOutput();
+		
+		// TODO JGI-231: Consume output-writer error results instead of only joining or ignoring them.
 		if(tsw!=null){tsw.waitForFinish();}
 	}
 	
@@ -536,6 +539,7 @@ public class CoveragePileup {
 			processSamLine(line);
 		}
 		
+		// TODO JGI-230: Propagate ByteFile close errors instead of discarding them.
 		tf.close();
 		if(tsw!=null){tsw.poison();}
 	}
@@ -548,6 +552,7 @@ public class CoveragePileup {
 	 * @param fname Path to coverage file
 	 */
 	private void loadCoverageFile(String fname) {
+		// TODO JGI-230: Close the coverage ByteFile on all paths and propagate close errors.
 		ByteFile bf=ByteFile.makeByteFile(fname, true);
 		
 		byte[] line=bf.nextLine();
@@ -1329,12 +1334,12 @@ public class CoveragePileup {
 	}
 	
 	/**
-	 * Main method for processing individual SAM alignment records.
+	 * Process one SAM alignment record.
 	 * Applies filtering, trimming, and quality checks before adding coverage data.
-	 * Handles both single-read and paired-end physical coverage modes.
+	 * In physical-coverage mode, a successful mate-pair span update returns false.
 	 *
 	 * @param sl Parsed SAM line object
-	 * @return true if read was processed and added to coverage
+	 * @return true only when the direct-alignment path reports coverage added
 	 */
 	public boolean processSamLine(SamLine sl){
 		readsProcessed++;
@@ -1384,10 +1389,11 @@ public class CoveragePileup {
 	
 	
 	/**
-	 * Processes BBMap Read objects for coverage calculation.
+	 * Process one BBMap Read object for coverage calculation.
 	 * Alternative processing path for BBMap-generated alignments.
+	 * A successful physical-coverage mate span update returns false.
 	 * @param r Read object with alignment information
-	 * @return true if read was successfully processed
+	 * @return true only when a direct or secondary-site alignment reports coverage added
 	 */
 	public boolean processRead(Read r){
 		readsProcessed++;
@@ -1586,30 +1592,33 @@ public class CoveragePileup {
 	}
 	
 	/**
-	 * Counts bases in low-coverage windows using sliding window approach.
-	 * Identifies contiguous regions where average coverage falls below threshold.
+	 * Counts the union of bases touched by full positive-width windows
+	 * whose average coverage falls below the threshold.
 	 *
 	 * @param array Coverage array for scaffold
 	 * @param avg Average coverage threshold
 	 * @param window Window size for averaging
-	 * @return Number of bases in low-coverage regions
+	 * @return Number of bases in low-coverage windows
 	 */
 	public int basesUnderAverageCoverage(final int[] array, final double avg, final int window){
 		if(array.length<window){return 0;}
 		final long limit=(long)Math.ceil(window*avg);
 		long covSum=0;
 		int baseCount=0;
-		for(int i=0; i<window; i++){
+		for(int i=0; i<window-1; i++){
 			covSum+=array[i];
 		}
 		
 		boolean below=false;
-		int lastStop=-1, lastStart=0;
-		for(int a=0, b=window; b<array.length; a++, b++){
+		int countedUntil=0, lastStart=0;
+		int a=0, b=window-1;
+		for(; b<array.length; a++, b++){
+			covSum+=array[b];
 			if(covSum>=limit){
 				if(below){//end range
-					baseCount=b-Tools.max(lastStop+1, lastStart);
-					lastStop=b-1;
+					final int stop=b;
+					baseCount+=stop-Tools.max(countedUntil, lastStart);
+					countedUntil=stop;
 					below=false;
 				}
 			}else{
@@ -1620,11 +1629,10 @@ public class CoveragePileup {
 			}
 			covSum-=array[a];
 			assert(covSum>=0);
-			covSum+=array[b];
 		}
 		
-		if(below){//end range
-			baseCount=array.length-Tools.max(lastStop, lastStart);
+		if(below){
+			baseCount+=array.length-Tools.max(countedUntil, lastStart);
 		}
 		
 		assert(baseCount>=0);
@@ -1632,44 +1640,47 @@ public class CoveragePileup {
 	}
 	
 	/**
-	 * Counts bases in low-coverage windows using char array (16-bit coverage).
-	 * Overloaded version for 16-bit coverage arrays with same sliding window logic.
+	 * Counts the union of bases touched by full positive-width windows
+	 * whose average coverage falls below the threshold.
 	 *
 	 * @param array Coverage array for scaffold (16-bit values)
 	 * @param avg Average coverage threshold
 	 * @param window Window size for averaging
-	 * @return Number of bases in low-coverage regions
+	 * @return Number of bases in low-coverage windows
 	 */
 	public int basesUnderAverageCoverage(final char[] array, final double avg, final int window){
 		if(array.length<window){return 0;}
 		final long limit=(long)Math.ceil(window*avg);
 		long covSum=0;
 		int baseCount=0;
-		for(int i=0; i<window; i++){
+		for(int i=0; i<window-1; i++){
 			covSum+=array[i];
 		}
 		
 //		outstream.println("limit: "+limit);
 		
 		boolean below=false;
-		int lastStop=-1, lastStart=0;
-		for(int a=0, b=window; b<array.length; a++, b++){
+		int countedUntil=0, lastStart=0;
+		int a=0, b=window-1;
+		for(; b<array.length; a++, b++){
+			covSum+=array[b];
 			if(covSum>=limit){
 				if(below){//end range
-					baseCount+=b-Tools.max(lastStop+1, lastStart);
+					final int stop=b;
+					baseCount+=stop-Tools.max(countedUntil, lastStart);
 					
-//					outstream.println("\nprev: "+lastStop+", "+lastStart);
-//					outstream.println("end range at "+a+", "+b);
+//					outstream.println("\nprev: "+countedUntil+", "+lastStart);
+//					outstream.println("end range at "+a+", "+stop);
 //					outstream.println("baseCount: "+baseCount+", covSum="+covSum);
 					
-					lastStop=b-1;
+					countedUntil=stop;
 					below=false;
 				}
 			}else{
 				if(!below){//start range
 					
-//					outstream.println("\nprev: "+lastStop+", "+lastStart);
-//					outstream.println("start range at "+a+", "+b);
+//					outstream.println("\nprev: "+countedUntil+", "+lastStart);
+//					outstream.println("start range at "+a+", "+(a+window));
 //					outstream.println("baseCount: "+baseCount+", covSum="+covSum);
 					
 					lastStart=a;
@@ -1678,13 +1689,12 @@ public class CoveragePileup {
 			}
 			covSum-=array[a];
 			assert(covSum>=0);
-			covSum+=array[b];
 		}
 		
-		if(below){//end range
-			baseCount+=array.length-Tools.max(lastStop+1, lastStart);
+		if(below){
+			baseCount+=array.length-Tools.max(countedUntil, lastStart);
 			
-//			outstream.println("\nprev: "+lastStop+", "+lastStart);
+//			outstream.println("\nprev: "+countedUntil+", "+lastStart);
 //			outstream.println("end range at "+array.length);
 //			outstream.println("baseCount: "+baseCount+", covSum="+covSum);
 		}
@@ -1743,10 +1753,12 @@ public class CoveragePileup {
 //						sum+=x;
 						if(x>=minDepthToBeCovered){covered++;}
 					}
+					// TODO JGI-236: Skip disabled low-window calculation before numeric zero reaches the helper.
 					if(bits32){
 						int[] array=((CoverageArray3)ca).array;
 						stdev=Tools.standardDeviation(array);
 						underWindowAverage=basesUnderAverageCoverage(array, LOW_COV_DEPTH, LOW_COV_WINDOW);
+						// JGI-234: Terminal stats may sort after ORF coverage has read positions.
 						Shared.sort(array);
 						Tools.reverseInPlace(array);
 						median=ca.get(scaf.length/2);
@@ -1754,6 +1766,7 @@ public class CoveragePileup {
 						char[] array=((CoverageArray2)ca).array;
 						stdev=Tools.standardDeviation(array);
 						underWindowAverage=basesUnderAverageCoverage(array, LOW_COV_DEPTH, LOW_COV_WINDOW);
+						// JGI-234: Terminal stats may sort after ORF coverage has read positions.
 						Arrays.sort(array);
 						Tools.reverseInPlace(array);
 						median=ca.get(scaf.length/2);
@@ -2568,8 +2581,11 @@ public class CoveragePileup {
 	public long readsProcessed=0;
 	/** Total count of bases processed from input reads */
 	public long basesProcessed=0;
+	/** Processed input k-mers used as the optional correct-k-mer percentage denominator */
 	public long kmersProcessed=0;
+	/** Mapped k-mers accumulated before mapped or physical coverage updates for the optional coverage numerator */
 	public long mappedKmers=0;
+	/** Quality-derived correct k-mer estimate, or raw k-mer count when qualities are absent */
 	public double correctKmers=0;
 	public long totalCoveredBases1=0;
 	public long totalCoveredBases2=0;
@@ -2612,6 +2628,7 @@ public class CoveragePileup {
 	
 	public PrintStream outstream=System.err;
 	
+	// TODO JGI-231: Terminal handling must consume retained lifecycle errors.
 	private boolean errorState=false;
 	
 	private final LineParser1 lp=new LineParser1('\t');
@@ -2637,12 +2654,11 @@ public class CoveragePileup {
 	/** Calculate standard deviation of coverage */
 	public static boolean calcCovStdev=true;
 	
-	/** Window size to use when calculating average coverage,
-	 * for detecting contiguous low-coverage areas */
+	/** Sliding window width for the optional low-average-depth stats column */
 	public static int LOW_COV_WINDOW=500;
-	/** Min average coverage to not be classified as low-depth */
+	/** Minimum window average that is not classified as low depth */
 	public static double LOW_COV_DEPTH=5;
-	/** Print number of bases below a certain average coverage in a window */
+	/** Print the optional count of bases in low-average-depth windows */
 	public static boolean USE_WINDOW=false;
 	
 	/** Track base composition of reads covering each scaffold */
@@ -2677,7 +2693,7 @@ public class CoveragePileup {
 	public static boolean START_ONLY=false;
 	/** Only track coverage for stop location */
 	public static boolean STOP_ONLY=false;
-	/** This appears to be the same as nonzeroonly... */
+	/** Write concise basecov output as scaffold headers and nonzero position/coverage rows */
 	public static boolean CONCISE=false;
 	/** Normalize coverage by expression contig coverage as a fraction of its max coverage */
 	public static boolean NORMALIZE_COVERAGE=false;

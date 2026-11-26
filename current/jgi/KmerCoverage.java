@@ -50,6 +50,8 @@ public class KmerCoverage {
 			outstream=pp.outstream;
 		}
 		
+		//TODO JGI-247: A bare first input consumes arg2 even when it is an option, then parses arg2 again.
+		//The public launcher prepends named defaults, so this positional path is not reached there.
 		String in1=(args[0].indexOf("=")>0 ? null : args[0]);
 		String in2=(in1!=null && args.length>1 ? args[1] : null);
 		if(in2!=null && "null".equalsIgnoreCase(in2)){in2=null;}
@@ -96,7 +98,7 @@ public class KmerCoverage {
 		for(int i=(in1==null ? 0 : 1); i<args.length; i++){
 			if(args[i]==null){args[i]="null";}
 			final String arg=args[i];
-			final String[] split=arg.split("=");
+			final String[] split=Parse.splitOnFirst(arg, '=');
 			String a=split[0].toLowerCase();
 			String b=split.length>1 ? split[1] : null;
 			
@@ -227,11 +229,13 @@ public class KmerCoverage {
 				USE_HISTOGRAM=true;
 			}
 			
+			//JGI-248: The zero-inclusive bin count can exceed int range for 32-bit cells.
 			final int maxCount=(int)(cbits>16 ? Integer.MAX_VALUE : (1L<<cbits)-1);
 			assert(maxCount>0);
-			HIST_LEN_PRINT=Tools.max(1, Tools.min(HIST_LEN_PRINT, maxCount+1));
+			final long maxCountPlusOne=(long)maxCount+1;
+			HIST_LEN_PRINT=Tools.max(1, Tools.min(HIST_LEN_PRINT, maxCountPlusOne));
 			assert(HIST_LEN_PRINT<=Integer.MAX_VALUE) : HIST_LEN_PRINT+", "+Integer.MAX_VALUE;
-			HIST_LEN=(int)Tools.min(maxCount+1, Tools.max(HIST_LEN_PRINT, HIST_LEN));
+			HIST_LEN=(int)Tools.min(maxCountPlusOne, Tools.max(HIST_LEN_PRINT, HIST_LEN));
 			
 			histogram_total=new long[HIST_LEN];
 		}
@@ -497,8 +501,8 @@ public class KmerCoverage {
 	
 	
 	/**
-	 * Processes multiple input file lists and calculates k-mer coverage.
-	 * Handles batched file processing with optional paired-end support.
+	 * Processes input arrays from comma-list arguments sequentially and accumulates k-mer coverage.
+	 * Reuses a single output stream when one output path is shared across all inputs.
 	 *
 	 * @param list1 Array of primary input file paths
 	 * @param list2 Array of secondary input file paths (may be null)
@@ -589,7 +593,7 @@ public class KmerCoverage {
 	
 	/**
 	 * Calculates k-mer coverage using multiple processing threads.
-	 * Creates worker threads to process reads concurrently and aggregates results.
+	 * Creates worker threads, waits for their completion, and aggregates their results.
 	 *
 	 * @param cris Input stream for reading sequences
 	 * @param kca K-mer count array for lookups
@@ -623,7 +627,7 @@ public class KmerCoverage {
 					try {
 						ct.join(1000);
 					} catch (InterruptedException e) {
-						// TODO Auto-generated catch block
+						// Preserve the historical retry loop and expose the interruption.
 						e.printStackTrace();
 					}
 				}
@@ -686,6 +690,8 @@ public class KmerCoverage {
 				long y=((x+i/2)/(i<1 ? 1 : i)); //x+i/2 rounds to compensate for colliding kmers being put in an overly high bin
 //				long y=((x)/(i<1 ? 1 : i));
 				sum2+=y;
+				//JGI-249: Match the first loop's per-bin mean weighting, independent of the collapsed display label.
+				sumsquare+=(x*Tools.max(1, i));
 			}
 			if(tswh!=null){
 				if(PRINT_ZERO_COVERAGE || sumRaw2>0 || sum2>0){
@@ -865,13 +871,14 @@ public class KmerCoverage {
 	}
 	
 	/**
-	 * Generates k-mer coverage array for a single read.
-	 * Slides k-mer window across read sequence and looks up counts in the count array.
+	 * Generates a k-mer coverage array for a single read, delegating {@code k>31}.
+	 * For eligible reads with {@code k<=31}, initializes result entries to -1 and fills windows using a two-bit key.
+	 * Sampling uses a compact result array. Spike correction is conditional; topology counters are updated.
 	 *
 	 * @param r Read to analyze
 	 * @param kca K-mer count array for lookups
 	 * @param k K-mer length
-	 * @return Array of k-mer coverage values, or array with single zero if read too short
+	 * @return Coverage array, or a one-element array containing zero for a null, baseless, or too-short read
 	 */
 	public static int[] generateCoverage(Read r, KCountArray kca, int k) {
 		if(k>31){return generateCoverageLong(r, kca, k);}
@@ -939,13 +946,13 @@ public class KmerCoverage {
 	}
 	
 	/**
-	 * Generates k-mer coverage for reads with k > 31 using long arithmetic.
-	 * Uses bit rotation and XOR operations for efficient k-mer computation.
+	 * Generates k-mer coverage for {@code k>31} using a rolling rotated-xor key.
+	 * For eligible reads, initializes result entries to -1; sampling uses a compact array. Then corrects spikes and updates topology counters.
 	 *
 	 * @param r Read to analyze
 	 * @param kca K-mer count array for lookups
 	 * @param k K-mer length (must be > 31)
-	 * @return Array of k-mer coverage values
+	 * @return Coverage array, or a one-element array containing zero for a null, baseless, or too-short read
 	 */
 	public static int[] generateCoverageLong(Read r, KCountArray kca, int k) {
 		if(r==null || r.bases==null || r.length()<k){return new int[] {0};}
@@ -1129,16 +1136,18 @@ public class KmerCoverage {
 		}
 		
 		/**
-		 * Converts a read to FASTA format with coverage annotation.
-		 * Includes coverage values and statistics in header or as separate lines.
+		 * Builds a FASTA coverage-annotation payload for this read.
+		 * Counts eligible bases, accumulates histogram bins, and may set the discarded flag.
+		 * Appends coverage values and statistics either to the header or after the bases.
 		 * @param r Read to convert
-		 * @return FASTA-formatted string with coverage data
+		 * @return FASTA annotation payload
 		 */
 		private String toFastaString(Read r){
 			if(r.bases==null || r.length()<k){
 				if(MIN_MEDIAN>0 || MIN_AVERAGE>0){r.setDiscarded(true);}
 				if(USE_HEADER){
-					return (ADD_CARROT ? ">" : "")+r.id+";0;0 0 0 0 0\n"+r.bases==null ? "" : new String(r.bases);
+					//JGI-250: Parenthesize nullable bases so the zero-coverage header is retained.
+					return (ADD_CARROT ? ">" : "")+r.id+";0;0 0 0 0 0\n"+(r.bases==null ? "" : new String(r.bases));
 				}else{
 					return (ADD_CARROT ? ">" : "")+r.id+"\n"+(r.bases==null ? "" : new String(r.bases))+"\n0\n0 0 0 0 0";
 				}
@@ -1210,10 +1219,11 @@ public class KmerCoverage {
 		}
 		
 		/**
-		 * Converts a read to FASTQ format with coverage annotation.
+		 * Builds a FASTQ coverage-annotation payload for this read.
+		 * Counts eligible bases, accumulates histogram bins, and may set the discarded flag.
 		 * Appends coverage values and statistics after the quality line.
 		 * @param r Read to convert
-		 * @return ByteBuilder containing FASTQ-formatted data with coverage
+		 * @return ByteBuilder containing {@code r.toFastq()} serialization followed by coverage annotation lines
 		 */
 		private ByteBuilder toFastqString(Read r){
 			ByteBuilder sb=r.toFastq();

@@ -4,6 +4,7 @@ import java.io.File;
 import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.Locale;
 
 import dna.Data;
 import fileIO.ByteFile1;
@@ -18,43 +19,59 @@ import shared.Timer;
 import shared.Tools;
 import stream.ConcurrentReadInputStream;
 import stream.FASTQ;
+import stream.FastaQualWriterST;
 import stream.FastaReadInputStream;
 import stream.Read;
+import structures.ByteBuilder;
 import structures.ListNum;
 import tracker.ReadStats;
 
 /**
- * Extracts specific reads by numeric ID from sequence files.
- * Supports FASTA, FASTQ, and other bioinformatics formats with paired-end data.
- * Reads are identified by their numeric IDs and can be specified as individual
- * numbers, ranges, or comma-separated lists.
+ * Extracts reads with requested zero-based numeric IDs.  IDs may be listed
+ * individually, as inclusive ranges, or both, comma-delimited with {@code id=}.
+ * If a requested root has a mate, the mate is emitted to {@code out2} when set,
+ * otherwise immediately after the root in the same output stream.
  *
  * @author Brian Bushnell
  * @date Jul 10, 2013
  */
-public class GetReads {
-	
+public class GetReads{
+
+	/*--------------------------------------------------------------*/
+	/*----------------             Main             ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Runs the extraction and closes the redirected status stream, if any. */
 	public static void main(String[] args){
 		GetReads x=new GetReads(args);
-		
+
 		//Close the print stream if it was redirected
 		Shared.closeStream(x.outstream);
 	}
-	
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Initialization        ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/**
+	 * Parses command-line arguments, streams the input for the requested passes,
+	 * and writes matching roots to the primary output, plus selected mates to the
+	 * same stream by default or to {@code out2} when a mate output is requested.
+	 */
 	public GetReads(String[] args){
-		
+
 		{//Preparse block for help, config files, and outstream
 			PreParser pp=new PreParser(args, getClass(), false);
 			args=pp.args;
 			outstream=pp.outstream;
 		}
-		
+
 		Timer t=new Timer();
 
 		Parser parser=new Parser();
 		String in1=null;
 		String in2=null;
-		
+
 		String qfin1=null;
 		String qfin2=null;
 
@@ -63,7 +80,7 @@ public class GetReads {
 
 		String qfout1=null;
 		String qfout2=null;
-		
+
 		boolean errorState=false;
 		long maxReads=-1;
 		int passes=1;
@@ -72,18 +89,18 @@ public class GetReads {
 		float samplerate=1f;
 		long sampleseed=1;
 
-		
-		
+
+
 		ReadWrite.USE_PIGZ=ReadWrite.USE_UNPIGZ=true;
-		
+
 		HashSet<Long> table=new HashSet<Long>();
-		
+
 		for(int i=0; i<args.length; i++){
 			String arg=args[i];
-			String[] split=arg.split("=");
+			String[] split=Parse.splitOnFirst(arg, '=');
 			String a=split[0].toLowerCase();
 			String b=split.length>1 ? split[1] : null;
-			
+
 			if(Parser.parseCommonStatic(arg, a, b)){
 				//do nothing
 			}else if(Parser.parseZip(arg, a, b)){
@@ -172,20 +189,20 @@ public class GetReads {
 				//				throw new RuntimeException("Unknown parameter "+args[i]);
 			}
 		}
-		
+
 		{//Process parser fields
 			Parser.processQuality();
 		}
-		
+
 		assert(FastaReadInputStream.settingsOK());
-		
+
 		if(in1==null){throw new RuntimeException("Error - at least one input file is required.");}
-		
+
 		if(out1==null){
 			if(out2!=null){throw new RuntimeException("Error - cannot define out2 without defining out1.");}
 			out1="stdout";
 		}
-		
+
 		if(!parser.setInterleaved){
 			assert(in1!=null && (out1!=null || out2==null)) : "\nin1="+in1+"\nin2="+in2+"\nout1="+out1+"\nout2="+out2+"\n";
 			if(in2!=null){ //If there are 2 input streams.
@@ -202,38 +219,60 @@ public class GetReads {
 
 		if(out1!=null && out1.equalsIgnoreCase("null")){out1=null;}
 		if(out2!=null && out2.equalsIgnoreCase("null")){out2=null;}
-		
+		final boolean useQualityInput=(qfin1!=null || qfin2!=null);
+		final boolean useQualityOutput=(qfout1!=null || qfout2!=null);
+
 		if(!Tools.testOutputFiles(overwrite, append, false, out1, out2)){
 			throw new RuntimeException("\n\noverwrite="+overwrite+"; Can't write to output files "+out1+", "+out2+"\n");
 		}
-		
+		if(useQualityOutput && !Tools.testOutputFiles(overwrite, append, false, qfout1, qfout2)){
+			throw new RuntimeException("\n\noverwrite="+overwrite+"; Can't write to quality output files "
+				+qfout1+", "+qfout2+"\n");
+		}
+		if(useQualityInput && !Tools.testInputFiles(false, true, qfin1, qfin2)){
+			throw new RuntimeException("\nCan't read quality input files "+qfin1+", "+qfin2+"\n");
+		}
+		if((useQualityInput || useQualityOutput) &&
+				!Tools.testForDuplicateFiles(true, in1, in2, out1, out2, qfin1, qfin2, qfout1, qfout2)){
+			throw new RuntimeException("\nInput, output, and quality sidecar names must be unique.\n");
+		}
+
 
 		FileFormat ffin=FileFormat.testInput(in1, 0, null, true, true);
 		FileFormat ffout=FileFormat.testOutput(out1, 0, null, true, overwrite, append, false);
-		
-		
+		FileFormat ffout2=(useQualityOutput ? FileFormat.testOutput(out2, 0, null, true, overwrite, append, false) : null);
+		validateQualityOutput(ffout, ffout2, qfout1, qfout2);
+
+
 		final boolean useSharedHeader=(ffin!=null && ffout!=null && ffin.samOrBam() && ffout.samOrBam());
-		
+
 		if(ffin!=null && ffout!=null && ffin.samOrBam() && (ffout.samOrBam() || ffout.bread())){
 			throw new RuntimeException("\nDirect conversion of sam to sam or bread are not currently supported.\nAll other conversions are possible.");
 		}
-		
-		
+
+
 		ConcurrentReadInputStream cris;
 		{
 			FileFormat ff1=FileFormat.testInput(in1, FileFormat.FASTQ, null, true, true);
 			FileFormat ff2=FileFormat.testInput(in2, FileFormat.FASTQ, null, true, true);
-			cris=ConcurrentReadInputStream.getReadInputStream(maxReads, useSharedHeader, ff1, ff2);
+			validateQualityInput(ff1, ff2, qfin1, qfin2);
+			cris=ConcurrentReadInputStream.getReadInputStream(maxReads, useSharedHeader, ff1, ff2, qfin1, qfin2);
 		}
-		
+
 		cris.setSampleRate(samplerate, sampleseed);
 		outstream.println("Input is "+(cris.paired() ? "paired" : "unpaired"));
 		cris.start(); //4567
 
-		TextStreamWriter tsw=new TextStreamWriter(out1, overwrite, false, false);
+		TextStreamWriter tsw=new TextStreamWriter(out1, overwrite, append, false);
+		TextStreamWriter tsw2=(out2==null ? null : new TextStreamWriter(out2, overwrite, append, false));
+		TextStreamWriter qtsw=(qfout1==null ? null : new TextStreamWriter(qfout1, overwrite, append, false, FileFormat.QUAL));
+		TextStreamWriter qtsw2=(qfout2==null ? null : new TextStreamWriter(qfout2, overwrite, append, false, FileFormat.QUAL));
 		tsw.start();
-		
-		
+		if(tsw2!=null){tsw2.start();}
+		if(qtsw!=null){qtsw.start();}
+		if(qtsw2!=null){qtsw2.start();}
+
+
 		long readsProcessed=0;
 		long basesProcessed=0;
 
@@ -242,11 +281,11 @@ public class GetReads {
 			if(pass>1){
 				FileFormat ff1=FileFormat.testInput(in1, FileFormat.FASTQ, null, true, true);
 				FileFormat ff2=FileFormat.testInput(in2, FileFormat.FASTQ, null, true, true);
-				cris=ConcurrentReadInputStream.getReadInputStream(maxReads, useSharedHeader, ff1, ff2);
+				cris=ConcurrentReadInputStream.getReadInputStream(maxReads, useSharedHeader, ff1, ff2, qfin1, qfin2);
 				cris.setSampleRate(samplerate, sampleseed);
 				cris.start();
 			}
-			
+
 			ListNum<Read> ln=cris.nextList();
 			ArrayList<Read> reads=(ln!=null ? ln.list : null);
 
@@ -256,6 +295,7 @@ public class GetReads {
 			}
 
 			while(reads!=null && reads.size()>0 && !table.isEmpty() && ln!=null){//ln!=null is implied
+				ByteBuilder qbb1=null, qbb2=null;
 
 				for(Read r1 : reads){
 					{
@@ -267,13 +307,33 @@ public class GetReads {
 						readsProcessed++;
 						basesProcessed+=r2.length();
 					}
-					
+
 					if(table.remove(r1.numericID)){
 						tsw.println(r1);
-						if(r2!=null){tsw.println(r2);}
+						if(qtsw!=null){
+							if(qbb1==null){qbb1=new ByteBuilder();}
+							FastaQualWriterST.appendQual(r1, qbb1);
+						}
+						if(r2!=null){
+							if(tsw2==null){
+								tsw.println(r2);
+								if(qtsw!=null){
+									if(qbb1==null){qbb1=new ByteBuilder();}
+									FastaQualWriterST.appendQual(r2, qbb1);
+								}
+							}else{
+								tsw2.println(r2);
+								if(qtsw2!=null){
+									if(qbb2==null){qbb2=new ByteBuilder();}
+									FastaQualWriterST.appendQual(r2, qbb2);
+								}
+							}
+						}
 						if(table.isEmpty()){break;}
 					}
 				}
+				if(qbb1!=null && qbb1.length()>0){qtsw.print(qbb1);}
+				if(qbb2!=null && qbb2.length()>0){qtsw2.print(qbb2);}
 
 				cris.returnList(ln);
 				ln=cris.nextList();
@@ -284,14 +344,23 @@ public class GetReads {
 		}
 
 		if(tsw!=null){
-			tsw.poisonAndWait();
+			errorState|=tsw.poisonAndWait();
 		}
-		
+		if(tsw2!=null){
+			errorState|=tsw2.poisonAndWait();
+		}
+		if(qtsw!=null){
+			errorState|=qtsw.poisonAndWait();
+		}
+		if(qtsw2!=null){
+			errorState|=qtsw2.poisonAndWait();
+		}
+
 		errorState|=(cris.errorState());
-		
+
 		t.stop();
 		outstream.println(Tools.timeReadsBasesProcessed(t, readsProcessed, basesProcessed, 8));
-		
+
 		if(testsize){
 			long bytesProcessed=(new File(in1).length()+(in2==null ? 0 : new File(in2).length()))*passes;
 			double xpnano=bytesProcessed/(double)(t.elapsed);
@@ -299,14 +368,76 @@ public class GetReads {
 			while(xpstring.length()<8){xpstring=" "+xpstring;}
 			outstream.println("Bytes Processed:    "+xpstring+" \t"+Tools.format("%.2fm bytes/sec", xpnano*1000));
 		}
-		
+
 		if(errorState){
 			throw new RuntimeException("GetReads terminated in an error state; the output may be corrupt.");
 		}
-		
+
 	}
 
+	/**
+	 * Validate optional FASTA+QUAL sidecars before CRIS opens readers.
+	 * FastaQualReadInputStream bypasses the ordinary FastaReadInputStream path for
+	 * forced interleaving, amino reads, min-length filtering, and read splitting.
+	 */
+	private static void validateQualityInput(FileFormat ff1, FileFormat ff2, String qfin1, String qfin2){
+		if(qfin1==null && qfin2==null){return;}
+
+		if(qfin2!=null && ff2==null){
+			throw new RuntimeException("qfin2 requires in2; forced interleaved FASTA+QUAL input is not supported.");
+		}
+		if(FASTQ.FORCE_INTERLEAVED){
+			throw new RuntimeException("qfin/qfin2 do not support forced interleaved input.");
+		}
+		if(FastaReadInputStream.MIN_READ_LEN!=1 || FastaReadInputStream.SPLIT_READS || FastaReadInputStream.FORCE_SECTION_NAME){
+			throw new RuntimeException("qfin/qfin2 require FASTA input with minscaf=1, no FASTA read splitting, and forceSectionName=f.");
+		}
+		if(Shared.AMINO_IN){
+			throw new RuntimeException("qfin/qfin2 require nucleotide FASTA input.");
+		}
+		if(ff1==null || !ff1.fasta() || ff1.preferShreds() || ff1.amino()){
+			throw new RuntimeException("qfin/qfin2 require the primary input to be non-shredding nucleotide FASTA.");
+		}
+		if(ff2!=null && (!ff2.fasta() || ff2.preferShreds() || ff2.amino())){
+			throw new RuntimeException("qfin/qfin2 require the secondary input to be non-shredding nucleotide FASTA.");
+		}
+	}
+
+	/** Validate optional QUAL sidecars before any output writer is opened. */
+	private static void validateQualityOutput(FileFormat ffout1, FileFormat ffout2, String qfout1, String qfout2){
+		if(qfout1==null && qfout2==null){return;}
+
+		if(isConsoleOutputName(qfout1) || isConsoleOutputName(qfout2)){
+			throw new RuntimeException("qfout/qfout2 require file output, not stdout or stderr.");
+		}
+		if(qfout1!=null && (ffout1==null || !ffout1.fasta())){
+			throw new RuntimeException("qfout requires primary FASTA output.");
+		}
+		if(qfout2!=null && ffout2==null){
+			throw new RuntimeException("qfout2 requires out2 FASTA output.");
+		}
+		if(qfout2!=null && !ffout2.fasta()){
+			throw new RuntimeException("qfout2 requires secondary FASTA output.");
+		}
+	}
+
+	/** Returns true for borrowed console-output aliases, including suffixed names. */
+	private static boolean isConsoleOutputName(String name){
+		if(name==null){return false;}
+		String lower=name.trim().toLowerCase(Locale.ROOT);
+		return lower.equals("stdout") || lower.equals("stderr") ||
+				lower.equals("standardout") || lower.equals("standarderr") ||
+				lower.startsWith("stdout.") || lower.startsWith("stderr.");
+	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------            Fields            ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Destination for status and timing messages; PreParser may redirect it. */
 	private PrintStream outstream=System.err;
+
+	/** Enables verbose input diagnostics. */
 	public static boolean verbose=false;
-	
+
 }

@@ -1256,8 +1256,13 @@ public class CalcTrueQuality {
 		
 		@Override
 		public void run(){
-			// TODO: Report worker failures before merging partial matrices.
-			runStreamer();
+			try{
+				runStreamer();
+			}catch(Throwable t){
+				System.err.println("CalcTrueQuality worker failed; aborting to prevent partial calibration results.");
+				// A lost consumer can strand the producer, and partial worker data must not be published.
+				KillSwitch.throwableKill(t);
+			}
 		}
 		
 		/** Processes reads using the shared streamer.

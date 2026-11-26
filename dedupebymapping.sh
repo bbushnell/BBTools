@@ -10,10 +10,10 @@ Description:  Deduplicates mapped reads based on pair mapping coordinates.
 Usage:   dedupebymapping.sh in=<file> out=<file>
 
 Parameters:
-in=<file>           The 'in=' flag is needed if the input file is not the
-                    first parameter.  'in=stdin' will pipe from standard in.
-out=<file>          The 'out=' flag is needed if the output file is not the
-                    second parameter.  'out=stdout' will pipe to standard out.
+in=<file>           Input SAM/BAM file, specified with the 'in=' flag.
+                    Use 'in=stdin' to read from standard input.
+out=<file>          Output file, specified with the 'out=' flag.
+                    Use 'out=stdout' to write to standard output.
 overwrite=t         (ow) Set to false to force the program to abort rather
                     than overwrite an existing file.
 ziplevel=2          (zl) Set to 1 (lowest) through 9 (max) to change

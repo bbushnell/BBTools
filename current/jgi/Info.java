@@ -14,6 +14,7 @@ import shared.Tools;
  */
 public final class Info {
 	
+	/** Prints built-in demonstrations or command-line sequence summaries. */
 	public static void main(String[] args){
 		
 		if(args.length>0){
@@ -83,21 +84,54 @@ public final class Info {
 		}
 	}
 	
+	/** Prints one sequence, its length in characters, its approximate information in bits,
+	 * and its capped multinomial count.
+	 * @param s ASCII DNA sequence to print; the count is delegated to info(String)
+	 */
 	public static void printInfo(String s){
 		long r=info(s);
 		double bits=Math.log(r)/Math.log(2);
 		System.out.println(s+"\nlen="+s.length()+" \tinfo = "+Tools.format("%.2f", bits)+" bits. \t("+r+")");
 	}
 	
+	/** Counts arrangements of recognized bases in an ASCII string.
+	 * @param s ASCII DNA sequence; converted with the default charset, then the
+	 * first s.length() bytes are scored
+	 * @return Multinomial count of recognized bases, capped at Long.MAX_VALUE
+	 */
 	public static long info(String s){
 		return info(s.getBytes(), 0, s.length());
 	}
 	
+	/** Returns the integer floor of a slice's capped count in log2 units.
+	 * @param array ASCII base array
+	 * @param from First absolute index to score
+	 * @param len Maximum number of bytes to inspect
+	 * @return floor(log2(info(array, from, len)))
+	 */
 	public static int infoInBits(final byte[] array, final int from, final int len){return 63-Long.numberOfLeadingZeros(info(array, from, len));}
+	/** Returns the approximate log2 of a slice's capped count.
+	 * @param array ASCII base array
+	 * @param from First absolute index to score
+	 * @param len Maximum number of bytes to inspect
+	 * @return log2(info(array, from, len)) as a double
+	 */
 	public static double infoInBitsDouble(final byte[] array, final int from, final int len){return Math.log(info(array, from, len))*invlog2;}
+	/** Counts arrangements of recognized bases in a complete byte array.
+	 * @param array ASCII base array; A/C/G/T/U are recognized and other bytes ignored
+	 * @return Multinomial count of recognized bases, capped at Long.MAX_VALUE
+	 */
 	public static long info(final byte[] array){return info(array, 0, array.length);}
+	/** Counts arrangements of recognized bases in a bounded byte slice.
+	 * Supported calls use nonnegative from and len values whose sum does not overflow.
+	 * The high endpoint is clipped to array.length.
+	 * @param array ASCII base array; not modified
+	 * @param from First absolute index to score
+	 * @param len Maximum number of bytes to inspect
+	 * @return Multinomial count of recognized bases in the slice, capped at Long.MAX_VALUE
+	 */
 	public static long info(final byte[] array, final int from, final int len){
-		short[] counts=new short[4];
+		int[] counts=new int[4];
 		long r=1;
 		int used=0;
 		for(int i=from, lim=min(from+len, array.length); i<lim; i++){
@@ -108,9 +142,11 @@ public final class Info {
 				counts[num]++;
 				used++;
 				
+				// JGI-216: Preserve a representable quotient when the product would overflow.
 				if(used>32 && used>MAX/r){//overflow
-//					System.out.println("***");
-					return MAX;
+					r=nextInfo(r, used, counts[num]);
+					if(r==MAX){return MAX;}
+					continue;
 				}
 				r=r*used;
 				
@@ -127,13 +163,41 @@ public final class Info {
 		return r;
 	}
 
+	/** Finds the first prefix whose count reaches a power-of-two threshold.
+	 * @param array ASCII base array to scan from index 0
+	 * @param bits Power-of-two threshold in bits; assertions require bits in [0, 63)
+	 * @return Absolute exclusive endpoint reaching 2^bits, or -1 if unreachable;
+	 * a threshold of 1 can return the starting index before reading any byte
+	 */
 	public static int prefixForInfoBits(final byte[] array, final int bits){assert(bits>=0 && bits<63);return prefixForInfo(array, 1L<<bits, 0);}
+	/** Finds the first prefix whose count reaches a power-of-two threshold.
+	 * @param array ASCII base array
+	 * @param bits Power-of-two threshold in bits; assertions require bits in [0, 63)
+	 * @param from First absolute index to scan
+	 * @return Absolute exclusive endpoint reaching 2^bits, or -1 if unreachable;
+	 * a threshold of 1 can return from before reading any byte
+	 */
 	public static int prefixForInfoBits(final byte[] array, final int bits, final int from){assert(bits>=0 && bits<63);return prefixForInfo(array, 1L<<bits, from);}
+	/** Finds the first prefix whose count reaches a raw count threshold.
+	 * @param array ASCII base array to scan from index 0
+	 * @param info Count threshold; assertions require a nonnegative value
+	 * @return Absolute exclusive endpoint reaching info, or -1 if unreachable;
+	 * thresholds 0 and 1 return the starting index before reading any byte
+	 */
 	public static int prefixForInfo(final byte[] array, final long info){return prefixForInfo(array, info, 0);}
 	
+	/** Finds the first prefix whose count reaches a raw count threshold.
+	 * Counts restart at from. Ignored ASCII bytes advance the returned endpoint but do
+	 * not contribute to base counts.
+	 * @param array ASCII base array; not modified
+	 * @param info Count threshold; assertions require a nonnegative value
+	 * @param from First absolute index to scan
+	 * @return Absolute exclusive endpoint reaching info, or -1 if unreachable;
+	 * thresholds 0 and 1 return from before reading any byte
+	 */
 	public static int prefixForInfo(final byte[] array, final long info, final int from){
 		assert(info>=0);
-		short[] counts=new short[4];
+		int[] counts=new int[4];
 		long r=1;
 		int used=0;
 		int i=from;
@@ -146,8 +210,8 @@ public final class Info {
 				used++;
 				
 				if(used>32 && used>MAX/r){//overflow
-//					System.out.println("***");
-					return i;
+					r=nextInfo(r, used, counts[num]);
+					continue;// JGI-217: Let the loop update produce the exclusive endpoint.
 				}
 				r=r*used;
 				
@@ -172,12 +236,36 @@ public final class Info {
 		return r<info ? -1 : i;
 	}
 	
+	/** Computes a capped multinomial count without overflowing the intermediate product.
+	 * Cancelling used/count makes the remaining denominator divide the exact prior count.
+	 * @param prior Exact previous count, before saturation
+	 * @param used Number of recognized bases including the new base
+	 * @param count Number of occurrences of the new base including this occurrence
+	 * @return Next count, capped at Long.MAX_VALUE
+	 */
+	private static long nextInfo(final long prior, final int used, final int count){
+		assert(prior>0 && count>0 && count<=used) :
+				"The multinomial recurrence needs a positive exact count and one updated bin: "+prior+", "+used+", "+count;
+		int a=used, b=count;
+		while(b!=0){
+			final int remainder=a%b;
+			a=b;
+			b=remainder;
+		}
+		final int numerator=used/a, denominator=count/a;
+		assert(prior%denominator==0) :
+				"Coprime cancellation makes the denominator divide the prior multinomial count: "+prior+", "+used+", "+count;
+		final long reduced=prior/denominator;
+		return reduced>MAX/numerator ? MAX : reduced*numerator;
+	}
+
 	private static final byte[] numberToBase={
 		'A','C','G','T','N'
 	};
 	
-	/**
-	 * Array mapping ASCII characters to base numbers: A=0, C=1, G=2, T=3, others=-1
+	/** Initial mutable mapping from 7-bit ASCII bytes to base numbers.
+	 * A/C/G/T map to 0/1/2/3 case-insensitively, U/u map to T, and all other
+	 * 7-bit ASCII bytes including N are ignored with -1.
 	 */
 	public static final byte[] baseToNumber=new byte[128];
 	

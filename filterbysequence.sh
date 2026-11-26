@@ -18,13 +18,14 @@ literal=        A literal sequence or comma-delimited list of sequences.
 ow=t            (overwrite) Overwrites files that already exist.
 
 Processing Parameters:
-include=f       Set to 'true' to include the filtered sequences rather
+include=t       Set to 'true' to include the filtered sequences rather
                 than excluding them.
 rcomp=t         Match reverse complements as well.
 case=f          (casesensitive) Require matching case.
 storebases=t    (sb) Store ref bases.  Requires more memory.  If false,
                 case-sensitive matching cannot be done, and the matching
                 will be probabilistic based on 128-bit hashcodes.
+                Approximate matching requires storebases=t.
 threads=auto    (t) Specify the number of worker threads.
 subs=0          Maximum number of substitutions allowed.
 mf=0.0          (mismatchfraction) Maximum fraction of bases that can

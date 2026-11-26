@@ -2,6 +2,7 @@ package jgi;
 
 import java.io.File;
 import java.io.PrintStream;
+import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -1125,11 +1126,11 @@ public class BBMerge{
 		
 		outstream.println();
 		outstream.println("Insert range:        \t"+insertMinTotal+" - "+insertMaxTotal);
-		outstream.println("90th percentile:     \t"+Tools.percentileHistogram(histTotal, .9));
-		outstream.println("75th percentile:     \t"+Tools.percentileHistogram(histTotal, .75));
-		outstream.println("50th percentile:     \t"+Tools.percentileHistogram(histTotal, .5));
-		outstream.println("25th percentile:     \t"+Tools.percentileHistogram(histTotal, .25));
-		outstream.println("10th percentile:     \t"+Tools.percentileHistogram(histTotal, .1));
+		outstream.println("90th percentile:     \t"+insertPercentile(histTotal, 90));
+		outstream.println("75th percentile:     \t"+insertPercentile(histTotal, 75));
+		outstream.println("50th percentile:     \t"+insertPercentile(histTotal, 50));
+		outstream.println("25th percentile:     \t"+insertPercentile(histTotal, 25));
+		outstream.println("10th percentile:     \t"+insertPercentile(histTotal, 10));
 	}
 	
 	/**
@@ -1149,7 +1150,7 @@ public class BBMerge{
 
 		if(showHistStats){
 			sb.append("#Mean\t"+Tools.format("%.3f", Tools.averageHistogram(histTotal))+"\n");
-			sb.append("#Median\t"+Tools.percentileHistogram(histTotal, 0.5)+"\n");
+			sb.append("#Median\t"+insertPercentile(histTotal, 50)+"\n");
 			sb.append("#Mode\t"+Tools.calcModeHistogram(histTotal)+"\n");
 			sb.append("#STDev\t"+Tools.format("%.3f", Tools.standardDeviationHistogram(histTotal))+"\n");
 			sb.append("#PercentOfPairs\t"+Tools.format("%.3f", percentMerged)+"\n");
@@ -1173,6 +1174,53 @@ public class BBMerge{
 			}
 		}
 		ReadWrite.writeStringInThread(sb, fname);
+	}
+
+	/**
+	 * Selects the first insert histogram bin whose cumulative count reaches the
+	 * one-based ceiling rank for an integer percentile. Empty populations return zero.
+	 * @param array Insert-size histogram with nonnegative counts
+	 * @param percentile Percentile in the range 1..100
+	 * @return First bin at or above ceil(total * percentile / 100)
+	 */
+	private static int insertPercentile(long[] array, int percentile){
+		assert(percentile>=1 && percentile<=100) :
+				"An insert percentile in 1..100 keeps the ceiling rank within 1..total: "+percentile;
+		if(array==null || array.length<1){return 0;}
+		long total=0;
+		for(long count : array){
+			assert(count>=0) : "Nonnegative insert counts keep cumulative long ranks monotonic: "+count;
+			if(count>Long.MAX_VALUE-total){return insertPercentileWide(array, percentile);}
+			total+=count;
+		}
+		if(total<1){return 0;}
+		final long quotient=total/100;
+		final long remainder=total%100;
+		final long target=quotient*percentile+(remainder*percentile+99)/100;
+		long sum=0;
+		for(int i=0; i<array.length; i++){
+			sum+=array[i];
+			if(sum>=target){return i;}
+		}
+		return array.length-1;
+	}
+
+	/** Handles insert histograms whose nonnegative total exceeds the long range. */
+	private static int insertPercentileWide(long[] array, int percentile){
+		BigInteger total=BigInteger.ZERO;
+		for(long count : array){
+			assert(count>=0) : "Nonnegative insert counts keep cumulative BigInteger ranks monotonic: "+count;
+			total=total.add(BigInteger.valueOf(count));
+		}
+		if(total.signum()<1){return 0;}
+		BigInteger[] divRem=total.multiply(BigInteger.valueOf(percentile)).divideAndRemainder(BigInteger.valueOf(100));
+		BigInteger target=divRem[1].signum()==0 ? divRem[0] : divRem[0].add(BigInteger.ONE);
+		BigInteger sum=BigInteger.ZERO;
+		for(int i=0; i<array.length; i++){
+			sum=sum.add(BigInteger.valueOf(array[i]));
+			if(sum.compareTo(target)>=0){return i;}
+		}
+		return array.length-1;
 	}
 	
 //	private static String toAdapterSequence(LongList[] lists, boolean trimPolyA){

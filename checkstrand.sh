@@ -45,7 +45,7 @@ PolyA_Analysis: Based on counting poly-A or poly-T tails.
 MajorStrandPA:  Predicted major strand based on poly-A tail analysis.
                 This is unreliable if the poly-A fraction is low.
 PolyA/(PA+PT):  Ratio of (reads with poly-A tails)/(poly-A + poly-T tails).
-PolyAFraction:  Fraction of reads ending in poly-A or poly-T.
+PolyAFraction:  Fraction of analyzed reads counted as having a trailing poly-A tail.
 
 Ref_Analysis:   Compares read kmer frequencies to a reference (if present).
                 The reference can be a transcriptome or genome, and a gff file
@@ -60,7 +60,7 @@ Read_Gene_Calling_Analysis:  Uses gene-calling on reads to calculate which
 MajorStrandRGC: Predicted major strand based on read gene calling.
 P/(P+M)_Ratio:  P is the read count best matching the plus strand; M is minus.
 AvgScorePlus:   Average score of called plus-strand genes.
-AvgScoreMinus:  Average score of called plus-strand genes.
+AvgScoreMinus:  Average score of called minus-strand genes.
 UsedFraction:   Fraction of reads with any called genes (or partial genes);
                 this can be increased by merging the reads for longer frames.
 
@@ -71,9 +71,11 @@ StrandednessAL: Percent of reads aligned to the dominant strand.  More
                 accurate for transcriptome-mapped than genome-mapped reads.
 StrandednessAN: Depth-normalized strandedness, where each feature or
                 contig contributes equally.
-Binned Values (B):  The genome is divided into fixed-size bins (default 1000bp).
+Binned Values (B):  The genome is divided into fixed-size bins if enabled.
                 For each bin, plus-strand reads are counted as p, minus-strand as m.
-		Only bins with at least minReads total coverage are used.
+		Only bins with at least minreads total coverage are used.
+		Binned metrics are off by default; scafreport enables 1000bp
+		bins when bin/binlen is less than 1.
 StrandednessB:  Aggregates minor and major strand counts across all qualifying bins,
                 then applies the statistical strandedness transform to the totals. 
 		This accounts for expected random variation.
@@ -132,11 +134,18 @@ The destination of plus-mapped r1 would be outp, but outm for plus-mapped r2.
 Processing parameters:
 ref=<file>      Optional reference (assembly) input.
 gff=<file>      Optional gene annotation file input.
-scafreport=<file>  Optional per-scaffold strandedness output.
+scafreport=<file>  Optional per-scaffold binned strandedness output.
+                If bin/binlen is less than 1, this enables 1000bp bins.
+bin=0           Set fixed bin length for binned sam/bam strand statistics;
+                0 disables binned output unless scafreport is set.  Alias: binlen.
+minreads=2      Minimum plus+minus reads required for feature normalized
+                strandedness and aggregate/normalized binned metrics.
+*Note: Binned metrics and scafreport require sam/bam input plus transcriptome,
+       rnacontigs, ref, or gff.
 transcriptome=f Set this to 't' if the reference is a sense-strand 
                 transcriptome (rather than a genome assembly).  This applies
                 to either a reference specified by 'ref' or the reference
-                used for alignment, fo sam/bam input.
+                used for alignment, for sam/bam input.
 rnacontigs=f    Set this to 't' if the reference is contigs assembled from
                 RNA-seq data, but with unknown orientation.  Only affects
                 alignment results.
@@ -147,10 +156,16 @@ merge=f         Attempt to merge paired reads, and use the merged read when
 orf=t           Analyze stop codons and open reading frames.  Usually this
                 will allow major strand determination without a reference, 
                 unless GC is very high.
-callreads=t     Perform gene-calling on reads using a prokarotic gene model.
+firstorf=f      With orf=t, use the first stop-codon position instead of the
+                longest ORF length.
+callreads=t     Perform gene-calling on reads using a prokaryotic gene model.
                 Not very relevant to eukaryotes.
 passes=2        Two passes refines the gene model for better gene-calling on
                 reads.  Only used if there is a reference.
+polya=t         Analyze trailing poly-A versus leading poly-T tails.  The
+                longer tail is counted only when it is longer than minpolya;
+                equal lengths are not counted.
+minpolya=6      Exclusive A/T run-length threshold.  Aliases: polyalen, polyalength.
 samplerate=1.0  Set to a lower number to subsample the input reads; increases
                 speed on CPUs with few cores.
 sampleseed=17   Positive numbers are deterministic; negative use random seeds.

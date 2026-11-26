@@ -181,7 +181,7 @@ public class CheckStrand2 implements Accumulator<CheckStrand2.ProcessThread> {
 			String arg=args[i];
 			
 			//Break arguments into their constituent parts, in the form of "a=b"
-			String[] split=arg.split("=");
+			String[] split=Parse.splitOnFirst(arg, '=');
 			String a=split[0].toLowerCase();
 			String b=split.length>1 ? split[1] : null;
 			if(b!=null && b.equalsIgnoreCase("null")){b=null;}
@@ -296,6 +296,7 @@ public class CheckStrand2 implements Accumulator<CheckStrand2.ProcessThread> {
 	/** Ensure files can be read and written */
 	private void checkFileExistence(){
 		//Ensure output files can be written
+		//TODO JGI-226: scaffoldReport is absent from both output and duplicate-file checks.
 		if(!Tools.testOutputFiles(overwrite, append, false, out1, outPlus, outMinus)){
 			outstream.println((out1==null)+", "+(outPlus==null)+", "+(outMinus==null)+
 					", "+out1+", "+outPlus+", "+outMinus);
@@ -743,6 +744,7 @@ public class CheckStrand2 implements Accumulator<CheckStrand2.ProcessThread> {
 		
 		//Results based on calling and scoring genes on each side of the read
 		if(scoreReadGenes) {
+			//TODO JGI-224: Define zero-denominator scores and NaN-ratio Minus selection.
 			bsw.println();
 			double readsCalled=(gCallerPlusCount+gCallerMinusCount);
 			double pmRatio=gCallerPlusCount/(1.0*readsCalled);
@@ -851,6 +853,7 @@ public class CheckStrand2 implements Accumulator<CheckStrand2.ProcessThread> {
 	 */
 	double[] binStrandedness() {
 		if(binMap==null || binMap.isEmpty()) {return null;}
+		//TODO JGI-223: No qualifying bins or admitted singletons reach expectedMinor=0 assertions.
 		long binsAligned=0;
 		long binsGT1=0;
 		double strandednessSumNorm=0;
@@ -882,7 +885,6 @@ public class CheckStrand2 implements Accumulator<CheckStrand2.ProcessThread> {
 			}
 //			if(i++<10) {System.err.println("i="+i+", name="+seq.name+", majorSum="+majorSum);}
 		}
-		{System.err.println("majorSum="+majorSum);}
 		double strandedness=CheckStrand.strandedness((long)minorSum, (long)majorSum, (long)maxMinorSum, (float)expectedSum);
 		double strandednessN=strandednessSumNorm/binsGT1;
 		double strandednessS=majorSum/(majorSum+minorSum);
@@ -1152,7 +1154,7 @@ public class CheckStrand2 implements Accumulator<CheckStrand2.ProcessThread> {
 		}
 		
 		/**
-		 * Counts stop codons in each frame, and the longest ORF per frame.
+		 * Counts stop codons and records first stop positions and longest ORFs per frame.
 		 */
 		void countStopCodons(Read r) {
 			final byte[] bases=r.bases;
@@ -1443,9 +1445,9 @@ public class CheckStrand2 implements Accumulator<CheckStrand2.ProcessThread> {
 		private final int[] fCount=new int[3];
 		/** Counts of stop codons on reverse strand */
 		private final int[] rCount=new int[3];
-		/** Longest initial ORF on forward strand */
+		/** First forward stop-codon scan index per frame; read length if absent */
 		private final int[] fPos=new int[3];
-		/** Longest initial ORF on reverse strand */
+		/** First reverse stop-codon offset per frame; read length if absent */
 		private final int[] rPos=new int[3];
 		
 		/** Longest ORF on forward strand */
@@ -1661,12 +1663,12 @@ public class CheckStrand2 implements Accumulator<CheckStrand2.ProcessThread> {
 	private long fCountSum=0;
 	/** Total count of stop codons found on reverse strand */
 	private long rCountSum=0;
-	/** Sum of longest ORF lengths on forward strand */
+	/** Sum of selected forward ORF metrics */
 	private long fPosSum=0;
-	/** Sum of longest ORF lengths on reverse strand */
+	/** Sum of selected reverse ORF metrics */
 	private long rPosSum=0;
 
-	/** Whether to use first ORF position instead of longest ORF for analysis */
+	/** Whether to use first stop position instead of longest ORF length */
 	private boolean useFirstORF=false;
 	/** Counts of reads with best ORF in each forward reading frame */
 	private final long[] fBestFrame=new long[3];
@@ -1675,11 +1677,11 @@ public class CheckStrand2 implements Accumulator<CheckStrand2.ProcessThread> {
 	/** Counts of each nucleotide (A, C, G, T) across all processed reads */
 	private final long[] ACGTCount=new long[4];
 	
-	/** Count of reads with terminal poly-A sequences */
+	/** Count of reads where trailing poly-A is the longer passing tail */
 	private long polyACount=0;
-	/** Count of reads with terminal poly-T sequences */
+	/** Count of reads where leading poly-T is the longer passing tail */
 	private long polyTCount=0;
-	/** Minimum length of poly-A/T sequence required for detection */
+	/** Exclusive terminal poly-A/T run-length threshold */
 	private int minPolyA=6;
 
 	/** Count of reads where gene caller favored plus strand */
@@ -1729,7 +1731,7 @@ public class CheckStrand2 implements Accumulator<CheckStrand2.ProcessThread> {
 	/** True for unknown sense contigs from RNA-seq data */
 	private boolean rnaContigs=false;
 	
-	/** Whether to normalize results for sequence composition bias */
+	/** Parsed but currently unused normalization flag */
 	private boolean normalize=false;
 	/** Minimum read count required for calculating strandedness statistics */
 	private int minReads=2;//Don't calculate strandedness from fewer reads

@@ -47,7 +47,8 @@ resolveSymlinks(){
 		SCRIPT="$(readlink "$SCRIPT")"
 		[ "${SCRIPT#/}" = "$SCRIPT" ] && SCRIPT="$DIR/$SCRIPT"
 	done
-	DIR="$(cd "$(dirname "$SCRIPT")" && pwd)"
+	# [JGI-211] Resolve the BBTools root above dev after following the launcher symlinks.
+	DIR="$(cd "$(dirname "$SCRIPT")/.." && pwd)"
 	if [ -f "$DIR/bbtools.jar" ]; then
 		CP="$DIR/bbtools.jar"
 	else
